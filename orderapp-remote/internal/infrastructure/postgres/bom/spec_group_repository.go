@@ -854,35 +854,40 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var prelockBomID, prelockOutputProductID int64
-	var prelockOutputType string
+	var prelockOutputType, prelockSpecificationMode string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT version.bom_id,COALESCE(NULLIF(bom.output_type,''),'product'),COALESCE(bom.output_product_id,0)
+		SELECT version.bom_id,
+		       COALESCE(NULLIF(bom.output_type,''),'product'),
+		       COALESCE(NULLIF(bom.specification_mode,''),'single'),
+		       COALESCE(bom.output_product_id,0)
 		FROM %s.production_bom_versions version
 		JOIN %s.production_boms bom ON bom.id=version.bom_id
 		WHERE version.id=$1
-	`, r.schema, r.schema), cmd.VersionID).Scan(&prelockBomID, &prelockOutputType, &prelockOutputProductID); err != nil {
+	`, r.schema, r.schema), cmd.VersionID).Scan(&prelockBomID, &prelockOutputType, &prelockSpecificationMode, &prelockOutputProductID); err != nil {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("production BOM version not found")
 	}
-	if prelockOutputType == "product" {
-		if _, err := productBOMRequiresSpecGroupTx(ctx, tx, r.schema, prelockOutputProductID); err != nil {
-			return bomapp.ProductionBomVersion{}, err
-		}
+	if prelockOutputType != "product" || prelockSpecificationMode != bomapp.ProductionBomSpecificationModeSpecGroup {
+		return bomapp.ProductionBomVersion{}, fmt.Errorf("specification template replacement requires a multi-specification product BOM")
 	}
 	var bomID, outputProductID int64
-	var status, outputType string
+	var status, outputType, specificationMode string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT version.bom_id,version.status,COALESCE(NULLIF(bom.output_type,''),'product'),COALESCE(bom.output_product_id,0)
+		SELECT version.bom_id,
+		       version.status,
+		       COALESCE(NULLIF(bom.output_type,''),'product'),
+		       COALESCE(NULLIF(bom.specification_mode,''),'single'),
+		       COALESCE(bom.output_product_id,0)
 		FROM %s.production_bom_versions version
 		JOIN %s.production_boms bom ON bom.id=version.bom_id
 		WHERE version.id=$1
 		FOR UPDATE OF version,bom
-	`, r.schema, r.schema), cmd.VersionID).Scan(&bomID, &status, &outputType, &outputProductID); err != nil {
+	`, r.schema, r.schema), cmd.VersionID).Scan(&bomID, &status, &outputType, &specificationMode, &outputProductID); err != nil {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("production BOM version not found")
 	}
 	if status != "draft" {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("published production BOM version is read-only")
 	}
-	if bomID != prelockBomID || outputType != prelockOutputType || outputProductID != prelockOutputProductID {
+	if bomID != prelockBomID || outputType != prelockOutputType || specificationMode != prelockSpecificationMode || outputProductID != prelockOutputProductID {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("production BOM output changed concurrently; retry specification template replacement")
 	}
 	if outputType != "product" || outputProductID <= 0 {
@@ -1412,12 +1417,27 @@ func validateProductBOMDraftSpecTemplateProvenanceTx(ctx context.Context, tx pgx
 	return nil
 }
 
-func requireProductBOMSpecTemplateTx(ctx context.Context, tx pgx.Tx, schema string, productID, specTemplateVersionID, mainInputMaterialID int64) error {
-	required, err := productBOMRequiresSpecGroupTx(ctx, tx, schema, productID)
-	if err != nil {
-		return err
+func requireProductBOMSpecTemplateTx(ctx context.Context, tx pgx.Tx, schema string, specTemplateVersionID, mainInputMaterialID int64) error {
+	if specTemplateVersionID <= 0 || mainInputMaterialID <= 0 {
+		return fmt.Errorf("product BOM requires a published specification template version and main_input_material_id")
 	}
-	if required && (specTemplateVersionID <= 0 || mainInputMaterialID <= 0) {
+	var templateStatus string
+	var templateWasPublished bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT status,published_at IS NOT NULL
+		FROM %s.production_bom_spec_template_versions
+		WHERE id=$1
+		FOR SHARE
+	`, schema), specTemplateVersionID).Scan(&templateStatus, &templateWasPublished); err != nil || !templateWasPublished || templateStatus != "published" {
+		return fmt.Errorf("product BOM requires a published specification template version and main_input_material_id")
+	}
+	var mainInputActive bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT deprecated_at IS NULL
+		FROM %s.materials
+		WHERE id=$1
+		FOR SHARE
+	`, schema), mainInputMaterialID).Scan(&mainInputActive); err != nil || !mainInputActive {
 		return fmt.Errorf("product BOM requires a published specification template version and main_input_material_id")
 	}
 	return nil
@@ -1427,20 +1447,12 @@ func validateProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx, schema
 	if productID <= 0 || versionID <= 0 {
 		return nil
 	}
-	required, err := productBOMRequiresSpecGroupTx(ctx, tx, schema, productID)
-	if err != nil {
-		return err
-	}
-	if !required {
-		return nil
-	}
 	return validateGovernedProductBOMVersionSpecGroupTx(ctx, tx, schema, versionID)
 }
 
-// validateGovernedProductBOMVersionSpecGroupTx runs only after the caller has
-// acquired the product authority advisory lock through
-// productBOMRequiresSpecGroupTx. It then locks the version, published template
-// provenance, and main-input material in that stable order.
+// validateGovernedProductBOMVersionSpecGroupTx validates one explicitly
+// multi-specification version. The caller owns the surrounding product/default
+// graph lock before this function locks the version and its provenance rows.
 func validateGovernedProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx, schema string, versionID int64) error {
 	if versionID <= 0 {
 		return nil

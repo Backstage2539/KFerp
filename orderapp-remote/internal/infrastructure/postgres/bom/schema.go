@@ -22,7 +22,61 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureProductionBomSpecGroupTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := backfillProductionBomSpecificationModes(ctx, pool, schema); err != nil {
+		return err
+	}
 	return ensureBagSpecMappingTable(ctx, pool, schema)
+}
+
+func backfillProductionBomSpecificationModes(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+UPDATE %[1]s.production_boms bom
+SET specification_mode=CASE
+	WHEN COALESCE(NULLIF(bom.output_type,''),'product')='product' AND (
+		EXISTS (
+			SELECT 1
+			FROM %[1]s.production_bom_versions version
+			JOIN %[1]s.production_bom_version_variants variant ON variant.version_id=version.id
+			WHERE version.bom_id=bom.id
+		)
+		OR EXISTS (
+			SELECT 1
+			FROM %[1]s.production_bom_versions version
+			WHERE version.bom_id=bom.id
+			  AND (COALESCE(version.source_spec_template_version_id,0)>0 OR COALESCE(version.main_input_material_id,0)>0)
+		)
+	) THEN 'spec_group'
+	ELSE 'single'
+END
+WHERE specification_mode NOT IN ('single','spec_group')
+   OR specification_mode='single' AND COALESCE(NULLIF(bom.output_type,''),'product')='product' AND (
+		EXISTS (
+			SELECT 1
+			FROM %[1]s.production_bom_versions version
+			JOIN %[1]s.production_bom_version_variants variant ON variant.version_id=version.id
+			WHERE version.bom_id=bom.id
+		)
+		OR EXISTS (
+			SELECT 1
+			FROM %[1]s.production_bom_versions version
+			WHERE version.bom_id=bom.id
+			  AND (COALESCE(version.source_spec_template_version_id,0)>0 OR COALESCE(version.main_input_material_id,0)>0)
+		)
+	);
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_constraint
+		WHERE conrelid='%[1]s.production_boms'::regclass
+		  AND conname='production_boms_specification_mode_ck'
+	) THEN
+		ALTER TABLE %[1]s.production_boms
+		ADD CONSTRAINT production_boms_specification_mode_ck
+		CHECK(specification_mode IN ('single','spec_group'));
+	END IF;
+END $$;
+`, schema))
+	return err
 }
 
 func ensureProductionBomSpecGroupTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -549,6 +603,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 	code TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
 	output_type TEXT NOT NULL DEFAULT 'product',
+	specification_mode TEXT NOT NULL DEFAULT 'single',
 	output_product_id BIGINT NOT NULL DEFAULT 0,
 	output_material_id BIGINT NOT NULL DEFAULT 0,
 	group_id BIGINT NOT NULL DEFAULT 0,
@@ -566,6 +621,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 );
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS group_category_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_type TEXT NOT NULL DEFAULT 'product';
+ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS specification_mode TEXT NOT NULL DEFAULT 'single';
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_product_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_material_id BIGINT NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS %[1]s.product_production_bom_bindings (
@@ -583,6 +639,9 @@ WHERE pb.id=b.bom_id AND pb.output_product_id=0 AND b.product_id > 0;
 UPDATE %[1]s.production_boms
 SET output_type=CASE WHEN output_material_id>0 AND output_product_id=0 THEN 'material' ELSE 'product' END
 WHERE COALESCE(NULLIF(output_type,''),'')='' OR output_type NOT IN ('product','material');
+UPDATE %[1]s.production_boms
+SET specification_mode='single'
+WHERE specification_mode NOT IN ('single','spec_group') OR output_type='material';
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_code_uq
 	ON %[1]s.production_boms(code);
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_legacy_product_uq

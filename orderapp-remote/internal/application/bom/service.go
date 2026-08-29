@@ -121,6 +121,8 @@ type Option struct {
 	DripBagGrams          float64 `json:"drip_bag_grams,omitempty"`
 	DripBoxBagCount       int     `json:"drip_box_bag_count,omitempty"`
 	OrderUsageCount       int     `json:"order_usage_count"`
+	SpecIdentityMode      string  `json:"spec_identity_mode,omitempty"`
+	BomSpecAuthoritative  bool    `json:"bom_spec_authoritative"`
 }
 
 type BagSpecMapping struct {
@@ -162,6 +164,7 @@ type ProductionBomSummary struct {
 	Code                  string  `json:"code"`
 	Name                  string  `json:"name"`
 	OutputType            string  `json:"output_type"`
+	SpecificationMode     string  `json:"specification_mode"`
 	OutputID              int64   `json:"output_id"`
 	OutputName            string  `json:"output_name"`
 	OutputCode            string  `json:"output_code"`
@@ -391,6 +394,7 @@ type DeleteProductionBomGroupCategoryCommand struct {
 type CreateProductionBomCommand struct {
 	Name                  string   `json:"name"`
 	OutputType            string   `json:"output_type"`
+	SpecificationMode     string   `json:"specification_mode"`
 	OutputID              int64    `json:"output_id"`
 	OutputProductID       int64    `json:"output_product_id"`
 	OutputMaterialID      int64    `json:"output_material_id"`
@@ -408,6 +412,7 @@ type UpdateProductionBomCommand struct {
 	ID                    int64  `json:"id"`
 	Name                  string `json:"name"`
 	OutputType            string `json:"output_type"`
+	SpecificationMode     string `json:"specification_mode"`
 	OutputID              int64  `json:"output_id"`
 	OutputProductID       int64  `json:"output_product_id"`
 	OutputMaterialID      int64  `json:"output_material_id"`
@@ -426,6 +431,7 @@ type CopyProductionBomCommand struct {
 	ID                    int64  `json:"id"`
 	Name                  string `json:"name"`
 	OutputType            string `json:"output_type"`
+	SpecificationMode     string `json:"specification_mode"`
 	OutputID              int64  `json:"output_id"`
 	OutputProductID       int64  `json:"output_product_id"`
 	OutputMaterialID      int64  `json:"output_material_id"`
@@ -504,21 +510,41 @@ type CreateProductionBomReplacementDraftCommand struct {
 	Workspace       ProductionBomDraftWorkspaceCommand `json:"workspace"`
 }
 
-// NormalizeProductionBomDraftWorkspaceRecipePayload makes the workspace
-// recipe a discriminated union. Empty slices are meaningful: an empty items
-// slice clears a material-output draft recipe, while an empty variants slice is
-// validated as an invalid product-output recipe. The opposite collection must
-// be nil so legacy clients that sent both fields cannot suppress the active
-// recipe branch accidentally.
-func NormalizeProductionBomDraftWorkspaceRecipePayload(outputType string, items []ProductionBomDraftItem, variants []ProductionBomDraftVariant) ([]ProductionBomDraftItem, []ProductionBomDraftVariant) {
-	switch strings.ToLower(strings.TrimSpace(outputType)) {
-	case "material":
-		return items, nil
-	case "product":
-		return nil, variants
-	default:
-		return items, variants
+const (
+	ProductionBomSpecificationModeSingle    = "single"
+	ProductionBomSpecificationModeSpecGroup = "spec_group"
+)
+
+// NormalizeProductionBomSpecificationMode keeps old clients compatible while
+// making product output shape explicit. Template provenance or variants imply
+// a specification group; every other output is a single recipe.
+func NormalizeProductionBomSpecificationMode(outputType, mode string, specTemplateVersionID int64, variants []ProductionBomDraftVariant) (string, error) {
+	outputType = strings.ToLower(strings.TrimSpace(outputType))
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		if outputType == "product" && (specTemplateVersionID > 0 || variants != nil) {
+			mode = ProductionBomSpecificationModeSpecGroup
+		} else {
+			mode = ProductionBomSpecificationModeSingle
+		}
 	}
+	if mode != ProductionBomSpecificationModeSingle && mode != ProductionBomSpecificationModeSpecGroup {
+		return "", fmt.Errorf("specification_mode must be single or spec_group")
+	}
+	if outputType == "material" && mode != ProductionBomSpecificationModeSingle {
+		return "", fmt.Errorf("material output only supports single specification_mode")
+	}
+	return mode, nil
+}
+
+// NormalizeProductionBomDraftWorkspaceRecipePayload makes the workspace
+// recipe a discriminated union selected by specification_mode rather than by
+// product/material output type.
+func NormalizeProductionBomDraftWorkspaceRecipePayload(outputType, specificationMode string, items []ProductionBomDraftItem, variants []ProductionBomDraftVariant) ([]ProductionBomDraftItem, []ProductionBomDraftVariant) {
+	if strings.ToLower(strings.TrimSpace(outputType)) == "material" || strings.ToLower(strings.TrimSpace(specificationMode)) != ProductionBomSpecificationModeSpecGroup {
+		return items, nil
+	}
+	return nil, variants
 }
 
 type CreateProductionBomSpecTemplateCommand struct {
@@ -1228,13 +1254,20 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	if err := normalizeProductionBomOutputBinding(&cmd.OutputType, &cmd.OutputID, &cmd.OutputProductID, &cmd.OutputMaterialID, true); err != nil {
 		return ProductionBomSummary{}, err
 	}
-	if cmd.SpecTemplateVersionID > 0 {
-		if cmd.OutputType != "product" {
-			return ProductionBomSummary{}, fmt.Errorf("specification template requires product output")
+	mode, err := NormalizeProductionBomSpecificationMode(cmd.OutputType, cmd.SpecificationMode, cmd.SpecTemplateVersionID, nil)
+	if err != nil {
+		return ProductionBomSummary{}, err
+	}
+	cmd.SpecificationMode = mode
+	if mode == ProductionBomSpecificationModeSpecGroup {
+		if cmd.SpecTemplateVersionID <= 0 {
+			return ProductionBomSummary{}, fmt.Errorf("spec_group requires spec_template_version_id")
 		}
 		if cmd.MainInputMaterialID <= 0 {
 			return ProductionBomSummary{}, fmt.Errorf("main_input_material_id required")
 		}
+	} else if cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 {
+		return ProductionBomSummary{}, fmt.Errorf("single specification_mode cannot use specification template")
 	}
 	if cmd.OutputQty <= 0 {
 		cmd.OutputQty = 1
@@ -1308,6 +1341,13 @@ func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionB
 		cmd.UpdateOutputBinding = true
 		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputType, cmd.OutputID, cmd.OutputUnit)
 	}
+	if cmd.SpecificationMode != "" {
+		mode, err := NormalizeProductionBomSpecificationMode(cmd.OutputType, cmd.SpecificationMode, cmd.SpecTemplateVersionID, nil)
+		if err != nil {
+			return ProductionBomSummary{}, err
+		}
+		cmd.SpecificationMode = mode
+	}
 	row, err := s.repo.UpdateProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err
@@ -1328,12 +1368,17 @@ func (s *Service) CopyProductionBom(ctx context.Context, cmd CopyProductionBomCo
 			return ProductionBomSummary{}, err
 		}
 	}
-	if cmd.SpecTemplateVersionID > 0 {
-		if cmd.OutputType == "material" {
-			return ProductionBomSummary{}, fmt.Errorf("specification template requires product output")
+	if cmd.SpecificationMode != "" || cmd.SpecTemplateVersionID > 0 {
+		mode, err := NormalizeProductionBomSpecificationMode(cmd.OutputType, cmd.SpecificationMode, cmd.SpecTemplateVersionID, nil)
+		if err != nil {
+			return ProductionBomSummary{}, err
 		}
-		if cmd.MainInputMaterialID <= 0 {
+		cmd.SpecificationMode = mode
+		if mode == ProductionBomSpecificationModeSpecGroup && cmd.SpecTemplateVersionID > 0 && cmd.MainInputMaterialID <= 0 {
 			return ProductionBomSummary{}, fmt.Errorf("main_input_material_id required")
+		}
+		if mode == ProductionBomSpecificationModeSingle && (cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0) {
+			return ProductionBomSummary{}, fmt.Errorf("single specification_mode cannot use specification template")
 		}
 	}
 	row, err := s.repo.CopyProductionBom(ctx, cmd)
@@ -1519,9 +1564,6 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 				if err != nil {
 					return ProductionBomVersion{}, fmt.Errorf("variant %s: %w", variant.SpecKey, err)
 				}
-				if item.ComponentType == "product" && item.ComponentBomSpecID <= 0 {
-					return ProductionBomVersion{}, fmt.Errorf("variant %s: product component requires component_bom_spec_id", variant.SpecKey)
-				}
 				item.BomVariantID = variant.BomVariantID
 				if variant.MaterialLossRate > 0 {
 					item.MaterialLossRate = variant.MaterialLossRate
@@ -1591,10 +1633,31 @@ func (s *Service) normalizeProductionBomDraftWorkspace(ctx context.Context, cmd 
 	if err := normalizeProductionBomOutputBinding(&cmd.Bom.OutputType, &cmd.Bom.OutputID, &cmd.Bom.OutputProductID, &cmd.Bom.OutputMaterialID, true); err != nil {
 		return cmd, err
 	}
+	requestedMode := strings.ToLower(strings.TrimSpace(cmd.Bom.SpecificationMode))
+	mode, err := NormalizeProductionBomSpecificationMode(cmd.Bom.OutputType, requestedMode, cmd.SpecTemplateID, cmd.Version.Variants)
+	if err != nil {
+		return cmd, err
+	}
+	if requestedMode != "" {
+		if mode == ProductionBomSpecificationModeSingle && cmd.Version.Variants != nil {
+			return cmd, fmt.Errorf("single specification_mode cannot include specification variants")
+		}
+		if mode == ProductionBomSpecificationModeSpecGroup && cmd.Version.Items != nil {
+			return cmd, fmt.Errorf("spec_group specification_mode cannot include flat recipe items")
+		}
+	}
+	cmd.Bom.SpecificationMode = mode
+	if mode == ProductionBomSpecificationModeSpecGroup {
+		if cmd.SpecTemplateID <= 0 || cmd.MainInputMaterialID <= 0 {
+			return cmd, fmt.Errorf("spec_group requires a published specification template version and main_input_material_id")
+		}
+	} else if cmd.SpecTemplateID > 0 || cmd.MainInputMaterialID > 0 {
+		return cmd, fmt.Errorf("single specification_mode cannot use specification template")
+	}
 	cmd.Bom.UpdateOutputBinding = true
 	cmd.Bom.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.Bom.OutputType, cmd.Bom.OutputID, cmd.Bom.OutputUnit)
 	cmd.Version.OutputUnit = cmd.Bom.OutputUnit
-	cmd.Version.Items, cmd.Version.Variants = NormalizeProductionBomDraftWorkspaceRecipePayload(cmd.Bom.OutputType, cmd.Version.Items, cmd.Version.Variants)
+	cmd.Version.Items, cmd.Version.Variants = NormalizeProductionBomDraftWorkspaceRecipePayload(cmd.Bom.OutputType, cmd.Bom.SpecificationMode, cmd.Version.Items, cmd.Version.Variants)
 	cmd.Version.Actor = cmd.Bom.Actor
 	validationCommand := cmd.Version
 	if validationCommand.VersionID <= 0 {
@@ -1799,10 +1862,24 @@ func ValidateProductionBomDraftItemInventoryUnits(items []ProductionBomDraftItem
 		materialUnits[row.ID] = strings.TrimSpace(row.InventoryUnit)
 	}
 	productUnits := make(map[int64]string, len(products))
+	productIdentityModes := make(map[int64]string, len(products))
 	for _, row := range products {
 		productUnits[row.ID] = strings.TrimSpace(row.InventoryUnit)
+		productIdentityModes[row.ID] = strings.TrimSpace(row.SpecIdentityMode)
 	}
 	for i, item := range items {
+		if item.ComponentType == "product" || item.ComponentType == "finished_product" {
+			switch productIdentityModes[item.ComponentProductID] {
+			case "product":
+				if item.ComponentBomSpecID > 0 {
+					return fmt.Errorf("item %d direct product component must not use component_bom_spec_id", i+1)
+				}
+			case "bom_spec":
+				if item.ComponentBomSpecID <= 0 {
+					return fmt.Errorf("item %d BOM specification product component requires component_bom_spec_id", i+1)
+				}
+			}
+		}
 		if (item.ComponentType == "product" || item.ComponentType == "finished_product") && item.ComponentBomSpecID > 0 {
 			// An explicit BOM specification owns its inventory unit. The service
 			// resolves it separately instead of comparing against the parent product.
@@ -1827,16 +1904,17 @@ func (s *Service) validateProductionBomDraftItemInventoryUnits(ctx context.Conte
 	needProducts := false
 	specIDs := make([]int64, 0)
 	for _, item := range items {
-		if (item.ComponentType == "product" || item.ComponentType == "finished_product") && item.ComponentBomSpecID > 0 {
-			specIDs = append(specIDs, item.ComponentBomSpecID)
-			continue
+		if item.ComponentType == "product" || item.ComponentType == "finished_product" {
+			needProducts = true
+			if item.ComponentBomSpecID > 0 {
+				specIDs = append(specIDs, item.ComponentBomSpecID)
+				continue
+			}
 		}
 		if !ProductionBomConsumeUnitRequiresInventoryMatch(item.ConsumeUnit) {
 			continue
 		}
-		if item.ComponentType == "product" || item.ComponentType == "finished_product" {
-			needProducts = true
-		} else {
+		if item.ComponentType != "product" && item.ComponentType != "finished_product" {
 			needMaterials = true
 		}
 	}

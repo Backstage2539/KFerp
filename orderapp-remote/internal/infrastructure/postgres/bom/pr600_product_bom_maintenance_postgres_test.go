@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestProductBOMCreationRequiresSpecTemplateForNewAndCutoverProductsPostgres(t *testing.T) {
+func TestProductBOMCreationSupportsExplicitSingleAndSpecGroupModesPostgres(t *testing.T) {
 	ctx, pool, schema := newPR600BomMaintenanceTestDB(t)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.products(id,name,active) VALUES
@@ -34,27 +34,28 @@ func TestProductBOMCreationRequiresSpecTemplateForNewAndCutoverProductsPostgres(
 		t.Fatal(err)
 	}
 	repo := NewRepository(pool, schema)
-	createWithoutTemplate := func(productID int64) error {
+	createSingle := func(productID int64) error {
 		_, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 			Name: "无规格组商品 BOM", OutputType: "product", OutputID: productID,
-			OutputProductID: productID, OutputQty: 1, OutputUnit: "袋", Actor: "pr600-authority-test",
+			OutputProductID: productID, OutputQty: 1, OutputUnit: "袋", SpecificationMode: "single", Actor: "pr619-authority-test",
 		})
 		return err
 	}
 
-	for _, productID := range []int64{701, 703} {
-		err := createWithoutTemplate(productID)
-		if err == nil || !strings.Contains(err.Error(), "published specification template") {
-			t.Fatalf("product %d product-BOM without specification template error=%v", productID, err)
+	for _, productID := range []int64{701, 702, 703, 705, 706} {
+		if err := createSingle(productID); err != nil {
+			t.Fatalf("product %d explicit single BOM: %v", productID, err)
 		}
 	}
-	for _, productID := range []int64{702, 705, 706} {
-		if err := createWithoutTemplate(productID); err != nil {
-			t.Fatalf("explicit legacy catalog product %d must retain single-recipe compatibility: %v", productID, err)
-		}
-	}
-	if err := createWithoutTemplate(704); err != nil {
+	if err := createSingle(704); err != nil {
 		t.Fatalf("product without migration row must retain legacy compatibility: %v", err)
+	}
+	_, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
+		Name: "缺模板多规格商品 BOM", OutputType: "product", OutputID: 701,
+		OutputProductID: 701, OutputQty: 1, OutputUnit: "袋", SpecificationMode: "spec_group", Actor: "pr619-authority-test",
+	})
+	if err == nil || !strings.Contains(err.Error(), "published specification template") {
+		t.Fatalf("spec_group product BOM without template error=%v", err)
 	}
 	var sourceMaterialID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
@@ -72,13 +73,13 @@ func TestProductBOMCreationRequiresSpecTemplateForNewAndCutoverProductsPostgres(
 	}
 	if _, err := repo.CopyProductionBom(ctx, bomapp.CopyProductionBomCommand{
 		ID: sourceBOM.ID, Name: "错误转换商品 BOM", OutputType: "product", OutputID: 701, OutputProductID: 701,
-		Actor: "pr600-authority-test",
+		SpecificationMode: "spec_group", Actor: "pr619-authority-test",
 	}); err == nil || !strings.Contains(err.Error(), "published specification template") {
 		t.Fatalf("copy material BOM to new product without template error=%v", err)
 	}
 	if _, err := repo.UpdateProductionBom(ctx, bomapp.UpdateProductionBomCommand{
 		ID: sourceBOM.ID, Name: "错误改成商品 BOM", OutputType: "product", OutputID: 701, OutputProductID: 701,
-		UpdateOutputBinding: true, Status: "active", Actor: "pr600-authority-test",
+		SpecificationMode: "spec_group", UpdateOutputBinding: true, Status: "active", Actor: "pr619-authority-test",
 	}); err == nil || !strings.Contains(err.Error(), "specification") {
 		t.Fatalf("edit material BOM to new product without specification group error=%v", err)
 	}
@@ -86,7 +87,7 @@ func TestProductBOMCreationRequiresSpecTemplateForNewAndCutoverProductsPostgres(
 	var rejectedCount int
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s.production_boms
-		WHERE output_type='product' AND output_product_id IN (701,703)
+		WHERE output_type='product' AND output_product_id=701 AND specification_mode='spec_group'
 	`, schema)).Scan(&rejectedCount); err != nil {
 		t.Fatal(err)
 	}

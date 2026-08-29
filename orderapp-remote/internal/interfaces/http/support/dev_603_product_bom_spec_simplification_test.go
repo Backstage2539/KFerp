@@ -49,7 +49,7 @@ func TestDev603ProductBomSpecSimplificationContracts(t *testing.T) {
 	}
 
 	repoSrc := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go")))
-	if !strings.Contains(repoSrc, "identityChangedToMaterial") {
-		t.Fatal("UpdateProductionBom must track identityChangedToMaterial to clear draft spec groups")
+	if !strings.Contains(repoSrc, "clearDraftSpecGroup") {
+		t.Fatal("UpdateProductionBom must track structure changes to clear draft spec groups")
 	}
 }

@@ -31,7 +31,6 @@
           <div v-if="error" class="error">{{ error }}</div>
           <div v-if="ok" class="ok">{{ ok }}</div>
         </div>
-        <!-- compatibility: bomForm.mode !== 'edit' && (!Number(bomForm.spec_template_version_id) || !Number(bomForm.main_input_material_id)) -->
         <form class="inline-form bom-record-form" @submit.prevent="saveProductionBomRecord">
           <label>
             <span>BOM名称</span>
@@ -56,17 +55,25 @@
               :empty-text="bomForm.output_type === 'material' ? '没有可用物料档案' : '没有可用商品档案'"
               @update:model-value="markBomWorkspaceDirty" />
           </label>
-          <label v-if="bomForm.output_type === 'material'">
+          <label v-if="bomForm.output_type === 'product'">
+            <span>产出结构</span>
+            <select v-model="bomForm.specification_mode" :disabled="!canEditBomFormOutputBasis" @change="syncBomSpecificationMode">
+              <option value="single">单一产出</option>
+              <option value="spec_group">多规格产出</option>
+            </select>
+            <small>{{ bomForm.specification_mode === 'single' ? '直接生成商品，不创建隐藏规格。' : '按已发布规格模板生成 BOM 专属规格组。' }}</small>
+          </label>
+          <label v-if="bomForm.output_type === 'material' || bomForm.specification_mode === 'single'">
             <span>产出数量</span>
             <input v-model.number="bomForm.output_qty" type="number" min="0.001" step="0.001" placeholder="例如 1" :disabled="!canEditBomFormOutputBasis" @input="markBomWorkspaceDirty" />
           </label>
-          <label v-if="bomForm.output_type === 'material'">
+          <label v-if="bomForm.output_type === 'material' || bomForm.specification_mode === 'single'">
             <span>产出单位</span>
             <input :value="outputUnitDisplay" disabled />
             <small>{{ outputUnitSourceHint }}</small>
             <small v-if="outputUnitMismatchWarning" class="warn">{{ outputUnitMismatchWarning }}</small>
           </label>
-          <label v-if="bomForm.output_type === 'product' && (bomForm.mode !== 'edit' || !bomVariants.length)" class="bom-spec-template-field">
+          <label v-if="bomForm.output_type === 'product' && bomForm.specification_mode === 'spec_group' && (bomForm.mode !== 'edit' || !bomVariants.length)" class="bom-spec-template-field">
             <span>BOM 规格模板</span>
             <select v-model.number="bomForm.spec_template_version_id" @change="markBomWorkspaceDirty">
               <option :value="0">选择已发布模板版本</option>
@@ -74,7 +81,7 @@
             </select>
             <small>创建时复制为 BOM 专属规格组；后续模板修改不影响本 BOM。</small>
           </label>
-          <label v-if="bomForm.output_type === 'product' && (bomForm.mode !== 'edit' || !bomVariants.length)">
+          <label v-if="bomForm.output_type === 'product' && bomForm.specification_mode === 'spec_group' && (bomForm.mode !== 'edit' || !bomVariants.length)">
             <span>规格主体物料</span>
             <SearchableSelect
               v-model="bomForm.main_input_material_id"
@@ -95,7 +102,7 @@
           </label>
           <div class="bom-record-form-action">
             <span class="bom-record-form-action-spacer" aria-hidden="true">操作</span>
-            <button v-if="['create', 'copy'].includes(bomForm.mode)" class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_id || 0) || (bomForm.output_type === 'product' && !bomVariants.length && (!Number(bomForm.spec_template_version_id || 0) || !Number(bomForm.main_input_material_id || 0)))">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM 草稿' }}</button>
+            <button v-if="['create', 'copy'].includes(bomForm.mode)" class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_id || 0) || (bomForm.output_type === 'product' && bomForm.specification_mode === 'spec_group' && !bomVariants.length && (!Number(bomForm.spec_template_version_id || 0) || !Number(bomForm.main_input_material_id || 0)))">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM 草稿' }}</button>
           </div>
         </form>
         <div id="bom-settings-detail-target" class="bom-settings-detail-target" aria-label="BOM 明细、BOM版本、配方明细"></div>
@@ -177,12 +184,12 @@
                 <div class="spec-variant-components">
                   <strong>包材与其他组件</strong>
                   <p :class="['recipe-mode-hint', { warn: templateVariantRecipeMode(variant) === 'mixed_legacy' }]">
-                    本规格配方模式：{{ templateVariantRecipeModeLabel(variant) }}。商品规格组件只能使用固定用量；物料固定用量必须使用该物料的库存单位。
+                    本规格配方模式：{{ templateVariantRecipeModeLabel(variant) }}。商品组件只能使用固定用量；物料固定用量必须使用该物料的库存单位。
                   </p>
                   <div v-for="(item, itemIndex) in variant.items" :key="item.local_key || itemIndex" class="spec-component-row">
                     <select v-model="item.component_type" :disabled="selectedSpecTemplateVersion.status !== 'draft'" @change="syncTemplateVariantItemComponentType(variantIndex, itemIndex)">
                       <option value="material">物料</option>
-                      <option value="product" :disabled="templateVariantProductComponentDisabled(variant, item)">商品规格组件</option>
+                      <option value="product" :disabled="templateVariantProductComponentDisabled(variant, item)">商品组件</option>
                     </select>
                     <SearchableSelect
                       v-if="item.component_type === 'product'"
@@ -206,7 +213,7 @@
                       :disabled="selectedSpecTemplateVersion.status !== 'draft'"
                       @update:model-value="syncTemplateVariantItemMaterial(variantIndex, itemIndex)" />
                     <select
-                      v-if="item.component_type === 'product'"
+                      v-if="item.component_type === 'product' && templateVariantItemProductIdentityMode(item) === 'bom_spec'"
                       v-model.number="item.component_bom_spec_id"
                       :disabled="selectedSpecTemplateVersion.status !== 'draft' || !item.component_product_id || item.component_bom_spec_loading"
                       @change="syncTemplateVariantItemBomSpec(variantIndex, itemIndex)">
@@ -465,7 +472,7 @@
               </tbody>
             </table>
           </div>
-          <div v-if="currentOutputIdentity.type === 'product' && (bomVariants.length || canEditCurrentBomItems)" class="bom-spec-group-panel">
+          <div v-if="currentOutputIdentity.type === 'product' && bomForm.specification_mode === 'spec_group' && (bomVariants.length || canEditCurrentBomItems)" class="bom-spec-group-panel">
             <div class="section-title-row">
               <div>
                 <h3>规格组</h3>
@@ -583,7 +590,7 @@
                 <span>组件来源</span>
                 <select v-model="itemForm.component_type" :disabled="!detail || !canEditCurrentBomItems" @change="syncComponentTypeDefaults">
                   <option value="material">物料</option>
-                  <option value="product" :disabled="recipeConsumeMode === 'ratio'">商品规格组件</option>
+                  <option value="product" :disabled="recipeConsumeMode === 'ratio'">商品组件</option>
                 </select>
               </label>
               <label>
@@ -609,7 +616,7 @@
                   empty-text="没有匹配物料"
                   :disabled="!detail || !canEditCurrentBomItems" />
               </label>
-              <label v-if="itemForm.component_type === 'product'">
+              <label v-if="itemForm.component_type === 'product' && selectedComponentProductIdentityMode === 'bom_spec'">
                 <span>商品 BOM 规格</span>
                 <select v-model.number="itemForm.component_bom_spec_id" :disabled="!detail || !canEditCurrentBomItems || !itemForm.component_product_id">
                   <option :value="0">请选择已发布规格</option>
@@ -618,6 +625,11 @@
                   </option>
                 </select>
                 <small>商品组件必须引用该商品默认已发布 BOM 中的明确规格。</small>
+              </label>
+              <label v-else-if="itemForm.component_type === 'product'">
+                <span>商品身份</span>
+                <input value="直接商品" disabled />
+                <small>该组件使用商品 ID 与商品库存单位，不选择 BOM 规格。</small>
               </label>
               <label>
                 <span>消耗单位</span>
@@ -783,7 +795,7 @@ const itemForm = reactive({
   qty_per_unit: '',
   ratio_pct: '',
 })
-const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_type: 'product', output_id: 0, output_product_id: 0, output_material_id: 0, output_qty: 1, output_unit: 'unit', spec_template_version_id: 0, main_input_material_id: 0, status: 'active' })
+const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_type: 'product', specification_mode: 'single', output_id: 0, output_product_id: 0, output_material_id: 0, output_qty: 1, output_unit: 'unit', spec_template_version_id: 0, main_input_material_id: 0, status: 'active' })
 const versionNote = ref('')
 const bomWorkspaceDirty = ref(false)
 const bomWorkspaceSaveFailed = ref(false)
@@ -896,6 +908,7 @@ const currentOutputBasisLabel = computed(() => `${qty(selectedProductionBomVersi
 const currentOutputProduct = computed(() => currentOutputIdentity.value.type === 'product' ? productByID(currentOutputIdentity.value.id || currentOutputProductID.value) : null)
 const outputUnitSourceHint = computed(() => {
   if (bomForm.output_type === 'material') return '来源：物料档案库存单位'
+  if (bomForm.specification_mode === 'single') return '来源：商品档案库存单位'
   return '来源：当前 BOM 规格组中各规格的库存单位'
 })
 const outputUnitMismatchWarning = computed(() => {
@@ -947,9 +960,10 @@ const materialComponentOptions = computed(() => materials.value.filter((material
 const selectedComponent = computed(() => itemForm.component_type === 'product'
   ? productByID(itemForm.component_product_id)
   : materials.value.find((material) => Number(material.id || 0) === Number(itemForm.material_id || 0)))
+const selectedComponentProductIdentityMode = computed(() => productSpecIdentityMode(selectedComponent.value))
 const selectedComponentBomSpec = computed(() => componentBomSpecOptions.value.find((spec) => Number(spec.bom_spec_id || 0) === Number(itemForm.component_bom_spec_id || 0)) || null)
 const componentStockUnitCode = computed(() => String(
-  (itemForm.component_type === 'product' ? selectedComponentBomSpec.value?.inventory_unit : '')
+  (itemForm.component_type === 'product' && selectedComponentProductIdentityMode.value === 'bom_spec' ? selectedComponentBomSpec.value?.inventory_unit : '')
   || selectedComponent.value?.inventory_unit
   || selectedComponent.value?.unit
   || '',
@@ -1209,7 +1223,20 @@ function normalizeBomProduct(product) {
     customer_id: Number(product.customer_id || 0),
     inventory_unit: String(product.inventory_unit || product.inventoryUnit || '').trim(),
     inventory_unit_explicit: Boolean(product.inventory_unit_explicit ?? product.inventoryUnitExplicit ?? false),
+    spec_identity_mode: String(product.spec_identity_mode || (product.bom_spec_authoritative ? 'bom_spec' : 'legacy_sku')).trim(),
+    bom_spec_authoritative: Boolean(product.bom_spec_authoritative),
   }
+}
+
+function productSpecIdentityMode(product = {}) {
+  const mode = String(product?.spec_identity_mode || '').trim()
+  if (mode === 'product' || mode === 'bom_spec' || mode === 'legacy_sku') return mode
+  return product?.bom_spec_authoritative ? 'bom_spec' : 'legacy_sku'
+}
+
+function normalizeSpecificationMode(mode, outputType = 'product') {
+  if (String(outputType || '').trim() === 'material') return 'single'
+  return String(mode || '').trim() === 'spec_group' ? 'spec_group' : 'single'
 }
 
 function normalizeBomMaterial(material = {}) {
@@ -1237,6 +1264,7 @@ function normalizeProductionBomRecord(row = {}) {
     output_product_name: row.output_product_name || '',
     output_product_code: row.output_product_code || '',
     output_type: output.type,
+    specification_mode: row.specification_mode === 'spec_group' ? 'spec_group' : 'single',
     output_id: output.id,
     output_name: output.name,
     output_code: output.code,
@@ -1343,6 +1371,12 @@ async function loadComponentProductSpecs(productID, { preserve = false } = {}) {
   if (!id) {
     componentBomSpecOptions.value = []
     itemForm.component_bom_spec_id = 0
+    return
+  }
+  if (productSpecIdentityMode(productByID(id)) !== 'bom_spec') {
+    componentBomSpecOptions.value = []
+    itemForm.component_bom_spec_id = 0
+    itemForm.consume_unit = String(productByID(id)?.inventory_unit || productByID(id)?.unit || '').trim()
     return
   }
   try {
@@ -1500,7 +1534,7 @@ function productionBomDraftItemFromItem(item = {}, index = 0) {
     material_id: Number(item.material_id || 0),
     component_type: componentType,
     component_product_id: Number(item.component_product_id || 0),
-    component_bom_spec_id: Number(item.component_bom_spec_id || 0),
+    component_bom_spec_id: componentType === 'product' && productSpecIdentityMode(product) === 'bom_spec' ? Number(item.component_bom_spec_id || 0) : 0,
     component_spec_g: Number(item.component_spec_g || 0),
     consume_unit: consumeUnit,
     qty_per_unit: Number(item.qty_per_unit || 0),
@@ -1670,7 +1704,7 @@ function productionBomDraftItemFromForm() {
     material_id: Number(itemForm.material_id || 0),
     component_type: componentType,
     component_product_id: Number(itemForm.component_product_id || 0),
-    component_bom_spec_id: Number(itemForm.component_bom_spec_id || 0),
+    component_bom_spec_id: componentType === 'product' && productSpecIdentityMode(selectedProduct) === 'bom_spec' ? Number(itemForm.component_bom_spec_id || 0) : 0,
     component_spec_g: Number(itemForm.component_spec_g || 0),
     consume_unit: consumeUnit,
     qty_per_unit: Number(itemForm.qty_per_unit || 0),
@@ -1805,6 +1839,7 @@ function resetBomForm() {
   bomForm.mode = 'create'
   bomForm.name = ''
   bomForm.output_type = 'product'
+  bomForm.specification_mode = 'single'
   bomForm.output_id = 0
   bomForm.output_product_id = 0
   bomForm.output_material_id = 0
@@ -1829,6 +1864,7 @@ async function openEditProductionBomRecord(bom) {
   bomForm.id = record.id
   bomForm.name = record.name || ''
   bomForm.output_type = record.output_type || 'product'
+  bomForm.specification_mode = record.output_type === 'material' ? 'single' : (record.specification_mode === 'spec_group' ? 'spec_group' : 'single')
   bomForm.output_id = Number(record.output_id || record.output_product_id || record.output_material_id || 0)
   bomForm.output_product_id = Number(record.output_product_id || 0)
   bomForm.output_material_id = Number(record.output_material_id || 0)
@@ -1848,6 +1884,7 @@ function copyProductionBomRecord(bom) {
   bomForm.name = `${bom?.name || '生产 BOM'} 副本`
   const output = productionBomOutputIdentity(bom || {})
   bomForm.output_type = output.type
+  bomForm.specification_mode = output.type === 'material' ? 'single' : (bom?.specification_mode === 'spec_group' ? 'spec_group' : 'single')
   bomForm.output_id = output.id
   bomForm.output_product_id = Number(bom?.output_product_id || 0)
   bomForm.output_material_id = Number(bom?.output_material_id || 0)
@@ -1866,6 +1903,7 @@ function syncBomOutputType() {
   bomForm.output_product_id = 0
   bomForm.output_material_id = 0
   bomForm.output_unit = bomForm.output_type === 'material' ? 'kg' : defaultDictionaryConsumeUnit()
+  bomForm.specification_mode = 'single'
   bomForm.spec_template_version_id = 0
   bomForm.main_input_material_id = 0
   if (outputChangedToMaterial && bomVariants.value.length > 0) {
@@ -1879,6 +1917,30 @@ function syncBomOutputType() {
     bomWorkspaceDirty.value = true
     error.value = '改为物料产出后，规格组和规格配方已清空；保存 BOM 草稿后生效'
   }
+}
+
+function syncBomSpecificationMode() {
+  if (bomForm.output_type !== 'product') {
+    bomForm.specification_mode = 'single'
+    return
+  }
+  const targetMode = bomForm.specification_mode === 'spec_group' ? 'spec_group' : 'single'
+  const sourceMode = selectedProductionBomRecord.value?.specification_mode === 'spec_group' ? 'spec_group' : 'single'
+  const hasIncompatibleRecipe = targetMode === 'single' ? bomVariants.value.length > 0 : detailItems.value.length > 0
+  if (bomForm.mode === 'edit' && sourceMode !== targetMode && hasIncompatibleRecipe && !window.confirm('切换产出结构会清除当前草稿中不兼容的规格或配方明细，是否继续？')) {
+    bomForm.specification_mode = sourceMode
+    return
+  }
+  if (targetMode === 'single') {
+    bomForm.spec_template_version_id = 0
+    bomForm.main_input_material_id = 0
+    if (productionBomDetail.value) productionBomDetail.value.variants = []
+    selectedBomVariantID.value = 0
+  } else if (productionBomDetail.value) {
+    productionBomDetail.value.items = []
+    if (detail.value) detail.value.items = []
+  }
+  markBomWorkspaceDirty()
 }
 
 function confirmDiscardBomWorkspaceChanges() {
@@ -2062,11 +2124,19 @@ function templateVariantRecipeModeLabel(variant = {}) {
 
 function templateVariantItemInventoryUnit(item = {}) {
   if (item.component_type === 'product') {
+    if (templateVariantItemProductIdentityMode(item) !== 'bom_spec') {
+      const product = productByID(item.component_product_id)
+      return String(product?.inventory_unit || product?.unit || '').trim()
+    }
     const selected = (item.component_bom_spec_options || []).find((spec) => Number(spec.bom_spec_id || 0) === Number(item.component_bom_spec_id || 0))
     return String(selected?.inventory_unit || '').trim()
   }
   const material = materialByID(item.material_id)
   return String(material?.inventory_unit || material?.unit || '').trim()
+}
+
+function templateVariantItemProductIdentityMode(item = {}) {
+  return productSpecIdentityMode(productByID(item.component_product_id))
 }
 
 function templateVariantInventoryUnitOption(item = {}) {
@@ -2181,6 +2251,14 @@ async function loadTemplateComponentProductSpecs(variantIndex, itemIndex, produc
     item.consume_unit = ''
     return
   }
+  if (productSpecIdentityMode(productByID(id)) !== 'bom_spec') {
+    item.component_bom_spec_id = 0
+    item.component_bom_spec_options = []
+    item.consume_unit = templateVariantItemInventoryUnit(item)
+    item.ratio_pct = 0
+    applyTemplateVariantRecipeMode(variant, 'fixed')
+    return
+  }
   const localKey = item.local_key
   item.component_bom_spec_loading = true
   try {
@@ -2273,10 +2351,12 @@ function templateVariantPayload(variant = {}) {
     const consumeUnit = String(item.consume_unit || '').trim()
     const inventoryUnit = templateVariantItemInventoryUnit(item)
     if (componentType === 'product') {
+      const identityMode = templateVariantItemProductIdentityMode(item)
       const selectedSpecExists = (item.component_bom_spec_options || []).some((spec) => Number(spec.bom_spec_id || 0) === Number(item.component_bom_spec_id || 0))
-      if (Number(item.component_product_id || 0) <= 0 || Number(item.component_bom_spec_id || 0) <= 0 || !selectedSpecExists) {
+      if (Number(item.component_product_id || 0) <= 0 || (identityMode === 'bom_spec' && (Number(item.component_bom_spec_id || 0) <= 0 || !selectedSpecExists))) {
         throw new Error('商品规格组件必须选择明确的已发布 BOM 规格')
       }
+      if (identityMode === 'product' && Number(item.component_bom_spec_id || 0) > 0) throw new Error('直接商品组件不能选择 BOM 规格')
       if (consumeUnit === 'ratio_pct') throw new Error('商品规格组件只能使用固定用量')
       if (!inventoryUnit || consumeUnit !== inventoryUnit) throw new Error('商品规格组件消耗单位必须使用所选规格库存单位')
     } else if (consumeUnit !== 'ratio_pct') {
@@ -2286,7 +2366,7 @@ function templateVariantPayload(variant = {}) {
       component_type: componentType,
       material_id: componentType === 'material' ? Number(item.material_id || 0) : 0,
       component_product_id: componentType === 'product' ? Number(item.component_product_id || 0) : 0,
-      component_bom_spec_id: componentType === 'product' ? Number(item.component_bom_spec_id || 0) : 0,
+      component_bom_spec_id: componentType === 'product' && templateVariantItemProductIdentityMode(item) === 'bom_spec' ? Number(item.component_bom_spec_id || 0) : 0,
       component_spec_g: 0,
       consume_unit: consumeUnit,
       qty_per_unit: consumeUnit === 'ratio_pct' ? 0 : Number(item.qty_per_unit || 0),
@@ -2616,7 +2696,7 @@ async function saveItem() {
   // 兼容历史验收标记“保存组件”：当前按钮文案为“添加到当前配方”，只写本地草稿。
   if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
-    if (itemForm.component_type === 'product' && Number(itemForm.component_bom_spec_id || 0) <= 0) {
+    if (itemForm.component_type === 'product' && selectedComponentProductIdentityMode.value === 'bom_spec' && Number(itemForm.component_bom_spec_id || 0) <= 0) {
       throw new Error('商品组件必须选择明确的已发布 BOM 规格')
     }
     const nextItems = detailItems.value.map(productionBomDraftItemFromItem)
@@ -2788,6 +2868,7 @@ async function saveProductionBomRecord() {
   const payload = {
     name,
     ...binding,
+    specification_mode: normalizeSpecificationMode(bomForm.specification_mode, bomForm.output_type),
     output_qty: Number(bomForm.output_qty || 1),
     output_unit: outputUnitCode.value,
     spec_template_version_id: Number(bomForm.spec_template_version_id || 0),
@@ -2800,8 +2881,8 @@ async function saveProductionBomRecord() {
       const sourceBomID = Number(bomForm.id || 0)
       const draftVersionID = Number(selectedProductionBomDraftVersion.value?.id || selectedProductionBomVersionID.value || 0)
       if (!draftVersionID) throw new Error('请先选择可编辑的 BOM 草稿版本')
-      const isProductOutput = binding.output_type === 'product'
-      const workspaceRecipe = isProductOutput
+      const isSpecGroupOutput = binding.output_type === 'product' && payload.specification_mode === 'spec_group'
+      const workspaceRecipe = isSpecGroupOutput
         ? { variants: validatedProductionBomDraftVariantPayloads() }
         : { items: detailItems.value.map(productionBomDraftItemPayloadFromItem) }
       const workspaceBody = {
@@ -2836,6 +2917,7 @@ async function saveProductionBomRecord() {
         body: {
           name: payload.name,
           ...binding,
+          specification_mode: payload.specification_mode,
           spec_template_version_id: payload.spec_template_version_id,
           main_input_material_id: payload.main_input_material_id,
         },
@@ -2843,7 +2925,7 @@ async function saveProductionBomRecord() {
       ok.value = '已复制生产 BOM'
       pendingProductionBomID.value = Number(copied?.id || 0)
     } else {
-      const created = await apiSend('/api/production-boms', { body: { name: payload.name, ...binding, output_qty: payload.output_qty, output_unit: payload.output_unit, spec_template_version_id: payload.spec_template_version_id, main_input_material_id: payload.main_input_material_id } })
+      const created = await apiSend('/api/production-boms', { body: { name: payload.name, ...binding, specification_mode: payload.specification_mode, output_qty: payload.output_qty, output_unit: payload.output_unit, spec_template_version_id: payload.spec_template_version_id, main_input_material_id: payload.main_input_material_id } })
       ok.value = '已新建生产 BOM'
       pendingProductionBomID.value = Number(created?.id || 0)
     }

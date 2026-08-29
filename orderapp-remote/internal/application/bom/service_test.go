@@ -29,18 +29,69 @@ type fakeRepo struct {
 	boundOutput                   BindProductionBomOutputCommand
 }
 
-func TestNormalizeProductionBomDraftWorkspaceRecipePayloadByOutputType(t *testing.T) {
+func TestNormalizeProductionBomDraftWorkspaceRecipePayloadBySpecificationMode(t *testing.T) {
 	items := []ProductionBomDraftItem{{MaterialID: 1}}
 	variants := []ProductionBomDraftVariant{{SpecKey: "bag-454"}}
 
-	materialItems, materialVariants := NormalizeProductionBomDraftWorkspaceRecipePayload("material", items, variants)
+	materialItems, materialVariants := NormalizeProductionBomDraftWorkspaceRecipePayload("material", "single", items, variants)
 	if !reflect.DeepEqual(materialItems, items) || materialVariants != nil {
 		t.Fatalf("material payload = items %+v variants %+v, want items preserved and variants nil", materialItems, materialVariants)
 	}
 
-	productItems, productVariants := NormalizeProductionBomDraftWorkspaceRecipePayload("product", items, variants)
-	if productItems != nil || !reflect.DeepEqual(productVariants, variants) {
-		t.Fatalf("product payload = items %+v variants %+v, want items nil and variants preserved", productItems, productVariants)
+	singleItems, singleVariants := NormalizeProductionBomDraftWorkspaceRecipePayload("product", "single", items, variants)
+	if !reflect.DeepEqual(singleItems, items) || singleVariants != nil {
+		t.Fatalf("single product payload = items %+v variants %+v, want items preserved and variants nil", singleItems, singleVariants)
+	}
+
+	groupItems, groupVariants := NormalizeProductionBomDraftWorkspaceRecipePayload("product", "spec_group", items, variants)
+	if groupItems != nil || !reflect.DeepEqual(groupVariants, variants) {
+		t.Fatalf("spec-group product payload = items %+v variants %+v, want items nil and variants preserved", groupItems, groupVariants)
+	}
+}
+
+func TestCreateProductionBomDefaultsProductToSingleSpecificationMode(t *testing.T) {
+	repo := &fakeRepo{productRows: []Option{{ID: 88, Name: "盒装挂耳", InventoryUnit: "盒"}}}
+	svc := NewService(repo)
+
+	if _, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{
+		Name: "盒装挂耳 BOM", OutputProductID: 88, OutputQty: 1,
+	}); err != nil {
+		t.Fatalf("CreateProductionBom: %v", err)
+	}
+	if repo.createdProductionBomCommand.SpecificationMode != "single" {
+		t.Fatalf("specification_mode=%q want single", repo.createdProductionBomCommand.SpecificationMode)
+	}
+	if repo.createdProductionBomCommand.OutputUnit != "盒" {
+		t.Fatalf("output_unit=%q want 盒", repo.createdProductionBomCommand.OutputUnit)
+	}
+}
+
+func TestDraftWorkspaceRejectsExplicitMixedSpecificationRecipes(t *testing.T) {
+	repo := &workspaceNormalizationRepo{fakeRepo: &fakeRepo{productRows: []Option{{ID: 88, InventoryUnit: "盒"}}}}
+	svc := NewService(repo)
+	item := ProductionBomDraftItem{ComponentType: "material", MaterialID: 7, ConsumeUnit: "kg", QtyPerUnit: 1}
+	variant := ProductionBomDraftVariant{SpecKey: "bag", Name: "袋装", InventoryUnit: "袋", IsDefault: true}
+
+	for _, testCase := range []struct {
+		mode     string
+		items    []ProductionBomDraftItem
+		variants []ProductionBomDraftVariant
+		want     string
+	}{
+		{mode: ProductionBomSpecificationModeSingle, items: []ProductionBomDraftItem{item}, variants: []ProductionBomDraftVariant{variant}, want: "single specification_mode cannot include specification variants"},
+		{mode: ProductionBomSpecificationModeSpecGroup, items: []ProductionBomDraftItem{item}, variants: []ProductionBomDraftVariant{variant}, want: "spec_group specification_mode cannot include flat recipe items"},
+	} {
+		_, err := svc.UpdateProductionBomDraftWorkspace(context.Background(), ProductionBomDraftWorkspaceCommand{
+			Bom:            UpdateProductionBomCommand{ID: 11, Name: "盒装", OutputType: "product", OutputProductID: 88, SpecificationMode: testCase.mode, UpdateOutputBinding: true},
+			Version:        UpdateProductionBomVersionDraftCommand{VersionID: 103, OutputQty: 1, OutputUnit: "盒", Items: testCase.items, Variants: testCase.variants},
+			SpecTemplateID: 9, MainInputMaterialID: 7,
+		})
+		if err == nil || !strings.Contains(err.Error(), testCase.want) {
+			t.Fatalf("mode %s mixed recipe error=%v, want %q", testCase.mode, err, testCase.want)
+		}
+	}
+	if repo.workspaceCommand.Bom.ID != 0 {
+		t.Fatal("invalid mixed recipe must not reach repository")
 	}
 }
 
@@ -536,6 +587,7 @@ func TestCopyProductionBomCanReapplyTemplateWhenKeepingSourceProductOutput(t *te
 	_, err := svc.CopyProductionBom(context.Background(), CopyProductionBomCommand{
 		ID:                    11,
 		Name:                  "规格组新版",
+		SpecificationMode:     ProductionBomSpecificationModeSpecGroup,
 		SpecTemplateVersionID: 92,
 		MainInputMaterialID:   7,
 	})
@@ -877,7 +929,10 @@ func TestUpdateProductionBomDraftRejectsMixedRatioAndFixedModeWithoutLoss(t *tes
 }
 
 func TestUpdateProductionBomDraftValidatesEverySpecificationVariant(t *testing.T) {
-	repo := &fakeRepo{materialRows: []Option{{ID: 7, Name: "熟豆", InventoryUnit: "kg"}, {ID: 8, Name: "袋", InventoryUnit: "个"}}}
+	repo := &fakeRepo{
+		materialRows: []Option{{ID: 7, Name: "熟豆", InventoryUnit: "kg"}, {ID: 8, Name: "袋", InventoryUnit: "个"}},
+		productRows:  []Option{{ID: 77, Name: "规格商品", InventoryUnit: "袋", SpecIdentityMode: "bom_spec"}, {ID: 78, Name: "袋装挂耳", InventoryUnit: "袋", SpecIdentityMode: "product"}},
+	}
 	svc := NewService(repo)
 
 	_, err := svc.UpdateProductionBomVersionDraft(context.Background(), UpdateProductionBomVersionDraftCommand{
@@ -909,8 +964,24 @@ func TestUpdateProductionBomDraftValidatesEverySpecificationVariant(t *testing.T
 			}},
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "product component requires component_bom_spec_id") {
+	if err == nil || !strings.Contains(err.Error(), "requires component_bom_spec_id") {
 		t.Fatalf("product component without an explicit BOM specification must be rejected, got %v", err)
+	}
+
+	_, err = svc.UpdateProductionBomVersionDraft(context.Background(), UpdateProductionBomVersionDraftCommand{
+		VersionID: 103,
+		Items: []ProductionBomDraftItem{{
+			ComponentType:      "product",
+			ComponentProductID: 78,
+			ConsumeUnit:        "袋",
+			QtyPerUnit:         10,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("direct product component without BOM specification should pass: %v", err)
+	}
+	if got := repo.updatedProductionDraftCommand.Items[0].ComponentBomSpecID; got != 0 {
+		t.Fatalf("direct product component bom_spec_id=%d, want 0", got)
 	}
 
 	_, err = svc.UpdateProductionBomVersionDraft(context.Background(), UpdateProductionBomVersionDraftCommand{

@@ -13,6 +13,7 @@ import (
 
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -102,9 +103,9 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 		       migration.state,
 		       variant.is_default,
 		       variant.sort_order,
-		       CASE WHEN migration.state='cutover' THEN binding.output_id ELSE COALESCE(mapping.legacy_child_product_id,0) END,
-		       CASE WHEN migration.state='cutover' THEN spec.id ELSE 0 END,
-		       CASE WHEN migration.state='cutover' THEN variant.id ELSE 0 END,
+		       CASE WHEN COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec' THEN binding.output_id ELSE COALESCE(mapping.legacy_child_product_id,0) END,
+		       CASE WHEN COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec' THEN spec.id ELSE 0 END,
+		       CASE WHEN COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec' THEN variant.id ELSE 0 END,
 		       COALESCE(legacy.customer_id,0),
 		       COALESCE(NULLIF(legacy.product_kind,''),NULLIF(parent.product_kind,''),'roasted_bean')
 		FROM %[1]s.production_bom_output_bindings binding
@@ -131,7 +132,7 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 		) mapping ON true
 		LEFT JOIN %[1]s.products legacy
 		  ON legacy.id=mapping.legacy_child_product_id
-		WHERE migration.state IN ('preparing','ready','cutover')
+		WHERE COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'
 		  AND binding.output_type='product'
 		  AND binding.is_default=true
 		ORDER BY parent.name,variant.sort_order,spec.spec_key,spec.id
@@ -798,6 +799,19 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		return nil, err
 	} else {
 		out = append(out, aliasProducts...)
+	}
+	identities, err := postgresinfra.FetchProductSpecIdentities(ctx, r.pool, r.schema)
+	if err != nil {
+		return nil, err
+	}
+	for index := range out {
+		parentID := out[index].ParentProductID
+		if parentID <= 0 {
+			parentID = out[index].ID
+		}
+		identity := identities[parentID]
+		out[index].SpecIdentityMode = identity.SpecIdentityMode
+		out[index].BomSpecAuthoritative = identity.BomSpecAuthoritative
 	}
 
 	commercialPublicationTiers, err := r.fetchCommercialOrderPublicationTiers(ctx, out)

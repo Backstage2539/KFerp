@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	appcosting "orderapp/internal/application/costing"
+	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	domain "orderapp/internal/domain/costing"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
@@ -438,7 +439,7 @@ func (r Repository) ResolveProductBOMSpecIdentity(ctx context.Context, parentPro
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
 		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
 		       migration.state,
-		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true),
+		       true,
 		       COALESCE(parent.active,true),
 		       true,
 		       variant.is_default,
@@ -462,7 +463,8 @@ func (r Repository) ResolveProductBOMSpecIdentity(ctx context.Context, parentPro
 		 AND variant.version_id=version.id
 		 AND variant.bom_spec_id=spec.id
 		WHERE migration.product_id=$1
-		  AND (migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false)
+		  AND COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),
+		      CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'
 		LIMIT 1
 	`, r.schema), parentProductID, bomSpecID, bomVariantID).Scan(
 		&identity.ParentProductID,
@@ -2603,11 +2605,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		if authority, ok := authorities[parentID]; ok {
 			out[i].MigrationState = authority.MigrationState
 			out[i].BomSpecAuthoritative = authority.BomSpecAuthoritative
-			if authority.BomSpecAuthoritative {
-				out[i].SpecIdentityMode = "bom_spec"
-			} else {
-				out[i].SpecIdentityMode = "legacy_sku"
-			}
+			out[i].SpecIdentityMode = authority.SpecIdentityMode
 		}
 	}
 	resolvedBomCosts := map[int64]productionBomResolvedCost{}
@@ -2663,6 +2661,7 @@ func filterBOMAuthoritativeProductInputs(inputs []domain.ProductInput) []domain.
 type productBOMSpecAuthority struct {
 	MigrationState       string
 	BomSpecAuthoritative bool
+	SpecIdentityMode     string
 }
 
 func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productIDs []int64) (map[int64]productBOMSpecAuthority, error) {
@@ -2680,8 +2679,8 @@ func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productID
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT product_id,
 		       COALESCE(state,''),
-		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true)=false
-		         OR COALESCE(state,'')='cutover'
+		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),
+		       COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode','')
 		FROM %s.product_bom_spec_migrations
 		WHERE product_id=ANY($1::bigint[])
 	`, r.schema), productIDs)
@@ -2692,9 +2691,13 @@ func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productID
 	for rows.Next() {
 		var productID int64
 		var authority productBOMSpecAuthority
-		if err := rows.Scan(&productID, &authority.MigrationState, &authority.BomSpecAuthoritative); err != nil {
+		var legacyCatalogProduct bool
+		var storedIdentityMode string
+		if err := rows.Scan(&productID, &authority.MigrationState, &legacyCatalogProduct, &storedIdentityMode); err != nil {
 			return nil, err
 		}
+		authority.SpecIdentityMode = productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, productspecmigrationapp.MigrationState(authority.MigrationState), legacyCatalogProduct)
+		authority.BomSpecAuthoritative = authority.SpecIdentityMode == productspecmigrationapp.SpecIdentityModeBOMSpec
 		result[productID] = authority
 	}
 	return result, rows.Err()
@@ -2748,7 +2751,7 @@ func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context, productIDs [
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
 		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
 		       migration.state,
-		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false OR migration.state='cutover',
+		       true,
 		       COALESCE(variant.process_route_id,0),
 		       variant.is_default,
 		       variant.sort_order
@@ -2770,8 +2773,8 @@ func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context, productIDs [
 		  ON variant.version_id=version.id
 		 AND variant.bom_spec_id=spec.id
 		WHERE ($1::bigint[] IS NULL OR migration.product_id=ANY($1::bigint[]))
-		  AND (migration.state='cutover'
-		   OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false)
+		  AND COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),
+		      CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'
 		ORDER BY migration.product_id,variant.sort_order,spec.spec_key,spec.id
 	`, r.schema), productIDs)
 	if err != nil {

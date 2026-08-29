@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_bom_spec_migrations (
 	product_id BIGINT PRIMARY KEY,
 	state TEXT NOT NULL DEFAULT 'legacy',
 	legacy_catalog_product BOOLEAN NOT NULL DEFAULT true,
+	spec_identity_mode TEXT NOT NULL DEFAULT '',
 	readiness_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	prepared_at TIMESTAMPTZ,
 	prepared_by TEXT NOT NULL DEFAULT '',
@@ -32,6 +33,14 @@ CREATE INDEX IF NOT EXISTS product_bom_spec_migrations_state_idx
 	ON %[1]s.product_bom_spec_migrations(state, updated_at DESC);
 ALTER TABLE %[1]s.product_bom_spec_migrations
 	ADD COLUMN IF NOT EXISTS legacy_catalog_product BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE %[1]s.product_bom_spec_migrations
+	ADD COLUMN IF NOT EXISTS spec_identity_mode TEXT NOT NULL DEFAULT '';
+UPDATE %[1]s.product_bom_spec_migrations
+SET spec_identity_mode=CASE
+	WHEN state='cutover' OR legacy_catalog_product=false THEN 'bom_spec'
+	ELSE 'legacy_sku'
+END
+WHERE spec_identity_mode NOT IN ('legacy_sku','product','bom_spec');
 
 CREATE TABLE IF NOT EXISTS %[1]s.legacy_child_sku_bom_spec_mappings (
 	id BIGSERIAL PRIMARY KEY,
@@ -79,6 +88,9 @@ CREATE INDEX IF NOT EXISTS product_bom_spec_authority_upgrades_state_idx
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
+	if err := backfillDefaultBOMProductIdentityModes(ctx, pool, schema); err != nil {
+		return err
+	}
 
 	// These are current mutable business records only. Existing snapshots and
 	// published JSON remain untouched and keep their historical child SKU/spec_g.
@@ -95,6 +107,39 @@ ALTER TABLE IF EXISTS %s.%s ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT N
 		return err
 	}
 	return ensureLegacyChildCatalogWriteGuard(ctx, pool, schema)
+}
+
+func backfillDefaultBOMProductIdentityModes(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	for _, candidate := range []struct {
+		table   string
+		columns []string
+	}{
+		{table: "production_bom_output_bindings", columns: []string{"output_type", "output_id", "bom_id", "is_default"}},
+		{table: "production_boms", columns: []string{"id", "output_type", "output_product_id", "specification_mode"}},
+	} {
+		ok, err := tableHasColumns(ctx, pool, schema, candidate.table, candidate.columns...)
+		if err != nil || !ok {
+			return err
+		}
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.product_bom_spec_migrations(product_id,state,legacy_catalog_product,spec_identity_mode,updated_at)
+		SELECT binding.output_id,
+		       'legacy',
+		       true,
+		       CASE WHEN COALESCE(NULLIF(bom.specification_mode,''),'single')='spec_group' THEN 'bom_spec' ELSE 'product' END,
+		       now()
+		FROM %[1]s.production_bom_output_bindings binding
+		JOIN %[1]s.production_boms bom
+		  ON bom.id=binding.bom_id
+		 AND bom.output_type='product'
+		 AND bom.output_product_id=binding.output_id
+		WHERE binding.output_type='product' AND binding.is_default=true
+		ON CONFLICT(product_id) DO UPDATE SET
+			spec_identity_mode=excluded.spec_identity_mode,
+			updated_at=now()
+	`, schema))
+	return err
 }
 
 type businessIdentityTarget struct {
@@ -162,7 +207,9 @@ DECLARE
 	identity_changed BOOLEAN := true;
 	cutover_parent_id BIGINT;
 	cutover_parent_state TEXT;
+	cutover_parent_identity_mode TEXT;
 	product_state TEXT;
+	product_identity_mode TEXT;
 	production_source_id BIGINT := 0;
 	production_source_text TEXT := '';
 	frozen_order_refs TEXT[];
@@ -191,21 +238,32 @@ BEGIN
 			OR old_business_item_type IS DISTINCT FROM business_item_type;
 	END IF;
 
-	SELECT mapping.parent_product_id,migration.state INTO cutover_parent_id,cutover_parent_state
+	SELECT mapping.parent_product_id,migration.state,
+	       COALESCE(NULLIF(migration.spec_identity_mode,''),CASE WHEN migration.state='cutover' OR migration.legacy_catalog_product=false THEN 'bom_spec' ELSE 'legacy_sku' END)
+	INTO cutover_parent_id,cutover_parent_state,cutover_parent_identity_mode
 	FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping
 	JOIN %[1]s.product_bom_spec_migrations migration ON migration.product_id=mapping.parent_product_id
 	WHERE mapping.legacy_child_product_id=business_product_id
 	FOR SHARE OF migration;
-	IF FOUND AND cutover_parent_state='cutover' THEN
+	IF FOUND AND (cutover_parent_state='cutover' OR cutover_parent_identity_mode IN ('product','bom_spec')) THEN
 		RAISE EXCEPTION 'legacy_child_sku_write_rejected: child %% belongs to cutover product %%', business_product_id,cutover_parent_id
 			USING ERRCODE='check_violation';
 	END IF;
 
-	SELECT state INTO product_state
+	SELECT state,
+	       COALESCE(NULLIF(spec_identity_mode,''),CASE WHEN state='cutover' OR legacy_catalog_product=false THEN 'bom_spec' ELSE 'legacy_sku' END)
+	INTO product_state,product_identity_mode
 	FROM %[1]s.product_bom_spec_migrations
 	WHERE product_id=business_product_id
 	FOR SHARE;
-	IF COALESCE(product_state,'legacy') <> 'cutover' THEN
+	IF COALESCE(product_identity_mode,'legacy_sku')='legacy_sku' THEN
+		RETURN NEW;
+	END IF;
+	IF product_identity_mode='product' THEN
+		IF business_bom_spec_id<>0 OR business_bom_variant_id<>0 THEN
+			RAISE EXCEPTION 'direct_product_identity_requires_zero_spec: product %%',business_product_id
+				USING ERRCODE='check_violation';
+		END IF;
 		RETURN NEW;
 	END IF;
 	IF TG_OP='UPDATE' AND NOT identity_changed
@@ -435,6 +493,7 @@ DECLARE
 	child_custom_type TEXT;
 	child_active BOOLEAN;
 	parent_state TEXT;
+	parent_identity_mode TEXT;
 BEGIN
 	direct_parent_id := COALESCE(NULLIF(to_jsonb(NEW)->>'parent_product_id','')::bigint,0);
 	base_parent_id := COALESCE(NULLIF(to_jsonb(NEW)->>'base_product_id','')::bigint,0);
@@ -451,11 +510,13 @@ BEGIN
 	-- Match repository cutover/catalog serialization so an insert cannot pass
 	-- between creation of the migration row and the final cutover state update.
 	PERFORM pg_advisory_xact_lock(child_parent_id);
-	SELECT state INTO parent_state
+	SELECT state,
+	       COALESCE(NULLIF(spec_identity_mode,''),CASE WHEN state='cutover' OR legacy_catalog_product=false THEN 'bom_spec' ELSE 'legacy_sku' END)
+	INTO parent_state,parent_identity_mode
 	FROM %[1]s.product_bom_spec_migrations
 	WHERE product_id=child_parent_id
 	FOR SHARE;
-	IF COALESCE(parent_state,'legacy')='cutover' THEN
+	IF COALESCE(parent_state,'legacy')='cutover' OR COALESCE(parent_identity_mode,'legacy_sku') IN ('product','bom_spec') THEN
 		RAISE EXCEPTION 'legacy_child_sku_write_rejected: parent %% is already cut over to BOM specs',child_parent_id
 			USING ERRCODE='check_violation';
 	END IF;

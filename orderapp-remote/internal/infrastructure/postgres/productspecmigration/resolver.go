@@ -37,16 +37,20 @@ func (r Repository) resolveIdentityTx(ctx context.Context, tx pgx.Tx, cmd produc
 	if err == nil {
 		mappedState = string(productspecmigrationapp.StateLegacy)
 		legacyCatalogProduct := true
-		stateErr := tx.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, r.schema), parentID).Scan(&mappedState)
-		if stateErr == nil {
-			stateErr = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true) FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, r.schema), parentID).Scan(&legacyCatalogProduct)
-		}
+		storedIdentityMode := ""
+		stateErr := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT state,
+			       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),
+			       COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode','')
+			FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE
+		`, r.schema), parentID).Scan(&mappedState, &legacyCatalogProduct, &storedIdentityMode)
 		if stateErr != nil && !errors.Is(stateErr, pgx.ErrNoRows) {
 			return productspecmigrationapp.BusinessIdentity{}, stateErr
 		}
 		state := productspecmigrationapp.MigrationState(mappedState)
 		legacyID := cmd.ProductID
-		bomSpecAuthoritative := productspecmigrationapp.IsBOMSpecAuthoritative(state, legacyCatalogProduct)
+		identityMode := productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, state, legacyCatalogProduct)
+		bomSpecAuthoritative := identityMode == productspecmigrationapp.SpecIdentityModeBOMSpec
 		if bomSpecAuthoritative {
 			if cmd.Mode == productspecmigrationapp.ResolveWrite {
 				return productspecmigrationapp.BusinessIdentity{}, productspecmigrationapp.ErrLegacyWriteRejected
@@ -56,7 +60,7 @@ func (r Repository) resolveIdentityTx(ctx context.Context, tx pgx.Tx, cmd produc
 				LegacyProductID:      &legacyID,
 				LegacySpecG:          mappedSpecG,
 				MigrationState:       state,
-				SpecIdentityMode:     productspecmigrationapp.SpecIdentityMode(state, legacyCatalogProduct),
+				SpecIdentityMode:     identityMode,
 				BomSpecAuthoritative: true,
 				LegacyCompatible:     false,
 			}
@@ -74,12 +78,22 @@ func (r Repository) resolveIdentityTx(ctx context.Context, tx pgx.Tx, cmd produc
 			}
 			return identity, nil
 		}
+		if identityMode == productspecmigrationapp.SpecIdentityModeProduct {
+			if cmd.Mode == productspecmigrationapp.ResolveWrite {
+				return productspecmigrationapp.BusinessIdentity{}, productspecmigrationapp.ErrLegacyWriteRejected
+			}
+			return productspecmigrationapp.BusinessIdentity{
+				ProductID: parentID, LegacyProductID: &legacyID, LegacySpecG: mappedSpecG,
+				MigrationState: state, SpecIdentityMode: identityMode,
+				BomSpecAuthoritative: false, LegacyCompatible: false,
+			}, nil
+		}
 		return productspecmigrationapp.BusinessIdentity{
 			ProductID:            cmd.ProductID,
 			LegacyProductID:      &legacyID,
 			LegacySpecG:          mappedSpecG,
 			MigrationState:       state,
-			SpecIdentityMode:     productspecmigrationapp.SpecIdentityMode(state, legacyCatalogProduct),
+			SpecIdentityMode:     identityMode,
 			BomSpecAuthoritative: false,
 			LegacyCompatible:     true,
 		}, nil
@@ -90,22 +104,34 @@ func (r Repository) resolveIdentityTx(ctx context.Context, tx pgx.Tx, cmd produc
 
 	state := productspecmigrationapp.StateLegacy
 	legacyCatalogProduct := true
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, r.schema), cmd.ProductID).Scan(&state)
-	if err == nil {
-		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true) FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, r.schema), cmd.ProductID).Scan(&legacyCatalogProduct)
-	}
+	storedIdentityMode := ""
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT state,
+		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),
+		       COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode','')
+		FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE
+	`, r.schema), cmd.ProductID).Scan(&state, &legacyCatalogProduct, &storedIdentityMode)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return productspecmigrationapp.BusinessIdentity{}, err
 	}
+	identityMode := productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, state, legacyCatalogProduct)
 	identity := productspecmigrationapp.BusinessIdentity{
 		ProductID:            cmd.ProductID,
 		BomSpecID:            cmd.BomSpecID,
 		BomVariantID:         cmd.BomVariantID,
 		LegacySpecG:          cmd.LegacySpecG,
 		MigrationState:       state,
-		SpecIdentityMode:     productspecmigrationapp.SpecIdentityMode(state, legacyCatalogProduct),
-		BomSpecAuthoritative: productspecmigrationapp.IsBOMSpecAuthoritative(state, legacyCatalogProduct),
-		LegacyCompatible:     !productspecmigrationapp.IsBOMSpecAuthoritative(state, legacyCatalogProduct),
+		SpecIdentityMode:     identityMode,
+		BomSpecAuthoritative: identityMode == productspecmigrationapp.SpecIdentityModeBOMSpec,
+		LegacyCompatible:     identityMode == productspecmigrationapp.SpecIdentityModeLegacySKU,
+	}
+	if identityMode == productspecmigrationapp.SpecIdentityModeProduct {
+		if (cmd.BomSpecID != nil && *cmd.BomSpecID > 0) || (cmd.BomVariantID != nil && *cmd.BomVariantID > 0) {
+			return productspecmigrationapp.BusinessIdentity{}, productspecmigrationapp.ErrBomSpecUnavailable
+		}
+		identity.BomSpecID = nil
+		identity.BomVariantID = nil
+		return identity, nil
 	}
 	if !identity.BomSpecAuthoritative {
 		return identity, nil
@@ -163,14 +189,16 @@ func (r Repository) ListOptions(ctx context.Context, productID int64) ([]product
 	state := productspecmigrationapp.StateLegacy
 	var stateText string
 	legacyCatalogProduct := true
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state,COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true) FROM %s.product_bom_spec_migrations WHERE product_id=$1`, r.schema), productID).Scan(&stateText, &legacyCatalogProduct)
+	storedIdentityMode := ""
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state,COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode','') FROM %s.product_bom_spec_migrations WHERE product_id=$1`, r.schema), productID).Scan(&stateText, &legacyCatalogProduct, &storedIdentityMode)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 	if err == nil {
 		state = productspecmigrationapp.MigrationState(stateText)
 	}
-	bomSpecAuthoritative := productspecmigrationapp.IsBOMSpecAuthoritative(state, legacyCatalogProduct)
+	identityMode := productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, state, legacyCatalogProduct)
+	bomSpecAuthoritative := identityMode == productspecmigrationapp.SpecIdentityModeBOMSpec
 	for _, relation := range []string{
 		"production_bom_output_bindings",
 		"production_bom_versions",
@@ -253,7 +281,7 @@ func (r Repository) ListOptions(ctx context.Context, productID int64) ([]product
 		}
 		option.Published = true
 		option.MigrationState = state
-		option.SpecIdentityMode = productspecmigrationapp.SpecIdentityMode(state, legacyCatalogProduct)
+		option.SpecIdentityMode = identityMode
 		option.BomSpecAuthoritative = bomSpecAuthoritative
 		if bomSpecAuthoritative {
 			option.WriteProductID = productID
