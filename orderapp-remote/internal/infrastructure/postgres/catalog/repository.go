@@ -456,11 +456,10 @@ func (r Repository) DeactivateProducts(ctx context.Context, cmd catalogapp.Deact
 }
 
 func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProductCommand) (catalogapp.Product, error) {
-	// New parent products use BOM specifications as their only sellable and
-	// inventory-unit authority. Legacy templates remain editable only on
-	// pre-cutover products through UpdateProductBasics.
+	// New parent products never bind the retired legacy unit template. Their
+	// inventory unit may still be declared directly so a single-output BOM can
+	// use the product itself as the stock identity.
 	cmd.UnitTemplateID = 0
-	cmd.UnitRuleOverrideJSON = "{}"
 	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 	greenBeanType := strings.TrimSpace(cmd.GreenBeanType)

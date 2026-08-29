@@ -1607,7 +1607,11 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	cmd.UnitTemplateID = 0
 	cmd.Tiers = nil
 	cmd.SpecialAttrsJSON = specialAttrsJSON
-	cmd.UnitRuleOverrideJSON = "{}"
+	unitRuleOverrideJSON, err := normalizeJSONObjectText(cmd.UnitRuleOverrideJSON)
+	if err != nil {
+		return Product{}, ValidationError{Message: "invalid unit_rule_override_json"}
+	}
+	cmd.UnitRuleOverrideJSON = unitRuleOverrideJSON
 	return s.repo.CreateProduct(ctx, cmd)
 }
 

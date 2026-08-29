@@ -759,6 +759,7 @@ func buildMaterialSnapshotForBomVersionVariantTx(ctx context.Context, tx pgx.Tx,
 			COALESCE(NULLIF(i.component_type,''),'material'),
 			COALESCE(i.component_product_id,0),
 			COALESCE(cp.name,''),
+			COALESCE(NULLIF(cp.unit_rule_override_json->>'inventory_unit',''),''),
 			COALESCE(i.component_bom_spec_id,0),
 			COALESCE(component_identity.bom_variant_id,0),
 			COALESCE(component_identity.spec_name,''),
@@ -798,10 +799,10 @@ func buildMaterialSnapshotForBomVersionVariantTx(ctx context.Context, tx pgx.Tx,
 	snapshot := make([]materialSnapshotRow, 0)
 	for rows.Next() {
 		var row materialSnapshotRow
-		var componentProductName, componentSpecName, componentInventoryUnit string
+		var componentProductName, componentProductInventoryUnit, componentSpecName, componentInventoryUnit string
 		if err := rows.Scan(
 			&row.MaterialID, &row.MaterialName, &row.Unit, &row.RatioPct, &row.MaterialLossRate,
-			&row.ComponentType, &row.ComponentProductID, &componentProductName,
+			&row.ComponentType, &row.ComponentProductID, &componentProductName, &componentProductInventoryUnit,
 			&row.ComponentBomSpecID, &row.ComponentBomVariantID, &componentSpecName, &componentInventoryUnit, &row.ComponentSpecG,
 			&row.ConsumeUnit, &row.QtyPerUnit, &row.OutputQty, &row.OutputUnit,
 		); err != nil {
@@ -826,7 +827,7 @@ func buildMaterialSnapshotForBomVersionVariantTx(ctx context.Context, tx pgx.Tx,
 			if row.ComponentBomSpecID > 0 {
 				row.Unit = componentInventoryUnit
 			} else {
-				row.Unit = "g"
+				row.Unit = firstNonEmpty(componentProductInventoryUnit, "g")
 			}
 			row.Source = "finished_product"
 		} else if row.MaterialID <= 0 || strings.TrimSpace(row.MaterialName) == "" || (row.RatioPct <= 0 && row.QtyPerUnit <= 0) {
@@ -920,7 +921,7 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			deductG, deductUnits = materialNeedToDeduct(unit, qty)
 		}
 		if source == "finished_product" {
-			if row.ComponentBomSpecID > 0 {
+			if row.ComponentBomSpecID > 0 || !isWeightMaterialUnit(unit) {
 				deductG = 0
 				deductUnits = qty
 			} else {

@@ -213,6 +213,8 @@ func TestAPIProductsCarriesProductTypeAndUnitRule(t *testing.T) {
 		OrderUnit:                "盒",
 		UnitConversionJSON:       `{"盒":{"kg":0.2}}`,
 		IntegerUnit:              true,
+		SpecIdentityMode:         "product",
+		BomSpecAuthoritative:     false,
 	}})
 
 	got := products[0]
@@ -226,6 +228,8 @@ func TestAPIProductsCarriesProductTypeAndUnitRule(t *testing.T) {
 		"order_unit":                  "盒",
 		"unit_conversion_json":        `{"盒":{"kg":0.2}}`,
 		"integer_unit":                true,
+		"spec_identity_mode":          "product",
+		"bom_spec_authoritative":      false,
 	} {
 		if got[key] != want {
 			t.Fatalf("%s = %#v, want %#v", key, got[key], want)

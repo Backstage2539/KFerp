@@ -116,7 +116,7 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 			}
 		}
 		plan := plannedFinishedInventoryAddition(need.SpecG, need.GapG)
-		if need.BomSpecID > 0 {
+		if need.BomSpecID > 0 || (need.PlannedInventoryQty > 0 && productionWeightUnitGrams(need.InventoryUnit) <= 0) {
 			plan.Units = int64(math.Ceil(need.PlannedInventoryQty))
 			plan.LooseG = 0
 		}
