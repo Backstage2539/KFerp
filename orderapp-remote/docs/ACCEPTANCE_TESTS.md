@@ -2191,3 +2191,11 @@
 - [x] 直接用已作废物料提交新建物料产出 BOM 时返回 HTTP 400 和“产出物料不存在或已失效”，响应不包含 `no rows in result set`。
 - [x] 被拒绝请求不创建 `production_boms`、`production_bom_versions` 或 `audit_logs`；正常有效物料的创建与编辑合同不变。
 - [x] PostgreSQL 事务测试、BOM handler API 测试、完整 Go/Vue/Vite/统一验证器和 development preflight 均通过；功能分支合入 `develop@50d07c54` 并只部署 development，`main` 与 production 未操作。
+
+## PR-618-BOM-ROUTE-CAPACITY-ERROR-DETAIL 验收清单（2026-08-30）
+
+- [x] BOM 绑定路线存在失效标准成本产能档时，发布错误显示工艺路线名称、工序顺序和名称、产能档名称及工位名称，不再只显示“标准成本产能档必须来自启用工位且适用当前工序”。
+- [x] 错误原因区分产能档停用/不存在、工位停用/不存在、工位不适用当前工序和未选择产能档；同一行同时存在多个原因时全部显示。
+- [x] 工艺路线发布与生产 BOM 发布共用相同诊断；BOM 工序成本快照刷新遇到并发失效时也返回相同结构的详细错误。
+- [x] 错误只提供定位与处理入口，不自动替换产能档、不更改成本、不回算历史快照；操作手册说明回到工艺路线重新选择后再发布。
+- [ ] 定向单元/API、相关后端包、完整 Go 验证、开发预检、`develop` 合入和 development 部署通过；`main` 与 production 不操作。

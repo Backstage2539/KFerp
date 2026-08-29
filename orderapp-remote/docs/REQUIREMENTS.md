@@ -1682,3 +1682,9 @@
 - `DEV-617-ACTIVE-MATERIAL-OPTIONS`：生产 BOM 新建、编辑和草稿工作区使用的物料选项只能返回 `deprecated_at IS NULL` 的有效物料；即使按既有 BOM 组件范围加载，也不得把已经失效的物料重新放回可选列表。
 - `DEV-617-STABLE-OUTPUT-MATERIAL-ERROR`：创建或编辑物料产出 BOM 时，旧页面或并发失效造成的过期物料身份必须在事务写入前被拒绝，并返回“产出物料不存在或已失效”；不得把 PostgreSQL 的 `no rows in result set` 暴露给用户，也不得留下 BOM 主档、版本或操作日志写入。
 - `DEV-617-DOCS-DEVELOPMENT-DELIVERY`：同步生产操作手册与验收记录，完成定向 RED/GREEN、API 错误合同、完整发布门禁，合入 `develop` 并仅部署 development；`main` 与 production 不操作。
+
+# PR-618-BOM-ROUTE-CAPACITY-ERROR-DETAIL BOM 发布失效产能档错误定位（2026-08-30）
+
+- `DEV-618-ROUTE-CAPACITY-ISSUE-DIAGNOSTIC`：生产 BOM 发布和工艺路线发布使用同一套标准成本产能档校验。失败信息必须显示工艺路线、工序顺序和名称、标准成本产能档及工位，并分别说明未选择产能档、产能档停用/不存在、工位停用/不存在、工位不适用当前工序，最后引导回该工艺路线重新选择有效产能档。
+- 原有标准成本门禁保持不变：只有启用产能档、启用工位且工位适用当前工序时才能发布；本需求只提高错误的可定位性，不自动替换产能档、不改变标准成本，也不回算历史 BOM、工单或价格快照。
+- 后端单元测试覆盖当前 development 的 `PR-616 挂耳生产路线 → 咖啡研磨 → 咖啡研磨 1kg/批 → PR-616 挂耳生产工位` 失效组合及工位停用、未选择产能档分支；BOM 发布 API 测试确认详细错误原样返回。

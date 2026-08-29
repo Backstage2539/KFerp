@@ -472,7 +472,8 @@ func TestProductionBomVersionOperationCostSnapshots(t *testing.T) {
 		"operation_cost_unit",
 		"refreshProductionBomVersionOperationCostSnapshotsTx",
 		"standard_cost_capacity_id",
-		"工艺路线工序缺少标准成本产能档",
+		"postgresinfra.FindStandardCostCapacityIssue",
+		"postgresinfra.StandardCostCapacityIssue",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("production BOM operation cost snapshot implementation missing marker %q", want)

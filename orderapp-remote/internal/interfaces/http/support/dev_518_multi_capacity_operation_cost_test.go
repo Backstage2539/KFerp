@@ -23,7 +23,7 @@ func TestDev518MultiCapacityOperationCostContracts(t *testing.T) {
 		filepath.Join("internal", "infrastructure", "postgres", "manufacturing", "repository.go"): {
 			"standard_cost_capacity_id",
 			"sc.id=pro.standard_cost_capacity_id",
-			"请为工艺路线工序设置标准成本产能档",
+			"postgresinfra.FindStandardCostCapacityIssue",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "bom", "schema.go"): {
 			"production_bom_version_operation_costs",
@@ -32,7 +32,7 @@ func TestDev518MultiCapacityOperationCostContracts(t *testing.T) {
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go"): {
 			"refreshProductionBomVersionOperationCostSnapshotsTx",
-			"工艺路线工序缺少标准成本产能档",
+			"postgresinfra.StandardCostCapacityIssue",
 			"operation_cost_snapshot_count",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {

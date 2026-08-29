@@ -1098,31 +1098,12 @@ func (r Repository) PublishProcessRoute(ctx context.Context, cmd manufacturingap
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	var missingCount int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM %s.process_route_operations
-		WHERE route_id=$1 AND COALESCE(standard_cost_capacity_id,0)<=0
-	`, r.schema), cmd.ID).Scan(&missingCount); err != nil {
+	issue, err := postgresinfra.FindStandardCostCapacityIssue(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
 		return err
 	}
-	if missingCount > 0 {
-		return fmt.Errorf("请为工艺路线工序设置标准成本产能档")
-	}
-	var invalidCount int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM %[1]s.process_route_operations pro
-		LEFT JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=pro.standard_cost_capacity_id AND c.status='active'
-		LEFT JOIN %[1]s.manufacturing_workstations w ON w.id=c.workstation_id AND w.status='active'
-		LEFT JOIN %[1]s.manufacturing_workstation_operations wo ON wo.workstation_id=w.id AND wo.operation_id=pro.operation_id
-		WHERE pro.route_id=$1
-		  AND (c.id IS NULL OR w.id IS NULL OR wo.operation_id IS NULL)
-	`, r.schema), cmd.ID).Scan(&invalidCount); err != nil {
-		return err
-	}
-	if invalidCount > 0 {
-		return fmt.Errorf("标准成本产能档必须来自启用工位且适用当前工序")
+	if issue != nil {
+		return issue
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.process_routes SET status='active', updated_at=now() WHERE id=$1`, r.schema), cmd.ID); err != nil {
 		return err
