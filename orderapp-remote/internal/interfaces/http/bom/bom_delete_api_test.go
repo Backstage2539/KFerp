@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	bomapp "orderapp/internal/application/bom"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/labstack/echo/v4"
 )
@@ -38,6 +39,7 @@ type apiFakeRepo struct {
 	copiedProductionBomCommand               bomapp.CopyProductionBomCommand
 	createdProductionBom                     bomapp.ProductionBomSummary
 	createdProductionBomCommand              bomapp.CreateProductionBomCommand
+	createdProductionBomErr                  error
 	updatedProductionBom                     bomapp.ProductionBomSummary
 	updatedProductionBomCommand              bomapp.UpdateProductionBomCommand
 	createdProductionVersion                 bomapp.ProductionBomVersion
@@ -55,6 +57,7 @@ type apiFakeRepo struct {
 	productBomBinding                        bomapp.ProductProductionBomBinding
 	boundProductBom                          bomapp.BindProductProductionBomCommand
 	publishedProductionVersionID             int64
+	publishProductionVersionErr              error
 	productionBomFilter                      bomapp.ProductionBomFilter
 	boundProductionBomOutput                 bomapp.BindProductionBomOutputCommand
 }
@@ -182,6 +185,9 @@ func (r *apiFakeRepo) ListProductionBomUsageByProduct(_ context.Context, product
 
 func (r *apiFakeRepo) CreateProductionBom(_ context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
 	r.createdProductionBomCommand = cmd
+	if r.createdProductionBomErr != nil {
+		return bomapp.ProductionBomSummary{}, r.createdProductionBomErr
+	}
 	if r.createdProductionBom.ID > 0 {
 		return r.createdProductionBom, nil
 	}
@@ -249,7 +255,7 @@ func (r *apiFakeRepo) ValidateProductionBomVersionForPublish(context.Context, bo
 
 func (r *apiFakeRepo) PublishProductionBomVersion(_ context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
 	r.publishedProductionVersionID = cmd.VersionID
-	return nil
+	return r.publishProductionVersionErr
 }
 
 func (r *apiFakeRepo) BindProductProductionBom(_ context.Context, cmd bomapp.BindProductProductionBomCommand) (bomapp.ProductProductionBomBinding, error) {
@@ -310,6 +316,45 @@ func TestBomDeleteItemAPIRequiresProductID(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "product_id required") {
 		t.Fatalf("body missing product_id error: %s", rec.Body.String())
+	}
+}
+
+func TestProductionBomPublishAPIReturnsDetailedRouteCapacityError(t *testing.T) {
+	repo := &apiFakeRepo{publishProductionVersionErr: postgresinfra.StandardCostCapacityIssue{
+		RouteID:               9,
+		RouteName:             "PR-616 挂耳生产路线",
+		Sequence:              1,
+		OperationID:           5,
+		OperationName:         "咖啡研磨",
+		CapacityID:            11,
+		CapacityName:          "咖啡研磨 1kg/批",
+		CapacityStatus:        "inactive",
+		WorkstationID:         6,
+		WorkstationName:       "PR-616 挂耳生产工位",
+		WorkstationStatus:     "active",
+		WorkstationApplicable: false,
+	}}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/production-bom-versions/2058/publish", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		"PR-616 挂耳生产路线",
+		"咖啡研磨",
+		"咖啡研磨 1kg/批",
+		"PR-616 挂耳生产工位",
+		"已停用",
+		"不适用工序",
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("detailed publish error %s missing %q", rec.Body.String(), want)
+		}
 	}
 }
 

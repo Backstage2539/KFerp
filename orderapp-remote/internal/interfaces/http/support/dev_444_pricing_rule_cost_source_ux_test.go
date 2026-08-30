@@ -24,11 +24,14 @@ func TestDev444PricingRuleCostSourceUXContracts(t *testing.T) {
 			"other_costs",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"pricing-rule-name-button",
+			"PricingRuleEditorForm",
+		},
+		filepath.Join("frontend-vue-shell", "src", "components", "PricingRuleEditorForm.vue"): {
 			"基础成本",
 			"生产 BOM 成本（物料+工序）",
 			"其他成本",
 			"全局币种配置",
-			"pricing-rule-name-button",
 			"失效",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {

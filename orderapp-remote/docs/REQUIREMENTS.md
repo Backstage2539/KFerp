@@ -1662,3 +1662,37 @@
 - `DEV-614-CURRENT-PRICE-CATALOG-AUTHORITY`：订单接口以当前启用的 `product_catalog` 商品分组为价格表类型权威，将商品分组 ID 映射为价格表发布分类身份。已被当前商品分组替换、但因旧规则仍在自己分类内标记为默认的历史熟豆/生豆/挂耳价格表，不再进入 ERP 或员工小程序的当前录单目录；没有配置当前商品分组时保留旧目录兼容。
 - `DEV-614-CUTOVER-BOM-SPEC-PRICE-PROJECTION`：商品完成 BOM 规格权威切换后，即使不存在 `legacy_child_sku_bom_spec_mappings`，订单接口也必须用主商品 ID 读取价格表发布行，并按发布快照中的 `bom_spec_id/bom_variant_id` 精确分配到对应 BOM 规格。只选择并发布 454g 规格时，仅 454g 获得当前阶梯价，227g/1Kg 不得继承 454g 价格；尚未 cutover 的商品继续使用旧子 SKU 兼容键。
 - `DEV-614-DOCS-DEVELOPMENT-DELIVERY`：定向测试使用开发现场“当前初晓价格表 + 旧熟豆默认表”和“初晓主商品 1063、BOM 规格 7、无旧子 SKU 映射”复现 RED，并覆盖仓库投影、订单 API、ERP 规格目录与小程序目录。完成 Go/Vue/小程序及统一验证器后合入 `develop` 并部署 development；production 与微信正式上传不在本次范围。
+
+# PR-615-PRICING-TRIAL-PERFORMANCE-DISPLAY-EDITOR 价格试算提速、展示统一与模板快捷编辑（2026-08-28）
+
+- `DEV-615-SCOPED-TRIAL-LOAD`：批量价格试算仅加载本次商品范围；同一客户与商品的生产选项只加载一次，同一 BOM 版本、规格、变体、工艺路线和报价单位的成本上下文只解析一次，再按原请求顺序分发到各价格档位。接口、部分失败和行级错误语义保持兼容，不使用跨请求价格缓存。
+- `DEV-615-PRICE-DISPLAY`：商品价格展示统一先四舍五入到两位；整数不显示小数，有小数固定显示两位。新规则覆盖 ERP 价格表预览、打印/生成 PDF 和公开价格表页面，不改数据库数值，也不改变平铺价格输入框的编辑方式。
+- `DEV-615-PRICING-RULE-EDITOR-REFRESH`：平铺价格行标题栏在失败重试按钮左侧常驻显示“编辑价格模板”，右侧抽屉复用商品价格管理的同一表单和原 `PUT /api/product-pricing-rules/:id`。保存全局模板后只清除当前草稿中直接或通过阶梯模板引用该模板的试算结果并一次批量重算；重算期间禁止发布。人工最终价保留，但自动基准随新模板更新，撤销人工修改后使用新价格。保存或重算失败保留编辑内容和原价格；已发布价格表、历史订单、PDF 快照和财务单据不回算。
+- `DEV-615-DOCS-DEVELOPMENT-DELIVERY`：定向 RED/GREEN、全部 Go/Vue、Vite、统一验证器和开发预检通过后，合入 `develop` 并仅部署 development；用开发真实数据记录一个商品四档首次试算耗时，目标不超过 2 秒。`main`、production 和业务数据迁移均不在本次范围。
+
+# PR-616-DRIP-MULTISTAGE-MANUFACTURING-FLOW 价格模板右侧抽屉与挂耳多级生产闭环（2026-08-29）
+
+- `DEV-616-PRICING-RULE-RIGHT-DRAWER`：平铺价格行的“编辑价格模板”必须以覆盖视口的全高右侧抽屉打开，背景遮罩固定覆盖当前页面；不得在价格表底部展开。继续复用 PR-615 的模板表单、保存、重算、焦点和历史快照边界。
+- `DEV-616-DRIP-MULTISTAGE-BOM-CONFIG`：在 development 以普通物料/商品产出 BOM 配置 `生豆 → 烘焙熟豆半成品 → 咖啡粉 → 挂耳包 → 盒装挂耳`。烘焙、研磨、挂耳包装和盒装包装分别使用自己的默认已发布 BOM 与工艺路线；每个下游 BOM 只消费紧邻上游产出及本阶段包材，不新增挂耳专用 BOM 类型。
+- `DEV-616-DRIP-PRICE-LIST-ORDER-E2E`：盒装挂耳商品必须由对应商品 BOM 产出并选择具体盒装规格；成本试算递归到各层默认已发布 BOM 和叶子物料成本。发布只含该验收商品/规格的 development 价格表后，ERP 录单必须读取相同发布快照、规格、单位和最终价，并成功保存一张可追溯验收订单。
+- `DEV-616-DOCS-DEVELOPMENT-DELIVERY`：所有业务写入使用现有 API/服务并进入操作日志；验收查询同时核对 BOM 默认绑定、组件链、工艺路线、成本、价格表发布和订单快照。完成定向/全量验证、合入 `develop` 和 development 部署；`main` 与 production 不在本次范围。
+
+# PR-617-PRODUCTION-BOM-DEPRECATED-MATERIAL-GUARD 生产 BOM 失效物料门禁（2026-08-30）
+
+- `DEV-617-ACTIVE-MATERIAL-OPTIONS`：生产 BOM 新建、编辑和草稿工作区使用的物料选项只能返回 `deprecated_at IS NULL` 的有效物料；即使按既有 BOM 组件范围加载，也不得把已经失效的物料重新放回可选列表。
+- `DEV-617-STABLE-OUTPUT-MATERIAL-ERROR`：创建或编辑物料产出 BOM 时，旧页面或并发失效造成的过期物料身份必须在事务写入前被拒绝，并返回“产出物料不存在或已失效”；不得把 PostgreSQL 的 `no rows in result set` 暴露给用户，也不得留下 BOM 主档、版本或操作日志写入。
+- `DEV-617-DOCS-DEVELOPMENT-DELIVERY`：同步生产操作手册与验收记录，完成定向 RED/GREEN、API 错误合同、完整发布门禁，合入 `develop` 并仅部署 development；`main` 与 production 不操作。
+
+# PR-618-BOM-ROUTE-CAPACITY-ERROR-DETAIL BOM 发布失效产能档错误定位（2026-08-30）
+
+- `DEV-618-ROUTE-CAPACITY-ISSUE-DIAGNOSTIC`：生产 BOM 发布和工艺路线发布使用同一套标准成本产能档校验。失败信息必须显示工艺路线、工序顺序和名称、标准成本产能档及工位，并分别说明未选择产能档、产能档停用/不存在、工位停用/不存在、工位不适用当前工序，最后引导回该工艺路线重新选择有效产能档。
+- 原有标准成本门禁保持不变：只有启用产能档、启用工位且工位适用当前工序时才能发布；本需求只提高错误的可定位性，不自动替换产能档、不改变标准成本，也不回算历史 BOM、工单或价格快照。
+- 后端单元测试覆盖当前 development 的 `PR-616 挂耳生产路线 → 咖啡研磨 → 咖啡研磨 1kg/批 → PR-616 挂耳生产工位` 失效组合及工位停用、未选择产能档分支；BOM 发布 API 测试确认详细错误原样返回。
+
+# PR-619-PRODUCT-BOM-SINGLE-OUTPUT 商品 BOM 单一产出与直接商品身份（2026-08-30）
+
+- `DEV-619-BOM-SPECIFICATION-MODE`：商品 BOM 明确保存 `specification_mode=single|spec_group`。`single` 直接产出商品，使用版本的产出数量、商品库存单位与普通组件明细，禁止规格模板、规格主体物料和规格组合；`spec_group` 继续要求已发布规格模板、有效主体物料、完整规格组且恰好一个默认规格。物料产出只允许 `single`。旧 BOM 有规格组合或规格来源时回填 `spec_group`，其余回填 `single`；显式混合两种明细必须整笔拒绝。
+- `DEV-619-DIRECT-PRODUCT-IDENTITY`：商品业务身份扩展为 `legacy_sku|product|bom_spec`。默认 BOM 为 `single` 时使用 `product_id` 且 `bom_spec_id/bom_variant_id=0`，`bom_spec_authoritative=false`；默认 BOM 为 `spec_group` 时继续使用精确 BOM 规格身份。多规格切单一产出前必须检查旧规格库存、预留、未完成订单、计划、工单和履约，存在任一依赖时阻止切换且不得留下部分写入。
+- `DEV-619-VUE-SINGLE-OUTPUT`：Vue BOM 抽屉提供“单一产出 / 多规格产出”。新建商品 BOM 默认单一产出；单一产出显示产出数量、单位和普通配方并隐藏模板与主体物料，多规格产出显示原规格组工作区。草稿切换结构需确认并清除不兼容明细；已发布结构变化通过替代 BOM 草稿完成。直接商品组件不选择规格，BOM 规格商品组件仍强制选择当前默认已发布规格。
+- `DEV-619-MULTILEVEL-E2E`：成本和生产计划按默认已发布 BOM 递归。盒装挂耳可表达 `1盒 = 10袋袋装挂耳 + 包装材料`，并继续向袋装挂耳的默认 BOM 展开；缺少默认 BOM、单位不兼容、自引用或循环引用时失败关闭。库存、价格表和 ERP 订单对直接商品身份只使用商品 ID 与商品库存单位，历史多规格商品、订单和库存保持原身份。
+- `DEV-619-DOCS-DEVELOPMENT-DELIVERY`：创建、修改、发布、设默认和结构切换写入操作日志；同步生产、成本与订单手册、PR/DEV/REV 和独立验收记录。完成定向 RED/GREEN、全量 Go/Vue/Vite、统一验证器与 development preflight 后合入 `develop` 并仅部署 development；`main` 与 production 不操作。

@@ -472,7 +472,8 @@ func TestProductionBomVersionOperationCostSnapshots(t *testing.T) {
 		"operation_cost_unit",
 		"refreshProductionBomVersionOperationCostSnapshotsTx",
 		"standard_cost_capacity_id",
-		"工艺路线工序缺少标准成本产能档",
+		"postgresinfra.FindStandardCostCapacityIssue",
+		"postgresinfra.StandardCostCapacityIssue",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("production BOM operation cost snapshot implementation missing marker %q", want)
@@ -801,6 +802,29 @@ func TestCreateProductionBomDefaultsToNoHiddenOverallLoss(t *testing.T) {
 	}
 	if strings.Contains(body, "yieldRate := 0.8") {
 		t.Fatal("new production BOM must not hide a default 20% overall loss")
+	}
+}
+
+func TestProductionBomMaterialOptionsAndOutputValidationGuardDeprecatedRows(t *testing.T) {
+	repository := readRepositorySource(t)
+	listStart := strings.Index(repository, "func listProductionBomMaterialOptions")
+	listEnd := strings.Index(repository[listStart:], "\nfunc ")
+	if listStart < 0 || listEnd < 0 {
+		t.Fatal("cannot locate listProductionBomMaterialOptions")
+	}
+	listBody := repository[listStart : listStart+listEnd]
+	if !strings.Contains(listBody, "deprecated_at IS NULL") {
+		t.Fatal("production BOM material options must exclude deprecated materials")
+	}
+
+	createStart := strings.Index(repository, "func (r Repository) CreateProductionBom(ctx")
+	createEnd := strings.Index(repository[createStart:], "func (r Repository) UpdateProductionBom(ctx")
+	if createStart < 0 || createEnd < 0 {
+		t.Fatal("cannot locate CreateProductionBom")
+	}
+	createBody := repository[createStart : createStart+createEnd]
+	if !strings.Contains(createBody, "产出物料不存在或已失效") {
+		t.Fatal("stale production BOM output material must return a stable user-facing error")
 	}
 }
 

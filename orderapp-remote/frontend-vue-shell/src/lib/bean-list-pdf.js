@@ -1,5 +1,12 @@
 export const DEFAULT_BEAN_LIST_PDF_VERSION = 'V3.0.5'
 
+export function formatBeanListPrice(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return '0'
+  const rounded = Math.round((numeric + Number.EPSILON) * 100) / 100
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2)
+}
+
 export function nextBeanListVersion(version, fallback = DEFAULT_BEAN_LIST_PDF_VERSION) {
   const source = String(version || '').trim()
   if (!source) return fallback

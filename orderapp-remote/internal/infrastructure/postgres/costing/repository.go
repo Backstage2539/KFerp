@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	appcosting "orderapp/internal/application/costing"
+	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	domain "orderapp/internal/domain/costing"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
@@ -26,6 +27,23 @@ type Repository struct {
 
 func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
+}
+
+func uniquePositiveInt64s(values []int64) []int64 {
+	seen := make(map[int64]struct{}, len(values))
+	out := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 func (r Repository) LoadParameters(ctx context.Context) (domain.Parameters, error) {
@@ -50,14 +68,26 @@ func (r Repository) LoadParameters(ctx context.Context) (domain.Parameters, erro
 }
 
 func (r Repository) LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error) {
-	return r.loadProductInputs(ctx, params, 0)
+	return r.loadProductInputs(ctx, params, 0, nil, false)
 }
 
 func (r Repository) LoadProductInputsForCustomer(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
 	if customerID < 0 {
 		customerID = 0
 	}
-	return r.loadProductInputs(ctx, params, customerID)
+	return r.loadProductInputs(ctx, params, customerID, nil, false)
+}
+
+func (r Repository) LoadPricingRuleTrialProductInputs(ctx context.Context, params domain.Parameters, customerID int64, productIDs []int64) ([]domain.ProductInput, error) {
+	if customerID < 0 {
+		customerID = 0
+	}
+	productIDs = uniquePositiveInt64s(productIDs)
+	if len(productIDs) == 0 {
+		return []domain.ProductInput{}, nil
+	}
+	skipResolvedProductionBomCosts := true
+	return r.loadProductInputs(ctx, params, customerID, productIDs, skipResolvedProductionBomCosts)
 }
 
 func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID int64, priceUnit string) (appcosting.ProductSalesUnitRule, error) {
@@ -409,7 +439,7 @@ func (r Repository) ResolveProductBOMSpecIdentity(ctx context.Context, parentPro
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
 		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
 		       migration.state,
-		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true),
+		       true,
 		       COALESCE(parent.active,true),
 		       true,
 		       variant.is_default,
@@ -433,7 +463,8 @@ func (r Repository) ResolveProductBOMSpecIdentity(ctx context.Context, parentPro
 		 AND variant.version_id=version.id
 		 AND variant.bom_spec_id=spec.id
 		WHERE migration.product_id=$1
-		  AND (migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false)
+		  AND COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),
+		      CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'
 		LIMIT 1
 	`, r.schema), parentProductID, bomSpecID, bomVariantID).Scan(
 		&identity.ParentProductID,
@@ -1689,7 +1720,7 @@ func finishPricingRuleTrialBaseCostDetails(out []appcosting.PricingRuleTrialBase
 	}
 }
 
-func (r Repository) loadProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
+func (r Repository) loadProductInputs(ctx context.Context, params domain.Parameters, customerID int64, scopedProductIDs []int64, skipResolvedProductionBomCosts bool) ([]domain.ProductInput, error) {
 	q := fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
@@ -1798,6 +1829,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			 AND alias_cc.template_id = alias_class.template_id
 			 AND alias_cc.active=true
 			WHERE p.active = true
+			  AND ($2::bigint[] IS NULL OR p.id=ANY($2::bigint[]) OR COALESCE(p.parent_product_id,0)=ANY($2::bigint[]))
 			  AND (COALESCE(p.parent_product_id,0)=0 OR EXISTS (
 				SELECT 1 FROM %[1]s.products active_parent
 				WHERE active_parent.id=p.parent_product_id AND active_parent.active=true
@@ -2425,7 +2457,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			GROUP BY p.id, p.parent_product_id, p.sku_name, p.sku_code, p.barcode, p.derived_spec_key, p.spec_label, p.net_content_qty, p.net_content_unit, p.is_default_sku, parent_product.id, parent_product.default_sku_id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, p.process_route_id, product_process_route.name, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, p.auto_derived_sku, p.derived_sales_unit, parent_units.parent_inventory_unit, derived_sku_units.derived_sku_unit_factor, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, product_unit_template.inventory_unit, product_unit_template.quote_unit, product_unit_template.order_unit, product_unit_template.unit_conversion_json, product_unit_template.integer_unit, product_unit_template_default_spec.spec_key, product_unit_template_default_spec.spec_name, product_unit_template_default_spec.sales_unit, product_unit_template_default_spec.net_content_qty, product_unit_template_default_spec.net_content_unit, product_unit_template_default_spec.unit_conversion_json, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.customer_id, cpro.product_subtype_category_id, cpro.price_list_rule_json, cpro.unit_rule_json, pps.product_price_snapshots_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, current_bom.id, current_bom.status, current_bv.id, current_bv.version_no, current_bv.yield_rate, current_bv.special_attrs_json, current_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
-	rows, err := r.pool.Query(ctx, q, customerID)
+	rows, err := r.pool.Query(ctx, q, customerID, scopedProductIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -2573,16 +2605,15 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		if authority, ok := authorities[parentID]; ok {
 			out[i].MigrationState = authority.MigrationState
 			out[i].BomSpecAuthoritative = authority.BomSpecAuthoritative
-			if authority.BomSpecAuthoritative {
-				out[i].SpecIdentityMode = "bom_spec"
-			} else {
-				out[i].SpecIdentityMode = "legacy_sku"
-			}
+			out[i].SpecIdentityMode = authority.SpecIdentityMode
 		}
 	}
-	resolvedBomCosts, err := r.loadResolvedProductionBomCosts(ctx)
-	if err != nil {
-		return nil, err
+	resolvedBomCosts := map[int64]productionBomResolvedCost{}
+	if !skipResolvedProductionBomCosts {
+		resolvedBomCosts, err = r.loadResolvedProductionBomCosts(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 	templates, err := r.loadGradientTemplatesByID(ctx, templateIDs)
 	if err != nil {
@@ -2595,7 +2626,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			}
 		}
 	}
-	cutoverSpecs, err := r.loadCutoverProductBOMSpecs(ctx)
+	cutoverSpecs, err := r.loadCutoverProductBOMSpecs(ctx, scopedProductIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -2630,6 +2661,7 @@ func filterBOMAuthoritativeProductInputs(inputs []domain.ProductInput) []domain.
 type productBOMSpecAuthority struct {
 	MigrationState       string
 	BomSpecAuthoritative bool
+	SpecIdentityMode     string
 }
 
 func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productIDs []int64) (map[int64]productBOMSpecAuthority, error) {
@@ -2647,8 +2679,8 @@ func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productID
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT product_id,
 		       COALESCE(state,''),
-		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true)=false
-		         OR COALESCE(state,'')='cutover'
+		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),
+		       COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode','')
 		FROM %s.product_bom_spec_migrations
 		WHERE product_id=ANY($1::bigint[])
 	`, r.schema), productIDs)
@@ -2659,9 +2691,13 @@ func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productID
 	for rows.Next() {
 		var productID int64
 		var authority productBOMSpecAuthority
-		if err := rows.Scan(&productID, &authority.MigrationState, &authority.BomSpecAuthoritative); err != nil {
+		var legacyCatalogProduct bool
+		var storedIdentityMode string
+		if err := rows.Scan(&productID, &authority.MigrationState, &legacyCatalogProduct, &storedIdentityMode); err != nil {
 			return nil, err
 		}
+		authority.SpecIdentityMode = productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, productspecmigrationapp.MigrationState(authority.MigrationState), legacyCatalogProduct)
+		authority.BomSpecAuthoritative = authority.SpecIdentityMode == productspecmigrationapp.SpecIdentityModeBOMSpec
 		result[productID] = authority
 	}
 	return result, rows.Err()
@@ -2686,7 +2722,7 @@ type cutoverProductBOMSpec struct {
 	SortOrder            int
 }
 
-func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context) ([]cutoverProductBOMSpec, error) {
+func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context, productIDs []int64) ([]cutoverProductBOMSpec, error) {
 	for _, relation := range []string{
 		"product_bom_spec_migrations",
 		"production_bom_output_bindings",
@@ -2715,7 +2751,7 @@ func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context) ([]cutoverPr
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
 		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
 		       migration.state,
-		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false OR migration.state='cutover',
+		       true,
 		       COALESCE(variant.process_route_id,0),
 		       variant.is_default,
 		       variant.sort_order
@@ -2736,10 +2772,11 @@ func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context) ([]cutoverPr
 		JOIN %[1]s.production_bom_version_variants variant
 		  ON variant.version_id=version.id
 		 AND variant.bom_spec_id=spec.id
-		WHERE migration.state='cutover'
-		   OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false
+		WHERE ($1::bigint[] IS NULL OR migration.product_id=ANY($1::bigint[]))
+		  AND COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),
+		      CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'
 		ORDER BY migration.product_id,variant.sort_order,spec.spec_key,spec.id
-	`, r.schema))
+	`, r.schema), productIDs)
 	if err != nil {
 		return nil, err
 	}

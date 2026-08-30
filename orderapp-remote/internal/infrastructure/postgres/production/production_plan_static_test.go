@@ -310,11 +310,18 @@ func TestProductionDemandInventoryUnitCompatibility(t *testing.T) {
 	countDemand := weightDemand
 	countDemand.SpecLabel = "1件"
 	countDemand.InventoryUnit = "件"
-	err = validateProductionDemandInventoryUnitAgainstBomOutput(
+	if err := validateProductionDemandInventoryUnitAgainstBomOutput(
 		countDemand,
 		latestUsableBomRoute{BomOutputUnit: "件"},
+	); err != nil {
+		t.Fatalf("direct product count demand should accept the exact BOM output unit: %v", err)
+	}
+	countDemand.InventoryUnit = "盒"
+	err = validateProductionDemandInventoryUnitAgainstBomOutput(
+		countDemand,
+		latestUsableBomRoute{BomOutputUnit: "袋"},
 	)
-	if err == nil || !strings.Contains(err.Error(), "requires a weight inventory unit") {
-		t.Fatalf("formal count demand must be rejected until count-based material expansion is supported, err=%v", err)
+	if err == nil || !strings.Contains(err.Error(), "unit incompatible") {
+		t.Fatalf("direct product named-unit mismatch must be rejected, err=%v", err)
 	}
 }

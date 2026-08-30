@@ -1099,6 +1099,24 @@ test('price list preview builds from current selected products instead of empty 
   assert.equal(viewSource.includes('重新试算失败项'), true, 'failed live trials should expose an explicit retry action')
 })
 
+test('price list preview derives visible categories from the current selected specs instead of stale category cache', () => {
+  const categoriesStart = viewSource.indexOf('const pdfVisibleCategoryCodes = computed(')
+  const categoriesEnd = viewSource.indexOf('const categoryProductGroups = computed(', categoriesStart)
+  assert.ok(categoriesStart > -1 && categoriesEnd > categoriesStart, 'missing visible preview category computed block')
+  const categoriesSource = viewSource.slice(categoriesStart, categoriesEnd)
+
+  assert.match(
+    categoriesSource,
+    /priceListCategoryCodesForSelectedProducts\(\s*categoryProductGroups\.value,\s*pdfSelectedProductIDs\.value,?\s*\)/,
+    'select-all must materialize every selected product category into preview and flat price rows',
+  )
+  assert.doesNotMatch(
+    categoriesSource,
+    /visibleCategoryCodesByType/,
+    'preview categories must not be narrowed by a stale draft category cache',
+  )
+})
+
 test('price list preview spans the page below flat price rows', () => {
   assert.match(viewSource, /<section class="price-list-preview">[\s\S]*?<div class="pdf-preview-title">[\s\S]*?<div class="pdf-preview-phone bean-list-pdf-surface"/)
   assert.match(viewSource, /<div v-if="priceListFlatRows\.length" class="pdf-picker flat-price-row-editor">[\s\S]*?<\/div>\s*<section class="price-list-preview">/)
@@ -1186,4 +1204,19 @@ test('editing a fixed flat row updates the canonical SKU fixed amount instead of
   assert.match(setterSource, /row\.pricing_mode.*fixed_price/)
   assert.match(setterSource, /setPriceListSkuFixedPrice\(row, value\)/)
   assert.match(setterSource, /delete next\[key\]/)
+})
+
+test('flat price rows expose the shared pricing-rule editor before retry failures', () => {
+  const header = viewSource.match(/<div v-if="priceListFlatRows\.length" class="pdf-picker flat-price-row-editor">[\s\S]*?<div class="flat-price-table"/)?.[0] || ''
+  assert.match(header, /@click="openPriceListPricingRuleEditor"[^>]*>编辑价格模板<\/button>/)
+  assert.match(header, /编辑价格模板<\/button>[\s\S]*重新试算失败项/)
+  assert.match(viewSource, /<PricingRuleEditorForm/)
+  assert.match(viewSource, /aria-label="商品价格表价格模板编辑"/)
+  assert.match(viewSource, /savePriceListPricingRule/)
+})
+
+test('flat price row pricing-rule editor is anchored as a full-height right drawer', () => {
+  assert.match(viewSource, /<div v-if="priceListPricingRuleEditorDrawerOpen" class="settings-drawer-mask"/)
+  assert.match(viewSource, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*display:\s*flex;[^}]*justify-content:\s*flex-end;/s)
+  assert.match(viewSource, /\.settings-drawer\s*\{[^}]*box-sizing:\s*border-box;[^}]*height:\s*100vh;/s)
 })

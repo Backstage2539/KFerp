@@ -6,6 +6,62 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-619-PRODUCT-BOM-SINGLE-OUTPUT
+- Branch: `codex/product-bom-single-output-mode-20260830`
+- Owner/session: Codex / 2026-08-30
+- Status: development-delivered; Van page acceptance pending
+- Scope: 商品 BOM 支持“单一产出”和“多规格产出”；单一产出直接使用商品身份、产出数量/单位与普通配方组件，不创建隐藏规格，并贯通成本、生产、库存、价格与订单。
+- DEV: DEV-619-BOM-SPECIFICATION-MODE; DEV-619-DIRECT-PRODUCT-IDENTITY; DEV-619-VUE-SINGLE-OUTPUT; DEV-619-MULTILEVEL-E2E; DEV-619-DOCS-DEVELOPMENT-DELIVERY
+- Verifier:
+  - Unit: RED captured; targeted and full Go GREEN
+  - API: RED captured; create/update/publish/default identity coverage GREEN
+  - Frontend/build: RED captured; 1044 Vue tests and Vite build GREEN
+  - Manual: production/costing/order manuals updated
+  - Review/acceptance: unified verifier GREEN; development sample confirmed BOM 22002, cost recursion, plan 92, direct-product inventory, price publication and order 1590; Van page acceptance pending
+- Deployment: development `origin/develop@4da005b95254a6cceee6c691c3b358fede4f0e94`; login smoke HTTP 200; backup `/opt/stacks/erp/orderapp.backup.deploy-20260830024922-4da005b95254`; rollback image `kferp-orderapp-rollback:development-20260830024922-4da005b95254`; production untouched
+- Last update: 2026-08-30 Asia/Shanghai
+- Notes: requested PR-618 was already occupied on latest `origin/develop`; reserved the next free id PR-619.
+
+### PR-618-BOM-ROUTE-CAPACITY-ERROR-DETAIL
+- Branch: `codex/bom-route-capacity-error-detail-20260830`; follow-up `codex/pr618-final-acceptance`
+- Owner/session: Codex / 2026-08-30
+- Status: development-delivered; Van page acceptance pending.
+- Scope: 生产 BOM 或工艺路线发布遇到失效标准成本产能档时，错误必须指出工艺路线、工序顺序与名称、产能档、工位，并区分未选择、产能档停用/不存在、工位停用/不存在、工位不适用当前工序；不再返回无法定位对象的笼统提示。
+- Verifier:
+  - RED: `go test ./internal/infrastructure/postgres -run TestStandardCostCapacityIssueError -count=1 -v` failed because `StandardCostCapacityIssue` did not exist.
+  - Unit/API: targeted helper/API/contract tests, `go test ./... -count=1`, `scripts/verify_kferp.sh changed`, and `scripts/verify_kferp.sh backend` GREEN.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-30-bom-route-capacity-error-detail.md`.
+- Deployment: behavior merged and deployed at `develop@b33637fcb1600123e5addd68f7b46ee6a0e4c647`; external login smoke HTTP 200, container healthy, authenticated requirement API exposed PR-618, and deployed diagnostic source SHA-256 matched `origin/develop`. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260830005734-b33637fcb160`; rollback image `kferp-orderapp-rollback:development-20260830005734-b33637fcb160`. `main` and production were not operated.
+- Last update: 2026-08-30 Asia/Shanghai
+
+### PR-617-PRODUCTION-BOM-DEPRECATED-MATERIAL-GUARD
+- Branch: `codex/pr617-bom-deprecated-output`; follow-up `codex/pr617-development-acceptance`
+- Owner/session: Codex / 2026-08-30
+- Status: development-delivered; Van page acceptance pending
+- Scope: 生产 BOM 的物料选项只返回未失效档案；旧页面或过期请求提交失效产出物料时返回明确中文错误，不再泄漏 `no rows in result set`。
+- DEV: DEV-617-ACTIVE-MATERIAL-OPTIONS; DEV-617-STABLE-OUTPUT-MATERIAL-ERROR; DEV-617-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: PostgreSQL repository RED→GREEN; handler/API error contract; Go/support/release gates; development authenticated API smoke
+- Deployment: behavior merged and deployed at `develop@50d07c54fc12d6e9aad8561bfe3ff23efac863fd`; authenticated smoke proved material 72 present, deprecated material 74 absent, stale create HTTP 400 with no persisted BOM/version. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260830003214-50d07c54fc12`; rollback image `kferp-orderapp-rollback:development-20260830003214-50d07c54fc12`. `main` and production were not operated.
+
+### PR-616-DRIP-MULTISTAGE-MANUFACTURING-FLOW
+- Branch: `codex/pr616-drip-multistage-flow`; follow-ups `codex/pr616-multilevel-plan-scope`, `codex/pr616-material-count-capacity`, `codex/pr616-final-acceptance`
+- Owner/session: Codex / 2026-08-29
+- Status: development-delivered; Van page acceptance pending
+- Scope: 修复商品价格表“编辑价格模板”掉到页面底部的问题；在 development 复用初晓烘焙半成品与挂耳商品，补齐咖啡粉、挂耳包两个中间物料及研磨、挂耳包装、盒装包装 BOM，发布价格表并完成真实录单验收。
+- DEV: DEV-616-PRICING-RULE-RIGHT-DRAWER; DEV-616-DRIP-MULTISTAGE-BOM-CONFIG; DEV-616-DRIP-PRICE-LIST-ORDER-E2E; DEV-616-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: targeted Vue RED→GREEN; multilevel production domain/API; real development BOM graph, costing, price-list publication, saved order and submitted-plan/work-order dependency queries; Go/Vue/Vite and `scripts/verify_kferp.sh all`
+- Deployment: development only. Initial feature and blockers were delivered through `develop@03319a7b`, `develop@fbf50822` and `develop@6e78df0a`; the final viewport-exact drawer/docs release is included in the current development delivery. Price publication `#111` (`V3.0.21`), order `#1589` (`SO-20260828-0001`), plan `#90` and work orders `#48–51` form the accepted chain. `main` and production were not operated.
+
+### PR-615-PRICING-TRIAL-PERFORMANCE-DISPLAY-EDITOR
+- Branch: `codex/price-list-decimal-display`
+- Owner/session: Codex / 2026-08-28
+- Status: development-delivered; Van page acceptance pending
+- Scope: 商品价格表批量试算按本次商品范围加载并去重同一成本上下文；价格展示统一为整数不补零、小数固定两位；平铺价格行新增价格模板编辑抽屉，保存后仅重算当前草稿中引用该模板的价格行。
+- DEV: DEV-615-SCOPED-TRIAL-LOAD; DEV-615-PRICE-DISPLAY; DEV-615-PRICING-RULE-EDITOR-REFRESH; DEV-615-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: targeted Go/Vue RED→GREEN; public price API/page; full Go/Vue/Vite and `scripts/verify_kferp.sh all`
+- Deployment: merged to `develop@b437c743439e2062062d7fcba227ec33834b9c33` and deployed development; real one-product/four-tier trial completed in `0.134899s` with 4/4 positive results; production is out of scope
+
 ### PR-614-CURRENT-PRICE-CATALOG-BOM-SPEC-PROJECTION
 - Branch: `codex/mini-current-price-catalog-sync`
 - Owner/session: Codex / 2026-08-27

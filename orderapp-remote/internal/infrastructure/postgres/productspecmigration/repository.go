@@ -287,11 +287,12 @@ func (r Repository) loadMigrationTx(ctx context.Context, tx pgx.Tx, productID in
 	var row productspecmigrationapp.ProductMigration
 	var readinessJSON string
 	var state string
+	var storedIdentityMode string
 	legacyCatalogProduct := true
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT product_id,state,COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),readiness_json::text,prepared_at,ready_at,cutover_at,updated_at
+		SELECT product_id,state,COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode',''),readiness_json::text,prepared_at,ready_at,cutover_at,updated_at
 		FROM %s.product_bom_spec_migrations WHERE product_id=$1%s
-	`, r.schema, lockSQL), productID).Scan(&row.ProductID, &state, &legacyCatalogProduct, &readinessJSON, &row.PreparedAt, &row.ReadyAt, &row.CutoverAt, &row.UpdatedAt)
+	`, r.schema, lockSQL), productID).Scan(&row.ProductID, &state, &legacyCatalogProduct, &storedIdentityMode, &readinessJSON, &row.PreparedAt, &row.ReadyAt, &row.CutoverAt, &row.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var exists bool
 		if scanErr := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.products WHERE id=$1)`, r.schema), productID).Scan(&exists); scanErr != nil {
@@ -315,8 +316,8 @@ func (r Repository) loadMigrationTx(ctx context.Context, tx pgx.Tx, productID in
 	row.State = productspecmigrationapp.MigrationState(state)
 	row.MigrationState = row.State
 	row.LegacyCatalogProduct = legacyCatalogProduct
-	row.SpecIdentityMode = productspecmigrationapp.SpecIdentityMode(row.State, legacyCatalogProduct)
-	row.BomSpecAuthoritative = productspecmigrationapp.IsBOMSpecAuthoritative(row.State, legacyCatalogProduct)
+	row.SpecIdentityMode = productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, row.State, legacyCatalogProduct)
+	row.BomSpecAuthoritative = row.SpecIdentityMode == productspecmigrationapp.SpecIdentityModeBOMSpec
 	if strings.TrimSpace(readinessJSON) != "" {
 		_ = json.Unmarshal([]byte(readinessJSON), &row.Readiness)
 	}

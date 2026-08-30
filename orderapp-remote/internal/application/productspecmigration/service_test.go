@@ -23,6 +23,27 @@ type fakeAuthorityUpgradeRepository struct {
 	err     error
 }
 
+func TestResolveSpecIdentityModeSupportsDirectProductAuthority(t *testing.T) {
+	for _, testCase := range []struct {
+		stored string
+		state  MigrationState
+		legacy bool
+		want   string
+	}{
+		{stored: SpecIdentityModeProduct, state: StatePreparing, legacy: false, want: SpecIdentityModeProduct},
+		{stored: SpecIdentityModeBOMSpec, state: StateLegacy, legacy: true, want: SpecIdentityModeBOMSpec},
+		{state: StateCutover, legacy: true, want: SpecIdentityModeBOMSpec},
+		{state: StateLegacy, legacy: true, want: SpecIdentityModeLegacySKU},
+	} {
+		if got := ResolveSpecIdentityMode(testCase.stored, testCase.state, testCase.legacy); got != testCase.want {
+			t.Fatalf("ResolveSpecIdentityMode(%q,%q,%v)=%q want %q", testCase.stored, testCase.state, testCase.legacy, got, testCase.want)
+		}
+	}
+	if IsBOMSpecAuthoritativeWithMode(SpecIdentityModeProduct, StateCutover, false) {
+		t.Fatal("direct product identity must not be BOM-spec authoritative")
+	}
+}
+
 func (r *fakeAuthorityUpgradeRepository) PreviewAuthorityUpgrade(context.Context) (AuthorityUpgradeReport, error) {
 	r.mode = AuthorityUpgradePreview
 	return r.report, r.err

@@ -79,3 +79,18 @@ func TestServiceAllowsRepositoryToResolveCurrentBOMVariant(t *testing.T) {
 		t.Fatalf("adjust=%+v, want repository-resolved variant placeholder", repo.adjust)
 	}
 }
+
+func TestServiceKeepsDirectProductFinishedInventoryAsNamedWholeUnits(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	if err := svc.AdjustFinished(context.Background(), AdjustFinishedInventoryCommand{
+		ProductID: 8, SpecG: 0, BomSpecID: 0, BomVariantID: 0,
+		UnitCode: " 盒 ", Units: 3, LooseG: 0, Operator: " tester ",
+	}); err != nil {
+		t.Fatalf("AdjustFinished direct product: %v", err)
+	}
+	if repo.adjust.ProductID != 8 || repo.adjust.SpecG != 0 || repo.adjust.BomSpecID != 0 ||
+		repo.adjust.BomVariantID != 0 || repo.adjust.UnitCode != "盒" || repo.adjust.Units != 3 || repo.adjust.LooseG != 0 {
+		t.Fatalf("direct product adjust=%+v", repo.adjust)
+	}
+}

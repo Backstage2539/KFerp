@@ -716,6 +716,10 @@ type customerScopedProductInputRepository interface {
 	LoadProductInputsForCustomer(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error)
 }
 
+type pricingRuleTrialProductInputRepository interface {
+	LoadPricingRuleTrialProductInputs(ctx context.Context, params domain.Parameters, customerID int64, productIDs []int64) ([]domain.ProductInput, error)
+}
+
 type pricingRuleTrialBaseCostDetailRepository interface {
 	LoadPricingRuleTrialBaseCostDetails(ctx context.Context, input domain.ProductInput) ([]PricingRuleTrialBaseCostDetail, error)
 }
@@ -1040,7 +1044,33 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 
 	rules := make(map[int64]ProductPricingRule)
 	ruleErrors := make(map[int64]error)
-	inputsByCustomer := make(map[int64]map[int64]domain.ProductInput)
+	requestedProductIDs := make(map[int64]map[int64]struct{})
+	for _, cmd := range commands {
+		if cmd.ProductID <= 0 {
+			continue
+		}
+		if requestedProductIDs[cmd.CustomerID] == nil {
+			requestedProductIDs[cmd.CustomerID] = make(map[int64]struct{})
+		}
+		requestedProductIDs[cmd.CustomerID][cmd.ProductID] = struct{}{}
+	}
+	inputsByCustomer := make(map[int64]map[int64]domain.ProductInput, len(requestedProductIDs))
+	for customerID, productIDSet := range requestedProductIDs {
+		productIDs := make([]int64, 0, len(productIDSet))
+		for productID := range productIDSet {
+			productIDs = append(productIDs, productID)
+		}
+		sort.Slice(productIDs, func(i, j int) bool { return productIDs[i] < productIDs[j] })
+		inputs, loadErr := s.pricingRuleTrialProductInputsForProducts(ctx, params, customerID, productIDs)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		customerInputs := make(map[int64]domain.ProductInput, len(inputs))
+		for _, input := range inputs {
+			customerInputs[input.ProductID] = input
+		}
+		inputsByCustomer[customerID] = customerInputs
+	}
 	prepared := make([]preparedPricingRuleTrial, 0, len(commands))
 	for index, original := range commands {
 		cmd := original
@@ -1068,18 +1098,7 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 			rules[cmd.PricingRuleID] = rule
 		}
 
-		customerInputs, ok := inputsByCustomer[cmd.CustomerID]
-		if !ok {
-			inputs, loadErr := s.pricingRuleTrialProductInputs(ctx, params, cmd.CustomerID)
-			if loadErr != nil {
-				return nil, loadErr
-			}
-			customerInputs = make(map[int64]domain.ProductInput, len(inputs))
-			for _, input := range inputs {
-				customerInputs[input.ProductID] = input
-			}
-			inputsByCustomer[cmd.CustomerID] = customerInputs
-		}
+		customerInputs := inputsByCustomer[cmd.CustomerID]
 		input, ok := customerInputs[cmd.ProductID]
 		if !ok {
 			rows[index].Error = "product not found"
@@ -1103,7 +1122,24 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 	productionOptions := make([]PricingRuleTrialProductionOptions, len(prepared))
 	productionOptionErrors := make([]error, len(prepared))
 	if optionRepo, ok := s.repo.(pricingRuleTrialProductionOptionRepository); ok {
-		productionOptions, productionOptionErrors = loadPricingRuleTrialProductionOptionsBatch(ctx, optionRepo, prepared)
+		uniqueItems := make([]preparedPricingRuleTrial, 0, len(prepared))
+		uniqueIndexes := make(map[string]int, len(prepared))
+		indexes := make([]int, len(prepared))
+		for i, item := range prepared {
+			key := fmt.Sprintf("%d:%d", item.command.CustomerID, item.input.ProductID)
+			uniqueIndex, exists := uniqueIndexes[key]
+			if !exists {
+				uniqueIndex = len(uniqueItems)
+				uniqueIndexes[key] = uniqueIndex
+				uniqueItems = append(uniqueItems, item)
+			}
+			indexes[i] = uniqueIndex
+		}
+		uniqueOptions, uniqueErrors := loadPricingRuleTrialProductionOptionsBatch(ctx, optionRepo, uniqueItems)
+		for i, uniqueIndex := range indexes {
+			productionOptions[i] = uniqueOptions[uniqueIndex]
+			productionOptionErrors[i] = uniqueErrors[uniqueIndex]
+		}
 	}
 	ready := make([]preparedPricingRuleTrial, 0, len(prepared))
 	for i, item := range prepared {
@@ -1142,19 +1178,33 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 		}
 	}
 
-	inputs := make([]domain.ProductInput, len(prepared))
+	uniqueInputs := make([]domain.ProductInput, 0, len(prepared))
+	uniqueInputIndexes := make(map[string]int, len(prepared))
+	inputIndexes := make([]int, len(prepared))
 	for i := range prepared {
-		inputs[i] = prepared[i].input
+		key := pricingRuleTrialBaseCostContextKey(prepared[i].input, prepared[i].command)
+		uniqueIndex, exists := uniqueInputIndexes[key]
+		if !exists {
+			uniqueIndex = len(uniqueInputs)
+			uniqueInputIndexes[key] = uniqueIndex
+			uniqueInputs = append(uniqueInputs, prepared[i].input)
+		}
+		inputIndexes[i] = uniqueIndex
 	}
 	details := make([][]PricingRuleTrialBaseCostDetail, len(prepared))
 	detailErrors := make([]error, len(prepared))
 	if batchRepo, ok := s.repo.(pricingRuleTrialBatchBaseCostDetailRepository); ok {
-		details, detailErrors, err = batchRepo.LoadPricingRuleTrialBaseCostDetailsBatch(ctx, inputs)
+		uniqueDetails, uniqueDetailErrors, batchErr := batchRepo.LoadPricingRuleTrialBaseCostDetailsBatch(ctx, uniqueInputs)
+		err = batchErr
 		if err != nil {
 			return nil, err
 		}
-		if len(details) != len(prepared) || len(detailErrors) != len(prepared) {
+		if len(uniqueDetails) != len(uniqueInputs) || len(uniqueDetailErrors) != len(uniqueInputs) {
 			return nil, fmt.Errorf("pricing rule trial batch details count mismatch")
+		}
+		for i, uniqueIndex := range inputIndexes {
+			details[i] = uniqueDetails[uniqueIndex]
+			detailErrors[i] = uniqueDetailErrors[uniqueIndex]
 		}
 	} else if _, ok := s.repo.(pricingRuleTrialBaseCostDetailRepository); ok {
 		return nil, fmt.Errorf("repository batch pricing rule trial details required")
@@ -1181,6 +1231,21 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 		rows[item.index].Result = result
 	}
 	return rows, nil
+}
+
+func pricingRuleTrialBaseCostContextKey(input domain.ProductInput, cmd PricingRuleTrialCommand) string {
+	return fmt.Sprintf("%d:%d:%d:%d:%d:%d:%d:%d:%s:%s",
+		cmd.CustomerID,
+		input.ProductID,
+		input.BomVersionID,
+		input.BomSpecID,
+		input.BomVariantID,
+		input.ProcessRouteID,
+		input.OperationTemplateID,
+		input.CustomerProductAliasID,
+		strings.TrimSpace(input.InventoryUnit),
+		strings.TrimSpace(cmd.QuoteUnit),
+	)
 }
 
 func loadPricingRuleTrialProductionOptionsBatch(ctx context.Context, repo pricingRuleTrialProductionOptionRepository, items []preparedPricingRuleTrial) ([]PricingRuleTrialProductionOptions, []error) {
@@ -1217,6 +1282,13 @@ func (s *Service) pricingRuleTrialProductInputs(ctx context.Context, params doma
 		}
 	}
 	return s.repo.LoadProductInputs(ctx, params)
+}
+
+func (s *Service) pricingRuleTrialProductInputsForProducts(ctx context.Context, params domain.Parameters, customerID int64, productIDs []int64) ([]domain.ProductInput, error) {
+	if scoped, ok := s.repo.(pricingRuleTrialProductInputRepository); ok {
+		return scoped.LoadPricingRuleTrialProductInputs(ctx, params, customerID, productIDs)
+	}
+	return s.pricingRuleTrialProductInputs(ctx, params, customerID)
 }
 
 func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd PricingRuleTrialCommand, options PricingRuleTrialProductionOptions) (domain.ProductInput, PricingRuleTrialProductionOptions, error) {

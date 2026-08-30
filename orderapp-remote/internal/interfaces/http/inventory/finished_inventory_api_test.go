@@ -282,6 +282,66 @@ UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=42 WHERE output_t
 	if len(payload.Products) != 1 || payload.Products[0].MigrationState != "cutover" || len(payload.Products[0].BOMSpecs) != 1 || payload.Products[0].BOMSpecs[0].BomSpecID != 91 {
 		t.Fatalf("products=%+v", payload.Products)
 	}
+
+	mustExecInventoryAPISQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+		ALTER TABLE %[1]s.product_bom_spec_migrations ADD COLUMN IF NOT EXISTS legacy_catalog_product BOOLEAN NOT NULL DEFAULT true;
+		ALTER TABLE %[1]s.product_bom_spec_migrations ADD COLUMN IF NOT EXISTS spec_identity_mode TEXT NOT NULL DEFAULT '';
+		INSERT INTO %[1]s.products(id,name,unit_rule_override_json)
+		VALUES(8,'直接商品盒装挂耳','{"inventory_unit":"盒","default_sales_unit":"盒","unit_conversion_json":{"盒":{"盒":1}}}'::jsonb);
+		INSERT INTO %[1]s.product_bom_spec_migrations(product_id,state,legacy_catalog_product,spec_identity_mode)
+		VALUES(8,'preparing',false,'product');
+	`, schema))
+	req = httptest.NewRequest(http.MethodPost, "/api/products/inventory", bytes.NewBufferString(`{"product_id":8,"bom_spec_id":0,"bom_variant_id":0,"spec_g":0,"unit_code":"盒","units":3}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST direct-product inventory status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var directUnits, directBatchSpecID, directLedgerSpecID, directAuditCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=8 AND bom_spec_id=0 AND bom_variant_id=0 AND spec_g=0 AND warehouse='finished_goods'
+	`, schema)).Scan(&directUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT bom_spec_id FROM %s.stock_batches WHERE item_id=8 ORDER BY id DESC LIMIT 1`, schema)).Scan(&directBatchSpecID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT bom_spec_id FROM %s.stock_ledger_entries WHERE item_id=8 ORDER BY id DESC LIMIT 1`, schema)).Scan(&directLedgerSpecID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s.audit_logs
+		WHERE entity_type='finished_inventory' AND action='adjust' AND meta->>'product_id'='8'
+	`, schema)).Scan(&directAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	if directUnits != 3 || directBatchSpecID != 0 || directLedgerSpecID != 0 || directAuditCount != 1 {
+		t.Fatalf("direct inventory units/batch spec/ledger spec/audit=%d/%d/%d/%d", directUnits, directBatchSpecID, directLedgerSpecID, directAuditCount)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/products/inventory?q=直接商品盒装挂耳", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET direct-product inventory status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var directPayload struct {
+		Rows     []inventoryapp.FinishedInventoryRow `json:"rows"`
+		Products []inventoryapp.ProductOption        `json:"products"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &directPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(directPayload.Rows) != 1 || directPayload.Rows[0].ProductID != 8 || directPayload.Rows[0].BomSpecID != 0 ||
+		directPayload.Rows[0].BomVariantID != 0 || directPayload.Rows[0].SpecG != 0 || directPayload.Rows[0].InventoryUnit != "盒" ||
+		directPayload.Rows[0].Units != 3 || directPayload.Rows[0].SpecIdentityMode != "product" || directPayload.Rows[0].BomSpecAuthoritative {
+		t.Fatalf("direct rows=%+v", directPayload.Rows)
+	}
+	if len(directPayload.Products) != 1 || directPayload.Products[0].ID != 8 || directPayload.Products[0].SpecIdentityMode != "product" || directPayload.Products[0].BomSpecAuthoritative {
+		t.Fatalf("direct products=%+v", directPayload.Products)
+	}
 }
 
 func newInventoryAPITestDB(t *testing.T) (*pgxpool.Pool, string) {

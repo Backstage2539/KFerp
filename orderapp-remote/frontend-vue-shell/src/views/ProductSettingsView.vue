@@ -801,96 +801,18 @@
           <button class="secondary compact-action" type="button" @click="closePricingRuleEditor">关闭</button>
         </div>
         <div class="drawer-body">
-          <div v-if="pricingRuleNeedsMarkupConfirmation(pricingRuleForm)" class="error pricing-rule-migration-alert" role="alert">
-            <strong>旧价格方式无法安全换算；请新建加价率模板。</strong>
-            <span>该模板仅供核对，不能复制或直接保存。原方式：{{ pricingRuleLegacyMethodLabel(pricingRuleForm) }}；原参数：{{ pricingRuleLegacyValueLabel(pricingRuleForm) }}。</span>
-          </div>
-          <form class="template-editor pricing-rule-form" @submit.prevent="savePricingRule">
-            <div class="template-editor-grid">
-              <label>
-                <span>模板名称</span>
-                <input v-model.trim="pricingRuleForm.name" placeholder="如 成本加成含税" />
-              </label>
-              <label>
-                <span>模板编号</span>
-                <input v-model.trim="pricingRuleForm.code" placeholder="如 PR-COST-PLUS" />
-              </label>
-              <label>
-                <span>基础成本</span>
-                <select v-model="pricingRuleForm.cost_source_mode">
-                  <option value="bom_current_cost">生产 BOM 成本（物料+工序）</option>
-                </select>
-              </label>
-              <label>
-                <span>公式版本</span>
-                <input v-model.trim="pricingRuleForm.formula_version" placeholder="v1" />
-              </label>
-            </div>
-            <div class="pricing-rule-form-section">
-              <div class="pricing-rule-section-head">
-                <strong>其他成本</strong>
-                <button class="secondary compact-action" type="button" @click="addPricingRuleOtherCostRow">新增其他成本</button>
-              </div>
-              <small class="muted">生产 BOM 成本已包含物料采购成本和已选择工序成本；货币使用全局币种配置，当前不在价格模板中单独设置。</small>
-              <div class="pricing-rule-other-cost-list">
-                <div v-for="(row, index) in pricingRuleForm.other_cost_rows" :key="index" class="pricing-rule-other-cost-row">
-                  <label>
-                    <span>成本名</span>
-                    <input v-model.trim="row.key" placeholder="如 包装贴标" />
-                  </label>
-                  <label>
-                    <span>成本价格</span>
-                    <input v-model.number="row.value" type="number" min="0" step="0.0001" placeholder="0" />
-                  </label>
-                  <button class="secondary compact-action" type="button" @click="removePricingRuleOtherCostRow(index)">删除</button>
-                </div>
-              </div>
-            </div>
-            <div class="template-editor-grid">
-              <label>
-                <span>加价率（80%=0.8）</span>
-                <input v-model.number="pricingRuleForm.margin_rate" type="number" min="0" step="0.0001" placeholder="如 0.8" />
-                <small>计算公式：税前价 = 成本基数 × (1 + 加价率)；最终售价再计算税额和取整</small>
-              </label>
-              <label>
-                <span>最低毛利率（仅预警）</span>
-                <input v-model.number="pricingRuleForm.minimum_margin_rate" type="number" min="0" step="0.0001" placeholder="0.18" />
-                <small>只比较试算结果，不参与售价计算</small>
-              </label>
-              <label>
-                <span>税费方式</span>
-                <select v-model="pricingRuleForm.tax_mode">
-                  <option value="tax_included">含税</option>
-                  <option value="tax_excluded">未税</option>
-                  <option value="none">不计税</option>
-                </select>
-              </label>
-              <label>
-                <span>税率</span>
-                <input v-model.number="pricingRuleForm.tax_rate" type="number" min="0" step="0.0001" placeholder="0.06" />
-              </label>
-              <label>
-                <span>取整规则</span>
-                <select v-model="pricingRuleForm.rounding_mode">
-                  <option value="none">不取整</option>
-                  <option value="jiao">保留到角</option>
-                  <option value="yuan">保留到元</option>
-                </select>
-              </label>
-            </div>
-            <label class="wide-field">
-              <span>备注</span>
-              <textarea v-model.trim="pricingRuleForm.remark" rows="2" placeholder="说明 BOM/耗材/工艺成本如何参与试算"></textarea>
-            </label>
-            <label class="wide-field">
-              <span>试算说明</span>
-              <textarea v-model.trim="pricingRuleForm.trial_note" rows="2" placeholder="例如：选择商品、销售单位后按生产 BOM 成本试算"></textarea>
-            </label>
-            <div class="form-actions">
-              <button class="primary" type="submit" :disabled="productPriceSaving || pricingRuleNeedsMarkupConfirmation(pricingRuleForm)">保存价格计算模板</button>
-              <button v-if="pricingRuleForm.id && pricingRuleForm.active !== false" class="secondary danger-outline" type="button" :disabled="productPriceSaving" @click="deactivatePricingRule(pricingRuleForm)">失效</button>
-            </div>
-          </form>
+          <PricingRuleEditorForm
+            :form="pricingRuleForm"
+            :saving="productPriceSaving"
+            :error="error"
+            :message="ok"
+            :legacy-blocked="pricingRuleNeedsMarkupConfirmation(pricingRuleForm)"
+            :legacy-method-label="pricingRuleLegacyMethodLabel(pricingRuleForm)"
+            :legacy-value-label="pricingRuleLegacyValueLabel(pricingRuleForm)"
+            allow-deactivate
+            @save="savePricingRule"
+            @deactivate="deactivatePricingRule(pricingRuleForm)"
+          />
         </div>
       </aside>
     </div>
@@ -1960,6 +1882,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
+import PricingRuleEditorForm from '../components/PricingRuleEditorForm.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   businessGroupFeatureSelectionIDs,

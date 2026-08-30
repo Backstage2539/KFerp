@@ -9,6 +9,7 @@ import (
 	"time"
 
 	inventoryapp "orderapp/internal/application/inventory"
+	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	inventorydomain "orderapp/internal/domain/inventory"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
@@ -35,14 +36,16 @@ func (r Repository) ListFinished(ctx context.Context, query inventoryapp.Finishe
 	if err != nil {
 		return inventoryapp.FinishedInventoryResult{}, err
 	}
-	identitySelect := `fi.bom_spec_id,fi.bom_variant_id,''::text,''::text,''::text,''::text`
+	identitySelect := `fi.bom_spec_id,fi.bom_variant_id,''::text,''::text,''::text,''::text,'legacy_sku'::text,false`
 	identityJoins := ""
 	if hasSpecCatalog {
 		identitySelect = `fi.bom_spec_id,fi.bom_variant_id,
 		       COALESCE(spec.spec_key,''),
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
-		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
-		       COALESCE(NULLIF(migration.state,''),'legacy')`
+		       COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),NULLIF(to_jsonb(p)->'unit_rule_override_json'->>'inventory_unit',''),''),
+		       COALESCE(NULLIF(migration.state,''),'legacy'),
+		       COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END),
+		       COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'`
 		identityJoins = fmt.Sprintf(`
 		LEFT JOIN %s.production_bom_specs spec ON spec.id=fi.bom_spec_id
 		LEFT JOIN %s.production_bom_version_variants variant
@@ -93,7 +96,7 @@ func (r Repository) ListFinished(ctx context.Context, query inventoryapp.Finishe
 		var row inventoryapp.FinishedInventoryRow
 		if err := rows.Scan(
 			&row.ProductID, &row.Product, &row.SpecG,
-			&row.BomSpecID, &row.BomVariantID, &row.SpecKey, &row.SpecName, &row.InventoryUnit, &row.MigrationState,
+			&row.BomSpecID, &row.BomVariantID, &row.SpecKey, &row.SpecName, &row.InventoryUnit, &row.MigrationState, &row.SpecIdentityMode, &row.BomSpecAuthoritative,
 			&row.Warehouse, &row.Units, &row.LooseG, &row.UpdatedAt,
 		); err != nil {
 			return inventoryapp.FinishedInventoryResult{}, err
@@ -143,9 +146,12 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 	if err != nil {
 		return err
 	}
-	if cmd.BomSpecID > 0 {
+	if cmd.BomSpecID > 0 || (cmd.BomSpecID == 0 && cmd.SpecG == 0 && strings.TrimSpace(identity.InventoryUnit) != "") {
 		cmd.BomVariantID = identity.BomVariantID
 		cmd.UnitCode = identity.InventoryUnit
+	}
+	if cmd.BomSpecID == 0 && cmd.SpecG == 0 && strings.TrimSpace(identity.InventoryUnit) == "" {
+		return fmt.Errorf("direct product inventory identity is not enabled for product %d", cmd.ProductID)
 	}
 
 	before := inventorydomain.Quantity{}
@@ -161,7 +167,7 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 
 	after := inventorydomain.Quantity{Units: cmd.Units, LooseG: cmd.LooseG}
 	beforeG, afterG := int64(0), int64(0)
-	if cmd.BomSpecID == 0 {
+	if cmd.BomSpecID == 0 && cmd.SpecG > 0 {
 		beforeG, err = inventorydomain.TotalGrams(cmd.SpecG, before)
 		if err != nil {
 			return err
@@ -195,7 +201,7 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 
 	oldValue := fmt.Sprintf("%d+%dg", before.Units, before.LooseG)
 	newValue := fmt.Sprintf("%d+%dg", after.Units, after.LooseG)
-	if cmd.BomSpecID > 0 {
+	if cmd.BomSpecID > 0 || cmd.SpecG == 0 {
 		oldValue = fmt.Sprintf("%d %s", before.Units, cmd.UnitCode)
 		newValue = fmt.Sprintf("%d %s", after.Units, cmd.UnitCode)
 	}
@@ -352,6 +358,7 @@ func (r Repository) listProducts(ctx context.Context) ([]inventoryapp.ProductOpt
 func (r Repository) listProductsWithBOMSpecs(ctx context.Context) ([]inventoryapp.ProductOption, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT p.id,p.name,COALESCE(NULLIF(migration.state,''),'legacy'),
+		       COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END),
 		       COALESCE(current_spec.bom_spec_id,0),COALESCE(current_spec.bom_variant_id,0),
 		       COALESCE(current_spec.spec_key,''),COALESCE(current_spec.spec_name,''),
 		       COALESCE(current_spec.inventory_unit,''),COALESCE(current_spec.is_default,false),
@@ -384,18 +391,18 @@ func (r Repository) listProductsWithBOMSpecs(ctx context.Context) ([]inventoryap
 	order := make([]int64, 0)
 	for rows.Next() {
 		var productID, bomSpecID, bomVariantID int64
-		var productName, migrationState, specKey, specName, unit string
+		var productName, migrationState, identityMode, specKey, specName, unit string
 		var isDefault bool
 		var sortOrder int
 		if err := rows.Scan(
-			&productID, &productName, &migrationState,
+			&productID, &productName, &migrationState, &identityMode,
 			&bomSpecID, &bomVariantID, &specKey, &specName, &unit, &isDefault, &sortOrder,
 		); err != nil {
 			return nil, err
 		}
 		product := byID[productID]
 		if product == nil {
-			product = &inventoryapp.ProductOption{ID: productID, Name: productName, MigrationState: migrationState}
+			product = &inventoryapp.ProductOption{ID: productID, Name: productName, MigrationState: migrationState, SpecIdentityMode: identityMode, BomSpecAuthoritative: identityMode == productspecmigrationapp.SpecIdentityModeBOMSpec}
 			byID[productID] = product
 			order = append(order, productID)
 		}
@@ -455,7 +462,9 @@ func (r Repository) resolveFinishedBomSpecIdentityTx(ctx context.Context, tx pgx
 	}
 	if hasMigrations {
 		var state string
-		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, r.schema), productID).Scan(&state)
+		var legacyCatalogProduct bool
+		var storedIdentityMode string
+		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state,COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode','') FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, r.schema), productID).Scan(&state, &legacyCatalogProduct, &storedIdentityMode)
 		if err == pgx.ErrNoRows {
 			if bomSpecID > 0 || explicitVariantID > 0 {
 				return finishedBomSpecIdentity{}, fmt.Errorf("BOM spec identity is not enabled for product %d", productID)
@@ -465,9 +474,27 @@ func (r Repository) resolveFinishedBomSpecIdentityTx(ctx context.Context, tx pgx
 		if err != nil {
 			return finishedBomSpecIdentity{}, err
 		}
-		if strings.TrimSpace(state) != "cutover" {
+		identityMode := productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, productspecmigrationapp.MigrationState(state), legacyCatalogProduct)
+		if identityMode != productspecmigrationapp.SpecIdentityModeBOMSpec {
 			if bomSpecID > 0 || explicitVariantID > 0 {
 				return finishedBomSpecIdentity{}, fmt.Errorf("BOM spec identity is not ready for product %d", productID)
+			}
+			if identityMode == productspecmigrationapp.SpecIdentityModeProduct {
+				var inventoryUnit string
+				if err := tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(NULLIF(to_jsonb(products)->'unit_rule_override_json'->>'inventory_unit',''),'')
+					FROM %s.products WHERE id=$1
+				`, r.schema), productID).Scan(&inventoryUnit); err != nil {
+					return finishedBomSpecIdentity{}, err
+				}
+				inventoryUnit = strings.TrimSpace(inventoryUnit)
+				if inventoryUnit == "" {
+					return finishedBomSpecIdentity{}, fmt.Errorf("direct product inventory unit is empty for product %d", productID)
+				}
+				if strings.TrimSpace(explicitUnit) != "" && !strings.EqualFold(strings.TrimSpace(explicitUnit), inventoryUnit) {
+					return finishedBomSpecIdentity{}, fmt.Errorf("direct product inventory unit mismatch for product %d", productID)
+				}
+				return finishedBomSpecIdentity{InventoryUnit: inventoryUnit}, nil
 			}
 			return finishedBomSpecIdentity{}, nil
 		}

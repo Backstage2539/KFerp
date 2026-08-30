@@ -1811,6 +1811,7 @@ test('price table tier-template preview rows use their tier pricing rule trial r
 
 test('product price management edits markup-only pricing rules in a right drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const sharedEditor = fs.readFileSync(new URL('../components/PricingRuleEditorForm.vue', import.meta.url), 'utf8')
   const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<p class="muted price-list-flat-row-note"/)?.[0] || ''
   const editorDrawer = source.match(/<div v-if="pricingRuleEditorDrawerOpen"[\s\S]*?<div v-if="pricingRuleTrialDrawerOpen"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
@@ -1831,8 +1832,11 @@ test('product price management edits markup-only pricing rules in a right drawer
   assert.doesNotMatch(pane, />编辑模板<\/button>/)
   assert.doesNotMatch(pane, /@click="openPricingRuleTrial\(rule\)"/)
 
-  for (const want of ['价格计算模板编辑', '编辑价格计算模板', '新建价格计算模板', 'pricing-rule-form', '模板名称', '基础成本', '生产 BOM 成本（物料+工序）', '其他成本', '成本名', '成本价格', '全局币种配置', '加价率（80%=0.8）', '税前价 = 成本基数 × (1 + 加价率)', '最终售价再计算税额和取整', '税费方式', '最低毛利率（仅预警）', '只比较试算结果，不参与售价计算', '公式版本', '试算说明', '税率', '取整规则', '保存价格计算模板']) {
+  for (const want of ['价格计算模板编辑', '编辑价格计算模板', '新建价格计算模板']) {
     assert.equal(editorDrawer.includes(want), true, `pricing rule editor drawer should expose ${want}`)
+  }
+  for (const want of ['pricing-rule-form', '模板名称', '基础成本', '生产 BOM 成本（物料+工序）', '其他成本', '成本名', '成本价格', '全局币种配置', '加价率（80%=0.8）', '税前价 = 成本基数 × (1 + 加价率)', '最终售价再计算税额和取整', '税费方式', '最低毛利率（仅预警）', '只比较试算结果，不参与售价计算', '公式版本', '试算说明', '税率', '取整规则', '保存价格计算模板']) {
+    assert.equal(sharedEditor.includes(want), true, `shared pricing rule editor should expose ${want}`)
   }
   assert.match(editorDrawer, /class="settings-drawer-mask"[^>]*@click\.self="closePricingRuleEditor"/)
   assert.match(editorDrawer, /class="settings-drawer pricing-rule-editor-drawer"[^>]*aria-label="价格计算模板编辑"/)
@@ -1841,8 +1845,8 @@ test('product price management edits markup-only pricing rules in a right drawer
   assert.match(editorDrawer, /@keydown\.esc\.stop\.prevent="closePricingRuleEditor"/)
   assert.match(editorDrawer, /@keydown\.tab="trapPricingRuleEditorFocus"/)
   assert.match(editorDrawer, /@click="closePricingRuleEditor"[^>]*>关闭<\/button>/)
-  assert.match(editorDrawer, /<form class="template-editor pricing-rule-form"[^>]*@submit\.prevent="savePricingRule"/)
-  assert.match(editorDrawer, /v-if="pricingRuleNeedsMarkupConfirmation\(pricingRuleForm\)"[\s\S]*旧价格方式无法安全换算；请新建加价率模板/)
+  assert.match(editorDrawer, /<PricingRuleEditorForm[\s\S]*@save="savePricingRule"/)
+  assert.match(sharedEditor, /v-if="legacyBlocked"[\s\S]*旧价格方式无法安全换算；请新建加价率模板/)
   assert.doesNotMatch(editorDrawer, /v-model="pricingRuleForm\.profit_method"/)
   assert.doesNotMatch(editorDrawer, /value="gross_margin"|value="fixed_add"|>毛利率<|>固定加价</)
   assert.doesNotMatch(editorDrawer, /<div v-if="(?:error|ok)"/)

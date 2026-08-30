@@ -388,18 +388,22 @@ test('product BOM draft can add, remove, and reapply a published specification t
   assert.match(source, /main_input_material_id:/)
 })
 
-test('creating or copying a product BOM always submits the selected published template and main input', async () => {
+test('product BOM creation explicitly switches between single output and specification groups', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const form = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
 
-  assert.match(form, /bomForm\.mode !== 'edit'/)
-  assert.match(form, /bomForm\.spec_template_version_id/)
-  assert.match(form, /bomForm\.main_input_material_id/)
+  assert.match(form, /产出结构/)
+  assert.match(form, /v-model="bomForm\.specification_mode"/)
+  assert.match(form, /<option value="single">单一产出<\/option>/)
+  assert.match(form, /<option value="spec_group">多规格产出<\/option>/)
+  assert.match(form, /bomForm\.specification_mode === 'spec_group'[\s\S]*bomForm\.spec_template_version_id/)
+  assert.match(form, /bomForm\.specification_mode === 'spec_group'[\s\S]*bomForm\.main_input_material_id/)
+  assert.match(source, /specification_mode:\s*normalizeSpecificationMode\(bomForm\.specification_mode/)
   assert.match(source, /spec_template_version_id:\s*Number\(bomForm\.spec_template_version_id/)
   assert.match(source, /main_input_material_id:\s*Number\(bomForm\.main_input_material_id/)
-  assert.match(source, /bomForm\.mode !== 'edit'\s*&&\s*\(!Number\(bomForm\.spec_template_version_id/)
+  assert.match(source, /bomForm\.specification_mode === 'spec_group'/)
 })
 
 test('BOM version editor exposes process route selector and route labels', async () => {
@@ -936,7 +940,7 @@ test('BOM view edits one ordinary typed output contract and keeps PR596 inline g
   }
 })
 
-test('BOM product components select an explicit published BOM specification', async () => {
+test('BOM product components require a published BOM specification only for bom-spec identity products', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -944,7 +948,9 @@ test('BOM product components select an explicit published BOM specification', as
   assert.match(template, /商品 BOM 规格/)
   assert.match(template, /v-model\.number="itemForm\.component_bom_spec_id"/)
   assert.match(source, /\/api\/products\/\$\{id\}\/bom-spec-options/)
-  assert.match(source, /component_bom_spec_id:\s*Number\(itemForm\.component_bom_spec_id/)
+  assert.match(source, /selectedComponentProductIdentityMode/)
+  assert.match(source, /productSpecIdentityMode/)
+  assert.match(source, /component_bom_spec_id:[\s\S]{0,180}productSpecIdentityMode\(selectedProduct\)/)
   assert.match(source, /商品组件必须选择明确的已发布 BOM 规格/)
   assert.match(source, /selectedComponentBomSpec\.value\?\.inventory_unit/)
 })
@@ -957,7 +963,7 @@ test('BOM specification template variants edit material and published product-sp
 
   assert.match(templateEditor, /v-model="item\.component_type"/)
   assert.match(templateEditor, /<option value="material">物料<\/option>/)
-  assert.match(templateEditor, /<option value="product"[^>]*>商品规格组件<\/option>/)
+  assert.match(templateEditor, /<option value="product"[^>]*>商品组件<\/option>/)
   assert.match(templateEditor, /v-model="item\.component_product_id"/)
   assert.match(templateEditor, /v-model\.number="item\.component_bom_spec_id"/)
   assert.match(templateEditor, /item\.component_bom_spec_options/)
@@ -1106,7 +1112,7 @@ test('switching BOM output to material clears the spec group and saves a flat re
 
   assert.match(script, /function syncBomOutputType\(\)/)
   assert.match(script, /productionBomDetail\.value\.variants\s*=\s*\[\]/)
-  assert.match(script, /isProductOutput\s*\?\s*\{\s*variants:/)
+  assert.match(script, /isSpecGroupOutput\s*\?\s*\{\s*variants:/)
   assert.match(script, /:\s*\{\s*items:\s*detailItems\.value\.map\(productionBomDraftItemPayloadFromItem\)/)
   assert.doesNotMatch(script, /body:\s*\{[\s\S]{0,500}items:[\s\S]{0,500}variants:/)
   const hint = source.match(/改为物料产出[\s\S]{0,60}/)?.[0] || ''

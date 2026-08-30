@@ -42,6 +42,9 @@ func TestDev539PricingMarkupDrawerContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"pricingRuleEditorDrawerOpen", "pricing-rule-editor-drawer", "aria-label=\"\u4ef7\u683c\u8ba1\u7b97\u6a21\u677f\u7f16\u8f91\"",
+			"PricingRuleEditorForm",
+		},
+		filepath.Join("frontend-vue-shell", "src", "components", "PricingRuleEditorForm.vue"): {
 			"\u52a0\u4ef7\u7387\uff0880%=0.8\uff09", "\u7a0e\u524d\u4ef7 = \u6210\u672c\u57fa\u6570 \u00d7 (1 + \u52a0\u4ef7\u7387)", "\u6700\u7ec8\u552e\u4ef7\u518d\u8ba1\u7b97\u7a0e\u989d\u548c\u53d6\u6574",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {

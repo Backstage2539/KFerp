@@ -227,11 +227,11 @@ func validateProductionDemandInventoryUnitAgainstBomOutput(group startRunGroup, 
 		// production quantity snapshot or the current concrete SKU conversion.
 		return nil
 	}
-	_, bomOutputDimension := normalizeProductionPlanQuantityDimension(bomRoute.BomOutputUnit)
+	bomOutputUnit, bomOutputDimension := normalizeProductionPlanQuantityDimension(bomRoute.BomOutputUnit)
+	if strings.EqualFold(strings.TrimSpace(inventoryUnit), strings.TrimSpace(bomOutputUnit)) {
+		return nil
+	}
 	if group.BomSpecID > 0 {
-		if strings.EqualFold(strings.TrimSpace(inventoryUnit), strings.TrimSpace(bomRoute.BomOutputUnit)) {
-			return nil
-		}
 		return fmt.Errorf(
 			"production demand unit incompatible with BOM specification output: product %s / spec %s: inventory unit %s, BOM output unit %s",
 			firstNonEmpty(group.ProductName, fmt.Sprintf("product#%d", group.ProductID)),
@@ -244,7 +244,7 @@ func validateProductionDemandInventoryUnitAgainstBomOutput(group startRunGroup, 
 		return nil
 	}
 	reason := "production demand unit incompatible with BOM output"
-	if inventoryDimension != "weight" {
+	if inventoryDimension == "count" {
 		reason = "formal production planning requires a weight inventory unit"
 	}
 	return fmt.Errorf(
@@ -405,7 +405,7 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 		group.InputG = productionInputGFromBomMaterialLoss(group.NeedG, bomMaterialLossRate)
 	}
 	plan := plannedFinishedInventoryAddition(group.SpecG, group.NeedG)
-	if group.BomSpecID > 0 {
+	if group.BomSpecID > 0 || (group.PlannedInventoryQty > 0 && productionWeightUnitGrams(group.InventoryUnit) <= 0) {
 		plan.Units = int64(math.Ceil(group.PlannedInventoryQty))
 		plan.LooseG = 0
 	}
@@ -1457,7 +1457,8 @@ func productionPlanPreviewOperationCoverage(item productionapp.ProductionPlanIte
 			continue
 		}
 		requiredG := productionPlanItemOutputTargetG(item)
-		if item.SalesSpecCount <= 0 || requiredG <= 0 {
+		requiredCount := productionPlanItemCountTarget(item)
+		if requiredCount <= 0 || requiredG <= 0 {
 			return requiredG, 0, 0
 		}
 		arrangedCount := 0.0
@@ -1466,7 +1467,7 @@ func productionPlanPreviewOperationCoverage(item productionapp.ProductionPlanIte
 				arrangedCount += math.Max(0, row.PlannedQty)
 			}
 		}
-		factor := arrangedCount / item.SalesSpecCount
+		factor := arrangedCount / requiredCount
 		return requiredG, int64(math.Round(float64(requiredG) * factor)), factor
 	}
 	requiredG := productionPlanItemTargetG(item)
@@ -1481,6 +1482,19 @@ func productionPlanPreviewOperationCoverage(item productionapp.ProductionPlanIte
 		factor = float64(arrangedG) / float64(requiredG)
 	}
 	return requiredG, arrangedG, factor
+}
+
+func productionPlanItemCountTarget(item productionapp.ProductionPlanItem) float64 {
+	if item.SalesSpecCount > 0 {
+		return item.SalesSpecCount
+	}
+	if item.PlannedInventoryQty > 0 && productionCapacityUnitKind(item.InventoryUnit) == "count" {
+		return item.PlannedInventoryQty
+	}
+	if item.OutputQty > 0 && productionCapacityUnitKind(item.OutputUnit) == "count" {
+		return item.OutputQty
+	}
+	return 0
 }
 
 func productionPlanPreviewAllSplitArrangedG(splits []productionapp.ProductionPlanOperationSplit) int64 {
@@ -2085,11 +2099,12 @@ func validateProductionPlanOperationSplitCoverage(item productionapp.ProductionP
 			}
 		}
 		if kind == "count" {
-			if item.SalesSpecCount <= 0 {
+			requiredCount := productionPlanItemCountTarget(item)
+			if requiredCount <= 0 {
 				return fmt.Errorf("工序“%s”缺少冻结销售规格件数，无法校验计件产能", label)
 			}
-			if arrangedCount+0.000001 < item.SalesSpecCount {
-				return fmt.Errorf("工序“%s”的件数产能不足：需要%.4f件，已安排%.4f件", label, item.SalesSpecCount, arrangedCount)
+			if arrangedCount+0.000001 < requiredCount {
+				return fmt.Errorf("工序“%s”的件数产能不足：需要%.4f件，已安排%.4f件", label, requiredCount, arrangedCount)
 			}
 			continue
 		}
@@ -2471,7 +2486,7 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 		plannedOutputG = wo.PlannedG
 	}
 	plan := runningInventoryPlan(wo.SpecG, plannedOutputG, wo.PlannedG, yieldRate)
-	if wo.BomSpecID > 0 {
+	if wo.BomSpecID > 0 || (wo.PlannedInventoryQty > 0 && productionWeightUnitGrams(wo.InventoryUnit) <= 0) {
 		plan.Units = int64(math.Ceil(wo.PlannedInventoryQty))
 		plan.LooseG = 0
 	}

@@ -2,6 +2,7 @@ package bom
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -269,7 +270,7 @@ func TestProductionBomDraftWorkspaceAPINormalizesRecipeBranchByOutputType(t *tes
 
 	req = httptest.NewRequest(http.MethodPut, "/api/production-boms/11/draft-workspace", strings.NewReader(`{
 		"name":"商品草稿","output_type":"product","output_id":7,"version_id":103,
-		"items":[{"component_type":"material","material_id":7,"consume_unit":"kg","qty_per_unit":1}],
+		"specification_mode":"spec_group","spec_template_version_id":17,"main_input_material_id":7,
 		"variants":[{"spec_key":"spec-1","name":"227g","inventory_unit":"袋","is_default":true}]
 	}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -398,5 +399,44 @@ func TestProductionBomAPIUsesUnifiedMaterialOutputAndFilters(t *testing.T) {
 	}
 	if repo.boundProductionBomOutput.OutputType != "material" || repo.boundProductionBomOutput.OutputID != 95 || repo.boundProductionBomOutput.BomID != 22 {
 		t.Fatalf("bound output command = %+v", repo.boundProductionBomOutput)
+	}
+}
+
+func TestCreateProductionBomAPIKeepsStableDeprecatedOutputError(t *testing.T) {
+	repo := &apiFakeRepo{createdProductionBomErr: errors.New("产出物料不存在或已失效")}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/production-boms", strings.NewReader(`{"name":"初晓磨粉","output_type":"material","output_material_id":74,"output_qty":1,"output_unit":"kg"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"产出物料不存在或已失效"`) {
+		t.Fatalf("stale output response status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "no rows in result set") {
+		t.Fatalf("database empty-row error leaked to API: %s", rec.Body.String())
+	}
+}
+
+func TestCreateProductionBomAPIForwardsSingleSpecificationMode(t *testing.T) {
+	repo := &apiFakeRepo{
+		productRows:          []bomapp.Option{{ID: 88, Name: "盒装挂耳", InventoryUnit: "盒"}},
+		createdProductionBom: bomapp.ProductionBomSummary{ID: 619, Name: "盒装挂耳 BOM", SpecificationMode: "single"},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/production-boms", strings.NewReader(`{"name":"盒装挂耳 BOM","output_type":"product","output_product_id":88,"output_qty":1,"output_unit":"盒","specification_mode":"single"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"specification_mode":"single"`) {
+		t.Fatalf("single product BOM response status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.createdProductionBomCommand.SpecificationMode != "single" {
+		t.Fatalf("create command = %+v", repo.createdProductionBomCommand)
 	}
 }

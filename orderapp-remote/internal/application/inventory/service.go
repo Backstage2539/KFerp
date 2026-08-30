@@ -9,10 +9,12 @@ import (
 )
 
 type ProductOption struct {
-	ID             int64               `json:"id"`
-	Name           string              `json:"name"`
-	MigrationState string              `json:"migration_state,omitempty"`
-	BOMSpecs       []ProductSpecOption `json:"bom_specs,omitempty"`
+	ID                   int64               `json:"id"`
+	Name                 string              `json:"name"`
+	MigrationState       string              `json:"migration_state,omitempty"`
+	SpecIdentityMode     string              `json:"spec_identity_mode,omitempty"`
+	BomSpecAuthoritative bool                `json:"bom_spec_authoritative"`
+	BOMSpecs             []ProductSpecOption `json:"bom_specs,omitempty"`
 }
 
 type ProductSpecOption struct {
@@ -26,20 +28,22 @@ type ProductSpecOption struct {
 }
 
 type FinishedInventoryRow struct {
-	ProductID      int64  `json:"product_id"`
-	Product        string `json:"product"`
-	SpecG          int64  `json:"spec_g"`
-	BomSpecID      int64  `json:"bom_spec_id,omitempty"`
-	BomVariantID   int64  `json:"bom_variant_id,omitempty"`
-	SpecKey        string `json:"spec_key,omitempty"`
-	SpecName       string `json:"spec_name,omitempty"`
-	InventoryUnit  string `json:"inventory_unit,omitempty"`
-	MigrationState string `json:"migration_state,omitempty"`
-	Warehouse      string `json:"warehouse"`
-	Units          int64  `json:"units"`
-	LooseG         int64  `json:"loose_g"`
-	UpdatedAt      string `json:"updated_at"`
-	TotalG         int64  `json:"total_g"`
+	ProductID            int64  `json:"product_id"`
+	Product              string `json:"product"`
+	SpecG                int64  `json:"spec_g"`
+	BomSpecID            int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID         int64  `json:"bom_variant_id,omitempty"`
+	SpecKey              string `json:"spec_key,omitempty"`
+	SpecName             string `json:"spec_name,omitempty"`
+	InventoryUnit        string `json:"inventory_unit,omitempty"`
+	MigrationState       string `json:"migration_state,omitempty"`
+	SpecIdentityMode     string `json:"spec_identity_mode,omitempty"`
+	BomSpecAuthoritative bool   `json:"bom_spec_authoritative"`
+	Warehouse            string `json:"warehouse"`
+	Units                int64  `json:"units"`
+	LooseG               int64  `json:"loose_g"`
+	UpdatedAt            string `json:"updated_at"`
+	TotalG               int64  `json:"total_g"`
 }
 
 type FinishedInventoryQuery struct {
@@ -141,6 +145,7 @@ func (s *Service) AdjustFinished(ctx context.Context, cmd AdjustFinishedInventor
 	if cmd.ProductID <= 0 {
 		return fmt.Errorf("product required")
 	}
+	cmd.UnitCode = strings.TrimSpace(cmd.UnitCode)
 	if cmd.BomSpecID > 0 {
 		if cmd.SpecG != 0 {
 			return fmt.Errorf("spec_g must be zero for BOM specification")
@@ -149,12 +154,17 @@ func (s *Service) AdjustFinished(ctx context.Context, cmd AdjustFinishedInventor
 			return fmt.Errorf("loose_g is not supported for BOM specification")
 		}
 	} else if cmd.SpecG <= 0 {
-		return fmt.Errorf("spec_g or bom_spec_id required")
+		if cmd.UnitCode == "" {
+			return fmt.Errorf("spec_g, bom_spec_id or direct product unit required")
+		}
+		if cmd.LooseG != 0 {
+			return fmt.Errorf("loose_g is not supported for direct product inventory")
+		}
 	}
 	if cmd.Units < 0 || cmd.LooseG < 0 {
 		return fmt.Errorf("negative qty")
 	}
-	if cmd.BomSpecID == 0 {
+	if cmd.BomSpecID == 0 && cmd.SpecG > 0 {
 		qty, err := inventorydomain.Normalize(cmd.SpecG, inventorydomain.Quantity{Units: cmd.Units, LooseG: cmd.LooseG})
 		if err != nil {
 			return err
@@ -163,7 +173,6 @@ func (s *Service) AdjustFinished(ctx context.Context, cmd AdjustFinishedInventor
 		cmd.LooseG = qty.LooseG
 	}
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
-	cmd.UnitCode = strings.TrimSpace(cmd.UnitCode)
 	if cmd.Operator == "" {
 		cmd.Operator = "inventory"
 	}

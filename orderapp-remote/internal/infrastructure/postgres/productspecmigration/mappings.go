@@ -42,7 +42,12 @@ func (r Repository) refreshMappingsTx(ctx context.Context, tx pgx.Tx, productID 
 		SELECT child.id,
 		       COALESCE(NULLIF(child.derived_spec_key,''),NULLIF(child.spec_label,''),NULLIF(child.sku_code,''),child.id::text),
 		       COALESCE(NULLIF(child.derived_spec_name,''),NULLIF(child.spec_label,''),NULLIF(child.sku_name,''),child.name),
-		       COALESCE(NULLIF(child.derived_sales_unit,''),NULLIF(child.net_content_unit,''),''),
+		       COALESCE(
+		         NULLIF((COALESCE(NULLIF(to_jsonb(child)->>'unit_rule_override_json',''),'{}')::jsonb)->>'inventory_unit',''),
+		         NULLIF(child.derived_sales_unit,''),
+		         NULLIF(child.net_content_unit,''),
+		         ''
+		       ),
 		       CASE lower(COALESCE(child.net_content_unit,''))
 		         WHEN 'g' THEN ROUND(COALESCE(child.net_content_qty,0))::bigint
 		         WHEN '克' THEN ROUND(COALESCE(child.net_content_qty,0))::bigint

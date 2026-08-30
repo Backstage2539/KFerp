@@ -200,17 +200,22 @@ func TestCreateProductStartsBOMSpecPreparationWithoutReopeningRetiredLegacyWrite
 	var unitTemplateID int64
 	var migrationState string
 	var legacyCatalogProduct bool
+	var unitRuleOverrideJSON string
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(product.unit_template_id,0),migration.state,
+		       product.unit_rule_override_json::text,
 		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)
 		FROM %[1]s.products product
 		JOIN %[1]s.product_bom_spec_migrations migration ON migration.product_id=product.id
 		WHERE product.id=$1
-	`, schema), created.ID).Scan(&unitTemplateID, &migrationState, &legacyCatalogProduct); err != nil {
+	`, schema), created.ID).Scan(&unitTemplateID, &migrationState, &unitRuleOverrideJSON, &legacyCatalogProduct); err != nil {
 		t.Fatalf("load new product migration: %v", err)
 	}
 	if unitTemplateID != 0 || migrationState != "preparing" || legacyCatalogProduct {
 		t.Fatalf("new product authority template=%d state=%q legacy=%v, want 0/preparing/false", unitTemplateID, migrationState, legacyCatalogProduct)
+	}
+	if !strings.Contains(unitRuleOverrideJSON, `"inventory_unit": "袋"`) {
+		t.Fatalf("new direct product lost inventory unit: %s", unitRuleOverrideJSON)
 	}
 	var derivedChildren int
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.products WHERE parent_product_id=$1`, schema), created.ID).Scan(&derivedChildren); err != nil {
