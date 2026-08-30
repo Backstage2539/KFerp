@@ -1367,7 +1367,10 @@ const pdfProductSpecSelectionIssues = computed(() => pdfAvailableItems.value
   .map((family) => ({ family, issue: priceListProductSpecSelectionIssue(family, pdfProductSpecSelections.value) }))
   .filter((row) => row.issue))
 const priceListProductSpecSelectionBlockedReason = computed(() => String(pdfProductSpecSelectionIssues.value[0]?.issue?.message || '').trim())
-const pdfVisibleCategoryCodes = computed(() => visibleCategoryCodesByType.value[activePriceListTypeKey.value] || [])
+const pdfVisibleCategoryCodes = computed(() => priceListCategoryCodesForSelectedProducts(
+  categoryProductGroups.value,
+  pdfSelectedProductIDs.value,
+))
 const categoryProductGroups = computed(() => productGroupsForType(pdfTheme.value.listType, activeProductTypeCategoryID.value))
 const selectedSkuCategoryProductGroups = computed(() => priceListSelectedSkuCategoryRows(categoryProductGroups.value, pdfProductSpecSelections.value))
 const pdfGenerationCustomizers = computed(() => {
