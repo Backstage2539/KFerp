@@ -1745,8 +1745,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		product_scope AS (
 			SELECT p.*,
 			       COALESCE(cpa.id,0) AS customer_product_alias_id,
-			       COALESCE(NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name,
-			       COALESCE(cpa.customer_item_code,'') AS customer_item_code,
+			       COALESCE(NULLIF(pcr.customer_display_name,''), NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name,
+			       COALESCE(NULLIF(pcr.customer_item_code,''), cpa.customer_item_code, '') AS customer_item_code,
 			       COALESCE(cpa.brand_name,'') AS brand_name,
 			       COALESCE(cpa.display_category_id,0) AS display_category_id,
 			       COALESCE(alias_pc.name,'') AS display_category_name,
@@ -1807,6 +1807,11 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			 AND cpa.customer_id = $1
 			 AND cpa.active=true
 			 AND cpa.include_in_price_list=true
+			LEFT JOIN %[1]s.product_customer_references pcr
+			  ON $1 > 0
+			 AND pcr.product_id = p.id
+			 AND pcr.customer_id = $1
+			 AND pcr.active=true
 			LEFT JOIN %[1]s.product_categories alias_pc ON alias_pc.id=cpa.display_category_id AND alias_pc.active=true
 			LEFT JOIN %[1]s.product_classification_assignments product_class
 			  ON $1 <= 0
@@ -1835,7 +1840,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 				WHERE active_parent.id=p.parent_product_id AND active_parent.active=true
 			  ))
 			  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
-			  AND (($1 <= 0 AND COALESCE(p.customer_id,0)=0) OR ($1 > 0 AND cpa.id IS NOT NULL))
+			  AND (($1 <= 0 AND COALESCE(p.customer_id,0)=0) OR ($1 > 0 AND (cpa.id IS NOT NULL OR pcr.id IS NOT NULL)))
 		),
 		all_effective_bom_items AS (
 			SELECT p.id AS product_id,

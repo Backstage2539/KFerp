@@ -35,7 +35,7 @@ func TestDev410CustomerAliasRenamePriceDisplaySourceMarkers(t *testing.T) {
 			"productCodeLabel",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
-			"COALESCE(NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name",
+			"COALESCE(NULLIF(pcr.customer_display_name,''), NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name",
 		},
 	}
 
