@@ -231,18 +231,18 @@ func TestLoadProductInputsUsesCustomerAliasIndustryFieldOverridesWithoutClassifi
 	}
 }
 
-func TestLoadProductInputsUsesCustomerAliasRenameAsCustomerDisplayName(t *testing.T) {
+func TestLoadProductInputsUsesCustomerReferenceThenLegacyAliasAsCustomerDisplayName(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(b)
 	for _, want := range []string{
-		"COALESCE(NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name",
+		"COALESCE(NULLIF(pcr.customer_display_name,''), NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name",
 		"CASE WHEN $1 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("customer price lists must use alias rename before customer product name; missing %q", want)
+			t.Fatalf("customer price lists must use current customer references before legacy aliases; missing %q", want)
 		}
 	}
 }
@@ -891,6 +891,36 @@ func TestLoadProductInputsUsesProductionBomOutputProductFallback(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("costing repository must treat production BOM output product as an effective BOM source; missing %q", want)
+		}
+	}
+}
+
+func TestLoadProductInputsIncludesProductCustomerReferencesInCustomerPriceLists(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "product_scope AS (")
+	if start < 0 {
+		t.Fatal("product_scope CTE not found")
+	}
+	end := strings.Index(src[start:], "all_effective_bom_items AS (")
+	if end < 0 {
+		t.Fatal("all_effective_bom_items CTE not found")
+	}
+	productScope := src[start : start+end]
+	for _, want := range []string{
+		"product_customer_references pcr",
+		"pcr.product_id = p.id",
+		"pcr.customer_id = $1",
+		"pcr.active=true",
+		"NULLIF(pcr.customer_display_name,'')",
+		"pcr.customer_item_code",
+		"cpa.id IS NOT NULL OR pcr.id IS NOT NULL",
+	} {
+		if !strings.Contains(productScope, want) {
+			t.Fatalf("customer price-list product scope must include product customer references; missing %q", want)
 		}
 	}
 }
