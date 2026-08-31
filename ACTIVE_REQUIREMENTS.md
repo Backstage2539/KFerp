@@ -6,6 +6,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-620-ORDER-ENTRY-PRODUCT-CUSTOMER-REFERENCE
+- Branch: `codex/order-entry-product-customer-reference-20260901`
+- Owner/session: Codex / 2026-09-01
+- Status: implementation verified locally; development and production delivery pending
+- Scope: 录单商品目录识别商品档案的有效客户引用，使客户专属已发布工厂供货价格表可向该客户商品行附加阶梯价；客户显示名和客户货号进入搜索/展示，旧客户商品别名保持优先且不产生重复商品。
+- DEV: DEV-620-CUSTOMER-REFERENCE-ORDER-PROJECTION; DEV-620-LEGACY-ALIAS-PRECEDENCE; DEV-620-DOCS-PRODUCTION-DELIVERY
+- Verifier:
+  - RED: `TestOrderAPIFormUsesProductCustomerReferenceForCustomerPublicationTiers` returned only `customer_id=0`, so customer publication tiers were absent.
+  - GREEN: targeted real-PostgreSQL order API test passes for direct-product customer reference, customer display/code, publication tier and legacy alias precedence.
+  - Broader Go/release gates: pending.
+- Deployment: pending development, then production; production business acceptance continues the active three-product order/shipment goal.
+- Last update: 2026-09-01 Asia/Shanghai
+
 ### PR-619-PRODUCT-BOM-SINGLE-OUTPUT
 - Branch: `codex/product-bom-single-output-mode-20260830`
 - Owner/session: Codex / 2026-08-30

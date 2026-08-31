@@ -1696,3 +1696,9 @@
 - `DEV-619-VUE-SINGLE-OUTPUT`：Vue BOM 抽屉提供“单一产出 / 多规格产出”。新建商品 BOM 默认单一产出；单一产出显示产出数量、单位和普通配方并隐藏模板与主体物料，多规格产出显示原规格组工作区。草稿切换结构需确认并清除不兼容明细；已发布结构变化通过替代 BOM 草稿完成。直接商品组件不选择规格，BOM 规格商品组件仍强制选择当前默认已发布规格。
 - `DEV-619-MULTILEVEL-E2E`：成本和生产计划按默认已发布 BOM 递归。盒装挂耳可表达 `1盒 = 10袋袋装挂耳 + 包装材料`，并继续向袋装挂耳的默认 BOM 展开；缺少默认 BOM、单位不兼容、自引用或循环引用时失败关闭。库存、价格表和 ERP 订单对直接商品身份只使用商品 ID 与商品库存单位，历史多规格商品、订单和库存保持原身份。
 - `DEV-619-DOCS-DEVELOPMENT-DELIVERY`：创建、修改、发布、设默认和结构切换写入操作日志；同步生产、成本与订单手册、PR/DEV/REV 和独立验收记录。完成定向 RED/GREEN、全量 Go/Vue/Vite、统一验证器与 development preflight 后合入 `develop` 并仅部署 development；`main` 与 production 不操作。
+
+# PR-620-ORDER-ENTRY-PRODUCT-CUSTOMER-REFERENCE 录单客户商品引用与专属价格匹配（2026-09-01）
+
+- `DEV-620-CUSTOMER-REFERENCE-ORDER-PROJECTION`：录单商品查询除旧客户商品别名外，还要读取商品档案中有效的 `product_customer_references`。引用商品按客户 ID、客户显示名和客户货号投影为客户作用域商品，同时保留原商品、规格家族、单位、直接商品/BOM 规格身份；客户专属已发布工厂供货价格表按客户与商品 ID 精确附加阶梯价。
+- `DEV-620-LEGACY-ALIAS-PRECEDENCE`：同一客户和同一商品家族同时存在旧 `customer_product_aliases` 与新客户引用时，旧别名保持优先，客户引用不再生成第二套商品行；客户引用商品替代同 ID 公共行，其他客户引用不会泄漏。没有客户引用、没有客户专属价格表及历史订单快照的行为不变。
+- `DEV-620-DOCS-PRODUCTION-DELIVERY`：用真实 PostgreSQL API 测试复现“客户价格表已发布但录单只有公共商品行且无阶梯价”，完成 RED/GREEN、相关 Go/统一验证器、开发预检和部署，再通过独立发布分支合入 `main` 并部署 production。生产发布后只读核对目标客户商品和价格快照，再继续当前授权的挂耳订单与发货验收。

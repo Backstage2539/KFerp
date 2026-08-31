@@ -967,6 +967,209 @@ func TestOrderAPIFormUsesCustomerCommercialBeanListForProductOptions(t *testing.
 	}
 }
 
+func TestOrderAPIFormUsesProductCustomerReferenceForCustomerPublicationTiers(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	ensureOrderAPIProductCustomerReferenceTables(t, ctx, pool, schema)
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(
+			id,name,default_price,active,customer_id,visibility,product_kind,unit_rule_override_json
+		)
+		VALUES (
+			8,'挂耳10袋盒装',0,true,0,'public','drip_bag',
+			'{"inventory_unit":"盒","quote_unit":"盒","order_unit":"盒","default_sales_unit":"盒"}'::jsonb
+		);
+		INSERT INTO %[1]s.product_customer_references(
+			product_id,customer_id,customer_item_code,customer_display_name,active,created_by,updated_by
+		)
+		VALUES (8,3,'DRIP-BOX-10','客户挂耳10袋盒装',true,'codex','codex');
+		INSERT INTO %[1]s.bean_list_publications(
+			id,list_type,version_no,status,owner_type,owner_key,config_json,content_json,changelog,actor,published_at
+		)
+		VALUES (
+			9904,'commercial','V3.0.5','published','customer','3','{}'::jsonb,
+			'{"price_rows":[{"product_id":8,"sku_id":8,"product_kind":"drip_bag","label":"1-9盒","min_qty":1,"max_qty":9,"price_per_unit":30,"final_unit_price":30,"sales_unit":"盒","display_unit":"盒","quantity_basis":"sales_spec_count","tier_quantity_unit":"盒","template_tier_id":501,"effective_sales_spec":{"sku_id":8,"sales_unit":"盒","spec_name":"默认规格"}}]}'::jsonb,
+			'客户挂耳价格表','codex','2026-09-01 09:00:00+08'
+		);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Products []struct {
+			ID                         int64  `json:"id"`
+			Name                       string `json:"name"`
+			CustomerID                 int64  `json:"customer_id"`
+			CustomerProductAliasID     int64  `json:"customer_product_alias_id"`
+			CustomerProductDisplayName string `json:"customer_product_display_name"`
+			CustomerItemCode           string `json:"customer_item_code"`
+			OrderUnit                  string `json:"order_unit"`
+			Tiers                      []struct {
+				ID              int64   `json:"id"`
+				MinQty          float64 `json:"min"`
+				UnitPrice       float64 `json:"unit_price"`
+				PublicationID   int64   `json:"publication_id"`
+				PriceSourceJSON string  `json:"price_source_json"`
+			} `json:"tiers"`
+		} `json:"products"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	matching := make([]int, 0)
+	for index := range resp.Products {
+		if resp.Products[index].ID == 8 {
+			matching = append(matching, index)
+		}
+	}
+	if len(matching) != 1 {
+		t.Fatalf("customer product reference should replace the duplicate public row, matches=%d products=%+v", len(matching), resp.Products)
+	}
+	product := resp.Products[matching[0]]
+	if product.CustomerID != 3 || product.CustomerProductAliasID != 0 {
+		t.Fatalf("customer reference identity = customer %d alias %d, want customer 3 without legacy alias", product.CustomerID, product.CustomerProductAliasID)
+	}
+	if product.Name != "客户挂耳10袋盒装" || product.CustomerProductDisplayName != "客户挂耳10袋盒装" || product.CustomerItemCode != "DRIP-BOX-10" {
+		t.Fatalf("customer reference display = %+v", product)
+	}
+	if product.OrderUnit != "盒" {
+		t.Fatalf("customer reference order unit = %q, want 盒", product.OrderUnit)
+	}
+	if len(product.Tiers) != 1 {
+		t.Fatalf("customer publication tiers = %+v, want one tier", product.Tiers)
+	}
+	tier := product.Tiers[0]
+	if tier.ID != 501 || tier.MinQty != 1 || tier.UnitPrice != 30 || tier.PublicationID != 9904 || !strings.Contains(tier.PriceSourceJSON, `"publication_id":9904`) {
+		t.Fatalf("customer publication tier = %+v", tier)
+	}
+
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.customer_product_aliases(
+			id,customer_id,product_id,display_name,customer_item_code,active
+		)
+		VALUES (81,3,8,'旧别名挂耳10袋盒装','LEGACY-DRIP-BOX-10',true);
+	`, schema))
+	req = httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form with legacy alias status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	resp.Products = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form with legacy alias: %v", err)
+	}
+	matching = matching[:0]
+	for index := range resp.Products {
+		if resp.Products[index].ID == 8 {
+			matching = append(matching, index)
+		}
+	}
+	if len(matching) != 1 {
+		t.Fatalf("legacy alias should suppress the duplicate customer reference and public rows, matches=%d products=%+v", len(matching), resp.Products)
+	}
+	product = resp.Products[matching[0]]
+	if product.CustomerProductAliasID != 81 || product.Name != "旧别名挂耳10袋盒装" || product.CustomerItemCode != "LEGACY-DRIP-BOX-10" || len(product.Tiers) != 1 {
+		t.Fatalf("legacy alias should keep precedence with customer publication price, product=%+v", product)
+	}
+}
+
+func TestOrderAPIFormUsesProductCustomerReferenceForGreenPublication(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	ensureOrderAPIProductCustomerReferenceTables(t, ctx, pool, schema)
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,customer_id,visibility,product_kind,green_bean_type)
+		VALUES (8,'生豆-萨其姆-水洗-2026',0,true,0,'public','green_bean','single_origin');
+		INSERT INTO %[1]s.product_customer_references(
+			product_id,customer_id,customer_item_code,customer_display_name,active,created_by,updated_by
+		)
+		VALUES (8,3,'GREEN-SAQ-2026','萨其姆水洗生豆',true,'codex','codex');
+		INSERT INTO %[1]s.bean_list_publications(
+			id,list_type,version_no,status,owner_type,owner_key,config_json,content_json,changelog,actor,published_at
+		)
+		VALUES (
+			9905,'green','V3.0.7','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":8,"name":"生豆-萨其姆-水洗-2026","green_bean_sale_tiers":[{"label":"1KG","spec_g":1000,"min_qty":1,"price_per_unit":62,"display_unit":"kg","template_id":5,"template_tier_id":51}]}]}]}'::jsonb,
+			'客户生豆价格表','codex','2026-09-01 09:10:00+08'
+		);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Products []struct {
+			ID                         int64  `json:"id"`
+			Name                       string `json:"name"`
+			CustomerID                 int64  `json:"customer_id"`
+			CustomerProductDisplayName string `json:"customer_product_display_name"`
+			CustomerItemCode           string `json:"customer_item_code"`
+			Tiers                      []struct {
+				ID            int64   `json:"id"`
+				UnitPrice     float64 `json:"unit_price"`
+				PublicationID int64   `json:"publication_id"`
+			} `json:"tiers"`
+		} `json:"products"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	var matches []int
+	for index := range resp.Products {
+		if resp.Products[index].ID == 8 {
+			matches = append(matches, index)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("green customer reference should replace the public row, matches=%d products=%+v", len(matches), resp.Products)
+	}
+	product := resp.Products[matches[0]]
+	if product.CustomerID != 3 || product.Name != "萨其姆水洗生豆" || product.CustomerProductDisplayName != "萨其姆水洗生豆" || product.CustomerItemCode != "GREEN-SAQ-2026" {
+		t.Fatalf("green customer reference identity = %+v", product)
+	}
+	if len(product.Tiers) != 1 || product.Tiers[0].ID != 51 || product.Tiers[0].UnitPrice != 62 || product.Tiers[0].PublicationID != 9905 {
+		t.Fatalf("green customer publication tiers = %+v", product.Tiers)
+	}
+}
+
+func ensureOrderAPIProductCustomerReferenceTables(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		CREATE TABLE %[1]s.product_customer_references (
+			id BIGSERIAL PRIMARY KEY,
+			product_id BIGINT NOT NULL,
+			customer_id BIGINT NOT NULL,
+			customer_item_code TEXT NOT NULL DEFAULT '',
+			customer_display_name TEXT NOT NULL DEFAULT '',
+			active BOOLEAN NOT NULL DEFAULT true,
+			remark TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT '',
+			updated_by TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE %[1]s.product_bom_spec_migrations (
+			product_id BIGINT PRIMARY KEY,
+			state TEXT NOT NULL DEFAULT 'legacy',
+			legacy_catalog_product BOOLEAN NOT NULL DEFAULT true,
+			spec_identity_mode TEXT NOT NULL DEFAULT 'legacy_sku'
+		);
+	`, schema))
+}
+
 func TestOrderAPIFormReturnsAllPublishedCommercialBeanListTiersForVersionSwitching(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
