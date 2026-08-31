@@ -1158,17 +1158,12 @@ func orderCommercialProductKind(productKind string) bool {
 
 func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
 	customerOwners := map[string]bool{}
-	hasGreenBeanProduct := false
 	for _, product := range products {
-		if strings.TrimSpace(product.ProductKind) != "green_bean" {
-			continue
-		}
-		hasGreenBeanProduct = true
 		if product.CustomerID > 0 {
 			customerOwners[strconv.FormatInt(product.CustomerID, 10)] = true
 		}
 	}
-	if !hasGreenBeanProduct {
+	if len(products) == 0 {
 		return map[orderPublicationProductKey][]salesapp.ProductTierOption{}, nil
 	}
 	var exists bool
@@ -1240,9 +1235,6 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 
 	out := map[orderPublicationProductKey][]salesapp.ProductTierOption{}
 	for _, product := range products {
-		if strings.TrimSpace(product.ProductKind) != "green_bean" {
-			continue
-		}
 		key := orderPublicationProductKeyForProduct(product)
 		ownerKey := ""
 		if product.CustomerID > 0 {
@@ -1378,10 +1370,30 @@ func orderFamilyTierMapInt64(values map[string]any, key string) int64 {
 }
 
 func applyGreenBeanOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[orderPublicationProductKey][]salesapp.ProductTierOption) {
+	greenFamilies := map[orderPublicationProductKey]bool{}
 	for i := range products {
-		if strings.TrimSpace(products[i].ProductKind) != "green_bean" {
+		parentID := products[i].ParentProductID
+		if parentID <= 0 {
+			parentID = products[i].ID
+		}
+		familyKey := orderPublicationProductKey{CustomerID: products[i].CustomerID, ProductID: parentID}
+		if strings.TrimSpace(products[i].ProductKind) == "green_bean" {
+			greenFamilies[familyKey] = true
+		}
+		tiers := publicationTiers[orderPublicationProductKeyForProduct(products[i])]
+		if len(tiers) > 0 {
+			greenFamilies[familyKey] = true
+		}
+	}
+	for i := range products {
+		parentID := products[i].ParentProductID
+		if parentID <= 0 {
+			parentID = products[i].ID
+		}
+		if !greenFamilies[orderPublicationProductKey{CustomerID: products[i].CustomerID, ProductID: parentID}] {
 			continue
 		}
+		products[i].ProductKind = "green_bean"
 		products[i].Tiers = append([]salesapp.ProductTierOption(nil), publicationTiers[orderPublicationProductKeyForProduct(products[i])]...)
 		if products[i].Tiers == nil {
 			products[i].Tiers = []salesapp.ProductTierOption{}

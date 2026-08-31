@@ -823,7 +823,7 @@ func resolveConcreteOrderPublicationSelectionTx(ctx context.Context, tx pgx.Tx, 
 	if strings.TrimSpace(productKind) == "drip_bag" {
 		candidates = dripOrderBeanListCandidates(cmd, itemPublicationID, sourceListType, retailOrder)
 	} else {
-		listType := orderbeans.ListTypeForProductKind(productKind, retailOrder)
+		listType := concreteOrderPublicationListType(productKind, sourceListType, retailOrder, itemPublicationID)
 		candidates = append(candidates, orderBeanListCandidate{
 			ListType:               listType,
 			RequestedPublicationID: orderItemBeanListPublicationID(cmd, itemPublicationID, listType),
@@ -884,6 +884,26 @@ func resolveConcreteOrderPublicationSelectionTx(ctx context.Context, tx pgx.Tx, 
 		return concreteOrderPublicationSelection{}, fmt.Errorf("所选价格表版本无效、无权访问或不包含该商品规格，请重新选择价格表和规格")
 	}
 	return concreteOrderPublicationSelection{}, nil
+}
+
+func concreteOrderPublicationListType(productKind, sourceListType string, retailOrder bool, itemPublicationID int64) string {
+	fallback := orderbeans.ListTypeForProductKind(productKind, retailOrder)
+	if itemPublicationID <= 0 {
+		return fallback
+	}
+	switch strings.TrimSpace(sourceListType) {
+	case orderbeans.ListTypeCommercial, orderbeans.ListTypeRetail, orderbeans.ListTypeGreen:
+		return strings.TrimSpace(sourceListType)
+	default:
+		return fallback
+	}
+}
+
+func concreteOrderProductKindForListType(productKind, listType string) string {
+	if strings.TrimSpace(listType) == orderbeans.ListTypeGreen {
+		return "green_bean"
+	}
+	return strings.TrimSpace(productKind)
 }
 
 func validateConcreteOrderPriceSourceIdentity(raw string, usage orderbeans.Usage, spec orderbeans.PublishedProductSpec) error {
@@ -1567,7 +1587,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if _, snapshotErr := concreteOrderProductionQuantitySnapshot(selection.Spec); snapshotErr != nil {
 				return salesapp.SaveOrderResult{}, snapshotErr
 			}
-			items[idx].productKind = strings.TrimSpace(selection.Product.ProductKind)
+			items[idx].productKind = concreteOrderProductKindForListType(selection.Product.ProductKind, selection.ListType)
 			items[idx].priceListType = selection.ListType
 			items[idx].itemBeanListPublicationID = selection.Usage.PublicationID
 			items[idx].itemBeanListVersionNo = selection.Usage.VersionNo

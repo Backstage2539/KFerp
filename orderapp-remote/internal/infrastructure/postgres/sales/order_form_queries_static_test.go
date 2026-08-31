@@ -226,6 +226,49 @@ func TestGreenBeanOrderTierMapKeepsConcreteSKUCountSnapshot(t *testing.T) {
 	}
 }
 
+func TestPublishedGreenPriceClassifiesDirectProductFamilyDespiteLegacyProductKind(t *testing.T) {
+	products := []salesapp.ProductOption{
+		{ID: 911, SKUID: 911, ParentProductID: 911, ProductKind: "roasted", Tiers: []salesapp.ProductTierOption{{ID: 91, ProductKind: "roasted_bean"}}},
+		{ID: 912, SKUID: 912, ParentProductID: 911, ProductKind: "roasted", Tiers: []salesapp.ProductTierOption{{ID: 92, ProductKind: "roasted_bean"}}},
+	}
+	applyGreenBeanOrderPublicationTiers(products, map[orderPublicationProductKey][]salesapp.ProductTierOption{
+		{ProductID: 912}: {{ID: 1, PublicationID: 12, ListType: "green", ProductKind: "green_bean", UnitPrice: 96}},
+	})
+
+	if products[0].ProductKind != "green_bean" || products[1].ProductKind != "green_bean" {
+		t.Fatalf("published green family kinds = %q / %q, want green_bean", products[0].ProductKind, products[1].ProductKind)
+	}
+	if len(products[1].Tiers) != 1 || products[1].Tiers[0].PublicationID != 12 {
+		t.Fatalf("published green direct-product tiers = %+v, want publication 12", products[1].Tiers)
+	}
+	if len(products[0].Tiers) != 0 {
+		t.Fatalf("published green parent retained stale commercial tiers = %+v", products[0].Tiers)
+	}
+}
+
+func TestConcreteOrderPublicationSelectionUsesFrozenListTypeForLegacyProductKind(t *testing.T) {
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatalf("read repository.go: %v", err)
+	}
+	text := string(source)
+	if !strings.Contains(text, "concreteOrderPublicationListType(productKind, sourceListType, retailOrder, itemPublicationID)") {
+		t.Fatal("concrete order selection must prefer the selected publication list type over stale product_kind")
+	}
+}
+
+func TestConcreteOrderPublicationListTypeKeepsPublishedGreenIdentity(t *testing.T) {
+	if got := concreteOrderPublicationListType("roasted", "green", false, 12); got != "green" {
+		t.Fatalf("concrete publication list type = %q, want green", got)
+	}
+	if got := concreteOrderPublicationListType("roasted", "green", false, 0); got != "commercial" {
+		t.Fatalf("missing selected publication must keep catalog fallback, got %q", got)
+	}
+	if got := concreteOrderProductKindForListType("roasted", "green"); got != "green_bean" {
+		t.Fatalf("published green product kind = %q, want green_bean", got)
+	}
+}
+
 func TestCommercialOrderTierOptionDoesNotInvent454gForCountSnapshot(t *testing.T) {
 	tier := orderCommercialPublicationTier{
 		QuantityBasis: "sales_spec_count", FinalUnitPrice: 31,
