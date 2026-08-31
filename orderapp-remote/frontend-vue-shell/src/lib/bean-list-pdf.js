@@ -212,6 +212,10 @@ export function buildBeanListPdfGroupsFromCategoryRows(categoryRows = [], listTy
       const categoryLabel = String(row?.label || row?.category || row?.group_item_name || row?.path_label || '未分类').trim() || '未分类'
       const sourceItems = Array.isArray(row?.items) ? row.items : (Array.isArray(row?.rows) ? row.rows : [])
       const items = sourceItems
+        .map((item) => {
+          if (item?.[metaKey]?.code || normalizedListType !== 'green' || !item?.commercial_bean_list?.code) return item
+          return { ...item, [metaKey]: item.commercial_bean_list }
+        })
         .filter((item) => item?.[metaKey]?.code)
         .filter((item) => !hasProductFilter || itemSelectionIDs(item).some((id) => selectedIDs.has(id)))
       return {

@@ -385,8 +385,13 @@ function dominantPriceListRenderType(items = []) {
     const type = priceListRenderTypeForItem(item)
     counts.set(type, (counts.get(type) || 0) + 1)
   })
-  if (counts.size === 1) return Array.from(counts.keys())[0] || 'commercial'
-  return 'commercial'
+  return Array.from(counts.entries())
+    .sort(([leftType, leftCount], [rightType, rightCount]) => {
+      if (leftCount !== rightCount) return rightCount - leftCount
+      if (leftType === 'commercial') return -1
+      if (rightType === 'commercial') return 1
+      return leftType.localeCompare(rightType)
+    })[0]?.[0] || 'commercial'
 }
 
 function productTypePositionOfItem(item = {}) {

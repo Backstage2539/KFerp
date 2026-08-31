@@ -247,6 +247,45 @@ test('price list product types partition products by the product catalog templat
   assert.equal(Array.from(membership.values()).flat().includes(13), false)
 })
 
+test('green product catalog keeps the dominant green price-list type when one direct product has commercial metadata', () => {
+  const template = {
+    id: 618,
+    name: '咖啡生豆',
+    active: true,
+    items: [{ id: 6181, name: '兴福茶咖厂', parent_id: 0, sort_order: 10 }],
+  }
+  const rows = [
+    ...Array.from({ length: 7 }, (_, index) => ({
+      product_id: index + 1,
+      name: `生豆 ${index + 1}`,
+      product_kind: 'green_bean',
+      green_bean_list: { code: `G.${index + 1}` },
+    })),
+    {
+      product_id: 8,
+      name: '直接商品身份生豆',
+      product_kind: 'base_product',
+      spec_identity_mode: 'product',
+      commercial_bean_list: { code: 'C.1' },
+    },
+  ]
+  const assignments = rows.map((row) => ({
+    usage_key: 'product_catalog',
+    object_key: 'product',
+    object_id: row.product_id,
+    group_id: template.id,
+    group_item_id: 6181,
+  }))
+
+  const [option] = buildProductCatalogTemplatePriceListTypeOptions(rows, {
+    templates: [template],
+    assignments,
+  })
+
+  assert.equal(option.itemCount, 8)
+  assert.equal(option.listType, 'green')
+})
+
 test('two commercial product catalog templates keep stable isolated publication identities', () => {
   const options = buildProductCatalogTemplatePriceListTypeOptions([], {
     templates: [
