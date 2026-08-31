@@ -579,6 +579,37 @@ test('PDF bean-list helper can follow explicit picker category rows', () => {
   assert.deepEqual(groups[0].items.map((item) => item.code), ['1.1', '1.2'])
 })
 
+test('green price list keeps a selected direct product whose catalog metadata still uses the commercial shape', () => {
+  const categoryCode = 'business-group-618-6181'
+  const groups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: categoryCode,
+    label: '兴福茶咖厂',
+    items: [
+      {
+        product_id: 101,
+        sku_id: 101,
+        name: '标准生豆',
+        green_bean_list: { code: 'G.1', category: '生豆销售', display_name: '标准生豆' },
+        green_bean_sale_tiers: [],
+      },
+      {
+        product_id: 102,
+        sku_id: 102,
+        name: '直接商品身份生豆',
+        spec_identity_mode: 'product',
+        commercial_bean_list: { code: 'C.1', category: '普通商品', display_name: '直接商品身份生豆' },
+      },
+    ],
+  }], 'green', {
+    selectedProductIDs: [101, 102],
+    visibleCategoryCodes: [categoryCode],
+  })
+
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0].items.map((item) => item.product_id), [101, 102])
+  assert.deepEqual(groups[0].items.map((item) => item.code), ['1.1', '1.2'])
+})
+
 test('PDF bean-list preview keeps BOM-spec selections when all specs share the parent product ID', () => {
   const specRows = [
     { bom_spec_id: 901, bom_variant_id: 1901, spec_label: '227g' },
