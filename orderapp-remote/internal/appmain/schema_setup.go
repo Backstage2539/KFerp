@@ -34,14 +34,17 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		{Name: "company", Run: func(ctx context.Context) error { return postgrescompany.EnsureSchema(ctx, pool, schema) }},
 		{Name: "core", Run: func(ctx context.Context) error { return postgrescore.EnsureSchema(ctx, pool, schema) }},
 		{Name: "customer", Run: func(ctx context.Context) error { return postgrescustomer.EnsureSchema(ctx, pool, schema) }},
-		{Name: "customerportal", Run: func(ctx context.Context) error { return postgrescustomerportal.EnsureSchema(ctx, pool, schema) }},
-		{Name: "customerfulfillment", Run: func(ctx context.Context) error { return postgrescustomerfulfillment.EnsureSchema(ctx, pool, schema) }},
 		{Name: "messagecenter", Run: func(ctx context.Context) error { return postgresmessagecenter.EnsureSchema(ctx, pool, schema) }},
 		{Name: "support", Run: func(ctx context.Context) error { return supporthttp.EnsureSchema(ctx, pool, schema) }},
 		{Name: "authz", Run: func(ctx context.Context) error { return postgresauthz.EnsureSchema(ctx, pool, schema) }},
 		{Name: "materials", Run: func(ctx context.Context) error { return postgresmaterials.EnsureSchema(ctx, pool, schema) }},
 		{Name: "bom", Run: func(ctx context.Context) error { return postgresbom.EnsureSchema(ctx, pool, schema) }},
 		{Name: "catalog", Run: func(ctx context.Context) error { return postgrescatalog.EnsureSchema(ctx, pool, schema) }},
+		{Name: "product-bom-spec-authority-base", Run: func(ctx context.Context) error {
+			return postgresproductspecmigration.EnsureAuthorityProjection(ctx, pool, schema)
+		}},
+		{Name: "customerportal", Run: func(ctx context.Context) error { return postgrescustomerportal.EnsureSchema(ctx, pool, schema) }},
+		{Name: "customerfulfillment", Run: func(ctx context.Context) error { return postgrescustomerfulfillment.EnsureSchema(ctx, pool, schema) }},
 		{Name: "costing", Run: func(ctx context.Context) error { return postgrescosting.EnsureSchema(ctx, pool, schema) }},
 		{Name: "finance", Run: func(ctx context.Context) error { return postgresfinance.EnsureSchema(ctx, pool, schema) }},
 		{Name: "stock", Run: func(ctx context.Context) error { return postgresstock.EnsureSchema(ctx, pool, schema) }},
@@ -51,7 +54,7 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		{Name: "production", Run: func(ctx context.Context) error { return postgresproduction.EnsureSchema(ctx, pool, schema) }},
 		{Name: "sales", Run: func(ctx context.Context) error { return postgressales.EnsureSchema(ctx, pool, schema) }},
 		{Name: "contracts", Run: func(ctx context.Context) error { return postgrescontracts.EnsureSchema(ctx, pool, schema) }},
-		{Name: "product-bom-spec-migration", Run: func(ctx context.Context) error {
+		{Name: "product-bom-spec-authority-guards", Run: func(ctx context.Context) error {
 			return postgresproductspecmigration.EnsureAuthorityProjection(ctx, pool, schema)
 		}},
 		{Name: "serial-id-sequences", Run: func(ctx context.Context) error { return postgresinfra.SyncSerialIDSequences(ctx, pool, schema) }},
