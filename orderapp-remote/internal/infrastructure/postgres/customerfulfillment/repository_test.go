@@ -2244,6 +2244,7 @@ func TestCustomerPortalDirectShipSubmitRepositoryWiresERPOrderCreation(t *testin
 		"createSubmittedDirectShipERPOrderTx",
 		"backfillSubmittedDirectShipERPOrders",
 		"repairSubmittedDirectShipERPOrderReceivers",
+		"product_bom_spec_not_configured",
 		"UPDATE %s.customer_direct_ship_import_orders\n\t\tSET order_id=$2",
 		"requireCustomerCapability(ctx, customerID, \"processing\")",
 		"requireCustomerCapability(ctx, customerID, \"direct_ship\")",

@@ -1492,6 +1492,13 @@ func backfillSubmittedDirectShipERPOrders(ctx context.Context, pool *pgxpool.Poo
 
 	for _, id := range ids {
 		if _, err := repo.createSubmittedDirectShipERPOrderTx(ctx, tx, id); err != nil {
+			// PR-622 no longer fabricates a current BOM specification for a
+			// legacy submitted import. Keep that historical import untouched so
+			// the cleanup preview can report it as a blocking dependency; a
+			// background compatibility repair must not prevent application start.
+			if strings.Contains(err.Error(), "product_bom_spec_not_configured") {
+				continue
+			}
 			return err
 		}
 	}
