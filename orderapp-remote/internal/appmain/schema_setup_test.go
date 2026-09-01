@@ -61,4 +61,7 @@ func TestSchemaSetupCreatesBOMAuthorityBeforeDependentModulesAndReinstallsGuards
 	if !(bom >= 0 && catalog > bom && base > catalog && portal > base && fulfillment > base && guards > fulfillment) {
 		t.Fatalf("BOM authority schema order invalid: bom=%d catalog=%d base=%d portal=%d fulfillment=%d guards=%d", bom, catalog, base, portal, fulfillment, guards)
 	}
+	if !strings.Contains(src, "EnsureAuthorityView") || strings.Count(src, "EnsureAuthorityProjection") != 1 {
+		t.Fatal("schema setup must create only the authority view before dependent module setup and install guards once after it")
+	}
 }

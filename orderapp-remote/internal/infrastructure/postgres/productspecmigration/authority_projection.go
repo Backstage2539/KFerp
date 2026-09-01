@@ -11,8 +11,8 @@ import (
 // EnsureAuthorityProjection installs table-free runtime projections. They are
 // derived from the current default published product BOM and remain valid after
 // the legacy migration and child-SKU mapping tables are removed.
-func EnsureAuthorityProjection(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+func EnsureAuthorityView(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
 CREATE OR REPLACE VIEW %[1]s.product_bom_spec_authorities AS
 SELECT product.id AS product_id,
        'cutover'::text AS state,
@@ -33,7 +33,12 @@ SELECT product.id AS product_id,
        ) AS configured
 FROM %[1]s.products product
 WHERE COALESCE(product.parent_product_id,0)=0;
-	`, schema)); err != nil {
+	`, schema))
+	return err
+}
+
+func EnsureAuthorityProjection(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := EnsureAuthorityView(ctx, pool, schema); err != nil {
 		return err
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
