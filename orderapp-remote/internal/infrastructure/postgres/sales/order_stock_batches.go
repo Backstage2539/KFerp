@@ -20,6 +20,7 @@ type orderStockItem struct {
 	SpecG        int64
 	Units        int64
 	NeedG        int64
+	IdentityMode string
 }
 
 type orderStockBatchRow struct {
@@ -33,6 +34,7 @@ type orderStockBatchRow struct {
 }
 
 const legacyFinishedInventoryCreatedAt = "库存余额"
+const orderStockIdentityModeProduct = "product"
 
 type stockBatchQueryer interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
@@ -40,31 +42,20 @@ type stockBatchQueryer interface {
 
 func (r Repository) PreviewOrderStockBatches(ctx context.Context, cmd salesapp.OrderStockBatchPreviewCommand) (salesapp.OrderStockBatchPreview, error) {
 	items := orderStockItemsFromCommands(cmd.Items)
+	var err error
+	items, err = r.canonicalizeOrderStockItems(ctx, r.pool, items)
+	if err != nil {
+		return salesapp.OrderStockBatchPreview{}, err
+	}
 	return r.previewOrderStockBatches(ctx, r.pool, items, cmd.EditID, false)
 }
 
 func orderStockItemsFromCommands(commands []salesapp.OrderItemCommand) []orderStockItem {
-	byKey := map[string]int{}
-	out := make([]orderStockItem, 0)
+	out := make([]orderStockItem, 0, len(commands))
 	for _, cmd := range commands {
-		if cmd.ProductID == nil || *cmd.ProductID <= 0 || cmd.Units <= 0 || (cmd.BomSpecID <= 0 && cmd.SpecG <= 0) {
+		if cmd.ProductID == nil || *cmd.ProductID <= 0 || cmd.Units <= 0 {
 			continue
 		}
-		key := orderStockItemKey(*cmd.ProductID, cmd.BomSpecID, cmd.SpecG)
-		if idx, ok := byKey[key]; ok {
-			out[idx].Units += cmd.Units
-			if cmd.BomSpecID <= 0 {
-				out[idx].NeedG += cmd.Units * cmd.SpecG
-			}
-			if out[idx].BomVariantID <= 0 {
-				out[idx].BomVariantID = cmd.BomVariantID
-			}
-			if out[idx].ProductName == "" {
-				out[idx].ProductName = strings.TrimSpace(cmd.Name)
-			}
-			continue
-		}
-		byKey[key] = len(out)
 		out = append(out, orderStockItem{
 			ProductID:    *cmd.ProductID,
 			BomSpecID:    cmd.BomSpecID,
@@ -85,11 +76,112 @@ func legacyOrderStockNeedG(bomSpecID, specG, units int64) int64 {
 	return specG * units
 }
 
-func orderStockItemKey(productID, bomSpecID, specG int64) string {
-	if bomSpecID > 0 {
-		return fmt.Sprintf("%d-bom-%d", productID, bomSpecID)
+func orderStockItemUsesUnits(item orderStockItem) bool {
+	return item.BomSpecID > 0 || strings.TrimSpace(item.IdentityMode) == orderStockIdentityModeProduct
+}
+
+func (r Repository) canonicalizeOrderStockItems(ctx context.Context, q stockBatchQueryer, items []orderStockItem) ([]orderStockItem, error) {
+	if len(items) == 0 {
+		return items, nil
 	}
-	return fmt.Sprintf("%d-legacy-%d", productID, specG)
+	modes, err := r.loadOrderStockIdentityModes(ctx, q, items)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]orderStockItem, 0, len(items))
+	for _, item := range items {
+		if item.ProductID <= 0 || item.Units <= 0 {
+			continue
+		}
+		item.IdentityMode = modes[item.ProductID]
+		if item.IdentityMode == orderStockIdentityModeProduct {
+			item.BomSpecID = 0
+			item.BomVariantID = 0
+			item.SpecG = 0
+			item.NeedG = 0
+		} else if item.BomSpecID > 0 {
+			item.SpecG = 0
+			item.NeedG = 0
+		} else {
+			if item.SpecG <= 0 {
+				return nil, fmt.Errorf("spec required")
+			}
+			if item.NeedG <= 0 {
+				item.NeedG = item.Units * item.SpecG
+			}
+		}
+		out = append(out, item)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("at least one item required")
+	}
+	return out, nil
+}
+
+func (r Repository) loadOrderStockIdentityModes(ctx context.Context, q stockBatchQueryer, items []orderStockItem) (map[int64]string, error) {
+	modes := map[int64]string{}
+	productIDs := make([]int64, 0, len(items))
+	seen := map[int64]bool{}
+	for _, item := range items {
+		if item.ProductID > 0 && !seen[item.ProductID] {
+			seen[item.ProductID] = true
+			productIDs = append(productIDs, item.ProductID)
+		}
+	}
+	if len(productIDs) == 0 {
+		return modes, nil
+	}
+	rows, err := q.Query(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema))
+	if err != nil {
+		return nil, err
+	}
+	exists := false
+	if rows.Next() {
+		if err := rows.Scan(&exists); err != nil {
+			rows.Close()
+			return nil, err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if !exists {
+		return modes, nil
+	}
+	rows, err = q.Query(ctx, fmt.Sprintf(`
+		SELECT product_id,
+		       COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),
+		         CASE WHEN state='cutover'
+		                    OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false
+		              THEN 'bom_spec' ELSE 'legacy_sku' END)
+		FROM %s.product_bom_spec_migrations migration
+		WHERE product_id = ANY($1)
+	`, r.schema), productIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var productID int64
+		var mode string
+		if err := rows.Scan(&productID, &mode); err != nil {
+			return nil, err
+		}
+		modes[productID] = strings.TrimSpace(mode)
+	}
+	return modes, rows.Err()
+}
+
+func orderStockItemKey(item orderStockItem) string {
+	if strings.TrimSpace(item.IdentityMode) == orderStockIdentityModeProduct {
+		return fmt.Sprintf("%d-product", item.ProductID)
+	}
+	if item.BomSpecID > 0 {
+		return fmt.Sprintf("%d-bom-%d", item.ProductID, item.BomSpecID)
+	}
+	return fmt.Sprintf("%d-legacy-%d", item.ProductID, item.SpecG)
 }
 
 func (r Repository) previewOrderStockBatches(ctx context.Context, q stockBatchQueryer, items []orderStockItem, excludeOrderID int64, lock bool) (salesapp.OrderStockBatchPreview, error) {
@@ -150,17 +242,17 @@ func aggregateOrderStockItems(items []orderStockItem) []orderStockItem {
 	byKey := map[string]int{}
 	out := make([]orderStockItem, 0, len(items))
 	for _, item := range items {
-		if item.ProductID <= 0 || item.Units <= 0 || (item.BomSpecID <= 0 && item.SpecG <= 0) {
+		if item.ProductID <= 0 || item.Units <= 0 || (!orderStockItemUsesUnits(item) && item.SpecG <= 0) {
 			continue
 		}
-		if item.BomSpecID <= 0 && item.NeedG <= 0 {
+		if !orderStockItemUsesUnits(item) && item.NeedG <= 0 {
 			item.NeedG = item.Units * item.SpecG
 		}
-		if item.BomSpecID > 0 {
+		if orderStockItemUsesUnits(item) {
 			item.SpecG = 0
 			item.NeedG = 0
 		}
-		key := orderStockItemKey(item.ProductID, item.BomSpecID, item.SpecG)
+		key := orderStockItemKey(item)
 		if idx, ok := byKey[key]; ok {
 			out[idx].Units += item.Units
 			out[idx].NeedG += item.NeedG
@@ -179,7 +271,7 @@ func aggregateOrderStockItems(items []orderStockItem) []orderStockItem {
 }
 
 func allocateOrderStockFIFO(item orderStockItem, batches []orderStockBatchRow) ([]salesapp.OrderStockBatchAllocation, error) {
-	if item.BomSpecID > 0 {
+	if orderStockItemUsesUnits(item) {
 		remaining := item.Units
 		out := make([]salesapp.OrderStockBatchAllocation, 0, len(batches))
 		for _, batch := range batches {
@@ -249,7 +341,7 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 	if lock {
 		lockClause = " FOR UPDATE OF b"
 	}
-	if item.BomSpecID > 0 {
+	if orderStockItemUsesUnits(item) {
 		sql := fmt.Sprintf(`
 			SELECT b.id,
 			       b.batch_code,
@@ -288,6 +380,7 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 			WHERE b.item_type='finished_product'
 			  AND b.item_id=$1
 			  AND b.bom_spec_id=$2
+			  AND b.spec_g=0
 			  AND COALESCE(b.remaining_units,0) > 0
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			  AND COALESCE(last_ledger.warehouse,'finished_goods') = 'finished_goods'
@@ -383,8 +476,12 @@ func bomSpecFinishedInventoryBatchCode(productID, bomSpecID int64) string {
 	return fmt.Sprintf("BOM-SPEC-FP-%d-%d", productID, bomSpecID)
 }
 
+func productFinishedInventoryBatchCode(productID int64) string {
+	return fmt.Sprintf("PRODUCT-FP-%d", productID)
+}
+
 func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Context, q stockBatchQueryer, item orderStockItem, excludeOrderID int64, batches []orderStockBatchRow, lock bool) ([]orderStockBatchRow, error) {
-	if item.ProductID <= 0 || (item.BomSpecID <= 0 && item.SpecG <= 0) {
+	if item.ProductID <= 0 || (!orderStockItemUsesUnits(item) && item.SpecG <= 0) {
 		return nil, nil
 	}
 	hasBatchRows, err := r.hasAnyFinishedStockBatchRows(ctx, q, item)
@@ -399,7 +496,7 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 	if lock {
 		lockClause = " FOR UPDATE OF fi"
 	}
-	if item.BomSpecID > 0 {
+	if orderStockItemUsesUnits(item) {
 		sql := fmt.Sprintf(`
 			SELECT COALESCE(fi.onhand_units,0)::bigint,
 			       COALESCE(fi.bom_variant_id,0)::bigint,
@@ -456,9 +553,13 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 		if availableUnits <= 0 {
 			return nil, nil
 		}
+		batchCode := bomSpecFinishedInventoryBatchCode(item.ProductID, item.BomSpecID)
+		if strings.TrimSpace(item.IdentityMode) == orderStockIdentityModeProduct {
+			batchCode = productFinishedInventoryBatchCode(item.ProductID)
+		}
 		return []orderStockBatchRow{{
 			BatchID:        0,
-			BatchCode:      bomSpecFinishedInventoryBatchCode(item.ProductID, item.BomSpecID),
+			BatchCode:      batchCode,
 			BomVariantID:   bomVariantID,
 			ProductName:    productName,
 			AvailableUnits: availableUnits,
@@ -534,9 +635,11 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 func (r Repository) hasAnyFinishedStockBatchRows(ctx context.Context, q stockBatchQueryer, item orderStockItem) (bool, error) {
 	identityClause := "bom_spec_id=$2 AND COALESCE(remaining_units,0)>0"
 	identityValue := item.BomSpecID
-	if item.BomSpecID <= 0 {
+	if !orderStockItemUsesUnits(item) {
 		identityClause = "bom_spec_id=0 AND spec_g=$2 AND COALESCE(remaining_g,0)>0"
 		identityValue = item.SpecG
+	} else {
+		identityClause = "bom_spec_id=$2 AND spec_g=0 AND COALESCE(remaining_units,0)>0"
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT 1
@@ -577,6 +680,11 @@ func (r Repository) applyOrderStockDecisionTx(ctx context.Context, tx pgx.Tx, or
 	}
 	switch decision {
 	case "use_batch":
+		var err error
+		items, err = r.canonicalizeOrderStockItems(ctx, tx, items)
+		if err != nil {
+			return err
+		}
 		preview, err := r.previewOrderStockBatches(ctx, tx, items, orderID, true)
 		if err != nil {
 			return err
