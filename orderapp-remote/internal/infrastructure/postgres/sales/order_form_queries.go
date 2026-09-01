@@ -795,10 +795,17 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if aliasProducts, err := r.fetchOrderCustomerAliasProducts(ctx); err != nil {
+	canonicalProducts := append([]salesapp.ProductOption(nil), out...)
+	var aliasProducts []salesapp.ProductOption
+	aliasProducts, err = r.fetchOrderCustomerAliasProducts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, aliasProducts...)
+	if referenceProducts, err := r.fetchOrderCustomerReferenceProducts(ctx, canonicalProducts, aliasProducts); err != nil {
 		return nil, err
 	} else {
-		out = append(out, aliasProducts...)
+		out = append(out, referenceProducts...)
 	}
 	identities, err := postgresinfra.FetchProductSpecIdentities(ctx, r.pool, r.schema)
 	if err != nil {
@@ -955,6 +962,113 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+type orderCustomerProductReferenceRow struct {
+	ProductID           int64
+	CustomerID          int64
+	CustomerItemCode    string
+	CustomerDisplayName string
+}
+
+type orderCustomerProductFamilyKey struct {
+	CustomerID int64
+	ProductID  int64
+}
+
+func orderProductFamilyID(product salesapp.ProductOption) int64 {
+	if product.ParentProductID > 0 {
+		return product.ParentProductID
+	}
+	return product.ID
+}
+
+func (r Repository) fetchOrderCustomerReferenceProducts(ctx context.Context, canonicalProducts, aliasProducts []salesapp.ProductOption) ([]salesapp.ProductOption, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.product_customer_references", r.schema)).Scan(&exists); err != nil || !exists {
+		return nil, err
+	}
+
+	productByID := make(map[int64]salesapp.ProductOption, len(canonicalProducts))
+	for _, product := range canonicalProducts {
+		productByID[product.ID] = product
+	}
+	aliasFamilies := make(map[orderCustomerProductFamilyKey]bool, len(aliasProducts))
+	for _, product := range aliasProducts {
+		if product.CustomerID <= 0 {
+			continue
+		}
+		aliasFamilies[orderCustomerProductFamilyKey{CustomerID: product.CustomerID, ProductID: orderProductFamilyID(product)}] = true
+	}
+
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT product_id,
+		       customer_id,
+		       COALESCE(customer_item_code,''),
+		       COALESCE(customer_display_name,'')
+		FROM %s.product_customer_references
+		WHERE active=true
+		ORDER BY customer_id,id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	selected := make([]orderCustomerProductReferenceRow, 0)
+	selectedIndex := map[orderCustomerProductFamilyKey]int{}
+	for rows.Next() {
+		var reference orderCustomerProductReferenceRow
+		if err := rows.Scan(&reference.ProductID, &reference.CustomerID, &reference.CustomerItemCode, &reference.CustomerDisplayName); err != nil {
+			return nil, err
+		}
+		canonical, ok := productByID[reference.ProductID]
+		if !ok || reference.CustomerID <= 0 {
+			continue
+		}
+		familyID := orderProductFamilyID(canonical)
+		key := orderCustomerProductFamilyKey{CustomerID: reference.CustomerID, ProductID: familyID}
+		if aliasFamilies[key] {
+			continue
+		}
+		if index, ok := selectedIndex[key]; ok {
+			if selected[index].ProductID != familyID && reference.ProductID == familyID {
+				selected[index] = reference
+			}
+			continue
+		}
+		selectedIndex[key] = len(selected)
+		selected = append(selected, reference)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]salesapp.ProductOption, 0)
+	for _, reference := range selected {
+		canonical := productByID[reference.ProductID]
+		familyID := orderProductFamilyID(canonical)
+		for _, product := range canonicalProducts {
+			if orderProductFamilyID(product) != familyID {
+				continue
+			}
+			clone := product
+			clone.CustomerID = reference.CustomerID
+			clone.Visibility = "customer_reference"
+			clone.CustomerProductAliasID = 0
+			clone.CustomerProductDisplayName = strings.TrimSpace(reference.CustomerDisplayName)
+			clone.CustomerItemCode = strings.TrimSpace(reference.CustomerItemCode)
+			clone.BrandName = ""
+			clone.CustomerAliasDisplayCategoryID = 0
+			clone.CustomerAliasDisplayCategoryName = ""
+			clone.Tiers = nil
+			if clone.CustomerProductDisplayName != "" {
+				clone.Name = clone.CustomerProductDisplayName
+			}
+			out = append(out, clone)
+		}
+	}
+	return out, nil
 }
 
 type orderPublicationProductKey struct {

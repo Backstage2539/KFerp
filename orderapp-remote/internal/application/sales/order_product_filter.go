@@ -19,11 +19,12 @@ func FilterOrderProductsForCustomer(products []ProductOption, customerID int64, 
 	if len(publicUsages) > 0 {
 		allowsPublicProducts = orderCustomerAllowsPublicProducts(customerID, publicUsages[0])
 	}
-	aliasProductIDs := map[int64]bool{}
+	customerScopedProductIDs := map[int64]bool{}
 	if customerID > 0 {
 		for _, product := range products {
-			if product.CustomerProductAliasID > 0 && product.CustomerID == customerID {
-				aliasProductIDs[product.ID] = true
+			visibility := orderProductVisibility(product.Visibility, product.CustomerID)
+			if product.CustomerID == customerID && (product.CustomerProductAliasID > 0 || visibility == "customer_alias" || visibility == "customer_reference") {
+				customerScopedProductIDs[product.ID] = true
 			}
 		}
 	}
@@ -41,7 +42,7 @@ func FilterOrderProductsForCustomer(products []ProductOption, customerID int64, 
 			continue
 		}
 		if visibility == "public" || product.CustomerID == 0 {
-			if customerID > 0 && aliasProductIDs[product.ID] {
+			if customerID > 0 && customerScopedProductIDs[product.ID] {
 				continue
 			}
 			if customerID > 0 && !allowsPublicProducts && !orderProductMatchesExplicitPublicationScope(product, ownedPublicationIDsByType) {
