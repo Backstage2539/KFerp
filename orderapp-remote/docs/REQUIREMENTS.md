@@ -1702,3 +1702,9 @@
 - `DEV-620-CUSTOMER-REFERENCE-ORDER-PROJECTION`：录单商品查询除旧客户商品别名外，还要读取商品档案中有效的 `product_customer_references`。引用商品按客户 ID、客户显示名和客户货号投影为客户作用域商品，同时保留原商品、规格家族、单位、直接商品/BOM 规格身份；客户专属已发布工厂供货价格表按客户与商品 ID 精确附加阶梯价。
 - `DEV-620-LEGACY-ALIAS-PRECEDENCE`：同一客户和同一商品家族同时存在旧 `customer_product_aliases` 与新客户引用时，旧别名保持优先，客户引用不再生成第二套商品行；客户引用商品替代同 ID 公共行，其他客户引用不会泄漏。没有客户引用、没有客户专属价格表及历史订单快照的行为不变。
 - `DEV-620-DOCS-PRODUCTION-DELIVERY`：用真实 PostgreSQL API 测试复现“客户价格表已发布但录单只有公共商品行且无阶梯价”，完成 RED/GREEN、相关 Go/统一验证器、开发预检和部署，再通过独立发布分支合入 `main` 并部署 production。生产发布后只读核对目标客户商品和价格快照，再继续当前授权的挂耳订单与发货验收。
+
+# PR-621-DIRECT-PRODUCT-ORDER-STOCK-UNITS 直接商品订单按商品单位预占与发货（2026-09-01）
+
+- `DEV-621-DIRECT-PRODUCT-STOCK-PREVIEW`：录单库存预览先读取商品当前 `spec_identity_mode`。直接商品身份只接受 `product_id`，将 `bom_spec_id/bom_variant_id/spec_g` 规范为 0，以订单数量作为 `need_units`，从成品库存的 `onhand_units` 读取可用量并生成 `PRODUCT-FP-<product_id>` 聚合批次；不得再要求旧 SKU 克重或把盒、袋数量换算为克数。
+- `DEV-621-DIRECT-PRODUCT-SHIPMENT-DEDUCTION`：直接商品订单保存、库存预占和发货扣减保持相同商品身份。预占和扣减记录写 `allocated_units/deducted_units`，成品库存和库存流水按商品单位减少，BOM 规格字段与克数字段保持 0；生产完成后没有显式预占记录的发货兜底也必须使用同一单位合同。旧 `legacy_sku` 克数库存及 `bom_spec` 规格单位库存行为不变。
+- `DEV-621-DOCS-PRODUCTION-DELIVERY`：真实 PostgreSQL API 测试覆盖库存预览、订单保存、预占发货、无预占兜底发货及两种历史身份回归；同步订单手册、需求/验收记录和 PR/DEV/REV。完成 Go 与统一验证器、development 部署验证后，通过独立发布分支合入 `main` 并部署 production，再以当前授权的三种挂耳订单完成生产库存与操作日志验收。

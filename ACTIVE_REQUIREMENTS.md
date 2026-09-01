@@ -6,17 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-621-DIRECT-PRODUCT-ORDER-STOCK-UNITS
+- Branch: `codex/direct-product-order-stock-20260901`
+- Owner/session: Codex / 2026-09-01
+- Status: implementation and targeted PostgreSQL API verification complete; development and production delivery pending
+- Scope: 直接商品身份订单按商品库存单位预览、预占和发货扣减成品库存，固定使用 `product_id` 与零 BOM 规格字段；旧 SKU 克数库存和 BOM 规格单位库存保持原逻辑。
+- DEV: DEV-621-DIRECT-PRODUCT-STOCK-PREVIEW; DEV-621-DIRECT-PRODUCT-SHIPMENT-DEDUCTION; DEV-621-DOCS-PRODUCTION-DELIVERY
+- Verifier:
+  - RED: direct-product stock preview returned HTTP 400 `spec required`; after preview repair, save still rejected the row as a legacy SKU without weight conversion.
+  - GREEN: real-PostgreSQL API test covers preview, reservation, order save, allocated shipment and no-allocation fallback shipment; legacy gram and BOM-spec unit regression cases also pass.
+- Deployment: pending development, then production; after production delivery continue the authorized three-product order/shipment acceptance.
+- Last update: 2026-09-01 Asia/Shanghai
+
 ### PR-620-ORDER-ENTRY-PRODUCT-CUSTOMER-REFERENCE
 - Branch: `codex/order-entry-product-customer-reference-20260901`
 - Owner/session: Codex / 2026-09-01
-- Status: implementation verified locally; development and production delivery pending
+- Status: development and production delivered; production order-form API acceptance complete
 - Scope: 录单商品目录识别商品档案的有效客户引用，使客户专属已发布工厂供货价格表可向该客户商品行附加阶梯价；客户显示名和客户货号进入搜索/展示，旧客户商品别名保持优先且不产生重复商品。
 - DEV: DEV-620-CUSTOMER-REFERENCE-ORDER-PROJECTION; DEV-620-LEGACY-ALIAS-PRECEDENCE; DEV-620-DOCS-PRODUCTION-DELIVERY
 - Verifier:
   - RED: `TestOrderAPIFormUsesProductCustomerReferenceForCustomerPublicationTiers` returned only `customer_id=0`, so customer publication tiers were absent.
   - GREEN: targeted real-PostgreSQL order API test passes for direct-product customer reference, customer display/code, publication tier and legacy alias precedence.
-  - Broader Go/release gates: pending.
-- Deployment: pending development, then production; production business acceptance continues the active three-product order/shipment goal.
+  - Broader Go/release gates and production preflight: GREEN.
+- Deployment: `develop@199ef42b` and `main@e9f6d46c` deployed; production order form exposes `生豆-萨其姆-水洗-2026` with publication `12 / V3.0.7` tiers. The active three-product order/shipment goal continues separately.
 - Last update: 2026-09-01 Asia/Shanghai
 
 ### PR-619-PRODUCT-BOM-SINGLE-OUTPUT
