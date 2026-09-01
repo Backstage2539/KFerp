@@ -45,3 +45,20 @@ func TestSchemaSetupSynchronizesSerialIDSequencesLast(t *testing.T) {
 		t.Fatalf("serial ID sequences must be synchronized after every module schema: contracts=%d sequences=%d", contracts, sequences)
 	}
 }
+
+func TestSchemaSetupCreatesBOMAuthorityBeforeDependentModulesAndReinstallsGuardsAfterThem(t *testing.T) {
+	body, err := os.ReadFile("internal/appmain/schema_setup.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	bom := strings.Index(src, `Name: "bom"`)
+	catalog := strings.Index(src, `Name: "catalog"`)
+	base := strings.Index(src, `Name: "product-bom-spec-authority-base"`)
+	portal := strings.Index(src, `Name: "customerportal"`)
+	fulfillment := strings.Index(src, `Name: "customerfulfillment"`)
+	guards := strings.Index(src, `Name: "product-bom-spec-authority-guards"`)
+	if !(bom >= 0 && catalog > bom && base > catalog && portal > base && fulfillment > base && guards > fulfillment) {
+		t.Fatalf("BOM authority schema order invalid: bom=%d catalog=%d base=%d portal=%d fulfillment=%d guards=%d", bom, catalog, base, portal, fulfillment, guards)
+	}
+}
