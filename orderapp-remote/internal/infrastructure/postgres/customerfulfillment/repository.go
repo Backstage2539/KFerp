@@ -1015,6 +1015,7 @@ func submittedDirectShipERPRebuildKeepsHistoricalPricing(err error) bool {
 		"customer_product_alias invalid",
 		"customer product price unpublished",
 		"缺少商品价格表价格",
+		"product_bom_spec_not_configured",
 	} {
 		if strings.Contains(msg, marker) {
 			return true
