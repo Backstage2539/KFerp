@@ -9,13 +9,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-621-DIRECT-PRODUCT-ORDER-STOCK-UNITS
 - Branch: `codex/direct-product-order-stock-20260901`
 - Owner/session: Codex / 2026-09-01
-- Status: implementation and targeted PostgreSQL API verification complete; development and production delivery pending
+- Status: development and production delivered; automated three-product production acceptance complete; Van page acceptance pending
 - Scope: 直接商品身份订单按商品库存单位预览、预占和发货扣减成品库存，固定使用 `product_id` 与零 BOM 规格字段；旧 SKU 克数库存和 BOM 规格单位库存保持原逻辑。
 - DEV: DEV-621-DIRECT-PRODUCT-STOCK-PREVIEW; DEV-621-DIRECT-PRODUCT-SHIPMENT-DEDUCTION; DEV-621-DOCS-PRODUCTION-DELIVERY
 - Verifier:
   - RED: direct-product stock preview returned HTTP 400 `spec required`; after preview repair, save still rejected the row as a legacy SKU without weight conversion.
   - GREEN: real-PostgreSQL API test covers preview, reservation, order save, allocated shipment and no-allocation fallback shipment; legacy gram and BOM-spec unit regression cases also pass.
-- Deployment: pending development, then production; after production delivery continue the authorized three-product order/shipment acceptance.
+  - RELEASE: full development and production gates passed; development login and production login both returned HTTP 200.
+- Deployment: `develop@2d86f7ca` and `main@e9ae4c99` deployed. Production orders `SO-20260901-0001` / `0002` / `0003` used publication `14 / V3.0.5`, shipped with direct-product unit deductions, and left products `924` / `927` / `930` at zero inventory. Development backup: `/opt/stacks/erp/orderapp.backup.deploy-20260901161226-2d86f7cad0b7`; production backup: `/opt/stacks/erp-production/orderapp.backup.deploy-20260901162757-e9ae4c994b24`.
 - Last update: 2026-09-01 Asia/Shanghai
 
 ### PR-620-ORDER-ENTRY-PRODUCT-CUSTOMER-REFERENCE
