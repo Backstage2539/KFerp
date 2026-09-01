@@ -1390,9 +1390,6 @@ func (s *Service) PreviewOrderStockBatches(ctx context.Context, cmd OrderStockBa
 		if item.ProductID == nil {
 			return OrderStockBatchPreview{}, fmt.Errorf("product required")
 		}
-		if item.BomSpecID <= 0 && item.SpecG <= 0 {
-			return OrderStockBatchPreview{}, fmt.Errorf("spec required")
-		}
 		if item.Units <= 0 {
 			return OrderStockBatchPreview{}, fmt.Errorf("qty required")
 		}

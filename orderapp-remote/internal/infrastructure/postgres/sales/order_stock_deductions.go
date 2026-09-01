@@ -24,6 +24,10 @@ type orderStockDeductionAllocation struct {
 	AllocatedUnits int64
 }
 
+func orderStockAllocationUsesUnits(alloc orderStockDeductionAllocation) bool {
+	return alloc.BomSpecID > 0 || (alloc.BomSpecID == 0 && alloc.SpecG == 0 && alloc.AllocatedUnits > 0)
+}
+
 func (r Repository) deductOrderAllocatedStockTx(ctx context.Context, tx pgx.Tx, orderID int64, actor string) error {
 	if orderID <= 0 {
 		return nil
@@ -75,7 +79,7 @@ func (r Repository) deductOrderAllocatedStockTx(ctx context.Context, tx pgx.Tx, 
 		); err != nil {
 			return err
 		}
-		validQuantity := (alloc.BomSpecID > 0 && alloc.AllocatedUnits > 0) || (alloc.BomSpecID <= 0 && alloc.SpecG > 0 && alloc.AllocatedG > 0)
+		validQuantity := (orderStockAllocationUsesUnits(alloc) && alloc.AllocatedUnits > 0) || (!orderStockAllocationUsesUnits(alloc) && alloc.SpecG > 0 && alloc.AllocatedG > 0)
 		if alloc.ProductID > 0 && validQuantity && strings.TrimSpace(alloc.BatchCode) != "" {
 			allocations = append(allocations, alloc)
 		}
@@ -118,7 +122,7 @@ func orderSourceWarehouseTx(ctx context.Context, tx pgx.Tx, schema string, order
 }
 
 func (r Repository) deductFinishedBatchAllocationTx(ctx context.Context, tx pgx.Tx, orderID int64, alloc orderStockDeductionAllocation, sourceWarehouse string, actor string) error {
-	if alloc.BomSpecID > 0 {
+	if orderStockAllocationUsesUnits(alloc) {
 		return r.deductBOMSpecFinishedBatchAllocationTx(ctx, tx, orderID, alloc, sourceWarehouse, actor)
 	}
 	sourceWarehouse = strings.TrimSpace(sourceWarehouse)
@@ -315,7 +319,7 @@ func (r Repository) deductTraceableFinishedInventoryAggregateTx(ctx context.Cont
 }
 
 func (r Repository) deductLegacyFinishedInventoryAllocationTx(ctx context.Context, tx pgx.Tx, orderID int64, alloc orderStockDeductionAllocation, warehouse string, actor string) error {
-	if alloc.BomSpecID > 0 {
+	if orderStockAllocationUsesUnits(alloc) {
 		return r.deductBOMSpecFinishedInventoryAllocationTx(ctx, tx, orderID, alloc, warehouse, actor)
 	}
 	warehouse = strings.TrimSpace(warehouse)
@@ -436,23 +440,15 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 	defer rows.Close()
 
 	items := make([]orderStockItem, 0)
-	allocations := make([]orderStockDeductionAllocation, 0)
 	for rows.Next() {
 		var alloc orderStockDeductionAllocation
 		var units int64
 		if err := rows.Scan(&alloc.ProductID, &alloc.BomSpecID, &alloc.BomVariantID, &alloc.ProductName, &alloc.SpecG, &units); err != nil {
 			return err
 		}
-		if alloc.ProductID <= 0 || units <= 0 || (alloc.BomSpecID <= 0 && alloc.SpecG <= 0) {
+		if alloc.ProductID <= 0 || units <= 0 {
 			continue
 		}
-		if alloc.BomSpecID > 0 {
-			alloc.AllocatedUnits = units
-		} else {
-			alloc.AllocatedG = alloc.SpecG * units
-		}
-		alloc.BatchCode = "SOURCE-WH:" + warehouse
-		allocations = append(allocations, alloc)
 		items = append(items, orderStockItem{
 			ProductID:    alloc.ProductID,
 			BomSpecID:    alloc.BomSpecID,
@@ -467,6 +463,27 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 		return err
 	}
 	rows.Close()
+	items, err = r.canonicalizeOrderStockItems(ctx, tx, items)
+	if err != nil {
+		return err
+	}
+	allocations := make([]orderStockDeductionAllocation, 0, len(items))
+	for _, item := range items {
+		alloc := orderStockDeductionAllocation{
+			ProductID:    item.ProductID,
+			BomSpecID:    item.BomSpecID,
+			BomVariantID: item.BomVariantID,
+			ProductName:  item.ProductName,
+			SpecG:        item.SpecG,
+			BatchCode:    "SOURCE-WH:" + warehouse,
+		}
+		if orderStockItemUsesUnits(item) {
+			alloc.AllocatedUnits = item.Units
+		} else {
+			alloc.AllocatedG = item.NeedG
+		}
+		allocations = append(allocations, alloc)
+	}
 
 	if warehouse == "finished_goods" && len(items) > 0 {
 		preview, err := r.previewOrderStockBatches(ctx, tx, items, orderID, true)

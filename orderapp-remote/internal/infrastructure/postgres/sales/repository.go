@@ -1045,6 +1045,7 @@ func manualConcreteOrderPriceSourceJSON(selection concreteOrderPublicationSelect
 }
 
 type orderBOMSpecIdentity struct {
+	SpecIdentityMode       string
 	ProductID              int64
 	BomSpecID              int64
 	BomVariantID           int64
@@ -1113,7 +1114,10 @@ func resolveOrderBOMSpecIdentityTx(ctx context.Context, tx pgx.Tx, schema string
 		if bomSpecID > 0 || bomVariantID > 0 {
 			return orderBOMSpecIdentity{}, fmt.Errorf("direct product identity does not accept bom_spec_id or bom_variant_id")
 		}
-		return orderBOMSpecIdentity{}, nil
+		return orderBOMSpecIdentity{
+			SpecIdentityMode: string(productspecmigrationapp.SpecIdentityModeProduct),
+			ProductID:        productID,
+		}, nil
 	}
 	if identityMode != productspecmigrationapp.SpecIdentityModeBOMSpec {
 		if bomSpecID > 0 || bomVariantID > 0 {
@@ -1233,6 +1237,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		legacyPricingSpecG                 int64
 		legacyPricingSalesUnit             string
 		canonicalBOMSpec                   bool
+		canonicalDirectProduct             bool
 		customerProductAliasID             int64
 		customerProductDisplayNameSnapshot string
 		customerItemCodeSnapshot           string
@@ -1430,6 +1435,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if identityErr != nil {
 			return salesapp.SaveOrderResult{}, identityErr
 		}
+		if identity.SpecIdentityMode == string(productspecmigrationapp.SpecIdentityModeProduct) {
+			items[idx].canonicalDirectProduct = true
+			items[idx].bomSpecID = 0
+			items[idx].bomVariantID = 0
+			continue
+		}
 		if identity.BomSpecID <= 0 {
 			continue
 		}
@@ -1572,15 +1583,17 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if items[idx].submittedParentProductID > 0 && selection.Usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("所选价格表版本不包含该商品规格，请重新选择价格表和规格")
 			}
-			selection.Spec, err = orderbeans.ResolveOrderProductionProductSpec(
-				ctx,
-				tx,
-				r.schema,
-				*items[idx].productID,
-				selection.Spec,
-			)
-			if err != nil {
-				return salesapp.SaveOrderResult{}, err
+			if !items[idx].canonicalDirectProduct {
+				selection.Spec, err = orderbeans.ResolveOrderProductionProductSpec(
+					ctx,
+					tx,
+					r.schema,
+					*items[idx].productID,
+					selection.Spec,
+				)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
 			}
 		}
 		if selection.Strict {
@@ -2280,7 +2293,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	stockItems := make([]orderStockItem, 0, len(items))
 	for _, it := range items {
-		if it.productID == nil || *it.productID <= 0 || it.units <= 0 || (it.bomSpecID <= 0 && it.specG <= 0) {
+		if it.productID == nil || *it.productID <= 0 || it.units <= 0 {
 			continue
 		}
 		needG := orderItemWeightG(it.productKind, it.salesUnit, it.unitBeanG, it.unitBagCount, it.specG, it.units)
