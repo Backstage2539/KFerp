@@ -41,7 +41,7 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		{Name: "bom", Run: func(ctx context.Context) error { return postgresbom.EnsureSchema(ctx, pool, schema) }},
 		{Name: "catalog", Run: func(ctx context.Context) error { return postgrescatalog.EnsureSchema(ctx, pool, schema) }},
 		{Name: "product-bom-spec-authority-base", Run: func(ctx context.Context) error {
-			return postgresproductspecmigration.EnsureAuthorityProjection(ctx, pool, schema)
+			return postgresproductspecmigration.EnsureAuthorityView(ctx, pool, schema)
 		}},
 		{Name: "customerportal", Run: func(ctx context.Context) error { return postgrescustomerportal.EnsureSchema(ctx, pool, schema) }},
 		{Name: "customerfulfillment", Run: func(ctx context.Context) error { return postgrescustomerfulfillment.EnsureSchema(ctx, pool, schema) }},
