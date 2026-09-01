@@ -64,41 +64,23 @@ func TestBomRepositoryExposesOrderUsageForCustomerSkuSorting(t *testing.T) {
 	}
 }
 
-func TestBomRepositoryProductsUseParentInventoryUnitForDerivedSKUs(t *testing.T) {
+func TestBomRepositoryProductsDoNotUseProductInventoryUnitOrDerivedSKUs(t *testing.T) {
 	src := readRepositorySource(t)
 	for _, want := range []string{
-		"parent_product_direct_unit_template",
-		"CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit",
-		"CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit_explicit",
-		"product_direct_unit_template",
-		"product_direct_unit_template.id=COALESCE(p.unit_template_id,0)",
-		"NULLIF(product_direct_unit_template.inventory_unit,'')",
-		"COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,'')) IS NOT NULL END AS inventory_unit_explicit",
-		"NULLIF(product_config.inventory_unit,'')",
+		"''::text AS inventory_unit",
+		"false AS inventory_unit_explicit",
+		"COALESCE(p.parent_product_id,0)=0",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("BOM products must resolve child SKU inventory from parent and preserve legacy parent fallback; missing %q", want)
+			t.Fatalf("BOM products must expose identity-only top-level products; missing %q", want)
 		}
-	}
-	overrideIdx := strings.Index(src, "NULLIF(p.unit_rule_override_json->>'inventory_unit','')")
-	directTemplateIdx := strings.Index(src, "NULLIF(product_direct_unit_template.inventory_unit,'')")
-	legacyConfigIdx := strings.Index(src, "NULLIF(product_config.inventory_unit,'')")
-	if overrideIdx < 0 || directTemplateIdx < 0 || legacyConfigIdx < 0 || !(overrideIdx < directTemplateIdx && directTemplateIdx < legacyConfigIdx) {
-		t.Fatalf("BOM product inventory unit priority must be product override -> direct unit template -> legacy config")
 	}
 }
 
-func TestBomRepositoryProductsHideTemplateRemovedDerivedSKUs(t *testing.T) {
+func TestBomRepositoryProductsExcludeAllChildSKUs(t *testing.T) {
 	src := readRepositorySource(t)
-	for _, want := range []string{
-		"COALESCE(p.auto_derived_sku,false)",
-		"derived_spec_status",
-		"template_removed",
-		"COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed'",
-	} {
-		if !strings.Contains(src, want) {
-			t.Fatalf("BOM product candidates must hide template-removed derived SKUs; missing %q", want)
-		}
+	if !strings.Contains(src, "COALESCE(p.parent_product_id,0)=0") {
+		t.Fatal("BOM product candidates must exclude every child SKU")
 	}
 }
 
@@ -591,14 +573,18 @@ func TestProductionBomBackfillRepairsLegacyItemsWithoutBindings(t *testing.T) {
 func TestProductionBomLegacyBindingRepairSkipsExplicitProductBomDraft(t *testing.T) {
 	repository := readRepositorySource(t)
 	start := strings.Index(repository, "func repairLegacyProductionBomBindings")
-	if start == -1 { t.Fatal("repairLegacyProductionBomBindings not found") }
+	if start == -1 {
+		t.Fatal("repairLegacyProductionBomBindings not found")
+	}
 	repair := repository[start:]
 	for _, want := range []string{
 		"NOT EXISTS (",
 		"explicit_bom.output_product_id=p.id",
 		"COALESCE(explicit_bom.legacy_product_id,0)=0",
 	} {
-		if !strings.Contains(repair, want) { t.Fatalf("explicit product BOM restart protection missing %q", want) }
+		if !strings.Contains(repair, want) {
+			t.Fatalf("explicit product BOM restart protection missing %q", want)
+		}
 	}
 }
 

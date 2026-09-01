@@ -425,6 +425,7 @@ type ProductSpecIdentityOption struct {
 	LegacyCatalogProduct bool
 	BomSpecAuthoritative bool
 	SpecIdentityMode     string
+	Configured           bool
 }
 
 func FetchProductSpecIdentities(ctx context.Context, pool *pgxpool.Pool, schema string) (map[int64]ProductSpecIdentityOption, error) {
@@ -432,9 +433,10 @@ func FetchProductSpecIdentities(ctx context.Context, pool *pgxpool.Pool, schema 
 		SELECT p.id,
 		       COALESCE(migration.state,'legacy'),
 		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true),
-		       COALESCE(to_jsonb(migration)->>'spec_identity_mode','')
+		       COALESCE(to_jsonb(migration)->>'spec_identity_mode',''),
+		       COALESCE((to_jsonb(migration)->>'configured')::boolean,false)
 		FROM %s.products p
-		LEFT JOIN %s.product_bom_spec_migrations migration ON migration.product_id=p.id
+		LEFT JOIN %s.product_bom_spec_authorities migration ON migration.product_id=p.id
 	`, schema, schema))
 	if err != nil {
 		return nil, err
@@ -446,14 +448,15 @@ func FetchProductSpecIdentities(ctx context.Context, pool *pgxpool.Pool, schema 
 		var state string
 		var legacyCatalogProduct bool
 		var storedIdentityMode string
-		if err := rows.Scan(&id, &state, &legacyCatalogProduct, &storedIdentityMode); err != nil {
+		var configured bool
+		if err := rows.Scan(&id, &state, &legacyCatalogProduct, &storedIdentityMode, &configured); err != nil {
 			return nil, err
 		}
 		mode := productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, productspecmigrationapp.MigrationState(state), legacyCatalogProduct)
-		authoritative := mode == productspecmigrationapp.SpecIdentityModeBOMSpec
+		authoritative := configured && mode == productspecmigrationapp.SpecIdentityModeBOMSpec
 		out[id] = ProductSpecIdentityOption{
 			State: state, LegacyCatalogProduct: legacyCatalogProduct,
-			BomSpecAuthoritative: authoritative, SpecIdentityMode: mode,
+			BomSpecAuthoritative: authoritative, SpecIdentityMode: mode, Configured: configured,
 		}
 	}
 	return out, rows.Err()

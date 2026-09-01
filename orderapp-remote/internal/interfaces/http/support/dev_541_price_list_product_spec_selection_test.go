@@ -25,8 +25,11 @@ func TestDev541PriceListProductSpecSelectionContracts(t *testing.T) {
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "schema.go"): {
 			"default_sku_id",
 		},
-		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
-			"default-sku", "default_sku_id",
+		filepath.Join("internal", "application", "bom", "service.go"): {
+			"spec_group", "ErrProductOutputRequiresBOMSpec",
+		},
+		filepath.Join("internal", "interfaces", "http", "bom", "bom_api.go"): {
+			"product_output_requires_bom_spec",
 		},
 		filepath.Join("internal", "application", "costing", "service.go"): {
 			"quantity_basis", "sales_spec_count", "effective_sales_spec",
@@ -44,7 +47,7 @@ func TestDev541PriceListProductSpecSelectionContracts(t *testing.T) {
 			"默认规格", "选择分类和产品", "销售规格件数", "固定价",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"设置默认规格", "操作日志",
+			"商品档案与 BOM 规格", "操作日志",
 		},
 		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"): {
 			"sales_spec_count", "具体 SKU", "历史价格表",

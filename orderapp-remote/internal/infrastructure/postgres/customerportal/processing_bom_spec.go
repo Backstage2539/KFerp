@@ -53,45 +53,11 @@ func (r Repository) resolveProcessingOutputIdentityTx(ctx context.Context, tx pg
 	if err := r.ensureProcessingTargetProductTx(ctx, tx, customerID, item.ProductID); err != nil {
 		return portalProcessingOutputIdentity{}, err
 	}
-	if !portalRelationExists(ctx, tx, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema)) ||
-		!portalRelationExists(ctx, tx, fmt.Sprintf("%s.legacy_child_sku_bom_spec_mappings", r.schema)) {
-		if item.BomSpecID > 0 || item.BomVariantID > 0 {
-			return portalProcessingOutputIdentity{}, fmt.Errorf("BOM spec migration unavailable")
-		}
-		return portalProcessingOutputIdentity{ProductID: item.ProductID}, nil
-	}
-
-	var mappedParentID int64
-	var mappedState string
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT mapping.parent_product_id,COALESCE(migration.state,'legacy')
-		FROM %s.legacy_child_sku_bom_spec_mappings mapping
-		LEFT JOIN %s.product_bom_spec_migrations migration ON migration.product_id=mapping.parent_product_id
-		WHERE mapping.legacy_child_product_id=$1
-	`, r.schema, r.schema), item.ProductID).Scan(&mappedParentID, &mappedState)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return portalProcessingOutputIdentity{}, err
-	}
-	if err == nil && mappedState == "cutover" {
-		return portalProcessingOutputIdentity{}, fmt.Errorf("legacy child SKU write rejected after BOM spec cutover")
-	}
-
-	state := "legacy"
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, r.schema), item.ProductID).Scan(&state)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return portalProcessingOutputIdentity{}, err
-	}
-	if state != "cutover" {
-		if item.BomSpecID > 0 || item.BomVariantID > 0 {
-			return portalProcessingOutputIdentity{}, fmt.Errorf("BOM spec identity requires cutover product")
-		}
-		return portalProcessingOutputIdentity{ProductID: item.ProductID}, nil
-	}
 	if item.BomSpecID <= 0 {
-		return portalProcessingOutputIdentity{}, fmt.Errorf("bom_spec_id required after BOM spec cutover")
+		return portalProcessingOutputIdentity{}, fmt.Errorf("product_bom_spec_not_configured")
 	}
 	identity := portalProcessingOutputIdentity{Canonical: true}
-	err = tx.QueryRow(ctx, fmt.Sprintf(`
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT binding.output_id,binding.bom_id,version.id,COALESCE(version.version_no,''),
 		       spec.id,variant.id,COALESCE(p.name,''),
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name),
@@ -253,25 +219,7 @@ func (r Repository) ListProcessingCatalogTargets(ctx context.Context, customerID
 		if productID <= 0 {
 			continue
 		}
-		identity, err := r.resolveProcessingOutputIdentityTx(ctx, tx, customerID, customerportalapp.ProcessingRequestItemCommand{ProductID: productID, SpecG: 1, Qty: 1})
-		if err != nil {
-			if strings.Contains(err.Error(), "legacy child SKU") || strings.Contains(err.Error(), "target product unavailable") {
-				continue
-			}
-			if strings.Contains(err.Error(), "bom_spec_id required") {
-				// A cutover parent needs all of its current specs, handled below.
-			} else {
-				return nil, err
-			}
-		}
-		if identity.Canonical {
-			continue
-		}
-		state := "legacy"
-		if portalRelationExists(ctx, tx, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema)) {
-			_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1`, r.schema), productID).Scan(&state)
-		}
-		if state == "cutover" {
+		{
 			rows, err := tx.Query(ctx, fmt.Sprintf(`
 				SELECT binding.output_id,spec.id,variant.id,
 				       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name),
@@ -304,19 +252,6 @@ func (r Repository) ListProcessingCatalogTargets(ctx context.Context, customerID
 			}
 			rows.Close()
 			continue
-		}
-		if err := r.ensureProcessingTargetProductTx(ctx, tx, customerID, productID); err != nil {
-			if strings.Contains(err.Error(), "target product unavailable") {
-				continue
-			}
-			return nil, err
-		}
-		configured, err := postgresproduction.HasUsableCustomerProcessingBomTx(ctx, tx, r.schema, productID)
-		if err != nil {
-			return nil, err
-		}
-		if configured {
-			out = append(out, customerportalapp.ProcessingCatalogTarget{ProductID: productID})
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

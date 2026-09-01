@@ -881,3 +881,11 @@
 - `DEV-600-BOM-SPEC-BUSINESS-IDENTITY`：新商品规格身份归 BOM 所有并以父商品 + BOM 规格作为价格、订单、库存、批次、生产和履约键。同一 BOM 的同键同单位跨版本复用身份，不同 BOM 的同名规格相互隔离；商品规格数量与库存数量 1:1，不再做销售规格到库存单位换算。商品组件必须引用明确 BOM 规格，依赖图使用 material 与 product_spec 类型化节点。
 - `DEV-600-PER-PRODUCT-MIGRATION`：现有商品按 legacy/preparing/ready/cutover 逐个迁移。系统仅迁入旧规格名称、单位、默认和配置对照，不自动生成配方；业务人员在 BOM 重建完整配方。库存、预留、未完成订单、生产和履约未清零时拒绝切换。切换后旧子 SKU 成为历史墓碑，新写入拒绝；历史价格表、订单、PDF、库存流水、工单和审计不改写。
 - `DEV-600-VUE-DOCS-DEVELOPMENT-DELIVERY`：商品档案删除规格模板和派生子 SKU 编辑，改为只读展示默认 BOM 规格并跳转 BOM；价格、录单、库存、生产和小程序对已切换商品使用 BOM 规格合同，未迁移商品继续兼容旧模型。同步手册与证据，全量验证后合入 develop 并仅部署 development；不自动切换商品，main 和 production 不操作。
+
+# PR-622-PRODUCT-BOM-SPEC-AUTHORITY 商品规格权威完全收敛到生产 BOM（2026-09-02）
+
+- `DEV-622-BOM-SPEC-ONLY`：商品产出 BOM 只允许规格组。新建时自带一个空白默认规格，规格名称、条码和库存单位直接维护；单位来自全局单位字典，规格模板可选。物料产出 BOM 继续使用物料档案库存单位。商品提交单一产出返回 `409 / product_output_requires_bom_spec`。
+- `DEV-622-PRODUCT-ARCHIVE-IDENTITY-ONLY`：商品档案只保存商品身份；活动商品接口不再返回商品库存单位、销售规格、默认或子 SKU、迁移状态。商品页只读展示默认已发布 BOM 规格并提供“到 BOM 配置”。旧规格及默认 SKU 写路由已移除。
+- `DEV-622-RUNTIME-BOM-AUTHORITY`：价格、录单、库存、排产、成本和履约只接受“主商品 + 当前默认已发布 BOM 规格 + 当前发布变体”。未配置商品从新业务候选项排除并返回 `product_bom_spec_not_configured`；商品组件必须选择其已发布 BOM 规格。
+- `DEV-622-DUAL-ENV-CLEANUP`：一次性命令提供 preview/apply/verify，以数据库顾问锁、确定性清单、校验和、完整备份和单事务清理旧子商品、销售规格模板绑定与迁移表。未映射库存或未完业务依赖会整批阻断；应用后只能整库备份恢复。
+- `DEV-622-DOCS-RELEASE`：完成 Go、Vue、小程序、Vite 和统一验证，依次发布开发代码与数据、生产代码与数据，最后移除一次性工具和剩余兼容代码并同步双分支。

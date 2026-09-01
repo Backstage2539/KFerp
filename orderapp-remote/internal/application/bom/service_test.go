@@ -49,20 +49,47 @@ func TestNormalizeProductionBomDraftWorkspaceRecipePayloadBySpecificationMode(t 
 	}
 }
 
-func TestCreateProductionBomDefaultsProductToSingleSpecificationMode(t *testing.T) {
+func TestCreateProductionBomRequiresProductSpecificationGroup(t *testing.T) {
 	repo := &fakeRepo{productRows: []Option{{ID: 88, Name: "盒装挂耳", InventoryUnit: "盒"}}}
 	svc := NewService(repo)
 
+	_, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{
+		Name: "盒装挂耳 BOM", OutputProductID: 88, OutputQty: 1, SpecificationMode: "single",
+	})
+	if !errors.Is(err, ErrProductOutputRequiresBOMSpec) {
+		t.Fatalf("single product BOM error=%v want ErrProductOutputRequiresBOMSpec", err)
+	}
+	if repo.createdProductionBomCommand.Name != "" {
+		t.Fatal("invalid single product BOM must not reach repository")
+	}
+
+	variants := []ProductionBomDraftVariant{{SpecKey: "default", Name: "默认规格", InventoryUnit: "袋", IsDefault: true}}
 	if _, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{
-		Name: "盒装挂耳 BOM", OutputProductID: 88, OutputQty: 1,
+		Name: "盒装挂耳 BOM", OutputProductID: 88, OutputQty: 1, Variants: variants,
 	}); err != nil {
-		t.Fatalf("CreateProductionBom: %v", err)
+		t.Fatalf("manual spec-group CreateProductionBom: %v", err)
 	}
-	if repo.createdProductionBomCommand.SpecificationMode != "single" {
-		t.Fatalf("specification_mode=%q want single", repo.createdProductionBomCommand.SpecificationMode)
+	if repo.createdProductionBomCommand.SpecificationMode != ProductionBomSpecificationModeSpecGroup {
+		t.Fatalf("specification_mode=%q want spec_group", repo.createdProductionBomCommand.SpecificationMode)
 	}
-	if repo.createdProductionBomCommand.OutputUnit != "盒" {
-		t.Fatalf("output_unit=%q want 盒", repo.createdProductionBomCommand.OutputUnit)
+	if !reflect.DeepEqual(repo.createdProductionBomCommand.Variants, variants) {
+		t.Fatalf("variants=%+v want %+v", repo.createdProductionBomCommand.Variants, variants)
+	}
+	if repo.createdProductionBomCommand.OutputUnit != "袋" {
+		t.Fatalf("output_unit=%q want BOM default specification unit 袋", repo.createdProductionBomCommand.OutputUnit)
+	}
+}
+
+func TestCreateProductionBomKeepsMaterialSingleOutputUnit(t *testing.T) {
+	repo := &fakeRepo{materialRows: []Option{{ID: 95, Name: "咖啡粉", InventoryUnit: "kg"}}}
+	svc := NewService(repo)
+	if _, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{
+		Name: "咖啡粉", OutputType: "material", OutputMaterialID: 95, OutputQty: 1,
+	}); err != nil {
+		t.Fatalf("material CreateProductionBom: %v", err)
+	}
+	if repo.createdProductionBomCommand.SpecificationMode != ProductionBomSpecificationModeSingle || repo.createdProductionBomCommand.OutputUnit != "kg" {
+		t.Fatalf("material command=%+v", repo.createdProductionBomCommand)
 	}
 }
 
@@ -78,7 +105,7 @@ func TestDraftWorkspaceRejectsExplicitMixedSpecificationRecipes(t *testing.T) {
 		variants []ProductionBomDraftVariant
 		want     string
 	}{
-		{mode: ProductionBomSpecificationModeSingle, items: []ProductionBomDraftItem{item}, variants: []ProductionBomDraftVariant{variant}, want: "single specification_mode cannot include specification variants"},
+		{mode: ProductionBomSpecificationModeSingle, items: []ProductionBomDraftItem{item}, variants: []ProductionBomDraftVariant{variant}, want: ErrProductOutputRequiresBOMSpec.Error()},
 		{mode: ProductionBomSpecificationModeSpecGroup, items: []ProductionBomDraftItem{item}, variants: []ProductionBomDraftVariant{variant}, want: "spec_group specification_mode cannot include flat recipe items"},
 	} {
 		_, err := svc.UpdateProductionBomDraftWorkspace(context.Background(), ProductionBomDraftWorkspaceCommand{
@@ -518,7 +545,7 @@ func TestServiceIgnoresLegacyOverallLossWrites(t *testing.T) {
 		t.Fatalf("legacy product loss write must normalize to yield 1: %+v", repo.syncedYield)
 	}
 
-	if _, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{Name: "曲奇拼配", OutputProductID: 643, ExpectedLossRate: &loss}); err != nil {
+	if _, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{Name: "曲奇拼配", OutputProductID: 643, ExpectedLossRate: &loss, Variants: []ProductionBomDraftVariant{{SpecKey: "default", Name: "默认规格", InventoryUnit: "袋", IsDefault: true}}}); err != nil {
 		t.Fatalf("CreateProductionBom: %v", err)
 	}
 	if repo.createdProductionBomCommand.ExpectedLossRate == nil || *repo.createdProductionBomCommand.ExpectedLossRate != 0 {
@@ -558,7 +585,7 @@ func TestProductionBomWritesNormalizeBusinessName(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 
-	if _, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{Name: "BOM-000659 ALO TOH#1 生产 BOM / V001", OutputProductID: 643}); err != nil {
+	if _, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{Name: "BOM-000659 ALO TOH#1 生产 BOM / V001", OutputProductID: 643, Variants: []ProductionBomDraftVariant{{SpecKey: "default", Name: "默认规格", InventoryUnit: "袋", IsDefault: true}}}); err != nil {
 		t.Fatalf("CreateProductionBom: %v", err)
 	}
 	if repo.createdProductionBomCommand.Name != "ALO TOH#1" {
@@ -607,7 +634,7 @@ func TestCreateProductionBomRequiresOutputProduct(t *testing.T) {
 	if _, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "10条速溶盒装"}); err == nil || !strings.Contains(err.Error(), "output_product_id required") {
 		t.Fatalf("expected output_product_id validation error, got %v", err)
 	}
-	row, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "10条速溶盒装", OutputProductID: 88, OutputQty: 1, OutputUnit: "盒"})
+	row, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "10条速溶盒装", OutputProductID: 88, OutputQty: 1, Variants: []ProductionBomDraftVariant{{SpecKey: "box", Name: "盒装", InventoryUnit: "盒", IsDefault: true}}})
 	if err != nil {
 		t.Fatalf("CreateProductionBom valid command: %v", err)
 	}
@@ -619,7 +646,7 @@ func TestCreateProductionBomRequiresOutputProduct(t *testing.T) {
 	}
 }
 
-func TestCreateProductionBomSupportsTypedMaterialOutputAndLegacyProductDefault(t *testing.T) {
+func TestCreateProductionBomSupportsTypedMaterialAndProductSpecificationOutputs(t *testing.T) {
 	repo := &fakeRepo{
 		productRows:  []Option{{ID: 88, Name: "盒装", InventoryUnit: "盒"}},
 		materialRows: []Option{{ID: 95, Name: "烘焙豆", InventoryUnit: "kg"}},
@@ -640,12 +667,12 @@ func TestCreateProductionBomSupportsTypedMaterialOutputAndLegacyProductDefault(t
 		t.Fatalf("material output unit = %q, want kg", repo.createdProductionBomCommand.OutputUnit)
 	}
 
-	legacy, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "盒装", OutputProductID: 88, OutputQty: 1})
+	product, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "盒装", OutputProductID: 88, OutputQty: 1, Variants: []ProductionBomDraftVariant{{SpecKey: "box", Name: "盒装", InventoryUnit: "盒", IsDefault: true}}})
 	if err != nil {
-		t.Fatalf("CreateProductionBom legacy product: %v", err)
+		t.Fatalf("CreateProductionBom product specification: %v", err)
 	}
-	if legacy.OutputType != "product" || legacy.OutputID != 88 || repo.createdProductionBomCommand.OutputUnit != "盒" {
-		t.Fatalf("legacy product output = %+v command=%+v", legacy, repo.createdProductionBomCommand)
+	if product.OutputType != "product" || product.OutputID != 88 || repo.createdProductionBomCommand.OutputUnit != "盒" {
+		t.Fatalf("product specification output = %+v command=%+v", product, repo.createdProductionBomCommand)
 	}
 
 	for _, cmd := range []CreateProductionBomCommand{
@@ -689,12 +716,12 @@ func TestBindProductionBomOutputSupportsAuditableMaterialDefaultSwitch(t *testin
 	}
 }
 
-func TestCreateProductionBomDerivesOutputUnitFromProductInventoryUnit(t *testing.T) {
+func TestCreateProductionBomDerivesOutputUnitFromDefaultBOMSpecification(t *testing.T) {
 	repo := &fakeRepo{productRows: []Option{{ID: 88, Name: "10条速溶盒装", ProductKind: "instant_coffee", InventoryUnit: "盒"}}}
 	svc := NewService(repo)
 	ctx := context.Background()
 
-	_, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "10条速溶盒装", OutputProductID: 88, OutputQty: 1, OutputUnit: "kg"})
+	_, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "10条速溶盒装", OutputProductID: 88, OutputQty: 1, OutputUnit: "kg", Variants: []ProductionBomDraftVariant{{SpecKey: "box", Name: "盒装", InventoryUnit: "盒", IsDefault: true}}})
 	if err != nil {
 		t.Fatalf("CreateProductionBom: %v", err)
 	}
@@ -703,7 +730,7 @@ func TestCreateProductionBomDerivesOutputUnitFromProductInventoryUnit(t *testing
 	}
 }
 
-func TestUpdateProductionBomDerivesOutputUnitFromProductInventoryUnit(t *testing.T) {
+func TestUpdateProductionBomDoesNotUseProductMasterInventoryUnit(t *testing.T) {
 	repo := &fakeRepo{productRows: []Option{{ID: 88, Name: "10条速溶盒装", ProductKind: "instant_coffee", InventoryUnit: "盒"}}}
 	svc := NewService(repo)
 	ctx := context.Background()
@@ -712,8 +739,8 @@ func TestUpdateProductionBomDerivesOutputUnitFromProductInventoryUnit(t *testing
 	if err != nil {
 		t.Fatalf("UpdateProductionBom: %v", err)
 	}
-	if repo.updatedProductionBomCommand.OutputUnit != "盒" {
-		t.Fatalf("OutputUnit = %q, want product inventory unit 盒", repo.updatedProductionBomCommand.OutputUnit)
+	if repo.updatedProductionBomCommand.OutputUnit != "" {
+		t.Fatalf("OutputUnit = %q, want BOM specification-owned unit", repo.updatedProductionBomCommand.OutputUnit)
 	}
 }
 

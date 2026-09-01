@@ -120,7 +120,7 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/api/production-bom-groups", want: []string{`"name":"常用配方"`, `"categories"`, `"name":"浅烘"`}},
 		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`, `"output_product_id":7`, `"output_product_name":"10条盒装速溶咖啡"`, `"business_group_id":1`, `"group_item_id":31`, `"group_category_id":31`, `"group_category_name":"浅烘"`}},
-		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"BOM000643 新配方 生产 BOM / V001","output_product_id":7,"output_qty":1,"output_unit":"盒","group_id":1,"group_category_id":31,"expected_loss_rate":0.25}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"output_product_id":7`, `"status":"active"`, `"latest_version_status":"draft"`}},
+		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"BOM000643 新配方 生产 BOM / V001","output_product_id":7,"output_qty":1,"group_id":1,"group_category_id":31,"expected_loss_rate":0.25,"variants":[{"spec_key":"default","name":"默认规格","inventory_unit":"盒","is_default":true}]}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"output_product_id":7`, `"status":"active"`, `"latest_version_status":"draft"`}},
 		{method: http.MethodGet, path: "/api/production-boms/11?version_id=101", want: []string{`"versions"`, `"version_no":"V003"`, `"output_qty":1`, `"output_unit":"盒"`, `"process_route_id":77`, `"process_route_name":"挂耳包装路线"`, `"is_latest_usable":true`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`, `"referenced_products"`, `"product_name":"初晓2.5kg装"`, `"active":false`, `"group_category_name":"浅烘"`}},
 		{method: http.MethodPut, path: "/api/production-boms/11", body: `{"name":"BOM-000659 精品拼配改名 生产 BOM / V003","group_id":1,"group_category_id":0,"status":"inactive"}`, want: []string{`"name":"精品拼配改名"`, `"status":"inactive"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/copy", body: `{"name":"BOM000643 精品拼配-包装改版 生产 BOM / V001","group_id":1}`, want: []string{`"code":"BOM-002"`, `"name":"精品拼配-包装改版"`}},
@@ -420,10 +420,10 @@ func TestCreateProductionBomAPIKeepsStableDeprecatedOutputError(t *testing.T) {
 	}
 }
 
-func TestCreateProductionBomAPIForwardsSingleSpecificationMode(t *testing.T) {
+func TestCreateProductionBomAPIRejectsSingleProductAndForwardsManualSpecificationDraft(t *testing.T) {
 	repo := &apiFakeRepo{
 		productRows:          []bomapp.Option{{ID: 88, Name: "盒装挂耳", InventoryUnit: "盒"}},
-		createdProductionBom: bomapp.ProductionBomSummary{ID: 619, Name: "盒装挂耳 BOM", SpecificationMode: "single"},
+		createdProductionBom: bomapp.ProductionBomSummary{ID: 622, Name: "盒装挂耳 BOM", SpecificationMode: "spec_group"},
 	}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
@@ -433,10 +433,18 @@ func TestCreateProductionBomAPIForwardsSingleSpecificationMode(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"specification_mode":"single"`) {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"product_output_requires_bom_spec"`) {
 		t.Fatalf("single product BOM response status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.createdProductionBomCommand.SpecificationMode != "single" {
+
+	req = httptest.NewRequest(http.MethodPost, "/api/production-boms", strings.NewReader(`{"name":"盒装挂耳 BOM","output_type":"product","output_product_id":88,"variants":[{"spec_key":"default","name":"默认规格","barcode":"6900000000622","inventory_unit":"袋","is_default":true}]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"specification_mode":"spec_group"`) {
+		t.Fatalf("manual product specification response status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.createdProductionBomCommand.SpecificationMode != "spec_group" || len(repo.createdProductionBomCommand.Variants) != 1 || repo.createdProductionBomCommand.Variants[0].InventoryUnit != "袋" {
 		t.Fatalf("create command = %+v", repo.createdProductionBomCommand)
 	}
 }

@@ -1737,7 +1737,7 @@ func TestProductSettingsAPIExposesAndSavesSubtypeConfigAndUnitRules(t *testing.T
 	}
 }
 
-func TestProductInventoryUnitAPIContract(t *testing.T) {
+func TestProductInventoryUnitAPIIsRetired(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{
 			ID:                   91,
@@ -1756,9 +1756,9 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET product settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"inventory_unit":"kg"`, `"integer_inventory_unit":false`, `"default_sales_unit":"盒"`, `"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}"`, `"sales_unit_rules":"{\"盒\":{\"integer\":true}}"`} {
-		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Fatalf("product settings response missing inventory unit field %s: %s", want, rec.Body.String())
+	for _, forbidden := range []string{`"inventory_unit":"kg"`, `"default_sales_unit":"盒"`, `"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}"`, `"sales_unit_rules":"{\"盒\":{\"integer\":true}}"`} {
+		if bytes.Contains(rec.Body.Bytes(), []byte(forbidden)) {
+			t.Fatalf("product settings response leaked retired inventory field %s: %s", forbidden, rec.Body.String())
 		}
 	}
 
@@ -1775,21 +1775,8 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"product_unit_owned_by_bom_spec"`) {
 		t.Fatalf("PUT product inventory unit status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var updatedRule map[string]any
-	if err := json.Unmarshal([]byte(repo.updated.UnitRuleOverrideJSON), &updatedRule); err != nil {
-		t.Fatalf("updated unit rule json invalid: %v raw=%s", err, repo.updated.UnitRuleOverrideJSON)
-	}
-	if updatedRule["inventory_unit"] != "盒" || updatedRule["integer_inventory_unit"] != true || updatedRule["default_sales_unit"] != "袋" || updatedRule["order_unit"] != "箱" || updatedRule["legacy_key"] != "keep" {
-		t.Fatalf("updated unit rule should preserve existing keys and write inventory/sales fields: %#v", updatedRule)
-	}
-	if conversion, ok := updatedRule["unit_conversion_json"].(map[string]any); !ok || conversion["袋"].(map[string]any)["盒"] != float64(6) {
-		t.Fatalf("updated unit conversion = %#v", updatedRule["unit_conversion_json"])
-	}
-	if salesRules, ok := updatedRule["sales_unit_rules"].(map[string]any); !ok || salesRules["袋"].(map[string]any)["integer"] != true {
-		t.Fatalf("updated sales unit rules = %#v", updatedRule["sales_unit_rules"])
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(`{
@@ -1805,25 +1792,12 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"product_unit_owned_by_bom_spec"`) {
 		t.Fatalf("POST product inventory unit status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var createdRule map[string]any
-	if err := json.Unmarshal([]byte(repo.createdPublic.UnitRuleOverrideJSON), &createdRule); err != nil {
-		t.Fatalf("created unit rule json invalid: %v raw=%s", err, repo.createdPublic.UnitRuleOverrideJSON)
-	}
-	if createdRule["inventory_unit"] != "盒" || createdRule["integer_inventory_unit"] != true || createdRule["default_sales_unit"] != "袋" {
-		t.Fatalf("created product unit rule = %#v, want direct product inventory/sales unit authority", createdRule)
-	}
-	if conversion, ok := createdRule["unit_conversion_json"].(map[string]any); !ok || conversion["袋"].(map[string]any)["盒"] != float64(6) {
-		t.Fatalf("created product unit conversion = %#v", createdRule["unit_conversion_json"])
-	}
-	if salesRules, ok := createdRule["sales_unit_rules"].(map[string]any); !ok || salesRules["袋"].(map[string]any)["integer"] != true {
-		t.Fatalf("created product sales unit rules = %#v", createdRule["sales_unit_rules"])
 	}
 }
 
-func TestProductUnitTemplateReferenceAPIContract(t *testing.T) {
+func TestProductMasterOmitsUnitsAndRejectsLegacyUnitWrites(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{
 			ID:                   101,
@@ -1861,7 +1835,7 @@ func TestProductUnitTemplateReferenceAPIContract(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET product settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{
+	for _, forbidden := range []string{
 		`"unit_template_id":7`,
 		`"unit_template_name":"咖啡豆单位"`,
 		`"unit_rule_source":"product_unit_template"`,
@@ -1869,8 +1843,8 @@ func TestProductUnitTemplateReferenceAPIContract(t *testing.T) {
 		`"default_sales_unit":"袋"`,
 		`"unit_conversion_json":"{\"袋\":{\"kg\":0.25}}"`,
 	} {
-		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Fatalf("product settings response missing unit-template field %s: %s", want, rec.Body.String())
+		if bytes.Contains(rec.Body.Bytes(), []byte(forbidden)) {
+			t.Fatalf("product settings response leaked retired unit field %s: %s", forbidden, rec.Body.String())
 		}
 	}
 
@@ -1883,14 +1857,8 @@ func TestProductUnitTemplateReferenceAPIContract(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"product_unit_owned_by_bom_spec"`) {
 		t.Fatalf("PUT product unit template status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if repo.updated.UnitTemplateID != 7 {
-		t.Fatalf("PUT product should pass unit_template_id to service command, got %d", repo.updated.UnitTemplateID)
-	}
-	if repo.updated.UnitRuleOverrideJSON != `{"legacy_key":"keep"}` {
-		t.Fatalf("PUT product should keep existing product override json when only template changes, got %s", repo.updated.UnitRuleOverrideJSON)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(`{
@@ -1902,14 +1870,8 @@ func TestProductUnitTemplateReferenceAPIContract(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"product_unit_owned_by_bom_spec"`) {
 		t.Fatalf("POST product unit template status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if repo.createdPublic.UnitTemplateID != 0 {
-		t.Fatalf("POST product should ignore legacy unit_template_id because BOM owns new specifications, got %d", repo.createdPublic.UnitTemplateID)
-	}
-	if repo.createdPublic.UnitRuleOverrideJSON != "{}" {
-		t.Fatalf("POST product with template but no advanced override should not write effective units as product override, got %s", repo.createdPublic.UnitRuleOverrideJSON)
 	}
 }
 
@@ -2067,8 +2029,7 @@ func TestProductSettingsAPIUpdatesGreenBeanBomBinding(t *testing.T) {
 		"product_kind":"green_bean",
 		"green_bean_type":"blend",
 		"green_bean_bom_product_id":8,
-		"default_price":135,
-		"tiers":[{"spec_g":1000,"min_qty":1,"unit_price":135}]
+		"default_price":135
 	}`)
 	req := httptest.NewRequest(http.MethodPut, "/api/products/91", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -2398,8 +2359,8 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusGone || repo.unitTemplateSaved {
-		t.Fatalf("POST unit template should be retired, status=%d body=%s saved=%v", rec.Code, rec.Body.String(), repo.unitTemplateSaved)
+	if rec.Code != http.StatusNotFound || repo.unitTemplateSaved {
+		t.Fatalf("POST unit template route should be removed, status=%d body=%s saved=%v", rec.Code, rec.Body.String(), repo.unitTemplateSaved)
 	}
 }
 
@@ -2424,7 +2385,7 @@ func TestProductSettingsAPIDeletesGlobalUnitsAndUnitTemplates(t *testing.T) {
 	req = httptest.NewRequest(http.MethodDelete, "/api/product-settings/unit-templates/12", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusGone {
+	if rec.Code != http.StatusNotFound {
 		t.Fatalf("DELETE unit template status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	if repo.unitTemplateDeleted {
@@ -2500,8 +2461,7 @@ func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrit
 		"product_config_template_id":301,
 		"classification_template_id":401,
 		"gradient_template_id_override":18,
-		"operation_template_id_override":19,
-		"unit_rule_override_json":"{\"order_unit\":\"盒\"}"
+		"operation_template_id_override":19
 	}`)
 	req = httptest.NewRequest(http.MethodPut, "/api/products/91", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -2659,8 +2619,8 @@ func TestProductSettingsAPICreatesUnifiedSKUWithoutLegacyFields(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusGone || repo.skuCreated {
-		t.Fatalf("POST /api/product-settings/skus should be retired, status=%d body=%s created=%v", rec.Code, rec.Body.String(), repo.skuCreated)
+	if rec.Code != http.StatusNotFound || repo.skuCreated {
+		t.Fatalf("POST /api/product-settings/skus route should be removed, status=%d body=%s created=%v", rec.Code, rec.Body.String(), repo.skuCreated)
 	}
 }
 
@@ -2687,8 +2647,8 @@ func TestProductSettingsAPICreatesChildSKUUnderParentProduct(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusGone || repo.skuCreated {
-		t.Fatalf("POST child sku should be retired, status=%d body=%s created=%v", rec.Code, rec.Body.String(), repo.skuCreated)
+	if rec.Code != http.StatusNotFound || repo.skuCreated {
+		t.Fatalf("POST child sku route should be removed, status=%d body=%s created=%v", rec.Code, rec.Body.String(), repo.skuCreated)
 	}
 }
 
@@ -2709,8 +2669,8 @@ func TestProductSettingsAPISavesSalesSpecTemplateContract(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusGone || repo.unitTemplateSaved {
-		t.Fatalf("POST sales spec template should be retired, status=%d body=%s saved=%v", rec.Code, rec.Body.String(), repo.unitTemplateSaved)
+	if rec.Code != http.StatusNotFound || repo.unitTemplateSaved {
+		t.Fatalf("POST sales spec template route should be removed, status=%d body=%s saved=%v", rec.Code, rec.Body.String(), repo.unitTemplateSaved)
 	}
 }
 
@@ -2761,8 +2721,8 @@ func TestProductSettingsAPIUpdatesPerProductDefaultSKU(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusGone || repo.defaultSKU.ParentProductID != 0 {
-		t.Fatalf("default SKU write should be retired, status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.defaultSKU)
+	if rec.Code != http.StatusNotFound || repo.defaultSKU.ParentProductID != 0 {
+		t.Fatalf("default SKU route should be removed, status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.defaultSKU)
 	}
 }
 
@@ -2782,8 +2742,8 @@ func TestProductSettingsAPIRejectsInvalidPerProductDefaultSKU(t *testing.T) {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
-		if rec.Code != http.StatusGone {
-			t.Fatalf("%s body=%s status=%d, want 410", tt.path, tt.body, rec.Code)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s body=%s status=%d, want 404", tt.path, tt.body, rec.Code)
 		}
 	}
 
@@ -2794,8 +2754,8 @@ func TestProductSettingsAPIRejectsInvalidPerProductDefaultSKU(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusGone {
-		t.Fatalf("default SKU validation route should be retired, status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("default SKU validation route should be removed, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -3002,7 +2962,7 @@ func TestProductSettingsAPICreatesPublicProduct(t *testing.T) {
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"name":"新公共拼配","remark":"奶咖主推","roast_level":"中深烘","default_price":88,"yield_rate":0.805,"product_config_template_id":301,"classification_template_id":401,"tiers":[{"spec_g":227,"min_qty":1,"unit_price":88}]}`
+	body := `{"name":"新公共拼配","remark":"奶咖主推","roast_level":"中深烘","default_price":88,"yield_rate":0.805,"product_config_template_id":301,"classification_template_id":401}`
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -3032,7 +2992,7 @@ func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"name":"耶加雪菲挂耳","product_kind":"drip_bag","drip_bag_grams":10,"drip_box_bag_count":10,"allow_fulfillment_order":true,"allow_mall_order":true,"inventory_unit":"盒","integer_inventory_unit":true,"default_sales_unit":"盒"}`
+	body := `{"name":"耶加雪菲挂耳","product_kind":"drip_bag","drip_bag_grams":10,"drip_box_bag_count":10,"allow_fulfillment_order":true,"allow_mall_order":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -3044,17 +3004,14 @@ func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
 	if !repo.publicCreated || repo.createdPublic.ProductKind != "drip_bag" || repo.createdPublic.DripBagGrams != 10 || repo.createdPublic.DripBoxBagCount != 10 || !repo.createdPublic.AllowFulfillmentOrder || !repo.createdPublic.AllowMallOrder {
 		t.Fatalf("drip product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
 	}
-	for _, want := range []string{`"inventory_unit":"盒"`, `"integer_inventory_unit":true`, `"default_sales_unit":"盒"`, `"unit_conversion_json":{"盒":{"盒":1}}`} {
-		if !strings.Contains(repo.createdPublic.UnitRuleOverrideJSON, want) {
-			t.Fatalf("drip product unit rule %q missing %s", repo.createdPublic.UnitRuleOverrideJSON, want)
-		}
+	if repo.createdPublic.UnitRuleOverrideJSON != "{}" {
+		t.Fatalf("drip product must not persist product units: %s", repo.createdPublic.UnitRuleOverrideJSON)
 	}
 	var payload struct {
 		Product struct {
-			ProductKind     string   `json:"product_kind"`
-			DripBagGrams    float64  `json:"drip_bag_grams"`
-			DripBoxBagCount int      `json:"drip_box_bag_count"`
-			SalesUnits      []string `json:"sales_units"`
+			ProductKind     string  `json:"product_kind"`
+			DripBagGrams    float64 `json:"drip_bag_grams"`
+			DripBoxBagCount int     `json:"drip_box_bag_count"`
 		} `json:"product"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -3062,9 +3019,6 @@ func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
 	}
 	if payload.Product.ProductKind != "drip_bag" || payload.Product.DripBagGrams != 10 || payload.Product.DripBoxBagCount != 10 {
 		t.Fatalf("drip product response = %+v body=%s", payload.Product, rec.Body.String())
-	}
-	if !reflect.DeepEqual(payload.Product.SalesUnits, []string{"bag", "box"}) {
-		t.Fatalf("sales_units = %#v, want bag/box body=%s", payload.Product.SalesUnits, rec.Body.String())
 	}
 }
 
@@ -3119,15 +3073,14 @@ func TestProductSettingsAPIDefaultsOmittedDripBagConfig(t *testing.T) {
 	}
 	var payload struct {
 		Product struct {
-			DripBagGrams    float64  `json:"drip_bag_grams"`
-			DripBoxBagCount int      `json:"drip_box_bag_count"`
-			SalesUnits      []string `json:"sales_units"`
+			DripBagGrams    float64 `json:"drip_bag_grams"`
+			DripBoxBagCount int     `json:"drip_box_bag_count"`
 		} `json:"product"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode product response: %v body=%s", err, rec.Body.String())
 	}
-	if payload.Product.DripBagGrams != 10 || payload.Product.DripBoxBagCount != 10 || !reflect.DeepEqual(payload.Product.SalesUnits, []string{"bag", "box"}) {
+	if payload.Product.DripBagGrams != 10 || payload.Product.DripBoxBagCount != 10 {
 		t.Fatalf("omitted drip config response = %+v body=%s", payload.Product, rec.Body.String())
 	}
 }

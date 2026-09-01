@@ -206,8 +206,6 @@
                       <th>行业字段</th>
                       <th>归属</th>
                       <th class="action-cell">新增动作</th>
-                      <th>库存单位</th>
-                      <th>整数库存</th>
                       <th>价格摘要</th>
                       <th>商品状态</th>
                       <th>处理</th>
@@ -234,22 +232,7 @@
                               {{ spec.spec_name || spec.spec_key || `规格 #${spec.bom_spec_id}` }} / {{ spec.inventory_unit || '-' }}<small v-if="spec.is_default">默认</small>
                             </button>
                           </div>
-                          <small v-else-if="row.bom_spec_authoritative" class="muted">无可报价 BOM 规格</small>
-                          <details v-else-if="row.sku_rows?.length" class="product-spec-skus">
-                            <summary>{{ row.sku_rows.length }} 个历史规格</summary>
-                            <div class="product-spec-sku-list">
-                              <button
-                                v-for="sku in row.sku_rows"
-                                :key="`product-spec-sku-${sku.id}`"
-                                class="product-spec-sku-item"
-                                type="button"
-                                :disabled="sku.active === false"
-                                @click.stop="openProductProductionConfig(sku)">
-                                <span>{{ sku.sku_name || sku.spec_label || sku.name }}</span>
-                                <small>{{ productCodeLabel(sku) }}</small>
-                              </button>
-                            </div>
-                          </details>
+                          <small v-else class="muted">未配置 BOM 规格</small>
                         </td>
                         <td>{{ productCodeLabel(row) }}</td>
                         <td class="industry-field-cell">
@@ -260,8 +243,6 @@
                         <td class="action-cell">
                           <button class="text-button" type="button" @click="copyProductArchive(row)">复制为商品档案</button>
                         </td>
-                        <td>{{ productInventoryUnitLabel(row) }}</td>
-                        <td>{{ productIntegerInventoryLabel(row) }}</td>
                         <td class="price-summary-cell">{{ productPriceSummaryLabel(row) }}</td>
                         <td>
                           <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
@@ -1556,39 +1537,6 @@
           <button class="secondary compact-action" type="button" @click="closeProductProductionConfigDrawer">关闭</button>
         </div>
         <div class="drawer-body product-production-config-body">
-          <section v-if="!Number(productProductionConfigProduct?.parent_product_id || 0)" class="drawer-section bom-spec-migration-panel">
-            <div class="field-group-head">
-              <div class="field-group-copy">
-                <strong>BOM 规格迁移</strong>
-                <small>只迁入旧规格元数据供核对，不自动生成配方，也不会自动切换商品。</small>
-              </div>
-              <span class="template-meta-chip">{{ productBomSpecMigrationStateLabel }}</span>
-            </div>
-            <div class="inline-actions migration-actions">
-              <button v-if="productBomSpecMigrationState === 'legacy'" class="secondary compact-action" type="button" :disabled="productSpecMigrationSaving" @click="prepareProductBomSpecMigration">迁入规格元数据</button>
-              <button v-if="productBomSpecMigrationState === 'preparing' || productBomSpecMigrationState === 'ready'" class="secondary compact-action" type="button" :disabled="productSpecMigrationSaving" @click="assessProductBomSpecMigration">重新检查切换条件</button>
-              <button v-if="productBomSpecMigrationState === 'ready'" class="primary compact-action" type="button" :disabled="productSpecMigrationSaving" @click="cutoverProductBomSpecs">确认切换到 BOM 规格</button>
-              <button class="text-button" type="button" @click="navigateProductBom(productProductionDefaultBomUsageRow || {})">到 BOM 重建并发布完整配方</button>
-            </div>
-            <div v-if="productBomSpecMigrationBlockers.length" class="warning-banner migration-blockers">
-              <strong>当前不能切换</strong>
-              <ul>
-                <li v-for="blocker in productBomSpecMigrationBlockers" :key="blocker.code">{{ blocker.message || blocker.code }}（{{ blocker.count }}）</li>
-              </ul>
-            </div>
-            <div v-if="productBomSpecMigrationMappings.length" class="table-wrap compact">
-              <table>
-                <thead><tr><th>旧规格</th><th>BOM 规格映射</th><th>历史配置对照</th></tr></thead>
-                <tbody>
-                  <tr v-for="mapping in productBomSpecMigrationMappings" :key="mapping.id || mapping.legacy_child_product_id">
-                    <td>{{ mapping.legacy_spec_name || mapping.legacy_spec_key || `旧规格 #${mapping.legacy_child_product_id}` }}</td>
-                    <td>{{ Number(mapping.bom_spec_id || 0) > 0 ? `已匹配 BOM 规格 #${mapping.bom_spec_id}` : '待在 BOM 中重建并按规格键匹配' }}</td>
-                    <td><details><summary>查看旧损耗、备注、BOM 与路线</summary><pre>{{ productBomSpecMigrationSnapshot(mapping) }}</pre></details></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
           <section class="drawer-section">
             <div class="field-group-head">
               <div class="field-group-copy">
@@ -1617,7 +1565,7 @@
                   <strong>BOM 规格（只读）</strong>
                   <small>规格、单位和配方统一在默认制造 BOM 的规格组维护；商品档案直接引用并展示。</small>
                 </div>
-                <button class="secondary compact-action" type="button" @click="navigateProductBom(productProductionDefaultBomUsageRow || {})">到 BOM 维护规格</button>
+                <button class="secondary compact-action" type="button" @click="navigateProductBom(productProductionDefaultBomUsageRow || {})">到 BOM 配置</button>
               </div>
               <article v-for="row in productProductionBomSpecs" :key="`bom-spec-${row.bom_spec_id}`" class="child-sku-row compact-derived-sku-row">
                 <div>
@@ -1994,10 +1942,7 @@ import {
 import { orderProductFamilyOptions, orderProductKindFilterOptions } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
 import {
-  isProductBomSpecCutover,
   normalizeProductBomSpecs,
-  productSpecMigrationState,
-  visibleRowsForProductSpecMigration,
 } from '../lib/product-spec-cutover'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
@@ -2066,7 +2011,6 @@ const customerProductRuleBindings = ref([])
 const productionBoms = ref([])
 const productionBomDetails = ref({})
 const productBomUsageByProductID = ref({})
-const productSpecMigrationByProductID = ref({})
 const processRoutes = ref([])
 const customers = ref([])
 const loading = ref(false)
@@ -2186,7 +2130,6 @@ const classificationCategoryForm = ref(defaultClassificationCategoryForm())
 const productProductionConfigProduct = ref(null)
 const productProductionConfigForm = ref(defaultProductProductionConfigForm())
 const productProductionConfigSaving = ref(false)
-const productSpecMigrationSaving = ref(false)
 const aliasIndustryFieldDrawerOpen = ref(false)
 const aliasIndustryFieldSaving = ref(false)
 const aliasIndustryFieldAlias = ref(null)
@@ -2390,7 +2333,7 @@ function skuTableCategoryMeta(categoriesForTable = []) {
 
 function skuTableRowsFromFlatProducts(sourceProducts = [], sourceCategories = [], filterFn = () => true) {
   const { byProductID, byCategoryID } = skuTableCategoryMeta(sourceCategories)
-  return visibleRowsForProductSpecMigration(sourceProducts || [], productSpecMigrationByProductID.value)
+  return (sourceProducts || []).filter((product) => Number(product?.parent_product_id || 0) <= 0)
     .filter((product) => {
       try {
         return filterFn(product)
@@ -2412,7 +2355,7 @@ const publicSkuRowsRaw = computed(() => sortRowsForCustomerSkuPriority(
   skuTableRowsFromFlatProducts(products.value, categories.value, (product) => Number(product.customer_id || 0) === 0),
   0,
 ))
-const publicSkuRows = computed(() => productArchiveRowsWithSkus(publicSkuRowsRaw.value))
+const publicSkuRows = computed(() => publicSkuRowsRaw.value)
 const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
 const aliasCustomerLabel = computed(() => {
   const customerID = Number(selectedAliasCustomerID.value || 0)
@@ -2446,20 +2389,6 @@ const productProductionConfigProduceBomRows = computed(() => productProductionCo
   .filter((row) => String(row.relation_type || '') === 'output'))
 const productProductionConfigUsedByBomRows = computed(() => productProductionConfigBomUsageRows.value
   .filter((row) => String(row.relation_type || '') === 'component'))
-const productProductionConfigMigration = computed(() => {
-  const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
-  return productSpecMigrationByProductID.value[String(productID)] || productProductionConfigProduct.value || {}
-})
-const productBomSpecMigrationState = computed(() => productSpecMigrationState(productProductionConfigMigration.value))
-const productBomSpecMigrationStateLabel = computed(() => ({
-  legacy: '旧规格模式',
-  preparing: '准备中',
-  ready: '可切换',
-  cutover: '已切换 BOM 规格',
-}[productBomSpecMigrationState.value] || '旧规格模式'))
-const productBomSpecMigrationBlockers = computed(() => productProductionConfigMigration.value?.readiness?.blockers || [])
-const productBomSpecMigrationMappings = computed(() => productProductionConfigMigration.value?.mappings || [])
-const productProductionConfigUsesBomSpecs = computed(() => isProductBomSpecCutover(productProductionConfigMigration.value))
 const productProductionDefaultBomUsageRow = computed(() => productProductionConfigProduceBomRows.value.find((row) => row.is_default === true || row.isDefault === true)
   || productProductionConfigProduceBomRows.value.find((row) => bomUsageBomID(row) === Number(productProductionConfigForm.value.production_bom_id || 0))
   || null)
@@ -6166,117 +6095,6 @@ async function ensureProductBomUsage(productID) {
   productBomUsageByProductID.value = { ...productBomUsageByProductID.value, [String(id)]: rows || [] }
 }
 
-async function loadProductSpecMigration(productID) {
-  const id = Number(productID || 0)
-  if (!id || Object.prototype.hasOwnProperty.call(productSpecMigrationByProductID.value, String(id))) return
-  let migration
-  try {
-    migration = await apiGet(`/api/products/${productID}/bom-spec-migration`)
-  } catch (err) {
-    if (Number(err?.status || 0) !== 404) throw err
-    migration = { product_id: id, state: 'legacy', migration_state: 'legacy' }
-  }
-  productSpecMigrationByProductID.value = {
-    ...productSpecMigrationByProductID.value,
-    [String(id)]: { ...migration, migration_state: migration?.migration_state || migration?.state || 'legacy' },
-  }
-}
-
-function normalizeProductSpecMigrationResponse(row = {}, productID = 0) {
-  return {
-    ...row,
-    product_id: Number(row?.product_id || productID || 0),
-    migration_state: row?.migration_state || row?.state || 'legacy',
-  }
-}
-
-function productBomSpecMigrationSnapshot(mapping = {}) {
-  const raw = mapping?.metadata_snapshot ?? mapping?.metadataSnapshot ?? {}
-  let snapshot = raw
-  if (typeof raw === 'string') {
-    try {
-      snapshot = JSON.parse(raw || '{}')
-    } catch (_) {
-      snapshot = { historical_configuration: raw }
-    }
-  }
-  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) snapshot = {}
-  const labels = {
-    production_bom_id: '旧 BOM',
-    production_bom_version_id: '旧 BOM 版本',
-    process_route_id: '旧工艺路线',
-    expected_loss_rate: '旧损耗率',
-    note: '旧生产备注',
-    industry_field_template_id: '旧行业字段模板',
-  }
-  const formatConfig = (title, config = {}) => Object.entries(labels)
-    .filter(([key]) => config?.[key] !== undefined && config?.[key] !== null && config?.[key] !== '')
-    .map(([key, label]) => `${title}${label}：${config[key]}`)
-  const rows = [
-    ...formatConfig('', snapshot),
-    ...formatConfig('该旧规格 · ', snapshot.legacy_production_config),
-    ...formatConfig('父商品 · ', snapshot.parent_production_config),
-  ]
-  return rows.length ? rows.join('\n') : '无单独旧生产配置；请按旧规格名称和单位核对新配方。'
-}
-
-async function mutateProductBomSpecMigration(action, successMessage) {
-  const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
-  if (!productID) {
-    error.value = '请选择商品档案'
-    return null
-  }
-  productSpecMigrationSaving.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const row = await apiSend(`/api/products/${productID}/bom-spec-migration/${action}`, { method: 'POST' })
-    const migration = normalizeProductSpecMigrationResponse(row, productID)
-    productSpecMigrationByProductID.value = {
-      ...productSpecMigrationByProductID.value,
-      [String(productID)]: migration,
-    }
-    ok.value = successMessage
-    return migration
-  } catch (err) {
-    error.value = err.message || '更新 BOM 规格迁移状态失败'
-    return null
-  } finally {
-    productSpecMigrationSaving.value = false
-  }
-}
-
-async function prepareProductBomSpecMigration() {
-  await mutateProductBomSpecMigration('prepare', '旧规格元数据已迁入；请到 BOM 重建并发布完整规格配方')
-}
-
-async function assessProductBomSpecMigration() {
-  const migration = await mutateProductBomSpecMigration('readiness', '切换条件已重新检查')
-  if (migration?.readiness?.ready) ok.value = '切换条件已满足；确认后才会归档旧规格'
-}
-
-async function cutoverProductBomSpecs() {
-  if (!window.confirm('确认切换到默认已发布 BOM 的规格组？切换后旧子 SKU 将成为只读历史记录，新订单、价格、库存和生产只接受父商品 + BOM 规格。')) return
-  const migration = await mutateProductBomSpecMigration('cutover', '商品已切换到 BOM 规格；旧子 SKU 仅保留历史追溯')
-  if (!migration) return
-  const productID = Number(migration.product_id || productProductionConfigProduct.value?.id || 0)
-  products.value = products.value.map((row) => Number(row.id || 0) === productID
-    ? { ...row, migration_state: 'cutover', bom_spec_migration_state: 'cutover' }
-    : row)
-  const nextUsage = { ...productBomUsageByProductID.value }
-  delete nextUsage[String(productID)]
-  productBomUsageByProductID.value = nextUsage
-  await ensureProductBomUsage(productID)
-  const defaultBomID = bomUsageBomID(productProductionDefaultBomUsageRow.value || {})
-    || Number(productProductionConfigForm.value.production_bom_id || 0)
-  if (defaultBomID > 0) {
-    const nextDetails = { ...productionBomDetails.value }
-    delete nextDetails[String(defaultBomID)]
-    productionBomDetails.value = nextDetails
-    await ensureProductionBomDetail(defaultBomID)
-  }
-}
-
 async function setDefaultProductionBom(row = {}) {
   const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
   const bomID = bomUsageBomID(row)
@@ -6441,7 +6259,6 @@ async function openProductProductionConfig(row) {
     await Promise.all([
       loadProductionBomCatalog(),
       loadProcessRoutes(),
-      loadProductSpecMigration(productID),
       industryFieldTemplatesPromise,
     ])
     if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
@@ -8464,13 +8281,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-trial-formula-main { margin: 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .pricing-rule-trial-formula ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12px; line-height: 1.5; }
 .product-production-config-body { gap: 14px; }
-.bom-spec-migration-panel { display: grid; gap: 10px; }
-.migration-actions { align-items: center; flex-wrap: wrap; }
-.migration-blockers { display: grid; gap: 6px; }
-.migration-blockers ul { margin: 0; padding-left: 20px; }
-.bom-spec-migration-panel details { min-width: 180px; }
-.bom-spec-migration-panel summary { cursor: pointer; color: #25568d; }
-.bom-spec-migration-panel pre { max-width: 420px; margin: 8px 0 0; padding: 8px; border: 1px solid #e2dacd; border-radius: 6px; background: #fbfaf8; color: #3f3a33; font: inherit; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .production-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
 .production-config-grid label, .production-config-field-row label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
 .production-config-grid label span, .production-config-field-row label span { color: #5f5a52; font-weight: 600; }

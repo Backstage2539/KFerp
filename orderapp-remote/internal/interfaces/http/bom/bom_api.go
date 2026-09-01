@@ -72,19 +72,20 @@ type moveProductionBomGroupRequest struct {
 }
 
 type createProductionBomRequest struct {
-	Name                  string   `json:"name"`
-	OutputType            string   `json:"output_type"`
-	SpecificationMode     string   `json:"specification_mode"`
-	OutputID              int64    `json:"output_id"`
-	OutputProductID       int64    `json:"output_product_id"`
-	OutputMaterialID      int64    `json:"output_material_id"`
-	OutputQty             float64  `json:"output_qty"`
-	OutputUnit            string   `json:"output_unit"`
-	GroupID               int64    `json:"group_id"`
-	GroupCategoryID       int64    `json:"group_category_id"`
-	ExpectedLossRate      *float64 `json:"expected_loss_rate"`
-	SpecTemplateVersionID int64    `json:"spec_template_version_id"`
-	MainInputMaterialID   int64    `json:"main_input_material_id"`
+	Name                  string                             `json:"name"`
+	OutputType            string                             `json:"output_type"`
+	SpecificationMode     string                             `json:"specification_mode"`
+	OutputID              int64                              `json:"output_id"`
+	OutputProductID       int64                              `json:"output_product_id"`
+	OutputMaterialID      int64                              `json:"output_material_id"`
+	OutputQty             float64                            `json:"output_qty"`
+	OutputUnit            string                             `json:"output_unit"`
+	GroupID               int64                              `json:"group_id"`
+	GroupCategoryID       int64                              `json:"group_category_id"`
+	ExpectedLossRate      *float64                           `json:"expected_loss_rate"`
+	SpecTemplateVersionID int64                              `json:"spec_template_version_id"`
+	MainInputMaterialID   int64                              `json:"main_input_material_id"`
+	Variants              []bomapp.ProductionBomDraftVariant `json:"variants"`
 }
 
 type updateProductionBomRequest struct {
@@ -204,6 +205,9 @@ type ErrorResponse struct {
 func productionBomWriteError(c echo.Context, err error) error {
 	if errors.Is(err, bomapp.ErrPublishedOutputIdentityImmutable) {
 		return c.JSON(http.StatusConflict, ErrorResponse{Error: err.Error(), Code: "published_output_identity_immutable"})
+	}
+	if errors.Is(err, bomapp.ErrProductOutputRequiresBOMSpec) {
+		return c.JSON(http.StatusConflict, ErrorResponse{Error: err.Error(), Code: "product_output_requires_bom_spec"})
 	}
 	return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 }
@@ -471,9 +475,9 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, Variants: req.Variants, Actor: support.ActorOf(c)})
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			return productionBomWriteError(c, err)
 		}
 		return c.JSON(http.StatusOK, row)
 	})

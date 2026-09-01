@@ -74,44 +74,8 @@ func (r Repository) resolveMallOutputIdentity(
 		return portalMallOutputIdentity{}, err
 	}
 
-	migrationsAvailable := portalRelationExists(ctx, q, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema)) &&
-		portalRelationExists(ctx, q, fmt.Sprintf("%s.legacy_child_sku_bom_spec_mappings", r.schema)) &&
-		portalRelationExists(ctx, q, fmt.Sprintf("%s.production_bom_version_variants", r.schema))
-	if !migrationsAvailable {
-		if bomSpecID > 0 || bomVariantID > 0 {
-			return portalMallOutputIdentity{}, mallBOMSpecIdentityError("BOM spec migration unavailable")
-		}
-		return identity, nil
-	}
-
-	var mappedParentID int64
-	var mappedState string
-	err = q.QueryRow(ctx, fmt.Sprintf(`
-		SELECT mapping.parent_product_id,COALESCE(migration.state,'legacy')
-		FROM %s.legacy_child_sku_bom_spec_mappings mapping
-		LEFT JOIN %s.product_bom_spec_migrations migration ON migration.product_id=mapping.parent_product_id
-		WHERE mapping.legacy_child_product_id=$1
-	`, r.schema, r.schema), productID).Scan(&mappedParentID, &mappedState)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return portalMallOutputIdentity{}, err
-	}
-	if err == nil && mappedState == "cutover" {
-		return portalMallOutputIdentity{}, mallBOMSpecIdentityError("legacy child SKU write rejected after BOM spec cutover")
-	}
-
-	state := "legacy"
-	err = q.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, r.schema), productID).Scan(&state)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return portalMallOutputIdentity{}, err
-	}
-	if state != "cutover" {
-		if bomSpecID > 0 || bomVariantID > 0 {
-			return portalMallOutputIdentity{}, mallBOMSpecIdentityError("BOM spec identity requires cutover product")
-		}
-		return identity, nil
-	}
 	if bomSpecID <= 0 {
-		return portalMallOutputIdentity{}, mallBOMSpecIdentityError("bom_spec_id required after BOM spec cutover")
+		return portalMallOutputIdentity{}, mallBOMSpecIdentityError("product_bom_spec_not_configured")
 	}
 	identity.Canonical = true
 	err = q.QueryRow(ctx, fmt.Sprintf(`
@@ -147,58 +111,13 @@ func (r Repository) resolveMallOutputIdentity(
 }
 
 func (r Repository) listMallProductOptions(ctx context.Context) ([]customerportalapp.MallProductOption, error) {
-	migrationsAvailable := portalRelationExists(ctx, r.pool, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema)) &&
-		portalRelationExists(ctx, r.pool, fmt.Sprintf("%s.legacy_child_sku_bom_spec_mappings", r.schema)) &&
-		portalRelationExists(ctx, r.pool, fmt.Sprintf("%s.production_bom_version_variants", r.schema))
-	legacyPredicate := ""
-	if migrationsAvailable {
-		legacyPredicate = fmt.Sprintf(`
-			AND NOT EXISTS (
-				SELECT 1 FROM %[1]s.product_bom_spec_migrations migration
-				WHERE migration.product_id=p.id AND migration.state='cutover'
-			)
-			AND NOT EXISTS (
-				SELECT 1
-				FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping
-				JOIN %[1]s.product_bom_spec_migrations migration ON migration.product_id=mapping.parent_product_id
-				WHERE mapping.legacy_child_product_id=p.id AND migration.state='cutover'
-			)
-		`, r.schema)
-	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT p.id,COALESCE(p.name,''),COALESCE(NULLIF(p.product_kind,''),'roasted_bean'),COALESCE(p.default_price,0)::float8
-		FROM %s.products p
-		WHERE p.active=true AND %s %s
-		ORDER BY p.name,p.id
-	`, r.schema, mallProductPublicCatalogSQL("p"), legacyPredicate))
-	if err != nil {
-		return nil, err
-	}
 	out := make([]customerportalapp.MallProductOption, 0)
-	for rows.Next() {
-		var row customerportalapp.MallProductOption
-		if err := rows.Scan(&row.ProductID, &row.Name, &row.ProductKind, &row.DefaultPrice); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		row.ID = row.ProductID
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, err
-	}
-	rows.Close()
-	if !migrationsAvailable {
-		return out, nil
-	}
-
 	canonicalRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT p.id,COALESCE(p.name,''),COALESCE(NULLIF(p.product_kind,''),'roasted_bean'),COALESCE(p.default_price,0)::float8,
 		       spec.id,variant.id,COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name),
 		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit)
-		FROM %[1]s.product_bom_spec_migrations migration
-		JOIN %[1]s.products p ON p.id=migration.product_id AND p.active=true
+		FROM %[1]s.product_bom_spec_authorities authority
+		JOIN %[1]s.products p ON p.id=authority.product_id AND p.active=true
 		JOIN %[1]s.production_bom_output_bindings binding
 		  ON binding.output_type='product' AND binding.output_id=p.id AND binding.is_default=true
 		JOIN %[1]s.production_boms bom ON bom.id=binding.bom_id AND bom.status='active'
@@ -207,7 +126,7 @@ func (r Repository) listMallProductOptions(ctx context.Context) ([]customerporta
 		JOIN %[1]s.production_bom_specs spec ON spec.bom_id=binding.bom_id
 		JOIN %[1]s.production_bom_version_variants variant
 		  ON variant.version_id=version.id AND variant.bom_spec_id=spec.id
-		WHERE migration.state='cutover' AND %s
+		WHERE authority.configured=true AND %s
 		ORDER BY p.name,variant.is_default DESC,variant.sort_order,spec.spec_key,spec.id
 	`, r.schema, mallProductPublicCatalogSQL("p")))
 	if err != nil {

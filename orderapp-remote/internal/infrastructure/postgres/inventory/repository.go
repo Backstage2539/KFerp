@@ -9,7 +9,6 @@ import (
 	"time"
 
 	inventoryapp "orderapp/internal/application/inventory"
-	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	inventorydomain "orderapp/internal/domain/inventory"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
@@ -50,7 +49,7 @@ func (r Repository) ListFinished(ctx context.Context, query inventoryapp.Finishe
 		LEFT JOIN %s.production_bom_specs spec ON spec.id=fi.bom_spec_id
 		LEFT JOIN %s.production_bom_version_variants variant
 		  ON variant.id=fi.bom_variant_id AND variant.bom_spec_id=fi.bom_spec_id
-		LEFT JOIN %s.product_bom_spec_migrations migration ON migration.product_id=fi.product_id
+		LEFT JOIN %s.product_bom_spec_authorities migration ON migration.product_id=fi.product_id
 	`, r.schema, r.schema, r.schema)
 	}
 	where := ""
@@ -364,7 +363,7 @@ func (r Repository) listProductsWithBOMSpecs(ctx context.Context) ([]inventoryap
 		       COALESCE(current_spec.inventory_unit,''),COALESCE(current_spec.is_default,false),
 		       COALESCE(current_spec.sort_order,0)
 		FROM %s.products p
-		LEFT JOIN %s.product_bom_spec_migrations migration ON migration.product_id=p.id
+		JOIN %s.product_bom_spec_authorities migration ON migration.product_id=p.id AND migration.configured=true
 		LEFT JOIN LATERAL (
 			SELECT spec.id AS bom_spec_id,variant.id AS bom_variant_id,spec.spec_key,
 			       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name) AS spec_name,
@@ -379,7 +378,7 @@ func (r Repository) listProductsWithBOMSpecs(ctx context.Context) ([]inventoryap
 			WHERE binding.output_type='product' AND binding.output_id=p.id AND binding.is_default=true
 			ORDER BY variant.sort_order,variant.id
 		) current_spec ON true
-		WHERE p.active=true
+		WHERE p.active=true AND current_spec.bom_spec_id IS NOT NULL
 		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
 		ORDER BY p.name,current_spec.sort_order,current_spec.bom_spec_id
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema))
@@ -402,7 +401,7 @@ func (r Repository) listProductsWithBOMSpecs(ctx context.Context) ([]inventoryap
 		}
 		product := byID[productID]
 		if product == nil {
-			product = &inventoryapp.ProductOption{ID: productID, Name: productName, MigrationState: migrationState, SpecIdentityMode: identityMode, BomSpecAuthoritative: identityMode == productspecmigrationapp.SpecIdentityModeBOMSpec}
+			product = &inventoryapp.ProductOption{ID: productID, Name: productName, MigrationState: migrationState, SpecIdentityMode: identityMode, BomSpecAuthoritative: identityMode == "bom_spec"}
 			byID[productID] = product
 			order = append(order, productID)
 		}
@@ -430,7 +429,7 @@ func (r Repository) relationExists(ctx context.Context, table string) (bool, err
 }
 
 func (r Repository) hasFinishedSpecCatalog(ctx context.Context) (bool, error) {
-	for _, table := range []string{"production_bom_specs", "production_bom_version_variants", "product_bom_spec_migrations"} {
+	for _, table := range []string{"production_bom_specs", "production_bom_version_variants", "product_bom_spec_authorities"} {
 		exists, err := r.relationExists(ctx, table)
 		if err != nil || !exists {
 			return false, err
@@ -456,54 +455,8 @@ type finishedBomSpecIdentity struct {
 }
 
 func (r Repository) resolveFinishedBomSpecIdentityTx(ctx context.Context, tx pgx.Tx, productID, bomSpecID, explicitVariantID int64, explicitUnit string) (finishedBomSpecIdentity, error) {
-	hasMigrations, err := inventoryRelationExistsTx(ctx, tx, r.schema, "product_bom_spec_migrations")
-	if err != nil {
-		return finishedBomSpecIdentity{}, err
-	}
-	if hasMigrations {
-		var state string
-		var legacyCatalogProduct bool
-		var storedIdentityMode string
-		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state,COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode','') FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, r.schema), productID).Scan(&state, &legacyCatalogProduct, &storedIdentityMode)
-		if err == pgx.ErrNoRows {
-			if bomSpecID > 0 || explicitVariantID > 0 {
-				return finishedBomSpecIdentity{}, fmt.Errorf("BOM spec identity is not enabled for product %d", productID)
-			}
-			return finishedBomSpecIdentity{}, nil
-		}
-		if err != nil {
-			return finishedBomSpecIdentity{}, err
-		}
-		identityMode := productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, productspecmigrationapp.MigrationState(state), legacyCatalogProduct)
-		if identityMode != productspecmigrationapp.SpecIdentityModeBOMSpec {
-			if bomSpecID > 0 || explicitVariantID > 0 {
-				return finishedBomSpecIdentity{}, fmt.Errorf("BOM spec identity is not ready for product %d", productID)
-			}
-			if identityMode == productspecmigrationapp.SpecIdentityModeProduct {
-				var inventoryUnit string
-				if err := tx.QueryRow(ctx, fmt.Sprintf(`
-					SELECT COALESCE(NULLIF(to_jsonb(products)->'unit_rule_override_json'->>'inventory_unit',''),'')
-					FROM %s.products WHERE id=$1
-				`, r.schema), productID).Scan(&inventoryUnit); err != nil {
-					return finishedBomSpecIdentity{}, err
-				}
-				inventoryUnit = strings.TrimSpace(inventoryUnit)
-				if inventoryUnit == "" {
-					return finishedBomSpecIdentity{}, fmt.Errorf("direct product inventory unit is empty for product %d", productID)
-				}
-				if strings.TrimSpace(explicitUnit) != "" && !strings.EqualFold(strings.TrimSpace(explicitUnit), inventoryUnit) {
-					return finishedBomSpecIdentity{}, fmt.Errorf("direct product inventory unit mismatch for product %d", productID)
-				}
-				return finishedBomSpecIdentity{InventoryUnit: inventoryUnit}, nil
-			}
-			return finishedBomSpecIdentity{}, nil
-		}
-		if bomSpecID <= 0 {
-			return finishedBomSpecIdentity{}, fmt.Errorf("bom_spec_id required after BOM spec cutover")
-		}
-	}
 	if bomSpecID <= 0 {
-		return finishedBomSpecIdentity{}, nil
+		return finishedBomSpecIdentity{}, fmt.Errorf("product_bom_spec_not_configured")
 	}
 	for _, table := range []string{"production_bom_specs", "production_bom_version_variants", "production_bom_versions", "production_bom_output_bindings"} {
 		exists, existsErr := inventoryRelationExistsTx(ctx, tx, r.schema, table)
@@ -515,7 +468,7 @@ func (r Repository) resolveFinishedBomSpecIdentityTx(ctx context.Context, tx pgx
 		}
 	}
 	var bomID, versionID int64
-	err = tx.QueryRow(ctx, fmt.Sprintf(`
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT binding.bom_id,binding.bom_version_id
 		FROM %s.production_bom_output_bindings binding
 		WHERE binding.output_type='product' AND binding.output_id=$1 AND binding.is_default=true

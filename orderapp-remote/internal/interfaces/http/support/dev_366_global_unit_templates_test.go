@@ -31,9 +31,7 @@ func TestDev366GlobalUnitTemplatesSchemaAndAPI(t *testing.T) {
 		},
 		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
 			"/api/product-settings/units",
-			"/api/product-settings/unit-templates",
 			"saveProductUnitDefinitionAPI",
-			"saveProductUnitTemplateAPI",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"ProductUnitDefinition",
@@ -54,16 +52,15 @@ func TestDev366GlobalUnitTemplatesUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "GlobalUnitDefinitionsView.vue")))
 	for _, want := range []string{
-		"unit-template-pane",
 		"productUnitDefinitions",
-		"productUnitTemplates",
-		"saveProductUnitTemplate",
 		"商品规格统一由默认制造 BOM 的规格组提供",
-		"销售规格明细",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProductSettingsView.vue missing global unit template marker %q", want)
 		}
+	}
+	if strings.Contains(src, `v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'unit-template'"`) {
+		t.Fatal("retired sales specification template pane must not be reachable")
 	}
 	for _, want := range []string{
 		"全局单位字典",

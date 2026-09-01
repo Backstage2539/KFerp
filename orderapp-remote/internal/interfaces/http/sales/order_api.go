@@ -664,16 +664,6 @@ func apiProducts(ps []ProductOption) []map[string]any {
 	for _, p := range ps {
 		jp := map[string]any{
 			"id":                                   p.ID,
-			"sku_id":                               effectiveOrderSKUID(p),
-			"parent_product_id":                    effectiveOrderParentProductID(p),
-			"parent_product_name":                  effectiveOrderParentProductName(p),
-			"sku_name":                             effectiveOrderSKUName(p),
-			"sku_code":                             firstNonEmpty(p.SKUCode, p.ProductCode),
-			"spec_label":                           p.SpecLabel,
-			"net_content_qty":                      p.NetContentQty,
-			"net_content_unit":                     p.NetContentUnit,
-			"is_default_sku":                       p.IsDefaultSKU,
-			"default_sku_id":                       p.DefaultSKUID,
 			"name":                                 p.Name,
 			"product_code":                         p.ProductCode,
 			"product_name_snapshot":                firstNonEmpty(p.ProductRecordName, p.Name),
@@ -702,13 +692,6 @@ func apiProducts(ps []ProductOption) []map[string]any {
 			"product_subtype_category_id":          p.ProductSubtypeCategoryID,
 			"product_type_name":                    p.ProductTypeName,
 			"product_subtype_name":                 p.ProductSubtypeName,
-			"inventory_unit":                       p.InventoryUnit,
-			"quote_unit":                           p.QuoteUnit,
-			"order_unit":                           p.OrderUnit,
-			"unit_conversion_json":                 p.UnitConversionJSON,
-			"integer_unit":                         p.IntegerUnit,
-			"spec_identity_mode":                   p.SpecIdentityMode,
-			"bom_spec_authoritative":               p.BomSpecAuthoritative,
 		}
 		tiers := make([]map[string]any, 0, len(p.Tiers))
 		for _, t := range p.Tiers {

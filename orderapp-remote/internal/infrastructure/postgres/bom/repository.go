@@ -123,45 +123,35 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 }
 
 func listProductionBomProductOptions(ctx context.Context, q bomQueryer, schema string, productIDs []int64) ([]bomapp.Option, error) {
-	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT p.id, ('SKU-' || lpad(p.id::text,6,'0')), p.name, COALESCE(p.customer_id,0),
-		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(product_config.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') END AS inventory_unit,
-		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit_explicit ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,'')) IS NOT NULL END AS inventory_unit_explicit,
-		COALESCE(p.roast_level,''), COALESCE(NULLIF(p.product_kind,''),'roasted_bean'), COALESCE(p.drip_bag_grams,10)::float8, COALESCE(p.drip_box_bag_count,10),
-		COALESCE((
-			SELECT COUNT(*)
-			FROM %[1]s.order_items oi
-			JOIN %[1]s.orders o ON o.id=oi.order_id
-			WHERE oi.product_id=p.id AND COALESCE(o.is_void,false)=false
-		),0) AS order_usage_count,
-		COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END) AS spec_identity_mode,
-		COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec' AS bom_spec_authoritative
+	rows, err := q.Query(ctx, fmt.Sprintf(`
+		SELECT p.id,
+		       ('SKU-' || lpad(p.id::text,6,'0')),
+		       p.name,
+		       COALESCE(p.customer_id,0),
+		       ''::text AS inventory_unit,
+		       false AS inventory_unit_explicit,
+		       COALESCE(p.roast_level,''),
+		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean'),
+		       COALESCE(p.drip_bag_grams,10)::float8,
+		       COALESCE(p.drip_box_bag_count,10),
+		       COALESCE((
+		         SELECT COUNT(*)
+		         FROM %[1]s.order_items oi
+		         JOIN %[1]s.orders o ON o.id=oi.order_id
+		         WHERE oi.product_id=p.id AND COALESCE(o.is_void,false)=false
+		       ),0),
+		       'bom_spec'::text,
+		       true
 		FROM %[1]s.products p
-		LEFT JOIN %[1]s.product_bom_spec_migrations migration ON migration.product_id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END
-		LEFT JOIN %[1]s.products parent_product ON parent_product.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END
-		LEFT JOIN %[1]s.product_unit_templates parent_product_direct_unit_template ON parent_product_direct_unit_template.id=COALESCE(parent_product.unit_template_id,0) AND parent_product_direct_unit_template.active=true AND parent_product_direct_unit_template.deleted_at IS NULL
-		LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id=COALESCE(parent_product.product_config_template_id,0) AND parent_product_config.deleted_at IS NULL
-		LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=COALESCE(parent_product_config.unit_template_id,0) AND parent_product_unit_template.deleted_at IS NULL
-		LEFT JOIN %[1]s.product_categories parent_category_config ON parent_category_config.id=COALESCE(parent_product.product_category_id,0)
-		LEFT JOIN %[1]s.product_unit_templates parent_category_unit_template ON parent_category_unit_template.id=COALESCE(parent_category_config.unit_template_id,0) AND parent_category_unit_template.deleted_at IS NULL
-		LEFT JOIN LATERAL (
-			SELECT
-				COALESCE(NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''), NULLIF(parent_product_direct_unit_template.inventory_unit,''), NULLIF(parent_product_config.inventory_unit,''), NULLIF(parent_category_config.inventory_unit,''), NULLIF(parent_product_unit_template.inventory_unit,''), NULLIF(parent_category_unit_template.inventory_unit,''), 'kg') AS parent_product_inventory_unit,
-				COALESCE(NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''), NULLIF(parent_product_direct_unit_template.inventory_unit,'')) IS NOT NULL AS parent_product_inventory_unit_explicit
-		) parent_units ON true
-		LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
-		LEFT JOIN %[1]s.product_config_templates product_config ON product_config.id=COALESCE(p.product_config_template_id,0) AND product_config.deleted_at IS NULL
-		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id=COALESCE(product_config.unit_template_id,0) AND product_unit_template.deleted_at IS NULL
-		LEFT JOIN %[1]s.product_categories category_config ON category_config.id=COALESCE(p.product_category_id,0)
-		LEFT JOIN %[1]s.product_unit_templates category_unit_template ON category_unit_template.id=COALESCE(category_config.unit_template_id,0) AND category_unit_template.deleted_at IS NULL
 		WHERE p.active=true
-		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
+		  AND COALESCE(p.parent_product_id,0)=0
 		  AND ($1::bigint[] IS NULL OR p.id=ANY($1))
-		ORDER BY p.name`, schema), productIDs)
+		ORDER BY p.name
+	`, schema), productIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	out := make([]bomapp.Option, 0)
 	for rows.Next() {
 		var opt bomapp.Option
@@ -1719,11 +1709,11 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 			return bomapp.ProductionBomSummary{}, fmt.Errorf("外购物料不能创建物料产出 BOM；请先将取得方式改为自制")
 		}
 	}
-	if cmd.OutputType == "product" && cmd.SpecificationMode == bomapp.ProductionBomSpecificationModeSpecGroup {
+	if cmd.OutputType == "product" && cmd.SpecificationMode == bomapp.ProductionBomSpecificationModeSpecGroup && cmd.SpecTemplateVersionID > 0 {
 		if err := requireProductBOMSpecTemplateTx(ctx, tx, r.schema, cmd.SpecTemplateVersionID, cmd.MainInputMaterialID); err != nil {
 			return bomapp.ProductionBomSummary{}, err
 		}
-	} else if cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 {
+	} else if cmd.OutputType != "product" && (cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0) {
 		return bomapp.ProductionBomSummary{}, fmt.Errorf("specification template requires product output")
 	}
 	groupID := cmd.GroupID
@@ -1754,8 +1744,27 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 		if err := copySpecTemplateToProductionBomTx(ctx, tx, r.schema, bomID, versionID, cmd.SpecTemplateVersionID, cmd.MainInputMaterialID, cmd.Actor); err != nil {
 			return bomapp.ProductionBomSummary{}, err
 		}
+	} else if cmd.OutputType == "product" {
+		if err := validateProductionBomDraftVariantUnitsTx(ctx, tx, r.schema, cmd.Variants); err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
+		if err := saveProductionBomDraftVariantsTx(ctx, tx, r.schema, bomID, versionID, cmd.Variants, cmd.Actor); err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "output_type": cmd.OutputType, "specification_mode": cmd.SpecificationMode, "output_id": cmd.OutputID, "output_product_id": cmd.OutputProductID, "output_material_id": cmd.OutputMaterialID, "output_qty": cmd.OutputQty, "output_unit": strings.TrimSpace(cmd.OutputUnit), "group_id": groupID, "group_category_id": groupCategoryID, "spec_template_version_id": cmd.SpecTemplateVersionID, "main_input_material_id": cmd.MainInputMaterialID}); err != nil {
+	if cmd.OutputType == "product" {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.production_bom_versions version
+			SET output_unit=variant.inventory_unit,
+			    material_loss_rate=variant.material_loss_rate,
+			    process_route_id=variant.process_route_id
+			FROM %s.production_bom_version_variants variant
+			WHERE version.id=$1 AND variant.version_id=version.id AND variant.is_default=true
+		`, r.schema, r.schema), versionID); err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "output_type": cmd.OutputType, "specification_mode": cmd.SpecificationMode, "output_id": cmd.OutputID, "output_product_id": cmd.OutputProductID, "output_material_id": cmd.OutputMaterialID, "output_qty": cmd.OutputQty, "output_unit": strings.TrimSpace(cmd.OutputUnit), "group_id": groupID, "group_category_id": groupCategoryID, "spec_template_version_id": cmd.SpecTemplateVersionID, "main_input_material_id": cmd.MainInputMaterialID, "variant_count": len(cmd.Variants)}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), bomID, groupID, groupCategoryID); err != nil {
@@ -2697,13 +2706,9 @@ func validateProductionBomComponentSpecsForPublish(ctx context.Context, q bomQue
 	err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT i.id
 		FROM %[1]s.production_bom_version_items i
-		JOIN %[1]s.products component_product ON component_product.id=i.component_product_id
-		LEFT JOIN %[1]s.product_bom_spec_migrations migration
-		  ON migration.product_id=CASE WHEN COALESCE(component_product.parent_product_id,0)>0 THEN component_product.parent_product_id ELSE component_product.id END
 		WHERE i.version_id=$1
 		  AND i.component_type IN ('product','finished_product')
 		  AND i.component_bom_spec_id<=0
-		  AND COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'
 		ORDER BY i.id LIMIT 1
 	`, schema), versionID).Scan(&missingSpecItemID)
 	if err == nil {
@@ -2712,26 +2717,6 @@ func validateProductionBomComponentSpecsForPublish(ctx context.Context, q bomQue
 	if err != pgx.ErrNoRows {
 		return err
 	}
-	var directProductSpecItemID int64
-	err = q.QueryRow(ctx, fmt.Sprintf(`
-		SELECT i.id
-		FROM %[1]s.production_bom_version_items i
-		JOIN %[1]s.products component_product ON component_product.id=i.component_product_id
-		LEFT JOIN %[1]s.product_bom_spec_migrations migration
-		  ON migration.product_id=CASE WHEN COALESCE(component_product.parent_product_id,0)>0 THEN component_product.parent_product_id ELSE component_product.id END
-		WHERE i.version_id=$1
-		  AND i.component_type IN ('product','finished_product')
-		  AND i.component_bom_spec_id>0
-		  AND COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='product'
-		ORDER BY i.id LIMIT 1
-	`, schema), versionID).Scan(&directProductSpecItemID)
-	if err == nil {
-		return fmt.Errorf("direct product component must not use component_bom_spec_id")
-	}
-	if err != pgx.ErrNoRows {
-		return err
-	}
-
 	var itemID, componentSpecID, componentProductID int64
 	var componentType string
 	var specExists, ownerMatches, versionAvailable bool
