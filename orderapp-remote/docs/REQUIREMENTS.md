@@ -1708,3 +1708,11 @@
 - `DEV-621-DIRECT-PRODUCT-STOCK-PREVIEW`：录单库存预览先读取商品当前 `spec_identity_mode`。直接商品身份只接受 `product_id`，将 `bom_spec_id/bom_variant_id/spec_g` 规范为 0，以订单数量作为 `need_units`，从成品库存的 `onhand_units` 读取可用量并生成 `PRODUCT-FP-<product_id>` 聚合批次；不得再要求旧 SKU 克重或把盒、袋数量换算为克数。
 - `DEV-621-DIRECT-PRODUCT-SHIPMENT-DEDUCTION`：直接商品订单保存、库存预占和发货扣减保持相同商品身份。预占和扣减记录写 `allocated_units/deducted_units`，成品库存和库存流水按商品单位减少，BOM 规格字段与克数字段保持 0；生产完成后没有显式预占记录的发货兜底也必须使用同一单位合同。旧 `legacy_sku` 克数库存及 `bom_spec` 规格单位库存行为不变。
 - `DEV-621-DOCS-PRODUCTION-DELIVERY`：真实 PostgreSQL API 测试覆盖库存预览、订单保存、预占发货、无预占兜底发货及两种历史身份回归；同步订单手册、需求/验收记录和 PR/DEV/REV。完成 Go 与统一验证器、development 部署验证后，通过独立发布分支合入 `main` 并部署 production，再以当前授权的三种挂耳订单完成生产库存与操作日志验收。
+
+# PR-622-PRODUCT-BOM-SPEC-AUTHORITY 商品规格权威完全收敛到生产 BOM（2026-09-02）
+
+- `DEV-622-BOM-SPEC-ONLY`：商品产出 BOM 只允许规格组。新建时自带一个空白默认规格，规格名称、条码和库存单位直接维护；单位来自全局单位字典，规格模板可选。物料产出 BOM 继续使用物料档案库存单位。商品提交单一产出返回 `409 / product_output_requires_bom_spec`。
+- `DEV-622-PRODUCT-ARCHIVE-IDENTITY-ONLY`：商品档案只保存商品身份；活动商品接口不再返回商品库存单位、销售规格、默认或子 SKU、迁移状态。商品页只读展示默认已发布 BOM 规格并提供“到 BOM 配置”。旧规格及默认 SKU 写路由已移除。
+- `DEV-622-RUNTIME-BOM-AUTHORITY`：价格、录单、库存、排产、成本和履约只接受“主商品 + 当前默认已发布 BOM 规格 + 当前发布变体”。未配置商品从新业务候选项排除并返回 `product_bom_spec_not_configured`；商品组件必须选择其已发布 BOM 规格。
+- `DEV-622-DUAL-ENV-CLEANUP`：一次性命令提供 preview/apply/verify，以数据库顾问锁、确定性清单、校验和、完整备份和单事务清理旧子商品、销售规格模板绑定与迁移表。未映射库存或未完业务依赖会整批阻断；应用后只能整库备份恢复。
+- `DEV-622-DOCS-RELEASE`：完成 Go、Vue、小程序、Vite 和统一验证，依次发布开发代码与数据、生产代码与数据，最后移除一次性工具和剩余兼容代码并同步双分支。

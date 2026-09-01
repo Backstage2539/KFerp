@@ -1354,31 +1354,13 @@ func productBOMRequiresSpecGroupTx(ctx context.Context, tx pgx.Tx, schema string
 	if productID <= 0 {
 		return false, nil
 	}
-	// Serialize product-BOM authority decisions with preparation/cutover. A
-	// missing row is an existing, not-yet-prepared legacy product. Newly created
-	// parents are registered atomically with legacy_catalog_product=false. The
-	// authority table itself is mandatory: querying it directly deliberately
-	// returns PostgreSQL's undefined-table error when schema migration is absent
-	// instead of silently reopening the legacy single-recipe write path.
+	// Serialize product-BOM authority decisions. Every product is governed by a
+	// BOM specification group; no migration-state lookup or direct-product
+	// fallback remains.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, productID); err != nil {
 		return false, err
 	}
-	var state string
-	var legacyCatalogProduct bool
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT state,
-		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)
-		FROM %s.product_bom_spec_migrations migration
-		WHERE product_id=$1
-		FOR SHARE
-	`, schema), productID).Scan(&state, &legacyCatalogProduct)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return strings.EqualFold(strings.TrimSpace(state), "cutover") || !legacyCatalogProduct, nil
+	return true, nil
 }
 
 func validateProductBOMDraftSpecTemplateProvenanceTx(ctx context.Context, tx pgx.Tx, schema string, bomID int64) error {

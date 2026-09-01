@@ -52,14 +52,6 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/units", h.saveProductUnitDefinitionAPI)
 	e.PUT("/api/product-settings/units/:code", h.saveProductUnitDefinitionAPI)
 	e.DELETE("/api/product-settings/units/:code", h.deleteProductUnitDefinitionAPI)
-	// PR-608 retires mutable sales-spec/template identities.  Keep the old
-	// handlers available for historical replay, but make all public writes point
-	// at an explicit 410 response directing operators to BOM configuration.
-	e.POST("/api/product-settings/unit-templates", h.retiredSalesSpecWriteAPI)
-	e.PUT("/api/product-settings/unit-templates/:id", h.retiredSalesSpecWriteAPI)
-	e.DELETE("/api/product-settings/unit-templates/:id", h.retiredSalesSpecWriteAPI)
-	e.POST("/api/product-settings/skus", h.retiredSalesSpecWriteAPI)
-	e.PUT("/api/product-settings/products/:id/default-sku", h.retiredSalesSpecWriteAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
 	e.POST("/api/product-settings/products/:id/copy", h.copyProductAPI)
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
@@ -178,7 +170,7 @@ type productCreateAPIRequest struct {
 	DefaultSalesUnit         *string                   `json:"default_sales_unit"`
 	UnitConversionJSON       json.RawMessage           `json:"unit_conversion_json"`
 	SalesUnitRulesJSON       json.RawMessage           `json:"sales_unit_rules"`
-	UnitTemplateID           int64                     `json:"unit_template_id"`
+	UnitTemplateID           *int64                    `json:"unit_template_id"`
 	Tiers                    []productTierAPIUpsertRow `json:"tiers"`
 }
 
@@ -217,6 +209,78 @@ type productTierAPIUpsertRow struct {
 	MinQty    float64  `json:"min_qty"`
 	MaxQty    *float64 `json:"max_qty"`
 	UnitPrice float64  `json:"unit_price"`
+}
+
+var retiredProductMasterFields = []string{
+	"sku_id", "parent_product_id", "effective_parent_product_id", "sku_name", "sku_code", "barcode",
+	"spec_label", "net_content_qty", "net_content_unit", "is_default_sku", "default_sku_id",
+	"effective_default_sku_id", "default_spec_label", "auto_derived_sku", "derived_unit_template_id",
+	"derived_spec_key", "derived_spec_name", "derived_sales_unit", "derived_spec_status", "sales_units",
+	"unit_rule_override_json", "inventory_unit", "integer_inventory_unit", "default_sales_unit",
+	"unit_conversion_json", "sales_unit_rules", "sales_unit_rules_json", "unit_template_id", "unit_template_name", "unit_rule_source",
+	"retail_specs", "tiers", "spec_identity_mode", "bom_spec_authoritative", "migration_state", "legacy_catalog_product",
+}
+
+func productMasterPayload(value any) any {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return value
+	}
+	cleaned, _ := sanitizeProductMasterPayload(decoded)
+	return cleaned
+}
+
+func sanitizeProductMasterPayload(value any) (any, bool) {
+	switch typed := value.(type) {
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			cleaned, drop := sanitizeProductMasterPayload(item)
+			if !drop {
+				out = append(out, cleaned)
+			}
+		}
+		return out, false
+	case map[string]any:
+		if _, isProduct := typed["product_kind"]; isProduct {
+			if parentID, ok := typed["parent_product_id"].(float64); ok && parentID > 0 {
+				return nil, true
+			}
+			for _, key := range retiredProductMasterFields {
+				delete(typed, key)
+			}
+		}
+		for key, item := range typed {
+			cleaned, _ := sanitizeProductMasterPayload(item)
+			typed[key] = cleaned
+		}
+		return typed, false
+	default:
+		return value, false
+	}
+}
+
+func productUpdateContainsLegacyUnitFields(req productUpdateAPIRequest) bool {
+	return req.UnitRuleOverrideJSON != nil || req.InventoryUnit != nil || req.IntegerInventoryUnit != nil ||
+		req.DefaultSalesUnit != nil || len(req.UnitConversionJSON) > 0 || len(req.SalesUnitRulesJSON) > 0 ||
+		req.UnitTemplateID != nil || len(req.Tiers) > 0
+}
+
+func productCreateContainsLegacyUnitFields(req productCreateAPIRequest) bool {
+	return req.InventoryUnit != nil || req.IntegerInventoryUnit != nil || req.DefaultSalesUnit != nil ||
+		len(req.UnitConversionJSON) > 0 || len(req.SalesUnitRulesJSON) > 0 || req.UnitTemplateID != nil || len(req.Tiers) > 0
+}
+
+func productUnitOwnedByBOMSpecError(c echo.Context) error {
+	return c.JSON(http.StatusConflict, map[string]any{
+		"error":   "商品规格、条码和库存单位由默认已发布 BOM 规格维护",
+		"code":    "product_unit_owned_by_bom_spec",
+		"message": "请到生产 BOM 配置规格；商品档案只保存商品身份",
+	})
 }
 
 type productCategoryAPIRequest struct {
@@ -514,7 +578,7 @@ func (h productHandler) listAPI(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"rows": productOptionsFromCatalog(ps)})
+	return c.JSON(http.StatusOK, map[string]any{"rows": productMasterPayload(productOptionsFromCatalog(ps))})
 }
 
 func (h productHandler) detailAPI(c echo.Context) error {
@@ -529,7 +593,7 @@ func (h productHandler) detailAPI(c echo.Context) error {
 	if p == nil {
 		return c.JSON(http.StatusNotFound, map[string]any{"error": "not found"})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(*p)})
+	return c.JSON(http.StatusOK, map[string]any{"product": productMasterPayload(productOptionFromCatalog(*p))})
 }
 
 func (h productHandler) updateAPI(c echo.Context) error {
@@ -540,6 +604,9 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	var req productUpdateAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if productUpdateContainsLegacyUnitFields(req) {
+		return productUnitOwnedByBOMSpecError(c)
 	}
 	existing, err := h.catalog.GetProduct(c.Request().Context(), id)
 	if err != nil {
@@ -613,24 +680,6 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	}
 	gradientTemplateIDOverride := int64(0)
 	operationTemplateIDOverride := int64(0)
-	unitTemplateID := existing.UnitTemplateID
-	if req.UnitTemplateID != nil {
-		unitTemplateID = *req.UnitTemplateID
-	}
-	unitRuleOverrideSource := existing.UnitRuleOverrideJSON
-	unitRuleOverrideWriteRequested := req.UnitTemplateID != nil ||
-		req.InventoryUnit != nil ||
-		req.IntegerInventoryUnit != nil ||
-		req.DefaultSalesUnit != nil ||
-		len(req.UnitConversionJSON) > 0 ||
-		len(req.SalesUnitRulesJSON) > 0
-	if req.UnitRuleOverrideJSON != nil && unitRuleOverrideWriteRequested {
-		unitRuleOverrideSource = *req.UnitRuleOverrideJSON
-	}
-	unitRuleOverrideJSON, err := productInventoryUnitRuleJSON(unitRuleOverrideSource, req.InventoryUnit, req.IntegerInventoryUnit, req.DefaultSalesUnit, req.UnitConversionJSON, req.SalesUnitRulesJSON, "kg")
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid unit_rule_override_json"})
-	}
 	productConfigTemplateID := int64(0)
 	classificationTemplateID := int64(0)
 	specialAttrsJSON := existing.SpecialAttrsJSON
@@ -659,8 +708,8 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		MarginRateOverride:          marginRateOverride,
 		GradientTemplateIDOverride:  gradientTemplateIDOverride,
 		OperationTemplateIDOverride: operationTemplateIDOverride,
-		UnitTemplateID:              unitTemplateID,
-		UnitRuleOverrideJSON:        unitRuleOverrideJSON,
+		UnitTemplateID:              0,
+		UnitRuleOverrideJSON:        "{}",
 		ProductConfigTemplateID:     productConfigTemplateID,
 		ClassificationTemplateID:    classificationTemplateID,
 		SpecialAttrsJSON:            specialAttrsJSON,
@@ -677,7 +726,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if p == nil {
 		return c.JSON(http.StatusNotFound, map[string]any{"error": "not found"})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(*p)})
+	return c.JSON(http.StatusOK, map[string]any{"product": productMasterPayload(productOptionFromCatalog(*p))})
 }
 
 func optionalFloat64(value *float64, fallback float64) float64 {
@@ -818,6 +867,9 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
+	if productCreateContainsLegacyUnitFields(req) {
+		return productUnitOwnedByBOMSpecError(c)
+	}
 	productKind := catalogdomain.NormalizeProductKind(req.ProductKind)
 	roastLevelInput := ""
 	if req.RoastLevel != nil {
@@ -853,10 +905,6 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	if req.AllowMallOrder != nil {
 		allowMallOrder = *req.AllowMallOrder
 	}
-	unitRuleOverrideJSON, err := productInventoryUnitRuleJSON("{}", req.InventoryUnit, req.IntegerInventoryUnit, req.DefaultSalesUnit, req.UnitConversionJSON, req.SalesUnitRulesJSON, "kg")
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid unit_rule_override_json"})
-	}
 	product, err := h.catalog.CreateProduct(c.Request().Context(), catalogapp.CreateProductCommand{
 		Actor:                    support.ActorOf(c),
 		Name:                     req.Name,
@@ -878,10 +926,10 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		YieldRate:                yieldRate,
 		ProductConfigTemplateID:  0,
 		ClassificationTemplateID: 0,
-		UnitTemplateID:           req.UnitTemplateID,
+		UnitTemplateID:           0,
 		Tiers:                    nil,
 		SpecialAttrsJSON:         req.SpecialAttrsJSON,
-		UnitRuleOverrideJSON:     unitRuleOverrideJSON,
+		UnitRuleOverrideJSON:     "{}",
 	})
 	if err != nil {
 		if catalogapp.IsValidationError(err) {
@@ -889,7 +937,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+	return c.JSON(http.StatusOK, map[string]any{"product": productMasterPayload(productOptionFromCatalog(product))})
 }
 
 func (h productHandler) createSKUAPI(c echo.Context) error {
@@ -1037,7 +1085,7 @@ func (h productHandler) productSettingsAPI(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, data)
+	return c.JSON(http.StatusOK, productMasterPayload(data))
 }
 
 func (h productHandler) businessGroupsAPI(c echo.Context) error {

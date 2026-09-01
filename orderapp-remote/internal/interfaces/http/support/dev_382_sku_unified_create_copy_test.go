@@ -50,7 +50,7 @@ func TestDev382SKUUnifiedCreateCopySourceMarkers(t *testing.T) {
 			"copyProductPriceTiersTx",
 		},
 		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
-			"/api/product-settings/skus",
+			"/api/product-settings/products",
 			"/api/product-settings/products/:id/copy",
 		},
 	}

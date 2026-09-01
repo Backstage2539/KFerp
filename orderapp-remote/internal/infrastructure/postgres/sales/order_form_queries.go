@@ -72,8 +72,7 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 
 func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.ProductBOMSpecOption, error) {
 	for _, relation := range []string{
-		"product_bom_spec_migrations",
-		"legacy_child_sku_bom_spec_mappings",
+		"product_bom_spec_authorities",
 		"production_bom_output_bindings",
 		"production_bom_versions",
 		"production_bom_specs",
@@ -89,7 +88,7 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT binding.output_id,
-		       COALESCE(mapping.legacy_child_product_id,0),
+		       0::bigint,
 		       binding.bom_id,
 		       version.id,
 		       COALESCE(version.version_no,''),
@@ -100,17 +99,17 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 		       spec.spec_key,
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name),
 		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit),
-		       migration.state,
+		       authority.state,
 		       variant.is_default,
 		       variant.sort_order,
-		       CASE WHEN COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec' THEN binding.output_id ELSE COALESCE(mapping.legacy_child_product_id,0) END,
-		       CASE WHEN COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec' THEN spec.id ELSE 0 END,
-		       CASE WHEN COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec' THEN variant.id ELSE 0 END,
-		       COALESCE(legacy.customer_id,0),
-		       COALESCE(NULLIF(legacy.product_kind,''),NULLIF(parent.product_kind,''),'roasted_bean')
+		       binding.output_id,
+		       spec.id,
+		       variant.id,
+		       COALESCE(parent.customer_id,0),
+		       COALESCE(NULLIF(parent.product_kind,''),'roasted_bean')
 		FROM %[1]s.production_bom_output_bindings binding
-		JOIN %[1]s.product_bom_spec_migrations migration
-		  ON migration.product_id=binding.output_id
+		JOIN %[1]s.product_bom_spec_authorities authority
+		  ON authority.product_id=binding.output_id AND authority.configured=true
 		JOIN %[1]s.products parent
 		  ON parent.id=binding.output_id AND parent.active=true
 		JOIN %[1]s.production_bom_versions version
@@ -122,18 +121,7 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 		JOIN %[1]s.production_bom_version_variants variant
 		  ON variant.version_id=version.id
 		 AND variant.bom_spec_id=spec.id
-		LEFT JOIN LATERAL (
-			SELECT candidate.legacy_child_product_id
-			FROM %[1]s.legacy_child_sku_bom_spec_mappings candidate
-			WHERE candidate.parent_product_id=binding.output_id
-			  AND candidate.bom_spec_id=spec.id
-			ORDER BY candidate.legacy_child_product_id
-			LIMIT 1
-		) mapping ON true
-		LEFT JOIN %[1]s.products legacy
-		  ON legacy.id=mapping.legacy_child_product_id
-		WHERE COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'
-		  AND binding.output_type='product'
+		WHERE binding.output_type='product'
 		  AND binding.is_default=true
 		ORDER BY parent.name,variant.sort_order,spec.spec_key,spec.id
 	`, r.schema))
@@ -811,15 +799,21 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	if err != nil {
 		return nil, err
 	}
+	configured := make([]salesapp.ProductOption, 0, len(out))
 	for index := range out {
 		parentID := out[index].ParentProductID
 		if parentID <= 0 {
 			parentID = out[index].ID
 		}
 		identity := identities[parentID]
+		if out[index].ID != parentID || !identity.BomSpecAuthoritative {
+			continue
+		}
 		out[index].SpecIdentityMode = identity.SpecIdentityMode
 		out[index].BomSpecAuthoritative = identity.BomSpecAuthoritative
+		configured = append(configured, out[index])
 	}
+	out = configured
 
 	commercialPublicationTiers, err := r.fetchCommercialOrderPublicationTiers(ctx, out)
 	if err != nil {

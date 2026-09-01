@@ -30,43 +30,27 @@ type customerFulfillmentBOMSpecIdentity struct {
 }
 
 func resolveCustomerFulfillmentBOMSpecIdentityTx(ctx context.Context, q miniDirectShipQuerier, schema string, productID, bomSpecID, bomVariantID int64) (customerFulfillmentBOMSpecIdentity, error) {
-	if productID <= 0 || !relationExists(ctx, q, fmt.Sprintf("%s.product_bom_spec_migrations", schema)) {
+	if productID <= 0 {
 		return customerFulfillmentBOMSpecIdentity{}, nil
 	}
-	var cutoverParentID int64
+	var configured bool
 	err := q.QueryRow(ctx, fmt.Sprintf(`
-		SELECT mapping.parent_product_id
-		FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping
-		JOIN %[1]s.product_bom_spec_migrations migration
-		  ON migration.product_id=mapping.parent_product_id AND migration.state='cutover'
-		WHERE mapping.legacy_child_product_id=$1
-	`, schema), productID).Scan(&cutoverParentID)
-	if err == nil {
-		return customerFulfillmentBOMSpecIdentity{}, fmt.Errorf("legacy child SKU write rejected after BOM spec cutover; use parent product %d + bom_spec_id", cutoverParentID)
-	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return customerFulfillmentBOMSpecIdentity{}, err
-	}
-
-	var state string
-	err = q.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, schema), productID).Scan(&state)
+		SELECT authority.configured
+		FROM %[1]s.product_bom_spec_authorities authority
+		JOIN %[1]s.products product ON product.id=authority.product_id AND product.active=true
+		WHERE authority.product_id=$1
+	`, schema), productID).Scan(&configured)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if bomSpecID > 0 || bomVariantID > 0 {
-			return customerFulfillmentBOMSpecIdentity{}, fmt.Errorf("BOM spec identity is not enabled for product %d", productID)
-		}
-		return customerFulfillmentBOMSpecIdentity{}, nil
+		return customerFulfillmentBOMSpecIdentity{}, fmt.Errorf("product_bom_spec_not_configured")
 	}
 	if err != nil {
 		return customerFulfillmentBOMSpecIdentity{}, err
 	}
-	if state != "cutover" {
-		if bomSpecID > 0 || bomVariantID > 0 {
-			return customerFulfillmentBOMSpecIdentity{}, fmt.Errorf("BOM spec identity is not ready for product %d", productID)
-		}
-		return customerFulfillmentBOMSpecIdentity{}, nil
+	if !configured {
+		return customerFulfillmentBOMSpecIdentity{}, fmt.Errorf("product_bom_spec_not_configured")
 	}
 	if bomSpecID <= 0 {
-		return customerFulfillmentBOMSpecIdentity{}, fmt.Errorf("bom_spec_id required after BOM spec cutover")
+		return customerFulfillmentBOMSpecIdentity{}, fmt.Errorf("bom_spec_id required for product output")
 	}
 
 	var identity customerFulfillmentBOMSpecIdentity
@@ -77,10 +61,9 @@ func resolveCustomerFulfillmentBOMSpecIdentityTx(ctx context.Context, q miniDire
 		       spec.code,
 		       parent.name,COALESCE(NULLIF(parent.sku_code,''),'SKU-' || parent.id::text),
 		       COALESCE(NULLIF(parent.product_kind,''),'roasted_bean'),
-		       COALESCE(mapping.legacy_child_product_id,0),COALESCE(mapping.legacy_spec_g,0),
-		       COALESCE(mapping.legacy_sales_unit,'')
-		FROM %[1]s.product_bom_spec_migrations migration
-		JOIN %[1]s.products parent ON parent.id=migration.product_id AND parent.active=true
+		       0::bigint,0::bigint,''::text
+		FROM %[1]s.product_bom_spec_authorities authority
+		JOIN %[1]s.products parent ON parent.id=authority.product_id AND parent.active=true
 		JOIN %[1]s.production_bom_output_bindings binding
 		  ON binding.output_type='product' AND binding.output_id=parent.id AND binding.is_default=true
 		JOIN %[1]s.production_bom_versions version
@@ -88,9 +71,7 @@ func resolveCustomerFulfillmentBOMSpecIdentityTx(ctx context.Context, q miniDire
 		JOIN %[1]s.production_bom_specs spec ON spec.id=$2 AND spec.bom_id=binding.bom_id
 		JOIN %[1]s.production_bom_version_variants variant
 		  ON variant.version_id=version.id AND variant.bom_spec_id=spec.id
-		LEFT JOIN %[1]s.legacy_child_sku_bom_spec_mappings mapping
-		  ON mapping.parent_product_id=parent.id AND mapping.bom_spec_id=spec.id
-		WHERE migration.product_id=$1 AND migration.state='cutover'
+		WHERE authority.product_id=$1 AND authority.configured=true
 		  AND ($3::bigint=0 OR variant.id=$3)
 		ORDER BY variant.id
 		LIMIT 1
@@ -151,28 +132,22 @@ type customerFulfillmentBOMSpecOptionRow struct {
 }
 
 func (r *Repository) replaceCutoverCustomerSKUOptions(ctx context.Context, customerID int64, options []app.CustomerSKUOption) ([]app.CustomerSKUOption, error) {
-	if !relationExists(ctx, r.pool, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema)) {
-		return options, nil
-	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT parent.id,spec.id,variant.id,spec.spec_key,
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name),
 		       COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),''),
 		       spec.code,parent.name,COALESCE(NULLIF(parent.sku_code,''),'SKU-' || parent.id::text),
 		       COALESCE(NULLIF(parent.product_kind,''),'roasted_bean'),
-		       COALESCE(mapping.legacy_child_product_id,0),COALESCE(mapping.legacy_spec_g,0),
-		       COALESCE(mapping.legacy_sales_unit,'')
-		FROM %[1]s.product_bom_spec_migrations migration
-		JOIN %[1]s.products parent ON parent.id=migration.product_id AND parent.active=true
+		       0::bigint,0::bigint,''::text
+		FROM %[1]s.product_bom_spec_authorities authority
+		JOIN %[1]s.products parent ON parent.id=authority.product_id AND parent.active=true
 		JOIN %[1]s.production_bom_output_bindings binding
 		  ON binding.output_type='product' AND binding.output_id=parent.id AND binding.is_default=true
 		JOIN %[1]s.production_bom_versions version
 		  ON version.id=binding.bom_version_id AND version.bom_id=binding.bom_id AND version.status='published'
 		JOIN %[1]s.production_bom_version_variants variant ON variant.version_id=version.id
 		JOIN %[1]s.production_bom_specs spec ON spec.id=variant.bom_spec_id AND spec.bom_id=binding.bom_id
-		LEFT JOIN %[1]s.legacy_child_sku_bom_spec_mappings mapping
-		  ON mapping.parent_product_id=parent.id AND mapping.bom_spec_id=spec.id
-		WHERE migration.state='cutover'
+		WHERE authority.configured=true
 		ORDER BY parent.id,variant.sort_order,variant.id
 	`, r.schema))
 	if err != nil {
@@ -181,7 +156,6 @@ func (r *Repository) replaceCutoverCustomerSKUOptions(ctx context.Context, custo
 	defer rows.Close()
 	canonical := make([]customerFulfillmentBOMSpecOptionRow, 0)
 	cutoverProducts := map[int64]struct{}{}
-	cutoverChildren := map[int64]struct{}{}
 	for rows.Next() {
 		var row customerFulfillmentBOMSpecOptionRow
 		if err := rows.Scan(
@@ -194,9 +168,6 @@ func (r *Repository) replaceCutoverCustomerSKUOptions(ctx context.Context, custo
 		}
 		canonical = append(canonical, row)
 		cutoverProducts[row.ParentProductID] = struct{}{}
-		if row.LegacyChildProductID > 0 {
-			cutoverChildren[row.LegacyChildProductID] = struct{}{}
-		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -214,9 +185,6 @@ func (r *Repository) replaceCutoverCustomerSKUOptions(ctx context.Context, custo
 	out := make([]app.CustomerSKUOption, 0, len(options)+len(canonical))
 	for _, option := range options {
 		if _, cutover := cutoverProducts[option.ProductID]; cutover {
-			continue
-		}
-		if _, child := cutoverChildren[option.ProductID]; child {
 			continue
 		}
 		out = append(out, option)

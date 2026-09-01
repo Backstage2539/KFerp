@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-622-PRODUCT-BOM-SPEC-AUTHORITY
+- Branch: `codex/pr622-product-bom-spec-authority`
+- Owner/session: Codex / 2026-09-01
+- Status: verifying locally; dual-environment release pending
+- Scope: 商品档案只保留商品身份；商品规格、条码、库存单位及配方全部收敛到默认已发布生产 BOM 规格，移除历史子 SKU 与 BOM 规格迁移功能，并通过双环境锁定清单完成一次性清理。
+- DEV: DEV-622-PRODUCT-BOM-SPEC-ONLY; DEV-622-UNCONFIGURED-PRODUCT-GUARD; DEV-622-LEGACY-SPEC-CLEANUP; DEV-622-DEVELOPMENT-PRODUCTION-DELIVERY
+- Verifier:
+  - Unit: BOM/product/catalog/runtime authority and cleanup manifest RED/GREEN targeted suites pass.
+  - API: product single mode 409, retired product specification routes 404, sanitized product payloads and unconfigured guards pass targeted handler tests.
+  - Frontend/build: PR-622 Vue source contracts pass; Vite build GREEN with existing chunk-size warning.
+  - Manual: production, inventory/material, costing and order manuals updated to PR-622 current behavior.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-09-02-product-bom-spec-authority.md`; full gates and environment reports pending.
+- Deployment: pending; development code/data first, then production code/data, followed by removal of one-time cleanup compatibility.
+- Last update: 2026-09-02 Asia/Shanghai
+- Notes: clean isolated branch from `origin/develop@bf85e0a5b6cc28fed1a8865b91d72ff3bdcdb305`; original dirty worktree is untouched.
+
 ### PR-621-DIRECT-PRODUCT-ORDER-STOCK-UNITS
 - Branch: `codex/direct-product-order-stock-20260901`
 - Owner/session: Codex / 2026-09-01

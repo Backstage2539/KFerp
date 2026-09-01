@@ -127,7 +127,7 @@ test('BOM product selector labels include stable SKU codes before duplicate name
   assert.equal(bomProductOptionLabel({ id: 518, product_code: 'SKU-000518', name: 'SKU-000518 初晓' }), 'SKU-000518 初晓')
 })
 
-test('BOM output selector includes active green beans while finished-product components keep the old scope', async () => {
+test('BOM output selector includes active green beans while product components require BOM specification authority', async () => {
   assert.equal(isBomProductCandidate({ id: 8, product_kind: 'roasted_bean', active: false }), false)
   assert.equal(isBomProductCandidate({ id: 9, product_kind: 'roasted_bean', status: 'inactive' }), false)
   assert.equal(isBomProductCandidate({ id: 10, product_kind: 'drip_bag', active: true }), true)
@@ -148,7 +148,7 @@ test('BOM output selector includes active green beans while finished-product com
   assert.match(workspaceSource, /请选择要移动到的分类/)
   assert.match(workspaceSource, /emit\('target'/)
 	assert.match(source, /outputProductOptions = computed\(\(\) => products\.value\.filter\(isProductionBomOutputProductCandidate\)/)
-	assert.match(source, /productComponentOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
+	assert.match(source, /productComponentOptions = computed\(\(\) => products\.value\.filter\(\(product\) => isBomProductCandidate\(product\) && product\.bom_spec_authoritative === true/)
   assert.match(workspaceSource, /前往分组模板/)
   assert.match(workspaceSource, /设置分组模板/)
   assert.match(source, /\/api\/business-group-assignments/)
@@ -340,7 +340,7 @@ test('BOM drawer exposes copied spec groups and uses a responsive aligned header
   const template = source.split('<script setup>')[0] || source
   const form = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
 
-  assert.match(form, /BOM 规格模板/)
+  assert.match(form, /规格模板（可选）/)
   assert.match(form, /规格主体物料/)
   assert.doesNotMatch(form, /主投入物料/)
   assert.match(source, /规格组/)
@@ -388,18 +388,19 @@ test('product BOM draft can add, remove, and reapply a published specification t
   assert.match(source, /main_input_material_id:/)
 })
 
-test('product BOM creation explicitly switches between single output and specification groups', async () => {
+test('product BOM creation always uses BOM specification groups', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const form = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
 
   assert.match(form, /产出结构/)
-  assert.match(form, /v-model="bomForm\.specification_mode"/)
-  assert.match(form, /<option value="single">单一产出<\/option>/)
-  assert.match(form, /<option value="spec_group">多规格产出<\/option>/)
-  assert.match(form, /bomForm\.specification_mode === 'spec_group'[\s\S]*bomForm\.spec_template_version_id/)
-  assert.match(form, /bomForm\.specification_mode === 'spec_group'[\s\S]*bomForm\.main_input_material_id/)
+  assert.match(form, /value="BOM 规格组" disabled/)
+  assert.doesNotMatch(form, /v-model="bomForm\.specification_mode"/)
+  assert.doesNotMatch(form, /单一产出|多规格产出/)
+  assert.match(form, /规格模板（可选）[\s\S]*bomForm\.spec_template_version_id/)
+  assert.match(form, /Number\(bomForm\.spec_template_version_id \|\| 0\) > 0[\s\S]*bomForm\.main_input_material_id/)
+  assert.match(form, /Number\(bomForm\.spec_template_version_id \|\| 0\) === 0[\s\S]*商品 BOM 规格/)
   assert.match(source, /specification_mode:\s*normalizeSpecificationMode\(bomForm\.specification_mode/)
   assert.match(source, /spec_template_version_id:\s*Number\(bomForm\.spec_template_version_id/)
   assert.match(source, /main_input_material_id:\s*Number\(bomForm\.main_input_material_id/)
@@ -618,13 +619,13 @@ test('production BOM list preserves status and name search before inline categor
   assert.match(listFilters, /批量失效/)
   assert.match(bomRecordForm, /产出数量/)
   assert.match(bomRecordForm, /产出单位/)
-  assert.match(bomRecordForm, /BOM 规格模板/)
+  assert.match(bomRecordForm, /规格模板（可选）/)
   assert.match(bomRecordForm, /规格主体物料/)
   assert.match(source, /inventory_unit_explicit/)
   assert.doesNotMatch(source, /请先到销售规格模板设置库存单位/)
   assert.match(source, /outputUnitMismatchWarning/)
   assert.match(source, /历史版本不会自动回改/)
-  assert.doesNotMatch(bomRecordForm, /v-if="bomForm\.mode !== 'edit'"/)
+  assert.match(bomRecordForm, /bomForm\.output_type === 'product' && bomForm\.mode !== 'edit'/)
   assert.ok(workspaceStart < filtersStart, 'classification workspace should render above and around list filters')
   assert.match(source, /新建生产 BOM/)
   assert.match(workspaceHead, /:groups="productionBomDisplayGroups"/)
@@ -940,7 +941,7 @@ test('BOM view edits one ordinary typed output contract and keeps PR596 inline g
   }
 })
 
-test('BOM product components require a published BOM specification only for bom-spec identity products', async () => {
+test('BOM product components always require a published BOM specification', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -948,9 +949,9 @@ test('BOM product components require a published BOM specification only for bom-
   assert.match(template, /商品 BOM 规格/)
   assert.match(template, /v-model\.number="itemForm\.component_bom_spec_id"/)
   assert.match(source, /\/api\/products\/\$\{id\}\/bom-spec-options/)
-  assert.match(source, /selectedComponentProductIdentityMode/)
-  assert.match(source, /productSpecIdentityMode/)
-  assert.match(source, /component_bom_spec_id:[\s\S]{0,180}productSpecIdentityMode\(selectedProduct\)/)
+	assert.doesNotMatch(source, /selectedComponentProductIdentityMode/)
+	assert.doesNotMatch(template, /直接商品/)
+	assert.match(source, /component_bom_spec_id: componentType === 'product' \? Number\(itemForm\.component_bom_spec_id/)
   assert.match(source, /商品组件必须选择明确的已发布 BOM 规格/)
   assert.match(source, /selectedComponentBomSpec\.value\?\.inventory_unit/)
 })

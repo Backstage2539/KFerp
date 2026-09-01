@@ -205,7 +205,7 @@ func TestProductsReferenceUnitTemplatesAsPrimaryUOMMasterData(t *testing.T) {
 	}
 }
 
-func TestSalesSpecTemplatesDriveDerivedSKUsAndParentInventoryUnit(t *testing.T) {
+func TestLegacySalesSpecTemplatesDoNotDriveDerivedSKUs(t *testing.T) {
 	schemaBytes, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
@@ -214,13 +214,8 @@ func TestSalesSpecTemplatesDriveDerivedSKUsAndParentInventoryUnit(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryBytes, err := os.ReadFile("../catalog_queries.go")
-	if err != nil {
-		t.Fatal(err)
-	}
 	schema := string(schemaBytes)
 	repository := string(repositoryBytes)
-	queries := string(queryBytes)
 	for _, want := range []string{
 		"ALTER TABLE %[1]s.product_unit_templates ADD COLUMN IF NOT EXISTS sales_specs_json JSONB NOT NULL DEFAULT '[]'::jsonb",
 		"ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS auto_derived_sku BOOLEAN NOT NULL DEFAULT false",
@@ -233,46 +228,25 @@ func TestSalesSpecTemplatesDriveDerivedSKUsAndParentInventoryUnit(t *testing.T) 
 			t.Fatalf("sales spec derived SKU schema missing %q", want)
 		}
 	}
-	for _, want := range []string{
+	for _, unwanted := range []string{
 		"syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, cmd.ProductID)",
 		"syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, productID)",
 		"syncDerivedSKUsForTemplateTx(ctx, tx, r.schema, cmd.Actor, id)",
-		"WHERE auto_derived_sku=true AND derived_unit_template_id=$1 AND derived_spec_status<>'template_removed'",
-		"derived_spec_status",
-		"template_removed",
-		"template_disabled",
 	} {
-		if !strings.Contains(repository, want) {
-			t.Fatalf("sales spec derived SKU repository behavior missing %q", want)
-		}
-	}
-	for _, want := range []string{
-		"parent_product_direct_unit_template",
-		"CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit",
-		"COALESCE(NULLIF(parent_product_direct_unit_template.inventory_unit,''), NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''",
-		"COALESCE(NULLIF(p.derived_sales_unit,''),",
-		"COALESCE(p.auto_derived_sku,false) AS auto_derived_sku",
-		"COALESCE(p.derived_spec_key,'') AS derived_spec_key",
-	} {
-		if !strings.Contains(queries, want) {
-			t.Fatalf("catalog product query must expose derived SKU metadata and parent inventory unit; missing %q", want)
+		if strings.Contains(repository, unwanted) {
+			t.Fatalf("product writes must not derive child SKU rows; found %q", unwanted)
 		}
 	}
 }
 
-func TestCreateSKUSyncsDerivedSpecsForTopLevelProduct(t *testing.T) {
+func TestCreateSKUNeverSyncsDerivedSpecsForTopLevelProduct(t *testing.T) {
 	repositoryBytes, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	createSKUFn := catalogRepositoryFunctionForTest(t, string(repositoryBytes), "func (r Repository) CreateSKU", "type derivedSKUParent")
-	for _, want := range []string{
-		"if cmd.ParentProductID == 0",
-		"syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, productID)",
-	} {
-		if !strings.Contains(createSKUFn, want) {
-			t.Fatalf("CreateSKU must derive child SKUs for top-level product archives; missing %q", want)
-		}
+	if strings.Contains(createSKUFn, "syncDerivedSKUsForParentTx") {
+		t.Fatal("CreateSKU must not derive child SKU rows; BOM variants own product specifications")
 	}
 }
 
@@ -2634,7 +2608,7 @@ func TestProductSettingsRepositoryAttachesPublishedPriceSummaries(t *testing.T) 
 	}
 }
 
-func TestPerProductDefaultSKUSchemaAndRepositoryContract(t *testing.T) {
+func TestPerProductDefaultSKUCompatibilityIsNotRebuilt(t *testing.T) {
 	schemaBytes, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
@@ -2650,23 +2624,13 @@ func TestPerProductDefaultSKUSchemaAndRepositoryContract(t *testing.T) {
 	schema := string(schemaBytes)
 	repository := string(repositoryBytes)
 	queries := string(queryBytes)
-	for _, want := range []string{
-		"default_sku_id BIGINT NOT NULL DEFAULT 0",
-		"backfillProductDefaultSKUs(ctx, pool, schema)",
-		"func backfillProductDefaultSKUs",
-		"IN ('', 'active')",
-		"COALESCE(legacy_flags.legacy_default_count,0) = 1",
-		"COALESCE(current_child.id, unique_legacy_child.id, template_default_child.id, first_valid_child.id, parent.id)",
-		"COUNT(*) FILTER (WHERE child.is_default_sku=true) AS legacy_default_count",
-		"derived_spec_key",
-		"UPDATE %[1]s.products child",
-	} {
-		if !strings.Contains(schema, want) {
-			t.Fatalf("default SKU migration missing marker %q", want)
-		}
+	if !strings.Contains(schema, "default_sku_id BIGINT NOT NULL DEFAULT 0") {
+		t.Fatal("compatibility column must remain until the cleanup migration has run")
 	}
-	if strings.Contains(schema, "ORDER BY child.is_default_sku DESC") {
-		t.Fatalf("multiple legacy default flags must not select an arbitrary child ahead of the template default")
+	for _, unwanted := range []string{"backfillProductDefaultSKUs", "selected_sku_id", "legacy_default_count"} {
+		if strings.Contains(schema, unwanted) {
+			t.Fatalf("schema startup must not rebuild product-owned default SKU state; found %q", unwanted)
+		}
 	}
 	for _, want := range []string{
 		"func (r Repository) SetProductDefaultSKU",

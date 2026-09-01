@@ -27,12 +27,13 @@ const (
 )
 
 var (
-	ErrProductRequired     = errors.New("product required")
-	ErrActorRequired       = errors.New("actor required")
-	ErrMigrationNotFound   = errors.New("product BOM spec migration not found")
-	ErrLegacyWriteRejected = errors.New("legacy child SKU write rejected after BOM spec cutover")
-	ErrBomSpecRequired     = errors.New("bom_spec_id required after BOM spec cutover")
-	ErrBomSpecUnavailable  = errors.New("BOM spec is not published for product")
+	ErrProductRequired             = errors.New("product required")
+	ErrActorRequired               = errors.New("actor required")
+	ErrMigrationNotFound           = errors.New("product BOM spec migration not found")
+	ErrLegacyWriteRejected         = errors.New("legacy child SKU write rejected after BOM spec cutover")
+	ErrBomSpecRequired             = errors.New("bom_spec_id required after BOM spec cutover")
+	ErrBomSpecUnavailable          = errors.New("BOM spec is not published for product")
+	ErrProductBOMSpecNotConfigured = errors.New("商品未配置默认已发布 BOM 规格")
 )
 
 type Blocker struct {

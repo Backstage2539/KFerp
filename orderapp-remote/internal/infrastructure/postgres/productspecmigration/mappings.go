@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -11,7 +12,9 @@ import (
 type legacyChildMetadata struct {
 	ID           int64
 	SpecKey      string
+	SKUCode      string
 	SpecName     string
+	Barcode      string
 	SalesUnit    string
 	SpecG        int64
 	SnapshotJSON string
@@ -41,7 +44,9 @@ func (r Repository) refreshMappingsTx(ctx context.Context, tx pgx.Tx, productID 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT child.id,
 		       COALESCE(NULLIF(child.derived_spec_key,''),NULLIF(child.spec_label,''),NULLIF(child.sku_code,''),child.id::text),
+		       COALESCE(child.sku_code,''),
 		       COALESCE(NULLIF(child.derived_spec_name,''),NULLIF(child.spec_label,''),NULLIF(child.sku_name,''),child.name),
+		       COALESCE(child.barcode,''),
 		       COALESCE(
 		         NULLIF((COALESCE(NULLIF(to_jsonb(child)->>'unit_rule_override_json',''),'{}')::jsonb)->>'inventory_unit',''),
 		         NULLIF(child.derived_sales_unit,''),
@@ -78,7 +83,7 @@ func (r Repository) refreshMappingsTx(ctx context.Context, tx pgx.Tx, productID 
 	children := make([]legacyChildMetadata, 0)
 	for rows.Next() {
 		var child legacyChildMetadata
-		if err := rows.Scan(&child.ID, &child.SpecKey, &child.SpecName, &child.SalesUnit, &child.SpecG, &child.SnapshotJSON); err != nil {
+		if err := rows.Scan(&child.ID, &child.SpecKey, &child.SKUCode, &child.SpecName, &child.Barcode, &child.SalesUnit, &child.SpecG, &child.SnapshotJSON); err != nil {
 			rows.Close()
 			return err
 		}
@@ -99,23 +104,9 @@ func (r Repository) refreshMappingsTx(ctx context.Context, tx pgx.Tx, productID 
 	}
 	for _, child := range children {
 		var bomSpecID, bomVariantID int64
-		if bomID > 0 && hasSpecs {
-			err := tx.QueryRow(ctx, fmt.Sprintf(`
-				SELECT id FROM %s.production_bom_specs
-				WHERE bom_id=$1 AND lower(spec_key)=lower($2)
-				ORDER BY id LIMIT 1
-			`, r.schema), bomID, child.SpecKey).Scan(&bomSpecID)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return err
-			}
-		}
-		if bomSpecID > 0 && defaultVersionID > 0 && hasVariants {
-			err := tx.QueryRow(ctx, fmt.Sprintf(`
-				SELECT id FROM %s.production_bom_version_variants
-				WHERE version_id=$1 AND bom_spec_id=$2
-				ORDER BY is_default DESC,sort_order,id LIMIT 1
-			`, r.schema), defaultVersionID, bomSpecID).Scan(&bomVariantID)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		if bomID > 0 && defaultVersionID > 0 && hasSpecs && hasVariants {
+			bomSpecID, bomVariantID, err = r.resolveUniqueCurrentSpecTx(ctx, tx, bomID, defaultVersionID, child)
+			if err != nil {
 				return err
 			}
 		}
@@ -179,6 +170,72 @@ func (r Repository) refreshMappingsTx(ctx context.Context, tx pgx.Tx, productID 
 		}
 	}
 	return nil
+}
+
+// resolveUniqueCurrentSpecTx never guesses across multiple candidates. Stable
+// keys, explicit codes and barcodes win; normalized display names are only a
+// final compatibility bridge for historical rows such as "454g" versus
+// "454g袋装". A tied best match remains unmapped and is handled by the PR-622
+// dependency gate.
+func (r Repository) resolveUniqueCurrentSpecTx(ctx context.Context, tx pgx.Tx, bomID, versionID int64, child legacyChildMetadata) (int64, int64, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT ON (spec.id) spec.id,variant.id,
+		       CASE
+		         WHEN $3<>'' AND lower(spec.spec_key)=lower($3) THEN 1
+		         WHEN $4<>'' AND lower(spec.code)=lower($4) THEN 2
+		         WHEN $5<>'' AND lower(COALESCE(spec.barcode,''))=lower($5) THEN 3
+		         ELSE 4
+		       END AS priority
+		FROM %[1]s.production_bom_specs spec
+		JOIN %[1]s.production_bom_version_variants variant
+		  ON variant.bom_spec_id=spec.id AND variant.version_id=$2
+		WHERE spec.bom_id=$1 AND (
+		  ($3<>'' AND lower(spec.spec_key)=lower($3)) OR
+		  ($4<>'' AND lower(spec.code)=lower($4)) OR
+		  ($5<>'' AND lower(COALESCE(spec.barcode,''))=lower($5)) OR
+		  ($6<>'' AND
+		    regexp_replace(regexp_replace(lower(btrim(spec.name)),'(袋装|装袋)$','','g'),'[[:space:]（）()_-]','','g') =
+		    regexp_replace(regexp_replace(lower(btrim($6)),'(袋装|装袋)$','','g'),'[[:space:]（）()_-]','','g'))
+		)
+		ORDER BY spec.id,priority,variant.is_default DESC,variant.sort_order,variant.id
+	`, r.schema), bomID, versionID, strings.TrimSpace(child.SpecKey), strings.TrimSpace(child.SKUCode), strings.TrimSpace(child.Barcode), strings.TrimSpace(child.SpecName))
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	type candidate struct {
+		specID, variantID int64
+		priority          int
+	}
+	candidates := make([]candidate, 0)
+	for rows.Next() {
+		var item candidate
+		if err := rows.Scan(&item.specID, &item.variantID, &item.priority); err != nil {
+			return 0, 0, err
+		}
+		candidates = append(candidates, item)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	if len(candidates) == 0 {
+		return 0, 0, nil
+	}
+	bestPriority := candidates[0].priority
+	best := make([]candidate, 0, 1)
+	for _, item := range candidates {
+		if item.priority < bestPriority {
+			bestPriority = item.priority
+			best = best[:0]
+		}
+		if item.priority == bestPriority {
+			best = append(best, item)
+		}
+	}
+	if len(best) != 1 {
+		return 0, 0, nil
+	}
+	return best[0].specID, best[0].variantID, nil
 }
 
 func (r Repository) defaultPublishedBomTx(ctx context.Context, tx pgx.Tx, productID int64) (int64, int64, error) {

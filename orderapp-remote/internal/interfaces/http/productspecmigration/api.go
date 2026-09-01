@@ -7,56 +7,11 @@ import (
 	"strings"
 
 	productspecmigrationapp "orderapp/internal/application/productspecmigration"
-	support "orderapp/internal/interfaces/http/support"
 
 	"github.com/labstack/echo/v4"
 )
 
 func registerMigrationAPI(e *echo.Echo, svc *productspecmigrationapp.Service) {
-	get := func(c echo.Context) error {
-		id, ok := productID(c)
-		if !ok {
-			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product_id"})
-		}
-		row, err := svc.Get(c.Request().Context(), id)
-		if err != nil {
-			return migrationError(c, err)
-		}
-		return c.JSON(http.StatusOK, row)
-	}
-	prepare := func(c echo.Context) error {
-		id, ok := productID(c)
-		if !ok {
-			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product_id"})
-		}
-		row, err := svc.Prepare(c.Request().Context(), productspecmigrationapp.PrepareCommand{ProductID: id, Actor: support.ActorOf(c)})
-		if err != nil {
-			return migrationError(c, err)
-		}
-		return c.JSON(http.StatusOK, row)
-	}
-	assess := func(c echo.Context) error {
-		id, ok := productID(c)
-		if !ok {
-			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product_id"})
-		}
-		row, err := svc.Assess(c.Request().Context(), productspecmigrationapp.AssessCommand{ProductID: id, Actor: support.ActorOf(c)})
-		if err != nil {
-			return migrationError(c, err)
-		}
-		return c.JSON(http.StatusOK, row)
-	}
-	cutover := func(c echo.Context) error {
-		id, ok := productID(c)
-		if !ok {
-			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product_id"})
-		}
-		row, err := svc.Cutover(c.Request().Context(), productspecmigrationapp.CutoverCommand{ProductID: id, Actor: support.ActorOf(c)})
-		if err != nil {
-			return migrationError(c, err)
-		}
-		return c.JSON(http.StatusOK, row)
-	}
 	options := func(c echo.Context) error {
 		id, ok := productID(c)
 		if !ok {
@@ -69,17 +24,7 @@ func registerMigrationAPI(e *echo.Echo, svc *productspecmigrationapp.Service) {
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
 	}
 
-	// Product-scoped routes are canonical. The collection-style aliases keep
-	// rollout clients compatible while the admin screen transitions.
-	e.GET("/api/products/:product_id/bom-spec-migration", get)
-	e.POST("/api/products/:product_id/bom-spec-migration/prepare", prepare)
-	e.POST("/api/products/:product_id/bom-spec-migration/readiness", assess)
-	e.POST("/api/products/:product_id/bom-spec-migration/cutover", cutover)
 	e.GET("/api/products/:product_id/bom-spec-options", options)
-	e.GET("/api/product-bom-spec-migrations/:product_id", get)
-	e.POST("/api/product-bom-spec-migrations/:product_id/prepare", prepare)
-	e.POST("/api/product-bom-spec-migrations/:product_id/readiness", assess)
-	e.POST("/api/product-bom-spec-migrations/:product_id/cutover", cutover)
 	e.POST("/api/product-business-identities/resolve", func(c echo.Context) error {
 		var req struct {
 			ProductID    int64  `json:"product_id"`
@@ -133,6 +78,8 @@ func migrationError(c echo.Context, err error) error {
 		return c.JSON(http.StatusConflict, map[string]any{"error": err.Error(), "code": "bom_spec_id_required"})
 	case errors.Is(err, productspecmigrationapp.ErrBomSpecUnavailable):
 		return c.JSON(http.StatusConflict, map[string]any{"error": err.Error(), "code": "bom_spec_not_published"})
+	case errors.Is(err, productspecmigrationapp.ErrProductBOMSpecNotConfigured):
+		return c.JSON(http.StatusConflict, map[string]any{"error": err.Error(), "code": "product_bom_spec_not_configured"})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}

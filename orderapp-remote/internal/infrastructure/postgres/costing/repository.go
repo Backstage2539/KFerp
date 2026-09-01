@@ -444,7 +444,7 @@ func (r Repository) ResolveProductBOMSpecIdentity(ctx context.Context, parentPro
 		       true,
 		       variant.is_default,
 		       variant.sort_order
-		FROM %[1]s.product_bom_spec_migrations migration
+		FROM %[1]s.product_bom_spec_authorities migration
 		JOIN %[1]s.products parent
 		  ON parent.id=migration.product_id
 		JOIN %[1]s.production_bom_output_bindings binding
@@ -504,32 +504,18 @@ func (r Repository) ResolveProductDefaultSalesUnit(ctx context.Context, productI
 	}
 	var unit string
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(CASE
-		         WHEN COALESCE(p.auto_derived_sku,false) THEN COALESCE(
-		           NULLIF(p.derived_sales_unit,''),
-		           NULLIF(p.sku_name,'')
-		         )
-		         ELSE COALESCE(
-		           NULLIF(p.unit_rule_override_json->>'default_sales_unit',''),
-		           NULLIF(p.unit_rule_override_json->>'order_unit',''),
-		           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
-		           NULLIF(default_spec.spec_name,''),
-		           NULLIF(unit_template.order_unit,''),
-		           NULLIF(unit_template.quote_unit,'')
-		         )
-		       END, '') AS default_sales_unit
-		FROM %[1]s.products p
-		LEFT JOIN %[1]s.product_unit_templates unit_template
-		  ON unit_template.id=p.unit_template_id AND unit_template.active=true
-		LEFT JOIN LATERAL (
-		  SELECT NULLIF(spec.row->>'spec_name','') AS spec_name
-		  FROM jsonb_array_elements(COALESCE(unit_template.sales_specs_json,'[]'::jsonb)) WITH ORDINALITY AS spec(row, ord)
-		  WHERE COALESCE(spec.row->>'active','true') <> 'false'
-		    AND NULLIF(spec.row->>'spec_name','') IS NOT NULL
-		  ORDER BY CASE WHEN COALESCE(spec.row->>'default','false')='true' THEN 0 ELSE 1 END, spec.ord
-		  LIMIT 1
-		) default_spec ON true
-		WHERE p.id=$1 AND p.active=true
+		SELECT COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),'')
+		FROM %[1]s.product_bom_spec_authorities authority
+		JOIN %[1]s.products product ON product.id=authority.product_id AND product.active=true
+		JOIN %[1]s.production_bom_output_bindings binding
+		  ON binding.output_type='product' AND binding.output_id=product.id AND binding.is_default=true
+		JOIN %[1]s.production_bom_versions version
+		  ON version.id=binding.bom_version_id AND version.bom_id=binding.bom_id AND version.status='published'
+		JOIN %[1]s.production_bom_version_variants variant ON variant.version_id=version.id
+		JOIN %[1]s.production_bom_specs spec ON spec.id=variant.bom_spec_id AND spec.bom_id=binding.bom_id
+		WHERE authority.product_id=$1 AND authority.configured=true
+		ORDER BY variant.is_default DESC,variant.sort_order,variant.id
+		LIMIT 1
 	`, r.schema), productID).Scan(&unit)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -2675,7 +2661,7 @@ func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productID
 		return result, nil
 	}
 	var exists bool
-	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema)).Scan(&exists); err != nil {
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.product_bom_spec_authorities", r.schema)).Scan(&exists); err != nil {
 		return nil, err
 	}
 	if !exists {
@@ -2684,9 +2670,10 @@ func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productID
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT product_id,
 		       COALESCE(state,''),
-		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),
-		       COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode','')
-		FROM %s.product_bom_spec_migrations
+		       COALESCE((to_jsonb(product_bom_spec_authorities)->>'legacy_catalog_product')::boolean,true),
+		       COALESCE(to_jsonb(product_bom_spec_authorities)->>'spec_identity_mode',''),
+		       COALESCE((to_jsonb(product_bom_spec_authorities)->>'configured')::boolean,false)
+		FROM %s.product_bom_spec_authorities
 		WHERE product_id=ANY($1::bigint[])
 	`, r.schema), productIDs)
 	if err != nil {
@@ -2698,11 +2685,12 @@ func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productID
 		var authority productBOMSpecAuthority
 		var legacyCatalogProduct bool
 		var storedIdentityMode string
-		if err := rows.Scan(&productID, &authority.MigrationState, &legacyCatalogProduct, &storedIdentityMode); err != nil {
+		var configured bool
+		if err := rows.Scan(&productID, &authority.MigrationState, &legacyCatalogProduct, &storedIdentityMode, &configured); err != nil {
 			return nil, err
 		}
 		authority.SpecIdentityMode = productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, productspecmigrationapp.MigrationState(authority.MigrationState), legacyCatalogProduct)
-		authority.BomSpecAuthoritative = authority.SpecIdentityMode == productspecmigrationapp.SpecIdentityModeBOMSpec
+		authority.BomSpecAuthoritative = configured && authority.SpecIdentityMode == productspecmigrationapp.SpecIdentityModeBOMSpec
 		result[productID] = authority
 	}
 	return result, rows.Err()
@@ -2729,7 +2717,7 @@ type cutoverProductBOMSpec struct {
 
 func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context, productIDs []int64) ([]cutoverProductBOMSpec, error) {
 	for _, relation := range []string{
-		"product_bom_spec_migrations",
+		"product_bom_spec_authorities",
 		"production_bom_output_bindings",
 		"production_bom_versions",
 		"production_bom_specs",
@@ -2760,7 +2748,7 @@ func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context, productIDs [
 		       COALESCE(variant.process_route_id,0),
 		       variant.is_default,
 		       variant.sort_order
-		FROM %[1]s.product_bom_spec_migrations migration
+		FROM %[1]s.product_bom_spec_authorities migration
 		JOIN %[1]s.products parent_product
 		  ON parent_product.id=migration.product_id
 		 AND parent_product.active=true

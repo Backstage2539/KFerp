@@ -1843,34 +1843,8 @@ type finishedProductBomSpecIdentity struct {
 }
 
 func resolveFinishedProductBomSpecIdentityTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, explicitVariantID int64, explicitUnit string) (finishedProductBomSpecIdentity, error) {
-	hasMigrations, err := stockSchemaRelationExistsTx(ctx, tx, schema, "product_bom_spec_migrations")
-	if err != nil {
-		return finishedProductBomSpecIdentity{}, err
-	}
-	if hasMigrations {
-		var state string
-		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, schema), productID).Scan(&state)
-		if err == pgx.ErrNoRows {
-			if bomSpecID > 0 || explicitVariantID > 0 {
-				return finishedProductBomSpecIdentity{}, fmt.Errorf("BOM spec identity is not enabled for product %d", productID)
-			}
-			return finishedProductBomSpecIdentity{}, nil
-		}
-		if err != nil {
-			return finishedProductBomSpecIdentity{}, err
-		}
-		if strings.TrimSpace(state) != "cutover" {
-			if bomSpecID > 0 || explicitVariantID > 0 {
-				return finishedProductBomSpecIdentity{}, fmt.Errorf("BOM spec identity is not ready for product %d", productID)
-			}
-			return finishedProductBomSpecIdentity{}, nil
-		}
-		if bomSpecID <= 0 {
-			return finishedProductBomSpecIdentity{}, fmt.Errorf("bom_spec_id required after BOM spec cutover")
-		}
-	}
 	if bomSpecID <= 0 {
-		return finishedProductBomSpecIdentity{}, nil
+		return finishedProductBomSpecIdentity{}, fmt.Errorf("product_bom_spec_not_configured")
 	}
 	for _, table := range []string{"production_bom_specs", "production_bom_version_variants", "production_bom_versions", "production_bom_output_bindings"} {
 		exists, existsErr := stockSchemaRelationExistsTx(ctx, tx, schema, table)
@@ -1882,7 +1856,7 @@ func resolveFinishedProductBomSpecIdentityTx(ctx context.Context, tx pgx.Tx, sch
 		}
 	}
 	var bomID, versionID int64
-	err = tx.QueryRow(ctx, fmt.Sprintf(`
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT binding.bom_id,binding.bom_version_id
 		FROM %s.production_bom_output_bindings binding
 		WHERE binding.output_type='product' AND binding.output_id=$1 AND binding.is_default=true

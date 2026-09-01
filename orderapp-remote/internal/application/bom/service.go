@@ -10,6 +10,7 @@ import (
 )
 
 var ErrPublishedOutputIdentityImmutable = errors.New("published production BOM output identity is immutable")
+var ErrProductOutputRequiresBOMSpec = errors.New("商品产出必须配置 BOM 规格")
 
 var (
 	productionBomCodePrefixPattern    = regexp.MustCompile(`(?i)^BOM-?[0-9]+[[:space:]]*`)
@@ -392,20 +393,21 @@ type DeleteProductionBomGroupCategoryCommand struct {
 }
 
 type CreateProductionBomCommand struct {
-	Name                  string   `json:"name"`
-	OutputType            string   `json:"output_type"`
-	SpecificationMode     string   `json:"specification_mode"`
-	OutputID              int64    `json:"output_id"`
-	OutputProductID       int64    `json:"output_product_id"`
-	OutputMaterialID      int64    `json:"output_material_id"`
-	OutputQty             float64  `json:"output_qty"`
-	OutputUnit            string   `json:"output_unit"`
-	GroupID               int64    `json:"group_id"`
-	GroupCategoryID       int64    `json:"group_category_id"`
-	ExpectedLossRate      *float64 `json:"expected_loss_rate,omitempty"`
-	SpecTemplateVersionID int64    `json:"spec_template_version_id"`
-	MainInputMaterialID   int64    `json:"main_input_material_id"`
-	Actor                 string   `json:"actor"`
+	Name                  string                      `json:"name"`
+	OutputType            string                      `json:"output_type"`
+	SpecificationMode     string                      `json:"specification_mode"`
+	OutputID              int64                       `json:"output_id"`
+	OutputProductID       int64                       `json:"output_product_id"`
+	OutputMaterialID      int64                       `json:"output_material_id"`
+	OutputQty             float64                     `json:"output_qty"`
+	OutputUnit            string                      `json:"output_unit"`
+	GroupID               int64                       `json:"group_id"`
+	GroupCategoryID       int64                       `json:"group_category_id"`
+	ExpectedLossRate      *float64                    `json:"expected_loss_rate,omitempty"`
+	SpecTemplateVersionID int64                       `json:"spec_template_version_id"`
+	MainInputMaterialID   int64                       `json:"main_input_material_id"`
+	Variants              []ProductionBomDraftVariant `json:"variants,omitempty"`
+	Actor                 string                      `json:"actor"`
 }
 
 type UpdateProductionBomCommand struct {
@@ -515,14 +517,14 @@ const (
 	ProductionBomSpecificationModeSpecGroup = "spec_group"
 )
 
-// NormalizeProductionBomSpecificationMode keeps old clients compatible while
-// making product output shape explicit. Template provenance or variants imply
-// a specification group; every other output is a single recipe.
+// NormalizeProductionBomSpecificationMode makes the output recipe shape
+// explicit. Product output is always owned by a BOM specification group;
+// material output keeps the material master's single inventory unit.
 func NormalizeProductionBomSpecificationMode(outputType, mode string, specTemplateVersionID int64, variants []ProductionBomDraftVariant) (string, error) {
 	outputType = strings.ToLower(strings.TrimSpace(outputType))
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "" {
-		if outputType == "product" && (specTemplateVersionID > 0 || variants != nil) {
+		if outputType == "product" {
 			mode = ProductionBomSpecificationModeSpecGroup
 		} else {
 			mode = ProductionBomSpecificationModeSingle
@@ -533,6 +535,9 @@ func NormalizeProductionBomSpecificationMode(outputType, mode string, specTempla
 	}
 	if outputType == "material" && mode != ProductionBomSpecificationModeSingle {
 		return "", fmt.Errorf("material output only supports single specification_mode")
+	}
+	if outputType == "product" && mode != ProductionBomSpecificationModeSpecGroup {
+		return "", ErrProductOutputRequiresBOMSpec
 	}
 	return mode, nil
 }
@@ -1254,17 +1259,20 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	if err := normalizeProductionBomOutputBinding(&cmd.OutputType, &cmd.OutputID, &cmd.OutputProductID, &cmd.OutputMaterialID, true); err != nil {
 		return ProductionBomSummary{}, err
 	}
-	mode, err := NormalizeProductionBomSpecificationMode(cmd.OutputType, cmd.SpecificationMode, cmd.SpecTemplateVersionID, nil)
+	mode, err := NormalizeProductionBomSpecificationMode(cmd.OutputType, cmd.SpecificationMode, cmd.SpecTemplateVersionID, cmd.Variants)
 	if err != nil {
 		return ProductionBomSummary{}, err
 	}
 	cmd.SpecificationMode = mode
 	if mode == ProductionBomSpecificationModeSpecGroup {
-		if cmd.SpecTemplateVersionID <= 0 {
-			return ProductionBomSummary{}, fmt.Errorf("spec_group requires spec_template_version_id")
-		}
-		if cmd.MainInputMaterialID <= 0 {
+		if cmd.SpecTemplateVersionID > 0 && cmd.MainInputMaterialID <= 0 {
 			return ProductionBomSummary{}, fmt.Errorf("main_input_material_id required")
+		}
+		if cmd.SpecTemplateVersionID <= 0 && len(cmd.Variants) == 0 {
+			return ProductionBomSummary{}, fmt.Errorf("product BOM requires at least one specification draft")
+		}
+		if cmd.SpecTemplateVersionID > 0 && len(cmd.Variants) > 0 {
+			return ProductionBomSummary{}, fmt.Errorf("specification template and manual variants cannot be submitted together")
 		}
 	} else if cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 {
 		return ProductionBomSummary{}, fmt.Errorf("single specification_mode cannot use specification template")
@@ -1274,7 +1282,11 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	}
 	legacyLossRate := 0.0
 	cmd.ExpectedLossRate = &legacyLossRate
-	cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputType, cmd.OutputID, cmd.OutputUnit)
+	if cmd.OutputType == "product" {
+		cmd.OutputUnit = defaultProductionBomVariantUnit(cmd.Variants)
+	} else {
+		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputType, cmd.OutputID, cmd.OutputUnit)
+	}
 	row, err := s.repo.CreateProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err
@@ -1282,6 +1294,18 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	normalizeProductionBomSummaryGroups(&row)
 	enrichProductionBomSummaryYield(&row)
 	return row, nil
+}
+
+func defaultProductionBomVariantUnit(variants []ProductionBomDraftVariant) string {
+	for _, variant := range variants {
+		if variant.IsDefault {
+			return strings.TrimSpace(variant.InventoryUnit)
+		}
+	}
+	if len(variants) > 0 {
+		return strings.TrimSpace(variants[0].InventoryUnit)
+	}
+	return ""
 }
 
 func (s *Service) deriveProductionBomOutputUnit(ctx context.Context, outputType string, outputID int64, fallback string) string {
@@ -1339,7 +1363,11 @@ func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionB
 			return ProductionBomSummary{}, err
 		}
 		cmd.UpdateOutputBinding = true
-		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputType, cmd.OutputID, cmd.OutputUnit)
+		if cmd.OutputType == "product" {
+			cmd.OutputUnit = ""
+		} else {
+			cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputType, cmd.OutputID, cmd.OutputUnit)
+		}
 	}
 	if cmd.SpecificationMode != "" {
 		mode, err := NormalizeProductionBomSpecificationMode(cmd.OutputType, cmd.SpecificationMode, cmd.SpecTemplateVersionID, nil)
@@ -1648,14 +1676,21 @@ func (s *Service) normalizeProductionBomDraftWorkspace(ctx context.Context, cmd 
 	}
 	cmd.Bom.SpecificationMode = mode
 	if mode == ProductionBomSpecificationModeSpecGroup {
-		if cmd.SpecTemplateID <= 0 || cmd.MainInputMaterialID <= 0 {
-			return cmd, fmt.Errorf("spec_group requires a published specification template version and main_input_material_id")
+		if cmd.SpecTemplateID > 0 && cmd.MainInputMaterialID <= 0 {
+			return cmd, fmt.Errorf("specification template requires main_input_material_id")
+		}
+		if cmd.SpecTemplateID <= 0 && len(cmd.Version.Variants) == 0 {
+			return cmd, fmt.Errorf("product BOM requires at least one specification draft")
 		}
 	} else if cmd.SpecTemplateID > 0 || cmd.MainInputMaterialID > 0 {
 		return cmd, fmt.Errorf("single specification_mode cannot use specification template")
 	}
 	cmd.Bom.UpdateOutputBinding = true
-	cmd.Bom.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.Bom.OutputType, cmd.Bom.OutputID, cmd.Bom.OutputUnit)
+	if cmd.Bom.OutputType == "product" {
+		cmd.Bom.OutputUnit = defaultProductionBomVariantUnit(cmd.Version.Variants)
+	} else {
+		cmd.Bom.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.Bom.OutputType, cmd.Bom.OutputID, cmd.Bom.OutputUnit)
+	}
 	cmd.Version.OutputUnit = cmd.Bom.OutputUnit
 	cmd.Version.Items, cmd.Version.Variants = NormalizeProductionBomDraftWorkspaceRecipePayload(cmd.Bom.OutputType, cmd.Bom.SpecificationMode, cmd.Version.Items, cmd.Version.Variants)
 	cmd.Version.Actor = cmd.Bom.Actor

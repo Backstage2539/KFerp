@@ -440,17 +440,6 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 		if inventory[idx].BomSpecID <= 0 {
 			continue
 		}
-		var migrationState string
-		stateErr := q.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1`, r.schema), inventory[idx].ProductID).Scan(&migrationState)
-		if errors.Is(stateErr, pgx.ErrNoRows) {
-			continue
-		}
-		if stateErr != nil {
-			return miniStockSnapshot{}, stateErr
-		}
-		if strings.TrimSpace(migrationState) != "cutover" {
-			continue
-		}
 		identity, identityErr := resolveCustomerFulfillmentBOMSpecIdentityTx(
 			ctx, q, r.schema, inventory[idx].ProductID, inventory[idx].BomSpecID, 0,
 		)

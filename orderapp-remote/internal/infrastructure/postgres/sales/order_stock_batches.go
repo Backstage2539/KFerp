@@ -131,32 +131,13 @@ func (r Repository) loadOrderStockIdentityModes(ctx context.Context, q stockBatc
 	if len(productIDs) == 0 {
 		return modes, nil
 	}
-	rows, err := q.Query(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema))
-	if err != nil {
-		return nil, err
-	}
-	exists := false
-	if rows.Next() {
-		if err := rows.Scan(&exists); err != nil {
-			rows.Close()
-			return nil, err
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, err
-	}
-	rows.Close()
-	if !exists {
-		return modes, nil
-	}
-	rows, err = q.Query(ctx, fmt.Sprintf(`
+	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT product_id,
 		       COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),
 		         CASE WHEN state='cutover'
 		                    OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false
 		              THEN 'bom_spec' ELSE 'legacy_sku' END)
-		FROM %s.product_bom_spec_migrations migration
+		FROM %s.product_bom_spec_authorities migration
 		WHERE product_id = ANY($1)
 	`, r.schema), productIDs)
 	if err != nil {

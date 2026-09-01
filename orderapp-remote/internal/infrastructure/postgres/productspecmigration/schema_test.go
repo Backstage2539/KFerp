@@ -2,7 +2,6 @@ package productspecmigration
 
 import (
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -40,14 +39,14 @@ func TestSchemaOwnsMigrationStateMappingsAndCompatibilityColumns(t *testing.T) {
 	}
 }
 
-func TestGenericBOMSpecResolverLocksMigrationDuringCurrentVariantResolution(t *testing.T) {
+func TestGenericBOMSpecResolverUsesPublishedBOMAuthorityWithoutMigrationState(t *testing.T) {
 	t.Parallel()
 	source, err := os.ReadFile("resolver.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pattern := regexp.MustCompile(`(?s)SELECT state,.*FROM %s\.product_bom_spec_migrations\s+WHERE product_id=\$1\s+FOR SHARE`)
-	if !pattern.Match(source) {
-		t.Fatal("generic BOM spec resolver must hold the migration row FOR SHARE while resolving the current default BOM variant")
+	text := string(source)
+	if !strings.Contains(text, "product_bom_spec_authorities") || strings.Contains(text, "product_bom_spec_migrations") {
+		t.Fatal("generic BOM spec resolver must derive identity from the published default BOM authority only")
 	}
 }

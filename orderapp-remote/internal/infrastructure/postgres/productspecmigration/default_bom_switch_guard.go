@@ -29,32 +29,8 @@ func GuardDefaultProductBOMSwitchTx(
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, productID); err != nil {
 		return err
 	}
-	hasMigration, err := tableHasColumnsTx(ctx, tx, schema, "product_bom_spec_migrations", "product_id", "state")
-	if err != nil || !hasMigration {
-		return err
-	}
-	var state string
-	var storedIdentityMode string
-	var legacyCatalogProduct bool
-	err = tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT state,
-		       COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode',''),
-		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true)
-		FROM %s.product_bom_spec_migrations WHERE product_id=$1
-		FOR UPDATE
-	`, schema), productID).Scan(&state, &storedIdentityMode, &legacyCatalogProduct)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !productspecmigrationapp.IsBOMSpecAuthoritativeWithMode(storedIdentityMode, productspecmigrationapp.MigrationState(state), legacyCatalogProduct) {
-		return nil
-	}
-
 	var currentBOMID, currentBOMVersionID int64
-	err = tx.QueryRow(ctx, fmt.Sprintf(`
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT bom_id,bom_version_id
 		FROM %s.production_bom_output_bindings
 		WHERE output_type='product' AND output_id=$1 AND is_default=true
@@ -117,8 +93,9 @@ func GuardDefaultProductBOMSwitchTx(
 	}
 }
 
-// SetProductIdentityModeForDefaultBOMTx persists the business identity selected
-// by the candidate default BOM after GuardDefaultProductBOMSwitchTx succeeds.
+// SetProductIdentityModeForDefaultBOMTx validates the only supported product
+// identity. Runtime authority is derived from the default published BOM, so no
+// migration-state row is persisted.
 func SetProductIdentityModeForDefaultBOMTx(ctx context.Context, tx pgx.Tx, schema string, productID, candidateBOMID int64) (string, error) {
 	var specificationMode string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -129,18 +106,10 @@ func SetProductIdentityModeForDefaultBOMTx(ctx context.Context, tx pgx.Tx, schem
 	`, schema), candidateBOMID, productID).Scan(&specificationMode); err != nil {
 		return "", err
 	}
-	identityMode := productspecmigrationapp.SpecIdentityModeProduct
-	if specificationMode == "spec_group" {
-		identityMode = productspecmigrationapp.SpecIdentityModeBOMSpec
+	if specificationMode != "spec_group" {
+		return "", productspecmigrationapp.ErrProductBOMSpecNotConfigured
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom_spec_migrations(product_id,state,legacy_catalog_product,spec_identity_mode,updated_at)
-		VALUES($1,'legacy',true,$2,now())
-		ON CONFLICT(product_id) DO UPDATE SET spec_identity_mode=excluded.spec_identity_mode,updated_at=now()
-	`, schema), productID, identityMode); err != nil {
-		return "", err
-	}
-	return identityMode, nil
+	return productspecmigrationapp.SpecIdentityModeBOMSpec, nil
 }
 
 func productionBOMVersionSpecIDsTx(ctx context.Context, tx pgx.Tx, schema string, versionID int64) ([]int64, error) {
