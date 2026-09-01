@@ -3832,6 +3832,7 @@ func TestSubmittedDirectShipERPRebuildKeepsHistoricalPricingErrors(t *testing.T)
 		"customer_product_alias invalid",
 		"customer product price unpublished",
 		"缺少商品价格表价格",
+		"product_bom_spec_not_configured",
 	} {
 		if !submittedDirectShipERPRebuildKeepsHistoricalPricing(errors.New(msg)) {
 			t.Fatalf("submittedDirectShipERPRebuildKeepsHistoricalPricing(%q) = false, want true", msg)
