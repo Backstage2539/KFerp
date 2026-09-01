@@ -15,7 +15,6 @@ RUN CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/orderapp ./ && \
 FROM docker.m.daocloud.io/library/alpine:3.20
 WORKDIR /app
 
-RUN apk add --no-cache postgresql-client
 COPY --from=build /out/orderapp /app/orderapp
 COPY --from=build /out/product-bom-spec-authority-cleanup /app/product-bom-spec-authority-cleanup
 COPY templates /app/templates

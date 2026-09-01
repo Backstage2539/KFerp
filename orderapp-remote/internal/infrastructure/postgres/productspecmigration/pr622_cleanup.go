@@ -31,6 +31,12 @@ type PR622CleanupDependency struct {
 	Count int64  `json:"count"`
 }
 
+type PR622BackupEvidence struct {
+	Path   string
+	SHA256 string
+	Size   int64
+}
+
 type PR622CleanupReport struct {
 	Mode                              PR622CleanupMode         `json:"mode"`
 	State                             string                   `json:"state"`
@@ -91,7 +97,7 @@ func (r PR622CleanupRepository) Preview(ctx context.Context) (PR622CleanupReport
 	return report, tx.Commit(ctx)
 }
 
-func (r PR622CleanupRepository) Apply(ctx context.Context, manifestID, actor string) (PR622CleanupReport, error) {
+func (r PR622CleanupRepository) Apply(ctx context.Context, manifestID, actor string, backup PR622BackupEvidence) (PR622CleanupReport, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return PR622CleanupReport{}, err
@@ -206,6 +212,9 @@ func (r PR622CleanupRepository) Apply(ctx context.Context, manifestID, actor str
 		"published_price_version_count": report.PublishedPriceVersionCount,
 		"unconfigured_product_count":    report.UnconfiguredProductCount,
 		"backup_restore_required":       true,
+		"backup_path":                   strings.TrimSpace(backup.Path),
+		"backup_sha256":                 strings.ToLower(strings.TrimSpace(backup.SHA256)),
+		"backup_size":                   backup.Size,
 	}); err != nil {
 		return report, err
 	}
