@@ -90,7 +90,11 @@ func TestPR622SingleBOMReplacementKeepsSourceProductIDNumeric(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(source), "$1::bigint,source_product_code_snapshot") {
+	text := string(source)
+	if !strings.Contains(text, "'PR622-' || $1::bigint::text") {
+		t.Fatal("replacement BOM code must keep the source product parameter numeric before formatting")
+	}
+	if !strings.Contains(text, "$1::bigint,source_product_code_snapshot") {
 		t.Fatal("source_product_id must cast the reused text parameter back to bigint")
 	}
 }
