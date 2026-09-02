@@ -136,9 +136,6 @@ ALTER TABLE %[1]s.product_unit_templates ADD COLUMN IF NOT EXISTS sales_specs_js
 CREATE UNIQUE INDEX IF NOT EXISTS product_unit_templates_name_active_uniq
 ON %[1]s.product_unit_templates (lower(name))
 WHERE active=true;
-INSERT INTO %[1]s.product_unit_templates(name, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
-VALUES ('默认kg单位','kg','kg','kg','{}'::jsonb,false,true)
-ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS %[1]s.business_groups (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
