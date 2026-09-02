@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-623-LEGACY-PRODUCT-BOM-TEMPLATE-REAPPLY
+- Branch: `codex/pr623-legacy-bom-template-reapply`
+- Owner/session: Codex / 2026-09-03
+- Status: production reproduced; local and real-PostgreSQL GREEN; branch integration and dual-environment release pending
+- Scope: 历史单一产出商品 BOM 在规格权威切换尚未完成时，页面点击“重新套用模板”应自动创建保留来源历史的规格组替代草稿，不再泄漏英文多规格校验错误。
+- DEV: DEV-623-LEGACY-REAPPLY-ROUTING; DEV-623-TEMPLATE-REPLACEMENT-COPY; DEV-623-PRODUCTION-REGRESSION-DELIVERY
+- Verifier: Vue RED missing strategy export -> 45/45 GREEN; replacement-template PostgreSQL transaction GREEN against temporary schema; replacement API GREEN; `scripts/verify_kferp.sh all` GREEN with Go, Vue 1051/1051 and Vite build.
+- Deployment: production regression belongs to the current PR-622 release; feature branch must merge through `develop` and `main` before production deployment. No production BOM business data is auto-mutated by deployment.
+- Last update: 2026-09-03 Asia/Shanghai
+
 ### PR-622-PRODUCT-BOM-SPEC-AUTHORITY
 - Branch: `codex/pr622-product-bom-spec-authority`
 - Owner/session: Codex / 2026-09-01

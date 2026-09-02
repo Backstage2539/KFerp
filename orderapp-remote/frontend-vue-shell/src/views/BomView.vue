@@ -730,7 +730,7 @@ import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { applyVersionMaterialLossRate, assignVariantSpecKeys, bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialLossAdjustedRatioPct, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomDraftItemKey, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning, removeProductionBomDraftItem } from '../lib/bom'
+import { applyVersionMaterialLossRate, assignVariantSpecKeys, bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialLossAdjustedRatioPct, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomDraftItemKey, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomSpecTemplateReapplyStrategy, productionBomVersionWarning, removeProductionBomDraftItem } from '../lib/bom'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
@@ -1703,6 +1703,52 @@ async function reapplyProductionBomSpecTemplate() {
     return
   }
   await mutate(async () => {
+    const persistedMode = String(productionBomDetail.value?.specification_mode || selectedProductionBomRecord.value?.specification_mode || '').trim()
+    const strategy = productionBomSpecTemplateReapplyStrategy(persistedMode, versions.value)
+    if (strategy.mode !== 'reapply') {
+      const binding = productionBomOutputPayload({ output_type: bomForm.output_type, output_id: bomForm.output_id })
+      const selectedVersion = selectedProductionBomVersion.value || {}
+      const workspaceBody = {
+        name: String(bomForm.name || selectedProductionBomRecord.value?.name || '').trim(),
+        ...binding,
+        specification_mode: 'spec_group',
+        output_qty: Number(selectedVersion.output_qty || bomForm.output_qty || 1),
+        output_unit: String(selectedVersion.output_unit || outputUnitCode.value || 'unit').trim(),
+        process_route_id: Number(selectedVersion.process_route_id || 0),
+        material_loss_rate: Number(selectedVersion.material_loss_rate || 0),
+        spec_template_version_id: specTemplateVersionID,
+        main_input_material_id: mainInputMaterialID,
+      }
+      if (strategy.mode === 'replacement') {
+        const saved = await apiSend(`/api/production-boms/${bomForm.id}/replacement-draft`, {
+          body: { ...workspaceBody, source_version_id: strategy.sourceVersionID },
+        })
+        const savedBomID = Number(saved?.id || 0)
+        reapplySpecTemplateVersionID.value = 0
+        reapplyMainInputMaterialID.value = 0
+        selectedBomVariantID.value = 0
+        bomWorkspaceDirty.value = false
+        bomWorkspaceSaveFailed.value = false
+        await loadAll()
+        const savedRecord = productionBoms.value.find((row) => Number(row.id || row.production_bom_id || 0) === savedBomID)
+          || { ...saved, id: savedBomID, production_bom_id: savedBomID }
+        await openEditProductionBomRecord(savedRecord)
+        ok.value = '已创建规格组替代 BOM 草稿并套用模板；原 BOM 与历史版本保持不变'
+        return
+      }
+      await apiSend(`/api/production-boms/${bomForm.id}/draft-workspace`, {
+        method: 'PUT',
+        body: { ...workspaceBody, version_id: draftVersionID },
+      })
+      reapplySpecTemplateVersionID.value = 0
+      reapplyMainInputMaterialID.value = 0
+      selectedBomVariantID.value = 0
+      bomWorkspaceDirty.value = false
+      bomWorkspaceSaveFailed.value = false
+      await loadProductionBomDetailForVersion(currentProductionBomID.value, draftVersionID)
+      ok.value = '已将历史单一产出草稿转换为 BOM 规格组并套用模板'
+      return
+    }
     await apiSend(`/api/production-bom-versions/${draftVersionID}/spec-template`, {
       body: {
         spec_template_version_id: specTemplateVersionID,
@@ -1800,6 +1846,7 @@ function bomRecordFromRow(row = {}) {
     output_product_name: row.output_product_name || '',
     output_product_code: row.output_product_code || '',
     output_type: output.type,
+    specification_mode: row.specification_mode === 'spec_group' ? 'spec_group' : 'single',
     output_id: output.id,
     output_name: output.name,
     output_code: output.code,

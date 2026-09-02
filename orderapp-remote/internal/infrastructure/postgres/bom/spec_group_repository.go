@@ -867,7 +867,7 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("production BOM version not found")
 	}
 	if prelockOutputType != "product" || prelockSpecificationMode != bomapp.ProductionBomSpecificationModeSpecGroup {
-		return bomapp.ProductionBomVersion{}, fmt.Errorf("specification template replacement requires a multi-specification product BOM")
+		return bomapp.ProductionBomVersion{}, fmt.Errorf("历史单一产出商品 BOM 不能原位套用规格模板，请创建规格组替代草稿")
 	}
 	var bomID, outputProductID int64
 	var status, outputType, specificationMode string
