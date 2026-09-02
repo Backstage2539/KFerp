@@ -886,7 +886,7 @@ func (r PR622CleanupRepository) convertPublishedSingleBOMsTx(ctx context.Context
 		var replacementBOMID, replacementVersionID, specID, variantID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %[1]s.production_boms(code,name,output_type,specification_mode,output_product_id,output_material_id,group_id,group_category_id,status,source_bom_id,source_bom_version_id,source_product_id,source_product_code_snapshot,source_product_name_snapshot,created_by,updated_by)
-			SELECT 'PR622-' || $1::text || '-' || id::text,name,'product','spec_group',output_product_id,0,group_id,group_category_id,'active',id,$2,$1,source_product_code_snapshot,source_product_name_snapshot,$3,$3
+			SELECT 'PR622-' || $1::text || '-' || id::text,name,'product','spec_group',output_product_id,0,group_id,group_category_id,'active',id,$2,$1::bigint,source_product_code_snapshot,source_product_name_snapshot,$3,$3
 			FROM %[1]s.production_boms WHERE id=$4 RETURNING id
 		`, r.schema), row.productID, row.versionID, actor, row.bomID).Scan(&replacementBOMID); err != nil {
 			return 0, err

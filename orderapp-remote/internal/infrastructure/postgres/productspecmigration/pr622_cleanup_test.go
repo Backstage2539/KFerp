@@ -85,6 +85,16 @@ func TestPR622CleanupCanExplicitlyDiscardAuthorizedTestDependencies(t *testing.T
 	}
 }
 
+func TestPR622SingleBOMReplacementKeepsSourceProductIDNumeric(t *testing.T) {
+	source, err := os.ReadFile("pr622_cleanup.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), "$1::bigint,source_product_code_snapshot") {
+		t.Fatal("source_product_id must cast the reused text parameter back to bigint")
+	}
+}
+
 func TestRewritePR622PublishedJSONMovesIdentityButKeepsFrozenDisplay(t *testing.T) {
 	var input any
 	if err := json.Unmarshal([]byte(`{
