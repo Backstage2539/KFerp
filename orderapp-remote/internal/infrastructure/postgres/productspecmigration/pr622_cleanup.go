@@ -37,6 +37,10 @@ type PR622BackupEvidence struct {
 	Size   int64
 }
 
+type PR622CleanupApplyOptions struct {
+	DiscardUnmappedTestData bool
+}
+
 type PR622CleanupReport struct {
 	Mode                              PR622CleanupMode         `json:"mode"`
 	State                             string                   `json:"state"`
@@ -52,6 +56,9 @@ type PR622CleanupReport struct {
 	DeletedChildCount                 int64                    `json:"deleted_child_count"`
 	DeletedUnitTemplateCount          int64                    `json:"deleted_unit_template_count"`
 	PublishedPriceVersionCount        int64                    `json:"published_price_version_count"`
+	DiscardedUnmappedReferenceCount   int64                    `json:"discarded_unmapped_reference_count"`
+	WithdrawnUnmappedPublicationCount int64                    `json:"withdrawn_unmapped_publication_count"`
+	VoidedUnmappedOrderCount          int64                    `json:"voided_unmapped_order_count"`
 	MigrationRelationsExist           bool                     `json:"migration_relations_exist"`
 	LegacyUnitTemplateCount           int64                    `json:"legacy_unit_template_count"`
 	ActiveProductSingleBOMCount       int64                    `json:"active_product_single_bom_count"`
@@ -97,7 +104,7 @@ func (r PR622CleanupRepository) Preview(ctx context.Context) (PR622CleanupReport
 	return report, tx.Commit(ctx)
 }
 
-func (r PR622CleanupRepository) Apply(ctx context.Context, manifestID, actor string, backup PR622BackupEvidence) (PR622CleanupReport, error) {
+func (r PR622CleanupRepository) Apply(ctx context.Context, manifestID, actor string, backup PR622BackupEvidence, options PR622CleanupApplyOptions) (PR622CleanupReport, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return PR622CleanupReport{}, err
@@ -118,12 +125,15 @@ func (r PR622CleanupRepository) Apply(ctx context.Context, manifestID, actor str
 	if strings.TrimSpace(manifestID) == "" || manifestID != report.ManifestID {
 		return report, fmt.Errorf("PR-622 manifest is stale: expected %s, current %s", manifestID, report.ManifestID)
 	}
-	if len(report.BlockingDependencies) > 0 {
+	if len(report.BlockingDependencies) > 0 && !options.DiscardUnmappedTestData {
 		return report, fmt.Errorf("PR-622 cleanup blocked by %d unresolved live dependency groups", len(report.BlockingDependencies))
 	}
 	actor = strings.TrimSpace(actor)
 	if actor == "" {
 		actor = "operator-pr622"
+	}
+	if err := r.suspendPR622AuthorityGuardsTx(ctx, tx); err != nil {
+		return report, err
 	}
 	converted, err := r.convertPublishedSingleBOMsTx(ctx, tx, actor)
 	if err != nil {
@@ -157,6 +167,27 @@ func (r PR622CleanupRepository) Apply(ctx context.Context, manifestID, actor str
 		if err := legacyRepo.refreshMappingsTx(ctx, tx, productID, actor); err != nil {
 			return report, fmt.Errorf("refresh product %d specification mapping: %w", productID, err)
 		}
+	}
+	if options.DiscardUnmappedTestData {
+		discarded, err := r.discardUnmappedTestDataTx(ctx, tx, actor)
+		if err != nil {
+			return report, err
+		}
+		report.DiscardedUnmappedReferenceCount = discarded.References
+		report.WithdrawnUnmappedPublicationCount = discarded.Publications
+		report.VoidedUnmappedOrderCount = discarded.Orders
+		mappableChildIDs, err := r.mappableChildIDsTx(ctx, tx)
+		if err != nil {
+			return report, err
+		}
+		remaining, err := r.unmappedLiveDependenciesTx(ctx, tx, mappableChildIDs)
+		if err != nil {
+			return report, err
+		}
+		if len(remaining) > 0 {
+			return report, fmt.Errorf("PR-622 authorized test-data discard left %d unresolved live dependency groups", len(remaining))
+		}
+		report.BlockingDependencies = []PR622CleanupDependency{}
 	}
 	priceVersions, err := r.clonePublishedPriceVersionsTx(ctx, tx, actor)
 	if err != nil {
@@ -200,25 +231,31 @@ func (r PR622CleanupRepository) Apply(ctx context.Context, manifestID, actor str
 		return report, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "product_bom_spec_authority_cleanup", nil, "apply", nil, nil, nil, postgresinfra.AuditMeta{
-		"environment_schema":            r.schema,
-		"manifest_id":                   report.ManifestID,
-		"legacy_child_count":            report.LegacyChildCount,
-		"mappable_child_count":          report.MappableChildCount,
-		"converted_single_bom_count":    converted,
-		"detached_single_bom_count":     report.DetachedSingleBOMCount,
-		"rewritten_reference_count":     report.RewrittenReferenceCount,
-		"deleted_child_count":           report.DeletedChildCount,
-		"deleted_unit_template_count":   report.DeletedUnitTemplateCount,
-		"published_price_version_count": report.PublishedPriceVersionCount,
-		"unconfigured_product_count":    report.UnconfiguredProductCount,
-		"backup_restore_required":       true,
-		"backup_path":                   strings.TrimSpace(backup.Path),
-		"backup_sha256":                 strings.ToLower(strings.TrimSpace(backup.SHA256)),
-		"backup_size":                   backup.Size,
+		"environment_schema":                   r.schema,
+		"manifest_id":                          report.ManifestID,
+		"legacy_child_count":                   report.LegacyChildCount,
+		"mappable_child_count":                 report.MappableChildCount,
+		"converted_single_bom_count":           converted,
+		"detached_single_bom_count":            report.DetachedSingleBOMCount,
+		"rewritten_reference_count":            report.RewrittenReferenceCount,
+		"deleted_child_count":                  report.DeletedChildCount,
+		"deleted_unit_template_count":          report.DeletedUnitTemplateCount,
+		"published_price_version_count":        report.PublishedPriceVersionCount,
+		"discarded_unmapped_reference_count":   report.DiscardedUnmappedReferenceCount,
+		"withdrawn_unmapped_publication_count": report.WithdrawnUnmappedPublicationCount,
+		"voided_unmapped_order_count":          report.VoidedUnmappedOrderCount,
+		"unconfigured_product_count":           report.UnconfiguredProductCount,
+		"backup_restore_required":              true,
+		"backup_path":                          strings.TrimSpace(backup.Path),
+		"backup_sha256":                        strings.ToLower(strings.TrimSpace(backup.SHA256)),
+		"backup_size":                          backup.Size,
 	}); err != nil {
 		return report, err
 	}
 	if err := r.dropLegacyMigrationRelationsTx(ctx, tx); err != nil {
+		return report, err
+	}
+	if err := r.restorePR622AuthorityGuardsTx(ctx, tx); err != nil {
 		return report, err
 	}
 	report.Mode = PR622CleanupApply
@@ -542,6 +579,275 @@ func (r PR622CleanupRepository) unmappedLiveDependenciesTx(ctx context.Context, 
 		}
 	}
 	return out, nil
+}
+
+type pr622DiscardReport struct {
+	References   int64
+	Publications int64
+	Orders       int64
+}
+
+func (r PR622CleanupRepository) mappableChildIDsTx(ctx context.Context, tx pgx.Tx) ([]int64, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT legacy_child_product_id
+		FROM %s.legacy_child_sku_bom_spec_mappings
+		WHERE bom_spec_id>0 AND bom_variant_id>0
+		ORDER BY legacy_child_product_id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (r PR622CleanupRepository) suspendPR622AuthorityGuardsTx(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DROP TRIGGER IF EXISTS product_child_sku_guard ON %s.products`, r.schema)); err != nil {
+		return fmt.Errorf("suspend product child SKU guard: %w", err)
+	}
+	for _, target := range businessIdentityTables {
+		columns := []string{target.ProductCol, "bom_spec_id", "bom_variant_id"}
+		if target.TypeCol != "" {
+			columns = append(columns, target.TypeCol)
+		}
+		has, err := tableHasColumnsTx(ctx, tx, r.schema, target.Table, columns...)
+		if err != nil {
+			return err
+		}
+		if !has {
+			continue
+		}
+		qualified := pgx.Identifier{r.schema, target.Table}.Sanitize()
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`DROP TRIGGER IF EXISTS bom_spec_identity_guard ON %s`, qualified)); err != nil {
+			return fmt.Errorf("suspend %s BOM specification guard: %w", target.Table, err)
+		}
+	}
+	return nil
+}
+
+func (r PR622CleanupRepository) restorePR622AuthorityGuardsTx(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DROP TRIGGER IF EXISTS product_child_sku_guard ON %[1]s.products;
+		CREATE TRIGGER product_child_sku_guard
+			BEFORE INSERT OR UPDATE OF parent_product_id,auto_derived_sku,active ON %[1]s.products
+			FOR EACH ROW EXECUTE FUNCTION %[1]s.reject_product_child_sku_write()
+	`, r.schema)); err != nil {
+		return fmt.Errorf("restore product child SKU guard: %w", err)
+	}
+	for _, target := range businessIdentityTables {
+		columns := []string{target.ProductCol, "bom_spec_id", "bom_variant_id"}
+		if target.TypeCol != "" {
+			columns = append(columns, target.TypeCol)
+		}
+		has, err := tableHasColumnsTx(ctx, tx, r.schema, target.Table, columns...)
+		if err != nil {
+			return err
+		}
+		if !has {
+			continue
+		}
+		qualified := pgx.Identifier{r.schema, target.Table}.Sanitize()
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			DROP TRIGGER IF EXISTS bom_spec_identity_guard ON %[1]s;
+			CREATE TRIGGER bom_spec_identity_guard
+				BEFORE INSERT OR UPDATE OF %[2]s ON %[1]s
+				FOR EACH ROW EXECUTE FUNCTION %[3]s.validate_current_product_bom_spec_identity('%[4]s','bom_spec_id','bom_variant_id','%[5]s')
+		`, qualified, strings.Join(columns, ","), r.schema, target.ProductCol, target.TypeCol)); err != nil {
+			return fmt.Errorf("restore %s BOM specification guard: %w", target.Table, err)
+		}
+	}
+	return nil
+}
+
+func (r PR622CleanupRepository) discardUnmappedTestDataTx(ctx context.Context, tx pgx.Tx, actor string) (pr622DiscardReport, error) {
+	report := pr622DiscardReport{}
+	voided, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %[1]s.orders parent
+		SET is_void=true,voided_at=COALESCE(voided_at,now()),
+		    void_reason=CASE WHEN COALESCE(void_reason,'')='' THEN 'PR-622 开发测试规格清理' ELSE void_reason END
+		WHERE COALESCE(parent.is_void,false)=false
+		  AND EXISTS (
+			SELECT 1
+			FROM %[1]s.order_items item
+			JOIN %[1]s.products child ON child.id=item.product_id AND child.parent_product_id>0
+			WHERE item.order_id=parent.id
+			  AND NOT EXISTS (
+				SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping
+				WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0
+			  )
+		  )
+	`, r.schema))
+	if err != nil {
+		return report, fmt.Errorf("void unmapped test orders: %w", err)
+	}
+	report.Orders = voided.RowsAffected()
+
+	if has, err := tableHasColumnsTx(ctx, tx, r.schema, "bean_list_publications", "status", "content_json", "withdrawn_at", "updated_at"); err != nil {
+		return report, err
+	} else if has {
+		withdrawn, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %[1]s.bean_list_publications publication
+			SET status='withdrawn',withdrawn_at=now(),updated_at=now()
+			WHERE publication.status='published'
+			  AND EXISTS (
+				SELECT 1
+				FROM (
+					SELECT row AS identity
+					FROM jsonb_array_elements(COALESCE(publication.content_json->'price_rows','[]'::jsonb)) row
+					UNION ALL
+					SELECT item AS identity
+					FROM jsonb_array_elements(COALESCE(publication.content_json->'groups','[]'::jsonb)) group_row
+					CROSS JOIN LATERAL jsonb_array_elements(COALESCE(group_row->'items','[]'::jsonb)) item
+				) current_identity
+				JOIN %[1]s.products child ON child.parent_product_id>0 AND child.id IN (
+					CASE WHEN COALESCE(current_identity.identity->>'product_id','')~'^[0-9]+$' THEN (current_identity.identity->>'product_id')::bigint ELSE 0 END,
+					CASE WHEN COALESCE(current_identity.identity->>'sku_id','')~'^[0-9]+$' THEN (current_identity.identity->>'sku_id')::bigint ELSE 0 END
+				)
+				WHERE NOT EXISTS (
+					SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping
+					WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0
+				)
+			  )
+		`, r.schema))
+		if err != nil {
+			return report, fmt.Errorf("withdraw unmapped test price publications: %w", err)
+		}
+		report.Publications = withdrawn.RowsAffected()
+	}
+
+	maintenance := []struct {
+		table string
+		query string
+		args  []any
+	}{
+		{"product_price_tiers", `UPDATE %[1]s.product_price_tiers ref SET active=false FROM %[1]s.products child WHERE child.id=ref.product_id AND child.parent_product_id>0 AND NOT EXISTS (SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0)`, nil},
+		{"finished_inventory", `UPDATE %[1]s.finished_inventory ref SET onhand_units=0,onhand_loose_g=0,updated_at=now() FROM %[1]s.products child WHERE child.id=ref.product_id AND child.parent_product_id>0 AND NOT EXISTS (SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0)`, nil},
+		{"stock_batches", `UPDATE %[1]s.stock_batches ref SET remaining_g=0,remaining_units=0 FROM %[1]s.products child WHERE child.id=ref.item_id AND child.parent_product_id>0 AND lower(COALESCE(ref.item_type,'')) IN ('product','finished_product') AND NOT EXISTS (SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0)`, nil},
+		{"production_plans", `UPDATE %[1]s.production_plans parent SET status='cancelled',cancelled_at=COALESCE(cancelled_at,now()) WHERE lower(COALESCE(parent.status,'')) NOT IN ('completed','cancelled','closed') AND EXISTS (SELECT 1 FROM %[1]s.production_plan_items ref JOIN %[1]s.products child ON child.id=ref.product_id AND child.parent_product_id>0 WHERE ref.production_plan_id=parent.id AND NOT EXISTS (SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0))`, nil},
+		{"work_orders", `UPDATE %[1]s.work_orders ref SET status='cancelled',completed_at=COALESCE(completed_at,now()) FROM %[1]s.products child WHERE child.id=ref.product_id AND child.parent_product_id>0 AND lower(COALESCE(ref.status,'')) NOT IN ('completed','cancelled','closed') AND NOT EXISTS (SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0)`, nil},
+		{"produce_running_items", `UPDATE %[1]s.produce_running_items ref SET status='cancelled',finished_by=$1,finished_at=COALESCE(finished_at,now()) FROM %[1]s.products child WHERE child.id=ref.product_id AND child.parent_product_id>0 AND lower(COALESCE(ref.status,'')) IN ('running','paused','partially_completed') AND NOT EXISTS (SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0)`, []any{actor}},
+	}
+	for _, item := range maintenance {
+		exists, err := relationExistsTx(ctx, tx, r.schema, item.table)
+		if err != nil {
+			return report, err
+		}
+		if !exists {
+			continue
+		}
+		result, err := tx.Exec(ctx, fmt.Sprintf(item.query, r.schema), item.args...)
+		if err != nil {
+			return report, fmt.Errorf("retire unmapped %s test data: %w", item.table, err)
+		}
+		report.References += result.RowsAffected()
+	}
+
+	deleteTargets := []businessIdentityTarget{
+		{Table: "customer_direct_ship_request_allocations", ProductCol: "product_id"},
+		{Table: "customer_direct_ship_request_items", ProductCol: "product_id"},
+		{Table: "customer_direct_ship_import_order_items", ProductCol: "product_id"},
+		{Table: "customer_processing_material_reservations", ProductCol: "component_product_id", TypeCol: "component_type"},
+		{Table: "customer_processing_production_demands", ProductCol: "product_id"},
+		{Table: "processing_job_request_items", ProductCol: "product_id"},
+		{Table: "customer_processing_packaging_jobs", ProductCol: "product_id"},
+		{Table: "customer_processing_work_orders", ProductCol: "product_id"},
+		{Table: "customer_inventory_items", ProductCol: "item_id", TypeCol: "item_type"},
+		{Table: "customer_custody_items", ProductCol: "item_id", TypeCol: "item_type"},
+		{Table: "order_stock_batch_allocations", ProductCol: "product_id"},
+		{Table: "work_order_material_reservation_batches", ProductCol: "component_id", TypeCol: "component_type"},
+		{Table: "work_order_material_reservations", ProductCol: "component_id", TypeCol: "component_type"},
+		{Table: "mall_products", ProductCol: "product_id"},
+		{Table: "product_price_records", ProductCol: "product_id"},
+	}
+	for _, target := range deleteTargets {
+		columns := []string{target.ProductCol}
+		if target.TypeCol != "" {
+			columns = append(columns, target.TypeCol)
+		}
+		has, err := tableHasColumnsTx(ctx, tx, r.schema, target.Table, columns...)
+		if err != nil {
+			return report, err
+		}
+		if !has {
+			continue
+		}
+		typeClause := ""
+		if target.TypeCol != "" {
+			typeClause = fmt.Sprintf(" AND lower(COALESCE(ref.%s,'')) IN ('product','finished_product')", target.TypeCol)
+		}
+		qualified := pgx.Identifier{r.schema, target.Table}.Sanitize()
+		result, err := tx.Exec(ctx, fmt.Sprintf(`
+			DELETE FROM %[1]s ref USING %[2]s.products child
+			WHERE child.id=ref.%[3]s AND child.parent_product_id>0 %[4]s
+			  AND NOT EXISTS (
+				SELECT 1 FROM %[2]s.legacy_child_sku_bom_spec_mappings mapping
+				WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0
+			  )
+		`, qualified, r.schema, target.ProductCol, typeClause))
+		if err != nil {
+			return report, fmt.Errorf("delete unmapped %s test data: %w", target.Table, err)
+		}
+		report.References += result.RowsAffected()
+	}
+
+	parentified, err := r.parentifyUnmappedReferencesTx(ctx, tx)
+	if err != nil {
+		return report, err
+	}
+	report.References += parentified
+	return report, nil
+}
+
+func (r PR622CleanupRepository) parentifyUnmappedReferencesTx(ctx context.Context, tx pgx.Tx) (int64, error) {
+	var changed int64
+	for _, target := range businessIdentityTables {
+		columns := []string{target.ProductCol}
+		if target.TypeCol != "" {
+			columns = append(columns, target.TypeCol)
+		}
+		has, err := tableHasColumnsTx(ctx, tx, r.schema, target.Table, columns...)
+		if err != nil {
+			return 0, err
+		}
+		if !has {
+			continue
+		}
+		hasIdentity, err := tableHasColumnsTx(ctx, tx, r.schema, target.Table, "bom_spec_id", "bom_variant_id")
+		if err != nil {
+			return 0, err
+		}
+		setClause := fmt.Sprintf("%s=child.parent_product_id", target.ProductCol)
+		if hasIdentity {
+			setClause += ",bom_spec_id=0,bom_variant_id=0"
+		}
+		typeClause := ""
+		if target.TypeCol != "" {
+			typeClause = fmt.Sprintf(" AND lower(COALESCE(ref.%s,'')) IN ('product','finished_product')", target.TypeCol)
+		}
+		qualified := pgx.Identifier{r.schema, target.Table}.Sanitize()
+		result, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %[1]s ref SET %[2]s
+			FROM %[3]s.products child
+			WHERE child.id=ref.%[4]s AND child.parent_product_id>0 %[5]s
+			  AND NOT EXISTS (
+				SELECT 1 FROM %[3]s.legacy_child_sku_bom_spec_mappings mapping
+				WHERE mapping.legacy_child_product_id=child.id AND mapping.bom_spec_id>0 AND mapping.bom_variant_id>0
+			  )
+		`, qualified, setClause, r.schema, target.ProductCol, typeClause))
+		if err != nil {
+			return 0, fmt.Errorf("retire unmapped %s product identities: %w", target.Table, err)
+		}
+		changed += result.RowsAffected()
+	}
+	return changed, nil
 }
 
 func (r PR622CleanupRepository) convertPublishedSingleBOMsTx(ctx context.Context, tx pgx.Tx, actor string) (int64, error) {

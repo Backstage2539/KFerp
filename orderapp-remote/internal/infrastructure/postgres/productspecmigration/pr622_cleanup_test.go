@@ -58,6 +58,33 @@ func TestPR622CleanupBlocksUnmappedLiveStockAndProduction(t *testing.T) {
 	}
 }
 
+func TestPR622CleanupCanExplicitlyDiscardAuthorizedTestDependencies(t *testing.T) {
+	cleanupSource, err := os.ReadFile("pr622_cleanup.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commandSource, err := os.ReadFile("../../../../cmd/product-bom-spec-authority-cleanup/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupText := string(cleanupSource)
+	for _, marker := range []string{
+		"discardUnmappedTestDataTx",
+		"suspendPR622AuthorityGuardsTx",
+		"restorePR622AuthorityGuardsTx",
+		"discarded_unmapped_reference_count",
+		"withdrawn_unmapped_publication_count",
+		"voided_unmapped_order_count",
+	} {
+		if !strings.Contains(cleanupText, marker) {
+			t.Fatalf("authorized PR-622 test-data cleanup missing %q", marker)
+		}
+	}
+	if !strings.Contains(string(commandSource), "discard-unmapped-test-data") {
+		t.Fatal("one-time cleanup command must require the explicit discard-unmapped-test-data flag")
+	}
+}
+
 func TestRewritePR622PublishedJSONMovesIdentityButKeepsFrozenDisplay(t *testing.T) {
 	var input any
 	if err := json.Unmarshal([]byte(`{
