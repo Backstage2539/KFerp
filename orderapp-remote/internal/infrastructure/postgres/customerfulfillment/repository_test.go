@@ -3843,6 +3843,23 @@ func TestSubmittedDirectShipERPRebuildKeepsHistoricalPricingErrors(t *testing.T)
 	}
 }
 
+func TestRepairSubmittedDirectShipERPOrderDiscountsSkipsUnconfiguredHistoricalBOMSpecs(t *testing.T) {
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	start := strings.Index(text, "func repairSubmittedDirectShipERPOrderDiscounts")
+	end := strings.Index(text[start:], "func (r *Repository) createSubmittedDirectShipERPOrderTx")
+	if start < 0 || end < 0 {
+		t.Fatal("repairSubmittedDirectShipERPOrderDiscounts source boundary missing")
+	}
+	body := text[start : start+end]
+	if !strings.Contains(body, "submittedDirectShipERPRebuildKeepsHistoricalPricing(err)") || !strings.Contains(body, "continue") {
+		t.Fatal("historical direct-ship discount repair must keep the frozen order when its current BOM specification is unavailable")
+	}
+}
+
 func TestCustomerFulfillmentPublishedPriceUnitTotals(t *testing.T) {
 	if got := customerFulfillmentLineTotalFromPriceUnit(82, 1000, 25, 1000); got != 2050 {
 		t.Fatalf("1000g x 25 at 82/kg = %v, want 2050", got)
