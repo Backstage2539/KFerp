@@ -35,9 +35,7 @@ func TestDev436BomUnitDeletionPolishSourceMarkers(t *testing.T) {
 			"outputProductOptions = computed(() => products.value.filter(isProductionBomOutputProductCandidate)",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"deleteProductUnitTemplate",
 			"deleteGlobalUnitDefinitionFromDrawer",
-			"/api/product-settings/unit-templates/${templateID}",
 			"/api/product-settings/units/${encodeURIComponent(editingCode)}",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "GlobalUnitDefinitionsView.vue"): {
@@ -47,7 +45,6 @@ func TestDev436BomUnitDeletionPolishSourceMarkers(t *testing.T) {
 		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
 			"DELETE",
 			"/api/product-settings/units/:code",
-			"/api/product-settings/unit-templates/:id",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {
 			"delete_product_unit_definition",

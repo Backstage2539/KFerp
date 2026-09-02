@@ -1517,19 +1517,13 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	if cmd.ProductConfigTemplateID < 0 {
 		return ValidationError{Message: "invalid product_config_template_id"}
 	}
-	if cmd.UnitTemplateID < 0 {
-		return ValidationError{Message: "invalid unit_template_id"}
-	}
 	cmd.MarginRateOverride = nil
 	cmd.GradientTemplateIDOverride = 0
 	cmd.OperationTemplateIDOverride = 0
 	cmd.ProductConfigTemplateID = 0
 	cmd.ClassificationTemplateID = 0
-	unitRuleOverrideJSON, err := normalizeJSONObjectText(cmd.UnitRuleOverrideJSON)
-	if err != nil {
-		return ValidationError{Message: "invalid unit_rule_override_json"}
-	}
-	cmd.UnitRuleOverrideJSON = unitRuleOverrideJSON
+	cmd.UnitTemplateID = 0
+	cmd.UnitRuleOverrideJSON = "{}"
 	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
 	if err != nil {
 		return ValidationError{Message: "invalid special_attrs_json"}
@@ -1607,11 +1601,7 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	cmd.UnitTemplateID = 0
 	cmd.Tiers = nil
 	cmd.SpecialAttrsJSON = specialAttrsJSON
-	unitRuleOverrideJSON, err := normalizeJSONObjectText(cmd.UnitRuleOverrideJSON)
-	if err != nil {
-		return Product{}, ValidationError{Message: "invalid unit_rule_override_json"}
-	}
-	cmd.UnitRuleOverrideJSON = unitRuleOverrideJSON
+	cmd.UnitRuleOverrideJSON = "{}"
 	return s.repo.CreateProduct(ctx, cmd)
 }
 

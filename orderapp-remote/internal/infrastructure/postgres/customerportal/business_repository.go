@@ -1666,64 +1666,11 @@ func formatBeanListPrice(price float64, unit string) string {
 }
 
 func (r Repository) listProducts(ctx context.Context, customerID int64, limit int) ([]customerportalapp.ProductSummary, error) {
-	legacyPredicate := ""
-	if portalRelationExists(ctx, r.pool, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema)) {
-		legacyPredicate += fmt.Sprintf(`
-			AND NOT EXISTS (
-				SELECT 1 FROM %s.product_bom_spec_migrations migration
-				WHERE migration.product_id=products.id AND migration.state='cutover'
-			)
-		`, r.schema)
-		if portalRelationExists(ctx, r.pool, fmt.Sprintf("%s.legacy_child_sku_bom_spec_mappings", r.schema)) {
-			legacyPredicate += fmt.Sprintf(`
-				AND NOT EXISTS (
-					SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping
-					JOIN %[1]s.product_bom_spec_migrations migration ON migration.product_id=mapping.parent_product_id
-					WHERE mapping.legacy_child_product_id=products.id AND migration.state='cutover'
-				)
-			`, r.schema)
-		}
-	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, name, roast_level,
-		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(drip_bag_grams,10)::float8,
-		       COALESCE(drip_box_bag_count,10),
-		       to_char(COALESCE(default_price,0), 'FM999999990.00'),
-		       to_char(COALESCE(retail_price_100g,0), 'FM999999990.00'),
-		       to_char(COALESCE(retail_price_200g,0), 'FM999999990.00'),
-		       to_char(COALESCE(retail_price_227g,0), 'FM999999990.00'),
-		       to_char(COALESCE(retail_price_250g,0), 'FM999999990.00')
-		FROM %s.products
-		WHERE active=true
-		  AND %s %s
-		ORDER BY name, id
-		LIMIT $1
-	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2"), legacyPredicate), limit, customerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]customerportalapp.ProductSummary, 0)
-	for rows.Next() {
-		var row customerportalapp.ProductSummary
-		if err := rows.Scan(&row.ID, &row.Name, &row.RoastLevel, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.DefaultPrice, &row.RetailPrice100, &row.RetailPrice200, &row.RetailPrice227, &row.RetailPrice250); err != nil {
-			return nil, err
-		}
-		row.ProductKind = catalogdomain.NormalizeProductKind(row.ProductKind)
-		if row.ProductKind == catalogdomain.ProductKindDripBag {
-			row.SalesUnits = []string{"bag", "box"}
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
 	canonical, err := r.listProductOrderBOMSpecOptions(ctx, customerID, limit)
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, canonical...)
+	out := append([]customerportalapp.ProductSummary(nil), canonical...)
 	sort.SliceStable(out, func(i, j int) bool {
 		leftName := strings.TrimSpace(out[i].Name)
 		rightName := strings.TrimSpace(out[j].Name)

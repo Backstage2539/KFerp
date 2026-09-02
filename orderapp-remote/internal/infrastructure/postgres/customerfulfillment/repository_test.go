@@ -2244,6 +2244,7 @@ func TestCustomerPortalDirectShipSubmitRepositoryWiresERPOrderCreation(t *testin
 		"createSubmittedDirectShipERPOrderTx",
 		"backfillSubmittedDirectShipERPOrders",
 		"repairSubmittedDirectShipERPOrderReceivers",
+		"product_bom_spec_not_configured",
 		"UPDATE %s.customer_direct_ship_import_orders\n\t\tSET order_id=$2",
 		"requireCustomerCapability(ctx, customerID, \"processing\")",
 		"requireCustomerCapability(ctx, customerID, \"direct_ship\")",
@@ -3831,6 +3832,7 @@ func TestSubmittedDirectShipERPRebuildKeepsHistoricalPricingErrors(t *testing.T)
 		"customer_product_alias invalid",
 		"customer product price unpublished",
 		"缺少商品价格表价格",
+		"product_bom_spec_not_configured",
 	} {
 		if !submittedDirectShipERPRebuildKeepsHistoricalPricing(errors.New(msg)) {
 			t.Fatalf("submittedDirectShipERPRebuildKeepsHistoricalPricing(%q) = false, want true", msg)
@@ -3838,6 +3840,23 @@ func TestSubmittedDirectShipERPRebuildKeepsHistoricalPricingErrors(t *testing.T)
 	}
 	if submittedDirectShipERPRebuildKeepsHistoricalPricing(errors.New("database unavailable")) {
 		t.Fatalf("submittedDirectShipERPRebuildKeepsHistoricalPricing(database unavailable) = true, want false")
+	}
+}
+
+func TestRepairSubmittedDirectShipERPOrderDiscountsSkipsUnconfiguredHistoricalBOMSpecs(t *testing.T) {
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	start := strings.Index(text, "func repairSubmittedDirectShipERPOrderDiscounts")
+	end := strings.Index(text[start:], "func (r *Repository) createSubmittedDirectShipERPOrderTx")
+	if start < 0 || end < 0 {
+		t.Fatal("repairSubmittedDirectShipERPOrderDiscounts source boundary missing")
+	}
+	body := text[start : start+end]
+	if !strings.Contains(body, "submittedDirectShipERPRebuildKeepsHistoricalPricing(err)") || !strings.Contains(body, "continue") {
+		t.Fatal("historical direct-ship discount repair must keep the frozen order when its current BOM specification is unavailable")
 	}
 }
 

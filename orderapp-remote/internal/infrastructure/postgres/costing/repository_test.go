@@ -642,7 +642,7 @@ func TestResolvePriceTierTemplateUnitRuleReadsActiveTemplateAndTiers(t *testing.
 	}
 }
 
-func TestResolveProductDefaultSalesUnitReadsExplicitCurrentSpecWithoutInventoryFallback(t *testing.T) {
+func TestResolveProductDefaultSalesUnitReadsDefaultPublishedBOMSpec(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -657,14 +657,14 @@ func TestResolveProductDefaultSalesUnitReadsExplicitCurrentSpecWithoutInventoryF
 		t.Fatal("missing ResolveProductDefaultSalesUnit end marker")
 	}
 	fn := src[start : start+end]
-	for _, want := range []string{"derived_sales_unit", "sku_name", "sales_specs_json", "default_sales_unit", "order_unit", "quote_unit"} {
+	for _, want := range []string{"product_bom_spec_authorities", "production_bom_output_bindings", "production_bom_version_variants", "production_bom_specs", "variant.inventory_unit", "authority.configured=true"} {
 		if !strings.Contains(fn, want) {
-			t.Fatalf("strict current-sales-spec resolver missing %q", want)
+			t.Fatalf("BOM specification unit resolver missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{"inventory_unit", "'kg'"} {
+	for _, forbidden := range []string{"product_unit_templates", "unit_rule_override_json", "derived_sales_unit", "sales_specs_json", "'kg'"} {
 		if strings.Contains(fn, forbidden) {
-			t.Fatalf("strict current-sales-spec resolver must not fall back to %q", forbidden)
+			t.Fatalf("BOM specification unit resolver must not fall back to %q", forbidden)
 		}
 	}
 }

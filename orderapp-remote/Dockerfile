@@ -9,12 +9,14 @@ RUN set -e; \
     if [ -d miniapp ]; then cp -R miniapp/. /miniapp/; fi; \
     cp docs/REQUIREMENTS.md docs/ACCEPTANCE_TESTS.md / 2>/dev/null || true; \
     /usr/local/go/bin/go test ./...
-RUN CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/orderapp ./
+RUN CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/orderapp ./ && \
+    CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/product-bom-spec-authority-cleanup ./cmd/product-bom-spec-authority-cleanup
 
 FROM docker.m.daocloud.io/library/alpine:3.20
 WORKDIR /app
 
 COPY --from=build /out/orderapp /app/orderapp
+COPY --from=build /out/product-bom-spec-authority-cleanup /app/product-bom-spec-authority-cleanup
 COPY templates /app/templates
 COPY docs /app/docs
 COPY assets /app/assets

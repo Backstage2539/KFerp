@@ -349,9 +349,6 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 			return err
 		}
 	}
-	if err := syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, cmd.ProductID); err != nil {
-		return err
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
@@ -770,16 +767,14 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}
-	if cmd.ParentProductID == 0 {
-		if err := syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, productID); err != nil {
-			return catalogapp.Product{}, err
-		}
-	} else if cmd.IsDefaultSKU {
+	if cmd.ParentProductID > 0 && cmd.IsDefaultSKU {
 		if err := setProductDefaultSKUTx(ctx, tx, r.schema, cmd.Actor, cmd.ParentProductID, productID); err != nil {
 			return catalogapp.Product{}, err
 		}
-	} else if err := reconcileProductDefaultSKUTx(ctx, tx, r.schema, cmd.Actor, cmd.ParentProductID); err != nil {
-		return catalogapp.Product{}, err
+	} else if cmd.ParentProductID > 0 {
+		if err := reconcileProductDefaultSKUTx(ctx, tx, r.schema, cmd.Actor, cmd.ParentProductID); err != nil {
+			return catalogapp.Product{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.Product{}, err
@@ -3967,9 +3962,6 @@ func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.
 		VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8)
 		RETURNING id
 	`, r.schema), cmd.Name, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, productSalesSpecsJSON(cmd.SalesSpecs), cmd.IntegerUnit, active).Scan(&id); err != nil {
-		return catalogapp.ProductUnitTemplate{}, err
-	}
-	if err := syncDerivedSKUsForTemplateTx(ctx, tx, r.schema, cmd.Actor, id); err != nil {
 		return catalogapp.ProductUnitTemplate{}, err
 	}
 	row, err := fetchProductUnitTemplateTx(ctx, tx, r.schema, id)

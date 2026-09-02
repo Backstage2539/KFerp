@@ -443,14 +443,14 @@ test('pricing rule trial payload submits the main product while BOM carries spec
   assert.equal(payload.quote_unit, '454g')
 })
 
-test('product archive page renders child SKUs inside the parent name cell instead of peer product rows', () => {
+test('product archive page renders BOM specifications and no historical child SKUs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
 
-  assert.match(source, /productArchiveRowsWithSkus\(publicSkuRowsRaw\.value\)/)
-  assert.match(template, /class="product-spec-skus"/)
-  assert.match(template, /v-for="sku in row\.sku_rows"/)
-  assert.match(template, /\{\{ row\.sku_rows\.length \}\} 个历史规格/)
+  assert.match(template, /class="product-bom-specs"/)
+  assert.match(template, /v-for="spec in row\.bom_specs"/)
+  assert.match(template, /未配置 BOM 规格/)
+  assert.doesNotMatch(template, /product-spec-skus|row\.sku_rows|个历史规格/)
 })
 
 test('customer product alias payload binds a customer-facing name to one product record', () => {
@@ -510,7 +510,7 @@ test('product settings view exposes group and pricing rule management while reti
   const productConfigDrawer = source.slice(source.indexOf('product-production-config-drawer'), source.indexOf('<script setup>'))
   const normalFormSurface = [productCreateDrawer, aliasCreateDrawer, productConfigDrawer].join('\n')
 
-  for (const want of ['商品价格管理', '价格计算模板', '客户引用', '价格摘要', '暂无价格表价格', '库存单位', '整数库存']) {
+  for (const want of ['商品价格管理', '价格计算模板', '客户引用', '价格摘要', '暂无价格表价格']) {
     assert.match(source, new RegExp(want))
   }
   assert.match(appSource, /productPriceManagement/)
@@ -3090,7 +3090,7 @@ test('product archive config drawer shows BOM specs directly without per-spec SK
 
   assert.match(configDrawer, /BOM 规格（只读）/)
   assert.match(configDrawer, /bom-spec-readonly-panel/)
-  assert.match(configDrawer, /到 BOM 维护规格/)
+  assert.match(configDrawer, /到 BOM 配置/)
   assert.match(configDrawer, /productProductionBomSpecs/)
   assert.doesNotMatch(configDrawer, /销售规格模板明细/)
   assert.doesNotMatch(configDrawer, /显示历史规格/)

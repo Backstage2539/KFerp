@@ -89,7 +89,8 @@ func TestDev171BomAPICarriesProductCustomerScope(t *testing.T) {
 	repo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go")))
 	for _, want := range []string{
 		"COALESCE(p.customer_id,0)",
-		"SELECT p.id, ('SKU-' || lpad(p.id::text,6,'0')), p.name, COALESCE(p.customer_id,0)",
+		"COALESCE(p.parent_product_id,0)=0",
+		"'bom_spec'::text",
 	} {
 		if !strings.Contains(repo, want) {
 			t.Fatalf("BOM repository missing customer scope query marker %q", want)

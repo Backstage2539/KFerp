@@ -136,9 +136,6 @@ ALTER TABLE %[1]s.product_unit_templates ADD COLUMN IF NOT EXISTS sales_specs_js
 CREATE UNIQUE INDEX IF NOT EXISTS product_unit_templates_name_active_uniq
 ON %[1]s.product_unit_templates (lower(name))
 WHERE active=true;
-INSERT INTO %[1]s.product_unit_templates(name, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
-VALUES ('默认kg单位','kg','kg','kg','{}'::jsonb,false,true)
-ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS %[1]s.business_groups (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -933,9 +930,6 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_per_unit SET NOT NULL;
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
-	if err := backfillProductDefaultSKUs(ctx, pool, schema); err != nil {
-		return err
-	}
 	if err := migrateProductCategoriesToBusinessGroups(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -949,90 +943,6 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_per_unit SET NOT NULL;
 		return err
 	}
 	return backfillProductProductionConfigs(ctx, pool, schema)
-}
-
-// backfillProductDefaultSKUs makes the parent pointer authoritative while
-// retaining the legacy row flag as a read-compatible projection. A valid
-// existing child pointer is preserved on every subsequent schema run.
-func backfillProductDefaultSKUs(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	q := fmt.Sprintf(`
-WITH parent_choices AS (
-	SELECT parent.id AS parent_id,
-	       COALESCE(current_child.id, unique_legacy_child.id, template_default_child.id, first_valid_child.id, parent.id) AS selected_sku_id
-	FROM %[1]s.products parent
-	LEFT JOIN %[1]s.products current_child
-	  ON current_child.id=parent.default_sku_id
-	 AND current_child.parent_product_id=parent.id
-	 AND COALESCE(current_child.active,true)=true
-	 AND COALESCE(current_child.derived_spec_status,'') IN ('', 'active')
-	 AND (COALESCE(current_child.auto_derived_sku,false)=false OR current_child.derived_unit_template_id=parent.unit_template_id)
-	LEFT JOIN LATERAL (
-		SELECT COUNT(*) FILTER (WHERE child.is_default_sku=true) AS legacy_default_count
-		FROM %[1]s.products child
-		WHERE child.parent_product_id=parent.id
-		  AND COALESCE(child.active,true)=true
-		  AND COALESCE(child.derived_spec_status,'') IN ('', 'active')
-		  AND (COALESCE(child.auto_derived_sku,false)=false OR child.derived_unit_template_id=parent.unit_template_id)
-	) legacy_flags ON current_child.id IS NULL
-	LEFT JOIN LATERAL (
-		SELECT child.id
-		FROM %[1]s.products child
-		WHERE child.parent_product_id=parent.id
-		  AND COALESCE(child.active,true)=true
-		  AND COALESCE(child.derived_spec_status,'') IN ('', 'active')
-		  AND (COALESCE(child.auto_derived_sku,false)=false OR child.derived_unit_template_id=parent.unit_template_id)
-		  AND child.is_default_sku=true
-		  AND COALESCE(legacy_flags.legacy_default_count,0) = 1
-		ORDER BY child.id
-		LIMIT 1
-	) unique_legacy_child ON current_child.id IS NULL
-	LEFT JOIN LATERAL (
-		SELECT child.id
-		FROM %[1]s.products child
-		WHERE child.parent_product_id=parent.id
-		  AND COALESCE(child.active,true)=true
-		  AND COALESCE(child.derived_spec_status,'') IN ('', 'active')
-		  AND (COALESCE(child.auto_derived_sku,false)=false OR child.derived_unit_template_id=parent.unit_template_id)
-		  AND EXISTS (
-				SELECT 1
-				FROM %[1]s.product_unit_templates template,
-				     LATERAL jsonb_array_elements(COALESCE(template.sales_specs_json,'[]'::jsonb)) spec
-				WHERE template.id=parent.unit_template_id
-				  AND COALESCE((spec->>'default')::boolean,false)=true
-				  AND COALESCE(spec->>'spec_key','')=child.derived_spec_key
-			)
-		ORDER BY child.id
-		LIMIT 1
-	) template_default_child ON current_child.id IS NULL AND unique_legacy_child.id IS NULL
-	LEFT JOIN LATERAL (
-		SELECT child.id
-		FROM %[1]s.products child
-		WHERE child.parent_product_id=parent.id
-		  AND COALESCE(child.active,true)=true
-		  AND COALESCE(child.derived_spec_status,'') IN ('', 'active')
-		  AND (COALESCE(child.auto_derived_sku,false)=false OR child.derived_unit_template_id=parent.unit_template_id)
-		ORDER BY child.id
-		LIMIT 1
-	) first_valid_child ON current_child.id IS NULL
-		AND unique_legacy_child.id IS NULL
-		AND template_default_child.id IS NULL
-	WHERE COALESCE(parent.parent_product_id,0)=0
-)
-	UPDATE %[1]s.products parent
-	SET default_sku_id=choice.selected_sku_id
-	FROM parent_choices choice
-	WHERE parent.id=choice.parent_id
-	  AND parent.default_sku_id IS DISTINCT FROM choice.selected_sku_id
-;
-UPDATE %[1]s.products child
-SET is_default_sku=(child.id=parent.default_sku_id)
-FROM %[1]s.products parent
-WHERE COALESCE(parent.parent_product_id,0)=0
-  AND (child.id=parent.id OR child.parent_product_id=parent.id)
-  AND child.is_default_sku IS DISTINCT FROM (child.id=parent.default_sku_id)
-`, schema)
-	_, err := pool.Exec(ctx, q)
-	return err
 }
 
 func migrateProductCategoriesToBusinessGroups(ctx context.Context, pool *pgxpool.Pool, schema string) error {

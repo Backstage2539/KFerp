@@ -13,13 +13,13 @@ func TestDev526ProductMasterParentSkuListContracts(t *testing.T) {
 			"sku_search_text",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"product-spec-skus",
-			"v-for=\"sku in row.sku_rows\"",
-			"个历史规格",
+			"product-bom-specs",
+			"v-for=\"spec in row.bom_specs\"",
+			"未配置 BOM 规格",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"列表只把父商品作为商品行",
-			"X 个规格 SKU",
+			"BOM 规格",
 		},
 	}
 	for path, markers := range checks {

@@ -1015,6 +1015,7 @@ func submittedDirectShipERPRebuildKeepsHistoricalPricing(err error) bool {
 		"customer_product_alias invalid",
 		"customer product price unpublished",
 		"缺少商品价格表价格",
+		"product_bom_spec_not_configured",
 	} {
 		if strings.Contains(msg, marker) {
 			return true
@@ -1492,6 +1493,13 @@ func backfillSubmittedDirectShipERPOrders(ctx context.Context, pool *pgxpool.Poo
 
 	for _, id := range ids {
 		if _, err := repo.createSubmittedDirectShipERPOrderTx(ctx, tx, id); err != nil {
+			// PR-622 no longer fabricates a current BOM specification for a
+			// legacy submitted import. Keep that historical import untouched so
+			// the cleanup preview can report it as a blocking dependency; a
+			// background compatibility repair must not prevent application start.
+			if strings.Contains(err.Error(), "product_bom_spec_not_configured") {
+				continue
+			}
 			return err
 		}
 	}
@@ -1599,6 +1607,9 @@ func repairSubmittedDirectShipERPOrderDiscounts(ctx context.Context, pool *pgxpo
 		}
 		if err := repo.createSubmittedDirectShipERPOrderItemsTx(ctx, tx, s.importOrderID, s.orderID); err != nil {
 			_ = tx.Rollback(ctx)
+			if submittedDirectShipERPRebuildKeepsHistoricalPricing(err) {
+				continue
+			}
 			return err
 		}
 		if err := repo.refreshSubmittedDirectShipOrderAmountsTx(ctx, tx, s.importOrderID, s.orderID); err != nil {

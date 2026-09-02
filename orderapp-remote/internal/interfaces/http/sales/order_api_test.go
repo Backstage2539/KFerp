@@ -199,7 +199,7 @@ func TestEditDataForAPIFallsBackToProductKindWhenPriceSourceListTypeIsMissing(t 
 	}
 }
 
-func TestAPIProductsCarriesProductTypeAndUnitRule(t *testing.T) {
+func TestAPIProductsCarriesIdentityButNotProductOwnedSpecification(t *testing.T) {
 	products := apiProducts([]ProductOption{{
 		ID:                       515,
 		Name:                     "冻干美式 20杯盒",
@@ -223,16 +223,14 @@ func TestAPIProductsCarriesProductTypeAndUnitRule(t *testing.T) {
 		"product_subtype_category_id": int64(13),
 		"product_type_name":           "速溶咖啡",
 		"product_subtype_name":        "冻干速溶",
-		"inventory_unit":              "kg",
-		"quote_unit":                  "盒",
-		"order_unit":                  "盒",
-		"unit_conversion_json":        `{"盒":{"kg":0.2}}`,
-		"integer_unit":                true,
-		"spec_identity_mode":          "product",
-		"bom_spec_authoritative":      false,
 	} {
 		if got[key] != want {
 			t.Fatalf("%s = %#v, want %#v", key, got[key], want)
+		}
+	}
+	for _, key := range []string{"sku_id", "default_sku_id", "spec_label", "inventory_unit", "quote_unit", "order_unit", "unit_conversion_json", "integer_unit", "spec_identity_mode", "bom_spec_authoritative"} {
+		if _, exists := got[key]; exists {
+			t.Fatalf("active product API must not expose product-owned specification field %q", key)
 		}
 	}
 }

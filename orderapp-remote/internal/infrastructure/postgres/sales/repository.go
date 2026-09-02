@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
@@ -1061,90 +1060,29 @@ type orderBOMSpecIdentity struct {
 }
 
 func resolveOrderBOMSpecIdentityTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, bomVariantID int64) (orderBOMSpecIdentity, error) {
-	if productID <= 0 || !relationExistsTx(ctx, tx, fmt.Sprintf("%s.product_bom_spec_migrations", schema)) || !relationExistsTx(ctx, tx, fmt.Sprintf("%s.legacy_child_sku_bom_spec_mappings", schema)) {
-		return orderBOMSpecIdentity{}, nil
-	}
-	var governedParentID int64
-	var governedStoredMode, governedState string
-	var governedLegacyCatalogProduct bool
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT mapping.parent_product_id,
-		       migration.state,
-		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true),
-		       COALESCE(to_jsonb(migration)->>'spec_identity_mode','')
-		FROM %s.legacy_child_sku_bom_spec_mappings mapping
-		JOIN %s.product_bom_spec_migrations migration
-		  ON migration.product_id=mapping.parent_product_id
-		WHERE mapping.legacy_child_product_id=$1
-	`, schema, schema), productID).Scan(&governedParentID, &governedState, &governedLegacyCatalogProduct, &governedStoredMode)
-	if err == nil {
-		mode := productspecmigrationapp.ResolveSpecIdentityMode(governedStoredMode, productspecmigrationapp.MigrationState(governedState), governedLegacyCatalogProduct)
-		if mode == productspecmigrationapp.SpecIdentityModeBOMSpec {
-			return orderBOMSpecIdentity{}, fmt.Errorf("legacy child SKU write rejected after BOM spec cutover; use parent product %d + bom_spec_id", governedParentID)
-		}
-		if mode == productspecmigrationapp.SpecIdentityModeProduct {
-			return orderBOMSpecIdentity{}, fmt.Errorf("legacy child SKU write rejected for direct product identity; use product %d", governedParentID)
-		}
-	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return orderBOMSpecIdentity{}, err
-	}
-
-	var state, storedIdentityMode string
-	var legacyCatalogProduct bool
-	err = tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT state,
-		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true),
-		       COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode','')
-		FROM %s.product_bom_spec_migrations
-		WHERE product_id=$1
-		FOR SHARE
-	`, schema), productID).Scan(&state, &legacyCatalogProduct, &storedIdentityMode)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if bomSpecID > 0 || bomVariantID > 0 {
-			return orderBOMSpecIdentity{}, fmt.Errorf("BOM spec identity is not enabled for product %d", productID)
-		}
-		return orderBOMSpecIdentity{}, nil
-	}
-	if err != nil {
-		return orderBOMSpecIdentity{}, err
-	}
-	identityMode := productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, productspecmigrationapp.MigrationState(state), legacyCatalogProduct)
-	if identityMode == productspecmigrationapp.SpecIdentityModeProduct {
-		if bomSpecID > 0 || bomVariantID > 0 {
-			return orderBOMSpecIdentity{}, fmt.Errorf("direct product identity does not accept bom_spec_id or bom_variant_id")
-		}
-		return orderBOMSpecIdentity{
-			SpecIdentityMode: string(productspecmigrationapp.SpecIdentityModeProduct),
-			ProductID:        productID,
-		}, nil
-	}
-	if identityMode != productspecmigrationapp.SpecIdentityModeBOMSpec {
-		if bomSpecID > 0 || bomVariantID > 0 {
-			return orderBOMSpecIdentity{}, fmt.Errorf("BOM spec identity is not ready for product %d", productID)
-		}
+	if productID <= 0 {
 		return orderBOMSpecIdentity{}, nil
 	}
 	if bomSpecID <= 0 {
-		return orderBOMSpecIdentity{}, fmt.Errorf("bom_spec_id required after BOM spec cutover")
+		return orderBOMSpecIdentity{}, fmt.Errorf("product_bom_spec_not_configured")
 	}
 
 	var identity orderBOMSpecIdentity
-	err = tx.QueryRow(ctx, fmt.Sprintf(`
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT parent.id,
 		       spec.id,
 		       variant.id,
 		       spec.spec_key,
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name),
 		       COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),''),
-		       COALESCE(mapping.legacy_child_product_id,0),
-		       COALESCE(mapping.legacy_spec_g,0),
-		       COALESCE(mapping.legacy_sales_unit,''),
+		       0::bigint,
+		       0::bigint,
+		       ''::text,
 		       parent.name,
 		       COALESCE(NULLIF(parent.sku_code,''),'SKU-' || parent.id::text),
 		       COALESCE(NULLIF(parent.product_kind,''),'roasted_bean')
-		FROM %[1]s.product_bom_spec_migrations migration
-		JOIN %[1]s.products parent ON parent.id=migration.product_id AND parent.active=true
+		FROM %[1]s.product_bom_spec_authorities authority
+		JOIN %[1]s.products parent ON parent.id=authority.product_id AND parent.active=true
 		JOIN %[1]s.production_bom_output_bindings binding
 		  ON binding.output_type='product' AND binding.output_id=parent.id AND binding.is_default=true
 		JOIN %[1]s.production_bom_versions version
@@ -1153,10 +1091,7 @@ func resolveOrderBOMSpecIdentityTx(ctx context.Context, tx pgx.Tx, schema string
 		  ON spec.id=$2 AND spec.bom_id=binding.bom_id
 		JOIN %[1]s.production_bom_version_variants variant
 		  ON variant.version_id=version.id AND variant.bom_spec_id=spec.id
-		LEFT JOIN %[1]s.legacy_child_sku_bom_spec_mappings mapping
-		  ON mapping.parent_product_id=parent.id AND mapping.bom_spec_id=spec.id
-		WHERE migration.product_id=$1
-		  AND COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'
+		WHERE authority.product_id=$1 AND authority.configured=true
 		  AND ($3::bigint=0 OR variant.id=$3)
 		ORDER BY variant.is_default DESC,variant.sort_order,variant.id
 		LIMIT 1
@@ -1434,12 +1369,6 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		)
 		if identityErr != nil {
 			return salesapp.SaveOrderResult{}, identityErr
-		}
-		if identity.SpecIdentityMode == string(productspecmigrationapp.SpecIdentityModeProduct) {
-			items[idx].canonicalDirectProduct = true
-			items[idx].bomSpecID = 0
-			items[idx].bomVariantID = 0
-			continue
 		}
 		if identity.BomSpecID <= 0 {
 			continue
