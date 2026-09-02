@@ -1607,6 +1607,9 @@ func repairSubmittedDirectShipERPOrderDiscounts(ctx context.Context, pool *pgxpo
 		}
 		if err := repo.createSubmittedDirectShipERPOrderItemsTx(ctx, tx, s.importOrderID, s.orderID); err != nil {
 			_ = tx.Rollback(ctx)
+			if submittedDirectShipERPRebuildKeepsHistoricalPricing(err) {
+				continue
+			}
 			return err
 		}
 		if err := repo.refreshSubmittedDirectShipOrderAmountsTx(ctx, tx, s.importOrderID, s.orderID); err != nil {
