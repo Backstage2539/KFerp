@@ -226,3 +226,83 @@ func TestReplacementDraftKeepsPublishedSourceAndRollsBackAtomicallyPostgres(t *t
 		t.Fatalf("failed replacement left partial rows, count=%d", replacementCount)
 	}
 }
+
+func TestReplacementDraftCopiesSelectedSpecificationTemplatePostgres(t *testing.T) {
+	ctx, pool, schema := newPR600BomMaintenanceTestDB(t)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_unit_definitions(code) VALUES('袋') ON CONFLICT(code) DO NOTHING;
+		INSERT INTO %s.products(id,name,active) VALUES(9902,'PR623 历史单一产出商品',true);
+	`, schema, schema)); err != nil {
+		t.Fatal(err)
+	}
+	var mainInputMaterialID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.materials(code,name,kind,unit,cost_unit,purchase_price)
+		VALUES('PR623-MAIN','PR623 规格主体物料','other','kg','kg',0)
+		RETURNING id
+	`, schema)).Scan(&mainInputMaterialID); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool, schema)
+	template, err := repo.CreateProductionBomSpecTemplate(ctx, bomapp.CreateProductionBomSpecTemplateCommand{Name: "PR623 挂耳规格", Actor: "pr623-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateVersionID := template.Versions[0].ID
+	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
+		VersionID: templateVersionID,
+		Variants: []bomapp.ProductionBomSpecTemplateVariant{
+			{SpecKey: "bag-10", Name: "10g 袋", InventoryUnit: "袋", IsDefault: true, SortOrder: 1, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.01}}}},
+		},
+		Actor: "pr623-test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.PublishProductionBomSpecTemplateVersion(ctx, bomapp.PublishProductionBomSpecTemplateVersionCommand{VersionID: templateVersionID, Actor: "pr623-test"}); err != nil {
+		t.Fatal(err)
+	}
+	source, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
+		Name: "PR623 历史单一产出 BOM", OutputType: "product", OutputID: 9902, OutputProductID: 9902,
+		SpecificationMode: "single", OutputQty: 1, OutputUnit: "袋", Actor: "pr623-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_bom_versions SET status='published',published_at=now() WHERE id=$1`, schema), source.LatestVersionID); err != nil {
+		t.Fatal(err)
+	}
+
+	replacement, err := repo.CreateProductionBomReplacementDraft(ctx, bomapp.CreateProductionBomReplacementDraftCommand{
+		SourceBomID:     source.ID,
+		SourceVersionID: source.LatestVersionID,
+		Workspace: bomapp.ProductionBomDraftWorkspaceCommand{
+			Bom: bomapp.UpdateProductionBomCommand{
+				Name: "PR623 规格替代 BOM", OutputType: "product", OutputID: 9902, OutputProductID: 9902,
+				SpecificationMode: "spec_group", Status: "active", Actor: "pr623-test", UpdateOutputBinding: true,
+			},
+			Version:             bomapp.UpdateProductionBomVersionDraftCommand{OutputQty: 1, OutputUnit: "袋", Actor: "pr623-test"},
+			SpecTemplateID:      templateVersionID,
+			MainInputMaterialID: mainInputMaterialID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionBomReplacementDraft: %v", err)
+	}
+	if replacement.SpecificationMode != "spec_group" || len(replacement.Variants) != 1 {
+		t.Fatalf("replacement specification mode/variants = %s/%d, want spec_group/1", replacement.SpecificationMode, len(replacement.Variants))
+	}
+	variant := replacement.Variants[0]
+	if variant.Name != "10g 袋" || variant.InventoryUnit != "袋" || len(variant.Items) != 1 {
+		t.Fatalf("replacement variant = %+v", variant)
+	}
+	if variant.Items[0].MaterialID != mainInputMaterialID || variant.Items[0].ConsumeUnit != "kg" || variant.Items[0].QtyPerUnit != 0.01 {
+		t.Fatalf("replacement main input = %+v", variant.Items[0])
+	}
+	var sourceTemplateVersionID, storedMainInputMaterialID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT source_spec_template_version_id,main_input_material_id FROM %s.production_bom_versions WHERE id=$1`, schema), replacement.LatestVersionID).Scan(&sourceTemplateVersionID, &storedMainInputMaterialID); err != nil {
+		t.Fatal(err)
+	}
+	if sourceTemplateVersionID != templateVersionID || storedMainInputMaterialID != mainInputMaterialID {
+		t.Fatalf("replacement template/main input = %d/%d, want %d/%d", sourceTemplateVersionID, storedMainInputMaterialID, templateVersionID, mainInputMaterialID)
+	}
+}

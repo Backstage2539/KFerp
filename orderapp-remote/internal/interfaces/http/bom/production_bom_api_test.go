@@ -328,6 +328,30 @@ func TestProductionBomReplacementDraftAPIAcceptsFullWorkspace(t *testing.T) {
 	}
 }
 
+func TestProductionBomReplacementDraftAPIAcceptsPublishedTemplateWithoutClientVariants(t *testing.T) {
+	repo := &apiFakeRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+	req := httptest.NewRequest(http.MethodPost, "/api/production-boms/79/replacement-draft", strings.NewReader(`{
+		"source_version_id":338,"name":"初晓-挂耳-10g袋装","output_type":"product","output_id":76,
+		"specification_mode":"spec_group","output_qty":1,"output_unit":"袋",
+		"spec_template_version_id":903,"main_input_material_id":139
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("template replacement draft status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got := repo.replacementCommand
+	if got.SourceBomID != 79 || got.SourceVersionID != 338 || got.Workspace.Bom.SpecificationMode != "spec_group" {
+		t.Fatalf("template replacement source/mode = %+v", got)
+	}
+	if got.Workspace.SpecTemplateID != 903 || got.Workspace.MainInputMaterialID != 139 || got.Workspace.Version.Variants != nil {
+		t.Fatalf("template replacement workspace = %+v", got.Workspace)
+	}
+}
+
 func TestProductionBomUpdateDoesNotTouchGroupAssignmentWhenGroupFieldsOmitted(t *testing.T) {
 	repo := &apiFakeRepo{
 		updatedProductionBom: bomapp.ProductionBomSummary{

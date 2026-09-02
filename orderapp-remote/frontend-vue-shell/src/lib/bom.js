@@ -300,6 +300,19 @@ export function productionBomVersionWarning(row = {}) {
   return `当前引用 ${current}，最新 ${latest}`
 }
 
+export function productionBomSpecTemplateReapplyStrategy(persistedMode = '', versions = []) {
+  if (String(persistedMode || '').trim().toLowerCase() === 'spec_group') {
+    return { mode: 'reapply', sourceVersionID: 0 }
+  }
+  const published = (Array.isArray(versions) ? versions : [])
+    .filter((version) => ['published', 'active'].includes(String(version?.status || '').trim().toLowerCase()))
+    .sort((left, right) => Number(right?.id || 0) - Number(left?.id || 0))[0]
+  if (Number(published?.id || 0) > 0) {
+    return { mode: 'replacement', sourceVersionID: Number(published.id) }
+  }
+  return { mode: 'convert', sourceVersionID: 0 }
+}
+
 export function productionBomDraftItemKey(item = {}, index = 0) {
   const localKey = String(item.local_key || '').trim()
   if (localKey) return localKey

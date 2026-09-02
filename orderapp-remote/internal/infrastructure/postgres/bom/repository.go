@@ -2437,7 +2437,17 @@ func (r Repository) CreateProductionBomReplacementDraft(ctx context.Context, cmd
 	}
 	workspace.Bom.ID = newBomID
 	workspace.Version.VersionID = newVersionID
-	if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, workspace.Version); err != nil {
+	if strings.EqualFold(strings.TrimSpace(workspace.Bom.OutputType), "product") && workspace.Bom.SpecificationMode == bomapp.ProductionBomSpecificationModeSpecGroup && workspace.SpecTemplateID > 0 && workspace.MainInputMaterialID > 0 && len(workspace.Version.Variants) == 0 {
+		metadataOnly := workspace.Version
+		metadataOnly.Items = nil
+		metadataOnly.Variants = nil
+		if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, metadataOnly); err != nil {
+			return bomapp.ProductionBomDetail{}, err
+		}
+		if err := copySpecTemplateToProductionBomTx(ctx, tx, r.schema, newBomID, newVersionID, workspace.SpecTemplateID, workspace.MainInputMaterialID, workspace.Version.Actor); err != nil {
+			return bomapp.ProductionBomDetail{}, err
+		}
+	} else if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, workspace.Version); err != nil {
 		return bomapp.ProductionBomDetail{}, err
 	}
 	groupID := workspace.Bom.GroupID

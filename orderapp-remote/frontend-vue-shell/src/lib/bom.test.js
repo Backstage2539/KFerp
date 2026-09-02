@@ -18,7 +18,29 @@ import {
   sortBomContextProducts,
   filterProductionBomCatalog,
   bomProductOptionLabel,
+  productionBomSpecTemplateReapplyStrategy,
 } from './bom.js'
+
+test('legacy single-output product BOM template reapply creates a replacement draft', () => {
+  const versions = [
+    { id: 341, status: 'draft' },
+    { id: 338, status: 'published' },
+    { id: 203, status: 'archived' },
+  ]
+
+  assert.deepEqual(productionBomSpecTemplateReapplyStrategy('single', versions), {
+    mode: 'replacement',
+    sourceVersionID: 338,
+  })
+  assert.deepEqual(productionBomSpecTemplateReapplyStrategy('spec_group', versions), {
+    mode: 'reapply',
+    sourceVersionID: 0,
+  })
+  assert.deepEqual(productionBomSpecTemplateReapplyStrategy('single', [{ id: 12, status: 'draft' }]), {
+    mode: 'convert',
+    sourceVersionID: 0,
+  })
+})
 
 test('production BOM draft item deletion keeps persisted and unsaved rows independent', () => {
   const rows = [

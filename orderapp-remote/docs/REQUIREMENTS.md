@@ -1717,3 +1717,9 @@
 - `DEV-622-DUAL-ENV-CLEANUP`：一次性命令提供 preview/apply/verify，以数据库顾问锁、确定性清单、校验和、完整备份和单事务清理旧子商品、销售规格模板绑定与迁移表。未映射库存或未完业务依赖会整批阻断；应用后只能整库备份恢复。
 - `DEV-622-AUTHORIZED-TEST-DISCARD`：开发环境负责人明确确认阻断项均为可清除测试数据后，apply 可通过独立显式开关在同一锁定事务内撤回未映射价格表、作废订单、归零库存、取消生产记录、清除履约测试行并继续规格清理；默认不开启，生产环境必须重新预览并取得独立授权。
 - `DEV-622-DOCS-RELEASE`：完成 Go、Vue、小程序、Vite 和统一验证，依次发布开发代码与数据、生产代码与数据，最后移除一次性工具和剩余兼容代码并同步双分支。
+
+# PR-623-LEGACY-PRODUCT-BOM-TEMPLATE-REAPPLY 历史商品 BOM 重新套用模板（2026-09-03）
+
+- `DEV-623-LEGACY-REAPPLY-ROUTING`：页面必须读取 BOM 持久化规格模式。规格组草稿继续原位重套；有已发布历史的单一产出商品 BOM 自动创建规格组替代草稿；只有纯草稿且无已发布历史时才允许原位转换。
+- `DEV-623-TEMPLATE-REPLACEMENT-COPY`：替代草稿接口接收已发布规格模板和规格主体物料时，在同一事务中复制模板规格、配方、路线与单位，并保留源 BOM/源版本追溯及操作日志。
+- `DEV-623-PRODUCTION-REGRESSION-DELIVERY`：生产错误不得再泄漏英文内部校验；代码经 Vue、PostgreSQL、Go、Vite 和完整发布门禁后依次合入 `develop/main`，部署时不自动改写生产 BOM 业务数据。
