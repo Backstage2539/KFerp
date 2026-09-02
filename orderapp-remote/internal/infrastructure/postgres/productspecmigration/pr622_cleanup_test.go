@@ -97,6 +97,9 @@ func TestPR622SingleBOMReplacementKeepsSourceProductIDNumeric(t *testing.T) {
 	if !strings.Contains(text, "$1::bigint,source_product_code_snapshot") {
 		t.Fatal("source_product_id must cast the reused text parameter back to bigint")
 	}
+	if !strings.Contains(text, "'PR622-SPEC-' || $2::bigint::text") {
+		t.Fatal("replacement BOM specification code must format a numeric product parameter")
+	}
 }
 
 func TestRewritePR622PublishedJSONMovesIdentityButKeepsFrozenDisplay(t *testing.T) {
@@ -141,6 +144,38 @@ func TestPR622CleanupCopiesCurrentPricesAndVerifiesPhysicalRetirement(t *testing
 	} {
 		if !strings.Contains(text, marker) {
 			t.Fatalf("PR-622 cleanup missing %q", marker)
+		}
+	}
+}
+
+func TestPR622CleanupDoesNotUseReservedColumnAlias(t *testing.T) {
+	source, err := os.ReadFile("pr622_cleanup.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	if strings.Contains(text, "information_schema.columns column") {
+		t.Fatal("column is a reserved SQL keyword and must not be used as an alias")
+	}
+	if !strings.Contains(text, "information_schema.columns col") {
+		t.Fatal("unit-template dependency scan must use a non-reserved column alias")
+	}
+}
+
+func TestPR622CleanupDetachesEveryActiveSingleProductBOM(t *testing.T) {
+	source, err := os.ReadFile("pr622_cleanup.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"SELECT output_product_id,id",
+		"WHERE output_type='product' AND specification_mode='single' AND status='active'",
+		"DELETE FROM %s.production_bom_output_bindings WHERE output_type='product' AND bom_id=$1",
+		"DELETE FROM %s.product_production_bom_bindings WHERE bom_id=$1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("active single-product BOM retirement missing %q", want)
 		}
 	}
 }

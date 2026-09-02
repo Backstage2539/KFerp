@@ -898,7 +898,7 @@ func (r PR622CleanupRepository) convertPublishedSingleBOMsTx(ctx context.Context
 		`, r.schema), replacementBOMID, actor, row.versionID).Scan(&replacementVersionID); err != nil {
 			return 0, err
 		}
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_specs(bom_id,code,spec_key,name,inventory_unit,created_by,updated_by) VALUES($1,'PR622-SPEC-' || $2::text,'default','默认规格',$3,$4,$4) RETURNING id`, r.schema), replacementBOMID, row.productID, row.unit, actor).Scan(&specID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_specs(bom_id,code,spec_key,name,inventory_unit,created_by,updated_by) VALUES($1,'PR622-SPEC-' || $2::bigint::text,'default','默认规格',$3,$4,$4) RETURNING id`, r.schema), replacementBOMID, row.productID, row.unit, actor).Scan(&specID); err != nil {
 			return 0, err
 		}
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) SELECT $1,$2,'默认规格',$3,true,100,material_loss_rate,process_route_id FROM %s.production_bom_versions WHERE id=$1 RETURNING id`, r.schema, r.schema), replacementVersionID, specID, row.unit).Scan(&variantID); err != nil {
@@ -936,12 +936,10 @@ func (r PR622CleanupRepository) convertPublishedSingleBOMsTx(ctx context.Context
 
 func (r PR622CleanupRepository) detachRemainingSingleProductBOMsTx(ctx context.Context, tx pgx.Tx, actor string) (int64, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT DISTINCT binding.output_id,binding.bom_id
-		FROM %[1]s.production_bom_output_bindings binding
-		JOIN %[1]s.production_boms bom ON bom.id=binding.bom_id
-		WHERE binding.output_type='product' AND binding.is_default=true
-		  AND bom.output_type='product' AND bom.specification_mode='single'
-		ORDER BY binding.output_id,binding.bom_id
+		SELECT output_product_id,id
+		FROM %[1]s.production_boms
+		WHERE output_type='product' AND specification_mode='single' AND status='active'
+		ORDER BY output_product_id,id
 	`, r.schema))
 	if err != nil {
 		return 0, err
@@ -962,10 +960,10 @@ func (r PR622CleanupRepository) detachRemainingSingleProductBOMsTx(ctx context.C
 	}
 	rows.Close()
 	for _, item := range candidates {
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_bom_output_bindings WHERE output_type='product' AND output_id=$1 AND bom_id=$2`, r.schema), item.productID, item.bomID); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_bom_output_bindings WHERE output_type='product' AND bom_id=$1`, r.schema), item.bomID); err != nil {
 			return 0, err
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_production_bom_bindings WHERE product_id=$1 AND bom_id=$2`, r.schema), item.productID, item.bomID); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_production_bom_bindings WHERE bom_id=$1`, r.schema), item.bomID); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_boms SET status='inactive',updated_at=now(),updated_by=$2 WHERE id=$1`, r.schema), item.bomID, actor); err != nil {
@@ -1237,12 +1235,12 @@ func (r PR622CleanupRepository) clearLegacyUnitMetadataTx(ctx context.Context, t
 		return 0, err
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT column.table_name
-		FROM information_schema.columns column
+		SELECT col.table_name
+		FROM information_schema.columns col
 		JOIN information_schema.tables relation
-		  ON relation.table_schema=column.table_schema AND relation.table_name=column.table_name AND relation.table_type='BASE TABLE'
-		WHERE column.table_schema=$1 AND column.column_name='unit_template_id' AND column.table_name<>'product_unit_templates'
-		ORDER BY column.table_name
+		  ON relation.table_schema=col.table_schema AND relation.table_name=col.table_name AND relation.table_type='BASE TABLE'
+		WHERE col.table_schema=$1 AND col.column_name='unit_template_id' AND col.table_name<>'product_unit_templates'
+		ORDER BY col.table_name
 	`, r.schema)
 	if err != nil {
 		return 0, err
