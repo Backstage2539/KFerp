@@ -31,6 +31,7 @@ func main() {
 	backupPath := flag.String("backup-path", "", "host path of the verified full PostgreSQL backup")
 	backupSHA256 := flag.String("backup-sha256", "", "SHA-256 checksum of the verified full PostgreSQL backup")
 	backupSize := flag.Int64("backup-size", 0, "byte size of the verified full PostgreSQL backup")
+	discardUnmappedTestData := flag.Bool("discard-unmapped-test-data", false, "void, withdraw, zero, or retire explicitly authorized unmapped test dependencies")
 	flag.Parse()
 
 	normalized := postgresmigration.PR622CleanupMode(strings.ToLower(strings.TrimSpace(*mode)))
@@ -71,7 +72,7 @@ func main() {
 		}
 		result.CleanupReport, err = repo.Apply(ctx, *confirm, *actor, postgresmigration.PR622BackupEvidence{
 			Path: result.BackupPath, SHA256: result.BackupSHA256, Size: result.BackupSize,
-		})
+		}, postgresmigration.PR622CleanupApplyOptions{DiscardUnmappedTestData: *discardUnmappedTestData})
 	}
 	if err != nil {
 		fatal(err)
