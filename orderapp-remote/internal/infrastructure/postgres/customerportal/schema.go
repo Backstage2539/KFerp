@@ -387,7 +387,8 @@ SELECT r.id,1,r.target_product_id,COALESCE(p.name,''),r.target_spec_g,r.target_q
 FROM %[1]s.processing_job_requests r
 LEFT JOIN %[1]s.products p ON p.id=r.target_product_id
 LEFT JOIN %[1]s.customer_processing_production_demands d ON d.request_id=r.id
-WHERE NOT EXISTS (
+WHERE lower(COALESCE(r.status,'')) NOT IN ('completed','cancelled','closed')
+  AND NOT EXISTS (
 	SELECT 1 FROM %[1]s.processing_job_request_items item WHERE item.request_id=r.id
 );
 

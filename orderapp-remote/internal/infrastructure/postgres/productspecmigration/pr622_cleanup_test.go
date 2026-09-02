@@ -85,6 +85,23 @@ func TestPR622CleanupCanExplicitlyDiscardAuthorizedTestDependencies(t *testing.T
 	}
 }
 
+func TestPR622CleanupCancelsParentProcessingRequestBeforeDeletingUnmappedItems(t *testing.T) {
+	source, err := os.ReadFile("pr622_cleanup.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	for _, marker := range []string{
+		`{"processing_job_requests"`,
+		`SET status='cancelled'`,
+		`ref.request_id=parent.id`,
+	} {
+		if !strings.Contains(text, marker) {
+			t.Fatalf("authorized cleanup must retire the parent processing request before removing its unmapped item; missing %q", marker)
+		}
+	}
+}
+
 func TestPR622SingleBOMReplacementKeepsSourceProductIDNumeric(t *testing.T) {
 	source, err := os.ReadFile("pr622_cleanup.go")
 	if err != nil {
