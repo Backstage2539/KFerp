@@ -4662,7 +4662,7 @@ test('classification group rows support collapse and indentation in product and 
   assert.match(template, /<BusinessGroupInlineWorkspace[\s\S]*v-model:collapsed-keys="collapsedProductClassificationGroups"/)
   assert.match(template, /#group="\{ group \}"[\s\S]*class="sku-table"/)
   assert.match(workspaceSource, /--business-group-inline-depth/)
-  assert.match(workspaceSource, /businessGroupHiddenByCollapsedAncestor/)
+  assert.match(workspaceSource, /businessGroupVisibleGroups/)
   assert.match(workspaceSource, /@click\.stop="toggleGroup\(group\.key\)"/)
   assert.match(template, /isAliasClassificationGroupCollapsed\(group\.key\)\s*\?\s*'展开'\s*:\s*'收起'/)
   assert.match(style, /\.classification-tab\.active\s*\{/)
