@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-625-MANUAL-BOM-AND-ORDER-TIER-FIX
+- Branch: `codex/pr625-manual-bom-spec-publish`
+- Owner/session: Codex / 2026-09-03
+- Status: implementation and targeted database/frontend verification complete; full gates, `develop/main` integration and dual-environment deployment in progress; Van page acceptance pending
+- Scope: 手工商品 BOM 规格组无需规格模板来源即可发布；ERP 录单兼容价格表 API 的 `min_qty/max_qty`，50 袋正确命中 48+ 档并按所选 BOM 规格库存单位显示。
+- DEV: DEV-625-MANUAL-BOM-PUBLISH; DEV-625-ORDER-TIER-API-FIELDS; DEV-625-DUAL-ENV-DELIVERY
+- Verifier: production read-only diagnosis; Vue RED first-tier mismatch -> 134/134 GREEN; real PostgreSQL 5/5 focused publish/provenance tests GREEN; isolated production snapshot mini order API returned 201 at 47/袋 without writing production data.
+- Deployment: authorized for development and production after full gates; code deployment must not modify BOM, price-list or order business data; Van will perform ERP/miniapp business acceptance.
+- Last update: 2026-09-03 Asia/Shanghai
+
 ### PR-624-ORDER-BOM-SPEC-PRICE-UNIT-CONSISTENCY
 - Branch: `codex/pr624-order-bom-spec-unit-consistency`
 - Owner/session: Codex / 2026-09-03

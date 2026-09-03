@@ -790,8 +790,8 @@ export function defaultWholesaleSpec(product) {
 }
 
 export function formatTierRange(tier) {
-  const min = toNumber(tier?.min)
-  const max = tier?.max == null ? 0 : toNumber(tier.max)
+  const min = tierMinQuantity(tier)
+  const max = tierMaxQuantity(tier) ?? 0
   const unit = tierQuantityUnitLabel(tier)
   if (min > 0 && max > 0) return `${trimNumber(min)}-${trimNumber(max)}${unit}`
   if (min > 0) return `${trimNumber(min)}${unit}+`
@@ -799,17 +799,28 @@ export function formatTierRange(tier) {
   return '全部数量'
 }
 
+function tierMinQuantity(tier) {
+  return toNumber(tier?.min_qty ?? tier?.min)
+}
+
+function tierMaxQuantity(tier) {
+  const max = tier?.max_qty ?? tier?.max
+  if (max == null || max === '') return null
+  return toNumber(max)
+}
+
 function tierSpecG(tier) {
   return Math.max(1, toInt(tier?.spec_g) || 454)
 }
 
 function tierMinLb(tier) {
-  return toNumber(tier?.min) * tierSpecG(tier) / 454
+  return tierMinQuantity(tier) * tierSpecG(tier) / 454
 }
 
 function tierMaxLb(tier) {
-  if (tier?.max == null) return null
-  return toNumber(tier.max) * tierSpecG(tier) / 454
+  const max = tierMaxQuantity(tier)
+  if (max == null) return null
+  return max * tierSpecG(tier) / 454
 }
 
 function rowQuantityLb(row) {
@@ -825,8 +836,22 @@ function tierUsesKgQuantity(tier) {
 }
 
 function tierQuantityUnitLabel(tier) {
-	const explicit = String(tier?.tier_quantity_unit || tierPriceSource(tier)?.tier_quantity_unit || '').trim()
-	if (explicit) return explicit
+  if (tierQuantityBasis(tier) === 'sales_spec_count') {
+    const source = tierPriceSource(tier) || {}
+    const effective = orderFamilyObject(tier?.effective_sales_spec ?? source.effective_sales_spec)
+    const inventoryUnit = [
+      tier?.sales_unit,
+      effective.inventory_unit,
+      effective.sales_unit,
+      tier?.price_unit,
+      source.price_unit,
+    ].map(orderFamilyText).find(Boolean) || ''
+    if (inventoryUnit === 'bag') return '袋'
+    if (inventoryUnit === 'box') return '盒'
+    if (inventoryUnit) return inventoryUnit
+  }
+  const explicit = String(tier?.tier_quantity_unit || tierPriceSource(tier)?.tier_quantity_unit || '').trim()
+  if (explicit) return explicit
   return tierUsesKgQuantity(tier) ? 'kg' : '件'
 }
 
@@ -993,7 +1018,7 @@ export function wholesaleTierPriceRows(product, row = null) {
       return {
         id: String(tier.id || ''),
         specG: toInt(tier.spec_g),
-        specLabel: formatSpecLabel(tier.spec_g),
+        specLabel: countBased ? '' : formatSpecLabel(tier.spec_g),
         rangeLabel: formatTierRange(tier),
         unitPrice: countBased
           ? roundToCents(tierConfiguredUnitPrice(tier))
@@ -1071,14 +1096,14 @@ function findWholesaleTierMatch(product, row) {
 	const selectedTiers = tiersForSelectedPublication(product, row)
 	const countTiers = selectedTiers.filter((item) => tierQuantityBasis(item) === 'sales_spec_count')
 	if (countTiers.length) {
-		return matchTierByQuantityResult(countTiers, qty, (item) => toNumber(item.min), (item) => (item.max == null ? null : toNumber(item.max)))
+		return matchTierByQuantityResult(countTiers, qty, tierMinQuantity, tierMaxQuantity)
 	}
   const tiers = selectedTiers.filter((item) => toInt(item.spec_g) > 0)
   const exactSpecTiers = tiers
     .filter((item) => toInt(item.spec_g) === specG)
   if (exactSpecTiers.length) {
     const exactQuantity = tierUsesKgQuantity(exactSpecTiers[0]) ? rowQuantityKg(row) : qty
-    return matchTierByQuantityResult(exactSpecTiers, exactQuantity, (item) => toNumber(item.min), (item) => (item.max == null ? null : toNumber(item.max)))
+    return matchTierByQuantityResult(exactSpecTiers, exactQuantity, tierMinQuantity, tierMaxQuantity)
   }
   return matchTierByQuantityResult(tiers, rowQuantityLb(row), tierMinLb, tierMaxLb)
 }
