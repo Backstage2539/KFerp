@@ -728,6 +728,48 @@ test('新价格表按 concrete SKU 销售规格件数命中阶梯，旧发布继
 	}, false).toFixed(3)), 111.684)
 })
 
+test('BOM 规格件数阶梯兼容 API min_qty/max_qty 并显示规格库存单位', () => {
+	const product = {
+		tiers: [
+			{
+				id: 32,
+				spec_g: 0,
+				min_qty: 2,
+				max_qty: 13,
+				unit_price: 59,
+				display_unit: '袋',
+				quantity_basis: 'sales_spec_count',
+				tier_quantity_unit: '454g袋装',
+				effective_sales_spec: { spec_name: '454g袋装', inventory_unit: '袋', sales_unit: '袋' },
+			},
+			{
+				id: 35,
+				spec_g: 0,
+				min_qty: 48,
+				max_qty: null,
+				unit_price: 47,
+				display_unit: '袋',
+				quantity_basis: 'sales_spec_count',
+				tier_quantity_unit: '454g袋装',
+				effective_sales_spec: { spec_name: '454g袋装', inventory_unit: '袋', sales_unit: '袋' },
+			},
+		],
+	}
+	const row = { bom_spec_id: 69, inventory_unit: '袋', unit: '袋', qty: 50, tier_id: 'auto' }
+	const resolved = resolveWholesaleTierPrice(product, row)
+	assert.equal(resolved.tierID, '35')
+	assert.equal(resolved.unitPrice, '47')
+	assert.equal(resolved.priceUnit.label, '元/袋')
+	assert.deepEqual(orderEntry.wholesaleTierPriceRows(product, row).map((tier) => ({
+		specLabel: tier.specLabel,
+		rangeLabel: tier.rangeLabel,
+		unitPrice: tier.unitPrice,
+	})), [
+		{ specLabel: '', rangeLabel: '2-13袋', unitPrice: 59 },
+		{ specLabel: '', rangeLabel: '48袋+', unitPrice: 47 },
+	])
+})
+
 test('零售订单优先使用 concrete SKU 发布价并按件计价和折扣', () => {
 	const countProduct = {
 		retail_price_227g: 50,
