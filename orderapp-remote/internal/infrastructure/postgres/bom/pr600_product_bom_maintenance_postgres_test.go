@@ -17,6 +17,7 @@ import (
 func TestProductBOMCreationSupportsExplicitSingleAndSpecGroupModesPostgres(t *testing.T) {
 	ctx, pool, schema := newPR600BomMaintenanceTestDB(t)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_unit_definitions(code) VALUES('袋') ON CONFLICT(code) DO NOTHING;
 		INSERT INTO %s.products(id,name,active) VALUES
 			(701,'PR600 新商品',true),
 			(702,'PR600 迁移中历史商品',true),
@@ -30,7 +31,7 @@ func TestProductBOMCreationSupportsExplicitSingleAndSpecGroupModesPostgres(t *te
 			(703,'cutover',true),
 			(705,'legacy',true),
 			(706,'ready',true);
-	`, schema, schema)); err != nil {
+	`, schema, schema, schema)); err != nil {
 		t.Fatal(err)
 	}
 	repo := NewRepository(pool, schema)
@@ -50,23 +51,24 @@ func TestProductBOMCreationSupportsExplicitSingleAndSpecGroupModesPostgres(t *te
 	if err := createSingle(704); err != nil {
 		t.Fatalf("product without migration row must retain legacy compatibility: %v", err)
 	}
-	_, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
-		Name: "缺模板多规格商品 BOM", OutputType: "product", OutputID: 701,
+	manualGroup, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
+		Name: "手工多规格商品 BOM", OutputType: "product", OutputID: 701,
 		OutputProductID: 701, OutputQty: 1, OutputUnit: "袋", SpecificationMode: "spec_group", Actor: "pr619-authority-test",
+		Variants: []bomapp.ProductionBomDraftVariant{{SpecKey: "manual-bag", Name: "手工袋装", InventoryUnit: "袋", IsDefault: true}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "published specification template") {
-		t.Fatalf("spec_group product BOM without template error=%v", err)
+	if err != nil {
+		t.Fatalf("manual spec_group product BOM without template: %v", err)
 	}
 	var sourceMaterialID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.materials(code,name,kind,unit,cost_unit)
-		VALUES('PR600-COPY-SOURCE','复制来源物料','bean','kg','kg') RETURNING id
+		INSERT INTO %s.materials(code,name,kind,unit,cost_unit,is_semi_finished)
+		VALUES('PR600-COPY-SOURCE','复制来源物料','bean','kg','kg',true) RETURNING id
 	`, schema)).Scan(&sourceMaterialID); err != nil {
 		t.Fatal(err)
 	}
 	sourceBOM, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "物料复制来源", OutputType: "material", OutputID: sourceMaterialID, OutputMaterialID: sourceMaterialID,
-		OutputQty: 1, OutputUnit: "kg", Actor: "pr600-authority-test",
+		OutputQty: 1, OutputUnit: "kg", SpecificationMode: bomapp.ProductionBomSpecificationModeSingle, Actor: "pr600-authority-test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +76,7 @@ func TestProductBOMCreationSupportsExplicitSingleAndSpecGroupModesPostgres(t *te
 	if _, err := repo.CopyProductionBom(ctx, bomapp.CopyProductionBomCommand{
 		ID: sourceBOM.ID, Name: "错误转换商品 BOM", OutputType: "product", OutputID: 701, OutputProductID: 701,
 		SpecificationMode: "spec_group", Actor: "pr619-authority-test",
-	}); err == nil || !strings.Contains(err.Error(), "published specification template") {
+	}); err == nil || !strings.Contains(err.Error(), "specification") {
 		t.Fatalf("copy material BOM to new product without template error=%v", err)
 	}
 	if _, err := repo.UpdateProductionBom(ctx, bomapp.UpdateProductionBomCommand{
@@ -91,8 +93,8 @@ func TestProductBOMCreationSupportsExplicitSingleAndSpecGroupModesPostgres(t *te
 	`, schema)).Scan(&rejectedCount); err != nil {
 		t.Fatal(err)
 	}
-	if rejectedCount != 0 {
-		t.Fatalf("rejected new/cutover product BOM writes persisted %d rows", rejectedCount)
+	if rejectedCount != 1 || manualGroup.ID <= 0 {
+		t.Fatalf("manual/rejected spec-group writes count=%d manual=%d, want 1 persisted manual BOM", rejectedCount, manualGroup.ID)
 	}
 }
 
@@ -134,7 +136,8 @@ func TestReapplyProductBOMSpecTemplateKeepsStableIDsAndAuditsWholeGroupPostgres(
 	}
 	createdBOM, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "PR600 模板重套 BOM", OutputType: "product", OutputID: 801, OutputProductID: 801,
-		OutputQty: 1, OutputUnit: "袋", SpecTemplateVersionID: templateV1, MainInputMaterialID: mainInputMaterialID, Actor: "bom-owner",
+		OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+		SpecTemplateVersionID: templateV1, MainInputMaterialID: mainInputMaterialID, Actor: "bom-owner",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -252,28 +255,24 @@ func TestReapplyProductBOMSpecTemplateKeepsStableIDsAndAuditsWholeGroupPostgres(
 	}
 }
 
-func TestProductBOMOutputRebindingRejectsDraftSpecGroupWithoutPublishedTemplateProvenancePostgres(t *testing.T) {
+func TestProductBOMOutputRebindingAcceptsManualSpecGroupAndRejectsInvalidTemplateProvenancePostgres(t *testing.T) {
 	ctx, pool, schema := newPR600BomMaintenanceTestDB(t)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_unit_definitions(code) VALUES('袋') ON CONFLICT(code) DO NOTHING;
 		INSERT INTO %s.products(id,name,active) VALUES
 			(901,'PR600 新商品改绑目标',true),
 			(902,'PR600 历史商品改绑目标',true),
-			(903,'PR600 cutover 商品改绑目标',true);
+			(903,'PR600 cutover 商品改绑目标',true),
+			(904,'PR600 手工规格来源商品',true);
 		INSERT INTO %s.product_bom_spec_migrations(product_id,state,legacy_catalog_product) VALUES
 			(901,'preparing',false),
 			(902,'preparing',true),
-			(903,'cutover',true);
+			(903,'cutover',true),
+			(904,'legacy',true);
 	`, schema, schema, schema)); err != nil {
 		t.Fatal(err)
 	}
-	var outputMaterialID, inputMaterialID int64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.materials(code,name,kind,unit,cost_unit)
-		VALUES('PR600-REBIND-OUTPUT','改绑来源物料','bean','kg','kg') RETURNING id
-	`, schema)).Scan(&outputMaterialID); err != nil {
-		t.Fatal(err)
-	}
+	var inputMaterialID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.materials(code,name,kind,unit,cost_unit)
 		VALUES('PR600-REBIND-INPUT','改绑主投入','bean','kg','kg') RETURNING id
@@ -289,14 +288,9 @@ func TestProductBOMOutputRebindingRejectsDraftSpecGroupWithoutPublishedTemplateP
 	createSelfBuiltVariantBOM := func(name string) bomapp.ProductionBomSummary {
 		t.Helper()
 		row, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
-			Name: name, OutputType: "material", OutputID: outputMaterialID, OutputMaterialID: outputMaterialID,
-			OutputQty: 1, OutputUnit: "kg", Actor: "rebind-auditor",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = repo.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{
-			VersionID: row.LatestVersionID, Actor: "rebind-auditor",
+			Name: name, OutputType: "product", OutputID: 904, OutputProductID: 904,
+			OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+			Actor: "rebind-auditor",
 			Variants: []bomapp.ProductionBomDraftVariant{{
 				SpecKey: "self-built-bag", Name: "自建袋装", InventoryUnit: "袋", IsDefault: true,
 				Items: []bomapp.ProductionBomDraftItem{{MaterialID: inputMaterialID, ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 0.227}},
@@ -308,36 +302,48 @@ func TestProductBOMOutputRebindingRejectsDraftSpecGroupWithoutPublishedTemplateP
 		return row
 	}
 
-	for _, productID := range []int64{901, 903} {
-		selfBuilt := createSelfBuiltVariantBOM(fmt.Sprintf("自建规格改绑 %d", productID))
-		if productID == 903 {
-			if _, err := pool.Exec(ctx, fmt.Sprintf(`
-				UPDATE %s.production_bom_versions
-				SET source_spec_template_version_id=$2,main_input_material_id=$3
-				WHERE id=$1
-			`, schema), selfBuilt.LatestVersionID, unpublishedTemplateVersionID, inputMaterialID); err != nil {
-				t.Fatal(err)
-			}
-		}
-		_, err := repo.UpdateProductionBom(ctx, bomapp.UpdateProductionBomCommand{
-			ID: selfBuilt.ID, Name: "不应改绑", OutputType: "product", OutputID: productID, OutputProductID: productID,
-			UpdateOutputBinding: true, Status: "active", Actor: "rebind-auditor",
-		})
-		if err == nil || !strings.Contains(err.Error(), "published specification template") {
-			t.Fatalf("self-built draft variants rebound to governed product %d error=%v", productID, err)
-		}
-		var storedType string
-		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT output_type FROM %s.production_boms WHERE id=$1`, schema), selfBuilt.ID).Scan(&storedType); err != nil {
-			t.Fatal(err)
-		}
-		if storedType != "material" {
-			t.Fatalf("rejected rebound mutated BOM %d output_type=%q", selfBuilt.ID, storedType)
-		}
+	manual := createSelfBuiltVariantBOM("手工规格改绑")
+	if _, err := repo.UpdateProductionBom(ctx, bomapp.UpdateProductionBomCommand{
+		ID: manual.ID, Name: "手工规格商品 BOM", OutputType: "product", OutputID: 901, OutputProductID: 901,
+		SpecificationMode:   bomapp.ProductionBomSpecificationModeSpecGroup,
+		UpdateOutputBinding: true, Status: "active", Actor: "rebind-auditor",
+	}); err != nil {
+		t.Fatalf("manual specification group must rebind without template provenance: %v", err)
+	}
+	var storedType string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT output_type FROM %s.production_boms WHERE id=$1`, schema), manual.ID).Scan(&storedType); err != nil {
+		t.Fatal(err)
+	}
+	if storedType != "product" {
+		t.Fatalf("manual specification group output_type=%q want product", storedType)
+	}
+
+	invalidTemplate := createSelfBuiltVariantBOM("非法模板来源改绑")
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.production_bom_versions
+		SET source_spec_template_version_id=$2,main_input_material_id=$3
+		WHERE id=$1
+	`, schema), invalidTemplate.LatestVersionID, unpublishedTemplateVersionID, inputMaterialID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.UpdateProductionBom(ctx, bomapp.UpdateProductionBomCommand{
+		ID: invalidTemplate.ID, Name: "不应改绑", OutputType: "product", OutputID: 903, OutputProductID: 903,
+		SpecificationMode:   bomapp.ProductionBomSpecificationModeSpecGroup,
+		UpdateOutputBinding: true, Status: "active", Actor: "rebind-auditor",
+	}); err == nil || !strings.Contains(err.Error(), "规格模板来源必须是已发布或历史已发布版本") {
+		t.Fatalf("invalid template provenance rebound error=%v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT output_type FROM %s.production_boms WHERE id=$1`, schema), invalidTemplate.ID).Scan(&storedType); err != nil {
+		t.Fatal(err)
+	}
+	if storedType != "product" {
+		t.Fatalf("rejected invalid-template rebound mutated BOM %d output_type=%q", invalidTemplate.ID, storedType)
 	}
 
 	legacyCompatible := createSelfBuiltVariantBOM("历史商品兼容自建规格")
 	if _, err := repo.UpdateProductionBom(ctx, bomapp.UpdateProductionBomCommand{
 		ID: legacyCompatible.ID, Name: "历史兼容改绑", OutputType: "product", OutputID: 902, OutputProductID: 902,
+		SpecificationMode:   bomapp.ProductionBomSpecificationModeSpecGroup,
 		UpdateOutputBinding: true, Status: "active", Actor: "rebind-auditor",
 	}); err != nil {
 		t.Fatalf("explicit legacy product must retain self-built draft compatibility: %v", err)
@@ -370,13 +376,15 @@ func TestProductBOMOutputRebindingRejectsDraftSpecGroupWithoutPublishedTemplateP
 	}
 	if _, err := repo.UpdateProductionBom(ctx, bomapp.UpdateProductionBomCommand{
 		ID: invalidMainInput.ID, Name: "不应接受无效主投入", OutputType: "product", OutputID: 901, OutputProductID: 901,
+		SpecificationMode:   bomapp.ProductionBomSpecificationModeSpecGroup,
 		UpdateOutputBinding: true, Status: "active", Actor: "rebind-auditor",
-	}); err == nil || !strings.Contains(err.Error(), "active main input material") {
+	}); err == nil || !strings.Contains(err.Error(), "规格主体物料不存在或已失效") {
 		t.Fatalf("published template with invalid main input rebound error=%v", err)
 	}
 	provenanced, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "有模板来源的历史商品 BOM", OutputType: "product", OutputID: 902, OutputProductID: 902,
-		OutputQty: 1, OutputUnit: "袋", SpecTemplateVersionID: templateVersionID, MainInputMaterialID: inputMaterialID, Actor: "rebind-auditor",
+		OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+		SpecTemplateVersionID: templateVersionID, MainInputMaterialID: inputMaterialID, Actor: "rebind-auditor",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -424,7 +432,8 @@ func TestReapplyProductBOMSpecTemplatePreservesStableSpecBarcodePostgres(t *test
 	}
 	createdBOM, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "条码保留 BOM", OutputType: "product", OutputID: 911, OutputProductID: 911,
-		OutputQty: 1, OutputUnit: "袋", SpecTemplateVersionID: templateV1, MainInputMaterialID: mainInputMaterialID, Actor: "barcode-auditor",
+		OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+		SpecTemplateVersionID: templateV1, MainInputMaterialID: mainInputMaterialID, Actor: "barcode-auditor",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -469,7 +478,7 @@ func TestReapplyProductBOMSpecTemplatePreservesStableSpecBarcodePostgres(t *test
 	}
 }
 
-func TestGovernedProductBOMVersionRequiresPublishedTemplateProvenanceAcrossPublishAndBindingsPostgres(t *testing.T) {
+func TestManualProductBOMSpecGroupWorksAcrossPublishAndBindingsPostgres(t *testing.T) {
 	ctx, pool, schema := newPR600BomMaintenanceTestDB(t)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		ALTER TABLE %s.products ADD COLUMN IF NOT EXISTS parent_product_id BIGINT NOT NULL DEFAULT 0;
@@ -521,18 +530,14 @@ func TestGovernedProductBOMVersionRequiresPublishedTemplateProvenanceAcrossPubli
 		t.Helper()
 		row, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 			Name: name, OutputType: "product", OutputID: productID, OutputProductID: productID,
-			OutputQty: 1, OutputUnit: "袋", Actor: "late-governance-auditor",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := repo.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{
-			VersionID: row.LatestVersionID, Actor: "late-governance-auditor",
+			OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+			Actor: "late-governance-auditor",
 			Variants: []bomapp.ProductionBomDraftVariant{{
 				SpecKey: "legacy-bag", Name: "旧规格袋装", InventoryUnit: "袋", IsDefault: true,
 				Items: []bomapp.ProductionBomDraftItem{{MaterialID: inputMaterialID, ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 0.227}},
 			}},
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatal(err)
 		}
 		return row
@@ -542,8 +547,8 @@ func TestGovernedProductBOMVersionRequiresPublishedTemplateProvenanceAcrossPubli
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_bom_spec_migrations SET state='cutover' WHERE product_id=921`, schema)); err != nil {
 		t.Fatal(err)
 	}
-	if err := publishVersion(publishCandidate.LatestVersionID); err == nil || !strings.Contains(err.Error(), "published specification template") {
-		t.Errorf("cutover publish without template provenance error=%v", err)
+	if err := publishVersion(publishCandidate.LatestVersionID); err != nil {
+		t.Errorf("publish manual specification group after cutover: %v", err)
 	}
 
 	productBindCandidate := createLegacyBOM(922, "新商品默认绑定候选")
@@ -553,8 +558,8 @@ func TestGovernedProductBOMVersionRequiresPublishedTemplateProvenanceAcrossPubli
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_bom_spec_migrations SET state='preparing',legacy_catalog_product=false WHERE product_id=922`, schema)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.BindProductProductionBom(ctx, bomapp.BindProductProductionBomCommand{ProductID: 922, BomID: productBindCandidate.ID, Actor: "late-governance-auditor"}); err == nil || !strings.Contains(err.Error(), "published specification template") {
-		t.Errorf("new product default bind without template provenance error=%v", err)
+	if _, err := repo.BindProductProductionBom(ctx, bomapp.BindProductProductionBomCommand{ProductID: 922, BomID: productBindCandidate.ID, Actor: "late-governance-auditor"}); err != nil {
+		t.Errorf("bind manual specification group for new product: %v", err)
 	}
 
 	outputBindCandidate := createLegacyBOM(923, "切换商品通用绑定候选")
@@ -564,8 +569,8 @@ func TestGovernedProductBOMVersionRequiresPublishedTemplateProvenanceAcrossPubli
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_bom_spec_migrations SET state='cutover' WHERE product_id=923`, schema)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.BindProductionBomOutput(ctx, bomapp.BindProductionBomOutputCommand{OutputType: "product", OutputID: 923, BomID: outputBindCandidate.ID, Actor: "late-governance-auditor"}); err == nil || !strings.Contains(err.Error(), "published specification template") {
-		t.Errorf("cutover generic output bind without template provenance error=%v", err)
+	if _, err := repo.BindProductionBomOutput(ctx, bomapp.BindProductionBomOutputCommand{OutputType: "product", OutputID: 923, BomID: outputBindCandidate.ID, Actor: "late-governance-auditor"}); err != nil {
+		t.Errorf("bind manual specification group through generic output: %v", err)
 	}
 
 	legacyCandidate := createLegacyBOM(924, "明确 legacy 兼容 BOM")
@@ -587,8 +592,8 @@ func TestGovernedProductBOMVersionRequiresPublishedTemplateProvenanceAcrossPubli
 		`, schema), productID).Scan(&bindingCount); err != nil {
 			t.Fatal(err)
 		}
-		if bindingCount != 0 {
-			t.Errorf("rejected governed binding persisted for product %d", productID)
+		if bindingCount != 1 {
+			t.Errorf("manual specification group binding count for product %d = %d, want 1", productID, bindingCount)
 		}
 	}
 }
@@ -630,7 +635,8 @@ func TestArchivedPublishedTemplateProvenanceRemainsValidAcrossPublishAndBindings
 	}
 	historicalBOM, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "使用 V1 的 BOM", OutputType: "product", OutputID: 931, OutputProductID: 931,
-		OutputQty: 1, OutputUnit: "袋", SpecTemplateVersionID: templateV1, MainInputMaterialID: mainInputMaterialID, Actor: "archive-source-auditor",
+		OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+		SpecTemplateVersionID: templateV1, MainInputMaterialID: mainInputMaterialID, Actor: "archive-source-auditor",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -666,7 +672,8 @@ func TestArchivedPublishedTemplateProvenanceRemainsValidAcrossPublishAndBindings
 	}
 	draftSourceBOM, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "错误草稿来源 BOM", OutputType: "product", OutputID: 932, OutputProductID: 932,
-		OutputQty: 1, OutputUnit: "袋", SpecTemplateVersionID: templateV2.ID, MainInputMaterialID: mainInputMaterialID, Actor: "archive-source-auditor",
+		OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+		SpecTemplateVersionID: templateV2.ID, MainInputMaterialID: mainInputMaterialID, Actor: "archive-source-auditor",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -674,7 +681,7 @@ func TestArchivedPublishedTemplateProvenanceRemainsValidAcrossPublishAndBindings
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_bom_versions SET source_spec_template_version_id=$2 WHERE id=$1`, schema), draftSourceBOM.LatestVersionID, templateV3.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := publishProductionBOMVersionForMaintenanceTest(ctx, pool, repo, draftSourceBOM.LatestVersionID, "archive-source-auditor"); err == nil || !strings.Contains(err.Error(), "published specification template") {
+	if err := publishProductionBOMVersionForMaintenanceTest(ctx, pool, repo, draftSourceBOM.LatestVersionID, "archive-source-auditor"); err == nil || !strings.Contains(err.Error(), "规格模板来源必须是已发布或历史已发布版本") {
 		t.Fatalf("draft template provenance publish error=%v", err)
 	}
 }
@@ -722,7 +729,8 @@ func TestConcurrentProductBOMDraftMutationAndPublishAvoidsDeadlockPostgres(t *te
 			}
 			createdBOM, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 				Name: "并发 BOM " + operation, OutputType: "product", OutputID: productID, OutputProductID: productID,
-				OutputQty: 1, OutputUnit: "袋", SpecTemplateVersionID: templateVersionID, MainInputMaterialID: mainInputMaterialID, Actor: "concurrency-auditor",
+				OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+				SpecTemplateVersionID: templateVersionID, MainInputMaterialID: mainInputMaterialID, Actor: "concurrency-auditor",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -846,7 +854,8 @@ func TestCreateProductionBomVersionPreservesSpecTemplateProvenancePostgres(t *te
 	}
 	governedBOM, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "新模型版本复制 BOM", OutputType: "product", OutputID: 951, OutputProductID: 951,
-		OutputQty: 1, OutputUnit: "袋", SpecTemplateVersionID: templateVersionID, MainInputMaterialID: mainInputMaterialID, Actor: "version-provenance-auditor",
+		OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+		SpecTemplateVersionID: templateVersionID, MainInputMaterialID: mainInputMaterialID, Actor: "version-provenance-auditor",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -876,7 +885,12 @@ func TestCreateProductionBomVersionPreservesSpecTemplateProvenancePostgres(t *te
 
 	legacyBOM, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "历史兼容版本复制 BOM", OutputType: "product", OutputID: 952, OutputProductID: 952,
-		OutputQty: 1, OutputUnit: "袋", Actor: "version-provenance-auditor",
+		OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+		Actor: "version-provenance-auditor",
+		Variants: []bomapp.ProductionBomDraftVariant{{
+			SpecKey: "legacy-bag", Name: "历史手工袋装", InventoryUnit: "袋", IsDefault: true,
+			Items: []bomapp.ProductionBomDraftItem{{MaterialID: mainInputMaterialID, ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 0.227}},
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1006,7 +1020,8 @@ func TestUpdateProductionBomUnchangedPublishedOutputSkipsDraftProvenancePostgres
 	}
 	created, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "已发布原名称", OutputType: "product", OutputID: 971, OutputProductID: 971,
-		OutputQty: 1, OutputUnit: "袋", SpecTemplateVersionID: templateVersionID, MainInputMaterialID: mainInputMaterialID, Actor: "published-update-auditor",
+		OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+		SpecTemplateVersionID: templateVersionID, MainInputMaterialID: mainInputMaterialID, Actor: "published-update-auditor",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1086,7 +1101,8 @@ func newPR600DefaultSwitchFixture(t *testing.T) pr600DefaultSwitchFixture {
 	createBOM := func(name string) bomapp.ProductionBomSummary {
 		created, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 			Name: name, OutputType: "product", OutputID: productID, OutputProductID: productID,
-			OutputQty: 1, OutputUnit: "袋", SpecTemplateVersionID: templateVersionID, MainInputMaterialID: mainInputMaterialID, Actor: "default-switch-fixture",
+			OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+			SpecTemplateVersionID: templateVersionID, MainInputMaterialID: mainInputMaterialID, Actor: "default-switch-fixture",
 		})
 		if err != nil {
 			t.Fatal(err)

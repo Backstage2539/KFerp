@@ -433,6 +433,43 @@ describe('employee mini order entry', () => {
     })
   })
 
+  it('matches the production-style 454g fifty-bag order to the 48+ tier', () => {
+    const family = {
+      customer_id: 0,
+      parent_product_id: 58,
+      name: '曜石2.0',
+      specs: [{
+        product_id: 58,
+        bom_spec_id: 69,
+        bom_variant_id: 230,
+        spec_label: '454g袋装',
+        sales_unit: '袋',
+        tiers: [
+          { id: 32, unit_price: 59, min_qty: 2, max_qty: 13 },
+          { id: 33, unit_price: 56, min_qty: 14, max_qty: 23 },
+          { id: 34, unit_price: 50, min_qty: 24, max_qty: 47 },
+          { id: 35, unit_price: 47, min_qty: 48, max_qty: null },
+        ],
+      }],
+    }
+    const item = Object.assign(createEmployeeOrderItem('obsidian-50'), {
+      product_family_key: '0:58:0',
+      product_family_id: 58,
+      product_id: 58,
+      bom_spec_id: 69,
+      bom_variant_id: 230,
+      qty: 50,
+      unit_price: 59,
+      price_override: false,
+    })
+
+    expect(repriceEmployeeOrderItemForQuantity(item, family)).toMatchObject({
+      qty: 50,
+      unit_price: 47,
+      price_override: false,
+    })
+  })
+
   it('waits for an explicit quantity before showing a tier-template price', () => {
     const family = {
       customer_id: 0,

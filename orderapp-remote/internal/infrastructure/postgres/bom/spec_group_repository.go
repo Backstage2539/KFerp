@@ -1433,8 +1433,11 @@ func validateProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx, schema
 }
 
 // validateGovernedProductBOMVersionSpecGroupTx validates one explicitly
-// multi-specification version. The caller owns the surrounding product/default
-// graph lock before this function locks the version and its provenance rows.
+// multi-specification version. Specification templates are optional blueprints:
+// a hand-built group has no provenance IDs, while a copied group must retain a
+// complete and valid template/material pair. The caller owns the surrounding
+// product/default graph lock before this function locks the version and its
+// provenance rows.
 func validateGovernedProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx, schema string, versionID int64) error {
 	if versionID <= 0 {
 		return nil
@@ -1470,8 +1473,12 @@ func validateGovernedProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx
 	`, schema), lockedVersionID).Scan(&templateVersionID, &mainInputMaterialID); err != nil {
 		return fmt.Errorf("product BOM version not found")
 	}
-	if templateVersionID <= 0 || mainInputMaterialID <= 0 {
-		return fmt.Errorf("product BOM version requires a specification group copied from a published specification template with an active main input material")
+	hasTemplateProvenance, err := productBOMSpecTemplateProvenanceMode(templateVersionID, mainInputMaterialID)
+	if err != nil {
+		return err
+	}
+	if !hasTemplateProvenance {
+		return nil
 	}
 	var templateStatus string
 	var templateWasPublished bool
@@ -1480,7 +1487,7 @@ func validateGovernedProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx
 		WHERE id=$1
 		FOR SHARE
 	`, schema), templateVersionID).Scan(&templateStatus, &templateWasPublished); err != nil || !templateWasPublished || (templateStatus != "published" && templateStatus != "archived") {
-		return fmt.Errorf("product BOM version requires a specification group copied from a published specification template with an active main input material")
+		return fmt.Errorf("规格模板来源必须是已发布或历史已发布版本")
 	}
 	var mainInputActive bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -1488,9 +1495,21 @@ func validateGovernedProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx
 		WHERE id=$1
 		FOR SHARE
 	`, schema), mainInputMaterialID).Scan(&mainInputActive); err != nil || !mainInputActive {
-		return fmt.Errorf("product BOM version requires a specification group copied from a published specification template with an active main input material")
+		return fmt.Errorf("规格主体物料不存在或已失效")
 	}
 	return nil
+}
+
+func productBOMSpecTemplateProvenanceMode(templateVersionID, mainInputMaterialID int64) (bool, error) {
+	hasTemplateVersion := templateVersionID > 0
+	hasMainInputMaterial := mainInputMaterialID > 0
+	if !hasTemplateVersion && !hasMainInputMaterial {
+		return false, nil
+	}
+	if hasTemplateVersion != hasMainInputMaterial {
+		return false, fmt.Errorf("规格模板来源和规格主体物料必须同时配置")
+	}
+	return true, nil
 }
 
 func (r Repository) listProductionBomVersionVariants(ctx context.Context, versionID int64) ([]bomapp.ProductionBomVersionVariant, error) {
