@@ -26,6 +26,7 @@ import {
   lineTotal,
   latestBeanListVersionOption,
   latestProductPriceListVersionOption,
+  isConcreteOrderPublicationTier,
   isOrderProductFamily,
   needsTrailingBlankOrderLine,
   normalizeOrderProductFamilies,
@@ -36,6 +37,7 @@ import {
   orderFamilySpecsForPublication,
   orderFamilySpecProduct,
   orderFamilySpecOptions,
+  orderFamilySpecForStoredItem,
   orderLegacyProductForPublication,
   orderProductFamilyOptions,
   orderProductFamilyForContext,
@@ -397,6 +399,68 @@ test('order spec choices only include concrete SKUs priced by the selected publi
   assert.equal(orderSpecSelectionAfterPublicationChange(family, 702, 91), null)
 })
 
+test('cutover order rows resolve the published tier by BOM spec identity before the parent product id', () => {
+  const family = {
+    parent_product_id: 52,
+    specs: [{
+      sku_id: 222,
+      bom_spec_id: 222,
+      bom_variant_id: 272,
+      migration_state: 'cutover',
+      inventory_unit: '袋',
+      spec_label: '2Kg袋装',
+      tiers: [{
+        id: 782,
+        publication_id: 17,
+        min: 10,
+        max: 24,
+        unit_price: 162.3,
+        quantity_basis: 'sales_spec_count',
+        price_unit: '袋',
+      }],
+    }],
+  }
+  const row = {
+    product_id: 52,
+    bom_spec_id: 222,
+    spec_mode: '222',
+    qty: 13,
+    unit: '袋',
+    bean_list_publication_id: 17,
+  }
+
+  const selected = orderFamilySpecForStoredItem(family, row, 17)
+  assert.equal(selected?.bom_spec_id, 222)
+  const product = orderFamilySpecProduct(family, selected, 17)
+  const priced = resolveWholesaleTierPrice(product, row)
+  assert.equal(priced.unitPrice, '162.3')
+  assert.deepEqual(priced.priceUnit, { label: '元/袋', suffix: '/袋', unitG: 1 })
+  assert.deepEqual(wholesaleTierPriceRows(product, row).map((tier) => ({
+    unitPrice: tier.unitPrice,
+    priceUnit: tier.priceUnit,
+  })), [{
+    unitPrice: 162.3,
+    priceUnit: { label: '元/袋', suffix: '/袋', unitG: 1 },
+  }])
+})
+
+test('a BOM specification order row uses its frozen inventory unit instead of guessing kg or lb from weight', () => {
+  assert.deepEqual(orderRowPriceUnit({
+    bom_spec_id: 222,
+    unit: '袋',
+    spec_label: '2Kg袋装',
+    spec_g: 227,
+  }), { label: '元/袋', suffix: '/袋', unitG: 1 })
+})
+
+test('a published BOM specification tier is a concrete order price even without a legacy child SKU', () => {
+  assert.equal(isConcreteOrderPublicationTier({
+    publication_id: 17,
+    quantity_basis: 'sales_spec_count',
+    effective_sales_spec: { product_id: 52, bom_spec_id: 222, inventory_unit: '袋' },
+  }), true)
+})
+
 test('selecting an order price-list spec freezes concrete SKU identity while keeping the parent product name', () => {
   const family = normalizeOrderProductFamilies([{
     parent_product_id: 70,
@@ -565,6 +629,8 @@ test('OrderEntryView uses parent product families and concrete published SKU spe
   assert.match(source, /function onSpecChange\(row\)/)
   assert.match(source, /当前价格表未发布该商品规格，不能保存；请补齐价格表或选择有价规格。/)
   assert.match(source, /const spec = orderSpecSelectionAfterPublicationChange\(/)
+  assert.match(source, /function productForRow\(row\)[\s\S]*?orderFamilySpecForStoredItem\([\s\S]*?family,[\s\S]*?row,[\s\S]*?publicationID/)
+  assert.match(source, /function repriceHydratedRows\(\)[\s\S]*?orderFamilySpecForStoredItem\([\s\S]*?family,[\s\S]*?row/)
   assert.doesNotMatch(source, /if \(!spec\) return productByID\(row\?\.product_id, row\)/)
   assert.match(source, /function invalidatePriceListSpecRow\(row/)
   assert.match(source, /所选价格表不包含该商品当前规格，请重新选择规格/)

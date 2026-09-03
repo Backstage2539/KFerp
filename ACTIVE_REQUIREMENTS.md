@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-624-ORDER-BOM-SPEC-PRICE-UNIT-CONSISTENCY
+- Branch: `codex/pr624-order-bom-spec-unit-consistency`
+- Owner/session: Codex / 2026-09-03
+- Status: implementation and full local verification complete; feature branch synchronized for `develop` integration
+- Scope: 录单按所选 BOM 规格而不是主商品 ID 命中同规格阶梯价；件数阶梯直接使用发布最终价；ERP、小程序及订单快照统一使用 BOM 规格库存单位。
+- DEV: DEV-624-BOM-SPEC-TIER-RESOLUTION; DEV-624-ORDER-UNIT-SNAPSHOT; DEV-624-VERIFICATION-INTEGRATION
+- Verifier: production `曲奇 / 2Kg袋装 / 13袋` maps to publication 17 V3.0.15 at 162.30/袋; Vue RED 3 failures -> 133/133 GREEN; Vue full 1054/1054; miniapp 219/219 and development build GREEN; backend/full verifier and real PostgreSQL BOM-spec order save/read GREEN.
+- Deployment: not authorized in this request; development and production environments remain unchanged.
+- Last update: 2026-09-03 Asia/Shanghai
+
+### PR-623-LEGACY-PRODUCT-BOM-TEMPLATE-REAPPLY
+- Branch: `codex/pr623-legacy-bom-template-reapply`
+- Owner/session: Codex / 2026-09-03
+- Status: production reproduced; local and real-PostgreSQL GREEN; branch integration and dual-environment release pending
+- Scope: 历史单一产出商品 BOM 在规格权威切换尚未完成时，页面点击“重新套用模板”应自动创建保留来源历史的规格组替代草稿，不再泄漏英文多规格校验错误。
+- DEV: DEV-623-LEGACY-REAPPLY-ROUTING; DEV-623-TEMPLATE-REPLACEMENT-COPY; DEV-623-PRODUCTION-REGRESSION-DELIVERY
+- Verifier: Vue RED missing strategy export -> 45/45 GREEN; replacement-template PostgreSQL transaction GREEN against temporary schema; replacement API GREEN; `scripts/verify_kferp.sh all` GREEN with Go, Vue 1051/1051 and Vite build.
+- Deployment: production regression belongs to the current PR-622 release; feature branch must merge through `develop` and `main` before production deployment. No production BOM business data is auto-mutated by deployment.
+- Last update: 2026-09-03 Asia/Shanghai
+
 ### PR-622-PRODUCT-BOM-SPEC-AUTHORITY
 - Branch: `codex/pr622-product-bom-spec-authority`
 - Owner/session: Codex / 2026-09-01

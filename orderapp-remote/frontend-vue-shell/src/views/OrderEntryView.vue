@@ -1064,11 +1064,7 @@ function productForRow(row) {
   if (!family || !isConcretePriceListRow(row)) return productByID(row?.product_id, row)
   const selected = selectedBeanListVersionOptionForProduct(family)
   const publicationID = Number(selected?.id || row?.bean_list_publication_id || 0)
-  const spec = orderSpecSelectionAfterPublicationChange(
-    family,
-    Number(row?.product_id || row?.spec_mode || 0),
-    publicationID,
-  )
+  const spec = orderFamilySpecForStoredItem(family, row, publicationID)
   if (!spec) return null
   return orderFamilySpecProduct(family, spec, publicationID)
 }
@@ -1855,9 +1851,8 @@ function syncRowsForType(options = {}) {
     if (family?.__order_concrete_price_family || row.spec_source === 'price_list_sku') {
       if (row.historical_spec_readonly && !options.priceListChanged) return
       const selected = selectedBeanListVersionOptionForProduct(family || row)
-      const currentSkuID = Number(row.product_id || row.spec_mode || 0)
       const spec = family && Number(selected?.id || 0) > 0
-        ? orderSpecSelectionAfterPublicationChange(family, currentSkuID, selected.id)
+        ? orderFamilySpecForStoredItem(family, row, selected.id)
         : null
       if (!spec) {
         invalidatePriceListSpecRow(row)
@@ -2333,7 +2328,7 @@ function repriceHydratedRows() {
     if (family?.__order_concrete_price_family || row.spec_source === 'price_list_sku') {
       const selected = selectedBeanListVersionOptionForProduct(family || row)
       const spec = family
-        ? orderSpecSelectionAfterPublicationChange(family, row.product_id, selected?.id || row.bean_list_publication_id || 0)
+        ? orderFamilySpecForStoredItem(family, row, selected?.id || row.bean_list_publication_id || 0)
         : null
       if (!spec) {
         invalidatePriceListSpecRow(row)

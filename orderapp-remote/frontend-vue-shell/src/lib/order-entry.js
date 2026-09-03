@@ -655,7 +655,16 @@ function orderFamilyTierVersion(tier = {}) {
 }
 
 function orderSpecSalesUnit(spec = {}, tier = {}) {
-  const raw = orderFamilyText(spec.sales_unit ?? spec.salesUnit ?? tier.sales_unit ?? tier.salesUnit).toLowerCase()
+  const raw = orderFamilyText(
+    spec.sales_unit
+      ?? spec.salesUnit
+      ?? tier.sales_unit
+      ?? tier.salesUnit
+      ?? spec.inventory_unit
+      ?? spec.inventoryUnit
+      ?? tier.inventory_unit
+      ?? tier.inventoryUnit,
+  ).toLowerCase()
   if (raw === 'box' || raw.includes('盒')) return 'box'
   if (raw === 'bag' || raw.includes('袋')) return 'bag'
   return ''
@@ -665,6 +674,13 @@ function orderSpecQuantityUnit(spec = {}, tier = {}) {
   const salesUnit = orderSpecSalesUnit(spec, tier)
   if (salesUnit === 'box') return '盒'
   if (salesUnit === 'bag') return '袋'
+  const inventoryUnit = orderFamilyText(
+    spec.inventory_unit
+      ?? spec.inventoryUnit
+      ?? tier.inventory_unit
+      ?? tier.inventoryUnit,
+  )
+  if (inventoryUnit) return inventoryUnit
   const orderUnit = orderFamilyText(spec.order_unit ?? spec.orderUnit)
   if (['盒', '袋', '条', '瓶', '罐'].some((unit) => orderUnit.includes(unit))) return orderUnit
   return '件'
@@ -883,11 +899,20 @@ function priceUnitForStoredFields(label, suffix, unitG) {
 }
 
 export function orderRowPriceUnit(row) {
-  return priceUnitForStoredFields(
+  const stored = priceUnitForStoredFields(
     String(row?.price_unit || '').trim(),
     String(row?.price_unit_suffix || '').trim(),
     row?.price_unit_g,
-  ) || wholesalePriceUnit(row)
+  )
+  if (stored) return stored
+  if (orderFamilyID(row?.bom_spec_id, row?.bomSpecID) > 0) {
+    const inventoryUnit = orderFamilyText(row?.inventory_unit ?? row?.inventoryUnit ?? row?.unit)
+    if (inventoryUnit) return priceUnitForDisplayUnit(inventoryUnit, 1)
+    const salesUnit = orderFamilyText(row?.sales_unit ?? row?.salesUnit).toLowerCase()
+    if (salesUnit === 'bag') return priceUnitForDisplayUnit('袋', 1)
+    if (salesUnit === 'box') return priceUnitForDisplayUnit('盒', 1)
+  }
+  return wholesalePriceUnit(row)
 }
 
 function tierConfiguredUnitPrice(tier) {
@@ -957,13 +982,22 @@ export function wholesaleTierPriceRows(product, row = null) {
   return tiersForSelectedPublication(product, row)
     .filter((tier) => tierQuantityBasis(tier) === 'sales_spec_count' || toInt(tier.spec_g) > 0)
     .map((tier) => {
-      const priceUnit = priceUnitForDisplayUnit(tier?.display_unit, tier?.spec_g) || wholesalePriceUnit(toInt(tier.spec_g))
+      const source = tierPriceSource(tier) || {}
+      const countBased = tierQuantityBasis(tier) === 'sales_spec_count'
+      const priceUnit = priceUnitForDisplayUnit(
+        countBased
+          ? (tier?.price_unit || source.price_unit || tier?.display_unit)
+          : tier?.display_unit,
+        tier?.spec_g,
+      ) || (row ? orderRowPriceUnit(row) : wholesalePriceUnit(toInt(tier.spec_g)))
       return {
         id: String(tier.id || ''),
         specG: toInt(tier.spec_g),
         specLabel: formatSpecLabel(tier.spec_g),
         rangeLabel: formatTierRange(tier),
-        unitPrice: wholesaleTierDisplayUnitPrice(tier, priceUnit),
+        unitPrice: countBased
+          ? roundToCents(tierConfiguredUnitPrice(tier))
+          : wholesaleTierDisplayUnitPrice(tier, priceUnit),
         priceUnit,
       }
     })
@@ -989,7 +1023,15 @@ export function isConcreteOrderPublicationTier(tier = {}) {
   }
   return tierQuantityBasis(tier) === 'sales_spec_count'
     && tierPublicationID(tier) > 0
-    && orderFamilyID(effectiveSalesSpec.sku_id, effectiveSalesSpec.skuID, effectiveSalesSpec.skuId) > 0
+    && orderFamilyID(
+      effectiveSalesSpec.bom_spec_id,
+      effectiveSalesSpec.bomSpecID,
+      tier?.bom_spec_id,
+      tier?.bomSpecID,
+      effectiveSalesSpec.sku_id,
+      effectiveSalesSpec.skuID,
+      effectiveSalesSpec.skuId,
+    ) > 0
 }
 
 export function orderProductPublicationMode(product = {}, publicationID = 0) {
@@ -1067,9 +1109,17 @@ export function resolveWholesaleTierPrice(product, row) {
       priceMissing: true,
     }
   }
-  const priceUnit = priceUnitForDisplayUnit(tier?.display_unit, tier?.spec_g) || orderRowPriceUnit(row)
-  const unitPrice = wholesaleTierDisplayUnitPrice(tier, priceUnit) || 0
   const source = tierPriceSource(tier) || {}
+  const countBased = tierQuantityBasis(tier) === 'sales_spec_count'
+  const priceUnit = priceUnitForDisplayUnit(
+    countBased
+      ? (tier?.price_unit || source.price_unit || tier?.display_unit)
+      : tier?.display_unit,
+    tier?.spec_g,
+  ) || orderRowPriceUnit(row)
+  const unitPrice = countBased
+    ? roundToCents(tierConfiguredUnitPrice(tier))
+    : (wholesaleTierDisplayUnitPrice(tier, priceUnit) || 0)
   return {
     tierID: String(tier.id),
     unitPrice: String(unitPrice),

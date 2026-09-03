@@ -1133,12 +1133,33 @@ func withOrderBOMSpecPriceSourceJSON(raw string, identity orderBOMSpecIdentity) 
 	source["bom_spec_key"] = identity.BomSpecKey
 	source["bom_spec_name"] = identity.BomSpecName
 	source["inventory_unit"] = identity.InventoryUnit
+	source["price_unit"] = identity.InventoryUnit
 	source["quantity_basis"] = "sales_spec_count"
 	delete(source, "sku_id")
 	delete(source, "spec_g")
 	if identity.LegacyPricingProductID > 0 {
 		source["legacy_pricing_product_id"] = identity.LegacyPricingProductID
 	}
+	buf, err := json.Marshal(source)
+	if err != nil {
+		return "{}"
+	}
+	return string(buf)
+}
+
+func withOrderManualPriceSnapshotJSON(raw, priceUnit string, finalUnitPrice float64) string {
+	source := map[string]any{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &source)
+	}
+	if source == nil {
+		source = map[string]any{}
+	}
+	if strings.TrimSpace(priceUnit) != "" {
+		source["price_unit"] = strings.TrimSpace(priceUnit)
+	}
+	source["final_unit_price"] = finalUnitPrice
+	source["manual_adjusted"] = true
 	buf, err := json.Marshal(source)
 	if err != nil {
 		return "{}"
@@ -1595,6 +1616,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					LegacyPricingProductID: items[idx].legacyPricingProductID,
 				}
 				items[idx].priceSourceJSON = withOrderBOMSpecPriceSourceJSON(`{"source":"manual"}`, identity)
+				items[idx].priceSourceJSON = withOrderManualPriceSnapshotJSON(items[idx].priceSourceJSON, identity.InventoryUnit, *items[idx].manualPrice)
 			} else if selection.Strict {
 				items[idx].matchedPriceQty = float64(items[idx].units)
 				items[idx].priceSourceJSON = manualConcreteOrderPriceSourceJSON(selection, *items[idx].productID)
