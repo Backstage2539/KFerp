@@ -29,6 +29,9 @@
 - [x] 完整后端测试：`scripts/verify_kferp.sh backend` 通过，包含 catalog、materials、bom、stock 与 support。
 - [x] Vue 构建：`scripts/verify_kferp.sh frontend-build` 通过，6596 个模块完成构建；仅有既有大 chunk 提示。
 - [x] 改动范围检查：`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
+- [x] development 远端预检：Web 1060/1060、小程序 220/220、全量 Go、Vue/小程序构建与隔离 Docker 镜像构建通过，且未改变服务器源码或容器。
+- [x] development 部署：功能集成提交 `14a55522d6a5448543bea35eaad8c305629a680a` 已发布；`erp_orderapp` 运行，外部 `/app/login` 返回 200，需求接口包含 PR-626；共享 helper/组件服务器指纹与该提交一致。
+- [x] 回滚点：源码 `/opt/stacks/erp/orderapp.backup.deploy-20260904001641-14a55522d6a5`，镜像 `kferp-orderapp-rollback:development-20260904001641-14a55522d6a5`。
 
 ## 待人工验收
 

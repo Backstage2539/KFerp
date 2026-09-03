@@ -4844,7 +4844,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-626-GROUP-LIST-SEARCH-PAGINATION-MOVE
 - Branch: codex/group-list-search-pagination-move-20260903
 - Owner/session: Codex / 2026-09-03
-- Status: verified；定向与全量门禁已通过，等待同步最新 `origin/develop`、合入 `develop` 与 development 部署。
+- Status: development delivered；功能、定向/全量门禁、`develop` 集成与 development 部署已完成，等待 Van 页面业务验收。
 - Scope: 商品档案、物料档案、生产 BOM 和具体仓库库存共用搜索子树折叠/首条定位、分类 10 条分页阈值和紧凑移动目标模式；保留各页筛选、身份、assignment API 和操作日志。
 - DEV:
   - DEV-626-GROUP-SEARCH-FOCUS（done）：完整子树命中展开、空分支收起、首条业务行聚焦；清空恢复搜索前折叠与滚动，物料/仓库只在查询成功后应用。
@@ -4859,6 +4859,6 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN build/changed：`scripts/verify_kferp.sh frontend-build` 与 `scripts/verify_kferp.sh changed` 通过；Vite 6596 modules 构建成功，仅保留既有大 chunk 提示。
   - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md；orderapp-remote/docs/OP_MANUAL_PRODUCTION.md。
   - Review/acceptance: REQUIREMENTS.md；ACCEPTANCE_TESTS.md；orderapp-remote/docs/REQUIREMENTS.md；orderapp-remote/docs/ACCEPTANCE_TESTS.md；orderapp-remote/docs/acceptance/2026-09-03-group-list-search-pagination-move.md。
-- Deployment: pending development；production 与微信上传不在范围。
+- Deployment: development 已部署（功能集成提交 `14a55522d6a5448543bea35eaad8c305629a680a`）；`erp_orderapp` 运行、外部 `/app/login` 200、需求接口可见 PR-626，关键共享 helper/组件服务器指纹与提交一致；rollback `kferp-orderapp-rollback:development-20260904001641-14a55522d6a5`。production 与微信上传不在范围。
 - Last update: 2026-09-04 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 多行字符串上报错且未产生文件改动；最新 `origin/develop` 已占用 PR-622～625，因此按下一可用编号手工登记 PR-626。
