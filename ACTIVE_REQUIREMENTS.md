@@ -4840,3 +4840,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development 4bb09752eb2d814b51609359eba7d1d81b64502b；smoke 200；rollback kferp-orderapp-rollback:development-20260820152737-4bb09752eb2d
 - Last update: 2026-08-20
 - Notes: 顺带修复 PR-601 悬空 materialLossRateDisplay 渲染函数源码 bug；旧商品销售规格模板面板保留迁移期（菜单"单位模板"）；已发布 BOM 产出身份守卫不变。
+
+### PR-626-GROUP-LIST-SEARCH-PAGINATION-MOVE
+- Branch: codex/group-list-search-pagination-move-20260903
+- Owner/session: Codex / 2026-09-03
+- Status: verified；定向与全量门禁已通过，等待同步最新 `origin/develop`、合入 `develop` 与 development 部署。
+- Scope: 商品档案、物料档案、生产 BOM 和具体仓库库存共用搜索子树折叠/首条定位、分类 10 条分页阈值和紧凑移动目标模式；保留各页筛选、身份、assignment API 和操作日志。
+- DEV:
+  - DEV-626-GROUP-SEARCH-FOCUS（done）：完整子树命中展开、空分支收起、首条业务行聚焦；清空恢复搜索前折叠与滚动，物料/仓库只在查询成功后应用。
+  - DEV-626-GROUP-PAGINATION-THRESHOLD（done）：0～10 条完整展示无分页，11 条起保留分类独立分页和当前页全选范围。
+  - DEV-626-COMPACT-MOVE-TARGETS（done）：移动模式展示全部标题并隐藏业务行/分页；成功或取消恢复，失败保留勾选和模式。
+- Verifier:
+  - RED frontend：缺少搜索 helper、已应用搜索词、业务行定位标记、分页阈值和紧凑移动状态时定向套件失败。
+  - RED support：PR/DEV、需求、验收、手册和独立验收记录缺失时 `TestDev626GroupListInteractionDeliveryContracts` 失败。
+  - GREEN targeted：7 个相关前端测试文件 302/302 通过。
+  - GREEN frontend full：`scripts/verify_kferp.sh frontend-tests`，1060/1060 通过。
+  - GREEN backend full：`scripts/verify_kferp.sh backend`，全量 Go 包通过（含 catalog/materials/bom/stock/support）。
+  - GREEN build/changed：`scripts/verify_kferp.sh frontend-build` 与 `scripts/verify_kferp.sh changed` 通过；Vite 6596 modules 构建成功，仅保留既有大 chunk 提示。
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md；orderapp-remote/docs/OP_MANUAL_PRODUCTION.md。
+  - Review/acceptance: REQUIREMENTS.md；ACCEPTANCE_TESTS.md；orderapp-remote/docs/REQUIREMENTS.md；orderapp-remote/docs/ACCEPTANCE_TESTS.md；orderapp-remote/docs/acceptance/2026-09-03-group-list-search-pagination-move.md。
+- Deployment: pending development；production 与微信上传不在范围。
+- Last update: 2026-09-04 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 多行字符串上报错且未产生文件改动；最新 `origin/develop` 已占用 PR-622～625，因此按下一可用编号手工登记 PR-626。

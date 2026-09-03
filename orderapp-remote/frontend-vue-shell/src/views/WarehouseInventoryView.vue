@@ -68,6 +68,7 @@
           v-model:collapsed-keys="collapsedInventoryGroupKeys"
           data-pr442-warehouse-business-groups
           :groups="pagedInventoryDisplayGroups"
+          :search-query="appliedInventorySearchQuery"
           :move-active="inventoryCategoryMoveActive"
           :selected-count="selectedItemRowsForMove.length"
           :can-move="canMoveSelectedInventoryItems"
@@ -103,7 +104,12 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="row in group.rows" :key="`${group.key}-${rowKey(row)}`" class="classification-item-row">
+                  <tr
+                    v-for="row in group.rows"
+                    :key="`${group.key}-${rowKey(row)}`"
+                    class="classification-item-row"
+                    data-business-group-item-row
+                    tabindex="-1">
                     <td class="select-col">
                       <input
                         type="checkbox"
@@ -414,6 +420,7 @@ const warehouseBusinessGroups = ref([])
 const customerOptions = ref([])
 const rows = ref([])
 const q = ref('')
+const appliedInventorySearchQuery = ref('')
 const itemType = ref('')
 const selectedWarehouse = ref('')
 const warehouseGroupFeatureSelectionTemplateIDs = ref([])
@@ -937,6 +944,7 @@ async function loadInventory() {
       total.value = pagination.total
       inventoryBusinessGroupAssignments.value = []
     }
+    appliedInventorySearchQuery.value = q.value
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {

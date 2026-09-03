@@ -23,6 +23,7 @@
           v-model:collapsed-keys="collapsedMaterialCategoryKeys"
           data-pr513-material-business-groups
           :groups="paginatedMaterialGroups"
+          :search-query="appliedMaterialSearchQuery"
           :move-active="materialCategoryMoveActive"
           :selected-count="selectedMaterialRowsForMove.length"
           :can-move="canMoveSelectedMaterialsToBusinessGroup"
@@ -102,6 +103,8 @@
                   <tr
                     v-for="row in group.rows"
                     :key="row.id"
+                    data-business-group-item-row
+                    tabindex="-1"
                     :class="{ active: selected?.id === row.id }"
                     :style="businessGroupItemIndentStyle(group)">
                     <td>
@@ -130,6 +133,7 @@
               </table>
             </div>
             <PaginationControls
+              v-if="group.needsPagination"
               :key="`${group.key}-pagination-${group.pageSize}-${group.total}`"
               :page="group.page"
               :page-size="group.pageSize"
@@ -333,6 +337,7 @@ const materialBusinessGroupAssignments = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
 const q = ref('')
+const appliedMaterialSearchQuery = ref('')
 const filters = reactive({ active: 'active', semiFinished: 'all' })
 const loading = ref(false)
 const error = ref('')
@@ -572,6 +577,7 @@ async function loadMaterials({ resetPagination = false } = {}) {
     if (q.value) url.searchParams.set('q', q.value)
     const data = await apiGet(`${url.pathname}${url.search}`)
     rows.value = (data.rows || []).map(normalizeRow)
+    appliedMaterialSearchQuery.value = q.value
     selectedMaterialIDs.value = selectedMaterialIDs.value.filter((id) => rows.value.some((row) => row.id === id))
     if (selected.value?.id) {
       const next = rows.value.find((row) => row.id === selected.value.id)

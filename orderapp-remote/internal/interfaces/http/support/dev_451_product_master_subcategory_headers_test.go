@@ -44,7 +44,7 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 			"depth: 1",
 			"parent: 90",
 			"--business-group-inline-depth",
-			"businessGroupHiddenByCollapsedAncestor",
+			"businessGroupVisibleGroups",
 			"classification-item-row",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {

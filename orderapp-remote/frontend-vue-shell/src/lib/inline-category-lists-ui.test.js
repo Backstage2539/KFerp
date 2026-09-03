@@ -46,6 +46,7 @@ for (const [label, viewSource] of [
     assert.match(viewSource, /#group="\{ group \}"/)
     assert.match(viewSource, /<thead>/)
     assert.match(viewSource, /<PaginationControls[\s\S]*@change="handle\w+GroupPaginationChange\(group\.key, \$event\)"/)
+    assert.match(viewSource, /data-business-group-item-row/)
     assert.doesNotMatch(viewSource, /<BusinessGroupWorkspace/)
   })
 }
@@ -56,6 +57,11 @@ test('production BOM name opens one complete settings drawer instead of a perman
   assert.match(bomView, /data-bom-settings-drawer[\s\S]*BOM 明细[\s\S]*BOM版本[\s\S]*配方明细/)
   assert.doesNotMatch(bomView, /class="panel detail-panel"/)
   assert.doesNotMatch(bomView, /@click="selectBomRow\(row\)"/)
+})
+
+test('material and production BOM category pagers only render above the shared threshold', () => {
+  assert.match(materialsView, /<PaginationControls\s+v-if="group\.needsPagination"/)
+  assert.match(bomView, /<PaginationControls\s+v-if="group\.needsPagination"/)
 })
 
 test('material name opens the material detail drawer instead of a permanent detail column', () => {

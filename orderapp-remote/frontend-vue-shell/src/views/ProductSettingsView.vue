@@ -151,6 +151,7 @@
           <BusinessGroupInlineWorkspace
             v-model:collapsed-keys="collapsedProductClassificationGroups"
             :groups="displaySkuGroups"
+            :search-query="skuFilters.query"
             :move-active="productCategoryMoveActive"
             :selected-count="selectedProductIds.length"
             :can-move="canMoveSelectedProductsToBusinessGroup"
@@ -214,7 +215,10 @@
                   </thead>
                   <tbody>
                     <template v-for="row in group.rows" :key="`${group.key}-${row.id}`">
-                      <tr :class="[{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }, 'classification-item-row']">
+                      <tr
+                        data-business-group-item-row
+                        tabindex="-1"
+                        :class="[{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }, 'classification-item-row']">
                         <td class="select-col">
                           <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
                         </td>
