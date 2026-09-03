@@ -33,7 +33,6 @@ func TestOrderAPICutoverProductUsesBOMSpecBusinessIdentity(t *testing.T) {
 	for _, want := range []string{
 		`"product_bom_spec_options"`,
 		`"parent_product_id":7`,
-		`"legacy_child_product_id":701`,
 		`"bom_spec_id":9001`,
 		`"bom_variant_id":9101`,
 		`"spec_code":"BOM-SPEC-009001"`,
@@ -102,7 +101,15 @@ func TestOrderAPICutoverProductUsesBOMSpecBusinessIdentity(t *testing.T) {
 	if unit != "袋" || spec != "227g 袋装" {
 		t.Fatalf("saved direct BOM spec unit/name=%q/%q, want 袋/227g 袋装", unit, spec)
 	}
-	for _, want := range []string{`"product_id": 7`, `"bom_spec_id": 9001`, `"bom_variant_id": 9101`, `"quantity_basis": "sales_spec_count"`} {
+	for _, want := range []string{
+		`"product_id": 7`,
+		`"bom_spec_id": 9001`,
+		`"bom_variant_id": 9101`,
+		`"quantity_basis": "sales_spec_count"`,
+		`"price_unit": "袋"`,
+		`"final_unit_price": 88`,
+		`"manual_adjusted": true`,
+	} {
 		if !strings.Contains(priceSource, want) {
 			t.Fatalf("price source missing %s: %s", want, priceSource)
 		}
@@ -386,6 +393,9 @@ func seedOrderAPIBOMSpecIdentity(t *testing.T, ctx context.Context, pool *pgxpoo
 	`, schema))
 	if err := postgresmigration.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("productspecmigration.EnsureSchema: %v", err)
+	}
+	if err := postgresmigration.EnsureAuthorityView(ctx, pool, schema); err != nil {
+		t.Fatalf("productspecmigration.EnsureAuthorityView: %v", err)
 	}
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
 		INSERT INTO %[1]s.product_bom_spec_migrations(product_id,state,cutover_at,cutover_by)

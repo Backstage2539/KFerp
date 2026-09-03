@@ -2246,3 +2246,12 @@
 - [ ] 没有已发布历史的单一产出草稿可原位转换；已经是规格组的草稿继续原位重套并保留相同规格键下的稳定规格身份。
 - [ ] 页面不再显示 `specification template replacement requires a multi-specification product BOM`；后端兜底错误使用可理解的中文提示。
 - [ ] 定向 Vue/PostgreSQL/Go 验证、Vite 构建、统一发布门禁和双环境健康检查通过；部署本身不自动改写生产 BOM 数据。
+
+## PR-624-ORDER-BOM-SPEC-PRICE-UNIT-CONSISTENCY 验收清单（2026-09-03）
+
+- [x] 生产只读复现确认曲奇 `2Kg袋装` 对应 BOM 规格 222、库存单位袋；当前发布价格表 10–24 袋档为 162.30 元/袋，而订单 `SO-20260903-0001` 因前端未命中规格后保存为人工价。
+- [x] ERP 录单选择曲奇 2kg 并输入 13 后按 `bom_spec_id` 命中 162.30，数量单位与单价单位都显示袋，不按规格重量猜成 kg 或磅。
+- [x] ERP 编辑旧订单时，即使原人工价来源未保存 `price_unit`，仍从订单行冻结的 BOM 规格单位显示元/袋；小程序订单详情继续使用同一订单行单位。
+- [x] 新保存的 BOM 规格人工价快照包含 `inventory_unit=袋`、`price_unit=袋`、`final_unit_price` 和 `manual_adjusted=true`，保存后 API 回读身份、规格和单位一致。
+- [x] 完整 Vue、Go、小程序与 Vite 构建、统一验证通过；开发和生产部署不在本次未授权范围内。
+- [x] 功能分支已同步最新 `origin/develop`，并按本次交付流程集成；环境部署另行授权。
