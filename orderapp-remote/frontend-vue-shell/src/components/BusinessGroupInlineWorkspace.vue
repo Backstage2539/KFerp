@@ -9,6 +9,20 @@
       @move="$emit('move')"
       @cancel="$emit('cancel')">
       <template #extra-actions>
+        <div class="business-group-inline-bulk-actions" role="group" aria-label="分类显示">
+          <button
+            class="secondary compact-action"
+            type="button"
+            data-business-group-expand-all
+            :disabled="loading || moveActive || !allGroupKeys.length"
+            @click="setAllGroupsCollapsed(false)">全部展开</button>
+          <button
+            class="secondary compact-action"
+            type="button"
+            data-business-group-collapse-all
+            :disabled="loading || moveActive || !allGroupKeys.length"
+            @click="setAllGroupsCollapsed(true)">全部收缩</button>
+        </div>
         <slot name="toolbar-extra" />
       </template>
     </BusinessGroupControls>
@@ -68,7 +82,7 @@
         </header>
 
         <div
-          v-if="!group.is_template_group && !isCollapsed(group.key)"
+          v-if="!moveActive && !group.is_template_group && !isCollapsed(group.key)"
           class="business-group-inline-body"
           :class="{ 'business-group-inline-disabled': moveActive }"
           :aria-disabled="moveActive ? 'true' : 'false'"
@@ -89,11 +103,16 @@
 import { IconChevronDown, IconChevronRight, IconFolder, IconFolderOff } from '@tabler/icons-vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import BusinessGroupControls from './BusinessGroupControls.vue'
-import { businessGroupHiddenByCollapsedAncestor } from '../lib/business-grouping.js'
+import {
+  businessGroupMoveCollapsedKeys,
+  businessGroupSearchCollapsedKeys,
+  businessGroupVisibleGroups,
+} from '../lib/business-grouping.js'
 
 const props = defineProps({
   groups: { type: Array, default: () => [] },
   collapsedKeys: { type: Array, default: () => [] },
+  searchQuery: { type: String, default: '' },
   moveActive: { type: Boolean, default: false },
   selectedCount: { type: Number, default: 0 },
   canMove: { type: Boolean, default: false },
@@ -107,13 +126,19 @@ const props = defineProps({
 const emit = defineEmits(['update:collapsedKeys', 'move', 'cancel', 'target', 'manage', 'configure'])
 const workspaceScroll = ref(null)
 const moveSnapshot = ref(null)
+const searchSnapshot = ref(null)
+let searchFocusRevision = 0
 
 const normalizedCollapsedKeys = computed(() => (Array.isArray(props.collapsedKeys) ? props.collapsedKeys : [])
   .map((key) => String(key || '').trim())
   .filter(Boolean))
-const visibleGroups = computed(() => (Array.isArray(props.groups) ? props.groups : []).filter((group) => (
-  !businessGroupHiddenByCollapsedAncestor(props.groups, group, normalizedCollapsedKeys.value)
-)))
+const normalizedSearchQuery = computed(() => String(props.searchQuery || '').trim())
+const allGroupKeys = computed(() => businessGroupMoveCollapsedKeys(props.groups))
+const visibleGroups = computed(() => businessGroupVisibleGroups(
+  props.groups,
+  normalizedCollapsedKeys.value,
+  { showAllHeadings: props.moveActive },
+))
 
 function isCollapsed(key) {
   return normalizedCollapsedKeys.value.includes(String(key || ''))
@@ -126,6 +151,13 @@ function toggleGroup(key) {
   if (next.has(normalizedKey)) next.delete(normalizedKey)
   else next.add(normalizedKey)
   emit('update:collapsedKeys', Array.from(next))
+}
+
+function setAllGroupsCollapsed(collapsed) {
+  if (props.loading || props.moveActive || !allGroupKeys.value.length) return
+  // A deliberate browse action takes precedence over any pending search focus.
+  searchFocusRevision += 1
+  emit('update:collapsedKeys', collapsed ? [...allGroupKeys.value] : [])
 }
 
 function isTargetable(group = {}) {
@@ -175,29 +207,96 @@ function groupIndentStyle(group = {}) {
   return { '--business-group-inline-depth': Math.max(0, Number(group?.depth || 0)) + (hasTemplate ? 1 : 0) }
 }
 
+function sameKeys(left = [], right = []) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function captureScrollState() {
+  const positions = []
+  let element = workspaceScroll.value
+  while (element) {
+    if (element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth) {
+      positions.push({ element, scrollTop: element.scrollTop, scrollLeft: element.scrollLeft })
+    }
+    element = element.parentElement
+  }
+  return {
+    scrollTop: Math.max(0, Number(workspaceScroll.value?.scrollTop || 0)),
+    positions,
+    windowScrollX: typeof window === 'undefined' ? 0 : window.scrollX,
+    windowScrollY: typeof window === 'undefined' ? 0 : window.scrollY,
+  }
+}
+
+function restoreScrollState(snapshot = {}) {
+  for (const position of snapshot.positions || []) {
+    position.element.scrollTop = position.scrollTop
+    position.element.scrollLeft = position.scrollLeft
+  }
+  if (workspaceScroll.value) workspaceScroll.value.scrollTop = Math.max(0, Number(snapshot.scrollTop || 0))
+  if (typeof window !== 'undefined') window.scrollTo(snapshot.windowScrollX || 0, snapshot.windowScrollY || 0)
+}
+
+async function focusFirstSearchResult(revision) {
+  await nextTick()
+  await nextTick()
+  if (revision !== searchFocusRevision || props.moveActive || !normalizedSearchQuery.value) return
+  const firstRow = workspaceScroll.value?.querySelector('[data-business-group-item-row]')
+  if (!firstRow) return
+  firstRow.focus({ preventScroll: true })
+  firstRow.scrollIntoView({ block: 'center', inline: 'nearest' })
+}
+
 watch(() => props.groups, (groups) => {
-  if (props.moveActive) return
+  if (props.moveActive || normalizedSearchQuery.value) return
   const valid = new Set((Array.isArray(groups) ? groups : []).map((group) => String(group?.key || '')))
   const next = normalizedCollapsedKeys.value.filter((key) => valid.has(key))
   if (JSON.stringify(next) !== JSON.stringify(normalizedCollapsedKeys.value)) emit('update:collapsedKeys', next)
+}, { deep: false })
+
+watch([() => normalizedSearchQuery.value, () => props.groups], async ([query, groups], [previousQuery]) => {
+  if (props.moveActive) return
+  const revision = ++searchFocusRevision
+  if (query) {
+    if (!previousQuery && !searchSnapshot.value) {
+      searchSnapshot.value = {
+        collapsedKeys: [...normalizedCollapsedKeys.value],
+        ...captureScrollState(),
+      }
+    }
+    const collapsedKeys = businessGroupSearchCollapsedKeys(groups)
+    if (!sameKeys(collapsedKeys, normalizedCollapsedKeys.value)) emit('update:collapsedKeys', collapsedKeys)
+    await focusFirstSearchResult(revision)
+    return
+  }
+  if (previousQuery && searchSnapshot.value) {
+    const snapshot = searchSnapshot.value
+    searchSnapshot.value = null
+    emit('update:collapsedKeys', [...snapshot.collapsedKeys])
+    await nextTick()
+    restoreScrollState(snapshot)
+  }
 }, { deep: false })
 
 watch(() => props.moveActive, async (active, previous) => {
   if (active && !previous) {
     moveSnapshot.value = {
       collapsedKeys: [...normalizedCollapsedKeys.value],
-      scrollTop: Math.max(0, Number(workspaceScroll.value?.scrollTop || 0)),
+      ...captureScrollState(),
     }
-    emit('update:collapsedKeys', [])
+    emit('update:collapsedKeys', businessGroupMoveCollapsedKeys(props.groups))
     await nextTick()
-    if (workspaceScroll.value) workspaceScroll.value.scrollTop = 0
+    if (workspaceScroll.value) {
+      workspaceScroll.value.scrollTop = 0
+      workspaceScroll.value.scrollIntoView({ block: 'start', inline: 'nearest' })
+    }
     return
   }
   if (!active && previous && moveSnapshot.value) {
     const snapshot = moveSnapshot.value
     emit('update:collapsedKeys', [...snapshot.collapsedKeys])
     await nextTick()
-    if (workspaceScroll.value) workspaceScroll.value.scrollTop = snapshot.scrollTop
+    restoreScrollState(snapshot)
     moveSnapshot.value = null
   }
 })
@@ -205,6 +304,7 @@ watch(() => props.moveActive, async (active, previous) => {
 
 <style scoped>
 .business-group-inline-workspace { min-width: 0; display: grid; gap: 12px; }
+.business-group-inline-bulk-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .business-group-inline-move-prompt { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 7px; color: #1e3a5f; background: #eff6ff; }
 .business-group-inline-move-prompt small { line-height: 1.4; }
 .business-group-inline-filters { min-width: 0; }
@@ -223,6 +323,7 @@ watch(() => props.moveActive, async (active, previous) => {
 .business-group-inline-label strong { min-width: 0; overflow-wrap: anywhere; }
 .business-group-inline-label small { flex: 0 0 auto; color: #64748b; font-weight: 400; white-space: nowrap; }
 .business-group-inline-body { min-width: 0; padding: 0 12px 12px; background: #fff; }
+.business-group-inline-body :deep([data-business-group-item-row]:focus) { outline: 2px solid #2563eb; outline-offset: -2px; background: #eff6ff; }
 .business-group-inline-disabled { opacity: .42; filter: grayscale(.35); pointer-events: none; user-select: none; }
 .business-group-inline-footer { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding-top: 2px; }
 @media (max-width: 760px) {

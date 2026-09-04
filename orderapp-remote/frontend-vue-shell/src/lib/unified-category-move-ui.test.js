@@ -22,14 +22,23 @@ test('shared inline category workspace uses collapsible headings as immediate mo
     'activateGroup(group)',
     'update:collapsedKeys',
     'moveSnapshot',
+    'searchSnapshot',
     'scrollTop',
+    'searchQuery',
+    'data-business-group-item-row',
+    'scrollIntoView',
     "emit('target'",
     'business-group-inline-disabled',
   ]) {
     assert.ok(workspace.includes(marker), `shared inline category workspace missing ${marker}`)
   }
   assert.match(workspace, /v-for="group in visibleGroups"/)
-  assert.match(workspace, /watch\([\s\S]*props\.moveActive[\s\S]*emit\('update:collapsedKeys', \[\]\)[\s\S]*await nextTick\(\)/s)
+  assert.match(workspace, /watch\([\s\S]*props\.moveActive[\s\S]*businessGroupMoveCollapsedKeys\(props\.groups\)[\s\S]*await nextTick\(\)/s)
+  assert.match(workspace, /businessGroupVisibleGroups\([\s\S]*showAllHeadings: props\.moveActive/)
+  assert.match(workspace, /v-if="!moveActive && !group\.is_template_group && !isCollapsed\(group\.key\)"/)
+  assert.match(workspace, /businessGroupSearchCollapsedKeys\(groups\)/)
+  assert.match(workspace, /querySelector\('\[data-business-group-item-row\]'\)/)
+  assert.match(workspace, /focus\(\{ preventScroll: true \}\)/)
   assert.match(workspace, /emit\('target',\s*\{[\s\S]*group_id:[\s\S]*group_item_id:[\s\S]*unclassified:/s)
   assert.doesNotMatch(workspace, /business-group-category-tree|business-group-tree-node|business-group-category-panel/)
   assert.match(controls, /business-group-breadcrumb/)
@@ -47,6 +56,7 @@ const viewContracts = [
     groups: 'paginatedMaterialGroups',
     target: 'handleMaterialCategoryMoveTarget',
     pagination: 'handleMaterialGroupPaginationChange',
+    searchQuery: 'appliedMaterialSearchQuery',
     identity: ["const MATERIAL_CATALOG_USAGE = 'material_catalog'", "const MATERIAL_OBJECT_KEY = 'material'"],
     preserved: [
       'v-model.trim="q"',
@@ -64,6 +74,7 @@ const viewContracts = [
     groups: 'productionBomDisplayGroups',
     target: 'handleProductionBomCategoryMoveTarget',
     pagination: 'handleProductionBomGroupPaginationChange',
+    searchQuery: 'productionBomSearchQuery',
     identity: ["usageKey: 'production_bom'", "objectKey: 'production_bom'"],
     preserved: [
       'v-model="filters.status"',
@@ -80,6 +91,7 @@ const viewContracts = [
     groups: 'displaySkuGroups',
     target: 'handleProductCategoryMoveTarget',
     pagination: 'handleProductGroupPaginationChange',
+    searchQuery: 'skuFilters.query',
     identity: ["usageKey: 'product_catalog'", "objectKey: 'product'"],
     preserved: [
       'v-model.trim="skuFilters.query"',
@@ -97,6 +109,7 @@ const viewContracts = [
     groups: 'pagedInventoryDisplayGroups',
     target: 'handleInventoryCategoryMoveTarget',
     pagination: 'handleInventoryGroupPaginationChange',
+    searchQuery: 'appliedInventorySearchQuery',
     identity: ["usageKey: 'warehouse_inventory'", "objectKey: 'warehouse_inventory_item'", 'objectRef: `${selectedWarehouse.value}:${key}`'],
     preserved: [
       'v-model.trim="q"',
@@ -119,12 +132,14 @@ for (const contract of viewContracts) {
       contract.target,
       `v-model:collapsed-keys="${contract.collapsed}"`,
       `:groups="${contract.groups}"`,
+      `:search-query="${contract.searchQuery}"`,
       '@target=',
       ':move-active=',
       '<template #group="{ group }">',
       'data-auto-pagination="off"',
       '<thead>',
       '<PaginationControls',
+      'data-business-group-item-row',
       `@change="${contract.pagination}(group.key, $event)"`,
       '/api/business-group-assignments',
       ...contract.identity,

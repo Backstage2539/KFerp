@@ -636,6 +636,7 @@ export function businessGroupInlineListState(groups = [], paginationByGroup = {}
     ? paginationByGroup
     : {}
   const defaultPageSize = normalizePageSize(options.defaultPageSize)
+  const paginationThreshold = Math.max(0, toNumber(options.paginationThreshold ?? 10))
   const pagination = {}
   const visibleRows = []
   let total = 0
@@ -656,8 +657,9 @@ export function businessGroupInlineListState(groups = [], paginationByGroup = {}
     const sourceRows = Array.isArray(group?.rows) ? group.rows : []
     const requested = sourcePagination[key] || {}
     const pageSize = normalizePageSize(requested.pageSize || defaultPageSize)
-    const page = clampPage(requested.page, sourceRows.length, pageSize)
-    const rows = slicePageRows(sourceRows, { page, pageSize })
+    const needsPagination = sourceRows.length > paginationThreshold
+    const page = needsPagination ? clampPage(requested.page, sourceRows.length, pageSize) : 1
+    const rows = needsPagination ? slicePageRows(sourceRows, { page, pageSize }) : sourceRows
     pagination[key] = { page, pageSize }
     visibleRows.push(...rows)
     total += sourceRows.length
@@ -667,12 +669,73 @@ export function businessGroupInlineListState(groups = [], paginationByGroup = {}
       total: sourceRows.length,
       page,
       pageSize,
-      needsPagination: sourceRows.length > pageSize,
+      needsPagination,
       rows,
     }
   })
 
   return { groups: paginatedGroups, pagination, visibleRows, total }
+}
+
+export function businessGroupSearchCollapsedKeys(groups = []) {
+  const source = Array.isArray(groups) ? groups : []
+  const templateKeys = new Map()
+  const categoryKeys = new Map()
+  const byKey = new Map()
+  const childKeys = new Map()
+
+  for (const group of source) {
+    const key = normalizedText(group?.key)
+    if (!key) continue
+    byKey.set(key, group)
+    if (group?.is_template_group && toNumber(group?.group_id) > 0) {
+      templateKeys.set(toNumber(group.group_id), key)
+    }
+    if (!group?.is_template_group && !group?.all && !group?.unclassified && toNumber(group?.group_item_id) > 0) {
+      categoryKeys.set(`${toNumber(group?.group_id)}:${toNumber(group?.group_item_id)}`, key)
+    }
+  }
+
+  for (const [key, group] of byKey) {
+    if (group?.is_template_group || group?.all || group?.unclassified) continue
+    const groupID = toNumber(group?.group_id)
+    const parentItemID = toNumber(group?.parent_group_item_id)
+    const parentKey = parentItemID > 0
+      ? categoryKeys.get(`${groupID}:${parentItemID}`)
+      : templateKeys.get(groupID)
+    if (!parentKey) continue
+    const children = childKeys.get(parentKey) || []
+    children.push(key)
+    childKeys.set(parentKey, children)
+  }
+
+  const subtreeCount = (key, visiting = new Set()) => {
+    if (!key || visiting.has(key)) return 0
+    const group = byKey.get(key)
+    if (!group) return 0
+    const nextVisiting = new Set(visiting)
+    nextVisiting.add(key)
+    const directCount = group?.is_template_group ? 0 : businessGroupDisplayRowCount(group)
+    return directCount + (childKeys.get(key) || []).reduce((sum, childKey) => (
+      sum + subtreeCount(childKey, nextVisiting)
+    ), 0)
+  }
+
+  return source
+    .map((group) => normalizedText(group?.key))
+    .filter((key) => key && subtreeCount(key) === 0)
+}
+
+export function businessGroupMoveCollapsedKeys(groups = []) {
+  return Array.from(new Set((Array.isArray(groups) ? groups : [])
+    .map((group) => normalizedText(group?.key))
+    .filter(Boolean)))
+}
+
+export function businessGroupVisibleGroups(groups = [], collapsedGroupKeys = [], { showAllHeadings = false } = {}) {
+  const source = Array.isArray(groups) ? groups : []
+  if (showAllHeadings) return source
+  return source.filter((group) => !businessGroupHiddenByCollapsedAncestor(source, group, collapsedGroupKeys))
 }
 
 export function businessGroupHiddenByCollapsedAncestor(groups = [], group = {}, collapsedGroupKeys = []) {

@@ -877,9 +877,9 @@ test('production BOM inline workspace restores browse state around immediate mov
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
 
-  assert.match(workspaceSource, /moveSnapshot\.value = \{[\s\S]*collapsedKeys:[\s\S]*scrollTop:/)
-  assert.match(workspaceSource, /emit\('update:collapsedKeys', \[\]\)/)
-  assert.match(workspaceSource, /workspaceScroll\.value\.scrollTop = snapshot\.scrollTop/)
+  assert.match(workspaceSource, /moveSnapshot\.value = \{[\s\S]*collapsedKeys:[\s\S]*captureScrollState\(\)/)
+  assert.match(workspaceSource, /emit\('update:collapsedKeys', businessGroupMoveCollapsedKeys\(props\.groups\)\)/)
+  assert.match(workspaceSource, /restoreScrollState\(snapshot\)/)
   assert.match(workspaceSource, /business-group-inline-disabled[^}]*pointer-events:\s*none/)
   assert.match(source, /\.grid\s*\{[^}]*align-items:\s*stretch/)
   assert.match(source, /\.grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/)

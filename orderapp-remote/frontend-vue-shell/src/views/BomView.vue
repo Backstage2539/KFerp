@@ -266,6 +266,7 @@
           v-model:collapsed-keys="collapsedProductionBomGroups"
           class="bom-business-group-inline-workspace"
           :groups="productionBomDisplayGroups"
+          :search-query="productionBomSearchQuery"
           :move-active="productionBomCategoryMoveActive"
           :selected-count="selectedBomRecordsForMove.length"
           :can-move="canBeginProductionBomCategoryMove"
@@ -323,6 +324,8 @@
                     <tr
                       v-for="row in group.rows"
                       :key="`${group.key}-${bomRowKey(row)}`"
+                      data-business-group-item-row
+                      tabindex="-1"
                       :class="{ active: bomRowKey(row) === activeBomRowKey }">
                       <td class="select-col">
                         <input
@@ -354,7 +357,7 @@
                 </table>
               </div>
               <PaginationControls
-                v-if="group.total > 0"
+                v-if="group.needsPagination"
                 :page="group.page"
                 :page-size="group.pageSize"
                 :total="group.total"

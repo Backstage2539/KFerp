@@ -9,7 +9,10 @@ import {
   businessGroupControlOptions,
   businessGroupHiddenByCollapsedAncestor,
   businessGroupInlineListState,
+  businessGroupSearchCollapsedKeys,
   businessGroupMoveAssignmentPayload,
+  businessGroupMoveCollapsedKeys,
+  businessGroupVisibleGroups,
   businessGroupVisibleRows,
   groupRowsByBusinessGroupTemplate,
   groupRowsByBusinessGroupTemplates,
@@ -293,11 +296,91 @@ test('inline business group lists paginate every category independently without 
   assert.equal(byKey.get('business-group-9-91').page, 1)
   assert.equal(byKey.get('business-group-9-91').pageSize, 20)
   assert.deepEqual(byKey.get('business-group-9-91').rows.map((row) => row.id), rows.slice(23, 35).map((row) => row.id))
+  assert.equal(byKey.get('business-group-9-91').needsPagination, true)
   assert.equal(byKey.get('business-group-unclassified').page, 2)
   assert.deepEqual(byKey.get('business-group-9-92').rows, [])
   assert.equal(state.total, 47)
   assert.deepEqual(state.pagination['business-group-9-90'], { page: 2, pageSize: 10 })
   assert.deepEqual(state.pagination['business-group-9-91'], { page: 1, pageSize: 20 })
+})
+
+test('inline business group lists skip pagination at 0 and 10 rows but keep it from 11 rows', () => {
+  const rows = Array.from({ length: 21 }, (_, index) => ({ id: index + 1 }))
+  const state = businessGroupInlineListState([
+    { key: 'empty', rows: [] },
+    { key: 'ten', rows: rows.slice(0, 10) },
+    { key: 'eleven', rows: rows.slice(10) },
+  ], {
+    empty: { page: 8, pageSize: 5 },
+    ten: { page: 2, pageSize: 5 },
+    eleven: { page: 2, pageSize: 5 },
+  })
+  const byKey = new Map(state.groups.map((group) => [group.key, group]))
+
+  assert.deepEqual(byKey.get('empty').rows, [])
+  assert.equal(byKey.get('empty').page, 1)
+  assert.equal(byKey.get('empty').needsPagination, false)
+  assert.deepEqual(byKey.get('ten').rows.map((row) => row.id), rows.slice(0, 10).map((row) => row.id))
+  assert.equal(byKey.get('ten').page, 1)
+  assert.equal(byKey.get('ten').needsPagination, false)
+  assert.deepEqual(byKey.get('eleven').rows.map((row) => row.id), [21])
+  assert.equal(byKey.get('eleven').page, 2)
+  assert.equal(byKey.get('eleven').needsPagination, true)
+  assert.deepEqual(state.pagination, {
+    empty: { page: 1, pageSize: 10 },
+    ten: { page: 1, pageSize: 10 },
+    eleven: { page: 2, pageSize: 10 },
+  })
+})
+
+test('search collapse state uses complete subtrees and collapses empty branches', () => {
+  const groups = [
+    { key: 'business-template-9', is_template_group: true, group_id: 9, rows: [] },
+    { key: 'business-group-9-90', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [] },
+    { key: 'business-group-9-91', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: [{ id: 1 }] },
+    { key: 'business-group-9-92', group_id: 9, group_item_id: 92, parent_group_item_id: 0, rows: [] },
+    { key: 'business-template-10', is_template_group: true, group_id: 10, rows: [] },
+    { key: 'business-group-10-100', group_id: 10, group_item_id: 100, parent_group_item_id: 0, rows: [] },
+    { key: 'business-group-unclassified', unclassified: true, rows: [] },
+  ]
+
+  assert.deepEqual(businessGroupSearchCollapsedKeys(groups), [
+    'business-group-9-92',
+    'business-template-10',
+    'business-group-10-100',
+    'business-group-unclassified',
+  ])
+  assert.equal(businessGroupSearchCollapsedKeys(groups).includes('business-template-9'), false)
+  assert.equal(businessGroupSearchCollapsedKeys(groups).includes('business-group-9-90'), false)
+})
+
+test('search collapse state collapses every heading when there are no results', () => {
+  const groups = [
+    { key: 'business-template-9', is_template_group: true, group_id: 9, rows: [] },
+    { key: 'business-group-9-90', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [] },
+    { key: 'business-group-9-91', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: [] },
+    { key: 'business-group-unclassified', unclassified: true, rows: [] },
+  ]
+
+  assert.deepEqual(businessGroupSearchCollapsedKeys(groups), groups.map((group) => group.key))
+})
+
+test('move presentation keeps every heading visible while marking every body collapsed', () => {
+  const groups = [
+    { key: 'business-template-9', is_template_group: true, group_id: 9, rows: [] },
+    { key: 'business-group-9-90', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [] },
+    { key: 'business-group-9-91', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: [{ id: 1 }] },
+    { key: 'business-group-unclassified', unclassified: true, rows: [] },
+  ]
+  const collapsedKeys = businessGroupMoveCollapsedKeys(groups)
+
+  assert.deepEqual(collapsedKeys, groups.map((group) => group.key))
+  assert.deepEqual(businessGroupVisibleGroups(groups, collapsedKeys, { showAllHeadings: true }), groups)
+  assert.deepEqual(businessGroupVisibleGroups(groups, ['business-group-9-90']).map((group) => group.key), [
+    'business-template-9',
+    'business-group-9-90',
+    'business-group-unclassified',
+  ])
 })
 
 test('inline business group visibility hides collapsed descendants and bodies but preserves their pagination state', () => {
