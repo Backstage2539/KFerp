@@ -19,7 +19,9 @@ func validateProductionPlanAvailabilityAtSubmitTx(ctx context.Context, tx pgx.Tx
 	itemNeeds := make([]itemNeed, 0)
 	materialSet := map[int64]bool{}
 	productSet := map[string]materialConsumptionNeed{}
+	customerByItem := map[int64]int64{}
 	for _, item := range items {
+		customerByItem[item.ID] = item.CustomerID
 		plan := plannedFinishedInventoryAddition(item.SpecG, item.PlannedOutputG)
 		if item.OutputType == "material" {
 			outputG, outputUnits := canonicalFromManufacturingQty(item.OutputQty, item.OutputUnit)
@@ -108,11 +110,7 @@ func validateProductionPlanAvailabilityAtSubmitTx(ctx context.Context, tx pgx.Tx
 		if componentType == "product" {
 			availableG[key], availableUnits[key], availabilityErr = finishedProductAvailableForPlanningIdentityTx(ctx, tx, schema, componentID, componentBomSpecID, componentSpecG, 0)
 		} else {
-			coverage, coverageErr := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, 0, []materialConsumptionNeed{row.need})
-			availabilityErr = coverageErr
-			if len(coverage) > 0 {
-				availableG[key], availableUnits[key] = coverage[0].AvailableG, coverage[0].AvailableUnits
-			}
+			availableG[key], availableUnits[key], availabilityErr = materialAvailableForPlanningOwnerTx(ctx, tx, schema, componentID, customerByItem[row.itemID])
 		}
 		if availabilityErr != nil {
 			return availabilityErr
