@@ -1196,7 +1196,7 @@ func (r Repository) SetBomSource(ctx context.Context, cmd bomapp.SetBomSourceCom
 	}
 	if cmd.SourceType == "inherit_version" {
 		err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT bv.product_id, COALESCE(p.name,''), bv.id, COALESCE(bv.version_no,''), COALESCE(p.code,'')
+			SELECT bv.product_id, COALESCE(p.name,''), bv.id, COALESCE(bv.version_no,''), COALESCE(p.sku_code,'')
 			FROM %s.bom_versions bv
 			JOIN %s.products p ON p.id=bv.product_id
 			WHERE bv.id=$1 AND bv.status='active'

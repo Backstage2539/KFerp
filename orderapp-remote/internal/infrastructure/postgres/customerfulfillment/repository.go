@@ -2729,7 +2729,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 			       r.id,
 			       COALESCE(NULLIF(r.customer_display_name,''), p.name, ''),
 			       COALESCE(r.customer_item_code,''), '',
-			       COALESCE(NULLIF(p.code,''), 'SKU-' || p.id::text),
+			   COALESCE(NULLIF(p.sku_code,''), 'SKU-' || p.id::text),
 			       COALESCE(p.name,''), COALESCE(p.base_product_id,0),
 			       COALESCE(r.customer_item_code,''),
 			       COALESCE(NULLIF(r.customer_display_name,''), p.name, ''),
