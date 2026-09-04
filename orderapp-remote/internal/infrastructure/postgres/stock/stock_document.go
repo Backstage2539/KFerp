@@ -1708,7 +1708,11 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item stockapp.StockDocumentItemRow) ([]materialMoveAvailability, int64, int64, error) {
 	args := []any{item.MaterialID, item.FromWarehouse}
 	batchFilter := ""
-	if item.OwnerCustomerID > 0 {
+	hasBatchOwner, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "material_batches", "owner_customer_id")
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if hasBatchOwner {
 		args = append(args, item.OwnerCustomerID)
 		batchFilter += fmt.Sprintf(" AND COALESCE(b.owner_customer_id,0)=$%d", len(args))
 	}

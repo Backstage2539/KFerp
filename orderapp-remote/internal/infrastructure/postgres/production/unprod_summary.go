@@ -593,6 +593,14 @@ func productionDemandMapRows(bySnapshot map[string]*productionDemand, order []st
 	return out
 }
 
+func finishedInventoryAvailabilityKey(productID, bomSpecID, specG int64, warehouse string, ownerCustomerID int64) string {
+	return strings.Join([]string{
+		productionDemandSelectionKey(productID, bomSpecID, specG),
+		strings.TrimSpace(warehouse),
+		strconv.FormatInt(ownerCustomerID, 10),
+	}, "\x1f")
+}
+
 func productionQuantitySnapshotGroupKey(snapshot productionQuantitySnapshot) string {
 	return strings.Join([]string{
 		strconv.FormatInt(snapshot.SKUID, 10),
@@ -883,10 +891,26 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 	if err != nil {
 		return nil, err
 	}
+	hasFinishedOwner, err := productionDemandColumnExists(ctx, pool, schema, "finished_inventory", "owner_customer_id")
+	if err != nil {
+		return nil, err
+	}
 	var rows pgx.Rows
-	if hasBomSpecIdentity {
+	if hasBomSpecIdentity && hasFinishedOwner {
+		rows, err = pool.Query(ctx, fmt.Sprintf(`
+			SELECT product_id,COALESCE(bom_spec_id,0),spec_g,warehouse,COALESCE(owner_customer_id,0),COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
+			FROM %s.finished_inventory
+			WHERE product_id=ANY($1) AND warehouse=ANY($2)
+		`, schema), productIDs, warehouses)
+	} else if hasBomSpecIdentity {
 		rows, err = pool.Query(ctx, fmt.Sprintf(`
 			SELECT product_id,COALESCE(bom_spec_id,0),spec_g,warehouse,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
+			FROM %s.finished_inventory
+			WHERE product_id=ANY($1) AND warehouse=ANY($2)
+		`, schema), productIDs, warehouses)
+	} else if hasFinishedOwner {
+		rows, err = pool.Query(ctx, fmt.Sprintf(`
+			SELECT product_id,spec_g,warehouse,COALESCE(owner_customer_id,0),COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
 			FROM %s.finished_inventory
 			WHERE product_id=ANY($1) AND warehouse=ANY($2)
 		`, schema), productIDs, warehouses)
@@ -904,11 +928,15 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 		return nil, err
 	}
 	for rows.Next() {
-		var productID, bomSpecID, specG, units, looseG int64
+		var productID, bomSpecID, specG, ownerCustomerID, units, looseG int64
 		var warehouse string
 		var scanErr error
-		if hasBomSpecIdentity {
+		if hasBomSpecIdentity && hasFinishedOwner {
+			scanErr = rows.Scan(&productID, &bomSpecID, &specG, &warehouse, &ownerCustomerID, &units, &looseG)
+		} else if hasBomSpecIdentity {
 			scanErr = rows.Scan(&productID, &bomSpecID, &specG, &warehouse, &units, &looseG)
+		} else if hasFinishedOwner {
+			scanErr = rows.Scan(&productID, &specG, &warehouse, &ownerCustomerID, &units, &looseG)
 		} else {
 			scanErr = rows.Scan(&productID, &specG, &warehouse, &units, &looseG)
 		}
@@ -916,7 +944,7 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 			rows.Close()
 			return nil, scanErr
 		}
-		availability[productionDemandSelectionKey(productID, bomSpecID, specG)+"\x1f"+strings.TrimSpace(warehouse)] = &finishedInventoryAvailability{units: units, looseG: looseG}
+		availability[finishedInventoryAvailabilityKey(productID, bomSpecID, specG, warehouse, ownerCustomerID)] = &finishedInventoryAvailability{units: units, looseG: looseG}
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -984,7 +1012,7 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 			rows.Close()
 			return nil, scanErr
 		}
-		key := productionDemandSelectionKey(productID, bomSpecID, specG) + "\x1f" + stockdomain.WarehouseFinishedGoods
+		key := finishedInventoryAvailabilityKey(productID, bomSpecID, specG, stockdomain.WarehouseFinishedGoods, 0)
 		current := availability[key]
 		if current == nil {
 			current = &finishedInventoryAvailability{}
@@ -1038,7 +1066,8 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 		if warehouse == "" {
 			warehouse = stockdomain.WarehouseFinishedGoods
 		}
-		availabilityKey := productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG) + "\x1f" + warehouse
+		ownerCustomerID := productionQuantitySnapshotCustomerID(row.SalesSpecSnapshotJSON)
+		availabilityKey := finishedInventoryAvailabilityKey(row.ProductID, row.BomSpecID, row.SpecG, warehouse, ownerCustomerID)
 		current := availability[availabilityKey]
 		if current == nil {
 			current = &finishedInventoryAvailability{}
