@@ -59,6 +59,19 @@ BEGIN
 		IF business_item_type NOT IN ('product','finished_product') THEN RETURN NEW; END IF;
 	END IF;
 	IF business_bom_spec_id <= 0 OR business_bom_variant_id <= 0 THEN
+		-- Public legacy products can continue through the existing production
+		-- flow while their catalog is being migrated to BOM-spec identity. A
+		-- customer-owned product must always carry its authoritative spec.
+		IF EXISTS (
+			SELECT 1
+			FROM %[1]s.products product
+			WHERE product.id=business_product_id
+			  AND product.active=true
+			  AND COALESCE(product.customer_id,0)=0
+			  AND COALESCE(product.parent_product_id,0)=0
+		) THEN
+			RETURN NEW;
+		END IF;
 		RAISE EXCEPTION 'product_bom_spec_not_configured: product %%',business_product_id USING ERRCODE='check_violation';
 	END IF;
 	IF NOT EXISTS (
