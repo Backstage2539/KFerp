@@ -20,7 +20,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Review/acceptance: orderapp-remote/docs/acceptance/2026-09-05-customer-fulfillment-multi-tenant.md; scenarios 1-4 GREEN in development
 - Deployment: development deployment and scenario acceptance authorized; production untouched.
 - Last update: 2026-09-05 Asia/Shanghai
-- Notes: Final runtime deployed from `develop@6338303f55fa037ae76904f5027ec27e81fd80bc`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260905065303-6338303f55fa`; rollback image `kferp-orderapp-rollback:development-20260905065303-6338303f55fa`; production untouched. Acceptance customers/products/orders and API evidence are recorded in the acceptance document.
+- Notes: Final runtime deployed from `develop@e65a5eb00cf117592b0f4a8aa17a199b7f0d9dfa`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260905070039-e65a5eb00cf1`; rollback image `kferp-orderapp-rollback:development-20260905070039-e65a5eb00cf1`; production untouched. Acceptance customers/products/orders and API evidence are recorded in the acceptance document.
 
 ### PR-625-MANUAL-BOM-AND-ORDER-TIER-FIX
 - Branch: `codex/pr625-manual-bom-spec-publish`
