@@ -14,9 +14,10 @@ import (
 )
 
 type orderAPIHandler struct {
-	sales    *salesapp.Service
-	messages MessagePublisher
-	assetDir string
+	sales         *salesapp.Service
+	messages      MessagePublisher
+	assetDir      string
+	customerScope CustomerScopeResolver
 }
 
 type apiOption struct {
@@ -120,6 +121,8 @@ type orderSaveAPIRequest struct {
 	BomSpecID                          []string `json:"bom_spec_id"`
 	BomVariantID                       []string `json:"bom_variant_id"`
 	CustomerProductAliasID             []string `json:"customer_product_alias_id"`
+	CustomerProductReferenceID         []string `json:"customer_product_reference_id"`
+	MaterialSourceMode                 []string `json:"material_source_mode"`
 	CustomerProductDisplayNameSnapshot []string `json:"customer_product_display_name_snapshot"`
 	CustomerItemCodeSnapshot           []string `json:"customer_item_code_snapshot"`
 	BrandNameSnapshot                  []string `json:"brand_name_snapshot"`
@@ -152,15 +155,24 @@ type orderVoidManyAPIRequest struct {
 	Reason   string  `json:"reason"`
 }
 
-func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher, assetDirs ...string) {
+func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher, assetDirs ...any) {
 	assetDir := "/app/data/assets"
-	if len(assetDirs) > 0 && strings.TrimSpace(assetDirs[0]) != "" {
-		assetDir = strings.TrimSpace(assetDirs[0])
+	var customerScope CustomerScopeResolver
+	for _, value := range assetDirs {
+		switch item := value.(type) {
+		case string:
+			if strings.TrimSpace(item) != "" {
+				assetDir = strings.TrimSpace(item)
+			}
+		case CustomerScopeResolver:
+			customerScope = item
+		}
 	}
 	h := orderAPIHandler{
-		sales:    salesSvc,
-		messages: messages,
-		assetDir: assetDir,
+		sales:         salesSvc,
+		messages:      messages,
+		assetDir:      assetDir,
+		customerScope: customerScope,
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/orders/:id/detail", h.detail)
@@ -251,6 +263,20 @@ func (h orderAPIHandler) form(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid customer_id"})
 		}
 		customerID = id
+		filterByCustomer = true
+	}
+	if support.CustomerFulfillmentOrderScopeLimited(c) {
+		if h.customerScope == nil {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "customer scope unavailable"})
+		}
+		boundID, resolveErr := h.customerScope.BoundCustomerID(c.Request().Context(), support.CurrentEmployeeID(c))
+		if resolveErr != nil || boundID <= 0 {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "customer binding not found"})
+		}
+		if filterByCustomer && customerID != boundID {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "customer scope mismatch"})
+		}
+		customerID = boundID
 		filterByCustomer = true
 	}
 	if filterByCustomer {
@@ -464,6 +490,15 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
+	if support.CustomerFulfillmentOrderScopeLimited(c) {
+		if h.customerScope == nil {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "customer scope unavailable"})
+		}
+		boundID, resolveErr := h.customerScope.BoundCustomerID(c.Request().Context(), support.CurrentEmployeeID(c))
+		if resolveErr != nil || boundID <= 0 || cmd.CustomerID != boundID {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "customer scope mismatch"})
+		}
+	}
 	res, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -668,6 +703,8 @@ func apiProducts(ps []ProductOption) []map[string]any {
 			"product_code":                         p.ProductCode,
 			"product_name_snapshot":                firstNonEmpty(p.ProductRecordName, p.Name),
 			"customer_product_alias_id":            p.CustomerProductAliasID,
+			"customer_product_reference_id":        p.CustomerProductReferenceID,
+			"material_source_mode":                 p.MaterialSourceMode,
 			"customer_product_display_name":        p.CustomerProductDisplayName,
 			"customer_item_code":                   p.CustomerItemCode,
 			"brand_name":                           p.BrandName,

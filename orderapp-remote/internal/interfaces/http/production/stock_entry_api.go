@@ -23,6 +23,7 @@ type stockEntryRequest struct {
 	IsReturn       bool                                `json:"is_return"`
 	ReturnSource   string                              `json:"return_source"`
 	IdempotencyKey string                              `json:"idempotency_key"`
+	CustomerID     int64                               `json:"customer_id"`
 	Items          []stockapp.StockDocumentItemCommand `json:"items"`
 }
 
@@ -54,6 +55,7 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 			Operator:       support.ActorOf(c),
 			Note:           req.Note,
 			IdempotencyKey: req.IdempotencyKey,
+			CustomerID:     req.CustomerID,
 			Items:          req.Items,
 		}, nil
 	}

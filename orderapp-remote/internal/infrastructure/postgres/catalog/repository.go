@@ -496,9 +496,9 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
 			special_attrs_json, unit_rule_override_json, unit_template_id, created_at
 		)
-		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,0,0,'public','',$14,$15,$16::jsonb,$17::jsonb,$18,now())
+		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,$14,0,CASE WHEN $14>0 THEN 'customer_only' ELSE 'public' END,'',$15,$16,$17::jsonb,$18::jsonb,$19,now())
 		RETURNING id
-	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
+	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, cmd.CustomerID, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 	if err := postgresproductspecmigration.PrepareNewProductTx(ctx, tx, r.schema, productID, cmd.Actor); err != nil {
@@ -511,6 +511,15 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 			VALUES($1,$2,'active',now())
 			ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()
 		`, r.schema), productID, yieldRate); err != nil {
+			return catalogapp.Product{}, err
+		}
+	}
+	if cmd.CustomerID > 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, material_source_mode, active, remark, created_by, updated_by)
+			VALUES($1,$2,$3,$4,$5,true,$6,$7,$7)
+			ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET customer_item_code=excluded.customer_item_code, customer_display_name=excluded.customer_display_name, material_source_mode=excluded.material_source_mode, remark=excluded.remark, updated_at=now(), updated_by=excluded.updated_by
+		`, r.schema), productID, cmd.CustomerID, strings.TrimSpace(cmd.CustomerItemCode), strings.TrimSpace(cmd.CustomerDisplayName), normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), strings.TrimSpace(cmd.Remark), cmd.Actor); err != nil {
 			return catalogapp.Product{}, err
 		}
 	}
@@ -3239,7 +3248,7 @@ func reorderBusinessGroupItemSiblingsTx(ctx context.Context, tx pgx.Tx, schema s
 
 func (r Repository) ListProductCustomerReferences(ctx context.Context, productID int64) ([]catalogapp.ProductCustomerReference, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, product_id, customer_id, customer_item_code, customer_display_name, active, remark
+		SELECT id, product_id, customer_id, customer_item_code, customer_display_name, COALESCE(material_source_mode,'factory'), active, remark
 		FROM %s.product_customer_references
 		WHERE ($1::bigint=0 OR product_id=$1)
 		ORDER BY active DESC, product_id, customer_id, id
@@ -3251,12 +3260,19 @@ func (r Repository) ListProductCustomerReferences(ctx context.Context, productID
 	out := make([]catalogapp.ProductCustomerReference, 0)
 	for rows.Next() {
 		var row catalogapp.ProductCustomerReference
-		if err := rows.Scan(&row.ID, &row.ProductID, &row.CustomerID, &row.CustomerItemCode, &row.CustomerDisplayName, &row.Active, &row.Remark); err != nil {
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.CustomerID, &row.CustomerItemCode, &row.CustomerDisplayName, &row.MaterialSourceMode, &row.Active, &row.Remark); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func normalizeReferenceMaterialSourceMode(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "customer") {
+		return "customer"
+	}
+	return "factory"
 }
 
 func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalogapp.ProductCustomerReference) (catalogapp.ProductCustomerReference, error) {
@@ -3265,16 +3281,16 @@ func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalo
 	if cmd.ID > 0 {
 		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_customer_references
-			SET product_id=$2, customer_id=$3, customer_item_code=$4, customer_display_name=$5, active=$6, remark=$7, updated_at=now(), updated_by=$8
+			SET product_id=$2, customer_id=$3, customer_item_code=$4, customer_display_name=$5, material_source_mode=$6, active=$7, remark=$8, updated_at=now(), updated_by=$9
 			WHERE id=$1
 			RETURNING id
-		`, r.schema), cmd.ID, cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.ID, cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	} else {
 		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, active, remark, created_by, updated_by)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$7)
+			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, material_source_mode, active, remark, created_by, updated_by)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)
 			RETURNING id
-		`, r.schema), cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	}
 	if err != nil {
 		return catalogapp.ProductCustomerReference{}, err
@@ -5944,6 +5960,13 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		`, r.schema, r.schema), productID, baseProductID); err != nil {
 			return catalogapp.Product{}, err
 		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, material_source_mode, active, remark, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$5,true,$6,$7,$7)
+		ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET customer_item_code=excluded.customer_item_code, customer_display_name=excluded.customer_display_name, material_source_mode=excluded.material_source_mode, remark=excluded.remark, updated_at=now(), updated_by=excluded.updated_by
+	`, r.schema), productID, cmd.CustomerID, strings.TrimSpace(cmd.CustomerItemCode), strings.TrimSpace(cmd.CustomerDisplayName), normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), remark, cmd.Actor); err != nil {
+		return catalogapp.Product{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("customer_custom_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
 		"customer_id":               cmd.CustomerID,

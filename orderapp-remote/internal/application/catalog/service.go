@@ -259,6 +259,7 @@ type ProductCustomerReference struct {
 	CustomerID          int64  `json:"customer_id"`
 	CustomerItemCode    string `json:"customer_item_code"`
 	CustomerDisplayName string `json:"customer_display_name"`
+	MaterialSourceMode  string `json:"material_source_mode"`
 	Active              bool   `json:"active"`
 	Remark              string `json:"remark"`
 }
@@ -787,6 +788,10 @@ type CreateProductCommand struct {
 	Actor                    string
 	Name                     string
 	Remark                   string
+	CustomerID               int64
+	CustomerItemCode         string
+	CustomerDisplayName      string
+	MaterialSourceMode       string
 	ProductKind              string
 	GreenBeanType            string
 	GreenBeanBomProductID    int64
@@ -850,6 +855,9 @@ type CreateCustomProductCommand struct {
 	BaseProductID         int64
 	Name                  string
 	Remark                string
+	CustomerItemCode      string
+	CustomerDisplayName   string
+	MaterialSourceMode    string
 	ProductKind           string
 	GreenBeanType         string
 	GreenBeanBomProductID int64
@@ -1564,6 +1572,15 @@ func (s *Service) DeactivateProducts(ctx context.Context, cmd DeactivateProducts
 func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	cmd.CustomerItemCode = strings.TrimSpace(cmd.CustomerItemCode)
+	cmd.CustomerDisplayName = strings.TrimSpace(cmd.CustomerDisplayName)
+	cmd.MaterialSourceMode = normalizeMaterialSourceMode(cmd.MaterialSourceMode)
+	if cmd.CustomerID < 0 {
+		return Product{}, ValidationError{Message: "invalid customer_id"}
+	}
+	if cmd.CustomerID > 0 && cmd.CustomerItemCode == "" && cmd.CustomerDisplayName == "" {
+		cmd.CustomerDisplayName = cmd.Name
+	}
 	if cmd.Name == "" {
 		return Product{}, ValidationError{Message: "name required"}
 	}
@@ -2028,6 +2045,7 @@ func (s *Service) SaveProductCustomerReference(ctx context.Context, cmd ProductC
 	cmd.CustomerItemCode = strings.TrimSpace(cmd.CustomerItemCode)
 	cmd.CustomerDisplayName = strings.TrimSpace(cmd.CustomerDisplayName)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	cmd.MaterialSourceMode = normalizeMaterialSourceMode(cmd.MaterialSourceMode)
 	if cmd.ID < 0 || cmd.ProductID <= 0 || cmd.CustomerID <= 0 {
 		return ProductCustomerReference{}, ValidationError{Message: "invalid product customer reference"}
 	}
@@ -2038,6 +2056,20 @@ func (s *Service) SaveProductCustomerReference(ctx context.Context, cmd ProductC
 		cmd.Active = true
 	}
 	return s.repo.SaveProductCustomerReference(ctx, cmd)
+}
+
+const (
+	MaterialSourceModeFactory  = "factory"
+	MaterialSourceModeCustomer = "customer"
+)
+
+func normalizeMaterialSourceMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case MaterialSourceModeCustomer:
+		return MaterialSourceModeCustomer
+	default:
+		return MaterialSourceModeFactory
+	}
 }
 
 func (s *Service) ListProductPricingRules(ctx context.Context) ([]ProductPricingRule, error) {
@@ -2794,6 +2826,12 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 	}
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	cmd.CustomerItemCode = strings.TrimSpace(cmd.CustomerItemCode)
+	cmd.CustomerDisplayName = strings.TrimSpace(cmd.CustomerDisplayName)
+	cmd.MaterialSourceMode = normalizeMaterialSourceMode(cmd.MaterialSourceMode)
+	if cmd.CustomerDisplayName == "" {
+		cmd.CustomerDisplayName = cmd.Name
+	}
 	if cmd.Name == "" {
 		return Product{}, fmt.Errorf("name required")
 	}

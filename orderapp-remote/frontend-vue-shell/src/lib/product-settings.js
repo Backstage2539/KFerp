@@ -289,6 +289,7 @@ export function buildProductCustomerReferencePayload(form = {}) {
     customer_id: Number(form.customer_id || form.customerID || 0),
     customer_item_code: String(form.customer_item_code ?? form.customerItemCode ?? form.ref_code ?? '').trim(),
     customer_display_name: String(form.customer_display_name ?? form.customerDisplayName ?? form.display_name ?? '').trim(),
+    material_source_mode: String(form.material_source_mode ?? form.materialSourceMode ?? 'factory').trim().toLowerCase() === 'customer' ? 'customer' : 'factory',
     active: Boolean(form.active ?? true),
     remark: String(form.remark ?? '').trim(),
   }

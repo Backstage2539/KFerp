@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	productiondomain "orderapp/internal/domain/production"
+	stockdomain "orderapp/internal/domain/stock"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,6 +83,7 @@ type productionDemandQueryer interface {
 func fetchUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {
 	where := fmt.Sprintf(`WHERE o.is_void=false AND p.active=true AND %s
 	AND COALESCE(oi.product_id,0) > 0
+	AND COALESCE(NULLIF(oi.material_source_mode,''),'factory') <> 'customer'
 	AND NOT EXISTS (
 		SELECT 1 FROM %s.ship_statuses ss
 		WHERE ss.id=o.ship_status_id
@@ -113,12 +115,128 @@ func fetchUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, sch
 	if err != nil {
 		return nil, err
 	}
+	customerOrderDemands, err := fetchCustomerOrderProductionDemands(ctx, pool, schema, strings.Join(demandWhere, " AND "), args)
+	if err != nil {
+		return nil, err
+	}
+	demands = append(demands, customerOrderDemands...)
 	processing, err := fetchCustomerProcessingProductionDemands(ctx, pool, schema, strings.Join(demandWhere, " AND "), args)
 	if err != nil {
 		return nil, err
 	}
 	demands = append(demands, processing...)
 	return finalizeUnproducedNeeds(ctx, pool, schema, demands)
+}
+
+// fetchCustomerOrderProductionDemands turns customer supplied order lines into
+// normal production demand rows while preserving the customer as part of the
+// frozen quantity snapshot.  The ordinary sales query deliberately excludes
+// these lines, so this is the single source that makes a customer supplied
+// line visible to planning without double counting it.
+func fetchCustomerOrderProductionDemands(ctx context.Context, pool productionDemandQueryer, schema, where string, args []any) ([]productionDemand, error) {
+	q := fmt.Sprintf(`
+		SELECT
+			d.product_id,
+			COALESCE(d.bom_spec_id,0),
+			COALESCE(d.bom_variant_id,0),
+			CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END,
+			COALESCE(NULLIF(oi.customer_product_display_name_snapshot,''),p.name,''),
+			COALESCE(NULLIF(oi.product_kind,''),NULLIF(p.product_kind,''),'roasted_bean'),
+			COALESCE(type_pc.id,0), COALESCE(subtype_pc.id,0),
+			COALESCE(type_pc.name,''), COALESCE(subtype_pc.name,''),
+			COALESCE(
+				NULLIF(cpro.operation_template_id,0),
+				NULLIF(cpti.operation_template_id,0),
+				NULLIF(p.operation_template_id_override,0),
+				NULLIF(subtype_pc.operation_template_id,0),
+				type_pc.operation_template_id, 0
+			),
+			COALESCE(o.order_no,''), COALESCE(d.target_qty,0)::float8,
+			COALESCE(oi.price_source_json,'{}'::jsonb)::text,
+			COALESCE(NULLIF(oi.sales_unit,''),NULLIF(oi.unit,''),''),
+			COALESCE(NULLIF(bom_variant.spec_name_snapshot,''),NULLIF(bom_spec.name,''),NULLIF(p.spec_label,''),NULLIF(p.sku_name,''),NULLIF(p.derived_spec_name,''),''),
+			COALESCE(p.net_content_qty,0)::float8, COALESCE(p.net_content_unit,''),
+			COALESCE(NULLIF(bom_variant.inventory_unit,''),NULLIF(bom_spec.inventory_unit,''),CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN
+				COALESCE(NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''),NULLIF(parent_product_unit_template.inventory_unit,''),NULLIF(parent_product_config.inventory_unit,''),NULLIF(parent_product_category.inventory_unit,''),NULLIF(parent_product_parent_category.inventory_unit,''))
+			ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''),NULLIF(product_unit_template.inventory_unit,''),NULLIF(product_config.inventory_unit,''),NULLIF(subtype_pc.inventory_unit,''),NULLIF(type_pc.inventory_unit,'')) END,''),
+			COALESCE(d.customer_id,0),
+			COALESCE((SELECT w.code FROM %s.warehouses w WHERE w.customer_id=d.customer_id AND w.kind='finished' AND w.active=true ORDER BY w.sort_order,w.code LIMIT 1),'finished_goods')
+		FROM %s.customer_order_production_demands d
+		JOIN %s.orders o ON o.id=d.order_id
+		JOIN %s.order_items oi ON oi.order_id=d.order_id AND oi.line_no=d.line_no
+		JOIN %s.products p ON p.id=d.product_id
+		LEFT JOIN %s.production_bom_specs bom_spec ON bom_spec.id=d.bom_spec_id
+		LEFT JOIN %s.production_bom_version_variants bom_variant ON bom_variant.id=d.bom_variant_id AND bom_variant.bom_spec_id=bom_spec.id
+		LEFT JOIN %s.products parent_product ON parent_product.id=p.parent_product_id
+		LEFT JOIN %s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=parent_product.unit_template_id
+		LEFT JOIN %s.product_config_templates parent_product_config ON parent_product_config.id=parent_product.product_config_template_id
+		LEFT JOIN %s.product_categories parent_product_category ON parent_product_category.id=parent_product.product_category_id
+		LEFT JOIN %s.product_categories parent_product_parent_category ON parent_product_parent_category.id=parent_product_category.parent_id
+		LEFT JOIN %s.product_unit_templates product_unit_template ON product_unit_template.id=p.unit_template_id
+		LEFT JOIN %s.product_config_templates product_config ON product_config.id=p.product_config_template_id
+		LEFT JOIN %s.product_categories subtype_pc ON subtype_pc.id=COALESCE(p.product_category_id,0)
+		LEFT JOIN %s.product_categories type_pc ON type_pc.id=COALESCE(subtype_pc.parent_id,0)
+		LEFT JOIN %s.customers rule_customer ON rule_customer.id=d.customer_id AND rule_customer.active=true
+		LEFT JOIN %s.customer_product_rule_template_items cpti ON cpti.active=true AND cpti.template_id=COALESCE(rule_customer.customer_product_rule_template_id,0) AND cpti.product_subtype_category_id=COALESCE(subtype_pc.id,0)
+		LEFT JOIN %s.customer_product_rule_overrides cpro ON cpro.active=true AND cpro.customer_id=d.customer_id AND cpro.product_subtype_category_id=COALESCE(subtype_pc.id,0)
+		WHERE %s
+		ORDER BY d.product_id,o.order_no,d.id
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, where)
+	rows, err := pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	bySnapshot := map[string]*productionDemand{}
+	order := make([]string, 0)
+	for rows.Next() {
+		var (
+			productID, bomSpecID, bomVariantID, parentProductID, typeID, subtypeID, operationTemplateID, customerID                                        int64
+			product, productionKind, typeName, subtypeName, orderNo, priceSourceJSON, salesUnit, specLabel, netContentUnit, inventoryUnit, targetWarehouse string
+			qty, netContentQty                                                                                                                             float64
+		)
+		if err := rows.Scan(&productID, &bomSpecID, &bomVariantID, &parentProductID, &product, &productionKind, &typeID, &subtypeID, &typeName, &subtypeName, &operationTemplateID, &orderNo, &qty, &priceSourceJSON, &salesUnit, &specLabel, &netContentQty, &netContentUnit, &inventoryUnit, &customerID, &targetWarehouse); err != nil {
+			return nil, err
+		}
+		if qty <= 0 {
+			continue
+		}
+		snapshot, snapshotJSON, err := resolveProductionQuantitySnapshot(productID, parentProductID, bomSpecID, bomVariantID, priceSourceJSON, salesUnit, specLabel, netContentQty, netContentUnit, inventoryUnit)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.CustomerID = customerID
+		snapshot.TargetWarehouse = strings.TrimSpace(targetWarehouse)
+		snapshotJSONBytes, _ := json.Marshal(snapshot)
+		snapshotJSON = string(snapshotJSONBytes)
+		groupKey := productionQuantitySnapshotGroupKey(snapshot)
+		demand := bySnapshot[groupKey]
+		if demand == nil {
+			demand = &productionDemand{UnprodNeedRow: UnprodNeedRow{
+				ProductID: productID, ParentProductID: parentProductID, BomSpecID: bomSpecID, BomVariantID: bomVariantID,
+				SelectionKey: productionDemandSelectionKey(productID, bomSpecID, 0), Product: product,
+				ProductionKind: productionKind, ProductTypeCategoryID: typeID, ProductSubtypeCategoryID: subtypeID,
+				ProductTypeName: typeName, ProductSubtypeName: subtypeName, OperationTemplateID: operationTemplateID,
+				SpecLabel: snapshot.SpecLabel, SalesUnit: snapshot.SalesUnit, InventoryQtyPerSalesUnit: snapshot.InventoryQtyPerSalesUnit,
+				InventoryUnit: snapshot.InventoryUnit, SalesSpecSnapshotJSON: snapshotJSON,
+			}, orderNos: map[string]bool{}}
+			if snapshot.BomSpecID == 0 {
+				demand.SpecG = productiondomain.InventoryQuantityToLegacyGrams(snapshot.InventoryQtyPerSalesUnit, snapshot.InventoryUnit)
+				demand.SelectionKey = productionDemandSelectionKey(productID, 0, demand.SpecG)
+			}
+			bySnapshot[groupKey] = demand
+			order = append(order, groupKey)
+		}
+		demand.SalesSpecCount += qty
+		demand.forceSalesSpecCount += qty
+		if strings.TrimSpace(orderNo) != "" {
+			demand.orderNos[strings.TrimSpace(orderNo)] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return productionDemandMapRows(bySnapshot, order), nil
 }
 
 type productionDemand struct {
@@ -745,12 +863,21 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 	}
 	productIDs := make([]int64, 0, len(demands))
 	productSeen := map[int64]bool{}
+	warehouseSeen := map[string]bool{"finished_goods": true}
 	for _, demand := range demands {
 		if !productSeen[demand.ProductID] {
 			productSeen[demand.ProductID] = true
 			productIDs = append(productIDs, demand.ProductID)
 		}
+		if warehouse := strings.TrimSpace(productionQuantitySnapshotTargetWarehouse(demand.SalesSpecSnapshotJSON)); warehouse != "" {
+			warehouseSeen[warehouse] = true
+		}
 	}
+	warehouses := make([]string, 0, len(warehouseSeen))
+	for warehouse := range warehouseSeen {
+		warehouses = append(warehouses, warehouse)
+	}
+	sort.Strings(warehouses)
 	availability := map[string]*finishedInventoryAvailability{}
 	hasBomSpecIdentity, err := productionDemandColumnExists(ctx, pool, schema, "finished_inventory", "bom_spec_id")
 	if err != nil {
@@ -759,36 +886,37 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 	var rows pgx.Rows
 	if hasBomSpecIdentity {
 		rows, err = pool.Query(ctx, fmt.Sprintf(`
-			SELECT product_id,COALESCE(bom_spec_id,0),spec_g,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
+			SELECT product_id,COALESCE(bom_spec_id,0),spec_g,warehouse,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
 			FROM %s.finished_inventory
-			WHERE product_id=ANY($1) AND warehouse='finished_goods'
-		`, schema), productIDs)
+			WHERE product_id=ANY($1) AND warehouse=ANY($2)
+		`, schema), productIDs, warehouses)
 	} else {
 		// Isolated legacy repository tests intentionally create the pre-PR-600
 		// table shape. Keep those tests and legacy databases readable while the
 		// normal application schema uses the canonical BOM-spec columns.
 		rows, err = pool.Query(ctx, fmt.Sprintf(`
-			SELECT product_id,spec_g,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
+			SELECT product_id,spec_g,warehouse,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
 			FROM %s.finished_inventory
-			WHERE product_id=ANY($1) AND warehouse='finished_goods'
-		`, schema), productIDs)
+			WHERE product_id=ANY($1) AND warehouse=ANY($2)
+		`, schema), productIDs, warehouses)
 	}
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var productID, bomSpecID, specG, units, looseG int64
+		var warehouse string
 		var scanErr error
 		if hasBomSpecIdentity {
-			scanErr = rows.Scan(&productID, &bomSpecID, &specG, &units, &looseG)
+			scanErr = rows.Scan(&productID, &bomSpecID, &specG, &warehouse, &units, &looseG)
 		} else {
-			scanErr = rows.Scan(&productID, &specG, &units, &looseG)
+			scanErr = rows.Scan(&productID, &specG, &warehouse, &units, &looseG)
 		}
 		if scanErr != nil {
 			rows.Close()
 			return nil, scanErr
 		}
-		availability[productionDemandSelectionKey(productID, bomSpecID, specG)] = &finishedInventoryAvailability{units: units, looseG: looseG}
+		availability[productionDemandSelectionKey(productID, bomSpecID, specG)+"\x1f"+strings.TrimSpace(warehouse)] = &finishedInventoryAvailability{units: units, looseG: looseG}
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -856,7 +984,7 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 			rows.Close()
 			return nil, scanErr
 		}
-		key := productionDemandSelectionKey(productID, bomSpecID, specG)
+		key := productionDemandSelectionKey(productID, bomSpecID, specG) + "\x1f" + stockdomain.WarehouseFinishedGoods
 		current := availability[key]
 		if current == nil {
 			current = &finishedInventoryAvailability{}
@@ -906,7 +1034,11 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 			out = append(out, row)
 			continue
 		}
-		availabilityKey := productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG)
+		warehouse := strings.TrimSpace(productionQuantitySnapshotTargetWarehouse(row.SalesSpecSnapshotJSON))
+		if warehouse == "" {
+			warehouse = stockdomain.WarehouseFinishedGoods
+		}
+		availabilityKey := productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG) + "\x1f" + warehouse
 		current := availability[availabilityKey]
 		if current == nil {
 			current = &finishedInventoryAvailability{}

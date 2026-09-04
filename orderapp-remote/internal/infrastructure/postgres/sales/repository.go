@@ -1195,6 +1195,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		canonicalBOMSpec                   bool
 		canonicalDirectProduct             bool
 		customerProductAliasID             int64
+		customerProductReferenceID         int64
+		materialSourceMode                 string
 		customerProductDisplayNameSnapshot string
 		customerItemCodeSnapshot           string
 		brandNameSnapshot                  string
@@ -1239,6 +1241,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			bomSpecID:                          src.BomSpecID,
 			bomVariantID:                       src.BomVariantID,
 			customerProductAliasID:             src.CustomerProductAliasID,
+			customerProductReferenceID:         src.CustomerProductReferenceID,
+			materialSourceMode:                 normalizeMaterialSourceMode(src.MaterialSourceMode),
 			customerProductDisplayNameSnapshot: strings.TrimSpace(src.CustomerProductDisplayNameSnapshot),
 			customerItemCodeSnapshot:           strings.TrimSpace(src.CustomerItemCodeSnapshot),
 			brandNameSnapshot:                  strings.TrimSpace(src.BrandNameSnapshot),
@@ -1957,8 +1961,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 
-	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,bom_spec_id,bom_variant_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NULLIF($15,0),$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32::jsonb)`, r.schema)
+	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,bom_spec_id,bom_variant_id,customer_product_alias_id,customer_product_reference_id,material_source_mode,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,0),$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34::jsonb)`, r.schema)
 
 	if editID > 0 {
 		if !cmd.PreserveFulfillmentSnapshot {
@@ -2159,6 +2163,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if _, err := replaceOrderTrackingNumbersTx(ctx, tx, r.schema, orderID, shipTrackingNo, "order_form", cmd.Actor); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
+	// Rebuild customer supplied production demands from the current order
+	// snapshot so edits cannot leave stale customer demand rows behind.
+	if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.customer_order_production_demands WHERE order_id=$1", r.schema), orderID); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 
 	for idx, it := range items {
 		qtyAny := any(nil)
@@ -2182,6 +2191,23 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			it.customerProductDisplayNameSnapshot = aliasSnapshot.DisplayName
 			it.customerItemCodeSnapshot = aliasSnapshot.CustomerItemCode
 			it.brandNameSnapshot = aliasSnapshot.BrandName
+		}
+		referenceSnapshot, referenceErr := resolveOrderItemCustomerReferenceSnapshotTx(ctx, tx, r.schema, cmd.CustomerID, productID, it.customerProductReferenceID)
+		if referenceErr != nil {
+			return salesapp.SaveOrderResult{}, referenceErr
+		}
+		if referenceSnapshot.ReferenceID > 0 {
+			it.customerProductReferenceID = referenceSnapshot.ReferenceID
+			it.materialSourceMode = referenceSnapshot.MaterialSourceMode
+			it.customerProductDisplayNameSnapshot = referenceSnapshot.DisplayName
+			it.customerItemCodeSnapshot = referenceSnapshot.CustomerItemCode
+			it.brandNameSnapshot = ""
+			if strings.TrimSpace(it.productCodeSnapshot) == "" {
+				it.productCodeSnapshot = referenceSnapshot.ProductCode
+			}
+			if strings.TrimSpace(it.productNameSnapshot) == "" {
+				it.productNameSnapshot = referenceSnapshot.ProductName
+			}
 		}
 		if strings.TrimSpace(it.productCodeSnapshot) == "" {
 			it.productCodeSnapshot = aliasSnapshot.ProductCode
@@ -2237,8 +2263,21 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 		priceSourceJSON = withProductProductionConfigPriceSourceJSON(priceSourceJSON, productionConfigJSON)
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, it.materialSourceMode, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
+		}
+		if it.materialSourceMode == "customer" {
+			productIDValue := int64(0)
+			if it.productID != nil {
+				productIDValue = *it.productID
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.customer_order_production_demands(order_id,line_no,customer_id,product_id,bom_spec_id,bom_variant_id,target_qty,material_source_mode,status,created_at,updated_at)
+				VALUES($1,$2,$3,$4,$5,$6,$7,'customer','planned',now(),now())
+				ON CONFLICT(order_id,line_no) DO UPDATE SET customer_id=excluded.customer_id, product_id=excluded.product_id, bom_spec_id=excluded.bom_spec_id, bom_variant_id=excluded.bom_variant_id, target_qty=excluded.target_qty, material_source_mode='customer', status='planned', updated_at=now()
+			`, r.schema), orderID, idx+1, cmd.CustomerID, productIDValue, it.bomSpecID, it.bomVariantID, it.units); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
 		}
 	}
 
@@ -2504,6 +2543,65 @@ type orderItemCustomerAliasSnapshot struct {
 	ProductName         string
 	DisplayCategoryID   int64
 	DisplayCategoryName string
+}
+
+type orderItemCustomerReferenceSnapshot struct {
+	ReferenceID        int64
+	DisplayName        string
+	CustomerItemCode   string
+	ProductCode        string
+	ProductName        string
+	MaterialSourceMode string
+}
+
+func normalizeMaterialSourceMode(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "customer") {
+		return "customer"
+	}
+	return "factory"
+}
+
+func resolveOrderItemCustomerReferenceSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, customerID, productID, requestedReferenceID int64) (orderItemCustomerReferenceSnapshot, error) {
+	snap := orderItemCustomerReferenceSnapshot{ProductCode: fmt.Sprintf("SKU-%d", productID), MaterialSourceMode: "factory"}
+	if productID <= 0 || customerID <= 0 || !relationExistsTx(ctx, tx, fmt.Sprintf("%s.product_customer_references", schema)) {
+		if requestedReferenceID > 0 {
+			return orderItemCustomerReferenceSnapshot{}, fmt.Errorf("客户商品引用与当前客户或商品不匹配，或已停用")
+		}
+		return snap, nil
+	}
+	var effectiveParentID int64
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT CASE WHEN COALESCE(parent_product_id,0)>0 THEN parent_product_id ELSE id END FROM %s.products WHERE id=$1`, schema), productID).Scan(&effectiveParentID)
+	q := fmt.Sprintf(`
+		SELECT ref.id,
+		       COALESCE(NULLIF(ref.customer_display_name,''), parent.name, p.name, ''),
+		       COALESCE(ref.customer_item_code,''),
+		       COALESCE(NULLIF(p.sku_code,''),'SKU-' || p.id::text),
+		       COALESCE(parent.name,p.name,''),
+		       COALESCE(NULLIF(ref.material_source_mode,''),'factory')
+		FROM %s.product_customer_references ref
+		JOIN %s.products p ON p.id=ref.product_id
+		LEFT JOIN %s.products parent ON parent.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END
+		WHERE ref.customer_id=$1 AND ref.active=true
+		  AND (ref.product_id=$2 OR ref.product_id=$3)
+	`, schema, schema, schema)
+	args := []any{customerID, productID, effectiveParentID}
+	if requestedReferenceID > 0 {
+		q += " AND ref.id=$4"
+		args = append(args, requestedReferenceID)
+	}
+	q += " ORDER BY CASE WHEN ref.product_id=$2 THEN 0 ELSE 1 END, ref.id LIMIT 1"
+	err := tx.QueryRow(ctx, q, args...).Scan(&snap.ReferenceID, &snap.DisplayName, &snap.CustomerItemCode, &snap.ProductCode, &snap.ProductName, &snap.MaterialSourceMode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if requestedReferenceID > 0 {
+			return orderItemCustomerReferenceSnapshot{}, fmt.Errorf("客户商品引用与当前客户或商品不匹配，或已停用")
+		}
+		return snap, nil
+	}
+	if err != nil {
+		return orderItemCustomerReferenceSnapshot{}, err
+	}
+	snap.MaterialSourceMode = normalizeMaterialSourceMode(snap.MaterialSourceMode)
+	return snap, nil
 }
 
 func resolveOrderItemCustomerAliasSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, customerID, productID, requestedAliasID int64) (orderItemCustomerAliasSnapshot, error) {

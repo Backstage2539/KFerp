@@ -553,6 +553,7 @@ test('product customer references replace customer product master data for displ
     customer_id: 42,
     customer_item_code: 'KAREN-ESP',
     customer_display_name: 'Karen 精品拼配',
+    material_source_mode: 'factory',
     active: false,
     remark: '客户自己的叫法',
   })
@@ -4434,7 +4435,7 @@ test('product management exposes customer product names without direct BOM editi
     '价格摘要',
     'customerProductAliases',
     'buildCustomerProductAliasPayload',
-    '/api/customer-product-aliases',
+    '/api/product-customer-references',
     'saveCustomerProductAlias',
     'disableCustomerProductAlias',
     '客户商品只维护对外名称、编号、重命名和价格表展示',
@@ -4447,8 +4448,8 @@ test('product management exposes customer product names without direct BOM editi
   assert.match(template, /currentSettingsSection === 'aliases'/)
   assert.match(script, /apiGet\('\/api\/customer-product-aliases\?active=all'\)/)
   assert.match(script, /apiSend\(url,\s*\{ method,\s*body:\s*payload \}\)/)
+  assert.match(script, /apiSend\(`\/api\/product-customer-references\/\$\{alias\.reference_id\}`/)
   assert.match(script, /apiSend\(`\/api\/customer-product-aliases\/\$\{alias\.id\}\/disable`\)/)
-  assert.match(script, /apiSend\('\/api\/customer-product-aliases\/batch-disable'/)
   const aliasForm = template.match(/<aside class="settings-drawer customer-alias-create-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
   const inlineAliasArea = template.match(/<section class="panel customer-alias-panel"[\s\S]*?<div class="table-wrap">/)?.[0] || ''
   const aliasFilters = template.match(/<div class="alias-filters alias-filter-row"[\s\S]*?<div class="classification-view-toolbar alias-classification-tabs"/)?.[0] || ''
@@ -4774,7 +4775,7 @@ test('customer product aliases support batch adding product records', () => {
   assert.match(source, /customerAliasCreateMode/)
   assert.match(template, /customerAliasCreateMode === 'batch'/)
   assert.match(source, /selectedAliasBatchProductIds/)
-  assert.match(script, /\/api\/customer-product-aliases\/batch/)
+  assert.match(script, /\/api\/product-customer-references\/\$\{alias\.reference_id\}/)
   assert.match(script, /buildCustomerProductAliasBatchPayload/)
   assert.doesNotMatch(source, /批量创建时客户商品名=商品档案名称，客户商品编号=商品编号/)
   assert.doesNotMatch(source, /aliasBatchForm\.customer_item_code/)

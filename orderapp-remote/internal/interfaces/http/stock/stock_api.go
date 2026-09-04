@@ -145,6 +145,23 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		return c.JSON(http.StatusOK, row)
 	})
 
+	e.POST("/api/stock/customer-warehouses", func(c echo.Context) error {
+		var req struct {
+			CustomerID int64  `json:"customer_id"`
+			Kind       string `json:"kind"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
+		}
+		row, err := stockSvc.EnsureCustomerWarehouse(c.Request().Context(), stockapp.EnsureCustomerWarehouseCommand{
+			CustomerID: req.CustomerID, Kind: req.Kind, Actor: support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
 	e.GET("/api/stock/material-batch-locations", func(c echo.Context) error {
 		limit := stockLimit(c)
 		offset := stockOffsetForLimit(c, limit)

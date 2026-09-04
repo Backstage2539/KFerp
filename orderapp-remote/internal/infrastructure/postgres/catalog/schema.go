@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_customer_references (
 	customer_id BIGINT NOT NULL,
 	customer_item_code TEXT NOT NULL DEFAULT '',
 	customer_display_name TEXT NOT NULL DEFAULT '',
+	material_source_mode TEXT NOT NULL DEFAULT 'factory',
 	active BOOLEAN NOT NULL DEFAULT true,
 	remark TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -231,6 +232,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_customer_references (
 	created_by TEXT NOT NULL DEFAULT '',
 	updated_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.product_customer_references ADD COLUMN IF NOT EXISTS material_source_mode TEXT NOT NULL DEFAULT 'factory';
+UPDATE %[1]s.product_customer_references SET material_source_mode='factory' WHERE material_source_mode IS NULL OR material_source_mode='';
 CREATE UNIQUE INDEX IF NOT EXISTS product_customer_references_product_customer_uq
 ON %[1]s.product_customer_references(product_id, customer_id)
 WHERE active=true;

@@ -1152,6 +1152,7 @@ func ensureOrderAPIProductCustomerReferenceTables(t *testing.T, ctx context.Cont
 			customer_id BIGINT NOT NULL,
 			customer_item_code TEXT NOT NULL DEFAULT '',
 			customer_display_name TEXT NOT NULL DEFAULT '',
+			material_source_mode TEXT NOT NULL DEFAULT 'factory',
 			active BOOLEAN NOT NULL DEFAULT true,
 			remark TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

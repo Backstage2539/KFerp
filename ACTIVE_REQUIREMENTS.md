@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-627-CUSTOMER-FULFILLMENT-MULTI-TENANT
+- Branch: `codex/customer-fulfillment-multi-tenant`
+- Owner/session: Codex / 2026-09-04
+- Status: implementation in progress
+- Scope: 履约客户独立商品、客户引用商品、客户供料/工厂供料混合订单、客户仓库存归属与履约工作台价格/库存隔离。
+- DEV: DEV-627-CUSTOMER-PRODUCT-REFERENCE; DEV-627-MIXED-SOURCE-ORDER; DEV-627-CUSTOMER-INVENTORY-WAREHOUSE; DEV-627-DEVELOPMENT-ACCEPTANCE
+- Verifier:
+  - Unit: pending
+  - API: pending
+  - Frontend/build: pending
+  - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md
+  - Review/acceptance: pending
+- Deployment: development deployment and scenario acceptance authorized; production untouched.
+- Last update: 2026-09-04 Asia/Shanghai
+- Notes: Implementation starts from origin/develop@b34a3fd20.
+
 ### PR-625-MANUAL-BOM-AND-ORDER-TIER-FIX
 - Branch: `codex/pr625-manual-bom-spec-publish`
 - Owner/session: Codex / 2026-09-03

@@ -319,6 +319,29 @@ func (r Repository) BindWarehouseCustomer(ctx context.Context, cmd stockapp.Bind
 	return stockapp.WarehouseRow{}, fmt.Errorf("warehouse not found")
 }
 
+func (r Repository) EnsureCustomerWarehouse(ctx context.Context, cmd stockapp.EnsureCustomerWarehouseCommand) (stockapp.WarehouseRow, error) {
+	name := map[string]string{"raw": "原料仓", "packaging": "包材仓", "finished": "成品仓"}[cmd.Kind]
+	code := fmt.Sprintf("customer_%d_%s", cmd.CustomerID, cmd.Kind)
+	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.warehouses(code,name,kind,parent_code,sort_order,is_default,active,description,customer_id,created_at,updated_at)
+		VALUES($1,$2,$3,'',100,false,true,$4,$5,now(),now())
+		ON CONFLICT(code) DO UPDATE SET active=true, customer_id=excluded.customer_id, kind=excluded.kind, name=excluded.name, updated_at=now()
+	`, r.schema), code, fmt.Sprintf("客户%s", name), cmd.Kind, "客户专属仓（与物理仓共享管理）", cmd.CustomerID); err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "warehouse", nil, "ensure_customer_warehouse", postgresinfra.StrPtr("customer_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.CustomerID)), postgresinfra.AuditMeta{"warehouse": code, "kind": cmd.Kind})
+	rows, err := r.ListWarehouses(ctx, stockapp.WarehouseListQuery{})
+	if err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	for _, row := range rows {
+		if row.Code == code {
+			return row, nil
+		}
+	}
+	return stockapp.WarehouseRow{}, fmt.Errorf("warehouse not found")
+}
+
 func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stockapp.MaterialBatchLocationQuery) (stockapp.MaterialBatchLocationResult, error) {
 	where, args := []string{"1=1"}, []any{}
 	if query.Q != "" {
@@ -449,7 +472,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR l.batch_code ILIKE $2 OR m.name ILIKE $2)
 			  AND ($3 = '' OR l.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'material')
-			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) IN (0, $7::bigint))
+			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) = $7::bigint)
 			UNION ALL
 			SELECT COALESCE(last_ledger.warehouse,'finished_goods') AS warehouse,
 			       COALESCE(w.name,COALESCE(last_ledger.warehouse,'finished_goods')) AS warehouse_name,
@@ -491,7 +514,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR b.batch_code ILIKE $2 OR p.name ILIKE $2 OR COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,'') ILIKE $2)
 			  AND ($3 = '' OR COALESCE(last_ledger.warehouse,'finished_goods') = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
-			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) IN (0, $7::bigint) OR COALESCE(p.customer_id,0) IN (0, $7::bigint))
+			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) = $7::bigint)
 			UNION ALL
 			SELECT fi.warehouse,
 			       COALESCE(w.name,fi.warehouse) AS warehouse_name,
@@ -521,7 +544,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR p.name ILIKE $2 OR COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,'') ILIKE $2)
 			  AND ($3 = '' OR fi.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
-			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) IN (0, $7::bigint) OR COALESCE(p.customer_id,0) IN (0, $7::bigint))
+			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) = $7::bigint)
 			  AND NOT EXISTS (
 			    SELECT 1
 			    FROM %s.stock_batches b
@@ -2019,6 +2042,7 @@ type ledgerEntry struct {
 	ItemType        string
 	ItemID          int64
 	ItemName        string
+	OwnerCustomerID int64
 	SpecG           int64
 	BomSpecID       int64
 	BomVariantID    int64
@@ -2037,7 +2061,27 @@ type ledgerEntry struct {
 }
 
 func insertLedgerTx(ctx context.Context, tx pgx.Tx, schema string, e ledgerEntry) error {
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
+	hasOwner, err := stockSchemaColumnExistsTx(ctx, tx, schema, "stock_ledger_entries", "owner_customer_id")
+	if err != nil {
+		return err
+	}
+	if hasOwner {
+		_, err = tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.stock_ledger_entries(
+				item_type,item_id,item_name,owner_customer_id,spec_g,bom_spec_id,bom_variant_id,warehouse,
+				source_doc_type,source_doc_id,source_batch_code,source_batch_id,
+				qty_before_g,qty_change_g,qty_after_g,
+				qty_before_units,qty_change_units,qty_after_units,
+				operator,created_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,now())
+		`, schema),
+			e.ItemType, e.ItemID, e.ItemName, e.OwnerCustomerID, e.SpecG, e.BomSpecID, e.BomVariantID, e.Warehouse,
+			e.SourceDocType, e.SourceDocID, e.SourceBatchCode, e.SourceBatchID,
+			e.BeforeG, e.ChangeG, e.AfterG, e.BeforeUnits, e.ChangeUnits, e.AfterUnits, e.Operator,
+		)
+		return err
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_ledger_entries(
 			item_type,item_id,item_name,spec_g,bom_spec_id,bom_variant_id,warehouse,
 			source_doc_type,source_doc_id,source_batch_code,source_batch_id,

@@ -39,7 +39,7 @@ func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 		"buildProductCreatePayload",
 		"批量添加商品档案",
 		"saveCustomerAliasBatch",
-		"/api/customer-product-aliases/batch",
+		"/api/product-customer-references/",
 		"ownerLabel(row)",
 	} {
 		if !strings.Contains(productSettings, want) {

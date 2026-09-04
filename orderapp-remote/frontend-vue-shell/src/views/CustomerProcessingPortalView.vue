@@ -33,6 +33,29 @@
       </div>
     </section>
 
+    <section v-if="overview.price_lists?.length" class="panel price-lists-panel">
+      <div class="panel-head">
+        <div>
+          <h3>我的价格表</h3>
+          <p class="muted">仅显示当前客户已发布的供货价格表，录单使用对应版本。</p>
+        </div>
+      </div>
+      <div class="price-list-cards">
+        <article v-for="list in overview.price_lists" :key="list.id" class="price-list-card">
+          <div class="price-list-card-head">
+            <strong>{{ list.product_type || list.list_type || '供货价格表' }}</strong>
+            <span>{{ list.version_no || '-' }}</span>
+          </div>
+          <div class="price-list-meta">{{ list.list_type || '-' }} · {{ list.published_at || '-' }}</div>
+          <p v-if="list.changelog" class="price-list-changelog">{{ list.changelog }}</p>
+          <details>
+            <summary>预览内容</summary>
+            <pre>{{ priceListPreview(list) }}</pre>
+          </details>
+        </article>
+      </div>
+    </section>
+
     <section class="form-grid">
       <form v-if="canSubmitProcessing" class="panel" @submit.prevent="submitProcessing">
         <div class="panel-head">
@@ -600,6 +623,16 @@ const metrics = computed(() => [
   canDirectShip.value ? { label: '待结算金额', value: money(fulfillmentOrdersSummary.value.pending_settlement_amount || 0) } : null,
 ].filter(Boolean))
 
+function priceListPreview(list) {
+  if (!list?.content) return '暂无内容'
+  if (typeof list.content === 'string') return list.content
+  try {
+    return JSON.stringify(list.content, null, 2)
+  } catch {
+    return '暂无内容'
+  }
+}
+
 onMounted(() => {
   fetchAdminCustomers()
   loadOverview()
@@ -677,6 +710,8 @@ async function submitDirectShip() {
       .map((row) => ({
         product_id: Number(row.product_id || 0),
         customer_product_alias_id: Number(row.customer_product_alias_id || 0),
+        customer_product_reference_id: Number(row.customer_product_reference_id || 0),
+        material_source_mode: String(row.material_source_mode || 'factory'),
         customer_product_display_name_snapshot: String(row.customer_product_display_name || row.product_name || '').trim(),
         customer_item_code_snapshot: String(row.customer_item_code || '').trim(),
         product_code_snapshot: String(row.product_code || '').trim(),
@@ -816,6 +851,8 @@ function selectProcessingRawBean(option) {
 function selectDirectShipItemProduct(row, option) {
   row.product_id = Number(option?.product_id || 0)
   row.customer_product_alias_id = Number(option?.customer_product_alias_id || 0)
+  row.customer_product_reference_id = Number(option?.customer_product_reference_id || 0)
+  row.material_source_mode = String(option?.material_source_mode || 'factory')
   row.customer_product_display_name = String(option?.customer_product_display_name || option?.product_name || '').trim()
   row.customer_item_code = String(option?.customer_item_code || option?.sku_code || '').trim()
   row.product_code = String(option?.product_code || '').trim()
@@ -917,7 +954,10 @@ function uniqueProductOptions(rows) {
     if (!name) continue
     const normalized = { ...row, product_name: name, spec: String(row?.spec || '').trim() }
     const aliasID = Number(normalized.customer_product_alias_id || 0)
-    const key = aliasID > 0
+    const referenceID = Number(normalized.customer_product_reference_id || 0)
+    const key = referenceID > 0
+      ? `reference:${referenceID}|${normalized.spec}|${normalized.warehouse || ''}|${normalized.source || ''}`
+      : aliasID > 0
       ? `alias:${aliasID}|${normalized.spec}|${normalized.warehouse || ''}|${normalized.source || ''}`
       : `${normalized.product_id || 0}|${normalized.product_name}|${normalized.spec}|${normalized.warehouse || ''}|${normalized.source || ''}`
     if (seen.has(key)) continue
@@ -932,6 +972,8 @@ function newDirectShipItem() {
     key: `${Date.now()}-${Math.random()}`,
     product_id: 0,
     customer_product_alias_id: 0,
+    customer_product_reference_id: 0,
+    material_source_mode: 'factory',
     customer_product_display_name: '',
     customer_item_code: '',
     product_code: '',
@@ -957,6 +999,11 @@ function productByID(id) {
 }
 
 function productForDirectShipRow(row) {
+  const referenceID = Number(row?.customer_product_reference_id || 0)
+  if (referenceID > 0) {
+    const byReference = directShipProductOptions.value.find((item) => Number(item.customer_product_reference_id || 0) === referenceID)
+    if (byReference) return byReference
+  }
   const aliasID = Number(row?.customer_product_alias_id || 0)
   if (aliasID > 0) {
     const byAlias = directShipProductOptions.value.find((item) => Number(item.customer_product_alias_id || 0) === aliasID)
@@ -1117,6 +1164,54 @@ function money(value) {
   display: block;
   margin-top: 6px;
   font-size: 22px;
+}
+
+.price-lists-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.price-list-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.price-list-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.price-list-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.price-list-meta,
+.price-list-changelog {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.price-list-changelog {
+  margin: 0;
+}
+
+.price-list-card pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 11px;
+  white-space: pre-wrap;
 }
 
 .form-grid,

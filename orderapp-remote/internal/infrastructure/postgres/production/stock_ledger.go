@@ -214,6 +214,25 @@ func insertStockLedgerEntryTx(ctx context.Context, tx pgx.Tx, schema string, ite
 	return insertStockLedgerEntryWithBomSpecTx(ctx, tx, schema, itemType, itemID, itemName, 0, 0, specG, warehouse, sourceDocType, sourceDocID, sourceBatchCode, sourceBatchID, qty, operator)
 }
 
+func insertStockLedgerEntryOwnedTx(ctx context.Context, tx pgx.Tx, schema string, itemType string, itemID int64, itemName string, ownerCustomerID, specG int64, warehouse string, sourceDocType string, sourceDocID int64, sourceBatchCode string, sourceBatchID string, qty stockLedgerQty, operator string) error {
+	hasOwner, err := schemaColumnExistsTx(ctx, tx, schema, "stock_ledger_entries", "owner_customer_id")
+	if err != nil || !hasOwner {
+		return insertStockLedgerEntryTx(ctx, tx, schema, itemType, itemID, itemName, specG, warehouse, sourceDocType, sourceDocID, sourceBatchCode, sourceBatchID, qty, operator)
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_ledger_entries(
+			item_type,item_id,item_name,owner_customer_id,spec_g,warehouse,
+			source_doc_type,source_doc_id,source_batch_code,source_batch_id,
+			qty_before_g,qty_change_g,qty_after_g,
+			qty_before_units,qty_change_units,qty_after_units,
+			operator,created_at
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,now())
+	`, schema), itemType, itemID, itemName, ownerCustomerID, specG, warehouse,
+		sourceDocType, sourceDocID, sourceBatchCode, sourceBatchID,
+		qty.BeforeG, qty.ChangeG, qty.AfterG, qty.BeforeUnits, qty.ChangeUnits, qty.AfterUnits, operator)
+	return err
+}
+
 func insertStockLedgerEntryWithBomSpecTx(ctx context.Context, tx pgx.Tx, schema string, itemType string, itemID int64, itemName string, bomSpecID, bomVariantID, specG int64, warehouse string, sourceDocType string, sourceDocID int64, sourceBatchCode string, sourceBatchID string, qty stockLedgerQty, operator string) error {
 	hasBomSpec, err := schemaColumnExistsTx(ctx, tx, schema, "stock_ledger_entries", "bom_spec_id")
 	if err != nil {

@@ -1442,6 +1442,13 @@
               <input v-model.trim="customerProductAliasForm.brand_name" placeholder="留空则使用客户商品" />
             </label>
             <label>
+              <span>供料方式</span>
+              <select v-model="customerProductAliasForm.material_source_mode">
+                <option value="factory">工厂供料</option>
+                <option value="customer">客户来料</option>
+              </select>
+            </label>
+            <label>
               <span>排序</span>
               <input v-model.number="customerProductAliasForm.sort_order" type="number" min="0" step="1" />
             </label>
@@ -1861,6 +1868,7 @@ import {
   buildCustomerProductAliasIndustryFieldPayload,
   buildCustomerProductAliasBatchPayload,
   buildCustomerProductAliasPayload,
+  buildProductCustomerReferencePayload,
   customerAliasEffectiveDisplayName,
   activeProductionBomOptions,
   buildClassificationTemplateUsagePayload,
@@ -2680,6 +2688,7 @@ function defaultCustomerProductAliasForm() {
     product_config_template_id: 0,
     sort_order: 0,
     include_in_price_list: true,
+    material_source_mode: 'factory',
     active: true,
     remark: '',
   }
@@ -3244,6 +3253,7 @@ function decorateCustomerProductAlias(alias = {}) {
     sort_order: Number(alias.sort_order || 0),
     include_in_price_list: alias.include_in_price_list !== false,
     active: alias.active !== false,
+    material_source_mode: String(alias.material_source_mode || 'factory').toLowerCase() === 'customer' ? 'customer' : 'factory',
     remark: alias.remark || '',
     product_code: alias.product_code || '',
     product_name: alias.product_name || '',
@@ -3251,6 +3261,39 @@ function decorateCustomerProductAlias(alias = {}) {
     display_category_name: alias.display_category_name || '',
     industry_fields: (alias.industry_fields || []).map((field, index) => defaultProductProductionConfigField(field, index)),
   }
+}
+
+function decorateProductCustomerReference(reference = {}) {
+  const productID = Number(reference.product_id || 0)
+  const product = products.value.find((row) => Number(row.id || 0) === productID) || {}
+  const displayName = String(reference.customer_display_name || product.name || '').trim()
+  return decorateCustomerProductAlias({
+    ...reference,
+    id: Number(reference.id || 0),
+    reference_id: Number(reference.id || 0),
+    customer_id: Number(reference.customer_id || 0),
+    product_id: productID,
+    display_name: displayName,
+    customer_item_code: reference.customer_item_code || '',
+    brand_name: '',
+    include_in_price_list: true,
+    sort_order: 0,
+    material_source_mode: String(reference.material_source_mode || 'factory').toLowerCase() === 'customer' ? 'customer' : 'factory',
+    product_code: product.code || product.number || '',
+    product_name: product.name || '',
+  })
+}
+
+function mergeCustomerProductReferences(legacyRows = [], references = []) {
+  const rows = (legacyRows || []).map(decorateCustomerProductAlias)
+  const seen = new Set(rows.map((row) => `${Number(row.customer_id || 0)}:${Number(row.product_id || 0)}`))
+  for (const reference of references || []) {
+    const key = `${Number(reference.customer_id || 0)}:${Number(reference.product_id || 0)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    rows.push(decorateProductCustomerReference(reference))
+  }
+  return rows
 }
 
 function decorateProductClassificationTemplate(template = {}) {
@@ -3463,7 +3506,7 @@ async function loadAll({ strict = false } = {}) {
       use_public_categories: Boolean(row.use_public_categories),
       use_public_gradient_templates: Boolean(row.use_public_gradient_templates),
     }))
-    customerProductAliases.value = (aliasData.rows || []).map(decorateCustomerProductAlias)
+    customerProductAliases.value = mergeCustomerProductReferences(aliasData.rows || [], data.product_customer_references || [])
     customers.value = customerSkuCustomerOptions(customerData)
     syncSelectedCustomerSkuCustomer()
     syncSelectedAliasCustomer()
@@ -6916,8 +6959,26 @@ async function saveCustomerAliasBatch() {
   error.value = ''
   ok.value = ''
   try {
-    const result = await apiSend('/api/customer-product-aliases/batch', { body: payload })
-    ok.value = `客户商品批量添加完成：创建 ${Number(result?.created_count || 0)} 个，跳过 ${Number(result?.skipped_count || 0)} 个`
+    const existing = new Set(visibleCustomerProductAliases.value.map((row) => Number(row.product_id || 0)))
+    let created = 0
+    let skipped = 0
+    for (const productID of payload.product_ids) {
+      if (existing.has(Number(productID))) {
+        skipped += 1
+        continue
+      }
+      await apiSend('/api/product-customer-references', {
+        body: buildProductCustomerReferencePayload({
+          customer_id: payload.customer_id,
+          product_id: productID,
+          customer_display_name: productName(productID),
+          material_source_mode: 'factory',
+          active: true,
+        }),
+      })
+      created += 1
+    }
+    ok.value = `客户商品批量添加完成：创建 ${created} 个，跳过 ${skipped} 个`
     closeCustomerAliasCreateDrawer()
     await loadAll()
   } catch (err) {
@@ -6936,9 +6997,10 @@ function openCustomerAliasSection() {
 }
 
 async function saveCustomerProductAlias() {
-  const payload = buildCustomerProductAliasPayload({
+  const payload = buildProductCustomerReferencePayload({
     ...customerProductAliasForm.value,
     customer_id: selectedAliasCustomerID.value || customerProductAliasForm.value.customer_id,
+    customer_display_name: customerProductAliasForm.value.display_name,
   })
   if (!payload.customer_id) {
     error.value = '请选择客户'
@@ -6948,7 +7010,7 @@ async function saveCustomerProductAlias() {
     error.value = '请选择绑定商品档案'
     return
   }
-  if (!payload.display_name) {
+  if (!payload.customer_display_name) {
     error.value = '请填写客户商品'
     return
   }
@@ -6956,7 +7018,7 @@ async function saveCustomerProductAlias() {
   error.value = ''
   ok.value = ''
   try {
-    const url = payload.id ? `/api/customer-product-aliases/${payload.id}` : '/api/customer-product-aliases'
+    const url = payload.id ? `/api/product-customer-references/${payload.id}` : '/api/product-customer-references'
     const method = payload.id ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
     ok.value = '客户商品已保存'
@@ -6976,7 +7038,14 @@ async function disableCustomerProductAlias(alias) {
   error.value = ''
   ok.value = ''
   try {
-    await apiSend(`/api/customer-product-aliases/${alias.id}/disable`)
+    if (Number(alias.reference_id || 0) > 0) {
+      await apiSend(`/api/product-customer-references/${alias.reference_id}`, {
+        method: 'PUT',
+        body: buildProductCustomerReferencePayload({ ...alias, id: alias.reference_id, active: false }),
+      })
+    } else {
+      await apiSend(`/api/customer-product-aliases/${alias.id}/disable`)
+    }
     ok.value = '客户商品已停用'
     await loadAll()
   } catch (err) {
@@ -6993,8 +7062,26 @@ async function batchDisableCustomerProductAliases() {
   error.value = ''
   ok.value = ''
   try {
-    const result = await apiSend('/api/customer-product-aliases/batch-disable', { body: { ids } })
-    ok.value = `批量停用完成：停用 ${Number(result?.disabled_count || 0)} 个，跳过 ${Number(result?.skipped_count || 0)} 个`
+    let disabled = 0
+    let skipped = 0
+    for (const id of ids) {
+      const alias = customerProductAliases.value.find((row) => Number(row.id || 0) === id)
+      if (Number(alias?.reference_id || 0) > 0) {
+        await apiSend(`/api/product-customer-references/${alias.reference_id}`, {
+          method: 'PUT',
+          body: buildProductCustomerReferencePayload({ ...alias, id: alias.reference_id, active: false }),
+        })
+        disabled += 1
+      } else {
+        try {
+          await apiSend(`/api/customer-product-aliases/${id}/disable`)
+          disabled += 1
+        } catch (_) {
+          skipped += 1
+        }
+      }
+    }
+    ok.value = `批量停用完成：停用 ${disabled} 个，跳过 ${skipped} 个`
     selectedAliasIds.value = []
     await loadAll()
   } catch (err) {
