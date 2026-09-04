@@ -328,6 +328,7 @@ CREATE INDEX IF NOT EXISTS material_batches_material_fifo_idx
 		return err
 	}
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS quality_status TEXT NOT NULL DEFAULT 'unchecked'`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS material_name TEXT NOT NULL DEFAULT ''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS received_g BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_receipts ADD COLUMN IF NOT EXISTS qty_units BIGINT NOT NULL DEFAULT 0`, schema))
@@ -342,6 +343,7 @@ CREATE INDEX IF NOT EXISTS material_batches_material_fifo_idx
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.material_batches SET received_g=qty_g WHERE received_g=0 AND qty_g > 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.material_batches b SET material_name=m.name FROM %[1]s.materials m WHERE b.material_id=m.id AND COALESCE(b.material_name,'')=''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS material_batches_quality_idx ON %s.material_batches(material_id, quality_status, status, received_at, id)`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS material_batches_owner_idx ON %s.material_batches(owner_customer_id, material_id, status, received_at, id)`, schema))
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,remaining_g,unit_cost,note,received_at,created_at)
 SELECT 'LEGACY-MAT-' || lpad(m.id::text, 10, '0'),
