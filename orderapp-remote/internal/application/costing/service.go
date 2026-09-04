@@ -3999,7 +3999,9 @@ func validateSharedParentProductPricing(cmd *PublishBeanListCommand) error {
 
 type beanListConcreteSpecSnapshot struct {
 	productName string
+	displayName string
 	aliasID     int64
+	referenceID int64
 	tierLabels  []beanListTierLabelSnapshot
 }
 
@@ -4040,8 +4042,15 @@ func normalizeConcreteProductSpecPublicationSnapshots(cmd *PublishBeanListComman
 				snapshot.productName,
 				beanListFlatRowString(item, "product_name_snapshot", "product_name"),
 			)
+			snapshot.displayName = firstNonEmptyBeanListString(
+				snapshot.displayName,
+				beanListFlatRowString(item, "customer_product_display_name_snapshot", "customer_product_display_name", "display_name_snapshot"),
+			)
 			if snapshot.aliasID <= 0 {
 				snapshot.aliasID = int64(numberValue(item["customer_product_alias_id"]))
+			}
+			if snapshot.referenceID <= 0 {
+				snapshot.referenceID = int64(numberValue(item["customer_product_reference_id"]))
 			}
 			bySKU[skuID] = snapshot
 		}
@@ -4070,6 +4079,18 @@ func normalizeConcreteProductSpecPublicationSnapshots(cmd *PublishBeanListComman
 			row["product_name"] = productName
 			row["product_name_snapshot"] = productName
 			snapshot.productName = productName
+		}
+		if snapshot.displayName == "" {
+			snapshot.displayName = firstNonEmptyBeanListString(
+				beanListFlatRowString(row, "customer_product_display_name_snapshot", "customer_product_display_name", "display_name_snapshot"),
+			)
+		}
+		if snapshot.referenceID <= 0 {
+			snapshot.referenceID = int64(numberValue(row["customer_product_reference_id"]))
+		}
+		if snapshot.referenceID > 0 && snapshot.displayName != "" {
+			row["display_name_snapshot"] = snapshot.displayName
+			row["customer_product_display_name_snapshot"] = snapshot.displayName
 		}
 		if snapshot.aliasID <= 0 {
 			snapshot.aliasID = beanListFlatPriceRowCustomerAliasID(row)
@@ -4121,6 +4142,13 @@ func normalizeConcreteProductSpecPublicationSnapshots(cmd *PublishBeanListComman
 			aliasID := int64(numberValue(item["customer_product_alias_id"]))
 			if aliasID <= 0 {
 				aliasID = snapshot.aliasID
+			}
+			if (aliasID > 0 || snapshot.referenceID > 0) && snapshot.displayName != "" {
+				item["customer_product_display_name_snapshot"] = snapshot.displayName
+				item["customer_product_display_name"] = snapshot.displayName
+				item["name"] = snapshot.displayName
+				item["display_name_snapshot"] = snapshot.displayName
+				continue
 			}
 			if aliasID > 0 {
 				displayName := beanListFlatRowString(item,

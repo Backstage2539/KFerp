@@ -510,3 +510,32 @@ test('selected SKU projection ignores a generated child display name when no cus
   assert.equal(rows[0].items[0].__price_list_display_name, '白月光瑰夏')
   assert.equal(rows[0].items[0].__price_list_sales_spec_label, '227g')
 })
+
+test('selected SKU projection keeps a customer reference display name for public products', () => {
+  const families = buildPriceListProductFamilies([
+    {
+      product_id: 1043,
+      sku_id: 1043,
+      effective_parent_product_id: 1043,
+      parent_product_id: 0,
+      name: '晚香玉',
+      product_name: '晚香玉',
+      customer_product_reference_id: 15,
+      customer_product_display_name: '客户商品B',
+      default_sku_id: 1043,
+      active: true,
+      spec_label: 'kg',
+    },
+  ])
+
+  const rows = priceListSelectedSkuCategoryRows([{ code: 'coffee', items: families }], [{
+    parent_product_id: 1043,
+    sku_id: 1043,
+    selection_source: 'product_default',
+    default_sku_id_at_selection: 1043,
+  }])
+
+  assert.equal(rows[0].items[0].name, '客户商品B')
+  assert.equal(rows[0].items[0].__price_list_display_name, '客户商品B')
+  assert.equal(rows[0].items[0].__price_list_product_name, '晚香玉')
+})

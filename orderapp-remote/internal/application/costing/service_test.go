@@ -3920,6 +3920,17 @@ func TestNewConcreteSpecDraftAndPublicationCanonicalizeProductNameWithoutAppendi
 		t.Fatalf("customer alias must remain separate from canonical product name: %#v", aliasItem)
 	}
 
+	referenceCommand := newCommand()
+	referenceItem := referenceCommand.Content["groups"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+	referenceItem["customer_product_reference_id"] = float64(15)
+	referenceItem["customer_product_display_name"] = "客户商品B"
+	referenceItem["name"] = "晚香玉"
+	referenceItem["display_name_snapshot"] = "晚香玉"
+	normalizeConcreteProductSpecPublicationSnapshots(&referenceCommand, map[int64]string{991: "晚香月"})
+	if referenceItem["name"] != "客户商品B" || referenceItem["display_name_snapshot"] != "客户商品B" || referenceItem["product_name_snapshot"] != "晚香月" {
+		t.Fatalf("customer reference display name must remain separate from canonical product name: %#v", referenceItem)
+	}
+
 	t.Run("nested JSON strings are persisted as normalized snapshots", func(t *testing.T) {
 		cmd := newCommand()
 		for _, key := range []string{"groups", "price_rows"} {

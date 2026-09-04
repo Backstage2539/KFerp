@@ -566,10 +566,13 @@ function priceListSelectedSkuProjection(family = {}, spec = {}, context = {}) {
 
 function priceListExplicitCustomerAliasName(item = {}) {
   const aliasID = numberField(item?.customer_product_alias_id ?? item?.customerProductAliasID)
-  if (!(aliasID > 0)) return ''
+  const referenceID = numberField(item?.customer_product_reference_id ?? item?.customerProductReferenceID)
+  if (!(aliasID > 0) && !(referenceID > 0)) return ''
   return firstNonEmptyText(
     item?.customer_product_display_name,
     item?.customerProductDisplayName,
+    item?.customer_product_display_name_snapshot,
+    item?.customerProductDisplayNameSnapshot,
     item?.brand_name,
     item?.brandName,
     item?.name,
