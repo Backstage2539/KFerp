@@ -13,10 +13,13 @@ func TestDev626GroupListInteractionDeliveryContracts(t *testing.T) {
 			"DEV-626-GROUP-SEARCH-FOCUS",
 			"DEV-626-GROUP-PAGINATION-THRESHOLD",
 			"DEV-626-COMPACT-MOVE-TARGETS",
+			"DEV-626-BULK-EXPAND-COLLAPSE",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"# PR-626-GROUP-LIST-SEARCH-PAGINATION-MOVE",
 			"分类总数不超过 10 条",
+			"全部展开",
+			"全部收缩",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"## PR-626-GROUP-LIST-SEARCH-PAGINATION-MOVE",
@@ -24,9 +27,11 @@ func TestDev626GroupListInteractionDeliveryContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-626 分组列表搜索、分页与移动模式",
+			"全部收缩",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-626 分组列表交互",
+			"全部收缩",
 		},
 		filepath.Join("docs", "acceptance", "2026-09-03-group-list-search-pagination-move.md"): {
 			"# PR-626",
@@ -37,6 +42,7 @@ func TestDev626GroupListInteractionDeliveryContracts(t *testing.T) {
 			"searchQuery",
 			"data-business-group-item-row",
 			"businessGroupMoveCollapsedKeys",
+			"setAllGroupsCollapsed",
 		},
 	}
 	for path, markers := range checks {

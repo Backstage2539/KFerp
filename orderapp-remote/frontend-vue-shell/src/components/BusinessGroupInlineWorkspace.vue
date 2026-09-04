@@ -9,6 +9,20 @@
       @move="$emit('move')"
       @cancel="$emit('cancel')">
       <template #extra-actions>
+        <div class="business-group-inline-bulk-actions" role="group" aria-label="分类显示">
+          <button
+            class="secondary compact-action"
+            type="button"
+            data-business-group-expand-all
+            :disabled="loading || moveActive || !allGroupKeys.length"
+            @click="setAllGroupsCollapsed(false)">全部展开</button>
+          <button
+            class="secondary compact-action"
+            type="button"
+            data-business-group-collapse-all
+            :disabled="loading || moveActive || !allGroupKeys.length"
+            @click="setAllGroupsCollapsed(true)">全部收缩</button>
+        </div>
         <slot name="toolbar-extra" />
       </template>
     </BusinessGroupControls>
@@ -119,6 +133,7 @@ const normalizedCollapsedKeys = computed(() => (Array.isArray(props.collapsedKey
   .map((key) => String(key || '').trim())
   .filter(Boolean))
 const normalizedSearchQuery = computed(() => String(props.searchQuery || '').trim())
+const allGroupKeys = computed(() => businessGroupMoveCollapsedKeys(props.groups))
 const visibleGroups = computed(() => businessGroupVisibleGroups(
   props.groups,
   normalizedCollapsedKeys.value,
@@ -136,6 +151,13 @@ function toggleGroup(key) {
   if (next.has(normalizedKey)) next.delete(normalizedKey)
   else next.add(normalizedKey)
   emit('update:collapsedKeys', Array.from(next))
+}
+
+function setAllGroupsCollapsed(collapsed) {
+  if (props.loading || props.moveActive || !allGroupKeys.value.length) return
+  // A deliberate browse action takes precedence over any pending search focus.
+  searchFocusRevision += 1
+  emit('update:collapsedKeys', collapsed ? [...allGroupKeys.value] : [])
 }
 
 function isTargetable(group = {}) {
@@ -282,6 +304,7 @@ watch(() => props.moveActive, async (active, previous) => {
 
 <style scoped>
 .business-group-inline-workspace { min-width: 0; display: grid; gap: 12px; }
+.business-group-inline-bulk-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .business-group-inline-move-prompt { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 7px; color: #1e3a5f; background: #eff6ff; }
 .business-group-inline-move-prompt small { line-height: 1.4; }
 .business-group-inline-filters { min-width: 0; }

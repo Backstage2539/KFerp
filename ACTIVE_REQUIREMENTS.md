@@ -4842,14 +4842,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: 顺带修复 PR-601 悬空 materialLossRateDisplay 渲染函数源码 bug；旧商品销售规格模板面板保留迁移期（菜单"单位模板"）；已发布 BOM 产出身份守卫不变。
 
 ### PR-626-GROUP-LIST-SEARCH-PAGINATION-MOVE
-- Branch: codex/group-list-search-pagination-move-20260903
+- Branch: codex/group-list-expand-collapse-20260904（追加全部展开/收缩；原分支 codex/group-list-search-pagination-move-20260903）
 - Owner/session: Codex / 2026-09-03
-- Status: development delivered；功能、定向/全量门禁、`develop` 集成与 development 部署已完成，等待 Van 页面业务验收。
+- Status: verified；原功能已交付 development；2026-09-04 追加全部展开/收缩已完成 RED/GREEN 和本地门禁，按 Van 授权待依次发布 development、production。
 - Scope: 商品档案、物料档案、生产 BOM 和具体仓库库存共用搜索子树折叠/首条定位、分类 10 条分页阈值和紧凑移动目标模式；保留各页筛选、身份、assignment API 和操作日志。
 - DEV:
   - DEV-626-GROUP-SEARCH-FOCUS（done）：完整子树命中展开、空分支收起、首条业务行聚焦；清空恢复搜索前折叠与滚动，物料/仓库只在查询成功后应用。
   - DEV-626-GROUP-PAGINATION-THRESHOLD（done）：0～10 条完整展示无分页，11 条起保留分类独立分页和当前页全选范围。
   - DEV-626-COMPACT-MOVE-TARGETS（done）：移动模式展示全部标题并隐藏业务行/分页；成功或取消恢复，失败保留勾选和模式。
+  - DEV-626-BULK-EXPAND-COLLAPSE（done）：全部展开/全部收缩覆盖全部层级，加载/移动/空列表禁用；保留搜索/移动快照、分页和勾选。
 - Verifier:
   - RED frontend：缺少搜索 helper、已应用搜索词、业务行定位标记、分页阈值和紧凑移动状态时定向套件失败。
   - RED support：PR/DEV、需求、验收、手册和独立验收记录缺失时 `TestDev626GroupListInteractionDeliveryContracts` 失败。
@@ -4861,4 +4862,5 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Review/acceptance: REQUIREMENTS.md；ACCEPTANCE_TESTS.md；orderapp-remote/docs/REQUIREMENTS.md；orderapp-remote/docs/ACCEPTANCE_TESTS.md；orderapp-remote/docs/acceptance/2026-09-03-group-list-search-pagination-move.md。
 - Deployment: development 已部署（功能集成提交 `14a55522d6a5448543bea35eaad8c305629a680a`）；`erp_orderapp` 运行、外部 `/app/login` 200、需求接口可见 PR-626，关键共享 helper/组件服务器指纹与提交一致；rollback `kferp-orderapp-rollback:development-20260904001641-14a55522d6a5`。production 与微信上传不在范围。
 - Last update: 2026-09-04 Asia/Shanghai
+- 追加验证：真实 Vue 组件 RED 5/5 失败 -> GREEN 5/5；相关前端 29/29；全量前端 1065/1065、Go 全包与 Vue 构建通过；本地无业务数据样例完成桌面/390px 展开/收缩/移动禁用检查。记录 `orderapp-remote/docs/acceptance/2026-09-04-group-list-expand-collapse.md`；本次授权 production 发布，微信上传不在范围。
 - Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 多行字符串上报错且未产生文件改动；最新 `origin/develop` 已占用 PR-622～625，因此按下一可用编号手工登记 PR-626。
