@@ -849,8 +849,11 @@ func orderProductSpecIdentitySelectable(product salesapp.ProductOption, identity
 		return false
 	}
 	// Public parents may retain published snapshot pricing while their BOM
-	// identity is migrated. Customer products must use configured BOMs.
-	return identity.BomSpecAuthoritative || (product.CustomerID == 0 && product.Visibility == "public")
+	// identity is migrated. Customer references use that same public product
+	// identity and must remain selectable with their customer display snapshot.
+	return identity.BomSpecAuthoritative ||
+		(product.CustomerID == 0 && product.Visibility == "public") ||
+		product.CustomerProductReferenceID > 0 || product.Visibility == "customer_reference"
 }
 
 func filterOrderProductsWithSelectablePricing(products []salesapp.ProductOption) []salesapp.ProductOption {
