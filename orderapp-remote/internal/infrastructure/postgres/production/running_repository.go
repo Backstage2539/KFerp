@@ -40,6 +40,7 @@ type ProduceRunRow struct {
 	StartedAtTime       time.Time
 	MaterialSnapshot    string
 	OperationTemplateID int64
+	CustomerID          int64
 	Outputs             []ProduceRunOutputRow
 }
 
@@ -94,6 +95,13 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,bom_spec_id,bom_variant_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.BomSpecID, &r.BomVariantID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	if hasCustomer, customerErr := schemaColumnExistsTx(ctx, tx, schema, "work_orders", "customer_id"); customerErr != nil {
+		return productionapp.FinishResult{}, customerErr
+	} else if hasCustomer {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.work_orders WHERE running_item_id=$1`, schema), r.ID).Scan(&r.CustomerID); err != nil && err != pgx.ErrNoRows {
+			return productionapp.FinishResult{}, err
+		}
+	}
 	r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
 	if r.InputG <= 0 {
 		r.InputG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
@@ -113,7 +121,7 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	unitsBefore, looseBefore, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.SpecG, warehouse)
+	unitsBefore, looseBefore, err := finishedInventoryQtyIdentityOwnedTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.SpecG, warehouse, r.CustomerID)
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
@@ -165,10 +173,10 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.BomVariantID, r.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
+	if err := upsertFinishedInventoryIdentityOwnedTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.BomVariantID, r.SpecG, warehouse, norm.Units, norm.LooseG, r.CustomerID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if err := recordFinishedProductStockMovementTx(ctx, tx, schema, r, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
+	if err := recordFinishedProductStockMovementTx(ctx, tx, schema, r, cur, add, norm, finishedTotal, warehouse, operator, r.CustomerID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if err := allocateFinishedProductOutputToDownstreamReservationsTx(
@@ -351,7 +359,7 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	inventoryBySpec := map[int64]outputInventoryLog{}
 
 	for _, output := range finishedOutputs {
-		unitsBefore, looseBefore, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.SpecG, warehouse)
+		unitsBefore, looseBefore, err := finishedInventoryQtyIdentityOwnedTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.SpecG, warehouse, r.CustomerID)
 		if err != nil {
 			return productionapp.FinishResult{}, err
 		}
@@ -362,7 +370,7 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 			return productionapp.FinishResult{}, err
 		}
 		finishedTotal := finishedTotalG(output.SpecG, add.Units, add.LooseG)
-		if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.BomVariantID, output.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
+		if err := upsertFinishedInventoryIdentityOwnedTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.BomVariantID, output.SpecG, warehouse, norm.Units, norm.LooseG, r.CustomerID); err != nil {
 			return productionapp.FinishResult{}, err
 		}
 		outputRun := r
@@ -373,7 +381,7 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 		outputRun.SpecG = output.SpecG
 		outputRun.NeedG = output.NeedG
 		outputRun.OrderNos = output.OrderNos
-		if err := recordFinishedProductStockMovementWithBatchCodeTx(ctx, tx, schema, finishedProductionBatchCodeForSpec(r.ID, output.SpecG), outputRun, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
+		if err := recordFinishedProductStockMovementWithBatchCodeTx(ctx, tx, schema, finishedProductionBatchCodeForSpec(r.ID, output.SpecG), outputRun, cur, add, norm, finishedTotal, warehouse, operator, r.CustomerID); err != nil {
 			return productionapp.FinishResult{}, err
 		}
 		if err := allocateFinishedProductOutputToDownstreamReservationsTx(
