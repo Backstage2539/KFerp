@@ -1027,6 +1027,20 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 	if err != nil {
 		return nil, err
 	}
+	hasBatchOwner, err := schemaColumnExistsTx(ctx, tx, schema, "material_batches", "owner_customer_id")
+	if err != nil {
+		return nil, err
+	}
+	ownerCustomerID := int64(0)
+	if workOrderID > 0 {
+		if hasCustomer, customerErr := schemaColumnExistsTx(ctx, tx, schema, "work_orders", "customer_id"); customerErr != nil {
+			return nil, customerErr
+		} else if hasCustomer {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.work_orders WHERE id=$1`, schema), workOrderID).Scan(&ownerCustomerID); err != nil && err != pgx.ErrNoRows {
+				return nil, err
+			}
+		}
+	}
 	rows := make([]workOrderWIPNeedCoverage, 0)
 	for _, need := range aggregateMaterialConsumptionNeeds(needs) {
 		if need.Source == "finished_product" || need.ComponentType == "finished_product" {
@@ -1036,6 +1050,12 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 			continue
 		}
 		var wipG, wipUnits int64
+		ownerPredicate := ""
+		wipArgs := []any{need.MaterialID, stockdomain.WarehouseWIP}
+		if workOrderID > 0 && hasBatchOwner {
+			ownerPredicate = " AND COALESCE(b.owner_customer_id,0)=$3"
+			wipArgs = append(wipArgs, ownerCustomerID)
+		}
 		if hasLocationUnits && hasBatchRemainingUnits {
 			err = tx.QueryRow(ctx, fmt.Sprintf(`
 				SELECT COALESCE(SUM(l.qty_g),0)::bigint,COALESCE(SUM(l.qty_units),0)::bigint
@@ -1047,7 +1067,8 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 				  AND b.status='active'
 				  AND (b.remaining_g > 0 OR b.remaining_units > 0)
 				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-			`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&wipG, &wipUnits)
+				  %s
+			`, schema, schema, ownerPredicate), wipArgs...).Scan(&wipG, &wipUnits)
 		} else {
 			err = tx.QueryRow(ctx, fmt.Sprintf(`
 				SELECT COALESCE(SUM(l.qty_g),0)::bigint
@@ -1056,7 +1077,8 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 				WHERE l.material_id=$1 AND l.warehouse=$2 AND l.qty_g>0
 				  AND b.status='active' AND b.remaining_g>0
 				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-			`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&wipG)
+				  %s
+			`, schema, schema, ownerPredicate), wipArgs...).Scan(&wipG)
 			wipUnits = 0
 		}
 		if err != nil {

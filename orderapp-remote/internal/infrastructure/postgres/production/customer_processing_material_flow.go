@@ -851,10 +851,24 @@ func customerProcessingBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schem
 	return allocations, true, nil
 }
 
-func unreservedWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema string, materialID, deductG, deductUnits int64) ([]customerProcessingBatchAllocation, error) {
+func unreservedWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema string, materialID, deductG, deductUnits int64, ownerCustomerIDs ...int64) ([]customerProcessingBatchAllocation, error) {
 	hasGenericBindings, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservation_batches", "id")
 	if err != nil {
 		return nil, err
+	}
+	ownerCustomerID := int64(0)
+	if len(ownerCustomerIDs) > 0 {
+		ownerCustomerID = ownerCustomerIDs[0]
+	}
+	hasOwner, err := schemaColumnExistsTx(ctx, tx, schema, "material_batches", "owner_customer_id")
+	if err != nil {
+		return nil, err
+	}
+	ownerPredicate := ""
+	ownerArgs := []any{materialID, stockdomain.WarehouseWIP}
+	if hasOwner {
+		ownerPredicate = " AND COALESCE(b.owner_customer_id,0)=$3"
+		ownerArgs = append(ownerArgs, ownerCustomerID)
 	}
 	query := fmt.Sprintf(`
 		SELECT b.id,b.batch_code,
@@ -873,11 +887,11 @@ func unreservedWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema str
 		WHERE l.material_id=$1 AND l.warehouse=$2
 		  AND (l.qty_g>0 OR l.qty_units>0)
 		  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
-		  AND COALESCE(b.owner_customer_id,0)=0
+		  %s
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.received_at,b.id
 		FOR UPDATE OF l,b
-	`, schema, schema, schema, "%s")
+	`, schema, schema, schema, "%s", ownerPredicate)
 	genericJoin := `LEFT JOIN LATERAL (SELECT 0::bigint AS reserved_g,0::bigint AS reserved_units) generic_bound ON true`
 	if hasGenericBindings {
 		genericJoin = fmt.Sprintf(`
@@ -890,7 +904,7 @@ func unreservedWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema str
 		`, schema)
 	}
 	query = fmt.Sprintf(query, genericJoin)
-	rows, err := tx.Query(ctx, query, materialID, stockdomain.WarehouseWIP)
+	rows, err := tx.Query(ctx, query, ownerArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -1033,23 +1047,41 @@ func materialBatchConsumptionsForRunningItemTx(ctx context.Context, tx pgx.Tx, s
 			return allocations, err
 		}
 	}
+	ownerCustomerID := int64(0)
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(wo.customer_id,0) FROM %s.work_orders wo JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id WHERE ri.id=$1`, schema, schema), runningItemID).Scan(&ownerCustomerID); err != nil && err != pgx.ErrNoRows {
+		return nil, err
+	}
 	bound, remainingG, remainingUnits, err := workOrderBoundBatchConsumptionsTx(ctx, tx, schema, runningItemID, materialID, deductG, deductUnits)
 	if err != nil || (remainingG <= 0 && remainingUnits <= 0) {
 		return bound, err
 	}
 	var unbound []customerProcessingBatchAllocation
 	if hasOwnershipReservations {
-		unbound, err = unreservedWIPBatchConsumptionsTx(ctx, tx, schema, materialID, remainingG, remainingUnits)
+		unbound, err = unreservedWIPBatchConsumptionsTx(ctx, tx, schema, materialID, remainingG, remainingUnits, ownerCustomerID)
 	} else {
-		unbound, err = ordinaryWIPBatchConsumptionsTx(ctx, tx, schema, materialID, remainingG, remainingUnits)
+		unbound, err = ordinaryWIPBatchConsumptionsTx(ctx, tx, schema, materialID, remainingG, remainingUnits, ownerCustomerID)
 	}
 	return append(bound, unbound...), err
 }
 
-func ordinaryWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema string, materialID, deductG, deductUnits int64) ([]customerProcessingBatchAllocation, error) {
+func ordinaryWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema string, materialID, deductG, deductUnits int64, ownerCustomerIDs ...int64) ([]customerProcessingBatchAllocation, error) {
 	hasGenericBindings, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservation_batches", "id")
 	if err != nil {
 		return nil, err
+	}
+	ownerCustomerID := int64(0)
+	if len(ownerCustomerIDs) > 0 {
+		ownerCustomerID = ownerCustomerIDs[0]
+	}
+	hasOwner, err := schemaColumnExistsTx(ctx, tx, schema, "material_batches", "owner_customer_id")
+	if err != nil {
+		return nil, err
+	}
+	ownerPredicate := ""
+	ownerArgs := []any{materialID, stockdomain.WarehouseWIP}
+	if hasOwner {
+		ownerPredicate = " AND COALESCE(b.owner_customer_id,0)=$3"
+		ownerArgs = append(ownerArgs, ownerCustomerID)
 	}
 	query := fmt.Sprintf(`
 		SELECT b.id,b.batch_code,l.qty_g,l.qty_units,
@@ -1059,10 +1091,11 @@ func ordinaryWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema strin
 		WHERE l.material_id=$1 AND l.warehouse=$2
 		  AND (l.qty_g>0 OR l.qty_units>0)
 		  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
+		  %s
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.received_at,b.id
 		FOR UPDATE OF l,b
-	`, schema, schema)
+	`, schema, schema, ownerPredicate)
 	if hasGenericBindings {
 		query = fmt.Sprintf(`
 			SELECT b.id,b.batch_code,
@@ -1080,13 +1113,13 @@ func ordinaryWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema strin
 			WHERE l.material_id=$1 AND l.warehouse=$2
 			  AND (l.qty_g>0 OR l.qty_units>0)
 			  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
-			  AND COALESCE(b.owner_customer_id,0)=0
+			  %s
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			ORDER BY b.received_at,b.id
 			FOR UPDATE OF l,b
-		`, schema, schema, schema)
+		`, schema, schema, schema, ownerPredicate)
 	}
-	rows, err := tx.Query(ctx, query, materialID, stockdomain.WarehouseWIP)
+	rows, err := tx.Query(ctx, query, ownerArgs...)
 	if err != nil {
 		return nil, err
 	}

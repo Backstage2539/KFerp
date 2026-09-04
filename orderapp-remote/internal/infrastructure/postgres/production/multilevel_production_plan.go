@@ -111,7 +111,14 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 			componentSpecs[manufacturingItemIdentityKey(componentType, componentID, componentBomSpecID)] = componentSpecG
 		}
 	}
-	domainAvailable, err := loadManufacturingPlanAvailabilityTx(ctx, tx, schema, domainBOMs, componentSpecs)
+	ownerCustomerID := int64(0)
+	for _, root := range roots {
+		if root.CustomerID > 0 {
+			ownerCustomerID = root.CustomerID
+			break
+		}
+	}
+	domainAvailable, err := loadManufacturingPlanAvailabilityTx(ctx, tx, schema, domainBOMs, componentSpecs, ownerCustomerID)
 	if err != nil {
 		return err
 	}
@@ -335,7 +342,7 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 	return nil
 }
 
-func loadManufacturingPlanAvailabilityTx(ctx context.Context, tx pgx.Tx, schema string, boms []productiondomain.ManufacturingBOM, componentSpecs map[string]int64) (map[string]float64, error) {
+func loadManufacturingPlanAvailabilityTx(ctx context.Context, tx pgx.Tx, schema string, boms []productiondomain.ManufacturingBOM, componentSpecs map[string]int64, ownerCustomerID int64) (map[string]float64, error) {
 	refs := map[string]productiondomain.ManufacturingItemRef{}
 	for _, bom := range boms {
 		refs[bom.Output.Key()] = bom.Output
@@ -359,21 +366,38 @@ func loadManufacturingPlanAvailabilityTx(ctx context.Context, tx pgx.Tx, schema 
 			out[key] = manufacturingQtyFromCanonical(availableG, availableUnits, ref.Unit)
 			continue
 		}
-		need := materialConsumptionNeed{MaterialID: ref.ID, MaterialName: ref.Name, Unit: ref.Unit}
-		if isWeightMaterialUnit(ref.Unit) {
-			need.DeductG = 1
-		} else {
-			need.DeductUnits = 1
-		}
-		coverage, err := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, 0, []materialConsumptionNeed{need})
+		availableG, availableUnits, err := materialAvailableForPlanningOwnerTx(ctx, tx, schema, ref.ID, ownerCustomerID)
 		if err != nil {
 			return nil, err
 		}
-		if len(coverage) > 0 {
-			out[key] = manufacturingQtyFromCanonical(coverage[0].AvailableG, coverage[0].AvailableUnits, ref.Unit)
-		}
+		out[key] = manufacturingQtyFromCanonical(availableG, availableUnits, ref.Unit)
 	}
 	return out, nil
+}
+
+// Planning availability includes both raw and WIP locations. The owner is
+// frozen by the production demand: customer supplied demand uses that
+// customer's batches only, while ordinary factory demand uses owner 0.
+func materialAvailableForPlanningOwnerTx(ctx context.Context, tx pgx.Tx, schema string, materialID, ownerCustomerID int64) (int64, int64, error) {
+	var availableG, availableUnits int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(l.qty_g),0)::bigint, COALESCE(SUM(l.qty_units),0)::bigint
+		FROM %s.material_batch_locations l
+		JOIN %s.material_batches b ON b.id=l.material_batch_id
+		WHERE l.material_id=$1
+		  AND (l.qty_g>0 OR l.qty_units>0)
+		  AND b.status='active'
+		  AND (b.remaining_g>0 OR b.remaining_units>0)
+		  AND COALESCE(b.owner_customer_id,0)=$2
+		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+	`, schema, schema), materialID, ownerCustomerID).Scan(&availableG, &availableUnits)
+	if err != nil {
+		if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") || strings.Contains(err.Error(), "quality_status") {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	return availableG, availableUnits, nil
 }
 
 func manufacturingMaterialKey(materialID int64) string {

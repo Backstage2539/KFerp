@@ -339,6 +339,17 @@ func (r Repository) createStockDocumentDraftTx(ctx context.Context, tx pgx.Tx, c
 	if err := r.resolveStockDocumentWorkOrderContextTx(ctx, tx, &cmd); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	if cmd.WorkOrderID > 0 && (cmd.Purpose == stockapp.PurposeMaterialTransferForManufacture || cmd.Purpose == stockapp.PurposeMaterialConsumption || cmd.Purpose == stockapp.PurposeMaterialIssue) {
+		for index := range cmd.Items {
+			if cmd.Items[index].ItemType != itemTypeMaterial {
+				continue
+			}
+			if cmd.Items[index].OwnerCustomerID > 0 && cmd.Items[index].OwnerCustomerID != cmd.CustomerID {
+				return stockapp.StockDocumentDetail{}, fmt.Errorf("work order material owner does not match customer")
+			}
+			cmd.Items[index].OwnerCustomerID = cmd.CustomerID
+		}
+	}
 	if err := r.validateTypedManufactureCommandTx(ctx, tx, cmd); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
@@ -381,14 +392,18 @@ func (r Repository) resolveStockDocumentWorkOrderContextTx(ctx context.Context, 
 	default:
 		return fmt.Errorf("stock document purpose cannot be linked to work order")
 	}
-	var runningItemID int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(running_item_id,0) FROM %s.work_orders WHERE id=$1`, r.schema), cmd.WorkOrderID).Scan(&runningItemID); err != nil {
+	var runningItemID, workOrderCustomerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(running_item_id,0),COALESCE(customer_id,0) FROM %s.work_orders WHERE id=$1`, r.schema), cmd.WorkOrderID).Scan(&runningItemID, &workOrderCustomerID); err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("work order not found")
 		}
 		return err
 	}
 	cmd.RunningItemID = runningItemID
+	if cmd.CustomerID > 0 && cmd.CustomerID != workOrderCustomerID {
+		return fmt.Errorf("work order customer does not match stock document customer")
+	}
+	cmd.CustomerID = workOrderCustomerID
 	if cmd.JobCardID > 0 {
 		var belongs bool
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.job_cards WHERE id=$1 AND work_order_id=$2)`, r.schema), cmd.JobCardID, cmd.WorkOrderID).Scan(&belongs); err != nil {
