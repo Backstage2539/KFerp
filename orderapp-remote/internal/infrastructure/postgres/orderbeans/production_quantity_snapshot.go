@@ -113,11 +113,15 @@ func ResolveOrderProductionProductSpec(
 	productID int64,
 	published PublishedProductSpec,
 ) (PublishedProductSpec, error) {
-	current, err := ResolveCurrentOrderProductionProductSpec(ctx, q, schema, productID)
-	if err != nil {
-		return PublishedProductSpec{}, err
-	}
 	if published.ConcretePublication {
+		// Concrete price-list publications already carry the immutable sales
+		// specification and conversion graph. Read current catalog data only
+		// to verify that the SKU and parent still exist; do not replace a valid
+		// published snapshot with an incomplete legacy catalog row.
+		current, err := resolveCurrentProductionProductSpec(ctx, q, schema, productID)
+		if err != nil {
+			return PublishedProductSpec{}, err
+		}
 		if !published.ProductFound {
 			return PublishedProductSpec{}, fmt.Errorf("具体 SKU %d 不在价格表发布快照中", productID)
 		}
@@ -131,6 +135,10 @@ func ResolveOrderProductionProductSpec(
 			return PublishedProductSpec{}, err
 		}
 		return published, nil
+	}
+	current, err := ResolveCurrentOrderProductionProductSpec(ctx, q, schema, productID)
+	if err != nil {
+		return PublishedProductSpec{}, err
 	}
 	return current, nil
 }
