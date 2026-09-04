@@ -9,18 +9,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-627-CUSTOMER-FULFILLMENT-MULTI-TENANT
 - Branch: `codex/customer-fulfillment-multi-tenant`
 - Owner/session: Codex / 2026-09-04
-- Status: implementation in progress
+- Status: implementation complete; development deployed and four-scenario acceptance complete
 - Scope: 履约客户独立商品、客户引用商品、客户供料/工厂供料混合订单、客户仓库存归属与履约工作台价格/库存隔离。
 - DEV: DEV-627-CUSTOMER-PRODUCT-REFERENCE; DEV-627-MIXED-SOURCE-ORDER; DEV-627-CUSTOMER-INVENTORY-WAREHOUSE; DEV-627-DEVELOPMENT-ACCEPTANCE
 - Verifier:
-  - Unit: pending
-  - API: pending
-  - Frontend/build: pending
+  - Unit: targeted costing/reference tests GREEN; Go full suite GREEN
+  - API: customer catalog, inventory, price-download isolation and production/receipt checks GREEN
+  - Frontend/build: Vue 1066/1066, miniapp 220/220, Vite/typecheck/build GREEN
   - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md
-  - Review/acceptance: pending
+  - Review/acceptance: orderapp-remote/docs/acceptance/2026-09-05-customer-fulfillment-multi-tenant.md; scenarios 1-4 GREEN in development
 - Deployment: development deployment and scenario acceptance authorized; production untouched.
-- Last update: 2026-09-04 Asia/Shanghai
-- Notes: Implementation starts from origin/develop@b34a3fd20.
+- Last update: 2026-09-05 Asia/Shanghai
+- Notes: Runtime deployed from `develop@aeffcdadd8e3dad26ae75c2603d0c7543bf405fd`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260905062443-aeffcdad`; rollback image `kferp-orderapp-rollback:development-20260905062443-aeffcdad`; production untouched. Acceptance customers/products/orders and API evidence are recorded in the acceptance document.
 
 ### PR-625-MANUAL-BOM-AND-ORDER-TIER-FIX
 - Branch: `codex/pr625-manual-bom-spec-publish`
