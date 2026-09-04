@@ -118,7 +118,7 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 			break
 		}
 	}
-	domainAvailable, err := loadManufacturingPlanAvailabilityTx(ctx, tx, schema, domainBOMs, componentSpecs, ownerCustomerID)
+	domainAvailable, err := loadManufacturingPlanAvailabilityTx(ctx, tx, schema, domainBOMs, componentSpecs, rootComponents, ownerCustomerID)
 	if err != nil {
 		return err
 	}
@@ -342,8 +342,16 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 	return nil
 }
 
-func loadManufacturingPlanAvailabilityTx(ctx context.Context, tx pgx.Tx, schema string, boms []productiondomain.ManufacturingBOM, componentSpecs map[string]int64, ownerCustomerID int64) (map[string]float64, error) {
+func loadManufacturingPlanAvailabilityTx(ctx context.Context, tx pgx.Tx, schema string, boms []productiondomain.ManufacturingBOM, componentSpecs map[string]int64, rootComponents []materialConsumptionNeed, ownerCustomerID int64) (map[string]float64, error) {
 	refs := map[string]productiondomain.ManufacturingItemRef{}
+	for _, need := range rootComponents {
+		if need.MaterialID <= 0 || need.Source == "finished_product" || need.ComponentType == "finished_product" {
+			continue
+		}
+		refs[manufacturingMaterialKey(need.MaterialID)] = productiondomain.ManufacturingItemRef{
+			Type: "material", ID: need.MaterialID, Name: need.MaterialName, Unit: need.Unit,
+		}
+	}
 	for _, bom := range boms {
 		refs[bom.Output.Key()] = bom.Output
 		for _, component := range bom.Components {
