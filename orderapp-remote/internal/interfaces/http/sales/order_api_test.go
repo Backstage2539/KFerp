@@ -26,6 +26,20 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+func TestOrderSaveAPIRequestPreservesCustomerReferenceAndMaterialSource(t *testing.T) {
+	req := orderSaveAPIRequest{
+		CustomerProductReferenceID: []string{"42"},
+		MaterialSourceMode:         []string{"customer"},
+	}
+	converted := req.toCreateRequest()
+	if len(converted.CustomerProductReferenceID) != 1 || converted.CustomerProductReferenceID[0] != "42" {
+		t.Fatalf("customer reference ids = %#v, want [42]", converted.CustomerProductReferenceID)
+	}
+	if len(converted.MaterialSourceMode) != 1 || converted.MaterialSourceMode[0] != "customer" {
+		t.Fatalf("material source modes = %#v, want [customer]", converted.MaterialSourceMode)
+	}
+}
+
 func TestOrderEntryRedirectsToVueShell(t *testing.T) {
 	e := echo.New()
 	registerOrderRoutes(e, nil)

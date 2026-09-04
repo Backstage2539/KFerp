@@ -622,6 +622,8 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		BomSpecID:                          r.BomSpecID,
 		BomVariantID:                       r.BomVariantID,
 		CustomerProductAliasID:             r.CustomerProductAliasID,
+		CustomerProductReferenceID:         r.CustomerProductReferenceID,
+		MaterialSourceMode:                 r.MaterialSourceMode,
 		CustomerProductDisplayNameSnapshot: r.CustomerProductDisplayNameSnapshot,
 		CustomerItemCodeSnapshot:           r.CustomerItemCodeSnapshot,
 		BrandNameSnapshot:                  r.BrandNameSnapshot,
