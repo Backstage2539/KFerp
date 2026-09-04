@@ -4843,8 +4843,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-626-GROUP-LIST-SEARCH-PAGINATION-MOVE
 - Branch: codex/group-list-expand-collapse-20260904（追加全部展开/收缩；原分支 codex/group-list-search-pagination-move-20260903）
-- Owner/session: Codex / 2026-09-03
-- Status: verified；原功能已交付 development；2026-09-04 追加全部展开/收缩已完成 RED/GREEN 和本地门禁，按 Van 授权待依次发布 development、production。
+- Owner/session: Codex / 2026-09-03、2026-09-04 追加发布
+- Status: deployed；原功能与全部展开/收缩已依次发布 development（`b34a3fd2`）、production（`6a631048`）；两环境自动检查通过，Van 业务验收待完成。
 - Scope: 商品档案、物料档案、生产 BOM 和具体仓库库存共用搜索子树折叠/首条定位、分类 10 条分页阈值和紧凑移动目标模式；保留各页筛选、身份、assignment API 和操作日志。
 - DEV:
   - DEV-626-GROUP-SEARCH-FOCUS（done）：完整子树命中展开、空分支收起、首条业务行聚焦；清空恢复搜索前折叠与滚动，物料/仓库只在查询成功后应用。
@@ -4860,7 +4860,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN build/changed：`scripts/verify_kferp.sh frontend-build` 与 `scripts/verify_kferp.sh changed` 通过；Vite 6596 modules 构建成功，仅保留既有大 chunk 提示。
   - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md；orderapp-remote/docs/OP_MANUAL_PRODUCTION.md。
   - Review/acceptance: REQUIREMENTS.md；ACCEPTANCE_TESTS.md；orderapp-remote/docs/REQUIREMENTS.md；orderapp-remote/docs/ACCEPTANCE_TESTS.md；orderapp-remote/docs/acceptance/2026-09-03-group-list-search-pagination-move.md。
-- Deployment: development 已部署（功能集成提交 `14a55522d6a5448543bea35eaad8c305629a680a`）；`erp_orderapp` 运行、外部 `/app/login` 200、需求接口可见 PR-626，关键共享 helper/组件服务器指纹与提交一致；rollback `kferp-orderapp-rollback:development-20260904001641-14a55522d6a5`。production 与微信上传不在范围。
+- Deployment: 原搜索/分页/移动交付为 development `14a55522d6a5448543bea35eaad8c305629a680a`；2026-09-04 按 Van 追加授权发布两环境，微信上传仍不在范围。
+  - development：`b34a3fd20b2a4dfda063effacc0fd47083ab1831` 已部署，应用 running/restarts=0，登录页及四页 Vue 入口 200，未登录受保护接口 401，DEV-626-BULK-EXPAND-COLLAPSE 可见；组件/helper SHA-256 与提交一致。源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260904103201-b34a3fd20b2a`；镜像 `kferp-orderapp-rollback:development-20260904103201-b34a3fd20b2a`。
+  - production：发布分支 `codex/pr626-bulk-production-release-20260904` 从最新 main 合并已验证 develop，无冲突；`main@6a631048320f78db20526bbeba724e0eb0d0bfd7` 已通过隔离预检并执行 `./deploy_orderapp.sh production`。应用 running/restarts=0、两环境 PostgreSQL healthy；登录页与四页 Vue 入口 200，未登录根页面/受保护接口 401，运行时认证需求 API 200 且新 DEV 可见；源码指纹一致。备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20260904110004-6a631048320f`；镜像 `kferp-orderapp-rollback:production-20260904110004-6a631048320f`。
+  - 小程序构建包已导出 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，56 项文件清单和 RELEASE_INFO 校验通过；原目录保留为 `.backup-20260904110630-6a631048320f`。微信上传/审核/发布未执行。
+  - 发布后服务器磁盘约剩 1.7GB（98%），未清理历史备份、卷或业务文件；上线后证据单独作为功能分支的文档提交保留，不改变已部署的 develop/main 提交。
 - Last update: 2026-09-04 Asia/Shanghai
 - 追加验证：真实 Vue 组件 RED 5/5 失败 -> GREEN 5/5；相关前端 29/29；全量前端 1065/1065、Go 全包与 Vue 构建通过；本地无业务数据样例完成桌面/390px 展开/收缩/移动禁用检查。记录 `orderapp-remote/docs/acceptance/2026-09-04-group-list-expand-collapse.md`；本次授权 production 发布，微信上传不在范围。
 - Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 多行字符串上报错且未产生文件改动；最新 `origin/develop` 已占用 PR-622～625，因此按下一可用编号手工登记 PR-626。

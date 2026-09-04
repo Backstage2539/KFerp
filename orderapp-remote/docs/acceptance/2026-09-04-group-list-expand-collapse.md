@@ -15,6 +15,20 @@
 
 ## 发布检查点
 
-- [ ] development：合并、预检、部署、容器/页面/需求 API/源码指纹验证。
-- [ ] production：从最新 main 合并已验证 develop、预检、部署、容器/页面/需求 API/源码指纹验证。
+- [x] development：功能分支已推送并快进合入 `develop@b34a3fd20b2a4dfda063effacc0fd47083ab1831`；远程预检与 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` 成功，前端 1065/1065、小程序 220/220、Go 全包、Vue/小程序及 Docker 构建通过。
+  - `erp_orderapp` running，重启计数 0；PostgreSQL healthy。外部登录页 200，四页 Vue 入口均 200，未登录受保护需求 API 为 401；根 `/app/` 保留原有 303 跳转到 orders。
+  - 需求 API 可见 `DEV-626-BULK-EXPAND-COLLAPSE`；构建包包含“全部收缩”。组件 SHA-256 `c0277673a58b94bf589b65bb48c387f8854bf73cb3748f32e6fa26d26654b782`，helper SHA-256 `accfc0c63db655a906d30c4cbd49ea7880ee29f7bdebf9f4353b816e95005fef`，均与发布源码一致；`RELEASE_INFO` 环境/提交匹配。
+  - 回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20260904103201-b34a3fd20b2a`；回滚镜像 `kferp-orderapp-rollback:development-20260904103201-b34a3fd20b2a`。
+- [x] production：发布分支 `codex/pr626-bulk-production-release-20260904` 从 `origin/main@b7326d94` 合并已验证的 `origin/develop@b34a3fd2`，无冲突且保留原生产记录；生产隔离预检通过后，将相同提交 `6a631048320f78db20526bbeba724e0eb0d0bfd7` 推送 main，并从干净、与远端一致的 main 执行 `./deploy_orderapp.sh production` 成功。
+  - 预检和部署均通过前端 1065/1065、小程序 220/220、Go 全包、Vue/小程序及 Docker 构建；合并后的 `TestDev626GroupListInteractionDeliveryContracts` 与 `scripts/verify_kferp.sh changed` 通过。
+  - `erp_prod_orderapp` 与 `erp_orderapp` 均 running/restarts=0，两环境 PostgreSQL healthy；生产最近 5 分钟日志无 panic/fatal/error 命中。外部登录页及四页 Vue 入口 200，未登录根页面和受保护 API 均 401；使用生产容器当前 APP_USER/APP_PASS 的只读需求 API 返回 200，包含新 DEV，认证根页面保留 303 跳转。未更改凭据或权限。
+  - 组件/helper SHA-256 与上述开发发布值及生产提交一致，生产构建包包含“全部收缩”，`RELEASE_INFO` 匹配 production 与 `6a631048320f78db20526bbeba724e0eb0d0bfd7`。
+  - 回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20260904110004-6a631048320f`；回滚镜像 `kferp-orderapp-rollback:production-20260904110004-6a631048320f`。
+  - 本地小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，14 个声明页面与清单 56 个文件验证通过，提交/生产环境/API 地址匹配；旧包保留 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260904110630-6a631048320f`。未执行微信上传/审核/发布。
 - [ ] Van 四页面业务验收。
+
+## 交付说明
+
+- 功能分支 `codex/group-list-expand-collapse-20260904` 的实现提交 `b34a3fd2` 已合并至两环境；上线后的证据单独作为该分支的文档提交保留，不再次部署或改动两个已部署的 develop/main 提交。
+- 生产发布后磁盘约剩 1.7GB（使用率 98%）；没有清理历史备份、数据卷或业务文件，后续需要独立安排容量处理。
+- 日志：`/private/tmp/pr626-bulk-dev-preflight.log`、`/private/tmp/pr626-bulk-dev-deploy.log`、`/private/tmp/pr626-bulk-prod-preflight.log`、`/private/tmp/pr626-bulk-prod-deploy.log`。
