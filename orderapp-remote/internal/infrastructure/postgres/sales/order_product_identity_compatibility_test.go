@@ -14,7 +14,7 @@ func TestOrderProductSpecIdentityKeepsLegacyPublicParentPublicationPricing(t *te
 	}
 	selected := make([]salesapp.ProductOption, 0, len(products))
 	for _, product := range products {
-		if orderProductSpecIdentitySelectable(product, postgresinfra.ProductSpecIdentityOption{LegacyCatalogProduct: true}) {
+		if orderProductSpecIdentitySelectable(product, postgresinfra.ProductSpecIdentityOption{State: "cutover"}) {
 			selected = append(selected, product)
 		}
 	}
@@ -22,6 +22,7 @@ func TestOrderProductSpecIdentityKeepsLegacyPublicParentPublicationPricing(t *te
 		{ProductID: 1043}: {{ID: 1100001, PublicationID: 110, UnitPrice: 65}},
 		{ProductID: 1035}: {{ID: 1100002, PublicationID: 110, UnitPrice: 53}},
 	})
+	selected = filterOrderProductsWithSelectablePricing(selected)
 	if len(selected) != 2 {
 		t.Fatalf("legacy public parents available for published pricing = %d, want 2", len(selected))
 	}
@@ -40,7 +41,6 @@ func TestOrderProductSpecIdentityStillRequiresConfiguredCustomerParent(t *testin
 		name          string
 		product       salesapp.ProductOption
 		authoritative bool
-		newProduct    bool
 		want          bool
 	}{
 		{name: "unconfigured customer product", product: salesapp.ProductOption{ID: 1063, ParentProductID: 1063, CustomerID: 152, Visibility: "customer_only"}},
@@ -49,12 +49,24 @@ func TestOrderProductSpecIdentityStillRequiresConfiguredCustomerParent(t *testin
 		{name: "legacy public child", product: salesapp.ProductOption{ID: 1044, ParentProductID: 1043, Visibility: "public"}},
 		{name: "configured public child", product: salesapp.ProductOption{ID: 1044, ParentProductID: 1043, Visibility: "public"}, authoritative: true},
 		{name: "nonpublic unconfigured parent", product: salesapp.ProductOption{ID: 1063, Visibility: "customer_only"}},
-		{name: "new public unconfigured parent", product: salesapp.ProductOption{ID: 1064, Visibility: "public"}, newProduct: true},
+		{name: "new public unconfigured parent candidate", product: salesapp.ProductOption{ID: 1064, Visibility: "public"}, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := orderProductSpecIdentitySelectable(tc.product, postgresinfra.ProductSpecIdentityOption{BomSpecAuthoritative: tc.authoritative, LegacyCatalogProduct: !tc.newProduct}); got != tc.want {
+			if got := orderProductSpecIdentitySelectable(tc.product, postgresinfra.ProductSpecIdentityOption{BomSpecAuthoritative: tc.authoritative}); got != tc.want {
 				t.Fatalf("selectable = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFilterOrderProductsWithSelectablePricingRequiresPublishedTierForUnconfiguredPublicParent(t *testing.T) {
+	products := []salesapp.ProductOption{
+		{ID: 1035, Visibility: "public", Tiers: []salesapp.ProductTierOption{{PublicationID: 110, UnitPrice: 53}}},
+		{ID: 1043, Visibility: "public"},
+		{ID: 1063, CustomerID: 152, Visibility: "customer_only", BomSpecAuthoritative: true},
+	}
+	got := filterOrderProductsWithSelectablePricing(products)
+	if len(got) != 2 || got[0].ID != 1035 || got[1].ID != 1063 {
+		t.Fatalf("selectable priced products = %+v, want published public 1035 and authoritative customer 1063", got)
 	}
 }
