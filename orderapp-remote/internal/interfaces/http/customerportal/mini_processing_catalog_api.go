@@ -37,7 +37,8 @@ func registerMiniProcessingCatalogAPI(e *echo.Echo, portal Service, sales Employ
 		if !current.HasCapability(customerportalapp.CapabilityProcessing) {
 			return miniBusinessError(c, customerportalapp.ErrCapabilityNotEnabled)
 		}
-		form, err := sales.OrderForm(c.Request().Context(), 0)
+		formCtx := salesapp.WithOrderFormCustomerID(c.Request().Context(), current.CurrentCustomerID)
+		form, err := sales.OrderForm(formCtx, 0)
 		if err != nil {
 			return miniInternalError(c)
 		}

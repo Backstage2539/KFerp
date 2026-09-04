@@ -459,6 +459,28 @@ type OrderFormData struct {
 	EditData               *OrderEditData
 }
 
+// OrderFormCustomerIDKey is carried by HTTP handlers when the order form is
+// requested for a particular customer.  The repository uses it to resolve
+// customer-owned publications that also contain public products.
+type orderFormCustomerIDKey struct{}
+
+func WithOrderFormCustomerID(ctx context.Context, customerID int64) context.Context {
+	if customerID <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, orderFormCustomerIDKey{}, customerID)
+}
+
+func OrderFormCustomerID(ctx context.Context) int64 {
+	if ctx == nil {
+		return 0
+	}
+	if customerID, ok := ctx.Value(orderFormCustomerIDKey{}).(int64); ok && customerID > 0 {
+		return customerID
+	}
+	return 0
+}
+
 type OrderEditItem struct {
 	ItemID                             int64
 	LineNo                             int

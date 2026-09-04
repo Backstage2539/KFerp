@@ -250,13 +250,9 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		}
 		editID = id
 	}
-
-	data, err := h.sales.OrderForm(c.Request().Context(), editID)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-	}
 	customerID := int64(0)
 	filterByCustomer := false
+	ctx := c.Request().Context()
 	if v := strings.TrimSpace(c.QueryParam("customer_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id < 0 {
@@ -278,6 +274,13 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		}
 		customerID = boundID
 		filterByCustomer = true
+	}
+	if filterByCustomer {
+		ctx = salesapp.WithOrderFormCustomerID(ctx, customerID)
+	}
+	data, err := h.sales.OrderForm(ctx, editID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	if filterByCustomer {
 		data.Products = filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions, data.CustomerPublicUsages)

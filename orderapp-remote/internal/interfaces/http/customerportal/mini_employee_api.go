@@ -289,17 +289,20 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 		if sales == nil {
 			return miniInternalError(c)
 		}
-		form, err := sales.OrderForm(c.Request().Context(), 0)
-		if err != nil {
-			return miniInternalError(c)
-		}
 		customerID := int64(0)
-		retailOrder := false
 		if rawCustomerID := strings.TrimSpace(c.QueryParam("customer_id")); rawCustomerID != "" {
 			customerID, err = strconv.ParseInt(rawCustomerID, 10, 64)
 			if err != nil || customerID <= 0 {
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": "客户编号不正确"})
 			}
+		}
+		formCtx := salesapp.WithOrderFormCustomerID(c.Request().Context(), customerID)
+		form, err := sales.OrderForm(formCtx, 0)
+		if err != nil {
+			return miniInternalError(c)
+		}
+		retailOrder := false
+		if customerID > 0 {
 			customer, found := miniEmployeeOrderCustomer(form, customerID)
 			if !found {
 				return c.JSON(http.StatusNotFound, map[string]string{"error": "客户不存在"})
@@ -650,7 +653,7 @@ func miniEmployeeUsesRetailCatalog(form salesapp.OrderFormData, customer salesap
 }
 
 func miniEmployeePrepareCurrentCatalog(ctx context.Context, sales EmployeeSales, cmd *salesapp.SaveOrderCommand) (string, error) {
-	form, err := sales.OrderForm(ctx, 0)
+	form, err := sales.OrderForm(salesapp.WithOrderFormCustomerID(ctx, cmd.CustomerID), 0)
 	if err != nil {
 		return "", err
 	}

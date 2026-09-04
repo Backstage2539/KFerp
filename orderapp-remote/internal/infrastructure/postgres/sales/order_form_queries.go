@@ -1120,21 +1120,26 @@ func orderPublicationProductKeyForProduct(product salesapp.ProductOption) orderP
 	}
 }
 
-func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
-	return r.fetchStandardOrderPublicationTiers(ctx, products, "commercial")
+func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption, customerIDs ...int64) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
+	return r.fetchStandardOrderPublicationTiers(ctx, products, "commercial", customerIDs...)
 }
 
-func (r Repository) fetchRetailOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
-	return r.fetchStandardOrderPublicationTiers(ctx, products, "retail")
+func (r Repository) fetchRetailOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption, customerIDs ...int64) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
+	return r.fetchStandardOrderPublicationTiers(ctx, products, "retail", customerIDs...)
 }
 
-func (r Repository) fetchDripOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
-	return r.fetchStandardOrderPublicationTiers(ctx, products, "drip")
+func (r Repository) fetchDripOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption, customerIDs ...int64) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
+	return r.fetchStandardOrderPublicationTiers(ctx, products, "drip", customerIDs...)
 }
 
-func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption, listType string) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
+func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption, listType string, customerIDs ...int64) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
 	listType = standardOrderPublicationListType(listType)
 	customerOwners := map[string]bool{}
+	requestedCustomerID := int64(0)
+	if len(customerIDs) > 0 && customerIDs[0] > 0 {
+		requestedCustomerID = customerIDs[0]
+		customerOwners[strconv.FormatInt(requestedCustomerID, 10)] = true
+	}
 	hasCommercialProduct := false
 	for _, product := range products {
 		if !orderCommercialProductKind(product.ProductKind) {
@@ -1239,7 +1244,17 @@ func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, prod
 			}
 			continue
 		}
-		if tiers := officialTiers[product.ID]; len(tiers) > 0 {
+		publicTiers := officialTiers[product.ID]
+		if requestedCustomerID > 0 {
+			// A customer publication may include a public product.  When the
+			// form is customer-scoped, that publication is the authoritative
+			// price source for the public product as well.
+			ownerKey := strconv.FormatInt(requestedCustomerID, 10)
+			if tiers := customerTiers[ownerKey][product.ID]; len(tiers) > 0 {
+				publicTiers = tiers
+			}
+		}
+		if tiers := publicTiers; len(tiers) > 0 {
 			out[key] = tiers
 		}
 	}
@@ -1307,8 +1322,15 @@ func orderCommercialProductKind(productKind string) bool {
 	}
 }
 
-func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
+func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption, customerIDs ...int64) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
 	customerOwners := map[string]bool{}
+	requestedCustomerID := salesapp.OrderFormCustomerID(ctx)
+	if len(customerIDs) > 0 && customerIDs[0] > 0 {
+		requestedCustomerID = customerIDs[0]
+	}
+	if requestedCustomerID > 0 {
+		customerOwners[strconv.FormatInt(requestedCustomerID, 10)] = true
+	}
 	for _, product := range products {
 		if product.CustomerID > 0 {
 			customerOwners[strconv.FormatInt(product.CustomerID, 10)] = true
@@ -1395,7 +1417,14 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 			out[key] = tiers
 			continue
 		}
-		if tiers := officialTiers[product.ID]; len(tiers) > 0 {
+		publicTiers := officialTiers[product.ID]
+		if requestedCustomerID > 0 {
+			ownerKey := strconv.FormatInt(requestedCustomerID, 10)
+			if tiers := customerTiers[ownerKey][product.ID]; len(tiers) > 0 {
+				publicTiers = tiers
+			}
+		}
+		if tiers := publicTiers; len(tiers) > 0 {
 			out[key] = tiers
 		}
 	}
