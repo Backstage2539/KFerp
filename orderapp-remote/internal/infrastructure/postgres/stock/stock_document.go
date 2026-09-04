@@ -1823,6 +1823,54 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 		totalG = item.QtyUnits*specG + item.QtyG
 		units, looseG = totalG/specG, totalG%specG
 	}
+	if detail.Purpose == stockapp.PurposeCustomerReceipt {
+		ownerCustomerID := item.OwnerCustomerID
+		if ownerCustomerID <= 0 {
+			return fmt.Errorf("customer receipt owner required")
+		}
+		var warehouseCustomerID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.warehouses WHERE code=$1 AND active=true`, r.schema), item.ToWarehouse).Scan(&warehouseCustomerID); err != nil {
+			return err
+		}
+		if warehouseCustomerID != ownerCustomerID {
+			return fmt.Errorf("customer receipt warehouse is not bound to owner customer")
+		}
+		beforeUnits, beforeLoose, err := finishedInventoryQtyIdentityOwnedStockTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse, ownerCustomerID)
+		if err != nil {
+			return err
+		}
+		afterUnits, afterLoose := beforeUnits+units, int64(0)
+		if !canonical {
+			afterUnits, afterLoose, _, err = normalizeFinishedQty(item.SpecG, beforeUnits+units, beforeLoose+looseG)
+			if err != nil {
+				return err
+			}
+		}
+		if err := upsertFinishedInventoryIdentityOwnedStockTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.ToWarehouse, afterUnits, afterLoose, ownerCustomerID); err != nil {
+			return err
+		}
+		batchCode := fmt.Sprintf("FP-SE-%010d-%03d", detail.ID, item.ID%1000)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.stock_batches(
+				batch_code,item_type,item_id,item_name,owner_customer_id,spec_g,bom_spec_id,bom_variant_id,source_doc_type,source_doc_id,source_batch_id,
+				qty_g,qty_units,remaining_g,remaining_units,unit_cost,operator,created_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'stock_entry_item',$9,$10,$11,$12,$11,$12,$13,$14,now())
+		`, r.schema), batchCode, itemTypeFinishedProduct, item.ProductID, productName, ownerCustomerID, item.SpecG, item.BomSpecID, item.BomVariantID, item.ID, detail.EntryNo, totalG, units, item.UnitCost, actor); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_entry_items SET item_name=$2,batch_code=$3,total_cost=$4 WHERE id=$1`, r.schema), item.ID, productName, batchCode, stockItemTotalCost(totalG, units, item.UnitCost)); err != nil {
+			return err
+		}
+		beforeG, afterG := beforeUnits*item.SpecG+beforeLoose, afterUnits*item.SpecG+afterLoose
+		if canonical {
+			beforeG, afterG = 0, 0
+		}
+		return insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName, OwnerCustomerID: ownerCustomerID, SpecG: item.SpecG, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, Warehouse: item.ToWarehouse,
+			SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchCode: batchCode, SourceBatchID: detail.EntryNo,
+			BeforeG: beforeG, ChangeG: totalG, AfterG: afterG, BeforeUnits: beforeUnits, ChangeUnits: afterUnits - beforeUnits, AfterUnits: afterUnits, Operator: actor,
+		})
+	}
 	if detail.Purpose == stockapp.PurposeManufacture {
 		var woProductID, woSpecG, woBomSpecID, woBomVariantID int64
 		hasBomSpec, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "work_orders", "bom_spec_id")
@@ -2176,7 +2224,7 @@ func (r Repository) reverseStockDocumentItemTx(ctx context.Context, tx pgx.Tx, d
 			}
 			continue
 		}
-	if isConsumption && item.OwnerCustomerID <= 0 {
+		if isConsumption && item.OwnerCustomerID <= 0 {
 			beforeFromG, beforeFromUnits, err := materialBatchLocationBalanceTx(ctx, tx, r.schema, alloc.MaterialBatchID, item.FromWarehouse)
 			if err != nil {
 				return err
