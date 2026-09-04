@@ -4,8 +4,8 @@
 
 - 验收日期：2026-09-05（Asia/Shanghai）
 - 环境：开发环境 `https://dev.qacoohee.com`
-- 运行版本：`aeffcdadd8e3dad26ae75c2603d0c7543bf405fd`（`codex/customer-fulfillment-multi-tenant`）
-- 开发部署：`./deploy_orderapp.sh development` 完成；源代码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260905062443-aeffcdad`；回滚镜像 `kferp-orderapp-rollback:development-20260905062443-aeffcdad`
+- 运行版本：`6338303f55fa037ae76904f5027ec27e81fd80bc`（`codex/customer-fulfillment-multi-tenant`，已快进到临时开发 `develop`）
+- 开发部署：`./deploy_orderapp.sh development` 完成；源代码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260905065303-6338303f55fa`；回滚镜像 `kferp-orderapp-rollback:development-20260905065303-6338303f55fa`
 - 健康检查：开发登录 HTTP 200、公开入口 HTTP 200、开发数据库 healthy；生产容器仅只读检查，未重启、未写入业务数据。
 
 本次使用独立验收客户、外部账号、商品、仓库、价格表和订单。验收数据保留在开发数据库供复查。
@@ -94,4 +94,4 @@
 - 操作手册：`docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md` 已补充客户独立商品、客户引用、供料方式、客户仓、`customer_receipt`、缺料和工作台隔离流程。
 - 页面截图证据：本次任务记录保留了客户 A 价格表 V6 展开预览截图（含“客户商品B”快照）和客户 B 工作台截图；接口越权请求的 HTTP 状态与响应范围已在本记录列出。
 
-结论：四个指定场景及关键分支在开发环境通过，代码运行版本为 `aeffcdad`。本次不发布生产环境；验收数据仅保留在开发环境供复查。
+结论：四个指定场景及关键分支在开发环境通过，代码运行版本为 `6338303f`。本次不发布生产环境；验收数据仅保留在开发环境供复查。
