@@ -1135,7 +1135,7 @@ func (r Repository) fetchDripOrderPublicationTiers(ctx context.Context, products
 func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption, listType string, customerIDs ...int64) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
 	listType = standardOrderPublicationListType(listType)
 	customerOwners := map[string]bool{}
-	requestedCustomerID := int64(0)
+	requestedCustomerID := salesapp.OrderFormCustomerID(ctx)
 	if len(customerIDs) > 0 && customerIDs[0] > 0 {
 		requestedCustomerID = customerIDs[0]
 		customerOwners[strconv.FormatInt(requestedCustomerID, 10)] = true
