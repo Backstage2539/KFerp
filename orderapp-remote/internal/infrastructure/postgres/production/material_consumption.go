@@ -1284,6 +1284,10 @@ func deductMaterialsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema strin
 }
 
 func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, needs []materialConsumptionNeed, operator string) error {
+	ownerCustomerID := int64(0)
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.work_orders WHERE running_item_id=$1`, schema), r.ID).Scan(&ownerCustomerID); err != nil && err != pgx.ErrNoRows {
+		return err
+	}
 	for _, need := range needs {
 		if need.DeductG <= 0 && need.DeductUnits <= 0 {
 			continue
@@ -1295,15 +1299,11 @@ func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema 
 			continue
 		}
 		var beforeG, beforeUnits int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g,onhand_units FROM %s.materials WHERE id=$1 FOR UPDATE`, schema), need.MaterialID).Scan(&beforeG, &beforeUnits); err != nil {
-			return err
-		}
-		afterG := beforeG - need.DeductG
-		afterUnits := beforeUnits - need.DeductUnits
-		if afterG < 0 || afterUnits < 0 {
-			return fmt.Errorf("material stock insufficient: %s", need.MaterialName)
-		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, schema), need.MaterialID, afterG, afterUnits); err != nil {
+		if ownerCustomerID == 0 {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g,onhand_units FROM %s.materials WHERE id=$1 FOR UPDATE`, schema), need.MaterialID).Scan(&beforeG, &beforeUnits); err != nil {
+				return err
+			}
+		} else if err := queryOwnedWIPMaterialBalanceTx(ctx, tx, schema, need.MaterialID, ownerCustomerID, &beforeG, &beforeUnits); err != nil {
 			return err
 		}
 		allocations, err := materialBatchConsumptionsForRunningItemTx(ctx, tx, schema, r.ID, need.MaterialID, need.DeductG, need.DeductUnits)
@@ -1311,7 +1311,30 @@ func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema 
 			return err
 		}
 		if len(allocations) == 0 {
+			if ownerCustomerID > 0 {
+				return fmt.Errorf("customer-owned WIP material insufficient: %s", need.MaterialName)
+			}
 			allocations = []customerProcessingBatchAllocation{{QtyG: need.DeductG, QtyUnits: need.DeductUnits}}
+		}
+		allocatedG, allocatedUnits := int64(0), int64(0)
+		for _, alloc := range allocations {
+			allocatedG += alloc.QtyG
+			allocatedUnits += alloc.QtyUnits
+		}
+		if allocatedG < need.DeductG || allocatedUnits < need.DeductUnits {
+			return fmt.Errorf("material stock insufficient: %s", need.MaterialName)
+		}
+		afterG := beforeG - need.DeductG
+		afterUnits := beforeUnits - need.DeductUnits
+		if ownerCustomerID == 0 {
+			if afterG < 0 || afterUnits < 0 {
+				return fmt.Errorf("material stock insufficient: %s", need.MaterialName)
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, schema), need.MaterialID, afterG, afterUnits); err != nil {
+				return err
+			}
+		} else if err := queryOwnedWIPMaterialBalanceTx(ctx, tx, schema, need.MaterialID, ownerCustomerID, &afterG, &afterUnits); err != nil {
+			return err
 		}
 		for _, alloc := range allocations {
 			logDeductG := alloc.QtyG
@@ -1339,8 +1362,8 @@ func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema 
 				ChangeUnits: -logDeductUnits,
 				AfterUnits:  afterUnits,
 			}
-			if err := insertStockLedgerEntryTx(ctx, tx, schema,
-				stockItemTypeMaterial, need.MaterialID, need.MaterialName, 0, stockdomain.WarehouseWIP,
+			if err := insertStockLedgerEntryOwnedTx(ctx, tx, schema,
+				stockItemTypeMaterial, need.MaterialID, need.MaterialName, ownerCustomerID, 0, stockdomain.WarehouseWIP,
 				stockSourceProductionRun, r.ID, alloc.BatchCode, r.BatchID,
 				qty, operator,
 			); err != nil {
@@ -1352,6 +1375,19 @@ func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema 
 		}
 	}
 	return nil
+}
+
+func queryOwnedWIPMaterialBalanceTx(ctx context.Context, tx pgx.Tx, schema string, materialID, ownerCustomerID int64, grams, units *int64) error {
+	return tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(l.qty_g),0)::bigint,COALESCE(SUM(l.qty_units),0)::bigint
+		FROM %s.material_batch_locations l
+		JOIN %s.material_batches b ON b.id=l.material_batch_id
+		WHERE l.material_id=$1 AND l.warehouse=$2
+		  AND (l.qty_g>0 OR l.qty_units>0)
+		  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
+		  AND COALESCE(b.owner_customer_id,0)=$3
+		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+	`, schema, schema), materialID, stockdomain.WarehouseWIP, ownerCustomerID).Scan(grams, units)
 }
 
 func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, need materialConsumptionNeed, operator string) error {
