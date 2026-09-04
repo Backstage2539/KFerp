@@ -1975,7 +1975,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,bom_spec_id,bom_variant_id,customer_product_alias_id,customer_product_reference_id,material_source_mode,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,0),$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34::jsonb)`, r.schema)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NULLIF($15,0),$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34::jsonb)`, r.schema)
 
 	if editID > 0 {
 		if !cmd.PreserveFulfillmentSnapshot {
