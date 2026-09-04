@@ -1064,7 +1064,20 @@ func resolveOrderBOMSpecIdentityTx(ctx context.Context, tx pgx.Tx, schema string
 		return orderBOMSpecIdentity{}, nil
 	}
 	if bomSpecID <= 0 {
-		return orderBOMSpecIdentity{}, fmt.Errorf("product_bom_spec_not_configured")
+		// Legacy public products may still be sold from a published price
+		// snapshot while their BOM identity is being migrated. Customer-owned
+		// products must continue to provide an authoritative BOM specification.
+		var customerID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE(customer_id,0) FROM %s.products WHERE id=$1 AND active=true", schema), productID).Scan(&customerID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return orderBOMSpecIdentity{}, fmt.Errorf("product not found")
+			}
+			return orderBOMSpecIdentity{}, err
+		}
+		if customerID > 0 {
+			return orderBOMSpecIdentity{}, fmt.Errorf("product_bom_spec_not_configured")
+		}
+		return orderBOMSpecIdentity{}, nil
 	}
 
 	var identity orderBOMSpecIdentity
