@@ -808,7 +808,7 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 			parentID = out[index].ID
 		}
 		identity := identities[parentID]
-		if out[index].ID != parentID || !identity.BomSpecAuthoritative {
+		if !orderProductSpecIdentitySelectable(out[index], identity) {
 			continue
 		}
 		out[index].SpecIdentityMode = identity.SpecIdentityMode
@@ -838,6 +838,19 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	}
 	applyGreenBeanOrderPublicationTiers(out, greenPublicationTiers)
 	return out, nil
+}
+
+func orderProductSpecIdentitySelectable(product salesapp.ProductOption, identity postgresinfra.ProductSpecIdentityOption) bool {
+	parentID := product.ParentProductID
+	if parentID <= 0 {
+		parentID = product.ID
+	}
+	if product.ID != parentID {
+		return false
+	}
+	// Existing public parents can still be priced from published snapshots while
+	// their BOM identity is migrated. Customer products must use configured BOMs.
+	return identity.BomSpecAuthoritative || (identity.LegacyCatalogProduct && product.CustomerID == 0 && product.Visibility == "public")
 }
 
 func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]salesapp.ProductOption, error) {
