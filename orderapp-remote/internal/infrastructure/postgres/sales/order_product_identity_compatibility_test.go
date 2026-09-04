@@ -46,6 +46,7 @@ func TestOrderProductSpecIdentityStillRequiresConfiguredCustomerParent(t *testin
 		{name: "unconfigured customer product", product: salesapp.ProductOption{ID: 1063, ParentProductID: 1063, CustomerID: 152, Visibility: "customer_only"}},
 		{name: "configured customer product", product: salesapp.ProductOption{ID: 1063, ParentProductID: 1063, CustomerID: 152, Visibility: "customer_only"}, authoritative: true, want: true},
 		{name: "unconfigured customer reference", product: salesapp.ProductOption{ID: 1043, ParentProductID: 1043, CustomerID: 152, Visibility: "customer_alias"}},
+		{name: "public customer reference", product: salesapp.ProductOption{ID: 1043, ParentProductID: 1043, CustomerID: 152, CustomerProductReferenceID: 17, Visibility: "customer_reference"}, want: true},
 		{name: "legacy public child", product: salesapp.ProductOption{ID: 1044, ParentProductID: 1043, Visibility: "public"}},
 		{name: "configured public child", product: salesapp.ProductOption{ID: 1044, ParentProductID: 1043, Visibility: "public"}, authoritative: true},
 		{name: "nonpublic unconfigured parent", product: salesapp.ProductOption{ID: 1063, Visibility: "customer_only"}},
@@ -64,9 +65,10 @@ func TestFilterOrderProductsWithSelectablePricingRequiresPublishedTierForUnconfi
 		{ID: 1035, Visibility: "public", Tiers: []salesapp.ProductTierOption{{PublicationID: 110, UnitPrice: 53}}},
 		{ID: 1043, Visibility: "public"},
 		{ID: 1063, CustomerID: 152, Visibility: "customer_only", BomSpecAuthoritative: true},
+		{ID: 1043, CustomerID: 152, CustomerProductReferenceID: 17, Visibility: "customer_reference", Tiers: []salesapp.ProductTierOption{{PublicationID: 117, UnitPrice: 1}}},
 	}
 	got := filterOrderProductsWithSelectablePricing(products)
-	if len(got) != 2 || got[0].ID != 1035 || got[1].ID != 1063 {
-		t.Fatalf("selectable priced products = %+v, want published public 1035 and authoritative customer 1063", got)
+	if len(got) != 3 || got[0].ID != 1035 || got[1].ID != 1063 || got[2].CustomerProductReferenceID != 17 {
+		t.Fatalf("selectable priced products = %+v, want published public 1035, customer 1063 and public reference 17", got)
 	}
 }

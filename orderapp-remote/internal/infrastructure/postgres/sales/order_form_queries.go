@@ -863,6 +863,15 @@ func filterOrderProductsWithSelectablePricing(products []salesapp.ProductOption)
 			selected = append(selected, product)
 			continue
 		}
+		if product.CustomerProductReferenceID > 0 || product.Visibility == "customer_reference" {
+			for _, tier := range product.Tiers {
+				if tier.PublicationID > 0 {
+					selected = append(selected, product)
+					break
+				}
+			}
+			continue
+		}
 		if product.CustomerID != 0 || product.Visibility != "public" {
 			continue
 		}
