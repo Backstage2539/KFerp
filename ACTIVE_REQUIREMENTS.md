@@ -7,17 +7,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-629-PRODUCT-CATALOG-WAREHOUSE-SOURCE
-- Branch: `codex/pr629-catalog-warehouse-source`
+- Branch: `codex/pr629-acceptance-evidence`（业务代码已通过 PR #63-#69 合并）
 - Owner/session: Codex / 2026-09-05
-- Status: local implementation and full gates GREEN; development deploy, cutover and live acceptance pending
+- Status: implementation, guarded migration, development deployment and live acceptance complete; awaiting Van review
 - Scope: 商品与物料归属改为客户名称可搜索和“复制到客户”交互；移除商品供料方式；生产计划逐 BOM 组件选择并冻结来源仓与货主；旧客户供料需求迁入统一流程。
 - DEV: DEV-629-CATALOG-OWNERSHIP-UX; DEV-629-WAREHOUSE-COMPONENT-SOURCES; DEV-629-LEGACY-SOURCE-CUTOVER; DEV-629-DEVELOPMENT-ACCEPTANCE
 - Verifier:
-  - Unit/API: component-source helper RED (2 failures) -> full Go GREEN
+  - Unit/API: component-source helper RED (2 failures) -> full Go GREEN; fulfillment option PostgreSQL RED `p.code` -> GREEN `p.sku_code`
   - Frontend/build: Vue 1077/1077, Vite 6597 modules, miniapp 220/220, typecheck and development build GREEN
   - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md
-  - Review/acceptance: orderapp-remote/docs/acceptance/2026-09-05-product-catalog-warehouse-source.md
-- Deployment: authorized for development after full gates; production untouched.
+  - Review/acceptance: development page/API/PostgreSQL production-flow acceptance GREEN; evidence in orderapp-remote/docs/acceptance/2026-09-05-product-catalog-warehouse-source.md
+- Deployment: development `04ef34b0ad5b92ae34a9d4ad3c9493ad4494d4eb`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260905221431-04ef34b0ad5b`; rollback image `kferp-orderapp-rollback:development-20260905221431-04ef34b0ad5b`; production untouched.
 - Last update: 2026-09-05 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` failed before writing because the local awk rejects a multiline `-v` value; PR-629 was the next free id and is claimed here directly.
 
