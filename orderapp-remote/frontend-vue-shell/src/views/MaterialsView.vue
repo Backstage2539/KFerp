@@ -368,6 +368,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { fetchAllCustomerOptions } from '../api/view-context'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import {
@@ -634,11 +635,11 @@ async function loadOptions() {
   const [settings, industry, customers] = await Promise.all([
     apiGet('/api/product-settings'),
     apiGet('/api/industry-field-templates'),
-    apiGet('/api/customer-fulfillment/customers?limit=200'),
+    fetchAllCustomerOptions(),
   ])
   productUnitDefinitions.value = (settings.product_unit_definitions || []).map(normalizeUnit).filter((row) => row.code)
   industryFieldTemplates.value = (industry.rows || []).map(normalizeTemplate)
-  customerOptions.value = (customers.rows || customers.customers || []).filter((row) => row.active !== false && Number(row.id || 0) > 0)
+  customerOptions.value = customers.filter((row) => row.active !== false && Number(row.id || 0) > 0)
 }
 
 async function loadMaterialCustomerReferences() {

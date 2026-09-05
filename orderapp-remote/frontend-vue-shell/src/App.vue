@@ -230,8 +230,8 @@ import { fetchERPNotifications, markNotificationRead } from './api/message-cente
 import { fetchUISettings } from './api/ui-settings.js'
 import {
   disableViewContextPreset as disableViewContextPresetAPI,
+  fetchAllCustomerOptions,
   fetchViewContextPresets,
-  fetchWorkspaceCustomerOptions,
   fetchWorkspaceOrderOptions,
   saveViewContextPreset,
 } from './api/view-context.js'
@@ -789,7 +789,7 @@ function handleWorkspaceCustomersRefresh() {
 }
 
 async function loadWorkspaceCustomers() {
-  workspaceCustomerOptions.value = await fetchWorkspaceCustomerOptions()
+  workspaceCustomerOptions.value = await fetchAllCustomerOptions()
 }
 
 async function loadWorkspaceOrders() {

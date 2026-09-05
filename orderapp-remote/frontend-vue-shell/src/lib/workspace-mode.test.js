@@ -143,7 +143,7 @@ test('vue shell wires workspace mode into navigation and routed pages', () => {
     'kferp.workspace.customerId',
     ':customer-context-id="workspaceCustomerContextId"',
     ':customer-context-label="workspaceCustomerLabel"',
-    'fetchWorkspaceCustomerOptions',
+    'fetchAllCustomerOptions',
     'WORKSPACE_CUSTOMERS_REFRESH_EVENT',
     'workspaceCustomersRefreshEventName',
   ]) {
@@ -153,6 +153,10 @@ test('vue shell wires workspace mode into navigation and routed pages', () => {
   assert.ok(
     apiSource.includes('/api/customer-fulfillment/customers?limit=200'),
     'view-context API adapter should retain the permission-compatible customer fallback',
+  )
+  assert.ok(
+    apiSource.includes('/api/customers?limit=${pageSize}&offset=${offset}'),
+    'catalog customer choices should page through the full active customer list',
   )
 })
 

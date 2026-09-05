@@ -2009,6 +2009,7 @@ import {
 } from '../lib/product-spec-cutover'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE, customerWorkspaceDisplayName, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+import { fetchAllCustomerOptions } from '../api/view-context'
 
 const props = defineProps({
   sectionMode: { type: String, default: '' },
@@ -3527,7 +3528,7 @@ async function loadAll({ strict = false } = {}) {
   try {
     const [data, customerData, aliasData, industryData, productUsageData, aliasUsageData, productGroupSelectionData, materialData] = await Promise.all([
       apiGet('/api/product-settings'),
-      apiGet('/api/customer-fulfillment/customers?limit=200'),
+      fetchAllCustomerOptions(),
       apiGet('/api/customer-product-aliases?active=all'),
       apiGet('/api/industry-field-templates'),
       apiGet('/api/product-classification-template-usages/products'),
