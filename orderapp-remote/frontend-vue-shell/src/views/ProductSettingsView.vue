@@ -1485,6 +1485,10 @@
               <input v-model.trim="customerProductAliasForm.display_name" required placeholder="客户对外展示名称" />
             </label>
             <label>
+              <span>客户货号</span>
+              <input v-model.trim="customerProductAliasForm.customer_item_code" placeholder="可选" />
+            </label>
+            <label>
               <span>排序</span>
               <input v-model.number="customerProductAliasForm.sort_order" type="number" min="0" step="1" />
             </label>

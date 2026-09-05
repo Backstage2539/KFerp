@@ -4528,7 +4528,7 @@ test('product management exposes customer product names without direct BOM editi
   const aliasForm = template.match(/<aside class="settings-drawer customer-alias-create-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
   const inlineAliasArea = template.match(/<section class="panel customer-alias-panel"[\s\S]*?<div class="table-wrap">/)?.[0] || ''
   const aliasFilters = template.match(/<div class="alias-filters alias-filter-row"[\s\S]*?<div class="classification-view-toolbar alias-classification-tabs"/)?.[0] || ''
-  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.customer_item_code/)
+  assert.match(aliasForm, /<span>客户货号<\/span>[\s\S]*customerProductAliasForm\.customer_item_code/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.include_in_price_list/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.gradient_template_id/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.unit_template_id/)
