@@ -6,6 +6,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-628-EXPLICIT-CUSTOMER-CATALOG-LINKS
+- Branch: `codex/explicit-customer-catalog-links`
+- Owner/session: Codex / 2026-09-05
+- Status: implementation and local verification complete; development deployment and acceptance in progress
+- Scope: 工厂／客户视图只负责筛选；商品建档显式选择工厂或客户归属；公共商品和物料显式关联一个或多个客户；客户名称标题与跨客户隔离。
+- DEV: DEV-628-VIEW-CONTEXT-SEPARATION; DEV-628-PRODUCT-EXPLICIT-OWNERSHIP; DEV-628-MATERIAL-CUSTOMER-REFERENCES; DEV-628-DEVELOPMENT-REPAIR-ACCEPTANCE
+- Verifier:
+  - Unit/API: full Go GREEN; frontend 1070/1070 GREEN
+  - Frontend/build: Vite build GREEN
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md
+  - Review/acceptance: development deployment pending
+- Deployment: development deployment and guarded repair of products 1073/1074 authorized; production untouched.
+- Last update: 2026-09-05 Asia/Shanghai
+
 ### PR-627-CUSTOMER-FULFILLMENT-MULTI-TENANT
 - Branch: `codex/customer-fulfillment-multi-tenant`
 - Owner/session: Codex / 2026-09-04

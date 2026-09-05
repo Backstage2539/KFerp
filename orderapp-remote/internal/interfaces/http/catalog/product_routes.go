@@ -146,6 +146,7 @@ type productUpdateAPIRequest struct {
 }
 
 type productCreateAPIRequest struct {
+	OwnershipType            string                    `json:"ownership_type"`
 	Name                     string                    `json:"name"`
 	Remark                   string                    `json:"remark"`
 	CustomerID               int64                     `json:"customer_id"`
@@ -914,6 +915,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	}
 	product, err := h.catalog.CreateProduct(c.Request().Context(), catalogapp.CreateProductCommand{
 		Actor:                    support.ActorOf(c),
+		OwnershipType:            req.OwnershipType,
 		Name:                     req.Name,
 		Remark:                   req.Remark,
 		CustomerID:               req.CustomerID,
@@ -1361,6 +1363,19 @@ func (h productHandler) productCustomerReferencesAPI(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid customer_id"})
+	}
+	if customerID > 0 {
+		filtered := make([]catalogapp.ProductCustomerReference, 0, len(rows))
+		for _, row := range rows {
+			if row.CustomerID == customerID {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
 	}
 	return c.JSON(http.StatusOK, map[string]any{"references": rows, "rows": rows})
 }

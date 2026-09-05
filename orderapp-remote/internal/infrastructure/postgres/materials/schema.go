@@ -64,6 +64,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureMaterialIndustryFieldSchema(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureMaterialCustomerReferenceSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	logQ := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.material_consumption_logs (
 		id BIGSERIAL PRIMARY KEY,
 		running_item_id BIGINT NOT NULL,
@@ -91,6 +94,29 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_id BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_code TEXT NOT NULL DEFAULT ''`, schema))
 	return nil
+}
+
+func ensureMaterialCustomerReferenceSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.material_customer_references (
+	id BIGSERIAL PRIMARY KEY,
+	material_id BIGINT NOT NULL,
+	customer_id BIGINT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	remark TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(material_id, customer_id)
+);
+CREATE INDEX IF NOT EXISTS material_customer_references_customer_active_idx
+	ON %[1]s.material_customer_references(customer_id, active, material_id);
+CREATE INDEX IF NOT EXISTS material_customer_references_material_active_idx
+	ON %[1]s.material_customer_references(material_id, active, customer_id);
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func ensureSemiFinishedPurchasePriceConstraint(ctx context.Context, pool *pgxpool.Pool, schema string) error {

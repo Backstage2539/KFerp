@@ -486,6 +486,15 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		return catalogapp.Product{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if cmd.CustomerID > 0 {
+		var customerExists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
+			return catalogapp.Product{}, err
+		}
+		if !customerExists {
+			return catalogapp.Product{}, catalogapp.ValidationError{Message: "customer not found or inactive"}
+		}
+	}
 
 	var productID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -3276,36 +3285,70 @@ func normalizeReferenceMaterialSourceMode(value string) string {
 }
 
 func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalogapp.ProductCustomerReference) (catalogapp.ProductCustomerReference, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var productOwnerCustomerID int64
+	var productActive, customerExists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0),active FROM %s.products WHERE id=$1`, r.schema), cmd.ProductID).Scan(&productOwnerCustomerID, &productActive); err != nil {
+		if err == pgx.ErrNoRows {
+			return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "product not found"}
+		}
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	if !productActive {
+		return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "product inactive"}
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	if !customerExists {
+		return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "customer not found or inactive"}
+	}
+	if productOwnerCustomerID > 0 && productOwnerCustomerID != cmd.CustomerID {
+		return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "customer-owned product can only reference its owner customer"}
+	}
 	var id int64
-	var err error
 	if cmd.ID > 0 {
-		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_customer_references
 			SET product_id=$2, customer_id=$3, customer_item_code=$4, customer_display_name=$5, material_source_mode=$6, active=$7, remark=$8, updated_at=now(), updated_by=$9
 			WHERE id=$1
 			RETURNING id
 		`, r.schema), cmd.ID, cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	} else {
-		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, material_source_mode, active, remark, created_by, updated_by)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)
+			ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET
+				customer_item_code=excluded.customer_item_code,
+				customer_display_name=excluded.customer_display_name,
+				material_source_mode=excluded.material_source_mode,
+				remark=excluded.remark,
+				updated_at=now(),
+				updated_by=excluded.updated_by
 			RETURNING id
 		`, r.schema), cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	}
 	if err != nil {
 		return catalogapp.ProductCustomerReference{}, err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_customer_reference", &id, "save_product_customer_reference", postgresinfra.StrPtr("customer_display_name"), nil, postgresinfra.StrPtr(cmd.CustomerDisplayName), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "customer_id": cmd.CustomerID, "customer_item_code": cmd.CustomerItemCode, "active": cmd.Active})
-	rows, err := r.ListProductCustomerReferences(ctx, cmd.ProductID)
-	if err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_customer_reference", &id, "save_product_customer_reference", postgresinfra.StrPtr("customer_display_name"), nil, postgresinfra.StrPtr(cmd.CustomerDisplayName), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "customer_id": cmd.CustomerID, "customer_item_code": cmd.CustomerItemCode, "active": cmd.Active}); err != nil {
 		return catalogapp.ProductCustomerReference{}, err
 	}
-	for _, row := range rows {
-		if row.ID == id {
-			return row, nil
-		}
+	var row catalogapp.ProductCustomerReference
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,product_id,customer_id,customer_item_code,customer_display_name,COALESCE(material_source_mode,'factory'),active,remark
+		FROM %s.product_customer_references WHERE id=$1
+	`, r.schema), id).Scan(&row.ID, &row.ProductID, &row.CustomerID, &row.CustomerItemCode, &row.CustomerDisplayName, &row.MaterialSourceMode, &row.Active, &row.Remark); err != nil {
+		return catalogapp.ProductCustomerReference{}, err
 	}
-	return catalogapp.ProductCustomerReference{}, fmt.Errorf("product customer reference not found")
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	return row, nil
 }
 
 func (r Repository) ListProductPricingRules(ctx context.Context) ([]catalogapp.ProductPricingRule, error) {

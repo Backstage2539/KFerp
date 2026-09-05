@@ -501,6 +501,56 @@ test('customer product aliases no longer submit template or pricing overrides', 
   assert.equal(Object.hasOwn(payload, 'classification_template_id'), false)
 })
 
+test('product catalog context uses explicit ownership and active customer references only', () => {
+  const publicProduct = { id: 1, customer_id: 0, name: '工厂商品' }
+  const ownedProduct = { id: 2, customer_id: 42, name: '客户专属商品' }
+  const otherOwnedProduct = { id: 3, customer_id: 43, name: '其他客户商品' }
+  const references = [
+    { product_id: 1, customer_id: 42, customer_display_name: '客户商品B', active: true },
+    { product_id: 3, customer_id: 42, customer_display_name: '无效跨客户关联', active: true },
+  ]
+
+  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 0, references }), true)
+  assert.equal(productBelongsToSkuContext(ownedProduct, { customerID: 0, references }), true)
+  assert.equal(productBelongsToSkuContext(otherOwnedProduct, { customerID: 0, references }), true)
+  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, references }), true)
+  assert.equal(productBelongsToSkuContext(ownedProduct, { customerID: 42, references }), true)
+  assert.equal(productBelongsToSkuContext(otherOwnedProduct, { customerID: 42, references }), false)
+  assert.equal(productBelongsToSkuContext({ id: 4, customer_id: 0 }, { customerID: 42, references }), false)
+})
+
+test('product create payload carries explicit ownership instead of deriving it from the view', () => {
+  assert.deepEqual(buildProductCreatePayload({
+    name: '公共商品',
+    ownership_type: 'factory',
+    customer_id: 74,
+    customer_display_name: '不应提交',
+  }), {
+    name: '公共商品',
+    product_kind: 'roasted',
+    remark: '',
+    ownership_type: 'factory',
+  })
+
+  assert.deepEqual(buildProductCreatePayload({
+    name: '专属商品A',
+    ownership_type: 'customer',
+    customer_id: 74,
+    customer_display_name: '芬纳商品A',
+    customer_item_code: 'FN-A',
+    material_source_mode: 'customer',
+  }), {
+    name: '专属商品A',
+    product_kind: 'roasted',
+    remark: '',
+    ownership_type: 'customer',
+    customer_id: 74,
+    customer_display_name: '芬纳商品A',
+    customer_item_code: 'FN-A',
+    material_source_mode: 'customer',
+  })
+})
+
 test('product settings view exposes group and pricing rule management while retiring customer product and old template entry points', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
@@ -3723,12 +3773,12 @@ test('customer public usage payload saves SKU and category reference switches in
   })
 })
 
-test('customer SKU context treats public SKU and categories as switch-controlled references', () => {
+test('customer SKU context treats products as explicit references while categories keep their own switch', () => {
   const publicProduct = { id: 1, name: '公共拼配', customer_id: 0 }
   const customerProduct = { id: 2, name: '客户拼配', customer_id: 42 }
   const otherCustomerProduct = { id: 3, name: '其他客户拼配', customer_id: 7 }
   assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, usePublicSku: false }), false)
-  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, usePublicSku: true }), true)
+  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, references: [{ product_id: 1, customer_id: 42, active: true }] }), true)
   assert.equal(productBelongsToSkuContext(customerProduct, { customerID: 42, usePublicSku: false }), true)
   assert.equal(productBelongsToSkuContext(otherCustomerProduct, { customerID: 42, usePublicSku: true }), false)
 
@@ -3803,6 +3853,10 @@ test('customer category tree keeps public sibling categories after deriving one 
     usePublicCategories: true,
     usePublicSkuInCategoryTree: true,
     customerProducts: [],
+    references: [
+      { product_id: 101, customer_id: 42, active: true },
+      { product_id: 102, customer_id: 42, active: true },
+    ],
   })
 
   assert.equal(tree.length, 1)
@@ -4466,7 +4520,7 @@ test('product management exposes customer product names without direct BOM editi
   assert.match(aliasFilters, /批量失效/)
   assert.doesNotMatch(aliasFilters, />搜索客户商品</)
   assert.doesNotMatch(template, />编辑<\/button>/)
-  assert.doesNotMatch(template, /客户商品名/)
+  assert.match(template, /客户商品名/)
   assert.doesNotMatch(template, /客户商品[\s\S]*派生自有 BOM/)
   assert.doesNotMatch(template, /customer-alias-workspace[\s\S]*@click="derive/)
   assert.doesNotMatch(template, /旧客户 SKU 收敛检查/)
@@ -4517,7 +4571,7 @@ test('SKU settings keeps only the product creation drawer while business groups 
   assert.match(script, /const customerID = skuContextCustomerID\.value\s+return sortRowsForCustomerSkuPriority\(/)
   assert.match(script, /product\) => customerID > 0 && skuContextProductFilter\(product\)/)
   assert.match(script, /const currentSkuSourceRows = computed\(\(\) => \(/)
-  assert.match(script, /skuContextCustomerID\.value > 0 \? customerSkuRows\.value : publicSkuRows\.value/)
+  assert.match(script, /skuContextCustomerID\.value > 0 \? customerSkuRows\.value : factorySkuRows\.value/)
   assert.match(script, /const normalizedSkuFilters = computed\(\(\) => normalizeVisibleSkuFilters\(skuFilters\.value, currentSkuSourceRows\.value\)\)/)
   assert.match(script, /const filteredSkuRows = computed\(\(\) => filterSkuRows\(currentSkuSourceRows\.value, normalizedSkuFilters\.value\)\)/)
   assert.match(script, /const skuDisplayKey = computed/)
@@ -4578,7 +4632,7 @@ test('legacy classification template editors are not rendered in product setting
   assert.doesNotMatch(source, /category-editor-drawer/)
   assert.doesNotMatch(source, /openCategoryDrawer/)
   assert.doesNotMatch(source, /openCategorySettingsDrawer/)
-  assert.doesNotMatch(template, /归属客户/)
+  assert.match(template, /归属客户/)
   assert.doesNotMatch(template, /对象归类/)
   assert.doesNotMatch(template, /配置分类/)
 })

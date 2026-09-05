@@ -1958,10 +1958,14 @@ export function buildCustomerPublicUsagePayload(customerID, options = {}) {
 export function productBelongsToSkuContext(product = {}, context = {}) {
   const customerID = Number(context.customerID || context.customer_id || 0)
   const productCustomerID = Number(product.customer_id || 0)
-  if (!customerID) return productCustomerID === 0
+  if (!customerID) return true
   if (productCustomerID === customerID) return true
-  if (productCustomerID !== 0 || !Boolean(context.usePublicSku || context.use_public_sku)) return false
-  return !hasCustomerDerivedProduct(product, context.customerProducts)
+  if (productCustomerID !== 0) return false
+  return (context.references || context.productCustomerReferences || []).some((reference) => (
+    reference?.active !== false
+    && Number(reference?.product_id || 0) === Number(product?.id || 0)
+    && Number(reference?.customer_id || 0) === customerID
+  ))
 }
 
 export function categoryBelongsToSkuContext(category = {}, context = {}) {
@@ -2706,6 +2710,16 @@ export function buildProductCreatePayload(form = {}) {
 		name: String(form.name || '').trim(),
 		product_kind: kind,
 		remark: String(form.remark || '').trim(),
+	}
+	const ownershipType = String(form.ownership_type || '').trim().toLowerCase()
+	if (ownershipType === 'factory' || ownershipType === 'customer') {
+		payload.ownership_type = ownershipType
+	}
+	if (ownershipType === 'customer') {
+		payload.customer_id = Number(form.customer_id || 0)
+		payload.customer_display_name = String(form.customer_display_name || '').trim()
+		payload.customer_item_code = String(form.customer_item_code || '').trim()
+		payload.material_source_mode = String(form.material_source_mode || '').trim().toLowerCase() === 'customer' ? 'customer' : 'factory'
 	}
 	if (kind === 'green_bean') return payload
 	return payload

@@ -33,6 +33,60 @@ func TestFetchProductsUsesNeutralLegacyYieldProjection(t *testing.T) {
 	}
 }
 
+func TestProductCustomerReferenceIsIdempotentAndRespectsOwnedProduct(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for catalog postgres tests")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("test_pr628_product_reference_%d", time.Now().UnixNano())
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE SCHEMA %[1]s;
+		CREATE TABLE %[1]s.customers(id BIGINT PRIMARY KEY,name TEXT NOT NULL DEFAULT '',active BOOLEAN NOT NULL DEFAULT true);
+		CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY,name TEXT NOT NULL DEFAULT '',customer_id BIGINT NOT NULL DEFAULT 0,active BOOLEAN NOT NULL DEFAULT true);
+		CREATE TABLE %[1]s.product_customer_references(
+			id BIGSERIAL PRIMARY KEY,product_id BIGINT NOT NULL,customer_id BIGINT NOT NULL,
+			customer_item_code TEXT NOT NULL DEFAULT '',customer_display_name TEXT NOT NULL DEFAULT '',
+			material_source_mode TEXT NOT NULL DEFAULT 'factory',active BOOLEAN NOT NULL DEFAULT true,remark TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),created_by TEXT NOT NULL DEFAULT '',updated_by TEXT NOT NULL DEFAULT ''
+		);
+		CREATE UNIQUE INDEX product_customer_references_product_customer_uq ON %[1]s.product_customer_references(product_id,customer_id) WHERE active=true;
+		CREATE TABLE %[1]s.audit_logs(id BIGSERIAL PRIMARY KEY,ts TIMESTAMPTZ NOT NULL DEFAULT now(),actor TEXT NOT NULL DEFAULT '',entity_type TEXT NOT NULL DEFAULT '',entity_id BIGINT,action TEXT NOT NULL DEFAULT '',field TEXT,old_value TEXT,new_value TEXT,meta JSONB);
+		INSERT INTO %[1]s.customers(id,name,active) VALUES(42,'客户A',true),(43,'客户B',true);
+		INSERT INTO %[1]s.products(id,name,customer_id,active) VALUES(7,'公共商品',0,true),(8,'客户专属商品',42,true);
+	`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool, schema)
+	first, err := repo.SaveProductCustomerReference(ctx, catalogapp.ProductCustomerReference{ProductID: 7, CustomerID: 42, CustomerDisplayName: "客户商品B", MaterialSourceMode: "factory", Active: true, Actor: "pr628-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.SaveProductCustomerReference(ctx, catalogapp.ProductCustomerReference{ProductID: 7, CustomerID: 42, CustomerDisplayName: "客户商品B-更新", MaterialSourceMode: "customer", Active: true, Actor: "pr628-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID || second.CustomerDisplayName != "客户商品B-更新" || second.MaterialSourceMode != "customer" {
+		t.Fatalf("idempotent rows first=%+v second=%+v", first, second)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.product_customer_references WHERE product_id=7 AND customer_id=42 AND active=true`, schema)).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("active reference count=%d err=%v", count, err)
+	}
+	if _, err := repo.SaveProductCustomerReference(ctx, catalogapp.ProductCustomerReference{ProductID: 8, CustomerID: 43, CustomerDisplayName: "越权关联", Active: true, Actor: "pr628-test"}); err == nil || !strings.Contains(err.Error(), "owner customer") {
+		t.Fatalf("owned product cross-customer link should fail: %v", err)
+	}
+}
+
 func TestInsertIDAtPositionReordersWithoutDuplicatePositionTie(t *testing.T) {
 	cases := []struct {
 		name     string
