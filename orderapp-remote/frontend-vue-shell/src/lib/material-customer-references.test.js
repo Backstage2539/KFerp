@@ -39,6 +39,7 @@ test('materials view uses ownership wording and copy-to-customer link', async ()
   const source = fs.readFileSync(new URL('../views/MaterialsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   assert.match(template, /<span>物料归属<\/span>/)
+  assert.match(template, /:option-label="ownershipFilterOptionLabel"/)
   assert.match(template, /<th>物料归属<\/th>/)
   assert.match(template, />复制到客户<\/button>/)
   assert.doesNotMatch(template, /<span>客户关联<\/span>|<th>客户关联<\/th>|>客户关联<\/button>/)
