@@ -186,7 +186,7 @@
                   <SearchableSelect
                     v-model="skuOwnerFilter"
                     :options="productOwnershipFilterOptions"
-                    option-label="label"
+                    :option-label="ownershipFilterOptionLabel"
                     option-value="value"
                     placeholder="全部或搜索客户名称"
                     empty-value="all"
@@ -2424,6 +2424,9 @@ const productOwnershipFilterOptions = computed(() => [
     label: String(customer.name || `客户 #${customer.id}`),
   })),
 ])
+function ownershipFilterOptionLabel(option = {}) {
+  return String(option.label || '').trim()
+}
 const aliasCustomerLabel = computed(() => {
   const customerID = Number(selectedAliasCustomerID.value || 0)
   if (!customerID) return '请选择客户'

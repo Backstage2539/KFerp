@@ -4267,6 +4267,7 @@ test('SKU settings removes legacy SKU copy drawer while classification templates
   assert.match(template, /<th>商品来源<\/th>/)
   assert.match(template, /<th>商品归属<\/th>/)
   assert.match(template, /<span>商品归属<\/span>/)
+  assert.match(template, /:option-label="ownershipFilterOptionLabel"/)
   assert.match(template, /<span>客户商品名<\/span>/)
   assert.doesNotMatch(template, /<span>客户商品<\/span>|<span>重命名<\/span>/)
   const rowActions = template.match(/<td class="action-cell">([\s\S]*?)<\/td>/)?.[1] || ''

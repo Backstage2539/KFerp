@@ -64,7 +64,7 @@
                 <SearchableSelect
                   v-model="materialAssociationFilter"
                   :options="materialOwnershipFilterOptions"
-                  option-label="label"
+                  :option-label="ownershipFilterOptionLabel"
                   option-value="value"
                   placeholder="全部或搜索客户名称"
                   empty-value="all"
@@ -467,6 +467,9 @@ const materialOwnershipFilterOptions = computed(() => [
     label: String(customer.name || `客户 #${customer.id}`),
   })),
 ])
+function ownershipFilterOptionLabel(option = {}) {
+  return String(option.label || '').trim()
+}
 const filteredMaterialRows = computed(() => {
   let visible = rows.value.filter((row) => materialBelongsToCatalogContext(row, materialContextCustomerID.value, materialCustomerReferences.value))
   if (!materialContextCustomerID.value) {
