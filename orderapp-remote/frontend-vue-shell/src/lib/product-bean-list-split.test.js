@@ -47,7 +47,7 @@ test('product archive no longer embeds the product bean-list workspace', () => {
 
 test('product settings exposes customer context initialization with PR-600 product creation in a drawer', () => {
   for (const expected of [
-    '/api/customer-fulfillment/customers?limit=200',
+    'fetchAllCustomerOptions()',
     'customerSkuCustomerOptions(customerData)',
     'buildProductCreatePayload',
     '/api/product-settings/products/${row.id}/copy',
