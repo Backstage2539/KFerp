@@ -246,7 +246,7 @@ test('product category selection infers legacy product kind only as compatibilit
   assert.equal(inferProductKindFromProductTypeCategory(null), 'roasted')
 })
 
-test('unified SKU create payload is owned by current view and carries no legacy product kind fields', () => {
+test('unified SKU create payload omits implicit customer ownership and legacy product kind fields', () => {
   const payload = buildSkuCreatePayload(42, {
     name: '客户盒装速溶',
     remark: '10g/条，10条/盒',
