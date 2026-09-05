@@ -95,3 +95,16 @@ func TestPR629CutoverStillFindsLegacyDraftPlansAfterDemandRowsWereMarkedMigrated
 		}
 	}
 }
+
+func TestPR629LegacyOrderNumberSplitPatternMatchesCommaSeparatedPlanOrders(t *testing.T) {
+	if PR629LegacyOrderNoSplitPattern != `\s*[,，;；\n]+\s*` {
+		t.Fatalf("legacy order number split pattern = %q", PR629LegacyOrderNoSplitPattern)
+	}
+	b, err := os.ReadFile("pr629_cutover.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "regexp_split_to_array(COALESCE(item.order_nos,''),$1)") {
+		t.Fatal("cutover must bind the regex pattern as a query parameter instead of double-escaping it inside SQL")
+	}
+}
