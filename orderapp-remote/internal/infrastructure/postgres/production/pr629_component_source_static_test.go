@@ -64,6 +64,27 @@ func TestPR629ComponentSourceOwnerScope(t *testing.T) {
 	}
 }
 
+func TestPR629DirectInventorySourceOwnsSubmitGapValidation(t *testing.T) {
+	b, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	submitStart := strings.Index(src, "func (r Repository) SubmitProductionPlan")
+	if submitStart < 0 {
+		t.Fatal("SubmitProductionPlan not found")
+	}
+	submit := src[submitStart:]
+	sourceValidation := strings.Index(submit, "validateProductionPlanComponentSourcesAtSubmitTx")
+	gapValidation := strings.Index(submit, "countBlockingProductionPlanSupplyGapsTx")
+	if sourceValidation < 0 || gapValidation < 0 || sourceValidation > gapValidation {
+		t.Fatal("component source selection and selected-source shortage must be validated before residual supply gaps")
+	}
+	if !strings.Contains(src, "NOT EXISTS") || !strings.Contains(src, "production_plan_component_sources source") {
+		t.Fatal("direct inventory components with a source warehouse must not remain blocked by legacy no-default-BOM gaps")
+	}
+}
+
 func TestPR629CutoverIsGuardedAndRepeatable(t *testing.T) {
 	b, err := os.ReadFile("pr629_cutover.go")
 	if err != nil {
