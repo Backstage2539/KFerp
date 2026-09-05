@@ -198,19 +198,22 @@ func (r Repository) previewPR629CutoverTx(ctx context.Context, tx pgx.Tx, mode s
 	if err != nil {
 		return report, err
 	}
-	demandFilter := "true"
+	legacyPlanFilter := "true"
+	legacyWorkOrderFilter := "true"
 	if hasMigratedAt {
-		demandFilter = "d.migrated_at IS NULL"
+		legacyPlanFilter = "(d.migrated_at IS NULL OR plan.created_at <= d.migrated_at)"
+		legacyWorkOrderFilter = "(d.migrated_at IS NULL OR wo.created_at <= d.migrated_at)"
 	}
 	planRows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT DISTINCT plan.id
 		FROM %s.production_plans plan
 		JOIN %s.production_plan_items item ON item.production_plan_id=plan.id
-		JOIN %s.customer_order_production_demands d ON %s
+		JOIN %s.customer_order_production_demands d ON true
 		JOIN %s.orders o ON o.id=d.order_id
 		WHERE plan.status='draft' AND o.order_no=ANY(regexp_split_to_array(COALESCE(item.order_nos,''),'\\s*[,，;；\\n]+\\s*'))
+		  AND %s
 		ORDER BY plan.id
-	`, r.schema, r.schema, r.schema, demandFilter, r.schema))
+	`, r.schema, r.schema, r.schema, r.schema, legacyPlanFilter))
 	if err != nil {
 		return report, err
 	}
@@ -231,12 +234,13 @@ func (r Repository) previewPR629CutoverTx(ctx context.Context, tx pgx.Tx, mode s
 		SELECT DISTINCT wo.id
 		FROM %s.work_orders wo
 		JOIN %s.production_plan_items item ON item.id=wo.production_plan_item_id
-		JOIN %s.customer_order_production_demands d ON %s
+		JOIN %s.customer_order_production_demands d ON true
 		JOIN %s.orders o ON o.id=d.order_id
 		WHERE wo.status IN ('released','running','partially_completed','paused')
 		  AND o.order_no=ANY(regexp_split_to_array(COALESCE(item.order_nos,''),'\\s*[,，;；\\n]+\\s*'))
+		  AND %s
 		ORDER BY wo.id
-	`, r.schema, r.schema, r.schema, demandFilter, r.schema))
+	`, r.schema, r.schema, r.schema, r.schema, legacyWorkOrderFilter))
 	if err != nil {
 		return report, err
 	}

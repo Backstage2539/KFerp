@@ -76,3 +76,22 @@ func TestPR629CutoverIsGuardedAndRepeatable(t *testing.T) {
 		}
 	}
 }
+
+func TestPR629CutoverStillFindsLegacyDraftPlansAfterDemandRowsWereMarkedMigrated(t *testing.T) {
+	b, err := os.ReadFile("pr629_cutover.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if strings.Contains(src, `demandFilter = "d.migrated_at IS NULL"`) {
+		t.Fatal("legacy draft/work-order discovery must include already-migrated demand rows so a rerun can repair an orphaned legacy plan")
+	}
+	for _, want := range []string{
+		"d.migrated_at IS NULL OR plan.created_at <= d.migrated_at",
+		"d.migrated_at IS NULL OR wo.created_at <= d.migrated_at",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("legacy cutover discovery missing pre-cutover boundary %q", want)
+		}
+	}
+}
