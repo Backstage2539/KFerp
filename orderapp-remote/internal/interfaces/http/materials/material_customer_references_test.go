@@ -106,3 +106,13 @@ func TestMaterialCustomerReferencesCreateFilterDeactivateAndRemainIdempotent(t *
 		t.Fatalf("reference audit count=%d err=%v", auditCount, err)
 	}
 }
+
+func TestMaterialCustomerReferenceAPIRequestBindsSnakeCaseIdentity(t *testing.T) {
+	var req materialCustomerReferenceAPIRequest
+	if err := json.Unmarshal([]byte(`{"material_id":75,"customer_id":74,"active":false,"remark":"停用验收"}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.MaterialID != 75 || req.CustomerID != 74 || req.Active || req.Remark != "停用验收" {
+		t.Fatalf("request=%+v", req)
+	}
+}

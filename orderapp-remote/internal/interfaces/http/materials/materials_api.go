@@ -21,6 +21,13 @@ type materialCreateAPIRequest struct {
 	CustomerIDs []int64 `json:"customer_ids"`
 }
 
+type materialCustomerReferenceAPIRequest struct {
+	MaterialID int64  `json:"material_id"`
+	CustomerID int64  `json:"customer_id"`
+	Active     bool   `json:"active"`
+	Remark     string `json:"remark"`
+}
+
 func (r *materialCreateAPIRequest) UnmarshalJSON(data []byte) error {
 	var input materialsapp.MaterialInput
 	if err := json.Unmarshal(data, &input); err != nil {
@@ -106,7 +113,7 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 	})
 
 	saveMaterialCustomerReference := func(c echo.Context) error {
-		var req materialsapp.SaveMaterialCustomerReferenceCommand
+		var req materialCustomerReferenceAPIRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
@@ -117,9 +124,14 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 		if err != nil || id < 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
 		}
-		req.ID = id
-		req.Actor = support.ActorOf(c)
-		row, err := materialsSvc.SaveCustomerReference(c.Request().Context(), req)
+		row, err := materialsSvc.SaveCustomerReference(c.Request().Context(), materialsapp.SaveMaterialCustomerReferenceCommand{
+			Actor:      support.ActorOf(c),
+			ID:         id,
+			MaterialID: req.MaterialID,
+			CustomerID: req.CustomerID,
+			Active:     req.Active,
+			Remark:     req.Remark,
+		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
