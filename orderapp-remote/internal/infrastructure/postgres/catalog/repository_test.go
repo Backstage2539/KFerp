@@ -2676,3 +2676,19 @@ func TestDeactivateProductsReconcilesAffectedDefaultSKUParents(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateProductUsesOneBigintTypeForCustomerIDParameter(t *testing.T) {
+	repositoryBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	createProduct := catalogRepositoryFunctionForTest(t, string(repositoryBytes), "func (r Repository) CreateProduct", "func (r Repository) CopyProduct")
+	for _, want := range []string{
+		"$14::bigint,0,CASE WHEN $14::bigint>0",
+		"cmd.CustomerID",
+	} {
+		if !strings.Contains(createProduct, want) {
+			t.Fatalf("CreateProduct must keep customer_id parameter typed as bigint in every SQL context; missing %q", want)
+		}
+	}
+}
