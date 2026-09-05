@@ -1191,7 +1191,7 @@ const workspaceCustomerContextId = computed(() => (
     ? Number(customerAccountContext.value?.customer_id || customerIDForViewContext(currentViewContext.value) || workspaceCustomerId.value || 0)
     : 0
 ))
-const currentViewContextLabel = computed(() => currentViewLabel(currentViewContext.value))
+const currentViewContextLabel = computed(() => currentViewLabel(currentViewContext.value, workspaceCustomerOptions.value))
 
 watch(workspaceCustomerId, (next) => {
   writeStorage(workspaceCustomerStorageKey, Number(next || 0))
