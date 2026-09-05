@@ -28,7 +28,7 @@ func TestDev410CustomerAliasRenamePriceDisplaySourceMarkers(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"customerAliasEffectiveDisplayName(alias)",
 			"productCodeLabel(row)",
-			"<span>重命名</span>",
+			"<span>客户商品名</span>",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
 			"customerAliasEffectiveDisplayName",

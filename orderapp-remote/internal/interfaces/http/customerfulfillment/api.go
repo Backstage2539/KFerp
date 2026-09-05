@@ -233,7 +233,6 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 			InventoryUnit                      string `json:"inventory_unit"`
 			CustomerProductAliasID             int64  `json:"customer_product_alias_id"`
 			CustomerProductReferenceID         int64  `json:"customer_product_reference_id"`
-			MaterialSourceMode                 string `json:"material_source_mode"`
 			CustomerProductDisplayNameSnapshot string `json:"customer_product_display_name_snapshot"`
 			CustomerItemCodeSnapshot           string `json:"customer_item_code_snapshot"`
 			ProductCodeSnapshot                string `json:"product_code_snapshot"`
@@ -261,7 +260,6 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 			InventoryUnit:                      item.InventoryUnit,
 			CustomerProductAliasID:             item.CustomerProductAliasID,
 			CustomerProductReferenceID:         item.CustomerProductReferenceID,
-			MaterialSourceMode:                 item.MaterialSourceMode,
 			CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
 			ProductCodeSnapshot:                item.ProductCodeSnapshot,
@@ -384,7 +382,6 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 			InventoryUnit                      string  `json:"inventory_unit"`
 			CustomerProductAliasID             int64   `json:"customer_product_alias_id"`
 			CustomerProductReferenceID         int64   `json:"customer_product_reference_id"`
-			MaterialSourceMode                 string  `json:"material_source_mode"`
 			CustomerProductDisplayNameSnapshot string  `json:"customer_product_display_name_snapshot"`
 			CustomerItemCodeSnapshot           string  `json:"customer_item_code_snapshot"`
 			ProductCodeSnapshot                string  `json:"product_code_snapshot"`
@@ -414,7 +411,6 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 			InventoryUnit:                      item.InventoryUnit,
 			CustomerProductAliasID:             item.CustomerProductAliasID,
 			CustomerProductReferenceID:         item.CustomerProductReferenceID,
-			MaterialSourceMode:                 item.MaterialSourceMode,
 			CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
 			ProductCodeSnapshot:                item.ProductCodeSnapshot,

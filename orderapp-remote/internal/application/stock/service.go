@@ -876,8 +876,12 @@ func normalizeStockDocumentWarehouses(purpose string, isReturn bool, item *Stock
 			item.FromWarehouse = stockdomain.WarehouseWIP
 			item.ToWarehouse = stockdomain.WarehouseRawMaterials
 		} else {
-			item.FromWarehouse = stockdomain.WarehouseRawMaterials
-			item.ToWarehouse = stockdomain.WarehouseWIP
+			if item.FromWarehouse == "" {
+				item.FromWarehouse = stockdomain.WarehouseRawMaterials
+			}
+			if item.ToWarehouse == "" {
+				item.ToWarehouse = stockdomain.WarehouseWIP
+			}
 		}
 	case PurposeMaterialConsumption:
 		if item.FromWarehouse == "" {

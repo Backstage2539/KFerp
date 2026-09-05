@@ -25,6 +25,20 @@ export function materialCustomerNames(material = {}, references = [], customers 
   return ids.map((id) => customers.find((customer) => Number(customer?.id || 0) === id)?.name || `客户 #${id}`).join('、')
 }
 
+export function filterMaterialsByOwnership(materials = [], ownership = 'all', references = [], customers = []) {
+  const selected = String(ownership || 'all').trim()
+  if (!selected || selected === 'all') return (materials || []).slice()
+  if (selected === 'factory') return (materials || []).filter((material) => materialCustomerIDs(material, references).length === 0)
+  let customerID = 0
+  if (selected.startsWith('customer:')) customerID = Number(selected.slice('customer:'.length) || 0)
+  if (!customerID) {
+    const query = selected.toLowerCase()
+    customerID = Number((customers || []).find((customer) => String(customer?.name || '').toLowerCase().includes(query))?.id || 0)
+  }
+  if (!customerID) return []
+  return (materials || []).filter((material) => materialBelongsToCatalogContext(material, customerID, references))
+}
+
 export function buildMaterialCreatePayload(materialPayload = {}, ownershipType = 'factory', customerIDs = []) {
   return {
     ...materialPayload,

@@ -67,6 +67,7 @@ import {
   categoryDisplayState,
   customerSkuCustomerOptions,
   filterSkuRows,
+  filterProductsByOwnership,
   gradientTemplateBelongsToSkuContext,
   inferProductKindFromProductTypeCategory,
   nextSkuContextCustomerID,
@@ -547,8 +548,17 @@ test('product create payload carries explicit ownership instead of deriving it f
     customer_id: 74,
     customer_display_name: '芬纳商品A',
     customer_item_code: 'FN-A',
-    material_source_mode: 'customer',
   })
+})
+
+test('product ownership filter supports factory and fuzzy customer names', () => {
+  const products = [{ id: 1, customer_id: 0 }, { id: 2, customer_id: 74 }, { id: 3, customer_id: 75 }]
+  const references = [{ product_id: 1, customer_id: 74, active: true }]
+  const customers = [{ id: 74, name: '芬纳咖啡' }, { id: 75, name: '另一客户' }]
+
+  assert.deepEqual(filterProductsByOwnership(products, 'factory', references, customers).map((row) => row.id), [1])
+  assert.deepEqual(filterProductsByOwnership(products, 'customer:74', references, customers).map((row) => row.id), [1, 2])
+  assert.deepEqual(filterProductsByOwnership(products, '芬纳', references, customers).map((row) => row.id), [1, 2])
 })
 
 test('product settings view exposes group and pricing rule management while retiring customer product and old template entry points', () => {
@@ -603,7 +613,6 @@ test('product customer references replace customer product master data for displ
     customer_id: 42,
     customer_item_code: 'KAREN-ESP',
     customer_display_name: 'Karen 精品拼配',
-    material_source_mode: 'factory',
     active: false,
     remark: '客户自己的叫法',
   })
@@ -4230,7 +4239,8 @@ test('SKU settings removes legacy SKU copy drawer while classification templates
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   for (const expected of [
-    '复制为商品档案',
+    '复制到客户',
+    '>复制</button>',
     '分类模板',
     'productClassificationTabs',
     "currentSettingsSection === 'master'",
@@ -4253,6 +4263,16 @@ test('SKU settings removes legacy SKU copy drawer while classification templates
   assert.doesNotMatch(template, />分类设置</)
   assert.doesNotMatch(script, /derivePublicSku\(/)
   assert.doesNotMatch(script, /savePublicSkuUsageForCustomer/)
+  assert.doesNotMatch(template, /供料方式|工厂供料|客户来料/)
+  assert.match(template, /<th>商品来源<\/th>/)
+  assert.match(template, /<th>商品归属<\/th>/)
+  assert.match(template, /<span>商品归属<\/span>/)
+  assert.match(template, /<span>客户商品名<\/span>/)
+  assert.doesNotMatch(template, /<span>客户商品<\/span>|<span>重命名<\/span>/)
+  const rowActions = template.match(/<td class="action-cell">([\s\S]*?)<\/td>/)?.[1] || ''
+  assert.ok(rowActions.indexOf('复制到客户') < rowActions.indexOf('>复制</button>'))
+  assert.ok(template.indexOf('<th class="remark-cell">备注</th>') < template.indexOf('<th class="action-cell">操作</th>'))
+  assert.ok(template.indexOf('class="remark-input"') < template.indexOf('<td class="action-cell">'))
 })
 
 test('SKU settings exposes product subtype default unit configuration controls', () => {
@@ -4492,7 +4512,7 @@ test('product management exposes customer product names without direct BOM editi
     '/api/product-customer-references',
     'saveCustomerProductAlias',
     'disableCustomerProductAlias',
-    '客户商品只维护对外名称、编号、重命名和价格表展示',
+    '客户商品只维护对外名称、编号和价格表展示',
     'customer-alias-create-drawer',
     'openCustomerAliasCreateDrawer',
     '绑定商品已失效',
@@ -4571,7 +4591,7 @@ test('SKU settings keeps only the product creation drawer while business groups 
   assert.match(script, /const customerID = skuContextCustomerID\.value\s+return sortRowsForCustomerSkuPriority\(/)
   assert.match(script, /product\) => customerID > 0 && skuContextProductFilter\(product\)/)
   assert.match(script, /const currentSkuSourceRows = computed\(\(\) => \(/)
-  assert.match(script, /skuContextCustomerID\.value > 0 \? customerSkuRows\.value : factorySkuRows\.value/)
+  assert.match(script, /skuContextCustomerID\.value > 0[\s\S]*customerSkuRows\.value[\s\S]*filterProductsByOwnership\(factorySkuRows\.value, skuOwnerFilter\.value/)
   assert.match(script, /const normalizedSkuFilters = computed\(\(\) => normalizeVisibleSkuFilters\(skuFilters\.value, currentSkuSourceRows\.value\)\)/)
   assert.match(script, /const filteredSkuRows = computed\(\(\) => filterSkuRows\(currentSkuSourceRows\.value, normalizedSkuFilters\.value\)\)/)
   assert.match(script, /const skuDisplayKey = computed/)

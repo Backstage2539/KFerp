@@ -4489,7 +4489,6 @@ async function loadCustomerProductAliases() {
         id: Number(ref.id || 0),
         display_name: ref.customer_display_name || '',
         include_in_price_list: true,
-        material_source_mode: ref.material_source_mode || 'factory',
       })
     }
     customerProductAliases.value = rows

@@ -26,7 +26,7 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-func TestOrderSaveAPIRequestPreservesCustomerReferenceAndMaterialSource(t *testing.T) {
+func TestOrderSaveAPIRequestPreservesCustomerReferenceAndIgnoresLegacyMaterialSource(t *testing.T) {
 	req := orderSaveAPIRequest{
 		CustomerProductReferenceID: []string{"42"},
 		MaterialSourceMode:         []string{"customer"},
@@ -35,8 +35,8 @@ func TestOrderSaveAPIRequestPreservesCustomerReferenceAndMaterialSource(t *testi
 	if len(converted.CustomerProductReferenceID) != 1 || converted.CustomerProductReferenceID[0] != "42" {
 		t.Fatalf("customer reference ids = %#v, want [42]", converted.CustomerProductReferenceID)
 	}
-	if len(converted.MaterialSourceMode) != 1 || converted.MaterialSourceMode[0] != "customer" {
-		t.Fatalf("material source modes = %#v, want [customer]", converted.MaterialSourceMode)
+	if len(converted.MaterialSourceMode) != 0 {
+		t.Fatalf("legacy material source modes must be ignored, got %#v", converted.MaterialSourceMode)
 	}
 }
 

@@ -56,7 +56,7 @@ func TestProductCustomerReferenceIsIdempotentAndRespectsOwnedProduct(t *testing.
 		CREATE TABLE %[1]s.product_customer_references(
 			id BIGSERIAL PRIMARY KEY,product_id BIGINT NOT NULL,customer_id BIGINT NOT NULL,
 			customer_item_code TEXT NOT NULL DEFAULT '',customer_display_name TEXT NOT NULL DEFAULT '',
-			material_source_mode TEXT NOT NULL DEFAULT 'factory',active BOOLEAN NOT NULL DEFAULT true,remark TEXT NOT NULL DEFAULT '',
+			active BOOLEAN NOT NULL DEFAULT true,remark TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),created_by TEXT NOT NULL DEFAULT '',updated_by TEXT NOT NULL DEFAULT ''
 		);
 		CREATE UNIQUE INDEX product_customer_references_product_customer_uq ON %[1]s.product_customer_references(product_id,customer_id) WHERE active=true;
@@ -67,15 +67,15 @@ func TestProductCustomerReferenceIsIdempotentAndRespectsOwnedProduct(t *testing.
 		t.Fatal(err)
 	}
 	repo := NewRepository(pool, schema)
-	first, err := repo.SaveProductCustomerReference(ctx, catalogapp.ProductCustomerReference{ProductID: 7, CustomerID: 42, CustomerDisplayName: "客户商品B", MaterialSourceMode: "factory", Active: true, Actor: "pr628-test"})
+	first, err := repo.SaveProductCustomerReference(ctx, catalogapp.ProductCustomerReference{ProductID: 7, CustomerID: 42, CustomerDisplayName: "客户商品B", Active: true, Actor: "pr629-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := repo.SaveProductCustomerReference(ctx, catalogapp.ProductCustomerReference{ProductID: 7, CustomerID: 42, CustomerDisplayName: "客户商品B-更新", MaterialSourceMode: "customer", Active: true, Actor: "pr628-test"})
+	second, err := repo.SaveProductCustomerReference(ctx, catalogapp.ProductCustomerReference{ProductID: 7, CustomerID: 42, CustomerDisplayName: "客户商品B-更新", Active: true, Actor: "pr629-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.ID != second.ID || second.CustomerDisplayName != "客户商品B-更新" || second.MaterialSourceMode != "customer" {
+	if first.ID != second.ID || second.CustomerDisplayName != "客户商品B-更新" {
 		t.Fatalf("idempotent rows first=%+v second=%+v", first, second)
 	}
 	var count int

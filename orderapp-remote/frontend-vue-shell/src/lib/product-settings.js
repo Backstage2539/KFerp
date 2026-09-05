@@ -289,10 +289,26 @@ export function buildProductCustomerReferencePayload(form = {}) {
     customer_id: Number(form.customer_id || form.customerID || 0),
     customer_item_code: String(form.customer_item_code ?? form.customerItemCode ?? form.ref_code ?? '').trim(),
     customer_display_name: String(form.customer_display_name ?? form.customerDisplayName ?? form.display_name ?? '').trim(),
-    material_source_mode: String(form.material_source_mode ?? form.materialSourceMode ?? 'factory').trim().toLowerCase() === 'customer' ? 'customer' : 'factory',
     active: Boolean(form.active ?? true),
     remark: String(form.remark ?? '').trim(),
   }
+}
+
+export function filterProductsByOwnership(products = [], ownership = 'all', references = [], customers = []) {
+  const selected = String(ownership || 'all').trim()
+  if (!selected || selected === 'all') return (products || []).slice()
+  if (selected === 'factory') return (products || []).filter((product) => Number(product?.customer_id || 0) === 0)
+  let customerID = 0
+  if (selected.startsWith('customer:')) customerID = Number(selected.slice('customer:'.length) || 0)
+  if (!customerID) {
+    const query = selected.toLowerCase()
+    customerID = Number((customers || []).find((customer) => String(customer?.name || '').toLowerCase().includes(query))?.id || 0)
+  }
+  if (!customerID) return []
+  const linkedProductIDs = new Set((references || [])
+    .filter((reference) => reference?.active !== false && Number(reference?.customer_id || 0) === customerID)
+    .map((reference) => Number(reference?.product_id || 0)))
+  return (products || []).filter((product) => Number(product?.customer_id || 0) === customerID || linkedProductIDs.has(Number(product?.id || 0)))
 }
 
 export function buildBusinessGroupAssignmentPayload(form = {}) {
@@ -2719,7 +2735,6 @@ export function buildProductCreatePayload(form = {}) {
 		payload.customer_id = Number(form.customer_id || 0)
 		payload.customer_display_name = String(form.customer_display_name || '').trim()
 		payload.customer_item_code = String(form.customer_item_code || '').trim()
-		payload.material_source_mode = String(form.material_source_mode || '').trim().toLowerCase() === 'customer' ? 'customer' : 'factory'
 	}
 	if (kind === 'green_bean') return payload
 	return payload

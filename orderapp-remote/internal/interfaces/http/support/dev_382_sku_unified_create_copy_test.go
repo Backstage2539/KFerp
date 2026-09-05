@@ -25,7 +25,7 @@ func TestDev382SKUUnifiedCreateCopySourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"创建新商品档案",
-			"复制为商品档案",
+			">复制</button>",
 			"copyProductArchive",
 			"批量添加商品档案",
 			"增加分类",

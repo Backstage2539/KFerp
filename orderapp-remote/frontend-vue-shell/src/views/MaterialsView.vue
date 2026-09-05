@@ -60,12 +60,15 @@
                 </select>
               </label>
               <label v-if="!materialContextCustomerID">
-                <span>客户关联</span>
-                <select v-model="materialAssociationFilter" @change="resetMaterialGroupPages">
-                  <option value="all">全部</option>
-                  <option value="linked">已关联客户</option>
-                  <option value="factory">仅工厂使用</option>
-                </select>
+                <span>物料归属</span>
+                <SearchableSelect
+                  v-model="materialAssociationFilter"
+                  :options="materialOwnershipFilterOptions"
+                  option-label="label"
+                  option-value="value"
+                  placeholder="全部或搜索客户名称"
+                  empty-value="all"
+                  empty-text="没有匹配的客户" />
               </label>
               <!-- legacy filter contract: <span>半成品标识</span> <select v-model="filters.semiFinished"> <option value="semi_finished">半成品</option> <option value="non_semi_finished">非半成品</option> -->
               <button class="primary" type="button" @click="applyMaterialFilters" :disabled="loading">查询</button>
@@ -105,7 +108,7 @@
                     <th>库存数量</th>
                     <th>行业字段</th>
                     <th>制造属性</th>
-                    <th>客户关联</th>
+                    <th>物料归属</th>
                     <th>状态</th>
                   </tr>
                 </thead>
@@ -138,7 +141,7 @@
                     </td>
                     <td>
                       <span>{{ materialCustomerReferenceLabel(row) }}</span>
-                      <button class="text-button" type="button" :disabled="loading || materialCategoryMoveActive" @click.stop="openMaterialCustomerReferenceEditor(row)">客户关联</button>
+                      <button class="text-button" type="button" :disabled="loading || materialCategoryMoveActive" @click.stop="openMaterialCustomerReferenceEditor(row)">复制到客户</button>
                     </td>
                     <td><span :class="row.deprecated_at ? 'pill muted-pill' : 'pill ok-pill'">{{ row.deprecated_at ? '失效' : '启用' }}</span></td>
                   </tr>
@@ -283,10 +286,10 @@
     </div>
 
     <div v-if="materialCustomerReferenceDrawerOpen" class="drawer-mask" @click.self="closeMaterialCustomerReferenceEditor">
-      <aside class="drawer material-customer-reference-drawer" aria-label="物料客户关联">
+      <aside class="drawer material-customer-reference-drawer" aria-label="复制物料到客户">
         <div class="drawer-head">
           <div>
-            <h3>物料客户关联</h3>
+            <h3>复制到客户</h3>
             <p>{{ materialCustomerReferenceMaterial?.name || '-' }}；关联只控制档案可见性，不改变库存货主、数量或成本。</p>
           </div>
           <button class="secondary" type="button" @click="closeMaterialCustomerReferenceEditor" :disabled="materialCustomerReferenceSaving">关闭</button>
@@ -299,7 +302,7 @@
           <small v-if="!customerOptions.length" class="muted">暂无可选客户</small>
           <label class="wide"><span>备注</span><textarea v-model.trim="materialCustomerReferenceRemark" rows="2" placeholder="可选"></textarea></label>
           <div class="form-actions">
-            <button class="primary" type="button" :disabled="materialCustomerReferenceSaving" @click="saveMaterialCustomerReferences">保存客户关联</button>
+            <button class="primary" type="button" :disabled="materialCustomerReferenceSaving" @click="saveMaterialCustomerReferences">保存</button>
           </div>
         </div>
       </aside>
@@ -371,6 +374,7 @@ import { apiGet, apiSend } from '../api/client'
 import { fetchAllCustomerOptions } from '../api/view-context'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
@@ -385,6 +389,7 @@ import { normalizePageSize } from '../lib/pagination'
 import {
   buildMaterialCreatePayload,
   buildMaterialCustomerReferencePayload,
+  filterMaterialsByOwnership,
   materialBelongsToCatalogContext,
   materialCustomerIDs,
   materialCustomerNames,
@@ -454,13 +459,18 @@ const materialCatalogBusinessGroups = computed(() => businessGroupRowsForFeature
   materialBusinessGroups.value,
   materialGroupFeatureSelectionTemplateIDs.value,
 ))
+const materialOwnershipFilterOptions = computed(() => [
+  { value: 'all', label: '全部' },
+  { value: 'factory', label: '仅工厂' },
+  ...customerOptions.value.map((customer) => ({
+    value: `customer:${Number(customer.id || 0)}`,
+    label: String(customer.name || `客户 #${customer.id}`),
+  })),
+])
 const filteredMaterialRows = computed(() => {
   let visible = rows.value.filter((row) => materialBelongsToCatalogContext(row, materialContextCustomerID.value, materialCustomerReferences.value))
-  if (!materialContextCustomerID.value && materialAssociationFilter.value === 'linked') {
-    visible = visible.filter((row) => materialCustomerIDs(row, materialCustomerReferences.value).length > 0)
-  }
-  if (!materialContextCustomerID.value && materialAssociationFilter.value === 'factory') {
-    visible = visible.filter((row) => materialCustomerIDs(row, materialCustomerReferences.value).length === 0)
+  if (!materialContextCustomerID.value) {
+    visible = filterMaterialsByOwnership(visible, materialAssociationFilter.value, materialCustomerReferences.value, customerOptions.value)
   }
   if (filters.semiFinished === 'semi_finished') return visible.filter((row) => row.is_semi_finished)
   if (filters.semiFinished === 'non_semi_finished') return visible.filter((row) => !row.is_semi_finished)
@@ -771,7 +781,12 @@ async function saveMaterialCustomerReferences() {
       })
     }
     await loadMaterialCustomerReferences()
-    ok.value = '物料客户关联已保存'
+    const copiedCustomerNames = customerOptions.value
+      .filter((customer) => desired.has(Number(customer.id || 0)))
+      .map((customer) => String(customer.name || `客户 #${customer.id}`))
+    ok.value = copiedCustomerNames.length === 1
+      ? `已复制到客户「${copiedCustomerNames[0]}」，请在「物料归属」中搜索“${copiedCustomerNames[0]}”查看。`
+      : `已保存物料归属，请在「物料归属」中搜索客户名称查看。`
     closeMaterialCustomerReferenceEditor()
   } catch (err) {
     error.value = err.message || '保存物料客户关联失败'
@@ -779,6 +794,8 @@ async function saveMaterialCustomerReferences() {
     materialCustomerReferenceSaving.value = false
   }
 }
+
+watch(materialAssociationFilter, resetMaterialGroupPages)
 
 function selectMaterial(row, options = {}) {
   selected.value = row

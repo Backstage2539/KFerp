@@ -966,7 +966,6 @@ type orderCustomerProductReferenceRow struct {
 	ReferenceID         int64
 	CustomerItemCode    string
 	CustomerDisplayName string
-	MaterialSourceMode  string
 }
 
 type orderCustomerProductFamilyKey struct {
@@ -1003,8 +1002,7 @@ func (r Repository) fetchOrderCustomerReferenceProducts(ctx context.Context, can
 		SELECT id, product_id,
 		       customer_id,
 		       COALESCE(customer_item_code,''),
-		       COALESCE(customer_display_name,''),
-		       COALESCE(NULLIF(material_source_mode,''),'factory')
+		       COALESCE(customer_display_name,'')
 		FROM %s.product_customer_references
 		WHERE active=true
 		ORDER BY customer_id,id
@@ -1018,7 +1016,7 @@ func (r Repository) fetchOrderCustomerReferenceProducts(ctx context.Context, can
 	selectedIndex := map[orderCustomerProductFamilyKey]int{}
 	for rows.Next() {
 		var reference orderCustomerProductReferenceRow
-		if err := rows.Scan(&reference.ReferenceID, &reference.ProductID, &reference.CustomerID, &reference.CustomerItemCode, &reference.CustomerDisplayName, &reference.MaterialSourceMode); err != nil {
+		if err := rows.Scan(&reference.ReferenceID, &reference.ProductID, &reference.CustomerID, &reference.CustomerItemCode, &reference.CustomerDisplayName); err != nil {
 			return nil, err
 		}
 		canonical, ok := productByID[reference.ProductID]
@@ -1054,10 +1052,6 @@ func (r Repository) fetchOrderCustomerReferenceProducts(ctx context.Context, can
 			clone := product
 			clone.CustomerID = reference.CustomerID
 			clone.CustomerProductReferenceID = reference.ReferenceID
-			clone.MaterialSourceMode = "factory"
-			if strings.EqualFold(strings.TrimSpace(reference.MaterialSourceMode), "customer") {
-				clone.MaterialSourceMode = "customer"
-			}
 			clone.Visibility = "customer_reference"
 			clone.CustomerProductAliasID = 0
 			clone.CustomerProductDisplayName = strings.TrimSpace(reference.CustomerDisplayName)

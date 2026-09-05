@@ -152,7 +152,6 @@ type productCreateAPIRequest struct {
 	CustomerID               int64                     `json:"customer_id"`
 	CustomerItemCode         string                    `json:"customer_item_code"`
 	CustomerDisplayName      string                    `json:"customer_display_name"`
-	MaterialSourceMode       string                    `json:"material_source_mode"`
 	ProductKind              string                    `json:"product_kind"`
 	GreenBeanType            string                    `json:"green_bean_type"`
 	GreenBeanBomProductID    int64                     `json:"green_bean_bom_product_id"`
@@ -325,7 +324,6 @@ type customProductAPIRequest struct {
 	Remark                string  `json:"remark"`
 	CustomerItemCode      string  `json:"customer_item_code"`
 	CustomerDisplayName   string  `json:"customer_display_name"`
-	MaterialSourceMode    string  `json:"material_source_mode"`
 	ProductKind           string  `json:"product_kind"`
 	GreenBeanType         string  `json:"green_bean_type"`
 	GreenBeanBomProductID int64   `json:"green_bean_bom_product_id"`
@@ -921,7 +919,6 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		CustomerID:               req.CustomerID,
 		CustomerItemCode:         req.CustomerItemCode,
 		CustomerDisplayName:      req.CustomerDisplayName,
-		MaterialSourceMode:       req.MaterialSourceMode,
 		RoastLevel:               roastLevel,
 		ProductKind:              productKind,
 		GreenBeanType:            req.GreenBeanType,
@@ -2424,7 +2421,6 @@ func (h productHandler) createCustomProductAPI(c echo.Context) error {
 		Remark:                req.Remark,
 		CustomerItemCode:      req.CustomerItemCode,
 		CustomerDisplayName:   req.CustomerDisplayName,
-		MaterialSourceMode:    req.MaterialSourceMode,
 		ProductKind:           req.ProductKind,
 		GreenBeanType:         req.GreenBeanType,
 		GreenBeanBomProductID: req.GreenBeanBomProductID,

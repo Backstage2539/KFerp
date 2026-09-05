@@ -176,6 +176,9 @@ func createFinishedStockBatchWithCodeTx(ctx context.Context, tx pgx.Tx, schema s
 		if err != nil {
 			return "", err
 		}
+		if err := setStockBatchOwnerCustomerIDTx(ctx, tx, schema, batchCode, r.OwnerCustomerID); err != nil {
+			return "", err
+		}
 		return batchCode, nil
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`
@@ -207,7 +210,19 @@ func createFinishedStockBatchWithCodeTx(ctx context.Context, tx pgx.Tx, schema s
 	if err != nil {
 		return "", err
 	}
+	if err := setStockBatchOwnerCustomerIDTx(ctx, tx, schema, batchCode, r.OwnerCustomerID); err != nil {
+		return "", err
+	}
 	return batchCode, nil
+}
+
+func setStockBatchOwnerCustomerIDTx(ctx context.Context, tx pgx.Tx, schema, batchCode string, ownerCustomerID int64) error {
+	hasOwner, err := schemaColumnExistsTx(ctx, tx, schema, "stock_batches", "owner_customer_id")
+	if err != nil || !hasOwner {
+		return err
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET owner_customer_id=$2 WHERE batch_code=$1`, schema), batchCode, ownerCustomerID)
+	return err
 }
 
 func insertStockLedgerEntryTx(ctx context.Context, tx pgx.Tx, schema string, itemType string, itemID int64, itemName string, specG int64, warehouse string, sourceDocType string, sourceDocID int64, sourceBatchCode string, sourceBatchID string, qty stockLedgerQty, operator string) error {
@@ -274,6 +289,37 @@ func insertStockLedgerEntryWithBomSpecTx(ctx context.Context, tx pgx.Tx, schema 
 	return err
 }
 
+func insertStockLedgerEntryWithBomSpecOwnedTx(ctx context.Context, tx pgx.Tx, schema string, itemType string, itemID int64, itemName string, bomSpecID, bomVariantID, ownerCustomerID, specG int64, warehouse string, sourceDocType string, sourceDocID int64, sourceBatchCode string, sourceBatchID string, qty stockLedgerQty, operator string) error {
+	hasOwner, err := schemaColumnExistsTx(ctx, tx, schema, "stock_ledger_entries", "owner_customer_id")
+	if err != nil || !hasOwner {
+		return insertStockLedgerEntryWithBomSpecTx(ctx, tx, schema, itemType, itemID, itemName, bomSpecID, bomVariantID, specG, warehouse, sourceDocType, sourceDocID, sourceBatchCode, sourceBatchID, qty, operator)
+	}
+	hasBomSpec, err := schemaColumnExistsTx(ctx, tx, schema, "stock_ledger_entries", "bom_spec_id")
+	if err != nil {
+		return err
+	}
+	if !hasBomSpec {
+		if bomSpecID > 0 || bomVariantID > 0 {
+			return fmt.Errorf("stock ledger BOM specification columns are not available")
+		}
+		return insertStockLedgerEntryOwnedTx(ctx, tx, schema, itemType, itemID, itemName, ownerCustomerID, specG, warehouse, sourceDocType, sourceDocID, sourceBatchCode, sourceBatchID, qty, operator)
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_ledger_entries(
+			item_type,item_id,item_name,bom_spec_id,bom_variant_id,owner_customer_id,spec_g,warehouse,
+			source_doc_type,source_doc_id,source_batch_code,source_batch_id,
+			qty_before_g,qty_change_g,qty_after_g,
+			qty_before_units,qty_change_units,qty_after_units,
+			operator,created_at
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,now())
+	`, schema),
+		itemType, itemID, itemName, bomSpecID, bomVariantID, ownerCustomerID, specG, warehouse,
+		sourceDocType, sourceDocID, sourceBatchCode, sourceBatchID,
+		qty.BeforeG, qty.ChangeG, qty.AfterG, qty.BeforeUnits, qty.ChangeUnits, qty.AfterUnits, operator,
+	)
+	return err
+}
+
 func recordFinishedProductStockMovementTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, before, add, after InvQty, finishedTotalG int64, warehouse string, operator string) error {
 	batchCode, err := createFinishedStockBatchTx(ctx, tx, schema, r, add, finishedTotalG, operator)
 	if err != nil {
@@ -283,8 +329,8 @@ func recordFinishedProductStockMovementTx(ctx context.Context, tx pgx.Tx, schema
 	if err != nil {
 		return err
 	}
-	return insertStockLedgerEntryWithBomSpecTx(ctx, tx, schema,
-		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.BomSpecID, r.BomVariantID, r.SpecG, warehouse,
+	return insertStockLedgerEntryWithBomSpecOwnedTx(ctx, tx, schema,
+		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.BomSpecID, r.BomVariantID, r.OwnerCustomerID, r.SpecG, warehouse,
 		stockSourceProductionRun, r.ID, batchCode, r.BatchID,
 		qty, operator,
 	)
@@ -299,8 +345,8 @@ func recordFinishedProductStockMovementWithBatchCodeTx(ctx context.Context, tx p
 	if err != nil {
 		return err
 	}
-	return insertStockLedgerEntryWithBomSpecTx(ctx, tx, schema,
-		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.BomSpecID, r.BomVariantID, r.SpecG, warehouse,
+	return insertStockLedgerEntryWithBomSpecOwnedTx(ctx, tx, schema,
+		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.BomSpecID, r.BomVariantID, r.OwnerCustomerID, r.SpecG, warehouse,
 		stockSourceProductionRun, r.ID, batchCode, r.BatchID,
 		qty, operator,
 	)

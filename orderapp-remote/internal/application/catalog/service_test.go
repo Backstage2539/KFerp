@@ -1104,7 +1104,7 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	}
 }
 
-func TestCreateProductCustomerReferenceDefaultsFactorySupply(t *testing.T) {
+func TestCreateProductCustomerReferenceIgnoresLegacySupplyMode(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{
@@ -1112,11 +1112,11 @@ func TestCreateProductCustomerReferenceDefaultsFactorySupply(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateProduct() error = %v", err)
 	}
-	if repo.create.CustomerID != 42 || repo.create.CustomerDisplayName != "客户商品A" || repo.create.MaterialSourceMode != MaterialSourceModeFactory {
+	if repo.create.CustomerID != 42 || repo.create.CustomerDisplayName != "客户商品A" {
 		t.Fatalf("customer create command = %+v", repo.create)
 	}
 	if _, err := svc.SaveProductCustomerReference(context.Background(), ProductCustomerReference{
-		ProductID: 7, CustomerID: 42, CustomerDisplayName: "客户商品B", MaterialSourceMode: MaterialSourceModeCustomer,
+		ProductID: 7, CustomerID: 42, CustomerDisplayName: "客户商品B",
 	}); err != nil {
 		t.Fatalf("SaveProductCustomerReference() error = %v", err)
 	}

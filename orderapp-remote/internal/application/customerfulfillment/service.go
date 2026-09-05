@@ -167,7 +167,6 @@ type SubmitCustomerDirectShipOrderItem struct {
 	InventoryUnit                      string  `json:"inventory_unit,omitempty"`
 	CustomerProductAliasID             int64   `json:"customer_product_alias_id,omitempty"`
 	CustomerProductReferenceID         int64   `json:"customer_product_reference_id,omitempty"`
-	MaterialSourceMode                 string  `json:"material_source_mode,omitempty"`
 	CustomerProductDisplayNameSnapshot string  `json:"customer_product_display_name_snapshot,omitempty"`
 	CustomerItemCodeSnapshot           string  `json:"customer_item_code_snapshot,omitempty"`
 	ProductCodeSnapshot                string  `json:"product_code_snapshot,omitempty"`
@@ -278,7 +277,6 @@ type CustomerSKUOption struct {
 	DefaultPrice               float64                `json:"default_price,omitempty"`
 	Tiers                      []CustomerSKUPriceTier `json:"tiers,omitempty"`
 	Source                     string                 `json:"source,omitempty"`
-	MaterialSourceMode         string                 `json:"material_source_mode,omitempty"`
 }
 
 type CustomerSKUPriceTier struct {

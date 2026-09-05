@@ -16,7 +16,7 @@ func finalizeMaterialOutputStockDocumentTx(
 	schema string,
 	stockDocumentID, workOrderID, runningItemID, materialID int64,
 	materialName, outputUnit, warehouse string,
-	finishedG, finishedUnits int64,
+	ownerCustomerID, finishedG, finishedUnits int64,
 	batchCode, operator, note string,
 ) (productionapp.StockEntryDetail, error) {
 	var status, purpose string
@@ -42,7 +42,7 @@ func finalizeMaterialOutputStockDocumentTx(
 	}
 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT id,material_id,product_id,item_type,spec_g,inventory_unit,
+		SELECT id,material_id,product_id,item_type,spec_g,inventory_unit,COALESCE(owner_customer_id,0),
 		       from_warehouse,to_warehouse,qty_g,qty_units
 		FROM %s.stock_entry_items
 		WHERE stock_entry_id=$1
@@ -58,6 +58,7 @@ func finalizeMaterialOutputStockDocumentTx(
 		ItemType                   string
 		SpecG                      int64
 		InventoryUnit              string
+		OwnerCustomerID            int64
 		FromWarehouse, ToWarehouse string
 		QtyG, QtyUnits             int64
 	}
@@ -66,7 +67,7 @@ func finalizeMaterialOutputStockDocumentTx(
 		var item frozenItem
 		if err := rows.Scan(
 			&item.ID, &item.MaterialID, &item.ProductID, &item.ItemType, &item.SpecG, &item.InventoryUnit,
-			&item.FromWarehouse, &item.ToWarehouse, &item.QtyG, &item.QtyUnits,
+			&item.OwnerCustomerID, &item.FromWarehouse, &item.ToWarehouse, &item.QtyG, &item.QtyUnits,
 		); err != nil {
 			rows.Close()
 			return productionapp.StockEntryDetail{}, err
@@ -91,6 +92,9 @@ func finalizeMaterialOutputStockDocumentTx(
 	if strings.TrimSpace(item.FromWarehouse) != "" || strings.TrimSpace(item.ToWarehouse) != strings.TrimSpace(warehouse) {
 		return productionapp.StockEntryDetail{}, fmt.Errorf("material output stock document target warehouse was changed")
 	}
+	if item.OwnerCustomerID != ownerCustomerID {
+		return productionapp.StockEntryDetail{}, fmt.Errorf("material output stock document owner was changed")
+	}
 	if item.QtyG != finishedG || item.QtyUnits != finishedUnits {
 		return productionapp.StockEntryDetail{}, fmt.Errorf("material output stock document quantity changed during completion")
 	}
@@ -107,10 +111,10 @@ func finalizeMaterialOutputStockDocumentTx(
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.stock_entry_items
 		SET material_id=$2,product_id=0,item_type='material',item_name=$3,spec_g=0,
-		    inventory_unit=$4,from_warehouse='',to_warehouse=$5,
-		    qty_g=$6,qty_units=$7,batch_code=$8
+		    inventory_unit=$4,from_warehouse='',to_warehouse=$5,owner_customer_id=$6,
+		    qty_g=$7,qty_units=$8,batch_code=$9
 		WHERE id=$1
-	`, schema), item.ID, materialID, materialName, outputUnit, warehouse, finishedG, finishedUnits, batchCode); err != nil {
+	`, schema), item.ID, materialID, materialName, outputUnit, warehouse, ownerCustomerID, finishedG, finishedUnits, batchCode); err != nil {
 		return productionapp.StockEntryDetail{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(

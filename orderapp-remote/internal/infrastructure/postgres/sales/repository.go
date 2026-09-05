@@ -1196,7 +1196,6 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		canonicalDirectProduct             bool
 		customerProductAliasID             int64
 		customerProductReferenceID         int64
-		materialSourceMode                 string
 		customerProductDisplayNameSnapshot string
 		customerItemCodeSnapshot           string
 		brandNameSnapshot                  string
@@ -1242,7 +1241,6 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			bomVariantID:                       src.BomVariantID,
 			customerProductAliasID:             src.CustomerProductAliasID,
 			customerProductReferenceID:         src.CustomerProductReferenceID,
-			materialSourceMode:                 normalizeMaterialSourceMode(src.MaterialSourceMode),
 			customerProductDisplayNameSnapshot: strings.TrimSpace(src.CustomerProductDisplayNameSnapshot),
 			customerItemCodeSnapshot:           strings.TrimSpace(src.CustomerItemCodeSnapshot),
 			brandNameSnapshot:                  strings.TrimSpace(src.BrandNameSnapshot),
@@ -2198,7 +2196,6 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		if referenceSnapshot.ReferenceID > 0 {
 			it.customerProductReferenceID = referenceSnapshot.ReferenceID
-			it.materialSourceMode = referenceSnapshot.MaterialSourceMode
 			it.customerProductDisplayNameSnapshot = referenceSnapshot.DisplayName
 			it.customerItemCodeSnapshot = referenceSnapshot.CustomerItemCode
 			it.brandNameSnapshot = ""
@@ -2263,21 +2260,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 		priceSourceJSON = withProductProductionConfigPriceSourceJSON(priceSourceJSON, productionConfigJSON)
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, it.materialSourceMode, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, nil, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
-		}
-		if it.materialSourceMode == "customer" {
-			productIDValue := int64(0)
-			if it.productID != nil {
-				productIDValue = *it.productID
-			}
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`
-				INSERT INTO %s.customer_order_production_demands(order_id,line_no,customer_id,product_id,bom_spec_id,bom_variant_id,target_qty,material_source_mode,status,created_at,updated_at)
-				VALUES($1,$2,$3,$4,$5,$6,$7,'customer','planned',now(),now())
-				ON CONFLICT(order_id,line_no) DO UPDATE SET customer_id=excluded.customer_id, product_id=excluded.product_id, bom_spec_id=excluded.bom_spec_id, bom_variant_id=excluded.bom_variant_id, target_qty=excluded.target_qty, material_source_mode='customer', status='planned', updated_at=now()
-			`, r.schema), orderID, idx+1, cmd.CustomerID, productIDValue, it.bomSpecID, it.bomVariantID, it.units); err != nil {
-				return salesapp.SaveOrderResult{}, err
-			}
 		}
 	}
 
@@ -2546,23 +2530,15 @@ type orderItemCustomerAliasSnapshot struct {
 }
 
 type orderItemCustomerReferenceSnapshot struct {
-	ReferenceID        int64
-	DisplayName        string
-	CustomerItemCode   string
-	ProductCode        string
-	ProductName        string
-	MaterialSourceMode string
-}
-
-func normalizeMaterialSourceMode(value string) string {
-	if strings.EqualFold(strings.TrimSpace(value), "customer") {
-		return "customer"
-	}
-	return "factory"
+	ReferenceID      int64
+	DisplayName      string
+	CustomerItemCode string
+	ProductCode      string
+	ProductName      string
 }
 
 func resolveOrderItemCustomerReferenceSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, customerID, productID, requestedReferenceID int64) (orderItemCustomerReferenceSnapshot, error) {
-	snap := orderItemCustomerReferenceSnapshot{ProductCode: fmt.Sprintf("SKU-%d", productID), MaterialSourceMode: "factory"}
+	snap := orderItemCustomerReferenceSnapshot{ProductCode: fmt.Sprintf("SKU-%d", productID)}
 	if productID <= 0 || customerID <= 0 || !relationExistsTx(ctx, tx, fmt.Sprintf("%s.product_customer_references", schema)) {
 		if requestedReferenceID > 0 {
 			return orderItemCustomerReferenceSnapshot{}, fmt.Errorf("客户商品引用与当前客户或商品不匹配，或已停用")
@@ -2576,8 +2552,7 @@ func resolveOrderItemCustomerReferenceSnapshotTx(ctx context.Context, tx pgx.Tx,
 		       COALESCE(NULLIF(ref.customer_display_name,''), parent.name, p.name, ''),
 		       COALESCE(ref.customer_item_code,''),
 		       COALESCE(NULLIF(p.sku_code,''),'SKU-' || p.id::text),
-		       COALESCE(parent.name,p.name,''),
-		       COALESCE(NULLIF(ref.material_source_mode,''),'factory')
+		       COALESCE(parent.name,p.name,'')
 		FROM %s.product_customer_references ref
 		JOIN %s.products p ON p.id=ref.product_id
 		LEFT JOIN %s.products parent ON parent.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END
@@ -2590,7 +2565,7 @@ func resolveOrderItemCustomerReferenceSnapshotTx(ctx context.Context, tx pgx.Tx,
 		args = append(args, requestedReferenceID)
 	}
 	q += " ORDER BY CASE WHEN ref.product_id=$2 THEN 0 ELSE 1 END, ref.id LIMIT 1"
-	err := tx.QueryRow(ctx, q, args...).Scan(&snap.ReferenceID, &snap.DisplayName, &snap.CustomerItemCode, &snap.ProductCode, &snap.ProductName, &snap.MaterialSourceMode)
+	err := tx.QueryRow(ctx, q, args...).Scan(&snap.ReferenceID, &snap.DisplayName, &snap.CustomerItemCode, &snap.ProductCode, &snap.ProductName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if requestedReferenceID > 0 {
 			return orderItemCustomerReferenceSnapshot{}, fmt.Errorf("客户商品引用与当前客户或商品不匹配，或已停用")
@@ -2600,7 +2575,6 @@ func resolveOrderItemCustomerReferenceSnapshotTx(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return orderItemCustomerReferenceSnapshot{}, err
 	}
-	snap.MaterialSourceMode = normalizeMaterialSourceMode(snap.MaterialSourceMode)
 	return snap, nil
 }
 

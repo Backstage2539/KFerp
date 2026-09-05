@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-629-PRODUCT-CATALOG-WAREHOUSE-SOURCE
+- Branch: `codex/pr629-catalog-warehouse-source`
+- Owner/session: Codex / 2026-09-05
+- Status: local implementation and full gates GREEN; development deploy, cutover and live acceptance pending
+- Scope: 商品与物料归属改为客户名称可搜索和“复制到客户”交互；移除商品供料方式；生产计划逐 BOM 组件选择并冻结来源仓与货主；旧客户供料需求迁入统一流程。
+- DEV: DEV-629-CATALOG-OWNERSHIP-UX; DEV-629-WAREHOUSE-COMPONENT-SOURCES; DEV-629-LEGACY-SOURCE-CUTOVER; DEV-629-DEVELOPMENT-ACCEPTANCE
+- Verifier:
+  - Unit/API: component-source helper RED (2 failures) -> full Go GREEN
+  - Frontend/build: Vue 1077/1077, Vite 6597 modules, miniapp 220/220, typecheck and development build GREEN
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md
+  - Review/acceptance: orderapp-remote/docs/acceptance/2026-09-05-product-catalog-warehouse-source.md
+- Deployment: authorized for development after full gates; production untouched.
+- Last update: 2026-09-05 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` failed before writing because the local awk rejects a multiline `-v` value; PR-629 was the next free id and is claimed here directly.
+
 ### PR-628-EXPLICIT-CUSTOMER-CATALOG-LINKS
 - Branch: `codex/explicit-customer-catalog-links`
 - Owner/session: Codex / 2026-09-05

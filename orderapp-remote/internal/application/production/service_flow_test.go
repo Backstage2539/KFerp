@@ -64,6 +64,9 @@ type fakeFlowRepo struct {
 	stockDraftWorkOrder int64
 	stockDraftAction    string
 	stockDraftID        int64
+	usesFrozenSources   bool
+	frozenSourceItems   []StockEntryItemCommand
+	frozenSourceErr     error
 }
 
 func (r *fakeFlowRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -363,6 +366,10 @@ func (r *fakeFlowRepo) GetWorkOrderStockDocumentDraft(ctx context.Context, workO
 		return nil, nil
 	}
 	return r.stockDraft, nil
+}
+
+func (r *fakeFlowRepo) GetWorkOrderFrozenSourceIssueItems(context.Context, int64) (bool, []StockEntryItemCommand, error) {
+	return r.usesFrozenSources, append([]StockEntryItemCommand(nil), r.frozenSourceItems...), r.frozenSourceErr
 }
 
 func (r *fakeFlowRepo) AdjustWIPReservation(ctx context.Context, cmd WIPReservationAdjustCommand) (WIPReservationRow, error) {
@@ -1211,6 +1218,30 @@ func TestReleasedWorkOrderUsesFrozenSnapshotWIPCoverageWithoutReservation(t *tes
 	item := preview.Document.Items[0]
 	if item.InventoryUnit != "g" || item.QuantityBasis != "weight" || item.RequiredQty != 6356 || item.RemainingQty != 5156 || item.DefaultQty != 5156 || item.QtyG != 5156 || item.QtyUnits != 0 {
 		t.Fatalf("preview item = %+v", item)
+	}
+}
+
+func TestWorkOrderStockDocumentPreviewUsesFrozenWarehouseOwnerAndBatch(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders:        []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PR629-001", Status: "released"}},
+		wipCoverage:       ProductionWIPStatus{DataComplete: true, Status: "ok"},
+		usesFrozenSources: true,
+		frozenSourceItems: []StockEntryItemCommand{{
+			MaterialID: 10, ItemName: "客户生豆", InventoryUnit: "kg", QuantityBasis: "weight",
+			FromWarehouse: "customer_74_raw", ToWarehouse: "wip", OwnerCustomerID: 74,
+			BatchCode: "MB-C74-001", QtyG: 6000, DefaultQty: 6,
+		}},
+	}
+	preview, err := NewService(repo).PreviewWorkOrderStockDocument(context.Background(), StockDocumentPreviewCommand{ID: 88, Action: "issue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Document.Items) != 1 {
+		t.Fatalf("items = %+v", preview.Document.Items)
+	}
+	item := preview.Document.Items[0]
+	if item.FromWarehouse != "customer_74_raw" || item.ToWarehouse != "wip" || item.OwnerCustomerID != 74 || item.BatchCode != "MB-C74-001" {
+		t.Fatalf("frozen item changed = %+v", item)
 	}
 }
 
