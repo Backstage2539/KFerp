@@ -711,7 +711,6 @@ async function submitDirectShip() {
         product_id: Number(row.product_id || 0),
         customer_product_alias_id: Number(row.customer_product_alias_id || 0),
         customer_product_reference_id: Number(row.customer_product_reference_id || 0),
-        material_source_mode: String(row.material_source_mode || 'factory'),
         customer_product_display_name_snapshot: String(row.customer_product_display_name || row.product_name || '').trim(),
         customer_item_code_snapshot: String(row.customer_item_code || '').trim(),
         product_code_snapshot: String(row.product_code || '').trim(),
@@ -852,7 +851,6 @@ function selectDirectShipItemProduct(row, option) {
   row.product_id = Number(option?.product_id || 0)
   row.customer_product_alias_id = Number(option?.customer_product_alias_id || 0)
   row.customer_product_reference_id = Number(option?.customer_product_reference_id || 0)
-  row.material_source_mode = String(option?.material_source_mode || 'factory')
   row.customer_product_display_name = String(option?.customer_product_display_name || option?.product_name || '').trim()
   row.customer_item_code = String(option?.customer_item_code || option?.sku_code || '').trim()
   row.product_code = String(option?.product_code || '').trim()
@@ -973,7 +971,6 @@ function newDirectShipItem() {
     product_id: 0,
     customer_product_alias_id: 0,
     customer_product_reference_id: 0,
-    material_source_mode: 'factory',
     customer_product_display_name: '',
     customer_item_code: '',
     product_code: '',

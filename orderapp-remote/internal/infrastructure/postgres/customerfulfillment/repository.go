@@ -529,7 +529,6 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 			"inventory_unit":                         item.InventoryUnit,
 			"customer_product_alias_id":              item.CustomerProductAliasID,
 			"customer_product_reference_id":          item.CustomerProductReferenceID,
-			"material_source_mode":                   item.MaterialSourceMode,
 			"customer_product_display_name_snapshot": item.CustomerProductDisplayNameSnapshot,
 			"customer_item_code_snapshot":            item.CustomerItemCodeSnapshot,
 			"product_code_snapshot":                  item.ProductCodeSnapshot,
@@ -616,7 +615,6 @@ type submittedDirectShipItem struct {
 	InventoryUnit                      string
 	CustomerProductAliasID             int64
 	CustomerProductReferenceID         int64
-	MaterialSourceMode                 string
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
 	ProductCodeSnapshot                string
@@ -640,7 +638,6 @@ type submittedDirectShipQuotedItem struct {
 	InventoryUnit                      string
 	CustomerProductAliasID             int64
 	CustomerProductReferenceID         int64
-	MaterialSourceMode                 string
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
 	ProductCodeSnapshot                string
@@ -678,7 +675,6 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 			InventoryUnit:                      strings.TrimSpace(item.InventoryUnit),
 			CustomerProductAliasID:             item.CustomerProductAliasID,
 			CustomerProductReferenceID:         item.CustomerProductReferenceID,
-			MaterialSourceMode:                 normalizeDirectShipMaterialSourceMode(item.MaterialSourceMode),
 			CustomerProductDisplayNameSnapshot: strings.TrimSpace(item.CustomerProductDisplayNameSnapshot),
 			CustomerItemCodeSnapshot:           strings.TrimSpace(item.CustomerItemCodeSnapshot),
 			ProductCodeSnapshot:                strings.TrimSpace(item.ProductCodeSnapshot),
@@ -709,13 +705,6 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 	}}
 }
 
-func normalizeDirectShipMaterialSourceMode(value string) string {
-	if strings.EqualFold(strings.TrimSpace(value), "customer") {
-		return "customer"
-	}
-	return "factory"
-}
-
 type directShipCustomerAliasSnapshot struct {
 	CustomerProductReferenceID         int64
 	CustomerProductAliasID             int64
@@ -723,7 +712,6 @@ type directShipCustomerAliasSnapshot struct {
 	CustomerItemCodeSnapshot           string
 	ProductCodeSnapshot                string
 	ProductNameSnapshot                string
-	MaterialSourceMode                 string
 }
 
 func requireCustomerAliasDirectShipPrice(aliasSnapshot directShipCustomerAliasSnapshot, unitPrice float64) error {
@@ -781,17 +769,16 @@ func (r *Repository) validateCustomerProductReferenceForDirectShipTx(ctx context
 	}
 	var snap directShipCustomerAliasSnapshot
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT r.id,COALESCE(NULLIF(r.customer_display_name,''),p.name,''),COALESCE(r.customer_item_code,''),COALESCE(NULLIF(p.sku_code,''),'SKU-'||p.id::text),COALESCE(p.name,''),COALESCE(NULLIF(r.material_source_mode,''),'factory')
+		SELECT r.id,COALESCE(NULLIF(r.customer_display_name,''),p.name,''),COALESCE(r.customer_item_code,''),COALESCE(NULLIF(p.sku_code,''),'SKU-'||p.id::text),COALESCE(p.name,'')
 		FROM %s.product_customer_references r JOIN %s.products p ON p.id=r.product_id
 		WHERE r.id=$1 AND r.customer_id=$2 AND r.product_id=$3 AND r.active=true AND p.active=true
-	`, r.schema, r.schema), referenceID, customerID, productID).Scan(&snap.CustomerProductReferenceID, &snap.CustomerProductDisplayNameSnapshot, &snap.CustomerItemCodeSnapshot, &snap.ProductCodeSnapshot, &snap.ProductNameSnapshot, &snap.MaterialSourceMode)
+	`, r.schema, r.schema), referenceID, customerID, productID).Scan(&snap.CustomerProductReferenceID, &snap.CustomerProductDisplayNameSnapshot, &snap.CustomerItemCodeSnapshot, &snap.ProductCodeSnapshot, &snap.ProductNameSnapshot)
 	if err == pgx.ErrNoRows {
 		return directShipCustomerAliasSnapshot{}, fmt.Errorf("customer product reference invalid")
 	}
 	if err != nil {
 		return directShipCustomerAliasSnapshot{}, err
 	}
-	snap.MaterialSourceMode = normalizeDirectShipMaterialSourceMode(snap.MaterialSourceMode)
 	return snap, nil
 }
 
@@ -869,7 +856,6 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		item.CustomerItemCodeSnapshot = aliasSnapshot.CustomerItemCodeSnapshot
 		item.ProductCodeSnapshot = aliasSnapshot.ProductCodeSnapshot
 		item.ProductNameSnapshot = aliasSnapshot.ProductNameSnapshot
-		item.MaterialSourceMode = aliasSnapshot.MaterialSourceMode
 		productName = aliasSnapshot.CustomerProductDisplayNameSnapshot
 	}
 	if productName == "" {
@@ -1021,7 +1007,6 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		InventoryUnit:                      item.InventoryUnit,
 		CustomerProductAliasID:             item.CustomerProductAliasID,
 		CustomerProductReferenceID:         item.CustomerProductReferenceID,
-		MaterialSourceMode:                 normalizeDirectShipMaterialSourceMode(item.MaterialSourceMode),
 		CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 		CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
 		ProductCodeSnapshot:                item.ProductCodeSnapshot,
@@ -1765,7 +1750,7 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 				bean_list_publication_id,bean_list_version_no
 			)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28::jsonb,NULLIF($29,0),$30)
-		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.bomSpecID, item.bomVariantID, item.customerProductAliasID, item.customerProductReferenceID, normalizeDirectShipMaterialSourceMode(item.materialSourceMode), item.customerProductDisplayNameSnapshot, item.customerItemCodeSnapshot, item.productCodeSnapshot, item.productNameSnapshot, item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.bomSpecID, item.bomVariantID, item.customerProductAliasID, item.customerProductReferenceID, nil, item.customerProductDisplayNameSnapshot, item.customerItemCodeSnapshot, item.productCodeSnapshot, item.productNameSnapshot, item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
 			return err
 		}
 	}
@@ -1779,7 +1764,6 @@ type submittedDirectShipERPItemSeed struct {
 	bomVariantID                       int64
 	customerProductAliasID             int64
 	customerProductReferenceID         int64
-	materialSourceMode                 string
 	customerProductDisplayNameSnapshot string
 	customerItemCodeSnapshot           string
 	productCodeSnapshot                string
@@ -1851,7 +1835,6 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		}
 		customerProductAliasID := payloadInt64(payload, "customer_product_alias_id")
 		customerProductReferenceID := payloadInt64(payload, "customer_product_reference_id")
-		materialSourceMode := normalizeDirectShipMaterialSourceMode(payloadString(payload, "material_source_mode"))
 		customerProductDisplayNameSnapshot := payloadString(payload, "customer_product_display_name_snapshot")
 		customerItemCodeSnapshot := payloadString(payload, "customer_item_code_snapshot")
 		productCodeSnapshot := payloadString(payload, "product_code_snapshot")
@@ -1903,7 +1886,6 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			bomVariantID:                       bomVariantID,
 			customerProductAliasID:             customerProductAliasID,
 			customerProductReferenceID:         customerProductReferenceID,
-			materialSourceMode:                 materialSourceMode,
 			customerProductDisplayNameSnapshot: customerProductDisplayNameSnapshot,
 			customerItemCodeSnapshot:           customerItemCodeSnapshot,
 			productCodeSnapshot:                productCodeSnapshot,
@@ -1939,7 +1921,6 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			BomVariantID:                       items[idx].bomVariantID,
 			CustomerProductAliasID:             items[idx].customerProductAliasID,
 			CustomerProductReferenceID:         items[idx].customerProductReferenceID,
-			MaterialSourceMode:                 items[idx].materialSourceMode,
 			CustomerProductDisplayNameSnapshot: items[idx].customerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot:           items[idx].customerItemCodeSnapshot,
 			ProductCodeSnapshot:                items[idx].productCodeSnapshot,
@@ -1974,7 +1955,6 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			items[idx].customerItemCodeSnapshot = quoted.CustomerItemCodeSnapshot
 			items[idx].productCodeSnapshot = quoted.ProductCodeSnapshot
 			items[idx].productNameSnapshot = quoted.ProductNameSnapshot
-			items[idx].materialSourceMode = quoted.MaterialSourceMode
 		}
 		if quoted.Spec != "" {
 			items[idx].spec = quoted.Spec
@@ -2695,10 +2675,6 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		row.Spec = strings.TrimSpace(row.Spec)
 		row.RoastDegree = strings.TrimSpace(row.RoastDegree)
 		row.Source = strings.TrimSpace(row.Source)
-		row.MaterialSourceMode = strings.TrimSpace(row.MaterialSourceMode)
-		if row.MaterialSourceMode == "" {
-			row.MaterialSourceMode = "factory"
-		}
 		row.ProductKind = catalogdomain.NormalizeProductKind(row.ProductKind)
 		if row.ProductKind == catalogdomain.ProductKindDripBag {
 			row.SalesUnits = []string{"bag", "box"}
@@ -2736,8 +2712,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 			       COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
 			       COALESCE(p.drip_bag_grams,10)::float8,
 			       COALESCE(p.drip_box_bag_count,10), '', COALESCE(p.roast_level,''),
-			   COALESCE(p.default_price,0), 'customer_product_reference',
-			   COALESCE(NULLIF(r.material_source_mode,''),'factory')
+			   COALESCE(p.default_price,0), 'customer_product_reference'
 			FROM %s.product_customer_references r
 			JOIN %s.products p ON p.id=r.product_id
 			WHERE r.customer_id=$1 AND r.active=true AND p.active=true
@@ -2749,7 +2724,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		}
 		for rows.Next() {
 			var row app.CustomerSKUOption
-			if err := rows.Scan(&row.ProductID, &row.CustomerProductReferenceID, &row.CustomerProductDisplayName, &row.CustomerItemCode, &row.BrandName, &row.ProductCode, &row.ProductRecordName, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source, &row.MaterialSourceMode); err != nil {
+			if err := rows.Scan(&row.ProductID, &row.CustomerProductReferenceID, &row.CustomerProductDisplayName, &row.CustomerItemCode, &row.BrandName, &row.ProductCode, &row.ProductRecordName, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
 				rows.Close()
 				return nil, err
 			}

@@ -381,14 +381,24 @@ func (r Repository) resolveStockDocumentWorkOrderContextTx(ctx context.Context, 
 	default:
 		return fmt.Errorf("stock document purpose cannot be linked to work order")
 	}
-	var runningItemID int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(running_item_id,0) FROM %s.work_orders WHERE id=$1`, r.schema), cmd.WorkOrderID).Scan(&runningItemID); err != nil {
+	var runningItemID, targetOwnerCustomerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(wo.running_item_id,0),COALESCE(warehouse.customer_id,0)
+		FROM %s.work_orders wo
+		LEFT JOIN %s.warehouses warehouse ON warehouse.code=wo.target_warehouse AND warehouse.active=true
+		WHERE wo.id=$1
+	`, r.schema, r.schema), cmd.WorkOrderID).Scan(&runningItemID, &targetOwnerCustomerID); err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("work order not found")
 		}
 		return err
 	}
 	cmd.RunningItemID = runningItemID
+	if cmd.Purpose == stockapp.PurposeManufacture {
+		for index := range cmd.Items {
+			cmd.Items[index].OwnerCustomerID = targetOwnerCustomerID
+		}
+	}
 	if cmd.JobCardID > 0 {
 		var belongs bool
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.job_cards WHERE id=$1 AND work_order_id=$2)`, r.schema), cmd.JobCardID, cmd.WorkOrderID).Scan(&belongs); err != nil {
@@ -839,6 +849,18 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 			); err != nil {
 				return err
 			}
+			var targetOwnerCustomerID int64
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.warehouses WHERE code=$1 AND active=true`, r.schema), manufactureOutput.TargetWarehouse).Scan(&targetOwnerCustomerID); err != nil {
+				if err == pgx.ErrNoRows {
+					return fmt.Errorf("manufacture target warehouse not found or inactive")
+				}
+				return err
+			}
+			for _, item := range detail.Items {
+				if item.OwnerCustomerID != targetOwnerCustomerID {
+					return fmt.Errorf("manufacture target owner must match frozen target warehouse")
+				}
+			}
 			if manufactureOutput.OutputType == "product" && manufactureOutput.BomSpecID > 0 {
 				item := cmd.Items[0]
 				if item.BomSpecID != manufactureOutput.BomSpecID || item.BomVariantID != manufactureOutput.BomVariantID || item.SpecG != 0 {
@@ -883,6 +905,9 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 	}
 	if status == "cancelled" || status == "completed" {
 		return fmt.Errorf("work order is not open")
+	}
+	if err := r.validateFrozenWorkOrderMaterialSourceTx(ctx, tx, detail); err != nil {
+		return err
 	}
 	if detail.Purpose == stockapp.PurposeManufacture {
 		var incompleteJobCards int
@@ -1011,6 +1036,84 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 		}
 		if len(consumptionErrors) > 0 {
 			return fmt.Errorf("生产消耗数量超过工单剩余需求：%s", strings.Join(consumptionErrors, "；"))
+		}
+	}
+	return nil
+}
+
+func (r Repository) validateFrozenWorkOrderMaterialSourceTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail) error {
+	if detail.WorkOrderID <= 0 || detail.Purpose != stockapp.PurposeMaterialTransferForManufacture || detail.IsReturn {
+		return nil
+	}
+	hasSources, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "production_plan_component_sources", "source_warehouse")
+	if err != nil || !hasSources {
+		return err
+	}
+	var frozen bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1 FROM %s.work_orders wo
+			JOIN %s.production_plan_component_sources source ON source.production_plan_item_id=wo.production_plan_item_id
+			WHERE wo.id=$1
+		)
+	`, r.schema, r.schema), detail.WorkOrderID).Scan(&frozen); err != nil || !frozen {
+		return err
+	}
+	type sourceKey struct {
+		materialID, ownerCustomerID int64
+		batchCode, warehouse        string
+	}
+	wanted := map[sourceKey][2]int64{}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT reservation.material_id,COALESCE(binding.owner_customer_id,0),binding.batch_code,binding.warehouse,
+		       COALESCE(SUM(GREATEST(0,binding.reserved_g-binding.consumed_g-binding.returned_g)),0)::bigint,
+		       COALESCE(SUM(GREATEST(0,binding.reserved_units-binding.consumed_units-binding.returned_units)),0)::bigint
+		FROM %s.work_order_material_reservation_batches binding
+		JOIN %s.work_order_material_reservations reservation ON reservation.id=binding.reservation_id
+		WHERE binding.work_order_id=$1 AND binding.status='reserved' AND reservation.status='reserved'
+		  AND binding.component_type='material' AND binding.material_batch_id>0
+		  AND COALESCE(NULLIF(binding.warehouse,''),'wip')<>'wip'
+		GROUP BY reservation.material_id,binding.owner_customer_id,binding.batch_code,binding.warehouse
+		HAVING SUM(GREATEST(0,binding.reserved_g-binding.consumed_g-binding.returned_g))>0
+		    OR SUM(GREATEST(0,binding.reserved_units-binding.consumed_units-binding.returned_units))>0
+	`, r.schema, r.schema), detail.WorkOrderID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var key sourceKey
+		var qty [2]int64
+		if err := rows.Scan(&key.materialID, &key.ownerCustomerID, &key.batchCode, &key.warehouse, &qty[0], &qty[1]); err != nil {
+			rows.Close()
+			return err
+		}
+		wanted[key] = qty
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	actual := map[sourceKey][2]int64{}
+	for _, item := range detail.Items {
+		if item.ItemType != itemTypeMaterial || item.MaterialID <= 0 || strings.TrimSpace(item.BatchCode) == "" {
+			return fmt.Errorf("冻结来源的领料行必须保留物料和批次身份")
+		}
+		if strings.TrimSpace(item.ToWarehouse) != "wip" {
+			return fmt.Errorf("冻结来源领料的目标仓必须是在制仓")
+		}
+		key := sourceKey{materialID: item.MaterialID, ownerCustomerID: item.OwnerCustomerID, batchCode: item.BatchCode, warehouse: item.FromWarehouse}
+		qty := actual[key]
+		qty[0] += item.QtyG
+		qty[1] += item.QtyUnits
+		actual[key] = qty
+	}
+	if len(actual) != len(wanted) {
+		return fmt.Errorf("领料单必须完整使用生产计划冻结的来源仓、货主和批次")
+	}
+	for key, qty := range wanted {
+		if actual[key] != qty {
+			return fmt.Errorf("领料单与冻结来源不一致：物料%d / %s / 货主%d / 批次%s", key.materialID, key.warehouse, key.ownerCustomerID, key.batchCode)
 		}
 	}
 	return nil
@@ -1692,14 +1795,11 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 
 func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item stockapp.StockDocumentItemRow) ([]materialMoveAvailability, int64, int64, error) {
 	args := []any{item.MaterialID, item.FromWarehouse}
-	batchFilter := ""
-	if item.OwnerCustomerID > 0 {
-		args = append(args, item.OwnerCustomerID)
-		batchFilter += fmt.Sprintf(" AND COALESCE(b.owner_customer_id,0)=$%d", len(args))
-	}
+	args = append(args, item.OwnerCustomerID)
+	batchFilter := fmt.Sprintf(" AND COALESCE(b.owner_customer_id,0)=$%d", len(args))
 	if item.BatchCode != "" {
 		args = append(args, item.BatchCode)
-		batchFilter = fmt.Sprintf(" AND b.batch_code=$%d", len(args))
+		batchFilter += fmt.Sprintf(" AND b.batch_code=$%d", len(args))
 	}
 	workFilter := ""
 	if detail.WorkOrderID > 0 && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
@@ -2161,6 +2261,38 @@ func (r Repository) updateWorkOrderStockStatsTx(ctx context.Context, tx pgx.Tx, 
 			UPDATE %s.work_orders SET status='running',completed_at=NULL WHERE id=$1 AND status='completed'
 		`, r.schema), detail.WorkOrderID)
 		return err
+	}
+	if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn {
+		hasFrozenBindings, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "work_order_material_reservation_batches", "owner_customer_id")
+		if err != nil {
+			return err
+		}
+		if hasFrozenBindings {
+			for _, item := range detail.Items {
+				if item.MaterialID <= 0 || strings.TrimSpace(item.BatchCode) == "" {
+					continue
+				}
+				currentWarehouse, nextWarehouse := item.FromWarehouse, item.ToWarehouse
+				if direction < 0 {
+					currentWarehouse, nextWarehouse = item.ToWarehouse, item.FromWarehouse
+				}
+				tag, err := tx.Exec(ctx, fmt.Sprintf(`
+					UPDATE %s.work_order_material_reservation_batches binding
+					SET warehouse=$6,updated_at=now()
+					FROM %s.work_order_material_reservations reservation
+					WHERE binding.reservation_id=reservation.id AND binding.work_order_id=$1
+					  AND reservation.material_id=$2 AND binding.batch_code=$3
+					  AND COALESCE(binding.owner_customer_id,0)=$4 AND binding.warehouse=$5
+				`, r.schema, r.schema), detail.WorkOrderID, item.MaterialID, item.BatchCode, item.OwnerCustomerID, currentWarehouse, nextWarehouse)
+				if err != nil {
+					return err
+				}
+				if direction > 0 && tag.RowsAffected() == 0 {
+					return fmt.Errorf("冻结来源批次在领料时已发生变化")
+				}
+			}
+		}
+		return nil
 	}
 	column := ""
 	if detail.Purpose == stockapp.PurposeMaterialConsumption {

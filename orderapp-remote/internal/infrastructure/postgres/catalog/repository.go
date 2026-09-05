@@ -525,10 +525,10 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 	}
 	if cmd.CustomerID > 0 {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, material_source_mode, active, remark, created_by, updated_by)
-			VALUES($1,$2,$3,$4,$5,true,$6,$7,$7)
-			ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET customer_item_code=excluded.customer_item_code, customer_display_name=excluded.customer_display_name, material_source_mode=excluded.material_source_mode, remark=excluded.remark, updated_at=now(), updated_by=excluded.updated_by
-		`, r.schema), productID, cmd.CustomerID, strings.TrimSpace(cmd.CustomerItemCode), strings.TrimSpace(cmd.CustomerDisplayName), normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), strings.TrimSpace(cmd.Remark), cmd.Actor); err != nil {
+			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, active, remark, created_by, updated_by)
+			VALUES($1,$2,$3,$4,true,$5,$6,$6)
+			ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET customer_item_code=excluded.customer_item_code, customer_display_name=excluded.customer_display_name, remark=excluded.remark, updated_at=now(), updated_by=excluded.updated_by
+		`, r.schema), productID, cmd.CustomerID, strings.TrimSpace(cmd.CustomerItemCode), strings.TrimSpace(cmd.CustomerDisplayName), strings.TrimSpace(cmd.Remark), cmd.Actor); err != nil {
 			return catalogapp.Product{}, err
 		}
 	}
@@ -3257,7 +3257,7 @@ func reorderBusinessGroupItemSiblingsTx(ctx context.Context, tx pgx.Tx, schema s
 
 func (r Repository) ListProductCustomerReferences(ctx context.Context, productID int64) ([]catalogapp.ProductCustomerReference, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, product_id, customer_id, customer_item_code, customer_display_name, COALESCE(material_source_mode,'factory'), active, remark
+		SELECT id, product_id, customer_id, customer_item_code, customer_display_name, active, remark
 		FROM %s.product_customer_references
 		WHERE ($1::bigint=0 OR product_id=$1)
 		ORDER BY active DESC, product_id, customer_id, id
@@ -3269,19 +3269,12 @@ func (r Repository) ListProductCustomerReferences(ctx context.Context, productID
 	out := make([]catalogapp.ProductCustomerReference, 0)
 	for rows.Next() {
 		var row catalogapp.ProductCustomerReference
-		if err := rows.Scan(&row.ID, &row.ProductID, &row.CustomerID, &row.CustomerItemCode, &row.CustomerDisplayName, &row.MaterialSourceMode, &row.Active, &row.Remark); err != nil {
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.CustomerID, &row.CustomerItemCode, &row.CustomerDisplayName, &row.Active, &row.Remark); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
-}
-
-func normalizeReferenceMaterialSourceMode(value string) string {
-	if strings.EqualFold(strings.TrimSpace(value), "customer") {
-		return "customer"
-	}
-	return "factory"
 }
 
 func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalogapp.ProductCustomerReference) (catalogapp.ProductCustomerReference, error) {
@@ -3314,23 +3307,22 @@ func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalo
 	if cmd.ID > 0 {
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_customer_references
-			SET product_id=$2, customer_id=$3, customer_item_code=$4, customer_display_name=$5, material_source_mode=$6, active=$7, remark=$8, updated_at=now(), updated_by=$9
+			SET product_id=$2, customer_id=$3, customer_item_code=$4, customer_display_name=$5, active=$6, remark=$7, updated_at=now(), updated_by=$8
 			WHERE id=$1
 			RETURNING id
-		`, r.schema), cmd.ID, cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.ID, cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	} else {
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, material_source_mode, active, remark, created_by, updated_by)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)
+			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, active, remark, created_by, updated_by)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$7)
 			ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET
 				customer_item_code=excluded.customer_item_code,
 				customer_display_name=excluded.customer_display_name,
-				material_source_mode=excluded.material_source_mode,
 				remark=excluded.remark,
 				updated_at=now(),
 				updated_by=excluded.updated_by
 			RETURNING id
-		`, r.schema), cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	}
 	if err != nil {
 		return catalogapp.ProductCustomerReference{}, err
@@ -3340,9 +3332,9 @@ func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalo
 	}
 	var row catalogapp.ProductCustomerReference
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id,product_id,customer_id,customer_item_code,customer_display_name,COALESCE(material_source_mode,'factory'),active,remark
+		SELECT id,product_id,customer_id,customer_item_code,customer_display_name,active,remark
 		FROM %s.product_customer_references WHERE id=$1
-	`, r.schema), id).Scan(&row.ID, &row.ProductID, &row.CustomerID, &row.CustomerItemCode, &row.CustomerDisplayName, &row.MaterialSourceMode, &row.Active, &row.Remark); err != nil {
+	`, r.schema), id).Scan(&row.ID, &row.ProductID, &row.CustomerID, &row.CustomerItemCode, &row.CustomerDisplayName, &row.Active, &row.Remark); err != nil {
 		return catalogapp.ProductCustomerReference{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -6005,10 +5997,10 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, material_source_mode, active, remark, created_by, updated_by)
-		VALUES($1,$2,$3,$4,$5,true,$6,$7,$7)
-		ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET customer_item_code=excluded.customer_item_code, customer_display_name=excluded.customer_display_name, material_source_mode=excluded.material_source_mode, remark=excluded.remark, updated_at=now(), updated_by=excluded.updated_by
-	`, r.schema), productID, cmd.CustomerID, strings.TrimSpace(cmd.CustomerItemCode), strings.TrimSpace(cmd.CustomerDisplayName), normalizeReferenceMaterialSourceMode(cmd.MaterialSourceMode), remark, cmd.Actor); err != nil {
+		INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, active, remark, created_by, updated_by)
+		VALUES($1,$2,$3,$4,true,$5,$6,$6)
+		ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET customer_item_code=excluded.customer_item_code, customer_display_name=excluded.customer_display_name, remark=excluded.remark, updated_at=now(), updated_by=excluded.updated_by
+	`, r.schema), productID, cmd.CustomerID, strings.TrimSpace(cmd.CustomerItemCode), strings.TrimSpace(cmd.CustomerDisplayName), remark, cmd.Actor); err != nil {
 		return catalogapp.Product{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("customer_custom_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{

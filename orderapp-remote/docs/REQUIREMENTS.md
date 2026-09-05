@@ -1749,3 +1749,10 @@
 - `DEV-628-PRODUCT-EXPLICIT-OWNERSHIP`：统一商品创建接口接收 `ownership_type=factory|customer`。页面建档必须显式选择归属；客户专属商品必须选择有效客户，并在同一事务创建 `customer_only` 商品和有效客户引用。公共商品可幂等关联多个客户并分别维护客户名称、货号和供料方式；客户专属商品只能关联归属客户，客户名称不修改公共主档、BOM、规格或工艺路线。
 - `DEV-628-MATERIAL-CUSTOMER-REFERENCES`：新增 `material_customer_references`。新建物料显式选择仅工厂使用或一个／多个客户，物料主档与关联同事务保存；已有物料可停用、恢复或新增客户关联。客户筛选与客户账号查询只返回有效关联物料，关联不转移库存、成本或 `owner_customer_id`。
 - `DEV-628-DEVELOPMENT-REPAIR-ACCEPTANCE`：真实 PostgreSQL 与页面验证普通／客户商品创建均无 SQLSTATE 42P08，重复关联不产生重复有效记录，停用后立即退出客户范围。仅在 development 对商品 1073 `test`、1074 `test2` 做带 BOM、订单、现有引用前置检查的事务纠正，改为客户 74 专属并写操作日志；生产环境不变。
+
+# PR-629-PRODUCT-CATALOG-WAREHOUSE-SOURCE 商品归属交互与仓库领料统一（2026-09-05）
+
+- `DEV-629-CATALOG-OWNERSHIP-UX`：商品和物料的工厂视图使用可按客户名称模糊搜索的归属筛选。商品列使用“商品来源／商品归属”，物料列使用“物料归属”；关联操作统一为蓝色文字“复制到客户”。商品的主档复制按钮改为“复制”并放在最后。复制到客户只创建或更新同一主档的客户引用，客户商品名可直接编辑，成功后提示按客户名称过滤查看。
+- `DEV-629-WAREHOUSE-COMPONENT-SOURCES`：商品与客户引用不再配置供料方式。生产计划草稿按每个最终库存输入明确选择来源仓及货主，提交时冻结到工单预留；预留、领料、开工、耗用、退料和取消统一按仓库、货主与批次校验。缺料只报告所选来源缺口，不自动借用工厂或其他客户库存；成品货主由目标仓决定，共享 WIP 按批次货主隔离。
+- `DEV-629-LEGACY-SOURCE-CUTOVER`：新订单不再保存或使用 `material_source_mode`，不再生成客户专用订单生产需求；普通销售订单和代加工订单进入同一生产需求。迁移工具提供 preview/apply/verify，把未完成客户需求、计划、工单及预留转换为仓库货主来源，保留已预留、领用、耗用、退回与批次数据，无法唯一映射时整体中止。已完成和已取消业务快照保持不变。
+- `DEV-629-DEVELOPMENT-ACCEPTANCE`：按 TDD 完成单元、API、真实 PostgreSQL、Vue 与构建检查，更新商品物料、订单、生产和履约手册；在 development 验证客户仓领料、工厂仓领料、同一工单多来源、缺料不串货主、取消释放、重复提交幂等、历史迁移数量守恒及页面交互。合入并部署 development，production 不操作。

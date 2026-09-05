@@ -144,7 +144,7 @@ func parseCreateOrderAmount(raw, field string) (float64, error) {
 
 func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.OrderItemCommand {
 	items := make([]salesapp.OrderItemCommand, 0)
-	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.ParentProductID, req.ItemParentProductID, req.BomSpecID, req.BomVariantID, req.CustomerProductAliasID, req.CustomerProductReferenceID, req.MaterialSourceMode, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
+	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.ParentProductID, req.ItemParentProductID, req.BomSpecID, req.BomVariantID, req.CustomerProductAliasID, req.CustomerProductReferenceID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
 		pidStr := strings.TrimSpace(getStr(req.ProductID, i))
 		name := strings.TrimSpace(getStr(req.ItemName, i))
 		if pidStr == "" && name == "" {
@@ -155,7 +155,6 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 			// Note: strings.TrimSpace(getStr(req.ItemNote, i))
 			Note:                               strings.TrimSpace(getStr(req.ItemNote, i)),
 			CustomerProductDisplayNameSnapshot: strings.TrimSpace(getStr(req.CustomerProductDisplayNameSnapshot, i)),
-			MaterialSourceMode:                 strings.TrimSpace(getStr(req.MaterialSourceMode, i)),
 			CustomerItemCodeSnapshot:           strings.TrimSpace(getStr(req.CustomerItemCodeSnapshot, i)),
 			BrandNameSnapshot:                  strings.TrimSpace(getStr(req.BrandNameSnapshot, i)),
 			ProductCodeSnapshot:                strings.TrimSpace(getStr(req.ProductCodeSnapshot, i)),

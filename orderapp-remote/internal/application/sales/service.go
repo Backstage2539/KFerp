@@ -77,7 +77,6 @@ type OrderItemCommand struct {
 	BomVariantID                       int64
 	CustomerProductAliasID             int64
 	CustomerProductReferenceID         int64
-	MaterialSourceMode                 string
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
 	BrandNameSnapshot                  string
@@ -375,7 +374,6 @@ type ProductOption struct {
 	CustomerProductReferenceID       int64               `json:"customer_product_reference_id,omitempty"`
 	CustomerProductDisplayName       string              `json:"customer_product_display_name,omitempty"`
 	CustomerItemCode                 string              `json:"customer_item_code,omitempty"`
-	MaterialSourceMode               string              `json:"material_source_mode,omitempty"`
 	BrandName                        string              `json:"brand_name,omitempty"`
 	CustomerAliasDisplayCategoryID   int64               `json:"customer_alias_display_category_id,omitempty"`
 	CustomerAliasDisplayCategoryName string              `json:"customer_alias_display_category_name,omitempty"`

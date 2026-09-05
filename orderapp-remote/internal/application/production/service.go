@@ -560,9 +560,50 @@ type ProductionPlanDetail struct {
 	OperationSplits   []ProductionPlanOperationSplit   `json:"operation_splits"`
 	MaterialSummary   []MaterialNeed                   `json:"material_summary"`
 	SupplyGaps        []ProductionPlanSupplyGap        `json:"supply_gaps"`
+	ComponentSources  []ProductionPlanComponentSource  `json:"component_sources"`
 	ManufacturingPlan ProductionManufacturingPlan      `json:"manufacturing_plan"`
 	RelatedWorkOrders []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
 	JobCardCount      int64                            `json:"job_card_count"`
+}
+
+type ProductionPlanComponentSourceOption struct {
+	Warehouse       string `json:"warehouse"`
+	WarehouseName   string `json:"warehouse_name"`
+	OwnerCustomerID int64  `json:"owner_customer_id"`
+	OwnerName       string `json:"owner_name"`
+	AvailableG      int64  `json:"available_g"`
+	AvailableUnits  int64  `json:"available_units"`
+}
+
+type ProductionPlanComponentSource struct {
+	ID                     int64                                 `json:"id"`
+	ProductionPlanID       int64                                 `json:"production_plan_id"`
+	ProductionPlanItemID   int64                                 `json:"production_plan_item_id"`
+	BOMVersionID           int64                                 `json:"bom_version_id"`
+	ComponentType          string                                `json:"component_type"`
+	ComponentID            int64                                 `json:"component_id"`
+	ComponentBOMSpecID     int64                                 `json:"component_bom_spec_id"`
+	ComponentBOMVariantID  int64                                 `json:"component_bom_variant_id"`
+	ComponentSpecG         int64                                 `json:"component_spec_g"`
+	ComponentName          string                                `json:"component_name"`
+	Unit                   string                                `json:"unit"`
+	RequiredG              int64                                 `json:"required_g"`
+	RequiredUnits          int64                                 `json:"required_units"`
+	SourceWarehouse        string                                `json:"source_warehouse"`
+	SourceOwnerCustomerID  int64                                 `json:"source_owner_customer_id"`
+	AvailableGSnapshot     int64                                 `json:"available_g_snapshot"`
+	AvailableUnitsSnapshot int64                                 `json:"available_units_snapshot"`
+	ShortageG              int64                                 `json:"shortage_g"`
+	ShortageUnits          int64                                 `json:"shortage_units"`
+	Selected               bool                                  `json:"selected"`
+	Options                []ProductionPlanComponentSourceOption `json:"options"`
+}
+
+type UpdateProductionPlanItemComponentSourcesCommand struct {
+	ProductionPlanID     int64
+	ProductionPlanItemID int64
+	Sources              []ProductionPlanComponentSource
+	Operator             string
 }
 
 type ProductionManufacturingPlan struct {
@@ -1400,25 +1441,26 @@ type StockDocumentPreview struct {
 }
 
 type StockEntryItemCommand struct {
-	MaterialID    int64   `json:"material_id"`
-	ProductID     int64   `json:"product_id"`
-	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
-	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
-	ItemType      string  `json:"item_type"`
-	ItemName      string  `json:"item_name"`
-	SpecG         int64   `json:"spec_g"`
-	FromWarehouse string  `json:"from_warehouse"`
-	ToWarehouse   string  `json:"to_warehouse"`
-	QtyG          int64   `json:"qty_g"`
-	QtyUnits      int64   `json:"qty_units"`
-	InventoryUnit string  `json:"inventory_unit,omitempty"`
-	QuantityBasis string  `json:"quantity_basis,omitempty"`
-	RequiredQty   float64 `json:"required_qty,omitempty"`
-	RemainingQty  float64 `json:"remaining_qty"`
-	RememberedQty float64 `json:"remembered_qty,omitempty"`
-	DefaultQty    float64 `json:"default_qty,omitempty"`
-	BatchCode     string  `json:"batch_code"`
-	UnitCost      float64 `json:"unit_cost"`
+	MaterialID      int64   `json:"material_id"`
+	ProductID       int64   `json:"product_id"`
+	BomSpecID       int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID    int64   `json:"bom_variant_id,omitempty"`
+	ItemType        string  `json:"item_type"`
+	ItemName        string  `json:"item_name"`
+	SpecG           int64   `json:"spec_g"`
+	FromWarehouse   string  `json:"from_warehouse"`
+	ToWarehouse     string  `json:"to_warehouse"`
+	OwnerCustomerID int64   `json:"owner_customer_id,omitempty"`
+	QtyG            int64   `json:"qty_g"`
+	QtyUnits        int64   `json:"qty_units"`
+	InventoryUnit   string  `json:"inventory_unit,omitempty"`
+	QuantityBasis   string  `json:"quantity_basis,omitempty"`
+	RequiredQty     float64 `json:"required_qty,omitempty"`
+	RemainingQty    float64 `json:"remaining_qty"`
+	RememberedQty   float64 `json:"remembered_qty,omitempty"`
+	DefaultQty      float64 `json:"default_qty,omitempty"`
+	BatchCode       string  `json:"batch_code"`
+	UnitCost        float64 `json:"unit_cost"`
 }
 
 type StockEntryQuery struct {
@@ -1450,22 +1492,23 @@ type StockEntryRow struct {
 }
 
 type StockEntryItemRow struct {
-	ID            int64   `json:"id"`
-	StockEntryID  int64   `json:"stock_entry_id"`
-	MaterialID    int64   `json:"material_id"`
-	ProductID     int64   `json:"product_id"`
-	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
-	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
-	ItemType      string  `json:"item_type"`
-	ItemName      string  `json:"item_name"`
-	SpecG         int64   `json:"spec_g"`
-	FromWarehouse string  `json:"from_warehouse"`
-	ToWarehouse   string  `json:"to_warehouse"`
-	QtyG          int64   `json:"qty_g"`
-	QtyUnits      int64   `json:"qty_units"`
-	BatchCode     string  `json:"batch_code"`
-	UnitCost      float64 `json:"unit_cost"`
-	TotalCost     float64 `json:"total_cost"`
+	ID              int64   `json:"id"`
+	StockEntryID    int64   `json:"stock_entry_id"`
+	MaterialID      int64   `json:"material_id"`
+	ProductID       int64   `json:"product_id"`
+	BomSpecID       int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID    int64   `json:"bom_variant_id,omitempty"`
+	ItemType        string  `json:"item_type"`
+	ItemName        string  `json:"item_name"`
+	SpecG           int64   `json:"spec_g"`
+	FromWarehouse   string  `json:"from_warehouse"`
+	ToWarehouse     string  `json:"to_warehouse"`
+	OwnerCustomerID int64   `json:"owner_customer_id,omitempty"`
+	QtyG            int64   `json:"qty_g"`
+	QtyUnits        int64   `json:"qty_units"`
+	BatchCode       string  `json:"batch_code"`
+	UnitCost        float64 `json:"unit_cost"`
+	TotalCost       float64 `json:"total_cost"`
 }
 
 type StockEntryDetail struct {
@@ -1755,11 +1798,22 @@ type workOrderStockDraftRepository interface {
 	GetWorkOrderStockDocumentDraft(ctx context.Context, workOrderID int64, action string, stockDocumentID int64) (*StockEntryCommand, error)
 }
 
+// workOrderFrozenSourceDocumentRepository supplies the exact material batches
+// frozen when a production plan was submitted. It keeps issue documents on the
+// same warehouse and owner boundary as the work-order reservation.
+type workOrderFrozenSourceDocumentRepository interface {
+	GetWorkOrderFrozenSourceIssueItems(ctx context.Context, workOrderID int64) (bool, []StockEntryItemCommand, error)
+}
+
 // productionPlanTargetWarehouseRepository is optional so focused adapters and
 // existing application fakes remain source-compatible. PostgreSQL implements
 // the draft-only, audited warehouse freeze used by the production-plan API.
 type productionPlanTargetWarehouseRepository interface {
 	UpdateProductionPlanItemTargetWarehouse(ctx context.Context, cmd UpdateProductionPlanItemTargetWarehouseCommand) (ProductionPlanItem, error)
+}
+
+type productionPlanComponentSourceRepository interface {
+	UpdateProductionPlanItemComponentSources(ctx context.Context, cmd UpdateProductionPlanItemComponentSourcesCommand) ([]ProductionPlanComponentSource, error)
 }
 
 type Service struct {
@@ -1931,6 +1985,30 @@ func (s *Service) UpdateProductionPlanItemTargetWarehouse(ctx context.Context, c
 		return ProductionPlanItem{}, fmt.Errorf("production plan target warehouse update not supported")
 	}
 	return repo.UpdateProductionPlanItemTargetWarehouse(ctx, cmd)
+}
+
+func (s *Service) UpdateProductionPlanItemComponentSources(ctx context.Context, cmd UpdateProductionPlanItemComponentSourcesCommand) ([]ProductionPlanComponentSource, error) {
+	if cmd.ProductionPlanID <= 0 {
+		return nil, fmt.Errorf("production_plan_id required")
+	}
+	if cmd.ProductionPlanItemID <= 0 {
+		return nil, fmt.Errorf("production_plan_item_id required")
+	}
+	if len(cmd.Sources) == 0 {
+		return nil, fmt.Errorf("component sources required")
+	}
+	for i := range cmd.Sources {
+		cmd.Sources[i].SourceWarehouse = strings.TrimSpace(cmd.Sources[i].SourceWarehouse)
+		if cmd.Sources[i].ComponentID <= 0 || cmd.Sources[i].SourceWarehouse == "" {
+			return nil, fmt.Errorf("component identity and source warehouse required")
+		}
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	repo, ok := s.repo.(productionPlanComponentSourceRepository)
+	if !ok {
+		return nil, fmt.Errorf("production plan component source update not supported")
+	}
+	return repo.UpdateProductionPlanItemComponentSources(ctx, cmd)
 }
 
 func (s *Service) SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error) {
@@ -2221,6 +2299,21 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 	case "finish":
 		document.Purpose = "manufacture"
 		document.Note = "完工入库"
+	}
+	if cmd.Action == "issue" || cmd.Action == "supplement" {
+		if frozenRepo, ok := s.repo.(workOrderFrozenSourceDocumentRepository); ok {
+			usesFrozenSources, items, err := frozenRepo.GetWorkOrderFrozenSourceIssueItems(ctx, detail.WorkOrder.ID)
+			if err != nil {
+				return StockDocumentPreview{}, err
+			}
+			if usesFrozenSources {
+				if len(items) == 0 {
+					return StockDocumentPreview{}, fmt.Errorf("所选来源批次已在在制仓，或没有待领用物料")
+				}
+				document.Items = items
+				return StockDocumentPreview{Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: document}, nil
+			}
+		}
 	}
 	if cmd.Action == "finish" {
 		workOrder := detail.WorkOrder

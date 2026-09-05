@@ -182,12 +182,15 @@
                   </select>
                 </label>
                 <label v-if="!skuContextCustomerID">
-                  <span>档案归属</span>
-                  <select v-model="skuOwnerFilter">
-                    <option value="all">全部</option>
-                    <option value="factory">工厂公共商品</option>
-                    <option value="customer">客户专属商品</option>
-                  </select>
+                  <span>商品归属</span>
+                  <SearchableSelect
+                    v-model="skuOwnerFilter"
+                    :options="productOwnershipFilterOptions"
+                    option-label="label"
+                    option-value="value"
+                    placeholder="全部或搜索客户名称"
+                    empty-value="all"
+                    empty-text="没有匹配的客户" />
                 </label>
                 <div class="filter-actions sku-list-actions">
                   <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
@@ -213,13 +216,13 @@
                       <th class="sku-name-cell">商品名</th>
                       <th>商品编号</th>
                       <th>行业字段</th>
-                      <th>归属</th>
-                      <th>客户关联</th>
-                      <th class="action-cell">新增动作</th>
+                      <th>商品来源</th>
+                      <th>商品归属</th>
                       <th>价格摘要</th>
                       <th>商品状态</th>
                       <th>处理</th>
                       <th class="remark-cell">备注</th>
+                      <th class="action-cell">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -254,10 +257,6 @@
                         </td>
                         <td>{{ productOwnerLabel(row) }}</td>
                         <td>{{ productCustomerReferenceSummary(row) }}</td>
-                        <td class="action-cell">
-                          <button class="text-button" type="button" @click="copyProductArchive(row)">复制为商品档案</button>
-                          <button class="text-button" type="button" :disabled="row.active === false" @click="openProductReferenceEditor(row)">客户关联</button>
-                        </td>
                         <td class="price-summary-cell">{{ productPriceSummaryLabel(row) }}</td>
                         <td>
                           <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
@@ -272,6 +271,10 @@
                             rows="2"
                             :disabled="!canEditSkuRow(row) || row.active === false"
                             @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
+                        </td>
+                        <td class="action-cell">
+                          <button class="text-button" type="button" :disabled="row.active === false" @click="openProductReferenceEditor(row)">复制到客户</button>
+                          <button class="text-button" type="button" @click="copyProductArchive(row)">复制</button>
                         </td>
                       </tr>
                     </template>
@@ -302,7 +305,7 @@
           <div class="panel-title">
             <span>客户商品 · {{ aliasCustomerLabel }}</span>
           </div>
-          <p class="muted">客户商品只维护对外名称、编号、重命名和价格表展示；生产结构回到生产 BOM 维护，商品档案只提供库存对象和反查入口。</p>
+          <p class="muted">客户商品只维护对外名称、编号和价格表展示；生产结构回到生产 BOM 维护，商品档案只提供库存对象和反查入口。</p>
           <div class="alias-filters alias-filter-row">
             <label>
               <span>客户</span>
@@ -1433,13 +1436,6 @@
                 <span>客户货号</span>
                 <input v-model.trim="skuForm.customer_item_code" placeholder="可选" />
               </label>
-              <label>
-                <span>供料方式</span>
-                <select v-model="skuForm.material_source_mode">
-                  <option value="factory">工厂供料</option>
-                  <option value="customer">客户来料</option>
-                </select>
-              </label>
             </template>
             <p class="muted wide-field new-product-bom-spec-hint">建档后请到 BOM 创建至少一个规格，并维护该规格的库存单位与完整配方；商品档案不再维护销售规格模板或派生子 SKU。</p>
             <div class="form-actions">
@@ -1454,7 +1450,7 @@
       <aside class="settings-drawer customer-alias-create-drawer" aria-label="新建客户商品">
         <div class="drawer-head">
           <div>
-            <h3>{{ productReferenceEditorActive ? '商品客户关联' : '新建客户商品' }}</h3>
+            <h3>{{ productReferenceEditorActive ? '复制到客户' : '新建客户商品' }}</h3>
             <p>{{ aliasCustomerLabel }}</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeCustomerAliasCreateDrawer">关闭</button>
@@ -1485,19 +1481,8 @@
                 empty-text="暂无商品档案" />
             </label>
             <label>
-              <span>客户商品</span>
+              <span>客户商品名</span>
               <input v-model.trim="customerProductAliasForm.display_name" required placeholder="客户对外展示名称" />
-            </label>
-            <label>
-              <span>重命名</span>
-              <input v-model.trim="customerProductAliasForm.brand_name" placeholder="留空则使用客户商品" />
-            </label>
-            <label>
-              <span>供料方式</span>
-              <select v-model="customerProductAliasForm.material_source_mode">
-                <option value="factory">工厂供料</option>
-                <option value="customer">客户来料</option>
-              </select>
             </label>
             <label>
               <span>排序</span>
@@ -1959,6 +1944,7 @@ import {
   categoryBelongsToSkuContext as categoryBelongsToContext,
   categoryDisplayState,
   customerSkuCustomerOptions,
+  filterProductsByOwnership,
   customerProductAliasRowsForCustomer,
   filterSkuRows,
   groupRowsByClassificationCategory,
@@ -2430,6 +2416,14 @@ const factorySkuRows = computed(() => productArchiveRowsWithSkus(sortRowsForCust
   0,
 )))
 const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
+const productOwnershipFilterOptions = computed(() => [
+  { value: 'all', label: '全部' },
+  { value: 'factory', label: '工厂公共商品' },
+  ...customerSkuCustomers.value.map((customer) => ({
+    value: `customer:${Number(customer.id || 0)}`,
+    label: String(customer.name || `客户 #${customer.id}`),
+  })),
+])
 const aliasCustomerLabel = computed(() => {
   const customerID = Number(selectedAliasCustomerID.value || 0)
   if (!customerID) return '请选择客户'
@@ -2512,11 +2506,9 @@ const customerSkuRowsRaw = computed(() => {
 })
 const customerSkuRows = computed(() => productArchiveRowsWithSkus(customerSkuRowsRaw.value))
 const currentSkuSourceRows = computed(() => (
-  skuContextCustomerID.value > 0 ? customerSkuRows.value : factorySkuRows.value.filter((row) => {
-    if (skuOwnerFilter.value === 'factory') return Number(row.customer_id || 0) === 0
-    if (skuOwnerFilter.value === 'customer') return Number(row.customer_id || 0) > 0
-    return true
-  })
+  skuContextCustomerID.value > 0
+    ? customerSkuRows.value
+    : filterProductsByOwnership(factorySkuRows.value, skuOwnerFilter.value, productCustomerReferences.value, customers.value)
 ).slice())
 const normalizedSkuFilters = computed(() => normalizeVisibleSkuFilters(skuFilters.value, currentSkuSourceRows.value))
 const filteredSkuRows = computed(() => filterSkuRows(currentSkuSourceRows.value, normalizedSkuFilters.value))
@@ -2737,7 +2729,6 @@ function defaultSkuForm() {
     customer_id: 0,
     customer_display_name: '',
     customer_item_code: '',
-    material_source_mode: 'factory',
     unit_template_id: unitTemplateID,
     unit_rule_override_enabled: false,
     inventory_unit: 'kg',
@@ -2757,12 +2748,10 @@ function defaultCustomerProductAliasForm() {
     product_id: 0,
     display_name: '',
     customer_item_code: '',
-    brand_name: '',
     display_category_id: 0,
     product_config_template_id: 0,
     sort_order: 0,
     include_in_price_list: true,
-    material_source_mode: 'factory',
     active: true,
     remark: '',
   }
@@ -3327,7 +3316,6 @@ function decorateCustomerProductAlias(alias = {}) {
     sort_order: Number(alias.sort_order || 0),
     include_in_price_list: alias.include_in_price_list !== false,
     active: alias.active !== false,
-    material_source_mode: String(alias.material_source_mode || 'factory').toLowerCase() === 'customer' ? 'customer' : 'factory',
     remark: alias.remark || '',
     product_code: alias.product_code || '',
     product_name: alias.product_name || '',
@@ -3349,10 +3337,8 @@ function decorateProductCustomerReference(reference = {}) {
     product_id: productID,
     display_name: displayName,
     customer_item_code: reference.customer_item_code || '',
-    brand_name: '',
     include_in_price_list: true,
     sort_order: 0,
-    material_source_mode: String(reference.material_source_mode || 'factory').toLowerCase() === 'customer' ? 'customer' : 'factory',
     product_code: product.code || product.number || '',
     product_name: product.name || '',
   })
@@ -5429,7 +5415,7 @@ function activeProductCustomerReference(productID, customerID) {
 
 function productCustomerReferenceSummary(product = {}) {
   const activeRows = productCustomerReferences.value.filter((reference) => reference.active !== false && Number(reference.product_id || 0) === Number(product.id || 0))
-  if (!activeRows.length) return '未关联'
+  if (!activeRows.length) return '仅工厂'
   return activeRows.map((reference) => customerName(reference.customer_id) || `客户 #${reference.customer_id}`).join('、')
 }
 
@@ -5450,7 +5436,6 @@ function openProductReferenceEditor(product = {}) {
     customer_id: customerID,
     display_name: String(existing?.customer_display_name || product.name || '').trim(),
     customer_item_code: String(existing?.customer_item_code || '').trim(),
-    material_source_mode: String(existing?.material_source_mode || 'factory'),
     active: existing?.active !== false,
     remark: String(existing?.remark || '').trim(),
   }
@@ -5471,7 +5456,6 @@ function syncProductReferenceFormForCustomer() {
     customer_id: customerID,
     display_name: String(existing?.customer_display_name || product.name || '').trim(),
     customer_item_code: String(existing?.customer_item_code || '').trim(),
-    material_source_mode: String(existing?.material_source_mode || 'factory'),
     active: existing ? existing.active !== false : true,
     remark: String(existing?.remark || '').trim(),
   }
@@ -7121,7 +7105,6 @@ async function saveCustomerAliasBatch() {
           customer_id: payload.customer_id,
           product_id: productID,
           customer_display_name: productName(productID),
-          material_source_mode: 'factory',
           active: true,
         }),
       })
@@ -7160,7 +7143,7 @@ async function saveCustomerProductAlias() {
     return
   }
   if (!payload.customer_display_name) {
-    error.value = '请填写客户商品'
+    error.value = '请填写客户商品名'
     return
   }
   aliasSaving.value = true
@@ -7170,7 +7153,10 @@ async function saveCustomerProductAlias() {
     const url = payload.id ? `/api/product-customer-references/${payload.id}` : '/api/product-customer-references'
     const method = payload.id ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
-    ok.value = '客户商品已保存'
+    const copiedCustomerName = customerName(payload.customer_id) || `客户 #${payload.customer_id}`
+    ok.value = productReferenceEditorActive.value
+      ? `已复制到客户「${copiedCustomerName}」，请在「商品归属」中搜索“${copiedCustomerName}”查看。`
+      : '客户商品已保存'
     closeCustomerAliasCreateDrawer()
     await loadAll()
   } catch (err) {
@@ -7947,6 +7933,7 @@ watch(() => customForm.value.custom_type, () => {
 })
 
 watch(skuFilters, resetSkuGroupPages, { deep: true })
+watch(skuOwnerFilter, resetSkuGroupPages)
 
 watch(() => skuFilters.value.primaryCategory, () => {
   if (!skuSecondaryCategoryOptions.value.includes(skuFilters.value.secondaryCategory)) {

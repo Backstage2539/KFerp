@@ -1371,6 +1371,7 @@ func TestProductCustomerReferenceAPIReplacesCustomerProductMasterWrites(t *testi
 		"customer_id":42,
 		"customer_item_code":"KAREN-ESP-001",
 		"customer_display_name":"Karen 精品拼配",
+		"material_source_mode":"customer",
 		"active":true,
 		"remark":"打印和搜索使用"
 	}`))
@@ -1384,6 +1385,9 @@ func TestProductCustomerReferenceAPIReplacesCustomerProductMasterWrites(t *testi
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("customer reference response missing %s: %s", want, rec.Body.String())
 		}
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`material_source_mode`)) {
+		t.Fatalf("legacy material source mode must be ignored and omitted: %s", rec.Body.String())
 	}
 }
 
@@ -2027,8 +2031,11 @@ func TestProductSettingsAPICarriesExplicitCustomerOwnership(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/product-settings/products status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.createdPublic.OwnershipType != "customer" || repo.createdPublic.CustomerID != 74 || repo.createdPublic.CustomerDisplayName != "芬纳商品A" || repo.createdPublic.MaterialSourceMode != "customer" {
+	if repo.createdPublic.OwnershipType != "customer" || repo.createdPublic.CustomerID != 74 || repo.createdPublic.CustomerDisplayName != "芬纳商品A" {
 		t.Fatalf("explicit ownership command=%+v", repo.createdPublic)
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`material_source_mode`)) {
+		t.Fatalf("legacy material source mode must not be returned: %s", rec.Body.String())
 	}
 }
 

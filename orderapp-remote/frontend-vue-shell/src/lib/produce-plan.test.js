@@ -972,6 +972,39 @@ test('draft production plan items choose and freeze a target warehouse through t
   assert.match(source, /v-if="productionPlanSelectable\(productionPlanDetail\)"[\s\S]*v-else[\s\S]*targetWarehouseLabel\(item\.target_warehouse\)/)
 })
 
+test('production plan component source endpoint and payload freeze warehouse owner and BOM identity', () => {
+  assert.equal(
+    producePlan.productionPlanItemComponentSourcesEndpoint({ id: 41 }, { production_plan_item_id: 73 }),
+    '/api/production-plans/41/items/73/component-sources',
+  )
+  assert.deepEqual(producePlan.buildProductionPlanComponentSourcesPayload([{
+    component_type: 'material',
+    component_id: 91,
+    component_bom_spec_id: 0,
+    component_spec_g: 0,
+    source_warehouse: 'customer_74_raw',
+    source_owner_customer_id: 74,
+    material_source_mode: 'customer_supplied',
+  }]), {
+    sources: [{
+      component_type: 'material',
+      component_id: 91,
+      component_bom_spec_id: 0,
+      component_spec_g: 0,
+      source_warehouse: 'customer_74_raw',
+      source_owner_customer_id: 74,
+    }],
+  })
+})
+
+test('production plan page makes every BOM component source explicit before submit', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  assert.match(source, /组件来源仓/)
+  assert.match(source, /productionPlanItemComponentSourcesEndpoint/)
+  assert.match(source, /source_owner_customer_id/)
+  assert.match(source, /method:\s*'PUT'/)
+})
+
 test('submitted production plan cancellation is offered only while every related work order is unstarted', () => {
   assert.equal(producePlan.productionPlanCanCancelSubmitted({
     id: 41,

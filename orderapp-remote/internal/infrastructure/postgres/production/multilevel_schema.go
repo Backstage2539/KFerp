@@ -107,6 +107,36 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_plan_supply_gaps (
 CREATE INDEX IF NOT EXISTS production_plan_supply_gaps_plan_idx
 	ON %[1]s.production_plan_supply_gaps(production_plan_id, status, id);
 
+CREATE TABLE IF NOT EXISTS %[1]s.production_plan_component_sources (
+	id BIGSERIAL PRIMARY KEY,
+	production_plan_id BIGINT NOT NULL,
+	production_plan_item_id BIGINT NOT NULL,
+	bom_version_id BIGINT NOT NULL DEFAULT 0,
+	component_type TEXT NOT NULL DEFAULT 'material',
+	component_id BIGINT NOT NULL,
+	component_bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_variant_id BIGINT NOT NULL DEFAULT 0,
+	component_spec_g BIGINT NOT NULL DEFAULT 0,
+	component_name TEXT NOT NULL DEFAULT '',
+	unit TEXT NOT NULL DEFAULT '',
+	required_g BIGINT NOT NULL DEFAULT 0,
+	required_units BIGINT NOT NULL DEFAULT 0,
+	source_warehouse TEXT NOT NULL DEFAULT '',
+	source_owner_customer_id BIGINT NOT NULL DEFAULT 0,
+	available_g_snapshot BIGINT NOT NULL DEFAULT 0,
+	available_units_snapshot BIGINT NOT NULL DEFAULT 0,
+	selected_at TIMESTAMPTZ,
+	selected_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS production_plan_component_sources_identity_uq
+	ON %[1]s.production_plan_component_sources(
+		production_plan_item_id,component_type,component_id,component_bom_spec_id,component_spec_g
+	);
+CREATE INDEX IF NOT EXISTS production_plan_component_sources_plan_idx
+	ON %[1]s.production_plan_component_sources(production_plan_id,production_plan_item_id,id);
+
 CREATE TABLE IF NOT EXISTS %[1]s.work_order_dependencies (
 	id BIGSERIAL PRIMARY KEY,
 	work_order_id BIGINT NOT NULL,
@@ -177,6 +207,8 @@ ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS comp
 ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS component_bom_spec_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS component_bom_variant_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS source_warehouse TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS source_owner_customer_id BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.work_order_material_reservations
 SET component_type='material',component_id=material_id,component_spec_g=0
 WHERE component_id=0 AND material_id>0;
@@ -190,6 +222,7 @@ ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXIS
 ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS stock_batch_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_material_reservation_batches ALTER COLUMN material_batch_id SET DEFAULT 0;
 UPDATE %[1]s.work_order_material_reservation_batches
 SET component_type='material',component_id=material_id,component_spec_g=0

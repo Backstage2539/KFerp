@@ -249,6 +249,8 @@ func bindFinishedProductReservationBatchesTx(
 	tx pgx.Tx,
 	schema string,
 	reservationID, workOrderID, productID, bomSpecID, bomVariantID, specG, reserveG, reserveUnits int64,
+	warehouse string,
+	ownerCustomerID int64,
 ) error {
 	reserveG, reserveUnits = normalizeCustomerProcessingFinishedQuantity(specG, reserveG, reserveUnits)
 	if reservationID <= 0 || workOrderID <= 0 || productID <= 0 || (reserveG <= 0 && reserveUnits <= 0) {
@@ -290,11 +292,13 @@ func bindFinishedProductReservationBatchesTx(
 			  AND rb.reservation_id<>$4
 		) work_reserved ON true
 		WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3
+		  AND COALESCE(NULLIF(location.warehouse,''),'finished_goods')=$5
+		  AND COALESCE(b.owner_customer_id,0)=$6
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		  AND (b.remaining_g>0 OR b.remaining_units>0)
 		ORDER BY b.created_at,b.id
 		FOR UPDATE OF b
-	`, schema, schema, customerJoin, schema, schema), productID, bomSpecID, specG, reservationID)
+	`, schema, schema, customerJoin, schema, schema), productID, bomSpecID, specG, reservationID, warehouse, ownerCustomerID)
 	if err != nil {
 		return err
 	}
@@ -334,16 +338,17 @@ func bindFinishedProductReservationBatchesTx(
 			INSERT INTO %s.work_order_material_reservation_batches(
 				reservation_id,work_order_id,material_id,component_type,component_id,
 				component_bom_spec_id,component_bom_variant_id,component_spec_g,
-				material_batch_id,stock_batch_id,batch_code,warehouse,reserved_g,reserved_units,status,created_at,updated_at
-			) VALUES($1,$2,0,'product',$3,$4,$5,$6,0,$7,$8,$9,$10,$11,'reserved',now(),now())
+				material_batch_id,stock_batch_id,batch_code,warehouse,owner_customer_id,
+				reserved_g,reserved_units,status,created_at,updated_at
+			) VALUES($1,$2,0,'product',$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12,'reserved',now(),now())
 			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
 				component_bom_variant_id=excluded.component_bom_variant_id,
 				reserved_g=work_order_material_reservation_batches.reserved_g+excluded.reserved_g,
 				reserved_units=work_order_material_reservation_batches.reserved_units+excluded.reserved_units,
-				warehouse=excluded.warehouse,
+				warehouse=excluded.warehouse,owner_customer_id=excluded.owner_customer_id,
 				status='reserved',updated_at=now()
 		`, schema), reservationID, workOrderID, productID, bomSpecID, bomVariantID, specG,
-			batch.id, batch.code, batch.warehouse, addG, addUnits); err != nil {
+			batch.id, batch.code, batch.warehouse, ownerCustomerID, addG, addUnits); err != nil {
 			return err
 		}
 		remainingG -= addG
@@ -368,11 +373,12 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(
 	if runningItemID <= 0 || productID <= 0 || (producedG <= 0 && producedUnits <= 0) {
 		return nil
 	}
-	var upstreamWorkOrderID, stockBatchID int64
+	var upstreamWorkOrderID, stockBatchID, ownerCustomerID int64
 	var batchCode, warehouse string
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT wo.id,b.id,b.batch_code,
-		       COALESCE(NULLIF(location.warehouse,''),NULLIF(wo.target_warehouse,''),'finished_goods')
+		       COALESCE(NULLIF(location.warehouse,''),NULLIF(wo.target_warehouse,''),'finished_goods'),
+		       COALESCE(b.owner_customer_id,0)
 		FROM %s.work_orders wo
 		JOIN %s.stock_batches b
 		  ON b.source_doc_type='production_run' AND b.source_doc_id=wo.running_item_id
@@ -388,7 +394,7 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(
 		WHERE wo.running_item_id=$1
 		ORDER BY b.id DESC LIMIT 1
 		FOR UPDATE OF b
-	`, schema, schema, schema), runningItemID, productID, bomSpecID, specG).Scan(&upstreamWorkOrderID, &stockBatchID, &batchCode, &warehouse)
+	`, schema, schema, schema), runningItemID, productID, bomSpecID, specG).Scan(&upstreamWorkOrderID, &stockBatchID, &batchCode, &warehouse, &ownerCustomerID)
 	if err == pgx.ErrNoRows {
 		return nil
 	}
@@ -454,16 +460,16 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(
 			INSERT INTO %s.work_order_material_reservation_batches(
 				reservation_id,work_order_id,material_id,component_type,component_id,
 				component_bom_spec_id,component_bom_variant_id,component_spec_g,
-				material_batch_id,stock_batch_id,batch_code,warehouse,reserved_g,reserved_units,status,created_at,updated_at
-			) VALUES($1,$2,0,'product',$3,$4,$5,$6,0,$7,$8,$9,$10,$11,'reserved',now(),now())
+				material_batch_id,stock_batch_id,batch_code,warehouse,owner_customer_id,reserved_g,reserved_units,status,created_at,updated_at
+			) VALUES($1,$2,0,'product',$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12,'reserved',now(),now())
 			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
 				component_bom_variant_id=excluded.component_bom_variant_id,
 				reserved_g=work_order_material_reservation_batches.reserved_g+excluded.reserved_g,
 				reserved_units=work_order_material_reservation_batches.reserved_units+excluded.reserved_units,
-				warehouse=excluded.warehouse,
+				warehouse=excluded.warehouse,owner_customer_id=excluded.owner_customer_id,
 				status='reserved',updated_at=now()
 		`, schema), row.id, row.workOrderID, productID, bomSpecID, bomVariantID, specG,
-			stockBatchID, batchCode, warehouse, addG, batchUnits); err != nil {
+			stockBatchID, batchCode, warehouse, ownerCustomerID, addG, batchUnits); err != nil {
 			return err
 		}
 		remainingG -= addG
@@ -505,6 +511,7 @@ func consumeTypedFinishedProductReservationBatchesTx(
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT rb.id,rb.stock_batch_id,rb.batch_code,
 		       COALESCE(NULLIF(rb.warehouse,''),NULLIF(location.warehouse,''),'finished_goods'),
+		       COALESCE(rb.owner_customer_id,0),
 		       GREATEST(0,rb.reserved_g-rb.consumed_g-rb.returned_g)::bigint,
 		       GREATEST(0,rb.reserved_units-rb.consumed_units-rb.returned_units)::bigint,
 		       b.remaining_g,b.remaining_units
@@ -522,6 +529,7 @@ func consumeTypedFinishedProductReservationBatchesTx(
 		  AND rb.component_bom_spec_id=$3 AND rb.component_spec_g=$4
 		  AND rb.status='reserved' AND b.item_type='finished_product'
 		  AND b.item_id=$2 AND b.bom_spec_id=$3 AND b.spec_g=$4
+		  AND COALESCE(b.owner_customer_id,0)=COALESCE(rb.owner_customer_id,0)
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.created_at,b.id
 		FOR UPDATE OF rb,b
@@ -530,13 +538,15 @@ func consumeTypedFinishedProductReservationBatchesTx(
 		return nil, true, err
 	}
 	type reservedBatch struct {
-		bindingID, stockBatchID, reservedG, reservedUnits, stockG, stockUnits int64
-		batchCode, warehouse                                                  string
+		bindingID, stockBatchID, ownerCustomerID     int64
+		reservedG, reservedUnits, stockG, stockUnits int64
+		batchCode, warehouse                         string
 	}
 	batches := make([]reservedBatch, 0)
 	for rows.Next() {
 		var row reservedBatch
-		if err := rows.Scan(&row.bindingID, &row.stockBatchID, &row.batchCode, &row.warehouse, &row.reservedG, &row.reservedUnits, &row.stockG, &row.stockUnits); err != nil {
+		if err := rows.Scan(&row.bindingID, &row.stockBatchID, &row.batchCode, &row.warehouse, &row.ownerCustomerID,
+			&row.reservedG, &row.reservedUnits, &row.stockG, &row.stockUnits); err != nil {
 			rows.Close()
 			return nil, true, err
 		}
@@ -566,7 +576,7 @@ func consumeTypedFinishedProductReservationBatchesTx(
 		}
 		allocation := customerProcessingFinishedBatchAllocation{
 			StockBatchID: batch.stockBatchID, BatchCode: batch.batchCode, Warehouse: batch.warehouse,
-			QtyG: addG, QtyUnits: addUnits,
+			OwnerCustomerID: batch.ownerCustomerID, QtyG: addG, QtyUnits: addUnits,
 		}
 		if err := consumeFinishedStockBatchAllocationTx(ctx, tx, schema, allocation); err != nil {
 			return nil, true, err
@@ -653,21 +663,19 @@ func createMultilevelWorkOrderReservationsTx(ctx context.Context, tx pgx.Tx, sch
 			componentType, componentID, componentSpecG := manufacturingNeedIdentity(need)
 			componentBomSpecID, componentBomVariantID := manufacturingNeedBOMSpecIdentity(need)
 			requiredG, requiredUnits := manufacturingNeedCanonicalQuantities(need)
-			availableG, availableUnits := int64(0), int64(0)
-			if componentType == "product" {
-				availableG, availableUnits, err = finishedProductAvailableForPlanningIdentityTx(ctx, tx, schema, componentID, componentBomSpecID, componentSpecG, workOrderID)
-			} else {
-				coverage, coverageErr := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, workOrderID, []materialConsumptionNeed{need})
-				err = coverageErr
-				if len(coverage) > 0 {
-					availableG, availableUnits = coverage[0].AvailableG, coverage[0].AvailableUnits
-				}
-			}
+			source, hasSource, err := productionPlanComponentSourceForIdentityTx(
+				ctx, tx, schema, item.ID, componentType, componentID, componentBomSpecID, componentSpecG,
+			)
 			if err != nil {
 				return err
 			}
-			reservedG := minInt64(requiredG, availableG)
-			reservedUnits := minInt64(requiredUnits, availableUnits)
+			reservedG, reservedUnits := int64(0), int64(0)
+			if hasSource {
+				if strings.TrimSpace(source.SourceWarehouse) == "" {
+					return fmt.Errorf("production plan component source is not selected: %s", need.MaterialName)
+				}
+				reservedG, reservedUnits = source.RequiredG, source.RequiredUnits
+			}
 			materialID := int64(0)
 			if componentType == "material" {
 				materialID = componentID
@@ -677,19 +685,26 @@ func createMultilevelWorkOrderReservationsTx(ctx context.Context, tx pgx.Tx, sch
 				INSERT INTO %s.work_order_material_reservations(
 					work_order_id,running_item_id,material_id,material_name,unit,component_type,component_id,
 					component_bom_spec_id,component_bom_variant_id,component_spec_g,
-					required_g,required_units,reserved_g,reserved_units,status,created_at,updated_at
-				) VALUES($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'reserved',now(),now())
+					required_g,required_units,reserved_g,reserved_units,source_warehouse,source_owner_customer_id,
+					status,created_at,updated_at
+				) VALUES($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'reserved',now(),now())
 				RETURNING id
 			`, schema), workOrderID, materialID, need.MaterialName, strings.TrimSpace(need.Unit), componentType, componentID,
 				componentBomSpecID, componentBomVariantID, componentSpecG,
-				requiredG, requiredUnits, reservedG, reservedUnits).Scan(&reservationID); err != nil {
+				requiredG, requiredUnits, reservedG, reservedUnits, source.SourceWarehouse, source.SourceOwnerCustomerID).Scan(&reservationID); err != nil {
 				return err
 			}
-			if componentType == "product" {
+			if componentType == "product" && hasSource {
 				if err := bindFinishedProductReservationBatchesTx(
 					ctx, tx, schema, reservationID, workOrderID, componentID,
 					componentBomSpecID, componentBomVariantID, componentSpecG, reservedG, reservedUnits,
+					source.SourceWarehouse, source.SourceOwnerCustomerID,
 				); err != nil {
+					return err
+				}
+			} else if componentType == "material" && hasSource {
+				if err := bindMaterialReservationBatchesTx(ctx, tx, schema, reservationID, workOrderID, materialID,
+					source.SourceWarehouse, source.SourceOwnerCustomerID, reservedG, reservedUnits); err != nil {
 					return err
 				}
 			}
@@ -762,6 +777,87 @@ func ensureWorkOrderDependenciesCompletedTx(ctx context.Context, tx pgx.Tx, sche
 	reservationRows.Close()
 	if len(blockers) > 0 {
 		return fmt.Errorf("上游依赖工单尚未完成: %s", strings.Join(blockers, ", "))
+	}
+	return nil
+}
+
+func workOrderUsesFrozenComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM %s.work_orders wo
+			WHERE wo.id=$1 AND (
+				EXISTS(SELECT 1 FROM %s.production_plan_component_sources source WHERE source.production_plan_item_id=wo.production_plan_item_id)
+				OR EXISTS(SELECT 1 FROM %s.work_order_dependencies dependency WHERE dependency.work_order_id=wo.id)
+			)
+		)
+	`, schema, schema, schema), workOrderID).Scan(&exists)
+	return exists, err
+}
+
+func ensureWorkOrderFrozenSourceBatchesTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64) error {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id,component_type,component_id,component_bom_spec_id,component_spec_g,material_name,
+		       required_g,required_units,source_warehouse,source_owner_customer_id
+		FROM %s.work_order_material_reservations
+		WHERE work_order_id=$1 AND status='reserved'
+		ORDER BY id FOR UPDATE
+	`, schema), workOrderID)
+	if err != nil {
+		return err
+	}
+	type reservation struct {
+		id, componentID, bomSpecID, specG, requiredG, requiredUnits, ownerCustomerID int64
+		componentType, name, warehouse                                               string
+	}
+	reservations := make([]reservation, 0)
+	for rows.Next() {
+		var row reservation
+		if err := rows.Scan(&row.id, &row.componentType, &row.componentID, &row.bomSpecID, &row.specG, &row.name,
+			&row.requiredG, &row.requiredUnits, &row.warehouse, &row.ownerCustomerID); err != nil {
+			rows.Close()
+			return err
+		}
+		reservations = append(reservations, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, row := range reservations {
+		var availableG, availableUnits int64
+		if strings.EqualFold(row.componentType, "product") {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(LEAST(GREATEST(0,binding.reserved_g-binding.consumed_g-binding.returned_g),GREATEST(0,batch.remaining_g))),0)::bigint,
+				       COALESCE(SUM(LEAST(GREATEST(0,binding.reserved_units-binding.consumed_units-binding.returned_units),GREATEST(0,batch.remaining_units))),0)::bigint
+				FROM %s.work_order_material_reservation_batches binding
+				JOIN %s.stock_batches batch ON batch.id=binding.stock_batch_id
+				WHERE binding.reservation_id=$1 AND binding.status='reserved'
+				  AND COALESCE(batch.owner_customer_id,0)=COALESCE(binding.owner_customer_id,0)
+				  AND COALESCE(batch.quality_status,'unchecked') NOT IN ('hold','reject')
+			`, schema, schema), row.id).Scan(&availableG, &availableUnits)
+		} else {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(LEAST(GREATEST(0,binding.reserved_g-binding.consumed_g-binding.returned_g),GREATEST(0,location.qty_g))),0)::bigint,
+				       COALESCE(SUM(LEAST(GREATEST(0,binding.reserved_units-binding.consumed_units-binding.returned_units),GREATEST(0,location.qty_units))),0)::bigint
+				FROM %s.work_order_material_reservation_batches binding
+				JOIN %s.material_batches batch ON batch.id=binding.material_batch_id
+				JOIN %s.material_batch_locations location
+				  ON location.material_batch_id=batch.id AND location.warehouse=COALESCE(NULLIF(binding.warehouse,''),'wip')
+				WHERE binding.reservation_id=$1 AND binding.status='reserved'
+				  AND COALESCE(batch.owner_customer_id,0)=COALESCE(binding.owner_customer_id,0)
+				  AND COALESCE(batch.quality_status,'unchecked') NOT IN ('hold','reject')
+			`, schema, schema, schema), row.id).Scan(&availableG, &availableUnits)
+		}
+		if err != nil {
+			return err
+		}
+		if availableG < row.requiredG || availableUnits < row.requiredUnits {
+			return fmt.Errorf("来源仓预留不足：%s / %s / 货主%d，缺少 %dg/%d units", row.name, row.warehouse,
+				row.ownerCustomerID, nonnegativeQuantity(row.requiredG-availableG), nonnegativeQuantity(row.requiredUnits-availableUnits))
+		}
 	}
 	return nil
 }

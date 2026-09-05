@@ -25,7 +25,7 @@ func TestDev377ProductConfigKVSKUReferenceLayoutSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"复制为客户配置",
-			"复制为商品档案",
+			">复制</button>",
 			"copyProductArchive",
 			"sku-table-wrap",
 			"sku-category-cell",
