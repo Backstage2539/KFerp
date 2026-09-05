@@ -1957,7 +1957,7 @@ import {
   normalizeProductBomSpecs,
 } from '../lib/product-spec-cutover'
 import { replaceHistoryURL } from '../lib/url-state'
-import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+import { CUSTOMER_WORKSPACE_MODE, customerWorkspaceDisplayName, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
   sectionMode: { type: String, default: '' },
@@ -2154,7 +2154,7 @@ const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOME
 const selectedSkuContextLabel = computed(() => {
   const customerID = skuContextCustomerID.value
   if (!customerID) return '全部商品'
-  return `${customerName(customerID) || `客户 #${customerID}`} 商品`
+  return `${customerWorkspaceDisplayName(customerID, customers.value, props.customerContextLabel)} 商品`
 })
 const flatPublicCategories = computed(() => flattenCategoryNodes(categories.value).filter((category) => Number(category.customer_id || 0) === 0))
 const flatCustomerCategories = computed(() => flattenCategoryNodes(categories.value).filter((category) => Number(category.customer_id || 0) === skuContextCustomerID.value))

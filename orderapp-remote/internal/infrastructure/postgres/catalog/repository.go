@@ -496,7 +496,7 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
 			special_attrs_json, unit_rule_override_json, unit_template_id, created_at
 		)
-		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,$14,0,CASE WHEN $14>0 THEN 'customer_only' ELSE 'public' END,'',$15,$16,$17::jsonb,$18::jsonb,$19,now())
+		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,$14::bigint,0,CASE WHEN $14::bigint>0 THEN 'customer_only' ELSE 'public' END,'',$15,$16,$17::jsonb,$18::jsonb,$19,now())
 		RETURNING id
 	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, cmd.CustomerID, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
