@@ -2008,6 +2008,30 @@ func TestProductSettingsAPICreatesGreenBeanProductWithBomBinding(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPICarriesExplicitCustomerOwnership(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", strings.NewReader(`{
+		"name":"芬纳专属商品A",
+		"ownership_type":"customer",
+		"customer_id":74,
+		"customer_display_name":"芬纳商品A",
+		"customer_item_code":"FN-A",
+		"material_source_mode":"customer"
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/product-settings/products status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.createdPublic.OwnershipType != "customer" || repo.createdPublic.CustomerID != 74 || repo.createdPublic.CustomerDisplayName != "芬纳商品A" || repo.createdPublic.MaterialSourceMode != "customer" {
+		t.Fatalf("explicit ownership command=%+v", repo.createdPublic)
+	}
+}
+
 func TestProductSettingsAPIUpdatesGreenBeanBomBinding(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{

@@ -104,7 +104,7 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 }
 
 func (r Repository) List(ctx context.Context, cmd materialsapp.ListCommand) ([]materialsapp.Material, error) {
-	rows, err := listMaterials(ctx, r.pool, r.schema, cmd.Query, cmd.Active, cmd.Limit, cmd.IncludeDeprecated)
+	rows, err := listMaterialsForCustomer(ctx, r.pool, r.schema, cmd.Query, cmd.Active, cmd.Limit, cmd.IncludeDeprecated, cmd.CustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (r Repository) List(ctx context.Context, cmd materialsapp.ListCommand) ([]m
 }
 
 func (r Repository) Create(ctx context.Context, cmd materialsapp.CreateCommand) (materialsapp.Material, error) {
-	row, err := createMaterialInline(ctx, r.pool, r.schema, cmd.Actor, materialInputFromApp(cmd.Input))
+	row, err := createMaterialInlineWithCustomers(ctx, r.pool, r.schema, cmd.Actor, materialInputFromApp(cmd.Input), cmd.CustomerIDs)
 	if err != nil {
 		return materialsapp.Material{}, err
 	}
@@ -160,6 +160,10 @@ func (r Repository) AssignClassification(ctx context.Context, cmd materialsapp.A
 }
 
 func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active string, limit int, includeDeprecated bool) ([]materialRow, error) {
+	return listMaterialsForCustomer(ctx, pool, schema, q, active, limit, includeDeprecated, 0)
+}
+
+func listMaterialsForCustomer(ctx context.Context, pool *pgxpool.Pool, schema, q, active string, limit int, includeDeprecated bool, customerID int64) ([]materialRow, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
@@ -181,6 +185,11 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active st
 	if s := strings.TrimSpace(q); s != "" {
 		whereParts = append(whereParts, fmt.Sprintf("(m.name ILIKE $%d OR m.code ILIKE $%d OR m.batch_no ILIKE $%d)", argn, argn, argn))
 		args = append(args, "%"+s+"%")
+		argn++
+	}
+	if customerID > 0 {
+		whereParts = append(whereParts, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.material_customer_references mcr WHERE mcr.material_id=m.id AND mcr.customer_id=$%d AND mcr.active=true)", schema, argn))
+		args = append(args, customerID)
 		argn++
 	}
 	where := ""
@@ -456,6 +465,10 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 }
 
 func createMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor string, in materialInput) (materialRow, error) {
+	return createMaterialInlineWithCustomers(ctx, pool, schema, actor, in, nil)
+}
+
+func createMaterialInlineWithCustomers(ctx context.Context, pool *pgxpool.Pool, schema, actor string, in materialInput, customerIDs []int64) (materialRow, error) {
 	next, err := normalizeMaterialInput(in)
 	if err != nil {
 		return materialRow{}, err
@@ -496,10 +509,142 @@ func createMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	if err := logMaterialCreateTx(ctx, tx, schema, actor, id, next); err != nil {
 		return materialRow{}, err
 	}
+	seenCustomers := map[int64]bool{}
+	for _, customerID := range customerIDs {
+		if customerID <= 0 || seenCustomers[customerID] {
+			continue
+		}
+		seenCustomers[customerID] = true
+		var customerExists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, schema), customerID).Scan(&customerExists); err != nil {
+			return materialRow{}, err
+		}
+		if !customerExists {
+			return materialRow{}, fmt.Errorf("customer not found or inactive: %d", customerID)
+		}
+		var referenceID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_customer_references(material_id,customer_id,active,remark,created_by,updated_by)
+			VALUES($1,$2,true,'',$3,$3)
+			ON CONFLICT(material_id,customer_id) DO UPDATE SET active=true,updated_at=now(),updated_by=excluded.updated_by
+			RETURNING id
+		`, schema), id, customerID, actor).Scan(&referenceID); err != nil {
+			return materialRow{}, err
+		}
+		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "material_customer_reference", &referenceID, "create", postgresinfra.StrPtr("active"), postgresinfra.StrPtr(""), postgresinfra.StrPtr("true"), postgresinfra.AuditMeta{"material_id": id, "customer_id": customerID}); err != nil {
+			return materialRow{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return materialRow{}, err
 	}
 	return getMaterialByID(ctx, pool, schema, id)
+}
+
+func (r Repository) ListCustomerReferences(ctx context.Context, materialID, customerID int64, active string) ([]materialsapp.MaterialCustomerReference, error) {
+	where := []string{"($1::bigint=0 OR material_id=$1)", "($2::bigint=0 OR customer_id=$2)"}
+	switch strings.TrimSpace(active) {
+	case "active", "":
+		where = append(where, "active=true")
+	case "inactive":
+		where = append(where, "active=false")
+	case "all":
+	default:
+		where = append(where, "active=true")
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,material_id,customer_id,active,remark,created_by,updated_by,
+		       to_char(created_at,'YYYY-MM-DD HH24:MI'),to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.material_customer_references
+		WHERE %s
+		ORDER BY active DESC, material_id, customer_id, id
+	`, r.schema, strings.Join(where, " AND ")), materialID, customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]materialsapp.MaterialCustomerReference, 0)
+	for rows.Next() {
+		var row materialsapp.MaterialCustomerReference
+		if err := rows.Scan(&row.ID, &row.MaterialID, &row.CustomerID, &row.Active, &row.Remark, &row.CreatedBy, &row.UpdatedBy, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveCustomerReference(ctx context.Context, cmd materialsapp.SaveMaterialCustomerReferenceCommand) (materialsapp.MaterialCustomerReference, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return materialsapp.MaterialCustomerReference{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var materialExists, customerExists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.materials WHERE id=$1)`, r.schema), cmd.MaterialID).Scan(&materialExists); err != nil {
+		return materialsapp.MaterialCustomerReference{}, err
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
+		return materialsapp.MaterialCustomerReference{}, err
+	}
+	if !materialExists {
+		return materialsapp.MaterialCustomerReference{}, fmt.Errorf("material not found")
+	}
+	if !customerExists {
+		return materialsapp.MaterialCustomerReference{}, fmt.Errorf("customer not found or inactive")
+	}
+	var id int64
+	if cmd.ID > 0 {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.material_customer_references
+			SET material_id=$2,customer_id=$3,active=$4,remark=$5,updated_by=$6,updated_at=now()
+			WHERE id=$1 RETURNING id
+		`, r.schema), cmd.ID, cmd.MaterialID, cmd.CustomerID, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_customer_references(material_id,customer_id,active,remark,created_by,updated_by)
+			VALUES($1,$2,true,$3,$4,$4)
+			ON CONFLICT(material_id,customer_id) DO UPDATE SET active=true,remark=excluded.remark,updated_by=excluded.updated_by,updated_at=now()
+			RETURNING id
+		`, r.schema), cmd.MaterialID, cmd.CustomerID, cmd.Remark, cmd.Actor).Scan(&id)
+	}
+	if err != nil {
+		return materialsapp.MaterialCustomerReference{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "material_customer_reference", &id, "save_material_customer_reference", postgresinfra.StrPtr("active"), nil, postgresinfra.StrPtr(fmt.Sprintf("%t", cmd.Active || cmd.ID == 0)), postgresinfra.AuditMeta{"material_id": cmd.MaterialID, "customer_id": cmd.CustomerID, "remark": cmd.Remark}); err != nil {
+		return materialsapp.MaterialCustomerReference{}, err
+	}
+	var row materialsapp.MaterialCustomerReference
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,material_id,customer_id,active,remark,created_by,updated_by,
+		       to_char(created_at,'YYYY-MM-DD HH24:MI'),to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.material_customer_references WHERE id=$1
+	`, r.schema), id).Scan(&row.ID, &row.MaterialID, &row.CustomerID, &row.Active, &row.Remark, &row.CreatedBy, &row.UpdatedBy, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		return materialsapp.MaterialCustomerReference{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return materialsapp.MaterialCustomerReference{}, err
+	}
+	return row, nil
+}
+
+func (r Repository) ResolveBoundCustomerID(ctx context.Context, employeeID int64) (int64, error) {
+	if employeeID <= 0 {
+		return 0, nil
+	}
+	var customerID int64
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT b.customer_id
+		FROM %s.company_employees e
+		JOIN %s.customer_erp_user_bindings b ON b.employee_id=e.id AND b.status='active'
+		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		WHERE e.id=$1 AND e.active=true AND e.account_type='channel_customer'
+		ORDER BY b.id DESC LIMIT 1
+	`, r.schema, r.schema, r.schema), employeeID).Scan(&customerID)
+	if err == pgx.ErrNoRows {
+		return 0, nil
+	}
+	return customerID, err
 }
 
 func deprecateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor string, id int64) (materialRow, error) {

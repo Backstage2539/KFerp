@@ -37,6 +37,16 @@ export function customerOptionLabel(option) {
   return option?.name || option?.company_name || `客户 #${option?.id || ''}`
 }
 
+export function customerWorkspaceDisplayName(customerID, customers = [], contextLabel = '') {
+  const normalizedCustomerID = Number(customerID || 0)
+  const customer = (Array.isArray(customers) ? customers : [])
+    .find((option) => Number(option?.id || 0) === normalizedCustomerID)
+  if (customer) return customerOptionLabel(customer)
+  const normalizedContextLabel = String(contextLabel || '').trim()
+  if (normalizedContextLabel) return normalizedContextLabel
+  return normalizedCustomerID > 0 ? `客户 #${normalizedCustomerID}` : ''
+}
+
 export function customerOptionMeta(option) {
   const parts = []
   if (option?.company_name && option.company_name !== option.name) parts.push(option.company_name)

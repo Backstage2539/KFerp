@@ -2,6 +2,7 @@ package materials
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
 
@@ -11,6 +12,7 @@ type fakeRepo struct {
 	update    UpdateCommand
 	deprecate DeprecateCommand
 	assign    AssignClassificationCommand
+	reference MaterialCustomerReference
 }
 
 func (r *fakeRepo) List(ctx context.Context, cmd ListCommand) ([]Material, error) {
@@ -56,6 +58,19 @@ func (r *fakeRepo) DeleteClassificationCategory(ctx context.Context, cmd DeleteC
 func (r *fakeRepo) AssignClassification(ctx context.Context, cmd AssignClassificationCommand) error {
 	r.assign = cmd
 	return nil
+}
+
+func (r *fakeRepo) ListCustomerReferences(ctx context.Context, materialID, customerID int64, active string) ([]MaterialCustomerReference, error) {
+	return []MaterialCustomerReference{r.reference}, nil
+}
+
+func (r *fakeRepo) SaveCustomerReference(ctx context.Context, cmd SaveMaterialCustomerReferenceCommand) (MaterialCustomerReference, error) {
+	r.reference = MaterialCustomerReference{ID: 9, MaterialID: cmd.MaterialID, CustomerID: cmd.CustomerID, Active: cmd.Active, Remark: cmd.Remark}
+	return r.reference, nil
+}
+
+func (r *fakeRepo) ResolveBoundCustomerID(ctx context.Context, employeeID int64) (int64, error) {
+	return 0, nil
 }
 
 func TestServiceOwnsMaterialUseCases(t *testing.T) {
@@ -112,5 +127,20 @@ func TestServicePreservesSemiFinishedWrites(t *testing.T) {
 	}
 	if repo.update.Input.IsSemiFinished {
 		t.Fatalf("Update() lost explicit false is_semi_finished: %+v", repo.update)
+	}
+}
+
+func TestServiceNormalizesMaterialCustomerReferences(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	if _, err := svc.Create(context.Background(), CreateCommand{Actor: "测试员", CustomerIDs: []int64{74, 75, 74, 0}, Input: MaterialInput{Code: "MAT-X", Name: "共享物料"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(repo.create.CustomerIDs, []int64{74, 75}) {
+		t.Fatalf("customer ids=%v", repo.create.CustomerIDs)
+	}
+	row, err := svc.SaveCustomerReference(context.Background(), SaveMaterialCustomerReferenceCommand{Actor: "测试员", MaterialID: 4, CustomerID: 74, Active: true, Remark: " 来料 "})
+	if err != nil || row.ID != 9 || row.Remark != "来料" {
+		t.Fatalf("SaveCustomerReference()=%+v err=%v", row, err)
 	}
 }

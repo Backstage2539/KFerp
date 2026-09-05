@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 type BeanProfile struct {
@@ -131,11 +132,34 @@ type ListCommand struct {
 	Active            string
 	Limit             int
 	IncludeDeprecated bool
+	CustomerID        int64
 }
 
 type CreateCommand struct {
-	Actor string
-	Input MaterialInput
+	Actor       string
+	Input       MaterialInput
+	CustomerIDs []int64
+}
+
+type MaterialCustomerReference struct {
+	ID         int64  `json:"id"`
+	MaterialID int64  `json:"material_id"`
+	CustomerID int64  `json:"customer_id"`
+	Active     bool   `json:"active"`
+	Remark     string `json:"remark"`
+	CreatedBy  string `json:"created_by,omitempty"`
+	UpdatedBy  string `json:"updated_by,omitempty"`
+	CreatedAt  string `json:"created_at,omitempty"`
+	UpdatedAt  string `json:"updated_at,omitempty"`
+}
+
+type SaveMaterialCustomerReferenceCommand struct {
+	Actor      string
+	ID         int64
+	MaterialID int64
+	CustomerID int64
+	Active     bool
+	Remark     string
 }
 
 type UpdateCommand struct {
@@ -192,6 +216,9 @@ type Repository interface {
 	SaveClassificationCategory(ctx context.Context, cmd SaveClassificationCategoryCommand) (MaterialClassificationCategory, error)
 	DeleteClassificationCategory(ctx context.Context, cmd DeleteClassificationCategoryCommand) error
 	AssignClassification(ctx context.Context, cmd AssignClassificationCommand) error
+	ListCustomerReferences(ctx context.Context, materialID, customerID int64, active string) ([]MaterialCustomerReference, error)
+	SaveCustomerReference(ctx context.Context, cmd SaveMaterialCustomerReferenceCommand) (MaterialCustomerReference, error)
+	ResolveBoundCustomerID(ctx context.Context, employeeID int64) (int64, error)
 }
 
 type Service struct {
@@ -210,7 +237,47 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Material, erro
 	if cmd.Input.PurchasePrice != 0 {
 		return Material{}, fmt.Errorf("新建物料不能设置采购价，请在采购入库或盘点调整中维护成本")
 	}
+	cmd.CustomerIDs = normalizePositiveIDs(cmd.CustomerIDs)
 	return s.repo.Create(ctx, cmd)
+}
+
+func (s *Service) ListCustomerReferences(ctx context.Context, materialID, customerID int64, active string) ([]MaterialCustomerReference, error) {
+	if materialID < 0 || customerID < 0 {
+		return nil, fmt.Errorf("invalid material customer reference filter")
+	}
+	return s.repo.ListCustomerReferences(ctx, materialID, customerID, strings.TrimSpace(active))
+}
+
+func (s *Service) SaveCustomerReference(ctx context.Context, cmd SaveMaterialCustomerReferenceCommand) (MaterialCustomerReference, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.ID < 0 || cmd.MaterialID <= 0 || cmd.CustomerID <= 0 {
+		return MaterialCustomerReference{}, fmt.Errorf("invalid material customer reference")
+	}
+	if cmd.ID == 0 {
+		cmd.Active = true
+	}
+	return s.repo.SaveCustomerReference(ctx, cmd)
+}
+
+func (s *Service) ResolveBoundCustomerID(ctx context.Context, employeeID int64) (int64, error) {
+	if employeeID <= 0 {
+		return 0, nil
+	}
+	return s.repo.ResolveBoundCustomerID(ctx, employeeID)
+}
+
+func normalizePositiveIDs(values []int64) []int64 {
+	out := make([]int64, 0, len(values))
+	seen := map[int64]bool{}
+	for _, id := range values {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }
 
 func (s *Service) Update(ctx context.Context, cmd UpdateCommand) (Material, error) {
