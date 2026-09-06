@@ -130,6 +130,13 @@ function openEditor() {
   })
 }
 
+function openCopy() {
+  if (orderID.value <= 0) return
+  uni.navigateTo({
+    url: `/pages/employee-order-entry/employee-order-entry?copy_id=${orderID.value}`,
+  })
+}
+
 function showShareSettingsFallbackNotice(): Promise<void> {
   return new Promise((resolve) => {
     uni.showModal({
@@ -273,8 +280,11 @@ onShow(() => void loadDetail())
           <text>单据日期：{{ order.document_date || order.order_date || '-' }}</text>
           <text>订单日期：{{ order.order_date || '-' }}</text>
         </view>
-        <button v-if="canEdit" class="edit-order-button" @tap="openEditor">编辑订单</button>
-        <text v-else-if="editBlockReason" class="edit-block-reason">{{ editBlockReason }}</text>
+        <view class="hero-actions">
+          <button class="copy-order-button" @tap="openCopy">复制订单</button>
+          <button v-if="canEdit" class="edit-order-button" @tap="openEditor">编辑订单</button>
+        </view>
+        <text v-if="!canEdit && editBlockReason" class="edit-block-reason">{{ editBlockReason }}</text>
       </view>
 
       <view class="section">
@@ -385,7 +395,9 @@ onShow(() => void loadDetail())
 .amount { color: #28624a; font-size: 34rpx; font-weight: 850; }
 .customer { display: block; margin-top: 12rpx; font-size: 29rpx; font-weight: 700; }
 .date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10rpx; margin-top: 14rpx; color: #68766f; font-size: 23rpx; }
-.edit-order-button { width: 100%; margin: 20rpx 0 0; border: 1rpx solid #28624a; background: #fff; color: #28624a; font-size: 25rpx; }
+.hero-actions { display: flex; gap: 14rpx; margin-top: 20rpx; }
+.hero-actions button { flex: 1; width: auto; margin: 0; font-size: 25rpx; }
+.edit-order-button, .copy-order-button { border: 1rpx solid #28624a; background: #fff; color: #28624a; }
 .edit-block-reason { display: block; margin-top: 18rpx; padding: 14rpx 16rpx; border-radius: 10rpx; background: #f5f1e8; color: #745b2d; font-size: 22rpx; line-height: 1.5; }
 .section-title { display: block; margin-bottom: 20rpx; font-size: 30rpx; font-weight: 800; }
 .section-hint { display: block; margin: -8rpx 0 20rpx; color: #6e7d75; font-size: 23rpx; line-height: 1.6; }

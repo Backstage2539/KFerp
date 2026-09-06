@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 应用与 Vue 定向 RED/GREEN、完整 Go/Vue/Vite 回归和独立复核已完成；develop 合并、development 部署和浏览器验收进行中。
-- production 不部署、不写入；本需求不自动新增、发布或绑定任何真实 BOM。
+- 应用与 Vue 定向 RED/GREEN、完整 Go/Vue/Vite 回归和独立复核已完成；已合入 develop/main 并部署 development/production，Van 浏览器业务验收仍待完成。
+- 本需求及部署不自动新增、发布或绑定任何真实 BOM。
 
 ## 现场只读复现
 
@@ -29,9 +29,9 @@
 - [x] 完整 Go、Vue 测试与构建、支持合同及格式检查通过。
 - [ ] development `/api/bom/products` 只读返回“萨琪姆 生豆”及 Kg 规格；浏览器新建 BOM 输入“生豆”可见且不保存。
 - [ ] development 无 BOM 试算显示明确新增/发布提示，不显示可用 0 元结果；不保存价格或 BOM。
-- [ ] 功能分支推送，合入最新 develop，development 发布后容器、入口、需求状态和日志正常。
+- [x] 功能分支推送，合入最新 develop/main；development/production 发布后容器、入口和日志正常。
 
 ## 部署边界
 
-- development：待部署。
-- production：未部署，未执行业务写入。
+- development：已随 `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` 部署。
+- production：release merge `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e` 已部署；发布只切换应用，没有新增、发布或绑定 BOM。无 BOM 提示和生豆产出商品搜索仍需 Van 使用真实登录态手工验收。

@@ -1756,3 +1756,9 @@
 - `DEV-629-WAREHOUSE-COMPONENT-SOURCES`：商品与客户引用不再配置供料方式。生产计划草稿按每个最终库存输入明确选择来源仓及货主，提交时冻结到工单预留；预留、领料、开工、耗用、退料和取消统一按仓库、货主与批次校验。缺料只报告所选来源缺口，不自动借用工厂或其他客户库存；成品货主由目标仓决定，共享 WIP 按批次货主隔离。
 - `DEV-629-LEGACY-SOURCE-CUTOVER`：新订单不再保存或使用 `material_source_mode`，不再生成客户专用订单生产需求；普通销售订单和代加工订单进入同一生产需求。迁移工具提供 preview/apply/verify，把未完成客户需求、计划、工单及预留转换为仓库货主来源，保留已预留、领用、耗用、退回与批次数据，无法唯一映射时整体中止。已完成和已取消业务快照保持不变。
 - `DEV-629-DEVELOPMENT-ACCEPTANCE`：按 TDD 完成单元、API、真实 PostgreSQL、Vue 与构建检查，更新商品物料、订单、生产和履约手册；在 development 验证客户仓领料、工厂仓领料、同一工单多来源、缺料不串货主、取消释放、重复提交幂等、历史迁移数量守恒及页面交互。合入并部署 development，production 不操作。
+
+# PR-630-MINIAPP-ORDER-COPY-AND-SAVE-REGRESSION 小程序录单保存回归与复制订单（2026-09-06）
+
+- `DEV-630-ORDER-SAVE-INSERT-REGRESSION`：修复订单明细写入 SQL 的参数位置错位。`price_overridden` 必须绑定布尔参数、`product_kind` 必须绑定文本参数，不能把商品类型作为 `NULLIF(..., 0)` 的数值参数；生产和开发保存订单都必须能返回订单号，失败不得留下半张订单。
+- `DEV-630-MINIAPP-ORDER-COPY`：员工小程序订单详情提供“复制订单”。复制客户、收件信息、商品及规格、数量、成交单价、运费、优惠、备注和订单类型到新录单页；新订单日期使用当天，付款与发货状态重置为默认未完成状态，用户确认后再提交，不覆盖原订单。
+- `DEV-630-DUAL-ENV-DELIVERY`：针对性 Go、真实 PostgreSQL/API、页面契约、TypeScript 和小程序构建通过后，合入 `develop` 并部署开发环境；开发保存与复制验收通过后合入 `main` 并部署生产环境，核对容器、登录入口、订单号、明细快照和重复提交行为。

@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-630-MINIAPP-ORDER-COPY-AND-SAVE-REGRESSION
+- Branch: `codex/prod-order-save-copy-20260906`
+- Owner/session: Codex / 2026-09-06
+- Status: implementation and dual-environment delivery in progress
+- Scope: 修复生产环境小程序录单保存因订单明细 INSERT 参数错位导致的 `internal error`；在员工小程序订单详情增加“复制订单”，复制客户、商品规格、数量、成交单价、运费、优惠、收件信息和备注到新订单，重置付款/发货状态。
+- DEV: DEV-630-ORDER-SAVE-INSERT-REGRESSION; DEV-630-MINIAPP-ORDER-COPY; DEV-630-DUAL-ENV-DELIVERY
+- Verifier: targeted Go RED/GREEN, miniapp unit/page contracts, typecheck/build, full release gates, development and production smoke plus saved-order/copy acceptance.
+- Deployment: pending; production currently contains the regression and has not been changed in this work.
+- Last update: 2026-09-06 Asia/Shanghai
+
 ### PR-629-PRODUCT-CATALOG-WAREHOUSE-SOURCE
 - Branch: `codex/pr629-acceptance-evidence`（业务代码已通过 PR #63-#69 合并）
 - Owner/session: Codex / 2026-09-05
@@ -207,7 +217,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: merged to `develop@d81e022b` and deployed development. Browser live publish created coffee price list `V3.0.20` / publication `#109` at 2026-08-27 00:48; operation log records the publish and PDF asset. Production code release pending; production price-list data unchanged.
 
 ### PR-611-PRICE-LIST-BOM-SPEC-IDENTITY-UNIT
-- Branch: `codex/price-list-bom-spec-unit-fix`
+- Branch: `codex/price-list-bom-spec-unit-fix`; merged through PR #55
 - Owner/session: Codex / 2026-08-26
 - Status: merged and deployed; runtime follow-up tracked by PR-612
 - Scope: 修复旧价格表草稿把父商品写入 `product_id/sku_id` 导致开发环境发布提示 SKU 7 未选择；BOM 规格行按唯一选中规格归一身份，并让历史 `1Kg` 等展示单位自动服从 BOM 规格库存单位“袋”，打通价格试算、发布快照与录单单位。
@@ -215,10 +225,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: targeted/full Go/Vue/Vite and release gates GREEN
 - Deployment: merged to `develop@4bc548b1` and `main@7974d319`; development and production code deployed. Production business data unchanged.
 
+### RELEASE-20260824-PR604-PRODUCTION
+- Branch: `codex/release-main-pr604-20260824`; evidence branch `codex/release-main-pr604-evidence-20260824`
+- Owner/session: Codex / 2026-08-24
+- Status: `develop@4fc0b364` merged without conflicts into `main`; production deployed `5e4c8ebde14fb4c5bb480f9d0c9257da883c4b65`.
+- Scope: promote the current verified development line, including PR-604 BOM-spec pricing fixes, to the formal production ERP and produce separate development/production mp-weixin packages.
+- Verifier: production preflight and deployment gates GREEN; Vue 1026/1026 across 4 suites, Vite 6594 modules, miniapp 217/217 + typecheck + production mp-weixin build, Go full suite, isolated/pre-release Docker builds and 56-file miniapp manifests GREEN.
+- Deployment: `./deploy_orderapp.sh production`; source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260824110316-5e4c8ebde14f`; rollback image `kferp-orderapp-rollback:production-20260824110316-5e4c8ebde14f`; `erp_prod_orderapp` running/restart 0, PostgreSQL healthy, production login HTTP 200, unauthenticated `/app/` HTTP 401.
+- Miniapp: development package commit `37caf135ea0092e2a249554a19b176d2a8f4b17d` targets `https://dev.qacoohee.com/app`; production package commit `5e4c8ebde14fb4c5bb480f9d0c9257da883c4b65` targets `https://erp.qacoohee.com/app`. Packages are generated only; WeChat upload/review/publication remains separate.
+- Manual: Van production and miniapp acceptance pending.
+
 ### PR-610-PRICE-LIST-PARENT-ROW-IDENTITY
 - Branch: `codex/price-list-publish-spec-fix`
 - Owner/session: Codex / 2026-08-26
-- Status: merged and deployed; follow-up BOM-spec identity and unit compatibility fix tracked by PR-611
+- Status: merged and deployed; BOM-spec identity/unit follow-up tracked by PR-611
 - Scope: 修复商品价格表发布时旧平铺快照仍携带父商品 SKU（如 SKU 7）而规格选择已指向具体子规格的问题。对可唯一确定的单规格旧行在前后端统一归一到具体 SKU；多规格、BOM 规格和真正未选择规格继续严格拦截。保持价格试算、发布快照和小程序订单规格身份一致。
 - DEV: DEV-610-PRICE-LIST-PARENT-ROW-NORMALIZATION; DEV-610-PRICE-LIST-PUBLISH-ORDER-FLOW; DEV-610-DOCS-RELEASE-ACCEPTANCE
 - Verifier: targeted RED/GREEN; Go costing/API; Vue selection/costing workflow; full `scripts/verify_kferp.sh all` pending
@@ -227,11 +247,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-609-PRICE-LIST-BOM-SPEC-UNIT
 - Branch: `codex/price-list-spec-unit-fix`
 - Owner/session: Codex / 2026-08-26
-- Status: implementation complete locally; development/production release pending
+- Status: implementation complete; merged to develop `8ffd9584` and production release pending
 - Scope: 历史子 SKU 平铺价格行按重量匹配已发布 BOM 规格，阻断无映射时静默回退默认规格；试算最终价保持商品档案单位，简化快照文案。
 - DEV: DEV-609-LEGACY-SKU-BOM-SPEC-MATCH; DEV-609-PRICE-LIST-UNIT-SNAPSHOT; DEV-609-DOCS-RELEASE-ACCEPTANCE
-- Verifier: targeted RED/GREEN; Go `./...`; frontend targeted 275/275; Vite 6594-module build GREEN; `git diff --check` GREEN. Full `scripts/verify_kferp.sh all` pending.
-- Deployment: not yet merged or deployed. Production data unchanged. Current production `曲奇` BOM 891/V001 has 18g/36g/80g/100g/227g/454g/2.5kg and no 1kg BOM specification; code will report a missing mapping instead of pricing 1kg as 18g until a 1kg BOM spec is published.
+- Verifier: targeted RED/GREEN; Go `./...`; frontend targeted 275/275; Vite 6594-module build GREEN; `scripts/verify_kferp.sh all` GREEN; `git diff --check` GREEN.
+- Deployment: development deployed from `origin/develop@8ffd9584add463068f83d2ccfc64c06c85739c34`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260826021018-8ffd9584add4`; rollback image `kferp-orderapp-rollback:development-20260826021018-8ffd9584add4`; external login HTTP 200. Production data unchanged. Current production `曲奇` BOM 891/V001 has 18g/36g/80g/100g/227g/454g/2.5kg and no 1kg BOM specification; code will report a missing mapping instead of pricing 1kg as 18g until a 1kg BOM spec is published.
 
 ### PR-608-PRODUCT-BOM-SPEC-AUTHORITY
 - Branch: `codex/pr608-bom-spec-authority-upgrade-20260825`
@@ -721,7 +741,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE
 - Branch: codex/miniapp-address-portal-fix-20260804
 - Owner/session: Codex / 2026-08-04
-- Status: merged to develop at `6e3b4daf`; development deployed from `49489cbd`; automated/read-only smoke complete; awaiting Van acceptance
+- Status: merged to develop/main; development and production deployed; automated/read-only smoke complete; awaiting Van acceptance
 - Scope: 客户门户配置新增或设置外部用户密码时，不再把外部账号关联误当成 ERP 工作台授权；无 ERP 工作台能力的模板仍可维护门户登录账号，显式 ERP 工作台绑定继续受能力模板限制。
 - DEV:
   - DEV-580-EXTERNAL-ACCOUNT-WORKBENCH-SEPARATION：active 且门户启用的非工作台/空模板客户可维护外部账号、改密码并登录客户小程序；门户关闭时拒绝创建、重置和启用但仍可禁用；工作台上下文继续拒绝，显式工作台绑定门禁不变。
@@ -738,7 +758,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: Vue build, miniapp typecheck, development mp-weixin build and 13-page manifest PASS.
   - Manual: customer portal, fulfillment, requirements and acceptance synchronized.
   - Review/acceptance: 终审发现的公开认证、ERP/mini 旧会话复活、良性资料误退登录和 inactive 绑定绕过均已完成 RED→GREEN；独立复审确认无剩余 P1/P2，Van development business acceptance pending.
-- Deployment: `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` deployed to development；source backup `/opt/stacks/erp/orderapp.backup.deploy-20260805002028-49489cbd3a7c`；rollback image `kferp-orderapp-rollback:development-20260805002028-49489cbd3a7c`；production out of scope.
+- Deployment: `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` deployed to development；release merge `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e` merged to `main` and deployed to production；production database backup `/opt/stacks/erp-production/backups/pre-deploy-20260805232757-a06aa95ebe38.dump` passed list and isolated restore verification；source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260805233037-a06aa95ebe38`；rollback image `kferp-orderapp-rollback:production-20260805233037-a06aa95ebe38`；external login HTTP 200, application restart count 0, PostgreSQL healthy, critical log marker count 0.
 - Last update: 2026-08-05 Asia/Shanghai
 - Notes: 同步校正外部用户接口权限为 customers.read/write；新增现有 `audit_logs` 上的业务审计记录但不新增 schema；验证不修改真实客户数据。
 - Evidence: `orderapp-remote/docs/acceptance/2026-08-04-miniapp-customer-address-portal-external-user.md`；feature `0bb882f3`，develop merge `6e3b4daf`，development deploy `49489cbd`。
@@ -746,7 +766,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE
 - Branch: codex/miniapp-address-portal-fix-20260804
 - Owner/session: Codex / 2026-08-04
-- Status: merged to develop at `6e3b4daf`; development deployed from `49489cbd`; automated/read-only smoke complete; awaiting Van acceptance
+- Status: merged to develop/main; development and production deployed; automated/read-only smoke complete; awaiting Van acceptance
 - Scope: 员工小程序新增或维护客户时可粘贴整段收货信息，并通过 ERP 客户档案同一地址解析接口自动填入联系人、电话和联系地址；解析规则只保留一份。
 - DEV:
   - DEV-579-SHARED-RECIPIENT-PARSE-API：ERP 与员工小程序共用 `POST /api/customer-recipient/parse` 和唯一服务端解析器，解析只读且不记录原文。
@@ -758,7 +778,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: Vue build, miniapp typecheck, development mp-weixin build and 13-page manifest PASS.
   - Manual: miniapp, order sales, requirements and acceptance synchronized.
   - Review/acceptance: customer-name、手改竞争、phone-only 跨端兼容和迟到失败审查项已完成 RED→GREEN；无已知 P1/P2，Van development business acceptance pending.
-- Deployment: `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` deployed to development；development mp-weixin artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；miniapp upload/review/release not authorized；production out of scope.
+- Deployment: `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` deployed to development；release merge `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e` merged to `main` and deployed to production；production mp-weixin artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin` with prior package `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260805233618-a06aa95ebe38`；deliverable `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-production-a06aa95e.zip` passed manifest and ZIP integrity checks；WeChat upload/review/release not authorized or performed.
 - Last update: 2026-08-05 Asia/Shanghai
 - Notes: 地址解析只读且不记录原文；最终客户保存继续沿用现有客户变更操作日志。
 - Evidence: `orderapp-remote/docs/acceptance/2026-08-04-miniapp-customer-address-portal-external-user.md`；feature `0bb882f3`，develop merge `6e3b4daf`，development deploy `49489cbd`。
@@ -766,7 +786,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-578-GREEN-BEAN-BOM-PICKER-MISSING-BOM-DIAGNOSTIC
 - Branch: codex/fix-green-bom-picker-diagnostic-20260804
 - Owner/session: Codex / 2026-08-04
-- Status: full verification and independent review complete / develop merge and development deployment in progress
+- Status: merged to develop/main / development and production deployed / awaiting Van business acceptance
 - Scope: 当价格计算模板所选商品没有可用于试算的已发布生产 BOM 时，阻断 0 元结果并明确引导新增或发布 BOM；生产 BOM 新建抽屉的产出商品允许选择启用的生豆父商品和具体 SKU，成品组件候选范围保持不变。
 - DEV:
   - DEV-578-MISSING-PUBLISHED-BOM-DIAGNOSTIC：单次试算返回 4xx、批量试算返回行级错误，明确提示未配置可用于试算的已发布生产 BOM及 `生产管理 → 生产 BOM` 入口；正数临时基础成本和正数工序成本继续允许。
@@ -778,13 +798,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Full GREEN: `go test ./... -count=1`、Vue 871 项完整测试、Vue BOM 18 项定向测试、Vite build、`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
   - Independent review: 旧 BOM 状态/陈旧版本绕过、跨商品版本成本、并发发布工序快照与旧需求文档冲突均已修复；最终复核无阻断项。
   - Development data: 启用的“萨琪姆 生豆”父商品和 Kg 规格均存在且没有 production BOM；只读核验，未修改业务数据。
-- Deployment: development requested; production and production business data are out of scope.
-- Last update: 2026-08-04 Asia/Shanghai
+- Deployment: deployed to development through `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c`; release merge `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e` merged to `main` and deployed to production. Production release performed no BOM create/publish/bind or price-table writes; external login HTTP 200, PostgreSQL healthy and critical log marker count 0.
+- Last update: 2026-08-05 Asia/Shanghai
 
 ### PR-577-GREEN-BEAN-PRICING-EMPTY-PUBLISHED-BOM
 - Branch: codex/fix-green-price-sack-zero-20260803
 - Owner/session: Codex / 2026-08-04
-- Status: merged to develop / development deployed / awaiting Van acceptance
+- Status: merged to develop/main / development and production deployed / awaiting Van acceptance
 - Scope: 修复价格计算模板试算把系统遗留的空已发布生产 BOM 静默计算为 0；阻止旧 BOM 绑定修复再次发布无组件版本，并在存在非空草稿时明确提示先正式发布对应版本。绝不自动读取或发布草稿，不回退到不可追溯旧汇总成本。
 - DEV:
   - DEV-577-EMPTY-PUBLISHED-BOM-DIAGNOSTIC：价格试算读取已发布 BOM 的组件数；选中版本无组件时阻断单次和批量试算，若同 BOM 存在非空草稿则显示已发布版本、草稿版本和正式发布指引。
@@ -797,8 +817,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - PostgreSQL GREEN: development 临时 schema 中真实执行 pricing option 查询/Scan 与 PR-403 repair；version、items、binding 同一次调用完成，重复和两个并发调用仍只有一份组件/绑定，空来源不迁移，测试 schema 全部删除。
   - Full GREEN: `go test ./... -count=1`、Vue/Vite build、`scripts/verify_kferp.sh changed/backend`、`git diff --check` 通过。
   - Independent review: 首轮发现的 CTE 快照、并发幂等、计件归一化、参数错误优先级、特殊属性空复制和固定历史版本回落问题均已修复；第二轮复核无阻断项。
-- Deployment: feature commits `07f374c8` / `28d4ff45` were pushed and merged to `develop` as `a16d5d6ad85a997e067b47d525eeeb3f7ebecd0c`; development deployed from that commit with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260804005441-a16d5d6ad85a` and rollback image `kferp-orderapp-rollback:development-20260804005441-a16d5d6ad85a`. Docker build内完整 Go 测试和发布脚本外部登录 HTTP 200 通过，`erp_orderapp` 正常运行，服务器源码包含空发布 BOM 诊断及 advisory-lock 原子修复标记。production 未部署、未重启、未执行业务写入。
-- Last update: 2026-08-04 Asia/Shanghai
+- Deployment: feature commits `07f374c8` / `28d4ff45` were pushed and merged to `develop` as `a16d5d6ad85a997e067b47d525eeeb3f7ebecd0c`; development deployed from that commit with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260804005441-a16d5d6ad85a` and rollback image `kferp-orderapp-rollback:development-20260804005441-a16d5d6ad85a`. Release merge `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e` merged to `main` and deployed to production with database backup `/opt/stacks/erp-production/backups/pre-deploy-20260805232757-a06aa95ebe38.dump`, source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260805233037-a06aa95ebe38` and rollback image `kferp-orderapp-rollback:production-20260805233037-a06aa95ebe38`. Deployment performed no BOM publish/bind or price-table writes.
+- Last update: 2026-08-05 Asia/Shanghai
 
 ### PR-576-SERIAL-SEQUENCE-DRIFT-REPAIR
 - Branch: codex/fix-serial-sequence-drift-20260803
@@ -819,7 +839,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-575-MINIAPP-SHARE-IMAGE-ENTRANCE-SETTING
 - Branch: codex/miniapp-share-image-no-entrance-20260803
 - Owner/session: Codex / 2026-08-03
-- Status: product review / merged and deployed to development / Van acceptance todo
+- Status: product review / merged to develop/main and deployed to development/production / Van acceptance todo
 - Scope: 将员工小程序销售单、发货单图片消息是否携带小程序入口改为全局系统开关；只有员工管理员可在个人中心查看和修改，所有合法员工分享图片时读取当前全局值；权限和审计由后端强制执行。
 - DEV:
   - DEV-575-SHARE-ENTRANCE-SETTING-API-AUDIT：复用 `app_config` 保存全局开关，员工可读、管理员且具备设置权限才可写；配置更新与旧值/新值操作日志同事务提交。
@@ -832,14 +852,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: miniapp 21 files / 152 tests、类型检查、development mp-weixin 构建、编译产物静态验收及 ERP Vue/Vite 构建 GREEN。
   - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`。
   - Review/acceptance: 后端与小程序前端独立复核无开放 P0-P2；`orderapp-remote/docs/acceptance/2026-08-03-miniapp-share-image-entrance-setting.md`。
-- Deployment: latest `origin/develop` `ee77f730`（包含 PR-575 集成 `53de06fb`）已部署 development；外部登录 HTTP 200，新设置路由无 mini token 返回 401，需求 API 命中 PR-575。服务器源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260803223935-ee77f730f9e3`，回滚镜像 `kferp-orderapp-rollback:development-20260803223935-ee77f730f9e3`。52 文件 development 小程序固定包已原子同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧包保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260803224730-ee77f730f9e3`。production、微信 DevTools 上传/审核/发布未执行。
-- Last update: 2026-08-03 22:47 Asia/Shanghai
-- Notes: 配置不存在时保持升级前行为（携带入口）；管理员关闭后所有员工后续直接图片分享不携带入口。历史已发送图片消息不可追溯修改；低版本微信回退图片预览时，入口由微信客户端控制。发布后服务器剩余约 3.1GB（95% 使用率），后续发布前需继续关注磁盘容量。
+- Deployment: latest `origin/develop` `ee77f730`（包含 PR-575 集成 `53de06fb`）已部署 development；release merge `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e` merged to `main` and deployed to production. Production source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260805233037-a06aa95ebe38`, rollback image `kferp-orderapp-rollback:production-20260805233037-a06aa95ebe38`; 52-file production package synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`, previous package retained at `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260805233618-a06aa95ebe38`. WeChat DevTools upload/review/release not performed.
+- Last update: 2026-08-05 Asia/Shanghai
+- Notes: 配置不存在时保持升级前行为（携带入口）；管理员关闭后所有员工后续直接图片分享不携带入口。历史已发送图片消息不可追溯修改；低版本微信回退图片预览时，入口由微信客户端控制。发布后生产服务器磁盘使用率约 63%，剩余约 22GB。
 
 ### PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE
 - Branch: codex/pr572-share-panel-top-20260802 (follow-up)
 - Owner/session: Codex / 2026-08-02
-- Status: follow-up verified / merge and development deployment pending / prior development release remains active
+- Status: merged to develop/main / development and production deployed / awaiting user formal-miniapp acceptance
 - Scope: 小程序订单中心从概要列表进入完整订单详情，展示网页版订单详情已有的订单、客户、收货、商品、金额、物流、状态及来源信息；可导出销售单和发货单的 PDF/图片，并使用微信原生文件能力转发给客户；录单页“新增商品”按钮固定在商品明细列表末尾。
 - DEV:
   - DEV-572-EMPLOYEE-ORDER-DETAIL：新增员工订单完整详情接口和小程序独立详情页，管理员/销售范围由服务端校验。
@@ -855,8 +875,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Database integration: development 数据库唯一临时测试 schema 中 5 项文件回滚、成对 PDF/PNG、历史兼容和字段幂等用例全部通过；测试 schema 自动删除，真实订单数据未写入。
   - Manual: miniapp employee ERP、order-sales、总索引和联调手册已同步。
   - Review/acceptance: 两轮独立复核发现的鉴权状态透传、缺文件自愈、快递费文本、寄件人展示、图片下载路由与 Echo 路由冲突均已关闭；无开放 P0-P2。
-- Deployment: feature `a543c2dd3412f2d49f9dde86b8dacce8c2ff40bb` passed development remote preflight without environment mutation. `origin/develop` merge `6e257b17cb96948c592a02a602f7e41494cb3f64` deployed to development; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260801221451-6e257b17cb96`, rollback image `kferp-orderapp-rollback:development-20260801221451-6e257b17cb96`, external login smoke HTTP 200. Development miniapp fixed directory `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` verified 52 manifest files with backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260801222026-6e257b17cb96`. Follow-up click fix feature `0c619ee76472b8d53ef5524c89801e8c6d589209` passed development remote preflight without mutation; merge `6b36639578d05c884bccbb7e9c24330c3b8d9a0a` deployed to development with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260802001425-6b36639578d0`, rollback image `kferp-orderapp-rollback:development-20260802001425-6b36639578d0`, fixed miniapp backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260802002008-6b36639578d0`, manifest 52 files, external login smoke HTTP 200, unauthenticated order API HTTP 401, healthy development database and application container. Production was not deployed or restarted.
-- Last update: 2026-08-02 Asia/Shanghai
+- Development deployment: feature `a543c2dd3412f2d49f9dde86b8dacce8c2ff40bb` passed development remote preflight without environment mutation. `origin/develop` merge `6e257b17cb96948c592a02a602f7e41494cb3f64` deployed to development; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260801221451-6e257b17cb96`, rollback image `kferp-orderapp-rollback:development-20260801221451-6e257b17cb96`, external login smoke HTTP 200. Development miniapp fixed directory `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` verified 52 manifest files with backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260801222026-6e257b17cb96`. Follow-up click fix feature `0c619ee76472b8d53ef5524c89801e8c6d589209` passed development remote preflight without mutation; merge `6b36639578d05c884bccbb7e9c24330c3b8d9a0a` deployed to development with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260802001425-6b36639578d0`, rollback image `kferp-orderapp-rollback:development-20260802001425-6b36639578d0`, fixed miniapp backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260802002008-6b36639578d0`, manifest 52 files, external login smoke HTTP 200, unauthenticated order API HTTP 401, healthy development database and application container.
+- Production deployment: release branch `118482a59670376d4a0bfd7e8ef6a623a2aebf47` passed production remote preflight without mutation, then merged to and deployed from `origin/main`. Database backup `/opt/stacks/erp-production/backups/pre-deploy-20260802003801-118482a59670.dump` passed checksum and `pg_restore` list validation. Source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260802003901-118482a59670`, rollback image `kferp-orderapp-rollback:production-20260802003901-118482a59670`, fixed miniapp backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260802004432-118482a59670`. External login HTTP 200; authenticated Vue shell/materials HTTP 200; unauthenticated miniapp order detail/document APIs HTTP 401; `delivery_note_documents.image_asset_id` and its foreign key verified; application restart count 0 and PostgreSQL healthy. Follow-up share-panel placement shipped with PR-573 release commit `86f7854458c8ab23ca406fac4a7c8a136b37894d`; production application restart count remained 0, PostgreSQL stayed healthy, and the production fixed miniapp package passed its 52-file manifest check. Production miniapp artifacts were synced locally but not uploaded or published to WeChat.
+- Last update: 2026-08-03 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` still fails on its multiline awk string; PR-572 was manually reserved after `scripts/reserve_req_id.sh` returned PR-572.
 
 ### PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC
@@ -4764,7 +4785,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: 必须在部署阶段构建小程序；发布客户价格表时若复制来源是本人旧 customer_resale 版本，价格来源仍追溯原 factory_supply，避免重复加价。Smoke: erp_orderapp up, /app/ GET 303, /app/vue-shell/ 200 with BasicAuth, PR-434 req marker visible, /api/mini/customer-products and /api/mini/bean-lists/1.png without mini token return 401, remote miniapp/dist/build/mp-weixin app.json/app.js exists.
 
 ### PR-573-MINIAPP-ORDER-CATALOG-EDIT
-- Branch: codex/mini-order-catalog-edit-20260802
+- Branch: codex/pr573-main-release-20260803
 - Owner/session: Codex / 2026-08-02
 - Status: deployed / awaiting Van acceptance
 - Scope: 开发环境员工小程序录单商品必须与 ERP 当前已发布价格表可售商品/规格一致；生产开始前支持在小程序编辑订单商品、费用和收件/物流资料，并复用 ERP 状态、权限、审计与价格校验。
@@ -4774,9 +4795,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: miniapp 21 files / 147 tests, `vue-tsc --noEmit`, development mp-weixin build GREEN; Vue shell 854 tests and production build GREEN.
   - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md
   - Review/acceptance: independent backend and frontend reviews have no open P0-P2; `scripts/verify_kferp.sh changed` and `git diff --check` GREEN; evidence in orderapp-remote/docs/acceptance/2026-08-02-miniapp-order-catalog-edit.md.
-- Deployment: development `origin/develop` deployed at `0274ee9edd2a2b3831881d20cfb6bf2fe11f26c3`; previous source `/opt/stacks/erp/orderapp.backup.deploy-20260803000425-0274ee9edd2a`; rollback image `kferp-orderapp-rollback:development-20260803000425-0274ee9edd2a`; fixed miniapp package `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; production not deployed.
-- Last update: 2026-08-03 00:10 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim` failed on the local awk implementation before writing; PR-573 was the reported next id and is reserved here manually. Development smoke: container running with restart count 0; login HTTP 200; unauthenticated mini order-form HTTP 401; recent error scan clear; fixed package manifest 52 files and API base `https://dev.qacoohee.com/app`. Production container retained its 2026-08-01 start time and image.
+- Deployment: development `origin/develop` deployed at `0274ee9edd2a2b3831881d20cfb6bf2fe11f26c3`; previous source `/opt/stacks/erp/orderapp.backup.deploy-20260803000425-0274ee9edd2a`; rollback image `kferp-orderapp-rollback:development-20260803000425-0274ee9edd2a`; fixed miniapp package `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`. Release candidate `86f7854458c8ab23ca406fac4a7c8a136b37894d` passed production remote preflight, merged to `main`, and deployed to production. Database backup `/opt/stacks/erp-production/backups/pre-deploy-20260803135437-86f7854458c8.dump` passed checksum and `pg_restore -l`; previous source `/opt/stacks/erp-production/orderapp.backup.deploy-20260803152408-86f7854458c8`; rollback image `kferp-orderapp-rollback:production-20260803152408-86f7854458c8`; formal package `/Users/yiiiple-work/KFerp-miniapp-mp-weixin` with previous package `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260803152953-86f7854458c8`.
+- Last update: 2026-08-03 16:02 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` failed on the local awk implementation before writing; PR-573 was the reported next id and is reserved here manually. Both environments have application restart count 0, healthy PostgreSQL, login HTTP 200, unauthenticated mini order-form HTTP 401, and clear recent error scans. Formal package is `production`, API base `https://erp.qacoohee.com/app`, manifest 52 files, and contains no `dev.qacoohee.com`. Phone `15302787466` is an active internal employee with admin/sales and order read/write permissions; the reported customer-only home came from a retained customer-persona token. The operator must switch user and use the password-based `员工 / 客户账号` entry; phone quick login intentionally remains a customer login. The formal package still requires manual DevTools upload, review, and WeChat publication.
 
 ### PR-574-PRICE-LIST-FIXED-INHERITANCE-GREEN-TEMPLATE
 - Branch: codex/price-list-fixed-inheritance-20260803

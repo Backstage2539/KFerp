@@ -1,7 +1,9 @@
 import type {
   EmployeeOrderCustomer,
+  EmployeeOrderDetail,
   EmployeeOrderDetailItem,
   EmployeeOrderDraftItem,
+  EmployeeOrderDraftPayload,
   EmployeeOrderProductFamily,
   EmployeeOrderProductSpec,
 } from '../api/customerPortal'
@@ -605,6 +607,50 @@ export function hydrateEmployeeOrderEditItems(
       price_override: priceOverride,
     })
   })
+}
+
+export function copyEmployeeOrderItems(
+  detailItems: EmployeeOrderDetailItem[] = [],
+  families: EmployeeOrderProductFamily[] = [],
+  customerID = 0,
+  retailOrder = false,
+): EmployeeOrderDraftItem[] {
+  const hydrated = hydrateEmployeeOrderEditItems(detailItems, families, customerID, retailOrder)
+  return hydrated.map((item, index) => {
+    const detail = detailItems[index]
+    const historicalPrice = Number(detail?.unit_price || item.unit_price || 0)
+    return {
+      ...item,
+      item_id: 0,
+      key: `copy-${Date.now()}-${index + 1}`,
+      qty: Number(detail?.qty || item.qty || 0),
+      unit_price: historicalPrice,
+      price_override: historicalPrice > 0,
+    }
+  })
+}
+
+export function employeeOrderCopyPayload(
+  detail: Partial<EmployeeOrderDetail>,
+  items: EmployeeOrderDraftItem[],
+  orderDate = shanghaiToday(),
+): EmployeeOrderDraftPayload {
+  return {
+    order_date: orderDate,
+    customer_id: Number(detail.customer_id || 0),
+    source_id: Number(detail.source_id || 0),
+    order_type_id: Number(detail.order_type_id || 0),
+    pay_status_id: 0,
+    ship_status_id: 0,
+    receiver_name: String(detail.receiver_name || ''),
+    receiver_phone: String(detail.receiver_phone || ''),
+    receiver_address: String(detail.receiver_address || ''),
+    receiver_company: String(detail.receiver_company || ''),
+    shipping_amount: Number(detail.shipping_amount || detail.payment_shipping_amount || 0),
+    discount_amount: Number(detail.discount_amount || detail.order_discount_amount || 0),
+    notes: String(detail.notes || ''),
+    items,
+  }
 }
 
 export function revalidateEmployeeOrderItems(

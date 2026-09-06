@@ -6,7 +6,7 @@
 - 开发需求：`done`。
 - Van 业务验收：`todo`。
 - 代码、全量门禁和文档已完成；功能提交 `23ad8cce` 已推送并随本记录合入 `develop`。
-- Van 已授权部署 development；最新 `origin/develop` `ee77f730`（包含 PR-575 集成提交 `53de06fb`）已部署，development 小程序固定包已同步。production、微信 DevTools 上传、审核或正式发布未执行，不宣称已在微信现网生效。
+- Van 已授权将当前 develop 合入 main 并部署 production；release merge `a06aa95e` 已部署，production 小程序固定包已同步。微信 DevTools 上传、审核或正式发布未执行，不宣称已在微信现网生效。
 
 ## 用户需求
 
@@ -89,7 +89,7 @@
 ## 部署与发布边界
 
 - development 服务器：已部署 `ee77f730`（包含 PR-575 `53de06fb`）；源码回滚点 `/opt/stacks/erp/orderapp.backup.deploy-20260803223935-ee77f730f9e3`，镜像回滚点 `kferp-orderapp-rollback:development-20260803223935-ee77f730f9e3`。
-- production 服务器：未部署。
-- development 固定小程序目录：已同步 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，上一包备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260803224730-ee77f730f9e3`；production 固定目录未同步。
+- production 服务器：已部署 `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e`；数据库发布前备份 `/opt/stacks/erp-production/backups/pre-deploy-20260805232757-a06aa95ebe38.dump` 已通过清单和隔离恢复验证，源码回滚点 `/opt/stacks/erp-production/orderapp.backup.deploy-20260805233037-a06aa95ebe38`，镜像回滚点 `kferp-orderapp-rollback:production-20260805233037-a06aa95ebe38`。
+- development 固定小程序目录：已同步 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，上一包备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260803224730-ee77f730f9e3`；production 固定目录已同步 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，上一包备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260805233618-a06aa95ebe38`。
 - 微信开发者工具：未上传、未提交审核、未发布。
-- 旧已发布小程序版本不会因为 development 部署或固定包同步自动获得该设置；开发体验需关闭并重新导入固定目录后预览/上传，正式上线仍需 production 构建、DevTools 上传和微信审核发布。
+- 旧已发布小程序版本不会因为服务器部署或固定包同步自动获得该设置；需关闭旧项目并重新导入 production 固定目录，再执行 DevTools 上传、微信审核和发布。
