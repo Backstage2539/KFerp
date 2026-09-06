@@ -41,6 +41,8 @@ import {
   employeeOrderOutsourceTotal,
   employeeOrderProductFamilyKey,
   employeeOrderShippingChanged,
+  employeeOrderCopyPayload,
+  copyEmployeeOrderItems,
   filterEmployeeOrderCustomers,
   hydrateEmployeeOrderEditItems,
   isEmployeeOrderNonNegativeMoney,
@@ -80,9 +82,11 @@ const editingCustomerMode = ref<'create' | 'edit'>('create')
 const quantityInputs = ref<Record<string, string>>({})
 const draftRecord = ref<EmployeeOrderDraft | null>(null)
 const editOrderID = ref(0)
+const copyOrderID = ref(0)
 const preservedOutsourceTotal = ref(0)
 const preservedRoundToInt = ref(false)
 const isEditMode = computed(() => editOrderID.value > 0)
+const isCopyMode = computed(() => copyOrderID.value > 0 && !isEditMode.value)
 const canCreateCustomer = computed(() => session.permissions.includes('customers.read')
   && session.permissions.includes('customers.write'))
 let customerEditorIntentSequence = 0
@@ -534,10 +538,10 @@ async function loadForm() {
   preservedRoundToInt.value = false
   try {
     if (!session.token) throw new Error('登录已失效')
-    const detailResponse = isEditMode.value
-      ? await fetchEmployeeOrderDetail(session.token, editOrderID.value)
+    const detailResponse = isEditMode.value || isCopyMode.value
+      ? await fetchEmployeeOrderDetail(session.token, isEditMode.value ? editOrderID.value : copyOrderID.value)
       : undefined
-    if (detailResponse) {
+    if (detailResponse && isEditMode.value) {
       const allowed = detailResponse.can_edit ?? detailResponse.order.can_edit
       if (allowed === false) {
         throw new Error(detailResponse.edit_block_reason || detailResponse.order.edit_block_reason || '订单当前不能编辑')
@@ -562,34 +566,44 @@ async function loadForm() {
         (row) => Number(row.id) === Number(detail.order_type_id || 0),
       )?.name || '')
       const editRetailOrder = /零售|retail/i.test(editOrderTypeName)
-      preservedOutsourceTotal.value = employeeOrderOutsourceTotal(detail)
-      preservedRoundToInt.value = Boolean(detail.round_to_int)
-      form.value = {
-        ...createOrderForm(),
-        edit_revision: String(detail.edit_revision || ''),
-        order_date: String(detail.order_date || detail.document_date || shanghaiToday()),
-        customer_id: targetCustomerID,
-        source_id: Number(detail.source_id || 0),
-        order_type_id: Number(detail.order_type_id || 0),
-        pay_status_id: Number(detail.pay_status_id || 0),
-        ship_status_id: Number(detail.ship_status_id || 0),
-        receiver_name: String(detail.receiver_name || ''),
-        receiver_phone: String(detail.receiver_phone || ''),
-        receiver_address: String(detail.receiver_address || ''),
-        receiver_company: String(detail.receiver_company || ''),
-        shipping_amount: Number(detail.shipping_amount || detail.payment_shipping_amount || 0),
-        discount_amount: employeeOrderEditableOrderDiscount(
-          detail.discount_amount,
-          detail.items || [],
-          detail.order_discount_amount,
-        ),
-        notes: String(detail.notes || ''),
-        items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder),
+      if (isCopyMode.value) {
+        const copiedItems = copyEmployeeOrderItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder)
+        form.value = {
+          ...createOrderForm(),
+          ...employeeOrderCopyPayload(detail, copiedItems),
+        }
+        preservedOutsourceTotal.value = 0
+        preservedRoundToInt.value = false
+      } else {
+        preservedOutsourceTotal.value = employeeOrderOutsourceTotal(detail)
+        preservedRoundToInt.value = Boolean(detail.round_to_int)
+        form.value = {
+          ...createOrderForm(),
+          edit_revision: String(detail.edit_revision || ''),
+          order_date: String(detail.order_date || detail.document_date || shanghaiToday()),
+          customer_id: targetCustomerID,
+          source_id: Number(detail.source_id || 0),
+          order_type_id: Number(detail.order_type_id || 0),
+          pay_status_id: Number(detail.pay_status_id || 0),
+          ship_status_id: Number(detail.ship_status_id || 0),
+          receiver_name: String(detail.receiver_name || ''),
+          receiver_phone: String(detail.receiver_phone || ''),
+          receiver_address: String(detail.receiver_address || ''),
+          receiver_company: String(detail.receiver_company || ''),
+          shipping_amount: Number(detail.shipping_amount || detail.payment_shipping_amount || 0),
+          discount_amount: employeeOrderEditableOrderDiscount(
+            detail.discount_amount,
+            detail.items || [],
+            detail.order_discount_amount,
+          ),
+          notes: String(detail.notes || ''),
+          items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder),
+        }
       }
       shippingBaseline.value = customer ? customerShippingDefaults(customer) : currentShippingSnapshot()
       applyDefaultOptions()
     }
-    if (!isEditMode.value) await loadDraft()
+    if (!isEditMode.value && !isCopyMode.value) await loadDraft()
   } catch (cause) {
     authExpired.value = !session.token || isAuthenticationExpiredRequestError(cause)
     if (authExpired.value) session.clearSession()
@@ -747,7 +761,7 @@ async function submit() {
     // The backend creates the order and clears the employee draft atomically.
     resetAfterSubmit()
     uni.showModal({
-      title: '录单成功',
+      title: isCopyMode.value ? '复制录单成功' : '录单成功',
       content: result.order_no,
       showCancel: false,
       success: () => uni.navigateTo({ url: '/pages/employee-orders/employee-orders' }),
@@ -782,7 +796,9 @@ async function submit() {
 
 onLoad((options) => {
   editOrderID.value = Number(options?.edit_id || 0)
+  copyOrderID.value = Number(options?.copy_id || 0)
   if (isEditMode.value) uni.setNavigationBarTitle({ title: '编辑销售订单' })
+  else if (isCopyMode.value) uni.setNavigationBarTitle({ title: '复制销售订单' })
   void loadForm()
 })
 
@@ -807,12 +823,12 @@ onShow(() => {
     <EnvironmentBadge />
     <view class="panel">
       <view class="title-row">
-        <text class="title">{{ isEditMode ? '编辑销售订单' : '新建销售订单' }}</text>
-        <text v-if="!isEditMode && draftRecord" class="draft-meta">草稿 {{ draftRecord.updated_at }}</text>
+        <text class="title">{{ isEditMode ? '编辑销售订单' : (isCopyMode ? '复制销售订单' : '新建销售订单') }}</text>
+        <text v-if="!isEditMode && !isCopyMode && draftRecord" class="draft-meta">草稿 {{ draftRecord.updated_at }}</text>
       </view>
 
       <view v-if="loading" class="status-card">
-        <text>{{ isEditMode ? '正在加载订单和当前可售商品...' : '正在加载客户和商品...' }}</text>
+        <text>{{ isEditMode || isCopyMode ? '正在加载订单和当前可售商品...' : '正在加载客户和商品...' }}</text>
       </view>
       <view v-else-if="loadError" class="status-card error-card">
         <text>{{ loadError }}</text>

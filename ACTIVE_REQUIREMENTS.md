@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-630-MINIAPP-ORDER-COPY-AND-SAVE-REGRESSION
+- Branch: `codex/prod-order-save-copy-20260906`
+- Owner/session: Codex / 2026-09-06
+- Status: implementation and dual-environment delivery in progress
+- Scope: 修复生产环境小程序录单保存因订单明细 INSERT 参数错位导致的 `internal error`；在员工小程序订单详情增加“复制订单”，复制客户、商品规格、数量、成交单价、运费、优惠、收件信息和备注到新订单，重置付款/发货状态。
+- DEV: DEV-630-ORDER-SAVE-INSERT-REGRESSION; DEV-630-MINIAPP-ORDER-COPY; DEV-630-DUAL-ENV-DELIVERY
+- Verifier: targeted Go RED/GREEN, miniapp unit/page contracts, typecheck/build, full release gates, development and production smoke plus saved-order/copy acceptance.
+- Deployment: pending; production currently contains the regression and has not been changed in this work.
+- Last update: 2026-09-06 Asia/Shanghai
+
 ### PR-629-PRODUCT-CATALOG-WAREHOUSE-SOURCE
 - Branch: `codex/pr629-acceptance-evidence`（业务代码已通过 PR #63-#69 合并）
 - Owner/session: Codex / 2026-09-05
