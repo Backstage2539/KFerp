@@ -76,11 +76,13 @@ type customerProcessingBatchAvailability struct {
 }
 
 type customerProcessingBatchAllocation struct {
-	BatchID       int64
-	BatchCode     string
-	QtyG          int64
-	QtyUnits      int64
-	ReservationID int64
+	BatchID         int64
+	BatchCode       string
+	Warehouse       string
+	OwnerCustomerID int64
+	QtyG            int64
+	QtyUnits        int64
+	ReservationID   int64
 }
 
 type customerProcessingFinishedBatchAvailability struct {
@@ -92,12 +94,13 @@ type customerProcessingFinishedBatchAvailability struct {
 }
 
 type customerProcessingFinishedBatchAllocation struct {
-	StockBatchID  int64
-	BatchCode     string
-	Warehouse     string
-	QtyG          int64
-	QtyUnits      int64
-	ReservationID int64
+	StockBatchID    int64
+	BatchCode       string
+	Warehouse       string
+	OwnerCustomerID int64
+	QtyG            int64
+	QtyUnits        int64
+	ReservationID   int64
 }
 
 func normalizeCustomerProcessingFinishedQuantity(specG, qtyG, qtyUnits int64) (int64, int64) {
@@ -222,10 +225,11 @@ func availableCustomerProcessingMaterialBatchesTx(ctx context.Context, tx pgx.Tx
 		WHERE l.material_id=$1 AND l.warehouse=$2
 		  AND (l.qty_g>0 OR l.qty_units>0)
 		  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
+		  AND (COALESCE($5,'factory') <> 'customer' OR COALESCE(b.owner_customer_id,0)=$6)
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.received_at,b.id
 		FOR UPDATE OF l,b
-	`, schema, schema, schema), reservation.MaterialID, reservation.SourceWarehouseCode, reservation.ID, stockdomain.WarehouseWIP)
+	`, schema, schema, schema), reservation.MaterialID, reservation.SourceWarehouseCode, reservation.ID, stockdomain.WarehouseWIP, reservation.SourceOwnerType, reservation.SourceCustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +376,12 @@ func moveCustomerProcessingFinishedBatchTx(ctx context.Context, tx pgx.Tx, schem
 	if moveG <= 0 && allocation.QtyUnits > 0 && specG > 0 {
 		moveG = allocation.QtyUnits * specG
 	}
-	from, err := finishedInventoryForUpdateTx(ctx, tx, schema, productID, specG, fromWarehouse)
+	ownerCustomerID := int64(0)
+	if strings.EqualFold(strings.TrimSpace(reservation.SourceOwnerType), "customer") {
+		ownerCustomerID = reservation.SourceCustomerID
+	}
+	fromUnits, fromLooseG, err := finishedInventoryQtyIdentityOwnedTx(ctx, tx, schema, productID, 0, specG, fromWarehouse, ownerCustomerID)
+	from := InvQty{Units: fromUnits, LooseG: fromLooseG}
 	if err != nil {
 		return err
 	}
@@ -384,7 +393,8 @@ func moveCustomerProcessingFinishedBatchTx(ctx context.Context, tx pgx.Tx, schem
 	if err != nil {
 		return err
 	}
-	to, err := finishedInventoryForUpdateTx(ctx, tx, schema, productID, specG, toWarehouse)
+	toUnits, toLooseG, err := finishedInventoryQtyIdentityOwnedTx(ctx, tx, schema, productID, 0, specG, toWarehouse, ownerCustomerID)
+	to := InvQty{Units: toUnits, LooseG: toLooseG}
 	if err != nil {
 		return err
 	}
@@ -393,31 +403,31 @@ func moveCustomerProcessingFinishedBatchTx(ctx context.Context, tx pgx.Tx, schem
 	if err != nil {
 		return err
 	}
-	if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, productID, 0, 0, specG, fromWarehouse, afterFromUnits, afterFromLoose); err != nil {
+	if err := upsertFinishedInventoryIdentityOwnedTx(ctx, tx, schema, productID, 0, 0, specG, fromWarehouse, afterFromUnits, afterFromLoose, ownerCustomerID); err != nil {
 		return err
 	}
-	if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, productID, 0, 0, specG, toWarehouse, afterTo.Units, afterTo.LooseG); err != nil {
+	if err := upsertFinishedInventoryIdentityOwnedTx(ctx, tx, schema, productID, 0, 0, specG, toWarehouse, afterTo.Units, afterTo.LooseG, ownerCustomerID); err != nil {
 		return err
 	}
 	itemName := ""
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1`, schema), productID).Scan(&itemName)
 	beforeToG := finishedComponentTotalG(specG, to.Units, to.LooseG)
 	sourceBatchID := fmt.Sprintf("CP-WO-%d", sourceID)
-	if err := insertStockLedgerEntryTx(ctx, tx, schema, stockItemTypeFinishedProduct, productID, itemName, specG, fromWarehouse,
+	if err := insertStockLedgerEntryOwnedTx(ctx, tx, schema, stockItemTypeFinishedProduct, productID, itemName, ownerCustomerID, specG, fromWarehouse,
 		sourceType, sourceID, allocation.BatchCode, sourceBatchID, stockLedgerQty{
 			BeforeG: beforeFromG, ChangeG: -moveG, AfterG: beforeFromG - moveG,
 			BeforeUnits: from.Units, ChangeUnits: afterFromUnits - from.Units, AfterUnits: afterFromUnits,
 		}, operator); err != nil {
 		return err
 	}
-	return insertStockLedgerEntryTx(ctx, tx, schema, stockItemTypeFinishedProduct, productID, itemName, specG, toWarehouse,
+	return insertStockLedgerEntryOwnedTx(ctx, tx, schema, stockItemTypeFinishedProduct, productID, itemName, ownerCustomerID, specG, toWarehouse,
 		sourceType, sourceID, allocation.BatchCode, sourceBatchID, stockLedgerQty{
 			BeforeG: beforeToG, ChangeG: moveG, AfterG: beforeToG + moveG,
 			BeforeUnits: to.Units, ChangeUnits: afterTo.Units - to.Units, AfterUnits: afterTo.Units,
 		}, operator)
 }
 
-func moveCustomerProcessingBatchTx(ctx context.Context, tx pgx.Tx, schema string, batchID, materialID int64, batchCode, fromWarehouse, toWarehouse string, qtyG, qtyUnits, sourceID int64, operator, sourceType string) error {
+func moveCustomerProcessingBatchTx(ctx context.Context, tx pgx.Tx, schema string, batchID, materialID int64, batchCode, fromWarehouse, toWarehouse string, qtyG, qtyUnits, sourceID int64, operator, sourceType string, ownerCustomerID int64) error {
 	fromWarehouse = strings.TrimSpace(fromWarehouse)
 	toWarehouse = strings.TrimSpace(toWarehouse)
 	if batchID <= 0 || (qtyG <= 0 && qtyUnits <= 0) || fromWarehouse == toWarehouse {
@@ -468,13 +478,13 @@ func moveCustomerProcessingBatchTx(ctx context.Context, tx pgx.Tx, schema string
 	materialName := ""
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.materials WHERE id=$1`, schema), materialID).Scan(&materialName)
 	sourceBatchID := fmt.Sprintf("CP-WO-%d", sourceID)
-	if err := insertStockLedgerEntryTx(ctx, tx, schema, stockItemTypeMaterial, materialID, materialName, 0, fromWarehouse, sourceType, sourceID, batchCode, sourceBatchID, stockLedgerQty{
+	if err := insertStockLedgerEntryOwnedTx(ctx, tx, schema, stockItemTypeMaterial, materialID, materialName, ownerCustomerID, 0, fromWarehouse, sourceType, sourceID, batchCode, sourceBatchID, stockLedgerQty{
 		BeforeG: beforeFromG, ChangeG: -qtyG, AfterG: beforeFromG - qtyG,
 		BeforeUnits: beforeFromUnits, ChangeUnits: -qtyUnits, AfterUnits: beforeFromUnits - qtyUnits,
 	}, operator); err != nil {
 		return err
 	}
-	return insertStockLedgerEntryTx(ctx, tx, schema, stockItemTypeMaterial, materialID, materialName, 0, toWarehouse, sourceType, sourceID, batchCode, sourceBatchID, stockLedgerQty{
+	return insertStockLedgerEntryOwnedTx(ctx, tx, schema, stockItemTypeMaterial, materialID, materialName, ownerCustomerID, 0, toWarehouse, sourceType, sourceID, batchCode, sourceBatchID, stockLedgerQty{
 		BeforeG: beforeToG, ChangeG: qtyG, AfterG: beforeToG + qtyG,
 		BeforeUnits: beforeToUnits, ChangeUnits: qtyUnits, AfterUnits: beforeToUnits + qtyUnits,
 	}, operator)
@@ -608,7 +618,7 @@ func issueCustomerProcessingReservationsToWIPTx(ctx context.Context, tx pgx.Tx, 
 			allocation.ReservationID = reservation.ID
 			if err := moveCustomerProcessingBatchTx(ctx, tx, schema, allocation.BatchID, reservation.MaterialID,
 				allocation.BatchCode, reservation.SourceWarehouseCode, stockdomain.WarehouseWIP,
-				allocation.QtyG, allocation.QtyUnits, workOrderID, operator, "customer_processing_issue"); err != nil {
+				allocation.QtyG, allocation.QtyUnits, workOrderID, operator, "customer_processing_issue", reservation.SourceCustomerID); err != nil {
 				return 0, err
 			}
 		}
@@ -640,7 +650,7 @@ func settleCustomerProcessingReservationsForWorkOrderTx(ctx context.Context, tx 
 			}
 			if err := moveCustomerProcessingBatchTx(ctx, tx, schema, reservation.MaterialBatchID, reservation.MaterialID,
 				batchCode, stockdomain.WarehouseWIP, toWarehouse, remainingG, remainingUnits,
-				workOrderID, operator, "customer_processing_return"); err != nil {
+				workOrderID, operator, "customer_processing_return", reservation.SourceCustomerID); err != nil {
 				return 0, err
 			}
 		}
@@ -710,16 +720,20 @@ func consumeMaterialBatchAllocationTx(ctx context.Context, tx pgx.Tx, schema str
 	if allocation.BatchID <= 0 || (allocation.QtyG <= 0 && allocation.QtyUnits <= 0) {
 		return nil
 	}
+	warehouse := strings.TrimSpace(allocation.Warehouse)
+	if warehouse == "" {
+		warehouse = stockdomain.WarehouseWIP
+	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.material_batch_locations
 		SET qty_g=qty_g-$2,qty_units=qty_units-$3,updated_at=now()
 		WHERE material_batch_id=$1 AND warehouse=$4 AND qty_g>=$2 AND qty_units>=$3
-	`, schema), allocation.BatchID, allocation.QtyG, allocation.QtyUnits, stockdomain.WarehouseWIP)
+	`, schema), allocation.BatchID, allocation.QtyG, allocation.QtyUnits, warehouse)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() != 1 {
-		return fmt.Errorf("WIP batch %s stock insufficient", allocation.BatchCode)
+		return fmt.Errorf("batch %s stock insufficient in warehouse %s", allocation.BatchCode, warehouse)
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.material_batches
@@ -829,7 +843,14 @@ func customerProcessingBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schem
 			return nil, true, fmt.Errorf("reserved WIP batch %s stock insufficient", batchCode)
 		}
 		allocation := customerProcessingBatchAllocation{
-			BatchID: reservation.batchID, BatchCode: batchCode, QtyG: qtyG, QtyUnits: qtyUnits, ReservationID: reservation.id,
+			BatchID: reservation.batchID, BatchCode: batchCode, Warehouse: stockdomain.WarehouseWIP,
+			OwnerCustomerID: func() int64 {
+				if strings.EqualFold(strings.TrimSpace(reservation.ownerType), "customer") {
+					return reservation.sourceCustomerID
+				}
+				return 0
+			}(),
+			QtyG: qtyG, QtyUnits: qtyUnits, ReservationID: reservation.id,
 		}
 		if err := consumeMaterialBatchAllocationTx(ctx, tx, schema, allocation); err != nil {
 			return nil, true, err
@@ -866,6 +887,7 @@ func unreservedWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema str
 		WHERE l.material_id=$1 AND l.warehouse=$2
 		  AND (l.qty_g>0 OR l.qty_units>0)
 		  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
+		  AND COALESCE(b.owner_customer_id,0)=0
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.received_at,b.id
 		FOR UPDATE OF l,b
@@ -934,8 +956,8 @@ func workOrderBoundBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema st
 		return nil, 0, 0, err
 	}
 	type boundBatch struct {
-		id, batchID                                 int64
-		batchCode                                   string
+		id, batchID, ownerCustomerID                int64
+		batchCode, warehouse                        string
 		reservedG, consumedG, returnedG             int64
 		reservedUnits, consumedUnits, returnedUnits int64
 		wipG, wipUnits                              int64
@@ -944,12 +966,14 @@ func workOrderBoundBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema st
 		SELECT binding.id,binding.material_batch_id,binding.batch_code,
 		       binding.reserved_g,binding.consumed_g,binding.returned_g,
 		       binding.reserved_units,binding.consumed_units,binding.returned_units,
-		       location.qty_g,location.qty_units
+		       COALESCE(NULLIF(binding.warehouse,''),$3),COALESCE(binding.owner_customer_id,0),location.qty_g,location.qty_units
 		FROM %s.work_order_material_reservation_batches binding
 		JOIN %s.material_batch_locations location
-		  ON location.material_batch_id=binding.material_batch_id AND location.warehouse=$3
+		  ON location.material_batch_id=binding.material_batch_id
+		 AND location.warehouse=COALESCE(NULLIF(binding.warehouse,''),$3)
 		JOIN %s.material_batches batch ON batch.id=binding.material_batch_id
 		WHERE binding.work_order_id=$1 AND binding.material_id=$2 AND binding.status='reserved'
+		  AND COALESCE(batch.owner_customer_id,0)=COALESCE(binding.owner_customer_id,0)
 		  AND batch.status='active' AND COALESCE(batch.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY binding.id
 		FOR UPDATE OF binding,location,batch
@@ -963,7 +987,7 @@ func workOrderBoundBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema st
 		if err := rows.Scan(&row.id, &row.batchID, &row.batchCode,
 			&row.reservedG, &row.consumedG, &row.returnedG,
 			&row.reservedUnits, &row.consumedUnits, &row.returnedUnits,
-			&row.wipG, &row.wipUnits); err != nil {
+			&row.warehouse, &row.ownerCustomerID, &row.wipG, &row.wipUnits); err != nil {
 			rows.Close()
 			return nil, 0, 0, err
 		}
@@ -983,7 +1007,7 @@ func workOrderBoundBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema st
 		availableG := minInt64(nonnegativeQuantity(row.reservedG-row.consumedG-row.returnedG), row.wipG)
 		availableUnits := minInt64(nonnegativeQuantity(row.reservedUnits-row.consumedUnits-row.returnedUnits), row.wipUnits)
 		allocation := customerProcessingBatchAllocation{
-			BatchID: row.batchID, BatchCode: row.batchCode,
+			BatchID: row.batchID, BatchCode: row.batchCode, Warehouse: row.warehouse, OwnerCustomerID: row.ownerCustomerID,
 			QtyG: minInt64(remainingG, availableG), QtyUnits: minInt64(remainingUnits, availableUnits),
 		}
 		if allocation.QtyG <= 0 && allocation.QtyUnits <= 0 {
@@ -1029,6 +1053,25 @@ func materialBatchConsumptionsForRunningItemTx(ctx context.Context, tx pgx.Tx, s
 	if err != nil || (remainingG <= 0 && remainingUnits <= 0) {
 		return bound, err
 	}
+	var workOrderID int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE running_item_id=$1`, schema), runningItemID).Scan(&workOrderID)
+	if err == pgx.ErrNoRows {
+		workOrderID = 0
+		err = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	usesFrozenSources := false
+	if workOrderID > 0 {
+		usesFrozenSources, err = workOrderUsesFrozenComponentSourcesTx(ctx, tx, schema, workOrderID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if usesFrozenSources {
+		return nil, fmt.Errorf("frozen source batch stock insufficient: material %d missing %dg/%d units", materialID, remainingG, remainingUnits)
+	}
 	var unbound []customerProcessingBatchAllocation
 	if hasOwnershipReservations {
 		unbound, err = unreservedWIPBatchConsumptionsTx(ctx, tx, schema, materialID, remainingG, remainingUnits)
@@ -1072,6 +1115,7 @@ func ordinaryWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema strin
 			WHERE l.material_id=$1 AND l.warehouse=$2
 			  AND (l.qty_g>0 OR l.qty_units>0)
 			  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
+			  AND COALESCE(b.owner_customer_id,0)=0
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			ORDER BY b.received_at,b.id
 			FOR UPDATE OF l,b
@@ -1233,8 +1277,13 @@ func customerProcessingFinishedBatchConsumptionsTx(ctx context.Context, tx pgx.T
 		}
 		allocation := customerProcessingFinishedBatchAllocation{
 			StockBatchID: reservation.stockBatchID, BatchCode: reservation.batchCode,
-			Warehouse: stockdomain.WarehouseWIP,
-			QtyG:      qtyG, QtyUnits: qtyUnits, ReservationID: reservation.id,
+			Warehouse: stockdomain.WarehouseWIP, OwnerCustomerID: func() int64 {
+				if strings.EqualFold(strings.TrimSpace(reservation.ownerType), "customer") {
+					return reservation.sourceCustomerID
+				}
+				return 0
+			}(),
+			QtyG: qtyG, QtyUnits: qtyUnits, ReservationID: reservation.id,
 		}
 		if err := consumeFinishedStockBatchAllocationTx(ctx, tx, schema, allocation); err != nil {
 			return nil, true, err

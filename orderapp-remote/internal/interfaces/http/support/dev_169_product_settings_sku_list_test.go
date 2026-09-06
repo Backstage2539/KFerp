@@ -34,7 +34,7 @@ func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 		"selectedCustomerSkuCustomerID",
 		"customerSkuCustomerOptions",
 		"customerSkuCustomers",
-		"/api/customer-fulfillment/customers?limit=200",
+		"fetchAllCustomerOptions",
 		"displaySkuRows",
 		"displaySkuGroups",
 		"productInlineGroupState",
@@ -53,6 +53,16 @@ func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing unified SKU list marker %q", want)
+		}
+	}
+	api := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "api", "view-context.js")))
+	for _, want := range []string{
+		"export async function fetchAllCustomerOptions",
+		"/api/customers?limit=${pageSize}&offset=${offset}",
+		"data.has_next",
+	} {
+		if !strings.Contains(api, want) {
+			t.Fatalf("view-context.js missing complete customer option pagination marker %q", want)
 		}
 	}
 	remarkHeader := strings.Index(view, ">备注</th>")

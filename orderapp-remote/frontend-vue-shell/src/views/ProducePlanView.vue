@@ -231,6 +231,39 @@
                   </table>
                 </div>
               </div>
+              <div v-if="(currentPlan.component_sources || []).length">
+                <div class="section-title">组件来源仓</div>
+                <div class="muted section-hint">逐项选择实际领料仓库和货主；提交后按所选批次冻结，不会借用其他仓库库存。</div>
+                <div class="table-wrap drag-scroll-wrap" aria-label="当前计划组件来源仓横向滚动表格">
+                  <table class="component-source-table">
+                    <thead>
+                      <tr>
+                        <th>计划产出</th>
+                        <th>BOM组件</th>
+                        <th>需求</th>
+                        <th>来源仓库与货主</th>
+                        <th>可用/缺口</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="source in currentPlan.component_sources || []" :key="componentSourceKey(source)">
+                        <td>{{ componentSourcePlanItemLabel(currentPlan, source) }}</td>
+                        <td>{{ source.component_name || '-' }}</td>
+                        <td>{{ componentSourceRequiredLabel(source) }}</td>
+                        <td>
+                          <select :value="componentSourceSelectedKey(source)" :disabled="componentSourceSavingID === Number(source.id || 0)" @change="selectComponentSourceOption(source, $event.target.value)">
+                            <option value="">请选择来源仓库和货主</option>
+                            <option v-for="option in source.options || []" :key="componentSourceOptionKey(option)" :value="componentSourceOptionKey(option)">{{ componentSourceOptionLabel(option) }}</option>
+                          </select>
+                        </td>
+                        <td>{{ componentSourceAvailabilityLabel(source) }}</td>
+                        <td><button class="secondary compact" type="button" @click="saveProductionPlanComponentSource(currentPlan, source, 'current')" :disabled="componentSourceSavingID === Number(source.id || 0) || !source.source_warehouse">保存</button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
               <div v-if="computedManufacturingPlanRows.length">
                 <div class="section-title">多层制造需求与上游依赖</div>
                 <div class="table-wrap drag-scroll-wrap" aria-label="多层制造需求横向滚动表格">
@@ -522,6 +555,41 @@
             </div>
           </section>
 
+          <section v-if="(productionPlanDetail.component_sources || []).length" class="detail-section">
+            <div class="section-title">组件来源仓</div>
+            <div class="muted section-hint">每个最终库存输入都必须选择来源仓库和货主。上游工单产出的组件会继承上游目标仓，无需重复选择。</div>
+            <div class="table-wrap drag-scroll-wrap" aria-label="生产计划组件来源仓横向滚动表格">
+              <table class="detail-table component-source-table">
+                <thead>
+                  <tr>
+                    <th>计划产出</th>
+                    <th>BOM组件</th>
+                    <th>需求</th>
+                    <th>来源仓库与货主</th>
+                    <th>可用/缺口</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="source in productionPlanDetail.component_sources || []" :key="componentSourceKey(source)">
+                    <td>{{ componentSourcePlanItemLabel(productionPlanDetail, source) }}</td>
+                    <td>{{ source.component_name || '-' }}</td>
+                    <td>{{ componentSourceRequiredLabel(source) }}</td>
+                    <td>
+                      <select v-if="productionPlanSelectable(productionPlanDetail)" :value="componentSourceSelectedKey(source)" :disabled="componentSourceSavingID === Number(source.id || 0)" @change="selectComponentSourceOption(source, $event.target.value)">
+                        <option value="">请选择来源仓库和货主</option>
+                        <option v-for="option in source.options || []" :key="componentSourceOptionKey(option)" :value="componentSourceOptionKey(option)">{{ componentSourceOptionLabel(option) }}</option>
+                      </select>
+                      <span v-else>{{ componentSourceSelectedLabel(source) }}</span>
+                    </td>
+                    <td>{{ componentSourceAvailabilityLabel(source) }}</td>
+                    <td><button v-if="productionPlanSelectable(productionPlanDetail)" class="secondary compact" type="button" @click="saveProductionPlanComponentSource(productionPlanDetail, source, 'detail')" :disabled="componentSourceSavingID === Number(source.id || 0) || !source.source_warehouse">保存</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
           <section v-if="productionPlanDetailManufacturingRows.length" class="detail-section">
             <div class="section-title">递归产出、库存覆盖与上游依赖</div>
             <div class="table-wrap drag-scroll-wrap" aria-label="生产计划递归产出横向滚动表格">
@@ -784,6 +852,7 @@ import {
   buildProductionPlanListQuery,
   buildProductionPlanOperationSplitPayload,
   buildProductionPlanItemTargetWarehousePayload,
+  buildProductionPlanComponentSourcesPayload,
   buildProductionPlanSelection,
   buildProductionDemandSelection,
   buildProductionDemandSummaryQuery,
@@ -814,6 +883,7 @@ import {
   productionPlanOperationSplitsEndpoint,
   productionPlanOperationSplitsPreviewEndpoint,
   productionPlanItemTargetWarehouseEndpoint,
+  productionPlanItemComponentSourcesEndpoint,
   productionPlanSelectable,
   productionPlanSelectionState,
   productionPlanBomSummary,
@@ -859,6 +929,7 @@ const productionPlans = ref([])
 const currentPlan = ref(null)
 const warehouses = ref([])
 const targetWarehouseSavingItemID = ref(0)
+const componentSourceSavingID = ref(0)
 const workstationCapacities = ref([])
 const operationSplits = ref([])
 const productionPlanDetail = ref(null)
@@ -919,7 +990,7 @@ const productionPlanFilters = reactive({
 
 function rowKey(row) {
   return [
-    producePlanKey(row.parent_product_id || row.product_id, row.spec_g, row.bom_spec_id),
+	productionDemandSelectionKey(row),
     row.demand_status || 'unplanned',
     row.production_plan_id || 0,
     row.work_order_id || 0,
@@ -928,6 +999,8 @@ function rowKey(row) {
 }
 
 function productionDemandSelectionKey(row) {
+	const scoped = String(row?.selection_key || '').trim()
+	if (scoped) return scoped
   return producePlanKey(row.parent_product_id || row.product_id, row.spec_g, row.bom_spec_id)
 }
 
@@ -1154,6 +1227,85 @@ async function saveProductionPlanItemTargetWarehouse(item) {
     productionPlanDetailError.value = err.message || '保存计划行目标仓库失败'
   } finally {
     targetWarehouseSavingItemID.value = 0
+  }
+}
+
+function componentSourceKey(source = {}) {
+  return [source.production_plan_item_id, source.component_type, source.component_id, source.component_bom_spec_id, source.component_spec_g].join(':')
+}
+
+function componentSourceOptionKey(option = {}) {
+  return `${String(option.warehouse || '').trim()}\u001f${Number(option.owner_customer_id || 0)}`
+}
+
+function componentSourceSelectedKey(source = {}) {
+  if (!String(source.source_warehouse || '').trim()) return ''
+  return `${String(source.source_warehouse || '').trim()}\u001f${Number(source.source_owner_customer_id || 0)}`
+}
+
+function componentSourceOptionLabel(option = {}) {
+  const warehouse = option.warehouse_name ? `${option.warehouse_name}（${option.warehouse}）` : option.warehouse
+  const owner = option.owner_name || (Number(option.owner_customer_id || 0) > 0 ? `客户 #${option.owner_customer_id}` : '工厂')
+  const available = Number(option.available_g || 0) > 0 ? `${option.available_g}g` : `${Number(option.available_units || 0)}件`
+  return `${warehouse} · ${owner} · 可用 ${available}`
+}
+
+function componentSourceSelectedLabel(source = {}) {
+  const option = (source.options || []).find((row) => componentSourceOptionKey(row) === componentSourceSelectedKey(source))
+  return option ? componentSourceOptionLabel(option) : (source.source_warehouse || '-')
+}
+
+function selectComponentSourceOption(source, key) {
+  const option = (source?.options || []).find((row) => componentSourceOptionKey(row) === key)
+  source.source_warehouse = option?.warehouse || ''
+  source.source_owner_customer_id = Number(option?.owner_customer_id || 0)
+  source.available_g_snapshot = Number(option?.available_g || 0)
+  source.available_units_snapshot = Number(option?.available_units || 0)
+}
+
+function componentSourcePlanItemLabel(plan, source) {
+  const item = (plan?.items || []).find((row) => Number(row.id || 0) === Number(source?.production_plan_item_id || 0))
+  return item ? formatWorkOrderTypedOutput(item) : `计划行 #${source?.production_plan_item_id || '-'}`
+}
+
+function componentSourceRequiredLabel(source = {}) {
+  if (Number(source.required_g || 0) > 0) return `${source.required_g}g`
+  return `${Number(source.required_units || 0)}${source.unit || '件'}`
+}
+
+function componentSourceAvailabilityLabel(source = {}) {
+  if (!String(source.source_warehouse || '').trim()) return '待选择'
+  const available = Number(source.available_g_snapshot || 0) > 0 ? `${source.available_g_snapshot}g` : `${Number(source.available_units_snapshot || 0)}件`
+  const shortageG = Number(source.shortage_g || 0)
+  const shortageUnits = Number(source.shortage_units || 0)
+  if (shortageG > 0 || shortageUnits > 0) return `${available} / 缺 ${shortageG > 0 ? `${shortageG}g` : `${shortageUnits}件`}`
+  return `${available} / 无缺口`
+}
+
+function replacePlanComponentSources(plan, itemID, rows) {
+  const others = (plan?.component_sources || []).filter((row) => Number(row.production_plan_item_id || 0) !== Number(itemID || 0))
+  return { ...plan, component_sources: [...others, ...(rows || [])] }
+}
+
+async function saveProductionPlanComponentSource(plan, source, target) {
+  const item = { production_plan_item_id: Number(source?.production_plan_item_id || 0) }
+  const endpoint = productionPlanItemComponentSourcesEndpoint(plan, item)
+  if (!endpoint || !source?.source_warehouse || !productionPlanSelectable(plan)) return
+  componentSourceSavingID.value = Number(source.id || 0)
+  if (target === 'detail') productionPlanDetailError.value = ''
+  else previewError.value = ''
+  try {
+	const response = await apiSend(endpoint, { method: 'PUT', body: buildProductionPlanComponentSourcesPayload([source]) })
+	const updatedRows = response?.component_sources || []
+    if (target === 'detail') productionPlanDetail.value = replacePlanComponentSources(productionPlanDetail.value, item.production_plan_item_id, updatedRows)
+    if (Number(currentPlan.value?.id || 0) === Number(plan?.id || 0)) currentPlan.value = replacePlanComponentSources(currentPlan.value, item.production_plan_item_id, updatedRows)
+    notice.value = `组件「${source.component_name || '-'}」的来源仓已保存，提交计划后冻结。`
+  } catch (err) {
+    const message = err.message || '保存组件来源仓失败'
+    if (target === 'detail') productionPlanDetailError.value = message
+    else previewError.value = message
+  } finally {
+    componentSourceSavingID.value = 0
   }
 }
 
@@ -2102,6 +2254,8 @@ table { width: 100%; border-collapse: collapse; min-width: 980px; }
 .demand-table { min-width: 860px; }
 .materials-table { min-width: 760px; }
 .plan-preview-table { min-width: 1040px; }
+.component-source-table { min-width: 920px; }
+.component-source-table select { min-width: 300px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; vertical-align: top; }
 td small { display: block; color: #666; line-height: 1.6; }
 .muted { color: #666; }

@@ -26,7 +26,7 @@ func releasedWorkOrderNo(planID, itemID int64) string {
 }
 
 func startRunGroupKey(group startRunGroup) string {
-	return productionDemandSelectionKey(group.ProductID, group.BomSpecID, group.SpecG)
+	return productionDemandScopedSelectionKey(group.ProductID, group.BomSpecID, group.SpecG, group.CustomerID, group.TargetWarehouse)
 }
 
 func (r Repository) CreateProductionPlan(ctx context.Context, cmd productionapp.CreateProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
@@ -114,6 +114,13 @@ func (r Repository) CreateProductionPlan(ctx context.Context, cmd productionapp.
 		if err := createMultilevelProductionPlanItemsTx(ctx, tx, r.schema, planID, rootItems); err != nil {
 			return productionapp.ProductionPlanDetail{}, err
 		}
+	}
+	allItems, err := loadProductionPlanItemsTx(ctx, tx, r.schema, planID)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if err := syncProductionPlanComponentSourcesTx(ctx, tx, r.schema, planID, allItems); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &planID, "create", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("draft"), postgresinfra.AuditMeta{"source_type": cmd.SourceType}); err != nil {
 		return productionapp.ProductionPlanDetail{}, err
@@ -793,17 +800,19 @@ func (r Repository) UpdateProductionPlanItemTargetWarehouse(ctx context.Context,
 		return productionapp.ProductionPlanItem{}, fmt.Errorf("仅草稿生产计划可调整目标仓库")
 	}
 	var oldWarehouse string
+	var itemCustomerID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT target_warehouse FROM %s.production_plan_items
+		SELECT target_warehouse,COALESCE(customer_id,0) FROM %s.production_plan_items
 		WHERE id=$1 AND production_plan_id=$2 FOR UPDATE
-	`, r.schema), cmd.ProductionPlanItemID, cmd.ProductionPlanID).Scan(&oldWarehouse); err != nil {
+	`, r.schema), cmd.ProductionPlanItemID, cmd.ProductionPlanID).Scan(&oldWarehouse, &itemCustomerID); err != nil {
 		if err == pgx.ErrNoRows {
 			return productionapp.ProductionPlanItem{}, fmt.Errorf("production plan item not found")
 		}
 		return productionapp.ProductionPlanItem{}, err
 	}
 	var warehouseActive bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.warehouses WHERE code=$1`, r.schema), cmd.TargetWarehouse).Scan(&warehouseActive); err != nil {
+	var warehouseCustomerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT active,COALESCE(customer_id,0) FROM %s.warehouses WHERE code=$1`, r.schema), cmd.TargetWarehouse).Scan(&warehouseActive, &warehouseCustomerID); err != nil {
 		if err == pgx.ErrNoRows {
 			return productionapp.ProductionPlanItem{}, fmt.Errorf("target warehouse not found: %s", cmd.TargetWarehouse)
 		}
@@ -811,6 +820,9 @@ func (r Repository) UpdateProductionPlanItemTargetWarehouse(ctx context.Context,
 	}
 	if !warehouseActive {
 		return productionapp.ProductionPlanItem{}, fmt.Errorf("target warehouse is inactive: %s", cmd.TargetWarehouse)
+	}
+	if warehouseCustomerID > 0 && warehouseCustomerID != itemCustomerID {
+		return productionapp.ProductionPlanItem{}, fmt.Errorf("target warehouse belongs to another customer")
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_plan_items SET target_warehouse=$3
@@ -879,6 +891,11 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	detail.SupplyGaps = supplyGaps
+	componentSources, err := loadProductionPlanComponentSourcesTx(ctx, tx, schema, id)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	detail.ComponentSources = componentSources
 	manufacturingPlan, err := loadProductionManufacturingPlanTx(ctx, tx, schema, items, supplyGaps)
 	if err != nil {
 		return productionapp.ProductionPlanDetail{}, err
@@ -1770,16 +1787,6 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	if status != "draft" {
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("production plan must be draft to submit")
 	}
-	var unresolvedSupplyGaps int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COUNT(*)::bigint FROM %s.production_plan_supply_gaps
-		WHERE production_plan_id=$1 AND status='unresolved'
-	`, r.schema), cmd.ID).Scan(&unresolvedSupplyGaps); err != nil {
-		return productionapp.ProductionPlanSubmitResult{}, err
-	}
-	if unresolvedSupplyGaps > 0 {
-		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("生产计划存在未解决的采购/备料缺口，不能提交")
-	}
 	items, err := loadProductionPlanItemsTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
@@ -1787,14 +1794,19 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	if len(items) == 0 {
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("production plan has no items")
 	}
-	usesTypedOutputBindings, err := productionPlanUsesTypedOutputBindingsTx(ctx, tx, r.schema, cmd.ID)
+	if err := validateProductionPlanComponentSourcesAtSubmitTx(ctx, tx, r.schema, cmd.ID, items); err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	unresolvedSupplyGaps, err := countBlockingProductionPlanSupplyGapsTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
-	if usesTypedOutputBindings {
-		if err := validateProductionPlanAvailabilityAtSubmitTx(ctx, tx, r.schema, cmd.ID, items); err != nil {
-			return productionapp.ProductionPlanSubmitResult{}, err
-		}
+	if unresolvedSupplyGaps > 0 {
+		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("生产计划存在未解决的采购/备料缺口，不能提交")
+	}
+	usesTypedOutputBindings, err := productionPlanUsesTypedOutputBindingsTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plans SET status='submitted', submitted_by=$2, submitted_at=now() WHERE id=$1`, r.schema), cmd.ID, cmd.Operator); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
@@ -1840,6 +1852,24 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
 	return productionapp.ProductionPlanSubmitResult{Plan: plan, WorkOrders: workOrders, JobCards: jobCards}, nil
+}
+
+func countBlockingProductionPlanSupplyGapsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64) (int64, error) {
+	var count int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)::bigint
+		FROM %s.production_plan_supply_gaps gap
+		WHERE gap.production_plan_id=$1 AND gap.status='unresolved'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM %s.production_plan_component_sources source
+			WHERE source.production_plan_id=gap.production_plan_id
+			  AND source.production_plan_item_id=gap.production_plan_item_id
+			  AND lower(trim(source.component_type))=lower(trim(gap.item_type))
+			  AND source.component_id=gap.item_id
+		  )
+	`, schema, schema), planID).Scan(&count)
+	return count, err
 }
 
 func (r Repository) CancelProductionPlan(ctx context.Context, cmd productionapp.CancelProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {

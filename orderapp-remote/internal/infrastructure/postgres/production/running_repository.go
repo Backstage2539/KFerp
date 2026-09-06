@@ -40,6 +40,7 @@ type ProduceRunRow struct {
 	StartedAtTime       time.Time
 	MaterialSnapshot    string
 	OperationTemplateID int64
+	OwnerCustomerID     int64
 	Outputs             []ProduceRunOutputRow
 }
 
@@ -113,7 +114,11 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	unitsBefore, looseBefore, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.SpecG, warehouse)
+	r.OwnerCustomerID, err = warehouseCustomerID(ctx, tx, schema, warehouse)
+	if err != nil {
+		return productionapp.FinishResult{}, err
+	}
+	unitsBefore, looseBefore, err := finishedInventoryQtyIdentityOwnedTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.SpecG, warehouse, r.OwnerCustomerID)
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
@@ -165,7 +170,7 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.BomVariantID, r.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
+	if err := upsertFinishedInventoryIdentityOwnedTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.BomVariantID, r.SpecG, warehouse, norm.Units, norm.LooseG, r.OwnerCustomerID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if err := recordFinishedProductStockMovementTx(ctx, tx, schema, r, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
@@ -322,6 +327,10 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	r.OwnerCustomerID, err = warehouseCustomerID(ctx, tx, schema, warehouse)
+	if err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	finishedOutputs, totalFinishedG, err := normalizeFinishedOutputs(outputs, cmd.Outputs)
 	if err != nil {
 		return productionapp.FinishResult{}, err
@@ -351,7 +360,7 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	inventoryBySpec := map[int64]outputInventoryLog{}
 
 	for _, output := range finishedOutputs {
-		unitsBefore, looseBefore, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.SpecG, warehouse)
+		unitsBefore, looseBefore, err := finishedInventoryQtyIdentityOwnedTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.SpecG, warehouse, r.OwnerCustomerID)
 		if err != nil {
 			return productionapp.FinishResult{}, err
 		}
@@ -362,7 +371,7 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 			return productionapp.FinishResult{}, err
 		}
 		finishedTotal := finishedTotalG(output.SpecG, add.Units, add.LooseG)
-		if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.BomVariantID, output.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
+		if err := upsertFinishedInventoryIdentityOwnedTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.BomVariantID, output.SpecG, warehouse, norm.Units, norm.LooseG, r.OwnerCustomerID); err != nil {
 			return productionapp.FinishResult{}, err
 		}
 		outputRun := r

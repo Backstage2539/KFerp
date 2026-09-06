@@ -7,6 +7,8 @@ export function producePlanKey(productId, specG, bomSpecID = 0) {
 }
 
 function defaultSelectionKey(row) {
+	const scoped = String(row?.selection_key || '').trim()
+	if (scoped) return scoped
   return producePlanKey(row.parent_product_id || row.product_id, row.spec_g, row.bom_spec_id)
 }
 
@@ -734,6 +736,26 @@ export function productionPlanItemTargetWarehouseEndpoint(plan, item) {
 
 export function buildProductionPlanItemTargetWarehousePayload(targetWarehouse) {
   return { target_warehouse: String(targetWarehouse || '').trim() }
+}
+
+export function productionPlanItemComponentSourcesEndpoint(plan, item) {
+  const planID = Number(plan?.id || 0)
+  const itemID = Number(item?.id || item?.production_plan_item_id || 0)
+  if (planID <= 0 || itemID <= 0) return ''
+  return `/api/production-plans/${planID}/items/${itemID}/component-sources`
+}
+
+export function buildProductionPlanComponentSourcesPayload(sources = []) {
+  return {
+    sources: (sources || []).map((source) => ({
+      component_type: String(source?.component_type || '').trim(),
+      component_id: Number(source?.component_id || 0),
+      component_bom_spec_id: Number(source?.component_bom_spec_id || 0),
+      component_spec_g: Number(source?.component_spec_g || 0),
+      source_warehouse: String(source?.source_warehouse || '').trim(),
+      source_owner_customer_id: Number(source?.source_owner_customer_id || 0),
+    })),
+  }
 }
 
 export function productionPlanCanCancelSubmitted(plan) {

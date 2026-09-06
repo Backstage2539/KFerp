@@ -144,7 +144,7 @@ func parseCreateOrderAmount(raw, field string) (float64, error) {
 
 func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.OrderItemCommand {
 	items := make([]salesapp.OrderItemCommand, 0)
-	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.ParentProductID, req.ItemParentProductID, req.BomSpecID, req.BomVariantID, req.CustomerProductAliasID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
+	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.ParentProductID, req.ItemParentProductID, req.BomSpecID, req.BomVariantID, req.CustomerProductAliasID, req.CustomerProductReferenceID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
 		pidStr := strings.TrimSpace(getStr(req.ProductID, i))
 		name := strings.TrimSpace(getStr(req.ItemName, i))
 		if pidStr == "" && name == "" {
@@ -191,6 +191,11 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 		if aliasStr := strings.TrimSpace(getStr(req.CustomerProductAliasID, i)); aliasStr != "" {
 			if aliasID, err := strconv.ParseInt(aliasStr, 10, 64); err == nil && aliasID > 0 {
 				it.CustomerProductAliasID = aliasID
+			}
+		}
+		if referenceStr := strings.TrimSpace(getStr(req.CustomerProductReferenceID, i)); referenceStr != "" {
+			if referenceID, err := strconv.ParseInt(referenceStr, 10, 64); err == nil && referenceID > 0 {
+				it.CustomerProductReferenceID = referenceID
 			}
 		}
 		if publicationStr := strings.TrimSpace(getStr(req.ItemBeanListPublicationID, i)); publicationStr != "" {

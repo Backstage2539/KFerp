@@ -785,8 +785,12 @@ type SetProductDefaultSKUCommand struct {
 
 type CreateProductCommand struct {
 	Actor                    string
+	OwnershipType            string
 	Name                     string
 	Remark                   string
+	CustomerID               int64
+	CustomerItemCode         string
+	CustomerDisplayName      string
 	ProductKind              string
 	GreenBeanType            string
 	GreenBeanBomProductID    int64
@@ -850,6 +854,8 @@ type CreateCustomProductCommand struct {
 	BaseProductID         int64
 	Name                  string
 	Remark                string
+	CustomerItemCode      string
+	CustomerDisplayName   string
 	ProductKind           string
 	GreenBeanType         string
 	GreenBeanBomProductID int64
@@ -1564,6 +1570,34 @@ func (s *Service) DeactivateProducts(ctx context.Context, cmd DeactivateProducts
 func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	cmd.CustomerItemCode = strings.TrimSpace(cmd.CustomerItemCode)
+	cmd.CustomerDisplayName = strings.TrimSpace(cmd.CustomerDisplayName)
+	cmd.OwnershipType = strings.ToLower(strings.TrimSpace(cmd.OwnershipType))
+	if cmd.OwnershipType == "" {
+		if cmd.CustomerID > 0 {
+			cmd.OwnershipType = "customer"
+		} else {
+			cmd.OwnershipType = "factory"
+		}
+	}
+	switch cmd.OwnershipType {
+	case "factory":
+		if cmd.CustomerID > 0 {
+			return Product{}, ValidationError{Message: "factory product must not include customer_id"}
+		}
+	case "customer":
+		if cmd.CustomerID <= 0 {
+			return Product{}, ValidationError{Message: "customer_id required for customer product"}
+		}
+	default:
+		return Product{}, ValidationError{Message: "invalid ownership_type"}
+	}
+	if cmd.CustomerID < 0 {
+		return Product{}, ValidationError{Message: "invalid customer_id"}
+	}
+	if cmd.CustomerID > 0 && cmd.CustomerItemCode == "" && cmd.CustomerDisplayName == "" {
+		cmd.CustomerDisplayName = cmd.Name
+	}
 	if cmd.Name == "" {
 		return Product{}, ValidationError{Message: "name required"}
 	}
@@ -2794,6 +2828,11 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 	}
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	cmd.CustomerItemCode = strings.TrimSpace(cmd.CustomerItemCode)
+	cmd.CustomerDisplayName = strings.TrimSpace(cmd.CustomerDisplayName)
+	if cmd.CustomerDisplayName == "" {
+		cmd.CustomerDisplayName = cmd.Name
+	}
 	if cmd.Name == "" {
 		return Product{}, fmt.Errorf("name required")
 	}

@@ -137,6 +137,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.order_items (
 	order_id BIGINT REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
 	line_no INTEGER NOT NULL DEFAULT 0,
 	product_id BIGINT,
+	customer_product_reference_id BIGINT NOT NULL DEFAULT 0,
+	material_source_mode TEXT,
 	price_tier_id BIGINT,
 	product_kind TEXT NOT NULL DEFAULT 'roasted',
 	price_overridden BOOLEAN NOT NULL DEFAULT false,
@@ -154,6 +156,25 @@ CREATE TABLE IF NOT EXISTS %[1]s.order_items (
 		discount_amount NUMERIC NOT NULL DEFAULT 0,
 		line_total NUMERIC NOT NULL DEFAULT 0
 	);
+CREATE TABLE IF NOT EXISTS %[1]s.customer_order_production_demands (
+	id BIGSERIAL PRIMARY KEY,
+	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
+	line_no INTEGER NOT NULL,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
+	target_qty NUMERIC NOT NULL DEFAULT 0,
+	material_source_mode TEXT NOT NULL DEFAULT 'customer',
+	status TEXT NOT NULL DEFAULT 'planned',
+	migrated_at TIMESTAMPTZ,
+	migration_note TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(order_id, line_no)
+	);
+CREATE INDEX IF NOT EXISTS customer_order_production_demands_status_idx
+	ON %[1]s.customer_order_production_demands(status, customer_id, product_id);
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
@@ -236,6 +257,15 @@ func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) e
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS process_status_id BIGINT`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS price_tier_id BIGINT`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS customer_product_reference_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS material_source_mode TEXT`,
+		`UPDATE %[1]s.order_items SET customer_product_reference_id=0 WHERE customer_product_reference_id IS NULL`,
+		`ALTER TABLE %[1]s.order_items ALTER COLUMN material_source_mode DROP NOT NULL`,
+		`ALTER TABLE %[1]s.order_items ALTER COLUMN material_source_mode DROP DEFAULT`,
+		`CREATE TABLE IF NOT EXISTS %[1]s.customer_order_production_demands (id BIGSERIAL PRIMARY KEY, order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE, line_no INTEGER NOT NULL, customer_id BIGINT NOT NULL DEFAULT 0, product_id BIGINT NOT NULL DEFAULT 0, bom_spec_id BIGINT NOT NULL DEFAULT 0, bom_variant_id BIGINT NOT NULL DEFAULT 0, target_qty NUMERIC NOT NULL DEFAULT 0, material_source_mode TEXT NOT NULL DEFAULT 'customer', status TEXT NOT NULL DEFAULT 'planned', migrated_at TIMESTAMPTZ, migration_note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(order_id,line_no))`,
+		`ALTER TABLE %[1]s.customer_order_production_demands ADD COLUMN IF NOT EXISTS migrated_at TIMESTAMPTZ`,
+		`ALTER TABLE %[1]s.customer_order_production_demands ADD COLUMN IF NOT EXISTS migration_note TEXT NOT NULL DEFAULT ''`,
+		`CREATE INDEX IF NOT EXISTS customer_order_production_demands_status_idx ON %[1]s.customer_order_production_demands(status, customer_id, product_id)`,
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS product_kind TEXT NOT NULL DEFAULT 'roasted'`,
 		`UPDATE %[1]s.order_items oi SET product_kind=COALESCE(NULLIF(p.product_kind,''),'roasted') FROM %[1]s.products p WHERE oi.product_id=p.id AND COALESCE(oi.product_kind,'')=''`,
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS price_overridden BOOLEAN NOT NULL DEFAULT false`,

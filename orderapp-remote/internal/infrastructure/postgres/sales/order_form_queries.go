@@ -261,6 +261,8 @@ func orderEditItemsQuery(schema string) string {
 				CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN COALESCE(NULLIF(oi.price_source_json->>'bom_spec_name',''),oi.spec,'') ELSE '' END,
 				COALESCE(NULLIF(oi.customer_product_display_name_snapshot,''), NULLIF(oi.item_name,''), p.name, ''),
 				COALESCE(oi.customer_product_alias_id,0),
+				COALESCE(oi.customer_product_reference_id,0),
+				COALESCE(NULLIF(oi.material_source_mode,''),'factory'),
 				COALESCE(oi.customer_product_display_name_snapshot,''),
 				COALESCE(oi.customer_item_code_snapshot,''),
 				COALESCE(oi.brand_name_snapshot,''),
@@ -961,6 +963,7 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 type orderCustomerProductReferenceRow struct {
 	ProductID           int64
 	CustomerID          int64
+	ReferenceID         int64
 	CustomerItemCode    string
 	CustomerDisplayName string
 }
@@ -996,7 +999,7 @@ func (r Repository) fetchOrderCustomerReferenceProducts(ctx context.Context, can
 	}
 
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT product_id,
+		SELECT id, product_id,
 		       customer_id,
 		       COALESCE(customer_item_code,''),
 		       COALESCE(customer_display_name,'')
@@ -1013,7 +1016,7 @@ func (r Repository) fetchOrderCustomerReferenceProducts(ctx context.Context, can
 	selectedIndex := map[orderCustomerProductFamilyKey]int{}
 	for rows.Next() {
 		var reference orderCustomerProductReferenceRow
-		if err := rows.Scan(&reference.ProductID, &reference.CustomerID, &reference.CustomerItemCode, &reference.CustomerDisplayName); err != nil {
+		if err := rows.Scan(&reference.ReferenceID, &reference.ProductID, &reference.CustomerID, &reference.CustomerItemCode, &reference.CustomerDisplayName); err != nil {
 			return nil, err
 		}
 		canonical, ok := productByID[reference.ProductID]
@@ -1048,6 +1051,7 @@ func (r Repository) fetchOrderCustomerReferenceProducts(ctx context.Context, can
 			}
 			clone := product
 			clone.CustomerID = reference.CustomerID
+			clone.CustomerProductReferenceID = reference.ReferenceID
 			clone.Visibility = "customer_reference"
 			clone.CustomerProductAliasID = 0
 			clone.CustomerProductDisplayName = strings.TrimSpace(reference.CustomerDisplayName)
@@ -2364,7 +2368,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	for rows.Next() {
 		var it salesapp.OrderEditItem
 		var qty, unitPrice, lineTotal, discountValue, discountAmount, unitBeanG, matchedPriceQty float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.BomSpecID, &it.BomVariantID, &it.BomSpecKey, &it.BomSpecName, &it.Product, &it.CustomerProductAliasID, &it.CustomerProductDisplayNameSnapshot, &it.CustomerItemCodeSnapshot, &it.BrandNameSnapshot, &it.ProductCodeSnapshot, &it.ProductNameSnapshot, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.PriceOverride, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.BomSpecID, &it.BomVariantID, &it.BomSpecKey, &it.BomSpecName, &it.Product, &it.CustomerProductAliasID, &it.CustomerProductReferenceID, &it.MaterialSourceMode, &it.CustomerProductDisplayNameSnapshot, &it.CustomerItemCodeSnapshot, &it.BrandNameSnapshot, &it.ProductCodeSnapshot, &it.ProductNameSnapshot, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.PriceOverride, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)

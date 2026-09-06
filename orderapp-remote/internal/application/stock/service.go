@@ -450,6 +450,7 @@ const (
 	itemTypeMaterial                      = "material"
 	itemTypeFinishedProduct               = "finished_product"
 	PurposeMaterialReceipt                = "material_receipt"
+	PurposeCustomerReceipt                = "customer_receipt"
 	PurposeMaterialIssue                  = "material_issue"
 	PurposeMaterialTransfer               = "material_transfer"
 	PurposeMaterialTransferForManufacture = "material_transfer_for_manufacture"
@@ -474,6 +475,7 @@ type StockDocumentItemCommand struct {
 	BatchCode                 string  `json:"batch_code"`
 	UnitCost                  float64 `json:"unit_cost"`
 	Supplier                  string  `json:"supplier"`
+	OwnerCustomerID           int64   `json:"owner_customer_id,omitempty"`
 	CropSeason                string  `json:"crop_season"`
 	Origin                    string  `json:"origin"`
 	ProducerFlavorDescription string  `json:"producer_flavor_description"`
@@ -490,6 +492,7 @@ type StockDocumentCommand struct {
 	SourceID       int64                      `json:"source_id"`
 	ReturnSource   string                     `json:"return_source"`
 	Operator       string                     `json:"operator"`
+	CustomerID     int64                      `json:"customer_id,omitempty"`
 	Note           string                     `json:"note"`
 	IdempotencyKey string                     `json:"idempotency_key"`
 	Items          []StockDocumentItemCommand `json:"items"`
@@ -520,6 +523,7 @@ type StockDocumentItemRow struct {
 	ProductID                 int64                          `json:"product_id"`
 	ItemType                  string                         `json:"item_type"`
 	ItemName                  string                         `json:"item_name"`
+	OwnerCustomerID           int64                          `json:"owner_customer_id,omitempty"`
 	SpecG                     int64                          `json:"spec_g"`
 	BomSpecID                 int64                          `json:"bom_spec_id,omitempty"`
 	BomVariantID              int64                          `json:"bom_variant_id,omitempty"`
@@ -611,6 +615,12 @@ type BindWarehouseCustomerCommand struct {
 	Actor         string
 }
 
+type EnsureCustomerWarehouseCommand struct {
+	CustomerID int64
+	Kind       string
+	Actor      string
+}
+
 type Repository interface {
 	ListLedger(ctx context.Context, query LedgerQuery) (LedgerResult, error)
 	ListBatches(ctx context.Context, query BatchQuery) (BatchResult, error)
@@ -625,6 +635,10 @@ type Repository interface {
 	TransferMaterial(ctx context.Context, cmd MaterialTransferCommand) (MaterialTransferResult, error)
 	TransferFinishedProduct(ctx context.Context, cmd FinishedProductTransferCommand) (FinishedProductTransferResult, error)
 	BindWarehouseCustomer(ctx context.Context, cmd BindWarehouseCustomerCommand) (WarehouseRow, error)
+}
+
+type CustomerWarehouseCreator interface {
+	EnsureCustomerWarehouse(ctx context.Context, cmd EnsureCustomerWarehouseCommand) (WarehouseRow, error)
 }
 
 type StockDocumentRepository interface {
@@ -758,10 +772,13 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 		cmd.IsReturn = true
 	}
 	switch cmd.Purpose {
-	case PurposeMaterialReceipt, PurposeMaterialIssue, PurposeMaterialTransfer,
+	case PurposeMaterialReceipt, PurposeCustomerReceipt, PurposeMaterialIssue, PurposeMaterialTransfer,
 		PurposeMaterialTransferForManufacture, PurposeMaterialConsumption, PurposeManufacture:
 	default:
 		return StockDocumentCommand{}, fmt.Errorf("invalid stock document purpose")
+	}
+	if cmd.Purpose == PurposeCustomerReceipt && cmd.CustomerID <= 0 {
+		return StockDocumentCommand{}, fmt.Errorf("customer_id required for customer receipt")
 	}
 	if (cmd.Purpose == PurposeMaterialTransferForManufacture || cmd.Purpose == PurposeMaterialConsumption || cmd.Purpose == PurposeManufacture) && cmd.WorkOrderID <= 0 {
 		return StockDocumentCommand{}, fmt.Errorf("work_order_id required")
@@ -831,6 +848,9 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 		item.ProducerFlavorDescription = strings.TrimSpace(item.ProducerFlavorDescription)
 		item.FromWarehouse = normalizeWarehouse(item.FromWarehouse)
 		item.ToWarehouse = normalizeWarehouse(item.ToWarehouse)
+		if cmd.Purpose == PurposeCustomerReceipt {
+			item.OwnerCustomerID = cmd.CustomerID
+		}
 		normalizeStockDocumentWarehouses(cmd.Purpose, cmd.IsReturn, item)
 		if item.FromWarehouse != "" && item.FromWarehouse == item.ToWarehouse {
 			return StockDocumentCommand{}, fmt.Errorf("item %d from/to warehouse must differ", i+1)
@@ -841,7 +861,7 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 
 func normalizeStockDocumentWarehouses(purpose string, isReturn bool, item *StockDocumentItemCommand) {
 	switch purpose {
-	case PurposeMaterialReceipt:
+	case PurposeMaterialReceipt, PurposeCustomerReceipt:
 		item.FromWarehouse = ""
 		if item.ToWarehouse == "" {
 			item.ToWarehouse = stockdomain.WarehouseRawMaterials
@@ -856,8 +876,12 @@ func normalizeStockDocumentWarehouses(purpose string, isReturn bool, item *Stock
 			item.FromWarehouse = stockdomain.WarehouseWIP
 			item.ToWarehouse = stockdomain.WarehouseRawMaterials
 		} else {
-			item.FromWarehouse = stockdomain.WarehouseRawMaterials
-			item.ToWarehouse = stockdomain.WarehouseWIP
+			if item.FromWarehouse == "" {
+				item.FromWarehouse = stockdomain.WarehouseRawMaterials
+			}
+			if item.ToWarehouse == "" {
+				item.ToWarehouse = stockdomain.WarehouseWIP
+			}
 		}
 	case PurposeMaterialConsumption:
 		if item.FromWarehouse == "" {
@@ -1034,6 +1058,23 @@ func (s *Service) BindWarehouseCustomer(ctx context.Context, cmd BindWarehouseCu
 		cmd.Actor = "stock"
 	}
 	return s.repo.BindWarehouseCustomer(ctx, cmd)
+}
+
+func (s *Service) EnsureCustomerWarehouse(ctx context.Context, cmd EnsureCustomerWarehouseCommand) (WarehouseRow, error) {
+	if cmd.CustomerID <= 0 {
+		return WarehouseRow{}, fmt.Errorf("customer_id required")
+	}
+	cmd.Kind = strings.ToLower(strings.TrimSpace(cmd.Kind))
+	switch cmd.Kind {
+	case "raw", "packaging", "finished":
+	default:
+		return WarehouseRow{}, fmt.Errorf("invalid warehouse kind")
+	}
+	creator, ok := s.repo.(CustomerWarehouseCreator)
+	if !ok {
+		return WarehouseRow{}, fmt.Errorf("customer warehouse creation unavailable")
+	}
+	return creator.EnsureCustomerWarehouse(ctx, cmd)
 }
 
 func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error) {

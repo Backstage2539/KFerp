@@ -219,15 +219,19 @@ export function menuGroupsForViewContext(groups, context = { type: FACTORY_VIEW_
     .filter((group) => group.items.length > 0)
 }
 
-export function currentViewLabel(context) {
+export function currentViewLabel(context, customerOptions = []) {
   const ctx = normalizeViewContext(context)
+  const customerOption = (Array.isArray(customerOptions) ? customerOptions : [])
+    .find((option) => Number(option?.customer_id || option?.id || 0) === Number(ctx.customerID || 0))
+  const customerName = ctx.customerName
+    || stringValue(customerOption?.customer_name, customerOption?.name, customerOption?.label)
   if (ctx.type === ORDER_VIEW_CONTEXT) {
     const order = ctx.orderNo || (ctx.orderID ? `#${ctx.orderID}` : '未选择订单')
-    const customer = ctx.customerName || (ctx.customerID ? `客户 #${ctx.customerID}` : '')
+    const customer = customerName || (ctx.customerID ? `客户 #${ctx.customerID}` : '')
     return customer ? `订单：${order} / ${customer}` : `订单：${order}`
   }
   if (ctx.type === CUSTOMER_VIEW_CONTEXT || ctx.type === EXTERNAL_CUSTOMER_VIEW_CONTEXT) {
-    return `客户：${ctx.customerName || (ctx.customerID ? `#${ctx.customerID}` : '未选择')}`
+    return `客户：${customerName || (ctx.customerID ? `#${ctx.customerID}` : '未选择')}`
   }
   return '工厂总览'
 }

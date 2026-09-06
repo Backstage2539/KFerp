@@ -1191,6 +1191,15 @@ func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, nee
 }
 
 func ensureWIPStockForWorkOrderNeedsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, needs []materialConsumptionNeed) error {
+	if workOrderID > 0 {
+		usesFrozenSources, err := workOrderUsesFrozenComponentSourcesTx(ctx, tx, schema, workOrderID)
+		if err != nil {
+			return err
+		}
+		if usesFrozenSources {
+			return ensureWorkOrderFrozenSourceBatchesTx(ctx, tx, schema, workOrderID)
+		}
+	}
 	hasMaterials, err := schemaColumnExistsTx(ctx, tx, schema, "materials", "id")
 	if err != nil {
 		return err
@@ -1276,20 +1285,27 @@ func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema 
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g,onhand_units FROM %s.materials WHERE id=$1 FOR UPDATE`, schema), need.MaterialID).Scan(&beforeG, &beforeUnits); err != nil {
 			return err
 		}
-		afterG := beforeG - need.DeductG
-		afterUnits := beforeUnits - need.DeductUnits
-		if afterG < 0 || afterUnits < 0 {
-			return fmt.Errorf("material stock insufficient: %s", need.MaterialName)
-		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, schema), need.MaterialID, afterG, afterUnits); err != nil {
-			return err
-		}
 		allocations, err := materialBatchConsumptionsForRunningItemTx(ctx, tx, schema, r.ID, need.MaterialID, need.DeductG, need.DeductUnits)
 		if err != nil {
 			return err
 		}
 		if len(allocations) == 0 {
-			allocations = []customerProcessingBatchAllocation{{QtyG: need.DeductG, QtyUnits: need.DeductUnits}}
+			allocations = []customerProcessingBatchAllocation{{Warehouse: stockdomain.WarehouseWIP, QtyG: need.DeductG, QtyUnits: need.DeductUnits}}
+		}
+		factoryDeductG, factoryDeductUnits := int64(0), int64(0)
+		for _, alloc := range allocations {
+			if alloc.OwnerCustomerID == 0 {
+				factoryDeductG += alloc.QtyG
+				factoryDeductUnits += alloc.QtyUnits
+			}
+		}
+		afterG := beforeG - factoryDeductG
+		afterUnits := beforeUnits - factoryDeductUnits
+		if afterG < 0 || afterUnits < 0 {
+			return fmt.Errorf("material stock insufficient: %s", need.MaterialName)
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, schema), need.MaterialID, afterG, afterUnits); err != nil {
+			return err
 		}
 		for _, alloc := range allocations {
 			logDeductG := alloc.QtyG
@@ -1317,8 +1333,12 @@ func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema 
 				ChangeUnits: -logDeductUnits,
 				AfterUnits:  afterUnits,
 			}
-			if err := insertStockLedgerEntryTx(ctx, tx, schema,
-				stockItemTypeMaterial, need.MaterialID, need.MaterialName, 0, stockdomain.WarehouseWIP,
+			warehouse := strings.TrimSpace(alloc.Warehouse)
+			if warehouse == "" {
+				warehouse = stockdomain.WarehouseWIP
+			}
+			if err := insertStockLedgerEntryOwnedTx(ctx, tx, schema,
+				stockItemTypeMaterial, need.MaterialID, need.MaterialName, alloc.OwnerCustomerID, 0, warehouse,
 				stockSourceProductionRun, r.ID, alloc.BatchCode, r.BatchID,
 				qty, operator,
 			); err != nil {
@@ -1367,7 +1387,7 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 		allocation.Warehouse = warehouse
 		allocation.QtyG, allocation.QtyUnits = normalizeCustomerProcessingFinishedQuantity(specG, allocation.QtyG, allocation.QtyUnits)
 
-		beforeUnits, beforeLooseG, loadErr := finishedInventoryQtyIdentityTx(ctx, tx, schema, productID, need.ComponentBomSpecID, specG, warehouse)
+		beforeUnits, beforeLooseG, loadErr := finishedInventoryQtyIdentityOwnedTx(ctx, tx, schema, productID, need.ComponentBomSpecID, specG, warehouse, allocation.OwnerCustomerID)
 		if loadErr != nil {
 			return loadErr
 		}
@@ -1386,9 +1406,9 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 			}
 		}
 		afterG := finishedComponentTotalG(specG, afterUnits, afterLooseG)
-		if err := upsertFinishedInventoryIdentityTx(
+		if err := upsertFinishedInventoryIdentityOwnedTx(
 			ctx, tx, schema, productID, need.ComponentBomSpecID, need.ComponentBomVariantID,
-			specG, warehouse, afterUnits, afterLooseG,
+			specG, warehouse, afterUnits, afterLooseG, allocation.OwnerCustomerID,
 		); err != nil {
 			return err
 		}
@@ -1406,9 +1426,9 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 		); err != nil {
 			return err
 		}
-		if err := insertStockLedgerEntryWithBomSpecTx(ctx, tx, schema,
+		if err := insertStockLedgerEntryWithBomSpecOwnedTx(ctx, tx, schema,
 			stockItemTypeFinishedProduct, productID, need.MaterialName,
-			need.ComponentBomSpecID, need.ComponentBomVariantID, specG, warehouse,
+			need.ComponentBomSpecID, need.ComponentBomVariantID, allocation.OwnerCustomerID, specG, warehouse,
 			stockSourceProductionRun, r.ID, allocation.BatchCode, r.BatchID,
 			stockLedgerQty{
 				BeforeG:     beforeG,

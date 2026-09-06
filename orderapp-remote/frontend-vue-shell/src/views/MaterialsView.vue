@@ -7,7 +7,7 @@
     <section class="panel compact-head">
       <div class="panel-head">
         <div>
-          <h2>物料档案</h2>
+          <h2>物料档案<span v-if="materialContextLabel"> · {{ materialContextLabel }}</span></h2>
           <p>按分类维护原料、包材和其他物料；单位来自全局单位字典，库存数量通过库存补录或库存调整修正。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading || materialCategoryMoveActive">刷新</button>
@@ -59,6 +59,17 @@
                   <option value="non_semi_finished">外购</option>
                 </select>
               </label>
+              <label v-if="!materialContextCustomerID">
+                <span>物料归属</span>
+                <SearchableSelect
+                  v-model="materialAssociationFilter"
+                  :options="materialOwnershipFilterOptions"
+                  :option-label="ownershipFilterOptionLabel"
+                  option-value="value"
+                  placeholder="全部或搜索客户名称"
+                  empty-value="all"
+                  empty-text="没有匹配的客户" />
+              </label>
               <!-- legacy filter contract: <span>半成品标识</span> <select v-model="filters.semiFinished"> <option value="semi_finished">半成品</option> <option value="non_semi_finished">非半成品</option> -->
               <button class="primary" type="button" @click="applyMaterialFilters" :disabled="loading">查询</button>
               <span class="spacer"></span>
@@ -77,6 +88,7 @@
                   <col class="stock-col" />
                   <col class="industry-col" />
                   <col class="manufacture-col" />
+                  <col class="industry-col" />
                   <col class="status-col" />
                 </colgroup>
                 <thead>
@@ -96,6 +108,7 @@
                     <th>库存数量</th>
                     <th>行业字段</th>
                     <th>制造属性</th>
+                    <th>物料归属</th>
                     <th>状态</th>
                   </tr>
                 </thead>
@@ -126,9 +139,13 @@
                       <span class="pill">{{ row.supply_mode === 'manufacture' ? '自制' : '外购' }}</span>
                       <small>{{ row.supply_mode === 'manufacture' ? (row.can_manufacture ? '可制造' : '无默认发布 BOM') : '采购入库取得成本' }}</small>
                     </td>
+                    <td>
+                      <span>{{ materialCustomerReferenceLabel(row) }}</span>
+                      <button class="text-button" type="button" :disabled="loading || materialCategoryMoveActive" @click.stop="openMaterialCustomerReferenceEditor(row)">复制到客户</button>
+                    </td>
                     <td><span :class="row.deprecated_at ? 'pill muted-pill' : 'pill ok-pill'">{{ row.deprecated_at ? '失效' : '启用' }}</span></td>
                   </tr>
-                  <tr v-if="!group.rows.length"><td colspan="7" class="muted">暂无物料</td></tr>
+                  <tr v-if="!group.rows.length"><td colspan="8" class="muted">暂无物料</td></tr>
                 </tbody>
               </table>
             </div>
@@ -159,6 +176,27 @@
         </div>
 
         <form class="detail-form" @submit.prevent="saveMaterial">
+          <section v-if="draftMode" class="form-section">
+            <div class="section-title">使用范围</div>
+            <div class="form-grid">
+              <label>
+                <span>档案用途</span>
+                <select v-model="materialCreateScope" required>
+                  <option value="" disabled>请选择使用范围</option>
+                  <option value="factory">仅工厂使用</option>
+                  <option value="customers">关联一个或多个客户</option>
+                </select>
+              </label>
+              <div v-if="materialCreateScope === 'customers'" class="wide customer-reference-checklist">
+                <strong>关联客户</strong>
+                <label v-for="customer in customerOptions" :key="`material-create-customer-${customer.id}`" class="checkbox-row">
+                  <input v-model="materialCreateCustomerIDs" type="checkbox" :value="Number(customer.id)" />
+                  <span>{{ customer.name }}</span>
+                </label>
+                <small v-if="!customerOptions.length" class="muted">暂无可选客户</small>
+              </div>
+            </div>
+          </section>
           <section class="form-section">
             <div class="section-title">基础信息</div>
             <div class="form-grid">
@@ -247,6 +285,29 @@
       </aside>
     </div>
 
+    <div v-if="materialCustomerReferenceDrawerOpen" class="drawer-mask" @click.self="closeMaterialCustomerReferenceEditor">
+      <aside class="drawer material-customer-reference-drawer" aria-label="复制物料到客户">
+        <div class="drawer-head">
+          <div>
+            <h3>复制到客户</h3>
+            <p>{{ materialCustomerReferenceMaterial?.name || '-' }}；关联只控制档案可见性，不改变库存货主、数量或成本。</p>
+          </div>
+          <button class="secondary" type="button" @click="closeMaterialCustomerReferenceEditor" :disabled="materialCustomerReferenceSaving">关闭</button>
+        </div>
+        <div class="drawer-body customer-reference-checklist">
+          <label v-for="customer in customerOptions" :key="`material-reference-customer-${customer.id}`" class="checkbox-row">
+            <input v-model="materialCustomerReferenceCustomerIDs" type="checkbox" :value="Number(customer.id)" />
+            <span>{{ customer.name }}</span>
+          </label>
+          <small v-if="!customerOptions.length" class="muted">暂无可选客户</small>
+          <label class="wide"><span>备注</span><textarea v-model.trim="materialCustomerReferenceRemark" rows="2" placeholder="可选"></textarea></label>
+          <div class="form-actions">
+            <button class="primary" type="button" :disabled="materialCustomerReferenceSaving" @click="saveMaterialCustomerReferences">保存</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
     <div v-if="materialGroupFeatureDrawerOpen" class="drawer-mask" @click.self="materialGroupFeatureDrawerOpen = false">
       <aside class="drawer material-group-feature-drawer" aria-label="物料档案分组模板设置">
         <div class="drawer-head">
@@ -310,8 +371,10 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { fetchAllCustomerOptions } from '../api/view-context'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
@@ -323,9 +386,20 @@ import {
   groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
 import { normalizePageSize } from '../lib/pagination'
+import {
+  buildMaterialCreatePayload,
+  buildMaterialCustomerReferencePayload,
+  filterMaterialsByOwnership,
+  materialBelongsToCatalogContext,
+  materialCustomerIDs,
+  materialCustomerNames,
+} from '../lib/material-customer-references'
 
 const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
+  workspaceMode: { type: String, default: 'factory' },
+  customerContextId: { type: Number, default: 0 },
+  customerContextLabel: { type: String, default: '' },
 })
 
 const MATERIAL_CATALOG_USAGE = 'material_catalog'
@@ -336,9 +410,12 @@ const materialBusinessGroups = ref([])
 const materialBusinessGroupAssignments = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
+const materialCustomerReferences = ref([])
+const customerOptions = ref([])
 const q = ref('')
 const appliedMaterialSearchQuery = ref('')
 const filters = reactive({ active: 'active', semiFinished: 'all' })
+const materialAssociationFilter = ref('all')
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -354,12 +431,23 @@ const materialGroupFeatureSelectionDraft = ref([])
 const materialGroupFeatureSelectionSaving = ref(false)
 const materialGroupFeatureDrawerOpen = ref(false)
 const materialDetailDrawerOpen = ref(false)
+const materialCreateScope = ref('')
+const materialCreateCustomerIDs = ref([])
+const materialCustomerReferenceDrawerOpen = ref(false)
+const materialCustomerReferenceMaterial = ref(null)
+const materialCustomerReferenceCustomerIDs = ref([])
+const materialCustomerReferenceRemark = ref('')
+const materialCustomerReferenceSaving = ref(false)
 const stockBackfill = ref({ open: false, target_qty: 0, reason: '' })
 const producedByBoms = ref([])
 const usedByBoms = ref([])
 const materialBomReferencesLoading = ref(false)
 const materialReturnNavigation = computed(() => props.viewParams?.return_navigation || null)
 const materialReturnLabel = computed(() => String(materialReturnNavigation.value?.label || '返回来源操作'))
+const materialContextCustomerID = computed(() => props.workspaceMode === 'customer' ? Number(props.customerContextId || 0) : 0)
+const materialContextLabel = computed(() => materialContextCustomerID.value > 0
+  ? (customerOptions.value.find((customer) => Number(customer.id || 0) === materialContextCustomerID.value)?.name || String(props.customerContextLabel || '').trim() || `客户 #${materialContextCustomerID.value}`)
+  : '')
 
 const activeIndustryTemplates = computed(() => industryFieldTemplates.value.filter((tpl) => !tpl.deactivated_at && tpl.active !== false))
 const selectableMaterialGroupTemplates = computed(() => businessGroupControlOptions(materialBusinessGroups.value).templateOptions)
@@ -371,10 +459,25 @@ const materialCatalogBusinessGroups = computed(() => businessGroupRowsForFeature
   materialBusinessGroups.value,
   materialGroupFeatureSelectionTemplateIDs.value,
 ))
+const materialOwnershipFilterOptions = computed(() => [
+  { value: 'all', label: '全部' },
+  { value: 'factory', label: '仅工厂' },
+  ...customerOptions.value.map((customer) => ({
+    value: `customer:${Number(customer.id || 0)}`,
+    label: String(customer.name || `客户 #${customer.id}`),
+  })),
+])
+function ownershipFilterOptionLabel(option = {}) {
+  return String(option.label || '').trim()
+}
 const filteredMaterialRows = computed(() => {
-  if (filters.semiFinished === 'semi_finished') return rows.value.filter((row) => row.is_semi_finished)
-  if (filters.semiFinished === 'non_semi_finished') return rows.value.filter((row) => !row.is_semi_finished)
-  return rows.value
+  let visible = rows.value.filter((row) => materialBelongsToCatalogContext(row, materialContextCustomerID.value, materialCustomerReferences.value))
+  if (!materialContextCustomerID.value) {
+    visible = filterMaterialsByOwnership(visible, materialAssociationFilter.value, materialCustomerReferences.value, customerOptions.value)
+  }
+  if (filters.semiFinished === 'semi_finished') return visible.filter((row) => row.is_semi_finished)
+  if (filters.semiFinished === 'non_semi_finished') return visible.filter((row) => !row.is_semi_finished)
+  return visible
 })
 const materialDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(filteredMaterialRows.value, {
   templates: materialCatalogBusinessGroups.value,
@@ -532,21 +635,35 @@ function blankDraft() {
 }
 
 function nextMaterialCode() {
-  const maxID = rows.value.reduce((max, row) => Math.max(max, row.id), 0) + 1
-  return `MAT-${String(maxID).padStart(6, '0')}`
+  const timePart = String(Date.now()).slice(-10)
+  const randomPart = String(Math.floor(Math.random() * 100)).padStart(2, '0')
+  return `MAT-${timePart}${randomPart}`
 }
 
 async function loadAll() {
-  await Promise.all([loadOptions(), loadMaterialBusinessGroupConfiguration(), loadMaterialBusinessGroupAssignments(), loadMaterials()])
+  await Promise.all([loadOptions(), loadMaterialBusinessGroupConfiguration(), loadMaterialBusinessGroupAssignments(), loadMaterialCustomerReferences(), loadMaterials()])
 }
 
 async function loadOptions() {
-  const [settings, industry] = await Promise.all([
+  const [settings, industry, customers] = await Promise.all([
     apiGet('/api/product-settings'),
     apiGet('/api/industry-field-templates'),
+    fetchAllCustomerOptions(),
   ])
   productUnitDefinitions.value = (settings.product_unit_definitions || []).map(normalizeUnit).filter((row) => row.code)
   industryFieldTemplates.value = (industry.rows || []).map(normalizeTemplate)
+  customerOptions.value = customers.filter((row) => row.active !== false && Number(row.id || 0) > 0)
+}
+
+async function loadMaterialCustomerReferences() {
+  const data = await apiGet('/api/material-customer-references?active=all')
+  materialCustomerReferences.value = (data.rows || data.references || []).map((row) => ({
+    ...row,
+    id: Number(row.id || 0),
+    material_id: Number(row.material_id || 0),
+    customer_id: Number(row.customer_id || 0),
+    active: row.active !== false,
+  }))
 }
 
 async function loadMaterialBusinessGroupConfiguration() {
@@ -574,6 +691,7 @@ async function loadMaterials({ resetPagination = false } = {}) {
     const url = new URL('/api/materials', window.location.origin)
     url.searchParams.set('limit', '500')
     url.searchParams.set('active', filters.active)
+    if (materialContextCustomerID.value > 0) url.searchParams.set('customer_id', String(materialContextCustomerID.value))
     if (q.value) url.searchParams.set('q', q.value)
     const data = await apiGet(`${url.pathname}${url.search}`)
     rows.value = (data.rows || []).map(normalizeRow)
@@ -613,10 +731,74 @@ function createMaterial() {
   selected.value = null
   draft.value = blankDraft()
   draftMode.value = true
+  materialCreateScope.value = ''
+  materialCreateCustomerIDs.value = []
   materialDetailDrawerOpen.value = true
   error.value = ''
   ok.value = ''
 }
+
+function materialCustomerReferenceLabel(row) {
+  return materialCustomerNames(row, materialCustomerReferences.value, customerOptions.value) || '仅工厂使用'
+}
+
+function openMaterialCustomerReferenceEditor(row) {
+  materialCustomerReferenceMaterial.value = row
+  materialCustomerReferenceCustomerIDs.value = materialCustomerIDs(row, materialCustomerReferences.value)
+  materialCustomerReferenceRemark.value = ''
+  materialCustomerReferenceDrawerOpen.value = true
+}
+
+function closeMaterialCustomerReferenceEditor() {
+  materialCustomerReferenceDrawerOpen.value = false
+  materialCustomerReferenceMaterial.value = null
+  materialCustomerReferenceCustomerIDs.value = []
+  materialCustomerReferenceRemark.value = ''
+}
+
+async function saveMaterialCustomerReferences() {
+  const materialID = Number(materialCustomerReferenceMaterial.value?.id || 0)
+  if (!materialID) return
+  materialCustomerReferenceSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const desired = new Set(materialCustomerReferenceCustomerIDs.value.map((id) => Number(id || 0)).filter(Boolean))
+    const existing = materialCustomerReferences.value.filter((reference) => Number(reference.material_id || 0) === materialID)
+    const existingByCustomer = new Map(existing.map((reference) => [Number(reference.customer_id || 0), reference]))
+    const customerIDs = new Set([...existingByCustomer.keys(), ...desired])
+    for (const customerID of customerIDs) {
+      const row = existingByCustomer.get(customerID)
+      const active = desired.has(customerID)
+      if (row && row.active === active && (!active || !materialCustomerReferenceRemark.value)) continue
+      const payload = buildMaterialCustomerReferencePayload({
+        id: Number(row?.id || 0),
+        material_id: materialID,
+        customer_id: customerID,
+        active,
+        remark: active ? materialCustomerReferenceRemark.value : String(row?.remark || ''),
+      })
+      await apiSend(payload.id ? `/api/material-customer-references/${payload.id}` : '/api/material-customer-references', {
+        method: payload.id ? 'PUT' : 'POST',
+        body: payload,
+      })
+    }
+    await loadMaterialCustomerReferences()
+    const copiedCustomerNames = customerOptions.value
+      .filter((customer) => desired.has(Number(customer.id || 0)))
+      .map((customer) => String(customer.name || `客户 #${customer.id}`))
+    ok.value = copiedCustomerNames.length === 1
+      ? `已复制到客户「${copiedCustomerNames[0]}」，请在「物料归属」中搜索“${copiedCustomerNames[0]}”查看。`
+      : `已保存物料归属，请在「物料归属」中搜索客户名称查看。`
+    closeMaterialCustomerReferenceEditor()
+  } catch (err) {
+    error.value = err.message || '保存物料客户关联失败'
+  } finally {
+    materialCustomerReferenceSaving.value = false
+  }
+}
+
+watch(materialAssociationFilter, resetMaterialGroupPages)
 
 function selectMaterial(row, options = {}) {
   selected.value = row
@@ -921,13 +1103,24 @@ function payloadFromDraft() {
 
 async function saveMaterial() {
   if (!draft.value) return
+  if (draftMode.value && !['factory', 'customers'].includes(materialCreateScope.value)) {
+    error.value = '请选择物料使用范围'
+    return
+  }
+  if (draftMode.value && materialCreateScope.value === 'customers' && !materialCreateCustomerIDs.value.length) {
+    error.value = '请至少选择一个关联客户'
+    return
+  }
   await mutate(async () => {
     const creating = draftMode.value
     const url = creating ? '/api/materials' : `/api/materials/${draft.value.id}`
-    const data = await apiSend(url, { body: payloadFromDraft() })
+    const payload = creating
+      ? buildMaterialCreatePayload(payloadFromDraft(), materialCreateScope.value, materialCreateCustomerIDs.value)
+      : payloadFromDraft()
+    const data = await apiSend(url, { body: payload })
     const row = normalizeRow(data)
     draftMode.value = false
-    await loadMaterials()
+    await Promise.all([loadMaterialCustomerReferences(), loadMaterials()])
     const next = rows.value.find((item) => item.id === row.id) || row
     selectMaterial(next, { quiet: true })
     ok.value = creating ? '已保存新物料' : '已保存物料'

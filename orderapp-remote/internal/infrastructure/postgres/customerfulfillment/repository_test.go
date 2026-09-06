@@ -1075,6 +1075,55 @@ func TestCustomerFulfillmentOptionsUseCustomerProductAliases(t *testing.T) {
 	}
 }
 
+func TestPR629CustomerFulfillmentOptionsUseProductSKUCodeForCustomerReferences(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, productID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('PR629履约候选客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, sku_code, default_price, active, visibility, product_kind)
+		VALUES('PR629工厂商品', 'PR629-SKU-001', 0, true, 'public', 'roasted_bean')
+		RETURNING id
+	`, schema)).Scan(&productID); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_customer_references(
+			product_id, customer_id, customer_item_code, customer_display_name, active
+		)
+		VALUES($1,$2,'PR629-CUSTOMER-001','PR629客户商品名',true)
+	`, schema), productID, customerID); err != nil {
+		t.Fatalf("insert customer product reference: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE VIEW %s.product_bom_spec_authorities AS
+		SELECT id AS product_id, false AS configured FROM %s.products
+	`, schema, schema)); err != nil {
+		t.Fatalf("create product BOM authority view: %v", err)
+	}
+
+	options, err := repo.listCustomerSKUOptions(ctx, customerID)
+	if err != nil {
+		t.Fatalf("listCustomerSKUOptions: %v", err)
+	}
+	for _, option := range options {
+		if option.ProductID != productID {
+			continue
+		}
+		if option.ProductCode != "PR629-SKU-001" || option.ProductName != "PR629客户商品名" || option.SKUCode != "PR629-CUSTOMER-001" {
+			t.Fatalf("customer reference option = %#v", option)
+		}
+		return
+	}
+	t.Fatalf("customer reference product %d missing from options: %#v", productID, options)
+}
+
 func TestDirectShipImportLeavesERPProductIDNullWhenNoProductMatches(t *testing.T) {
 	src := string(readCustomerFulfillmentRepoFile(t, "internal/infrastructure/postgres/customerfulfillment/repository.go"))
 	if strings.Contains(src, "productID, _ := r.findProductForDirectShipTx") {

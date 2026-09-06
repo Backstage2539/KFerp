@@ -4474,8 +4474,24 @@ async function loadCustomers() {
 
 async function loadCustomerProductAliases() {
   try {
-    const data = await apiGet('/api/customer-product-aliases?active=all')
-    customerProductAliases.value = Array.isArray(data.rows) ? data.rows : []
+    const [legacyData, referenceData] = await Promise.all([
+      apiGet('/api/customer-product-aliases?active=all'),
+      apiGet('/api/product-customer-references?product_id=0'),
+    ])
+    const rows = Array.isArray(legacyData.rows) ? legacyData.rows : []
+    const seen = new Set(rows.map((row) => `${Number(row.customer_id || 0)}:${Number(row.product_id || 0)}`))
+    for (const ref of (referenceData.references || referenceData.rows || [])) {
+      const key = `${Number(ref.customer_id || 0)}:${Number(ref.product_id || 0)}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      rows.push({
+        ...ref,
+        id: Number(ref.id || 0),
+        display_name: ref.customer_display_name || '',
+        include_in_price_list: true,
+      })
+    }
+    customerProductAliases.value = rows
   } catch (err) {
     customerProductAliases.value = []
   }

@@ -97,6 +97,22 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	if !warehouseActive {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("target warehouse is inactive: %s", warehouse)
 	}
+	ownerCustomerID, err := warehouseCustomerID(ctx, tx, r.schema, warehouse)
+	if err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
+	var ownerBeforeG, ownerBeforeUnits int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(location.qty_g),0)::bigint,
+		       COALESCE(SUM(location.qty_units),0)::bigint
+		FROM %s.material_batch_locations location
+		JOIN %s.material_batches batch ON batch.id=location.material_batch_id
+		WHERE location.material_id=$1
+		  AND location.warehouse=$2
+		  AND COALESCE(batch.owner_customer_id,0)=$3
+	`, r.schema, r.schema), wo.OutputMaterialID, warehouse, ownerCustomerID).Scan(&ownerBeforeG, &ownerBeforeUnits); err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
 
 	run.OutputType = "material"
 	run.OutputMaterialID = wo.OutputMaterialID
@@ -135,8 +151,12 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 	materialName = firstNonEmpty(strings.TrimSpace(wo.OutputName), materialName)
-	afterG := beforeG + finishedG
-	afterUnits := beforeUnits + finishedUnits
+	factoryFinishedG, factoryFinishedUnits := finishedG, finishedUnits
+	if ownerCustomerID > 0 {
+		factoryFinishedG, factoryFinishedUnits = 0, 0
+	}
+	afterG := beforeG + factoryFinishedG
+	afterUnits := beforeUnits + factoryFinishedUnits
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1
 	`, r.schema), wo.OutputMaterialID, afterG, afterUnits); err != nil {
@@ -147,11 +167,11 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	var materialBatchID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.material_batches(
-			batch_code,material_id,material_name,supplier,receipt_id,received_g,
+			batch_code,material_id,material_name,owner_customer_id,supplier,receipt_id,received_g,
 			qty_g,qty_units,remaining_g,remaining_units,unit_cost,status,quality_status,note,received_at,created_at
-		) VALUES($1,$2,$3,'production',$4,$5,$5,$6,$5,$6,0,'active','pass',$7,now(),now())
+		) VALUES($1,$2,$3,$4,'production',$5,$6,$6,$7,$6,$7,0,'active','pass',$8,now(),now())
 		RETURNING id
-	`, r.schema), batchCode, wo.OutputMaterialID, materialName, wo.ID, finishedG, finishedUnits, cmd.Note).Scan(&materialBatchID); err != nil {
+	`, r.schema), batchCode, wo.OutputMaterialID, materialName, ownerCustomerID, wo.ID, finishedG, finishedUnits, cmd.Note).Scan(&materialBatchID); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -163,18 +183,18 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_batches(
-			batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,source_batch_id,
+			batch_code,item_type,item_id,item_name,owner_customer_id,spec_g,source_doc_type,source_doc_id,source_batch_id,
 			qty_g,qty_units,remaining_g,remaining_units,quality_status,operator,created_at
-		) VALUES($1,'material',$2,$3,0,'production_run',$4,$5,$6,$7,$6,$7,'pass',$8,now())
-	`, r.schema), batchCode, wo.OutputMaterialID, materialName, run.ID, run.BatchID, finishedG, finishedUnits, cmd.Operator); err != nil {
+		) VALUES($1,'material',$2,$3,$4,0,'production_run',$5,$6,$7,$8,$7,$8,'pass',$9,now())
+	`, r.schema), batchCode, wo.OutputMaterialID, materialName, ownerCustomerID, run.ID, run.BatchID, finishedG, finishedUnits, cmd.Operator); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
-	if err := insertStockLedgerEntryTx(ctx, tx, r.schema,
-		stockItemTypeMaterial, wo.OutputMaterialID, materialName, 0, warehouse,
+	if err := insertStockLedgerEntryOwnedTx(ctx, tx, r.schema,
+		stockItemTypeMaterial, wo.OutputMaterialID, materialName, ownerCustomerID, 0, warehouse,
 		stockSourceProductionRun, run.ID, batchCode, run.BatchID,
 		stockLedgerQty{
-			BeforeG: beforeG, ChangeG: finishedG, AfterG: afterG,
-			BeforeUnits: beforeUnits, ChangeUnits: finishedUnits, AfterUnits: afterUnits,
+			BeforeG: ownerBeforeG, ChangeG: finishedG, AfterG: ownerBeforeG + finishedG,
+			BeforeUnits: ownerBeforeUnits, ChangeUnits: finishedUnits, AfterUnits: ownerBeforeUnits + finishedUnits,
 		}, cmd.Operator,
 	); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
@@ -186,7 +206,7 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 			ctx, tx, r.schema,
 			cmd.StockDocumentID, wo.ID, run.ID, wo.OutputMaterialID,
 			materialName, wo.OutputUnit, warehouse,
-			finishedG, finishedUnits, batchCode, cmd.Operator, cmd.Note,
+			ownerCustomerID, finishedG, finishedUnits, batchCode, cmd.Operator, cmd.Note,
 		)
 	} else {
 		entry, err = createStockEntryRecordTx(ctx, tx, r.schema, productionapp.StockEntryCommand{
@@ -194,7 +214,8 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 			SourceType: "work_order_complete", SourceID: wo.ID, Operator: cmd.Operator, Note: cmd.Note,
 			Items: []productionapp.StockEntryItemCommand{{
 				MaterialID: wo.OutputMaterialID, ItemType: stockItemTypeMaterial, ItemName: materialName,
-				ToWarehouse: warehouse, QtyG: finishedG, QtyUnits: finishedUnits, BatchCode: batchCode,
+				OwnerCustomerID: ownerCustomerID,
+				ToWarehouse:     warehouse, QtyG: finishedG, QtyUnits: finishedUnits, BatchCode: batchCode,
 			}},
 		}, false)
 	}
@@ -278,6 +299,17 @@ func materialOutputUnitCost(actualCost float64, outputUnit string, finishedG, fi
 }
 
 func allocateMaterialOutputToDownstreamReservationsTx(ctx context.Context, tx pgx.Tx, schema string, upstreamWorkOrderID, materialID, materialBatchID int64, batchCode string, producedG, producedUnits int64) error {
+	var warehouse string
+	var ownerCustomerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT location.warehouse,COALESCE(batch.owner_customer_id,0)
+		FROM %s.material_batches batch
+		JOIN %s.material_batch_locations location ON location.material_batch_id=batch.id
+		WHERE batch.id=$1
+		ORDER BY location.updated_at DESC LIMIT 1
+	`, schema, schema), materialBatchID).Scan(&warehouse, &ownerCustomerID); err != nil {
+		return err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT reservation.id,reservation.required_g,reservation.required_units,reservation.reserved_g,reservation.reserved_units
 		FROM %s.work_order_dependencies dependency
@@ -327,16 +359,17 @@ func allocateMaterialOutputToDownstreamReservationsTx(ctx context.Context, tx pg
 			INSERT INTO %s.work_order_material_reservation_batches(
 				reservation_id,work_order_id,material_id,component_type,component_id,
 				component_bom_spec_id,component_bom_variant_id,component_spec_g,
-				material_batch_id,stock_batch_id,batch_code,
+				material_batch_id,stock_batch_id,batch_code,warehouse,owner_customer_id,
 				reserved_g,reserved_units,status,created_at,updated_at
 			)
-			SELECT id,work_order_id,material_id,'material',material_id,0,0,0,$2,0,$3,$4,$5,'reserved',now(),now()
+			SELECT id,work_order_id,material_id,'material',material_id,0,0,0,$2,0,$3,$4,$5,$6,$7,'reserved',now(),now()
 			FROM %s.work_order_material_reservations WHERE id=$1
 			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
 				reserved_g=work_order_material_reservation_batches.reserved_g+excluded.reserved_g,
 				reserved_units=work_order_material_reservation_batches.reserved_units+excluded.reserved_units,
+				warehouse=excluded.warehouse,owner_customer_id=excluded.owner_customer_id,
 				status='reserved',updated_at=now()
-		`, schema, schema), row.id, materialBatchID, batchCode, addG, addUnits); err != nil {
+		`, schema, schema), row.id, materialBatchID, batchCode, warehouse, ownerCustomerID, addG, addUnits); err != nil {
 			return err
 		}
 		remainingG -= addG

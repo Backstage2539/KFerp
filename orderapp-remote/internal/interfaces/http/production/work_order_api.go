@@ -128,7 +128,8 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			for _, item := range req.Items {
 				items = append(items, stockapp.StockDocumentItemCommand{
 					MaterialID: item.MaterialID, ProductID: item.ProductID, ItemType: item.ItemType, ItemName: item.ItemName,
-					SpecG: item.SpecG, FromWarehouse: item.FromWarehouse, ToWarehouse: item.ToWarehouse,
+					OwnerCustomerID: item.OwnerCustomerID,
+					SpecG:           item.SpecG, FromWarehouse: item.FromWarehouse, ToWarehouse: item.ToWarehouse,
 					QtyG: item.QtyG, QtyUnits: item.QtyUnits, BatchCode: item.BatchCode, UnitCost: item.UnitCost,
 				})
 			}

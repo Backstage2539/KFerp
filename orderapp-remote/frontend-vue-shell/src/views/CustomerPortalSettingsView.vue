@@ -43,6 +43,11 @@
             <i v-for="warehouse in row.customer.warehouses || []" :key="`${row.customer.id}-${warehouse.code}`">
               {{ warehouse.name || warehouse.code }} · {{ kindLabel(warehouse.kind) }}
             </i>
+            <div class="warehouse-actions">
+              <button v-for="kind in customerWarehouseKinds" :key="`${row.customer.id}-${kind}`" class="secondary" type="button" @click="ensureCustomerWarehouse(row, kind)" :disabled="row.saving">
+                {{ row.saving ? '处理中' : `开通${kindLabel(kind)}` }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -241,6 +246,7 @@ const themeLabels = {
   clean_ops: '清爽业务工具风',
   premium_partner: '品牌会员高级风',
 }
+const customerWarehouseKinds = ['raw', 'packaging', 'finished']
 
 const activeTemplates = computed(() => (capabilityTemplates.value || []).filter((template) => template.active !== false))
 
@@ -456,6 +462,27 @@ function kindLabel(kind) {
   }[kind] || '仓库'
 }
 
+async function ensureCustomerWarehouse(row, kind) {
+  const customerID = Number(row?.customer?.id || 0)
+  if (!customerID || !customerWarehouseKinds.includes(kind)) return
+  row.saving = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const data = await apiSend('/api/stock/customer-warehouses', {
+      method: 'POST',
+      body: { customer_id: customerID, kind },
+    })
+    const warehouse = data?.warehouse || data
+    ok.value = `已开通${kindLabel(kind)}：${warehouse?.name || warehouse?.code || ''}`
+    await loadRowDetail(row)
+  } catch (err) {
+    error.value = err.message || '开通客户仓失败'
+  } finally {
+    row.saving = false
+  }
+}
+
 function openCustomerProfile(row) {
   const customerID = Number(row?.customer?.id || 0)
   if (!customerID) return
@@ -579,6 +606,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-warehouses { display: grid; gap: 5px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; background: #f8fafc; }
 .customer-warehouses b { font-size: 12px; color: #555; }
 .customer-warehouses i { font-style: normal; color: #333; font-size: 12px; line-height: 1.35; }
+.warehouse-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.warehouse-actions button { height: 30px; padding: 0 8px; font-size: 12px; }
 .config-cell input, .config-cell select { width: 100%; }
 .template-picker { display: grid; gap: 8px; align-items: end; }
 .check { display: inline-flex; align-items: center; gap: 8px; }

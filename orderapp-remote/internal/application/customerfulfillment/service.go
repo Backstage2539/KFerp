@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -109,6 +110,22 @@ type CustomerPortalOverview struct {
 	DirectShipOrders []DirectShipOrderSummary `json:"direct_ship_orders,omitempty"`
 	Fees             []FeeItemSummary         `json:"fees,omitempty"`
 	Settlements      []SettlementSummary      `json:"settlements,omitempty"`
+	PriceLists       []CustomerPriceList      `json:"price_lists,omitempty"`
+}
+
+// CustomerPriceList is the customer-scoped, published factory supply price
+// list exposed in the fulfillment workbench. Content is retained as JSON so
+// the workbench can preview the exact frozen publication without re-resolving
+// another version.
+type CustomerPriceList struct {
+	ID          int64           `json:"id"`
+	ListType    string          `json:"list_type"`
+	VersionNo   string          `json:"version_no"`
+	Status      string          `json:"status"`
+	PublishedAt string          `json:"published_at,omitempty"`
+	ProductType string          `json:"product_type,omitempty"`
+	Changelog   string          `json:"changelog,omitempty"`
+	Content     json.RawMessage `json:"content,omitempty"`
 }
 
 type SubmitCustomerProcessingWorkOrderCommand struct {
@@ -149,6 +166,7 @@ type SubmitCustomerDirectShipOrderItem struct {
 	BomSpecName                        string  `json:"bom_spec_name,omitempty"`
 	InventoryUnit                      string  `json:"inventory_unit,omitempty"`
 	CustomerProductAliasID             int64   `json:"customer_product_alias_id,omitempty"`
+	CustomerProductReferenceID         int64   `json:"customer_product_reference_id,omitempty"`
 	CustomerProductDisplayNameSnapshot string  `json:"customer_product_display_name_snapshot,omitempty"`
 	CustomerItemCodeSnapshot           string  `json:"customer_item_code_snapshot,omitempty"`
 	ProductCodeSnapshot                string  `json:"product_code_snapshot,omitempty"`
@@ -241,6 +259,7 @@ type CustomerSKUOption struct {
 	InventoryUnit              string                 `json:"inventory_unit,omitempty"`
 	MigrationState             string                 `json:"migration_state,omitempty"`
 	CustomerProductAliasID     int64                  `json:"customer_product_alias_id,omitempty"`
+	CustomerProductReferenceID int64                  `json:"customer_product_reference_id,omitempty"`
 	CustomerProductDisplayName string                 `json:"customer_product_display_name,omitempty"`
 	CustomerItemCode           string                 `json:"customer_item_code,omitempty"`
 	BrandName                  string                 `json:"brand_name,omitempty"`
@@ -385,6 +404,7 @@ type Overview struct {
 	DirectShipOrders []DirectShipOrderSummary `json:"direct_ship_orders,omitempty"`
 	Fees             []FeeItemSummary         `json:"fees,omitempty"`
 	Settlements      []SettlementSummary      `json:"settlements,omitempty"`
+	PriceLists       []CustomerPriceList      `json:"price_lists,omitempty"`
 }
 
 type CustodyBalance struct {
@@ -523,6 +543,19 @@ func (s *Service) CustomerPortalOverview(ctx context.Context, employeeID int64) 
 		return CustomerPortalOverview{}, fmt.Errorf("employee required")
 	}
 	return s.repo.CustomerPortalOverview(ctx, employeeID)
+}
+
+// BoundCustomerID exposes the authenticated ERP workbench customer boundary
+// to adjacent HTTP modules without exposing a caller supplied customer id.
+func (s *Service) BoundCustomerID(ctx context.Context, employeeID int64) (int64, error) {
+	if employeeID <= 0 {
+		return 0, fmt.Errorf("employee required")
+	}
+	current, err := s.repo.CustomerPortalContext(ctx, employeeID)
+	if err != nil {
+		return 0, err
+	}
+	return current.CustomerID, nil
 }
 
 // RequireERPWorkbenchLogin reuses the customer workbench context boundary for

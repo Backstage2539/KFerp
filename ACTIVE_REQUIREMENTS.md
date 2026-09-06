@@ -6,6 +6,51 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-629-PRODUCT-CATALOG-WAREHOUSE-SOURCE
+- Branch: `codex/pr629-acceptance-evidence`（业务代码已通过 PR #63-#69 合并）
+- Owner/session: Codex / 2026-09-05
+- Status: implementation, guarded migration, development deployment and live acceptance complete; awaiting Van review
+- Scope: 商品与物料归属改为客户名称可搜索和“复制到客户”交互；移除商品供料方式；生产计划逐 BOM 组件选择并冻结来源仓与货主；旧客户供料需求迁入统一流程。
+- DEV: DEV-629-CATALOG-OWNERSHIP-UX; DEV-629-WAREHOUSE-COMPONENT-SOURCES; DEV-629-LEGACY-SOURCE-CUTOVER; DEV-629-DEVELOPMENT-ACCEPTANCE
+- Verifier:
+  - Unit/API: component-source helper RED (2 failures) -> full Go GREEN; fulfillment option PostgreSQL RED `p.code` -> GREEN `p.sku_code`
+  - Frontend/build: Vue 1077/1077, Vite 6597 modules, miniapp 220/220, typecheck and development build GREEN
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md
+  - Review/acceptance: development page/API/PostgreSQL production-flow acceptance GREEN; evidence in orderapp-remote/docs/acceptance/2026-09-05-product-catalog-warehouse-source.md
+- Deployment: development `04ef34b0ad5b92ae34a9d4ad3c9493ad4494d4eb`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260905221431-04ef34b0ad5b`; rollback image `kferp-orderapp-rollback:development-20260905221431-04ef34b0ad5b`; production untouched.
+- Last update: 2026-09-05 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` failed before writing because the local awk rejects a multiline `-v` value; PR-629 was the next free id and is claimed here directly.
+
+### PR-628-EXPLICIT-CUSTOMER-CATALOG-LINKS
+- Branch: `codex/explicit-customer-catalog-links`
+- Owner/session: Codex / 2026-09-05
+- Status: implementation, development deployment and automated/manual development acceptance complete; awaiting Van review
+- Scope: 工厂／客户视图只负责筛选；商品建档显式选择工厂或客户归属；公共商品和物料显式关联一个或多个客户；客户名称标题与跨客户隔离。
+- DEV: DEV-628-VIEW-CONTEXT-SEPARATION; DEV-628-PRODUCT-EXPLICIT-OWNERSHIP; DEV-628-MATERIAL-CUSTOMER-REFERENCES; DEV-628-DEVELOPMENT-REPAIR-ACCEPTANCE
+- Verifier:
+  - Unit/API: full Go GREEN; frontend 1072/1072 GREEN; miniapp 220/220 GREEN
+  - Frontend/build: Vite build GREEN
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md
+  - Review/acceptance: development API, PostgreSQL and real-page acceptance GREEN; evidence in `orderapp-remote/docs/acceptance/2026-09-05-explicit-customer-catalog-links.md`
+- Deployment: development deployed; guarded repair of products 1073/1074 complete; production untouched.
+- Last update: 2026-09-05 Asia/Shanghai
+
+### PR-627-CUSTOMER-FULFILLMENT-MULTI-TENANT
+- Branch: `codex/customer-fulfillment-multi-tenant`
+- Owner/session: Codex / 2026-09-04
+- Status: implementation in progress
+- Scope: 履约客户独立商品、客户引用商品、客户供料/工厂供料混合订单、客户仓库存归属与履约工作台价格/库存隔离。
+- DEV: DEV-627-CUSTOMER-PRODUCT-REFERENCE; DEV-627-MIXED-SOURCE-ORDER; DEV-627-CUSTOMER-INVENTORY-WAREHOUSE; DEV-627-DEVELOPMENT-ACCEPTANCE
+- Verifier:
+  - Unit: pending
+  - API: pending
+  - Frontend/build: pending
+  - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md
+  - Review/acceptance: pending
+- Deployment: development deployment and scenario acceptance authorized; production untouched.
+- Last update: 2026-09-04 Asia/Shanghai
+- Notes: Implementation starts from origin/develop@b34a3fd20.
+
 ### PR-625-MANUAL-BOM-AND-ORDER-TIER-FIX
 - Branch: `codex/pr625-manual-bom-spec-publish`
 - Owner/session: Codex / 2026-09-03

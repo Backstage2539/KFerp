@@ -6,6 +6,7 @@ import {
   CUSTOMER_WORKSPACE_MODE,
   FACTORY_WORKSPACE_MODE,
   WORKSPACE_CUSTOMERS_REFRESH_EVENT,
+  customerWorkspaceDisplayName,
   defaultWorkspaceEntryKey,
   isCustomerAccountActor,
   menuGroupsForWorkspaceMode,
@@ -13,6 +14,12 @@ import {
   workspaceCustomersRefreshEvent,
   workspaceViewParams,
 } from './workspace-mode.js'
+
+test('customer workspace display name keeps the selected customer label when the page list is scoped', () => {
+  assert.equal(customerWorkspaceDisplayName(74, [], '芬纳咖啡'), '芬纳咖啡')
+  assert.equal(customerWorkspaceDisplayName(74, [{ id: 74, company_name: '芬纳咖啡' }]), '芬纳咖啡')
+  assert.equal(customerWorkspaceDisplayName(74, []), '客户 #74')
+})
 
 test('factory workspace keeps the existing primary ERP menu layout', () => {
   const groups = menuGroupsForWorkspaceMode(menuGroups, FACTORY_WORKSPACE_MODE)
@@ -136,7 +143,7 @@ test('vue shell wires workspace mode into navigation and routed pages', () => {
     'kferp.workspace.customerId',
     ':customer-context-id="workspaceCustomerContextId"',
     ':customer-context-label="workspaceCustomerLabel"',
-    'fetchWorkspaceCustomerOptions',
+    'fetchAllCustomerOptions',
     'WORKSPACE_CUSTOMERS_REFRESH_EVENT',
     'workspaceCustomersRefreshEventName',
   ]) {
@@ -146,6 +153,10 @@ test('vue shell wires workspace mode into navigation and routed pages', () => {
   assert.ok(
     apiSource.includes('/api/customer-fulfillment/customers?limit=200'),
     'view-context API adapter should retain the permission-compatible customer fallback',
+  )
+  assert.ok(
+    apiSource.includes('/api/customers?limit=${pageSize}&offset=${offset}'),
+    'catalog customer choices should page through the full active customer list',
   )
 })
 

@@ -1,6 +1,7 @@
 package materials
 
 import (
+	"encoding/json"
 	"net/http"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
@@ -15,6 +16,34 @@ type MaterialListResponse struct {
 	Rows []materialsapp.Material `json:"rows"`
 }
 
+type materialCreateAPIRequest struct {
+	materialsapp.MaterialInput
+	CustomerIDs []int64 `json:"customer_ids"`
+}
+
+type materialCustomerReferenceAPIRequest struct {
+	MaterialID int64  `json:"material_id"`
+	CustomerID int64  `json:"customer_id"`
+	Active     bool   `json:"active"`
+	Remark     string `json:"remark"`
+}
+
+func (r *materialCreateAPIRequest) UnmarshalJSON(data []byte) error {
+	var input materialsapp.MaterialInput
+	if err := json.Unmarshal(data, &input); err != nil {
+		return err
+	}
+	var extra struct {
+		CustomerIDs []int64 `json:"customer_ids"`
+	}
+	if err := json.Unmarshal(data, &extra); err != nil {
+		return err
+	}
+	r.MaterialInput = input
+	r.CustomerIDs = extra.CustomerIDs
+	return nil
+}
+
 func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 	e.GET("/api/materials", func(c echo.Context) error {
 		limit := support.IntParam(c, "limit", 200)
@@ -23,11 +52,23 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 		if active == "all" {
 			includeDeprecated = true
 		}
+		customerID := int64(support.IntParam(c, "customer_id", 0))
+		boundCustomerID, err := materialsSvc.ResolveBoundCustomerID(c.Request().Context(), support.CurrentEmployeeID(c))
+		if err != nil {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: err.Error()})
+		}
+		if boundCustomerID > 0 {
+			if customerID > 0 && customerID != boundCustomerID {
+				return c.JSON(http.StatusForbidden, ErrorResponse{Error: "customer material scope forbidden"})
+			}
+			customerID = boundCustomerID
+		}
 		rows, err := materialsSvc.List(c.Request().Context(), materialsapp.ListCommand{
 			Query:             strings.TrimSpace(c.QueryParam("q")),
 			Active:            active,
 			Limit:             limit,
 			IncludeDeprecated: includeDeprecated,
+			CustomerID:        customerID,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -36,19 +77,68 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 	})
 
 	e.POST("/api/materials", func(c echo.Context) error {
-		var req materialsapp.MaterialInput
+		var req materialCreateAPIRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := materialsSvc.Create(c.Request().Context(), materialsapp.CreateCommand{
-			Actor: support.ActorOf(c),
-			Input: req,
+			Actor:       support.ActorOf(c),
+			Input:       req.MaterialInput,
+			CustomerIDs: req.CustomerIDs,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, row)
 	})
+
+	e.GET("/api/material-customer-references", func(c echo.Context) error {
+		materialID := int64(support.IntParam(c, "material_id", 0))
+		customerID := int64(support.IntParam(c, "customer_id", 0))
+		boundCustomerID, err := materialsSvc.ResolveBoundCustomerID(c.Request().Context(), support.CurrentEmployeeID(c))
+		if err != nil {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: err.Error()})
+		}
+		if boundCustomerID > 0 {
+			if customerID > 0 && customerID != boundCustomerID {
+				return c.JSON(http.StatusForbidden, ErrorResponse{Error: "customer material scope forbidden"})
+			}
+			customerID = boundCustomerID
+		}
+		rows, err := materialsSvc.ListCustomerReferences(c.Request().Context(), materialID, customerID, c.QueryParam("active"))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows, "references": rows})
+	})
+
+	saveMaterialCustomerReference := func(c echo.Context) error {
+		var req materialCustomerReferenceAPIRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if strings.TrimSpace(c.Param("id")) == "" {
+			id, err = 0, nil
+		}
+		if err != nil || id < 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		}
+		row, err := materialsSvc.SaveCustomerReference(c.Request().Context(), materialsapp.SaveMaterialCustomerReferenceCommand{
+			Actor:      support.ActorOf(c),
+			ID:         id,
+			MaterialID: req.MaterialID,
+			CustomerID: req.CustomerID,
+			Active:     req.Active,
+			Remark:     req.Remark,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"reference": row})
+	}
+	e.POST("/api/material-customer-references", saveMaterialCustomerReference)
+	e.PUT("/api/material-customer-references/:id", saveMaterialCustomerReference)
 
 	e.POST("/api/materials/:id", func(c echo.Context) error {
 		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)

@@ -1104,6 +1104,48 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	}
 }
 
+func TestCreateProductCustomerReferenceIgnoresLegacySupplyMode(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{
+		Actor: "tester", Name: "客户商品A", CustomerID: 42,
+	}); err != nil {
+		t.Fatalf("CreateProduct() error = %v", err)
+	}
+	if repo.create.CustomerID != 42 || repo.create.CustomerDisplayName != "客户商品A" {
+		t.Fatalf("customer create command = %+v", repo.create)
+	}
+	if _, err := svc.SaveProductCustomerReference(context.Background(), ProductCustomerReference{
+		ProductID: 7, CustomerID: 42, CustomerDisplayName: "客户商品B",
+	}); err != nil {
+		t.Fatalf("SaveProductCustomerReference() error = %v", err)
+	}
+}
+
+func TestCreateProductRequiresExplicitCompatibleOwnership(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{
+		Actor: "tester", Name: "客户商品A", OwnershipType: "customer",
+	}); err == nil || !strings.Contains(err.Error(), "customer_id required") {
+		t.Fatalf("customer ownership without customer should fail: %v", err)
+	}
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{
+		Actor: "tester", Name: "公共商品", OwnershipType: "factory", CustomerID: 74,
+	}); err == nil || !strings.Contains(err.Error(), "factory product") {
+		t.Fatalf("factory ownership with customer should fail: %v", err)
+	}
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{
+		Actor: "tester", Name: "客户商品A", OwnershipType: "customer", CustomerID: 74,
+	}); err != nil {
+		t.Fatalf("customer ownership should pass: %v", err)
+	}
+	if repo.create.OwnershipType != "customer" || repo.create.CustomerID != 74 {
+		t.Fatalf("explicit ownership lost: %+v", repo.create)
+	}
+}
+
 func TestLegacyProductPriceRecordWritesAreReadonly(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

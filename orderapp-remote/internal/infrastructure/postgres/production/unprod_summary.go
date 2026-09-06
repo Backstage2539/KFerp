@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	productiondomain "orderapp/internal/domain/production"
+	stockdomain "orderapp/internal/domain/stock"
 	"sort"
 	"strconv"
 	"strings"
@@ -189,7 +190,9 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 					NULLIF(subtype_pc.inventory_unit,''),
 					NULLIF(type_pc.inventory_unit,'')
 				)
-			END,'') AS inventory_unit
+			END,'') AS inventory_unit,
+			COALESCE(o.customer_id,0),
+			'' AS target_warehouse
 		FROM %s.order_items oi
 		JOIN %s.orders o ON o.id=oi.order_id
 		JOIN %s.products p ON p.id=oi.product_id
@@ -228,19 +231,20 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 	order := make([]string, 0)
 	for rows.Next() {
 		var (
-			productID, parentProductID, bomSpecID, bomVariantID                  int64
+			productID, parentProductID, bomSpecID, bomVariantID, customerID      int64
 			product, productionKind, typeName, subtypeName, orderNo              string
 			typeID, subtypeID, operationTemplateID                               int64
 			qty                                                                  float64
 			forceProduce                                                         bool
 			priceSourceJSON, salesUnit, specLabel, netContentUnit, inventoryUnit string
+			targetWarehouse                                                      string
 			netContentQty                                                        float64
 		)
 		if err := rows.Scan(
 			&productID, &bomSpecID, &bomVariantID, &parentProductID, &product, &productionKind,
 			&typeID, &subtypeID, &typeName, &subtypeName, &operationTemplateID,
 			&orderNo, &qty, &forceProduce, &priceSourceJSON, &salesUnit, &specLabel,
-			&netContentQty, &netContentUnit, &inventoryUnit,
+			&netContentQty, &netContentUnit, &inventoryUnit, &customerID, &targetWarehouse,
 		); err != nil {
 			return nil, err
 		}
@@ -265,6 +269,7 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 				strings.TrimSpace(orderNo),
 				strings.TrimSpace(specLabel),
 				strings.TrimSpace(salesUnit),
+				strconv.FormatInt(customerID, 10),
 				blockingReason,
 			}, "\x1f")
 			demand := bySnapshot[groupKey]
@@ -295,6 +300,10 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 			}
 			continue
 		}
+		snapshot.CustomerID = customerID
+		snapshot.TargetWarehouse = strings.TrimSpace(targetWarehouse)
+		snapshotJSONBytes, _ := json.Marshal(snapshot)
+		snapshotJSON = string(snapshotJSONBytes)
 		groupKey := productionQuantitySnapshotGroupKey(snapshot)
 		demand := bySnapshot[groupKey]
 		if demand == nil {
@@ -497,6 +506,15 @@ func productionDemandSelectionKey(productID, bomSpecID, specG int64) string {
 		return fmt.Sprintf("product:%d:bom_spec:%d", productID, bomSpecID)
 	}
 	return producePlanKey(productID, specG)
+}
+
+func productionDemandScopedSelectionKey(productID, bomSpecID, specG, customerID int64, targetWarehouse string) string {
+	base := productionDemandSelectionKey(productID, bomSpecID, specG)
+	targetWarehouse = strings.TrimSpace(targetWarehouse)
+	if customerID <= 0 && (targetWarehouse == "" || targetWarehouse == stockdomain.WarehouseFinishedGoods) {
+		return base
+	}
+	return fmt.Sprintf("%s::customer:%d::target:%s", base, customerID, targetWarehouse)
 }
 
 func resolveProductionQuantitySnapshot(
@@ -745,12 +763,21 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 	}
 	productIDs := make([]int64, 0, len(demands))
 	productSeen := map[int64]bool{}
+	warehouseSeen := map[string]bool{"finished_goods": true}
 	for _, demand := range demands {
 		if !productSeen[demand.ProductID] {
 			productSeen[demand.ProductID] = true
 			productIDs = append(productIDs, demand.ProductID)
 		}
+		if warehouse := strings.TrimSpace(productionQuantitySnapshotTargetWarehouse(demand.SalesSpecSnapshotJSON)); warehouse != "" {
+			warehouseSeen[warehouse] = true
+		}
 	}
+	warehouses := make([]string, 0, len(warehouseSeen))
+	for warehouse := range warehouseSeen {
+		warehouses = append(warehouses, warehouse)
+	}
+	sort.Strings(warehouses)
 	availability := map[string]*finishedInventoryAvailability{}
 	hasBomSpecIdentity, err := productionDemandColumnExists(ctx, pool, schema, "finished_inventory", "bom_spec_id")
 	if err != nil {
@@ -759,36 +786,37 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 	var rows pgx.Rows
 	if hasBomSpecIdentity {
 		rows, err = pool.Query(ctx, fmt.Sprintf(`
-			SELECT product_id,COALESCE(bom_spec_id,0),spec_g,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
+			SELECT product_id,COALESCE(bom_spec_id,0),spec_g,warehouse,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
 			FROM %s.finished_inventory
-			WHERE product_id=ANY($1) AND warehouse='finished_goods'
-		`, schema), productIDs)
+			WHERE product_id=ANY($1) AND warehouse=ANY($2)
+		`, schema), productIDs, warehouses)
 	} else {
 		// Isolated legacy repository tests intentionally create the pre-PR-600
 		// table shape. Keep those tests and legacy databases readable while the
 		// normal application schema uses the canonical BOM-spec columns.
 		rows, err = pool.Query(ctx, fmt.Sprintf(`
-			SELECT product_id,spec_g,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
+			SELECT product_id,spec_g,warehouse,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
 			FROM %s.finished_inventory
-			WHERE product_id=ANY($1) AND warehouse='finished_goods'
-		`, schema), productIDs)
+			WHERE product_id=ANY($1) AND warehouse=ANY($2)
+		`, schema), productIDs, warehouses)
 	}
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var productID, bomSpecID, specG, units, looseG int64
+		var warehouse string
 		var scanErr error
 		if hasBomSpecIdentity {
-			scanErr = rows.Scan(&productID, &bomSpecID, &specG, &units, &looseG)
+			scanErr = rows.Scan(&productID, &bomSpecID, &specG, &warehouse, &units, &looseG)
 		} else {
-			scanErr = rows.Scan(&productID, &specG, &units, &looseG)
+			scanErr = rows.Scan(&productID, &specG, &warehouse, &units, &looseG)
 		}
 		if scanErr != nil {
 			rows.Close()
 			return nil, scanErr
 		}
-		availability[productionDemandSelectionKey(productID, bomSpecID, specG)] = &finishedInventoryAvailability{units: units, looseG: looseG}
+		availability[productionDemandSelectionKey(productID, bomSpecID, specG)+"\x1f"+strings.TrimSpace(warehouse)] = &finishedInventoryAvailability{units: units, looseG: looseG}
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -856,7 +884,7 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 			rows.Close()
 			return nil, scanErr
 		}
-		key := productionDemandSelectionKey(productID, bomSpecID, specG)
+		key := productionDemandSelectionKey(productID, bomSpecID, specG) + "\x1f" + stockdomain.WarehouseFinishedGoods
 		current := availability[key]
 		if current == nil {
 			current = &finishedInventoryAvailability{}
@@ -899,14 +927,22 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 		// conversion has been resolved. Recompute here as a final guard so old
 		// product_id/spec_g selections keep their historical key while BOM-spec
 		// demand remains keyed by the canonical parent product and specification.
-		row.SelectionKey = productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG)
+		row.SelectionKey = productionDemandScopedSelectionKey(
+			row.ProductID, row.BomSpecID, row.SpecG,
+			productionQuantitySnapshotCustomerID(row.SalesSpecSnapshotJSON),
+			productionQuantitySnapshotTargetWarehouse(row.SalesSpecSnapshotJSON),
+		)
 		if strings.TrimSpace(row.BlockingReason) != "" {
 			row.NeedUnits = int64(math.Ceil(demand.SalesSpecCount))
 			row.DemandSelectable = false
 			out = append(out, row)
 			continue
 		}
-		availabilityKey := productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG)
+		warehouse := strings.TrimSpace(productionQuantitySnapshotTargetWarehouse(row.SalesSpecSnapshotJSON))
+		if warehouse == "" {
+			warehouse = stockdomain.WarehouseFinishedGoods
+		}
+		availabilityKey := productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG) + "\x1f" + warehouse
 		current := availability[availabilityKey]
 		if current == nil {
 			current = &finishedInventoryAvailability{}

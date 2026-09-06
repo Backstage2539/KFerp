@@ -614,7 +614,10 @@ func (r Repository) attachProductionDemandStatusesQuery(ctx context.Context, que
 	}
 	for i := range rows {
 		if strings.TrimSpace(rows[i].DemandStatus) == "" {
-			key := producePlanKey(rows[i].ProductID, rows[i].SpecG)
+			key := strings.TrimSpace(rows[i].SelectionKey)
+			if key == "" {
+				key = productionDemandSelectionKey(rows[i].ProductID, rows[i].BomSpecID, rows[i].SpecG)
+			}
 			state := states[key]
 			if state.Status == "" {
 				state.Status = "unplanned"
@@ -642,13 +645,18 @@ func (r Repository) productionDemandStatusByKeyQuery(ctx context.Context, querye
 	productSeen := map[int64]bool{}
 	specSeen := map[int64]bool{}
 	orderNosByKey := map[string]map[string]bool{}
+	keysByIdentity := map[string][]string{}
 	productIDs := make([]int64, 0)
 	specGs := make([]int64, 0)
 	for _, row := range rows {
 		if row.ProductID <= 0 {
 			continue
 		}
-		key := producePlanKey(row.ProductID, row.SpecG)
+		identity := productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG)
+		key := strings.TrimSpace(row.SelectionKey)
+		if key == "" {
+			key = identity
+		}
 		if !productSeen[row.ProductID] {
 			productSeen[row.ProductID] = true
 			productIDs = append(productIDs, row.ProductID)
@@ -658,13 +666,14 @@ func (r Repository) productionDemandStatusByKeyQuery(ctx context.Context, querye
 			specGs = append(specGs, row.SpecG)
 		}
 		orderNosByKey[key] = splitProductionDemandOrderNos(row.OrderNos)
+		keysByIdentity[identity] = append(keysByIdentity[identity], key)
 		out[key] = productionDemandPlanState{Status: "unplanned"}
 	}
 	if len(productIDs) == 0 || len(specGs) == 0 {
 		return out, nil
 	}
 	q := fmt.Sprintf(`
-		SELECT pi.product_id,pi.spec_g,COALESCE(pi.order_nos,''),
+		SELECT pi.product_id,COALESCE(pi.bom_spec_id,0),pi.spec_g,COALESCE(pi.order_nos,''),
 		       pp.id,pp.plan_no,COALESCE(pp.status,''),
 		       COALESCE(wo.id,0),COALESCE(wo.work_order_no,''),COALESCE(wo.status,'')
 		FROM %s.production_plan_items pi
@@ -681,25 +690,27 @@ func (r Repository) productionDemandStatusByKeyQuery(ctx context.Context, querye
 	}
 	defer sqlRows.Close()
 	for sqlRows.Next() {
-		var productID, specG, planID, workOrderID int64
+		var productID, bomSpecID, specG, planID, workOrderID int64
 		var planOrderNos, planNo, planStatus, workOrderNo, workOrderStatus string
-		if err := sqlRows.Scan(&productID, &specG, &planOrderNos, &planID, &planNo, &planStatus, &workOrderID, &workOrderNo, &workOrderStatus); err != nil {
+		if err := sqlRows.Scan(&productID, &bomSpecID, &specG, &planOrderNos, &planID, &planNo, &planStatus, &workOrderID, &workOrderNo, &workOrderStatus); err != nil {
 			return nil, err
 		}
-		key := producePlanKey(productID, specG)
-		if !productionDemandOrderNosOverlap(orderNosByKey[key], planOrderNos) {
-			continue
-		}
-		next := productionDemandPlanState{
-			Status:           productionDemandStatusFromPlan(planStatus, workOrderStatus),
-			ProductionPlanID: planID,
-			ProductionPlanNo: planNo,
-			WorkOrderID:      workOrderID,
-			WorkOrderNo:      workOrderNo,
-		}
-		current := out[key]
-		if productionDemandStatusPriority(next.Status) >= productionDemandStatusPriority(current.Status) {
-			out[key] = next
+		identity := productionDemandSelectionKey(productID, bomSpecID, specG)
+		for _, key := range keysByIdentity[identity] {
+			if !productionDemandOrderNosOverlap(orderNosByKey[key], planOrderNos) {
+				continue
+			}
+			next := productionDemandPlanState{
+				Status:           productionDemandStatusFromPlan(planStatus, workOrderStatus),
+				ProductionPlanID: planID,
+				ProductionPlanNo: planNo,
+				WorkOrderID:      workOrderID,
+				WorkOrderNo:      workOrderNo,
+			}
+			current := out[key]
+			if productionDemandStatusPriority(next.Status) >= productionDemandStatusPriority(current.Status) {
+				out[key] = next
+			}
 		}
 	}
 	return out, sqlRows.Err()

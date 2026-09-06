@@ -174,9 +174,9 @@ func createStockEntryRecordTx(ctx context.Context, tx pgx.Tx, schema string, cmd
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.stock_entry_items(
 				stock_entry_id,material_id,product_id,bom_spec_id,bom_variant_id,item_type,item_name,spec_g,
-				from_warehouse,to_warehouse,qty_g,qty_units,batch_code,unit_cost,total_cost
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-		`, schema), entryID, item.MaterialID, item.ProductID, item.BomSpecID, item.BomVariantID, item.ItemType, item.ItemName, item.SpecG, item.FromWarehouse, item.ToWarehouse, item.QtyG, item.QtyUnits, item.BatchCode, item.UnitCost, totalCost); err != nil {
+				from_warehouse,to_warehouse,owner_customer_id,qty_g,qty_units,batch_code,unit_cost,total_cost
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+		`, schema), entryID, item.MaterialID, item.ProductID, item.BomSpecID, item.BomVariantID, item.ItemType, item.ItemName, item.SpecG, item.FromWarehouse, item.ToWarehouse, item.OwnerCustomerID, item.QtyG, item.QtyUnits, item.BatchCode, item.UnitCost, totalCost); err != nil {
 			return productionapp.StockEntryDetail{}, err
 		}
 		if writeLedger {
@@ -234,7 +234,8 @@ func createProductCompletionStockEntryTx(
 			ProductID: run.ProductID, ItemType: stockItemTypeFinishedProduct,
 			BomSpecID: run.BomSpecID, BomVariantID: run.BomVariantID,
 			ItemName: run.Product, SpecG: run.SpecG, ToWarehouse: warehouse,
-			QtyG: finishedTotalG, QtyUnits: finished.Units,
+			OwnerCustomerID: run.OwnerCustomerID,
+			QtyG:            finishedTotalG, QtyUnits: finished.Units,
 			BatchCode: finishedProductionBatchCode(run.ID), UnitCost: unitCost,
 		}},
 	}, false)
@@ -253,12 +254,12 @@ func insertStockEntryLedgerTx(ctx context.Context, tx pgx.Tx, schema string, ent
 		fromQty.AfterG = -item.QtyG
 		fromQty.ChangeUnits = -item.QtyUnits
 		fromQty.AfterUnits = -item.QtyUnits
-		if err := insertStockLedgerEntryWithBomSpecTx(ctx, tx, schema, item.ItemType, itemID, itemName, item.BomSpecID, item.BomVariantID, item.SpecG, item.FromWarehouse, "stock_entry", entryID, item.BatchCode, entryNo, fromQty, cmd.Operator); err != nil {
+		if err := insertStockLedgerEntryWithBomSpecOwnedTx(ctx, tx, schema, item.ItemType, itemID, itemName, item.BomSpecID, item.BomVariantID, item.OwnerCustomerID, item.SpecG, item.FromWarehouse, "stock_entry", entryID, item.BatchCode, entryNo, fromQty, cmd.Operator); err != nil {
 			return err
 		}
 	}
 	if item.ToWarehouse != "" {
-		return insertStockLedgerEntryWithBomSpecTx(ctx, tx, schema, item.ItemType, itemID, itemName, item.BomSpecID, item.BomVariantID, item.SpecG, item.ToWarehouse, "stock_entry", entryID, item.BatchCode, entryNo, qty, cmd.Operator)
+		return insertStockLedgerEntryWithBomSpecOwnedTx(ctx, tx, schema, item.ItemType, itemID, itemName, item.BomSpecID, item.BomVariantID, item.OwnerCustomerID, item.SpecG, item.ToWarehouse, "stock_entry", entryID, item.BatchCode, entryNo, qty, cmd.Operator)
 	}
 	return nil
 }
@@ -277,7 +278,7 @@ func loadStockEntryDetailTx(ctx context.Context, tx pgx.Tx, schema string, id in
 		return productionapp.StockEntryDetail{}, err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT id,stock_entry_id,material_id,product_id,bom_spec_id,bom_variant_id,item_type,item_name,spec_g,from_warehouse,to_warehouse,qty_g,qty_units,batch_code,COALESCE(unit_cost,0)::float8,COALESCE(total_cost,0)::float8
+		SELECT id,stock_entry_id,material_id,product_id,bom_spec_id,bom_variant_id,item_type,item_name,spec_g,from_warehouse,to_warehouse,COALESCE(owner_customer_id,0),qty_g,qty_units,batch_code,COALESCE(unit_cost,0)::float8,COALESCE(total_cost,0)::float8
 		FROM %s.stock_entry_items
 		WHERE stock_entry_id=$1
 		ORDER BY id
@@ -289,7 +290,7 @@ func loadStockEntryDetailTx(ctx context.Context, tx pgx.Tx, schema string, id in
 	detail.Items = make([]productionapp.StockEntryItemRow, 0)
 	for rows.Next() {
 		var item productionapp.StockEntryItemRow
-		if err := rows.Scan(&item.ID, &item.StockEntryID, &item.MaterialID, &item.ProductID, &item.BomSpecID, &item.BomVariantID, &item.ItemType, &item.ItemName, &item.SpecG, &item.FromWarehouse, &item.ToWarehouse, &item.QtyG, &item.QtyUnits, &item.BatchCode, &item.UnitCost, &item.TotalCost); err != nil {
+		if err := rows.Scan(&item.ID, &item.StockEntryID, &item.MaterialID, &item.ProductID, &item.BomSpecID, &item.BomVariantID, &item.ItemType, &item.ItemName, &item.SpecG, &item.FromWarehouse, &item.ToWarehouse, &item.OwnerCustomerID, &item.QtyG, &item.QtyUnits, &item.BatchCode, &item.UnitCost, &item.TotalCost); err != nil {
 			return productionapp.StockEntryDetail{}, err
 		}
 		detail.Items = append(detail.Items, item)

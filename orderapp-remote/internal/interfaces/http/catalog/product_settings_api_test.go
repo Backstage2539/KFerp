@@ -199,8 +199,8 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 			r.products[i].MarginRateOverride = cmd.MarginRateOverride
 			r.products[i].GradientTemplateIDOverride = cmd.GradientTemplateIDOverride
 			r.products[i].OperationTemplateIDOverride = cmd.OperationTemplateIDOverride
-			r.products[i].UnitTemplateID = cmd.UnitTemplateID
-			r.products[i].UnitRuleOverrideJSON = cmd.UnitRuleOverrideJSON
+			// Product identity updates must preserve legacy unit values. Those
+			// values are now owned by the published BOM specification.
 		}
 	}
 	return nil
@@ -1371,6 +1371,7 @@ func TestProductCustomerReferenceAPIReplacesCustomerProductMasterWrites(t *testi
 		"customer_id":42,
 		"customer_item_code":"KAREN-ESP-001",
 		"customer_display_name":"Karen 精品拼配",
+		"material_source_mode":"customer",
 		"active":true,
 		"remark":"打印和搜索使用"
 	}`))
@@ -1384,6 +1385,9 @@ func TestProductCustomerReferenceAPIReplacesCustomerProductMasterWrites(t *testi
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("customer reference response missing %s: %s", want, rec.Body.String())
 		}
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`material_source_mode`)) {
+		t.Fatalf("legacy material source mode must be ignored and omitted: %s", rec.Body.String())
 	}
 }
 
@@ -2008,6 +2012,33 @@ func TestProductSettingsAPICreatesGreenBeanProductWithBomBinding(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPICarriesExplicitCustomerOwnership(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", strings.NewReader(`{
+		"name":"芬纳专属商品A",
+		"ownership_type":"customer",
+		"customer_id":74,
+		"customer_display_name":"芬纳商品A",
+		"customer_item_code":"FN-A",
+		"material_source_mode":"customer"
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/product-settings/products status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.createdPublic.OwnershipType != "customer" || repo.createdPublic.CustomerID != 74 || repo.createdPublic.CustomerDisplayName != "芬纳商品A" {
+		t.Fatalf("explicit ownership command=%+v", repo.createdPublic)
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`material_source_mode`)) {
+		t.Fatalf("legacy material source mode must not be returned: %s", rec.Body.String())
+	}
+}
+
 func TestProductSettingsAPIUpdatesGreenBeanBomBinding(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{
@@ -2470,7 +2501,7 @@ func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrit
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.productUpdated || repo.updated.ProductConfigTemplateID != 0 || repo.updated.ClassificationTemplateID != 0 || repo.updated.GradientTemplateIDOverride != 0 || repo.updated.OperationTemplateIDOverride != 0 || repo.updated.UnitRuleOverrideJSON != "{}" {
+	if !repo.productUpdated || repo.updated.ProductConfigTemplateID != 0 || repo.updated.ClassificationTemplateID != 0 || repo.updated.GradientTemplateIDOverride != 0 || repo.updated.OperationTemplateIDOverride != 0 || repo.updated.UnitRuleOverrideJSON != "{}" || repo.updated.UnitTemplateID != 0 {
 		t.Fatalf("updated product template command=%+v updated=%v", repo.updated, repo.productUpdated)
 	}
 

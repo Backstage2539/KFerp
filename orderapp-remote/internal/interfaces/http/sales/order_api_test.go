@@ -26,6 +26,20 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+func TestOrderSaveAPIRequestPreservesCustomerReferenceAndIgnoresLegacyMaterialSource(t *testing.T) {
+	req := orderSaveAPIRequest{
+		CustomerProductReferenceID: []string{"42"},
+		MaterialSourceMode:         []string{"customer"},
+	}
+	converted := req.toCreateRequest()
+	if len(converted.CustomerProductReferenceID) != 1 || converted.CustomerProductReferenceID[0] != "42" {
+		t.Fatalf("customer reference ids = %#v, want [42]", converted.CustomerProductReferenceID)
+	}
+	if len(converted.MaterialSourceMode) != 0 {
+		t.Fatalf("legacy material source modes must be ignored, got %#v", converted.MaterialSourceMode)
+	}
+}
+
 func TestOrderEntryRedirectsToVueShell(t *testing.T) {
 	e := echo.New()
 	registerOrderRoutes(e, nil)
@@ -1152,6 +1166,7 @@ func ensureOrderAPIProductCustomerReferenceTables(t *testing.T, ctx context.Cont
 			customer_id BIGINT NOT NULL,
 			customer_item_code TEXT NOT NULL DEFAULT '',
 			customer_display_name TEXT NOT NULL DEFAULT '',
+			material_source_mode TEXT NOT NULL DEFAULT 'factory',
 			active BOOLEAN NOT NULL DEFAULT true,
 			remark TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

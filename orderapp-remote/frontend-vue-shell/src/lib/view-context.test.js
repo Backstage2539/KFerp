@@ -90,6 +90,16 @@ test('external customer view context is fixed to the bound customer', () => {
   assert.equal(currentViewLabel(ctx), '客户：Karen')
 })
 
+test('current customer view label resolves the loaded customer name when URL only has an id', () => {
+  assert.equal(
+    currentViewLabel(
+      { type: CUSTOMER_VIEW_CONTEXT, customerID: 74 },
+      [{ id: 74, name: '芬纳咖啡' }],
+    ),
+    '客户：芬纳咖啡',
+  )
+})
+
 test('view context reuses existing permission-filtered menus without introducing product model names', () => {
   const factory = menuGroupsForViewContext(menuGroups, { type: FACTORY_VIEW_CONTEXT })
   const customer = menuGroupsForViewContext(menuGroups, { type: CUSTOMER_VIEW_CONTEXT, customerID: 18 })
@@ -115,7 +125,7 @@ test('vue shell exposes current view selector and passes view context to pages',
     'showViewContextSelector',
     'currentViewContext',
     ':view-context="currentViewContext"',
-    'fetchWorkspaceCustomerOptions',
+    'fetchAllCustomerOptions',
     'fetchWorkspaceOrderOptions',
     'fetchViewContextPresets',
     '保存当前视图',

@@ -234,26 +234,93 @@ type ProductionBomUsedByBom struct {
 }
 
 type ProductionBomVersion struct {
-	ID                     int64   `json:"id"`
-	BomID                  int64   `json:"bom_id"`
-	VersionNo              string  `json:"version_no"`
-	Status                 string  `json:"status"`
-	YieldRate              float64 `json:"yield_rate"`
-	ExpectedYieldRate      float64 `json:"expected_yield_rate"`
-	ExpectedLossRate       float64 `json:"expected_loss_rate"`
-	MaterialLossRate       float64 `json:"material_loss_rate"`
-	OutputQty              float64 `json:"output_qty"`
-	OutputUnit             string  `json:"output_unit"`
-	ItemCount              int     `json:"item_count"`
-	Note                   string  `json:"note"`
-	SpecialAttrsSchemaJSON string  `json:"special_attrs_schema_json"`
-	SpecialAttrsJSON       string  `json:"special_attrs_json"`
-	ProcessRouteID         int64   `json:"process_route_id"`
-	ProcessRouteName       string  `json:"process_route_name"`
-	CreatedAt              string  `json:"created_at"`
-	PublishedAt            string  `json:"published_at"`
-	IsLatest               bool    `json:"is_latest"`
-	IsLatestUsable         bool    `json:"is_latest_usable"`
+	ID                     int64                           `json:"id"`
+	BomID                  int64                           `json:"bom_id"`
+	VersionNo              string                          `json:"version_no"`
+	Status                 string                          `json:"status"`
+	YieldRate              float64                         `json:"yield_rate"`
+	ExpectedYieldRate      float64                         `json:"expected_yield_rate"`
+	ExpectedLossRate       float64                         `json:"expected_loss_rate"`
+	MaterialLossRate       float64                         `json:"material_loss_rate"`
+	OutputQty              float64                         `json:"output_qty"`
+	OutputUnit             string                          `json:"output_unit"`
+	ItemCount              int                             `json:"item_count"`
+	Note                   string                          `json:"note"`
+	SpecialAttrsSchemaJSON string                          `json:"special_attrs_schema_json"`
+	SpecialAttrsJSON       string                          `json:"special_attrs_json"`
+	ProcessRouteID         int64                           `json:"process_route_id"`
+	ProcessRouteName       string                          `json:"process_route_name"`
+	CreatedAt              string                          `json:"created_at"`
+	PublishedAt            string                          `json:"published_at"`
+	IsLatest               bool                            `json:"is_latest"`
+	IsLatestUsable         bool                            `json:"is_latest_usable"`
+	MainInputComponent     ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
+}
+
+// ProductionBomMainInputComponent identifies the component that replaces the
+// specification-template main-input placeholder.  Material is retained as
+// the compatibility default; product components must carry a published BOM
+// specification so their inventory unit is frozen with the source version.
+type ProductionBomMainInputComponent struct {
+	ComponentType      string `json:"component_type"`
+	MaterialID         int64  `json:"material_id,omitempty"`
+	ComponentProductID int64  `json:"component_product_id,omitempty"`
+	ComponentBomSpecID int64  `json:"component_bom_spec_id,omitempty"`
+}
+
+func NormalizeProductionBomMainInputComponent(component ProductionBomMainInputComponent, legacyMaterialID int64) (ProductionBomMainInputComponent, error) {
+	typ := strings.ToLower(strings.TrimSpace(component.ComponentType))
+	if typ == "" {
+		if component.ComponentProductID > 0 || component.ComponentBomSpecID > 0 {
+			typ = "product"
+		} else if component.MaterialID > 0 || legacyMaterialID > 0 {
+			typ = "material"
+		}
+	}
+	if typ == "material" {
+		if component.MaterialID <= 0 {
+			component.MaterialID = legacyMaterialID
+		}
+		if component.MaterialID <= 0 {
+			return ProductionBomMainInputComponent{}, fmt.Errorf("规格主体组件必须选择物料或已发布商品规格")
+		}
+		component.ComponentType = "material"
+		component.ComponentProductID = 0
+		component.ComponentBomSpecID = 0
+		return component, nil
+	}
+	if typ == "product" {
+		if component.ComponentProductID <= 0 || component.ComponentBomSpecID <= 0 {
+			return ProductionBomMainInputComponent{}, fmt.Errorf("规格主体商品必须选择已发布 BOM 规格")
+		}
+		component.ComponentType = "product"
+		component.MaterialID = 0
+		return component, nil
+	}
+	return ProductionBomMainInputComponent{}, fmt.Errorf("规格主体组件类型必须是 material 或 product")
+}
+
+func normalizeProductionBomMainInput(component *ProductionBomMainInputComponent, legacyMaterialID *int64, required bool) error {
+	if component == nil || legacyMaterialID == nil {
+		return fmt.Errorf("规格主体组件参数无效")
+	}
+	if component.ComponentType == "" && component.MaterialID <= 0 && component.ComponentProductID <= 0 && component.ComponentBomSpecID <= 0 && *legacyMaterialID <= 0 {
+		if required {
+			return fmt.Errorf("规格主体组件必须选择物料或已发布商品规格")
+		}
+		return nil
+	}
+	normalized, err := NormalizeProductionBomMainInputComponent(*component, *legacyMaterialID)
+	if err != nil {
+		return err
+	}
+	*component = normalized
+	if normalized.ComponentType == "material" {
+		*legacyMaterialID = normalized.MaterialID
+	} else {
+		*legacyMaterialID = 0
+	}
+	return nil
 }
 
 type ProductionBomSpecTemplate struct {
@@ -393,55 +460,58 @@ type DeleteProductionBomGroupCategoryCommand struct {
 }
 
 type CreateProductionBomCommand struct {
-	Name                  string                      `json:"name"`
-	OutputType            string                      `json:"output_type"`
-	SpecificationMode     string                      `json:"specification_mode"`
-	OutputID              int64                       `json:"output_id"`
-	OutputProductID       int64                       `json:"output_product_id"`
-	OutputMaterialID      int64                       `json:"output_material_id"`
-	OutputQty             float64                     `json:"output_qty"`
-	OutputUnit            string                      `json:"output_unit"`
-	GroupID               int64                       `json:"group_id"`
-	GroupCategoryID       int64                       `json:"group_category_id"`
-	ExpectedLossRate      *float64                    `json:"expected_loss_rate,omitempty"`
-	SpecTemplateVersionID int64                       `json:"spec_template_version_id"`
-	MainInputMaterialID   int64                       `json:"main_input_material_id"`
-	Variants              []ProductionBomDraftVariant `json:"variants,omitempty"`
-	Actor                 string                      `json:"actor"`
+	Name                  string                          `json:"name"`
+	OutputType            string                          `json:"output_type"`
+	SpecificationMode     string                          `json:"specification_mode"`
+	OutputID              int64                           `json:"output_id"`
+	OutputProductID       int64                           `json:"output_product_id"`
+	OutputMaterialID      int64                           `json:"output_material_id"`
+	OutputQty             float64                         `json:"output_qty"`
+	OutputUnit            string                          `json:"output_unit"`
+	GroupID               int64                           `json:"group_id"`
+	GroupCategoryID       int64                           `json:"group_category_id"`
+	ExpectedLossRate      *float64                        `json:"expected_loss_rate,omitempty"`
+	SpecTemplateVersionID int64                           `json:"spec_template_version_id"`
+	MainInputMaterialID   int64                           `json:"main_input_material_id"`
+	MainInputComponent    ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
+	Variants              []ProductionBomDraftVariant     `json:"variants,omitempty"`
+	Actor                 string                          `json:"actor"`
 }
 
 type UpdateProductionBomCommand struct {
-	ID                    int64  `json:"id"`
-	Name                  string `json:"name"`
-	OutputType            string `json:"output_type"`
-	SpecificationMode     string `json:"specification_mode"`
-	OutputID              int64  `json:"output_id"`
-	OutputProductID       int64  `json:"output_product_id"`
-	OutputMaterialID      int64  `json:"output_material_id"`
-	UpdateOutputBinding   bool   `json:"-"`
-	OutputUnit            string `json:"output_unit"`
-	GroupID               int64  `json:"group_id"`
-	GroupCategoryID       int64  `json:"group_category_id"`
-	UpdateGroupAssignment bool   `json:"-"`
-	Status                string `json:"status"`
-	Actor                 string `json:"actor"`
-	SpecTemplateVersionID int64  `json:"spec_template_version_id,omitempty"`
-	MainInputMaterialID   int64  `json:"main_input_material_id,omitempty"`
+	ID                    int64                           `json:"id"`
+	Name                  string                          `json:"name"`
+	OutputType            string                          `json:"output_type"`
+	SpecificationMode     string                          `json:"specification_mode"`
+	OutputID              int64                           `json:"output_id"`
+	OutputProductID       int64                           `json:"output_product_id"`
+	OutputMaterialID      int64                           `json:"output_material_id"`
+	UpdateOutputBinding   bool                            `json:"-"`
+	OutputUnit            string                          `json:"output_unit"`
+	GroupID               int64                           `json:"group_id"`
+	GroupCategoryID       int64                           `json:"group_category_id"`
+	UpdateGroupAssignment bool                            `json:"-"`
+	Status                string                          `json:"status"`
+	Actor                 string                          `json:"actor"`
+	SpecTemplateVersionID int64                           `json:"spec_template_version_id,omitempty"`
+	MainInputMaterialID   int64                           `json:"main_input_material_id,omitempty"`
+	MainInputComponent    ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
 }
 
 type CopyProductionBomCommand struct {
-	ID                    int64  `json:"id"`
-	Name                  string `json:"name"`
-	OutputType            string `json:"output_type"`
-	SpecificationMode     string `json:"specification_mode"`
-	OutputID              int64  `json:"output_id"`
-	OutputProductID       int64  `json:"output_product_id"`
-	OutputMaterialID      int64  `json:"output_material_id"`
-	GroupID               int64  `json:"group_id"`
-	GroupCategoryID       int64  `json:"group_category_id"`
-	SpecTemplateVersionID int64  `json:"spec_template_version_id"`
-	MainInputMaterialID   int64  `json:"main_input_material_id"`
-	Actor                 string `json:"actor"`
+	ID                    int64                           `json:"id"`
+	Name                  string                          `json:"name"`
+	OutputType            string                          `json:"output_type"`
+	SpecificationMode     string                          `json:"specification_mode"`
+	OutputID              int64                           `json:"output_id"`
+	OutputProductID       int64                           `json:"output_product_id"`
+	OutputMaterialID      int64                           `json:"output_material_id"`
+	GroupID               int64                           `json:"group_id"`
+	GroupCategoryID       int64                           `json:"group_category_id"`
+	SpecTemplateVersionID int64                           `json:"spec_template_version_id"`
+	MainInputMaterialID   int64                           `json:"main_input_material_id"`
+	MainInputComponent    ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
+	Actor                 string                          `json:"actor"`
 }
 
 type ProductionBomFilter struct {
@@ -499,8 +569,9 @@ type UpdateProductionBomVersionDraftCommand struct {
 type ProductionBomDraftWorkspaceCommand struct {
 	Bom                 UpdateProductionBomCommand
 	Version             UpdateProductionBomVersionDraftCommand
-	SpecTemplateID      int64 `json:"spec_template_version_id,omitempty"`
-	MainInputMaterialID int64 `json:"main_input_material_id,omitempty"`
+	SpecTemplateID      int64                           `json:"spec_template_version_id,omitempty"`
+	MainInputMaterialID int64                           `json:"main_input_material_id,omitempty"`
+	MainInputComponent  ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
 }
 
 // CreateProductionBomReplacementDraftCommand creates a new BOM master and V001
@@ -576,10 +647,11 @@ type PublishProductionBomSpecTemplateVersionCommand struct {
 }
 
 type ReapplyProductionBomSpecTemplateVersionCommand struct {
-	VersionID             int64  `json:"version_id"`
-	SpecTemplateVersionID int64  `json:"spec_template_version_id"`
-	MainInputMaterialID   int64  `json:"main_input_material_id"`
-	Actor                 string `json:"actor"`
+	VersionID             int64                           `json:"version_id"`
+	SpecTemplateVersionID int64                           `json:"spec_template_version_id"`
+	MainInputMaterialID   int64                           `json:"main_input_material_id"`
+	MainInputComponent    ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
+	Actor                 string                          `json:"actor"`
 }
 
 type PublishProductionBomVersionCommand struct {
@@ -1265,8 +1337,10 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	}
 	cmd.SpecificationMode = mode
 	if mode == ProductionBomSpecificationModeSpecGroup {
-		if cmd.SpecTemplateVersionID > 0 && cmd.MainInputMaterialID <= 0 {
-			return ProductionBomSummary{}, fmt.Errorf("main_input_material_id required")
+		if cmd.SpecTemplateVersionID > 0 {
+			if err := normalizeProductionBomMainInput(&cmd.MainInputComponent, &cmd.MainInputMaterialID, true); err != nil {
+				return ProductionBomSummary{}, err
+			}
 		}
 		if cmd.SpecTemplateVersionID <= 0 && len(cmd.Variants) == 0 {
 			return ProductionBomSummary{}, fmt.Errorf("product BOM requires at least one specification draft")
@@ -1274,7 +1348,7 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 		if cmd.SpecTemplateVersionID > 0 && len(cmd.Variants) > 0 {
 			return ProductionBomSummary{}, fmt.Errorf("specification template and manual variants cannot be submitted together")
 		}
-	} else if cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 {
+	} else if cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 || cmd.MainInputComponent.ComponentProductID > 0 || cmd.MainInputComponent.ComponentBomSpecID > 0 {
 		return ProductionBomSummary{}, fmt.Errorf("single specification_mode cannot use specification template")
 	}
 	if cmd.OutputQty <= 0 {
@@ -1402,10 +1476,12 @@ func (s *Service) CopyProductionBom(ctx context.Context, cmd CopyProductionBomCo
 			return ProductionBomSummary{}, err
 		}
 		cmd.SpecificationMode = mode
-		if mode == ProductionBomSpecificationModeSpecGroup && cmd.SpecTemplateVersionID > 0 && cmd.MainInputMaterialID <= 0 {
-			return ProductionBomSummary{}, fmt.Errorf("main_input_material_id required")
+		if mode == ProductionBomSpecificationModeSpecGroup && cmd.SpecTemplateVersionID > 0 {
+			if err := normalizeProductionBomMainInput(&cmd.MainInputComponent, &cmd.MainInputMaterialID, true); err != nil {
+				return ProductionBomSummary{}, err
+			}
 		}
-		if mode == ProductionBomSpecificationModeSingle && (cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0) {
+		if mode == ProductionBomSpecificationModeSingle && (cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 || cmd.MainInputComponent.ComponentProductID > 0 || cmd.MainInputComponent.ComponentBomSpecID > 0) {
 			return ProductionBomSummary{}, fmt.Errorf("single specification_mode cannot use specification template")
 		}
 	}
@@ -1425,8 +1501,8 @@ func (s *Service) ReapplyProductionBomSpecTemplateVersion(ctx context.Context, c
 	if cmd.SpecTemplateVersionID <= 0 {
 		return ProductionBomVersion{}, fmt.Errorf("spec_template_version_id required")
 	}
-	if cmd.MainInputMaterialID <= 0 {
-		return ProductionBomVersion{}, fmt.Errorf("main_input_material_id required")
+	if err := normalizeProductionBomMainInput(&cmd.MainInputComponent, &cmd.MainInputMaterialID, true); err != nil {
+		return ProductionBomVersion{}, err
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	repo, ok := s.repo.(ProductionBomSpecDraftRepository)
@@ -1676,13 +1752,15 @@ func (s *Service) normalizeProductionBomDraftWorkspace(ctx context.Context, cmd 
 	}
 	cmd.Bom.SpecificationMode = mode
 	if mode == ProductionBomSpecificationModeSpecGroup {
-		if cmd.SpecTemplateID > 0 && cmd.MainInputMaterialID <= 0 {
-			return cmd, fmt.Errorf("specification template requires main_input_material_id")
+		if cmd.SpecTemplateID > 0 {
+			if err := normalizeProductionBomMainInput(&cmd.MainInputComponent, &cmd.MainInputMaterialID, true); err != nil {
+				return cmd, err
+			}
 		}
 		if cmd.SpecTemplateID <= 0 && len(cmd.Version.Variants) == 0 {
 			return cmd, fmt.Errorf("product BOM requires at least one specification draft")
 		}
-	} else if cmd.SpecTemplateID > 0 || cmd.MainInputMaterialID > 0 {
+	} else if cmd.SpecTemplateID > 0 || cmd.MainInputMaterialID > 0 || cmd.MainInputComponent.ComponentProductID > 0 || cmd.MainInputComponent.ComponentBomSpecID > 0 {
 		return cmd, fmt.Errorf("single specification_mode cannot use specification template")
 	}
 	cmd.Bom.UpdateOutputBinding = true

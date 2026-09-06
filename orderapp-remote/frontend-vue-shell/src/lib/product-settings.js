@@ -294,6 +294,23 @@ export function buildProductCustomerReferencePayload(form = {}) {
   }
 }
 
+export function filterProductsByOwnership(products = [], ownership = 'all', references = [], customers = []) {
+  const selected = String(ownership || 'all').trim()
+  if (!selected || selected === 'all') return (products || []).slice()
+  if (selected === 'factory') return (products || []).filter((product) => Number(product?.customer_id || 0) === 0)
+  let customerID = 0
+  if (selected.startsWith('customer:')) customerID = Number(selected.slice('customer:'.length) || 0)
+  if (!customerID) {
+    const query = selected.toLowerCase()
+    customerID = Number((customers || []).find((customer) => String(customer?.name || '').toLowerCase().includes(query))?.id || 0)
+  }
+  if (!customerID) return []
+  const linkedProductIDs = new Set((references || [])
+    .filter((reference) => reference?.active !== false && Number(reference?.customer_id || 0) === customerID)
+    .map((reference) => Number(reference?.product_id || 0)))
+  return (products || []).filter((product) => Number(product?.customer_id || 0) === customerID || linkedProductIDs.has(Number(product?.id || 0)))
+}
+
 export function buildBusinessGroupAssignmentPayload(form = {}) {
   const objectID = Number(form.object_id ?? form.objectID ?? 0) || 0
   return {
@@ -1957,10 +1974,14 @@ export function buildCustomerPublicUsagePayload(customerID, options = {}) {
 export function productBelongsToSkuContext(product = {}, context = {}) {
   const customerID = Number(context.customerID || context.customer_id || 0)
   const productCustomerID = Number(product.customer_id || 0)
-  if (!customerID) return productCustomerID === 0
+  if (!customerID) return true
   if (productCustomerID === customerID) return true
-  if (productCustomerID !== 0 || !Boolean(context.usePublicSku || context.use_public_sku)) return false
-  return !hasCustomerDerivedProduct(product, context.customerProducts)
+  if (productCustomerID !== 0) return false
+  return (context.references || context.productCustomerReferences || []).some((reference) => (
+    reference?.active !== false
+    && Number(reference?.product_id || 0) === Number(product?.id || 0)
+    && Number(reference?.customer_id || 0) === customerID
+  ))
 }
 
 export function categoryBelongsToSkuContext(category = {}, context = {}) {
@@ -2706,6 +2727,15 @@ export function buildProductCreatePayload(form = {}) {
 		product_kind: kind,
 		remark: String(form.remark || '').trim(),
 	}
+	const ownershipType = String(form.ownership_type || '').trim().toLowerCase()
+	if (ownershipType === 'factory' || ownershipType === 'customer') {
+		payload.ownership_type = ownershipType
+	}
+	if (ownershipType === 'customer') {
+		payload.customer_id = Number(form.customer_id || 0)
+		payload.customer_display_name = String(form.customer_display_name || '').trim()
+		payload.customer_item_code = String(form.customer_item_code || '').trim()
+	}
 	if (kind === 'green_bean') return payload
 	return payload
 }
@@ -3260,25 +3290,8 @@ export function buildProductBasicsPayload(row = {}) {
     product_kind: kind,
     remark: String(row.remark || '').trim(),
   }
-  const unitTemplateID = normalizedProductUnitTemplateID(row)
-  const shouldSaveUnitOverride = productUnitOverrideShouldSave(row)
 	const name = String(row.name || '').trim()
 	if (name) payload.name = name
-	if (Object.prototype.hasOwnProperty.call(row, 'unit_template_id')) {
-		payload.unit_template_id = unitTemplateID
-	}
-	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(row, 'inventory_unit')) {
-		payload.inventory_unit = String(row.inventory_unit || 'kg').trim() || 'kg'
-	}
-	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(row, 'integer_inventory_unit')) {
-		payload.integer_inventory_unit = Boolean(row.integer_inventory_unit)
-	}
-  if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, row)
-	if (Object.prototype.hasOwnProperty.call(row, 'unit_rule_override_json')) {
-		payload.unit_rule_override_json = shouldSaveUnitOverride
-      ? String(row.unit_rule_override_json || '{}').trim() || '{}'
-      : stripProductUnitRuleOverrideJSON(row.unit_rule_override_json)
-	}
   return payload
 }
 

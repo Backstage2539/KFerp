@@ -376,6 +376,9 @@ func (r *Repository) buildOverview(ctx context.Context, customerID int64, custom
 	if overview.Settlements, err = r.listSettlements(ctx, customerID); err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
+	if overview.PriceLists, err = r.listCustomerPriceLists(ctx, customerID); err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
 	return overview, nil
 }
 
@@ -525,6 +528,7 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 			"bom_spec_name":                          item.BomSpecName,
 			"inventory_unit":                         item.InventoryUnit,
 			"customer_product_alias_id":              item.CustomerProductAliasID,
+			"customer_product_reference_id":          item.CustomerProductReferenceID,
 			"customer_product_display_name_snapshot": item.CustomerProductDisplayNameSnapshot,
 			"customer_item_code_snapshot":            item.CustomerItemCodeSnapshot,
 			"product_code_snapshot":                  item.ProductCodeSnapshot,
@@ -610,6 +614,7 @@ type submittedDirectShipItem struct {
 	BomSpecName                        string
 	InventoryUnit                      string
 	CustomerProductAliasID             int64
+	CustomerProductReferenceID         int64
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
 	ProductCodeSnapshot                string
@@ -632,6 +637,7 @@ type submittedDirectShipQuotedItem struct {
 	BomSpecName                        string
 	InventoryUnit                      string
 	CustomerProductAliasID             int64
+	CustomerProductReferenceID         int64
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
 	ProductCodeSnapshot                string
@@ -668,6 +674,7 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 			BomSpecName:                        strings.TrimSpace(item.BomSpecName),
 			InventoryUnit:                      strings.TrimSpace(item.InventoryUnit),
 			CustomerProductAliasID:             item.CustomerProductAliasID,
+			CustomerProductReferenceID:         item.CustomerProductReferenceID,
 			CustomerProductDisplayNameSnapshot: strings.TrimSpace(item.CustomerProductDisplayNameSnapshot),
 			CustomerItemCodeSnapshot:           strings.TrimSpace(item.CustomerItemCodeSnapshot),
 			ProductCodeSnapshot:                strings.TrimSpace(item.ProductCodeSnapshot),
@@ -699,6 +706,7 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 }
 
 type directShipCustomerAliasSnapshot struct {
+	CustomerProductReferenceID         int64
 	CustomerProductAliasID             int64
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
@@ -755,6 +763,25 @@ func (r *Repository) validateCustomerProductAliasForDirectShipTx(ctx context.Con
 	return snap, nil
 }
 
+func (r *Repository) validateCustomerProductReferenceForDirectShipTx(ctx context.Context, tx pgx.Tx, customerID, productID, referenceID int64) (directShipCustomerAliasSnapshot, error) {
+	if productID <= 0 || referenceID <= 0 || !relationExists(ctx, tx, fmt.Sprintf("%s.product_customer_references", r.schema)) {
+		return directShipCustomerAliasSnapshot{}, nil
+	}
+	var snap directShipCustomerAliasSnapshot
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT r.id,COALESCE(NULLIF(r.customer_display_name,''),p.name,''),COALESCE(r.customer_item_code,''),COALESCE(NULLIF(p.sku_code,''),'SKU-'||p.id::text),COALESCE(p.name,'')
+		FROM %s.product_customer_references r JOIN %s.products p ON p.id=r.product_id
+		WHERE r.id=$1 AND r.customer_id=$2 AND r.product_id=$3 AND r.active=true AND p.active=true
+	`, r.schema, r.schema), referenceID, customerID, productID).Scan(&snap.CustomerProductReferenceID, &snap.CustomerProductDisplayNameSnapshot, &snap.CustomerItemCodeSnapshot, &snap.ProductCodeSnapshot, &snap.ProductNameSnapshot)
+	if err == pgx.ErrNoRows {
+		return directShipCustomerAliasSnapshot{}, fmt.Errorf("customer product reference invalid")
+	}
+	if err != nil {
+		return directShipCustomerAliasSnapshot{}, err
+	}
+	return snap, nil
+}
+
 func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.Tx, customerID int64, item submittedDirectShipItem) (submittedDirectShipQuotedItem, error) {
 	bomSpecIdentity, err := resolveCustomerFulfillmentBOMSpecIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID)
 	if err != nil {
@@ -771,7 +798,13 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	if item.QuantityUnits <= 0 {
 		item.QuantityUnits = 1
 	}
-	aliasSnapshot, err := r.validateCustomerProductAliasForDirectShipTx(ctx, tx, customerID, item.ProductID, item.CustomerProductAliasID)
+	aliasSnapshot, err := r.validateCustomerProductReferenceForDirectShipTx(ctx, tx, customerID, item.ProductID, item.CustomerProductReferenceID)
+	if err != nil {
+		return submittedDirectShipQuotedItem{}, err
+	}
+	if aliasSnapshot.CustomerProductReferenceID <= 0 {
+		aliasSnapshot, err = r.validateCustomerProductAliasForDirectShipTx(ctx, tx, customerID, item.ProductID, item.CustomerProductAliasID)
+	}
 	if err != nil {
 		return submittedDirectShipQuotedItem{}, err
 	}
@@ -811,6 +844,14 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	}
 	if aliasSnapshot.CustomerProductAliasID > 0 {
 		item.CustomerProductAliasID = aliasSnapshot.CustomerProductAliasID
+		item.CustomerProductDisplayNameSnapshot = aliasSnapshot.CustomerProductDisplayNameSnapshot
+		item.CustomerItemCodeSnapshot = aliasSnapshot.CustomerItemCodeSnapshot
+		item.ProductCodeSnapshot = aliasSnapshot.ProductCodeSnapshot
+		item.ProductNameSnapshot = aliasSnapshot.ProductNameSnapshot
+		productName = aliasSnapshot.CustomerProductDisplayNameSnapshot
+	}
+	if aliasSnapshot.CustomerProductReferenceID > 0 {
+		item.CustomerProductReferenceID = aliasSnapshot.CustomerProductReferenceID
 		item.CustomerProductDisplayNameSnapshot = aliasSnapshot.CustomerProductDisplayNameSnapshot
 		item.CustomerItemCodeSnapshot = aliasSnapshot.CustomerItemCodeSnapshot
 		item.ProductCodeSnapshot = aliasSnapshot.ProductCodeSnapshot
@@ -965,6 +1006,7 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		BomSpecName:                        item.BomSpecName,
 		InventoryUnit:                      item.InventoryUnit,
 		CustomerProductAliasID:             item.CustomerProductAliasID,
+		CustomerProductReferenceID:         item.CustomerProductReferenceID,
 		CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 		CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
 		ProductCodeSnapshot:                item.ProductCodeSnapshot,
@@ -1702,13 +1744,13 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 	for _, item := range items {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.order_items(
-				order_id,line_no,product_id,bom_spec_id,bom_variant_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,product_code_snapshot,product_name_snapshot,item_name,qty,unit,spec,unit_price,
+				order_id,line_no,product_id,bom_spec_id,bom_variant_id,customer_product_alias_id,customer_product_reference_id,material_source_mode,customer_product_display_name_snapshot,customer_item_code_snapshot,product_code_snapshot,product_name_snapshot,item_name,qty,unit,spec,unit_price,
 				line_total_before_discount,discount_type,discount_value,discount_amount,line_total,
 				product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,
 				bean_list_publication_id,bean_list_version_no
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb,NULLIF($27,0),$28)
-		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.bomSpecID, item.bomVariantID, item.customerProductAliasID, item.customerProductDisplayNameSnapshot, item.customerItemCodeSnapshot, item.productCodeSnapshot, item.productNameSnapshot, item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28::jsonb,NULLIF($29,0),$30)
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.bomSpecID, item.bomVariantID, item.customerProductAliasID, item.customerProductReferenceID, nil, item.customerProductDisplayNameSnapshot, item.customerItemCodeSnapshot, item.productCodeSnapshot, item.productNameSnapshot, item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
 			return err
 		}
 	}
@@ -1721,6 +1763,7 @@ type submittedDirectShipERPItemSeed struct {
 	bomSpecID                          int64
 	bomVariantID                       int64
 	customerProductAliasID             int64
+	customerProductReferenceID         int64
 	customerProductDisplayNameSnapshot string
 	customerItemCodeSnapshot           string
 	productCodeSnapshot                string
@@ -1791,6 +1834,7 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			bomVariantID = rowBomVariantID
 		}
 		customerProductAliasID := payloadInt64(payload, "customer_product_alias_id")
+		customerProductReferenceID := payloadInt64(payload, "customer_product_reference_id")
 		customerProductDisplayNameSnapshot := payloadString(payload, "customer_product_display_name_snapshot")
 		customerItemCodeSnapshot := payloadString(payload, "customer_item_code_snapshot")
 		productCodeSnapshot := payloadString(payload, "product_code_snapshot")
@@ -1841,6 +1885,7 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			bomSpecID:                          bomSpecID,
 			bomVariantID:                       bomVariantID,
 			customerProductAliasID:             customerProductAliasID,
+			customerProductReferenceID:         customerProductReferenceID,
 			customerProductDisplayNameSnapshot: customerProductDisplayNameSnapshot,
 			customerItemCodeSnapshot:           customerItemCodeSnapshot,
 			productCodeSnapshot:                productCodeSnapshot,
@@ -1875,6 +1920,7 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			BomSpecID:                          items[idx].bomSpecID,
 			BomVariantID:                       items[idx].bomVariantID,
 			CustomerProductAliasID:             items[idx].customerProductAliasID,
+			CustomerProductReferenceID:         items[idx].customerProductReferenceID,
 			CustomerProductDisplayNameSnapshot: items[idx].customerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot:           items[idx].customerItemCodeSnapshot,
 			ProductCodeSnapshot:                items[idx].productCodeSnapshot,
@@ -1898,6 +1944,13 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		}
 		if quoted.CustomerProductAliasID > 0 {
 			items[idx].customerProductAliasID = quoted.CustomerProductAliasID
+			items[idx].customerProductDisplayNameSnapshot = quoted.CustomerProductDisplayNameSnapshot
+			items[idx].customerItemCodeSnapshot = quoted.CustomerItemCodeSnapshot
+			items[idx].productCodeSnapshot = quoted.ProductCodeSnapshot
+			items[idx].productNameSnapshot = quoted.ProductNameSnapshot
+		}
+		if quoted.CustomerProductReferenceID > 0 {
+			items[idx].customerProductReferenceID = quoted.CustomerProductReferenceID
 			items[idx].customerProductDisplayNameSnapshot = quoted.CustomerProductDisplayNameSnapshot
 			items[idx].customerItemCodeSnapshot = quoted.CustomerItemCodeSnapshot
 			items[idx].productCodeSnapshot = quoted.ProductCodeSnapshot
@@ -2630,7 +2683,9 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 			return
 		}
 		key := fmt.Sprintf("%d|%s|%s", row.ProductID, row.ProductName, row.Spec)
-		if row.CustomerProductAliasID > 0 {
+		if row.CustomerProductReferenceID > 0 {
+			key = fmt.Sprintf("reference:%d", row.CustomerProductReferenceID)
+		} else if row.CustomerProductAliasID > 0 {
 			key = fmt.Sprintf("alias:%d", row.CustomerProductAliasID)
 		} else if row.ProductID > 0 {
 			key = fmt.Sprintf("product:%d", row.ProductID)
@@ -2642,6 +2697,44 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		}
 		seen[key] = struct{}{}
 		out = append(out, row)
+	}
+
+	if relationExists(ctx, r.pool, fmt.Sprintf("%s.product_customer_references", r.schema)) {
+		rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT p.id,
+			       r.id,
+			       COALESCE(NULLIF(r.customer_display_name,''), p.name, ''),
+			       COALESCE(r.customer_item_code,''), '',
+			       COALESCE(NULLIF(p.sku_code,''), 'SKU-' || p.id::text),
+			       COALESCE(p.name,''), COALESCE(p.base_product_id,0),
+			       COALESCE(r.customer_item_code,''),
+			       COALESCE(NULLIF(r.customer_display_name,''), p.name, ''),
+			       COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
+			       COALESCE(p.drip_bag_grams,10)::float8,
+			       COALESCE(p.drip_box_bag_count,10), '', COALESCE(p.roast_level,''),
+			   COALESCE(p.default_price,0), 'customer_product_reference'
+			FROM %s.product_customer_references r
+			JOIN %s.products p ON p.id=r.product_id
+			WHERE r.customer_id=$1 AND r.active=true AND p.active=true
+			ORDER BY r.id
+			LIMIT 300
+		`, r.schema, r.schema), customerID)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var row app.CustomerSKUOption
+			if err := rows.Scan(&row.ProductID, &row.CustomerProductReferenceID, &row.CustomerProductDisplayName, &row.CustomerItemCode, &row.BrandName, &row.ProductCode, &row.ProductRecordName, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			add(row)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
 	}
 
 	if relationExists(ctx, r.pool, fmt.Sprintf("%s.customer_product_aliases", r.schema)) {
@@ -3269,6 +3362,37 @@ func (r *Repository) customerAllowsPublicSKUOptions(ctx context.Context, custome
 }
 
 func (r *Repository) listCustodyItemOptions(ctx context.Context, customerID int64) ([]app.CustodyItemOption, error) {
+	if customerID > 0 && relationExists(ctx, r.pool, fmt.Sprintf("%s.material_batch_locations", r.schema)) &&
+		relationExists(ctx, r.pool, fmt.Sprintf("%s.material_batches", r.schema)) &&
+		relationExists(ctx, r.pool, fmt.Sprintf("%s.materials", r.schema)) &&
+		relationExists(ctx, r.pool, fmt.Sprintf("%s.warehouses", r.schema)) {
+		rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT m.id,
+			       CASE WHEN COALESCE(m.kind,'') IN ('pack','packaging') THEN 'packaging' ELSE 'raw_bean' END,
+			       COALESCE(m.name,''), '', COALESCE(SUM(l.qty_g),0)::bigint, COALESCE(SUM(l.qty_units),0)::bigint
+			FROM %s.material_batch_locations l
+			JOIN %s.material_batches b ON b.id=l.material_batch_id AND COALESCE(b.owner_customer_id,0)=$1
+			JOIN %s.materials m ON m.id=l.material_id
+			JOIN %s.warehouses w ON w.code=l.warehouse AND w.active=true AND w.customer_id=$1
+			WHERE (l.qty_g>0 OR l.qty_units>0)
+			GROUP BY m.id,m.kind,m.name
+			ORDER BY m.name,m.id
+			LIMIT 300
+		`, r.schema, r.schema, r.schema, r.schema), customerID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := make([]app.CustodyItemOption, 0)
+		for rows.Next() {
+			var row app.CustodyItemOption
+			if err := rows.Scan(&row.ItemID, &row.ItemType, &row.ItemName, &row.Spec, &row.QuantityG, &row.QuantityUnits); err != nil {
+				return nil, err
+			}
+			out = append(out, row)
+		}
+		return out, rows.Err()
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT item_id, item_type, item_name, spec, quantity_g, quantity_units
 		FROM %s.customer_custody_balances
@@ -5046,10 +5170,79 @@ func (r *Repository) Overview(ctx context.Context, query app.OverviewQuery) (app
 	if overview.Settlements, err = r.listSettlements(ctx, query.CustomerID); err != nil {
 		return app.Overview{}, err
 	}
+	if overview.PriceLists, err = r.listCustomerPriceLists(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
 	return overview, nil
 }
 
+func (r *Repository) listCustomerPriceLists(ctx context.Context, customerID int64) ([]app.CustomerPriceList, error) {
+	if customerID <= 0 || !relationExists(ctx, r.pool, fmt.Sprintf("%s.bean_list_publications", r.schema)) {
+		return []app.CustomerPriceList{}, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, list_type, version_no, status,
+		       COALESCE(to_char(published_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(product_type_name,''), changelog, COALESCE(content_json,'{}'::jsonb)
+		FROM %s.bean_list_publications
+		WHERE owner_type='customer'
+		  AND owner_key=$1
+		  AND status='published'
+		  AND COALESCE(NULLIF(publication_purpose,''),'factory_supply')='factory_supply'
+		ORDER BY published_at DESC NULLS LAST, id DESC
+		LIMIT 100
+	`, r.schema), fmt.Sprint(customerID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.CustomerPriceList, 0)
+	for rows.Next() {
+		var row app.CustomerPriceList
+		var content []byte
+		if err := rows.Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.ProductType, &row.Changelog, &content); err != nil {
+			return nil, err
+		}
+		if len(content) == 0 {
+			content = []byte(`{}`)
+		}
+		row.Content = append(row.Content[:0], content...)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) listCustodyBalances(ctx context.Context, customerID int64) ([]app.CustodyBalance, error) {
+	if customerID > 0 && relationExists(ctx, r.pool, fmt.Sprintf("%s.material_batch_locations", r.schema)) &&
+		relationExists(ctx, r.pool, fmt.Sprintf("%s.material_batches", r.schema)) &&
+		relationExists(ctx, r.pool, fmt.Sprintf("%s.materials", r.schema)) &&
+		relationExists(ctx, r.pool, fmt.Sprintf("%s.warehouses", r.schema)) {
+		rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT CASE WHEN COALESCE(m.kind,'') IN ('pack','packaging') THEN 'packaging' ELSE 'raw_bean' END,
+			       COALESCE(m.name,''), '', COALESCE(SUM(l.qty_g),0)::bigint, COALESCE(SUM(l.qty_units),0)::bigint
+			FROM %s.material_batch_locations l
+			JOIN %s.material_batches b ON b.id=l.material_batch_id AND COALESCE(b.owner_customer_id,0)=$1
+			JOIN %s.materials m ON m.id=l.material_id
+			JOIN %s.warehouses w ON w.code=l.warehouse AND w.active=true AND w.customer_id=$1
+			WHERE (l.qty_g>0 OR l.qty_units>0)
+			GROUP BY m.kind,m.name
+			ORDER BY m.name
+			LIMIT 300
+		`, r.schema, r.schema, r.schema, r.schema), customerID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := make([]app.CustodyBalance, 0)
+		for rows.Next() {
+			var row app.CustodyBalance
+			if err := rows.Scan(&row.ItemType, &row.ItemName, &row.Spec, &row.QuantityG, &row.QuantityUnits); err != nil {
+				return nil, err
+			}
+			out = append(out, row)
+		}
+		return out, rows.Err()
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT item_type, item_name, spec, quantity_g, quantity_units
 		FROM %s.customer_custody_balances
@@ -5074,12 +5267,17 @@ func (r *Repository) listCustodyBalances(ctx context.Context, customerID int64) 
 
 func (r *Repository) listFinishedGoods(ctx context.Context, customerID int64) ([]app.FinishedGoodsBalance, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT item_id, item_name, spec_g, warehouse, qty_g, qty_units, status
-		FROM %s.customer_inventory_items
-		WHERE customer_id=$1 AND item_type IN ('product','finished_goods')
-		ORDER BY item_name, spec_g, warehouse, id
+		SELECT fi.product_id, COALESCE(p.name,''), fi.spec_g, fi.warehouse,
+		       (fi.onhand_units * fi.spec_g + fi.onhand_loose_g), fi.onhand_units,
+		       CASE WHEN fi.owner_customer_id=$1 THEN 'available' ELSE 'unowned' END
+		FROM %s.finished_inventory fi
+		JOIN %s.warehouses w ON w.code=fi.warehouse AND w.active=true AND w.customer_id=$1
+		LEFT JOIN %s.products p ON p.id=fi.product_id
+		WHERE (fi.onhand_units <> 0 OR fi.onhand_loose_g <> 0)
+		  AND (fi.owner_customer_id=0 OR fi.owner_customer_id=$1)
+		ORDER BY p.name, fi.spec_g, fi.warehouse
 		LIMIT 200
-	`, r.schema), customerID)
+	`, r.schema, r.schema, r.schema), customerID)
 	if err != nil {
 		return nil, err
 	}

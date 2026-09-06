@@ -331,15 +331,15 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	`, r.schema), cmd.ProductID).Scan(&oldUnitRuleOverrideJSON, &oldUnitTemplateID); err != nil {
 		return err
 	}
-	if migrationState == productspecmigrationapp.StateCutover && oldUnitTemplateID != cmd.UnitTemplateID {
+	if migrationState == productspecmigrationapp.StateCutover && cmd.UnitTemplateID > 0 && oldUnitTemplateID != cmd.UnitTemplateID {
 		return catalogapp.ValidationError{Message: "商品已切换到 BOM 规格，销售规格模板不能修改；请在 BOM 中维护规格"}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6,
 		    product_kind=$7, drip_bag_grams=$8, drip_box_bag_count=$9, allow_fulfillment_order=$10, allow_mall_order=$11,
 		    green_bean_type=$12, green_bean_bom_product_id=$13, remark=$14, name=COALESCE(NULLIF($15,''), name),
-		    special_attrs_json=$16::jsonb, unit_rule_override_json=$17::jsonb, unit_template_id=$18
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID); err != nil {
+		    special_attrs_json=$16::jsonb
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON); err != nil {
 		return err
 	}
 	if catalogdomain.ProductKindSupportsBomParams(productKind) && yieldRate > 0 {
@@ -353,7 +353,7 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		return err
 	}
 	oldUnitAudit := productUnitAuditValues(oldUnitRuleOverrideJSON)
-	newUnitAudit := productUnitAuditValues(cmd.UnitRuleOverrideJSON)
+	newUnitAudit := oldUnitAudit
 	meta := postgresinfra.AuditMeta{
 		"product_id":        cmd.ProductID,
 		"product_kind":      productKind,
@@ -486,6 +486,15 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		return catalogapp.Product{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if cmd.CustomerID > 0 {
+		var customerExists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
+			return catalogapp.Product{}, err
+		}
+		if !customerExists {
+			return catalogapp.Product{}, catalogapp.ValidationError{Message: "customer not found or inactive"}
+		}
+	}
 
 	var productID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -496,9 +505,9 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
 			special_attrs_json, unit_rule_override_json, unit_template_id, created_at
 		)
-		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,0,0,'public','',$14,$15,$16::jsonb,$17::jsonb,$18,now())
+		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,$14::bigint,0,CASE WHEN $14::bigint>0 THEN 'customer_only' ELSE 'public' END,'',$15,$16,$17::jsonb,$18::jsonb,$19,now())
 		RETURNING id
-	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
+	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, cmd.CustomerID, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 	if err := postgresproductspecmigration.PrepareNewProductTx(ctx, tx, r.schema, productID, cmd.Actor); err != nil {
@@ -511,6 +520,15 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 			VALUES($1,$2,'active',now())
 			ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()
 		`, r.schema), productID, yieldRate); err != nil {
+			return catalogapp.Product{}, err
+		}
+	}
+	if cmd.CustomerID > 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, active, remark, created_by, updated_by)
+			VALUES($1,$2,$3,$4,true,$5,$6,$6)
+			ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET customer_item_code=excluded.customer_item_code, customer_display_name=excluded.customer_display_name, remark=excluded.remark, updated_at=now(), updated_by=excluded.updated_by
+		`, r.schema), productID, cmd.CustomerID, strings.TrimSpace(cmd.CustomerItemCode), strings.TrimSpace(cmd.CustomerDisplayName), strings.TrimSpace(cmd.Remark), cmd.Actor); err != nil {
 			return catalogapp.Product{}, err
 		}
 	}
@@ -585,14 +603,14 @@ func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductC
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, unit_rule_override_json, unit_template_id, created_at
+			special_attrs_json, created_at
 		)
 		SELECT
 			$2, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
-			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, unit_rule_override_json, unit_template_id, now()
+			0, 0, 'public', '', green_bean_type, green_bean_bom_product_id,
+			'{}'::jsonb, now()
 		FROM %s.products
 		WHERE id=$1
 		RETURNING id
@@ -3260,36 +3278,69 @@ func (r Repository) ListProductCustomerReferences(ctx context.Context, productID
 }
 
 func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalogapp.ProductCustomerReference) (catalogapp.ProductCustomerReference, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var productOwnerCustomerID int64
+	var productActive, customerExists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0),active FROM %s.products WHERE id=$1`, r.schema), cmd.ProductID).Scan(&productOwnerCustomerID, &productActive); err != nil {
+		if err == pgx.ErrNoRows {
+			return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "product not found"}
+		}
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	if !productActive {
+		return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "product inactive"}
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	if !customerExists {
+		return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "customer not found or inactive"}
+	}
+	if productOwnerCustomerID > 0 && productOwnerCustomerID != cmd.CustomerID {
+		return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "customer-owned product can only reference its owner customer"}
+	}
 	var id int64
-	var err error
 	if cmd.ID > 0 {
-		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_customer_references
 			SET product_id=$2, customer_id=$3, customer_item_code=$4, customer_display_name=$5, active=$6, remark=$7, updated_at=now(), updated_by=$8
 			WHERE id=$1
 			RETURNING id
 		`, r.schema), cmd.ID, cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	} else {
-		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, active, remark, created_by, updated_by)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$7)
+			ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET
+				customer_item_code=excluded.customer_item_code,
+				customer_display_name=excluded.customer_display_name,
+				remark=excluded.remark,
+				updated_at=now(),
+				updated_by=excluded.updated_by
 			RETURNING id
 		`, r.schema), cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	}
 	if err != nil {
 		return catalogapp.ProductCustomerReference{}, err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_customer_reference", &id, "save_product_customer_reference", postgresinfra.StrPtr("customer_display_name"), nil, postgresinfra.StrPtr(cmd.CustomerDisplayName), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "customer_id": cmd.CustomerID, "customer_item_code": cmd.CustomerItemCode, "active": cmd.Active})
-	rows, err := r.ListProductCustomerReferences(ctx, cmd.ProductID)
-	if err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_customer_reference", &id, "save_product_customer_reference", postgresinfra.StrPtr("customer_display_name"), nil, postgresinfra.StrPtr(cmd.CustomerDisplayName), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "customer_id": cmd.CustomerID, "customer_item_code": cmd.CustomerItemCode, "active": cmd.Active}); err != nil {
 		return catalogapp.ProductCustomerReference{}, err
 	}
-	for _, row := range rows {
-		if row.ID == id {
-			return row, nil
-		}
+	var row catalogapp.ProductCustomerReference
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,product_id,customer_id,customer_item_code,customer_display_name,active,remark
+		FROM %s.product_customer_references WHERE id=$1
+	`, r.schema), id).Scan(&row.ID, &row.ProductID, &row.CustomerID, &row.CustomerItemCode, &row.CustomerDisplayName, &row.Active, &row.Remark); err != nil {
+		return catalogapp.ProductCustomerReference{}, err
 	}
-	return catalogapp.ProductCustomerReference{}, fmt.Errorf("product customer reference not found")
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	return row, nil
 }
 
 func (r Repository) ListProductPricingRules(ctx context.Context) ([]catalogapp.ProductPricingRule, error) {
@@ -5944,6 +5995,13 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		`, r.schema, r.schema), productID, baseProductID); err != nil {
 			return catalogapp.Product{}, err
 		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, active, remark, created_by, updated_by)
+		VALUES($1,$2,$3,$4,true,$5,$6,$6)
+		ON CONFLICT (product_id, customer_id) WHERE active=true DO UPDATE SET customer_item_code=excluded.customer_item_code, customer_display_name=excluded.customer_display_name, remark=excluded.remark, updated_at=now(), updated_by=excluded.updated_by
+	`, r.schema), productID, cmd.CustomerID, strings.TrimSpace(cmd.CustomerItemCode), strings.TrimSpace(cmd.CustomerDisplayName), remark, cmd.Actor); err != nil {
+		return catalogapp.Product{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("customer_custom_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
 		"customer_id":               cmd.CustomerID,

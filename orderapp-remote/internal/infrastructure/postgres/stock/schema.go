@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS %s.stock_entry_items (
 	product_id BIGINT NOT NULL DEFAULT 0,
 	item_type TEXT NOT NULL DEFAULT '',
 	item_name TEXT NOT NULL DEFAULT '',
+	owner_customer_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	bom_spec_id BIGINT NOT NULL DEFAULT 0,
 	bom_variant_id BIGINT NOT NULL DEFAULT 0,
@@ -111,6 +112,7 @@ CREATE INDEX IF NOT EXISTS stock_entry_batch_allocations_item_idx
 		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS supplier TEXT NOT NULL DEFAULT ''`, schema),
@@ -159,15 +161,17 @@ CREATE TABLE IF NOT EXISTS %s.finished_inventory (
 	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL,
 	warehouse TEXT NOT NULL DEFAULT 'finished_goods',
+	owner_customer_id BIGINT NOT NULL DEFAULT 0,
 	onhand_units BIGINT NOT NULL DEFAULT 0,
 	onhand_loose_g BIGINT NOT NULL DEFAULT 0,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE %s.finished_inventory ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT 'finished_goods';
 ALTER TABLE %s.finished_inventory ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE %s.finished_inventory ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+	ALTER TABLE %s.finished_inventory ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+	ALTER TABLE %s.finished_inventory ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0;
 UPDATE %s.finished_inventory SET warehouse='finished_goods' WHERE COALESCE(warehouse,'')='';
-`, schema, schema, schema, schema, schema)); err != nil {
+`, schema, schema, schema, schema, schema, schema)); err != nil {
 		return err
 	}
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
@@ -188,11 +192,11 @@ BEGIN
 		WHERE c.conrelid = '%s.finished_inventory'::regclass
 		  AND c.contype = 'p'
 	) THEN
-		ALTER TABLE %s.finished_inventory ADD PRIMARY KEY(product_id, bom_spec_id, spec_g, warehouse);
+			ALTER TABLE %s.finished_inventory ADD PRIMARY KEY(product_id, bom_spec_id, spec_g, warehouse);
 	END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS finished_inventory_warehouse_idx
-	ON %s.finished_inventory(warehouse, product_id, bom_spec_id, spec_g);
+	CREATE INDEX IF NOT EXISTS finished_inventory_warehouse_idx
+		ON %s.finished_inventory(warehouse, owner_customer_id, product_id, bom_spec_id, spec_g);
 `, schema, schema, schema, schema, schema))
 	return err
 }
@@ -218,6 +222,7 @@ CREATE TABLE IF NOT EXISTS %s.stock_batches (
 );
 ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS stock_batches_source_uq
 	ON %s.stock_batches(source_doc_type, source_doc_id, item_type, item_id, bom_spec_id, spec_g)
 	WHERE source_doc_type <> '';
@@ -229,6 +234,7 @@ CREATE TABLE IF NOT EXISTS %s.stock_ledger_entries (
 	item_type TEXT NOT NULL DEFAULT '',
 	item_id BIGINT NOT NULL DEFAULT 0,
 	item_name TEXT NOT NULL DEFAULT '',
+	owner_customer_id BIGINT NOT NULL DEFAULT 0,
 	bom_spec_id BIGINT NOT NULL DEFAULT 0,
 	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL DEFAULT 0,
@@ -248,11 +254,12 @@ CREATE TABLE IF NOT EXISTS %s.stock_ledger_entries (
 );
 ALTER TABLE %s.stock_ledger_entries ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %s.stock_ledger_entries ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %s.stock_ledger_entries ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS stock_ledger_source_idx
 	ON %s.stock_ledger_entries(source_doc_type, source_doc_id, id);
 CREATE INDEX IF NOT EXISTS stock_ledger_item_idx
 	ON %s.stock_ledger_entries(item_type, item_id, bom_spec_id, spec_g, created_at DESC);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
@@ -322,6 +329,7 @@ CREATE INDEX IF NOT EXISTS material_batches_material_fifo_idx
 		return err
 	}
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS quality_status TEXT NOT NULL DEFAULT 'unchecked'`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS material_name TEXT NOT NULL DEFAULT ''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS received_g BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_receipts ADD COLUMN IF NOT EXISTS qty_units BIGINT NOT NULL DEFAULT 0`, schema))
@@ -336,6 +344,7 @@ CREATE INDEX IF NOT EXISTS material_batches_material_fifo_idx
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.material_batches SET received_g=qty_g WHERE received_g=0 AND qty_g > 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.material_batches b SET material_name=m.name FROM %[1]s.materials m WHERE b.material_id=m.id AND COALESCE(b.material_name,'')=''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS material_batches_quality_idx ON %s.material_batches(material_id, quality_status, status, received_at, id)`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS material_batches_owner_idx ON %s.material_batches(owner_customer_id, material_id, status, received_at, id)`, schema))
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,remaining_g,unit_cost,note,received_at,created_at)
 SELECT 'LEGACY-MAT-' || lpad(m.id::text, 10, '0'),

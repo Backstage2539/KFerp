@@ -67,6 +67,7 @@ import {
   categoryDisplayState,
   customerSkuCustomerOptions,
   filterSkuRows,
+  filterProductsByOwnership,
   gradientTemplateBelongsToSkuContext,
   inferProductKindFromProductTypeCategory,
   nextSkuContextCustomerID,
@@ -246,7 +247,7 @@ test('product category selection infers legacy product kind only as compatibilit
   assert.equal(inferProductKindFromProductTypeCategory(null), 'roasted')
 })
 
-test('unified SKU create payload is owned by current view and carries no legacy product kind fields', () => {
+test('unified SKU create payload omits implicit customer ownership and legacy product kind fields', () => {
   const payload = buildSkuCreatePayload(42, {
     name: '客户盒装速溶',
     remark: '10g/条，10条/盒',
@@ -499,6 +500,65 @@ test('customer product aliases no longer submit template or pricing overrides', 
   assert.equal(Object.hasOwn(payload, 'gradient_template_id'), false)
   assert.equal(Object.hasOwn(payload, 'unit_template_id'), false)
   assert.equal(Object.hasOwn(payload, 'classification_template_id'), false)
+})
+
+test('product catalog context uses explicit ownership and active customer references only', () => {
+  const publicProduct = { id: 1, customer_id: 0, name: '工厂商品' }
+  const ownedProduct = { id: 2, customer_id: 42, name: '客户专属商品' }
+  const otherOwnedProduct = { id: 3, customer_id: 43, name: '其他客户商品' }
+  const references = [
+    { product_id: 1, customer_id: 42, customer_display_name: '客户商品B', active: true },
+    { product_id: 3, customer_id: 42, customer_display_name: '无效跨客户关联', active: true },
+  ]
+
+  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 0, references }), true)
+  assert.equal(productBelongsToSkuContext(ownedProduct, { customerID: 0, references }), true)
+  assert.equal(productBelongsToSkuContext(otherOwnedProduct, { customerID: 0, references }), true)
+  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, references }), true)
+  assert.equal(productBelongsToSkuContext(ownedProduct, { customerID: 42, references }), true)
+  assert.equal(productBelongsToSkuContext(otherOwnedProduct, { customerID: 42, references }), false)
+  assert.equal(productBelongsToSkuContext({ id: 4, customer_id: 0 }, { customerID: 42, references }), false)
+})
+
+test('product create payload carries explicit ownership instead of deriving it from the view', () => {
+  assert.deepEqual(buildProductCreatePayload({
+    name: '公共商品',
+    ownership_type: 'factory',
+    customer_id: 74,
+    customer_display_name: '不应提交',
+  }), {
+    name: '公共商品',
+    product_kind: 'roasted',
+    remark: '',
+    ownership_type: 'factory',
+  })
+
+  assert.deepEqual(buildProductCreatePayload({
+    name: '专属商品A',
+    ownership_type: 'customer',
+    customer_id: 74,
+    customer_display_name: '芬纳商品A',
+    customer_item_code: 'FN-A',
+    material_source_mode: 'customer',
+  }), {
+    name: '专属商品A',
+    product_kind: 'roasted',
+    remark: '',
+    ownership_type: 'customer',
+    customer_id: 74,
+    customer_display_name: '芬纳商品A',
+    customer_item_code: 'FN-A',
+  })
+})
+
+test('product ownership filter supports factory and fuzzy customer names', () => {
+  const products = [{ id: 1, customer_id: 0 }, { id: 2, customer_id: 74 }, { id: 3, customer_id: 75 }]
+  const references = [{ product_id: 1, customer_id: 74, active: true }]
+  const customers = [{ id: 74, name: '芬纳咖啡' }, { id: 75, name: '另一客户' }]
+
+  assert.deepEqual(filterProductsByOwnership(products, 'factory', references, customers).map((row) => row.id), [1])
+  assert.deepEqual(filterProductsByOwnership(products, 'customer:74', references, customers).map((row) => row.id), [1, 2])
+  assert.deepEqual(filterProductsByOwnership(products, '芬纳', references, customers).map((row) => row.id), [1, 2])
 })
 
 test('product settings view exposes group and pricing rule management while retiring customer product and old template entry points', () => {
@@ -2893,16 +2953,10 @@ test('new product ignores legacy unit authority while existing product basics re
     name: '盒装速溶',
     product_kind: 'instant_coffee',
     remark: '库存按盒',
-    inventory_unit: '个',
-    integer_inventory_unit: false,
-    default_sales_unit: '盒',
-    unit_conversion_json: { 盒: { 个: 10 } },
-    sales_unit_rules: { 盒: { integer_unit: true } },
-    unit_rule_override_json: '{"order_unit":"箱","legacy_key":"keep"}',
   })
 })
 
-test('new product omits sales spec template while existing product basics keep legacy template compatibility', () => {
+test('product basics payload is identity-only while BOM owns legacy unit fields', () => {
   assert.deepEqual(buildProductCreatePayload({
     name: ' 模板咖啡豆 ',
     product_kind: 'roasted',
@@ -2946,13 +3000,11 @@ test('new product omits sales spec template while existing product basics keep l
     unit_rule_override_enabled: false,
     unit_rule_override_json: '{"legacy_key":"keep"}',
   })
-  assert.equal(inheritedPayload.unit_template_id, 7)
-  assert.equal(inheritedPayload.unit_rule_override_json, '{"legacy_key":"keep"}')
-  assert.equal(Object.hasOwn(inheritedPayload, 'inventory_unit'), false)
-  assert.equal(Object.hasOwn(inheritedPayload, 'integer_inventory_unit'), false)
-  assert.equal(Object.hasOwn(inheritedPayload, 'default_sales_unit'), false)
-  assert.equal(Object.hasOwn(inheritedPayload, 'unit_conversion_json'), false)
-  assert.equal(Object.hasOwn(inheritedPayload, 'sales_unit_rules'), false)
+  assert.deepEqual(inheritedPayload, {
+    name: '模板咖啡豆',
+    product_kind: 'roasted',
+    remark: '引用模板',
+  })
 
   const overridePayload = buildProductBasicsPayload({
     name: ' 例外盒装 ',
@@ -2967,13 +3019,11 @@ test('new product omits sales spec template while existing product basics keep l
     unit_rule_override_enabled: true,
     unit_rule_override_json: '{"legacy_key":"keep"}',
   })
-  assert.equal(overridePayload.unit_template_id, 7)
-  assert.equal(overridePayload.inventory_unit, '盒')
-  assert.equal(overridePayload.integer_inventory_unit, true)
-  assert.equal(overridePayload.default_sales_unit, '箱')
-  assert.deepEqual(overridePayload.unit_conversion_json, { 箱: { 盒: 12 } })
-  assert.deepEqual(overridePayload.sales_unit_rules, { 箱: { integer_unit: true } })
-  assert.equal(overridePayload.unit_rule_override_json, '{"legacy_key":"keep"}')
+  assert.deepEqual(overridePayload, {
+    name: '例外盒装',
+    product_kind: 'roasted',
+    remark: '覆盖模板',
+  })
 })
 
 test('product production config save does not write template inventory unit as product override', () => {
@@ -3006,7 +3056,7 @@ test('product production config save does not write template inventory unit as p
   assert.equal(Object.hasOwn(editedPayload, 'sales_unit_rules'), false)
 })
 
-test('product basics payload preserves legacy product unit override without visible override controls', () => {
+test('product basics payload drops legacy product unit override without visible override controls', () => {
   const payload = buildProductBasicsPayload({
     name: '磅装咖啡豆',
     unit_template_id: 3,
@@ -3019,13 +3069,11 @@ test('product basics payload preserves legacy product unit override without visi
     sales_unit_rules: { 磅: { integer_unit: true } },
   })
 
-  assert.equal(payload.unit_template_id, 3)
-  assert.equal(payload.inventory_unit, '袋')
-  assert.equal(payload.integer_inventory_unit, true)
-  assert.equal(payload.default_sales_unit, '磅')
-  assert.deepEqual(payload.unit_conversion_json, { 磅: { 袋: 1 } })
-  assert.deepEqual(payload.sales_unit_rules, { 磅: { integer_unit: true } })
-  assert.equal(payload.unit_rule_override_json, '{"inventory_unit":"袋","default_sales_unit":"磅","legacy_key":"keep"}')
+  assert.deepEqual(payload, {
+    name: '磅装咖啡豆',
+    product_kind: 'roasted',
+    remark: '',
+  })
 })
 
 test('SKU config override payload carries template and unit rule overrides', () => {
@@ -3722,12 +3770,12 @@ test('customer public usage payload saves SKU and category reference switches in
   })
 })
 
-test('customer SKU context treats public SKU and categories as switch-controlled references', () => {
+test('customer SKU context treats products as explicit references while categories keep their own switch', () => {
   const publicProduct = { id: 1, name: '公共拼配', customer_id: 0 }
   const customerProduct = { id: 2, name: '客户拼配', customer_id: 42 }
   const otherCustomerProduct = { id: 3, name: '其他客户拼配', customer_id: 7 }
   assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, usePublicSku: false }), false)
-  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, usePublicSku: true }), true)
+  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, references: [{ product_id: 1, customer_id: 42, active: true }] }), true)
   assert.equal(productBelongsToSkuContext(customerProduct, { customerID: 42, usePublicSku: false }), true)
   assert.equal(productBelongsToSkuContext(otherCustomerProduct, { customerID: 42, usePublicSku: true }), false)
 
@@ -3802,6 +3850,10 @@ test('customer category tree keeps public sibling categories after deriving one 
     usePublicCategories: true,
     usePublicSkuInCategoryTree: true,
     customerProducts: [],
+    references: [
+      { product_id: 101, customer_id: 42, active: true },
+      { product_id: 102, customer_id: 42, active: true },
+    ],
   })
 
   assert.equal(tree.length, 1)
@@ -4175,7 +4227,8 @@ test('SKU settings removes legacy SKU copy drawer while classification templates
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   for (const expected of [
-    '复制为商品档案',
+    '复制到客户',
+    '>复制</button>',
     '分类模板',
     'productClassificationTabs',
     "currentSettingsSection === 'master'",
@@ -4198,6 +4251,17 @@ test('SKU settings removes legacy SKU copy drawer while classification templates
   assert.doesNotMatch(template, />分类设置</)
   assert.doesNotMatch(script, /derivePublicSku\(/)
   assert.doesNotMatch(script, /savePublicSkuUsageForCustomer/)
+  assert.doesNotMatch(template, /供料方式|工厂供料|客户来料/)
+  assert.match(template, /<th>商品来源<\/th>/)
+  assert.match(template, /<th>商品归属<\/th>/)
+  assert.match(template, /<span>商品归属<\/span>/)
+  assert.match(template, /:option-label="ownershipFilterOptionLabel"/)
+  assert.match(template, /<span>客户商品名<\/span>/)
+  assert.doesNotMatch(template, /<span>客户商品<\/span>|<span>重命名<\/span>/)
+  const rowActions = template.match(/<td class="action-cell">([\s\S]*?)<\/td>/)?.[1] || ''
+  assert.ok(rowActions.indexOf('复制到客户') < rowActions.indexOf('>复制</button>'))
+  assert.ok(template.indexOf('<th class="remark-cell">备注</th>') < template.indexOf('<th class="action-cell">操作</th>'))
+  assert.ok(template.indexOf('class="remark-input"') < template.indexOf('<td class="action-cell">'))
 })
 
 test('SKU settings exposes product subtype default unit configuration controls', () => {
@@ -4434,10 +4498,10 @@ test('product management exposes customer product names without direct BOM editi
     '价格摘要',
     'customerProductAliases',
     'buildCustomerProductAliasPayload',
-    '/api/customer-product-aliases',
+    '/api/product-customer-references',
     'saveCustomerProductAlias',
     'disableCustomerProductAlias',
-    '客户商品只维护对外名称、编号、重命名和价格表展示',
+    '客户商品只维护对外名称、编号和价格表展示',
     'customer-alias-create-drawer',
     'openCustomerAliasCreateDrawer',
     '绑定商品已失效',
@@ -4447,12 +4511,12 @@ test('product management exposes customer product names without direct BOM editi
   assert.match(template, /currentSettingsSection === 'aliases'/)
   assert.match(script, /apiGet\('\/api\/customer-product-aliases\?active=all'\)/)
   assert.match(script, /apiSend\(url,\s*\{ method,\s*body:\s*payload \}\)/)
+  assert.match(script, /apiSend\(`\/api\/product-customer-references\/\$\{alias\.reference_id\}`/)
   assert.match(script, /apiSend\(`\/api\/customer-product-aliases\/\$\{alias\.id\}\/disable`\)/)
-  assert.match(script, /apiSend\('\/api\/customer-product-aliases\/batch-disable'/)
   const aliasForm = template.match(/<aside class="settings-drawer customer-alias-create-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
   const inlineAliasArea = template.match(/<section class="panel customer-alias-panel"[\s\S]*?<div class="table-wrap">/)?.[0] || ''
   const aliasFilters = template.match(/<div class="alias-filters alias-filter-row"[\s\S]*?<div class="classification-view-toolbar alias-classification-tabs"/)?.[0] || ''
-  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.customer_item_code/)
+  assert.match(aliasForm, /<span>客户货号<\/span>[\s\S]*customerProductAliasForm\.customer_item_code/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.include_in_price_list/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.gradient_template_id/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.unit_template_id/)
@@ -4465,7 +4529,7 @@ test('product management exposes customer product names without direct BOM editi
   assert.match(aliasFilters, /批量失效/)
   assert.doesNotMatch(aliasFilters, />搜索客户商品</)
   assert.doesNotMatch(template, />编辑<\/button>/)
-  assert.doesNotMatch(template, /客户商品名/)
+  assert.match(template, /客户商品名/)
   assert.doesNotMatch(template, /客户商品[\s\S]*派生自有 BOM/)
   assert.doesNotMatch(template, /customer-alias-workspace[\s\S]*@click="derive/)
   assert.doesNotMatch(template, /旧客户 SKU 收敛检查/)
@@ -4516,7 +4580,7 @@ test('SKU settings keeps only the product creation drawer while business groups 
   assert.match(script, /const customerID = skuContextCustomerID\.value\s+return sortRowsForCustomerSkuPriority\(/)
   assert.match(script, /product\) => customerID > 0 && skuContextProductFilter\(product\)/)
   assert.match(script, /const currentSkuSourceRows = computed\(\(\) => \(/)
-  assert.match(script, /skuContextCustomerID\.value > 0 \? customerSkuRows\.value : publicSkuRows\.value/)
+  assert.match(script, /skuContextCustomerID\.value > 0[\s\S]*customerSkuRows\.value[\s\S]*filterProductsByOwnership\(factorySkuRows\.value, skuOwnerFilter\.value/)
   assert.match(script, /const normalizedSkuFilters = computed\(\(\) => normalizeVisibleSkuFilters\(skuFilters\.value, currentSkuSourceRows\.value\)\)/)
   assert.match(script, /const filteredSkuRows = computed\(\(\) => filterSkuRows\(currentSkuSourceRows\.value, normalizedSkuFilters\.value\)\)/)
   assert.match(script, /const skuDisplayKey = computed/)
@@ -4577,7 +4641,7 @@ test('legacy classification template editors are not rendered in product setting
   assert.doesNotMatch(source, /category-editor-drawer/)
   assert.doesNotMatch(source, /openCategoryDrawer/)
   assert.doesNotMatch(source, /openCategorySettingsDrawer/)
-  assert.doesNotMatch(template, /归属客户/)
+  assert.match(template, /归属客户/)
   assert.doesNotMatch(template, /对象归类/)
   assert.doesNotMatch(template, /配置分类/)
 })
@@ -4774,7 +4838,7 @@ test('customer product aliases support batch adding product records', () => {
   assert.match(source, /customerAliasCreateMode/)
   assert.match(template, /customerAliasCreateMode === 'batch'/)
   assert.match(source, /selectedAliasBatchProductIds/)
-  assert.match(script, /\/api\/customer-product-aliases\/batch/)
+  assert.match(script, /\/api\/product-customer-references\/\$\{alias\.reference_id\}/)
   assert.match(script, /buildCustomerProductAliasBatchPayload/)
   assert.doesNotMatch(source, /批量创建时客户商品名=商品档案名称，客户商品编号=商品编号/)
   assert.doesNotMatch(source, /aliasBatchForm\.customer_item_code/)

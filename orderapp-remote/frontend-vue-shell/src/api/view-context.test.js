@@ -2,11 +2,46 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   disableViewContextPreset,
+  fetchAllCustomerOptions,
   fetchViewContextPresets,
   fetchWorkspaceCustomerOptions,
   fetchWorkspaceOrderOptions,
   saveViewContextPreset,
 } from './view-context.js'
+
+describe('customer option pagination', () => {
+  it('loads every customer page for catalog ownership and association editors', async () => {
+    const calls = []
+    const rows = await fetchAllCustomerOptions({
+      get: async (path) => {
+        calls.push(path)
+        if (path.endsWith('offset=0')) {
+          return {
+            rows: [{ id: 74, name: '芬纳咖啡', active: true }],
+            offset: 0,
+            limit: 200,
+            has_next: true,
+          }
+        }
+        return {
+          rows: [{ id: 298, name: '隔离客户B', active: true }],
+          offset: 200,
+          limit: 200,
+          has_next: false,
+        }
+      },
+    })
+
+    assert.deepEqual(calls, [
+      '/api/customers?limit=200&offset=0',
+      '/api/customers?limit=200&offset=200',
+    ])
+    assert.deepEqual(rows.map((row) => [row.id, row.name]), [
+      [74, '芬纳咖啡'],
+      [298, '隔离客户B'],
+    ])
+  })
+})
 
 describe('view context API helpers', () => {
   it('loads workspace customer options from view-context options first', async () => {

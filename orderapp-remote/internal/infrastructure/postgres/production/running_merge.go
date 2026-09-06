@@ -100,7 +100,7 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 		group.NeedG += need.GapG
 		group.SalesSpecCount += need.SalesSpecCount
 		group.PlannedInventoryQty += need.PlannedInventoryQty
-		if input := inputByKey[productionDemandSelectionKey(need.ProductID, need.BomSpecID, need.SpecG)]; input > 0 {
+		if input := inputByKey[productionDemandScopedSelectionKey(need.ProductID, need.BomSpecID, need.SpecG, need.CustomerID, need.TargetWarehouse)]; input > 0 {
 			group.InputG += input
 			group.ManualInput = true
 		}
