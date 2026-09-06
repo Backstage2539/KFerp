@@ -331,15 +331,15 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	`, r.schema), cmd.ProductID).Scan(&oldUnitRuleOverrideJSON, &oldUnitTemplateID); err != nil {
 		return err
 	}
-	if migrationState == productspecmigrationapp.StateCutover && oldUnitTemplateID != cmd.UnitTemplateID {
+	if migrationState == productspecmigrationapp.StateCutover && cmd.UnitTemplateID > 0 && oldUnitTemplateID != cmd.UnitTemplateID {
 		return catalogapp.ValidationError{Message: "商品已切换到 BOM 规格，销售规格模板不能修改；请在 BOM 中维护规格"}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6,
 		    product_kind=$7, drip_bag_grams=$8, drip_box_bag_count=$9, allow_fulfillment_order=$10, allow_mall_order=$11,
 		    green_bean_type=$12, green_bean_bom_product_id=$13, remark=$14, name=COALESCE(NULLIF($15,''), name),
-		    special_attrs_json=$16::jsonb, unit_rule_override_json=$17::jsonb, unit_template_id=$18
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID); err != nil {
+		    special_attrs_json=$16::jsonb
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON); err != nil {
 		return err
 	}
 	if catalogdomain.ProductKindSupportsBomParams(productKind) && yieldRate > 0 {
@@ -353,7 +353,7 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		return err
 	}
 	oldUnitAudit := productUnitAuditValues(oldUnitRuleOverrideJSON)
-	newUnitAudit := productUnitAuditValues(cmd.UnitRuleOverrideJSON)
+	newUnitAudit := oldUnitAudit
 	meta := postgresinfra.AuditMeta{
 		"product_id":        cmd.ProductID,
 		"product_kind":      productKind,
@@ -603,14 +603,14 @@ func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductC
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, unit_rule_override_json, unit_template_id, created_at
+			special_attrs_json, created_at
 		)
 		SELECT
 			$2, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
-			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, unit_rule_override_json, unit_template_id, now()
+			0, 0, 'public', '', green_bean_type, green_bean_bom_product_id,
+			'{}'::jsonb, now()
 		FROM %s.products
 		WHERE id=$1
 		RETURNING id

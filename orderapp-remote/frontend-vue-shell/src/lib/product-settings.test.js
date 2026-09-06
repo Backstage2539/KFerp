@@ -2953,16 +2953,10 @@ test('new product ignores legacy unit authority while existing product basics re
     name: '盒装速溶',
     product_kind: 'instant_coffee',
     remark: '库存按盒',
-    inventory_unit: '个',
-    integer_inventory_unit: false,
-    default_sales_unit: '盒',
-    unit_conversion_json: { 盒: { 个: 10 } },
-    sales_unit_rules: { 盒: { integer_unit: true } },
-    unit_rule_override_json: '{"order_unit":"箱","legacy_key":"keep"}',
   })
 })
 
-test('new product omits sales spec template while existing product basics keep legacy template compatibility', () => {
+test('product basics payload is identity-only while BOM owns legacy unit fields', () => {
   assert.deepEqual(buildProductCreatePayload({
     name: ' 模板咖啡豆 ',
     product_kind: 'roasted',
@@ -3006,13 +3000,11 @@ test('new product omits sales spec template while existing product basics keep l
     unit_rule_override_enabled: false,
     unit_rule_override_json: '{"legacy_key":"keep"}',
   })
-  assert.equal(inheritedPayload.unit_template_id, 7)
-  assert.equal(inheritedPayload.unit_rule_override_json, '{"legacy_key":"keep"}')
-  assert.equal(Object.hasOwn(inheritedPayload, 'inventory_unit'), false)
-  assert.equal(Object.hasOwn(inheritedPayload, 'integer_inventory_unit'), false)
-  assert.equal(Object.hasOwn(inheritedPayload, 'default_sales_unit'), false)
-  assert.equal(Object.hasOwn(inheritedPayload, 'unit_conversion_json'), false)
-  assert.equal(Object.hasOwn(inheritedPayload, 'sales_unit_rules'), false)
+  assert.deepEqual(inheritedPayload, {
+    name: '模板咖啡豆',
+    product_kind: 'roasted',
+    remark: '引用模板',
+  })
 
   const overridePayload = buildProductBasicsPayload({
     name: ' 例外盒装 ',
@@ -3027,13 +3019,11 @@ test('new product omits sales spec template while existing product basics keep l
     unit_rule_override_enabled: true,
     unit_rule_override_json: '{"legacy_key":"keep"}',
   })
-  assert.equal(overridePayload.unit_template_id, 7)
-  assert.equal(overridePayload.inventory_unit, '盒')
-  assert.equal(overridePayload.integer_inventory_unit, true)
-  assert.equal(overridePayload.default_sales_unit, '箱')
-  assert.deepEqual(overridePayload.unit_conversion_json, { 箱: { 盒: 12 } })
-  assert.deepEqual(overridePayload.sales_unit_rules, { 箱: { integer_unit: true } })
-  assert.equal(overridePayload.unit_rule_override_json, '{"legacy_key":"keep"}')
+  assert.deepEqual(overridePayload, {
+    name: '例外盒装',
+    product_kind: 'roasted',
+    remark: '覆盖模板',
+  })
 })
 
 test('product production config save does not write template inventory unit as product override', () => {
@@ -3066,7 +3056,7 @@ test('product production config save does not write template inventory unit as p
   assert.equal(Object.hasOwn(editedPayload, 'sales_unit_rules'), false)
 })
 
-test('product basics payload preserves legacy product unit override without visible override controls', () => {
+test('product basics payload drops legacy product unit override without visible override controls', () => {
   const payload = buildProductBasicsPayload({
     name: '磅装咖啡豆',
     unit_template_id: 3,
@@ -3079,13 +3069,11 @@ test('product basics payload preserves legacy product unit override without visi
     sales_unit_rules: { 磅: { integer_unit: true } },
   })
 
-  assert.equal(payload.unit_template_id, 3)
-  assert.equal(payload.inventory_unit, '袋')
-  assert.equal(payload.integer_inventory_unit, true)
-  assert.equal(payload.default_sales_unit, '磅')
-  assert.deepEqual(payload.unit_conversion_json, { 磅: { 袋: 1 } })
-  assert.deepEqual(payload.sales_unit_rules, { 磅: { integer_unit: true } })
-  assert.equal(payload.unit_rule_override_json, '{"inventory_unit":"袋","default_sales_unit":"磅","legacy_key":"keep"}')
+  assert.deepEqual(payload, {
+    name: '磅装咖啡豆',
+    product_kind: 'roasted',
+    remark: '',
+  })
 })
 
 test('SKU config override payload carries template and unit rule overrides', () => {

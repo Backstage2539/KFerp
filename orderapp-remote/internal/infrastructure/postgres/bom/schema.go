@@ -199,6 +199,12 @@ ALTER TABLE %[1]s.production_bom_versions
 	ADD COLUMN IF NOT EXISTS source_spec_template_version_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_bom_versions
 	ADD COLUMN IF NOT EXISTS main_input_material_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions
+	ADD COLUMN IF NOT EXISTS main_input_component_type TEXT NOT NULL DEFAULT 'material';
+ALTER TABLE %[1]s.production_bom_versions
+	ADD COLUMN IF NOT EXISTS main_input_product_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions
+	ADD COLUMN IF NOT EXISTS main_input_bom_spec_id BIGINT NOT NULL DEFAULT 0;
 	`, schema)
 	if _, err := pool.Exec(ctx, ddl); err != nil {
 		return err
@@ -686,6 +692,11 @@ ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS process_route_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS source_spec_template_version_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS main_input_material_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS main_input_component_type TEXT NOT NULL DEFAULT 'material';
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS main_input_product_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS main_input_bom_spec_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_bom_versions ALTER COLUMN yield_rate SET DEFAULT 1.0000;
 UPDATE %[1]s.production_bom_versions SET output_qty=1 WHERE output_qty IS NULL OR output_qty <= 0;
 UPDATE %[1]s.production_bom_versions SET output_unit='unit' WHERE COALESCE(output_unit,'')='';

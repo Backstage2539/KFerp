@@ -747,14 +747,41 @@ func validateProductionBomDraftVariantUnitsTx(ctx context.Context, tx pgx.Tx, sc
 }
 
 func copySpecTemplateToProductionBomTx(ctx context.Context, tx pgx.Tx, schema string, bomID, versionID, templateVersionID, mainInputMaterialID int64, actor string) error {
+	return copySpecTemplateToProductionBomWithComponentTx(ctx, tx, schema, bomID, versionID, templateVersionID, bomapp.ProductionBomMainInputComponent{ComponentType: "material", MaterialID: mainInputMaterialID}, actor)
+}
+
+func copySpecTemplateToProductionBomWithComponentTx(ctx context.Context, tx pgx.Tx, schema string, bomID, versionID, templateVersionID int64, mainInput bomapp.ProductionBomMainInputComponent, actor string) error {
 	var status string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.production_bom_spec_template_versions WHERE id=$1`, schema), templateVersionID).Scan(&status); err != nil || status != "published" {
 		return fmt.Errorf("published specification template version not found")
 	}
+	if mainInput.ComponentType == "product" {
+		var outputProductID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(output_product_id,0) FROM %s.production_boms WHERE id=$1`, schema), bomID).Scan(&outputProductID); err == nil && outputProductID == mainInput.ComponentProductID {
+			return fmt.Errorf("商品不能作为自身的规格主体组件")
+		}
+	}
 	var mainInputUnit string
-	var mainInputActive bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(unit,''),'unit'),deprecated_at IS NULL FROM %s.materials WHERE id=$1`, schema), mainInputMaterialID).Scan(&mainInputUnit, &mainInputActive); err != nil || !mainInputActive {
-		return fmt.Errorf("main input material not found or inactive")
+	mainInputMaterialID := int64(0)
+	if mainInput.ComponentType == "product" {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(NULLIF(v.inventory_unit,''),'unit')
+			FROM %s.production_bom_specs s
+			JOIN %s.production_boms pb ON pb.id=s.bom_id AND pb.output_type='product' AND pb.output_product_id=$1
+			JOIN %s.production_bom_version_variants v ON v.bom_spec_id=s.id
+			JOIN %s.production_bom_versions pv ON pv.id=v.version_id AND pv.status='published'
+			JOIN %s.products p ON p.id=$1 AND p.active=true
+			WHERE s.id=$2
+			LIMIT 1
+		`, schema, schema, schema, schema, schema), mainInput.ComponentProductID, mainInput.ComponentBomSpecID).Scan(&mainInputUnit); err != nil {
+			return fmt.Errorf("规格主体商品或已发布 BOM 规格不存在")
+		}
+	} else {
+		mainInputMaterialID = mainInput.MaterialID
+		var mainInputActive bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(unit,''),'unit'),deprecated_at IS NULL FROM %s.materials WHERE id=$1`, schema), mainInputMaterialID).Scan(&mainInputUnit, &mainInputActive); err != nil || !mainInputActive {
+			return fmt.Errorf("main input material not found or inactive")
+		}
 	}
 	type sourceVariant struct {
 		id, routeID         int64
@@ -819,10 +846,13 @@ func copySpecTemplateToProductionBomTx(ctx context.Context, tx pgx.Tx, schema st
 		itemRows.Close()
 		for _, item := range items {
 			if item.isMain {
+				if mainInput.ComponentType == "product" && (item.consumeUnit == "ratio_pct" || item.ratio > 0 || variant.loss > 0) {
+					return fmt.Errorf("商品规格主体只能使用固定用量；含原料损耗或比例配方的模板必须选择物料")
+				}
 				item.materialID = mainInputMaterialID
-				item.componentType = "material"
-				item.productID = 0
-				item.componentBomSpecID = 0
+				item.componentType = mainInput.ComponentType
+				item.productID = mainInput.ComponentProductID
+				item.componentBomSpecID = mainInput.ComponentBomSpecID
 				if item.consumeUnit == "main_input_unit" {
 					item.consumeUnit = strings.TrimSpace(mainInputUnit)
 				}
@@ -840,7 +870,7 @@ func copySpecTemplateToProductionBomTx(ctx context.Context, tx pgx.Tx, schema st
 	if len(variants) == 0 {
 		return fmt.Errorf("specification template has no variants")
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_bom_versions SET source_spec_template_version_id=$2,main_input_material_id=$3,output_unit=COALESCE(NULLIF($4,''),output_unit),material_loss_rate=$5,process_route_id=$6 WHERE id=$1`, schema), versionID, templateVersionID, mainInputMaterialID, defaultUnit, defaultLoss, defaultRouteID); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_bom_versions SET source_spec_template_version_id=$2,main_input_material_id=$3,main_input_component_type=$4,main_input_product_id=$5,main_input_bom_spec_id=$6,output_unit=COALESCE(NULLIF($7,''),output_unit),material_loss_rate=$8,process_route_id=$9 WHERE id=$1`, schema), versionID, templateVersionID, mainInputMaterialID, mainInput.ComponentType, mainInput.ComponentProductID, mainInput.ComponentBomSpecID, defaultUnit, defaultLoss, defaultRouteID); err != nil {
 		return err
 	}
 	return nil
@@ -893,9 +923,15 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 	if outputType != "product" || outputProductID <= 0 {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("specification template requires product output")
 	}
-	if cmd.SpecTemplateVersionID <= 0 || cmd.MainInputMaterialID <= 0 {
-		return bomapp.ProductionBomVersion{}, fmt.Errorf("published specification template version and main_input_material_id are required")
+	if cmd.SpecTemplateVersionID <= 0 {
+		return bomapp.ProductionBomVersion{}, fmt.Errorf("published specification template version required")
 	}
+	mainInput, normalizeErr := bomapp.NormalizeProductionBomMainInputComponent(cmd.MainInputComponent, cmd.MainInputMaterialID)
+	if normalizeErr != nil {
+		return bomapp.ProductionBomVersion{}, normalizeErr
+	}
+	cmd.MainInputComponent = mainInput
+	cmd.MainInputMaterialID = mainInput.MaterialID
 	var templateStatus string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT status FROM %s.production_bom_spec_template_versions
@@ -905,13 +941,30 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("published specification template version not found")
 	}
 	var mainInputUnit string
-	var mainInputActive bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(unit,''),'unit'),deprecated_at IS NULL
-		FROM %s.materials WHERE id=$1
-		FOR SHARE
-	`, r.schema), cmd.MainInputMaterialID).Scan(&mainInputUnit, &mainInputActive); err != nil || !mainInputActive {
-		return bomapp.ProductionBomVersion{}, fmt.Errorf("main input material not found or inactive")
+	if mainInput.ComponentType == "product" {
+		if mainInput.ComponentProductID == outputProductID {
+			return bomapp.ProductionBomVersion{}, fmt.Errorf("商品不能作为自身的规格主体组件")
+		}
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(NULLIF(v.inventory_unit,''),'unit')
+			FROM %s.production_bom_specs s
+			JOIN %s.production_boms pb ON pb.id=s.bom_id AND pb.output_type='product' AND pb.output_product_id=$1
+			JOIN %s.production_bom_version_variants v ON v.bom_spec_id=s.id
+			JOIN %s.production_bom_versions pv ON pv.id=v.version_id AND pv.status='published'
+			JOIN %s.products p ON p.id=$1 AND p.active=true
+			WHERE s.id=$2 LIMIT 1
+		`, r.schema, r.schema, r.schema, r.schema, r.schema), mainInput.ComponentProductID, mainInput.ComponentBomSpecID).Scan(&mainInputUnit); err != nil {
+			return bomapp.ProductionBomVersion{}, fmt.Errorf("规格主体商品或已发布 BOM 规格不存在")
+		}
+	} else {
+		var mainInputActive bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(NULLIF(unit,''),'unit'),deprecated_at IS NULL
+			FROM %s.materials WHERE id=$1
+			FOR SHARE
+		`, r.schema), cmd.MainInputMaterialID).Scan(&mainInputUnit, &mainInputActive); err != nil || !mainInputActive {
+			return bomapp.ProductionBomVersion{}, fmt.Errorf("main input material not found or inactive")
+		}
 	}
 
 	templateVariants, err := r.listProductionBomSpecTemplateVariantsTx(ctx, tx, cmd.SpecTemplateVersionID)
@@ -943,10 +996,13 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 		for _, sourceItem := range source.Items {
 			item := sourceItem.ProductionBomDraftItem
 			if sourceItem.IsMainInput {
+				if mainInput.ComponentType == "product" && (item.ConsumeUnit == "ratio_pct" || item.RatioPct > 0 || source.MaterialLossRate > 0) {
+					return bomapp.ProductionBomVersion{}, fmt.Errorf("商品规格主体只能使用固定用量；含原料损耗或比例配方的模板必须选择物料")
+				}
 				item.MaterialID = cmd.MainInputMaterialID
-				item.ComponentType = "material"
-				item.ComponentProductID = 0
-				item.ComponentBomSpecID = 0
+				item.ComponentType = mainInput.ComponentType
+				item.ComponentProductID = mainInput.ComponentProductID
+				item.ComponentBomSpecID = mainInput.ComponentBomSpecID
 				item.ComponentSpecG = 0
 				if item.ConsumeUnit == "main_input_unit" {
 					item.ConsumeUnit = strings.TrimSpace(mainInputUnit)
@@ -978,12 +1034,15 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 		UPDATE %s.production_bom_versions version
 		SET source_spec_template_version_id=$2,
 		    main_input_material_id=$3,
+		    main_input_component_type=$4,
+		    main_input_product_id=$5,
+		    main_input_bom_spec_id=$6,
 		    output_unit=defaults.inventory_unit,
 		    material_loss_rate=defaults.material_loss_rate,
 		    process_route_id=defaults.process_route_id
 		FROM %s.production_bom_version_variants defaults
 		WHERE version.id=$1 AND defaults.version_id=version.id AND defaults.is_default=true
-	`, r.schema, r.schema), cmd.VersionID, cmd.SpecTemplateVersionID, cmd.MainInputMaterialID); err != nil {
+	`, r.schema, r.schema), cmd.VersionID, cmd.SpecTemplateVersionID, cmd.MainInputMaterialID, mainInput.ComponentType, mainInput.ComponentProductID, mainInput.ComponentBomSpecID); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	newGroupJSON, err := productionBomVersionVariantGroupAuditJSONTx(ctx, tx, r.schema, cmd.VersionID)
@@ -992,7 +1051,7 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &cmd.VersionID, "reapply_spec_template", postgresinfra.StrPtr("variants"), postgresinfra.StrPtr(oldGroupJSON), postgresinfra.StrPtr(newGroupJSON), postgresinfra.AuditMeta{
 		"bom_id": bomID, "spec_template_version_id": cmd.SpecTemplateVersionID,
-		"main_input_material_id": cmd.MainInputMaterialID, "old_variant_count": strings.Count(oldGroupJSON, `"spec_key"`),
+		"main_input_material_id": cmd.MainInputMaterialID, "main_input_component_type": mainInput.ComponentType, "main_input_product_id": mainInput.ComponentProductID, "main_input_bom_spec_id": mainInput.ComponentBomSpecID, "old_variant_count": strings.Count(oldGroupJSON, `"spec_key"`),
 		"new_variant_count": len(variants),
 	}); err != nil {
 		return bomapp.ProductionBomVersion{}, err
@@ -1400,8 +1459,12 @@ func validateProductBOMDraftSpecTemplateProvenanceTx(ctx context.Context, tx pgx
 }
 
 func requireProductBOMSpecTemplateTx(ctx context.Context, tx pgx.Tx, schema string, specTemplateVersionID, mainInputMaterialID int64) error {
-	if specTemplateVersionID <= 0 || mainInputMaterialID <= 0 {
-		return fmt.Errorf("product BOM requires a published specification template version and main_input_material_id")
+	return requireProductBOMSpecTemplateWithComponentTx(ctx, tx, schema, specTemplateVersionID, bomapp.ProductionBomMainInputComponent{ComponentType: "material", MaterialID: mainInputMaterialID})
+}
+
+func requireProductBOMSpecTemplateWithComponentTx(ctx context.Context, tx pgx.Tx, schema string, specTemplateVersionID int64, mainInput bomapp.ProductionBomMainInputComponent) error {
+	if specTemplateVersionID <= 0 {
+		return fmt.Errorf("product BOM requires a published specification template version and 规格主体组件")
 	}
 	var templateStatus string
 	var templateWasPublished bool
@@ -1411,16 +1474,39 @@ func requireProductBOMSpecTemplateTx(ctx context.Context, tx pgx.Tx, schema stri
 		WHERE id=$1
 		FOR SHARE
 	`, schema), specTemplateVersionID).Scan(&templateStatus, &templateWasPublished); err != nil || !templateWasPublished || templateStatus != "published" {
-		return fmt.Errorf("product BOM requires a published specification template version and main_input_material_id")
+		return fmt.Errorf("product BOM requires a published specification template version and 规格主体组件")
 	}
-	var mainInputActive bool
+	if mainInput.ComponentType == "material" {
+		var mainInputActive bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT deprecated_at IS NULL
+			FROM %s.materials
+			WHERE id=$1
+			FOR SHARE
+		`, schema), mainInput.MaterialID).Scan(&mainInputActive); err != nil || !mainInputActive {
+			return fmt.Errorf("规格主体物料不存在或已停用")
+		}
+		return nil
+	}
+	if mainInput.ComponentType != "product" || mainInput.ComponentProductID <= 0 || mainInput.ComponentBomSpecID <= 0 {
+		return fmt.Errorf("规格主体组件必须选择物料或已发布商品规格")
+	}
+	var exists bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT deprecated_at IS NULL
-		FROM %s.materials
-		WHERE id=$1
-		FOR SHARE
-	`, schema), mainInputMaterialID).Scan(&mainInputActive); err != nil || !mainInputActive {
-		return fmt.Errorf("product BOM requires a published specification template version and main_input_material_id")
+		SELECT EXISTS(
+			SELECT 1
+			FROM %s.production_bom_specs s
+			JOIN %s.production_boms pb ON pb.id=s.bom_id AND pb.output_type='product' AND pb.output_product_id=$1
+			JOIN %s.products p ON p.id=$1 AND p.active=true
+			WHERE s.id=$2
+			  AND EXISTS(
+				  SELECT 1 FROM %s.production_bom_version_variants vv
+				  JOIN %s.production_bom_versions pv ON pv.id=vv.version_id AND pv.status='published'
+				  WHERE vv.bom_spec_id=s.id
+			  )
+		)
+	`, schema, schema, schema, schema, schema), mainInput.ComponentProductID, mainInput.ComponentBomSpecID).Scan(&exists); err != nil || !exists {
+		return fmt.Errorf("规格主体商品或已发布 BOM 规格不存在")
 	}
 	return nil
 }

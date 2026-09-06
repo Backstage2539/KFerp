@@ -3290,25 +3290,8 @@ export function buildProductBasicsPayload(row = {}) {
     product_kind: kind,
     remark: String(row.remark || '').trim(),
   }
-  const unitTemplateID = normalizedProductUnitTemplateID(row)
-  const shouldSaveUnitOverride = productUnitOverrideShouldSave(row)
 	const name = String(row.name || '').trim()
 	if (name) payload.name = name
-	if (Object.prototype.hasOwnProperty.call(row, 'unit_template_id')) {
-		payload.unit_template_id = unitTemplateID
-	}
-	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(row, 'inventory_unit')) {
-		payload.inventory_unit = String(row.inventory_unit || 'kg').trim() || 'kg'
-	}
-	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(row, 'integer_inventory_unit')) {
-		payload.integer_inventory_unit = Boolean(row.integer_inventory_unit)
-	}
-  if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, row)
-	if (Object.prototype.hasOwnProperty.call(row, 'unit_rule_override_json')) {
-		payload.unit_rule_override_json = shouldSaveUnitOverride
-      ? String(row.unit_rule_override_json || '{}').trim() || '{}'
-      : stripProductUnitRuleOverrideJSON(row.unit_rule_override_json)
-	}
   return payload
 }
 

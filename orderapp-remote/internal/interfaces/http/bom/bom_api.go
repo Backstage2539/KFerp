@@ -72,20 +72,21 @@ type moveProductionBomGroupRequest struct {
 }
 
 type createProductionBomRequest struct {
-	Name                  string                             `json:"name"`
-	OutputType            string                             `json:"output_type"`
-	SpecificationMode     string                             `json:"specification_mode"`
-	OutputID              int64                              `json:"output_id"`
-	OutputProductID       int64                              `json:"output_product_id"`
-	OutputMaterialID      int64                              `json:"output_material_id"`
-	OutputQty             float64                            `json:"output_qty"`
-	OutputUnit            string                             `json:"output_unit"`
-	GroupID               int64                              `json:"group_id"`
-	GroupCategoryID       int64                              `json:"group_category_id"`
-	ExpectedLossRate      *float64                           `json:"expected_loss_rate"`
-	SpecTemplateVersionID int64                              `json:"spec_template_version_id"`
-	MainInputMaterialID   int64                              `json:"main_input_material_id"`
-	Variants              []bomapp.ProductionBomDraftVariant `json:"variants"`
+	Name                  string                                 `json:"name"`
+	OutputType            string                                 `json:"output_type"`
+	SpecificationMode     string                                 `json:"specification_mode"`
+	OutputID              int64                                  `json:"output_id"`
+	OutputProductID       int64                                  `json:"output_product_id"`
+	OutputMaterialID      int64                                  `json:"output_material_id"`
+	OutputQty             float64                                `json:"output_qty"`
+	OutputUnit            string                                 `json:"output_unit"`
+	GroupID               int64                                  `json:"group_id"`
+	GroupCategoryID       int64                                  `json:"group_category_id"`
+	ExpectedLossRate      *float64                               `json:"expected_loss_rate"`
+	SpecTemplateVersionID int64                                  `json:"spec_template_version_id"`
+	MainInputMaterialID   int64                                  `json:"main_input_material_id"`
+	MainInputComponent    bomapp.ProductionBomMainInputComponent `json:"main_input_component"`
+	Variants              []bomapp.ProductionBomDraftVariant     `json:"variants"`
 }
 
 type updateProductionBomRequest struct {
@@ -102,16 +103,17 @@ type updateProductionBomRequest struct {
 }
 
 type copyProductionBomRequest struct {
-	Name                  string `json:"name"`
-	OutputType            string `json:"output_type"`
-	SpecificationMode     string `json:"specification_mode"`
-	OutputID              int64  `json:"output_id"`
-	OutputProductID       int64  `json:"output_product_id"`
-	OutputMaterialID      int64  `json:"output_material_id"`
-	GroupID               int64  `json:"group_id"`
-	GroupCategoryID       int64  `json:"group_category_id"`
-	SpecTemplateVersionID int64  `json:"spec_template_version_id"`
-	MainInputMaterialID   int64  `json:"main_input_material_id"`
+	Name                  string                                 `json:"name"`
+	OutputType            string                                 `json:"output_type"`
+	SpecificationMode     string                                 `json:"specification_mode"`
+	OutputID              int64                                  `json:"output_id"`
+	OutputProductID       int64                                  `json:"output_product_id"`
+	OutputMaterialID      int64                                  `json:"output_material_id"`
+	GroupID               int64                                  `json:"group_id"`
+	GroupCategoryID       int64                                  `json:"group_category_id"`
+	SpecTemplateVersionID int64                                  `json:"spec_template_version_id"`
+	MainInputMaterialID   int64                                  `json:"main_input_material_id"`
+	MainInputComponent    bomapp.ProductionBomMainInputComponent `json:"main_input_component"`
 }
 
 type createProductionBomVersionRequest struct {
@@ -132,33 +134,35 @@ type updateProductionBomVersionDraftRequest struct {
 }
 
 type draftWorkspaceRequest struct {
-	SourceVersionID        int64                              `json:"source_version_id"`
-	Name                   string                             `json:"name"`
-	OutputType             string                             `json:"output_type"`
-	SpecificationMode      string                             `json:"specification_mode"`
-	OutputID               int64                              `json:"output_id"`
-	OutputProductID        int64                              `json:"output_product_id"`
-	OutputMaterialID       int64                              `json:"output_material_id"`
-	OutputUnit             string                             `json:"output_unit"`
-	GroupID                *int64                             `json:"group_id"`
-	GroupCategoryID        *int64                             `json:"group_category_id"`
-	Status                 string                             `json:"status"`
-	VersionID              int64                              `json:"version_id"`
-	ExpectedLossRate       *float64                           `json:"expected_loss_rate"`
-	MaterialLossRate       *float64                           `json:"material_loss_rate"`
-	OutputQty              float64                            `json:"output_qty"`
-	ProcessRouteID         int64                              `json:"process_route_id"`
-	Items                  []bomapp.ProductionBomDraftItem    `json:"items"`
-	Variants               []bomapp.ProductionBomDraftVariant `json:"variants"`
-	SpecialAttrsSchemaJSON string                             `json:"special_attrs_schema_json"`
-	SpecialAttrsJSON       string                             `json:"special_attrs_json"`
-	SpecTemplateVersionID  int64                              `json:"spec_template_version_id"`
-	MainInputMaterialID    int64                              `json:"main_input_material_id"`
+	SourceVersionID        int64                                  `json:"source_version_id"`
+	Name                   string                                 `json:"name"`
+	OutputType             string                                 `json:"output_type"`
+	SpecificationMode      string                                 `json:"specification_mode"`
+	OutputID               int64                                  `json:"output_id"`
+	OutputProductID        int64                                  `json:"output_product_id"`
+	OutputMaterialID       int64                                  `json:"output_material_id"`
+	OutputUnit             string                                 `json:"output_unit"`
+	GroupID                *int64                                 `json:"group_id"`
+	GroupCategoryID        *int64                                 `json:"group_category_id"`
+	Status                 string                                 `json:"status"`
+	VersionID              int64                                  `json:"version_id"`
+	ExpectedLossRate       *float64                               `json:"expected_loss_rate"`
+	MaterialLossRate       *float64                               `json:"material_loss_rate"`
+	OutputQty              float64                                `json:"output_qty"`
+	ProcessRouteID         int64                                  `json:"process_route_id"`
+	Items                  []bomapp.ProductionBomDraftItem        `json:"items"`
+	Variants               []bomapp.ProductionBomDraftVariant     `json:"variants"`
+	SpecialAttrsSchemaJSON string                                 `json:"special_attrs_schema_json"`
+	SpecialAttrsJSON       string                                 `json:"special_attrs_json"`
+	SpecTemplateVersionID  int64                                  `json:"spec_template_version_id"`
+	MainInputMaterialID    int64                                  `json:"main_input_material_id"`
+	MainInputComponent     bomapp.ProductionBomMainInputComponent `json:"main_input_component"`
 }
 
 type reapplyProductionBomSpecTemplateVersionRequest struct {
-	SpecTemplateVersionID int64 `json:"spec_template_version_id"`
-	MainInputMaterialID   int64 `json:"main_input_material_id"`
+	SpecTemplateVersionID int64                                  `json:"spec_template_version_id"`
+	MainInputMaterialID   int64                                  `json:"main_input_material_id"`
+	MainInputComponent    bomapp.ProductionBomMainInputComponent `json:"main_input_component"`
 }
 
 type createProductionBomSpecTemplateRequest struct {
@@ -475,7 +479,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, Variants: req.Variants, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, MainInputComponent: req.MainInputComponent, Variants: req.Variants, Actor: support.ActorOf(c)})
 		if err != nil {
 			return productionBomWriteError(c, err)
 		}
@@ -534,9 +538,9 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		cmd := bomapp.ProductionBomDraftWorkspaceCommand{
-			Bom:            bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c), UpdateOutputBinding: req.OutputType != "" || req.OutputID > 0 || req.OutputProductID > 0 || req.OutputMaterialID > 0, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID},
+			Bom:            bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c), UpdateOutputBinding: req.OutputType != "" || req.OutputID > 0 || req.OutputProductID > 0 || req.OutputMaterialID > 0, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, MainInputComponent: req.MainInputComponent},
 			Version:        bomapp.UpdateProductionBomVersionDraftCommand{VersionID: req.VersionID, ExpectedLossRate: req.ExpectedLossRate, MaterialLossRate: req.MaterialLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, ProcessRouteID: req.ProcessRouteID, Items: req.Items, Variants: req.Variants, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)},
-			SpecTemplateID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID,
+			SpecTemplateID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, MainInputComponent: req.MainInputComponent,
 		}
 		if req.GroupID != nil {
 			cmd.Bom.GroupID, cmd.Bom.UpdateGroupAssignment = *req.GroupID, true
@@ -561,9 +565,9 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		workspace := bomapp.ProductionBomDraftWorkspaceCommand{
-			Bom:            bomapp.UpdateProductionBomCommand{Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c), UpdateOutputBinding: true, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID},
+			Bom:            bomapp.UpdateProductionBomCommand{Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c), UpdateOutputBinding: true, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, MainInputComponent: req.MainInputComponent},
 			Version:        bomapp.UpdateProductionBomVersionDraftCommand{ExpectedLossRate: req.ExpectedLossRate, MaterialLossRate: req.MaterialLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, ProcessRouteID: req.ProcessRouteID, Items: req.Items, Variants: req.Variants, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)},
-			SpecTemplateID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID,
+			SpecTemplateID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, MainInputComponent: req.MainInputComponent,
 		}
 		if req.GroupID != nil {
 			workspace.Bom.GroupID, workspace.Bom.UpdateGroupAssignment = *req.GroupID, true
@@ -587,7 +591,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CopyProductionBom(c.Request().Context(), bomapp.CopyProductionBomCommand{ID: id, Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CopyProductionBom(c.Request().Context(), bomapp.CopyProductionBomCommand{ID: id, Name: req.Name, OutputType: req.OutputType, SpecificationMode: req.SpecificationMode, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, MainInputComponent: req.MainInputComponent, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -636,7 +640,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := bomSvc.ReapplyProductionBomSpecTemplateVersion(c.Request().Context(), bomapp.ReapplyProductionBomSpecTemplateVersionCommand{
-			VersionID: id, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, Actor: support.ActorOf(c),
+			VersionID: id, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID, MainInputComponent: req.MainInputComponent, Actor: support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

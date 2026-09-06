@@ -199,8 +199,8 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 			r.products[i].MarginRateOverride = cmd.MarginRateOverride
 			r.products[i].GradientTemplateIDOverride = cmd.GradientTemplateIDOverride
 			r.products[i].OperationTemplateIDOverride = cmd.OperationTemplateIDOverride
-			r.products[i].UnitTemplateID = cmd.UnitTemplateID
-			r.products[i].UnitRuleOverrideJSON = cmd.UnitRuleOverrideJSON
+			// Product identity updates must preserve legacy unit values. Those
+			// values are now owned by the published BOM specification.
 		}
 	}
 	return nil
@@ -2501,7 +2501,7 @@ func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrit
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.productUpdated || repo.updated.ProductConfigTemplateID != 0 || repo.updated.ClassificationTemplateID != 0 || repo.updated.GradientTemplateIDOverride != 0 || repo.updated.OperationTemplateIDOverride != 0 || repo.updated.UnitRuleOverrideJSON != "{}" {
+	if !repo.productUpdated || repo.updated.ProductConfigTemplateID != 0 || repo.updated.ClassificationTemplateID != 0 || repo.updated.GradientTemplateIDOverride != 0 || repo.updated.OperationTemplateIDOverride != 0 || repo.updated.UnitRuleOverrideJSON != "{}" || repo.updated.UnitTemplateID != 0 {
 		t.Fatalf("updated product template command=%+v updated=%v", repo.updated, repo.productUpdated)
 	}
 

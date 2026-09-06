@@ -8,6 +8,29 @@ import (
 	"testing"
 )
 
+func TestNormalizeProductionBomMainInputComponentSupportsMaterialCompatibility(t *testing.T) {
+	got, err := NormalizeProductionBomMainInputComponent(ProductionBomMainInputComponent{}, 17)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ComponentType != "material" || got.MaterialID != 17 || got.ComponentProductID != 0 || got.ComponentBomSpecID != 0 {
+		t.Fatalf("normalized legacy material component=%+v", got)
+	}
+}
+
+func TestNormalizeProductionBomMainInputComponentRequiresPublishedProductSpecIdentity(t *testing.T) {
+	if _, err := NormalizeProductionBomMainInputComponent(ProductionBomMainInputComponent{ComponentType: "product", ComponentProductID: 933}, 0); err == nil || !strings.Contains(err.Error(), "已发布 BOM 规格") {
+		t.Fatalf("expected product main-input BOM spec validation, got %v", err)
+	}
+	got, err := NormalizeProductionBomMainInputComponent(ProductionBomMainInputComponent{ComponentType: "product", ComponentProductID: 933, ComponentBomSpecID: 220}, 999)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MaterialID != 0 || got.ComponentProductID != 933 || got.ComponentBomSpecID != 220 {
+		t.Fatalf("normalized product component=%+v", got)
+	}
+}
+
 type fakeRepo struct {
 	savedItem                     SaveItemCommand
 	deletedID                     int64
@@ -623,6 +646,25 @@ func TestCopyProductionBomCanReapplyTemplateWhenKeepingSourceProductOutput(t *te
 	}
 	if repo.copiedProductionBomCommand.SpecTemplateVersionID != 92 || repo.copiedProductionBomCommand.MainInputMaterialID != 7 {
 		t.Fatalf("template replacement command not propagated: %+v", repo.copiedProductionBomCommand)
+	}
+}
+
+func TestCreateProductionBomPropagatesProductMainInputComponent(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{
+		Name:                  "商品主体组件 BOM",
+		OutputProductID:       88,
+		SpecificationMode:     ProductionBomSpecificationModeSpecGroup,
+		SpecTemplateVersionID: 92,
+		MainInputComponent:    ProductionBomMainInputComponent{ComponentType: "product", ComponentProductID: 933, ComponentBomSpecID: 220},
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionBom: %v", err)
+	}
+	got := repo.createdProductionBomCommand.MainInputComponent
+	if got.ComponentType != "product" || got.ComponentProductID != 933 || got.ComponentBomSpecID != 220 || repo.createdProductionBomCommand.MainInputMaterialID != 0 {
+		t.Fatalf("product main-input component not propagated: %+v", repo.createdProductionBomCommand)
 	}
 }
 

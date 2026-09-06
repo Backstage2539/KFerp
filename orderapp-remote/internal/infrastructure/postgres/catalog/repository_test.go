@@ -247,7 +247,7 @@ func TestProductsReferenceUnitTemplatesAsPrimaryUOMMasterData(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"unit_template_id=$18",
+		"special_attrs_json=$16::jsonb",
 		`"old_unit_template_id"`,
 		`"new_unit_template_id"`,
 		`"unit_template_id":`,
@@ -339,7 +339,7 @@ func TestWarehouseBusinessGroupMigrationUsesStaticItemRows(t *testing.T) {
 	}
 }
 
-func TestProductConfigOverridesRemainReadableButProductUpdateOnlyWritesUnitRule(t *testing.T) {
+func TestProductConfigOverridesRemainReadableButProductUpdatePreservesUnitRule(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
@@ -372,7 +372,7 @@ func TestProductConfigOverridesRemainReadableButProductUpdateOnlyWritesUnitRule(
 	}
 	updateFn := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) UpdateProductBasics", "func (r Repository) DeactivateProducts")
 	for _, want := range []string{
-		"unit_rule_override_json=$",
+		"SELECT COALESCE(unit_rule_override_json::text,'{}')",
 		"old_inventory_unit",
 		"new_inventory_unit",
 		"old_integer_inventory_unit",
@@ -387,6 +387,9 @@ func TestProductConfigOverridesRemainReadableButProductUpdateOnlyWritesUnitRule(
 		if !strings.Contains(updateFn, want) {
 			t.Fatalf("product basics update must persist and audit product inventory unit; missing %q", want)
 		}
+	}
+	if strings.Contains(string(repository), "unit_rule_override_json=$17") || strings.Contains(string(repository), "unit_template_id=$18") {
+		t.Fatal("product basics update must not overwrite BOM-owned unit fields")
 	}
 	for _, createMarker := range []string{
 		"func (r Repository) CreateProduct",
@@ -1760,14 +1763,16 @@ func TestCopyProductArchiveCopiesOnlyMasterDataNotPriceOrBomTemplates(t *testing
 	for _, want := range []string{
 		"nextProductArchiveCopyNameTx",
 		"copy_product_archive",
-		"unit_template_id",
-		"unit_rule_override_json",
+		"0, 0, 'public', '', green_bean_type, green_bean_bom_product_id",
+		"'{}'::jsonb, now()",
 	} {
 		if !strings.Contains(fn, want) {
 			t.Fatalf("CopyProduct must copy product master data; missing %q", want)
 		}
 	}
 	for _, forbidden := range []string{
+		"unit_template_id",
+		"unit_rule_override_json",
 		"product_config_template_id",
 		"classification_template_id",
 		"product_production_config_fields",

@@ -714,8 +714,6 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		MarginRateOverride:          marginRateOverride,
 		GradientTemplateIDOverride:  gradientTemplateIDOverride,
 		OperationTemplateIDOverride: operationTemplateIDOverride,
-		UnitTemplateID:              0,
-		UnitRuleOverrideJSON:        "{}",
 		ProductConfigTemplateID:     productConfigTemplateID,
 		ClassificationTemplateID:    classificationTemplateID,
 		SpecialAttrsJSON:            specialAttrsJSON,

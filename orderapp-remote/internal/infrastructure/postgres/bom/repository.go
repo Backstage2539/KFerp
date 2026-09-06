@@ -1710,7 +1710,13 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 		}
 	}
 	if cmd.OutputType == "product" && cmd.SpecificationMode == bomapp.ProductionBomSpecificationModeSpecGroup && cmd.SpecTemplateVersionID > 0 {
-		if err := requireProductBOMSpecTemplateTx(ctx, tx, r.schema, cmd.SpecTemplateVersionID, cmd.MainInputMaterialID); err != nil {
+		mainInput, normalizeErr := bomapp.NormalizeProductionBomMainInputComponent(cmd.MainInputComponent, cmd.MainInputMaterialID)
+		if normalizeErr != nil {
+			return bomapp.ProductionBomSummary{}, normalizeErr
+		}
+		cmd.MainInputComponent = mainInput
+		cmd.MainInputMaterialID = mainInput.MaterialID
+		if err := requireProductBOMSpecTemplateWithComponentTx(ctx, tx, r.schema, cmd.SpecTemplateVersionID, mainInput); err != nil {
 			return bomapp.ProductionBomSummary{}, err
 		}
 	} else if cmd.OutputType != "product" && (cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0) {
@@ -1734,14 +1740,14 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	yieldRate := 1.0
 	var versionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, source_spec_template_version_id, main_input_material_id, created_at, created_by)
-		VALUES($1,'V001','draft',$2,$3,$4,'初始版本',$5,$6,now(),$7)
+		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, source_spec_template_version_id, main_input_material_id, main_input_component_type, main_input_product_id, main_input_bom_spec_id, created_at, created_by)
+		VALUES($1,'V001','draft',$2,$3,$4,'初始版本',$5,$6,$7,$8,$9,now(),$10)
 		RETURNING id
-	`, r.schema), bomID, yieldRate, cmd.OutputQty, strings.TrimSpace(cmd.OutputUnit), cmd.SpecTemplateVersionID, cmd.MainInputMaterialID, strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
+	`, r.schema), bomID, yieldRate, cmd.OutputQty, strings.TrimSpace(cmd.OutputUnit), cmd.SpecTemplateVersionID, cmd.MainInputMaterialID, cmd.MainInputComponent.ComponentType, cmd.MainInputComponent.ComponentProductID, cmd.MainInputComponent.ComponentBomSpecID, strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if cmd.SpecTemplateVersionID > 0 {
-		if err := copySpecTemplateToProductionBomTx(ctx, tx, r.schema, bomID, versionID, cmd.SpecTemplateVersionID, cmd.MainInputMaterialID, cmd.Actor); err != nil {
+		if err := copySpecTemplateToProductionBomWithComponentTx(ctx, tx, r.schema, bomID, versionID, cmd.SpecTemplateVersionID, cmd.MainInputComponent, cmd.Actor); err != nil {
 			return bomapp.ProductionBomSummary{}, err
 		}
 	} else if cmd.OutputType == "product" {
@@ -1948,18 +1954,21 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	var sourceProcessRouteID int64
 	var sourceSpecTemplateVersionID int64
 	var sourceMainInputMaterialID int64
+	var sourceMainInputComponentType string
+	var sourceMainInputProductID int64
+	var sourceMainInputBomSpecID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT pb.name, COALESCE(NULLIF(pb.output_type,''),'product'), COALESCE(NULLIF(pb.specification_mode,''),'single'), COALESCE(pb.output_product_id,0), COALESCE(pb.output_material_id,0), v.id, COALESCE(v.output_qty,1)::float8, COALESCE(NULLIF(v.output_unit,''),'unit'), COALESCE(v.material_loss_rate,0)::float8, COALESCE(v.special_attrs_schema_json::text,'[]'), COALESCE(v.special_attrs_json::text,'{}'), COALESCE(v.process_route_id,0), COALESCE(v.source_spec_template_version_id,0), COALESCE(v.main_input_material_id,0)
+		SELECT pb.name, COALESCE(NULLIF(pb.output_type,''),'product'), COALESCE(NULLIF(pb.specification_mode,''),'single'), COALESCE(pb.output_product_id,0), COALESCE(pb.output_material_id,0), v.id, COALESCE(v.output_qty,1)::float8, COALESCE(NULLIF(v.output_unit,''),'unit'), COALESCE(v.material_loss_rate,0)::float8, COALESCE(v.special_attrs_schema_json::text,'[]'), COALESCE(v.special_attrs_json::text,'{}'), COALESCE(v.process_route_id,0), COALESCE(v.source_spec_template_version_id,0), COALESCE(v.main_input_material_id,0), COALESCE(NULLIF(v.main_input_component_type,''),'material'), COALESCE(v.main_input_product_id,0), COALESCE(v.main_input_bom_spec_id,0)
 		FROM %s.production_boms pb
 		JOIN LATERAL (
-			SELECT id, output_qty, output_unit, material_loss_rate, special_attrs_schema_json, special_attrs_json, process_route_id, source_spec_template_version_id, main_input_material_id
+			SELECT id, output_qty, output_unit, material_loss_rate, special_attrs_schema_json, special_attrs_json, process_route_id, source_spec_template_version_id, main_input_material_id, main_input_component_type, main_input_product_id, main_input_bom_spec_id
 			FROM %s.production_bom_versions
 			WHERE bom_id=pb.id AND status IN ('draft','published')
 			ORDER BY CASE WHEN status='draft' THEN 0 ELSE 1 END, published_at DESC NULLS LAST, created_at DESC, id DESC
 			LIMIT 1
 		) v ON true
 		WHERE pb.id=$1
-	`, r.schema, r.schema), cmd.ID).Scan(&sourceName, &sourceOutputType, &sourceSpecificationMode, &sourceOutputProductID, &sourceOutputMaterialID, &sourceVersionID, &sourceOutputQty, &sourceOutputUnit, &sourceMaterialLossRate, &sourceSpecialAttrsSchemaJSON, &sourceSpecialAttrsJSON, &sourceProcessRouteID, &sourceSpecTemplateVersionID, &sourceMainInputMaterialID); err != nil {
+	`, r.schema, r.schema), cmd.ID).Scan(&sourceName, &sourceOutputType, &sourceSpecificationMode, &sourceOutputProductID, &sourceOutputMaterialID, &sourceVersionID, &sourceOutputQty, &sourceOutputUnit, &sourceMaterialLossRate, &sourceSpecialAttrsSchemaJSON, &sourceSpecialAttrsJSON, &sourceProcessRouteID, &sourceSpecTemplateVersionID, &sourceMainInputMaterialID, &sourceMainInputComponentType, &sourceMainInputProductID, &sourceMainInputBomSpecID); err != nil {
 		return bomapp.ProductionBomSummary{}, fmt.Errorf("source production BOM not found")
 	}
 	name := strings.TrimSpace(cmd.Name)
@@ -1989,18 +1998,26 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	}
 	templateVersionID := cmd.SpecTemplateVersionID
 	mainInputMaterialID := cmd.MainInputMaterialID
+	mainInputComponent := cmd.MainInputComponent
 	if outputType == "product" && specificationMode == bomapp.ProductionBomSpecificationModeSpecGroup {
-		if templateVersionID > 0 || mainInputMaterialID > 0 {
-			if err := requireProductBOMSpecTemplateTx(ctx, tx, r.schema, templateVersionID, mainInputMaterialID); err != nil {
+		if templateVersionID > 0 || mainInputMaterialID > 0 || mainInputComponent.ComponentProductID > 0 || mainInputComponent.ComponentBomSpecID > 0 {
+			normalized, normalizeErr := bomapp.NormalizeProductionBomMainInputComponent(mainInputComponent, mainInputMaterialID)
+			if normalizeErr != nil {
+				return bomapp.ProductionBomSummary{}, normalizeErr
+			}
+			mainInputComponent = normalized
+			mainInputMaterialID = normalized.MaterialID
+			if err := requireProductBOMSpecTemplateWithComponentTx(ctx, tx, r.schema, templateVersionID, mainInputComponent); err != nil {
 				return bomapp.ProductionBomSummary{}, err
 			}
 		} else if sourceSpecificationMode == bomapp.ProductionBomSpecificationModeSpecGroup {
 			templateVersionID = sourceSpecTemplateVersionID
 			mainInputMaterialID = sourceMainInputMaterialID
+			mainInputComponent = bomapp.ProductionBomMainInputComponent{ComponentType: sourceMainInputComponentType, MaterialID: sourceMainInputMaterialID, ComponentProductID: sourceMainInputProductID, ComponentBomSpecID: sourceMainInputBomSpecID}
 		} else {
 			return bomapp.ProductionBomSummary{}, fmt.Errorf("product BOM requires a published specification template version and main_input_material_id")
 		}
-	} else if cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 {
+	} else if cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 || cmd.MainInputComponent.ComponentProductID > 0 || cmd.MainInputComponent.ComponentBomSpecID > 0 {
 		return bomapp.ProductionBomSummary{}, fmt.Errorf("specification template requires product output")
 	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -2016,14 +2033,14 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	}
 	var newVersionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, material_loss_rate, note, special_attrs_schema_json, special_attrs_json, process_route_id, source_spec_template_version_id, main_input_material_id, created_at, created_by)
-		VALUES($1,'V001','draft',$2,$3,$4,$5,'复制来源 BOM',$6::jsonb,$7::jsonb,$8,$9,$10,now(),$11)
+		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, material_loss_rate, note, special_attrs_schema_json, special_attrs_json, process_route_id, source_spec_template_version_id, main_input_material_id, main_input_component_type, main_input_product_id, main_input_bom_spec_id, created_at, created_by)
+		VALUES($1,'V001','draft',$2,$3,$4,$5,'复制来源 BOM',$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,now(),$14)
 		RETURNING id
-	`, r.schema), newBomID, 1.0, sourceOutputQty, sourceOutputUnit, sourceMaterialLossRate, sourceSpecialAttrsSchemaJSON, sourceSpecialAttrsJSON, sourceProcessRouteID, templateVersionID, mainInputMaterialID, strings.TrimSpace(cmd.Actor)).Scan(&newVersionID); err != nil {
+	`, r.schema), newBomID, 1.0, sourceOutputQty, sourceOutputUnit, sourceMaterialLossRate, sourceSpecialAttrsSchemaJSON, sourceSpecialAttrsJSON, sourceProcessRouteID, templateVersionID, mainInputMaterialID, mainInputComponent.ComponentType, mainInputComponent.ComponentProductID, mainInputComponent.ComponentBomSpecID, strings.TrimSpace(cmd.Actor)).Scan(&newVersionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if cmd.SpecTemplateVersionID > 0 {
-		if err := copySpecTemplateToProductionBomTx(ctx, tx, r.schema, newBomID, newVersionID, templateVersionID, mainInputMaterialID, cmd.Actor); err != nil {
+		if err := copySpecTemplateToProductionBomWithComponentTx(ctx, tx, r.schema, newBomID, newVersionID, templateVersionID, mainInputComponent, cmd.Actor); err != nil {
 			return bomapp.ProductionBomSummary{}, err
 		}
 	} else if specificationMode == bomapp.ProductionBomSpecificationModeSingle {
@@ -2340,11 +2357,22 @@ func (r Repository) UpdateProductionBomDraftWorkspace(ctx context.Context, cmd b
 	}
 	cmd.Bom.SpecTemplateVersionID = cmd.SpecTemplateID
 	cmd.Bom.MainInputMaterialID = cmd.MainInputMaterialID
+	cmd.Bom.MainInputComponent = cmd.MainInputComponent
+	if cmd.SpecTemplateID > 0 {
+		normalized, normalizeErr := bomapp.NormalizeProductionBomMainInputComponent(cmd.MainInputComponent, cmd.MainInputMaterialID)
+		if normalizeErr != nil {
+			return bomapp.ProductionBomDetail{}, normalizeErr
+		}
+		cmd.MainInputComponent = normalized
+		cmd.MainInputMaterialID = normalized.MaterialID
+		cmd.Bom.MainInputComponent = normalized
+		cmd.Bom.MainInputMaterialID = normalized.MaterialID
+	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := r.updateProductionBomTx(ctx, tx, cmd.Bom); err != nil {
 		return bomapp.ProductionBomDetail{}, err
 	}
-	if strings.EqualFold(strings.TrimSpace(cmd.Bom.OutputType), "product") && cmd.Bom.SpecificationMode == bomapp.ProductionBomSpecificationModeSpecGroup && cmd.SpecTemplateID > 0 && cmd.MainInputMaterialID > 0 && len(cmd.Version.Variants) == 0 {
+	if strings.EqualFold(strings.TrimSpace(cmd.Bom.OutputType), "product") && cmd.Bom.SpecificationMode == bomapp.ProductionBomSpecificationModeSpecGroup && cmd.SpecTemplateID > 0 && (cmd.MainInputMaterialID > 0 || cmd.MainInputComponent.ComponentProductID > 0) && len(cmd.Version.Variants) == 0 {
 		// A type conversion may submit the selected published template without
 		// client-generated variants. Keep version metadata in this transaction,
 		// then copy the template snapshot into the draft recipe.
@@ -2354,7 +2382,7 @@ func (r Repository) UpdateProductionBomDraftWorkspace(ctx context.Context, cmd b
 		if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, metadataOnly); err != nil {
 			return bomapp.ProductionBomDetail{}, err
 		}
-		if err := copySpecTemplateToProductionBomTx(ctx, tx, r.schema, cmd.Bom.ID, cmd.Version.VersionID, cmd.SpecTemplateID, cmd.MainInputMaterialID, cmd.Version.Actor); err != nil {
+		if err := copySpecTemplateToProductionBomWithComponentTx(ctx, tx, r.schema, cmd.Bom.ID, cmd.Version.VersionID, cmd.SpecTemplateID, cmd.MainInputComponent, cmd.Version.Actor); err != nil {
 			return bomapp.ProductionBomDetail{}, err
 		}
 	} else if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, cmd.Version); err != nil {
@@ -2389,6 +2417,16 @@ func (r Repository) CreateProductionBomReplacementDraft(ctx context.Context, cmd
 	}
 	workspace := cmd.Workspace
 	actor := strings.TrimSpace(workspace.Bom.Actor)
+	if workspace.SpecTemplateID > 0 {
+		normalized, normalizeErr := bomapp.NormalizeProductionBomMainInputComponent(workspace.MainInputComponent, workspace.MainInputMaterialID)
+		if normalizeErr != nil {
+			return bomapp.ProductionBomDetail{}, normalizeErr
+		}
+		workspace.MainInputComponent = normalized
+		workspace.MainInputMaterialID = normalized.MaterialID
+		workspace.Bom.MainInputComponent = normalized
+		workspace.Bom.MainInputMaterialID = normalized.MaterialID
+	}
 	if workspace.Bom.OutputType == "material" {
 		var selfMade bool
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -2429,22 +2467,22 @@ func (r Repository) CreateProductionBomReplacementDraft(ctx context.Context, cmd
 	}
 	var newVersionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_versions(bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,note,special_attrs_schema_json,special_attrs_json,process_route_id,source_spec_template_version_id,main_input_material_id,created_at,created_by)
-		VALUES($1,'V001','draft',1,$2,$3,$4,'替代来源 BOM',$5::jsonb,$6::jsonb,$7,$8,$9,now(),$10)
+		INSERT INTO %s.production_bom_versions(bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,note,special_attrs_schema_json,special_attrs_json,process_route_id,source_spec_template_version_id,main_input_material_id,main_input_component_type,main_input_product_id,main_input_bom_spec_id,created_at,created_by)
+		VALUES($1,'V001','draft',1,$2,$3,$4,'替代来源 BOM',$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12,now(),$13)
 		RETURNING id
-	`, r.schema), newBomID, workspace.Version.OutputQty, workspace.Version.OutputUnit, lossRate, attrsSchema, attrs, workspace.Version.ProcessRouteID, workspace.SpecTemplateID, workspace.MainInputMaterialID, actor).Scan(&newVersionID); err != nil {
+	`, r.schema), newBomID, workspace.Version.OutputQty, workspace.Version.OutputUnit, lossRate, attrsSchema, attrs, workspace.Version.ProcessRouteID, workspace.SpecTemplateID, workspace.MainInputMaterialID, workspace.MainInputComponent.ComponentType, workspace.MainInputComponent.ComponentProductID, workspace.MainInputComponent.ComponentBomSpecID, actor).Scan(&newVersionID); err != nil {
 		return bomapp.ProductionBomDetail{}, err
 	}
 	workspace.Bom.ID = newBomID
 	workspace.Version.VersionID = newVersionID
-	if strings.EqualFold(strings.TrimSpace(workspace.Bom.OutputType), "product") && workspace.Bom.SpecificationMode == bomapp.ProductionBomSpecificationModeSpecGroup && workspace.SpecTemplateID > 0 && workspace.MainInputMaterialID > 0 && len(workspace.Version.Variants) == 0 {
+	if strings.EqualFold(strings.TrimSpace(workspace.Bom.OutputType), "product") && workspace.Bom.SpecificationMode == bomapp.ProductionBomSpecificationModeSpecGroup && workspace.SpecTemplateID > 0 && (workspace.MainInputMaterialID > 0 || workspace.MainInputComponent.ComponentProductID > 0) && len(workspace.Version.Variants) == 0 {
 		metadataOnly := workspace.Version
 		metadataOnly.Items = nil
 		metadataOnly.Variants = nil
 		if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, metadataOnly); err != nil {
 			return bomapp.ProductionBomDetail{}, err
 		}
-		if err := copySpecTemplateToProductionBomTx(ctx, tx, r.schema, newBomID, newVersionID, workspace.SpecTemplateID, workspace.MainInputMaterialID, workspace.Version.Actor); err != nil {
+		if err := copySpecTemplateToProductionBomWithComponentTx(ctx, tx, r.schema, newBomID, newVersionID, workspace.SpecTemplateID, workspace.MainInputComponent, workspace.Version.Actor); err != nil {
 			return bomapp.ProductionBomDetail{}, err
 		}
 	} else if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, workspace.Version); err != nil {
@@ -3678,6 +3716,10 @@ func (r Repository) listProductionBomVersions(ctx context.Context, bomID int64) 
 		       COALESCE(route.name,''),
 		       COALESCE(to_char(v.created_at,'YYYY-MM-DD HH24:MI'),'-'),
 		       COALESCE(to_char(v.published_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(NULLIF(v.main_input_component_type,''),'material'),
+		       COALESCE(v.main_input_material_id,0),
+		       COALESCE(v.main_input_product_id,0),
+		       COALESCE(v.main_input_bom_spec_id,0),
 		       v.id=COALESCE((SELECT id FROM latest),0),
 		       v.status='published' AND v.id=COALESCE((SELECT id FROM latest),0)
 		FROM %s.production_bom_versions v
@@ -3692,7 +3734,7 @@ func (r Repository) listProductionBomVersions(ctx context.Context, bomID int64) 
 	out := make([]bomapp.ProductionBomVersion, 0)
 	for rows.Next() {
 		var row bomapp.ProductionBomVersion
-		if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.MaterialLossRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.ProcessRouteID, &row.ProcessRouteName, &row.CreatedAt, &row.PublishedAt, &row.IsLatest, &row.IsLatestUsable); err != nil {
+		if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.MaterialLossRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.ProcessRouteID, &row.ProcessRouteName, &row.CreatedAt, &row.PublishedAt, &row.MainInputComponent.ComponentType, &row.MainInputComponent.MaterialID, &row.MainInputComponent.ComponentProductID, &row.MainInputComponent.ComponentBomSpecID, &row.IsLatest, &row.IsLatestUsable); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -3984,7 +4026,7 @@ func (r Repository) productionBomVersionByID(ctx context.Context, id int64) (bom
 		return bomapp.ProductionBomVersion{}, pgx.ErrNoRows
 	}
 	var row bomapp.ProductionBomVersion
-	if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.MaterialLossRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.ProcessRouteID, &row.ProcessRouteName, &row.CreatedAt, &row.PublishedAt, &row.IsLatest, &row.IsLatestUsable); err != nil {
+	if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.MaterialLossRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.ProcessRouteID, &row.ProcessRouteName, &row.CreatedAt, &row.PublishedAt, &row.MainInputComponent.ComponentType, &row.MainInputComponent.MaterialID, &row.MainInputComponent.ComponentProductID, &row.MainInputComponent.ComponentBomSpecID, &row.IsLatest, &row.IsLatestUsable); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	return row, rows.Err()
