@@ -4955,5 +4955,5 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/prepayment-presets-guest-entry-20260907; baseline origin/develop 03292bdb.
 - Scope: 网页预付款输入始终可见；网页/小程序 30/50/70% 优惠后货款比例；访客首页公开服务指南与包装换算，主动登录；实际小程序截图。
 - DEV: DEV-633-PREPAYMENT-PRESETS; DEV-633-GUEST-ENTRY; DEV-633-DELIVERY.
-- Status: verified locally; Vue 1081/1081, miniapp 233/233, typecheck/build and Go all packages GREEN; RED helper/UI tests captured; current-page old asset index-BPySB24u vs development current index-Bh8a-kuB confirmed, original draft preserved.
+- Status: verified locally; Vue 1081/1081, miniapp 234/234, typecheck/build and Go all packages GREEN; RED helper/UI tests captured; current-page old asset index-BPySB24u vs development current index-Bh8a-kuB confirmed, original draft preserved.
 - Verifier: targeted RED/GREEN, Vue and miniapp full tests/typecheck/build; cold-start simulator screenshot and calculation; protected APIs remain unauthorized for guests; release and package fingerprints.

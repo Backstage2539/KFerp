@@ -18,6 +18,10 @@ describe('guest browsing before login and deposit presets',()=>{
  expect(index).not.toContain('getPhoneNumber')
  expect(index).not.toContain('fetchMe')
  })
+ it('clears the selected deposit rate after an order is saved',()=>{
+ const view=readFileSync(new URL('../pages/employee-order-entry/employee-order-entry.vue',import.meta.url),'utf8')
+ expect(view.slice(view.indexOf('function resetAfterSubmit()'),view.indexOf('function returnToOrderDetail()'))).toContain('prepaymentRate.value = 0')
+ })
  it('login page provides a way back to public browsing',()=>{
  const login=readFileSync(new URL('../pages/login/login.vue',import.meta.url),'utf8');expect(login).toContain('先浏览服务');expect(login).toContain('/pages/index/index')
  })
