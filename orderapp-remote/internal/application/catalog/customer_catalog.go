@@ -96,3 +96,31 @@ func (s *Service) MigrateCustomerCatalog(ctx context.Context, preview bool, acto
 	}
 	return r.MigrateCustomerCatalog(ctx, preview, actor)
 }
+
+func (s *Service) RemoveCustomerCatalogProducts(ctx context.Context, c CopyCustomerCatalogCommand) error {
+	r, ok := s.repo.(interface {
+		RemoveCustomerCatalogProducts(context.Context, CopyCustomerCatalogCommand) error
+	})
+	if !ok {
+		return ValidationError{Message: "customer catalog unavailable"}
+	}
+	return r.RemoveCustomerCatalogProducts(ctx, c)
+}
+
+type MoveCustomerCatalogProductsCommand struct {
+	CustomerID  int64   `json:"customer_id"`
+	ProductIDs  []int64 `json:"product_ids"`
+	GroupID     int64   `json:"group_id"`
+	GroupItemID int64   `json:"group_item_id"`
+	Actor       string  `json:"-"`
+}
+
+func (s *Service) MoveCustomerCatalogProducts(ctx context.Context, c MoveCustomerCatalogProductsCommand) error {
+	r, ok := s.repo.(interface {
+		MoveCustomerCatalogProducts(context.Context, MoveCustomerCatalogProductsCommand) error
+	})
+	if !ok {
+		return ValidationError{Message: "customer catalog unavailable"}
+	}
+	return r.MoveCustomerCatalogProducts(ctx, c)
+}

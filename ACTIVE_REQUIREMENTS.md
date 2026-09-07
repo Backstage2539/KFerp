@@ -4989,6 +4989,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 - PR-634 发布证据：回滚源 /opt/stacks/erp/orderapp.backup.deploy-20260907220912-179f77c6753b；应用/数据库正常、外部认证页面 200、受保护 API 未认证 401。最终验收文档随后单独提交，应用运行版本仍为 179f77c6。
 
+### PR-637-CATALOG-ORDER-FOLLOWUP
+- Branch: codex/customer-catalog-order-followup-20260907; baseline origin/develop 56ea7d3b.
+- Status: reproducing and RED tests.
+- Scope: 订单按单据日期排序；客户复制商品删除绑定；客户分类继承；录单客户表默认并允许选择公共表；订单详情报价表名称、归属、版本与发布日期。
+- DEV: DEV-637-ORDER-SORT; DEV-637-CATALOG; DEV-637-PRICE-CHOICE; DEV-637-PRICE-TRACE.
+- Verifier: targeted RED/GREEN; PostgreSQL/API; Go/Vue/miniapp tests and builds; development regression and evidence.
+- Delivery: development only. PR-635 is reserved by sales-order-payment-colors branch; this work reserves PR-636.
+
+- PR-637：已合并最新 develop 5adb6d11。Go 全量、Vue 1102 项、小程序 238 项及类型/构建全部通过；PostgreSQL 排序、引用删除/恢复/分类移动、报价冻结和公共版本选择通过。进入 development 集成部署与实际验证。
 ### PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS
 - Branch: `codex/sales-order-payment-colors-20260907`
 - Owner/session: Codex / 2026-09-07
@@ -5003,3 +5012,5 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: 已获授权部署 development；生产环境和微信正式版不变。
 - Last update: 2026-09-07
 - Notes: 原手工登记 PR-635；合并前发现并行需求已先占用 PR-635，顺延为 PR-636，保留两项需求及验证记录。
+
+- 本任务需求编号顺延 PR-637：并行付款颜色任务已先合入并占用 PR-636；本任务名称、分支和日志路径保留，避免覆盖其他需求。

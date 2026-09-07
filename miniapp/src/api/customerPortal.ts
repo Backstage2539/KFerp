@@ -1066,6 +1066,10 @@ export type EmployeeOrderTrace = {
   tier_label?: string
   tierLabel?: string
   price_list_publication_id?: number
+  price_list_name?: string
+  price_list_owner_name?: string
+  price_list_owner_type?: string
+  price_list_published_at?: string
   price_list_version?: string
   final_unit_price?: string | number
   price_unit?: string
