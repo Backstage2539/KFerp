@@ -641,6 +641,8 @@ export function employeeOrderCopyPayload(
     source_id: Number(detail.source_id || 0),
     order_type_id: Number(detail.order_type_id || 0),
     pay_status_id: 0,
+    prepayment_amount: 0,
+    payment_method: '',
     ship_status_id: 0,
     receiver_name: String(detail.receiver_name || ''),
     receiver_phone: String(detail.receiver_phone || ''),

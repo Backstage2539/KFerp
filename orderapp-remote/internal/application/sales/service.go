@@ -17,6 +17,7 @@ var (
 )
 
 type SaveOrderCommand struct {
+	PrepaymentAmount                  *float64
 	Actor                             string
 	DraftEmployeeID                   int64
 	EditID                            int64
@@ -500,6 +501,7 @@ type OrderEditItem struct {
 }
 
 type OrderEditData struct {
+	PrepaymentAmount      string
 	ID                    int64
 	EditRevision          string
 	OrderNo               string
@@ -564,6 +566,9 @@ type OrdersSummary struct {
 }
 
 type OrderRow struct {
+	PrepaymentAmount      string `json:"prepayment_amount"`
+	PaidAmount            string `json:"paid_amount"`
+	UnpaidAmount          string `json:"unpaid_amount"`
 	ID                    int64  `json:"id"`
 	OrderNo               string `json:"order_no"`
 	DocumentDate          string `json:"document_date"`

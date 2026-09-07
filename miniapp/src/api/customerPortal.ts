@@ -292,6 +292,9 @@ export type ProductSummary = {
 }
 
 export type CustomerOrderSummary = {
+  prepayment_amount?: string
+  paid_amount?: string
+  unpaid_amount?: string
   id: number
   order_no: string
   order_date: string
@@ -864,6 +867,8 @@ export type EmployeeOrderDraftItem = {
 }
 
 export type EmployeeOrderDraftPayload = {
+  prepayment_amount?: number
+  payment_method?: string
   edit_revision?: string
   order_date: string
   customer_id: number
@@ -992,6 +997,9 @@ export type EmployeeOrderProductFamily = {
 }
 
 export type EmployeeOrder = {
+  prepayment_amount?: string
+  paid_amount?: string
+  unpaid_amount?: string
   id: number
   order_no: string
   order_date: string

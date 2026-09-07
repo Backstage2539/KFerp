@@ -44,7 +44,7 @@ function openEntry(url: string) {
 
 async function loadContext() {
   if (!session.token) {
-    uni.reLaunch({ url: '/pages/login/login' })
+    uni.reLaunch({ url: '/pages/index/index' })
     return
   }
 
@@ -57,7 +57,7 @@ async function loadContext() {
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
     session.clearSession()
-    uni.reLaunch({ url: '/pages/login/login' })
+    uni.reLaunch({ url: '/pages/index/index' })
   } finally {
     loading.value = false
   }

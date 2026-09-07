@@ -23,6 +23,8 @@ const loginForm = ref({ login: '', password: '' })
 const themeClass = miniappThemeClass()
 const themeMeta = miniappThemeMeta()
 
+function browseServices() { uni.reLaunch({ url: '/pages/index/index' }) }
+
 function requestLoginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
     uni.login({
@@ -111,6 +113,10 @@ async function handlePasswordLogin() {
       <text class="subtitle">{{ themeMeta.subtitle }}</text>
     </view>
 
+    <view class="browse-option">
+      <button class="browse-button" @tap="browseServices">先浏览服务</button>
+      <text>登录仅用于查询您的订单、价格表与库存。</text>
+    </view>
     <view class="panel">
       <view class="mode-tabs">
         <button class="mode-tab" :class="{ active: loginMode === 'quick' }" @tap="loginMode = 'quick'">手机号快捷登录</button>
@@ -147,6 +153,7 @@ async function handlePasswordLogin() {
 </template>
 
 <style scoped>
+.browse-option{text-align:center;margin-bottom:32rpx;color:#777b70;font-size:24rpx}.browse-button{background:#e6ecdd;color:#395331;font-weight:700;font-size:30rpx;margin-bottom:16rpx}.browse-button::after{border:0}
 .page {
   min-height: 100vh;
   padding: 56rpx 32rpx;

@@ -586,6 +586,7 @@ func newSalesPostgresTestDB(t *testing.T) (*pgxpool.Pool, string) {
 func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	stmts := []string{
+ fmt.Sprintf(`CREATE TABLE %s.pay_statuses(id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.order_process_statuses (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, sort INTEGER NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT true)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.ship_statuses (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.customers (
@@ -620,6 +621,8 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 		fmt.Sprintf(`CREATE TABLE %s.orders (
 			id BIGSERIAL PRIMARY KEY,
 			order_no TEXT NOT NULL DEFAULT '',
+            pay_status_id BIGINT,
+            prepayment_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 			order_date DATE,
 			customer_id BIGINT,
 			total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,

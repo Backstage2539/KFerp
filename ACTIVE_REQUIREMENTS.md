@@ -4940,3 +4940,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-09-04 Asia/Shanghai
 - 追加验证：真实 Vue 组件 RED 5/5 失败 -> GREEN 5/5；相关前端 29/29；全量前端 1065/1065、Go 全包与 Vue 构建通过；本地无业务数据样例完成桌面/390px 展开/收缩/移动禁用检查。记录 `orderapp-remote/docs/acceptance/2026-09-04-group-list-expand-collapse.md`；本次授权 production 发布，微信上传不在范围。
 - Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 多行字符串上报错且未产生文件改动；最新 `origin/develop` 已占用 PR-622～625，因此按下一可用编号手工登记 PR-626。
+
+### PR-632-ORDER-PREPAYMENT
+- Branch: `codex/order-prepayment-20260907`
+- Status: verified, development integration pending
+- Scope: 小程序订单列表直接复制；录单预付款、未完成付款状态、已付与尾款金额、小程序绿色/红色展示及销售单 PDF/PNG。
+- DEV: DEV-632-PAYMENT; DEV-632-MINIAPP; DEV-632-DOCUMENT
+- Verifier: domain/API/PostgreSQL tests; Vue/miniapp tests and build; rendered PDF/PNG; development deployment.
+- Verification: Go all packages; Vue 1079/1079; miniapp 229/229, typecheck and development build; real PostgreSQL/API and rendered PDF/PNG GREEN.
+- Evidence: orderapp-remote/docs/acceptance/2026-09-07-order-prepayment.md
+- Deployment: development after gates; acceptance pending Van.
+
+### PR-633-PREPAYMENT-PRESETS-GUEST-ENTRY
+- Branch: codex/prepayment-presets-guest-entry-20260907; baseline origin/develop 03292bdb.
+- Scope: 网页预付款输入始终可见；网页/小程序 30/50/70% 优惠后货款比例；访客首页公开服务指南与包装换算，主动登录；实际小程序截图。
+- DEV: DEV-633-PREPAYMENT-PRESETS; DEV-633-GUEST-ENTRY; DEV-633-DELIVERY.
+- Status: verified locally; Vue 1081/1081, miniapp 234/234, typecheck/build and Go all packages GREEN; RED helper/UI tests captured; current-page old asset index-BPySB24u vs development current index-Bh8a-kuB confirmed, original draft preserved.
+- Verifier: targeted RED/GREEN, Vue and miniapp full tests/typecheck/build; cold-start simulator screenshot and calculation; protected APIs remain unauthorized for guests; release and package fingerprints.

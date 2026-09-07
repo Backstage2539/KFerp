@@ -189,6 +189,7 @@
               </td>
               <td>
                 <div class="status-stack">
+                  <OrderPaymentSummary :order="row" />
                   <span>收款：{{ row.pay_status || '-' }}{{ row.payment_method ? ' / ' + row.payment_method : '' }}</span>
                   <span>发货：{{ row.ship_status || '-' }}</span>
                   <span>生产：{{ row.process_status || '-' }}</span>
@@ -278,6 +279,7 @@
           <section class="drawer-section">
             <h4>订单状态</h4>
             <div class="drawer-status-grid">
+              <OrderPaymentSummary :order="activeOrderDetail" />
               <span>收款：{{ activeOrderDetail.pay_status || '-' }}{{ activeOrderDetail.payment_method ? ' / ' + activeOrderDetail.payment_method : '' }}</span>
               <span>发货：{{ activeOrderDetail.ship_status || '-' }}</span>
               <span>生产：{{ activeOrderDetail.process_status || '-' }}</span>
@@ -391,6 +393,7 @@
 </template>
 
 <script setup>
+import OrderPaymentSummary from '../components/OrderPaymentSummary.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'

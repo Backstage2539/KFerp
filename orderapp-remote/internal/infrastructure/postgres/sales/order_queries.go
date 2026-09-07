@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -127,6 +128,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(ot.name, '') AS order_type,
 			COALESCE(ps.name, '') AS pay_status,
 			COALESCE(o.payment_method, '') AS payment_method,
+			COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)::text AS prepayment_amount,
 			COALESCE(ss.name, '') AS ship_status,
 			%s AS ship_tracking_no,
 			COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, '') AS receiver_name,
@@ -187,9 +189,12 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
 			return nil, false, err
 		}
+		prepayment, _ := strconv.ParseFloat(r.PrepaymentAmount, 64)
+		grand, _ := strconv.ParseFloat(r.GrandTotal, 64)
+		r.PaidAmount, r.UnpaidAmount = salesdomain.OrderPaymentAmounts(r.PayStatus, prepayment, grand)
 		r.InvoiceFileURL = salesOrderAssetURL(invoiceObjectKey)
 		out = append(out, r)
 	}
@@ -269,12 +274,13 @@ func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, 
 		SELECT count(*)::int AS orders,
 		       count(distinct o.customer_id)::int AS customers,
 		       COALESCE(to_char(COALESCE(SUM(o.grand_total),0), 'FM999999999999990.00'), '0.00') AS total_amount,
-		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(o.pay_status_id,0)=2 THEN o.grand_total ELSE 0 END),0), 'FM999999999999990.00'), '0.00') AS paid_amount,
-		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(o.pay_status_id,0)=2 THEN 0 ELSE o.grand_total END),0), 'FM999999999999990.00'), '0.00') AS pending_settlement_amount
+		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(ps.name,'') ~ '(已付款|已收款|已支付)' THEN o.grand_total ELSE COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0) END),0), 'FM999999999999990.00'), '0.00') AS paid_amount,
+		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(ps.name,'') ~ '(已付款|已收款|已支付)' THEN 0 ELSE GREATEST(0,o.grand_total-COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)) END),0), 'FM999999999999990.00'), '0.00') AS pending_settlement_amount
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id = o.customer_id
+		LEFT JOIN %s.pay_statuses ps ON ps.id=o.pay_status_id
 		%s
-	`, schema, schema, wsql)
+	`, schema, schema, schema, wsql)
 
 	var s salesapp.OrdersSummary
 	if err := pool.QueryRow(ctx, sql, args...).Scan(&s.Orders, &s.Customers, &s.TotalAmount, &s.PaidAmount, &s.PendingSettlementAmount); err != nil {

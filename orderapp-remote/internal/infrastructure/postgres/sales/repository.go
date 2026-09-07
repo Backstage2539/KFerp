@@ -320,7 +320,7 @@ func resolveOrderFulfillmentMarkers(existingPortalServiceCode, existingSourceWar
 
 func orderPaidStatusRequiresPaymentMethod(statusName string) bool {
 	statusName = strings.TrimSpace(statusName)
-	return strings.Contains(statusName, "已付款") || strings.Contains(statusName, "已收款") || strings.Contains(statusName, "已支付")
+	return strings.Contains(statusName, "预付款") || strings.Contains(statusName, "已付款") || strings.Contains(statusName, "已收款") || strings.Contains(statusName, "已支付")
 }
 
 func normalizeOrderPaymentMethodForStatusTx(ctx context.Context, tx pgx.Tx, schema string, payStatusID int64, raw string) (string, error) {
@@ -1919,6 +1919,22 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if payStatusID == 0 {
 		payStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "已付款", "已收款")
 	}
+	prepayment := 0.0
+	if cmd.EditID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)::float8 FROM %s.orders o WHERE id=$1 FOR UPDATE`, r.schema), cmd.EditID).Scan(&prepayment); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
+	if cmd.PrepaymentAmount != nil {
+		prepayment = *cmd.PrepaymentAmount
+	}
+	paymentStatus, err := lookupStatusName(ctx, tx, r.schema, "pay_statuses", payStatusID)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+	if err := salesdomain.ValidatePrepayment(paymentStatus, prepayment, grandTotal); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 	paymentMethod, err := normalizeOrderPaymentMethodForStatusTx(ctx, tx, r.schema, payStatusID, cmd.PaymentMethod)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
@@ -2314,6 +2330,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	if cmd.DraftEmployeeID > 0 {
 		if _, err := deleteEmployeeOrderDraftTx(ctx, tx, r.schema, cmd.DraftEmployeeID, cmd.Actor, "order_submitted"); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
+	if cmd.PrepaymentAmount != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET prepayment_amount=$2 WHERE id=$1`, r.schema), orderID, prepayment); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
@@ -2747,6 +2768,8 @@ func loadOrderSaveAuditSummaryTx(ctx context.Context, tx pgx.Tx, schema string, 
 			'receiver_phone', COALESCE(o.receiver_phone,''),
 			'receiver_address', COALESCE(o.receiver_address,''),
 			'receiver_company', COALESCE(o.receiver_company,''),
+			'prepayment_amount', COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0),
+			'pay_status_id', to_jsonb(o)->'pay_status_id',
 			'shipping_amount', COALESCE(o.shipping_amount,0),
 			'order_discount_amount', GREATEST(
 				COALESCE(o.discount_amount,0) - COALESCE((
@@ -3057,6 +3080,9 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 	if err != nil {
 		return err
 	}
+	if err := validateStoredPrepaymentTx(ctx, tx, schema, orderID, payStatusID, nil); err != nil {
+		return err
+	}
 	var nextPaymentMethod *string
 	if paymentMethod != "" {
 		nextPaymentMethod = &paymentMethod
@@ -3101,6 +3127,9 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 	}
 	if !changed {
 		return nil
+	}
+	if err := invalidatePrepaymentDocumentsTx(ctx, tx, schema, orderID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
@@ -3235,6 +3264,9 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, schema, req.PayStatusID, req.ShipStatusID, req.LogisticsCompanyID, req.LogisticsProductID, paymentGoodsAmount, paymentShippingAmount, req.PaymentVoucherAssetID); err != nil {
 		return err
 	}
+	if err := validateStoredPrepaymentTx(ctx, tx, schema, id, req.PayStatusID, &grandTotal); err != nil {
+		return err
+	}
 	shipTrackingNo := salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(req.ShipTrackingNo))
 	q := fmt.Sprintf(`
 		UPDATE %s.orders
@@ -3306,6 +3338,9 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		return err
 	}
 	if _, err := replaceOrderTrackingNumbersTx(ctx, tx, schema, id, shipTrackingNo, "order_header", req.Actor); err != nil {
+		return err
+	}
+	if err := invalidatePrepaymentDocumentsTx(ctx, tx, schema, id); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

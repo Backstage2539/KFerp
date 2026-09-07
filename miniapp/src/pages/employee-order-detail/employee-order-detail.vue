@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaymentSummary from '../../components/PaymentSummary.vue'
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
@@ -311,6 +312,7 @@ onShow(() => void loadDetail())
       <view class="section">
         <text class="section-title">订单状态</text>
         <view class="status-grid">
+          <PaymentSummary :order="order" />
           <view><text>收款</text><text class="status-value">{{ order.pay_status || '-' }}{{ order.payment_method ? ` / ${order.payment_method}` : '' }}</text></view>
           <view><text>发货</text><text class="status-value">{{ order.ship_status || '-' }}</text></view>
           <view><text>生产</text><text class="status-value">{{ order.process_status || '-' }}</text></view>

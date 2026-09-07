@@ -74,46 +74,47 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
-	EditID                          int64  `json:"edit_id"`
-	DocumentDate                    string `json:"document_date"`
-	OrderDate                       string `json:"order_date"`
-	CustomerID                      int64  `json:"customer_id"`
-	SourceID                        int64  `json:"source_id"`
-	OrderTypeID                     int64  `json:"order_type_id"`
-	PayStatusID                     int64  `json:"pay_status_id"`
-	PaymentMethod                   string `json:"payment_method"`
-	ShipStatusID                    int64  `json:"ship_status_id"`
-	ShipMethod                      string `json:"ship_method"`
-	ShipTrackingNo                  string `json:"ship_tracking_no"`
-	LogisticsCompanyID              int64  `json:"logistics_company_id"`
-	LogisticsProductID              int64  `json:"logistics_product_id"`
-	PaymentGoodsAmount              string `json:"payment_goods_amount"`
-	PaymentShippingAmount           string `json:"payment_shipping_amount"`
-	PaymentVoucherAssetID           int64  `json:"payment_voucher_asset_id"`
-	ResponsibleType                 string `json:"responsible_type"`
-	ResponsibleID                   int64  `json:"responsible_id"`
-	Notes                           string `json:"notes"`
-	ShippingAmount                  string `json:"shipping_amount"`
-	DiscountAmount                  string `json:"discount_amount"`
-	RoundToInt                      string `json:"round_to_int"`
-	ExpressFee                      string `json:"express_fee"`
-	OutsourceMaterialFee            string `json:"outsource_material_fee"`
-	OutsourceRoastFee               string `json:"outsource_roast_fee"`
-	OutsourcePackagingFee           string `json:"outsource_packaging_fee"`
-	OutsourceManualFee              string `json:"outsource_manual_fee"`
-	OutsourceTaxFee                 string `json:"outsource_tax_fee"`
-	OutsourceOtherFee               string `json:"outsource_other_fee"`
-	StockBatchDecision              string `json:"stock_batch_decision"`
-	BeanListPublicationID           int64  `json:"bean_list_publication_id"`
-	CommercialBeanListPublicationID int64  `json:"commercial_bean_list_publication_id"`
-	GreenBeanListPublicationID      int64  `json:"green_bean_list_publication_id"`
-	DripBeanListPublicationID       int64  `json:"drip_bean_list_publication_id"`
-	ReceiverName                    string `json:"receiver_name"`
-	ReceiverPhone                   string `json:"receiver_phone"`
-	ReceiverAddress                 string `json:"receiver_address"`
-	ReceiverCompany                 string `json:"receiver_company"`
-	PortalServiceCode               string `json:"portal_service_code"`
-	OrdersScope                     string `json:"orders_scope"`
+	PrepaymentAmount                *string `json:"prepayment_amount" form:"prepayment_amount"`
+	EditID                          int64   `json:"edit_id"`
+	DocumentDate                    string  `json:"document_date"`
+	OrderDate                       string  `json:"order_date"`
+	CustomerID                      int64   `json:"customer_id"`
+	SourceID                        int64   `json:"source_id"`
+	OrderTypeID                     int64   `json:"order_type_id"`
+	PayStatusID                     int64   `json:"pay_status_id"`
+	PaymentMethod                   string  `json:"payment_method"`
+	ShipStatusID                    int64   `json:"ship_status_id"`
+	ShipMethod                      string  `json:"ship_method"`
+	ShipTrackingNo                  string  `json:"ship_tracking_no"`
+	LogisticsCompanyID              int64   `json:"logistics_company_id"`
+	LogisticsProductID              int64   `json:"logistics_product_id"`
+	PaymentGoodsAmount              string  `json:"payment_goods_amount"`
+	PaymentShippingAmount           string  `json:"payment_shipping_amount"`
+	PaymentVoucherAssetID           int64   `json:"payment_voucher_asset_id"`
+	ResponsibleType                 string  `json:"responsible_type"`
+	ResponsibleID                   int64   `json:"responsible_id"`
+	Notes                           string  `json:"notes"`
+	ShippingAmount                  string  `json:"shipping_amount"`
+	DiscountAmount                  string  `json:"discount_amount"`
+	RoundToInt                      string  `json:"round_to_int"`
+	ExpressFee                      string  `json:"express_fee"`
+	OutsourceMaterialFee            string  `json:"outsource_material_fee"`
+	OutsourceRoastFee               string  `json:"outsource_roast_fee"`
+	OutsourcePackagingFee           string  `json:"outsource_packaging_fee"`
+	OutsourceManualFee              string  `json:"outsource_manual_fee"`
+	OutsourceTaxFee                 string  `json:"outsource_tax_fee"`
+	OutsourceOtherFee               string  `json:"outsource_other_fee"`
+	StockBatchDecision              string  `json:"stock_batch_decision"`
+	BeanListPublicationID           int64   `json:"bean_list_publication_id"`
+	CommercialBeanListPublicationID int64   `json:"commercial_bean_list_publication_id"`
+	GreenBeanListPublicationID      int64   `json:"green_bean_list_publication_id"`
+	DripBeanListPublicationID       int64   `json:"drip_bean_list_publication_id"`
+	ReceiverName                    string  `json:"receiver_name"`
+	ReceiverPhone                   string  `json:"receiver_phone"`
+	ReceiverAddress                 string  `json:"receiver_address"`
+	ReceiverCompany                 string  `json:"receiver_company"`
+	PortalServiceCode               string  `json:"portal_service_code"`
+	OrdersScope                     string  `json:"orders_scope"`
 
 	ProductID                          []string `json:"product_id"`
 	ParentProductID                    []string `json:"parent_product_id"`
@@ -577,6 +578,7 @@ func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
+		PrepaymentAmount:                   r.PrepaymentAmount,
 		DocumentDate:                       r.DocumentDate,
 		OrderDate:                          r.OrderDate,
 		CustomerID:                         r.CustomerID,
@@ -1104,6 +1106,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"ship_tracking_no":                    ed.ShipTrackingNo,
 		"logistics_company_id":                ed.LogisticsCompanyID,
 		"logistics_product_id":                ed.LogisticsProductID,
+		"prepayment_amount":                   ed.PrepaymentAmount,
 		"payment_goods_amount":                ed.PaymentGoodsAmount,
 		"payment_shipping_amount":             ed.PaymentShippingAmount,
 		"payment_voucher_asset_id":            ed.PaymentVoucherAssetID,
