@@ -9,11 +9,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-635-NAMED-PRICE-TABLE-BATCHES
 - Branch: `codex/named-price-table-batches-20260907`
 - Owner/session: Codex / 2026-09-07
-- Status: implementation and local validation complete; integrating latest develop
+- Status: implementation and final gates complete on latest develop; integration/deploy ownership held by PR-635
 - Scope: 同商品类型同版本多张命名价格表、默认表、整组发布及 ERP/小程序按表下单。
 - DEV: DEV-635-BATCH; DEV-635-EDITOR; DEV-635-ORDER-SELECTION; DEV-635-DELIVERY
 - Verifier: targeted Go/API/PostgreSQL and Vue/miniapp RED/GREEN, full backend/frontend/miniapp checks, named PDF rendering and development delivery.
-- Deployment: development after gates; pending.
+- Deployment: development merge/deploy in progress; latest verified baseline 56ea7d3b.
 - Notes: reservation script hit existing macOS awk multiline error; PR-635 claimed here.
 
 ### PR-631-QUICK-PRICING-MARKUP-ADJUSTMENT

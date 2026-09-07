@@ -137,7 +137,10 @@ func (s *Service) saveBeanListBatch(ctx context.Context, cmd BeanListBatchComman
 				err = fmt.Errorf("请选择商品和规格，价格表不能为空")
 			}
 			if err == nil {
-				err = validateBeanListFinalPriceSnapshots(item)
+				err = validateBeanListBatchPrices(item)
+				if err == nil {
+					err = validateBeanListFinalPriceSnapshots(item)
+				}
 			}
 		}
 		if err != nil {
@@ -177,4 +180,39 @@ func beanListBatchHasContent(content map[string]any) bool {
 		}
 	}
 	return false
+}
+
+func validateBeanListBatchPrices(cmd PublishBeanListCommand) error {
+	if rows, ok := cmd.Content["price_rows"].([]any); ok && len(rows) > 0 {
+		for i, raw := range rows {
+			row, ok := raw.(map[string]any)
+			if !ok || numberValue(row["final_unit_price"]) <= 0 {
+				return fmt.Errorf("第%d个价格行缺少有效最终价，请重新生成预览", i+1)
+			}
+			if numberValue(row["product_id"]) <= 0 && numberValue(row["sku_id"]) <= 0 {
+				return fmt.Errorf("第%d个价格行缺少商品身份", i+1)
+			}
+		}
+		return nil
+	}
+	groups, _ := cmd.Content["groups"].([]any)
+	for _, rawGroup := range groups {
+		group, _ := rawGroup.(map[string]any)
+		items, _ := group["items"].([]any)
+		for i, raw := range items {
+			item, _ := raw.(map[string]any)
+			hasPrice := false
+			for _, key := range []string{"commercial_wholesale_tiers", "green_bean_sale_tiers", "retail_bean_tiers", "drip_wholesale_tiers"} {
+				tiers, _ := item[key].([]any)
+				for _, rawTier := range tiers {
+					tier, _ := rawTier.(map[string]any)
+					hasPrice = hasPrice || numberValue(tier["final_unit_price"]) > 0
+				}
+			}
+			if !hasPrice {
+				return fmt.Errorf("商品「%s」（第%d项）缺少发布报价，请重新生成预览", stringValue(item["name"]), i+1)
+			}
+		}
+	}
+	return nil
 }

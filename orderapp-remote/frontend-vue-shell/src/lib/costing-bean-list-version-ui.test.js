@@ -513,7 +513,7 @@ test('product price list uses product archive catalog templates and categories i
     'data-pr440-price-list-model',
     '商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表',
     '平铺价格行',
-    '分组项选品',
+    '同一商品类型可维护多张命名价格表',
     'buildProductCatalogTemplatePriceListTypeOptions',
     'businessGroupRowsForFeatureSelection',
     'groupRowsByBusinessGroupTemplate',

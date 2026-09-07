@@ -4950,7 +4950,7 @@ async function withdrawBeanList(row = currentBeanListPublication.value) {
   try {
     const params = beanListWithdrawScopeParams(row)
     await apiSend(`/api/costing/bean-list/publications/${row.id}/withdraw?${params.toString()}`)
-    message.value = `已撤回${beanListPublicationTypeLabel(row)}价格表 ${row.version}`
+    message.value = `已撤回${beanListPublicationTypeLabel(row)}整个版本 ${row.version}，组内所有价格表同步撤回`
     await loadBeanListPublications(listType, publicationScope.value, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
     await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID)
   } catch (err) {
@@ -4978,7 +4978,7 @@ async function archiveSelectedBeanListPublications() {
       body: { ids: rows.map((row) => Number(row.id || 0)).filter((id) => id > 0) },
     })
     setBeanListPublicationStatusInCache(rows.map((row) => Number(row.id || 0)), 'archived')
-    message.value = `已归档 ${rows.length} 个价格表版本，可在归档列表移出归档`
+    message.value = `已归档 ${publicationBatchGroups(rows).length} 个价格表版本，组内所有表同步归档，可在归档列表恢复`
     selectedPublicationArchiveIDs.value = []
     await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, first, productTypeCategoryID, first?.publication_purpose || 'factory_supply')
   } catch (err) {
@@ -5001,7 +5001,7 @@ async function restoreArchivedBeanListPublication(row) {
       body: { ids: [Number(row.id || 0)] },
     })
     setBeanListPublicationStatusInCache([Number(row.id || 0)], beanListPublicationArchivedFromStatus(row))
-    message.value = `已将价格表 ${row.version || row.id} 移出归档`
+    message.value = `已将整个价格表版本 ${row.version || row.id} 移出归档`
     await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, row, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
   } catch (err) {
     error.value = err.message || '移出归档失败'

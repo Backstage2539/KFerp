@@ -26,7 +26,7 @@ func (r *batchRepoFake) SaveBeanListBatch(_ context.Context, commands []PublishB
 func batchFixture(count int) BeanListBatchCommand {
 	cmd := BeanListBatchCommand{PublishBeanListCommand: PublishBeanListCommand{ListType: "commercial", Version: "V3.0.6", OwnerType: "official"}, DefaultTableKey: "table-1"}
 	for i := 1; i <= count; i++ {
-		cmd.Tables = append(cmd.Tables, BeanListBatchTable{Key: fmt.Sprintf("table-%d", i), Name: fmt.Sprintf("规格%d价格表", i), Config: map[string]any{}, Content: map[string]any{"groups": []any{map[string]any{"items": []any{map[string]any{"name": "测试商品"}}}}}})
+		cmd.Tables = append(cmd.Tables, BeanListBatchTable{Key: fmt.Sprintf("table-%d", i), Name: fmt.Sprintf("规格%d价格表", i), Config: map[string]any{}, Content: namedBatchValidContent()})
 	}
 	return cmd
 }
@@ -113,5 +113,30 @@ func TestNamedPublicationPDFCacheIdentityDoesNotCollideWithinVersion(t *testing.
 			t.Fatal("PDF cache collision")
 		}
 		keys[key] = true
+	}
+}
+
+func TestBeanListBatchRejectsRowsWithoutPrices(t *testing.T) {
+	r := &batchRepoFake{}
+	cmd := batchFixture(1)
+	cmd.Tables[0].Content = map[string]any{"groups": []any{map[string]any{"items": []any{map[string]any{"product_id": 10, "name": "无价商品"}}}}, "price_rows": []any{map[string]any{"product_id": 10}}}
+	if _, err := NewService(r).PublishBeanListBatch(context.Background(), cmd); err == nil || r.calls != 0 {
+		t.Fatalf("unpriced table published: calls=%d err=%v", r.calls, err)
+	}
+}
+
+func namedBatchValidContent() map[string]any {
+	return map[string]any{"price_rows": []any{map[string]any{
+		"product_id": 10, "final_unit_price": 30, "fixed_unit_price": 30, "price_unit": "袋", "inventory_unit": "袋", "inventory_conversion_json": map[string]any{"袋": map[string]any{"袋": 1}},
+		"group_snapshot": map[string]any{"name": "咖啡豆"}, "group_source": "product_catalog", "pricing_mode": "fixed_price", "pricing_mode_source": "product", "cost_source_snapshot": map[string]any{"source": "fixed_price"}, "customer_reference_snapshot": map[string]any{}, "manual_adjusted": false,
+	}}}
+}
+func TestBeanListBatchPublishesOneTwoAndManyTables(t *testing.T) {
+	for _, count := range []int{1, 2, 4} {
+		repo := &batchRepoFake{}
+		result, err := NewService(repo).PublishBeanListBatch(context.Background(), batchFixture(count))
+		if err != nil || len(result.Tables) != count || repo.calls != 1 {
+			t.Fatalf("count=%d result=%+v err=%v", count, result, err)
+		}
 	}
 }

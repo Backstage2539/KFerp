@@ -22,3 +22,13 @@ func TestCustomerNamedPriceTableCatalogIsolation(t *testing.T) {
 		t.Fatal("catalog was mutated")
 	}
 }
+
+func TestCustomerNamedPriceTableCatalogIncludesMinimumQuantityTier(t *testing.T) {
+	products := []app.ProductSummary{{ID: 10, BomSpecID: 227, BomVariantID: 1}}
+	tables := []salesapp.BeanListVersionOption{{ID: 21, TableName: "批量表", ListType: "commercial"}}
+	snapshots := map[int64][]byte{21: []byte(`{"price_rows":[{"product_id":10,"bom_spec_id":227,"bom_variant_id":1,"min_qty":10,"final_unit_price":30,"inventory_unit":"袋"}]}`)}
+	got := filterPortalSelectedPriceTableProducts(products, tables, snapshots)
+	if len(got) != 1 || got[0].DefaultPrice != "30.00" {
+		t.Fatalf("minimum quantity catalog entry missing: %+v", got)
+	}
+}

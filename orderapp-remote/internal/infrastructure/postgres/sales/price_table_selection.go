@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	salesapp "orderapp/internal/application/sales"
+	"orderapp/internal/infrastructure/postgres/orderbeans"
 )
 
 func (r Repository) loadNamedPriceTableOptions(ctx context.Context, options []salesapp.BeanListVersionOption) error {
@@ -162,4 +163,12 @@ func (r Repository) OrderPriceTableOptions(ctx context.Context) ([]salesapp.Bean
 
 func IsCurrentOrderPriceTableTx(ctx context.Context, tx pgx.Tx, schema string, customerID, publicationID int64, listType string) (bool, error) {
 	return isCurrentDefaultOrderPublicationTx(ctx, tx, schema, customerID, publicationID, listType)
+}
+
+func validateNamedOrderItemSnapshot(raw []byte, table salesapp.BeanListVersionOption, productID, bomSpecID, bomVariantID, specG, qty int64, salesUnit string, unitBagCount int64) error {
+	price, ok := orderbeans.PublishedSnapshotPricing(raw, productID, bomSpecID, bomVariantID, specG, qty, table.ListType, salesUnit, unitBagCount)
+	if !ok || price.UnitPrice <= 0 {
+		return fmt.Errorf("价格表「%s」未发布该商品规格或数量档位，请重新选择", table.TableName)
+	}
+	return nil
 }

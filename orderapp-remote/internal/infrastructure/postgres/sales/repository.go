@@ -1889,8 +1889,27 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if selectionErr != nil {
 			return salesapp.SaveOrderResult{}, selectionErr
 		}
+		contents := map[int64][]byte{}
 		for i := range items {
-			items[i].priceSourceJSON = withNamedPriceTableSnapshot(items[i].priceSourceJSON, tableMetadata[items[i].itemBeanListPublicationID])
+			it := &items[i]
+			table := tableMetadata[it.itemBeanListPublicationID]
+			if table.ReleaseID != "" {
+				raw, loaded := contents[table.ID]
+				if !loaded {
+					if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT content_json FROM %s.bean_list_publications WHERE id=$1", r.schema), table.ID).Scan(&raw); err != nil {
+						return salesapp.SaveOrderResult{}, err
+					}
+					contents[table.ID] = raw
+				}
+				productID := int64(0)
+				if it.productID != nil {
+					productID = *it.productID
+				}
+				if err := validateNamedOrderItemSnapshot(raw, table, productID, it.bomSpecID, it.bomVariantID, it.specG, it.units, it.salesUnit, it.unitBagCount); err != nil {
+					return salesapp.SaveOrderResult{}, fmt.Errorf("商品「%s」：%w", it.name, err)
+				}
+			}
+			it.priceSourceJSON = withNamedPriceTableSnapshot(it.priceSourceJSON, table)
 		}
 	}
 

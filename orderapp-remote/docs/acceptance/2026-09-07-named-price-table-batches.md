@@ -22,15 +22,22 @@
 - 选表服务最初缺少类型/方法；实现后默认解析、主动选非默认、同商品两表不同价、跨客户/非法 ID/重复类型/旧版本拒绝通过。
 - 客户商品目录测试最初缺少字段/过滤器；实现后 227g 与 1kg 同商品按所选表过滤，分别返回对应发布 ID 及单价。
 
+- 发布预校验：缺失最终价格的扁平行起初被接受；增加商品/正价格校验后，整组发布在事务前拒绝，定位表名。
+- 手动报价绕过检查：命名表之外的商品、规格或数量档位即使传入手动单价也拒绝；正常表内手动报价沿用现有规则。
+- 客户目录：起订量大于 1 的已发布规格起初未显示；目录按首个有效档位展示，提交仍按实际数量验证，RED/GREEN 通过。
+
 ## 验证证据
 
 - `scripts/verify_kferp.sh backend`：全部 Go 单元/API测试通过。
-- `scripts/verify_kferp.sh frontend`：Vue 测试及生产构建通过（构建保留已有大包提示）。
-- `npm --prefix miniapp test`、`run typecheck`、`run build:mp-weixin:development`：测试、类型与开发构建通过。
+- `scripts/verify_kferp.sh frontend`：Vue 1098 项测试及生产构建通过（构建保留已有大包提示）。
+- `npm --prefix miniapp test`、`run typecheck`、`run build:mp-weixin:development`：237 项测试、类型与开发构建通过。
 - 临时 PostgreSQL 16（本机 55435）运行 `TestNamedPriceTableBatchPostgres*`、`TestNamedPriceTableOrderPostgres*` 与 `TestIsCurrentDefaultOrderPublication*`：真实事务回滚、并发版本、整组生命周期、当前版本同组两张均有效、跨客户/旧版/非法 ID、混表与冻结表名通过。
 - `TestMiniEmployeeOrderFormSelectsNamedSiblingAndRejectsCrossTableIDs`：GET 默认 30、切另一表 90；仅默认表规格不返回；跨客户、同类型选两表均 400。
 - 本机 Chrome + Vite，使用虚构目录与拦截 API（未写业务数据）：新增/复制到三张，命名 227g/1kg/样品，设置第三张默认；两张分别设置不同品牌样式，切回及刷新后各自恢复；配置按钮唯一并位于发布左侧，无运行时异常。
 - `TestNamedPriceTablePDFSeparatesTitleVersionAndSpecifications` 渲染三张 PDF。人工查看 227g/1kg 首页：表名、共同 V3.0.6、具体规格及独立价格正确，无重叠/截断。`TestNamedPublicationPDFCacheIdentityDoesNotCollideWithinVersion` 验证三张缓存互不串用。
+
+- `TestNamedPriceTableOrderAPIUsesSelectedSnapshotAndBlocksBypass` 使用 PostgreSQL 及当前 BOM 规格身份，真实 POST `/api/order`：同商品两表分别保存 30/90 和冻结 ID/版本/名称；选表与行来源不一致、跨客户及手动价绕过表外规格均 400。
+- 全量 Go 默认门禁通过。额外启用真实数据库运行 3 项旧 ERP API 用例时，旧测试数据缺少当前 BOM 配置而返回 `product_bom_spec_not_configured`；在未修改的最新 `develop` (`56ea7d3b`) 独立复现相同失败，属于既有测试夹具问题。新增命名表真实 API 使用完整 BOM 测试数据并通过，不将旧用例标作通过。
 
 本机证据目录：`/private/tmp/kferp-pr635-evidence`。实际用户数据端到端验收由 Van 进行；本轮浏览器验证使用虚构数据。
 
