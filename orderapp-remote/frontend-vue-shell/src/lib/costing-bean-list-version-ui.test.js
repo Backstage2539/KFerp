@@ -82,7 +82,7 @@ test('product price list keeps product count scope and tier template action on o
 
   assert.match(pageHeaderSource, /class="price-list-top-toolbar"/)
   const productCountIndex = pageHeaderSource.indexOf('<span>商品数</span>')
-  const scopeIndex = pageHeaderSource.indexOf('aria-label="价格表归属"')
+  const scopeIndex = pageHeaderSource.indexOf('v-model="versionListScope"')
   const tierTemplateIndex = pageHeaderSource.indexOf('>管理阶梯模板</button>')
   assert.ok(productCountIndex > -1 && scopeIndex > productCountIndex && tierTemplateIndex > scopeIndex)
   assert.equal((viewSource.match(/>管理阶梯模板<\/button>/g) || []).length, 1)
@@ -428,10 +428,11 @@ test('product price-list version scope selector lists public and each fulfillmen
   const pageScopeSource = viewSource.slice(pageScopeStart, pageScopeEnd)
 
   assert.match(pageScopeSource, /v-model="versionListScope"/)
-  assert.match(pageScopeSource, /<option value="official">公共价格表<\/option>/)
-  assert.match(pageScopeSource, /v-for="customer in customers"/)
-  assert.match(pageScopeSource, /:value="`customer:\$\{customer\.id\}`"/)
-  assert.match(pageScopeSource, /customerOptionLabel\(customer\)/)
+  assert.match(pageScopeSource, /<SearchableSelect v-model="versionListScope"/)
+  assert.match(pageScopeSource, /:options="priceOwnershipOptions"/)
+  assert.match(viewSource, /value:'official',label:'公共价格表'/)
+  assert.match(viewSource, /value:`customer:\$\{customer.id\}`/)
+  assert.match(viewSource, /await fetchAllCustomerOptions\(\)/)
   assert.doesNotMatch(versionListSource, /v-model="versionListScope"/)
   assert.match(versionListSource, /v-model\.number="selectedProductTypeCategoryID"/)
   assert.match(versionListSource, /v-for="type in productPriceListTypeOptions"/)
@@ -1139,7 +1140,7 @@ test('product bean-list drawer derives publication owner from current page scope
   }
   assert.doesNotMatch(viewSource, /<strong>发布归属<\/strong>/)
   assert.doesNotMatch(viewSource, /<strong>客户<\/strong>/)
-  assert.doesNotMatch(viewSource, /<SearchableSelect[\s\S]*selectedBeanListCustomerID/)
+  assert.doesNotMatch(viewSource, /<SearchableSelect[^>]*v-model="selectedBeanListCustomerID"/)
 })
 
 test('product bean-list view maps green and commercial fields without dedicated drip inference', () => {

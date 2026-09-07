@@ -13,12 +13,7 @@
         </div>
         <label v-if="!isWorkspaceCustomerLocked" class="price-list-toolbar-scope">
           <span>价格表归属</span>
-          <select v-model="versionListScope" aria-label="价格表归属">
-            <option value="official">公共价格表</option>
-            <option v-for="customer in customers" :key="`version-scope-${customer.id}`" :value="`customer:${customer.id}`">
-              {{ customerOptionLabel(customer) }}
-            </option>
-          </select>
+          <SearchableSelect v-model="versionListScope" :options="priceOwnershipOptions" :option-label="priceOwnershipLabel" :option-value="priceOwnershipValue" placeholder="公共价格表或搜索客户名称" />
         </label>
         <div v-else class="price-list-toolbar-scope locked-scope">
           <span>价格表归属</span>
@@ -1102,6 +1097,8 @@ import { seedCustomerPriceRows, applyCustomerPriceRows } from '../lib/customer-p
 import { customerCatalogProjection } from '../lib/customer-catalog.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { clonePriceTable, createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, publicationBatchGroups, publicationBatchListState, publicationTableMetadata } from '../lib/price-table-batch'
+import SearchableSelect from '../components/SearchableSelect.vue'
+import { fetchAllCustomerOptions } from '../api/view-context'
 import { fetchCurrentActor } from '../api/auth'
 import { apiFetch, apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
@@ -1379,6 +1376,7 @@ const selectedProductCatalogGroupTemplates = computed(() => businessGroupRowsFor
 const productPriceListTypeOptions = computed(() => {
   if (!priceListProductCatalogFeatureSelectionLoaded.value) return []
   return buildProductCatalogTemplatePriceListTypeOptions(visibleCostingItems.value, {
+    includeUnclassified: activeBeanListCustomerID.value > 0,
     templates: selectedProductCatalogGroupTemplates.value,
     assignments: priceListProductBusinessGroupAssignments.value,
   })
@@ -1859,6 +1857,9 @@ function tierUnit(tier) {
   return '包'
 }
 
+const priceOwnershipOptions = computed(() => [{value:'official',label:'公共价格表'},...customers.value.map(customer=>({value:`customer:${customer.id}`,label:customerOptionLabel(customer)}))])
+function priceOwnershipLabel(row) { return row.label }
+function priceOwnershipValue(row) { return row.value }
 function customerOptionLabel(customer) {
   return customer?.name || ''
 }
@@ -3739,7 +3740,7 @@ function metaKeyForItem(item) {
 
 function matchesProductTypeCategory(item, productTypeCategoryID = activeProductTypeCategoryID.value) {
   const selectedType = productPriceListTypeOptions.value.find((type) => Number(type.id || 0) === Number(productTypeCategoryID || 0))
-  if (selectedType?.productCatalogGroupID || selectedType?.productCatalogFlat) {
+  if (selectedType?.productCatalogGroupID || selectedType?.productCatalogFlat || selectedType?.productCatalogUnclassified) {
     return matchesProductCatalogPriceListType(item, selectedType, {
       assignments: priceListProductBusinessGroupAssignments.value,
     })
@@ -4578,8 +4579,7 @@ function beanListURLForCustomerRules() {
 
 async function loadCustomers() {
   try {
-    const data = await apiGet('/api/customer-fulfillment/customers?limit=200')
-    const rows = Array.isArray(data.customers) ? data.customers : (data.rows || [])
+    const rows = await fetchAllCustomerOptions()
     customers.value = rows.filter((row) => row.active !== false)
     if (!isWorkspaceCustomerLocked.value) {
       versionListScope.value = resolvePriceListScopePreference(versionListScope.value, customers.value)

@@ -366,6 +366,10 @@ function orderFamiliesWithBomSpecOptions(productFamilies = [], bomSpecOptions = 
     if (scoped.length) matching = scoped
     if (!matching.length) return raw
     const defaultLegacySkuID = orderFamilyID(raw?.default_sku_id, raw?.defaultSkuID)
+    // Specifications are shared, but the family already carries the customer's
+    // published quotes. Public BOM options must not replace those quotes.
+    const customerTiers = orderFamilyID(raw?.customer_id, raw?.customerID) > 0
+      ? legacySpecs.flatMap(spec => Array.isArray(spec?.tiers) ? spec.tiers : []) : null
     const mappedSpecs = matching.map((row) => {
       const legacySkuID = orderFamilyID(row?.legacy_child_product_id, row?.legacyChildProductID)
       const legacy = legacySpecs.find((spec) => orderFamilyID(spec?.sku_id, spec?.skuID, spec?.product_id, spec?.id) === legacySkuID) || {}
@@ -384,7 +388,14 @@ function orderFamiliesWithBomSpecOptions(productFamilies = [], bomSpecOptions = 
         sales_unit: orderFamilyText(row?.inventory_unit ?? row?.inventoryUnit ?? legacy?.sales_unit),
         is_default_sku: row?.is_default === true || row?.isDefault === true || legacySkuID === defaultLegacySkuID,
         migration_state: 'cutover',
-        tiers: Array.isArray(row?.tiers) ? row.tiers : (legacy?.tiers || []),
+        tiers: customerTiers === null || Number(raw.customer_id || 0) === Number(row.owner_customer_id || 0)
+          ? (Array.isArray(row?.tiers) ? row.tiers : (legacy?.tiers || []))
+          : customerTiers.filter(tier => {
+            const effective = tier.effective_sales_spec || tierPriceSource(tier)?.effective_sales_spec || {}
+            const specID = orderFamilyID(tier.bom_spec_id, effective.bom_spec_id)
+            const variantID = orderFamilyID(tier.bom_variant_id, effective.bom_variant_id)
+            return specID === bomSpecID && (!variantID || !row.bom_variant_id || variantID === Number(row.bom_variant_id))
+          }),
       }
     })
     const defaultSpec = mappedSpecs.find((spec) => spec.is_default_sku) || mappedSpecs[0]

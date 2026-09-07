@@ -38,7 +38,7 @@ export function applyCustomerPriceRows(generated = [], seeds = [], overrides = {
       const edited=Number(overrides[rowKey])
       const amount=Number.isFinite(edited)&&edited>0?edited:Number(source.final_unit_price||0)
       out.push({ ...current,...clone(source),row_key:rowKey,
-        product_name:current.product_name,group_snapshot:current.group_snapshot,group_source:'product_catalog',
+        product_name:current.customer_reference_snapshot?.customer_display_name || current.product_name,group_snapshot:current.group_snapshot,group_source:'product_catalog',
         customer_reference_snapshot:current.customer_reference_snapshot,customer_product_alias_id:current.customer_product_alias_id,
         tier_template_id:0,pricing_rule_id:0,pricing_rule_version:'',tier_unit_compatible:sources.length?true:current.tier_unit_compatible,
         pricing_mode:'fixed_price',pricing_mode_source:'customer_quote',fixed_unit_price:amount,final_unit_price:amount,
