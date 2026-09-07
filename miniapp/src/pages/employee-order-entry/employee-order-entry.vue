@@ -734,6 +734,7 @@ function validateOrder(): boolean {
 }
 
 function resetAfterSubmit() {
+  prepaymentRate.value = 0
   form.value = createOrderForm()
   quantityInputs.value = {}
   shippingBaseline.value = emptyShippingSnapshot()
