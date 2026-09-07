@@ -1007,6 +1007,7 @@ async function handleOrderEditSaved(data = {}) {
   await load()
   const refreshed = rows.value.find((row) => Number(row.id) === orderID)
   if (refreshed) activeOrderDetail.value = { ...refreshed }
+  await loadOrderDetail(orderID)
 }
 
 function handleTrackingExcelFile(event) {
