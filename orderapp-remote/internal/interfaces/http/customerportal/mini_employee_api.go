@@ -17,6 +17,7 @@ import (
 	customerportalapp "orderapp/internal/application/customerportal"
 	salesapp "orderapp/internal/application/sales"
 	catalogdomain "orderapp/internal/domain/catalog"
+	salesdomain "orderapp/internal/domain/sales"
 
 	"github.com/labstack/echo/v4"
 )
@@ -1364,10 +1365,10 @@ func (h miniEmployeeOrderHandler) latestDocumentMetadata(ctx context.Context, or
 	switch kind {
 	case "sales-order.pdf":
 		file, err := h.sales.LoadSalesOrderDocumentFile(ctx, orderID, 0, true)
-		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && miniEmployeeDocumentFileExists(file.Path)
+		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && file.Document.Snapshot.RenderVersion == salesdomain.SalesOrderRenderVersion && miniEmployeeDocumentFileExists(file.Path)
 	case "sales-order.png":
 		file, err := h.sales.LoadSalesOrderImageFile(ctx, orderID, 0, true)
-		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && miniEmployeeDocumentFileExists(file.Path)
+		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && file.Document.Snapshot.RenderVersion == salesdomain.SalesOrderRenderVersion && miniEmployeeDocumentFileExists(file.Path)
 	case "delivery-note.pdf":
 		file, err := h.sales.LoadDeliveryNoteDocumentFile(ctx, orderID, 0, true)
 		return miniEmployeeDocumentMetadata{Filename: filepath.Base(strings.TrimSpace(file.Filename)), VersionNo: file.Document.VersionNo}, err == nil && miniEmployeeDocumentFileExists(file.Path)

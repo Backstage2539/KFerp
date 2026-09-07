@@ -252,19 +252,17 @@ func (r SalesOrderRenderer) renderCombinedSalesOrderGroups(pdf *gofpdf.Fpdf, sna
 		}
 		pdf.SetFont("noto", "B", 10)
 		pdf.CellFormat(usableW, 8, fmt.Sprintf("小计：商品 %s  优惠 %s  运费 %s  应收 %s", group.TotalAmount, group.Discount, group.Shipping, group.GrandTotal), "B", 1, "R", false, 0, "")
-		if salesOrderMoneyPositive(group.PrepaymentAmount) {
-			pdf.SetFillColor(220, 252, 231)
-			pdf.SetTextColor(22, 101, 52)
-			pdf.CellFormat(usableW, 8, "已支付预付款："+group.PrepaymentAmount, "", 1, "R", true, 0, "")
-			if salesOrderMoneyPositive(group.UnpaidAmount) {
+		for _, row := range salesOrderPaymentRows(salesdomain.SalesOrderSnapshot{PrepaymentAmount: group.PrepaymentAmount, PaidAmount: group.PaidAmount, UnpaidAmount: group.UnpaidAmount}) {
+			if row.Tone == "paid" {
+				pdf.SetFillColor(220, 252, 231)
+				pdf.SetTextColor(22, 101, 52)
+			} else {
 				pdf.SetFillColor(254, 226, 226)
 				pdf.SetTextColor(185, 28, 28)
-				pdf.CellFormat(usableW, 8, "未支付尾款："+group.UnpaidAmount, "", 1, "R", true, 0, "")
-			} else {
-				pdf.CellFormat(usableW, 8, "尾款已结清，累计已付："+group.PaidAmount, "", 1, "R", true, 0, "")
 			}
-			pdf.SetTextColor(0, 0, 0)
+			pdf.CellFormat(usableW, 8, row.Label+"："+row.Value, "", 1, "R", true, 0, "")
 		}
+		pdf.SetTextColor(0, 0, 0)
 		if note := combinedSalesOrderGroupNote(group); note != "" {
 			pdf.SetFont("noto", "", 9)
 			pdf.MultiCell(usableW, 5.5, note, "B", "L", false)
@@ -668,13 +666,24 @@ func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrd
 	}
 	cells = append(cells, "运费： "+snapshot.Shipping, "应收： "+snapshot.GrandTotal)
 	rows = append(rows, salesOrderFinancialRow{Bold: true, Cells: cells})
+	rows = append(rows, salesOrderPaymentRows(snapshot)...)
+	return rows
+}
+
+func salesOrderPaymentRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrderFinancialRow {
 	if salesOrderMoneyPositive(snapshot.PrepaymentAmount) {
-		rows = append(rows, salesOrderFinancialRow{Label: "已支付预付款", Value: snapshot.PrepaymentAmount, Tone: "paid", Bold: true})
+		rows := []salesOrderFinancialRow{{Label: "已支付预付款", Value: snapshot.PrepaymentAmount, Tone: "paid", Bold: true}}
 		if salesOrderMoneyPositive(snapshot.UnpaidAmount) {
-			rows = append(rows, salesOrderFinancialRow{Label: "未支付尾款", Value: snapshot.UnpaidAmount, Tone: "unpaid", Bold: true})
-		} else {
-			rows = append(rows, salesOrderFinancialRow{Label: "尾款已结清，累计已付", Value: snapshot.PaidAmount, Tone: "paid", Bold: true})
+			return append(rows, salesOrderFinancialRow{Label: "未支付尾款", Value: snapshot.UnpaidAmount, Tone: "unpaid", Bold: true})
 		}
+		return append(rows, salesOrderFinancialRow{Label: "尾款已结清，累计已付", Value: snapshot.PaidAmount, Tone: "paid", Bold: true})
+	}
+	rows := make([]salesOrderFinancialRow, 0, 2)
+	if salesOrderMoneyPositive(snapshot.PaidAmount) {
+		rows = append(rows, salesOrderFinancialRow{Label: "已付金额", Value: snapshot.PaidAmount, Tone: "paid", Bold: true})
+	}
+	if salesOrderMoneyPositive(snapshot.UnpaidAmount) {
+		rows = append(rows, salesOrderFinancialRow{Label: "未付金额", Value: snapshot.UnpaidAmount, Tone: "unpaid", Bold: true})
 	}
 	return rows
 }

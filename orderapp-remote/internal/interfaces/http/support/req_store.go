@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS", title: "销售单已付绿色与未付红色金额统一", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md"},
+		{table: "req_dev", code: "DEV-636-DOCUMENT-PAYMENT-COLORS", title: "销售单全额已付、完全未付和部分预付款金额颜色", status: "done", assignee: "Codex", evidence: "prepayment_test.go; sales_order_pdf.go; sales_order_png.go"},
+		{table: "req_dev", code: "DEV-636-DUAL-EXPORT-CONTRACT", title: "网页与小程序 PDF/PNG 共用生成器及渲染版本失效", status: "done", assignee: "Codex", evidence: "mini_employee_api_test.go; sales_order_repository.go"},
+		{table: "req_dev", code: "DEV-636-VERIFICATION", title: "需求、手册、API 和实际销售单文件验证及开发交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md"},
 		{table: "req_product", code: "PR-635-NAMED-PRICE-TABLE-BATCHES", title: "同版本多张命名价格表与按表下单", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-named-price-table-batches.md"},
 		{table: "req_dev", code: "DEV-635-BATCH", title: "多表原子发布、共同版本与独立PDF", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-named-price-table-batches.md"},
 		{table: "req_dev", code: "DEV-635-EDITOR", title: "多表配置、草稿隔离和默认表", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-named-price-table-batches.md"},

@@ -923,3 +923,9 @@
 - DEV-635-EDITOR: 多表配置、隔离草稿、默认表和版本分组。
 - DEV-635-ORDER-SELECTION: ERP/小程序选表与服务端目录/价格隔离。
 - DEV-635-DELIVERY: 单元/API/PostgreSQL、构建、手册与development交付。
+
+# PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS 销售单付款金额颜色统一（2026-09-07）
+
+- `DEV-636-DOCUMENT-PAYMENT-COLORS`：网页 ERP 与员工小程序导出的销售单 PDF/PNG 使用同一付款金额规则；全额已付显示绿色“已付金额”，完全未付显示红色“未付金额”，部分预付款继续显示绿色“已支付预付款”和红色“未支付尾款”。
+- `DEV-636-DUAL-EXPORT-CONTRACT`：网页与小程序继续共用服务端销售单生成器和付款快照；PDF、PNG、普通销售单和组合销售单保持一致。新渲染版本使小程序不再复用旧版式资产，历史文件仍保留且不批量改写。
+- `DEV-636-VERIFICATION`：完成付款行 RED/GREEN、网页与小程序导出 API 路由、真实 PDF/PNG 渲染、操作手册和需求验收证据；部署到 development，生产环境不变。

@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
+const SalesOrderRenderVersion = "sales-order-payment-amount-colors-v2"
+
 type SalesOrderSnapshot struct {
+	RenderVersion    string `json:"render_version,omitempty"`
 	PrepaymentAmount string `json:"prepayment_amount,omitempty"`
 	PaidAmount       string `json:"paid_amount,omitempty"`
 	UnpaidAmount     string `json:"unpaid_amount,omitempty"`

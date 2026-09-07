@@ -870,12 +870,27 @@ func TestSalesOrderDocumentAPI(t *testing.T) {
 	if latestImage.Bounds().Dx() < 2480 || latestImage.Bounds().Dy() < 3508 {
 		t.Fatalf("latest sales order image bounds = %v, want high-resolution PNG", latestImage.Bounds())
 	}
+	if !salesOrderAPIImageContainsColor(latestImage, color.RGBA{R: 254, G: 226, B: 226, A: 255}) {
+		t.Fatal("latest unpaid sales order image is missing the red unpaid amount block")
+	}
 	imageHistoryReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/orders/1/sales-order-images/%d.png", createdImage.ID), nil)
 	imageHistoryRec := httptest.NewRecorder()
 	e.ServeHTTP(imageHistoryRec, imageHistoryReq)
 	if imageHistoryRec.Code != http.StatusOK || imageHistoryRec.Header().Get(echo.HeaderContentType) != "image/png" {
 		t.Fatalf("history image download status=%d content-type=%q body=%s", imageHistoryRec.Code, imageHistoryRec.Header().Get(echo.HeaderContentType), imageHistoryRec.Body.String())
 	}
+}
+
+func salesOrderAPIImageContainsColor(img image.Image, want color.RGBA) bool {
+	bounds := img.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			if color.RGBAModel.Convert(img.At(x, y)).(color.RGBA) == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestExternalShareResourceAPIUsesOneFlowForSalesOrderAndDeliveryNote(t *testing.T) {
@@ -972,6 +987,9 @@ func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 		`"next_version_no":1`,
 		`"order_no":"SO-20260430-0008"`,
 		`"customer_name":"测试客户"`,
+		`"render_version":"sales-order-payment-amount-colors-v2"`,
+		`"paid_amount":"0.00"`,
+		`"unpaid_amount":"134.00"`,
 		`"items":[`,
 	} {
 		if !strings.Contains(previewRec.Body.String(), want) {
@@ -1002,7 +1020,9 @@ func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 	generateReq := httptest.NewRequest(http.MethodPost, "/api/orders/1/sales-orders", nil)
 	generateRec := httptest.NewRecorder()
 	e.ServeHTTP(generateRec, generateReq)
-	if generateRec.Code != http.StatusOK || !strings.Contains(generateRec.Body.String(), `"version_no":1`) {
+	if generateRec.Code != http.StatusOK || !strings.Contains(generateRec.Body.String(), `"version_no":1`) ||
+		!strings.Contains(generateRec.Body.String(), `"render_version":"sales-order-payment-amount-colors-v2"`) ||
+		!strings.Contains(generateRec.Body.String(), `"unpaid_amount":"134.00"`) {
 		t.Fatalf("generate after preview status=%d body=%s", generateRec.Code, generateRec.Body.String())
 	}
 }
