@@ -685,7 +685,7 @@ test('OrderEntryView manual explains parent products and published price-list sp
   assert.match(manual, /商品按父商品展示/)
   assert.match(manual, /规格列和规格搜索只使用当前已选已发布价格表中有价的规格/)
   assert.match(manual, /价格表没有的商品档案规格不会出现在新订单候选中/)
-  assert.match(manual, /切换价格表版本/)
+  assert.match(manual, /切换同版本内其他表/)
   assert.doesNotMatch(manual, /常用规格：36g/)
 })
 
@@ -1487,7 +1487,7 @@ test('OrderEntryView shows explicit missing published price and blocks save with
   assert.match(source, /missingPublishedPriceRowIndex/)
   assert.match(source, /repriceHydratedRows/)
   assert.match(source, /const draftRestored = restoreOrderEntryDraft\(\)/)
-  assert.match(source, /if \(draftRestored\) \{\s*syncBeanListVersionForCustomer\(\{ force: true \}\)\s*syncRowsForType\(\{ priceListChanged: true \}\)\s*\} else \{\s*repriceHydratedRows\(\)\s*\}/)
+  assert.match(source, /if \(draftRestored\) \{\s*syncBeanListVersionForCustomer\(\)\s*syncRowsForType\(\{ priceListChanged: true \}\)\s*\} else \{\s*repriceHydratedRows\(\)\s*\}/)
   assert.match(source, /function selectTier[\s\S]*?isDripRow[\s\S]*?syncPrice\(row, \{ force: true \}\)/)
   assert.match(source, /const publishedPrice = resolveWholesaleTierPrice\(product, row\)/)
   assert.match(source, /publishedPrice\.quantityBasis === 'sales_spec_count'[\s\S]*?applyResolvedWholesalePrice\(row, publishedPrice\)/)
@@ -1495,7 +1495,7 @@ test('OrderEntryView shows explicit missing published price and blocks save with
   assert.match(source, /manual_price: item\.price_override === true \|\| item\.tier_id === 'manual'/)
   assert.match(source, /if \(retailOrder\.value\) return listType === 'retail' \|\| listType === 'drip'/)
   assert.match(source, /currentOrderBeanListTypeForProductKind/)
-  assert.match(source, /报价来源：价格表/)
+  assert.match(source, /报价来源：\{\{ orderLinePriceTableLabel\(row\) \}\}/)
   assert.doesNotMatch(source, /豆单版本：\{\{\s*row\.bean_list_version_no\s*\|\|\s*'未记录'\s*\}\}/)
 })
 

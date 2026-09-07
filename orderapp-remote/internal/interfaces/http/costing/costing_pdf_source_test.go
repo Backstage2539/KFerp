@@ -297,3 +297,31 @@ func TestCostingViewHasInlineBeanListConfiguration(t *testing.T) {
 		t.Fatalf("old collapsible preview sections should not return; use the inline price-list configuration")
 	}
 }
+
+func TestNamedPriceTablePDFSeparatesTitleVersionAndSpecifications(t *testing.T) {
+	for i, spec := range []string{"227g", "1kg", "样品"} {
+		name := spec + "价格表"
+		row := appcosting.BeanListPublication{ID: int64(700 + i), ListType: "commercial", Version: "V3.0.6", Config: map[string]any{"layoutStyle": "card", "publication_batch": map[string]any{"table_name": name}}, Content: map[string]any{
+			"title": name + " · V3.0.6", "groups": []any{map[string]any{"category": "咖啡豆", "items": []any{map[string]any{"name": "测试咖啡豆", "attributeLines": []any{"规格：" + spec}, "prices": []any{map[string]any{"label": "1件起", "price": 30 + i*20, "unit": "袋"}}}}}},
+		}}
+		doc := beanListPublicationPDFDocument(row)
+		if !strings.Contains(doc.Title, name) || !strings.Contains(doc.Title, "V3.0.6") || doc.VersionNo != "V3.0.6" || doc.Groups[0].Items[0].AttributeLines[0] != "规格："+spec {
+			t.Fatalf("document=%+v", doc)
+		}
+		if dir := os.Getenv("KF_PRICE_TABLE_PDF_ARTIFACT_DIR"); dir != "" {
+			body, err := renderBeanListPublicationPDF(row)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(body) < 100 || string(body[:4]) != "%PDF" {
+				t.Fatal("invalid PDF")
+			}
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, name+"-V3.0.6.pdf"), body, 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -245,6 +246,7 @@ func ResolveUsageForPublication(ctx context.Context, q rowQuerier, schema string
 		  )
 		ORDER BY CASE WHEN $2 <> '' AND blp.owner_type='customer' AND blp.owner_key=$2 THEN 0 ELSE 1 END,
 		         blp.published_at DESC,
+ COALESCE((blp.config_json->'publication_batch'->>'is_default_table')::boolean,true) DESC,
 		         blp.id DESC
 		LIMIT 1
 	`, schema)
@@ -651,6 +653,10 @@ type publishedPriceTier struct {
 }
 
 func publishedPricingFromContentForBOMSpec(raw []byte, productID, bomSpecID, bomVariantID, qty int64, listType string) (PublishedPricing, bool) {
+	return publishedBOMSpecPricingWithMatcher(raw, productID, bomSpecID, bomVariantID, qty, listType, matchPublishedPriceTier)
+}
+
+func publishedBOMSpecPricingWithMatcher(raw []byte, productID, bomSpecID, bomVariantID, qty int64, listType string, matchTier func([]publishedPriceTier, int64, int64) (publishedPriceTier, bool)) (PublishedPricing, bool) {
 	if productID <= 0 || bomSpecID <= 0 || bomVariantID <= 0 || qty <= 0 || len(raw) == 0 {
 		return PublishedPricing{}, false
 	}
@@ -674,7 +680,7 @@ func publishedPricingFromContentForBOMSpec(raw []byte, productID, bomSpecID, bom
 			flat = append(flat, tier)
 		}
 	}
-	if tier, ok := matchPublishedPriceTier(flat, 0, qty); ok {
+	if tier, ok := matchTier(flat, 0, qty); ok {
 		pricing := publishedTierPricing(tier, 0)
 		return pricing, pricing.UnitPrice > 0
 	}
@@ -707,7 +713,7 @@ func publishedPricingFromContentForBOMSpec(raw []byte, productID, bomSpecID, bom
 					matching = append(matching, tier)
 				}
 			}
-			if tier, ok := matchPublishedPriceTier(matching, 0, qty); ok {
+			if tier, ok := matchTier(matching, 0, qty); ok {
 				pricing := publishedTierPricing(tier, 0)
 				return pricing, pricing.UnitPrice > 0
 			}
@@ -1162,4 +1168,39 @@ func isMissingBeanListSchema(err error) bool {
 		return false
 	}
 	return pgErr.Code == "42P01" || pgErr.Code == "42703"
+}
+
+// PublishedCatalogPricing reads a frozen publication without loading mutable prices.
+func PublishedCatalogPricing(raw []byte, productID, bomSpecID, bomVariantID int64, listType string) (PublishedPricing, bool) {
+	if bomSpecID > 0 {
+		return publishedBOMSpecPricingWithMatcher(raw, productID, bomSpecID, bomVariantID, 1, listType, matchPublishedCatalogTier)
+	}
+	return publishedPricingFromContentForListType(raw, productID, listType, 0, 1, "", 0)
+}
+
+// PublishedSnapshotPricing checks membership and price in an already loaded
+// immutable table, including the requested specification and quantity.
+func PublishedSnapshotPricing(raw []byte, productID, bomSpecID, bomVariantID, specG, qty int64, listType, salesUnit string, unitBagCount int64) (PublishedPricing, bool) {
+	if bomSpecID > 0 {
+		return publishedPricingFromContentForBOMSpec(raw, productID, bomSpecID, bomVariantID, qty, listType)
+	}
+	return publishedPricingFromContentForListType(raw, productID, listType, specG, qty, salesUnit, unitBagCount)
+}
+
+// Catalog availability does not imply that a quantity of one is orderable.
+// Show the first valid quantity tier; submission still checks the actual quantity.
+func matchPublishedCatalogTier(tiers []publishedPriceTier, specG, _ int64) (publishedPriceTier, bool) {
+	quantities := []int64{1}
+	for _, tier := range tiers {
+		if tier.MinQty > 1 {
+			quantities = append(quantities, int64(math.Ceil(tier.MinQty)))
+		}
+	}
+	sort.Slice(quantities, func(i, j int) bool { return quantities[i] < quantities[j] })
+	for _, qty := range quantities {
+		if tier, ok := matchPublishedPriceTier(tiers, specG, qty); ok && publishedTierPricing(tier, specG).UnitPrice > 0 {
+			return tier, true
+		}
+	}
+	return publishedPriceTier{}, false
 }

@@ -467,6 +467,10 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		return nil, err
 	}
 	rows.Close()
+	if err := r.loadNamedPriceTableOptions(ctx, out); err != nil {
+		return nil, err
+	}
+	out = salesapp.ApplyNamedPriceTableDefaults(out)
 	currentTypeIDs, err := r.fetchCurrentProductCatalogPublicationTypeIDs(ctx)
 	if err != nil {
 		return nil, err

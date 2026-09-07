@@ -74,6 +74,7 @@ export function employeeOrderItemSpecLabel(item: Partial<EmployeeOrderDetailItem
 }
 
 type PriceSourceSnapshot = {
+  price_table_name?: string
   source?: string
   source_label?: string
   template_name?: string
@@ -107,7 +108,7 @@ export function employeeOrderItemPriceTableVersion(item: Partial<EmployeeOrderDe
 
 export function employeeOrderItemPriceSourceLabel(item: Partial<EmployeeOrderDetailItem> = {}): string {
   const snapshot = itemPriceSourceSnapshot(item)
-  const source = String(snapshot.source || snapshot.source_label || snapshot.template_name || '').trim()
+  const source = String(snapshot.price_table_name || snapshot.source || snapshot.source_label || snapshot.template_name || '').trim()
   const version = employeeOrderItemPriceTableVersion(item)
   if (source && version) return `${source} · ${version}`
   if (version) return version
