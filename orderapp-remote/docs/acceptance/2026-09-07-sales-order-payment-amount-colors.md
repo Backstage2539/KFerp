@@ -1,6 +1,6 @@
 # PR-635 销售单付款金额颜色统一
 
-日期：2026-09-07；基线：`origin/develop@179f77c6`；分支：`codex/sales-order-payment-colors-20260907`。
+日期：2026-09-07；最终同步基线：`origin/develop@56ea7d3b`；分支：`codex/sales-order-payment-colors-20260907`。
 
 ## 验收口径
 
