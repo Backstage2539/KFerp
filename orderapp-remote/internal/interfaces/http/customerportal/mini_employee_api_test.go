@@ -20,6 +20,29 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+func TestMiniEmployeeAllowResponsibleFallbackUsesLoggedInEmployee(t *testing.T) {
+	cmd := salesapp.SaveOrderCommand{}
+	miniEmployeeAllowResponsibleFallback(&cmd, customerportalapp.CurrentContext{EmployeeID: 2, EmployeeName: "刘祎泊"})
+	if !cmd.AllowResponsibleEmployeeFallback || cmd.FallbackResponsibleEmployeeID != 2 || cmd.FallbackResponsibleEmployeeName != "刘祎泊" {
+		t.Fatalf("fallback=%+v", cmd)
+	}
+}
+
+func TestMiniEmployeeAllowResponsibleFallbackRequiresEmployeeIdentity(t *testing.T) {
+	cmd := salesapp.SaveOrderCommand{}
+	miniEmployeeAllowResponsibleFallback(&cmd, customerportalapp.CurrentContext{EmployeeID: 2})
+	if cmd.AllowResponsibleEmployeeFallback || cmd.FallbackResponsibleEmployeeID != 0 || cmd.FallbackResponsibleEmployeeName != "" {
+		t.Fatalf("fallback should remain disabled: %+v", cmd)
+	}
+}
+
+func TestMiniOrderKnownBusinessErrorTextExplainsMissingCustomerResponsibleEmployee(t *testing.T) {
+	message, ok := miniOrderKnownBusinessErrorText(errors.New("customer responsible employee required"))
+	if !ok || message != "客户尚未配置有效负责人，请先维护客户负责人" {
+		t.Fatalf("message=%q ok=%v", message, ok)
+	}
+}
+
 func TestMiniEmployeeCurrentCatalogProductRejectsMissingAliasWhenProductHasMultipleCustomerAliases(t *testing.T) {
 	products := []salesapp.ProductOption{
 		{ID: 551, CustomerProductAliasID: 201, Name: "客户别名一"},

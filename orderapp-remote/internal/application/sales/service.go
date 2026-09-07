@@ -24,6 +24,9 @@ type SaveOrderCommand struct {
 	RequirePreProductionEdit          bool
 	RequireCurrentDefaultPublications bool
 	PreserveResponsibleSnapshot       bool
+	AllowResponsibleEmployeeFallback  bool
+	FallbackResponsibleEmployeeID     int64
+	FallbackResponsibleEmployeeName   string
 	PreserveFulfillmentSnapshot       bool
 	DocumentDate                      time.Time
 	OrderDate                         time.Time
