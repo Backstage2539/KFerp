@@ -556,6 +556,7 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
 		}
 		cmd.DraftEmployeeID = employee.EmployeeID
+		miniEmployeeAllowResponsibleFallback(&cmd, employee)
 		cmd.RequireCurrentDefaultPublications = true
 		result, err := sales.SaveOrder(c.Request().Context(), cmd)
 		if err != nil {
@@ -623,6 +624,15 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 		ReceiverAddress: strings.TrimSpace(req.ReceiverAddress), ReceiverCompany: strings.TrimSpace(req.ReceiverCompany),
 		Notes: strings.TrimSpace(req.Notes), Items: items,
 	}, nil
+}
+
+func miniEmployeeAllowResponsibleFallback(cmd *salesapp.SaveOrderCommand, employee customerportalapp.CurrentContext) {
+	if cmd == nil || employee.EmployeeID <= 0 || strings.TrimSpace(employee.EmployeeName) == "" {
+		return
+	}
+	cmd.AllowResponsibleEmployeeFallback = true
+	cmd.FallbackResponsibleEmployeeID = employee.EmployeeID
+	cmd.FallbackResponsibleEmployeeName = strings.TrimSpace(employee.EmployeeName)
 }
 
 func miniEmployeeOrderCustomer(form salesapp.OrderFormData, customerID int64) (salesapp.CustomerOption, bool) {
@@ -1049,6 +1059,7 @@ func (h miniEmployeeOrderHandler) update(c echo.Context) error {
 		return miniInternalError(c)
 	}
 	cmd.RequirePreProductionEdit = true
+	miniEmployeeAllowResponsibleFallback(&cmd, access.employee)
 	cmd.RequireCurrentDefaultPublications = true
 	cmd.ExpectedEditRevision = strings.TrimSpace(req.EditRevision)
 	result, err := h.sales.SaveOrder(c.Request().Context(), cmd)
@@ -1896,6 +1907,8 @@ func miniOrderKnownBusinessErrorText(err error) (string, bool) {
 	switch strings.TrimSpace(err.Error()) {
 	case "customer required":
 		return "请选择客户", true
+	case "customer responsible employee required", "customer responsible employee not found":
+		return "客户尚未配置有效负责人，请先维护客户负责人", true
 	case "at least one item required":
 		return "请至少添加一个商品", true
 	case "product required":

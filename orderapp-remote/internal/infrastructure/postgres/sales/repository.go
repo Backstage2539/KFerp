@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -453,6 +454,21 @@ func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema string,
 		return "", 0, "", fmt.Errorf("customer responsible employee not found")
 	}
 	return "employee", responsibleID, responsibleName, nil
+}
+
+func orderResponsiblePartyFallback(cmd salesapp.SaveOrderCommand, err error) (string, int64, string, bool) {
+	if err == nil || !cmd.AllowResponsibleEmployeeFallback || cmd.FallbackResponsibleEmployeeID <= 0 {
+		return "", 0, "", false
+	}
+	message := strings.TrimSpace(err.Error())
+	if message != "customer responsible employee required" && message != "customer responsible employee not found" {
+		return "", 0, "", false
+	}
+	name := strings.TrimSpace(cmd.FallbackResponsibleEmployeeName)
+	if name == "" {
+		return "", 0, "", false
+	}
+	return "employee", cmd.FallbackResponsibleEmployeeID, name, true
 }
 
 func wholesaleDisplayUnitG(specG int64) float64 {
@@ -1932,6 +1948,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if !cmd.PreserveResponsibleSnapshot {
 		responsibleType, responsibleID, responsibleName, err = resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.CustomerID)
 		if err != nil {
+			if fallbackType, fallbackID, fallbackName, ok := orderResponsiblePartyFallback(cmd, err); ok {
+				responsibleType, responsibleID, responsibleName, err = fallbackType, fallbackID, fallbackName, nil
+			}
+		}
+		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
@@ -2303,6 +2324,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	if err := r.logOrderSaveTx(ctx, tx, cmd.Actor, orderID, orderNo, editID > 0, beforeAuditSummary, afterAuditSummary, beanListPublicationID, beanListVersionNo); err != nil {
 		return salesapp.SaveOrderResult{}, err
+	}
+	if os.Getenv("KFERP_DEBUG_ROLLBACK") == "1" {
+		return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo}, fmt.Errorf("debug rollback after all save steps")
 	}
 
 	if err := tx.Commit(ctx); err != nil {
