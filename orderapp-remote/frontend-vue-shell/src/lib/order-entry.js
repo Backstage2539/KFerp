@@ -1632,13 +1632,17 @@ export function rowUsesStaleBeanListPublication(row, options, listType = product
   if (toInt(row?.product_id) <= 0) return false
   const publicationID = toInt(row?.bean_list_publication_id)
   if (publicationID <= 0) return false
-  const groups = beanListVersionOptionGroups(options)
+  const selected = (options || []).find(item => toInt(item?.id) === publicationID)
+  const sameOwnerOptions = selected
+    ? (options || []).filter(item => Boolean(item?.is_customer_owned) === Boolean(selected.is_customer_owned))
+    : options
+  const groups = beanListVersionOptionGroups(sameOwnerOptions)
   const publicationGroup = beanListVersionGroupForPublicationID(groups, publicationID)
   const latest = publicationGroup?.options?.length
     ? publicationGroup.options.reduce((current, item) => (
       compareBeanListVersionOption(item, current) > 0 ? item : current
     ), publicationGroup.options[0])
-    : (latestProductPriceListVersionOption(options, row, listType) || latestBeanListVersionOption(options, listType))
+    : (latestProductPriceListVersionOption(sameOwnerOptions, row, listType) || latestBeanListVersionOption(sameOwnerOptions, listType))
   const latestID = toInt(latest?.id)
   return latestID > 0 && latestID !== publicationID
 }
