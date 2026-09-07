@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -2325,10 +2324,6 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if err := r.logOrderSaveTx(ctx, tx, cmd.Actor, orderID, orderNo, editID > 0, beforeAuditSummary, afterAuditSummary, beanListPublicationID, beanListVersionNo); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
-	if os.Getenv("KFERP_DEBUG_ROLLBACK") == "1" {
-		return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo}, fmt.Errorf("debug rollback after all save steps")
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
