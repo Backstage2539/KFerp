@@ -376,6 +376,7 @@ export function isSystemDefaultBusinessGroup(group = {}) {
 }
 
 export function businessGroupVisibleName(group = {}) {
+  if (Number(group?.customer_catalog_node_id) > 0) return String(group.name || '').trim()
   if (!group || isSystemDefaultBusinessGroup(group)) return ''
   return String(group.name || '').trim()
 }

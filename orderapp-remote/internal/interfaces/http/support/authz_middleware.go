@@ -14,6 +14,12 @@ const customerFinanceScopeLimitedContextKey = "customer_finance_scope_limited"
 func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			if strings.HasPrefix(c.Request().URL.Path, "/api/product-settings/customer-catalog") || strings.HasPrefix(c.Request().URL.Path, "/api/product-customer-references") {
+				actor, ok, err := CurrentActor(c, authz)
+				if err != nil || (ok && actor.AccountType == AccountTypeChannelCustomer) {
+					return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": "客户目录维护仅供内部人员使用"})
+				}
+			}
 			if isProductCatalogFeatureSelectionReadRequest(c.Request().Method, c.Request().URL.Path) {
 				if err := authorizeProductCatalogFeatureSelectionRead(c, authz); err != nil {
 					return err
@@ -51,7 +57,7 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 }
 
 func isProductCatalogFeatureSelectionReadRequest(method, path string) bool {
-	return method == http.MethodGet && strings.TrimSpace(path) == "/api/business-group-feature-selections/product_catalog"
+	return method == http.MethodGet && (strings.TrimSpace(path) == "/api/business-group-feature-selections/product_catalog" || strings.TrimSpace(path) == "/api/product-settings/customer-catalog" || strings.TrimSpace(path) == "/api/product-customer-references")
 }
 
 func authorizeProductCatalogFeatureSelectionRead(c echo.Context, authz AuthzService) error {
@@ -193,6 +199,15 @@ func requiredPermissionForRequest(method, path string) string {
 	}
 	if permission, ok := businessGroupFeatureSelectionPermission(method, path); ok {
 		return permission
+	}
+	if path == "/api/product-settings/customer-catalog/migration" {
+		return "auth.manage"
+	}
+	if strings.HasPrefix(path, "/api/product-customer-references") {
+		if method == http.MethodGet {
+			return "products.read"
+		}
+		return "products.write"
 	}
 	if strings.HasPrefix(path, "/api/product-settings") {
 		if method == http.MethodGet {

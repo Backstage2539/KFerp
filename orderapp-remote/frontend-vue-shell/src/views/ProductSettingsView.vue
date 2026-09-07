@@ -161,6 +161,8 @@
             data-pr442-business-group-items-api="/api/business-group-items"
             @manage="openProductBusinessGroupManagement"
             @configure="openProductGroupTemplateDrawer"
+            :manage-label="catalogCustomerID ? '客户分类名称' : '前往分组模板'"
+            :configure-label="catalogCustomerID ? '客户分类名称' : '设置分组模板'"
             @move="productCategoryMoveActive = true"
             @cancel="productCategoryMoveActive = false"
             @target="handleProductCategoryMoveTarget">
@@ -194,6 +196,8 @@
                 </label>
                 <div class="filter-actions sku-list-actions">
                   <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
+                  <button class="text-button" type="button" :disabled="loading" @click="openCustomerCatalogCopy('all')">复制全部商品到客户</button>
+                  <button class="text-button" type="button" :disabled="loading || !selectedProductIds.length" @click="openCustomerCatalogCopy('selected', selectedProductIds)">复制所选商品到客户</button>
                   <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
                     失效商品
                   </button>
@@ -235,7 +239,7 @@
                           <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
                         </td>
                         <td class="sku-name-cell">
-                          <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
+                          <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openCustomerAwareProductName(row)">{{ row.name || '未命名商品' }}</button>
                           <div v-if="row.bom_specs?.length" class="product-bom-specs">
                             <span class="product-bom-spec-label">BOM 规格</span>
                             <button
@@ -273,7 +277,7 @@
                             @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
                         </td>
                         <td class="action-cell">
-                          <button class="text-button" type="button" :disabled="row.active === false" @click="openProductReferenceEditor(row)">复制到客户</button>
+                          <button class="text-button" type="button" :disabled="row.active === false" @click="openCustomerCatalogCopy('selected', [row.id])">复制到客户</button>
                           <button class="text-button" type="button" @click="copyProductArchive(row)">复制</button>
                         </td>
                       </tr>
@@ -1460,6 +1464,26 @@
       </aside>
     </div>
 
+    <div v-if="catalogCopy.open" class="settings-drawer-mask" @click.self="catalogCopy.open = false">
+      <aside class="settings-drawer" aria-label="复制商品到客户">
+        <div class="drawer-head"><h3>{{ catalogCopy.mode === 'all' ? '复制全部商品到客户' : `复制 ${catalogCopy.ids.length} 款商品到客户` }}</h3><button type="button" class="secondary" :disabled="catalogCopySaving" @click="catalogCopy.open = false">关闭</button></div>
+        <form class="drawer-body" @submit.prevent="saveCustomerCatalogCopy">
+          <label><span>目标客户</span><SearchableSelect v-model="catalogCopy.customerID" :options="customerSkuCustomers" :option-label="customerOptionName" :option-value="optionNumericValue" placeholder="搜索并选择客户" /></label>
+          <p>{{ catalogCopy.mode === 'all' ? '复制全部启用的工厂公共商品，不受搜索、分类和分页影响。' : '复制所选商品及所属分类、完整上级分类。' }}</p>
+          <p>保留已有客户商品名和分类名。共用原商品、规格和 BOM。</p>
+          <button class="primary" type="submit" :disabled="catalogCopySaving || !catalogCopy.customerID">{{ catalogCopySaving ? '复制中' : '确认复制到客户' }}</button>
+        </form>
+      </aside>
+    </div>
+    <div v-if="customerCategoryNamesOpen" class="settings-drawer-mask" @click.self="customerCategoryNamesOpen = false">
+      <aside class="settings-drawer" aria-label="客户分类名称">
+        <div class="drawer-head"><h3>客户分类名称 · {{ customerName(catalogCustomerID) }}</h3><button class="secondary" type="button" @click="customerCategoryNamesOpen = false">关闭</button></div>
+        <div class="drawer-body"><p>仅修改当前客户的分类名称。</p>
+          <div v-for="node in customerCategoryNameDrafts" :key="node.id" class="form-row"><label><span>{{ node.path_label }}</span><input v-model.trim="node.name" /></label><button class="text-button" type="button" :disabled="catalogCopySaving" @click="saveCustomerCategoryName(node)">保存</button></div>
+          <p v-if="!customerCategoryNameDrafts.length">暂无客户分类，请先复制商品到客户。</p>
+        </div>
+      </aside>
+    </div>
     <div v-if="customerAliasCreateDrawerOpen" class="settings-drawer-mask" @click.self="closeCustomerAliasCreateDrawer">
       <aside class="settings-drawer customer-alias-create-drawer" aria-label="新建客户商品">
         <div class="drawer-head">
@@ -1891,6 +1915,7 @@
 </template>
 
 <script setup>
+import { customerCatalogProjection, customerCatalogCopyPayload, customerCatalogCustomerID, customerCatalogProductRows } from '../lib/customer-catalog.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
@@ -2211,11 +2236,19 @@ const aliasIndustryFieldAlias = ref(null)
 const aliasIndustryFieldForm = ref({ fields: [] })
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
+const catalogCustomerID = computed(() => customerCatalogCustomerID(skuOwnerFilter.value, skuContextCustomerID.value))
+const customerCatalogData = ref({ nodes: [], assignments: [] })
+const customerCatalogView = computed(() => customerCatalogProjection(customerCatalogData.value))
+const catalogCopy = ref({ open: false, customerID: 0, mode: 'selected', ids: [] })
+const catalogCopySaving = ref(false)
+const customerCategoryNamesOpen = ref(false)
+const customerCategoryNameDrafts = ref([])
+let customerCatalogLoadRevision = 0
 const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())
 const classificationTemplateForm = ref(defaultClassificationTemplateForm())
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const selectedSkuContextLabel = computed(() => {
-  const customerID = skuContextCustomerID.value
+  const customerID = catalogCustomerID.value
   if (!customerID) return '全部商品'
   return customerWorkspaceDisplayName(customerID, customers.value, props.customerContextLabel)
 })
@@ -2528,11 +2561,11 @@ const customerSkuRowsRaw = computed(() => {
   })
 })
 const customerSkuRows = computed(() => productArchiveRowsWithSkus(customerSkuRowsRaw.value))
-const currentSkuSourceRows = computed(() => (
+const currentSkuSourceRows = computed(() => customerCatalogProductRows((
   skuContextCustomerID.value > 0
     ? customerSkuRows.value
     : filterProductsByOwnership(factorySkuRows.value, skuOwnerFilter.value, productCustomerReferences.value, customers.value)
-).slice())
+).slice(), productCustomerReferences.value, catalogCustomerID.value))
 const normalizedSkuFilters = computed(() => normalizeVisibleSkuFilters(skuFilters.value, currentSkuSourceRows.value))
 const filteredSkuRows = computed(() => filterSkuRows(currentSkuSourceRows.value, normalizedSkuFilters.value))
 const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(currentSkuSourceRows.value))
@@ -2552,7 +2585,7 @@ const skuDisplayKey = computed(() => [
 const skuTableKey = computed(() => `${skuDisplayKey.value}:table`)
 const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplates(filteredSkuRows.value, {
   templates: productCatalogBusinessGroups.value,
-  assignments: businessGroupAssignments.value,
+  assignments: catalogCustomerID.value > 0 ? customerCatalogView.value.assignments : businessGroupAssignments.value,
   usageKey: 'product_catalog',
   objectKey: 'product',
   objectIDForRow: (row) => Number(row.id || 0),
@@ -2636,13 +2669,13 @@ const productGroupFeatureSelectionHasChanges = computed(() => (
   JSON.stringify(businessGroupFeatureSelectionIDs({ group_template_ids: productGroupFeatureSelectionDraft.value }))
   !== JSON.stringify(businessGroupFeatureSelectionIDs({ group_template_ids: productGroupFeatureSelectionIDs.value }))
 ))
-const productCatalogBusinessGroups = computed(() => productCatalogBusinessGroupRows())
+const productCatalogBusinessGroups = computed(() => catalogCustomerID.value > 0 ? customerCatalogView.value.groups : productCatalogBusinessGroupRows())
 const productBusinessGroupControls = computed(() => businessGroupControlOptions(productCatalogBusinessGroups.value, {
   selectedTemplateID: selectedProductGroupTemplateID.value,
   usageKey: 'product_catalog',
 }))
 const selectedProductGroupTemplate = computed(() => productBusinessGroupControls.value.selectedTemplate)
-const canMoveSelectedProductsToBusinessGroup = computed(() => Boolean(productCatalogBusinessGroups.value.length && selectedProductIds.value.length))
+const canMoveSelectedProductsToBusinessGroup = computed(() => !catalogCustomerID.value && Boolean(productCatalogBusinessGroups.value.length && selectedProductIds.value.length))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -3602,6 +3635,7 @@ async function loadAll({ strict = false } = {}) {
     syncSelectedAliasCustomer()
     applyWorkspaceCustomerContext()
     syncVisibleSkuTableState()
+    await loadCustomerCatalog()
     pruneSelectedProducts(filteredSkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -6017,6 +6051,7 @@ const deletedProductGroupTemplateWarnings = computed(() => {
 })
 
 function openProductGroupTemplateDrawer() {
+  if (catalogCustomerID.value > 0) { openCustomerCategoryNames(); return }
   productGroupFeatureSelectionDraft.value = [...productGroupFeatureSelectionIDs.value]
   productGroupTemplateDrawerOpen.value = true
 }
@@ -6694,6 +6729,7 @@ async function saveProductGroupFeatureSelection() {
 }
 
 async function saveSelectedProductBusinessGroupAssignment(target = {}) {
+  if (catalogCustomerID.value > 0) return false
   const unclassified = Boolean(target?.unclassified)
   const option = unclassified ? null : {
     group_id: Number(target?.group_id || 0),
@@ -6751,6 +6787,7 @@ async function clearProductBusinessGroupAssignment(productID) {
 }
 
 function openProductBusinessGroupManagement() {
+  if (catalogCustomerID.value > 0) { openCustomerCategoryNames(); return }
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
       key: 'groupTemplates',
@@ -7991,6 +8028,57 @@ watch(() => customForm.value.custom_type, () => {
 })
 
 watch(skuFilters, resetSkuGroupPages, { deep: true })
+
+async function loadCustomerCatalog() {
+  const customerID = catalogCustomerID.value
+  const revision = ++customerCatalogLoadRevision
+  customerCatalogData.value = { nodes: [], assignments: [] }
+  if (!customerID) return
+  const data = await apiGet(`/api/product-settings/customer-catalog?customer_id=${customerID}`)
+  if (revision === customerCatalogLoadRevision && catalogCustomerID.value === customerID) customerCatalogData.value = data
+}
+function customerOptionName(customer) { return customer.name || '' }
+function openCustomerCatalogCopy(mode, ids = []) {
+  catalogCopy.value = { open: true, customerID: 0, mode, ids: [...new Set(ids.map(Number))] }
+}
+async function saveCustomerCatalogCopy() {
+  catalogCopySaving.value = true; error.value = ''; ok.value = ''
+  try {
+    const payload = customerCatalogCopyPayload(catalogCopy.value.customerID, catalogCopy.value.mode, catalogCopy.value.ids)
+    const result = await apiSend('/api/product-settings/customer-catalog/copy', { body: payload })
+    const label = customerName(payload.customer_id)
+    catalogCopy.value.open = false
+    await loadAll({ strict: true })
+    ok.value = `已复制到客户「${label}」，请通过「商品归属」查看商品，通过「价格表归属」维护客户价格表。新增 ${result.created}，恢复 ${result.restored}，已存在 ${result.unchanged}。`
+  } catch (err) { error.value = err.message || '复制失败' } finally { catalogCopySaving.value = false }
+}
+function openCustomerAwareProductName(row) {
+  if (!catalogCustomerID.value) { openProductProductionConfig(row); return }
+  openProductReferenceEditor(row)
+  customerProductAliasForm.value.customer_id = catalogCustomerID.value
+  productReferenceCustomerLocked.value = true
+  syncProductReferenceFormForCustomer()
+}
+function openCustomerCategoryNames() {
+  const nodes = customerCatalogData.value.nodes || []
+  const pathFor = (node, seen = new Set()) => {
+    if (seen.has(node.id)) return node.name
+    seen.add(node.id)
+    const parent = Number(node.source_item_id) > 0 ? nodes.find(n => Number(n.source_group_id) === Number(node.source_group_id) && Number(n.source_item_id) === Number(node.parent_source_item_id || 0)) : null
+    return parent ? `${pathFor(parent, seen)} / ${node.name}` : node.name
+  }
+  customerCategoryNameDrafts.value = nodes.map(n => ({ ...n, path_label: pathFor(n) }))
+  customerCategoryNamesOpen.value = true
+}
+async function saveCustomerCategoryName(node) {
+  catalogCopySaving.value = true; error.value = ''
+  try {
+    await apiSend(`/api/product-settings/customer-catalog/nodes/${node.id}`, { method: 'PUT', body: { customer_id: catalogCustomerID.value, name: node.name } })
+    await loadCustomerCatalog(); ok.value = `已保存客户「${customerName(catalogCustomerID.value)}」的分类名称`
+  } catch (err) { error.value = err.message || '保存失败' } finally { catalogCopySaving.value = false }
+}
+watch(catalogCustomerID, () => { customerCategoryNamesOpen.value = false; loadCustomerCatalog().catch(err => { error.value = err.message }) })
+
 watch(skuOwnerFilter, resetSkuGroupPages)
 
 watch(() => skuFilters.value.primaryCategory, () => {

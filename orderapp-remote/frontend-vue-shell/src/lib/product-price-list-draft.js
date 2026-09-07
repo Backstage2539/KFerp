@@ -220,6 +220,7 @@ export function normalizePriceListGenerationDraft(draft = {}) {
     productOverrides: cloneDraft(draft.productOverrides || {}),
     flatRowOverrides: cloneDraft(draft.flatRowOverrides || {}),
   }
+  if (Array.isArray(draft.customerPriceSeedRows)) normalized.customerPriceSeedRows = cloneDraft(draft.customerPriceSeedRows)
   if (Object.prototype.hasOwnProperty.call(draft, 'product_spec_selections') || Object.prototype.hasOwnProperty.call(draft, 'productSpecSelections')) {
     normalized.product_spec_selections = cloneDraft(draft.product_spec_selections ?? draft.productSpecSelections ?? []) || []
   }
