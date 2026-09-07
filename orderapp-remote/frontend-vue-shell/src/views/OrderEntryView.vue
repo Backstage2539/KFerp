@@ -131,11 +131,16 @@
           </select>
         </label>
 
-        <label v-if="selectedPayStatusName.includes('预付款') || Number(form.prepayment_amount) > 0">
-          <span>已支付预付款（元）</span>
-          <input v-model="form.prepayment_amount" type="number" min="0" step="0.01" placeholder="填写实际已收金额" />
-          <small>预付款小于订单应收合计；收齐尾款后选择已付款。</small>
-        </label>
+        <div class="prepayment-editor" data-prepayment-editor>
+          <label>
+            <span>已支付预付款（元）</span>
+            <input v-model="form.prepayment_amount" type="number" min="0" step="0.01" placeholder="填写实际已收金额" @input="onManualPrepayment" />
+          </label>
+          <div class="prepayment-presets" aria-label="预付款比例">
+            <button v-for="rate in prepaymentPresets" :key="rate" type="button" :class="{ selected: prepaymentRate === rate }" @click="applyPrepaymentPreset(rate)">{{ rate }}%</button>
+          </div>
+          <small>按优惠后货款 ¥{{ money(orderTotalPreviewValue.goodsAmount) }} 计算，不含运费；可修改实际已收金额。</small>
+        </div>
 
         <label :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
           <span>收款方式</span>
@@ -626,6 +631,7 @@
 </template>
 
 <script setup>
+import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
@@ -933,6 +939,24 @@ const orderTotalPreviewValue = computed(() => orderTotalPreview({
 const orderTotalHintText = computed(() => `货款 ${money(orderTotalPreviewValue.value.goodsAmount)} · 物流 ${money(orderTotalPreviewValue.value.logisticsAmount)}`)
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
 const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
+const prepaymentRate = ref(0)
+function selectPrepaymentStatus() {
+  if (Number(form.prepayment_amount) <= 0) return
+  const status = payStatuses.value.find(item => String(item.name).includes('预付款'))
+  if (status) form.pay_status_id = Number(status.id)
+}
+function applyPrepaymentPreset(rate) {
+  prepaymentRate.value = rate
+  form.prepayment_amount = prepaymentByRate(orderTotalPreviewValue.value.goodsAmount, rate)
+  selectPrepaymentStatus()
+}
+function onManualPrepayment() {
+  prepaymentRate.value = 0
+  selectPrepaymentStatus()
+}
+watch(() => orderTotalPreviewValue.value.goodsAmount, () => {
+  if (prepaymentRate.value) applyPrepaymentPreset(prepaymentRate.value)
+})
 const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))
 const selectedShipStatusName = computed(() => optionName(shipStatuses.value, form.ship_status_id))
 const paymentReceiptVisible = computed(() => {
@@ -2148,6 +2172,7 @@ function notifyWorkspaceCustomerChanged(customerID) {
 }
 
 function applyEditData(data) {
+  prepaymentRate.value = 0
   if (!data) return
   const editItems = Array.isArray(data.items) ? data.items : []
   const itemPublicationIDByType = (listType) => {
@@ -2463,6 +2488,7 @@ async function load() {
 }
 
 function resetForBackfillContinuation() {
+  prepaymentRate.value = 0
   form.edit_id = 0
   form.ship_tracking_no = ''
   form.prepayment_amount = '0'
@@ -2687,6 +2713,7 @@ watch(
 </script>
 
 <style scoped>
+.prepayment-editor{display:flex;flex-direction:column;gap:6px}.prepayment-presets{display:flex;gap:8px}.prepayment-presets button{padding:5px 16px;color:#2563eb;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px}.prepayment-presets button.selected{background:#2563eb;color:white}.prepayment-editor small{color:#64748b;line-height:1.5}
 .page { min-height: 100%; max-width: 100%; overflow-x: hidden; padding: 18px; display: grid; gap: 14px; background: #f6f7f9; color: #15171a; box-sizing: border-box; }
 .page * { box-sizing: border-box; }
 .page.embedded { min-height: auto; padding: 0; background: transparent; }

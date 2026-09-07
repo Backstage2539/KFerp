@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { prepaymentPresets, prepaymentByRate } from '../../utils/prepayment'
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
@@ -147,7 +148,24 @@ const productFamilies = computed(() => customerProductFamilies(
   form.value.customer_id,
 ))
 const editingItem = computed(() => form.value.items.find((item) => item.key === editingItemKey.value))
+const prepaymentRate = ref(0)
+const prepaymentGoodsAmount = computed(() => Math.max(0, orderItemsTotal.value - Number(form.value.discount_amount || 0)))
+function selectPrepaymentStatus() {
+  if (Number(form.value.prepayment_amount) <= 0) return
+  const status = formData.value?.pay_statuses.find(item => item.name.includes('预付款'))
+  if (status) form.value.pay_status_id = status.id
+}
+function applyPrepaymentPreset(rate: number) {
+  prepaymentRate.value = rate
+  form.value.prepayment_amount = prepaymentByRate(prepaymentGoodsAmount.value, rate)
+  selectPrepaymentStatus()
+}
+function onManualPrepayment() {
+  prepaymentRate.value = 0
+  selectPrepaymentStatus()
+}
 const orderItemsTotal = computed(() => employeeOrderItemsTotal(form.value.items))
+watch(prepaymentGoodsAmount, () => { if (prepaymentRate.value) applyPrepaymentPreset(prepaymentRate.value) })
 const orderGrandTotal = computed(() => employeeOrderGrandTotal(
   form.value.items,
   Number(form.value.shipping_amount || 0),
@@ -540,6 +558,7 @@ function applyDefaultOptions() {
 }
 
 async function loadForm() {
+  prepaymentRate.value = 0
   loading.value = true
   loadError.value = ''
   authExpired.value = false
@@ -953,10 +972,13 @@ onShow(() => {
       <picker :range="formData?.pay_statuses || []" range-key="name" :value="Math.max(0, (formData?.pay_statuses || []).findIndex(s => s.id === form.pay_status_id))" @change="selectPaymentStatus">
         <view class="field">{{ selectedPaymentStatus || '选择付款状态' }}</view>
       </picker>
-      <view v-if="selectedPaymentStatus.includes('预付款') || Number(form.prepayment_amount) > 0">
+      <view class="prepayment-editor">
         <text class="label">已支付预付款（元）</text>
-        <input v-model="form.prepayment_amount" class="field" type="digit" placeholder="填写实际已收金额" />
-        <text class="hint">预付款应小于应收合计；收齐尾款后选择已付款。</text>
+        <input v-model="form.prepayment_amount" class="field" type="digit" placeholder="填写实际已收金额" @input="onManualPrepayment" />
+        <view class="prepayment-presets">
+          <button v-for="rate in prepaymentPresets" :key="rate" :class="{ selected: prepaymentRate === rate }" @tap="applyPrepaymentPreset(rate)">{{ rate }}%</button>
+        </view>
+        <text class="hint">按优惠后货款 ¥{{ prepaymentGoodsAmount.toFixed(2) }} 计算，不含运费；可修改实际已收金额。</text>
       </view>
       <view v-if="selectedPaymentStatus.includes('预付款') || /已付|已收|已支付/.test(selectedPaymentStatus)">
         <text class="label">收款方式</text>
@@ -1062,6 +1084,7 @@ onShow(() => {
 </template>
 
 <style scoped>
+.prepayment-presets{display:flex;gap:16rpx;margin:12rpx 0}.prepayment-presets button{flex:1;margin:0;font-size:28rpx;line-height:2.4;color:#2563eb;background:#eff6ff}.prepayment-presets button.selected{color:#fff;background:#2563eb}
 .page { min-height: 100vh; padding: 28rpx; background: #f5f7f6; box-sizing: border-box; }
 .panel { padding: 28rpx; background: #fff; border-radius: 18rpx; }
 .title-row { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-bottom: 28rpx; }

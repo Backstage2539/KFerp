@@ -1,38 +1,20 @@
 <script setup lang="ts">
 import { onShow } from '@dcloudio/uni-app'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import GuestHome from '../../components/GuestHome.vue'
 import { useSessionStore } from '../../stores/session'
-
 const session = useSessionStore()
-
-function routeBySession() {
-  if (!session.token) {
-    uni.reLaunch({ url: '/pages/login/login' })
-    return
-  }
-  uni.reLaunch({ url: '/pages/home/home' })
-}
-
 onShow(() => {
-  routeBySession()
+  if (session.token) uni.reLaunch({ url: '/pages/home/home' })
 })
 </script>
-
 <template>
   <view class="page">
     <EnvironmentBadge />
-    <text>加载中...</text>
+    <GuestHome v-if="!session.token" />
+    <text v-else class="loading">加载中...</text>
   </view>
 </template>
-
 <style scoped>
-.page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f7f2ea;
-  color: #666666;
-  font-size: 28rpx;
-}
+.page{min-height:100vh;background:#f7f2ea}.loading{display:block;padding:80rpx;text-align:center;color:#666}
 </style>
