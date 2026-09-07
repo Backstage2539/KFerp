@@ -14,6 +14,8 @@
       </div>
     </section>
 
+    <div v-if="ok" class="catalog-feedback success" role="status"><span>{{ ok }}</span><button type="button" aria-label="关闭成功提示" @click="ok = ''">×</button></div>
+    <div v-if="error" class="catalog-feedback failure" role="alert"><span>{{ error }}</span><button type="button" aria-label="关闭错误提示" @click="error = ''">×</button></div>
     <section class="settings-workbench">
       <div v-if="false" class="sku-category-management-workspace" data-section-mode="groupTemplatesRetired">
         <section class="panel category-management-panel">
@@ -8268,6 +8270,11 @@ onBeforeUnmount(saveProductSettingsDraft)
 </script>
 
 <style scoped>
+.catalog-feedback { position:fixed; right:24px; top:72px; z-index:1500; max-width:min(680px,85vw); display:flex; gap:12px; align-items:center; padding:12px 16px; border-radius:8px; box-shadow:0 4px 18px #0002; }
+.catalog-feedback.success { background:#edf9f1; color:#185f35; border:1px solid #b5dec2; }
+.catalog-feedback.failure { background:#fff0ee; color:#a32626; border:1px solid #e8b7b7; }
+.catalog-feedback button { border:0; background:transparent; color:inherit; cursor:pointer; font-size:20px; }
+
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; display: grid; gap: 14px; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; }

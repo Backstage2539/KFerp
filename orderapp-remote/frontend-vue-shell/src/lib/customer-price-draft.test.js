@@ -28,3 +28,7 @@ test('customer quote draft survives reload without resetting imported tiers or l
  assert.equal(readPriceListGenerationDraft('customer42',storage).flatRowOverrides['10:24'],66)
  assert.equal(readPriceListGenerationDraft('customer43',storage),null)
 })
+test('customer price rows use the reference display name even when canonical product_name is present',()=>{
+ const current={...generated[0],product_name:'工厂名',customer_reference_snapshot:{customer_id:42,customer_display_name:'客户专用名'}}
+ assert.equal(applyCustomerPriceRows([current],[row(10,65)],{},42)[0].product_name,'客户专用名')
+})
