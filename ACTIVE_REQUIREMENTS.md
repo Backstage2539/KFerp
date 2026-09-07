@@ -4968,11 +4968,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-634-CUSTOMER-CATALOG-COPY
 - Branch: codex/customer-catalog-copy-20260907
-- Status: verified; development acceptance closure
+- Status: delivered to development; developer acceptance passed, product review remains with VA
 - Scope: 全量/所选/单个复制客户引用与分类，客户名称隔离，客户价格表与录单。
 - DEV: 634-CATALOG; 634-UI; 634-PRICING; 634-DELIVERY
 - Verifier: TDD PostgreSQL/API/Vue/miniapp; full Go/Vue/build/typecheck; development acceptance.
 - Deployment: development only; production and WeChat release excluded from this implementation.
 - Notes: reserve_req_id.sh --claim failed on macOS awk multiline literal; PR-634 reserved here manually before implementation.
 
-- PR-634 验证：完整 Go / Vue 1093 项 / Vite 构建通过；真实 PostgreSQL 目录、迁移回滚、并发及旧引用测试通过；小程序 235 项、类型检查及 development 构建通过。验收记录见 docs/acceptance/2026-09-07-customer-catalog-copy.md。已合入 develop 并部署 development；实测补充录单客户报价与 BOM 规格连接修复，再次完整检查通过，随本分支发布。生产/微信未发布。
+- PR-634 验证：完整 Go / Vue 1093 项 / Vite 构建通过；真实 PostgreSQL 目录、迁移回滚、并发及旧引用测试通过；小程序 235 项、类型检查及 development 构建通过。验收记录见 docs/acceptance/2026-09-07-customer-catalog-copy.md。已合入 develop 并部署 development；最终应用提交 179f77c6，实测两张订单 SO-20260907-0001 / 0002 成功；复制、分类、价格、隔离、迁移和库存指纹核对通过。生产/微信未发布。
+
+- PR-634 发布证据：回滚源 /opt/stacks/erp/orderapp.backup.deploy-20260907220912-179f77c6753b；应用/数据库正常、外部认证页面 200、受保护 API 未认证 401。最终验收文档随后单独提交，应用运行版本仍为 179f77c6。
