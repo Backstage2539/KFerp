@@ -74,6 +74,7 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
+	SelectedPriceTableIDs           []int64 `json:"selected_price_table_ids"`
 	PrepaymentAmount                *string `json:"prepayment_amount" form:"prepayment_amount"`
 	EditID                          int64   `json:"edit_id"`
 	DocumentDate                    string  `json:"document_date"`
@@ -500,6 +501,7 @@ func (h orderAPIHandler) save(c echo.Context) error {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "customer scope mismatch"})
 		}
 	}
+	cmd.SelectedPriceTableIDs = req.SelectedPriceTableIDs
 	res, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})

@@ -135,3 +135,7 @@ describe('employee order detail presentation', () => {
     expect(employeeOrderInvoiceStatusLabel('')).toBe('未申请')
   })
 })
+
+ it('displays the frozen named table without consulting current versions', () => {
+   expect(employeeOrderItemPriceSourceLabel({bean_list_version_no:'V3.0.6',price_source_json:JSON.stringify({price_table_name:'1kg价格表',source:'published_bean_list',version_no:'V3.0.6'})})).toBe('1kg价格表 · V3.0.6')
+ })

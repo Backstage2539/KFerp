@@ -94,12 +94,12 @@ func TestDev440ProductGroupPriceRemodelFrontendAndDocs(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"Price List / Item Price",
 			"data-pr440-price-list-model",
-			"分组项选品",
+			"同一商品类型可维护多张命名价格表",
 			"父商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"): {
 			"选择价格表",
-			"报价来源：价格表",
+			"orderLinePriceTableLabel",
 			"非最新价格表",
 		},
 		filepath.Join("scripts", "scenario_acceptance.py"): {

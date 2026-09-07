@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-635-NAMED-PRICE-TABLE-BATCHES
+- Branch: `codex/named-price-table-batches-20260907`
+- Owner/session: Codex / 2026-09-07
+- Status: implementation and final gates complete on latest develop; integration/deploy ownership held by PR-635
+- Scope: 同商品类型同版本多张命名价格表、默认表、整组发布及 ERP/小程序按表下单。
+- DEV: DEV-635-BATCH; DEV-635-EDITOR; DEV-635-ORDER-SELECTION; DEV-635-DELIVERY
+- Verifier: targeted Go/API/PostgreSQL and Vue/miniapp RED/GREEN, full backend/frontend/miniapp checks, named PDF rendering and development delivery.
+- Deployment: development merge/deploy in progress; latest verified baseline 56ea7d3b.
+- Notes: reservation script hit existing macOS awk multiline error; PR-635 claimed here.
+
 ### PR-631-QUICK-PRICING-MARKUP-ADJUSTMENT
 - Branch: `codex/quick-pricing-markup-20260907`
 - Owner/session: Codex / 2026-09-07
@@ -4979,10 +4989,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 - PR-634 发布证据：回滚源 /opt/stacks/erp/orderapp.backup.deploy-20260907220912-179f77c6753b；应用/数据库正常、外部认证页面 200、受保护 API 未认证 401。最终验收文档随后单独提交，应用运行版本仍为 179f77c6。
 
-### PR-635-SALES-ORDER-PAYMENT-AMOUNT-COLORS
+### PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS
 - Branch: `codex/sales-order-payment-colors-20260907`
 - Owner/session: Codex / 2026-09-07
-- Status: verified locally；产品验收待 Van
+- Status: verified on latest develop；development 部署待执行；产品验收待 Van
 - Scope: 网页 ERP 与小程序共用的销售单 PDF/PNG 导出统一显示付款金额；全额已付显示绿色已付金额，完全未付显示红色未付金额，部分预付款保留绿色预付款与红色尾款。
 - Verifier:
   - Unit: `go test ./internal/infrastructure/pdf ./internal/domain/sales -count=1` 通过；覆盖已付、未付、预付款、组合销售单与精确填充色。
@@ -4990,6 +5000,6 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: Vue 1093/1093 通过；Vite 6602 modules 构建成功。小程序前端源码未改，服务端分享 API 已覆盖。
   - Manual: `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`；`orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`。
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md`；实际 4 组 PDF/PNG 渲染检查通过。
-- Deployment: 未部署；本轮先完成开发与验证。
+- Deployment: 已获授权部署 development；生产环境和微信正式版不变。
 - Last update: 2026-09-07
-- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 多行字符串上报错且未产生文件改动，按下一可用编号手工登记。
+- Notes: 原手工登记 PR-635；合并前发现并行需求已先占用 PR-635，顺延为 PR-636，保留两项需求及验证记录。

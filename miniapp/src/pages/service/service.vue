@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
@@ -201,7 +202,28 @@ const fulfillmentQuantityPlaceholder = computed(() => {
   return fulfillmentUnitOption(selectedFulfillmentProduct.value, fulfillmentForm.value.sales_unit)?.quantity_label || '件数'
 })
 
+const selectedPriceTableIDs = ref<number[]>([])
+let selectedPriceTableCustomerID = Number(session.currentCustomerID)
+const namedPriceTableGroups = computed(() => priceTableGroups(page.value?.price_table_options || []))
+function selectedPriceTable(group: PriceTableGroup) {
+  return group.options.find(row => selectedPriceTableIDs.value.includes(row.id)) || group.options.find(row => row.is_default) || group.options[0]
+}
+async function changePriceTable(group: PriceTableGroup, event: { detail: { value: string | number } }) {
+  const table = group.options[Number(event.detail.value)]
+  if (!table) return
+  selectedPriceTableIDs.value = replaceSelectedPriceTable(selectedPriceTableIDs.value, group, table.id)
+  await loadPage()
+  const item = page.value?.products?.find(row => row.id === fulfillmentForm.value.product_id && Number(row.bom_spec_id || 0) === Number(fulfillmentForm.value.bom_spec_id || 0))
+  if (!item && fulfillmentForm.value.product_id) {
+    fulfillmentForm.value.product_id = 0
+    fulfillmentForm.value.bom_spec_id = 0
+    fulfillmentForm.value.bom_variant_id = 0
+    errorMessage.value = '原规格不在所选价格表中，请重新选择商品规格'
+  }
+}
+
 async function loadPage() {
+  if (selectedPriceTableCustomerID !== Number(session.currentCustomerID)) { selectedPriceTableIDs.value = []; selectedPriceTableCustomerID = Number(session.currentCustomerID) }
   if (!session.token) {
     uni.reLaunch({ url: '/pages/login/login' })
     return
@@ -217,8 +239,9 @@ async function loadPage() {
     if (serviceKey.value === 'beanList') {
       primeCachedBeanListPage()
     }
-    const filters = serviceKey.value === 'orders' ? buildOrderServiceFilters(orderSearch.value) : {}
+    const filters = serviceKey.value === 'orders' ? buildOrderServiceFilters(orderSearch.value) : { selected_price_table_ids: selectedPriceTableIDs.value }
     page.value = await fetchServicePage(session.token, serviceKey.value, filters)
+    if (serviceKey.value === 'productOrder') selectedPriceTableIDs.value = page.value.selected_price_table_ids || []
     if (page.value.theme_key) {
       session.applyContext({
         mini_user_id: session.miniUserID,
@@ -826,7 +849,7 @@ function applyFulfillmentSalesUnit(salesUnit: string) {
 }
 
 async function submitFulfillmentOrder() {
-  const payload = buildFulfillmentOrderPayload('product_order', fulfillmentForm.value)
+  const payload = { ...buildFulfillmentOrderPayload('product_order', fulfillmentForm.value), bean_list_publication_id: selectedFulfillmentProduct.value?.bean_list_publication_id }
   const hasProductIdentity = payload.bom_spec_id && payload.bom_variant_id && payload.inventory_unit
     ? true
     : payload.spec_g > 0
@@ -987,6 +1010,12 @@ onShow(() => {
 
       <view v-if="serviceKey === 'productOrder'" class="panel">
         <text class="panel-title">新建现货订单</text>
+        <view v-for="group in namedPriceTableGroups" :key="group.key">
+          <text>{{ group.label }}价格表</text>
+          <picker mode="selector" :range="group.options.map(priceTableLabel)" :value="group.options.findIndex(row => row.id === selectedPriceTable(group)?.id)" @change="changePriceTable(group, $event)">
+            <view class="picker-field">{{ priceTableLabel(selectedPriceTable(group)) }}</view>
+          </picker>
+        </view>
         <input v-model="fulfillmentForm.recipient_name" class="input" placeholder="收件人" />
         <input v-model="fulfillmentForm.recipient_phone" class="input" placeholder="手机号" />
         <input v-model="fulfillmentForm.recipient_address" class="input" placeholder="收件地址" />

@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-func TestDev635SalesOrderPaymentAmountColorContracts(t *testing.T) {
+func TestDev636SalesOrderPaymentAmountColorContracts(t *testing.T) {
 	checks := map[string][]string{
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
-			"PR-635-SALES-ORDER-PAYMENT-AMOUNT-COLORS",
-			"DEV-635-DOCUMENT-PAYMENT-COLORS",
-			"DEV-635-DUAL-EXPORT-CONTRACT",
+			"PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS",
+			"DEV-636-DOCUMENT-PAYMENT-COLORS",
+			"DEV-636-DUAL-EXPORT-CONTRACT",
 		},
 		filepath.Join("internal", "infrastructure", "pdf", "sales_order_pdf.go"): {
 			"salesOrderPaymentRows",
@@ -29,11 +29,11 @@ func TestDev635SalesOrderPaymentAmountColorContracts(t *testing.T) {
 			"GenerateSalesOrderImage",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"# PR-635-SALES-ORDER-PAYMENT-AMOUNT-COLORS",
+			"# PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS",
 			"完全未付",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"## PR-635 销售单付款金额颜色",
+			"## PR-636 销售单付款金额颜色",
 			"网页 ERP",
 			"员工小程序",
 		},
@@ -46,7 +46,7 @@ func TestDev635SalesOrderPaymentAmountColorContracts(t *testing.T) {
 			"未付金额",
 		},
 		filepath.Join("docs", "acceptance", "2026-09-07-sales-order-payment-amount-colors.md"): {
-			"# PR-635",
+			"# PR-636",
 			"RED",
 			"GREEN",
 		},

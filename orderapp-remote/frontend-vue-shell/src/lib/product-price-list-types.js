@@ -322,7 +322,9 @@ export function priceListTypeOptionForPublication(typeOptions = [], publication 
 export function preferredPublicationForPriceListType(rows = [], type = {}) {
   const publishedRows = (Array.isArray(rows) ? rows : []).filter((row) => String(row?.status || '') === 'published')
   const exact = publishedRows.find((row) => priceListTypeOptionForPublication([type], row))
-  return exact || publishedRows[0] || null
+  const latest = exact || publishedRows[0] || null
+  const release = latest?.release_id || latest?.config?.publication_batch?.release_id
+  return (release && publishedRows.find(row => (row.release_id || row.config?.publication_batch?.release_id) === release && (row.is_default_table ?? row.config?.publication_batch?.is_default_table))) || latest
 }
 
 export function matchesPublicationProductType(publication = {}, productTypeCategoryID = 0) {

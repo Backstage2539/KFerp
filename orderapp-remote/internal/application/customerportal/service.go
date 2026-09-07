@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	salesapp "orderapp/internal/application/sales"
 	"regexp"
 	"sort"
 	"strconv"
@@ -526,26 +527,28 @@ func beanListPricesSignature(prices []BeanListPriceSummary) string {
 }
 
 type ProductSummary struct {
-	ID                 int64               `json:"id"`
-	BomSpecID          int64               `json:"bom_spec_id,omitempty"`
-	BomVariantID       int64               `json:"bom_variant_id,omitempty"`
-	Name               string              `json:"name"`
-	SpecName           string              `json:"spec_name,omitempty"`
-	InventoryUnit      string              `json:"inventory_unit,omitempty"`
-	MigrationState     string              `json:"migration_state,omitempty"`
-	IsDefault          bool                `json:"is_default,omitempty"`
-	SortOrder          int                 `json:"sort_order,omitempty"`
-	RoastLevel         string              `json:"roast_level"`
-	ProductKind        string              `json:"product_kind,omitempty"`
-	SalesUnits         []string            `json:"sales_units,omitempty"`
-	DripBagGrams       float64             `json:"drip_bag_grams,omitempty"`
-	DripBoxBagCount    int                 `json:"drip_box_bag_count,omitempty"`
-	DripPriceGradients []UnitPriceGradient `json:"drip_price_gradients,omitempty"`
-	DefaultPrice       string              `json:"default_price"`
-	RetailPrice100     string              `json:"retail_price_100g"`
-	RetailPrice200     string              `json:"retail_price_200g"`
-	RetailPrice227     string              `json:"retail_price_227g"`
-	RetailPrice250     string              `json:"retail_price_250g"`
+	BeanListPublicationID int64               `json:"bean_list_publication_id,omitempty"`
+	PriceTableName        string              `json:"price_table_name,omitempty"`
+	ID                    int64               `json:"id"`
+	BomSpecID             int64               `json:"bom_spec_id,omitempty"`
+	BomVariantID          int64               `json:"bom_variant_id,omitempty"`
+	Name                  string              `json:"name"`
+	SpecName              string              `json:"spec_name,omitempty"`
+	InventoryUnit         string              `json:"inventory_unit,omitempty"`
+	MigrationState        string              `json:"migration_state,omitempty"`
+	IsDefault             bool                `json:"is_default,omitempty"`
+	SortOrder             int                 `json:"sort_order,omitempty"`
+	RoastLevel            string              `json:"roast_level"`
+	ProductKind           string              `json:"product_kind,omitempty"`
+	SalesUnits            []string            `json:"sales_units,omitempty"`
+	DripBagGrams          float64             `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount       int                 `json:"drip_box_bag_count,omitempty"`
+	DripPriceGradients    []UnitPriceGradient `json:"drip_price_gradients,omitempty"`
+	DefaultPrice          string              `json:"default_price"`
+	RetailPrice100        string              `json:"retail_price_100g"`
+	RetailPrice200        string              `json:"retail_price_200g"`
+	RetailPrice227        string              `json:"retail_price_227g"`
+	RetailPrice250        string              `json:"retail_price_250g"`
 }
 
 type UnitPriceGradient struct {
@@ -830,6 +833,8 @@ type SettlementBatch struct {
 }
 
 type ServicePage struct {
+	PriceTableOptions     []salesapp.BeanListVersionOption `json:"price_table_options,omitempty"`
+	SelectedPriceTableIDs []int64                          `json:"selected_price_table_ids,omitempty"`
 	// MiniappEntryMode    string                 `json:"miniapp_entry_mode"`
 	Key                 string                  `json:"key"`
 	Title               string                  `json:"title"`
@@ -852,24 +857,26 @@ type ServicePage struct {
 }
 
 type ServicePageQuery struct {
-	CustomerID    int64
-	Key           string
-	Limit         int
-	Query         string
-	DateFrom      string
-	DateTo        string
-	ProcessStatus string
-	PayStatus     string
-	ShipStatus    string
+	SelectedPriceTableIDs []int64
+	CustomerID            int64
+	Key                   string
+	Limit                 int
+	Query                 string
+	DateFrom              string
+	DateTo                string
+	ProcessStatus         string
+	PayStatus             string
+	ShipStatus            string
 }
 
 type ServicePageFilter struct {
-	Query         string
-	DateFrom      string
-	DateTo        string
-	ProcessStatus string
-	PayStatus     string
-	ShipStatus    string
+	SelectedPriceTableIDs []int64
+	Query                 string
+	DateFrom              string
+	DateTo                string
+	ProcessStatus         string
+	PayStatus             string
+	ShipStatus            string
 }
 
 type CreateDirectShipBatchCommand struct {
@@ -917,24 +924,25 @@ type ProcessingCatalogTarget struct {
 }
 
 type CreateFulfillmentOrderCommand struct {
-	CustomerID          int64
-	CreatedByMiniUserID int64
-	PortalServiceCode   string
-	RecipientName       string
-	RecipientPhone      string
-	RecipientAddress    string
-	RecipientCompany    string
-	ProductID           int64
-	BomSpecID           int64
-	BomVariantID        int64
-	InventoryUnit       string
-	ProductName         string
-	SpecG               int64
-	SalesUnit           string
-	Qty                 int64
-	UnitPrice           float64
-	ShippingAmount      float64
-	Note                string
+	BeanListPublicationID int64
+	CustomerID            int64
+	CreatedByMiniUserID   int64
+	PortalServiceCode     string
+	RecipientName         string
+	RecipientPhone        string
+	RecipientAddress      string
+	RecipientCompany      string
+	ProductID             int64
+	BomSpecID             int64
+	BomVariantID          int64
+	InventoryUnit         string
+	ProductName           string
+	SpecG                 int64
+	SalesUnit             string
+	Qty                   int64
+	UnitPrice             float64
+	ShippingAmount        float64
+	Note                  string
 }
 
 type CapabilityOption struct {
@@ -1349,15 +1357,16 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 		limit = 200
 	}
 	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{
-		CustomerID:    current.CurrentCustomerID,
-		Key:           def.key,
-		Limit:         limit,
-		Query:         filter.Query,
-		DateFrom:      filter.DateFrom,
-		DateTo:        filter.DateTo,
-		ProcessStatus: filter.ProcessStatus,
-		PayStatus:     filter.PayStatus,
-		ShipStatus:    filter.ShipStatus,
+		SelectedPriceTableIDs: filter.SelectedPriceTableIDs,
+		CustomerID:            current.CurrentCustomerID,
+		Key:                   def.key,
+		Limit:                 limit,
+		Query:                 filter.Query,
+		DateFrom:              filter.DateFrom,
+		DateTo:                filter.DateTo,
+		ProcessStatus:         filter.ProcessStatus,
+		PayStatus:             filter.PayStatus,
+		ShipStatus:            filter.ShipStatus,
 	})
 	if err != nil {
 		return ServicePage{}, err
