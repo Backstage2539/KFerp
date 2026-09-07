@@ -988,6 +988,7 @@ func orderTraceBool(value any) bool {
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
 		ProductID                          int64  `json:"product_id"`
+		ParentProductID                    int64  `json:"parent_product_id,omitempty"`
 		BomSpecID                          int64  `json:"bom_spec_id,omitempty"`
 		BomVariantID                       int64  `json:"bom_variant_id,omitempty"`
 		BomSpecKey                         string `json:"bom_spec_key,omitempty"`
@@ -1021,6 +1022,12 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
+		// BOM-spec orders store the shared parent in product_id. The editor
+		// needs that identity to resolve the frozen specification, not a SKU.
+		parentProductID := int64(0)
+		if it.BomSpecID > 0 {
+			parentProductID = it.ProductID
+		}
 		spec := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(it.Spec)), "g")
 		tierID := "auto"
 		if it.PriceOverride {
@@ -1030,6 +1037,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		}
 		items = append(items, editItem{
 			ProductID:                          it.ProductID,
+			ParentProductID:                    parentProductID,
 			BomSpecID:                          it.BomSpecID,
 			BomVariantID:                       it.BomVariantID,
 			BomSpecKey:                         it.BomSpecKey,
