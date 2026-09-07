@@ -22,7 +22,16 @@
 - GREEN：`scripts/verify_kferp.sh frontend-tests` 1093/1093 通过；`scripts/verify_kferp.sh frontend-build` 6602 modules 构建成功。首次构建因隔离工作区未安装 Vite 未启动，按锁文件 `npm ci` 后通过；未执行依赖自动升级。
 - GREEN：`/tmp/pr636-sales-order-payment-colors/` 生成 paid、unpaid、prepayment、combined 四组 PDF/PNG；PDF 均为 1 页，PNG 为 2480×3508。PDF 页面与原生 PNG 均已逐张检查，绿色/红色金额、文案、数字一致，无重叠、截字或底部裁切。
 
+## 合并与开发发布证据
+
+- 功能分支在合并前吸收 `develop@5adb6d11`，并将并行占用的 PR-635 保留给命名价格表需求；本需求顺延为 PR-636。合并提交 `ef0dc8ed882c762444a3ea24c32efe5b1090a2bd` 已推送到 `origin/develop`。
+- `./deploy_orderapp.sh --preflight development` 针对功能分支 `05f4f25d` 通过且未更改服务器；正式 `./deploy_orderapp.sh development` 针对 `ef0dc8ed` 通过。
+- 正式发布门禁：Vue 1098/1098，Vite 6603 modules；小程序 237/237、类型检查、14 页开发版构建及 56 文件清单；完整 Go 测试和 Docker 镜像构建均通过。
+- 开发栈：`erp_orderapp` 运行、重启次数 0；`erp_postgres` healthy。`https://dev.qacoohee.com/app/login` 返回 200，受保护需求 API 未认证 401、BasicAuth 200，且可查 `PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS`。
+- 关键源文件与 `origin/develop@ef0dc8ed` 的 SHA-256 逐项一致。旧源码 `/opt/stacks/erp/orderapp.backup.deploy-20260907231747-ef0dc8ed882c`，回滚镜像 `kferp-orderapp-rollback:development-20260907231747-ef0dc8ed882c`。
+- development 小程序构建包已同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；旧包备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260907232436-ef0dc8ed882c`。未执行微信开发版上传、体验版或正式版发布。
+
 ## 发布与验收边界
 
-- 本轮部署到 development，不修改订单、付款或历史销售单业务数据；生产环境和微信正式版不变。
+- 已部署到 development，不修改订单、付款或历史销售单业务数据；生产环境和微信正式版不变。
 - 产品验收人：Van；开发环境导出验收待后续安排。
