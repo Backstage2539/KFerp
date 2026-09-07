@@ -177,13 +177,13 @@ describe('employee mini order entry page contract', () => {
   it('reuses the entry page for pre-production editing without touching the create-order draft', () => {
     expect(pageSource).toContain("editOrderID.value = Number(options?.edit_id || 0)")
     expect(pageSource).toContain("uni.setNavigationBarTitle({ title: '编辑销售订单' })")
-    expect(pageSource).toContain('fetchEmployeeOrderDetail(session.token, editOrderID.value)')
+    expect(pageSource).toContain('fetchEmployeeOrderDetail(session.token, isEditMode.value ? editOrderID.value : copyOrderID.value)')
     expect(pageSource).toContain('hydrateEmployeeOrderEditItems')
     expect(pageSource).toContain('employeeOrderEditableOrderDiscount')
     expect(pageSource).toContain('updateEmployeeOrder(session.token, editOrderID.value')
     expect(pageSource).toContain('v-if="!isEditMode"')
     expect(pageSource).toContain('{{ isEditMode ? \'保存修改\' : \'提交订单\' }}')
-    expect(pageSource).toContain('if (!isEditMode.value) await loadDraft()')
+    expect(pageSource).toContain('if (!isEditMode.value && !isCopyMode.value) await loadDraft()')
     expect(pageSource).toContain('if (isEditMode.value) return')
     expect(pageSource).toContain('<text class="label">运费（元）</text>')
     expect(pageSource).toContain('<text class="label">优惠（元）</text>')
@@ -223,6 +223,16 @@ describe('employee mini order entry page contract', () => {
     )
     expect(editPayloadSource).not.toContain('outsource_')
     expect(editPayloadSource).not.toContain('round_to_int')
+  })
+
+  it('reuses the entry page for copying an order while preserving its commercial details', () => {
+    expect(pageSource).toContain("copyOrderID.value = Number(options?.copy_id || 0)")
+    expect(pageSource).toContain("uni.setNavigationBarTitle({ title: '复制销售订单' })")
+    expect(pageSource).toContain('isCopyMode')
+    expect(pageSource).toContain('copyEmployeeOrderItems')
+    expect(pageSource).toContain('employeeOrderCopyPayload')
+    expect(pageSource).toContain('复制录单成功')
+    expect(pageSource).toContain('if (!isEditMode.value && !isCopyMode.value) await loadDraft()')
   })
 
   it('keeps the server edit revision in edit state and sends it only with PUT updates', () => {

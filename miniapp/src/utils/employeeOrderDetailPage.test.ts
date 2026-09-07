@@ -70,6 +70,13 @@ describe('employee order detail miniapp page contract', () => {
     expect(detailSource).not.toMatch(/<navigator[^>]*edit_id/)
   })
 
+  it('offers copying any readable order into a new entry form', () => {
+    expect(detailSource).toContain('function openCopy()')
+    expect(detailSource).toContain('copy_id=${orderID.value}')
+    expect(detailSource).toContain('复制订单')
+    expect(detailSource).toContain('class="copy-order-button"')
+  })
+
   it('renders exactly one add-product action after the final item row', () => {
     const itemLoop = entrySource.indexOf('v-for="(item, index) in form.items"')
     const addButton = entrySource.indexOf('@tap="addItem"')

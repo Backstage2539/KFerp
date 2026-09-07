@@ -739,6 +739,7 @@
                     <th>公式版本</th>
                     <th>基础成本</th>
                     <th>加价率</th>
+                    <th>快速调整加价率</th>
                     <th>税率</th>
                     <th>取整规则</th>
                     <th>状态</th>
@@ -756,6 +757,19 @@
                     <td>{{ rule.formula_version || 'v1' }}</td>
                     <td>{{ pricingRuleCostSourceLabel(rule.cost_source_mode) }}</td>
                     <td>{{ percentDisplay(rule.margin_rate) }}</td>
+                    <td>
+                      <input
+                        class="pricing-rule-quick-markup-input"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        :value="pricingRuleMarkupRatePercent(rule)"
+                        :disabled="productPriceSaving || rule.active === false || pricingRuleNeedsMarkupConfirmation(rule)"
+                        aria-label="快速调整加价率（百分比）"
+                        title="输入百分比后立即保存并生效"
+                        @change="quickAdjustPricingRuleMarkup(rule, $event.target.value)"
+                      />%
+                    </td>
                     <td>{{ percentDisplay(rule.tax_rate) }}</td>
                     <td>{{ pricingRuleRoundingLabel(rule.rounding_mode) }}</td>
                     <td><span :class="['status-pill', rule.active === false ? 'inactive' : '']">{{ rule.active === false ? '停用' : '启用' }}</span></td>
@@ -770,7 +784,7 @@
                     </td>
                   </tr>
                   <tr v-if="!pricingRules.length">
-                    <td colspan="8" class="muted">暂无价格计算模板。可先新建模板，再在商品价格表生成时引用。</td>
+                    <td colspan="9" class="muted">暂无价格计算模板。可先新建模板，再在商品价格表生成时引用。</td>
                   </tr>
                 </tbody>
               </table>
@@ -1932,6 +1946,8 @@ import {
   buildPricingRuleCopyPayload,
   buildPricingRuleUpdateFromTrial,
   buildPricingRuleTrialPayload,
+  pricingRuleMarkupRatePercent,
+  pricingRuleMarkupRateFromPercent,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
   industryFieldTemplateIDsFromConfig,
@@ -4568,6 +4584,41 @@ async function savePricingRule() {
     ok.value = '价格计算模板已保存'
   } catch (err) {
     error.value = err.message || '保存价格计算模板失败'
+  } finally {
+    productPriceSaving.value = false
+  }
+}
+
+async function quickAdjustPricingRuleMarkup(rule, rawPercent) {
+  if (!rule?.id) return
+  const marginRate = pricingRuleMarkupRateFromPercent(rawPercent)
+  if (marginRate === null) {
+    error.value = '请输入不小于 0 的加价率百分比'
+    await loadAll()
+    return
+  }
+  if (pricingRuleNeedsMarkupConfirmation(rule)) {
+    error.value = '旧价格方式无法安全换算；请新建加价率模板'
+    await loadAll()
+    return
+  }
+  const form = defaultPricingRuleForm(JSON.parse(JSON.stringify(rule)))
+  form.margin_rate = marginRate
+  productPriceSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const payload = buildPricingRulePayload(form)
+    const result = await apiSend(`/api/product-pricing-rules/${payload.id}`, { method: 'PUT', body: payload })
+    const row = defaultPricingRuleForm(result.rule || payload)
+    pricingRules.value = pricingRules.value.map((item) => (
+      Number(item.id || 0) === Number(row.id || 0) ? row : item
+    ))
+    if (Number(pricingRuleForm.value.id || 0) === Number(row.id || 0)) pricingRuleForm.value = row
+    ok.value = `加价率已调整为 ${pricingRuleMarkupRatePercent(row.margin_rate)}%，已立即生效`
+  } catch (err) {
+    error.value = err.message || '快速调整加价率失败'
+    await loadAll()
   } finally {
     productPriceSaving.value = false
   }
@@ -8389,6 +8440,9 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-row.inactive td:not(.table-actions):not(:first-child) { opacity: 0.42; }
 .pricing-rule-row.inactive td:first-child .pricing-rule-name-button { opacity: 0.42; }
 .pricing-rule-row.inactive .pricing-rule-copy-action { opacity: 1; }
+.pricing-rule-quick-markup-input { width: 88px; min-height: 32px; padding: 4px 6px; border: 1px solid #cfc7bc; border-radius: 5px; text-align: right; }
+.pricing-rule-quick-markup-input:focus { border-color: #1f4f82; outline: 2px solid rgba(31, 79, 130, .16); }
+.pricing-rule-quick-markup-input:disabled { cursor: not-allowed; opacity: .6; }
 .pricing-rule-name-button { text-align: left; font-weight: 700; line-height: 1.25; white-space: normal; overflow-wrap: anywhere; }
 .pricing-rule-migration-warning { display: block; margin-top: 4px; color: #a14618; font-weight: 700; line-height: 1.35; }
 .pricing-rule-migration-alert { display: grid; gap: 4px; margin: 0 0 14px; }

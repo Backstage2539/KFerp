@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-631-QUICK-PRICING-MARKUP-ADJUSTMENT
+- Branch: `codex/quick-pricing-markup-20260907`
+- Owner/session: Codex / 2026-09-07
+- Status: implementation and development delivery in progress
+- Scope: 商品价格管理的价格计算模板表增加可编辑“快速调整加价率”列，按百分比输入，变更后直接 PUT 保存并立即更新当前模板；失效或旧价格方式模板保持禁用并提示走新建加价率模板。
+- DEV: DEV-631-QUICK-MARKUP-COLUMN; DEV-631-IMMEDIATE-SAVE-AND-VALIDATION; DEV-631-DEVELOPMENT-DELIVERY
+- Verifier: product-settings RED/GREEN, full Vue tests/build, backend unaffected, development page/API smoke and database/API response verification.
+- Deployment: pending; production remains unchanged for this follow-up.
+- Last update: 2026-09-07 Asia/Shanghai
+
+### PR-630-MINIAPP-ORDER-COPY-AND-SAVE-REGRESSION
+- Branch: `codex/prod-order-save-copy-20260906`
+- Owner/session: Codex / 2026-09-06
+- Status: implementation and dual-environment delivery in progress
+- Scope: 修复生产环境小程序录单保存因订单明细 INSERT 参数错位导致的 `internal error`；在员工小程序订单详情增加“复制订单”，复制客户、商品规格、数量、成交单价、运费、优惠、收件信息和备注到新订单，重置付款/发货状态。
+- DEV: DEV-630-ORDER-SAVE-INSERT-REGRESSION; DEV-630-MINIAPP-ORDER-COPY; DEV-630-DUAL-ENV-DELIVERY
+- Verifier: targeted Go RED/GREEN, miniapp unit/page contracts, typecheck/build, full release gates, development and production smoke plus saved-order/copy acceptance.
+- Deployment: pending; production currently contains the regression and has not been changed in this work.
+- Last update: 2026-09-06 Asia/Shanghai
+
 ### PR-629-PRODUCT-CATALOG-WAREHOUSE-SOURCE
 - Branch: `codex/pr629-acceptance-evidence`（业务代码已通过 PR #63-#69 合并）
 - Owner/session: Codex / 2026-09-05

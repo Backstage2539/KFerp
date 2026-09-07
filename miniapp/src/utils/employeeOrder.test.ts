@@ -26,6 +26,8 @@ import {
   repriceEmployeeOrderItemForQuantity,
   isEmployeeOrderNonNegativeMoney,
   hydrateEmployeeOrderEditItems,
+  copyEmployeeOrderItems,
+  employeeOrderCopyPayload,
   preserveEmployeeOrderDraftItemsForMissingCustomer,
   revalidateEmployeeOrderItems,
 } from './employeeOrder'
@@ -311,6 +313,87 @@ describe('employee mini order entry', () => {
         price_override: true,
       }),
     ])
+  })
+
+  it('copies historical quantity, specification and exact unit price into new order rows', () => {
+    const [item] = copyEmployeeOrderItems([{
+      item_id: 31,
+      product_id: 11,
+      parent_product_id: 10,
+      customer_product_alias_id: 202,
+      product_name: '历史名称',
+      spec: '227g',
+      qty: '3',
+      unit: '袋',
+      unit_price: '75.50',
+      line_total: '226.50',
+      price_override: false,
+      bean_list_publication_id: 82,
+      bean_list_version_no: 'V9',
+    }], [{
+      customer_id: 9,
+      parent_product_id: 10,
+      customer_product_alias_id: 202,
+      name: '客户别名B',
+      specs: [{
+        product_id: 11,
+        spec_label: '227g',
+        tiers: [{ unit_price: 72, publication_id: 82, publication_version_no: 'V9' }],
+      }],
+    }], 9)
+
+    expect(item).toMatchObject({
+      item_id: 0,
+      product_id: 11,
+      product_family_key: '9:10:202',
+      qty: 3,
+      spec_label: '227g',
+      unit_price: 75.5,
+      price_override: true,
+      bean_list_publication_id: 82,
+      bean_list_version_no: 'V9',
+    })
+  })
+
+  it('copies the receiver, source, notes, discount and shipping into a new order while resetting statuses', () => {
+    const items = [createEmployeeOrderItem('copy-line')]
+    const payload = employeeOrderCopyPayload({
+      id: 42,
+      order_no: 'SO-42',
+      order_date: '2026-08-01',
+      customer: '客户A',
+      customer_id: 9,
+      source_id: 3,
+      order_type_id: 4,
+      pay_status_id: 5,
+      ship_status_id: 6,
+      grand_total: '88',
+      receiver_name: '张三',
+      receiver_phone: '13800000000',
+      receiver_address: '上海市测试路1号',
+      receiver_company: '客户A公司',
+      shipping_amount: '12.5',
+      discount_amount: '3.5',
+      notes: '重复订单',
+      items: [],
+    }, items, '2026-08-02')
+
+    expect(payload).toMatchObject({
+      order_date: '2026-08-02',
+      customer_id: 9,
+      source_id: 3,
+      order_type_id: 4,
+      pay_status_id: 0,
+      ship_status_id: 0,
+      receiver_name: '张三',
+      receiver_phone: '13800000000',
+      receiver_address: '上海市测试路1号',
+      receiver_company: '客户A公司',
+      shipping_amount: 12.5,
+      discount_amount: 3.5,
+      notes: '重复订单',
+      items,
+    })
   })
 
   it('keeps an unavailable historical edit line visible and blocks it until a current spec is selected', () => {
