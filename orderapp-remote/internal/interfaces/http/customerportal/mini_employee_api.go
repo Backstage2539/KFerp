@@ -167,6 +167,10 @@ type miniEmployeeQuoteSourceTraceDTO struct {
 	PricingRuleVersion     string  `json:"pricing_rule_version"`
 	ManualAdjusted         bool    `json:"manual_adjusted"`
 	SourceLabel            string  `json:"source_label"`
+	PriceListName          string  `json:"price_list_name"`
+	PriceListOwnerName     string  `json:"price_list_owner_name"`
+	PriceListOwnerType     string  `json:"price_list_owner_type"`
+	PriceListPublishedAt   string  `json:"price_list_published_at"`
 }
 
 type miniEmployeeProductionTraceDTO struct {
@@ -328,12 +332,24 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 				"can_maintain":              canMaintain,
 			})
 		}
+		priceChoices := miniEmployeePriceChoices(form, customerID)
+		if raw := strings.TrimSpace(c.QueryParam("publication_id")); raw != "" {
+			id, parseErr := strconv.ParseInt(raw, 10, 64)
+			if parseErr != nil || id <= 0 {
+				return c.JSON(400, map[string]string{"error": "价格表编号不正确"})
+			}
+			form, err = miniEmployeeSelectPublications(form, customerID, []int64{id})
+			if err != nil {
+				return c.JSON(400, map[string]string{"error": err.Error()})
+			}
+		}
 		catalog := miniEmployeeOrderCatalogResult{Products: []salesapp.ProductOption{}, Families: []map[string]any{}, BOMSpecOptions: []salesapp.ProductBOMSpecOption{}}
 		if customerID > 0 {
 			catalog = miniEmployeeOrderCatalog(form, customerID, retailOrder)
 		}
 		return c.JSON(http.StatusOK, map[string]any{
-			"today": form.Today, "customers": customers, "sources": form.Sources,
+			"price_list_options": priceChoices,
+			"today":              form.Today, "customers": customers, "sources": form.Sources,
 			"order_types": form.OrderTypes, "pay_statuses": form.PayStatuses,
 			"ship_statuses": form.ShipStatuses, "products": catalog.Products, "product_families": catalog.Families,
 			"product_bom_spec_options": catalog.BOMSpecOptions,
@@ -676,6 +692,17 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	customer, found := miniEmployeeOrderCustomer(form, cmd.CustomerID)
 	if !found {
 		return "客户不存在", nil
+	}
+	selectedIDs := []int64{}
+	for _, item := range cmd.Items {
+		if item.BeanListPublicationID > 0 {
+			selectedIDs = append(selectedIDs, item.BeanListPublicationID)
+		}
+	}
+	var selectErr error
+	form, selectErr = miniEmployeeSelectPublications(form, cmd.CustomerID, selectedIDs)
+	if selectErr != nil {
+		return selectErr.Error(), nil
 	}
 	retailOrder := miniEmployeeUsesRetailCatalog(form, customer, cmd.OrderTypeID)
 	products := salesapp.FilterOrderProductsForDefaultPublications(form.Products, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
@@ -1545,7 +1572,11 @@ func miniEmployeeQuoteSourceTrace(ed *salesapp.OrderEditData) []miniEmployeeQuot
 		}
 		rows = append(rows, miniEmployeeQuoteSourceTraceDTO{
 			ProductID: item.ProductID, ProductName: item.Product, PriceListPublicationID: publicationID,
-			PriceListVersion: version, TierLabel: miniEmployeeTraceString(source["tier_label"]),
+			PriceListName:        miniEmployeeTraceString(source["price_list_name"]),
+			PriceListOwnerName:   miniEmployeeTraceString(source["price_list_owner_name"]),
+			PriceListOwnerType:   miniEmployeeTraceString(source["price_list_owner_type"]),
+			PriceListPublishedAt: miniEmployeeTraceString(source["price_list_published_at"]),
+			PriceListVersion:     version, TierLabel: miniEmployeeTraceString(source["tier_label"]),
 			PriceUnit: miniEmployeeTraceString(source["price_unit"]), FinalUnitPrice: miniEmployeeTraceNumber(source["final_unit_price"]),
 			PricingRuleVersion: miniEmployeeTraceString(source["pricing_rule_version"]), ManualAdjusted: miniEmployeeTraceBool(source["manual_adjusted"]),
 			SourceLabel: "已发布商品价格表快照",

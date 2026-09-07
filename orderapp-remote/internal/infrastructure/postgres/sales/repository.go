@@ -2300,6 +2300,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 		priceSourceJSON = withProductProductionConfigPriceSourceJSON(priceSourceJSON, productionConfigJSON)
+		priceSourceJSON, err = orderPublicationTraceSnapshot(ctx, tx, r.schema, usage.PublicationID, priceSourceJSON, false)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, nil, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}

@@ -175,7 +175,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		) ship_sender ON true
 		LEFT JOIN %s.sender_settings sender ON sender.id=ship_sender.sender_id
 		%s
-		ORDER BY o.order_date DESC, o.id DESC
+		ORDER BY o.document_date DESC NULLS LAST, o.id DESC
 		LIMIT $%d OFFSET $%d
 	`, orderTrackingSummaryExpr(schema, "o"), orderProcessStatusExpr(schema), schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 

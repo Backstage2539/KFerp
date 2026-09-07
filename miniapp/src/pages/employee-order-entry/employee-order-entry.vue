@@ -69,6 +69,20 @@ const formData = ref<EmployeeOrderForm>()
 const customerContext = ref<EmployeeCustomersResponse>()
 const loading = ref(false)
 const productCatalogLoading = ref(false)
+const selectedPublicationID = ref(0)
+const priceTableChoices = computed(() => [{id:0,label:'默认使用客户最新价格表（无客户表时使用公共表）'}, ...(formData.value?.price_list_options || []).map(v => ({id:v.id,label:`${v.is_customer_owned ? selectedCustomer.value?.name || '客户' : '公共'} · ${v.product_type_name || ''} ${v.version_no} ${v.published_at || ''}`}))])
+async function changePriceTable(event: {detail:{value:string}}) {
+ const choice=priceTableChoices.value[Number(event.detail.value)]
+ if(!choice || choice.id===selectedPublicationID.value)return
+ if(form.value.items.some(item => Number(item.product_id)>0)) {
+  const result = await uni.showModal({title:'切换价格表',content:'切换后需要按新价格表重新选择商品，当前商品明细将清空。是否继续？'})
+  if(!result.confirm)return
+ }
+ selectedPublicationID.value=choice.id
+ const loaded=await loadCustomerProductCatalog(Number(form.value.customer_id))
+ if(loaded){form.value.items=[createEmployeeOrderItem()];quantityInputs.value={}}
+}
+
 const saving = ref(false)
 const savingDraft = ref(false)
 const clearingDraft = ref(false)
@@ -269,7 +283,7 @@ async function loadCustomerProductCatalog(targetCustomerID: number): Promise<boo
   const sequence = ++productCatalogLoadSequence
   productCatalogLoading.value = true
   try {
-    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID)
+    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID, selectedPublicationID.value)
     if (sequence !== productCatalogLoadSequence || Number(form.value.customer_id) !== targetCustomerID) return false
     if (!formData.value) return false
     formData.value = {
@@ -299,6 +313,7 @@ async function chooseCustomer(customer: EmployeeOrderCustomer) {
   const customerChanged = Number(form.value.customer_id || 0) !== Number(customer.id)
   form.value.customer_id = Number(customer.id)
   if (customerChanged) {
+    selectedPublicationID.value = 0
     form.value.items = [createEmployeeOrderItem()]
     quantityInputs.value = {}
   }
@@ -575,7 +590,7 @@ async function loadForm() {
       }
     }
     const targetCustomerID = Number(detailResponse?.order.customer_id || 0)
-    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID)
+    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID, selectedPublicationID.value)
     formData.value = {
       ...data,
       customers: data.customers || [],
@@ -893,6 +908,12 @@ onShow(() => {
         </button>
       </view>
 
+      <view v-if="form.customer_id && !isEditMode">
+        <text class="label">录单价格表</text>
+        <picker :range="priceTableChoices" range-key="label" :disabled="productCatalogLoading" :value="Math.max(0, priceTableChoices.findIndex(v => v.id === selectedPublicationID))" @change="changePriceTable">
+          <view class="field selector-field">{{ priceTableChoices.find(v => v.id === selectedPublicationID)?.label || priceTableChoices[0].label }}</view>
+        </picker>
+      </view>
       <view class="section-head">
         <text class="section-title">商品明细</text>
       </view>

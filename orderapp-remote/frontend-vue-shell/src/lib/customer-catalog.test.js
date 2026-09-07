@@ -39,3 +39,16 @@ test('customer price picker keeps uncategorized copied products selectable',()=>
  assert.equal(matchesProductCatalogPriceListType(items[1],unclassified,{assignments}),true)
  assert.equal(matchesProductCatalogPriceListType(items[0],unclassified,{assignments}),false)
 })
+test('customer catalog uses remove binding and never master deactivation',()=>{
+ const s=readFileSync(new URL('../views/ProductSettingsView.vue',import.meta.url),'utf8')
+ assert.match(s,/catalogCustomerID[^\n]*removeCustomerCatalogProducts/)
+ assert.match(s,/customer-catalog\/remove/)
+})
+test('copied customer price types equal source types and keep true unclassified products',()=>{
+ const items=[{product_id:1},{product_id:2},{product_id:3}]
+ const data={nodes:[{id:1,source_group_id:10,source_item_id:0,name:'咖啡豆'},{id:2,source_group_id:10,source_item_id:11,name:'客户意式'},{id:3,source_group_id:20,source_item_id:0,name:'生豆'},{id:4,source_group_id:20,source_item_id:21,name:'生豆分类'}],assignments:[{object_id:1,group_id:10,group_item_id:11,usage_key:'product_catalog',object_key:'product'},{object_id:2,group_id:20,group_item_id:21,usage_key:'product_catalog',object_key:'product'}]}
+ const projected=customerCatalogProjection(data)
+ const types=buildProductCatalogTemplatePriceListTypeOptions(items,{templates:projected.groups,assignments:projected.assignments,includeUnclassified:true})
+ assert.deepEqual(types.map(t=>[t.label,t.itemCount]),[['咖啡豆',1],['生豆',1],['未分类',1]])
+ assert.equal(projected.groups[0].items[0].name,'客户意式')
+})

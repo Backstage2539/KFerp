@@ -742,6 +742,7 @@ export function fetchMe(token: string): Promise<MeResponse> {
 }
 
 export type EmployeeOrderForm = {
+  price_list_options?: Array<{id:number;customer_id:number;is_customer_owned:boolean;version_no:string;label:string;product_type_name?:string;published_at?:string}>
   today: string
   customers: EmployeeOrderCustomer[]
   sources: Array<{ id: number; name: string }>
@@ -1056,6 +1057,10 @@ export type EmployeeOrderTrace = {
   tier_label?: string
   tierLabel?: string
   price_list_publication_id?: number
+  price_list_name?: string
+  price_list_owner_name?: string
+  price_list_owner_type?: string
+  price_list_published_at?: string
   price_list_version?: string
   final_unit_price?: string | number
   price_unit?: string
@@ -1201,8 +1206,8 @@ const employeeOrderDocumentFiles: Record<
   'delivery-note': { pdf: 'delivery-note.pdf', png: 'delivery-note.png' },
 }
 
-export function fetchEmployeeOrderForm(token: string, customerID = 0): Promise<EmployeeOrderForm> {
-  return miniRequest<EmployeeOrderForm>(buildEmployeeOrderFormPath(customerID), { token })
+export function fetchEmployeeOrderForm(token: string, customerID = 0, publicationID = 0): Promise<EmployeeOrderForm> {
+  return miniRequest<EmployeeOrderForm>(buildEmployeeOrderFormPath(customerID, publicationID), { token })
 }
 
 export function fetchEmployeeOrders(token: string, q = ''): Promise<{ rows: EmployeeOrder[]; has_next: boolean }> {
@@ -1294,9 +1299,9 @@ export function deleteEmployeeOrderDraft(token: string): Promise<{ deleted: bool
   return miniRequest<{ deleted: boolean }>(buildEmployeeOrderDraftPath(), { method: 'DELETE', token })
 }
 
-export function buildEmployeeOrderFormPath(customerID = 0): string {
+export function buildEmployeeOrderFormPath(customerID = 0, publicationID = 0): string {
   const id = Number(customerID || 0)
-  return `/api/mini/employee/order-form${id > 0 ? `?customer_id=${id}` : ''}`
+  return `/api/mini/employee/order-form${id > 0 ? `?customer_id=${id}` : ''}${id > 0 && publicationID > 0 ? `&publication_id=${Number(publicationID)}` : ''}`
 }
 
 export function buildEmployeeOrdersPath(): string {

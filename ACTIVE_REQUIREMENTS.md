@@ -4978,3 +4978,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - PR-634 验证：完整 Go / Vue 1093 项 / Vite 构建通过；真实 PostgreSQL 目录、迁移回滚、并发及旧引用测试通过；小程序 235 项、类型检查及 development 构建通过。验收记录见 docs/acceptance/2026-09-07-customer-catalog-copy.md。已合入 develop 并部署 development；最终应用提交 179f77c6，实测两张订单 SO-20260907-0001 / 0002 成功；复制、分类、价格、隔离、迁移和库存指纹核对通过。生产/微信未发布。
 
 - PR-634 发布证据：回滚源 /opt/stacks/erp/orderapp.backup.deploy-20260907220912-179f77c6753b；应用/数据库正常、外部认证页面 200、受保护 API 未认证 401。最终验收文档随后单独提交，应用运行版本仍为 179f77c6。
+
+### PR-636-CATALOG-ORDER-FOLLOWUP
+- Branch: codex/customer-catalog-order-followup-20260907; baseline origin/develop 56ea7d3b.
+- Status: reproducing and RED tests.
+- Scope: 订单按单据日期排序；客户复制商品删除绑定；客户分类继承；录单客户表默认并允许选择公共表；订单详情报价表名称、归属、版本与发布日期。
+- DEV: DEV-636-ORDER-SORT; DEV-636-CATALOG; DEV-636-PRICE-CHOICE; DEV-636-PRICE-TRACE.
+- Verifier: targeted RED/GREEN; PostgreSQL/API; Go/Vue/miniapp tests and builds; development regression and evidence.
+- Delivery: development only. PR-635 is reserved by sales-order-payment-colors branch; this work reserves PR-636.

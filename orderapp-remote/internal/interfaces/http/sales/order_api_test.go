@@ -6224,3 +6224,10 @@ func writeOrderShippingTemplateForTest(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+func TestOrderQuoteTraceIncludesPublicationOwnershipAndDate(t *testing.T) {
+	rows := orderQuoteSourceTrace(&salesapp.OrderEditData{Items: []salesapp.OrderEditItem{{ProductID: 1, BeanListPublicationID: 12, BeanListVersionNo: "V3.1", PriceSourceJSON: `{"price_list_name":"咖啡豆","price_list_owner_name":"客户A","price_list_published_at":"2026-09-07 10:00:00"}`}}})
+	if len(rows) != 1 || rows[0]["price_list_name"] != "咖啡豆" || rows[0]["price_list_owner_name"] != "客户A" || rows[0]["price_list_published_at"] != "2026-09-07 10:00:00" || rows[0]["price_list_version"] != "V3.1" {
+		t.Fatal(rows)
+	}
+}

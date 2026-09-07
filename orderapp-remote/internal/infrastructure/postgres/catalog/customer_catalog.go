@@ -279,3 +279,53 @@ func (r Repository) MigrateCustomerCatalog(ctx context.Context, preview bool, ac
 	}
 	return out, tx.Commit(ctx)
 }
+
+// RemoveCustomerCatalogProducts removes only catalog bindings. Keep reference
+// identities and category snapshots for history and an idempotent later copy.
+func (r Repository) RemoveCustomerCatalogProducts(ctx context.Context, c app.CopyCustomerCatalogCommand) error {
+	if c.CustomerID <= 0 || len(c.ProductIDs) == 0 {
+		return app.ValidationError{Message: "请选择客户和商品"}
+	}
+	tx, e := r.pool.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	var customerID int64
+	if e = tx.QueryRow(ctx, "SELECT id FROM "+r.schema+".customers WHERE id=$1 FOR UPDATE", c.CustomerID).Scan(&customerID); e == pgx.ErrNoRows {
+		return app.ValidationError{Message: "客户不存在"}
+	} else if e != nil {
+		return e
+	}
+	ids := append([]int64{}, c.ProductIDs...)
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	seen := map[int64]bool{}
+	removed := []int64{}
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		var refID int64
+		var active bool
+		e = tx.QueryRow(ctx, "SELECT id,active FROM "+r.schema+".product_customer_references WHERE customer_id=$1 AND product_id=$2 ORDER BY active DESC,id DESC LIMIT 1 FOR UPDATE", c.CustomerID, id).Scan(&refID, &active)
+		if e == pgx.ErrNoRows {
+			return app.ValidationError{Message: fmt.Sprintf("商品 #%d 不在该客户目录中", id)}
+		}
+		if e != nil {
+			return e
+		}
+		if active {
+			if _, e = tx.Exec(ctx, "UPDATE "+r.schema+".product_customer_references SET active=false,updated_at=now(),updated_by=$2 WHERE id=$1", refID, c.Actor); e != nil {
+				return e
+			}
+			removed = append(removed, id)
+		}
+	}
+	if len(removed) > 0 {
+		if e = infra.AuditInsertTx(ctx, tx, r.schema, c.Actor, "customer_product_catalog", &c.CustomerID, "remove_customer_products", nil, nil, nil, infra.AuditMeta{"customer_id": c.CustomerID, "product_ids": removed, "description": "删除客户商品绑定，保留商品主档和生产配置"}); e != nil {
+			return e
+		}
+	}
+	return tx.Commit(ctx)
+}

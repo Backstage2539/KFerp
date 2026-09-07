@@ -2872,3 +2872,14 @@ test('filterBeanListVersionOptionsToCurrentTypes falls back to all options when 
   assert.deepEqual(orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, []), options)
   assert.deepEqual(orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, [{ id: 0, listType: 'commercial', label: '全部商品' }]), options)
 })
+
+test('PR636 customer default retains an explicit public price choice',()=>{
+ const options=[{id:11,customer_id:42,is_customer_owned:true,list_type:'commercial',published_at:'2026-09-01',version_no:'V1'}, {id:12,customer_id:0,is_customer_owned:false,list_type:'commercial',published_at:'2026-09-07',version_no:'V9'}, {id:13,customer_id:43,is_customer_owned:true,list_type:'commercial'}]
+ const choices=beanListVersionOptionsForCustomer(options,42)
+ assert.deepEqual(choices.map(x=>x.id),[11,12])
+ assert.equal(latestBeanListVersionOption(choices,'commercial').id,11)
+})
+test('PR636 explicit public quote can replace customer quote for a referenced public product',()=>{
+ const products=[{id:1,customer_id:0,visibility:'public',tiers:[{publication_id:12,list_type:'commercial'}]},{id:1,customer_id:42,visibility:'customer_reference',tiers:[{publication_id:11,list_type:'commercial'}]}, {id:9,customer_id:43,visibility:'customer_only',tiers:[{publication_id:12,list_type:'commercial'}]}]
+ assert.deepEqual(filterProductsForCustomer(products,42,{commercial:[12]},[{customer_id:42,use_public_sku:false}],{},true).map(p=>p.customer_id),[0])
+})

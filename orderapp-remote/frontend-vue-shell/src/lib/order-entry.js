@@ -1405,6 +1405,8 @@ function compareVersionNumbers(a, b) {
 }
 
 function compareBeanListVersionOption(a, b) {
+  const ownerDelta = Number(!!a?.is_customer_owned) - Number(!!b?.is_customer_owned)
+  if (ownerDelta) return ownerDelta
   const leftPublished = String(a?.published_at || a?.created_at || '').trim()
   const rightPublished = String(b?.published_at || b?.created_at || '').trim()
   if (leftPublished && rightPublished && leftPublished !== rightPublished) {
@@ -1640,18 +1642,15 @@ export function rowUsesStaleBeanListPublication(row, options, listType = product
 
 export function beanListVersionOptionsForCustomer(options, customerID) {
   const selectedCustomerID = toInt(customerID)
-  const rows = (options || []).filter((item) => toInt(item?.customer_id) === selectedCustomerID)
-  if (rows.length) return rows
   const seen = new Set()
-  return (options || []).filter((item) => {
-    if (item?.is_customer_owned) return false
-    const id = toInt(item?.id)
-    if (id <= 0) return false
-    const key = `${normalizeBeanListType(item?.list_type)}:${id}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  return [...(options || []).filter(item => toInt(item?.customer_id) === selectedCustomerID), ...(options || []).filter(item => !item?.is_customer_owned)]
+    .filter(item => {
+      if (item?.is_customer_owned && toInt(item.customer_id) !== selectedCustomerID) return false
+      const id = toInt(item?.id)
+      const key = `${normalizeBeanListType(item?.list_type)}:${id}`
+      if (id <= 0 || seen.has(key)) return false
+      seen.add(key); return true
+    })
 }
 
 export function isBlankOrderLine(row) {
@@ -1717,6 +1716,7 @@ export function filterProductsForCustomer(
   publicationIDsByType = {},
   publicUsages = [],
   customerOwnedPublicationIDsByType = {},
+  allowSelectedPublic = false,
 ) {
   const selectedCustomerID = toInt(customerID)
   const scopedPublicationIDs = normalizePublicationIDsByType(publicationIDsByType)
@@ -1725,8 +1725,9 @@ export function filterProductsForCustomer(
   const aliasProductIDs = new Set(
     (products || [])
       .filter((product) => selectedCustomerID > 0
-        && toInt(product?.customer_product_alias_id) > 0
-        && toInt(product?.customer_id) === selectedCustomerID)
+        && (toInt(product?.customer_product_alias_id) > 0 || product?.visibility === 'customer_reference')
+        && toInt(product?.customer_id) === selectedCustomerID
+        && productMatchesPublicationScope(product, scopedPublicationIDs))
       .map((product) => toInt(product?.id))
       .filter((id) => id > 0),
   )
@@ -1746,6 +1747,7 @@ export function filterProductsForCustomer(
         selectedCustomerID > 0
         && !allowsPublicSKU
         && !productMatchesExplicitPublicationScope(product, customerOwnedPublicationIDs)
+        && !(allowSelectedPublic && productMatchesExplicitPublicationScope(product, scopedPublicationIDs))
       ) {
         return false
       }

@@ -2388,6 +2388,14 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		return nil, err
 	}
 
+	rows.Close()
+	for i := range d.Items {
+		enriched, err := orderPublicationTraceSnapshot(ctx, r.pool, r.schema, d.Items[i].BeanListPublicationID, d.Items[i].PriceSourceJSON, true)
+		if err != nil {
+			return nil, err
+		}
+		d.Items[i].PriceSourceJSON = enriched
+	}
 	return &d, nil
 }
 

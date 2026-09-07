@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-636-CATALOG-ORDER-FOLLOWUP", title: "订单排序、客户商品删除与报价来源", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
+		{table: "req_dev", code: "DEV-636-ORDER-SORT", title: "订单列表按单据日期排序", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
+		{table: "req_dev", code: "DEV-636-CATALOG", title: "客户商品绑定删除与分类继承复核", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
+		{table: "req_dev", code: "DEV-636-PRICE-CHOICE", title: "网页与小程序客户和公共价格表选择", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
+		{table: "req_dev", code: "DEV-636-PRICE-TRACE", title: "订单价格表归属版本及发布时间", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
 		{table: "req_product", code: "PR-634-CUSTOMER-CATALOG-COPY", title: "商品与分类复制到客户", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-customer-catalog-copy.md"},
 		{table: "req_dev", code: "DEV-634-CATALOG", title: "全量、复选、单个引用复制及独立客户分类", status: "done", assignee: "Codex", evidence: "customer_catalog_test.go; customer-catalog.test.js"},
 		{table: "req_dev", code: "DEV-634-PRICING", title: "客户目录报价、公共报价带入与客户草稿保留", status: "done", assignee: "Codex", evidence: "customer-price-draft.test.js; OP_MANUAL_COSTING.md"},

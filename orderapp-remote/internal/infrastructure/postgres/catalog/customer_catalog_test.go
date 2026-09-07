@@ -244,3 +244,43 @@ func TestCustomerCatalogMigrationRollbackEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestCustomerCatalogRemoveOnlyBindingAtomic(t *testing.T) {
+	r, p, s := customerCatalogFixture(t)
+	ctx := context.Background()
+	for _, cid := range []int64{42, 43} {
+		if _, e := r.CopyCustomerCatalog(ctx, app.CopyCustomerCatalogCommand{CustomerID: cid, Mode: "selected", ProductIDs: []int64{1, 2}, Actor: "test"}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e := r.RemoveCustomerCatalogProducts(ctx, app.CopyCustomerCatalogCommand{CustomerID: 42, ProductIDs: []int64{1, 999}, Actor: "test"}); e == nil {
+		t.Fatal("missing reference must roll back")
+	}
+	before, _ := r.CustomerCatalog(ctx, 42)
+	if len(before.Assignments) != 2 {
+		t.Fatal("partial removal")
+	}
+	for i := 0; i < 2; i++ {
+		if e := r.RemoveCustomerCatalogProducts(ctx, app.CopyCustomerCatalogCommand{CustomerID: 42, ProductIDs: []int64{1, 1}, Actor: "test"}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	a, _ := r.CustomerCatalog(ctx, 42)
+	b, _ := r.CustomerCatalog(ctx, 43)
+	if len(a.Assignments) != 1 || len(b.Assignments) != 2 {
+		t.Fatalf("customer isolation: %+v %+v", a, b)
+	}
+	var active bool
+	if e := p.QueryRow(ctx, "SELECT active FROM "+s+".products WHERE id=1").Scan(&active); e != nil || !active {
+		t.Fatal("master deactivated", e)
+	}
+	var logs int
+	p.QueryRow(ctx, "SELECT count(*) FROM "+s+".audit_logs WHERE action='remove_customer_products'").Scan(&logs)
+	if logs != 1 {
+		t.Fatalf("idempotent audit %d", logs)
+	}
+	restored, e := r.CopyCustomerCatalog(ctx, app.CopyCustomerCatalogCommand{CustomerID: 42, Mode: "selected", ProductIDs: []int64{1}, Actor: "test"})
+	if e != nil || restored.Restored != 1 {
+		t.Fatal(restored, e)
+	}
+}

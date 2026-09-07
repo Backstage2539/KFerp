@@ -149,7 +149,7 @@ describe('employee mini order entry page contract', () => {
   })
 
   it('reloads the customer-scoped published catalog and disables product selection while it is loading', () => {
-    expect(pageSource).toContain('fetchEmployeeOrderForm(session.token, targetCustomerID)')
+    expect(pageSource).toContain('fetchEmployeeOrderForm(session.token, targetCustomerID, selectedPublicationID.value)')
     expect(pageSource).toContain('productCatalogLoading')
     expect(pageSource).toContain('async function chooseCustomer')
     expect(pageSource).toContain('await loadCustomerProductCatalog')

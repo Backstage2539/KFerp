@@ -9,6 +9,7 @@ import (
 
 func registerCustomerCatalogRoutes(e *echo.Echo, h productHandler) {
 	e.POST("/api/product-settings/customer-catalog/copy", h.copyCustomerCatalogAPI)
+	e.POST("/api/product-settings/customer-catalog/remove", h.removeCustomerCatalogAPI)
 	e.GET("/api/product-settings/customer-catalog", h.customerCatalogAPI)
 	e.PUT("/api/product-settings/customer-catalog/nodes/:id", h.renameCustomerCatalogNodeAPI)
 	e.POST("/api/product-settings/customer-catalog/migration", h.migrateCustomerCatalogAPI)
@@ -71,4 +72,16 @@ func (h productHandler) migrateCustomerCatalogAPI(c echo.Context) error {
 		return customerCatalogError(c, e)
 	}
 	return c.JSON(200, out)
+}
+
+func (h productHandler) removeCustomerCatalogAPI(c echo.Context) error {
+	var cmd app.CopyCustomerCatalogCommand
+	if e := c.Bind(&cmd); e != nil {
+		return c.JSON(400, map[string]string{"error": "bad request"})
+	}
+	cmd.Actor = support.ActorOf(c)
+	if e := h.catalog.RemoveCustomerCatalogProducts(c.Request().Context(), cmd); e != nil {
+		return customerCatalogError(c, e)
+	}
+	return c.JSON(200, map[string]bool{"ok": true})
 }
