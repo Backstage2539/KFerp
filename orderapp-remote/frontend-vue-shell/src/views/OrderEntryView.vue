@@ -388,7 +388,7 @@
               class="bean-list-version-meta"
               :class="{ stale: isRowBeanListVersionStale(row), open: row.bean_list_version_tip_open }"
             >
-              <span>报价来源：价格表 {{ row.bean_list_version_no }}</span>
+              <span>报价来源：{{ orderLinePriceTableLabel(row) }}</span>
               <button
                 v-if="isRowBeanListVersionStale(row)"
                 class="bean-list-version-warning"
@@ -496,7 +496,7 @@
           <li>商品明细区点击“选择价格表”可切换熟豆、生豆、挂耳已发布价格表；客户没有自定义价格表时使用公共价格表。</li>
           <li>同一价格表类型已有按商品分类发布的价格表时，新订单只自动启用当前分类价格表；旧全局价格表默认不参与商品候选，需要时可手工启用。仅有旧全局价格表时仍按历史规则自动使用。</li>
           <li>商品按父商品展示，商品名不再拼接规格；规格列和规格搜索只使用当前已选已发布价格表中有价的规格，价格表没有的商品档案规格不会出现在新订单候选中。</li>
-          <li>首次选择商品使用其默认规格；切换价格表版本后，当前规格仍有发布价时保留，否则清空规格和价格并要求重新选择。</li>
+          <li>每个商品类型默认带入当前版本的默认价格表，可以切换同版本内其他表。切表后保留仍可用的规格并重新匹配价格；不在新表中的规格必须重选后提交。</li>
           <li>新版挂耳商品同样从当前价格表选择袋或盒规格；历史挂耳数据仍保留旧单位选择兼容。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
           <li>按规格件数计价时，档位范围和单价单位使用所选 BOM 规格库存单位；例如 50 袋会匹配 48 袋以上档，不显示无意义的 0g。</li>
@@ -896,6 +896,7 @@ function saveOrderEntryDraft() {
   if (!key) return
   saveFormDraft(key, {
     form: { ...form },
+    selectedPriceTableIDs: { ...selectedBeanListPublicationIDs },
     rows: rows.value.map(closeTransientRowMenus),
     customerQuery: customerQuery.value,
     customerDrawerOpen: customerDrawerOpen.value,
@@ -909,6 +910,8 @@ function restoreOrderEntryDraft() {
   const draft = readFormDraft(orderEntryDraftKey())
   if (!draft) return false
   Object.assign(form, draft.form || {})
+  for (const key of Object.keys(selectedBeanListPublicationIDs)) delete selectedBeanListPublicationIDs[key]
+  Object.assign(selectedBeanListPublicationIDs, draft.selectedPriceTableIDs || {})
   rows.value = Array.isArray(draft.rows) && draft.rows.length
     ? draft.rows.map((row) => ({ ...newRow(), ...row, product_open: false }))
     : [newRow()]
@@ -1272,12 +1275,19 @@ function syncOrderHeaderFromCustomer(customer = selectedCustomer.value, options 
   if (orderTypeChanged && options.syncRows !== false) syncRowsForType()
 }
 
+function orderLinePriceTableLabel(row) {
+  let name = ''
+  try { name = JSON.parse(row.price_source_json || '{}').price_table_name || '' } catch {}
+  if (!name) name = beanListVersionOptions.value.find(table => Number(table.id) === Number(row.bean_list_publication_id))?.table_name || '价格表'
+  return `${name} · ${row.bean_list_version_no || ''}`
+}
+
 function beanListVersionLabel(item) {
   if (!item) return ''
   const owner = item.is_customer_owned ? '客户价格表' : '公共价格表'
   const version = item.version_no || item.label || `#${item.id}`
   const time = item.published_at ? ` · ${item.published_at}` : ''
-  return `${owner} ${version}${time}`
+  return `${item.table_name || owner} · ${version}${item.is_default ? ' · 默认' : ''}${time}`
 }
 
 function beanListVersionField(listType) {
@@ -1444,6 +1454,8 @@ function beanListDrawerHint(group) {
 }
 
 function syncBeanListVersionForCustomer(options = {}) {
+  const validGroups = new Set(beanListVersionGroups.value.map(group => group.key))
+  for (const key of Object.keys(selectedBeanListPublicationIDs)) if (!validGroups.has(key)) delete selectedBeanListPublicationIDs[key]
   const activeTypes = retailOrder.value
     ? [{ type: 'retail', label: '零售价格表' }, { type: 'drip', label: '挂耳豆单' }]
     : orderBeanListTypes
@@ -2523,6 +2535,7 @@ async function save(options = {}) {
   clearAllFieldErrors()
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
+    payload.selected_price_table_ids = [...new Set(beanListVersionGroups.value.map(group => Number(selectedBeanListVersionOptionByGroup(group)?.id || 0)).filter(id => id > 0))]
     if (!payload.customer_id) {
       raiseSaveError('请选择客户', 'customer_id')
       return
@@ -2624,7 +2637,7 @@ onMounted(async () => {
   await load()
   const draftRestored = restoreOrderEntryDraft()
   if (draftRestored) {
-    syncBeanListVersionForCustomer({ force: true })
+    syncBeanListVersionForCustomer()
     syncRowsForType({ priceListChanged: true })
   } else {
     repriceHydratedRows()

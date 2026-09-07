@@ -20,7 +20,7 @@ func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema s
 		WITH selected AS (
 			SELECT b.id, b.owner_type, b.owner_key, b.list_type,
 			       COALESCE(NULLIF(b.classification_template_id,0), NULLIF(b.product_type_category_id,0), 0) AS group_id,
-			       b.published_at
+			       b.published_at, NULLIF(b.config_json->'publication_batch'->>'release_id','') AS release_id
 			FROM %[1]s.bean_list_publications b
 			WHERE b.id=$2
 			  AND b.list_type=$3
@@ -39,6 +39,7 @@ func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema s
 					  AND newer.list_type=s.list_type AND newer.status='published'
 					  AND newer.publication_purpose='factory_supply'
 					  AND COALESCE(NULLIF(newer.classification_template_id,0), NULLIF(newer.product_type_category_id,0), 0)=s.group_id
+					  AND (s.release_id IS NULL OR NULLIF(newer.config_json->'publication_batch'->>'release_id','') IS DISTINCT FROM s.release_id)
 					  AND (
 						newer.published_at > s.published_at
 						OR (newer.published_at IS NOT NULL AND s.published_at IS NULL)
@@ -61,6 +62,7 @@ func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema s
 					WHERE newer.owner_type='official' AND newer.list_type=s.list_type
 					  AND newer.status='published' AND newer.publication_purpose='factory_supply'
 					  AND COALESCE(NULLIF(newer.classification_template_id,0), NULLIF(newer.product_type_category_id,0), 0)=s.group_id
+					  AND (s.release_id IS NULL OR NULLIF(newer.config_json->'publication_batch'->>'release_id','') IS DISTINCT FROM s.release_id)
 					  AND (
 						newer.published_at > s.published_at
 						OR (newer.published_at IS NOT NULL AND s.published_at IS NULL)

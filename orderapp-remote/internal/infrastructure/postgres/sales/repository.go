@@ -1880,6 +1880,20 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		totalAmt += items[idx].baseLineTotal
 		itemDiscountAmt += items[idx].discountAmount
 	}
+	{
+		actualIDs := make([]int64, 0, len(items))
+		for _, it := range items {
+			actualIDs = append(actualIDs, it.itemBeanListPublicationID)
+		}
+		tableMetadata, selectionErr := validateSelectedPriceTablesTx(ctx, tx, r.schema, cmd, actualIDs)
+		if selectionErr != nil {
+			return salesapp.SaveOrderResult{}, selectionErr
+		}
+		for i := range items {
+			items[i].priceSourceJSON = withNamedPriceTableSnapshot(items[i].priceSourceJSON, tableMetadata[items[i].itemBeanListPublicationID])
+		}
+	}
+
 	if cmd.RequireCurrentDefaultPublications {
 		checked := make(map[string]bool)
 		for _, it := range items {

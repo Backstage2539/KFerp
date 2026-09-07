@@ -55,21 +55,22 @@ type miniCustomerBillsService interface {
 }
 
 type fulfillmentOrderRequest struct {
-	ServiceCode      string  `json:"service_code"`
-	RecipientName    string  `json:"recipient_name"`
-	RecipientPhone   string  `json:"recipient_phone"`
-	RecipientAddress string  `json:"recipient_address"`
-	RecipientCompany string  `json:"recipient_company"`
-	ProductID        int64   `json:"product_id"`
-	BomSpecID        int64   `json:"bom_spec_id"`
-	BomVariantID     int64   `json:"bom_variant_id"`
-	InventoryUnit    string  `json:"inventory_unit"`
-	ProductName      string  `json:"product_name"`
-	SpecG            int64   `json:"spec_g"`
-	SalesUnit        string  `json:"sales_unit"`
-	Qty              int64   `json:"qty"`
-	UnitPrice        float64 `json:"unit_price"`
-	Note             string  `json:"note"`
+	BeanListPublicationID int64   `json:"bean_list_publication_id"`
+	ServiceCode           string  `json:"service_code"`
+	RecipientName         string  `json:"recipient_name"`
+	RecipientPhone        string  `json:"recipient_phone"`
+	RecipientAddress      string  `json:"recipient_address"`
+	RecipientCompany      string  `json:"recipient_company"`
+	ProductID             int64   `json:"product_id"`
+	BomSpecID             int64   `json:"bom_spec_id"`
+	BomVariantID          int64   `json:"bom_variant_id"`
+	InventoryUnit         string  `json:"inventory_unit"`
+	ProductName           string  `json:"product_name"`
+	SpecG                 int64   `json:"spec_g"`
+	SalesUnit             string  `json:"sales_unit"`
+	Qty                   int64   `json:"qty"`
+	UnitPrice             float64 `json:"unit_price"`
+	Note                  string  `json:"note"`
 }
 
 type mallOrderRequest struct {
@@ -212,13 +213,18 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
 		}
+		selected, selectionErr := miniSelectedPriceTableIDs(c.QueryParam("selected_price_table_ids"))
+		if selectionErr != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": selectionErr.Error()})
+		}
 		result, err := svc.GetServicePage(c.Request().Context(), token, c.Param("key"), customerportalapp.ServicePageFilter{
-			Query:         c.QueryParam("q"),
-			DateFrom:      c.QueryParam("date_from"),
-			DateTo:        c.QueryParam("date_to"),
-			ProcessStatus: c.QueryParam("process_status"),
-			PayStatus:     c.QueryParam("pay_status"),
-			ShipStatus:    c.QueryParam("ship_status"),
+			SelectedPriceTableIDs: selected,
+			Query:                 c.QueryParam("q"),
+			DateFrom:              c.QueryParam("date_from"),
+			DateTo:                c.QueryParam("date_to"),
+			ProcessStatus:         c.QueryParam("process_status"),
+			PayStatus:             c.QueryParam("pay_status"),
+			ShipStatus:            c.QueryParam("ship_status"),
 		})
 		if err != nil {
 			return miniBusinessError(c, err)
@@ -760,20 +766,21 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			return c.JSON(http.StatusGone, map[string]string{"error": "legacy mini fulfillment write endpoint retired"})
 		}
 		result, err := svc.CreateFulfillmentOrder(c.Request().Context(), token, customerportalapp.CreateFulfillmentOrderCommand{
-			PortalServiceCode: req.ServiceCode,
-			RecipientName:     req.RecipientName,
-			RecipientPhone:    req.RecipientPhone,
-			RecipientAddress:  req.RecipientAddress,
-			RecipientCompany:  req.RecipientCompany,
-			ProductID:         req.ProductID,
-			BomSpecID:         req.BomSpecID,
-			BomVariantID:      req.BomVariantID,
-			InventoryUnit:     req.InventoryUnit,
-			ProductName:       req.ProductName,
-			SpecG:             req.SpecG,
-			SalesUnit:         req.SalesUnit,
-			Qty:               req.Qty,
-			Note:              req.Note,
+			BeanListPublicationID: req.BeanListPublicationID,
+			PortalServiceCode:     req.ServiceCode,
+			RecipientName:         req.RecipientName,
+			RecipientPhone:        req.RecipientPhone,
+			RecipientAddress:      req.RecipientAddress,
+			RecipientCompany:      req.RecipientCompany,
+			ProductID:             req.ProductID,
+			BomSpecID:             req.BomSpecID,
+			BomVariantID:          req.BomVariantID,
+			InventoryUnit:         req.InventoryUnit,
+			ProductName:           req.ProductName,
+			SpecG:                 req.SpecG,
+			SalesUnit:             req.SalesUnit,
+			Qty:                   req.Qty,
+			Note:                  req.Note,
 		})
 		if err != nil {
 			return miniBusinessError(c, err)

@@ -20,7 +20,8 @@ func TestIsCurrentDefaultOrderPublicationTxMatchesCustomerAndOfficialFallbackRul
 			publication_purpose TEXT NOT NULL,
 			classification_template_id BIGINT NOT NULL DEFAULT 0,
 			product_type_category_id BIGINT NOT NULL DEFAULT 0,
-			published_at TIMESTAMPTZ
+			config_json JSONB NOT NULL DEFAULT '{}',
+ published_at TIMESTAMPTZ
 		)
 	`, schema)); err != nil {
 		t.Fatal(err)

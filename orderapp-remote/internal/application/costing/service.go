@@ -558,6 +558,7 @@ type UpdateParameterCommand struct {
 }
 
 type BeanListPublication struct {
+	PublicationTableMetadata
 	ID                         int64          `json:"id"`
 	PublicationPurpose         string         `json:"publication_purpose"`
 	ListType                   string         `json:"list_type"`
@@ -4645,6 +4646,13 @@ func beanListProductSpecSelectionKeyForRow(parentProductID int64, row map[string
 }
 
 func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListCommand, error) {
+	config, copyErr := copyBeanListMap(cmd.Config)
+	if copyErr != nil {
+		return PublishBeanListCommand{}, copyErr
+	}
+	delete(config, "publication_batch")
+	cmd.Config = config
+
 	listType, err := normalizeBeanListType(cmd.ListType)
 	if err != nil {
 		return PublishBeanListCommand{}, err
@@ -5671,6 +5679,16 @@ func beanListPublicationPDFCacheKey(row BeanListPublication) string {
 }
 
 func beanListPublicationPDFFilename(row BeanListPublication) string {
+	if name := BeanListBatchMetadata(row.Config).TableName; name != "" {
+		clean := strings.Map(func(r rune) rune {
+			if r < 32 || strings.ContainsRune(`/\:*?"<>|`, r) {
+				return '-'
+			}
+			return r
+		}, name+"-"+row.Version)
+		return clean + ".pdf"
+	}
+
 	listType := strings.TrimSpace(row.ListType)
 	if listType == "" {
 		listType = "bean-list"

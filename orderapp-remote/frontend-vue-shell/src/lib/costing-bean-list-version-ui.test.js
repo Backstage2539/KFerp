@@ -89,7 +89,7 @@ test('product price list keeps product count scope and tier template action on o
   assert.match(viewSource, /\.price-list-top-toolbar\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:/s)
 })
 
-test('product price list groups all three management actions in the top toolbar with equal summary heights', () => {
+test('product price list keeps template actions above and configuration next to publication', () => {
   const pageHeaderStart = viewSource.indexOf('<section class="panel">')
   const versionPanelStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const pageHeaderSource = viewSource.slice(pageHeaderStart, versionPanelStart)
@@ -103,11 +103,11 @@ test('product price list groups all three management actions in the top toolbar 
   const pricingRulesIndex = pageHeaderSource.indexOf('>计价模式规则</button>')
   const priceListConfigIndex = pageHeaderSource.indexOf('>价格表配置</button>')
   assert.ok(
-    tierTemplateIndex > -1 && pricingRulesIndex > tierTemplateIndex && priceListConfigIndex > pricingRulesIndex,
-    'top toolbar must contain tier templates, pricing rules and price-list config in order',
+    tierTemplateIndex > -1 && pricingRulesIndex > tierTemplateIndex && priceListConfigIndex === -1,
+    'top toolbar contains only template and pricing rule management',
   )
   assert.doesNotMatch(generatePanelSource, />计价模式规则<\/button>/)
-  assert.doesNotMatch(generatePanelSource, />价格表配置<\/button>/)
+  assert.match(viewSource, /@click="openNamedTableConfig">价格表配置<\/button>\s*<button[^>]*@click="publishBeanList">发布价格表<\/button>/)
   assert.equal((viewSource.match(/>管理阶梯模板<\/button>/g) || []).length, 1)
   assert.equal((viewSource.match(/>计价模式规则<\/button>/g) || []).length, 1)
   assert.equal((viewSource.match(/>价格表配置<\/button>/g) || []).length, 1)
@@ -308,8 +308,8 @@ test('product price-list publish action reports blocked reasons instead of doing
   const blockedReasonSource = viewSource.slice(blockedReasonStart, blockedReasonEnd)
 
   for (const expected of [
-    'const blockedReason = priceListPublishBlockedReason.value',
-    'error.value = blockedReason',
+    'blocked_reason: priceListPublishBlockedReason.value',
+    'table.payload.blocked_reason',
     '暂无可发布的价格表预览',
     '请填写价格表版本号',
     '请选择客户',
@@ -490,7 +490,7 @@ test('product bean-list generate area uses inline price-list configuration inste
     'productPriceListTypeKey',
     'price-list-page-config',
     '<strong>计价规则</strong>',
-    '<button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>',
+    '<button class="secondary" type="button" :disabled="loading || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>',
     'aria-label="价格表配置"',
     "greenTierPriceRows",
     "green_bean_list",

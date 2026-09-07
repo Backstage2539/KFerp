@@ -245,6 +245,7 @@ func ResolveUsageForPublication(ctx context.Context, q rowQuerier, schema string
 		  )
 		ORDER BY CASE WHEN $2 <> '' AND blp.owner_type='customer' AND blp.owner_key=$2 THEN 0 ELSE 1 END,
 		         blp.published_at DESC,
+ COALESCE((blp.config_json->'publication_batch'->>'is_default_table')::boolean,true) DESC,
 		         blp.id DESC
 		LIMIT 1
 	`, schema)
@@ -1162,4 +1163,12 @@ func isMissingBeanListSchema(err error) bool {
 		return false
 	}
 	return pgErr.Code == "42P01" || pgErr.Code == "42703"
+}
+
+// PublishedCatalogPricing reads a frozen publication without loading mutable prices.
+func PublishedCatalogPricing(raw []byte, productID, bomSpecID, bomVariantID int64, listType string) (PublishedPricing, bool) {
+	if bomSpecID > 0 {
+		return publishedPricingFromContentForBOMSpec(raw, productID, bomSpecID, bomVariantID, 1, listType)
+	}
+	return publishedPricingFromContentForListType(raw, productID, listType, 0, 1, "", 0)
 }

@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-635-NAMED-PRICE-TABLE-BATCHES", title: "同版本多张命名价格表与按表下单", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-named-price-table-batches.md"},
+		{table: "req_dev", code: "DEV-635-BATCH", title: "多表原子发布、共同版本与独立PDF", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-named-price-table-batches.md"},
+		{table: "req_dev", code: "DEV-635-EDITOR", title: "多表配置、草稿隔离和默认表", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-named-price-table-batches.md"},
+		{table: "req_dev", code: "DEV-635-ORDER-SELECTION", title: "ERP与小程序按所选价格表下单", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-named-price-table-batches.md"},
+		{table: "req_dev", code: "DEV-635-DELIVERY", title: "验证、手册与开发环境交付", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-named-price-table-batches.md"},
 		{table: "req_product", code: "PR-634-CUSTOMER-CATALOG-COPY", title: "商品与分类复制到客户", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-customer-catalog-copy.md"},
 		{table: "req_dev", code: "DEV-634-CATALOG", title: "全量、复选、单个引用复制及独立客户分类", status: "done", assignee: "Codex", evidence: "customer_catalog_test.go; customer-catalog.test.js"},
 		{table: "req_dev", code: "DEV-634-PRICING", title: "客户目录报价、公共报价带入与客户草稿保留", status: "done", assignee: "Codex", evidence: "customer-price-draft.test.js; OP_MANUAL_COSTING.md"},

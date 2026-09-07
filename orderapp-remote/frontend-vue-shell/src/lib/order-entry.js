@@ -1394,6 +1394,9 @@ function compareVersionNumbers(a, b) {
 }
 
 function compareBeanListVersionOption(a, b) {
+  if (a?.release_id && a.release_id === b?.release_id && Boolean(a.is_default_table) !== Boolean(b.is_default_table)) {
+    return a.is_default_table ? 1 : -1
+  }
   const leftPublished = String(a?.published_at || a?.created_at || '').trim()
   const rightPublished = String(b?.published_at || b?.created_at || '').trim()
   if (leftPublished && rightPublished && leftPublished !== rightPublished) {
