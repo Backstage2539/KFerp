@@ -1791,9 +1791,9 @@
 - 旧有效引用可预览、幂等补齐；回滚凭迁移日志执行并在分类或引用变更后拒绝。仅交付 development，生产及微信发布分别记录。
 - 证据：`docs/acceptance/2026-09-07-customer-catalog-copy.md`。
 
-## PR-636-CATALOG-ORDER-FOLLOWUP 订单排序、客户引用删除与报价来源（2026-09-07）
+## PR-637-CATALOG-ORDER-FOLLOWUP 订单排序、客户引用删除与报价来源（2026-09-07）
 
-- 产品状态 review，验收人 VA；DEV-636-ORDER-SORT、DEV-636-CATALOG、DEV-636-PRICE-CHOICE、DEV-636-PRICE-TRACE。
+- 产品状态 review，验收人 VA；DEV-637-ORDER-SORT、DEV-637-CATALOG、DEV-637-PRICE-CHOICE、DEV-637-PRICE-TRACE。
 - 订单按单据日期倒序、同日按 ID 倒序；修改订单日期不改变列表位置。
 - 客户目录删除只取消当前客户商品绑定，保留商品主档、BOM、库存和历史记录；整批事务、重复操作幂等、操作日志可查。
 - 默认使用该客户最新已发布供货表；内部录单可明确选择公共价格表，小程序可选择当前已发布表；其他客户价格表不可用。
@@ -1806,3 +1806,9 @@
 - DEV-635-EDITOR: 多表配置、隔离草稿、默认表和版本分组。
 - DEV-635-ORDER-SELECTION: ERP/小程序选表与服务端目录/价格隔离。
 - DEV-635-DELIVERY: 单元/API/PostgreSQL、构建、手册与development交付。
+
+# PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS 销售单付款金额颜色统一（2026-09-07）
+
+- `DEV-636-DOCUMENT-PAYMENT-COLORS`：网页 ERP 与员工小程序导出的销售单 PDF/PNG 必须使用同一付款金额规则。全额已付且无预付款时，显示绿色“已付金额”和订单应收合计；完全未付时，显示红色“未付金额”和订单应收合计；部分预付款继续显示绿色“已支付预付款”和红色“未支付尾款”，结清后保留原累计已付展示。
+- `DEV-636-DUAL-EXPORT-CONTRACT`：网页销售单接口与小程序分享接口继续共用服务端快照、PDF 和 PNG 生成器；普通和组合销售单保持相同语义。生成快照必须写入当前渲染版本，小程序不得把缺少当前版本标记的历史最新版当作可复用缓存；按需生成新版，历史文件继续保留。
+- `DEV-636-VERIFICATION`：完成付款行单测、网页/小程序 API 路由回归、PDF/PNG 实际渲染与人工图像检查，并同步销售单和小程序操作手册、PR/DEV 与验收记录；部署到 development，生产环境不变。

@@ -16,6 +16,7 @@ import (
 	customerapp "orderapp/internal/application/customer"
 	customerportalapp "orderapp/internal/application/customerportal"
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 
 	"github.com/labstack/echo/v4"
 )
@@ -492,12 +493,12 @@ func TestMiniEmployeeOrderDetailDocumentAvailabilityUsesLatestFormalVersions(t *
 	sales := &miniEmployeeSalesFake{
 		listResult: &result, orderFormResult: &form,
 		salesOrderPDF: salesapp.SalesOrderDocumentFile{
-			Document: salesapp.SalesOrderDocument{VersionNo: 3},
+			Document: salesapp.SalesOrderDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion}},
 			Path:     miniEmployeeDocumentTestFile(t, "available-sales-order.pdf", "%PDF"),
 			Filename: "SO-42-V3.pdf",
 		},
 		salesOrderPNG: salesapp.SalesOrderImageFile{
-			Document: salesapp.SalesOrderImageDocument{VersionNo: 2},
+			Document: salesapp.SalesOrderImageDocument{VersionNo: 2, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion}},
 			Path:     miniEmployeeDocumentTestFile(t, "available-sales-order.png", "\x89PNG\r\n\x1a\n"),
 			Filename: "SO-42-V2.png",
 		},
@@ -827,10 +828,10 @@ func TestMiniEmployeeOrderDocumentGenerateUsesMiniEmployeeActorAndReusesLatest(t
 			sales := &miniEmployeeSalesFake{
 				listResult: &result,
 				salesOrderPDF: salesapp.SalesOrderDocumentFile{
-					Document: salesapp.SalesOrderDocument{VersionNo: 3}, Path: miniEmployeeDocumentTestFile(t, "existing-sales-order.pdf", "%PDF"), Filename: "销售单-SO-42-V3.pdf",
+					Document: salesapp.SalesOrderDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion}}, Path: miniEmployeeDocumentTestFile(t, "existing-sales-order.pdf", "%PDF"), Filename: "销售单-SO-42-V3.pdf",
 				},
 				salesOrderPNG: salesapp.SalesOrderImageFile{
-					Document: salesapp.SalesOrderImageDocument{VersionNo: 3}, Path: miniEmployeeDocumentTestFile(t, "existing-sales-order.png", "\x89PNG"), Filename: "销售单-SO-42-V3.png",
+					Document: salesapp.SalesOrderImageDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion}}, Path: miniEmployeeDocumentTestFile(t, "existing-sales-order.png", "\x89PNG"), Filename: "销售单-SO-42-V3.png",
 				},
 				deliveryNotePDF: salesapp.DeliveryNoteDocumentFile{
 					Document: salesapp.DeliveryNoteDocument{VersionNo: 3}, Path: miniEmployeeDocumentTestFile(t, "existing-delivery-note.pdf", "%PDF"), Filename: "发货单-SO-42-V3.pdf",
@@ -848,6 +849,54 @@ func TestMiniEmployeeOrderDocumentGenerateUsesMiniEmployeeActorAndReusesLatest(t
 
 			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"version_no":3`) ||
 				!strings.Contains(rec.Body.String(), `-V3.`) || !strings.Contains(rec.Body.String(), `"generated":false`) || sales.generateCalls != 0 {
+				t.Fatalf("status=%d generate=%d body=%s", rec.Code, sales.generateCalls, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestMiniEmployeeSalesOrderGenerateRefreshesStaleRenderVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		path      string
+		configure func(*miniEmployeeSalesFake)
+	}{
+		{
+			name: "pdf",
+			path: "/api/mini/employee/orders/42/documents/sales-order.pdf",
+			configure: func(sales *miniEmployeeSalesFake) {
+				sales.salesOrderPDF = salesapp.SalesOrderDocumentFile{
+					Document: salesapp.SalesOrderDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: "legacy"}},
+					Path:     miniEmployeeDocumentTestFile(t, "stale-sales-order.pdf", "%PDF"), Filename: "销售单-SO-42-V3.pdf",
+				}
+				sales.generateSalesOrderResult.Document.VersionNo = 4
+			},
+		},
+		{
+			name: "png",
+			path: "/api/mini/employee/orders/42/documents/sales-order.png",
+			configure: func(sales *miniEmployeeSalesFake) {
+				sales.salesOrderPNG = salesapp.SalesOrderImageFile{
+					Document: salesapp.SalesOrderImageDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: "legacy"}},
+					Path:     miniEmployeeDocumentTestFile(t, "stale-sales-order.png", "\x89PNG"), Filename: "销售单-SO-42-V3.png",
+				}
+				sales.generateSalesImageResult.Document.VersionNo = 4
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42"}}}
+			sales := &miniEmployeeSalesFake{listResult: &result}
+			tc.configure(sales)
+			registerMiniEmployeeAPI(e, employeePortalService(), sales)
+
+			req := httptest.NewRequest(http.MethodPost, tc.path, nil)
+			req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"version_no":4`) || !strings.Contains(rec.Body.String(), `"generated":true`) || sales.generateCalls != 1 {
 				t.Fatalf("status=%d generate=%d body=%s", rec.Code, sales.generateCalls, rec.Body.String())
 			}
 		})

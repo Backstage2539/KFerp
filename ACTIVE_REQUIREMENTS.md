@@ -4989,12 +4989,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 - PR-634 发布证据：回滚源 /opt/stacks/erp/orderapp.backup.deploy-20260907220912-179f77c6753b；应用/数据库正常、外部认证页面 200、受保护 API 未认证 401。最终验收文档随后单独提交，应用运行版本仍为 179f77c6。
 
-### PR-636-CATALOG-ORDER-FOLLOWUP
+### PR-637-CATALOG-ORDER-FOLLOWUP
 - Branch: codex/customer-catalog-order-followup-20260907; baseline origin/develop 56ea7d3b.
 - Status: reproducing and RED tests.
 - Scope: 订单按单据日期排序；客户复制商品删除绑定；客户分类继承；录单客户表默认并允许选择公共表；订单详情报价表名称、归属、版本与发布日期。
-- DEV: DEV-636-ORDER-SORT; DEV-636-CATALOG; DEV-636-PRICE-CHOICE; DEV-636-PRICE-TRACE.
+- DEV: DEV-637-ORDER-SORT; DEV-637-CATALOG; DEV-637-PRICE-CHOICE; DEV-637-PRICE-TRACE.
 - Verifier: targeted RED/GREEN; PostgreSQL/API; Go/Vue/miniapp tests and builds; development regression and evidence.
 - Delivery: development only. PR-635 is reserved by sales-order-payment-colors branch; this work reserves PR-636.
 
-- PR-636：已合并最新 develop 5adb6d11。Go 全量、Vue 1102 项、小程序 238 项及类型/构建全部通过；PostgreSQL 排序、引用删除/恢复/分类移动、报价冻结和公共版本选择通过。进入 development 集成部署与实际验证。
+- PR-637：已合并最新 develop 5adb6d11。Go 全量、Vue 1102 项、小程序 238 项及类型/构建全部通过；PostgreSQL 排序、引用删除/恢复/分类移动、报价冻结和公共版本选择通过。进入 development 集成部署与实际验证。
+### PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS
+- Branch: `codex/sales-order-payment-colors-20260907`
+- Owner/session: Codex / 2026-09-07
+- Status: verified on latest develop；development 部署待执行；产品验收待 Van
+- Scope: 网页 ERP 与小程序共用的销售单 PDF/PNG 导出统一显示付款金额；全额已付显示绿色已付金额，完全未付显示红色未付金额，部分预付款保留绿色预付款与红色尾款。
+- Verifier:
+  - Unit: `go test ./internal/infrastructure/pdf ./internal/domain/sales -count=1` 通过；覆盖已付、未付、预付款、组合销售单与精确填充色。
+  - API: 网页销售单预览/生成与小程序旧渲染版本刷新定向测试通过；完整 Go 后端门禁通过。
+  - Frontend/build: Vue 1093/1093 通过；Vite 6602 modules 构建成功。小程序前端源码未改，服务端分享 API 已覆盖。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`；`orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md`；实际 4 组 PDF/PNG 渲染检查通过。
+- Deployment: 已获授权部署 development；生产环境和微信正式版不变。
+- Last update: 2026-09-07
+- Notes: 原手工登记 PR-635；合并前发现并行需求已先占用 PR-635，顺延为 PR-636，保留两项需求及验证记录。
+
+- 本任务需求编号顺延 PR-637：并行付款颜色任务已先合入并占用 PR-636；本任务名称、分支和日志路径保留，避免覆盖其他需求。

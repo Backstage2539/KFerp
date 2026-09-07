@@ -1,8 +1,8 @@
-# PR-636 订单与客户目录跟进验收
+# PR-637 订单与客户目录跟进验收
 
 ## 范围
 
-从 origin/develop 56ea7d3b 建立 codex/customer-catalog-order-followup-20260907，仅 development 发布。生产环境与微信发布不在本次范围。原工作区未提交修改保持不动，PR-635 属于独立任务。
+从 origin/develop 56ea7d3b 建立 codex/customer-catalog-order-followup-20260907，仅 development 发布。生产环境与微信发布不在本次范围。原工作区未提交修改保持不动，PR-635/PR-636 属于独立任务。
 
 ## 复现与 RED
 
