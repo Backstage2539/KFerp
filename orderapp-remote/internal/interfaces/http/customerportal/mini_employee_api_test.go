@@ -1014,6 +1014,29 @@ func TestMiniEmployeeOrderFormKeepsOnlyCurrentDefaultPublishedCatalog(t *testing
 	}
 }
 
+func TestMiniEmployeeCustomerReferenceKeepsOwnBOMSpecQuote(t *testing.T) {
+	form := salesapp.OrderFormData{
+		Products: []salesapp.ProductOption{{ID: 1063, CustomerID: 300, Name: "客户初晓", CustomerProductDisplayName: "客户初晓", CustomerProductReferenceID: 106, Visibility: "customer_reference", ProductKind: "roasted_bean", Tiers: []salesapp.ProductTierOption{{PublicationID: 125, ListType: "commercial", UnitPrice: 33, QuantityBasis: "sales_spec_count", EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(3), "bom_variant_id": float64(483)}}}}},
+		ProductBOMSpecOptions: []salesapp.ProductBOMSpecOption{
+			{ParentProductID: 1063, BomSpecID: 3, BomVariantID: 483, Published: true, MigrationState: "cutover", SpecName: "227g", InventoryUnit: "袋", Tiers: []salesapp.ProductTierOption{{PublicationID: 122, ListType: "commercial", UnitPrice: 28}}},
+			{ParentProductID: 1063, BomSpecID: 7, Published: true, MigrationState: "cutover", SpecName: "454g", InventoryUnit: "袋"},
+		},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{ID: 125, CustomerID: 300, ListType: "commercial", IsDefault: true}},
+	}
+	result := miniEmployeeOrderCatalog(form, 300, false)
+	if len(result.Families) != 1 || result.Families[0]["name"] != "客户初晓" {
+		t.Fatalf("customer family missing: %+v", result)
+	}
+	specs := result.Families[0]["specs"].([]map[string]any)
+	if len(specs) != 1 || specs[0]["bom_spec_id"] != int64(3) {
+		t.Fatalf("unquoted or wrong spec: %+v", specs)
+	}
+	tiers := specs[0]["tiers"].([]salesapp.ProductTierOption)
+	if len(tiers) != 1 || tiers[0].PublicationID != 125 || tiers[0].UnitPrice != 33 {
+		t.Fatalf("customer quote replaced by public quote: %+v", tiers)
+	}
+}
+
 func TestMiniEmployeeOrderFormUsesCutoverBOMSpecsAndHidesLegacyChildren(t *testing.T) {
 	e := echo.New()
 	sales := &miniEmployeeSalesFake{orderFormResult: &salesapp.OrderFormData{
@@ -1097,7 +1120,7 @@ func TestMiniEmployeePrepareCurrentCatalogAcceptsCutoverParentAndBOMSpec(t *test
 			{ID: 11, SKUID: 11, ParentProductID: 10, CustomerID: 8, Name: "初晓旧规格", ProductKind: "roasted_bean"},
 		},
 		ProductBOMSpecOptions: []salesapp.ProductBOMSpecOption{{
-			ParentProductID: 10, BomID: 100, BomVersionID: 1000, BomSpecID: 101, BomVariantID: 1001,
+			ParentProductID: 10, OwnerCustomerID: 8, BomID: 100, BomVersionID: 1000, BomSpecID: 101, BomVariantID: 1001,
 			SpecCode: "BOM-SPEC-000101", SpecKey: "bag-227", SpecName: "227g袋", InventoryUnit: "袋",
 			Published: true, IsDefault: true, MigrationState: "cutover", WriteProductID: 10, WriteBomSpecID: 101, WriteBomVariantID: 1001,
 			Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"source":"price_list"}`}},
