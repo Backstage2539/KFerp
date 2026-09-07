@@ -4996,3 +4996,5 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-636-ORDER-SORT; DEV-636-CATALOG; DEV-636-PRICE-CHOICE; DEV-636-PRICE-TRACE.
 - Verifier: targeted RED/GREEN; PostgreSQL/API; Go/Vue/miniapp tests and builds; development regression and evidence.
 - Delivery: development only. PR-635 is reserved by sales-order-payment-colors branch; this work reserves PR-636.
+
+- PR-636：已合并最新 develop 5adb6d11。Go 全量、Vue 1102 项、小程序 238 项及类型/构建全部通过；PostgreSQL 排序、引用删除/恢复/分类移动、报价冻结和公共版本选择通过。进入 development 集成部署与实际验证。

@@ -329,3 +329,62 @@ func (r Repository) RemoveCustomerCatalogProducts(ctx context.Context, c app.Cop
 	}
 	return tx.Commit(ctx)
 }
+
+func (r Repository) MoveCustomerCatalogProducts(ctx context.Context, c app.MoveCustomerCatalogProductsCommand) error {
+	if c.CustomerID <= 0 || len(c.ProductIDs) == 0 || c.GroupID < 0 || c.GroupItemID < 0 {
+		return app.ValidationError{Message: "请选择客户商品和客户分类"}
+	}
+	tx, e := r.pool.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	var cid, nodeID int64
+	if e = tx.QueryRow(ctx, "SELECT id FROM "+r.schema+".customers WHERE id=$1 FOR UPDATE", c.CustomerID).Scan(&cid); e == pgx.ErrNoRows {
+		return app.ValidationError{Message: "客户不存在"}
+	} else if e != nil {
+		return e
+	}
+	if c.GroupID == 0 && c.GroupItemID == 0 {
+		nodeID, e = r.ensureCustomerNodeTx(ctx, tx, c.CustomerID, 0, 0, c.Actor, map[int64]bool{})
+	} else {
+		e = tx.QueryRow(ctx, "SELECT id FROM "+r.schema+".customer_product_catalog_nodes WHERE customer_id=$1 AND source_group_id=$2 AND source_item_id=$3", c.CustomerID, c.GroupID, c.GroupItemID).Scan(&nodeID)
+	}
+	if e == pgx.ErrNoRows {
+		return app.ValidationError{Message: "分类不属于当前客户目录"}
+	}
+	if e != nil {
+		return e
+	}
+	ids := append([]int64{}, c.ProductIDs...)
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	seen := map[int64]bool{}
+	old := map[int64]int64{}
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		var refID, previous int64
+		e = tx.QueryRow(ctx, "SELECT id,COALESCE(customer_catalog_node_id,0) FROM "+r.schema+".product_customer_references WHERE customer_id=$1 AND product_id=$2 AND active=true FOR UPDATE", c.CustomerID, id).Scan(&refID, &previous)
+		if e == pgx.ErrNoRows {
+			return app.ValidationError{Message: fmt.Sprintf("商品 #%d 不在该客户目录中", id)}
+		}
+		if e != nil {
+			return e
+		}
+		if previous == nodeID {
+			continue
+		}
+		old[id] = previous
+		if _, e = tx.Exec(ctx, "UPDATE "+r.schema+".product_customer_references SET customer_catalog_node_id=$2,updated_at=now(),updated_by=$3 WHERE id=$1", refID, nodeID, c.Actor); e != nil {
+			return e
+		}
+	}
+	if len(old) > 0 {
+		if e = infra.AuditInsertTx(ctx, tx, r.schema, c.Actor, "customer_product_catalog", &c.CustomerID, "move_customer_products", nil, nil, nil, infra.AuditMeta{"customer_id": c.CustomerID, "previous_nodes": old, "target_node_id": nodeID, "description": "调整客户商品分类，保留工厂分类"}); e != nil {
+			return e
+		}
+	}
+	return tx.Commit(ctx)
+}

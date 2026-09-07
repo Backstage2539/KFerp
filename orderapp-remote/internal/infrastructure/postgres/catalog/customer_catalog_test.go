@@ -284,3 +284,49 @@ func TestCustomerCatalogRemoveOnlyBindingAtomic(t *testing.T) {
 		t.Fatal(restored, e)
 	}
 }
+
+func TestCustomerCatalogMoveIndependentAndAtomic(t *testing.T) {
+	r, p, s := customerCatalogFixture(t)
+	ctx := context.Background()
+	for _, cid := range []int64{42, 43} {
+		r.CopyCustomerCatalog(ctx, app.CopyCustomerCatalogCommand{CustomerID: cid, Mode: "all", Actor: "test"})
+	}
+	cmd := app.MoveCustomerCatalogProductsCommand{CustomerID: 42, ProductIDs: []int64{5}, GroupID: 10, GroupItemID: 12, Actor: "test"}
+	if e := r.MoveCustomerCatalogProducts(ctx, cmd); e != nil {
+		t.Fatal(e)
+	}
+	a, _ := r.CustomerCatalog(ctx, 42)
+	b, _ := r.CustomerCatalog(ctx, 43)
+	group := func(c app.CustomerCatalog) int64 {
+		for _, x := range c.Assignments {
+			if x.ObjectID == 5 {
+				return x.GroupItemID
+			}
+		}
+		return -1
+	}
+	if group(a) != 12 || group(b) != 0 {
+		t.Fatal(a, b)
+	}
+	var factory int
+	p.QueryRow(ctx, "SELECT count(*) FROM "+s+".business_group_assignments WHERE object_id=5").Scan(&factory)
+	if factory != 0 {
+		t.Fatal("factory category changed")
+	}
+	cmd.ProductIDs = []int64{1, 999}
+	cmd.GroupItemID = 13
+	if e := r.MoveCustomerCatalogProducts(ctx, cmd); e == nil {
+		t.Fatal("bad batch accepted")
+	}
+	a, _ = r.CustomerCatalog(ctx, 42)
+	for _, x := range a.Assignments {
+		if x.ObjectID == 1 && x.GroupItemID != 12 {
+			t.Fatal("partial move")
+		}
+	}
+	cmd.ProductIDs = []int64{5}
+	cmd.GroupItemID = 14
+	if e := r.MoveCustomerCatalogProducts(ctx, cmd); e == nil {
+		t.Fatal("uncopied category accepted")
+	}
+}

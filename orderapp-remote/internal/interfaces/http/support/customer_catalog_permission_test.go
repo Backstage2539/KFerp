@@ -9,7 +9,7 @@ import (
 )
 
 func TestCustomerCatalogPermissions(t *testing.T) {
-	for _, p := range []string{"/api/product-settings/customer-catalog/remove", "/api/product-settings/customer-catalog/copy", "/api/product-settings/customer-catalog/nodes/1", "/api/product-customer-references/1"} {
+	for _, p := range []string{"/api/product-settings/customer-catalog/move", "/api/product-settings/customer-catalog/remove", "/api/product-settings/customer-catalog/copy", "/api/product-settings/customer-catalog/nodes/1", "/api/product-customer-references/1"} {
 		if got := requiredPermissionForRequest(http.MethodPost, p); got != "products.write" {
 			t.Fatalf("%s: %s", p, got)
 		}
@@ -29,6 +29,7 @@ func TestCustomerCatalogMiddlewareDeniesCustomersAndEnforcesStaffPermissions(t *
 	}{
 		{AccountTypeChannelCustomer, "products.write", http.MethodPost, "/api/product-settings/customer-catalog/copy", 403},
 		{AccountTypeChannelCustomer, "products.write", http.MethodPost, "/api/product-settings/customer-catalog/remove", 403},
+		{AccountTypeChannelCustomer, "products.write", http.MethodPost, "/api/product-settings/customer-catalog/move", 403},
 		{"employee", "products.read", http.MethodPost, "/api/product-settings/customer-catalog/remove", 403},
 		{"employee", "products.write", http.MethodPost, "/api/product-settings/customer-catalog/remove", 200},
 		{AccountTypeChannelCustomer, "products.read", http.MethodGet, "/api/product-settings/customer-catalog?customer_id=43", 403},

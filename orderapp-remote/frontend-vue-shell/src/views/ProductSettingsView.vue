@@ -2677,7 +2677,7 @@ const productBusinessGroupControls = computed(() => businessGroupControlOptions(
   usageKey: 'product_catalog',
 }))
 const selectedProductGroupTemplate = computed(() => productBusinessGroupControls.value.selectedTemplate)
-const canMoveSelectedProductsToBusinessGroup = computed(() => !catalogCustomerID.value && Boolean(productCatalogBusinessGroups.value.length && selectedProductIds.value.length))
+const canMoveSelectedProductsToBusinessGroup = computed(() => Boolean(productCatalogBusinessGroups.value.length && selectedProductIds.value.length))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -6734,8 +6734,21 @@ async function saveProductGroupFeatureSelection() {
   }
 }
 
+async function moveCustomerCatalogProducts(target = {}) {
+ const customerID = catalogCustomerID.value
+ if (!customerID || !selectedProductIds.value.length) return false
+ loading.value = true; error.value = ''; ok.value = ''
+ try {
+  await apiSend('/api/product-settings/customer-catalog/move', {body:{customer_id:customerID,product_ids:selectedProductIds.value,group_id:target.unclassified ? 0 : Number(target.group_id || 0),group_item_id:target.unclassified ? 0 : Number(target.group_item_id || 0)}})
+  const count=selectedProductIds.value.length
+  await loadCustomerCatalog(); selectedProductIds.value=[]
+  ok.value=`已调整 ${count} 款客户商品的分类，工厂分类保持不变`
+  return true
+ } catch(err){error.value=err.message||'移动客户商品分类失败';return false} finally {loading.value=false}
+}
+
 async function saveSelectedProductBusinessGroupAssignment(target = {}) {
-  if (catalogCustomerID.value > 0) return false
+  if (catalogCustomerID.value > 0) return moveCustomerCatalogProducts(target)
   const unclassified = Boolean(target?.unclassified)
   const option = unclassified ? null : {
     group_id: Number(target?.group_id || 0),

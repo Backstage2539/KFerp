@@ -18,4 +18,8 @@
 
 ## 验证状态
 
-针对性 PostgreSQL 与前端测试已通过。完整检查及开发页面/API验证进行中。
+针对性 PostgreSQL 与前端测试已通过。合并最新 develop 5adb6d11（已部署验证的 PR-635），复用命名价格表选择并补齐客户与公共表各自当前版本校验。客户分类移动入口原来被禁用，现已支持在客户目录独立调整，不改工厂及其他客户。完整检查及开发页面/API验证进行中。
+
+## 本地完整检查
+
+Go 全量、Vue 1102/1102、小程序 238/238、类型检查、Vite 与微信开发构建均通过。真实 PostgreSQL 目录复制/删除/移动/恢复/失败回滚、排序稳定、来源冻结和当前公共版本显式选择通过。日志 /tmp/pr636-final-all3.log、pr636-final-postgres.log、pr636-catalog-final.log、pr636-final-mini-tests.log、pr636-final-mini-types.log、pr636-final-mini-build.log。
