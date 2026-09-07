@@ -5001,15 +5001,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS
 - Branch: `codex/sales-order-payment-colors-20260907`
 - Owner/session: Codex / 2026-09-07
-- Status: verified on latest develop；development 部署待执行；产品验收待 Van
+- Status: merged and deployed to development；自动部署验收通过；产品验收待 Van
 - Scope: 网页 ERP 与小程序共用的销售单 PDF/PNG 导出统一显示付款金额；全额已付显示绿色已付金额，完全未付显示红色未付金额，部分预付款保留绿色预付款与红色尾款。
 - Verifier:
   - Unit: `go test ./internal/infrastructure/pdf ./internal/domain/sales -count=1` 通过；覆盖已付、未付、预付款、组合销售单与精确填充色。
   - API: 网页销售单预览/生成与小程序旧渲染版本刷新定向测试通过；完整 Go 后端门禁通过。
-  - Frontend/build: Vue 1093/1093 通过；Vite 6602 modules 构建成功。小程序前端源码未改，服务端分享 API 已覆盖。
+  - Frontend/build: 合并后 Vue 1098/1098 通过、Vite 6603 modules 构建成功；小程序 237/237、类型检查与 development 构建通过。
   - Manual: `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`；`orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`。
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md`；实际 4 组 PDF/PNG 渲染检查通过。
-- Deployment: 已获授权部署 development；生产环境和微信正式版不变。
+- Deployment: `develop@ef0dc8ed882c762444a3ea24c32efe5b1090a2bd` 已部署 development；旧源码 `/opt/stacks/erp/orderapp.backup.deploy-20260907231747-ef0dc8ed882c`，回滚镜像 `kferp-orderapp-rollback:development-20260907231747-ef0dc8ed882c`。`erp_orderapp` 运行且重启次数 0，PostgreSQL healthy，登录页 200、受保护 API 未认证 401/BasicAuth 200，PR-636 可查，关键源码哈希一致。开发版小程序包已同步至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；未上传微信，生产环境不变。
 - Last update: 2026-09-07
 - Notes: 原手工登记 PR-635；合并前发现并行需求已先占用 PR-635，顺延为 PR-636，保留两项需求及验证记录。
 
