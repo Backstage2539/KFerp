@@ -59,4 +59,36 @@
 - RED：`pr634-order-name-red.log`、`pr634-mini-quote-red.log`。
 - GREEN：真实开发接口数据离线回放，A/B 均得到各自名称、227g 规格和独立报价；Go 全量、Vue **1093/1093**、Vite 构建及统一检查通过，见 `pr634-order-closure-checks.log`。
 - 本次没有小程序前端代码改动；小程序 **235/235**、类型检查与 development 构建通过。微信上传、审核、发布及小程序真机手工验收未执行。
-- 新验收订单尚未保存；报价选择在网页验证，订单保存、历史订单与复制预付款回归由 Go/Vue/小程序测试覆盖。
+- 网页实际保存两张验收订单，详见下表；小程序服务端使用相同报价过滤，针对性回归及完整 Go 检查通过。历史订单与复制预付款回归由 Go/Vue/小程序测试覆盖。
+
+## 最终交付与实测订单
+
+- 功能分支 `codex/customer-catalog-copy-20260907`，功能提交 `fc2b3c4d` 已推送并合入 `develop`。
+- 最终应用发布：`179f77c6753b9dfeb3525ccef849ac14327ce006`，命令 `PATH=/tmp/pr633-compressed-ssh:$PATH ./deploy_orderapp.sh development`，完整发布退出成功。
+- 外部登录和认证工作台均 200，未认证客户目录接口 401；development 应用/数据库运行正常，PR-634 出现在需求列表，5 个关键页面/服务文件 SHA256 与发布源码一致。未认证入口会跳到登录页；最终 200 不是未授权取得业务数据。
+- 回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20260907220912-179f77c6753b`，镜像 `kferp-orderapp-rollback:development-20260907220912-179f77c6753b`。
+- 开发小程序包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` 已同步并校验 56 个文件。未上传微信或提审。
+- 生产实际发布标记仍为 `ce58d4ec90df6fe2ea079f650362ccdacf7046ec`，本次未改动生产。
+- 部署后的最终验收记录单独提交为文档，不改变上述运行版本。
+
+| 客户 | 订单（数据库 ID） | 商品 / 客户引用 | BOM 规格 / 变体 | 发布表 | 数量与价格 |
+| --- | --- | --- | --- | --- | --- |
+| A 300 | SO-20260907-0001（1608） | 1063 / 106；PR634客户初晓 | 3 / 483；227g | 125 / V3.0.5 | 2 袋 × 33 = 66 元 |
+| B 301 | SO-20260907-0002（1609） | 1063 / 115；初晓-商品 | 3 / 483；227g | 124 / V3.0.5 | 2 袋 × 37.50 = 75 元 |
+
+两张订单均为未付款、未发货，每单一行，订单操作日志共 2 条。两单的商品身份、客户显示名、引用、规格、版本和成交价均已落库核对。订单创建后再次检查商品/BOM/规格/组件/库存指纹，仍与复制前一致。
+验收准备时客户类型误填为中文标签，服务端正确拒绝保存；已用页面把两个独立验收客户修正为“批发客户”并重新保存成功，没有修改现有业务客户。
+
+### 证据索引
+
+本机目录 `outputs/pr634-customer-catalog/`：
+
+- `06-copy-success-feedback.png`：复制成功提示及已有 86 条幂等结果。
+- `02-customer-name-category.png`、`04-customer-price-preview-published.png`：客户名称、分类、报价预览和发布。
+- `03-customer-draft-preserved.png`、`05-missing-spec-quote.png`：草稿保留与缺报价提示。
+- `07-order-customer-a.png`、`08-order-customer-b.png`、`09-order-saved.png`：录单价格、规格及两张保存成功通知。
+- `pr634-final-api.json`、`pr634-order-evidence.json`：发布快照、订单快照和操作日志。
+- `pr634-semantic.json`、`pr634-account-check.json`：重复/恢复/失败回滚及两个客户账号越权响应。
+- `pr634-migration-evidence.json`：迁移 8484 的前后引用、节点和回滚记录。
+- `pr634-order-closure-checks.log`、`pr634-postgres.log`、`pr634-mini-*.log`：Go、Vue 1093、小程序 235、构建及数据库测试。
+- `pr634-deploy-order-closure.log`、`pr634-smoke.json`：最终开发发布、运行状态、生产未变和文件指纹。
