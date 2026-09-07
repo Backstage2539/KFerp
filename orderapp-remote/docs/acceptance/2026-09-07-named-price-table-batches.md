@@ -1,6 +1,6 @@
 # PR-635 同版本多张命名价格表
 
-状态：实现与本地验证完成，development 交付处理中，待 Van 验收。
+状态：已合入并部署 development，服务器与小程序产物校验通过，待 Van 业务验收。
 
 范围：一个归属、商品类型、版本下多张命名价格表；整组发布、唯一默认表、独立商品规格/定价/样式、按表录单及客户下单。历史单表不迁移、不回算。
 
@@ -46,3 +46,20 @@
 单一来源：`OP_MANUAL_COSTING.md`、`OP_MANUAL_ORDER_SALES.md`、`OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`；Vue 页面提示与手册入口同步。
 
 Van 可在 development 用同一商品类型建立 227g/1kg/第三张表，设置不同价格并选择非首张为默认，整组发布后核对录单、员工小程序与客户现货下单的默认、切表和报价；再检查不兼容规格阻断、客户隔离、历史及复制订单，确认下载的三份 PDF。
+
+## Development 交付记录
+
+- 功能分支：`codex/named-price-table-batches-20260907`；已推送功能提交 `e40973545c11261fc3cbaf3b815a44b4b9ed06e3`。
+- GitHub PR：[#75](https://github.com/Backstage2539/KFerp/pull/75)，已合入 develop。
+- 实际部署代码提交：`a29f9178ab700af58a45a3fd4be70bdb38a73213`；命令 `./deploy_orderapp.sh development`；2026-09-07 23:07（Asia/Shanghai）完成。部署脚本退出 0。
+- 本次最终补充记录仅涉及文档，不改变上述已部署软件及小程序的提交标识。
+- 地址：<https://dev.qacoohee.com/app/>。
+- 服务器 Vue 1098 项、小程序 237 项测试及类型/构建、后端完整门禁和容器内重复门禁通过；构建保留已有 Vue 大包提示。
+- `erp_orderapp`、`erp_postgres`、`erp_docconvert` 均 running；应用镜像 `sha256:c22ced4027ff910795d6d9bb197d9d95356ac020fc86ee4d1860f47153cfe373`。
+- 受保护 `/app/api/req/product` 未认证 401、认证 200；`/app/` 为既有 303 至 orders，静态 `/app/vue-shell` 为 200，因此以受保护 API 核对认证边界。
+- PR-635 及 4 条 DEV-635 记录已在 API 可见，状态 review，待验收。运行中二进制包含批量发布路由，线上 Vue 入口校验和与服务器产物相同。
+- 已逐一比对 5 份后端/Vue/手册/小程序源文件 SHA256；容器手册与源文件相符。本机及服务器 PAGE_FILE_MANIFEST SHA256 均为 `b055b336b5634973c61b4dff3732ac06dfad913255bfb96b82e2f1edbf980e41`。
+- 小程序开发构建：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`。RELEASE_INFO 的环境 development、API 地址及上述部署提交相符，14 个声明页面、56 个清单文件校验通过。该目录供微信开发者工具重新导入；本次交付构建产物，未执行微信上传。
+- 上一份本机构建保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260907230737-a29f9178ab70`。
+- 服务器回滚源目录：`/opt/stacks/erp/orderapp.backup.deploy-20260907230044-a29f9178ab70`；回滚镜像：`kferp-orderapp-rollback:development-20260907230044-a29f9178ab70`。本次无需执行回滚。
+- 详细日志、源文件校验和、三表截图及 PDF：`/private/tmp/kferp-pr635-evidence`。本轮本地 PostgreSQL 与 Vite 测试进程已正常停止。
