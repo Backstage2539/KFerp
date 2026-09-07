@@ -4991,13 +4991,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-637-CATALOG-ORDER-FOLLOWUP
 - Branch: codex/customer-catalog-order-followup-20260907; baseline origin/develop 56ea7d3b.
-- Status: full checks passed; development acceptance in progress.
+- Status: merged and deployed to development; targeted API/DB and page acceptance recorded; product review pending.
 - Scope: 订单按单据日期排序；客户复制商品删除绑定；客户分类继承；录单客户表默认并允许选择公共表；订单详情报价表名称、归属、版本与发布日期。
 - DEV: DEV-637-ORDER-SORT; DEV-637-CATALOG; DEV-637-PRICE-CHOICE; DEV-637-PRICE-TRACE.
 - Verifier: targeted RED/GREEN; PostgreSQL/API; Go/Vue/miniapp tests and builds; development regression and evidence.
 - Delivery: development only; final requirement number PR-637, preserving the separately delivered PR-635 and PR-636.
 
-- PR-637：已合并最新 develop 5adb6d11。Go 全量、Vue 1102 项、小程序 238 项及类型/构建全部通过；PostgreSQL 排序、引用删除/恢复/分类移动、报价冻结和公共版本选择通过。进入 development 集成部署与实际验证。
+- PR-637：Go 全量、Vue 1104 项、小程序 238 项及类型/构建、PostgreSQL 回归、统一检查通过。develop@60e0c43a 已部署 development；订单 1611/1612、客户 300/301 实际 API/DB 和页面复验留证。NB 74 款源商品未分类保持原状，客户独立移动分类已开放。删除确认框受浏览器工具限制，删除/恢复改由真实 API 验证。验收及回滚证据：orderapp-remote/docs/acceptance/2026-09-07-catalog-order-followup.md。生产与微信发布未执行。
 ### PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS
 - Branch: `codex/sales-order-payment-colors-20260907`
 - Owner/session: Codex / 2026-09-07
