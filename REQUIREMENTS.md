@@ -901,3 +901,9 @@
 
 - 状态：开发中，产品验收待 Van。
 - DEV-632-PAYMENT / DEV-632-MINIAPP / DEV-632-DOCUMENT / DEV-632-DELIVERY：预付款金额、未完成付款状态、绿色已付/红色尾款、列表复制和开发发布。详细验收规则见 `orderapp-remote/docs/REQUIREMENTS.md` 与 PR-632 验收记录。
+
+# PR-633-PREPAYMENT-PRESETS-GUEST-ENTRY 预付款快捷比例与自主登录（2026-09-07）
+
+- DEV-633-PREPAYMENT-PRESETS：网页金额框常驻，网页/小程序提供优惠后货款 30/50/70% 快捷预付款，不含运费，可手改，继续沿用实际付款校验和操作日志。
+- DEV-633-GUEST-ENTRY：冷启动展示真实公开服务说明与包装换算，个人业务需主动登录，首页不发起授权或私有接口请求。
+- DEV-633-DELIVERY：RED/GREEN、Go/Vue/小程序检查、实际首页与自主登录截图、开发部署、接口边界和包版本核对。产品状态 review，待 Van 验收。

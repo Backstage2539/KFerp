@@ -73,11 +73,12 @@ describe('miniapp startup route and main tabs', () => {
     expect(api).toContain("'/api/mini/employee/share-settings'")
   })
 
-  it('routes startup users through reLaunch instead of leaving a blank page', () => {
+  it('lets guests browse and routes signed-in users to their workspace', () => {
     const index = readSource('src/pages/index/index.vue')
 
     expect(index).toContain('useSessionStore')
-    expect(index).toContain("uni.reLaunch({ url: '/pages/login/login' })")
+    expect(index).toContain('GuestHome v-if="!session.token"')
+    expect(index).not.toContain("uni.reLaunch({ url: '/pages/login/login' })")
     expect(index).toContain("uni.reLaunch({ url: '/pages/home/home' })")
     expect(index).not.toContain('redirectTo')
   })
@@ -90,7 +91,7 @@ describe('miniapp startup route and main tabs', () => {
     expect(home).toContain('fetchMe(session.token)')
     expect(home).toContain('session.applyContext(response)')
     expect(home).toContain('session.clearSession()')
-    expect(home).toContain("uni.reLaunch({ url: '/pages/login/login' })")
+    expect(home).toContain("uni.reLaunch({ url: '/pages/index/index' })")
   })
 
   it('renders four bottom main entries and renames order center for processing customers', () => {
