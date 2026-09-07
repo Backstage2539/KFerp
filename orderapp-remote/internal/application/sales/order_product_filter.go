@@ -9,6 +9,38 @@ import (
 // visibility rules used by ERP order entry. Publication options constrain the
 // product to versions available to that customer, but do not trim its tiers.
 func FilterOrderProductsForCustomer(products []ProductOption, customerID int64, versionOptions []BeanListVersionOption, publicUsages ...[]CustomerPublicUsageOption) []ProductOption {
+	publicChoiceIDsByType := map[string]map[int64]bool{}
+	for _, v := range versionOptions {
+		if v.CustomerID == 0 && !v.IsCustomerOwned && v.ID > 0 {
+			key := orderNormalizeListType(v.ListType)
+			if publicChoiceIDsByType[key] == nil {
+				publicChoiceIDsByType[key] = map[int64]bool{}
+			}
+			publicChoiceIDsByType[key][v.ID] = true
+		}
+	}
+	if customerID > 0 && len(publicChoiceIDsByType) > 0 {
+		originals := products
+		products = append([]ProductOption{}, products...)
+		for i, p := range products {
+			if p.CustomerID != customerID || (p.Visibility != "customer_reference" && p.Visibility != "customer_alias" && p.CustomerProductAliasID <= 0) {
+				continue
+			}
+			tiers := append([]ProductTierOption{}, p.Tiers...)
+			for _, base := range originals {
+				if base.ID != p.ID || base.CustomerID != 0 {
+					continue
+				}
+				for _, tier := range base.Tiers {
+					pub, kind := orderTierPublicationIdentity(tier)
+					if publicChoiceIDsByType[orderNormalizeListType(kind)][pub] {
+						tiers = append(tiers, tier)
+					}
+				}
+			}
+			products[i].Tiers = tiers
+		}
+	}
 	availablePublicationIDsByType := map[string]map[int64]bool{}
 	ownedPublicationIDsByType := map[string]map[int64]bool{}
 	if len(versionOptions) > 0 {
@@ -45,7 +77,7 @@ func FilterOrderProductsForCustomer(products []ProductOption, customerID int64, 
 			if customerID > 0 && customerScopedProductIDs[product.ID] {
 				continue
 			}
-			if customerID > 0 && !allowsPublicProducts && !orderProductMatchesExplicitPublicationScope(product, ownedPublicationIDsByType) {
+			if customerID > 0 && !allowsPublicProducts && !orderProductMatchesExplicitPublicationScope(product, ownedPublicationIDsByType) && !orderProductMatchesExplicitPublicationScope(product, publicChoiceIDsByType) {
 				continue
 			}
 			if !orderProductMatchesAvailablePublicationScope(product, availablePublicationIDsByType) {
@@ -182,7 +214,7 @@ func orderAvailablePublicationIDsByListType(customerID int64, options []BeanList
 		return out
 	}
 	for _, option := range options {
-		if option.CustomerID != customerID || option.ID <= 0 {
+		if (option.CustomerID != customerID && !(option.CustomerID == 0 && !option.IsCustomerOwned)) || option.ID <= 0 {
 			continue
 		}
 		listType := orderNormalizeListType(option.ListType)
