@@ -253,7 +253,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 	}
 	for _, row := range []reqSeedRow{
 		{table: "req_product", code: "PR-633-PREPAYMENT-PRESETS-GUEST-ENTRY", title: "预付款快捷比例与小程序自主登录", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-prepayment-presets-guest-entry.md"},
-		{table: "req_dev", code: "DEV-633-PREPAYMENT-PRESETS", title: "网页常驻金额框与双端30/50/70%货款比例", status: "done", assignee: "Codex", evidence: "prepayment-presets.test.js; guest-entry.test.ts; OP_MANUAL_ORDER_SALES.md"},
+		{table: "req_dev", code: "DEV-633-PREPAYMENT-PRESETS", title: "网页常驻金额框与双端30/50/70%含运费应收比例", status: "done", assignee: "Codex", evidence: "prepayment-presets.test.js; guest-entry.test.ts; OP_MANUAL_ORDER_SALES.md"},
 		{table: "req_dev", code: "DEV-633-GUEST-ENTRY", title: "未登录首页服务浏览、包装换算与自主登录", status: "done", assignee: "Codex", evidence: "GuestHome.vue; guest-entry.test.ts; mainTabs.test.ts"},
 		{table: "req_dev", code: "DEV-633-DELIVERY", title: "完整检查、实际小程序截图及开发交付", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-prepayment-presets-guest-entry.md"},
 		{table: "req_product", code: "PR-632-ORDER-PREPAYMENT", title: "订单预付款与小程序列表复制", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-order-prepayment.md; PostgreSQL/API; PDF/PNG; Vue and miniapp verification"},

@@ -139,7 +139,7 @@
           <div class="prepayment-presets" aria-label="预付款比例">
             <button v-for="rate in prepaymentPresets" :key="rate" type="button" :class="{ selected: prepaymentRate === rate }" @click="applyPrepaymentPreset(rate)">{{ rate }}%</button>
           </div>
-          <small>按优惠后货款 ¥{{ money(orderTotalPreviewValue.goodsAmount) }} 计算，不含运费；可修改实际已收金额。</small>
+          <small>按应收合计 ¥{{ money(orderTotalPreviewValue.grandTotal) }} 计算（含运费）；可修改实际已收金额。</small>
         </div>
 
         <label :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
@@ -947,14 +947,14 @@ function selectPrepaymentStatus() {
 }
 function applyPrepaymentPreset(rate) {
   prepaymentRate.value = rate
-  form.prepayment_amount = prepaymentByRate(orderTotalPreviewValue.value.goodsAmount, rate)
+  form.prepayment_amount = prepaymentByRate(orderTotalPreviewValue.value.grandTotal, rate)
   selectPrepaymentStatus()
 }
 function onManualPrepayment() {
   prepaymentRate.value = 0
   selectPrepaymentStatus()
 }
-watch(() => orderTotalPreviewValue.value.goodsAmount, () => {
+watch(() => orderTotalPreviewValue.value.grandTotal, () => {
   if (prepaymentRate.value) applyPrepaymentPreset(prepaymentRate.value)
 })
 const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))

@@ -7,7 +7,7 @@ export function copyOrderURL(id: number): string {
 }
 
 export const prepaymentPresets = [30, 50, 70]
-export function prepaymentByRate(goodsAmount: number, percent: number): number {
-  if (!Number.isFinite(goodsAmount) || goodsAmount <= 0 || !prepaymentPresets.includes(percent)) return 0
-  return Math.round((goodsAmount * percent / 100 + Number.EPSILON) * 100) / 100
+export function prepaymentByRate(receivableAmount: number, percent: number): number {
+  if (!Number.isFinite(receivableAmount) || receivableAmount <= 0 || !prepaymentPresets.includes(percent)) return 0
+  return Math.round((receivableAmount * percent / 100 + Number.EPSILON) * 100) / 100
 }
