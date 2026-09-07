@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-635-SALES-ORDER-PAYMENT-AMOUNT-COLORS", title: "销售单已付绿色与未付红色金额统一", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md"},
+		{table: "req_dev", code: "DEV-635-DOCUMENT-PAYMENT-COLORS", title: "销售单全额已付、完全未付和部分预付款金额颜色", status: "done", assignee: "Codex", evidence: "prepayment_test.go; sales_order_pdf.go; sales_order_png.go"},
+		{table: "req_dev", code: "DEV-635-DUAL-EXPORT-CONTRACT", title: "网页与小程序 PDF/PNG 共用生成器及渲染版本失效", status: "done", assignee: "Codex", evidence: "mini_employee_api_test.go; sales_order_repository.go"},
+		{table: "req_dev", code: "DEV-635-VERIFICATION", title: "需求、手册、API 和实际销售单文件验证", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md"},
 		{table: "req_product", code: "PR-634-CUSTOMER-CATALOG-COPY", title: "商品与分类复制到客户", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-customer-catalog-copy.md"},
 		{table: "req_dev", code: "DEV-634-CATALOG", title: "全量、复选、单个引用复制及独立客户分类", status: "done", assignee: "Codex", evidence: "customer_catalog_test.go; customer-catalog.test.js"},
 		{table: "req_dev", code: "DEV-634-PRICING", title: "客户目录报价、公共报价带入与客户草稿保留", status: "done", assignee: "Codex", evidence: "customer-price-draft.test.js; OP_MANUAL_COSTING.md"},

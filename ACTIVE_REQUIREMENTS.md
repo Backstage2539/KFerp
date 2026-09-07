@@ -4978,3 +4978,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - PR-634 验证：完整 Go / Vue 1093 项 / Vite 构建通过；真实 PostgreSQL 目录、迁移回滚、并发及旧引用测试通过；小程序 235 项、类型检查及 development 构建通过。验收记录见 docs/acceptance/2026-09-07-customer-catalog-copy.md。已合入 develop 并部署 development；最终应用提交 179f77c6，实测两张订单 SO-20260907-0001 / 0002 成功；复制、分类、价格、隔离、迁移和库存指纹核对通过。生产/微信未发布。
 
 - PR-634 发布证据：回滚源 /opt/stacks/erp/orderapp.backup.deploy-20260907220912-179f77c6753b；应用/数据库正常、外部认证页面 200、受保护 API 未认证 401。最终验收文档随后单独提交，应用运行版本仍为 179f77c6。
+
+### PR-635-SALES-ORDER-PAYMENT-AMOUNT-COLORS
+- Branch: `codex/sales-order-payment-colors-20260907`
+- Owner/session: Codex / 2026-09-07
+- Status: verified locally；产品验收待 Van
+- Scope: 网页 ERP 与小程序共用的销售单 PDF/PNG 导出统一显示付款金额；全额已付显示绿色已付金额，完全未付显示红色未付金额，部分预付款保留绿色预付款与红色尾款。
+- Verifier:
+  - Unit: `go test ./internal/infrastructure/pdf ./internal/domain/sales -count=1` 通过；覆盖已付、未付、预付款、组合销售单与精确填充色。
+  - API: 网页销售单预览/生成与小程序旧渲染版本刷新定向测试通过；完整 Go 后端门禁通过。
+  - Frontend/build: Vue 1093/1093 通过；Vite 6602 modules 构建成功。小程序前端源码未改，服务端分享 API 已覆盖。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`；`orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md`；实际 4 组 PDF/PNG 渲染检查通过。
+- Deployment: 未部署；本轮先完成开发与验证。
+- Last update: 2026-09-07
+- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 多行字符串上报错且未产生文件改动，按下一可用编号手工登记。

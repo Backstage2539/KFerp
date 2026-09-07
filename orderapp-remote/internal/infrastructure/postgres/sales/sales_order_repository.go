@@ -540,7 +540,7 @@ func (r Repository) loadSalesOrderImageVersionsTx(ctx context.Context, tx pgx.Tx
 }
 
 func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, orderID int64, settings salesapp.SalesOrderSettings) (salesdomain.SalesOrderSnapshot, error) {
-	var snapshot salesdomain.SalesOrderSnapshot
+	snapshot := salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion}
 	var total, shipping, discount, grand float64
 	q := fmt.Sprintf(`SELECT o.id, o.order_no,
 			COALESCE(to_char(o.document_date,'YYYY-MM-DD'), to_char(o.order_date,'YYYY-MM-DD'), ''),
@@ -755,7 +755,7 @@ func (r Repository) LoadSalesOrderDocumentFile(ctx context.Context, orderID, doc
 		where = "d.order_id=$1 AND d.is_latest=true"
 		args = []any{orderID}
 	}
-	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, COALESCE(d.pdf_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
+	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, d.snapshot_json, COALESCE(d.pdf_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
 			a.object_key
 		FROM %s.sales_order_documents d
 		JOIN %s.sales_order_assets a ON a.id=d.pdf_asset_id
@@ -763,10 +763,12 @@ func (r Repository) LoadSalesOrderDocumentFile(ctx context.Context, orderID, doc
 		ORDER BY d.version_no DESC
 		LIMIT 1`, r.schema, r.schema, where)
 	var doc salesapp.SalesOrderDocument
+	var snapshotJSON []byte
 	var objectKey string
-	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
+	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &snapshotJSON, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
 		return salesapp.SalesOrderDocumentFile{}, err
 	}
+	_ = json.Unmarshal(snapshotJSON, &doc.Snapshot)
 	doc.DownloadURL = salesOrderDocumentDownloadURL(doc.OrderID, doc.ID)
 	return salesapp.SalesOrderDocumentFile{
 		Document: doc,
@@ -782,7 +784,7 @@ func (r Repository) LoadSalesOrderImageFile(ctx context.Context, orderID, imageI
 		where = "d.order_id=$1 AND d.is_latest=true"
 		args = []any{orderID}
 	}
-	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, COALESCE(d.image_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
+	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, d.snapshot_json, COALESCE(d.image_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
 			a.object_key
 		FROM %s.sales_order_images d
 		JOIN %s.sales_order_assets a ON a.id=d.image_asset_id
@@ -790,10 +792,12 @@ func (r Repository) LoadSalesOrderImageFile(ctx context.Context, orderID, imageI
 		ORDER BY d.version_no DESC
 		LIMIT 1`, r.schema, r.schema, where)
 	var doc salesapp.SalesOrderImageDocument
+	var snapshotJSON []byte
 	var objectKey string
-	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
+	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &snapshotJSON, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
 		return salesapp.SalesOrderImageFile{}, err
 	}
+	_ = json.Unmarshal(snapshotJSON, &doc.Snapshot)
 	doc.DownloadURL = salesOrderImageDownloadURL(doc.OrderID, doc.ID)
 	return salesapp.SalesOrderImageFile{
 		Document: doc,
