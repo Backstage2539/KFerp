@@ -240,25 +240,26 @@ type miniEmployeeOrderItemRequest struct {
 }
 
 type miniEmployeeOrderRequest struct {
-	PrepaymentAmount *float64                       `json:"prepayment_amount"`
-	EditRevision     string                         `json:"edit_revision"`
-	OrderDate        string                         `json:"order_date"`
-	CustomerID       int64                          `json:"customer_id"`
-	SourceID         int64                          `json:"source_id"`
-	OrderTypeID      int64                          `json:"order_type_id"`
-	PayStatusID      int64                          `json:"pay_status_id"`
-	PaymentMethod    string                         `json:"payment_method"`
-	ShipStatusID     int64                          `json:"ship_status_id"`
-	ShipMethod       string                         `json:"ship_method"`
-	ShipTrackingNo   string                         `json:"ship_tracking_no"`
-	ShippingAmount   float64                        `json:"shipping_amount"`
-	DiscountAmount   float64                        `json:"discount_amount"`
-	ReceiverName     string                         `json:"receiver_name"`
-	ReceiverPhone    string                         `json:"receiver_phone"`
-	ReceiverAddress  string                         `json:"receiver_address"`
-	ReceiverCompany  string                         `json:"receiver_company"`
-	Notes            string                         `json:"notes"`
-	Items            []miniEmployeeOrderItemRequest `json:"items"`
+	SelectedPriceTableIDs []int64                        `json:"selected_price_table_ids"`
+	PrepaymentAmount      *float64                       `json:"prepayment_amount"`
+	EditRevision          string                         `json:"edit_revision"`
+	OrderDate             string                         `json:"order_date"`
+	CustomerID            int64                          `json:"customer_id"`
+	SourceID              int64                          `json:"source_id"`
+	OrderTypeID           int64                          `json:"order_type_id"`
+	PayStatusID           int64                          `json:"pay_status_id"`
+	PaymentMethod         string                         `json:"payment_method"`
+	ShipStatusID          int64                          `json:"ship_status_id"`
+	ShipMethod            string                         `json:"ship_method"`
+	ShipTrackingNo        string                         `json:"ship_tracking_no"`
+	ShippingAmount        float64                        `json:"shipping_amount"`
+	DiscountAmount        float64                        `json:"discount_amount"`
+	ReceiverName          string                         `json:"receiver_name"`
+	ReceiverPhone         string                         `json:"receiver_phone"`
+	ReceiverAddress       string                         `json:"receiver_address"`
+	ReceiverCompany       string                         `json:"receiver_company"`
+	Notes                 string                         `json:"notes"`
+	Items                 []miniEmployeeOrderItemRequest `json:"items"`
 }
 
 type miniEmployeeCustomerRequest struct {
@@ -332,15 +333,21 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 				"can_maintain":              canMaintain,
 			})
 		}
-		priceChoices := miniEmployeePriceChoices(form, customerID)
-		if raw := strings.TrimSpace(c.QueryParam("publication_id")); raw != "" {
-			id, parseErr := strconv.ParseInt(raw, 10, 64)
-			if parseErr != nil || id <= 0 {
-				return c.JSON(400, map[string]string{"error": "价格表编号不正确"})
+		priceTableOptions := salesapp.CurrentOrderPriceTableOptions(form.BeanListVersionOptions, customerID)
+		selectedIDs, parseErr := miniSelectedPriceTableIDs(c.QueryParam("selected_price_table_ids"))
+		if parseErr != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": parseErr.Error()})
+		}
+		if customerID > 0 {
+			selected, selectionErr := salesapp.ResolveOrderPriceTableSelection(form.BeanListVersionOptions, customerID, selectedIDs, true)
+			if selectionErr != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": selectionErr.Error()})
 			}
-			form, err = miniEmployeeSelectPublications(form, customerID, []int64{id})
-			if err != nil {
-				return c.JSON(400, map[string]string{"error": err.Error()})
+			form.BeanListVersionOptions = selected
+			form = miniEmployeeCatalogWithSelectedPublicPrices(form, customerID)
+			selectedIDs = []int64{}
+			for _, table := range selected {
+				selectedIDs = append(selectedIDs, table.ID)
 			}
 		}
 		catalog := miniEmployeeOrderCatalogResult{Products: []salesapp.ProductOption{}, Families: []map[string]any{}, BOMSpecOptions: []salesapp.ProductBOMSpecOption{}}
@@ -348,11 +355,11 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 			catalog = miniEmployeeOrderCatalog(form, customerID, retailOrder)
 		}
 		return c.JSON(http.StatusOK, map[string]any{
-			"price_list_options": priceChoices,
-			"today":              form.Today, "customers": customers, "sources": form.Sources,
+			"today": form.Today, "customers": customers, "sources": form.Sources,
 			"order_types": form.OrderTypes, "pay_statuses": form.PayStatuses,
 			"ship_statuses": form.ShipStatuses, "products": catalog.Products, "product_families": catalog.Families,
 			"product_bom_spec_options": catalog.BOMSpecOptions,
+			"price_table_options":      priceTableOptions, "selected_price_table_ids": selectedIDs,
 		})
 	})
 
@@ -635,7 +642,8 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 		items = append(items, command)
 	}
 	return salesapp.SaveOrderCommand{
-		Actor: actor, EditID: editID, DocumentDate: orderDate, OrderDate: orderDate,
+		SelectedPriceTableIDs: req.SelectedPriceTableIDs,
+		Actor:                 actor, EditID: editID, DocumentDate: orderDate, OrderDate: orderDate,
 		CustomerID: req.CustomerID, SourceID: req.SourceID, OrderTypeID: req.OrderTypeID,
 		PrepaymentAmount: req.PrepaymentAmount,
 		PayStatusID:      req.PayStatusID, PaymentMethod: strings.TrimSpace(req.PaymentMethod),
@@ -693,16 +701,15 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	if !found {
 		return "客户不存在", nil
 	}
-	selectedIDs := []int64{}
-	for _, item := range cmd.Items {
-		if item.BeanListPublicationID > 0 {
-			selectedIDs = append(selectedIDs, item.BeanListPublicationID)
-		}
+	selectedTables, selectionErr := salesapp.ResolveOrderPriceTableSelection(form.BeanListVersionOptions, cmd.CustomerID, cmd.SelectedPriceTableIDs, true)
+	if selectionErr != nil {
+		return selectionErr.Error(), nil
 	}
-	var selectErr error
-	form, selectErr = miniEmployeeSelectPublications(form, cmd.CustomerID, selectedIDs)
-	if selectErr != nil {
-		return selectErr.Error(), nil
+	form.BeanListVersionOptions = selectedTables
+	form = miniEmployeeCatalogWithSelectedPublicPrices(form, cmd.CustomerID)
+	cmd.SelectedPriceTableIDs = []int64{}
+	for _, table := range selectedTables {
+		cmd.SelectedPriceTableIDs = append(cmd.SelectedPriceTableIDs, table.ID)
 	}
 	retailOrder := miniEmployeeUsesRetailCatalog(form, customer, cmd.OrderTypeID)
 	products := salesapp.FilterOrderProductsForDefaultPublications(form.Products, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
@@ -2012,4 +2019,19 @@ func miniEmployeeHeaderDiscountAmount(ed *salesapp.OrderEditData, fallbackTotal 
 		total = 0
 	}
 	return fmt.Sprintf("%.2f", total)
+}
+
+func miniSelectedPriceTableIDs(raw string) ([]int64, error) {
+	ids := []int64{}
+	if strings.TrimSpace(raw) == "" {
+		return ids, nil
+	}
+	for _, part := range strings.Split(raw, ",") {
+		id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+		if err != nil || id <= 0 {
+			return nil, fmt.Errorf("价格表编号不正确")
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }

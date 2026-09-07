@@ -17,6 +17,7 @@ var (
 )
 
 type SaveOrderCommand struct {
+	SelectedPriceTableIDs             []int64 `json:"selected_price_table_ids,omitempty"`
 	PrepaymentAmount                  *float64
 	Actor                             string
 	DraftEmployeeID                   int64
@@ -412,6 +413,10 @@ type ProductOption struct {
 }
 
 type BeanListVersionOption struct {
+	ReleaseID                  string `json:"release_id,omitempty"`
+	TableKey                   string `json:"table_key,omitempty"`
+	TableName                  string `json:"table_name,omitempty"`
+	IsDefaultTable             bool   `json:"is_default_table"`
 	CustomerID                 int64  `json:"customer_id"`
 	ListType                   string `json:"list_type"`
 	ProductTypeCategoryID      int64  `json:"product_type_category_id,omitempty"`

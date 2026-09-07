@@ -3344,15 +3344,15 @@ func (r Repository) ListBeanListPublications(ctx context.Context, query appcosti
 func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
 	whereClause := "publication_purpose=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"
 	args := []any{strings.TrimSpace(query.PublicationPurpose), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
-	orderClause := "published_at DESC, id DESC"
+	orderClause := "published_at DESC, COALESCE((config_json->'publication_batch'->>'is_default_table')::boolean,true) DESC, id DESC"
 	if query.ClassificationTemplateID > 0 {
 		whereClause = "publication_purpose=$1 AND owner_type=$3 AND owner_key=$4 AND (COALESCE(classification_template_id,0)=$2 OR (COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$2) OR (COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=0 AND list_type=$5))"
 		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ClassificationTemplateID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
-		orderClause = "CASE WHEN COALESCE(classification_template_id,0)=$2 THEN 0 WHEN COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$2 THEN 1 ELSE 2 END, published_at DESC, id DESC"
+		orderClause = "CASE WHEN COALESCE(classification_template_id,0)=$2 THEN 0 WHEN COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$2 THEN 1 ELSE 2 END, published_at DESC, COALESCE((config_json->'publication_batch'->>'is_default_table')::boolean,true) DESC, id DESC"
 	} else if query.ProductTypeCategoryID > 0 {
 		whereClause = "publication_purpose=$1 AND owner_type=$3 AND owner_key=$4 AND (COALESCE(product_type_category_id,0)=$2 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$5))"
 		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
-		orderClause = "CASE WHEN COALESCE(product_type_category_id,0)=$2 THEN 0 ELSE 1 END, published_at DESC, id DESC"
+		orderClause = "CASE WHEN COALESCE(product_type_category_id,0)=$2 THEN 0 ELSE 1 END, published_at DESC, COALESCE((config_json->'publication_batch'->>'is_default_table')::boolean,true) DESC, id DESC"
 	}
 	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
@@ -3520,6 +3520,12 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := r.lockBeanListVersion(ctx, tx, &cmd, true); err != nil {
+		return nil, err
+	}
+	if cmd.Config != nil {
+		cmd.Config["version"] = cmd.Version
+	}
 	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
 		return nil, err
 	}
@@ -3709,26 +3715,36 @@ func (r Repository) WithdrawBeanList(ctx context.Context, cmd appcosting.Withdra
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var publicationPurpose, listType, version, ownerType, ownerKey string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+	ids, err := r.expandBeanListBatchIDs(ctx, tx, []int64{cmd.ID}, cmd.PublicationPurpose, cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return fmt.Errorf("published bean list not found")
+	}
+	for _, publicationID := range ids {
+
+		var publicationPurpose, listType, version, ownerType, ownerKey string
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.bean_list_publications
 		SET status='withdrawn', withdrawn_at=now(), updated_at=now()
 		WHERE id=$1 AND publication_purpose=$2 AND owner_type=$3 AND owner_key=$4 AND status='published'
 		RETURNING COALESCE(NULLIF(publication_purpose,''),'factory_supply'), list_type, version_no, owner_type, owner_key
-	`, r.schema), cmd.ID, cmd.PublicationPurpose, cmd.OwnerType, cmd.OwnerKey).Scan(&publicationPurpose, &listType, &version, &ownerType, &ownerKey); err != nil {
-		if err == pgx.ErrNoRows {
-			return fmt.Errorf("published bean list not found")
+	`, r.schema), publicationID, cmd.PublicationPurpose, cmd.OwnerType, cmd.OwnerKey).Scan(&publicationPurpose, &listType, &version, &ownerType, &ownerKey); err != nil {
+			if err == pgx.ErrNoRows {
+				return fmt.Errorf("published bean list not found")
+			}
+			return err
 		}
-		return err
-	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &cmd.ID, "withdraw", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("published"), postgresinfra.StrPtr("withdrawn"), postgresinfra.AuditMeta{
-		"publication_purpose": publicationPurpose,
-		"list_type":           listType,
-		"version":             version,
-		"owner_type":          ownerType,
-		"owner_key":           ownerKey,
-	}); err != nil {
-		return err
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &publicationID, "withdraw", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("published"), postgresinfra.StrPtr("withdrawn"), postgresinfra.AuditMeta{
+			"publication_purpose": publicationPurpose,
+			"list_type":           listType,
+			"version":             version,
+			"owner_type":          ownerType,
+			"owner_key":           ownerKey,
+		}); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -3745,6 +3761,10 @@ func (r Repository) ArchiveBeanListPublications(ctx context.Context, cmd appcost
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	cmd.IDs, err = r.expandBeanListBatchIDs(ctx, tx, cmd.IDs, cmd.PublicationPurpose, cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		WITH selected AS (
 			SELECT id, COALESCE(NULLIF(publication_purpose,''),'factory_supply') AS publication_purpose,
@@ -3814,6 +3834,10 @@ func (r Repository) UnarchiveBeanListPublications(ctx context.Context, cmd appco
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	cmd.IDs, err = r.expandBeanListBatchIDs(ctx, tx, cmd.IDs, cmd.PublicationPurpose, cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		WITH selected AS (
 			SELECT id, COALESCE(NULLIF(publication_purpose,''),'factory_supply') AS publication_purpose,
@@ -4225,6 +4249,7 @@ func scanBeanListPublication(row beanListPublicationScanner) (appcosting.BeanLis
 			return out, err
 		}
 	}
+	out.PublicationTableMetadata = appcosting.BeanListBatchMetadata(out.Config)
 	return out, nil
 }
 

@@ -693,8 +693,8 @@ function orderItemSpecLabel(item = {}) {
 function orderItemPriceSourceLabel(sourceJSON) {
   try {
     const data = JSON.parse(sourceJSON || '{}')
-    const version = data.version || data.template_version || data.price_version || ''
-    const source = data.source || data.template_name || ''
+    const version = data.version_no || data.version || data.template_version || data.price_version || ''
+    const source = data.price_table_name || data.source || data.template_name || ''
     if (version && source) return `价格来源 ${source} ${version}`
     if (version) return `价格版本 ${version}`
     if (source) return `价格来源 ${source}`

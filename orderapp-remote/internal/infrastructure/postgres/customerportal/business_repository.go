@@ -49,6 +49,9 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 		if page.Products, err = r.listProducts(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
+		if err = r.loadPortalPriceTableCatalog(ctx, query, &page); err != nil {
+			return customerportalapp.ServicePage{}, err
+		}
 		page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)
 	case customerportalapp.ServiceKeyDirectShip:
 		if page.Products, err = r.listProducts(ctx, query.CustomerID, limit); err != nil {
@@ -2548,6 +2551,9 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 
+	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.bean_list_publications IN SHARE MODE", r.schema)); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
 	serviceCode := strings.TrimSpace(cmd.PortalServiceCode)
 	sourceWarehouse := "finished_goods"
 	if serviceCode == customerportalapp.PortalServiceProcessingShipment {
@@ -2604,7 +2610,7 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		matchedPriceQty = float64(cmd.Qty)
 		usage, pricing, err = r.portalPublishedBOMSpecPricingTx(
 			ctx, tx, cmd.CustomerID, outputIdentity.ProductID, productKind,
-			outputIdentity.BomSpecID, outputIdentity.BomVariantID, cmd.Qty,
+			outputIdentity.BomSpecID, outputIdentity.BomVariantID, cmd.Qty, cmd.BeanListPublicationID,
 		)
 		if err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
@@ -2635,7 +2641,7 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		specText = portalDripSpecText(salesUnit, dripBagGrams, dripBoxBagCount)
 	}
 	if !outputIdentity.Canonical {
-		usage, pricing, err = r.portalPublishedPricingTx(ctx, tx, cmd.CustomerID, cmd.ProductID, productKind, cmd.SpecG, cmd.Qty, salesUnit, int64(math.Round(unitBagCount)))
+		usage, pricing, err = r.portalPublishedPricingTx(ctx, tx, cmd.CustomerID, cmd.ProductID, productKind, cmd.SpecG, cmd.Qty, salesUnit, int64(math.Round(unitBagCount)), cmd.BeanListPublicationID)
 		if err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
@@ -2675,6 +2681,10 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		if err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
+	}
+	priceSourceSnapshot, err = r.freezePortalPriceTableTx(ctx, tx, cmd, usage, orderbeans.ListTypeForProductKind(productKind, false), priceSourceSnapshot)
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
 	}
 	shippingAmount := cmd.ShippingAmount
 	if shippingAmount < 0 {
@@ -2830,9 +2840,13 @@ func portalRelationExists(ctx context.Context, q portalQueryRower, relation stri
 	return exists
 }
 
-func (r Repository) portalPublishedPricingTx(ctx context.Context, tx pgx.Tx, customerID, productID int64, productKind string, specG, qty int64, salesUnit string, unitBagCount int64) (orderbeans.Usage, orderbeans.PublishedPricing, error) {
+func (r Repository) portalPublishedPricingTx(ctx context.Context, tx pgx.Tx, customerID, productID int64, productKind string, specG, qty int64, salesUnit string, unitBagCount int64, requestedIDs ...int64) (orderbeans.Usage, orderbeans.PublishedPricing, error) {
 	listType := orderbeans.ListTypeForProductKind(productKind, false)
-	usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, customerID, productID, listType, 0)
+	requestedID := int64(0)
+	if len(requestedIDs) > 0 {
+		requestedID = requestedIDs[0]
+	}
+	usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, customerID, productID, listType, requestedID)
 	if err != nil {
 		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, err
 	}
@@ -2849,9 +2863,13 @@ func (r Repository) portalPublishedPricingTx(ctx context.Context, tx pgx.Tx, cus
 	return usage, pricing, nil
 }
 
-func (r Repository) portalPublishedBOMSpecPricingTx(ctx context.Context, tx pgx.Tx, customerID, productID int64, productKind string, bomSpecID, bomVariantID, qty int64) (orderbeans.Usage, orderbeans.PublishedPricing, error) {
+func (r Repository) portalPublishedBOMSpecPricingTx(ctx context.Context, tx pgx.Tx, customerID, productID int64, productKind string, bomSpecID, bomVariantID, qty int64, requestedIDs ...int64) (orderbeans.Usage, orderbeans.PublishedPricing, error) {
 	listType := orderbeans.ListTypeForProductKind(productKind, false)
-	usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, customerID, productID, listType, 0)
+	requestedID := int64(0)
+	if len(requestedIDs) > 0 {
+		requestedID = requestedIDs[0]
+	}
+	usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, customerID, productID, listType, requestedID)
 	if err != nil {
 		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, err
 	}

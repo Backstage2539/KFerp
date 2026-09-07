@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import { prepaymentPresets, prepaymentByRate } from '../../utils/prepayment'
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
@@ -69,20 +70,6 @@ const formData = ref<EmployeeOrderForm>()
 const customerContext = ref<EmployeeCustomersResponse>()
 const loading = ref(false)
 const productCatalogLoading = ref(false)
-const selectedPublicationID = ref(0)
-const priceTableChoices = computed(() => [{id:0,label:'默认使用客户最新价格表（无客户表时使用公共表）'}, ...(formData.value?.price_list_options || []).map(v => ({id:v.id,label:`${v.is_customer_owned ? selectedCustomer.value?.name || '客户' : '公共'} · ${v.product_type_name || ''} ${v.version_no} ${v.published_at || ''}`}))])
-async function changePriceTable(event: {detail:{value:string}}) {
- const choice=priceTableChoices.value[Number(event.detail.value)]
- if(!choice || choice.id===selectedPublicationID.value)return
- if(form.value.items.some(item => Number(item.product_id)>0)) {
-  const result = await uni.showModal({title:'切换价格表',content:'切换后需要按新价格表重新选择商品，当前商品明细将清空。是否继续？'})
-  if(!result.confirm)return
- }
- selectedPublicationID.value=choice.id
- const loaded=await loadCustomerProductCatalog(Number(form.value.customer_id))
- if(loaded){form.value.items=[createEmployeeOrderItem()];quantityInputs.value={}}
-}
-
 const saving = ref(false)
 const savingDraft = ref(false)
 const clearingDraft = ref(false)
@@ -129,6 +116,7 @@ function selectPaymentStatus(event: { detail: { value: string | number } }) {
 
 function createOrderForm(): EmployeeOrderDraftPayload {
   return {
+    selected_price_table_ids: [],
     order_date: shanghaiToday(),
     customer_id: 0,
     source_id: 0,
@@ -150,6 +138,7 @@ function createOrderForm(): EmployeeOrderDraftPayload {
 
 const form = ref<EmployeeOrderDraftPayload>(createOrderForm())
 
+const namedPriceTableGroups = computed(() => priceTableGroups(formData.value?.price_table_options || []))
 const selectedCustomer = computed(() => formData.value?.customers.find(
   (row) => Number(row.id) === Number(form.value.customer_id),
 ))
@@ -283,9 +272,10 @@ async function loadCustomerProductCatalog(targetCustomerID: number): Promise<boo
   const sequence = ++productCatalogLoadSequence
   productCatalogLoading.value = true
   try {
-    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID, selectedPublicationID.value)
+    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID, form.value.selected_price_table_ids || [])
     if (sequence !== productCatalogLoadSequence || Number(form.value.customer_id) !== targetCustomerID) return false
     if (!formData.value) return false
+    form.value.selected_price_table_ids = data.selected_price_table_ids || []
     formData.value = {
       ...formData.value,
       ...data,
@@ -307,13 +297,27 @@ async function loadCustomerProductCatalog(targetCustomerID: number): Promise<boo
   }
 }
 
+function selectedNamedPriceTable(group: PriceTableGroup) {
+  return group.options.find(table => form.value.selected_price_table_ids?.includes(table.id)) || group.options.find(table => table.is_default) || group.options[0]
+}
+
+async function changeNamedPriceTable(group: PriceTableGroup, event: { detail: { value: string | number } }) {
+  const table = group.options[Number(event.detail.value)]
+  if (!table || productCatalogLoading.value) return
+  form.value.selected_price_table_ids = replaceSelectedPriceTable(form.value.selected_price_table_ids || [], group, table.id)
+  const loaded = await loadCustomerProductCatalog(Number(form.value.customer_id))
+  if (!loaded) return
+  form.value.items = revalidateEmployeeOrderItems(form.value.items, formData.value?.product_families || [], Number(form.value.customer_id), { preserveUnavailable: true })
+  quantityInputs.value = {}
+}
+
 async function chooseCustomer(customer: EmployeeOrderCustomer) {
   if (isEditMode.value) return
   const selectedBefore = form.value.items.filter((item) => item.product_id > 0).length
   const customerChanged = Number(form.value.customer_id || 0) !== Number(customer.id)
   form.value.customer_id = Number(customer.id)
   if (customerChanged) {
-    selectedPublicationID.value = 0
+    form.value.selected_price_table_ids = []
     form.value.items = [createEmployeeOrderItem()]
     quantityInputs.value = {}
   }
@@ -590,7 +594,17 @@ async function loadForm() {
       }
     }
     const targetCustomerID = Number(detailResponse?.order.customer_id || 0)
-    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID, selectedPublicationID.value)
+    let data = await fetchEmployeeOrderForm(session.token, targetCustomerID, form.value.selected_price_table_ids || [])
+    if (detailResponse) {
+      const currentOptions = data.price_table_options || []
+      const preferred = [...new Set((detailResponse.order.items || []).map(row => Number(row.bean_list_publication_id || 0)))].filter(id => currentOptions.some(row => row.id === id))
+      let selected = data.selected_price_table_ids || []
+      for (const group of priceTableGroups(currentOptions)) {
+        const id = preferred.find(value => group.options.some(row => row.id === value))
+        if (id) selected = replaceSelectedPriceTable(selected, group, id)
+      }
+      if (preferred.length) data = await fetchEmployeeOrderForm(session.token, targetCustomerID, selected)
+    }
     formData.value = {
       ...data,
       customers: data.customers || [],
@@ -609,7 +623,10 @@ async function loadForm() {
       )?.name || '')
       const editRetailOrder = /零售|retail/i.test(editOrderTypeName)
       if (isCopyMode.value) {
-        const copiedItems = copyEmployeeOrderItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder)
+        let copiedItems = copyEmployeeOrderItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder)
+        const namedIDs = new Set((data.price_table_options || []).filter(table => table.release_id).map(table => table.id))
+        const currentItems = revalidateEmployeeOrderItems(copiedItems, formData.value.product_families, targetCustomerID, { preserveUnavailable: true })
+        copiedItems = copiedItems.map((item, index) => namedIDs.has(Number(currentItems[index]?.bean_list_publication_id)) ? currentItems[index] : item)
         form.value = {
           ...createOrderForm(),
           ...employeeOrderCopyPayload(detail, copiedItems),
@@ -647,6 +664,7 @@ async function loadForm() {
       shippingBaseline.value = customer ? customerShippingDefaults(customer) : currentShippingSnapshot()
       applyDefaultOptions()
     }
+    form.value.selected_price_table_ids = data.selected_price_table_ids || []
     if (!isEditMode.value && !isCopyMode.value) await loadDraft()
   } catch (cause) {
     authExpired.value = !session.token || isAuthenticationExpiredRequestError(cause)
@@ -778,6 +796,7 @@ async function submit() {
   saving.value = true
   try {
     const payload = {
+      selected_price_table_ids: form.value.selected_price_table_ids || [],
       order_date: form.value.order_date,
       customer_id: form.value.customer_id,
       source_id: form.value.source_id,
@@ -908,13 +927,18 @@ onShow(() => {
         </button>
       </view>
 
-      <view v-if="form.customer_id && !isEditMode">
-        <text class="label">录单价格表</text>
-        <picker :range="priceTableChoices" range-key="label" :disabled="productCatalogLoading" :value="Math.max(0, priceTableChoices.findIndex(v => v.id === selectedPublicationID))" @change="changePriceTable">
-          <view class="field selector-field">{{ priceTableChoices.find(v => v.id === selectedPublicationID)?.label || priceTableChoices[0].label }}</view>
+      <view v-if="form.customer_id && namedPriceTableGroups.length" class="card named-price-tables">
+      <text class="section-title">下单价格表</text>
+      <view v-for="group in namedPriceTableGroups" :key="group.key" class="field">
+        <text class="label">{{ group.label }}</text>
+        <picker :range="group.options.map(priceTableLabel)" :value="Math.max(0, group.options.findIndex(table => table.id === selectedNamedPriceTable(group)?.id))" :disabled="productCatalogLoading" @change="changeNamedPriceTable(group, $event)">
+          <view class="input">{{ priceTableLabel(selectedNamedPriceTable(group)) }} ▾</view>
         </picker>
       </view>
-      <view class="section-head">
+      <text class="hint">商品、规格和价格随所选表切换。</text>
+    </view>
+
+    <view class="section-head">
         <text class="section-title">商品明细</text>
       </view>
 

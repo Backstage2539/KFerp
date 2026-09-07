@@ -1,5 +1,14 @@
 # 小程序员工简易 ERP 操作手册（PR-566 / PR-569 / PR-572 / PR-573 / PR-575 / PR-579 / PR-591 / PR-613 / PR-614）
 
+## 选择同版本中的价格表（PR-635）
+
+选择客户后，员工录单在商品明细前按商品类型显示价格表选择框，默认带入当前版本标记的默认表，选项显示“表名 · 版本号”。可以切换到同版本其他表；不同商品类型分别选择。
+
+切表后，仍在新表中的商品规格保留数量并重新匹配价格；失效或未发布到新表的规格标记为待重选，不能直接提交。草稿保存选表信息，恢复后重新核对客户和商品范围。编辑/复制订单优先保留仍在当前有效版本中的原表；旧版本已不可用时按当前默认表核对，命名表复制使用当前选择的报价。复制仍会重置付款和预付款信息。
+
+订单详情的价格来源展示冻结的表名及版本，不随后来改名或发布新版变化。客户小程序“现货下单”也先按商品类型选表，再从该表商品规格中下单；服务器核对具体发布记录，不能借用其他客户或其他表的价格。
+
+
 关联需求：`PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE`、`PR-573-MINIAPP-ORDER-CATALOG-EDIT`、`PR-575-MINIAPP-SHARE-IMAGE-ENTRANCE-SETTING`、`PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE`、`PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`、`PR-613-MINI-LATEST-CATALOG-TIER-PRICE-SYNC`、`PR-614-CURRENT-PRICE-CATALOG-BOM-SPEC-PROJECTION`。
 
 ## 适用角色

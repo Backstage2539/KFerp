@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-635-NAMED-PRICE-TABLE-BATCHES
+- Branch: `codex/named-price-table-batches-20260907`
+- Owner/session: Codex / 2026-09-07
+- Status: delivered to development; awaiting Van acceptance; deploy ownership released
+- Scope: 同商品类型同版本多张命名价格表、默认表、整组发布及 ERP/小程序按表下单。
+- DEV: DEV-635-BATCH; DEV-635-EDITOR; DEV-635-ORDER-SELECTION; DEV-635-DELIVERY
+- Verifier: targeted Go/API/PostgreSQL and Vue/miniapp RED/GREEN, full backend/frontend/miniapp checks, named PDF rendering and development delivery.
+- Deployment: development deployed a29f9178ab700af58a45a3fd4be70bdb38a73213 via GitHub PR #75; script exit 0; API 401/200; source/miniapp fingerprints verified.
+- Notes: Evidence: orderapp-remote/docs/acceptance/2026-09-07-named-price-table-batches.md; miniapp /Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev; backup /opt/stacks/erp/orderapp.backup.deploy-20260907230044-a29f9178ab70. Existing optional legacy API fixture failures documented separately.
+
 ### PR-631-QUICK-PRICING-MARKUP-ADJUSTMENT
 - Branch: `codex/quick-pricing-markup-20260907`
 - Owner/session: Codex / 2026-09-07

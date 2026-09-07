@@ -1,3 +1,4 @@
+import type { PriceTableOption } from '../utils/priceTables'
 import { miniRequest } from './client'
 import type { Capability } from '../utils/capabilities'
 import type { MallOrderPayload, MallProduct } from '../utils/mall'
@@ -270,6 +271,8 @@ export type ResaleBeanListCommand = {
 }
 
 export type ProductSummary = {
+  bean_list_publication_id?: number
+  price_table_name?: string
   id: number
   bom_spec_id?: number
   bom_variant_id?: number
@@ -419,6 +422,8 @@ export type SettlementBatch = {
 }
 
 export type ServicePageResponse = {
+  price_table_options?: PriceTableOption[]
+  selected_price_table_ids?: number[]
   key: ServiceKey
   title: string
   capability: string
@@ -665,6 +670,7 @@ export type CustomerBillDetail = CustomerBillSummary & {
 }
 
 export type CreateFulfillmentOrderPayload = {
+  bean_list_publication_id?: number
   service_code: 'direct_ship' | 'processing_ship' | 'product_order' | string
   recipient_name: string
   recipient_phone: string
@@ -684,6 +690,7 @@ export type CreateFulfillmentOrderPayload = {
 }
 
 export type ServicePageFilters = {
+  selected_price_table_ids?: number[]
   q?: string
   date_from?: string
   date_to?: string
@@ -742,7 +749,8 @@ export function fetchMe(token: string): Promise<MeResponse> {
 }
 
 export type EmployeeOrderForm = {
-  price_list_options?: Array<{id:number;customer_id:number;is_customer_owned:boolean;version_no:string;label:string;product_type_name?:string;published_at?:string}>
+  price_table_options?: PriceTableOption[]
+  selected_price_table_ids?: number[]
   today: string
   customers: EmployeeOrderCustomer[]
   sources: Array<{ id: number; name: string }>
@@ -868,6 +876,7 @@ export type EmployeeOrderDraftItem = {
 }
 
 export type EmployeeOrderDraftPayload = {
+  selected_price_table_ids?: number[]
   prepayment_amount?: number
   payment_method?: string
   edit_revision?: string
@@ -1206,8 +1215,10 @@ const employeeOrderDocumentFiles: Record<
   'delivery-note': { pdf: 'delivery-note.pdf', png: 'delivery-note.png' },
 }
 
-export function fetchEmployeeOrderForm(token: string, customerID = 0, publicationID = 0): Promise<EmployeeOrderForm> {
-  return miniRequest<EmployeeOrderForm>(buildEmployeeOrderFormPath(customerID, publicationID), { token })
+export function fetchEmployeeOrderForm(token: string, customerID = 0, selectedPriceTableIDs: number[] = []): Promise<EmployeeOrderForm> {
+  const path = buildEmployeeOrderFormPath(customerID)
+  const selection = selectedPriceTableIDs.length ? `${path.includes('?') ? '&' : '?'}selected_price_table_ids=${selectedPriceTableIDs.join(',')}` : ''
+  return miniRequest<EmployeeOrderForm>(path + selection, { token })
 }
 
 export function fetchEmployeeOrders(token: string, q = ''): Promise<{ rows: EmployeeOrder[]; has_next: boolean }> {
@@ -1299,9 +1310,9 @@ export function deleteEmployeeOrderDraft(token: string): Promise<{ deleted: bool
   return miniRequest<{ deleted: boolean }>(buildEmployeeOrderDraftPath(), { method: 'DELETE', token })
 }
 
-export function buildEmployeeOrderFormPath(customerID = 0, publicationID = 0): string {
+export function buildEmployeeOrderFormPath(customerID = 0): string {
   const id = Number(customerID || 0)
-  return `/api/mini/employee/order-form${id > 0 ? `?customer_id=${id}` : ''}${id > 0 && publicationID > 0 ? `&publication_id=${Number(publicationID)}` : ''}`
+  return `/api/mini/employee/order-form${id > 0 ? `?customer_id=${id}` : ''}`
 }
 
 export function buildEmployeeOrdersPath(): string {
@@ -1345,6 +1356,7 @@ export function buildEmployeeOrderDraftPath(): string {
 
 export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilters = {}): string {
   const params = [
+    ['selected_price_table_ids', filters.selected_price_table_ids?.join(',')],
     ['q', filters.q],
     ['date_from', filters.date_from],
     ['date_to', filters.date_to],

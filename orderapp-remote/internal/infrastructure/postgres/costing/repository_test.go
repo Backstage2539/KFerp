@@ -1575,7 +1575,7 @@ func TestPublishedBeanListReadsOnlyCurrentPublishedSnapshot(t *testing.T) {
 	body := src[start:end]
 	for _, want := range []string{
 		`whereClause := "publication_purpose=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"`,
-		`orderClause := "published_at DESC, id DESC"`,
+		`orderClause := "published_at DESC, COALESCE((config_json->'publication_batch'->>'is_default_table')::boolean,true) DESC, id DESC"`,
 		"COALESCE(product_type_category_id,0)=0 AND list_type=$5",
 		"WHERE %s AND status='published'",
 		"ORDER BY %s",
