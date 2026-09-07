@@ -514,6 +514,7 @@ func (r Repository) buildCombinedSalesOrderSnapshotTx(ctx context.Context, tx pg
 		discount += parseDocumentMoney(single.Discount)
 		grand += parseDocumentMoney(single.GrandTotal)
 		snapshot.Groups = append(snapshot.Groups, salesdomain.CombinedSalesOrderGroup{
+			PrepaymentAmount: single.PrepaymentAmount, PaidAmount: single.PaidAmount, UnpaidAmount: single.UnpaidAmount,
 			OrderID:            single.OrderID,
 			OrderNo:            single.OrderNo,
 			DocumentDate:       single.DocumentDate,

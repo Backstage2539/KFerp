@@ -4940,3 +4940,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-09-04 Asia/Shanghai
 - 追加验证：真实 Vue 组件 RED 5/5 失败 -> GREEN 5/5；相关前端 29/29；全量前端 1065/1065、Go 全包与 Vue 构建通过；本地无业务数据样例完成桌面/390px 展开/收缩/移动禁用检查。记录 `orderapp-remote/docs/acceptance/2026-09-04-group-list-expand-collapse.md`；本次授权 production 发布，微信上传不在范围。
 - Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 多行字符串上报错且未产生文件改动；最新 `origin/develop` 已占用 PR-622～625，因此按下一可用编号手工登记 PR-626。
+
+### PR-632-ORDER-PREPAYMENT
+- Branch: `codex/order-prepayment-20260907`
+- Status: verified, development integration pending
+- Scope: 小程序订单列表直接复制；录单预付款、未完成付款状态、已付与尾款金额、小程序绿色/红色展示及销售单 PDF/PNG。
+- DEV: DEV-632-PAYMENT; DEV-632-MINIAPP; DEV-632-DOCUMENT
+- Verifier: domain/API/PostgreSQL tests; Vue/miniapp tests and build; rendered PDF/PNG; development deployment.
+- Verification: Go all packages; Vue 1079/1079; miniapp 229/229, typecheck and development build; real PostgreSQL/API and rendered PDF/PNG GREEN.
+- Evidence: orderapp-remote/docs/acceptance/2026-09-07-order-prepayment.md
+- Deployment: development after gates; acceptance pending Van.

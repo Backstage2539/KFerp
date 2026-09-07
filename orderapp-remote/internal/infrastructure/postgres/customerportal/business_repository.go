@@ -13,6 +13,7 @@ import (
 
 	customerportalapp "orderapp/internal/application/customerportal"
 	catalogdomain "orderapp/internal/domain/catalog"
+	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
 
@@ -1974,6 +1975,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 			       COALESCE(ops.name,''),
 		       COALESCE(ps.name,''),
 		       COALESCE(o.payment_method,''),
+             COALESCE(to_jsonb(o)->>'prepayment_amount','0'),
 		       COALESCE(ss.name,''),
 		       COALESCE(o.ship_tracking_no,''),
 		       to_char(COALESCE(o.grand_total,0), 'FM999999990.00'),
@@ -1995,9 +1997,12 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	orderIDs := make([]int64, 0)
 	for rows.Next() {
 		var row customerportalapp.CustomerOrderSummary
-		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.PaymentMethod, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount); err != nil {
+		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.PaymentMethod, &row.PrepaymentAmount, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount); err != nil {
 			return nil, err
 		}
+		deposit, _ := strconv.ParseFloat(row.PrepaymentAmount, 64)
+		grand, _ := strconv.ParseFloat(row.GrandTotal, 64)
+		row.PaidAmount, row.UnpaidAmount = salesdomain.OrderPaymentAmounts(row.PayStatus, deposit, grand)
 		orderIDs = append(orderIDs, row.ID)
 		out = append(out, row)
 	}

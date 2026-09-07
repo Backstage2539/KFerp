@@ -10,8 +10,9 @@ const pagesSource = readFileSync(resolve('src/pages.json'), 'utf8')
 describe('employee order detail miniapp page contract', () => {
   it('opens valid summary cards and keeps malformed rows visible without an empty navigator url', () => {
     expect(listSource).toMatch(
-      /<navigator\b(?=[^>]*v-if="row\.detail_url")(?=[^>]*:url="row\.detail_url")[^>]*>/,
+      /<navigator\b(?=[^>]*:url="row\.detail_url")[^>]*>/,
     )
+    expect(listSource).toContain('<view v-if="row.detail_url" class="card">')
     expect(listSource).toContain('<template v-for="row in rows"')
     expect(listSource).toContain('<view v-else class="card card-disabled">')
     expect(listSource).toContain('订单编号异常，无法查看')

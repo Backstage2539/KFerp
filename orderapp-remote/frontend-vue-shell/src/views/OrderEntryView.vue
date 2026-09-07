@@ -131,6 +131,12 @@
           </select>
         </label>
 
+        <label v-if="selectedPayStatusName.includes('预付款') || Number(form.prepayment_amount) > 0">
+          <span>已支付预付款（元）</span>
+          <input v-model="form.prepayment_amount" type="number" min="0" step="0.01" placeholder="填写实际已收金额" />
+          <small>预付款小于订单应收合计；收齐尾款后选择已付款。</small>
+        </label>
+
         <label :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
           <span>收款方式</span>
           <select v-model.trim="form.payment_method" :disabled="!paymentMethodRequired">
@@ -759,6 +765,7 @@ const form = reactive({
   order_type_id: 0,
   pay_status_id: 0,
   payment_method: '',
+  prepayment_amount: '0',
   ship_status_id: 0,
   ship_method: '',
   ship_tracking_no: '',
@@ -2156,6 +2163,7 @@ function applyEditData(data) {
     order_type_id: Number(data.order_type_id || 0),
     pay_status_id: Number(data.pay_status_id || 0),
     payment_method: data.payment_method || '',
+    prepayment_amount: data.prepayment_amount || '0',
     ship_status_id: Number(data.ship_status_id || 0),
     ship_method: data.ship_method || '',
     ship_tracking_no: data.ship_tracking_no || '',
@@ -2423,6 +2431,9 @@ async function load() {
     if (data.edit_mode) {
       const editData = { ...data.edit_data, edit_id: copyID ? 0 : data.edit_id }
       if (copyID) {
+        editData.prepayment_amount = '0'
+        editData.pay_status_id = defaultStatusID(payStatuses.value, ['未付款'])
+        editData.payment_method = ''
         editData.ship_tracking_no = ''
         editData.ship_status_id = defaultStatusID(shipStatuses.value, ['未发货']) || editData.ship_status_id
         editData.logistics_company_id = 0
@@ -2454,6 +2465,7 @@ async function load() {
 function resetForBackfillContinuation() {
   form.edit_id = 0
   form.ship_tracking_no = ''
+  form.prepayment_amount = '0'
   form.payment_goods_amount = ''
   form.payment_shipping_amount = ''
   form.payment_voucher_asset_id = 0

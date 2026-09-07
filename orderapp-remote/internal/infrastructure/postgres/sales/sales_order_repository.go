@@ -575,6 +575,13 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	snapshot.Shipping = salesdomain.FormatSalesOrderMoney(shipping)
 	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)
 	snapshot.GrandTotal = salesdomain.FormatSalesOrderMoney(grand)
+	var prepayment float64
+	var payStatus string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)::float8,COALESCE(ps.name,'') FROM %s.orders o LEFT JOIN %s.pay_statuses ps ON ps.id=o.pay_status_id WHERE o.id=$1`, r.schema, r.schema), orderID).Scan(&prepayment, &payStatus); err != nil {
+		return snapshot, err
+	}
+	snapshot.PrepaymentAmount = salesdomain.FormatSalesOrderMoney(prepayment)
+	snapshot.PaidAmount, snapshot.UnpaidAmount = salesdomain.OrderPaymentAmounts(payStatus, prepayment, grand)
 	breakdowns, err := r.loadSalesOrderDiscountBreakdownsTx(ctx, tx, orderID, discount)
 	if err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err

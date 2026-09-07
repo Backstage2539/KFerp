@@ -12,6 +12,14 @@ import (
 )
 
 func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, actor string) (salesapp.SaveOrderCommand, error) {
+	var prepayment *float64
+	if req.PrepaymentAmount != nil {
+		amount, err := parseCreateOrderAmount(*req.PrepaymentAmount, "prepayment_amount")
+		if err != nil {
+			return salesapp.SaveOrderCommand{}, fmt.Errorf("预付款金额无效")
+		}
+		prepayment = &amount
+	}
 	orderDate := strings.TrimSpace(req.OrderDate)
 	if orderDate == "" {
 		orderDate = time.Now().Format("2006-01-02")
@@ -72,6 +80,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		return salesapp.SaveOrderCommand{}, err
 	}
 	return salesapp.SaveOrderCommand{
+		PrepaymentAmount:                prepayment,
 		Actor:                           actor,
 		EditID:                          editID,
 		DocumentDate:                    dd,

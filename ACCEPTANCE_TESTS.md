@@ -1115,3 +1115,6 @@
 - [ ] 开发与生产均在完整备份后单事务应用；旧规格子商品为 0，旧迁移、映射、升级表不存在，历史单据继续按自身快照展示，BOM 历史版本保留。
 - [ ] 重启后不会重建默认 SKU、派生子 SKU 或旧迁移表；重复 verify/apply 为已完成且不产生重复数据。
 - [ ] Go、Vue、小程序、Vite、`scripts/verify_kferp.sh all`、双环境预检、部署、健康检查和操作日志验证全部通过。
+
+## PR-632 订单预付款与小程序列表复制
+详细金额、复制、日志和文档验证见 `orderapp-remote/docs/ACCEPTANCE_TESTS.md` 与 `orderapp-remote/docs/acceptance/2026-09-07-order-prepayment.md`；产品验收待 Van。

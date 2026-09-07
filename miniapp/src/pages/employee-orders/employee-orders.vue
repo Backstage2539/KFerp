@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaymentSummary from '../../components/PaymentSummary.vue'
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { fetchEmployeeOrders, type EmployeeOrder } from '../../api/customerPortal'
@@ -12,6 +13,12 @@ import {
   rememberEmployeeOrderListQuery,
   type EmployeeOrderNavigationRow,
 } from '../../utils/employeeOrderDetail'
+
+import { copyOrderURL } from '../../utils/prepayment'
+function copyOrder(id: number) {
+  const url = copyOrderURL(id)
+  if (url) { rememberListQuery(); uni.navigateTo({ url }) }
+}
 
 const session = useSessionStore()
 const {
@@ -60,12 +67,16 @@ onShow(() => void load())
     <text v-else-if="error" class="state error">{{ error }}</text>
     <view v-else-if="rows.length" class="list">
       <template v-for="row in rows" :key="row.id || row.order_no">
-        <navigator v-if="row.detail_url" class="card" hover-class="card-active" :url="row.detail_url" @tap="rememberListQuery">
+        <view v-if="row.detail_url" class="card">
+        <navigator hover-class="card-active" :url="row.detail_url" @tap="rememberListQuery">
           <view class="line"><text class="no">{{ row.order_no }}</text><text>¥{{ row.grand_total || '0.00' }}</text></view>
           <text class="customer">{{ row.customer }}</text>
           <text class="meta">{{ row.order_date }} · {{ row.pay_status }} · {{ row.ship_status }} · {{ row.process_status }}</text>
           <text class="open-hint">查看完整订单 ›</text>
         </navigator>
+        <PaymentSummary :order="row" />
+        <button class="copy-order" @tap.stop="copyOrder(row.id)">复制订单</button>
+        </view>
         <view v-else class="card card-disabled">
           <view class="line"><text class="no">{{ row.order_no }}</text><text>¥{{ row.grand_total || '0.00' }}</text></view>
           <text class="customer">{{ row.customer }}</text>
@@ -83,5 +94,6 @@ onShow(() => void load())
 </template>
 
 <style scoped>
+.copy-order{margin:16rpx 0 0 auto;padding:8rpx 0;width:auto;line-height:1.5;background:transparent;color:#2563eb;font-size:26rpx;text-align:right}.copy-order::after{border:0}
 .page{min-height:100vh;padding:28rpx;background:#f5f7f6;box-sizing:border-box}.search{display:flex;gap:16rpx;margin-bottom:22rpx}.search input{flex:1;background:#fff;border:1rpx solid #dfe7e2;border-radius:12rpx;padding:18rpx}.search button{margin:0;background:#28624a;color:#fff;font-size:28rpx}.list{display:flex;flex-direction:column;gap:18rpx}.card{padding:24rpx;background:#fff;border:1rpx solid #dfe7e2;border-radius:16rpx}.card-active{background:#eef5f1}.card-disabled{background:#fafafa}.line{display:flex;justify-content:space-between}.no{font-weight:800}.customer{display:block;margin-top:12rpx}.meta{display:block;margin-top:10rpx;color:#69766f;font-size:24rpx}.open-hint{display:block;margin-top:14rpx;color:#28624a;font-size:23rpx;text-align:right}.invalid-hint{color:#b42318}.state{display:block;padding:60rpx;text-align:center;color:#69766f}.error{color:#b42318}
 </style>

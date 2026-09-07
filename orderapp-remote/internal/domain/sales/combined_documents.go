@@ -35,6 +35,9 @@ type CombinedSalesOrderSnapshot struct {
 }
 
 type CombinedSalesOrderGroup struct {
+	PrepaymentAmount   string                        `json:"prepayment_amount,omitempty"`
+	PaidAmount         string                        `json:"paid_amount,omitempty"`
+	UnpaidAmount       string                        `json:"unpaid_amount,omitempty"`
 	OrderID            int64                         `json:"order_id"`
 	OrderNo            string                        `json:"order_no"`
 	DocumentDate       string                        `json:"document_date"`

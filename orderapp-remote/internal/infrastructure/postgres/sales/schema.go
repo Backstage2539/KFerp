@@ -655,6 +655,7 @@ func ensureOrderFulfillmentColumns(ctx context.Context, pool *pgxpool.Pool, sche
 	stmts := []string{
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS logistics_company_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS logistics_product_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS prepayment_amount NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (prepayment_amount >= 0)`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS payment_goods_amount NUMERIC(12,2) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS payment_shipping_amount NUMERIC(12,2) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS payment_voucher_asset_id BIGINT NOT NULL DEFAULT 0`, schema),

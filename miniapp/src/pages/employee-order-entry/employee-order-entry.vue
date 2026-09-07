@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import PaymentSummary from '../../components/PaymentSummary.vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
 import ProductFamilyPickerSheet from '../../components/ProductFamilyPickerSheet.vue'
@@ -105,6 +106,12 @@ function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
 
 const shippingBaseline = ref<EmployeeOrderShippingSnapshot>(emptyShippingSnapshot())
 
+const receiptMethods = ['微信支付', '支付宝', '银行转账', '对公银行', '现金', 'POS刷卡', '其他']
+const selectedPaymentStatus = computed(() => formData.value?.pay_statuses.find(s => s.id === form.value.pay_status_id)?.name || '')
+function selectPaymentStatus(event: { detail: { value: string | number } }) {
+  form.value.pay_status_id = formData.value?.pay_statuses[Number(event.detail.value)]?.id || 0
+}
+
 function createOrderForm(): EmployeeOrderDraftPayload {
   return {
     order_date: shanghaiToday(),
@@ -112,6 +119,8 @@ function createOrderForm(): EmployeeOrderDraftPayload {
     source_id: 0,
     order_type_id: 0,
     pay_status_id: 0,
+    prepayment_amount: 0,
+    payment_method: '',
     ship_status_id: 0,
     receiver_name: '',
     receiver_phone: '',
@@ -585,6 +594,8 @@ async function loadForm() {
           source_id: Number(detail.source_id || 0),
           order_type_id: Number(detail.order_type_id || 0),
           pay_status_id: Number(detail.pay_status_id || 0),
+          prepayment_amount: Number(detail.prepayment_amount || 0),
+          payment_method: detail.payment_method || '',
           ship_status_id: Number(detail.ship_status_id || 0),
           receiver_name: String(detail.receiver_name || ''),
           receiver_phone: String(detail.receiver_phone || ''),
@@ -738,6 +749,8 @@ async function submit() {
       source_id: form.value.source_id,
       order_type_id: form.value.order_type_id,
       pay_status_id: form.value.pay_status_id,
+      prepayment_amount: Number(form.value.prepayment_amount || 0),
+      payment_method: form.value.payment_method || '',
       ship_status_id: form.value.ship_status_id,
       receiver_name: form.value.receiver_name,
       receiver_phone: form.value.receiver_phone,
@@ -934,6 +947,24 @@ onShow(() => {
         <text>订单应收合计</text>
         <text class="order-total-value">¥{{ orderGrandTotal.toFixed(2) }}</text>
       </view>
+
+      <view class="section-title standalone">付款</view>
+      <text class="label">付款状态</text>
+      <picker :range="formData?.pay_statuses || []" range-key="name" :value="Math.max(0, (formData?.pay_statuses || []).findIndex(s => s.id === form.pay_status_id))" @change="selectPaymentStatus">
+        <view class="field">{{ selectedPaymentStatus || '选择付款状态' }}</view>
+      </picker>
+      <view v-if="selectedPaymentStatus.includes('预付款') || Number(form.prepayment_amount) > 0">
+        <text class="label">已支付预付款（元）</text>
+        <input v-model="form.prepayment_amount" class="field" type="digit" placeholder="填写实际已收金额" />
+        <text class="hint">预付款应小于应收合计；收齐尾款后选择已付款。</text>
+      </view>
+      <view v-if="selectedPaymentStatus.includes('预付款') || /已付|已收|已支付/.test(selectedPaymentStatus)">
+        <text class="label">收款方式</text>
+        <picker :range="receiptMethods" @change="form.payment_method = receiptMethods[Number($event.detail.value)]">
+          <view class="field">{{ form.payment_method || '选择收款方式' }}</view>
+        </picker>
+      </view>
+      <PaymentSummary :order="{ pay_status: selectedPaymentStatus, prepayment_amount: String(form.prepayment_amount || 0), grand_total: String(orderGrandTotal) }" />
 
       <view class="section-title standalone">收货信息</view>
       <text class="hint">选择客户后自动带入，可按本次订单修改</text>

@@ -26,7 +26,7 @@ func TestDev572MiniappOrderDetailDocumentShareContract(t *testing.T) {
 	assertSourceMarkers("miniapp/src/pages.json", "pages/employee-order-detail/employee-order-detail")
 	listPage := assertSourceMarkers(
 		"miniapp/src/pages/employee-orders/employee-orders.vue",
-		"<template v-for=\"row in rows\"", "<navigator v-if=\"row.detail_url\"", ":url=\"row.detail_url\"",
+		"<template v-for=\"row in rows\"", "<view v-if=\"row.detail_url\"", ":url=\"row.detail_url\"",
 		"<view v-else class=\"card card-disabled\">", "订单编号异常，无法查看", "employeeOrderNavigationRows", "rememberListQuery",
 	)
 	if strings.Contains(listPage, "@tap=\"openOrderDetail(row)\"") {
