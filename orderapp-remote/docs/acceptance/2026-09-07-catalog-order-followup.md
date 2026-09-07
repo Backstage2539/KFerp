@@ -23,3 +23,5 @@
 ## 本地完整检查
 
 Go 全量、Vue 1102/1102、小程序 238/238、类型检查、Vite 与微信开发构建均通过。真实 PostgreSQL 目录复制/删除/移动/恢复/失败回滚、排序稳定、来源冻结和当前公共版本显式选择通过。日志 /tmp/pr636-final-all3.log、pr636-final-postgres.log、pr636-catalog-final.log、pr636-final-mini-tests.log、pr636-final-mini-types.log、pr636-final-mini-build.log。
+
+- 补充客户视图录单范围回归：带 customer_id 的录单表单必须同时保留当前客户引用的客户报价及可显式选择的公共报价；其他客户专属商品仍不可见。RED /tmp/pr637-scoped-form-red.log；相关应用及 HTTP 测试 GREEN。
