@@ -4965,3 +4965,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: 双端定向测试、前端全测与构建、小程序全测/类型检查/构建、统一检查和发布门禁。
 - Delivery: 开发、生产和对应小程序包待同步；不执行微信上传或提审。
 - GREEN: Vue 1082/1082，小程序 235/235，Go 全量、类型检查、Vite/小程序构建及统一 changed 检查全部通过。
+
+### PR-634-CUSTOMER-CATALOG-COPY
+- Branch: codex/customer-catalog-copy-20260907
+- Status: implementing
+- Scope: 全量/所选/单个复制客户引用与分类，客户名称隔离，客户价格表与录单。
+- DEV: 634-CATALOG; 634-UI; 634-PRICING; 634-DELIVERY
+- Verifier: TDD PostgreSQL/API/Vue/miniapp; full Go/Vue/build/typecheck; development acceptance.
+- Deployment: development only; production and WeChat release excluded from this implementation.
+- Notes: reserve_req_id.sh --claim failed on macOS awk multiline literal; PR-634 reserved here manually before implementation.
+
+- PR-634 验证：完整 Go / Vue 1089 项 / Vite 构建通过；真实 PostgreSQL 目录、迁移回滚、并发及旧引用测试通过；小程序 235 项、类型检查及 development 构建通过。验收记录见 docs/acceptance/2026-09-07-customer-catalog-copy.md。即将集成部署 development，生产/微信未发布。

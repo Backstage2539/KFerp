@@ -149,7 +149,7 @@ test('product price list waits for product-catalog feature selection before reso
   )
   assert.match(
     viewSource,
-    /async function loadPriceListProductBusinessGroups\(\) \{[\s\S]*priceListProductCatalogFeatureSelectionLoaded\.value = false[\s\S]*finally \{\s*priceListProductCatalogFeatureSelectionLoaded\.value = true\s*\}/,
+    /async function loadPriceListProductBusinessGroups\(\) \{[\s\S]*priceListProductCatalogFeatureSelectionLoaded\.value = false[\s\S]*finally \{\s*if \(revision === customerPriceCatalogRevision\) priceListProductCatalogFeatureSelectionLoaded\.value = true\s*\}/,
   )
 })
 
@@ -1083,7 +1083,7 @@ test('price list preview builds from current selected products instead of empty 
   assert.ok(groupsSource.includes('downloadSourcePublication.value?.content?.groups'), 'download action should still render stored publication content')
   assert.ok(groupsSource.includes('buildBeanListPdfGroupsFromCategoryRows(selectedSkuCategoryProductGroups.value'), 'generate drawer should render materialized selected SKU rows from the picker')
   assert.equal(groupsSource.includes('currentPriceSourcePublication.value?.content?.groups'), false, 'current price source must not replace current selected products')
-  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(normalizePriceListPublicationRows('), true, 'flat rows should normalize concrete identities before collapsing identical generated tier rows')
+  assert.equal(viewSource.includes('const generatedPriceListFlatRows = computed(() => dedupePriceListFlatRows(normalizePriceListPublicationRows('), true, 'flat rows should normalize concrete identities before collapsing identical generated tier rows')
   assert.equal(viewSource.includes('normalizePriceListPublicationGroups('), true, 'preview should normalize stale parent identities before applying flat price rows')
   assert.equal(viewSource.includes('applyPriceListFlatRowsToBeanListPdfGroups(normalizedPriceListGroups.value, priceListFlatRows.value'), true, 'preview should render flat price rows back into normalized PDF groups')
   assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trials'"), true, 'pricing-rule rows should load live trial prices in one batch')

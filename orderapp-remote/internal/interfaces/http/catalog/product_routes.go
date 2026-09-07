@@ -25,6 +25,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.PUT("/api/products/:id", h.updateAPI)
 	e.GET("/api/product-settings", h.productSettingsAPI)
 	registerBusinessGroupRoutes(e, h)
+	registerCustomerCatalogRoutes(e, h)
 	e.GET("/api/product-customer-references", h.productCustomerReferencesAPI)
 	e.POST("/api/product-customer-references", h.saveProductCustomerReferenceAPI)
 	e.PUT("/api/product-customer-references/:id", h.saveProductCustomerReferenceAPI)

@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-634-CUSTOMER-CATALOG-COPY", title: "商品与分类复制到客户", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-customer-catalog-copy.md"},
+		{table: "req_dev", code: "DEV-634-CATALOG", title: "全量、复选、单个引用复制及独立客户分类", status: "done", assignee: "Codex", evidence: "customer_catalog_test.go; customer-catalog.test.js"},
+		{table: "req_dev", code: "DEV-634-PRICING", title: "客户目录报价、公共报价带入与客户草稿保留", status: "done", assignee: "Codex", evidence: "customer-price-draft.test.js; OP_MANUAL_COSTING.md"},
+		{table: "req_dev", code: "DEV-634-DELIVERY", title: "分类迁移、权限回归与开发交付", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-customer-catalog-copy.md"},
 		{table: "req_product", code: "PR-633-PREPAYMENT-PRESETS-GUEST-ENTRY", title: "预付款快捷比例与小程序自主登录", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-prepayment-presets-guest-entry.md"},
 		{table: "req_dev", code: "DEV-633-PREPAYMENT-PRESETS", title: "网页常驻金额框与双端30/50/70%含运费应收比例", status: "done", assignee: "Codex", evidence: "prepayment-presets.test.js; guest-entry.test.ts; OP_MANUAL_ORDER_SALES.md"},
 		{table: "req_dev", code: "DEV-633-GUEST-ENTRY", title: "未登录首页服务浏览、包装换算与自主登录", status: "done", assignee: "Codex", evidence: "GuestHome.vue; guest-entry.test.ts; mainTabs.test.ts"},

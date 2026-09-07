@@ -3294,7 +3294,9 @@ func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalo
 	if !productActive {
 		return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "product inactive"}
 	}
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.customers WHERE id=$1 FOR UPDATE`, r.schema), cmd.CustomerID).Scan(&customerExists); err == pgx.ErrNoRows {
+		return catalogapp.ProductCustomerReference{}, catalogapp.ValidationError{Message: "customer not found or inactive"}
+	} else if err != nil {
 		return catalogapp.ProductCustomerReference{}, err
 	}
 	if !customerExists {
@@ -3308,7 +3310,7 @@ func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalo
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_customer_references
 			SET product_id=$2, customer_id=$3, customer_item_code=$4, customer_display_name=$5, active=$6, remark=$7, updated_at=now(), updated_by=$8
-			WHERE id=$1
+			WHERE id=$1 AND product_id=$2 AND customer_id=$3
 			RETURNING id
 		`, r.schema), cmd.ID, cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	} else {
