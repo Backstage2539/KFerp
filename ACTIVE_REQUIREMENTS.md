@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-631-QUICK-PRICING-MARKUP-ADJUSTMENT
+- Branch: `codex/quick-pricing-markup-20260907`
+- Owner/session: Codex / 2026-09-07
+- Status: implementation and development delivery in progress
+- Scope: 商品价格管理的价格计算模板表增加可编辑“快速调整加价率”列，按百分比输入，变更后直接 PUT 保存并立即更新当前模板；失效或旧价格方式模板保持禁用并提示走新建加价率模板。
+- DEV: DEV-631-QUICK-MARKUP-COLUMN; DEV-631-IMMEDIATE-SAVE-AND-VALIDATION; DEV-631-DEVELOPMENT-DELIVERY
+- Verifier: product-settings RED/GREEN, full Vue tests/build, backend unaffected, development page/API smoke and database/API response verification.
+- Deployment: pending; production remains unchanged for this follow-up.
+- Last update: 2026-09-07 Asia/Shanghai
+
 ### PR-630-MINIAPP-ORDER-COPY-AND-SAVE-REGRESSION
 - Branch: `codex/prod-order-save-copy-20260906`
 - Owner/session: Codex / 2026-09-06

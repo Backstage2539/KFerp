@@ -531,6 +531,18 @@ export function buildPricingRulePayload(form = {}) {
   }
 }
 
+export function pricingRuleMarkupRatePercent(value) {
+  const rate = Number(value)
+  if (!Number.isFinite(rate) || rate < 0) return 0
+  return Number((rate * 100).toFixed(4))
+}
+
+export function pricingRuleMarkupRateFromPercent(value) {
+  const percent = Number(value)
+  if (!Number.isFinite(percent) || percent < 0) return null
+  return Math.round((percent / 100) * 1000000) / 1000000
+}
+
 export function pricingRuleEditorForm(rule = {}) {
   const calculation = pricingRuleCalculationObject(rule)
   const otherCosts = calculation.other_costs ?? calculation.otherCosts ?? {}

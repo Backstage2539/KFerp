@@ -47,6 +47,8 @@ import {
   buildProductTierPriceSchemePayload,
   buildPricingRulePayload,
   buildPricingRuleCopyPayload,
+  pricingRuleMarkupRatePercent,
+  pricingRuleMarkupRateFromPercent,
   buildPricingRuleUpdateFromTrial,
   buildPricingRuleTrialPayload,
   applyPricingRuleTrialToPriceTableRow,
@@ -1932,6 +1934,18 @@ test('product price management edits markup-only pricing rules in a right drawer
   for (const forbidden of ['商品成本上下文', '成本项配置', '库存成本', '手工成本', '最近采购成本', '成本取数口径', '商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate', 'min_qty', 'max_qty', 'tier_label']) {
     assert.equal(`${pane}${editorDrawer}`.includes(forbidden), false, `product price management should not expose ${forbidden}`)
   }
+})
+
+test('product price management exposes an inline markup-rate adjustment that saves immediately', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<p class="muted price-list-flat-row-note"/)?.[0] || ''
+  assert.match(pane, /<th>快速调整加价率<\/th>/)
+  assert.match(pane, /@change="quickAdjustPricingRuleMarkup\(rule, \$event\.target\.value\)"/)
+  assert.match(pane, /:value="pricingRuleMarkupRatePercent\(rule\)"/)
+  assert.match(source, /async function quickAdjustPricingRuleMarkup\(rule, rawPercent\)/)
+  assert.match(source, /apiSend\(`\/api\/product-pricing-rules\/\$\{payload\.id\}`, \{ method: 'PUT', body: payload \}\)/)
+  assert.equal(pricingRuleMarkupRatePercent(0.258), 25.8)
+  assert.equal(pricingRuleMarkupRateFromPercent('25.8'), 0.258)
 })
 
 test('product price management exposes pricing rule trial drawer and API wiring', () => {
