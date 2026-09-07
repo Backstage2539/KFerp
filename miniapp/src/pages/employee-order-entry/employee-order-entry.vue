@@ -149,7 +149,6 @@ const productFamilies = computed(() => customerProductFamilies(
 ))
 const editingItem = computed(() => form.value.items.find((item) => item.key === editingItemKey.value))
 const prepaymentRate = ref(0)
-const prepaymentGoodsAmount = computed(() => Math.max(0, orderItemsTotal.value - Number(form.value.discount_amount || 0)))
 function selectPrepaymentStatus() {
   if (Number(form.value.prepayment_amount) <= 0) return
   const status = formData.value?.pay_statuses.find(item => item.name.includes('预付款'))
@@ -157,7 +156,7 @@ function selectPrepaymentStatus() {
 }
 function applyPrepaymentPreset(rate: number) {
   prepaymentRate.value = rate
-  form.value.prepayment_amount = prepaymentByRate(prepaymentGoodsAmount.value, rate)
+  form.value.prepayment_amount = prepaymentByRate(orderGrandTotal.value, rate)
   selectPrepaymentStatus()
 }
 function onManualPrepayment() {
@@ -165,7 +164,6 @@ function onManualPrepayment() {
   selectPrepaymentStatus()
 }
 const orderItemsTotal = computed(() => employeeOrderItemsTotal(form.value.items))
-watch(prepaymentGoodsAmount, () => { if (prepaymentRate.value) applyPrepaymentPreset(prepaymentRate.value) })
 const orderGrandTotal = computed(() => employeeOrderGrandTotal(
   form.value.items,
   Number(form.value.shipping_amount || 0),
@@ -173,6 +171,7 @@ const orderGrandTotal = computed(() => employeeOrderGrandTotal(
   preservedOutsourceTotal.value,
   preservedRoundToInt.value,
 ))
+watch(orderGrandTotal, () => { if (prepaymentRate.value) applyPrepaymentPreset(prepaymentRate.value) })
 
 function currentShippingSnapshot(): EmployeeOrderShippingSnapshot {
   return {
@@ -979,7 +978,7 @@ onShow(() => {
         <view class="prepayment-presets">
           <button v-for="rate in prepaymentPresets" :key="rate" :class="{ selected: prepaymentRate === rate }" @tap="applyPrepaymentPreset(rate)">{{ rate }}%</button>
         </view>
-        <text class="hint">按优惠后货款 ¥{{ prepaymentGoodsAmount.toFixed(2) }} 计算，不含运费；可修改实际已收金额。</text>
+        <text class="hint">按应收合计 ¥{{ orderGrandTotal.toFixed(2) }} 计算（含运费）；可修改实际已收金额。</text>
       </view>
       <view v-if="selectedPaymentStatus.includes('预付款') || /已付|已收|已支付/.test(selectedPaymentStatus)">
         <text class="label">收款方式</text>
