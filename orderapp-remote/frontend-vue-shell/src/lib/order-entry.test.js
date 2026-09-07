@@ -3,6 +3,31 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import * as orderEntry from './order-entry.js'
+
+test('customer references retain their own published BOM spec quotes when combined with public specification options', () => {
+  const family = (customerID, name, publicationID, price) => ({
+    parent_product_id: 1063, customer_id: customerID, name, customer_product_display_name: name,
+    visibility: customerID ? 'customer_only' : 'public', product_kind: 'roasted_bean',
+    specs: [{ sku_id: 1063, tiers: [{ publication_id: publicationID, list_type: 'commercial',
+      quantity_basis: 'sales_spec_count', unit_price: price, effective_sales_spec: { bom_spec_id: 3, bom_variant_id: 483 } }] }],
+  })
+  const families = normalizeOrderProductFamilies([
+    family(0, '初晓', 122, 28), family(300, '客户初晓', 125, 33), family(301, '客户B初晓', 124, 38.25),
+  ], [], [3, 7].map(id => ({ parent_product_id: 1063, bom_spec_id: id, bom_variant_id: id === 3 ? 483 : 484,
+    migration_state: 'cutover', spec_name: id === 3 ? '227g' : '454g', inventory_unit: '袋',
+    tiers: id === 3 ? [{ publication_id: 122, list_type: 'commercial', unit_price: 28, quantity_basis: 'sales_spec_count', effective_sales_spec: { bom_spec_id: 3 } }] : [],
+  })))
+  for (const [cid, pub, price, name] of [[300, 125, 33, '客户初晓'], [301, 124, 38.25, '客户B初晓']]) {
+    const selected = filterProductsForCustomer(families, cid, { commercial: pub })
+    assert.equal(selected.length, 1)
+    assert.equal(orderProductFamilyOptions(selected, name).length, 1)
+    assert.equal(orderFamilySpecOptions(selected[0], pub).length, 1)
+    const spec = selected[0].specs.find(s => s.bom_spec_id === 3)
+    assert.equal(spec.tiers[0].unit_price, price)
+    assert.deepEqual(spec.tiers.map(t => t.publication_id), [pub])
+    assert.equal(selected[0].specs.find(s => s.bom_spec_id === 7).tiers.length, 0)
+  }
+})
 import { buildProductCatalogTemplatePriceListTypeOptions } from './product-price-list-types.js'
 import {
   activeBeanListPublicationIDsByType,

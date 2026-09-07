@@ -338,6 +338,7 @@ type ProductTierOption struct {
 // a product id with a BOM spec id.
 type ProductBOMSpecOption struct {
 	ParentProductID      int64               `json:"parent_product_id"`
+	OwnerCustomerID      int64               `json:"owner_customer_id"`
 	LegacyChildProductID int64               `json:"legacy_child_product_id,omitempty"`
 	BomID                int64               `json:"bom_id"`
 	BomVersionID         int64               `json:"bom_version_id"`

@@ -160,6 +160,7 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 			return nil, err
 		}
 		option.Published = true
+		option.OwnerCustomerID = customerID
 		options = append(options, option)
 		publicationProductID := orderBOMSpecPublicationLookupProductID(option)
 		legacyProducts = append(legacyProducts, salesapp.ProductOption{
