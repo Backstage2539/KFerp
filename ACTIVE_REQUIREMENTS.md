@@ -4957,3 +4957,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-633-PREPAYMENT-PRESETS; DEV-633-GUEST-ENTRY; DEV-633-DELIVERY.
 - Status: verified locally; Vue 1081/1081, miniapp 234/234, typecheck/build and Go all packages GREEN; RED helper/UI tests captured; current-page old asset index-BPySB24u vs development current index-Bh8a-kuB confirmed, original draft preserved.
 - Verifier: targeted RED/GREEN, Vue and miniapp full tests/typecheck/build; cold-start simulator screenshot and calculation; protected APIs remain unauthorized for guests; release and package fingerprints.
+
+### PR-633 预付款含运费纠正（2026-09-07）
+- Branch: codex/prepayment-include-freight-20260907；基线 origin/develop 84636767。
+- Scope: 网页和小程序预付款比例使用含运费最终应收合计，随运费变化重算；手填金额和历史订单保持原语义。
+- RED: 双端实际预付款处理函数在商品 80、运费 20、50% 下均返回 40，期望 50。
+- Verifier: 双端定向测试、前端全测与构建、小程序全测/类型检查/构建、统一检查和发布门禁。
+- Delivery: 开发、生产和对应小程序包待同步；不执行微信上传或提审。
+- GREEN: Vue 1082/1082，小程序 235/235，Go 全量、类型检查、Vite/小程序构建及统一 changed 检查全部通过。
