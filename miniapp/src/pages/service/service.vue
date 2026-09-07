@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaymentSummary from '../../components/PaymentSummary.vue'
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
@@ -1325,6 +1326,7 @@ onShow(() => {
           <text v-if="item.receiver_name || item.receiver_phone || item.receiver_address" class="row-sub">
             收件人：{{ item.receiver_name || '未填写' }} {{ item.receiver_phone || '' }} {{ item.receiver_address || '' }}
           </text>
+          <PaymentSummary :order="item" />
           <text class="row-sub">{{ item.order_date || '未填写日期' }} / {{ item.process_status || '生产待处理' }} / {{ item.pay_status || '未收款' }} / {{ item.ship_status || '待发货' }}</text>
           <view v-if="item.items?.length" class="order-items">
             <view v-for="line in item.items" :key="line.id" class="item-line">

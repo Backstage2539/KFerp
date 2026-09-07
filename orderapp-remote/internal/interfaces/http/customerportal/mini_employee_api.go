@@ -101,6 +101,9 @@ type miniEmployeeOrderDetailDTO struct {
 	Items                           []miniEmployeeOrderItemDetailDTO  `json:"items"`
 	QuoteSourceTrace                []miniEmployeeQuoteSourceTraceDTO `json:"quote_source_trace"`
 	ProductionSourceTrace           []miniEmployeeProductionTraceDTO  `json:"production_source_trace"`
+	PrepaymentAmount                string                            `json:"prepayment_amount"`
+	PaidAmount                      string                            `json:"paid_amount"`
+	UnpaidAmount                    string                            `json:"unpaid_amount"`
 }
 
 type miniEmployeeOrderAssetDTO struct {
@@ -233,24 +236,25 @@ type miniEmployeeOrderItemRequest struct {
 }
 
 type miniEmployeeOrderRequest struct {
-	EditRevision    string                         `json:"edit_revision"`
-	OrderDate       string                         `json:"order_date"`
-	CustomerID      int64                          `json:"customer_id"`
-	SourceID        int64                          `json:"source_id"`
-	OrderTypeID     int64                          `json:"order_type_id"`
-	PayStatusID     int64                          `json:"pay_status_id"`
-	PaymentMethod   string                         `json:"payment_method"`
-	ShipStatusID    int64                          `json:"ship_status_id"`
-	ShipMethod      string                         `json:"ship_method"`
-	ShipTrackingNo  string                         `json:"ship_tracking_no"`
-	ShippingAmount  float64                        `json:"shipping_amount"`
-	DiscountAmount  float64                        `json:"discount_amount"`
-	ReceiverName    string                         `json:"receiver_name"`
-	ReceiverPhone   string                         `json:"receiver_phone"`
-	ReceiverAddress string                         `json:"receiver_address"`
-	ReceiverCompany string                         `json:"receiver_company"`
-	Notes           string                         `json:"notes"`
-	Items           []miniEmployeeOrderItemRequest `json:"items"`
+	PrepaymentAmount *float64                       `json:"prepayment_amount"`
+	EditRevision     string                         `json:"edit_revision"`
+	OrderDate        string                         `json:"order_date"`
+	CustomerID       int64                          `json:"customer_id"`
+	SourceID         int64                          `json:"source_id"`
+	OrderTypeID      int64                          `json:"order_type_id"`
+	PayStatusID      int64                          `json:"pay_status_id"`
+	PaymentMethod    string                         `json:"payment_method"`
+	ShipStatusID     int64                          `json:"ship_status_id"`
+	ShipMethod       string                         `json:"ship_method"`
+	ShipTrackingNo   string                         `json:"ship_tracking_no"`
+	ShippingAmount   float64                        `json:"shipping_amount"`
+	DiscountAmount   float64                        `json:"discount_amount"`
+	ReceiverName     string                         `json:"receiver_name"`
+	ReceiverPhone    string                         `json:"receiver_phone"`
+	ReceiverAddress  string                         `json:"receiver_address"`
+	ReceiverCompany  string                         `json:"receiver_company"`
+	Notes            string                         `json:"notes"`
+	Items            []miniEmployeeOrderItemRequest `json:"items"`
 }
 
 type miniEmployeeCustomerRequest struct {
@@ -617,7 +621,8 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 	return salesapp.SaveOrderCommand{
 		Actor: actor, EditID: editID, DocumentDate: orderDate, OrderDate: orderDate,
 		CustomerID: req.CustomerID, SourceID: req.SourceID, OrderTypeID: req.OrderTypeID,
-		PayStatusID: req.PayStatusID, PaymentMethod: strings.TrimSpace(req.PaymentMethod),
+		PrepaymentAmount: req.PrepaymentAmount,
+		PayStatusID:      req.PayStatusID, PaymentMethod: strings.TrimSpace(req.PaymentMethod),
 		ShipStatusID: req.ShipStatusID, ShipMethod: strings.TrimSpace(req.ShipMethod), ShipTrackingNo: strings.TrimSpace(req.ShipTrackingNo),
 		ShippingAmount: req.ShippingAmount, DiscountAmount: req.DiscountAmount,
 		ReceiverName: strings.TrimSpace(req.ReceiverName), ReceiverPhone: strings.TrimSpace(req.ReceiverPhone),
@@ -896,8 +901,10 @@ func miniEmployeePreserveHiddenOrderFields(cmd *salesapp.SaveOrderCommand, exist
 	}
 	cmd.SourceID = existing.SourceID
 	cmd.OrderTypeID = existing.OrderTypeID
-	cmd.PayStatusID = existing.PayStatusID
-	cmd.PaymentMethod = existing.PaymentMethod
+	if cmd.PrepaymentAmount == nil {
+		cmd.PayStatusID = existing.PayStatusID
+		cmd.PaymentMethod = existing.PaymentMethod
+	}
 	cmd.ShipStatusID = existing.ShipStatusID
 	cmd.ShipMethod = existing.ShipMethod
 	cmd.ShipTrackingNo = existing.ShipTrackingNo
@@ -1380,6 +1387,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 		DocumentDate: firstMiniOrderValue(ed.DocumentDate, row.DocumentDate), OrderDate: firstMiniOrderValue(ed.OrderDate, row.OrderDate),
 		CustomerID: ed.CustomerID, Customer: row.Customer, SourceID: ed.SourceID, Source: miniEmployeeOptionName(form.Sources, ed.SourceID),
 		OrderTypeID: ed.OrderTypeID, OrderType: firstMiniOrderValue(row.OrderType, miniEmployeeOptionName(form.OrderTypes, ed.OrderTypeID)),
+		PrepaymentAmount: ed.PrepaymentAmount, PaidAmount: row.PaidAmount, UnpaidAmount: row.UnpaidAmount,
 		PayStatusID: ed.PayStatusID, PayStatus: firstMiniOrderValue(row.PayStatus, miniEmployeeOptionName(form.PayStatuses, ed.PayStatusID)), PaymentMethod: ed.PaymentMethod,
 		ShipStatusID: ed.ShipStatusID, ShipStatus: firstMiniOrderValue(row.ShipStatus, miniEmployeeOptionName(form.ShipStatuses, ed.ShipStatusID)),
 		ProcessStatusID: row.ProcessStatusID, ProcessStatus: row.ProcessStatus,
@@ -1895,6 +1903,9 @@ func containsMiniRole(values []string, target string) bool {
 }
 
 func miniOrderKnownBusinessErrorText(err error) (string, bool) {
+	if err != nil && (strings.HasPrefix(err.Error(), "预付款") || strings.HasPrefix(err.Error(), "已登记预付款")) {
+		return err.Error(), true
+	}
 	if err == nil {
 		return "", false
 	}

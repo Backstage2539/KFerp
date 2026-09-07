@@ -298,6 +298,7 @@ func seedCoreOptions(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		`INSERT INTO %[1]s.customer_type_options(value,label,sort_order) VALUES ('retail','零售客户',10),('ecommerce','电商客户',20),('wholesale','批发客户',30),('channel','渠道客户',40) ON CONFLICT(value) DO UPDATE SET label=excluded.label, active=true, sort_order=excluded.sort_order`,
 		`INSERT INTO %[1]s.pay_statuses(name) SELECT '未付款' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.pay_statuses WHERE name='未付款')`,
 		`INSERT INTO %[1]s.pay_statuses(name) SELECT '已付款' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.pay_statuses WHERE name='已付款')`,
+		`INSERT INTO %[1]s.pay_statuses(name) SELECT '预付款（付款未完成）' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.pay_statuses WHERE name='预付款（付款未完成）')`,
 		`INSERT INTO %[1]s.ship_statuses(name) SELECT '未发货' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.ship_statuses WHERE name='未发货')`,
 		`INSERT INTO %[1]s.order_process_statuses(name, sort, active) SELECT '待处理', 10, true WHERE NOT EXISTS (SELECT 1 FROM %[1]s.order_process_statuses WHERE name='待处理')`,
 	}

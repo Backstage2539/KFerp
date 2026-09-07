@@ -1780,7 +1780,7 @@ export function requiresOrderPaymentMethod(form, payStatuses) {
   if (statusID <= 0) return false
   const status = (payStatuses || []).find((item) => toInt(item.id) === statusID)
   const name = String(status?.name || '').trim()
-  return name.includes('已付款') || name.includes('已收款') || name.includes('已支付')
+  return name.includes('已付款') || name.includes('已收款') || name.includes('已支付') || name.includes('预付款')
 }
 
 export function requiresOrderPaymentReceipt(form, payStatuses) {
@@ -1862,6 +1862,7 @@ export function buildOrderPayload({ form, rows }) {
     order_type_id: Number(form.order_type_id || 0),
     pay_status_id: Number(form.pay_status_id || 0),
     payment_method: String(form.payment_method || '').trim(),
+    prepayment_amount: String(form.prepayment_amount || '0'),
     ship_status_id: Number(form.ship_status_id || 0),
     ship_method: form.ship_method || '',
     ship_tracking_no: form.ship_tracking_no || '',

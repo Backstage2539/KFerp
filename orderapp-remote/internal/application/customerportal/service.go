@@ -651,22 +651,25 @@ type CreateMallOrderCommand struct {
 }
 
 type CustomerOrderSummary struct {
-	ID              int64                      `json:"id"`
-	OrderNo         string                     `json:"order_no"`
-	OrderDate       string                     `json:"order_date"`
-	ReceiverName    string                     `json:"receiver_name"`
-	ReceiverPhone   string                     `json:"receiver_phone"`
-	ReceiverAddress string                     `json:"receiver_address"`
-	ProcessStatus   string                     `json:"process_status"`
-	PayStatus       string                     `json:"pay_status"`
-	PaymentMethod   string                     `json:"payment_method"`
-	ShipStatus      string                     `json:"ship_status"`
-	ShipTrackingNo  string                     `json:"ship_tracking_no"`
-	GrandTotal      string                     `json:"grand_total"`
-	ShippingAmount  string                     `json:"shipping_amount"`
-	SalesOrderURL   string                     `json:"sales_order_url,omitempty"`
-	DeliveryNoteURL string                     `json:"delivery_note_url,omitempty"`
-	Items           []CustomerOrderItemSummary `json:"items,omitempty"`
+	PrepaymentAmount string                     `json:"prepayment_amount"`
+	PaidAmount       string                     `json:"paid_amount"`
+	UnpaidAmount     string                     `json:"unpaid_amount"`
+	ID               int64                      `json:"id"`
+	OrderNo          string                     `json:"order_no"`
+	OrderDate        string                     `json:"order_date"`
+	ReceiverName     string                     `json:"receiver_name"`
+	ReceiverPhone    string                     `json:"receiver_phone"`
+	ReceiverAddress  string                     `json:"receiver_address"`
+	ProcessStatus    string                     `json:"process_status"`
+	PayStatus        string                     `json:"pay_status"`
+	PaymentMethod    string                     `json:"payment_method"`
+	ShipStatus       string                     `json:"ship_status"`
+	ShipTrackingNo   string                     `json:"ship_tracking_no"`
+	GrandTotal       string                     `json:"grand_total"`
+	ShippingAmount   string                     `json:"shipping_amount"`
+	SalesOrderURL    string                     `json:"sales_order_url,omitempty"`
+	DeliveryNoteURL  string                     `json:"delivery_note_url,omitempty"`
+	Items            []CustomerOrderItemSummary `json:"items,omitempty"`
 }
 
 type CustomerOrderItemSummary struct {
@@ -3707,7 +3710,9 @@ func settlementAccountingSummary(orders []CustomerOrderSummary) []ServiceMetric 
 			paid += amount
 			continue
 		}
-		unpaid += amount
+		deposit := parseAccountingAmount(order.PrepaymentAmount)
+		paid += deposit
+		unpaid += math.Max(0, amount-deposit)
 		unpaidOrders++
 	}
 	return []ServiceMetric{
