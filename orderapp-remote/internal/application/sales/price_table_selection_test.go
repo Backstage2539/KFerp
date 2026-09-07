@@ -53,3 +53,22 @@ func TestNamedOrderTablesOnlySelectedProductsAndPrices(t *testing.T) {
 		t.Fatalf("catalog=%+v", got)
 	}
 }
+
+func TestCustomerDefaultAndExplicitPublicNamedTable(t *testing.T) {
+	options := []BeanListVersionOption{{ID: 11, CustomerID: 42, IsCustomerOwned: true, IsDefault: true, ListType: "commercial", ReleaseID: "C1", IsDefaultTable: true}, {ID: 12, CustomerID: 0, IsDefault: true, ListType: "commercial", ReleaseID: "P1", IsDefaultTable: true}, {ID: 14, CustomerID: 0, ListType: "commercial", ReleaseID: "P1"}, {ID: 13, CustomerID: 43, IsCustomerOwned: true, IsDefault: true, ListType: "commercial"}}
+	defaults, e := ResolveOrderPriceTableSelection(options, 42, nil, true)
+	if e != nil || len(defaults) != 1 || defaults[0].ID != 11 {
+		t.Fatal(defaults, e)
+	}
+	selected, e := ResolveOrderPriceTableSelection(options, 42, []int64{14}, true)
+	if e != nil || len(selected) != 1 || selected[0].ID != 14 || selected[0].CustomerID != 42 {
+		t.Fatal(selected, e)
+	}
+	choices := CurrentOrderPriceTableOptions(options, 42)
+	if len(choices) != 3 {
+		t.Fatal(choices)
+	}
+	if _, e = ResolveOrderPriceTableSelection(options, 42, []int64{13}, true); e == nil {
+		t.Fatal("other customer price table allowed")
+	}
+}

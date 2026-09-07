@@ -168,6 +168,10 @@ type miniEmployeeQuoteSourceTraceDTO struct {
 	PricingRuleVersion     string  `json:"pricing_rule_version"`
 	ManualAdjusted         bool    `json:"manual_adjusted"`
 	SourceLabel            string  `json:"source_label"`
+	PriceListName          string  `json:"price_list_name"`
+	PriceListOwnerName     string  `json:"price_list_owner_name"`
+	PriceListOwnerType     string  `json:"price_list_owner_type"`
+	PriceListPublishedAt   string  `json:"price_list_published_at"`
 }
 
 type miniEmployeeProductionTraceDTO struct {
@@ -341,6 +345,7 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": selectionErr.Error()})
 			}
 			form.BeanListVersionOptions = selected
+			form = miniEmployeeCatalogWithSelectedPublicPrices(form, customerID)
 			selectedIDs = []int64{}
 			for _, table := range selected {
 				selectedIDs = append(selectedIDs, table.ID)
@@ -702,6 +707,7 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 		return selectionErr.Error(), nil
 	}
 	form.BeanListVersionOptions = selectedTables
+	form = miniEmployeeCatalogWithSelectedPublicPrices(form, cmd.CustomerID)
 	cmd.SelectedPriceTableIDs = []int64{}
 	for _, table := range selectedTables {
 		cmd.SelectedPriceTableIDs = append(cmd.SelectedPriceTableIDs, table.ID)
@@ -1574,7 +1580,11 @@ func miniEmployeeQuoteSourceTrace(ed *salesapp.OrderEditData) []miniEmployeeQuot
 		}
 		rows = append(rows, miniEmployeeQuoteSourceTraceDTO{
 			ProductID: item.ProductID, ProductName: item.Product, PriceListPublicationID: publicationID,
-			PriceListVersion: version, TierLabel: miniEmployeeTraceString(source["tier_label"]),
+			PriceListName:        miniEmployeeTraceString(source["price_list_name"]),
+			PriceListOwnerName:   miniEmployeeTraceString(source["price_list_owner_name"]),
+			PriceListOwnerType:   miniEmployeeTraceString(source["price_list_owner_type"]),
+			PriceListPublishedAt: miniEmployeeTraceString(source["price_list_published_at"]),
+			PriceListVersion:     version, TierLabel: miniEmployeeTraceString(source["tier_label"]),
 			PriceUnit: miniEmployeeTraceString(source["price_unit"]), FinalUnitPrice: miniEmployeeTraceNumber(source["final_unit_price"]),
 			PricingRuleVersion: miniEmployeeTraceString(source["pricing_rule_version"]), ManualAdjusted: miniEmployeeTraceBool(source["manual_adjusted"]),
 			SourceLabel: "已发布商品价格表快照",

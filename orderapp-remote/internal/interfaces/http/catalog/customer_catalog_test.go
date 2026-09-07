@@ -45,3 +45,20 @@ func TestCustomerCatalogCopyAPI(t *testing.T) {
 		}
 	}
 }
+
+func (r *customerCatalogAPIRepo) RemoveCustomerCatalogProducts(_ context.Context, c app.CopyCustomerCatalogCommand) error {
+	r.command = c
+	return nil
+}
+func TestCustomerCatalogRemoveAPI(t *testing.T) {
+	r := &customerCatalogAPIRepo{}
+	e := echo.New()
+	registerCustomerCatalogRoutes(e, productHandler{catalog: app.NewService(r)})
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-catalog/remove", strings.NewReader(`{"customer_id":42,"product_ids":[1,2]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != 200 || r.command.CustomerID != 42 || len(r.command.ProductIDs) != 2 {
+		t.Fatalf("%d %s %+v", rec.Code, rec.Body.String(), r.command)
+	}
+}

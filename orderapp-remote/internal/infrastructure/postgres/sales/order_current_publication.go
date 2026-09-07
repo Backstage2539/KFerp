@@ -12,7 +12,7 @@ import (
 // rules for one customer and one selected publication. SaveOrder calls it while
 // holding a SHARE table lock, so a publish cannot change the default between
 // validation and commit.
-func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema string, customerID, publicationID int64, listType string) (bool, error) {
+func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema string, customerID, publicationID int64, listType string, explicitPublic ...bool) (bool, error) {
 	if customerID <= 0 || publicationID <= 0 || strings.TrimSpace(listType) == "" {
 		return false, nil
 	}
@@ -77,7 +77,7 @@ func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema s
 						  AND COALESCE(NULLIF(classified.classification_template_id,0), NULLIF(classified.product_type_category_id,0), 0)>0
 					)
 				)
-				AND NOT EXISTS (
+				AND ($4::boolean OR NOT EXISTS (
 					SELECT 1 FROM %[1]s.bean_list_publications customer_version
 					WHERE customer_version.owner_type='customer' AND customer_version.owner_key=($1::bigint)::text
 					  AND customer_version.list_type=s.list_type
@@ -95,13 +95,13 @@ func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema s
 							)
 						)
 					  )
-				)
+				))
 			)
 		)
 		SELECT EXISTS(SELECT 1 FROM eligible)
 	`, schema)
 	var current bool
-	if err := tx.QueryRow(ctx, query, customerID, publicationID, strings.TrimSpace(listType)).Scan(&current); err != nil {
+	if err := tx.QueryRow(ctx, query, customerID, publicationID, strings.TrimSpace(listType), len(explicitPublic) > 0 && explicitPublic[0]).Scan(&current); err != nil {
 		return false, err
 	}
 	return current, nil

@@ -38,26 +38,44 @@ func ApplyNamedPriceTableDefaults(options []BeanListVersionOption) []BeanListVer
 	return rows
 }
 
+// Available tables include the customer's tables and public tables. Public
+// rows are normalized to the selected customer only for order selection.
+func orderCustomerAndPublicTables(options []BeanListVersionOption, customerID int64) []BeanListVersionOption {
+	out := []BeanListVersionOption{}
+	seen := map[int64]bool{}
+	for _, row := range options {
+		if row.ID <= 0 || (row.CustomerID != customerID && !(row.CustomerID == 0 && !row.IsCustomerOwned)) || seen[row.ID] {
+			continue
+		}
+		seen[row.ID] = true
+		row.CustomerID = customerID
+		out = append(out, row)
+	}
+	return out
+}
+func orderPriceTableOwnerTypeKey(row BeanListVersionOption) string {
+	return fmt.Sprintf("%t:%s", row.IsCustomerOwned, OrderPriceTableTypeKey(row))
+}
 func ResolveOrderPriceTableSelection(options []BeanListVersionOption, customerID int64, ids []int64, currentOnly bool) ([]BeanListVersionOption, error) {
 	byID := map[int64]BeanListVersionOption{}
 	selected := map[string]BeanListVersionOption{}
 	current := map[string]BeanListVersionOption{}
-	for _, row := range options {
-		if row.CustomerID != customerID || row.ID <= 0 {
-			continue
-		}
+	for _, row := range orderCustomerAndPublicTables(options, customerID) {
 		byID[row.ID] = row
 		if row.IsDefault {
 			key := OrderPriceTableTypeKey(row)
-			selected[key] = row
-			current[key] = row
+			current[orderPriceTableOwnerTypeKey(row)] = row
+			previous, ok := selected[key]
+			if !ok || row.IsCustomerOwned || !previous.IsCustomerOwned {
+				selected[key] = row
+			}
 		}
 	}
 	explicit := map[string]bool{}
 	for _, id := range ids {
 		row, ok := byID[id]
 		if !ok {
-			return nil, fmt.Errorf("所选价格表不存在或不属于当前客户")
+			return nil, fmt.Errorf("所选价格表不存在或不属于当前客户及公共价格表")
 		}
 		key := OrderPriceTableTypeKey(row)
 		if explicit[key] {
@@ -65,19 +83,19 @@ func ResolveOrderPriceTableSelection(options []BeanListVersionOption, customerID
 		}
 		explicit[key] = true
 		if currentOnly {
-			latest, ok := current[key]
-			if !ok || !(row.ID == latest.ID || (row.ReleaseID != "" && row.ReleaseID == latest.ReleaseID)) {
+			latest, ok := current[orderPriceTableOwnerTypeKey(row)]
+			if !ok || !(row.ID == latest.ID || row.ReleaseID != "" && row.ReleaseID == latest.ReleaseID) {
 				return nil, fmt.Errorf("价格表已更新，请选择当前版本中的价格表")
 			}
 		}
 		selected[key] = row
 	}
-	keys := make([]string, 0, len(selected))
+	keys := []string{}
 	for key := range selected {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	result := make([]BeanListVersionOption, 0, len(keys))
+	result := []BeanListVersionOption{}
 	for _, key := range keys {
 		row := selected[key]
 		row.IsDefault = true
@@ -85,18 +103,25 @@ func ResolveOrderPriceTableSelection(options []BeanListVersionOption, customerID
 	}
 	return result, nil
 }
-
 func CurrentOrderPriceTableOptions(options []BeanListVersionOption, customerID int64) []BeanListVersionOption {
-	defaults := map[string]BeanListVersionOption{}
-	for _, row := range options {
-		if row.CustomerID == customerID && row.IsDefault {
-			defaults[OrderPriceTableTypeKey(row)] = row
+	choices := orderCustomerAndPublicTables(options, customerID)
+	current := map[string]BeanListVersionOption{}
+	owned := map[string]bool{}
+	for _, row := range choices {
+		if row.IsDefault {
+			current[orderPriceTableOwnerTypeKey(row)] = row
+			if row.IsCustomerOwned {
+				owned[OrderPriceTableTypeKey(row)] = true
+			}
 		}
 	}
 	result := []BeanListVersionOption{}
-	for _, row := range options {
-		latest, ok := defaults[OrderPriceTableTypeKey(row)]
-		if row.CustomerID == customerID && ok && (row.ID == latest.ID || (row.ReleaseID != "" && row.ReleaseID == latest.ReleaseID)) {
+	for _, row := range choices {
+		latest, ok := current[orderPriceTableOwnerTypeKey(row)]
+		if ok && (row.ID == latest.ID || row.ReleaseID != "" && row.ReleaseID == latest.ReleaseID) {
+			if !row.IsCustomerOwned && owned[OrderPriceTableTypeKey(row)] {
+				row.IsDefault = false
+			}
 			result = append(result, row)
 		}
 	}

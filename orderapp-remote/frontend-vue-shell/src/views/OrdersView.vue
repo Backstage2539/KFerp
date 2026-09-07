@@ -724,6 +724,9 @@ function orderTraceSourceLines(row = {}, type = 'quote') {
   const priceText = row.final_unit_price ? `${moneyLabel(row.final_unit_price)}/${row.price_unit || '-'}` : ''
   return [
     row.price_list_version ? `价格表：${row.price_list_version}` : (row.price_list_publication_id ? `价格表：#${row.price_list_publication_id}` : ''),
+    row.price_list_name ? `价格表名称：${row.price_list_name}` : '',
+    row.price_list_owner_name ? `价格表归属：${row.price_list_owner_name}` : '',
+    row.price_list_published_at ? `发布日期：${row.price_list_published_at}` : '',
     priceText ? `最终价：${priceText}` : '',
     row.pricing_rule_version ? `Pricing Rule：${row.pricing_rule_version}` : '',
     row.manual_adjusted ? '人工调整' : '',

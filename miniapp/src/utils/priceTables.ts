@@ -1,4 +1,6 @@
 export type PriceTableOption = {
+  is_customer_owned?: boolean
+  published_at?: string
   id: number
   list_type: string
   classification_template_id?: number
@@ -24,7 +26,7 @@ export function priceTableGroups(options: PriceTableOption[] = []): PriceTableGr
   return [...groups.values()]
 }
 export function priceTableLabel(table?: PriceTableOption): string {
-  return table ? `${table.table_name || table.product_type_name || '价格表'} · ${table.version_no}${table.is_default ? '（默认）' : ''}` : '选择价格表'
+  return table ? `${table.is_customer_owned === undefined ? '' : table.is_customer_owned ? '客户 · ' : '公共 · '}${table.table_name || table.product_type_name || '价格表'} · ${table.version_no}${table.is_default ? '（默认）' : ''}` : '选择价格表'
 }
 export function replaceSelectedPriceTable(ids: number[], group: PriceTableGroup, id: number): number[] {
   if (!group.options.some(row => row.id === id)) throw new Error('所选价格表不属于该商品类型')

@@ -1609,6 +1609,7 @@ function scopedOrderProductOptions() {
     selectedBeanListPublicationIDsByType(),
     customerPublicUsages.value,
     customerOwnedBeanListPublicationIDsByType(),
+    true,
   ).flatMap((family) => {
     if (!isOrderProductFamily(family)) return [family]
     const selected = selectedBeanListVersionOptionForProduct(family)

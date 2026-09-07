@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-637-CATALOG-ORDER-FOLLOWUP", title: "订单排序、客户商品删除与报价来源", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
+		{table: "req_dev", code: "DEV-637-ORDER-SORT", title: "订单列表按单据日期排序", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
+		{table: "req_dev", code: "DEV-637-CATALOG", title: "客户商品绑定删除与分类继承复核", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
+		{table: "req_dev", code: "DEV-637-PRICE-CHOICE", title: "网页与小程序客户和公共价格表选择", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
+		{table: "req_dev", code: "DEV-637-PRICE-TRACE", title: "订单价格表归属版本及发布时间", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
 		{table: "req_product", code: "PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS", title: "销售单已付绿色与未付红色金额统一", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md"},
 		{table: "req_dev", code: "DEV-636-DOCUMENT-PAYMENT-COLORS", title: "销售单全额已付、完全未付和部分预付款金额颜色", status: "done", assignee: "Codex", evidence: "prepayment_test.go; sales_order_pdf.go; sales_order_png.go"},
 		{table: "req_dev", code: "DEV-636-DUAL-EXPORT-CONTRACT", title: "网页与小程序 PDF/PNG 共用生成器及渲染版本失效", status: "done", assignee: "Codex", evidence: "mini_employee_api_test.go; sales_order_repository.go"},

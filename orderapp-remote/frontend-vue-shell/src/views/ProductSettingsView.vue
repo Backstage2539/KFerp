@@ -200,8 +200,8 @@
                   <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
                   <button class="text-button" type="button" :disabled="loading" @click="openCustomerCatalogCopy('all')">复制全部商品到客户</button>
                   <button class="text-button" type="button" :disabled="loading || !selectedProductIds.length" @click="openCustomerCatalogCopy('selected', selectedProductIds)">复制所选商品到客户</button>
-                  <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
-                    失效商品
+                  <button class="secondary compact-action danger-outline" type="button" @click="catalogCustomerID ? removeCustomerCatalogProducts(selectedProductIds) : deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
+                    {{ catalogCustomerID ? '删除客户商品' : '失效商品' }}
                   </button>
                 </div>
               </div>
@@ -238,7 +238,7 @@
                         tabindex="-1"
                         :class="[{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }, 'classification-item-row']">
                         <td class="select-col">
-                          <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
+                          <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canSelectSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
                         </td>
                         <td class="sku-name-cell">
                           <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openCustomerAwareProductName(row)">{{ row.name || '未命名商品' }}</button>
@@ -268,7 +268,7 @@
                           <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                         </td>
                         <td>
-                          <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="deactivateProducts([row.id])">停用</button>
+                          <button class="text-button danger-text" type="button" :disabled="!canSelectSkuRow(row) || row.active === false" @click="catalogCustomerID ? removeCustomerCatalogProducts([row.id]) : deactivateProducts([row.id])">{{ catalogCustomerID ? '删除' : '停用' }}</button>
                         </td>
                         <td>
                           <textarea
@@ -2677,7 +2677,7 @@ const productBusinessGroupControls = computed(() => businessGroupControlOptions(
   usageKey: 'product_catalog',
 }))
 const selectedProductGroupTemplate = computed(() => productBusinessGroupControls.value.selectedTemplate)
-const canMoveSelectedProductsToBusinessGroup = computed(() => !catalogCustomerID.value && Boolean(productCatalogBusinessGroups.value.length && selectedProductIds.value.length))
+const canMoveSelectedProductsToBusinessGroup = computed(() => Boolean(productCatalogBusinessGroups.value.length && selectedProductIds.value.length))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -5488,6 +5488,10 @@ function canEditCategory(category) {
   return !isPublicReferenceRow(category, { customerID: skuContextCustomerID.value })
 }
 
+function canSelectSkuRow(row) {
+  return catalogCustomerID.value > 0 || canEditSkuRow(row)
+}
+
 function canEditSkuRow(row) {
   return !isPublicReferenceRow(row, { customerID: skuContextCustomerID.value })
 }
@@ -5941,7 +5945,7 @@ function isProductSelected(row) {
 }
 
 function toggleProductSelection(row, checked) {
-  if (!canEditSkuRow(row)) return
+  if (!canSelectSkuRow(row)) return
   const id = Number(row.id || 0)
   if (!id) return
   const current = selectedProductIds.value
@@ -5951,7 +5955,7 @@ function toggleProductSelection(row, checked) {
 }
 
 function editableProductGroupRows(group = {}) {
-  return (Array.isArray(group?.rows) ? group.rows : []).filter(canEditSkuRow)
+  return (Array.isArray(group?.rows) ? group.rows : []).filter(canSelectSkuRow)
 }
 
 function areProductGroupRowsSelected(group = {}) {
@@ -6730,8 +6734,21 @@ async function saveProductGroupFeatureSelection() {
   }
 }
 
+async function moveCustomerCatalogProducts(target = {}) {
+ const customerID = catalogCustomerID.value
+ if (!customerID || !selectedProductIds.value.length) return false
+ loading.value = true; error.value = ''; ok.value = ''
+ try {
+  await apiSend('/api/product-settings/customer-catalog/move', {body:{customer_id:customerID,product_ids:selectedProductIds.value,group_id:target.unclassified ? 0 : Number(target.group_id || 0),group_item_id:target.unclassified ? 0 : Number(target.group_item_id || 0)}})
+  const count=selectedProductIds.value.length
+  await loadCustomerCatalog(); selectedProductIds.value=[]
+  ok.value=`已调整 ${count} 款客户商品的分类，工厂分类保持不变`
+  return true
+ } catch(err){error.value=err.message||'移动客户商品分类失败';return false} finally {loading.value=false}
+}
+
 async function saveSelectedProductBusinessGroupAssignment(target = {}) {
-  if (catalogCustomerID.value > 0) return false
+  if (catalogCustomerID.value > 0) return moveCustomerCatalogProducts(target)
   const unclassified = Boolean(target?.unclassified)
   const option = unclassified ? null : {
     group_id: Number(target?.group_id || 0),
@@ -7933,7 +7950,21 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
   }
 }
 
+async function removeCustomerCatalogProducts(productIds) {
+ const customerID = catalogCustomerID.value
+ const ids = [...new Set(productIds.map(Number).filter(id => id > 0))]
+ if (!customerID || !ids.length || !window.confirm(`确认从客户目录删除这 ${ids.length} 款商品？只删除客户绑定，保留原商品和生产配置。`)) return
+ loading.value = true; error.value = ''; ok.value = ''
+ try {
+  await apiSend('/api/product-settings/customer-catalog/remove', { body: {customer_id:customerID, product_ids:ids} })
+  selectedProductIds.value = []; await loadAll(); await loadCustomerCatalog()
+  ok.value = '已删除客户商品绑定，原商品和生产配置保留'
+ } catch (err) {error.value = err.message || '删除客户商品失败'} finally {loading.value = false}
+}
+
 async function deactivateProducts(productIds) {
+  if (catalogCustomerID.value) return
+
   const ids = Array.from(new Set((productIds || []).map((id) => Number(id || 0)).filter((id) => id > 0)))
   if (!ids.length) return
   const message = ids.length > 1

@@ -1989,7 +1989,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		LEFT JOIN %s.pay_statuses ps ON ps.id=o.pay_status_id
 		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
 		WHERE %s
-		ORDER BY o.order_date DESC, o.id DESC
+		ORDER BY o.document_date DESC NULLS LAST, o.id DESC
 		LIMIT $%d
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, strings.Join(where, " AND "), len(args)), args...)
 	if err != nil {
