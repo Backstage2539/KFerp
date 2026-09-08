@@ -3,6 +3,31 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import * as orderEntry from './order-entry.js'
+
+test('customer references retain their own published BOM spec quotes when combined with public specification options', () => {
+  const family = (customerID, name, publicationID, price) => ({
+    parent_product_id: 1063, customer_id: customerID, name, customer_product_display_name: name,
+    visibility: customerID ? 'customer_only' : 'public', product_kind: 'roasted_bean',
+    specs: [{ sku_id: 1063, tiers: [{ publication_id: publicationID, list_type: 'commercial',
+      quantity_basis: 'sales_spec_count', unit_price: price, effective_sales_spec: { bom_spec_id: 3, bom_variant_id: 483 } }] }],
+  })
+  const families = normalizeOrderProductFamilies([
+    family(0, '初晓', 122, 28), family(300, '客户初晓', 125, 33), family(301, '客户B初晓', 124, 38.25),
+  ], [], [3, 7].map(id => ({ parent_product_id: 1063, bom_spec_id: id, bom_variant_id: id === 3 ? 483 : 484,
+    migration_state: 'cutover', spec_name: id === 3 ? '227g' : '454g', inventory_unit: '袋',
+    tiers: id === 3 ? [{ publication_id: 122, list_type: 'commercial', unit_price: 28, quantity_basis: 'sales_spec_count', effective_sales_spec: { bom_spec_id: 3 } }] : [],
+  })))
+  for (const [cid, pub, price, name] of [[300, 125, 33, '客户初晓'], [301, 124, 38.25, '客户B初晓']]) {
+    const selected = filterProductsForCustomer(families, cid, { commercial: pub })
+    assert.equal(selected.length, 1)
+    assert.equal(orderProductFamilyOptions(selected, name).length, 1)
+    assert.equal(orderFamilySpecOptions(selected[0], pub).length, 1)
+    const spec = selected[0].specs.find(s => s.bom_spec_id === 3)
+    assert.equal(spec.tiers[0].unit_price, price)
+    assert.deepEqual(spec.tiers.map(t => t.publication_id), [pub])
+    assert.equal(selected[0].specs.find(s => s.bom_spec_id === 7).tiers.length, 0)
+  }
+})
 import { buildProductCatalogTemplatePriceListTypeOptions } from './product-price-list-types.js'
 import {
   activeBeanListPublicationIDsByType,
@@ -660,7 +685,7 @@ test('OrderEntryView manual explains parent products and published price-list sp
   assert.match(manual, /商品按父商品展示/)
   assert.match(manual, /规格列和规格搜索只使用当前已选已发布价格表中有价的规格/)
   assert.match(manual, /价格表没有的商品档案规格不会出现在新订单候选中/)
-  assert.match(manual, /切换价格表版本/)
+  assert.match(manual, /切换同版本内其他表/)
   assert.doesNotMatch(manual, /常用规格：36g/)
 })
 
@@ -1462,7 +1487,7 @@ test('OrderEntryView shows explicit missing published price and blocks save with
   assert.match(source, /missingPublishedPriceRowIndex/)
   assert.match(source, /repriceHydratedRows/)
   assert.match(source, /const draftRestored = restoreOrderEntryDraft\(\)/)
-  assert.match(source, /if \(draftRestored\) \{\s*syncBeanListVersionForCustomer\(\{ force: true \}\)\s*syncRowsForType\(\{ priceListChanged: true \}\)\s*\} else \{\s*repriceHydratedRows\(\)\s*\}/)
+  assert.match(source, /if \(draftRestored\) \{\s*syncBeanListVersionForCustomer\(\)\s*syncRowsForType\(\{ priceListChanged: true \}\)\s*\} else \{\s*repriceHydratedRows\(\)\s*\}/)
   assert.match(source, /function selectTier[\s\S]*?isDripRow[\s\S]*?syncPrice\(row, \{ force: true \}\)/)
   assert.match(source, /const publishedPrice = resolveWholesaleTierPrice\(product, row\)/)
   assert.match(source, /publishedPrice\.quantityBasis === 'sales_spec_count'[\s\S]*?applyResolvedWholesalePrice\(row, publishedPrice\)/)
@@ -1470,7 +1495,7 @@ test('OrderEntryView shows explicit missing published price and blocks save with
   assert.match(source, /manual_price: item\.price_override === true \|\| item\.tier_id === 'manual'/)
   assert.match(source, /if \(retailOrder\.value\) return listType === 'retail' \|\| listType === 'drip'/)
   assert.match(source, /currentOrderBeanListTypeForProductKind/)
-  assert.match(source, /报价来源：价格表/)
+  assert.match(source, /报价来源：\{\{ orderLinePriceTableLabel\(row\) \}\}/)
   assert.doesNotMatch(source, /豆单版本：\{\{\s*row\.bean_list_version_no\s*\|\|\s*'未记录'\s*\}\}/)
 })
 
@@ -2846,4 +2871,15 @@ test('filterBeanListVersionOptionsToCurrentTypes falls back to all options when 
   const options = [{ id: 108, list_type: 'commercial', classification_template_id: 8000000000001532 }]
   assert.deepEqual(orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, []), options)
   assert.deepEqual(orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, [{ id: 0, listType: 'commercial', label: '全部商品' }]), options)
+})
+
+test('PR636 customer default retains an explicit public price choice',()=>{
+ const options=[{id:11,customer_id:42,is_customer_owned:true,list_type:'commercial',published_at:'2026-09-01',version_no:'V1'}, {id:12,customer_id:0,is_customer_owned:false,list_type:'commercial',published_at:'2026-09-07',version_no:'V9'}, {id:13,customer_id:43,is_customer_owned:true,list_type:'commercial'}]
+ const choices=beanListVersionOptionsForCustomer(options,42)
+ assert.deepEqual(choices.map(x=>x.id),[11,12])
+ assert.equal(latestBeanListVersionOption(choices,'commercial').id,11)
+})
+test('PR636 explicit public quote can replace customer quote for a referenced public product',()=>{
+ const products=[{id:1,customer_id:0,visibility:'public',tiers:[{publication_id:12,list_type:'commercial'}]},{id:1,customer_id:42,visibility:'customer_reference',tiers:[{publication_id:11,list_type:'commercial'}]}, {id:9,customer_id:43,visibility:'customer_only',tiers:[{publication_id:12,list_type:'commercial'}]}]
+ assert.deepEqual(filterProductsForCustomer(products,42,{commercial:[12]},[{customer_id:42,use_public_sku:false}],{},true).map(p=>p.customer_id),[0])
 })

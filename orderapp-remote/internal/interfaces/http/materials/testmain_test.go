@@ -66,6 +66,9 @@ func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	if err := supporthttp.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("support EnsureSchema: %v", err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.customers(id BIGSERIAL PRIMARY KEY,name TEXT NOT NULL DEFAULT '',active BOOLEAN NOT NULL DEFAULT true)`, schema)); err != nil {
+		t.Fatalf("customers schema: %v", err)
+	}
 	if err := postgresmaterials.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("materials EnsureSchema: %v", err)
 	}

@@ -334,6 +334,32 @@ func TestMaterialReceiptSubmissionUsesLockedMaterialInventoryUnit(t *testing.T) 
 	}
 }
 
+func TestMaterialStockDocumentOwnerMustMatchMaterialMaster(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.materials(id,code,name,unit,owner_customer_id)
+		VALUES(639,'PR639-CUSTOMER-MAT','客户来料袋','袋',74);
+		INSERT INTO %s.warehouses(code,name,kind,customer_id,active)
+		VALUES('pr639_customer_raw','PR639客户原料仓','raw',74,true)
+	`, schema, schema)); err != nil {
+		t.Fatal(err)
+	}
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	item := stockapp.StockDocumentItemCommand{MaterialID: 639, ItemType: "material", ItemName: "客户来料袋", InventoryUnit: "袋", ToWarehouse: "raw_materials", QtyUnits: 10, BatchCode: "PR639-BATCH"}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialReceipt, Operator: "pr639-test", Items: []stockapp.StockDocumentItemCommand{item}}); err == nil || !strings.Contains(err.Error(), "归属与库存货主不一致") {
+		t.Fatalf("factory receipt mismatch err=%v", err)
+	}
+	item.ToWarehouse = "pr639_customer_raw"
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeCustomerReceipt, CustomerID: 74, Operator: "pr639-test", Items: []stockapp.StockDocumentItemCommand{item}}); err != nil {
+		t.Fatalf("matching customer receipt: %v", err)
+	}
+	var owner int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT owner_customer_id FROM %s.material_batches WHERE material_id=639`, schema)).Scan(&owner); err != nil || owner != 74 {
+		t.Fatalf("posted owner=%d err=%v", owner, err)
+	}
+}
+
 func TestHistoricalGramReservationOnKilogramMasterRemainsIssuableAfterPartialCompletion(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()

@@ -6,16 +6,40 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-638-PRICE-TABLE-ORDERABILITY
-- Branch: `codex/price-table-orderability-20260908`
+### PR-639-MATERIAL-UNIQUE-OWNERSHIP
+- Branch: `codex/material-unique-ownership-20260908`
 - Owner/session: Codex / 2026-09-08
-- Status: RED/GREEN and production read-only diagnosis complete; final verification and isolated production backport in progress
+- Status: implementation, integration, development deployment and customer-inventory split complete; awaiting Van product acceptance
+- Scope: 物料档案唯一归属本公司或一个客户；取消多客户关联；BOM、库存和客户视图按物料归属隔离；拆分历史客户库存。
+- DEV: DEV-639-MATERIAL-OWNER; DEV-639-BOM-STOCK-OWNER-GUARDS; DEV-639-MATERIAL-OWNER-UX; DEV-639-MIGRATION-DELIVERY
+- Verifier: targeted Go/API/PostgreSQL and Vue RED/GREEN, full backend/frontend build, migration preflight/apply/rollback evidence, development deployment smoke.
+- Deployment: development `715bc7260ef4cfd953ada43a00c0bebd87e958fa`; database backup `/opt/stacks/erp/backups/pr639-material-owner-predeploy-20260908161659-33661519.dump`; migration manifest `3195bc2f1cb80e33`, mappings 8→77 and 66→78, candidates/conflicts now 0; full Go/Vue/build, focused real-PostgreSQL ownership/cutover tests, desktop/390px layout and live API checks passed. Production untouched.
+- Last update: 2026-09-08 Asia/Shanghai
+- Notes: reservation script failed on macOS awk multiline value; PR-639 manually reserved. Product requirement remains review until Van completes page acceptance.
+
+### PR-638-PRICE-TABLE-ORDERABILITY
+- Branch: `codex/price-table-orderability-20260908` (development implementation); `codex/price-table-orderability-production-20260908` (production backport); `codex/pr638-delivery-evidence` (delivery records)
+- Owner/session: Codex / 2026-09-08
+- Status: implementation, RED/GREEN, production deployment and read-only verification complete; awaiting Van configuration/business acceptance
 - Scope: 价格表生成与发布必须符合录单当前 BOM 规格、启用状态及客户范围；历史发布/PDF不回算。
 - DEV: DEV-638-ORDERABILITY-GUARD; DEV-638-GENERATION-FEEDBACK; DEV-638-DELIVERY
 - Verifier: service/API RED/GREEN, real PostgreSQL authority projection, Vue tests/build and synthetic browser warning/blocking.
-- Production evidence: deployed ce58d4ec; publication #39 V3.0.8 咖啡生豆, 7 parent products/14 prices; GET /api/order/form 200 with zero green products/specs, all 7 lack configured current order authority.
-- Deployment: targeted production backport after gates; no business data repair, BOM creation or history rewriting.
+- Production evidence: original ce58d4ec; publication #39 V3.0.8 咖啡生豆, 7 parent products/14 prices. After deployment, read-only preflight returns HTTP 400 naming all 7 invalid products; order form remains HTTP 200 with zero green products pending configuration. Historical PDF is HTTP 200 and publication/config/content/PDF hashes are unchanged.
+- Deployment: production `a9dd129ef41119d1cd7e82630440c62e4660df98` via `./deploy_orderapp.sh production`, GitHub PR #78; development implementation merged via PR #77 at `5201c0a9b3ec2d8eb1d0e2ce2b1ea7c4905bf3b9`, not deployed in this follow-up. No business data repair, BOM creation or history rewriting.
+- Rollback: `/opt/stacks/erp-production/orderapp.backup.deploy-20260908134451-a9dd129ef411`; image `kferp-orderapp-rollback:production-20260908134451-a9dd129ef411`.
+- Gates/artifact: full Go, production Vue 1084 tests/build, miniapp 235 tests/typecheck/production build; real PostgreSQL and service/API checks. Production artifact `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`, 14 pages/56 files, release SHA matches; not uploaded to WeChat.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-08-price-table-orderability.md`; local logs `/private/tmp/kferp-pr638-evidence`.
 - Notes: reservation script macOS awk error; PR-638 manually reserved here.
+
+### PR-635-NAMED-PRICE-TABLE-BATCHES
+- Branch: `codex/named-price-table-batches-20260907`
+- Owner/session: Codex / 2026-09-07
+- Status: delivered to development; awaiting Van acceptance; deploy ownership released
+- Scope: 同商品类型同版本多张命名价格表、默认表、整组发布及 ERP/小程序按表下单。
+- DEV: DEV-635-BATCH; DEV-635-EDITOR; DEV-635-ORDER-SELECTION; DEV-635-DELIVERY
+- Verifier: targeted Go/API/PostgreSQL and Vue/miniapp RED/GREEN, full backend/frontend/miniapp checks, named PDF rendering and development delivery.
+- Deployment: development deployed a29f9178ab700af58a45a3fd4be70bdb38a73213 via GitHub PR #75; script exit 0; API 401/200; source/miniapp fingerprints verified.
+- Notes: Evidence: orderapp-remote/docs/acceptance/2026-09-07-named-price-table-batches.md; miniapp /Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev; backup /opt/stacks/erp/orderapp.backup.deploy-20260907230044-a29f9178ab70. Existing optional legacy API fixture failures documented separately.
 
 ### PR-631-QUICK-PRICING-MARKUP-ADJUSTMENT
 - Branch: `codex/quick-pricing-markup-20260907`
@@ -4976,3 +5000,56 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: 双端定向测试、前端全测与构建、小程序全测/类型检查/构建、统一检查和发布门禁。
 - Delivery: 开发、生产和对应小程序包待同步；不执行微信上传或提审。
 - GREEN: Vue 1082/1082，小程序 235/235，Go 全量、类型检查、Vite/小程序构建及统一 changed 检查全部通过。
+
+### PR-634-CUSTOMER-CATALOG-COPY
+- Branch: codex/customer-catalog-copy-20260907
+- Status: delivered to development; developer acceptance passed, product review remains with VA
+- Scope: 全量/所选/单个复制客户引用与分类，客户名称隔离，客户价格表与录单。
+- DEV: 634-CATALOG; 634-UI; 634-PRICING; 634-DELIVERY
+- Verifier: TDD PostgreSQL/API/Vue/miniapp; full Go/Vue/build/typecheck; development acceptance.
+- Deployment: development only; production and WeChat release excluded from this implementation.
+- Notes: reserve_req_id.sh --claim failed on macOS awk multiline literal; PR-634 reserved here manually before implementation.
+
+- PR-634 验证：完整 Go / Vue 1093 项 / Vite 构建通过；真实 PostgreSQL 目录、迁移回滚、并发及旧引用测试通过；小程序 235 项、类型检查及 development 构建通过。验收记录见 docs/acceptance/2026-09-07-customer-catalog-copy.md。已合入 develop 并部署 development；最终应用提交 179f77c6，实测两张订单 SO-20260907-0001 / 0002 成功；复制、分类、价格、隔离、迁移和库存指纹核对通过。生产/微信未发布。
+
+- PR-634 发布证据：回滚源 /opt/stacks/erp/orderapp.backup.deploy-20260907220912-179f77c6753b；应用/数据库正常、外部认证页面 200、受保护 API 未认证 401。最终验收文档随后单独提交，应用运行版本仍为 179f77c6。
+
+### PR-637-CATALOG-ORDER-FOLLOWUP
+- Branch: codex/customer-catalog-order-followup-20260907; baseline origin/develop 56ea7d3b.
+- Status: merged and deployed to development; targeted API/DB and page acceptance recorded; product review pending.
+- Scope: 订单按单据日期排序；客户复制商品删除绑定；客户分类继承；录单客户表默认并允许选择公共表；订单详情报价表名称、归属、版本与发布日期。
+- DEV: DEV-637-ORDER-SORT; DEV-637-CATALOG; DEV-637-PRICE-CHOICE; DEV-637-PRICE-TRACE.
+- Verifier: targeted RED/GREEN; PostgreSQL/API; Go/Vue/miniapp tests and builds; development regression and evidence.
+- Delivery: development only; final requirement number PR-637, preserving the separately delivered PR-635 and PR-636.
+
+- PR-637：Go 全量、Vue 1104 项、小程序 238 项及类型/构建、PostgreSQL 回归、统一检查通过。develop@60e0c43a 已部署 development；订单 1611/1612、客户 300/301 实际 API/DB 和页面复验留证。NB 74 款源商品未分类保持原状，客户独立移动分类已开放。删除确认框受浏览器工具限制，删除/恢复改由真实 API 验证。验收及回滚证据：orderapp-remote/docs/acceptance/2026-09-07-catalog-order-followup.md。生产与微信发布未执行。
+### PR-636-SALES-ORDER-PAYMENT-AMOUNT-COLORS
+- Branch: `codex/sales-order-payment-colors-20260907`
+- Owner/session: Codex / 2026-09-07
+- Status: merged and deployed to development；自动部署验收通过；产品验收待 Van
+- Scope: 网页 ERP 与小程序共用的销售单 PDF/PNG 导出统一显示付款金额；全额已付显示绿色已付金额，完全未付显示红色未付金额，部分预付款保留绿色预付款与红色尾款。
+- Verifier:
+  - Unit: `go test ./internal/infrastructure/pdf ./internal/domain/sales -count=1` 通过；覆盖已付、未付、预付款、组合销售单与精确填充色。
+  - API: 网页销售单预览/生成与小程序旧渲染版本刷新定向测试通过；完整 Go 后端门禁通过。
+  - Frontend/build: 合并后 Vue 1098/1098 通过、Vite 6603 modules 构建成功；小程序 237/237、类型检查与 development 构建通过。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`；`orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-09-07-sales-order-payment-amount-colors.md`；实际 4 组 PDF/PNG 渲染检查通过。
+- Deployment: `develop@ef0dc8ed882c762444a3ea24c32efe5b1090a2bd` 已部署 development；旧源码 `/opt/stacks/erp/orderapp.backup.deploy-20260907231747-ef0dc8ed882c`，回滚镜像 `kferp-orderapp-rollback:development-20260907231747-ef0dc8ed882c`。`erp_orderapp` 运行且重启次数 0，PostgreSQL healthy，登录页 200、受保护 API 未认证 401/BasicAuth 200，PR-636 可查，关键源码哈希一致。开发版小程序包已同步至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；未上传微信，生产环境不变。
+- Last update: 2026-09-07
+- Notes: 原手工登记 PR-635；合并前发现并行需求已先占用 PR-635，顺延为 PR-636，保留两项需求及验证记录。
+
+- 本任务需求编号顺延 PR-637：并行付款颜色任务已先合入并占用 PR-636；本任务名称、分支和日志路径保留，避免覆盖其他需求。
+
+### PR-637 EFS 客户报价继承回归（2026-09-08）
+- Branch: codex/efs-customer-price-inheritance-20260908；基线 origin/develop 6cadc291。
+- Scope: 客户报价来源按客户/商品类型加载，各命名表独立保存草稿；修复初始化或切换命名表后报价未填入平铺行。
+- Reproduction: EFS 客户 302、商品 1063 的 227g 规格（BOM 3 / variant 483）公共表 122 已报价 28/33/26/24，客户平铺行却为 0。454g 只在旧公共表 110 报价，最新表 122 缺此规格，保留待报价并明确提示。
+- Verifier: Vue 实际响应式加载流程 RED 2 项；客户/类型与命名表切换、草稿保留、跨客户迟到响应隔离、旧规格不回退；完整 Vue/Vite 与部署门禁。
+- Status: Vue 1108/1108、Vite、完整部署门禁通过；develop@277c56d1 已部署 development，EFS 227g 四档报价及刷新实测通过。454g 缺当前公共报价，明确提示；未修改或发布客户/公共报价。证据：orderapp-remote/docs/acceptance/2026-09-08-efs-customer-price-inheritance.md。生产与微信发布未执行。
+
+### PR-637 客户阶梯模板回归（2026-09-08）
+- Branch: codex/customer-tier-template-20260908；基线 origin/develop 5250a357。
+- Scope: 客户表主动选择计价模板后，生成行使用新档位和试算价；保留未受修改影响的客户报价，按客户与命名表隔离保存。
+- Reproduction: 用户报告 NB；当前开发页面为 EFS 客户 302，选择模板 16（EFS咖啡豆2档位），平铺行仍显示公共模板 11 的四档固定报价。
+- Verifier: customer-price-template.test.js RED；模板切换、原草稿恢复、局部优先级、缺模板阻止和草稿隔离；完整 Vue/Vite、部署门禁及开发页面复验。
+- Status: 6 项定向及完整 Vue 1114/1114、Vite、Go、小程序 238 项及类型/构建通过；开发 5692d613 已部署。EFS 227g 的两档 26/24、切回四档、恢复两档及刷新实测通过。公共/NB 已发布表指纹、生产版本不变；验收 docs/acceptance/2026-09-08-customer-tier-template.md。未发布客户/公共价格表或微信。

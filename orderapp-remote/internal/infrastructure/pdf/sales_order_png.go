@@ -333,9 +333,7 @@ func (c *salesOrderPNGCanvas) combinedItemsEndY(left, right, y int, snapshot sal
 			y += 8
 		}
 		y += 42
-		if salesOrderMoneyPositive(group.PrepaymentAmount) {
-			y += 68
-		}
+		y += len(salesOrderPaymentRows(salesdomain.SalesOrderSnapshot{PrepaymentAmount: group.PrepaymentAmount, PaidAmount: group.PaidAmount, UnpaidAmount: group.UnpaidAmount})) * 34
 		if note := combinedSalesOrderGroupNote(group); note != "" {
 			y += c.wrappedTextHeight(right-left-16, 18, 26, []string{note})
 			y += 8

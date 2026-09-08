@@ -140,12 +140,12 @@ func TestMaterialsAPIUnifiesInventoryPurchaseAndCostUnit(t *testing.T) {
 	})
 	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
 
-	body, err := json.Marshal(materialsapp.MaterialInput{
-		Code:          "m-api-cost-unit",
-		Name:          "统一单位物料",
-		Kind:          "bean",
-		Unit:          "kg",
-		PurchasePrice: 0,
+	body, err := json.Marshal(struct {
+		materialsapp.MaterialInput
+		OwnerType string `json:"owner_type"`
+	}{
+		MaterialInput: materialsapp.MaterialInput{Code: "m-api-cost-unit", Name: "统一单位物料", Kind: "bean", Unit: "kg", PurchasePrice: 0},
+		OwnerType:     materialsapp.OwnerTypeFactory,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -193,8 +193,8 @@ func TestMaterialsAPIUnifiesInventoryPurchaseAndCostUnit(t *testing.T) {
 	}
 
 	for _, invalidBody := range []string{
-		`{"code":"m-api-mismatched-unit","name":"错误单位物料","kind":"bean","unit":"g","cost_unit":"kg","purchase_price":0}`,
-		`{"code":"m-api-gram-price","name":"克计价物料","kind":"bean","unit":"g","cost_unit":"g","purchase_price":0}`,
+		`{"code":"m-api-mismatched-unit","name":"错误单位物料","kind":"bean","unit":"g","cost_unit":"kg","purchase_price":0,"owner_type":"factory"}`,
+		`{"code":"m-api-gram-price","name":"克计价物料","kind":"bean","unit":"g","cost_unit":"g","purchase_price":0,"owner_type":"factory"}`,
 	} {
 		req = httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(invalidBody))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -235,7 +235,7 @@ func TestMaterialsAPIRejectsCustomWeightDefinitionAndAllowsCustomPackage(t *test
 	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(
-		`{"code":"m-api-custom-ton","name":"自定义吨物料","kind":"bean","unit":"t","cost_unit":"t","purchase_price":0}`,
+		`{"code":"m-api-custom-ton","name":"自定义吨物料","kind":"bean","unit":"t","cost_unit":"t","purchase_price":0,"owner_type":"factory"}`,
 	))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -245,7 +245,7 @@ func TestMaterialsAPIRejectsCustomWeightDefinitionAndAllowsCustomPackage(t *test
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(
-		`{"code":"m-api-custom-bag","name":"自定义袋物料","kind":"pack","unit":"袋","cost_unit":"袋","purchase_price":0}`,
+		`{"code":"m-api-custom-bag","name":"自定义袋物料","kind":"pack","unit":"袋","cost_unit":"袋","purchase_price":0,"owner_type":"factory"}`,
 	))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -329,7 +329,7 @@ func TestMaterialsAPISemiFinishedCanManufacture(t *testing.T) {
 	})
 	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
 
-	createBody := []byte(`{"code":"wip-api-1","name":"湿豆","kind":"bean","unit":"kg","cost_unit":"kg","is_semi_finished":true}`)
+	createBody := []byte(`{"code":"wip-api-1","name":"湿豆","kind":"bean","unit":"kg","cost_unit":"kg","is_semi_finished":true,"owner_type":"factory"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/materials", bytes.NewReader(createBody))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -580,7 +580,7 @@ func TestMaterialsAPIClassificationAndIndustryFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	createBody := `{"code":"green-1","name":"云南生豆","unit":"kg","industry_field_template_id":3,"industry_fields":[{"field_key":"产地","value_text":"云南"}]}`
+	createBody := `{"code":"green-1","name":"云南生豆","unit":"kg","industry_field_template_id":3,"industry_fields":[{"field_key":"产地","value_text":"云南"}],"owner_type":"factory"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(createBody))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -650,24 +650,30 @@ func TestMaterialsAPICreateCopyDeprecateAndPackProfile(t *testing.T) {
 	})
 	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
 
-	createBody, err := json.Marshal(materialsapp.MaterialInput{
-		Code:          "pack-new",
-		Name:          "新袋子",
-		Kind:          "pack",
-		Unit:          "个",
-		BatchNo:       "20260428",
-		PurchasePrice: 0,
-		SalePrice:     2.8,
-		OnhandUnits:   100,
-		MinLevelUnits: 20,
-		PackProfile: &materialsapp.PackProfile{
-			SizeSpec:   "227g袋",
-			Dimensions: "12x20cm",
-			Material:   "牛皮纸",
-			Capacity:   "227g",
-			Color:      "白色",
-			Note:       "带气阀",
+	createBody, err := json.Marshal(struct {
+		materialsapp.MaterialInput
+		OwnerType string `json:"owner_type"`
+	}{
+		MaterialInput: materialsapp.MaterialInput{
+			Code:          "pack-new",
+			Name:          "新袋子",
+			Kind:          "pack",
+			Unit:          "个",
+			BatchNo:       "20260428",
+			PurchasePrice: 0,
+			SalePrice:     2.8,
+			OnhandUnits:   100,
+			MinLevelUnits: 20,
+			PackProfile: &materialsapp.PackProfile{
+				SizeSpec:   "227g袋",
+				Dimensions: "12x20cm",
+				Material:   "牛皮纸",
+				Capacity:   "227g",
+				Color:      "白色",
+				Note:       "带气阀",
+			},
 		},
+		OwnerType: materialsapp.OwnerTypeFactory,
 	})
 	if err != nil {
 		t.Fatal(err)

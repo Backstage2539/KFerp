@@ -56,7 +56,15 @@ type Material struct {
 	PackProfile                *PackProfile                 `json:"pack_profile,omitempty"`
 	UpdatedAt                  string                       `json:"updated_at"`
 	DeprecatedAt               string                       `json:"deprecated_at,omitempty"`
+	OwnerType                  string                       `json:"owner_type"`
+	OwnerCustomerID            int64                        `json:"owner_customer_id"`
+	OwnerName                  string                       `json:"owner_name"`
 }
+
+const (
+	OwnerTypeFactory  = "factory"
+	OwnerTypeCustomer = "customer"
+)
 
 type MaterialInput struct {
 	Code                    string                       `json:"code"`
@@ -133,33 +141,22 @@ type ListCommand struct {
 	Limit             int
 	IncludeDeprecated bool
 	CustomerID        int64
+	OwnerType         string
 }
 
 type CreateCommand struct {
-	Actor       string
-	Input       MaterialInput
-	CustomerIDs []int64
+	Actor                string
+	Input                MaterialInput
+	OwnerType            string
+	OwnerCustomerID      int64
+	CopiedFromMaterialID int64
 }
 
-type MaterialCustomerReference struct {
-	ID         int64  `json:"id"`
-	MaterialID int64  `json:"material_id"`
-	CustomerID int64  `json:"customer_id"`
-	Active     bool   `json:"active"`
-	Remark     string `json:"remark"`
-	CreatedBy  string `json:"created_by,omitempty"`
-	UpdatedBy  string `json:"updated_by,omitempty"`
-	CreatedAt  string `json:"created_at,omitempty"`
-	UpdatedAt  string `json:"updated_at,omitempty"`
-}
-
-type SaveMaterialCustomerReferenceCommand struct {
-	Actor      string
-	ID         int64
-	MaterialID int64
-	CustomerID int64
-	Active     bool
-	Remark     string
+type ChangeOwnerCommand struct {
+	Actor           string
+	ID              int64
+	OwnerType       string
+	OwnerCustomerID int64
 }
 
 type UpdateCommand struct {
@@ -216,8 +213,7 @@ type Repository interface {
 	SaveClassificationCategory(ctx context.Context, cmd SaveClassificationCategoryCommand) (MaterialClassificationCategory, error)
 	DeleteClassificationCategory(ctx context.Context, cmd DeleteClassificationCategoryCommand) error
 	AssignClassification(ctx context.Context, cmd AssignClassificationCommand) error
-	ListCustomerReferences(ctx context.Context, materialID, customerID int64, active string) ([]MaterialCustomerReference, error)
-	SaveCustomerReference(ctx context.Context, cmd SaveMaterialCustomerReferenceCommand) (MaterialCustomerReference, error)
+	ChangeOwner(ctx context.Context, cmd ChangeOwnerCommand) (Material, error)
 	ResolveBoundCustomerID(ctx context.Context, employeeID int64) (int64, error)
 }
 
@@ -237,27 +233,30 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Material, erro
 	if cmd.Input.PurchasePrice != 0 {
 		return Material{}, fmt.Errorf("新建物料不能设置采购价，请在采购入库或盘点调整中维护成本")
 	}
-	cmd.CustomerIDs = normalizePositiveIDs(cmd.CustomerIDs)
+	ownerType, ownerCustomerID, err := normalizeOwner(cmd.OwnerType, cmd.OwnerCustomerID)
+	if err != nil {
+		return Material{}, err
+	}
+	cmd.OwnerType = ownerType
+	cmd.OwnerCustomerID = ownerCustomerID
+	if cmd.CopiedFromMaterialID < 0 {
+		return Material{}, fmt.Errorf("invalid copied material id")
+	}
 	return s.repo.Create(ctx, cmd)
 }
 
-func (s *Service) ListCustomerReferences(ctx context.Context, materialID, customerID int64, active string) ([]MaterialCustomerReference, error) {
-	if materialID < 0 || customerID < 0 {
-		return nil, fmt.Errorf("invalid material customer reference filter")
+func (s *Service) ChangeOwner(ctx context.Context, cmd ChangeOwnerCommand) (Material, error) {
+	if cmd.ID <= 0 {
+		return Material{}, fmt.Errorf("invalid material id")
 	}
-	return s.repo.ListCustomerReferences(ctx, materialID, customerID, strings.TrimSpace(active))
-}
-
-func (s *Service) SaveCustomerReference(ctx context.Context, cmd SaveMaterialCustomerReferenceCommand) (MaterialCustomerReference, error) {
+	ownerType, ownerCustomerID, err := normalizeOwner(cmd.OwnerType, cmd.OwnerCustomerID)
+	if err != nil {
+		return Material{}, err
+	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	cmd.Remark = strings.TrimSpace(cmd.Remark)
-	if cmd.ID < 0 || cmd.MaterialID <= 0 || cmd.CustomerID <= 0 {
-		return MaterialCustomerReference{}, fmt.Errorf("invalid material customer reference")
-	}
-	if cmd.ID == 0 {
-		cmd.Active = true
-	}
-	return s.repo.SaveCustomerReference(ctx, cmd)
+	cmd.OwnerType = ownerType
+	cmd.OwnerCustomerID = ownerCustomerID
+	return s.repo.ChangeOwner(ctx, cmd)
 }
 
 func (s *Service) ResolveBoundCustomerID(ctx context.Context, employeeID int64) (int64, error) {
@@ -267,17 +266,21 @@ func (s *Service) ResolveBoundCustomerID(ctx context.Context, employeeID int64) 
 	return s.repo.ResolveBoundCustomerID(ctx, employeeID)
 }
 
-func normalizePositiveIDs(values []int64) []int64 {
-	out := make([]int64, 0, len(values))
-	seen := map[int64]bool{}
-	for _, id := range values {
-		if id <= 0 || seen[id] {
-			continue
+func normalizeOwner(ownerType string, ownerCustomerID int64) (string, int64, error) {
+	switch strings.ToLower(strings.TrimSpace(ownerType)) {
+	case OwnerTypeFactory:
+		if ownerCustomerID != 0 {
+			return "", 0, fmt.Errorf("本公司物料不能设置归属客户")
 		}
-		seen[id] = true
-		out = append(out, id)
+		return OwnerTypeFactory, 0, nil
+	case OwnerTypeCustomer:
+		if ownerCustomerID <= 0 {
+			return "", 0, fmt.Errorf("客户物料必须选择一个归属客户")
+		}
+		return OwnerTypeCustomer, ownerCustomerID, nil
+	default:
+		return "", 0, fmt.Errorf("请选择物料归属：本公司或客户")
 	}
-	return out
 }
 
 func (s *Service) Update(ctx context.Context, cmd UpdateCommand) (Material, error) {

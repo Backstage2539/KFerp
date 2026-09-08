@@ -82,14 +82,14 @@ test('product price list keeps product count scope and tier template action on o
 
   assert.match(pageHeaderSource, /class="price-list-top-toolbar"/)
   const productCountIndex = pageHeaderSource.indexOf('<span>商品数</span>')
-  const scopeIndex = pageHeaderSource.indexOf('aria-label="价格表归属"')
+  const scopeIndex = pageHeaderSource.indexOf('v-model="versionListScope"')
   const tierTemplateIndex = pageHeaderSource.indexOf('>管理阶梯模板</button>')
   assert.ok(productCountIndex > -1 && scopeIndex > productCountIndex && tierTemplateIndex > scopeIndex)
   assert.equal((viewSource.match(/>管理阶梯模板<\/button>/g) || []).length, 1)
   assert.match(viewSource, /\.price-list-top-toolbar\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:/s)
 })
 
-test('product price list groups all three management actions in the top toolbar with equal summary heights', () => {
+test('product price list keeps template actions above and configuration next to publication', () => {
   const pageHeaderStart = viewSource.indexOf('<section class="panel">')
   const versionPanelStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const pageHeaderSource = viewSource.slice(pageHeaderStart, versionPanelStart)
@@ -103,11 +103,11 @@ test('product price list groups all three management actions in the top toolbar 
   const pricingRulesIndex = pageHeaderSource.indexOf('>计价模式规则</button>')
   const priceListConfigIndex = pageHeaderSource.indexOf('>价格表配置</button>')
   assert.ok(
-    tierTemplateIndex > -1 && pricingRulesIndex > tierTemplateIndex && priceListConfigIndex > pricingRulesIndex,
-    'top toolbar must contain tier templates, pricing rules and price-list config in order',
+    tierTemplateIndex > -1 && pricingRulesIndex > tierTemplateIndex && priceListConfigIndex === -1,
+    'top toolbar contains only template and pricing rule management',
   )
   assert.doesNotMatch(generatePanelSource, />计价模式规则<\/button>/)
-  assert.doesNotMatch(generatePanelSource, />价格表配置<\/button>/)
+  assert.match(viewSource, /@click="openNamedTableConfig">价格表配置<\/button>\s*<button[^>]*@click="publishBeanList">发布价格表<\/button>/)
   assert.equal((viewSource.match(/>管理阶梯模板<\/button>/g) || []).length, 1)
   assert.equal((viewSource.match(/>计价模式规则<\/button>/g) || []).length, 1)
   assert.equal((viewSource.match(/>价格表配置<\/button>/g) || []).length, 1)
@@ -149,7 +149,7 @@ test('product price list waits for product-catalog feature selection before reso
   )
   assert.match(
     viewSource,
-    /async function loadPriceListProductBusinessGroups\(\) \{[\s\S]*priceListProductCatalogFeatureSelectionLoaded\.value = false[\s\S]*finally \{\s*priceListProductCatalogFeatureSelectionLoaded\.value = true\s*\}/,
+    /async function loadPriceListProductBusinessGroups\(\) \{[\s\S]*priceListProductCatalogFeatureSelectionLoaded\.value = false[\s\S]*finally \{\s*if \(revision === customerPriceCatalogRevision\) priceListProductCatalogFeatureSelectionLoaded\.value = true\s*\}/,
   )
 })
 
@@ -308,8 +308,8 @@ test('product price-list publish action reports blocked reasons instead of doing
   const blockedReasonSource = viewSource.slice(blockedReasonStart, blockedReasonEnd)
 
   for (const expected of [
-    'const blockedReason = priceListPublishBlockedReason.value',
-    'error.value = blockedReason',
+    'blocked_reason: priceListPublishBlockedReason.value',
+    'table.payload.blocked_reason',
     '暂无可发布的价格表预览',
     '请填写价格表版本号',
     '请选择客户',
@@ -428,10 +428,11 @@ test('product price-list version scope selector lists public and each fulfillmen
   const pageScopeSource = viewSource.slice(pageScopeStart, pageScopeEnd)
 
   assert.match(pageScopeSource, /v-model="versionListScope"/)
-  assert.match(pageScopeSource, /<option value="official">公共价格表<\/option>/)
-  assert.match(pageScopeSource, /v-for="customer in customers"/)
-  assert.match(pageScopeSource, /:value="`customer:\$\{customer\.id\}`"/)
-  assert.match(pageScopeSource, /customerOptionLabel\(customer\)/)
+  assert.match(pageScopeSource, /<SearchableSelect v-model="versionListScope"/)
+  assert.match(pageScopeSource, /:options="priceOwnershipOptions"/)
+  assert.match(viewSource, /value:'official',label:'公共价格表'/)
+  assert.match(viewSource, /value:`customer:\$\{customer.id\}`/)
+  assert.match(viewSource, /await fetchAllCustomerOptions\(\)/)
   assert.doesNotMatch(versionListSource, /v-model="versionListScope"/)
   assert.match(versionListSource, /v-model\.number="selectedProductTypeCategoryID"/)
   assert.match(versionListSource, /v-for="type in productPriceListTypeOptions"/)
@@ -490,7 +491,7 @@ test('product bean-list generate area uses inline price-list configuration inste
     'productPriceListTypeKey',
     'price-list-page-config',
     '<strong>计价规则</strong>',
-    '<button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>',
+    '<button class="secondary" type="button" :disabled="loading || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>',
     'aria-label="价格表配置"',
     "greenTierPriceRows",
     "green_bean_list",
@@ -512,7 +513,7 @@ test('product price list uses product archive catalog templates and categories i
     'data-pr440-price-list-model',
     '商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表',
     '平铺价格行',
-    '分组项选品',
+    '同一商品类型可维护多张命名价格表',
     'buildProductCatalogTemplatePriceListTypeOptions',
     'businessGroupRowsForFeatureSelection',
     'groupRowsByBusinessGroupTemplate',
@@ -1083,7 +1084,7 @@ test('price list preview builds from current selected products instead of empty 
   assert.ok(groupsSource.includes('downloadSourcePublication.value?.content?.groups'), 'download action should still render stored publication content')
   assert.ok(groupsSource.includes('buildBeanListPdfGroupsFromCategoryRows(selectedSkuCategoryProductGroups.value'), 'generate drawer should render materialized selected SKU rows from the picker')
   assert.equal(groupsSource.includes('currentPriceSourcePublication.value?.content?.groups'), false, 'current price source must not replace current selected products')
-  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(normalizePriceListPublicationRows('), true, 'flat rows should normalize concrete identities before collapsing identical generated tier rows')
+  assert.equal(viewSource.includes('const generatedPriceListFlatRows = computed(() => dedupePriceListFlatRows(normalizePriceListPublicationRows('), true, 'flat rows should normalize concrete identities before collapsing identical generated tier rows')
   assert.equal(viewSource.includes('normalizePriceListPublicationGroups('), true, 'preview should normalize stale parent identities before applying flat price rows')
   assert.equal(viewSource.includes('applyPriceListFlatRowsToBeanListPdfGroups(normalizedPriceListGroups.value, priceListFlatRows.value'), true, 'preview should render flat price rows back into normalized PDF groups')
   assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trials'"), true, 'pricing-rule rows should load live trial prices in one batch')
@@ -1139,7 +1140,7 @@ test('product bean-list drawer derives publication owner from current page scope
   }
   assert.doesNotMatch(viewSource, /<strong>发布归属<\/strong>/)
   assert.doesNotMatch(viewSource, /<strong>客户<\/strong>/)
-  assert.doesNotMatch(viewSource, /<SearchableSelect[\s\S]*selectedBeanListCustomerID/)
+  assert.doesNotMatch(viewSource, /<SearchableSelect[^>]*v-model="selectedBeanListCustomerID"/)
 })
 
 test('product bean-list view maps green and commercial fields without dedicated drip inference', () => {

@@ -223,6 +223,12 @@ func componentSourceAvailabilityTx(ctx context.Context, tx pgx.Tx, schema, compo
 }
 
 func componentSourceOptionsTx(ctx context.Context, tx pgx.Tx, schema string, source productionapp.ProductionPlanComponentSource, planCustomerID int64) ([]productionapp.ProductionPlanComponentSourceOption, error) {
+	materialOwnerCustomerID := int64(0)
+	if source.ComponentType == "material" {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(owner_customer_id,0) FROM %s.materials WHERE id=$1`, schema), source.ComponentID).Scan(&materialOwnerCustomerID); err != nil {
+			return nil, err
+		}
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT code,name,COALESCE(kind,''),COALESCE(customer_id,0) FROM %s.warehouses WHERE active=true ORDER BY sort_order,code`, schema))
 	if err != nil {
 		return nil, err
@@ -251,7 +257,12 @@ func componentSourceOptionsTx(ctx context.Context, tx pgx.Tx, schema string, sou
 	out := make([]productionapp.ProductionPlanComponentSourceOption, 0)
 	for _, warehouse := range warehouses {
 		owners := []int64{warehouse.customerID}
-		if warehouse.customerID == 0 && planCustomerID > 0 && strings.EqualFold(strings.TrimSpace(warehouse.kind), "wip") {
+		if source.ComponentType == "material" {
+			if warehouse.customerID > 0 && warehouse.customerID != materialOwnerCustomerID {
+				continue
+			}
+			owners = []int64{materialOwnerCustomerID}
+		} else if warehouse.customerID == 0 && planCustomerID > 0 && strings.EqualFold(strings.TrimSpace(warehouse.kind), "wip") {
 			owners = []int64{0, planCustomerID}
 		}
 		for _, ownerCustomerID := range owners {
@@ -365,6 +376,23 @@ func validateComponentSourceOwner(planCustomerID, warehouseCustomerID, ownerCust
 	return ownerCustomerID, nil
 }
 
+func validateMaterialComponentSourceOwnerTx(ctx context.Context, tx pgx.Tx, schema, componentType string, componentID, ownerCustomerID int64) error {
+	if componentType != "material" {
+		return nil
+	}
+	var materialOwnerCustomerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(owner_customer_id,0) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, schema), componentID).Scan(&materialOwnerCustomerID); err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("material component not found or inactive: %d", componentID)
+		}
+		return err
+	}
+	if ownerCustomerID != materialOwnerCustomerID {
+		return fmt.Errorf("生产组件来源货主必须与物料档案归属一致：物料 %d 归属 %d，所选货主 %d", componentID, materialOwnerCustomerID, ownerCustomerID)
+	}
+	return nil
+}
+
 func (r Repository) UpdateProductionPlanItemComponentSources(ctx context.Context, cmd productionapp.UpdateProductionPlanItemComponentSourcesCommand) ([]productionapp.ProductionPlanComponentSource, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -392,6 +420,9 @@ func (r Repository) UpdateProductionPlanItemComponentSources(ctx context.Context
 		}
 		ownerCustomerID, err := validateComponentSourceOwner(planCustomerID, warehouseOwner, source.SourceOwnerCustomerID)
 		if err != nil {
+			return nil, err
+		}
+		if err := validateMaterialComponentSourceOwnerTx(ctx, tx, r.schema, source.ComponentType, source.ComponentID, ownerCustomerID); err != nil {
 			return nil, err
 		}
 		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, r.schema, source.ComponentType, source.ComponentID,
@@ -449,6 +480,9 @@ func validateProductionPlanComponentSourcesAtSubmitTx(ctx context.Context, tx pg
 	for _, row := range rows {
 		if !row.Selected {
 			return fmt.Errorf("生产计划组件「%s」必须选择来源仓库", row.ComponentName)
+		}
+		if err := validateMaterialComponentSourceOwnerTx(ctx, tx, schema, row.ComponentType, row.ComponentID, row.SourceOwnerCustomerID); err != nil {
+			return err
 		}
 		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, row.ComponentType, row.ComponentID,
 			row.ComponentBOMSpecID, row.ComponentSpecG, row.SourceWarehouse, row.SourceOwnerCustomerID, true)

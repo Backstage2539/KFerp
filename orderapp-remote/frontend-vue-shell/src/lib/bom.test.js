@@ -1011,6 +1011,7 @@ test('material option labels never fabricate SKU- prefixes for materials', async
   assert.equal(bomLib.materialOptionLabel({ id: 123, name: '鲜豆', code: 'WL-0001' }), 'WL-0001 鲜豆')
   assert.equal(bomLib.materialOptionLabel({ id: 123, name: '鲜豆' }), '鲜豆')
   assert.equal(bomLib.materialOptionLabel({ id: 123 }), '物料 #123')
+  assert.equal(bomLib.materialOptionLabel({ id: 123, name: '鲜豆', owner_customer_id: 74, owner_name: '芬纳咖啡' }), '鲜豆 · 归属：芬纳咖啡')
   assert.doesNotMatch(bomLib.materialOptionLabel({ id: 123, name: '鲜豆' }), /SKU-/)
 
   const fs = await import('node:fs')

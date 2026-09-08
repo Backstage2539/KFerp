@@ -1880,6 +1880,39 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		totalAmt += items[idx].baseLineTotal
 		itemDiscountAmt += items[idx].discountAmount
 	}
+	{
+		actualIDs := make([]int64, 0, len(items))
+		for _, it := range items {
+			actualIDs = append(actualIDs, it.itemBeanListPublicationID)
+		}
+		tableMetadata, selectionErr := validateSelectedPriceTablesTx(ctx, tx, r.schema, cmd, actualIDs)
+		if selectionErr != nil {
+			return salesapp.SaveOrderResult{}, selectionErr
+		}
+		contents := map[int64][]byte{}
+		for i := range items {
+			it := &items[i]
+			table := tableMetadata[it.itemBeanListPublicationID]
+			if table.ReleaseID != "" {
+				raw, loaded := contents[table.ID]
+				if !loaded {
+					if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT content_json FROM %s.bean_list_publications WHERE id=$1", r.schema), table.ID).Scan(&raw); err != nil {
+						return salesapp.SaveOrderResult{}, err
+					}
+					contents[table.ID] = raw
+				}
+				productID := int64(0)
+				if it.productID != nil {
+					productID = *it.productID
+				}
+				if err := validateNamedOrderItemSnapshot(raw, table, productID, it.bomSpecID, it.bomVariantID, it.specG, it.units, it.salesUnit, it.unitBagCount); err != nil {
+					return salesapp.SaveOrderResult{}, fmt.Errorf("商品「%s」：%w", it.name, err)
+				}
+			}
+			it.priceSourceJSON = withNamedPriceTableSnapshot(it.priceSourceJSON, table)
+		}
+	}
+
 	if cmd.RequireCurrentDefaultPublications {
 		checked := make(map[string]bool)
 		for _, it := range items {
@@ -1888,7 +1921,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				continue
 			}
 			checked[key] = true
-			current, err := isCurrentDefaultOrderPublicationTx(ctx, tx, r.schema, cmd.CustomerID, it.itemBeanListPublicationID, it.priceListType)
+			current, err := isCurrentDefaultOrderPublicationTx(ctx, tx, r.schema, cmd.CustomerID, it.itemBeanListPublicationID, it.priceListType, len(cmd.SelectedPriceTableIDs) > 0)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
@@ -2300,6 +2333,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 		priceSourceJSON = withProductProductionConfigPriceSourceJSON(priceSourceJSON, productionConfigJSON)
+		priceSourceJSON, err = orderPublicationTraceSnapshot(ctx, tx, r.schema, usage.PublicationID, priceSourceJSON, false)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, nil, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}

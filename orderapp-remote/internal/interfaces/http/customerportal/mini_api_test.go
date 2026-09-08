@@ -1950,7 +1950,7 @@ func TestMiniFulfillmentOrderAPIForwardsCanonicalBOMSpecIdentity(t *testing.T) {
 		fulfillmentCmd: &cmd,
 	}})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/mini/fulfillment-orders", strings.NewReader(`{"service_code":"product_order","recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","product_id":10,"bom_spec_id":101,"bom_variant_id":1001,"inventory_unit":"袋","qty":2}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/fulfillment-orders", strings.NewReader(`{"service_code":"product_order","recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","product_id":10,"bean_list_publication_id":902,"bom_spec_id":101,"bom_variant_id":1001,"inventory_unit":"袋","qty":2}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
 	rec := httptest.NewRecorder()
@@ -1959,7 +1959,7 @@ func TestMiniFulfillmentOrderAPIForwardsCanonicalBOMSpecIdentity(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if cmd.ProductID != 10 || cmd.BomSpecID != 101 || cmd.BomVariantID != 1001 || cmd.InventoryUnit != "袋" || cmd.SpecG != 0 || cmd.Qty != 2 {
+	if cmd.BeanListPublicationID != 902 || cmd.ProductID != 10 || cmd.BomSpecID != 101 || cmd.BomVariantID != 1001 || cmd.InventoryUnit != "袋" || cmd.SpecG != 0 || cmd.Qty != 2 {
 		t.Fatalf("canonical fulfillment command=%+v", cmd)
 	}
 }

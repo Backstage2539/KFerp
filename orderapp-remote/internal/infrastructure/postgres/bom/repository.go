@@ -168,7 +168,7 @@ func (r Repository) Materials(ctx context.Context) ([]bomapp.Option, error) {
 }
 
 func listProductionBomMaterialOptions(ctx context.Context, q bomQueryer, schema string, materialIDs []int64) ([]bomapp.Option, error) {
-	rows, err := q.Query(ctx, "SELECT id, name, COALESCE(NULLIF(unit,''),'kg'), COALESCE(NULLIF(code,''),'') FROM "+schema+".materials WHERE deprecated_at IS NULL AND ($1::bigint[] IS NULL OR id=ANY($1)) ORDER BY name", materialIDs)
+	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT m.id,m.name,COALESCE(NULLIF(m.unit,''),'kg'),COALESCE(NULLIF(code,''),''),COALESCE(m.owner_customer_id,0) FROM %s.materials m WHERE m.deprecated_at IS NULL AND ($1::bigint[] IS NULL OR m.id=ANY($1)) ORDER BY m.name,m.id`, schema), materialIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -176,12 +176,33 @@ func listProductionBomMaterialOptions(ctx context.Context, q bomQueryer, schema 
 	out := make([]bomapp.Option, 0)
 	for rows.Next() {
 		var opt bomapp.Option
-		if err := rows.Scan(&opt.ID, &opt.Name, &opt.InventoryUnit, &opt.ProductCode); err != nil {
+		if err := rows.Scan(&opt.ID, &opt.Name, &opt.InventoryUnit, &opt.ProductCode, &opt.CustomerID); err != nil {
 			return nil, err
 		}
 		out = append(out, opt)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	var companyExists, customersExist bool
+	_ = q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".company_profile").Scan(&companyExists)
+	_ = q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".customers").Scan(&customersExist)
+	factoryName := "本公司"
+	if companyExists {
+		_ = q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(company_name,''),'本公司') FROM %s.company_profile WHERE id=1`, schema)).Scan(&factoryName)
+	}
+	for i := range out {
+		if out[i].CustomerID == 0 {
+			out[i].OwnerName = factoryName
+			continue
+		}
+		out[i].OwnerName = fmt.Sprintf("客户 #%d", out[i].CustomerID)
+		if customersExist {
+			_ = q.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, schema), out[i].CustomerID).Scan(&out[i].OwnerName)
+		}
+	}
+	return out, nil
 }
 
 func (r Repository) BagSpecMappings(ctx context.Context) ([]bomapp.BagSpecMapping, error) {
@@ -2644,6 +2665,9 @@ func (r Repository) validateProductionBomVersionForPublish(ctx context.Context, 
 	if err := validateProductionBomComponentsForPublish(ctx, q, r.schema, cmd.VersionID); err != nil {
 		return err
 	}
+	if err := validateProductionBomMaterialOwnershipForPublish(ctx, q, r.schema, cmd.VersionID, outputType, outputProductID, outputMaterialID); err != nil {
+		return err
+	}
 	if err := validateProductionBomComponentSpecsForPublish(ctx, q, r.schema, cmd.VersionID); err != nil {
 		return err
 	}
@@ -2706,6 +2730,47 @@ func (r Repository) validateProductionBomVersionForPublish(ctx context.Context, 
 	}
 	_ = bomID
 	return nil
+}
+
+func validateProductionBomMaterialOwnershipForPublish(ctx context.Context, q bomQueryer, schema string, versionID int64, outputType string, outputProductID, outputMaterialID int64) error {
+	var bomOwnerCustomerID int64
+	if outputType == "material" {
+		if err := q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(owner_customer_id,0) FROM %s.materials WHERE id=$1`, schema), outputMaterialID).Scan(&bomOwnerCustomerID); err != nil {
+			return err
+		}
+	} else {
+		if err := q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.products WHERE id=$1`, schema), outputProductID).Scan(&bomOwnerCustomerID); err != nil {
+			return err
+		}
+	}
+	var materialID, materialOwnerCustomerID int64
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		WITH candidate AS (
+			SELECT i.material_id
+			FROM %[1]s.production_bom_version_items i
+			WHERE i.version_id=$1 AND COALESCE(NULLIF(i.component_type,''),'material')='material'
+			UNION
+			SELECT pb.main_input_material_id
+			FROM %[1]s.production_bom_versions v
+			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			WHERE v.id=$1 AND COALESCE(pb.main_input_material_id,0)>0
+		)
+		SELECT m.id,COALESCE(m.owner_customer_id,0)
+		FROM candidate x JOIN %[1]s.materials m ON m.id=x.material_id
+		WHERE ($2::bigint=0 AND COALESCE(m.owner_customer_id,0)<>0)
+		   OR ($2::bigint>0 AND COALESCE(m.owner_customer_id,0) NOT IN (0,$2))
+		ORDER BY m.id LIMIT 1
+	`, schema), versionID, bomOwnerCustomerID).Scan(&materialID, &materialOwnerCustomerID)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if bomOwnerCustomerID == 0 {
+		return fmt.Errorf("本公司 BOM 不能引用客户物料 %d（归属客户 %d）", materialID, materialOwnerCustomerID)
+	}
+	return fmt.Errorf("客户 BOM 只能引用本公司物料或同一客户物料；物料 %d 归属客户 %d", materialID, materialOwnerCustomerID)
 }
 
 func validateProductionBomDefaultGraphCandidate(ctx context.Context, q bomQueryer, schema string, candidateVersionID int64) error {

@@ -160,6 +160,7 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 			return nil, err
 		}
 		option.Published = true
+		option.OwnerCustomerID = customerID
 		options = append(options, option)
 		publicationProductID := orderBOMSpecPublicationLookupProductID(option)
 		legacyProducts = append(legacyProducts, salesapp.ProductOption{
@@ -466,6 +467,10 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		return nil, err
 	}
 	rows.Close()
+	if err := r.loadNamedPriceTableOptions(ctx, out); err != nil {
+		return nil, err
+	}
+	out = salesapp.ApplyNamedPriceTableDefaults(out)
 	currentTypeIDs, err := r.fetchCurrentProductCatalogPublicationTypeIDs(ctx)
 	if err != nil {
 		return nil, err
@@ -2387,6 +2392,14 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		return nil, err
 	}
 
+	rows.Close()
+	for i := range d.Items {
+		enriched, err := orderPublicationTraceSnapshot(ctx, r.pool, r.schema, d.Items[i].BeanListPublicationID, d.Items[i].PriceSourceJSON, true)
+		if err != nil {
+			return nil, err
+		}
+		d.Items[i].PriceSourceJSON = enriched
+	}
 	return &d, nil
 }
 

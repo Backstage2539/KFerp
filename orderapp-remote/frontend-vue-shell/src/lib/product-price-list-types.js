@@ -103,6 +103,7 @@ export function buildProductCatalogPriceListTypeOptions(sourceItems = [], {
 export function buildProductCatalogTemplatePriceListTypeOptions(sourceItems = [], {
   templates = [],
   assignments = [],
+  includeUnclassified = false,
 } = {}) {
   const rows = Array.isArray(sourceItems) ? sourceItems : []
   const activeTemplates = (Array.isArray(templates) ? templates : [])
@@ -129,7 +130,7 @@ export function buildProductCatalogTemplatePriceListTypeOptions(sourceItems = []
     groupID: numberField(template.id),
     groupItemIDs: businessGroupDescendantIDsForTemplate(template),
   }))
-  return activeTemplates.map((template, index) => {
+  const options = activeTemplates.map((template, index) => {
     const templateID = numberField(template.id)
     const publicationTypeID = productCatalogPublicationTypeID(templateID)
     const matchedItems = rows.filter((item) => {
@@ -151,6 +152,10 @@ export function buildProductCatalogTemplatePriceListTypeOptions(sourceItems = []
       publicationClassificationTemplateID: publicationTypeID,
     }
   })
+  const unclassified = rows.filter(item => !productCatalogAssignmentForItemInScope(item, assignments, scopeGroups))
+  if (includeUnclassified && unclassified.length) options.push({id:UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID,categoryID:0,key:'product-catalog:unclassified',label:'未分类',listType:dominantPriceListRenderType(unclassified),position:99999,itemCount:uniqueProductCount(unclassified),productCatalogUnclassified:true,productCatalogScopeGroups:scopeGroups,publicationProductTypeCategoryID:0,publicationClassificationTemplateID:0})
+  return options
+
 }
 
 export function matchesProductCatalogPriceListType(item = {}, type = {}, {
@@ -159,6 +164,7 @@ export function matchesProductCatalogPriceListType(item = {}, type = {}, {
   if (type?.productCatalogFlat === true || type?.product_catalog_flat === true) return true
   const scopeGroups = normalizeProductCatalogScopeGroups(type)
   const scopedAssignment = productCatalogAssignmentForItemInScope(item, assignments, scopeGroups)
+  if (type?.productCatalogUnclassified) return !scopedAssignment
   const groupID = numberField(type?.productCatalogGroupID ?? type?.product_catalog_group_id)
   if (!(groupID > 0)) return false
   const groupItemIDs = new Set((type?.productCatalogGroupItemIDs || type?.product_catalog_group_item_ids || [])
@@ -316,7 +322,9 @@ export function priceListTypeOptionForPublication(typeOptions = [], publication 
 export function preferredPublicationForPriceListType(rows = [], type = {}) {
   const publishedRows = (Array.isArray(rows) ? rows : []).filter((row) => String(row?.status || '') === 'published')
   const exact = publishedRows.find((row) => priceListTypeOptionForPublication([type], row))
-  return exact || publishedRows[0] || null
+  const latest = exact || publishedRows[0] || null
+  const release = latest?.release_id || latest?.config?.publication_batch?.release_id
+  return (release && publishedRows.find(row => (row.release_id || row.config?.publication_batch?.release_id) === release && (row.is_default_table ?? row.config?.publication_batch?.is_default_table))) || latest
 }
 
 export function matchesPublicationProductType(publication = {}, productTypeCategoryID = 0) {

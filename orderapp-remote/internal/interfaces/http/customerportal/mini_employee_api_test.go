@@ -16,6 +16,7 @@ import (
 	customerapp "orderapp/internal/application/customer"
 	customerportalapp "orderapp/internal/application/customerportal"
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 
 	"github.com/labstack/echo/v4"
 )
@@ -492,12 +493,12 @@ func TestMiniEmployeeOrderDetailDocumentAvailabilityUsesLatestFormalVersions(t *
 	sales := &miniEmployeeSalesFake{
 		listResult: &result, orderFormResult: &form,
 		salesOrderPDF: salesapp.SalesOrderDocumentFile{
-			Document: salesapp.SalesOrderDocument{VersionNo: 3},
+			Document: salesapp.SalesOrderDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion}},
 			Path:     miniEmployeeDocumentTestFile(t, "available-sales-order.pdf", "%PDF"),
 			Filename: "SO-42-V3.pdf",
 		},
 		salesOrderPNG: salesapp.SalesOrderImageFile{
-			Document: salesapp.SalesOrderImageDocument{VersionNo: 2},
+			Document: salesapp.SalesOrderImageDocument{VersionNo: 2, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion}},
 			Path:     miniEmployeeDocumentTestFile(t, "available-sales-order.png", "\x89PNG\r\n\x1a\n"),
 			Filename: "SO-42-V2.png",
 		},
@@ -827,10 +828,10 @@ func TestMiniEmployeeOrderDocumentGenerateUsesMiniEmployeeActorAndReusesLatest(t
 			sales := &miniEmployeeSalesFake{
 				listResult: &result,
 				salesOrderPDF: salesapp.SalesOrderDocumentFile{
-					Document: salesapp.SalesOrderDocument{VersionNo: 3}, Path: miniEmployeeDocumentTestFile(t, "existing-sales-order.pdf", "%PDF"), Filename: "销售单-SO-42-V3.pdf",
+					Document: salesapp.SalesOrderDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion}}, Path: miniEmployeeDocumentTestFile(t, "existing-sales-order.pdf", "%PDF"), Filename: "销售单-SO-42-V3.pdf",
 				},
 				salesOrderPNG: salesapp.SalesOrderImageFile{
-					Document: salesapp.SalesOrderImageDocument{VersionNo: 3}, Path: miniEmployeeDocumentTestFile(t, "existing-sales-order.png", "\x89PNG"), Filename: "销售单-SO-42-V3.png",
+					Document: salesapp.SalesOrderImageDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: salesdomain.SalesOrderRenderVersion}}, Path: miniEmployeeDocumentTestFile(t, "existing-sales-order.png", "\x89PNG"), Filename: "销售单-SO-42-V3.png",
 				},
 				deliveryNotePDF: salesapp.DeliveryNoteDocumentFile{
 					Document: salesapp.DeliveryNoteDocument{VersionNo: 3}, Path: miniEmployeeDocumentTestFile(t, "existing-delivery-note.pdf", "%PDF"), Filename: "发货单-SO-42-V3.pdf",
@@ -848,6 +849,54 @@ func TestMiniEmployeeOrderDocumentGenerateUsesMiniEmployeeActorAndReusesLatest(t
 
 			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"version_no":3`) ||
 				!strings.Contains(rec.Body.String(), `-V3.`) || !strings.Contains(rec.Body.String(), `"generated":false`) || sales.generateCalls != 0 {
+				t.Fatalf("status=%d generate=%d body=%s", rec.Code, sales.generateCalls, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestMiniEmployeeSalesOrderGenerateRefreshesStaleRenderVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		path      string
+		configure func(*miniEmployeeSalesFake)
+	}{
+		{
+			name: "pdf",
+			path: "/api/mini/employee/orders/42/documents/sales-order.pdf",
+			configure: func(sales *miniEmployeeSalesFake) {
+				sales.salesOrderPDF = salesapp.SalesOrderDocumentFile{
+					Document: salesapp.SalesOrderDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: "legacy"}},
+					Path:     miniEmployeeDocumentTestFile(t, "stale-sales-order.pdf", "%PDF"), Filename: "销售单-SO-42-V3.pdf",
+				}
+				sales.generateSalesOrderResult.Document.VersionNo = 4
+			},
+		},
+		{
+			name: "png",
+			path: "/api/mini/employee/orders/42/documents/sales-order.png",
+			configure: func(sales *miniEmployeeSalesFake) {
+				sales.salesOrderPNG = salesapp.SalesOrderImageFile{
+					Document: salesapp.SalesOrderImageDocument{VersionNo: 3, Snapshot: salesdomain.SalesOrderSnapshot{RenderVersion: "legacy"}},
+					Path:     miniEmployeeDocumentTestFile(t, "stale-sales-order.png", "\x89PNG"), Filename: "销售单-SO-42-V3.png",
+				}
+				sales.generateSalesImageResult.Document.VersionNo = 4
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42"}}}
+			sales := &miniEmployeeSalesFake{listResult: &result}
+			tc.configure(sales)
+			registerMiniEmployeeAPI(e, employeePortalService(), sales)
+
+			req := httptest.NewRequest(http.MethodPost, tc.path, nil)
+			req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"version_no":4`) || !strings.Contains(rec.Body.String(), `"generated":true`) || sales.generateCalls != 1 {
 				t.Fatalf("status=%d generate=%d body=%s", rec.Code, sales.generateCalls, rec.Body.String())
 			}
 		})
@@ -1014,6 +1063,29 @@ func TestMiniEmployeeOrderFormKeepsOnlyCurrentDefaultPublishedCatalog(t *testing
 	}
 }
 
+func TestMiniEmployeeCustomerReferenceKeepsOwnBOMSpecQuote(t *testing.T) {
+	form := salesapp.OrderFormData{
+		Products: []salesapp.ProductOption{{ID: 1063, CustomerID: 300, Name: "客户初晓", CustomerProductDisplayName: "客户初晓", CustomerProductReferenceID: 106, Visibility: "customer_reference", ProductKind: "roasted_bean", Tiers: []salesapp.ProductTierOption{{PublicationID: 125, ListType: "commercial", UnitPrice: 33, QuantityBasis: "sales_spec_count", EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(3), "bom_variant_id": float64(483)}}}}},
+		ProductBOMSpecOptions: []salesapp.ProductBOMSpecOption{
+			{ParentProductID: 1063, BomSpecID: 3, BomVariantID: 483, Published: true, MigrationState: "cutover", SpecName: "227g", InventoryUnit: "袋", Tiers: []salesapp.ProductTierOption{{PublicationID: 122, ListType: "commercial", UnitPrice: 28}}},
+			{ParentProductID: 1063, BomSpecID: 7, Published: true, MigrationState: "cutover", SpecName: "454g", InventoryUnit: "袋"},
+		},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{ID: 125, CustomerID: 300, ListType: "commercial", IsDefault: true}},
+	}
+	result := miniEmployeeOrderCatalog(form, 300, false)
+	if len(result.Families) != 1 || result.Families[0]["name"] != "客户初晓" {
+		t.Fatalf("customer family missing: %+v", result)
+	}
+	specs := result.Families[0]["specs"].([]map[string]any)
+	if len(specs) != 1 || specs[0]["bom_spec_id"] != int64(3) {
+		t.Fatalf("unquoted or wrong spec: %+v", specs)
+	}
+	tiers := specs[0]["tiers"].([]salesapp.ProductTierOption)
+	if len(tiers) != 1 || tiers[0].PublicationID != 125 || tiers[0].UnitPrice != 33 {
+		t.Fatalf("customer quote replaced by public quote: %+v", tiers)
+	}
+}
+
 func TestMiniEmployeeOrderFormUsesCutoverBOMSpecsAndHidesLegacyChildren(t *testing.T) {
 	e := echo.New()
 	sales := &miniEmployeeSalesFake{orderFormResult: &salesapp.OrderFormData{
@@ -1097,7 +1169,7 @@ func TestMiniEmployeePrepareCurrentCatalogAcceptsCutoverParentAndBOMSpec(t *test
 			{ID: 11, SKUID: 11, ParentProductID: 10, CustomerID: 8, Name: "初晓旧规格", ProductKind: "roasted_bean"},
 		},
 		ProductBOMSpecOptions: []salesapp.ProductBOMSpecOption{{
-			ParentProductID: 10, BomID: 100, BomVersionID: 1000, BomSpecID: 101, BomVariantID: 1001,
+			ParentProductID: 10, OwnerCustomerID: 8, BomID: 100, BomVersionID: 1000, BomSpecID: 101, BomVariantID: 1001,
 			SpecCode: "BOM-SPEC-000101", SpecKey: "bag-227", SpecName: "227g袋", InventoryUnit: "袋",
 			Published: true, IsDefault: true, MigrationState: "cutover", WriteProductID: 10, WriteBomSpecID: 101, WriteBomVariantID: 1001,
 			Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"source":"price_list"}`}},
@@ -1924,5 +1996,50 @@ func TestMiniEmployeeAPIRejectsCustomerAccount(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderFormSelectsNamedSiblingAndRejectsCrossTableIDs(t *testing.T) {
+	e := echo.New()
+	sales := &miniEmployeeSalesFake{orderFormResult: &salesapp.OrderFormData{
+		Customers: []salesapp.CustomerOption{{ID: 8, Name: "测试客户"}},
+		Products: []salesapp.ProductOption{
+			{ID: 51, SKUID: 51, ParentProductID: 50, ParentProductName: "测试豆", Name: "测试豆", ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{
+				{ID: 11, PublicationID: 901, ListType: "commercial", UnitPrice: 30}, {ID: 12, PublicationID: 902, ListType: "commercial", UnitPrice: 90},
+			}},
+			{ID: 52, SKUID: 52, ParentProductID: 50, Name: "仅默认表规格", ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{ID: 13, PublicationID: 901, ListType: "commercial", UnitPrice: 40}}},
+		},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{
+			{ID: 901, CustomerID: 8, ListType: "commercial", VersionNo: "V3.0.6", ReleaseID: "batch", TableName: "227g", IsDefault: true, IsDefaultTable: true},
+			{ID: 902, CustomerID: 8, ListType: "commercial", VersionNo: "V3.0.6", ReleaseID: "batch", TableName: "1kg"},
+			{ID: 903, CustomerID: 9, ListType: "commercial", ReleaseID: "foreign", TableName: "其他客户", IsDefault: true},
+		},
+	}}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	for _, tc := range []struct {
+		query  string
+		status int
+		price  float64
+		count  int
+	}{{"", 200, 30, 2}, {"&selected_price_table_ids=902", 200, 90, 1}, {"&selected_price_table_ids=903", 400, 0, 0}, {"&selected_price_table_ids=901,902", 400, 0, 0}} {
+		req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/order-form?customer_id=8"+tc.query, nil)
+		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != tc.status {
+			t.Fatalf("query=%s status=%d body=%s", tc.query, rec.Code, rec.Body.String())
+		}
+		if tc.status == 200 {
+			var result struct {
+				Products []salesapp.ProductOption         `json:"products"`
+				Tables   []salesapp.BeanListVersionOption `json:"price_table_options"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Products) != tc.count || result.Products[0].Tiers[0].UnitPrice != tc.price || len(result.Tables) != 2 {
+				t.Fatalf("result=%+v", result)
+			}
+		}
 	}
 }

@@ -17,6 +17,7 @@ var (
 )
 
 type SaveOrderCommand struct {
+	SelectedPriceTableIDs             []int64 `json:"selected_price_table_ids,omitempty"`
 	PrepaymentAmount                  *float64
 	Actor                             string
 	DraftEmployeeID                   int64
@@ -338,6 +339,7 @@ type ProductTierOption struct {
 // a product id with a BOM spec id.
 type ProductBOMSpecOption struct {
 	ParentProductID      int64               `json:"parent_product_id"`
+	OwnerCustomerID      int64               `json:"owner_customer_id"`
 	LegacyChildProductID int64               `json:"legacy_child_product_id,omitempty"`
 	BomID                int64               `json:"bom_id"`
 	BomVersionID         int64               `json:"bom_version_id"`
@@ -411,6 +413,10 @@ type ProductOption struct {
 }
 
 type BeanListVersionOption struct {
+	ReleaseID                  string `json:"release_id,omitempty"`
+	TableKey                   string `json:"table_key,omitempty"`
+	TableName                  string `json:"table_name,omitempty"`
+	IsDefaultTable             bool   `json:"is_default_table"`
 	CustomerID                 int64  `json:"customer_id"`
 	ListType                   string `json:"list_type"`
 	ProductTypeCategoryID      int64  `json:"product_type_category_id,omitempty"`

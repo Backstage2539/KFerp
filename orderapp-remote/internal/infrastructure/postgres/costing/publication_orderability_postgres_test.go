@@ -1,19 +1,15 @@
 package costing
 
 import (
-	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgxpool"
 	app "orderapp/internal/application/costing"
 	"orderapp/internal/infrastructure/postgres/productspecmigration"
-	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestPublicationOrderabilityPostgresUsesRealOrderAuthority(t *testing.T) {
-	r, ctx := orderabilityPostgres(t)
+	r, ctx := namedBatchPostgres(t)
 	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
 	CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY,name TEXT,active BOOLEAN DEFAULT true,parent_product_id BIGINT DEFAULT 0,customer_id BIGINT DEFAULT 0);
 	CREATE TABLE %[1]s.production_bom_output_bindings(output_type TEXT,output_id BIGINT,is_default BOOLEAN,bom_id BIGINT,bom_version_id BIGINT);
@@ -83,25 +79,4 @@ func TestPublicationOrderabilityPostgresUsesRealOrderAuthority(t *testing.T) {
 			t.Fatalf("read-only preflight wrote %s: %d %v", table, count, err)
 		}
 	}
-}
-
-func orderabilityPostgres(t *testing.T) (Repository, context.Context) {
-	t.Helper()
-	if os.Getenv("KF_RUN_POSTGRES_INTEGRATION") != "1" {
-		t.Skip("disposable PostgreSQL integration")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("pr638_%d", time.Now().UnixNano())
-	if _, err = pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE"); pool.Close() })
-	if _, err = pool.Exec(ctx, "CREATE TABLE "+schema+".bean_list_publications(id BIGSERIAL); CREATE TABLE "+schema+".audit_logs(id BIGSERIAL)"); err != nil {
-		t.Fatal(err)
-	}
-	return NewRepository(pool, schema), ctx
 }

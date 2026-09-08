@@ -366,6 +366,10 @@ function orderFamiliesWithBomSpecOptions(productFamilies = [], bomSpecOptions = 
     if (scoped.length) matching = scoped
     if (!matching.length) return raw
     const defaultLegacySkuID = orderFamilyID(raw?.default_sku_id, raw?.defaultSkuID)
+    // Specifications are shared, but the family already carries the customer's
+    // published quotes. Public BOM options must not replace those quotes.
+    const customerTiers = orderFamilyID(raw?.customer_id, raw?.customerID) > 0
+      ? legacySpecs.flatMap(spec => Array.isArray(spec?.tiers) ? spec.tiers : []) : null
     const mappedSpecs = matching.map((row) => {
       const legacySkuID = orderFamilyID(row?.legacy_child_product_id, row?.legacyChildProductID)
       const legacy = legacySpecs.find((spec) => orderFamilyID(spec?.sku_id, spec?.skuID, spec?.product_id, spec?.id) === legacySkuID) || {}
@@ -384,7 +388,14 @@ function orderFamiliesWithBomSpecOptions(productFamilies = [], bomSpecOptions = 
         sales_unit: orderFamilyText(row?.inventory_unit ?? row?.inventoryUnit ?? legacy?.sales_unit),
         is_default_sku: row?.is_default === true || row?.isDefault === true || legacySkuID === defaultLegacySkuID,
         migration_state: 'cutover',
-        tiers: Array.isArray(row?.tiers) ? row.tiers : (legacy?.tiers || []),
+        tiers: customerTiers === null || Number(raw.customer_id || 0) === Number(row.owner_customer_id || 0)
+          ? (Array.isArray(row?.tiers) ? row.tiers : (legacy?.tiers || []))
+          : customerTiers.filter(tier => {
+            const effective = tier.effective_sales_spec || tierPriceSource(tier)?.effective_sales_spec || {}
+            const specID = orderFamilyID(tier.bom_spec_id, effective.bom_spec_id)
+            const variantID = orderFamilyID(tier.bom_variant_id, effective.bom_variant_id)
+            return specID === bomSpecID && (!variantID || !row.bom_variant_id || variantID === Number(row.bom_variant_id))
+          }),
       }
     })
     const defaultSpec = mappedSpecs.find((spec) => spec.is_default_sku) || mappedSpecs[0]
@@ -1394,6 +1405,11 @@ function compareVersionNumbers(a, b) {
 }
 
 function compareBeanListVersionOption(a, b) {
+  const ownerDelta = Number(!!a?.is_customer_owned) - Number(!!b?.is_customer_owned)
+  if (ownerDelta) return ownerDelta
+  if (a?.release_id && a.release_id === b?.release_id && Boolean(a.is_default_table) !== Boolean(b.is_default_table)) {
+    return a.is_default_table ? 1 : -1
+  }
   const leftPublished = String(a?.published_at || a?.created_at || '').trim()
   const rightPublished = String(b?.published_at || b?.created_at || '').trim()
   if (leftPublished && rightPublished && leftPublished !== rightPublished) {
@@ -1616,31 +1632,32 @@ export function rowUsesStaleBeanListPublication(row, options, listType = product
   if (toInt(row?.product_id) <= 0) return false
   const publicationID = toInt(row?.bean_list_publication_id)
   if (publicationID <= 0) return false
-  const groups = beanListVersionOptionGroups(options)
+  const selected = (options || []).find(item => toInt(item?.id) === publicationID)
+  const sameOwnerOptions = selected
+    ? (options || []).filter(item => Boolean(item?.is_customer_owned) === Boolean(selected.is_customer_owned))
+    : options
+  const groups = beanListVersionOptionGroups(sameOwnerOptions)
   const publicationGroup = beanListVersionGroupForPublicationID(groups, publicationID)
   const latest = publicationGroup?.options?.length
     ? publicationGroup.options.reduce((current, item) => (
       compareBeanListVersionOption(item, current) > 0 ? item : current
     ), publicationGroup.options[0])
-    : (latestProductPriceListVersionOption(options, row, listType) || latestBeanListVersionOption(options, listType))
+    : (latestProductPriceListVersionOption(sameOwnerOptions, row, listType) || latestBeanListVersionOption(sameOwnerOptions, listType))
   const latestID = toInt(latest?.id)
   return latestID > 0 && latestID !== publicationID
 }
 
 export function beanListVersionOptionsForCustomer(options, customerID) {
   const selectedCustomerID = toInt(customerID)
-  const rows = (options || []).filter((item) => toInt(item?.customer_id) === selectedCustomerID)
-  if (rows.length) return rows
   const seen = new Set()
-  return (options || []).filter((item) => {
-    if (item?.is_customer_owned) return false
-    const id = toInt(item?.id)
-    if (id <= 0) return false
-    const key = `${normalizeBeanListType(item?.list_type)}:${id}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  return [...(options || []).filter(item => toInt(item?.customer_id) === selectedCustomerID), ...(options || []).filter(item => !item?.is_customer_owned)]
+    .filter(item => {
+      if (item?.is_customer_owned && toInt(item.customer_id) !== selectedCustomerID) return false
+      const id = toInt(item?.id)
+      const key = `${normalizeBeanListType(item?.list_type)}:${id}`
+      if (id <= 0 || seen.has(key)) return false
+      seen.add(key); return true
+    })
 }
 
 export function isBlankOrderLine(row) {
@@ -1706,6 +1723,7 @@ export function filterProductsForCustomer(
   publicationIDsByType = {},
   publicUsages = [],
   customerOwnedPublicationIDsByType = {},
+  allowSelectedPublic = false,
 ) {
   const selectedCustomerID = toInt(customerID)
   const scopedPublicationIDs = normalizePublicationIDsByType(publicationIDsByType)
@@ -1714,8 +1732,9 @@ export function filterProductsForCustomer(
   const aliasProductIDs = new Set(
     (products || [])
       .filter((product) => selectedCustomerID > 0
-        && toInt(product?.customer_product_alias_id) > 0
-        && toInt(product?.customer_id) === selectedCustomerID)
+        && (toInt(product?.customer_product_alias_id) > 0 || product?.visibility === 'customer_reference')
+        && toInt(product?.customer_id) === selectedCustomerID
+        && productMatchesPublicationScope(product, scopedPublicationIDs))
       .map((product) => toInt(product?.id))
       .filter((id) => id > 0),
   )
@@ -1735,6 +1754,7 @@ export function filterProductsForCustomer(
         selectedCustomerID > 0
         && !allowsPublicSKU
         && !productMatchesExplicitPublicationScope(product, customerOwnedPublicationIDs)
+        && !(allowSelectedPublic && productMatchesExplicitPublicationScope(product, scopedPublicationIDs))
       ) {
         return false
       }

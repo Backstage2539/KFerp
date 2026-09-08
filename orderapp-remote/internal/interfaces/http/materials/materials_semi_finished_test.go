@@ -27,7 +27,7 @@ func TestMaterialsAPIAutoZeroesSemiFinishedPriceAndAuditsTogglePostgres(t *testi
 	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
 
 	create := httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(
-		`{"code":"WIP-API","name":"半成品切换测试","kind":"bean","unit":"kg","purchase_price":0}`,
+		`{"code":"WIP-API","name":"半成品切换测试","kind":"bean","unit":"kg","purchase_price":0,"owner_type":"factory"}`,
 	))
 	create.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	created := httptest.NewRecorder()
@@ -91,7 +91,7 @@ func TestMaterialsAPIAutoZeroesSemiFinishedPriceAndAuditsTogglePostgres(t *testi
 	}
 
 	invalid := httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(
-		`{"code":"WIP-INVALID","name":"非法半成品采购价","kind":"bean","unit":"kg","is_semi_finished":true,"purchase_price":1}`,
+		`{"code":"WIP-INVALID","name":"非法半成品采购价","kind":"bean","unit":"kg","is_semi_finished":true,"purchase_price":1,"owner_type":"factory"}`,
 	))
 	invalid.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rejected := httptest.NewRecorder()

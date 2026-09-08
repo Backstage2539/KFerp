@@ -13,12 +13,7 @@
         </div>
         <label v-if="!isWorkspaceCustomerLocked" class="price-list-toolbar-scope">
           <span>价格表归属</span>
-          <select v-model="versionListScope" aria-label="价格表归属">
-            <option value="official">公共价格表</option>
-            <option v-for="customer in customers" :key="`version-scope-${customer.id}`" :value="`customer:${customer.id}`">
-              {{ customerOptionLabel(customer) }}
-            </option>
-          </select>
+          <SearchableSelect v-model="versionListScope" :options="priceOwnershipOptions" :option-label="priceOwnershipLabel" :option-value="priceOwnershipValue" placeholder="公共价格表或搜索客户名称" />
         </label>
         <div v-else class="price-list-toolbar-scope locked-scope">
           <span>价格表归属</span>
@@ -27,7 +22,6 @@
         <div class="price-list-toolbar-actions">
           <button class="secondary" type="button" @click="openTierTemplateDrawer()">管理阶梯模板</button>
           <button class="secondary" type="button" @click="priceListRulesDialogOpen = true">计价模式规则</button>
-          <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>
         </div>
       </div>
     </section>
@@ -62,7 +56,7 @@
         </label>
         <label>
           <span>搜索</span>
-          <input v-model.trim="publicationListSearch" type="search" placeholder="搜索版本/客户/说明" />
+          <input v-model.trim="publicationListSearch" type="search" placeholder="搜索名称/版本/客户/说明" />
         </label>
         <div class="version-summary">
           <span>当前发布</span>
@@ -70,7 +64,7 @@
         </div>
         <div class="version-summary">
           <span>版本数</span>
-          <strong>{{ publicationListState.total }} / {{ currentScopePublicationRows.length }}</strong>
+          <strong>{{ publicationListState.total }}</strong>
         </div>
         <div class="version-summary">
           <span>已归档</span>
@@ -96,7 +90,7 @@
       </div>
 
       <div v-if="publicationListCollapsed && currentScopePublicationRows.length" class="muted empty">
-        已收起 {{ currentScopePublicationRows.length }} 个价格表版本。
+        已收起 {{ publicationBatchGroups(currentScopePublicationRows).length }} 个价格表版本。
       </div>
 
       <div v-else-if="paginatedCurrentScopePublicationRows.length" class="version-table-wrap">
@@ -115,7 +109,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in paginatedCurrentScopePublicationRows" :key="`bean-list-version-${row.id}`">
+            <template v-for="batch in publicationListState.batches" :key="batch.key">
+            <tr class="publication-batch-heading"><td colspan="9"><strong>{{ batch.version }}</strong> · {{ batch.tables.length }} 张价格表</td></tr>
+            <tr v-for="row in batch.tables" :key="`bean-list-version-${row.id}`">
               <td class="select-col">
                 <input
                   v-if="isBeanListAdmin"
@@ -127,7 +123,9 @@
                 />
               </td>
               <td class="version-main">
-                <strong>{{ row.version || '未命名版本' }}</strong>
+                <strong>{{ row.table_name || row.config?.publication_batch?.table_name || row.version || '价格表' }}</strong>
+                <span v-if="row.release_id && row.is_default_table" class="named-default-badge">默认</span>
+                <small>{{ row.version }}</small>
                 <small>#{{ row.id }}</small>
               </td>
               <td>{{ beanListPublicationTypeLabel(row) }}</td>
@@ -148,6 +146,7 @@
                 </div>
               </td>
             </tr>
+            </template>
           </tbody>
         </table>
         <PaginationControls
@@ -187,7 +186,9 @@
             <tbody>
               <tr v-for="row in paginatedArchivedPublicationRows" :key="`bean-list-archived-version-${row.id}`">
                 <td class="version-main">
-                  <strong>{{ row.version || '未命名版本' }}</strong>
+                  <strong>{{ row.table_name || row.config?.publication_batch?.table_name || row.version || '价格表' }}</strong>
+                <span v-if="row.release_id && row.is_default_table" class="named-default-badge">默认</span>
+                <small>{{ row.version }}</small>
                   <small>#{{ row.id }}</small>
                 </td>
                 <td>{{ beanListPublicationTypeLabel(row) }}</td>
@@ -226,9 +227,18 @@
       <div class="bean-list-generate-bar">
         <div>
           <div class="section-title">生成价格表</div>
-          <p class="muted">商品价格表是 Price List / Item Price 平铺价格行。生成时选择分组并勾选分组项选品；父商品只设置一次计价模式，所选规格共同继承。</p>
+          <p class="muted">同一商品类型可维护多张命名价格表，共用一个版本发布。先选择当前编辑的表，再分别设置商品、规格、价格和样式。</p>
         </div>
       </div>
+    </section>
+
+    <section v-if="namedPriceTableBatch" class="panel named-price-table-toolbar">
+      <label><span>当前编辑价格表</span>
+        <select :value="namedPriceTableBatch.active_table_key" aria-label="当前编辑价格表" :disabled="beanListPublishing" @change="selectNamedPriceTable($event.target.value)">
+          <option v-for="table in namedPriceTableBatch.tables" :key="table.key" :value="table.key">{{ table.name || '未命名价格表' }}{{ table.key === namedPriceTableBatch.default_table_key ? '（默认）' : '' }}</option>
+        </select>
+      </label>
+      <span>共 {{ namedPriceTableBatch.tables.length }} 张 · 统一版本 {{ pdfTheme.version }} · 发布时整组保存</span>
     </section>
 
     <section class="panel price-list-page-config">
@@ -263,6 +273,7 @@
             <span>固定价金额按具体规格分别录入；此处只继承计价方式。</span>
           </div>
         </div>
+        <p v-if="activeBeanListCustomerID > 0" class="muted">客户报价初始沿用已有客户表或公共报价；主动修改计价模板后，受影响商品按新模板生成档位和价格。可逐行调整，发布后生效。</p>
         <p class="muted inline-pricing-config-note">分类和父商品计价直接在下方选品位置处理；商品的全部已选规格继承同一种计价方式，固定价金额仍按规格分别录入。</p>
         <div v-if="priceListLegacyPricingConflicts.length" class="product-spec-selection-warning price-list-legacy-pricing-warning">
           <strong>旧草稿存在规格级计价冲突，发布已阻止。</strong>
@@ -602,6 +613,7 @@
           <span>{{ pdfTotalItems }} 款</span>
           <div class="pdf-actions">
             <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
+            <button class="secondary" type="button" :disabled="loading || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>
             <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing" @click="publishBeanList">发布价格表</button>
             <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
             <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
@@ -862,7 +874,7 @@
         <div class="drawer-head">
           <div>
             <h3>价格表配置</h3>
-            <p>维护版本、样式、归属和价格来源；生成规则、选品、平铺价格行和预览已在主页面展示。</p>
+            <p>同一商品类型、版本可发布多张价格表。先选择表名，再在主页面配置该表的商品、规格和价格。</p>
             <p v-if="currentBeanListPublication" class="publish-state">当前已发布：{{ currentBeanListPublication.version }} · {{ currentBeanListPublication.published_at }}</p>
             <p v-else class="publish-state">当前暂无已发布版本</p>
             <div v-if="publicBeanListURL" class="public-link-box">
@@ -907,6 +919,20 @@
           </div>
         </div>
 
+        <section v-if="namedPriceTableBatch" class="named-price-table-config">
+          <div class="section-bar"><strong>本版本的价格表</strong><button class="secondary compact" type="button" @click="addNamedPriceTable(false)">新增价格表</button></div>
+          <div v-for="table in namedPriceTableBatch.tables" :key="table.key" class="named-price-table-config-row">
+            <label class="named-default"><input v-model="namedPriceTableBatch.default_table_key" type="radio" :value="table.key" name="default-price-table" />默认价格表</label>
+            <input v-model="table.name" :aria-label="`价格表名称 ${table.key}`" placeholder="例如：227g价格表" />
+            <div class="actions">
+              <button class="secondary compact" type="button" @click="selectNamedPriceTable(table.key)">{{ table.key === namedPriceTableBatch.active_table_key ? '当前编辑' : '编辑此表' }}</button>
+              <button class="secondary compact" type="button" @click="addNamedPriceTable(true, table.key)">复制</button>
+              <button class="secondary compact" type="button" :disabled="namedPriceTableBatch.tables.length <= 1" @click="deleteNamedPriceTable(table.key)">删除</button>
+            </div>
+          </div>
+          <p class="muted">版本、归属和更新说明为整组共用；下方样式只属于当前编辑的价格表。</p>
+          <button class="secondary" type="button" :disabled="beanListPublishing" @click="saveBeanListDraft">保存全部草稿</button>
+        </section>
         <div class="pdf-form">
           <label>
             <span>商品类型</span>
@@ -1069,7 +1095,12 @@
 
 <script setup>
 import { priceTableOrderabilityBlockedReason } from '../lib/price-table-orderability.js'
+import { seedCustomerPriceRows, applyCustomerPriceRows } from '../lib/customer-price-draft.js'
+import { customerCatalogProjection } from '../lib/customer-catalog.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { clonePriceTable, createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, publicationBatchGroups, publicationBatchListState, publicationTableMetadata } from '../lib/price-table-batch'
+import SearchableSelect from '../components/SearchableSelect.vue'
+import { fetchAllCustomerOptions } from '../api/view-context'
 import { fetchCurrentActor } from '../api/auth'
 import { apiFetch, apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
@@ -1254,6 +1285,10 @@ const visibleCategoryCodesByType = ref({})
 const productSelectionInitialized = ref({})
 const categorySelectionInitialized = ref({})
 const pdfCustomizers = ref({})
+const namedPriceTableBatch = ref(null)
+const namedPriceTableScope = ref('')
+let restoringNamedPriceTable = false
+const activeNamedPriceTable = computed(() => namedPriceTableBatch.value?.tables.find(table => table.key === namedPriceTableBatch.value.active_table_key) || null)
 const pdfOptions = ref({
   listType: 'commercial',
   version: DEFAULT_BEAN_LIST_PDF_VERSION,
@@ -1278,6 +1313,12 @@ const priceListGroupTemplateSelections = ref({})
 const priceListProductTemplateOverrides = ref({})
 const priceListLegacyPricingConflicts = ref([])
 const priceListFlatRowOverrides = ref({})
+const customerPriceSeedRows = ref([])
+const customerPriceConfiguredSources = ref({})
+let customerPriceSeedScope = ''
+const customerPriceSources = ref([])
+const customerPriceSourcesReadyKey = ref('')
+let customerPriceSourcesRevision = 0
 const priceListPricingRuleTrialCache = ref({})
 const priceListPricingRuleEditorDrawerOpen = ref(false)
 const priceListPricingRuleEditorDrawer = ref(null)
@@ -1338,6 +1379,7 @@ const selectedProductCatalogGroupTemplates = computed(() => businessGroupRowsFor
 const productPriceListTypeOptions = computed(() => {
   if (!priceListProductCatalogFeatureSelectionLoaded.value) return []
   return buildProductCatalogTemplatePriceListTypeOptions(visibleCostingItems.value, {
+    includeUnclassified: activeBeanListCustomerID.value > 0,
     templates: selectedProductCatalogGroupTemplates.value,
     assignments: priceListProductBusinessGroupAssignments.value,
   })
@@ -1410,10 +1452,13 @@ const normalizedPriceListGroups = computed(() => normalizePriceListPublicationGr
   pdfProductSpecSelections.value,
 ))
 const priceListGroupTemplateRows = computed(() => priceListTemplateGroupRows(categoryProductGroups.value))
-const priceListFlatRows = computed(() => dedupePriceListFlatRows(normalizePriceListPublicationRows(
+const generatedPriceListFlatRows = computed(() => dedupePriceListFlatRows(normalizePriceListPublicationRows(
   priceListFlatRowsFromGroups(normalizedPriceListGroups.value),
   pdfProductSpecSelections.value,
 )))
+const priceListFlatRows = computed(() => applyCustomerPriceRows(generatedPriceListFlatRows.value, customerPriceSeedRows.value, priceListFlatRowOverrides.value, activeBeanListCustomerID.value, {
+  configuredSources: customerPriceConfiguredSources.value, publications: customerPriceSources.value,
+}))
 const priceListPricingRuleEditorOptions = computed(() => buildPriceListPricingRuleEditorOptions(pricingRules.value, priceListFlatRows.value))
 const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(normalizedPriceListGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
 const priceListTierUnitBlockedReason = computed(() => String(
@@ -1569,7 +1614,7 @@ async function savePriceListPricingRule() {
 }
 
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
-const pdfTitle = computed(() => buildProductPriceListTitle(pdfTheme.value.brandName, selectedProductPriceListLabel.value, pdfTheme.value.listType))
+const pdfTitle = computed(() => activeNamedPriceTable.value?.name?.trim() || buildProductPriceListTitle(pdfTheme.value.brandName, selectedProductPriceListLabel.value, pdfTheme.value.listType))
 const pdfSubtitle = computed(() => buildProductPriceListSubtitle(selectedProductPriceListLabel.value, pdfTheme.value.listType))
 const isBeanListAdmin = computed(() => {
   const actor = currentActor.value || {}
@@ -1586,7 +1631,7 @@ const currentScopeAllPublicationRows = computed(() => publicationRows(versionLis
 const currentScopeActivePublicationRows = computed(() => currentScopeAllPublicationRows.value.filter((row) => row.status !== 'archived'))
 const currentScopeArchivedPublicationRows = computed(() => currentScopeAllPublicationRows.value.filter((row) => row.status === 'archived'))
 const currentScopePublicationRows = computed(() => currentScopeActivePublicationRows.value)
-const publicationListState = computed(() => publicationVersionListState(currentScopePublicationRows.value, {
+const publicationListState = computed(() => publicationBatchListState(currentScopePublicationRows.value, {
   query: publicationListSearch.value,
   page: publicationListPage.value,
   pageSize: publicationListPageSize.value,
@@ -1594,7 +1639,7 @@ const publicationListState = computed(() => publicationVersionListState(currentS
 }))
 const paginatedCurrentScopePublicationRows = computed(() => publicationListState.value.rows)
 const versionListCurrentPublication = computed(() => preferredPublicationForPriceListType(currentScopePublicationRows.value, selectedProductPriceListType.value || {}))
-const archivedPublicationListState = computed(() => publicationVersionListState(currentScopeArchivedPublicationRows.value, {
+const archivedPublicationListState = computed(() => publicationBatchListState(currentScopeArchivedPublicationRows.value, {
   query: publicationListSearch.value,
   page: publicationArchiveListPage.value,
   pageSize: publicationArchiveListPageSize.value,
@@ -1713,7 +1758,40 @@ watch([versionListScope, selectedProductTypeCategoryID, publicationListSearch], 
   selectedPublicationArchiveIDs.value = []
 })
 
+watch([generatedPriceListFlatRows, customerPriceSources, customerPriceSourcesReadyKey, activeBeanListCustomerID, activePriceListTypeKey, priceListGenerationDraftStorageKey], () => {
+  if (!(activeBeanListCustomerID.value > 0)) return
+  const scopeKey = priceListGenerationDraftStorageKey()
+  if (customerPriceSeedScope !== scopeKey) restorePriceListGenerationDraftForActiveType()
+  if (customerPriceSourcesReadyKey.value !== priceListGenerationDraftBaseKey()) return
+  const sources = customerPriceSources.value
+  const next = seedCustomerPriceRows(customerPriceSeedRows.value, generatedPriceListFlatRows.value, sources, activeBeanListCustomerID.value)
+  if (JSON.stringify(next) !== JSON.stringify(customerPriceSeedRows.value)) {
+    customerPriceSeedRows.value = next
+    savePriceListGenerationDraftForActiveType()
+  }
+}, { deep: true })
+
+watch([activeBeanListCustomerID, activePriceListTypeKey], () => { loadCustomerPriceSources() })
+async function loadCustomerPriceSources() {
+  const revision = ++customerPriceSourcesRevision
+  customerPriceSourcesReadyKey.value = ''
+  customerPriceSources.value = []
+  const customerID = activeBeanListCustomerID.value
+  if (!customerID) return
+  // Quotes belong to the customer/type; individual named tables keep separate edits.
+  const key = priceListGenerationDraftBaseKey()
+  const customerURL = new URL(beanListPublicationURL(pdfTheme.value.listType, 'customer'), window.location.origin)
+  customerURL.searchParams.set('customer_id', String(customerID))
+  try {
+    const [customer, official] = await Promise.all([apiGet(customerURL), apiGet(beanListPublicationURL(pdfTheme.value.listType, 'official'))])
+    if (revision !== customerPriceSourcesRevision || key !== priceListGenerationDraftBaseKey()) return
+    customerPriceSources.value = [...(customer.rows || []), ...(official.rows || [])]
+    customerPriceSourcesReadyKey.value = key
+  } catch (err) { if (revision === customerPriceSourcesRevision) error.value = err.message || '客户报价来源加载失败' }
+}
+
 watch(activeBeanListCustomerID, () => {
+  loadPriceListProductBusinessGroups()
   loadBeanList()
 })
 
@@ -1786,6 +1864,9 @@ function tierUnit(tier) {
   return '包'
 }
 
+const priceOwnershipOptions = computed(() => [{value:'official',label:'公共价格表'},...customers.value.map(customer=>({value:`customer:${customer.id}`,label:customerOptionLabel(customer)}))])
+function priceOwnershipLabel(row) { return row.label }
+function priceOwnershipValue(row) { return row.value }
 function customerOptionLabel(customer) {
   return customer?.name || ''
 }
@@ -1843,13 +1924,19 @@ function priceListSelectionKey(listType, productTypeCategoryID = activeProductTy
   return priceListSelectionStateKey(productPriceListTypeOptions.value, listType, productTypeCategoryID)
 }
 
-function priceListGenerationDraftStorageKey() {
+function priceListGenerationDraftBaseKey() {
   return priceListGenerationDraftKey({
     workspace: props.workspaceMode || 'factory',
     scope: publicationScope.value || activeCostingScope.value || 'official',
     customerID: activeBeanListCustomerID.value,
     typeKey: activePriceListTypeKey.value,
   })
+}
+
+function priceListGenerationDraftStorageKey() {
+  const base = priceListGenerationDraftBaseKey()
+  const key = namedPriceTableScope.value === base ? namedPriceTableBatch.value?.active_table_key : ''
+  return key ? `${base}:table:${key}` : base
 }
 
 function normalizePriceListSelectionDraftMap(rows = {}, options = {}) {
@@ -1891,14 +1978,20 @@ function savePriceListGenerationDraftForActiveType() {
     groupSelections: priceListGroupTemplateSelections.value,
     productOverrides: priceListProductTemplateOverrides.value,
     flatRowOverrides: priceListFlatRowOverrides.value,
+    customerPriceSeedRows: customerPriceSeedRows.value,
+    customerPriceConfiguredSources: customerPriceConfiguredSources.value,
     product_spec_selections: pdfProductSpecSelections.value,
   })
 }
 
 function restorePriceListGenerationDraftForActiveType() {
   priceListLegacyPricingConflicts.value = []
-  const draft = readPriceListGenerationDraft(priceListGenerationDraftStorageKey())
+  const scopeKey = priceListGenerationDraftStorageKey()
+  if (customerPriceSeedScope !== scopeKey) { customerPriceSeedRows.value = []; customerPriceConfiguredSources.value = {}; priceListFlatRowOverrides.value = {}; customerPriceSeedScope = scopeKey }
+  const draft = readPriceListGenerationDraft(scopeKey)
   if (!draft) return false
+  customerPriceSeedRows.value = Array.isArray(draft.customerPriceSeedRows) ? draft.customerPriceSeedRows : []
+  customerPriceConfiguredSources.value = { ...(draft.customerPriceConfiguredSources || {}) }
   priceListTemplateDefaults.value = {
     ...priceListTemplateDefaults.value,
     ...defaultPriceListTemplateSelection(draft.defaults || {}),
@@ -2710,7 +2803,12 @@ function priceListProductDisplaySummary(id) {
   return parts.length ? parts.join(' / ') : '无标签'
 }
 
+function markCustomerPriceConfigured(scope) {
+  if (activeBeanListCustomerID.value > 0) customerPriceConfiguredSources.value = { ...customerPriceConfiguredSources.value, [scope]: true }
+}
+
 function setPriceListDefaultTemplate(field, value) {
+  markCustomerPriceConfigured('default')
   priceListTemplateDefaults.value = {
     ...priceListTemplateDefaults.value,
     [field]: priceListTemplateFieldValue(field, value),
@@ -2720,6 +2818,8 @@ function setPriceListDefaultTemplate(field, value) {
 }
 
 function setPriceListParentTemplate(group = {}, field, value) {
+  const configRow = priceListGroupConfigRow(group)
+  markCustomerPriceConfigured(`group:${Number(configRow.parent_group_item_id || configRow.group_item_id || 0)}`)
   const key = priceListParentTemplateKey(group)
   if (field === 'pricing_mode' && !String(value || '').trim()) {
     const next = { ...priceListParentTemplateSelections.value }
@@ -2741,6 +2841,7 @@ function setPriceListParentTemplate(group = {}, field, value) {
 }
 
 function setPriceListGroupTemplate(group = {}, field, value) {
+  markCustomerPriceConfigured(`group:${Number(priceListGroupConfigRow(group).group_item_id || 0)}`)
   const key = priceListGroupTemplateKey(group)
   if (field === 'pricing_mode' && !String(value || '').trim()) {
     const next = { ...priceListGroupTemplateSelections.value }
@@ -2780,6 +2881,7 @@ function clearPriceListCategoryTemplate(group = {}) {
 
 function setPriceListCategoryTemplate(group = {}, field, value) {
   const target = priceListCategoryTemplateTarget(group)
+  markCustomerPriceConfigured(`group:${Number(target.row.group_item_id || 0)}`)
   if (field === 'pricing_mode' && !String(value || '').trim()) {
     clearPriceListCategoryTemplate(group)
     return
@@ -2809,6 +2911,7 @@ function setPriceListCategoryTemplate(group = {}, field, value) {
 
 function setPriceListProductTemplate(row = {}, field, value) {
   if (priceListProductTemplateOverrideScope(row) !== 'parent_product') return
+  markCustomerPriceConfigured(`product:${Number(row.parent_product_id || row.product_id || 0)}`)
   const key = priceListProductTemplateOverrideKey(row)
   if (!key) return
   if (field === 'pricing_mode' && !String(value || '').trim()) {
@@ -3172,6 +3275,7 @@ function priceListFlatRowFromSource({
     group_source: 'product_catalog',
     pricing_mode: mode,
     pricing_mode_source: resolved.pricing_mode_source || 'default',
+    pricing_mode_source_group_item_id: Number(resolved.pricing_mode_source_group_item_id || 0),
     tier_label: tierLabel,
     min_qty: Number(minQty || 0) || 0,
     max_qty: maxQty === undefined || maxQty === null || maxQty === '' ? null : Number(maxQty),
@@ -3242,6 +3346,7 @@ function priceListFlatRowPricingTrialError(row = {}) {
 }
 
 function priceListFlatRowVisibleErrors(row = {}) {
+  if (row.customer_quote_missing) return ['待报价：客户表及最新公共表没有此规格报价。请补齐公共报价并发布，或填写客户价格。']
   return priceListFlatRowErrors(row, {
     trialStatus: priceListFlatRowPricingTrialStatus(row),
     trialError: priceListFlatRowPricingTrialError(row),
@@ -3274,6 +3379,7 @@ function clearPriceListPricingRuleTrialErrorCache(rows = []) {
   )
 }
 
+const priceListPricingRuleTasks = new Set()
 async function loadPriceListPricingRuleTrials(requests = []) {
   const pending = (Array.isArray(requests) ? requests : []).filter(({ key }) => {
     const cached = priceListPricingRuleTrialCache.value[key]
@@ -3282,7 +3388,7 @@ async function loadPriceListPricingRuleTrials(requests = []) {
   if (!pending.length) return
   const generations = new Map(pending.map(({ key }) => [key, priceListPricingRuleTrialGeneration.get(key) || 0]))
   mergePriceListPricingRuleTrialCache(Object.fromEntries(pending.map(({ key }) => [key, { status: 'loading' }])))
-  const completed = await executePriceListPricingRuleTrialBatches(pending, {
+  const task = executePriceListPricingRuleTrialBatches(pending, {
     chunkSize: 100,
     timeoutMs: 30000,
     sendBatch: (payloads, { signal }) => (
@@ -3293,6 +3399,9 @@ async function loadPriceListPricingRuleTrials(requests = []) {
       })
     ),
   })
+  priceListPricingRuleTasks.add(task)
+  let completed
+  try { completed = await task } finally { priceListPricingRuleTasks.delete(task) }
   mergePriceListPricingRuleTrialCache(Object.fromEntries(Object.entries(completed).filter(([key]) => (
     (priceListPricingRuleTrialGeneration.get(key) || 0) === generations.get(key)
   ))))
@@ -3445,7 +3554,7 @@ function customerReferenceSnapshotForPriceRow(item = {}) {
 function setPriceListFlatRowPrice(row = {}, value) {
   const key = String(row.row_key || '')
   if (!key) return
-  if (String(row.pricing_mode || '').trim() === 'fixed_price') {
+  if (!activeBeanListCustomerID.value && String(row.pricing_mode || '').trim() === 'fixed_price') {
     const next = { ...priceListFlatRowOverrides.value }
     delete next[key]
     priceListFlatRowOverrides.value = next
@@ -3545,6 +3654,14 @@ async function savePriceTierTemplate() {
     next.push(row)
     priceTierTemplates.value = next.filter((template) => template.active !== false).sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
     priceTierTemplateForm.value = row
+    if (activeBeanListCustomerID.value > 0) {
+      generatedPriceListFlatRows.value.filter(item => Number(item.tier_template_id) === Number(row.id)).forEach(item => {
+        const scope = item.pricing_mode_source === 'parent_product' ? `product:${Number(item.parent_product_id || item.product_id)}`
+          : ['subgroup','parent_group'].includes(item.pricing_mode_source) ? `group:${Number(item.pricing_mode_source_group_item_id || 0)}` : 'default'
+        markCustomerPriceConfigured(scope)
+      })
+      savePriceListGenerationDraftForActiveType()
+    }
     message.value = '阶梯模板已保存'
   } catch (err) {
     error.value = err.message || '保存阶梯模板失败'
@@ -3585,6 +3702,8 @@ function priceTablePricingModeLabel(mode) {
 
 function priceListSourceLabel(source) {
   switch (String(source || '').trim()) {
+  case 'customer_quote':
+    return '客户报价'
   case 'sku':
     return '规格'
   case 'parent_product':
@@ -3649,7 +3768,7 @@ function metaKeyForItem(item) {
 
 function matchesProductTypeCategory(item, productTypeCategoryID = activeProductTypeCategoryID.value) {
   const selectedType = productPriceListTypeOptions.value.find((type) => Number(type.id || 0) === Number(productTypeCategoryID || 0))
-  if (selectedType?.productCatalogGroupID || selectedType?.productCatalogFlat) {
+  if (selectedType?.productCatalogGroupID || selectedType?.productCatalogFlat || selectedType?.productCatalogUnclassified) {
     return matchesProductCatalogPriceListType(item, selectedType, {
       assignments: priceListProductBusinessGroupAssignments.value,
     })
@@ -3817,7 +3936,7 @@ function defaultBeanListVersionForScope(listType, productTypeCategoryID = active
 function beanListPublicationLabel(row) {
   const status = beanListPublicationStatusLabel(row)
   const time = beanListPublicationTime(row)
-  return [row?.version || '未命名版本', status, time].filter(Boolean).join(' · ')
+  return [row?.table_name || row?.config?.publication_batch?.table_name, row?.version || '未命名版本', status, time].filter(Boolean).join(' · ')
 }
 
 function normalizeBeanListType(value) {
@@ -3897,7 +4016,9 @@ function startBeanListFromPublication(row) {
 }
 
 function beanListPublicationIsCurrent(row) {
-  return Number(row?.id || 0) > 0 && Number(versionListCurrentPublication.value?.id || 0) === Number(row.id || 0)
+  const current = versionListCurrentPublication.value
+  const releaseID = publicationTableMetadata(row).release_id
+  return Boolean(releaseID && releaseID === publicationTableMetadata(current).release_id) || (Number(row?.id || 0) > 0 && Number(current?.id || 0) === Number(row.id || 0))
 }
 
 function canArchiveBeanListPublication(row) {
@@ -4407,7 +4528,11 @@ function percent(value) {
   return `${fixed(Number(value || 0) * 100, 1)}%`
 }
 
+let beanListLoadRevision = 0
 async function loadBeanList() {
+  const revision = ++beanListLoadRevision
+  const customerID = activeBeanListCustomerID.value
+  items.value = []
   loading.value = true
   error.value = ''
   message.value = ''
@@ -4416,27 +4541,43 @@ async function loadBeanList() {
       apiGet(beanListURLForCustomerRules()),
       loadPriceListProductBusinessGroups(),
     ])
+    if (revision !== beanListLoadRevision || customerID !== activeBeanListCustomerID.value) return
     parameters.value = data.parameters
     items.value = visibleRowsForProductSpecMigration(Array.isArray(data.items) ? data.items : [])
     syncSelectedProductTypeCategoryFromOptions()
     initializePdfDefaults()
     restorePriceListGenerationDraftForActiveType()
+    await restoreNamedPriceTableBatch(true)
   } catch (err) {
+    if (revision !== beanListLoadRevision) return
     error.value = err.message || '加载失败'
   } finally {
-    loading.value = false
+    if (revision === beanListLoadRevision) loading.value = false
   }
 }
 
+let customerPriceCatalogRevision = 0
 async function loadPriceListProductBusinessGroups() {
+  const revision = ++customerPriceCatalogRevision
+  const customerID = activeBeanListCustomerID.value
   priceListPublicationTypeOptionsReady.value = false
   priceListProductCatalogFeatureSelectionLoaded.value = false
   try {
+    if (customerID > 0) {
+      const data = await apiGet(`/api/product-settings/customer-catalog?customer_id=${customerID}`)
+      if (revision !== customerPriceCatalogRevision || customerID !== activeBeanListCustomerID.value) return
+      const catalog = customerCatalogProjection(data)
+      priceListProductBusinessGroups.value = catalog.groups
+      priceListProductBusinessGroupAssignments.value = catalog.assignments
+      priceListProductCatalogFeatureSelection.value = { feature_key: 'product_catalog', group_template_ids: catalog.groupIDs }
+      return
+    }
     const [groupsData, assignmentsData, featureSelectionData] = await Promise.all([
       apiGet('/api/business-groups'),
       apiGet('/api/business-group-assignments?usage_key=product_catalog&object_key=product'),
       apiGet('/api/business-group-feature-selections/product_catalog'),
     ])
+    if (revision !== customerPriceCatalogRevision) return
     priceListProductBusinessGroups.value = Array.isArray(groupsData?.rows)
       ? groupsData.rows
       : (Array.isArray(groupsData?.groups) ? groupsData.groups : (Array.isArray(groupsData) ? groupsData : []))
@@ -4447,11 +4588,12 @@ async function loadPriceListProductBusinessGroups() {
       ? featureSelectionData
       : { feature_key: 'product_catalog', group_template_ids: [] }
   } catch (err) {
+    if (revision !== customerPriceCatalogRevision) return
     priceListProductBusinessGroups.value = []
     priceListProductBusinessGroupAssignments.value = []
     priceListProductCatalogFeatureSelection.value = { feature_key: 'product_catalog', group_template_ids: [] }
   } finally {
-    priceListProductCatalogFeatureSelectionLoaded.value = true
+    if (revision === customerPriceCatalogRevision) priceListProductCatalogFeatureSelectionLoaded.value = true
   }
 }
 
@@ -4465,8 +4607,7 @@ function beanListURLForCustomerRules() {
 
 async function loadCustomers() {
   try {
-    const data = await apiGet('/api/customer-fulfillment/customers?limit=200')
-    const rows = Array.isArray(data.customers) ? data.customers : (data.rows || [])
+    const rows = await fetchAllCustomerOptions()
     customers.value = rows.filter((row) => row.active !== false)
     if (!isWorkspaceCustomerLocked.value) {
       versionListScope.value = resolvePriceListScopePreference(versionListScope.value, customers.value)
@@ -4482,18 +4623,11 @@ async function loadCustomerProductAliases() {
       apiGet('/api/customer-product-aliases?active=all'),
       apiGet('/api/product-customer-references?product_id=0'),
     ])
-    const rows = Array.isArray(legacyData.rows) ? legacyData.rows : []
-    const seen = new Set(rows.map((row) => `${Number(row.customer_id || 0)}:${Number(row.product_id || 0)}`))
-    for (const ref of (referenceData.references || referenceData.rows || [])) {
-      const key = `${Number(ref.customer_id || 0)}:${Number(ref.product_id || 0)}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      rows.push({
-        ...ref,
-        id: Number(ref.id || 0),
-        display_name: ref.customer_display_name || '',
-        include_in_price_list: true,
-      })
+    const references = referenceData.references || referenceData.rows || []
+    const referenced = new Set(references.map(row => `${Number(row.customer_id)}:${Number(row.product_id)}`))
+    const rows = (legacyData.rows || []).filter(row => !referenced.has(`${Number(row.customer_id)}:${Number(row.product_id)}`))
+    for (const ref of references) {
+      rows.push({ ...ref, id: Number(ref.id || 0), display_name: ref.customer_display_name || '', include_in_price_list: ref.active !== false })
     }
     customerProductAliases.value = rows
   } catch (err) {
@@ -4731,67 +4865,10 @@ async function generateBeanListPdf() {
   }
 }
 
-async function publishBeanList() {
-  const blockedReason = priceListPublishBlockedReason.value
-  if (blockedReason) {
-    message.value = ''
-    error.value = blockedReason
-    return
-  }
-  beanListPublishing.value = true
-  error.value = ''
-  message.value = ''
-  const listType = pdfTheme.value.listType
-  const productTypeCategoryID = activeProductTypeCategoryID.value
-  try {
-    const row = await apiSend('/api/costing/bean-list/publications', { body: beanListPublicationPayload() })
-    message.value = publicationScope.value === 'official'
-      ? `已发布${selectedProductPriceListLabel.value}商品价格表 ${row.version}，客户访问链接已生成`
-      : `已发布${selectedProductPriceListLabel.value}客户商品价格表 ${row.version}，内容和价格已锁定为快照`
-    await loadBeanListPublications(listType, publicationScope.value, productTypeCategoryID, 'factory_supply')
-  } catch (err) {
-    error.value = err.message || '发布价格表失败'
-  } finally {
-    beanListPublishing.value = false
-  }
-}
+async function publishBeanList() { await saveNamedPriceTableBatch(true) }
 
-async function saveBeanListDraft() {
-  if (!pdfGroups.value.length) return
-  if (priceListLegacyPricingBlockedReason.value) {
-    message.value = ''
-    error.value = priceListLegacyPricingBlockedReason.value
-    return
-  }
-  if (priceListProductSpecSelectionBlockedReason.value) {
-    message.value = ''
-    error.value = priceListProductSpecSelectionBlockedReason.value
-    return
-  }
-  if (priceListTierUnitBlockedReason.value) {
-    message.value = ''
-    error.value = priceListTierUnitBlockedReason.value
-    return
-  }
-  if (!customerScopeReady.value) {
-    error.value = '请选择客户'
-    return
-  }
-  beanListPublishing.value = true
-  error.value = ''
-  message.value = ''
-  const listType = pdfTheme.value.listType
-  const productTypeCategoryID = activeProductTypeCategoryID.value
-  try {
-    const row = await apiSend('/api/costing/bean-list/drafts', { body: beanListPublicationPayload() })
-    message.value = `已保存${selectedProductPriceListLabel.value}价格表修改 ${row.version}，可继续生成 PDF 下载`
-    await loadBeanListPublications(listType, publicationScope.value, productTypeCategoryID, 'factory_supply')
-  } catch (err) {
-    error.value = err.message || '保存豆单修改失败'
-  } finally {
-    beanListPublishing.value = false
-  }
-}
+async function saveBeanListDraft() { await saveNamedPriceTableBatch(false) }
+
 
 async function saveGreenBeanPriceDraft() {
   syncPublicationScopeFromPageContext()
@@ -4838,6 +4915,7 @@ async function saveGreenBeanPriceDraftForSection(section) {
   await saveGreenBeanPriceDraft()
 }
 
+// Price List / Item Price rows are frozen separately for each named table.
 function beanListPublicationPayload() {
   const listType = pdfTheme.value.listType
   const selectedProductTypeCategoryID = activeProductTypeCategoryID.value
@@ -4862,7 +4940,7 @@ function beanListPublicationPayload() {
     version: pdfTheme.value.version,
     scope: publicationScope.value,
     customer_id: Number(selectedBeanListCustomerID.value || 0),
-    price_source_publication_id: Number(currentPriceSourcePublication.value?.id || 0),
+    price_source_publication_id: activeBeanListCustomerID.value > 0 ? 0 : Number(currentPriceSourcePublication.value?.id || 0),
     style_source_publication_id: Number(styleSourcePublicationIDByType.value[activePriceListTypeKey.value] || 0),
     source_version: currentPriceSourcePublication.value?.version || '',
     config: {
@@ -4906,7 +4984,7 @@ async function withdrawBeanList(row = currentBeanListPublication.value) {
   try {
     const params = beanListWithdrawScopeParams(row)
     await apiSend(`/api/costing/bean-list/publications/${row.id}/withdraw?${params.toString()}`)
-    message.value = `已撤回${beanListPublicationTypeLabel(row)}价格表 ${row.version}`
+    message.value = `已撤回${beanListPublicationTypeLabel(row)}整个版本 ${row.version}，组内所有价格表同步撤回`
     await loadBeanListPublications(listType, publicationScope.value, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
     await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID)
   } catch (err) {
@@ -4934,7 +5012,7 @@ async function archiveSelectedBeanListPublications() {
       body: { ids: rows.map((row) => Number(row.id || 0)).filter((id) => id > 0) },
     })
     setBeanListPublicationStatusInCache(rows.map((row) => Number(row.id || 0)), 'archived')
-    message.value = `已归档 ${rows.length} 个价格表版本，可在归档列表移出归档`
+    message.value = `已归档 ${publicationBatchGroups(rows).length} 个价格表版本，组内所有表同步归档，可在归档列表恢复`
     selectedPublicationArchiveIDs.value = []
     await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, first, productTypeCategoryID, first?.publication_purpose || 'factory_supply')
   } catch (err) {
@@ -4957,7 +5035,7 @@ async function restoreArchivedBeanListPublication(row) {
       body: { ids: [Number(row.id || 0)] },
     })
     setBeanListPublicationStatusInCache([Number(row.id || 0)], beanListPublicationArchivedFromStatus(row))
-    message.value = `已将价格表 ${row.version || row.id} 移出归档`
+    message.value = `已将整个价格表版本 ${row.version || row.id} 移出归档`
     await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, row, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
   } catch (err) {
     error.value = err.message || '移出归档失败'
@@ -4983,8 +5061,153 @@ function beanListWithdrawScopeParams(row) {
   return params
 }
 
+
+function captureNamedPriceTablePayload() {
+  return clonePriceTable({ ...beanListPublicationPayload(), blocked_reason: priceListPublishBlockedReason.value,
+    draft: { defaults: priceListTemplateDefaults.value, parentSelections: priceListParentTemplateSelections.value,
+      groupSelections: priceListGroupTemplateSelections.value, productOverrides: priceListProductTemplateOverrides.value,
+      flatRowOverrides: priceListFlatRowOverrides.value, customerPriceSeedRows: customerPriceSeedRows.value,
+      customerPriceConfiguredSources: customerPriceConfiguredSources.value,
+      product_spec_selections: pdfProductSpecSelections.value },
+    editor: { pdfOptions: pdfOptions.value, customizers: pdfCustomizers.value,
+      priceSource: currentPriceSourcePublication.value, styleSource: styleSourcePublicationIDByType.value[activePriceListTypeKey.value] || 0 },
+  })
+}
+
+function persistNamedPriceTableBatch() {
+  if (restoringNamedPriceTable || loading.value || namedPriceTableScope.value !== priceListGenerationDraftBaseKey() || !activeNamedPriceTable.value) return
+  activeNamedPriceTable.value.payload = captureNamedPriceTablePayload()
+  namedPriceTableBatch.value.version = pdfOptions.value.version
+  namedPriceTableBatch.value.changelog = pdfOptions.value.changelog
+  savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
+}
+
+async function applyNamedPriceTablePayload() {
+  const table = activeNamedPriceTable.value
+  if (!table) return
+  restoringNamedPriceTable = true
+  try {
+    const payload = clonePriceTable(table.payload)
+    const cfg = payload.editor?.pdfOptions || payload.config || {}
+    const common = namedPriceTableBatch.value
+    pdfOptions.value = { ...pdfOptions.value, ...cfg, listType: selectedProductPriceListType.value?.listType || pdfOptions.value.listType,
+      version: common.version || pdfOptions.value.version, changelog: common.changelog || '' }
+    pdfCustomizers.value = clonePriceTable(payload.editor?.customizers || payload.config?.customizers || {})
+    downloadSourcePublication.value = null
+    const key = activePriceListTypeKey.value
+    priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [key]: payload.editor?.priceSource || null }
+    styleSourcePublicationIDByType.value = { ...styleSourcePublicationIDByType.value, [key]: payload.editor?.styleSource || 0 }
+    const draft = payload.draft || { defaults: defaultPriceListTemplateSelection({ pricing_mode: 'tier_template' }), product_spec_selections: [] }
+    priceListTemplateDefaults.value = defaultPriceListTemplateSelection(draft.defaults || {})
+    priceListParentTemplateSelections.value = {}
+    priceListGroupTemplateSelections.value = {}
+    priceListProductTemplateOverrides.value = {}
+    priceListFlatRowOverrides.value = {}
+    productSpecSelectionsByType.value = { ...productSpecSelectionsByType.value, [key]: [] }
+    savePriceListGenerationDraft(priceListGenerationDraftStorageKey(), draft)
+    restorePriceListGenerationDraftForActiveType()
+    await nextTick()
+  } finally { restoringNamedPriceTable = false }
+}
+
+async function restoreNamedPriceTableBatch(force = false) {
+  if (!priceListPublicationTypeOptionsReady.value) return
+  const scope = priceListGenerationDraftBaseKey()
+  if (!force && namedPriceTableScope.value === scope && namedPriceTableBatch.value) return
+  const batch = readPriceTableBatchDraft(scope)
+  namedPriceTableScope.value = scope
+  namedPriceTableBatch.value = batch || createPriceTableBatch(captureNamedPriceTablePayload(), buildProductPriceListTitle(pdfTheme.value.brandName, selectedProductPriceListLabel.value, pdfTheme.value.listType))
+  if (batch) await applyNamedPriceTablePayload()
+}
+
+async function selectNamedPriceTable(key) {
+  if (beanListPublishing.value || key === namedPriceTableBatch.value?.active_table_key) return
+  persistNamedPriceTableBatch()
+  namedPriceTableBatch.value.active_table_key = key
+  await applyNamedPriceTablePayload()
+  savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
+}
+
+async function openNamedTableConfig() {
+  await restoreNamedPriceTableBatch()
+  pdfDrawerOpen.value = true
+}
+
+async function addNamedPriceTable(copy, key = namedPriceTableBatch.value?.active_table_key) {
+  persistNamedPriceTableBatch()
+  namedPriceTableBatch.value = addPriceTable(namedPriceTableBatch.value, copy ? key : '')
+  await applyNamedPriceTablePayload()
+  persistNamedPriceTableBatch()
+}
+
+async function deleteNamedPriceTable(key) {
+  const table = namedPriceTableBatch.value?.tables.find(row => row.key === key)
+  if (!table || !window.confirm(`删除草稿价格表「${table.name}」？已发布版本保留。`)) return
+  persistNamedPriceTableBatch()
+  namedPriceTableBatch.value = removePriceTable(namedPriceTableBatch.value, key)
+  await applyNamedPriceTablePayload()
+  persistNamedPriceTableBatch()
+}
+
+async function saveNamedPriceTableBatch(publish) {
+  await restoreNamedPriceTableBatch()
+  await nextTick()
+  persistNamedPriceTableBatch()
+  const invalid = validatePriceTableBatch(namedPriceTableBatch.value)
+  if (invalid) { error.value = invalid; return }
+  if (publish) {
+    const activeKey = namedPriceTableBatch.value.active_table_key
+    beanListPublishing.value = true
+    try {
+      for (const table of namedPriceTableBatch.value.tables) {
+        namedPriceTableBatch.value.active_table_key = table.key
+        await applyNamedPriceTablePayload()
+        await loadPriceListPricingRuleTrials(currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
+        await Promise.allSettled([...priceListPricingRuleTasks])
+        await nextTick()
+        table.payload = captureNamedPriceTablePayload()
+        if (table.payload.blocked_reason || !table.payload.content?.groups?.length) {
+          error.value = `价格表「${table.name}」：${table.payload.blocked_reason || '请选择商品和规格'}`
+          return
+        }
+      }
+      namedPriceTableBatch.value.active_table_key = activeKey
+      await applyNamedPriceTablePayload()
+    } catch (cause) { error.value = cause.message || '价格计算失败'; return }
+    finally { beanListPublishing.value = false; persistNamedPriceTableBatch() }
+  }
+  const batch = clonePriceTable(namedPriceTableBatch.value)
+  const common = beanListPublicationPayload()
+  const payload = { ...common, version: batch.version, changelog: batch.changelog, default_table_key: batch.default_table_key,
+    tables: batch.tables.map(table => ({ key: table.key, name: table.name.trim(), config: table.payload?.config || {}, content: table.payload?.content || {},
+      price_source_publication_id: table.payload?.price_source_publication_id || 0, style_source_publication_id: table.payload?.style_source_publication_id || 0, source_version: table.payload?.source_version || '' })) }
+  beanListPublishing.value = true; error.value = ''; message.value = ''
+  try {
+    const result = await apiSend(publish ? '/api/costing/bean-list/publication-batches' : '/api/costing/bean-list/draft-batches', { body: payload })
+    const pdfFailures = Object.keys(result.pdf_errors || {}).length
+    message.value = `${publish ? '已发布' : '已保存草稿'} ${result.tables.length} 张价格表，统一版本 ${result.version}${pdfFailures ? `；${pdfFailures} 张 PDF 暂未生成，可在版本列表重新下载，无需再次发布` : ''}`
+    await loadBeanListPublications(pdfTheme.value.listType, publicationScope.value, activeProductTypeCategoryID.value, 'factory_supply')
+    if (publish) pdfOptions.value.version = defaultBeanListVersionForScope(pdfTheme.value.listType, activeProductTypeCategoryID.value)
+  } catch (err) {
+    error.value = err.message || '保存价格表失败'
+    const bad = namedPriceTableBatch.value.tables.find(table => error.value.includes(`「${table.name.trim()}」`))
+    if (bad) { namedPriceTableBatch.value.active_table_key = bad.key; await applyNamedPriceTablePayload() }
+  }
+  finally { beanListPublishing.value = false; persistNamedPriceTableBatch() }
+}
+
+watch([activePriceListTypeKey, activeBeanListCustomerID, publicationScope, loading], async () => {
+  if (!loading.value) { await nextTick(); await restoreNamedPriceTableBatch() }
+}, { flush: 'post' })
+watch([pdfOptions, pdfCustomizers, priceListTemplateDefaults, priceListParentTemplateSelections, priceListGroupTemplateSelections,
+  priceListProductTemplateOverrides, priceListFlatRowOverrides, customerPriceConfiguredSources, pdfProductSpecSelections, pdfGroups], persistNamedPriceTableBatch, { deep: true, flush: 'post' })
+watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name])]), () => {
+  if (!restoringNamedPriceTable && namedPriceTableBatch.value) savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
+})
+
 onMounted(() => {
   loadCurrentActor()
+  loadCustomerPriceSources()
   loadBeanList()
   loadCustomers()
   loadCustomerProductAliases()
@@ -5001,6 +5224,14 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.named-price-table-toolbar { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+.named-price-table-toolbar label { display:grid; gap:6px; min-width:220px; }
+.named-price-table-config { display:grid; gap:12px; padding:16px 0; border-bottom:1px solid #e4e7e5; }
+.named-price-table-config-row { display:grid; gap:8px; padding:10px; border:1px solid #ddd; border-radius:8px; }
+.named-default { display:flex; align-items:center; gap:6px; }
+.named-default-badge { display:inline-block; margin-left:6px; font-size:11px; color:#276346; }
+.publication-batch-heading td { background:#f1f5f3; padding:10px; }
+
 .page { padding: 18px; color: #171717; display: grid; gap: 16px; }
 .panel { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fff; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }

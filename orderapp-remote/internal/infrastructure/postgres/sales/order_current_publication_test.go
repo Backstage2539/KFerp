@@ -20,7 +20,8 @@ func TestIsCurrentDefaultOrderPublicationTxMatchesCustomerAndOfficialFallbackRul
 			publication_purpose TEXT NOT NULL,
 			classification_template_id BIGINT NOT NULL DEFAULT 0,
 			product_type_category_id BIGINT NOT NULL DEFAULT 0,
-			published_at TIMESTAMPTZ
+			config_json JSONB NOT NULL DEFAULT '{}',
+ published_at TIMESTAMPTZ
 		)
 	`, schema)); err != nil {
 		t.Fatal(err)
@@ -68,6 +69,12 @@ func TestIsCurrentDefaultOrderPublicationTxMatchesCustomerAndOfficialFallbackRul
 		}
 	}
 
+	if allowed, e := isCurrentDefaultOrderPublicationTx(ctx, tx, schema, 8, 301, "retail", true); e != nil || !allowed {
+		t.Fatalf("explicit public table rejected with customer table: %v %v", allowed, e)
+	}
+	if allowed, e := isCurrentDefaultOrderPublicationTx(ctx, tx, schema, 8, 101, "commercial", true); e != nil || allowed {
+		t.Fatalf("explicit choice allowed outdated customer table: %v %v", allowed, e)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}

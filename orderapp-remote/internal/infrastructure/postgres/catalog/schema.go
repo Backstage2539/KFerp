@@ -942,6 +942,9 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_per_unit SET NOT NULL;
 	if err := migrateMaterialClassificationsToBusinessGroups(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureCustomerCatalogSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	return backfillProductProductionConfigs(ctx, pool, schema)
 }
 

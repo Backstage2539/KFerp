@@ -275,6 +275,9 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	if first.Snapshot.CompanyName != "棵凡咖啡" {
 		t.Fatalf("generated snapshot company_name = %q, want global company profile name", first.Snapshot.CompanyName)
 	}
+	if first.Snapshot.RenderVersion != salesdomain.SalesOrderRenderVersion {
+		t.Fatalf("generated snapshot render_version = %q, want %q", first.Snapshot.RenderVersion, salesdomain.SalesOrderRenderVersion)
+	}
 	if first.Snapshot.BankAccountName != "孟连口加农业科技有限公司" || first.Snapshot.BankName != "中国农业银行孟连支行" || first.Snapshot.BankAccountNo != "6222000000000000" {
 		t.Fatalf("generated snapshot bank account fields = %+v", first.Snapshot)
 	}
@@ -305,6 +308,9 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	}
 	if string(b) != "%PDF-test" || file.Filename != "SO-20260430-0008-V2.pdf" {
 		t.Fatalf("file=%+v bytes=%q", file, b)
+	}
+	if file.Document.Snapshot.RenderVersion != salesdomain.SalesOrderRenderVersion {
+		t.Fatalf("loaded document render_version = %q, want %q", file.Document.Snapshot.RenderVersion, salesdomain.SalesOrderRenderVersion)
 	}
 }
 
@@ -586,7 +592,7 @@ func newSalesPostgresTestDB(t *testing.T) (*pgxpool.Pool, string) {
 func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	stmts := []string{
- fmt.Sprintf(`CREATE TABLE %s.pay_statuses(id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.pay_statuses(id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.order_process_statuses (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, sort INTEGER NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT true)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.ship_statuses (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.customers (

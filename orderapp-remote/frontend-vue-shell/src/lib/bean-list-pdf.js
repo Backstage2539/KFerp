@@ -595,6 +595,11 @@ function normalizePriceListFlatRow(row = {}) {
   const originalFinalUnitPrice = firstNumber(row.original_final_unit_price, row.originalFinalUnitPrice, row.source_final_unit_price, row.sourceFinalUnitPrice, finalUnitPrice)
   const manualAdjusted = row.manual_adjusted === true || row.manualAdjusted === true || !pricesClose(finalUnitPrice, originalFinalUnitPrice)
   return {
+    row_key: stringField(row.row_key),
+    bom_id: firstNumber(row.bom_id),
+    bom_version_id: firstNumber(row.bom_version_id),
+    bom_spec_id: firstNumber(row.bom_spec_id, row.sku_snapshot?.bom_spec_id),
+    bom_variant_id: firstNumber(row.bom_variant_id),
     product_id: firstNumber(row.product_id, row.productID, row.productId),
     sku_id: firstNumber(row.sku_id, row.skuID, row.skuId),
     parent_product_id: firstNumber(row.parent_product_id, row.parentProductID, row.parentProductId),

@@ -2904,6 +2904,33 @@ func TestOrderAPIDetailAllowsCustomerWorkbenchBoundOrder(t *testing.T) {
 	}
 }
 
+func TestOrderEditAPIKeepsParentIdentityForBOMSpecRehydration(t *testing.T) {
+	data := editDataForAPI(&OrderEditData{Items: []OrderEditItem{
+		{ProductID: 1063, BomSpecID: 3, BomVariantID: 483, UnitPrice: "37.50", Qty: "2", BeanListPublicationID: 124},
+		{ProductID: 594, UnitPrice: "10.00", Qty: "1"},
+	}})
+	raw, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Items []struct {
+			ParentProductID int64  `json:"parent_product_id"`
+			BomSpecID       int64  `json:"bom_spec_id"`
+			UnitPrice       string `json:"unit_price"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Items[0].ParentProductID != 1063 || response.Items[0].BomSpecID != 3 || response.Items[0].UnitPrice != "37.50" {
+		t.Fatalf("BOM line must retain parent/spec/price for order-date-only editing: %+v", response.Items[0])
+	}
+	if response.Items[1].ParentProductID != 0 {
+		t.Fatal("legacy SKU must not become a BOM parent")
+	}
+}
+
 func TestOrderAPIListFulfillmentScopeSkipsLegacyNonWorkbenchBinding(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -6222,5 +6249,12 @@ func writeOrderShippingTemplateForTest(t *testing.T, path string) {
 	}
 	if err := wb.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOrderQuoteTraceIncludesPublicationOwnershipAndDate(t *testing.T) {
+	rows := orderQuoteSourceTrace(&salesapp.OrderEditData{Items: []salesapp.OrderEditItem{{ProductID: 1, BeanListPublicationID: 12, BeanListVersionNo: "V3.1", PriceSourceJSON: `{"price_list_name":"咖啡豆","price_list_owner_name":"客户A","price_list_published_at":"2026-09-07 10:00:00"}`}}})
+	if len(rows) != 1 || rows[0]["price_list_name"] != "咖啡豆" || rows[0]["price_list_owner_name"] != "客户A" || rows[0]["price_list_published_at"] != "2026-09-07 10:00:00" || rows[0]["price_list_version"] != "V3.1" {
+		t.Fatal(rows)
 	}
 }

@@ -74,6 +74,7 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
+	SelectedPriceTableIDs           []int64 `json:"selected_price_table_ids"`
 	PrepaymentAmount                *string `json:"prepayment_amount" form:"prepayment_amount"`
 	EditID                          int64   `json:"edit_id"`
 	DocumentDate                    string  `json:"document_date"`
@@ -500,6 +501,7 @@ func (h orderAPIHandler) save(c echo.Context) error {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "customer scope mismatch"})
 		}
 	}
+	cmd.SelectedPriceTableIDs = req.SelectedPriceTableIDs
 	res, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -862,6 +864,10 @@ func orderQuoteSourceTrace(ed *OrderEditData) []map[string]any {
 			"product_name":              it.Product,
 			"price_list_publication_id": publicationID,
 			"price_list_version":        version,
+			"price_list_name":           orderTraceString(source["price_list_name"]),
+			"price_list_owner_name":     orderTraceString(source["price_list_owner_name"]),
+			"price_list_owner_type":     orderTraceString(source["price_list_owner_type"]),
+			"price_list_published_at":   orderTraceString(source["price_list_published_at"]),
 			"tier_label":                orderTraceString(source["tier_label"]),
 			"price_unit":                orderTraceString(source["price_unit"]),
 			"final_unit_price":          orderTraceNumber(source["final_unit_price"]),
@@ -982,6 +988,7 @@ func orderTraceBool(value any) bool {
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
 		ProductID                          int64  `json:"product_id"`
+		ParentProductID                    int64  `json:"parent_product_id,omitempty"`
 		BomSpecID                          int64  `json:"bom_spec_id,omitempty"`
 		BomVariantID                       int64  `json:"bom_variant_id,omitempty"`
 		BomSpecKey                         string `json:"bom_spec_key,omitempty"`
@@ -1015,6 +1022,12 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
+		// BOM-spec orders store the shared parent in product_id. The editor
+		// needs that identity to resolve the frozen specification, not a SKU.
+		parentProductID := int64(0)
+		if it.BomSpecID > 0 {
+			parentProductID = it.ProductID
+		}
 		spec := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(it.Spec)), "g")
 		tierID := "auto"
 		if it.PriceOverride {
@@ -1024,6 +1037,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		}
 		items = append(items, editItem{
 			ProductID:                          it.ProductID,
+			ParentProductID:                    parentProductID,
 			BomSpecID:                          it.BomSpecID,
 			BomVariantID:                       it.BomVariantID,
 			BomSpecKey:                         it.BomSpecKey,

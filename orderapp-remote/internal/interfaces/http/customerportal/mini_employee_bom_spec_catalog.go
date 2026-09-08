@@ -1,6 +1,7 @@
 package customerportal
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -128,6 +129,14 @@ func miniEmployeeBOMSpecFilterProducts(
 				row.OrderUnit = option.InventoryUnit
 				row.QuoteUnit = option.InventoryUnit
 				row.Tiers = append([]salesapp.ProductTierOption(nil), option.Tiers...)
+				if source.CustomerID != option.OwnerCustomerID {
+					row.Tiers = nil
+					for _, tier := range source.Tiers {
+						if miniEmployeeTierMatchesBOMSpec(tier, option) {
+							row.Tiers = append(row.Tiers, tier)
+						}
+					}
+				}
 				for idx := range row.Tiers {
 					row.Tiers[idx].ParentProductID = parentID
 					row.Tiers[idx].BomSpecID = option.BomSpecID
@@ -138,6 +147,26 @@ func miniEmployeeBOMSpecFilterProducts(
 		}
 	}
 	return out, optionBySpec
+}
+
+func miniEmployeeTierMatchesBOMSpec(tier salesapp.ProductTierOption, option salesapp.ProductBOMSpecOption) bool {
+	spec := tier.EffectiveSalesSpec
+	if len(spec) == 0 && tier.PriceSourceJSON != "" {
+		var source struct {
+			EffectiveSalesSpec map[string]any `json:"effective_sales_spec"`
+		}
+		if json.Unmarshal([]byte(tier.PriceSourceJSON), &source) == nil {
+			spec = source.EffectiveSalesSpec
+		}
+	}
+	specID, variantID := tier.BomSpecID, tier.BomVariantID
+	if specID <= 0 {
+		specID = miniEmployeeTraceInt64(spec["bom_spec_id"])
+	}
+	if variantID <= 0 {
+		variantID = miniEmployeeTraceInt64(spec["bom_variant_id"])
+	}
+	return specID == option.BomSpecID && (variantID <= 0 || option.BomVariantID <= 0 || variantID == option.BomVariantID)
 }
 
 type miniEmployeeBOMSpecFamilyState struct {
