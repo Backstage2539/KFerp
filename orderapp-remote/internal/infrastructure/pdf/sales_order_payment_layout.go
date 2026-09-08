@@ -33,7 +33,7 @@ func prepareSalesOrderPaymentBoxes(p *gofpdf.Fpdf, snapshot salesdomain.SalesOrd
 	for _, section := range salesOrderPaymentTextSections(snapshot) {
 		textHeight += 6 + salesOrderPaymentBlockGapMM
 		for _, line := range section.lines {
-			textHeight += float64(len(p.SplitText(line, textBox.WidthMM))) * salesOrderPaymentLineMM
+			textHeight += float64(len(salesOrderWrapCellText(p, line, textBox.WidthMM))) * salesOrderPaymentLineMM
 		}
 	}
 	textBox.HeightMM = maxFloat64(textBox.HeightMM, textHeight)
@@ -61,9 +61,9 @@ func salesOrderPaymentCodeExtraHeight(p *gofpdf.Fpdf, codes []salesdomain.SalesO
 		if label == "" {
 			label = "收款码"
 		}
-		h := float64(len(p.SplitText(label, width)))*5 + 6
+		h := float64(len(salesOrderWrapCellText(p, label, width)))*5 + 6
 		if code.Description != "" {
-			h += float64(len(p.SplitText(code.Description, width))) * 4.5
+			h += float64(len(salesOrderWrapCellText(p, code.Description, width))) * 4.5
 		}
 		extra = maxFloat64(extra, h)
 	}

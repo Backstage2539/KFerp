@@ -267,7 +267,8 @@ func (r SalesOrderRenderer) renderCombinedSalesOrderGroups(pdf *gofpdf.Fpdf, sna
 		pdf.SetTextColor(0, 0, 0)
 		if note := combinedSalesOrderGroupNote(group); note != "" {
 			pdf.SetFont("noto", "", 9)
-			pdf.MultiCell(usableW, 5.5, note, "B", "L", false)
+			writeSalesOrderMetaRow(pdf, []float64{usableW}, []string{note}, 5.5)
+			pdf.Line(left, pdf.GetY(), left+usableW, pdf.GetY())
 		}
 		pdf.Ln(2)
 	}
@@ -636,7 +637,7 @@ func renderSalesOrderTotals(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSna
 		pdf.SetFont("noto", style, 11)
 		text := row.Label + "： " + row.Value
 		if salesOrderFinancialRowWrapLeft(row) {
-			for _, line := range pdf.SplitText(text, usableW) {
+			for _, line := range salesOrderWrapCellText(pdf, text, usableW) {
 				pdf.CellFormat(0, 7, line, "", 1, align, false, 0, "")
 			}
 			continue
@@ -893,7 +894,9 @@ func salesOrderPaymentSnapshotForPDFPage(pdf *gofpdf.Fpdf, snapshot salesdomain.
 }
 
 func fitSalesOrderLayoutBoxWithinPDFPage(pdf *gofpdf.Fpdf, box salesdomain.SalesOrderLayoutBox) salesdomain.SalesOrderLayoutBox {
-	_, pageH := pdf.GetPageSize()
+	pageW, pageH := pdf.GetPageSize()
+	// Keep legacy positions inside the same 8 mm horizontal safe area as preview.
+	box.XMM = maxFloat64(8, minFloat64(box.XMM, pageW-8-box.WidthMM))
 	_, topMargin, _, bottomMargin := pdf.GetMargins()
 	maxBottom := pageH - bottomMargin
 	if box.HeightMM > maxBottom-topMargin {
@@ -963,7 +966,7 @@ func renderSalesOrderTextBlock(pdf *gofpdf.Fpdf, box salesdomain.SalesOrderLayou
 	pdf.CellFormat(box.WidthMM, 5.5, title, "", 0, "L", false, 0, "")
 	y += 6
 	for _, line := range lines {
-		for _, wrapped := range pdf.SplitText(line, box.WidthMM) {
+		for _, wrapped := range salesOrderWrapCellText(pdf, line, box.WidthMM) {
 			if y+salesOrderPaymentLineMM > bottom {
 				return bottom
 			}
@@ -1111,7 +1114,10 @@ func (r SalesOrderRenderer) renderPaymentCodeCell(pdf *gofpdf.Fpdf, ref salesdom
 		label = "收款码"
 	}
 	pdf.SetXY(x, y)
-	pdf.MultiCell(metrics.CellWidth, 5, label, "", "C", false)
+	for _, line := range salesOrderWrapCellText(pdf, label, metrics.CellWidth) {
+		pdf.SetX(x)
+		pdf.CellFormat(metrics.CellWidth, 5, line, "", 1, "C", false, 0, "")
+	}
 	imageY := pdf.GetY() + 3
 
 	path, ok := r.resolveAssetPath(ref.ObjectKey)
@@ -1128,7 +1134,10 @@ func (r SalesOrderRenderer) renderPaymentCodeCell(pdf *gofpdf.Fpdf, ref salesdom
 	}
 	if desc := strings.TrimSpace(ref.Description); desc != "" {
 		pdf.SetXY(x, imageY+metrics.ImageSize+3)
-		pdf.MultiCell(metrics.CellWidth, 4.5, desc, "", "C", false)
+		for _, line := range salesOrderWrapCellText(pdf, desc, metrics.CellWidth) {
+			pdf.SetX(x)
+			pdf.CellFormat(metrics.CellWidth, 4.5, line, "", 1, "C", false, 0, "")
+		}
 	}
 }
 

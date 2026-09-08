@@ -133,13 +133,15 @@ export function fitSalesLayoutBoxWithinPDFPreviewPage(box = {}, page = {}) {
   const maxBottomMM = pageHeightMM - salesDocumentPageBottomMarginMM
   const maxHeightMM = Math.max(1, maxBottomMM - topMarginMM)
   const heightMM = Math.min(positiveNumber(box.height_mm ?? box.HeightMM, 1), maxHeightMM)
+  const widthMM = Math.min(positiveNumber(box.width_mm ?? box.WidthMM, 1), salesDocumentPageWidthMM - 16)
+  const xMM = Math.max(8, Math.min(nonNegativeNumber(box.x_mm ?? box.XMM, 0), salesDocumentPageWidthMM - 8 - widthMM))
   let yMM = nonNegativeNumber(box.y_mm ?? box.YMM, 0)
   if (yMM + heightMM > maxBottomMM) yMM = maxBottomMM - heightMM
   if (yMM < topMarginMM) yMM = topMarginMM
   return {
-    x_mm: nonNegativeNumber(box.x_mm ?? box.XMM, 0),
+    x_mm: round2(xMM),
     y_mm: round2(yMM),
-    width_mm: positiveNumber(box.width_mm ?? box.WidthMM, 1),
+    width_mm: widthMM,
     height_mm: round2(heightMM),
   }
 }

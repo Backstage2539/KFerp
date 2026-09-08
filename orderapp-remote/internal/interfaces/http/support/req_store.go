@@ -254,7 +254,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 	for _, row := range []reqSeedRow{
 		{table: "req_product", code: "PR-640-ERP-SESSION-POOL", title: "履约客户登录并发加载不耗尽数据库连接", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-erp-session-pool.md"},
 		{table: "req_dev", code: "DEV-640-ERP-SESSION-POOL", title: "登录资格校验释放连接后锁定会话，保留撤销校验并覆盖小连接池并发", status: "done", assignee: "Codex", evidence: "erp_session_pool_test.go; erp_session_revocation_test.go; docs/acceptance/2026-09-08-erp-session-pool.md"},
-		{table: "req_product", code: "PR-641-ORDER-DELIVERY-EDIT-DOCUMENTS", title: "订单配送、编辑恢复和销售单分页优化", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-order-delivery-edit-documents.md"},
+		{table: "req_product", code: "PR-641-ORDER-DELIVERY-EDIT-DOCUMENTS", title: "订单配送、编辑恢复和销售单分页优化", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-08-order-delivery-edit-documents.md"},
 		{table: "req_dev", code: "DEV-641-ORDER-DELIVERY", title: "自提本地送货、快递隔离和订单审计", status: "done", assignee: "Codex", evidence: "order_delivery_test.go; order_experience_api_test.go"},
 		{table: "req_dev", code: "DEV-641-ORDER-EDIT", title: "商品规格引用恢复、订单类型与紧凑摘要", status: "done", assignee: "Codex", evidence: "order-experience.test.js; order_experience_api_test.go"},
 		{table: "req_dev", code: "DEV-641-SALES-DOCUMENTS", title: "末页收款区、备注及中文分页与金额底色", status: "done", assignee: "Codex", evidence: "order_experience_artifact_test.go; order_experience_test.go"},

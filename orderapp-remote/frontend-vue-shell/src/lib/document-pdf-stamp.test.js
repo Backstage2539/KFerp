@@ -159,3 +159,12 @@ test('scales PDF stamp placement by width while preserving seal aspect ratio', (
   )
   assert.deepEqual(got, { page_number: 1, x: 10, y: 20, width: 120, height: 120 })
 })
+
+test('legacy off-paper payment text stays inside the final preview page', () => {
+  const pages = [{pageNumber:1,pageWidth:595.28,pageHeight:841.89}, {pageNumber:2,pageWidth:595.28,pageHeight:841.89}]
+  const placement = salesLayoutBoxMMToPDFPreviewPlacement({page_number:1,x_mm:232,y_mm:143,width_mm:81,height_mm:136}, pages, {last_page_only:true})
+  const mm = 595.28 / 210
+  assert.equal(placement.page_number, 2)
+  assert.ok(placement.x / mm >= 8)
+  assert.ok((placement.x + placement.width) / mm <= 202.01)
+})
