@@ -19,4 +19,12 @@
 
 ## 发布与页面复验
 
-进行中：完成开发环境门禁、部署后记录运行提交、回滚路径、实际平铺行、刷新结果及已发布报价指纹。生产和微信发布不在本次范围。
+- 功能分支 `codex/customer-tier-template-20260908`，修复提交 `0ae2aed6` / `23226236`，推送功能分支并合入 `develop@5692d61345739abc1945d9c4a73ea31f9650c0d1`，在干净发布工作区执行 `./deploy_orderapp.sh development`，退出 0。
+- 完整 Vue 1114/1114、Vite、Go 全量、小程序 238/238、类型检查和构建均通过。最终日志 `deploy-final.log`；定向初始五项 RED 与实际页面请求函数 RED 均保留，最终 6/6 GREEN。
+- 回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20260908122620-5692d6134573`；镜像 `kferp-orderapp-rollback:development-20260908122620-5692d6134573`。此回滚点为首次修复；更早完整旧版回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20260908121639-10ea33a442ee` 亦保留。
+- EFS 的原有两档草稿刷新后自动恢复正确档位；227g 平铺行及预览为 0–24 件 26 元/袋、24 件起 24 元/袋，来自规则 16/11 的真实试算，BOM 2338 / V007、规格 3、变体 483。
+- 实际把顶部模板切回“咖啡熟豆”，生成四档 28/33/26/24；再切回“EFS咖啡豆2档位”，恢复两档 26/24。再次刷新仍为两档。保留原模板、选品和草稿版本，未点击发布或保存服务端报价。
+- `after-two-tiers.png` 记录客户归属与顶层模板，`after-two-tier-rows.png` 记录平铺行与预览；`after-refresh.txt` 和 `template-switch-four.txt` 记录刷新及切换结果。
+- `/api/costing/pricing-rule-trials` 对 NB 102 / EFS 302 均 200，规则 16/11 返回 26/24，成本完整；认证 EFS 目录 API 200，外部登录页 200，未认证目录 API 401。
+- 公共表 122 和 NB 表 126 的 config/content 指纹前后相同；生产 RELEASE_INFO 完全一致，仍为 `ce58d4ec90df6fe2ea079f650362ccdacf7046ec`。应用 running / 重启 0，数据库 healthy；本次 CostingView、报价合成及手册与服务器源文件 SHA256 一致。
+- 开发小程序包同步完成（56 个清单文件），未上传微信。未部署生产。最终验收文档补交不改变应用运行版本 `5692d613`。
