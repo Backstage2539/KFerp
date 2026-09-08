@@ -5020,4 +5020,4 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 客户报价来源按客户/商品类型加载，各命名表独立保存草稿；修复初始化或切换命名表后报价未填入平铺行。
 - Reproduction: EFS 客户 302、商品 1063 的 227g 规格（BOM 3 / variant 483）公共表 122 已报价 28/33/26/24，客户平铺行却为 0。454g 只在旧公共表 110 报价，最新表 122 缺此规格，保留待报价并明确提示。
 - Verifier: Vue 实际响应式加载流程 RED 2 项；客户/类型与命名表切换、草稿保留、跨客户迟到响应隔离、旧规格不回退；完整 Vue/Vite 与部署门禁。
-- Status: targeted GREEN；development 部署与页面复验待完成。生产与微信发布不在范围。
+- Status: Vue 1108/1108、Vite、完整部署门禁通过；develop@277c56d1 已部署 development，EFS 227g 四档报价及刷新实测通过。454g 缺当前公共报价，明确提示；未修改或发布客户/公共报价。证据：orderapp-remote/docs/acceptance/2026-09-08-efs-customer-price-inheritance.md。生产与微信发布未执行。
