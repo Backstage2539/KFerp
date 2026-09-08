@@ -102,12 +102,19 @@ func (r Repository) previewMaterialOwnershipCutoverTx(ctx context.Context, tx pg
 		} else if ok {
 			var count int64
 			query := fmt.Sprintf(`SELECT COUNT(*) FROM %s.work_order_material_reservations wr`, r.schema)
+			args := []any{candidate.SourceMaterialID}
 			if wo, _ := materialCutoverTableExistsTx(ctx, tx, r.schema, "work_orders"); wo {
 				query += fmt.Sprintf(` JOIN %s.work_orders wo ON wo.id=wr.work_order_id WHERE wr.material_id=$1 AND lower(COALESCE(wo.status,'')) NOT IN ('completed','cancelled','canceled','closed')`, r.schema)
 			} else {
 				query += ` WHERE wr.material_id=$1 AND lower(COALESCE(wr.status,'')) NOT IN ('completed','cancelled','canceled','closed')`
 			}
-			if err := tx.QueryRow(ctx, query, candidate.SourceMaterialID).Scan(&count); err != nil {
+			if hasSourceOwner, err := materialCutoverColumnExistsTx(ctx, tx, r.schema, "work_order_material_reservations", "source_owner_customer_id"); err != nil {
+				return report, err
+			} else if hasSourceOwner {
+				query += ` AND COALESCE(wr.source_owner_customer_id,0)=$2`
+				args = append(args, candidate.OwnerCustomerID)
+			}
+			if err := tx.QueryRow(ctx, query, args...).Scan(&count); err != nil {
 				return report, err
 			}
 			if count > 0 {
@@ -411,5 +418,17 @@ func recomputeCutoverMaterialOnhandTx(ctx context.Context, tx pgx.Tx, schema str
 func materialCutoverTableExistsTx(ctx context.Context, tx pgx.Tx, schema, table string) (bool, error) {
 	var exists bool
 	err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists)
+	return exists, err
+}
+
+func materialCutoverColumnExistsTx(ctx context.Context, tx pgx.Tx, schema, table, column string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema=$1 AND table_name=$2 AND column_name=$3
+		)
+	`, schema, table, column).Scan(&exists)
 	return exists, err
 }

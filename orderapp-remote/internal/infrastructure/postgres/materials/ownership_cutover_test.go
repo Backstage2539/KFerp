@@ -44,7 +44,7 @@ func TestMaterialOwnershipCutoverConflictTransactionIdempotencyAndRollback(t *te
 		CREATE TABLE %[1]s.material_batches(id BIGSERIAL PRIMARY KEY,batch_code TEXT NOT NULL UNIQUE,material_id BIGINT NOT NULL,owner_customer_id BIGINT NOT NULL DEFAULT 0,qty_g BIGINT NOT NULL DEFAULT 0,qty_units BIGINT NOT NULL DEFAULT 0,remaining_g BIGINT NOT NULL DEFAULT 0,remaining_units BIGINT NOT NULL DEFAULT 0,unit_cost NUMERIC(18,6) NOT NULL DEFAULT 0,received_at TIMESTAMPTZ NOT NULL DEFAULT now());
 		CREATE TABLE %[1]s.material_batch_locations(material_batch_id BIGINT NOT NULL,batch_code TEXT NOT NULL,material_id BIGINT NOT NULL,warehouse TEXT NOT NULL,qty_g BIGINT NOT NULL DEFAULT 0,qty_units BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(material_batch_id,warehouse));
 		CREATE TABLE %[1]s.work_orders(id BIGINT PRIMARY KEY,status TEXT NOT NULL);
-		CREATE TABLE %[1]s.work_order_material_reservations(id BIGSERIAL PRIMARY KEY,work_order_id BIGINT NOT NULL,material_id BIGINT NOT NULL,status TEXT NOT NULL DEFAULT 'reserved');
+		CREATE TABLE %[1]s.work_order_material_reservations(id BIGSERIAL PRIMARY KEY,work_order_id BIGINT NOT NULL,material_id BIGINT NOT NULL,status TEXT NOT NULL DEFAULT 'reserved',source_owner_customer_id BIGINT NOT NULL DEFAULT 0);
 		CREATE TABLE %[1]s.stock_entries(id BIGINT PRIMARY KEY,status TEXT NOT NULL);
 		CREATE TABLE %[1]s.stock_entry_items(id BIGINT PRIMARY KEY,stock_entry_id BIGINT NOT NULL,material_id BIGINT NOT NULL,owner_customer_id BIGINT NOT NULL DEFAULT 0);
 		CREATE TABLE %[1]s.business_group_assignments(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,group_item_id BIGINT NOT NULL,usage_key TEXT NOT NULL,object_key TEXT NOT NULL,object_id BIGINT NOT NULL,object_ref TEXT NOT NULL DEFAULT '',sort_order INT NOT NULL DEFAULT 100,created_by TEXT NOT NULL DEFAULT '',updated_by TEXT NOT NULL DEFAULT '',UNIQUE(usage_key,object_key,object_id,object_ref));
@@ -55,7 +55,7 @@ func TestMaterialOwnershipCutoverConflictTransactionIdempotencyAndRollback(t *te
 		INSERT INTO %[1]s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g) VALUES(11,'FACTORY-BATCH',1,'raw_materials',500),(12,'CUSTOMER-BATCH',1,'customer_raw',1000);
 		UPDATE %[1]s.materials SET onhand_g=1500 WHERE id=1;
 		INSERT INTO %[1]s.work_orders(id,status) VALUES(90,'running');
-		INSERT INTO %[1]s.work_order_material_reservations(work_order_id,material_id) VALUES(90,1);
+		INSERT INTO %[1]s.work_order_material_reservations(work_order_id,material_id,source_owner_customer_id) VALUES(90,1,74);
 	`, schema)); err != nil {
 		t.Fatal(err)
 	}
@@ -73,9 +73,15 @@ func TestMaterialOwnershipCutoverConflictTransactionIdempotencyAndRollback(t *te
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.work_order_material_reservations`, schema)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.work_order_material_reservations(work_order_id,material_id,source_owner_customer_id) VALUES(90,1,0)`, schema)); err != nil {
+		t.Fatal(err)
+	}
 	preview, err = repo.PreviewMaterialOwnershipCutover(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(preview.Conflicts) != 0 {
+		t.Fatalf("factory-owned reservation must not block customer-owned stock split: %+v", preview)
 	}
 	if _, err := repo.ApplyMaterialOwnershipCutover(ctx, "pr639-test", "stale"); err == nil || !strings.Contains(err.Error(), "清单已变化") {
 		t.Fatalf("stale manifest err=%v", err)
