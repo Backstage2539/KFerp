@@ -98,42 +98,15 @@ test('customer portal settings preserves unknown template keys for correction', 
   assert.match(source, /!unknownTemplateKey\(row\)/)
 })
 
-test('customer processing portal uses the ERP fulfillment order list and document drawers', () => {
-  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerProcessingPortalView.vue'), 'utf8')
-  for (const want of [
-    '履约客户订单',
-    '订单费用',
-    '待结算金额',
-    'fetchCustomerFulfillmentOrders',
-    'fetchCustomerFulfillmentOrderDetail',
-    'customerFulfillmentOrderFees',
-    'SalesOrderView',
-    'DeliveryNoteView',
-    'openFulfillmentOrderDetail',
-  ]) {
-    assert.ok(source.includes(want), `missing ${want}`)
-  }
-  assert.doesNotMatch(source, /overview\.direct_ship_orders/)
+test('customer workspace separates pages and shares the employee order form', () => {
+  const source=fs.readFileSync(path.join(currentDir,'..','views','CustomerProcessingPortalView.vue'),'utf8')
+  for(const marker of ['customerOrders','customerPriceTables','customerProcessing','customerInventory','customerSettlement','OrderEntryView','SalesOrderView','待补收件信息','publication_id','previewID === list.id']) assert.ok(source.includes(marker),marker)
+  assert.doesNotMatch(source,/JSON\.stringify|submitCustomerDirectShipOrder|directShipItems/)
 })
 
-test('customer processing portal preserves customer SKU alias snapshots in direct ship orders', () => {
-  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerProcessingPortalView.vue'), 'utf8')
-
-  assert.match(source, /customer_product_alias_id:\s*Number\(row\.customer_product_alias_id \|\| 0\)/)
-  assert.match(source, /customer_product_display_name_snapshot:\s*String\(row\.customer_product_display_name \|\| row\.product_name \|\| ''\)\.trim\(\)/)
-  assert.match(source, /customer_item_code_snapshot:\s*String\(row\.customer_item_code \|\| ''\)\.trim\(\)/)
-  assert.match(source, /row\.customer_product_alias_id\s*=\s*Number\(option\?\.customer_product_alias_id \|\| 0\)/)
-  assert.match(source, /const aliasID = Number\(option\?\.customer_product_alias_id \|\| 0\)/)
-  assert.match(source, /return `alias:\$\{aliasID\}:/)
-  assert.match(source, /function productForDirectShipRow\(row\)/)
-})
-
-test('customer processing portal does not embed finance details after finance becomes a separate menu', () => {
-  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerProcessingPortalView.vue'), 'utf8')
-
-  assert.equal(source.includes('费用明细'), false)
-  assert.equal(source.includes('结算单'), false)
-  assert.equal(source.includes('canViewSettlement.value ?'), false)
+test('shared order payload retains customer identity snapshots', () => {
+ const source=fs.readFileSync(path.join(currentDir,'order-entry.js'),'utf8')
+ for(const field of ['customer_product_alias_id','customer_product_reference_id','customer_product_display_name_snapshot','customer_item_code_snapshot']) assert.ok(source.includes(`payload.${field}.push`))
 })
 
 test('customer workbench order forms do not expose discount or shipping inputs', () => {

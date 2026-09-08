@@ -2511,7 +2511,7 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 			return customerportalapp.FulfillmentOrder{}, err
 		}
 		if line.ProductKind == catalogdomain.ProductKindDripBag {
-			if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, portalMiniActor(cmd.CreatedByMiniUserID), "customer_portal_order", &orderID, "mall drip submit", nil, nil, nil, postgresinfra.AuditMeta{
+			if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, firstNonEmpty(cmd.Actor, portalMiniActor(cmd.CreatedByMiniUserID)), "customer_portal_order", &orderID, "mall drip submit", nil, nil, nil, postgresinfra.AuditMeta{
 				"product_id":     line.ProductID,
 				"sales_unit":     pricing.SalesUnit,
 				"qty":            item.Qty,
@@ -2524,7 +2524,7 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 			}
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, portalMiniActor(cmd.CreatedByMiniUserID), "customer_portal_order", &orderID, "mall submit", nil, nil, postgresinfra.StrPtr(orderNo), postgresinfra.AuditMeta{
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, firstNonEmpty(cmd.Actor, portalMiniActor(cmd.CreatedByMiniUserID)), "customer_portal_order", &orderID, "mall submit", nil, nil, postgresinfra.StrPtr(orderNo), postgresinfra.AuditMeta{
 		"customer_id": cmd.CustomerID, "item_count": len(cmd.Items), "total": totalAmount,
 	}); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err

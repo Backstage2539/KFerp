@@ -952,3 +952,6 @@
 - DEV-641-SALES-DOCUMENTS：末页收款区、中文分页、订单备注和紧凑金额底色。
 - DEV-641-DELIVERY：相关自动验证、手册、develop/main 合并及开发/生产部署。
 - 证据：orderapp-remote/docs/acceptance/2026-09-08-order-delivery-edit-documents.md。
+
+## PR-642-EFS-FULFILLMENT-HOME（2026-09-09）
+客户首页与能力独立页面；共享员工价格表录单、连续补录及幂等重试；独立订单页补收件信息；员工合并销售单。生产发布后，将指定 EFS 八单从赠送归为客户默认批发，保留全部历史业务字段和价格快照，事务校验、备份与操作日志必须完整。业务验收由 Van 完成。

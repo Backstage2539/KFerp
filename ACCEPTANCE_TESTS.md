@@ -1178,3 +1178,6 @@
 - [ ] 多个关联单号、长地址、多行订单备注不重叠、不缺失；组合单逐订单显示备注。
 - [ ] 已付绿色、未付红色背景仅包围标签和金额；PDF和PNG均一致。
 - [ ] 开发/生产部署版本一致包含本次改动，由 Van 进行业务验收。
+
+## PR-642-EFS-FULFILLMENT-HOME
+验收入口与针对性 RED/GREEN、API、前端、PDF/PNG 证据见 `orderapp-remote/docs/acceptance/2026-09-09-efs-fulfillment.md`。原八单以调整前后完整订单（仅排除类型字段）及明细指纹一致为准，二次执行须修改零单。

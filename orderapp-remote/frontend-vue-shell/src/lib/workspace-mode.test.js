@@ -130,14 +130,14 @@ test('vue shell wires workspace mode into navigation and routed pages', () => {
     'workspace-switcher',
     'showWorkspaceSwitcher',
     'isCustomerAccountActor',
-    "return ['customerProcessingPortal', 'financeExpenses', 'financeClosing', 'financeReport']",
+    "customerAccountActorMenuGroups.value.flatMap",
     'customerProcessingPortal',
-    "name: '工作台'",
-    "label: '工作台'",
-    "name: '费用相关'",
-    "key: 'financeExpenses'",
-    "key: 'financeClosing'",
-    "key: 'financeReport'",
+
+
+
+
+
+
     'fetchCustomerProcessingPortalOverview',
     'menuGroupsForViewContext',
     'kferp.workspace.customerId',
