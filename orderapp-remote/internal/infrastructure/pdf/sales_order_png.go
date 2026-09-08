@@ -497,14 +497,8 @@ func (c *salesOrderPNGCanvas) paymentInfoBottom(contentY int, snapshot salesdoma
 	}
 	if len(snapshot.PaymentCodes) > 0 {
 		codeY := maxInt(salesOrderPNGMMToPX(codeBox.YMM), contentY)
-		width := salesOrderPNGMMToPX(codeBox.WidthMM)
 		height := salesOrderPNGMMToPX(codeBox.HeightMM)
-		metrics := salesOrderPNGPaymentCodeMetrics(len(snapshot.PaymentCodes), width, height)
-		codeBottom := codeY
-		for range snapshot.PaymentCodes {
-			codeBottom += metrics.ImageSize + 88 + metrics.Gap
-		}
-		bottom = maxInt(bottom, codeBottom)
+		bottom = maxInt(bottom, codeY+height)
 	}
 	return bottom + 80
 }
@@ -526,22 +520,38 @@ func (c *salesOrderPNGCanvas) paymentCodes(x, y, width, height int, codes []sale
 	if len(codes) == 0 {
 		return
 	}
-	metrics := salesOrderPNGPaymentCodeMetrics(len(codes), width, height)
+	extra := 80
 	for _, code := range codes {
 		label := strings.TrimSpace(code.Label)
 		if label == "" {
 			label = "收款码"
 		}
-		c.textCenter(x, y, width, 20, color.RGBA{R: 30, G: 30, B: 30, A: 255}, label)
+		textHeight := c.wrappedTextHeight(width, 20, 30, []string{label}) + 18
+		if strings.TrimSpace(code.Description) != "" {
+			textHeight += 24 + c.wrappedTextHeight(width, 16, 24, []string{code.Description})
+		}
+		extra = maxInt(extra, textHeight)
+	}
+	metrics := salesOrderPNGPaymentCodeMetricsForText(len(codes), width, height, extra)
+	for _, code := range codes {
+		label := strings.TrimSpace(code.Label)
+		if label == "" {
+			label = "收款码"
+		}
+		labelY := y
+		for _, line := range c.wrapLine(label, width, 20) {
+			c.textCenter(x, labelY, width, 20, color.RGBA{R: 30, G: 30, B: 30, A: 255}, line)
+			labelY += 30
+		}
 		imageX := x + (width-metrics.ImageSize)/2
-		imageY := y + salesOrderPNGMMToPX(8)
+		imageY := labelY + 18
 		if !c.assetImageSharp(code.ObjectKey, imageX, imageY, metrics.ImageSize, metrics.ImageSize) {
 			c.rect(imageX, imageY, metrics.ImageSize, metrics.ImageSize, color.RGBA{R: 238, G: 232, B: 222, A: 255})
 		}
 		if desc := strings.TrimSpace(code.Description); desc != "" {
 			c.wrappedText(x, imageY+metrics.ImageSize+24, width, 16, 24, color.RGBA{R: 90, G: 90, B: 90, A: 255}, []string{desc})
 		}
-		y += metrics.ImageSize + 88 + metrics.Gap
+		y += metrics.CellH + metrics.Gap
 	}
 }
 
@@ -549,6 +559,12 @@ type salesOrderPNGPaymentCodeLayout struct {
 	ImageSize int
 	Gap       int
 	CellH     int
+}
+
+func salesOrderPNGPaymentCodeMetricsForText(count, width, height, textHeight int) salesOrderPNGPaymentCodeLayout {
+	metrics := salesOrderPNGPaymentCodeMetrics(count, width, height)
+	metrics.ImageSize = maxInt(1, minInt(width, metrics.CellH-textHeight))
+	return metrics
 }
 
 func salesOrderPNGPaymentCodeMetrics(count, width, height int) salesOrderPNGPaymentCodeLayout {
@@ -670,6 +686,11 @@ func (c *salesOrderPNGCanvas) wrapLine(line string, width int, size float64) []s
 	out := make([]string, 0, 2)
 	current := ""
 	for _, r := range line {
+		if r == '\n' {
+			out = append(out, current)
+			current = ""
+			continue
+		}
 		next := current + string(r)
 		if current != "" && c.measure(next, size) > width {
 			out = append(out, current)
