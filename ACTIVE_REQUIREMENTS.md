@@ -5062,3 +5062,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: targeted frontend/Go/API RED-GREEN; rendered PDF/PNG inspection; full backend/frontend/build gates
 - Deployment: develop and main, development and production authorized; business acceptance by Codex per approved plan, no direct production data repair
 - Last update: 2026-09-08
+### PR-640-ERP-SESSION-POOL
+- Branch: codex/fulfillment-empty-login-20260908；production baseline origin/main 491388ec。
+- Scope: 履约客户登录并发加载耗尽连接池；会话资格查询移出持锁事务；绑定查询关闭结果后再查模板；保持旧会话撤销和客户隔离。
+- Status: targeted RED/GREEN and full backend gate passed；production app restarted for temporary recovery, permanent fix pending release。
+- Verifier: PostgreSQL pools 1/4 and 8 concurrent bearer requests; security changes during eligibility; existing session-revocation/login tests; scripts/verify_kferp.sh backend and changed。
+- Evidence: orderapp-remote/docs/acceptance/2026-09-08-erp-session-pool.md。
+- Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md。

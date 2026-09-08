@@ -220,25 +220,30 @@ func (r *Repository) CustomerPortalContext(ctx context.Context, employeeID int64
 	if err != nil {
 		return app.CustomerERPContext{}, err
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var row app.CustomerERPContext
-		var templateKey string
-		if err := rows.Scan(&row.EmployeeID, &row.CustomerID, &row.CustomerName, &row.BindingRole, &row.BindingStatus, &templateKey); err != nil {
-			return app.CustomerERPContext{}, err
-		}
-		available, err := r.customerERPWorkbenchAvailableForTemplateKey(ctx, r.pool, templateKey)
+	type bindingCandidate struct {
+		binding     app.CustomerERPContext
+		templateKey string
+	}
+	// CollectRows closes the result set and releases its pool connection before
+	// template lookups. Keeping rows open here can exhaust even a one-slot pool.
+	candidates, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (bindingCandidate, error) {
+		var candidate bindingCandidate
+		binding := &candidate.binding
+		err := row.Scan(&binding.EmployeeID, &binding.CustomerID, &binding.CustomerName, &binding.BindingRole, &binding.BindingStatus, &candidate.templateKey)
+		return candidate, err
+	})
+	if err != nil {
+		return app.CustomerERPContext{}, err
+	}
+	for _, candidate := range candidates {
+		available, err := r.customerERPWorkbenchAvailableForTemplateKey(ctx, r.pool, candidate.templateKey)
 		if err != nil {
 			return app.CustomerERPContext{}, err
 		}
 		if !available {
 			continue
 		}
-		return row, nil
-	}
-	if err := rows.Err(); err != nil {
-		return app.CustomerERPContext{}, err
+		return candidate.binding, nil
 	}
 	return app.CustomerERPContext{}, app.ErrCustomerERPBindingNotFound
 }
