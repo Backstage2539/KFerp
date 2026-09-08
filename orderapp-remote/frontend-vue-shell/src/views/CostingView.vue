@@ -606,6 +606,7 @@
             <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
             <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
           </div>
+          <p v-if="priceListOrderabilityBlockedReason && !error" class="error price-list-publish-feedback" role="alert">{{ priceListOrderabilityBlockedReason }}</p>
           <p v-if="error" class="error price-list-publish-feedback">{{ error }}</p>
           <p v-if="message" class="ok price-list-publish-feedback">{{ message }}</p>
         </div>
@@ -1067,6 +1068,7 @@
 </template>
 
 <script setup>
+import { priceTableOrderabilityBlockedReason } from '../lib/price-table-orderability.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCurrentActor } from '../api/auth'
 import { apiFetch, apiGet, apiSend } from '../api/client'
@@ -1366,6 +1368,7 @@ const pdfProductSpecSelectionCounts = computed(() => priceListProductSpecSelecti
 const pdfProductSpecSelectionIssues = computed(() => pdfAvailableItems.value
   .map((family) => ({ family, issue: priceListProductSpecSelectionIssue(family, pdfProductSpecSelections.value) }))
   .filter((row) => row.issue))
+const priceListOrderabilityBlockedReason = computed(() => priceTableOrderabilityBlockedReason(pdfProductSpecSelections.value, pdfAvailableItems.value))
 const priceListProductSpecSelectionBlockedReason = computed(() => String(pdfProductSpecSelectionIssues.value[0]?.issue?.message || '').trim())
 const pdfVisibleCategoryCodes = computed(() => priceListCategoryCodesForSelectedProducts(
   categoryProductGroups.value,
@@ -1621,6 +1624,7 @@ const publicBeanListURL = computed(() => {
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}${query ? `?${query}` : ''}`
 })
 const priceListPublishBlockedReason = computed(() => {
+  if (priceListOrderabilityBlockedReason.value) return priceListOrderabilityBlockedReason.value
   if (priceListProductSpecSelectionBlockedReason.value) return priceListProductSpecSelectionBlockedReason.value
   if (priceListLegacyPricingBlockedReason.value) return priceListLegacyPricingBlockedReason.value
   if (!pdfGroups.value.length) return '暂无可发布的价格表预览'
@@ -4682,6 +4686,11 @@ function clearPdfPrintMode() {
 
 async function generateBeanListPdf() {
   if (!pdfGroups.value.length) return
+  if (priceListOrderabilityBlockedReason.value) {
+    message.value = ''
+    error.value = priceListOrderabilityBlockedReason.value
+    return
+  }
   if (priceListLegacyPricingBlockedReason.value) {
     message.value = ''
     error.value = priceListLegacyPricingBlockedReason.value
@@ -4707,6 +4716,7 @@ async function generateBeanListPdf() {
   const listType = pdfTheme.value.listType
   const productTypeCategoryID = activeProductTypeCategoryID.value
   try {
+    await apiSend('/api/costing/bean-list/validate-orderability', { body: beanListPublicationPayload() })
     const row = await apiSend('/api/costing/bean-list/drafts', { body: beanListPublicationPayload() })
     const params = beanListPublicationDownloadParams(row)
     const document = await apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`)
