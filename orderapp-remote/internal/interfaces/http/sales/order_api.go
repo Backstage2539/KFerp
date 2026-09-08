@@ -357,7 +357,7 @@ func (h orderAPIHandler) detail(c echo.Context) error {
 		ProductBOMSpecOptions: customerDetailSpecOptions(c, data),
 		EditMode:              true,
 		EditID:                id,
-		EditData:              editDataForAPI(data.EditData),
+		EditData:              customerEditDataForAPI(data.EditData, support.CustomerFulfillmentOrderScopeLimited(c)),
 	})
 }
 
@@ -1033,6 +1033,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		PriceOverride                      bool   `json:"price_override"`
 		UnitPrice                          string `json:"unit_price"`
 		Qty                                string `json:"qty"`
+		LineTotal                          string `json:"line_total"`
 		Unit                               string `json:"unit"`
 		Spec                               string `json:"spec"`
 		BeanListPublicationID              int64  `json:"bean_list_publication_id"`
@@ -1083,6 +1084,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			PriceOverride:                      it.PriceOverride,
 			UnitPrice:                          it.UnitPrice,
 			Qty:                                it.Qty,
+			LineTotal:                          it.LineTotal,
 			Unit:                               it.Unit,
 			Spec:                               spec,
 			BeanListPublicationID:              it.BeanListPublicationID,
