@@ -273,7 +273,7 @@
             <span>固定价金额按具体规格分别录入；此处只继承计价方式。</span>
           </div>
         </div>
-        <p v-if="activeBeanListCustomerID > 0" class="muted">客户报价沿用已有客户表；新增商品带入公共报价。可在下方逐行修改价格，发布后生效。</p>
+        <p v-if="activeBeanListCustomerID > 0" class="muted">客户报价初始沿用已有客户表或公共报价；主动修改计价模板后，受影响商品按新模板生成档位和价格。可逐行调整，发布后生效。</p>
         <p class="muted inline-pricing-config-note">分类和父商品计价直接在下方选品位置处理；商品的全部已选规格继承同一种计价方式，固定价金额仍按规格分别录入。</p>
         <div v-if="priceListLegacyPricingConflicts.length" class="product-spec-selection-warning price-list-legacy-pricing-warning">
           <strong>旧草稿存在规格级计价冲突，发布已阻止。</strong>
@@ -1312,6 +1312,7 @@ const priceListProductTemplateOverrides = ref({})
 const priceListLegacyPricingConflicts = ref([])
 const priceListFlatRowOverrides = ref({})
 const customerPriceSeedRows = ref([])
+const customerPriceConfiguredSources = ref({})
 let customerPriceSeedScope = ''
 const customerPriceSources = ref([])
 const customerPriceSourcesReadyKey = ref('')
@@ -1452,7 +1453,9 @@ const generatedPriceListFlatRows = computed(() => dedupePriceListFlatRows(normal
   priceListFlatRowsFromGroups(normalizedPriceListGroups.value),
   pdfProductSpecSelections.value,
 )))
-const priceListFlatRows = computed(() => applyCustomerPriceRows(generatedPriceListFlatRows.value, customerPriceSeedRows.value, priceListFlatRowOverrides.value, activeBeanListCustomerID.value))
+const priceListFlatRows = computed(() => applyCustomerPriceRows(generatedPriceListFlatRows.value, customerPriceSeedRows.value, priceListFlatRowOverrides.value, activeBeanListCustomerID.value, {
+  configuredSources: customerPriceConfiguredSources.value, publications: customerPriceSources.value,
+}))
 const priceListPricingRuleEditorOptions = computed(() => buildPriceListPricingRuleEditorOptions(pricingRules.value, priceListFlatRows.value))
 const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(normalizedPriceListGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
 const priceListTierUnitBlockedReason = computed(() => String(
@@ -1973,6 +1976,7 @@ function savePriceListGenerationDraftForActiveType() {
     productOverrides: priceListProductTemplateOverrides.value,
     flatRowOverrides: priceListFlatRowOverrides.value,
     customerPriceSeedRows: customerPriceSeedRows.value,
+    customerPriceConfiguredSources: customerPriceConfiguredSources.value,
     product_spec_selections: pdfProductSpecSelections.value,
   })
 }
@@ -1980,10 +1984,11 @@ function savePriceListGenerationDraftForActiveType() {
 function restorePriceListGenerationDraftForActiveType() {
   priceListLegacyPricingConflicts.value = []
   const scopeKey = priceListGenerationDraftStorageKey()
-  if (customerPriceSeedScope !== scopeKey) { customerPriceSeedRows.value = []; priceListFlatRowOverrides.value = {}; customerPriceSeedScope = scopeKey }
+  if (customerPriceSeedScope !== scopeKey) { customerPriceSeedRows.value = []; customerPriceConfiguredSources.value = {}; priceListFlatRowOverrides.value = {}; customerPriceSeedScope = scopeKey }
   const draft = readPriceListGenerationDraft(scopeKey)
   if (!draft) return false
   customerPriceSeedRows.value = Array.isArray(draft.customerPriceSeedRows) ? draft.customerPriceSeedRows : []
+  customerPriceConfiguredSources.value = { ...(draft.customerPriceConfiguredSources || {}) }
   priceListTemplateDefaults.value = {
     ...priceListTemplateDefaults.value,
     ...defaultPriceListTemplateSelection(draft.defaults || {}),
@@ -2795,7 +2800,12 @@ function priceListProductDisplaySummary(id) {
   return parts.length ? parts.join(' / ') : '无标签'
 }
 
+function markCustomerPriceConfigured(scope) {
+  if (activeBeanListCustomerID.value > 0) customerPriceConfiguredSources.value = { ...customerPriceConfiguredSources.value, [scope]: true }
+}
+
 function setPriceListDefaultTemplate(field, value) {
+  markCustomerPriceConfigured('default')
   priceListTemplateDefaults.value = {
     ...priceListTemplateDefaults.value,
     [field]: priceListTemplateFieldValue(field, value),
@@ -2805,6 +2815,8 @@ function setPriceListDefaultTemplate(field, value) {
 }
 
 function setPriceListParentTemplate(group = {}, field, value) {
+  const configRow = priceListGroupConfigRow(group)
+  markCustomerPriceConfigured(`group:${Number(configRow.parent_group_item_id || configRow.group_item_id || 0)}`)
   const key = priceListParentTemplateKey(group)
   if (field === 'pricing_mode' && !String(value || '').trim()) {
     const next = { ...priceListParentTemplateSelections.value }
@@ -2826,6 +2838,7 @@ function setPriceListParentTemplate(group = {}, field, value) {
 }
 
 function setPriceListGroupTemplate(group = {}, field, value) {
+  markCustomerPriceConfigured(`group:${Number(priceListGroupConfigRow(group).group_item_id || 0)}`)
   const key = priceListGroupTemplateKey(group)
   if (field === 'pricing_mode' && !String(value || '').trim()) {
     const next = { ...priceListGroupTemplateSelections.value }
@@ -2865,6 +2878,7 @@ function clearPriceListCategoryTemplate(group = {}) {
 
 function setPriceListCategoryTemplate(group = {}, field, value) {
   const target = priceListCategoryTemplateTarget(group)
+  markCustomerPriceConfigured(`group:${Number(target.row.group_item_id || 0)}`)
   if (field === 'pricing_mode' && !String(value || '').trim()) {
     clearPriceListCategoryTemplate(group)
     return
@@ -2894,6 +2908,7 @@ function setPriceListCategoryTemplate(group = {}, field, value) {
 
 function setPriceListProductTemplate(row = {}, field, value) {
   if (priceListProductTemplateOverrideScope(row) !== 'parent_product') return
+  markCustomerPriceConfigured(`product:${Number(row.parent_product_id || row.product_id || 0)}`)
   const key = priceListProductTemplateOverrideKey(row)
   if (!key) return
   if (field === 'pricing_mode' && !String(value || '').trim()) {
@@ -3257,6 +3272,7 @@ function priceListFlatRowFromSource({
     group_source: 'product_catalog',
     pricing_mode: mode,
     pricing_mode_source: resolved.pricing_mode_source || 'default',
+    pricing_mode_source_group_item_id: Number(resolved.pricing_mode_source_group_item_id || 0),
     tier_label: tierLabel,
     min_qty: Number(minQty || 0) || 0,
     max_qty: maxQty === undefined || maxQty === null || maxQty === '' ? null : Number(maxQty),
@@ -3635,6 +3651,14 @@ async function savePriceTierTemplate() {
     next.push(row)
     priceTierTemplates.value = next.filter((template) => template.active !== false).sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
     priceTierTemplateForm.value = row
+    if (activeBeanListCustomerID.value > 0) {
+      generatedPriceListFlatRows.value.filter(item => Number(item.tier_template_id) === Number(row.id)).forEach(item => {
+        const scope = item.pricing_mode_source === 'parent_product' ? `product:${Number(item.parent_product_id || item.product_id)}`
+          : ['subgroup','parent_group'].includes(item.pricing_mode_source) ? `group:${Number(item.pricing_mode_source_group_item_id || 0)}` : 'default'
+        markCustomerPriceConfigured(scope)
+      })
+      savePriceListGenerationDraftForActiveType()
+    }
     message.value = '阶梯模板已保存'
   } catch (err) {
     error.value = err.message || '保存阶梯模板失败'
@@ -5034,6 +5058,7 @@ function captureNamedPriceTablePayload() {
     draft: { defaults: priceListTemplateDefaults.value, parentSelections: priceListParentTemplateSelections.value,
       groupSelections: priceListGroupTemplateSelections.value, productOverrides: priceListProductTemplateOverrides.value,
       flatRowOverrides: priceListFlatRowOverrides.value, customerPriceSeedRows: customerPriceSeedRows.value,
+      customerPriceConfiguredSources: customerPriceConfiguredSources.value,
       product_spec_selections: pdfProductSpecSelections.value },
     editor: { pdfOptions: pdfOptions.value, customizers: pdfCustomizers.value,
       priceSource: currentPriceSourcePublication.value, styleSource: styleSourcePublicationIDByType.value[activePriceListTypeKey.value] || 0 },
@@ -5166,7 +5191,7 @@ watch([activePriceListTypeKey, activeBeanListCustomerID, publicationScope, loadi
   if (!loading.value) { await nextTick(); await restoreNamedPriceTableBatch() }
 }, { flush: 'post' })
 watch([pdfOptions, pdfCustomizers, priceListTemplateDefaults, priceListParentTemplateSelections, priceListGroupTemplateSelections,
-  priceListProductTemplateOverrides, priceListFlatRowOverrides, pdfProductSpecSelections, pdfGroups], persistNamedPriceTableBatch, { deep: true, flush: 'post' })
+  priceListProductTemplateOverrides, priceListFlatRowOverrides, customerPriceConfiguredSources, pdfProductSpecSelections, pdfGroups], persistNamedPriceTableBatch, { deep: true, flush: 'post' })
 watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name])]), () => {
   if (!restoringNamedPriceTable && namedPriceTableBatch.value) savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
 })
