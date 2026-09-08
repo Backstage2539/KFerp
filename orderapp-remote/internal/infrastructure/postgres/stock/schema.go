@@ -8,6 +8,9 @@ import (
 )
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE IF EXISTS %s.materials ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0`, schema)); err != nil {
+		return err
+	}
 	if err := ensureStockLedgerTables(ctx, pool, schema); err != nil {
 		return err
 	}

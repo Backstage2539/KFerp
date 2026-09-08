@@ -115,6 +115,7 @@ type Option struct {
 	ProductCode           string  `json:"product_code,omitempty"`
 	Name                  string  `json:"name"`
 	CustomerID            int64   `json:"customer_id"`
+	OwnerName             string  `json:"owner_name,omitempty"`
 	InventoryUnit         string  `json:"inventory_unit,omitempty"`
 	InventoryUnitExplicit bool    `json:"inventory_unit_explicit"`
 	RoastLevel            string  `json:"roast_level,omitempty"`

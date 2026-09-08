@@ -26,6 +26,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		onhand_units BIGINT NOT NULL DEFAULT 0,
 		min_level_g BIGINT NOT NULL DEFAULT 0,
 		min_level_units BIGINT NOT NULL DEFAULT 0,
+		owner_customer_id BIGINT NOT NULL DEFAULT 0,
 		deprecated_at TIMESTAMPTZ NULL,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`, schema)
@@ -40,11 +41,19 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS industry_field_template_id BIGINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS is_semi_finished BOOLEAN NOT NULL DEFAULT false`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS cost_unit TEXT`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0`,
 		`UPDATE %[1]s.materials SET batch_no=to_char(now(),'YYYYMMDD') WHERE batch_no=''`,
 	} {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
 			return err
 		}
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		ALTER TABLE %s.materials DROP CONSTRAINT IF EXISTS materials_owner_customer_id_nonnegative;
+		ALTER TABLE %s.materials ADD CONSTRAINT materials_owner_customer_id_nonnegative CHECK(owner_customer_id>=0);
+		CREATE INDEX IF NOT EXISTS materials_owner_customer_idx ON %s.materials(owner_customer_id,deprecated_at,id);
+	`, schema, schema, schema)); err != nil {
+		return err
 	}
 	if err := ensureMaterialUnitCostUnitConstraint(ctx, pool, schema); err != nil {
 		return err
@@ -65,6 +74,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		return err
 	}
 	if err := ensureMaterialCustomerReferenceSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensureMaterialOwnershipCutoverSchema(ctx, pool, schema); err != nil {
 		return err
 	}
 	logQ := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.material_consumption_logs (
@@ -94,6 +106,44 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_id BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_code TEXT NOT NULL DEFAULT ''`, schema))
 	return nil
+}
+
+func ensureMaterialOwnershipCutoverSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.material_owner_migrations (
+	id BIGSERIAL PRIMARY KEY,
+	source_material_id BIGINT NOT NULL,
+	owner_customer_id BIGINT NOT NULL CHECK(owner_customer_id>0),
+	target_material_id BIGINT NOT NULL DEFAULT 0,
+	source_code TEXT NOT NULL DEFAULT '',
+	target_code TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'planned',
+	manifest_id TEXT NOT NULL DEFAULT '',
+	applied_by TEXT NOT NULL DEFAULT '',
+	applied_at TIMESTAMPTZ,
+	rolled_back_by TEXT NOT NULL DEFAULT '',
+	rolled_back_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(source_material_id,owner_customer_id)
+);
+CREATE TABLE IF NOT EXISTS %[1]s.material_owner_migration_batches (
+	id BIGSERIAL PRIMARY KEY,
+	migration_id BIGINT NOT NULL,
+	material_batch_id BIGINT NOT NULL UNIQUE,
+	batch_code TEXT NOT NULL DEFAULT '',
+	source_material_id BIGINT NOT NULL,
+	target_material_id BIGINT NOT NULL,
+	owner_customer_id BIGINT NOT NULL,
+	remaining_g BIGINT NOT NULL DEFAULT 0,
+	remaining_units BIGINT NOT NULL DEFAULT 0,
+	unit_cost NUMERIC(18,6) NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS material_owner_migrations_status_idx ON %[1]s.material_owner_migrations(status,id);
+CREATE INDEX IF NOT EXISTS material_owner_migration_batches_migration_idx ON %[1]s.material_owner_migration_batches(migration_id,material_batch_id);
+`, schema))
+	return err
 }
 
 func ensureMaterialCustomerReferenceSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {

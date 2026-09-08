@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-639-MATERIAL-UNIQUE-OWNERSHIP
+- Branch: `codex/material-unique-ownership-20260908`
+- Owner/session: Codex / 2026-09-08
+- Status: implementation and local verification complete; integration and development migration/deployment in progress
+- Scope: 物料档案唯一归属本公司或一个客户；取消多客户关联；BOM、库存和客户视图按物料归属隔离；拆分历史客户库存。
+- DEV: DEV-639-MATERIAL-OWNER; DEV-639-BOM-STOCK-OWNER-GUARDS; DEV-639-MATERIAL-OWNER-UX; DEV-639-MIGRATION-DELIVERY
+- Verifier: targeted Go/API/PostgreSQL and Vue RED/GREEN, full backend/frontend build, migration preflight/apply/rollback evidence, development deployment smoke.
+- Deployment: pending; full Go/Vue/build, focused real-PostgreSQL ownership/cutover tests and desktop/390px layout verification passed; development only, production untouched.
+- Last update: 2026-09-08 Asia/Shanghai
+- Notes: reservation script failed on macOS awk multiline value; PR-639 manually reserved.
+
 ### PR-638-PRICE-TABLE-ORDERABILITY
 - Branch: `codex/price-table-orderability-20260908` (development implementation); `codex/price-table-orderability-production-20260908` (production backport); `codex/pr638-delivery-evidence` (delivery records)
 - Owner/session: Codex / 2026-09-08
