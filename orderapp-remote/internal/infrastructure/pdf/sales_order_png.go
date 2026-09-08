@@ -42,6 +42,10 @@ func (r SalesOrderRenderer) RenderPNG(snapshot salesdomain.SalesOrderSnapshot) (
 	if err := snapshot.Validate(); err != nil {
 		return nil, err
 	}
+	snapshot, err := r.PrepareSalesOrderLayout(snapshot)
+	if err != nil {
+		return nil, err
+	}
 	fontPath, err := r.resolveFontPath()
 	if err != nil {
 		return nil, err
@@ -77,6 +81,11 @@ func (r SalesOrderRenderer) RenderCombinedSalesOrderPNG(snapshot salesdomain.Com
 	if err := snapshot.Validate(); err != nil {
 		return nil, err
 	}
+	layout, err := r.PrepareSalesOrderLayout(combinedSalesOrderTotalsSnapshot(snapshot))
+	if err != nil {
+		return nil, err
+	}
+	snapshot.PaymentTextBox, snapshot.PaymentCodeBox = layout.PaymentTextBox, layout.PaymentCodeBox
 	fontPath, err := r.resolveFontPath()
 	if err != nil {
 		return nil, err
@@ -309,8 +318,10 @@ func (c *salesOrderPNGCanvas) combinedItems(left, right, y int, snapshot salesdo
 			if row.Tone == "unpaid" {
 				bg, fg = color.RGBA{254, 226, 226, 255}, color.RGBA{185, 28, 28, 255}
 			}
-			c.rect(left, y, right-left, 34, bg)
-			c.textRight(right-8, y+6, 19, fg, row.Label+"："+row.Value)
+			badgeText := row.Label + "：" + row.Value
+			badgeWidth := minInt(right-left, c.measure(badgeText, 19)+16)
+			c.rect(right-badgeWidth, y, badgeWidth, 34, bg)
+			c.textRight(right-8, y+6, 19, fg, badgeText)
 			y += 34
 		}
 		if note := combinedSalesOrderGroupNote(group); note != "" {
@@ -410,11 +421,13 @@ func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.Sa
 			continue
 		}
 		if row.Tone == "paid" {
-			c.rect(left, y, right-left, 34, color.RGBA{220, 252, 231, 255})
+			badgeWidth := minInt(right-left, c.measure(text, size)+16)
+			c.rect(right-badgeWidth, y, badgeWidth, 34, color.RGBA{220, 252, 231, 255})
 			col = color.RGBA{22, 101, 52, 255}
 		}
 		if row.Tone == "unpaid" {
-			c.rect(left, y, right-left, 34, color.RGBA{254, 226, 226, 255})
+			badgeWidth := minInt(right-left, c.measure(text, size)+16)
+			c.rect(right-badgeWidth, y, badgeWidth, 34, color.RGBA{254, 226, 226, 255})
 			col = color.RGBA{185, 28, 28, 255}
 		}
 		c.textRight(right-8, y+8, size, col, text)
@@ -541,15 +554,15 @@ type salesOrderPNGPaymentCodeLayout struct {
 func salesOrderPNGPaymentCodeMetrics(count, width, height int) salesOrderPNGPaymentCodeLayout {
 	if count <= 1 {
 		size := minInt(width, height-80)
-		if size < 330 {
-			size = 330
+		if size < 1 {
+			size = 1
 		}
 		return salesOrderPNGPaymentCodeLayout{ImageSize: size, Gap: 28, CellH: height}
 	}
 	cellH := (height - (count-1)*24) / count
 	size := minInt(width, cellH-80)
-	if size < 270 {
-		size = 270
+	if size < 1 {
+		size = 1
 	}
 	return salesOrderPNGPaymentCodeLayout{ImageSize: size, Gap: 24, CellH: cellH}
 }

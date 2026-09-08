@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-641-ORDER-DELIVERY-EDIT-DOCUMENTS", title: "订单配送、编辑恢复和销售单分页优化", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-order-delivery-edit-documents.md"},
+		{table: "req_dev", code: "DEV-641-ORDER-DELIVERY", title: "自提本地送货、快递隔离和订单审计", status: "done", assignee: "Codex", evidence: "order_delivery_test.go; order_experience_api_test.go"},
+		{table: "req_dev", code: "DEV-641-ORDER-EDIT", title: "商品规格引用恢复、订单类型与紧凑摘要", status: "done", assignee: "Codex", evidence: "order-experience.test.js; order_experience_api_test.go"},
+		{table: "req_dev", code: "DEV-641-SALES-DOCUMENTS", title: "末页收款区、备注及中文分页与金额底色", status: "done", assignee: "Codex", evidence: "order_experience_artifact_test.go; order_experience_test.go"},
+		{table: "req_dev", code: "DEV-641-DELIVERY", title: "自动检查、手册与双环境部署", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-08-order-delivery-edit-documents.md"},
 		{table: "req_product", code: "PR-639-MATERIAL-UNIQUE-OWNERSHIP", title: "物料档案唯一归属本公司或一个客户", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-material-unique-ownership.md"},
 		{table: "req_dev", code: "DEV-639-MATERIAL-OWNER", title: "物料主档唯一归属、单客户接口、权限隔离和操作日志", status: "done", assignee: "Codex", evidence: "material_ownership_test.go; materials/service_test.go"},
 		{table: "req_dev", code: "DEV-639-BOM-STOCK-OWNER-GUARDS", title: "BOM、排产、库存批次和客户仓库按物料归属校验", status: "done", assignee: "Codex", evidence: "bom/repository.go; stock_document_test.go; production/component_sources.go"},

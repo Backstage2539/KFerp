@@ -348,7 +348,7 @@ func TestCombinedSalesOrderGroupHeaderShowsOrderDateInsteadOfOrderNo(t *testing.
 	}
 }
 
-func TestRenderSalesOrderPDFAddsPaymentContinuationPageWhenPaymentLayoutExceedsPage(t *testing.T) {
+func TestRenderSalesOrderPDFFitsPaymentLayoutWithinLastPage(t *testing.T) {
 	renderer := SalesOrderRenderer{}
 	b, err := renderer.Render(salesdomain.SalesOrderSnapshot{
 		OrderID:      1,
@@ -376,8 +376,8 @@ func TestRenderSalesOrderPDFAddsPaymentContinuationPageWhenPaymentLayoutExceedsP
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if got := pdfPageCount(b); got < 2 {
-		t.Fatalf("PDF page count = %d, want a continuation page for out-of-page payment layout", got)
+	if got := pdfPageCount(b); got != 1 {
+		t.Fatalf("PDF page count = %d, want one page when fitted payment boxes leave enough space after body", got)
 	}
 }
 

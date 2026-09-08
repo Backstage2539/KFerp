@@ -49,12 +49,13 @@ test('sales order preview keeps payment layout handles visible on multipage PDFs
   assert.ok(!src.includes('salesLayoutBoxMMToPDFPlacement(snapshot.payment_code_box, page'), 'payment code handle must not be locked to the first PDF page')
 })
 
-test('sales order payment layout handles can be dragged between preview PDF pages', () => {
+test('sales order payment layout handles stay on the last page', () => {
   const view = fs.readFileSync(new URL('../views/SalesOrderView.vue', import.meta.url), 'utf8')
   const preview = fs.readFileSync(new URL('../components/PDFStampPreview.vue', import.meta.url), 'utf8')
-  assert.ok(view.includes('cross_page_drag: true'), 'payment layout handles must opt in to cross-page dragging')
-  assert.ok(view.includes('payment_text_page_number: textBox.page_number'), 'payment text page number must be saved with the dragged layout')
-  assert.ok(view.includes('payment_code_page_number: codeBox.page_number'), 'payment code page number must be saved with the dragged layout')
+  assert.ok(view.includes('cross_page_drag: false'), 'payment handles must remain on the last page')
+  assert.ok(view.includes('last_page_only: true'))
+  assert.ok(view.includes('payment_text_page_number: 0'), 'payment text page number must be saved with the dragged layout')
+  assert.ok(view.includes('payment_code_page_number: 0'), 'payment code page number must be saved with the dragged layout')
   assert.ok(preview.includes('movePDFStampPlacementAcrossPages'), 'PDFStampPreview must use the cross-page movement helper')
   assert.ok(preview.includes('state.original.cross_page_drag'), 'cross-page movement should stay placement-scoped')
 })

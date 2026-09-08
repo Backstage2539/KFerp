@@ -250,7 +250,7 @@
               <span class="wide-item">地址：{{ activeOrderDetail.receiver_address || '-' }}</span>
             </div>
           </section>
-          <section class="drawer-section">
+          <section v-if="!isNonCourierShipMethod(activeOrderDetail.ship_method)" class="drawer-section">
             <h4>快递信息</h4>
             <div class="drawer-grid">
               <label>
@@ -276,25 +276,27 @@
               </label>
             </div>
           </section>
-          <section class="drawer-section">
-            <h4>订单状态</h4>
-            <div class="drawer-status-grid">
-              <OrderPaymentSummary :order="activeOrderDetail" />
+          <section class="drawer-section order-summary" aria-label="订单状态与费用明细">
+            <div class="order-summary-row">
               <span>收款：{{ activeOrderDetail.pay_status || '-' }}{{ activeOrderDetail.payment_method ? ' / ' + activeOrderDetail.payment_method : '' }}</span>
-              <span>发货：{{ activeOrderDetail.ship_status || '-' }}</span>
+              <span>交付：{{ orderDeliveryLabel(activeOrderDetail.ship_method) }} / {{ activeOrderDetail.ship_status || '-' }}</span>
               <span>生产：{{ activeOrderDetail.process_status || '-' }}</span>
               <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
             </div>
-          </section>
-          <section class="drawer-section">
-            <h4>费用明细</h4>
-            <div class="drawer-status-grid">
+            <div class="order-summary-row">
               <span v-for="line in orderFeeLines(activeOrderDetail)" :key="line.label">{{ line.label }}：{{ line.value }}</span>
-              <span v-for="line in orderOutsourceFeeLines(activeOrderDetail)" :key="line.key">{{ line.label }}：{{ line.value }}</span>
+              <OrderPaymentSummary :order="activeOrderDetail" />
+              <details v-if="orderOutsourceFeeLines(activeOrderDetail).length" class="fee-breakdown">
+                <summary>费用分项</summary>
+                <div><span v-for="line in orderOutsourceFeeLines(activeOrderDetail)" :key="line.key">{{ line.label }}：{{ line.value }}</span></div>
+              </details>
             </div>
           </section>
           <section v-if="activeOrderDetail.items?.length" class="drawer-section">
             <h4>商品明细</h4>
+            <p class="quote-source-summary" v-if="orderQuoteSourceSummary(activeOrderDetail.items || []).length">报价来源：
+              <span v-for="source in orderQuoteSourceSummary(activeOrderDetail.items || [])" :key="source.key">{{ source.label }}</span>
+            </p>
             <div class="detail-items">
               <div v-for="item in activeOrderDetail.items" :key="`${item.product_id}-${item.tier_id}-${item.qty}-${item.spec}`" class="detail-item">
                 <div>
@@ -304,13 +306,12 @@
                 <div>
                   <span>{{ productKindLabel(item.product_kind) }}</span>
                   <span>{{ item.unit_price ? `单价 ${item.unit_price}` : '-' }}</span>
-                  <span v-if="item.price_source_json">{{ orderItemPriceSourceLabel(item.price_source_json) }}</span>
                 </div>
               </div>
             </div>
           </section>
-          <section class="drawer-section trace-section">
-            <h4>报价来源</h4>
+          <details :key="`quote-${activeOrderDetail.id}`" class="drawer-section trace-section">
+            <summary>报价来源</summary>
             <div v-if="activeOrderDetail.quote_source_trace?.length" class="trace-list">
               <article v-for="row in activeOrderDetail.quote_source_trace" :key="`quote-${row.product_id}-${row.price_list_publication_id}-${row.tier_label}`" class="trace-row">
                 <strong>{{ orderTraceLineLabel(row) }}</strong>
@@ -318,9 +319,9 @@
               </article>
             </div>
             <p v-else class="muted">暂无报价来源</p>
-          </section>
-          <section class="drawer-section trace-section">
-            <h4>生产来源</h4>
+          </details>
+          <details :key="`production-${activeOrderDetail.id}`" class="drawer-section trace-section">
+            <summary>生产来源</summary>
             <div v-if="activeOrderDetail.production_source_trace?.length" class="trace-list">
               <article v-for="row in activeOrderDetail.production_source_trace" :key="`production-${row.product_id}-${row.bom_version_no}-${row.work_order_no}`" class="trace-row">
                 <strong>{{ orderTraceLineLabel(row) }}</strong>
@@ -328,7 +329,7 @@
               </article>
             </div>
             <p v-else class="muted">暂无生产追溯</p>
-          </section>
+          </details>
           <section class="drawer-section">
             <h4>订单信息</h4>
             <div class="drawer-status-grid">
@@ -400,9 +401,9 @@ import PaginationControls from '../components/PaginationControls.vue'
 import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
-import { productKindBadgeClass, productKindLabel } from '../lib/order-entry'
+import { productKindBadgeClass, productKindLabel, orderQuoteSourceSummary } from '../lib/order-entry'
 import { orderListSelectionState, selectableOrderIDs, toggleOrderPageSelection } from '../lib/order-list-selection'
-import { formatTrackingSummary, isOrderShipReady, trackingInputSummary } from '../lib/order-shipping'
+import { formatTrackingSummary, isOrderShipReady, trackingInputSummary, isNonCourierShipMethod, orderDeliveryLabel } from '../lib/order-shipping'
 import { orderListScopeForRequest } from '../lib/order-scope'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -673,7 +674,7 @@ async function loadOrderDetail(id) {
       id,
       order_no: activeOrderDetail.value?.order_no || editData.order_no,
       customer: activeOrderDetail.value?.customer || editData.customer,
-      order_type: activeOrderDetail.value?.order_type || editData.order_type,
+      order_type: (data.order_types || []).find(type => Number(type.id) === Number(editData.order_type_id))?.name || editData.order_type || activeOrderDetail.value?.order_type,
       pay_status: activeOrderDetail.value?.pay_status || editData.pay_status,
       ship_status: activeOrderDetail.value?.ship_status || editData.ship_status,
       process_status: activeOrderDetail.value?.process_status || editData.process_status,
@@ -687,7 +688,7 @@ function orderItemSpecLabel(item = {}) {
   if (item.product_kind === 'drip_bag') {
     return item.unit_conversion_label || (item.sales_unit === 'box' ? `${item.unit_bag_count || 10}袋/盒` : `${item.unit_bean_g || 10}g/袋`)
   }
-  return item.spec ? `${item.spec}g` : '-'
+  return item.spec ? (/^\d+(\.\d+)?$/.test(String(item.spec)) ? `${item.spec}g` : item.spec) : '-'
 }
 
 function orderItemPriceSourceLabel(sourceJSON) {
@@ -1113,6 +1114,14 @@ watch(() => props.viewParams, async () => {
 </script>
 
 <style scoped>
+.order-summary { display: grid; gap: 10px; }
+.order-summary-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; font-size: 13px; }
+.fee-breakdown { position: relative; }
+.fee-breakdown > div { position: absolute; right: 0; z-index: 2; display: grid; gap: 6px; min-width: 180px; padding: 12px; background: white; border: 1px solid #e6e0d8; box-shadow: 0 4px 12px #0001; }
+.trace-section > summary, .fee-breakdown > summary { cursor: pointer; font-weight: 600; }
+.trace-section[open] > summary { margin-bottom: 12px; }
+.quote-source-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: #626d81; }
+
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }

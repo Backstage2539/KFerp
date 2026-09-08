@@ -604,6 +604,38 @@ export function orderFamilySpecForStoredItem(family = {}, item = {}, publication
   return specs.find((entry) => orderFamilyID(entry?.sku_id, entry?.skuID, entry?.product_id, entry?.productID) === productID) || null
 }
 
+// Cutover product_id is a parent ID; sku_id in the catalog is a BOM-spec ID.
+// These namespaces may contain the same number and must never be interchanged.
+export function orderProductFamilyForStoredItem(families = [], item = {}, reference = {}) {
+  const context = { ...reference, ...item }
+  const bomSpecID = toInt(item.bom_spec_id)
+  const parentID = toInt(item.parent_product_id || (bomSpecID > 0 ? item.product_id : 0))
+  let candidates = families.filter(family => parentID > 0
+    ? toInt(family.parent_product_id || family.id) === parentID
+    : (family.specs || []).some(spec => !isProductBomSpecCutover(spec) && toInt(spec.sku_id) === toInt(item.product_id)))
+  const customerID = toInt(context.customer_id)
+  candidates = candidates.filter(family => !toInt(family.customer_id) || toInt(family.customer_id) === customerID)
+  for (const field of ['customer_product_reference_id', 'customer_product_alias_id']) {
+    if (toInt(context[field]) > 0) candidates = candidates.filter(family => toInt(family[field]) === toInt(context[field]))
+  }
+  return orderProductFamilyForContext(candidates, context)
+}
+
+export function orderQuoteSourceSummary(rows = [], publications = []) {
+  const sources = new Map()
+  for (const row of rows) {
+    const source = orderFamilyObject(row.price_source_json)
+    const id = toInt(row.bean_list_publication_id || source.publication_id || source.bean_list_publication_id)
+    if (!id && !Object.keys(source).length) continue
+    const publication = publications.find(item => toInt(item.id) === id) || {}
+    const name = source.price_table_name || publication.table_name || source.template_name || '价格表'
+    const version = row.bean_list_version_no || source.version_no || source.version || publication.version_no || ''
+    const key = `${id}:${source.table_key || name}:${version}`
+    sources.set(key, { key, label: [name, version].filter(Boolean).join(' · ') })
+  }
+  return [...sources.values()]
+}
+
 export function orderFamilyMaintainedSpecs(family = {}) {
   return (family?.specs || []).map((spec) => ({
     ...spec,
@@ -742,6 +774,7 @@ export function orderFamilySpecRowPatch(family = {}, spec = {}, publicationID = 
     product_code: orderFamilyText(spec.product_code || spec.sku_name || (cutover ? `BOM-SPEC-${toInt(spec.bom_spec_id)}` : `SKU-${toInt(spec.sku_id)}`)),
     product_record_name: parentName,
     customer_product_alias_id: toInt(family.customer_product_alias_id),
+    customer_product_reference_id: toInt(family.customer_product_reference_id),
     customer_product_display_name: orderFamilyText(family.customer_product_display_name || displayName),
     customer_item_code: orderFamilyText(family.customer_item_code),
     brand_name: orderFamilyText(family.brand_name),
@@ -1917,6 +1950,7 @@ export function buildOrderPayload({ form, rows }) {
     bom_spec_id: [],
     bom_variant_id: [],
     customer_product_alias_id: [],
+    customer_product_reference_id: [],
     customer_product_display_name_snapshot: [],
     customer_item_code_snapshot: [],
     brand_name_snapshot: [],
@@ -1953,6 +1987,7 @@ export function buildOrderPayload({ form, rows }) {
     payload.parent_product_id.push(String(isProductBomSpecCutover(row) ? productID : toInt(row.parent_product_id)))
     payload.bom_spec_id.push(String(toInt(identity.bom_spec_id)))
     payload.bom_variant_id.push(String(toInt(identity.bom_variant_id)))
+    payload.customer_product_reference_id.push(String(toInt(row.customer_product_reference_id)))
     payload.customer_product_alias_id.push(String(toInt(row.customer_product_alias_id)))
     payload.customer_product_display_name_snapshot.push(String(row.customer_product_display_name || row.product_name || row.item_name || '').trim())
     payload.customer_item_code_snapshot.push(String(row.customer_item_code || '').trim())
