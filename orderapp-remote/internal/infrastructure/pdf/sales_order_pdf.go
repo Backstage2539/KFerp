@@ -893,7 +893,9 @@ func salesOrderPaymentSnapshotForPDFPage(pdf *gofpdf.Fpdf, snapshot salesdomain.
 }
 
 func fitSalesOrderLayoutBoxWithinPDFPage(pdf *gofpdf.Fpdf, box salesdomain.SalesOrderLayoutBox) salesdomain.SalesOrderLayoutBox {
-	_, pageH := pdf.GetPageSize()
+	pageW, pageH := pdf.GetPageSize()
+	// Keep legacy positions inside the same 8 mm horizontal safe area as preview.
+	box.XMM = maxFloat64(8, minFloat64(box.XMM, pageW-8-box.WidthMM))
 	_, topMargin, _, bottomMargin := pdf.GetMargins()
 	maxBottom := pageH - bottomMargin
 	if box.HeightMM > maxBottom-topMargin {
