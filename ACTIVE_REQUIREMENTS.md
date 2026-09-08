@@ -5073,11 +5073,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-09-09
 
 ### PR-642-EFS-FULFILLMENT-HOME
-- Branch: codex/efs-fulfillment-home-20260909
+- Branch: codex/efs-release-acceptance-20260909
 - Owner/session: Codex
-- Status: merged latest verified develop; full Go, Vue 1121/1121, Vite, scoped PostgreSQL API and eight-order PDF/PNG GREEN; ready for development and production release
+- Status: done; development f7329754 and production d360c534 deployed; Codex business acceptance complete; all eight EFS orders wholesale/direct_ship; seven audited changes; repeated run zero changes
 - Scope: 客户能力独立页面、共享价格表录单与连续补录、收件信息补全、EFS指定8单批发归类、员工合并销售单。
 - Verifier: targeted Go/API/PostgreSQL tests; Vue node tests/build; combined PDF/PNG; development/production health and scoped API checks.
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md
-- Deployment: authorized development then main/production; exact EFS order adjustment after release.
+- Deployment: development → main/production complete; eight-order repair and real PDF/PNG verified after production release. Evidence: orderapp-remote/docs/acceptance/2026-09-09-efs-fulfillment.md
 - Last update: 2026-09-09
