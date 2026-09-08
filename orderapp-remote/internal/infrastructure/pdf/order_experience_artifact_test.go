@@ -117,3 +117,15 @@ func TestOrderExperiencePNGPaymentDescriptionsFitCells(t *testing.T) {
 		t.Fatalf("description would overlap the next code: %+v", metrics)
 	}
 }
+
+func TestOrderExperienceLegacyPaymentPositionStaysOnPaper(t *testing.T) {
+	r := SalesOrderRenderer{}
+	snapshot, err := r.PrepareSalesOrderLayout(salesdomain.SalesOrderSnapshot{PaymentText: "微信", Note: "必须完整显示的说明", PaymentTextBox: salesdomain.SalesOrderLayoutBox{XMM: 232, YMM: 143, WidthMM: 81, HeightMM: 136}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	box := snapshot.PaymentTextBox
+	if box.XMM < 8 || box.XMM+box.WidthMM > 202.01 {
+		t.Fatalf("legacy payment text is outside paper: %+v", box)
+	}
+}
