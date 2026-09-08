@@ -74,6 +74,8 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
+	RequestID                       string  `json:"request_id"`
+	BackfillMode                    bool    `json:"backfill_mode"`
 	SelectedPriceTableIDs           []int64 `json:"selected_price_table_ids"`
 	PrepaymentAmount                *string `json:"prepayment_amount" form:"prepayment_amount"`
 	EditID                          int64   `json:"edit_id"`
@@ -184,9 +186,16 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
 	e.POST("/api/order/payment-vouchers", h.uploadPaymentVoucher)
 	e.POST("/api/order", h.save)
+	e.GET("/api/customer-processing/portal/workspace", h.customerWorkspace)
+	e.GET("/api/customer-processing/portal/order/form", h.customerForm)
+	e.POST("/api/customer-processing/portal/order", h.save)
+	e.PATCH("/api/customer-processing/portal/orders/:id/recipient", h.customerRecipient)
 }
 
 func (h orderAPIHandler) list(c echo.Context) error {
+	if err := h.requireCustomerOrdersCapability(c); err != nil {
+		return err
+	}
 	query, ok := ordersQueryFromContext(c)
 	if !ok {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid scope"})
@@ -281,6 +290,10 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		customerID = boundID
 		filterByCustomer = true
 	}
+	if portalID, ok := c.Get("portal_customer_id").(int64); ok {
+		customerID = portalID
+		filterByCustomer = true
+	}
 	if filterByCustomer {
 		data.Products = filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions, data.CustomerPublicUsages)
 	}
@@ -302,6 +315,9 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		CustomerProductUsages:  data.CustomerProductUsages,
 	}
 
+	if support.CustomerFulfillmentOrderScopeLimited(c) || c.Get("portal_customer_id") != nil {
+		scopeCustomerForm(&resp, customerID)
+	}
 	if editID > 0 {
 		if data.EditData == nil {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "order not found"})
@@ -316,6 +332,9 @@ func (h orderAPIHandler) form(c echo.Context) error {
 }
 
 func (h orderAPIHandler) detail(c echo.Context) error {
+	if err := h.requireCustomerOrdersCapability(c); err != nil {
+		return err
+	}
 	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
 	if err != nil || id <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
@@ -335,10 +354,10 @@ func (h orderAPIHandler) detail(c echo.Context) error {
 	return c.JSON(http.StatusOK, orderFormAPIResponse{
 		Today:                 data.EditData.OrderDate,
 		OrderTypes:            apiOptions(data.OrderTypes),
-		ProductBOMSpecOptions: data.ProductBOMSpecOptions,
+		ProductBOMSpecOptions: customerDetailSpecOptions(c, data),
 		EditMode:              true,
 		EditID:                id,
-		EditData:              editDataForAPI(data.EditData),
+		EditData:              customerEditDataForAPI(data.EditData, support.CustomerFulfillmentOrderScopeLimited(c)),
 	})
 }
 
@@ -381,7 +400,7 @@ func (h orderAPIHandler) voidMany(c echo.Context) error {
 func (h orderAPIHandler) ensureFulfillmentOrderDetailAccess(c echo.Context, orderID int64, customerID int64) error {
 	employeeID := support.CurrentEmployeeID(c)
 	if orderID <= 0 || customerID <= 0 || employeeID <= 0 {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied"})
+		return echo.NewHTTPError(http.StatusForbidden, "permission denied")
 	}
 	result, err := h.sales.ListOrders(c.Request().Context(), salesapp.OrderListQuery{
 		OrderID:               orderID,
@@ -393,14 +412,14 @@ func (h orderAPIHandler) ensureFulfillmentOrderDetailAccess(c echo.Context, orde
 		Limit:                 1,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	for _, row := range result.Rows {
 		if row.ID == orderID {
 			return nil
 		}
 	}
-	return c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied"})
+	return echo.NewHTTPError(http.StatusForbidden, "permission denied")
 }
 
 type ordersAPIQuery struct {
@@ -503,11 +522,16 @@ func (h orderAPIHandler) save(c echo.Context) error {
 		}
 	}
 	cmd.SelectedPriceTableIDs = req.SelectedPriceTableIDs
+	if strings.HasPrefix(c.Path(), "/api/customer-processing/portal/") {
+		if err := h.prepareCustomerCommand(c, req, &cmd); err != nil {
+			return c.JSON(400, map[string]string{"error": err.Error()})
+		}
+	}
 	res, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	if !res.Edited {
+	if !res.Edited && !res.Replayed {
 		h.publishOrderCreated(c, res)
 	}
 	redirectURL := "/order?ok=1&order_no=" + res.OrderNo
@@ -1009,6 +1033,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		PriceOverride                      bool   `json:"price_override"`
 		UnitPrice                          string `json:"unit_price"`
 		Qty                                string `json:"qty"`
+		LineTotal                          string `json:"line_total"`
 		Unit                               string `json:"unit"`
 		Spec                               string `json:"spec"`
 		BeanListPublicationID              int64  `json:"bean_list_publication_id"`
@@ -1059,6 +1084,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			PriceOverride:                      it.PriceOverride,
 			UnitPrice:                          it.UnitPrice,
 			Qty:                                it.Qty,
+			LineTotal:                          it.LineTotal,
 			Unit:                               it.Unit,
 			Spec:                               spec,
 			BeanListPublicationID:              it.BeanListPublicationID,

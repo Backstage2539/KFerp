@@ -1347,6 +1347,24 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if cmd.CustomerRequestID != "" {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("customer-order:%d:%s", cmd.CustomerID, cmd.CustomerRequestID)); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		var previous salesapp.SaveOrderResult
+		var hash string
+		err := tx.QueryRow(ctx, fmt.Sprintf("SELECT id,order_no,customer_request_hash FROM %s.orders WHERE customer_id=$1 AND customer_request_id=$2", r.schema), cmd.CustomerID, cmd.CustomerRequestID).Scan(&previous.OrderID, &previous.OrderNo, &hash)
+		if err == nil {
+			if hash != cmd.CustomerRequestHash {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("该请求已用于另一张订单，请刷新后重试")
+			}
+			previous.Replayed = true
+			return previous, nil
+		}
+		if err != pgx.ErrNoRows {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
 	editID := cmd.EditID
 	var orderID int64
 	orderNo := ""
@@ -1402,6 +1420,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 	applyOrderCustomerProfileDefaults(&cmd, customerProfile)
+	if cmd.CustomerSubmission {
+		cmd.PayStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
+		cmd.ShipStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "未发货", "待发货")
+		if cmd.PayStatusID <= 0 || cmd.ShipStatusID <= 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("请先配置未付款和未发货状态")
+		}
+	}
 	for idx := range items {
 		if items[idx].productID == nil || *items[idx].productID <= 0 {
 			continue
@@ -2389,6 +2414,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	if err := r.logOrderSaveTx(ctx, tx, cmd.Actor, orderID, orderNo, editID > 0, beforeAuditSummary, afterAuditSummary, beanListPublicationID, beanListVersionNo); err != nil {
 		return salesapp.SaveOrderResult{}, err
+	}
+	if cmd.CustomerRequestID != "" {
+		if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET customer_request_id=$2,customer_request_hash=$3 WHERE id=$1", r.schema), orderID, cmd.CustomerRequestID, cmd.CustomerRequestHash); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.SaveOrderResult{}, err
