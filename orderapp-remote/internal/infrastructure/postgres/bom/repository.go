@@ -2750,10 +2750,9 @@ func validateProductionBomMaterialOwnershipForPublish(ctx context.Context, q bom
 			FROM %[1]s.production_bom_version_items i
 			WHERE i.version_id=$1 AND COALESCE(NULLIF(i.component_type,''),'material')='material'
 			UNION
-			SELECT pb.main_input_material_id
+			SELECT v.main_input_material_id
 			FROM %[1]s.production_bom_versions v
-			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
-			WHERE v.id=$1 AND COALESCE(pb.main_input_material_id,0)>0
+			WHERE v.id=$1 AND COALESCE(v.main_input_material_id,0)>0
 		)
 		SELECT m.id,COALESCE(m.owner_customer_id,0)
 		FROM candidate x JOIN %[1]s.materials m ON m.id=x.material_id
