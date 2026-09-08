@@ -48,3 +48,17 @@ test('customer pricing choices survive refresh and remain isolated between named
  assert.deepEqual(readPriceListGenerationDraft('customer102:table:a',storage).customerPriceConfiguredSources,{default:true,'group:42':true})
  assert.equal(readPriceListGenerationDraft('customer102:table:b',storage).customerPriceConfiguredSources,undefined)
 })
+
+test('the customer page requests both selected tier calculations while imported quotes stay frozen', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { priceListPricingRuleTrialRequestsForRows } = await import('./costing-price-list-workflow.js')
+  const { priceTablePricingRuleTrialPayload, priceTablePricingRuleTrialCacheKey } = await import('./product-settings.js')
+  const view = readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+  const source = view.slice(view.indexOf('function currentPriceListPricingRuleTrialRequests('), view.indexOf('\nfunction schedulePriceListPricingRuleTrialRefresh('))
+  const requestsFor = new Function('activeBeanListCustomerID', 'priceListPricingRuleTrialCache', 'buildPriceListPricingRuleTrialRequests', 'priceTablePricingRuleTrialPayload', 'priceTablePricingRuleTrialCacheKey', `${source}; return currentPriceListPricingRuleTrialRequests`)(
+    { value: 102 }, { value: {} }, priceListPricingRuleTrialRequestsForRows, priceTablePricingRuleTrialPayload, priceTablePricingRuleTrialCacheKey,
+  )
+  const rows = applyCustomerPriceRows(generated, imported, {}, 102, { configuredSources: { default: true } })
+  assert.deepEqual(requestsFor(rows).map(({ payload }) => [payload.customer_id, payload.pricing_rule_id, payload.bom_spec_id]), [[102, 16, 3], [102, 11, 3]])
+  assert.deepEqual(requestsFor(applyCustomerPriceRows(generated, imported, {}, 102)), [])
+})
