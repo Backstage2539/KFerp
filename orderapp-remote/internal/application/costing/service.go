@@ -666,6 +666,7 @@ type ArchiveBeanListPublicationsCommand struct {
 }
 
 type Repository interface {
+	ValidateBeanListOrderability(ctx context.Context, cmd PublishBeanListCommand) error
 	LoadParameters(ctx context.Context) (domain.Parameters, error)
 	LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error)
 	LoadProductPricingRule(ctx context.Context, id int64) (ProductPricingRule, error)
@@ -3121,6 +3122,9 @@ func (s *Service) GenerateBeanListPublicationPDF(ctx context.Context, cmd BeanLi
 	if row == nil {
 		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
 	}
+	if err := s.validateDraftDocumentOrderability(ctx, row); err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
 	cacheKey := beanListPublicationPDFCacheKey(*row)
 	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf"); err == nil && len(asset.Payload) > 0 && strings.TrimSpace(asset.CacheKey) == cacheKey {
 		return beanListPublicationPDFFile(*row, asset), nil
@@ -3162,6 +3166,9 @@ func (s *Service) LoadBeanListPublicationPDF(ctx context.Context, cmd BeanListPu
 	if row == nil {
 		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
 	}
+	if err := s.validateDraftDocumentOrderability(ctx, row); err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
 	asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf")
 	if err != nil {
 		return BeanListPublicationPDFFile{}, err
@@ -3198,6 +3205,9 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 	}
 	if s.repo == nil {
 		return nil, fmt.Errorf("repository required")
+	}
+	if err := s.ValidateBeanListOrderability(ctx, normalized); err != nil {
+		return nil, err
 	}
 	return s.repo.PublishBeanList(ctx, normalized)
 }

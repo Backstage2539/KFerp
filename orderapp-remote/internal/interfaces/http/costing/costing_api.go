@@ -14,6 +14,7 @@ import (
 )
 
 func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
+	registerPublicationOrderabilityAPI(e, svc, authz)
 	e.GET("/public/bean-list/:list_type", func(c echo.Context) error {
 		listType := c.Param("list_type")
 		productTypeCategoryID, err := parseOptionalInt64(c.QueryParam("product_type_category_id"))
