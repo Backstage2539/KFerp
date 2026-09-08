@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"bytes"
 	"encoding/json"
 	salesdomain "orderapp/internal/domain/sales"
 	"strings"
@@ -74,5 +75,23 @@ func TestOrderExperiencePageNumbersDoNotCreateExtraPages(t *testing.T) {
 	renderSalesOrderDocumentOverlays(p, true)
 	if p.PageCount() != 2 {
 		t.Fatalf("page number overlay created pages: %d", p.PageCount())
+	}
+}
+
+func TestOrderExperiencePaymentWrapDoesNotDropChineseCharacters(t *testing.T) {
+	r := SalesOrderRenderer{}
+	font, err := r.resolveFontPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := newSalesOrderTestPDF(t, font)
+	p.SetCompression(false)
+	renderSalesOrderTextBlock(p, salesdomain.SalesOrderLayoutBox{XMM: 16, YMM: 14, WidthMM: 25, HeightMM: 265}, 14, "说明", []string{strings.Repeat("流", 80)})
+	var b bytes.Buffer
+	if err := p.Output(&b); err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(b.Bytes(), []byte{0x6d, 0x41}); n < 80 {
+		t.Fatalf("Chinese line wrapping dropped characters: got %d, want 80", n)
 	}
 }
