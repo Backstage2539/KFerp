@@ -241,7 +241,7 @@
           ><label
             >原料<select v-model.number="processing.raw_bean_item_id" required>
               <option :value="0">选择托管原料</option>
-              <option v-for="row in options.custody_items || []" :key="row.id" :value="row.id">
+              <option v-for="row in options.custody_items || []" :key="row.item_id" :value="row.item_id">
                 {{ row.item_name }}
               </option>
             </select></label
@@ -573,7 +573,7 @@ async function submitProcessing() {
   error.value = ''
   try {
     const product = (options.value.customer_skus || []).find((r) => r.product_id === processing.product_id)
-    const raw = (options.value.custody_items || []).find((r) => r.id === processing.raw_bean_item_id)
+    const raw = (options.value.custody_items || []).find((r) => r.item_id === processing.raw_bean_item_id)
     const path = props.customerAccountActor
       ? '/api/customer-processing/portal/work-orders'
       : `/api/customer-fulfillment/${data.value.customer_id}/work-orders`

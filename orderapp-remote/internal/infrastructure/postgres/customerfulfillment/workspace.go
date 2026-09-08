@@ -139,6 +139,53 @@ func customerPricePreviewRows(content []byte) ([]map[string]any, error) {
 		return nil, fmt.Errorf("价格表内容无法读取")
 	}
 	result := make([]map[string]any, 0, len(snapshot.PriceRows))
+	if len(snapshot.PriceRows) == 0 {
+		var legacy customerFulfillmentPublishedContent
+		if err := json.Unmarshal(content, &legacy); err != nil {
+			return nil, err
+		}
+		for _, group := range legacy.Groups {
+			for _, item := range group.Items {
+				var fields map[string]any
+				_ = json.Unmarshal(item, &fields)
+				name := fields["product_name"]
+				if name == nil {
+					name = fields["name"]
+				}
+				for _, kind := range []string{"commercial", "retail", "green", "drip"} {
+					for _, tier := range customerFulfillmentPublishedItemTiers(item, kind) {
+						option := customerFulfillmentPublishedTierOption(0, kind, tier)
+						var max any = ""
+						if tier.MaxQty != nil {
+							max = *tier.MaxQty
+						} else if tier.MaxLb != nil {
+							max = *tier.MaxLb
+						}
+						unit := tier.PriceUnit
+						if unit == "" {
+							unit = tier.DisplayUnit
+						}
+						if unit == "" {
+							unit = tier.SalesUnit
+						}
+						switch unit {
+						case "lb":
+							unit = "磅"
+						case "kg":
+							unit = "kg"
+						case "bag":
+							unit = "袋"
+						case "box":
+							unit = "盒"
+						}
+						result = append(result, map[string]any{"product_name": name, "spec": fmt.Sprintf("%dg", option.SpecG), "min_qty": option.Min, "max_qty": max, "quantity_unit": unit, "price_unit": unit, "unit_price": option.UnitPrice})
+					}
+				}
+			}
+		}
+		return result, nil
+	}
+
 	for _, row := range snapshot.PriceRows {
 		pick := func(keys ...string) any {
 			for _, key := range keys {
