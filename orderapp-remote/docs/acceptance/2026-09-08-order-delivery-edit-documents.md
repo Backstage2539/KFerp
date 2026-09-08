@@ -18,6 +18,6 @@
 
 ## 手册与交付
 
-手册：orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md；Vue订单、销售单预览和设置帮助同步更新。快照新增 order_note、组合单 render_version；复用已有配送字段，无数据库迁移。新生成单据采用 sales-order-last-page-notes-v3，历史归档保留。
+手册：orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md；Vue订单、销售单预览和设置帮助同步更新。快照新增 order_note、组合单 render_version；复用已有配送字段，无数据库迁移。新生成单据采用 sales-order-last-page-notes-v4，历史归档保留。
 
 目标：develop/main、开发/生产。部署提交、备份路径、健康检查及上线后的页面验收待补充。未直接修改生产订单数据。
