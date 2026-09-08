@@ -16,7 +16,7 @@ func TestWorkspacePricePreviewScopeLazyAndLiveCapabilities(t *testing.T) {
 	if err := pool.QueryRow(ctx, fmt.Sprintf("INSERT INTO %s.customers(name,active,customer_type) VALUES('测试履约客户',true,'wholesale') RETURNING id", schema)).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
-	_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.customer_capability_templates(template_key,label,erp_permissions,erp_view_keys,capabilities_json,active)VALUES('efs_test','测试','["customer_processing.read","customer_processing.submit"]','["customerProcessingPortal"]','[{"code":"bean_list","enabled":true},{"code":"direct_ship","enabled":true}]',true);`, schema))
+	_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.customer_capability_templates(template_key,label,erp_permissions,erp_view_keys,capabilities_json,active)VALUES('efs_test','测试','["customer_processing.read","customer_processing.submit"]','["customerProcessingPortal"]','[{"code":"bean_list","enabled":true},{"code":"direct_ship","enabled":true},{"code":"settlement","enabled":true}]',true);`, schema))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,6 +28,26 @@ func TestWorkspacePricePreviewScopeLazyAndLiveCapabilities(t *testing.T) {
 	err = pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.bean_list_publications(list_type,version_no,status,owner_type,owner_key,publication_purpose,content_json)VALUES('commercial','V1','published','customer',$1,'factory_supply','{"price_rows":[{"product_name":"测试商品","spec_label":"227g","min_qty":1,"max_qty":null,"final_unit_price":30,"price_unit":"袋","cost_source_snapshot":{"private":"must not expose"}}]}')RETURNING id`, schema), fmt.Sprint(id)).Scan(&publication)
 	if err != nil {
 		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf("ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS prepayment_amount numeric NOT NULL DEFAULT 0", schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var partial int64
+	err = pool.QueryRow(ctx, fmt.Sprintf("INSERT INTO %s.pay_statuses(name) VALUES('部分收款') RETURNING id", schema)).Scan(&partial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf("INSERT INTO %s.orders(order_no,order_date,customer_id,pay_status_id,portal_service_code,grand_total,prepayment_amount) VALUES('TEST-HOME',current_date,$1,$2,'direct_ship',100,20)", schema), id, partial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := repo.CustomerWorkspace(ctx, id, "home", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if home["pending_settlement_amount"] != float64(80) {
+		t.Fatal("home must deduct prepayment", home["pending_settlement_amount"])
 	}
 	list, err := repo.CustomerWorkspace(ctx, id, "bean_list", 0)
 	if err != nil {
