@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const SalesOrderRenderVersion = "sales-order-last-page-notes-v3"
+const SalesOrderRenderVersion = "sales-order-last-page-notes-v4"
 
 type SalesOrderSnapshot struct {
 	RenderVersion    string `json:"render_version,omitempty"`
