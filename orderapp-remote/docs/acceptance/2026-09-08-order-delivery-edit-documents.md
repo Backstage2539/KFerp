@@ -1,6 +1,6 @@
 # PR-641 订单配送、编辑与销售单交付证据
 
-状态：自动验证进行中；按本次授权由 Codex 完成业务验收，不直接修写生产数据库。
+状态：自动验证通过，待双环境上线验收；按本次授权由 Codex 完成业务验收，不直接修写生产数据库。
 
 ## 复现与修复
 
@@ -13,7 +13,7 @@
 - RED：order-experience.test.js 4个用例失败；PDF旧页码和缺失订单备注用例失败；配送仓储验证缺少非快递模式；页码覆层测试复现额外生成页面。日志保存在 /private/tmp/pr640-*-red.log。
 - GREEN：订单前端相关168个测试通过；TestOrderExperience 接口回归实际使用本地 PostgreSQL，覆盖配送保存/重开、默认类型同步、操作日志和拒绝非快递回填；PDF包包含合并单多页和PNG像素底色测试通过。
 - 视觉样张：/private/tmp/pr640-artifacts/single.pdf、single.png、combined.pdf、combined.png，全部使用合成测试客户和收款图。
-- 常规全量检查：前端 1119/1119、Vue/Vite 构建通过；后端全量复验中。数据库专用回归 TestOrderExperience、TestOrderDelivery、TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns、TestOrderSaveAudit 通过。
+- 常规全量检查：前端 1119/1119、Vue/Vite 构建通过；后端全量通过（含同步最新开发分支后的复验）。数据库专用回归 TestOrderExperience、TestOrderDelivery、TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns、TestOrderSaveAudit 通过。
 - 扩展 PostgreSQL 全套存在旧夹具失败：缺 product_bom_spec_authorities、customer_order_production_demands 等表及旧列位置断言；在未修改 origin/develop=3083e187 基线上复现，未把这些结果记为通过。详见 /private/tmp/pr640-baseline-db.log。
 
 ## 手册与交付

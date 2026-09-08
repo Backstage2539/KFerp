@@ -5064,7 +5064,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-641-ORDER-DELIVERY-EDIT-DOCUMENTS
 - Branch: codex/order-experience-documents-20260908
 - Owner/session: Codex
-- Status: implementing
+- Status: targeted PostgreSQL regressions, full Go, frontend 1119/1119, Vue build and PDF/PNG visual checks GREEN; ready to merge and deploy
 - Scope: eight approved order delivery, editing, summary and sales document changes
 - Verifier: targeted frontend/Go/API RED-GREEN; rendered PDF/PNG inspection; full backend/frontend/build gates
 - Deployment: develop and main, development and production authorized; business acceptance by Codex per approved plan, no direct production data repair
