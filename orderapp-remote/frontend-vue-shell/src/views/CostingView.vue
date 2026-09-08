@@ -1752,11 +1752,11 @@ watch([versionListScope, selectedProductTypeCategoryID, publicationListSearch], 
   selectedPublicationArchiveIDs.value = []
 })
 
-watch([generatedPriceListFlatRows, customerPriceSources, customerPriceSourcesReadyKey, activeBeanListCustomerID, activePriceListTypeKey], () => {
+watch([generatedPriceListFlatRows, customerPriceSources, customerPriceSourcesReadyKey, activeBeanListCustomerID, activePriceListTypeKey, priceListGenerationDraftStorageKey], () => {
   if (!(activeBeanListCustomerID.value > 0)) return
   const scopeKey = priceListGenerationDraftStorageKey()
   if (customerPriceSeedScope !== scopeKey) restorePriceListGenerationDraftForActiveType()
-  if (customerPriceSourcesReadyKey.value !== scopeKey) return
+  if (customerPriceSourcesReadyKey.value !== priceListGenerationDraftBaseKey()) return
   const sources = customerPriceSources.value
   const next = seedCustomerPriceRows(customerPriceSeedRows.value, generatedPriceListFlatRows.value, sources, activeBeanListCustomerID.value)
   if (JSON.stringify(next) !== JSON.stringify(customerPriceSeedRows.value)) {
@@ -1772,12 +1772,13 @@ async function loadCustomerPriceSources() {
   customerPriceSources.value = []
   const customerID = activeBeanListCustomerID.value
   if (!customerID) return
-  const key = priceListGenerationDraftStorageKey()
+  // Quotes belong to the customer/type; individual named tables keep separate edits.
+  const key = priceListGenerationDraftBaseKey()
   const customerURL = new URL(beanListPublicationURL(pdfTheme.value.listType, 'customer'), window.location.origin)
   customerURL.searchParams.set('customer_id', String(customerID))
   try {
     const [customer, official] = await Promise.all([apiGet(customerURL), apiGet(beanListPublicationURL(pdfTheme.value.listType, 'official'))])
-    if (revision !== customerPriceSourcesRevision || key !== priceListGenerationDraftStorageKey()) return
+    if (revision !== customerPriceSourcesRevision || key !== priceListGenerationDraftBaseKey()) return
     customerPriceSources.value = [...(customer.rows || []), ...(official.rows || [])]
     customerPriceSourcesReadyKey.value = key
   } catch (err) { if (revision === customerPriceSourcesRevision) error.value = err.message || '客户报价来源加载失败' }
@@ -3326,7 +3327,7 @@ function priceListFlatRowPricingTrialError(row = {}) {
 }
 
 function priceListFlatRowVisibleErrors(row = {}) {
-  if (row.customer_quote_missing) return ['待报价：未找到对应已发布报价，请填写客户价格或取消选择']
+  if (row.customer_quote_missing) return ['待报价：客户表及最新公共表没有此规格报价。请补齐公共报价并发布，或填写客户价格。']
   return priceListFlatRowErrors(row, {
     trialStatus: priceListFlatRowPricingTrialStatus(row),
     trialError: priceListFlatRowPricingTrialError(row),
