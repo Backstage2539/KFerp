@@ -5027,4 +5027,4 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 客户表主动选择计价模板后，生成行使用新档位和试算价；保留未受修改影响的客户报价，按客户与命名表隔离保存。
 - Reproduction: 用户报告 NB；当前开发页面为 EFS 客户 302，选择模板 16（EFS咖啡豆2档位），平铺行仍显示公共模板 11 的四档固定报价。
 - Verifier: customer-price-template.test.js RED；模板切换、原草稿恢复、局部优先级、缺模板阻止和草稿隔离；完整 Vue/Vite、部署门禁及开发页面复验。
-- Status: targeted GREEN；开发部署及页面复验进行中。生产、微信与客户/公共价格表发布不在本次修复范围。
+- Status: 6 项定向及完整 Vue 1114/1114、Vite GREEN；首次页面复验发现客户试算被旧守卫跳过，已补 RED/GREEN 修复，重新部署复验中。生产、微信与客户/公共价格表发布不在本次修复范围。

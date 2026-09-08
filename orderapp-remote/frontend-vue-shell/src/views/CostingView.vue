@@ -1475,7 +1475,6 @@ const priceListPricingRuleTrialFailedCount = computed(() => priceListFlatRows.va
 )).length)
 
 function currentPriceListPricingRuleTrialRequests(sourceRows = []) {
-  if (activeBeanListCustomerID.value > 0) return []
   return buildPriceListPricingRuleTrialRequests(sourceRows, {
     customerID: activeBeanListCustomerID.value,
     cache: priceListPricingRuleTrialCache.value,
