@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -291,6 +292,19 @@ func resolveFinanceCustomerScope(c echo.Context, customerAccounts CustomerAccoun
 	employeeID := support.CurrentEmployeeID(c)
 	if employeeID <= 0 {
 		return 0, fmt.Errorf("%w: employee required", errCustomerFinanceScopeDenied)
+	}
+	if workspace, ok := customerAccounts.(interface {
+		CustomerWorkspace(context.Context, int64, int64, string, int64) (map[string]any, error)
+	}); ok {
+		data, err := workspace.CustomerWorkspace(c.Request().Context(), employeeID, 0, "settlement", 0)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %v", errCustomerFinanceScopeDenied, err)
+		}
+		id, _ := data["customer_id"].(int64)
+		if id <= 0 || requestedCustomerID > 0 && requestedCustomerID != id {
+			return 0, errCustomerFinanceScopeDenied
+		}
+		return id, nil
 	}
 	overview, err := customerAccounts.CustomerPortalOverview(c.Request().Context(), employeeID)
 	if err != nil {

@@ -87,6 +87,7 @@
         </label>
 
         <div v-if="props.fulfillmentMode" class="fulfillment-recipient-section">
+          <label class="full-span"><span>粘贴收件信息</span><textarea v-model="fulfillmentRecipientPaste" rows="2" placeholder="姓名、电话、地址"></textarea><button type="button" @click="parseFulfillmentRecipient">解析收件信息</button></label>
           <label class="readonly-field">
             <span>履约客户</span>
             <input :value="props.customerContextLabel || `客户 #${props.customerContextId}`" readonly />
@@ -112,7 +113,7 @@
           </label>
         </div>
 
-        <label class="readonly-field">
+        <label v-if="!props.customerPortal" class="readonly-field">
           <span>客户负责人</span>
           <input :value="selectedCustomerResponsibleLabel" placeholder="先在客户资料指定负责人" readonly />
         </label>
@@ -124,14 +125,14 @@
           </div>
         </div>
 
-        <label>
+        <label v-if="!props.customerPortal">
           <span>付款状态</span>
           <select v-model.number="form.pay_status_id">
             <option v-for="item in payStatuses" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
 
-        <div class="prepayment-editor" data-prepayment-editor>
+        <div v-if="!props.customerPortal" class="prepayment-editor" data-prepayment-editor>
           <label>
             <span>已支付预付款（元）</span>
             <input v-model="form.prepayment_amount" type="number" min="0" step="0.01" placeholder="填写实际已收金额" @input="onManualPrepayment" />
@@ -142,7 +143,7 @@
           <small>按应收合计 ¥{{ money(orderTotalPreviewValue.grandTotal) }} 计算（含运费）；可修改实际已收金额。</small>
         </div>
 
-        <label :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
+        <label v-if="!props.customerPortal" :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
           <span>收款方式</span>
           <select v-model.trim="form.payment_method" :disabled="!paymentMethodRequired">
             <option value="">选择收款方式</option>
@@ -150,7 +151,7 @@
           </select>
         </label>
 
-        <label>
+        <label v-if="!props.customerPortal">
           <span>配送方式</span>
           <select v-model="deliveryMode">
             <option value="express">快递</option>
@@ -158,14 +159,14 @@
             <option value="local_delivery">本地送货</option>
           </select>
         </label>
-        <label>
+        <label v-if="!props.customerPortal">
           <span>交付状态</span>
           <select v-model.number="form.ship_status_id">
             <option v-for="item in shipStatuses" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
 
-        <label v-if="!isNonCourierShipMethod(form.ship_method)">
+        <label v-if="!props.customerPortal && !isNonCourierShipMethod(form.ship_method)">
           <span>快递单号（可多个）</span>
           <textarea v-model.trim="form.ship_tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔"></textarea>
         </label>
@@ -359,17 +360,18 @@
             <div class="price-control">
               <input
                 v-model.trim="row.unit_price"
+                :readonly="props.customerPortal"
                 type="number"
                 min="0"
                 step="0.01"
                 placeholder="0.00"
                 @input="markManualPrice(row)"
               />
-              <button class="icon-button" type="button" title="恢复自动价格" @click="resetAutoPrice(row)">↺</button>
+              <button v-if="!props.customerPortal" class="icon-button" type="button" title="恢复自动价格" @click="resetAutoPrice(row)">↺</button>
             </div>
           </label>
 
-          <label class="discount-control">
+          <label v-if="!props.customerPortal" class="discount-control">
             <span>优惠</span>
             <div class="discount-inputs">
               <select v-model="row.discount_type" @change="onRowDiscountTypeChange(row)">
@@ -440,8 +442,8 @@
     </section>
 
     <section class="panel footer-panel">
-      <div class="section-title">费用</div>
-      <div class="form-grid compact">
+      <div v-if="!props.customerPortal" class="section-title">费用</div>
+      <div v-if="!props.customerPortal" class="form-grid compact">
         <label>
           <span>运费</span>
           <input v-model.trim="form.shipping_amount" type="number" min="0" step="0.01" />
@@ -467,7 +469,7 @@
         </div>
         <div class="save-actions">
           <button
-            v-if="backfillMode && canUseBackfillMode"
+            v-if="(backfillMode || props.customerPortal) && canUseBackfillMode"
             class="secondary"
             type="button"
             @click="save({ continueBackfill: false })"
@@ -476,13 +478,13 @@
             保存并查看订单
           </button>
           <button
-            v-if="backfillMode && canUseBackfillMode"
+            v-if="(backfillMode || props.customerPortal) && canUseBackfillMode"
             class="primary"
             type="button"
             @click="save({ continueBackfill: true })"
             :disabled="saving || hasUnpricedPublishedRow"
           >
-            保存并继续补录
+            {{ backfillMode ? '保存并继续补录' : '保存并继续' }}
           </button>
           <button
             v-else
@@ -509,7 +511,8 @@
           <li>商品按父商品展示，商品名不再拼接规格；规格列和规格搜索只使用当前已选已发布价格表中有价的规格，价格表没有的商品档案规格不会出现在新订单候选中。</li>
           <li>每个商品类型默认带入当前版本的默认价格表，可以切换同版本内其他表。切表后保留仍可用的规格并重新匹配价格；不在新表中的规格必须重选后提交。</li>
           <li>新版挂耳商品同样从当前价格表选择袋或盒规格；历史挂耳数据仍保留旧单位选择兼容。</li>
-          <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
+          <li v-if="props.customerPortal">商品与规格来自所选价格表，单价随数量匹配阶梯。补录可以暂缺收件信息，补齐后才能发货。</li>
+          <li v-else>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
           <li>按规格件数计价时，档位范围和单价单位使用所选 BOM 规格库存单位；例如 50 袋会匹配 48 袋以上档，不显示无意义的 0g。</li>
           <li>数量低于起订量、高于有限最高量或落在档位空隙时不猜测最低价；页面提示“当前数量无已发布价格，不能保存”，请调整数量、补齐已发布价格表档位或按授权流程输入手动价。</li>
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
@@ -646,6 +649,7 @@ import { orderDeliveryMode, isNonCourierShipMethod, requiresCourierLogistics } f
 import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { resetCustomerContinuation } from '../lib/customer-workspace'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
   activeBeanListPublicationIDsByType,
@@ -726,10 +730,14 @@ const props = defineProps({
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
   fulfillmentMode: { type: Boolean, default: false },
+  customerPortal: { type: Boolean, default: false },
+  portalService: { type: String, default: 'direct_ship' },
   recipientInfo: { type: Object, default: null },
 })
 
 const emit = defineEmits(['close', 'saved'])
+const fulfillmentRecipientPaste=ref('')
+function parseFulfillmentRecipient(){const result=parseRecipientText(fulfillmentRecipientPaste.value);if(result.recipient_name)form.receiver_name=result.recipient_name;if(result.phone)form.receiver_phone=result.phone;if(result.address)form.receiver_address=result.address}
 const ORDER_ENTRY_DRAFT_SCOPE = FORM_DRAFT_SCOPES.orderEntry
 let orderEntryDraftDisabled = false
 
@@ -897,7 +905,7 @@ function orderEntryDraftKey() {
   if (props.embedded || editID || copyID) return ''
   const workspace = props.workspaceMode || 'factory'
   const customerID = Number(props.customerContextId || 0)
-  return `${ORDER_ENTRY_DRAFT_SCOPE}:${workspace}:${customerID || 'all'}:new`
+  return `${ORDER_ENTRY_DRAFT_SCOPE}:${workspace}:${customerID || 'all'}:${props.customerPortal ? props.portalService : 'staff'}:new`
 }
 
 function closeTransientRowMenus(row) {
@@ -955,7 +963,7 @@ const orderTotalPreviewValue = computed(() => orderTotalPreview({
 }))
 const orderTotalHintText = computed(() => `货款 ${money(orderTotalPreviewValue.value.goodsAmount)} · 物流 ${money(orderTotalPreviewValue.value.logisticsAmount)}`)
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
-const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
+const paymentMethodRequired = computed(() => !props.customerPortal && requiresOrderPaymentMethod(form, payStatuses.value))
 const prepaymentRate = ref(0)
 function selectPrepaymentStatus() {
   if (Number(form.prepayment_amount) <= 0) return
@@ -977,15 +985,16 @@ watch(() => orderTotalPreviewValue.value.grandTotal, () => {
 const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))
 const selectedShipStatusName = computed(() => optionName(shipStatuses.value, form.ship_status_id))
 const paymentReceiptVisible = computed(() => {
+  if (props.customerPortal) return false
   const name = selectedPayStatusName.value
   return name.includes('已收款') || name.includes('已付款') || name.includes('已支付')
 })
-const paymentReceiptRequired = computed(() => requiresOrderPaymentReceipt(form, payStatuses.value))
+const paymentReceiptRequired = computed(() => !props.customerPortal && requiresOrderPaymentReceipt(form, payStatuses.value))
 const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
 const paymentShippingAmountSuggestion = computed(() => money(toNumber(form.shipping_amount)))
 const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptVisible.value && itemsTotal.value > 0)
 const showPaymentShippingAmountSuggestion = computed(() => paymentReceiptVisible.value)
-const logisticsRequired = computed(() => requiresCourierLogistics(form.ship_method, selectedShipStatusName.value))
+const logisticsRequired = computed(() => !props.customerPortal && requiresCourierLogistics(form.ship_method, selectedShipStatusName.value))
 const deliveryMode = computed({
   get: () => orderDeliveryMode(form.ship_method),
   set: (value) => {
@@ -1003,7 +1012,7 @@ const selectedLogisticsProducts = computed(() => {
   return (company?.products || []).filter((item) => item.active !== false)
 })
 const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
-const canUseBackfillMode = computed(() => !props.embedded && !form.edit_id && !copyMode.value)
+const canUseBackfillMode = computed(() => (!props.embedded || props.customerPortal) && !form.edit_id && !copyMode.value)
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
 const selectedCustomer = computed(() => customers.value.find((item) => Number(item.id || 0) === Number(form.customer_id || 0)) || null)
 const selectedCustomerResponsibleLabel = computed(() => selectedCustomer.value?.responsible_employee_name || '')
@@ -2444,6 +2453,7 @@ function repriceHydratedRows() {
 }
 
 async function loadOrderProductCatalogTypes() {
+  if (props.customerPortal) return
   try {
     const [groupsData, assignmentsData, featureSelectionData] = await Promise.all([
       apiGet('/api/business-groups'),
@@ -2473,7 +2483,8 @@ async function load() {
   error.value = ''
   ok.value = ''
   try {
-    const url = new URL('/api/order/form', window.location.origin)
+    const url = new URL(props.customerPortal ? '/api/customer-processing/portal/order/form' : '/api/order/form', window.location.origin)
+    if (props.customerPortal) url.searchParams.set('service', props.portalService)
     const contextCustomerID = Number(props.customerContextId || 0)
     if (contextCustomerID > 0) url.searchParams.set('customer_id', String(contextCustomerID))
     const propCopyID = Number(props.copyId || 0)
@@ -2538,6 +2549,7 @@ async function load() {
 }
 
 function resetForBackfillContinuation() {
+  if (props.fulfillmentMode) {resetCustomerContinuation(form);form.customer_request_id='';fulfillmentRecipientPaste.value=''}
   prepaymentRate.value = 0
   form.edit_id = 0
   form.ship_tracking_no = ''
@@ -2565,6 +2577,7 @@ function resetForBackfillContinuation() {
 }
 
 async function save(options = {}) {
+  if (saving.value) return
   const continueBackfill = Boolean(options?.continueBackfill && canUseBackfillMode.value)
   saving.value = true
   error.value = ''
@@ -2620,9 +2633,18 @@ async function save(options = {}) {
       raiseSaveError(`第 ${missingPublishedPriceRowIndex + 1} 行：${rowPriceBlockingMessage(rows.value[missingPublishedPriceRowIndex])}`, 'product_items')
       return
     }
-    const stockDecision = await previewStockBatchesBeforeSave(payload)
+    if (props.customerPortal) {
+      form.customer_request_id ||= crypto.randomUUID()
+      saveOrderEntryDraft()
+      Object.assign(payload,{request_id:form.customer_request_id,backfill_mode:backfillMode.value,portal_service_code:props.portalService,pay_status_id:0,ship_status_id:0,payment_method:'',payment_goods_amount:'',payment_shipping_amount:'',payment_voucher_asset_id:0,prepayment_amount:'0',shipping_amount:'0',discount_amount:'0',round_to_int:'',ship_tracking_no:'',source_warehouse:''})
+      payload.unit_price=payload.unit_price.map(()=> '')
+      payload.tier_id=payload.tier_id.map(()=> 'auto')
+      payload.discount_value=payload.discount_value?.map(()=> '')
+      payload.discount_type=payload.discount_type?.map(()=> '')
+    }
+    const stockDecision = props.customerPortal ? '' : await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
-    const data = await apiSend('/api/order', { body: payload })
+    const data = await apiSend(props.customerPortal ? '/api/customer-processing/portal/order' : '/api/order', { body: payload })
     ok.value = data.order_no || '成功'
     if (data.stock_batch_used) {
       stockBatchNotice.value = '已使用成品批次，订单状态已进入“库存待发货”。'
@@ -2638,7 +2660,8 @@ async function save(options = {}) {
     }
     orderEntryDraftDisabled = true
     clearFormDraft(orderEntryDraftKey())
-    if (props.embedded) emit('saved', data)
+    if (props.embedded && !props.customerPortal) emit('saved', data)
+    if (props.customerPortal) {form.customer_request_id='';emit('saved',data);return}
     if (!props.embedded && data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {
     raiseSaveError(err.message || '保存失败')

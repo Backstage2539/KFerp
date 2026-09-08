@@ -44,6 +44,17 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 				}
 				return next(c)
 			}
+			if strings.HasPrefix(c.Request().URL.Path, "/api/customer-processing/portal/") {
+				actor, ok, err := CurrentActor(c, authz)
+				if err != nil || !ok {
+					return permissionJSONError(c, http.StatusUnauthorized, map[string]string{"error": "auth required"})
+				}
+				if actor.AccountType == AccountTypeChannelCustomer {
+					c.Set(customerFulfillmentOrderScopeLimitedContextKey, true)
+				} else if actor.Can("orders.write") || actor.Can("stock.write") {
+					c.Set("portal_internal_allowed", true)
+				}
+			}
 			permission := requiredPermissionForRequest(c.Request().Method, c.Request().URL.Path)
 			if permission == "" {
 				return next(c)

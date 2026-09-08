@@ -642,6 +642,7 @@ type MallOrderItemCommand struct {
 }
 
 type CreateMallOrderCommand struct {
+	Actor               string
 	CustomerID          int64
 	CreatedByMiniUserID int64
 	RecipientName       string
@@ -2648,6 +2649,30 @@ func (s *Service) CreateMallOrder(ctx context.Context, token string, cmd CreateM
 	}
 	cmd.CustomerID = current.CurrentCustomerID
 	cmd.CreatedByMiniUserID = current.MiniUserID
+	return s.createMallOrder(ctx, cmd)
+}
+
+// ERP callers resolve the bound customer and mall capability before entering here.
+func (s *Service) CreateERPMallOrder(ctx context.Context, cmd CreateMallOrderCommand) (FulfillmentOrder, error) {
+	if cmd.CustomerID <= 0 {
+		return FulfillmentOrder{}, ErrCustomerBindingNotFound
+	}
+	return s.createMallOrder(ctx, cmd)
+}
+func (s *Service) GetERPMallPage(ctx context.Context, id int64) (MallPage, error) {
+	if id <= 0 {
+		return MallPage{}, ErrCustomerBindingNotFound
+	}
+	page, err := s.repo.LoadMallPage(ctx, id)
+	if err != nil {
+		return MallPage{}, err
+	}
+	for i := range page.Products {
+		page.Products[i] = normalizeMallProduct(page.Products[i])
+	}
+	return page, nil
+}
+func (s *Service) createMallOrder(ctx context.Context, cmd CreateMallOrderCommand) (FulfillmentOrder, error) {
 	cmd.RecipientName = strings.TrimSpace(cmd.RecipientName)
 	cmd.RecipientPhone = strings.TrimSpace(cmd.RecipientPhone)
 	cmd.RecipientAddress = strings.TrimSpace(cmd.RecipientAddress)

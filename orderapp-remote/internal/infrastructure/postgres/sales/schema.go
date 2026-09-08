@@ -74,6 +74,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureDeliveryNoteTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := EnsureCustomerOrderSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	return ensureExternalShareResourceTables(ctx, pool, schema)
 }
 

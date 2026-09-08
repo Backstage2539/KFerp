@@ -17,6 +17,10 @@ var (
 )
 
 type SaveOrderCommand struct {
+	CustomerSubmission                bool
+	BackfillMode                      bool
+	CustomerRequestID                 string
+	CustomerRequestHash               string
 	SelectedPriceTableIDs             []int64 `json:"selected_price_table_ids,omitempty"`
 	PrepaymentAmount                  *float64
 	Actor                             string
@@ -106,6 +110,7 @@ type OrderItemCommand struct {
 }
 
 type SaveOrderResult struct {
+	Replayed       bool
 	OrderID        int64
 	OrderNo        string
 	Edited         bool
@@ -1388,6 +1393,22 @@ func (s *Service) DeleteEmployeeOrderDraft(ctx context.Context, employeeID int64
 }
 
 func (s *Service) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
+	if cmd.CustomerSubmission {
+		if err := ValidateCustomerOrder(cmd, cmd.BackfillMode); err != nil {
+			return SaveOrderResult{}, err
+		}
+		if cmd.CustomerRequestID != "" {
+			if repo, ok := s.repo.(customerOrderRequestRepository); ok {
+				previous, found, err := repo.FindCustomerOrderRequest(ctx, cmd.CustomerID, cmd.CustomerRequestID, cmd.CustomerRequestHash)
+				if err != nil || found {
+					return previous, err
+				}
+			}
+		}
+		if err := s.validateCustomerCatalog(ctx, &cmd); err != nil {
+			return SaveOrderResult{}, err
+		}
+	}
 	if err := validateSaveOrderCommand(cmd); err != nil {
 		return SaveOrderResult{}, err
 	}
