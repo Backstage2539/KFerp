@@ -110,3 +110,10 @@ func TestOrderExperiencePaymentCapacityAndMultipleCodes(t *testing.T) {
 		t.Fatalf("QR image exceeds cell: %+v", metrics)
 	}
 }
+
+func TestOrderExperiencePNGPaymentDescriptionsFitCells(t *testing.T) {
+	metrics := salesOrderPNGPaymentCodeMetricsForText(3, 425, 900, 180)
+	if metrics.ImageSize+180 > metrics.CellH {
+		t.Fatalf("description would overlap the next code: %+v", metrics)
+	}
+}
