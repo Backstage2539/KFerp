@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-638-PRICE-TABLE-ORDERABILITY
+- Branch: `codex/price-table-orderability-20260908`
+- Owner/session: Codex / 2026-09-08
+- Status: RED/GREEN and production read-only diagnosis complete; final verification and isolated production backport in progress
+- Scope: 价格表生成与发布必须符合录单当前 BOM 规格、启用状态及客户范围；历史发布/PDF不回算。
+- DEV: DEV-638-ORDERABILITY-GUARD; DEV-638-GENERATION-FEEDBACK; DEV-638-DELIVERY
+- Verifier: service/API RED/GREEN, real PostgreSQL authority projection, Vue tests/build and synthetic browser warning/blocking.
+- Production evidence: deployed ce58d4ec; publication #39 V3.0.8 咖啡生豆, 7 parent products/14 prices; GET /api/order/form 200 with zero green products/specs, all 7 lack configured current order authority.
+- Deployment: targeted production backport after gates; no business data repair, BOM creation or history rewriting.
+- Notes: reservation script macOS awk error; PR-638 manually reserved here.
+
 ### PR-635-NAMED-PRICE-TABLE-BATCHES
 - Branch: `codex/named-price-table-batches-20260907`
 - Owner/session: Codex / 2026-09-07

@@ -2771,3 +2771,7 @@ func TestBeanListDraftAPISavesCustomerOwnedDraft(t *testing.T) {
 func floatPtr(v float64) *float64 {
 	return &v
 }
+
+func (fakeRepo) ValidateBeanListOrderability(context.Context, appcosting.PublishBeanListCommand) error {
+	return nil
+}
