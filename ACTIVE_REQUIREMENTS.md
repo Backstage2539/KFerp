@@ -9,11 +9,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-639-MATERIAL-UNIQUE-OWNERSHIP
 - Branch: `codex/material-unique-ownership-20260908`
 - Owner/session: Codex / 2026-09-08
-- Status: implementation, integration, development deployment and customer-inventory split complete; awaiting Van product acceptance
+- Status: implementation, development/production deployment and automated acceptance complete; awaiting Van product acceptance
 - Scope: 物料档案唯一归属本公司或一个客户；取消多客户关联；BOM、库存和客户视图按物料归属隔离；拆分历史客户库存。
 - DEV: DEV-639-MATERIAL-OWNER; DEV-639-BOM-STOCK-OWNER-GUARDS; DEV-639-MATERIAL-OWNER-UX; DEV-639-MIGRATION-DELIVERY
-- Verifier: targeted Go/API/PostgreSQL and Vue RED/GREEN, full backend/frontend build, migration preflight/apply/rollback evidence, development deployment smoke.
-- Deployment: development `715bc7260ef4cfd953ada43a00c0bebd87e958fa`; database backup `/opt/stacks/erp/backups/pr639-material-owner-predeploy-20260908161659-33661519.dump`; migration manifest `3195bc2f1cb80e33`, mappings 8→77 and 66→78, candidates/conflicts now 0; full Go/Vue/build, focused real-PostgreSQL ownership/cutover tests, desktop/390px layout and live API checks passed. Production untouched.
+- Verifier: targeted Go/API/PostgreSQL and Vue RED/GREEN, full backend/frontend/miniapp builds, migration preflight/apply/rollback evidence, development and production deployment smoke.
+- Deployment: development `715bc7260ef4cfd953ada43a00c0bebd87e958fa`; backup `/opt/stacks/erp/backups/pr639-material-owner-predeploy-20260908161659-33661519.dump`; manifest `3195bc2f1cb80e33`, mappings 8→77 and 66→78. Production `e279da417a26f1a51056a8c4bc094f5a011500ee`; backup `/opt/stacks/erp-production/backups/pr639-material-owner-predeploy-20260908203303-e279da41.dump`; manifest `afcd44717d037135`, candidates/conflicts/mappings/applied all 0; inventory quantities and amount unchanged. Full Go/Vue/miniapp/build, focused real-PostgreSQL ownership/cutover tests, desktop/390px layout and live API checks passed.
 - Last update: 2026-09-08 Asia/Shanghai
 - Notes: reservation script failed on macOS awk multiline value; PR-639 manually reserved. Product requirement remains review until Van completes page acceptance.
 
