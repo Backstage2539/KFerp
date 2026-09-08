@@ -19,6 +19,15 @@ test('missing publication price remains unquoted; retained overrides and current
  const seeds=seedCustomerPriceRows([],generated,[{id:1,status:'published',owner_type:'official',content:{price_rows:[row(11,3)]}}],42);assert.equal(seeds.length,0)
 })
 
+test('a missing spec in the latest public table does not borrow an older spec quote',()=>{
+ const old={id:110,status:'published',owner_type:'official',content:{price_rows:[row(7,65)]}}
+ const current={id:122,status:'published',owner_type:'official',content:{price_rows:[row(3,33)]}}
+ const requested=[{...row(7,999),customer_reference_snapshot:{customer_id:302}}]
+ const seeds=seedCustomerPriceRows([],requested,[old,current],302)
+ assert.deepEqual(seeds,[])
+ assert.equal(applyCustomerPriceRows(requested,seeds,{},302)[0].customer_quote_missing,true)
+})
+
 import {savePriceListGenerationDraft,readPriceListGenerationDraft} from './product-price-list-draft.js'
 test('customer quote draft survives reload without resetting imported tiers or local edits',()=>{
  const data=new Map();const storage={getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)}

@@ -5014,3 +5014,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: 原手工登记 PR-635；合并前发现并行需求已先占用 PR-635，顺延为 PR-636，保留两项需求及验证记录。
 
 - 本任务需求编号顺延 PR-637：并行付款颜色任务已先合入并占用 PR-636；本任务名称、分支和日志路径保留，避免覆盖其他需求。
+
+### PR-637 EFS 客户报价继承回归（2026-09-08）
+- Branch: codex/efs-customer-price-inheritance-20260908；基线 origin/develop 6cadc291。
+- Scope: 客户报价来源按客户/商品类型加载，各命名表独立保存草稿；修复初始化或切换命名表后报价未填入平铺行。
+- Reproduction: EFS 客户 302、商品 1063 的 227g 规格（BOM 3 / variant 483）公共表 122 已报价 28/33/26/24，客户平铺行却为 0。454g 只在旧公共表 110 报价，最新表 122 缺此规格，保留待报价并明确提示。
+- Verifier: Vue 实际响应式加载流程 RED 2 项；客户/类型与命名表切换、草稿保留、跨客户迟到响应隔离、旧规格不回退；完整 Vue/Vite 与部署门禁。
+- Status: targeted GREEN；development 部署与页面复验待完成。生产与微信发布不在范围。
