@@ -2,6 +2,7 @@ package materials
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
@@ -18,14 +19,9 @@ type MaterialListResponse struct {
 
 type materialCreateAPIRequest struct {
 	materialsapp.MaterialInput
-	CustomerIDs []int64 `json:"customer_ids"`
-}
-
-type materialCustomerReferenceAPIRequest struct {
-	MaterialID int64  `json:"material_id"`
-	CustomerID int64  `json:"customer_id"`
-	Active     bool   `json:"active"`
-	Remark     string `json:"remark"`
+	OwnerType            string `json:"owner_type"`
+	OwnerCustomerID      int64  `json:"owner_customer_id"`
+	CopiedFromMaterialID int64  `json:"copied_from_material_id"`
 }
 
 func (r *materialCreateAPIRequest) UnmarshalJSON(data []byte) error {
@@ -34,17 +30,44 @@ func (r *materialCreateAPIRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var extra struct {
-		CustomerIDs []int64 `json:"customer_ids"`
+		OwnerType       string  `json:"owner_type"`
+		OwnerCustomerID int64   `json:"owner_customer_id"`
+		CopiedFromID    int64   `json:"copied_from_material_id"`
+		CustomerIDs     []int64 `json:"customer_ids"`
 	}
 	if err := json.Unmarshal(data, &extra); err != nil {
 		return err
 	}
 	r.MaterialInput = input
-	r.CustomerIDs = extra.CustomerIDs
+	if len(extra.CustomerIDs) > 0 {
+		return fmt.Errorf("多客户关联已取消，请为物料选择唯一归属")
+	}
+	r.OwnerType = extra.OwnerType
+	r.OwnerCustomerID = extra.OwnerCustomerID
+	r.CopiedFromMaterialID = extra.CopiedFromID
 	return nil
 }
 
 func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
+	canAccessMaterial := func(c echo.Context, materialID int64) (bool, error) {
+		boundCustomerID, err := materialsSvc.ResolveBoundCustomerID(c.Request().Context(), support.CurrentEmployeeID(c))
+		if err != nil {
+			return false, err
+		}
+		if boundCustomerID <= 0 {
+			return true, nil
+		}
+		rows, err := materialsSvc.List(c.Request().Context(), materialsapp.ListCommand{Active: "all", Limit: 500, IncludeDeprecated: true, OwnerType: materialsapp.OwnerTypeCustomer, CustomerID: boundCustomerID})
+		if err != nil {
+			return false, err
+		}
+		for _, row := range rows {
+			if row.ID == materialID {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 	e.GET("/api/materials", func(c echo.Context) error {
 		limit := support.IntParam(c, "limit", 200)
 		active := strings.TrimSpace(c.QueryParam("active"))
@@ -52,7 +75,11 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 		if active == "all" {
 			includeDeprecated = true
 		}
-		customerID := int64(support.IntParam(c, "customer_id", 0))
+		customerID := int64(support.IntParam(c, "owner_customer_id", 0))
+		ownerType := strings.ToLower(strings.TrimSpace(c.QueryParam("owner_type")))
+		if customerID == 0 {
+			customerID = int64(support.IntParam(c, "customer_id", 0))
+		}
 		boundCustomerID, err := materialsSvc.ResolveBoundCustomerID(c.Request().Context(), support.CurrentEmployeeID(c))
 		if err != nil {
 			return c.JSON(http.StatusForbidden, ErrorResponse{Error: err.Error()})
@@ -62,6 +89,10 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 				return c.JSON(http.StatusForbidden, ErrorResponse{Error: "customer material scope forbidden"})
 			}
 			customerID = boundCustomerID
+			ownerType = materialsapp.OwnerTypeCustomer
+		}
+		if ownerType == materialsapp.OwnerTypeCustomer && customerID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "客户归属筛选必须指定一个客户"})
 		}
 		rows, err := materialsSvc.List(c.Request().Context(), materialsapp.ListCommand{
 			Query:             strings.TrimSpace(c.QueryParam("q")),
@@ -69,6 +100,7 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 			Limit:             limit,
 			IncludeDeprecated: includeDeprecated,
 			CustomerID:        customerID,
+			OwnerType:         ownerType,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -79,12 +111,21 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 	e.POST("/api/materials", func(c echo.Context) error {
 		var req materialCreateAPIRequest
 		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		boundCustomerID, err := materialsSvc.ResolveBoundCustomerID(c.Request().Context(), support.CurrentEmployeeID(c))
+		if err != nil {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: err.Error()})
+		}
+		if boundCustomerID > 0 && (req.OwnerType != materialsapp.OwnerTypeCustomer || req.OwnerCustomerID != boundCustomerID) {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: "只能创建当前客户归属的物料"})
 		}
 		row, err := materialsSvc.Create(c.Request().Context(), materialsapp.CreateCommand{
-			Actor:       support.ActorOf(c),
-			Input:       req.MaterialInput,
-			CustomerIDs: req.CustomerIDs,
+			Actor:                support.ActorOf(c),
+			Input:                req.MaterialInput,
+			OwnerType:            req.OwnerType,
+			OwnerCustomerID:      req.OwnerCustomerID,
+			CopiedFromMaterialID: req.CopiedFromMaterialID,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -92,58 +133,50 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 		return c.JSON(http.StatusOK, row)
 	})
 
-	e.GET("/api/material-customer-references", func(c echo.Context) error {
-		materialID := int64(support.IntParam(c, "material_id", 0))
-		customerID := int64(support.IntParam(c, "customer_id", 0))
+	retiredMaterialCustomerReferences := func(c echo.Context) error {
+		return c.JSON(http.StatusGone, ErrorResponse{Error: "物料客户关联接口已下线；物料现在只有一个明确归属"})
+	}
+	e.GET("/api/material-customer-references", retiredMaterialCustomerReferences)
+	e.POST("/api/material-customer-references", retiredMaterialCustomerReferences)
+	e.PUT("/api/material-customer-references/:id", retiredMaterialCustomerReferences)
+
+	e.POST("/api/materials/:id/owner", func(c echo.Context) error {
+		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		}
 		boundCustomerID, err := materialsSvc.ResolveBoundCustomerID(c.Request().Context(), support.CurrentEmployeeID(c))
 		if err != nil {
 			return c.JSON(http.StatusForbidden, ErrorResponse{Error: err.Error()})
 		}
 		if boundCustomerID > 0 {
-			if customerID > 0 && customerID != boundCustomerID {
-				return c.JSON(http.StatusForbidden, ErrorResponse{Error: "customer material scope forbidden"})
-			}
-			customerID = boundCustomerID
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: "客户账号不能调整物料归属"})
 		}
-		rows, err := materialsSvc.ListCustomerReferences(c.Request().Context(), materialID, customerID, c.QueryParam("active"))
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		var req struct {
+			OwnerType       string `json:"owner_type"`
+			OwnerCustomerID int64  `json:"owner_customer_id"`
 		}
-		return c.JSON(http.StatusOK, map[string]any{"rows": rows, "references": rows})
-	})
-
-	saveMaterialCustomerReference := func(c echo.Context) error {
-		var req materialCustomerReferenceAPIRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
-		if strings.TrimSpace(c.Param("id")) == "" {
-			id, err = 0, nil
-		}
-		if err != nil || id < 0 {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
-		}
-		row, err := materialsSvc.SaveCustomerReference(c.Request().Context(), materialsapp.SaveMaterialCustomerReferenceCommand{
-			Actor:      support.ActorOf(c),
-			ID:         id,
-			MaterialID: req.MaterialID,
-			CustomerID: req.CustomerID,
-			Active:     req.Active,
-			Remark:     req.Remark,
-		})
+		row, err := materialsSvc.ChangeOwner(c.Request().Context(), materialsapp.ChangeOwnerCommand{Actor: support.ActorOf(c), ID: id, OwnerType: req.OwnerType, OwnerCustomerID: req.OwnerCustomerID})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
-		return c.JSON(http.StatusOK, map[string]any{"reference": row})
-	}
-	e.POST("/api/material-customer-references", saveMaterialCustomerReference)
-	e.PUT("/api/material-customer-references/:id", saveMaterialCustomerReference)
+		return c.JSON(http.StatusOK, row)
+	})
 
 	e.POST("/api/materials/:id", func(c echo.Context) error {
 		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		}
+		allowed, accessErr := canAccessMaterial(c, id)
+		if accessErr != nil {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: accessErr.Error()})
+		}
+		if !allowed {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: "不能修改其他客户的物料档案"})
 		}
 		var req materialsapp.MaterialInput
 		if err := c.Bind(&req); err != nil {
@@ -164,6 +197,13 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		}
+		allowed, accessErr := canAccessMaterial(c, id)
+		if accessErr != nil {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: accessErr.Error()})
+		}
+		if !allowed {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: "不能修改其他客户的物料档案"})
 		}
 		row, err := materialsSvc.Deprecate(c.Request().Context(), materialsapp.DeprecateCommand{
 			Actor: support.ActorOf(c),
@@ -306,6 +346,15 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		for _, materialID := range req.MaterialIDs {
+			allowed, accessErr := canAccessMaterial(c, materialID)
+			if accessErr != nil {
+				return c.JSON(http.StatusForbidden, ErrorResponse{Error: accessErr.Error()})
+			}
+			if !allowed {
+				return c.JSON(http.StatusForbidden, ErrorResponse{Error: "不能修改其他客户的物料档案"})
+			}
 		}
 		if err := materialsSvc.AssignClassification(c.Request().Context(), materialsapp.AssignClassificationCommand{
 			Actor:       support.ActorOf(c),

@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-639-MATERIAL-UNIQUE-OWNERSHIP", title: "物料档案唯一归属本公司或一个客户", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-material-unique-ownership.md"},
+		{table: "req_dev", code: "DEV-639-MATERIAL-OWNER", title: "物料主档唯一归属、单客户接口、权限隔离和操作日志", status: "done", assignee: "Codex", evidence: "material_ownership_test.go; materials/service_test.go"},
+		{table: "req_dev", code: "DEV-639-BOM-STOCK-OWNER-GUARDS", title: "BOM、排产、库存批次和客户仓库按物料归属校验", status: "done", assignee: "Codex", evidence: "bom/repository.go; stock_document_test.go; production/component_sources.go"},
+		{table: "req_dev", code: "DEV-639-MATERIAL-OWNER-UX", title: "物料归属单选、列表筛选、详情与独立复制交互", status: "done", assignee: "Codex", evidence: "MaterialsView.vue; material-ownership.test.js; bom.test.js"},
+		{table: "req_dev", code: "DEV-639-MIGRATION-DELIVERY", title: "客户库存拆分迁移、验证、手册和开发环境交付", status: "review", assignee: "Codex", evidence: "ownership_cutover_test.go; docs/acceptance/2026-09-08-material-unique-ownership.md"},
 		{table: "req_product", code: "PR-637-CATALOG-ORDER-FOLLOWUP", title: "订单排序、客户商品删除与报价来源", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
 		{table: "req_dev", code: "DEV-637-ORDER-SORT", title: "订单列表按单据日期排序", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
 		{table: "req_dev", code: "DEV-637-CATALOG", title: "客户商品绑定删除与分类继承复核", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},

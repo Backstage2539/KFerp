@@ -57,6 +57,9 @@ func (r Repository) UpdateStockDocumentDraft(ctx context.Context, id int64, cmd 
 	if err := r.resolveOrdinaryFinishedStockDocumentCommandTx(ctx, tx, &cmd); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	if err := r.validateStockDocumentMaterialOwnershipCommandTx(ctx, tx, cmd); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.stock_entries
 		SET entry_type=$2,purpose=$3,is_return=$4,work_order_id=$5,job_card_id=$6,running_item_id=$7,
@@ -346,6 +349,9 @@ func (r Repository) createStockDocumentDraftTx(ctx context.Context, tx pgx.Tx, c
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if err := r.resolveOrdinaryFinishedStockDocumentCommandTx(ctx, tx, &cmd); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if err := r.validateStockDocumentMaterialOwnershipCommandTx(ctx, tx, cmd); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	var id int64
@@ -647,6 +653,9 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	if err := r.validateOrdinaryMaterialReceiptDetailTx(ctx, tx, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	if err := r.validateStockDocumentMaterialOwnershipDetailTx(ctx, tx, detail); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	if err := r.validateStockDocumentWorkOrderTx(ctx, tx, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
@@ -674,6 +683,60 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 		return stockapp.StockDocumentDetail{}, err
 	}
 	return r.loadStockDocumentDetailTx(ctx, tx, id)
+}
+
+func (r Repository) validateStockDocumentMaterialOwnershipCommandTx(ctx context.Context, tx pgx.Tx, cmd stockapp.StockDocumentCommand) error {
+	for _, item := range cmd.Items {
+		if item.ItemType != itemTypeMaterial || item.MaterialID <= 0 {
+			continue
+		}
+		if err := r.validateMaterialOwnerAndWarehousesTx(ctx, tx, item.MaterialID, item.OwnerCustomerID, item.FromWarehouse, item.ToWarehouse); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r Repository) validateStockDocumentMaterialOwnershipDetailTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail) error {
+	for _, item := range detail.Items {
+		if item.ItemType != itemTypeMaterial || item.MaterialID <= 0 {
+			continue
+		}
+		if err := r.validateMaterialOwnerAndWarehousesTx(ctx, tx, item.MaterialID, item.OwnerCustomerID, item.FromWarehouse, item.ToWarehouse); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r Repository) validateMaterialOwnerAndWarehousesTx(ctx context.Context, tx pgx.Tx, materialID, itemOwnerCustomerID int64, warehouses ...string) error {
+	var materialOwnerCustomerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(owner_customer_id,0) FROM %s.materials WHERE id=$1 FOR SHARE`, r.schema), materialID).Scan(&materialOwnerCustomerID); err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("material not found or inactive: %d", materialID)
+		}
+		return err
+	}
+	if itemOwnerCustomerID != materialOwnerCustomerID {
+		return fmt.Errorf("物料 %d 的归属与库存货主不一致：物料归属 %d，单据货主 %d", materialID, materialOwnerCustomerID, itemOwnerCustomerID)
+	}
+	for _, warehouse := range warehouses {
+		warehouse = strings.TrimSpace(warehouse)
+		if warehouse == "" {
+			continue
+		}
+		var warehouseCustomerID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0) FROM %s.warehouses WHERE code=$1 AND active=true`, r.schema), warehouse).Scan(&warehouseCustomerID); err != nil {
+			if err == pgx.ErrNoRows {
+				return fmt.Errorf("warehouse not found or inactive: %s", warehouse)
+			}
+			return err
+		}
+		if warehouseCustomerID > 0 && warehouseCustomerID != materialOwnerCustomerID {
+			return fmt.Errorf("物料归属客户与仓库客户不一致：仓库 %s 归属客户 %d", warehouse, warehouseCustomerID)
+		}
+	}
+	return nil
 }
 
 func (r Repository) validateOrdinaryMaterialReceiptCommandTx(ctx context.Context, tx pgx.Tx, cmd stockapp.StockDocumentCommand) error {

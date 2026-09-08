@@ -36,9 +36,12 @@ export function bomProductOptionLabel(row = {}) {
 export function materialOptionLabel(row = {}) {
   const name = String(row.name || row.material_name || row.materialName || '').trim()
   const code = String(row.product_code || row.productCode || row.code || '').trim()
-  if (!name) return code || `物料 #${Number(row.material_id || row.id || 0)}`
-  if (!code || name.toLowerCase().includes(code.toLowerCase())) return name
-  return `${code} ${name}`
+  const base = !name ? (code || `物料 #${Number(row.material_id || row.id || 0)}`) : (!code || name.toLowerCase().includes(code.toLowerCase()) ? name : `${code} ${name}`)
+  const hasOwner = Object.hasOwn(row, 'owner_customer_id') || Object.hasOwn(row, 'customer_id') || Boolean(String(row.owner_name || '').trim())
+  if (!hasOwner) return base
+  const ownerID = Number(row.owner_customer_id ?? row.customer_id ?? 0)
+  const owner = String(row.owner_name || '').trim() || (ownerID > 0 ? `客户 #${ownerID}` : '本公司')
+  return `${base} · 归属：${owner}`
 }
 
 export function nextSpecKey(existingKeys = []) {

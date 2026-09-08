@@ -1323,6 +1323,15 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 		return stockapp.StockAdjustmentResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	ownerCustomerID := int64(0)
+	if cmd.ItemType == itemTypeMaterial {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(owner_customer_id,0) FROM %s.materials WHERE id=$1`, r.schema), cmd.ItemID).Scan(&ownerCustomerID); err != nil {
+			return stockapp.StockAdjustmentResult{}, err
+		}
+		if err := r.validateMaterialOwnerAndWarehousesTx(ctx, tx, cmd.ItemID, ownerCustomerID, cmd.Warehouse); err != nil {
+			return stockapp.StockAdjustmentResult{}, err
+		}
+	}
 	if cmd.ItemType == itemTypeFinishedProduct {
 		identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.BomVariantID, cmd.UnitCode)
 		if err != nil {
@@ -1378,16 +1387,16 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 		}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,spec_g,bom_spec_id,bom_variant_id,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,unit_cost,operator,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$1,$10,$11,$12,$13,$14,$15,now())
-	`, r.schema), batchCode, cmd.ItemType, cmd.ItemID, itemName, cmd.SpecG, cmd.BomSpecID, cmd.BomVariantID, sourceStockAdjustment, adjustmentID, changeG, changeUnits, stockRemainingG, stockRemainingUnits, unitCost, cmd.Operator); err != nil {
+		INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,owner_customer_id,spec_g,bom_spec_id,bom_variant_id,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,unit_cost,operator,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$1,$11,$12,$13,$14,$15,$16,now())
+	`, r.schema), batchCode, cmd.ItemType, cmd.ItemID, itemName, ownerCustomerID, cmd.SpecG, cmd.BomSpecID, cmd.BomVariantID, sourceStockAdjustment, adjustmentID, changeG, changeUnits, stockRemainingG, stockRemainingUnits, unitCost, cmd.Operator); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
 	}
 	if cmd.ItemType == itemTypeMaterial && (changeG > 0 || changeUnits > 0) {
 		var materialBatchID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,qty_units,remaining_g,remaining_units,unit_cost,note,received_at,created_at)
-			VALUES($1,$2,'stock_adjustment',$3,$4,$5,$4,$5,$6,$7,now(),now())
+			INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,qty_units,remaining_g,remaining_units,unit_cost,owner_customer_id,note,received_at,created_at)
+			VALUES($1,$2,'stock_adjustment',$3,$4,$5,$4,$5,$6,$7,$8,now(),now())
 			ON CONFLICT (batch_code) DO UPDATE SET
 				qty_g=excluded.qty_g,
 				qty_units=excluded.qty_units,
@@ -1397,7 +1406,7 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 				status='active',
 				note=excluded.note
 			RETURNING id
-		`, r.schema), batchCode, cmd.ItemID, adjustmentID, changeG, changeUnits, unitCost, cmd.Reason).Scan(&materialBatchID); err != nil {
+		`, r.schema), batchCode, cmd.ItemID, adjustmentID, changeG, changeUnits, unitCost, ownerCustomerID, cmd.Reason).Scan(&materialBatchID); err != nil {
 			return stockapp.StockAdjustmentResult{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -1433,7 +1442,7 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 		}
 	}
 	if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
-		ItemType: cmd.ItemType, ItemID: cmd.ItemID, ItemName: itemName, SpecG: cmd.SpecG, BomSpecID: cmd.BomSpecID, BomVariantID: cmd.BomVariantID, Warehouse: cmd.Warehouse,
+		ItemType: cmd.ItemType, ItemID: cmd.ItemID, ItemName: itemName, OwnerCustomerID: ownerCustomerID, SpecG: cmd.SpecG, BomSpecID: cmd.BomSpecID, BomVariantID: cmd.BomVariantID, Warehouse: cmd.Warehouse,
 		SourceDocType: sourceStockAdjustment, SourceDocID: adjustmentID, SourceBatchCode: batchCode,
 		BeforeG: beforeG, ChangeG: changeG, AfterG: afterG, BeforeUnits: beforeUnits, ChangeUnits: changeUnits, AfterUnits: afterUnits,
 		Operator: cmd.Operator,
@@ -1446,24 +1455,25 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 		auditField, auditBefore, auditAfter = postgresinfra.StrPtr("qty_units"), beforeUnits, afterUnits
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "stock_adjustment", &adjustmentID, "submit", auditField, postgresinfra.StrPtr(fmt.Sprintf("%d", auditBefore)), postgresinfra.StrPtr(fmt.Sprintf("%d", auditAfter)), postgresinfra.AuditMeta{
-		"adjustment_type": "quantity",
-		"item_type":       cmd.ItemType,
-		"item_id":         cmd.ItemID,
-		"item_name":       itemName,
-		"spec_g":          cmd.SpecG,
-		"bom_spec_id":     cmd.BomSpecID,
-		"bom_variant_id":  cmd.BomVariantID,
-		"warehouse":       cmd.Warehouse,
-		"reason":          cmd.Reason,
-		"batch_code":      batchCode,
-		"before_g":        beforeG,
-		"change_g":        changeG,
-		"after_g":         afterG,
-		"before_units":    beforeUnits,
-		"change_units":    changeUnits,
-		"after_units":     afterUnits,
-		"target_qty":      cmd.TargetQty,
-		"unit_code":       cmd.UnitCode,
+		"adjustment_type":   "quantity",
+		"item_type":         cmd.ItemType,
+		"item_id":           cmd.ItemID,
+		"item_name":         itemName,
+		"spec_g":            cmd.SpecG,
+		"bom_spec_id":       cmd.BomSpecID,
+		"bom_variant_id":    cmd.BomVariantID,
+		"warehouse":         cmd.Warehouse,
+		"reason":            cmd.Reason,
+		"batch_code":        batchCode,
+		"before_g":          beforeG,
+		"change_g":          changeG,
+		"after_g":           afterG,
+		"before_units":      beforeUnits,
+		"change_units":      changeUnits,
+		"after_units":       afterUnits,
+		"target_qty":        cmd.TargetQty,
+		"unit_code":         cmd.UnitCode,
+		"owner_customer_id": ownerCustomerID,
 	}); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
 	}

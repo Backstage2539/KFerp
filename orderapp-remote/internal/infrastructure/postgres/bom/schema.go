@@ -10,6 +10,10 @@ import (
 )
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		ALTER TABLE IF EXISTS %s.materials ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE IF EXISTS %s.products ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0;
+	`, schema, schema)); err != nil { return err }
 	if err := ensureBomTables(ctx, pool, schema); err != nil {
 		return err
 	}

@@ -967,7 +967,7 @@ const referencedProductsLabel = computed(() => {
 const currentProductionBomLabel = computed(() => productionBomLabel(detail.value || selectedProductionBomRecord.value || {}))
 const currentProductionBomWarning = computed(() => productionBomVersionWarning(detail.value || selectedProductionBomRecord.value || {}))
 const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedProductionBomRecord.value?.production_bom_id || selectedProductionBomRecord.value?.id || 0))
-const currentOutputIdentity = computed(() => productionBomOutputIdentity(bomDrawerOpen.value && bomForm.mode === 'edit'
+const currentOutputIdentity = computed(() => productionBomOutputIdentity(bomDrawerOpen.value
   ? { ...selectedProductionBomRecord.value, output_type: bomForm.output_type, output_id: bomForm.output_id, output_product_id: bomForm.output_type === 'product' ? bomForm.output_id : 0, output_material_id: bomForm.output_type === 'material' ? bomForm.output_id : 0 }
   : (detail.value || productionBomDetail.value || selectedProductionBomRecord.value || {})))
 const currentOutputProductID = computed(() => Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || selectedProductionBomRecord.value?.output_product_id || 0))
@@ -1023,7 +1023,21 @@ const outputProductOptions = computed(() => products.value.filter(isProductionBo
 const outputMaterialOptions = computed(() => materials.value.filter((row) => !isInactiveMarker(row.active) && !isInactiveMarker(row.status) && !row.deprecated_at))
 const outputTargetOptions = computed(() => bomForm.output_type === 'material' ? outputMaterialOptions.value : outputProductOptions.value)
 const productComponentOptions = computed(() => products.value.filter((product) => isBomProductCandidate(product) && product.bom_spec_authoritative === true && productSpecIdentityMode(product) === 'bom_spec'))
-const materialComponentOptions = computed(() => materials.value.filter((material) => !(currentOutputIdentity.value.type === 'material' && Number(material.id || 0) === currentOutputIdentity.value.id)))
+const currentOutputOwnerCustomerID = computed(() => {
+  const identity = currentOutputIdentity.value
+  const option = identity.type === 'material'
+    ? materials.value.find((row) => Number(row.id || 0) === identity.id)
+    : products.value.find((row) => Number(row.id || 0) === identity.id)
+  return Number(option?.owner_customer_id ?? option?.customer_id ?? 0)
+})
+const materialComponentOptions = computed(() => materials.value.filter((material) => {
+  if (currentOutputIdentity.value.type === 'material' && Number(material.id || 0) === currentOutputIdentity.value.id) return false
+  const materialOwnerCustomerID = Number(material.owner_customer_id ?? material.customer_id ?? 0)
+  const outputOwnerCustomerID = currentOutputOwnerCustomerID.value
+  return outputOwnerCustomerID > 0
+    ? materialOwnerCustomerID === 0 || materialOwnerCustomerID === outputOwnerCustomerID
+    : materialOwnerCustomerID === 0
+}))
 const reapplyMainInputReady = computed(() => reapplyMainInputComponentType.value === 'product'
   ? Number(reapplyMainInputProductID.value || 0) > 0 && Number(reapplyMainInputBomSpecID.value || 0) > 0
   : Number(reapplyMainInputMaterialID.value || 0) > 0)

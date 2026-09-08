@@ -36,6 +36,10 @@ func TestMaterialsSchemaSeparatesBeanProfileTable(t *testing.T) {
 		"material_classification_groups",
 		"material_classification_group_categories",
 		"material_classification_assignments",
+		"owner_customer_id BIGINT NOT NULL DEFAULT 0",
+		"materials_owner_customer_id_nonnegative",
+		"material_owner_migrations",
+		"material_owner_migration_batches",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("materials schema missing %q", want)

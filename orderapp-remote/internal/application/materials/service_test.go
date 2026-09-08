@@ -2,7 +2,7 @@ package materials
 
 import (
 	"context"
-	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -12,7 +12,7 @@ type fakeRepo struct {
 	update    UpdateCommand
 	deprecate DeprecateCommand
 	assign    AssignClassificationCommand
-	reference MaterialCustomerReference
+	owner     ChangeOwnerCommand
 }
 
 func (r *fakeRepo) List(ctx context.Context, cmd ListCommand) ([]Material, error) {
@@ -60,13 +60,9 @@ func (r *fakeRepo) AssignClassification(ctx context.Context, cmd AssignClassific
 	return nil
 }
 
-func (r *fakeRepo) ListCustomerReferences(ctx context.Context, materialID, customerID int64, active string) ([]MaterialCustomerReference, error) {
-	return []MaterialCustomerReference{r.reference}, nil
-}
-
-func (r *fakeRepo) SaveCustomerReference(ctx context.Context, cmd SaveMaterialCustomerReferenceCommand) (MaterialCustomerReference, error) {
-	r.reference = MaterialCustomerReference{ID: 9, MaterialID: cmd.MaterialID, CustomerID: cmd.CustomerID, Active: cmd.Active, Remark: cmd.Remark}
-	return r.reference, nil
+func (r *fakeRepo) ChangeOwner(ctx context.Context, cmd ChangeOwnerCommand) (Material, error) {
+	r.owner = cmd
+	return Material{ID: cmd.ID, OwnerType: cmd.OwnerType, OwnerCustomerID: cmd.OwnerCustomerID}, nil
 }
 
 func (r *fakeRepo) ResolveBoundCustomerID(ctx context.Context, employeeID int64) (int64, error) {
@@ -94,7 +90,7 @@ func TestServiceOwnsMaterialUseCases(t *testing.T) {
 		t.Fatalf("Update() row=%+v repo=%+v", row, repo.update)
 	}
 
-	created, err := svc.Create(ctx, CreateCommand{Actor: "测试员", Input: MaterialInput{Code: "BAG-228", Name: "228g豆袋"}})
+	created, err := svc.Create(ctx, CreateCommand{Actor: "测试员", OwnerType: OwnerTypeFactory, Input: MaterialInput{Code: "BAG-228", Name: "228g豆袋"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +112,7 @@ func TestServicePreservesSemiFinishedWrites(t *testing.T) {
 	svc := NewService(repo)
 	ctx := context.Background()
 
-	if _, err := svc.Create(ctx, CreateCommand{Actor: "测试员", Input: MaterialInput{Code: "WIP-001", Name: "湿豆", IsSemiFinished: true}}); err != nil {
+	if _, err := svc.Create(ctx, CreateCommand{Actor: "测试员", OwnerType: OwnerTypeFactory, Input: MaterialInput{Code: "WIP-001", Name: "湿豆", IsSemiFinished: true}}); err != nil {
 		t.Fatal(err)
 	}
 	if !repo.create.Input.IsSemiFinished {
@@ -130,17 +126,27 @@ func TestServicePreservesSemiFinishedWrites(t *testing.T) {
 	}
 }
 
-func TestServiceNormalizesMaterialCustomerReferences(t *testing.T) {
+func TestServiceRequiresOneExplicitMaterialOwner(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
-	if _, err := svc.Create(context.Background(), CreateCommand{Actor: "测试员", CustomerIDs: []int64{74, 75, 74, 0}, Input: MaterialInput{Code: "MAT-X", Name: "共享物料"}}); err != nil {
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, CreateCommand{Actor: "测试员", Input: MaterialInput{Code: "MAT-X", Name: "缺少归属"}}); err == nil || !strings.Contains(err.Error(), "物料归属") {
+		t.Fatalf("missing owner err=%v", err)
+	}
+	if _, err := svc.Create(ctx, CreateCommand{Actor: "测试员", OwnerType: OwnerTypeFactory, OwnerCustomerID: 74, Input: MaterialInput{Code: "MAT-X", Name: "冲突归属"}}); err == nil {
+		t.Fatal("factory owner must reject customer id")
+	}
+	if _, err := svc.Create(ctx, CreateCommand{Actor: "测试员", OwnerType: OwnerTypeCustomer, Input: MaterialInput{Code: "MAT-X", Name: "缺客户"}}); err == nil {
+		t.Fatal("customer owner must require one customer")
+	}
+	if _, err := svc.Create(ctx, CreateCommand{Actor: "测试员", OwnerType: OwnerTypeCustomer, OwnerCustomerID: 74, Input: MaterialInput{Code: "MAT-A", Name: "客户物料"}}); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(repo.create.CustomerIDs, []int64{74, 75}) {
-		t.Fatalf("customer ids=%v", repo.create.CustomerIDs)
+	if repo.create.OwnerType != OwnerTypeCustomer || repo.create.OwnerCustomerID != 74 {
+		t.Fatalf("create owner=%+v", repo.create)
 	}
-	row, err := svc.SaveCustomerReference(context.Background(), SaveMaterialCustomerReferenceCommand{Actor: "测试员", MaterialID: 4, CustomerID: 74, Active: true, Remark: " 来料 "})
-	if err != nil || row.ID != 9 || row.Remark != "来料" {
-		t.Fatalf("SaveCustomerReference()=%+v err=%v", row, err)
+	row, err := svc.ChangeOwner(ctx, ChangeOwnerCommand{Actor: "测试员", ID: 4, OwnerType: OwnerTypeFactory})
+	if err != nil || row.OwnerCustomerID != 0 || repo.owner.ID != 4 {
+		t.Fatalf("ChangeOwner()=%+v repo=%+v err=%v", row, repo.owner, err)
 	}
 }
