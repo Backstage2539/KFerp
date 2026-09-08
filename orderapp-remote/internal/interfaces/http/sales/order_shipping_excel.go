@@ -15,6 +15,7 @@ import (
 
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 	support "orderapp/internal/interfaces/http/support"
 
 	"github.com/labstack/echo/v4"
@@ -569,6 +570,9 @@ func orderShippingRemark(data salesapp.OrderShippingExportData) string {
 }
 
 func orderShippingReady(data salesapp.OrderShippingExportData) bool {
+	if salesdomain.IsNonCourierShipMethod(data.ShipMethod) {
+		return false
+	}
 	shipStatus := strings.TrimSpace(data.ShipStatus)
 	if strings.Contains(shipStatus, "已发货") {
 		return false

@@ -5061,3 +5061,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: PostgreSQL pools 1/4 and 8 concurrent bearer requests; security changes during eligibility; existing session-revocation/login tests; scripts/verify_kferp.sh backend and changed。
 - Evidence: orderapp-remote/docs/acceptance/2026-09-08-erp-session-pool.md。
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md。
+### PR-641-ORDER-DELIVERY-EDIT-DOCUMENTS
+- Branch: codex/order-experience-documents-20260908
+- Owner/session: Codex
+- Status: implementing
+- Scope: eight approved order delivery, editing, summary and sales document changes
+- Verifier: targeted frontend/Go/API RED-GREEN; rendered PDF/PNG inspection; full backend/frontend/build gates
+- Deployment: develop and main, development and production authorized; business acceptance by Codex per approved plan, no direct production data repair
+- Last update: 2026-09-08

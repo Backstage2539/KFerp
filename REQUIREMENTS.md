@@ -941,3 +941,14 @@
 
 ## PR-638-PRICE-TABLE-ORDERABILITY
 价格表生成和发布前按录单当前 BOM 规格权威检查商品启用、当前规格及客户范围，错误定位商品/规格，多表中任一表错误整组不发布。草稿可保留待补全，历史价格、订单及已发布文件不回算。
+
+# PR-641-ORDER-DELIVERY-EDIT-DOCUMENTS
+
+- 目标：订单支持快递、自提、本地送货；恢复已存商品和规格身份；简化来源与状态费用展示；销售单正确分页、显示备注并收紧付款金额底色。
+- 范围：ERP 网页、共用订单接口、普通和组合销售单预览/PDF/PNG。订单编辑保存时同步客户默认订单类型，不批量改历史订单。
+- 验收人：VA；状态：review，等待 Van 业务验收。
+- DEV-641-ORDER-DELIVERY：配送模式、物流校验、快递过滤和操作日志。
+- DEV-641-ORDER-EDIT：商品/BOM规格/客户引用联合恢复，报价去重、详情折叠和类型刷新。
+- DEV-641-SALES-DOCUMENTS：末页收款区、中文分页、订单备注和紧凑金额底色。
+- DEV-641-DELIVERY：相关自动验证、手册、develop/main 合并及开发/生产部署。
+- 证据：orderapp-remote/docs/acceptance/2026-09-08-order-delivery-edit-documents.md。

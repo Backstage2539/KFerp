@@ -131,6 +131,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)::text AS prepayment_amount,
 			COALESCE(ss.name, '') AS ship_status,
 			%s AS ship_tracking_no,
+            COALESCE(o.ship_method,'') AS ship_method,
 			COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, '') AS receiver_name,
 			COALESCE(NULLIF(o.receiver_phone,''), c.phone, '') AS receiver_phone,
 			COALESCE(NULLIF(o.receiver_address,''), c.address, '') AS receiver_address,
@@ -189,7 +190,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
 			return nil, false, err
 		}
 		prepayment, _ := strconv.ParseFloat(r.PrepaymentAmount, 64)

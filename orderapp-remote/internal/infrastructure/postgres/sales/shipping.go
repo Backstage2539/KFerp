@@ -31,6 +31,7 @@ func (r Repository) FillTrackingPairs(ctx context.Context, cmd salesapp.FillTrac
 			JOIN %s.customers c ON c.id=o.customer_id
 			WHERE o.is_void=false
 			  AND COALESCE(o.ship_tracking_no,'')=''
+              AND COALESCE(o.ship_method,'') NOT IN ('pickup','local_delivery')
 			  AND NOT EXISTS (SELECT 1 FROM %s.order_shipping_trackings ost WHERE ost.order_id=o.id)
 			  AND regexp_replace(COALESCE(c.phone,''),'\D','','g') = $1
 			ORDER BY o.order_date, o.id

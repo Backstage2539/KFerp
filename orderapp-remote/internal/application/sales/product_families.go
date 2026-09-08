@@ -61,6 +61,7 @@ func BuildOrderProductFamilies(products []ProductOption) []map[string]any {
 					"product_code":                         orderFamilyFirstText(product.ProductCode, product.SKUCode),
 					"customer_id":                          product.CustomerID,
 					"customer_product_alias_id":            product.CustomerProductAliasID,
+					"customer_product_reference_id":        product.CustomerProductReferenceID,
 					"customer_product_display_name":        aliasName,
 					"alias_name":                           aliasName,
 					"customer_item_code":                   product.CustomerItemCode,

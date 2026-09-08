@@ -30,7 +30,8 @@ func TestDev141SalesOrderPNGAndPDFUseLargerReadableAssets(t *testing.T) {
 		"salesOrderPNGScale",
 		"salesOrderPNGTextWeightOffsetPixels",
 		"salesOrderPNGPaymentCodeMetrics",
-		"if size < 330",
+		"minInt(width, height-80)",
+		"PrepareSalesOrderLayout",
 		"assetImageSharp",
 		"xdraw.NearestNeighbor.Scale",
 	} {

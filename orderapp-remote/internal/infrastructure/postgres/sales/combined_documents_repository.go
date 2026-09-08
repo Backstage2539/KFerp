@@ -479,6 +479,7 @@ func (r Repository) buildCombinedSalesOrderSnapshotTx(ctx context.Context, tx pg
 	}
 	key := combinedDocumentKey(orderIDs)
 	snapshot := salesdomain.CombinedSalesOrderSnapshot{
+		RenderVersion:  salesdomain.SalesOrderRenderVersion,
 		CombinationKey: key,
 		CustomerID:     orders[0].CustomerID,
 		CustomerName:   orders[0].CustomerName,
@@ -525,6 +526,7 @@ func (r Repository) buildCombinedSalesOrderSnapshotTx(ctx context.Context, tx pg
 			Discount:           single.Discount,
 			ExpressFee:         single.ExpressFee,
 			SalesOrderNote:     single.SalesOrderNote,
+			OrderNote:          single.OrderNote,
 			GrandTotal:         single.GrandTotal,
 			DiscountBreakdowns: single.DiscountBreakdowns,
 		})
