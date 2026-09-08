@@ -33,13 +33,13 @@ func TestProductionBomMaterialOwnershipRulesPostgres(t *testing.T) {
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY,customer_id BIGINT NOT NULL DEFAULT 0);
 		CREATE TABLE %[1]s.materials(id BIGINT PRIMARY KEY,owner_customer_id BIGINT NOT NULL DEFAULT 0);
-		CREATE TABLE %[1]s.production_boms(id BIGINT PRIMARY KEY,main_input_material_id BIGINT NOT NULL DEFAULT 0);
-		CREATE TABLE %[1]s.production_bom_versions(id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL);
+		CREATE TABLE %[1]s.production_boms(id BIGINT PRIMARY KEY);
+		CREATE TABLE %[1]s.production_bom_versions(id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,main_input_material_id BIGINT NOT NULL DEFAULT 0);
 		CREATE TABLE %[1]s.production_bom_version_items(id BIGSERIAL PRIMARY KEY,version_id BIGINT NOT NULL,component_type TEXT NOT NULL DEFAULT 'material',material_id BIGINT NOT NULL DEFAULT 0);
 		INSERT INTO %[1]s.products(id,customer_id) VALUES(1,0),(2,74),(3,75);
 		INSERT INTO %[1]s.materials(id,owner_customer_id) VALUES(10,0),(20,74),(30,75);
-		INSERT INTO %[1]s.production_boms(id,main_input_material_id) VALUES(100,0),(200,10),(300,20);
-		INSERT INTO %[1]s.production_bom_versions(id,bom_id) VALUES(101,100),(201,200),(301,300);
+		INSERT INTO %[1]s.production_boms(id) VALUES(100),(200),(300);
+		INSERT INTO %[1]s.production_bom_versions(id,bom_id,main_input_material_id) VALUES(101,100,0),(201,200,10),(301,300,20),(302,300,30),(303,300,0);
 	`, schema)); err != nil {
 		t.Fatal(err)
 	}
@@ -69,4 +69,8 @@ func TestProductionBomMaterialOwnershipRulesPostgres(t *testing.T) {
 	assertRule("customer A accepts factory and A", 201, 2, []int64{10, 20}, "")
 	assertRule("customer A rejects customer B", 201, 2, []int64{30}, "同一客户")
 	assertRule("main input is also checked", 301, 1, nil, "本公司 BOM")
+	assertRule("main input accepts same customer", 301, 2, nil, "")
+	assertRule("another version rejects different customer", 302, 2, nil, "同一客户")
+	assertRule("another version accepts its own customer", 302, 3, nil, "")
+	assertRule("version without main input ignores other versions", 303, 1, nil, "")
 }
