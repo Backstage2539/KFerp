@@ -1,6 +1,6 @@
 # PR-642 EFS 履约录单与客户首页
 
-状态：针对性自动验证完成，待开发/生产发布与原单调整；业务验收由 Van 完成。
+状态：针对性自动验证及合并最新 develop 后的全量门禁完成，待开发/生产发布与原单调整；业务验收由 Van 完成。
 
 ## 实现与范围
 
@@ -26,3 +26,11 @@
 ## 操作说明
 
 单一手册：`orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`；Vue 首页导航、录单帮助和价格表预览说明同步更新，手册索引已登记。
+
+## 发布前完成证据
+
+- 已合并最新 `origin/develop`（68163316，已完成的 PR-641 验收和单据修复），保留其改动。
+- `scripts/verify_kferp.sh all`：Go 全量、Vue 1121/1121、生产构建通过。
+- 本地 PostgreSQL 八单集成含 PDF/PNG：8 个原订单分组、订单日期与单据日期分别保留，合计 480.00；预览 PDF 2 页、PNG 长图有效。已检查长图及 PDF 第二页，文字与金额完整，无重叠。测试产物 `/private/tmp/kferp-efs-artifacts/efs-eight-combined.pdf`、`efs-eight-combined.png`（模拟数据）。
+- 原单调整 SQL 已在隔离测试数据验证：无备份拒绝；首次修改 8 单，二次 0 单；操作日志保持 8 条；历史快照完整一致。
+- 价格表选择、跨客户版本拒绝、原价快照冻结和缺规格阻止继续由共享销售测试覆盖。

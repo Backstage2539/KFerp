@@ -1,14 +1,20 @@
 package sales
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	salesapp "orderapp/internal/application/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -66,16 +72,19 @@ func TestCustomerWorkspaceContinuousOrdersAndRecipientIsolation(t *testing.T) {
 	path := "/api/customer-processing/portal/order"
 	request(http.MethodPost, path, strings.Replace(payload(1), `"backfill_mode":true`, `"backfill_mode":false`, 1), 400)
 	var first int64
+	var ids []int64
 	for i := 1; i <= 8; i++ {
 		result := request(http.MethodPost, path, payload(i), 200)
 		if i == 1 {
 			first = int64(result["order_id"].(float64))
 		}
+		ids = append(ids, int64(result["order_id"].(float64)))
 		again := request(http.MethodPost, path, payload(i), 200)
 		if again["order_id"] != result["order_id"] {
 			t.Fatal("duplicate order on retry")
 		}
 	}
+	verifyCustomerEightCombined(t, pool, schema, ids)
 	var count int
 	var amount float64
 	var orderType int64
@@ -142,4 +151,65 @@ func TestCustomerWorkspaceContinuousOrdersAndRecipientIsolation(t *testing.T) {
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf("UPDATE %s.bean_list_publications SET status='published' WHERE id=88", schema))
 	request(http.MethodPost, path, payload(10), 200) // a rejected request can be corrected and retried.
 
+}
+
+func verifyCustomerEightCombined(t *testing.T, pool *pgxpool.Pool, schema string, ids []int64) {
+	t.Helper()
+	if err := postgressales.EnsureSchema(context.Background(), pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	e := newCombinedDocumentAPITestEcho(pool, schema, t.TempDir())
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
+		}
+		return rec
+	}
+	var values []string
+	for _, id := range ids {
+		values = append(values, strconv.FormatInt(id, 10))
+	}
+	query := strings.Join(values, ",")
+	preview := request(http.MethodGet, "/api/orders/combined/sales-order-preview?order_ids="+query, "")
+	var data salesapp.CombinedSalesOrderPreview
+	if err := json.Unmarshal(preview.Body.Bytes(), &data); err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Snapshot.Groups) != 8 || data.Snapshot.GrandTotal != "480.00" {
+		t.Fatal("combined order group/amount mismatch", data.Snapshot.GrandTotal, len(data.Snapshot.Groups))
+	}
+	for _, group := range data.Snapshot.Groups {
+		if group.OrderDate != "2026-07-19" || group.DocumentDate != "2026-09-09" || len(group.Items) != 1 {
+			t.Fatal("combined lost original order fields", group)
+		}
+	}
+	pdf := request(http.MethodGet, "/api/orders/combined/sales-order-preview.pdf?order_ids="+query, "")
+	if !bytes.HasPrefix(pdf.Body.Bytes(), []byte("%PDF-")) {
+		t.Fatal("invalid PDF")
+	}
+	payload, _ := json.Marshal(map[string]any{"order_ids": ids})
+	created := request(http.MethodPost, "/api/orders/combined/sales-order-images", string(payload))
+	var imageDoc salesapp.CombinedSalesOrderImageDocument
+	json.Unmarshal(created.Body.Bytes(), &imageDoc)
+	image := request(http.MethodGet, imageDoc.DownloadURL, "")
+	decoded, err := png.Decode(bytes.NewReader(image.Body.Bytes()))
+	if err != nil || decoded.Bounds().Dy() < 1700 {
+		t.Fatal("invalid PNG", err)
+	}
+	if dir := os.Getenv("KFERP_TEST_ARTIFACT_DIR"); dir != "" {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "efs-eight-combined.pdf"), pdf.Body.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "efs-eight-combined.png"), image.Body.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
