@@ -84,6 +84,25 @@ func TestCustomerWorkspaceContinuousOrdersAndRecipientIsolation(t *testing.T) {
 			t.Fatal("duplicate order on retry")
 		}
 	}
+	list, err := svc.ListOrders(ctx, salesapp.OrderListQuery{CustomerID: 3, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Rows) != 8 {
+		t.Fatal("expected eight fulfillment orders")
+	}
+	for _, row := range list.Rows {
+		if row.ReceiverName != "" || row.ReceiverPhone != "" || row.ReceiverAddress != "" {
+			t.Fatal("missing fulfillment recipient replaced by customer contact")
+		}
+	}
+	edit, err := svc.OrderForm(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edit.EditData.ReceiverName != "" || edit.EditData.ReceiverPhone != "" || edit.EditData.ReceiverAddress != "" {
+		t.Fatal("edit form replaced missing recipient by customer contact")
+	}
 	verifyCustomerEightCombined(t, pool, schema, ids)
 	var count int
 	var amount float64

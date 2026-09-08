@@ -190,6 +190,17 @@ func scopeCustomerForm(resp *orderFormAPIResponse, id int64) {
 		specs = append(specs, row)
 	}
 	resp.ProductBOMSpecOptions = specs
+	// Client pricing only needs published sales terms, never factory cost details.
+	stripCustomerPriceSources(resp.Products)
+	stripCustomerPriceSources(resp.ProductFamilies)
+
+	for i := range resp.ProductBOMSpecOptions {
+		for j := range resp.ProductBOMSpecOptions[i].Tiers {
+			tier := &resp.ProductBOMSpecOptions[i].Tiers[j]
+			tier.PriceSourceJSON = customerPriceSource(tier.PriceSourceJSON)
+		}
+	}
+
 }
 
 func (h orderAPIHandler) requireCustomerOrdersCapability(c echo.Context) error {
@@ -216,4 +227,60 @@ func customerDetailSpecOptions(c echo.Context, data salesapp.OrderFormData) []sa
 		return []salesapp.ProductBOMSpecOption{}
 	}
 	return data.ProductBOMSpecOptions
+}
+
+func customerPriceSource(raw string) string {
+	var source map[string]any
+	if json.Unmarshal([]byte(raw), &source) != nil {
+		return ""
+	}
+	public := map[string]any{}
+	for _, key := range []string{"source", "list_type", "publication_id", "version_no", "price_table_name", "table_key", "quantity_basis", "tier_quantity_unit", "effective_sales_spec", "min_qty", "max_qty", "unit_price", "final_unit_price", "parent_product_id", "product_id", "bom_spec_id", "bom_variant_id", "sales_unit", "inventory_unit", "unit_bag_count", "unit_bean_g", "bag_grams", "box_bag_count", "matched_price_qty"} {
+		if value, ok := source[key]; ok {
+			public[key] = value
+		}
+	}
+	result, _ := json.Marshal(public)
+	return string(result)
+}
+func customerEditDataForAPI(ed *OrderEditData, customer bool) map[string]any {
+	data := editDataForAPI(ed)
+	if !customer {
+		return data
+	}
+	delete(data, "quote_source_trace")
+	delete(data, "production_source_trace")
+	raw, _ := json.Marshal(data["items"])
+	var items []map[string]any
+	_ = json.Unmarshal(raw, &items)
+	for _, item := range items {
+		if source, ok := item["price_source_json"].(string); ok {
+			item["price_source_json"] = customerPriceSource(source)
+		}
+	}
+	data["items"] = items
+	return data
+}
+
+func stripCustomerPriceSources(value any) {
+	switch data := value.(type) {
+	case []map[string]any:
+		for _, row := range data {
+			stripCustomerPriceSources(row)
+		}
+	case []any:
+		for _, row := range data {
+			stripCustomerPriceSources(row)
+		}
+	case map[string]any:
+		for key, item := range data {
+			if key == "price_source_json" {
+				if raw, ok := item.(string); ok {
+					data[key] = customerPriceSource(raw)
+				}
+			} else {
+				stripCustomerPriceSources(item)
+			}
+		}
+	}
 }
