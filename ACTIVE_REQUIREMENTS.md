@@ -7,14 +7,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-638-PRICE-TABLE-ORDERABILITY
-- Branch: `codex/price-table-orderability-20260908`
+- Branch: `codex/price-table-orderability-20260908` (development implementation); `codex/price-table-orderability-production-20260908` (production backport); `codex/pr638-delivery-evidence` (delivery records)
 - Owner/session: Codex / 2026-09-08
-- Status: RED/GREEN and production read-only diagnosis complete; final verification and isolated production backport in progress
+- Status: implementation, RED/GREEN, production deployment and read-only verification complete; awaiting Van configuration/business acceptance
 - Scope: 价格表生成与发布必须符合录单当前 BOM 规格、启用状态及客户范围；历史发布/PDF不回算。
 - DEV: DEV-638-ORDERABILITY-GUARD; DEV-638-GENERATION-FEEDBACK; DEV-638-DELIVERY
 - Verifier: service/API RED/GREEN, real PostgreSQL authority projection, Vue tests/build and synthetic browser warning/blocking.
-- Production evidence: deployed ce58d4ec; publication #39 V3.0.8 咖啡生豆, 7 parent products/14 prices; GET /api/order/form 200 with zero green products/specs, all 7 lack configured current order authority.
-- Deployment: targeted production backport after gates; no business data repair, BOM creation or history rewriting.
+- Production evidence: original ce58d4ec; publication #39 V3.0.8 咖啡生豆, 7 parent products/14 prices. After deployment, read-only preflight returns HTTP 400 naming all 7 invalid products; order form remains HTTP 200 with zero green products pending configuration. Historical PDF is HTTP 200 and publication/config/content/PDF hashes are unchanged.
+- Deployment: production `a9dd129ef41119d1cd7e82630440c62e4660df98` via `./deploy_orderapp.sh production`, GitHub PR #78; development implementation merged via PR #77 at `5201c0a9b3ec2d8eb1d0e2ce2b1ea7c4905bf3b9`, not deployed in this follow-up. No business data repair, BOM creation or history rewriting.
+- Rollback: `/opt/stacks/erp-production/orderapp.backup.deploy-20260908134451-a9dd129ef411`; image `kferp-orderapp-rollback:production-20260908134451-a9dd129ef411`.
+- Gates/artifact: full Go, production Vue 1084 tests/build, miniapp 235 tests/typecheck/production build; real PostgreSQL and service/API checks. Production artifact `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`, 14 pages/56 files, release SHA matches; not uploaded to WeChat.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-08-price-table-orderability.md`; local logs `/private/tmp/kferp-pr638-evidence`.
 - Notes: reservation script macOS awk error; PR-638 manually reserved here.
 
 ### PR-635-NAMED-PRICE-TABLE-BATCHES
