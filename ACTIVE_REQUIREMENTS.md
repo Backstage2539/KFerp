@@ -5062,10 +5062,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Evidence: orderapp-remote/docs/acceptance/2026-09-08-erp-session-pool.md。
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md。
 ### PR-641-ORDER-DELIVERY-EDIT-DOCUMENTS
-- Branch: codex/order-experience-documents-20260908
-- Owner/session: Codex
-- Status: targeted PostgreSQL regressions, full Go, frontend 1119/1119, Vue build and PDF/PNG visual checks GREEN; ready to merge and deploy
-- Scope: eight approved order delivery, editing, summary and sales document changes
-- Verifier: targeted frontend/Go/API RED-GREEN; rendered PDF/PNG inspection; full backend/frontend/build gates
-- Deployment: develop and main, development and production authorized; business acceptance by Codex per approved plan, no direct production data repair
-- Last update: 2026-09-08
+- Branch: codex/order-experience-documents-20260908 (production: codex/order-experience-production-20260908)
+- Owner/acceptance: Codex
+- Status: done; eight approved changes merged, deployed and accepted
+- Verifier: targeted PostgreSQL/API regressions; full Go; frontend 1120/1120; Vue build; PDF/PNG and live production preview checks
+- Development runtime: 0ad89bcae5a7508f326b606a46ff84b79bda9ab1
+- Production runtime: 997ae6dbebc353f500d6cf831948482cf1035782
+- Business evidence: SO-20260908-0002 normal save/reopen, three products and prices preserved, default type updated to wholesale; order audit4094
+- Evidence: orderapp-remote/docs/acceptance/2026-09-08-order-delivery-edit-documents.md
+- Last update: 2026-09-09

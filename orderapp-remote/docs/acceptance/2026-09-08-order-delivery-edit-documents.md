@@ -1,6 +1,6 @@
 # PR-641 订单配送、编辑与销售单交付证据
 
-状态：自动验证通过，待双环境上线验收；按本次授权由 Codex 完成业务验收，不直接修写生产数据库。
+状态：done；八项全部合入 develop/main，开发/生产均已发布最终v5，Codex已完成自动验证与业务验收。生产订单通过正常保存接口验证，没有直接写生产订单数据库。
 
 ## 复现与修复
 
@@ -20,7 +20,7 @@
 
 手册：orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md；Vue订单、销售单预览和设置帮助同步更新。快照新增 order_note、组合单 render_version；复用已有配送字段，无数据库迁移。新生成单据采用 sales-order-last-page-notes-v5，历史归档保留。
 
-目标：develop/main、开发/生产。部署提交、备份路径、健康检查及上线后的页面验收待补充。未直接修改生产订单数据。
+交付目标已完成：develop/main、开发/生产。业务订单只通过正常接口保存，保留操作日志。
 
 ## 上线业务回归（2026-09-09）
 
@@ -30,3 +30,21 @@
 - 生产组合销售单旧设置的说明X=232mm曾使内容越出A4，现统一限制为页内8mm安全范围，预览坐标一致。真实快照重渲染为3页，个性化说明完整且仅出现在第3页。
 - 中文逐字回归另复现旧PDF库换行将80个汉字画成69个；统一使用无损换行测量/绘制后恢复80个，实际说明全文去空白比对通过。RED证据：/private/tmp/pr641-wrap-red.log；最终Go全量：/private/tmp/pr641-v5-backend.log。
 - 多收款码与长描述合成样张已检查PDF和PNG，收款区仅在末页/长图末尾，超页容量返回明确错误。旧归档文件保留；新预览/导出按v5版本重新生成。
+
+## 最终双环境发布与核对
+
+| 环境 | 实际运行提交 | 发布前源码备份 | 回滚镜像 |
+| --- | --- | --- | --- |
+| 开发 | `0ad89bcae5a7508f326b606a46ff84b79bda9ab1` | `/opt/stacks/erp/orderapp.backup.deploy-20260909004318-0ad89bcae5a7` | `kferp-orderapp-rollback:development-20260909004318-0ad89bcae5a7` |
+| 生产 | `997ae6dbebc353f500d6cf831948482cf1035782` | `/opt/stacks/erp-production/orderapp.backup.deploy-20260909005052-997ae6dbebc3` | `kferp-orderapp-rollback:production-20260909005052-997ae6dbebc3` |
+
+- 依次运行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` 和 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production`，使用干净、已推送并合并的分支；完整服务端检查与构建通过。
+- 两个应用均运行，数据库均健康；未认证订单API均401，认证订单与需求API均200。开发首页303至登录/导航，生产未认证首页401。部署源码和 RELEASE_INFO 与上表一致。
+- 两环境前端资源一致：`index-DCbT9xeK.js`、`index-BsH5mxsw.css`；渲染版本均 `sales-order-last-page-notes-v5`。
+- 发布后生产普通/组合预览均200，分别1页/3页；组合单所有关联单号、非空订单备注及个性化说明全文比对通过，个性化说明只在最后一页。再次读取订单确认所有可编辑值与此前正常保存结果一致，三行商品和报价完整保持，类型为批发3。
+- 生产当前未选择收款码，未修改这项业务配置；多个收款码及长说明使用合成PDF/PNG样例验证。预览拖拽与窄屏在开发页面验收，生产通过共用资源版本、接口及实际文档复核。
+- PR641及其4条DEV进度在两环境均为done，记录Codex验收完成审计；该进度更新只涉及本次需求元数据，不改业务订单。
+- 最后交付记录提交只更新验收文档与需求进度种子，不改变上表实际运行的业务实现。两分支保留各自原有其他需求记录。
+- 构建后仅清理可重新生成的闲置构建缓存；业务数据、归档文件、回滚镜像和发布前源码备份保留。无小程序发布。
+
+日志：`/private/tmp/pr641-deploy-development-v5.log`、`/private/tmp/pr641-deploy-production-v5.log`、`/private/tmp/pr641-v5-frontend-tests.log`、`/private/tmp/pr641-production-v5-backend.log`。私有实际订单快照和预览仅保存在本机权限受限的临时验收目录，不加入版本库。
