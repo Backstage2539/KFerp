@@ -5021,3 +5021,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Reproduction: EFS 客户 302、商品 1063 的 227g 规格（BOM 3 / variant 483）公共表 122 已报价 28/33/26/24，客户平铺行却为 0。454g 只在旧公共表 110 报价，最新表 122 缺此规格，保留待报价并明确提示。
 - Verifier: Vue 实际响应式加载流程 RED 2 项；客户/类型与命名表切换、草稿保留、跨客户迟到响应隔离、旧规格不回退；完整 Vue/Vite 与部署门禁。
 - Status: Vue 1108/1108、Vite、完整部署门禁通过；develop@277c56d1 已部署 development，EFS 227g 四档报价及刷新实测通过。454g 缺当前公共报价，明确提示；未修改或发布客户/公共报价。证据：orderapp-remote/docs/acceptance/2026-09-08-efs-customer-price-inheritance.md。生产与微信发布未执行。
+
+### PR-637 客户阶梯模板回归（2026-09-08）
+- Branch: codex/customer-tier-template-20260908；基线 origin/develop 5250a357。
+- Scope: 客户表主动选择计价模板后，生成行使用新档位和试算价；保留未受修改影响的客户报价，按客户与命名表隔离保存。
+- Reproduction: 用户报告 NB；当前开发页面为 EFS 客户 302，选择模板 16（EFS咖啡豆2档位），平铺行仍显示公共模板 11 的四档固定报价。
+- Verifier: customer-price-template.test.js RED；模板切换、原草稿恢复、局部优先级、缺模板阻止和草稿隔离；完整 Vue/Vite、部署门禁及开发页面复验。
+- Status: targeted GREEN；开发部署及页面复验进行中。生产、微信与客户/公共价格表发布不在本次修复范围。

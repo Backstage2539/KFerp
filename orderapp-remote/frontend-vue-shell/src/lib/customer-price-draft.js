@@ -26,12 +26,40 @@ export function seedCustomerPriceRows(existing = [], generated = [], publication
   }
   return out
 }
-export function applyCustomerPriceRows(generated = [], seeds = [], overrides = {}, customerID = 0) {
+function usesConfiguredPricing(row, sources, { configuredSources = {}, publications = [] } = {}) {
+  if (configuredSources[`product:${Number(row.parent_product_id || row.product_id || 0)}`]) return true
+  const scope = row.pricing_mode_source === 'parent_product'
+    ? `product:${Number(row.parent_product_id || row.product_id || 0)}`
+    : ['subgroup', 'parent_group'].includes(row.pricing_mode_source)
+      ? `group:${Number(row.pricing_mode_source_group_item_id || 0)}` : 'default'
+  if (configuredSources[scope]) return true
+  // Recover pre-fix drafts whose selected template was already changed while
+  // their imported rows were still being displayed. Never infer a price.
+  const selectedTemplate = Number(row.tier_template_id || 0)
+  if (scope !== 'default' || row.pricing_mode !== 'tier_template' || !(selectedTemplate > 0)) return false
+  return sources.some(source => {
+    const publication = publications.find(p => Number(p.id) === Number(source.customer_price_source_publication_id))
+    const sourceTemplate = Number(publication?.config?.price_list_template_selection?.defaults?.tier_template_id || 0)
+    return sourceTemplate > 0 && sourceTemplate !== selectedTemplate
+  })
+}
+
+export function applyCustomerPriceRows(generated = [], seeds = [], overrides = {}, customerID = 0, options = {}) {
   if (!(Number(customerID) > 0)) return generated
-  const base = new Map(generated.map(r => [identity(r),r]))
+  const base = new Map()
+  for (const row of generated) {
+    const key = identity(row)
+    if (!base.has(key)) base.set(key, [])
+    base.get(key).push(row)
+  }
   const out=[]
-  for (const [key,current] of base) {
+  for (const [key,currentRows] of base) {
+    const current = currentRows[currentRows.length - 1]
     const sources=seeds.filter(r => identity(r)===key)
+    if (usesConfiguredPricing(current, sources, options)) {
+      out.push(...currentRows.map(row => ({ ...row, product_name: row.customer_reference_snapshot?.customer_display_name || row.product_name })))
+      continue
+    }
     const candidates=sources.length?sources:[{...current,final_unit_price:0,customer_quote_missing:true}]
     for (const source of candidates) {
       const rowKey=source.row_key||current.row_key
