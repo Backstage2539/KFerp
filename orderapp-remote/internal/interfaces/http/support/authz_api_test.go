@@ -537,3 +537,29 @@ func TestListEmployeeRolesAPIRequiresAuthManage(t *testing.T) {
 		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
+
+func TestCustomerWorkspaceMiddlewareNeverGrantsInternalOverrideToCustomer(t *testing.T) {
+	for _, accountType := range []string{AccountTypeChannelCustomer, "internal_employee"} {
+		t.Run(accountType, func(t *testing.T) {
+			e := echo.New()
+			authz := &fakeAuthzService{actor: authzapp.Actor{AccountType: accountType, Permissions: []string{"customer_processing.read", "customer_processing.submit", "orders.write"}}}
+			e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error { c.Set("employee_id", int64(3)); return next(c) }
+			})
+			e.Use(AuthorizationMiddleware(authz))
+			e.GET("/api/customer-processing/portal/workspace", func(c echo.Context) error {
+				internal, _ := c.Get("portal_internal_allowed").(bool)
+				customer := accountType == AccountTypeChannelCustomer
+				if internal == customer || CustomerFulfillmentOrderScopeLimited(c) != customer {
+					t.Fatal("incorrect customer/internal boundary")
+				}
+				return c.NoContent(http.StatusOK)
+			})
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/customer-processing/portal/workspace?customer_id=999", nil))
+			if rec.Code != 200 {
+				t.Fatal(rec.Code, rec.Body.String())
+			}
+		})
+	}
+}

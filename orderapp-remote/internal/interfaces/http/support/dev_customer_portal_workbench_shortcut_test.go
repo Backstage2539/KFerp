@@ -64,9 +64,9 @@ func TestDevCustomerPortalWorkbenchShortcut(t *testing.T) {
 	cpv := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerProcessingPortalView.vue"))
 	for _, want := range []string{
 		"internalCustomerID",
-		"isInternalContext",
-		"fetchInternalCustomerProcessingPortalOverview",
-		"fetchInternalCustomerProcessingPortalOptions",
+		"customerAccountActor",
+		"/api/customer-processing/portal/workspace",
+		"/api/customer-processing/internal/",
 	} {
 		if !strings.Contains(string(cpv), want) {
 			t.Fatalf("CustomerProcessingPortalView.vue missing %q", want)

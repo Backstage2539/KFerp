@@ -1,3 +1,4 @@
+import { customerWorkspacePages } from './customer-workspace.js'
 export const menuGroups = [
   {
     id: 'customerManagement',
@@ -198,3 +199,6 @@ export function toggleExpandedGroup(values, id) {
   }
   return [...(values || []), id]
 }
+
+for (const [key,label] of [...customerWorkspacePages,['customerOrders','我的订单']]) menuMap[key]={key,label,title:label}
+menuMap.customerProcessingPortal={...menuMap.customerProcessingPortal,title:'首页',label:'首页'}

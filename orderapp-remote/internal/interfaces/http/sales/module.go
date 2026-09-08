@@ -17,6 +17,7 @@ type Dependencies struct {
 	MessageCenter MessagePublisher
 	AssetDir      string
 	CustomerScope CustomerScopeResolver
+	CustomerMall  CustomerMallService
 }
 
 type MessagePublisher interface {
@@ -24,6 +25,7 @@ type MessagePublisher interface {
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerCustomerMallRoutes(e, deps)
 	registerShipExportRoutes(e, deps.Sales)
 	registerOutsourceSettingsRoutes(e, deps.Sales)
 	registerSenderSettingsPage(e, deps.Sales)

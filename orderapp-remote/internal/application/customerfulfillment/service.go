@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	salesapp "orderapp/internal/application/sales"
 	"regexp"
 	"strconv"
 	"strings"
@@ -482,8 +483,13 @@ type Repository interface {
 	ListImports(context.Context, ListImportsQuery) ([]ImportBatch, error)
 }
 
+type CustomerSalesService interface {
+	SaveOrder(context.Context, salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error)
+}
+
 type Service struct {
-	repo Repository
+	sales CustomerSalesService
+	repo  Repository
 }
 
 func NewService(repo Repository) *Service {
@@ -698,6 +704,9 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 		if item.QuantityUnits <= 0 {
 			return DirectShipOrderSummary{}, fmt.Errorf("quantity required")
 		}
+	}
+	if s.sales != nil {
+		return s.submitSharedSalesOrder(ctx, cmd)
 	}
 	return s.repo.SubmitCustomerDirectShipOrder(ctx, cmd)
 }
@@ -975,4 +984,96 @@ func addPreviewEffect(effects *[]ImportPreviewEffect, label string, value int) {
 		return
 	}
 	*effects = append(*effects, ImportPreviewEffect{Label: label, Value: value})
+}
+
+// CustomerWorkspace reads one capability page without eagerly loading the catalog.
+func (s *Service) CustomerWorkspace(ctx context.Context, employeeID, customerID int64, page string, publicationID int64) (map[string]any, error) {
+	if employeeID > 0 {
+		current, err := s.repo.CustomerPortalContext(ctx, employeeID)
+		if err != nil {
+			return nil, err
+		}
+		if customerID > 0 && customerID != current.CustomerID {
+			return nil, fmt.Errorf("customer scope mismatch")
+		}
+		customerID = current.CustomerID
+	}
+	if customerID <= 0 {
+		return nil, fmt.Errorf("customer required")
+	}
+	repo, ok := s.repo.(interface {
+		CustomerWorkspace(context.Context, int64, string, int64) (map[string]any, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("workspace unavailable")
+	}
+	return repo.CustomerWorkspace(ctx, customerID, page, publicationID)
+}
+
+func (s *Service) UseSalesOrderService(sales CustomerSalesService) { s.sales = sales }
+func (s *Service) submitSharedSalesOrder(ctx context.Context, cmd SubmitCustomerDirectShipOrderCommand) (DirectShipOrderSummary, error) {
+	customerID := cmd.CustomerID
+	external := cmd.EmployeeID > 0 && customerID <= 0
+	if external {
+		current, err := s.repo.CustomerPortalContext(ctx, cmd.EmployeeID)
+		if err != nil {
+			return DirectShipOrderSummary{}, err
+		}
+		customerID = current.CustomerID
+	}
+	data, err := s.CustomerWorkspace(ctx, 0, customerID, "context", 0)
+	if err != nil {
+		return DirectShipOrderSummary{}, err
+	}
+	codes, _ := data["capabilities"].([]string)
+	mode := ""
+	for _, code := range codes {
+		if code == "direct_ship" {
+			mode = "direct_ship"
+			break
+		}
+		if code == "product_order" {
+			mode = "product_order"
+		}
+	}
+	if mode == "" {
+		return DirectShipOrderSummary{}, fmt.Errorf("录单能力未开通")
+	}
+	today := time.Now()
+	date := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+	save := salesapp.SaveOrderCommand{CustomerSubmission: external, CustomerID: customerID, Actor: cmd.Actor, DocumentDate: date, OrderDate: date, ReceiverName: cmd.ReceiverName, ReceiverPhone: cmd.ReceiverPhone, ReceiverAddress: cmd.ReceiverAddress, ReceiverCompany: cmd.ReceiverCompany, PortalServiceCode: mode, ShippingAmount: cmd.ShippingAmount, Notes: cmd.Note, RequireCurrentDefaultPublications: true, OrdersScope: "fulfillment"}
+	for _, item := range cmd.Items {
+		if item.ProductID <= 0 {
+			options, err := s.repo.CustomerFulfillmentOptions(ctx, customerID)
+			if err != nil {
+				return DirectShipOrderSummary{}, err
+			}
+			for _, sku := range options.CustomerSKUs {
+				if sku.ProductName != item.ProductName && sku.ProductRecordName != item.ProductName && sku.CustomerProductDisplayName != item.ProductName {
+					continue
+				}
+				if item.Spec != "" && sku.Spec != "" && parseCustomerFulfillmentSpecG(sku.Spec) != parseCustomerFulfillmentSpecG(item.Spec) {
+					continue
+				}
+				if item.ProductID > 0 && item.ProductID != sku.ProductID {
+					return DirectShipOrderSummary{}, fmt.Errorf("存在同名商品，请重新选择商品")
+				}
+				item.ProductID = sku.ProductID
+			}
+			if item.ProductID <= 0 {
+				return DirectShipOrderSummary{}, fmt.Errorf("商品不在客户可用目录中")
+			}
+		}
+		id := item.ProductID
+		spec := item.SpecG
+		if spec <= 0 && item.BomSpecID == 0 {
+			spec = parseCustomerFulfillmentSpecG(item.Spec)
+		}
+		save.Items = append(save.Items, salesapp.OrderItemCommand{ProductID: &id, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, CustomerProductAliasID: item.CustomerProductAliasID, CustomerProductReferenceID: item.CustomerProductReferenceID, CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot, CustomerItemCodeSnapshot: item.CustomerItemCodeSnapshot, ProductCodeSnapshot: item.ProductCodeSnapshot, ProductNameSnapshot: item.ProductNameSnapshot, Name: item.ProductName, SpecG: spec, SalesUnit: item.SalesUnit, Unit: item.InventoryUnit, Units: item.QuantityUnits, Note: item.Note, DiscountType: item.DiscountType, DiscountValue: item.DiscountValue})
+	}
+	result, err := s.sales.SaveOrder(ctx, save)
+	if err != nil {
+		return DirectShipOrderSummary{}, err
+	}
+	return DirectShipOrderSummary{OrderID: result.OrderID, OrderNo: result.OrderNo, OrderDate: date.Format("2006-01-02"), ReceiverAddress: cmd.ReceiverAddress, Status: "submitted", ItemCount: len(save.Items)}, nil
 }

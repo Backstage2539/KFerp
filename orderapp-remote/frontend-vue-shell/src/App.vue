@@ -142,7 +142,8 @@
         :view-context="currentViewContext"
         :customer-context-id="workspaceCustomerContextId"
         :customer-context-label="workspaceCustomerLabel"
-        :customer-account-actor="isCustomerActor" />
+        :customer-account-actor="isCustomerActor"
+        :portal-page="currentKey" />
       <component
         v-else
         :key="currentViewIdentity"
@@ -155,7 +156,8 @@
         :view-context="currentViewContext"
         :customer-context-id="workspaceCustomerContextId"
         :customer-context-label="workspaceCustomerLabel"
-        :customer-account-actor="isCustomerActor" />
+        :customer-account-actor="isCustomerActor"
+        :portal-page="currentKey" />
     </main>
   </div>
 </template>
@@ -172,6 +174,8 @@ import CostingView from './views/CostingView.vue'
 import CustomerCapabilityTemplatesView from './views/CustomerCapabilityTemplatesView.vue'
 import CustomersView from './views/CustomersView.vue'
 import CustomerFulfillmentView from './views/CustomerFulfillmentView.vue'
+import { apiGet } from './api/client'
+import { customerWorkspaceMenu, customerWorkspacePages } from './lib/customer-workspace'
 import CustomerProcessingPortalView from './views/CustomerProcessingPortalView.vue'
 import CustomerPortalSettingsView from './views/CustomerPortalSettingsView.vue'
 import DeliveryNoteView from './views/DeliveryNoteView.vue'
@@ -439,6 +443,8 @@ const internalViews = {
   customerFulfillmentManual: OperationManualView,
   workspaceModeManual: OperationManualView,
   customerProcessingPortal: CustomerProcessingPortalView,
+  customerOrders: CustomerProcessingPortalView,
+  ...Object.fromEntries(customerWorkspacePages.map(([key]) => [key, CustomerProcessingPortalView])),
   uiSettings: UISettingsView,
   settingsAuditManual: OperationManualView,
   audit: AuditView,
@@ -454,22 +460,7 @@ function resolveInternalView(key) {
   return markRaw(internalViews[key] || UnknownView)
 }
 
-const customerAccountActorMenuGroups = [
-  {
-    id: 'customerWorkbench',
-    name: '工作台',
-    items: [{ key: 'customerProcessingPortal', label: '工作台', title: '客户工作台' }],
-  },
-  {
-    id: 'customerFinance',
-    name: '费用相关',
-    items: [
-      { key: 'financeExpenses', label: '费用明细', title: '客户费用明细' },
-      { key: 'financeReport', label: '经营报告', title: '客户经营报告' },
-      { key: 'financeClosing', label: '结账相关', title: '客户结账相关' },
-    ],
-  },
-]
+const customerAccountActorMenuGroups = computed(() => customerWorkspaceMenu(customerAccountContext.value?.capabilities || []))
 
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
@@ -872,7 +863,7 @@ function orderOptionMeta(option) {
 }
 
 async function loadCustomerAccountContext() {
-  const data = await fetchCustomerProcessingPortalOverview()
+  const data = await apiGet('/api/customer-processing/portal/workspace?page=context')
   customerAccountContext.value = data || {}
   const customerID = Number(data?.customer_id || 0)
   if (customerID <= 0) return
@@ -1118,7 +1109,7 @@ const sidebarClass = computed(() => ({
 const showTitle = computed(() => !isMobile.value && !collapsed.value)
 const allowedViewKeys = computed(() => {
   if (!currentActor.value) return []
-  if (isCustomerAccountActor(currentActor.value)) return ['customerProcessingPortal', 'financeExpenses', 'financeClosing', 'financeReport']
+  if (isCustomerAccountActor(currentActor.value)) return customerAccountActorMenuGroups.value.flatMap(group => group.items.map(item => item.key))
   if (actorHasFullViewAccess(currentActor.value)) return null
   return Array.isArray(currentActor.value.allowed_views) ? currentActor.value.allowed_views : []
 })
@@ -1127,7 +1118,7 @@ const showWorkspaceSwitcher = computed(() => Boolean(currentActor.value) && !isC
 const showViewContextSelector = computed(() => Boolean(currentActor.value) && !isCustomerActor.value)
 const showWorkspaceCustomerSelector = computed(() => currentViewContext.value.type === CUSTOMER_VIEW_CONTEXT && !isCustomerActor.value)
 const showWorkspaceOrderSelector = computed(() => currentViewContext.value.type === ORDER_VIEW_CONTEXT && !isCustomerActor.value)
-const workspaceMenuGroups = computed(() => (isCustomerActor.value ? customerAccountActorMenuGroups : menuGroupsForViewContext(menuGroups, currentViewContext.value)))
+const workspaceMenuGroups = computed(() => (isCustomerActor.value ? customerAccountActorMenuGroups.value : menuGroupsForViewContext(menuGroups, currentViewContext.value)))
 const availableMenuGroups = computed(() => filterMenuGroups(workspaceMenuGroups.value, allowedViewKeys.value, {
   actor: currentActor.value,
   workspaceMode: workspaceMode.value,

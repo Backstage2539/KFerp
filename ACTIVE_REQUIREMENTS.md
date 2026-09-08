@@ -5072,3 +5072,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: PostgreSQL pools 1/4 and 8 concurrent bearer requests; security changes during eligibility; existing session-revocation/login tests; scripts/verify_kferp.sh backend and changed。
 - Evidence: orderapp-remote/docs/acceptance/2026-09-08-erp-session-pool.md。
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md。
+
+### PR-642-EFS-FULFILLMENT-HOME
+- Branch: codex/efs-fulfillment-home-20260909
+- Owner/session: Codex
+- Status: merged latest verified develop; full Go, Vue 1121/1121, Vite, scoped PostgreSQL API and eight-order PDF/PNG GREEN; ready for development and production release
+- Scope: 客户能力独立页面、共享价格表录单与连续补录、收件信息补全、EFS指定8单批发归类、员工合并销售单。
+- Verifier: targeted Go/API/PostgreSQL tests; Vue node tests/build; combined PDF/PNG; development/production health and scoped API checks.
+- Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md
+- Deployment: authorized development then main/production; exact EFS order adjustment after release.
+- Last update: 2026-09-09

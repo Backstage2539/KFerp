@@ -23,7 +23,7 @@ func TestDev277CustomerTemplateLiveOrdersEvidenceExists(t *testing.T) {
 		"履约客户订单",
 		"fetchCustomerFulfillmentOrders",
 		"fetchCustomerFulfillmentOrderDetail",
-		"customerFulfillmentOrderFees",
+		"detail.shipping_amount",
 		"SalesOrderView",
 		"DeliveryNoteView",
 	} {
