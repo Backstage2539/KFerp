@@ -1476,6 +1476,10 @@ func requireProductBOMSpecTemplateWithComponentTx(ctx context.Context, tx pgx.Tx
 	`, schema), specTemplateVersionID).Scan(&templateStatus, &templateWasPublished); err != nil || !templateWasPublished || templateStatus != "published" {
 		return fmt.Errorf("product BOM requires a published specification template version and 规格主体组件")
 	}
+	return validateProductBOMMainInputComponentTx(ctx, tx, schema, mainInput)
+}
+
+func validateProductBOMMainInputComponentTx(ctx context.Context, tx pgx.Tx, schema string, mainInput bomapp.ProductionBomMainInputComponent) error {
 	if mainInput.ComponentType == "material" {
 		var mainInputActive bool
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -1521,7 +1525,7 @@ func validateProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx, schema
 // validateGovernedProductBOMVersionSpecGroupTx validates one explicitly
 // multi-specification version. Specification templates are optional blueprints:
 // a hand-built group has no provenance IDs, while a copied group must retain a
-// complete and valid template/material pair. The caller owns the surrounding
+// complete and valid template/component pair. The caller owns the surrounding
 // product/default graph lock before this function locks the version and its
 // provenance rows.
 func validateGovernedProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx, schema string, versionID int64) error {
@@ -1551,15 +1555,18 @@ func validateGovernedProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx
 	if defaultCount != 1 {
 		return fmt.Errorf("product BOM version requires exactly one default specification")
 	}
-	var templateVersionID, mainInputMaterialID int64
+	var templateVersionID int64
+	var mainInput bomapp.ProductionBomMainInputComponent
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(source_spec_template_version_id,0),COALESCE(main_input_material_id,0)
+		SELECT COALESCE(source_spec_template_version_id,0),COALESCE(main_input_material_id,0),
+		       COALESCE(NULLIF(main_input_component_type,''),'material'),
+		       COALESCE(main_input_product_id,0),COALESCE(main_input_bom_spec_id,0)
 		FROM %s.production_bom_versions
 		WHERE id=$1
-	`, schema), lockedVersionID).Scan(&templateVersionID, &mainInputMaterialID); err != nil {
+	`, schema), lockedVersionID).Scan(&templateVersionID, &mainInput.MaterialID, &mainInput.ComponentType, &mainInput.ComponentProductID, &mainInput.ComponentBomSpecID); err != nil {
 		return fmt.Errorf("product BOM version not found")
 	}
-	hasTemplateProvenance, err := productBOMSpecTemplateProvenanceMode(templateVersionID, mainInputMaterialID)
+	hasTemplateProvenance, err := productBOMSpecTemplateProvenanceMode(templateVersionID, mainInput)
 	if err != nil {
 		return err
 	}
@@ -1575,24 +1582,27 @@ func validateGovernedProductBOMVersionSpecGroupTx(ctx context.Context, tx pgx.Tx
 	`, schema), templateVersionID).Scan(&templateStatus, &templateWasPublished); err != nil || !templateWasPublished || (templateStatus != "published" && templateStatus != "archived") {
 		return fmt.Errorf("规格模板来源必须是已发布或历史已发布版本")
 	}
+	if mainInput.ComponentType != "material" {
+		return validateProductBOMMainInputComponentTx(ctx, tx, schema, mainInput)
+	}
 	var mainInputActive bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT deprecated_at IS NULL FROM %s.materials
 		WHERE id=$1
 		FOR SHARE
-	`, schema), mainInputMaterialID).Scan(&mainInputActive); err != nil || !mainInputActive {
+	`, schema), mainInput.MaterialID).Scan(&mainInputActive); err != nil || !mainInputActive {
 		return fmt.Errorf("规格主体物料不存在或已失效")
 	}
 	return nil
 }
 
-func productBOMSpecTemplateProvenanceMode(templateVersionID, mainInputMaterialID int64) (bool, error) {
+func productBOMSpecTemplateProvenanceMode(templateVersionID int64, mainInput bomapp.ProductionBomMainInputComponent) (bool, error) {
 	hasTemplateVersion := templateVersionID > 0
-	hasMainInputMaterial := mainInputMaterialID > 0
-	if !hasTemplateVersion && !hasMainInputMaterial {
+	hasMainInput := mainInput.MaterialID > 0 || mainInput.ComponentProductID > 0 || mainInput.ComponentBomSpecID > 0
+	if !hasTemplateVersion && !hasMainInput {
 		return false, nil
 	}
-	if hasTemplateVersion != hasMainInputMaterial {
+	if hasTemplateVersion != hasMainInput {
 		return false, fmt.Errorf("规格模板来源和规格主体物料必须同时配置")
 	}
 	return true, nil
