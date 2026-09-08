@@ -59,3 +59,10 @@ func TestWorkspacePricePreviewScopeLazyAndLiveCapabilities(t *testing.T) {
 		t.Fatal("capability removal did not apply live")
 	}
 }
+
+func TestWorkspacePricePreviewSupportsLegacyGroupedPublications(t *testing.T) {
+	rows, err := customerPricePreviewRows([]byte(`{"groups":[{"items":[{"name":"旧版商品","commercial_wholesale_tiers":[{"spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":65,"display_unit":"lb"}]}]}]}`))
+	if err != nil || len(rows) != 1 || rows[0]["product_name"] != "旧版商品" || rows[0]["unit_price"] != float64(65) {
+		t.Fatal("legacy price preview missing", rows, err)
+	}
+}
