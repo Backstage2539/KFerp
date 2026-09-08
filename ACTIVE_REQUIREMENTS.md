@@ -5055,13 +5055,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Status: 6 项定向及完整 Vue 1114/1114、Vite、Go、小程序 238 项及类型/构建通过；开发 5692d613 已部署。EFS 227g 的两档 26/24、切回四档、恢复两档及刷新实测通过。公共/NB 已发布表指纹、生产版本不变；验收 docs/acceptance/2026-09-08-customer-tier-template.md。未发布客户/公共价格表或微信。
 
 ### PR-641-ORDER-DELIVERY-EDIT-DOCUMENTS
-- Branch: codex/order-experience-documents-20260908
-- Owner/session: Codex
-- Status: targeted PostgreSQL regressions, full Go, frontend 1119/1119, Vue build and PDF/PNG visual checks GREEN; ready to merge and deploy
-- Scope: eight approved order delivery, editing, summary and sales document changes
-- Verifier: targeted frontend/Go/API RED-GREEN; rendered PDF/PNG inspection; full backend/frontend/build gates
-- Deployment: develop and main, development and production authorized; business acceptance by Codex per approved plan, no direct production data repair
-- Last update: 2026-09-08
+- Branch: codex/order-experience-documents-20260908 (production: codex/order-experience-production-20260908)
+- Owner/acceptance: Codex
+- Status: done; eight approved changes merged, deployed and accepted
+- Verifier: targeted PostgreSQL/API regressions; full Go; frontend 1120/1120; Vue build; PDF/PNG and live production preview checks
+- Development runtime: 0ad89bcae5a7508f326b606a46ff84b79bda9ab1
+- Production runtime: 997ae6dbebc353f500d6cf831948482cf1035782
+- Business evidence: SO-20260908-0002 normal save/reopen, three products and prices preserved, default type updated to wholesale; order audit4094
+- Evidence: orderapp-remote/docs/acceptance/2026-09-08-order-delivery-edit-documents.md
+- Last update: 2026-09-09
+
 ### PR-640-ERP-SESSION-POOL
 - Branch: codex/fulfillment-empty-login-20260908；production baseline origin/main 491388ec。
 - Scope: 履约客户登录并发加载耗尽连接池；会话资格查询移出持锁事务；绑定查询关闭结果后再查模板；保持旧会话撤销和客户隔离。
