@@ -5057,7 +5057,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-640-ERP-SESSION-POOL
 - Branch: codex/fulfillment-empty-login-20260908；production baseline origin/main 491388ec。
 - Scope: 履约客户登录并发加载耗尽连接池；会话资格查询移出持锁事务；绑定查询关闭结果后再查模板；保持旧会话撤销和客户隔离。
-- Status: targeted RED/GREEN and full backend gate passed；production app restarted for temporary recovery, permanent fix pending release。
+- Status: GitHub #85 已合入 develop 并部署 development@5d56503e；GitHub #84 已合入 main 并部署 production@f9e3c56a。两环境发布门禁和源码核对通过；开发现场隔离库并发回归通过；生产实际客户 24/24 并发请求 200，浏览器工作台正常显示；业务验收待 Van。
 - Verifier: PostgreSQL pools 1/4 and 8 concurrent bearer requests; security changes during eligibility; existing session-revocation/login tests; scripts/verify_kferp.sh backend and changed。
 - Evidence: orderapp-remote/docs/acceptance/2026-09-08-erp-session-pool.md。
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md。
