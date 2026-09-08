@@ -18,9 +18,25 @@ export function formatTrackingSummary(raw) {
 }
 
 export function isOrderShipReady(row = {}) {
-  if (row?.is_void) return false
+  if (row?.is_void || isNonCourierShipMethod(row?.ship_method)) return false
   const shipStatus = String(row?.ship_status || '').trim()
   if (shipStatus.includes('已发货')) return false
   const processStatus = String(row?.process_status || '').trim()
   return processStatus.includes('生产完成') || processStatus === '无需生产' || processStatus === '库存待发货'
+}
+
+export function isNonCourierShipMethod(method) {
+  return ['pickup', 'local_delivery'].includes(String(method || '').trim())
+}
+
+export function orderDeliveryMode(method) {
+  return isNonCourierShipMethod(method) ? String(method).trim() : 'express'
+}
+
+export function orderDeliveryLabel(method) {
+  return ({pickup: '自提', local_delivery: '本地送货'})[orderDeliveryMode(method)] || '快递'
+}
+
+export function requiresCourierLogistics(method, shipStatus) {
+  return !isNonCourierShipMethod(method) && String(shipStatus || '').includes('已发货')
 }

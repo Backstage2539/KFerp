@@ -186,6 +186,7 @@ type OrderStockBatchPreview struct {
 }
 
 type OrderShippingExportData struct {
+	ShipMethod    string
 	OrderID       int64
 	EditRevision  string
 	OrderNo       string
@@ -601,6 +602,7 @@ type OrderRow struct {
 	PaymentMethod         string `json:"payment_method"`
 	ShipStatus            string `json:"ship_status"`
 	ShipTrackingNo        string `json:"ship_tracking_no"`
+	ShipMethod            string `json:"ship_method"`
 	ReceiverName          string `json:"receiver_name"`
 	ReceiverPhone         string `json:"receiver_phone"`
 	ReceiverAddress       string `json:"receiver_address"`

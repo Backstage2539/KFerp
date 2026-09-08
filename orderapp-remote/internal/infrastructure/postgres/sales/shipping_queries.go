@@ -9,7 +9,7 @@ import (
 )
 
 func (r Repository) ListSFSmallShippingRows(ctx context.Context, query salesapp.ShippingExportQuery) ([]salesapp.ShippingExportRow, error) {
-	where := make([]string, 0)
+	where := []string{"COALESCE(o.ship_method,'') NOT IN ('pickup','local_delivery')"}
 	args := make([]any, 0)
 	argn := 1
 

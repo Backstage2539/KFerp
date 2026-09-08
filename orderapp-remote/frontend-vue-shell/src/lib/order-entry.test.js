@@ -1495,7 +1495,8 @@ test('OrderEntryView shows explicit missing published price and blocks save with
   assert.match(source, /manual_price: item\.price_override === true \|\| item\.tier_id === 'manual'/)
   assert.match(source, /if \(retailOrder\.value\) return listType === 'retail' \|\| listType === 'drip'/)
   assert.match(source, /currentOrderBeanListTypeForProductKind/)
-  assert.match(source, /报价来源：\{\{ orderLinePriceTableLabel\(row\) \}\}/)
+  assert.match(source, /quoteSourceSummary/)
+  assert.doesNotMatch(source, /报价来源：\{\{ orderLinePriceTableLabel\(row\) \}\}/)
   assert.doesNotMatch(source, /豆单版本：\{\{\s*row\.bean_list_version_no\s*\|\|\s*'未记录'\s*\}\}/)
 })
 

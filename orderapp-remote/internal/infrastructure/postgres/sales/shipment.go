@@ -26,6 +26,11 @@ func (r Repository) CreateOrderShipment(ctx context.Context, cmd salesapp.Create
 	if err := lockShipmentOrdersTx(ctx, tx, r.schema, orderIDs); err != nil {
 		return salesapp.OrderShipmentResult{}, err
 	}
+	for _, id := range orderIDs {
+		if err := requireCourierOrderTx(ctx, tx, r.schema, id); err != nil {
+			return salesapp.OrderShipmentResult{}, err
+		}
+	}
 	if err := verifyShipmentOrderRevisionsTx(ctx, tx, r.schema, cmd.Orders); err != nil {
 		return salesapp.OrderShipmentResult{}, err
 	}

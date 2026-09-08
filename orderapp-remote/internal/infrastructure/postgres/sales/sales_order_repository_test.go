@@ -327,7 +327,10 @@ func TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns(t *testing.T) {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
 	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET total_amount=2455, shipping_amount=169, discount_amount=261.65, grand_total=2362.35, express_fee='顺丰保价备注' WHERE id=1`, schema)); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS notes TEXT`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET total_amount=2455, shipping_amount=169, discount_amount=261.65, grand_total=2362.35, notes='订单原始备注：到店后联系', express_fee='顺丰保价备注' WHERE id=1`, schema)); err != nil {
 		t.Fatalf("update order amounts: %v", err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_items SET discount_type='unit_amount', discount_amount=100 WHERE order_id=1 AND line_no=1`, schema)); err != nil {
@@ -345,7 +348,7 @@ func TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PreviewSalesOrderDocument: %v", err)
 	}
-	if preview.Snapshot.SalesOrderNote != "末行备注：随货附赠杯测样" || preview.Snapshot.ExpressFee != "顺丰保价备注" || preview.Snapshot.Shipping != "169.00" || preview.Snapshot.Discount != "261.65" {
+	if preview.Snapshot.OrderNote != "订单原始备注：到店后联系" || preview.Snapshot.SalesOrderNote != "末行备注：随货附赠杯测样" || preview.Snapshot.ExpressFee != "顺丰保价备注" || preview.Snapshot.Shipping != "169.00" || preview.Snapshot.Discount != "261.65" {
 		t.Fatalf("snapshot financial fields = %+v", preview.Snapshot)
 	}
 	if len(preview.Snapshot.Items) < 2 || preview.Snapshot.Items[0].DiscountAmount != "100.00" || preview.Snapshot.Items[1].DiscountAmount != "61.65" {

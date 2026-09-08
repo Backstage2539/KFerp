@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const SalesOrderRenderVersion = "sales-order-payment-amount-colors-v2"
+const SalesOrderRenderVersion = "sales-order-last-page-notes-v3"
 
 type SalesOrderSnapshot struct {
 	RenderVersion    string `json:"render_version,omitempty"`
@@ -36,6 +36,7 @@ type SalesOrderSnapshot struct {
 	Shipping           string                        `json:"shipping"`
 	Discount           string                        `json:"discount"`
 	ExpressFee         string                        `json:"express_fee"`
+	OrderNote          string                        `json:"order_note"`
 	SalesOrderNote     string                        `json:"sales_order_note"`
 	GrandTotal         string                        `json:"grand_total"`
 	DiscountBreakdowns []SalesOrderDiscountBreakdown `json:"discount_breakdowns"`

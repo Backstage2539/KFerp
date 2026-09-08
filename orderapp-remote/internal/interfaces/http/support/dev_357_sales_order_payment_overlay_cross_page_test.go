@@ -32,10 +32,10 @@ func TestDev357SalesOrderPaymentOverlayCrossPageMarkers(t *testing.T) {
 
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
 	for _, want := range []string{
-		"cross_page_drag: true",
-		"page_number: Number(placement.page_number || 1)",
-		"payment_text_page_number: textBox.page_number",
-		"payment_code_page_number: codeBox.page_number",
+		"cross_page_drag: false",
+		"last_page_only: true",
+		"payment_text_page_number: 0",
+		"payment_code_page_number: 0",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("SalesOrderView.vue missing PR-357 sales payment marker %q", want)
@@ -58,8 +58,8 @@ func TestDev357SalesOrderPaymentOverlayCrossPageMarkers(t *testing.T) {
 	for _, want := range []string{
 		"payment_text_page_number",
 		"payment_code_page_number",
-		"PageNumber: settings.PaymentTextPageNumber",
-		"PageNumber: settings.PaymentCodePageNumber",
+		"PageNumber: 0",
+		"PrepareSalesOrderLayout",
 	} {
 		if !strings.Contains(repository, want) {
 			t.Fatalf("sales_order_repository.go missing PR-357 page persistence marker %q", want)

@@ -48,7 +48,7 @@ func TestSalesOrderLayoutWrapsCustomerAddressAndAdaptsPaymentCodes(t *testing.T)
 	pdfSrc := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "pdf", "sales_order_pdf.go")))
 	for _, want := range []string{
 		"writeSalesOrderMetaRow",
-		"SplitLines",
+		"salesOrderWrapCellText",
 		"salesOrderPaymentCodeMetrics",
 		"Stacked",
 	} {

@@ -550,11 +550,11 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 			COALESCE(o.total_amount,0)::float8, COALESCE(o.shipping_amount,0)::float8,
 			COALESCE(o.discount_amount,0)::float8, COALESCE(o.grand_total,0)::float8,
 			COALESCE(o.express_fee,''),
-			COALESCE(o.sales_order_note,'')
+			COALESCE(o.sales_order_note,''), COALESCE(to_jsonb(o)->>'notes','')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		WHERE o.id=$1`, r.schema, r.schema)
-	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.DocumentDate, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand, &snapshot.ExpressFee, &snapshot.SalesOrderNote); err != nil {
+	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.DocumentDate, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand, &snapshot.ExpressFee, &snapshot.SalesOrderNote, &snapshot.OrderNote); err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
 	companyProfile, err := r.loadCompanyProfileForSalesOrderTx(ctx, tx)
@@ -569,8 +569,8 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	snapshot.BankAccountName = firstNonEmpty(companyProfile.BankAccountName, settings.BankAccountName)
 	snapshot.BankName = firstNonEmpty(companyProfile.BankName, settings.BankName)
 	snapshot.BankAccountNo = firstNonEmpty(companyProfile.BankAccountNo, settings.BankAccountNo)
-	snapshot.PaymentTextBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentTextXMM, YMM: settings.PaymentTextYMM, WidthMM: settings.PaymentTextWidthMM, HeightMM: settings.PaymentTextHeightMM, PageNumber: settings.PaymentTextPageNumber}
-	snapshot.PaymentCodeBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentCodeXMM, YMM: settings.PaymentCodeYMM, WidthMM: settings.PaymentCodeWidthMM, HeightMM: settings.PaymentCodeHeightMM, PageNumber: settings.PaymentCodePageNumber}
+	snapshot.PaymentTextBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentTextXMM, YMM: settings.PaymentTextYMM, WidthMM: settings.PaymentTextWidthMM, HeightMM: settings.PaymentTextHeightMM, PageNumber: 0}
+	snapshot.PaymentCodeBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentCodeXMM, YMM: settings.PaymentCodeYMM, WidthMM: settings.PaymentCodeWidthMM, HeightMM: settings.PaymentCodeHeightMM, PageNumber: 0}
 	snapshot.TotalAmount = salesdomain.FormatSalesOrderMoney(total)
 	snapshot.Shipping = salesdomain.FormatSalesOrderMoney(shipping)
 	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)
@@ -627,6 +627,11 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	}
 	if err := snapshot.Validate(); err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
+	}
+	if resolver, ok := r.renderer.(interface {
+		PrepareSalesOrderLayout(salesdomain.SalesOrderSnapshot) (salesdomain.SalesOrderSnapshot, error)
+	}); ok {
+		return resolver.PrepareSalesOrderLayout(snapshot)
 	}
 	return snapshot, nil
 }

@@ -28,7 +28,8 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 			COALESCE(o.receiver_company,''),
 			COALESCE(o.sender_id,0) AS sender_id,
 			COALESCE(ss.name,''),
-			COALESCE(ops.name,'')
+			COALESCE(ops.name,''),
+            COALESCE(to_jsonb(o)->>'ship_method','')
 		FROM %[1]s.orders o
 		LEFT JOIN %[1]s.customers c ON c.id=o.customer_id
 		LEFT JOIN %[1]s.ship_statuses ss ON ss.id=o.ship_status_id
@@ -47,7 +48,7 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 		&out.RecvCompany,
 		&out.SenderID,
 		&out.ShipStatus,
-		&out.ProcessStatus,
+		&out.ProcessStatus, &out.ShipMethod,
 	); err != nil {
 		return salesapp.OrderShippingExportData{}, err
 	}

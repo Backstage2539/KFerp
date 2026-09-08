@@ -55,7 +55,7 @@
         <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !documentContextReady">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
       <div v-if="preview?.snapshot" class="preview-tools">
-        <div class="layout-drag-hint">拖动“文字位置和大小”“收款码位置和大小”边框调整位置，拖右下角圆点调整大小。</div>
+        <div class="layout-drag-hint">收款说明和收款码固定在最后一页；可在末页拖动边框调整位置，拖右下角圆点调整大小。</div>
         <label v-if="preview?.snapshot?.seal" class="seal-size-slider">
           <span>公章大小</span>
           <input v-model.number="previewSealWidthMM" type="range" :min="salesOrderSealMinWidthMM" :max="salesOrderSealMaxWidthMM" step="1" :disabled="sealDragSaving" @change="savePreviewSealSize" />
@@ -276,7 +276,8 @@ const salesOrderPreviewPlacements = computed(() => {
       kind: 'payment_text',
       label: '文字位置和大小',
       resizable: true,
-      cross_page_drag: true,
+      cross_page_drag: false,
+      last_page_only: true,
       use_seal_image: false,
       min_width: 80,
       min_height: 36,
@@ -287,7 +288,8 @@ const salesOrderPreviewPlacements = computed(() => {
       kind: 'payment_code',
       label: '收款码位置和大小',
       resizable: true,
-      cross_page_drag: true,
+      cross_page_drag: false,
+      last_page_only: true,
       use_seal_image: false,
       min_width: 80,
       min_height: 80,
@@ -578,7 +580,7 @@ async function savePDFPreviewLayoutBox(placement) {
   const currentPlacements = salesOrderPreviewPlacements.value || []
   const nextBox = {
     ...pdfPlacementToSalesLayoutBox(placement, page),
-    page_number: Number(placement.page_number || 1),
+    page_number: 0,
   }
   if (placement.kind === 'payment_text') {
     snapshot.payment_text_box = nextBox
@@ -616,12 +618,12 @@ async function savePDFPreviewLayoutBox(placement) {
         payment_text_y_mm: textBox.y_mm,
         payment_text_width_mm: textBox.width_mm,
         payment_text_height_mm: textBox.height_mm,
-        payment_text_page_number: textBox.page_number,
+        payment_text_page_number: 0,
         payment_code_x_mm: codeBox.x_mm,
         payment_code_y_mm: codeBox.y_mm,
         payment_code_width_mm: codeBox.width_mm,
         payment_code_height_mm: codeBox.height_mm,
-        payment_code_page_number: codeBox.page_number,
+        payment_code_page_number: 0,
       },
     })
     previewPDFRefreshKey.value += 1

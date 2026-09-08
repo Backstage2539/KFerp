@@ -6,6 +6,7 @@ import (
 )
 
 type CombinedSalesOrderSnapshot struct {
+	RenderVersion          string                    `json:"render_version,omitempty"`
 	CombinationKey         string                    `json:"combination_key"`
 	CombinedNo             string                    `json:"combined_no"`
 	CustomerID             int64                     `json:"customer_id"`
@@ -47,6 +48,7 @@ type CombinedSalesOrderGroup struct {
 	Shipping           string                        `json:"shipping"`
 	Discount           string                        `json:"discount"`
 	ExpressFee         string                        `json:"express_fee"`
+	OrderNote          string                        `json:"order_note"`
 	SalesOrderNote     string                        `json:"sales_order_note"`
 	GrandTotal         string                        `json:"grand_total"`
 	DiscountBreakdowns []SalesOrderDiscountBreakdown `json:"discount_breakdowns"`
