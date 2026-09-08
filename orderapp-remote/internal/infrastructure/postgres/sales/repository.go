@@ -362,12 +362,16 @@ func orderShippedStatusRequiresLogistics(statusName string) bool {
 	return strings.Contains(statusName, "已发货")
 }
 
-func validateOrderFulfillmentRequirementsTx(ctx context.Context, tx pgx.Tx, schema string, payStatusID, shipStatusID int64, logisticsCompanyID, logisticsProductID int64, paymentGoodsAmount, paymentShippingAmount float64, paymentVoucherAssetID int64) error {
+func validateOrderFulfillmentRequirementsTx(ctx context.Context, tx pgx.Tx, schema string, payStatusID, shipStatusID int64, logisticsCompanyID, logisticsProductID int64, paymentGoodsAmount, paymentShippingAmount float64, paymentVoucherAssetID int64, shipMethods ...string) error {
+	shipMethod := ""
+	if len(shipMethods) > 0 {
+		shipMethod = shipMethods[0]
+	}
 	shipStatusName, err := lookupStatusName(ctx, tx, schema, "ship_statuses", shipStatusID)
 	if err != nil {
 		return fmt.Errorf("invalid ship_status_id")
 	}
-	if orderShippedStatusRequiresLogistics(shipStatusName) {
+	if orderShippedStatusRequiresLogistics(shipStatusName) && !salesdomain.IsNonCourierShipMethod(shipMethod) {
 		if logisticsCompanyID <= 0 {
 			return fmt.Errorf("logistics_company_id required")
 		}
@@ -1978,7 +1982,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if shipStatusID == 0 {
 		shipStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "未发货")
 	}
-	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, r.schema, payStatusID, shipStatusID, cmd.LogisticsCompanyID, cmd.LogisticsProductID, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount, cmd.PaymentVoucherAssetID); err != nil {
+	if salesdomain.IsNonCourierShipMethod(cmd.ShipMethod) {
+		cmd.LogisticsCompanyID, cmd.LogisticsProductID = 0, 0
+		cmd.ShipTrackingNo = ""
+	}
+	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, r.schema, payStatusID, shipStatusID, cmd.LogisticsCompanyID, cmd.LogisticsProductID, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount, cmd.PaymentVoucherAssetID, cmd.ShipMethod); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
 
@@ -2807,6 +2815,10 @@ func loadOrderSaveAuditSummaryTx(ctx context.Context, tx pgx.Tx, schema string, 
 			'receiver_company', COALESCE(o.receiver_company,''),
 			'prepayment_amount', COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0),
 			'pay_status_id', to_jsonb(o)->'pay_status_id',
+            'order_type_id', to_jsonb(o)->'order_type_id',
+            'ship_method', to_jsonb(o)->'ship_method',
+            'ship_status_id', to_jsonb(o)->'ship_status_id',
+            'ship_tracking_no', to_jsonb(o)->'ship_tracking_no',
 			'shipping_amount', COALESCE(o.shipping_amount,0),
 			'order_discount_amount', GREATEST(
 				COALESCE(o.discount_amount,0) - COALESCE((
@@ -3298,7 +3310,11 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err != nil {
 		return err
 	}
-	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, schema, req.PayStatusID, req.ShipStatusID, req.LogisticsCompanyID, req.LogisticsProductID, paymentGoodsAmount, paymentShippingAmount, req.PaymentVoucherAssetID); err != nil {
+	if salesdomain.IsNonCourierShipMethod(req.ShipMethod) {
+		req.LogisticsCompanyID, req.LogisticsProductID = 0, 0
+		req.ShipTrackingNo = ""
+	}
+	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, schema, req.PayStatusID, req.ShipStatusID, req.LogisticsCompanyID, req.LogisticsProductID, paymentGoodsAmount, paymentShippingAmount, req.PaymentVoucherAssetID, req.ShipMethod); err != nil {
 		return err
 	}
 	if err := validateStoredPrepaymentTx(ctx, tx, schema, id, req.PayStatusID, &grandTotal); err != nil {

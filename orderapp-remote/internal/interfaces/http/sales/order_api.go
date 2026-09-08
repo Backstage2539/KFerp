@@ -334,6 +334,7 @@ func (h orderAPIHandler) detail(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, orderFormAPIResponse{
 		Today:                 data.EditData.OrderDate,
+		OrderTypes:            apiOptions(data.OrderTypes),
 		ProductBOMSpecOptions: data.ProductBOMSpecOptions,
 		EditMode:              true,
 		EditID:                id,
@@ -987,6 +988,9 @@ func orderTraceBool(value any) bool {
 
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
+		ItemID                             int64  `json:"item_id"`
+		LineNo                             int    `json:"line_no"`
+		CustomerProductReferenceID         int64  `json:"customer_product_reference_id"`
 		ProductID                          int64  `json:"product_id"`
 		ParentProductID                    int64  `json:"parent_product_id,omitempty"`
 		BomSpecID                          int64  `json:"bom_spec_id,omitempty"`
@@ -1036,6 +1040,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
+			ItemID: it.ItemID, LineNo: it.LineNo, CustomerProductReferenceID: it.CustomerProductReferenceID,
 			ProductID:                          it.ProductID,
 			ParentProductID:                    parentProductID,
 			BomSpecID:                          it.BomSpecID,

@@ -151,13 +151,21 @@
         </label>
 
         <label>
-          <span>发货状态</span>
+          <span>配送方式</span>
+          <select v-model="deliveryMode">
+            <option value="express">快递</option>
+            <option value="pickup">自提</option>
+            <option value="local_delivery">本地送货</option>
+          </select>
+        </label>
+        <label>
+          <span>交付状态</span>
           <select v-model.number="form.ship_status_id">
             <option v-for="item in shipStatuses" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
 
-        <label>
+        <label v-if="!isNonCourierShipMethod(form.ship_method)">
           <span>快递单号（可多个）</span>
           <textarea v-model.trim="form.ship_tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔"></textarea>
         </label>
@@ -247,6 +255,9 @@
           </div>
         </div>
       </div>
+      <p v-if="quoteSourceSummary.length" class="quote-source-summary">报价来源：
+        <span v-for="source in quoteSourceSummary" :key="source.key">{{ source.label }}</span>
+      </p>
       <div class="line-list">
         <article v-for="(row, idx) in rows" :key="row.key" class="line-item">
           <label
@@ -388,7 +399,7 @@
               class="bean-list-version-meta"
               :class="{ stale: isRowBeanListVersionStale(row), open: row.bean_list_version_tip_open }"
             >
-              <span>报价来源：{{ orderLinePriceTableLabel(row) }}</span>
+              <span v-if="isRowBeanListVersionStale(row)">历史报价</span>
               <button
                 v-if="isRowBeanListVersionStale(row)"
                 class="bean-list-version-warning"
@@ -631,6 +642,7 @@
 </template>
 
 <script setup>
+import { orderDeliveryMode, isNonCourierShipMethod, requiresCourierLogistics } from '../lib/order-shipping'
 import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
@@ -669,6 +681,8 @@ import {
   orderFamilyHydratedSpecRowPatch,
   orderFamilySpecRowPatch,
   orderFamilySpecForStoredItem,
+  orderProductFamilyForStoredItem,
+  orderQuoteSourceSummary,
   orderFamilySpecsForPublication,
   orderLegacyProductForPublication,
   orderProductPublicationMode,
@@ -971,7 +985,19 @@ const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
 const paymentShippingAmountSuggestion = computed(() => money(toNumber(form.shipping_amount)))
 const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptVisible.value && itemsTotal.value > 0)
 const showPaymentShippingAmountSuggestion = computed(() => paymentReceiptVisible.value)
-const logisticsRequired = computed(() => selectedShipStatusName.value.includes('已发货'))
+const logisticsRequired = computed(() => requiresCourierLogistics(form.ship_method, selectedShipStatusName.value))
+const deliveryMode = computed({
+  get: () => orderDeliveryMode(form.ship_method),
+  set: (value) => {
+    form.ship_method = value === 'express' ? '' : value
+    if (value !== 'express') {
+      form.ship_tracking_no = ''
+      form.logistics_company_id = 0
+      form.logistics_product_id = 0
+    }
+  },
+})
+const quoteSourceSummary = computed(() => orderQuoteSourceSummary(rows.value, beanListVersionOptions.value))
 const selectedLogisticsProducts = computed(() => {
   const company = logisticsCompanies.value.find((item) => Number(item.id || 0) === Number(form.logistics_company_id || 0))
   return (company?.products || []).filter((item) => item.active !== false)
@@ -1669,6 +1695,10 @@ function clearProduct(row) {
   row.product_name = ''
   row.product_code = ''
   row.product_record_name = ''
+  row.customer_product_reference_id = 0
+  row.bom_spec_id = 0
+  row.bom_variant_id = 0
+  row.migration_state = 'legacy'
   row.customer_product_alias_id = 0
   row.customer_product_display_name = ''
   row.customer_item_code = ''
@@ -2236,10 +2266,11 @@ function applyEditData(data) {
     const familyReference = {
       customer_id: form.customer_id,
       customer_product_alias_id: item.customer_product_alias_id,
+      customer_product_reference_id: item.customer_product_reference_id,
     }
-    const family = productFamilyBySKU(item.product_id, familyReference)
-      || productFamilyByParentID(item.parent_product_id || flatProduct?.parent_product_id, familyReference)
-    const product = productByID(item.product_id, familyReference)
+    const family = orderProductFamilyForStoredItem(productFamilies.value, item, familyReference)
+    const storedSpec = family ? orderFamilySpecForStoredItem(family, item, item.bean_list_publication_id) : null
+    const product = storedSpec ? orderFamilySpecProduct(family, storedSpec, item.bean_list_publication_id) : flatProduct
     const productKind = item.product_kind || product?.product_kind || 'roasted_bean'
     const salesUnit = item.sales_unit || (item.unit === '盒' ? 'box' : 'bag')
     const unitBagCount = salesUnit === 'box'
@@ -2254,6 +2285,10 @@ function applyEditData(data) {
     const shouldUseCustomSpec = productKind !== 'drip_bag' && retailOrder.value && !retailSpecs.includes(toInt(spec))
     const hydrated = {
       ...newRow(),
+      bom_spec_id: Number(item.bom_spec_id || 0),
+      bom_variant_id: Number(item.bom_variant_id || 0),
+      migration_state: Number(item.bom_spec_id || 0) > 0 ? 'cutover' : 'legacy',
+      customer_product_reference_id: Number(item.customer_product_reference_id || 0),
       product_family_key: family ? orderProductFamilyIdentity(family) : '',
       parent_product_id: Number(family?.parent_product_id || product?.parent_product_id || 0),
       parent_product_name: family?.parent_product_name || product?.parent_product_name || '',
@@ -2304,7 +2339,7 @@ function applyEditData(data) {
     if (publicationMode === 'legacy') hydrated.spec_source = 'legacy_price_list'
     if (keepFrozenPublication) hydrated.historical_spec_readonly = true
     const hasConcreteSpecIdentity = Boolean(family?.__order_concrete_price_family)
-      || Number(item.parent_product_id || flatProduct?.parent_product_id || 0) > 0
+      || Number(item.bom_spec_id || item.parent_product_id || flatProduct?.parent_product_id || 0) > 0
     if (!hasConcreteSpecIdentity) return hydrated
 
     const publicationID = Number(item.bean_list_publication_id || 0)
@@ -2312,27 +2347,29 @@ function applyEditData(data) {
     if (family) {
       assignProductFamilyHeader(hydrated, family)
     } else {
-      hydrated.parent_product_id = Number(item.parent_product_id || flatProduct?.parent_product_id || 0)
+      hydrated.parent_product_id = Number(item.parent_product_id || (item.bom_spec_id ? item.product_id : flatProduct?.parent_product_id) || 0)
       hydrated.parent_product_name = flatProduct?.parent_product_name || item.product_name_snapshot || item.product_name || ''
-      hydrated.product_name = hydrated.parent_product_name
+      hydrated.product_name = item.customer_product_display_name_snapshot || item.product_name || hydrated.parent_product_name
       hydrated.product_query = hydrated.product_name
       hydrated.product_record_name = hydrated.parent_product_name
     }
     hydrated.product_id = Number(item.product_id || 0)
     hydrated.product_code = item.product_code_snapshot || pricedSpec?.product_code || pricedSpec?.sku_name || `SKU-${item.product_id}`
     hydrated.spec_source = publicationMode === 'legacy' ? 'legacy_price_list' : 'price_list_sku'
-    hydrated.spec_mode = String(item.product_id || '')
+    hydrated.spec_mode = String(item.bom_spec_id || item.product_id || '')
     hydrated.spec_label = pricedSpec?.spec_label || item.spec_label || item.effective_sales_spec || (specNumber > 0 ? `${specNumber}g` : '历史规格')
     hydrated.spec_g = specNumber
     hydrated.custom_spec_g = ''
     hydrated.historical_spec_readonly = !pricedSpec || keepFrozenPublication
-    hydrated.spec_invalid_message = ''
+    hydrated.spec_invalid_message = !pricedSpec && !keepFrozenPublication ? '原商品规格在此报价表中不可用，请重新选择有效规格。' : ''
     if (pricedSpec && family) {
       Object.assign(hydrated, orderFamilyHydratedSpecRowPatch(
         family,
         pricedSpec,
         publicationID,
         {
+          bom_spec_id: Number(item.bom_spec_id || 0),
+          bom_variant_id: Number(item.bom_variant_id || 0),
           tier_id: item.tier_id || 'auto',
           unit_price: item.unit_price || '',
           price_source_json: item.price_source_json || '',
@@ -2727,6 +2764,7 @@ watch(
 </script>
 
 <style scoped>
+.quote-source-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: #626d81; }
 .prepayment-editor{display:flex;flex-direction:column;gap:6px}.prepayment-presets{display:flex;gap:8px}.prepayment-presets button{padding:5px 16px;color:#2563eb;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px}.prepayment-presets button.selected{background:#2563eb;color:white}.prepayment-editor small{color:#64748b;line-height:1.5}
 .page { min-height: 100%; max-width: 100%; overflow-x: hidden; padding: 18px; display: grid; gap: 14px; background: #f6f7f9; color: #15171a; box-sizing: border-box; }
 .page * { box-sizing: border-box; }

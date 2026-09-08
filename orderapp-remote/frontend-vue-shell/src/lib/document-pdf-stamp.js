@@ -113,7 +113,7 @@ export function salesLayoutBoxMMToPDFPlacement(box = {}, page = {}, options = {}
 }
 
 export function salesLayoutBoxMMToPDFPreviewPlacement(box = {}, pages = [], options = {}) {
-  const page = salesLayoutBoxPreviewPage(pages, box.page_number ?? box.pageNumber ?? options.page_number)
+  const page = salesLayoutBoxPreviewPage(pages, options.last_page_only ? 0 : (box.page_number ?? box.pageNumber ?? options.page_number))
   const fittedBox = fitSalesLayoutBoxWithinPDFPreviewPage(box, page)
   return salesLayoutBoxMMToPDFPlacement(fittedBox, page, options)
 }
