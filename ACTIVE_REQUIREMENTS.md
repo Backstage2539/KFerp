@@ -5053,3 +5053,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Reproduction: 用户报告 NB；当前开发页面为 EFS 客户 302，选择模板 16（EFS咖啡豆2档位），平铺行仍显示公共模板 11 的四档固定报价。
 - Verifier: customer-price-template.test.js RED；模板切换、原草稿恢复、局部优先级、缺模板阻止和草稿隔离；完整 Vue/Vite、部署门禁及开发页面复验。
 - Status: 6 项定向及完整 Vue 1114/1114、Vite、Go、小程序 238 项及类型/构建通过；开发 5692d613 已部署。EFS 227g 的两档 26/24、切回四档、恢复两档及刷新实测通过。公共/NB 已发布表指纹、生产版本不变；验收 docs/acceptance/2026-09-08-customer-tier-template.md。未发布客户/公共价格表或微信。
+
+### PR-640-ERP-SESSION-POOL
+- Branch: codex/fulfillment-empty-login-20260908；production baseline origin/main 491388ec。
+- Scope: 履约客户登录并发加载耗尽连接池；会话资格查询移出持锁事务；绑定查询关闭结果后再查模板；保持旧会话撤销和客户隔离。
+- Status: targeted RED/GREEN and full backend gate passed；production app restarted for temporary recovery, permanent fix pending release。
+- Verifier: PostgreSQL pools 1/4 and 8 concurrent bearer requests; security changes during eligibility; existing session-revocation/login tests; scripts/verify_kferp.sh backend and changed。
+- Evidence: orderapp-remote/docs/acceptance/2026-09-08-erp-session-pool.md。
+- Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md。

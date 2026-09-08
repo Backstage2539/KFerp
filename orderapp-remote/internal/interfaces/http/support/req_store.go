@@ -252,6 +252,8 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-640-ERP-SESSION-POOL", title: "履约客户登录并发加载不耗尽数据库连接", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-erp-session-pool.md"},
+		{table: "req_dev", code: "DEV-640-ERP-SESSION-POOL", title: "登录资格校验释放连接后锁定会话，保留撤销校验并覆盖小连接池并发", status: "done", assignee: "Codex", evidence: "erp_session_pool_test.go; erp_session_revocation_test.go; docs/acceptance/2026-09-08-erp-session-pool.md"},
 		{table: "req_product", code: "PR-639-MATERIAL-UNIQUE-OWNERSHIP", title: "物料档案唯一归属本公司或一个客户", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-material-unique-ownership.md"},
 		{table: "req_dev", code: "DEV-639-MATERIAL-OWNER", title: "物料主档唯一归属、单客户接口、权限隔离和操作日志", status: "done", assignee: "Codex", evidence: "material_ownership_test.go; materials/service_test.go"},
 		{table: "req_dev", code: "DEV-639-BOM-STOCK-OWNER-GUARDS", title: "BOM、排产、库存批次和客户仓库按物料归属校验", status: "done", assignee: "Codex", evidence: "bom/repository.go; stock_document_test.go; production/component_sources.go"},

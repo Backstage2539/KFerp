@@ -92,6 +92,26 @@ func resolveEmployeeBySessionToken(ctx echo.Context, pool *pgxpool.Pool, schema,
 		return 0, "", nil
 	}
 	requestCtx := ctx.Request().Context()
+	// The workbench service uses this same pool. Finish its queries before
+	// acquiring the session row lock, otherwise concurrent requests can occupy
+	// every connection waiting for a lock held by a request waiting for the pool.
+	var eligibilityEmployeeID int64
+	var eligibilityAccountType string
+	err := pool.QueryRow(requestCtx, fmt.Sprintf(`
+		SELECT s.employee_id, COALESCE(NULLIF(TRIM(e.account_type),''),'internal_employee')
+		FROM %s.login_sessions s
+		JOIN %s.company_employees e ON e.id=s.employee_id
+		WHERE s.token=$1
+	`, schema, schema), token).Scan(&eligibilityEmployeeID, &eligibilityAccountType)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, "", nil
+		}
+		return 0, "", err
+	}
+	eligibilityErr := requireERPWorkbenchLoginEligibilityForAccount(requestCtx, eligibilityEmployeeID, eligibilityAccountType, eligibility...)
+	// Re-read all session/security state under the lock after eligibility, so a
+	// logout or security change during that check cannot authorize an old token.
 	tx, err := pool.Begin(requestCtx)
 	if err != nil {
 		return 0, "", err
@@ -182,8 +202,11 @@ func resolveEmployeeBySessionToken(ctx echo.Context, pool *pgxpool.Pool, schema,
 			return revoke(fmt.Errorf("ERP login session stale"))
 		}
 	}
-	if err := requireERPWorkbenchLoginEligibilityForAccount(requestCtx, id, accountType, eligibility...); err != nil {
-		return revoke(err)
+	if id != eligibilityEmployeeID || accountType != eligibilityAccountType {
+		return revoke(fmt.Errorf("ERP login identity changed"))
+	}
+	if eligibilityErr != nil {
+		return revoke(eligibilityErr)
 	}
 	if err := tx.Commit(requestCtx); err != nil {
 		return 0, "", err
