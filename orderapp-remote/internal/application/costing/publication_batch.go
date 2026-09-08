@@ -143,6 +143,9 @@ func (s *Service) saveBeanListBatch(ctx context.Context, cmd BeanListBatchComman
 				}
 			}
 		}
+		if err == nil && publish {
+			err = s.ValidateBeanListOrderability(ctx, item)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("价格表「%s」：%w", name, err)
 		}
