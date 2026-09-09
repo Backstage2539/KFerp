@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-644-BOM-CATEGORY-FEEDBACK", title: "商品分类移动与 BOM 草稿、模板重套修复", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-bom-category-feedback.md; development 32279ff6; production authorized"},
+		{table: "req_dev", code: "DEV-644-CATEGORY", title: "分类移动即时反馈与逐项失败重试", status: "done", assignee: "Codex", evidence: "category-move-feedback.test.js"},
+		{table: "req_dev", code: "DEV-644-DRAFT", title: "草稿返回原子性与完整来源复制", status: "done", assignee: "Codex", evidence: "draft_feedback_postgres_test.go; bom-draft-feedback.test.js"},
+		{table: "req_dev", code: "DEV-644-TEMPLATE", title: "模板规格来源身份、整组重套与替代草稿", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-bom-category-feedback.md"},
 		{table: "req_product", code: "PR-643-CUSTOMER-ACCOUNT-ORDERS", title: "客户订单、销售单导出和往来账单", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
 		{table: "req_dev", code: "DEV-643-ORDERS", title: "全部本人订单和收件信息解析修改", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
 		{table: "req_dev", code: "DEV-643-DOCUMENTS", title: "客户销售单全链路授权及跨页合并", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
@@ -271,7 +275,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-639-MATERIAL-OWNER", title: "物料主档唯一归属、单客户接口、权限隔离和操作日志", status: "done", assignee: "Codex", evidence: "material_ownership_test.go; materials/service_test.go"},
 		{table: "req_dev", code: "DEV-639-BOM-STOCK-OWNER-GUARDS", title: "BOM、排产、库存批次和客户仓库按物料归属校验", status: "done", assignee: "Codex", evidence: "bom/repository.go; stock_document_test.go; production/component_sources.go"},
 		{table: "req_dev", code: "DEV-639-MATERIAL-OWNER-UX", title: "物料归属单选、列表筛选、详情与独立复制交互", status: "done", assignee: "Codex", evidence: "MaterialsView.vue; material-ownership.test.js; bom.test.js"},
-		{table: "req_dev", code: "DEV-639-MIGRATION-DELIVERY", title: "客户库存拆分迁移、验证、手册和双环境交付", status: "done", assignee: "Codex", evidence: "development 715bc726 manifest 3195bc2f1cb80e33 applied 2; production e279da41 backup pr639-material-owner-predeploy-20260908203303-e279da41.dump manifest afcd44717d037135 applied 0; inventory conserved; docs/acceptance/2026-09-08-material-unique-ownership.md"},
+		{table: "req_dev", code: "DEV-639-MIGRATION-DELIVERY", title: "客户库存拆分迁移、验证、手册和开发环境交付", status: "done", assignee: "Codex", evidence: "development 715bc726; backup pr639-material-owner-predeploy-20260908161659-33661519.dump; manifest 3195bc2f1cb80e33 applied 2; inventory conserved; docs/acceptance/2026-09-08-material-unique-ownership.md"},
 		{table: "req_product", code: "PR-637-CATALOG-ORDER-FOLLOWUP", title: "订单排序、客户商品删除与报价来源", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
 		{table: "req_dev", code: "DEV-637-ORDER-SORT", title: "订单列表按单据日期排序", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},
 		{table: "req_dev", code: "DEV-637-CATALOG", title: "客户商品绑定删除与分类继承复核", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-07-catalog-order-followup.md"},

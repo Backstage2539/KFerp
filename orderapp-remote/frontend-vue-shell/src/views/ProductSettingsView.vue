@@ -6747,7 +6747,20 @@ async function moveCustomerCatalogProducts(target = {}) {
  } catch(err){error.value=err.message||'移动客户商品分类失败';return false} finally {loading.value=false}
 }
 
+function applyProductBusinessGroupAssignment(productID, assignment) {
+  const matches = (row) => row.usage_key === 'product_catalog' && row.object_key === 'product' && Number(row.object_id) === Number(productID)
+  let replaced = false
+  const rows = []
+  for (const row of businessGroupAssignments.value) {
+    if (!matches(row)) rows.push(row)
+    else if (assignment && !replaced) { rows.push(assignment); replaced = true }
+  }
+  if (assignment && !replaced) rows.push(assignment)
+  businessGroupAssignments.value = rows
+}
+
 async function saveSelectedProductBusinessGroupAssignment(target = {}) {
+  if (loading.value) return false
   if (catalogCustomerID.value > 0) return moveCustomerCatalogProducts(target)
   const unclassified = Boolean(target?.unclassified)
   const option = unclassified ? null : {
@@ -6756,33 +6769,35 @@ async function saveSelectedProductBusinessGroupAssignment(target = {}) {
   }
   if (!unclassified && (!(option.group_id > 0) || !(option.group_item_id > 0))) return false
   if (!productCatalogBusinessGroups.value.length || !selectedProductIds.value.length) return false
+  const ids = [...selectedProductIds.value]
+  const failed = []
+  let movedCount = 0
   loading.value = true
   error.value = ''
-  ok.value = ''
+  ok.value = `正在移动 ${ids.length} 个商品…`
   try {
-    for (const productID of selectedProductIds.value) {
-      if (!option) {
-        await clearProductBusinessGroupAssignment(productID)
-        continue
+    for (const productID of ids) {
+      try {
+        if (!option) {
+          await clearProductBusinessGroupAssignment(productID)
+        } else {
+          const saved = await apiSend('/api/business-group-assignments', {
+            body: businessGroupMoveAssignmentPayload({
+              usageKey: 'product_catalog', objectKey: 'product', objectID: Number(productID || 0), option, sortOrder: 100,
+            }),
+          })
+          applyProductBusinessGroupAssignment(productID, saved)
+        }
+        movedCount += 1
+      } catch (err) {
+        failed.push(productID)
+        error.value = err.message || '移动商品分类失败'
       }
-      await apiSend('/api/business-group-assignments', {
-        body: businessGroupMoveAssignmentPayload({
-          usageKey: 'product_catalog',
-          objectKey: 'product',
-          objectID: Number(productID || 0),
-          option,
-          sortOrder: 100,
-        }),
-      })
     }
-    const movedCount = selectedProductIds.value.length
-    await loadAll({ strict: true })
-    selectedProductIds.value = []
-    ok.value = `已移动 ${movedCount} 个商品到分类`
-    return true
-  } catch (err) {
-    error.value = err.message || '移动商品分类失败'
-    return false
+    selectedProductIds.value = failed
+    ok.value = movedCount ? `已移动 ${movedCount} 个商品到分类` : ''
+    if (failed.length) error.value = `${failed.length} 个商品移动失败，已保留勾选，可重试：${error.value}`
+    return failed.length === 0
   } finally {
     loading.value = false
   }
@@ -6794,15 +6809,11 @@ async function handleProductCategoryMoveTarget(target) {
 }
 
 async function clearProductBusinessGroupAssignment(productID) {
-  const id = Number(productID || 0)
-  if (!id) return
-  const url = new URL('/api/business-group-assignments', window.location.origin)
-  url.searchParams.set('usage_key', 'product_catalog')
-  url.searchParams.set('object_key', 'product')
-  url.searchParams.set('object_id', String(id))
-  const data = await apiGet(url)
-  const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.assignments) ? data.assignments : [])
-  await Promise.all(rows.map((row) => apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })))
+  const rows = businessGroupAssignments.value.filter((row) => row.usage_key === 'product_catalog' && row.object_key === 'product' && Number(row.object_id) === Number(productID))
+  for (const row of rows) {
+    await apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })
+    businessGroupAssignments.value = businessGroupAssignments.value.filter((current) => Number(current.id) !== Number(row.id))
+  }
 }
 
 function openProductBusinessGroupManagement() {
