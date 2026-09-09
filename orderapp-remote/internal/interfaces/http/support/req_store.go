@@ -252,8 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-640-ERP-SESSION-POOL", title: "履约客户登录并发加载不耗尽数据库连接", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-erp-session-pool.md"},
-		{table: "req_dev", code: "DEV-640-ERP-SESSION-POOL", title: "登录资格校验释放连接后锁定会话，保留撤销校验并覆盖小连接池并发", status: "done", assignee: "Codex", evidence: "erp_session_pool_test.go; erp_session_revocation_test.go; docs/acceptance/2026-09-08-erp-session-pool.md"},
+		{table: "req_product", code: "PR-643-CUSTOMER-ACCOUNT-ORDERS", title: "客户订单、销售单导出和往来账单", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
+		{table: "req_dev", code: "DEV-643-ORDERS", title: "全部本人订单和收件信息解析修改", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
+		{table: "req_dev", code: "DEV-643-DOCUMENTS", title: "客户销售单全链路授权及跨页合并", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
+		{table: "req_dev", code: "DEV-643-ACCOUNTS", title: "订单费用和周月往来账单", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
 		{table: "req_product", code: "PR-642-EFS-FULFILLMENT-HOME", title: "履约客户首页、共享连续录单和EFS订单归类", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-efs-fulfillment.md"},
 		{table: "req_dev", code: "DEV-642-CUSTOMER-PAGES", title: "按能力独立页面、按需加载及价格表表格预览", status: "done", assignee: "Codex", evidence: "customer-workspace.test.js; workspace.go"},
 		{table: "req_dev", code: "DEV-642-SHARED-ORDER", title: "共享员工录单、连续补录、幂等和收件信息隔离", status: "done", assignee: "Codex", evidence: "customer_workspace_test.go; customer_order_test.go"},

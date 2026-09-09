@@ -2,7 +2,7 @@ async function readJson(res) {
   if (res.status === 204) return null
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const err = new Error(data.error || '请求失败')
+    const err = new Error(data.error || data.message || '请求失败')
     err.status = res.status
 	err.code = String(data.code || '')
     throw err

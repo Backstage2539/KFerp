@@ -6,13 +6,13 @@
         <div class="actions">
           <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
           <a v-else class="secondary link-button" :href="appURL('/vue-shell?view=orders')">返回订单列表</a>
-          <button class="secondary" type="button" @click="openSettingsDrawer">销售单设置</button>
-          <button class="secondary" type="button" @click="openCustomerDrawer" :disabled="!customerSummary.id">客户信息</button>
+          <button class="secondary" type="button" v-if="!props.customerMode" @click="openSettingsDrawer">销售单设置</button>
+          <button class="secondary" type="button" v-if="!props.customerMode" @click="openCustomerDrawer" :disabled="!customerSummary.id">客户信息</button>
           <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !documentContextReady">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
-          <a v-if="documents.length && latestSalesOrderPDFDownloadURL" class="secondary link-button" :href="latestSalesOrderPDFDownloadURL" target="_blank" rel="noopener">下载最新版 PDF</a>
-          <a v-if="imageDocuments.length && latestSalesOrderImageDownloadURL" class="secondary link-button" :href="latestSalesOrderImageDownloadURL" target="_blank" rel="noopener">下载最新版图片</a>
-          <button class="secondary" type="button" @click="shareLatestResource('sales_order_pdf')" :disabled="shareLoading || !canShareSingleOrder || !documents.length">{{ shareLoading === 'sales_order_pdf' ? '分享中' : '分享PDF到微信' }}</button>
-          <button class="secondary" type="button" @click="shareLatestResource('sales_order_image')" :disabled="shareLoading || !canShareSingleOrder || !imageDocuments.length">{{ shareLoading === 'sales_order_image' ? '分享中' : '分享图片到微信' }}</button>
+          <a v-if="documents.length && latestSalesOrderPDFDownloadURL" class="secondary link-button" :href="latestSalesOrderPDFDownloadURL" @click.prevent="downloadDocument(latestSalesOrderPDFDownloadURL)" target="_blank" rel="noopener">下载最新版 PDF</a>
+          <a v-if="imageDocuments.length && latestSalesOrderImageDownloadURL" class="secondary link-button" :href="latestSalesOrderImageDownloadURL" @click.prevent="downloadDocument(latestSalesOrderImageDownloadURL)" target="_blank" rel="noopener">下载最新版图片</a>
+          <button class="secondary" type="button" v-if="!props.customerMode" @click="shareLatestResource('sales_order_pdf')" :disabled="shareLoading || !canShareSingleOrder || !documents.length">{{ shareLoading === 'sales_order_pdf' ? '分享中' : '分享PDF到微信' }}</button>
+          <button class="secondary" type="button" v-if="!props.customerMode" @click="shareLatestResource('sales_order_image')" :disabled="shareLoading || !canShareSingleOrder || !imageDocuments.length">{{ shareLoading === 'sales_order_image' ? '分享中' : '分享图片到微信' }}</button>
           <button class="primary" type="button" @click="generate" :disabled="generating || !documentContextReady || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
           <button class="primary" type="button" @click="generateImage" :disabled="imageGenerating || !documentContextReady || !preview">{{ imageGenerating ? '生成图片中' : '确认生成图片' }}</button>
         </div>
@@ -26,7 +26,7 @@
         <span>PDF版本：{{ documents.length }}</span>
         <span>图片版本：{{ imageDocuments.length }}</span>
       </div>
-      <details class="manual">
+      <details v-if="!props.customerMode" class="manual">
         <summary>销售单手册</summary>
         <ul>
           <li>首次生成销售单 PDF 或图片都从 V1 开始，同一订单再次生成会创建新版本，不覆盖旧文件。</li>
@@ -41,7 +41,7 @@
       </details>
     </section>
 
-    <section class="panel sales-order-note-panel">
+    <section v-if="!props.customerMode" class="panel sales-order-note-panel">
       <div class="panel-head">
         <h3>销售单备注</h3>
         <button class="secondary" type="button" @click="saveSalesOrderNote" :disabled="noteSaving || isCombinedSalesOrder || !orderID">{{ noteSaving ? '保存中' : '保存备注' }}</button>
@@ -54,7 +54,7 @@
         <h3>销售单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
         <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !documentContextReady">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
-      <div v-if="preview?.snapshot" class="preview-tools">
+      <div v-if="preview?.snapshot && !props.customerMode" class="preview-tools">
         <div class="layout-drag-hint">收款说明和收款码固定在最后一页；可在末页拖动边框调整位置，拖右下角圆点调整大小。</div>
         <label v-if="preview?.snapshot?.seal" class="seal-size-slider">
           <span>公章大小</span>
@@ -66,7 +66,7 @@
       <PDFStampPreview
         v-else
         :pdf-url="salesOrderPreviewPDFUrl"
-        :placements="salesOrderPreviewPlacements"
+        :placements="props.customerMode ? [] : salesOrderPreviewPlacements"
         :seal-url="previewSealUrl"
         seal-label="公章"
         preview-label="PREVIEW 预览版"
@@ -91,7 +91,7 @@
             <td>{{ doc.created_at }}</td>
             <td>{{ doc.created_by || '-' }}</td>
             <td>{{ doc.is_latest ? '最新版' : '历史版本' }}</td>
-            <td><a class="text-link" :href="doc.download_url" target="_blank" rel="noopener">下载</a></td>
+            <td><a class="text-link" :href="doc.download_url" @click.prevent="downloadDocument(doc.download_url)" target="_blank" rel="noopener">下载</a></td>
           </tr>
           <tr v-if="!documents.length"><td colspan="6" class="muted">暂无销售单版本</td></tr>
         </tbody>
@@ -114,7 +114,7 @@
             <td>{{ doc.created_at }}</td>
             <td>{{ doc.created_by || '-' }}</td>
             <td>{{ doc.is_latest ? '最新版' : '历史版本' }}</td>
-            <td><a class="text-link" :href="doc.download_url" target="_blank" rel="noopener">下载图片</a></td>
+            <td><a class="text-link" :href="doc.download_url" @click.prevent="downloadDocument(doc.download_url)" target="_blank" rel="noopener">下载图片</a></td>
           </tr>
           <tr v-if="!imageDocuments.length"><td colspan="6" class="muted">暂无销售单图片版本</td></tr>
         </tbody>
@@ -185,6 +185,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
+import { downloadCustomerFile } from '../api/customer-account'
 import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
 import { buildCombinedDocumentQuery } from '../lib/combined-order-documents'
 import {
@@ -202,6 +203,8 @@ const props = defineProps({
   orderId: { type: [Number, String], default: 0 },
   orderIds: { type: Array, default: () => [] },
   embedded: { type: Boolean, default: false },
+  customerMode: { type: Boolean, default: false },
+  customerId: { type: [Number, String], default: 0 },
 })
 
 const emit = defineEmits(['close'])
@@ -243,14 +246,14 @@ const salesOrderPreviewBasePDFUrl = computed(() => {
 const salesOrderPreviewPDFUrl = computed(() => {
   if (!salesOrderPreviewBasePDFUrl.value) return ''
   const separator = salesOrderPreviewBasePDFUrl.value.includes('?') ? '&' : '?'
-  return `${salesOrderPreviewBasePDFUrl.value}${separator}v=${previewPDFRefreshKey.value}`
+  return documentURL(`${salesOrderPreviewBasePDFUrl.value}${separator}v=${previewPDFRefreshKey.value}`)
 })
 const latestSalesOrderPDFDownloadURL = computed(() => {
-  if (isCombinedSalesOrder.value) return latestDocumentURL(documents.value)
+  if (props.customerMode || isCombinedSalesOrder.value) return latestDocumentURL(documents.value)
   return orderID.value ? salesOrderDownloadUrl(orderID.value) : ''
 })
 const latestSalesOrderImageDownloadURL = computed(() => {
-  if (isCombinedSalesOrder.value) return latestDocumentURL(imageDocuments.value)
+  if (props.customerMode || isCombinedSalesOrder.value) return latestDocumentURL(imageDocuments.value)
   return orderID.value ? salesOrderImageDownloadUrl(orderID.value) : ''
 })
 const previewSealUrl = computed(() => assetURL(preview.value?.snapshot?.seal || {}))
@@ -309,14 +312,25 @@ const salesOrderPreviewPlacements = computed(() => {
 let previewSealAspectToken = 0
 watch(previewSealUrl, loadPreviewSealAspectRatio, { immediate: true })
 
+function documentURL(url) {
+  if (!props.customerMode) return url
+  const result = url.replace('/api/orders/', '/api/customer-processing/portal/orders/')
+  if (!props.customerId) return result
+  return `${result}${result.includes('?') ? '&' : '?'}customer_id=${props.customerId}`
+}
+async function downloadDocument(url) {
+  error.value = ''
+  try { await downloadCustomerFile(documentURL(url)) } catch (err) { error.value = err.message }
+}
+
 async function load() {
   if (!documentContextReady.value) return
   loading.value = true
   error.value = ''
   try {
-    const data = await apiGet(isCombinedSalesOrder.value
+    const data = await apiGet(documentURL(isCombinedSalesOrder.value
       ? `/api/orders/combined/sales-orders?${combinedDocumentQuery.value}`
-      : `/api/orders/${orderID.value}/sales-orders`)
+      : `/api/orders/${orderID.value}/sales-orders`))
     documents.value = data.rows || []
     imageDocuments.value = data.image_rows || []
     assignCustomer(customerSummary, data.order?.customer || {})
@@ -337,9 +351,9 @@ async function loadPreview() {
   previewLoading.value = true
   error.value = ''
   try {
-    preview.value = await apiGet(isCombinedSalesOrder.value
+    preview.value = await apiGet(documentURL(isCombinedSalesOrder.value
       ? `/api/orders/combined/sales-order-preview?${combinedDocumentQuery.value}`
-      : `/api/orders/${orderID.value}/sales-order-preview`)
+      : `/api/orders/${orderID.value}/sales-order-preview`))
     salesOrderNote.value = isCombinedSalesOrder.value
       ? combinedSalesOrderNotes(preview.value?.snapshot?.groups || [])
       : preview.value?.snapshot?.sales_order_note || ''
@@ -378,7 +392,7 @@ async function generate() {
   error.value = ''
   message.value = ''
   try {
-    const data = await apiSend(isCombinedSalesOrder.value ? '/api/orders/combined/sales-orders' : `/api/orders/${orderID.value}/sales-orders`, {
+    const data = await apiSend(documentURL(isCombinedSalesOrder.value ? '/api/orders/combined/sales-orders' : `/api/orders/${orderID.value}/sales-orders`), {
       body: isCombinedSalesOrder.value ? { order_ids: combinedOrderIDs.value } : undefined,
     })
     message.value = `${isCombinedSalesOrder.value ? '已生成组合销售单' : '已生成'} V${data.version_no}`
@@ -397,7 +411,7 @@ async function generateImage() {
   error.value = ''
   message.value = ''
   try {
-    const data = await apiSend(isCombinedSalesOrder.value ? '/api/orders/combined/sales-order-images' : `/api/orders/${orderID.value}/sales-order-images`, {
+    const data = await apiSend(documentURL(isCombinedSalesOrder.value ? '/api/orders/combined/sales-order-images' : `/api/orders/${orderID.value}/sales-order-images`), {
       body: isCombinedSalesOrder.value ? { order_ids: combinedOrderIDs.value } : undefined,
     })
     message.value = `${isCombinedSalesOrder.value ? '已生成组合销售单图片' : '已生成图片'} V${data.version_no}`

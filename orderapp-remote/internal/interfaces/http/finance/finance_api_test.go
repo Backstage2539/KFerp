@@ -184,67 +184,25 @@ func TestFinanceReportAPIAppliesCustomerScope(t *testing.T) {
 	}
 }
 
-func TestCustomerAccountFinanceReadAPIDerivesBoundCustomerAndRejectsCrossCustomer(t *testing.T) {
+func TestCustomerAccountCannotUseInternalFinanceReadAPI(t *testing.T) {
 	e := echo.New()
 	svc := &fakeFinanceService{mode: domain.ClosingModeStrongLock}
-	customerAccounts := &fakeFinanceCustomerAccounts{
-		overview: customerfulfillmentapp.CustomerPortalOverview{CustomerID: 18, CustomerName: "客户A"},
-	}
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			c.Set("employee_id", int64(7))
-			return next(c)
-		}
+		return func(c echo.Context) error { c.Set("employee_id", int64(7)); return next(c) }
 	})
-	e.Use(support.AuthorizationMiddleware(&fakeFinanceAuthzService{
-		actor: authzapp.Actor{Permissions: []string{"customer_processing.read"}},
-	}))
-	RegisterRoutes(e, Dependencies{Finance: svc, CustomerAccounts: customerAccounts})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/finance/expenses?month=2026-05", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("customer expenses status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if svc.lastListFilter.CustomerID != 18 {
-		t.Fatalf("customer expenses filter customer=%d, want bound customer 18", svc.lastListFilter.CustomerID)
-	}
-	if customerAccounts.lastEmployeeID != 7 {
-		t.Fatalf("customer context employee=%d, want 7", customerAccounts.lastEmployeeID)
-	}
-
-	req = httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05", nil)
-	rec = httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("customer report status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if svc.lastDraftReportFilter.CustomerID != 18 {
-		t.Fatalf("customer report filter customer=%d, want bound customer 18", svc.lastDraftReportFilter.CustomerID)
-	}
-
-	req = httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05?customer_id=19", nil)
-	rec = httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "customer finance scope denied") {
-		t.Fatalf("cross-customer report status=%d body=%s, want 403 scope denied", rec.Code, rec.Body.String())
-	}
-
-	for _, tc := range []struct {
-		method string
-		path   string
-	}{
-		{http.MethodGet, "/api/finance/employees"},
-		{http.MethodPost, "/api/finance/expenses"},
-		{http.MethodGet, "/api/finance/reports/2026-05/accountant-handoff.xlsx"},
+	e.Use(support.AuthorizationMiddleware(&fakeFinanceAuthzService{actor: authzapp.Actor{AccountType: support.AccountTypeChannelCustomer, Permissions: []string{"customer_processing.read"}}}))
+	RegisterRoutes(e, Dependencies{Finance: svc})
+	for _, tc := range []struct{ method, path string }{
+		{"GET", "/api/finance/expenses?month=2026-05"}, {"GET", "/api/finance/reports/2026-05"}, {"GET", "/api/finance/reports/2026-05?customer_id=19"}, {"GET", "/api/finance/employees"}, {"POST", "/api/finance/expenses"}, {"GET", "/api/finance/reports/2026-05/accountant-handoff.xlsx"},
 	} {
-		req = httptest.NewRequest(tc.method, tc.path, nil)
-		rec = httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
-		if rec.Code != http.StatusForbidden {
-			t.Fatalf("%s %s status=%d body=%s, want 403", tc.method, tc.path, rec.Code, rec.Body.String())
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != 403 {
+			t.Fatalf("%s %s: %d %s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
+	}
+	if svc.lastListFilter.CustomerID != 0 || svc.lastDraftReportFilter.CustomerID != 0 {
+		t.Fatal("internal financial service called by customer")
 	}
 }
 

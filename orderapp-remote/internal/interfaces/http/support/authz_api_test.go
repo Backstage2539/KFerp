@@ -563,3 +563,30 @@ func TestCustomerWorkspaceMiddlewareNeverGrantsInternalOverrideToCustomer(t *tes
 		})
 	}
 }
+
+func TestCustomerAccountCannotUseInternalFinanceOrLegacyDocumentURLs(t *testing.T) {
+	for _, customer := range []bool{true, false} {
+		accountType := "internal_employee"
+		if customer {
+			accountType = AccountTypeChannelCustomer
+		}
+		e := echo.New()
+		authz := &fakeAuthzService{actor: authzapp.Actor{AccountType: accountType, Permissions: []string{"finance.read", "orders.read", "customer_processing.read"}}}
+		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error { c.Set("employee_id", int64(7)); return next(c) }
+		})
+		e.Use(AuthorizationMiddleware(authz))
+		for _, path := range []string{"/api/finance/expenses", "/api/finance/reports/monthly", "/orders/1/sales-order-latest.pdf", "/orders/combined/sales-orders/1.pdf"} {
+			e.GET(path, func(c echo.Context) error { return c.NoContent(200) })
+			r := httptest.NewRecorder()
+			e.ServeHTTP(r, httptest.NewRequest("GET", path, nil))
+			want := 200
+			if customer {
+				want = 403
+			}
+			if r.Code != want {
+				t.Fatalf("customer=%v path=%s status=%d body=%s", customer, path, r.Code, r.Body.String())
+			}
+		}
+	}
+}

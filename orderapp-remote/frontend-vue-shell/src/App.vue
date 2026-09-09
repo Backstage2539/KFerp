@@ -176,6 +176,8 @@ import CustomersView from './views/CustomersView.vue'
 import CustomerFulfillmentView from './views/CustomerFulfillmentView.vue'
 import { apiGet } from './api/client'
 import { customerWorkspaceMenu, customerWorkspacePages } from './lib/customer-workspace'
+import CustomerAccountView from './views/CustomerAccountView.vue'
+import { customerAccountView } from './lib/customer-account'
 import CustomerProcessingPortalView from './views/CustomerProcessingPortalView.vue'
 import CustomerPortalSettingsView from './views/CustomerPortalSettingsView.vue'
 import DeliveryNoteView from './views/DeliveryNoteView.vue'
@@ -443,8 +445,10 @@ const internalViews = {
   customerFulfillmentManual: OperationManualView,
   workspaceModeManual: OperationManualView,
   customerProcessingPortal: CustomerProcessingPortalView,
-  customerOrders: CustomerProcessingPortalView,
+  customerOrders: CustomerAccountView,
   ...Object.fromEntries(customerWorkspacePages.map(([key]) => [key, CustomerProcessingPortalView])),
+  customerOrderFees: CustomerAccountView,
+  customerSettlement: CustomerAccountView,
   uiSettings: UISettingsView,
   settingsAuditManual: OperationManualView,
   audit: AuditView,
@@ -1019,7 +1023,8 @@ async function loadActor() {
     await loadUISettings()
     if (isCustomerAccountActor(currentActor.value)) {
       await loadCustomerAccountContext()
-      if (!['customerProcessingPortal', 'financeExpenses', 'financeClosing', 'financeReport'].includes(currentKey.value)) {
+      currentKey.value = customerAccountView(currentKey.value)
+      if (!customerAccountActorMenuGroups.value.flatMap(group => group.items.map(item => item.key)).includes(currentKey.value)) {
         currentKey.value = 'customerProcessingPortal'
         currentViewParams.value = {}
       } else {

@@ -14,6 +14,13 @@ const customerFinanceScopeLimitedContextKey = "customer_finance_scope_limited"
 func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			path := strings.TrimPrefix(c.Request().URL.Path, "/app")
+			if strings.HasPrefix(path, "/api/finance/") || strings.HasPrefix(path, "/orders/") || (strings.HasPrefix(path, "/api/orders/") && strings.Contains(path, "sales-order")) {
+				actor, ok, err := CurrentActor(c, authz)
+				if err != nil || (ok && actor.AccountType == AccountTypeChannelCustomer) {
+					return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": "请通过客户订单及往来账单查看"})
+				}
+			}
 			if strings.HasPrefix(c.Request().URL.Path, "/api/product-settings/customer-catalog") || strings.HasPrefix(c.Request().URL.Path, "/api/product-customer-references") {
 				actor, ok, err := CurrentActor(c, authz)
 				if err != nil || (ok && actor.AccountType == AccountTypeChannelCustomer) {
@@ -148,6 +155,13 @@ func authorizeFulfillmentOrderList(c echo.Context, authz AuthzService) error {
 	if !ok {
 		return permissionJSONError(c, http.StatusUnauthorized, map[string]string{"error": "auth required"})
 	}
+	if actor.AccountType == AccountTypeChannelCustomer {
+		if !actor.Can("customer_processing.read") {
+			return permissionJSONError(c, 403, map[string]string{"error": "permission denied"})
+		}
+		c.Set(customerFulfillmentOrderScopeLimitedContextKey, true)
+		return nil
+	}
 	if actor.Can("orders.read") {
 		return nil
 	}
@@ -169,10 +183,7 @@ func authorizeCustomerFinanceRead(c echo.Context, authz AuthzService) error {
 	if actor.Can("finance.read") {
 		return nil
 	}
-	if actor.Can("customer_processing.read") {
-		c.Set(customerFinanceScopeLimitedContextKey, true)
-		return nil
-	}
+
 	return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": "permission denied", "permission": "finance.read"})
 }
 
