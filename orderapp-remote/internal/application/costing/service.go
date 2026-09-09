@@ -2,6 +2,7 @@ package costing
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -5685,7 +5686,13 @@ func beanListPublicationPDFCacheKey(row BeanListPublication) string {
 	if version == "" {
 		version = "published"
 	}
-	return fmt.Sprintf("bean-list-preview-style-v4:%d:%s", row.ID, version)
+	key := fmt.Sprintf("bean-list-preview-style-v4:%d:%s", row.ID, version)
+	if row.Status == "draft" && row.Config["price_list_display_order"] != nil {
+		raw, _ := json.Marshal(struct{ Config, Content map[string]any }{row.Config, row.Content})
+		sum := sha256.Sum256(raw)
+		return fmt.Sprintf("%s:display-order:%x", key, sum[:16])
+	}
+	return key
 }
 
 func beanListPublicationPDFFilename(row BeanListPublication) string {

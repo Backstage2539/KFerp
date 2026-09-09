@@ -955,8 +955,11 @@ func completeOrderIfAllRunningDone(ctx context.Context, tx pgx.Tx, schema, order
 	if strings.TrimSpace(orderNo) == "" {
 		return productionapp.FinishedOrder{}, false, nil
 	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SELECT id FROM %s.orders WHERE order_no=$1 FOR UPDATE", schema), orderNo); err != nil {
+		return productionapp.FinishedOrder{}, false, err
+	}
 	var hasRunning bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.produce_running_items WHERE status='running' AND $1 = ANY(string_to_array(replace(order_nos,' ',''),',')))`, schema), orderNo).Scan(&hasRunning); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.produce_running_items WHERE status NOT IN ('done','completed','cancelled') AND $1 = ANY(string_to_array(replace(order_nos,' ',''),','))) OR EXISTS(SELECT 1 FROM %[1]s.work_orders WHERE status NOT IN ('completed','cancelled') AND $1 = ANY(string_to_array(replace(order_nos,' ',''),',')))`, schema), orderNo).Scan(&hasRunning); err != nil {
 		return productionapp.FinishedOrder{}, false, err
 	}
 	if hasRunning {
@@ -988,6 +991,40 @@ func completeOrderIfAllRunningDone(ctx context.Context, tx pgx.Tx, schema, order
 }
 
 func orderHasRemainingProductionGapTx(ctx context.Context, tx pgx.Tx, schema, orderNo string) (bool, error) {
+	// Canonical specs use inventory units; display names such as “袋” carry no weight.
+	// Shared output is apportioned across its linked orders, so it cannot complete
+	// every order independently with the same units.
+	var canonicalGap bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+ WITH need AS (
+   SELECT oi.product_id,oi.bom_spec_id,SUM(oi.qty) AS units,
+     BOOL_OR(COALESCE(d.decision,'')='produce') AS force_produce
+   FROM %[1]s.orders o JOIN %[1]s.order_items oi ON oi.order_id=o.id
+   LEFT JOIN %[1]s.order_stock_decisions d ON d.order_id=o.id
+   WHERE o.order_no=$1 AND NOT o.is_void AND COALESCE(oi.bom_spec_id,0)>0
+   GROUP BY oi.product_id,oi.bom_spec_id
+ ), produced AS (
+   SELECT p.product_id,p.bom_spec_id,SUM(p.finished_units::numeric * n.units / NULLIF(peers.units,0)) AS units
+   FROM %[1]s.production_logs p JOIN need n USING(product_id,bom_spec_id)
+   CROSS JOIN LATERAL (
+     SELECT SUM(i.qty) AS units FROM %[1]s.orders o JOIN %[1]s.order_items i ON i.order_id=o.id
+     WHERE o.order_no=ANY(string_to_array(replace(p.order_nos,' ',''),','))
+       AND NOT o.is_void AND i.product_id=p.product_id AND i.bom_spec_id=p.bom_spec_id
+   ) peers
+   WHERE $1=ANY(string_to_array(replace(p.order_nos,' ',''),','))
+   GROUP BY p.product_id,p.bom_spec_id
+ ), allocated AS (
+   SELECT a.product_id,a.bom_spec_id,SUM(a.allocated_units) AS units
+   FROM %[1]s.order_stock_batch_allocations a JOIN %[1]s.orders o ON o.id=a.order_id
+   WHERE o.order_no=$1 GROUP BY a.product_id,a.bom_spec_id
+ )
+ SELECT EXISTS(SELECT 1 FROM need n LEFT JOIN produced p USING(product_id,bom_spec_id)
+ LEFT JOIN allocated a USING(product_id,bom_spec_id)
+ WHERE GREATEST(COALESCE(p.units,0),CASE WHEN n.force_produce THEN 0 ELSE COALESCE(a.units,0) END)<n.units)
+ `, schema), orderNo).Scan(&canonicalGap)
+	if err != nil || canonicalGap {
+		return canonicalGap, err
+	}
 	q := fmt.Sprintf(`
 		WITH target_order AS (
 			SELECT id
@@ -1010,6 +1047,7 @@ func orderHasRemainingProductionGapTx(ctx context.Context, tx pgx.Tx, schema, or
 			) spec
 			WHERE COALESCE(oi.product_id,0) > 0
 			  AND spec.spec_g > 0
+			  AND COALESCE(oi.bom_spec_id,0) = 0
 			  AND COALESCE(oi.qty,0) > 0
 			GROUP BY oi.product_id, spec.spec_g
 		),

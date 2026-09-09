@@ -388,6 +388,7 @@
                 <div class="status-stack">
                   <span>收款：{{ row.pay_status || '-' }}</span>
                   <span>发货：{{ row.ship_status || '-' }}</span>
+                  <span>{{ orderConfirmationLabel(row.confirmation_status) }}</span>
                   <span>生产：{{ row.process_status || '-' }}</span>
                   <span>发票：{{ row.invoice_status || '-' }}</span>
                 </div>
@@ -428,6 +429,7 @@
         <div v-if="orderDetailError" class="error">{{ orderDetailError }}</div>
 
         <div v-if="activeOrderSummary" class="drawer-body">
+ <OrderConfirmationPanel :order-id="Number(activeOrderSummary.id)" :customer-id="Number(customerId)" @updated="refreshConfirmationOrder" />
           <section class="drawer-section">
             <h4>收件与快递</h4>
             <div class="detail-grid">
@@ -518,6 +520,10 @@
 </template>
 
 <script setup>
+import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
+import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
+import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'
+
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import DataPanel from '../components/DataPanel.vue'
 import PaginationControls from '../components/PaginationControls.vue'
@@ -1322,6 +1328,11 @@ function openManual() {
     detail: { key: 'customerFulfillmentManual' },
   }))
 }
+
+async function refreshConfirmationOrder() { const id=activeOrderSummary.value?.id; await loadFulfillmentOrders(fulfillmentOrdersPage.value); if(id){ const row=fulfillmentOrders.value.find(row=>Number(row.id)===Number(id)); if(row) await openFulfillmentOrderDetail(row) } }
+let stopConfirmationRefresh
+onConfirmationMount(() => { stopConfirmationRefresh=visibleOrderRefresh(() => customerId.value ? loadFulfillmentOrders(fulfillmentOrdersPage.value) : undefined) })
+onConfirmationUnmount(() => stopConfirmationRefresh?.())
 </script>
 
 <style scoped>

@@ -1114,6 +1114,7 @@ func resolveOrderBOMSpecIdentityTx(ctx context.Context, tx pgx.Tx, schema string
 		  AND ($3::bigint=0 OR variant.id=$3)
 		ORDER BY variant.is_default DESC,variant.sort_order,variant.id
 		LIMIT 1
+        FOR SHARE OF authority,parent,binding,version,spec,variant
 	`, schema), productID, bomSpecID, bomVariantID).Scan(
 		&identity.ProductID,
 		&identity.BomSpecID,
@@ -1353,6 +1354,20 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		var previous salesapp.SaveOrderResult
 		var hash string
+		if cmd.RequireConfirmation {
+			err := tx.QueryRow(ctx, orderConfirmationRequestQuery(r.schema), cmd.CustomerID, cmd.CustomerRequestID).Scan(&previous.OrderID, &previous.OrderNo, &hash, &previous.ConfirmationStatus)
+			if err == nil {
+				if hash != cmd.CustomerRequestHash {
+					return salesapp.SaveOrderResult{}, fmt.Errorf("该请求已保存其他内容，请刷新后重试")
+				}
+				previous.Replayed = true
+				previous.Edited = cmd.EditID > 0
+				return previous, nil
+			}
+			if err != pgx.ErrNoRows {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
 		err := tx.QueryRow(ctx, fmt.Sprintf("SELECT id,order_no,customer_request_hash FROM %s.orders WHERE customer_id=$1 AND customer_request_id=$2", r.schema), cmd.CustomerID, cmd.CustomerRequestID).Scan(&previous.OrderID, &previous.OrderNo, &hash)
 		if err == nil {
 			if hash != cmd.CustomerRequestHash {
@@ -1369,6 +1384,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	var orderID int64
 	orderNo := ""
 	beforeAuditSummary := ""
+	var confirmationBefore *orderContentSnapshot
 	existingPortalServiceCode, existingSourceWarehouse := "", ""
 	if editID > 0 {
 		var lockedCustomerID int64
@@ -1382,6 +1398,19 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		if lockedCustomerID != cmd.CustomerID {
 			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("订单客户已被其他操作修改，请重新打开后再编辑")
+		}
+		var managed bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false) FROM %s.orders o WHERE id=$1", r.schema), orderID).Scan(&managed); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		cmd.RequireConfirmation = cmd.RequireConfirmation || managed
+		if cmd.RequireConfirmation {
+			cmd.RequirePreProductionEdit = true
+			snapshot, err := orderContentSnapshotTx(ctx, tx, r.schema, orderID)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			confirmationBefore = &snapshot
 		}
 		if cmd.RequirePreProductionEdit && strings.TrimSpace(cmd.ExpectedEditRevision) == "" {
 			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("订单版本信息缺失，请重新打开后再编辑")
@@ -1420,11 +1449,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 	applyOrderCustomerProfileDefaults(&cmd, customerProfile)
-	if cmd.CustomerSubmission {
+	if cmd.CustomerSubmission && editID == 0 {
 		cmd.PayStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
 		cmd.ShipStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "未发货", "待发货")
 		if cmd.PayStatusID <= 0 || cmd.ShipStatusID <= 0 {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("请先配置未付款和未发货状态")
+		}
+	}
+	if cmd.CustomerSubmission && confirmationBefore != nil {
+		if err := preserveCustomerOrderFinance(&cmd, confirmationBefore.Order); err != nil {
+			return salesapp.SaveOrderResult{}, err
 		}
 	}
 	for idx := range items {
@@ -2005,6 +2039,28 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if shipStatusID == 0 {
 		shipStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "未发货")
 	}
+	if cmd.RequireConfirmation {
+		var name string
+		if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT name FROM %s.ship_statuses WHERE id=$1", r.schema), shipStatusID).Scan(&name); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if name != "未发货" && name != "待发货" {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("履约订单保存后待确认，不能同时设置发货状态")
+		}
+		if strings.TrimSpace(cmd.ShipTrackingNo) != "" {
+			var previous struct {
+				Tracking string `json:"ship_tracking_no"`
+			}
+			if confirmationBefore != nil {
+				if err := json.Unmarshal(confirmationBefore.Order, &previous); err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+			}
+			if confirmationBefore == nil || salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(cmd.ShipTrackingNo)) != salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(previous.Tracking)) {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("请在订单确认后通过发货操作填写快递单号")
+			}
+		}
+	}
 	if salesdomain.IsNonCourierShipMethod(cmd.ShipMethod) {
 		cmd.LogisticsCompanyID, cmd.LogisticsProductID = 0, 0
 		cmd.ShipTrackingNo = ""
@@ -2161,16 +2217,18 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
-		for _, invalidate := range []string{
-			fmt.Sprintf("UPDATE %s.sales_order_documents SET is_latest=false WHERE order_id=$1", r.schema),
-			fmt.Sprintf("UPDATE %s.sales_order_images SET is_latest=false WHERE order_id=$1", r.schema),
-			fmt.Sprintf("UPDATE %s.delivery_note_documents SET is_latest=false WHERE order_id=$1", r.schema),
-			fmt.Sprintf("UPDATE %s.combined_sales_order_documents SET is_latest=false WHERE order_ids @> jsonb_build_array($1::bigint)", r.schema),
-			fmt.Sprintf("UPDATE %s.combined_sales_order_images SET is_latest=false WHERE order_ids @> jsonb_build_array($1::bigint)", r.schema),
-			fmt.Sprintf("UPDATE %s.combined_delivery_note_documents SET is_latest=false WHERE order_ids @> jsonb_build_array($1::bigint)", r.schema),
-		} {
-			if _, err := tx.Exec(ctx, invalidate, orderID); err != nil {
-				return salesapp.SaveOrderResult{}, err
+		if !cmd.RequireConfirmation {
+			for _, invalidate := range []string{
+				fmt.Sprintf("UPDATE %s.sales_order_documents SET is_latest=false WHERE order_id=$1", r.schema),
+				fmt.Sprintf("UPDATE %s.sales_order_images SET is_latest=false WHERE order_id=$1", r.schema),
+				fmt.Sprintf("UPDATE %s.delivery_note_documents SET is_latest=false WHERE order_id=$1", r.schema),
+				fmt.Sprintf("UPDATE %s.combined_sales_order_documents SET is_latest=false WHERE order_ids @> jsonb_build_array($1::bigint)", r.schema),
+				fmt.Sprintf("UPDATE %s.combined_sales_order_images SET is_latest=false WHERE order_ids @> jsonb_build_array($1::bigint)", r.schema),
+				fmt.Sprintf("UPDATE %s.combined_delivery_note_documents SET is_latest=false WHERE order_ids @> jsonb_build_array($1::bigint)", r.schema),
+			} {
+				if _, err := tx.Exec(ctx, invalidate, orderID); err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
 			}
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.order_items WHERE order_id=$1", r.schema), orderID); err != nil {
@@ -2262,9 +2320,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
-	if _, err := replaceOrderTrackingNumbersTx(ctx, tx, r.schema, orderID, shipTrackingNo, "order_form", cmd.Actor); err != nil {
-		return salesapp.SaveOrderResult{}, err
+	if !cmd.RequireConfirmation {
+		if _, err := replaceOrderTrackingNumbersTx(ctx, tx, r.schema, orderID, shipTrackingNo, "order_form", cmd.Actor); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
+
 	// Rebuild customer supplied production demands from the current order
 	// snapshot so edits cannot leave stale customer demand rows behind.
 	if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.customer_order_production_demands WHERE order_id=$1", r.schema), orderID); err != nil {
@@ -2393,8 +2454,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		})
 	}
 	stockDecision := strings.TrimSpace(cmd.StockBatchDecision)
-	if err := r.applyOrderStockDecisionTx(ctx, tx, orderID, stockItems, stockDecision, cmd.Actor); err != nil {
-		return salesapp.SaveOrderResult{}, err
+	if !cmd.RequireConfirmation {
+		if err := r.applyOrderStockDecisionTx(ctx, tx, orderID, stockItems, stockDecision, cmd.Actor); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 	if cmd.DraftEmployeeID > 0 {
 		if _, err := deleteEmployeeOrderDraftTx(ctx, tx, r.schema, cmd.DraftEmployeeID, cmd.Actor, "order_submitted"); err != nil {
@@ -2413,6 +2476,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if err := r.logOrderSaveTx(ctx, tx, cmd.Actor, orderID, orderNo, editID > 0, beforeAuditSummary, afterAuditSummary, beanListPublicationID, beanListVersionNo); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
+	if cmd.RequireConfirmation {
+		if err := r.stageOrderConfirmationTx(ctx, tx, orderID, confirmationBefore, cmd.Actor); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
+	if cmd.RequireConfirmation && cmd.CustomerRequestID != "" {
+		if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.order_content_versions v SET request_id=$2,request_hash=$3,customer_id=$4 FROM %s.orders o WHERE v.order_id=o.id AND o.id=$1 AND v.revision=o.confirmation_revision", r.schema, r.schema), orderID, cmd.CustomerRequestID, cmd.CustomerRequestHash, cmd.CustomerID); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
 	if cmd.CustomerRequestID != "" {
 		if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET customer_request_id=$2,customer_request_hash=$3 WHERE id=$1", r.schema), orderID, cmd.CustomerRequestID, cmd.CustomerRequestHash); err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -2422,7 +2495,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 
-	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: stockDecision == "use_batch"}, nil
+	confirmationStatus := "accepted"
+	if cmd.RequireConfirmation {
+		confirmationStatus = "pending"
+	}
+	return salesapp.SaveOrderResult{ConfirmationStatus: confirmationStatus, OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: !cmd.RequireConfirmation && stockDecision == "use_batch"}, nil
 
 }
 
@@ -3148,6 +3225,9 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := requireOrdinaryOrderEditTx(ctx, tx, schema, orderID); err != nil {
+		return err
+	}
 
 	payStatusID := int64(0)
 	if nextPay != nil {
@@ -3253,6 +3333,9 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := requireOrdinaryOrderEditTx(ctx, tx, schema, id); err != nil {
+		return err
+	}
 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(spec,''), COALESCE(qty,0), COALESCE(unit_price,0)

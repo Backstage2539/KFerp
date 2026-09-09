@@ -645,7 +645,7 @@ test('price list product picker selection uses product-catalog state and cascade
     'priceListCategoryCodesForSelectedProducts',
     'priceListCategoryHiddenByCollapsedAncestor',
     'function priceListSelectionKey',
-    'return priceListVisibleCategoryRows',
+    'return applyPriceListDisplayOrder(priceListVisibleCategoryRows',
     'priceListCategoryProductIDs(categoryProductGroups.value',
     'priceListCategoryCodesForSelectedProducts(categoryProductGroups.value',
     'priceListCategoryHiddenByCollapsedAncestor(categoryProductGroups.value',

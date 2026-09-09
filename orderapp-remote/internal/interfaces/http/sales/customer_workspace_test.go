@@ -44,6 +44,7 @@ func TestCustomerWorkspaceContinuousOrdersAndRecipientIsolation(t *testing.T) {
  UPDATE %[1]s.products SET customer_id=3,visibility='customer_only' WHERE id=7;
  INSERT INTO %[1]s.ship_statuses(id,name)VALUES(9,'已发货');
  INSERT INTO %[1]s.bean_list_publications(id,list_type,version_no,status,owner_type,owner_key,config_json,content_json) VALUES(88,'commercial','V3.0.6','published','customer','3','{"publication_batch":{"release_id":"efs-test","table_key":"normal","table_name":"测试价格表","is_default_table":true}}','{"price_rows":[{"product_id":7,"bom_spec_id":9001,"bom_variant_id":9101,"min_qty":1,"final_unit_price":30,"price_unit":"袋","inventory_unit":"袋","quantity_basis":"sales_spec_count","parent_product_id":7,"sales_unit":"袋","effective_sales_spec":{"product_id":7,"bom_spec_id":9001,"bom_variant_id":9101,"spec_name":"227g袋","sales_unit":"袋"}}]}');`, schema))
+	seedConfirmationExecutionFixtures(t, ctx, pool, schema)
 	if err := postgressales.EnsureCustomerOrderSchema(ctx, pool, schema); err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +104,11 @@ func TestCustomerWorkspaceContinuousOrdersAndRecipientIsolation(t *testing.T) {
 	if edit.EditData.ReceiverName != "" || edit.EditData.ReceiverPhone != "" || edit.EditData.ReceiverAddress != "" {
 		t.Fatal("edit form replaced missing recipient by customer contact")
 	}
+	for _, id := range ids {
+		if _, err := svc.ReviewOrder(ctx, salesapp.ReviewOrderCommand{OrderID: id, Revision: 1, Decision: "accepted", Admin: true, Actor: "管理员"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	verifyCustomerEightCombined(t, pool, schema, ids)
 	var count int
 	var amount float64
@@ -110,6 +116,43 @@ func TestCustomerWorkspaceContinuousOrdersAndRecipientIsolation(t *testing.T) {
 	if err := pool.QueryRow(ctx, fmt.Sprintf("SELECT count(*),sum(grand_total)::float8,min(order_type_id) FROM %s.orders", schema)).Scan(&count, &amount, &orderType); err != nil || count != 8 || amount != 480 || orderType != 1 {
 		t.Fatalf("count=%d amount=%v type=%d err=%v", count, amount, orderType, err)
 	}
+	// The customer edits the same order through the full entry form. Accepted
+	// accounting survives a pending edit and a rejected modification.
+	currentForm := request(http.MethodGet, fmt.Sprintf("/api/customer-processing/portal/order/form?service=direct_ship&edit_id=%d", first), "", 200)
+	currentEdit := currentForm["edit_data"].(map[string]any)
+	var modified map[string]any
+	json.Unmarshal([]byte(payload(1)), &modified)
+	modified["request_id"] = "efs-existing-edit-0001"
+	modified["edit_id"] = first
+	modified["edit_revision"] = currentEdit["edit_revision"]
+	modified["qty"] = []string{"3"}
+	modified["order_date"] = "2026-07-20"
+	modifiedBytes, _ := json.Marshal(modified)
+	result := request(http.MethodPost, path, string(modifiedBytes), 200)
+	if int64(result["order_id"].(float64)) != first || result["confirmation_status"] != "pending" {
+		t.Fatalf("customer edit=%v", result)
+	}
+	var acceptedAmount float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf("SELECT grand_total FROM %s.orders WHERE id=$1", schema), first).Scan(&acceptedAmount); err != nil || acceptedAmount != 60 {
+		t.Fatalf("pending accounting=%v err=%v", acceptedAmount, err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf("UPDATE %s.bean_list_publications SET status='archived' WHERE id=88", schema))
+	if _, err := svc.ReviewOrder(ctx, salesapp.ReviewOrderCommand{OrderID: first, Revision: 2, Decision: "accepted", Admin: true, Actor: "管理员"}); err == nil {
+		t.Fatal("archived price was accepted")
+	}
+	state, err := svc.OrderConfirmation(ctx, first)
+	if err != nil || state.Status != "pending" {
+		t.Fatalf("failed approval did not roll back: %+v %v", state, err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf("UPDATE %s.bean_list_publications SET status='published' WHERE id=88", schema))
+	if _, err := svc.ReviewOrder(ctx, salesapp.ReviewOrderCommand{OrderID: first, Revision: 2, Decision: "rejected", Reason: "保留原订单", Admin: true, Actor: "管理员"}); err != nil {
+		t.Fatal(err)
+	}
+	currentForm = request(http.MethodGet, fmt.Sprintf("/api/customer-processing/portal/order/form?service=direct_ship&edit_id=%d", first), "", 200)
+	if currentForm["edit_data"].(map[string]any)["order_date"] != "2026-07-19" {
+		t.Fatal("rejection did not restore order date")
+	}
+	request(http.MethodPost, fmt.Sprintf("/api/orders/%d/confirmation", first), `{"revision":2,"decision":"accepted"}`, 403)
 	request(http.MethodPost, path, strings.Replace(payload(1), `"qty":["2"]`, `"qty":["3"]`, 1), 400)
 	request(http.MethodPost, path, strings.Replace(payload(9), `"unit_price":[""]`, `"unit_price":["1"]`, 1), 400)
 	request(http.MethodPost, path, strings.Replace(payload(9), `"customer_id":3`, `"customer_id":4`, 1), 403)
@@ -129,6 +172,9 @@ func TestCustomerWorkspaceContinuousOrdersAndRecipientIsolation(t *testing.T) {
 		t.Fatal("recipient changed historical amount", after, err)
 	}
 	request(http.MethodPatch, "/api/customer-processing/portal/orders/99999/recipient", recipient, 400)
+	if _, err := svc.ReviewOrder(ctx, salesapp.ReviewOrderCommand{OrderID: first, Revision: 3, Decision: "accepted", Admin: true, Actor: "管理员"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET ship_status_id=9 WHERE id=$1", schema), first); err != nil {
 		t.Fatal("complete recipient should allow shipping", err)
 	}

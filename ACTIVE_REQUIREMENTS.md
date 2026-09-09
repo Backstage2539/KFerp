@@ -5127,3 +5127,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - GREEN: both readers collect and close outer rows before querying child items; single-connection PostgreSQL regression passes.
 - Manual impact: none; no user-visible workflow or field changes.
 - Production: main 5b78f202 deployed; rollback source `/opt/stacks/erp-production/orderapp.backup.deploy-20260909193146-5b78f2022348`; eight concurrent BOM reads and simultaneous login passed, then customer account smoke passed.
+
+### PR-647-ORDER-CONFIRMATION-PRICE-SORT
+- Branch: `codex/order-confirmation-price-sort-20260910`; synchronized base `afb2c0cc4da2a6a142ca4d33bc9283f8afffa980`.
+- Status: verified feature merged into develop in the merge containing this record; Van business acceptance pending; not deployed.
+- Owner/session: Codex / 2026-09-10; serialized integration completed from unchanged develop base; no deployment.
+- Pushed feature commit: `c4c6523310413306feb7bb947327ebe9624c7f44`; integration commit is the develop merge containing this record.
+- Scope: 分类即时显示；价格表独立排序和草稿 PDF 缓存；同一履约订单待确认、接单、拒绝恢复及整单状态同步。
+- DEV: DEV-647-CATEGORY-SORT; DEV-647-ORDER-CONFIRMATION; DEV-647-ORDER-STATUS.
+- Verifier: targeted real PostgreSQL 6 complete-flow tests pass / 0 skip; Vue 1159/1159 and build; full standard Go and changed gates pass. Extra full PostgreSQL packages match baseline failures exactly (101 sales/fulfillment + 1 production); those runs are not counted as passes.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-10-order-confirmation-price-sort.md`.
+- Deployment: merge develop only; no application deployment, server migration, price publication or development/production business data writes.

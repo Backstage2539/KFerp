@@ -97,7 +97,7 @@
           周账单按周一至周日、月账单按自然月，以北京时间和下单日期查询。金额显示订单目前已付和待付情况，不代表当期收款流水。预付款计入已付金额；作废订单不计入合计。
         </p>
         <p>
-          未发货且未作废的订单可以修改收件信息。粘贴完整地址后点击解析，检查姓名、电话和地址再保存。销售单使用工厂模板，可下载单笔或多笔订单的
+          点击订单号修改日期、商品、数量和收件信息，保存后状态为待确认，由客户负责人或管理员确认接单；开始生产后不能修改。销售单使用工厂模板，可下载单笔或多笔订单的
           PDF、图片，合并导出不会合并原始订单。已有正式结算单仅供查看和下载，收款由工厂登记。
         </p>
       </details>
@@ -170,7 +170,7 @@
                 />
               </td>
               <td>
-                {{ row.order_no }}<small>{{ row.order_date }}</small>
+                <button type="button" @click="openDetail(row.id)">{{ row.order_no }}</button><small>{{ row.order_date }}</small>
               </td>
               <td v-if="isOrders">
                 {{ row.receiver_name || "待补收件人" }} {{ row.receiver_phone
@@ -184,7 +184,7 @@
               <td>{{ money(row.paid_cents) }} / {{ money(row.due_cents) }}</td>
               <td>
                 {{ row.is_void ? "已作废" : accountStatus(row.payment_status)
-                }}<small>{{ row.ship_status }}</small>
+                }}<small>{{ orderConfirmationLabel(row.confirmation_status) }} · {{ row.process_status }}</small><small>{{ row.ship_status }}</small>
               </td>
               <td>
                 <button @click="openDetail(row.id)">
@@ -326,6 +326,7 @@
           <h3>{{ detail.order_no }}</h3>
           <button @click="detail = null">关闭</button>
         </header>
+        <OrderConfirmationPanel v-if="isOrders" :order-id="Number(detail.id)" :customer-id="Number(customerContextId)" :customer-portal="customerAccountActor" :portal-service="detail.portal_service_code === 'product_order' ? 'product_order' : 'direct_ship'" @updated="refreshConfirmationOrder" />
         <p>
           {{ detail.order_date }} · {{ detail.ship_status }} ·
           {{ accountStatus(detail.payment_status) }}
@@ -356,47 +357,7 @@
           </tbody>
         </table>
         <h3>收件信息</h3>
-        <template v-if="canEditRecipient"
-          ><label
-            >粘贴完整地址<textarea
-              v-model="addressText"
-              rows="3"
-              placeholder="姓名、电话、详细地址"
-            /></label
-          ><button
-            @click="
-              Object.assign(recipient, mergeRecipient(recipient, addressText))
-            "
-          >
-            解析地址
-          </button></template
-        ><label
-          >收件人<input
-            v-model.trim="recipient.receiver_name"
-            :disabled="!canEditRecipient" /></label
-        ><label
-          >电话<input
-            v-model.trim="recipient.receiver_phone"
-            :disabled="!canEditRecipient" /></label
-        ><label
-          >地址<textarea
-            v-model.trim="recipient.receiver_address"
-            :disabled="!canEditRecipient"
-            rows="3"
-          />
-        </label>
-        <p v-if="!canEditRecipient" class="muted">
-          已发货或作废订单不能修改收件信息。
-        </p>
         <p v-if="detailError" class="error">{{ detailError }}</p>
-        <button
-          v-if="canEditRecipient"
-          class="primary"
-          :disabled="saving"
-          @click="saveRecipient"
-        >
-          {{ saving ? "保存中…" : "保存收件信息" }}
-        </button>
       </aside>
     </div>
     <div v-if="billDetail" class="mask" @click.self="billDetail = null">
@@ -432,6 +393,10 @@
   </div>
 </template>
 <script setup>
+import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
+import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
+import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'
+
 import { computed, reactive, ref, watch } from "vue";
 import { apiGet, apiSend } from "../api/client";
 import { downloadCustomerFile } from "../api/customer-account";
@@ -540,10 +505,9 @@ function query() {
   return out;
 }
 let sequence = 0;
-async function load(page = 1) {
+async function load(page = 1, silent = false) {
   const n = ++sequence;
-  loading.value = true;
-  error.value = "";
+  if (!silent) { loading.value = true; error.value = ""; }
   try {
     const result = await apiGet(
       url(
@@ -564,12 +528,12 @@ async function load(page = 1) {
     jumpPage.value = result.page;
     rememberRows();
   } catch (e) {
-    if (n === sequence) {
+    if (n === sequence && !silent) {
       error.value = e.message;
       data.value = { rows: [], summary: {}, page: 1, total_pages: 1 };
     }
   } finally {
-    if (n === sequence) loading.value = false;
+    if (n === sequence && !silent) loading.value = false;
   }
 }
 function rememberRows() {
@@ -642,6 +606,11 @@ watch(
   },
   { immediate: true },
 );
+
+async function refreshConfirmationOrder() { const id=detail.value?.id; await load(data.value.page || 1); if(id) await openDetail(id) }
+let stopConfirmationRefresh
+onConfirmationMount(() => { stopConfirmationRefresh=visibleOrderRefresh(() => isOrders.value && !loading.value ? load(data.value.page || 1, true) : undefined) })
+onConfirmationUnmount(() => stopConfirmationRefresh?.())
 </script>
 <style scoped>
 .account-page {

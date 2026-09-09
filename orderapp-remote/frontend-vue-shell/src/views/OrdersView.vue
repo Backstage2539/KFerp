@@ -192,6 +192,7 @@
                   <OrderPaymentSummary :order="row" />
                   <span>收款：{{ row.pay_status || '-' }}{{ row.payment_method ? ' / ' + row.payment_method : '' }}</span>
                   <span>发货：{{ row.ship_status || '-' }}</span>
+                  <span>{{ orderConfirmationLabel(row.confirmation_status) }}</span>
                   <span>生产：{{ row.process_status || '-' }}</span>
                   <span>发票：{{ invoiceStatusLabel(row.invoice_status) }}</span>
                 </div>
@@ -240,6 +241,7 @@
         <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
         <div v-if="shippingMessage" class="notice ok">{{ shippingMessage }}</div>
         <div v-if="activeOrderDetail" class="drawer-body">
+ <OrderConfirmationPanel v-if="activeOrderDetail.confirmation_required" :order-id="Number(activeOrderDetail.id)" :customer-id="Number(activeOrderDetail.customer_id)" @updated="refreshConfirmationOrder" />
           <section class="drawer-section">
             <h4>收件信息</h4>
             <div class="drawer-status-grid">
@@ -347,7 +349,7 @@
             <button v-if="activeOrderDetail.is_void" class="voided-action-button" type="button" disabled>已失效</button>
             <button v-else class="secondary danger-text" type="button" @click="voidOrder(activeOrderDetail)" :disabled="voidingOrderID === Number(activeOrderDetail.id)">失效订单</button>
           </div>
-          <section class="drawer-section order-edit-panel">
+          <section v-if="!activeOrderDetail.confirmation_required" class="drawer-section order-edit-panel">
             <OrderEntryView
               :key="orderEntryPanelKey()"
               :edit-id="activeOrderEditID()"
@@ -394,6 +396,10 @@
 </template>
 
 <script setup>
+import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
+import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
+import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'
+
 import OrderPaymentSummary from '../components/OrderPaymentSummary.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
@@ -1007,7 +1013,7 @@ async function handleOrderEditSaved(data = {}) {
   }
   await load()
   const refreshed = rows.value.find((row) => Number(row.id) === orderID)
-  if (refreshed) activeOrderDetail.value = { ...refreshed }
+  if (refreshed) activeOrderDetail.value = { ...activeOrderDetail.value, ...refreshed }
   await loadOrderDetail(orderID)
 }
 
@@ -1049,18 +1055,20 @@ async function loadSenderProfiles() {
   }
 }
 
-async function load() {
-  loading.value = true
-  error.value = ''
+let loadSequence = 0
+async function load(silent = false) {
+  const token = ++loadSequence
+  if (!silent) { loading.value = true; error.value = '' }
   try {
     const data = await apiGet(buildUrl(page.value))
+    if (token !== loadSequence) return
     const currentDetailID = Number(activeOrderDetail.value?.id || 0)
     const previousDrawerTrackingNo = activeOrderDetail.value?.ship_tracking_no || ''
     rows.value = data.rows || []
     if (currentDetailID) {
       const refreshed = rows.value.find((row) => Number(row.id) === currentDetailID)
       if (refreshed) {
-        activeOrderDetail.value = { ...refreshed }
+        activeOrderDetail.value = { ...activeOrderDetail.value, ...refreshed }
         if (drawerTrackingNo.value === previousDrawerTrackingNo) drawerTrackingNo.value = refreshed.ship_tracking_no || ''
       }
     }
@@ -1082,9 +1090,9 @@ async function load() {
     filters.limit = pagination.pageSize
     updateBrowserUrl(page.value)
   } catch (err) {
-    error.value = err.message || '加载失败'
+    if (!silent && token === loadSequence) error.value = err.message || '加载失败'
   } finally {
-    loading.value = false
+    if (!silent && token === loadSequence) loading.value = false
   }
 }
 
@@ -1111,6 +1119,11 @@ watch(() => props.viewParams, async () => {
   filters.customer_id = nextCustomerID
   await loadPage(1)
 }, { deep: true })
+
+async function refreshConfirmationOrder() { const id=activeOrderDetail.value?.id; await load(); if(id) await loadOrderDetail(id) }
+let stopConfirmationRefresh
+onConfirmationMount(() => { stopConfirmationRefresh=visibleOrderRefresh(() => loading.value ? undefined : load(true)) })
+onConfirmationUnmount(() => stopConfirmationRefresh?.())
 </script>
 
 <style scoped>
