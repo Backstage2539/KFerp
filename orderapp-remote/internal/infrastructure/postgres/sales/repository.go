@@ -1134,6 +1134,60 @@ func resolveOrderBOMSpecIdentityTx(ctx context.Context, tx pgx.Tx, schema string
 	return identity, err
 }
 
+// resolveOrderBOMSpecPublishedPriceTx is the published-price lookup used by
+// order saving after the product and BOM specification have been validated.
+func resolveOrderBOMSpecPublishedPriceTx(ctx context.Context, tx pgx.Tx, schema string, cmd salesapp.SaveOrderCommand, identity orderBOMSpecIdentity, itemPublicationID int64, sourceListType string, retailOrder bool, qty, unitBagCount int64) (orderbeans.Usage, orderbeans.PublishedPricing, string, error) {
+	// The selected publication is authoritative even when product_kind still
+	// contains a legacy value. ResolveUsage below verifies its type and access.
+	listType := concreteOrderPublicationListType(identity.ProductKind, sourceListType, retailOrder, itemPublicationID)
+	candidates := []orderBeanListCandidate{{
+		ListType:               listType,
+		RequestedPublicationID: orderItemBeanListPublicationID(cmd, itemPublicationID, listType),
+	}}
+	if identity.ProductKind == "drip_bag" {
+		candidates = dripOrderBeanListCandidates(cmd, itemPublicationID, sourceListType, retailOrder)
+	}
+	var usage orderbeans.Usage
+	var pricing orderbeans.PublishedPricing
+	for _, candidate := range candidates {
+		resolvedUsage, err := orderbeans.ResolveUsageForPublication(ctx, tx, schema, cmd.CustomerID, identity.ProductID, candidate.ListType, candidate.RequestedPublicationID)
+		if err != nil {
+			return orderbeans.Usage{}, orderbeans.PublishedPricing{}, "", err
+		}
+		if resolvedUsage.PublicationID <= 0 {
+			continue
+		}
+		resolvedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithBOMSpec(
+			ctx, tx, schema, cmd.CustomerID, identity.ProductID, candidate.ListType,
+			resolvedUsage.PublicationID, identity.BomSpecID, identity.BomVariantID, qty,
+		)
+		if err != nil {
+			return orderbeans.Usage{}, orderbeans.PublishedPricing{}, "", err
+		}
+		if resolvedPricing.UnitPrice <= 0 && identity.LegacyPricingProductID > 0 {
+			resolvedPricing, err = orderbeans.ResolvePublishedPricingForPublicationWithUnit(
+				ctx, tx, schema, cmd.CustomerID, identity.LegacyPricingProductID, candidate.ListType,
+				resolvedUsage.PublicationID, identity.LegacySpecG, qty,
+				identity.LegacySalesUnit, unitBagCount,
+			)
+			if err != nil {
+				return orderbeans.Usage{}, orderbeans.PublishedPricing{}, "", err
+			}
+		}
+		if resolvedPricing.UnitPrice <= 0 {
+			continue
+		}
+		usage = resolvedUsage
+		pricing = resolvedPricing
+		listType = candidate.ListType
+		break
+	}
+	if usage.PublicationID <= 0 || pricing.UnitPrice <= 0 {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, "", fmt.Errorf("缺少商品价格表价格")
+	}
+	return usage, pricing, listType, nil
+}
+
 func withOrderBOMSpecPriceSourceJSON(raw string, identity orderBOMSpecIdentity) string {
 	source := map[string]any{}
 	if strings.TrimSpace(raw) != "" {
@@ -1689,56 +1743,20 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if items[idx].canonicalBOMSpec && items[idx].productID != nil {
-			listType := orderbeans.ListTypeCommercial
-			if retailOrder {
-				listType = orderbeans.ListTypeRetail
-			} else if items[idx].productKind == "green_bean" {
-				listType = orderbeans.ListTypeGreen
-			}
-			candidates := []orderBeanListCandidate{{
-				ListType:               listType,
-				RequestedPublicationID: orderItemBeanListPublicationID(cmd, items[idx].itemBeanListPublicationID, listType),
-			}}
-			if items[idx].productKind == "drip_bag" {
-				candidates = dripOrderBeanListCandidates(cmd, items[idx].itemBeanListPublicationID, items[idx].priceListType, retailOrder)
-			}
-			var usage orderbeans.Usage
-			var pricing orderbeans.PublishedPricing
-			for _, candidate := range candidates {
-				resolvedUsage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType, candidate.RequestedPublicationID)
-				if err != nil {
-					return salesapp.SaveOrderResult{}, err
-				}
-				if resolvedUsage.PublicationID <= 0 {
-					continue
-				}
-				resolvedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithBOMSpec(
-					ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType,
-					resolvedUsage.PublicationID, items[idx].bomSpecID, items[idx].bomVariantID, items[idx].units,
-				)
-				if err != nil {
-					return salesapp.SaveOrderResult{}, err
-				}
-				if resolvedPricing.UnitPrice <= 0 && items[idx].legacyPricingProductID > 0 {
-					resolvedPricing, err = orderbeans.ResolvePublishedPricingForPublicationWithUnit(
-						ctx, tx, r.schema, cmd.CustomerID, items[idx].legacyPricingProductID, candidate.ListType,
-						resolvedUsage.PublicationID, items[idx].legacyPricingSpecG, items[idx].units,
-						items[idx].legacyPricingSalesUnit, items[idx].unitBagCount,
-					)
-					if err != nil {
-						return salesapp.SaveOrderResult{}, err
-					}
-				}
-				if resolvedPricing.UnitPrice <= 0 {
-					continue
-				}
-				usage = resolvedUsage
-				pricing = resolvedPricing
-				listType = candidate.ListType
-				break
-			}
-			if usage.PublicationID <= 0 || pricing.UnitPrice <= 0 {
-				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少商品价格表价格")
+			usage, pricing, listType, err := resolveOrderBOMSpecPublishedPriceTx(
+				ctx, tx, r.schema, cmd, orderBOMSpecIdentity{
+					ProductID:              *items[idx].productID,
+					ProductKind:            items[idx].productKind,
+					BomSpecID:              items[idx].bomSpecID,
+					BomVariantID:           items[idx].bomVariantID,
+					LegacyPricingProductID: items[idx].legacyPricingProductID,
+					LegacySpecG:            items[idx].legacyPricingSpecG,
+					LegacySalesUnit:        items[idx].legacyPricingSalesUnit,
+				}, items[idx].itemBeanListPublicationID, items[idx].priceListType,
+				retailOrder, items[idx].units, items[idx].unitBagCount,
+			)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
 			}
 			items[idx].tierID = nil
 			items[idx].unitPrice = pricing.UnitPrice
