@@ -708,6 +708,18 @@ func deprecateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, ac
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	var material materialRow
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,code,name,onhand_g,onhand_units FROM %s.materials WHERE id=$1 FOR UPDATE`, schema), id).Scan(&material.ID, &material.Code, &material.Name, &material.OnhandG, &material.OnhandUnits); err != nil {
+		return materialRow{}, err
+	}
+	hasStock, err := materialHasInventoryTx(ctx, tx, schema, material)
+	if err != nil {
+		return materialRow{}, fmt.Errorf("无法确认物料库存，暂不能失效: %w", err)
+	}
+	if hasStock {
+		return materialRow{}, fmt.Errorf("物料“%s”仍有库存，请先通过库存调整将各仓库、批次库存调整为 0，再失效", material.Name)
+	}
+
 	q := fmt.Sprintf(`UPDATE %s.materials
 		SET deprecated_at=COALESCE(deprecated_at, now()), updated_at=now()
 		WHERE id=$1
@@ -732,6 +744,36 @@ func deprecateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, ac
 		return materialRow{}, err
 	}
 	return getMaterialByID(ctx, pool, schema, id)
+}
+
+// Do not net warehouses or batches against one another: positive and negative
+// balances must each be resolved before the material disappears from the catalog.
+func materialHasInventoryTx(ctx context.Context, tx pgx.Tx, schema string, material materialRow) (bool, error) {
+	if material.OnhandG != 0 || material.OnhandUnits != 0 {
+		return true, nil
+	}
+	for _, check := range []struct{ table, predicate string }{
+		{"material_batches", "material_id=$1 AND (remaining_g<>0 OR remaining_units<>0)"},
+		{"material_batch_locations", "material_id=$1 AND (qty_g<>0 OR qty_units<>0)"},
+		{"stock_batches", "item_type='material' AND item_id=$1 AND (remaining_g<>0 OR remaining_units<>0)"},
+		{"customer_inventory_items", "item_type='material' AND item_id=$1 AND (qty_g<>0 OR qty_units<>0)"},
+	} {
+		var exists, hasStock bool
+		if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+check.table).Scan(&exists); err != nil {
+			return false, err
+		}
+		// A materials-only installation may not have the optional stock module.
+		if !exists {
+			continue
+		}
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.%s WHERE %s)`, schema, check.table, check.predicate), material.ID).Scan(&hasStock); err != nil {
+			return false, err
+		}
+		if hasStock {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func getMaterialByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (materialRow, error) {

@@ -633,7 +633,7 @@ func TestMaterialsAPICreateCopyDeprecateAndPackProfile(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,cost_unit,batch_no,purchase_price,sale_price,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())`, schema), "pack-old", "旧袋子", "pack", "个", "个", "20260427", 1.2, 2.5, 0, 100, 0, 20); err != nil {
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())`, schema), "pack-old", "旧袋子", "pack", "个", "个", "20260427", 1.2, 2.5, 0, 0, 0, 20); err != nil {
 		t.Fatal(err)
 	}
 	var sourceID int64

@@ -286,9 +286,15 @@
           <strong>选择分类和产品</strong>
           <span class="muted" aria-label="X款/Y规格">已选 {{ pdfProductSpecSelectionCounts.productCount }} 款 / {{ pdfProductSpecSelectionCounts.specCount }} 规格，共 {{ pdfAvailableItems.length }} 款</span>
           <div class="picker-actions">
+            <button class="secondary compact" type="button" :disabled="priceListRefresh.busy || loading || beanListPublishing || priceListPricingRuleEditorSaving" @click="refreshPriceListData('products')">{{ priceListRefresh.busy && priceListRefresh.kind === 'products' ? '正在刷新…' : '刷新商品和规格' }}</button>
             <button class="secondary compact" type="button" @click="setAllPdfProducts(true)">全选</button>
             <button class="secondary compact" type="button" @click="setAllPdfProducts(false)">清空</button>
           </div>
+        </div>
+        <p class="muted">修改并发布 BOM 配置后，点击“刷新商品和规格”读取最新分类、商品和规格；新增规格可手动勾选，失效或变更的已选规格会提示处理。</p>
+        <div v-if="priceListRefresh.kind === 'products'" aria-live="polite">
+          <p v-if="priceListRefresh.error" class="error" role="alert">{{ priceListRefresh.error }}</p>
+          <p v-if="priceListRefresh.message" class="ok" role="status">{{ priceListRefresh.message }}</p>
         </div>
         <div class="product-picker-list categoryProductGroups">
           <template v-for="category in categoryProductGroups" :key="`pick-cat-${category.code}`">
@@ -525,14 +531,26 @@
         </section>
       </div>
 
+      <div v-if="!priceListFlatRows.length && priceListRefresh.kind === 'prices'" class="pdf-picker" aria-live="polite">
+        <p v-if="priceListRefresh.busy" role="status">正在刷新价格…</p>
+        <p v-if="priceListRefresh.error" class="error" role="alert">{{ priceListRefresh.error }}</p>
+        <p v-if="priceListRefresh.message" class="ok" role="status">{{ priceListRefresh.message }} 当前没有价格行，请检查上方商品和规格选择。</p>
+        <button class="secondary compact" type="button" :disabled="priceListRefresh.busy || loading || beanListPublishing || priceListPricingRuleEditorSaving" @click="refreshPriceListData('prices')">刷新价格</button>
+      </div>
       <div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">
         <div class="picker-head">
           <strong>平铺价格行</strong>
           <span class="muted">{{ priceListFlatRows.length }} 行，发布快照固化分组、模板来源、Pricing Rule 版本、成本来源和客户引用</span>
           <div class="picker-actions">
+            <button class="secondary compact" type="button" :disabled="priceListRefresh.busy || loading || beanListPublishing || priceListPricingRuleEditorSaving" @click="refreshPriceListData('prices')">{{ priceListRefresh.busy && priceListRefresh.kind === 'prices' ? '正在刷新价格…' : '刷新价格' }}</button>
             <button v-if="priceListFlatRows.length" class="secondary compact" type="button" @click="openPriceListPricingRuleEditor">编辑价格模板</button>
             <button v-if="priceListPricingRuleTrialFailedCount" class="secondary compact" type="button" @click="retryPriceListPricingRuleTrials">重新试算失败项（{{ priceListPricingRuleTrialFailedCount }}）</button>
           </div>
+        </div>
+        <p class="muted">刷新价格会读取最新阶梯和价格计算模板、BOM 成本并重新计算。保留固定价、手工调整和沿用的客户报价；需要替换沿用报价时先选择计价模板。新价格发布后才用于录单。</p>
+        <div v-if="priceListRefresh.kind === 'prices'" aria-live="polite">
+          <p v-if="priceListRefresh.error" class="error" role="alert">{{ priceListRefresh.error }}</p>
+          <p v-if="priceListRefresh.message" class="ok" role="status">{{ priceListRefresh.message }}</p>
         </div>
         <div class="flat-price-table" v-if="priceListFlatRows.length">
           <div class="flat-price-head">
@@ -614,9 +632,9 @@
           <div class="pdf-actions">
             <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
             <button class="secondary" type="button" :disabled="loading || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>
-            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing" @click="publishBeanList">发布价格表</button>
-            <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
-            <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
+            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || priceListRefresh.busy" @click="publishBeanList">发布价格表</button>
+            <button v-else class="primary" type="button" :disabled="beanListPublishing || priceListRefresh.busy || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
+            <button class="secondary" type="button" :disabled="beanListPdfGenerating || priceListRefresh.busy || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
           </div>
           <p v-if="priceListOrderabilityBlockedReason && !error" class="error price-list-publish-feedback" role="alert">{{ priceListOrderabilityBlockedReason }}</p>
           <p v-if="error" class="error price-list-publish-feedback">{{ error }}</p>
@@ -931,7 +949,7 @@
             </div>
           </div>
           <p class="muted">版本、归属和更新说明为整组共用；下方样式只属于当前编辑的价格表。</p>
-          <button class="secondary" type="button" :disabled="beanListPublishing" @click="saveBeanListDraft">保存全部草稿</button>
+          <button class="secondary" type="button" :disabled="beanListPublishing || priceListRefresh.busy" @click="saveBeanListDraft">保存全部草稿</button>
         </section>
         <div class="pdf-form">
           <label>
@@ -1097,6 +1115,7 @@
 import { priceTableOrderabilityBlockedReason } from '../lib/price-table-orderability.js'
 import { seedCustomerPriceRows, applyCustomerPriceRows } from '../lib/customer-price-draft.js'
 import { customerCatalogProjection } from '../lib/customer-catalog.js'
+import { fetchPriceListRefreshSnapshot } from '../lib/price-list-refresh.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { clonePriceTable, createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, publicationBatchGroups, publicationBatchListState, publicationTableMetadata } from '../lib/price-table-batch'
 import SearchableSelect from '../components/SearchableSelect.vue'
@@ -1235,6 +1254,8 @@ const FACTORY_SUPPLY_PUBLICATION_PURPOSE = 'factory_supply'
 const initialPriceListPagePreferences = readPriceListPagePreferences()
 
 const loading = ref(false)
+const priceListRefresh = ref({ kind: '', busy: false, error: '', message: '' })
+let priceListRefreshRevision = 0
 const beanListPublishing = ref(false)
 const beanListWithdrawing = ref(false)
 const beanListArchiving = ref(false)
@@ -1669,6 +1690,7 @@ const publicBeanListURL = computed(() => {
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}${query ? `?${query}` : ''}`
 })
 const priceListPublishBlockedReason = computed(() => {
+  if (priceListRefresh.value.busy) return '正在刷新，请等待刷新完成后发布。'
   if (priceListOrderabilityBlockedReason.value) return priceListOrderabilityBlockedReason.value
   if (priceListProductSpecSelectionBlockedReason.value) return priceListProductSpecSelectionBlockedReason.value
   if (priceListLegacyPricingBlockedReason.value) return priceListLegacyPricingBlockedReason.value
@@ -3306,7 +3328,7 @@ function priceListFlatRowFromSource({
 	    fixed_unit_price: Number(fixedUnitPrice || 0) || 0,
 	    cost_source_snapshot: costSourceSnapshotForPriceRow(item, sourceTier, pricingRule, mode),
 	    customer_reference_snapshot: customerReferenceSnapshotForPriceRow(item),
-    manual_adjusted: hasOverride && Math.abs(override - originalPrice) > 0.005,
+    manual_adjusted: hasOverride,
   }
   const trial = mode === 'pricing_rule' || mode === 'tier_template' ? priceListPricingRuleTrialResultForRow(row) : null
   return trial ? applyPricingRuleTrialToPriceTableRow(row, trial) : row
@@ -4528,6 +4550,75 @@ function percent(value) {
   return `${fixed(Number(value || 0) * 100, 1)}%`
 }
 
+const priceListRefreshContext = computed(() => priceListGenerationDraftStorageKey())
+watch(priceListRefreshContext, () => {
+  priceListRefreshRevision++
+  priceListRefresh.value = { kind: '', busy: false, error: '', message: '' }
+}, { flush: 'sync' })
+
+function invalidatePriceListTrialCache() {
+  Object.keys(priceListPricingRuleTrialCache.value).forEach(key => {
+    priceListPricingRuleTrialGeneration.set(key, (priceListPricingRuleTrialGeneration.get(key) || 0) + 1)
+  })
+  priceListPricingRuleTrialCache.value = {}
+}
+
+async function refreshPriceListData(kind) {
+  if (priceListRefresh.value.busy || loading.value || beanListPublishing.value || priceListPricingRuleEditorSaving.value) return
+  const revision = ++priceListRefreshRevision
+  const context = priceListRefreshContext.value
+  const typeKey = activePriceListTypeKey.value
+  const current = () => revision === priceListRefreshRevision && context === priceListRefreshContext.value
+  priceListRefresh.value = { kind, busy: true, error: '', message: '' }
+  try {
+    const snapshot = await fetchPriceListRefreshSnapshot({ apiGet, customerID: activeBeanListCustomerID.value, prices: kind === 'prices' })
+    if (!current()) return
+    parameters.value = snapshot.parameters
+    items.value = visibleRowsForProductSpecMigration(snapshot.items)
+    priceListProductBusinessGroups.value = snapshot.groups
+    priceListProductBusinessGroupAssignments.value = snapshot.assignments
+    priceListProductCatalogFeatureSelection.value = snapshot.featureSelection
+    priceListProductCatalogFeatureSelectionLoaded.value = true
+    // Preserve current edits, including edits made while the request was pending.
+    const selections = productSpecSelectionsByType.value[typeKey] || []
+    const refreshed = normalizePriceListProductSpecSelections(selections, pdfAvailableItems.value).map(row => {
+      const previous = selections.find(item => item.parent_product_id === row.parent_product_id && item.sku_id === row.sku_id)
+      // Only the explicit spec-resolution action can acknowledge a BOM change.
+      return previous?.selection_issue && !row.selection_issue ? { ...previous, ...row, selection_issue: previous.selection_issue } : row
+    })
+    const removedCount = selections.length - refreshed.length
+    productSpecSelectionsByType.value = {
+      ...productSpecSelectionsByType.value,
+      [typeKey]: refreshed,
+    }
+    if (kind === 'prices') {
+      priceListTemplateOptionsRevision++
+      priceTierTemplates.value = snapshot.templates.map(defaultPriceTierTemplateForm)
+      pricingRules.value = snapshot.rules
+    }
+    invalidatePriceListTrialCache()
+    // Start before Vue's automatic trial watcher, so this operation can await
+    // its own requests without waiting for superseded requests from other tables.
+    await loadPriceListPricingRuleTrials(currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
+    await nextTick()
+    if (!current()) return
+    priceListRefresh.value.busy = false
+    savePriceListGenerationDraftForActiveType()
+    persistNamedPriceTableBatch()
+    const invalid = kind === 'prices' ? priceListFlatRows.value.filter(row => priceListFlatRowVisibleErrors(row).length).length : 0
+    if (invalid) {
+      priceListRefresh.value.error = `已读取最新配置，但有 ${invalid} 行价格未完成，请按行内提示处理后重试。`
+    } else {
+      const issues = pdfProductSpecSelectionIssues.value.length
+      priceListRefresh.value.message = `${kind === 'prices' ? '价格已刷新' : '商品和规格已刷新'}${issues ? `；有 ${issues} 款商品的已选规格需要处理，请查看选品区提示` : ''}${removedCount > 0 ? `；已移除 ${removedCount} 个不在当前商品范围内的规格选择` : ''}。`
+    }
+  } catch (err) {
+    if (current()) priceListRefresh.value.error = err?.message || '刷新失败，请重试'
+  } finally {
+    if (current()) priceListRefresh.value.busy = false
+  }
+}
+
 let beanListLoadRevision = 0
 async function loadBeanList() {
   const revision = ++beanListLoadRevision
@@ -4635,12 +4726,15 @@ async function loadCustomerProductAliases() {
   }
 }
 
+let priceListTemplateOptionsRevision = 0
 async function loadPriceListTemplateOptions() {
+  const revision = ++priceListTemplateOptionsRevision
   try {
     const [tierData, ruleData] = await Promise.all([
       apiGet('/api/price-tier-templates'),
       apiGet('/api/product-pricing-rules'),
     ])
+    if (revision !== priceListTemplateOptionsRevision) return
     priceTierTemplates.value = (tierData.templates || tierData.rows || [])
       .filter((row) => row?.active !== false)
       .map((row) => defaultPriceTierTemplateForm(row))
@@ -4660,6 +4754,7 @@ async function loadPriceListTemplateOptions() {
     }
     restorePriceListGenerationDraftForActiveType()
   } catch (err) {
+    if (revision !== priceListTemplateOptionsRevision) return
     priceTierTemplates.value = []
     pricingRules.value = []
   }
@@ -5150,6 +5245,7 @@ async function deleteNamedPriceTable(key) {
 }
 
 async function saveNamedPriceTableBatch(publish) {
+  if (priceListRefresh.value.busy) { error.value = '正在刷新，请等待刷新完成后保存或发布。'; return }
   await restoreNamedPriceTableBatch()
   await nextTick()
   persistNamedPriceTableBatch()
@@ -5218,6 +5314,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  priceListRefreshRevision++
   window.removeEventListener('afterprint', clearPdfPrintMode)
   clearPdfPrintMode()
 })
@@ -5353,8 +5450,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .check-line { display: flex; align-items: center; gap: 7px; color: #333; font-size: 12px; }
 .check-line input { width: auto; min-height: auto; }
 .pdf-picker { margin-top: 12px; border: 1px solid #e4e4e4; border-radius: 8px; background: #fff; padding: 10px; }
-.picker-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.picker-actions { margin-left: auto; display: flex; gap: 6px; }
+.picker-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+.picker-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
 .template-default-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
 .inline-pricing-config-note { margin: 4px 0 0; }
 .price-list-effective-pricing { margin: 2px 0 0; border-radius: 7px; background: #f4f8ff; color: #285f9c; padding: 7px 9px; font-size: 12px; font-weight: 700; }

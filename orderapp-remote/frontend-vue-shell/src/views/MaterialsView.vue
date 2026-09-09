@@ -167,7 +167,7 @@
         <div class="drawer-head">
           <div>
             <h3>{{ draftMode ? '新建物料' : '物料详情' }}</h3>
-            <p>新建、编辑、失效和分类移动都会写操作日志。</p>
+            <p>失效前须先通过库存调整将各仓库、批次库存处理为 0。新建、编辑、失效和分类移动都会写操作日志。</p>
           </div>
           <div class="actions">
             <button v-if="!draftMode" class="secondary" type="button" @click="copyMaterial(draft)" :disabled="loading">复制</button>
