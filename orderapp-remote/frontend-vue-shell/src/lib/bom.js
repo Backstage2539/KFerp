@@ -303,7 +303,11 @@ export function productionBomVersionWarning(row = {}) {
   return `当前引用 ${current}，最新 ${latest}`
 }
 
-export function productionBomSpecTemplateReapplyStrategy(persistedMode = '', versions = []) {
+export function productionBomSpecTemplateReapplyStrategy(persistedMode = '', versions = [], { outputChanged = false, sourceVersionID = 0 } = {}) {
+  if (outputChanged) {
+    const hasPublished = versions.some((version) => ['published', 'archived', 'active'].includes(version.status))
+    return hasPublished ? { mode: 'replacement', sourceVersionID: Number(sourceVersionID) } : { mode: 'convert', sourceVersionID: 0 }
+  }
   if (String(persistedMode || '').trim().toLowerCase() === 'spec_group') {
     return { mode: 'reapply', sourceVersionID: 0 }
   }

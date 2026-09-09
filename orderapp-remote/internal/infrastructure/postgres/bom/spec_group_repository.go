@@ -752,7 +752,8 @@ func copySpecTemplateToProductionBomTx(ctx context.Context, tx pgx.Tx, schema st
 
 func copySpecTemplateToProductionBomWithComponentTx(ctx context.Context, tx pgx.Tx, schema string, bomID, versionID, templateVersionID int64, mainInput bomapp.ProductionBomMainInputComponent, actor string) error {
 	var status string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.production_bom_spec_template_versions WHERE id=$1`, schema), templateVersionID).Scan(&status); err != nil || status != "published" {
+	var templateID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,template_id FROM %s.production_bom_spec_template_versions WHERE id=$1 FOR SHARE`, schema), templateVersionID).Scan(&status, &templateID); err != nil || status != "published" {
 		return fmt.Errorf("published specification template version not found")
 	}
 	if mainInput.ComponentType == "product" {
@@ -812,7 +813,7 @@ func copySpecTemplateToProductionBomWithComponentTx(ctx context.Context, tx pgx.
 	defaultLoss := 0.0
 	defaultRouteID := int64(0)
 	for _, variant := range variants {
-		bomSpecID, err := upsertProductionBomSpecTx(ctx, tx, schema, bomID, variant.specKey, variant.name, variant.unit, "", actor)
+		bomSpecID, _, _, err := resolveTemplateBomSpecTx(ctx, tx, schema, bomID, templateID, variant.specKey, variant.name, variant.unit, actor)
 		if err != nil {
 			return err
 		}
@@ -933,11 +934,12 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 	cmd.MainInputComponent = mainInput
 	cmd.MainInputMaterialID = mainInput.MaterialID
 	var templateStatus string
+	var templateID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT status FROM %s.production_bom_spec_template_versions
+		SELECT status,template_id FROM %s.production_bom_spec_template_versions
 		WHERE id=$1
 		FOR SHARE
-	`, r.schema), cmd.SpecTemplateVersionID).Scan(&templateStatus); err != nil || templateStatus != "published" {
+	`, r.schema), cmd.SpecTemplateVersionID).Scan(&templateStatus, &templateID); err != nil || templateStatus != "published" {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("published specification template version not found")
 	}
 	var mainInputUnit string
@@ -981,18 +983,12 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 			IsDefault: source.IsDefault, SortOrder: source.SortOrder,
 			MaterialLossRate: source.MaterialLossRate, ProcessRouteID: source.ProcessRouteID,
 		}
-		// Reapplying a template replaces the version snapshot, not the BOM-owned
-		// specification identity. Preserve user-maintained stable fields that the
-		// reusable template does not own, notably barcode and generated code.
-		err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT id,barcode
-			FROM %s.production_bom_specs
-			WHERE bom_id=$1 AND lower(spec_key)=lower($2)
-			FOR UPDATE
-		`, r.schema), bomID, source.SpecKey).Scan(&variant.BomSpecID, &variant.Barcode)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		var err error
+		variant.BomSpecID, variant.SpecKey, variant.Barcode, err = resolveTemplateBomSpecTx(ctx, tx, r.schema, bomID, templateID, source.SpecKey, source.Name, source.InventoryUnit, cmd.Actor)
+		if err != nil {
 			return bomapp.ProductionBomVersion{}, err
 		}
+
 		for _, sourceItem := range source.Items {
 			item := sourceItem.ProductionBomDraftItem
 			if sourceItem.IsMainInput {
@@ -1056,10 +1052,14 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 	}); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
+	row, err := r.productionBomVersionByIDWith(ctx, tx, cmd.VersionID)
+	if err != nil {
+		return bomapp.ProductionBomVersion{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
-	return r.productionBomVersionByID(ctx, cmd.VersionID)
+	return row, nil
 }
 
 func productionBomVersionVariantGroupAuditJSONTx(ctx context.Context, tx pgx.Tx, schema string, versionID int64) (string, error) {
@@ -1068,6 +1068,8 @@ func productionBomVersionVariantGroupAuditJSONTx(ctx context.Context, tx pgx.Tx,
 		SELECT COALESCE(jsonb_agg(
 			jsonb_build_object(
 				'bom_spec_id',variant.bom_spec_id,
+				'source_spec_template_id',spec.source_spec_template_id,
+				'source_spec_template_key',spec.source_spec_template_key,
 				'spec_key',spec.spec_key,
 				'name',variant.spec_name_snapshot,
 				'inventory_unit',variant.inventory_unit,
@@ -1285,25 +1287,27 @@ func copyProductionBomVersionVariantsTx(ctx context.Context, tx pgx.Tx, schema s
 
 func copyProductionBomVariantsToNewBomTx(ctx context.Context, tx pgx.Tx, schema string, sourceVersionID, targetBomID, targetVersionID int64, actor string) error {
 	type sourceVariant struct {
-		id, routeID         int64
-		specKey, name, unit string
-		isDefault           bool
-		sortOrder           int
-		loss                float64
+		id, routeID, templateID          int64
+		specKey, name, unit, templateKey string
+		isDefault                        bool
+		sortOrder                        int
+		loss                             float64
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT v.id,s.spec_key,v.spec_name_snapshot,v.inventory_unit,v.is_default,v.sort_order,v.material_loss_rate,v.process_route_id
+		SELECT v.id,s.spec_key,v.spec_name_snapshot,v.inventory_unit,v.is_default,v.sort_order,v.material_loss_rate,v.process_route_id,COALESCE(NULLIF(s.source_spec_template_id,0),t.template_id,0),COALESCE(NULLIF(s.source_spec_template_key,''),s.spec_key)
 		FROM %s.production_bom_version_variants v
 		JOIN %s.production_bom_specs s ON s.id=v.bom_spec_id
+		JOIN %s.production_bom_versions source ON source.id=v.version_id
+		LEFT JOIN %s.production_bom_spec_template_versions t ON t.id=source.source_spec_template_version_id
 		WHERE v.version_id=$1 ORDER BY v.sort_order,v.id
-	`, schema, schema), sourceVersionID)
+	`, schema, schema, schema, schema), sourceVersionID)
 	if err != nil {
 		return err
 	}
 	variants := make([]sourceVariant, 0)
 	for rows.Next() {
 		var variant sourceVariant
-		if err := rows.Scan(&variant.id, &variant.specKey, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID); err != nil {
+		if err := rows.Scan(&variant.id, &variant.specKey, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID, &variant.templateID, &variant.templateKey); err != nil {
 			rows.Close()
 			return err
 		}
@@ -1318,6 +1322,11 @@ func copyProductionBomVariantsToNewBomTx(ctx context.Context, tx pgx.Tx, schema 
 		bomSpecID, err := upsertProductionBomSpecTx(ctx, tx, schema, targetBomID, variant.specKey, variant.name, variant.unit, "", actor)
 		if err != nil {
 			return err
+		}
+		if variant.templateID > 0 {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_bom_specs SET source_spec_template_id=$2,source_spec_template_key=$3 WHERE id=$1`, schema), bomSpecID, variant.templateID, variant.templateKey); err != nil {
+				return err
+			}
 		}
 		var targetVariantID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), targetVersionID, bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, variant.routeID).Scan(&targetVariantID); err != nil {

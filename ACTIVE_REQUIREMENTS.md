@@ -6,6 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-644-BOM-CATEGORY-FEEDBACK
+- Branch: `codex/bom-category-fixes-20260909`
+- Status: implemented; focused real-PostgreSQL API and Vue GREEN; integration checks complete; Van business acceptance pending
+- Scope: category move feedback, draft response atomicity, template-owned spec identities.
+- Deployment: explicitly disabled by Van; merge to develop only.
+- DEV: DEV-644-CATEGORY; DEV-644-DRAFT; DEV-644-TEMPLATE
+- Verifier: real PostgreSQL focused 6 top-level tests / 0 skips; frontend 1133/1133 and build; backend standard gate; changed checks. Extra DB package has 11 pre-existing failures (baseline 14) and 2 explicitly excluded migration skips.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-09-bom-category-feedback.md`. No production data changes; no deployment.
+
 ### PR-639-MATERIAL-UNIQUE-OWNERSHIP
 - Branch: `codex/material-unique-ownership-20260908`
 - Owner/session: Codex / 2026-09-08
