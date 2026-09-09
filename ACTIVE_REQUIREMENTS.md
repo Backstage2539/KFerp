@@ -5081,3 +5081,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md
 - Deployment: development → main/production complete; eight-order repair and real PDF/PNG verified after production release. Evidence: orderapp-remote/docs/acceptance/2026-09-09-efs-fulfillment.md
 - Last update: 2026-09-09
+
+### PR-643-CUSTOMER-ACCOUNT-ORDERS
+- Branch: codex/customer-account-orders-20260909
+- Status: development deployed at 0e0408f2; production release authorized by Van, integration in progress
+- Scope: 客户全部订单、收件解析、销售单授权及合并、订单费用、周月账单；仅开发环境
+- Verifier: scripts/verify_kferp.sh all PASS; Vue 1124/1124; isolated PostgreSQL/API, PDF/PNG, 205-row Excel/PDF, desktop/mobile fixture checks PASS
+- Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_ACCOUNT.md
+- Acceptance: Van pending
+- Notes: reserve_req_id.sh --claim failed on macOS awk multiline; reserved PR-643 here after inspecting next id.
+
+- PR-643 production promotion: codex/customer-account-production-20260909 from origin/main 1d111a4f; only verified PR-643 change, preserving existing production acceptance records; development Go/API/Vue/PDF verification and 27 post-deploy checks passed.

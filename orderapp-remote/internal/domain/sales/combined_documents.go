@@ -36,6 +36,10 @@ type CombinedSalesOrderSnapshot struct {
 }
 
 type CombinedSalesOrderGroup struct {
+	ReceiverName    string `json:"receiver_name,omitempty"`
+	ReceiverPhone   string `json:"receiver_phone,omitempty"`
+	ReceiverAddress string `json:"receiver_address,omitempty"`
+
 	PrepaymentAmount   string                        `json:"prepayment_amount,omitempty"`
 	PaidAmount         string                        `json:"paid_amount,omitempty"`
 	UnpaidAmount       string                        `json:"unpaid_amount,omitempty"`

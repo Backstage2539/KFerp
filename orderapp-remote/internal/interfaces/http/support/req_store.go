@@ -252,8 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-640-ERP-SESSION-POOL", title: "履约客户登录并发加载不耗尽数据库连接", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-erp-session-pool.md"},
-		{table: "req_dev", code: "DEV-640-ERP-SESSION-POOL", title: "登录资格校验释放连接后锁定会话，保留撤销校验并覆盖小连接池并发", status: "done", assignee: "Codex", evidence: "erp_session_pool_test.go; erp_session_revocation_test.go; docs/acceptance/2026-09-08-erp-session-pool.md"},
+		{table: "req_product", code: "PR-643-CUSTOMER-ACCOUNT-ORDERS", title: "客户订单、销售单导出和往来账单", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
+		{table: "req_dev", code: "DEV-643-ORDERS", title: "全部本人订单和收件信息解析修改", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
+		{table: "req_dev", code: "DEV-643-DOCUMENTS", title: "客户销售单全链路授权及跨页合并", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
+		{table: "req_dev", code: "DEV-643-ACCOUNTS", title: "订单费用和周月往来账单", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-customer-account.md"},
 		{table: "req_product", code: "PR-642-EFS-FULFILLMENT-HOME", title: "履约客户首页、共享连续录单和EFS订单归类", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-efs-fulfillment.md"},
 		{table: "req_dev", code: "DEV-642-CUSTOMER-PAGES", title: "按能力独立页面、按需加载及价格表表格预览", status: "done", assignee: "Codex", evidence: "customer-workspace.test.js; workspace.go"},
 		{table: "req_dev", code: "DEV-642-SHARED-ORDER", title: "共享员工录单、连续补录、幂等和收件信息隔离", status: "done", assignee: "Codex", evidence: "customer_workspace_test.go; customer_order_test.go"},
@@ -263,6 +265,8 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-641-ORDER-EDIT", title: "商品规格引用恢复、订单类型与紧凑摘要", status: "done", assignee: "Codex", evidence: "order-experience.test.js; order_experience_api_test.go"},
 		{table: "req_dev", code: "DEV-641-SALES-DOCUMENTS", title: "末页收款区、备注及中文分页与金额底色", status: "done", assignee: "Codex", evidence: "order_experience_artifact_test.go; order_experience_test.go"},
 		{table: "req_dev", code: "DEV-641-DELIVERY", title: "自动检查、手册与双环境部署", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-08-order-delivery-edit-documents.md"},
+		{table: "req_product", code: "PR-640-ERP-SESSION-POOL", title: "履约客户登录并发加载不耗尽数据库连接", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-erp-session-pool.md"},
+		{table: "req_dev", code: "DEV-640-ERP-SESSION-POOL", title: "登录资格校验释放连接后锁定会话，保留撤销校验并覆盖小连接池并发", status: "done", assignee: "Codex", evidence: "erp_session_pool_test.go; erp_session_revocation_test.go; docs/acceptance/2026-09-08-erp-session-pool.md"},
 		{table: "req_product", code: "PR-639-MATERIAL-UNIQUE-OWNERSHIP", title: "物料档案唯一归属本公司或一个客户", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-08-material-unique-ownership.md"},
 		{table: "req_dev", code: "DEV-639-MATERIAL-OWNER", title: "物料主档唯一归属、单客户接口、权限隔离和操作日志", status: "done", assignee: "Codex", evidence: "material_ownership_test.go; materials/service_test.go"},
 		{table: "req_dev", code: "DEV-639-BOM-STOCK-OWNER-GUARDS", title: "BOM、排产、库存批次和客户仓库按物料归属校验", status: "done", assignee: "Codex", evidence: "bom/repository.go; stock_document_test.go; production/component_sources.go"},

@@ -4,7 +4,8 @@ export const customerWorkspacePages = [
   ['customerDirectShip', '代发录单', 'direct_ship'],
   ['customerProcessing', '代加工', 'processing'],
   ['customerInventory', '我的库存', 'inventory_custody'],
-  ['customerSettlement', '结算中心', 'settlement'],
+  ['customerOrderFees', '订单费用', 'settlement'],
+  ['customerSettlement', '往来账单', 'settlement'],
   ['customerMall', '商城', 'mall']
 ]
 export function capabilityCodes(values = []) {
@@ -21,16 +22,6 @@ export function customerWorkspaceMenu(capabilities = []) {
   for (const [key, label, code] of customerWorkspacePages)
     if (codes.includes(code)) items.push({ key, label, title: label })
   const groups = [{ id: 'customerWorkbench', name: '客户中心', items }]
-  if (codes.includes('settlement'))
-    groups.push({
-      id: 'customerFinance',
-      name: '费用相关',
-      items: [
-        { key: 'financeExpenses', label: '费用明细' },
-        { key: 'financeReport', label: '经营报告' },
-        { key: 'financeClosing', label: '结账相关' }
-      ]
-    })
   return groups
 }
 export function resetCustomerContinuation(form) {

@@ -132,6 +132,10 @@ func (c *salesOrderPNGCanvas) render(snapshot salesdomain.SalesOrderSnapshot) {
 	y += 42
 	colW := (right - left) / 3
 	for _, row := range salesOrderHeaderMetaRows(snapshot) {
+		if len(row) == 1 {
+			y += c.metaRow(y, row, right-left) + 6
+			continue
+		}
 		rowH := c.metaRow(y, row, colW)
 		y += rowH + 6
 	}
@@ -178,6 +182,10 @@ func (c *salesOrderPNGCanvas) salesOrderPNGDocumentHeight(snapshot salesdomain.S
 	y := 62 + 58 + 42
 	colW := (right - left) / 3
 	for _, row := range salesOrderHeaderMetaRows(snapshot) {
+		if len(row) == 1 {
+			y += c.metaRowHeight(row, right-left) + 6
+			continue
+		}
 		y += c.metaRowHeight(row, colW) + 6
 	}
 	y += 24

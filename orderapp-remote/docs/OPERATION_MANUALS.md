@@ -58,3 +58,5 @@ flowchart TD
 - 任何仍由旧 HTML 模板承载的页面迁移到 Vue/Vite 后，要把真实入口和步骤补进对应手册。
 
 - 履约客户首页、按能力独立页面、价格表按需预览及连续补录：见 [客户履约操作手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md#客户首页与连续录单2026-09pr-642)。
+
+- [客户订单与往来账单](OP_MANUAL_CUSTOMER_ACCOUNT.md)：客户订单、收件解析、销售单合并、费用和周月账单。

@@ -224,6 +224,10 @@ func (r SalesOrderRenderer) renderSalesOrderHeader(pdf *gofpdf.Fpdf, snapshot sa
 	colW := (pageW - left - right) / 3
 	widths := []float64{colW, colW, colW}
 	for _, row := range salesOrderHeaderMetaRows(snapshot) {
+		if len(row) == 1 {
+			writeSalesOrderMetaRow(pdf, []float64{pageW - left - right}, row, 6)
+			continue
+		}
 		writeSalesOrderMetaRow(pdf, widths, row, 6)
 	}
 	pdf.Ln(3)
@@ -306,7 +310,7 @@ func combinedSalesOrderDocumentDate(snapshot salesdomain.CombinedSalesOrderSnaps
 }
 
 func combinedSalesOrderGroupHeaderText(group salesdomain.CombinedSalesOrderGroup) string {
-	return "订单日期 " + firstNonEmpty(group.OrderDate, group.DocumentDate)
+	return "订单 " + group.OrderNo + "　订单日期 " + firstNonEmpty(group.OrderDate, group.DocumentDate)
 }
 
 func combinedSalesOrderHasDiscount(snapshot salesdomain.CombinedSalesOrderSnapshot) bool {
@@ -324,7 +328,10 @@ func combinedSalesOrderHasDiscount(snapshot salesdomain.CombinedSalesOrderSnapsh
 }
 
 func combinedSalesOrderGroupNote(group salesdomain.CombinedSalesOrderGroup) string {
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 4)
+	if recipient := strings.TrimSpace(group.ReceiverName + " " + group.ReceiverPhone + " " + group.ReceiverAddress); recipient != "" {
+		parts = append(parts, "收件信息："+recipient)
+	}
 	if note := strings.TrimSpace(group.OrderNote); note != "" {
 		parts = append(parts, "订单备注："+note)
 	}
@@ -367,7 +374,7 @@ func combinedSalesOrderTotalsSnapshot(snapshot salesdomain.CombinedSalesOrderSna
 }
 
 func salesOrderHeaderMetaRows(snapshot salesdomain.SalesOrderSnapshot) [][]string {
-	return [][]string{
+	rows := [][]string{
 		{
 			"订单号：" + snapshot.OrderNo,
 			"单据日期：" + firstNonEmpty(snapshot.DocumentDate, snapshot.OrderDate),
@@ -384,6 +391,10 @@ func salesOrderHeaderMetaRows(snapshot salesdomain.SalesOrderSnapshot) [][]strin
 			"",
 		},
 	}
+	if recipient := strings.TrimSpace(snapshot.ReceiverName + " " + snapshot.ReceiverPhone + " " + snapshot.ReceiverAddress); recipient != "" {
+		rows = append(rows, []string{"收件信息：" + recipient})
+	}
+	return rows
 }
 
 func writeSalesOrderMetaRow(pdf *gofpdf.Fpdf, widths []float64, texts []string, lineHeight float64) {
