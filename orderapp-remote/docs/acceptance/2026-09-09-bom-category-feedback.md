@@ -4,7 +4,7 @@
 
 ## 范围与实现
 
-- 独立功能分支：`codex/bom-category-fixes-20260909`，初始基线 `0e0408f275d04be447de7395251b6098d1c985df`。合并前同步最新开发分支。
+- 独立功能分支：`codex/bom-category-fixes-20260909`，初始基线 `0e0408f275d04be447de7395251b6098d1c985df`。已同步开发分支 `76c1232880fc713f211e2ef39252a662d5b476a2`，本次实现提交 `dd479663`。
 - 分类移动逐项消费原 assignment 接口返回，直接替换本地分类关系、更新列表及数量。移除工厂商品移动后的整页 `loadAll`；未分类只删除已知关系。批量失败保留失败勾选、显示成功/失败数量，立即显示正在移动并禁止重复提交。客户目录原有独立接口保持兼容。
 - BOM 版本详情查询补齐四个主体组件字段，与列表共用解析器。复制完整保留模板与主体组件来源，并在提交前读取返回对象；同 BOM 版本编号加锁。前端成功后选中新草稿并加载规格。
 - 新增 `production_bom_specs.source_spec_template_id/source_spec_template_key` 及模板、模板键、单位组合唯一索引。模板规格先匹配来源身份；来源或单位变更时新建 ID 和唯一内部键，重复重套稳定复用。旧规格只在当前操作有明确版本来源时采用映射，初始化不批量回填历史。
@@ -65,3 +65,7 @@ ORDERAPP_TEST_DATABASE_URL='postgres:///kferp_bom_category_test?host=/tmp' go te
 - PR/DEV：`PR-644-BOM-CATEGORY-FEEDBACK` 为 review，三个 DEV 自动实现完成；需求种子随代码交付，本次未部署，因此不会立即刷新线上 PR/DEV 页面。
 - 不自动发布 BOM，不清理既有重复草稿，不替用户更改黄波旁水洗的实际产出或配置。未进行线上浏览器业务验收。
 - 合并 develop 后仍需另行授权部署，来源列与索引届时才通过既有 schema 初始化应用。Van 再做真实商品业务验收。
+
+## 集成复核
+
+同步开发分支的 BOM 查询连接释放修复后，再次运行：6 个本次重点 PostgreSQL 测试全部通过、0 跳过；单连接池读取测试（含模板/版本两个子场景）通过；Go 全包标准检查通过；前端 1133/1133、构建和变更检查通过。合并代码提交 `91ab44e2`，没有冲突。日志分别为 `/tmp/kferp-pr644-db-integrated.log`、`/tmp/kferp-pr644-pool-integrated.log`、`/tmp/kferp-pr644-backend-integrated.log`、`/tmp/kferp-pr644-frontend-integrated.log`。本次使用 GitHub PR 合并到 develop；部署仍未执行。
