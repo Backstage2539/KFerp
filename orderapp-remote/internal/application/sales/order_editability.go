@@ -28,7 +28,7 @@ func EvaluateOrderEditability(state OrderEditState) OrderEditability {
 	if state.IsVoid {
 		return OrderEditability{BlockReason: "订单已作废，不能再编辑"}
 	}
-	if strings.TrimSpace(state.ShipStatus) == "已发货" {
+	if status := strings.TrimSpace(state.ShipStatus); status == "已发货" || status == "部分发货" || status == "已出库" || status == "已签收" || status == "已收货" || status == "已完成" {
 		return OrderEditability{BlockReason: "订单已发货，不能再编辑"}
 	}
 	if state.HasShipment {

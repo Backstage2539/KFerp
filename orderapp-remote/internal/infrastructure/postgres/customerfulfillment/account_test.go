@@ -26,7 +26,8 @@ func TestCustomerAccountHistorySummaryFeesAndIsolation(t *testing.T) {
  CREATE TABLE %[1]s.customers(id bigint,name text);INSERT INTO %[1]s.customers VALUES(1,'客户一'),(2,'客户二');
  CREATE TABLE %[1]s.pay_statuses(id bigint,name text);INSERT INTO %[1]s.pay_statuses VALUES(1,'未付款'),(2,'预付款（付款未完成）'),(3,'已付款');
  CREATE TABLE %[1]s.ship_statuses(id bigint,name text);INSERT INTO %[1]s.ship_statuses VALUES(1,'未发货');
- CREATE TABLE %[1]s.orders(id bigint,customer_id bigint,order_no text,order_date date,receiver_name text,receiver_phone text,receiver_address text,ship_status_id bigint,pay_status_id bigint,ship_tracking_no text,portal_service_code text,is_void boolean,grand_total numeric,shipping_amount numeric,discount_amount numeric,prepayment_amount numeric);
+ CREATE TABLE %[1]s.order_process_statuses(id bigint,name text);
+ CREATE TABLE %[1]s.orders(id bigint,customer_id bigint,order_no text,order_date date,receiver_name text,receiver_phone text,receiver_address text,ship_status_id bigint,pay_status_id bigint,ship_tracking_no text,portal_service_code text,is_void boolean,grand_total numeric,shipping_amount numeric,discount_amount numeric,prepayment_amount numeric,process_status_id bigint);
  INSERT INTO %[1]s.orders SELECT i,1,'SO-'||i,'2026-09-09','张三','13800000000','测试地址',1,CASE WHEN i=1 THEN 2 WHEN i=2 THEN 3 ELSE 1 END,'','',false,100,10,5,CASE WHEN i=1 THEN 30 ELSE 0 END FROM generate_series(1,205)i;
  INSERT INTO %[1]s.orders SELECT 206,2,'FOREIGN','2026-09-09','','','',1,1,'','',false,999,0,0,0;
  INSERT INTO %[1]s.orders SELECT 207,1,'VOID','2026-09-09','','','',1,1,'','',true,999,0,0,0;

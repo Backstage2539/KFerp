@@ -61,8 +61,19 @@ func (h orderAPIHandler) customerForm(c echo.Context) error {
 	if err != nil {
 		return c.JSON(403, map[string]string{"error": err.Error()})
 	}
-	if c.QueryParam("edit_id") != "" {
-		return c.JSON(403, map[string]string{"error": "客户只能补全收件信息"})
+	if raw := c.QueryParam("edit_id"); raw != "" {
+		id, _ := strconv.ParseInt(raw, 10, 64)
+		status, err := h.sales.OrderConfirmation(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(400, map[string]string{"error": err.Error()})
+		}
+		boundID, _ := data["customer_id"].(int64)
+		if status.CustomerID != boundID {
+			return c.JSON(403, map[string]string{"error": "订单不属于当前客户"})
+		}
+		if !status.CanEdit {
+			return c.JSON(409, map[string]string{"error": status.EditBlockReason})
+		}
 	}
 	c.Set("portal_customer_id", data["customer_id"])
 	return h.form(c)

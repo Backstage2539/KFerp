@@ -159,14 +159,14 @@
             <option value="local_delivery">本地送货</option>
           </select>
         </label>
-        <label v-if="!props.customerPortal">
+        <label v-if="!props.customerPortal && !props.fulfillmentMode">
           <span>交付状态</span>
           <select v-model.number="form.ship_status_id">
             <option v-for="item in shipStatuses" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
 
-        <label v-if="!props.customerPortal && !isNonCourierShipMethod(form.ship_method)">
+        <label v-if="!props.customerPortal && !props.fulfillmentMode && !isNonCourierShipMethod(form.ship_method)">
           <span>快递单号（可多个）</span>
           <textarea v-model.trim="form.ship_tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔"></textarea>
         </label>
@@ -786,6 +786,7 @@ const backfillMode = ref(false)
 
 const form = reactive({
   edit_id: 0,
+ edit_revision: "",
   document_date: '',
   order_date: '',
   customer_id: 0,
@@ -2233,6 +2234,7 @@ function applyEditData(data) {
   }
   Object.assign(form, {
     edit_id: Number(data.edit_id || form.edit_id || 0),
+ edit_revision: data.edit_revision || "",
     document_date: data.document_date || data.order_date || form.document_date,
     order_date: data.order_date || form.order_date,
     customer_id: Number(data.customer_id || 0),
@@ -2642,10 +2644,12 @@ async function save(options = {}) {
       payload.discount_value=payload.discount_value?.map(()=> '')
       payload.discount_type=payload.discount_type?.map(()=> '')
     }
-    const stockDecision = props.customerPortal ? '' : await previewStockBatchesBeforeSave(payload)
+    if (props.fulfillmentMode) { form.customer_request_id ||= crypto.randomUUID(); payload.request_id=form.customer_request_id }
+    payload.edit_revision=form.edit_revision
+    const stockDecision = (props.customerPortal || props.fulfillmentMode) ? '' : await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
-    const data = await apiSend(props.customerPortal ? '/api/customer-processing/portal/order' : '/api/order', { body: payload })
-    ok.value = data.order_no || '成功'
+    const data = await apiSend(props.customerPortal ? '/api/customer-processing/portal/order' : props.fulfillmentMode ? '/api/fulfillment/order' : '/api/order', { body: payload })
+    ok.value = data.confirmation_status === 'pending' ? `${data.order_no} 已保存，待确认` : data.order_no || '成功'
     if (data.stock_batch_used) {
       stockBatchNotice.value = '已使用成品批次，订单状态已进入“库存待发货”。'
     } else if (stockDecision === 'produce') {
@@ -2660,7 +2664,7 @@ async function save(options = {}) {
     }
     orderEntryDraftDisabled = true
     clearFormDraft(orderEntryDraftKey())
-    if (props.embedded && !props.customerPortal) emit('saved', data)
+    if (props.embedded && !props.customerPortal) { form.customer_request_id=''; emit('saved', data) }
     if (props.customerPortal) {form.customer_request_id='';emit('saved',data);return}
     if (!props.embedded && data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {

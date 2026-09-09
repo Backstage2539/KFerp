@@ -29,7 +29,7 @@ func (r Repository) FillTrackingPairs(ctx context.Context, cmd salesapp.FillTrac
 			SELECT o.id
 			FROM %s.orders o
 			JOIN %s.customers c ON c.id=o.customer_id
-			WHERE o.is_void=false
+			WHERE o.is_void=false AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted'
 			  AND COALESCE(o.ship_tracking_no,'')=''
               AND COALESCE(o.ship_method,'') NOT IN ('pickup','local_delivery')
 			  AND NOT EXISTS (SELECT 1 FROM %s.order_shipping_trackings ost WHERE ost.order_id=o.id)
@@ -55,6 +55,9 @@ func (r Repository) FillTrackingPairs(ctx context.Context, cmd salesapp.FillTrac
 		rows.Close()
 
 		if len(ids) == 1 {
+			if err := requireAcceptedOrderExecutionTx(ctx, tx, r.schema, ids[0]); err != nil {
+				return salesapp.FillTrackingResult{}, err
+			}
 			summary, err := appendOrderTrackingNumbersTx(ctx, tx, r.schema, ids[0], salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(strings.Join(tracks, "\n"))), "phone_tracking_fill", cmd.Actor)
 			if err != nil {
 				return salesapp.FillTrackingResult{}, err
@@ -70,6 +73,9 @@ func (r Repository) FillTrackingPairs(ctx context.Context, cmd salesapp.FillTrac
 			n = len(tracks)
 		}
 		for i := 0; i < n; i++ {
+			if err := requireAcceptedOrderExecutionTx(ctx, tx, r.schema, ids[i]); err != nil {
+				return salesapp.FillTrackingResult{}, err
+			}
 			summary, err := appendOrderTrackingNumbersTx(ctx, tx, r.schema, ids[i], tracks[i], "phone_tracking_fill", cmd.Actor)
 			if err != nil {
 				return salesapp.FillTrackingResult{}, err
@@ -95,6 +101,9 @@ func (r Repository) SetShipMethod(ctx context.Context, cmd salesapp.SetShipMetho
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	for _, id := range cmd.OrderIDs {
+		if err := requireAcceptedOrderExecutionTx(ctx, tx, r.schema, id); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_method=$2 WHERE id=$1`, r.schema), id, cmd.Method); err != nil {
 			return err
 		}

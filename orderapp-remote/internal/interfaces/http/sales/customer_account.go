@@ -69,7 +69,7 @@ func (h orderAPIHandler) customerAccount(c echo.Context) error {
 	}
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
-	q, err := app.NormalizeAccountQuery(app.AccountQuery{CustomerID: id, Query: strings.TrimSpace(c.QueryParam("q")), DateFrom: c.QueryParam("date_from"), DateTo: c.QueryParam("date_to"), Period: c.QueryParam("period"), Anchor: c.QueryParam("anchor"), PayStatus: c.QueryParam("pay_status"), ShipStatus: c.QueryParam("ship_status"), IncludeVoid: c.QueryParam("include_void") == "true", Page: page, Limit: limit})
+	q, err := app.NormalizeAccountQuery(app.AccountQuery{CurrentVersion: !finance, CustomerID: id, Query: strings.TrimSpace(c.QueryParam("q")), DateFrom: c.QueryParam("date_from"), DateTo: c.QueryParam("date_to"), Period: c.QueryParam("period"), Anchor: c.QueryParam("anchor"), PayStatus: c.QueryParam("pay_status"), ShipStatus: c.QueryParam("ship_status"), IncludeVoid: c.QueryParam("include_void") == "true", Page: page, Limit: limit})
 	if err != nil {
 		return echo.NewHTTPError(400, err.Error())
 	}

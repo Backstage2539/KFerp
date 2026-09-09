@@ -115,10 +115,14 @@ func isFulfillmentOrderDetailRequest(method, path string) bool {
 	}
 	path = strings.TrimSpace(path)
 	path = strings.TrimPrefix(path, "/app")
-	if !strings.HasPrefix(path, "/api/orders/") || !strings.HasSuffix(path, "/detail") {
+	suffix := "/detail"
+	if strings.HasSuffix(path, "/confirmation") {
+		suffix = "/confirmation"
+	}
+	if !strings.HasPrefix(path, "/api/orders/") || !strings.HasSuffix(path, suffix) {
 		return false
 	}
-	idPart := strings.TrimSuffix(strings.TrimPrefix(path, "/api/orders/"), "/detail")
+	idPart := strings.TrimSuffix(strings.TrimPrefix(path, "/api/orders/"), suffix)
 	if idPart == "" || strings.Contains(idPart, "/") {
 		return false
 	}
@@ -314,6 +318,12 @@ func requiredPermissionForRequest(method, path string) string {
 	}
 	if strings.HasPrefix(path, "/api/message-center") {
 		return "orders.read"
+	}
+	if strings.HasPrefix(path, "/api/orders/") && strings.HasSuffix(path, "/confirmation") {
+		return "orders.read"
+	}
+	if path == "/api/fulfillment/order" {
+		return "orders.write"
 	}
 	if strings.HasPrefix(path, "/api/order/form") {
 		return "orders.write"

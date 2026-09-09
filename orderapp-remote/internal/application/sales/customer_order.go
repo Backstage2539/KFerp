@@ -12,7 +12,7 @@ func ValidateCustomerOrder(c SaveOrderCommand, backfill bool) error {
 	if c.PortalServiceCode != "direct_ship" && c.PortalServiceCode != "product_order" {
 		return fmt.Errorf("无效录单能力")
 	}
-	if c.EditID != 0 || c.PayStatusID != 0 || c.ShipStatusID != 0 || c.PaymentMethod != "" || c.PaymentGoodsAmount != 0 || c.PaymentShippingAmount != 0 || c.PaymentVoucherAssetID != 0 || c.ShipTrackingNo != "" || c.ShippingAmount != 0 || c.DiscountAmount != 0 || c.RoundToInt || c.OutsourceMaterialFee != 0 || c.OutsourceRoastFee != 0 || c.OutsourcePackagingFee != 0 || c.OutsourceManualFee != 0 || c.OutsourceTaxFee != 0 || c.OutsourceOtherFee != 0 || c.PrepaymentAmount != nil && *c.PrepaymentAmount != 0 {
+	if (c.EditID != 0 && !c.RequireConfirmation) || c.PayStatusID != 0 || c.ShipStatusID != 0 || c.PaymentMethod != "" || c.PaymentGoodsAmount != 0 || c.PaymentShippingAmount != 0 || c.PaymentVoucherAssetID != 0 || c.ShipTrackingNo != "" || c.ShippingAmount != 0 || c.DiscountAmount != 0 || c.RoundToInt || c.OutsourceMaterialFee != 0 || c.OutsourceRoastFee != 0 || c.OutsourcePackagingFee != 0 || c.OutsourceManualFee != 0 || c.OutsourceTaxFee != 0 || c.OutsourceOtherFee != 0 || c.PrepaymentAmount != nil && *c.PrepaymentAmount != 0 {
 		return fmt.Errorf("客户只能提交商品、数量、日期和收件信息，不能修改价格或履约状态")
 	}
 	for _, item := range c.Items {

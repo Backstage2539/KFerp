@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-647-ORDER-CONFIRMATION-PRICE-SORT", title: "分类显示、价格表排序与履约订单确认状态", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-10-order-confirmation-price-sort.md"},
+		{table: "req_dev", code: "DEV-647-CATEGORY-SORT", title: "修复分类返回结构并支持价格表独立排序", status: "review", assignee: "Codex", evidence: "category-move-feedback.test.js / price-list-display-order.test.js"},
+		{table: "req_dev", code: "DEV-647-ORDER-CONFIRMATION", title: "同一订单待确认、接单、拒绝恢复与执行锁", status: "review", assignee: "Codex", evidence: "order_confirmation_api_test.go"},
+		{table: "req_dev", code: "DEV-647-ORDER-STATUS", title: "订单编辑与生产发货状态自动刷新", status: "review", assignee: "Codex", evidence: "OrderConfirmationPanel.vue / order-confirmation.test.js"},
 		{table: "req_product", code: "PR-646-PRICE-TABLE-REFRESH", title: "商品价格表商品规格与价格局部刷新", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-price-table-refresh.md"},
 		{table: "req_dev", code: "DEV-646-SELECTION-REFRESH", title: "刷新分类商品和已发布 BOM 规格并保留草稿选择", status: "done", assignee: "Codex", evidence: "price-list-refresh.test.js"},
 		{table: "req_dev", code: "DEV-646-PRICE-REFRESH", title: "更新模板并重算当前价格且保留手工报价", status: "done", assignee: "Codex", evidence: "price-list-refresh.test.js"},

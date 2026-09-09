@@ -25,7 +25,7 @@ function setup(ids = [1], failures = []) {
     apiSend: async (url, options) => {
       calls.push({ url, ...options })
       if (failures.includes(options?.body?.object_id)) throw new Error('测试保存失败')
-      return { id: 200 + Number(options?.body?.object_id || 0), ...options?.body }
+      return { assignment: { id: 200 + Number(options?.body?.object_id || 0), ...options?.body } }
     },
     apiGet: async () => { throw new Error('move must use existing assignment IDs') },
     // An unrelated read never completes: success must not wait for it.
@@ -79,7 +79,7 @@ test('duplicate clicks are ignored while a category write is pending', async () 
   let complete
   ui.state.apiSend = (url, options) => {
     ui.calls.push({ url, ...options })
-    return new Promise(resolve => { complete = () => resolve({ id: 201, ...options.body }) })
+    return new Promise(resolve => { complete = () => resolve({ assignment: { id: 201, ...options.body } }) })
   }
   ui.move(target); ui.move(target)
   assert.equal(ui.calls.length, 1)
