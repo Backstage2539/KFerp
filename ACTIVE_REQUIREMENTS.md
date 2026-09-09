@@ -6,6 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-646-PRICE-TABLE-REFRESH
+- Branch: `codex/price-table-refresh-20260909`, base `4c3de319`.
+- Status: implementation and automated/local Vue verification complete; Van product acceptance pending.
+- Scope: independently refresh product/BOM specification candidates and current price table template calculations without restoring the entire draft.
+- DEV: DEV-646-SELECTION-REFRESH; DEV-646-PRICE-REFRESH.
+- Verifier: 12 refresh regression tests and 13 HTTP tests pass (0 skip); frontend 1148/1148 and build; full backend and repository checks pass. Local desktop/390px interactions verified with fixture APIs.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-09-price-table-refresh.md`.
+- Deployment: merge to develop only; no application deployment or business price publication.
+
 ### PR-645-MATERIAL-STOCK-BOM-MOVE
 - Branch: `codex/material-stock-bom-move-20260909`, base `32279ff6`.
 - Status: implementation and verification complete; development/production orphan inventory cleanup complete (12/23 materials, remaining 0/0); Van product acceptance pending.
