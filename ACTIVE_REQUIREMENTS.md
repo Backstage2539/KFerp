@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-646-PRICE-TABLE-REFRESH
+- Branch: `codex/price-table-refresh-20260909`, base `4c3de319`.
+- Status: verified and deployed to development at `afb2c0cc`; production release authorized; Van product acceptance pending.
+- Scope: independently refresh product/BOM specification candidates and current price table template calculations without restoring the entire draft.
+- DEV: DEV-646-SELECTION-REFRESH; DEV-646-PRICE-REFRESH.
+- Verifier: 12 refresh regression tests and 13 HTTP tests pass (0 skip); frontend 1148/1148 and build; full backend and repository checks pass. Local desktop/390px interactions verified with fixture APIs.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-09-price-table-refresh.md`.
+- Deployment: the earlier develop-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production; no business price publication.
+
+### PR-645-MATERIAL-STOCK-BOM-MOVE
+- Branch: `codex/material-stock-bom-move-20260909`, base `32279ff6`.
+- Status: verified and deployed to development at `afb2c0cc`; development/production orphan inventory cleanup remains complete (12/23 materials, remaining 0/0); production release authorized; Van product acceptance pending.
+- Scope: block material deprecation until all inventory is zero; fix BOM move selection after category collapse; remove inventory remnants of absent/deprecated materials in development and production with backup and audit.
+- DEV: DEV-645-STOCK-GUARD; DEV-645-BOM-MOVE; DEV-645-ORPHAN-STOCK-CLEANUP.
+- Verifier: real PostgreSQL focused 3 top-level / 6 stock subcases pass, 0 skip; frontend 1136/1136 and build; standard Go gate. Extra real DB materials packages have 2 independently reproduced baseline failures.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-09-material-stock-bom-move.md`.
+- Deployment: the earlier data-cleanup-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production.
+
 ### PR-644-BOM-CATEGORY-FEEDBACK
 - Branch: `codex/bom-category-fixes-20260909`
 - Status: verified and deployed to development at `32279ff6`; production release authorized; Van business acceptance pending

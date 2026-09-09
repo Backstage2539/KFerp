@@ -1094,7 +1094,7 @@ const selectedVersionMaterialLossRate = computed(() => {
 const visibleMovableBomRows = computed(() => productionBomVisibleRows.value.filter(isMovableBomRow))
 const selectedBomRows = computed(() => {
   const selected = new Set(selectedBomRowKeys.value)
-  return productionBomVisibleRows.value.filter((row) => selected.has(bomRowKey(row)) && isMovableBomRow(row))
+  return productionBomRows.value.filter((row) => selected.has(bomRowKey(row)) && isMovableBomRow(row))
 })
 const selectedBomRecordsForMove = computed(() => {
   const byBomID = new Map()
@@ -3292,7 +3292,7 @@ watch(() => productionBomInlineListState.value.pagination, (pagination) => {
   productionBomPaginationByGroup.value = pagination
 }, { deep: true, immediate: true })
 
-watch([productionBomVisibleRows, productionBomCategoryMoveActive], () => {
+watch(productionBomVisibleRows, () => {
   if (productionBomCategoryMoveActive.value) return
   const visibleKeys = new Set(visibleMovableBomRows.value.map(bomRowKey))
   const next = selectedBomRowKeys.value.filter((key) => visibleKeys.has(key))

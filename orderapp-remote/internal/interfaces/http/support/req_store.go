@@ -252,7 +252,14 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-644-BOM-CATEGORY-FEEDBACK", title: "商品分类移动与 BOM 草稿、模板重套修复", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-bom-category-feedback.md; development 32279ff6; production authorized"},
+		{table: "req_product", code: "PR-646-PRICE-TABLE-REFRESH", title: "商品价格表商品规格与价格局部刷新", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-price-table-refresh.md; development afb2c0cc; production authorized"},
+		{table: "req_dev", code: "DEV-646-SELECTION-REFRESH", title: "刷新分类商品和已发布 BOM 规格并保留草稿选择", status: "done", assignee: "Codex", evidence: "price-list-refresh.test.js"},
+		{table: "req_dev", code: "DEV-646-PRICE-REFRESH", title: "更新模板并重算当前价格且保留手工报价", status: "done", assignee: "Codex", evidence: "price-list-refresh.test.js"},
+		{table: "req_product", code: "PR-645-MATERIAL-STOCK-BOM-MOVE", title: "物料失效库存门禁与 BOM 分类移动修复", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-material-stock-bom-move.md; development afb2c0cc; production authorized"},
+		{table: "req_dev", code: "DEV-645-STOCK-GUARD", title: "失效前校验各仓库和批次库存清零", status: "done", assignee: "Codex", evidence: "material_stock_deprecate_test.go"},
+		{table: "req_dev", code: "DEV-645-BOM-MOVE", title: "折叠分类后保留 BOM 移动选择", status: "done", assignee: "Codex", evidence: "bom-category-selection.test.js"},
+		{table: "req_dev", code: "DEV-645-ORPHAN-STOCK-CLEANUP", title: "开发生产失效物料库存残留清理与审计", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-material-stock-bom-move.md"},
+		{table: "req_product", code: "PR-644-BOM-CATEGORY-FEEDBACK", title: "商品分类移动与 BOM 草稿、模板重套修复", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-bom-category-feedback.md; development 32279ff6; production e6406f7c"},
 		{table: "req_dev", code: "DEV-644-CATEGORY", title: "分类移动即时反馈与逐项失败重试", status: "done", assignee: "Codex", evidence: "category-move-feedback.test.js"},
 		{table: "req_dev", code: "DEV-644-DRAFT", title: "草稿返回原子性与完整来源复制", status: "done", assignee: "Codex", evidence: "draft_feedback_postgres_test.go; bom-draft-feedback.test.js"},
 		{table: "req_dev", code: "DEV-644-TEMPLATE", title: "模板规格来源身份、整组重套与替代草稿", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-09-bom-category-feedback.md"},
