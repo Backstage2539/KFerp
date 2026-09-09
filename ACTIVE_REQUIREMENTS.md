@@ -5091,4 +5091,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Acceptance: Van pending
 - Notes: reserve_req_id.sh --claim failed on macOS awk multiline; reserved PR-643 here after inspecting next id.
 
+### PR-643 生产发布稳定性跟进（2026-09-09）
+- Branch: codex/bom-pool-exhaustion-20260909
+- Status: RED/GREEN complete; production integration pending
+- Reproduction: four concurrent product/BOM detail loads occupied the four-connection production pool; login response stalled after headers and the deployment readiness check could not finish.
+- Cause: specification-template and production-BOM variant readers queried child rows before closing their outer pgx rows, so each request needed a second connection while retaining the first.
+- RED: with MaxConns=1 both variant readers timed out after one second (`context deadline exceeded`).
+- GREEN: both readers collect and close outer rows before querying child items; single-connection PostgreSQL regression passes.
+- Manual impact: none; no user-visible workflow or field changes.
+
 - PR-643 production promotion: codex/customer-account-production-20260909 from origin/main 1d111a4f; only verified PR-643 change, preserving existing production acceptance records; development Go/API/Vue/PDF verification and 27 post-deploy checks passed.
