@@ -1689,12 +1689,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if items[idx].canonicalBOMSpec && items[idx].productID != nil {
-			listType := orderbeans.ListTypeCommercial
-			if retailOrder {
-				listType = orderbeans.ListTypeRetail
-			} else if items[idx].productKind == "green_bean" {
-				listType = orderbeans.ListTypeGreen
-			}
+			// BOM-spec orders must use the selected publication just like concrete
+			// SKU orders; legacy product kinds can differ from the published list.
+			listType := concreteOrderPublicationListType(items[idx].productKind, items[idx].priceListType, retailOrder, items[idx].itemBeanListPublicationID)
 			candidates := []orderBeanListCandidate{{
 				ListType:               listType,
 				RequestedPublicationID: orderItemBeanListPublicationID(cmd, items[idx].itemBeanListPublicationID, listType),
@@ -1740,6 +1737,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if usage.PublicationID <= 0 || pricing.UnitPrice <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少商品价格表价格")
 			}
+			items[idx].productKind = concreteOrderProductKindForListType(items[idx].productKind, listType)
 			items[idx].tierID = nil
 			items[idx].unitPrice = pricing.UnitPrice
 			items[idx].quantityBasis = firstNonEmpty(strings.TrimSpace(pricing.QuantityBasis), "sales_spec_count")
