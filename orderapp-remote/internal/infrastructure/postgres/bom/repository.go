@@ -2155,21 +2155,28 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 	var sourceProcessRouteID int64
 	var sourceSpecTemplateVersionID int64
 	var sourceMainInputMaterialID int64
+	var sourceMainInputComponentType string
+	var sourceMainInputProductID, sourceMainInputBomSpecID int64
+	// Serialize version numbering for the same BOM.
+	var lockedBomID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT id FROM %s.production_boms WHERE id=$1 FOR UPDATE", r.schema), cmd.BomID).Scan(&lockedBomID); err != nil {
+		return bomapp.ProductionBomVersion{}, err
+	}
 	if cmd.SourceVersionID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT id, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}'), COALESCE(process_route_id,0), COALESCE(source_spec_template_version_id,0), COALESCE(main_input_material_id,0)
+			SELECT id, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}'), COALESCE(process_route_id,0), COALESCE(source_spec_template_version_id,0), COALESCE(main_input_material_id,0), COALESCE(NULLIF(main_input_component_type,''),'material'), COALESCE(main_input_product_id,0), COALESCE(main_input_bom_spec_id,0)
 			FROM %s.production_bom_versions
 			WHERE bom_id=$1 AND id=$2 AND status IN ('published','draft')
-		`, r.schema), cmd.BomID, cmd.SourceVersionID).Scan(&sourceVersionID, &outputQty, &outputUnit, &materialLossRate, &specialAttrsSchemaJSON, &specialAttrsJSON, &sourceProcessRouteID, &sourceSpecTemplateVersionID, &sourceMainInputMaterialID); err != nil {
+		`, r.schema), cmd.BomID, cmd.SourceVersionID).Scan(&sourceVersionID, &outputQty, &outputUnit, &materialLossRate, &specialAttrsSchemaJSON, &specialAttrsJSON, &sourceProcessRouteID, &sourceSpecTemplateVersionID, &sourceMainInputMaterialID, &sourceMainInputComponentType, &sourceMainInputProductID, &sourceMainInputBomSpecID); err != nil {
 			return bomapp.ProductionBomVersion{}, fmt.Errorf("source production BOM version not found")
 		}
 	} else if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT id, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}'), COALESCE(process_route_id,0), COALESCE(source_spec_template_version_id,0), COALESCE(main_input_material_id,0)
+			SELECT id, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}'), COALESCE(process_route_id,0), COALESCE(source_spec_template_version_id,0), COALESCE(main_input_material_id,0), COALESCE(NULLIF(main_input_component_type,''),'material'), COALESCE(main_input_product_id,0), COALESCE(main_input_bom_spec_id,0)
 			FROM %s.production_bom_versions
 			WHERE bom_id=$1 AND status='published'
 			ORDER BY published_at DESC NULLS LAST, id DESC
 			LIMIT 1
-		`, r.schema), cmd.BomID).Scan(&sourceVersionID, &outputQty, &outputUnit, &materialLossRate, &specialAttrsSchemaJSON, &specialAttrsJSON, &sourceProcessRouteID, &sourceSpecTemplateVersionID, &sourceMainInputMaterialID); err != nil {
+		`, r.schema), cmd.BomID).Scan(&sourceVersionID, &outputQty, &outputUnit, &materialLossRate, &specialAttrsSchemaJSON, &specialAttrsJSON, &sourceProcessRouteID, &sourceSpecTemplateVersionID, &sourceMainInputMaterialID, &sourceMainInputComponentType, &sourceMainInputProductID, &sourceMainInputBomSpecID); err != nil {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("published production BOM version not found")
 	}
 	var next int64
@@ -2179,10 +2186,10 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 	versionNo := fmt.Sprintf("V%03d", next)
 	var versionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, material_loss_rate, note, special_attrs_schema_json, special_attrs_json, process_route_id, source_spec_template_version_id, main_input_material_id, created_at, created_by)
-		VALUES($1,$2,'draft',$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,now(),$13)
+		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, material_loss_rate, note, special_attrs_schema_json, special_attrs_json, process_route_id, source_spec_template_version_id, main_input_material_id, main_input_component_type, main_input_product_id, main_input_bom_spec_id, created_at, created_by)
+		VALUES($1,$2,'draft',$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,$14,$15,now(),$16)
 		RETURNING id
-	`, r.schema), cmd.BomID, versionNo, yieldRate, outputQty, outputUnit, materialLossRate, strings.TrimSpace(cmd.Note), specialAttrsSchemaJSON, specialAttrsJSON, sourceProcessRouteID, sourceSpecTemplateVersionID, sourceMainInputMaterialID, strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
+	`, r.schema), cmd.BomID, versionNo, yieldRate, outputQty, outputUnit, materialLossRate, strings.TrimSpace(cmd.Note), specialAttrsSchemaJSON, specialAttrsJSON, sourceProcessRouteID, sourceSpecTemplateVersionID, sourceMainInputMaterialID, sourceMainInputComponentType, sourceMainInputProductID, sourceMainInputBomSpecID, strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -2197,13 +2204,17 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 	if err := copyProductionBomVersionVariantsTx(ctx, tx, r.schema, sourceVersionID, versionID); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &versionID, "create", postgresinfra.StrPtr("version_no"), nil, postgresinfra.StrPtr(versionNo), postgresinfra.AuditMeta{"bom_id": cmd.BomID, "source_version_id": sourceVersionID, "source_spec_template_version_id": sourceSpecTemplateVersionID, "main_input_material_id": sourceMainInputMaterialID}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &versionID, "create", postgresinfra.StrPtr("version_no"), nil, postgresinfra.StrPtr(versionNo), postgresinfra.AuditMeta{"bom_id": cmd.BomID, "source_version_id": sourceVersionID, "source_spec_template_version_id": sourceSpecTemplateVersionID, "main_input_material_id": sourceMainInputMaterialID, "main_input_component_type": sourceMainInputComponentType, "main_input_product_id": sourceMainInputProductID, "main_input_bom_spec_id": sourceMainInputBomSpecID}); err != nil {
+		return bomapp.ProductionBomVersion{}, err
+	}
+	row, err := r.productionBomVersionByIDWith(ctx, tx, versionID)
+	if err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
-	return r.productionBomVersionByID(ctx, versionID)
+	return row, nil
 }
 
 func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bomapp.UpdateProductionBomVersionDraftCommand) (bomapp.ProductionBomVersion, error) {
@@ -2218,10 +2229,14 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 	if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, cmd); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
+	row, err := r.productionBomVersionByIDWith(ctx, tx, cmd.VersionID)
+	if err != nil {
+		return bomapp.ProductionBomVersion{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
-	return r.productionBomVersionByID(ctx, cmd.VersionID)
+	return row, nil
 }
 
 func (r Repository) updateProductionBomVersionDraftTx(ctx context.Context, tx pgx.Tx, cmd bomapp.UpdateProductionBomVersionDraftCommand) (bomapp.ProductionBomVersion, error) {
@@ -2431,9 +2446,13 @@ func (r Repository) CreateProductionBomReplacementDraft(ctx context.Context, cmd
 		SELECT version.status
 		FROM %s.production_bom_versions version
 		JOIN %s.production_boms bom ON bom.id=version.bom_id
-		WHERE bom.id=$1 AND version.id=$2 AND version.status='published'
+		WHERE bom.id=$1 AND version.id=$2
+		  AND (version.status='published' OR (version.status='draft' AND EXISTS(
+		      SELECT 1 FROM %s.production_bom_versions history
+		      WHERE history.bom_id=bom.id AND history.status IN ('published','archived')
+		  )))
 		FOR UPDATE OF bom,version
-	`, r.schema, r.schema), cmd.SourceBomID, cmd.SourceVersionID).Scan(&sourceStatus); err != nil {
+	`, r.schema, r.schema, r.schema), cmd.SourceBomID, cmd.SourceVersionID).Scan(&sourceStatus); err != nil {
 		return bomapp.ProductionBomDetail{}, fmt.Errorf("published source production BOM version not found")
 	}
 	workspace := cmd.Workspace
@@ -3798,7 +3817,7 @@ func (r Repository) listProductionBomVersions(ctx context.Context, bomID int64) 
 	out := make([]bomapp.ProductionBomVersion, 0)
 	for rows.Next() {
 		var row bomapp.ProductionBomVersion
-		if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.MaterialLossRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.ProcessRouteID, &row.ProcessRouteName, &row.CreatedAt, &row.PublishedAt, &row.MainInputComponent.ComponentType, &row.MainInputComponent.MaterialID, &row.MainInputComponent.ComponentProductID, &row.MainInputComponent.ComponentBomSpecID, &row.IsLatest, &row.IsLatestUsable); err != nil {
+		if err := scanProductionBomVersion(rows, &row); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -4051,7 +4070,11 @@ func scanProductionBomUsedByBomRows(rows pgx.Rows) ([]bomapp.ProductionBomUsedBy
 }
 
 func (r Repository) productionBomVersionByID(ctx context.Context, id int64) (bomapp.ProductionBomVersion, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	return r.productionBomVersionByIDWith(ctx, r.pool, id)
+}
+
+func (r Repository) productionBomVersionByIDWith(ctx context.Context, q bomQueryer, id int64) (bomapp.ProductionBomVersion, error) {
+	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT v.id, v.bom_id, COALESCE(v.version_no,''), COALESCE(v.status,'draft'), COALESCE(v.yield_rate,0.8)::float8,
 		       COALESCE(v.output_qty,1)::float8,
 		       COALESCE(NULLIF(v.output_unit,''),'unit'),
@@ -4064,6 +4087,10 @@ func (r Repository) productionBomVersionByID(ctx context.Context, id int64) (bom
 		       COALESCE(route.name,''),
 		       COALESCE(to_char(v.created_at,'YYYY-MM-DD HH24:MI'),'-'),
 		       COALESCE(to_char(v.published_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(NULLIF(v.main_input_component_type,''),'material'),
+		       COALESCE(v.main_input_material_id,0),
+		       COALESCE(v.main_input_product_id,0),
+		       COALESCE(v.main_input_bom_spec_id,0),
 		       v.id=COALESCE((
 		           SELECT latest.id
 		           FROM %s.production_bom_versions latest
@@ -4090,7 +4117,7 @@ func (r Repository) productionBomVersionByID(ctx context.Context, id int64) (bom
 		return bomapp.ProductionBomVersion{}, pgx.ErrNoRows
 	}
 	var row bomapp.ProductionBomVersion
-	if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.MaterialLossRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.ProcessRouteID, &row.ProcessRouteName, &row.CreatedAt, &row.PublishedAt, &row.MainInputComponent.ComponentType, &row.MainInputComponent.MaterialID, &row.MainInputComponent.ComponentProductID, &row.MainInputComponent.ComponentBomSpecID, &row.IsLatest, &row.IsLatestUsable); err != nil {
+	if err := scanProductionBomVersion(rows, &row); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	return row, rows.Err()
@@ -4313,4 +4340,8 @@ ON CONFLICT DO NOTHING;
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func scanProductionBomVersion(source pgx.Row, row *bomapp.ProductionBomVersion) error {
+	return source.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.MaterialLossRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.ProcessRouteID, &row.ProcessRouteName, &row.CreatedAt, &row.PublishedAt, &row.MainInputComponent.ComponentType, &row.MainInputComponent.MaterialID, &row.MainInputComponent.ComponentProductID, &row.MainInputComponent.ComponentBomSpecID, &row.IsLatest, &row.IsLatestUsable)
 }

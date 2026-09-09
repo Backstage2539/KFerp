@@ -230,7 +230,7 @@ func TestReapplyProductBOMSpecTemplateKeepsStableIDsAndAuditsWholeGroupPostgres(
 		t.Fatalf("draft template/main input=%d/%d want %d/%d", sourceTemplateVersionID, savedMainInputMaterialID, templateV2, mainInputMaterialID)
 	}
 
-	templateV3Row, err := repo.CreateProductionBomSpecTemplateVersion(ctx, bomapp.CreateProductionBomSpecTemplateVersionCommand{TemplateID: createdTemplate.ID, SourceVersionID: templateV2, Note: "非法改单位", Actor: "template-owner"})
+	templateV3Row, err := repo.CreateProductionBomSpecTemplateVersion(ctx, bomapp.CreateProductionBomSpecTemplateVersionCommand{TemplateID: createdTemplate.ID, SourceVersionID: templateV2, Note: "换单位生成新规格", Actor: "template-owner"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,15 +244,21 @@ func TestReapplyProductBOMSpecTemplateKeepsStableIDsAndAuditsWholeGroupPostgres(
 	}
 	if _, err := repo.ReapplyProductionBomSpecTemplateVersion(ctx, bomapp.ReapplyProductionBomSpecTemplateVersionCommand{
 		VersionID: draft.ID, SpecTemplateVersionID: templateV3Row.ID, MainInputMaterialID: mainInputMaterialID, Actor: "bom-owner",
-	}); err == nil || !strings.Contains(err.Error(), "inventory_unit cannot be changed") {
-		t.Fatalf("reapply changing published specification unit error=%v", err)
+	}); err != nil {
+		t.Fatalf("unit-changing reapply must allocate a new identity: %v", err)
 	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT source_spec_template_version_id FROM %s.production_bom_versions WHERE id=$1`, schema), draft.ID).Scan(&sourceTemplateVersionID); err != nil {
-		t.Fatal(err)
+	var newSpecID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT bom_spec_id FROM %s.production_bom_version_variants WHERE version_id=$1 AND inventory_unit='盒'`, schema), draft.ID).Scan(&newSpecID); err != nil || newSpecID == spec227ID {
+		t.Fatalf("unit-changing reapply reused old identity: new=%d old=%d err=%v", newSpecID, spec227ID, err)
 	}
-	if sourceTemplateVersionID != templateV2 {
-		t.Fatalf("failed unit-changing reapply mutated source template to %d", sourceTemplateVersionID)
+	var oldUnit string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT inventory_unit FROM %s.production_bom_specs WHERE id=$1`, schema), spec227ID).Scan(&oldUnit); err != nil || oldUnit != "袋" {
+		t.Fatalf("historical unit=%q err=%v", oldUnit, err)
 	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT source_spec_template_version_id FROM %s.production_bom_versions WHERE id=$1`, schema), draft.ID).Scan(&sourceTemplateVersionID); err != nil || sourceTemplateVersionID != templateV3Row.ID {
+		t.Fatalf("template provenance=%d err=%v", sourceTemplateVersionID, err)
+	}
+
 }
 
 func TestProductBOMOutputRebindingAcceptsManualSpecGroupAndRejectsInvalidTemplateProvenancePostgres(t *testing.T) {

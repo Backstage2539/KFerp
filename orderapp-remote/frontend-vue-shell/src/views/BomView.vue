@@ -497,7 +497,7 @@
                       class="text-button"
                       type="button"
                       @click.stop="copyVersionAsDraft(version)"
-                      :disabled="!canEditCurrentBomProduct">
+                      :disabled="loading || !canEditCurrentBomProduct">
                       复制为新版草稿
                     </button>
                     <span v-else class="muted left">只读</span>
@@ -527,7 +527,7 @@
                   <option :value="0">选择已发布模板版本</option>
                   <option v-for="row in specTemplateVersionOptions" :key="row.version_id" :value="row.version_id">{{ row.label }}</option>
                 </select>
-                <small>会用模板整组替换当前草稿；同规格且单位未变时继续沿用原规格身份。</small>
+                <small>会用模板整组替换当前草稿；同来源且同单位沿用原规格，换模板或单位时生成新规格，历史版本保持不变。</small>
               </label>
               <label>
                 <span>规格主体组件</span>
@@ -572,6 +572,10 @@
                 @click="selectBomVariant(variant)">
                 {{ variant.name || variant.spec_name || variant.spec_key }} · 1 {{ variant.inventory_unit }}<template v-if="variant.is_default"> · 默认</template>
               </button>
+            </div>
+            <div v-if="canEditCurrentBomItems" data-bom-template-feedback aria-live="polite">
+              <div v-if="error" class="error">{{ error }}</div>
+              <div v-if="ok" class="ok">{{ ok }}</div>
             </div>
             <div v-if="selectedBomVariant" class="bom-spec-identity-form">
               <label>
@@ -1834,7 +1838,7 @@ async function removeProductionBomDraftVariant() {
 }
 
 async function reapplyProductionBomSpecTemplate() {
-  if (!canEditCurrentBomItems.value) return
+  if (loading.value || !canEditCurrentBomItems.value) return
   const draftVersionID = Number(selectedProductionBomDraftVersion.value?.id || 0)
   const specTemplateVersionID = Number(reapplySpecTemplateVersionID.value || 0)
   const mainInputMaterialID = reapplyMainInputComponentType.value === 'material' ? Number(reapplyMainInputMaterialID.value || 0) : 0
@@ -1848,9 +1852,12 @@ async function reapplyProductionBomSpecTemplate() {
     error.value = '请选择已发布规格模板版本和规格主体组件'
     return
   }
-  await mutate(async () => {
+  const completed = await mutate(async () => {
     const persistedMode = String(productionBomDetail.value?.specification_mode || selectedProductionBomRecord.value?.specification_mode || '').trim()
-    const strategy = productionBomSpecTemplateReapplyStrategy(persistedMode, versions.value)
+    const savedOutput = productionBomOutputIdentity(productionBomDetail.value || selectedProductionBomRecord.value || {})
+    const pendingOutput = productionBomOutputPayload({ output_type: bomForm.output_type, output_id: bomForm.output_id })
+    const outputChanged = savedOutput.type !== pendingOutput.output_type || savedOutput.id !== Number(bomForm.output_id || 0)
+    const strategy = productionBomSpecTemplateReapplyStrategy(persistedMode, versions.value, { outputChanged, sourceVersionID: draftVersionID })
     if (strategy.mode !== 'reapply') {
       const binding = productionBomOutputPayload({ output_type: bomForm.output_type, output_id: bomForm.output_id })
       const selectedVersion = selectedProductionBomVersion.value || {}
@@ -1916,8 +1923,15 @@ async function reapplyProductionBomSpecTemplate() {
     reapplyMainInputBomSpecID.value = 0
     selectedBomVariantID.value = 0
     await loadProductionBomDetailForVersion(currentProductionBomID.value, draftVersionID)
-    ok.value = '已重新套用规格模板；同规格且单位未变的规格身份已保留'
+    ok.value = '已重新套用规格模板；同来源且同单位的规格已沿用，其他规格已生成新身份'
   })
+  if (!completed && /published specification template version|已发布.*模板/.test(error.value)) {
+    const message = '所选规格模板已归档或不可用，请重新选择已发布版本后再套用'
+    reapplySpecTemplateVersionID.value = 0
+    try { productionBomSpecTemplates.value = await loadProductionBomSpecTemplates() } catch { /* Preserve the actionable mutation error. */ }
+    error.value = message
+  }
+
 }
 
 function productionBomDraftItemFromForm() {
@@ -3178,7 +3192,7 @@ async function createVersion() {
 }
 
 async function copyVersionAsDraft(version = selectedProductionBomVersion.value) {
-  if (!canEditCurrentBomProduct.value) return
+  if (loading.value || !canEditCurrentBomProduct.value) return
   await mutate(async () => {
     const bomID = currentProductionBomID.value
     const sourceVersionID = Number(version?.id || 0)
