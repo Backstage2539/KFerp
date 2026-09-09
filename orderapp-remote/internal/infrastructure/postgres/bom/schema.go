@@ -13,7 +13,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		ALTER TABLE IF EXISTS %s.materials ADD COLUMN IF NOT EXISTS owner_customer_id BIGINT NOT NULL DEFAULT 0;
 		ALTER TABLE IF EXISTS %s.products ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0;
-	`, schema, schema)); err != nil { return err }
+	`, schema, schema)); err != nil {
+		return err
+	}
 	if err := ensureBomTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -165,6 +167,13 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_specs (
 );
 ALTER TABLE %[1]s.production_bom_specs
 	ADD COLUMN IF NOT EXISTS barcode TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.production_bom_specs
+	ADD COLUMN IF NOT EXISTS source_spec_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_specs
+	ADD COLUMN IF NOT EXISTS source_spec_template_key TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS production_bom_specs_template_identity_uq
+	ON %[1]s.production_bom_specs(bom_id, source_spec_template_id, lower(source_spec_template_key), lower(inventory_unit))
+	WHERE source_spec_template_id > 0 AND source_spec_template_key <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_specs_code_uq
 	ON %[1]s.production_bom_specs(code);
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_specs_barcode_uq

@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-644-BOM-CATEGORY-FEEDBACK
+- Branch: `codex/bom-category-fixes-20260909`
+- Status: verified and deployed to development at `32279ff6`; production release authorized; Van business acceptance pending
+- Scope: category move feedback, draft response atomicity, template-owned spec identities.
+- Deployment: the earlier develop-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production.
+- DEV: DEV-644-CATEGORY; DEV-644-DRAFT; DEV-644-TEMPLATE
+- Verifier: real PostgreSQL focused 6 top-level tests / 0 skips; frontend 1133/1133 and build; backend standard gate; changed checks. Extra DB package has 11 pre-existing failures (baseline 14) and 2 explicitly excluded migration skips.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-09-bom-category-feedback.md`; development rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260909205403-32279ff6b401`. No production business data changes.
+
+
 ### PR-639-MATERIAL-UNIQUE-OWNERSHIP
 - Branch: `codex/material-unique-ownership-20260908`
 - Owner/session: Codex / 2026-09-08
