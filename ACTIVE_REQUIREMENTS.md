@@ -5100,3 +5100,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_ACCOUNT.md
 - Acceptance: Van pending
 - Notes: reserve_req_id.sh --claim failed on macOS awk multiline; reserved PR-643 here after inspecting next id.
+### PR-643 生产发布稳定性跟进（2026-09-09）
+- Branch: codex/bom-pool-exhaustion-20260909
+- Status: production deployed at main 5b78f202; develop integration in progress
+- Reproduction: four concurrent product/BOM detail loads occupied the four-connection production pool; login response stalled after headers and the deployment readiness check could not finish.
+- Cause: specification-template and production-BOM variant readers queried child rows before closing their outer pgx rows, so each request needed a second connection while retaining the first.
+- RED: with MaxConns=1 both variant readers timed out after one second (`context deadline exceeded`).
+- GREEN: both readers collect and close outer rows before querying child items; single-connection PostgreSQL regression passes.
+- Manual impact: none; no user-visible workflow or field changes.
+- Production: main 5b78f202 deployed; rollback source `/opt/stacks/erp-production/orderapp.backup.deploy-20260909193146-5b78f2022348`; eight concurrent BOM reads and simultaneous login passed, then customer account smoke passed.

@@ -141,13 +141,22 @@ func (r Repository) listProductionBomSpecTemplateVariants(ctx context.Context, v
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := make([]bomapp.ProductionBomSpecTemplateVariant, 0)
 	for rows.Next() {
 		var variant bomapp.ProductionBomSpecTemplateVariant
 		if err := rows.Scan(&variant.ID, &variant.SpecKey, &variant.Name, &variant.InventoryUnit, &variant.IsDefault, &variant.SortOrder, &variant.MaterialLossRate, &variant.ProcessRouteID); err != nil {
+			rows.Close()
 			return nil, err
 		}
+		out = append(out, variant)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	for variantIndex := range out {
+		variant := &out[variantIndex]
 		itemRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 			SELECT is_main_input,material_id,component_type,component_product_id,component_bom_spec_id,component_spec_g,consume_unit,
 			       qty_per_unit::float8,ratio_pct::float8,material_loss_rate::float8,sort_order
@@ -170,9 +179,8 @@ func (r Repository) listProductionBomSpecTemplateVariants(ctx context.Context, v
 			return nil, err
 		}
 		itemRows.Close()
-		out = append(out, variant)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (r Repository) CreateProductionBomSpecTemplate(ctx context.Context, cmd bomapp.CreateProductionBomSpecTemplateCommand) (bomapp.ProductionBomSpecTemplate, error) {
@@ -1627,13 +1635,22 @@ func (r Repository) listProductionBomVersionVariants(ctx context.Context, versio
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := make([]bomapp.ProductionBomVersionVariant, 0)
 	for rows.Next() {
 		var variant bomapp.ProductionBomVersionVariant
 		if err := rows.Scan(&variant.ID, &variant.BomSpecID, &variant.Code, &variant.Barcode, &variant.SpecKey, &variant.Name, &variant.InventoryUnit, &variant.IsDefault, &variant.SortOrder, &variant.MaterialLossRate, &variant.ProcessRouteID); err != nil {
+			rows.Close()
 			return nil, err
 		}
+		out = append(out, variant)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	for variantIndex := range out {
+		variant := &out[variantIndex]
 		itemRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 			SELECT i.id,i.variant_id,i.material_id,COALESCE(m.name,''),i.component_type,i.component_product_id,COALESCE(p.name,''),i.component_bom_spec_id,i.component_spec_g,i.consume_unit,i.qty_per_unit::float8,i.ratio_pct::float8,i.material_loss_rate::float8
 			FROM %s.production_bom_version_items i
@@ -1652,10 +1669,13 @@ func (r Repository) listProductionBomVersionVariants(ctx context.Context, versio
 			}
 			variant.Items = append(variant.Items, item)
 		}
+		if err := itemRows.Err(); err != nil {
+			itemRows.Close()
+			return nil, err
+		}
 		itemRows.Close()
-		out = append(out, variant)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func validateProductionBomVersionVariantsForPublish(ctx context.Context, q bomQueryer, schema string, versionID, bomID int64) (bool, error) {
