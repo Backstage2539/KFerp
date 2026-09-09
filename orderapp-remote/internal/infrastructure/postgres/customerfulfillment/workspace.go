@@ -36,7 +36,7 @@ func (r *Repository) CustomerWorkspace(ctx context.Context, customerID int64, pa
 		if has("direct_ship") || has("product_order") || has("processing") || has("mall") {
 			var orders, pending, missing int
 			var amount float64
-			err = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*),count(*) FILTER(WHERE coalesce(s.name,'') NOT IN ('已发货','已出库','已签收','已收货','已完成')),count(*) FILTER(WHERE btrim(coalesce(o.receiver_name,''))='' OR btrim(coalesce(o.receiver_phone,''))='' OR btrim(coalesce(o.receiver_address,''))=''),coalesce(sum(CASE WHEN coalesce(p.name,'') ~ '(已付款|已收款|已支付)' THEN 0 ELSE greatest(0,o.grand_total-coalesce((to_jsonb(o)->>'prepayment_amount')::numeric,0)) END),0)::float8 FROM %[1]s.orders o LEFT JOIN %[1]s.ship_statuses s ON s.id=o.ship_status_id LEFT JOIN %[1]s.pay_statuses p ON p.id=o.pay_status_id WHERE o.customer_id=$1 AND coalesce(o.is_void,false)=false AND o.portal_service_code<>''`, r.schema), customerID).Scan(&orders, &pending, &missing, &amount)
+			err = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*),count(*) FILTER(WHERE coalesce(s.name,'') NOT IN ('已发货','已出库','已签收','已收货','已完成')),count(*) FILTER(WHERE btrim(coalesce(o.receiver_name,''))='' OR btrim(coalesce(o.receiver_phone,''))='' OR btrim(coalesce(o.receiver_address,''))=''),coalesce(sum(CASE WHEN coalesce(p.name,'') ~ '(已付款|已收款|已支付)' THEN 0 ELSE greatest(0,o.grand_total-coalesce((to_jsonb(o)->>'prepayment_amount')::numeric,0)) END),0)::float8 FROM %[1]s.orders o LEFT JOIN %[1]s.ship_statuses s ON s.id=o.ship_status_id LEFT JOIN %[1]s.pay_statuses p ON p.id=o.pay_status_id WHERE o.customer_id=$1 AND coalesce(o.is_void,false)=false`, r.schema), customerID).Scan(&orders, &pending, &missing, &amount)
 			if err != nil {
 				return nil, err
 			}
