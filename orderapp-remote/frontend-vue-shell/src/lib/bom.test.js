@@ -910,7 +910,7 @@ test('production BOM repeats the table header and owns one pager per rendered ca
   assert.doesNotMatch(source, /productionBomAccordionPageState|expandedProductionBomGroupKey|productionBomListState/)
 })
 
-test('production BOM selection and all-select only use expanded category current-page rows', async () => {
+test('production BOM all-select uses current-page rows while checked identities survive move collapse', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -919,8 +919,8 @@ test('production BOM selection and all-select only use expanded category current
   assert.match(listPanel, /<table[^>]*data-auto-pagination="off"/)
   assert.match(listPanel, /:checked="isAllVisibleBomsSelected\(group\)"/)
   assert.match(listPanel, /@change="toggleAllVisibleBoms\(\$event, group\.rows\)"/)
-  assert.match(source, /selectedBomRows = computed\(\(\) => \{[\s\S]*productionBomVisibleRows\.value\.filter/)
-  assert.match(source, /watch\(\[productionBomVisibleRows, productionBomCategoryMoveActive\][\s\S]*if \(productionBomCategoryMoveActive\.value\) return[\s\S]*visibleKeys/)
+  assert.match(source, /selectedBomRows = computed\(\(\) => \{[\s\S]*productionBomRows\.value\.filter/)
+  assert.match(source, /watch\(productionBomVisibleRows[\s\S]*if \(productionBomCategoryMoveActive\.value\) return[\s\S]*visibleKeys/)
   assert.match(source, /businessGroupVisibleRows/)
   assert.doesNotMatch(listPanel, /@click="selectBomRow\(row\)"/)
 })

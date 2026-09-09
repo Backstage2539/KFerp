@@ -6,6 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-645-MATERIAL-STOCK-BOM-MOVE
+- Branch: `codex/material-stock-bom-move-20260909`, base `32279ff6`.
+- Status: implementation and verification complete; development/production orphan inventory cleanup complete (12/23 materials, remaining 0/0); Van product acceptance pending.
+- Scope: block material deprecation until all inventory is zero; fix BOM move selection after category collapse; remove inventory remnants of absent/deprecated materials in development and production with backup and audit.
+- DEV: DEV-645-STOCK-GUARD; DEV-645-BOM-MOVE; DEV-645-ORPHAN-STOCK-CLEANUP.
+- Verifier: real PostgreSQL focused 3 top-level / 6 stock subcases pass, 0 skip; frontend 1136/1136 and build; standard Go gate. Extra real DB materials packages have 2 independently reproduced baseline failures.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-09-material-stock-bom-move.md`.
+- Deployment: code integration to develop; this request explicitly authorizes development and production data cleanup. No application deployment requested.
+
 ### PR-644-BOM-CATEGORY-FEEDBACK
 - Branch: `codex/bom-category-fixes-20260909`
 - Status: implemented and verified on latest develop `76c12328`; feature `dd479663`, integration `91ab44e2`; Van business acceptance pending
