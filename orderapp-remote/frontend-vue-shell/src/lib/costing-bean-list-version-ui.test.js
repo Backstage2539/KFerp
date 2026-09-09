@@ -292,7 +292,7 @@ test('product price-list publish action reports blocked reasons instead of doing
   assert.match(publishTitleSource, /v-if="message" class="ok price-list-publish-feedback"/)
   assert.match(viewSource, /flat-price-row-error-list/)
   assert.doesNotMatch(publishTitleSource, /price-list-publish-guard/)
-  assert.match(publishButtonSource, /:disabled="beanListPublishing"/)
+  assert.match(publishButtonSource, /:disabled="beanListPublishing \|\| priceListRefresh.busy"/)
   assert.doesNotMatch(publishButtonSource, /!pdfGroups\.length/)
   assert.doesNotMatch(publishButtonSource, /!pdfTheme\.version/)
   assert.doesNotMatch(publishButtonSource, /!customerScopeReady/)

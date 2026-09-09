@@ -252,6 +252,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-646-PRICE-TABLE-REFRESH", title: "商品价格表商品规格与价格局部刷新", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-price-table-refresh.md"},
+		{table: "req_dev", code: "DEV-646-SELECTION-REFRESH", title: "刷新分类商品和已发布 BOM 规格并保留草稿选择", status: "done", assignee: "Codex", evidence: "price-list-refresh.test.js"},
+		{table: "req_dev", code: "DEV-646-PRICE-REFRESH", title: "更新模板并重算当前价格且保留手工报价", status: "done", assignee: "Codex", evidence: "price-list-refresh.test.js"},
 		{table: "req_product", code: "PR-645-MATERIAL-STOCK-BOM-MOVE", title: "物料失效库存门禁与 BOM 分类移动修复", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-09-material-stock-bom-move.md"},
 		{table: "req_dev", code: "DEV-645-STOCK-GUARD", title: "失效前校验各仓库和批次库存清零", status: "done", assignee: "Codex", evidence: "material_stock_deprecate_test.go"},
 		{table: "req_dev", code: "DEV-645-BOM-MOVE", title: "折叠分类后保留 BOM 移动选择", status: "done", assignee: "Codex", evidence: "bom-category-selection.test.js"},
