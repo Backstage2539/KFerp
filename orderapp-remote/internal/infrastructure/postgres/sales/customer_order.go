@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	salesapp "orderapp/internal/application/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	"strings"
 )
 
 func EnsureCustomerOrderSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -34,11 +35,19 @@ func (r Repository) UpdateCustomerRecipient(ctx context.Context, c salesapp.Cust
 	defer tx.Rollback(ctx)
 	var name, phone, address, status string
 	var void bool
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT coalesce(o.receiver_name,''),coalesce(o.receiver_phone,''),coalesce(o.receiver_address,''),coalesce(s.name,''),coalesce(o.is_void,false) FROM %[1]s.orders o LEFT JOIN %[1]s.ship_statuses s ON s.id=o.ship_status_id WHERE o.id=$1 AND o.customer_id=$2 AND o.portal_service_code IN ('direct_ship','product_order','processing_ship') FOR UPDATE OF o`, r.schema), c.OrderID, c.CustomerID).Scan(&name, &phone, &address, &status, &void)
+	var shipStatusID int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT coalesce(o.receiver_name,''),coalesce(o.receiver_phone,''),coalesce(o.receiver_address,''),coalesce(o.ship_status_id,0),coalesce(o.is_void,false) FROM %[1]s.orders o WHERE o.id=$1 AND o.customer_id=$2 FOR UPDATE OF o`, r.schema), c.OrderID, c.CustomerID).Scan(&name, &phone, &address, &shipStatusID, &void)
 	if err != nil {
 		return fmt.Errorf("订单不存在或不属于当前客户")
 	}
-	if void || orderShippedStatusRequiresLogistics(status) {
+	// Read the status after acquiring the order lock. A joined status row from
+	// the pre-lock snapshot can be stale when a concurrent shipment commits.
+	if shipStatusID > 0 {
+		if err = tx.QueryRow(ctx, fmt.Sprintf("SELECT name FROM %s.ship_statuses WHERE id=$1", r.schema), shipStatusID).Scan(&status); err != nil {
+			return err
+		}
+	}
+	if void || customerRecipientLockedStatus(status) {
 		return fmt.Errorf("已发货或作废的订单不能修改收件信息")
 	}
 	if name == c.ReceiverName && phone == c.ReceiverPhone && address == c.ReceiverAddress {
@@ -70,4 +79,13 @@ func (r Repository) FindCustomerOrderRequest(ctx context.Context, customerID int
 	}
 	result.Replayed = true
 	return result, true, nil
+}
+
+func customerRecipientLockedStatus(status string) bool {
+	for _, value := range []string{"已发货", "部分发货", "已出库", "已签收", "已收货", "已完成"} {
+		if strings.Contains(strings.TrimSpace(status), value) {
+			return true
+		}
+	}
+	return false
 }

@@ -186,6 +186,7 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
 	e.POST("/api/order/payment-vouchers", h.uploadPaymentVoucher)
 	e.POST("/api/order", h.save)
+	registerCustomerAccountRoutes(e, h)
 	e.GET("/api/customer-processing/portal/workspace", h.customerWorkspace)
 	e.GET("/api/customer-processing/portal/order/form", h.customerForm)
 	e.POST("/api/customer-processing/portal/order", h.save)
