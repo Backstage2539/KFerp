@@ -39,6 +39,7 @@ func TestCustomerAccountDocumentsAndRecipientLifecycle(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
+	seedConfirmationExecutionFixtures(t, ctx, pool, schema)
 	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +78,9 @@ func TestCustomerAccountDocumentsAndRecipientLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	request("PATCH", accountPrefix+"/orders/1/recipient", `{"receiver_name":"新收件人","receiver_phone":"13800138000","receiver_address":"上海市徐汇区新地址100号"}`, 200)
+	if _, err := svc.ReviewOrder(ctx, salesapp.ReviewOrderCommand{OrderID: 1, Revision: 2, Decision: "accepted", Admin: true, Actor: "管理员"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"1", "combined"} {
 		query := ""
 		body := "{}"

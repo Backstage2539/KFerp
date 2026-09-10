@@ -81,7 +81,7 @@ type productionDemandQueryer interface {
 }
 
 func fetchUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {
-	where := fmt.Sprintf(`WHERE o.is_void=false AND p.active=true AND %s
+	where := fmt.Sprintf(`WHERE o.is_void=false AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted' AND p.active=true AND %s
 	AND COALESCE(oi.product_id,0) > 0
 	AND NOT EXISTS (
 		SELECT 1 FROM %s.ship_statuses ss

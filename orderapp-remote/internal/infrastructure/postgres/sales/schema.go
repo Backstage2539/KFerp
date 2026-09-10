@@ -304,7 +304,7 @@ func ensureShippingClosureSchema(ctx context.Context, pool *pgxpool.Pool, schema
 			SELECT 1 FROM %s.ship_statuses WHERE name=$1
 		)
 	`, schema, schema)
-	for _, name := range []string{"待发货", "已发货"} {
+	for _, name := range []string{"待发货", "部分发货", "已发货"} {
 		if _, err := pool.Exec(ctx, statusQ, name); err != nil {
 			return err
 		}

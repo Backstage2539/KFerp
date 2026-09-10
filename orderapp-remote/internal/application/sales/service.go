@@ -17,6 +17,7 @@ var (
 )
 
 type SaveOrderCommand struct {
+	RequireConfirmation               bool
 	CustomerSubmission                bool
 	BackfillMode                      bool
 	CustomerRequestID                 string
@@ -110,11 +111,12 @@ type OrderItemCommand struct {
 }
 
 type SaveOrderResult struct {
-	Replayed       bool
-	OrderID        int64
-	OrderNo        string
-	Edited         bool
-	StockBatchUsed bool
+	ConfirmationStatus string
+	Replayed           bool
+	OrderID            int64
+	OrderNo            string
+	Edited             bool
+	StockBatchUsed     bool
 }
 
 type EmployeeOrderDraft struct {
@@ -578,6 +580,8 @@ type OrdersSummary struct {
 }
 
 type OrderRow struct {
+	ConfirmationStatus    string `json:"confirmation_status"`
+	ConfirmationRequired  bool   `json:"confirmation_required"`
 	PrepaymentAmount      string `json:"prepayment_amount"`
 	PaidAmount            string `json:"paid_amount"`
 	UnpaidAmount          string `json:"unpaid_amount"`

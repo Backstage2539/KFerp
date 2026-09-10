@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	"orderapp/internal/infrastructure/postgres/orderconfirmation"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -18,7 +19,7 @@ func currentOrderEditRevisionTx(ctx context.Context, tx pgx.Tx, schema string, o
 		FROM %[1]s.orders o
 		WHERE o.id=$1
 	`, schema)
-	if err := tx.QueryRow(ctx, query, orderID).Scan(&revision); err != nil {
+	if err := tx.QueryRow(ctx, orderconfirmation.CurrentRead(query, schema), orderID).Scan(&revision); err != nil {
 		return "", err
 	}
 	return revision, nil

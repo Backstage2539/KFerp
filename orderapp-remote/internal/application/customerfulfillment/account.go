@@ -8,40 +8,45 @@ import (
 )
 
 type AccountQuery struct {
-	CustomerID  int64
-	OrderID     int64
-	Query       string
-	DateFrom    string
-	DateTo      string
-	Period      string
-	Anchor      string
-	PayStatus   string
-	ShipStatus  string
-	IncludeVoid bool
-	Page        int
-	Limit       int
+	CurrentVersion bool
+	CustomerID     int64
+	OrderID        int64
+	Query          string
+	DateFrom       string
+	DateTo         string
+	Period         string
+	Anchor         string
+	PayStatus      string
+	ShipStatus     string
+	IncludeVoid    bool
+	Page           int
+	Limit          int
 }
 type AccountOrder struct {
-	ID              int64              `json:"id"`
-	OrderNo         string             `json:"order_no"`
-	OrderDate       string             `json:"order_date"`
-	ReceiverName    string             `json:"receiver_name"`
-	ReceiverPhone   string             `json:"receiver_phone"`
-	ReceiverAddress string             `json:"receiver_address"`
-	ShipStatus      string             `json:"ship_status"`
-	TrackingNo      string             `json:"ship_tracking_no"`
-	PayStatus       string             `json:"pay_status"`
-	PaymentStatus   string             `json:"payment_status"`
-	Service         string             `json:"portal_service_code"`
-	IsVoid          bool               `json:"is_void"`
-	GoodsCents      int64              `json:"goods_cents"`
-	ShippingCents   int64              `json:"shipping_cents"`
-	DiscountCents   int64              `json:"discount_cents"`
-	TotalCents      int64              `json:"total_cents"`
-	PrepaymentCents int64              `json:"prepayment_cents"`
-	PaidCents       int64              `json:"paid_cents"`
-	DueCents        int64              `json:"due_cents"`
-	Items           []AccountOrderItem `json:"items,omitempty"`
+	ConfirmationStatus   string             `json:"confirmation_status"`
+	ConfirmationRequired bool               `json:"confirmation_required"`
+	AcceptedRevision     int64              `json:"accepted_revision"`
+	ProcessStatus        string             `json:"process_status"`
+	ID                   int64              `json:"id"`
+	OrderNo              string             `json:"order_no"`
+	OrderDate            string             `json:"order_date"`
+	ReceiverName         string             `json:"receiver_name"`
+	ReceiverPhone        string             `json:"receiver_phone"`
+	ReceiverAddress      string             `json:"receiver_address"`
+	ShipStatus           string             `json:"ship_status"`
+	TrackingNo           string             `json:"ship_tracking_no"`
+	PayStatus            string             `json:"pay_status"`
+	PaymentStatus        string             `json:"payment_status"`
+	Service              string             `json:"portal_service_code"`
+	IsVoid               bool               `json:"is_void"`
+	GoodsCents           int64              `json:"goods_cents"`
+	ShippingCents        int64              `json:"shipping_cents"`
+	DiscountCents        int64              `json:"discount_cents"`
+	TotalCents           int64              `json:"total_cents"`
+	PrepaymentCents      int64              `json:"prepayment_cents"`
+	PaidCents            int64              `json:"paid_cents"`
+	DueCents             int64              `json:"due_cents"`
+	Items                []AccountOrderItem `json:"items,omitempty"`
 }
 type AccountOrderItem struct {
 	Name      string `json:"item_name"`

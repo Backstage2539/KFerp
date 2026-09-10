@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	app "orderapp/internal/application/customerfulfillment"
+	"orderapp/internal/infrastructure/postgres/orderconfirmation"
 	"strings"
 	"time"
 )
@@ -22,6 +23,15 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 		return d, err
 	}
 	where := []string{"o.customer_id=$1"}
+	if !q.CurrentVersion {
+		where = append(where, "(NOT COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false) OR COALESCE((to_jsonb(o)->>'confirmation_accepted_revision')::bigint,0)>0)")
+	}
+	currentQuery := func(query string) string {
+		if q.CurrentVersion {
+			return orderconfirmation.CurrentRead(query, r.schema)
+		}
+		return query
+	}
 	args := []any{q.CustomerID}
 	add := func(clause string, v any) {
 		args = append(args, v)
@@ -47,13 +57,13 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 		n := len(args)
 		where = append(where, fmt.Sprintf(`(o.order_no ILIKE $%[1]d OR o.receiver_name ILIKE $%[1]d OR o.receiver_phone ILIKE $%[1]d OR EXISTS(SELECT 1 FROM %[2]s.order_items i WHERE i.order_id=o.id AND i.item_name ILIKE $%[1]d))`, n, r.schema))
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT o.id,coalesce(o.order_no,''),coalesce(to_char(o.order_date,'YYYY-MM-DD'),''),coalesce(o.receiver_name,''),coalesce(o.receiver_phone,''),coalesce(o.receiver_address,''),coalesce(ss.name,''),coalesce(o.ship_tracking_no,''),coalesce(ps.name,''),coalesce(o.portal_service_code,''),coalesce(o.is_void,false),round(coalesce(o.grand_total,0)*100)::bigint,round(coalesce(o.shipping_amount,0)*100)::bigint,round(coalesce(o.discount_amount,0)*100)::bigint,round(coalesce((to_jsonb(o)->>'prepayment_amount')::numeric,0)*100)::bigint FROM %[1]s.orders o LEFT JOIN %[1]s.ship_statuses ss ON ss.id=o.ship_status_id LEFT JOIN %[1]s.pay_statuses ps ON ps.id=o.pay_status_id WHERE %[2]s ORDER BY o.order_date DESC NULLS LAST,o.id DESC`, r.schema, strings.Join(where, " AND ")), args...)
+	rows, err := tx.Query(ctx, currentQuery(fmt.Sprintf(`SELECT o.id,coalesce(o.order_no,''),coalesce(to_char(o.order_date,'YYYY-MM-DD'),''),coalesce(o.receiver_name,''),coalesce(o.receiver_phone,''),coalesce(o.receiver_address,''),coalesce(ss.name,''),coalesce(o.ship_tracking_no,''),coalesce(ps.name,''),coalesce(o.portal_service_code,''),coalesce(o.is_void,false),round(coalesce(o.grand_total,0)*100)::bigint,round(coalesce(o.shipping_amount,0)*100)::bigint,round(coalesce(o.discount_amount,0)*100)::bigint,round(coalesce((to_jsonb(o)->>'prepayment_amount')::numeric,0)*100)::bigint,COALESCE(to_jsonb(o)->>'confirmation_status','accepted'),COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false),COALESCE((to_jsonb(o)->>'confirmation_accepted_revision')::bigint,0),COALESCE(ops.name,'') FROM %[1]s.orders o LEFT JOIN %[1]s.ship_statuses ss ON ss.id=o.ship_status_id LEFT JOIN %[1]s.pay_statuses ps ON ps.id=o.pay_status_id LEFT JOIN %[1]s.order_process_statuses ops ON ops.id=o.process_status_id WHERE %[2]s ORDER BY o.order_date DESC NULLS LAST,o.id DESC`, r.schema, strings.Join(where, " AND "))), args...)
 	if err != nil {
 		return d, err
 	}
 	for rows.Next() {
 		var o app.AccountOrder
-		if err = rows.Scan(&o.ID, &o.OrderNo, &o.OrderDate, &o.ReceiverName, &o.ReceiverPhone, &o.ReceiverAddress, &o.ShipStatus, &o.TrackingNo, &o.PayStatus, &o.Service, &o.IsVoid, &o.TotalCents, &o.ShippingCents, &o.DiscountCents, &o.PrepaymentCents); err != nil {
+		if err = rows.Scan(&o.ID, &o.OrderNo, &o.OrderDate, &o.ReceiverName, &o.ReceiverPhone, &o.ReceiverAddress, &o.ShipStatus, &o.TrackingNo, &o.PayStatus, &o.Service, &o.IsVoid, &o.TotalCents, &o.ShippingCents, &o.DiscountCents, &o.PrepaymentCents, &o.ConfirmationStatus, &o.ConfirmationRequired, &o.AcceptedRevision, &o.ProcessStatus); err != nil {
 			rows.Close()
 			return d, err
 		}
@@ -79,7 +89,7 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 		return d, err
 	}
 	if q.OrderID > 0 && len(d.Rows) > 0 {
-		items, err := tx.Query(ctx, fmt.Sprintf(`SELECT coalesce(item_name,''),coalesce(spec,''),coalesce(qty,0)::text,coalesce(unit,''),coalesce(unit_price,0)::text,coalesce(line_total,0)::text FROM %s.order_items WHERE order_id=$1 ORDER BY id`, r.schema), q.OrderID)
+		items, err := tx.Query(ctx, currentQuery(fmt.Sprintf(`SELECT coalesce(item_name,''),coalesce(spec,''),coalesce(qty,0)::text,coalesce(unit,''),coalesce(unit_price,0)::text,coalesce(line_total,0)::text FROM %s.order_items current_item WHERE order_id=$1 ORDER BY id`, r.schema)), q.OrderID)
 		if err != nil {
 			return d, err
 		}
