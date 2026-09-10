@@ -8,13 +8,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-648-PRODUCTION-PLANNING-MULTILEVEL
 - Branch: `codex/production-planning-multilevel-20260910`, base `2bd15db4`.
-- Status: implementation and automated verification complete; development release in progress; Van business acceptance pending.
+- Status: implemented, merged and deployed to development; Van browser/business acceptance pending; deploy ownership released.
 - Scope: demand preview crash, product/spec/order grouping, standalone material production, cross-plan supply allocation, partial material receipts and quantity-based downstream release.
 - DEV: DEV-648-DEMAND; DEV-648-STOCK-PLAN; DEV-648-SUPPLY; DEV-648-PARTIAL-RECEIPT; DEV-648-DELIVERY.
 - Verifier: targeted Vue render/helper RED/GREEN, isolated PostgreSQL API/concurrency/cost tests, full Go and Vue/build gates.
-- Deployment: development after integration and verification; production excluded.
+- Deployment: development `fe4036f7f46eee74b746313444a5c426519a4933` via GitHub PR #107 / #108 / #109; script exit 0 and final authenticated read-only API checks passed; production excluded.
 - Evidence: `orderapp-remote/docs/acceptance/2026-09-10-production-planning-multilevel.md`; 30 isolated API cases, 1164 frontend tests, full Go/build gates.
-- Deploy ownership: this task holds PR-648 development integration/release; PR #107 merged at `c243cc19`; final read-only smoke caught order-source alias collision, PR #108 at `14a0ae32` restored live query; incomplete-BOM selection guard now has RED/GREEN and 30 API/full backend checks; final release pending.
+- Deploy ownership: released. Final demand query: 5 products / 9 rows, 3 selectable / 6 configuration-blocked; both selected GET and unified POST previews succeed. Rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260910222928-fe4036f7f46e`. Existing development authentication bypass is unchanged; details in acceptance evidence.
 - Notes: reservation script selected PR-648 but macOS awk rejected its multiline placeholder; reserved here instead.
 
 

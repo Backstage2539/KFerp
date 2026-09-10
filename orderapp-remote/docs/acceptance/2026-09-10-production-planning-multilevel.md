@@ -48,10 +48,22 @@ Van 验收入口：生产流程 → 生产计划。建议核对真实订单分�
 - 发布后只读需求查询返回 HTTP 500 / SQLSTATE 42883。开发库 `orders.source` 文本列遮蔽 JSON 数组元素的临时别名；已添加带此真实字段的隔离 API 回归测试，RED 重现相同错误，改用显式 `demand_source.value` 后 GREEN。未修改业务数据或字段类型。补充修复后 29 项隔离 API 全部通过，完整后端门禁通过。
 - 发布前数据库备份：`/opt/stacks/erp/backups/pr648-planning-predeploy-20260910214240.dump`（15,777,910 bytes）。首次源代码回滚目录 `/opt/stacks/erp/orderapp.backup.deploy-20260910215318-c243cc190a50`，镜像 `kferp-orderapp-rollback:development-20260910215318-c243cc190a50`。
 - GitHub PR #108 修复名称遮蔽后，开发 `14a0ae32f4cf655dca4c8665440115943f702ff8` 发布成功；只读需求恢复 HTTP 200，5 个商品组 / 9 条需求。源文件 SHA-256 与本地一致，容器和 RELEASE_INFO 对应新版本。该版回滚目录 `/opt/stacks/erp/orderapp.backup.deploy-20260910221208-14a0ae32f4cf`。
-- 实际选择预览发现已有 BOM 缺物料明细，后端已明确报错。补充列表校验同一冻结 BOM 身份，配置异常逐行显示并禁止勾选，其他需求继续保留；旧选择参数刷新显示错误且不建草稿。新增 API 测试 RED/GREEN 后，30 项隔离 API / 全后端门禁通过。最终开发发布与只读核对待追加。
+- 实际选择预览发现已有 BOM 缺物料明细，后端已明确报错。补充列表校验同一冻结 BOM 身份，配置异常逐行显示并禁止勾选，其他需求继续保留；旧选择参数刷新显示错误且不建草稿。新增 API 测试 RED/GREEN 后，30 项隔离 API / 全后端门禁通过。最终开发发布与只读核对见下节。
 - 开发环境原有 `DISABLE_BASIC_AUTH=true`，无凭证生产计划 API 返回 200；未改动该环境配置，不将历史清单中的“未登录 401”宣称通过。正式环境该变量未设置且容器启动时间未改变。
 -自动浏览器连接未完成现场交互核验；实际 Vue 模板渲染测试通过，Van 页面和业务验收仍待进行。正式环境和微信上传发布不在本次范围。
 
 补充日志：`/private/tmp/pr648-live-query-red.log`、`/private/tmp/pr648-verified-api-followup.jsonl`、`/private/tmp/pr648-followup-backend.log`、`/private/tmp/pr648-dev-deploy.log`。
 
 补充配置校验日志：`/private/tmp/pr648-bom-selection-red.log`、`/private/tmp/pr648-verified-api-final.jsonl`、`/private/tmp/pr648-final-backend.log`。
+
+## 最终交付
+
+- 功能分支 `codex/production-planning-multilevel-20260910`，最终功能提交 `8a0d6cac31395fe768275a89db442196c92c3816`。GitHub PR #107 / #108 / #109 均已合并；最终开发发布提交 `fe4036f7f46eee74b746313444a5c426519a4933`。
+- 2026-09-10 22:36（Asia/Shanghai），从独立干净 `develop`、HEAD 与 `origin/develop` 一致的工作目录执行 `./deploy_orderapp.sh development`，退出 0，明确返回 `Release completed`。完整服务器 Go 检查、镜像内 Go 检查、Vue 1164/1164、miniapp 238/238、类型检查和构建全部通过。
+- 开发入口：<https://dev.qacoohee.com/app/>。认证只读检查：应用、PR-648 进度、需求、计划、工单和生产手册均 HTTP 200；备货空输入按契约返回 HTTP 400。需求为 5 商品组 / 9 行，其中 3 行可选、6 行配置异常禁选；正常需求的原 GET 选择预览 HTTP 200、`plan_ready=true`，统一 POST 预览 HTTP 200、2 个计划预览行。在线核验未创建草稿、工单或库存记录。
+- 开发运行镜像 `sha256:7aabc6bae6cb190f9d5dfc67d24f6a829771fcb8a2c53f2c15777a8c6183b277`，启动时间 `2026-09-10T14:36:09.535366988Z`；服务日志无新增错误。生产容器仍为 `2026-09-10T02:18:21.538861941Z` 启动的原镜像，没有重启生产服务。
+- `RELEASE_INFO` 对应 `fe4036f7` / development；需求实现文件本地与服务器 SHA-256 同为 `02ac41c61099b8b8b0df973cec5e1a3a032a33dd1b550342ab323111b9e48458`。
+- 当前回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20260910222928-fe4036f7f46e`，回滚镜像 `kferp-orderapp-rollback:development-20260910222928-fe4036f7f46e`。初次发布前数据库备份保留在上文路径。
+- 微信开发构建已按发布脚本导出到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，14 个页面 / 56 个文件校验通过；没有上传或发布微信版本。
+- 最终日志 `/private/tmp/pr648-dev-deploy-delivered.log`、`/private/tmp/pr648-dev-smoke-delivered.log`。期间 SSH 短暂断连后已恢复，最终认证 API、容器和源文件核验已完成。开发环境既有免鉴权配置及扩展旧数据库测试的基线失败仍按上文单独记录。
+- Van 浏览器页面与真实业务验收待进行，PR/DEV 保持 review。本次开发合并/发布占用已释放。此节为发布后的文档记录；后续文档提交不改变已部署应用版本。
