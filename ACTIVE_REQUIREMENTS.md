@@ -8,13 +8,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-648-PRODUCTION-PLANNING-MULTILEVEL
 - Branch: `codex/production-planning-multilevel-20260910`, base `2bd15db4`.
-- Status: implemented, merged and deployed to development; Van browser/business acceptance pending; deploy ownership released.
+- Status: fixing the reported blank production-plan panel after delivery; initialization regression reproduced in the live browser and complete Vue setup test; fix GREEN, development re-release pending.
 - Scope: demand preview crash, product/spec/order grouping, standalone material production, cross-plan supply allocation, partial material receipts and quantity-based downstream release.
 - DEV: DEV-648-DEMAND; DEV-648-STOCK-PLAN; DEV-648-SUPPLY; DEV-648-PARTIAL-RECEIPT; DEV-648-DELIVERY.
 - Verifier: targeted Vue render/helper RED/GREEN, isolated PostgreSQL API/concurrency/cost tests, full Go and Vue/build gates.
 - Deployment: development `fe4036f7f46eee74b746313444a5c426519a4933` via GitHub PR #107 / #108 / #109; script exit 0 and final authenticated read-only API checks passed; production excluded.
 - Evidence: `orderapp-remote/docs/acceptance/2026-09-10-production-planning-multilevel.md`; 30 isolated API cases, 1164 frontend tests, full Go/build gates.
-- Deploy ownership: released. Final demand query: 5 products / 9 rows, 3 selectable / 6 configuration-blocked; both selected GET and unified POST previews succeed. Rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260910222928-fe4036f7f46e`. Existing development authentication bypass is unchanged; details in acceptance evidence.
+- Deploy ownership: this task holds the PR-648 page-initialization regression release on `codex/production-plan-initialization-20260910` from `afa92065`. Previous final demand query: 5 products / 9 rows, 3 selectable / 6 configuration-blocked; both selected GET and unified POST previews succeed. Rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260910222928-fe4036f7f46e`. Existing development authentication bypass is unchanged; details in acceptance evidence.
 - Notes: reservation script selected PR-648 but macOS awk rejected its multiline placeholder; reserved here instead.
 
 
