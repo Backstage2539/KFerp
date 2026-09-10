@@ -71,6 +71,9 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	if err := r.attachProductionDemandStatuses(ctx, appRows); err != nil {
 		return data, err
 	}
+	if err := r.attachProductionDemandBOMConfiguration(ctx, appRows); err != nil {
+		return data, err
+	}
 	appRows = filterProductionDemandRows(appRows, query.DemandStatus)
 	data.Rows = appRows
 	data.ProductGroups = groupProductionDemandProducts(appRows)

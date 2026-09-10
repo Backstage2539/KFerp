@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"math"
 	app "orderapp/internal/application/production"
@@ -56,6 +57,53 @@ func groupProductionDemandProducts(rows []app.UnprodNeedRow) []app.ProductionDem
 		g.GapSalesSpecCount += row.GapSalesSpecCount
 	}
 	return out
+}
+
+// Validate the same frozen BOM identity used when creating the plan. A known
+// configuration error belongs on its demand row, not only in a failed preview.
+func (r Repository) attachProductionDemandBOMConfiguration(ctx context.Context, rows []app.UnprodNeedRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	checked := map[string]string{}
+	for i := range rows {
+		row := &rows[i]
+		if !row.DemandSelectable || row.BlockingReason != "" {
+			continue
+		}
+		var frozen productionQuantitySnapshot
+		_ = json.Unmarshal([]byte(row.SalesSpecSnapshotJSON), &frozen)
+		// Customer-processing requests have their own frozen recipe authority;
+		// do not replace it with the product's current default configuration.
+		if frozen.ProcessingRequestItemID > 0 {
+			continue
+		}
+		key := fmt.Sprintf("%d:%d:%d:%d", row.ProductID, row.ParentProductID, row.BomSpecID, row.BomVariantID)
+		reason, ok := checked[key]
+		if !ok {
+			_, err := resolveProductionBomForDemandProductSpecTx(ctx, tx, r.schema, row.ProductID, row.ParentProductID, row.Product, row.BomSpecID, row.BomVariantID, true)
+			if err != nil {
+				if !isProductionBomConfigurationError(err) {
+					return err
+				}
+				reason = "BOM 配置待完善：" + err.Error()
+				if strings.Contains(err.Error(), "no material lines") {
+					reason = "BOM 缺少物料明细，请完善对应版本后刷新需求。"
+				}
+			}
+			checked[key] = reason
+		}
+		if reason != "" {
+			row.BlockingReason = reason
+			row.DemandSelectable = false
+		}
+	}
+	return nil
 }
 
 func splitStructuredProductionDemandRow(ctx context.Context, q productionDemandQueryer, schema string, row UnprodNeedRow) ([]UnprodNeedRow, error) {
