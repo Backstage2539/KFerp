@@ -105,6 +105,7 @@ func TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownst
 		WHERE production_plan_id=%d;
 	`, schema, schema, planID))
 
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("POST production plan submit status=%d body=%s", submit.Code, submit.Body.String())
@@ -289,6 +290,7 @@ func TestProductionPlanAPITypedProductComponentRecursesWithPartialFinishedStock(
 		WHERE production_plan_id=%d;
 	`, schema, schema, planID))
 
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit typed product-component plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -452,6 +454,7 @@ func TestProductionPlanAPISharedUpstreamShortageAllocatesEachDependencyOnce(t *t
 		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,planned_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit shared-upstream plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -497,8 +500,9 @@ func TestProductionPlanAPISharedPurchaseLeafPersistsEachConsumerGap(t *testing.T
 	), 2)
 	assertSharedManufacturingGraphCoverage(t, app, planID, 1_000, 300, 700, true)
 
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
-	if submit.Code != http.StatusBadRequest || !strings.Contains(submit.Body.String(), "采购/备料缺口") {
+	if submit.Code != http.StatusBadRequest || (!strings.Contains(submit.Body.String(), "采购/备料缺口") && !strings.Contains(submit.Body.String(), "所选来源仓库存不足")) {
 		t.Fatalf("submit shared-purchase plan status=%d body=%s, want blocker", submit.Code, submit.Body.String())
 	}
 }
@@ -613,8 +617,9 @@ func TestProductionPlanAPIPersistsNoBOMSupplyGapAndBlocksSubmit(t *testing.T) {
 		!strings.Contains(detail.Body.String(), `"blocking":true`) {
 		t.Fatalf("production plan supply gap detail status=%d body=%s", detail.Code, detail.Body.String())
 	}
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
-	if submit.Code != http.StatusBadRequest || !strings.Contains(submit.Body.String(), "采购/备料缺口") {
+	if submit.Code != http.StatusBadRequest || (!strings.Contains(submit.Body.String(), "采购/备料缺口") && !strings.Contains(submit.Body.String(), "所选来源仓库存不足")) {
 		t.Fatalf("submit no-BOM production plan status=%d body=%s, want unresolved supply gap rejection", submit.Code, submit.Body.String())
 	}
 	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("production_plan_id=%d", planID), 0)
@@ -659,6 +664,7 @@ func TestProductionPlanAPIFullStockCreatesNoUpstreamAndReservesOnceOnSubmit(t *t
 		SELECT production_plan_id,id,1,'包装',planned_g/1000.0,inventory_unit,15,1,planned_g/1000.0,planned_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit full-stock production plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -713,6 +719,7 @@ func TestProductionPlanAPIConcurrentSubmitRechecksSharedMaterialAvailability(t *
 		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.production_plans ORDER BY id DESC LIMIT 1`, schema)).Scan(&planID); err != nil {
 			t.Fatalf("load concurrent plan id: %v", err)
 		}
+		selectPlanningTestSources(t, app, planID)
 		return planID
 	}
 	planA := createPlan(1)
@@ -750,7 +757,7 @@ func TestProductionPlanAPIConcurrentSubmitRechecksSharedMaterialAvailability(t *
 		if result.code == http.StatusOK {
 			successes++
 		}
-		if result.code == http.StatusBadRequest && strings.Contains(result.body, "库存可用量已变化") {
+		if result.code == http.StatusBadRequest && (strings.Contains(result.body, "库存可用量已变化") || strings.Contains(result.body, "所选来源仓库存不足")) {
 			staleFailures++
 		}
 	}
@@ -838,6 +845,7 @@ func TestDraftPlanItemTargetWarehouseUpdateFreezesOnSubmit(t *testing.T) {
 		) SELECT %d,%d,1,'包装',planned_g/1000.0,inventory_unit,15,1,planned_g/1000.0,planned_g,15
 		  FROM %s.production_plan_items WHERE id=%d;
 		`, schema, planID, itemID, schema, itemID))
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit target-warehouse plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -891,6 +899,7 @@ func TestMaterialOutputCompletionHonorsFrozenPlanTargetWarehouse(t *testing.T) {
 		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,planned_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit material target plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -971,6 +980,7 @@ func TestMaterialOutputShortAndOverProductionKeepDownstreamCoverageExact(t *test
 				       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,planned_g,15
 				FROM %s.production_plan_items WHERE production_plan_id=%d;
 			`, schema, schema, planID))
+			selectPlanningTestSources(t, app, planID)
 			submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 			if submit.Code != http.StatusOK {
 				t.Fatalf("submit variance plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -1094,6 +1104,7 @@ func createSubmittedFullStockTypedPlan(t *testing.T, ctx context.Context, pool *
 		SELECT production_plan_id,id,1,'包装',planned_g/1000.0,inventory_unit,15,1,planned_g/1000.0,planned_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit typed plan status=%d body=%s", submit.Code, submit.Body.String())

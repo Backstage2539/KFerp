@@ -11,12 +11,14 @@ import (
 )
 
 type productionPlanCreateRequest struct {
-	From       string           `json:"from"`
-	To         string           `json:"to"`
-	CustomerID int64            `json:"customer_id"`
-	SourceType string           `json:"source_type"`
-	Selected   []string         `json:"selected"`
-	InputByKey map[string]int64 `json:"input_by_key"`
+	Items      []productionapp.StockProductionTarget `json:"items"`
+	RequestID  string                                `json:"request_id"`
+	From       string                                `json:"from"`
+	To         string                                `json:"to"`
+	CustomerID int64                                 `json:"customer_id"`
+	SourceType string                                `json:"source_type"`
+	Selected   []string                              `json:"selected"`
+	InputByKey map[string]int64                      `json:"input_by_key"`
 }
 
 type productionPlanBatchSubmitRequest struct {
@@ -40,6 +42,33 @@ type productionPlanItemComponentSourcesRequest struct {
 }
 
 func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Service) {
+	e.POST("/api/production-plans/:id/refresh-supply", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid plan id"})
+		}
+		result, err := productionSvc.RefreshProductionPlanSupply(c.Request().Context(), id, support.ActorOf(c))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+	e.POST("/api/production-plans/preview", func(c echo.Context) error {
+		var req productionPlanCreateRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		selected := map[string]bool{}
+		for _, key := range req.Selected {
+			selected[key] = true
+		}
+		result, err := productionSvc.PreviewProductionPlan(c.Request().Context(), productionapp.CreateProductionPlanCommand{From: req.From, To: req.To, CustomerID: req.CustomerID, SourceType: req.SourceType, Selected: selected, Items: req.Items, Operator: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.GET("/api/production-plans", func(c echo.Context) error {
 		rows, err := productionSvc.ListProductionPlans(c.Request().Context(), productionapp.ProductionPlanQuery{
 			Status:    strings.TrimSpace(c.QueryParam("status")),
@@ -66,6 +95,7 @@ func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Servic
 			}
 		}
 		plan, err := productionSvc.CreateProductionPlan(c.Request().Context(), productionapp.CreateProductionPlanCommand{
+			Items: req.Items, RequestID: req.RequestID,
 			From:       req.From,
 			To:         req.To,
 			CustomerID: req.CustomerID,

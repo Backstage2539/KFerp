@@ -806,6 +806,15 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	}
 	defer tx.Rollback(ctx)
 
+	var supplierID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE running_item_id=$1`, schema), id).Scan(&supplierID); err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	if supplierID > 0 {
+		if err := guardSupplierCancellationTx(ctx, tx, schema, supplierID, 0); err != nil {
+			return err
+		}
+	}
 	var r ProduceRunRow
 	var runningStatus string
 	identitySelect := "0::bigint,0::bigint"

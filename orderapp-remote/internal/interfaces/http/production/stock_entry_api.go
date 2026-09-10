@@ -1,6 +1,7 @@
 package production
 
 import (
+	"fmt"
 	"net/http"
 	productionapp "orderapp/internal/application/production"
 	stockapp "orderapp/internal/application/stock"
@@ -101,6 +102,15 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 		return c.JSON(http.StatusOK, detail)
 	}
 	submitStockDocument := func(c echo.Context) error {
+		var receipt struct {
+			CompletionMode string `json:"completion_mode"`
+			ConsumedInputG int64  `json:"consumed_input_g"`
+		}
+		if c.Request().ContentLength > 0 {
+			if err := c.Bind(&receipt); err != nil {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid receipt request"})
+			}
+		}
 		if err := support.RequireEmployeeBound(c); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -129,6 +139,7 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 			item := detail.Items[0]
 			complete := productionapp.WorkOrderCompleteCommand{
 				ID: detail.WorkOrderID, StockDocumentID: detail.ID,
+				CompletionMode: receipt.CompletionMode, ConsumedInputG: receipt.ConsumedInputG, RequestID: fmt.Sprintf("stock-document-%d", detail.ID),
 				Warehouse: item.ToWarehouse, Operator: support.ActorOf(c), Note: detail.Note,
 			}
 			if strings.EqualFold(strings.TrimSpace(workOrderDetail.WorkOrder.OutputType), "material") {

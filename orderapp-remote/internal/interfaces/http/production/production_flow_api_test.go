@@ -2452,7 +2452,12 @@ func productionFlowTestBaseDDL(schema string) string {
 			is_void BOOLEAN NOT NULL DEFAULT false,
 			process_status_id INTEGER REFERENCES %s.order_process_statuses(id),
 			ship_status_id BIGINT REFERENCES %s.ship_statuses(id),
-			ship_tracking_no TEXT NOT NULL DEFAULT ''
+			ship_tracking_no TEXT NOT NULL DEFAULT '',
+			receiver_name TEXT NOT NULL DEFAULT '',
+			receiver_phone TEXT NOT NULL DEFAULT '',
+			receiver_address TEXT NOT NULL DEFAULT '',
+			receiver_company TEXT NOT NULL DEFAULT '',
+			portal_service_code TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE %s.order_items (
 			id BIGSERIAL PRIMARY KEY,

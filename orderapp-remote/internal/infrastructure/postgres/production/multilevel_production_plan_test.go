@@ -28,10 +28,14 @@ func TestMultilevelPlanningScopesDefaultBOMLoadingToSelectedRootComponents(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(source)
+	expansion, err := os.ReadFile("planning_supply.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source) + string(expansion)
 	for _, marker := range []string{
-		"rootComponents := make([]materialConsumptionNeed, 0, len(rootNeeds))",
-		"loadDefaultManufacturingOutputBOMsForPlanningTx(ctx, tx, schema, rootComponents)",
+		"allNeeds = append(allNeeds, needs...)",
+		"loadDefaultManufacturingOutputBOMsForPlanningTx(ctx, tx, schema, allNeeds)",
 		"requestedKeys := make([]string, 0, len(rootComponents))",
 	} {
 		if !strings.Contains(text, marker) {

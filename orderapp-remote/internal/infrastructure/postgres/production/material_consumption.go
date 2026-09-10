@@ -409,6 +409,9 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 			boxUnits = ceilDiv64(packedUnits, bi.dripBoxBagCount)
 		}
 		outputG := finishedTotalG(r.SpecG, packedUnits, finished.LooseG)
+		if r.OutputType == "material" {
+			outputG = finished.LooseG
+		}
 		if outputG <= 0 {
 			outputG = r.NeedG
 		}
@@ -865,6 +868,9 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 		packedUnits = 0
 	}
 	outputG := finishedTotalG(r.SpecG, packedUnits, finished.LooseG)
+	if r.OutputType == "material" {
+		outputG = finished.LooseG
+	}
 	if outputG <= 0 {
 		outputG = r.NeedG
 	}
@@ -1705,6 +1711,9 @@ func releaseMaterialReservationsForRunningItemTx(ctx context.Context, tx pgx.Tx,
 }
 
 func releaseMaterialReservationsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_supply_allocations SET status='released' WHERE work_order_id=$1`, schema), workOrderID); err != nil {
+		return err
+	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.work_order_material_reservations
 		SET status='released',

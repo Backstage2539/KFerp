@@ -6,6 +6,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-648-PRODUCTION-PLANNING-MULTILEVEL
+- Branch: `codex/production-planning-multilevel-20260910`, base `2bd15db4`.
+- Status: implementation and automated verification complete; development release in progress; Van business acceptance pending.
+- Scope: demand preview crash, product/spec/order grouping, standalone material production, cross-plan supply allocation, partial material receipts and quantity-based downstream release.
+- DEV: DEV-648-DEMAND; DEV-648-STOCK-PLAN; DEV-648-SUPPLY; DEV-648-PARTIAL-RECEIPT; DEV-648-DELIVERY.
+- Verifier: targeted Vue render/helper RED/GREEN, isolated PostgreSQL API/concurrency/cost tests, full Go and Vue/build gates.
+- Deployment: development after integration and verification; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-10-production-planning-multilevel.md`; 28 isolated API cases, 1164 frontend tests, full Go/build gates.
+- Deploy ownership: this task holds PR-648 development integration/release; current base verified at `2bd15db4`.
+- Notes: reservation script selected PR-648 but macOS awk rejected its multiline placeholder; reserved here instead.
+
+
 ### PR-646-PRICE-TABLE-REFRESH
 - Branch: `codex/price-table-refresh-20260909`, base `4c3de319`.
 - Status: implementation and automated/local Vue verification complete; Van product acceptance pending.

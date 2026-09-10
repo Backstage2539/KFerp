@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	productionapp "orderapp/internal/application/production"
 	productiondomain "orderapp/internal/domain/production"
 	stockdomain "orderapp/internal/domain/stock"
 	"sort"
@@ -15,45 +16,47 @@ import (
 )
 
 type UnprodNeedRow struct {
-	ProductID                int64   `json:"product_id"`
-	ParentProductID          int64   `json:"parent_product_id"`
-	BomSpecID                int64   `json:"bom_spec_id,omitempty"`
-	BomVariantID             int64   `json:"bom_variant_id,omitempty"`
-	SelectionKey             string  `json:"selection_key"`
-	Product                  string  `json:"product"`
-	OrderNos                 string  `json:"order_nos"`
-	SpecLabel                string  `json:"spec_label"`
-	SalesUnit                string  `json:"sales_unit"`
-	SpecG                    int64   `json:"spec_g"`
-	NeedUnits                int64   `json:"need_units"`
-	NeedG                    int64   `json:"need_g"`
-	InvUnits                 int64   `json:"inv_units"`
-	InvLooseG                int64   `json:"inv_loose_g"`
-	InvG                     int64   `json:"inv_g"`
-	GapG                     int64   `json:"gap_g"`
-	AvailableG               int64   `json:"-"`
-	SalesSpecCount           float64 `json:"sales_spec_count"`
-	InventoryQtyPerSalesUnit float64 `json:"inventory_qty_per_sales_unit"`
-	InventoryUnit            string  `json:"inventory_unit"`
-	NeedInventoryQty         float64 `json:"need_inventory_qty"`
-	AvailableInventoryQty    float64 `json:"available_inventory_qty"`
-	GapInventoryQty          float64 `json:"gap_inventory_qty"`
-	GapSalesSpecCount        float64 `json:"gap_sales_spec_count"`
-	SalesSpecSnapshotJSON    string  `json:"sales_spec_snapshot_json"`
-	ProductionKind           string  `json:"production_kind,omitempty"`
-	ProductTypeCategoryID    int64   `json:"product_type_category_id,omitempty"`
-	ProductSubtypeCategoryID int64   `json:"product_subtype_category_id,omitempty"`
-	ProductTypeName          string  `json:"product_type_name,omitempty"`
-	ProductSubtypeName       string  `json:"product_subtype_name,omitempty"`
-	OperationTemplateID      int64   `json:"operation_template_id,omitempty"`
-	DemandStatus             string  `json:"demand_status,omitempty"`
-	DemandStatusLabel        string  `json:"demand_status_label,omitempty"`
-	DemandSelectable         bool    `json:"demand_selectable"`
-	BlockingReason           string  `json:"blocking_reason,omitempty"`
-	ProductionPlanID         int64   `json:"production_plan_id,omitempty"`
-	ProductionPlanNo         string  `json:"production_plan_no,omitempty"`
-	WorkOrderID              int64   `json:"work_order_id,omitempty"`
-	WorkOrderNo              string  `json:"work_order_no,omitempty"`
+	ParentProductName        string                                `json:"parent_product_name"`
+	OrderDetails             []productionapp.ProductionDemandOrder `json:"order_details"`
+	ProductID                int64                                 `json:"product_id"`
+	ParentProductID          int64                                 `json:"parent_product_id"`
+	BomSpecID                int64                                 `json:"bom_spec_id,omitempty"`
+	BomVariantID             int64                                 `json:"bom_variant_id,omitempty"`
+	SelectionKey             string                                `json:"selection_key"`
+	Product                  string                                `json:"product"`
+	OrderNos                 string                                `json:"order_nos"`
+	SpecLabel                string                                `json:"spec_label"`
+	SalesUnit                string                                `json:"sales_unit"`
+	SpecG                    int64                                 `json:"spec_g"`
+	NeedUnits                int64                                 `json:"need_units"`
+	NeedG                    int64                                 `json:"need_g"`
+	InvUnits                 int64                                 `json:"inv_units"`
+	InvLooseG                int64                                 `json:"inv_loose_g"`
+	InvG                     int64                                 `json:"inv_g"`
+	GapG                     int64                                 `json:"gap_g"`
+	AvailableG               int64                                 `json:"-"`
+	SalesSpecCount           float64                               `json:"sales_spec_count"`
+	InventoryQtyPerSalesUnit float64                               `json:"inventory_qty_per_sales_unit"`
+	InventoryUnit            string                                `json:"inventory_unit"`
+	NeedInventoryQty         float64                               `json:"need_inventory_qty"`
+	AvailableInventoryQty    float64                               `json:"available_inventory_qty"`
+	GapInventoryQty          float64                               `json:"gap_inventory_qty"`
+	GapSalesSpecCount        float64                               `json:"gap_sales_spec_count"`
+	SalesSpecSnapshotJSON    string                                `json:"sales_spec_snapshot_json"`
+	ProductionKind           string                                `json:"production_kind,omitempty"`
+	ProductTypeCategoryID    int64                                 `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID int64                                 `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName          string                                `json:"product_type_name,omitempty"`
+	ProductSubtypeName       string                                `json:"product_subtype_name,omitempty"`
+	OperationTemplateID      int64                                 `json:"operation_template_id,omitempty"`
+	DemandStatus             string                                `json:"demand_status,omitempty"`
+	DemandStatusLabel        string                                `json:"demand_status_label,omitempty"`
+	DemandSelectable         bool                                  `json:"demand_selectable"`
+	BlockingReason           string                                `json:"blocking_reason,omitempty"`
+	ProductionPlanID         int64                                 `json:"production_plan_id,omitempty"`
+	ProductionPlanNo         string                                `json:"production_plan_no,omitempty"`
+	WorkOrderID              int64                                 `json:"work_order_id,omitempty"`
+	WorkOrderNo              string                                `json:"work_order_no,omitempty"`
 }
 
 func productionPlanOpenStatusNames() []string {
@@ -192,7 +195,7 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 				)
 			END,'') AS inventory_unit,
 			COALESCE(o.customer_id,0),
-			'' AS target_warehouse
+			'' AS target_warehouse,oi.id,o.id,COALESCE(rule_customer.name,''),COALESCE(parent_product.name,p.name,'')
 		FROM %s.order_items oi
 		JOIN %s.orders o ON o.id=oi.order_id
 		JOIN %s.products p ON p.id=oi.product_id
@@ -230,6 +233,8 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 	bySnapshot := map[string]*productionDemand{}
 	order := make([]string, 0)
 	for rows.Next() {
+		var orderItemID, orderID int64
+		var customerName, parentName string
 		var (
 			productID, parentProductID, bomSpecID, bomVariantID, customerID      int64
 			product, productionKind, typeName, subtypeName, orderNo              string
@@ -244,7 +249,7 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 			&productID, &bomSpecID, &bomVariantID, &parentProductID, &product, &productionKind,
 			&typeID, &subtypeID, &typeName, &subtypeName, &operationTemplateID,
 			&orderNo, &qty, &forceProduce, &priceSourceJSON, &salesUnit, &specLabel,
-			&netContentQty, &netContentUnit, &inventoryUnit, &customerID, &targetWarehouse,
+			&netContentQty, &netContentUnit, &inventoryUnit, &customerID, &targetWarehouse, &orderItemID, &orderID, &customerName, &parentName,
 		); err != nil {
 			return nil, err
 		}
@@ -291,6 +296,8 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 				bySnapshot[groupKey] = demand
 				order = append(order, groupKey)
 			}
+			demand.ParentProductName = parentName
+			demand.OrderDetails = append(demand.OrderDetails, productionapp.ProductionDemandOrder{OrderItemID: orderItemID, OrderID: orderID, OrderNo: orderNo, CustomerID: customerID, CustomerName: customerName, Quantity: qty, SalesUnit: demand.SalesUnit, ForceProduce: forceProduce})
 			demand.SalesSpecCount += qty
 			if forceProduce {
 				demand.forceSalesSpecCount += qty
@@ -328,6 +335,8 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 			bySnapshot[groupKey] = demand
 			order = append(order, groupKey)
 		}
+		demand.ParentProductName = parentName
+		demand.OrderDetails = append(demand.OrderDetails, productionapp.ProductionDemandOrder{OrderItemID: orderItemID, OrderID: orderID, OrderNo: orderNo, CustomerID: customerID, CustomerName: customerName, Quantity: qty, SalesUnit: demand.SalesUnit, ForceProduce: forceProduce})
 		demand.SalesSpecCount += qty
 		if forceProduce {
 			demand.forceSalesSpecCount += qty

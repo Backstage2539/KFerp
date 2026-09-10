@@ -2,7 +2,9 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
 	productionapp "orderapp/internal/application/production"
 	stockdomain "orderapp/internal/domain/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
@@ -18,6 +20,17 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	replayID, replay, err := requestProductionKeyTx(ctx, tx, r.schema, "material_receipt", cmd.Operator, cmd.RequestID, cmd)
+	if err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
+	if replayID > 0 {
+		var result productionapp.WorkOrderCompleteResult
+		err = json.Unmarshal(replay, &result)
+		return result, err
+	}
+	partial := cmd.CompletionMode == "partial"
 
 	var wo productionapp.WorkOrderRow
 	var materialSnapshot string
@@ -47,6 +60,10 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 		}
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
+	var previousG, previousUnits, previousInput, receiptCount int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(finished_g),0)::bigint,COALESCE(SUM(finished_units),0)::bigint,COALESCE(SUM(input_g),0)::bigint,COUNT(*) FROM %s.production_material_receipts WHERE work_order_id=$1`, r.schema), known.ID).Scan(&previousG, &previousUnits, &previousInput, &receiptCount); err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
 	if wo.OutputType != "material" || wo.OutputMaterialID <= 0 {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("material output work order required")
 	}
@@ -63,7 +80,7 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	`, r.schema), wo.ID).Scan(&incomplete); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
-	if incomplete > 0 {
+	if incomplete > 0 && !partial {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("work order has unfinished job cards")
 	}
 
@@ -75,6 +92,23 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	}
 	if finishedG <= 0 && finishedUnits <= 0 {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("finished material quantity required")
+	}
+	if partial && incomplete > 0 {
+		var missing int64
+		total := manufacturingQtyFromCanonical(previousG+finishedG, previousUnits+finishedUnits, wo.OutputUnit)
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM (SELECT sequence_no,SUM(actual_output_qty) AS output_qty FROM %s.job_cards WHERE work_order_id=$1 AND status<>'cancelled' GROUP BY sequence_no) operation WHERE output_qty<$2`, r.schema), wo.ID, total).Scan(&missing); err != nil {
+			return productionapp.WorkOrderCompleteResult{}, err
+		}
+		if missing > 0 {
+			return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("请先记录足够的工序实际产出，再办理部分入库")
+		}
+	}
+	if isWeightMaterialUnit(wo.OutputUnit) {
+		if finishedG <= 0 || finishedUnits != 0 {
+			return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("请按物料重量单位填写本次产出")
+		}
+	} else if finishedG != 0 || finishedUnits <= 0 {
+		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("请按物料件数单位填写本次产出")
 	}
 	frozenWarehouse := strings.TrimSpace(wo.TargetWarehouse)
 	if frozenWarehouse == "" {
@@ -101,6 +135,14 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
+	var materialOwner int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(owner_customer_id,0) FROM %s.materials WHERE id=$1`, r.schema), wo.OutputMaterialID).Scan(&materialOwner); err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
+	if ownerCustomerID != materialOwner && !(ownerCustomerID == 0 && warehouse == stockdomain.WarehouseWIP) {
+		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("入库仓与产出物料货主不匹配")
+	}
+	ownerCustomerID = materialOwner
 	var ownerBeforeG, ownerBeforeUnits int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(SUM(location.qty_g),0)::bigint,
@@ -124,6 +166,11 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	run.ProductID = 0
 	run.SpecG = 0
 	run.MaterialSnapshot = defaultJSONArray(materialSnapshot)
+	if cmd.ConsumedInputG > 0 {
+		run.InputG = cmd.ConsumedInputG
+	} else if wo.PlannedOutputG > 0 {
+		run.InputG = int64(math.Ceil(float64(wo.PlannedG) * float64(finishedG) / float64(wo.PlannedOutputG)))
+	}
 	needs, ok, err := materialSnapshotNeedsTx(run, InvQty{Units: finishedUnits, LooseG: finishedG})
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
@@ -132,7 +179,25 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("material output work order has no frozen component snapshot")
 	}
 	needs = aggregateMaterialConsumptionNeeds(needs)
-	if err := ensureWIPStockForWorkOrderNeedsTx(ctx, tx, r.schema, wo.ID, needs); err != nil {
+	if cmd.ConsumedInputG > 0 {
+		var total int64
+		for _, n := range needs {
+			total += n.DeductG
+		}
+		if total > 0 {
+			remaining := cmd.ConsumedInputG
+			weightLeft := total
+			for i := range needs {
+				if needs[i].DeductG > 0 {
+					g := int64(math.Round(float64(remaining) * float64(needs[i].DeductG) / float64(weightLeft)))
+					weightLeft -= needs[i].DeductG
+					remaining -= g
+					needs[i].DeductG = g
+				}
+			}
+		}
+	}
+	if err := reserveAdditionalReceiptInputsTx(ctx, tx, r.schema, wo.ID, needs); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 	if err := deductMaterialNeedsForRunningItemTx(ctx, tx, r.schema, run, needs, cmd.Operator); err != nil {
@@ -163,7 +228,18 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 
+	var receiptID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT nextval('%s.production_material_receipts_id_seq')`, r.schema)).Scan(&receiptID); err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
+	stockSource, stockSourceID := "production_run", run.ID
+	if receiptCount > 0 {
+		stockSource, stockSourceID = "production_material_receipt", receiptID
+	}
 	batchCode := fmt.Sprintf("MP-%010d", run.ID)
+	if receiptCount > 0 {
+		batchCode = fmt.Sprintf("%s-%03d", batchCode, receiptCount+1)
+	}
 	var materialBatchID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.material_batches(
@@ -185,8 +261,8 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 		INSERT INTO %s.stock_batches(
 			batch_code,item_type,item_id,item_name,owner_customer_id,spec_g,source_doc_type,source_doc_id,source_batch_id,
 			qty_g,qty_units,remaining_g,remaining_units,quality_status,operator,created_at
-		) VALUES($1,'material',$2,$3,$4,0,'production_run',$5,$6,$7,$8,$7,$8,'pass',$9,now())
-	`, r.schema), batchCode, wo.OutputMaterialID, materialName, ownerCustomerID, run.ID, run.BatchID, finishedG, finishedUnits, cmd.Operator); err != nil {
+		) VALUES($1,'material',$2,$3,$4,0,$10,$5,$6,$7,$8,$7,$8,'pass',$9,now())
+	`, r.schema), batchCode, wo.OutputMaterialID, materialName, ownerCustomerID, stockSourceID, run.BatchID, finishedG, finishedUnits, cmd.Operator, stockSource); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 	if err := insertStockLedgerEntryOwnedTx(ctx, tx, r.schema,
@@ -222,7 +298,7 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
-	actualCost, err := recordBatchCostForRunningItemTx(ctx, tx, r.schema, run, finishedG)
+	actualCost, materialCost, operationCost, err := recordMaterialReceiptCostTx(ctx, tx, r.schema, run, wo, previousG+finishedG, previousUnits+finishedUnits, partial)
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
@@ -245,28 +321,41 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	if err := allocateMaterialOutputToDownstreamReservationsTx(ctx, tx, r.schema, wo.ID, wo.OutputMaterialID, materialBatchID, batchCode, finishedG, finishedUnits); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
-	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, r.schema, run.ID); err != nil {
-		return productionapp.WorkOrderCompleteResult{}, err
-	}
-	actualInputG := cmd.ConsumedInputG
+	actualInputG := run.InputG
 	if actualInputG <= 0 {
 		for _, need := range needs {
 			actualInputG += need.DeductG
 		}
 	}
-	if err := completeWorkOrderForRunningItemTx(ctx, tx, r.schema, run.ID, actualCost, actualInputG, finishedG, cmd.Operator); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_material_receipts(id,work_order_id,running_item_id,material_batch_id,stock_entry_id,finished_g,finished_units,input_g,material_cost,operation_cost,completion_mode) VALUES($11,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, r.schema), wo.ID, run.ID, materialBatchID, entry.ID, finishedG, finishedUnits, actualInputG, materialCost, operationCost, cmd.CompletionMode, receiptID); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1
-	`, r.schema), run.ID, cmd.Operator, time.Now()); err != nil {
+	var cumulativeCost float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(material_cost+operation_cost),0)::float8 FROM %s.production_material_receipts WHERE work_order_id=$1`, r.schema), wo.ID).Scan(&cumulativeCost); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &wo.ID, "complete", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(wo.Status), postgresinfra.StrPtr("completed"), postgresinfra.AuditMeta{
-		"output_type": "material", "output_material_id": wo.OutputMaterialID,
-		"finished_qty_g": finishedG, "finished_qty_units": finishedUnits,
-		"warehouse": warehouse, "batch_code": batchCode,
-	}); err != nil {
+	nextStatus := "partially_completed"
+	if !partial {
+		nextStatus = "completed"
+		if err := completeMaterialReservationsForRunningItemTx(ctx, tx, r.schema, run.ID); err != nil {
+			return productionapp.WorkOrderCompleteResult{}, err
+		}
+		if err := completeWorkOrderForRunningItemTx(ctx, tx, r.schema, run.ID, cumulativeCost, previousInput+actualInputG, previousG+finishedG, cmd.Operator); err != nil {
+			return productionapp.WorkOrderCompleteResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, r.schema), run.ID, cmd.Operator, time.Now()); err != nil {
+			return productionapp.WorkOrderCompleteResult{}, err
+		}
+	} else {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET status='partially_completed',actual_cost=$2 WHERE id=$1`, r.schema), wo.ID, cumulativeCost); err != nil {
+			return productionapp.WorkOrderCompleteResult{}, err
+		}
+	}
+	action := "complete"
+	if partial {
+		action = "material_receipt"
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &wo.ID, action, postgresinfra.StrPtr("status"), postgresinfra.StrPtr(wo.Status), postgresinfra.StrPtr(nextStatus), postgresinfra.AuditMeta{"completion_mode": cmd.CompletionMode, "finished_qty_g": finishedG, "finished_qty_units": finishedUnits, "actual_input_g": actualInputG, "material_cost": materialCost, "operation_cost": operationCost, "warehouse": warehouse, "batch_code": batchCode}); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 	updated, err := loadWorkOrderExecutionRowTx(ctx, tx, r.schema, wo.ID)
@@ -277,12 +366,14 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
+	result := productionapp.WorkOrderCompleteResult{WorkOrder: updated, StockEntries: []productionapp.StockEntryRow{stockEntryRowFromDetail(entry)}, Cost: cost}
+	if err := finishProductionKeyTx(ctx, tx, r.schema, "material_receipt", cmd.Operator, cmd.RequestID, wo.ID, result); err != nil {
+		return result, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
-	return productionapp.WorkOrderCompleteResult{
-		WorkOrder: updated, StockEntries: []productionapp.StockEntryRow{stockEntryRowFromDetail(entry)}, Cost: cost,
-	}, nil
+	return result, nil
 }
 
 func materialOutputUnitCost(actualCost float64, outputUnit string, finishedG, finishedUnits int64) float64 {
@@ -311,7 +402,7 @@ func allocateMaterialOutputToDownstreamReservationsTx(ctx context.Context, tx pg
 		return err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT reservation.id,reservation.required_g,reservation.required_units,reservation.reserved_g,reservation.reserved_units
+		SELECT reservation.id,reservation.required_g,reservation.required_units,reservation.reserved_g,reservation.reserved_units,dependency.id,GREATEST(0,dependency.required_g-dependency.delivered_g),GREATEST(0,dependency.required_units-dependency.delivered_units)
 		FROM %s.work_order_dependencies dependency
 		JOIN %s.work_order_material_reservations reservation
 		  ON reservation.work_order_id=dependency.work_order_id
@@ -325,12 +416,12 @@ func allocateMaterialOutputToDownstreamReservationsTx(ctx context.Context, tx pg
 		return err
 	}
 	type reservationGap struct {
-		id, requiredG, requiredUnits, reservedG, reservedUnits int64
+		id, requiredG, requiredUnits, reservedG, reservedUnits, dependencyID, undeliveredG, undeliveredUnits int64
 	}
 	reservations := make([]reservationGap, 0)
 	for rows.Next() {
 		var row reservationGap
-		if err := rows.Scan(&row.id, &row.requiredG, &row.requiredUnits, &row.reservedG, &row.reservedUnits); err != nil {
+		if err := rows.Scan(&row.id, &row.requiredG, &row.requiredUnits, &row.reservedG, &row.reservedUnits, &row.dependencyID, &row.undeliveredG, &row.undeliveredUnits); err != nil {
 			rows.Close()
 			return err
 		}
@@ -343,8 +434,8 @@ func allocateMaterialOutputToDownstreamReservationsTx(ctx context.Context, tx pg
 	rows.Close()
 	remainingG, remainingUnits := producedG, producedUnits
 	for _, row := range reservations {
-		addG := minInt64(nonnegativeQuantity(row.requiredG-row.reservedG), remainingG)
-		addUnits := minInt64(nonnegativeQuantity(row.requiredUnits-row.reservedUnits), remainingUnits)
+		addG := minInt64(minInt64(nonnegativeQuantity(row.requiredG-row.reservedG), remainingG), row.undeliveredG)
+		addUnits := minInt64(minInt64(nonnegativeQuantity(row.requiredUnits-row.reservedUnits), remainingUnits), row.undeliveredUnits)
 		if addG <= 0 && addUnits <= 0 {
 			continue
 		}
@@ -372,8 +463,75 @@ func allocateMaterialOutputToDownstreamReservationsTx(ctx context.Context, tx pg
 		`, schema, schema), row.id, materialBatchID, batchCode, warehouse, ownerCustomerID, addG, addUnits); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_order_dependencies SET delivered_g=delivered_g+$2,delivered_units=delivered_units+$3 WHERE id=$1`, schema), row.dependencyID, addG, addUnits); err != nil {
+			return err
+		}
 		remainingG -= addG
 		remainingUnits -= addUnits
+	}
+	return nil
+}
+
+// Each receipt owns only its incremental cost; earlier batches remain immutable.
+func recordMaterialReceiptCostTx(ctx context.Context, tx pgx.Tx, schema string, run ProduceRunRow, wo productionapp.WorkOrderRow, totalG, totalUnits int64, partial bool) (float64, float64, float64, error) {
+	if _, err := recordBatchCostForRunningItemTx(ctx, tx, schema, run, totalG); err != nil {
+		return 0, 0, 0, err
+	}
+	var material, operation, previousMaterial, previousOperation float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT material_cost::float8,operation_cost::float8 FROM %s.production_batch_costs WHERE running_item_id=$1`, schema), run.ID).Scan(&material, &operation); err != nil {
+		return 0, 0, 0, err
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(material_cost),0)::float8,COALESCE(SUM(operation_cost),0)::float8 FROM %s.production_material_receipts WHERE work_order_id=$1`, schema), wo.ID).Scan(&previousMaterial, &previousOperation); err != nil {
+		return 0, 0, 0, err
+	}
+	if partial && wo.OutputQty > 0 {
+		operation *= math.Min(1, manufacturingQtyFromCanonical(totalG, totalUnits, wo.OutputUnit)/wo.OutputQty)
+	}
+	if material+0.000001 < previousMaterial || operation+0.000001 < previousOperation {
+		return 0, 0, 0, fmt.Errorf("累计成本小于已入库成本，请检查工序费用；既有批次成本不能回改")
+	}
+	unitCost := materialOutputUnitCost(material+operation, wo.OutputUnit, totalG, totalUnits)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_batch_costs SET operation_cost=$2,total_cost=material_cost+$2,unit_cost_per_kg=$3 WHERE running_item_id=$1`, schema), run.ID, operation, unitCost); err != nil {
+		return 0, 0, 0, err
+	}
+	m, o := material-previousMaterial, operation-previousOperation
+	return m + o, m, o, nil
+}
+
+func reserveAdditionalReceiptInputsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, needs []materialConsumptionNeed) error {
+	for _, need := range needs {
+		if need.ComponentType == "finished_product" || need.Source == "finished_product" {
+			continue
+		}
+		var id, owner, remainingG, remainingUnits int64
+		var warehouse string
+		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,source_warehouse,source_owner_customer_id,GREATEST(0,reserved_g-consumed_g-returned_g),GREATEST(0,reserved_units-consumed_units-returned_units) FROM %s.work_order_material_reservations WHERE work_order_id=$1 AND material_id=$2 AND status='reserved' FOR UPDATE`, schema), workOrderID, need.MaterialID).Scan(&id, &warehouse, &owner, &remainingG, &remainingUnits)
+		if err == pgx.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		g, n := nonnegativeQuantity(need.DeductG-remainingG), nonnegativeQuantity(need.DeductUnits-remainingUnits)
+		if g == 0 && n == 0 {
+			continue
+		}
+		if warehouse == "" {
+			return fmt.Errorf("实际投料超出已分配供应，请先补料：%s", need.MaterialName)
+		}
+		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, "material", need.MaterialID, 0, 0, warehouse, owner, true)
+		if err != nil {
+			return err
+		}
+		if availableG < g || availableUnits < n {
+			return fmt.Errorf("实际耗料需要补足同仓同货主的可用批次：%s", need.MaterialName)
+		}
+		if err := bindMaterialReservationBatchesModeTx(ctx, tx, schema, id, workOrderID, need.MaterialID, warehouse, owner, g, n, true); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_order_material_reservations SET required_g=GREATEST(required_g,reserved_g+$2),required_units=GREATEST(required_units,reserved_units+$3),reserved_g=reserved_g+$2,reserved_units=reserved_units+$3,updated_at=now() WHERE id=$1`, schema), id, g, n); err != nil {
+			return err
+		}
 	}
 	return nil
 }

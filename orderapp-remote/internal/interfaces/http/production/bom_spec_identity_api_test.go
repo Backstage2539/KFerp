@@ -136,6 +136,7 @@ func TestProductionPlanUsesBomSpecIdentityWithoutSalesUnitConversion(t *testing.
 		) VALUES(%d,%d,1,'包装',100,'袋',15,1,100,0,15);
 	`, schema, planID, planItemID))
 
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit BOM specification plan status=%d body=%s", submit.Code, submit.Body.String())

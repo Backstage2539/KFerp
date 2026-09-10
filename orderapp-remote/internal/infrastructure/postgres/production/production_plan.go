@@ -30,11 +30,22 @@ func startRunGroupKey(group startRunGroup) string {
 }
 
 func (r Repository) CreateProductionPlan(ctx context.Context, cmd productionapp.CreateProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
+	if cmd.SourceType == "stock" {
+		return r.createStockProductionPlan(ctx, cmd)
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	previousID, _, err := requestProductionKeyTx(ctx, tx, r.schema, "create_plan", cmd.Operator, cmd.RequestID, cmd)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if previousID > 0 {
+		return loadProductionPlanDetailTx(ctx, tx, r.schema, previousID)
+	}
 
 	needs, err := r.productionPlanSelectedNeeds(ctx, tx, cmd)
 	if err != nil {
@@ -125,6 +136,9 @@ func (r Repository) CreateProductionPlan(ctx context.Context, cmd productionapp.
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &planID, "create", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("draft"), postgresinfra.AuditMeta{"source_type": cmd.SourceType}); err != nil {
 		return productionapp.ProductionPlanDetail{}, err
 	}
+	if err := finishProductionKeyTx(ctx, tx, r.schema, "create_plan", cmd.Operator, cmd.RequestID, planID, nil); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return productionapp.ProductionPlanDetail{}, err
 	}
@@ -149,7 +163,7 @@ func (r Repository) productionPlanSelectedNeeds(ctx context.Context, tx pgx.Tx, 
 		if key == "" {
 			key = productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG)
 		}
-		if cmd.Selected[key] &&
+		if productionDemandIsSelected(row, cmd.Selected) &&
 			strings.TrimSpace(row.BlockingReason) != "" {
 			return nil, fmt.Errorf("%s", row.BlockingReason)
 		}
@@ -164,13 +178,14 @@ func selectedProductionPlanStartNeeds(rows []productionapp.UnprodNeedRow, select
 		if key == "" {
 			key = productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG)
 		}
-		if !selected[key] ||
+		if !productionDemandIsSelected(row, selected) ||
 			strings.TrimSpace(row.BlockingReason) != "" ||
 			(row.GapG <= 0 && row.GapInventoryQty <= 0) ||
 			row.DemandStatus != "unplanned" {
 			continue
 		}
 		out = append(out, productionapp.StartNeed{
+			OrderDetails: row.OrderDetails, SelectionID: row.SelectionID,
 			ProductID:                row.ProductID,
 			ParentProductID:          row.ParentProductID,
 			BomSpecID:                row.BomSpecID,
@@ -389,7 +404,8 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 	if group.ProcessingRequestItemID > 0 {
 		frozenBasis, err := loadCustomerProcessingPlanBasisTx(ctx, tx, schema, group.ProcessingRequestItemID, group)
 		if err != nil {
-			return productionapp.ProductionPlanItem{}, err
+			return productionapp.ProductionPlanItem{
+				DemandSources: group.OrderDetails}, err
 		}
 		basis := chooseCustomerProcessingPlanBasis(group.ProcessingRequestItemID, customerProcessingPlanBasis{}, frozenBasis)
 		bomRoute = basis.BomRoute
@@ -489,6 +505,13 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 		targetWarehouse = stockdomain.WarehouseFinishedGoods
 	}
 
+	if planID == 0 {
+		return productionapp.ProductionPlanItem{DemandSources: group.OrderDetails, ProductID: group.ProductID, ParentProductID: bomRoute.ParentProductID, BomSpecID: group.BomSpecID, BomVariantID: group.BomVariantID, BomSourceProductID: bomRoute.BomSourceProductID, ProductName: group.ProductName, SpecG: group.SpecG,
+			SalesSpecCount: group.SalesSpecCount, InventoryQtyPerSalesUnit: group.InventoryQtyPerSalesUnit, InventoryUnit: group.InventoryUnit, PlannedInventoryQty: group.PlannedInventoryQty, SalesSpecSnapshotJSON: string(salesSpecSnapshotJSON), BomInherited: bomRoute.BomInherited,
+			PlannedG: group.InputG, PlannedOutputG: group.NeedG, GapG: group.NeedG, OrderNos: group.OrderNos, BomVersionID: bomVersionID, OperationTemplateID: group.OperationTemplateID, ProcessRouteID: processRouteID,
+			MaterialSnapshot: string(materialSnapshot), ProcessSnapshotJSON: string(processSnapshotJSON), ProductionConfigSnapshotJSON: string(productionConfigSnapshot), CustomerProductSnapshotJSON: string(customerProductSnapshot), CustomerID: group.CustomerID, TargetWarehouse: targetWarehouse, ProcessingRequestItemID: group.ProcessingRequestItemID,
+			OutputType: "product", OutputProductID: group.ProductID, OutputName: group.ProductName, OutputQty: group.PlannedInventoryQty, OutputUnit: group.InventoryUnit}, nil
+	}
 	var item productionapp.ProductionPlanItem
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_plan_items(
@@ -527,6 +550,10 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 	}
 	if err := linkProcessingRequestItemToPlanTx(ctx, tx, schema, item); err != nil {
 		return productionapp.ProductionPlanItem{}, err
+	}
+	item.DemandSources = group.OrderDetails
+	if err := savePlanDemandSourcesTx(ctx, tx, schema, item.ID, group.OrderDetails); err != nil {
+		return item, err
 	}
 	return item, nil
 }
@@ -880,6 +907,9 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	detail.Items = items
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT supply_graph_json FROM %s.production_plans WHERE id=$1`, schema), id).Scan(&detail.SupplyPlan); err != nil {
+		return detail, err
+	}
 	splits, err := loadProductionPlanOperationSplitsTx(ctx, tx, schema, id)
 	if err != nil {
 		return productionapp.ProductionPlanDetail{}, err
@@ -896,6 +926,10 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	detail.ComponentSources = componentSources
+	detail.SupplyAllocations, err = loadProductionSupplyAllocationsTx(ctx, tx, schema, id)
+	if err != nil {
+		return detail, err
+	}
 	manufacturingPlan, err := loadProductionManufacturingPlanTx(ctx, tx, schema, items, supplyGaps)
 	if err != nil {
 		return productionapp.ProductionPlanDetail{}, err
@@ -923,7 +957,7 @@ func loadProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schema string, pl
 		       COALESCE(process_route_snapshot_json,'{}'::jsonb)::text,
 		       COALESCE(production_config_snapshot_json,'{}'::jsonb)::text,
 		       COALESCE(customer_product_snapshot_json,'[]'::jsonb)::text,
-		       customer_id,target_warehouse,processing_request_item_id
+		       customer_id,target_warehouse,processing_request_item_id,demand_sources_json
 		FROM %s.production_plan_items
 		WHERE production_plan_id=$1
 		ORDER BY id
@@ -934,6 +968,7 @@ func loadProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schema string, pl
 	defer rows.Close()
 	out := make([]productionapp.ProductionPlanItem, 0)
 	for rows.Next() {
+		var sources []byte
 		var item productionapp.ProductionPlanItem
 		if err := rows.Scan(
 			&item.ID, &item.PlanID,
@@ -944,7 +979,7 @@ func loadProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schema string, pl
 			&item.PlannedG, &item.PlannedOutputG, &item.GapG, &item.OrderNos, &item.BomVersionID,
 			&item.OperationTemplateID, &item.ProcessRouteID, &item.MaterialSnapshot, &item.ProcessSnapshotJSON,
 			&item.ProductionConfigSnapshotJSON, &item.CustomerProductSnapshotJSON,
-			&item.CustomerID, &item.TargetWarehouse, &item.ProcessingRequestItemID,
+			&item.CustomerID, &item.TargetWarehouse, &item.ProcessingRequestItemID, &sources,
 		); err != nil {
 			return nil, err
 		}
@@ -961,6 +996,7 @@ func loadProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schema string, pl
 		} else {
 			item.BomSource = "sku"
 		}
+		_ = json.Unmarshal(sources, &item.DemandSources)
 		out = append(out, item)
 	}
 	return out, rows.Err()
@@ -1784,6 +1820,10 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 		}
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
+	if status == "submitted" {
+		plan, err := loadProductionPlanDetailTx(ctx, tx, r.schema, cmd.ID)
+		return productionapp.ProductionPlanSubmitResult{Plan: plan}, err
+	}
 	if status != "draft" {
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("production plan must be draft to submit")
 	}
@@ -1793,6 +1833,9 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	}
 	if len(items) == 0 {
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("production plan has no items")
+	}
+	if err := validateInflightSupplyAtSubmitTx(ctx, tx, r.schema, cmd.ID); err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
 	}
 	if err := validateProductionPlanComponentSourcesAtSubmitTx(ctx, tx, r.schema, cmd.ID, items); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
@@ -2015,6 +2058,11 @@ func cancelSubmittedUnstartedProductionPlanTx(ctx context.Context, tx pgx.Tx, sc
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	rows.Close()
+	for _, row := range workOrders {
+		if err := guardSupplierCancellationTx(ctx, tx, schema, row.id, cmd.ID); err != nil {
+			return productionapp.ProductionPlanDetail{}, err
+		}
+	}
 	for _, row := range workOrders {
 		if row.status == "cancelled" {
 			continue

@@ -84,6 +84,8 @@
               <option v-for="option in entryTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </label>
+          <label v-if="isMaterialProductionReceipt"><span>本次入库</span><select v-model="receiptMode" :disabled="!isDraft"><option value="partial">本次部分入库</option><option value="final">最后一次入库</option></select></label>
+          <label v-if="isMaterialProductionReceipt"><span>本次实际投入（kg）</span><input v-model.number="receiptInputKg" type="number" min="0" step="0.001" :disabled="!isDraft" placeholder="按本次实际投料填写" /></label>
           <label class="wide"><span>备注</span><input v-model.trim="form.note" :disabled="!isDraft" /></label>
         </div>
 
@@ -254,6 +256,9 @@ let localKey = 0
 const form = reactive(emptyDocument())
 let materialBalanceRequest = 0
 
+const receiptMode = ref('final')
+const receiptInputKg = ref(0)
+const isMaterialProductionReceipt = computed(() => isBoundProductionDocument.value && form.purpose_key === 'manufacture' && form.items.length === 1 && form.items[0].item_type === 'material')
 const isDraft = computed(() => !form.id || form.status === 'draft')
 const isReceipt = computed(() => form.purpose_key === 'material_receipt')
 const isRetiredReceiptDraft = computed(() => Boolean(form.id && form.status === 'draft' && isReceipt.value))
@@ -524,12 +529,13 @@ async function saveDraft() {
 }
 
 async function submitDocument() {
+  const receiptOptions = isMaterialProductionReceipt.value ? { completion_mode: receiptMode.value, consumed_input_g: Math.round(Number(receiptInputKg.value || 0) * 1000) } : {}
   const draft = await saveDraft()
   if (!draft?.id) return
   saving.value = true
   drawerError.value = ''
   try {
-    const data = await apiSend(`${stockEntryEndpoint()}/${draft.id}/submit`, { body: {} })
+    const data = await apiSend(`${stockEntryEndpoint()}/${draft.id}/submit`, { body: receiptOptions })
     applyDocument(data)
     await load()
   } catch (err) {
@@ -648,6 +654,8 @@ async function loadOptions() {
 }
 
 async function applyViewParams(params = {}) {
+  receiptMode.value = params.receipt_mode === 'partial' ? 'partial' : 'final'
+  receiptInputKg.value = 0
   const workOrderID = Number(params.work_order_id || 0)
   filters.work_order_id = workOrderID
   let action = String(params.action || '').trim()

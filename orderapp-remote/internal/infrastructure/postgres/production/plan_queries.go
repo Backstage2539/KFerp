@@ -73,6 +73,7 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	}
 	appRows = filterProductionDemandRows(appRows, query.DemandStatus)
 	data.Rows = appRows
+	data.ProductGroups = groupProductionDemandProducts(appRows)
 	if !data.PlanReady {
 		return data, nil
 	}
@@ -84,7 +85,7 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 		if key == "" {
 			key = productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG)
 		}
-		if !query.Selected[key] {
+		if !productionDemandIsSelected(row, query.Selected) {
 			continue
 		}
 		selectedCount++
@@ -178,6 +179,15 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	}
 	data.Materials = mergeMaterialAvailability(data.Materials, materialPlan.Rows)
 	data.RoastSplits = calcRoastSplits(planRows, machines, params.YieldRate)
+	if len(planRows) > 0 {
+		preview, previewErr := r.PreviewProductionPlan(ctx, productionapp.CreateProductionPlanCommand{From: query.From, To: query.To, CustomerID: query.CustomerID, Selected: query.Selected, SourceType: "erp_order"})
+		if previewErr != nil {
+			data.Error = previewErr.Error()
+			data.PlanReady = false
+		} else {
+			data.Preview = &preview
+		}
+	}
 	return data, nil
 }
 
@@ -185,7 +195,8 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 	out := make([]productionapp.UnprodNeedRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, productionapp.UnprodNeedRow{
-			ProductID:                row.ProductID,
+			ProductID:         row.ProductID,
+			ParentProductName: row.ParentProductName, OrderDetails: row.OrderDetails, SelectionID: productionDemandSelectionID(row),
 			ParentProductID:          row.ParentProductID,
 			BomSpecID:                row.BomSpecID,
 			BomVariantID:             row.BomVariantID,
@@ -272,6 +283,14 @@ func (r Repository) splitUnproducedNeedsByProductionPlanQuery(ctx context.Contex
 	}
 	out := make([]UnprodNeedRow, 0, len(rows))
 	for _, row := range rows {
+		if len(row.OrderDetails) > 0 {
+			structured, err := splitStructuredProductionDemandRow(ctx, queryer, r.schema, row)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, structured...)
+			continue
+		}
 		rowParts := filterProductionDemandPartsForRow(partsByKey[producePlanKey(row.ProductID, row.SpecG)], row.OrderNos)
 		if len(rowParts) == 0 {
 			row.DemandStatus = "unplanned"

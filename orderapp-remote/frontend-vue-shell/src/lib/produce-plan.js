@@ -7,7 +7,7 @@ export function producePlanKey(productId, specG, bomSpecID = 0) {
 }
 
 function defaultSelectionKey(row) {
-	const scoped = String(row?.selection_key || '').trim()
+	const scoped = String(row?.selection_id || row?.selection_key || '').trim()
 	if (scoped) return scoped
   return producePlanKey(row.parent_product_id || row.product_id, row.spec_g, row.bom_spec_id)
 }
@@ -129,6 +129,71 @@ export function productionDemandSelectionState(rows, selected) {
 export function buildProductionDemandSelection(rows, checked) {
   if (!checked) return {}
   return Object.fromEntries(productionDemandSelectionKeys(rows).map((key) => [key, true]))
+}
+
+export function buildProductionGroupSelection(rows, selected, checked) {
+  const result = { ...selected }
+  for (const row of rows || []) {
+    const key = defaultSelectionKey(row)
+    if (checked && productionDemandSelectable(row)) result[key] = true
+    else delete result[key]
+  }
+  return result
+}
+
+function productionSalesQuantity(row, kind) {
+  const unit = String(row.sales_unit || (row.bom_spec_id ? row.inventory_unit : '') || '件').trim()
+  let need = Number(row.sales_spec_count || row.need_units || 0)
+  if (!need && Number(row.spec_g) > 0) need = Number(row.need_g || 0) / Number(row.spec_g)
+  if (!Number.isFinite(need) || need <= 0 || row.blocking_reason) return { unit, unknown: true, qty: 0 }
+  let gap = Number(row.gap_sales_spec_count || 0)
+  if (productionDemandGapQuantity(row) > 0 && gap <= 0) {
+    gap = row.bom_spec_id ? (Number(row.inventory_qty_per_sales_unit) > 0 ? Number(row.gap_inventory_qty) / Number(row.inventory_qty_per_sales_unit) : need) : (row.spec_g > 0 ? Number(row.gap_g) / Number(row.spec_g) : need)
+  }
+  gap = Math.min(need, Math.max(0, gap))
+  return { unit, qty: kind === 'gap' ? gap : kind === 'available' ? need - gap : need }
+}
+
+export function productionSalesQuantityLabel(rows, kind = 'need') {
+  const totals = new Map()
+  let unknown = false
+  for (const row of rows || []) {
+    const value = productionSalesQuantity(row, kind)
+    unknown ||= !!value.unknown
+    if (!value.unknown) totals.set(value.unit, (totals.get(value.unit) || 0) + value.qty)
+  }
+  const parts = [...totals].map(([unit, qty]) => productionDemandQuantity(qty, unit))
+  if (unknown) parts.push('件数待确认')
+  return parts.join(' / ') || '0'
+}
+
+export function groupProductionDemands(rows) {
+  const groups = new Map()
+  for (const row of rows || []) {
+    const key = String(row.parent_product_id || row.product_id)
+    if (!groups.has(key)) groups.set(key, { key, product_id: Number(key), product: row.parent_product_name || row.product, rows: [], specs: [], specMap: new Map() })
+    const group = groups.get(key)
+    const specKey = row.bom_spec_id ? `bom:${row.bom_spec_id}` : `legacy:${row.product_id}:${row.spec_label || row.spec_g}:${row.sales_unit}`
+    if (!group.specMap.has(specKey)) {
+      const spec = { key: `${key}:${specKey}`, label: row.spec_label || (row.spec_g > 0 ? `${row.spec_g}g` : '规格待确认'), rows: [] }
+      group.specMap.set(specKey, spec)
+      group.specs.push(spec)
+    }
+    group.rows.push(row)
+    group.specMap.get(specKey).rows.push(row)
+  }
+  for (const group of groups.values()) {
+    for (const entry of [group, ...group.specs]) {
+      entry.need_label = productionSalesQuantityLabel(entry.rows)
+      const weight = entry.rows.reduce((total, row) => total + Math.max(0, Number(row.need_g || 0)), 0)
+      entry.need_weight_label = weight > 0 ? `${Number((weight / 1000).toFixed(6))} kg` : ''
+      entry.available_label = productionSalesQuantityLabel(entry.rows, 'available')
+      entry.gap_label = productionSalesQuantityLabel(entry.rows, 'gap')
+      entry.order_nos = [...new Set(entry.rows.flatMap(row => String(row.order_nos || '').split(',')).filter(Boolean))].sort().join('、')
+    }
+    delete group.specMap
+  }
+  return [...groups.values()]
 }
 
 export function buildProductionDemandSummaryQuery(filters = {}, plan = false, selectedKeys = []) {
@@ -793,7 +858,8 @@ function manufacturingNodeKey(item = {}) {
   const explicitKey = String(item.key || item.node_key || '').trim()
   if (explicitKey) return explicitKey
   const type = manufacturingOutputType(item)
-  return `${type}:${manufacturingOutputID(item, type)}`
+  const base = `${type}:${manufacturingOutputID(item, type)}${Number(item.bom_spec_id || 0) > 0 ? `:bom_spec:${item.bom_spec_id}` : ''}`
+  return item.scope ? `${base}::${item.scope}` : base
 }
 
 function manufacturingItemLabel(item = {}) {
@@ -891,7 +957,7 @@ function manufacturingPlanFallbackRows(plan = {}) {
 }
 
 export function manufacturingPlanRows(payload = {}) {
-  const plan = payload.manufacturing_plan || payload.multilevel_plan || payload
+  const plan = payload.multilevel_plan || payload.manufacturing_plan || payload
   const nodes = Array.isArray(plan.nodes) ? plan.nodes : []
   const edges = Array.isArray(plan.edges) ? plan.edges : []
   if (!nodes.length) {
@@ -947,7 +1013,7 @@ export function manufacturingPlanRows(payload = {}) {
       required_qty: Number(node.required_qty || 0),
       stock_covered_qty: Number(node.stock_covered_qty || 0),
       shortage_qty: Number(node.shortage_qty || 0),
-      action_label: manufacturingActionLabel(node.action),
+      action_label: Number(node.inflight_covered_qty || 0) > 0 && Number(node.shortage_qty || 0) <= 0 ? '等待已分配产出' : manufacturingActionLabel(node.action),
       blocking: Boolean(node.blocking),
       dependency_label: consumers.length
         ? `供给 ${consumers.map((consumer) => manufacturingItemLabel(consumer)).join('；')}`

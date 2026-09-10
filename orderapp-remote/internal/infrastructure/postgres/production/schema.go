@@ -38,6 +38,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureMultilevelProductionTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensurePlanningSupplyTables(ctx, pool, schema); err != nil {
+		return err
+	}
+
 	if err := ensureQualityInspectionTables(ctx, pool, schema); err != nil {
 		return err
 	}

@@ -518,6 +518,10 @@ func productionPlanComponentSourceForIdentityTx(ctx context.Context, tx pgx.Tx, 
 }
 
 func bindMaterialReservationBatchesTx(ctx context.Context, tx pgx.Tx, schema string, reservationID, workOrderID, materialID int64, warehouse string, ownerCustomerID, reserveG, reserveUnits int64) error {
+	return bindMaterialReservationBatchesModeTx(ctx, tx, schema, reservationID, workOrderID, materialID, warehouse, ownerCustomerID, reserveG, reserveUnits, false)
+}
+
+func bindMaterialReservationBatchesModeTx(ctx context.Context, tx pgx.Tx, schema string, reservationID, workOrderID, materialID int64, warehouse string, ownerCustomerID, reserveG, reserveUnits int64, additional bool) error {
 	if reserveG <= 0 && reserveUnits <= 0 {
 		return nil
 	}
@@ -531,12 +535,12 @@ func bindMaterialReservationBatchesTx(ctx context.Context, tx pgx.Tx, schema str
 			SELECT COALESCE(SUM(GREATEST(0,rb.reserved_g-rb.consumed_g-rb.returned_g)),0)::bigint AS reserved_g,
 			       COALESCE(SUM(GREATEST(0,rb.reserved_units-rb.consumed_units-rb.returned_units)),0)::bigint AS reserved_units
 			FROM %s.work_order_material_reservation_batches rb
-			WHERE rb.material_batch_id=b.id AND rb.warehouse=l.warehouse AND rb.status='reserved' AND rb.reservation_id<>$4
+			WHERE rb.material_batch_id=b.id AND rb.warehouse=l.warehouse AND rb.status='reserved' AND ($5 OR rb.reservation_id<>$4)
 		) bound ON true
 		WHERE l.material_id=$1 AND l.warehouse=$2 AND COALESCE(b.owner_customer_id,0)=$3
 		  AND b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.received_at,b.id FOR UPDATE OF b,l
-	`, schema, schema, schema), materialID, warehouse, ownerCustomerID, reservationID)
+	`, schema, schema, schema), materialID, warehouse, ownerCustomerID, reservationID, additional)
 	if err != nil {
 		return err
 	}
@@ -573,9 +577,9 @@ func bindMaterialReservationBatchesTx(ctx context.Context, tx pgx.Tx, schema str
 				batch_code,warehouse,owner_customer_id,reserved_g,reserved_units,status,created_at,updated_at
 			) VALUES($1,$2,$3,'material',$3,$4,0,$5,$6,$7,$8,$9,'reserved',now(),now())
 			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
-				reserved_g=excluded.reserved_g,reserved_units=excluded.reserved_units,warehouse=excluded.warehouse,
+				reserved_g=CASE WHEN $10 THEN work_order_material_reservation_batches.reserved_g+excluded.reserved_g ELSE excluded.reserved_g END,reserved_units=CASE WHEN $10 THEN work_order_material_reservation_batches.reserved_units+excluded.reserved_units ELSE excluded.reserved_units END,warehouse=excluded.warehouse,
 				owner_customer_id=excluded.owner_customer_id,status='reserved',updated_at=now()
-		`, schema), reservationID, workOrderID, materialID, batch.id, batch.code, warehouse, ownerCustomerID, addG, addUnits); err != nil {
+		`, schema), reservationID, workOrderID, materialID, batch.id, batch.code, warehouse, ownerCustomerID, addG, addUnits, additional); err != nil {
 			return err
 		}
 		remainingG -= addG
