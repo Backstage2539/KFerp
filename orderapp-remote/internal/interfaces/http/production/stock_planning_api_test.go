@@ -289,6 +289,28 @@ func TestDemandProductGroupsAvoidOrderSourceColumnCollision(t *testing.T) {
 	}
 }
 
+func TestDemandProductGroupsBlocksIncompleteBOMBeforeSelection(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedMultilevelMaterialOutputFlow(t, ctx, pool, schema)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`DELETE FROM %s.production_bom_version_items WHERE version_id=100`, schema))
+	app := newProductionFlowTestEcho(pool, schema)
+	rec := serveMultilevelProductionJSON(t, app, http.MethodGet, "/api/produce/unproduced", nil)
+	var data productionapp.PlanSummaryData
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &data) != nil || len(data.Rows) != 1 {
+		t.Fatalf("demand listing: %d %s", rec.Code, rec.Body.String())
+	}
+	if data.Rows[0].DemandSelectable || !strings.Contains(data.Rows[0].BlockingReason, "物料明细") {
+		t.Fatalf("incomplete BOM remained selectable: %+v", data.Rows[0])
+	}
+	preview := serveMultilevelProductionJSON(t, app, http.MethodGet, "/api/produce/unproduced?plan=1&selected="+data.Rows[0].SelectionID, nil)
+	var selected productionapp.PlanSummaryData
+	if preview.Code != http.StatusOK || json.Unmarshal(preview.Body.Bytes(), &selected) != nil || selected.PlanReady || !strings.Contains(selected.Error, "物料明细") {
+		t.Fatalf("selected refresh must retain a useful error: %d %s", preview.Code, preview.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plans", "true", 0)
+}
+
 func TestDemandProductGroupsPreserveFrozenUnitsAndExactOrderItems(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
