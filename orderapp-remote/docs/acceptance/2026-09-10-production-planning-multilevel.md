@@ -74,4 +74,9 @@ Van 验收入口：生产流程 → 生产计划。建议核对真实订单分�
 - 根因：`demandGroups` 的监听器注册时立即执行 getter，提前访问尚未声明的 `stockInsufficientRows`。原测试仅渲染模板片段及单独调用 mounted 回调，没有执行完整 setup 的真实监听器，遗漏此初始化错误。
 - 新回归测试编译整个实际 SFC setup，只延后浏览器生命周期动作，保留真实 Vue computed / watch / watchEffect；RED 重现 `Cannot access 'stockInsufficientRows' before initialization`。把分组计算和分页监听放在基础需求计算初始化之后，GREEN 同时验证 21 个商品分页与需求减少后的页码回退。
 - 6 项相关测试、全部前端 1165/1165、生产构建通过，`git diff --check` 通过。无后端或业务数据变更，操作路径不变，无手册流程调整。
-- 功能分支 `codex/production-plan-initialization-20260910`，基于最新 `origin/develop=afa92065`。日志 `/private/tmp/pr648-page-init-red.log`、`/private/tmp/pr648-page-init-green.log`、`/private/tmp/pr648-page-init-frontend.log`、`/private/tmp/pr648-page-init-build.log`。开发发布及实际浏览器复验待追加。
+- 功能分支 `codex/production-plan-initialization-20260910`，基于最新 `origin/develop=afa92065`。日志 `/private/tmp/pr648-page-init-red.log`、`/private/tmp/pr648-page-init-green.log`、`/private/tmp/pr648-page-init-frontend.log`、`/private/tmp/pr648-page-init-build.log`。开发发布及实际浏览器复验结果如下。
+
+- GitHub PR #111 已合并：功能提交 `7b96622c3c83f337d8ae44b93606fd97bf68a2eb`，开发发布 `5f69aed128799fc39778084c40880bbb0cdb8f83`。2026-09-10 23:31（Asia/Shanghai）`./deploy_orderapp.sh development` 退出 0 / `Release completed`，服务器 Vue 1165、miniapp 238、Go/镜像检查及全部构建通过，外部登录页 HTTP 200。
+- 实际 Chrome 原故障页面：先重新加载构建，再由侧栏打开生产流程；生产计划表单、步骤、待计划需求、当前计划及单据列表正常显示。切到生产工单再返回生产计划正常；直接刷新 `https://dev.qacoohee.com/app/vue-shell?view=productionFlow&demand_status=unplanned` 后仍正常。`当前生产计划` 与 `半成品备货` 可见，复验开始之后的控制台 error 为 0，并已查看真实页面截图。
+- 本次浏览器操作仅为打开、切换、刷新，没有创建生产计划、工单或库存。原用户页签保留在已恢复的生产计划页面。多层生产的完整真实业务验收仍由 Van 进行，本次页面故障已完成实际复验。
+- 发布日志 `/private/tmp/pr648-page-init-deploy.log`。回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20260910232420-5f69aed12879`，回滚镜像 `kferp-orderapp-rollback:development-20260910232420-5f69aed12879`。无正式环境发布；此记录为发布后的文档补充，不重复部署。
