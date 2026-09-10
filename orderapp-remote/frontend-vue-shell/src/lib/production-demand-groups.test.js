@@ -1,10 +1,50 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { compileTemplate } from '@vue/compiler-sfc'
+import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import * as Vue from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import * as plan from './produce-plan.js'
+
+test('complete plan setup initializes real Vue watchers and keeps group pagination in range', async () => {
+  const viewURL = new URL('../views/ProducePlanView.vue', import.meta.url)
+  const { descriptor } = parse(fs.readFileSync(viewURL, 'utf8'))
+  const compiled = compileScript(descriptor, { id: 'plan-setup-regression' })
+  const bindings = {}
+  const modules = new Map()
+  for (const [name, binding] of Object.entries(compiled.imports)) {
+    if (!modules.has(binding.source)) {
+      const module = binding.source === 'vue'
+        // Defer browser lifecycle work, but execute actual computed/watch logic.
+        ? { ...Vue, onMounted() {}, onBeforeUnmount() {} }
+        : binding.source.endsWith('.vue')
+          ? { default: {} }
+          : await import(new URL(binding.source.endsWith('.js') ? binding.source : `${binding.source}.js`, viewURL))
+      modules.set(binding.source, module)
+    }
+    bindings[name] = modules.get(binding.source)[binding.imported]
+  }
+  const code = compiled.content
+    .replace(/^import\s+[\s\S]*?\s+from\s+(['"])[^'"]+\1;?\n/gm, '')
+    .replace('export default', 'return')
+  const component = new Function(...Object.keys(bindings), code)(...Object.values(bindings))
+  const scope = Vue.effectScope()
+  try {
+    const state = scope.run(() => component.setup({ embedded: true, viewParams: {}, customerContextId: 0 }, { expose() {} }))
+    assert.deepEqual(state.pagedDemandGroups.value, [])
+    state.rows.value = Array.from({ length: 21 }, (_, i) => demand({ product_id: i + 1, parent_product_id: i + 1, selection_key: `row-${i}` }))
+    await Vue.nextTick()
+    assert.equal(state.pagedDemandGroups.value.length, 20)
+    state.demandPage.value = 2
+    assert.equal(state.pagedDemandGroups.value.length, 1)
+    state.rows.value = state.rows.value.slice(0, 2)
+    await Vue.nextTick()
+    assert.equal(state.demandPage.value, 1)
+    assert.equal(state.pagedDemandGroups.value.length, 2)
+  } finally {
+    scope.stop()
+  }
+})
 
 test('actual current-plan template renders a selection preview without a persisted draft', async () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')

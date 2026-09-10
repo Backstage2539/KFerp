@@ -67,3 +67,11 @@ Van 验收入口：生产流程 → 生产计划。建议核对真实订单分�
 - 微信开发构建已按发布脚本导出到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，14 个页面 / 56 个文件校验通过；没有上传或发布微信版本。
 - 最终日志 `/private/tmp/pr648-dev-deploy-delivered.log`、`/private/tmp/pr648-dev-smoke-delivered.log`。期间 SSH 短暂断连后已恢复，最终认证 API、容器和源文件核验已完成。开发环境既有免鉴权配置及扩展旧数据库测试的基线失败仍按上文单独记录。
 - Van 浏览器页面与真实业务验收待进行，PR/DEV 保持 review。本次开发合并/发布占用已释放。此节为发布后的文档记录；后续文档提交不改变已部署应用版本。
+
+## 页面初始化回归修复（用户截图反馈）
+
+- 已在 Van 的开发环境浏览器复现：生产流程页签正常，生产计划内容区为空；实际控制台报 `Cannot access 'He' before initialization`，后续 `slice` / `length` 异常均由此引起。
+- 根因：`demandGroups` 的监听器注册时立即执行 getter，提前访问尚未声明的 `stockInsufficientRows`。原测试仅渲染模板片段及单独调用 mounted 回调，没有执行完整 setup 的真实监听器，遗漏此初始化错误。
+- 新回归测试编译整个实际 SFC setup，只延后浏览器生命周期动作，保留真实 Vue computed / watch / watchEffect；RED 重现 `Cannot access 'stockInsufficientRows' before initialization`。把分组计算和分页监听放在基础需求计算初始化之后，GREEN 同时验证 21 个商品分页与需求减少后的页码回退。
+- 6 项相关测试、全部前端 1165/1165、生产构建通过，`git diff --check` 通过。无后端或业务数据变更，操作路径不变，无手册流程调整。
+- 功能分支 `codex/production-plan-initialization-20260910`，基于最新 `origin/develop=afa92065`。日志 `/private/tmp/pr648-page-init-red.log`、`/private/tmp/pr648-page-init-green.log`、`/private/tmp/pr648-page-init-frontend.log`、`/private/tmp/pr648-page-init-build.log`。开发发布及实际浏览器复验待追加。
