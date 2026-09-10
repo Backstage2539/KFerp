@@ -268,6 +268,27 @@ func TestInflightSupplyConcurrentSubmissionAndCancellationRelease(t *testing.T) 
 	}
 }
 
+func TestDemandProductGroupsAvoidOrderSourceColumnCollision(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedMultilevelMaterialOutputFlow(t, ctx, pool, schema)
+	// Live orders include a text source column; it must not shadow the JSON
+	// element used to resolve a demand's exact plan/order-item association.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN source TEXT NOT NULL DEFAULT 'erp'`, schema))
+	app := newProductionFlowTestEcho(pool, schema)
+	rec := serveMultilevelProductionJSON(t, app, http.MethodGet, "/api/produce/unproduced?from=2026-08-01&to=2026-08-31", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("demand with order source: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var data productionapp.PlanSummaryData
+	if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
+		t.Fatal(err)
+	}
+	if len(data.ProductGroups) != 1 || len(data.Rows) != 1 || len(data.Rows[0].OrderDetails) != 1 || !data.Rows[0].DemandSelectable {
+		t.Fatalf("unexpected structured demand: %+v", data)
+	}
+}
+
 func TestDemandProductGroupsPreserveFrozenUnitsAndExactOrderItems(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
