@@ -97,6 +97,54 @@ test('group selection preserves other pages and skips blocked, planned, covered 
   assert.equal(group.specs[0].need_label, '件数待确认')
 })
 
+test('BOM configuration errors preserve known sales quantities and frozen stock conversion', () => {
+  const rows = [3, 1].map((quantity, index) => demand({
+    selection_key: `blocked-${index}`, bom_spec_id: 0, spec_g: 1000,
+    sales_unit: 'kg', inventory_unit: 'kg', inventory_qty_per_sales_unit: 1,
+    sales_spec_count: quantity, gap_sales_spec_count: quantity,
+    need_g: quantity * 1000, gap_g: quantity * 1000,
+    blocking_reason: 'BOM 缺少物料明细，请完善对应版本后刷新需求。',
+  }))
+  assert.equal(plan.productionSalesQuantityLabel(rows), '4 kg')
+  assert.equal(plan.productionSalesQuantityLabel(rows, 'available'), '0 kg')
+  assert.equal(plan.productionSalesQuantityLabel(rows, 'gap'), '4 kg')
+  assert.equal(plan.productionDemandSelectionState(rows, {}).total, 0)
+
+  const invalidConversion = demand({ inventory_qty_per_sales_unit: 0, blocking_reason: '销售单位无法换算到库存单位' })
+  assert.equal(plan.productionSalesQuantityLabel([invalidConversion]), '2 袋')
+  assert.equal(plan.productionSalesQuantityLabel([invalidConversion], 'available'), '件数待确认')
+  assert.equal(plan.productionSalesQuantityLabel([invalidConversion], 'gap'), '件数待确认')
+  const legacy = demand({ bom_spec_id: 0, sales_unit: '', sales_spec_count: 0, need_units: 10, spec_g: 10, need_g: 100, blocking_reason: 'BOM 不可用' })
+  assert.equal(plan.productionSalesQuantityLabel([legacy]), '件数待确认')
+})
+
+test('configuration reasons are visible without expanding orders and known BOM errors explain the remedy', async () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  const start = source.indexOf('<table class="demand-table"')
+  const end = source.indexOf('</table>', start) + '</table>'.length
+  const { code, errors } = compileTemplate({ source: source.slice(start, end), filename: 'ProducePlanView.vue', id: 'blocking-reasons' })
+  assert.deepEqual(errors, [])
+  const js = code.replace(/import \{([^}]+)\} from "vue"/g, (_, names) => `const {${names.replace(/ as /g, ':')}} = Vue`).replace('export function render', 'function render')
+  const render = new Function('Vue', js + '\nreturn render')(Vue)
+  const reason = 'BOM 缺少物料明细，请完善对应版本后刷新需求。'
+  const rows = [demand({ blocking_reason: reason }), demand({ selection_key: 'b', blocking_reason: reason })]
+  const html = await renderToString(Vue.createSSRApp({ render, setup: () => ({ ...plan,
+    stockInsufficientRows: rows, pagedDemandGroups: plan.groupProductionDemands(rows), collapsedDemandGroups: {}, selected: {},
+    productionDemandSelectionKey: row => row.selection_key, toggleDemandGroup() {},
+  }) }))
+  const outsideOrderDetails = html.replace(/<details>[\s\S]*?<\/details>/g, '')
+  assert.ok(outsideOrderDetails.includes(reason), 'blocking reason must be visible outside collapsed order details')
+  assert.equal(outsideOrderDetails.split(reason).length - 1, 1, 'duplicate reasons should be combined per specification')
+  assert.match(html, /aria-label="选择规格 [^"]+"[^>]*disabled/)
+  for (const [raw, expected] of [
+    ['BOM 配置待完善：default production BOM is no longer an active output BOM: 咖啡', '默认 BOM 已停用或不再产出此商品'],
+    ['BOM 配置待完善：conflicting default production BOM configuration: 咖啡', '存在冲突的默认 BOM 配置'],
+    ['BOM 配置待完善：BOM specification does not belong to an active BOM of the frozen parent product or its frozen version is unavailable: 咖啡', '订单锁定的 BOM 规格或版本不可用'],
+  ]) {
+    assert.ok(plan.productionDemandBlockingReasons([demand({ blocking_reason: raw })])[0].includes(expected))
+  }
+})
+
 test('actual demand table renders backend order quantities and customer traceability', async () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
   const start = source.indexOf('<table class="demand-table"')

@@ -8,7 +8,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-648-PRODUCTION-PLANNING-MULTILEVEL
 - Branch: `codex/production-planning-multilevel-20260910`, base `2bd15db4`.
-- Status: initialization regression fixed and deployed; actual browser opening, tab return and refresh verified with no new console errors; Van full business acceptance pending; deploy ownership released.
+- Status: demand blocking-reason follow-up in progress; branch `codex/production-demand-blocking-reasons-20260910` from `950963ca`. Show the exact blocker outside collapsed order details; keep known sales quantities despite BOM errors. Targeted RED (2 failures) then GREEN (69 tests); development deploy ownership held by this thread. Original page initialization regression remains verified; Van full business acceptance pending.
 - Scope: demand preview crash, product/spec/order grouping, standalone material production, cross-plan supply allocation, partial material receipts and quantity-based downstream release.
 - DEV: DEV-648-DEMAND; DEV-648-STOCK-PLAN; DEV-648-SUPPLY; DEV-648-PARTIAL-RECEIPT; DEV-648-DELIVERY.
 - Verifier: targeted Vue render/helper RED/GREEN, isolated PostgreSQL API/concurrency/cost tests, full Go and Vue/build gates.

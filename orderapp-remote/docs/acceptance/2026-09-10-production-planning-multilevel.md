@@ -80,3 +80,12 @@ Van 验收入口：生产流程 → 生产计划。建议核对真实订单分�
 - 实际 Chrome 原故障页面：先重新加载构建，再由侧栏打开生产流程；生产计划表单、步骤、待计划需求、当前计划及单据列表正常显示。切到生产工单再返回生产计划正常；直接刷新 `https://dev.qacoohee.com/app/vue-shell?view=productionFlow&demand_status=unplanned` 后仍正常。`当前生产计划` 与 `半成品备货` 可见，复验开始之后的控制台 error 为 0，并已查看真实页面截图。
 - 本次浏览器操作仅为打开、切换、刷新，没有创建生产计划、工单或库存。原用户页签保留在已恢复的生产计划页面。多层生产的完整真实业务验收仍由 Van 进行，本次页面故障已完成实际复验。
 - 发布日志 `/private/tmp/pr648-page-init-deploy.log`。回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20260910232420-5f69aed12879`，回滚镜像 `kferp-orderapp-rollback:development-20260910232420-5f69aed12879`。无正式环境发布；此记录为发布后的文档补充，不重复部署。
+
+## 待计划需求禁选原因与数量提示（浏览器批注反馈）
+
+- 真实页面及认证 `GET /app/api/produce/unproduced?demand_status=unplanned` 复现：晚香玉 4 kg 被禁选，状态仅显示“资料待完善”，具体原因藏在折叠订单号内；BOM 错误又把已知订单数量显示成“件数待确认”。
+- 只读数据库确认：晚香玉绑定 `BOM-001043 / V001`（版本 1617），晨曦·娜依绑定 `BOM-001035 / V001`（版本 1616），均为 published 且物料明细 0 条。阻止排产是正确校验，未修改业务配置或订单数据。
+- 修复：状态栏直接显示并去重具体原因；已知默认 BOM 停用/产出不匹配、默认配置冲突、冻结规格版本不可用的提示译为中文；BOM 错误保留订单数量和已有可靠换算，真正缺少换算的库存覆盖/缺口仍提示待确认，禁选规则不变。
+- TDD：实际需求表渲染断言要求原因位于折叠订单明细之外，数量用例覆盖 3 kg + 1 kg、无换算但有订单数量、无可靠销售单位的旧数据。RED 2 项失败：`/private/tmp/pr648-demand-reasons-red.log`；GREEN 69/69：`/private/tmp/pr648-demand-reasons-green.log`。
+- 手册：`docs/OP_MANUAL_PRODUCTION.md` 修正排障说明；生产计划“操作说明”继续指向同一手册。此变更无新增业务写操作。
+- 完整前端 1167/1167 通过（`/private/tmp/pr648-demand-reasons-frontend.log`），构建通过（`/private/tmp/pr648-demand-reasons-build.log`）。认证接口返回的实际需求数据回放到新归并函数，断言晚香玉需求/缺口均 4 kg、覆盖 0 kg且仍禁选，全表可选数量仍为 3。后端未改动。
