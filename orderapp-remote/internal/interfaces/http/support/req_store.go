@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-648-PRODUCTION-PLANNING-MULTILEVEL", title: "生产需求归并与多层生产备货闭环", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
+		{table: "req_dev", code: "DEV-648-DEMAND", title: "需求预览白屏、商品规格件数与订单归并", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
+		{table: "req_dev", code: "DEV-648-STOCK-PLAN", title: "独立半成品计划及统一预览", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
+		{table: "req_dev", code: "DEV-648-SUPPLY", title: "在途供应关联及并发占用", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
+		{table: "req_dev", code: "DEV-648-PARTIAL-RECEIPT", title: "分批入库、成本和数量放行", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
+		{table: "req_dev", code: "DEV-648-DELIVERY", title: "自动验证、手册及开发环境交付", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
 		{table: "req_product", code: "PR-647-ORDER-CONFIRMATION-PRICE-SORT", title: "分类显示、价格表排序与履约订单确认状态", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-10-order-confirmation-price-sort.md"},
 		{table: "req_dev", code: "DEV-647-CATEGORY-SORT", title: "修复分类返回结构并支持价格表独立排序", status: "review", assignee: "Codex", evidence: "category-move-feedback.test.js / price-list-display-order.test.js"},
 		{table: "req_dev", code: "DEV-647-ORDER-CONFIRMATION", title: "同一订单待确认、接单、拒绝恢复与执行锁", status: "review", assignee: "Codex", evidence: "order_confirmation_api_test.go"},

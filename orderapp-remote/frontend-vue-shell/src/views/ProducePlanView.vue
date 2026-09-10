@@ -11,6 +11,8 @@
     <section class="panel">
       <div class="panel-head">
         <h2>生产计划</h2>
+ <button class="secondary" type="button" @click="navigateProductionView('productionManual')">操作说明</button>
+ <button class="secondary" type="button" @click="openStockPlanning">半成品备货</button>
         <button class="secondary" type="button" @click="load(false)" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -42,6 +44,20 @@
           </select>
         </label>
       </div>
+    </section>
+
+    <section v-if="stockPlanningOpen" class="panel">
+      <div class="panel-head"><h3>半成品备货</h3><button class="secondary" @click="stockPlanningOpen = false">收起</button></div>
+      <p class="muted">按目标产出安排自制物料，使用默认已发布 BOM。可先独立烘焙备货，后续订单计划会关联尚未分配的预计产出。</p>
+      <div v-for="(target, index) in stockTargets" :key="index" class="filters">
+        <label><span>自制物料</span><select v-model.number="target.output_material_id" @change="invalidateStockPreview"><option :value="0">请选择</option><option v-for="m in stockMaterials" :key="m.id" :value="m.id">{{ m.name }}（{{ m.unit }}）</option></select></label>
+        <label><span>目标产出量（{{ stockTargetUnit(target) }}）</span><input v-model.number="target.output_qty" type="number" min="0.001" step="any" @input="invalidateStockPreview" /></label>
+        <label><span>目标仓</span><select v-model="target.target_warehouse" @change="invalidateStockPreview"><option v-for="w in warehouses" :key="w.code" :value="w.code">{{ w.name }}</option></select></label>
+        <button class="secondary" :disabled="stockTargets.length === 1" @click="stockTargets.splice(index, 1); invalidateStockPreview()">移除</button>
+      </div>
+      <div class="panel-head-actions"><button class="secondary" @click="stockTargets.push({ output_type: 'material', output_material_id: 0, output_qty: 1, target_warehouse: 'wip' }); invalidateStockPreview()">增加物料</button><button class="secondary" :disabled="previewLoading" @click="previewStockPlanning">预览备货需求</button><button class="primary" :disabled="saving || !stockPreview" @click="createStockPlanning">创建备货草稿</button></div>
+      <div v-if="stockPlanningError" class="error">{{ stockPlanningError }}</div>
+      <div v-if="stockPreview" class="table-wrap"><table><thead><tr><th>产出 / 组件</th><th>需求</th><th>现货覆盖</th><th>在途覆盖</th><th>新增生产 / 采购缺口</th></tr></thead><tbody><tr v-for="node in manufacturingPlanRows(stockPreview)" :key="node.key"><td :style="{ paddingLeft: `${8 + node.depth * 18}px` }">{{ node.name }}</td><td>{{ manufacturingQtyText(node.required_qty, node.unit) }}</td><td>{{ manufacturingQtyText(node.stock_covered_qty, node.unit) }}<small v-if="node.inflight_covered_qty > 0">在途 {{ manufacturingQtyText(node.inflight_covered_qty, node.unit) }}</small></td><td>{{ manufacturingQtyText(node.inflight_covered_qty, node.unit) }}</td><td>{{ manufacturingQtyText(node.shortage_qty, node.unit) }} · {{ node.action_label }}</td></tr></tbody></table></div>
     </section>
 
     <section class="panel production-step-panel">
@@ -94,7 +110,7 @@
         </div>
         <div v-if="demandPanelCollapsed" class="collapsed-panel-summary">{{ demandPanelTitle }}已收起，展开后可继续勾选商品。</div>
         <div v-else class="table-wrap drag-scroll-wrap" aria-label="待生产需求横向滚动表格">
-          <table class="demand-table">
+          <table class="demand-table" data-auto-pagination="off">
             <thead>
               <tr>
                 <th>选择</th>
@@ -109,38 +125,36 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in stockInsufficientRows" :key="rowKey(row)">
-                <td>
-                  <input
-                    class="bulk-checkbox"
-                    type="checkbox"
-                    :checked="isProductionDemandSelected(row)"
-                    :disabled="!productionDemandSelectable(row)"
-                    :title="row.blocking_reason || (productionDemandSelectable(row) ? '选择生成生产计划' : '已进入生产计划的需求不可重复生成计划')"
-                    @change="toggleInsufficientRow(row, $event.target.checked)"
-                  />
-                </td>
-                <td>
-                  {{ row.product }}
-                  <small v-if="row.blocking_reason" class="blocking-reason">{{ row.blocking_reason }}</small>
-                </td>
-                <td class="muted">{{ row.order_nos }}</td>
-                <td>{{ row.spec_label || row.sales_unit || productionPlanLegacyGramLabel(row.spec_g) }}</td>
-                <td>{{ row.blocking_reason ? '-' : productionDemandQuantityLabel(row, 'need') }}</td>
-                <td>{{ row.blocking_reason ? '-' : productionDemandQuantityLabel(row, 'available') }}</td>
-                <td><strong>{{ row.blocking_reason ? '-' : productionDemandQuantityLabel(row, 'gap') }}</strong></td>
-                <td>
-                  <span v-if="row.blocking_reason" class="status status-demand-blocked">资料待完善</span>
-                  <span v-else :class="['status', `status-demand-${productionDemandStatusTone(row.demand_status)}`]">{{ productionDemandStatusLabel(row.demand_status) }}</span>
-                </td>
-                <td class="muted">{{ row.production_plan_no || '-' }}</td>
-              </tr>
+              <template v-for="group in pagedDemandGroups" :key="group.key">
+                <tr class="demand-product-row">
+                  <td><input type="checkbox" :aria-label="`选择商品 ${group.product}`" :checked="productionDemandSelectionState(group.rows, selected).checked" :indeterminate="productionDemandSelectionState(group.rows, selected).indeterminate" :aria-checked="productionDemandSelectionState(group.rows, selected).indeterminate ? 'mixed' : String(productionDemandSelectionState(group.rows, selected).checked)" :disabled="!productionDemandSelectionState(group.rows, selected).total" @change="toggleDemandGroup(group.rows, $event.target.checked)" /></td>
+                  <td><button class="secondary compact" type="button" :aria-expanded="!collapsedDemandGroups[group.key]" @click="collapsedDemandGroups[group.key] = !collapsedDemandGroups[group.key]">{{ collapsedDemandGroups[group.key] ? '展开' : '收起' }} {{ group.product }}</button></td>
+                  <td class="demand-orders">{{ group.order_nos }}</td>
+                  <td>{{ group.specs.length }} 种规格</td><td>{{ group.need_label }}<small v-if="group.need_weight_label">{{ group.need_weight_label }}</small></td><td>{{ group.available_label }}</td><td><strong>{{ group.gap_label }}</strong></td><td colspan="2"></td>
+                </tr>
+                <template v-if="!collapsedDemandGroups[group.key]">
+                  <tr v-for="spec in group.specs" :key="spec.key">
+                    <td><input type="checkbox" :aria-label="`选择规格 ${group.product} ${spec.label}`" :checked="productionDemandSelectionState(spec.rows, selected).checked" :indeterminate="productionDemandSelectionState(spec.rows, selected).indeterminate" :aria-checked="productionDemandSelectionState(spec.rows, selected).indeterminate ? 'mixed' : String(productionDemandSelectionState(spec.rows, selected).checked)" :disabled="!productionDemandSelectionState(spec.rows, selected).total" @change="toggleDemandGroup(spec.rows, $event.target.checked)" /></td>
+                    <td class="muted">{{ group.product }}</td>
+                    <td class="demand-orders"><details><summary>{{ spec.order_nos || '订单明细' }}</summary>
+                      <div v-for="row in spec.rows" :key="productionDemandSelectionKey(row)" class="demand-order-detail" :title="row.demand_status !== 'unplanned' ? '已进入生产计划的需求不可重复生成计划' : ''">
+                        <template v-if="row.order_details?.length"><div v-for="detail in row.order_details" :key="detail.order_item_id">{{ detail.order_no }} · {{ detail.customer_name || '工厂' }} · {{ detail.quantity }} {{ detail.sales_unit }}</div></template>
+                        <div v-else>{{ row.order_nos }} · {{ productionSalesQuantityLabel([row]) }}</div>
+                        <small>{{ row.target_warehouse || '' }} {{ row.blocking_reason || '' }} {{ row.production_plan_no || '' }}</small>
+                      </div>
+                    </details></td>
+                    <td>{{ spec.label }}</td><td>{{ spec.need_label }}<small v-if="spec.need_weight_label">{{ spec.need_weight_label }}</small></td><td>{{ spec.available_label }}</td><td><strong>{{ spec.gap_label }}</strong></td>
+                    <td colspan="2"><span v-for="status in [...new Set(spec.rows.map(row => row.blocking_reason ? '资料待完善' : productionDemandStatusLabel(row.demand_status)))]" :key="status" class="status">{{ status }}</span></td>
+                  </tr>
+                </template>
+              </template>
               <tr v-if="!stockInsufficientRows.length">
                 <td colspan="9" class="muted">{{ demandPanelEmptyText }}</td>
               </tr>
             </tbody>
           </table>
         </div>
+        <PaginationControls v-if="!demandPanelCollapsed" v-model:page="demandPage" v-model:page-size="demandPageSize" :total="demandGroups.length" />
       </section>
 
       <section :class="['panel current-plan-panel', { 'is-collapsed': currentPlanPanelCollapsed }]">
@@ -155,7 +169,7 @@
         </div>
         <div v-if="currentPlanPanelCollapsed" class="collapsed-panel-summary">当前生产计划已收起，展开后可查看预览、物料和提交动作。</div>
         <template v-else>
-          <div v-if="previewError" class="error">{{ previewError }}</div>
+          <div v-if="previewError" class="error">{{ previewError }} <button class="secondary compact" type="button" @click="loadSelectedPlanPreview" :disabled="previewLoading">重试预览</button></div>
           <div v-if="!hasSelectedRows && !currentPlan" class="empty-state">
             <strong>勾选库存不足商品后生成计划预览</strong>
             <span>在左侧选择要生产的商品后，这里会集中显示 BOM、工艺路线和物料需求。</span>
@@ -231,7 +245,7 @@
                   </table>
                 </div>
               </div>
-              <div v-if="(currentPlan.component_sources || []).length">
+              <div v-if="currentPlanDraft && (currentPlan?.component_sources || []).length">
                 <div class="section-title">组件来源仓</div>
                 <div class="muted section-hint">逐项选择实际领料仓库和货主；提交后按所选批次冻结，不会借用其他仓库库存。</div>
                 <div class="table-wrap drag-scroll-wrap" aria-label="当前计划组件来源仓横向滚动表格">
@@ -264,6 +278,8 @@
                   </table>
                 </div>
               </div>
+              <ProductionSupplyAllocations :rows="currentPlan?.supply_allocations || previewSupplyAllocations" />
+              <button v-if="currentPlanDraft" class="secondary" :disabled="saving" @click="refreshPlanSupply(currentPlan, 'current')">刷新库存和在途供应</button>
               <div v-if="computedManufacturingPlanRows.length">
                 <div class="section-title">多层制造需求与上游依赖</div>
                 <div class="table-wrap drag-scroll-wrap" aria-label="多层制造需求横向滚动表格">
@@ -286,7 +302,7 @@
                         <td>{{ node.type_label }}</td>
                         <td :style="{ paddingLeft: `${8 + node.depth * 18}px` }"><strong>{{ node.name }}</strong><small v-if="node.bom_version_id">BOM版本 #{{ node.bom_version_id }}</small></td>
                         <td>{{ manufacturingQtyText(node.required_qty, node.unit) }}</td>
-                        <td>{{ manufacturingQtyText(node.stock_covered_qty, node.unit) }}</td>
+                        <td>{{ manufacturingQtyText(node.stock_covered_qty, node.unit) }}<small v-if="node.inflight_covered_qty > 0">在途 {{ manufacturingQtyText(node.inflight_covered_qty, node.unit) }}</small></td>
                         <td><strong>{{ manufacturingQtyText(node.shortage_qty, node.unit) }}</strong></td>
                         <td>{{ node.action_label }}<small v-if="node.blocking" class="blocking-reason">缺少可用默认 BOM 或采购条件</small></td>
                         <td>{{ node.dependency_label }}</td>
@@ -612,7 +628,7 @@
                     <td>{{ node.type_label }}</td>
                     <td :style="{ paddingLeft: `${8 + node.depth * 18}px` }"><strong>{{ node.name }}</strong><small v-if="node.bom_version_id">BOM版本 #{{ node.bom_version_id }}</small></td>
                     <td>{{ manufacturingQtyText(node.required_qty, node.unit) }}</td>
-                    <td>{{ manufacturingQtyText(node.stock_covered_qty, node.unit) }}</td>
+                    <td>{{ manufacturingQtyText(node.stock_covered_qty, node.unit) }}<small v-if="node.inflight_covered_qty > 0">在途 {{ manufacturingQtyText(node.inflight_covered_qty, node.unit) }}</small></td>
                     <td><strong>{{ manufacturingQtyText(node.shortage_qty, node.unit) }}</strong></td>
                     <td>{{ node.action_label }}</td>
                     <td>{{ node.dependency_label }}</td>
@@ -838,10 +854,15 @@
 </template>
 
 <script setup>
+import ProductionSupplyAllocations from '../components/ProductionSupplyAllocations.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import {
+  groupProductionDemands,
+  buildProductionGroupSelection,
+  productionSalesQuantityLabel,
   applicableOperationCapacities,
   buildProductionPlanNextActions,
   buildOperationCapacityAutoSplits,
@@ -924,9 +945,36 @@ const stockTip = ref('')
 const rows = ref([])
 const planRows = ref([])
 const initialMaterials = ref([])
+const previewSupplyAllocations = ref([])
 const manufacturingPlan = ref({ nodes: [], edges: [] })
 const productionPlans = ref([])
 const currentPlan = ref(null)
+const stockPlanningOpen = ref(false)
+const stockMaterials = ref([])
+const stockTargets = ref([{ output_type: 'material', output_material_id: 0, output_qty: 1, target_warehouse: 'wip' }])
+const stockPreview = ref(null)
+const stockPlanningError = ref('')
+let stockRequestID = ''
+let planCreateRequestID = ''
+function invalidateStockPreview() { stockPreview.value = null; stockRequestID = '' }
+function stockTargetUnit(target) { return stockMaterials.value.find((m) => m.id === target.output_material_id)?.unit || '按物料档案' }
+async function openStockPlanning() {
+ stockPlanningOpen.value = true
+ try { const data = await apiGet('/api/materials?active=active&limit=500'); stockMaterials.value = (data.rows || []).filter((m) => m.is_semi_finished) } catch(err) { stockPlanningError.value = err.message || '加载自制物料失败' }
+}
+function stockPlanningPayload() { return { source_type: 'stock', items: stockTargets.value.map((t) => ({ ...t, output_type: 'material' })) } }
+async function previewStockPlanning() {
+ previewLoading.value = true; stockPlanningError.value = ''
+ try { stockPreview.value = await apiSend('/api/production-plans/preview', { body: stockPlanningPayload() }); stockRequestID = crypto.randomUUID() } catch(err) { stockPreview.value = null; stockPlanningError.value = err.message || '备货预览失败' } finally { previewLoading.value = false }
+}
+async function createStockPlanning() {
+ saving.value = true; stockPlanningError.value = ''
+ try {
+  currentPlan.value = await apiSend('/api/production-plans', { body: { ...stockPlanningPayload(), request_id: stockRequestID } })
+  replaceSelected({}); planRows.value = []; manufacturingPlan.value = currentPlan.value; currentPlanPanelCollapsed.value = false
+  await loadProductionPlans(); await openCurrentPlanSplitDrawer(); stockPlanningOpen.value = false; invalidateStockPreview()
+ } catch(err) { stockPlanningError.value = err.message || '创建备货草稿失败' } finally { saving.value = false }
+}
 const warehouses = ref([])
 const targetWarehouseSavingItemID = ref(0)
 const componentSourceSavingID = ref(0)
@@ -949,6 +997,17 @@ const productionPlanHeaderCheckbox = ref(null)
 const demandPanelCollapsed = ref(false)
 const currentPlanPanelCollapsed = ref(false)
 const selected = reactive({})
+const collapsedDemandGroups = reactive({})
+const demandPage = ref(1)
+const demandPageSize = ref(20)
+const demandGroups = computed(() => groupProductionDemands(stockInsufficientRows.value))
+const pagedDemandGroups = computed(() => demandGroups.value.slice((demandPage.value - 1) * demandPageSize.value, demandPage.value * demandPageSize.value))
+watch(() => demandGroups.value.length, total => { demandPage.value = Math.min(demandPage.value, Math.max(1, Math.ceil(total / demandPageSize.value))) })
+function toggleDemandGroup(rows, checked) {
+  replaceSelected(buildProductionGroupSelection(rows, selected, checked))
+  currentPlan.value = null
+  schedulePlanPreview()
+}
 const selectedProductionPlans = reactive({})
 let previewTimer = 0
 let previewRequestSeq = 0
@@ -999,7 +1058,7 @@ function rowKey(row) {
 }
 
 function productionDemandSelectionKey(row) {
-	const scoped = String(row?.selection_key || '').trim()
+	const scoped = String(row?.selection_id || row?.selection_key || '').trim()
 	if (scoped) return scoped
   return producePlanKey(row.parent_product_id || row.product_id, row.spec_g, row.bom_spec_id)
 }
@@ -1108,9 +1167,10 @@ function buildUnproducedURL(plan, keys = selectedKeys()) {
 function applyUnproducedData(data, plan) {
   rows.value = visibleRowsForProductSpecMigration(data.rows || [])
   stockTip.value = data.stock_tip || ''
-  planRows.value = data.plan_rows || []
+  planRows.value = plan && data.error ? [] : (data.plan_rows || [])
   initialMaterials.value = data.materials || []
-  manufacturingPlan.value = data.manufacturing_plan || data.multilevel_plan || { nodes: data.manufacturing_nodes || [], edges: data.manufacturing_edges || [] }
+  previewSupplyAllocations.value = data.preview?.supply_allocations || []
+  manufacturingPlan.value = data.preview?.manufacturing_plan || data.multilevel_plan || data.manufacturing_plan || { nodes: data.manufacturing_nodes || [], edges: data.manufacturing_edges || [] }
   if (plan && data.error) previewError.value = data.error
   if (data.selected) {
     Object.keys(selected).forEach((key) => delete selected[key])
@@ -1331,6 +1391,7 @@ async function refreshProductionDemandAfterDraftCancel(preserveCurrentPlan = fal
 }
 
 function resetCurrentPlanForSelection() {
+ planCreateRequestID = ''
   currentPlan.value = null
   operationSplits.value = []
   previewError.value = ''
@@ -1423,6 +1484,7 @@ function toggleProductionPlan(plan, checked) {
 }
 
 function pruneSufficientSelections() {
+  for (const row of stockInsufficientRows.value.filter(productionDemandSelectable)) { if (row.selection_id && selected[row.selection_key]) selected[row.selection_id] = true }
   const allowed = new Set(stockInsufficientRows.value.filter(productionDemandSelectable).map((row) => productionDemandSelectionKey(row)))
   for (const key of Object.keys(selected)) {
     if (!allowed.has(key)) delete selected[key]
@@ -1959,6 +2021,12 @@ async function runPlanNextStep() {
   }
 }
 
+async function refreshPlanSupply(plan, target) {
+ if (!plan?.id) return
+ saving.value = true
+ try { const updated = await apiSend(`/api/production-plans/${plan.id}/refresh-supply`, { body: {} }); if (target === 'detail') productionPlanDetail.value = updated; if (currentPlan.value?.id === plan.id) { currentPlan.value = updated; manufacturingPlan.value = updated; operationSplits.value = updated.operation_splits || [] }; previewError.value = ''; notice.value = '供应已重新计算，请核对来源仓及上游工序拆分后提交。' } catch(err) { previewError.value = err.message || '刷新供应失败，草稿已保留' } finally { saving.value = false }
+}
+
 async function createProductionPlan() {
   let keys = selectedKeys()
   if (!keys.length) {
@@ -1982,6 +2050,8 @@ async function createProductionPlan() {
       }
     }
     const payload = buildProductionPlanCreatePayload(filters, keys)
+ if (!planCreateRequestID) planCreateRequestID = crypto.randomUUID()
+ payload.request_id = planCreateRequestID
     currentPlan.value = await apiSend('/api/production-plans', { body: payload })
     if ((currentPlan.value?.items || []).length || (currentPlan.value?.supply_gaps || []).length) manufacturingPlan.value = currentPlan.value
     await loadProductionPlans()
@@ -2181,6 +2251,10 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.demand-product-row { background: #f3f5f6; font-weight: 600; }
+.demand-orders { min-width: 180px; max-width: 320px; white-space: normal; overflow-wrap: anywhere; }
+.demand-order-detail { padding: 6px 0; border-top: 1px solid #e5e7eb; }
+.demand-order-detail small { display: block; }
 .page { padding: 16px; display: grid; gap: 16px; }
 .panel { min-width: 0; box-sizing: border-box; border: 1px solid #eee; border-radius: 10px; padding: 12px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }

@@ -29,8 +29,9 @@
           </div>
           <div class="reason-list">
             <article v-for="blocker in upstreamBlockers" :key="blocker.work_order_id || blocker.work_order_no">
-              <strong>{{ blocker.work_order_no || `工单 #${blocker.work_order_id || blocker.id || '-'}` }}</strong>
-              <span>{{ blocker.output_name || blocker.product_name || blocker.material_name || blocker.status || '尚未完成' }}</span>
+              <strong>{{ blocker.depends_on_work_order_no || blocker.work_order_no || `工单 #${blocker.work_order_id || blocker.id || '-'}` }}</strong>
+              <span>{{ blocker.output_name || blocker.product_name || blocker.material_name || blocker.status || '尚未完成' }}
+ <small v-if="blocker.output_type === 'material'">尚缺 {{ Math.max(0, (blocker.required_g || 0) - (blocker.delivered_g || 0)) / 1000 }} kg / {{ Math.max(0, (blocker.required_units || 0) - (blocker.delivered_units || 0)) }} 件<span v-if="blocker.status === 'completed'">，上游已结单，请安排补产</span></small></span>
             </article>
           </div>
         </section>
@@ -178,7 +179,7 @@ const qualityStatus = computed(() => hub.value.quality_status || {})
 const typedOutputLabel = computed(() => executionHubOutputLabel({ ...hub.value, header: header.value }))
 const upstreamBlockers = computed(() => executionHubUpstreamBlockers({ ...hub.value, header: header.value }))
 const upstreamBlocked = computed(() => Boolean(header.value.has_unfinished_dependencies || header.value.upstream_blocked || upstreamBlockers.value.length))
-const upstreamBlockerReason = computed(() => String(header.value.dependency_blocking_reason || header.value.upstream_blocking_reason || '等待上游工单完工后再开始生产'))
+const upstreamBlockerReason = computed(() => String(header.value.dependency_blocking_reason || header.value.upstream_blocking_reason || '等待本工单的全部组件批次预留足额后开始生产'))
 const readinessTone = computed(() => readinessBadgeTone(readiness.value))
 const readinessText = computed(() => {
   if (readiness.value.blocking_reasons?.length) return readiness.value.blocking_reasons.map((row) => row.label).join(' / ')

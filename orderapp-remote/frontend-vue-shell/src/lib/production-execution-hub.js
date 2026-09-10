@@ -124,7 +124,7 @@ export function buildExecutionHubActions(hub = {}) {
   const startReason = startBlocked
     ? String(header.dependency_blocking_reason || header.upstream_blocking_reason || '').trim()
       || (readiness.blocking_reasons || []).map((row) => row?.label).find(Boolean)
-      || (dependencyBlocked ? '等待上游工单完工后再开始生产' : '当前状态不可开始生产')
+      || (dependencyBlocked ? '等待本工单组件批次备齐后再开始生产' : '当前状态不可开始生产')
     : ''
   const actions = [
     {
@@ -203,7 +203,7 @@ export function executionHubOutputLabel(hub = {}) {
 export function executionHubUpstreamBlockers(hub = {}) {
   const row = executionHubHeader(hub)
   const rows = hub.upstream_blockers || hub.upstream_dependencies || row.upstream_blockers || row.upstream_dependencies || row.blocked_by_work_orders || []
-  if (Array.isArray(rows) && rows.length) return rows
+  if (Array.isArray(rows) && rows.length) return rows.filter((dependency) => dependency.supply_ready !== true && !(dependency.supply_ready == null && dependency.completed === true))
   const ids = hub.upstream_work_order_ids || row.upstream_work_order_ids || []
   return Array.isArray(ids) ? ids.map((id) => ({ work_order_id: Number(id || 0) })) : []
 }

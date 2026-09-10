@@ -447,6 +447,7 @@ func TestTypedProductStockDocumentFinishUnlocksDownstreamThroughCompleteFlow(t *
 		       planned_output_g,'g',15,1,planned_output_g,planned_output_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
+	selectPlanningTestSources(t, app, planID)
 	submitPlan := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submitPlan.Code != http.StatusOK {
 		t.Fatalf("submit typed product stock-operations plan status=%d body=%s", submitPlan.Code, submitPlan.Body.String())

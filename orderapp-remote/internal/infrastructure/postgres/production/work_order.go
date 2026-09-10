@@ -1144,28 +1144,32 @@ func loadCustomerProductSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, s
 func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, actualCost float64, actualInputQty int64, actualOutputQty int64, operator string) error {
 	var workOrderID int64
 	var productionPlanID int64
+	var outputType string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.work_orders
 		SET status='completed', actual_cost=$2, completed_at=now()
 		WHERE running_item_id=$1
-		RETURNING id,production_plan_id
-	`, schema), runningItemID, actualCost).Scan(&workOrderID, &productionPlanID); err != nil {
+		RETURNING id,production_plan_id,COALESCE(output_type,'product')
+	`, schema), runningItemID, actualCost).Scan(&workOrderID, &productionPlanID, &outputType); err != nil {
 		if err == pgx.ErrNoRows {
 			return nil
 		}
 		return err
 	}
-	actualLossQty := 0.0
-	actualLossRate := 0.0
-	if actualInputQty > 0 {
-		lossQty, lossRate, err := productiondomain.ActualLossMetrics(float64(actualInputQty), float64(actualOutputQty))
-		if err != nil {
-			return err
+	// Material cards report actual quantities in the material unit, while receipts use grams.
+	// Preserve the operation records instead of replacing them with canonical receipt totals.
+	if outputType != "material" {
+		actualLossQty := 0.0
+		actualLossRate := 0.0
+		if actualInputQty > 0 {
+			lossQty, lossRate, err := productiondomain.ActualLossMetrics(float64(actualInputQty), float64(actualOutputQty))
+			if err != nil {
+				return err
+			}
+			actualLossQty = lossQty
+			actualLossRate = lossRate
 		}
-		actualLossQty = lossQty
-		actualLossRate = lossRate
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.job_cards
 		SET actual_input_qty=$2,
 		    actual_output_qty=$3,
@@ -1177,7 +1181,8 @@ func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema st
 			(SELECT id FROM %s.job_cards WHERE work_order_id=$1 ORDER BY sequence_no DESC, id DESC LIMIT 1)
 		)
 	`, schema, schema, schema), workOrderID, actualInputQty, actualOutputQty, actualLossQty, actualLossRate, operator); err != nil {
-		return err
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.job_cards
@@ -1755,12 +1760,15 @@ func loadWorkOrderDependencies(ctx context.Context, queryer workOrderDependencyQ
 		SELECT dependency.work_order_id,dependency.depends_on_work_order_id,upstream.work_order_no,
 		       COALESCE(NULLIF(upstream.output_type,''),'product'),upstream.output_product_id,upstream.output_material_id,
 		       COALESCE(NULLIF(upstream.output_name,''),upstream.product_name),upstream.output_qty::float8,upstream.output_unit,
-		       dependency.material_id,dependency.required_g,dependency.required_units,upstream.status
+		       dependency.material_id,dependency.required_g,dependency.required_units,upstream.status,dependency.delivered_g,dependency.delivered_units,
+               EXISTS(SELECT 1 FROM %s.work_order_material_reservations r
+                  WHERE r.work_order_id=dependency.work_order_id AND r.material_id=dependency.material_id
+                    AND r.status IN ('reserved','consumed') AND r.reserved_g>=r.required_g AND r.reserved_units>=r.required_units)
 		FROM %s.work_order_dependencies dependency
 		JOIN %s.work_orders upstream ON upstream.id=dependency.depends_on_work_order_id
 		WHERE dependency.work_order_id=$1
 		ORDER BY dependency.id
-	`, schema, schema), workOrderID)
+	`, schema, schema, schema), workOrderID)
 	if err != nil {
 		return nil, err
 	}
@@ -1768,15 +1776,20 @@ func loadWorkOrderDependencies(ctx context.Context, queryer workOrderDependencyQ
 	out := make([]productionapp.WorkOrderDependencyRow, 0)
 	for rows.Next() {
 		var row productionapp.WorkOrderDependencyRow
+		var fullyReserved bool
 		if err := rows.Scan(
 			&row.WorkOrderID, &row.DependsOnWorkOrderID, &row.DependsOnWorkOrderNo,
 			&row.OutputType, &row.OutputProductID, &row.OutputMaterialID,
 			&row.OutputName, &row.OutputQty, &row.OutputUnit,
-			&row.MaterialID, &row.RequiredG, &row.RequiredUnits, &row.Status,
+			&row.MaterialID, &row.RequiredG, &row.RequiredUnits, &row.Status, &row.DeliveredG, &row.DeliveredUnits, &fullyReserved,
 		); err != nil {
 			return nil, err
 		}
 		row.Completed = row.Status == "completed"
+		row.SupplyReady = fullyReserved || (row.DeliveredG >= row.RequiredG && row.DeliveredUnits >= row.RequiredUnits)
+		if row.OutputType != "material" {
+			row.SupplyReady = row.Completed
+		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -1787,13 +1800,13 @@ func decorateWorkOrderDependencies(row *productionapp.WorkOrderRow, dependencies
 	row.UpstreamWorkOrderIDs = make([]int64, 0, len(dependencies))
 	for _, dependency := range dependencies {
 		row.UpstreamWorkOrderIDs = append(row.UpstreamWorkOrderIDs, dependency.DependsOnWorkOrderID)
-		if !dependency.Completed {
+		if !dependency.SupplyReady {
 			row.UpstreamBlocked = true
 		}
 	}
 	row.HasUnfinishedDependencies = row.UpstreamBlocked
 	if row.UpstreamBlocked {
-		row.DependencyBlockingReason = "上游依赖工单尚未完成"
+		row.DependencyBlockingReason = "上游分配的组件批次尚未备齐"
 	}
 }
 
@@ -2072,6 +2085,9 @@ func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkO
 		return productionapp.WorkOrderRow{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := guardSupplierCancellationTx(ctx, tx, r.schema, cmd.ID, 0); err != nil {
+		return productionapp.WorkOrderRow{}, err
+	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.work_orders
 		SET status='cancelled', completed_at=now()

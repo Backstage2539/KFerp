@@ -54,6 +54,7 @@ func TestTypedProductDependencyConsumesBatchesFromFrozenWarehouses(t *testing.T)
 		WHERE production_plan_id=%d;
 	`, schema, schema, planID))
 
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit warehouse-aware typed product plan status=%d body=%s", submit.Code, submit.Body.String())

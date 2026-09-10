@@ -25,6 +25,8 @@ type jobCardActualsRequest struct {
 }
 
 type workOrderCompleteRequest struct {
+	CompletionMode   string `json:"completion_mode"`
+	RequestID        string `json:"request_id"`
 	FinishedUnits    int64  `json:"finished_units"`
 	FinishedLooseG   int64  `json:"finished_loose_g"`
 	FinishedQtyG     int64  `json:"finished_qty_g"`
@@ -167,9 +169,10 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			FinishedQtyG:     req.FinishedQtyG,
 			FinishedQtyUnits: req.FinishedQtyUnits,
 			ConsumedInputG:   req.ConsumedInputG,
-			Warehouse:        req.Warehouse,
-			Operator:         support.ActorOf(c),
-			Note:             req.Note,
+			CompletionMode:   req.CompletionMode, RequestID: req.RequestID,
+			Warehouse: req.Warehouse,
+			Operator:  support.ActorOf(c),
+			Note:      req.Note,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

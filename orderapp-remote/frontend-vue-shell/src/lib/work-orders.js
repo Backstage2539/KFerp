@@ -65,7 +65,7 @@ export function formatWorkOrderTypedOutput(row = {}) {
 
 export function workOrderUpstreamBlockers(row = {}) {
   const rows = row.upstream_blockers || row.upstream_dependencies || row.blocked_by_work_orders || []
-  if (Array.isArray(rows) && rows.length) return rows
+  if (Array.isArray(rows) && rows.length) return rows.filter((dependency) => dependency.supply_ready !== true && !(dependency.supply_ready == null && dependency.completed === true))
   const ids = row.upstream_work_order_ids || []
   return Array.isArray(ids) ? ids.map((id) => ({ work_order_id: Number(id || 0) })) : []
 }
@@ -78,7 +78,7 @@ export function workOrderUpstreamBlockerLabel(row = {}) {
   const blocker = workOrderUpstreamBlockers(row)[0]
   if (!blocker) return workOrderHasUpstreamBlocker(row) ? String(row.dependency_blocking_reason || row.upstream_blocking_reason || '等待上游工单') : '无阻塞'
   if (row.dependency_blocking_reason && !blocker.work_order_no && !blocker.output_name) return String(row.dependency_blocking_reason)
-  const no = String(blocker.work_order_no || blocker.no || '').trim() || `工单 #${Number(blocker.work_order_id || blocker.id || 0)}`
+  const no = String(blocker.depends_on_work_order_no || blocker.work_order_no || blocker.no || '').trim() || `工单 #${Number(blocker.work_order_id || blocker.id || 0)}`
   const name = String(blocker.output_name || blocker.product_name || blocker.material_name || '').trim()
   return `等待 ${no}${name ? ` · ${name}` : ''}`
 }

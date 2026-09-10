@@ -421,6 +421,12 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 	if wo.RunningItemID <= 0 {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("work order has not started")
 	}
+	if wo.OutputType == "material" {
+		return r.completeMaterialOutputWorkOrder(ctx, wo, cmd)
+	}
+	if cmd.CompletionMode == "partial" {
+		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("本入口仅自制物料支持部分入库")
+	}
 	if incomplete > 0 {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("work order has unfinished job cards")
 	}
