@@ -13,8 +13,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-648-DEMAND; DEV-648-STOCK-PLAN; DEV-648-SUPPLY; DEV-648-PARTIAL-RECEIPT; DEV-648-DELIVERY.
 - Verifier: targeted Vue render/helper RED/GREEN, isolated PostgreSQL API/concurrency/cost tests, full Go and Vue/build gates.
 - Deployment: development after integration and verification; production excluded.
-- Evidence: `orderapp-remote/docs/acceptance/2026-09-10-production-planning-multilevel.md`; 28 isolated API cases, 1164 frontend tests, full Go/build gates.
-- Deploy ownership: this task holds PR-648 development integration/release; current base verified at `2bd15db4`.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-10-production-planning-multilevel.md`; 29 isolated API cases, 1164 frontend tests, full Go/build gates.
+- Deploy ownership: this task holds PR-648 development integration/release; PR #107 merged at `c243cc19`; final read-only smoke caught order-source alias collision, targeted fix and 29 API/full backend checks passed; follow-up release pending.
 - Notes: reservation script selected PR-648 but macOS awk rejected its multiline placeholder; reserved here instead.
 
 

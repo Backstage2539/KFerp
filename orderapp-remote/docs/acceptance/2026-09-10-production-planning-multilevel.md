@@ -22,7 +22,7 @@
 
 1. Vue 实际模板渲染 RED：有预览但 `currentPlan=null` 时读取 `component_sources` 抛错。修复后覆盖加载、失败、取消状态；执行实际 mounted 回调验证带 `plan=1&selected=...` 刷新路径。订单表实际渲染验证 `quantity`、客户和订单行 ID。分组、混合销售单位、同名不同商品、半选和历史异常共 5 个针对测试通过。
 2. 领域 RED：新增在途展开方法/字段不存在；GREEN 验证 20kg 需求按 5kg 现货、8kg 在途、7kg 新生产拆分，原料只按 7kg 缺口展开，共享供应不重复计入。
-3. 隔离 PostgreSQL：28 个顶层相关 API 测试通过，0 失败、0 跳过。覆盖独立备货只读预览与幂等创建、同商品各规格冻结数量、客户货主隔离、现货与另一可用仓在途合并、跨计划并发提交、刷新保留草稿、取消释放、多层/多规格共享上游、缺料阻止提交、历史 BOM 变体冻结、分批入库提前包装、少产/超产及冻结目标仓。
+3. 隔离 PostgreSQL：29 个顶层相关 API 测试通过，0 失败、0 跳过。覆盖独立备货只读预览与幂等创建、同商品各规格冻结数量、客户货主隔离、现货与另一可用仓在途合并、跨计划并发提交、刷新保留草稿、取消释放、多层/多规格共享上游、缺料阻止提交、历史 BOM 变体冻结、分批入库提前包装、少产/超产及冻结目标仓。
 4. 完整批次成本案例：30kg 独立熟豆备货，分两次入库 22.7kg、7.3kg，实际投入累计 37.5kg；投入批次单价 50 元/kg，工序费用累计 30 元，产出批次均 63.5 元/kg，累计成本 1905 元。第一批足额预留后包装提前开工；包装消耗 22.7kg 熟豆和 100 个包材，实际材料成本 1541.45 元，成品入库保留订单行，剩余熟豆 7.3kg。
 5. 额外 RED/GREEN 修复：最后入库覆盖工序 kg 实绩、跨仓现货导致漏算在途、上游追溯带入无关订单。各针对验证通过。
 6. 标准 `scripts/verify_kferp.sh all` 通过：全部 Go 测试、Vue 1164/1164、生产构建、冲突/空白检查。标准 Go 门禁未配置测试数据库；数据库覆盖由上面的显式隔离测试提供。
@@ -31,7 +31,7 @@
 
 ### 扩展旧测试的限制
 
-额外运行全部生产数据库测试并对比原版 `origin/develop=2bd15db4`。原版公共测试订单缺 `receiver_name` 等现行字段；仅修复公共 fixture 后，原版仍有 31 个 HTTP 顶层失败及 1 个仓储失败，主要是旧测试未选择组件来源仓、旧快照缺 SKU 身份和客户加工旧状态。此次对相关多层、BOM 变体及库存单据测试补齐显式来源仓动作后，上述 28 项通过。未把剩余旧测试失败宣称为通过，也未放宽生产校验来迎合旧 fixture。
+额外运行全部生产数据库测试并对比原版 `origin/develop=2bd15db4`。原版公共测试订单缺 `receiver_name` 等现行字段；仅修复公共 fixture 后，原版仍有 31 个 HTTP 顶层失败及 1 个仓储失败，主要是旧测试未选择组件来源仓、旧快照缺 SKU 身份和客户加工旧状态。此次对相关多层、BOM 变体及库存单据测试补齐显式来源仓动作后，上述 29 项通过。未把剩余旧测试失败宣称为通过，也未放宽生产校验来迎合旧 fixture。
 
 本次命令的本地日志：`/private/tmp/pr648-frontend-red.log`、`pr648-domain-red.log`、`pr648-receipt-units-red.log`、`pr648-mixed-warehouse-red.log`、`pr648-order-render-red.log`、`pr648-trace-red.log`、`pr648-verified-api.jsonl`、`pr648-complete-chain.log`、`pr648-all-gate.log`、`pr648-baseline-fixture-api.log`。
 
@@ -41,4 +41,12 @@
 
 Van 验收入口：生产流程 → 生产计划。建议核对真实订单分组与规格数量，再验收半成品备货、分批入库及包装执行。自动验证、发布技术核对和 Van 业务验收分别记录；本记录不表示业务验收完成。
 
-开发发布结果在交付记录中补充。正式环境不在本次范围。
+## 开发发布记录
+
+- 主实现 GitHub PR #107，功能提交 `bbba14b3df6bde222146bbc585d1c2e93ed20669`，开发合并 `c243cc190a50fe0d31f722bed35e8685b3715981`。
+- 首次 `./deploy_orderapp.sh development` 返回 `Release completed`；服务端 Go、Vue 1164/1164、miniapp 238/238、类型检查和构建通过。登录页、需求进度、计划、工单、备货预览校验及手册可访问。
+- 发布后只读需求查询返回 HTTP 500 / SQLSTATE 42883。开发库 `orders.source` 文本列遮蔽 JSON 数组元素的临时别名；已添加带此真实字段的隔离 API 回归测试，RED 重现相同错误，改用显式 `demand_source.value` 后 GREEN。未修改业务数据或字段类型。补充修复后 29 项隔离 API 全部通过，完整后端门禁通过。
+- 发布前数据库备份：`/opt/stacks/erp/backups/pr648-planning-predeploy-20260910214240.dump`（15,777,910 bytes）。首次源代码回滚目录 `/opt/stacks/erp/orderapp.backup.deploy-20260910215318-c243cc190a50`，镜像 `kferp-orderapp-rollback:development-20260910215318-c243cc190a50`。
+- 补充修复的开发发布与最终只读检查结果待追加。自动浏览器连接未完成现场交互核验；实际 Vue 模板渲染测试通过，Van 页面和业务验收仍待进行。正式环境和微信上传发布不在本次范围。
+
+补充日志：`/private/tmp/pr648-live-query-red.log`、`/private/tmp/pr648-verified-api-followup.jsonl`、`/private/tmp/pr648-followup-backend.log`、`/private/tmp/pr648-dev-deploy.log`。

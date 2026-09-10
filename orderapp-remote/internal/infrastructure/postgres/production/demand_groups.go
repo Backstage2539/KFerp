@@ -71,7 +71,7 @@ func splitStructuredProductionDemandRow(ctx context.Context, q productionDemandQ
   SELECT pp.id,pp.plan_no,pp.status,wo.id wo_id,wo.work_order_no wo_no,wo.status wo_status
   FROM %[1]s.production_plan_items pi JOIN %[1]s.production_plans pp ON pp.id=pi.production_plan_id LEFT JOIN %[1]s.work_orders wo ON wo.production_plan_item_id=pi.id
   WHERE pp.status<>'cancelled' AND COALESCE(wo.status,'')<>'cancelled' AND pi.product_id=oi.product_id
-   AND ((jsonb_array_length(pi.demand_sources_json)>0 AND EXISTS(SELECT 1 FROM jsonb_array_elements(pi.demand_sources_json) source WHERE (source->>'order_item_id')::bigint=oi.id))
+   AND ((jsonb_array_length(pi.demand_sources_json)>0 AND EXISTS(SELECT 1 FROM jsonb_array_elements(pi.demand_sources_json) AS demand_source(value) WHERE (demand_source.value->>'order_item_id')::bigint=oi.id))
     OR (jsonb_array_length(pi.demand_sources_json)=0 AND pi.bom_spec_id=COALESCE(oi.bom_spec_id,0) AND pi.bom_variant_id=COALESCE(oi.bom_variant_id,0) AND pi.spec_g=$2 AND pi.customer_id=COALESCE(o.customer_id,0) AND o.order_no=ANY(string_to_array(replace(pi.order_nos,' ',''),','))))
   ORDER BY pp.id DESC,wo.id DESC LIMIT 1
  ) plan ON true WHERE oi.id=ANY($1::bigint[]) ORDER BY oi.id`, schema), ids, row.SpecG)
