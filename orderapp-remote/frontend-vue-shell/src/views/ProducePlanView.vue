@@ -144,7 +144,10 @@
                       </div>
                     </details></td>
                     <td>{{ spec.label }}</td><td>{{ spec.need_label }}<small v-if="spec.need_weight_label">{{ spec.need_weight_label }}</small></td><td>{{ spec.available_label }}</td><td><strong>{{ spec.gap_label }}</strong></td>
-                    <td colspan="2"><span v-for="status in [...new Set(spec.rows.map(row => row.blocking_reason ? '资料待完善' : productionDemandStatusLabel(row.demand_status)))]" :key="status" class="status">{{ status }}</span></td>
+                    <td colspan="2" class="demand-status-cell">
+                      <span v-for="status in [...new Set(spec.rows.map(row => row.blocking_reason ? '资料待完善' : productionDemandStatusLabel(row.demand_status)))]" :key="status" class="status">{{ status }}</span>
+                      <p v-for="reason in productionDemandBlockingReasons(spec.rows)" :key="reason" class="demand-blocking-reason">{{ reason }}</p>
+                    </td>
                   </tr>
                 </template>
               </template>
@@ -863,6 +866,7 @@ import {
   groupProductionDemands,
   buildProductionGroupSelection,
   productionSalesQuantityLabel,
+  productionDemandBlockingReasons,
   applicableOperationCapacities,
   buildProductionPlanNextActions,
   buildOperationCapacityAutoSplits,
@@ -2269,6 +2273,8 @@ onBeforeUnmount(() => {
 .compact-head { margin-bottom: 8px; }
 .empty-state { border: 1px dashed #d1d5db; border-radius: 8px; padding: 14px; display: grid; gap: 6px; background: #fafafa; }
 .collapsed-panel-summary { border: 1px dashed #d1d5db; border-radius: 8px; padding: 10px; color: #666; background: #fafafa; font-size: 13px; }
+.demand-status-cell { min-width: 220px; }
+.demand-blocking-reason { margin: 6px 0 0; max-width: 320px; white-space: normal; overflow-wrap: anywhere; color: #9a3412; font-size: 13px; line-height: 1.5; }
 .panel-head-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .collapse-button { white-space: nowrap; }
 .preview-loading { margin-bottom: 10px; }

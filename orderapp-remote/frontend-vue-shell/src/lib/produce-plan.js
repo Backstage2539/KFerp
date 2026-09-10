@@ -86,6 +86,16 @@ export function productionDemandSelectable(row) {
   return productionDemandGapQuantity(row) > 0 && normalizedProductionDemandStatus(row?.demand_status) === 'unplanned'
 }
 
+export function productionDemandBlockingReasons(rows = []) {
+  return [...new Set(rows.map(row => {
+    const reason = String(row?.blocking_reason || '').trim()
+    if (reason.includes('default production BOM is no longer an active output BOM')) return '默认 BOM 已停用或不再产出此商品，请在生产配置 → 生产 BOM 核对产出商品及默认版本。'
+    if (reason.includes('conflicting default production BOM configuration')) return '存在冲突的默认 BOM 配置，请在生产配置 → 生产 BOM 核对并保留正确的默认配置。'
+    if (reason.includes('BOM specification does not belong to an active BOM of the frozen parent product or its frozen version is unavailable')) return '订单锁定的 BOM 规格或版本不可用，请核对原订单规格与对应 BOM 版本；不要直接套用新版本。'
+    return reason
+  }).filter(Boolean))]
+}
+
 export function isBomSpecProductionDemand(row = {}) {
   return Number(row?.bom_spec_id || row?.bomSpecID || 0) > 0
 }
@@ -145,7 +155,11 @@ function productionSalesQuantity(row, kind) {
   const unit = String(row.sales_unit || (row.bom_spec_id ? row.inventory_unit : '') || '件').trim()
   let need = Number(row.sales_spec_count || row.need_units || 0)
   if (!need && Number(row.spec_g) > 0) need = Number(row.need_g || 0) / Number(row.spec_g)
-  if (!Number.isFinite(need) || need <= 0 || row.blocking_reason) return { unit, unknown: true, qty: 0 }
+  if (!Number.isFinite(need) || need <= 0) return { unit, unknown: true, qty: 0 }
+  // A BOM configuration failure does not invalidate an order's known quantity.
+  // Stock coverage still needs a valid conversion; legacy inferred counts must
+  // not turn a blocked historical demand into a guessed bag/box quantity.
+  if (row.blocking_reason && (!String(row.sales_unit || '').trim() || !(Number(row.sales_spec_count) > 0) || (kind !== 'need' && !(Number(row.inventory_qty_per_sales_unit) > 0)))) return { unit, unknown: true, qty: 0 }
   let gap = Number(row.gap_sales_spec_count || 0)
   if (productionDemandGapQuantity(row) > 0 && gap <= 0) {
     gap = row.bom_spec_id ? (Number(row.inventory_qty_per_sales_unit) > 0 ? Number(row.gap_inventory_qty) / Number(row.inventory_qty_per_sales_unit) : need) : (row.spec_g > 0 ? Number(row.gap_g) / Number(row.spec_g) : need)
