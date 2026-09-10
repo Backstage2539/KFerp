@@ -18,6 +18,7 @@ export function formatTrackingSummary(raw) {
 }
 
 export function isOrderShipReady(row = {}) {
+  if (row.confirmation_status && row.confirmation_status !== 'accepted') return false
   if (row?.is_void || isNonCourierShipMethod(row?.ship_method)) return false
   const shipStatus = String(row?.ship_status || '').trim()
   if (shipStatus.includes('已发货')) return false

@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	"orderapp/internal/infrastructure/postgres/orderconfirmation"
 	"strconv"
 	"strings"
 
@@ -157,7 +158,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			o.is_void,
 			COALESCE(oi.status,'') AS invoice_status,
 			COALESCE(ia.filename,'') AS invoice_filename,
-			COALESCE(ia.object_key,'') AS invoice_object_key
+			COALESCE(ia.object_key,'') AS invoice_object_key, COALESCE(to_jsonb(o)->>'confirmation_status','accepted'), COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false)
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id = o.customer_id
 		LEFT JOIN %s.order_types ot ON ot.id = o.order_type_id
@@ -180,7 +181,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		LIMIT $%d OFFSET $%d
 	`, orderTrackingSummaryExpr(schema, "o"), orderProcessStatusExpr(schema), schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 
-	dbRows, err := pool.Query(ctx, sql, args...)
+	dbRows, err := pool.Query(ctx, orderconfirmation.CurrentRead(sql, schema), args...)
 	if err != nil {
 		return nil, false, err
 	}
@@ -190,7 +191,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey, &r.ConfirmationStatus, &r.ConfirmationRequired); err != nil {
 			return nil, false, err
 		}
 		prepayment, _ := strconv.ParseFloat(r.PrepaymentAmount, 64)
@@ -287,11 +288,20 @@ func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, 
 	if err := pool.QueryRow(ctx, sql, args...).Scan(&s.Orders, &s.Customers, &s.TotalAmount, &s.PaidAmount, &s.PendingSettlementAmount); err != nil {
 		return salesapp.OrdersSummary{}, err
 	}
+	// Pagination follows the proposed dates/content, while monetary totals keep
+	// the accepted ledger content until confirmation.
+	countSQL := fmt.Sprintf("SELECT count(*)::int,count(distinct o.customer_id)::int FROM %s.orders o LEFT JOIN %s.customers c ON c.id=o.customer_id %s", schema, schema, wsql)
+	if err := pool.QueryRow(ctx, orderconfirmation.CurrentRead(countSQL, schema), args...).Scan(&s.Orders, &s.Customers); err != nil {
+		return salesapp.OrdersSummary{}, err
+	}
 	return s, nil
 }
 
 func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []any, int) {
 	where := make([]string, 0)
+	if query.UnproducedOnly || query.ShipReadyOnly {
+		where = append(where, "COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted'")
+	}
 	args := make([]any, 0)
 	argn := 1
 

@@ -33,12 +33,11 @@ func orderEditStateQuery(schema string, lock bool) string {
 		         SELECT 1
 		         FROM %[1]s.work_orders wo
 		         WHERE o.order_no = ANY(string_to_array(replace(COALESCE(wo.order_nos,''),' ',''), ','))
-		           AND COALESCE(wo.status,'') <> 'cancelled'
+		           AND (COALESCE(wo.status,'') <> 'cancelled' OR COALESCE(to_jsonb(wo)->>'started_at','')<>'')
 		       ) OR EXISTS (
 		         SELECT 1
 		         FROM %[1]s.produce_running_items ri
 		         WHERE o.order_no = ANY(string_to_array(replace(COALESCE(ri.order_nos,''),' ',''), ','))
-		           AND COALESCE(ri.status,'') <> 'cancelled'
 		       ),
 		       EXISTS (
 		         SELECT 1

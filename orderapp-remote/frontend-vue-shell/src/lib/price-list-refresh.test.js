@@ -4,6 +4,7 @@ import vm from 'node:vm'
 import { readFileSync } from 'node:fs'
 import { ref, computed, nextTick, watch } from 'vue'
 import { normalizePriceListProductSpecSelections } from './product-price-list-selection.js'
+import { capturePriceListDisplayOrder } from './price-list-display-order.js'
 import { fetchPriceListRefreshSnapshot } from './price-list-refresh.js'
 import { applyPricingRuleTrialToPriceTableRow } from './product-settings.js'
 
@@ -17,7 +18,8 @@ function fn(name) {
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 function setup() {
   const state = {
-    ref, computed, watch, nextTick, normalizePriceListProductSpecSelections,
+    ref, computed, watch, nextTick, normalizePriceListProductSpecSelections, capturePriceListDisplayOrder,
+    priceListDisplayOrder: ref({}), categoryProductGroups: ref([]),
     loading: ref(false), beanListPublishing: ref(false), priceListPricingRuleEditorSaving: ref(false),
     priceListRefresh: ref({ kind: '', busy: false, error: '', message: '' }),
     priceListRefreshContext: ref('official:beans:table-a'),

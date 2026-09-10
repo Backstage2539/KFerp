@@ -6,9 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-647-ORDER-CONFIRMATION-PRICE-SORT
+- Branch: `codex/order-confirmation-price-sort-20260910`; synchronized base `afb2c0cc4da2a6a142ca4d33bc9283f8afffa980`.
+- Status: verified and deployed to development at `2bd15db4`; production release authorized; Van business acceptance pending.
+- Owner/session: Codex / 2026-09-10; serialized integration completed from unchanged develop base.
+- Pushed feature commit: `c4c6523310413306feb7bb947327ebe9624c7f44`; integration commit is the develop merge containing this record.
+- Scope: 分类即时显示；价格表独立排序和草稿 PDF 缓存；同一履约订单待确认、接单、拒绝恢复及整单状态同步。
+- DEV: DEV-647-CATEGORY-SORT; DEV-647-ORDER-CONFIRMATION; DEV-647-ORDER-STATUS.
+- Verifier: targeted real PostgreSQL 6 complete-flow tests pass / 0 skip; Vue 1159/1159 and build; full standard Go and changed gates pass. Extra full PostgreSQL packages match baseline failures exactly (101 sales/fulfillment + 1 production); those runs are not counted as passes.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-10-order-confirmation-price-sort.md`.
+- Deployment: the earlier develop-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production; no price publication or business data rewrite.
+
+
 ### PR-646-PRICE-TABLE-REFRESH
 - Branch: `codex/price-table-refresh-20260909`, base `4c3de319`.
-- Status: verified and deployed to development at `afb2c0cc`; production release authorized; Van product acceptance pending.
+- Status: deployed to development `afb2c0cc` and production `31b200c7`; Van product acceptance pending.
 - Scope: independently refresh product/BOM specification candidates and current price table template calculations without restoring the entire draft.
 - DEV: DEV-646-SELECTION-REFRESH; DEV-646-PRICE-REFRESH.
 - Verifier: 12 refresh regression tests and 13 HTTP tests pass (0 skip); frontend 1148/1148 and build; full backend and repository checks pass. Local desktop/390px interactions verified with fixture APIs.
@@ -17,7 +29,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-645-MATERIAL-STOCK-BOM-MOVE
 - Branch: `codex/material-stock-bom-move-20260909`, base `32279ff6`.
-- Status: verified and deployed to development at `afb2c0cc`; development/production orphan inventory cleanup remains complete (12/23 materials, remaining 0/0); production release authorized; Van product acceptance pending.
+- Status: deployed to development `afb2c0cc` and production `31b200c7`; development/production orphan inventory cleanup remains complete (12/23 materials, remaining 0/0); Van product acceptance pending.
 - Scope: block material deprecation until all inventory is zero; fix BOM move selection after category collapse; remove inventory remnants of absent/deprecated materials in development and production with backup and audit.
 - DEV: DEV-645-STOCK-GUARD; DEV-645-BOM-MOVE; DEV-645-ORPHAN-STOCK-CLEANUP.
 - Verifier: real PostgreSQL focused 3 top-level / 6 stock subcases pass, 0 skip; frontend 1136/1136 and build; standard Go gate. Extra real DB materials packages have 2 independently reproduced baseline failures.

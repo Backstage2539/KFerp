@@ -14,6 +14,7 @@ import (
 )
 
 type orderAPIHandler struct {
+	authz         support.AuthzService
 	sales         *salesapp.Service
 	messages      MessagePublisher
 	assetDir      string
@@ -74,6 +75,7 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
+	EditRevision                    string  `json:"edit_revision"`
 	RequestID                       string  `json:"request_id"`
 	BackfillMode                    bool    `json:"backfill_mode"`
 	SelectedPriceTableIDs           []int64 `json:"selected_price_table_ids"`
@@ -162,18 +164,22 @@ type orderVoidManyAPIRequest struct {
 func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher, assetDirs ...any) {
 	assetDir := "/app/data/assets"
 	var customerScope CustomerScopeResolver
+	var authz support.AuthzService
 	for _, value := range assetDirs {
 		switch item := value.(type) {
 		case string:
 			if strings.TrimSpace(item) != "" {
 				assetDir = strings.TrimSpace(item)
 			}
+		case support.AuthzService:
+			authz = item
 		case CustomerScopeResolver:
 			customerScope = item
 		}
 	}
 	h := orderAPIHandler{
 		sales:         salesSvc,
+		authz:         authz,
 		messages:      messages,
 		assetDir:      assetDir,
 		customerScope: customerScope,
@@ -186,6 +192,9 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
 	e.POST("/api/order/payment-vouchers", h.uploadPaymentVoucher)
 	e.POST("/api/order", h.save)
+	e.POST("/api/fulfillment/order", h.save)
+	e.GET("/api/orders/:id/confirmation", h.confirmation)
+	e.POST("/api/orders/:id/confirmation", h.reviewConfirmation)
 	registerCustomerAccountRoutes(e, h)
 	e.GET("/api/customer-processing/portal/workspace", h.customerWorkspace)
 	e.GET("/api/customer-processing/portal/order/form", h.customerForm)
@@ -502,6 +511,14 @@ func validOrderListScope(scope string) bool {
 }
 
 func (h orderAPIHandler) save(c echo.Context) error {
+	actor, _, actorErr := support.CurrentActor(c, h.authz)
+	if actorErr != nil {
+		return c.JSON(403, map[string]string{"error": actorErr.Error()})
+	}
+	if actor.AccountType == support.AccountTypeChannelCustomer && !strings.HasPrefix(c.Path(), "/api/customer-processing/portal/") {
+		return c.JSON(403, map[string]string{"error": "请从客户履约录单入口保存"})
+	}
+
 	if err := support.RequireEmployeeBound(c); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
@@ -523,6 +540,19 @@ func (h orderAPIHandler) save(c echo.Context) error {
 		}
 	}
 	cmd.SelectedPriceTableIDs = req.SelectedPriceTableIDs
+	cmd.ExpectedEditRevision = req.EditRevision
+	cmd.RequireConfirmation = c.Path() == "/api/fulfillment/order" || strings.HasPrefix(c.Path(), "/api/customer-processing/portal/")
+	if c.Path() == "/api/fulfillment/order" {
+		if support.CustomerFulfillmentOrderScopeLimited(c) {
+			return c.JSON(403, map[string]string{"error": "请从客户履约录单入口保存"})
+		}
+		cmd.OrdersScope = "fulfillment"
+		cmd.CustomerRequestID = strings.TrimSpace(req.RequestID)
+		if len(cmd.CustomerRequestID) < 16 || len(cmd.CustomerRequestID) > 100 {
+			return c.JSON(400, map[string]string{"error": "录单请求标识无效，请刷新后重试"})
+		}
+		cmd.CustomerRequestHash = confirmationRequestHash(req)
+	}
 	if strings.HasPrefix(c.Path(), "/api/customer-processing/portal/") {
 		if err := h.prepareCustomerCommand(c, req, &cmd); err != nil {
 			return c.JSON(400, map[string]string{"error": err.Error()})
@@ -532,7 +562,7 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	if !res.Edited && !res.Replayed {
+	if !res.Edited && !res.Replayed && res.ConfirmationStatus != "pending" {
 		h.publishOrderCreated(c, res)
 	}
 	redirectURL := "/order?ok=1&order_no=" + res.OrderNo
@@ -541,11 +571,12 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	}
 	redirectURL = support.PrefixRelativeLocation(c, redirectURL)
 	return c.JSON(http.StatusOK, map[string]any{
-		"order_id":         res.OrderID,
-		"order_no":         res.OrderNo,
-		"edited":           res.Edited,
-		"redirect_url":     redirectURL,
-		"stock_batch_used": res.StockBatchUsed,
+		"order_id":            res.OrderID,
+		"order_no":            res.OrderNo,
+		"edited":              res.Edited,
+		"redirect_url":        redirectURL,
+		"stock_batch_used":    res.StockBatchUsed,
+		"confirmation_status": res.ConfirmationStatus,
 	})
 }
 
@@ -1140,6 +1171,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 	greenPublicationID, _, _ := itemPublicationByType("green")
 	dripPublicationID, _, _ := itemPublicationByType("drip")
 	return map[string]any{
+		"edit_revision":                       ed.EditRevision,
 		"document_date":                       ed.DocumentDate,
 		"order_date":                          ed.OrderDate,
 		"customer_id":                         strconv.FormatInt(ed.CustomerID, 10),

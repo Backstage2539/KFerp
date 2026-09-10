@@ -257,7 +257,7 @@ FROM %s.order_items oi
 JOIN %s.orders o ON o.id=oi.order_id
 LEFT JOIN %s.products p ON p.id=oi.product_id
 WHERE oi.order_id = ANY($1)
-  AND o.is_void=false
+  AND o.is_void=false AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted'
   AND COALESCE(o.process_status_id,0) IN (0,1,2)
 FOR UPDATE OF oi
 `, schema, schema, schema, schema)

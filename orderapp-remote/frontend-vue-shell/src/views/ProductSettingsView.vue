@@ -6786,7 +6786,11 @@ async function saveSelectedProductBusinessGroupAssignment(target = {}) {
               usageKey: 'product_catalog', objectKey: 'product', objectID: Number(productID || 0), option, sortOrder: 100,
             }),
           })
-          applyProductBusinessGroupAssignment(productID, saved)
+          const assignment = saved?.assignment
+          if (!assignment || Number(assignment.object_id) !== Number(productID) || Number(assignment.group_item_id) !== option.group_item_id || Number(assignment.group_id) !== option.group_id) {
+            throw new Error('分类已提交，但返回结果无法核对，请刷新列表后重试')
+          }
+          applyProductBusinessGroupAssignment(productID, assignment)
         }
         movedCount += 1
       } catch (err) {

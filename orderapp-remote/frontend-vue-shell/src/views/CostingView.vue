@@ -291,7 +291,7 @@
             <button class="secondary compact" type="button" @click="setAllPdfProducts(false)">清空</button>
           </div>
         </div>
-        <p class="muted">修改并发布 BOM 配置后，点击“刷新商品和规格”读取最新分类、商品和规格；新增规格可手动勾选，失效或变更的已选规格会提示处理。</p>
+        <p class="muted">上下箭头调整当前价格表的展示顺序：分类在同一父分类内连同子分类移动，商品在所属分类内连同规格移动。刷新商品、规格和价格会保留顺序，新增项目追加到所属分类末尾。修改并发布 BOM 后点击“刷新商品和规格”，失效或变更的已选规格需处理。</p>
         <div v-if="priceListRefresh.kind === 'products'" aria-live="polite">
           <p v-if="priceListRefresh.error" class="error" role="alert">{{ priceListRefresh.error }}</p>
           <p v-if="priceListRefresh.message" class="ok" role="status">{{ priceListRefresh.message }}</p>
@@ -304,6 +304,8 @@
               :style="productPickerCategoryStyle(category)"
             >
             <div class="product-picker-category-head">
+              <div class="display-order-controls"><button class="secondary compact" type="button" aria-label="分类上移" :disabled="!canMoveDisplayCategory(category, -1)" @click.stop="moveDisplayCategory(category, -1)">↑</button>
+              <button class="secondary compact" type="button" aria-label="分类下移" :disabled="!canMoveDisplayCategory(category, 1)" @click.stop="moveDisplayCategory(category, 1)">↓</button></div>
               <button
                 type="button"
                 class="secondary compact category-collapse-toggle"
@@ -372,6 +374,8 @@
               :style="productPickerRowStyle(category)"
             >
               <div class="product-picker-row-head">
+                <div class="display-order-controls"><button class="secondary compact" type="button" aria-label="商品上移" :disabled="!canMoveDisplayProduct(category, row, -1)" @click.stop="moveDisplayProduct(category, row, -1)">↑</button>
+                <button class="secondary compact" type="button" aria-label="商品下移" :disabled="!canMoveDisplayProduct(category, row, 1)" @click.stop="moveDisplayProduct(category, row, 1)">↓</button></div>
                 <label class="check-line">
                   <input type="checkbox" :disabled="row.no_quoteable_bom_specs" :checked="isPdfProductSelected(priceListParentProductID(row))" @change="togglePdfProduct(row, $event.target.checked)" />
                   <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
@@ -1112,6 +1116,7 @@
 </template>
 
 <script setup>
+import { capturePriceListDisplayOrder, applyPriceListDisplayOrder, movePriceListCategory, movePriceListProduct } from '../lib/price-list-display-order.js'
 import { priceTableOrderabilityBlockedReason } from '../lib/price-table-orderability.js'
 import { seedCustomerPriceRows, applyCustomerPriceRows } from '../lib/customer-price-draft.js'
 import { customerCatalogProjection } from '../lib/customer-catalog.js'
@@ -1437,6 +1442,7 @@ const pdfVisibleCategoryCodes = computed(() => priceListCategoryCodesForSelected
   categoryProductGroups.value,
   pdfSelectedProductIDs.value,
 ))
+const priceListDisplayOrder = ref({})
 const categoryProductGroups = computed(() => productGroupsForType(pdfTheme.value.listType, activeProductTypeCategoryID.value))
 const selectedSkuCategoryProductGroups = computed(() => priceListSelectedSkuCategoryRows(categoryProductGroups.value, pdfProductSpecSelections.value))
 const pdfGenerationCustomizers = computed(() => {
@@ -2003,6 +2009,7 @@ function savePriceListGenerationDraftForActiveType() {
     customerPriceSeedRows: customerPriceSeedRows.value,
     customerPriceConfiguredSources: customerPriceConfiguredSources.value,
     product_spec_selections: pdfProductSpecSelections.value,
+    price_list_display_order: priceListDisplayOrder.value,
   })
 }
 
@@ -2011,6 +2018,7 @@ function restorePriceListGenerationDraftForActiveType() {
   const scopeKey = priceListGenerationDraftStorageKey()
   if (customerPriceSeedScope !== scopeKey) { customerPriceSeedRows.value = []; customerPriceConfiguredSources.value = {}; priceListFlatRowOverrides.value = {}; customerPriceSeedScope = scopeKey }
   const draft = readPriceListGenerationDraft(scopeKey)
+  priceListDisplayOrder.value = clonePriceTable(draft?.price_list_display_order || {})
   if (!draft) return false
   customerPriceSeedRows.value = Array.isArray(draft.customerPriceSeedRows) ? draft.customerPriceSeedRows : []
   customerPriceConfiguredSources.value = { ...(draft.customerPriceConfiguredSources || {}) }
@@ -3845,7 +3853,22 @@ function productGroupsForType(listType, productTypeCategoryID = activeProductTyp
       unclassified: Boolean(group.unclassified),
     }
   })
-  return priceListVisibleCategoryRows(groups)
+  return applyPriceListDisplayOrder(priceListVisibleCategoryRows(groups), priceListDisplayOrder.value)
+}
+
+function canMoveDisplayCategory(category, direction) {
+  return movePriceListCategory(categoryProductGroups.value, priceListDisplayOrder.value, category.code, direction) !== priceListDisplayOrder.value
+}
+function moveDisplayCategory(category, direction) {
+  priceListDisplayOrder.value = movePriceListCategory(categoryProductGroups.value, priceListDisplayOrder.value, category.code, direction)
+  savePriceListGenerationDraftForActiveType()
+}
+function canMoveDisplayProduct(category, row, direction) {
+  return movePriceListProduct(categoryProductGroups.value, priceListDisplayOrder.value, category.code, priceListParentProductID(row), direction) !== priceListDisplayOrder.value
+}
+function moveDisplayProduct(category, row, direction) {
+  priceListDisplayOrder.value = movePriceListProduct(categoryProductGroups.value, priceListDisplayOrder.value, category.code, priceListParentProductID(row), direction)
+  savePriceListGenerationDraftForActiveType()
 }
 
 function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
@@ -4569,6 +4592,7 @@ async function refreshPriceListData(kind) {
   const context = priceListRefreshContext.value
   const typeKey = activePriceListTypeKey.value
   const current = () => revision === priceListRefreshRevision && context === priceListRefreshContext.value
+  priceListDisplayOrder.value = capturePriceListDisplayOrder(categoryProductGroups.value, priceListDisplayOrder.value)
   priceListRefresh.value = { kind, busy: true, error: '', message: '' }
   try {
     const snapshot = await fetchPriceListRefreshSnapshot({ apiGet, customerID: activeBeanListCustomerID.value, prices: kind === 'prices' })
@@ -5043,6 +5067,7 @@ function beanListPublicationPayload() {
       product_catalog_group_template_id: Number(selectedProductCatalogGroupTemplate.value?.id || 0),
       selectedProductIDs: pdfSelectedProductIDs.value,
       product_spec_selections: productSpecSelectionsForWrite(pdfProductSpecSelections.value),
+      price_list_display_order: priceListDisplayOrder.value,
       showCategoryNumbers: pdfOptions.value.showCategoryNumbers,
       visibleCategoryCodes: pdfVisibleCategoryCodes.value,
       customizers: pdfCustomizers.value,
@@ -5163,7 +5188,7 @@ function captureNamedPriceTablePayload() {
       groupSelections: priceListGroupTemplateSelections.value, productOverrides: priceListProductTemplateOverrides.value,
       flatRowOverrides: priceListFlatRowOverrides.value, customerPriceSeedRows: customerPriceSeedRows.value,
       customerPriceConfiguredSources: customerPriceConfiguredSources.value,
-      product_spec_selections: pdfProductSpecSelections.value },
+      product_spec_selections: pdfProductSpecSelections.value, price_list_display_order: priceListDisplayOrder.value },
     editor: { pdfOptions: pdfOptions.value, customizers: pdfCustomizers.value,
       priceSource: currentPriceSourcePublication.value, styleSource: styleSourcePublicationIDByType.value[activePriceListTypeKey.value] || 0 },
   })
@@ -5192,7 +5217,7 @@ async function applyNamedPriceTablePayload() {
     const key = activePriceListTypeKey.value
     priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [key]: payload.editor?.priceSource || null }
     styleSourcePublicationIDByType.value = { ...styleSourcePublicationIDByType.value, [key]: payload.editor?.styleSource || 0 }
-    const draft = payload.draft || { defaults: defaultPriceListTemplateSelection({ pricing_mode: 'tier_template' }), product_spec_selections: [] }
+    const draft = payload.draft || { defaults: defaultPriceListTemplateSelection({ pricing_mode: 'tier_template' }), product_spec_selections: [], price_list_display_order: payload.config?.price_list_display_order || {} }
     priceListTemplateDefaults.value = defaultPriceListTemplateSelection(draft.defaults || {})
     priceListParentTemplateSelections.value = {}
     priceListGroupTemplateSelections.value = {}
@@ -5295,7 +5320,7 @@ async function saveNamedPriceTableBatch(publish) {
 watch([activePriceListTypeKey, activeBeanListCustomerID, publicationScope, loading], async () => {
   if (!loading.value) { await nextTick(); await restoreNamedPriceTableBatch() }
 }, { flush: 'post' })
-watch([pdfOptions, pdfCustomizers, priceListTemplateDefaults, priceListParentTemplateSelections, priceListGroupTemplateSelections,
+watch([priceListDisplayOrder, pdfOptions, pdfCustomizers, priceListTemplateDefaults, priceListParentTemplateSelections, priceListGroupTemplateSelections,
   priceListProductTemplateOverrides, priceListFlatRowOverrides, customerPriceConfiguredSources, pdfProductSpecSelections, pdfGroups], persistNamedPriceTableBatch, { deep: true, flush: 'post' })
 watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name])]), () => {
   if (!restoringNamedPriceTable && namedPriceTableBatch.value) savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
@@ -5484,7 +5509,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
 .product-picker-list { display: grid; gap: 10px; max-height: 420px; overflow: auto; }
 .product-picker-category { display: grid; gap: 8px; margin-left: var(--product-picker-category-indent, 0); border: 1px solid #ddd; border-radius: 8px; padding: 10px; background: #fff; }
-.product-picker-category-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 10px; align-items: start; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+.product-picker-category-head { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: start; padding-bottom: 8px; border-bottom: 1px solid #eee; }
 .category-collapse-toggle { min-width: 54px; justify-self: start; }
 .product-picker-category.collapsed .product-picker-category-head { padding-bottom: 0; border-bottom: 0; }
 .category-pricing-summary, .product-compact-status { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
@@ -5521,7 +5546,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .inline-price-config > span, .product-inline-pricing-config > span { color: #666; font-size: 12px; line-height: 1.35; }
 .inline-price-config-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; min-width: 0; }
 .product-picker-row { display: grid; gap: 7px; margin-left: var(--product-picker-row-indent, 0); border: 1px solid #eee; border-radius: 8px; padding: 9px; background: #fafafa; }
-.product-picker-row-head { display: grid; gap: 7px; min-width: 0; }
+.product-picker-row-head { display: flex; flex-wrap: wrap; gap: 7px; min-width: 0; }
+.display-order-controls { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+.display-order-controls button { width: 30px; min-height: 30px; padding: 4px; }
+.product-picker-row-head > .check-line { flex: 1; min-width: 0; }
+.category-pricing-summary, .product-compact-status { flex-basis: 100%; }
 .product-spec-options { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 7px; padding-left: 18px; }
 .product-spec-option { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; border: 1px solid #e5e5e5; border-radius: 8px; padding: 6px 8px; background: #fff; }
 .product-spec-option.selected { border-color: #9fc2f6; background: #f7faff; }
