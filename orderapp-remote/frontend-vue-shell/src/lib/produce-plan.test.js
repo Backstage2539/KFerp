@@ -330,6 +330,88 @@ test('production plan detail endpoint targets the formal plan document', () => {
   assert.equal(producePlan.productionPlanDetailEndpoint({}), '')
 })
 
+test('production plan detail workspace saves all draft sections with one endpoint', () => {
+  const plan = {
+    id: 41,
+    draft_token: 'current-token',
+    items: [{ id: 51, target_warehouse: 'finished_goods' }],
+    component_sources: [{
+      production_plan_item_id: 51,
+      component_type: 'material',
+      component_id: 7,
+      component_bom_spec_id: 0,
+      component_spec_g: 0,
+      source_warehouse: 'raw_material',
+      source_owner_customer_id: 0,
+    }],
+    operation_splits: [{
+      production_plan_item_id: 51,
+      operation_seq: 1,
+      operation: '包装',
+      workstation_capacity_id: 9,
+      planned_qty: 20,
+    }],
+  }
+
+  assert.equal(producePlan.productionPlanDraftEndpoint(plan), '/api/production-plans/41/draft')
+  assert.deepEqual(producePlan.buildProductionPlanDraftPayload(plan), {
+    draft_token: 'current-token',
+    items: [{ id: 51, target_warehouse: 'finished_goods' }],
+    component_sources: [{
+      production_plan_item_id: 51,
+      component_type: 'material',
+      component_id: 7,
+      component_bom_spec_id: 0,
+      component_spec_g: 0,
+      source_warehouse: 'raw_material',
+      source_owner_customer_id: 0,
+    }],
+    operation_splits: [{
+      production_plan_item_id: 51,
+      operation_seq: 1,
+      operation: '包装',
+      workstation_capacity_id: 9,
+      planned_qty: 20,
+    }],
+  })
+})
+
+test('production plan stages keep task identity while connecting a shared upstream item', () => {
+  const detail = {
+    items: [
+      { id: 1, output_type: 'product', output_name: '初晓商品', sales_spec_count: 10, inventory_unit: '袋', order_nos: 'SO-1' },
+      { id: 2, output_type: 'product', output_name: '初晓商品', sales_spec_count: 8, inventory_unit: '袋', order_nos: 'SO-2' },
+      { id: 3, output_type: 'product', output_name: '初晓商品', sales_spec_count: 2, inventory_unit: '袋', order_nos: 'SO-3' },
+      { id: 4, output_type: 'material', output_name: '初晓', output_qty: 4.54, output_unit: 'kg' },
+    ],
+    manufacturing_plan: {
+      edges: [
+        { consumer_plan_item_id: 1, supplier_plan_item_id: 4, required_g: 2270 },
+        { consumer_plan_item_id: 2, supplier_plan_item_id: 4, required_g: 1816 },
+        { consumer_plan_item_id: 3, supplier_plan_item_id: 4, required_g: 454 },
+      ],
+    },
+  }
+
+  const stages = producePlan.buildProductionPlanStages(detail)
+  assert.equal(stages.length, 2)
+  assert.deepEqual(stages[0].tasks.map((task) => task.id), [4])
+  assert.deepEqual(stages[1].tasks.map((task) => task.id), [1, 2, 3])
+  assert.equal(stages[0].tasks[0].supplies.length, 3)
+  assert.equal(stages[1].tasks[0].quantity_label, '10 袋')
+})
+
+test('production plan detail uses a full workspace with fixed header and footer', () => {
+  const source = fs.readFileSync(new URL('../components/ProductionPlanDetailWorkspace.vue', import.meta.url), 'utf8')
+  assert.match(source, /生产计划详情工作区/)
+  assert.match(source, /本次生产安排/)
+  assert.match(source, /用料与来源/)
+  assert.match(source, /提交前核对/)
+  assert.match(source, /保存草稿/)
+  assert.match(source, /提交生成工单/)
+  assert.match(source, /position:\s*sticky/)
+})
+
 test('production plan status labels and tones are localized for the list', () => {
   assert.equal(producePlan.productionPlanStatusLabel('draft'), '草稿')
   assert.equal(producePlan.productionPlanStatusLabel('submitted'), '已提交工单')

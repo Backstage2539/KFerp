@@ -46,6 +46,13 @@ type productionPlanItemComponentSourcesRequest struct {
 	Sources []productionapp.ProductionPlanComponentSource `json:"sources"`
 }
 
+type productionPlanDraftRequest struct {
+	DraftToken       string                                        `json:"draft_token"`
+	Items            []productionapp.ProductionPlanDraftItem       `json:"items"`
+	ComponentSources []productionapp.ProductionPlanComponentSource `json:"component_sources"`
+	OperationSplits  []productionapp.ProductionPlanOperationSplit  `json:"operation_splits"`
+}
+
 func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.POST("/api/production-plans/:id/refresh-supply", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -161,6 +168,27 @@ func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Servic
 		}
 		plan, err := productionSvc.GetProductionPlan(c.Request().Context(), id)
 		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, plan)
+	})
+	e.PATCH("/api/production-plans/:id/draft", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid production_plan_id"})
+		}
+		var req productionPlanDraftRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		plan, err := productionSvc.SaveProductionPlanDraft(c.Request().Context(), productionapp.SaveProductionPlanDraftCommand{
+			ID: id, DraftToken: req.DraftToken, Items: req.Items, ComponentSources: req.ComponentSources,
+			OperationSplits: req.OperationSplits, Operator: support.ActorOf(c),
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "draft has changed") {
+				return c.JSON(http.StatusConflict, ErrorResponse{Error: err.Error()})
+			}
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, plan)

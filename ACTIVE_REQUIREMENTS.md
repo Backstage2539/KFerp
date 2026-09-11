@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-650-PRODUCTION-PLAN-DETAIL-WORKSPACE
+- Branch: `codex/production-plan-detail-ux-20260911`, base `3d272faa`.
+- Owner/session: Codex / 2026-09-11
+- Status: implementation and latest-develop conflict resolution complete; full merged verification passed; development integration/deployment and browser acceptance in progress. Van approved the UI target and development delivery.
+- Scope: unify frozen production-plan quantities, expose submit readiness, save the draft atomically, and replace the detail drawer with a staged Vue workspace.
+- DEV: DEV-650-QUANTITY-AUTHORITY; DEV-650-DRAFT-READINESS-API; DEV-650-DETAIL-WORKSPACE; DEV-650-DEVELOPMENT-DELIVERY.
+- Verifier:
+  - Unit: production quantity/material/readiness Go tests and produce-plan frontend helper tests.
+  - API: production plan detail, atomic draft save, conflict, validation, audit, and submit parity tests.
+  - Frontend/build: targeted Vue tests, frontend test gate, Vite build, browser interaction and responsive screenshots.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue manual surface.
+  - Review/acceptance: development flow with isolated test data; PP-0000000109 stays read-only.
+- Deployment: development after branch integration; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-plan-detail-workspace.md`; full Go, Vue 1175/1175 and Vite build pass after merging latest develop.
+- Last update: 2026-09-11 Asia/Shanghai
+- Notes: the initial local reservation selected PR-649, but concurrent integration claimed that id first; this requirement was moved to the next id, PR-650.
+
 ### PR-649-PRODUCTION-PLANNING-WORKSPACE
 - Branch: `codex/production-planning-workspace-20260910`, base `3d272faa`.
 - Owner/session: Codex / 2026-09-11

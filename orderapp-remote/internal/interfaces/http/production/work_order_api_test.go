@@ -23,6 +23,9 @@ type workOrderAPIRepo struct {
 	jobCardAction  productionapp.JobCardActionCommand
 
 	createPlan           productionapp.CreateProductionPlanCommand
+	savePlanDraft        productionapp.SaveProductionPlanDraftCommand
+	savedPlanDraft       productionapp.ProductionPlanDetail
+	savePlanDraftErr     error
 	savePlanSplits       productionapp.SaveProductionPlanOperationSplitsCommand
 	previewPlanSplits    productionapp.PreviewProductionPlanOperationSplitsCommand
 	saveWorkOrderSplits  productionapp.SaveWorkOrderOperationSplitsCommand
@@ -183,6 +186,16 @@ func (r *workOrderAPIRepo) GetProductionPlan(ctx context.Context, id int64) (pro
 		r.productionPlan = productionapp.ProductionPlanDetail{ID: id, PlanNo: "PP-0000000041", Status: "draft"}
 	}
 	return r.productionPlan, nil
+}
+func (r *workOrderAPIRepo) SaveProductionPlanDraft(ctx context.Context, cmd productionapp.SaveProductionPlanDraftCommand) (productionapp.ProductionPlanDetail, error) {
+	r.savePlanDraft = cmd
+	if r.savePlanDraftErr != nil {
+		return productionapp.ProductionPlanDetail{}, r.savePlanDraftErr
+	}
+	if r.savedPlanDraft.ID == 0 {
+		r.savedPlanDraft = productionapp.ProductionPlanDetail{ID: cmd.ID, PlanNo: "PP-0000000041", Status: "draft", DraftToken: "next-token"}
+	}
+	return r.savedPlanDraft, nil
 }
 func (r *workOrderAPIRepo) SaveProductionPlanOperationSplits(ctx context.Context, cmd productionapp.SaveProductionPlanOperationSplitsCommand) ([]productionapp.ProductionPlanOperationSplit, error) {
 	r.savePlanSplits = cmd
@@ -1258,6 +1271,46 @@ func TestProductionPlanAPICreatesListsAndSubmitsFormalPlan(t *testing.T) {
 	}
 	if repo.submitPlan.ID != 41 {
 		t.Fatalf("submit command = %+v, want id 41", repo.submitPlan)
+	}
+}
+
+func TestProductionPlanDraftAPISavesTheWorkspaceAtomically(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	registerProductionPlanAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/production-plans/41/draft", strings.NewReader(`{
+		"draft_token":"current-token",
+		"items":[{"id":51,"target_warehouse":"成品仓"}],
+		"component_sources":[{"production_plan_item_id":51,"component_type":"material","component_id":9,"source_warehouse":"原料仓"}],
+		"operation_splits":[{"production_plan_item_id":51,"operation_seq":1,"operation":"包装","workstation_capacity_id":7,"planned_qty":20}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH production plan draft status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.savePlanDraft.ID != 41 || repo.savePlanDraft.DraftToken != "current-token" || len(repo.savePlanDraft.Items) != 1 || len(repo.savePlanDraft.ComponentSources) != 1 || len(repo.savePlanDraft.OperationSplits) != 1 {
+		t.Fatalf("draft command = %+v, want one atomic workspace payload", repo.savePlanDraft)
+	}
+	if !strings.Contains(rec.Body.String(), `"draft_token":"next-token"`) {
+		t.Fatalf("draft response = %s, want refreshed version token", rec.Body.String())
+	}
+}
+
+func TestProductionPlanDraftAPIReportsVersionConflict(t *testing.T) {
+	repo := &workOrderAPIRepo{savePlanDraftErr: fmt.Errorf("production plan draft has changed; reload before saving")}
+	e := echo.New()
+	registerProductionPlanAPI(e, productionapp.NewService(repo))
+	req := httptest.NewRequest(http.MethodPatch, "/api/production-plans/41/draft", strings.NewReader(`{"draft_token":"stale","items":[{"id":51,"target_warehouse":"成品仓"}]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("PATCH stale production plan draft status=%d body=%s, want 409", rec.Code, rec.Body.String())
 	}
 }
 

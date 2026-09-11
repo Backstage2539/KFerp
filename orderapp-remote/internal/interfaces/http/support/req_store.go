@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-650-PRODUCTION-PLAN-DETAIL-WORKSPACE", title: "生产计划详情工作区与统一数量核对", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-plan-detail-workspace.md"},
+		{table: "req_dev", code: "DEV-650-QUANTITY-AUTHORITY", title: "统一计划任务、物料、来源与工单冻结数量", status: "review", assignee: "Codex", evidence: "production_plan_detail_test.go"},
+		{table: "req_dev", code: "DEV-650-DRAFT-READINESS-API", title: "结构化提交核对与原子草稿保存", status: "review", assignee: "Codex", evidence: "production_plan_api_test.go"},
+		{table: "req_dev", code: "DEV-650-DETAIL-WORKSPACE", title: "按生产阶段组织完整计划详情工作区", status: "review", assignee: "Codex", evidence: "ProductionPlanDetailWorkspace.vue"},
+		{table: "req_dev", code: "DEV-650-DEVELOPMENT-DELIVERY", title: "手册、验证、开发部署与浏览器验收", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-11-production-plan-detail-workspace.md"},
 		{table: "req_product", code: "PR-649-PRODUCTION-PLANNING-WORKSPACE", title: "生产计划三步工作台与草稿原单重算", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-planning-workspace.md"},
 		{table: "req_dev", code: "DEV-649-DEMAND-SELECT", title: "按商品规格选择需求并显示具体配置异常", status: "review", assignee: "Codex", evidence: "produce-plan.test.js"},
 		{table: "req_dev", code: "DEV-649-GAP-REVIEW", title: "商品缺口与生产用料决策界面", status: "review", assignee: "Codex", evidence: "produce-plan.test.js"},

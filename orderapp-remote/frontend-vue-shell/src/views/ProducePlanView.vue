@@ -1,12 +1,33 @@
 <template>
   <div
     class="page"
+    :class="{ 'detail-open': !!productionPlanDetail }"
     @pointerdown="startTableScrollDrag"
     @pointermove="moveTableScrollDrag"
     @pointerup="stopTableScrollDrag"
     @pointercancel="stopTableScrollDrag"
   >
     <ProductionTopNav v-if="!props.embedded" active-key="producePlan" />
+
+    <div v-if="productionPlanDetail" class="production-plan-workspace-shell">
+      <ProductionPlanDetailWorkspace
+        :detail="productionPlanDetail"
+        :warehouses="warehouses"
+        :loading="productionPlanDetailLoading"
+        :error="productionPlanDetailError"
+        :saving="productionPlanDetailSaving || saving"
+        :dirty="productionPlanDetailDirty"
+        @back="closeProductionPlanDetail"
+        @save="saveProductionPlanDetailDraft"
+        @submit="submitProductionPlanDetail"
+        @edit-splits="openProductionPlanSplitDrawer(productionPlanDetail, 'detail')"
+        @refresh="refreshProductionPlanDetailSupply"
+        @cancel="cancelProductionPlanDraft(productionPlanDetail, 'detail')"
+        @navigate="navigateProductionView"
+        @source-change="selectComponentSourceOption"
+        @warehouse-change="changeProductionPlanDetailWarehouse"
+      />
+    </div>
 
     <section class="panel plan-page-head">
       <div class="panel-head">
@@ -677,7 +698,7 @@
       </aside>
     </div>
 
-    <div v-if="productionPlanSplitDrawer" class="drawer-backdrop" @click.self="closeProductionPlanSplitDrawer">
+    <div v-if="productionPlanSplitDrawer" class="drawer-backdrop production-plan-split-layer" @click.self="closeProductionPlanSplitDrawer">
       <aside class="production-plan-split-drawer" aria-label="生产计划工序产能拆分编辑">
         <div class="drawer-head">
           <div>
@@ -828,6 +849,7 @@
 
 <script setup>
 import ProductionSupplyAllocations from '../components/ProductionSupplyAllocations.vue'
+import ProductionPlanDetailWorkspace from '../components/ProductionPlanDetailWorkspace.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
@@ -839,6 +861,7 @@ import {
   productionDemandBlockingReasons,
   applicableOperationCapacities,
   buildProductionPlanNextActions,
+  buildProductionPlanDraftPayload,
   buildOperationCapacityAutoSplits,
   buildCurrentProductionPlanSubmitPayload,
   buildInsufficientSelection,
@@ -877,6 +900,8 @@ import {
   productionPlanCancelTargetsCurrentPlan,
   productionPlanCanCancelSubmitted,
   productionPlanDetailEndpoint,
+  productionPlanDraftEndpoint,
+  productionPlanSubmitEndpoint,
   productionPlanOperationSplitsEndpoint,
   productionPlanOperationSplitsPreviewEndpoint,
   productionPlanItemTargetWarehouseEndpoint,
@@ -963,7 +988,10 @@ const operationSplits = ref([])
 const productionPlanDetail = ref(null)
 const productionPlanDetailLoading = ref(false)
 const productionPlanDetailError = ref('')
+const productionPlanDetailSaving = ref(false)
+const productionPlanDetailSavedFingerprint = ref('')
 const productionPlanSplitDrawer = ref(null)
+const productionPlanSplitReturnTarget = ref('')
 const productionPlanSplitDrawerLoading = ref(false)
 const productionPlanSplitDrawerSaving = ref(false)
 const productionPlanSplitDrawerError = ref('')
@@ -1069,6 +1097,10 @@ const allProductionPlansSelected = computed(() => productionPlanSelection.value.
 const hasSelectedProductionPlans = computed(() => productionPlanSelection.value.selectedCount > 0)
 const currentPlanDraft = computed(() => productionPlanSelectable(currentPlan.value))
 const productionPlanSplitDrawerDraft = computed(() => productionPlanSelectable(productionPlanSplitDrawer.value))
+const productionPlanDetailDirty = computed(() => {
+  if (!productionPlanSelectable(productionPlanDetail.value) || !productionPlanDetailSavedFingerprint.value) return false
+  return JSON.stringify(buildProductionPlanDraftPayload(productionPlanDetail.value)) !== productionPlanDetailSavedFingerprint.value
+})
 const selectedSignature = computed(() => selectedKeys().join('|'))
 const activeWorkstationCapacities = computed(() => workstationCapacities.value.filter((row) => String(row.status || 'active') === 'active'))
 const productionPlanSplitDrawerOperationRows = computed(() => {
@@ -1839,10 +1871,12 @@ function workOrderStatusLabel(status) {
 async function openProductionPlanDetail(plan) {
   if (!productionPlanDetailEndpoint(plan)) return
   productionPlanDetail.value = { ...plan, items: [], material_summary: [], related_work_orders: [], job_card_count: 0 }
+  productionPlanDetailSavedFingerprint.value = ''
   productionPlanDetailLoading.value = true
   productionPlanDetailError.value = ''
   try {
     productionPlanDetail.value = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
+    productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(productionPlanDetail.value))
   } catch (err) {
     productionPlanDetailError.value = err.message || '加载生产计划单据详情失败'
   } finally {
@@ -1850,9 +1884,69 @@ async function openProductionPlanDetail(plan) {
   }
 }
 
-function closeProductionPlanDetail() {
+function closeProductionPlanDetail(force = false) {
+  if (!force && productionPlanDetailDirty.value && !window.confirm('当前生产计划还有未保存修改，确认返回吗？')) return
   productionPlanDetail.value = null
   productionPlanDetailError.value = ''
+  productionPlanDetailSavedFingerprint.value = ''
+}
+
+function changeProductionPlanDetailWarehouse(itemID, warehouse) {
+  const item = (productionPlanDetail.value?.items || []).find((row) => Number(row.id || 0) === Number(itemID || 0))
+  if (item) item.target_warehouse = String(warehouse || '').trim()
+}
+
+async function saveProductionPlanDetailDraft() {
+  const endpoint = productionPlanDraftEndpoint(productionPlanDetail.value)
+  if (!endpoint || !productionPlanSelectable(productionPlanDetail.value) || !productionPlanDetailDirty.value) return
+  productionPlanDetailSaving.value = true
+  productionPlanDetailError.value = ''
+  try {
+    const saved = normalizeProductionPlanDetailForSplitEditor(await apiSend(endpoint, { method: 'PATCH', body: buildProductionPlanDraftPayload(productionPlanDetail.value) }))
+    productionPlanDetail.value = saved
+    productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(saved))
+    if (Number(currentPlan.value?.id || 0) === Number(saved.id || 0)) {
+      currentPlan.value = saved
+      operationSplits.value = saved.operation_splits || []
+      manufacturingPlan.value = saved
+    }
+    notice.value = `${saved.plan_no || '生产计划'} 草稿已保存，提交条件已重新核对。`
+    await loadProductionPlans()
+  } catch (err) {
+    productionPlanDetailError.value = err.message || '保存生产计划草稿失败'
+  } finally {
+    productionPlanDetailSaving.value = false
+  }
+}
+
+async function submitProductionPlanDetail() {
+  const plan = productionPlanDetail.value
+  const endpoint = productionPlanSubmitEndpoint(plan)
+  if (!endpoint || !productionPlanSelectable(plan) || productionPlanDetailDirty.value || !plan?.readiness?.can_submit) return
+  productionPlanDetailSaving.value = true
+  productionPlanDetailError.value = ''
+  try {
+    const result = await apiSend(endpoint, { body: {} })
+    const submitted = normalizeProductionPlanDetailForSplitEditor(result.plan || plan)
+    productionPlanDetail.value = submitted
+    productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(submitted))
+    if (Number(currentPlan.value?.id || 0) === Number(submitted.id || 0)) currentPlan.value = submitted
+    postSubmitActions.value = buildProductionPlanNextActions({ success: [result] })
+    notice.value = `${submitted.plan_no || '生产计划'} 已提交，生成 ${result.work_orders?.length || 0} 张工单。`
+    await Promise.all([loadProductionPlans(), refreshProductionDemandAfterDraftCancel(true)])
+  } catch (err) {
+    productionPlanDetailError.value = err.message || '提交生成工单失败'
+  } finally {
+    productionPlanDetailSaving.value = false
+  }
+}
+
+async function refreshProductionPlanDetailSupply() {
+  if (!productionPlanSelectable(productionPlanDetail.value)) return
+  if (!window.confirm('刷新供应会按当前库存和在途重新生成上游任务与工序拆分，确认继续吗？')) return
+  if (productionPlanDetailDirty.value && !window.confirm('当前有未保存修改，刷新后这些修改会被替换，确认继续吗？')) return
+  await refreshPlanSupply(productionPlanDetail.value, 'detail')
+  if (productionPlanDetail.value) productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(productionPlanDetail.value))
 }
 
 function selectedDraftProductionPlanForSplit() {
@@ -1876,8 +1970,9 @@ async function openCurrentPlanSplitDrawer() {
   window.alert('请先选择需求并核对缺口，进入“安排生产”后再设置工位和批次。')
 }
 
-async function openProductionPlanSplitDrawer(plan) {
+async function openProductionPlanSplitDrawer(plan, returnTarget = '') {
   if (!productionPlanDetailEndpoint(plan) || !productionPlanSelectable(plan)) return
+  productionPlanSplitReturnTarget.value = returnTarget
   productionPlanSplitDrawer.value = normalizeProductionPlanDetailForSplitEditor({
     ...plan,
     items: [],
@@ -1893,12 +1988,16 @@ async function openProductionPlanSplitDrawer(plan) {
     // The drawer can still load; capacity selection will show empty and save validation will catch it.
   }
   try {
-    const detail = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
+    const reuseDetail = returnTarget === 'detail' && Number(productionPlanDetail.value?.id || 0) === Number(plan?.id || 0)
+    const detail = normalizeProductionPlanDetailForSplitEditor(reuseDetail ? productionPlanDetail.value : await apiGet(productionPlanDetailEndpoint(plan)))
     productionPlanSplitDrawer.value = detail
     productionPlanSplitRows.value = withAutoOperationSplits((detail.operation_splits || []).map(normalizeOperationSplit), detail)
     scheduleProductionPlanSplitPreview()
-    productionPlanDetail.value = null
-    productionPlanDetailError.value = ''
+    if (!reuseDetail) {
+      productionPlanDetail.value = null
+      productionPlanDetailError.value = ''
+      productionPlanDetailSavedFingerprint.value = ''
+    }
   } catch (err) {
     productionPlanSplitDrawerError.value = err.message || '加载草稿生产计划拆分失败'
   } finally {
@@ -1918,6 +2017,7 @@ function closeProductionPlanSplitDrawer() {
   productionPlanSplitDrawerError.value = ''
   productionPlanSplitDrawerLoading.value = false
   productionPlanSplitDrawerSaving.value = false
+  productionPlanSplitReturnTarget.value = ''
 }
 
 function addProductionPlanDrawerSplit(item, operation) {
@@ -1943,6 +2043,11 @@ async function saveProductionPlanSplitDrawer() {
   productionPlanSplitDrawerError.value = ''
   try {
     const payload = buildProductionPlanOperationSplitPayload(productionPlanSplitRows.value)
+    if (productionPlanSplitReturnTarget.value === 'detail' && Number(productionPlanDetail.value?.id || 0) === Number(productionPlanSplitDrawer.value?.id || 0)) {
+      productionPlanDetail.value = { ...productionPlanDetail.value, operation_splits: payload.items.map(normalizeOperationSplit) }
+      closeProductionPlanSplitDrawer()
+      return
+    }
     const data = await apiSend(productionPlanOperationSplitsEndpoint(productionPlanSplitDrawer.value), { body: payload })
     const savedRows = (data.rows || []).map(normalizeOperationSplit)
     productionPlanSplitRows.value = savedRows
@@ -2152,7 +2257,7 @@ async function cancelProductionPlanDraft(plan, source = 'list') {
       postSubmitActions.value = []
     }
     if (Number(productionPlanDetail.value?.id || 0) === cancelledID) {
-      closeProductionPlanDetail()
+      closeProductionPlanDetail(true)
     }
     if (Number(productionPlanSplitDrawer.value?.id || 0) === cancelledID) {
       closeProductionPlanSplitDrawer()
@@ -2273,6 +2378,10 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.page.detail-open { padding: 0; background: #f7f9f7; }
+.page.detail-open > :not(.production-plan-workspace-shell):not(.production-plan-split-layer) { display: none !important; }
+.production-plan-workspace-shell { min-width: 0; }
+.production-plan-split-layer { z-index: 40; }
 .demand-product-row { background: #f3f5f6; font-weight: 600; }
 .demand-orders { min-width: 180px; max-width: 320px; white-space: normal; overflow-wrap: anywhere; }
 .demand-order-detail { padding: 6px 0; border-top: 1px solid #e5e7eb; }
