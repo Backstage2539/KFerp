@@ -8,13 +8,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-652-PRODUCTION-PLAN-UNIFIED-DRAFT
 - Branch: codex/production-plan-unified-draft-20260911
-- Status: implementation and isolated acceptance complete; full Go gate, Vue 1190/1190, build and API regressions passed; owns develop integration and development deployment.
+- Status: implementation, isolated acceptance, develop integration, and development deployment complete; awaiting Van product acceptance. Deployment ownership released.
 - Scope: 创建前两步、统一草稿详情、撤销重建、地址恢复、保存与离开保护、桌面与窄屏 UI。
 - DEV: DEV-652-UNIFIED-DRAFT; DEV-652-CREATION-UI; DEV-652-RECOVERY; DEV-652-DELIVERY.
 - Verifier: actual Vue handlers; isolated PostgreSQL/API lifecycle; Go/Vue tests and build; screenshots.
 - Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
 - Evidence: orderapp-remote/docs/acceptance/2026-09-11-production-plan-unified-draft.md
 - Boundaries: PP-0000000113 read-only; writes only to isolated test data; development only.
+- Delivery: feature 09c605851376f68354a1fd85d42665803cdf10da -> develop/runtime 4ac8514978470bb8f012c67f4a8fa8464727a222, deployed 2026-09-12 00:14 Asia/Shanghai. Subsequent evidence commit changes documentation only.
+- Rollback: /opt/stacks/erp/orderapp.backup.deploy-20260912000655-4ac851497847; image kferp-orderapp-rollback:development-20260912000655-4ac851497847.
+- Smoke: release exit 0, authenticated shell 200, login 200, unauthenticated app 303; PR-652 review and four DEV-652 done; live two-step preview and draft/cancelled detail verified read-only. PP-113 status/revision/cancelled_at unchanged.
+- Evidence artifacts: /private/tmp/kferp-pr652-acceptance/01-select.png through 09-development-draft-readonly.png; isolated schema cleaned up.
 
 
 ### PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE

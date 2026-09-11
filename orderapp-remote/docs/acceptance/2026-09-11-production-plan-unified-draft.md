@@ -69,4 +69,19 @@ ORDERAPP_TEST_DATABASE_URL='postgres:///postgres?host=/tmp&sslmode=disable' go t
 
 ## 交付边界
 
-目标为 develop 集成和 development 部署，production 不在本次范围。PR-652 保持待 Van 产品验收；自动测试、隔离业务验证和实际截图由 Codex 执行。发布提交、回滚和上线只读检查在部署完成后补录。
+目标为 develop 集成和 development 部署，production 不在本次范围。PR-652 保持待 Van 产品验收；自动测试、隔离业务验证和实际截图由 Codex 执行。
+
+## 开发环境交付结果
+
+- 功能分支 `codex/production-plan-unified-draft-20260911`；功能提交 `09c605851376f68354a1fd85d42665803cdf10da` 先推送，随后从干净克隆合并并推送 develop。
+- 部署时本地 develop、origin/develop 与发布应用均为 `4ac8514978470bb8f012c67f4a8fa8464727a222`，合并后源码与已验证功能树一致。
+- 命令 `./deploy_orderapp.sh development` 返回 0，2026-09-12 00:14 完成；日志 `/tmp/pr652-deploy.log`。服务器 Vue 1190/1190、Go 门禁、镜像构建通过；小程序附带门禁 238/238、类型检查和构建通过，但没有上传或发布微信版本。
+- 回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20260912000655-4ac851497847`；回滚镜像 `kferp-orderapp-rollback:development-20260912000655-4ac851497847`。
+- `erp_orderapp` running，启动于 `2026-09-11T16:13:41Z`；PostgreSQL running。正式应用 `erp_prod_orderapp` 仍是 `2026-09-10T02:18:21Z` 的启动实例。
+- 外部登录页 200，认证 shell 200，无认证 `/app/` 为 303 跳转，不声称旧清单要求的 401 已通过。无认证需求管理 API 返回 401，认证读取成功；未更改认证配置。
+- 需求 API 实际返回 PR-652 review、四项 DEV-652 done。最近应用日志错误计数 0；`ProducePlanView.vue` 服务器与功能树 SHA-256 同为 `6ca32b2ace9f5ad6c02de5f9dc4e4abf28ae2733c185ebb892a01b4c253074de`。
+- 浏览器刷新原创建前链接，已选需求恢复并显示两步、“尚未创建草稿”和“创建草稿并编辑”。只读打开 PP-0000000113 显示已取消；单号、版本 1、撤销时间 `2026-09-11 22:22` 与发布前一致。只读打开 PP-0000000112 显示持续编辑草稿、“更多”和保存状态；控制台无 error。
+- 上线截图：`07-development-gap.png`、`08-development-pp113-readonly.png`、`09-development-draft-readonly.png`，均位于 `/private/tmp/kferp-pr652-acceptance/`。
+- 窄屏滚到底部补充截图 `05b-narrow-bottom.png`：末段底边约 695px，底栏上边约 703px，内容不被遮挡。
+- 隔离审计计数：create 3、refresh_supply 1、cancel 1、save_draft 1、submit 1，证据 `/tmp/pr652-isolated-audit.txt`；测试服务已停止，独立 schema 已清理，查询剩余数为 0。
+- 本节及 ACTIVE_REQUIREMENTS 的后续归档提交仅修改文档，不改变已部署的应用源码；运行版本以上述发布提交为准。
