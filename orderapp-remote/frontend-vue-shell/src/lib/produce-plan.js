@@ -253,7 +253,6 @@ const PRODUCTION_PLAN_TIME_FIELDS = new Set(['created_at', 'submitted_at', 'comp
 const PRODUCTION_PLAN_STEPS = [
   { key: 'selectDemand', label: '选需求' },
   { key: 'reviewGap', label: '核对缺口' },
-  { key: 'scheduleProduction', label: '安排生产' },
 ]
 
 export function productionPlanSteps() {
@@ -262,7 +261,7 @@ export function productionPlanSteps() {
 
 export function currentProductionPlanStep(state = {}) {
   const status = String(state.plan?.status || '').trim()
-  if (['draft', 'submitted', 'in_progress', 'completed'].includes(status)) return 'scheduleProduction'
+  if (['draft', 'submitted', 'in_progress', 'completed', 'cancelled'].includes(status)) return 'planDetail'
   return Number(state.selectedCount || 0) > 0 ? 'reviewGap' : 'selectDemand'
 }
 

@@ -6,16 +6,21 @@
         <div>
           <div class="eyebrow">生产计划</div>
           <div class="title-row">
-            <h1>{{ detail.plan_no || '-' }}</h1>
+            <h1>生产计划 {{ detail.plan_no || '#' + detail.id }}</h1>
             <span :class="['status-pill', `status-${statusTone}`]">{{ statusLabel }}</span>
             <span v-if="dirty" class="unsaved-pill">有未保存修改</span>
           </div>
+          <p v-if="isDraft" class="draft-edit-label">正在编辑草稿 · 修改订单需求请撤销后重新创建</p>
           <p>创建于 {{ detail.created_at || '-' }} · {{ detail.created_by || '未记录创建人' }}</p>
         </div>
-        <div v-if="isDraft" class="header-actions">
-          <button class="secondary" type="button" @click="$emit('refresh')">刷新供应</button>
-          <button class="secondary" type="button" @click="$emit('edit-splits')">查看工序拆分</button>
-        </div>
+        <details v-if="isDraft && !loading" class="header-actions more-actions">
+          <summary>更多 <IconChevronDown :size="15" aria-hidden="true" /></summary>
+          <div class="more-menu">
+            <button type="button" :disabled="saving" @click="$emit('refresh')">刷新库存与在产供应</button>
+            <button type="button" :disabled="saving" @click="$emit('reload')">重新加载详情</button>
+            <button class="danger-link" type="button" :disabled="saving" @click="$emit('cancel')">撤销草稿</button>
+          </div>
+        </details>
       </div>
       <div class="summary-grid">
         <article>
@@ -41,9 +46,10 @@
       </div>
     </header>
 
+    <div v-if="notice" role="status" class="workspace-notice">{{ notice }}</div>
     <div v-if="loading" class="workspace-loading">正在读取生产计划详情…</div>
-    <div v-else-if="error" class="workspace-error">{{ error }}</div>
-    <div v-else class="workspace-body">
+    <div v-if="error" class="workspace-error" role="alert"><span>{{ error }}</span><button class="secondary" :disabled="saving || loading" type="button" @click="$emit('reload')">重新加载详情</button><small>已创建的草稿会保留，请重新加载本单据。</small></div>
+    <div v-if="!loading && detail.readiness" class="workspace-body">
       <main class="workspace-main">
         <section class="content-section schedule-section">
           <div class="section-heading">
@@ -193,11 +199,10 @@
         <span>{{ footerHint }}</span>
       </div>
       <div v-if="isDraft" class="footer-actions">
-        <button class="danger-link" type="button" @click="$emit('cancel')">撤销草稿</button>
-        <button class="secondary" type="button" :disabled="saving || !dirty" @click="$emit('save')">{{ saving ? '正在保存…' : '保存草稿' }}</button>
-        <button class="primary" type="button" :disabled="saving || dirty || !detail.readiness?.can_submit" @click="$emit('submit')">提交生成工单</button>
+        <button class="secondary" type="button" :disabled="loading || saving || !dirty" @click="$emit('save')">{{ saving ? '正在保存…' : '保存草稿' }}</button>
+        <button class="primary" type="button" :disabled="loading || saving || !!error || dirty || !detail.readiness?.can_submit" @click="$emit('submit')">提交生成工单</button>
       </div>
-      <button v-else-if="detail.related_work_orders?.length" class="primary" type="button" @click="$emit('navigate', 'workOrders', { production_plan_id: detail.id })">查看生成的工单</button>
+      <button v-else-if="detail.related_work_orders?.length" class="primary" type="button" @click="$emit('navigate', 'workOrders', { production_plan_id: detail.id })">查看生产工单</button>
     </footer>
   </section>
 </template>
@@ -205,6 +210,7 @@
 <script setup>
 import { computed } from 'vue'
 import ProductionPreparation from './ProductionPreparation.vue'
+import { IconChevronDown } from '@tabler/icons-vue'
 import {
   buildProductionPlanStages,
   productionPlanItemBomSourceLabel,
@@ -220,8 +226,9 @@ const props = defineProps({
   error: { type: String, default: '' },
   saving: { type: Boolean, default: false },
   dirty: { type: Boolean, default: false },
+  notice: { type: String, default: '' },
 })
-const emit = defineEmits(['back', 'save', 'submit', 'edit-splits', 'refresh', 'cancel', 'navigate', 'source-change', 'warehouse-change', 'adjust-source'])
+const emit = defineEmits(['back', 'reload', 'save', 'submit', 'edit-splits', 'refresh', 'cancel', 'navigate', 'source-change', 'warehouse-change', 'adjust-source'])
 
 const stages = computed(() => buildProductionPlanStages(props.detail))
 const isDraft = computed(() => String(props.detail?.status || '') === 'draft')
@@ -232,7 +239,7 @@ const productSummary = computed(() => productNames.value.slice(0, 2).join('、')
 const productKinds = computed(() => productNames.value.length)
 const orderNos = computed(() => [...new Set((props.detail?.items || []).flatMap((item) => String(item.order_nos || '').split(',').map((value) => value.trim())).filter(Boolean))])
 const readinessText = computed(() => props.detail?.readiness?.can_submit ? '可以提交' : isDraft.value ? '需要完善' : '已冻结')
-const footerTitle = computed(() => isDraft.value ? (props.dirty ? '草稿内容尚未保存' : props.detail?.readiness?.can_submit ? '草稿已保存，可以提交' : '草稿已保存，仍有阻断项') : `${statusLabel.value} · 单据内容只读`)
+const footerTitle = computed(() => isDraft.value ? (props.dirty ? '有未保存修改' : props.detail?.readiness?.can_submit ? '已具备提交条件' : '草稿已保存，有待处理项') : `${statusLabel.value} · 单据内容只读`)
 const footerHint = computed(() => isDraft.value ? (props.dirty ? '先保存本页修改，系统会重新核对数量、来源和工序。' : '提交后将冻结本页配置并生成生产工单。') : `工单 ${props.detail?.related_work_orders?.length || 0} 张 · 工序卡 ${props.detail?.job_card_count || 0} 张`)
 
 function issueWorkOrder(order) { emit('navigate', 'stockOperations', {tab:'stockEntries',action:'issue',return_source:'work_order',work_order_id:order.id}) }
@@ -256,6 +263,7 @@ function edgeRequired(edge) { return Number(edge.required_g || 0) > 0 ? `${Numbe
 function workOrderStatus(status) { return ({ draft: '草稿', released: '待开工', running: '生产中', completed: '已完成', cancelled: '已取消' })[status] || status || '-' }
 function issueTitle(category) { return ({ quantity: '数量需要核对', source: '备料供给需要补齐', supply: '供应存在缺口', operation: '工序拆分需要完善' })[category] || '计划需要完善' }
 function focusIssue(issue) {
+  if (issue.action === '刷新供应') { emit('refresh'); return }
   if (issue.category === 'operation') { emit('edit-splits'); return }
   const id = issue.component_source_id ? `component-source-${issue.component_source_id}` : issue.production_plan_item_id ? `plan-item-${issue.production_plan_item_id}` : 'material-sources'
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -266,4 +274,32 @@ function focusIssue(issue) {
 .production-plan-workspace{--ink:#18352e;--muted:#657771;--line:#dfe7e3;--green:#1e6a50;--green-soft:#eaf5ef;--paper:#f7f9f7;min-height:100vh;background:var(--paper);color:var(--ink);padding-bottom:88px}.workspace-header{position:sticky;top:0;z-index:12;padding:20px 28px 18px;background:rgba(255,255,255,.97);border-bottom:1px solid var(--line);box-shadow:0 6px 24px rgba(24,53,46,.06)}.back-button,.text-button,.danger-link{border:0;background:none;color:var(--green);font-weight:700;cursor:pointer;padding:0}.back-button{margin-bottom:13px}.header-main,.title-row,.header-actions,.section-heading>div,.readiness-title,.readiness-title>div{display:flex;align-items:center}.header-main{justify-content:space-between;gap:24px}.eyebrow,.section-index{font-size:12px;font-weight:800;letter-spacing:.08em;color:#7b8c86;text-transform:uppercase}.title-row{gap:12px;margin:3px 0}.title-row h1{font-size:25px;margin:0}.header-main p,.section-heading p{margin:0;color:var(--muted);font-size:13px}.header-actions,.footer-actions{display:flex;gap:10px}.status-pill,.unsaved-pill,.readiness-count{border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800}.status-draft,.unsaved-pill{background:#fff1d9;color:#925b08}.status-submitted,.status-in-progress,.readiness-count.ready{background:var(--green-soft);color:var(--green)}.status-completed{background:#e8f2ff;color:#1a5f9d}.status-cancelled{background:#eef0ef;color:#68736f}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:18px}.summary-grid article{display:grid;gap:3px;padding:13px 15px;background:#f5f8f6;border:1px solid #e5ebe8;border-radius:10px}.summary-grid span,.summary-grid small{font-size:12px;color:var(--muted)}.summary-grid strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;max-width:1480px;margin:0 auto;padding:24px 28px}.workspace-main{display:grid;gap:22px}.content-section,.readiness-panel{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 28px rgba(24,53,46,.045)}.content-section{padding:22px}.section-heading{display:flex;justify-content:space-between;gap:20px;margin-bottom:20px}.section-heading>div{align-items:flex-start;gap:12px}.section-heading h2{font-size:19px;margin:0 0 5px}.section-index{display:inline-grid;place-items:center;min-width:34px;height:25px;background:var(--green-soft);border-radius:6px;color:var(--green)}.stage-list{display:grid;gap:4px}.stage-card{display:grid;grid-template-columns:34px minmax(0,1fr);gap:12px}.stage-rail{display:flex;flex-direction:column;align-items:center}.stage-rail span{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--green);color:#fff;font-size:12px;font-weight:800}.stage-rail i{width:2px;flex:1;min-height:28px;background:#c8ddd3}.stage-content{padding-bottom:16px}.stage-head{display:flex;align-items:baseline;gap:9px;margin:3px 0 12px}.stage-head span,.stage-head small{color:var(--muted);font-size:12px}.stage-head h3{font-size:16px;margin:0}.task-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.task-card{padding:16px;border:1px solid var(--line);border-radius:12px;background:#fcfdfc}.task-top{display:flex;justify-content:space-between;gap:16px}.task-top h4{font-size:16px;margin:5px 0}.task-top>strong{font-size:19px;color:var(--green);white-space:nowrap}.task-kind{font-size:11px;color:var(--muted);font-weight:700}.task-meta{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 13px}.task-meta span{padding:4px 7px;border-radius:5px;background:#eef3f0;color:#52645e;font-size:11px}.warehouse-field,.source-card label{display:grid;gap:5px}.warehouse-field>span,.source-card label>span,.source-need>span,.source-state>span{font-size:11px;color:var(--muted)}select{width:100%;min-height:36px;border:1px solid #cfdad5;border-radius:7px;background:#fff;padding:6px 9px;color:var(--ink)}.trace-row,.dependency-row{display:flex;gap:8px;margin-top:11px;font-size:12px}.trace-row>span,.dependency-row>span{color:var(--muted);min-width:36px}.trace-row b{display:inline-block;margin:0 5px 4px 0;padding:3px 6px;border-radius:5px;background:#f0f3f2;font-weight:600}.dependency-row div{color:#695b31}.dependency-row.supplies div{color:var(--green)}.material-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-bottom:16px}.material-summary article{display:grid;grid-template-columns:1fr auto;gap:4px;padding:12px;border-radius:9px;background:#f5f8f6}.material-summary span{grid-column:1/-1;color:var(--muted);font-size:11px}.material-summary b{color:var(--green)}.source-list{display:grid;gap:9px}.source-card{display:grid;grid-template-columns:minmax(190px,1.1fr) 110px minmax(240px,1.2fr) 120px;align-items:center;gap:14px;padding:13px 15px;border:1px solid var(--line);border-radius:10px}.source-card.invalid{border-color:#eac99c;background:#fffaf2}.source-identity{display:flex;gap:10px;align-items:center}.source-identity>span{padding:4px 7px;background:#edf3f0;border-radius:5px;font-size:11px}.source-identity h3,.source-identity p{margin:0}.source-identity p{font-size:11px;color:var(--muted);margin-top:3px}.source-need,.source-state{display:grid;gap:4px}.source-state.short strong{color:#a84c20}.detail-section details{border-top:1px solid var(--line);padding:13px 2px}.detail-section summary{cursor:pointer;font-weight:750}.frozen-grid,.trace-table,.work-order-list{display:grid;gap:8px;margin-top:12px}.frozen-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.frozen-grid article,.trace-table article,.work-order-list article{display:flex;justify-content:space-between;gap:12px;padding:11px;border-radius:8px;background:#f5f8f6;font-size:12px}.frozen-grid article{display:grid}.frozen-grid span,.trace-table span,.work-order-list span{color:var(--muted)}.work-order-list article{align-items:center}.work-order-list article>div{display:grid;gap:3px}.work-order-list button,.issue-list button{border:0;background:none;color:var(--green);font-weight:700;cursor:pointer}.readiness-panel{position:sticky;top:202px;align-self:start;padding:20px}.readiness-title{justify-content:space-between;gap:10px}.readiness-title>div{gap:9px}.readiness-title h2{font-size:18px;margin:0}.readiness-count{background:#fff0df;color:#9a5914}.readiness-panel>p{font-size:13px;color:var(--muted);line-height:1.55}.issue-list{display:grid;gap:9px;margin-top:16px}.issue-list article{display:flex;gap:10px;padding:12px;border:1px solid #ecd5b5;border-radius:9px;background:#fffaf2}.issue-icon{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:50%;background:#b96620;color:#fff;font-weight:900}.issue-list strong{font-size:13px}.issue-list p{margin:4px 0;font-size:12px;line-height:1.5;color:#6a5f54}.issue-list button{font-size:12px;padding:0}.ready-card{text-align:center;padding:22px 12px;border-radius:10px;background:var(--green-soft)}.ready-card>span{display:grid;place-items:center;width:32px;height:32px;margin:0 auto 8px;border-radius:50%;background:var(--green);color:#fff}.ready-card p{margin:5px 0;color:var(--muted);font-size:12px}.readiness-note{margin-top:16px;padding:13px;border-radius:9px;background:#f3f6f4}.readiness-note p{margin:5px 0 0;color:var(--muted);font-size:12px;line-height:1.55}.workspace-footer{position:sticky;bottom:0;z-index:14;display:flex;justify-content:space-between;align-items:center;gap:24px;padding:14px 28px;background:rgba(255,255,255,.98);border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(24,53,46,.08)}.workspace-footer>div:first-child{display:grid;gap:3px}.workspace-footer span{font-size:12px;color:var(--muted)}button.primary,button.secondary{min-height:38px;padding:0 15px;border-radius:8px;font-weight:750;cursor:pointer}button.primary{border:1px solid var(--green);background:var(--green);color:#fff}button.secondary{border:1px solid #cbd8d2;background:#fff;color:var(--ink)}button:disabled{opacity:.45;cursor:not-allowed}.danger-link{color:#a03d2e}.workspace-loading,.workspace-error,.empty-card{padding:32px;text-align:center;color:var(--muted)}.workspace-error{color:#a03d2e}.muted{color:var(--muted);font-size:12px}
 @media(max-width:1100px){.workspace-body{grid-template-columns:1fr}.readiness-panel{position:relative;top:auto;order:-1}.task-grid{grid-template-columns:1fr}.source-card{grid-template-columns:1fr 1fr}.summary-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:720px){.workspace-header,.workspace-body,.workspace-footer{padding-left:16px;padding-right:16px}.header-main,.workspace-footer{align-items:flex-start;flex-direction:column}.summary-grid,.material-summary,.frozen-grid,.source-card{grid-template-columns:1fr}.footer-actions{width:100%;flex-wrap:wrap}.footer-actions .primary{flex:1}.production-plan-workspace{padding-bottom:130px}}
+
+.production-plan-workspace{--ink:#111827;--muted:#65748b;--line:#e1e7ed;--green:#238653;--green-soft:#ecf7f1;--paper:#fff;padding-bottom:0;display:flex;flex-direction:column}
+.workspace-header{position:relative;box-shadow:none;padding-bottom:0;border-bottom:0}
+.workspace-body{padding-top:18px;width:100%;box-sizing:border-box}
+.summary-grid{background:var(--green-soft);border-radius:8px;gap:0}
+.summary-grid article{border:0;background:transparent;border-radius:0}
+.content-section{box-shadow:none;border-radius:8px;padding:18px}
+.readiness-panel{box-shadow:none;border:0;border-left:1px solid var(--line);border-radius:0;top:16px;padding:0 0 0 20px}
+.task-grid{grid-template-columns:1fr}
+.task-card{border-radius:7px;background:#fff;padding:14px}
+.trace-row b{font-size:11px}
+.task-meta span{background:#f3f5f7}
+.issue-list article{background:#fff;border-color:var(--line);border-radius:7px}
+.text-button,.back-button,.issue-list button{color:#2563a5}
+.workspace-footer{box-shadow:0 -3px 16px #14263408;margin-top:auto}
+.header-main p.draft-edit-label{color:var(--green);margin:6px 0;font-weight:650}
+.workspace-notice{margin:16px 28px 0;padding:11px 14px;border:1px solid #c7e3d2;background:#f0faf4;color:#23734d;border-radius:7px;font-size:13px}
+.workspace-error{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:16px 28px;text-align:left}
+.workspace-error small{width:100%}
+.more-actions{position:relative;display:block;align-self:flex-start}
+.more-actions summary{display:flex;align-items:center;gap:8px;list-style:none;border:1px solid #cdd6df;border-radius:7px;padding:9px 13px;cursor:pointer;font-size:13px;white-space:nowrap}
+.more-actions summary::-webkit-details-marker{display:none}
+.more-menu{position:absolute;right:0;top:42px;z-index:25;display:grid;min-width:190px;padding:6px;background:#fff;border:1px solid var(--line);box-shadow:0 8px 24px #10203018;border-radius:8px}
+.more-menu button{border:0;background:none;text-align:left;padding:10px;font-size:13px;cursor:pointer;border-radius:4px}
+.more-menu button:hover{background:#f4f7f8}
+.more-menu button.danger-link{color:#ad3f30}
+@media(max-width:1100px){.readiness-panel{order:0;border-left:0;border-top:1px solid var(--line);padding:18px 0 0}.workspace-header{position:relative}}
+@media(max-width:720px){.workspace-notice{margin-left:16px;margin-right:16px}.header-main{flex-direction:row;gap:10px}.title-row h1{font-size:21px}.title-row{flex-wrap:wrap}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.header-main p.draft-edit-label{font-size:12px}.section-heading{flex-direction:column;gap:10px}.section-heading>.text-button{align-self:flex-start;white-space:nowrap}}
 </style>

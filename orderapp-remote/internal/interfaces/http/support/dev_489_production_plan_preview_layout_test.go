@@ -20,7 +20,7 @@ func TestDev489ProductionPlanPreviewLayoutContracts(t *testing.T) {
 			"demandKeyword",
 			"生产用料缺口表格",
 			"openCurrentPlanSplitDrawer",
-			"下一步：安排生产",
+			"创建草稿并编辑",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",
@@ -33,9 +33,9 @@ func TestDev489ProductionPlanPreviewLayoutContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",
-			"三步工作台",
+			"创建草稿前",
 			"商品缺口和生产用料",
-			"进入第 3 步",
+			"进入草稿详情",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-12-production-plan-preview-layout.md"): {
 			"PR-489 Production Plan Preview Layout",
