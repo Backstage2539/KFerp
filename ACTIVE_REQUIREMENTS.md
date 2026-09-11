@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE
 - Branch: `codex/production-plan-capacity-ui-20260911`, base `6ce1c5b6`.
 - Owner/session: Codex / 2026-09-11
-- Status: first development deployment passed; live browser acceptance found cross-item operation ordering drift, and the dependency-aware ordering revision is in verification.
+- Status: implementation, dependency-aware ordering revision, develop integration, development deployment, and live browser acceptance complete; awaiting Van product acceptance.
 - Scope: group capacity splits by the production plan's actual operation names, preserve task/specification/quantity/order traceability, show task-level coverage in native units, and separate save-draft from readiness confirmation.
 - DEV: DEV-651-OPERATION-GROUPING; DEV-651-TASK-COVERAGE; DEV-651-CAPACITY-WORKSPACE; DEV-651-DEVELOPMENT-DELIVERY.
 - Verifier:
@@ -18,8 +18,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: targeted Vue tests, frontend test gate, Vite build, browser interaction, desktop screenshots, and design QA.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue manual surface.
   - Review/acceptance: development flow with isolated test data; PP-0000000109 stays read-only.
-- Deployment: development after branch integration; production excluded.
-- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-plan-capacity-workspace.md`.
+- Deployment: development `455b3df8ed1eb1e2b46ad151dd19a52f18963698`; rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260911211634-455b3df8ed1e`; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-plan-capacity-workspace.md`; final screenshots `/private/tmp/kferp-pr651-acceptance/pp109-capacity-roast.png` and `/private/tmp/kferp-pr651-acceptance/pp109-capacity-package.png`.
 - Last update: 2026-09-11 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim production-plan-capacity-ui` selected PR-651 but failed while updating `ACTIVE_REQUIREMENTS.md` because the local awk implementation rejected its multiline program; the id was reserved manually after confirming no existing PR-651/DEV-651 records.
 

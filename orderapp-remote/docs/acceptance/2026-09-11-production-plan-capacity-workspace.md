@@ -18,7 +18,8 @@
 - GREEN（浏览器）：真实 Vue 组件在 `1488 × 1058` 桌面视口渲染；已切换两个实际工序，确认 `10袋 / 8袋 / 2袋` 来源任务和不足态可见，浏览器控制台无错误或警告。
 - GREEN（设计）：项目根目录 `design-qa.md` 将参考图与两个工序状态的浏览器截图在同一轮比较，未发现待处理 P0/P1/P2，结论为 `passed`。
 - development 首轮浏览器验收发现：不同计划行的路线工序都从序号 1 开始时，单纯按工序序号会把下游“包装”排到上游“咖啡烘焙+除石”之前。新增回归用例先稳定复现 RED，再按制造计划依赖层级优先、路线序号其次排序；修复后目标顺序为 `咖啡烘焙+除石 → 包装`。
-- 合并后复验和 development 部署证据待交付阶段补充。
+- 合并后完整复验再次通过：Go 全包、前端 `1178/1178`、类型检查和 Vite 构建全部成功。
+- development 已部署应用提交 `455b3df8ed1eb1e2b46ad151dd19a52f18963698`；发布脚本返回 `Release completed`，外部登录页 HTTP 200。
 
 ## API 与业务边界
 
@@ -29,9 +30,13 @@
 
 ## 开发环境验收
 
-- 待填写：合并提交、development 运行提交、部署脚本结果、容器/API/日志检查和回滚目录。
-- `PP-0000000109` 只读用于核对实际工序、任务数量和页面布局。
-- 写入验收使用隔离草稿或保持原值保存，截图覆盖桌面总览、来源订单、数量不足、保存后重新打开和窄屏。
+- 功能分支：`codex/production-plan-capacity-ui-20260911@dacad016`；合并提交：`455b3df8ed1eb1e2b46ad151dd19a52f18963698`。
+- `./deploy_orderapp.sh development` 成功；回滚源码：`/opt/stacks/erp/orderapp.backup.deploy-20260911211634-455b3df8ed1e`；回滚镜像：`kferp-orderapp-rollback:development-20260911211634-455b3df8ed1e`。
+- `erp_orderapp` 正常运行，`erp_postgres` healthy；容器内 `/login` 和外部 `https://dev.qacoohee.com/app/login` 均返回 200；最近应用日志无 panic/fatal/error。
+- `PP-0000000109` 只读验收确认工序为 `咖啡烘焙+除石 → 包装`，显示来自计划冻结路线而非页面写死；浏览器控制台无 error/warning。
+- 上游任务显示 `初晓 5.64kg`；包装工序保留 `10袋 / 8袋 / 2袋` 三组任务，并显示六张来源订单和客户名称。
+- 桌面截图：`/private/tmp/kferp-pr651-acceptance/pp109-capacity-roast.png`、`/private/tmp/kferp-pr651-acceptance/pp109-capacity-package.png`。
+- 验收未执行保存、确认或其他业务写入；`PP-0000000109` 保持草稿。
 
 ## 产品验收边界
 

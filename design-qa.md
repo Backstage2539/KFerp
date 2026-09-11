@@ -66,61 +66,60 @@
 
 **Browser-rendered implementation evidence**
 
-- Desktop, first actual operation: `/private/tmp/kferp-pr651-qa/capacity-operation-1.png`
-- Desktop, second actual operation and source-order table: `/private/tmp/kferp-pr651-qa/capacity-operation-2.png`
+- Local component, first fixture operation: `/private/tmp/kferp-pr651-qa/capacity-operation-1.png`
+- Local component, second fixture operation: `/private/tmp/kferp-pr651-qa/capacity-operation-2.png`
+- Development `PP-0000000109`, upstream operation: `/private/tmp/kferp-pr651-acceptance/pp109-capacity-roast.png`
+- Development `PP-0000000109`, downstream operation and source-task review: `/private/tmp/kferp-pr651-acceptance/pp109-capacity-package.png`
 
 **Viewport and normalization**
 
 - Source pixels: `1488 × 1058`.
-- Desktop implementation pixels: `1488 × 1058`; CSS viewport `1488 × 1058`; `deviceScaleFactor: 1`.
-- The full-view comparison used equal desktop pixel dimensions without resampling. The source includes the shared ERP shell; the implementation capture isolates the real capacity-workspace component because the shell is supplied by the existing Vue application at runtime.
+- Local implementation pixels: `1488 × 1058`; CSS viewport `1488 × 1058`; `deviceScaleFactor: 1`.
+- Final development screenshots: `1468 × 851`, captured from the existing authenticated Chrome ERP shell without resampling.
 
-**State**
+**Final development state**
 
-- Draft production plan `PP-0000000109`.
-- Actual frozen operation names are `滚筒烘焙` and `手工装袋`.
-- `滚筒烘焙` is fully covered; `手工装袋` is short by `2袋`.
-- The second operation preserves three source-order tasks: `10袋 / 8袋 / 2袋`.
+- Draft production plan `PP-0000000109`; acceptance was read-only.
+- The frozen route supplies the actual names `咖啡烘焙+除石` and `包装`.
+- The dependency-aware sequence is `咖啡烘焙+除石 → 包装` even though each item-specific route starts its own operation numbering at 1.
+- The upstream task is `初晓 5.64kg`; the downstream operation preserves `10袋 / 8袋 / 2袋` as three task groups with six source orders and customer traceability.
+- All tasks are covered. Seven material/source issues remain visible for later plan-detail handling and do not prevent saving the capacity split.
 
 **Full-view comparison evidence**
 
-- Fonts and typography: both views use a compact Chinese system sans-serif hierarchy with a strong plan number, medium section titles, and subdued explanatory copy. Text remains readable throughout the desktop viewport.
-- Spacing and layout rhythm: the implementation keeps the reference's white panels, light borders, restrained radii, green section markers, right-side review region, and sticky action footer. The dedicated workspace gives allocation controls more horizontal room than the source plan-detail composition.
-- Colors and visual tokens: semantic green, pale green surfaces, muted gray text, amber shortage state, and white canvas follow the reference palette and the existing KFerp visual system.
-- Image quality and asset fidelity: the target contains one decorative coffee-bean image in the plan summary. The capacity-only implementation intentionally does not introduce or approximate that decorative asset; it uses no placeholder, emoji, CSS drawing, or replacement image.
-- Copy and content: the implementation uses actual route operation names, separates `计划数量 / 已安排 / 还需安排`, preserves each source order, and explains that confirmation saves the split without submitting the plan or generating work orders.
-- Overall composition: the implementation matches the target's dense ERP information hierarchy while adapting it to a focused, editable capacity-allocation workspace.
-
-**Focused region comparison evidence**
-
-- The second-operation capture was compared with the reference task table and right-side review region at the same desktop pixel dimensions. Order number, customer, task quantity, shortage status, and allocation controls remain visible together, so no additional crop was needed.
+- Fonts and typography: both views use a compact Chinese system sans-serif hierarchy with a strong plan number, medium section titles, and subdued explanatory copy.
+- Spacing and layout rhythm: the implementation keeps the reference's white panels, light borders, restrained radii, green section markers, right-side review region, and sticky action footer. The focused workspace gives allocation controls more horizontal room than the source plan-detail composition.
+- Colors and visual tokens: semantic green, pale green surfaces, muted gray text, amber shortage state, and white canvas follow the reference palette and existing KFerp tokens.
+- Copy and content: the implementation uses frozen route operation names, separates `计划数量 / 已安排 / 还需安排`, preserves each source order, and explains that confirmation saves the split without submitting the plan or generating work orders.
+- Overall composition: the development page matches the target's dense ERP hierarchy while keeping operation selection, task allocation, source trace, review, and actions visible in one workspace.
 
 **Primary interactions tested**
 
-- Switched from `手工装袋` to `滚筒烘焙` through the actual operation tab and verified the active operation content changed.
-- Verified the draft exposes `保存草稿` while `确认安排` remains disabled when one task is short.
+- Opened `PP-0000000109` from the production-plan list and switched between both actual operation tabs.
+- Verified operation 01 is `咖啡烘焙+除石`, operation 02 is `包装`, and each tab changes the task content.
+- Verified package task groups `10袋 / 8袋 / 2袋`, their source order numbers, customer names, and right-side per-task review.
+- Confirmed the page explains that `确认安排` does not submit the plan or generate work orders. No save or confirmation write was performed during acceptance.
 
-**Console errors checked**
+**Console and service checks**
 
 - Browser console error and warning log: empty.
-
-**Findings**
-
-- No actionable P0, P1, or P2 visual mismatch remains.
-- The missing shared ERP sidebar in the isolated component capture is expected; the deployed route renders inside the existing Vue shell.
+- Development container is running, PostgreSQL is healthy, internal login returns 200, external login returns 200, and recent application logs contain no panic/fatal/error line.
 
 **Comparison history**
 
-- Iteration 1: compared the source with both actual-operation states at `1488 × 1058`. No actionable P0/P1/P2 issue was found, so no visual fix iteration was required.
+- Iteration 1: local component comparison at `1488 × 1058` found no actionable visual mismatch.
+- Iteration 2: first development acceptance found a P2 sequence error: two item-specific routes both started at sequence 1, so lexical fallback placed downstream `包装` before upstream `咖啡烘焙+除石`.
+- Iteration 3: added a RED regression using the manufacturing-plan dependency edge, sorted by dependency stage before route sequence, redeployed, and captured both corrected live states. No actionable P0/P1/P2 remains.
 
 **Implementation checklist**
 
 - [x] Use frozen operation names instead of fixed process labels.
-- [x] Preserve source-order task quantities.
+- [x] Order operations by the plan dependency graph across item-specific routes.
+- [x] Preserve source-order task quantities and customer traceability.
 - [x] Show native weight and sales units.
 - [x] Keep draft save available and gate confirmation on per-task coverage.
 - [x] Match the reference's restrained green ERP style.
-- [x] Verify the source's desktop viewport and retain the component's existing responsive breakpoints.
+- [x] Verify the implementation in the actual development ERP shell.
 
 **Follow-up polish**
 
