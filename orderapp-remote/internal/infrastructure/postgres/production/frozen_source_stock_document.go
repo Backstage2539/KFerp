@@ -23,6 +23,10 @@ func (r Repository) GetWorkOrderFrozenSourceIssueItems(ctx context.Context, work
 	if err != nil || !usesFrozenSources {
 		return usesFrozenSources, nil, err
 	}
+	automatic, err := autoPickingWorkOrderTx(ctx, tx, r.schema, workOrderID)
+	if err != nil {
+		return true, nil, err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT binding.component_type,binding.component_id,binding.component_bom_spec_id,binding.component_bom_variant_id,binding.component_spec_g,reservation.material_id,COALESCE(NULLIF(reservation.material_name,''),material.name),
 		       COALESCE(NULLIF(reservation.unit,''),material.unit),binding.batch_code,binding.warehouse,
@@ -51,6 +55,7 @@ func (r Repository) GetWorkOrderFrozenSourceIssueItems(ctx context.Context, work
 			&item.FromWarehouse, &item.OwnerCustomerID, &item.QtyG, &item.QtyUnits); err != nil {
 			return true, nil, err
 		}
+		item.FrozenPicking = automatic
 		item.ItemType = "material"
 		if componentType == "product" {
 			item.ItemType = "finished_product"

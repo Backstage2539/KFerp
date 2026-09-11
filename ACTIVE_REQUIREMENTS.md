@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-653-PRODUCTION-AUTO-PICKING
 - Branch: `codex/production-auto-picking-20260911`, base `1ef28cdb`.
 - Owner/session: Codex / 2026-09-11
-- Status: implementation and targeted GREEN complete; full regression, review and development delivery in progress.
+- Status: implementation, full Go gate, Vue1193/1193, build, targeted PostgreSQL/API and isolated browser acceptance complete; taking develop integration and development deployment after PR-652 release.
 - Scope: WIP-first same-owner multi-warehouse picking suggestions; supply reservation versus WIP readiness; partial transfer; compact material preparation UI.
 - DEV: DEV-653-ALLOCATION; DEV-653-WIP-TRANSFER; DEV-653-PREPARATION-UI; DEV-653-DELIVERY.
 - Verifier: isolated PostgreSQL API/concurrency/ownership/partial-transfer tests; allocation unit tests; Vue render tests; backend/frontend/build gates.

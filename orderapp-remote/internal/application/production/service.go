@@ -1542,6 +1542,7 @@ type StockDocumentPreview struct {
 }
 
 type StockEntryItemCommand struct {
+	FrozenPicking   bool    `json:"frozen_picking,omitempty"`
 	MaterialID      int64   `json:"material_id"`
 	ProductID       int64   `json:"product_id"`
 	BomSpecID       int64   `json:"bom_spec_id,omitempty"`

@@ -35,6 +35,28 @@ func testTypedProductWarehouseFlow(t *testing.T, legacy bool) {
 		t.Fatalf("create warehouse-aware typed product plan status=%d body=%s", create.Code, create.Body.String())
 	}
 
+	if !legacy {
+		var preview productionapp.ProductionPlanDetail
+		if err := json.Unmarshal(create.Body.Bytes(), &preview); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, source := range preview.ComponentSources {
+			if source.ComponentType != "product" {
+				continue
+			}
+			for _, allocation := range source.Allocations {
+				found = true
+				if len(allocation.Batches) == 0 {
+					t.Fatal("product picking suggestion must include frozen-spec FIFO batches")
+				}
+			}
+		}
+		if !found {
+			t.Fatal("fixture must exercise stocked product component")
+		}
+	}
+
 	var planID, upstreamPlanItemID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT production_plan_id,id
@@ -143,8 +165,8 @@ func testTypedProductWarehouseFlow(t *testing.T, legacy bool) {
 		for _, i := range data.Document.Items {
 			if _, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: rootWorkOrderID, Operator: "仓库员", Items: []stockapp.StockDocumentItemCommand{{ItemType: i.ItemType, MaterialID: i.MaterialID, ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, InventoryUnit: i.InventoryUnit, OwnerCustomerID: i.OwnerCustomerID, QtyG: i.QtyG, QtyUnits: i.QtyUnits, BatchCode: i.BatchCode, FromWarehouse: i.FromWarehouse, ToWarehouse: i.ToWarehouse}}}); err != nil {
 				var batches string
- _=pool.QueryRow(ctx,fmt.Sprintf(`SELECT jsonb_agg(to_jsonb(b))::text FROM %s.stock_batches b WHERE item_id=2`,schema)).Scan(&batches)
- t.Fatalf("typed picking: %v item=%+v batches=%s", err,i,batches)
+				_ = pool.QueryRow(ctx, fmt.Sprintf(`SELECT jsonb_agg(to_jsonb(b))::text FROM %s.stock_batches b WHERE item_id=2`, schema)).Scan(&batches)
+				t.Fatalf("typed picking: %v item=%+v batches=%s", err, i, batches)
 			}
 		}
 	}

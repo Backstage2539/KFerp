@@ -95,6 +95,12 @@ func TestAutoPickingCombinesWarehousesWithoutMovingOrReservingDraftStock(t *test
 	if start.Code == 200 {
 		t.Fatal("partial picking incorrectly allowed start")
 	}
+	if _, err := stockService.CancelStockDocument(ctx, first.ID, "仓库员"); err != nil {
+		t.Fatalf("cancel partial picking: %v", err)
+	}
+	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=6000", 1)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", "material_batch_id=1030 AND warehouse='raw_materials' AND reserved_g=10000", 1)
+	issue("raw_materials", 4000, "pick-first-again")
 	issue("raw_materials", 6000, "pick-rest-a")
 	issue("raw_backup", 5000, "pick-b")
 	start = serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", woID), nil)
@@ -102,11 +108,15 @@ func TestAutoPickingCombinesWarehousesWithoutMovingOrReservingDraftStock(t *test
 		t.Fatalf("fully picked start %d %s", start.Code, start.Body.String())
 	}
 	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1030 AND warehouse='wip' AND qty_g=21000", 1)
- _,err:=stockService.CreateAndSubmitStockDocument(ctx,stockapp.StockDocumentCommand{Purpose:stockapp.PurposeMaterialConsumption,WorkOrderID:woID,Operator:"操作员",Items:[]stockapp.StockDocumentItemCommand{{ItemType:"material",MaterialID:30,InventoryUnit:"kg",QtyG:1000,FromWarehouse:"raw_materials",BatchCode:"AUTO-GREEN"}}})
- if err==nil||!strings.Contains(err.Error(),"WIP"){t.Fatalf("non-WIP consumption must be rejected: %v",err)}
- _,err=stockService.CreateAndSubmitStockDocument(ctx,stockapp.StockDocumentCommand{Purpose:stockapp.PurposeMaterialConsumption,WorkOrderID:woID,Operator:"操作员",Items:[]stockapp.StockDocumentItemCommand{{ItemType:"material",MaterialID:30,InventoryUnit:"kg",QtyG:1000,FromWarehouse:"wip",BatchCode:"AUTO-GREEN"}}})
- if err!=nil{t.Fatalf("frozen WIP consumption: %v",err)}
- assertProductionFlowCount(t,pool,schema,"work_order_material_reservation_batches","material_batch_id=1030 AND warehouse='wip' AND consumed_g=1000",1)
+	_, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: woID, Operator: "操作员", Items: []stockapp.StockDocumentItemCommand{{ItemType: "material", MaterialID: 30, InventoryUnit: "kg", QtyG: 1000, FromWarehouse: "raw_materials", BatchCode: "AUTO-GREEN"}}})
+	if err == nil || !strings.Contains(err.Error(), "WIP") {
+		t.Fatalf("non-WIP consumption must be rejected: %v", err)
+	}
+	_, err = stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: woID, Operator: "操作员", Items: []stockapp.StockDocumentItemCommand{{ItemType: "material", MaterialID: 30, InventoryUnit: "kg", QtyG: 1000, FromWarehouse: "wip", BatchCode: "AUTO-GREEN"}}})
+	if err != nil {
+		t.Fatalf("frozen WIP consumption: %v", err)
+	}
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", "material_batch_id=1030 AND warehouse='wip' AND consumed_g=1000", 1)
 
 }
 
@@ -122,8 +132,30 @@ func pickAllProductionComponents(t *testing.T, pool *pgxpool.Pool, schema string
 	}
 	stockService := stockapp.NewService(postgresstock.NewRepository(pool, schema))
 	for _, i := range data.Document.Items {
-		if _, err := stockService.CreateAndSubmitStockDocument(context.Background(), stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: workOrderID, Operator: "仓库员", Items: []stockapp.StockDocumentItemCommand{{ItemType: i.ItemType, MaterialID: i.MaterialID, ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, InventoryUnit: i.InventoryUnit, OwnerCustomerID: i.OwnerCustomerID, QtyG: i.QtyG, QtyUnits: i.QtyUnits, BatchCode: i.BatchCode, FromWarehouse: i.FromWarehouse, ToWarehouse: i.ToWarehouse}}}); err != nil {
+		draft, err := stockService.CreateStockDocumentDraft(context.Background(), stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: workOrderID, Operator: "仓库员", Items: []stockapp.StockDocumentItemCommand{{ItemType: i.ItemType, MaterialID: i.MaterialID, ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, InventoryUnit: i.InventoryUnit, OwnerCustomerID: i.OwnerCustomerID, QtyG: i.QtyG, QtyUnits: i.QtyUnits, BatchCode: i.BatchCode, FromWarehouse: i.FromWarehouse, ToWarehouse: i.ToWarehouse}}})
+		if err != nil {
 			t.Fatalf("picking: %v", err)
+		}
+		restored := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/stock-document-preview", workOrderID), map[string]any{"action": "issue", "stock_document_id": draft.ID})
+		var restoredData productionapp.StockDocumentPreview
+		if restored.Code != 200 {
+			t.Fatalf("restore picking draft: %s", restored.Body.String())
+		}
+		if err = json.Unmarshal(restored.Body.Bytes(), &restoredData); err != nil {
+			t.Fatal(err)
+		}
+		if len(restoredData.Document.Items) != 1 {
+			t.Fatal("saved picking row lost")
+		}
+		got := restoredData.Document.Items[0]
+		if got.OwnerCustomerID != i.OwnerCustomerID || got.BomSpecID != i.BomSpecID || got.BomVariantID != i.BomVariantID || got.FrozenPicking != i.FrozenPicking || got.BatchCode != i.BatchCode {
+			t.Fatalf("saved picking identity changed: %+v want %+v", got, i)
+		}
+		if len(draft.Items) != 1 || draft.Items[0].FrozenPicking != i.FrozenPicking {
+			t.Fatal("saved picking lost edit lock")
+		}
+		if _, err = stockService.SubmitStockDocument(context.Background(), draft.ID, "仓库员"); err != nil {
+			t.Fatalf("submit picking: %v", err)
 		}
 	}
 }

@@ -93,7 +93,8 @@
           <h4>单据明细</h4>
           <button v-if="isDraft && !isBoundProductionDocument" class="secondary" type="button" @click="addItem">新增明细</button>
         </div>
-        <p v-if="showsWIPIssueSuggestion" class="production-issue-hint" role="note">工单建议领用量仅用于默认填充，不限制实际领料；超出工单当前需求的部分将保留为可用 WIP 库存，生产消耗仍需另行记录。</p>
+        <p v-if="showsWIPIssueSuggestion && form.items.some(item => item.frozen_picking)" class="production-issue-hint" role="note">按已冻结的来源仓与批次领入 WIP，可分批领料，本次数量不能超过尚未领取的预留量。生产消耗仍需另行记录。</p>
+        <p v-else-if="showsWIPIssueSuggestion" class="production-issue-hint" role="note">工单建议领用量仅用于默认填充，不限制实际领料；超出工单当前需求的部分将保留为可用 WIP 库存，生产消耗仍需另行记录。</p>
         <div v-if="usesCompactProductionItemRows" class="compact-production-items">
           <div class="compact-production-items-head" aria-hidden="true">
             <span>物料</span>
@@ -139,7 +140,7 @@
               </label>
               <label>
                 <span class="mobile-field-label">指定批次（可选）</span>
-                <input v-model.trim="item.batch_code" aria-label="指定批次（可选）" :disabled="!isDraft" placeholder="不填按 FIFO" />
+                <input v-model.trim="item.batch_code" aria-label="指定批次（可选）" :disabled="!isDraft || item.frozen_picking" placeholder="不填按 FIFO" />
               </label>
               <button
                 v-if="isDraft && form.items.length > 1"
@@ -196,7 +197,7 @@
             <label v-if="usesSingleQuantity(item)"><span>库存单位</span><div class="readonly-value">{{ item.inventory_unit || '-' }}</div></label>
             <label v-if="!usesSingleQuantity(item)"><span>数量(g)</span><input v-model.number="item.qty_g" type="number" min="0" :disabled="!isDraft" /></label>
             <label v-if="!usesSingleQuantity(item)"><span>数量(件)</span><input v-model.number="item.qty_units" type="number" min="0" :disabled="!isDraft" /></label>
-            <label><span>指定批次（可选）</span><input v-model.trim="item.batch_code" :disabled="!isDraft" placeholder="不填按 FIFO" /></label>
+            <label><span>指定批次（可选）</span><input v-model.trim="item.batch_code" :disabled="!isDraft || item.frozen_picking" placeholder="不填按 FIFO" /></label>
             <label v-if="isReceipt"><span>单位成本</span><input v-model.number="item.unit_cost" type="number" min="0" step="0.0001" :disabled="!isDraft" /></label>
             <template v-if="isReceipt && item.item_type === 'material'">
               <label><span>供应商</span><input v-model.trim="item.supplier" :disabled="!isDraft" /></label>

@@ -96,11 +96,11 @@
 
         <section id="material-sources" class="content-section materials-section">
           <div class="section-heading">
-            <button class="text-button" type="button" @click="$emit('navigate', 'productionManual')">备料说明</button>
             <div>
               <span class="section-index">02</span>
               <div><h2>备料情况</h2><p>查看现场库存、待领数量和缺料，按需调整建议。</p></div>
             </div>
+            <button class="text-button" type="button" @click="$emit('navigate', 'productionManual')">备料说明</button>
           </div>
           <ProductionPreparation v-if="detail.picking_version" :sources="detail.component_sources || []" :items="detail.items || []" :supply-allocations="detail.supply_allocations || []" :work-orders="detail.related_work_orders || []" :editable="isDraft" :saving="saving" @adjust="(source, allocations) => $emit('adjust-source', source, allocations)" @issue="issueWorkOrder" />
           <template v-else>
@@ -178,17 +178,17 @@
 
       <aside class="readiness-panel">
         <div class="readiness-title">
-          <div><span class="section-index">核对</span><h2>提交前核对</h2></div>
-          <span :class="['readiness-count', { ready: detail.readiness?.can_submit }]">{{ detail.readiness?.can_submit ? '已通过' : `${detail.readiness?.blocking_count || 0} 项待处理` }}</span>
+          <div><span class="section-index">核对</span><h2>{{ isDraft ? '提交前核对' : '执行提示' }}</h2></div>
+          <span :class="['readiness-count', { ready: detail.readiness?.can_submit }]">{{ !isDraft ? '已冻结' : detail.readiness?.can_submit ? '已通过' : `${detail.readiness?.blocking_count || 0} 项待处理` }}</span>
         </div>
-        <p>{{ detail.readiness?.can_submit ? '仓库、用料和工序安排均已核对，可提交生成工单。' : '请完成下面的必填项。保存草稿后系统会重新计算。' }}</p>
+        <p>{{ !isDraft ? '计划供给已冻结。按工单领料，物料到 WIP 且齐套后可开工。' : detail.readiness?.can_submit ? '仓库、用料和工序安排均已核对，可提交生成工单。' : '请完成下面的必填项。保存草稿后系统会重新计算。' }}</p>
         <div v-if="detail.readiness?.issues?.length" class="issue-list">
           <article v-for="issue in detail.readiness.issues" :key="`${issue.code}-${issue.production_plan_item_id}-${issue.component_source_id}`">
             <span class="issue-icon" aria-hidden="true">!</span>
             <div><strong>{{ issueTitle(issue.category) }}</strong><p>{{ issue.message }}</p><button v-if="issue.action" type="button" @click="focusIssue(issue)">{{ issue.action }} →</button></div>
           </article>
         </div>
-        <div v-else class="ready-card"><span aria-hidden="true">✓</span><strong>没有阻断项</strong><p>当前内容已满足提交条件。</p></div>
+        <div v-else-if="isDraft" class="ready-card"><span aria-hidden="true">✓</span><strong>没有阻断项</strong><p>当前内容已满足提交条件。</p></div>
         <div class="readiness-note"><strong>数量口径</strong><p>商品按冻结销售规格计数，用料按 BOM 净需求加一次损耗。页面汇总、来源核对和工单使用同一份数量。</p></div>
       </aside>
     </div>
@@ -234,7 +234,7 @@ const stages = computed(() => buildProductionPlanStages(props.detail))
 const isDraft = computed(() => String(props.detail?.status || '') === 'draft')
 const statusLabel = computed(() => productionPlanStatusLabel(props.detail?.status))
 const statusTone = computed(() => productionPlanStatusTone(props.detail?.status))
-const productNames = computed(() => [...new Set((props.detail?.items || []).filter((item) => String(item.output_type || 'product') !== 'material').map((item) => item.output_name || item.product_name).filter(Boolean))])
+const productNames = computed(() => [...new Set((props.detail?.items || []).filter((item) => props.detail?.source_type === 'stock' || String(item.output_type || 'product') !== 'material').map((item) => item.output_name || item.product_name).filter(Boolean))])
 const productSummary = computed(() => productNames.value.slice(0, 2).join('、') || '备货计划')
 const productKinds = computed(() => productNames.value.length)
 const orderNos = computed(() => [...new Set((props.detail?.items || []).flatMap((item) => String(item.order_nos || '').split(',').map((value) => value.trim())).filter(Boolean))])
@@ -244,7 +244,7 @@ const footerHint = computed(() => isDraft.value ? (props.dirty ? '先保存本�
 
 function issueWorkOrder(order) { emit('navigate', 'stockOperations', {tab:'stockEntries',action:'issue',return_source:'work_order',work_order_id:order.id}) }
 function quantity(value, unit = '') { const number = Number(value || 0); return `${Number.isInteger(number) ? number : Number(number.toFixed(6))} ${unit || ''}`.trim() }
-function quantitySummary(item) { return productionPlanItemQuantitySummary(item) }
+function quantitySummary(item) { return item.output_type === 'material' ? '按物料单位' : productionPlanItemQuantitySummary(item) }
 function bomSourceLabel(item) { return productionPlanItemBomSourceLabel(item) }
 function materialTypeLabel(item) { const type = String(item.component_type || ''); return type === 'packaging' ? '包材' : type === 'product' || type === 'finished_product' ? '半成品' : '生产用料' }
 function availableWarehouses(item) { return props.warehouses.filter((row) => !Number(row.customer_id || 0) || Number(row.customer_id) === Number(item.customer_id || 0)) }

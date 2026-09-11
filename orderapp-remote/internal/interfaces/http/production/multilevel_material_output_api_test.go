@@ -204,7 +204,6 @@ func TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownst
 		rootWorkOrderID,
 	), 1)
 
-	pickAllProductionComponents(t, pool, schema, app, rootWorkOrderID)
 	downstreamStart := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", rootWorkOrderID), nil)
 	if downstreamStart.Code != http.StatusOK {
 		t.Fatalf("start downstream after material completion status=%d body=%s", downstreamStart.Code, downstreamStart.Body.String())

@@ -179,7 +179,7 @@ func savePickingAdjustmentTx(ctx context.Context, tx pgx.Tx, schema string, stor
 	if allocations == nil {
 		allocations = requested.Allocations
 	}
-	if mode == "manual" && len(allocations) == 0 && requested.SourceWarehouse != "" {
+	if requested.AllocationMode == "" && mode == "manual" && len(allocations) == 0 && requested.SourceWarehouse != "" {
 		allocations = []app.ProductionPlanSourceAllocation{{Warehouse: requested.SourceWarehouse, OwnerCustomerID: requested.SourceOwnerCustomerID, QtyG: stored.RequiredG, QtyUnits: stored.RequiredUnits}}
 	}
 	if mode == "auto" {
@@ -224,6 +224,9 @@ func savePickingAdjustmentTx(ctx context.Context, tx pgx.Tx, schema string, stor
 			return fmt.Errorf("同一来源仓和货主不能重复设置")
 		}
 		seen[key] = true
+		if a.QtyG > stored.RequiredG-totalG || a.QtyUnits > stored.RequiredUnits-totalN {
+			return fmt.Errorf("手工分配数量不能超过本项待落实需求")
+		}
 		totalG += a.QtyG
 		totalN += a.QtyUnits
 	}
@@ -276,15 +279,22 @@ func fillPickingBatchSuggestionsTx(ctx context.Context, tx pgx.Tx, schema string
 	used := map[string][2]int64{}
 	for i := range sources {
 		s := &sources[i]
-		if s.ComponentType != "material" {
-			continue
-		}
 		for j := range s.Allocations {
 			a := &s.Allocations[j]
-			rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT b.id,b.batch_code,GREATEST(0,l.qty_g-COALESCE(r.g,0))::bigint,GREATEST(0,l.qty_units-COALESCE(r.n,0))::bigint
+			var rows pgx.Rows
+			var err error
+			if s.ComponentType == "product" {
+				rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT b.id,b.batch_code,GREATEST(0,b.remaining_g-COALESCE(r.g,0))::bigint,GREATEST(0,b.remaining_units-COALESCE(r.n,0))::bigint
+ FROM %[1]s.stock_batches b
+ LEFT JOIN LATERAL(SELECT l.warehouse FROM %[1]s.stock_ledger_entries l WHERE l.item_type='finished_product' AND l.item_id=b.item_id AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g AND (l.source_batch_code=b.batch_code OR l.source_batch_id=b.batch_code) ORDER BY l.id DESC LIMIT 1) location ON true
+ LEFT JOIN LATERAL(SELECT SUM(GREATEST(0,reserved_g-consumed_g-returned_g)) g,SUM(GREATEST(0,reserved_units-consumed_units-returned_units)) n FROM %[1]s.work_order_material_reservation_batches WHERE stock_batch_id=b.id AND status='reserved') r ON true
+ WHERE b.item_type='finished_product' AND b.item_id=$1 AND COALESCE(NULLIF(location.warehouse,''),'finished_goods')=$2 AND COALESCE(b.owner_customer_id,0)=$3 AND b.bom_spec_id=$4 AND b.spec_g=$5 AND COALESCE(b.quality_status,'unchecked') NOT IN('hold','reject') ORDER BY b.created_at,b.id`, schema), s.ComponentID, a.Warehouse, a.OwnerCustomerID, s.ComponentBOMSpecID, s.ComponentSpecG)
+			} else {
+				rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT b.id,b.batch_code,GREATEST(0,l.qty_g-COALESCE(r.g,0))::bigint,GREATEST(0,l.qty_units-COALESCE(r.n,0))::bigint
    FROM %[1]s.material_batch_locations l JOIN %[1]s.material_batches b ON b.id=l.material_batch_id
    LEFT JOIN LATERAL(SELECT SUM(GREATEST(0,reserved_g-consumed_g-returned_g)) g,SUM(GREATEST(0,reserved_units-consumed_units-returned_units)) n FROM %[1]s.work_order_material_reservation_batches WHERE material_batch_id=b.id AND warehouse=l.warehouse AND status='reserved') r ON true
    WHERE l.material_id=$1 AND l.warehouse=$2 AND b.owner_customer_id=$3 AND b.status='active' AND b.quality_status NOT IN('hold','reject') ORDER BY b.received_at,b.id`, schema), s.ComponentID, a.Warehouse, a.OwnerCustomerID)
+			}
 			if err != nil {
 				return err
 			}
@@ -296,7 +306,7 @@ func fillPickingBatchSuggestionsTx(ctx context.Context, tx pgx.Tx, schema string
 					rows.Close()
 					return err
 				}
-				key := fmt.Sprintf("%d:%s", b.BatchID, a.Warehouse)
+				key := fmt.Sprintf("%s:%d:%s", s.ComponentType, b.BatchID, a.Warehouse)
 				u := used[key]
 				b.QtyG = minInt64(g, nonnegativeQuantity(bg-u[0]))
 				b.QtyUnits = minInt64(n, nonnegativeQuantity(bn-u[1]))

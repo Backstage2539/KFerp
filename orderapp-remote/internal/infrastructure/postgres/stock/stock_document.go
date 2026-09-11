@@ -859,7 +859,12 @@ func (r Repository) loadStockDocumentDetailTx(ctx context.Context, tx pgx.Tx, id
 		return stockapp.StockDocumentDetail{}, err
 	}
 	rows.Close()
+	automatic, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, out.WorkOrderID)
+	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	for i := range out.Items {
+		out.Items[i].FrozenPicking = automatic
 		allocRows, err := tx.Query(ctx, fmt.Sprintf(`
 			SELECT material_batch_id,batch_code,qty_g,qty_units,COALESCE(unit_cost,0)::float8
 			FROM %s.stock_entry_batch_allocations WHERE stock_entry_item_id=$1 ORDER BY id
