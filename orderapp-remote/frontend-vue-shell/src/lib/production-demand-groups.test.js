@@ -46,27 +46,27 @@ test('complete plan setup initializes real Vue watchers and keeps group paginati
   }
 })
 
-test('actual current-plan template renders a selection preview without a persisted draft', async () => {
+test('actual gap-review template renders a selection preview without a persisted draft', async () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
-  const start = source.indexOf('<section :class="[\'panel current-plan-panel\'')
-  const end = source.indexOf('\n      </section>', start) + '\n      </section>'.length
+  const start = source.indexOf('<section v-if="currentPlanStepKey === \'reviewGap\'"')
+  const end = source.indexOf('\n    <section v-if="currentPlanStepKey === \'scheduleProduction\'"', start)
   const { code, errors } = compileTemplate({ source: source.slice(start, end), filename: 'ProducePlanView.vue', id: 'preview-regression' })
   assert.deepEqual(errors, [])
   const js = code.replace(/import \{([^}]+)\} from "vue"/g, (_, names) => `const {${names.replace(/ as /g, ':')}} = Vue`).replace('export function render', 'function render')
   const render = new Function('Vue', js + '\nreturn render')(Vue)
   for (const state of [
-    { hasSelectedRows: true, planReady: true },
-    { hasSelectedRows: true, previewLoading: true },
-    { hasSelectedRows: true, previewError: '预览失败，请重试' },
-    { hasSelectedRows: false },
+    { reviewProductRows: [{ key: 'p-1', product: '验收咖啡', spec_label: '227g', need_label: '2 袋', available_label: '0 袋', gap_label: '2 袋', order_count: 1, order_details: [{ order_id: 1, order_no: 'SO-1', customer_name: '验收客户', quantity: 2, sales_unit: '袋' }] }] },
+    { previewLoading: true },
+    { previewError: '预览失败，请重试' },
+    {},
   ]) {
-    const html = await renderToString(Vue.createSSRApp({ render, components: { ProductionSupplyAllocations: { render: () => null } }, setup: () => ({
-      previewSupplyAllocations: [], currentPlan: null, currentPlanPanelCollapsed: false, currentPlanDraft: false,
-      hasSelectedRows: false, planReady: false, previewLoading: false, previewError: '',
-      computedPlanRows: [], computedMaterials: [], computedManufacturingPlanRows: [], postSubmitActions: [],
-      saving: false, loading: false, toggleCurrentPlanPanelCollapsed() {}, ...state,
+    const html = await renderToString(Vue.createSSRApp({ render, setup: () => ({
+      currentPlanStepKey: 'reviewGap', reviewConclusion: '本次需要生产 1 个商品规格', reviewConclusionHint: '已核对库存和在产供应',
+      reviewProductRows: [], visibleMaterialRows: [], materialFilterOptions: [], materialFilter: 'all',
+      saving: false, previewLoading: false, previewError: '', loadSelectedPlanPreview() {}, returnToDemandSelection() {}, runPlanNextStep() {}, ...state,
     }) }))
-    assert.match(html, /当前生产计划/)
+    assert.match(html, /商品缺口/)
+    assert.match(html, /生产用料/)
     assert.doesNotMatch(html, /保存<\/button>/)
   }
 })
@@ -130,6 +130,7 @@ test('configuration reasons are visible without expanding orders and known BOM e
   const rows = [demand({ blocking_reason: reason }), demand({ selection_key: 'b', blocking_reason: reason })]
   const html = await renderToString(Vue.createSSRApp({ render, setup: () => ({ ...plan,
     stockInsufficientRows: rows, pagedDemandGroups: plan.groupProductionDemands(rows), collapsedDemandGroups: {}, selected: {},
+    filteredStockInsufficientRows: rows, demandPanelEmptyText: '暂无待计划需求',
     productionDemandSelectionKey: row => row.selection_key, toggleDemandGroup() {},
   }) }))
   const outsideOrderDetails = html.replace(/<details>[\s\S]*?<\/details>/g, '')
@@ -156,6 +157,7 @@ test('actual demand table renders backend order quantities and customer traceabi
   const rows = [demand({ order_details: [{ order_item_id: 17, order_no: 'SO-17', customer_name: '验收客户', quantity: 2, sales_unit: '袋' }] }), demand({selection_key: 'b'})]
   const html = await renderToString(Vue.createSSRApp({ render, setup: () => ({ ...plan,
     stockInsufficientRows: rows, pagedDemandGroups: plan.groupProductionDemands(rows), collapsedDemandGroups: {}, selected: {a: true},
+    filteredStockInsufficientRows: rows, demandPanelEmptyText: '暂无待计划需求',
     productionDemandSelectionKey: row => row.selection_key, toggleDemandGroup() {},
   }) }))
   assert.match(html, /SO-17 · 验收客户 · 2 袋/)
@@ -168,9 +170,10 @@ test('refresh with selection query executes the actual mounted callback and requ
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
   const start = source.indexOf('onMounted(async () => {') + 'onMounted(async () => {'.length
   const end = source.indexOf('\n})', start)
-  const selected = {}, filters = {}, calls = []
-  const run = new (Object.getPrototypeOf(async function(){}).constructor)('window','filters','props','selected','load','loadWorkstationCapacities','loadProductionPlans','loadWarehouses','productionDemandStatusFilterValue','defaultProductionDemandStatusFilter',source.slice(start,end))
-  await run({location:{href:'https://example.invalid/app/production?plan=1&selected=v2%3Atest%2C1-227'}},filters,{},selected,async preview => calls.push(preview),async()=>{},async()=>{},async()=>{},plan.productionDemandStatusFilterValue,plan.defaultProductionDemandStatusFilter)
+  const selected = {}, filters = {}, calls = [], activePlanningStep = { value: 'selectDemand' }
+  const run = new (Object.getPrototypeOf(async function(){}).constructor)('window','filters','props','selected','load','loadWorkstationCapacities','loadProductionPlans','loadWarehouses','productionDemandStatusFilterValue','defaultProductionDemandStatusFilter','selectedKeys','activePlanningStep',source.slice(start,end))
+  await run({location:{href:'https://example.invalid/app/production?plan=1&selected=v2%3Atest%2C1-227'}},filters,{},selected,async preview => calls.push(preview),async()=>{},async()=>{},async()=>{},plan.productionDemandStatusFilterValue,plan.defaultProductionDemandStatusFilter,()=>Object.keys(selected),activePlanningStep)
   assert.deepEqual(selected, {'v2:test':true,'1-227':true})
   assert.deepEqual(calls,[true])
+  assert.equal(activePlanningStep.value, 'reviewGap')
 })

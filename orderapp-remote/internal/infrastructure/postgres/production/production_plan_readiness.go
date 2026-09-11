@@ -166,11 +166,12 @@ func productionPlanDraftToken(detail productionapp.ProductionPlanDetail) string 
 		ComponentType, Warehouse                       string
 	}
 	payload := struct {
-		Status  string
-		Items   []itemToken
-		Sources []sourceToken
-		Splits  []productionapp.ProductionPlanOperationSplit
-	}{Status: detail.Status}
+		Status   string
+		Revision int64
+		Items    []itemToken
+		Sources  []sourceToken
+		Splits   []productionapp.ProductionPlanOperationSplit
+	}{Status: detail.Status, Revision: detail.Revision}
 	for _, item := range detail.Items {
 		payload.Items = append(payload.Items, itemToken{ID: item.ID, Warehouse: item.TargetWarehouse})
 	}

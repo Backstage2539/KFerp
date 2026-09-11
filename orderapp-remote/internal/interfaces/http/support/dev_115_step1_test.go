@@ -62,7 +62,7 @@ func TestProductionAcceptanceWIPVueWiring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"WIP可用", "建议领到WIP", "wip_transfer_suggestion_g", "productionMaterialQuantity"} {
+	for _, want := range []string{"在产覆盖", "ProductionSupplyAllocations", "component_sources", "source_warehouse"} {
 		if !strings.Contains(string(plan), want) {
 			t.Fatalf("ProducePlanView.vue missing %q", want)
 		}

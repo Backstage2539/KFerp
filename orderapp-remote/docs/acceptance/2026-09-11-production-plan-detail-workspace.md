@@ -1,4 +1,4 @@
-# PR-649 生产计划详情工作区验收记录
+# PR-650 生产计划详情工作区验收记录
 
 日期：2026-09-11
 
@@ -13,7 +13,7 @@
 
 - RED：新增测试最初分别因冻结包材数量、上游损耗标记、提交核对模型、原子草稿接口、阶段工作区缺失而失败。
 - GREEN：`go test ./internal/application/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/production` 通过。
-- 全量：`./scripts/verify_kferp.sh all` 通过；Go 全包通过，Vue `1170/1170` 通过，Vite 生产构建通过。
+- 全量：在合并最新 `origin/develop` 后运行 `./scripts/verify_kferp.sh all` 通过；Go 全包通过，Vue `1175/1175` 通过，Vite 生产构建通过。
 - API：`PATCH /api/production-plans/:id/draft` 覆盖完整工作区载荷、草稿版本冲突 `409`、应用层校验和 PostgreSQL 生命周期用例；写入动作是 `production_plan/save_draft`。
 - 数量：覆盖冻结 `10 + 8 + 2 = 20` 销售规格件的包材汇总，以及上游计划投入已含损耗时不再次放大。
 

@@ -37,8 +37,8 @@ func TestDev273ProducePlanRoastSuggestionUsesRealtimeOutputAndUnifiedYieldDispla
 		}
 	}
 	for _, want := range []string{
-		"BOM摘要",
-		"工艺路线摘要",
+		"商品缺口",
+		"生产用料",
 		"buildProductionPlanCreatePayload(filters, keys)",
 	} {
 		if !strings.Contains(view, want) {

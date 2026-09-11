@@ -6,12 +6,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-649-PRODUCTION-PLAN-DETAIL-WORKSPACE
+### PR-650-PRODUCTION-PLAN-DETAIL-WORKSPACE
 - Branch: `codex/production-plan-detail-ux-20260911`, base `3d272faa`.
 - Owner/session: Codex / 2026-09-11
-- Status: implementation and full local verification complete; development integration/deployment and browser acceptance in progress. Van approved the UI target and development delivery.
+- Status: implementation and latest-develop conflict resolution complete; full merged verification passed; development integration/deployment and browser acceptance in progress. Van approved the UI target and development delivery.
 - Scope: unify frozen production-plan quantities, expose submit readiness, save the draft atomically, and replace the detail drawer with a staged Vue workspace.
-- DEV: DEV-649-QUANTITY-AUTHORITY; DEV-649-DRAFT-READINESS-API; DEV-649-DETAIL-WORKSPACE; DEV-649-DEVELOPMENT-DELIVERY.
+- DEV: DEV-650-QUANTITY-AUTHORITY; DEV-650-DRAFT-READINESS-API; DEV-650-DETAIL-WORKSPACE; DEV-650-DEVELOPMENT-DELIVERY.
 - Verifier:
   - Unit: production quantity/material/readiness Go tests and produce-plan frontend helper tests.
   - API: production plan detail, atomic draft save, conflict, validation, audit, and submit parity tests.
@@ -19,9 +19,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue manual surface.
   - Review/acceptance: development flow with isolated test data; PP-0000000109 stays read-only.
 - Deployment: development after branch integration; production excluded.
-- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-plan-detail-workspace.md`; full Go, Vue 1170/1170 and Vite build pass locally.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-plan-detail-workspace.md`; full Go, Vue 1175/1175 and Vite build pass after merging latest develop.
 - Last update: 2026-09-11 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim` selected PR-649 but the local awk rejected its multiline placeholder, so the reservation is recorded manually.
+- Notes: the initial local reservation selected PR-649, but concurrent integration claimed that id first; this requirement was moved to the next id, PR-650.
+
+### PR-649-PRODUCTION-PLANNING-WORKSPACE
+- Branch: `codex/production-planning-workspace-20260910`, base `3d272faa`.
+- Owner/session: Codex / 2026-09-11
+- Status: implementation and full repository verification complete; integration, development deployment, and browser screenshots in progress.
+- Scope: three-step planning workspace, business-first product/material gap review, actionable blockers, editable/recalculable draft, consistent preview/detail quantities, responsive acceptance screenshots.
+- DEV: DEV-649-DEMAND-SELECT; DEV-649-GAP-REVIEW; DEV-649-DRAFT-RECALCULATE; DEV-649-SCHEDULE-DELIVERY.
+- Verifier: targeted Vue 74/74 and draft-recalculation API GREEN; full Go packages, frontend 1172/1172, changed-file checks, and Vue production build GREEN. Development browser acceptance remains.
+- Deployment: development authorized after complete verification; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-planning-workspace.md`.
+- Notes: PR-649 is the next available requirement id. Van retains final business acceptance.
 
 ### PR-648-PRODUCTION-PLANNING-MULTILEVEL
 - Branch: `codex/production-planning-multilevel-20260910`, base `2bd15db4`.
