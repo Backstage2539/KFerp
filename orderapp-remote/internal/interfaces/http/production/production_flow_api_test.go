@@ -1686,6 +1686,7 @@ func TestProductionPlanDraftCancelAPIRejectsNonDraftAndDownstreamWork(t *testing
 		pool, schema := newProductionFlowTestDB(t)
 		ctx := context.Background()
 		seedProductionPlanLifecycleData(t, ctx, pool, schema)
+		seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-CANCEL-RAW", "计划生豆", 1000)
 		repo := postgresproduction.NewRepository(pool, schema)
 		plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
 			Selected: map[string]bool{"1-227": true},
@@ -1693,6 +1694,16 @@ func TestProductionPlanDraftCancelAPIRejectsNonDraftAndDownstreamWork(t *testing
 		})
 		if err != nil {
 			t.Fatalf("CreateProductionPlan: %v", err)
+		}
+		sources := append([]productionapp.ProductionPlanComponentSource(nil), plan.ComponentSources...)
+		for index := range sources {
+			sources[index].SourceWarehouse = "wip"
+		}
+		plan, err = repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+			ID: plan.ID, DraftToken: plan.DraftToken, ComponentSources: sources, Operator: "计划员",
+		})
+		if err != nil {
+			t.Fatalf("save source before submit: %v", err)
 		}
 		seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
 		if _, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"}); err != nil {

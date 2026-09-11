@@ -20,7 +20,7 @@ func TestDev475ProductionPlanERPNextWorkbenchContracts(t *testing.T) {
 			"待生产需求",
 			"schedule-workspace",
 			"loadSelectedPlanPreview",
-			"提交并生成工单",
+			"提交生成工单",
 			"productionPlanBatchSubmitEndpoint()",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.js"): {

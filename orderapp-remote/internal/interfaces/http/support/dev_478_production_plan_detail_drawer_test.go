@@ -54,7 +54,7 @@ func TestDev478ProductionPlanDetailDrawerContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL",
-			"点击计划号或详情打开生产计划单据详情抽屉",
+			"点击计划号或详情打开生产计划单据详情工作区",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-12-production-plan-document-detail.md"): {
 			"PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL",

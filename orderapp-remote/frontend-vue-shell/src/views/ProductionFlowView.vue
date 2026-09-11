@@ -15,7 +15,7 @@
         role="tab"
         :aria-selected="activeTab === tab.key"
         :class="{ active: activeTab === tab.key }"
-        @click="activeTab = tab.key">
+        @click="selectTab(tab.key)">
         {{ tab.label }}
       </button>
     </nav>
@@ -50,6 +50,11 @@ const tabs = [
 
 const activeTab = ref(tabs[0].key)
 const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || tabs[0].component)
+function selectTab(key) {
+  if (key === activeTab.value) return
+  if (!window.dispatchEvent(new CustomEvent('kferp:before-navigate', { cancelable: true, detail: { key: 'productionFlow', tab: key } }))) return
+  activeTab.value = key
+}
 </script>
 
 <style scoped>
