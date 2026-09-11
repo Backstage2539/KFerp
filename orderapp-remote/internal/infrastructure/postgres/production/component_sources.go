@@ -477,6 +477,11 @@ func validateProductionPlanComponentSourcesAtSubmitTx(ctx context.Context, tx pg
 	if len(rows) == 0 {
 		return nil
 	}
+	type sourceGroup struct {
+		row                      productionapp.ProductionPlanComponentSource
+		requiredG, requiredUnits int64
+	}
+	groups := map[string]sourceGroup{}
 	for _, row := range rows {
 		if !row.Selected {
 			return fmt.Errorf("生产计划组件「%s」必须选择来源仓库", row.ComponentName)
@@ -484,14 +489,32 @@ func validateProductionPlanComponentSourcesAtSubmitTx(ctx context.Context, tx pg
 		if err := validateMaterialComponentSourceOwnerTx(ctx, tx, schema, row.ComponentType, row.ComponentID, row.SourceOwnerCustomerID); err != nil {
 			return err
 		}
+		key := fmt.Sprintf("%s:%d:%d:%d:%s:%d", row.ComponentType, row.ComponentID, row.ComponentBOMSpecID,
+			row.ComponentSpecG, row.SourceWarehouse, row.SourceOwnerCustomerID)
+		group := groups[key]
+		if group.row.ID == 0 {
+			group.row = row
+		}
+		group.requiredG += row.RequiredG
+		group.requiredUnits += row.RequiredUnits
+		groups[key] = group
+	}
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		group := groups[key]
+		row := group.row
 		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, row.ComponentType, row.ComponentID,
 			row.ComponentBOMSpecID, row.ComponentSpecG, row.SourceWarehouse, row.SourceOwnerCustomerID, true)
 		if err != nil {
 			return err
 		}
-		if availableG < row.RequiredG || availableUnits < row.RequiredUnits {
+		if availableG < group.requiredG || availableUnits < group.requiredUnits {
 			return fmt.Errorf("所选来源仓库存不足：%s / %s / 货主%d，缺少 %dg/%d units", row.ComponentName, row.SourceWarehouse,
-				row.SourceOwnerCustomerID, nonnegativeQuantity(row.RequiredG-availableG), nonnegativeQuantity(row.RequiredUnits-availableUnits))
+				row.SourceOwnerCustomerID, nonnegativeQuantity(group.requiredG-availableG), nonnegativeQuantity(group.requiredUnits-availableUnits))
 		}
 	}
 	return nil

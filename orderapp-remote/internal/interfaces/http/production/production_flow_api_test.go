@@ -1296,6 +1296,41 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	assertProductionFlowCount(t, pool, schema, "production_plan_items", "product_id=1 AND planned_g=600", 1)
 	assertNoProductionWorkOpened(t, ctx, pool, schema)
 	assertProductionFlowCount(t, pool, schema, "production_logs", "1=1", 0)
+	originalWarehouse := plan.Items[0].TargetWarehouse
+	sources := append([]productionapp.ProductionPlanComponentSource(nil), plan.ComponentSources...)
+	for index := range sources {
+		for _, option := range sources[index].Options {
+			if option.Warehouse == "wip" {
+				sources[index].SourceWarehouse = option.Warehouse
+				sources[index].SourceOwnerCustomerID = option.OwnerCustomerID
+				break
+			}
+		}
+	}
+	savedDraft, err := repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+		ID: plan.ID, DraftToken: plan.DraftToken, Items: []productionapp.ProductionPlanDraftItem{{ID: plan.Items[0].ID, TargetWarehouse: "wip"}},
+		ComponentSources: sources, OperationSplits: nil, Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("SaveProductionPlanDraft: %v", err)
+	}
+	if savedDraft.Items[0].TargetWarehouse != "wip" || savedDraft.DraftToken == plan.DraftToken {
+		t.Fatalf("saved draft = %+v, want atomic target update and new token", savedDraft)
+	}
+	if _, err := repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+		ID: plan.ID, DraftToken: plan.DraftToken, Items: []productionapp.ProductionPlanDraftItem{{ID: plan.Items[0].ID, TargetWarehouse: originalWarehouse}},
+		ComponentSources: sources, Operator: "stale-editor",
+	}); err == nil || !strings.Contains(err.Error(), "draft has changed") {
+		t.Fatalf("stale SaveProductionPlanDraft err=%v, want version conflict", err)
+	}
+	plan, err = repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+		ID: plan.ID, DraftToken: savedDraft.DraftToken, Items: []productionapp.ProductionPlanDraftItem{{ID: plan.Items[0].ID, TargetWarehouse: originalWarehouse}},
+		ComponentSources: sources, Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("restore lifecycle draft target: %v", err)
+	}
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='save_draft'", plan.ID), 2)
 	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
 
 	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})

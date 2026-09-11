@@ -357,6 +357,118 @@ export function productionPlanDetailEndpoint(plan) {
   return `/api/production-plans/${id}`
 }
 
+export function productionPlanDraftEndpoint(plan) {
+  const id = Number(plan?.id || 0)
+  if (id <= 0) return ''
+  return `/api/production-plans/${id}/draft`
+}
+
+export function buildProductionPlanDraftPayload(plan = {}) {
+  return {
+    draft_token: String(plan?.draft_token || '').trim(),
+    items: (plan?.items || []).map((item) => ({
+      id: Number(item?.id || 0),
+      target_warehouse: String(item?.target_warehouse || '').trim(),
+    })).filter((item) => item.id > 0),
+    component_sources: (plan?.component_sources || []).map((source) => ({
+      production_plan_item_id: Number(source?.production_plan_item_id || 0),
+      component_type: String(source?.component_type || '').trim(),
+      component_id: Number(source?.component_id || 0),
+      component_bom_spec_id: Number(source?.component_bom_spec_id || 0),
+      component_spec_g: Number(source?.component_spec_g || 0),
+      source_warehouse: String(source?.source_warehouse || '').trim(),
+      source_owner_customer_id: Number(source?.source_owner_customer_id || 0),
+    })).filter((source) => source.production_plan_item_id > 0 && source.component_type && source.component_id > 0),
+    operation_splits: buildProductionPlanOperationSplitPayload(plan?.operation_splits || []).items,
+  }
+}
+
+function parsedProductionPlanSnapshot(raw) {
+  if (raw && typeof raw === 'object') return raw
+  try { return JSON.parse(String(raw || '{}')) || {} } catch (_) { return {} }
+}
+
+function productionPlanSalesUnit(item = {}) {
+  const snapshot = parsedProductionPlanSnapshot(item.sales_spec_snapshot_json)
+  return String(snapshot.sales_unit || item.sales_unit || (!['g', 'kg', '克', '千克', '公斤'].includes(String(item.inventory_unit || '').trim().toLowerCase()) ? item.inventory_unit : '') || '件').trim()
+}
+
+function productionPlanTaskQuantityLabel(item = {}) {
+  if (String(item.output_type || '').trim() === 'material') {
+    return productionDemandQuantity(item.output_qty, String(item.output_unit || '').trim())
+  }
+  if (Number(item.sales_spec_count || 0) > 0) {
+    return productionDemandQuantity(item.sales_spec_count, productionPlanSalesUnit(item))
+  }
+  if (Number(item.planned_inventory_qty || 0) > 0 && String(item.inventory_unit || '').trim()) {
+    return productionDemandQuantity(item.planned_inventory_qty, item.inventory_unit)
+  }
+  return productionPlanLegacyGramLabel(item.planned_output_g || item.gap_g)
+}
+
+function productionPlanItemOperations(item = {}) {
+  const snapshot = parsedProductionPlanSnapshot(item.process_snapshot_json)
+  return Array.isArray(snapshot.operations) ? snapshot.operations : []
+}
+
+function productionPlanStageTitle(tasks, level) {
+  const operations = [...new Set(tasks.flatMap((task) => productionPlanItemOperations(task.item).map((row) => String(row.operation || row.name || '').trim())).filter(Boolean))]
+  if (operations.length === 1) return operations[0]
+  if (tasks.every((task) => String(task.item.output_type || '').trim() === 'material')) return '上游生产'
+  if (tasks.every((task) => String(task.item.output_type || 'product').trim() === 'product')) return '商品生产'
+  return `生产阶段 ${level + 1}`
+}
+
+export function buildProductionPlanStages(detail = {}) {
+  const items = (detail?.items || []).map((item, index) => ({ ...item, _source_index: index }))
+  const byID = new Map(items.map((item) => [Number(item.id || 0), item]))
+  const edges = (detail?.manufacturing_plan?.edges || []).filter((edge) => byID.has(Number(edge.consumer_plan_item_id || 0)) && byID.has(Number(edge.supplier_plan_item_id || 0)))
+  const levels = new Map(items.map((item) => [Number(item.id || 0), 0]))
+  for (let pass = 0; pass < items.length; pass += 1) {
+    let changed = false
+    for (const edge of edges) {
+      const consumerID = Number(edge.consumer_plan_item_id || 0)
+      const supplierID = Number(edge.supplier_plan_item_id || 0)
+      const next = Math.max(levels.get(consumerID) || 0, (levels.get(supplierID) || 0) + 1)
+      if (next !== levels.get(consumerID)) {
+        levels.set(consumerID, next)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+  const supplies = new Map(items.map((item) => [Number(item.id || 0), []]))
+  const dependencies = new Map(items.map((item) => [Number(item.id || 0), []]))
+  for (const edge of edges) {
+    const consumerID = Number(edge.consumer_plan_item_id || 0)
+    const supplierID = Number(edge.supplier_plan_item_id || 0)
+    const qtyLabel = Number(edge.required_g || 0) > 0
+      ? `${compactProductionQuantity(Number(edge.required_g) / 1000)} kg`
+      : productionDemandQuantity(edge.required_units || edge.required_qty, edge.required_units ? '件' : '')
+    supplies.get(supplierID)?.push({ item: byID.get(consumerID), quantity_label: qtyLabel })
+    dependencies.get(consumerID)?.push({ item: byID.get(supplierID), quantity_label: qtyLabel })
+  }
+  const stageMap = new Map()
+  for (const item of items) {
+    const level = levels.get(Number(item.id || 0)) || 0
+    if (!stageMap.has(level)) stageMap.set(level, [])
+    stageMap.get(level).push({
+      id: Number(item.id || 0), item,
+      kind_label: String(item.output_type || 'product') === 'material' ? '自制物料' : '成品任务',
+      quantity_label: productionPlanTaskQuantityLabel(item),
+      order_nos: String(item.order_nos || '').split(',').map((value) => value.trim()).filter(Boolean),
+      supplies: supplies.get(Number(item.id || 0)) || [],
+      dependencies: dependencies.get(Number(item.id || 0)) || [],
+    })
+  }
+  return [...stageMap.entries()].sort(([a], [b]) => a - b).map(([level, tasks]) => ({
+    key: `stage-${level}`,
+    level,
+    title: productionPlanStageTitle(tasks, level),
+    tasks: tasks.sort((a, b) => a.item._source_index - b.item._source_index),
+  }))
+}
+
 export function productionPlanOperationSplitsEndpoint(plan) {
   const id = Number(plan?.id || 0)
   if (id <= 0) return ''

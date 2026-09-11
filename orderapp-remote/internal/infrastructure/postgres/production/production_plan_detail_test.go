@@ -91,6 +91,94 @@ func TestAggregateProductionPlanMaterialSummaryDoesNotApplyBomLossTwice(t *testi
 	assertProductionPlanMaterial(t, got, "如目达摩生豆", 7751, "g")
 }
 
+func TestProductionPlanOutputUnitsUsesFrozenSalesSpecCount(t *testing.T) {
+	item := productionapp.ProductionPlanItem{
+		OutputType:          "product",
+		SalesSpecCount:      20,
+		PlannedInventoryQty: 20,
+		InventoryUnit:       "袋",
+	}
+	if got := productionPlanOutputUnits(item); got != 20 {
+		t.Fatalf("productionPlanOutputUnits() = %d, want frozen 20 bags", got)
+	}
+}
+
+func TestAggregateProductionPlanMaterialSummaryUsesFrozenSalesCounts(t *testing.T) {
+	items := []productionapp.ProductionPlanItem{
+		{ID: 1, OutputType: "product", SalesSpecCount: 10, PlannedInventoryQty: 10, InventoryUnit: "袋", MaterialSnapshot: `[{"material_id":91,"material_name":"227g咖啡袋","unit":"条","source":"packaging"}]`},
+		{ID: 2, OutputType: "product", SalesSpecCount: 8, PlannedInventoryQty: 8, InventoryUnit: "袋", MaterialSnapshot: `[{"material_id":91,"material_name":"227g咖啡袋","unit":"条","source":"packaging"}]`},
+		{ID: 3, OutputType: "product", SalesSpecCount: 2, PlannedInventoryQty: 2, InventoryUnit: "袋", MaterialSnapshot: `[{"material_id":91,"material_name":"227g咖啡袋","unit":"条","source":"packaging"}]`},
+	}
+
+	got := aggregateProductionPlanMaterialSummary(items)
+	assertProductionPlanMaterial(t, got, "227g咖啡袋", 20, "条")
+}
+
+func TestFreezeManufacturingOutputMaterialSnapshotPreventsDoubleLoss(t *testing.T) {
+	raw := `[{"material_id":7,"material_name":"生豆","unit":"g","source":"bom","consume_unit":"ratio_pct","ratio_pct":100,"material_loss_rate":0.18,"loss_calculation_mode":"yield_denominator"}]`
+	frozen, err := freezeManufacturingOutputMaterialSnapshot(raw)
+	if err != nil {
+		t.Fatalf("freezeManufacturingOutputMaterialSnapshot() error = %v", err)
+	}
+	item := productionapp.ProductionPlanItem{
+		OutputType:       "material",
+		OutputQty:        4.54,
+		OutputUnit:       "kg",
+		PlannedG:         5537,
+		PlannedOutputG:   4540,
+		MaterialSnapshot: frozen,
+	}
+	needs, err := productionPlanItemConsumptionNeeds(item)
+	if err != nil {
+		t.Fatalf("productionPlanItemConsumptionNeeds() error = %v", err)
+	}
+	if len(needs) != 1 || needs[0].DeductG != 5537 {
+		t.Fatalf("frozen upstream needs = %+v, want one 5537g requirement without applying 18%% twice", needs)
+	}
+}
+
+func TestProductionPlanReadinessReportsAllBlockingSections(t *testing.T) {
+	detail := productionapp.ProductionPlanDetail{
+		ID:     41,
+		Status: "draft",
+		Items: []productionapp.ProductionPlanItem{{
+			ID: 51, ProductName: "初晓商品", SalesSpecCount: 20,
+			ProcessSnapshotJSON: `{"operations":[{"seq":1,"operation":"包装"}]}`,
+		}},
+		ComponentSources: []productionapp.ProductionPlanComponentSource{{
+			ID: 61, ProductionPlanItemID: 51, ComponentName: "咖啡袋", RequiredUnits: 20,
+		}},
+		SupplyGaps: []productionapp.ProductionPlanSupplyGap{{ID: 71, ProductionPlanItemID: 51, ItemName: "标签", Status: "unresolved"}},
+	}
+
+	got := productionPlanReadiness(detail)
+	if got.CanSubmit || got.BlockingCount != 3 {
+		t.Fatalf("readiness = %+v, want three blocking issues", got)
+	}
+	wantCodes := map[string]bool{"component_source_missing": true, "operation_split_missing": true, "supply_gap": true}
+	for _, issue := range got.Issues {
+		delete(wantCodes, issue.Code)
+	}
+	if len(wantCodes) != 0 {
+		t.Fatalf("readiness issues = %+v, missing codes %+v", got.Issues, wantCodes)
+	}
+}
+
+func TestProductionPlanReadinessRequiresRefreshForLegacyUpstreamLossSnapshot(t *testing.T) {
+	detail := productionapp.ProductionPlanDetail{
+		ID: 109, Status: "draft",
+		Items: []productionapp.ProductionPlanItem{{
+			ID: 51, OutputType: "material", OutputName: "初晓熟豆", OutputQty: 4.54, OutputUnit: "kg", PlannedG: 5640, PlannedOutputG: 4540,
+			MaterialSnapshot:    `[{"material_id":7,"material_name":"咖啡生豆","unit":"kg","ratio_pct":100,"material_loss_rate":0.18}]`,
+			ProcessSnapshotJSON: `{"operations":[]}`,
+		}},
+	}
+	readiness := productionPlanReadiness(detail)
+	if readiness.CanSubmit || readiness.BlockingCount != 1 || readiness.Issues[0].Code != "legacy_loss_snapshot" {
+		t.Fatalf("readiness = %+v, want explicit supply refresh blocker", readiness)
+	}
+}
+
 func TestPreviewProductionPlanOperationSplitsShowsCoverageAndMaterialGap(t *testing.T) {
 	items := []productionapp.ProductionPlanItem{{
 		ID:             51,

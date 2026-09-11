@@ -576,6 +576,39 @@ type ProductionPlanDetail struct {
 	ManufacturingPlan ProductionManufacturingPlan      `json:"manufacturing_plan"`
 	RelatedWorkOrders []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
 	JobCardCount      int64                            `json:"job_card_count"`
+	DraftToken        string                           `json:"draft_token,omitempty"`
+	Readiness         ProductionPlanReadiness          `json:"readiness"`
+}
+
+type ProductionPlanReadiness struct {
+	CanSubmit     bool                           `json:"can_submit"`
+	BlockingCount int                            `json:"blocking_count"`
+	WarningCount  int                            `json:"warning_count"`
+	Issues        []ProductionPlanReadinessIssue `json:"issues"`
+}
+
+type ProductionPlanReadinessIssue struct {
+	Code                 string `json:"code"`
+	Category             string `json:"category"`
+	Severity             string `json:"severity"`
+	Message              string `json:"message"`
+	Action               string `json:"action,omitempty"`
+	ProductionPlanItemID int64  `json:"production_plan_item_id,omitempty"`
+	ComponentSourceID    int64  `json:"component_source_id,omitempty"`
+}
+
+type ProductionPlanDraftItem struct {
+	ID              int64  `json:"id"`
+	TargetWarehouse string `json:"target_warehouse"`
+}
+
+type SaveProductionPlanDraftCommand struct {
+	ID               int64
+	DraftToken       string
+	Items            []ProductionPlanDraftItem
+	ComponentSources []ProductionPlanComponentSource
+	OperationSplits  []ProductionPlanOperationSplit
+	Operator         string
 }
 
 type ProductionPlanComponentSourceOption struct {
@@ -1833,6 +1866,10 @@ type productionPlanComponentSourceRepository interface {
 	UpdateProductionPlanItemComponentSources(ctx context.Context, cmd UpdateProductionPlanItemComponentSourcesCommand) ([]ProductionPlanComponentSource, error)
 }
 
+type productionPlanDraftRepository interface {
+	SaveProductionPlanDraft(ctx context.Context, cmd SaveProductionPlanDraftCommand) (ProductionPlanDetail, error)
+}
+
 type Service struct {
 	repo Repository
 }
@@ -1992,6 +2029,41 @@ func (s *Service) GetProductionPlan(ctx context.Context, id int64) (ProductionPl
 		return ProductionPlanDetail{}, fmt.Errorf("production_plan_id required")
 	}
 	return s.repo.GetProductionPlan(ctx, id)
+}
+
+func (s *Service) SaveProductionPlanDraft(ctx context.Context, cmd SaveProductionPlanDraftCommand) (ProductionPlanDetail, error) {
+	if cmd.ID <= 0 {
+		return ProductionPlanDetail{}, fmt.Errorf("production_plan_id required")
+	}
+	cmd.DraftToken = strings.TrimSpace(cmd.DraftToken)
+	if cmd.DraftToken == "" {
+		return ProductionPlanDetail{}, fmt.Errorf("draft_token required")
+	}
+	for i := range cmd.Items {
+		cmd.Items[i].TargetWarehouse = strings.TrimSpace(cmd.Items[i].TargetWarehouse)
+		if cmd.Items[i].ID <= 0 || cmd.Items[i].TargetWarehouse == "" {
+			return ProductionPlanDetail{}, fmt.Errorf("draft item identity and target warehouse required")
+		}
+	}
+	for i := range cmd.ComponentSources {
+		source := &cmd.ComponentSources[i]
+		source.ComponentType = strings.TrimSpace(source.ComponentType)
+		source.SourceWarehouse = strings.TrimSpace(source.SourceWarehouse)
+		if source.ProductionPlanItemID <= 0 || source.ComponentID <= 0 || source.ComponentType == "" {
+			return ProductionPlanDetail{}, fmt.Errorf("component source identity required")
+		}
+	}
+	for i := range cmd.OperationSplits {
+		split := &cmd.OperationSplits[i]
+		split.ProductionPlanID = cmd.ID
+		split.Operation = strings.TrimSpace(split.Operation)
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	repo, ok := s.repo.(productionPlanDraftRepository)
+	if !ok {
+		return ProductionPlanDetail{}, fmt.Errorf("production plan draft workspace update not supported")
+	}
+	return repo.SaveProductionPlanDraft(ctx, cmd)
 }
 
 func (s *Service) UpdateProductionPlanItemTargetWarehouse(ctx context.Context, cmd UpdateProductionPlanItemTargetWarehouseCommand) (ProductionPlanItem, error) {

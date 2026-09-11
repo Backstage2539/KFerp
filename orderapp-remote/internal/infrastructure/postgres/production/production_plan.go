@@ -941,6 +941,8 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 	}
 	detail.RelatedWorkOrders = relatedWorkOrders
 	detail.JobCardCount = jobCardCount
+	detail.Readiness = productionPlanReadiness(detail)
+	detail.DraftToken = productionPlanDraftToken(detail)
 	return detail, nil
 }
 
@@ -1051,7 +1053,21 @@ func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd p
 	if status != "draft" {
 		return nil, fmt.Errorf("production plan must be draft to edit operation splits")
 	}
-	itemRows, err := loadProductionPlanItemsTx(ctx, tx, r.schema, cmd.ID)
+	out, err := replaceProductionPlanOperationSplitsTx(ctx, tx, r.schema, cmd.ID, cmd.Items)
+	if err != nil {
+		return nil, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ID, "save_operation_splits", postgresinfra.StrPtr("operation_splits"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(cmd.Items))), postgresinfra.AuditMeta{"split_count": len(cmd.Items)}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func replaceProductionPlanOperationSplitsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, requested []productionapp.ProductionPlanOperationSplit) ([]productionapp.ProductionPlanOperationSplit, error) {
+	itemRows, err := loadProductionPlanItemsTx(ctx, tx, schema, planID)
 	if err != nil {
 		return nil, err
 	}
@@ -1059,13 +1075,13 @@ func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd p
 	for _, item := range itemRows {
 		itemByID[item.ID] = item
 	}
-	preparedItems := make([]productionapp.ProductionPlanOperationSplit, 0, len(cmd.Items))
-	for _, item := range cmd.Items {
+	preparedItems := make([]productionapp.ProductionPlanOperationSplit, 0, len(requested))
+	for _, item := range requested {
 		planItem, ok := itemByID[item.ProductionPlanItemID]
 		if !ok {
 			return nil, fmt.Errorf("production_plan_item_id does not belong to production plan")
 		}
-		item, err = prepareOperationSplitForSaveTx(ctx, tx, r.schema, item, cmd.ID, item.ProductionPlanItemID, planItem.SpecG, planItem.SalesSpecCount, productionPlanItemOutputTargetG(planItem))
+		item, err = prepareOperationSplitForSaveTx(ctx, tx, schema, item, planID, item.ProductionPlanItemID, planItem.SpecG, planItem.SalesSpecCount, productionPlanItemOutputTargetG(planItem))
 		if err != nil {
 			return nil, err
 		}
@@ -1076,22 +1092,16 @@ func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd p
 			return nil, err
 		}
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_plan_operation_splits WHERE production_plan_id=$1`, r.schema), cmd.ID); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_plan_operation_splits WHERE production_plan_id=$1`, schema), planID); err != nil {
 		return nil, err
 	}
 	for _, item := range preparedItems {
-		if err := insertProductionPlanOperationSplitTx(ctx, tx, r.schema, item); err != nil {
+		if err := insertProductionPlanOperationSplitTx(ctx, tx, schema, item); err != nil {
 			return nil, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ID, "save_operation_splits", postgresinfra.StrPtr("operation_splits"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(cmd.Items))), postgresinfra.AuditMeta{"split_count": len(cmd.Items)}); err != nil {
-		return nil, err
-	}
-	out, err := loadProductionPlanOperationSplitsTx(ctx, tx, r.schema, cmd.ID)
+	out, err := loadProductionPlanOperationSplitsTx(ctx, tx, schema, planID)
 	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -1633,6 +1643,38 @@ func aggregateProductionPlanMaterialSummary(items []productionapp.ProductionPlan
 	}
 	merged := map[key]productionapp.MaterialNeed{}
 	for _, item := range items {
+		if needs, err := productionPlanItemConsumptionNeeds(item); err == nil && len(needs) > 0 {
+			for _, need := range needs {
+				name := strings.TrimSpace(need.MaterialName)
+				if name == "" {
+					continue
+				}
+				unit := strings.TrimSpace(need.Unit)
+				if unit == "" {
+					unit = "g"
+				}
+				qty := need.QtyDecimal
+				if qty <= 0 {
+					qty = float64(need.Qty)
+				}
+				if qty <= 0 {
+					continue
+				}
+				componentType := strings.TrimSpace(need.ComponentType)
+				if componentType == "" {
+					componentType = strings.TrimSpace(need.Source)
+				}
+				k := key{name: name, unit: unit, componentType: componentType, upstreamProductID: need.ComponentProductID}
+				current := merged[k]
+				if current.Name == "" {
+					current = productionapp.MaterialNeed{Name: name, Unit: unit, ComponentType: componentType, UpstreamProductID: need.ComponentProductID}
+				}
+				current.ExactQty += qty
+				current.Qty = int64(math.Ceil(current.ExactQty))
+				merged[k] = current
+			}
+			continue
+		}
 		raw := strings.TrimSpace(item.MaterialSnapshot)
 		if raw == "" || raw == "[]" || raw == "null" {
 			continue
@@ -1756,6 +1798,18 @@ func productionPlanMaterialPreviewStatus(required, arranged float64) string {
 }
 
 func productionPlanOutputUnits(item productionapp.ProductionPlanItem) int64 {
+	if item.SalesSpecCount > 0 {
+		return int64(math.Ceil(item.SalesSpecCount))
+	}
+	if strings.EqualFold(strings.TrimSpace(item.OutputType), "material") {
+		_, units := canonicalFromManufacturingQty(item.OutputQty, item.OutputUnit)
+		if units > 0 {
+			return units
+		}
+	}
+	if item.PlannedInventoryQty > 0 && productionWeightUnitGrams(item.InventoryUnit) <= 0 {
+		return int64(math.Ceil(item.PlannedInventoryQty))
+	}
 	if item.SpecG > 0 && item.PlannedOutputG > 0 {
 		return ceilDiv64(item.PlannedOutputG, item.SpecG)
 	}
@@ -1834,6 +1888,9 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	if len(items) == 0 {
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("production plan has no items")
 	}
+	if err := syncProductionPlanComponentSourcesTx(ctx, tx, r.schema, cmd.ID, items); err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
 	if err := validateInflightSupplyAtSubmitTx(ctx, tx, r.schema, cmd.ID); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
@@ -1846,6 +1903,16 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	}
 	if unresolvedSupplyGaps > 0 {
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("生产计划存在未解决的采购/备料缺口，不能提交")
+	}
+	preflight, err := loadProductionPlanDetailTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	if !preflight.Readiness.CanSubmit {
+		if len(preflight.Readiness.Issues) > 0 {
+			return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("提交前核对未通过：%s", preflight.Readiness.Issues[0].Message)
+		}
+		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("提交前核对未通过")
 	}
 	usesTypedOutputBindings, err := productionPlanUsesTypedOutputBindingsTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {

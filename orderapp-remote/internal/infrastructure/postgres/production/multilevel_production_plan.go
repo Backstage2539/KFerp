@@ -489,6 +489,10 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 	for _, need := range aggregateManufacturingConsumptionNeeds(needs) {
 		plannedInputG += need.DeductG
 	}
+	frozenSnapshot, err := freezeManufacturingOutputMaterialSnapshot(basis.Snapshot)
+	if err != nil {
+		return productionapp.ProductionPlanItem{}, err
+	}
 	productID := int64(0)
 	if basis.OutputType == "product" {
 		productID = basis.OutputID
@@ -549,7 +553,7 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 		RETURNING id
 	`, schema), planID, productID, basis.BomSpecID, basis.BomVariantID, basis.OutputName, basis.OutputSpecG,
 			salesSpecCount, basis.InventoryUnit, outputQty, plannedInputG, outputG, strings.Join(orderNos, ","), basis.VersionID,
-			basis.ProcessRouteID, basis.Snapshot, processJSON, targetWarehouse, basis.OutputType, outputProductID, outputMaterialID).Scan(&item.ID)
+			basis.ProcessRouteID, frozenSnapshot, processJSON, targetWarehouse, basis.OutputType, outputProductID, outputMaterialID).Scan(&item.ID)
 		if err != nil {
 			return productionapp.ProductionPlanItem{}, err
 		}
@@ -576,12 +580,31 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 	item.OrderNos = strings.Join(orderNos, ",")
 	item.BomVersionID = basis.VersionID
 	item.ProcessRouteID = basis.ProcessRouteID
-	item.MaterialSnapshot = basis.Snapshot
+	item.MaterialSnapshot = frozenSnapshot
 	item.ProcessSnapshotJSON = string(processJSON)
 	item.ProductionConfigSnapshotJSON = "{}"
 	item.CustomerProductSnapshotJSON = "[]"
 	item.TargetWarehouse = targetWarehouse
 	return item, nil
+}
+
+// The upstream item's PlannedG already includes BOM loss. Freeze that fact so
+// detail, source selection, reservations and execution do not apply it again.
+func freezeManufacturingOutputMaterialSnapshot(raw string) (string, error) {
+	var rows []materialSnapshotRow
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &rows); err != nil {
+		return "", err
+	}
+	for i := range rows {
+		if normalizeMaterialLossRate(rows[i].MaterialLossRate) > 0 {
+			rows[i].InputIncludesMaterialLoss = true
+		}
+	}
+	frozen, err := json.Marshal(rows)
+	if err != nil {
+		return "", err
+	}
+	return string(frozen), nil
 }
 
 func insertProductionPlanItemDependencyTx(ctx context.Context, tx pgx.Tx, schema string, planID, itemID, dependsOnItemID int64,

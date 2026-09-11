@@ -9,6 +9,16 @@ type fakeRepo struct {
 	create            CreateBatchCommand
 	savePlanSplits    SaveProductionPlanOperationSplitsCommand
 	previewPlanSplits PreviewProductionPlanOperationSplitsCommand
+	savePlanDraft     SaveProductionPlanDraftCommand
+	planDraftResult   ProductionPlanDetail
+}
+
+func (r *fakeRepo) SaveProductionPlanDraft(_ context.Context, cmd SaveProductionPlanDraftCommand) (ProductionPlanDetail, error) {
+	r.savePlanDraft = cmd
+	if r.planDraftResult.ID == 0 {
+		r.planDraftResult = ProductionPlanDetail{ID: cmd.ID, Status: "draft", DraftToken: "next-token"}
+	}
+	return r.planDraftResult, nil
 }
 
 func (r *fakeRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -273,6 +283,34 @@ func TestPreviewProductionPlanOperationSplitsIsReadOnlyAndRequiresPositiveQuanti
 	}
 	if len(repo.savePlanSplits.Items) != 0 {
 		t.Fatalf("preview must not call save, save command = %+v", repo.savePlanSplits)
+	}
+}
+
+func TestSaveProductionPlanDraftValidatesAndForwardsAtomicWorkspace(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	cmd := SaveProductionPlanDraftCommand{
+		ID: 41, DraftToken: "current-token", Operator: "Van",
+		Items: []ProductionPlanDraftItem{{ID: 51, TargetWarehouse: "finished_goods"}},
+		ComponentSources: []ProductionPlanComponentSource{{
+			ProductionPlanItemID: 51, ComponentType: "material", ComponentID: 7,
+			SourceWarehouse: "raw_material", SourceOwnerCustomerID: 0,
+		}},
+		OperationSplits: []ProductionPlanOperationSplit{{
+			ProductionPlanItemID: 51, OperationSeq: 1, Operation: "包装",
+			WorkstationCapacityID: 9, PlannedQty: 20,
+		}},
+	}
+
+	got, err := svc.SaveProductionPlanDraft(context.Background(), cmd)
+	if err != nil {
+		t.Fatalf("SaveProductionPlanDraft() error = %v", err)
+	}
+	if got.DraftToken != "next-token" || repo.savePlanDraft.DraftToken != "current-token" || repo.savePlanDraft.Items[0].TargetWarehouse != "finished_goods" {
+		t.Fatalf("saved draft = %+v command = %+v", got, repo.savePlanDraft)
+	}
+	if _, err := svc.SaveProductionPlanDraft(context.Background(), SaveProductionPlanDraftCommand{ID: 41}); err == nil {
+		t.Fatal("SaveProductionPlanDraft() accepted an empty draft token")
 	}
 }
 

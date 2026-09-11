@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-649-PRODUCTION-PLAN-DETAIL-WORKSPACE
+- Branch: `codex/production-plan-detail-ux-20260911`, base `3d272faa`.
+- Owner/session: Codex / 2026-09-11
+- Status: implementation and full local verification complete; development integration/deployment and browser acceptance in progress. Van approved the UI target and development delivery.
+- Scope: unify frozen production-plan quantities, expose submit readiness, save the draft atomically, and replace the detail drawer with a staged Vue workspace.
+- DEV: DEV-649-QUANTITY-AUTHORITY; DEV-649-DRAFT-READINESS-API; DEV-649-DETAIL-WORKSPACE; DEV-649-DEVELOPMENT-DELIVERY.
+- Verifier:
+  - Unit: production quantity/material/readiness Go tests and produce-plan frontend helper tests.
+  - API: production plan detail, atomic draft save, conflict, validation, audit, and submit parity tests.
+  - Frontend/build: targeted Vue tests, frontend test gate, Vite build, browser interaction and responsive screenshots.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue manual surface.
+  - Review/acceptance: development flow with isolated test data; PP-0000000109 stays read-only.
+- Deployment: development after branch integration; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-plan-detail-workspace.md`; full Go, Vue 1170/1170 and Vite build pass locally.
+- Last update: 2026-09-11 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` selected PR-649 but the local awk rejected its multiline placeholder, so the reservation is recorded manually.
+
 ### PR-648-PRODUCTION-PLANNING-MULTILEVEL
 - Branch: `codex/production-planning-multilevel-20260910`, base `2bd15db4`.
 - Status: demand blocking-reason follow-up in progress; branch `codex/production-demand-blocking-reasons-20260910` from `950963ca`. Show the exact blocker outside collapsed order details; keep known sales quantities despite BOM errors. Targeted RED (2 failures) then GREEN (69 tests); development deploy ownership held by this thread. Original page initialization regression remains verified; Van full business acceptance pending.
