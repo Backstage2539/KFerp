@@ -1610,6 +1610,7 @@ func previewProductionPlanOperationSplits(items []productionapp.ProductionPlanIt
 			itemFactor = math.Inf(1)
 			for _, op := range ops {
 				opRequiredG, opArrangedG, opFactor := productionPlanPreviewOperationCoverage(item, op, itemSplits)
+				opRequiredQty, opArrangedQty, opUnit := productionPlanPreviewOperationNativeCoverage(item, op, itemSplits, opRequiredG, opArrangedG)
 				if opFactor < itemFactor {
 					itemFactor = opFactor
 				}
@@ -1622,7 +1623,11 @@ func previewProductionPlanOperationSplits(items []productionapp.ProductionPlanIt
 					RequiredG:            opRequiredG,
 					ArrangedG:            opArrangedG,
 					DiffG:                opArrangedG - opRequiredG,
-					Status:               productionPlanPreviewStatus(opRequiredG, opArrangedG),
+					RequiredQty:          opRequiredQty,
+					ArrangedQty:          opArrangedQty,
+					DiffQty:              roundProductionPlanQuantity(opArrangedQty - opRequiredQty),
+					Unit:                 opUnit,
+					Status:               productionPlanPreviewQuantityStatus(opRequiredQty, opArrangedQty),
 				})
 			}
 			if math.IsInf(itemFactor, 1) {
@@ -1743,6 +1748,81 @@ func productionPlanPreviewOperationCoverage(item productionapp.ProductionPlanIte
 		factor = float64(arrangedG) / float64(requiredG)
 	}
 	return requiredG, arrangedG, factor
+}
+
+func productionPlanPreviewOperationNativeCoverage(item productionapp.ProductionPlanItem, op processSnapshotOperation, splits []productionapp.ProductionPlanOperationSplit, requiredG, arrangedG int64) (float64, float64, string) {
+	matches := operationSplitsForSnapshotOperation(op, splits)
+	for _, split := range matches {
+		if productionCapacityUnitKind(split.BatchSizeUnit) != "count" {
+			continue
+		}
+		required := productionPlanItemCountTarget(item)
+		arranged := 0.0
+		for _, row := range matches {
+			if productionCapacityUnitKind(row.BatchSizeUnit) == "count" {
+				arranged += math.Max(0, row.PlannedQty)
+			}
+		}
+		return roundProductionPlanQuantity(required), roundProductionPlanQuantity(arranged), productionPlanItemSalesUnit(item, split.BatchSizeUnit)
+	}
+
+	unit := "g"
+	for _, split := range matches {
+		if productionWeightUnitGrams(split.BatchSizeUnit) > 0 {
+			unit = strings.TrimSpace(split.BatchSizeUnit)
+			break
+		}
+	}
+	if len(matches) == 0 && productionWeightUnitGrams(item.OutputUnit) > 0 {
+		unit = strings.TrimSpace(item.OutputUnit)
+	}
+	factor := productionWeightUnitGrams(unit)
+	if factor <= 0 {
+		unit = "g"
+		factor = 1
+	}
+	return roundProductionPlanQuantity(float64(requiredG) / factor), roundProductionPlanQuantity(float64(arrangedG) / factor), unit
+}
+
+func productionPlanItemSalesUnit(item productionapp.ProductionPlanItem, fallback string) string {
+	for _, source := range item.DemandSources {
+		if unit := strings.TrimSpace(source.SalesUnit); unit != "" {
+			return unit
+		}
+	}
+	var snapshot struct {
+		SalesUnit string `json:"sales_unit"`
+	}
+	_ = json.Unmarshal([]byte(strings.TrimSpace(item.SalesSpecSnapshotJSON)), &snapshot)
+	if unit := strings.TrimSpace(snapshot.SalesUnit); unit != "" {
+		return unit
+	}
+	if productionCapacityUnitKind(item.OutputUnit) == "count" && strings.TrimSpace(item.OutputUnit) != "" {
+		return strings.TrimSpace(item.OutputUnit)
+	}
+	if productionCapacityUnitKind(item.InventoryUnit) == "count" && strings.TrimSpace(item.InventoryUnit) != "" {
+		return strings.TrimSpace(item.InventoryUnit)
+	}
+	if strings.TrimSpace(fallback) != "" {
+		return strings.TrimSpace(fallback)
+	}
+	return "件"
+}
+
+func productionPlanPreviewQuantityStatus(required, arranged float64) string {
+	const tolerance = 0.000001
+	switch {
+	case required <= tolerance && arranged <= tolerance:
+		return "missing"
+	case arranged <= tolerance:
+		return "missing"
+	case arranged < required-tolerance:
+		return "short"
+	case arranged > required+tolerance:
+		return "over"
+	default:
+		return "matched"
+	}
 }
 
 func productionPlanItemCountTarget(item productionapp.ProductionPlanItem) float64 {

@@ -221,6 +221,10 @@ func (r *workOrderAPIRepo) PreviewProductionPlanOperationSplits(ctx context.Cont
 			RequiredG:            20000,
 			ArrangedG:            12000,
 			DiffG:                -8000,
+			RequiredQty:          20,
+			ArrangedQty:          12,
+			DiffQty:              -8,
+			Unit:                 "kg",
 			Status:               "short",
 		}},
 		MaterialSummary: []productionapp.ProductionPlanOperationSplitMaterialPreview{{
@@ -1196,6 +1200,7 @@ func TestProductionPlanOperationSplitPreviewAPIReturnsDemandGapWithoutSaving(t *
 		`"material_summary"`,
 		`"required_qty":10000`,
 		`"arranged_qty":6000`,
+		`"unit":"kg"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("preview response missing %s: %s", want, body)

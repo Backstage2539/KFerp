@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE", title: "生产计划按实际工序拆分产能并逐任务核对", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-plan-capacity-workspace.md"},
+		{table: "req_dev", code: "DEV-651-OPERATION-GROUPING", title: "按计划工艺快照中的实际工序名称分组展示", status: "review", assignee: "Codex", evidence: "ProductionPlanCapacityWorkspace.vue; produce-plan.test.js"},
+		{table: "req_dev", code: "DEV-651-TASK-COVERAGE", title: "按重量或销售件数返回逐任务产能覆盖并保留来源订单", status: "review", assignee: "Codex", evidence: "production_plan_detail_test.go; work_order_api_test.go"},
+		{table: "req_dev", code: "DEV-651-CAPACITY-WORKSPACE", title: "全页产能拆分、实时核对、草稿保存与安排确认", status: "review", assignee: "Codex", evidence: "ProducePlanView.vue; ProductionPlanCapacityWorkspace.vue"},
+		{table: "req_dev", code: "DEV-651-DEVELOPMENT-DELIVERY", title: "操作手册、验证、设计核对、开发部署与截图", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-11-production-plan-capacity-workspace.md; design-qa.md"},
+		{table: "req_review", code: "REV-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE", prCode: "PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE", title: "验收实际工序名、任务级数量、订单追溯和保存确认边界", status: "todo", assignee: "VA", evidence: "待 Van 在 development 页面验收"},
 		{table: "req_product", code: "PR-650-PRODUCTION-PLAN-DETAIL-WORKSPACE", title: "生产计划详情工作区与统一数量核对", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-plan-detail-workspace.md"},
 		{table: "req_dev", code: "DEV-650-QUANTITY-AUTHORITY", title: "统一计划任务、物料、来源与工单冻结数量", status: "review", assignee: "Codex", evidence: "production_plan_detail_test.go"},
 		{table: "req_dev", code: "DEV-650-DRAFT-READINESS-API", title: "结构化提交核对与原子草稿保存", status: "review", assignee: "Codex", evidence: "production_plan_api_test.go"},

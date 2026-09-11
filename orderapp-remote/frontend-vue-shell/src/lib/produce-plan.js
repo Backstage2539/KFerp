@@ -551,6 +551,95 @@ export function operationSplitPreviewStatusTone(status) {
   return OPERATION_SPLIT_PREVIEW_STATUS[String(status || '').trim()]?.tone || 'missing'
 }
 
+function capacityQuantityLabel(value, unit = '') {
+  const number = Number(value || 0)
+  const rounded = Number.isFinite(number) ? Number(number.toFixed(4)) : 0
+  return `${rounded.toLocaleString('zh-CN', { maximumFractionDigits: 4 })}${String(unit || '').trim()}`
+}
+
+function capacityCoverageMatches(coverage = {}, item = {}, operation = {}) {
+  if (Number(coverage.production_plan_item_id || 0) !== Number(item.id || 0)) return false
+  const operationID = Number(operation.operation_id || operation.id || 0)
+  const coverageOperationID = Number(coverage.operation_id || 0)
+  if (operationID > 0 && coverageOperationID > 0) return operationID === coverageOperationID
+  const seq = Number(operation.seq || operation.sequence_no || 0)
+  const coverageSeq = Number(coverage.operation_seq || 0)
+  if (seq > 0 && coverageSeq > 0) return seq === coverageSeq
+  return String(coverage.operation || '').trim() === String(operation.operation || operation.name || '').trim()
+}
+
+function capacityTaskFallbackUnit(item = {}) {
+  if (Number(item.sales_spec_count || 0) > 0) return productionPlanSalesUnit(item)
+  return String(item.output_unit || item.inventory_unit || 'g').trim()
+}
+
+function capacityTaskFallbackRequired(item = {}) {
+  if (Number(item.sales_spec_count || 0) > 0) return Number(item.sales_spec_count || 0)
+  if (Number(item.output_qty || 0) > 0) return Number(item.output_qty || 0)
+  return Number(item.planned_g || item.planned_output_g || 0)
+}
+
+export function buildProductionPlanCapacityGroups(detail = {}, preview = {}) {
+  const groups = new Map()
+  const coverageRows = Array.isArray(preview?.operation_coverage) ? preview.operation_coverage : []
+  for (const item of detail?.items || []) {
+    for (const operation of productionPlanItemOperations(item)) {
+      const operationName = String(operation.operation || operation.name || '').trim() || '未命名工序'
+      const operationID = Number(operation.operation_id || operation.id || 0)
+      const operationSeq = Number(operation.seq || operation.sequence_no || 0)
+      const key = operationName.toLocaleLowerCase('zh-CN') || `operation:${operationID || operationSeq}`
+      if (!groups.has(key)) {
+        groups.set(key, { key, operation: operationName, operation_id: operationID, first_seq: operationSeq, tasks: [] })
+      }
+      const coverage = coverageRows.find((row) => capacityCoverageMatches(row, item, operation)) || {}
+      const unit = String(coverage.unit || capacityTaskFallbackUnit(item)).trim()
+      const required = Number(coverage.required_qty ?? capacityTaskFallbackRequired(item))
+      const arranged = Number(coverage.arranged_qty || 0)
+      const diff = Number(coverage.diff_qty ?? (arranged - required))
+      const snapshot = parsedProductionPlanSnapshot(item.sales_spec_snapshot_json)
+      const sources = (item.demand_sources || []).map((source, sourceIndex) => ({
+        ...source,
+        key: Number(source.order_item_id || 0) > 0 ? `order-item:${source.order_item_id}` : `source:${sourceIndex}`,
+        quantity_label: capacityQuantityLabel(source.quantity, source.sales_unit || productionPlanSalesUnit(item)),
+      }))
+      groups.get(key).tasks.push({
+        key: `${Number(item.id || 0)}:${operationSeq || operationID || operationName}`,
+        item,
+        operation,
+        coverage,
+        name: item.output_name || item.product_name || '生产任务',
+        spec_label: String(snapshot.spec_label || (Number(item.spec_g || 0) > 0 ? `${item.spec_g}g` : '')).trim(),
+        quantity_unit: unit,
+        required_qty: required,
+        arranged_qty: arranged,
+        diff_qty: diff,
+        required_label: capacityQuantityLabel(required, unit),
+        arranged_label: capacityQuantityLabel(arranged, unit),
+        remaining_label: capacityQuantityLabel(Math.max(0, -diff), unit),
+        status: String(coverage.status || (arranged <= 0 ? 'missing' : arranged < required ? 'short' : arranged > required ? 'over' : 'matched')),
+        sources,
+        order_nos: String(item.order_nos || '').split(',').map((value) => value.trim()).filter(Boolean),
+      })
+    }
+  }
+  return [...groups.values()].sort((left, right) => left.first_seq - right.first_seq || left.operation.localeCompare(right.operation, 'zh-CN'))
+}
+
+export function productionPlanCapacityReadiness(preview = {}, overAcknowledged = false) {
+  const rows = Array.isArray(preview?.operation_coverage) ? preview.operation_coverage : []
+  const shortCount = rows.filter((row) => ['short', 'missing'].includes(String(row.status || 'missing'))).length
+  const overCount = rows.filter((row) => String(row.status || '') === 'over').length
+  const requiresOverAcknowledgement = overCount > 0 && !overAcknowledged
+  return {
+    rows,
+    can_save_draft: true,
+    can_confirm: rows.length > 0 && shortCount === 0 && !requiresOverAcknowledgement,
+    short_count: shortCount,
+    over_count: overCount,
+    requires_over_acknowledgement: requiresOverAcknowledgement,
+  }
+}
+
 const COUNT_CAPACITY_UNITS = new Set(['件', '个', '袋', '盒', 'unit', 'units', 'pc', 'pcs'])
 const MATERIAL_WEIGHT_UNITS = new Set(['g', 'kg', '克', '千克', '公斤'])
 

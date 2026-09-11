@@ -538,15 +538,19 @@ type ProductionPlanOperationSplitCoverageSummary struct {
 }
 
 type ProductionPlanOperationSplitCoverageRow struct {
-	ProductionPlanItemID int64  `json:"production_plan_item_id"`
-	ProductName          string `json:"product_name"`
-	OperationSeq         int    `json:"operation_seq"`
-	OperationID          int64  `json:"operation_id"`
-	Operation            string `json:"operation"`
-	RequiredG            int64  `json:"required_g"`
-	ArrangedG            int64  `json:"arranged_g"`
-	DiffG                int64  `json:"diff_g"`
-	Status               string `json:"status"`
+	ProductionPlanItemID int64   `json:"production_plan_item_id"`
+	ProductName          string  `json:"product_name"`
+	OperationSeq         int     `json:"operation_seq"`
+	OperationID          int64   `json:"operation_id"`
+	Operation            string  `json:"operation"`
+	RequiredG            int64   `json:"required_g"`
+	ArrangedG            int64   `json:"arranged_g"`
+	DiffG                int64   `json:"diff_g"`
+	RequiredQty          float64 `json:"required_qty"`
+	ArrangedQty          float64 `json:"arranged_qty"`
+	DiffQty              float64 `json:"diff_qty"`
+	Unit                 string  `json:"unit"`
+	Status               string  `json:"status"`
 }
 
 type ProductionPlanOperationSplitMaterialPreview struct {

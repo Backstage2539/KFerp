@@ -44,6 +44,8 @@ import {
   productionGapConclusion,
   productionPlanDraftUpdateEndpoint,
   buildProductionPlanDraftUpdatePayload,
+  buildProductionPlanCapacityGroups,
+  productionPlanCapacityReadiness,
 } from './produce-plan.js'
 
 const rows = [
@@ -842,19 +844,20 @@ test('production plan operation split preview endpoint and status display are ex
   assert.equal(operationSplitPreviewStatusTone('missing'), 'missing')
 })
 
-test('production plan split drawer renders live demand gap preview', () => {
+test('production plan capacity workspace renders live task coverage', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  const component = fs.readFileSync(new URL('../components/ProductionPlanCapacityWorkspace.vue', import.meta.url), 'utf8')
+  const rendered = `${source}\n${component}`
   for (const want of [
-    '产能安排总览',
-    '用料需求差距',
-    '实际需求',
+    '拆分核对',
+    '计划数量',
     '已安排',
-    '差距',
+    '还需安排',
     'productionPlanSplitPreview',
     'scheduleProductionPlanSplitPreview',
-    'operationSplitPreviewStatusTone',
+    'productionPlanCapacityReadiness',
   ]) {
-    assert.match(source, new RegExp(want))
+    assert.match(rendered, new RegExp(want))
   }
 })
 
@@ -969,33 +972,31 @@ test('ProducePlanView cancels draft plans and refreshes returned production dema
 
 test('ProducePlanView owns operation capacity splits after draft plan creation', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  const component = fs.readFileSync(new URL('../components/ProductionPlanCapacityWorkspace.vue', import.meta.url), 'utf8')
+  const rendered = `${source}\n${component}`
 
   for (const marker of [
     '工序产能拆分',
-    '添加拆分',
+    '添加工位',
     'productionPlanOperationSplitsEndpoint',
     'buildProductionPlanOperationSplitPayload',
     'plannedCapacitySplitMetrics',
     'manufacturing-workstation-capacities',
     '承担产量',
-    '自动批次数',
     'planned_qty',
     'planned_batch_count',
     'planned_qty_g',
     'planned_minutes',
     'planned_operation_cost',
-    '布勒 18kg',
-    '智烘 4kg',
     'productionPlanSplitBatchCards',
-    'split-batch-cards',
-    'split-batch-card',
-    '不足标准批量',
+    'batch-summary',
+    '尾批',
     'autoSplitProductionPlanDrawerOperation',
     'ensureWorkstationCapacities',
     'applicableOperationCapacities',
     '自动拆分',
   ]) {
-    assert.match(source, new RegExp(marker))
+    assert.match(rendered, new RegExp(marker))
   }
   assert.doesNotMatch(source, /assignRemainingCurrentPlanSplitQty/)
   assert.doesNotMatch(source, /assignRemainingProductionPlanDrawerSplitQty/)
@@ -1005,7 +1006,7 @@ test('ProducePlanView owns operation capacity splits after draft plan creation',
   assert.doesNotMatch(source, /推荐机器/)
 })
 
-test('ProducePlanView edits draft plan splits in a drawer instead of the current plan workspace', () => {
+test('ProducePlanView edits draft plan splits in a dedicated full-page workspace', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
   for (const marker of [
@@ -1015,16 +1016,21 @@ test('ProducePlanView edits draft plan splits in a drawer instead of the current
     'closeProductionPlanSplitDrawer',
     'saveProductionPlanSplitDrawer',
     'productionPlanSplitDrawer',
-    'production-plan-split-drawer',
+    'ProductionPlanCapacityWorkspace',
+    'production-plan-capacity-shell',
+    'productionPlanSplitDirty',
+    'confirmProductionPlanSplitWorkspace',
     'normalizeProductionPlanDetailForSplitEditor',
     'detailOperationsFallback',
     '编辑拆分',
     'productionPlanSelectable(plan)',
-    'productionPlanSplitRows.value = withAutoOperationSplits((detail.operation_splits || []).map(normalizeOperationSplit), detail)',
+    'productionPlanSplitRows.value = withAutoOperationSplits(savedRows, detail)',
   ]) {
     assert.ok(source.includes(marker), `missing ${marker}`)
   }
 
+  assert.doesNotMatch(source, /production-plan-split-drawer/)
+  assert.doesNotMatch(source, /drawer-backdrop production-plan-split-layer/)
   assert.doesNotMatch(source, /operation-split-placeholder/)
   assert.doesNotMatch(source, /operation-split-panel/)
   assert.doesNotMatch(source, /autoSplitCurrentPlanOperation/)
@@ -1032,6 +1038,85 @@ test('ProducePlanView edits draft plan splits in a drawer instead of the current
   assert.doesNotMatch(source, /先点创建生产计划，生成草稿后再选择工位产能和承担产量/)
   assert.doesNotMatch(source, /@click="loadProductionPlanIntoCurrentEditor\(plan\)"/)
   assert.doesNotMatch(source, /currentPlan\.value = detail/)
+})
+
+test('capacity workspace groups by frozen operation names and preserves each source order task', () => {
+  const detail = {
+    items: [
+      {
+        id: 51,
+        output_type: 'material',
+        output_name: '初晓熟豆',
+        output_qty: 4.54,
+        output_unit: 'kg',
+        process_snapshot_json: JSON.stringify({ operations: [{ seq: 1, operation_id: 701, operation: '滚筒烘焙' }] }),
+      },
+      {
+        id: 61,
+        output_type: 'product',
+        product_name: '初晓-商品',
+        spec_g: 227,
+        sales_spec_count: 20,
+        sales_spec_snapshot_json: JSON.stringify({ spec_label: '227g', sales_unit: '袋' }),
+        process_snapshot_json: JSON.stringify({ operations: [{ seq: 2, operation_id: 702, operation: '手工装袋' }] }),
+        demand_sources: [
+          { order_item_id: 101, order_no: 'SO-20260907-0003', customer_name: '客户A', quantity: 10, sales_unit: '袋' },
+          { order_item_id: 102, order_no: 'SO-20260907-0002', customer_name: '客户B', quantity: 8, sales_unit: '袋' },
+          { order_item_id: 103, order_no: 'SO-20260907-0001', customer_name: '客户C', quantity: 2, sales_unit: '袋' },
+        ],
+      },
+    ],
+  }
+  const preview = {
+    operation_coverage: [
+      { production_plan_item_id: 51, operation_seq: 1, operation_id: 701, operation: '滚筒烘焙', required_qty: 5.64, arranged_qty: 5.64, diff_qty: 0, unit: 'kg', status: 'matched' },
+      { production_plan_item_id: 61, operation_seq: 2, operation_id: 702, operation: '手工装袋', required_qty: 20, arranged_qty: 18, diff_qty: -2, unit: '袋', status: 'short' },
+    ],
+  }
+
+  const groups = buildProductionPlanCapacityGroups(detail, preview)
+  assert.deepEqual(groups.map((group) => group.operation), ['滚筒烘焙', '手工装袋'])
+  assert.deepEqual(groups[1].tasks[0].sources.map((source) => [source.order_no, source.quantity_label]), [
+    ['SO-20260907-0003', '10袋'],
+    ['SO-20260907-0002', '8袋'],
+    ['SO-20260907-0001', '2袋'],
+  ])
+  assert.equal(groups[1].tasks[0].required_label, '20袋')
+  assert.equal(groups[1].tasks[0].arranged_label, '18袋')
+  assert.equal(groups[1].tasks[0].remaining_label, '2袋')
+  assert.equal(groups[1].tasks[0].status, 'short')
+})
+
+test('capacity readiness permits short drafts but requires coverage and over-allocation acknowledgement to confirm', () => {
+  const short = productionPlanCapacityReadiness({ operation_coverage: [
+    { production_plan_item_id: 1, operation: '手工装袋', status: 'short' },
+    { production_plan_item_id: 2, operation: '手工装袋', status: 'matched' },
+  ] })
+  assert.equal(short.can_save_draft, true)
+  assert.equal(short.can_confirm, false)
+  assert.equal(short.short_count, 1)
+
+  const over = productionPlanCapacityReadiness({ operation_coverage: [
+    { production_plan_item_id: 1, operation: '滚筒烘焙', status: 'over' },
+    { production_plan_item_id: 2, operation: '手工装袋', status: 'matched' },
+  ] })
+  assert.equal(over.can_confirm, false)
+  assert.equal(over.requires_over_acknowledgement, true)
+  assert.equal(productionPlanCapacityReadiness({ operation_coverage: over.rows }, true).can_confirm, true)
+})
+
+test('ProducePlanView renders capacity allocation as a full workspace using actual operation names', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  const component = fs.readFileSync(new URL('../components/ProductionPlanCapacityWorkspace.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /ProductionPlanCapacityWorkspace/)
+  assert.match(source, /:class="\{ 'detail-open': !!\(productionPlanDetail \|\| productionPlanSplitDrawer\) \}"/)
+  assert.doesNotMatch(source, /production-plan-split-drawer/)
+  assert.match(component, /group\.operation/)
+  assert.match(component, /保存草稿/)
+  assert.match(component, /确认安排/)
+  assert.match(component, /来源订单/)
+  assert.doesNotMatch(component, /烘焙熟豆|包装成品/)
 })
 
 test('ProducePlanView lets operators search and expand grouped demands and drag horizontal overflow', () => {
@@ -1091,7 +1176,7 @@ test('ProducePlanView keeps operation capacity splitting out of gap review', () 
   assert.doesNotMatch(currentPlanWorkbench, /工序产能拆分/)
   assert.doesNotMatch(currentPlanWorkbench, /保存拆分/)
   assert.doesNotMatch(currentPlanWorkbench, /添加拆分/)
-  assert.match(source, /草稿计划在这里补充或调整工位产能拆分，不占用当前生产计划工作台。/)
+  assert.match(source, /production-plan-capacity-shell/)
 })
 
 test('ProducePlanView opens an ERPNext-style production plan detail drawer from the compact list', () => {
