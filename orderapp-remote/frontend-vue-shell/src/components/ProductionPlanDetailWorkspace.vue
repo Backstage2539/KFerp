@@ -98,9 +98,13 @@
           <div class="section-heading">
             <div>
               <span class="section-index">02</span>
-              <div><h2>用料与来源</h2><p>数量来自上方冻结任务；同一仓库与货主的需求会在提交时合并核对可用量。</p></div>
+              <div><h2>备料情况</h2><p>查看现场库存、待领数量和缺料，按需调整建议。</p></div>
             </div>
+            <button class="text-button" type="button" @click="$emit('navigate', 'productionManual')">备料说明</button>
           </div>
+          <ProductionPreparation v-if="detail.picking_version" :sources="detail.component_sources || []" :items="detail.items || []" :supply-allocations="detail.supply_allocations || []" :work-orders="detail.related_work_orders || []" :editable="isDraft" :saving="saving" @adjust="(source, allocations) => $emit('adjust-source', source, allocations)" @issue="issueWorkOrder" />
+          <template v-else>
+          <p v-if="isDraft" class="muted">此草稿沿用旧领料方式，点击“刷新供应”即可生成自动建议。</p>
           <div class="material-summary">
             <article v-for="material in detail.material_summary || []" :key="`${material.name}-${material.unit}-${material.component_type}`">
               <span>{{ materialTypeLabel(material) }}</span>
@@ -130,6 +134,7 @@
             </article>
           </div>
           <div v-else class="empty-card">本计划没有需要从库存领用的组件</div>
+          </template>
         </section>
 
         <section class="content-section detail-section">
@@ -173,17 +178,17 @@
 
       <aside class="readiness-panel">
         <div class="readiness-title">
-          <div><span class="section-index">核对</span><h2>提交前核对</h2></div>
-          <span :class="['readiness-count', { ready: detail.readiness?.can_submit }]">{{ detail.readiness?.can_submit ? '已通过' : `${detail.readiness?.blocking_count || 0} 项待处理` }}</span>
+          <div><span class="section-index">核对</span><h2>{{ isDraft ? '提交前核对' : '执行提示' }}</h2></div>
+          <span :class="['readiness-count', { ready: detail.readiness?.can_submit }]">{{ !isDraft ? '已冻结' : detail.readiness?.can_submit ? '已通过' : `${detail.readiness?.blocking_count || 0} 项待处理` }}</span>
         </div>
-        <p>{{ detail.readiness?.can_submit ? '仓库、用料和工序安排均已核对，可提交生成工单。' : '请完成下面的必填项。保存草稿后系统会重新计算。' }}</p>
+        <p>{{ !isDraft ? '计划供给已冻结。按工单领料，物料到 WIP 且齐套后可开工。' : detail.readiness?.can_submit ? '仓库、用料和工序安排均已核对，可提交生成工单。' : '请完成下面的必填项。保存草稿后系统会重新计算。' }}</p>
         <div v-if="detail.readiness?.issues?.length" class="issue-list">
           <article v-for="issue in detail.readiness.issues" :key="`${issue.code}-${issue.production_plan_item_id}-${issue.component_source_id}`">
             <span class="issue-icon" aria-hidden="true">!</span>
             <div><strong>{{ issueTitle(issue.category) }}</strong><p>{{ issue.message }}</p><button v-if="issue.action" type="button" @click="focusIssue(issue)">{{ issue.action }} →</button></div>
           </article>
         </div>
-        <div v-else class="ready-card"><span aria-hidden="true">✓</span><strong>没有阻断项</strong><p>当前内容已满足提交条件。</p></div>
+        <div v-else-if="isDraft" class="ready-card"><span aria-hidden="true">✓</span><strong>没有阻断项</strong><p>当前内容已满足提交条件。</p></div>
         <div class="readiness-note"><strong>数量口径</strong><p>商品按冻结销售规格计数，用料按 BOM 净需求加一次损耗。页面汇总、来源核对和工单使用同一份数量。</p></div>
       </aside>
     </div>
@@ -204,6 +209,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import ProductionPreparation from './ProductionPreparation.vue'
 import { IconChevronDown } from '@tabler/icons-vue'
 import {
   buildProductionPlanStages,
@@ -222,13 +228,13 @@ const props = defineProps({
   dirty: { type: Boolean, default: false },
   notice: { type: String, default: '' },
 })
-const emit = defineEmits(['back', 'reload', 'save', 'submit', 'edit-splits', 'refresh', 'cancel', 'navigate', 'source-change', 'warehouse-change'])
+const emit = defineEmits(['back', 'reload', 'save', 'submit', 'edit-splits', 'refresh', 'cancel', 'navigate', 'source-change', 'warehouse-change', 'adjust-source'])
 
 const stages = computed(() => buildProductionPlanStages(props.detail))
 const isDraft = computed(() => String(props.detail?.status || '') === 'draft')
 const statusLabel = computed(() => productionPlanStatusLabel(props.detail?.status))
 const statusTone = computed(() => productionPlanStatusTone(props.detail?.status))
-const productNames = computed(() => [...new Set((props.detail?.items || []).filter((item) => String(item.output_type || 'product') !== 'material').map((item) => item.output_name || item.product_name).filter(Boolean))])
+const productNames = computed(() => [...new Set((props.detail?.items || []).filter((item) => props.detail?.source_type === 'stock' || String(item.output_type || 'product') !== 'material').map((item) => item.output_name || item.product_name).filter(Boolean))])
 const productSummary = computed(() => productNames.value.slice(0, 2).join('、') || '备货计划')
 const productKinds = computed(() => productNames.value.length)
 const orderNos = computed(() => [...new Set((props.detail?.items || []).flatMap((item) => String(item.order_nos || '').split(',').map((value) => value.trim())).filter(Boolean))])
@@ -236,8 +242,9 @@ const readinessText = computed(() => props.detail?.readiness?.can_submit ? '可�
 const footerTitle = computed(() => isDraft.value ? (props.dirty ? '有未保存修改' : props.detail?.readiness?.can_submit ? '已具备提交条件' : '草稿已保存，有待处理项') : `${statusLabel.value} · 单据内容只读`)
 const footerHint = computed(() => isDraft.value ? (props.dirty ? '先保存本页修改，系统会重新核对数量、来源和工序。' : '提交后将冻结本页配置并生成生产工单。') : `工单 ${props.detail?.related_work_orders?.length || 0} 张 · 工序卡 ${props.detail?.job_card_count || 0} 张`)
 
+function issueWorkOrder(order) { emit('navigate', 'stockOperations', {tab:'stockEntries',action:'issue',return_source:'work_order',work_order_id:order.id}) }
 function quantity(value, unit = '') { const number = Number(value || 0); return `${Number.isInteger(number) ? number : Number(number.toFixed(6))} ${unit || ''}`.trim() }
-function quantitySummary(item) { return productionPlanItemQuantitySummary(item) }
+function quantitySummary(item) { return item.output_type === 'material' ? '按物料单位' : productionPlanItemQuantitySummary(item) }
 function bomSourceLabel(item) { return productionPlanItemBomSourceLabel(item) }
 function materialTypeLabel(item) { const type = String(item.component_type || ''); return type === 'packaging' ? '包材' : type === 'product' || type === 'finished_product' ? '半成品' : '生产用料' }
 function availableWarehouses(item) { return props.warehouses.filter((row) => !Number(row.customer_id || 0) || Number(row.customer_id) === Number(item.customer_id || 0)) }
@@ -254,7 +261,7 @@ function sourceShort(source) { return Number(source.shortage_g || 0) > 0 || Numb
 function processRouteLabel(item) { try { const raw = item.process_snapshot_json; const snapshot = typeof raw === 'object' ? raw : JSON.parse(raw || '{}'); return snapshot.name || (snapshot.operations || []).map((row) => row.operation).filter(Boolean).join(' → ') || '未设置工艺路线' } catch (_) { return '工艺快照待核对' } }
 function edgeRequired(edge) { return Number(edge.required_g || 0) > 0 ? `${Number((Number(edge.required_g) / 1000).toFixed(6))} kg` : quantity(edge.required_units || edge.required_qty, edge.required_units ? '件' : '') }
 function workOrderStatus(status) { return ({ draft: '草稿', released: '待开工', running: '生产中', completed: '已完成', cancelled: '已取消' })[status] || status || '-' }
-function issueTitle(category) { return ({ quantity: '数量需要核对', source: '来源仓库需要完善', supply: '供应存在缺口', operation: '工序拆分需要完善' })[category] || '计划需要完善' }
+function issueTitle(category) { return ({ quantity: '数量需要核对', source: '备料供给需要补齐', supply: '供应存在缺口', operation: '工序拆分需要完善' })[category] || '计划需要完善' }
 function focusIssue(issue) {
   if (issue.action === '刷新供应') { emit('refresh'); return }
   if (issue.category === 'operation') { emit('edit-splits'); return }

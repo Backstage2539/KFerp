@@ -46,6 +46,13 @@ func productionPlanReadiness(detail productionapp.ProductionPlanDetail) producti
 		if source.Selected {
 			sourceByGap[fmt.Sprintf("%d:%s:%d", source.ProductionPlanItemID, normalizedReadinessComponentType(source.ComponentType), source.ComponentID)] = true
 		}
+		if source.PickingVersion > 0 {
+			sourceByGap[fmt.Sprintf("%d:%s:%d", source.ProductionPlanItemID, normalizedReadinessComponentType(source.ComponentType), source.ComponentID)] = true
+			if source.ShortageG > 0 || source.ShortageUnits > 0 {
+				addBlocking(productionapp.ProductionPlanReadinessIssue{Code: "component_source_shortage", Category: "source", ProductionPlanItemID: source.ProductionPlanItemID, ComponentSourceID: source.ID, Message: fmt.Sprintf("%s 供给未落实，缺少 %dg / %d件", source.ComponentName, source.ShortageG, source.ShortageUnits), Action: "补齐供给并刷新"})
+			}
+			continue
+		}
 		if !source.Selected {
 			addBlocking(productionapp.ProductionPlanReadinessIssue{
 				Code: "component_source_missing", Category: "source", ProductionPlanItemID: source.ProductionPlanItemID,
@@ -75,7 +82,7 @@ func productionPlanReadiness(detail productionapp.ProductionPlanDetail) producti
 	}
 	groups := map[string]sourceGroup{}
 	for _, source := range detail.ComponentSources {
-		if !source.Selected {
+		if !source.Selected || source.PickingVersion > 0 {
 			continue
 		}
 		key := fmt.Sprintf("%s:%d:%d:%d:%s:%d", normalizedReadinessComponentType(source.ComponentType), source.ComponentID,
@@ -161,9 +168,15 @@ func productionPlanDraftToken(detail productionapp.ProductionPlanDetail) string 
 		ID        int64  `json:"id"`
 		Warehouse string `json:"warehouse"`
 	}
+	type appAllocationToken struct {
+		Warehouse   string
+		Owner, G, N int64
+	}
 	type sourceToken struct {
 		ItemID, ComponentID, BOMSpecID, SpecG, OwnerID int64
 		ComponentType, Warehouse                       string
+		Mode                                           string
+		Manual                                         []appAllocationToken
 	}
 	payload := struct {
 		Status   string
@@ -176,7 +189,11 @@ func productionPlanDraftToken(detail productionapp.ProductionPlanDetail) string 
 		payload.Items = append(payload.Items, itemToken{ID: item.ID, Warehouse: item.TargetWarehouse})
 	}
 	for _, source := range detail.ComponentSources {
-		payload.Sources = append(payload.Sources, sourceToken{
+		manual := []appAllocationToken{}
+		for _, a := range source.ManualAllocations {
+			manual = append(manual, appAllocationToken{a.Warehouse, a.OwnerCustomerID, a.QtyG, a.QtyUnits})
+		}
+		payload.Sources = append(payload.Sources, sourceToken{Mode: source.AllocationMode, Manual: manual,
 			ItemID: source.ProductionPlanItemID, ComponentID: source.ComponentID, BOMSpecID: source.ComponentBOMSpecID,
 			SpecG: source.ComponentSpecG, OwnerID: source.SourceOwnerCustomerID, ComponentType: source.ComponentType, Warehouse: source.SourceWarehouse,
 		})

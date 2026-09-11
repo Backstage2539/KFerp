@@ -51,6 +51,7 @@
         @cancel="cancelProductionPlanDraft(productionPlanDetail, 'detail')"
         @navigate="navigateProductionView"
         @source-change="selectComponentSourceOption"
+        @adjust-source="(source, allocations) => adjustPreparationSource(source, allocations, 'detail')"
         @warehouse-change="changeProductionPlanDetailWarehouse"
       />
     </div>
@@ -305,7 +306,7 @@
         <article class="review-check"><IconClipboardList :size="21" /><div><strong>需制造</strong><span>{{ materialStatusCounts.manufacture }} 项用料将安排生产</span></div></article>
         <article :class="['review-check', { warning: materialStatusCounts.purchase > 0 }]"><IconAlertCircle :size="21" /><div><strong>待补料</strong><span>{{ materialStatusCounts.purchase }} 项，可先创建草稿，开工前补齐</span></div></article>
         <article class="review-check"><IconCheck :size="21" /><div><strong>库存或在产覆盖</strong><span>{{ materialStatusCounts.satisfied + materialStatusCounts.waiting }} 项，无需重复安排</span></div></article>
-        <div class="sidebar-note">创建后可设置用料来源、工位和批次，提交后才会生成工单。</div>
+        <div class="sidebar-note">创建后自动生成备料建议，可调整工位和批次，提交后才会生成工单。</div>
       </aside>
     </section>
 
@@ -1258,6 +1259,14 @@ async function saveProductionPlanItemTargetWarehouse(item) {
   } finally {
     targetWarehouseSavingItemID.value = 0
   }
+}
+
+async function adjustPreparationSource(source, allocations, target) {
+  source.allocation_mode = allocations === null ? 'auto' : 'manual'
+  source.manual_allocations = allocations || []
+  if (target === 'detail') { await saveProductionPlanDetailDraft(); return }
+  await saveProductionPlanComponentSource(currentPlan.value, source, 'current')
+  if (currentPlan.value?.id) currentPlan.value = await apiGet(`/api/production-plans/${currentPlan.value.id}`)
 }
 
 function componentSourceKey(source = {}) {

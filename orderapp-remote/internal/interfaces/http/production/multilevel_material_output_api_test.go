@@ -353,6 +353,7 @@ func TestProductionPlanAPITypedProductComponentRecursesWithPartialFinishedStock(
 		rootWorkOrderID,
 	), 2)
 
+	pickAllProductionComponents(t, pool, schema, app, rootWorkOrderID)
 	downstreamStart := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", rootWorkOrderID), nil)
 	if downstreamStart.Code != http.StatusOK {
 		t.Fatalf("start typed downstream after upstream completion status=%d body=%s", downstreamStart.Code, downstreamStart.Body.String())
@@ -381,10 +382,10 @@ func TestProductionPlanAPITypedProductComponentRecursesWithPartialFinishedStock(
 		rootWorkOrderID,
 	), 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", fmt.Sprintf(
-		"work_order_id=%d AND component_type='product' AND component_id=2 AND consumed_g=reserved_g AND status='consumed'",
+		"work_order_id=%d AND component_type='product' AND component_id=2 AND reserved_g>0 AND consumed_g=reserved_g AND status='consumed'",
 		rootWorkOrderID,
 	), 2)
-	assertProductionFlowCount(t, pool, schema, "stock_batches", "item_type='finished_product' AND item_id=2 AND remaining_g=0", 2)
+	assertProductionFlowCount(t, pool, schema, "stock_batches", "item_type='finished_product' AND item_id=2 AND remaining_g=0", 4)
 	assertProductionFlowCount(t, pool, schema, "material_consumption_logs", fmt.Sprintf(
 		"running_item_id=%d AND material_id=2 AND deduct_g>0",
 		rootRunningItemID,
@@ -502,7 +503,7 @@ func TestProductionPlanAPISharedPurchaseLeafPersistsEachConsumerGap(t *testing.T
 
 	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
-	if submit.Code != http.StatusBadRequest || (!strings.Contains(submit.Body.String(), "采购/备料缺口") && !strings.Contains(submit.Body.String(), "所选来源仓库存不足")) {
+	if submit.Code != http.StatusBadRequest || (!strings.Contains(submit.Body.String(), "采购/备料缺口") && !strings.Contains(submit.Body.String(), "所选来源仓库存不足") && !strings.Contains(submit.Body.String(), "供给不足")) {
 		t.Fatalf("submit shared-purchase plan status=%d body=%s, want blocker", submit.Code, submit.Body.String())
 	}
 }
@@ -619,7 +620,7 @@ func TestProductionPlanAPIPersistsNoBOMSupplyGapAndBlocksSubmit(t *testing.T) {
 	}
 	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
-	if submit.Code != http.StatusBadRequest || (!strings.Contains(submit.Body.String(), "采购/备料缺口") && !strings.Contains(submit.Body.String(), "所选来源仓库存不足")) {
+	if submit.Code != http.StatusBadRequest || (!strings.Contains(submit.Body.String(), "采购/备料缺口") && !strings.Contains(submit.Body.String(), "所选来源仓库存不足") && !strings.Contains(submit.Body.String(), "供给不足")) {
 		t.Fatalf("submit no-BOM production plan status=%d body=%s, want unresolved supply gap rejection", submit.Code, submit.Body.String())
 	}
 	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("production_plan_id=%d", planID), 0)
@@ -757,7 +758,7 @@ func TestProductionPlanAPIConcurrentSubmitRechecksSharedMaterialAvailability(t *
 		if result.code == http.StatusOK {
 			successes++
 		}
-		if result.code == http.StatusBadRequest && (strings.Contains(result.body, "库存可用量已变化") || strings.Contains(result.body, "所选来源仓库存不足")) {
+		if result.code == http.StatusBadRequest && (strings.Contains(result.body, "库存可用量已变化") || strings.Contains(result.body, "所选来源仓库存不足") || strings.Contains(result.body, "供给不足")) {
 			staleFailures++
 		}
 	}

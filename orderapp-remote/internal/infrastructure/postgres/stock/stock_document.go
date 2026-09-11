@@ -586,6 +586,15 @@ func (r Repository) resolveOrdinaryFinishedStockDocumentCommandTx(ctx context.Co
 	if cmd == nil || cmd.Purpose == stockapp.PurposeManufacture {
 		return nil
 	}
+	if cmd.Purpose == stockapp.PurposeMaterialTransferForManufacture {
+		modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, cmd.WorkOrderID)
+		if err != nil {
+			return err
+		}
+		if modern {
+			return nil
+		}
+	} // Frozen identities are validated against reservations at submit.
 	for index := range cmd.Items {
 		item := &cmd.Items[index]
 		if item.ItemType != itemTypeFinishedProduct || item.ProductID <= 0 {
@@ -606,6 +615,15 @@ func (r Repository) resolveOrdinaryFinishedStockDocumentCommandTx(ctx context.Co
 func (r Repository) resolveOrdinaryFinishedStockDocumentDetailTx(ctx context.Context, tx pgx.Tx, detail *stockapp.StockDocumentDetail) error {
 	if detail == nil || detail.Purpose == stockapp.PurposeManufacture {
 		return nil
+	}
+	if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture {
+		modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
+		if err != nil {
+			return err
+		}
+		if modern {
+			return nil
+		}
 	}
 	for index := range detail.Items {
 		item := &detail.Items[index]
@@ -841,7 +859,12 @@ func (r Repository) loadStockDocumentDetailTx(ctx context.Context, tx pgx.Tx, id
 		return stockapp.StockDocumentDetail{}, err
 	}
 	rows.Close()
+	automatic, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, out.WorkOrderID)
+	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	for i := range out.Items {
+		out.Items[i].FrozenPicking = automatic
 		allocRows, err := tx.Query(ctx, fmt.Sprintf(`
 			SELECT material_batch_id,batch_code,qty_g,qty_units,COALESCE(unit_cost,0)::float8
 			FROM %s.stock_entry_batch_allocations WHERE stock_entry_item_id=$1 ORDER BY id
@@ -939,7 +962,14 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 			expectedItemType = itemTypeFinishedProduct
 		}
 	}
+	modernPicking, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
+	if err != nil {
+		return err
+	}
 	for index, item := range detail.Items {
+		if modernPicking && detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && (item.ItemType == itemTypeMaterial || item.ItemType == itemTypeFinishedProduct) {
+			continue
+		}
 		if item.ItemType != expectedItemType {
 			return fmt.Errorf("item %d item type must be %s for work order purpose %s", index+1, expectedItemType, detail.Purpose)
 		}
@@ -968,6 +998,13 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 	}
 	if status == "cancelled" || status == "completed" {
 		return fmt.Errorf("work order is not open")
+	}
+	if modernPicking && detail.Purpose == stockapp.PurposeMaterialConsumption {
+		for _, item := range detail.Items {
+			if item.FromWarehouse != "wip" {
+				return fmt.Errorf("生产耗用必须来自 WIP，先按领料建议转入现场")
+			}
+		}
 	}
 	if err := r.validateFrozenWorkOrderMaterialSourceTx(ctx, tx, detail); err != nil {
 		return err
@@ -1105,6 +1142,15 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 }
 
 func (r Repository) validateFrozenWorkOrderMaterialSourceTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail) error {
+	if detail.WorkOrderID > 0 && detail.Purpose == stockapp.PurposeMaterialTransferForManufacture {
+		modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
+		if err != nil {
+			return err
+		}
+		if modern {
+			return validateAutomaticPickingTx(ctx, tx, r.schema, detail)
+		}
+	}
 	if detail.WorkOrderID <= 0 || detail.Purpose != stockapp.PurposeMaterialTransferForManufacture || detail.IsReturn {
 		return nil
 	}
@@ -1857,6 +1903,10 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 }
 
 func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item stockapp.StockDocumentItemRow) ([]materialMoveAvailability, int64, int64, error) {
+	modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
+	if err != nil {
+		return nil, 0, 0, err
+	}
 	args := []any{item.MaterialID, item.FromWarehouse}
 	args = append(args, item.OwnerCustomerID)
 	batchFilter := fmt.Sprintf(" AND COALESCE(b.owner_customer_id,0)=$%d", len(args))
@@ -1883,6 +1933,9 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 				                    OR se.purpose='material_consumption_for_manufacture' THEN a.qty_units ELSE 0 END) > 0
 			)
 		`, r.schema, r.schema, r.schema, len(args))
+	}
+	if modern && detail.WorkOrderID > 0 && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
+		workFilter = fmt.Sprintf(`AND EXISTS(SELECT 1 FROM %s.work_order_material_reservation_batches rb WHERE rb.work_order_id=$%d AND rb.material_batch_id=b.id AND rb.warehouse=l.warehouse AND rb.owner_customer_id=b.owner_customer_id AND rb.status='reserved')`, r.schema, len(args))
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT b.id,b.batch_code,l.qty_g,l.qty_units,COALESCE(b.unit_cost,0)::float8,COALESCE(b.quality_status,'unchecked')
@@ -1922,6 +1975,14 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 	if detail.WorkOrderID > 0 && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
 		capToWorkOrderBalance := func(row *materialMoveAvailability) error {
 			var allowedG, allowedUnits int64
+			if modern {
+				if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint,COALESCE(SUM(GREATEST(0,reserved_units-consumed_units-returned_units)),0)::bigint FROM %s.work_order_material_reservation_batches WHERE work_order_id=$1 AND material_batch_id=$2 AND warehouse=$3 AND owner_customer_id=$4 AND status='reserved'`, r.schema), detail.WorkOrderID, row.BatchID, item.FromWarehouse, item.OwnerCustomerID).Scan(&allowedG, &allowedUnits); err != nil {
+					return err
+				}
+				row.AvailableG = minInt64(row.AvailableG, allowedG)
+				row.AvailableQty = minInt64(row.AvailableQty, allowedUnits)
+				return nil
+			}
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`
 				SELECT
 					COALESCE(SUM(CASE WHEN se.purpose='material_transfer_for_manufacture' AND se.is_return=false THEN a.qty_g ELSE 0 END),0)
@@ -1961,6 +2022,15 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 }
 
 func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item *stockapp.StockDocumentItemRow, actor string) error {
+	if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture {
+		modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
+		if err != nil {
+			return err
+		}
+		if modern {
+			return r.postPickingProductTransferTx(ctx, tx, detail, *item, actor, 1)
+		}
+	}
 	ownerCustomerID := int64(0)
 	if detail.WorkOrderID > 0 {
 		if hasCustomer, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "work_orders", "customer_id"); err != nil {
@@ -2325,6 +2395,20 @@ func (r Repository) updateWorkOrderStockStatsTx(ctx context.Context, tx pgx.Tx, 
 		`, r.schema), detail.WorkOrderID)
 		return err
 	}
+	if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture {
+		modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
+		if err != nil {
+			return err
+		}
+		if modern {
+			for _, item := range detail.Items {
+				if err := movePickingReservationTx(ctx, tx, r.schema, detail.WorkOrderID, item, direction); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
 	if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn {
 		hasFrozenBindings, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "work_order_material_reservation_batches", "owner_customer_id")
 		if err != nil {
@@ -2356,6 +2440,17 @@ func (r Repository) updateWorkOrderStockStatsTx(ctx context.Context, tx pgx.Tx, 
 			}
 		}
 		return nil
+	}
+	if detail.Purpose == stockapp.PurposeMaterialConsumption {
+		modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
+		if err != nil {
+			return err
+		}
+		if modern {
+			if err := recordPickingConsumptionTx(ctx, tx, r.schema, detail, direction); err != nil {
+				return err
+			}
+		}
 	}
 	column := ""
 	if detail.Purpose == stockapp.PurposeMaterialConsumption {
@@ -2476,6 +2571,15 @@ func (r Repository) reverseStockDocumentItemTx(ctx context.Context, tx pgx.Tx, d
 }
 
 func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item stockapp.StockDocumentItemRow, actor string) error {
+	if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture {
+		modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
+		if err != nil {
+			return err
+		}
+		if modern {
+			return r.postPickingProductTransferTx(ctx, tx, detail, item, actor, -1)
+		}
+	}
 	canonical := item.BomSpecID > 0
 	totalG := item.QtyUnits*item.SpecG + item.QtyG
 	if canonical {

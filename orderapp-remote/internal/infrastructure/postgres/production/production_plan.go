@@ -78,8 +78,8 @@ func (r Repository) CreateProductionPlan(ctx context.Context, cmd productionapp.
 	tmpNo := fmt.Sprintf("PP-TMP-%d", time.Now().UnixNano())
 	var planID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_plans(plan_no,source_type,status,from_date,to_date,customer_id,created_by,created_at)
-		VALUES($1,$2,'draft',NULLIF($3,'')::date,NULLIF($4,'')::date,$5,$6,now())
+		INSERT INTO %s.production_plans(plan_no,source_type,status,from_date,to_date,customer_id,created_by,created_at,picking_version)
+		VALUES($1,$2,'draft',NULLIF($3,'')::date,NULLIF($4,'')::date,$5,$6,now(),1)
 		RETURNING id
 	`, r.schema), tmpNo, firstNonEmpty(cmd.SourceType, "erp_order"), cmd.From, cmd.To, cmd.CustomerID, cmd.Operator).Scan(&planID); err != nil {
 		return productionapp.ProductionPlanDetail{}, err
@@ -322,6 +322,12 @@ func (r Repository) UpdateProductionPlan(ctx context.Context, cmd productionapp.
 		newItem, found := newByKey[productionPlanDraftArrangementKey(oldItem)]
 		if !ok || !found || !productionPlanDraftArrangementCompatible(oldItem, newItem) || strings.TrimSpace(source.SourceWarehouse) == "" {
 			continue
+		}
+		if source.PickingVersion > 0 && source.AllocationMode == "manual" {
+			raw, _ := json.Marshal(source.ManualAllocations)
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plan_component_sources SET allocation_mode='manual',allocations_json=$6 WHERE production_plan_item_id=$1 AND component_type=$2 AND component_id=$3 AND component_bom_spec_id=$4 AND component_spec_g=$5`, r.schema), newItem.ID, source.ComponentType, source.ComponentID, source.ComponentBOMSpecID, source.ComponentSpecG, raw); err != nil {
+				return productionapp.ProductionPlanDetail{}, err
+			}
 		}
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plan_component_sources SET source_warehouse=$6,source_owner_customer_id=$7,available_g_snapshot=$8,available_units_snapshot=$9,selected_at=now(),selected_by=$10,updated_at=now() WHERE production_plan_item_id=$1 AND component_type=$2 AND component_id=$3 AND component_bom_spec_id=$4 AND component_spec_g=$5`, r.schema), newItem.ID, source.ComponentType, source.ComponentID, source.ComponentBOMSpecID, source.ComponentSpecG, source.SourceWarehouse, source.SourceOwnerCustomerID, source.AvailableGSnapshot, source.AvailableUnitsSnapshot, cmd.Operator); err != nil {
 			return productionapp.ProductionPlanDetail{}, err
@@ -1105,7 +1111,7 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	detail.Items = items
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT supply_graph_json FROM %s.production_plans WHERE id=$1`, schema), id).Scan(&detail.SupplyPlan); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT supply_graph_json,picking_version FROM %s.production_plans WHERE id=$1`, schema), id).Scan(&detail.SupplyPlan, &detail.PickingVersion); err != nil {
 		return detail, err
 	}
 	splits, err := loadProductionPlanOperationSplitsTx(ctx, tx, schema, id)
@@ -2224,7 +2230,7 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	if err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
-	if dependencyCount > 0 || usesTypedOutputBindings {
+	if dependencyCount > 0 || usesTypedOutputBindings || preflight.PickingVersion > 0 {
 		if err := createMultilevelWorkOrderReservationsTx(ctx, tx, r.schema, items, workOrderByPlanItem); err != nil {
 			return productionapp.ProductionPlanSubmitResult{}, err
 		}

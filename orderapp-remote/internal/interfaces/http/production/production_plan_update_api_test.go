@@ -13,6 +13,7 @@ func TestProductionPlanDraftCanRecalculateInPlace(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 90010, 10, "RECALCULATE-WIP", "计划生豆", 10000)
 	app := newProductionFlowTestEcho(pool, schema)
 
 	created := serveMultilevelProductionJSON(t, app, http.MethodPost, "/api/production-plans", map[string]any{

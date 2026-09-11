@@ -574,6 +574,7 @@ type WorkOrderOperationSplitsResult struct {
 }
 
 type ProductionPlanDetail struct {
+	PickingVersion    int                              `json:"picking_version"`
 	SupplyPlan        json.RawMessage                  `json:"multilevel_plan,omitempty"`
 	SupplyAllocations []ProductionSupplyAllocation     `json:"supply_allocations"`
 	ID                int64                            `json:"id"`
@@ -631,6 +632,7 @@ type SaveProductionPlanDraftCommand struct {
 }
 
 type ProductionPlanComponentSourceOption struct {
+	SortOrder       int    `json:"sort_order"`
 	Warehouse       string `json:"warehouse"`
 	WarehouseName   string `json:"warehouse_name"`
 	OwnerCustomerID int64  `json:"owner_customer_id"`
@@ -639,7 +641,37 @@ type ProductionPlanComponentSourceOption struct {
 	AvailableUnits  int64  `json:"available_units"`
 }
 
+type ProductionPlanSourceAllocation struct {
+	Warehouse       string                      `json:"warehouse"`
+	WarehouseName   string                      `json:"warehouse_name"`
+	OwnerCustomerID int64                       `json:"owner_customer_id"`
+	OwnerName       string                      `json:"owner_name"`
+	QtyG            int64                       `json:"qty_g"`
+	QtyUnits        int64                       `json:"qty_units"`
+	Batches         []ProductionPlanSourceBatch `json:"batches"`
+}
+type ProductionPlanSourceBatch struct {
+	BatchID   int64  `json:"batch_id"`
+	BatchCode string `json:"batch_code"`
+	QtyG      int64  `json:"qty_g"`
+	QtyUnits  int64  `json:"qty_units"`
+}
 type ProductionPlanComponentSource struct {
+	PickingVersion    int                              `json:"picking_version"`
+	AllocationMode    string                           `json:"allocation_mode"`
+	Allocations       []ProductionPlanSourceAllocation `json:"allocations"`
+	ManualAllocations []ProductionPlanSourceAllocation `json:"manual_allocations"`
+	WIPCoveredG       int64                            `json:"wip_covered_g"`
+	WIPCoveredUnits   int64                            `json:"wip_covered_units"`
+	TransferG         int64                            `json:"transfer_g"`
+	TransferUnits     int64                            `json:"transfer_units"`
+	UpstreamG         int64                            `json:"upstream_g"`
+	UpstreamUnits     int64                            `json:"upstream_units"`
+	DemandG           int64                            `json:"demand_g"`
+	DemandUnits       int64                            `json:"demand_units"`
+	PreparationStatus string                           `json:"preparation_status"`
+	AdjustmentMessage string                           `json:"adjustment_message,omitempty"`
+
 	ID                     int64                                 `json:"id"`
 	ProductionPlanID       int64                                 `json:"production_plan_id"`
 	ProductionPlanItemID   int64                                 `json:"production_plan_item_id"`
@@ -1510,6 +1542,7 @@ type StockDocumentPreview struct {
 }
 
 type StockEntryItemCommand struct {
+	FrozenPicking   bool    `json:"frozen_picking,omitempty"`
 	MaterialID      int64   `json:"material_id"`
 	ProductID       int64   `json:"product_id"`
 	BomSpecID       int64   `json:"bom_spec_id,omitempty"`

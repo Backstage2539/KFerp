@@ -171,6 +171,7 @@ func TestProductionPlanBOMSpecComponentUsesOnlySelectedSpecStockAndCreatesSpecUp
 		"work_order_id=%d AND component_bom_spec_id=18001 AND reserved_units>0", rootWorkOrderID,
 	), 2)
 
+	pickAllProductionComponents(t, pool, schema, app, rootWorkOrderID)
 	downstreamStart := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", rootWorkOrderID), nil)
 	if downstreamStart.Code != http.StatusOK {
 		t.Fatalf("start BOM-spec downstream status=%d body=%s", downstreamStart.Code, downstreamStart.Body.String())
@@ -201,7 +202,7 @@ func TestProductionPlanBOMSpecComponentUsesOnlySelectedSpecStockAndCreatesSpecUp
 		"work_order_id=%d AND component_bom_spec_id=18001 AND consumed_units=100", rootWorkOrderID,
 	), 1)
 	assertProductionFlowCount(t, pool, schema, "stock_batches",
-		"item_type='finished_product' AND item_id=2 AND bom_spec_id=18001 AND remaining_units=0", 2)
+		"item_type='finished_product' AND item_id=2 AND bom_spec_id=18001 AND remaining_units=0", 4)
 	assertProductionFlowCount(t, pool, schema, "stock_batches",
 		"item_type='finished_product' AND item_id=2 AND bom_spec_id=18002 AND remaining_units=100", 1)
 	assertProductionFlowCount(t, pool, schema, "stock_ledger_entries", fmt.Sprintf(
