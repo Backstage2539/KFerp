@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-649-PRODUCTION-PLANNING-WORKSPACE
+- Branch: `codex/production-planning-workspace-20260910`, base `3d272faa`.
+- Owner/session: Codex / 2026-09-11
+- Status: implementation and full repository verification complete; integration, development deployment, and browser screenshots in progress.
+- Scope: three-step planning workspace, business-first product/material gap review, actionable blockers, editable/recalculable draft, consistent preview/detail quantities, responsive acceptance screenshots.
+- DEV: DEV-649-DEMAND-SELECT; DEV-649-GAP-REVIEW; DEV-649-DRAFT-RECALCULATE; DEV-649-SCHEDULE-DELIVERY.
+- Verifier: targeted Vue 74/74 and draft-recalculation API GREEN; full Go packages, frontend 1172/1172, changed-file checks, and Vue production build GREEN. Development browser acceptance remains.
+- Deployment: development authorized after complete verification; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-planning-workspace.md`.
+- Notes: PR-649 is the next available requirement id. Van retains final business acceptance.
+
 ### PR-648-PRODUCTION-PLANNING-MULTILEVEL
 - Branch: `codex/production-planning-multilevel-20260910`, base `2bd15db4`.
 - Status: demand blocking-reason follow-up in progress; branch `codex/production-demand-blocking-reasons-20260910` from `950963ca`. Show the exact blocker outside collapsed order details; keep known sales quantities despite BOM errors. Targeted RED (2 failures) then GREEN (69 tests); development deploy ownership held by this thread. Original page initialization regression remains verified; Van full business acceptance pending.

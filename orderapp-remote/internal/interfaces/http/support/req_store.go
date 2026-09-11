@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-649-PRODUCTION-PLANNING-WORKSPACE", title: "生产计划三步工作台与草稿原单重算", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-planning-workspace.md"},
+		{table: "req_dev", code: "DEV-649-DEMAND-SELECT", title: "按商品规格选择需求并显示具体配置异常", status: "review", assignee: "Codex", evidence: "produce-plan.test.js"},
+		{table: "req_dev", code: "DEV-649-GAP-REVIEW", title: "商品缺口与生产用料决策界面", status: "review", assignee: "Codex", evidence: "produce-plan.test.js"},
+		{table: "req_dev", code: "DEV-649-DRAFT-RECALCULATE", title: "同一生产计划草稿修改需求并并发重算", status: "review", assignee: "Codex", evidence: "production_plan_update_api_test.go"},
+		{table: "req_dev", code: "DEV-649-SCHEDULE-DELIVERY", title: "生产安排、手册、验证与开发环境交付", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-11-production-planning-workspace.md"},
 		{table: "req_product", code: "PR-648-PRODUCTION-PLANNING-MULTILEVEL", title: "生产需求归并与多层生产备货闭环", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
 		{table: "req_dev", code: "DEV-648-DEMAND", title: "需求预览白屏、商品规格件数与订单归并", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
 		{table: "req_dev", code: "DEV-648-STOCK-PLAN", title: "独立半成品计划及统一预览", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},

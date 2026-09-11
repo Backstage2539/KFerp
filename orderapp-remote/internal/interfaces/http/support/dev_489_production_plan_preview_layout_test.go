@@ -17,10 +17,10 @@ func TestDev489ProductionPlanPreviewLayoutContracts(t *testing.T) {
 			"drag-scroll-wrap",
 			"startTableScrollDrag",
 			"demandPanelTitle",
-			"收起${demandPanelTitle}",
-			"收起当前生产计划",
+			"demandKeyword",
+			"生产用料缺口表格",
 			"openCurrentPlanSplitDrawer",
-			"创建成功后会自动打开拆分产能",
+			"下一步：安排生产",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",
@@ -33,9 +33,9 @@ func TestDev489ProductionPlanPreviewLayoutContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",
-			"收起待生产需求",
-			"当前计划工作台只展示计划预览、物料汇总和提交/撤销动作",
-			"点击步骤条第 3 步",
+			"三步工作台",
+			"商品缺口和生产用料",
+			"进入第 3 步",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-12-production-plan-preview-layout.md"): {
 			"PR-489 Production Plan Preview Layout",

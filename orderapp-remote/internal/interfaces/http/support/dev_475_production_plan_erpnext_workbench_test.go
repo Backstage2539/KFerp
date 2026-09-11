@@ -18,9 +18,9 @@ func TestDev475ProductionPlanERPNextWorkbenchContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
 			"planning-workbench",
 			"待生产需求",
-			"当前生产计划",
+			"schedule-workspace",
 			"loadSelectedPlanPreview",
-			"提交当前计划生成工单",
+			"提交并生成工单",
 			"productionPlanBatchSubmitEndpoint()",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.js"): {
@@ -38,8 +38,8 @@ func TestDev475ProductionPlanERPNextWorkbenchContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-475-PRODUCTION-PLAN-ERPNEXT-WORKBENCH",
-			"左侧待生产需求",
-			"右侧当前生产计划",
+			"选择待计划需求",
+			"核对商品缺口和生产用料",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-12-production-plan-erpnext-workbench.md"): {
 			"PR-475-PRODUCTION-PLAN-ERPNEXT-WORKBENCH",

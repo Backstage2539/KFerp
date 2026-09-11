@@ -39,6 +39,11 @@ import {
   productionPlanBomSummary,
   productionPlanLegacyGramLabel,
   productionPlanItemBomSourceLabel,
+  productionGapProductRows,
+  productionGapMaterialRows,
+  productionGapConclusion,
+  productionPlanDraftUpdateEndpoint,
+  buildProductionPlanDraftUpdatePayload,
 } from './produce-plan.js'
 
 const rows = [
@@ -46,6 +51,79 @@ const rows = [
   { product_id: 2, spec_g: 227 },
   { product_id: 3, spec_g: 100 },
 ]
+
+test('production planning workspace has three business steps', () => {
+  assert.deepEqual(productionPlanSteps(), [
+    { key: 'selectDemand', label: '选需求' },
+    { key: 'reviewGap', label: '核对缺口' },
+    { key: 'scheduleProduction', label: '安排生产' },
+  ])
+  assert.equal(currentProductionPlanStep({ selectedCount: 0 }), 'selectDemand')
+  assert.equal(currentProductionPlanStep({ selectedCount: 2 }), 'reviewGap')
+  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: { status: 'draft' } }), 'scheduleProduction')
+})
+
+test('gap review groups the same real product specification and preserves order traceability', () => {
+  const result = productionGapProductRows([
+    { parent_product_id: 9, product_id: 91, product: '初晓-商品', bom_spec_id: 11, spec_label: '227g', sales_unit: '袋', sales_spec_count: 10, gap_sales_spec_count: 10, order_details: [{ order_id: 1, order_no: 'SO-1', customer_name: '甲', quantity: 6, sales_unit: '袋' }, { order_id: 1, order_no: 'SO-1', customer_name: '甲', quantity: 4, sales_unit: '袋' }] },
+    { parent_product_id: 9, product_id: 92, product: '初晓-商品', bom_spec_id: 11, spec_label: '227g', sales_unit: '袋', sales_spec_count: 8, gap_sales_spec_count: 8, order_details: [{ order_id: 2, order_no: 'SO-2', customer_name: '乙', quantity: 8, sales_unit: '袋' }] },
+  ])
+  assert.equal(result.length, 1)
+  assert.equal(result[0].need_label, '18 袋')
+  assert.equal(result[0].gap_label, '18 袋')
+  assert.equal(result[0].order_count, 2)
+  assert.deepEqual(result[0].order_details.map((row) => row.order_no), ['SO-1', 'SO-2'])
+  assert.deepEqual(result[0].order_details.map((row) => row.quantity), [10, 8])
+
+  const sameNameDifferentProducts = productionGapProductRows([
+    { parent_product_id: 19, product: '同名商品', bom_spec_id: 11, spec_label: '227g', sales_unit: '袋', sales_spec_count: 1, gap_sales_spec_count: 1 },
+    { parent_product_id: 29, product: '同名商品', bom_spec_id: 11, spec_label: '227g', sales_unit: '袋', sales_spec_count: 1, gap_sales_spec_count: 1 },
+  ])
+  assert.equal(sameNameDifferentProducts.length, 2)
+})
+
+test('gap review presents one unified material decision list', () => {
+  const payload = { manufacturing_plan: { nodes: [
+    { item: { type: 'material', id: 10, name: '初晓熟豆', unit: 'kg' }, required_qty: 4.54, stock_covered_qty: 0, inflight_covered_qty: 0, shortage_qty: 4.54, action: 'manufacture' },
+    { item: { type: 'material', id: 20, name: '咖啡豆袋', unit: '条' }, required_qty: 20, stock_covered_qty: 20, shortage_qty: 0, action: 'inventory' },
+    { item: { type: 'material', id: 30, name: '在产熟豆', unit: 'kg' }, required_qty: 5, stock_covered_qty: 1, inflight_covered_qty: 4, shortage_qty: 0, action: 'inventory' },
+  ] } }
+  const rows = productionGapMaterialRows(payload)
+  assert.deepEqual(rows.map((row) => row.status), ['manufacture', 'waiting', 'satisfied'])
+  assert.equal(rows[0].required_label, '4.54 kg')
+  assert.equal(rows[1].inflight_label, '4 kg')
+  assert.equal(rows[2].stock_label, '20 条')
+  assert.match(productionGapConclusion([{ product: '初晓-商品', gap_label: '20 袋' }], rows), /20 袋.*初晓熟豆 4.54 kg/)
+
+  const mergedShortage = productionGapMaterialRows({ items: [], supply_gaps: [
+    { id: 1, item_type: 'material', item_id: 40, item_name: '纸箱', unit: '个', required_units: 3, status: 'open' },
+    { id: 2, item_type: 'material', item_id: 40, item_name: '纸箱', unit: '个', required_units: 2, status: 'open' },
+  ] })
+  assert.equal(mergedShortage.length, 1)
+  assert.equal(mergedShortage[0].required_label, '5 件')
+})
+
+test('draft recalculation keeps the same plan identity and carries revision', () => {
+  assert.equal(productionPlanDraftUpdateEndpoint({ id: 41, status: 'draft' }), '/api/production-plans/41')
+  assert.equal(productionPlanDraftUpdateEndpoint({ id: 41, status: 'submitted' }), '')
+  assert.deepEqual(buildProductionPlanDraftUpdatePayload({ revision: 3 }, [' a ', 'b'], 'req-1'), {
+    revision: 3,
+    request_id: 'req-1',
+    selected: ['a', 'b'],
+  })
+})
+
+test('ProducePlanView renders the business-first gap review without dependency jargon', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  for (const marker of ['核对缺口', '商品缺口', '生产用料', '现货覆盖', '在产覆盖', '剩余缺口', '下一步：安排生产', '返回修改需求']) {
+    assert.match(source, new RegExp(marker))
+  }
+  const reviewStart = source.indexOf('class="gap-review-workspace"')
+  const reviewEnd = source.indexOf('class="schedule-workspace"', reviewStart)
+  assert.ok(reviewStart > 0 && reviewEnd > reviewStart)
+  const review = source.slice(reviewStart, reviewEnd)
+  assert.doesNotMatch(review, /多层制造需求与上游依赖|物料需求汇总（预计消耗）|<th>层级<\/th>|BOM版本/)
+})
 
 test('production plan item summary uses frozen sales-spec conversion and parent BOM source', () => {
   const item = {
@@ -308,20 +386,18 @@ test('current production plan submit payload reuses the batch submit contract wi
   assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload(null), { ids: [] })
 })
 
-test('production plan stepper shows the current next operation without changing backend workflow', () => {
+test('production plan stepper presents three business decisions', () => {
   assert.deepEqual(productionPlanSteps().map((step) => step.label), [
     '选需求',
-    '生成草稿',
-    '拆分产能',
-    '提交工单',
-    '开始生产',
+    '核对缺口',
+    '安排生产',
   ])
 
   assert.equal(currentProductionPlanStep({ selectedCount: 0, plan: null, splitCount: 0 }), 'selectDemand')
-  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: null, splitCount: 0 }), 'createDraft')
-  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: { status: 'draft' }, splitCount: 0 }), 'splitCapacity')
-  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: { status: 'draft' }, splitCount: 2 }), 'submitWorkOrders')
-  assert.equal(currentProductionPlanStep({ plan: { status: 'submitted' }, splitCount: 2 }), 'startProduction')
+  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: null, splitCount: 0 }), 'reviewGap')
+  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: { status: 'draft' }, splitCount: 0 }), 'scheduleProduction')
+  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: { status: 'draft' }, splitCount: 2 }), 'scheduleProduction')
+  assert.equal(currentProductionPlanStep({ plan: { status: 'submitted' }, splitCount: 2 }), 'scheduleProduction')
 })
 
 test('submitted production plan exposes next-step actions to work orders, job cards, assignment, and WIP issue', () => {
@@ -702,9 +778,10 @@ test('production plan split drawer renders live demand gap preview', () => {
 test('ProducePlanView creates draft plans and batch submits checked draft plans', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /生成草稿/)
+  assert.match(source, /下一步：安排生产/)
   assert.match(source, /提交生成工单/)
   assert.match(source, /apiSend\('\/api\/production-plans'/)
+  assert.match(source, /productionPlanDraftUpdateEndpoint/)
   assert.match(source, /productionPlanBatchSubmitEndpoint\(\)/)
   assert.match(source, /selectedProductionPlans/)
   assert.doesNotMatch(source, />生成计划</)
@@ -714,26 +791,26 @@ test('ProducePlanView creates draft plans and batch submits checked draft plans'
   assert.doesNotMatch(source, /apiSend\('\/api\/produce\/start'/)
 })
 
-test('ProducePlanView uses the top workflow action and removes the duplicate current-plan create button', () => {
+test('ProducePlanView keeps the three-step workspace above plan records', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
   const workbenchIndex = source.indexOf('planning-workbench')
-  const currentPlanIndex = source.indexOf('当前生产计划')
+  const currentPlanIndex = source.indexOf('schedule-workspace')
   const historyIndex = source.indexOf('生产计划单据')
 
   assert.ok(workbenchIndex > 0, 'production page should have a planning workbench')
   assert.match(source, /待生产需求/)
-  assert.ok(currentPlanIndex > 0, 'current plan workspace should be visible')
+  assert.ok(currentPlanIndex > 0, 'schedule workspace should be visible')
   assert.ok(historyIndex > currentPlanIndex, 'history list should be below the current plan workspace')
   assert.match(source, /@click="runPlanNextStep"/)
   assert.doesNotMatch(source, /<button[^>]*@click="createProductionPlan"[^>]*>创建生产计划<\/button>/)
-  assert.match(source, /@click="submitCurrentProductionPlan"[^>]*>提交当前计划生成工单<\/button>/)
+  assert.match(source, /@click="submitCurrentProductionPlan">提交并生成工单<\/button>/)
   assert.match(source, /@click="cancelProductionPlanDraft\(currentPlan, 'current'\)"[^>]*>撤销草稿<\/button>/)
   assert.doesNotMatch(source, /选择库存不足商品后点击“创建生产计划”/)
-  assert.match(source, /勾选库存不足商品后生成计划预览/)
+  assert.match(source, /下一步：核对缺口/)
 })
 
-test('ProducePlanView opens the existing split-capacity drawer immediately after draft creation', () => {
+test('ProducePlanView shows the draft before the operator opens production scheduling', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
   const createStart = source.indexOf('async function createProductionPlan()')
   const createEnd = source.indexOf('async function submitCurrentProductionPlan()', createStart)
@@ -741,15 +818,17 @@ test('ProducePlanView opens the existing split-capacity drawer immediately after
 
   assert.ok(createStart > 0 && createEnd > createStart, 'createProductionPlan function should exist')
   assert.match(createSource, /currentPlan\.value = await apiSend\('\/api\/production-plans'/)
-  assert.match(createSource, /await openCurrentPlanSplitDrawer\(\)/)
+  assert.doesNotMatch(createSource, /await openCurrentPlanSplitDrawer\(\)/)
+  assert.match(source, /@click="openCurrentPlanSplitDrawer">\{\{ operationSplits\.length \? '调整生产安排' : '安排生产' \}\}/)
   assert.doesNotMatch(createSource, /loadProductionPlanOperationSplits/, 'unsaved auto splits must not advance the step before the drawer opens')
 })
 
-test('ProducePlanView renders BOM expected loss without the removed expected-yield label', () => {
+test('ProducePlanView keeps technical BOM calculations out of the gap decision screen', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
-
-  assert.match(source, /\{\{\s*productionPlanBomSummary\(row\)\s*\}\}/)
-  assert.match(source, /:title="row\.bom_summary_error \|\| ''"/)
+  const reviewStart = source.indexOf('class="gap-review-workspace"')
+  const reviewEnd = source.indexOf('class="schedule-workspace"', reviewStart)
+  const review = source.slice(reviewStart, reviewEnd)
+  assert.doesNotMatch(review, /productionPlanBomSummary|bom_summary_error|BOM摘要|工艺路线摘要/)
   assert.doesNotMatch(source, /<th>计划投料\(g\)<\/th>/)
   assert.doesNotMatch(source, /<td>\{\{\s*row\.input_g\s*\}\}<\/td>/)
   assert.doesNotMatch(source, /预期产出率/)
@@ -766,10 +845,10 @@ test('ProducePlanView automatically loads selected demand into the current plan 
   assert.match(source, /previewError/)
 })
 
-test('ProducePlanView submits the current draft plan through the batch submit API', () => {
+test('ProducePlanView submits the scheduled draft through the batch submit API', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /提交当前计划生成工单/)
+  assert.match(source, /提交并生成工单/)
   assert.match(source, /saveCurrentPlanOperationSplits/)
   assert.match(source, /submitCurrentProductionPlan/)
   assert.match(source, /buildCurrentProductionPlanSubmitPayload\(currentPlan\.value\)/)
@@ -872,23 +951,17 @@ test('ProducePlanView edits draft plan splits in a drawer instead of the current
   assert.doesNotMatch(source, /currentPlan\.value = detail/)
 })
 
-test('ProducePlanView lets operators expand planning tables and drag horizontal overflow', () => {
+test('ProducePlanView lets operators search and expand grouped demands and drag horizontal overflow', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
   for (const marker of [
-    'demandPanelCollapsed',
-    'currentPlanPanelCollapsed',
-    'toggleDemandPanelCollapsed',
-    'toggleCurrentPlanPanelCollapsed',
+    'demandKeyword',
+    'filteredStockInsufficientRows',
+    '搜索商品、客户或订单号',
+    'collapsedDemandGroups',
     'startTableScrollDrag',
     'drag-scroll-wrap',
     'demandPanelTitle',
-    '收起\\$\\{demandPanelTitle\\}',
-    '展开\\$\\{demandPanelTitle\\}',
-    '收起当前生产计划',
-    '展开当前生产计划',
-    'demand-collapsed',
-    'current-plan-collapsed',
   ]) {
     assert.match(source, new RegExp(marker))
   }
@@ -915,7 +988,7 @@ test('ProducePlanView maintains production demand statuses and filters planned r
     'status-demand-in-production',
     '已进入生产计划的需求不可重复生成计划',
     'blocking_reason',
-    '资料待完善',
+    '配置异常',
   ]) {
     assert.match(source, new RegExp(marker))
   }
@@ -923,13 +996,13 @@ test('ProducePlanView maintains production demand statuses and filters planned r
   assert.doesNotMatch(source, /selected\[rowKey\(row\)\]/)
 })
 
-test('ProducePlanView keeps operation capacity splitting out of the current plan preview', () => {
+test('ProducePlanView keeps operation capacity splitting out of gap review', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
-  const workbenchStart = source.indexOf("<section :class=\"['planning-workbench'")
-  const listStart = source.indexOf('<section class="panel">\n      <div class="section-title">库存充足')
-  assert.ok(workbenchStart > 0, 'missing planning workbench start')
-  assert.ok(listStart > workbenchStart, 'missing inventory-sufficient panel after planning workbench')
+  const workbenchStart = source.indexOf('class="gap-review-workspace"')
+  const listStart = source.indexOf('class="schedule-workspace"', workbenchStart)
+  assert.ok(workbenchStart > 0, 'missing gap review start')
+  assert.ok(listStart > workbenchStart, 'missing schedule workspace after gap review')
   const currentPlanWorkbench = source.slice(workbenchStart, listStart)
 
   assert.doesNotMatch(currentPlanWorkbench, /工序产能拆分/)
@@ -1161,15 +1234,14 @@ test('multi-level manufacturing plan falls back to persisted plan items and supp
   assert.equal(rows[2].blocking, true)
 })
 
-test('production plan view renders the typed manufacturing dependency graph without fixed-stage wording', () => {
+test('production plan detail drawer retains the typed manufacturing dependency graph for traceability', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
   assert.match(source, /manufacturing-dependency-table/)
-  assert.match(source, /computedManufacturingPlanRows/)
+  assert.match(source, /productionPlanDetailManufacturingRows/)
   assert.match(source, /对象类型/)
   assert.match(source, /库存覆盖/)
   assert.match(source, /净缺口/)
   assert.match(source, /上游依赖/)
   assert.match(source, /manufacturing_plan/)
-  assert.match(source, /productionPlanDetailManufacturingRows/)
   assert.doesNotMatch(source, /两段式/)
 })

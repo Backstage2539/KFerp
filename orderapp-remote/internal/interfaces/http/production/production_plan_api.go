@@ -21,6 +21,11 @@ type productionPlanCreateRequest struct {
 	InputByKey map[string]int64                      `json:"input_by_key"`
 }
 
+type productionPlanUpdateRequest struct {
+	productionPlanCreateRequest
+	Revision int64 `json:"revision"`
+}
+
 type productionPlanBatchSubmitRequest struct {
 	IDs []int64 `json:"ids"`
 }
@@ -106,6 +111,35 @@ func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Servic
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, plan)
+	})
+	e.PATCH("/api/production-plans/:id", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid production_plan_id"})
+		}
+		var req productionPlanUpdateRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		selected := map[string]bool{}
+		for _, key := range req.Selected {
+			if key = strings.TrimSpace(key); key != "" {
+				selected[key] = true
+			}
+		}
+		plan, err := productionSvc.UpdateProductionPlan(c.Request().Context(), productionapp.UpdateProductionPlanCommand{
+			ID: id, Revision: req.Revision, Items: req.Items, RequestID: req.RequestID,
+			From: req.From, To: req.To, CustomerID: req.CustomerID, SourceType: req.SourceType,
+			Selected: selected, InputByKey: req.InputByKey, Operator: support.ActorOf(c),
+		})
+		if err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(err.Error(), "草稿版本已变化") {
+				status = http.StatusConflict
+			}
+			return c.JSON(status, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, plan)
 	})
