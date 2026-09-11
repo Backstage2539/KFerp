@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS %s.production_plans (
 	plan_no TEXT NOT NULL UNIQUE,
 	source_type TEXT NOT NULL DEFAULT 'manual',
 	status TEXT NOT NULL DEFAULT 'draft',
+	revision BIGINT NOT NULL DEFAULT 1,
 	from_date DATE,
 	to_date DATE,
 	customer_id BIGINT NOT NULL DEFAULT 0,
@@ -343,6 +344,7 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 	}
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.production_plans ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plans ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 1`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS parent_product_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),

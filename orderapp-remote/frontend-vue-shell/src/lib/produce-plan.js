@@ -252,10 +252,8 @@ const PRODUCTION_PLAN_TIME_FIELDS = new Set(['created_at', 'submitted_at', 'comp
 
 const PRODUCTION_PLAN_STEPS = [
   { key: 'selectDemand', label: '选需求' },
-  { key: 'createDraft', label: '生成草稿' },
-  { key: 'splitCapacity', label: '拆分产能' },
-  { key: 'submitWorkOrders', label: '提交工单' },
-  { key: 'startProduction', label: '开始生产' },
+  { key: 'reviewGap', label: '核对缺口' },
+  { key: 'scheduleProduction', label: '安排生产' },
 ]
 
 export function productionPlanSteps() {
@@ -264,11 +262,22 @@ export function productionPlanSteps() {
 
 export function currentProductionPlanStep(state = {}) {
   const status = String(state.plan?.status || '').trim()
-  if (['submitted', 'in_progress', 'completed'].includes(status)) return 'startProduction'
-  if (status === 'draft') {
-    return Number(state.splitCount || 0) > 0 ? 'submitWorkOrders' : 'splitCapacity'
+  if (['draft', 'submitted', 'in_progress', 'completed'].includes(status)) return 'scheduleProduction'
+  return Number(state.selectedCount || 0) > 0 ? 'reviewGap' : 'selectDemand'
+}
+
+export function productionPlanDraftUpdateEndpoint(plan = {}) {
+  const id = Number(plan?.id || 0)
+  if (id <= 0 || String(plan?.status || '').trim() !== 'draft') return ''
+  return `/api/production-plans/${id}`
+}
+
+export function buildProductionPlanDraftUpdatePayload(plan = {}, selected = [], requestID = '') {
+  return {
+    revision: Math.max(0, Number(plan?.revision || 0)),
+    request_id: String(requestID || '').trim(),
+    selected: (selected || []).map((key) => String(key || '').trim()).filter(Boolean),
   }
-  return Number(state.selectedCount || 0) > 0 ? 'createDraft' : 'selectDemand'
 }
 
 export function buildProductionPlanNextActions(result = {}) {
@@ -1034,4 +1043,104 @@ export function manufacturingPlanRows(payload = {}) {
         : '最终产出',
     }
   })
+}
+
+function productionGapQuantityLabel(value, unit = '') {
+  const amount = Math.max(0, Number(value || 0))
+  const formatted = Number.isInteger(amount) ? String(amount) : String(Number(amount.toFixed(3)))
+  return unit ? `${formatted} ${String(unit).trim()}` : formatted
+}
+
+function productionGapOrderDetails(row = {}) {
+  if (Array.isArray(row.order_details) && row.order_details.length) return row.order_details
+  return String(row.order_nos || '').split(/[,，、]/).map((orderNo) => orderNo.trim()).filter(Boolean).map((orderNo) => ({
+    order_no: orderNo,
+    customer_name: '',
+    quantity: Number(row.sales_spec_count || row.need_units || 0),
+    sales_unit: String(row.sales_unit || row.inventory_unit || '').trim(),
+  }))
+}
+
+export function productionGapProductRows(rows = []) {
+  const groups = new Map()
+  for (const [rowIndex, row] of (rows || []).entries()) {
+    const productID = Number(row.parent_product_id || row.product_id || 0)
+    const productIdentity = productID > 0
+      ? `product:${productID}`
+      : `unresolved:${String(row.selection_id || row.selection_key || `row-${rowIndex}`).trim()}`
+    const specID = Number(row.bom_spec_id || 0)
+    const specIdentity = specID > 0 ? `bom_spec:${specID}` : `legacy:${Number(row.spec_g || 0)}:${String(row.spec_label || row.sales_unit || '').trim()}`
+    const key = `${productIdentity}:${specIdentity}`
+    if (!groups.has(key)) groups.set(key, { key, product: String(row.parent_product_name || row.product || '').trim(), spec_label: String(row.spec_label || row.sales_unit || '').trim(), rows: [], order_details: [] })
+    const group = groups.get(key)
+    group.rows.push(row)
+    group.order_details.push(...productionGapOrderDetails(row))
+  }
+  return [...groups.values()].map((group) => {
+    const orderLines = new Map()
+    const orderNumbers = new Set()
+    for (const detail of group.order_details) {
+      const orderIdentity = Number(detail.order_id || 0) > 0 ? `id:${detail.order_id}` : `no:${String(detail.order_no || '').trim()}`
+      const key = `${orderIdentity}:${String(detail.customer_name || '').trim()}:${String(detail.sales_unit || '').trim()}`
+      orderNumbers.add(orderIdentity)
+      if (!orderLines.has(key)) orderLines.set(key, { ...detail, quantity: 0 })
+      orderLines.get(key).quantity += Number(detail.quantity || 0)
+    }
+    const orderDetails = [...orderLines.values()]
+    return {
+      ...group,
+      order_details: orderDetails,
+      order_count: orderNumbers.size,
+      need_label: productionSalesQuantityLabel(group.rows, 'need'),
+      available_label: productionSalesQuantityLabel(group.rows, 'available'),
+      gap_label: productionSalesQuantityLabel(group.rows, 'gap'),
+    }
+  })
+}
+
+export function productionGapMaterialRows(payload = {}) {
+  const groups = new Map()
+  for (const row of manufacturingPlanRows(payload).filter((item) => item.type === 'material')) {
+    const materialID = Number(row.item?.id || row.output_material_id || row.item_id || row.material_id || row.component_id || 0)
+    const materialIdentity = materialID > 0 ? `material:${materialID}` : `name:${String(row.name || '').trim()}`
+    const key = `${materialIdentity}:${String(row.unit || '').trim().toLowerCase()}`
+    if (!groups.has(key)) groups.set(key, { ...row, key, required_qty: 0, stock_covered_qty: 0, inflight_covered_qty: 0, shortage_qty: 0, usages: [] })
+    const group = groups.get(key)
+    group.required_qty += Number(row.required_qty || 0)
+    group.stock_covered_qty += Number(row.stock_covered_qty || 0)
+    group.inflight_covered_qty += Number(row.inflight_covered_qty || 0)
+    group.shortage_qty += Number(row.shortage_qty || 0)
+    if (row.dependency_label && !group.usages.includes(row.dependency_label)) group.usages.push(row.dependency_label)
+    if (String(row.action || '').toLowerCase() === 'manufacture') group.action = 'manufacture'
+    else if (!group.action || group.action === 'inventory') group.action = String(row.action || '').toLowerCase()
+    group.blocking ||= Boolean(row.blocking)
+  }
+  const priority = { manufacture: 0, purchase: 1, waiting: 2, satisfied: 3 }
+  return [...groups.values()].map((row) => {
+    let status = 'satisfied'
+    if (row.shortage_qty > 0) status = row.action === 'manufacture' ? 'manufacture' : 'purchase'
+    else if (row.inflight_covered_qty > 0) status = 'waiting'
+    const statusLabel = ({ manufacture: '需制造', purchase: '待补料', waiting: '在产覆盖', satisfied: '库存满足' })[status]
+    return {
+      ...row,
+      status,
+      status_label: statusLabel,
+      usage_label: row.usages.filter((label) => label !== '最终产出').join('；') || '生产用料',
+      required_label: productionGapQuantityLabel(row.required_qty, row.unit),
+      stock_label: productionGapQuantityLabel(row.stock_covered_qty, row.unit),
+      inflight_label: productionGapQuantityLabel(row.inflight_covered_qty, row.unit),
+      shortage_label: productionGapQuantityLabel(row.shortage_qty, row.unit),
+    }
+  }).sort((a, b) => priority[a.status] - priority[b.status] || a.name.localeCompare(b.name, 'zh-CN'))
+}
+
+export function productionGapConclusion(productRows = [], materialRows = []) {
+  if (!productRows.length) return '请选择要安排生产的商品'
+  const product = productRows[0]
+  const manufacture = materialRows.find((row) => row.status === 'manufacture')
+  const productSummary = productRows.length === 1
+    ? `${product.product || '商品'} ${product.gap_label}`
+    : `${productRows.length} 种商品`
+  if (manufacture) return `本次需生产 ${productSummary}，需先制造${manufacture.name} ${manufacture.shortage_label}`
+  return `本次需生产 ${productSummary}，生产用料已满足`
 }

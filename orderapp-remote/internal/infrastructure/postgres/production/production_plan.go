@@ -145,6 +145,204 @@ func (r Repository) CreateProductionPlan(ctx context.Context, cmd productionapp.
 	return r.GetProductionPlan(ctx, planID)
 }
 
+func productionPlanDraftArrangementKey(item productionapp.ProductionPlanItem) string {
+	outputType := firstNonEmpty(strings.TrimSpace(item.OutputType), "product")
+	outputID := item.OutputProductID
+	if outputType == "material" {
+		outputID = item.OutputMaterialID
+	} else if outputID <= 0 {
+		outputID = item.ProductID
+	}
+	return fmt.Sprintf("%s:%d:%d:%d:%d:%d:%d", outputType, outputID, item.BomSpecID, item.BomVariantID, item.CustomerID, item.BomVersionID, item.ProcessRouteID)
+}
+
+func productionPlanDraftArrangementCompatible(oldItem, newItem productionapp.ProductionPlanItem) bool {
+	return productionPlanDraftArrangementKey(oldItem) == productionPlanDraftArrangementKey(newItem) &&
+		oldItem.PlannedG == newItem.PlannedG && oldItem.PlannedOutputG == newItem.PlannedOutputG &&
+		math.Abs(oldItem.OutputQty-newItem.OutputQty) < 0.000001 &&
+		math.Abs(oldItem.PlannedInventoryQty-newItem.PlannedInventoryQty) < 0.000001
+}
+
+func (r Repository) UpdateProductionPlan(ctx context.Context, cmd productionapp.UpdateProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	previousID, _, err := requestProductionKeyTx(ctx, tx, r.schema, "recalculate_plan", cmd.Operator, cmd.RequestID, cmd)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if previousID > 0 {
+		return loadProductionPlanDetailTx(ctx, tx, r.schema, previousID)
+	}
+
+	var status, sourceType string
+	var revision int64
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,source_type,revision FROM %s.production_plans WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&status, &sourceType, &revision); err != nil {
+		if err == pgx.ErrNoRows {
+			return productionapp.ProductionPlanDetail{}, fmt.Errorf("production plan not found")
+		}
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if status != "draft" {
+		return productionapp.ProductionPlanDetail{}, fmt.Errorf("仅草稿生产计划可返回修改需求")
+	}
+	if revision != cmd.Revision {
+		return productionapp.ProductionPlanDetail{}, fmt.Errorf("草稿版本已变化，请刷新后重新核对")
+	}
+	if sourceType != cmd.SourceType {
+		return productionapp.ProductionPlanDetail{}, fmt.Errorf("生产计划来源不可变更")
+	}
+	var workOrderCount int64
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.work_orders WHERE production_plan_id=$1`, r.schema), cmd.ID).Scan(&workOrderCount); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if workOrderCount > 0 {
+		return productionapp.ProductionPlanDetail{}, fmt.Errorf("已生成工单的生产计划不可修改")
+	}
+
+	oldItems, err := loadProductionPlanItemsTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	oldSplits, err := loadProductionPlanOperationSplitsTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	oldSources, err := loadProductionPlanComponentSourcesTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	oldByID := map[int64]productionapp.ProductionPlanItem{}
+	oldByKey := map[string]productionapp.ProductionPlanItem{}
+	for _, item := range oldItems {
+		oldByID[item.ID] = item
+		oldByKey[productionPlanDraftArrangementKey(item)] = item
+	}
+
+	if err = unlinkProcessingRequestItemsFromCancelledPlanTx(ctx, tx, r.schema, cmd.ID); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	for _, table := range []string{"production_supply_allocations", "production_plan_item_dependencies", "production_plan_supply_gaps", "production_plan_operation_splits", "production_plan_component_sources"} {
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.%s WHERE production_plan_id=$1`, r.schema, table), cmd.ID); err != nil {
+			return productionapp.ProductionPlanDetail{}, err
+		}
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_plan_items WHERE production_plan_id=$1`, r.schema), cmd.ID); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plans SET from_date=NULLIF($2,'')::date,to_date=NULLIF($3,'')::date,customer_id=$4,supply_graph_json=NULL,revision=revision+1 WHERE id=$1`, r.schema), cmd.ID, cmd.From, cmd.To, cmd.CustomerID); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+
+	var roots []productionapp.ProductionPlanItem
+	if cmd.SourceType == "stock" {
+		roots, err = buildStockProductionRootsTx(ctx, tx, r.schema, cmd.ID, cmd.Items)
+	} else {
+		createCmd := productionapp.CreateProductionPlanCommand{From: cmd.From, To: cmd.To, CustomerID: cmd.CustomerID, SourceType: cmd.SourceType, Selected: cmd.Selected, InputByKey: cmd.InputByKey, Operator: cmd.Operator}
+		needs, loadErr := r.productionPlanSelectedNeeds(ctx, tx, createCmd)
+		if loadErr != nil {
+			err = loadErr
+		} else if len(needs) == 0 {
+			err = fmt.Errorf("selected production items required")
+		} else if loadErr = lockStartRefsTx(ctx, tx, r.schema, startNeedRefs(needs)); loadErr != nil {
+			err = loadErr
+		} else if needs, loadErr = r.productionPlanSelectedNeeds(ctx, tx, createCmd); loadErr != nil {
+			err = loadErr
+		} else {
+			groups := groupStartNeedsForRuns(needs, cmd.InputByKey)
+			for _, group := range groups {
+				if group.NeedG <= 0 && group.PlannedInventoryQty <= 0 {
+					continue
+				}
+				item, createErr := createProductionPlanItemForGroupTx(ctx, tx, r.schema, cmd.ID, group)
+				if createErr != nil {
+					err = createErr
+					break
+				}
+				item.OutputType, item.OutputProductID, item.OutputName, item.OutputQty, item.OutputUnit = "product", item.ProductID, item.ProductName, item.PlannedInventoryQty, item.InventoryUnit
+				if oldItem, ok := oldByKey[productionPlanDraftArrangementKey(item)]; ok && productionPlanDraftArrangementCompatible(oldItem, item) && strings.TrimSpace(oldItem.TargetWarehouse) != "" {
+					item.TargetWarehouse = oldItem.TargetWarehouse
+				}
+				if _, createErr = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plan_items SET output_type='product',output_product_id=product_id,output_material_id=0,output_name=product_name,output_qty=planned_inventory_qty,output_unit=inventory_unit,target_warehouse=$2 WHERE id=$1`, r.schema), item.ID, item.TargetWarehouse); createErr != nil {
+					err = createErr
+					break
+				}
+				roots = append(roots, item)
+			}
+		}
+	}
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if len(roots) == 0 {
+		return productionapp.ProductionPlanDetail{}, fmt.Errorf("selected production items required")
+	}
+	if cmd.SourceType == "erp_order" {
+		usesTyped, typedErr := productionPlanUsesTypedOutputBindingsTx(ctx, tx, r.schema, cmd.ID)
+		if typedErr != nil {
+			return productionapp.ProductionPlanDetail{}, typedErr
+		}
+		if usesTyped {
+			if err = createMultilevelProductionPlanItemsTx(ctx, tx, r.schema, cmd.ID, roots); err != nil {
+				return productionapp.ProductionPlanDetail{}, err
+			}
+		}
+	} else {
+		if _, err = createExpandedProductionItemsTx(ctx, tx, r.schema, cmd.ID, roots); err != nil {
+			return productionapp.ProductionPlanDetail{}, err
+		}
+	}
+	newItems, err := loadProductionPlanItemsTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if err = syncProductionPlanComponentSourcesTx(ctx, tx, r.schema, cmd.ID, newItems); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	newByKey := map[string]productionapp.ProductionPlanItem{}
+	for _, item := range newItems {
+		newByKey[productionPlanDraftArrangementKey(item)] = item
+	}
+	for _, split := range oldSplits {
+		oldItem, ok := oldByID[split.ProductionPlanItemID]
+		newItem, found := newByKey[productionPlanDraftArrangementKey(oldItem)]
+		if !ok || !found || !productionPlanDraftArrangementCompatible(oldItem, newItem) {
+			continue
+		}
+		split.ID, split.ProductionPlanID, split.ProductionPlanItemID = 0, cmd.ID, newItem.ID
+		if err = insertProductionPlanOperationSplitTx(ctx, tx, r.schema, split); err != nil {
+			return productionapp.ProductionPlanDetail{}, err
+		}
+	}
+	for _, source := range oldSources {
+		oldItem, ok := oldByID[source.ProductionPlanItemID]
+		newItem, found := newByKey[productionPlanDraftArrangementKey(oldItem)]
+		if !ok || !found || !productionPlanDraftArrangementCompatible(oldItem, newItem) || strings.TrimSpace(source.SourceWarehouse) == "" {
+			continue
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plan_component_sources SET source_warehouse=$6,source_owner_customer_id=$7,available_g_snapshot=$8,available_units_snapshot=$9,selected_at=now(),selected_by=$10,updated_at=now() WHERE production_plan_item_id=$1 AND component_type=$2 AND component_id=$3 AND component_bom_spec_id=$4 AND component_spec_g=$5`, r.schema), newItem.ID, source.ComponentType, source.ComponentID, source.ComponentBOMSpecID, source.ComponentSpecG, source.SourceWarehouse, source.SourceOwnerCustomerID, source.AvailableGSnapshot, source.AvailableUnitsSnapshot, cmd.Operator); err != nil {
+			return productionapp.ProductionPlanDetail{}, err
+		}
+	}
+	if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ID, "recalculate", postgresinfra.StrPtr("revision"), postgresinfra.StrPtr(fmt.Sprintf("%d", revision)), postgresinfra.StrPtr(fmt.Sprintf("%d", revision+1)), postgresinfra.AuditMeta{"source_type": cmd.SourceType, "item_count": len(newItems)}); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if err = finishProductionKeyTx(ctx, tx, r.schema, "recalculate_plan", cmd.Operator, cmd.RequestID, cmd.ID, nil); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	result, err := loadProductionPlanDetailTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	return result, nil
+}
+
 func (r Repository) productionPlanSelectedNeeds(ctx context.Context, tx pgx.Tx, cmd productionapp.CreateProductionPlanCommand) ([]productionapp.StartNeed, error) {
 	rows, err := fetchUnproducedNeeds(ctx, tx, r.schema, cmd.From, cmd.To, cmd.CustomerID)
 	if err != nil {
@@ -885,14 +1083,14 @@ func (r Repository) UpdateProductionPlanItemTargetWarehouse(ctx context.Context,
 func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (productionapp.ProductionPlanDetail, error) {
 	var detail productionapp.ProductionPlanDetail
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id,plan_no,source_type,status,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI'),
+		SELECT id,revision,plan_no,source_type,status,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI'),
 		       submitted_by,COALESCE(to_char(submitted_at,'YYYY-MM-DD HH24:MI'),''),
 		       COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),
 		       COALESCE(to_char(cancelled_at,'YYYY-MM-DD HH24:MI'),'')
 		FROM %s.production_plans
 		WHERE id=$1
 	`, schema), id).Scan(
-		&detail.ID, &detail.PlanNo, &detail.SourceType, &detail.Status,
+		&detail.ID, &detail.Revision, &detail.PlanNo, &detail.SourceType, &detail.Status,
 		&detail.CreatedBy, &detail.CreatedAt, &detail.SubmittedBy,
 		&detail.SubmittedAt, &detail.CompletedAt, &detail.CancelledAt,
 	)

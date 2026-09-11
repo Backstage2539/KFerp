@@ -411,6 +411,20 @@ type CreateProductionPlanCommand struct {
 	Operator   string
 }
 
+type UpdateProductionPlanCommand struct {
+	ID         int64
+	Revision   int64
+	Items      []StockProductionTarget
+	RequestID  string
+	From       string
+	To         string
+	CustomerID int64
+	SourceType string
+	Selected   map[string]bool
+	InputByKey map[string]int64
+	Operator   string
+}
+
 type ProductionPlanQuery struct {
 	Status    string
 	TimeField string
@@ -559,6 +573,7 @@ type ProductionPlanDetail struct {
 	SupplyPlan        json.RawMessage                  `json:"multilevel_plan,omitempty"`
 	SupplyAllocations []ProductionSupplyAllocation     `json:"supply_allocations"`
 	ID                int64                            `json:"id"`
+	Revision          int64                            `json:"revision"`
 	PlanNo            string                           `json:"plan_no"`
 	SourceType        string                           `json:"source_type"`
 	Status            string                           `json:"status"`
@@ -1833,6 +1848,10 @@ type productionPlanComponentSourceRepository interface {
 	UpdateProductionPlanItemComponentSources(ctx context.Context, cmd UpdateProductionPlanItemComponentSourcesCommand) ([]ProductionPlanComponentSource, error)
 }
 
+type productionPlanUpdateRepository interface {
+	UpdateProductionPlan(context.Context, UpdateProductionPlanCommand) (ProductionPlanDetail, error)
+}
+
 type Service struct {
 	repo Repository
 }
@@ -1960,6 +1979,46 @@ func (s *Service) CreateProductionPlan(ctx context.Context, cmd CreateProduction
 		return ProductionPlanDetail{}, fmt.Errorf("selected production items required")
 	}
 	return s.repo.CreateProductionPlan(ctx, cmd)
+}
+
+func (s *Service) UpdateProductionPlan(ctx context.Context, cmd UpdateProductionPlanCommand) (ProductionPlanDetail, error) {
+	if cmd.ID <= 0 || cmd.Revision <= 0 {
+		return ProductionPlanDetail{}, fmt.Errorf("production plan id and revision required")
+	}
+	cmd.From = strings.TrimSpace(cmd.From)
+	cmd.To = strings.TrimSpace(cmd.To)
+	cmd.SourceType = strings.TrimSpace(cmd.SourceType)
+	if cmd.SourceType == "" {
+		cmd.SourceType = "erp_order"
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	if cmd.Operator == "" {
+		return ProductionPlanDetail{}, fmt.Errorf("operator required")
+	}
+	if cmd.SourceType == "stock" {
+		if err := validateStockProductionTargets(CreateProductionPlanCommand{Items: cmd.Items, SourceType: cmd.SourceType}); err != nil {
+			return ProductionPlanDetail{}, err
+		}
+	} else {
+		if cmd.SourceType != "erp_order" || len(cmd.Selected) == 0 {
+			return ProductionPlanDetail{}, fmt.Errorf("selected production items required")
+		}
+		hasSelected := false
+		for _, selected := range cmd.Selected {
+			hasSelected = hasSelected || selected
+		}
+		if !hasSelected {
+			return ProductionPlanDetail{}, fmt.Errorf("selected production items required")
+		}
+	}
+	if cmd.InputByKey == nil {
+		cmd.InputByKey = map[string]int64{}
+	}
+	repo, ok := s.repo.(productionPlanUpdateRepository)
+	if !ok {
+		return ProductionPlanDetail{}, fmt.Errorf("production plan update not supported")
+	}
+	return repo.UpdateProductionPlan(ctx, cmd)
 }
 
 func (s *Service) ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error) {
