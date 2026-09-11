@@ -9,13 +9,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-653-PRODUCTION-AUTO-PICKING
 - Branch: `codex/production-auto-picking-20260911`, base `1ef28cdb`.
 - Owner/session: Codex / 2026-09-11
-- Status: implementation, full Go gate, Vue1193/1193, build, targeted PostgreSQL/API and isolated browser acceptance complete; taking develop integration and development deployment after PR-652 release.
+- Status: merged and deployed to development; full automated gates and isolated browser workflow pass; awaiting Van business acceptance.
 - Scope: WIP-first same-owner multi-warehouse picking suggestions; supply reservation versus WIP readiness; partial transfer; compact material preparation UI.
 - DEV: DEV-653-ALLOCATION; DEV-653-WIP-TRANSFER; DEV-653-PREPARATION-UI; DEV-653-DELIVERY.
 - Verifier: isolated PostgreSQL API/concurrency/ownership/partial-transfer tests; allocation unit tests; Vue render tests; backend/frontend/build gates.
 - Manual: production and inventory source manuals plus Vue help.
-- Deployment: merge develop and deploy development after verification; Van business acceptance pending.
+- Deployment: application `52e625721b46e0338bdd5e31ba254ca8986b9e47`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260912003654-52e625721b46`; rollback `kferp-orderapp-rollback:development-20260912003654-52e625721b46`; production unchanged.
 - Notes: reservation script selected PR-652 but macOS awk rejected multiline placeholder; reserved here manually, then reassigned to PR-653 after concurrent PR-652 integration. Other worktrees are untouched.
+
+- Evidence: orderapp-remote/docs/acceptance/2026-09-11-production-auto-picking.md; screenshots /private/tmp/kferp-pr653-acceptance/.
+- Last update: 2026-09-12 Asia/Shanghai. PR review, all four DEV done; status writes audited.
 
 ### PR-652-PRODUCTION-PLAN-UNIFIED-DRAFT
 - Branch: codex/production-plan-unified-draft-20260911

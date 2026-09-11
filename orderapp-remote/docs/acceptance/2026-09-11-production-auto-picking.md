@@ -58,3 +58,20 @@
 单一来源手册 `docs/OP_MANUAL_PRODUCTION.md` 与 `docs/OP_MANUAL_STOCK.md` 更新；Vue“备料说明”跳转现有生产手册。PR/DEV种子和ACTIVE记录已维护。
 
 目标development，production及微信发布不在范围。开发发布、回滚、只读检查和实际线上截图将在发布后补录。Van验收待进行。
+
+## development 交付证据（2026-09-12）
+
+- 功能分支已推送，最终功能检查提交 `eeb3d72b`；合入 develop 的实际应用提交 `52e625721b46e0338bdd5e31ba254ca8986b9e47`。
+- 在干净、与远端一致的 `/private/tmp/kferp-pr653-deploy` 执行 `./deploy_orderapp.sh development`。完整发布退出0，服务器重新运行Vue1193项、小程序测试/类型检查/开发构建、Go全包及Docker内测试，通过后只重建orderapp。
+- 源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260912003654-52e625721b46`；回滚镜像 `kferp-orderapp-rollback:development-20260912003654-52e625721b46`。
+- `erp_orderapp` running、restart=0，镜像 `sha256:32b96077b749113ced57d5a0a88a82877aaf9f80807de92d486216cc35c55540`；数据库healthy。登录/页面及带认证的计划、需求API均200；PR-653可读。
+- `picking_version` 迁移存在；批次预留唯一键包含warehouse。上线只读检查时所有既有计划version0（没有为了截图创建或升级线上业务计划）。PP-0000000113保持cancelled、version0。
+- 开发页面正常显示，控制台error为空；实际加载 `index-B40nn8Ty.js`，与本地最终构建相同。线上截图 `07-development-plan-page.png`。
+- PR-653置review、四个DEV置done；交付状态更新写入操作日志。Van业务验收未代签。
+- 日志：`/private/tmp/pr653-deploy.log`、`pr653-live-smoke.log`、`pr653-delivery-status.log`、最终本地 `pr653-merge-gates.log`。
+- 开发小程序产物同步至固定本地目录；没有微信上传或production发布。
+- 本次发布后仅追加验收记录和进度种子，不重复发布相同业务代码；实际应用版本仍以上述52e62572为准。
+
+### 鉴权检查边界
+
+现有开发容器设置 `DISABLE_BASIC_AUTH=true`，未改此环境配置。无认证读取生产计划列表实测200，`/api/auth/me`为401，因此没有将“生产API匿名访问被阻止”计作本次通过项。客户货主隔离与冻结分配通过隔离数据库用例验证；这不能替代环境级鉴权。生产环境不在本次发布或验证范围。
