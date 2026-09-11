@@ -19,5 +19,9 @@
 
 ## 开发环境验收
 
-- 待部署后补充实际入口、运行提交、只读/API smoke、桌面与 668px 窄屏截图。
-- 浏览器验收不创建或提交真实生产计划；草稿原单重算由隔离数据库 API 测试覆盖。
+- 已以 merge commit `031c9aa878011b579b20ba9a715bef7dfa2a42f5` 合入 develop，并通过 `deploy_orderapp.sh development` 发布至 `https://dev.qacoohee.com/app/vue-shell?view=productionFlow&demand_status=unplanned`。发布输出 `Release completed`，外部登录与生产计划 API 均返回 HTTP 200。
+- 浏览器实际页面显示三步工作台；普通入口和携带历史 `plan=1&selected=...` 参数的旧链接均正常渲染，没有白屏，浏览器错误日志为空。
+- 当前待计划订单全部因历史 BOM 配置异常不可选择。页面已分别显示“BOM 缺少物料明细”“默认 BOM 已停用或不再产出此商品”“订单锁定的 BOM 规格或版本不可用”“存在冲突的默认 BOM 配置”，替代笼统的“资料待完善”。
+- 半成品备货只读预览以“初晓 1 kg”为例：初晓新增生产 1 kg；孟连水洗5T批次、孟连水洗A、生豆-巴布亚之光-石光、耶加雪菲G2 均由现货覆盖，剩余采购缺口为 0。没有点击“创建备货草稿”。
+- 服务容器运行中、重启次数 0，发布后 15 分钟致命错误日志 0。回滚源为 `/opt/stacks/erp/orderapp.backup.deploy-20260911153142-031c9aa87801`，回滚镜像为 `kferp-orderapp-rollback:development-20260911153142-031c9aa87801`。
+- 浏览器验收没有创建、提交、修改或撤销真实生产计划；草稿原单重算由隔离数据库 API 测试覆盖。Van 保留最终业务验收。

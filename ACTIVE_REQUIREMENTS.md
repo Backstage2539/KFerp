@@ -9,11 +9,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-649-PRODUCTION-PLANNING-WORKSPACE
 - Branch: `codex/production-planning-workspace-20260910`, base `3d272faa`.
 - Owner/session: Codex / 2026-09-11
-- Status: implementation and full repository verification complete; integration, development deployment, and browser screenshots in progress.
+- Status: implementation, develop integration, development deployment, and browser technical acceptance complete; awaiting Van business acceptance.
 - Scope: three-step planning workspace, business-first product/material gap review, actionable blockers, editable/recalculable draft, consistent preview/detail quantities, responsive acceptance screenshots.
 - DEV: DEV-649-DEMAND-SELECT; DEV-649-GAP-REVIEW; DEV-649-DRAFT-RECALCULATE; DEV-649-SCHEDULE-DELIVERY.
-- Verifier: targeted Vue 74/74 and draft-recalculation API GREEN; full Go packages, frontend 1172/1172, changed-file checks, and Vue production build GREEN. Development browser acceptance remains.
-- Deployment: development authorized after complete verification; production excluded.
+- Verifier: targeted Vue 74/74 and draft-recalculation API GREEN; full Go packages, frontend 1172/1172, changed-file checks, and Vue production build GREEN. Development page, legacy selected URL, read-only material preview, browser error log, container, public API, and recent server log checks GREEN.
+- Deployment: development `031c9aa878011b579b20ba9a715bef7dfa2a42f5`; rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260911153142-031c9aa87801`; rollback image `kferp-orderapp-rollback:development-20260911153142-031c9aa87801`; production excluded.
 - Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-planning-workspace.md`.
 - Notes: PR-649 is the next available requirement id. Van retains final business acceptance.
 

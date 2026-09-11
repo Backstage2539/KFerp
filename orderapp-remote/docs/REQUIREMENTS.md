@@ -2,7 +2,7 @@
 
 ## PR-649 生产计划三步工作台与草稿重算
 
-- 状态：doing；Van 业务验收待进行。DEV-649-DEMAND-SELECT / DEV-649-GAP-REVIEW / DEV-649-DRAFT-RECALCULATE / DEV-649-SCHEDULE-DELIVERY。
+- 状态：review；已合入 develop 并部署开发环境，Van 业务验收待进行。DEV-649-DEMAND-SELECT / DEV-649-GAP-REVIEW / DEV-649-DRAFT-RECALCULATE / DEV-649-SCHEDULE-DELIVERY。
 - 生产计划统一为“选需求 → 核对缺口 → 安排生产”，主界面直接显示商品缺口、物料现货/在产覆盖、剩余缺口和处理方式，不展示多层 BOM 层级或重复物料汇总。
 - 商品按真实档案和规格汇总，订单与客户明细按需展开；禁用需求显示具体原因和处理入口，不使用笼统的“资料待完善”。
 - 草稿可保留原计划号修改需求并重新计算；未变化且仍兼容的仓库和产能安排保留，变化部分重新确认。已提交计划不可修改。
