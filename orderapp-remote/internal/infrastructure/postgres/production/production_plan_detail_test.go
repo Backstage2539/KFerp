@@ -214,6 +214,38 @@ func TestPreviewProductionPlanOperationSplitsShowsCoverageAndMaterialGap(t *test
 	}
 }
 
+func TestPreviewProductionPlanOperationSplitsReturnsNativeTaskQuantities(t *testing.T) {
+	items := []productionapp.ProductionPlanItem{
+		{
+			ID: 51, OutputType: "material", OutputName: "初晓熟豆", OutputQty: 4.54, OutputUnit: "kg",
+			PlannedG: 5640, PlannedOutputG: 4540,
+			ProcessSnapshotJSON: `{"operations":[{"seq":1,"operation_id":701,"operation":"滚筒烘焙"}]}`,
+		},
+		{
+			ID: 61, ProductName: "初晓-商品", SpecG: 227, SalesSpecCount: 20, PlannedG: 5640, PlannedOutputG: 4540,
+			SalesSpecSnapshotJSON: `{"spec_label":"227g","sales_unit":"袋"}`,
+			ProcessSnapshotJSON:   `{"operations":[{"seq":2,"operation_id":702,"operation":"手工装袋"}]}`,
+		},
+	}
+	splits := []productionapp.ProductionPlanOperationSplit{
+		{ProductionPlanItemID: 51, OperationSeq: 1, OperationID: 701, Operation: "滚筒烘焙", BatchSizeUnit: "kg", PlannedQty: 5.64, PlannedQtyG: 5640},
+		{ProductionPlanItemID: 61, OperationSeq: 2, OperationID: 702, Operation: "手工装袋", BatchSizeUnit: "件", PlannedQty: 18, PlannedQtyG: 4086},
+	}
+
+	got := previewProductionPlanOperationSplits(items, splits)
+	if len(got.OperationCoverage) != 2 {
+		t.Fatalf("operation coverage = %+v, want two rows", got.OperationCoverage)
+	}
+	roast := got.OperationCoverage[0]
+	if roast.RequiredQty != 5.64 || roast.ArrangedQty != 5.64 || roast.DiffQty != 0 || roast.Unit != "kg" || roast.Status != "matched" {
+		t.Fatalf("roast native coverage = %+v, want 5.64kg matched", roast)
+	}
+	pack := got.OperationCoverage[1]
+	if pack.RequiredQty != 20 || pack.ArrangedQty != 18 || pack.DiffQty != -2 || pack.Unit != "袋" || pack.Status != "short" {
+		t.Fatalf("package native coverage = %+v, want 20 bags required / 18 arranged", pack)
+	}
+}
+
 func TestPreviewProductionPlanOperationSplitsUsesMinimumOperationCoverageForMaterial(t *testing.T) {
 	items := []productionapp.ProductionPlanItem{{
 		ID:             52,

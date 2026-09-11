@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE
+- Branch: `codex/production-plan-capacity-ui-20260911`, base `6ce1c5b6`.
+- Owner/session: Codex / 2026-09-11
+- Status: implementation, complete repository verification, browser interaction check, and design QA complete; integration and development deployment in progress.
+- Scope: group capacity splits by the production plan's actual operation names, preserve task/specification/quantity/order traceability, show task-level coverage in native units, and separate save-draft from readiness confirmation.
+- DEV: DEV-651-OPERATION-GROUPING; DEV-651-TASK-COVERAGE; DEV-651-CAPACITY-WORKSPACE; DEV-651-DEVELOPMENT-DELIVERY.
+- Verifier:
+  - Unit: production-plan capacity grouping/readiness frontend tests and native-unit preview Go tests.
+  - API: production-plan split preview/save contract, draft-only guard, validation, and audit tests.
+  - Frontend/build: targeted Vue tests, frontend test gate, Vite build, browser interaction, desktop screenshots, and design QA.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue manual surface.
+  - Review/acceptance: development flow with isolated test data; PP-0000000109 stays read-only.
+- Deployment: development after branch integration; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-plan-capacity-workspace.md`.
+- Last update: 2026-09-11 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim production-plan-capacity-ui` selected PR-651 but failed while updating `ACTIVE_REQUIREMENTS.md` because the local awk implementation rejected its multiline program; the id was reserved manually after confirming no existing PR-651/DEV-651 records.
+
 ### PR-650-PRODUCTION-PLAN-DETAIL-WORKSPACE
 - Branch: `codex/production-plan-detail-ux-20260911`, base `3d272faa`.
 - Owner/session: Codex / 2026-09-11

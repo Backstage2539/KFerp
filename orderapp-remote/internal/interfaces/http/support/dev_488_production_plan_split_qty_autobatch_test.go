@@ -18,10 +18,13 @@ func TestDev488ProductionPlanSplitQtyAutoBatchContracts(t *testing.T) {
 			"planned_qty: plannedCapacitySplitMetrics(row).planned_qty",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
-			"承担产量",
-			"自动批次数",
 			"capacityDefaultPlannedQty",
 			"split.planned_qty",
+		},
+		filepath.Join("frontend-vue-shell", "src", "components", "ProductionPlanCapacityWorkspace.vue"): {
+			"承担产量",
+			"批次",
+			"planned_batch_count",
 		},
 		filepath.Join("internal", "application", "production", "service.go"): {
 			"planned_qty required",
@@ -54,7 +57,7 @@ func TestDev488ProductionPlanSplitQtyAutoBatchContracts(t *testing.T) {
 		}
 	}
 
-	viewSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue")))
+	viewSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "components", "ProductionPlanCapacityWorkspace.vue")))
 	if strings.Contains(viewSource, `v-model.number="split.planned_batch_count"`) {
 		t.Fatal("production plan split UI must not expose manual planned_batch_count input")
 	}

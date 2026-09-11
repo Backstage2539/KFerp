@@ -8,15 +8,16 @@ import (
 
 func TestDev490JobCardBatchCardsContracts(t *testing.T) {
 	files := map[string]string{
-		"reqStore":        filepath.Join("internal", "interfaces", "http", "support", "req_store.go"),
-		"producePlanView": filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"),
-		"jobCardsView":    filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue"),
-		"producePlanTest": filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.test.js"),
-		"workOrdersTest":  filepath.Join("frontend-vue-shell", "src", "lib", "work-orders.test.js"),
-		"requirements":    filepath.Join("docs", "REQUIREMENTS.md"),
-		"acceptance":      filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
-		"manual":          filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"),
-		"evidence":        filepath.Join("docs", "acceptance", "2026-06-12-job-card-batch-cards.md"),
+		"reqStore":          filepath.Join("internal", "interfaces", "http", "support", "req_store.go"),
+		"producePlanView":   filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"),
+		"capacityWorkspace": filepath.Join("frontend-vue-shell", "src", "components", "ProductionPlanCapacityWorkspace.vue"),
+		"jobCardsView":      filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue"),
+		"producePlanTest":   filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.test.js"),
+		"workOrdersTest":    filepath.Join("frontend-vue-shell", "src", "lib", "work-orders.test.js"),
+		"requirements":      filepath.Join("docs", "REQUIREMENTS.md"),
+		"acceptance":        filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
+		"manual":            filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"),
+		"evidence":          filepath.Join("docs", "acceptance", "2026-06-12-job-card-batch-cards.md"),
 	}
 	contents := map[string]string{}
 	for key, rel := range files {
@@ -33,14 +34,14 @@ func TestDev490JobCardBatchCardsContracts(t *testing.T) {
 		}
 	}
 
+	capacitySource := contents["producePlanView"] + contents["capacityWorkspace"]
 	for _, marker := range []string{
 		"productionPlanSplitBatchCards",
-		"split-batch-cards",
-		"split-batch-card",
-		"不足标准批量",
+		"batch-summary",
+		"尾批",
 	} {
-		if !strings.Contains(contents["producePlanView"], marker) {
-			t.Fatalf("ProducePlanView missing %s", marker)
+		if !strings.Contains(capacitySource, marker) {
+			t.Fatalf("production plan capacity workspace missing %s", marker)
 		}
 		if !strings.Contains(contents["producePlanTest"], marker) {
 			t.Fatalf("produce-plan.test missing %s", marker)
