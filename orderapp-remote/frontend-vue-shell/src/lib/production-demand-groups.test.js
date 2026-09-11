@@ -16,10 +16,10 @@ test('complete plan setup initializes real Vue watchers and keeps group paginati
     if (!modules.has(binding.source)) {
       const module = binding.source === 'vue'
         // Defer browser lifecycle work, but execute actual computed/watch logic.
-        ? { ...Vue, onMounted() {}, onBeforeUnmount() {} }
+        ? { ...Vue, onMounted() {}, onBeforeUnmount() {}, onActivated() {}, onDeactivated() {} }
         : binding.source.endsWith('.vue')
           ? { default: {} }
-          : await import(new URL(binding.source.endsWith('.js') ? binding.source : `${binding.source}.js`, viewURL))
+          : await import(binding.source.startsWith('.') ? new URL(binding.source.endsWith('.js') ? binding.source : `${binding.source}.js`, viewURL) : binding.source)
       modules.set(binding.source, module)
     }
     bindings[name] = modules.get(binding.source)[binding.imported]
@@ -49,7 +49,7 @@ test('complete plan setup initializes real Vue watchers and keeps group paginati
 test('actual gap-review template renders a selection preview without a persisted draft', async () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
   const start = source.indexOf('<section v-if="currentPlanStepKey === \'reviewGap\'"')
-  const end = source.indexOf('\n    <section v-if="currentPlanStepKey === \'scheduleProduction\'"', start)
+  const end = source.indexOf('\n    <!-- Creation ends here;', start)
   const { code, errors } = compileTemplate({ source: source.slice(start, end), filename: 'ProducePlanView.vue', id: 'preview-regression' })
   assert.deepEqual(errors, [])
   const js = code.replace(/import \{([^}]+)\} from "vue"/g, (_, names) => `const {${names.replace(/ as /g, ':')}} = Vue`).replace('export function render', 'function render')
@@ -63,7 +63,7 @@ test('actual gap-review template renders a selection preview without a persisted
     const html = await renderToString(Vue.createSSRApp({ render, setup: () => ({
       currentPlanStepKey: 'reviewGap', reviewConclusion: '本次需要生产 1 个商品规格', reviewConclusionHint: '已核对库存和在产供应',
       reviewProductRows: [], visibleMaterialRows: [], materialFilterOptions: [], materialFilter: 'all',
-      saving: false, previewLoading: false, previewError: '', loadSelectedPlanPreview() {}, returnToDemandSelection() {}, runPlanNextStep() {}, ...state,
+      materialStatusCounts: { manufacture: 0, purchase: 0, waiting: 0, satisfied: 0 }, saving: false, previewLoading: false, previewError: '', loadSelectedPlanPreview() {}, returnToDemandSelection() {}, runPlanNextStep() {}, ...state,
     }) }))
     assert.match(html, /商品缺口/)
     assert.match(html, /生产用料/)
@@ -166,14 +166,4 @@ test('actual demand table renders backend order quantities and customer traceabi
   assert.equal(plan.productionDemandSelectionState(rows, {}).indeterminate, false)
 })
 
-test('refresh with selection query executes the actual mounted callback and requests a preview', async () => {
-  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
-  const start = source.indexOf('onMounted(async () => {') + 'onMounted(async () => {'.length
-  const end = source.indexOf('\n})', start)
-  const selected = {}, filters = {}, calls = [], activePlanningStep = { value: 'selectDemand' }
-  const run = new (Object.getPrototypeOf(async function(){}).constructor)('window','filters','props','selected','load','loadWorkstationCapacities','loadProductionPlans','loadWarehouses','productionDemandStatusFilterValue','defaultProductionDemandStatusFilter','selectedKeys','activePlanningStep',source.slice(start,end))
-  await run({location:{href:'https://example.invalid/app/production?plan=1&selected=v2%3Atest%2C1-227'}},filters,{},selected,async preview => calls.push(preview),async()=>{},async()=>{},async()=>{},plan.productionDemandStatusFilterValue,plan.defaultProductionDemandStatusFilter,()=>Object.keys(selected),activePlanningStep)
-  assert.deepEqual(selected, {'v2:test':true,'1-227':true})
-  assert.deepEqual(calls,[true])
-  assert.equal(activePlanningStep.value, 'reviewGap')
-})
+// Mounted refresh and selection revalidation are covered by production-plan-unified-draft.test.js.

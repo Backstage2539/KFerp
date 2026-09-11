@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-652-PRODUCTION-PLAN-UNIFIED-DRAFT
+- Branch: codex/production-plan-unified-draft-20260911
+- Status: implementation and isolated acceptance complete; full Go gate, Vue 1190/1190, build and API regressions passed; owns develop integration and development deployment.
+- Scope: 创建前两步、统一草稿详情、撤销重建、地址恢复、保存与离开保护、桌面与窄屏 UI。
+- DEV: DEV-652-UNIFIED-DRAFT; DEV-652-CREATION-UI; DEV-652-RECOVERY; DEV-652-DELIVERY.
+- Verifier: actual Vue handlers; isolated PostgreSQL/API lifecycle; Go/Vue tests and build; screenshots.
+- Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
+- Evidence: orderapp-remote/docs/acceptance/2026-09-11-production-plan-unified-draft.md
+- Boundaries: PP-0000000113 read-only; writes only to isolated test data; development only.
+
+
 ### PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE
 - Branch: `codex/production-plan-capacity-ui-20260911`, base `6ce1c5b6`.
 - Owner/session: Codex / 2026-09-11

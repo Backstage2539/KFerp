@@ -20,6 +20,8 @@ const viewScopedParams = [
   'status',
   'plan',
   'selected',
+  'production_plan_id',
+  'planning_step',
   'per_page',
   'warehouse',
   'item_type',

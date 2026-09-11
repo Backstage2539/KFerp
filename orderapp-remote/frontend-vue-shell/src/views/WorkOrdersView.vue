@@ -1,6 +1,10 @@
 <template>
   <div class="page">
     <ProductionTopNav v-if="!props.embedded" active-key="workOrders" />
+    <div v-if="props.viewParams?.return_navigation?.key" class="source-plan-context">
+      <button class="secondary" type="button" @click="returnToSource">{{ props.viewParams.return_navigation.label || '返回来源操作' }}</button>
+    </div>
+    <div v-if="sourcePlanNo" class="source-plan-context">来自生产计划 {{ sourcePlanNo }} · {{ rows.length }} 张工单</div>
 
     <section class="panel no-print">
       <div class="panel-head">
@@ -221,6 +225,7 @@ import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDr
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { formatPercent } from '../lib/manufacturing-loss'
 import { workOrderStatusLabel } from '../lib/manufacturing-execution'
+import { loadProductionPlanWorkOrders } from '../lib/production-plan-work-orders'
 import {
   applicableOperationCapacities,
   buildOperationCapacityAutoSplits,
@@ -253,6 +258,11 @@ const props = defineProps({
 })
 
 const rows = ref([])
+const sourcePlanNo = ref('')
+function returnToSource() {
+  const source = props.viewParams?.return_navigation
+  if (source?.key) window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: source.key, params: source.params || {} } }))
+}
 const workstationCapacities = ref([])
 const status = ref('')
 const loading = ref(false)
@@ -454,10 +464,13 @@ async function load() {
     const url = new URL('/api/produce/work-orders', window.location.origin)
     if (status.value) url.searchParams.set('status', status.value)
     const [data, capacityData] = await Promise.all([
-      apiGet(url),
+      Number(props.viewParams?.production_plan_id || 0) > 0
+        ? loadProductionPlanWorkOrders(apiGet, props.viewParams.production_plan_id, status.value)
+        : apiGet(url),
       apiGet('/api/manufacturing-workstation-capacities'),
     ])
     rows.value = data.rows || []
+    sourcePlanNo.value = data.plan_no || ''
     workstationCapacities.value = capacityData.rows || []
   } catch (err) {
     error.value = err.message || '加载失败'

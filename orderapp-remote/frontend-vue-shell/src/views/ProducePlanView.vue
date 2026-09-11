@@ -1,7 +1,7 @@
 <template>
   <div
     class="page"
-    :class="{ 'detail-open': !!(productionPlanDetail || productionPlanSplitDrawer) }"
+    :class="{ 'detail-open': !!(productionPlanDetail || productionPlanSplitDrawer), embedded: props.embedded }"
     @pointerdown="startTableScrollDrag"
     @pointermove="moveTableScrollDrag"
     @pointerup="stopTableScrollDrag"
@@ -41,6 +41,8 @@
         :error="productionPlanDetailError"
         :saving="productionPlanDetailSaving || saving"
         :dirty="productionPlanDetailDirty"
+        :notice="notice"
+        @reload="reloadProductionPlanDetail"
         @back="closeProductionPlanDetail"
         @save="saveProductionPlanDetailDraft"
         @submit="submitProductionPlanDetail"
@@ -56,8 +58,8 @@
     <section class="panel plan-page-head">
       <div class="panel-head">
         <div>
-          <h1>生产计划</h1>
-          <p>先选择订单需求，再核对商品和生产用料缺口，最后安排生产。</p>
+          <div class="creation-title"><h1>新建生产计划</h1><span class="creation-badge">尚未创建草稿</span></div>
+          <p>选择订单需求，核对缺口后创建草稿，再完善生产安排。</p>
         </div>
         <div class="panel-head-actions">
           <button class="secondary" type="button" @click="scrollToPlanRecords">计划记录</button>
@@ -75,29 +77,7 @@
         </div>
         <button class="secondary" type="button" @click="openShipReadyOrders">去订单列表直接发货</button>
       </div>
-      <details class="advanced-filters">
-        <summary>筛选需求</summary>
-        <div class="filters">
-        <label>
-          <span>开始日期</span>
-          <input v-model.trim="filters.from" placeholder="YYYY-MM-DD" />
-        </label>
-        <label>
-          <span>结束日期</span>
-          <input v-model.trim="filters.to" placeholder="YYYY-MM-DD" />
-        </label>
-        <label>
-          <span>客户ID</span>
-          <input v-model.trim="filters.customer_id" placeholder="例如 123" />
-        </label>
-        <label>
-          <span>需求状态</span>
-          <select v-model="demandStatusFilter" aria-label="需求状态：全部 / 待计划 / 生产中 / 生产完成" @change="load(false)">
-            <option v-for="option in demandStatusOptions" :key="option.value || 'all'" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
-        </div>
-      </details>
+
     </section>
 
     <section v-if="stockPlanningOpen" class="panel">
@@ -130,8 +110,37 @@
       </div>
     </section>
 
+    <section class="creation-summary" aria-label="本次计划摘要">
+      <IconClipboardList :size="28" aria-hidden="true" />
+      <div><strong>{{ currentPlanStepKey === 'reviewGap' ? reviewConclusion : selectedDemandGroups.length ? '本次已选 ' + selectedQuantityLabel : '选择本次需要生产的订单需求' }}</strong>
+      <span>{{ selectedDemandGroups.length }} 个商品 · {{ selectedSpecCount }} 种规格 · {{ creationOrderCount }} 张订单{{ currentPlanStepKey === 'reviewGap' ? ' · 库存与在产已分开核对' : '' }}</span></div>
+    </section>
+
     <section v-if="currentPlanStepKey === 'selectDemand'" class="planning-workbench demand-selection-workspace">
       <section class="panel demand-panel">
+      <details class="advanced-filters">
+        <summary>筛选需求</summary>
+        <div class="filters">
+        <label>
+          <span>开始日期</span>
+          <input v-model.trim="filters.from" placeholder="YYYY-MM-DD" />
+        </label>
+        <label>
+          <span>结束日期</span>
+          <input v-model.trim="filters.to" placeholder="YYYY-MM-DD" />
+        </label>
+        <label>
+          <span>客户ID</span>
+          <input v-model.trim="filters.customer_id" placeholder="例如 123" />
+        </label>
+        <label>
+          <span>需求状态</span>
+          <select v-model="demandStatusFilter" aria-label="需求状态：全部 / 待计划 / 生产中 / 生产完成" @change="load(false)">
+            <option v-for="option in demandStatusOptions" :key="option.value || 'all'" :value="option.value">{{ option.label }}</option>
+          </select>
+        </label>
+        </div>
+      </details>
         <div class="panel-head">
           <div class="section-title section-title-with-checkbox">
             <input
@@ -162,20 +171,19 @@
                 <th>需求数量</th>
                 <th>可用库存</th>
                 <th>缺口</th>
-                <th>状态</th>
-                <th>关联计划</th>
+                <th>状态 / 关联计划</th>
               </tr>
             </thead>
             <tbody>
               <template v-for="group in pagedDemandGroups" :key="group.key">
-                <tr class="demand-product-row">
+                <tr class="demand-product-row" :class="{ 'row-selected': productionDemandSelectionState(group.rows, selected).selectedCount > 0 }">
                   <td><input type="checkbox" :aria-label="`选择商品 ${group.product}`" :checked="productionDemandSelectionState(group.rows, selected).checked" :indeterminate="productionDemandSelectionState(group.rows, selected).indeterminate" :aria-checked="productionDemandSelectionState(group.rows, selected).indeterminate ? 'mixed' : String(productionDemandSelectionState(group.rows, selected).checked)" :disabled="!productionDemandSelectionState(group.rows, selected).total" @change="toggleDemandGroup(group.rows, $event.target.checked)" /></td>
                   <td><button class="secondary compact" type="button" :aria-expanded="!collapsedDemandGroups[group.key]" @click="collapsedDemandGroups[group.key] = !collapsedDemandGroups[group.key]">{{ collapsedDemandGroups[group.key] ? '展开' : '收起' }} {{ group.product }}</button></td>
                   <td class="demand-orders">{{ group.order_nos }}</td>
-                  <td>{{ group.specs.length }} 种规格</td><td>{{ group.need_label }}<small v-if="group.need_weight_label">{{ group.need_weight_label }}</small></td><td>{{ group.available_label }}</td><td><strong>{{ group.gap_label }}</strong></td><td colspan="2"></td>
+                  <td>{{ group.specs.length }} 种规格</td><td>{{ group.need_label }}<small v-if="group.need_weight_label">{{ group.need_weight_label }}</small></td><td>{{ group.available_label }}</td><td><strong>{{ group.gap_label }}</strong></td><td></td>
                 </tr>
                 <template v-if="!collapsedDemandGroups[group.key]">
-                  <tr v-for="spec in group.specs" :key="spec.key">
+                  <tr v-for="spec in group.specs" :key="spec.key" :class="{ 'row-selected': productionDemandSelectionState(spec.rows, selected).selectedCount > 0 }">
                     <td><input type="checkbox" :aria-label="`选择规格 ${group.product} ${spec.label}`" :checked="productionDemandSelectionState(spec.rows, selected).checked" :indeterminate="productionDemandSelectionState(spec.rows, selected).indeterminate" :aria-checked="productionDemandSelectionState(spec.rows, selected).indeterminate ? 'mixed' : String(productionDemandSelectionState(spec.rows, selected).checked)" :disabled="!productionDemandSelectionState(spec.rows, selected).total" @change="toggleDemandGroup(spec.rows, $event.target.checked)" /></td>
                     <td class="muted">{{ group.product }}</td>
                     <td class="demand-orders"><details><summary>{{ spec.order_nos || '订单明细' }}</summary>
@@ -186,7 +194,7 @@
                       </div>
                     </details></td>
                     <td>{{ spec.label }}</td><td>{{ spec.need_label }}<small v-if="spec.need_weight_label">{{ spec.need_weight_label }}</small></td><td>{{ spec.available_label }}</td><td><strong>{{ spec.gap_label }}</strong></td>
-                    <td colspan="2" class="demand-status-cell">
+                    <td class="demand-status-cell">
                       <span v-for="status in [...new Set(spec.rows.map(row => row.blocking_reason ? '配置异常' : productionDemandStatusLabel(row.demand_status)))]" :key="status" class="status">{{ status }}</span>
                       <p v-for="reason in productionDemandBlockingReasons(spec.rows)" :key="reason" class="demand-blocking-reason">{{ reason }}</p>
                     </td>
@@ -194,31 +202,29 @@
                 </template>
               </template>
               <tr v-if="!filteredStockInsufficientRows.length">
-                <td colspan="9" class="muted">{{ demandPanelEmptyText }}</td>
+                <td colspan="8" class="muted">{{ demandPanelEmptyText }}</td>
               </tr>
             </tbody>
           </table>
         </div>
         <PaginationControls v-model:page="demandPage" v-model:page-size="demandPageSize" :total="demandGroups.length" />
-        <div class="workspace-actions">
-          <span>已选择 {{ insufficientSelection.selectedCount }} 项需求</span>
-          <button class="primary" type="button" :disabled="!hasSelectedRows || previewLoading" @click="runPlanNextStep">
-            下一步：核对缺口
-          </button>
-        </div>
       </section>
-
+      <aside class="creation-sidebar">
+        <div class="sidebar-heading"><h2>本次选择</h2><span>{{ selectedSpecCount }} 种规格</span></div>
+        <p>按商品规格核对，需要时可以移除。</p>
+        <div v-if="!selectedSpecCount" class="selection-empty">还没有选择需求<br /><small>勾选左侧商品或规格开始</small></div>
+        <template v-for="group in selectedDemandGroups" :key="group.key">
+          <article v-for="spec in group.specs" :key="spec.key" class="selected-spec">
+            <div><strong>{{ group.product }}</strong><span>{{ spec.label }} · {{ spec.need_label }}</span><small>{{ spec.order_nos }}</small></div>
+            <button type="button" class="text-action" :disabled="saving" :aria-label="`移除 ${group.product} ${spec.label}`" @click="toggleDemandGroup(spec.rows, false)">移除</button>
+          </article>
+        </template>
+        <div class="sidebar-note"><IconCheck :size="18" aria-hidden="true" /><span>这里的选择还没有生成单据。下一步先核对库存和生产缺口。</span></div>
+      </aside>
     </section>
 
     <section v-if="currentPlanStepKey === 'reviewGap'" class="gap-review-workspace">
-      <section class="panel gap-conclusion">
-        <span class="gap-conclusion-icon">!</span>
-        <div>
-          <strong>{{ reviewConclusion }}</strong>
-          <p>{{ reviewConclusionHint }}</p>
-        </div>
-      </section>
-
+      <div class="gap-review-main">
       <section class="panel gap-section">
         <div class="gap-section-head">
           <div>
@@ -233,7 +239,7 @@
         </div>
         <div v-if="previewLoading" class="muted preview-loading">正在核对库存、在产供应和生产用料...</div>
         <div v-else class="table-wrap drag-scroll-wrap" aria-label="商品缺口表格">
-          <table class="gap-product-table">
+          <table class="gap-product-table" data-auto-pagination="off">
             <thead><tr><th>商品</th><th>规格</th><th>订单需求</th><th>现货覆盖</th><th>待生产</th><th>关联订单</th></tr></thead>
             <tbody>
               <tr v-for="row in reviewProductRows" :key="row.key">
@@ -270,7 +276,7 @@
           </div>
         </div>
         <div class="table-wrap drag-scroll-wrap" aria-label="生产用料缺口表格">
-          <table class="gap-material-table">
+          <table class="gap-material-table" data-auto-pagination="off">
             <thead><tr><th>生产用料</th><th>用于</th><th>需要数量</th><th>现货覆盖</th><th>在产覆盖</th><th>剩余缺口</th><th>处理方式</th></tr></thead>
             <tbody>
               <tr v-for="row in visibleMaterialRows" :key="row.key">
@@ -288,71 +294,24 @@
         </div>
       </section>
 
-      <div class="workspace-actions gap-review-actions">
-        <button class="secondary" type="button" @click="returnToDemandSelection">返回修改需求</button>
-        <button class="primary" type="button" :disabled="saving || previewLoading || !reviewProductRows.length" @click="runPlanNextStep">下一步：安排生产</button>
       </div>
+      <aside class="creation-sidebar">
+        <div class="sidebar-heading"><h2>创建前核对</h2><span>预览</span></div>
+        <p>核对生产结论，再创建草稿完善安排。</p>
+        <article :class="['review-check', { warning: !!previewError }]">
+          <IconAlertCircle v-if="previewError" :size="21" /><IconCheck v-else :size="21" />
+          <div><strong>订单与生产配置</strong><span>{{ previewLoading ? '正在核对…' : previewError ? '需要处理配置或刷新重试' : reviewProductRows.length ? '已核对，可创建草稿' : '暂无可创建的生产需求' }}</span></div>
+        </article>
+        <article class="review-check"><IconClipboardList :size="21" /><div><strong>需制造</strong><span>{{ materialStatusCounts.manufacture }} 项用料将安排生产</span></div></article>
+        <article :class="['review-check', { warning: materialStatusCounts.purchase > 0 }]"><IconAlertCircle :size="21" /><div><strong>待补料</strong><span>{{ materialStatusCounts.purchase }} 项，可先创建草稿，开工前补齐</span></div></article>
+        <article class="review-check"><IconCheck :size="21" /><div><strong>库存或在产覆盖</strong><span>{{ materialStatusCounts.satisfied + materialStatusCounts.waiting }} 项，无需重复安排</span></div></article>
+        <div class="sidebar-note">创建后可设置用料来源、工位和批次，提交后才会生成工单。</div>
+      </aside>
     </section>
 
-    <section v-if="currentPlanStepKey === 'scheduleProduction'" class="schedule-workspace">
-      <section class="panel schedule-summary">
-        <div class="panel-head">
-          <div>
-            <span class="eyebrow">生产计划草稿</span>
-            <h2>{{ currentPlan?.plan_no || '待创建草稿' }}</h2>
-            <p>{{ reviewConclusion }}</p>
-          </div>
-          <span v-if="currentPlan" :class="['status', `status-${productionPlanStatusTone(currentPlan.status)}`]">{{ productionPlanStatusLabel(currentPlan.status) }}</span>
-        </div>
-        <div v-if="previewError" class="error">{{ previewError }}</div>
-        <div class="schedule-metrics">
-          <div><span>商品规格</span><strong>{{ reviewProductRows.length }}</strong></div>
-          <div><span>需制造用料</span><strong>{{ materialStatusCounts.manufacture }}</strong></div>
-          <div><span>库存满足用料</span><strong>{{ materialStatusCounts.satisfied }}</strong></div>
-          <div><span>工序安排</span><strong>{{ operationSplits.length ? '已安排' : '待安排' }}</strong></div>
-        </div>
-        <ProductionSupplyAllocations :rows="currentPlan?.supply_allocations || previewSupplyAllocations" />
-        <div v-if="currentPlanDraft && (currentPlan?.component_sources || []).length" class="schedule-source-section">
-          <div class="section-title">领料来源</div>
-          <p class="muted">确认每项生产用料从哪个仓库和货主领用，提交后冻结。</p>
-          <div class="table-wrap drag-scroll-wrap" aria-label="生产用料来源仓表格">
-            <table class="component-source-table">
-              <thead><tr><th>计划产出</th><th>生产用料</th><th>需要数量</th><th>来源仓库与货主</th><th>可用 / 缺口</th><th>操作</th></tr></thead>
-              <tbody>
-                <tr v-for="source in currentPlan.component_sources || []" :key="componentSourceKey(source)">
-                  <td>{{ componentSourcePlanItemLabel(currentPlan, source) }}</td>
-                  <td>{{ source.component_name || '-' }}</td>
-                  <td>{{ componentSourceRequiredLabel(source) }}</td>
-                  <td>
-                    <select :value="componentSourceSelectedKey(source)" :disabled="componentSourceSavingID === Number(source.id || 0)" @change="selectComponentSourceOption(source, $event.target.value)">
-                      <option value="">请选择来源仓库和货主</option>
-                      <option v-for="option in source.options || []" :key="componentSourceOptionKey(option)" :value="componentSourceOptionKey(option)">{{ componentSourceOptionLabel(option) }}</option>
-                    </select>
-                  </td>
-                  <td>{{ componentSourceAvailabilityLabel(source) }}</td>
-                  <td><button class="secondary compact" type="button" @click="saveProductionPlanComponentSource(currentPlan, source, 'current')" :disabled="componentSourceSavingID === Number(source.id || 0) || !source.source_warehouse">保存</button></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="workspace-actions schedule-actions">
-          <button class="secondary" type="button" :disabled="saving" @click="beginDraftRecalculation">返回修改需求</button>
-          <button v-if="currentPlanDraft" class="secondary" type="button" :disabled="saving" @click="refreshPlanSupply(currentPlan, 'current')">刷新库存和在产</button>
-          <button v-if="currentPlanDraft" class="secondary" type="button" :disabled="saving" @click="openCurrentPlanSplitDrawer">{{ operationSplits.length ? '调整生产安排' : '安排生产' }}</button>
-          <button v-if="currentPlanDraft" class="primary" type="button" :disabled="saving || !operationSplits.length" @click="submitCurrentProductionPlan">提交并生成工单</button>
-          <button v-else class="primary" type="button" @click="navigateProductionView('workOrders')">查看生产工单</button>
-          <button v-if="currentPlanDraft" class="danger" type="button" :disabled="saving || loading" @click="cancelProductionPlanDraft(currentPlan, 'current')">撤销草稿</button>
-        </div>
-        <p v-if="currentPlanDraft && !operationSplits.length" class="schedule-help">请先安排工位和生产批次，再提交生成工单。</p>
-      </section>
-      <div v-if="postSubmitActions.length" class="next-step-panel">
-        <strong>工单已生成</strong>
-        <button v-for="action in postSubmitActions" :key="action.key" class="secondary compact" type="button" @click="openPostSubmitAction(action)">{{ action.label }}</button>
-      </div>
-    </section>
+    <!-- Creation ends here; every saved plan uses the detail workspace above. -->
 
-    <section class="panel">
+    <section v-if="stockSufficientRows.length" class="panel">
       <div class="section-title">库存充足（只提示）</div>
       <div class="muted section-hint">以下订单已有成品库存覆盖，不进入生产计划；录单时确认使用批次后会进入库存待发货。</div>
       <div class="table-wrap drag-scroll-wrap" aria-label="库存充足商品横向滚动表格">
@@ -388,7 +347,7 @@
       </div>
     </section>
 
-    <section class="panel" data-plan-records>
+    <section v-if="planRecordsOpen" class="panel" id="plan-records" data-plan-records>
       <div class="panel-head">
         <h2>生产计划单据</h2>
         <button class="secondary" type="button" @click="loadProductionPlans" :disabled="loading">刷新单据</button>
@@ -453,7 +412,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="plan in productionPlans" :key="plan.id">
+            <tr v-for="plan in productionPlans" :key="plan.id" :id="'production-plan-record-' + plan.id" :class="{ 'row-selected': Number(plan.id) === lastViewedProductionPlanID }">
               <td>
                 <input
                   class="bulk-checkbox"
@@ -721,14 +680,23 @@
         </template>
       </aside>
     </div>
+    <footer v-if="!productionPlanDetail && !productionPlanSplitDrawer" class="creation-footer">
+      <div><strong>{{ currentPlanStepKey === 'reviewGap' ? '尚未创建草稿' : selectedSpecCount ? '已选择 ' + selectedSpecCount + ' 种规格 · ' + creationOrderCount + ' 张订单' : '请选择本次需要生产的需求' }}</strong>
+      <span>{{ currentPlanStepKey === 'reviewGap' ? '创建后设置用料来源、工位和批次，提交后生成工单。' : '先核对缺口，再创建生产计划草稿。' }}</span></div>
+      <div class="creation-footer-actions">
+        <button v-if="currentPlanStepKey === 'reviewGap'" class="secondary" type="button" :disabled="saving" @click="returnToDemandSelection">返回选需求</button>
+        <button class="primary" type="button" :disabled="saving || previewLoading || loading || !hasSelectedRows || (currentPlanStepKey === 'reviewGap' && (!reviewProductRows.length || !!previewError))" @click="runPlanNextStep">{{ saving ? '正在创建草稿…' : currentPlanStepKey === 'reviewGap' ? '创建草稿并编辑' : '下一步：核对缺口' }}<IconChevronRight :size="17" aria-hidden="true" /></button>
+      </div>
+    </footer>
   </div>
 </template>
 
 <script setup>
+import { IconClipboardList, IconChevronRight, IconAlertCircle, IconCheck } from '@tabler/icons-vue'
 import ProductionSupplyAllocations from '../components/ProductionSupplyAllocations.vue'
 import ProductionPlanDetailWorkspace from '../components/ProductionPlanDetailWorkspace.vue'
 import ProductionPlanCapacityWorkspace from '../components/ProductionPlanCapacityWorkspace.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
@@ -769,8 +737,6 @@ import {
   productionGapProductRows,
   productionGapMaterialRows,
   productionGapConclusion,
-  productionPlanDraftUpdateEndpoint,
-  buildProductionPlanDraftUpdatePayload,
   productionPlanBatchSubmitEndpoint,
   productionPlanCancelEndpoint,
   productionPlanCancelTargetsCurrentPlan,
@@ -794,7 +760,7 @@ import {
   producePlanKey,
 } from '../lib/produce-plan'
 import { formatWorkOrderTypedOutput } from '../lib/work-orders'
-import { replaceHistoryURL } from '../lib/url-state'
+import { relativeURLForHistory, replaceHistoryURL } from '../lib/url-state'
 import { visibleRowsForProductSpecMigration } from '../lib/product-spec-cutover'
 import {
   normalizeCapacityCostMethod,
@@ -823,7 +789,6 @@ const previewSupplyAllocations = ref([])
 const manufacturingPlan = ref({ nodes: [], edges: [] })
 const productionPlans = ref([])
 const currentPlan = ref(null)
-const draftBeingEdited = ref(null)
 const activePlanningStep = ref('selectDemand')
 const demandKeyword = ref('')
 const materialFilter = ref('all')
@@ -834,7 +799,10 @@ const stockPreview = ref(null)
 const stockPlanningError = ref('')
 let stockRequestID = ''
 let planCreateRequestID = ''
-let planUpdateRequestID = ''
+let restoringPlanningLocation = false
+let planningViewActive = true
+let detailRequestSeq = 0
+let lastPlanningURL = ''
 function invalidateStockPreview() { stockPreview.value = null; stockRequestID = '' }
 function stockTargetUnit(target) { return stockMaterials.value.find((m) => m.id === target.output_material_id)?.unit || '按物料档案' }
 async function openStockPlanning() {
@@ -847,11 +815,13 @@ async function previewStockPlanning() {
  try { stockPreview.value = await apiSend('/api/production-plans/preview', { body: stockPlanningPayload() }); stockRequestID = crypto.randomUUID() } catch(err) { stockPreview.value = null; stockPlanningError.value = err.message || '备货预览失败' } finally { previewLoading.value = false }
 }
 async function createStockPlanning() {
+ if (saving.value) return
  saving.value = true; stockPlanningError.value = ''
  try {
   currentPlan.value = await apiSend('/api/production-plans', { body: { ...stockPlanningPayload(), request_id: stockRequestID } })
   replaceSelected({}); planRows.value = []; manufacturingPlan.value = currentPlan.value
-  await loadProductionPlans(); await openCurrentPlanSplitDrawer(); stockPlanningOpen.value = false; invalidateStockPreview()
+  const created = currentPlan.value
+  await openProductionPlanDetail(created); await loadProductionPlans(); stockPlanningOpen.value = false; invalidateStockPreview()
  } catch(err) { stockPlanningError.value = err.message || '创建备货草稿失败' } finally { saving.value = false }
 }
 const warehouses = ref([])
@@ -859,11 +829,14 @@ const targetWarehouseSavingItemID = ref(0)
 const componentSourceSavingID = ref(0)
 const workstationCapacities = ref([])
 const operationSplits = ref([])
-const productionPlanDetail = ref(null)
-const productionPlanDetailLoading = ref(false)
+const initialProductionPlanID = typeof window === 'undefined' ? 0 : Number(new URL(window.location.href).searchParams.get('production_plan_id') || 0)
+const productionPlanDetail = ref(initialProductionPlanID > 0 ? { id: initialProductionPlanID, items: [] } : null)
+const productionPlanDetailLoading = ref(initialProductionPlanID > 0)
 const productionPlanDetailError = ref('')
 const productionPlanDetailSaving = ref(false)
 const productionPlanDetailSavedFingerprint = ref('')
+const planRecordsOpen = ref(false)
+const lastViewedProductionPlanID = ref(0)
 const productionPlanSplitDrawer = ref(null)
 const productionPlanSplitReturnTarget = ref('')
 const productionPlanSplitDrawerLoading = ref(false)
@@ -890,6 +863,7 @@ const selectedProductionPlans = reactive({})
 let previewTimer = 0
 let previewRequestSeq = 0
 let demandRequestSeq = 0
+let planningLocationRequestSeq = 0
 let productionPlanSplitPreviewTimer = 0
 let productionPlanSplitPreviewRequestSeq = 0
 const tableScrollDrag = {
@@ -963,6 +937,13 @@ const filteredStockInsufficientRows = computed(() => {
   ].some((value) => String(value || '').toLocaleLowerCase('zh-CN').includes(keyword)))
 })
 const demandGroups = computed(() => groupProductionDemands(filteredStockInsufficientRows.value))
+const selectedDemandGroups = computed(() => groupProductionDemands(rows.value.filter(isProductionDemandSelected)))
+const selectedSpecCount = computed(() => selectedDemandGroups.value.reduce((count, group) => count + group.specs.length, 0))
+const selectedQuantityLabel = computed(() => productionSalesQuantityLabel(rows.value.filter(isProductionDemandSelected)))
+const creationOrderCount = computed(() => new Set(rows.value.filter(isProductionDemandSelected).flatMap(row => [
+  ...String(row.order_nos || '').split(/[、,]/).filter(Boolean),
+  ...(row.order_details || []).map(detail => detail.order_no).filter(Boolean),
+])).size)
 const pagedDemandGroups = computed(() => demandGroups.value.slice((demandPage.value - 1) * demandPageSize.value, demandPage.value * demandPageSize.value))
 watch(() => demandGroups.value.length, total => { demandPage.value = Math.min(demandPage.value, Math.max(1, Math.ceil(total / demandPageSize.value))) })
 const insufficientSelection = computed(() => productionDemandSelectionState(filteredStockInsufficientRows.value, selected))
@@ -981,7 +962,6 @@ const selectedSignature = computed(() => selectedKeys().join('|'))
 const activeWorkstationCapacities = computed(() => workstationCapacities.value.filter((row) => String(row.status || 'active') === 'active'))
 const planSteps = productionPlanSteps()
 const currentPlanStepKey = computed(() => {
-  if (currentPlan.value) return 'scheduleProduction'
   if (activePlanningStep.value === 'reviewGap' && hasSelectedRows.value) return 'reviewGap'
   return 'selectDemand'
 })
@@ -1035,26 +1015,116 @@ function replaceSelectedProductionPlans(nextSelected) {
   Object.assign(selectedProductionPlans, nextSelected)
 }
 
-function updateUrl(plan) {
+function updateUrl() {
+  if (!restoringPlanningLocation) writePlanningLocation()
+}
+
+function writePlanningLocation({ plan = productionPlanDetail.value, history = 'replace', records = false } = {}) {
   const url = new URL(window.location.href)
   if (!props.embedded) url.searchParams.set('view', 'producePlan')
-  if (filters.from) url.searchParams.set('from', filters.from)
-  else url.searchParams.delete('from')
-  if (filters.to) url.searchParams.set('to', filters.to)
-  else url.searchParams.delete('to')
-  if (filters.customer_id) url.searchParams.set('customer_id', filters.customer_id)
-  else url.searchParams.delete('customer_id')
-  if (filters.demand_status) url.searchParams.set('demand_status', filters.demand_status)
-  else url.searchParams.delete('demand_status')
-  const keys = selectedKeys()
-  if (plan && keys.length) {
-    url.searchParams.set('plan', '1')
-    url.searchParams.set('selected', keys.join(','))
-  } else {
-    url.searchParams.delete('plan')
-    url.searchParams.delete('selected')
+  for (const key of ['from', 'to', 'customer_id', 'demand_status']) {
+    if (filters[key]) url.searchParams.set(key, filters[key])
+    else url.searchParams.delete(key)
   }
-  replaceHistoryURL(url)
+  for (const key of ['plan', 'selected', 'planning_step']) url.searchParams.delete(key)
+  if (Number(plan?.id) > 0) {
+    url.searchParams.set('production_plan_id', String(plan.id))
+    url.hash = ''
+  } else {
+    url.searchParams.delete('production_plan_id')
+    const keys = selectedKeys()
+    if (keys.length) url.searchParams.set('selected', keys.join(','))
+    url.searchParams.set('planning_step', currentPlanStepKey.value)
+    if (currentPlanStepKey.value === 'reviewGap' && keys.length) url.searchParams.set('plan', '1')
+    url.hash = records ? 'plan-records' : ''
+  }
+  if (history === 'push' && url.href !== window.location.href) window.history.pushState({}, '', relativeURLForHistory(url))
+  else replaceHistoryURL(url)
+  lastPlanningURL = url.href
+}
+
+function stopCreationPreview() {
+  previewRequestSeq += 1
+  demandRequestSeq += 1
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = 0
+  previewLoading.value = false
+  loading.value = false
+}
+
+function hasUnsavedPlanningChanges() {
+  return productionPlanDetailDirty.value || (productionPlanSplitDrawer.value && productionPlanSplitDirty.value)
+}
+
+function confirmPlanningLeave() {
+  if (saving.value || productionPlanDetailSaving.value || productionPlanSplitDrawerSaving.value) {
+    window.alert('正在保存或提交，请完成后再离开。')
+    return false
+  }
+  return !hasUnsavedPlanningChanges() || window.confirm('当前生产计划有未保存修改，离开将丢弃这些修改。确认离开吗？')
+}
+
+function handlePlanningBeforeUnload(event) {
+  if (!planningViewActive || (!hasUnsavedPlanningChanges() && !saving.value && !productionPlanDetailSaving.value && !productionPlanSplitDrawerSaving.value)) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+function handlePlanningNavigation(event) {
+  if (planningViewActive && !confirmPlanningLeave()) {
+    event.preventDefault()
+    event.stopImmediatePropagation()
+  }
+}
+
+async function handlePlanningPopState() {
+  if (!planningViewActive) return
+  if (!confirmPlanningLeave()) {
+    if (lastPlanningURL) replaceHistoryURL(new URL(lastPlanningURL))
+    return
+  }
+  await restorePlanningLocation()
+}
+
+async function restorePlanningLocation() {
+  const requestID = ++planningLocationRequestSeq
+  detailRequestSeq += 1
+  const url = new URL(window.location.href)
+  const planID = url.searchParams.get('production_plan_id')
+  restoringPlanningLocation = true
+  stopCreationPreview()
+  closeProductionPlanSplitDrawer(true)
+  productionPlanDetail.value = null
+  productionPlanDetailSavedFingerprint.value = ''
+  currentPlan.value = null
+  replaceSelected({})
+  filters.from = url.searchParams.get('from') || ''
+  filters.to = url.searchParams.get('to') || ''
+  filters.customer_id = String(props.viewParams?.customer_id || props.customerContextId || url.searchParams.get('customer_id') || '')
+  filters.demand_status = productionDemandStatusFilterValue(url.searchParams.get('demand_status'), defaultProductionDemandStatusFilter())
+  try {
+    if (planID) {
+      if (!/^[1-9]\d*$/.test(planID)) {
+        error.value = '生产计划链接无效，请从计划记录重新打开。'
+        return
+      }
+      await openProductionPlanDetail({ id: Number(planID) }, { history: 'replace' })
+    } else {
+      const requested = (url.searchParams.get('selected') || '').split(',').filter(Boolean)
+      replaceSelected(Object.fromEntries(requested.map(key => [key, true])))
+      activePlanningStep.value = url.searchParams.get('planning_step') === 'reviewGap' || url.searchParams.get('plan') === '1' ? 'reviewGap' : 'selectDemand'
+      await load(activePlanningStep.value === 'reviewGap')
+      if (requestID !== planningLocationRequestSeq) return
+      if (requested.length > selectedKeys().length) notice.value = '部分需求已计划、已满足或状态发生变化，已移出本次选择，请重新核对。'
+      if (!selectedKeys().length) activePlanningStep.value = 'selectDemand'
+    }
+    await nextTick()
+  } finally {
+    if (requestID === planningLocationRequestSeq) {
+      restoringPlanningLocation = false
+      writePlanningLocation({ records: url.hash === '#plan-records' })
+    }
+  }
 }
 
 function buildUnproducedURL(plan, keys = selectedKeys()) {
@@ -1069,7 +1139,7 @@ function applyUnproducedData(data, plan) {
   previewSupplyAllocations.value = data.preview?.supply_allocations || []
   manufacturingPlan.value = data.preview?.manufacturing_plan || data.multilevel_plan || data.manufacturing_plan || { nodes: data.manufacturing_nodes || [], edges: data.manufacturing_edges || [] }
   if (plan && data.error) previewError.value = data.error
-  if (data.selected) {
+  if (plan && data.selected) {
     Object.keys(selected).forEach((key) => delete selected[key])
     for (const key of Object.keys(data.selected)) {
       if (data.selected[key]) selected[key] = true
@@ -1080,6 +1150,7 @@ function applyUnproducedData(data, plan) {
 }
 
 async function load(plan) {
+  if (productionPlanDetail.value || productionPlanSplitDrawer.value) return
   const requestID = ++demandRequestSeq
   loading.value = true
   error.value = ''
@@ -1099,6 +1170,7 @@ async function load(plan) {
 }
 
 async function loadSelectedPlanPreview() {
+  if (productionPlanDetail.value || productionPlanSplitDrawer.value) return
   const keys = selectedKeys()
   previewError.value = ''
   if (!keys.length) {
@@ -1126,6 +1198,7 @@ async function loadSelectedPlanPreview() {
 }
 
 function schedulePlanPreview() {
+  if (productionPlanDetail.value || productionPlanSplitDrawer.value) return
   if (previewTimer) clearTimeout(previewTimer)
   previewTimer = setTimeout(() => {
     previewTimer = 0
@@ -1288,8 +1361,8 @@ async function refreshProductionDemandAfterDraftCancel(preserveCurrentPlan = fal
 }
 
 function resetCurrentPlanForSelection() {
+  if (productionPlanDetail.value || restoringPlanningLocation) return
   planCreateRequestID = ''
-  planUpdateRequestID = ''
   currentPlan.value = null
   operationSplits.value = []
   previewError.value = ''
@@ -1706,27 +1779,58 @@ function workOrderStatusLabel(status) {
   return map[String(status || '').trim()] || status || '-'
 }
 
-async function openProductionPlanDetail(plan) {
+async function openProductionPlanDetail(plan, { history = 'push' } = {}) {
   if (!productionPlanDetailEndpoint(plan)) return
+  if (productionPlanDetail.value && Number(plan.id) !== Number(productionPlanDetail.value.id) && !confirmPlanningLeave()) return
+  stopCreationPreview()
+  const requestID = ++detailRequestSeq
   productionPlanDetail.value = { ...plan, items: [], material_summary: [], related_work_orders: [], job_card_count: 0 }
+  currentPlan.value = null
+  replaceSelected({})
+  planRows.value = []
+  initialMaterials.value = []
+  operationSplits.value = []
+  manufacturingPlan.value = { nodes: [], edges: [] }
   productionPlanDetailSavedFingerprint.value = ''
   productionPlanDetailLoading.value = true
   productionPlanDetailError.value = ''
+  writePlanningLocation({ plan, history })
+  await nextTick()
+  document.querySelector('.production-plan-workspace-shell')?.scrollIntoView({ block: 'start' })
   try {
-    productionPlanDetail.value = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
-    productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(productionPlanDetail.value))
+    const detail = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
+    if (requestID !== detailRequestSeq) return
+    productionPlanDetail.value = detail
+    productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(detail))
   } catch (err) {
-    productionPlanDetailError.value = err.message || '加载生产计划单据详情失败'
+    if (requestID === detailRequestSeq) productionPlanDetailError.value = err.message || '加载生产计划单据详情失败'
   } finally {
-    productionPlanDetailLoading.value = false
+    if (requestID === detailRequestSeq) productionPlanDetailLoading.value = false
   }
 }
 
-function closeProductionPlanDetail(force = false) {
-  if (!force && productionPlanDetailDirty.value && !window.confirm('当前生产计划还有未保存修改，确认返回吗？')) return
+async function reloadProductionPlanDetail() {
+  if (!productionPlanDetail.value || !confirmPlanningLeave()) return
+  await openProductionPlanDetail(productionPlanDetail.value, { history: 'replace' })
+}
+
+async function closeProductionPlanDetail(force = false, records = true) {
+  if (!force && !confirmPlanningLeave()) return
+  lastViewedProductionPlanID.value = Number(productionPlanDetail.value?.id || 0)
+  detailRequestSeq += 1
   productionPlanDetail.value = null
   productionPlanDetailError.value = ''
   productionPlanDetailSavedFingerprint.value = ''
+  currentPlan.value = null
+  activePlanningStep.value = 'selectDemand'
+  notice.value = ''
+  writePlanningLocation({ plan: null, history: 'push', records })
+  await Promise.all([load(false), loadProductionPlans()])
+  if (records) {
+    await nextTick()
+    writePlanningLocation({ plan: null, records: true })
+    scrollToPlanRecords()
+  }
 }
 
 function changeProductionPlanDetailWarehouse(itemID, warehouse) {
@@ -1735,6 +1839,7 @@ function changeProductionPlanDetailWarehouse(itemID, warehouse) {
 }
 
 async function saveProductionPlanDetailDraft() {
+  if (productionPlanDetailSaving.value || saving.value) return null
   const endpoint = productionPlanDraftEndpoint(productionPlanDetail.value)
   if (!endpoint || !productionPlanSelectable(productionPlanDetail.value) || !productionPlanDetailDirty.value) return null
   productionPlanDetailSaving.value = true
@@ -1752,7 +1857,7 @@ async function saveProductionPlanDetailDraft() {
     await loadProductionPlans()
     return saved
   } catch (err) {
-    productionPlanDetailError.value = err.message || '保存生产计划草稿失败'
+    productionPlanDetailError.value = err.status === 409 ? '草稿已被其他操作更新。当前输入已保留，请重新加载详情后核对再修改。' : err.message || '保存生产计划草稿失败'
     return null
   } finally {
     productionPlanDetailSaving.value = false
@@ -1760,6 +1865,7 @@ async function saveProductionPlanDetailDraft() {
 }
 
 async function submitProductionPlanDetail() {
+  if (productionPlanDetailSaving.value || saving.value) return
   const plan = productionPlanDetail.value
   const endpoint = productionPlanSubmitEndpoint(plan)
   if (!endpoint || !productionPlanSelectable(plan) || productionPlanDetailDirty.value || !plan?.readiness?.can_submit) return
@@ -1784,9 +1890,7 @@ async function submitProductionPlanDetail() {
 async function refreshProductionPlanDetailSupply() {
   if (!productionPlanSelectable(productionPlanDetail.value)) return
   if (!window.confirm('刷新供应会按当前库存和在途重新生成上游任务与工序拆分，确认继续吗？')) return
-  if (productionPlanDetailDirty.value && !window.confirm('当前有未保存修改，刷新后这些修改会被替换，确认继续吗？')) return
   await refreshPlanSupply(productionPlanDetail.value, 'detail')
-  if (productionPlanDetail.value) productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(productionPlanDetail.value))
 }
 
 function selectedDraftProductionPlanForSplit() {
@@ -1807,11 +1911,16 @@ async function openCurrentPlanSplitDrawer() {
     window.alert('当前生产计划已提交，工序产能拆分只能在草稿计划提交工单前编辑')
     return
   }
-  window.alert('请先选择需求并核对缺口，进入“安排生产”后再设置工位和批次。')
+  window.alert('请先选择需求、核对缺口并创建草稿，再在草稿详情设置工位和批次。')
 }
 
 async function openProductionPlanSplitDrawer(plan, returnTarget = '') {
   if (!productionPlanDetailEndpoint(plan) || !productionPlanSelectable(plan)) return
+  if (returnTarget !== 'detail') {
+    await openProductionPlanDetail(plan)
+    if (productionPlanDetailError.value) return
+    return openProductionPlanSplitDrawer(productionPlanDetail.value, 'detail')
+  }
   productionPlanSplitReturnTarget.value = returnTarget
   productionPlanSplitDrawer.value = normalizeProductionPlanDetailForSplitEditor({
     ...plan,
@@ -1937,91 +2046,76 @@ async function confirmProductionPlanSplitWorkspace() {
 }
 
 function navigateProductionView(key, params = {}) {
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params } }))
+  const url = new URL(window.location.href)
+  const returnNavigation = {
+    key: props.embedded ? 'productionFlow' : 'producePlan',
+    label: productionPlanDetail.value?.plan_no ? `返回生产计划 ${productionPlanDetail.value.plan_no}` : '返回生产计划',
+    params: Object.fromEntries([...url.searchParams.entries()].filter(([name]) => name !== 'view')),
+  }
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params, returnNavigation } }))
 }
 
 function openPostSubmitAction(action) {
   navigateProductionView(action.view, action.params || {})
 }
 
-function scrollToPlanRecords() {
-  document.querySelector('[data-plan-records]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+async function scrollToPlanRecords() {
+  planRecordsOpen.value = true
+  await nextTick()
+  const record = document.getElementById('production-plan-record-' + lastViewedProductionPlanID.value)
+  ;(record || document.querySelector('[data-plan-records]'))?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 function returnToDemandSelection() {
+  if (saving.value) return
   activePlanningStep.value = 'selectDemand'
-}
-
-function beginDraftRecalculation() {
-  if (!currentPlanDraft.value) {
-    returnToDemandSelection()
-    return
-  }
-  draftBeingEdited.value = currentPlan.value
-  currentPlan.value = null
-  operationSplits.value = []
-  planCreateRequestID = ''
-  planUpdateRequestID = ''
-  activePlanningStep.value = 'selectDemand'
+  writePlanningLocation({ history: 'push' })
 }
 
 async function handlePlanStepClick(key) {
-  if (key === 'selectDemand') {
-    if (currentPlanDraft.value) beginDraftRecalculation()
-    else returnToDemandSelection()
-    return
-  }
-  if (key === 'reviewGap' && hasSelectedRows.value && !currentPlan.value) {
+  if (saving.value || productionPlanDetail.value) return
+  if (key === 'selectDemand') returnToDemandSelection()
+  else if (key === 'reviewGap' && hasSelectedRows.value) {
     activePlanningStep.value = 'reviewGap'
+    writePlanningLocation({ history: 'push' })
     await loadSelectedPlanPreview()
-    return
-  }
-  if (key === 'scheduleProduction' && currentPlanDraft.value) {
-    await openCurrentPlanSplitDrawer()
-    return
-  }
-  if (key === 'scheduleProduction' && currentPlan.value) {
-    if (postSubmitActions.value[0]) openPostSubmitAction(postSubmitActions.value[0])
-    else navigateProductionView('workOrders')
   }
 }
 
 async function runPlanNextStep() {
-  switch (currentPlanStepKey.value) {
-    case 'selectDemand':
-      if (!hasSelectedRows.value) {
-        window.alert('请先在待计划需求中勾选要生产的商品')
-        return
-      }
-      activePlanningStep.value = 'reviewGap'
-      await loadSelectedPlanPreview()
-      return
-    case 'reviewGap':
-      await createProductionPlan()
-      return
-    case 'scheduleProduction':
-      if (currentPlanDraft.value && operationSplits.value.length) await submitCurrentProductionPlan()
-      else if (currentPlanDraft.value) await openCurrentPlanSplitDrawer()
-      else if (postSubmitActions.value[0]) openPostSubmitAction(postSubmitActions.value[0])
-      else navigateProductionView('workOrders')
-      return
-    default:
-      return
-  }
+  if (saving.value || productionPlanDetail.value) return
+  if (currentPlanStepKey.value === 'selectDemand') {
+    if (!hasSelectedRows.value) return
+    activePlanningStep.value = 'reviewGap'
+    writePlanningLocation({ history: 'push' })
+    await loadSelectedPlanPreview()
+  } else await createProductionPlan()
 }
 
 async function refreshPlanSupply(plan, target) {
- if (!plan?.id) return
- saving.value = true
- try { const updated = await apiSend(`/api/production-plans/${plan.id}/refresh-supply`, { body: {} }); if (target === 'detail') productionPlanDetail.value = updated; if (currentPlan.value?.id === plan.id) { currentPlan.value = updated; manufacturingPlan.value = updated; operationSplits.value = updated.operation_splits || [] }; previewError.value = ''; notice.value = '供应已重新计算，请核对来源仓及上游工序拆分后提交。' } catch(err) { previewError.value = err.message || '刷新供应失败，草稿已保留' } finally { saving.value = false }
+  if (!plan?.id || saving.value) return
+  if (hasUnsavedPlanningChanges() && !window.confirm('刷新供应将重新读取草稿，未保存的修改会丢失。确认继续吗？')) return
+  saving.value = true
+  try {
+    const updated = normalizeProductionPlanDetailForSplitEditor(await apiSend(`/api/production-plans/${plan.id}/refresh-supply`, { body: {} }))
+    if (target === 'detail') {
+      productionPlanDetail.value = updated
+      productionPlanDetailSavedFingerprint.value = JSON.stringify(buildProductionPlanDraftPayload(updated))
+      productionPlanDetailError.value = ''
+    }
+    previewError.value = ''
+    notice.value = '供应已重新计算，请核对来源仓及工位和批次后提交。'
+  } catch (err) {
+    const message = err.message || '刷新供应失败，草稿已保留'
+    if (target === 'detail') productionPlanDetailError.value = message
+    else error.value = message
+  } finally { saving.value = false }
 }
 
 async function createProductionPlan() {
+  if (saving.value || productionPlanDetail.value) return
   let keys = selectedKeys()
-  if (!keys.length) {
-    window.alert('请先选择产品后再创建生产计划')
-    return
-  }
+  if (!keys.length) return
   saving.value = true
   error.value = ''
   previewError.value = ''
@@ -2029,32 +2123,27 @@ async function createProductionPlan() {
     if (!planReady.value) {
       await loadSelectedPlanPreview()
       keys = selectedKeys()
-      if (!keys.length) {
-        window.alert('请先选择产品后再创建生产计划')
-        return
-      }
-      if (!planReady.value) {
+      if (!keys.length || !planReady.value) {
         if (!previewError.value) previewError.value = '没有可创建的生产计划，请检查库存缺口或订单商品绑定'
         return
       }
     }
     const payload = buildProductionPlanCreatePayload(filters, keys)
-    if (draftBeingEdited.value) {
-      if (!planUpdateRequestID) planUpdateRequestID = crypto.randomUUID()
-      Object.assign(payload, buildProductionPlanDraftUpdatePayload(draftBeingEdited.value, keys, planUpdateRequestID))
-      currentPlan.value = await apiSend(productionPlanDraftUpdateEndpoint(draftBeingEdited.value), { method: 'PATCH', body: payload })
-      notice.value = `生产计划 ${currentPlan.value.plan_no} 已按新需求重新计算。`
-      draftBeingEdited.value = null
-      planUpdateRequestID = ''
-    } else {
-      if (!planCreateRequestID) planCreateRequestID = crypto.randomUUID()
-      payload.request_id = planCreateRequestID
-      currentPlan.value = await apiSend('/api/production-plans', { body: payload })
-    }
-    if ((currentPlan.value?.items || []).length || (currentPlan.value?.supply_gaps || []).length) manufacturingPlan.value = currentPlan.value
+    const signature = JSON.stringify(payload)
+    try {
+      const previous = JSON.parse(window.sessionStorage.getItem('production-plan-create-request') || 'null')
+      if (previous?.signature === signature) planCreateRequestID = previous.requestID
+    } catch (_) { /* Storage may be unavailable; the in-memory request id still protects retries. */ }
+    if (!planCreateRequestID) planCreateRequestID = crypto.randomUUID()
+    try { window.sessionStorage.setItem('production-plan-create-request', JSON.stringify({ signature, requestID: planCreateRequestID })) } catch (_) {}
+    payload.request_id = planCreateRequestID
+    const created = await apiSend('/api/production-plans', { body: payload })
+    notice.value = `草稿 ${created.plan_no} 已创建，现在可以完善生产安排。`
+    await openProductionPlanDetail(created)
+    try { window.sessionStorage.removeItem('production-plan-create-request') } catch (_) {}
     await loadProductionPlans()
   } catch (err) {
-    previewError.value = err.message || (draftBeingEdited.value ? '重新计算生产计划失败，草稿已保留' : '创建生产计划失败')
+    previewError.value = err.message || '创建生产计划失败，请重试；同一次请求不会重复创建。'
   } finally {
     saving.value = false
   }
@@ -2091,8 +2180,7 @@ async function submitSelectedProductionPlans() {
   try {
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
-    currentPlan.value = firstSuccess?.plan || currentPlan.value
-    if ((currentPlan.value?.items || []).length || (currentPlan.value?.supply_gaps || []).length) manufacturingPlan.value = currentPlan.value
+    if (firstSuccess?.plan) await openProductionPlanDetail(firstSuccess.plan)
     postSubmitActions.value = buildProductionPlanNextActions(result)
     replaceSelectedProductionPlans({})
     await loadProductionPlans()
@@ -2107,6 +2195,7 @@ async function submitSelectedProductionPlans() {
 }
 
 async function cancelProductionPlanDraft(plan, source = 'list') {
+  if (saving.value || productionPlanDetailSaving.value) return
   if (!productionPlanSelectable(plan) || !productionPlanCancelEndpoint(plan)) return
   const planNo = String(plan?.plan_no || `#${Number(plan?.id || 0)}`)
   if (!window.confirm(`确认撤销生产计划草稿 ${planNo}？撤销后该草稿不能再提交，关联订单商品将回到待生产需求。`)) return
@@ -2119,18 +2208,17 @@ async function cancelProductionPlanDraft(plan, source = 'list') {
   try {
     const cancelled = await apiSend(productionPlanCancelEndpoint(plan), { body: {} })
     const cancelledID = Number(cancelled?.id || plan?.id || 0)
-    const cancelledCurrentPlan = productionPlanCancelTargetsCurrentPlan({ id: cancelledID }, currentPlan.value)
+    const cancelledCurrentPlan = productionPlanCancelTargetsCurrentPlan({ id: cancelledID }, currentPlan.value) || Number(productionPlanDetail.value?.id) === cancelledID
     delete selectedProductionPlans[String(cancelledID)]
 
     if (cancelledCurrentPlan) {
       currentPlan.value = null
-      draftBeingEdited.value = null
       activePlanningStep.value = 'selectDemand'
       operationSplits.value = []
       postSubmitActions.value = []
     }
     if (Number(productionPlanDetail.value?.id || 0) === cancelledID) {
-      closeProductionPlanDetail(true)
+      await closeProductionPlanDetail(true, false)
     }
     if (Number(productionPlanSplitDrawer.value?.id || 0) === cancelledID) {
       closeProductionPlanSplitDrawer()
@@ -2201,24 +2289,16 @@ function openShipReadyOrders() {
 }
 
 onMounted(async () => {
-  const url = new URL(window.location.href)
-  filters.from = url.searchParams.get('from') || ''
-  filters.to = url.searchParams.get('to') || ''
-  filters.customer_id = String(props.viewParams?.customer_id || props.customerContextId || url.searchParams.get('customer_id') || '')
-  filters.demand_status = productionDemandStatusFilterValue(url.searchParams.get('demand_status'), defaultProductionDemandStatusFilter())
-  const selectedCsv = url.searchParams.get('selected') || ''
-  if (selectedCsv) {
-    for (const key of selectedCsv.split(',')) {
-      if (key) selected[key] = true
-    }
-  }
-  const openPreview = url.searchParams.get('plan') === '1'
-  await load(openPreview)
-  if (openPreview && selectedKeys().length) activePlanningStep.value = 'reviewGap'
-  await loadWorkstationCapacities()
+  await Promise.allSettled([loadWorkstationCapacities(), loadWarehouses()])
+  await restorePlanningLocation()
   await loadProductionPlans()
-  await loadWarehouses()
+  if (new URL(window.location.href).hash === '#plan-records') { await nextTick(); scrollToPlanRecords() }
+  window.addEventListener('beforeunload', handlePlanningBeforeUnload)
+  window.addEventListener('popstate', handlePlanningPopState)
+  window.addEventListener('kferp:before-navigate', handlePlanningNavigation)
 })
+onActivated(() => { planningViewActive = true })
+onDeactivated(() => { planningViewActive = false })
 
 watch(() => [props.viewParams?.customer_id, props.customerContextId], async () => {
   const nextCustomerID = String(props.viewParams?.customer_id || props.customerContextId || '')
@@ -2228,12 +2308,14 @@ watch(() => [props.viewParams?.customer_id, props.customerContextId], async () =
 })
 
 watch(selectedSignature, () => {
+  if (productionPlanDetail.value || restoringPlanningLocation) return
   resetCurrentPlanForSelection()
+  updateUrl()
   schedulePlanPreview()
 })
 
 watch(() => [filters.from, filters.to, filters.customer_id, filters.demand_status], () => {
-  if (hasSelectedRows.value) {
+  if (!restoringPlanningLocation && !productionPlanDetail.value && hasSelectedRows.value) {
     resetCurrentPlanForSelection()
     schedulePlanPreview()
   }
@@ -2244,6 +2326,11 @@ watch(productionPlanSplitRows, () => {
 }, { deep: true })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handlePlanningBeforeUnload)
+  window.removeEventListener('popstate', handlePlanningPopState)
+  window.removeEventListener('kferp:before-navigate', handlePlanningNavigation)
+  detailRequestSeq += 1
+  stopCreationPreview()
   if (previewTimer) clearTimeout(previewTimer)
   if (productionPlanSplitPreviewTimer) clearTimeout(productionPlanSplitPreviewTimer)
   stopTableScrollDrag()
@@ -2254,6 +2341,9 @@ onBeforeUnmount(() => {
 .page.detail-open { padding: 0; background: #f7f9f7; }
 .page.detail-open > :not(.production-plan-workspace-shell) { display: none !important; }
 .production-plan-workspace-shell { min-width: 0; }
+.page:not(.detail-open) { display:flex; flex-direction:column; min-height:calc(100dvh - 56px); }
+.page.embedded:not(.detail-open) { min-height:calc(100dvh - 196px); }
+.page:not(.detail-open) > * { flex-shrink:0; }
 .demand-product-row { background: #f3f5f6; font-weight: 600; }
 .demand-orders { min-width: 180px; max-width: 320px; white-space: normal; overflow-wrap: anywhere; }
 .demand-order-detail { padding: 6px 0; border-top: 1px solid #e5e7eb; }
@@ -2434,4 +2524,86 @@ td small { display: block; color: #666; line-height: 1.6; }
   .drawer-head { flex-direction: column; }
   .detail-grid { grid-template-columns: 1fr; }
 }
+
+/* The creation flow shares the plan document's calm, compact visual language. */
+.page { --plan-green:#238653; --plan-ink:#111827; --plan-border:#e1e7ed; gap:18px; padding:22px 24px 0; background:#fff; color:var(--plan-ink); }
+.plan-page-head { padding:0; border:0; }
+.creation-title { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.creation-title h1 { margin:0; font-size:25px; }
+.creation-badge { font-size:12px; color:#65748b; background:#f1f4f7; border:1px solid var(--plan-border); padding:4px 9px; border-radius:5px; }
+.plan-page-head p { color:#64748b; margin:8px 0 0; font-size:13px; }
+.plan-page-head .panel-head { margin:0; }
+.production-step-panel { position:static; padding:0; border:0; }
+.production-steps { display:flex; justify-content:flex-start; gap:28px; border-bottom:1px solid var(--plan-border); padding:0 0 12px; }
+.production-step { flex:0 0 auto; width:auto; border:0; padding:6px 0; background:transparent; color:#64748b; }
+.production-step span { background:#eef2f5; color:#64748b; border:0; }
+.production-step.active { background:transparent; color:var(--plan-green); border:0; }
+.production-step.active span,.production-step.done span { background:var(--plan-green); color:white; }
+.creation-summary { display:flex; gap:16px; align-items:center; background:#ecf7f1; border-radius:8px; padding:18px 20px; color:var(--plan-green); }
+.creation-summary>div { display:grid; gap:6px; min-width:0; }
+.creation-summary strong { color:#102820; font-size:17px; line-height:1.5; }
+.creation-summary span { color:#5d6f69; font-size:13px; }
+.demand-selection-workspace,.gap-review-workspace { display:grid; grid-template-columns:minmax(0,1fr) 290px; gap:22px; align-items:start; }
+.demand-panel,.gap-section { padding:0; border:1px solid var(--plan-border); border-radius:8px; overflow:hidden; }
+.demand-panel>.panel-head { padding:14px; flex-wrap:wrap; }
+.advanced-filters { border:0; border-bottom:1px solid var(--plan-border); padding:12px 14px; margin:0; }
+.advanced-filters summary { color:#2563a5; font-size:13px; }
+.advanced-filters .filters { margin-top:12px; }
+.demand-panel .demand-search { width:220px; padding:7px 10px; font-size:13px; border-color:var(--plan-border); }
+.demand-table { min-width:780px; width:100%; table-layout:fixed; font-size:13px; }
+.demand-table th:nth-child(1) { width:44px; }
+.demand-table th:nth-child(2) { width:135px; }
+.demand-table th:nth-child(3) { width:155px; }
+.demand-table th:nth-child(4) { width:75px; }
+.demand-table th:nth-child(5),.demand-table th:nth-child(6),.demand-table th:nth-child(7) { width:78px; }
+.demand-table td:nth-child(4),.demand-table td:nth-child(5),.demand-table td:nth-child(6),.demand-table td:nth-child(7) { white-space:nowrap; }
+.demand-table th { white-space:nowrap; }
+.demand-orders { overflow-wrap:anywhere; }
+.demand-product-row { background:#f4f6f8; }
+.demand-table .row-selected { background:#edf8f1; }
+.demand-product-row button { border:0; background:transparent; color:#172b23; font-weight:700; padding:2px 0; }
+.demand-table th,.gap-section th { background:#f2f4f7; font-size:12px; color:#243247; padding:9px 10px; }
+.demand-table td,.gap-section td { padding:11px 10px; border-color:#e9edf1; }
+.demand-table input[type=checkbox] { accent-color:var(--plan-green); width:16px; height:16px; }
+.demand-table summary,.gap-section summary,.text-action { color:#2563a5; cursor:pointer; }
+.gap-review-main { display:grid; gap:18px; min-width:0; }
+.gap-conclusion { display:flex; gap:12px; align-items:center; background:#f7faf8; padding:13px 16px; border:1px solid #e0e9e3; box-shadow:none; }
+.gap-conclusion-icon { background:transparent; color:#238653; flex:0 0 auto; }
+.gap-conclusion strong { font-size:14px; color:#172b21; }
+.gap-conclusion p { margin:4px 0 0; font-size:12px; color:#64748b; }
+.gap-section h2 { font-size:17px; }
+.gap-section table { min-width:760px; font-size:13px; }
+.filter-chip.active { background:#eaf6ef; border-color:#b5d8c5; color:#23724c; }
+.creation-sidebar { min-width:0; border-left:1px solid var(--plan-border); padding-left:20px; position:sticky; top:18px; }
+.sidebar-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.sidebar-heading h2 { font-size:18px; margin:0; }
+.sidebar-heading>span { color:#64748b; background:#f3f5f7; padding:4px 7px; border-radius:5px; font-size:12px; }
+.creation-sidebar>p { color:#64748b; font-size:12px; line-height:1.6; }
+.selected-spec { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:13px 0; border-bottom:1px solid var(--plan-border); }
+.selected-spec>div { display:grid; gap:5px; min-width:0; font-size:13px; }
+.selected-spec span { color:#42556a; }
+.selected-spec small { color:#7b8797; overflow-wrap:anywhere; }
+.text-action { flex-shrink:0; font-size:12px; padding:0; border:0; background:none; }
+.sidebar-note { display:flex; gap:8px; margin-top:18px; padding-top:14px; border-top:1px solid var(--plan-border); color:#64748b; font-size:12px; line-height:1.7; }
+.sidebar-note svg { flex:0 0 auto; margin-top:2px; color:var(--plan-green); }
+.selection-empty { padding:32px 8px; background:#f8fafb; text-align:center; color:#64748b; font-size:14px; line-height:1.8; border-radius:8px; }
+.review-check { display:flex; gap:12px; align-items:flex-start; border:1px solid var(--plan-border); padding:15px 12px; border-radius:7px; margin-top:10px; color:var(--plan-green); }
+.review-check>div { display:grid; gap:6px; min-width:0; }
+.review-check strong { color:var(--plan-ink); font-size:14px; }
+.review-check span { font-size:12px; line-height:1.6; }
+.review-check.warning { color:#ca7a12; border-color:#ecdabe; background:#fffdf8; }
+.review-check svg { flex:0 0 auto; }
+.creation-footer { position:sticky; bottom:0; z-index:20; display:flex; justify-content:space-between; align-items:center; gap:16px; margin:auto -24px 0; padding:14px 24px; border-top:1px solid var(--plan-border); background:rgba(255,255,255,.98); box-shadow:0 -4px 14px #14263408; }
+.creation-footer>div:first-child { display:grid; gap:5px; }
+.creation-footer strong { font-size:14px; }
+.creation-footer span { font-size:12px; color:#64748b; }
+.creation-footer-actions { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.page .primary { display:inline-flex; align-items:center; justify-content:center; gap:7px; border-color:var(--plan-green); background:var(--plan-green); color:#fff; }
+.page .secondary { border-color:#ccd5df; color:#253347; background:#fff; }
+.page button:disabled { opacity:.45; cursor:not-allowed; }
+.page button:focus-visible,.page summary:focus-visible,.page input:focus-visible { outline:2px solid #3182ba; outline-offset:3px; }
+#plan-records { scroll-margin-top:18px; margin-top:16px; }
+@media(max-width:1100px) { .demand-selection-workspace,.gap-review-workspace { grid-template-columns:minmax(0,1fr) 235px; gap:16px; } .creation-sidebar { padding-left:15px; } }
+@media(max-width:850px) { .demand-selection-workspace,.gap-review-workspace { grid-template-columns:1fr; } .creation-sidebar { border-left:0; border-top:1px solid var(--plan-border); padding:18px 0 0; position:static; } .page { padding:16px 16px 0; } .creation-footer { margin:0 -16px; padding:12px 16px; } .plan-page-head .panel-head { align-items:flex-start; gap:12px; } .creation-footer>div:first-child { max-width:45%; } }
+@media(max-width:560px) { .creation-footer { flex-wrap:wrap; } .creation-footer>div:first-child { max-width:none; } .creation-footer-actions { width:100%; justify-content:flex-end; } .creation-footer .primary { flex:1; } .creation-title h1 { font-size:22px; } .creation-summary { padding:14px; } .creation-summary strong { font-size:15px; } }
 </style>

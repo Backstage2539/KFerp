@@ -38,10 +38,10 @@ func TestDev556ProductionPlanDraftSplitUXContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
 			"productionGapProductRows",
 			"productionGapMaterialRows",
-			"await openCurrentPlanSplitDrawer()",
-			`v-if="currentPlanDraft" class="primary" type="button" :disabled="saving || !operationSplits.length" @click="submitCurrentProductionPlan"`,
-			`@click="cancelProductionPlanDraft(currentPlan, 'current')"`,
-			"下一步：安排生产",
+			"await openProductionPlanDetail(created)",
+			`@submit="submitProductionPlanDetail"`,
+			`@cancel="cancelProductionPlanDraft(productionPlanDetail, 'detail')"`,
+			"创建草稿并编辑",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-556-PRODUCTION-PLAN-DRAFT-SPLIT-UX",
@@ -54,7 +54,7 @@ func TestDev556ProductionPlanDraftSplitUXContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-556-PRODUCTION-PLAN-DRAFT-SPLIT-UX",
-			"草稿先进入“安排生产”步骤",
+			"草稿创建后直接进入统一详情",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-27-production-plan-draft-split-ux.md"): {
 			"PR-556 Production Plan Draft Split UX",

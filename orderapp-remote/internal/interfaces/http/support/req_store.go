@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-652-PRODUCTION-PLAN-UNIFIED-DRAFT", title: "生产计划统一草稿入口与两步创建流程", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-plan-unified-draft.md"},
+		{table: "req_dev", code: "DEV-652-UNIFIED-DRAFT", title: "创建与计划号统一打开详情并撤销重建需求", status: "done", assignee: "Codex", evidence: "ProducePlanView.vue; ProductionPlanDetailWorkspace.vue"},
+		{table: "req_dev", code: "DEV-652-CREATION-UI", title: "需求与缺口双栏布局和固定操作栏", status: "done", assignee: "Codex", evidence: "ProducePlanView.vue"},
+		{table: "req_dev", code: "DEV-652-RECOVERY", title: "地址恢复与重复创建保护及未保存离开提醒", status: "done", assignee: "Codex", evidence: "production-plan-unified-draft.test.js"},
+		{table: "req_dev", code: "DEV-652-DELIVERY", title: "手册回归测试与开发环境截图交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-11-production-plan-unified-draft.md"},
 		{table: "req_product", code: "PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE", title: "生产计划按实际工序拆分产能并逐任务核对", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-plan-capacity-workspace.md"},
 		{table: "req_dev", code: "DEV-651-OPERATION-GROUPING", title: "按计划工艺快照中的实际工序名称分组展示", status: "done", assignee: "Codex", evidence: "ProductionPlanCapacityWorkspace.vue; produce-plan.test.js"},
 		{table: "req_dev", code: "DEV-651-TASK-COVERAGE", title: "按重量或销售件数返回逐任务产能覆盖并保留来源订单", status: "done", assignee: "Codex", evidence: "production_plan_detail_test.go; work_order_api_test.go"},
