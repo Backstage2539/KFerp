@@ -407,7 +407,7 @@ test('production plan detail uses a full workspace with fixed header and footer'
   const source = fs.readFileSync(new URL('../components/ProductionPlanDetailWorkspace.vue', import.meta.url), 'utf8')
   assert.match(source, /生产计划详情工作区/)
   assert.match(source, /本次生产安排/)
-  assert.match(source, /用料与来源/)
+  assert.match(source, /备料情况/)
   assert.match(source, /提交前核对/)
   assert.match(source, /保存草稿/)
   assert.match(source, /提交生成工单/)

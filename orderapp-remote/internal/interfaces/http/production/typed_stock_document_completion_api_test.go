@@ -521,6 +521,7 @@ func TestTypedProductStockDocumentFinishUnlocksDownstreamThroughCompleteFlow(t *
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf(
 		"work_order_id=%d AND component_type='product' AND component_id=2 AND required_g=22700 AND reserved_g=22700 AND status='reserved'", rootWorkOrderID,
 	), 1)
+	pickAllProductionComponents(t, pool, schema, app, rootWorkOrderID)
 	downstreamStart := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", rootWorkOrderID), nil)
 	if downstreamStart.Code != http.StatusOK {
 		t.Fatalf("start downstream after StockOperations product completion status=%d body=%s", downstreamStart.Code, downstreamStart.Body.String())

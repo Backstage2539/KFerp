@@ -33,6 +33,8 @@ type ProductionSupplyAllocation struct {
 }
 
 type ProductionPlanPreview struct {
+	PickingVersion    int                                `json:"picking_version"`
+	ComponentSources  []ProductionPlanComponentSource    `json:"component_sources"`
 	Items             []ProductionPlanItem               `json:"items"`
 	ManufacturingPlan productiondomain.ManufacturingPlan `json:"manufacturing_plan"`
 	SupplyAllocations []ProductionSupplyAllocation       `json:"supply_allocations"`

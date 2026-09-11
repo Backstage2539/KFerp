@@ -1351,7 +1351,7 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 		t.Fatalf("submitted job cards = %+v, want pending route operations", submitted.JobCards)
 	}
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 0)
-	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 0)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 1)
 
 	productionSvc := productionapp.NewService(repo)
 	if _, err := productionSvc.StartJobCard(ctx, productionapp.JobCardActionCommand{

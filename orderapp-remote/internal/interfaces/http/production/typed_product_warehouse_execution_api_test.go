@@ -2,12 +2,22 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	productionapp "orderapp/internal/application/production"
+	stockapp "orderapp/internal/application/stock"
+	postgresstock "orderapp/internal/infrastructure/postgres/stock"
 	"testing"
 )
 
 func TestTypedProductDependencyConsumesBatchesFromFrozenWarehouses(t *testing.T) {
+	testTypedProductWarehouseFlow(t, true)
+}
+func TestAutoPickingTypedProductMustTransferBeforeConsumption(t *testing.T) {
+	testTypedProductWarehouseFlow(t, false)
+}
+func testTypedProductWarehouseFlow(t *testing.T, legacy bool) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 	seedMultilevelMaterialOutputFlow(t, ctx, pool, schema)
@@ -33,6 +43,9 @@ func TestTypedProductDependencyConsumesBatchesFromFrozenWarehouses(t *testing.T)
 		ORDER BY id DESC LIMIT 1
 	`, schema)).Scan(&planID, &upstreamPlanItemID); err != nil {
 		t.Fatalf("load typed upstream plan item: %v", err)
+	}
+	if legacy {
+		mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.production_plans SET picking_version=0 WHERE id=%d`, schema, planID))
 	}
 	update := serveMultilevelProductionJSON(t, app, http.MethodPatch,
 		fmt.Sprintf("/api/production-plans/%d/items/%d/target-warehouse", planID, upstreamPlanItemID),
@@ -113,6 +126,28 @@ func TestTypedProductDependencyConsumesBatchesFromFrozenWarehouses(t *testing.T)
 	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=2 AND spec_g=1 AND warehouse='finished_goods' AND onhand_units=10000", 1)
 	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=2 AND spec_g=1 AND warehouse='finished_shop' AND onhand_units=12700", 1)
 
+	if !legacy {
+		blocked := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", rootWorkOrderID), nil)
+		if blocked.Code == 200 {
+			t.Fatal("product in source warehouses cannot start")
+		}
+		preview := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/stock-document-preview", rootWorkOrderID), map[string]any{"action": "issue"})
+		var data productionapp.StockDocumentPreview
+		if err := json.Unmarshal(preview.Body.Bytes(), &data); err != nil {
+			t.Fatal(err)
+		}
+		if preview.Code != 200 || len(data.Document.Items) != 2 {
+			t.Fatalf("typed picking preview %s", preview.Body.String())
+		}
+		stockService := stockapp.NewService(postgresstock.NewRepository(pool, schema))
+		for _, i := range data.Document.Items {
+			if _, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: rootWorkOrderID, Operator: "仓库员", Items: []stockapp.StockDocumentItemCommand{{ItemType: i.ItemType, MaterialID: i.MaterialID, ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, InventoryUnit: i.InventoryUnit, OwnerCustomerID: i.OwnerCustomerID, QtyG: i.QtyG, QtyUnits: i.QtyUnits, BatchCode: i.BatchCode, FromWarehouse: i.FromWarehouse, ToWarehouse: i.ToWarehouse}}}); err != nil {
+				var batches string
+ _=pool.QueryRow(ctx,fmt.Sprintf(`SELECT jsonb_agg(to_jsonb(b))::text FROM %s.stock_batches b WHERE item_id=2`,schema)).Scan(&batches)
+ t.Fatalf("typed picking: %v item=%+v batches=%s", err,i,batches)
+			}
+		}
+	}
 	downstreamStart := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", rootWorkOrderID), nil)
 	if downstreamStart.Code != http.StatusOK {
 		t.Fatalf("start typed downstream after mixed-warehouse supply status=%d body=%s", downstreamStart.Code, downstreamStart.Body.String())
@@ -140,6 +175,10 @@ func TestTypedProductDependencyConsumesBatchesFromFrozenWarehouses(t *testing.T)
 
 	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=2 AND spec_g=1 AND warehouse='finished_goods' AND onhand_units=0 AND onhand_loose_g=0", 1)
 	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=2 AND spec_g=1 AND warehouse='finished_shop' AND onhand_units=0 AND onhand_loose_g=0", 1)
+	if !legacy {
+		assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", fmt.Sprintf("work_order_id=%d AND component_type='product' AND warehouse='wip' AND status='consumed'", rootWorkOrderID), 2)
+		return
+	}
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservation_batches", fmt.Sprintf(
 		"work_order_id=%d AND component_type='product' AND component_id=2 AND warehouse='finished_goods' AND reserved_g=10000 AND consumed_g=10000 AND status='consumed'",
 		rootWorkOrderID,

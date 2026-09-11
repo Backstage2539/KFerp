@@ -70,6 +70,13 @@ func (r Repository) SaveProductionPlanDraft(ctx context.Context, cmd productiona
 		if !ok || stored.ProductionPlanID != cmd.ID {
 			return productionapp.ProductionPlanDetail{}, fmt.Errorf("component source does not belong to production plan item")
 		}
+		if current.PickingVersion > 0 {
+			item := itemByID[stored.ProductionPlanItemID]
+			if err := savePickingAdjustmentTx(ctx, tx, r.schema, stored, requested, item.CustomerID, cmd.Operator); err != nil {
+				return productionapp.ProductionPlanDetail{}, err
+			}
+			continue
+		}
 		warehouse := strings.TrimSpace(requested.SourceWarehouse)
 		if warehouse == "" {
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`

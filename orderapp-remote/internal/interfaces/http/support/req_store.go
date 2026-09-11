@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+        {table: "req_product", code: "PR-653-PRODUCTION-AUTO-PICKING", title: "生产计划自动建议领料，区分供给落实与 WIP 齐套", status: "doing", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-auto-picking.md"},
+        {table: "req_dev", code: "DEV-653-ALLOCATION", title: "同货主 WIP 优先、多仓建议、草稿调整与并发预留", status: "doing", assignee: "Codex", evidence: "auto_picking.go; auto_picking_api_test.go"},
+        {table: "req_dev", code: "DEV-653-WIP-TRANSFER", title: "分批领料同步预留、WIP 齐套开工及历史规则兼容", status: "doing", assignee: "Codex", evidence: "production_picking.go; auto_picking_api_test.go"},
+        {table: "req_dev", code: "DEV-653-PREPARATION-UI", title: "备料情况紧凑列表、来源明细及去领料入口", status: "doing", assignee: "Codex", evidence: "ProductionPreparation.vue; production-preparation.test.js"},
+        {table: "req_dev", code: "DEV-653-DELIVERY", title: "生产库存手册、测试、开发部署与真实截图", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-11-production-auto-picking.md"},
+
 		{table: "req_product", code: "PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE", title: "生产计划按实际工序拆分产能并逐任务核对", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-plan-capacity-workspace.md"},
 		{table: "req_dev", code: "DEV-651-OPERATION-GROUPING", title: "按计划工艺快照中的实际工序名称分组展示", status: "done", assignee: "Codex", evidence: "ProductionPlanCapacityWorkspace.vue; produce-plan.test.js"},
 		{table: "req_dev", code: "DEV-651-TASK-COVERAGE", title: "按重量或销售件数返回逐任务产能覆盖并保留来源订单", status: "done", assignee: "Codex", evidence: "production_plan_detail_test.go; work_order_api_test.go"},

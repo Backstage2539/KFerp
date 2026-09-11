@@ -49,6 +49,7 @@
         @cancel="cancelProductionPlanDraft(productionPlanDetail, 'detail')"
         @navigate="navigateProductionView"
         @source-change="selectComponentSourceOption"
+        @adjust-source="(source, allocations) => adjustPreparationSource(source, allocations, 'detail')"
         @warehouse-change="changeProductionPlanDetailWarehouse"
       />
     </div>
@@ -313,7 +314,9 @@
         </div>
         <ProductionSupplyAllocations :rows="currentPlan?.supply_allocations || previewSupplyAllocations" />
         <div v-if="currentPlanDraft && (currentPlan?.component_sources || []).length" class="schedule-source-section">
-          <div class="section-title">领料来源</div>
+          <div class="section-title">备料情况</div>
+          <ProductionPreparation v-if="currentPlan.picking_version" :sources="currentPlan.component_sources || []" :items="currentPlan.items || []" :supply-allocations="currentPlan.supply_allocations || []" :editable="true" :saving="saving" @adjust="(source, allocations) => adjustPreparationSource(source, allocations, 'current')" />
+          <template v-else>
           <p class="muted">确认每项生产用料从哪个仓库和货主领用，提交后冻结。</p>
           <div class="table-wrap drag-scroll-wrap" aria-label="生产用料来源仓表格">
             <table class="component-source-table">
@@ -335,6 +338,7 @@
               </tbody>
             </table>
           </div>
+          </template>
         </div>
         <div class="workspace-actions schedule-actions">
           <button class="secondary" type="button" :disabled="saving" @click="beginDraftRecalculation">返回修改需求</button>
@@ -726,6 +730,7 @@
 
 <script setup>
 import ProductionSupplyAllocations from '../components/ProductionSupplyAllocations.vue'
+import ProductionPreparation from '../components/ProductionPreparation.vue'
 import ProductionPlanDetailWorkspace from '../components/ProductionPlanDetailWorkspace.vue'
 import ProductionPlanCapacityWorkspace from '../components/ProductionPlanCapacityWorkspace.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
@@ -1185,6 +1190,14 @@ async function saveProductionPlanItemTargetWarehouse(item) {
   } finally {
     targetWarehouseSavingItemID.value = 0
   }
+}
+
+async function adjustPreparationSource(source, allocations, target) {
+  source.allocation_mode = allocations === null ? 'auto' : 'manual'
+  source.manual_allocations = allocations || []
+  if (target === 'detail') { await saveProductionPlanDetailDraft(); return }
+  await saveProductionPlanComponentSource(currentPlan.value, source, 'current')
+  if (currentPlan.value?.id) currentPlan.value = await apiGet(`/api/production-plans/${currentPlan.value.id}`)
 }
 
 function componentSourceKey(source = {}) {
@@ -1937,7 +1950,7 @@ async function confirmProductionPlanSplitWorkspace() {
 }
 
 function navigateProductionView(key, params = {}) {
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params } }))
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params, returnNavigation: { key: 'productionFlow', label: '返回生产计划', params: { demand_status: 'unplanned', plan_id: productionPlanDetail.value?.id || currentPlan.value?.id } } } }))
 }
 
 function openPostSubmitAction(action) {
@@ -2218,6 +2231,7 @@ onMounted(async () => {
   await loadWorkstationCapacities()
   await loadProductionPlans()
   await loadWarehouses()
+  if (Number(props.viewParams?.plan_id) > 0) await openProductionPlanDetail({id:Number(props.viewParams.plan_id)})
 })
 
 watch(() => [props.viewParams?.customer_id, props.customerContextId], async () => {

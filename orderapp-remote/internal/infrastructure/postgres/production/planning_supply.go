@@ -184,9 +184,9 @@ func buildManufacturingExpansionTx(ctx context.Context, tx pgx.Tx, schema string
 		var g, n int64
 		for _, o := range opts {
 			eligibleWarehouses[o.Warehouse] = true
-			if o.AvailableG > g || o.AvailableUnits > n {
-				g = o.AvailableG
-				n = o.AvailableUnits
+			if o.OwnerCustomerID == owner {
+				g += o.AvailableG
+				n += o.AvailableUnits
 			}
 		}
 		available[key] = manufacturingQtyFromCanonical(g, n, ref.Unit)
@@ -333,6 +333,61 @@ func createExpandedProductionItemsTx(ctx context.Context, tx pgx.Tx, schema stri
 		}
 		expansion.Supplies[edge.SupplierKey] = options
 	}
+	if planID == 0 {
+		result.PickingVersion = 1
+		keys := []string{}
+		for key := range items {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			item := items[key]
+			needs, err := productionPlanItemConsumptionNeeds(item)
+			if err != nil {
+				return result, err
+			}
+			for _, need := range needs {
+				typ, id, sg := manufacturingNeedIdentity(need)
+				bs, bv := manufacturingNeedBOMSpecIdentity(need)
+				g, n := manufacturingNeedCanonicalQuantities(need)
+				source := app.ProductionPlanComponentSource{ID: -int64(len(result.ComponentSources) + 1), ProductionPlanItemID: item.ID, BOMVersionID: item.BomVersionID, ComponentType: typ, ComponentID: id, ComponentBOMSpecID: bs, ComponentBOMVariantID: bv, ComponentSpecG: sg, ComponentName: need.MaterialName, Unit: need.Unit, RequiredG: g, RequiredUnits: n, AllocationMode: "auto"}
+				for _, edge := range expansion.Plan.Edges {
+					if edge.ConsumerKey != key {
+						continue
+					}
+					ref, ok := func() (domain.ManufacturingItemRef, bool) {
+						for _, node := range expansion.Plan.Nodes {
+							if node.Item.Key() == edge.SupplierKey {
+								return node.Item, true
+							}
+						}
+						return domain.ManufacturingItemRef{}, false
+					}()
+					if !ok || ref.Type != typ || ref.ID != id || ref.BomSpecID != bs {
+						continue
+					}
+					pending := edge.InflightCoveredQty
+					if _, exists := items[edge.SupplierKey]; exists {
+						pending += edge.ShortageQty
+					}
+					dg, dn := canonicalFromManufacturingQty(pending, need.Unit)
+					source.UpstreamG += dg
+					source.UpstreamUnits += dn
+				}
+				source.RequiredG = nonnegativeQuantity(g - source.UpstreamG)
+				source.RequiredUnits = nonnegativeQuantity(n - source.UpstreamUnits)
+				source.Options, err = componentSourceOptionsTx(ctx, tx, schema, source, item.CustomerID)
+				if err != nil {
+					return result, err
+				}
+				result.ComponentSources = append(result.ComponentSources, source)
+			}
+		}
+		if err := preparePickingSourcesTx(ctx, tx, schema, 0, result.ComponentSources, "draft"); err != nil {
+			return result, err
+		}
+	}
+
 	result.MaterialSummary = aggregateProductionPlanMaterialSummary(result.Items)
 	if planID > 0 {
 		raw, _ := json.Marshal(expansion.Plan)
@@ -441,7 +496,7 @@ func (r Repository) createStockProductionPlan(ctx context.Context, cmd app.Creat
 	if id > 0 {
 		return loadProductionPlanDetailTx(ctx, tx, r.schema, id)
 	}
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_plans(plan_no,source_type,status,customer_id,created_by) VALUES('PP-TMP-'||nextval('%s.production_plans_id_seq')::text,'stock','draft',$1,$2) RETURNING id`, r.schema, r.schema), cmd.CustomerID, cmd.Operator).Scan(&id); err != nil {
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_plans(plan_no,source_type,status,customer_id,created_by,picking_version) VALUES('PP-TMP-'||nextval('%s.production_plans_id_seq')::text,'stock','draft',$1,$2,1) RETURNING id`, r.schema, r.schema), cmd.CustomerID, cmd.Operator).Scan(&id); err != nil {
 		return app.ProductionPlanDetail{}, err
 	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plans SET plan_no=$2 WHERE id=$1`, r.schema), id, productionPlanNo(id)); err != nil {
@@ -573,6 +628,13 @@ func (r Repository) RefreshProductionPlanSupply(ctx context.Context, id int64, o
 	if err != nil {
 		return app.ProductionPlanDetail{}, err
 	}
+	adjustments, err := preservedPickingAdjustmentsTx(ctx, tx, r.schema, id, items)
+	if err != nil {
+		return app.ProductionPlanDetail{}, err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_plans SET picking_version=1 WHERE id=$1`, r.schema), id); err != nil {
+		return app.ProductionPlanDetail{}, err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT DISTINCT d.depends_on_plan_item_id FROM %[1]s.production_plan_item_dependencies d JOIN %[1]s.production_plan_items pi ON pi.id=d.depends_on_plan_item_id AND pi.production_plan_id=$1 WHERE d.production_plan_id=$1`, r.schema), id)
 	if err != nil {
 		return app.ProductionPlanDetail{}, err
@@ -618,6 +680,9 @@ func (r Repository) RefreshProductionPlanSupply(ctx context.Context, id int64, o
 		return app.ProductionPlanDetail{}, err
 	}
 	if err = syncProductionPlanComponentSourcesTx(ctx, tx, r.schema, id, expanded.Items); err != nil {
+		return app.ProductionPlanDetail{}, err
+	}
+	if err = restorePickingAdjustmentsTx(ctx, tx, r.schema, id, expanded.Items, adjustments); err != nil {
 		return app.ProductionPlanDetail{}, err
 	}
 	if err = infra.AuditInsertTx(ctx, tx, r.schema, operator, "production_plan", &id, "refresh_supply", nil, nil, nil, infra.AuditMeta{"replaced_upstream_items": children, "item_count": len(expanded.Items)}); err != nil {

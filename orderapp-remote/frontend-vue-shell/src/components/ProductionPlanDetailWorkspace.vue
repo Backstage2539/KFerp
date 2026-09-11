@@ -90,11 +90,15 @@
 
         <section id="material-sources" class="content-section materials-section">
           <div class="section-heading">
+            <button class="text-button" type="button" @click="$emit('navigate', 'productionManual')">备料说明</button>
             <div>
               <span class="section-index">02</span>
-              <div><h2>用料与来源</h2><p>数量来自上方冻结任务；同一仓库与货主的需求会在提交时合并核对可用量。</p></div>
+              <div><h2>备料情况</h2><p>查看现场库存、待领数量和缺料，按需调整建议。</p></div>
             </div>
           </div>
+          <ProductionPreparation v-if="detail.picking_version" :sources="detail.component_sources || []" :items="detail.items || []" :supply-allocations="detail.supply_allocations || []" :work-orders="detail.related_work_orders || []" :editable="isDraft" :saving="saving" @adjust="(source, allocations) => $emit('adjust-source', source, allocations)" @issue="issueWorkOrder" />
+          <template v-else>
+          <p v-if="isDraft" class="muted">此草稿沿用旧领料方式，点击“刷新供应”即可生成自动建议。</p>
           <div class="material-summary">
             <article v-for="material in detail.material_summary || []" :key="`${material.name}-${material.unit}-${material.component_type}`">
               <span>{{ materialTypeLabel(material) }}</span>
@@ -124,6 +128,7 @@
             </article>
           </div>
           <div v-else class="empty-card">本计划没有需要从库存领用的组件</div>
+          </template>
         </section>
 
         <section class="content-section detail-section">
@@ -199,6 +204,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import ProductionPreparation from './ProductionPreparation.vue'
 import {
   buildProductionPlanStages,
   productionPlanItemBomSourceLabel,
@@ -215,7 +221,7 @@ const props = defineProps({
   saving: { type: Boolean, default: false },
   dirty: { type: Boolean, default: false },
 })
-const emit = defineEmits(['back', 'save', 'submit', 'edit-splits', 'refresh', 'cancel', 'navigate', 'source-change', 'warehouse-change'])
+const emit = defineEmits(['back', 'save', 'submit', 'edit-splits', 'refresh', 'cancel', 'navigate', 'source-change', 'warehouse-change', 'adjust-source'])
 
 const stages = computed(() => buildProductionPlanStages(props.detail))
 const isDraft = computed(() => String(props.detail?.status || '') === 'draft')
@@ -229,6 +235,7 @@ const readinessText = computed(() => props.detail?.readiness?.can_submit ? '可�
 const footerTitle = computed(() => isDraft.value ? (props.dirty ? '草稿内容尚未保存' : props.detail?.readiness?.can_submit ? '草稿已保存，可以提交' : '草稿已保存，仍有阻断项') : `${statusLabel.value} · 单据内容只读`)
 const footerHint = computed(() => isDraft.value ? (props.dirty ? '先保存本页修改，系统会重新核对数量、来源和工序。' : '提交后将冻结本页配置并生成生产工单。') : `工单 ${props.detail?.related_work_orders?.length || 0} 张 · 工序卡 ${props.detail?.job_card_count || 0} 张`)
 
+function issueWorkOrder(order) { emit('navigate', 'stockOperations', {tab:'stockEntries',action:'issue',return_source:'work_order',work_order_id:order.id}) }
 function quantity(value, unit = '') { const number = Number(value || 0); return `${Number.isInteger(number) ? number : Number(number.toFixed(6))} ${unit || ''}`.trim() }
 function quantitySummary(item) { return productionPlanItemQuantitySummary(item) }
 function bomSourceLabel(item) { return productionPlanItemBomSourceLabel(item) }
@@ -247,7 +254,7 @@ function sourceShort(source) { return Number(source.shortage_g || 0) > 0 || Numb
 function processRouteLabel(item) { try { const raw = item.process_snapshot_json; const snapshot = typeof raw === 'object' ? raw : JSON.parse(raw || '{}'); return snapshot.name || (snapshot.operations || []).map((row) => row.operation).filter(Boolean).join(' → ') || '未设置工艺路线' } catch (_) { return '工艺快照待核对' } }
 function edgeRequired(edge) { return Number(edge.required_g || 0) > 0 ? `${Number((Number(edge.required_g) / 1000).toFixed(6))} kg` : quantity(edge.required_units || edge.required_qty, edge.required_units ? '件' : '') }
 function workOrderStatus(status) { return ({ draft: '草稿', released: '待开工', running: '生产中', completed: '已完成', cancelled: '已取消' })[status] || status || '-' }
-function issueTitle(category) { return ({ quantity: '数量需要核对', source: '来源仓库需要完善', supply: '供应存在缺口', operation: '工序拆分需要完善' })[category] || '计划需要完善' }
+function issueTitle(category) { return ({ quantity: '数量需要核对', source: '备料供给需要补齐', supply: '供应存在缺口', operation: '工序拆分需要完善' })[category] || '计划需要完善' }
 function focusIssue(issue) {
   if (issue.category === 'operation') { emit('edit-splits'); return }
   const id = issue.component_source_id ? `component-source-${issue.component_source_id}` : issue.production_plan_item_id ? `plan-item-${issue.production_plan_item_id}` : 'material-sources'

@@ -455,7 +455,7 @@ func allocateMaterialOutputToDownstreamReservationsTx(ctx context.Context, tx pg
 			)
 			SELECT id,work_order_id,material_id,'material',material_id,0,0,0,$2,0,$3,$4,$5,$6,$7,'reserved',now(),now()
 			FROM %s.work_order_material_reservations WHERE id=$1
-			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
+			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id,warehouse) DO UPDATE SET
 				reserved_g=work_order_material_reservation_batches.reserved_g+excluded.reserved_g,
 				reserved_units=work_order_material_reservation_batches.reserved_units+excluded.reserved_units,
 				warehouse=excluded.warehouse,owner_customer_id=excluded.owner_customer_id,

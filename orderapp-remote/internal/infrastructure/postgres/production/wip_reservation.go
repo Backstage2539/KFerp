@@ -19,6 +19,20 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	hasVersion, err := schemaColumnExistsTx(ctx, tx, r.schema, "production_plans", "picking_version")
+	if err != nil {
+		return productionapp.ProductionWIPStatus{}, err
+	}
+	if hasVersion {
+		modern, err := autoPickingWorkOrderTx(ctx, tx, r.schema, workOrderID)
+		if err != nil {
+			return productionapp.ProductionWIPStatus{}, err
+		}
+		if modern {
+			return automaticWorkOrderWIPStatusTx(ctx, tx, r.schema, workOrderID)
+		}
+	}
+
 	var wo productionapp.WorkOrderRow
 	var materialSnapshot string
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
