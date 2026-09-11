@@ -1042,6 +1042,9 @@ test('ProducePlanView edits draft plan splits in a dedicated full-page workspace
 
 test('capacity workspace groups by frozen operation names and preserves each source order task', () => {
   const detail = {
+    manufacturing_plan: {
+      edges: [{ supplier_plan_item_id: 51, consumer_plan_item_id: 61, required_g: 4540 }],
+    },
     items: [
       {
         id: 51,
@@ -1049,7 +1052,7 @@ test('capacity workspace groups by frozen operation names and preserves each sou
         output_name: '初晓熟豆',
         output_qty: 4.54,
         output_unit: 'kg',
-        process_snapshot_json: JSON.stringify({ operations: [{ seq: 1, operation_id: 701, operation: '滚筒烘焙' }] }),
+        process_snapshot_json: JSON.stringify({ operations: [{ seq: 1, operation_id: 701, operation: '咖啡烘焙+除石' }] }),
       },
       {
         id: 61,
@@ -1058,7 +1061,7 @@ test('capacity workspace groups by frozen operation names and preserves each sou
         spec_g: 227,
         sales_spec_count: 20,
         sales_spec_snapshot_json: JSON.stringify({ spec_label: '227g', sales_unit: '袋' }),
-        process_snapshot_json: JSON.stringify({ operations: [{ seq: 2, operation_id: 702, operation: '手工装袋' }] }),
+        process_snapshot_json: JSON.stringify({ operations: [{ seq: 1, operation_id: 702, operation: '包装' }] }),
         demand_sources: [
           { order_item_id: 101, order_no: 'SO-20260907-0003', customer_name: '客户A', quantity: 10, sales_unit: '袋' },
           { order_item_id: 102, order_no: 'SO-20260907-0002', customer_name: '客户B', quantity: 8, sales_unit: '袋' },
@@ -1069,13 +1072,13 @@ test('capacity workspace groups by frozen operation names and preserves each sou
   }
   const preview = {
     operation_coverage: [
-      { production_plan_item_id: 51, operation_seq: 1, operation_id: 701, operation: '滚筒烘焙', required_qty: 5.64, arranged_qty: 5.64, diff_qty: 0, unit: 'kg', status: 'matched' },
-      { production_plan_item_id: 61, operation_seq: 2, operation_id: 702, operation: '手工装袋', required_qty: 20, arranged_qty: 18, diff_qty: -2, unit: '袋', status: 'short' },
+      { production_plan_item_id: 51, operation_seq: 1, operation_id: 701, operation: '咖啡烘焙+除石', required_qty: 5.64, arranged_qty: 5.64, diff_qty: 0, unit: 'kg', status: 'matched' },
+      { production_plan_item_id: 61, operation_seq: 1, operation_id: 702, operation: '包装', required_qty: 20, arranged_qty: 18, diff_qty: -2, unit: '袋', status: 'short' },
     ],
   }
 
   const groups = buildProductionPlanCapacityGroups(detail, preview)
-  assert.deepEqual(groups.map((group) => group.operation), ['滚筒烘焙', '手工装袋'])
+  assert.deepEqual(groups.map((group) => group.operation), ['咖啡烘焙+除石', '包装'])
   assert.deepEqual(groups[1].tasks[0].sources.map((source) => [source.order_no, source.quantity_label]), [
     ['SO-20260907-0003', '10袋'],
     ['SO-20260907-0002', '8袋'],

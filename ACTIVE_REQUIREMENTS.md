@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE
 - Branch: `codex/production-plan-capacity-ui-20260911`, base `6ce1c5b6`.
 - Owner/session: Codex / 2026-09-11
-- Status: implementation, complete repository verification, browser interaction check, and design QA complete; integration and development deployment in progress.
+- Status: first development deployment passed; live browser acceptance found cross-item operation ordering drift, and the dependency-aware ordering revision is in verification.
 - Scope: group capacity splits by the production plan's actual operation names, preserve task/specification/quantity/order traceability, show task-level coverage in native units, and separate save-draft from readiness confirmation.
 - DEV: DEV-651-OPERATION-GROUPING; DEV-651-TASK-COVERAGE; DEV-651-CAPACITY-WORKSPACE; DEV-651-DEVELOPMENT-DELIVERY.
 - Verifier:

@@ -582,15 +582,22 @@ function capacityTaskFallbackRequired(item = {}) {
 export function buildProductionPlanCapacityGroups(detail = {}, preview = {}) {
   const groups = new Map()
   const coverageRows = Array.isArray(preview?.operation_coverage) ? preview.operation_coverage : []
+  const stageByItemID = new Map()
+  buildProductionPlanStages(detail).forEach((stage, stageIndex) => {
+    for (const task of stage.tasks || []) stageByItemID.set(Number(task.item?.id || 0), stageIndex)
+  })
   for (const item of detail?.items || []) {
     for (const operation of productionPlanItemOperations(item)) {
       const operationName = String(operation.operation || operation.name || '').trim() || '未命名工序'
       const operationID = Number(operation.operation_id || operation.id || 0)
       const operationSeq = Number(operation.seq || operation.sequence_no || 0)
+      const stageOrder = stageByItemID.get(Number(item.id || 0)) ?? Number.MAX_SAFE_INTEGER
       const key = operationName.toLocaleLowerCase('zh-CN') || `operation:${operationID || operationSeq}`
       if (!groups.has(key)) {
-        groups.set(key, { key, operation: operationName, operation_id: operationID, first_seq: operationSeq, tasks: [] })
+        groups.set(key, { key, operation: operationName, operation_id: operationID, first_stage: stageOrder, first_seq: operationSeq, tasks: [] })
       }
+      groups.get(key).first_stage = Math.min(groups.get(key).first_stage, stageOrder)
+      groups.get(key).first_seq = Math.min(groups.get(key).first_seq, operationSeq)
       const coverage = coverageRows.find((row) => capacityCoverageMatches(row, item, operation)) || {}
       const unit = String(coverage.unit || capacityTaskFallbackUnit(item)).trim()
       const required = Number(coverage.required_qty ?? capacityTaskFallbackRequired(item))
@@ -622,7 +629,7 @@ export function buildProductionPlanCapacityGroups(detail = {}, preview = {}) {
       })
     }
   }
-  return [...groups.values()].sort((left, right) => left.first_seq - right.first_seq || left.operation.localeCompare(right.operation, 'zh-CN'))
+  return [...groups.values()].sort((left, right) => left.first_stage - right.first_stage || left.first_seq - right.first_seq || left.operation.localeCompare(right.operation, 'zh-CN'))
 }
 
 export function productionPlanCapacityReadiness(preview = {}, overAcknowledged = false) {
