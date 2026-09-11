@@ -34,6 +34,16 @@ func TestDev651ProductionPlanCapacityWorkspaceContracts(t *testing.T) {
 			t.Fatalf("req_store.go missing %s", marker)
 		}
 	}
+	for _, marker := range []string{
+		`code: "DEV-651-OPERATION-GROUPING", title: "按计划工艺快照中的实际工序名称分组展示", status: "done"`,
+		`code: "DEV-651-TASK-COVERAGE", title: "按重量或销售件数返回逐任务产能覆盖并保留来源订单", status: "done"`,
+		`code: "DEV-651-CAPACITY-WORKSPACE", title: "全页产能拆分、实时核对、草稿保存与安排确认", status: "done"`,
+		`code: "DEV-651-DEVELOPMENT-DELIVERY", title: "操作手册、验证、设计核对、开发部署与截图", status: "done"`,
+	} {
+		if !strings.Contains(contents["store"], marker) {
+			t.Fatalf("req_store.go missing completed DEV-651 marker %s", marker)
+		}
+	}
 	for _, marker := range []string{"required_qty", "arranged_qty", "diff_qty", "unit"} {
 		if !strings.Contains(contents["service"], marker) {
 			t.Fatalf("native operation coverage response missing %s", marker)

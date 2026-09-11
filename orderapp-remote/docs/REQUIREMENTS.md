@@ -2,7 +2,7 @@
 
 ## PR-651 生产计划按实际工序拆分产能
 
-- 状态：开发中；Van 已确认参考页面与 development 交付。DEV-651-OPERATION-GROUPING / DEV-651-TASK-COVERAGE / DEV-651-CAPACITY-WORKSPACE / DEV-651-DEVELOPMENT-DELIVERY。
+- 状态：开发完成并已部署 development，等待 Van 业务验收。DEV-651-OPERATION-GROUPING / DEV-651-TASK-COVERAGE / DEV-651-CAPACITY-WORKSPACE / DEV-651-DEVELOPMENT-DELIVERY。
 - 产能拆分页只使用本次生产计划冻结工艺路线中的工序名称与顺序，不把业务流程写死为“烘焙熟豆 / 包装成品”；不同产品、物料和路线可展示各自实际工序。
 - 同一工序下按计划任务逐项核对，不用总量互相抵消。商品任务保留冻结规格、销售单位、客户、订单和数量明细；例如三张来源订单的 10 袋、8 袋、2 袋必须分别可见。
 - 重量产能按工位产能单位显示 kg/g，计件产能按冻结销售单位显示袋/件/盒等。预览接口同时返回任务原生 `required_qty / arranged_qty / diff_qty / unit` 与兼容克重投影。
