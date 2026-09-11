@@ -99,13 +99,13 @@
             <article v-for="material in detail.material_summary || []" :key="`${material.name}-${material.unit}-${material.component_type}`">
               <span>{{ materialTypeLabel(material) }}</span>
               <strong>{{ material.name }}</strong>
-              <b>{{ quantity(material.quantity, material.unit) }}</b>
+              <b>{{ quantity(material.qty, material.unit) }}</b>
             </article>
           </div>
           <div v-if="detail.component_sources?.length" class="source-list">
             <article v-for="source in detail.component_sources" :id="`component-source-${source.id}`" :key="sourceIdentity(source)" :class="['source-card', { invalid: !source.selected || sourceShort(source) }]">
               <div class="source-identity">
-                <span>{{ source.component_type === 'packaging' ? '包材' : source.component_type === 'product' ? '半成品' : '原料' }}</span>
+                <span>{{ source.component_type === 'packaging' ? '包材' : source.component_type === 'product' ? '半成品' : '库存用料' }}</span>
                 <div><h3>{{ source.component_name }}</h3><p>{{ planItemName(source.production_plan_item_id) }}</p></div>
               </div>
               <div class="source-need"><span>本项需求</span><strong>{{ sourceRequired(source) }}</strong></div>
@@ -232,7 +232,7 @@ const footerHint = computed(() => isDraft.value ? (props.dirty ? '先保存本�
 function quantity(value, unit = '') { const number = Number(value || 0); return `${Number.isInteger(number) ? number : Number(number.toFixed(6))} ${unit || ''}`.trim() }
 function quantitySummary(item) { return productionPlanItemQuantitySummary(item) }
 function bomSourceLabel(item) { return productionPlanItemBomSourceLabel(item) }
-function materialTypeLabel(item) { const type = String(item.component_type || ''); return type === 'packaging' ? '包材' : type === 'product' || type === 'finished_product' ? '半成品' : '生产原料' }
+function materialTypeLabel(item) { const type = String(item.component_type || ''); return type === 'packaging' ? '包材' : type === 'product' || type === 'finished_product' ? '半成品' : '生产用料' }
 function availableWarehouses(item) { return props.warehouses.filter((row) => !Number(row.customer_id || 0) || Number(row.customer_id) === Number(item.customer_id || 0)) }
 function warehouseLabel(code) { const row = props.warehouses.find((item) => String(item.code) === String(code)); return row ? `${row.name}（${row.code}）` : code || '-' }
 function planItemName(id) { const item = (props.detail.items || []).find((row) => Number(row.id) === Number(id)); return item?.output_name || item?.product_name || `任务 #${id}` }

@@ -16,6 +16,7 @@
 - 全量：在合并最新 `origin/develop` 后运行 `./scripts/verify_kferp.sh all` 通过；Go 全包通过，Vue `1175/1175` 通过，Vite 生产构建通过。
 - API：`PATCH /api/production-plans/:id/draft` 覆盖完整工作区载荷、草稿版本冲突 `409`、应用层校验和 PostgreSQL 生命周期用例；写入动作是 `production_plan/save_draft`。
 - 数量：覆盖冻结 `10 + 8 + 2 = 20` 销售规格件的包材汇总，以及上游计划投入已含损耗时不再次放大。
+- 浏览器回归：首次开发实页验收发现详情汇总误读不存在的 `material.quantity`，导致正确接口数据在卡片中显示为 0；新增定向 RED 后改读 `material.qty`，77/77 与 Vite 构建重新通过，待跟随修订提交重新部署。
 
 ## 开发环境验收
 

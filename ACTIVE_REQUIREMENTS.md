@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-650-PRODUCTION-PLAN-DETAIL-WORKSPACE
 - Branch: `codex/production-plan-detail-ux-20260911`, base `3d272faa`.
 - Owner/session: Codex / 2026-09-11
-- Status: implementation and latest-develop conflict resolution complete; full merged verification passed; development integration/deployment and browser acceptance in progress. Van approved the UI target and development delivery.
+- Status: implementation and latest-develop conflict resolution complete; full merged verification and first deployment passed. Browser acceptance caught and fixed the material-summary field mismatch; revision deployment and screenshots in progress. Van approved the UI target and development delivery.
 - Scope: unify frozen production-plan quantities, expose submit readiness, save the draft atomically, and replace the detail drawer with a staged Vue workspace.
 - DEV: DEV-650-QUANTITY-AUTHORITY; DEV-650-DRAFT-READINESS-API; DEV-650-DETAIL-WORKSPACE; DEV-650-DEVELOPMENT-DELIVERY.
 - Verifier:

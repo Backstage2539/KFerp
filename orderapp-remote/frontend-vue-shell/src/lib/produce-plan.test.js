@@ -409,6 +409,7 @@ test('production plan detail uses a full workspace with fixed header and footer'
   assert.match(source, /提交前核对/)
   assert.match(source, /保存草稿/)
   assert.match(source, /提交生成工单/)
+  assert.match(source, /quantity\(material\.qty, material\.unit\)/)
   assert.match(source, /position:\s*sticky/)
 })
 
