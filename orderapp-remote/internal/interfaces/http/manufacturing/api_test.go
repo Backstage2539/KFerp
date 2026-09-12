@@ -229,7 +229,7 @@ func TestManufacturingOperationAPISavesStandardOperationCost(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
 
-	body := `{"name":"烘焙","standard_operation_cost":8.5}`
+	body := `{"name":"烘焙","standard_operation_cost":8.5,"eligible_employee_ids":[1],"default_employee_id":1}`
 	req := httptest.NewRequest(http.MethodPost, "/api/manufacturing-operations", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()

@@ -213,7 +213,7 @@ func TestSaveManufacturingOperationKeepsStandardOperationCost(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	got, err := svc.SaveManufacturingOperation(context.Background(), SaveManufacturingOperationCommand{
-		Name:                  "烘焙",
+		Name: "烘焙", EligibleEmployeeIDs: []int64{1}, DefaultEmployeeID: 1,
 		StandardOperationCost: 8.5,
 		Actor:                 "tester",
 	})

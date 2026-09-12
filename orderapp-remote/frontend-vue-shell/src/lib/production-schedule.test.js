@@ -16,7 +16,7 @@ test('production schedule helper builds phase3 endpoints and normalized payloads
   assert.equal(mrpSuggestionsEndpoint({ from: '2026-06-13', to: '2026-06-14', work_center: '印刷线', status: 'released', material_id: 10, limit: 50 }), '/api/mrp/suggestions?from=2026-06-13&to=2026-06-14&work_center=%E5%8D%B0%E5%88%B7%E7%BA%BF&status=released&material_id=10&limit=50')
   assert.equal(scheduleAssignEndpoint(), '/api/production-schedule/assign')
   assert.equal(capacityCalendarEndpoint(), '/api/production-capacity-calendar')
-  assert.deepEqual(scheduleViewModes().map((item) => item.value), ['list', 'calendar', 'gantt', 'capacity'])
+  assert.deepEqual(scheduleViewModes().map((item) => item.value), ['list'])
 
   assert.deepEqual(buildScheduleAssignmentPayload({
     work_order_id: '88',
@@ -63,27 +63,12 @@ test('production schedule helper builds phase3 endpoints and normalized payloads
   })
 })
 
-test('ProductionScheduleView exposes list calendar gantt capacity and conflict workflow', () => {
+test('schedule workspace uses task selection, shared staff, batch preview and explicit conflict confirmation', () => {
   const source = readFileSync(new URL('../views/ProductionScheduleView.vue', import.meta.url), 'utf8')
-  for (const marker of [
-    '生产排程工作台',
-    '/api/production-schedule',
-    '/api/production-schedule/assign',
-    '/api/production-capacity-calendar',
-    '/api/mrp/suggestions',
-    'MRP',
-    '采购建议',
-    '调拨建议',
-    '列表',
-    '日历',
-    '甘特',
-    '工位负载',
-    '冲突',
-    '保存排程',
-    '保存产能',
-    '工位/设备',
-  ]) {
-    assert.ok(source.includes(marker), `ProductionScheduleView.vue should include ${marker}`)
+  for (const marker of ['生产排程工作区', '/api/production-schedule/preview', '/api/production-schedule/batch',
+    'ProductionStaffFields', '批量带入默认人员', '确认重叠并保存安排', '可用工时待配置', 'PaginationControls',
+    'beforeunload', 'version_conflict', 'request_id', 'returnNavigation', '待安排', '已安排', '生产中', '历史']) {
+    assert.ok(source.includes(marker), `missing workflow: ${marker}`)
   }
-  assert.doesNotMatch(source, /工位\/工作中心/)
+  assert.doesNotMatch(source, /MRP|甘特|mrpSuggestionsEndpoint|v-model[^>]+assigned_to/)
 })

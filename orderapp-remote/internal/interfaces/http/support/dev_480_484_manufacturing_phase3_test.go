@@ -30,12 +30,7 @@ func TestDev480To484ManufacturingPhase3Contracts(t *testing.T) {
 			"/api/production-trace/analytics",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductionScheduleView.vue"): {
-			"生产排程工作台",
-			"甘特",
-			"工位负载",
-			"MRP",
-			"采购建议",
-			"调拨建议",
+			"生产排程工作区", "批量带入默认人员", "工位占用", "保存前核对",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "IndustryFieldTemplatesView.vue"): {
 			"行业字段模板",

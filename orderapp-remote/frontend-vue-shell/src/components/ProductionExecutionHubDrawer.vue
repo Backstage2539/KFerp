@@ -1,14 +1,14 @@
 <template>
-  <div v-if="open" class="drawer-mask" @click.self="$emit('close')">
+  <div v-if="open" class="drawer-mask" @click.self="requestClose()">
     <aside class="work-order-detail" aria-label="工单详情">
       <header class="detail-head">
         <div>
-          <button class="back-link" type="button" @click="$emit('close')">← 返回工单列表</button>
+          <button class="back-link" type="button" @click="requestClose()">← 返回工单列表</button>
           <div class="eyebrow">工单详情</div>
           <h2>{{ header.work_order_no || workOrderLabel }}</h2>
           <p>工单用于分配任务和汇总状态，执行动作在对应工位完成。</p>
         </div>
-        <button class="secondary" type="button" @click="$emit('close')">关闭</button>
+        <button class="secondary" type="button" @click="requestClose()">关闭</button>
       </header>
 
       <div v-if="loading" class="notice">正在加载工单状态…</div>
@@ -37,17 +37,13 @@
                 <div class="operation-sequence">{{ row.sequence_no || '-' }}</div>
                 <div class="operation-main">
                   <div class="operation-title"><strong>{{ row.operation || '工序' }}</strong><span>{{ batchLabel(row) }}</span><em>{{ row.status_label || statusLabel(row.status) }}</em></div>
-                  <p>{{ row.workstation || '未分配工位' }} · 执行人：{{ row.assigned_to || '未分配' }}</p>
+                  <p>{{ row.workstation || '未分配工位' }} · 执行人：{{ row.assigned_to || '待分配负责人' }}<span v-if="row.collaborators?.length"> · 协作 {{ row.collaborators.map(p => p.name).join('、') }}</span></p>
                   <details v-if="isOperationRecorded(row)" class="record-details">
                     <summary>工序记录</summary>
                     <div class="record-grid"><span>实际投入 <strong>{{ quantity(row.actual_input_qty) }}</strong></span><span>实际产出 <strong>{{ quantity(row.actual_output_qty) }}</strong></span><span>耗时 <strong>{{ row.actual_minutes || 0 }} 分钟</strong></span><span>损耗 <strong>{{ quantity(row.actual_loss_qty) }}</strong></span></div>
                   </details>
-                  <div v-if="assignmentJobCardID === row.job_card_id" class="assignment-panel">
-                    <label><span>执行人</span><select v-model="assignmentEmployee"><option value="">请选择启用员工</option><option v-for="employee in activeEmployees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
-                    <button class="primary" type="button" :disabled="assigning" @click="saveAssignment(row)">保存分配</button>
-                    <button class="secondary" type="button" @click="assignmentJobCardID = 0">取消</button>
-                  </div>
-                  <div class="operation-actions"><button v-if="!row.assigned_to" class="primary" type="button" @click="openAssignment(row)">分配任务</button><button class="secondary" type="button" @click="enterWorkstation(row)">进入工位</button></div>
+                  <ProductionTaskStaffEditor ref="staffEditors" v-if="assignmentJobCardID === row.job_card_id" :job-card-id="Number(row.job_card_id)" :work-order-id="Number(header.work_order_id)" @saved="assignmentJobCardID = 0; load(); emit('updated')" @cancel="assignmentJobCardID = 0" />
+                  <div class="operation-actions"><button v-if="!['completed','cancelled'].includes(row.status)" class="secondary" type="button" @click="openAssignment(row)">{{ row.assigned_to ? '调整人员' : '分配任务' }}</button><button class="secondary" type="button" @click="enterWorkstation(row)">进入工位</button></div>
                 </div>
               </article>
               <div v-if="!operations.length" class="empty">暂无工序任务，请先完善工序拆分。</div>
@@ -78,23 +74,20 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import ProductionTaskStaffEditor from './ProductionTaskStaffEditor.vue'
 import { executionHubOutputLabel } from '../lib/production-execution-hub'
 
 const props = defineProps({ open: { type: Boolean, default: false }, workOrderId: { type: Number, default: 0 }, focus: { type: String, default: '' }, viewParams: { type: Object, default: () => ({}) } })
 const emit = defineEmits(['close', 'updated'])
 const loading = ref(false)
-const assigning = ref(false)
 const error = ref('')
 const message = ref('')
 const detail = ref({})
-const employees = ref([])
 const assignmentJobCardID = ref(0)
-const assignmentEmployee = ref('')
 
 const hub = computed(() => detail.value.execution_hub || {})
 const header = computed(() => hub.value.header || detail.value.work_order || {})
 const operations = computed(() => (hub.value.operation_progress || []).map((row, index, rows) => ({ ...row, batch_index: rows.filter((item, itemIndex) => item.sequence_no === row.sequence_no && itemIndex <= index).length, batch_count: rows.filter((item) => item.sequence_no === row.sequence_no).length })))
-const activeEmployees = computed(() => employees.value.filter((row) => row.active !== false))
 const qualityStatus = computed(() => hub.value.quality_status || {})
 const typedOutputLabel = computed(() => executionHubOutputLabel({ ...hub.value, header: header.value }))
 const completedOperations = computed(() => operations.value.filter((row) => row.status === 'completed').length)
@@ -127,20 +120,14 @@ function formatTargetQuantity(row) { const value = Number(row.output_qty || row.
 function isOperationRecorded(row) { return Boolean(row.started_at || row.completed_at || row.actual_minutes || row.actual_input_qty || row.actual_output_qty) }
 function materialQty(row, kind) { const g = Number(row?.[`${kind}_g`] || 0); if (g > 0) return `${quantity(g)}g`; const units = Number(row?.[`${kind}_units`] || 0); return `${quantity(units)}${row?.unit || '件'}` }
 function todoActionLabel(code) { return ({ wip_shortage: '去领料', quality_freeze: '查看质检', prior_operation_incomplete: '进入前序工位', job_cards_incomplete: '进入工位', schedule_risk: '调整排程' }[code] || '查看处理') }
-function navigate(key, params = {}) { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params: { work_order_id: header.value.work_order_id, return_navigation: { key: 'workOrders', label: '返回工单详情', params: { work_order_id: header.value.work_order_id } }, ...params } } })); emit('close') }
+const staffEditors = ref([])
+function staffCanLeave() { return (Array.isArray(staffEditors.value) ? staffEditors.value : [staffEditors.value]).filter(Boolean).every(editor => editor.canLeave()) }
+function requestClose() { if (staffCanLeave()) emit('close') }
+function navigate(key, params = {}) { if (!staffCanLeave()) return; window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params: { work_order_id: header.value.work_order_id, ...params }, returnNavigation: { key: 'workOrders', label: '返回工单详情', params: { work_order_id: header.value.work_order_id } } } })); emit('close') }
 function enterWorkstation(row) { navigate('workstationView', { job_card_id: row.job_card_id, focus: 'workstation_task' }) }
 function enterFirstWorkstation() { const row = operations.value.find((item) => !['completed', 'cancelled'].includes(item.status)) || operations.value[0]; if (row) enterWorkstation(row) }
-function openAssignment(row) { if (!row) return; assignmentJobCardID.value = row.job_card_id; assignmentEmployee.value = String(activeEmployees.value.find((employee) => employee.name === row.assigned_to)?.id || '') }
-async function saveAssignment(row) {
-  if (!assignmentEmployee.value) { error.value = '请选择执行人'; return }
-  const employee = activeEmployees.value.find((item) => Number(item.id) === Number(assignmentEmployee.value))
-  if (!employee) { error.value = '所选员工已停用，请重新选择'; return }
-  assigning.value = true; error.value = ''; message.value = ''
-  try {
-    await apiSend('/api/production-schedule/assign', { body: { work_order_id: header.value.work_order_id, job_card_id: row.job_card_id, work_center: row.workstation || '', assigned_employee_id: Number(employee.id), assigned_to: employee.name, priority: header.value.priority || 0 } })
-    assignmentJobCardID.value = 0; message.value = '任务执行人已更新'; await load(); emit('updated')
-  } catch (err) { error.value = err.message || '分配失败' } finally { assigning.value = false }
-}
+function openAssignment(row) { if (!row || !staffCanLeave()) return; assignmentJobCardID.value = row.job_card_id;  }
+
 function runTodo(todo) {
   if (todo.key === 'assignment') { openAssignment(todo.row); return }
   if (todo.key === 'receipt') { navigate('productionAcceptance'); return }
@@ -152,8 +139,7 @@ async function load() {
   if (!props.workOrderId) return
   loading.value = true; error.value = ''
   try {
-    const [data, employeeRows] = await Promise.all([apiGet(`/api/produce/work-orders/${props.workOrderId}`), apiGet('/api/company/employees')])
-    detail.value = data || {}; employees.value = Array.isArray(employeeRows) ? employeeRows : (employeeRows.rows || [])
+    detail.value = await apiGet(`/api/produce/work-orders/${props.workOrderId}`)
     const requested = Number(props.viewParams?.job_card_id || 0); if (props.focus === 'assignment') openAssignment(operations.value.find((row) => row.job_card_id === requested) || operations.value.find((row) => !row.assigned_to) || operations.value[0])
   } catch (err) { error.value = err.message || '加载工单详情失败' } finally { loading.value = false }
 }

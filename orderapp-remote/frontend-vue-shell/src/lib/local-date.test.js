@@ -10,11 +10,8 @@ test('formatLocalDateInput formats the local calendar day without UTC rollover',
 })
 
 test('production date defaults use local date helper instead of toISOString slicing', () => {
-  const overview = readFileSync(new URL('../views/ProductionOverviewView.vue', import.meta.url), 'utf8')
   const schedule = readFileSync(new URL('../views/ProductionScheduleView.vue', import.meta.url), 'utf8')
 
-  assert.match(overview, /formatLocalDateInput/)
   assert.match(schedule, /formatLocalDateInput/)
-  assert.doesNotMatch(overview, /toISOString\(\)\.slice\(0,\s*10\)/)
   assert.doesNotMatch(schedule, /toISOString\(\)\.slice\(0,\s*10\)/)
 })

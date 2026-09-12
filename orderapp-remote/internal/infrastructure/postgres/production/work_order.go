@@ -1948,7 +1948,14 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if err := r.attachJobCardStaff(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.JobCardActualsCommand) error {

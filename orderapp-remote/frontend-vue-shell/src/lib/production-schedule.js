@@ -27,12 +27,7 @@ export function capacityCalendarEndpoint() {
 }
 
 export function scheduleViewModes() {
-  return [
-    { value: 'list', label: '列表' },
-    { value: 'calendar', label: '日历' },
-    { value: 'gantt', label: '甘特' },
-    { value: 'capacity', label: '工位负载' },
-  ]
+  return [{ value: 'list', label: '工序任务' }]
 }
 
 function intValue(value) {

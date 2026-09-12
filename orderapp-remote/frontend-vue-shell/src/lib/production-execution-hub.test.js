@@ -72,8 +72,10 @@ test('work order detail assigns tasks in place and delegates execution to workst
   const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
 
   assert.match(drawerSource, /import \{ apiGet, apiSend \}/)
-  assert.match(drawerSource, /\/api\/production-schedule\/assign/)
-  assert.match(drawerSource, /assigned_employee_id/)
+  assert.match(drawerSource, /ProductionTaskStaffEditor/)
+  const staffEditor = fs.readFileSync(new URL('../components/ProductionTaskStaffEditor.vue', import.meta.url), 'utf8')
+  assert.match(staffEditor, /staffPatch/)
+  assert.match(staffEditor, /production-schedule\/batch/)
   assert.match(drawerSource, /function enterWorkstation/)
   assert.match(drawerSource, /emit\('updated'/)
   assert.doesNotMatch(drawerSource, /\/api\/produce\/work-orders\/\$\{[^}]+\}\/start/)
@@ -148,7 +150,7 @@ test('production context params preserve work order, job card, running item, mat
 
 test('production pages mount the shared execution hub drawer instead of separate work order drawers', () => {
   const files = [
-    'src/views/ProductionOverviewView.vue',
+    'src/views/ProductionScheduleView.vue',
     'src/views/WorkstationView.vue',
     'src/views/WorkOrdersView.vue',
     'src/views/JobCardsView.vue',

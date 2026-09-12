@@ -1016,6 +1016,11 @@ type JobCardQuery struct {
 }
 
 type JobCardRow struct {
+	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
+	CollaboratorEmployeeIDs []int64            `json:"collaborator_employee_ids"`
+	Collaborators           []ScheduleEmployee `json:"collaborators"`
+	ScheduleVersion         int64              `json:"schedule_version"`
+
 	ID                           int64   `json:"id"`
 	WorkOrderID                  int64   `json:"work_order_id"`
 	WorkOrderNo                  string  `json:"work_order_no"`
@@ -1126,6 +1131,13 @@ type ProductionWorkstationLoad struct {
 }
 
 type ProductionTask struct {
+	OperationID int64 `json:"operation_id"`
+
+	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
+	CollaboratorEmployeeIDs []int64            `json:"collaborator_employee_ids"`
+	Collaborators           []ScheduleEmployee `json:"collaborators"`
+	ScheduleVersion         int64              `json:"schedule_version"`
+
 	JobCardID                int64                             `json:"job_card_id"`
 	SequenceNo               int                               `json:"sequence_no"`
 	BatchIndex               int                               `json:"batch_index"`
@@ -1250,6 +1262,13 @@ type WorkOrderExecutionHeader struct {
 }
 
 type ProductionOperationProgress struct {
+	OperationID int64 `json:"operation_id"`
+
+	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
+	CollaboratorEmployeeIDs []int64            `json:"collaborator_employee_ids"`
+	Collaborators           []ScheduleEmployee `json:"collaborators"`
+	ScheduleVersion         int64              `json:"schedule_version"`
+
 	JobCardID       int64   `json:"job_card_id"`
 	SequenceNo      int     `json:"sequence_no"`
 	Operation       string  `json:"operation"`
@@ -1341,11 +1360,18 @@ type WorkOrderExecutionHub struct {
 }
 
 type ScheduleBoardQuery struct {
-	From       string
-	To         string
-	WorkCenter string
-	Status     string
-	Limit      int
+	Scope       string
+	Search      string
+	Page        int
+	EmployeeID  int64
+	OperationID int64
+	JobCardID   int64
+	WorkOrderID int64
+	From        string
+	To          string
+	WorkCenter  string
+	Status      string
+	Limit       int
 }
 
 type ScheduleConflict struct {
@@ -1381,6 +1407,10 @@ type CapacityCalendarRow struct {
 }
 
 type ScheduleAssignmentCommand struct {
+	Patch              *ScheduleTaskPatch
+	PreviewToken       string
+	RequestID          string
+	Claim              bool
 	WorkOrderID        int64
 	JobCardID          int64
 	AssignedEmployeeID int64
@@ -1401,6 +1431,12 @@ type ScheduleAssignmentResult struct {
 }
 
 type ScheduleBoardResult struct {
+	Rows       []ScheduleTask        `json:"rows"`
+	Total      int                   `json:"total"`
+	Page       int                   `json:"page"`
+	Limit      int                   `json:"limit"`
+	TotalPages int                   `json:"total_pages"`
+	Load       []ScheduleLoad        `json:"load"`
 	WorkOrders []WorkOrderRow        `json:"work_orders"`
 	JobCards   []JobCardRow          `json:"job_cards"`
 	Capacity   []CapacityCalendarRow `json:"capacity"`
@@ -3072,7 +3108,7 @@ func (s *Service) ClaimProductionTask(ctx context.Context, jobCardID, employeeID
 			continue
 		}
 		return s.SaveScheduleAssignment(ctx, ScheduleAssignmentCommand{
-			WorkOrderID: card.WorkOrderID, JobCardID: card.ID,
+			WorkOrderID: card.WorkOrderID, JobCardID: card.ID, Claim: true,
 			WorkCenter: firstNonEmpty(card.WorkCenter, card.Workstation), AssignedEmployeeID: employeeID, AssignedTo: operator,
 			PlannedStartAt: card.PlannedStartAt, PlannedEndAt: card.PlannedEndAt,
 			ShiftCode: card.ShiftCode, Priority: card.Priority, Note: card.SchedulingNote, Operator: operator,
@@ -3131,7 +3167,14 @@ func (s *Service) ScheduleBoard(ctx context.Context, query ScheduleBoardQuery) (
 	if query.Limit <= 0 || query.Limit > 500 {
 		query.Limit = 200
 	}
-	return s.repo.ScheduleBoard(ctx, query)
+	result, err := s.repo.ScheduleBoard(ctx, query)
+	if err != nil {
+		return result, err
+	}
+	if err := s.attachScheduleMaterialStatus(ctx, result.Rows); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func (s *Service) MRPSuggestions(ctx context.Context, query MRPSuggestionQuery) (MRPSuggestionResult, error) {
@@ -3662,13 +3705,13 @@ func stringListValue(value any) []string {
 }
 
 func productionTaskFromJobCard(card JobCardRow, workOrder WorkOrderRow) ProductionTask {
-	assignedTo := firstNonEmpty(card.AssignedTo, workOrder.AssignedTo)
+	assignedTo := card.AssignedTo
 	workCenter := firstNonEmpty(card.WorkCenter, card.Workstation, workOrder.WorkCenter)
 	workstation := firstNonEmpty(card.Workstation, card.WorkCenter, workOrder.WorkCenter)
 	status := normalizeProductionTaskStatus(card.Status)
 	blockingReason := productionBlockingReason(status, card.ExceptionReason, workCenter, assignedTo)
 	task := ProductionTask{
-		JobCardID:                card.ID,
+		JobCardID: card.ID, OperationID: card.OperationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: card.CollaboratorEmployeeIDs, Collaborators: card.Collaborators, ScheduleVersion: card.ScheduleVersion,
 		SequenceNo:               card.SequenceNo,
 		WorkOrderID:              firstNonZeroInt64(card.WorkOrderID, workOrder.ID),
 		RunningItemID:            workOrder.RunningItemID,
@@ -4320,7 +4363,7 @@ func buildWorkOrderOperationProgress(cards []JobCardRow) []ProductionOperationPr
 		status := normalizeProductionTaskStatus(card.Status)
 		blocking := productionBlockingReason(status, card.ExceptionReason, firstNonEmpty(card.WorkCenter, card.Workstation), card.AssignedTo)
 		rows = append(rows, ProductionOperationProgress{
-			JobCardID:       card.ID,
+			JobCardID: card.ID, OperationID: card.OperationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: card.CollaboratorEmployeeIDs, Collaborators: card.Collaborators, ScheduleVersion: card.ScheduleVersion,
 			SequenceNo:      card.SequenceNo,
 			Operation:       card.Operation,
 			Workstation:     firstNonEmpty(card.Workstation, card.WorkCenter),

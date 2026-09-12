@@ -415,7 +415,9 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "finance.write"
 	}
-	if strings.HasPrefix(path, "/api/production/") ||
+	if strings.HasPrefix(path, "/api/production-schedule") ||
+		strings.HasPrefix(path, "/api/production-capacity-calendar") ||
+		strings.HasPrefix(path, "/api/production/") ||
 		strings.HasPrefix(path, "/api/job-cards/") ||
 		strings.HasPrefix(path, "/api/work-orders/") {
 		if method == http.MethodGet {

@@ -32,6 +32,11 @@ type IndustryFieldTemplate struct {
 }
 
 type ManufacturingOperation struct {
+	EligibleEmployeeIDs    []int64 `json:"eligible_employee_ids"`
+	DefaultEmployeeID      int64   `json:"default_employee_id"`
+	DefaultCollaboratorIDs []int64 `json:"default_collaborator_ids"`
+	StaffingReady          bool    `json:"staffing_ready"`
+
 	ID                    int64   `json:"id"`
 	Code                  string  `json:"code"`
 	Name                  string  `json:"name"`
@@ -193,6 +198,10 @@ type SaveIndustryTemplateCommand struct {
 }
 
 type SaveManufacturingOperationCommand struct {
+	EligibleEmployeeIDs    []int64 `json:"eligible_employee_ids"`
+	DefaultEmployeeID      int64   `json:"default_employee_id"`
+	DefaultCollaboratorIDs []int64 `json:"default_collaborator_ids"`
+
 	ID                    int64
 	Code                  string
 	Name                  string
@@ -322,6 +331,9 @@ func (s *Service) SaveManufacturingOperation(ctx context.Context, cmd SaveManufa
 	}
 	if cmd.Code == "" {
 		cmd.Code = codeFromName(cmd.Name)
+	}
+	if err := validateOperationStaff(cmd); err != nil {
+		return ManufacturingOperation{}, err
 	}
 	return s.repo.SaveManufacturingOperation(ctx, cmd)
 }
@@ -910,4 +922,28 @@ func normalizeJSONArray(raw string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+func validateOperationStaff(cmd SaveManufacturingOperationCommand) error {
+	eligible := map[int64]bool{}
+	for _, id := range cmd.EligibleEmployeeIDs {
+		if id <= 0 || eligible[id] {
+			return fmt.Errorf("可执行员工不能重复或为空")
+		}
+		eligible[id] = true
+	}
+	if cmd.Status == "active" && (len(eligible) == 0 || cmd.DefaultEmployeeID <= 0) {
+		return fmt.Errorf("启用工序必须配置可执行员工和默认负责人；可先保存为停用")
+	}
+	if cmd.DefaultEmployeeID > 0 && !eligible[cmd.DefaultEmployeeID] {
+		return fmt.Errorf("默认负责人必须属于可执行员工")
+	}
+	seen := map[int64]bool{cmd.DefaultEmployeeID: true}
+	for _, id := range cmd.DefaultCollaboratorIDs {
+		if !eligible[id] || seen[id] {
+			return fmt.Errorf("协作人员必须属于可执行员工，且不能重复或包含负责人")
+		}
+		seen[id] = true
+	}
+	return nil
 }

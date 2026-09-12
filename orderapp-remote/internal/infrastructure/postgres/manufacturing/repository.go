@@ -41,7 +41,14 @@ func (r Repository) ListManufacturingOperations(ctx context.Context) ([]manufact
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if err := r.attachOperationStaff(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r Repository) SaveManufacturingOperation(ctx context.Context, cmd manufacturingapp.SaveManufacturingOperationCommand) (manufacturingapp.ManufacturingOperation, error) {
@@ -50,6 +57,10 @@ func (r Repository) SaveManufacturingOperation(ctx context.Context, cmd manufact
 		return manufacturingapp.ManufacturingOperation{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// Lock in the same order as scheduling: coordination lock, then operation row.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, r.schema+":production_schedule"); err != nil {
+		return manufacturingapp.ManufacturingOperation{}, err
+	}
 	action := "create"
 	var id int64
 	if cmd.ID > 0 {
@@ -70,7 +81,10 @@ func (r Repository) SaveManufacturingOperation(ctx context.Context, cmd manufact
 	if err != nil {
 		return manufacturingapp.ManufacturingOperation{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_operation", &id, action, postgresinfra.StrPtr("operation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status, "standard_operation_cost": cmd.StandardOperationCost}); err != nil {
+	if err := saveOperationStaffTx(ctx, tx, r.schema, id, cmd); err != nil {
+		return manufacturingapp.ManufacturingOperation{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_operation", &id, action, postgresinfra.StrPtr("operation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status, "standard_operation_cost": cmd.StandardOperationCost, "eligible_employee_ids": cmd.EligibleEmployeeIDs, "default_employee_id": cmd.DefaultEmployeeID, "default_collaborator_ids": cmd.DefaultCollaboratorIDs}); err != nil {
 		return manufacturingapp.ManufacturingOperation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
