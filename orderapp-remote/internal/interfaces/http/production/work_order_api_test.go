@@ -15,12 +15,13 @@ import (
 )
 
 type workOrderAPIRepo struct {
-	rows           []productionapp.WorkOrderRow
-	jobCards       []productionapp.JobCardRow
-	workOrderQuery productionapp.WorkOrderQuery
-	jobCardQuery   productionapp.JobCardQuery
-	jobCardActual  productionapp.JobCardActualsCommand
-	jobCardAction  productionapp.JobCardActionCommand
+	rows             []productionapp.WorkOrderRow
+	jobCards         []productionapp.JobCardRow
+	workOrderQuery   productionapp.WorkOrderQuery
+	jobCardQuery     productionapp.JobCardQuery
+	jobCardActual    productionapp.JobCardActualsCommand
+	jobCardAction    productionapp.JobCardActionCommand
+	jobCardActionErr error
 
 	createPlan           productionapp.CreateProductionPlanCommand
 	savePlanDraft        productionapp.SaveProductionPlanDraftCommand
@@ -354,6 +355,9 @@ func (r *workOrderAPIRepo) GetWorkOrderStockDocumentDraft(_ context.Context, _ i
 }
 func (r *workOrderAPIRepo) TransitionJobCard(ctx context.Context, cmd productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
 	r.jobCardAction = cmd
+	if r.jobCardActionErr != nil {
+		return productionapp.JobCardActionResult{}, r.jobCardActionErr
+	}
 	status := "running"
 	if cmd.Action == "pause" {
 		status = "paused"
@@ -365,6 +369,35 @@ func (r *workOrderAPIRepo) TransitionJobCard(ctx context.Context, cmd production
 		JobCard:   productionapp.JobCardRow{ID: cmd.ID, WorkOrderID: 88, Status: status, ActualInputQty: cmd.ActualInputQty, ActualOutputQty: cmd.ActualOutputQty, ActualLossQty: cmd.ActualLossQty, ActualLossRate: cmd.ActualLossRate, Operator: cmd.Operator},
 		WorkOrder: productionapp.WorkOrderRow{ID: 88, Status: "running"},
 	}, nil
+}
+
+func TestJobCardActionFailureReturnsTraceableErrorCode(t *testing.T) {
+	repo := &workOrderAPIRepo{jobCardActionErr: fmt.Errorf("database unavailable")}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "隔离测试员")
+			return next(c)
+		}
+	})
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/job-cards/91/start", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST job card start status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error != "database unavailable" || !strings.HasPrefix(body.Code, "JC-START-91-") {
+		t.Fatalf("unexpected action failure response: %+v", body)
+	}
 }
 func (r *workOrderAPIRepo) ListMachines(ctx context.Context, activeOnly bool) ([]productionapp.RoastMachine, error) {
 	return nil, nil

@@ -29,7 +29,7 @@ func TestScheduleStaffBatchAPI(t *testing.T) {
 	e := echo.New()
 	repo := &staffAPIRepo{}
 	RegisterRoutes(e, Dependencies{Production: app.NewService(repo)})
-	body := `{"request_id":"one-save","preview_token":"reviewed","items":[{"work_order_id":2,"job_card_id":4,"expected_version":7,"assigned_employee_id":11,"collaborator_employee_ids":[12]}]}`
+	body := `{"request_id":"one-save","preview_token":"reviewed","items":[{"work_order_id":2,"job_card_id":4,"expected_version":7,"assigned_employee_id":11}]}`
 	for _, path := range []string{"/api/production-schedule/preview", "/api/production-schedule/batch"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -45,9 +45,16 @@ func TestScheduleStaffBatchAPI(t *testing.T) {
 			t.Fatal("preview became a write")
 		}
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/production-schedule/preview", strings.NewReader(`{"items":[{"work_order_id":2,"job_card_id":4,"assigned_employee_id":11}]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/production-schedule/preview", strings.NewReader(`{"request_id":"retired-collaborator","items":[{"work_order_id":2,"job_card_id":4,"expected_version":7,"assigned_employee_id":11,"collaborator_employee_ids":[12]}]}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "协作人员功能已停用") {
+		t.Fatalf("nonempty collaborator payload accepted: %d %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/production-schedule/preview", strings.NewReader(`{"items":[{"work_order_id":2,"job_card_id":4,"assigned_employee_id":11}]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != 400 {
 		t.Fatalf("missing version accepted %s", rec.Body.String())

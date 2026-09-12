@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-656-WORKSTATION-SINGLE-OWNER-FIXES
+- Branch: `codex/workstation-single-owner-fixes-20260913`, base `9b99b00e`.
+- Owner/session: Codex / 2026-09-13
+- Status: implementation and full verification complete; Van authorized merge to `develop` and development deployment; production excluded.
+- Scope: unify workstation task state, batch quantities, WIP readiness, picking actions and start validation; remove collaborator assignment and use one eligible default responsible employee.
+- DEV: DEV-656-TASK-STATE-QUANTITY; DEV-656-START-PICKING; DEV-656-SINGLE-OWNER; DEV-656-DELIVERY.
+- Verifier:
+  - Unit: task filtering, conserved batch allocation, single-owner validation and start identity tests.
+  - API: workstation overview, scheduling compatibility, stock preview states and isolated PostgreSQL lifecycle.
+  - Frontend/build: workstation/config/scheduling tests, full Vue tests and Vite build.
+  - Manual: production and inventory source manuals plus Vue help.
+  - Review/acceptance: isolated writes; listed real work orders remain read-only; desktop and narrow screenshots.
+- Deployment: development after feature branch push, latest `develop` integration and complete checks.
+- Last update: 2026-09-13 Asia/Shanghai
+- Evidence: Go all packages, Vue 1209/1209, Vite build and isolated PostgreSQL batch/start/staff lifecycle pass. Development deployment and screenshots remain.
+- Notes: reservation helper selected PR-656 but its multiline awk placeholder failed; the unused id was reserved here manually.
+
 ### PR-654-PRODUCTION-EXECUTION-BUS
 - Branch: `codex/production-execution-bus-20260912`, base `e380b7ec`.
 - Owner/session: Codex / 2026-09-12

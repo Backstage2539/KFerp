@@ -37,13 +37,16 @@
                 <div class="operation-sequence">{{ row.sequence_no || '-' }}</div>
                 <div class="operation-main">
                   <div class="operation-title"><strong>{{ row.operation || '工序' }}</strong><span>{{ batchLabel(row) }}</span><em>{{ row.status_label || statusLabel(row.status) }}</em></div>
-                  <p>{{ row.workstation || '未分配工位' }} · 执行人：{{ row.assigned_to || '待分配负责人' }}<span v-if="row.collaborators?.length"> · 协作 {{ row.collaborators.map(p => p.name).join('、') }}</span></p>
+                  <p>{{ row.workstation || '未分配工位' }} · 负责人：{{ row.assigned_to || '待配置负责人' }}</p>
                   <details v-if="isOperationRecorded(row)" class="record-details">
                     <summary>工序记录</summary>
                     <div class="record-grid"><span>实际投入 <strong>{{ quantity(row.actual_input_qty) }}</strong></span><span>实际产出 <strong>{{ quantity(row.actual_output_qty) }}</strong></span><span>耗时 <strong>{{ row.actual_minutes || 0 }} 分钟</strong></span><span>损耗 <strong>{{ quantity(row.actual_loss_qty) }}</strong></span></div>
                   </details>
-                  <ProductionTaskStaffEditor ref="staffEditors" v-if="assignmentJobCardID === row.job_card_id" :job-card-id="Number(row.job_card_id)" :work-order-id="Number(header.work_order_id)" @saved="assignmentJobCardID = 0; load(); emit('updated')" @cancel="assignmentJobCardID = 0" />
-                  <div class="operation-actions"><button v-if="!['completed','cancelled'].includes(row.status)" class="secondary" type="button" @click="openAssignment(row)">{{ row.assigned_to ? '调整人员' : '分配任务' }}</button><button class="secondary" type="button" @click="enterWorkstation(row)">进入工位</button></div>
+                  <ProductionTaskStaffEditor ref="staffEditors" v-if="!workOrderClosed && assignmentJobCardID === row.job_card_id" :job-card-id="Number(row.job_card_id)" :work-order-id="Number(header.work_order_id)" @saved="assignmentJobCardID = 0; load(); emit('updated')" @cancel="assignmentJobCardID = 0" />
+                  <div class="operation-actions">
+                    <span v-if="workOrderClosed" class="muted">{{ statusLabel(header.status) }}，任务只读</span>
+                    <template v-else><button v-if="!['completed','cancelled'].includes(row.status)" class="secondary" type="button" @click="openAssignment(row)">{{ row.assigned_to ? '调整人员' : '分配任务' }}</button><button class="secondary" type="button" @click="enterWorkstation(row)">进入工位</button></template>
+                  </div>
                 </div>
               </article>
               <div v-if="!operations.length" class="empty">暂无工序任务，请先完善工序拆分。</div>
@@ -62,7 +65,8 @@
               <details v-if="todo.key === 'wip_shortage' && materialRows.length" class="material-details"><summary>查看缺料明细</summary><div v-for="material in materialRows" :key="material.id || material.material_id"><strong>{{ material.material_name }}</strong><span>需求 {{ materialQty(material, 'required') }} · WIP 可用 {{ materialQty(material, 'available') }} · 缺口 {{ materialQty(material, 'shortage') }}</span></div></details>
               <button type="button" @click="runTodo(todo)">{{ todo.actionLabel }}</button>
             </article>
-            <article v-if="!todoItems.length" class="todo-card ready"><strong>当前无阻塞</strong><p>工位可按任务状态继续执行。</p><button type="button" @click="enterFirstWorkstation">进入工位</button></article>
+            <article v-if="workOrderClosed" class="todo-card"><strong>{{ statusLabel(header.status) }}，工单只读</strong><p>该工单已结束，不再开放人员调整、领料或执行动作。</p></article>
+            <article v-else-if="!todoItems.length" class="todo-card ready"><strong>当前无阻塞</strong><p>工位可按任务状态继续执行。</p><button type="button" @click="enterFirstWorkstation">进入工位</button></article>
             <div class="quality-summary"><span>质检</span><strong>{{ qualityLabel }}</strong><small>{{ qualityStatus.note || '按工序或批次记录检查结果' }}</small></div>
           </aside>
         </div>
@@ -89,6 +93,7 @@ const hub = computed(() => detail.value.execution_hub || {})
 const header = computed(() => hub.value.header || detail.value.work_order || {})
 const operations = computed(() => (hub.value.operation_progress || []).map((row, index, rows) => ({ ...row, batch_index: rows.filter((item, itemIndex) => item.sequence_no === row.sequence_no && itemIndex <= index).length, batch_count: rows.filter((item) => item.sequence_no === row.sequence_no).length })))
 const qualityStatus = computed(() => hub.value.quality_status || {})
+const workOrderClosed = computed(() => ['completed', 'cancelled'].includes(String(header.value.status || '').toLowerCase()))
 const typedOutputLabel = computed(() => executionHubOutputLabel({ ...hub.value, header: header.value }))
 const completedOperations = computed(() => operations.value.filter((row) => row.status === 'completed').length)
 const currentOperationText = computed(() => operations.value.find((row) => !['completed', 'cancelled'].includes(row.status))?.operation || '工序已结束')
@@ -99,6 +104,7 @@ const receiptQuantityText = computed(() => finishedReceipts.value.length ? `${fi
 const qualityLabel = computed(() => ({ unchecked: '未检查', pass: '通过', hold: '待处理', reject: '不合格', blocked: '已冻结' }[qualityStatus.value.status] || qualityStatus.value.result || '未检查'))
 const todoItems = computed(() => {
   const rows = []
+  if (workOrderClosed.value) return rows
   const unassigned = operations.value.filter((row) => !row.assigned_to)
   if (unassigned.length) rows.push({ key: 'assignment', label: `待分配 ${unassigned.length} 项任务`, detail: '为具体工序批次选择执行人，不改变调度负责人。', actionLabel: '分配任务', tone: 'warning', row: unassigned[0] })
   for (const reason of hub.value.readiness?.blocking_reasons || []) {

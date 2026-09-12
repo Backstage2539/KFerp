@@ -5,7 +5,7 @@
     <section class="toolbar">
       <div>
         <h2>工位视图</h2>
-        <p>{{ visibleSections.length }} 个工位 · {{ tasks.length }} 个任务</p>
+        <p>{{ visibleSections.length }} 个工位 · {{ visibleTaskCount }} 个任务</p>
       </div>
       <div class="toolbar-actions">
         <label>
@@ -68,22 +68,24 @@
             <div class="task-title">
               <strong>{{ taskTitle(task) }}</strong>
               <small>{{ taskBatchLabel(task) }} · {{ task.work_order_no || '-' }} · P{{ task.priority || 0 }}</small>
+              <small v-for="line in taskQuantityLines(task)" :key="line" class="task-quantity">{{ line }}</small>
               <small>工序要求：{{ task.process_requirement || '按冻结工艺路线执行' }}</small>
-              <details v-if="task.material_readiness?.length" class="material-readiness">
+              <details v-if="task.material_readiness?.length" class="material-readiness" :class="`material-state-${materialReadinessState(task)}`">
                 <summary>{{ materialSummary(task) }}</summary>
                 <div class="material-row material-head"><span>物料名称</span><span>需求</span><span>WIP 可用</span><span>缺口</span></div>
                 <div v-for="material in task.material_readiness" :key="material.reservation_id || material.material_id" class="material-row"><strong>{{ material.material_name }}</strong><span>{{ materialQuantity(material, 'required') }}</span><span>{{ materialQuantity(material, 'wip') }}</span><span :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span></div>
               </details>
+              <div v-else-if="materialReadinessState(task) === 'unknown'" class="material-readiness material-state-unknown">用料待核对</div>
             </div>
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
-            <span class="task-staff">{{ task.assigned_to || '待分配负责人' }}<small v-if="task.collaborators?.length">协作：{{ task.collaborators.map(p => p.name).join('、') }}</small><small v-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
+            <span class="task-staff">{{ task.assigned_to || '待配置负责人' }}<small v-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
             <div class="actions">
               <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
               <button v-if="!task.assigned_to" type="button" class="secondary" @click="claimTask(task)">领取任务</button>
               <button type="button" class="secondary" @click="openTaskAssignment(task)">{{ task.assigned_to ? '调整人员' : '分配人员' }}</button>
-              <button v-if="materialHasShortageTask(task)" type="button" class="primary" @click="openPicking(task)">领料</button>
+              <button v-if="workstationCanOpenIssue(task)" type="button" class="primary" @click="openPicking(task)">领料</button>
               <button v-if="task.readiness_label === '待质检'" type="button" class="secondary" @click="openQuality(task)">查看质检</button>
-              <details v-if="isFirstOperationTask(task)" class="material-actions"><summary>物料操作</summary><button type="button" @click="openStockAction(task, 'issue')">领料</button><button type="button" @click="openStockAction(task, 'supplement')">补料</button><button type="button" @click="openStockAction(task, 'consume')">耗料</button><button type="button" @click="openStockAction(task, 'return')">退料</button></details>
+              <details v-if="isFirstOperationTask(task) && (workstationCanOpenIssue(task) || task.status === 'running')" class="material-actions"><summary>物料操作</summary><button v-if="workstationCanOpenIssue(task)" type="button" @click="openStockAction(task, 'issue')">领料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'consume')">耗料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'return')">退料</button></details>
               <button
                 v-for="action in workstationVisibleActions(task)"
                 :key="action"
@@ -168,7 +170,10 @@ import {
   productionCompletionOutputQty,
   productionTaskActionEndpoint,
   productionTaskActionErrorMessage,
+  materialReadinessState,
   taskTitle,
+  taskQuantityLines,
+  workstationCanOpenIssue,
   workstationVisibleActions,
   workstationTaskSections,
 } from '../lib/production-workstation.js'
@@ -210,6 +215,7 @@ const tasks = computed(() => overview.value.tasks || [])
 const sections = computed(() => workstationTaskSections(tasks.value))
 const workstationLoad = computed(() => overview.value.workstation_load || [])
 const visibleSections = computed(() => selectedWorkstation.value ? sections.value.filter((section) => section.workstation === selectedWorkstation.value) : sections.value)
+const visibleTaskCount = computed(() => visibleSections.value.reduce((total, section) => total + section.tasks.length, 0))
 const singleStationLayout = computed(() => visibleSections.value.length === 1)
 
 function loadStatusLabel(value) {
@@ -235,7 +241,14 @@ function focusRequestedTask() {
   if (focus !== 'workstation_task' || requestedJobCardID.value <= 0) return false
   const matchedTask = tasks.value.find((task) => Number(task?.job_card_id || 0) === requestedJobCardID.value)
   if (!matchedTask) {
-    error.value = '未找到指定工序任务，请确认工序卡仍有效'
+    error.value = '该任务已结束或已移出待执行队列，已为你打开工单查看结束状态'
+    const workOrderID = Number(props.viewParams?.work_order_id || 0)
+    if (workOrderID > 0) {
+      executionHub.workOrderId = workOrderID
+      executionHub.jobCardId = requestedJobCardID.value
+      executionHub.focus = 'job_card'
+      executionHub.open = true
+    }
     return false
   }
   selectedWorkstation.value = matchedTask.workstation
@@ -253,7 +266,7 @@ function updateTaskFeedback(task, { message: nextMessage = '', error: nextError 
 
 function taskMeta(task) {
   if (!task) return '-'
-  return `${task.work_order_no || '-'} · ${task.next_handler || task.assigned_to || '-'} · ${task.planned_start_at || '未排时间'}`
+  return `${taskQuantityLines(task).join(' · ')} · ${task.work_order_no || '-'} · ${task.next_handler || task.assigned_to || '-'} · ${task.planned_start_at || '未排时间'}`
 }
 
 function taskBatchLabel(task) {
@@ -264,11 +277,8 @@ function materialHasShortage(material) {
   return Number(material?.shortage_g || 0) > 0 || Number(material?.shortage_units || 0) > 0
 }
 
-function materialHasShortageTask(task) {
-  return (task?.material_readiness || []).some(materialHasShortage)
-}
-
 function materialSummary(task) {
+  if (materialReadinessState(task) === 'unknown') return '用料待核对'
   const rows = task?.material_readiness || []
   const shortages = rows.filter(materialHasShortage).length
   return shortages ? `缺料 ${shortages} 项，展开查看` : `本次用料 ${rows.length} 项，WIP 已齐套`
@@ -327,7 +337,7 @@ function isFirstOperationTask(task) {
 }
 
 function openStockAction(task, action) {
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'stockOperations', params: { tab: 'stockEntries', action, return_source: 'workstation_task', work_order_id: task.work_order_id, job_card_id: task.job_card_id } } }))
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'stockOperations', params: { tab: 'stockEntries', action, return_source: 'workstation_task', work_order_id: task.work_order_id, work_order_no: task.work_order_no, job_card_id: task.job_card_id }, returnNavigation: { key: 'workstationView', params: { workstation: selectedWorkstation.value, work_order_id: task.work_order_id, job_card_id: task.job_card_id, focus: 'workstation_task' }, label: '返回工位视图' } } }))
 }
 
 function openQuality(task) {
@@ -674,7 +684,9 @@ textarea { resize: vertical; }
   white-space: nowrap;
 }
 .task-title small { color: #777; }
+.task-title .task-quantity { color:#294d39;font-weight:650; }
 .task-title>details{margin-top:5px}.material-readiness summary{cursor:pointer;color:#a85a08;font-size:12px}.material-row{display:grid;grid-template-columns:minmax(130px,1fr) repeat(3,minmax(74px,.55fr));gap:7px;padding:6px 0;border-top:1px solid #eee;font-size:12px}.material-row.material-head{color:#707a75}.material-row .shortage{color:#b85d0a;font-weight:700}.bulk-assignment{display:grid;grid-template-columns:minmax(240px,1fr) minmax(180px,260px) auto;gap:12px;align-items:end}.bulk-assignment p{font-size:12px}.assignment-panel{grid-template-columns:minmax(180px,280px) auto auto;align-items:end}
+.material-readiness.material-state-ready summary{color:#23824d;font-weight:700}.material-readiness.material-state-shortage summary{color:#b85d0a;font-weight:700}.material-state-unknown{margin-top:5px;color:#7b8580;font-size:12px}
 .pill {
   justify-self: start;
   border: 1px solid #d8d2c8;
