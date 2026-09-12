@@ -9,13 +9,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-654-PRODUCTION-EXECUTION-BUS
 - Branch: `codex/production-execution-bus-20260912`, base `e380b7ec`.
 - Owner/session: Codex / 2026-09-12
-- Status: implementation in progress; development merge and deployment authorized; production excluded.
+- Status: implementation, `develop` integration, development deployment and read-only browser acceptance complete; awaiting Van business acceptance; production excluded.
 - Scope: simplify work-order list; turn work-order detail into assignment/status bus; execute, pick, report and hand off by workstation task batch; merge job-card records into work-order detail; redesign quality and finished receipt workflows.
 - DEV: DEV-654-WORK-ORDER-READMODEL; DEV-654-TASK-EXECUTION; DEV-654-QUALITY-RECEIPT; DEV-654-EXECUTION-UI; DEV-654-DELIVERY.
 - Verifier: targeted Go/API/Vue RED-GREEN; isolated PostgreSQL task-batch concurrency and WIP allocation; full backend/frontend/build gates; desktop/tablet/narrow screenshots.
 - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, inventory manual, Vue help, and acceptance evidence.
-- Deployment: verified feature branch -> `develop` -> development; browser/API acceptance and six-page screenshots required.
-- Notes: `scripts/reserve_req_id.sh --claim production-execution-bus` selected PR-654 but the local awk rejected its multiline placeholder; PR-654 was confirmed unused and reserved here manually.
+- Deployment: feature/develop/runtime `56f2ca1833964b92ca34cb5585d41f3c7f8a5b37`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260912174636-56f2ca183396`; rollback `kferp-orderapp-rollback:development-20260912174636-56f2ca183396`; production unchanged.
+- Evidence: frontend 1199/1199, miniapp 238/238, Go all packages and Vite build pass; PostgreSQL healthy, orderapp restart count 0, Vue shell 200, PR-654 visible; screenshots `/private/tmp/kferp-pr654-acceptance/` cover six pages plus desktop/tablet/narrow layouts.
+- Notes: `scripts/reserve_req_id.sh --claim production-execution-bus` selected PR-654 but the local awk rejected its multiline placeholder; PR-654 was confirmed unused and reserved here manually. The first final rollout stopped when rebuild cache filled the development host disk; 22GB of rebuildable Docker cache was removed, PostgreSQL recovered, the prior app was restored, and the same commit then deployed cleanly without business-data changes.
 
 
 ### PR-653-PRODUCTION-AUTO-PICKING

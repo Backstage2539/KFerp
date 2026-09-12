@@ -257,7 +257,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-654-TASK-EXECUTION", title: "任务批次用料、前序交接、执行人和工位一次开工", status: "done", assignee: "Codex", evidence: "stock_entry.go; production_schedule.go; stock_entry_test.go"},
 		{table: "req_dev", code: "DEV-654-QUALITY-RECEIPT", title: "任务质检关联和末道产出完工入库待办", status: "done", assignee: "Codex", evidence: "quality.go; finished receipt API"},
 		{table: "req_dev", code: "DEV-654-EXECUTION-UI", title: "生产工单、工单详情、工序记录、工位、质检和完工入库重构", status: "done", assignee: "Codex", evidence: "production-execution-bus.test.js; Vue views"},
-		{table: "req_dev", code: "DEV-654-DELIVERY", title: "手册、全量验证、development 部署和六页真实截图", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-12-production-execution-bus.md"},
+		{table: "req_dev", code: "DEV-654-DELIVERY", title: "手册、全量验证、development 部署和六页真实截图", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-12-production-execution-bus.md"},
 		{table: "req_review", code: "REV-654-PRODUCTION-EXECUTION-BUS", prCode: "PR-654-PRODUCTION-EXECUTION-BUS", title: "验收任务总线、工位一次开工、质检和完工入库六页流程", status: "todo", assignee: "VA", evidence: "待 Van 在 development 页面验收"},
 
 		{table: "req_product", code: "PR-653-PRODUCTION-AUTO-PICKING", title: "生产计划自动建议领料，区分供给落实与 WIP 齐套", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-11-production-auto-picking.md"},

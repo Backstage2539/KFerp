@@ -17,8 +17,9 @@ RED：新增 `production-execution-bus.test.js` 后，工单六列、工单总�
 GREEN：
 
 - `go test ./...`：通过。
-- 前端全量 `node --test src/lib/*.test.js`：1175/1175 通过。
+- 前端全量：1199/1199 通过。
 - `npm run build`：通过；仅保留既有大分块提示。
+- 小程序回归：238/238 通过；服务端 Go 全包和镜像内 Go 全包均通过。
 - 定向覆盖包括任务批次 WIP 只分配一次、完工入库单位聚合、任务级库存单据缩放、未开工任务一次开工，以及质检默认未检查。
 
 ## 业务边界
@@ -29,6 +30,10 @@ GREEN：
 
 ## development 交付与截图
 
-待合入和部署后补充：运行 commit、回滚源、容器/API smoke，以及生产工单、工单详情、工序记录、工位视图、生产质检、完工入库六页截图。
+- 分支、`origin/develop` 和 development 运行版本：`56f2ca1833964b92ca34cb5585d41f3c7f8a5b37`。
+- 回滚源码：`/opt/stacks/erp/orderapp.backup.deploy-20260912174636-56f2ca183396`；回滚镜像：`kferp-orderapp-rollback:development-20260912174636-56f2ca183396`。
+- Smoke：PostgreSQL `healthy`，orderapp `Up` 且重启次数为 0；Vue shell 200；需求接口可见 PR-654；完工入库和 900px 响应式源码标记存在；近期应用日志无 panic、fatal 或迁移错误。
+- 截图目录：`/private/tmp/kferp-pr654-acceptance/`。`01` 至 `06` 分别为生产工单、工单详情、工序记录、工位视图、生产质检、完工入库；`04b` 为展开缺料的单工位任务；`07`、`08`、`09` 为平板工单、窄屏工位和窄屏工单。
+- 首次最终发布在容器切换时因开发主机 Docker 构建缓存占满磁盘而中止；清理 22GB 可重建缓存后 PostgreSQL 恢复健康，上一版本先恢复在线，再重跑相同提交成功。未修改业务数据。
 
 Van 业务验收未代签。
