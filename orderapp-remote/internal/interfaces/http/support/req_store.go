@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-656-WORKSTATION-SINGLE-OWNER-FIXES", title: "工位任务状态、批次数量、开工领料与单负责人统一", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-workstation-single-owner-fixes.md"},
+		{table: "req_dev", code: "DEV-656-TASK-STATE-QUANTITY", title: "工位队列过滤结束工单并统一本批规格、数量与齐套状态", status: "done", assignee: "Codex", evidence: "workstation_service_test.go; production-task-view.test.js"},
+		{table: "req_dev", code: "DEV-656-START-PICKING", title: "按工单身份开工并统一批次尾差、WIP 齐套和领料预览", status: "done", assignee: "Codex", evidence: "postgres_integration_test.go; stock_entry_test.go"},
+		{table: "req_dev", code: "DEV-656-SINGLE-OWNER", title: "停用协作人员并在工序、排程、工位和工单共用唯一负责人", status: "done", assignee: "Codex", evidence: "operation_staff_test.go; schedule_staff_test.go; production-staff.test.js"},
+		{table: "req_dev", code: "DEV-656-DELIVERY", title: "手册、全量验证、development 部署及桌面与窄屏截图", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-13-workstation-single-owner-fixes.md"},
+		{table: "req_review", code: "REV-656-WORKSTATION-SINGLE-OWNER-FIXES", prCode: "PR-656-WORKSTATION-SINGLE-OWNER-FIXES", title: "验收工位齐套数量、独立开工、领料状态和单负责人流程", status: "todo", assignee: "VA", evidence: "待 Van 在 development 页面验收"},
+
 		{table: "req_product", code: "PR-655-PRODUCTION-SCHEDULING-STAFF", title: "生产管理精简与工序负责人、协作人员统一排程", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-12-production-scheduling-staff.md"},
 		{table: "req_dev", code: "DEV-655-STAFF", title: "工序可执行员工、默认人员与资格校验", status: "done", assignee: "Codex", evidence: "operation_staff_test.go"},
 		{table: "req_dev", code: "DEV-655-SCHEDULE", title: "工序排程、批量事务、版本与冲突确认", status: "done", assignee: "Codex", evidence: "schedule_staff_test.go"},
