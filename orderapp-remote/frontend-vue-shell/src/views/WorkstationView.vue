@@ -34,7 +34,7 @@
         <div class="station-head">
           <div>
             <h3>{{ section.workstation }}</h3>
-            <p>{{ stationLoad(section).load_status || 'normal' }} · 队列 {{ stationLoad(section).queue_count || section.tasks.length }} · 阻塞 {{ stationLoad(section).blocked_count || 0 }} · 预计 {{ stationLoad(section).estimated_minutes || 0 }} 分钟</p>
+            <p>{{ loadStatusLabel(stationLoad(section).load_status) }} · 队列 {{ stationLoad(section).queue_count || section.tasks.length }} · 阻塞 {{ stationLoad(section).blocked_count || 0 }} · 预计 {{ stationLoad(section).estimated_minutes || 0 }} 分钟</p>
           </div>
           <span v-if="section.blockingReason" class="blocker">{{ section.blockingReason }}</span>
         </div>
@@ -57,7 +57,9 @@
           </div>
         </div>
 
-        <div class="task-table">
+        <button v-if="!selectedWorkstation" class="enter-station primary" type="button" @click="selectedWorkstation = section.workstation">进入本工位</button>
+
+        <div v-if="selectedWorkstation" class="task-table">
           <div class="task-row header">
             <span>任务</span>
             <span>状态</span>
@@ -218,6 +220,16 @@ const workstationLoad = computed(() => overview.value.workstation_load || [])
 const visibleSections = computed(() => selectedWorkstation.value ? sections.value.filter((section) => section.workstation === selectedWorkstation.value) : sections.value)
 const singleStationLayout = computed(() => visibleSections.value.length === 1)
 const activeEmployees = computed(() => employees.value.filter((row) => row.active !== false))
+
+function loadStatusLabel(value) {
+  return ({
+    overloaded: '超负荷',
+    blocked: '有待办',
+    busy: '繁忙',
+    normal: '正常',
+    idle: '空闲',
+  })[String(value || '').toLowerCase()] || '正常'
+}
 
 function taskKey(task) {
   return `${task.job_card_id || 0}:${task.work_order_id || 0}`
@@ -663,8 +675,9 @@ textarea { resize: vertical; }
   white-space: nowrap;
 }
 .answer-block small { color: #666; line-height: 1.35; }
-.answer-block.blocked:not(.empty) { border-color: #efb9b9; background: #fffafa; }
-.task-table {
+    .answer-block.blocked:not(.empty) { border-color: #efb9b9; background: #fffafa; }
+    .enter-station { width: 100%; margin-bottom: 12px; }
+    .task-table {
   display: grid;
   border: 1px solid #ebe7df;
   border-radius: 8px;
