@@ -112,7 +112,7 @@ export const menuGroups = [
 export const hiddenViewTitles = {
   producePlan: '生产计划',
   workOrders: '生产工单',
-  jobCards: '工序卡',
+  jobCards: '工序记录',
   qualityInspections: '生产质检',
   productionAcceptance: '完工入库',
   processTemplates: '工艺路线',

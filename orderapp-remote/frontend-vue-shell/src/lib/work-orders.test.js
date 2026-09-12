@@ -115,8 +115,8 @@ test('job cards show product and BOM recipe context with execution navigation', 
   const template = source.slice(0, source.indexOf('<script setup>'))
 
   for (const marker of [
-    '<th>商品</th>',
-    '<th>BOM/配方</th>',
+    '<th>商品 / 工单</th>',
+    '<th>工序批次 / BOM</th>',
     'row.work_order_no',
     'openExecutionHub',
     'openWorkstation',

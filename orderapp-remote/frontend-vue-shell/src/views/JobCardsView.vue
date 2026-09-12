@@ -23,24 +23,18 @@
       <table>
         <thead>
           <tr>
-            <th>工单</th>
-            <th>商品</th>
-            <th>BOM/配方</th>
-            <th>工序批次</th>
-            <th>状态</th>
-            <th>执行人</th>
+            <th>商品 / 工单</th>
+            <th>工序批次 / BOM</th>
+            <th>状态 / 执行人</th>
             <th>工序记录</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
-            <td><button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'job_card')">{{ row.work_order_no || '工单号缺失' }}</button></td>
-            <td>{{ row.product_name || '-' }}</td>
-            <td>{{ bomRecipeLabel(row) }}</td>
-            <td><strong>{{ operationLabel(row.operation) }}</strong><small>第 {{ row.sequence_no || 1 }} 道 · {{ row.workstation || '未分配工位' }}</small></td>
-            <td><span class="status" :class="statusBadgeClass(row.status)">{{ jobCardStatusLabel(row.status) }}</span></td>
-            <td>{{ row.assigned_to || '未分配' }}<small>{{ row.operator ? `报工：${row.operator}` : '' }}</small></td>
+            <td><strong>{{ row.product_name || '-' }}</strong><button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'job_card')">{{ row.work_order_no || '工单号缺失' }}</button></td>
+            <td><strong>{{ operationLabel(row.operation) }}</strong><small>第 {{ row.sequence_no || 1 }} 道 · {{ row.workstation || '未分配工位' }}</small><small>{{ bomRecipeLabel(row) }}</small></td>
+            <td><span class="status" :class="statusBadgeClass(row.status)">{{ jobCardStatusLabel(row.status) }}</span><small>执行人：{{ row.assigned_to || '未分配' }}</small><small>{{ row.operator ? `报工：${row.operator}` : '' }}</small></td>
             <td>
               <details class="record-details">
                 <summary>{{ row.completed_at || row.started_at ? '查看记录' : '尚未执行' }}</summary>
@@ -62,10 +56,9 @@
             <td class="row-actions">
               <button class="primary compact" type="button" @click="openWorkstation(row)">进入工位</button>
               <button class="secondary compact" type="button" @click="openExecutionHub(row, 'job_card')">查看工单</button>
-              <small class="compatibility-note">原执行枢纽</small>
             </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="8" class="muted">暂无工序记录</td></tr>
+          <tr v-if="!rows.length"><td colspan="5" class="muted">暂无工序记录</td></tr>
         </tbody>
       </table>
     </section>
@@ -197,5 +190,5 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px;background:#f7f8fa}.panel{border:1px solid #e2e7e4;border-radius:10px;padding:14px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:20px}.panel-head p{margin:4px 0 0;color:#6b7280;font-size:13px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button{font:inherit;min-height:36px;border-radius:7px}select{width:100%;border:1px solid #d5dcd8;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #2f8f5b;background:#2f8f5b;color:#fff}.secondary{border:1px solid #b9c4be;background:#fff;color:#27463b}.compact{min-height:30px;padding:5px 10px}.link-button{border:0;background:transparent;color:#24704a;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:600}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:170px}.compatibility-note{width:100%;color:#8a948f}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#efd4a5;background:#fff8e8;color:#9b5c08}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:980px;border-collapse:collapse}th,td{border-bottom:1px solid #edf0ee;padding:10px;text-align:left;font-size:13px;vertical-align:top}th{background:#f7f9f8}td small{display:block;color:#6b7280;margin-top:3px}.record-details summary{cursor:pointer;color:#24704a;white-space:nowrap}.record-grid{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:7px;margin-top:8px;min-width:360px}.record-grid span{display:grid;gap:2px;color:#6b7280;font-size:11px}.record-grid strong{color:#273b34;font-size:12px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}@media(max-width:760px){.page{padding:12px}.panel-head{align-items:stretch;flex-direction:column}.table-wrap{overflow:visible}table,thead,tbody,tr,th,td{display:block}thead{display:none}table{min-width:0}tr{border:1px solid #e2e7e4;border-radius:9px;margin-bottom:9px;padding:8px}td{border:0;padding:5px}.record-grid{grid-template-columns:1fr;min-width:0}}
+.page{padding:16px;display:grid;gap:16px;background:#f7f8fa}.panel{border:1px solid #e2e7e4;border-radius:10px;padding:14px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:20px}.panel-head p{margin:4px 0 0;color:#6b7280;font-size:13px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button{font:inherit;min-height:36px;border-radius:7px}select{width:100%;border:1px solid #d5dcd8;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #2f8f5b;background:#2f8f5b;color:#fff}.secondary{border:1px solid #b9c4be;background:#fff;color:#27463b}.compact{min-height:30px;padding:5px 10px}.link-button{display:block;border:0;background:transparent;color:#24704a;padding:3px 0 0;min-height:0;text-decoration:underline}.work-order-link{font-weight:600}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:170px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#efd4a5;background:#fff8e8;color:#9b5c08}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:780px;border-collapse:collapse}th,td{border-bottom:1px solid #edf0ee;padding:10px;text-align:left;font-size:13px;vertical-align:top}th{background:#f7f9f8}td small{display:block;color:#6b7280;margin-top:3px}.record-details summary{cursor:pointer;color:#24704a;white-space:nowrap}.record-grid{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:7px;margin-top:8px;min-width:360px}.record-grid span{display:grid;gap:2px;color:#6b7280;font-size:11px}.record-grid strong{color:#273b34;font-size:12px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}@media(max-width:760px){.page{padding:12px}.panel-head{align-items:stretch;flex-direction:column}.table-wrap{overflow:visible}table,thead,tbody,tr,th,td{display:block}thead{display:none}table{min-width:0}tr{border:1px solid #e2e7e4;border-radius:9px;margin-bottom:9px;padding:8px}td{border:0;padding:5px}.record-grid{grid-template-columns:1fr;min-width:0}}
 </style>

@@ -62,4 +62,11 @@ test('production flow exposes operation records and finished receipts', () => {
   assert.match(receipt, /部分入库/)
   assert.match(receipt, /已入库/)
   assert.doesNotMatch(receipt, /acceptance-smoke/)
+
+  const operationRecords = read('../views/JobCardsView.vue')
+  const menu = read('./menu-ia.js')
+  const operationTable = operationRecords.slice(operationRecords.indexOf('<table'), operationRecords.indexOf('</table>'))
+  assert.doesNotMatch(operationRecords, /原执行枢纽/)
+  assert.match(menu, /jobCards:\s*'工序记录'/)
+  assert.equal((operationTable.match(/<th>/g) || []).length, 5)
 })
