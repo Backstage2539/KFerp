@@ -57,7 +57,7 @@ func TestDev490JobCardBatchCardsContracts(t *testing.T) {
 			t.Fatalf("JobCardsView template must not expose %s", forbidden)
 		}
 	}
-	for _, marker := range []string{"工序要求", "实际分钟", "实际工序成本", "实际损耗", "损耗原因", "异常原因", "进入工位", "执行枢纽"} {
+	for _, marker := range []string{"工序要求", "实际分钟", "实际工序成本", "实际损耗", "损耗原因", "异常原因", "进入工位", "查看工单"} {
 		if !strings.Contains(jobCardsTemplate, marker) {
 			t.Fatalf("JobCardsView template missing %s", marker)
 		}
