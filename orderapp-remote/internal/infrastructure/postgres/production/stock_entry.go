@@ -580,7 +580,7 @@ func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, wor
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT id,COALESCE(NULLIF(component_type,''),'material'),material_id,material_name,unit,
-		       GREATEST(0,required_g-consumed_g),GREATEST(0,required_units-consumed_units)
+		       GREATEST(0,required_g),GREATEST(0,required_units)
 		FROM %s.work_order_material_reservations
 		WHERE work_order_id=$1 AND status='reserved'
 		ORDER BY id FOR UPDATE
@@ -609,28 +609,62 @@ func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, wor
 	if len(reservations) == 0 {
 		return fmt.Errorf("旧工单缺少可核对的冻结用料，请刷新计划或由调度确认")
 	}
-	var committedInput float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(SUM(planned_input_qty),0)::float8 FROM %s.job_cards
-		WHERE work_order_id=$1 AND sequence_no=$2 AND id<>$3 AND status IN ('running','paused','completed')
-	`, schema), workOrderID, sequenceNo, jobCardID).Scan(&committedInput); err != nil {
+	type batchCard struct {
+		id     int64
+		input  float64
+		status string
+	}
+	batchRows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id,COALESCE(planned_input_qty,0)::float8,status
+		FROM %s.job_cards
+		WHERE work_order_id=$1 AND sequence_no=$2 AND status<>'cancelled'
+		ORDER BY id FOR UPDATE
+	`, schema), workOrderID, sequenceNo)
+	if err != nil {
 		return err
 	}
+	batches := make([]batchCard, 0)
+	for batchRows.Next() {
+		var batch batchCard
+		if err := batchRows.Scan(&batch.id, &batch.input, &batch.status); err != nil {
+			batchRows.Close()
+			return err
+		}
+		batches = append(batches, batch)
+	}
+	if err := batchRows.Err(); err != nil {
+		batchRows.Close()
+		return err
+	}
+	batchRows.Close()
 	for _, row := range reservations {
-		committedG := int64(math.Ceil(float64(row.requiredG) * committedInput / sequenceInput))
-		committedUnits := int64(math.Ceil(float64(row.requiredUnits) * committedInput / sequenceInput))
-		currentG := taskQuantitySlice(row.requiredG, committedInput, plannedInput, sequenceInput)
-		currentUnits := taskQuantitySlice(row.requiredUnits, committedInput, plannedInput, sequenceInput)
+		var before float64
+		var protectedG, protectedUnits, currentG, currentUnits int64
+		for _, batch := range batches {
+			input := batch.input
+			if input <= 0 {
+				input = 1
+			}
+			sliceG := taskQuantitySlice(row.requiredG, before, input, sequenceInput)
+			sliceUnits := taskQuantitySlice(row.requiredUnits, before, input, sequenceInput)
+			if batch.id == jobCardID {
+				currentG, currentUnits = sliceG, sliceUnits
+			} else if (batch.id < jobCardID && batch.status != "completed") || batch.status == "running" || batch.status == "paused" || batch.status == "in_progress" {
+				protectedG += sliceG
+				protectedUnits += sliceUnits
+			}
+			before += input
+		}
 		availableG, availableUnits, err := taskReservationWIPAvailableTx(ctx, tx, schema, row.id, row.componentType)
 		if err != nil {
 			return err
 		}
-		if availableG < committedG+currentG || availableUnits < committedUnits+currentUnits {
+		if availableG < protectedG+currentG || availableUnits < protectedUnits+currentUnits {
 			unit := strings.TrimSpace(row.unit)
 			if currentG > 0 {
-				return fmt.Errorf("本任务物料不足：%s，需求 %dg，WIP 可用 %dg，缺口 %dg", row.name, currentG, nonnegativeQuantity(availableG-committedG), nonnegativeQuantity(committedG+currentG-availableG))
+				return fmt.Errorf("本任务物料不足：%s，需求 %dg，WIP 可用 %dg，缺口 %dg", row.name, currentG, nonnegativeQuantity(availableG-protectedG), nonnegativeQuantity(protectedG+currentG-availableG))
 			}
-			return fmt.Errorf("本任务物料不足：%s，需求 %d%s，WIP 可用 %d%s，缺口 %d%s", row.name, currentUnits, unit, nonnegativeQuantity(availableUnits-committedUnits), unit, nonnegativeQuantity(committedUnits+currentUnits-availableUnits), unit)
+			return fmt.Errorf("本任务物料不足：%s，需求 %d%s，WIP 可用 %d%s，缺口 %d%s", row.name, currentUnits, unit, nonnegativeQuantity(availableUnits-protectedUnits), unit, nonnegativeQuantity(protectedUnits+currentUnits-availableUnits), unit)
 		}
 	}
 	return nil

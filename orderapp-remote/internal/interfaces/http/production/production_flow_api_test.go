@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	manufacturingapp "orderapp/internal/application/manufacturing"
 	productionapp "orderapp/internal/application/production"
 	stockapp "orderapp/internal/application/stock"
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
@@ -1421,6 +1422,179 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 1)
 }
 
+func TestJobCardStartUsesFrozenBatchTailRemainder(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		availableG    int64
+		firstStatus   string
+		consumedG     int64
+		wantSecondErr string
+	}{
+		{name: "1749g splits into 875g and 874g", availableG: 1749, firstStatus: "pending"},
+		{name: "a real one gram shortage remains blocked", availableG: 1748, firstStatus: "pending", wantSecondErr: "缺口 1g"},
+		{name: "completed first batch consumption is not counted twice", availableG: 874, firstStatus: "completed", consumedG: 875},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			pool, schema := newProductionFlowTestDB(t)
+			ctx := context.Background()
+			mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+				INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+				VALUES (10,'RAW-TAIL','尾差测试生豆','bean','kg','kg',1749,0,50,0);
+				INSERT INTO %s.produce_running_items(
+					id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,input_g
+				) VALUES (656,'BATCH-TAIL',1,'尾差测试拼配',0,1749,'SO-TAIL','running','隔离测试',1749);
+				INSERT INTO %s.work_orders(
+					id,work_order_no,running_item_id,batch_id,product_id,product_name,inventory_unit,
+					planned_inventory_qty,planned_g,planned_output_g,order_nos,status
+				) VALUES (656,'WO-TAIL-656',656,'BATCH-TAIL',1,'尾差测试拼配','kg',1.749,1749,1749,'SO-TAIL','running');
+			`, schema, schema, schema))
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.job_cards(
+					id,work_order_id,sequence_no,operation,workstation,status,assigned_to,planned_input_qty
+				) VALUES
+					(6561,656,1,'咖啡烘焙+除石','智烘',$1,'隔离负责人',875),
+					(6562,656,1,'咖啡烘焙+除石','智烘','pending','隔离负责人',875)
+			`, schema), testCase.firstStatus); err != nil {
+				t.Fatalf("seed tail-remainder job cards: %v", err)
+			}
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.work_order_material_reservations(
+					id,work_order_id,running_item_id,material_id,material_name,unit,
+					required_g,reserved_g,consumed_g,status,component_type
+				) VALUES (656,656,656,10,'尾差测试生豆','g',1749,1749,$1,'reserved','material')
+			`, schema), testCase.consumedG); err != nil {
+				t.Fatalf("seed tail-remainder reservation: %v", err)
+			}
+			seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-TAIL", "尾差测试生豆", testCase.availableG)
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.work_order_material_reservation_batches(
+					reservation_id,work_order_id,material_id,component_type,component_id,
+					material_batch_id,batch_code,warehouse,reserved_g,consumed_g,status
+				) VALUES (656,656,10,'material',10,10,'MB-TAIL','wip',1749,$1,'reserved')
+			`, schema), testCase.consumedG); err != nil {
+				t.Fatalf("seed tail-remainder reservation batch: %v", err)
+			}
+
+			svc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
+			if testCase.firstStatus == "pending" {
+				first, err := svc.StartJobCard(ctx, productionapp.JobCardActionCommand{ID: 6561, Operator: "隔离负责人"})
+				if err != nil || first.JobCard.Status != "running" {
+					t.Fatalf("start first batch result=%+v err=%v", first, err)
+				}
+				if _, err := svc.StartJobCard(ctx, productionapp.JobCardActionCommand{ID: 6561, Operator: "重复点击"}); err == nil || !strings.Contains(err.Error(), "invalid job card action") {
+					t.Fatalf("duplicate first-batch start err=%v, want idempotent transition guard", err)
+				}
+			}
+			second, err := svc.StartJobCard(ctx, productionapp.JobCardActionCommand{ID: 6562, Operator: "隔离负责人"})
+			if testCase.wantSecondErr != "" {
+				if err == nil || !strings.Contains(err.Error(), testCase.wantSecondErr) {
+					t.Fatalf("start second batch err=%v, want %q", err, testCase.wantSecondErr)
+				}
+				assertProductionFlowCount(t, pool, schema, "job_cards", "id=6562 AND status='pending'", 1)
+				return
+			}
+			if err != nil || second.JobCard.Status != "running" {
+				t.Fatalf("start second batch result=%+v err=%v", second, err)
+			}
+			wantAudits := 1
+			if testCase.firstStatus == "pending" {
+				wantAudits++
+			}
+			assertProductionFlowCount(t, pool, schema, "audit_logs", "entity_type='job_card' AND action='start'", wantAudits)
+		})
+	}
+}
+
+func TestJobCardStartUsesWorkOrderIdentityAndAutoDefaultLead(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-WORK-IDENTITY", "计划生豆", 1000)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.company_departments(id,name) VALUES(656,'隔离生产部门');
+		INSERT INTO %s.company_employees(id,name,phone,department_id,active)
+		VALUES(656,'默认负责人','test-pr656-default',656,true);
+	`, schema, schema))
+	operationSvc := manufacturingapp.NewService(postgresmanufacturing.NewRepository(pool, schema))
+	operation, err := operationSvc.SaveManufacturingOperation(ctx, manufacturingapp.SaveManufacturingOperationCommand{
+		Name: "烘焙", Code: "TEST-ROAST-IDENTITY", Status: "active",
+		EligibleEmployeeIDs: []int64{656}, DefaultEmployeeID: 656, Actor: "隔离测试",
+	})
+	if err != nil {
+		t.Fatalf("save operation default lead: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.process_route_operations SET operation_id=$1 WHERE route_id=30 AND operation='烘焙'`, schema), operation.ID); err != nil {
+		t.Fatalf("bind route operation identity: %v", err)
+	}
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From: "2026-06-01", To: "2026-06-30", Selected: map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600}, Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	sources := append([]productionapp.ProductionPlanComponentSource(nil), plan.ComponentSources...)
+	for sourceIndex := range sources {
+		for _, option := range sources[sourceIndex].Options {
+			if option.Warehouse == "wip" {
+				sources[sourceIndex].SourceWarehouse = option.Warehouse
+				sources[sourceIndex].SourceOwnerCustomerID = option.OwnerCustomerID
+				break
+			}
+		}
+	}
+	plan, err = repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+		ID: plan.ID, DraftToken: plan.DraftToken,
+		Items:            []productionapp.ProductionPlanDraftItem{{ID: plan.Items[0].ID, TargetWarehouse: plan.Items[0].TargetWarehouse}},
+		ComponentSources: sources, Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("save WIP source: %v", err)
+	}
+	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
+	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatalf("SubmitProductionPlan: %v", err)
+	}
+	if len(submitted.WorkOrders) != 1 || len(submitted.JobCards) != 2 {
+		t.Fatalf("submitted result=%+v", submitted)
+	}
+	workOrder := submitted.WorkOrders[0]
+	firstTask := submitted.JobCards[0]
+	if firstTask.AssignedEmployeeID != 656 || firstTask.AssignedTo != "默认负责人" {
+		t.Fatalf("new task default lead=%+v, want employee 656", firstTask)
+	}
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,input_g
+		) VALUES(900000,'BATCH-OTHER-WO',1,'同订单另一工单',227,454,$1,'running','其他操作员',600)
+	`, schema), workOrder.OrderNos); err != nil {
+		t.Fatalf("seed another running item: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.work_orders(
+			id,work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,
+			planned_output_g,order_nos,status
+		) VALUES(900000,'WO-OTHER-SAME-ORDER',900000,'BATCH-OTHER-WO',1,'同订单另一工单',227,600,454,$1,'running')
+	`, schema), workOrder.OrderNos); err != nil {
+		t.Fatalf("seed another running work order: %v", err)
+	}
+
+	started, err := productionapp.NewService(repo).StartJobCard(ctx, productionapp.JobCardActionCommand{ID: firstTask.ID, Operator: "默认负责人"})
+	if err != nil || started.JobCard.Status != "running" {
+		t.Fatalf("start current work order task with same-order peer running result=%+v err=%v", started, err)
+	}
+	assertProductionFlowCount(t, pool, schema, "produce_running_items", "status='running'", 2)
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("id=%d AND status='running' AND running_item_id>0", workOrder.ID), 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='job_card' AND entity_id=%d AND action='start'", firstTask.ID), 1)
+	if _, err := productionapp.NewService(repo).StartJobCard(ctx, productionapp.JobCardActionCommand{ID: firstTask.ID, Operator: "重复点击"}); err == nil || !strings.Contains(err.Error(), "invalid job card action") {
+		t.Fatalf("duplicate task start err=%v, want exact-task transition guard", err)
+	}
+}
+
 func TestHistoricalWorkOrderStartUsesReservationRequirementsWhenMaterialSnapshotIsMissing(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -2395,11 +2569,11 @@ func seedProductionPlanLifecycleOperationSplits(t *testing.T, ctx context.Contex
 	plannedG := plan.Items[0].PlannedG
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_plan_operation_splits(
-			production_plan_id,production_plan_item_id,operation_seq,operation,
+			production_plan_id,production_plan_item_id,operation_seq,operation_id,operation,workstation,
 			batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,
 			planned_qty,planned_qty_g,planned_minutes
 		)
-		SELECT $1,$2,op.seq,op.operation,$3::numeric,'g',op.default_minutes,1,$3::numeric,$3::bigint,op.default_minutes
+		SELECT $1,$2,op.seq,op.operation_id,op.operation,op.workstation,$3::numeric,'g',op.default_minutes,1,$3::numeric,$3::bigint,op.default_minutes
 		FROM %s.process_route_operations op
 		WHERE op.route_id=30
 		ORDER BY op.seq

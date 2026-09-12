@@ -23,7 +23,7 @@ let requestID = '', savedDraft = ''
 watch(draft, () => { preview.value = null; requestID = '' }, { deep: true, flush: 'sync' })
 async function load() {
  loading.value = true; error.value = ''; conflicted.value = false
- try { const data = await apiGet(`/api/production-schedule?scope=task&page=1&job_card_id=${props.jobCardId}`); row.value = data.rows?.[0] || {}; if (!row.value.id) throw new Error('未找到工序任务'); if (row.value.arrangement_state === 'history') throw new Error('历史任务只读'); draft.value = { ...row.value, collaborator_employee_ids: [...(row.value.collaborator_employee_ids || [])] }; savedDraft = JSON.stringify(draft.value) } catch (err) { error.value = err.message; row.value = {} } finally { loading.value = false }
+ try { const data = await apiGet(`/api/production-schedule?scope=task&page=1&job_card_id=${props.jobCardId}`); row.value = data.rows?.[0] || {}; if (!row.value.id) throw new Error('未找到工序任务'); if (row.value.arrangement_state === 'history') throw new Error('该工单已结束，人员安排仅供查看'); draft.value = { ...row.value }; savedDraft = JSON.stringify(draft.value) } catch (err) { error.value = err.message; row.value = {} } finally { loading.value = false }
 }
 const dirty = computed(() => !!row.value.id && JSON.stringify(draft.value) !== savedDraft)
 function canLeave() { if (saving.value) return false; if (!dirty.value) return true; if (!window.confirm('人员修改尚未保存，确认离开？')) return false; savedDraft = JSON.stringify(draft.value); return true }
@@ -34,7 +34,7 @@ function close() { if (dirty.value && !window.confirm('人员修改尚未保存�
 function configure() { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productionConfig', params: { tab: 'operations', operation_id: row.value.operation_id }, returnNavigation: { key: 'productionSchedule', params: { job_card_id: props.jobCardId }, label: '返回人员安排' } } })) }
 async function save() {
  if (saving.value) return
- error.value = validateStaff(draft.value.assigned_employee_id, draft.value.collaborator_employee_ids || [], row.value.eligible_employees)
+ error.value = validateStaff(draft.value.assigned_employee_id, row.value.eligible_employees)
  if (error.value) return
  saving.value = true
  try {

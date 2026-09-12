@@ -1270,6 +1270,45 @@ func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd p
 	return out, nil
 }
 
+func assignDefaultLeadsToPendingJobCardsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64) (map[int64]productionapp.ScheduleEmployee, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT ON (oe.operation_id) oe.operation_id,e.id,e.name,e.active
+		FROM %s.manufacturing_operation_employees oe
+		JOIN %s.manufacturing_operations o ON o.id=oe.operation_id AND o.status='active'
+		JOIN %s.company_employees e ON e.id=oe.employee_id AND e.active=true
+		WHERE oe.default_role='lead'
+		ORDER BY oe.operation_id,e.id
+	`, schema, schema, schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	leads := map[int64]productionapp.ScheduleEmployee{}
+	for rows.Next() {
+		var operationID int64
+		var employee productionapp.ScheduleEmployee
+		if err := rows.Scan(&operationID, &employee.ID, &employee.Name, &employee.Active); err != nil {
+			return nil, err
+		}
+		leads[operationID] = employee
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for operationID, employee := range leads {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.job_cards
+			SET assigned_employee_id=$3,assigned_to=$4,assigned_employee_name=$4
+			WHERE work_order_id=$1 AND operation_id=$2 AND status IN ('pending','ready','released')
+			  AND assigned_employee_id=0 AND COALESCE(assigned_to,'')=''
+		`, schema), workOrderID, operationID, employee.ID, employee.Name); err != nil {
+			return nil, err
+		}
+	}
+	return leads, nil
+}
+
 func replaceProductionPlanOperationSplitsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, requested []productionapp.ProductionPlanOperationSplit) ([]productionapp.ProductionPlanOperationSplit, error) {
 	itemRows, err := loadProductionPlanItemsTx(ctx, tx, schema, planID)
 	if err != nil {
@@ -2791,6 +2830,16 @@ func createPendingJobCardsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema 
 			ParameterSchemaJSON:     defaultJSONObject(op.ParameterSchemaJSON),
 		})
 	}
+	leads, err := assignDefaultLeadsToPendingJobCardsTx(ctx, tx, schema, workOrderID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if lead, ok := leads[out[i].OperationID]; ok {
+			out[i].AssignedEmployeeID = lead.ID
+			out[i].AssignedTo = lead.Name
+		}
+	}
 	return out, nil
 }
 
@@ -2906,9 +2955,9 @@ func (r Repository) startWorkOrderTx(ctx context.Context, tx pgx.Tx, cmd product
 		if err := lockStartRefsTx(ctx, tx, r.schema, refs); err != nil {
 			return productionapp.WorkOrderStartResult{}, err
 		}
-		if err := ensureStartRefsNotRunningTx(ctx, tx, r.schema, refs); err != nil {
-			return productionapp.WorkOrderStartResult{}, err
-		}
+		// This explicit work order is the execution identity. Other work orders
+		// for the same sales order may run independently; the locked row above
+		// still prevents duplicate starts of this exact work order.
 	}
 
 	batchID := newBatchID()

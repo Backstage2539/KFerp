@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { applyDefaultStaff, staffPatch, validateStaff, taskArrangementState } from './production-staff.js'
+import { applyDefaultStaff, staffNames, staffPatch, validateStaff, taskArrangementState } from './production-staff.js'
 
 test('defaults follow each operation and preserve existing assignments', () => {
  const rows = [
@@ -10,20 +10,20 @@ test('defaults follow each operation and preserve existing assignments', () => {
  ]
  const result = applyDefaultStaff(rows)
  assert.equal(result[0].assigned_employee_id, 11)
- assert.deepEqual(result[0].collaborator_employee_ids, [12])
+ assert.deepEqual(result[0].collaborator_employee_ids, [])
  assert.equal(result[1].assigned_employee_id, 21)
  assert.equal(result[2].assigned_employee_id, 0)
  assert.equal(rows[0].assigned_employee_id, 0)
 })
-test('personnel-only changes do not send time, shift or workstation', () => {
- assert.deepEqual(staffPatch({id:4,work_order_id:2,schedule_version:7,assigned_employee_id:11,collaborator_employee_ids:[12],planned_start_at:'2026-09-12 09:00',shift_code:'早班',workstation:'包装台'}),{job_card_id:4,work_order_id:2,expected_version:7,assigned_employee_id:11,collaborator_employee_ids:[12]})
+test('personnel-only changes send one responsible employee and no collaborator field', () => {
+ assert.deepEqual(staffPatch({id:4,work_order_id:2,schedule_version:7,assigned_employee_id:11,collaborator_employee_ids:[12],planned_start_at:'2026-09-12 09:00',shift_code:'早班',workstation:'包装台'}),{job_card_id:4,work_order_id:2,expected_version:7,assigned_employee_id:11})
 })
-test('selection requires active eligible staff and unique roles', () => {
+test('selection requires one active eligible responsible employee', () => {
  const eligible=[{id:1,active:true},{id:2,active:true},{id:3,active:false}]
- assert.equal(validateStaff(1,[2],eligible),'')
- assert.ok(validateStaff(1,[1],eligible))
- assert.ok(validateStaff(1,[3],eligible))
- assert.ok(validateStaff(0,[],eligible))
+ assert.equal(validateStaff(1,eligible),'')
+ assert.ok(validateStaff(3,eligible))
+ assert.ok(validateStaff(0,eligible))
+ assert.equal(staffNames({ assigned_to: '段其晶', collaborators: [{ name: '历史协作人' }] }), '段其晶')
 })
 test('schedule readiness differs from manufacturing readiness', () => {
  assert.equal(taskArrangementState({status:'blocked',workstation:'包装台',assigned_employee_id:1,planned_start_at:'2026-09-12 09:00',planned_end_at:'2026-09-12 10:00'}),'scheduled')

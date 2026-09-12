@@ -25,13 +25,13 @@ func TestPR655ScheduleStaffPostgresLifecycle(t *testing.T) {
 		}
 	}
 	exec(`INSERT INTO %s.company_departments(id,name) VALUES(100,'隔离测试部门')`)
-	exec(`INSERT INTO %s.company_employees(id,name,phone,department_id,active) VALUES(101,'负责人甲','test-pr655-101',100,true),(102,'协作乙','test-pr655-102',100,true),(103,'负责人丙','test-pr655-103',100,true),(104,'停用丁','test-pr655-104',100,false)`)
+	exec(`INSERT INTO %s.company_employees(id,name,phone,department_id,active) VALUES(101,'负责人甲','test-pr656-101',100,true),(102,'负责人乙','test-pr656-102',100,true),(103,'负责人丙','test-pr656-103',100,true),(104,'停用丁','test-pr656-104',100,false)`)
 	ms := manufacture.NewService(manuPG.NewRepository(pool, schema))
-	op, err := ms.SaveManufacturingOperation(ctx, manufacture.SaveManufacturingOperationCommand{Name: "隔离包装工序", Code: "TEST-PACK", Status: "active", EligibleEmployeeIDs: []int64{101, 102, 103}, DefaultEmployeeID: 101, DefaultCollaboratorIDs: []int64{102}, Actor: "test"})
+	op, err := ms.SaveManufacturingOperation(ctx, manufacture.SaveManufacturingOperationCommand{Name: "隔离包装工序", Code: "TEST-PACK", Status: "active", EligibleEmployeeIDs: []int64{101, 102, 103}, DefaultEmployeeID: 101, Actor: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !op.StaffingReady || len(op.DefaultCollaboratorIDs) != 1 {
+	if !op.StaffingReady || len(op.DefaultCollaboratorIDs) != 0 {
 		t.Fatalf("staff configuration lost %+v", op)
 	}
 	exec(`INSERT INTO %s.work_orders(id,work_order_no,status,product_name,inventory_unit,planned_inventory_qty,planned_g,planned_output_g,sales_spec_count,order_nos) VALUES(201,'WO-TEST-A','released','测试商品','kg',2,2000,2000,2,'SO-TEST-A'),(202,'WO-TEST-B','released','测试商品','kg',2,2000,2000,2,'SO-TEST-B')`)
@@ -56,7 +56,7 @@ func TestPR655ScheduleStaffPostgresLifecycle(t *testing.T) {
 		json.Unmarshal(rec.Body.Bytes(), &out)
 		return out
 	}
-	item := map[string]any{"work_order_id": 201, "job_card_id": 301, "expected_version": 0, "assigned_employee_id": 101, "collaborator_employee_ids": []int64{102}, "planned_start_at": "2026-09-12T09:00", "planned_end_at": "2026-09-12T11:00", "shift_code": "早班", "note": "保留备注"}
+	item := map[string]any{"work_order_id": 201, "job_card_id": 301, "expected_version": 0, "assigned_employee_id": 101, "planned_start_at": "2026-09-12T09:00", "planned_end_at": "2026-09-12T11:00", "shift_code": "早班", "note": "保留备注"}
 	body := map[string]any{"request_id": "first", "items": []any{item}}
 	preview := post("/api/production-schedule/preview", body, 200)
 	var before int
@@ -70,11 +70,11 @@ func TestPR655ScheduleStaffPostgresLifecycle(t *testing.T) {
 	if !replay.Replayed {
 		t.Fatal("retry not replayed")
 	}
-	item2 := map[string]any{"work_order_id": 202, "job_card_id": 302, "expected_version": 0, "assigned_employee_id": 102, "planned_start_at": "2026-09-12T10:00", "planned_end_at": "2026-09-12T12:00"}
+	item2 := map[string]any{"work_order_id": 202, "job_card_id": 302, "expected_version": 0, "assigned_employee_id": 101, "planned_start_at": "2026-09-12T10:00", "planned_end_at": "2026-09-12T12:00"}
 	body2 := map[string]any{"request_id": "second", "items": []any{item2}}
 	overlap := post("/api/production-schedule/preview", body2, 200)
-	if len(overlap.Conflicts) != 1 || overlap.Conflicts[0].EmployeeID != 102 {
-		t.Fatalf("helper overlap missing %+v", overlap)
+	if len(overlap.Conflicts) != 1 || overlap.Conflicts[0].EmployeeID != 101 {
+		t.Fatalf("lead overlap missing %+v", overlap)
 	}
 	post("/api/production-schedule/batch", body2, 409)
 	body2["preview_token"] = overlap.PreviewToken
@@ -121,7 +121,7 @@ func TestPR655ScheduleStaffPostgresLifecycle(t *testing.T) {
 		t.Fatalf("writes audited %d, expected 3", audits)
 	}
 	// Conflict confirmation is invalidated when an overlapping task changes after preview.
-	conflictChange := map[string]any{"request_id": "changed-conflict", "items": []any{map[string]any{"work_order_id": 201, "job_card_id": 301, "expected_version": 2, "assigned_employee_id": 102}}}
+	conflictChange := map[string]any{"request_id": "changed-conflict", "items": []any{map[string]any{"work_order_id": 201, "job_card_id": 301, "expected_version": 2, "assigned_employee_id": 101}}}
 	oldPreview := post("/api/production-schedule/preview", conflictChange, 200)
 	post("/api/production-schedule/batch", map[string]any{"request_id": "extend-peer", "items": []any{map[string]any{"work_order_id": 202, "job_card_id": 302, "expected_version": 1, "planned_end_at": "2026-09-12T12:30"}}}, 200)
 	conflictChange["preview_token"] = oldPreview.PreviewToken
@@ -133,7 +133,7 @@ func TestPR655ScheduleStaffPostgresLifecycle(t *testing.T) {
 	conflictChange["preview_token"] = newPreview.PreviewToken
 	post("/api/production-schedule/batch", conflictChange, 200)
 	// Candidate validation covers active but unqualified employees as well as duplicates.
-	exec(`INSERT INTO %s.company_employees(id,name,phone,department_id,active) VALUES(105,'无资格员工','test-pr655-105',100,true)`)
+	exec(`INSERT INTO %s.company_employees(id,name,phone,department_id,active) VALUES(105,'无资格员工','test-pr656-105',100,true)`)
 	post("/api/production-schedule/batch", map[string]any{"request_id": "unqualified", "items": []any{map[string]any{"work_order_id": 201, "job_card_id": 301, "expected_version": 3, "assigned_employee_id": 105}}}, 400)
 	post("/api/production-schedule/batch", map[string]any{"request_id": "duplicate", "items": []any{map[string]any{"work_order_id": 201, "job_card_id": 301, "expected_version": 3, "collaborator_employee_ids": []int64{102}}}}, 400)
 	_, err = ms.SaveManufacturingOperation(ctx, manufacture.SaveManufacturingOperationCommand{ID: op.ID, Name: op.Name, Code: op.Code, Status: "active", EligibleEmployeeIDs: []int64{101, 102, 103}, DefaultEmployeeID: 103, Actor: "test"})
@@ -141,7 +141,7 @@ func TestPR655ScheduleStaffPostgresLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	pool.QueryRow(ctx, fmt.Sprintf(`SELECT assigned_employee_id FROM %s.job_cards WHERE id=301`, schema)).Scan(&lead)
-	if lead != 102 {
+	if lead != 101 {
 		t.Fatal("operation defaults changed a saved assignment")
 	}
 	// Missing station can be filled compatibly without changing task size or creating batches.

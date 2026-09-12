@@ -35,9 +35,8 @@ func (r Repository) attachOperationStaff(ctx context.Context, operations []app.M
 		if role == "lead" {
 			row.DefaultEmployeeID = id
 		}
-		if role == "collaborator" {
-			row.DefaultCollaboratorIDs = append(row.DefaultCollaboratorIDs, id)
-		}
+		// Historical collaborator rows remain stored for traceability, but the
+		// active configuration contract exposes only the default lead.
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -84,9 +83,6 @@ func saveOperationStaffTx(ctx context.Context, tx pgx.Tx, schema string, id int6
 	}
 	if cmd.DefaultEmployeeID > 0 {
 		roles[cmd.DefaultEmployeeID] = "lead"
-	}
-	for _, employeeID := range cmd.DefaultCollaboratorIDs {
-		roles[employeeID] = "collaborator"
 	}
 	for employeeID := range roles {
 		var active bool

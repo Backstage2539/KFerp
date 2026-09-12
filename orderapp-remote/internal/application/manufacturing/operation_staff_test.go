@@ -14,7 +14,8 @@ func TestOperationStaffConfiguration(t *testing.T) {
 	}{
 		{"active needs eligible staff", SaveManufacturingOperationCommand{Name: "包装", Status: "active"}, false},
 		{"inactive can wait for configuration", SaveManufacturingOperationCommand{Name: "包装", Status: "inactive"}, true},
-		{"one lead and collaborators", SaveManufacturingOperationCommand{Name: "包装", Status: "active", EligibleEmployeeIDs: []int64{1, 2, 3}, DefaultEmployeeID: 1, DefaultCollaboratorIDs: []int64{2, 3}}, true},
+		{"one lead", SaveManufacturingOperationCommand{Name: "包装", Status: "active", EligibleEmployeeIDs: []int64{1, 2, 3}, DefaultEmployeeID: 1}, true},
+		{"collaborators retired", SaveManufacturingOperationCommand{Name: "包装", Status: "active", EligibleEmployeeIDs: []int64{1, 2}, DefaultEmployeeID: 1, DefaultCollaboratorIDs: []int64{2}}, false},
 		{"lead must be eligible", SaveManufacturingOperationCommand{Name: "包装", EligibleEmployeeIDs: []int64{2}, DefaultEmployeeID: 1}, false},
 		{"lead cannot collaborate twice", SaveManufacturingOperationCommand{Name: "包装", EligibleEmployeeIDs: []int64{1, 2}, DefaultEmployeeID: 1, DefaultCollaboratorIDs: []int64{1}}, false},
 		{"collaborators must be eligible", SaveManufacturingOperationCommand{Name: "包装", EligibleEmployeeIDs: []int64{1, 2}, DefaultEmployeeID: 1, DefaultCollaboratorIDs: []int64{3}}, false},

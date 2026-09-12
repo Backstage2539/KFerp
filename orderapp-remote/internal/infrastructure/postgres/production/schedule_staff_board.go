@@ -47,9 +47,7 @@ func (r Repository) scheduleTaskBoard(ctx context.Context, q app.ScheduleBoardQu
 		add("jc.operation_id=$%d", q.OperationID)
 	}
 	if q.EmployeeID > 0 {
-		args = append(args, q.EmployeeID)
-		n := len(args)
-		where = append(where, fmt.Sprintf(`(jc.assigned_employee_id=$%d OR EXISTS(SELECT 1 FROM %s.job_card_collaborators c WHERE c.job_card_id=jc.id AND c.employee_id=$%d))`, n, r.schema, n))
+		add("jc.assigned_employee_id=$%d", q.EmployeeID)
 	}
 	if q.Search != "" {
 		add("concat_ws(' ',wo.work_order_no,wo.product_name,wo.order_nos,pp.plan_no,jc.operation) ILIKE $%d", "%"+q.Search+"%")
@@ -127,8 +125,8 @@ func (r Repository) attachJobCardStaff(ctx context.Context, cards []app.JobCardR
 	for _, row := range rows {
 		card := &cards[index[row.ID]]
 		card.AssignedEmployeeID = row.AssignedEmployeeID
-		card.CollaboratorEmployeeIDs = row.CollaboratorEmployeeIDs
-		card.Collaborators = row.Collaborators
+		card.CollaboratorEmployeeIDs = []int64{}
+		card.Collaborators = []app.ScheduleEmployee{}
 		card.ScheduleVersion = row.ScheduleVersion
 		card.PlannedStartAt = row.PlannedStartAt
 		card.PlannedEndAt = row.PlannedEndAt

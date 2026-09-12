@@ -27,11 +27,11 @@ func scheduleTaskSQL(schema string) string {
  'planned_output_inventory_qty',COALESCE(wo.planned_inventory_qty,0),
  'planned_start_at',COALESCE(to_char(jc.planned_start_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),
  'planned_end_at',COALESCE(to_char(jc.planned_end_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),
- 'collaborator_employee_ids',COALESCE((SELECT jsonb_agg(c.employee_id ORDER BY c.employee_id) FROM %[1]s.job_card_collaborators c WHERE c.job_card_id=jc.id),'[]'::jsonb),
- 'collaborators',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',c.employee_id,'name',c.employee_name,'active',COALESCE(e.active,false)) ORDER BY c.employee_id) FROM %[1]s.job_card_collaborators c LEFT JOIN %[1]s.company_employees e ON e.id=c.employee_id WHERE c.job_card_id=jc.id),'[]'::jsonb),
+ 'collaborator_employee_ids','[]'::jsonb,
+ 'collaborators','[]'::jsonb,
  'eligible_employees',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',e.id,'name',e.name,'active',e.active) ORDER BY e.name,e.id) FROM %[1]s.manufacturing_operation_employees oe JOIN %[1]s.company_employees e ON e.id=oe.employee_id WHERE oe.operation_id=jc.operation_id AND e.active=true),'[]'::jsonb),
  'default_employee_id',COALESCE((SELECT oe.employee_id FROM %[1]s.manufacturing_operation_employees oe JOIN %[1]s.company_employees e ON e.id=oe.employee_id AND e.active=true WHERE oe.operation_id=jc.operation_id AND oe.default_role='lead'),0),
- 'default_collaborator_ids',COALESCE((SELECT jsonb_agg(oe.employee_id ORDER BY oe.employee_id) FROM %[1]s.manufacturing_operation_employees oe JOIN %[1]s.company_employees e ON e.id=oe.employee_id AND e.active=true WHERE oe.operation_id=jc.operation_id AND oe.default_role='collaborator'),'[]'::jsonb),
+ 'default_collaborator_ids','[]'::jsonb,
  'batch_index',(SELECT count(*) FROM %[1]s.job_cards b WHERE b.work_order_id=jc.work_order_id AND b.sequence_no=jc.sequence_no AND b.id<=jc.id),
  'batch_count',(SELECT count(*) FROM %[1]s.job_cards b WHERE b.work_order_id=jc.work_order_id AND b.sequence_no=jc.sequence_no)
  )
@@ -216,14 +216,7 @@ func (r Repository) ScheduleBatch(ctx context.Context, cmd app.ScheduleBatchComm
 		if err != nil {
 			return result, err
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.job_card_collaborators WHERE job_card_id=$1`, r.schema), row.ID); err != nil {
-			return result, err
-		}
-		for _, e := range row.Collaborators {
-			if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.job_card_collaborators(job_card_id,employee_id,employee_name) VALUES($1,$2,$3)`, r.schema), row.ID, e.ID, e.Name); err != nil {
-				return result, err
-			}
-		}
+		// Legacy collaborator rows are intentionally left untouched as history.
 		before, _ := json.Marshal(old)
 		after, _ := json.Marshal(row)
 		if err = infra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &row.ID, "schedule", infra.StrPtr("assignment"), infra.StrPtr(string(before)), infra.StrPtr(string(after)), infra.AuditMeta{"work_order_id": row.WorkOrderID, "request_id": cmd.RequestID, "overlap_confirmed": len(conflicts) > 0}); err != nil {
@@ -259,17 +252,13 @@ func validateScheduleStaff(ctx context.Context, tx pgx.Tx, schema string, row *a
 	if row.OperationID <= 0 {
 		return fmt.Errorf("历史任务尚未关联工序，请先补齐工序信息")
 	}
-	ids := append([]int64{row.AssignedEmployeeID}, row.CollaboratorEmployeeIDs...)
-	seen := map[int64]bool{}
+	ids := []int64{row.AssignedEmployeeID}
 	row.Collaborators = []app.ScheduleEmployee{}
+	row.CollaboratorEmployeeIDs = []int64{}
 	for _, id := range ids {
 		if id <= 0 {
 			return fmt.Errorf("请选择工序负责人")
 		}
-		if seen[id] {
-			return fmt.Errorf("协作人员不能重复或包含负责人")
-		}
-		seen[id] = true
 		var e app.ScheduleEmployee
 		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT e.id,e.name,e.active FROM %[1]s.company_employees e JOIN %[1]s.manufacturing_operation_employees oe ON oe.employee_id=e.id JOIN %[1]s.manufacturing_operations o ON o.id=oe.operation_id WHERE e.id=$1 AND oe.operation_id=$2 AND e.active=true AND o.status='active' FOR SHARE OF e,o`, schema), id, row.OperationID).Scan(&e.ID, &e.Name, &e.Active)
 		if err == pgx.ErrNoRows {
@@ -278,11 +267,7 @@ func validateScheduleStaff(ctx context.Context, tx pgx.Tx, schema string, row *a
 		if err != nil {
 			return err
 		}
-		if id == row.AssignedEmployeeID {
-			row.AssignedTo = e.Name
-		} else {
-			row.Collaborators = append(row.Collaborators, e)
-		}
+		row.AssignedTo = e.Name
 	}
 	return nil
 }

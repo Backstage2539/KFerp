@@ -1087,6 +1087,9 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 			}
 		}
 	}
+	if _, err := assignDefaultLeadsToPendingJobCardsTx(ctx, tx, schema, workOrderID); err != nil {
+		return 0, err
+	}
 	return workOrderID, nil
 }
 

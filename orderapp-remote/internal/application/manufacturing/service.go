@@ -925,6 +925,9 @@ func normalizeJSONArray(raw string) (string, error) {
 }
 
 func validateOperationStaff(cmd SaveManufacturingOperationCommand) error {
+	if len(cmd.DefaultCollaboratorIDs) > 0 {
+		return fmt.Errorf("协作人员功能已停用，请只设置默认负责人")
+	}
 	eligible := map[int64]bool{}
 	for _, id := range cmd.EligibleEmployeeIDs {
 		if id <= 0 || eligible[id] {
@@ -937,13 +940,6 @@ func validateOperationStaff(cmd SaveManufacturingOperationCommand) error {
 	}
 	if cmd.DefaultEmployeeID > 0 && !eligible[cmd.DefaultEmployeeID] {
 		return fmt.Errorf("默认负责人必须属于可执行员工")
-	}
-	seen := map[int64]bool{cmd.DefaultEmployeeID: true}
-	for _, id := range cmd.DefaultCollaboratorIDs {
-		if !eligible[id] || seen[id] {
-			return fmt.Errorf("协作人员必须属于可执行员工，且不能重复或包含负责人")
-		}
-		seen[id] = true
 	}
 	return nil
 }

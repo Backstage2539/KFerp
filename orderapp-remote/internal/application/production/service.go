@@ -1138,60 +1138,66 @@ type ProductionTask struct {
 	Collaborators           []ScheduleEmployee `json:"collaborators"`
 	ScheduleVersion         int64              `json:"schedule_version"`
 
-	JobCardID                int64                             `json:"job_card_id"`
-	SequenceNo               int                               `json:"sequence_no"`
-	BatchIndex               int                               `json:"batch_index"`
-	BatchCount               int                               `json:"batch_count"`
-	WorkOrderID              int64                             `json:"work_order_id"`
-	RunningItemID            int64                             `json:"running_item_id"`
-	WorkOrderNo              string                            `json:"work_order_no"`
-	ProductName              string                            `json:"product_name"`
-	SpecG                    int64                             `json:"spec_g"`
-	InventoryQtyPerSalesUnit float64                           `json:"inventory_qty_per_sales_unit"`
-	InventoryUnit            string                            `json:"inventory_unit"`
-	PlannedG                 int64                             `json:"planned_g"`
-	PlannedUnits             int64                             `json:"planned_units"`
-	PlannedLooseG            int64                             `json:"planned_loose_g"`
-	PlannedOutputG           int64                             `json:"planned_output_g"`
-	Operation                string                            `json:"operation"`
-	ProcessRequirement       string                            `json:"process_requirement"`
-	Workstation              string                            `json:"workstation"`
-	WorkCenter               string                            `json:"work_center"`
-	Status                   string                            `json:"status"`
-	StatusLabel              string                            `json:"status_label"`
-	Readiness                string                            `json:"readiness"`
-	ReadinessLabel           string                            `json:"readiness_label"`
-	BlockingReason           string                            `json:"blocking_reason"`
-	NextHandler              string                            `json:"next_handler"`
-	AssignedTo               string                            `json:"assigned_to"`
-	Operator                 string                            `json:"operator"`
-	PlannedStartAt           string                            `json:"planned_start_at"`
-	PlannedEndAt             string                            `json:"planned_end_at"`
-	OrderNos                 string                            `json:"order_nos"`
-	Priority                 int                               `json:"priority"`
-	PlannedMinutes           int                               `json:"planned_minutes"`
-	PlannedBatchCount        int                               `json:"planned_batch_count"`
-	PlannedInputQty          float64                           `json:"planned_input_qty"`
-	PlannedInputInventoryQty float64                           `json:"planned_input_inventory_qty"`
-	ActualMinutes            int                               `json:"actual_minutes"`
-	ActualInputQty           float64                           `json:"actual_input_qty"`
-	ActualOutputQty          float64                           `json:"actual_output_qty"`
-	ActualLossQty            float64                           `json:"actual_loss_qty"`
-	ActualLossRate           float64                           `json:"actual_loss_rate"`
-	RecordsLoss              bool                              `json:"records_loss"`
-	LossReason               string                            `json:"loss_reason"`
-	ExceptionReason          string                            `json:"exception_reason"`
-	IsBlocked                bool                              `json:"is_blocked"`
-	SchedulingNote           string                            `json:"scheduling_note"`
-	AvailableActions         []string                          `json:"available_actions"`
-	ReadinessDetail          ProductionExecutionReadiness      `json:"readiness_detail"`
-	CanStart                 bool                              `json:"can_start"`
-	CanComplete              bool                              `json:"can_complete"`
-	BlockingReasons          []ProductionBlockingReason        `json:"blocking_reasons"`
-	SuggestedAction          string                            `json:"suggested_action"`
-	Severity                 string                            `json:"severity"`
-	RelatedLinks             []ProductionRelatedLink           `json:"related_links"`
-	MaterialReadiness        []ProductionTaskMaterialReadiness `json:"material_readiness"`
+	JobCardID                 int64                             `json:"job_card_id"`
+	SequenceNo                int                               `json:"sequence_no"`
+	BatchIndex                int                               `json:"batch_index"`
+	BatchCount                int                               `json:"batch_count"`
+	WorkOrderID               int64                             `json:"work_order_id"`
+	RunningItemID             int64                             `json:"running_item_id"`
+	WorkOrderNo               string                            `json:"work_order_no"`
+	WorkOrderStatus           string                            `json:"work_order_status"`
+	ProductName               string                            `json:"product_name"`
+	SpecG                     int64                             `json:"spec_g"`
+	InventoryQtyPerSalesUnit  float64                           `json:"inventory_qty_per_sales_unit"`
+	InventoryUnit             string                            `json:"inventory_unit"`
+	PlannedG                  int64                             `json:"planned_g"`
+	PlannedUnits              int64                             `json:"planned_units"`
+	PlannedLooseG             int64                             `json:"planned_loose_g"`
+	PlannedOutputG            int64                             `json:"planned_output_g"`
+	Operation                 string                            `json:"operation"`
+	ProcessRequirement        string                            `json:"process_requirement"`
+	Workstation               string                            `json:"workstation"`
+	WorkCenter                string                            `json:"work_center"`
+	Status                    string                            `json:"status"`
+	StatusLabel               string                            `json:"status_label"`
+	Readiness                 string                            `json:"readiness"`
+	ReadinessLabel            string                            `json:"readiness_label"`
+	BlockingReason            string                            `json:"blocking_reason"`
+	NextHandler               string                            `json:"next_handler"`
+	AssignedTo                string                            `json:"assigned_to"`
+	Operator                  string                            `json:"operator"`
+	PlannedStartAt            string                            `json:"planned_start_at"`
+	PlannedEndAt              string                            `json:"planned_end_at"`
+	OrderNos                  string                            `json:"order_nos"`
+	Priority                  int                               `json:"priority"`
+	PlannedMinutes            int                               `json:"planned_minutes"`
+	PlannedBatchCount         int                               `json:"planned_batch_count"`
+	PlannedInputQty           float64                           `json:"planned_input_qty"`
+	PlannedInputInventoryQty  float64                           `json:"planned_input_inventory_qty"`
+	PlannedOutputInventoryQty float64                           `json:"planned_output_inventory_qty"`
+	OperationTotalInputQty    float64                           `json:"operation_total_input_qty"`
+	ActualMinutes             int                               `json:"actual_minutes"`
+	ActualInputQty            float64                           `json:"actual_input_qty"`
+	ActualOutputQty           float64                           `json:"actual_output_qty"`
+	ActualLossQty             float64                           `json:"actual_loss_qty"`
+	ActualLossRate            float64                           `json:"actual_loss_rate"`
+	RecordsLoss               bool                              `json:"records_loss"`
+	LossReason                string                            `json:"loss_reason"`
+	ExceptionReason           string                            `json:"exception_reason"`
+	IsBlocked                 bool                              `json:"is_blocked"`
+	SchedulingNote            string                            `json:"scheduling_note"`
+	AvailableActions          []string                          `json:"available_actions"`
+	ReadinessDetail           ProductionExecutionReadiness      `json:"readiness_detail"`
+	CanStart                  bool                              `json:"can_start"`
+	CanComplete               bool                              `json:"can_complete"`
+	BlockingReasons           []ProductionBlockingReason        `json:"blocking_reasons"`
+	SuggestedAction           string                            `json:"suggested_action"`
+	Severity                  string                            `json:"severity"`
+	RelatedLinks              []ProductionRelatedLink           `json:"related_links"`
+	MaterialReadiness         []ProductionTaskMaterialReadiness `json:"material_readiness"`
+	MaterialDataComplete      bool                              `json:"material_data_complete"`
+	MaterialReadinessState    string                            `json:"material_readiness_state"`
+	StockAction               string                            `json:"stock_action"`
 }
 
 type ProductionTaskMaterialReadiness struct {
@@ -1600,10 +1606,12 @@ type StockDocumentPreviewCommand struct {
 }
 
 type StockDocumentPreview struct {
-	Action    string            `json:"action"`
-	WorkOrder WorkOrderRow      `json:"work_order"`
-	Document  StockEntryCommand `json:"document"`
-	Warnings  []string          `json:"warnings,omitempty"`
+	Action       string            `json:"action"`
+	Availability string            `json:"availability"`
+	Message      string            `json:"message,omitempty"`
+	WorkOrder    WorkOrderRow      `json:"work_order"`
+	Document     StockEntryCommand `json:"document"`
+	Warnings     []string          `json:"warnings,omitempty"`
 }
 
 type StockEntryItemCommand struct {
@@ -2577,7 +2585,7 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 			draft.RunningItemID = detail.WorkOrder.RunningItemID
 			warnings := refreshWorkOrderStockDocumentDraft(draft, detail.Materials, cmd.Action)
 			return StockDocumentPreview{
-				Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: *draft, Warnings: warnings,
+				Action: cmd.Action, Availability: "actionable", WorkOrder: detail.WorkOrder, Document: *draft, Warnings: warnings,
 			}, nil
 		}
 	} else if cmd.StockDocumentID > 0 {
@@ -2619,13 +2627,14 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 			}
 			if usesFrozenSources {
 				if len(items) == 0 {
-					return StockDocumentPreview{}, fmt.Errorf("所选来源批次已在在制仓，或没有待领用物料")
+					availability, message := stockDocumentAvailability(detail.Materials)
+					return StockDocumentPreview{Action: cmd.Action, Availability: availability, Message: message, WorkOrder: detail.WorkOrder, Document: document}, nil
 				}
 				if taskShareNumerator > 0 && taskShareDenominator > 0 {
 					items = scaleStockEntryItemsForTask(items, taskShareBefore, taskShareNumerator, taskShareDenominator)
 				}
 				document.Items = items
-				return StockDocumentPreview{Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: document}, nil
+				return StockDocumentPreview{Action: cmd.Action, Availability: "actionable", WorkOrder: detail.WorkOrder, Document: document}, nil
 			}
 		}
 	}
@@ -2764,9 +2773,25 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 		}
 	}
 	if len(document.Items) == 0 {
+		if cmd.Action == "issue" || cmd.Action == "supplement" {
+			availability, message := stockDocumentAvailability(detail.Materials)
+			return StockDocumentPreview{Action: cmd.Action, Availability: availability, Message: message, WorkOrder: detail.WorkOrder, Document: document}, nil
+		}
 		return StockDocumentPreview{}, fmt.Errorf("no stock document items available")
 	}
-	return StockDocumentPreview{Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: document}, nil
+	return StockDocumentPreview{Action: cmd.Action, Availability: "actionable", WorkOrder: detail.WorkOrder, Document: document}, nil
+}
+
+func stockDocumentAvailability(materials []WIPReservationRow) (string, string) {
+	if len(materials) == 0 {
+		return "unavailable", "本次任务缺少可核对的冻结用料，请返回工位或联系调度处理"
+	}
+	for _, material := range materials {
+		if material.ShortageG > 0 || material.ShortageUnits > 0 || material.ShortageQty > 0 {
+			return "unavailable", "本次任务仍有物料缺口，但当前没有可领用的来源批次，请补充来源或等待上游供应"
+		}
+	}
+	return "ready", "本次任务用料已在 WIP 齐套，无需重复领料"
 }
 
 func scaleWIPReservationRowsForTask(rows []WIPReservationRow, before, numerator, denominator float64) []WIPReservationRow {
@@ -3509,11 +3534,12 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 	activeWorkOrders := map[int64]bool{}
 	tasks := make([]ProductionTask, 0, len(jobCards)+len(workOrders))
 	for _, card := range jobCards {
-		if !isActiveProductionTaskStatus(card.Status) {
+		workOrder, found := workOrderByID[card.WorkOrderID]
+		if !found || !isActiveProductionTaskStatus(workOrder.Status) || !isActiveProductionTaskStatus(card.Status) {
 			continue
 		}
 		activeWorkOrders[card.WorkOrderID] = true
-		tasks = append(tasks, productionTaskFromJobCard(card, workOrderByID[card.WorkOrderID]))
+		tasks = append(tasks, productionTaskFromJobCard(card, workOrder))
 	}
 	for _, workOrder := range workOrders {
 		if activeWorkOrders[workOrder.ID] || !isActiveProductionTaskStatus(workOrder.Status) {
@@ -3535,6 +3561,29 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 			}
 		}
 		applyTaskBatchAndMaterialReadiness(tasks, jobCards, coverageByWorkOrder)
+	}
+	if frozenRepo, ok := s.repo.(workOrderFrozenSourceDocumentRepository); ok {
+		issueActionByOrder := map[int64]bool{}
+		checked := map[int64]bool{}
+		for i := range tasks {
+			task := &tasks[i]
+			if task.MaterialReadinessState != "shortage" {
+				continue
+			}
+			if !checked[task.WorkOrderID] {
+				usesFrozenSources, items, issueErr := frozenRepo.GetWorkOrderFrozenSourceIssueItems(ctx, task.WorkOrderID)
+				if issueErr != nil {
+					return ProductionWorkstationOverview{}, issueErr
+				}
+				issueActionByOrder[task.WorkOrderID] = !usesFrozenSources || len(items) > 0
+				checked[task.WorkOrderID] = true
+			}
+			if issueActionByOrder[task.WorkOrderID] {
+				task.StockAction = "issue"
+			} else {
+				task.StockAction = "unavailable"
+			}
+		}
 	}
 
 	sortProductionTasks(tasks)
@@ -3711,46 +3760,48 @@ func productionTaskFromJobCard(card JobCardRow, workOrder WorkOrderRow) Producti
 	status := normalizeProductionTaskStatus(card.Status)
 	blockingReason := productionBlockingReason(status, card.ExceptionReason, workCenter, assignedTo)
 	task := ProductionTask{
-		JobCardID: card.ID, OperationID: card.OperationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: card.CollaboratorEmployeeIDs, Collaborators: card.Collaborators, ScheduleVersion: card.ScheduleVersion,
-		SequenceNo:               card.SequenceNo,
-		WorkOrderID:              firstNonZeroInt64(card.WorkOrderID, workOrder.ID),
-		RunningItemID:            workOrder.RunningItemID,
-		WorkOrderNo:              firstNonEmpty(card.WorkOrderNo, workOrder.WorkOrderNo),
-		ProductName:              firstNonEmpty(card.ProductName, workOrder.ProductName),
-		SpecG:                    firstNonZeroInt64(card.SpecG, workOrder.SpecG),
-		InventoryQtyPerSalesUnit: workOrder.InventoryQtyPerSalesUnit,
-		InventoryUnit:            productionTaskInventoryUnit(workOrder),
-		PlannedG:                 firstNonZeroInt64(card.PlannedG, workOrder.PlannedG),
-		PlannedUnits:             workOrder.PlannedUnits,
-		PlannedLooseG:            workOrder.PlannedLooseG,
-		PlannedOutputG:           firstNonZeroInt64(card.PlannedOutputG, workOrder.PlannedOutputG),
-		Operation:                strings.TrimSpace(card.Operation),
-		ProcessRequirement:       firstNonEmpty(card.ProcessRequirement, "按冻结工艺路线执行"),
-		Workstation:              workstation,
-		WorkCenter:               workCenter,
-		Status:                   status,
-		StatusLabel:              productionTaskStatusLabel(status, blockingReason),
-		BlockingReason:           blockingReason,
-		AssignedTo:               assignedTo,
-		Operator:                 strings.TrimSpace(card.Operator),
-		PlannedStartAt:           firstNonEmpty(card.PlannedStartAt, workOrder.PlannedStartAt),
-		PlannedEndAt:             firstNonEmpty(card.PlannedEndAt, workOrder.PlannedEndAt),
-		OrderNos:                 firstNonEmpty(card.OrderNos, workOrder.OrderNos),
-		Priority:                 firstNonZeroInt(card.Priority, workOrder.Priority),
-		PlannedMinutes:           card.PlannedMinutes,
-		PlannedBatchCount:        card.PlannedBatchCount,
-		PlannedInputQty:          card.PlannedInputQty,
-		PlannedInputInventoryQty: plannedInputInventoryQuantity(card.PlannedInputQty, workOrder),
-		ActualMinutes:            card.ActualMinutes,
-		ActualInputQty:           card.ActualInputQty,
-		ActualOutputQty:          card.ActualOutputQty,
-		ActualLossQty:            card.ActualLossQty,
-		ActualLossRate:           card.ActualLossRate,
-		RecordsLoss:              card.RecordsLoss,
-		LossReason:               strings.TrimSpace(card.LossReason),
-		ExceptionReason:          strings.TrimSpace(card.ExceptionReason),
-		IsBlocked:                blockingReason != "",
-		SchedulingNote:           firstNonEmpty(card.SchedulingNote, workOrder.SchedulingNote),
+		JobCardID: card.ID, OperationID: card.OperationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: []int64{}, Collaborators: []ScheduleEmployee{}, ScheduleVersion: card.ScheduleVersion,
+		SequenceNo:                card.SequenceNo,
+		WorkOrderID:               firstNonZeroInt64(card.WorkOrderID, workOrder.ID),
+		RunningItemID:             workOrder.RunningItemID,
+		WorkOrderNo:               firstNonEmpty(card.WorkOrderNo, workOrder.WorkOrderNo),
+		WorkOrderStatus:           normalizeProductionTaskStatus(workOrder.Status),
+		ProductName:               firstNonEmpty(card.ProductName, workOrder.ProductName),
+		SpecG:                     firstNonZeroInt64(card.SpecG, workOrder.SpecG),
+		InventoryQtyPerSalesUnit:  workOrder.InventoryQtyPerSalesUnit,
+		InventoryUnit:             productionTaskInventoryUnit(workOrder),
+		PlannedG:                  firstNonZeroInt64(card.PlannedG, workOrder.PlannedG),
+		PlannedUnits:              workOrder.PlannedUnits,
+		PlannedLooseG:             workOrder.PlannedLooseG,
+		PlannedOutputG:            firstNonZeroInt64(card.PlannedOutputG, workOrder.PlannedOutputG),
+		Operation:                 strings.TrimSpace(card.Operation),
+		ProcessRequirement:        firstNonEmpty(card.ProcessRequirement, "按冻结工艺路线执行"),
+		Workstation:               workstation,
+		WorkCenter:                workCenter,
+		Status:                    status,
+		StatusLabel:               productionTaskStatusLabel(status, blockingReason),
+		BlockingReason:            blockingReason,
+		AssignedTo:                assignedTo,
+		Operator:                  strings.TrimSpace(card.Operator),
+		PlannedStartAt:            firstNonEmpty(card.PlannedStartAt, workOrder.PlannedStartAt),
+		PlannedEndAt:              firstNonEmpty(card.PlannedEndAt, workOrder.PlannedEndAt),
+		OrderNos:                  firstNonEmpty(card.OrderNos, workOrder.OrderNos),
+		Priority:                  firstNonZeroInt(card.Priority, workOrder.Priority),
+		PlannedMinutes:            card.PlannedMinutes,
+		PlannedBatchCount:         card.PlannedBatchCount,
+		PlannedInputQty:           card.PlannedInputQty,
+		PlannedInputInventoryQty:  plannedInputInventoryQuantity(card.PlannedInputQty, workOrder),
+		PlannedOutputInventoryQty: workOrder.PlannedInventoryQty,
+		ActualMinutes:             card.ActualMinutes,
+		ActualInputQty:            card.ActualInputQty,
+		ActualOutputQty:           card.ActualOutputQty,
+		ActualLossQty:             card.ActualLossQty,
+		ActualLossRate:            card.ActualLossRate,
+		RecordsLoss:               card.RecordsLoss,
+		LossReason:                strings.TrimSpace(card.LossReason),
+		ExceptionReason:           strings.TrimSpace(card.ExceptionReason),
+		IsBlocked:                 blockingReason != "",
+		SchedulingNote:            firstNonEmpty(card.SchedulingNote, workOrder.SchedulingNote),
 	}
 	task.NextHandler = productionNextHandler(task)
 	task.Readiness, task.ReadinessLabel = productionTaskReadiness(task)
@@ -3764,31 +3815,33 @@ func productionTaskFromWorkOrder(workOrder WorkOrderRow) ProductionTask {
 	status := normalizeProductionTaskStatus(workOrder.Status)
 	blockingReason := productionBlockingReason(status, "", workCenter, workOrder.AssignedTo)
 	task := ProductionTask{
-		WorkOrderID:              workOrder.ID,
-		RunningItemID:            workOrder.RunningItemID,
-		WorkOrderNo:              strings.TrimSpace(workOrder.WorkOrderNo),
-		ProductName:              strings.TrimSpace(workOrder.ProductName),
-		SpecG:                    workOrder.SpecG,
-		InventoryQtyPerSalesUnit: workOrder.InventoryQtyPerSalesUnit,
-		InventoryUnit:            productionTaskInventoryUnit(workOrder),
-		PlannedG:                 workOrder.PlannedG,
-		PlannedUnits:             workOrder.PlannedUnits,
-		PlannedLooseG:            workOrder.PlannedLooseG,
-		PlannedOutputG:           workOrder.PlannedOutputG,
-		Operation:                "工单准备",
-		Workstation:              workCenter,
-		WorkCenter:               workCenter,
-		Status:                   status,
-		StatusLabel:              productionTaskStatusLabel(status, blockingReason),
-		BlockingReason:           blockingReason,
-		AssignedTo:               strings.TrimSpace(workOrder.AssignedTo),
-		PlannedStartAt:           strings.TrimSpace(workOrder.PlannedStartAt),
-		PlannedEndAt:             strings.TrimSpace(workOrder.PlannedEndAt),
-		OrderNos:                 strings.TrimSpace(workOrder.OrderNos),
-		Priority:                 workOrder.Priority,
-		PlannedInputInventoryQty: plannedInputInventoryQuantity(float64(workOrder.PlannedG), workOrder),
-		IsBlocked:                blockingReason != "",
-		SchedulingNote:           strings.TrimSpace(workOrder.SchedulingNote),
+		WorkOrderID:               workOrder.ID,
+		RunningItemID:             workOrder.RunningItemID,
+		WorkOrderNo:               strings.TrimSpace(workOrder.WorkOrderNo),
+		WorkOrderStatus:           normalizeProductionTaskStatus(workOrder.Status),
+		ProductName:               strings.TrimSpace(workOrder.ProductName),
+		SpecG:                     workOrder.SpecG,
+		InventoryQtyPerSalesUnit:  workOrder.InventoryQtyPerSalesUnit,
+		InventoryUnit:             productionTaskInventoryUnit(workOrder),
+		PlannedG:                  workOrder.PlannedG,
+		PlannedUnits:              workOrder.PlannedUnits,
+		PlannedLooseG:             workOrder.PlannedLooseG,
+		PlannedOutputG:            workOrder.PlannedOutputG,
+		Operation:                 "工单准备",
+		Workstation:               workCenter,
+		WorkCenter:                workCenter,
+		Status:                    status,
+		StatusLabel:               productionTaskStatusLabel(status, blockingReason),
+		BlockingReason:            blockingReason,
+		AssignedTo:                strings.TrimSpace(workOrder.AssignedTo),
+		PlannedStartAt:            strings.TrimSpace(workOrder.PlannedStartAt),
+		PlannedEndAt:              strings.TrimSpace(workOrder.PlannedEndAt),
+		OrderNos:                  strings.TrimSpace(workOrder.OrderNos),
+		Priority:                  workOrder.Priority,
+		PlannedInputInventoryQty:  plannedInputInventoryQuantity(float64(workOrder.PlannedG), workOrder),
+		PlannedOutputInventoryQty: workOrder.PlannedInventoryQty,
+		IsBlocked:                 blockingReason != "",
+		SchedulingNote:            strings.TrimSpace(workOrder.SchedulingNote),
 	}
 	task.NextHandler = productionNextHandler(task)
 	task.Readiness, task.ReadinessLabel = productionTaskReadiness(task)
@@ -3801,9 +3854,11 @@ func plannedInputInventoryQuantity(rawPlannedQty float64, workOrder WorkOrderRow
 	if rawPlannedQty <= 0 {
 		return 0
 	}
+	if factor := planningUnitWeightGrams(strings.TrimSpace(workOrder.InventoryUnit)); factor > 0 && workOrder.PlannedG > 0 {
+		return math.Round(rawPlannedQty/factor*1_000_000_000) / 1_000_000_000
+	}
 	if workOrder.PlannedG <= 0 ||
 		workOrder.PlannedInventoryQty <= 0 ||
-		workOrder.InventoryQtyPerSalesUnit <= 0 ||
 		strings.TrimSpace(workOrder.InventoryUnit) == "" {
 		return rawPlannedQty
 	}
@@ -3816,44 +3871,98 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 		workOrderID int64
 		sequenceNo  int
 	}
-	groups := map[operationKey][]int{}
+	type batchSlice struct {
+		index  int
+		count  int
+		before float64
+		input  float64
+		total  float64
+	}
+	cardGroups := map[operationKey][]JobCardRow{}
+	cardSlices := map[int64]batchSlice{}
 	minSequence := map[int64]int{}
+	for _, card := range cards {
+		if card.ID <= 0 || card.WorkOrderID <= 0 || normalizeProductionTaskStatus(card.Status) == "cancelled" {
+			continue
+		}
+		key := operationKey{workOrderID: card.WorkOrderID, sequenceNo: card.SequenceNo}
+		cardGroups[key] = append(cardGroups[key], card)
+		if current, ok := minSequence[card.WorkOrderID]; !ok || card.SequenceNo < current {
+			minSequence[card.WorkOrderID] = card.SequenceNo
+		}
+	}
+	for _, task := range tasks {
+		if task.JobCardID <= 0 {
+			continue
+		}
+		key := operationKey{workOrderID: task.WorkOrderID, sequenceNo: task.SequenceNo}
+		found := false
+		for _, card := range cardGroups[key] {
+			if card.ID == task.JobCardID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cardGroups[key] = append(cardGroups[key], JobCardRow{ID: task.JobCardID, WorkOrderID: task.WorkOrderID, SequenceNo: task.SequenceNo, PlannedInputQty: task.PlannedInputQty, Status: task.Status})
+		}
+		if current, ok := minSequence[task.WorkOrderID]; !ok || task.SequenceNo < current {
+			minSequence[task.WorkOrderID] = task.SequenceNo
+		}
+	}
+	for _, group := range cardGroups {
+		sort.SliceStable(group, func(i, j int) bool { return group[i].ID < group[j].ID })
+		total := float64(0)
+		for _, card := range group {
+			total += card.PlannedInputQty
+		}
+		if total <= 0 {
+			total = float64(len(group))
+		}
+		before := float64(0)
+		for i, card := range group {
+			input := card.PlannedInputQty
+			if input <= 0 {
+				input = 1
+			}
+			cardSlices[card.ID] = batchSlice{index: i + 1, count: len(group), before: before, input: input, total: total}
+			before += input
+		}
+	}
+
+	groups := map[operationKey][]int{}
 	for i := range tasks {
 		task := &tasks[i]
 		if task.JobCardID <= 0 {
 			continue
 		}
+		if slice, ok := cardSlices[task.JobCardID]; ok {
+			task.BatchIndex = slice.index
+			task.BatchCount = slice.count
+			task.OperationTotalInputQty = slice.total
+		}
 		key := operationKey{workOrderID: task.WorkOrderID, sequenceNo: task.SequenceNo}
 		groups[key] = append(groups[key], i)
-		if current, ok := minSequence[task.WorkOrderID]; !ok || task.SequenceNo < current {
-			minSequence[task.WorkOrderID] = task.SequenceNo
-		}
 	}
 	for key, indexes := range groups {
 		sort.SliceStable(indexes, func(i, j int) bool { return tasks[indexes[i]].JobCardID < tasks[indexes[j]].JobCardID })
-		for position, index := range indexes {
-			tasks[index].BatchIndex = position + 1
-			tasks[index].BatchCount = len(indexes)
-		}
 		if key.sequenceNo != minSequence[key.workOrderID] {
 			continue
 		}
 		coverage, found := coverageByWorkOrder[key.workOrderID]
 		if !found {
+			for _, index := range indexes {
+				tasks[index].MaterialReadinessState = "unknown"
+				markTaskWaitingForMaterials(&tasks[index], nil, "用料待核对")
+			}
 			continue
 		}
 		if !coverage.DataComplete {
 			for _, index := range indexes {
-				markTaskWaitingForMaterials(&tasks[index], nil, firstNonEmpty(coverage.BlockingReason, "WIP资料待完善"))
+				tasks[index].MaterialReadinessState = "unknown"
+				markTaskWaitingForMaterials(&tasks[index], nil, firstNonEmpty(coverage.BlockingReason, "用料待核对"))
 			}
 			continue
-		}
-		totalInput := float64(0)
-		for _, index := range indexes {
-			totalInput += tasks[index].PlannedInputQty
-		}
-		if totalInput <= 0 {
-			totalInput = float64(len(indexes))
 		}
 		availableG := map[int64]int64{}
 		availableUnits := map[int64]int64{}
@@ -3861,17 +3970,24 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 			availableG[material.ID] = material.AvailableG
 			availableUnits[material.ID] = material.AvailableUnits
 		}
-		for _, index := range indexes {
-			task := &tasks[index]
-			shareInput := task.PlannedInputQty
-			if shareInput <= 0 {
-				shareInput = 1
+		type materialAllocation struct {
+			rows          []ProductionTaskMaterialReadiness
+			shortageCount int
+		}
+		allocations := map[int64]materialAllocation{}
+		for _, card := range cardGroups[key] {
+			if normalizeProductionTaskStatus(card.Status) == "completed" {
+				continue
+			}
+			slice, ok := cardSlices[card.ID]
+			if !ok || slice.total <= 0 {
+				continue
 			}
 			rows := make([]ProductionTaskMaterialReadiness, 0, len(coverage.Materials))
 			shortageCount := 0
 			for _, material := range coverage.Materials {
-				requiredG := int64(math.Ceil(float64(material.RequiredG) * shareInput / totalInput))
-				requiredUnits := int64(math.Ceil(float64(material.RequiredUnits) * shareInput / totalInput))
+				requiredG := scaleTaskIntegerSlice(material.RequiredG, slice.before, slice.input, slice.total)
+				requiredUnits := scaleTaskIntegerSlice(material.RequiredUnits, slice.before, slice.input, slice.total)
 				wipG := minInt64Service(requiredG, availableG[material.ID])
 				wipUnits := minInt64Service(requiredUnits, availableUnits[material.ID])
 				availableG[material.ID] -= wipG
@@ -3886,13 +4002,27 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 				}
 				rows = append(rows, row)
 			}
-			task.MaterialReadiness = rows
-			if shortageCount > 0 {
-				markTaskWaitingForMaterials(task, rows, fmt.Sprintf("缺料 %d 项", shortageCount))
+			allocations[card.ID] = materialAllocation{rows: rows, shortageCount: shortageCount}
+		}
+		for _, index := range indexes {
+			task := &tasks[index]
+			allocation, ok := allocations[task.JobCardID]
+			if !ok {
+				task.MaterialReadinessState = "unknown"
+				markTaskWaitingForMaterials(task, nil, "用料待核对")
+				continue
+			}
+			task.MaterialDataComplete = true
+			task.MaterialReadiness = allocation.rows
+			if allocation.shortageCount > 0 {
+				task.MaterialReadinessState = "shortage"
+				markTaskWaitingForMaterials(task, allocation.rows, fmt.Sprintf("缺料 %d 项", allocation.shortageCount))
+			} else {
+				task.MaterialReadinessState = "ready"
+				task.StockAction = "none"
 			}
 		}
 	}
-	_ = cards
 }
 
 func markTaskWaitingForMaterials(task *ProductionTask, rows []ProductionTaskMaterialReadiness, label string) {
@@ -4363,7 +4493,7 @@ func buildWorkOrderOperationProgress(cards []JobCardRow) []ProductionOperationPr
 		status := normalizeProductionTaskStatus(card.Status)
 		blocking := productionBlockingReason(status, card.ExceptionReason, firstNonEmpty(card.WorkCenter, card.Workstation), card.AssignedTo)
 		rows = append(rows, ProductionOperationProgress{
-			JobCardID: card.ID, OperationID: card.OperationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: card.CollaboratorEmployeeIDs, Collaborators: card.Collaborators, ScheduleVersion: card.ScheduleVersion,
+			JobCardID: card.ID, OperationID: card.OperationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: []int64{}, Collaborators: []ScheduleEmployee{}, ScheduleVersion: card.ScheduleVersion,
 			SequenceNo:      card.SequenceNo,
 			Operation:       card.Operation,
 			Workstation:     firstNonEmpty(card.Workstation, card.WorkCenter),
@@ -4729,7 +4859,7 @@ func sortProductionTasks(tasks []ProductionTask) {
 
 func isActiveProductionTaskStatus(status string) bool {
 	switch normalizeProductionTaskStatus(status) {
-	case "pending", "ready", "released", "running", "paused":
+	case "pending", "ready", "released", "running", "paused", "partially_completed":
 		return true
 	default:
 		return false

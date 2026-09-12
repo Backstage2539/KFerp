@@ -27,14 +27,30 @@ func TestSchedulePatchRejectsHistoricalAndInvalidTimes(t *testing.T) {
 		t.Fatal("end before start accepted")
 	}
 }
-func TestEmployeeOverlapIncludesCollaboratorsAndBoundary(t *testing.T) {
+func TestEmployeeOverlapUsesResponsibleEmployeeOnlyAndBoundary(t *testing.T) {
 	a := ScheduleTask{JobCardRow: JobCardRow{ID: 1, WorkOrderNo: "WO-A", AssignedEmployeeID: 1, CollaboratorEmployeeIDs: []int64{2}, PlannedStartAt: "2026-09-12 09:00", PlannedEndAt: "2026-09-12 11:00"}}
 	b := ScheduleTask{JobCardRow: JobCardRow{ID: 2, WorkOrderNo: "WO-B", AssignedEmployeeID: 2, PlannedStartAt: "2026-09-12 10:00", PlannedEndAt: "2026-09-12 12:00"}}
+	if conflicts := StaffScheduleConflicts([]ScheduleTask{a}, []ScheduleTask{b}); len(conflicts) != 0 {
+		t.Fatalf("retired collaborator must not create active conflict %+v", conflicts)
+	}
+	a.AssignedEmployeeID = 2
 	if conflicts := StaffScheduleConflicts([]ScheduleTask{a}, []ScheduleTask{b}); len(conflicts) != 1 || conflicts[0].EmployeeID != 2 {
-		t.Fatalf("missing helper overlap %+v", conflicts)
+		t.Fatalf("missing responsible employee overlap %+v", conflicts)
 	}
 	b.PlannedStartAt = a.PlannedEndAt
 	if conflicts := StaffScheduleConflicts([]ScheduleTask{a}, []ScheduleTask{b}); len(conflicts) != 0 {
 		t.Fatalf("touching boundaries overlap %+v", conflicts)
+	}
+}
+
+func TestSchedulePatchRejectsRetiredCollaboratorAssignments(t *testing.T) {
+	row := ScheduleTask{JobCardRow: JobCardRow{ID: 1, WorkOrderID: 2, Status: "pending", AssignedEmployeeID: 3}}
+	ids := []int64{4}
+	if _, err := MergeSchedulePatch(row, ScheduleTaskPatch{CollaboratorEmployeeIDs: &ids}); err == nil || err.Error() != "协作人员功能已停用，请只设置负责人" {
+		t.Fatalf("retired collaborators accepted: %v", err)
+	}
+	empty := []int64{}
+	if _, err := MergeSchedulePatch(row, ScheduleTaskPatch{CollaboratorEmployeeIDs: &empty}); err != nil {
+		t.Fatalf("empty compatibility field rejected: %v", err)
 	}
 }

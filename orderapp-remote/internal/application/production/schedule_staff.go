@@ -117,6 +117,9 @@ func (s *Service) ScheduleBatch(ctx context.Context, cmd ScheduleBatchCommand, p
 		if seen[item.JobCardID] {
 			return ScheduleBatchResult{}, fmt.Errorf("同一任务不能重复安排")
 		}
+		if item.CollaboratorEmployeeIDs != nil && len(*item.CollaboratorEmployeeIDs) > 0 {
+			return ScheduleBatchResult{}, fmt.Errorf("协作人员功能已停用，请只设置负责人")
+		}
 		seen[item.JobCardID] = true
 	}
 	r, ok := s.repo.(scheduleStaffRepository)
@@ -174,7 +177,11 @@ func MergeSchedulePatch(row ScheduleTask, p ScheduleTaskPatch) (ScheduleTask, er
 		row.AssignedEmployeeID = *p.AssignedEmployeeID
 	}
 	if p.CollaboratorEmployeeIDs != nil {
-		row.CollaboratorEmployeeIDs = append([]int64{}, (*p.CollaboratorEmployeeIDs)...)
+		if len(*p.CollaboratorEmployeeIDs) > 0 {
+			return row, fmt.Errorf("协作人员功能已停用，请只设置负责人")
+		}
+		row.CollaboratorEmployeeIDs = []int64{}
+		row.Collaborators = []ScheduleEmployee{}
 	}
 	if p.ShiftCode != nil {
 		row.ShiftCode = strings.TrimSpace(*p.ShiftCode)
@@ -197,12 +204,12 @@ func StaffScheduleConflicts(changed, others []ScheduleTask) []StaffScheduleConfl
 		if a.PlannedStartAt == "" || a.PlannedEndAt == "" {
 			continue
 		}
-		people := append([]int64{a.AssignedEmployeeID}, a.CollaboratorEmployeeIDs...)
+		people := []int64{a.AssignedEmployeeID}
 		for _, b := range others {
 			if a.ID == b.ID || b.PlannedStartAt == "" || b.PlannedEndAt == "" || a.PlannedEndAt <= b.PlannedStartAt || b.PlannedEndAt <= a.PlannedStartAt {
 				continue
 			}
-			otherPeople := append([]int64{b.AssignedEmployeeID}, b.CollaboratorEmployeeIDs...)
+			otherPeople := []int64{b.AssignedEmployeeID}
 			for _, id := range people {
 				if id <= 0 {
 					continue
@@ -223,11 +230,6 @@ func StaffScheduleConflicts(changed, others []ScheduleTask) []StaffScheduleConfl
 					name := fmt.Sprintf("员工 %d", id)
 					if a.AssignedEmployeeID == id && a.AssignedTo != "" {
 						name = a.AssignedTo
-					}
-					for _, p := range a.Collaborators {
-						if p.ID == id {
-							name = p.Name
-						}
 					}
 					out = append(out, StaffScheduleConflict{EmployeeID: id, EmployeeName: name, JobCardID: a.ID, OtherJobCardID: b.ID, Message: fmt.Sprintf("%s：%s / %s 与 %s / %s 时间重叠（%s — %s）", name, a.WorkOrderNo, a.Operation, b.WorkOrderNo, b.Operation, b.PlannedStartAt, b.PlannedEndAt)})
 				}

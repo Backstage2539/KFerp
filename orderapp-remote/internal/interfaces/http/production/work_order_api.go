@@ -3,12 +3,14 @@ package production
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	productionapp "orderapp/internal/application/production"
 	stockapp "orderapp/internal/application/stock"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -342,7 +344,9 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			err = fmt.Errorf("invalid job card action")
 		}
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			failureCode := fmt.Sprintf("JC-%s-%d-%d", strings.ToUpper(action), id, time.Now().UnixMilli())
+			log.Printf("production job card action failed code=%s action=%s job_card_id=%d actor=%s err=%v", failureCode, action, id, cmd.Operator, err)
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error(), Code: failureCode})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "job_card": res.JobCard, "work_order": res.WorkOrder})
 	}
