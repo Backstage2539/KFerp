@@ -5,7 +5,7 @@
       <div><div class="eyebrow">生产管理 · 工序任务安排</div><h1>生产排程</h1><p>沿用已确认的工位与批次，安排时间和人员，工位直接执行。</p></div>
       <details class="more-menu"><summary>更多 <IconChevronDown :size="14" /></summary><div><button type="button" @click="capacityOpen = !capacityOpen">维护可用工时</button><button type="button" @click="configure()">工序人员配置</button><button type="button" @click="navigate('productionManual')">操作说明</button></div></details>
     </header>
-    <div class="summary-strip"><IconCalendarTime :size="30" /><div><strong>{{ scopeLabel }} · {{ board.total || 0 }} 项工序任务</strong><p>{{ selectedIDs.length ? `已选 ${selectedIDs.length} 项，${dirtyRows.length} 项有未保存修改` : '选择任务后，可按工序批量带入默认人员' }}</p></div><span class="summary-note">工位与批次沿用生产计划</span></div>
+    <div class="summary-strip"><IconCalendarTime :size="30" /><div><strong>{{ scopeLabel }} · {{ board.total || 0 }} 项工序任务</strong><p>{{ applied.scope === 'history' ? '已完成和已取消任务保留追溯，不能修改安排' : selectedIDs.length ? `已选 ${selectedIDs.length} 项，${dirtyRows.length} 项有未保存修改` : '选择任务后，可按工序批量带入默认人员' }}</p></div><span class="summary-note">工位与批次沿用生产计划</span></div>
     <div v-if="message" role="status" class="notice success">{{ message }} <button type="button" class="text-action" @click="openWorkstation()">去工位查看</button></div>
     <div v-if="error" role="alert" class="notice warning">{{ error }} <button v-if="versionConflict" class="text-action" type="button" @click="query">重新读取任务</button></div>
     <section v-if="capacityOpen" class="capacity-panel">
@@ -25,7 +25,7 @@
           <button class="secondary" type="submit" :disabled="loading || saving">查询</button>
         </form>
         <div v-if="applied.scope === 'task'" class="focus-banner">正在查看指定任务 <button type="button" class="text-action" @click="switchScope('pending')">返回待安排列表</button></div>
-        <div class="section-heading task-heading"><h2>工序任务</h2><button type="button" class="text-action" :disabled="!selectedIDs.length || saving" @click="fillDefaults">批量带入默认人员</button></div>
+        <div class="section-heading task-heading"><h2>工序任务</h2><button type="button" v-if="applied.scope !== 'history'" class="text-action" :disabled="!selectedIDs.length || saving" @click="fillDefaults">批量带入默认人员</button></div>
         <div v-if="loading" class="empty">正在读取工序任务…</div>
         <div v-else class="task-table-wrap"><table class="task-table"><thead><tr><th class="check-cell"><input type="checkbox" aria-label="选择当前页可安排任务" :checked="allSelected" :indeterminate="someSelected && !allSelected" :disabled="!editableRows.length || saving" @change="toggleAll($event.target.checked)" /></th><th>生产任务</th><th>工位与数量</th><th>计划时间</th><th>人员安排</th><th>状态</th></tr></thead>
           <tbody><tr v-for="row in board.rows" :key="row.id" :class="{ selected: selectedIDs.includes(row.id), focused: activeID === row.id }" :data-task-id="row.id">
@@ -34,7 +34,7 @@
             <td data-label="工位与数量"><strong>{{ row.workstation || '待补工位' }}</strong><small>{{ quantity(row) }} · {{ row.planned_minutes || '待确认' }} 分钟</small><small>{{ row.workstation_capacity_name }}</small></td>
             <td data-label="计划时间"><span>{{ displayTime(drafts[row.id]?.planned_start_at || row.planned_start_at) }}</span><small v-if="drafts[row.id]?.planned_end_at || row.planned_end_at">至 {{ displayTime(drafts[row.id]?.planned_end_at || row.planned_end_at) }}</small><small>{{ row.shift_code }}</small></td>
             <td data-label="人员安排"><span>{{ leadName(drafts[row.id] || row) }}</span><small>{{ collaboratorNames(drafts[row.id] || row) }}</small><button v-if="row.arrangement_state !== 'history'" class="text-action" type="button" @click="edit(row)">{{ selectedIDs.includes(row.id) ? '正在编辑' : '安排' }}</button></td>
-            <td data-label="状态"><span class="status-pill" :class="row.arrangement_state">{{ arrangementLabel(row) }}</span><small v-if="row.material_status" class="warning-text">{{ row.material_status }}</small><small v-if="row.exception_reason" class="warning-text">{{ row.exception_reason }}</small><button v-if="!row.staffing_ready && row.arrangement_state !== 'history'" class="text-action warning-text" type="button" @click="configure(row.operation_id)">待补人员配置</button><button type="button" class="text-action" @click="openWorkstation(row)">查看工位任务</button></td>
+            <td data-label="状态"><span class="status-pill" :class="row.arrangement_state">{{ arrangementLabel(row) }}</span><small v-if="row.material_status" class="warning-text">{{ row.material_status }}</small><small v-if="row.exception_reason" class="warning-text">{{ row.exception_reason }}</small><button v-if="!row.staffing_ready && row.arrangement_state !== 'history'" class="text-action warning-text" type="button" @click="configure(row.operation_id)">待补人员配置</button><button v-if="row.arrangement_state !== 'history'" type="button" class="text-action" @click="openWorkstation(row)">查看工位任务</button></td>
           </tr><tr v-if="!board.rows?.length"><td colspan="6" class="empty">当前条件下没有工序任务。可调整筛选或从生产计划生成工单。</td></tr></tbody></table></div>
         <PaginationControls :page="board.page || 1" :page-size="applied.limit" :total="board.total || 0" :disabled="loading || saving" @change="changePage" />
       </main>
@@ -51,7 +51,7 @@
         <section class="load-panel"><h2>工位占用</h2><p class="muted">{{ applied.from }} 至 {{ applied.to }} · 所有有效任务</p><div v-for="item in board.load" :key="item.work_center + item.work_date" class="load-row"><div><strong>{{ item.work_center || '待补工位' }}</strong><small>{{ item.work_date }}</small></div><span>{{ item.load_minutes }} 分钟<small :class="{ 'warning-text': item.available_minutes == null || item.load_minutes > item.available_minutes }">{{ item.available_minutes == null ? '可用工时待配置' : `可用 ${item.available_minutes} 分钟` }}</small></span></div><p v-if="!board.load?.length" class="muted">所选日期暂无已安排的工位占用。</p></section>
       </aside>
     </div>
-    <footer class="schedule-footer"><div><strong>{{ footerStatus }}</strong><small>人员确认后同步到工位；缺料和前序条件在开工时继续核对。</small></div><button v-if="preview" class="secondary" type="button" :disabled="saving" @click="preview = null">返回调整</button><button class="primary" type="button" :disabled="loading || saving || !dirtyRows.length" @click="preview ? save() : review()">{{ saving ? '正在处理…' : preview ? (preview.conflicts.length ? '确认重叠并保存安排' : '确认保存安排') : '核对本次安排' }}</button></footer>
+    <footer class="schedule-footer"><div><strong>{{ applied.scope === 'history' ? '历史记录只读' : footerStatus }}</strong><small>{{ applied.scope === 'history' ? '点击工单或计划号查看原始单据与生产记录。' : '人员确认后同步到工位；缺料和前序条件在开工时继续核对。' }}</small></div><button v-if="preview" class="secondary" type="button" :disabled="saving" @click="preview = null">返回调整</button><button v-if="applied.scope !== 'history'" class="primary" type="button" :disabled="loading || saving || !dirtyRows.length" @click="preview ? save() : review()">{{ saving ? '正在处理…' : preview ? (preview.conflicts.length ? '确认重叠并保存安排' : '确认保存安排') : '核对本次安排' }}</button></footer>
     <ProductionExecutionHubDrawer :open="orderDetail.open" :work-order-id="orderDetail.id" :view-params="{ job_card_id: orderDetail.jobCardID }" @close="orderDetail.open = false" @updated="load" />
   </section>
 </template>
