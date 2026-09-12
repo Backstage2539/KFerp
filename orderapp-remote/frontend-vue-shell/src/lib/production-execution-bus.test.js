@@ -17,6 +17,15 @@ test('work order list keeps six status and action columns', () => {
   assert.match(table, /更多/)
 })
 
+test('work order list becomes a task card before tablet actions overflow', () => {
+  const source = read('../views/WorkOrdersView.vue')
+  assert.match(source, /@media\s*\(max-width:\s*900px\)/)
+  assert.match(source, /\.work-order-list-card thead\{display:none\}/)
+  assert.match(source, /\.work-order-list-card tr\{display:grid/)
+  assert.match(source, /data-label="快捷操作"/)
+  assert.match(source, /content:attr\(data-label\)/)
+})
+
 test('work order detail is a status bus with embedded operation records', () => {
   const source = read('../components/ProductionExecutionHubDrawer.vue')
   assert.match(source, /工单详情/)

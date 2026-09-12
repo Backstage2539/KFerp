@@ -28,7 +28,8 @@ test('work orders display frozen route operations from process snapshot when no 
 test('work order list keeps query actions only and delegates lifecycle commands to the execution hub', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
   const template = source.slice(0, source.indexOf('<script setup>'))
-  const rowActions = template.slice(template.indexOf('<td class="row-actions">'), template.indexOf('</td>', template.indexOf('<td class="row-actions">')) + 5)
+  const rowActionsStart = template.indexOf('<td class="row-actions"')
+  const rowActions = template.slice(rowActionsStart, template.indexOf('</td>', rowActionsStart) + 5)
 
   for (const marker of ['查看工单', '更多']) assert.match(rowActions, new RegExp(marker))
   for (const marker of ['编辑拆分', '打印']) assert.match(template, new RegExp(marker))

@@ -42,16 +42,16 @@
         </thead>
         <tbody>
           <tr v-for="row in visibleRows" :key="row.id">
-            <td class="product-cell">
+            <td class="product-cell" data-label="产品 / 工单">
               <strong>{{ row.output_name || row.product_name || '-' }}</strong>
               <button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'summary')">{{ row.work_order_no }}</button>
               <small>{{ formatWorkOrderTypedOutput(row) }}</small>
             </td>
-            <td><strong>{{ formatWorkOrderPlannedOutput(row) }}</strong><small>{{ row.target_warehouse ? `入库至 ${row.target_warehouse}` : '' }}</small></td>
-            <td><span class="status" :class="statusBadgeClass(row.status)">{{ workOrderStatusLabel(row.status) }}</span><small>{{ row.batch_id || '尚未建立运行批次' }}</small></td>
-            <td><strong>{{ operationProgressText(row) }}</strong><small>{{ operationCurrentText(row) }}</small></td>
-            <td class="todo-cell"><strong>{{ workOrderTodo(row).title }}</strong><small>{{ workOrderTodo(row).detail }}</small></td>
-            <td class="row-actions">
+            <td data-label="目标数量"><strong>{{ formatWorkOrderPlannedOutput(row) }}</strong><small>{{ row.target_warehouse ? `入库至 ${row.target_warehouse}` : '' }}</small></td>
+            <td data-label="当前状态"><span class="status" :class="statusBadgeClass(row.status)">{{ workOrderStatusLabel(row.status) }}</span><small>{{ row.batch_id || '尚未建立运行批次' }}</small></td>
+            <td data-label="工序进度"><strong>{{ operationProgressText(row) }}</strong><small>{{ operationCurrentText(row) }}</small></td>
+            <td class="todo-cell" data-label="当前待办"><strong>{{ workOrderTodo(row).title }}</strong><small>{{ workOrderTodo(row).detail }}</small></td>
+            <td class="row-actions" data-label="快捷操作">
               <button class="primary compact" type="button" @click="openPrimaryAction(row)">{{ primaryActionLabel(row) }}</button>
               <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">查看工单</button>
               <details class="more-menu">
@@ -722,7 +722,8 @@ onBeforeUnmount(() => {
 
 .page{background:#f7f8fafa}.panel{border-radius:10px;padding:14px}.filters{grid-template-columns:minmax(220px,1fr) 160px 90px}.work-order-list-card table{min-width:900px}.work-order-list-card th,.work-order-list-card td{padding:13px 10px;border-color:#edf0f2}.work-order-list-card th{background:#f6f8f9;color:#56616b}.product-cell{display:grid;gap:4px}.todo-cell strong{color:#a85a08}.primary{border-color:#2f8f5b;background:#2f8f5b}.link-button{color:#24704a;text-decoration:none}.row-actions{align-items:flex-start}.more-menu summary{list-style:none;border:1px solid #b9c0c7;border-radius:7px;padding:6px 10px;cursor:pointer}.more-menu button{display:block;width:100%;margin-top:4px;background:#fff;border:1px solid #e0e4e7;white-space:nowrap}
 
-@media (max-width:760px){.filters{grid-template-columns:1fr}.work-order-list-card{overflow:visible}.work-order-list-card table,.work-order-list-card tbody,.work-order-list-card tr,.work-order-list-card td{display:block;min-width:0}.work-order-list-card thead{display:none}.work-order-list-card tr{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px}.work-order-list-card td{border:0;padding:5px 0}.row-actions{margin-top:6px}}
+@media (max-width:900px){.filters{grid-template-columns:1fr}.work-order-list-card{overflow:visible}.work-order-list-card table,.work-order-list-card tbody,.work-order-list-card td{display:block;min-width:0}.work-order-list-card thead{display:none}.work-order-list-card tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px}.work-order-list-card td{border:0;padding:5px 0}.work-order-list-card td::before{content:attr(data-label);display:block;margin-bottom:4px;color:#7a8580;font-size:11px;font-weight:700}.work-order-list-card .product-cell,.work-order-list-card .row-actions{grid-column:1/-1}.work-order-list-card .product-cell::before{display:none}.work-order-list-card .row-actions{display:flex;flex-wrap:wrap;margin-top:2px}.work-order-list-card .row-actions::before{flex-basis:100%;margin-bottom:0}}
+@media (max-width:600px){.work-order-list-card tr{grid-template-columns:1fr}.work-order-list-card .product-cell,.work-order-list-card .row-actions{grid-column:auto}}
 
 @media print{
   :global(body.work-order-printing .sidebar),:global(body.work-order-printing .top){display:none!important}
