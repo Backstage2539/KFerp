@@ -5241,11 +5241,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-655-PRODUCTION-SCHEDULING-STAFF
 - Branch: codex/production-scheduling-staff-20260912
 - Owner/session: Codex / production scheduling staff
-- Status: implementation verified; integration/development release in progress; Van business acceptance pending
+- Status: development deployed; PR/DEV delivery review; native leave-dialog follow-up and Van business acceptance pending
 - Scope: 工序可执行员工与默认人员；工序任务排程、批量预览保存、人员冲突；工位衔接与菜单精简。
 - DEV: DEV-655-STAFF; DEV-655-SCHEDULE; DEV-655-UI; DEV-655-DELIVERY.
 - Verifier: targeted Go service/API/PostgreSQL tests; frontend behavioral tests; verify_kferp.sh backend/frontend/changed; isolated browser acceptance.
 - Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
-- Deployment: pending; development only
+- Deployment: development release 6df328eb203ef124043c4e06456d2f31c67c5a21 completed; source rollback /opt/stacks/erp/orderapp.backup.deploy-20260912212752-6df328eb203e; this follow-up records delivery evidence and tracking status only.
 - Evidence: orderapp-remote/docs/acceptance/2026-09-12-production-scheduling-staff.md; Go all packages, real PostgreSQL lifecycle, Vue 1203/1203 and build passed. Six screenshot categories captured; native unsaved-confirm dismissal and subsequent click QA limited by browser automation.
 - Notes: reservation selected PR-655; macOS awk multiline placeholder failed, reserved manually before implementation.

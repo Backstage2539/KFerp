@@ -28,3 +28,11 @@
 ## 发布
 
 独立分支 `codex/production-scheduling-staff-20260912`，基于并整合 `origin/develop`。部署前完整检查后推送功能分支，再合入 develop，开发发布使用仓库发布脚本。生产发布不在本次范围内。
+
+首次开发发布已完成：`6df328eb203ef124043c4e06456d2f31c67c5a21`；功能分支推送提交 `cc0d3f29`。本记录的后续集成仅回写验收记录和 PR/DEV 状态。
+
+- 发布：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`，服务端 Vue 1203 项、Vite、miniapp 类型/产物验证、Go 全包及 Docker 构建通过；日志确认 `Release completed`。未上传或发布小程序。
+- 回滚源：`/opt/stacks/erp/orderapp.backup.deploy-20260912212752-6df328eb203e`；镜像：`kferp-orderapp-rollback:development-20260912212752-6df328eb203e`。
+- 发布后只读：认证 shell 200；排程候选配置 8 道工序、26 名启用员工、11 个产能档；待安排 15 项，包含服务端总数/分页和人员字段，已完成/已取消混入数为 0。入口未认证跳转登录 303，单独核对 API 鉴权结果见交付日志。
+- `erp_orderapp` 运行且重启计数 0；PostgreSQL 正常运行，原有重启计数 44，本次未重启数据库。新启动应用日志无错误。
+- PR-655 和 DEV-655-DELIVERY 保持待验收，明确原生离开提示及后续点击复验限制；其余三个开发项已完成。业务验收由 Van 完成，未把自动检查或容器运行当作业务验收。
