@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-655-PRODUCTION-SCHEDULING-STAFF", title: "生产管理精简与工序负责人、协作人员统一排程", status: "doing", assignee: "VA", evidence: "docs/acceptance/2026-09-12-production-scheduling-staff.md"},
+		{table: "req_dev", code: "DEV-655-STAFF", title: "工序可执行员工、默认人员与资格校验", status: "done", assignee: "Codex", evidence: "operation_staff_test.go"},
+		{table: "req_dev", code: "DEV-655-SCHEDULE", title: "工序排程、批量事务、版本与冲突确认", status: "done", assignee: "Codex", evidence: "schedule_staff_test.go"},
+		{table: "req_dev", code: "DEV-655-UI", title: "排程界面重构、工位人员共用与菜单精简", status: "done", assignee: "Codex", evidence: "production-staff.test.js"},
+		{table: "req_dev", code: "DEV-655-DELIVERY", title: "手册、验证、开发环境部署和隔离数据截图", status: "todo", assignee: "Codex", evidence: "docs/acceptance/2026-09-12-production-scheduling-staff.md"},
+
 		{table: "req_product", code: "PR-654-PRODUCTION-EXECUTION-BUS", title: "工单作为任务总线，工位按批次执行并衔接质检与完工入库", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-12-production-execution-bus.md"},
 		{table: "req_dev", code: "DEV-654-WORK-ORDER-READMODEL", title: "工单冻结产出头、任务进度、结构化阻塞和空运行关联隔离", status: "done", assignee: "Codex", evidence: "service.go; service_flow_test.go"},
 		{table: "req_dev", code: "DEV-654-TASK-EXECUTION", title: "任务批次用料、前序交接、执行人和工位一次开工", status: "done", assignee: "Codex", evidence: "stock_entry.go; production_schedule.go; stock_entry_test.go"},

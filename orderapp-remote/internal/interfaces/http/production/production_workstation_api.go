@@ -18,7 +18,7 @@ type workstationTaskIssueRequest struct {
 
 func registerProductionWorkstationAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.GET("/production-overview", func(c echo.Context) error {
-		target := "/vue-shell?view=productionOverview"
+		target := "/vue-shell?view=workstationView"
 		if raw := c.QueryString(); raw != "" {
 			target += "&" + raw
 		}

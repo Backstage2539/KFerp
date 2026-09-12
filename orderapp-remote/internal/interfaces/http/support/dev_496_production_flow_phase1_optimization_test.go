@@ -11,7 +11,7 @@ func TestDev496ProductionFlowPhase1OptimizationContracts(t *testing.T) {
 		"reqStore":       filepath.Join("internal", "interfaces", "http", "support", "req_store.go"),
 		"service":        filepath.Join("internal", "application", "production", "service.go"),
 		"topNav":         filepath.Join("frontend-vue-shell", "src", "components", "ProductionTopNav.vue"),
-		"overviewView":   filepath.Join("frontend-vue-shell", "src", "views", "ProductionOverviewView.vue"),
+		"scheduleView":   filepath.Join("frontend-vue-shell", "src", "views", "ProductionScheduleView.vue"),
 		"planView":       filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"),
 		"runningView":    filepath.Join("frontend-vue-shell", "src", "views", "ProduceRunningView.vue"),
 		"stockView":      filepath.Join("frontend-vue-shell", "src", "views", "StockOperationsView.vue"),
@@ -65,7 +65,7 @@ func TestDev496ProductionFlowPhase1OptimizationContracts(t *testing.T) {
 		"viewParams",
 		"shortage_g",
 	} {
-		combined := contents["topNav"] + contents["overviewView"] + contents["planView"] + contents["runningView"] + contents["stockView"] + contents["wipView"] + contents["workstationLib"] + contents["planLib"] + contents["runningLib"] + contents["urlState"]
+		combined := contents["topNav"] + contents["scheduleView"] + contents["planView"] + contents["runningView"] + contents["stockView"] + contents["wipView"] + contents["workstationLib"] + contents["planLib"] + contents["runningLib"] + contents["urlState"]
 		if !strings.Contains(combined, marker) {
 			t.Fatalf("frontend missing %s", marker)
 		}

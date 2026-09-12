@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_operations (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE %[1]s.manufacturing_operations ADD COLUMN IF NOT EXISTS standard_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_operation_employees (
+ operation_id BIGINT NOT NULL REFERENCES %[1]s.manufacturing_operations(id),
+ employee_id BIGINT NOT NULL,
+ default_role TEXT NOT NULL DEFAULT '' CHECK(default_role IN ('','lead','collaborator')),
+ PRIMARY KEY(operation_id,employee_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_operation_employees_lead_uq ON %[1]s.manufacturing_operation_employees(operation_id) WHERE default_role='lead';
 CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_operations_code_uq
 	ON %[1]s.manufacturing_operations(code)
 	WHERE code <> '';

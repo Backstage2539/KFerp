@@ -5237,3 +5237,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: targeted real PostgreSQL 6 complete-flow tests pass / 0 skip; Vue 1159/1159 and build; full standard Go and changed gates pass. Extra full PostgreSQL packages match baseline failures exactly (101 sales/fulfillment + 1 production); those runs are not counted as passes.
 - Evidence: `orderapp-remote/docs/acceptance/2026-09-10-order-confirmation-price-sort.md`.
 - Deployment: merge develop only; no application deployment, server migration, price publication or development/production business data writes.
+
+### PR-655-PRODUCTION-SCHEDULING-STAFF
+- Branch: codex/production-scheduling-staff-20260912
+- Owner/session: Codex / production scheduling staff
+- Status: implementation verified; integration/development release in progress; Van business acceptance pending
+- Scope: 工序可执行员工与默认人员；工序任务排程、批量预览保存、人员冲突；工位衔接与菜单精简。
+- DEV: DEV-655-STAFF; DEV-655-SCHEDULE; DEV-655-UI; DEV-655-DELIVERY.
+- Verifier: targeted Go service/API/PostgreSQL tests; frontend behavioral tests; verify_kferp.sh backend/frontend/changed; isolated browser acceptance.
+- Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
+- Deployment: pending; development only
+- Evidence: orderapp-remote/docs/acceptance/2026-09-12-production-scheduling-staff.md; Go all packages, real PostgreSQL lifecycle, Vue 1203/1203 and build passed. Six screenshot categories captured; native unsaved-confirm dismissal and subsequent click QA limited by browser automation.
+- Notes: reservation selected PR-655; macOS awk multiline placeholder failed, reserved manually before implementation.

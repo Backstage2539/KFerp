@@ -10,9 +10,9 @@ test('costing view routes to the bean list and pricing workspace', () => {
 
 test('production high-frequency views route through the Vue shell', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
-  assert.match(source, /import\s+ProductionOverviewView\s+from\s+['"]\.\/views\/ProductionOverviewView\.vue['"]/)
+  assert.doesNotMatch(source, /import\s+ProductionOverviewView/)
   assert.match(source, /import\s+WorkstationView\s+from\s+['"]\.\/views\/WorkstationView\.vue['"]/)
-  assert.match(source, /\bproductionOverview:\s*ProductionOverviewView\b/)
+  assert.match(source, /productionOverview:\s*'workstationView'/)
   assert.match(source, /\bworkstationView:\s*WorkstationView\b/)
 })
 

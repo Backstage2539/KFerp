@@ -78,19 +78,19 @@ test('production menu exposes the production flow manual as a primary page', () 
   assert.equal(groupForView(menuGroups, 'productionManual')?.id, 'production')
 })
 
-test('production menu exposes high-frequency overview and workstation entries first', () => {
+test('production menu exposes workstation first and retires the duplicate overview', () => {
   const keys = primaryMenuKeys(menuGroups)
-  assert.ok(keys.includes('productionOverview'))
+  assert.equal(keys.includes('productionOverview'), false)
   assert.ok(keys.includes('workstationView'))
   assert.equal(keys.includes('produceRunning'), false)
-  assert.equal(groupForView(menuGroups, 'productionOverview')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'productionOverview'), null)
   assert.equal(groupForView(menuGroups, 'workstationView')?.id, 'production')
   assert.equal(groupForView(menuGroups, 'produceRunning'), null)
   assert.equal(menuMap.produceRunning?.title, '生产中')
 
   const productionItems = menuGroups.find((group) => group.id === 'production')?.items || []
-  assert.deepEqual(productionItems.slice(0, 2).map((item) => item.key), ['productionOverview', 'workstationView'])
-  assert.equal(productionItems.find((item) => item.key === 'productionOverview')?.label, '生产视图')
+  assert.deepEqual(productionItems.slice(0, 1).map((item) => item.key), ['workstationView'])
+  assert.equal(productionItems.find((item) => item.key === 'productionOverview'), undefined)
   assert.equal(productionItems.find((item) => item.key === 'workstationView')?.label, '工位视图')
 })
 
@@ -208,7 +208,6 @@ test('finance menu exposes monthly finance workflows as primary pages', () => {
 
 test('remaining ERP click-matrix targets reference real Vue shell views', () => {
   const remainingTargets = [
-    'productionOverview',
     'productionConfig',
     'workstationView',
     'workOrders',

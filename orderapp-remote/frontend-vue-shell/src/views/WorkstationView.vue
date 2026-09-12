@@ -1,7 +1,7 @@
 <template>
   <div class="page workstation-view">
-    <ProductionTopNav active-key="workstationView" />
 
+    <ProductionReturnLink :source="viewParams.return_navigation" />
     <section class="toolbar">
       <div>
         <h2>工位视图</h2>
@@ -15,15 +15,9 @@
             <option v-for="section in sections" :key="section.workstation" :value="section.workstation">{{ section.workstation }}</option>
           </select>
         </label>
-        <button class="secondary" type="button" @click="bulkAssignOpen = !bulkAssignOpen">批量分配</button>
+        <button class="secondary" type="button" @click="openScheduling">安排人员与时间</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
-    </section>
-
-    <section v-if="bulkAssignOpen" class="bulk-assignment panel">
-      <div><strong>批量分配当前工位的未分配任务</strong><p>只更新任务执行人，不改变工单调度负责人。</p></div>
-      <select v-model="bulkEmployee"><option value="">请选择启用员工</option><option v-for="employee in activeEmployees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select>
-      <button class="primary" type="button" :disabled="!bulkEmployee || Boolean(busyKey)" @click="assignVisibleTasks">确认分配</button>
     </section>
 
     <div v-if="message" class="notice">{{ message }}</div>
@@ -82,11 +76,11 @@
               </details>
             </div>
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
-            <span>{{ task.assigned_to || '未分配' }}<small v-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
+            <span class="task-staff">{{ task.assigned_to || '待分配负责人' }}<small v-if="task.collaborators?.length">协作：{{ task.collaborators.map(p => p.name).join('、') }}</small><small v-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
             <div class="actions">
               <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
               <button v-if="!task.assigned_to" type="button" class="secondary" @click="claimTask(task)">领取任务</button>
-              <button v-if="!task.assigned_to" type="button" class="primary" @click="openTaskAssignment(task)">分配人员</button>
+              <button type="button" class="secondary" @click="openTaskAssignment(task)">{{ task.assigned_to ? '调整人员' : '分配人员' }}</button>
               <button v-if="materialHasShortageTask(task)" type="button" class="primary" @click="openPicking(task)">领料</button>
               <button v-if="task.readiness_label === '待质检'" type="button" class="secondary" @click="openQuality(task)">查看质检</button>
               <details v-if="isFirstOperationTask(task)" class="material-actions"><summary>物料操作</summary><button type="button" @click="openStockAction(task, 'issue')">领料</button><button type="button" @click="openStockAction(task, 'supplement')">补料</button><button type="button" @click="openStockAction(task, 'consume')">耗料</button><button type="button" @click="openStockAction(task, 'return')">退料</button></details>
@@ -101,10 +95,8 @@
                 {{ actionLabel(action) }}
               </button>
             </div>
-            <div v-if="assignmentTask && sameTask(assignmentTask, task)" class="task-action-panel assignment-panel">
-              <label><span>执行人</span><select v-model="assignmentEmployee"><option value="">请选择启用员工</option><option v-for="employee in activeEmployees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
-              <button class="primary" type="button" :disabled="!assignmentEmployee || Boolean(busyKey)" @click="saveTaskAssignment(task)">保存分配</button>
-              <button class="secondary" type="button" @click="assignmentTask = null">取消</button>
+            <div v-if="assignmentTask && sameTask(assignmentTask, task)" class="task-action-panel">
+              <ProductionTaskStaffEditor ref="staffEditors" :job-card-id="Number(task.job_card_id)" :work-order-id="Number(task.work_order_id)" @saved="assignmentTask = null; load()" @cancel="assignmentTask = null" />
             </div>
             <div
               v-if="taskFeedback.taskKey === taskKey(task) && (taskFeedback.message || taskFeedback.error)"
@@ -165,11 +157,12 @@
 </template>
 
 <script setup>
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchProductionWorkstationOverview, runProductionTaskAction } from '../api/production.js'
 import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
-import ProductionTopNav from '../components/ProductionTopNav.vue'
+import ProductionTaskStaffEditor from '../components/ProductionTaskStaffEditor.vue'
 import {
   productionCompletionMetrics,
   productionCompletionOutputQty,
@@ -188,13 +181,12 @@ const loading = ref(false)
 const busyKey = ref('')
 const error = ref('')
 const message = ref('')
-const selectedWorkstation = ref('')
+const staffEditors = ref([])
+function staffCanLeave() { return (Array.isArray(staffEditors.value) ? staffEditors.value : [staffEditors.value]).filter(Boolean).every(editor => editor.canLeave()) }
+const selectedWorkstationValue = ref('')
+const selectedWorkstation = computed({ get: () => selectedWorkstationValue.value, set: value => { if (value !== selectedWorkstationValue.value && !staffCanLeave()) return; selectedWorkstationValue.value = value; assignmentTask.value = null } })
 const overview = ref({ tasks: [] })
-const employees = ref([])
-const bulkAssignOpen = ref(false)
-const bulkEmployee = ref('')
 const assignmentTask = ref(null)
-const assignmentEmployee = ref('')
 const issue = reactive({ open: false, mode: '', title: '', task: null, note: '' })
 const executionHub = reactive({ open: false, workOrderId: 0, jobCardId: 0, focus: '' })
 const requestedJobCardID = computed(() => Number(props.viewParams?.job_card_id || 0))
@@ -219,7 +211,6 @@ const sections = computed(() => workstationTaskSections(tasks.value))
 const workstationLoad = computed(() => overview.value.workstation_load || [])
 const visibleSections = computed(() => selectedWorkstation.value ? sections.value.filter((section) => section.workstation === selectedWorkstation.value) : sections.value)
 const singleStationLayout = computed(() => visibleSections.value.length === 1)
-const activeEmployees = computed(() => employees.value.filter((row) => row.active !== false))
 
 function loadStatusLabel(value) {
   return ({
@@ -315,24 +306,8 @@ function actionLabel(action) {
   }[action] || action
 }
 
-function openTaskAssignment(task) {
-  assignmentTask.value = task
-  assignmentEmployee.value = String(activeEmployees.value.find((employee) => employee.name === task.assigned_to)?.id || '')
-}
-
-async function saveTaskAssignment(task) {
-  if (!assignmentEmployee.value) return
-  const employee = activeEmployees.value.find((item) => Number(item.id) === Number(assignmentEmployee.value))
-  if (!employee) { error.value = '所选员工已停用，请重新选择'; return }
-  busyKey.value = `${task.job_card_id}:assign`
-  error.value = ''
-  try {
-    await apiSend('/api/production-schedule/assign', { body: { work_order_id: task.work_order_id, job_card_id: task.job_card_id, work_center: task.work_center || task.workstation || '', assigned_employee_id: Number(employee.id), assigned_to: employee.name, priority: task.priority || 0 } })
-    assignmentTask.value = null
-    await load()
-    message.value = '任务执行人已更新'
-  } catch (err) { error.value = err.message || '分配失败' } finally { busyKey.value = '' }
-}
+function openTaskAssignment(task) { if (staffCanLeave()) assignmentTask.value = task }
+function openScheduling() { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productionSchedule', params: { work_center: selectedWorkstation.value }, returnNavigation: { key: 'workstationView', params: { ...props.viewParams }, label: '返回工位视图' } } })) }
 
 async function claimTask(task) {
   const endpoint = productionTaskActionEndpoint(task, 'claim')
@@ -340,19 +315,6 @@ async function claimTask(task) {
   busyKey.value = `${task.job_card_id}:claim`
   error.value = ''
   try { await apiSend(endpoint, { body: {} }); await load(); message.value = '任务已领取' } catch (err) { error.value = err.message || '领取任务失败' } finally { busyKey.value = '' }
-}
-
-async function assignVisibleTasks() {
-  const rows = visibleSections.value.flatMap((section) => section.tasks).filter((task) => task.job_card_id && !task.assigned_to)
-  if (!rows.length) { message.value = '当前范围没有未分配任务'; return }
-  const employee = activeEmployees.value.find((item) => Number(item.id) === Number(bulkEmployee.value))
-  if (!employee) { error.value = '请选择启用员工'; return }
-  busyKey.value = 'bulk-assign'
-  error.value = ''
-  try {
-    for (const task of rows) await apiSend('/api/production-schedule/assign', { body: { work_order_id: task.work_order_id, job_card_id: task.job_card_id, work_center: task.work_center || task.workstation || '', assigned_employee_id: Number(employee.id), assigned_to: employee.name, priority: task.priority || 0 } })
-    await load(); bulkAssignOpen.value = false; message.value = `已分配 ${rows.length} 项任务`
-  } catch (err) { error.value = err.message || '批量分配失败' } finally { busyKey.value = '' }
 }
 
 function openPicking(task) {
@@ -548,9 +510,7 @@ async function load(options = {}) {
   loading.value = true
   error.value = ''
   try {
-    const [workstationData, employeeRows] = await Promise.all([fetchProductionWorkstationOverview({ limit: 500 }), apiGet('/api/company/employees')])
-    overview.value = workstationData
-    employees.value = Array.isArray(employeeRows) ? employeeRows : (employeeRows.rows || [])
+    overview.value = await fetchProductionWorkstationOverview({ limit: 500 })
     if (selectedWorkstation.value && !sections.value.some((section) => section.workstation === selectedWorkstation.value)) {
       selectedWorkstation.value = ''
     }
@@ -688,13 +648,14 @@ textarea { resize: vertical; }
 }
 .task-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) 90px 110px minmax(180px, 1.2fr);
+  grid-template-columns: minmax(180px, 1.4fr) 80px minmax(155px, .7fr) minmax(180px, 1.2fr);
   min-width: 610px;
   gap: 10px;
   align-items: center;
   padding: 10px;
   border-top: 1px solid #ebe7df;
 }
+.task-staff{display:grid;gap:5px;align-content:start;min-width:0}.task-staff small{display:block;font-size:12px;color:#657269;line-height:1.6}
 .task-row.header {
   border-top: 0;
   background: #faf9f7;

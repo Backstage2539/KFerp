@@ -15,14 +15,12 @@ import {
 
 test('production top nav lists high-frequency views before legacy production pages', () => {
   assert.deepEqual(productionTopNavItems.map((item) => item.key), [
-    'productionOverview',
     'workstationView',
     'productionFlow',
     'produceRunning',
     'produceLogs',
   ])
-  assert.equal(productionTopNavItems[0].label, '生产视图')
-  assert.equal(productionTopNavItems[1].label, '工位视图')
+  assert.equal(productionTopNavItems[0].label, '工位视图')
 })
 
 test('workstation task sections answer current task, next task, and blocked reason', () => {
@@ -138,10 +136,10 @@ test('production top nav renders count badges for high-frequency production view
     key: item.key,
     badge: item.badge,
   })), [
-    { key: 'productionOverview', badge: '待2 阻1 中3' },
     { key: 'workstationView', badge: '待2 阻1 中3' },
     { key: 'productionFlow', badge: '' },
     { key: 'produceRunning', badge: '待0 阻0 中3' },
+    { key: 'produceLogs', badge: '' },
   ])
 })
 

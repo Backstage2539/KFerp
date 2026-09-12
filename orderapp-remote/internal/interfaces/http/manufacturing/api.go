@@ -17,6 +17,10 @@ type ErrorResponse struct {
 }
 
 type manufacturingOperationRequest struct {
+	EligibleEmployeeIDs    []int64 `json:"eligible_employee_ids"`
+	DefaultEmployeeID      int64   `json:"default_employee_id"`
+	DefaultCollaboratorIDs []int64 `json:"default_collaborator_ids"`
+
 	ID                    int64   `json:"id"`
 	Code                  string  `json:"code"`
 	Name                  string  `json:"name"`
@@ -106,6 +110,7 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := svc.SaveManufacturingOperation(c.Request().Context(), manufacturingapp.SaveManufacturingOperationCommand{
+			EligibleEmployeeIDs: req.EligibleEmployeeIDs, DefaultEmployeeID: req.DefaultEmployeeID, DefaultCollaboratorIDs: req.DefaultCollaboratorIDs,
 			ID:                    req.ID,
 			Code:                  req.Code,
 			Name:                  req.Name,

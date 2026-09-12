@@ -1,296 +1,141 @@
 <template>
-  <div class="page production-schedule-page">
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <h2>生产排程工作台</h2>
-          <p>按日期、班次、工位和负责人排工单与工序卡，先做人工排程和冲突提示。</p>
-        </div>
-        <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
-      </div>
-      <div class="filters">
-        <label><span>开始日期</span><input v-model="filters.from" type="date" /></label>
-        <label><span>结束日期</span><input v-model="filters.to" type="date" /></label>
-        <label><span>工位/设备</span><input v-model.trim="filters.work_center" placeholder="印刷线 / 烘焙机 / 缝制组" /></label>
-        <label>
-          <span>状态</span>
-          <select v-model="filters.status">
-            <option value="">全部</option>
-            <option value="released">未开工</option>
-            <option value="running">生产中</option>
-            <option value="partially_completed">部分完成</option>
-            <option value="completed">已完成</option>
-          </select>
-        </label>
-      </div>
-      <div class="mode-tabs" role="tablist" aria-label="排程视图">
-        <button v-for="mode in viewModes" :key="mode.value" type="button" :class="{ active: viewMode === mode.value }" @click="viewMode = mode.value">{{ mode.label }}</button>
-      </div>
-      <div v-if="error" class="error">{{ error }}</div>
-      <div v-if="ok" class="ok">{{ ok }}</div>
+  <section class="schedule-workspace" aria-label="生产排程工作区">
+    <ProductionReturnLink :source="viewParams.return_navigation" />
+    <header class="workspace-header">
+      <div><div class="eyebrow">生产管理 · 工序任务安排</div><h1>生产排程</h1><p>沿用已确认的工位与批次，安排时间和人员，工位直接执行。</p></div>
+      <details class="more-menu"><summary>更多 <IconChevronDown :size="14" /></summary><div><button type="button" @click="capacityOpen = !capacityOpen">维护可用工时</button><button type="button" @click="configure()">工序人员配置</button><button type="button" @click="navigate('productionManual')">操作说明</button></div></details>
+    </header>
+    <div class="summary-strip"><IconCalendarTime :size="30" /><div><strong>{{ scopeLabel }} · {{ board.total || 0 }} 项工序任务</strong><p>{{ selectedIDs.length ? `已选 ${selectedIDs.length} 项，${dirtyRows.length} 项有未保存修改` : '选择任务后，可按工序批量带入默认人员' }}</p></div><span class="summary-note">工位与批次沿用生产计划</span></div>
+    <div v-if="message" role="status" class="notice success">{{ message }} <button type="button" class="text-action" @click="openWorkstation()">去工位查看</button></div>
+    <div v-if="error" role="alert" class="notice warning">{{ error }} <button v-if="versionConflict" class="text-action" type="button" @click="query">重新读取任务</button></div>
+    <section v-if="capacityOpen" class="capacity-panel">
+      <div class="section-heading"><h2>可用工时</h2><button type="button" class="text-action" @click="capacityOpen = false">收起</button></div><p>维护指定工位、日期、班次的可用分钟，不改变任务批次或标准工时。</p>
+      <div class="capacity-fields"><label>工位<select v-model="capacity.work_center"><option value="">请选择工位</option><option v-for="name in workstations" :key="name">{{ name }}</option></select></label><label>日期<input v-model="capacity.work_date" type="date" /></label><label>班次<input v-model="capacity.shift_code" placeholder="默认 / 早班" /></label><label>可用分钟<input v-model.number="capacity.available_minutes" type="number" min="0" /></label><label>停机分钟<input v-model.number="capacity.downtime_minutes" type="number" min="0" /></label><button class="secondary" type="button" :disabled="saving" @click="saveCapacity">保存可用工时</button></div>
     </section>
-
-    <section v-if="conflicts.length" class="panel conflict-panel">
-      <div class="section-title">冲突</div>
-      <div class="conflict-list">
-        <article v-for="(row, index) in conflicts" :key="`${row.work_center}-${row.work_date}-${row.shift_code}-${index}`" class="conflict-row">
-          <strong>{{ row.severity === 'error' ? '错误' : '提醒' }}</strong>
-          <span>{{ row.message || `${row.work_date || '-'} ${row.work_center || '-'} ${row.shift_code || '-'} 产能冲突` }}</span>
-        </article>
-      </div>
-    </section>
-
-    <div class="schedule-layout">
-      <section class="panel board-panel">
-        <div class="section-title-row">
-          <div class="section-title">{{ activeModeLabel }}</div>
-          <span class="muted">{{ workOrders.length }} 个工单 · {{ jobCards.length }} 张工序卡</span>
-        </div>
-
-        <div v-if="viewMode === 'list'" class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>工单</th><th>商品</th><th>状态</th><th>计划时间</th><th>班次</th><th>工位</th><th>负责人</th><th>优先级</th><th>操作</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in workOrders" :key="row.id">
-                <td><strong>{{ row.work_order_no || '-' }}</strong><small>{{ row.order_nos || '' }}</small></td>
-                <td>{{ row.product_name || '-' }}</td>
-                <td><span class="pill">{{ statusLabel(row.status) }}</span></td>
-                <td>{{ rangeText(row.planned_start_at, row.planned_end_at) }}</td>
-                <td>{{ row.shift_code || '-' }}</td>
-                <td>{{ row.work_center || '-' }}</td>
-                <td>{{ row.assigned_to || '-' }}</td>
-                <td>{{ row.priority || 0 }}</td>
-                <td><button class="link" type="button" @click="editWorkOrder(row)">排程</button></td>
-              </tr>
-              <tr v-if="!workOrders.length"><td colspan="9" class="muted">暂无工单</td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div v-else-if="viewMode === 'calendar'" class="calendar-grid">
-          <article v-for="day in calendarDays" :key="day" class="calendar-day">
-            <h3>{{ day }}</h3>
-            <button v-for="row in workOrdersForDay(day)" :key="row.id" type="button" class="calendar-item" @click="editWorkOrder(row)">
-              <strong>{{ row.work_order_no }}</strong>
-              <span>{{ row.work_center || '未排工位' }} · {{ row.shift_code || '未排班次' }}</span>
-            </button>
-            <p v-if="!workOrdersForDay(day).length" class="muted">暂无排程</p>
-          </article>
-        </div>
-
-        <div v-else-if="viewMode === 'gantt'" class="gantt-list">
-          <article v-for="row in ganttRows" :key="row.kind + row.id" class="gantt-row">
-            <div class="gantt-meta"><strong>{{ row.name }}</strong><span>{{ row.work_center || '未排工位' }}</span></div>
-            <div class="gantt-track">
-              <span class="gantt-bar" :style="{ width: ganttWidth(row) }">{{ rangeText(row.planned_start_at, row.planned_end_at) }}</span>
-            </div>
-          </article>
-          <p v-if="!ganttRows.length" class="muted">暂无甘特数据</p>
-        </div>
-
-        <div v-else class="capacity-grid">
-          <article v-for="row in capacityRows" :key="`${row.work_center}-${row.work_date}-${row.shift_code}`" class="capacity-card">
-            <strong>{{ row.work_center }}</strong>
-            <span>{{ row.work_date }} · {{ row.shift_code || '默认' }}</span>
-            <div class="capacity-meter"><i :style="{ width: capacityWidth(row) }"></i></div>
-            <small>可用 {{ row.available_minutes || 0 }} 分钟，停机 {{ row.downtime_minutes || 0 }} 分钟</small>
-          </article>
-          <p v-if="!capacityRows.length" class="muted">暂无工位负载</p>
-        </div>
-      </section>
-
-      <aside class="panel side-panel">
-        <div class="section-title">MRP 建议</div>
-        <div class="mrp-summary">
-          <span>采购建议 {{ mrp.purchase_suggestion_g || 0 }}g</span>
-          <span>调拨建议 {{ mrp.transfer_suggestion_g || 0 }}g</span>
-        </div>
-        <div class="mrp-list">
-          <article v-for="row in mrpRows" :key="row.material_id" class="mrp-row">
-            <strong>{{ row.material_name || `物料 #${row.material_id}` }}</strong>
-            <span>{{ suggestionLabel(row.suggestion_type) }} · 需求 {{ row.required_g || 0 }}g</span>
-            <small>WIP 可用 {{ row.available_g || 0 }}g，原料仓 {{ row.raw_g || 0 }}g，采购 {{ row.purchase_suggestion_g || 0 }}g，调拨 {{ row.wip_transfer_suggestion_g || 0 }}g</small>
-            <small>{{ row.source_work_orders || '暂无来源工单' }}</small>
-          </article>
-          <p v-if="!mrpRows.length" class="muted">暂无 MRP 缺料建议</p>
-        </div>
-
-        <div class="section-title">保存排程</div>
-        <div class="form-grid one">
-          <label><span>工单 ID</span><input v-model.number="assignment.work_order_id" type="number" min="1" /></label>
-          <label><span>工序卡 ID</span><input v-model.number="assignment.job_card_id" type="number" min="0" /></label>
-          <label><span>工位/设备</span><input v-model.trim="assignment.work_center" /></label>
-          <label><span>计划开始</span><input v-model="assignment.planned_start_at" placeholder="2026-06-13 09:00" /></label>
-          <label><span>计划结束</span><input v-model="assignment.planned_end_at" placeholder="2026-06-13 11:30" /></label>
-          <label><span>班次</span><input v-model.trim="assignment.shift_code" placeholder="早班" /></label>
-          <label><span>负责人</span><input v-model.trim="assignment.assigned_to" /></label>
-          <label><span>优先级</span><input v-model.number="assignment.priority" type="number" min="0" /></label>
-          <label><span>备注</span><textarea v-model.trim="assignment.note" rows="2"></textarea></label>
-          <button class="primary" type="button" @click="saveAssignment" :disabled="saving">保存排程</button>
-        </div>
-
-        <div class="section-title capacity-title">保存产能</div>
-        <div class="form-grid one">
-          <label><span>工位/设备</span><input v-model.trim="capacityDraft.work_center" /></label>
-          <label><span>日期</span><input v-model="capacityDraft.work_date" type="date" /></label>
-          <label><span>班次</span><input v-model.trim="capacityDraft.shift_code" placeholder="早班" /></label>
-          <label><span>可用分钟</span><input v-model.number="capacityDraft.available_minutes" type="number" min="0" /></label>
-          <label><span>停机分钟</span><input v-model.number="capacityDraft.downtime_minutes" type="number" min="0" /></label>
-          <label><span>备注</span><textarea v-model.trim="capacityDraft.note" rows="2"></textarea></label>
-          <button class="secondary" type="button" @click="saveCapacity" :disabled="saving">保存产能</button>
-        </div>
+    <div class="workspace-layout">
+      <main class="task-column">
+        <nav class="scope-tabs" aria-label="排程范围"><button v-for="tab in scopes" :key="tab.value" type="button" :class="{ active: applied.scope === tab.value }" @click="switchScope(tab.value)">{{ tab.label }}</button></nav>
+        <button class="mobile-filter-toggle secondary" type="button" :aria-expanded="filtersOpen" aria-controls="schedule-filters" @click="filtersOpen = !filtersOpen">筛选条件 <IconChevronDown :size="14" /></button>
+        <form id="schedule-filters" class="filters" :class="{ expanded: filtersOpen }" @submit.prevent="query">
+          <label class="search-field"><span>搜索任务</span><input v-model.trim="filters.q" placeholder="商品、工单、计划号、订单" /></label>
+          <label><span>开始日期</span><input v-model="filters.from" type="date" /></label><label><span>结束日期</span><input v-model="filters.to" type="date" /></label>
+          <label><span>工位</span><select v-model="filters.work_center"><option value="">全部工位</option><option v-for="name in workstations" :key="name">{{ name }}</option></select></label>
+          <label><span>工序</span><select v-model="filters.operation_id"><option value="">全部工序</option><option v-for="op in options.operations" :key="op.id" :value="op.id">{{ op.name }}</option></select></label>
+          <label><span>人员</span><select v-model="filters.employee_id"><option value="">全部人员</option><option v-for="person in options.employees" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
+          <button class="secondary" type="submit" :disabled="loading || saving">查询</button>
+        </form>
+        <div v-if="applied.scope === 'task'" class="focus-banner">正在查看指定任务 <button type="button" class="text-action" @click="switchScope('pending')">返回待安排列表</button></div>
+        <div class="section-heading task-heading"><h2>工序任务</h2><button type="button" class="text-action" :disabled="!selectedIDs.length || saving" @click="fillDefaults">批量带入默认人员</button></div>
+        <div v-if="loading" class="empty">正在读取工序任务…</div>
+        <div v-else class="task-table-wrap"><table class="task-table"><thead><tr><th class="check-cell"><input type="checkbox" aria-label="选择当前页可安排任务" :checked="allSelected" :indeterminate="someSelected && !allSelected" :disabled="!editableRows.length || saving" @change="toggleAll($event.target.checked)" /></th><th>生产任务</th><th>工位与数量</th><th>计划时间</th><th>人员安排</th><th>状态</th></tr></thead>
+          <tbody><tr v-for="row in board.rows" :key="row.id" :class="{ selected: selectedIDs.includes(row.id), focused: activeID === row.id }" :data-task-id="row.id">
+            <td class="check-cell"><input v-if="row.arrangement_state !== 'history'" type="checkbox" :aria-label="`选择 ${row.work_order_no} ${row.operation} 第 ${row.batch_index} 批`" :checked="selectedIDs.includes(row.id)" :disabled="saving" @change="toggle(row, $event.target.checked)" /></td>
+            <td data-label="生产任务"><strong>{{ row.product_name || '生产任务' }}</strong><small>{{ row.operation }} · 第 {{ row.batch_index || 1 }}/{{ row.batch_count || 1 }} 批<span v-if="row.spec_g"> · {{ row.spec_g }}g</span></small><button type="button" class="text-action trace-link" @click="openOrder(row)">{{ row.work_order_no }}</button><button v-if="row.production_plan_id" type="button" class="text-action trace-link" @click="openPlan(row)">{{ row.production_plan_no }}</button><details v-if="row.order_nos" class="order-trace"><summary>关联订单</summary>{{ row.order_nos }}</details></td>
+            <td data-label="工位与数量"><strong>{{ row.workstation || '待补工位' }}</strong><small>{{ quantity(row) }} · {{ row.planned_minutes || '待确认' }} 分钟</small><small>{{ row.workstation_capacity_name }}</small></td>
+            <td data-label="计划时间"><span>{{ displayTime(drafts[row.id]?.planned_start_at || row.planned_start_at) }}</span><small v-if="drafts[row.id]?.planned_end_at || row.planned_end_at">至 {{ displayTime(drafts[row.id]?.planned_end_at || row.planned_end_at) }}</small><small>{{ row.shift_code }}</small></td>
+            <td data-label="人员安排"><span>{{ leadName(drafts[row.id] || row) }}</span><small>{{ collaboratorNames(drafts[row.id] || row) }}</small><button v-if="row.arrangement_state !== 'history'" class="text-action" type="button" @click="edit(row)">{{ selectedIDs.includes(row.id) ? '正在编辑' : '安排' }}</button></td>
+            <td data-label="状态"><span class="status-pill" :class="row.arrangement_state">{{ arrangementLabel(row) }}</span><small v-if="row.material_status" class="warning-text">{{ row.material_status }}</small><small v-if="row.exception_reason" class="warning-text">{{ row.exception_reason }}</small><button v-if="!row.staffing_ready && row.arrangement_state !== 'history'" class="text-action warning-text" type="button" @click="configure(row.operation_id)">待补人员配置</button><button type="button" class="text-action" @click="openWorkstation(row)">查看工位任务</button></td>
+          </tr><tr v-if="!board.rows?.length"><td colspan="6" class="empty">当前条件下没有工序任务。可调整筛选或从生产计划生成工单。</td></tr></tbody></table></div>
+        <PaginationControls :page="board.page || 1" :page-size="applied.limit" :total="board.total || 0" :disabled="loading || saving" @change="changePage" />
+      </main>
+      <aside class="review-column">
+        <section v-if="activeDraft && !preview" class="arrangement-editor"><div class="section-heading"><h2>本次安排</h2><span>{{ selectedIDs.length }} 项已选</span></div><label v-if="selectedIDs.length > 1" class="task-picker">编辑任务<select v-model.number="activeID"><option v-for="id in selectedIDs" :key="id" :value="id">{{ drafts[id].operation }} · {{ drafts[id].work_order_no }} · 第 {{ drafts[id].batch_index || 1 }} 批</option></select></label><strong>{{ activeDraft.product_name }}</strong><p class="muted">{{ activeDraft.operation }} · {{ activeDraft.workstation || '待补工位' }} · 第 {{ activeDraft.batch_index || 1 }} 批</p>
+          <label v-if="!originals.get(activeDraft.id)?.workstation_id && !originals.get(activeDraft.id)?.workstation_capacity_id">补充工位产能档<select v-model.number="activeDraft.workstation_capacity_id"><option :value="0">请选择适配产能档</option><option v-for="cap in eligibleCapacities(activeDraft)" :key="cap.id" :value="cap.id">{{ cap.workstation }} · {{ cap.name }} · {{ cap.batch_size_qty }}{{ cap.batch_size_unit }}</option></select></label>
+          <div class="time-fields"><label>计划开始<input v-model="activeDraft.planned_start_at" type="datetime-local" /></label><label>计划结束<input v-model="activeDraft.planned_end_at" type="datetime-local" /></label></div>
+          <button type="button" class="text-action" :disabled="!activeDraft.planned_start_at || !activeDraft.planned_minutes" @click="fillEnd">按预计工时填写结束时间</button>
+          <ProductionStaffFields v-model="activeDraft" :employees="activeDraft.eligible_employees" :disabled="saving" @configure="configure(activeDraft.operation_id)" />
+          <details class="optional-fields"><summary>班次与备注</summary><label>班次<input v-model.trim="activeDraft.shift_code" placeholder="选填" /></label><label>备注<textarea v-model.trim="activeDraft.scheduling_note" rows="2"></textarea></label></details>
+        </section>
+        <section v-else-if="!preview" class="selection-help"><IconUsers :size="30" /><h2>{{ applied.scope === 'history' ? '历史排程记录' : '先选择工序任务' }}</h2><p>{{ applied.scope === 'history' ? '已完成和已取消任务保留追溯，不能修改安排。' : '在左侧选择任务，设置负责人和协作人员。多选后可一次带入各工序的默认人员。' }}</p></section>
+        <section v-if="preview" ref="previewPanel" class="preview-panel"><h2>保存前核对</h2><p>本次将保存 {{ preview.rows.length }} 项任务的安排。</p><div v-for="row in preview.rows" :key="row.id" class="preview-row"><strong>{{ row.operation }} · 第 {{ row.batch_index }} 批</strong><small>{{ row.work_order_no }}</small><span>{{ row.assigned_to }}<template v-if="row.collaborators?.length"> · 协作 {{ row.collaborators.map(p => p.name).join('、') }}</template></span></div><p v-if="!preview.conflicts.length" class="ready-text">人员时间核对通过，可以保存。</p><div v-else class="notice warning"><strong>人员时间重叠</strong><p v-for="item in preview.conflicts" :key="`${item.employee_id}:${item.job_card_id}:${item.other_job_card_id}`">{{ item.message }}</p><p>确认这些任务允许兼顾后再保存。</p></div></section>
+        <section class="load-panel"><h2>工位占用</h2><p class="muted">{{ applied.from }} 至 {{ applied.to }} · 所有有效任务</p><div v-for="item in board.load" :key="item.work_center + item.work_date" class="load-row"><div><strong>{{ item.work_center || '待补工位' }}</strong><small>{{ item.work_date }}</small></div><span>{{ item.load_minutes }} 分钟<small :class="{ 'warning-text': item.available_minutes == null || item.load_minutes > item.available_minutes }">{{ item.available_minutes == null ? '可用工时待配置' : `可用 ${item.available_minutes} 分钟` }}</small></span></div><p v-if="!board.load?.length" class="muted">所选日期暂无已安排的工位占用。</p></section>
       </aside>
     </div>
-  </div>
+    <footer class="schedule-footer"><div><strong>{{ footerStatus }}</strong><small>人员确认后同步到工位；缺料和前序条件在开工时继续核对。</small></div><button v-if="preview" class="secondary" type="button" :disabled="saving" @click="preview = null">返回调整</button><button class="primary" type="button" :disabled="loading || saving || !dirtyRows.length" @click="preview ? save() : review()">{{ saving ? '正在处理…' : preview ? (preview.conflicts.length ? '确认重叠并保存安排' : '确认保存安排') : '核对本次安排' }}</button></footer>
+    <ProductionExecutionHubDrawer :open="orderDetail.open" :work-order-id="orderDetail.id" :view-params="{ job_card_id: orderDetail.jobCardID }" @close="orderDetail.open = false" @updated="load" />
+  </section>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { IconCalendarTime, IconChevronDown, IconUsers } from '@tabler/icons-vue'
 import { apiGet, apiSend } from '../api/client'
-import { formatLocalDateInput } from '../lib/local-date.js'
-import {
-  buildCapacityCalendarPayload,
-  buildScheduleAssignmentPayload,
-  capacityCalendarEndpoint,
-  mrpSuggestionsEndpoint,
-  productionScheduleEndpoint,
-  scheduleAssignEndpoint,
-  scheduleStatusLabel,
-  scheduleViewModes,
-} from '../lib/production-schedule.js'
-
+import PaginationControls from '../components/PaginationControls.vue'
+import ProductionStaffFields from '../components/ProductionStaffFields.vue'
+import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
+import { applyDefaultStaff, staffPatch, validateStaff, taskArrangementState } from '../lib/production-staff'
+import { formatLocalDateInput } from '../lib/local-date'
+const props = defineProps({ viewParams: { type: Object, default: () => ({}) } })
 const today = formatLocalDateInput()
-const filters = reactive({ from: today, to: today, work_center: '', status: '', limit: 200 })
-const assignment = reactive({ work_order_id: 0, job_card_id: 0, work_center: '', planned_start_at: '', planned_end_at: '', shift_code: '', assigned_to: '', priority: 0, note: '' })
-const capacityDraft = reactive({ work_center: '', work_date: today, shift_code: '', available_minutes: 480, downtime_minutes: 0, note: '' })
-const viewModes = scheduleViewModes()
-const phase3ScheduleAPIMarkers = ['/api/production-schedule', '/api/production-schedule/assign', '/api/production-capacity-calendar', '/api/mrp/suggestions', 'MRP', '采购建议', '调拨建议', '列表', '日历', '甘特', '工位负载', '冲突']
-const viewMode = ref('list')
-const board = ref({ work_orders: [], job_cards: [], capacity: [], conflicts: [] })
-const mrp = ref({ rows: [], purchase_suggestion_g: 0, transfer_suggestion_g: 0 })
-const loading = ref(false)
-const saving = ref(false)
-const error = ref('')
-const ok = ref('')
-
-const workOrders = computed(() => board.value.work_orders || [])
-const jobCards = computed(() => board.value.job_cards || [])
-const capacityRows = computed(() => board.value.capacity || [])
-const conflicts = computed(() => board.value.conflicts || [])
-const mrpRows = computed(() => mrp.value.rows || [])
-const activeModeLabel = computed(() => viewModes.find((item) => item.value === viewMode.value)?.label || '列表')
-const calendarDays = computed(() => {
-  const days = new Set([filters.from, filters.to].filter(Boolean))
-  for (const row of workOrders.value) {
-    if (row.planned_start_at) days.add(String(row.planned_start_at).slice(0, 10))
-  }
-  return Array.from(days).sort()
-})
-const ganttRows = computed(() => [
-  ...workOrders.value.map((row) => ({ ...row, kind: 'work_order', name: row.work_order_no || `WO-${row.id}` })),
-  ...jobCards.value.map((row) => ({ ...row, kind: 'job_card', name: `${row.operation || '工序'} #${row.id}`, work_center: row.work_center || row.workstation })),
-].filter((row) => row.planned_start_at || row.planned_end_at))
-
-function statusLabel(status) {
-  return scheduleStatusLabel(status)
-}
-
-function rangeText(start, end) {
-  if (!start && !end) return '未排程'
-  return `${start || '-'} -> ${end || '-'}`
-}
-
-function workOrdersForDay(day) {
-  return workOrders.value.filter((row) => String(row.planned_start_at || '').slice(0, 10) === day)
-}
-
-function ganttWidth(row) {
-  const start = Date.parse(String(row.planned_start_at || '').replace(' ', 'T'))
-  const end = Date.parse(String(row.planned_end_at || '').replace(' ', 'T'))
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return '24%'
-  const minutes = (end - start) / 60000
-  return `${Math.max(18, Math.min(100, Math.round(minutes / 6)))}%`
-}
-
-function capacityWidth(row) {
-  const available = Number(row.available_minutes || 0)
-  const downtime = Number(row.downtime_minutes || 0)
-  if (available <= 0) return '0%'
-  return `${Math.max(0, Math.min(100, Math.round(((available - downtime) / available) * 100)))}%`
-}
-
-function suggestionLabel(type) {
-  return ({
-    purchase_suggestion: '采购建议',
-    transfer_suggestion: '调拨建议',
-    covered: '库存已覆盖',
-  })[String(type || '').trim()] || 'MRP'
-}
-
-function editWorkOrder(row) {
-  assignment.work_order_id = Number(row.id || 0)
-  assignment.job_card_id = 0
-  assignment.work_center = row.work_center || ''
-  assignment.planned_start_at = row.planned_start_at || ''
-  assignment.planned_end_at = row.planned_end_at || ''
-  assignment.shift_code = row.shift_code || ''
-  assignment.assigned_to = row.assigned_to || ''
-  assignment.priority = Number(row.priority || 0)
-  assignment.note = row.scheduling_note || ''
-}
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    const [boardData, mrpData] = await Promise.all([
-      apiGet(productionScheduleEndpoint(filters)),
-      apiGet(mrpSuggestionsEndpoint({ ...filters, limit: 50 })),
-    ])
-    board.value = boardData
-    mrp.value = mrpData
-  } catch (err) {
-    error.value = err.message || '加载排程失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function saveAssignment() {
-  saving.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend(scheduleAssignEndpoint(), { body: buildScheduleAssignmentPayload(assignment) })
-    ok.value = '排程已保存'
-    await load()
-  } catch (err) {
-    error.value = err.message || '保存排程失败'
-  } finally {
-    saving.value = false
-  }
-}
-
-async function saveCapacity() {
-  saving.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend(capacityCalendarEndpoint(), { body: buildCapacityCalendarPayload(capacityDraft) })
-    ok.value = '产能已保存'
-    await load()
-  } catch (err) {
-    error.value = err.message || '保存产能失败'
-  } finally {
-    saving.value = false
-  }
-}
-
-onMounted(load)
+const scopes = [{ value: 'pending', label: '待安排' }, { value: 'scheduled', label: '已安排' }, { value: 'running', label: '生产中' }, { value: 'history', label: '历史' }]
+const filters = reactive({ q: '', from: today, to: today, work_center: '', operation_id: '', employee_id: '' })
+const applied = reactive({ ...filters, scope: 'pending', page: 1, limit: 20 })
+const board = ref({ rows: [], load: [], total: 0, page: 1 }), options = ref({ operations: [], employees: [], capacities: [] })
+const selectedIDs = ref([]), drafts = reactive({}), activeID = ref(0), loading = ref(false), saving = ref(false), error = ref(''), message = ref(''), preview = ref(null), versionConflict = ref(false), capacityOpen = ref(false)
+const capacity = reactive({ work_center: '', work_date: today, shift_code: '默认', available_minutes: 480, downtime_minutes: 0, note: '' })
+const previewPanel = ref(null)
+const filtersOpen = ref(false)
+watch(preview, async value => { if (value) { await nextTick(); previewPanel.value?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) } })
+const orderDetail = reactive({ open: false, id: 0, jobCardID: 0 })
+let requestID = '', lastURL = window.location.href, loadSequence = 0
+const originals = new Map()
+const workstations = computed(() => [...new Set([...options.value.capacities.map(cap => cap.workstation), ...board.value.rows.map(row => row.workstation), ...board.value.load.map(row => row.work_center)].filter(Boolean))])
+const scopeLabel = computed(() => scopes.find(tab => tab.value === applied.scope)?.label || '指定任务')
+const editableRows = computed(() => (board.value.rows || []).filter(row => row.arrangement_state !== 'history'))
+const allSelected = computed(() => editableRows.value.length > 0 && editableRows.value.every(row => selectedIDs.value.includes(row.id)))
+const someSelected = computed(() => editableRows.value.some(row => selectedIDs.value.includes(row.id)))
+const activeDraft = computed({ get: () => drafts[activeID.value] || null, set: value => { if (value) drafts[activeID.value] = value } })
+function patch(row) { const value = { ...staffPatch(row), planned_start_at: row.planned_start_at || '', planned_end_at: row.planned_end_at || '', shift_code: row.shift_code || '', note: row.scheduling_note || '' }; if (!originals.get(row.id)?.workstation_capacity_id && row.workstation_capacity_id) value.workstation_capacity_id = Number(row.workstation_capacity_id); return value }
+const dirtyRows = computed(() => selectedIDs.value.map(id => drafts[id]).filter(row => JSON.stringify(patch(row)) !== JSON.stringify(patch(originals.get(row.id) || {}))))
+const footerStatus = computed(() => preview.value ? `${preview.value.rows.length} 项安排已核对${preview.value.conflicts.length ? '，存在人员时间重叠' : ''}` : dirtyRows.value.length ? `${dirtyRows.value.length} 项有未保存修改` : message.value ? '安排已保存' : '选择任务，安排时间与人员')
+watch(() => JSON.stringify(dirtyRows.value.map(patch)), () => { preview.value = null; requestID = '' }, { flush: 'sync' })
+function clearSelection() { selectedIDs.value = []; activeID.value = 0; Object.keys(drafts).forEach(id => delete drafts[id]); originals.clear(); preview.value = null; requestID = '' }
+function canLeave() { if (saving.value) return false; return !dirtyRows.value.length || window.confirm('本次排程有未保存修改，离开将丢弃这些修改。确认继续？') }
+function navigationGuard(event) { if (!canLeave()) { event.preventDefault(); event.stopImmediatePropagation() } }
+function unloadGuard(event) { if (dirtyRows.value.length || saving.value) { event.preventDefault(); event.returnValue = '' } }
+function syncURL() { const url = new URL(window.location.href); for (const key of ['scope', 'q', 'from', 'to', 'work_center', 'operation_id', 'employee_id', 'page', 'limit', 'job_card_id', 'work_order_id']) { const value = applied[key]; if (value) url.searchParams.set(key, value); else url.searchParams.delete(key) } window.history.replaceState(window.history.state, '', url); lastURL = url.href }
+function restoreURL() { const url = new URL(window.location.href); for (const key of Object.keys(filters)) filters[key] = url.searchParams.get(key) || (['from', 'to'].includes(key) ? today : ''); Object.assign(applied, filters, { scope: url.searchParams.get('scope') || ((url.searchParams.get('job_card_id') || url.searchParams.get('work_order_id')) ? 'task' : 'pending'), page: Number(url.searchParams.get('page') || 1), limit: Number(url.searchParams.get('limit') || 20), job_card_id: url.searchParams.get('job_card_id') || '', work_order_id: url.searchParams.get('work_order_id') || '' }); lastURL = url.href }
+async function load() { const sequence = ++loadSequence; loading.value = true; error.value = ''; try { const query = new URLSearchParams(); Object.entries(applied).forEach(([key,value]) => { if (value) query.set(key,value) }); const data = await apiGet(`/api/production-schedule?${query}`); if (sequence !== loadSequence) return; board.value = data; applied.page = data.page; if (applied.scope === 'task' && data.rows?.length === 1 && data.rows[0].arrangement_state !== 'history') edit(data.rows[0]); syncURL() } catch (err) { if (sequence === loadSequence) error.value = err.message } finally { if (sequence === loadSequence) loading.value = false } }
+async function query() { if (!canLeave()) return; clearSelection(); filtersOpen.value = false; versionConflict.value = false; Object.assign(applied, filters, { page: 1 }); await load() }
+async function switchScope(scope) { if (!canLeave()) return; clearSelection(); Object.assign(applied, filters, { scope, page: 1, job_card_id: '', work_order_id: '' }); await load() }
+async function changePage({ page, pageSize }) { if (!canLeave()) return; clearSelection(); Object.assign(applied, { page, limit: pageSize }); await load() }
+function makeDraft(row) { return { ...row, planned_start_at: (row.planned_start_at || '').replace(' ', 'T'), planned_end_at: (row.planned_end_at || '').replace(' ', 'T'), collaborator_employee_ids: [...(row.collaborator_employee_ids || [])] } }
+function toggle(row, checked) { if (!checked) { if (dirtyRows.value.some(item => item.id === row.id) && !window.confirm('这项任务有未保存修改，确认取消选择？')) return; selectedIDs.value = selectedIDs.value.filter(id => id !== row.id); delete drafts[row.id]; originals.delete(row.id); if (activeID.value === row.id) activeID.value = selectedIDs.value[0] || 0; return } if (!selectedIDs.value.includes(row.id)) { const draft = makeDraft(row); originals.set(row.id, { ...draft, collaborator_employee_ids: [...draft.collaborator_employee_ids] }); drafts[row.id] = draft; selectedIDs.value.push(row.id) } activeID.value = row.id }
+function toggleAll(checked) { if (!checked) { if (canLeave()) clearSelection(); return } editableRows.value.forEach(row => toggle(row, true)); activeID.value = selectedIDs.value[0] || 0 }
+function edit(row) { toggle(row, true) }
+function fillDefaults() { const rows = applyDefaultStaff(selectedIDs.value.map(id => drafts[id])); rows.forEach(row => drafts[row.id] = row); const missing = rows.filter(row => !row.assigned_employee_id).length; if (missing) error.value = `${missing} 项任务尚无默认人员或存在历史姓名，请逐项补齐。` }
+function fillEnd() { const row = activeDraft.value; if (!row?.planned_start_at || !row.planned_minutes) return; const date = new Date(row.planned_start_at); date.setMinutes(date.getMinutes() + Number(row.planned_minutes)); row.planned_end_at = `${formatLocalDateInput(date)}T${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}` }
+function displayTime(value) { return value ? value.replace('T',' ').slice(5,16) : '未排时间' }
+function leadName(row) { return options.value.employees.find(person => Number(person.id) === Number(row.assigned_employee_id))?.name || row.assigned_to || '待分配负责人' }
+function collaboratorNames(row) { const names = (row.collaborator_employee_ids || []).map(id => options.value.employees.find(p => Number(p.id) === Number(id))?.name || row.collaborators?.find(p => p.id === id)?.name).filter(Boolean); return names.length ? `协作：${names.join('、')}` : '协作：无' }
+function quantity(row) { const share = row.planned_g > 0 ? row.planned_input_qty / row.planned_g : 1; const value = row.planned_output_inventory_qty > 0 ? row.planned_output_inventory_qty * share : row.inventory_unit === 'kg' ? row.planned_input_qty / 1000 : row.planned_input_qty; return `${Number(value || 0).toLocaleString('zh-CN',{maximumFractionDigits:3})} ${row.inventory_unit || 'g'}` }
+function arrangementLabel(row) { const state = taskArrangementState(row); return state === 'history' ? (row.status === 'cancelled' || row.work_order_status === 'cancelled' ? '已取消' : '已完成') : ({ pending: '待安排', scheduled: '已安排', running: row.status === 'paused' ? '已暂停' : '生产中' })[state] }
+function eligibleCapacities(row) { return options.value.capacities.filter(cap => cap.applicable_operation_ids?.map(Number).includes(Number(row.operation_id))) }
+async function review() { if (saving.value || !dirtyRows.value.length) return; error.value = ''; for (const row of dirtyRows.value) { const problem = validateStaff(row.assigned_employee_id, row.collaborator_employee_ids || [], row.eligible_employees); if (problem) { activeID.value = row.id; error.value = `${row.operation}：${problem}`; return } } saving.value = true; try { if (!requestID) requestID = crypto.randomUUID(); preview.value = await apiSend('/api/production-schedule/preview', { body: { items: dirtyRows.value.map(patch) } }) } catch (err) { error.value = err.message; versionConflict.value = err.code === 'version_conflict' } finally { saving.value = false } }
+async function save() { if (saving.value || !preview.value) return; saving.value = true; error.value = ''; try { const result = await apiSend('/api/production-schedule/batch', { body: { items: dirtyRows.value.map(patch), request_id: requestID, preview_token: preview.value.preview_token } }); const count = result.rows.length; clearSelection(); message.value = `已保存 ${count} 项安排，工位可直接沿用人员。`; await load() } catch (err) { error.value = err.message; versionConflict.value = err.code === 'version_conflict'; if (err.code === 'confirmation_required') preview.value = null } finally { saving.value = false } }
+async function saveCapacity() { if (saving.value) return; if (!capacity.work_center) { error.value = '请选择工位'; return } saving.value = true; error.value = ''; try { await apiSend('/api/production-capacity-calendar', { body: { ...capacity } }); capacityOpen.value = false; const data = await apiGet(`/api/production-schedule?scope=pending&page=1&from=${applied.from}&to=${applied.to}`); board.value.load = data.load; message.value = '可用工时已保存' } catch (err) { error.value = err.message } finally { saving.value = false } }
+function navigate(key, params) { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params, returnNavigation: { key: 'productionSchedule', params: { ...applied }, label: '返回生产排程' } } })) }
+function configure(operationID) { navigate('productionConfig', { tab: 'operations', ...(operationID ? { operation_id: operationID } : {}) }) }
+function openWorkstation(row) { navigate('workstationView', row ? { work_order_id: row.work_order_id, job_card_id: row.id, focus: 'workstation_task' } : {}) }
+function openPlan(row) { navigate('productionFlow', { production_plan_id: row.production_plan_id }) }
+function openOrder(row) { Object.assign(orderDetail, { open: true, id: row.work_order_id, jobCardID: row.id }) }
+async function popstate() { if (!canLeave()) { window.history.replaceState(window.history.state,'',lastURL); return } clearSelection(); restoreURL(); await load() }
+watch(() => props.viewParams, () => { clearSelection(); restoreURL(); load() }, { deep: true })
+onMounted(async () => { restoreURL(); window.addEventListener('beforeunload', unloadGuard); window.addEventListener('kferp:before-navigate', navigationGuard); window.addEventListener('popstate', popstate); try { options.value = await apiGet('/api/production-schedule/options') } catch (err) { error.value = err.message } await load() })
+onBeforeUnmount(() => { loadSequence++; window.removeEventListener('beforeunload', unloadGuard); window.removeEventListener('kferp:before-navigate', navigationGuard); window.removeEventListener('popstate', popstate) })
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.filters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;align-items:end}label span{display:block;font-size:12px;color:#666;margin-bottom:5px}input,select,textarea,button{font:inherit;border-radius:6px}input,select,textarea{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{min-height:34px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;text-decoration:underline;padding:0;min-height:0}.mode-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.mode-tabs button{border:1px solid #d1d5db;background:#fff;padding:7px 12px}.mode-tabs button.active{border-color:#111;background:#111;color:#fff}.schedule-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}.section-title-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.section-title{font-weight:700}.muted{color:#6b7280;text-align:center}.table-wrap{overflow:auto}table{width:100%;min-width:980px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.error{border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:8px;padding:10px}.ok{border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:8px;padding:10px}.conflict-panel{border-color:#fde68a;background:#fffbeb}.conflict-list{display:grid;gap:8px}.conflict-row{display:flex;gap:8px;align-items:center;color:#92400e}.calendar-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.calendar-day{border:1px solid #e5e7eb;border-radius:8px;padding:10px;min-height:160px}.calendar-day h3{margin:0 0 10px;font-size:14px}.calendar-item{display:block;width:100%;text-align:left;border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;padding:8px;margin-bottom:8px}.calendar-item span{display:block;color:#6b7280;font-size:12px;margin-top:3px}.gantt-list{display:grid;gap:10px}.gantt-row{display:grid;grid-template-columns:180px minmax(0,1fr);gap:10px;align-items:center}.gantt-meta{display:grid;gap:3px;font-size:13px}.gantt-meta span{color:#6b7280}.gantt-track{height:28px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;overflow:hidden}.gantt-bar{display:flex;align-items:center;height:100%;background:#dbeafe;color:#1e40af;padding:0 8px;font-size:12px;white-space:nowrap}.capacity-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.capacity-card{border:1px solid #e5e7eb;border-radius:8px;padding:10px;display:grid;gap:5px}.capacity-card span,.capacity-card small{color:#6b7280}.capacity-meter{height:8px;border-radius:999px;background:#e5e7eb;overflow:hidden}.capacity-meter i{display:block;height:100%;background:#22c55e}.mrp-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px}.mrp-summary span{border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;padding:8px;font-size:13px}.mrp-list{display:grid;gap:8px}.mrp-row{display:grid;gap:3px;border-bottom:1px solid #f0f0f0;padding-bottom:8px}.mrp-row span,.mrp-row small{color:#6b7280;font-size:12px}.side-panel{display:grid;gap:12px}.form-grid.one{display:grid;gap:9px}.capacity-title{margin-top:10px}@media (max-width:900px){.filters{grid-template-columns:1fr 1fr}.schedule-layout{grid-template-columns:1fr}.gantt-row{grid-template-columns:1fr}.side-panel{order:-1}}@media (max-width:520px){.filters{grid-template-columns:1fr}.panel-head{display:grid}.mode-tabs button{flex:1}.table-wrap table{min-width:760px}}
+.schedule-workspace{box-sizing:border-box;min-height:100%;padding:24px 24px 110px;background:#fff;color:#203b2e;font-size:14px}.schedule-workspace *{box-sizing:border-box}.workspace-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px}.eyebrow{font-size:12px;color:#78867d;margin-bottom:5px}.workspace-header h1{font-size:28px;line-height:1.25;margin:0;color:#18372a}.workspace-header p{margin:8px 0 0;color:#748078;font-size:13px}.more-menu{position:relative;flex-shrink:0}.more-menu summary{display:flex;align-items:center;gap:8px;list-style:none;border:1px solid #d7dfd9;border-radius:8px;padding:9px 12px;cursor:pointer}.more-menu>div{position:absolute;right:0;top:44px;z-index:10;width:180px;background:#fff;box-shadow:0 6px 24px #1735291a;border:1px solid #dce4de;border-radius:9px;padding:6px}.more-menu button{display:block;text-align:left;width:100%;padding:9px;border:0;background:#fff;color:#365a46;font:inherit;cursor:pointer}.summary-strip{display:flex;gap:14px;align-items:center;border-radius:10px;background:#edf8f1;border:1px solid #dceee3;padding:13px 17px;margin-bottom:16px;color:#2f8354}.summary-strip strong{font-size:18px;color:#244b35}.summary-strip p{font-size:13px;margin:5px 0 0;color:#647a6a}.summary-note{margin-left:auto;font-size:12px;color:#718778}.workspace-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:22px;align-items:start}.task-column{min-width:0}.review-column{min-width:0;border-left:1px solid #e5eae6;padding-left:20px;display:grid;gap:24px}.scope-tabs{display:flex;gap:22px;border-bottom:1px solid #e1e8e3;margin-bottom:16px}.scope-tabs button{border:0;border-bottom:3px solid transparent;padding:10px 2px;font:inherit;background:#fff;color:#7b877f;cursor:pointer}.scope-tabs button.active{color:#237748;border-bottom-color:#2f8f5b;font-weight:700}.filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end;margin-bottom:14px}.filters .search-field{grid-column:span 2}.schedule-workspace label{display:grid;gap:6px;font-size:12px;color:#728077;min-width:0}.schedule-workspace input:not([type=checkbox]),.schedule-workspace select,.schedule-workspace textarea{width:100%;min-width:0;min-height:36px;border:1px solid #d7dfd9;border-radius:7px;background:#fff;padding:7px 9px;color:#314e3c;font:inherit}.schedule-workspace input[type=checkbox]{width:16px;height:16px;accent-color:#2f8f5b}.section-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.section-heading span{font-size:12px;color:#829085}.schedule-workspace h2{font-size:16px;margin:0;color:#244634}.task-heading{margin-top:20px}.task-table-wrap{overflow:auto;border:1px solid #e2e8e3;border-radius:8px}.task-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;min-width:600px}.task-table th{text-align:left;background:#f4f7f5;font-weight:600;color:#65766a;padding:10px 8px;white-space:nowrap}.task-table td{border-top:1px solid #e9edea;vertical-align:top;padding:12px 8px;overflow-wrap:anywhere;color:#496052;line-height:1.6}.task-table th:nth-child(2){width:25%}.task-table th:nth-child(3){width:20%}.task-table th:nth-child(4){width:19%}.task-table th:nth-child(5){width:18%}.task-table th:nth-child(6){width:14%}.task-table .check-cell{width:30px;padding-left:10px;padding-right:0}.task-table td strong{display:block;color:#294733;font-size:13px}.task-table small{display:block;font-size:11px;color:#839084;margin-top:3px}.task-table tr.selected{background:#f0f9f3}.task-table tr.focused{box-shadow:inset 3px 0 #39945c}.text-action{color:#297cb1;border:0;background:none;padding:0;font:inherit;cursor:pointer;text-align:left}.text-action:disabled{opacity:.4;cursor:not-allowed}.trace-link{display:block;font-size:11px;line-height:1.6;overflow-wrap:anywhere}.order-trace{font-size:11px;color:#75887b;margin-top:3px}.order-trace summary{cursor:pointer;color:#297cb1}.status-pill{display:inline-flex;padding:2px 7px;border-radius:5px;border:1px solid #e1e5e2;background:#f6f7f6;color:#738477;white-space:nowrap;font-size:11px}.status-pill.pending{border-color:#efd9ad;background:#fff8e9;color:#ad761d}.status-pill.running,.status-pill.scheduled{border-color:#bedfc9;background:#edf8f1;color:#308454}.task-table td>.text-action:not(.trace-link){display:block;margin-top:8px;font-size:11px}.arrangement-editor{display:grid;gap:12px}.arrangement-editor .section-heading{margin:0}.arrangement-editor>strong{font-size:15px}.arrangement-editor .muted{margin:-6px 0 0}.time-fields{display:grid;gap:10px}.selection-help{padding:22px 5px;color:#84a08c}.selection-help h2{margin:12px 0 8px}.selection-help p,.muted{font-size:12px;color:#7b8b80;line-height:1.7}.optional-fields{font-size:12px;border-top:1px solid #e5ebe7;padding-top:10px}.optional-fields summary{cursor:pointer;color:#617967}.optional-fields label{margin-top:10px}.load-panel h2{margin-bottom:8px}.load-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #edf0ed;font-size:12px}.load-row strong{font-weight:500}.load-row small{display:block;color:#839185;margin-top:4px;font-size:11px}.load-row>span{text-align:right}.warning-text{color:#b27923!important}.ready-text{color:#308454}.notice{border:1px solid #e5e9e6;border-radius:8px;padding:11px 13px;margin:10px 0;font-size:13px;line-height:1.7}.notice.warning{background:#fff8eb;border-color:#eddbb8;color:#9f6d25}.notice.success{background:#edf8f1;border-color:#c4e1cf;color:#287e49}.preview-panel{border:1px solid #d2e6d8;border-radius:10px;padding:14px;background:#f8fcf9}.preview-panel>p{font-size:12px;line-height:1.7}.preview-row{display:grid;gap:3px;padding:9px 0;border-top:1px solid #e1e9e3;font-size:12px}.preview-row small{color:#809085}.primary,.secondary{min-height:38px;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;white-space:nowrap}.primary{border:1px solid #2f8f5b;background:#2f8f5b;color:#fff}.secondary{border:1px solid #cfdad3;background:#fff;color:#44614f}.primary:disabled,.secondary:disabled{opacity:.45;cursor:not-allowed}.schedule-footer{position:sticky;bottom:0;margin:24px -24px -110px;padding:16px 24px;background:#fffffff5;backdrop-filter:blur(8px);border-top:1px solid #e3ebe5;display:flex;align-items:center;gap:12px;z-index:8;min-height:82px}.schedule-footer>div{margin-right:auto;min-width:0}.schedule-footer strong{font-size:13px}.schedule-footer small{display:block;color:#88938b;font-size:11px;margin-top:6px}.empty{text-align:center;padding:35px!important;color:#87948b!important;line-height:1.8}.capacity-panel{background:#f7fbf8;border:1px solid #deeadf;border-radius:10px;padding:16px;margin-bottom:18px}.capacity-panel p{font-size:12px;color:#7d8b80}.capacity-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}.focus-banner{background:#eef7fc;padding:9px;border-radius:7px;font-size:12px;color:#537c97}.focus-banner button{margin-left:12px}
+@media(min-width:1500px){.filters{grid-template-columns:2fr repeat(3,minmax(110px,1fr))}.filters .search-field{grid-column:span 2}.workspace-layout{grid-template-columns:minmax(0,1fr) 340px}.task-table{font-size:13px}.task-table small,.trace-link{font-size:12px}}
+@media(max-width:1100px){.workspace-layout{grid-template-columns:1fr}.review-column{border-left:0;padding-left:0;display:grid;grid-template-columns:1fr 1fr;gap:18px;border-top:1px solid #e5eae6;padding-top:20px}.arrangement-editor,.preview-panel{grid-column:1/-1}.time-fields{grid-template-columns:1fr 1fr}.summary-note{display:none}}
+@media(max-width:600px){.schedule-workspace{padding:18px 12px 125px}.workspace-header h1{font-size:24px}.workspace-header p{font-size:12px}.summary-strip{padding:14px;gap:10px}.summary-strip strong{font-size:16px}.filters{grid-template-columns:1fr 1fr}.filters .search-field{grid-column:span 2}.scope-tabs{gap:23px}.review-column{grid-template-columns:1fr}.task-table{min-width:0;display:block}.task-table thead{display:none}.task-table tbody{display:block}.task-table tr{display:grid;grid-template-columns:28px 1fr 1fr;border-top:1px solid #e2e8e4;padding:8px 0}.task-table tr:first-child{border-top:0}.task-table td{display:block;border:0;padding:6px 8px;min-width:0}.task-table td:nth-child(2){grid-column:2/-1}.task-table td:nth-child(3),.task-table td:nth-child(5){grid-column:2}.task-table td:not(.check-cell)::before{content:attr(data-label);display:block;font-size:10px;color:#929c94;margin-bottom:3px}.task-table .check-cell{grid-row:1;width:28px;padding-top:9px}.task-table td strong{font-size:14px}.task-table small,.trace-link{font-size:12px}.schedule-footer{margin:20px -12px -125px;bottom:0;padding:12px;flex-wrap:wrap;gap:9px}.schedule-footer>div{flex-basis:100%;margin-bottom:4px}.schedule-footer .primary{flex:1}.capacity-fields{grid-template-columns:1fr 1fr}.time-fields{grid-template-columns:1fr}.load-row{font-size:13px}}
+</style>
+<style scoped>
+.mobile-filter-toggle { display: none; }
+@media (max-width: 600px) {
+  .mobile-filter-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12px; min-height: 34px; }
+  .filters:not(.expanded) { display: none; }
+}
 </style>
