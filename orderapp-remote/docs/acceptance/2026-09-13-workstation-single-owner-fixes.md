@@ -38,4 +38,21 @@
 
 ## Development 发布与截图
 
-部署提交、回滚路径、smoke、实际只读对照和截图在发布后补充。
+- 最终 development 提交：`ad106d4df8295d8c646817039601d6e1694fd32f`。前一份源码保留在 `/opt/stacks/erp/orderapp.backup.deploy-20260913014827-ad106d4df829`，回滚镜像为 `kferp-orderapp-rollback:development-20260913014827-ad106d4df829`。
+- 服务器发布门禁重新通过 Vue `1209/1209`、miniapp `238/238`、Go 全包、类型检查和构建。外部登录页 HTTP 200，应用入口保持既有 303，产品需求、开发进度和验收接口均为 HTTP 200。
+- `erp_orderapp` 为 running、重启次数 0，`erp_postgres` 为 healthy；发布后十分钟内 `panic`、`fatal`、数据库不可用和生产动作错误编号命中 0。
+- PR/DEV/REV 页面可见 `PR-656-WORKSTATION-SINGLE-OWNER-FIXES`、四条 `DEV-656` done 和一条 `REV-656` todo。
+- 实际只读对照：智烘仅显示 5 条有效任务；`WO-PP-0000000114-0000000115` 两批均显示 3kg 投料、2.497kg 目标产出、负责人段其晶和绿色齐套状态，第二批展开后的主料为 874g；已取消“如目达摩 454g”不进入队列，直接旧链接进入只读工单详情。
+- 浏览器控制台错误为 0。最终页面留在开发环境智烘工位，未点击真实任务的开工、领料或人员调整。
+
+截图目录：`/private/tmp/kferp-pr656-acceptance/`。
+
+1. `01-stock-ready.png`：已齐套时不再出现空白领料单。
+2. `02-workstation-desktop.png`：桌面工位队列、规格数量、绿色齐套和执行中状态。
+3. `03-batch-tail-874g.png`：第二批尾差 874g 与 WIP 0 缺口。
+4. `04-operation-single-owner.png`：工序可执行员工和唯一默认负责人。
+5. `05-schedule-single-owner.png`：生产排程只展示一名负责人。
+6. `06-workstation-narrow-390.png`：390px 单列布局。
+7. `07-cancelled-task-readonly.png`：已取消任务旧链接只读。
+
+“开工成功”由隔离 PostgreSQL/API 用例验证：同一销售订单已有另一工单运行时，当前工单可以开始，同一任务重复开始被拦截。真实 `WO-PP-0000000114-0000000115` 按验收边界未执行开工，因此该单的业务点击结果保留给 Van 验收，不能用其他任务的“执行中”状态代签。

@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-656-WORKSTATION-SINGLE-OWNER-FIXES
 - Branch: `codex/workstation-single-owner-fixes-20260913`, base `9b99b00e`.
 - Owner/session: Codex / 2026-09-13
-- Status: implementation and full verification complete; Van authorized merge to `develop` and development deployment; production excluded.
+- Status: implementation, `develop` integration, development deployment and read-only browser acceptance complete; awaiting Van business acceptance; production excluded.
 - Scope: unify workstation task state, batch quantities, WIP readiness, picking actions and start validation; remove collaborator assignment and use one eligible default responsible employee.
 - DEV: DEV-656-TASK-STATE-QUANTITY; DEV-656-START-PICKING; DEV-656-SINGLE-OWNER; DEV-656-DELIVERY.
 - Verifier:
@@ -18,9 +18,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: workstation/config/scheduling tests, full Vue tests and Vite build.
   - Manual: production and inventory source manuals plus Vue help.
   - Review/acceptance: isolated writes; listed real work orders remain read-only; desktop and narrow screenshots.
-- Deployment: development after feature branch push, latest `develop` integration and complete checks.
+- Deployment: development `ad106d4df8295d8c646817039601d6e1694fd32f`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260913014827-ad106d4df829`; rollback `kferp-orderapp-rollback:development-20260913014827-ad106d4df829`.
 - Last update: 2026-09-13 Asia/Shanghai
-- Evidence: Go all packages, Vue 1209/1209, Vite build and isolated PostgreSQL batch/start/staff lifecycle pass. Development deployment and screenshots remain.
+- Evidence: Go all packages, Vue 1209/1209, miniapp 238/238, Vite build and isolated PostgreSQL batch/start/staff lifecycle pass. Development login 200, requirement APIs 200, application running with restart count 0, PostgreSQL healthy and recent production execution error scan 0. PR-656, four DEV records and one REV record are visible. Screenshots: `/private/tmp/kferp-pr656-acceptance/`.
 - Notes: reservation helper selected PR-656 but its multiline awk placeholder failed; the unused id was reserved here manually.
 
 ### PR-654-PRODUCTION-EXECUTION-BUS
