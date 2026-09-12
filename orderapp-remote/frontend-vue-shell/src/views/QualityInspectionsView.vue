@@ -6,7 +6,7 @@
       <div class="panel-head">
         <div>
           <h2>生产质检</h2>
-          <p>原料、生产工单和成品批次的检查结果</p>
+          <p>先选择待处理任务，再记录工序或批次的质量判断。</p>
         </div>
         <div class="head-actions">
           <button class="secondary" type="button" @click="openTargetDrawer(form.scope)">{{ qualityTargetActionLabel(form.scope) }}</button>
@@ -15,6 +15,11 @@
       </div>
       <div v-if="message" class="notice">{{ message }}</div>
       <div v-if="error" class="error">{{ error }}</div>
+    </section>
+
+    <section class="panel pending-quality">
+      <div class="section-head"><div><div class="panel-title">待质检任务</div><p>从工位进入时自动定位工单、工序和批次。</p></div><button class="secondary" type="button" @click="openTargetDrawer('work_order')">查看全部</button></div>
+      <div class="pending-grid"><button v-for="row in pendingQualityTasks" :key="targetKey(row)" type="button" :class="{ active: form.reference_no === targetPrimary(row) }" @click="selectTarget(row)"><strong>{{ targetName(row) }}</strong><span>{{ targetPrimary(row) }} · {{ workOrderQualityStatusLabel(row.status) }}</span></button><p v-if="!pendingQualityTasks.length" class="empty">暂无待质检工单</p></div>
     </section>
 
     <div class="workspace">
@@ -67,6 +72,7 @@
           <label>
             <span>检查结果</span>
             <select v-model="form.result">
+              <option value="" disabled>请选择检查结果</option>
               <option value="pass">通过</option>
               <option value="hold">待处理</option>
               <option value="reject">不合格</option>
@@ -86,10 +92,9 @@
             <span>密度</span>
             <input v-model.trim="form.density" placeholder="780g/L" />
           </label>
-          <label>
-            <span>指标 JSON</span>
-            <textarea v-model.trim="form.metrics_json" rows="3" placeholder='{"色值":"正常"}'></textarea>
-          </label>
+          <label><span>外观 / 色值</span><input v-model.trim="form.appearance" placeholder="例如：色值正常" /></label>
+          <label><span>温度</span><input v-model.trim="form.temperature" placeholder="例如：出炉 198℃" /></label>
+          <label><span>风味 / 杯测</span><input v-model.trim="form.flavor" placeholder="例如：干净、甜感正常" /></label>
           <label>
             <span>备注</span>
             <textarea v-model.trim="form.note" rows="3" placeholder="首锅杯测通过"></textarea>
@@ -98,6 +103,7 @@
         <div class="actions">
           <button class="primary" type="button" @click="save" :disabled="saving">保存质检</button>
         </div>
+        <p class="impact-note">提交后将影响：当前工序或批次的放行状态；“待处理”和“不合格”会阻止后续任务或完工入库。</p>
       </section>
     </div>
 
@@ -140,7 +146,7 @@
               <td>{{ row.reference_no }}</td>
               <td>{{ row.item_name }}</td>
               <td><span class="quality-pill" :class="resultClass(row.result)">{{ resultLabel(row.result) }}</span></td>
-              <td class="mono">{{ row.metrics_json }}</td>
+              <td>{{ formatMetrics(row.metrics_json) }}</td>
               <td>{{ row.note }}</td>
               <td>{{ row.operator }}</td>
             </tr>
@@ -255,8 +261,10 @@ const form = reactive({
   reference_type: 'work_order',
   reference_no: '',
   item_name: '',
-  result: 'pass',
-  metrics_json: '',
+  result: '',
+  appearance: '',
+  temperature: '',
+  flavor: '',
   factory_flavor_description: '',
   moisture: '',
   density: '',
@@ -280,6 +288,7 @@ function applyProductionContextParams() {
 }
 
 const filteredTargets = computed(() => filterQualityTargets(activeTargetScope.value, targetRows.value, targetQ.value))
+const pendingQualityTasks = computed(() => targetRows.value.filter((row) => !['completed', 'cancelled'].includes(String(row.status || ''))).slice(0, 6))
 
 function scopeLabel(value) {
   return {
@@ -303,6 +312,15 @@ function resultLabel(value) {
     hold: '待处理',
     reject: '不合格',
   }[value] || value
+}
+
+function formatMetrics(raw) {
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {})
+    return Object.entries(value).filter(([, item]) => String(item || '').trim()).map(([key, item]) => `${key}：${item}`).join('；') || '-'
+  } catch {
+    return '-'
+  }
 }
 
 function qualityLabel(status) {
@@ -415,7 +433,9 @@ async function save() {
         reference_no: form.reference_no,
         item_name: form.item_name,
         result: form.result,
-        metrics_json: form.metrics_json || '{}',
+        job_card_id: Number(props.viewParams?.job_card_id || selectedTarget.value?.job_card_id || 0),
+        work_order_id: Number(props.viewParams?.work_order_id || selectedTarget.value?.work_order_id || 0),
+        metrics_json: JSON.stringify({ 外观色值: form.appearance, 温度: form.temperature, 风味杯测: form.flavor }),
         factory_flavor_description: form.factory_flavor_description,
         moisture: form.moisture,
         density: form.density,
@@ -426,7 +446,10 @@ async function save() {
     selectedTarget.value = null
     form.reference_no = ''
     form.item_name = ''
-    form.metrics_json = ''
+    form.result = ''
+    form.appearance = ''
+    form.temperature = ''
+    form.flavor = ''
     form.factory_flavor_description = ''
     form.moisture = ''
     form.density = ''
@@ -442,10 +465,13 @@ async function save() {
 onMounted(() => {
   applyProductionContextParams()
   load()
+  activeTargetScope.value = 'work_order'
+  loadTargets()
 })
 </script>
 
 <style scoped>
 *{box-sizing:border-box}.page{padding:16px;color:#171717;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head,.section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p,.section-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.panel-title{font-weight:700;margin-bottom:10px}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.type-panel{align-self:start}.type-button{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.type-button strong{display:block}.type-button small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.type-button.active{border-color:#111;background:#111;color:#fff}.type-button.active small{color:#e5e7eb}.target-summary,.drawer-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}.target-summary div,.drawer-summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.target-summary span,.drawer-summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.target-summary strong,.drawer-summary strong{font-size:16px}.form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.note-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,textarea,button{font:inherit}input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:6px;padding:8px 9px;background:#fff}textarea{resize:vertical}button{min-height:36px;border-radius:6px;cursor:pointer;white-space:nowrap}button:disabled{cursor:not-allowed;opacity:.55}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.actions,.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select{max-width:180px}.notice,.error{border-radius:8px;padding:9px 10px}.notice{border:1px solid #b7d9b7;background:#f0fff0;color:#246024}.error{border:1px solid #ffb9b9;background:#ffecec;color:#8a1f1f}.table-wrap{overflow:auto}table{width:100%;min-width:1080px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb;position:sticky;top:0}td small{display:block;color:#6b7280;margin-top:3px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.empty{color:#666;text-align:center}.quality-pill,.status-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(520px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(820px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.drawer-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.drawer-table table{min-width:720px}.form-panel{min-width:0}
+.page{background:#f7f8fa}.panel{border-radius:10px;padding:14px}.primary{border-color:#2f8f5b;background:#2f8f5b}.pending-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:9px;margin-top:12px}.pending-grid button{display:grid;gap:4px;text-align:left;border:1px solid #dfe5e1;background:#fff;border-radius:9px;padding:11px}.pending-grid button.active{border-color:#2f8f5b;background:#eff9f2}.pending-grid span{font-size:12px;color:#6b7280}.impact-note{margin:10px 0 0;padding:10px;border-radius:8px;background:#fff8e8;color:#8a570c;font-size:12px}
 @media (max-width:900px){.page{padding:12px}.panel-head,.section-head{display:grid}.head-actions,.filters{width:100%}.workspace,.form-grid,.note-grid,.target-summary,.drawer-summary,.drawer-search{grid-template-columns:1fr}}
 </style>

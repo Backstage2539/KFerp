@@ -4,7 +4,7 @@
 
     <section class="panel">
       <div class="panel-head">
-        <h2>工序卡</h2>
+        <div><h2>工序记录</h2><p>工序卡已合入工单详情；这里保留只读兼容入口，执行请进入工位。</p></div>
         <button class="secondary" @click="load" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -26,24 +26,10 @@
             <th>工单</th>
             <th>商品</th>
             <th>BOM/配方</th>
-            <th>顺序</th>
-            <th>工序</th>
-            <th>工序要求</th>
-            <th>工位</th>
-            <th>工位产能</th>
+            <th>工序批次</th>
             <th>状态</th>
-            <th>计划分钟</th>
-            <th>计划工序成本</th>
-            <th>实际分钟</th>
-            <th>实际工序成本</th>
-            <th>实际损耗</th>
-            <th>损耗原因</th>
-            <th>异常原因</th>
-            <th>开始时间</th>
-            <th>暂停时间</th>
-            <th>继续时间</th>
-            <th>完成时间</th>
-            <th>操作人</th>
+            <th>执行人</th>
+            <th>工序记录</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -52,33 +38,34 @@
             <td><button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'job_card')">{{ row.work_order_no || '工单号缺失' }}</button></td>
             <td>{{ row.product_name || '-' }}</td>
             <td>{{ bomRecipeLabel(row) }}</td>
-            <td>{{ row.sequence_no || 1 }}</td>
-            <td>{{ operationLabel(row.operation) }}<small v-if="row.records_loss">记录损耗</small></td>
-            <td class="requirement-cell">{{ row.process_requirement || '按冻结工艺路线执行' }}</td>
-            <td>{{ row.workstation || '-' }}</td>
-            <td>{{ row.workstation_capacity_name || '-' }}</td>
+            <td><strong>{{ operationLabel(row.operation) }}</strong><small>第 {{ row.sequence_no || 1 }} 道 · {{ row.workstation || '未分配工位' }}</small></td>
             <td><span class="status" :class="statusBadgeClass(row.status)">{{ jobCardStatusLabel(row.status) }}</span></td>
-            <td>{{ row.planned_minutes || 0 }}</td>
-            <td>{{ money(row.planned_operation_cost) }}</td>
-            <td>{{ row.actual_minutes || 0 }}</td>
-            <td>{{ money(row.actual_operation_cost) }}</td>
+            <td>{{ row.assigned_to || '未分配' }}<small>{{ row.operator ? `报工：${row.operator}` : '' }}</small></td>
             <td>
-              <strong>{{ qty(actualLossQty(row)) }}</strong>
-              <small>{{ formatPercent(actualLossRate(row)) }}</small>
+              <details class="record-details">
+                <summary>{{ row.completed_at || row.started_at ? '查看记录' : '尚未执行' }}</summary>
+                <div class="record-grid">
+                  <span>工序要求<strong>{{ row.process_requirement || '按冻结工艺路线执行' }}</strong></span>
+                  <span>工位产能<strong>{{ row.workstation_capacity_name || '-' }}</strong></span>
+                  <span>计划分钟<strong>{{ row.planned_minutes || 0 }}</strong></span>
+                  <span>实际分钟<strong>{{ row.actual_minutes || 0 }}</strong></span>
+                  <span>投入数量<strong>{{ qty(row.actual_input_qty) }}</strong></span>
+                  <span>产出数量<strong>{{ qty(row.actual_output_qty) }}</strong></span>
+                  <span>计划工序成本<strong>{{ money(row.planned_operation_cost) }}</strong></span>
+                  <span>实际工序成本<strong>{{ money(row.actual_operation_cost) }}</strong></span>
+                  <span>实际损耗<strong>{{ qty(actualLossQty(row)) }} · {{ formatPercent(actualLossRate(row)) }}</strong></span>
+                  <span>损耗原因<strong>{{ row.loss_reason || '-' }}</strong></span>
+                  <span>异常原因<strong>{{ row.exception_reason || '-' }}</strong></span>
+                </div>
+              </details>
             </td>
-            <td>{{ row.loss_reason || '-' }}</td>
-            <td>{{ row.exception_reason || '-' }}</td>
-            <td>{{ row.started_at || '-' }}</td>
-            <td>{{ row.paused_at || '-' }}</td>
-            <td>{{ row.resumed_at || '-' }}</td>
-            <td>{{ row.completed_at || '-' }}</td>
-            <td>{{ row.operator || '-' }}</td>
             <td class="row-actions">
               <button class="primary compact" type="button" @click="openWorkstation(row)">进入工位</button>
-              <button class="secondary compact" type="button" @click="openExecutionHub(row, 'job_card')">执行枢纽</button>
+              <button class="secondary compact" type="button" @click="openExecutionHub(row, 'job_card')">查看工单</button>
+              <small class="compatibility-note">原执行枢纽</small>
             </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="22" class="muted">暂无工序卡</td></tr>
+          <tr v-if="!rows.length"><td colspan="8" class="muted">暂无工序记录</td></tr>
         </tbody>
       </table>
     </section>
@@ -210,5 +197,5 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #eee;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button{font:inherit;min-height:36px;border-radius:6px}select{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #999;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:600}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:170px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:1880px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.requirement-cell{min-width:190px;max-width:280px;white-space:normal;line-height:1.45}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}
+.page{padding:16px;display:grid;gap:16px;background:#f7f8fa}.panel{border:1px solid #e2e7e4;border-radius:10px;padding:14px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:20px}.panel-head p{margin:4px 0 0;color:#6b7280;font-size:13px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button{font:inherit;min-height:36px;border-radius:7px}select{width:100%;border:1px solid #d5dcd8;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #2f8f5b;background:#2f8f5b;color:#fff}.secondary{border:1px solid #b9c4be;background:#fff;color:#27463b}.compact{min-height:30px;padding:5px 10px}.link-button{border:0;background:transparent;color:#24704a;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:600}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:170px}.compatibility-note{width:100%;color:#8a948f}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#efd4a5;background:#fff8e8;color:#9b5c08}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:980px;border-collapse:collapse}th,td{border-bottom:1px solid #edf0ee;padding:10px;text-align:left;font-size:13px;vertical-align:top}th{background:#f7f9f8}td small{display:block;color:#6b7280;margin-top:3px}.record-details summary{cursor:pointer;color:#24704a;white-space:nowrap}.record-grid{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:7px;margin-top:8px;min-width:360px}.record-grid span{display:grid;gap:2px;color:#6b7280;font-size:11px}.record-grid strong{color:#273b34;font-size:12px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}@media(max-width:760px){.page{padding:12px}.panel-head{align-items:stretch;flex-direction:column}.table-wrap{overflow:visible}table,thead,tbody,tr,th,td{display:block}thead{display:none}table{min-width:0}tr{border:1px solid #e2e7e4;border-radius:9px;margin-bottom:9px;padding:8px}td{border:0;padding:5px}.record-grid{grid-template-columns:1fr;min-width:0}}
 </style>

@@ -166,6 +166,7 @@ func defaultViewPermissions() map[string]string {
 		"productionFlow":              "production.read",
 		"productionConfig":            "bom.read",
 		"productionAcceptance":        "production.read",
+		"productionSystemCheck":       "production.read",
 		"produceRunning":              "production.read",
 		"workOrders":                  "production.read",
 		"jobCards":                    "production.read",

@@ -30,7 +30,8 @@ test('work order list keeps query actions only and delegates lifecycle commands 
   const template = source.slice(0, source.indexOf('<script setup>'))
   const rowActions = template.slice(template.indexOf('<td class="row-actions">'), template.indexOf('</td>', template.indexOf('<td class="row-actions">')) + 5)
 
-  for (const marker of ['执行枢纽', '编辑拆分', '打印']) assert.match(rowActions, new RegExp(marker))
+  for (const marker of ['查看工单', '更多']) assert.match(rowActions, new RegExp(marker))
+  for (const marker of ['编辑拆分', '打印']) assert.match(template, new RegExp(marker))
   for (const forbidden of ['开始生产', '完工入库', 'startWorkOrder(row)', "openStockDocument(row, 'finish')"]) {
     assert.doesNotMatch(rowActions, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
@@ -96,7 +97,7 @@ test('job card main table is a read-only execution record', () => {
     '异常原因',
     '工序要求',
     '进入工位',
-    '执行枢纽',
+    '查看工单',
   ]) {
     assert.match(template, new RegExp(required))
   }
@@ -151,8 +152,7 @@ test('current production views remove legacy expected yield and keep actual yiel
 
   assert.doesNotMatch(workOrderSource, /预期产出率|预期损耗率/)
   assert.doesNotMatch(workOrderSource, /expectedYield|expectedLoss\(/)
-  assert.match(workOrderSource, /实际损耗率/)
-  assert.match(workOrderSource, /实际产出/)
+  assert.match(workOrderSource, /工序进度/)
 
   assert.doesNotMatch(logSource, /BOM预期产出率|row\.bom_yield_rate/)
   assert.match(logSource, /实际产出率/)
@@ -323,9 +323,10 @@ test('work order typed output and upstream blockers are readable for material ma
 
 test('work order list shows typed outputs and upstream dependency blockers', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
-  assert.match(source, /<th>产出对象<\/th>/)
+  assert.match(source, /<th>产品 \/ 工单<\/th>/)
   assert.match(source, /formatWorkOrderTypedOutput\(row\)/)
-  assert.match(source, /<th>上游依赖<\/th>/)
+  assert.match(source, /<th>当前待办<\/th>/)
+  assert.match(source, /workOrderTodo\(row\)/)
   assert.match(source, /workOrderUpstreamBlockerLabel\(row\)/)
   assert.match(source, /workOrderHasUpstreamBlocker\(row\)/)
 })

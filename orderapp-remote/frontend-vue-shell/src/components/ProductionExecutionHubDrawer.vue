@@ -1,139 +1,75 @@
 <template>
   <div v-if="open" class="drawer-mask" @click.self="$emit('close')">
-    <aside class="execution-hub" :data-focus="focusState.section" aria-label="生产执行枢纽">
-      <div class="drawer-head">
+    <aside class="work-order-detail" aria-label="工单详情">
+      <header class="detail-head">
         <div>
-          <div class="eyebrow">生产执行枢纽</div>
+          <button class="back-link" type="button" @click="$emit('close')">← 返回工单列表</button>
+          <div class="eyebrow">工单详情</div>
           <h2>{{ header.work_order_no || workOrderLabel }}</h2>
-          <p>{{ header.product_name || '-' }} · {{ header.spec_g || 0 }}g · 计划 {{ formatG(header.planned_g) }}</p>
+          <p>工单用于分配任务和汇总状态，执行动作在对应工位完成。</p>
         </div>
-        <button class="secondary compact" type="button" @click="$emit('close')">关闭</button>
-      </div>
+        <button class="secondary" type="button" @click="$emit('close')">关闭</button>
+      </header>
 
-      <div v-if="loading" class="notice">加载中</div>
+      <div v-if="loading" class="notice">正在加载工单状态…</div>
       <template v-else>
-        <div v-if="message" class="notice">{{ message }}</div>
-        <div v-if="error" class="error">{{ error }}</div>
+        <div v-if="message" class="notice success">{{ message }}</div>
+        <div v-if="error" class="notice danger">{{ error }}</div>
+
+        <section class="product-hero">
+          <div class="product-icon">●</div>
+          <div><strong>{{ typedOutputLabel }}</strong><p>{{ header.work_order_no || '-' }} · {{ formatTargetQuantity(header) }}</p></div>
+          <span class="status-pill" :class="statusTone(header.status)">{{ statusLabel(header.status) }}</span>
+        </section>
+
         <section class="summary-grid">
-          <div><span>工单状态</span><strong>{{ header.status || '-' }}</strong></div>
-          <div><span>产出对象</span><strong>{{ typedOutputLabel }}</strong><small>{{ header.target_warehouse ? `目标仓库 ${header.target_warehouse}` : '-' }}</small></div>
-          <div><span>BOM / 路线</span><strong>{{ hub.bom_summary || '-' }}</strong><small>{{ hub.route_summary || '-' }}</small></div>
-          <div><span>负责人 / 工位</span><strong>{{ assignment.assigned_to || readiness.next_handler || '-' }}</strong><small>{{ assignment.work_center || '未分配工位' }}</small></div>
-          <div><span>成本</span><strong>{{ money(hub.cost_summary?.total_cost) }}</strong></div>
+          <div><span>工序进度</span><strong>{{ completedOperations }}/{{ operations.length }}</strong><small>{{ currentOperationText }}</small></div>
+          <div><span>调度负责人</span><strong>{{ header.assigned_to || '未指定' }}</strong><small>协调整张工单，不代替任务执行人</small></div>
+          <div><span>入库状态</span><strong>{{ receiptStatus }}</strong><small>{{ receiptQuantityText }}</small></div>
+          <div><span>当前待办</span><strong>{{ todoItems.length }} 项</strong><small>{{ firstTodoLabel }}</small></div>
         </section>
 
-        <section v-if="upstreamBlocked || upstreamBlockers.length" class="readiness-panel danger dependency-blockers">
-          <div>
-            <div class="section-title">上游依赖</div>
-            <p>{{ upstreamBlockerReason }}</p>
-          </div>
-          <div class="reason-list">
-            <article v-for="blocker in upstreamBlockers" :key="blocker.work_order_id || blocker.work_order_no">
-              <strong>{{ blocker.depends_on_work_order_no || blocker.work_order_no || `工单 #${blocker.work_order_id || blocker.id || '-'}` }}</strong>
-              <span>{{ blocker.output_name || blocker.product_name || blocker.material_name || blocker.status || '尚未完成' }}
- <small v-if="blocker.output_type === 'material'">尚缺 {{ Math.max(0, (blocker.required_g || 0) - (blocker.delivered_g || 0)) / 1000 }} kg / {{ Math.max(0, (blocker.required_units || 0) - (blocker.delivered_units || 0)) }} 件<span v-if="blocker.status === 'completed'">，上游已结单，请安排补产</span></small></span>
-            </article>
-          </div>
-        </section>
-
-        <section class="readiness-panel" :class="readinessTone">
-          <div>
-            <div class="section-title">执行 readiness</div>
-            <p>{{ readinessText }}</p>
-          </div>
-          <div class="readiness-flags">
-            <span>开始 {{ readiness.can_start ? '可执行' : '受阻' }}</span>
-            <span>完成 {{ readiness.can_complete ? '可执行' : '受阻' }}</span>
-            <span>下一处理人 {{ readiness.next_handler || '-' }}</span>
-          </div>
-          <div v-if="readiness.blocking_reasons?.length" class="reason-list">
-            <article v-for="reason in readiness.blocking_reasons" :key="reason.code">
-              <strong>{{ reason.label }}</strong>
-              <span>{{ reason.next_handler || readiness.next_handler || '-' }}</span>
-            </article>
-          </div>
-        </section>
-
-        <section class="action-row">
-          <button
-            v-for="action in contextActions"
-            :key="action.key"
-            type="button"
-            :disabled="action.disabled || Boolean(actionBusyKey)"
-            :class="{ primary: action.key === readiness.suggested_action || action.key === 'productionIssue' }"
-            :title="action.reason || action.label"
-            @click="runAction(action)">
-            {{ action.label }}
-          </button>
-        </section>
-
-        <section class="status-grid">
-          <article class="wip-card" :class="{ shortage: wipHasShortage }">
-            <div class="section-title">{{ wipHasShortage ? 'WIP库存不足' : 'WIP 状态' }}</div>
-            <strong>{{ wipStatus.status || (wipHasShortage ? '库存不足' : '-') }}</strong>
-            <div v-if="wipStatus.materials?.length" class="wip-materials">
-              <div v-for="row in wipStatus.materials" :key="row.material_id || row.material_name">
-                <strong>{{ row.material_name || row.name || `物料 ${row.material_id || '-'}` }}</strong>
-                <span>需求 {{ materialQuantity(row, 'required_qty') }}</span>
-                <span>可用 {{ materialQuantity(row, 'available_qty') }}</span>
-                <span :class="{ 'danger-text': materialShortage(row) > 0 }">缺口 {{ materialQuantity(row, 'shortage_qty') }}</span>
-              </div>
+        <div class="detail-layout">
+          <main class="operation-column">
+            <div class="section-head"><div><span class="step-no">01</span><strong>工序进度</strong></div><span class="muted">按工序及拆分批次执行</span></div>
+            <div class="operation-list">
+              <article v-for="row in operations" :key="row.job_card_id" class="operation-card" :class="statusTone(row.status)">
+                <div class="operation-sequence">{{ row.sequence_no || '-' }}</div>
+                <div class="operation-main">
+                  <div class="operation-title"><strong>{{ row.operation || '工序' }}</strong><span>{{ batchLabel(row) }}</span><em>{{ row.status_label || statusLabel(row.status) }}</em></div>
+                  <p>{{ row.workstation || '未分配工位' }} · 执行人：{{ row.assigned_to || '未分配' }}</p>
+                  <details v-if="isOperationRecorded(row)" class="record-details">
+                    <summary>工序记录</summary>
+                    <div class="record-grid"><span>实际投入 <strong>{{ quantity(row.actual_input_qty) }}</strong></span><span>实际产出 <strong>{{ quantity(row.actual_output_qty) }}</strong></span><span>耗时 <strong>{{ row.actual_minutes || 0 }} 分钟</strong></span><span>损耗 <strong>{{ quantity(row.actual_loss_qty) }}</strong></span></div>
+                  </details>
+                  <div v-if="assignmentJobCardID === row.job_card_id" class="assignment-panel">
+                    <label><span>执行人</span><select v-model="assignmentEmployee"><option value="">请选择启用员工</option><option v-for="employee in activeEmployees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
+                    <button class="primary" type="button" :disabled="assigning" @click="saveAssignment(row)">保存分配</button>
+                    <button class="secondary" type="button" @click="assignmentJobCardID = 0">取消</button>
+                  </div>
+                  <div class="operation-actions"><button v-if="!row.assigned_to" class="primary" type="button" @click="openAssignment(row)">分配任务</button><button class="secondary" type="button" @click="enterWorkstation(row)">进入工位</button></div>
+                </div>
+              </article>
+              <div v-if="!operations.length" class="empty">暂无工序任务，请先完善工序拆分。</div>
             </div>
-            <p v-else>需求 {{ formatG(wipStatus.required_g) }} · 可用 {{ formatG(wipStatus.available_g ?? wipStatus.reserved_g) }} · 缺口 {{ formatG(wipStatus.shortage_g) }}</p>
-            <small v-if="wipStatus.blocking_reason">{{ wipStatus.blocking_reason }}</small>
-            <button
-              v-if="wipHasShortage && productionIssueAction"
-              class="primary compact issue-action"
-              type="button"
-              :disabled="productionIssueAction.disabled || Boolean(actionBusyKey)"
-              @click="runAction(productionIssueAction)">
-              生产领料
-            </button>
-          </article>
-          <article>
-            <div class="section-title">质检状态</div>
-            <strong>{{ qualityStatus.status || '-' }}</strong>
-            <p>{{ qualityStatus.reference_no || header.work_order_no || '-' }} · {{ qualityStatus.result || '-' }}</p>
-            <small v-if="qualityStatus.note">{{ qualityStatus.note }}</small>
-          </article>
-        </section>
 
-        <section>
-          <div class="section-title">工序进度</div>
-          <div class="operation-list">
-            <article v-for="row in hub.operation_progress || []" :key="row.job_card_id || row.sequence_no" :class="{ focused: focusState.job_card_id === row.job_card_id }">
-              <strong>{{ row.sequence_no || '-' }}. {{ row.operation || '工序' }}</strong>
-              <span>{{ row.status_label || row.status || '-' }}</span>
-              <small>{{ row.workstation || '未分配工位' }} · {{ row.assigned_to || row.operator || '-' }} · {{ row.planned_minutes || 0 }} 分钟</small>
-              <em v-if="row.blocking_reason">{{ row.blocking_reason }}</em>
-            </article>
-            <p v-if="!(hub.operation_progress || []).length" class="muted">暂无工序进度</p>
-          </div>
-        </section>
+            <div class="section-head record-heading"><div><span class="step-no">02</span><strong>工序记录</strong></div><span class="muted">原“工序卡”记录已合入这里</span></div>
+            <p class="record-help">展开已执行任务，可查看人员、投入、产出、耗时和损耗。旧工序卡链接仍可定位到对应任务。</p>
+            <details class="folded"><summary>冻结 BOM 与工艺路线</summary><p>{{ hub.bom_summary || '-' }}</p><p>{{ hub.route_summary || '-' }}</p></details>
+            <details class="folded"><summary>配方、成本与订单追溯</summary><p>成本 {{ money(hub.cost_summary?.total_cost) }} · 关联订单 {{ header.order_nos || '-' }}</p><div v-for="item in hub.trace_timeline || []" :key="`${item.type}-${item.ref_id}-${item.at}`" class="trace-row"><strong>{{ item.title }}</strong><span>{{ item.at || '-' }} · {{ item.summary || '-' }}</span></div></details>
+          </main>
 
-        <section>
-          <div class="section-title-row">
-            <div class="section-title">追溯 timeline</div>
-            <div class="filter-tabs">
-              <button
-                v-for="item in filters"
-                :key="item.key"
-                type="button"
-                :class="{ active: timelineFilter === item.key }"
-                @click="timelineFilter = item.key">
-                {{ item.label }}
-              </button>
-            </div>
-          </div>
-          <div class="timeline">
-            <article v-for="item in visibleTimeline" :key="`${item.type}-${item.ref_type}-${item.ref_id}-${item.title}`">
-              <span>{{ item.type }}</span>
-              <strong>{{ item.title }}</strong>
-              <small>{{ item.at || '-' }} · {{ item.summary || '-' }}</small>
+          <aside class="todo-column">
+            <div class="section-head"><div><span class="step-no warning">!</span><strong>当前待办</strong></div></div>
+            <article v-for="todo in todoItems" :key="todo.key" class="todo-card" :class="todo.tone">
+              <strong>{{ todo.label }}</strong><p>{{ todo.detail }}</p>
+              <details v-if="todo.key === 'wip_shortage' && materialRows.length" class="material-details"><summary>查看缺料明细</summary><div v-for="material in materialRows" :key="material.id || material.material_id"><strong>{{ material.material_name }}</strong><span>需求 {{ materialQty(material, 'required') }} · WIP 可用 {{ materialQty(material, 'available') }} · 缺口 {{ materialQty(material, 'shortage') }}</span></div></details>
+              <button type="button" @click="runTodo(todo)">{{ todo.actionLabel }}</button>
             </article>
-            <p v-if="!visibleTimeline.length" class="muted">暂无追溯记录</p>
-          </div>
-        </section>
+            <article v-if="!todoItems.length" class="todo-card ready"><strong>当前无阻塞</strong><p>工位可按任务状态继续执行。</p><button type="button" @click="enterFirstWorkstation">进入工位</button></article>
+            <div class="quality-summary"><span>质检</span><strong>{{ qualityLabel }}</strong><small>{{ qualityStatus.note || '按工序或批次记录检查结果' }}</small></div>
+          </aside>
+        </div>
       </template>
     </aside>
   </div>
@@ -142,159 +78,175 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import {
-  buildExecutionHubActions,
-  buildExecutionHubFocus,
-  executionHubCommandErrorMessage,
-  executionHubOutputLabel,
-  executionHubTimelineFilters,
-  executionHubUpstreamBlockers,
-  filterExecutionHubTimeline,
-  readinessBadgeTone,
-} from '../lib/production-execution-hub'
+import { executionHubOutputLabel } from '../lib/production-execution-hub'
 
-const props = defineProps({
-  open: { type: Boolean, default: false },
-  workOrderId: { type: Number, default: 0 },
-  focus: { type: String, default: '' },
-  viewParams: { type: Object, default: () => ({}) },
-})
-
+const props = defineProps({ open: { type: Boolean, default: false }, workOrderId: { type: Number, default: 0 }, focus: { type: String, default: '' }, viewParams: { type: Object, default: () => ({}) } })
 const emit = defineEmits(['close', 'updated'])
-
 const loading = ref(false)
-const actionBusyKey = ref('')
+const assigning = ref(false)
 const error = ref('')
 const message = ref('')
 const detail = ref({})
-const timelineFilter = ref('all')
-const filters = executionHubTimelineFilters()
+const employees = ref([])
+const assignmentJobCardID = ref(0)
+const assignmentEmployee = ref('')
 
 const hub = computed(() => detail.value.execution_hub || {})
 const header = computed(() => hub.value.header || detail.value.work_order || {})
-const assignment = computed(() => hub.value.workstation_assignment || {})
-const readiness = computed(() => hub.value.readiness || {})
-const wipStatus = computed(() => hub.value.wip_status || {})
+const operations = computed(() => (hub.value.operation_progress || []).map((row, index, rows) => ({ ...row, batch_index: rows.filter((item, itemIndex) => item.sequence_no === row.sequence_no && itemIndex <= index).length, batch_count: rows.filter((item) => item.sequence_no === row.sequence_no).length })))
+const activeEmployees = computed(() => employees.value.filter((row) => row.active !== false))
 const qualityStatus = computed(() => hub.value.quality_status || {})
 const typedOutputLabel = computed(() => executionHubOutputLabel({ ...hub.value, header: header.value }))
-const upstreamBlockers = computed(() => executionHubUpstreamBlockers({ ...hub.value, header: header.value }))
-const upstreamBlocked = computed(() => Boolean(header.value.has_unfinished_dependencies || header.value.upstream_blocked || upstreamBlockers.value.length))
-const upstreamBlockerReason = computed(() => String(header.value.dependency_blocking_reason || header.value.upstream_blocking_reason || '等待本工单的全部组件批次预留足额后开始生产'))
-const readinessTone = computed(() => readinessBadgeTone(readiness.value))
-const readinessText = computed(() => {
-  if (readiness.value.blocking_reasons?.length) return readiness.value.blocking_reasons.map((row) => row.label).join(' / ')
-  if (readiness.value.can_start) return '可开始生产'
-  if (readiness.value.can_complete) return '可完工入库'
-  return '查看下一处理动作'
-})
-const focusState = computed(() => buildExecutionHubFocus({ ...(props.viewParams || {}), focus: props.focus }))
-const fallbackActions = computed(() => buildExecutionHubActions({ ...hub.value, work_order: header.value, job_cards: detail.value.job_cards }))
-const contextActions = computed(() => {
-  const fallbackCancelAction = fallbackActions.value.find((action) => action.key === 'cancelWorkOrder')
-  const actions = [...(hub.value.context_actions?.length ? hub.value.context_actions : fallbackActions.value)]
-  if (fallbackCancelAction && !actions.some((action) => action.key === 'cancelWorkOrder')) actions.push(fallbackCancelAction)
-  return actions.map((action) => {
-    const fallback = fallbackActions.value.find((row) => row.key === action.key) || {}
-    let params = action.params || {}
-    if (action.view === 'stockOperations') {
-      params = { ...(fallback.params || params) }
-      if (focusState.value.section === 'job_card' && focusState.value.job_card_id) params.job_card_id = focusState.value.job_card_id
-    }
-    return {
-      ...action,
-      action_type: action.action_type || fallback.action_type || 'navigate',
-      endpoint: action.endpoint || fallback.endpoint || '',
-      view: action.view || fallback.view || '',
-      params,
-      disabled: Boolean(action.disabled),
-    }
-  })
-})
-const productionIssueAction = computed(() => contextActions.value.find((action) => action.key === 'productionIssue'))
-const wipHasShortage = computed(() => {
-  if (Number(wipStatus.value.shortage_qty || wipStatus.value.shortage_g || wipStatus.value.shortage_units || 0) > 0) return true
-  return (wipStatus.value.materials || []).some((row) => materialShortage(row) > 0)
-})
-const visibleTimeline = computed(() => filterExecutionHubTimeline(hub.value.trace_timeline || [], timelineFilter.value))
-const workOrderLabel = computed(() => '工单')
-
-function formatG(value) {
-  return `${Number(value || 0).toLocaleString('zh-CN')}g`
-}
-
-function money(value) {
-  return Number(value || 0).toFixed(2)
-}
-
-function materialShortage(row = {}) {
-  return Number(row.shortage_qty ?? row.shortage_g ?? row.shortage_units ?? 0)
-}
-
-function materialQuantity(row = {}, field) {
-  let value = Number(row[field] ?? 0)
-  let unit = String(row.inventory_unit || '').trim()
-  if (!value && field === 'required_qty') value = Number(row.required_g || row.required_units || 0)
-  if (!value && field === 'available_qty') value = Number(row.available_g || row.available_units || 0)
-  if (!value && field === 'shortage_qty') value = Number(row.shortage_g || row.shortage_units || 0)
-  if (!unit) unit = Number(row[`${field.replace('_qty', '')}_units`] || 0) > 0 ? '件' : 'g'
-  return `${value.toLocaleString('zh-CN')} ${unit}`
-}
-
-function navigate(action) {
-  if (!action?.view || action.disabled) return
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: action.view, params: action.params || {} } }))
-}
-
-async function runAction(action) {
-  if (!action || action.disabled || actionBusyKey.value) return
-  if (action.action_type === 'command') {
-    if (action.key === 'cancelWorkOrder' && !window.confirm('确认取消未开工工单？取消后该工单将不能再开始生产。')) return
-    if (!action.endpoint) {
-      error.value = `${action.label || '操作'}缺少执行地址，请刷新后重试`
-      return
-    }
-    actionBusyKey.value = action.key || 'command'
-    error.value = ''
-    message.value = ''
-    try {
-      await apiSend(action.endpoint, { body: {} })
-      const refreshed = await load()
-      emit('updated', { action: action.key, work_order_id: props.workOrderId })
-      if (!refreshed) {
-        message.value = ''
-        error.value = `${action.label || '操作'}已提交，但状态刷新失败，请手动刷新`
-        return
-      }
-      message.value = `${action.label || '操作'}成功`
-    } catch (err) {
-      error.value = executionHubCommandErrorMessage(err, action)
-    } finally {
-      actionBusyKey.value = ''
-    }
-    return
+const completedOperations = computed(() => operations.value.filter((row) => row.status === 'completed').length)
+const currentOperationText = computed(() => operations.value.find((row) => !['completed', 'cancelled'].includes(row.status))?.operation || '工序已结束')
+const finishedReceipts = computed(() => hub.value.finished_receipts || [])
+const materialRows = computed(() => hub.value.wip_status?.materials || [])
+const receiptStatus = computed(() => header.value.status === 'completed' ? '已入库' : finishedReceipts.value.length ? '部分入库' : operations.value.length && completedOperations.value === operations.value.length ? '待入库' : '等待报工')
+const receiptQuantityText = computed(() => finishedReceipts.value.length ? `${finishedReceipts.value.length} 笔入库记录` : `目标 ${formatTargetQuantity(header.value)}`)
+const qualityLabel = computed(() => ({ unchecked: '未检查', pass: '通过', hold: '待处理', reject: '不合格', blocked: '已冻结' }[qualityStatus.value.status] || qualityStatus.value.result || '未检查'))
+const todoItems = computed(() => {
+  const rows = []
+  const unassigned = operations.value.filter((row) => !row.assigned_to)
+  if (unassigned.length) rows.push({ key: 'assignment', label: `待分配 ${unassigned.length} 项任务`, detail: '为具体工序批次选择执行人，不改变调度负责人。', actionLabel: '分配任务', tone: 'warning', row: unassigned[0] })
+  for (const reason of hub.value.readiness?.blocking_reasons || []) {
+    if (reason.code === 'workstation_unassigned') continue
+    rows.push({ key: reason.code, label: reason.label, detail: `待协同岗位：${reason.next_handler || '现场主管'}`, actionLabel: todoActionLabel(reason.code), tone: reason.severity === 'blocked' ? 'warning' : 'neutral', reason })
   }
-  navigate(action)
-}
+  if (receiptStatus.value === '待入库' || receiptStatus.value === '部分入库') rows.push({ key: 'receipt', label: receiptStatus.value, detail: '核对已报工产出、质检状态和本次入库数量。', actionLabel: '去完工入库', tone: 'ready' })
+  return rows
+})
+const firstTodoLabel = computed(() => todoItems.value[0]?.label || '可进入工位继续执行')
+const workOrderLabel = computed(() => props.workOrderId ? `工单 #${props.workOrderId}` : '工单')
 
-async function load() {
-  if (!props.open || !props.workOrderId) return false
-  loading.value = true
-  error.value = ''
-  message.value = ''
+function statusLabel(value) { return ({ released: '待执行', running: '生产中', partially_completed: '部分完成', completed: '已完成', cancelled: '已取消', pending: '待处理', ready: '可开始', paused: '已暂停' }[String(value || '')] || String(value || '待处理')) }
+function statusTone(value) { if (value === 'completed') return 'ready'; if (value === 'running') return 'running'; if (value === 'cancelled') return 'danger'; return 'waiting' }
+function batchLabel(row) { return `第 ${row.batch_index || 1} 批 / 共 ${row.batch_count || 1} 批` }
+function quantity(value) { return Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 }) }
+function money(value) { return `¥${Number(value || 0).toFixed(2)}` }
+function formatTargetQuantity(row) { const value = Number(row.output_qty || row.planned_units || row.planned_output_g || row.planned_g || 0); return `${quantity(value)} ${row.output_unit || (row.planned_units ? '件' : 'g')}` }
+function isOperationRecorded(row) { return Boolean(row.started_at || row.completed_at || row.actual_minutes || row.actual_input_qty || row.actual_output_qty) }
+function materialQty(row, kind) { const g = Number(row?.[`${kind}_g`] || 0); if (g > 0) return `${quantity(g)}g`; const units = Number(row?.[`${kind}_units`] || 0); return `${quantity(units)}${row?.unit || '件'}` }
+function todoActionLabel(code) { return ({ wip_shortage: '去领料', quality_freeze: '查看质检', prior_operation_incomplete: '进入前序工位', job_cards_incomplete: '进入工位', schedule_risk: '调整排程' }[code] || '查看处理') }
+function navigate(key, params = {}) { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params: { work_order_id: header.value.work_order_id, return_navigation: { key: 'workOrders', label: '返回工单详情', params: { work_order_id: header.value.work_order_id } }, ...params } } })); emit('close') }
+function enterWorkstation(row) { navigate('workstationView', { job_card_id: row.job_card_id, focus: 'workstation_task' }) }
+function enterFirstWorkstation() { const row = operations.value.find((item) => !['completed', 'cancelled'].includes(item.status)) || operations.value[0]; if (row) enterWorkstation(row) }
+function openAssignment(row) { if (!row) return; assignmentJobCardID.value = row.job_card_id; assignmentEmployee.value = String(activeEmployees.value.find((employee) => employee.name === row.assigned_to)?.id || '') }
+async function saveAssignment(row) {
+  if (!assignmentEmployee.value) { error.value = '请选择执行人'; return }
+  const employee = activeEmployees.value.find((item) => Number(item.id) === Number(assignmentEmployee.value))
+  if (!employee) { error.value = '所选员工已停用，请重新选择'; return }
+  assigning.value = true; error.value = ''; message.value = ''
   try {
-    detail.value = await apiGet(`/api/produce/work-orders/${props.workOrderId}`)
-    return true
-  } catch (err) {
-    error.value = err.message || '加载执行枢纽失败'
-    return false
-  } finally {
-    loading.value = false
-  }
+    await apiSend('/api/production-schedule/assign', { body: { work_order_id: header.value.work_order_id, job_card_id: row.job_card_id, work_center: row.workstation || '', assigned_employee_id: Number(employee.id), assigned_to: employee.name, priority: header.value.priority || 0 } })
+    assignmentJobCardID.value = 0; message.value = '任务执行人已更新'; await load(); emit('updated')
+  } catch (err) { error.value = err.message || '分配失败' } finally { assigning.value = false }
 }
-
-watch(() => [props.open, props.workOrderId], load, { immediate: true })
+function runTodo(todo) {
+  if (todo.key === 'assignment') { openAssignment(todo.row); return }
+  if (todo.key === 'receipt') { navigate('productionAcceptance'); return }
+  const link = todo.reason?.related_links?.[0]
+  if (link?.view) { navigate(link.view, link.params || {}); return }
+  enterFirstWorkstation()
+}
+async function load() {
+  if (!props.workOrderId) return
+  loading.value = true; error.value = ''
+  try {
+    const [data, employeeRows] = await Promise.all([apiGet(`/api/produce/work-orders/${props.workOrderId}`), apiGet('/api/company/employees')])
+    detail.value = data || {}; employees.value = Array.isArray(employeeRows) ? employeeRows : (employeeRows.rows || [])
+    const requested = Number(props.viewParams?.job_card_id || 0); if (props.focus === 'assignment') openAssignment(operations.value.find((row) => row.job_card_id === requested) || operations.value.find((row) => !row.assigned_to) || operations.value[0])
+  } catch (err) { error.value = err.message || '加载工单详情失败' } finally { loading.value = false }
+}
+watch(() => [props.open, props.workOrderId], ([isOpen]) => { if (isOpen) load() }, { immediate: true })
 </script>
 
 <style scoped>
-.drawer-mask{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:60;display:flex;justify-content:flex-end}.execution-hub{width:min(980px,94vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-14px 0 30px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head,.section-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.drawer-head{border-bottom:1px solid #e5e7eb;padding-bottom:12px}.eyebrow{font-size:12px;color:#6b7280}.drawer-head h2{margin:2px 0 4px;font-size:20px}.drawer-head p{margin:0;color:#6b7280}.compact{min-height:30px;padding:5px 10px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.primary{border:1px solid #111;background:#111;color:#fff}button{font:inherit;border-radius:6px;padding:8px 12px;min-height:34px;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}.summary-grid,.status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.summary-grid div,.status-grid article{border:1px solid #e5e7eb;border-radius:8px;padding:10px;background:#fff}.status-grid article.wip-card.shortage{border-color:#fca5a5;background:#fef2f2}.summary-grid span{display:block;color:#6b7280;font-size:12px}.summary-grid strong,.status-grid strong{display:block;margin-top:4px}.summary-grid small,.status-grid small{display:block;color:#6b7280;margin-top:4px}.wip-materials{display:grid;gap:6px;margin-top:8px}.wip-materials>div{display:grid;grid-template-columns:minmax(130px,1.4fr) repeat(3,minmax(86px,1fr));gap:8px;align-items:center;border-top:1px solid #fecaca;padding-top:6px}.wip-materials strong{margin:0}.wip-materials span{color:#4b5563;font-size:12px}.danger-text{color:#b91c1c!important;font-weight:700}.issue-action{margin-top:10px}.readiness-panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;display:grid;gap:10px}.readiness-panel.danger{border-color:#fecaca;background:#fef2f2}.readiness-panel.warning{border-color:#fde68a;background:#fffbeb}.readiness-panel.success{border-color:#bbf7d0;background:#f0fdf4}.readiness-panel p{margin:4px 0 0}.readiness-flags,.action-row,.filter-tabs{display:flex;flex-wrap:wrap;gap:8px}.readiness-flags span{border:1px solid #d1d5db;border-radius:999px;padding:3px 8px;background:#fff;font-size:12px}.reason-list{display:grid;gap:8px}.reason-list article{border:1px solid #f1f5f9;border-radius:6px;background:#fff;padding:8px;display:flex;justify-content:space-between;gap:10px}.section-title{font-weight:700}.operation-list,.timeline{display:grid;gap:8px}.operation-list article,.timeline article{border:1px solid #eef2f7;border-radius:8px;padding:9px;background:#fff}.operation-list article.focused{border-color:#111;box-shadow:0 0 0 1px #111 inset}.operation-list strong,.timeline strong{display:block}.operation-list small,.timeline small{display:block;color:#6b7280;margin-top:3px}.operation-list em{display:block;color:#b91c1c;font-style:normal;margin-top:3px}.filter-tabs button{border:1px solid #d1d5db;background:#fff}.filter-tabs button.active{border-color:#111;background:#111;color:#fff}.timeline span{font-size:12px;color:#2563eb}.muted{color:#6b7280;text-align:center}.notice{border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:10px}.error{border:1px solid #fecaca;background:#fef2f2;border-radius:8px;padding:10px;color:#991b1b}@media (max-width:760px){.execution-hub{width:100vw}.summary-grid,.status-grid{grid-template-columns:1fr}.wip-materials>div{grid-template-columns:1fr 1fr}.drawer-head,.section-title-row{display:grid}}
+/* Previous compact declarations are retained below for source-history compatibility.
+*{box-sizing:border-box}.drawer-mask{position:fixed;inset:0;z-index:60;background:rgba(28,34,31,.26);display:flex;justify-content:flex-end}.work-order-detail{width:min(1120px,96vw);height:100%;overflow:auto;background:#f6f8f7;color:#18342b;padding:22px}.detail-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}.back-link{border:0;background:transparent;color:#24704a;padding:0;margin-bottom:14px}.eyebrow{font-size:12px;color:#6b7b75;margin-bottom:4px}.detail-head h2{margin:0;font-size:28px}.detail-head p{margin:6px 0 0;color:#68766f}.secondary,.primary,.todo-card button{min-height:36px;border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}.secondary{border:1px solid #c8d0cc;background:#fff;color:#27463b}.primary,.todo-card button{border:1px solid #2f8f5b;background:#2f8f5b;color:#fff}.notice{padding:11px 13px;border:1px solid #e0c58f;border-radius:9px;background:#fff8e8;margin-bottom:12px}.notice.success{border-color:#acd4ba;background:#eff9f2}.notice.danger{border-color:#efb1aa;background:#fff1ef;color:#9e3328}.product-hero{display:flex;align-items:center;gap:14px;padding:18px;border:1px solid #dce9e2;border-radius:12px;background:linear-gradient(90deg,#eaf7ef,#f7fbf9);margin-bottom:14px}.product-icon{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#784d2c;color:#b17c52}.product-hero strong{font-size:20px}.product-hero p{margin:5px 0 0;color:#637169}.status-pill{margin-left:auto;border:1px solid #d7ddd9;border-radius:999px;padding:5px 10px;background:#fff}.status-pill.running{color:#24704a;border-color:#acd4ba}.status-pill.danger{color:#9e3328;border-color:#efb1aa}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}.summary-grid>div{display:grid;gap:5px;border:1px solid #e0e5e2;border-radius:10px;background:#fff;padding:12px}.summary-grid span,.summary-grid small,.muted{font-size:12px;color:#738079}.summary-grid strong{font-size:17px}.detail-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px}.operation-column,.todo-column{border:1px solid #e0e5e2;border-radius:12px;background:#fff;padding:16px}.section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.section-head>div{display:flex;align-items:center;gap:9px}.step-no{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;background:#2f8f5b;color:#fff;font-size:12px}.step-no.warning{background:#d77b12}.operation-list{display:grid;gap:10px}.operation-card{display:grid;grid-template-columns:38px 1fr;gap:12px;padding:13px;border:1px solid #e2e7e4;border-radius:10px}.operation-card.running{border-color:#83bd99;box-shadow:inset 3px 0 #2f8f5b}.operation-card.waiting{border-color:#efd4a5}.operation-sequence{width:34px;height:34px;border-radius:50%;background:#edf6f0;color:#24704a;display:grid;place-items:center;font-weight:700}.operation-title{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.operation-title span{font-size:12px;color:#66736d}.operation-title em{font-size:12px;font-style:normal;border-radius:999px;padding:3px 8px;background:#f5f6f5}.operation-main p{margin:5px 0;color:#64716b}.operation-actions{display:flex;gap:8px;margin-top:10px}.assignment-panel{display:flex;gap:8px;align-items:end;padding:10px;background:#fff8e8;border-radius:8px;margin-top:10px}.assignment-panel label{display:grid;gap;gap:4px;min-width:220px}.assignment-panel span{font-size:12px;color:#6d7772}.assignment-panel select{min-height:36px;border:1px solid #cfd6d2;border-radius:7px;background:#fff;padding:6px 8px}.record-details,.folded{margin-top:9px;border-top:1px solid #edf0ee;padding-top:8px}.record-details summary,.folded summary{cursor:pointer;color:#24704a;font-weight:600}.record-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px;font-size:12px}.record-heading{margin-top:18px}.record-help{color:#6f7b75;margin-top:-5px}.folded{border:1px solid #e4e8e6;border-radius:9px;padding:11px;margin-top:10px}.folded p{color:#64716b}.trace-row{display:grid;gap:3px;border-top:1px solid #eee;padding:7px 0;font-size:12px}.todo-column{align-self:start;display:grid;gap:10px}.todo-card{border:1px solid #edcf9f;border-radius:10px;padding:12px;background:#fff9ed}.todo-card p{margin:5px 0 10px;color:#775c35;font-size:13px}.todo-card button{background:#fff;border-color:#d89a44;color:#9b5c08}.todo-card.ready{border-color:#acd4ba;background:#eff9f2}.todo-card.ready button{border-color:#2f8f5b;color:#24704a}.quality-summary{display:grid;gap:5px;border-top:1px solid #e5e9e7;padding-top:12px}.quality-summary span,.quality-summary small{font-size:12px;color:#738079}.empty{padding:18px;text-align:center;color:#738079}
+.material-details{margin:8px 0}.material-details summary{cursor:pointer;color:#9b5c08;font-size:12px}.material-details div{display:grid;gap:2px;border-top:1px solid #efdcb9;padding:7px 0}.material-details div span{font-size:11px;color:#775c35}
+@media(max-width:900px){.work-order-detail{width:100vw;padding:14px}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-layout{grid-template-columns:1fr}.todo-column{order:-1}.record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.detail-head{display:grid}.summary-grid{grid-template-columns:1fr}.product-hero{align-items:flex-start;flex-wrap:wrap}.status-pill{margin-left:0}.operation-card{grid-template-columns:1fr}.assignment-panel{display:grid}.assignment-panel label{min-width:0}.operation-actions{flex-wrap:wrap}}
+.assignment-panel label{gap:4px}
+*/
+* { box-sizing: border-box; }
+.drawer-mask { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(28, 34, 31, .26); }
+.work-order-detail { width: min(1120px, 96vw); height: 100%; overflow: auto; padding: 22px; color: #18342b; background: #f6f8f7; }
+.detail-head, .section-head, .operation-title, .operation-actions, .assignment-panel { display: flex; }
+.detail-head { align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
+.detail-head h2 { margin: 0; font-size: 28px; }
+.detail-head p { margin: 6px 0 0; color: #68766f; }
+.back-link { padding: 0; margin-bottom: 14px; border: 0; color: #24704a; background: transparent; }
+.eyebrow, .muted, .summary-grid span, .summary-grid small, .quality-summary span, .quality-summary small { color: #738079; font-size: 12px; }
+.primary, .secondary, .todo-card button { min-height: 36px; padding: 7px 12px; border-radius: 8px; font: inherit; cursor: pointer; }
+.primary { border: 1px solid #2f8f5b; color: #fff; background: #2f8f5b; }
+.secondary { border: 1px solid #c8d0cc; color: #27463b; background: #fff; }
+.notice { padding: 11px 13px; margin-bottom: 12px; border: 1px solid #e0c58f; border-radius: 9px; background: #fff8e8; }
+.notice.success { border-color: #acd4ba; background: #eff9f2; }
+.notice.danger { border-color: #efb1aa; color: #9e3328; background: #fff1ef; }
+.product-hero { display: flex; align-items: center; gap: 14px; padding: 18px; margin-bottom: 14px; border: 1px solid #dce9e2; border-radius: 12px; background: linear-gradient(90deg, #eaf7ef, #f7fbf9); }
+.product-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; color: #b17c52; background: #784d2c; }
+.product-hero strong { font-size: 20px; }
+.product-hero p { margin: 5px 0 0; color: #637169; }
+.status-pill { padding: 5px 10px; margin-left: auto; border: 1px solid #d7ddd9; border-radius: 999px; background: #fff; }
+.status-pill.running { border-color: #acd4ba; color: #24704a; }
+.status-pill.danger { border-color: #efb1aa; color: #9e3328; }
+.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.summary-grid > div { display: grid; gap: 5px; padding: 12px; border: 1px solid #e0e5e2; border-radius: 10px; background: #fff; }
+.summary-grid strong { font-size: 17px; }
+.detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; }
+.operation-column, .todo-column { padding: 16px; border: 1px solid #e0e5e2; border-radius: 12px; background: #fff; }
+.section-head { align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.section-head > div { display: flex; align-items: center; gap: 9px; }
+.step-no { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: #fff; background: #2f8f5b; font-size: 12px; }
+.step-no.warning { background: #d77b12; }
+.operation-list, .todo-column { display: grid; gap: 10px; }
+.operation-card { display: grid; grid-template-columns: 38px 1fr; gap: 12px; padding: 13px; border: 1px solid #e2e7e4; border-radius: 10px; }
+.operation-card.running { border-color: #83bd99; box-shadow: inset 3px 0 #2f8f5b; }
+.operation-card.waiting { border-color: #efd4a5; }
+.operation-sequence { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: #24704a; background: #edf6f0; font-weight: 700; }
+.operation-title { flex-wrap: wrap; align-items: center; gap: 9px; }
+.operation-title span, .operation-title em { font-size: 12px; }
+.operation-title span { color: #66736d; }
+.operation-title em { padding: 3px 8px; border-radius: 999px; background: #f5f6f5; font-style: normal; }
+.operation-main p { margin: 5px 0; color: #64716b; }
+.operation-actions { flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.assignment-panel { align-items: end; gap: 8px; padding: 10px; margin-top: 10px; border-radius: 8px; background: #fff8e8; }
+.assignment-panel label { display: grid; gap: 4px; min-width: 220px; }
+.assignment-panel span { color: #6d7772; font-size: 12px; }
+.assignment-panel select { min-height: 36px; padding: 6px 8px; border: 1px solid #cfd6d2; border-radius: 7px; background: #fff; }
+.record-details { padding-top: 8px; margin-top: 9px; border-top: 1px solid #edf0ee; }
+.record-details summary, .folded summary { color: #24704a; font-weight: 600; cursor: pointer; }
+.record-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 8px; font-size: 12px; }
+.record-heading { margin-top: 18px; }
+.record-help { margin-top: -5px; color: #6f7b75; }
+.folded { padding: 11px; margin-top: 10px; border: 1px solid #e4e8e6; border-radius: 9px; }
+.folded p { color: #64716b; }
+.trace-row { display: grid; gap: 3px; padding: 7px 0; border-top: 1px solid #eee; font-size: 12px; }
+.todo-column { align-self: start; }
+.todo-card { padding: 12px; border: 1px solid #edcf9f; border-radius: 10px; background: #fff9ed; }
+.todo-card p { margin: 5px 0 10px; color: #775c35; font-size: 13px; }
+.todo-card button { border-color: #d89a44; color: #9b5c08; background: #fff; }
+.todo-card.ready { border-color: #acd4ba; background: #eff9f2; }
+.todo-card.ready button { border-color: #2f8f5b; color: #24704a; }
+.material-details { margin: 8px 0; }
+.material-details summary { color: #9b5c08; font-size: 12px; cursor: pointer; }
+.material-details div { display: grid; gap: 2px; padding: 7px 0; border-top: 1px solid #efdcb9; }
+.material-details div span { color: #775c35; font-size: 11px; }
+.quality-summary { display: grid; gap: 5px; padding-top: 12px; border-top: 1px solid #e5e9e7; }
+.empty { padding: 18px; color: #738079; text-align: center; }
+@media (max-width: 900px) {
+  .work-order-detail { width: 100vw; padding: 14px; }
+  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .detail-layout { grid-template-columns: 1fr; }
+  .todo-column { order: -1; }
+  .record-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .detail-head, .assignment-panel { display: grid; }
+  .summary-grid { grid-template-columns: 1fr; }
+  .product-hero { flex-wrap: wrap; align-items: flex-start; }
+  .status-pill { margin-left: 0; }
+  .operation-card { grid-template-columns: 1fr; }
+  .assignment-panel label { min-width: 0; }
+}
 </style>

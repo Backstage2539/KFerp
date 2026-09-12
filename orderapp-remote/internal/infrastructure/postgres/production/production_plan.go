@@ -2874,7 +2874,17 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 		return productionapp.WorkOrderStartResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := r.startWorkOrderTx(ctx, tx, cmd, true)
+	if err != nil {
+		return productionapp.WorkOrderStartResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return productionapp.WorkOrderStartResult{}, err
+	}
+	return result, nil
+}
 
+func (r Repository) startWorkOrderTx(ctx context.Context, tx pgx.Tx, cmd productionapp.WorkOrderStartCommand, requireWholeOrderReady bool) (productionapp.WorkOrderStartResult, error) {
 	wo, materialSnapshot, err := loadReleasedWorkOrderForStartTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
 		return productionapp.WorkOrderStartResult{}, err
@@ -2950,8 +2960,10 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 	if err != nil {
 		return productionapp.WorkOrderStartResult{}, err
 	}
-	if err := ensureWorkOrderDependenciesCompletedTx(ctx, tx, r.schema, wo.ID); err != nil {
-		return productionapp.WorkOrderStartResult{}, err
+	if requireWholeOrderReady {
+		if err := ensureWorkOrderDependenciesCompletedTx(ctx, tx, r.schema, wo.ID); err != nil {
+			return productionapp.WorkOrderStartResult{}, err
+		}
 	}
 	issuedProcessingReservations := int64(0)
 	if wo.ProcessingRequestItemID > 0 {
@@ -2960,8 +2972,10 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 			return productionapp.WorkOrderStartResult{}, err
 		}
 	}
-	if err := ensureWIPStockForWorkOrderNeedsTx(ctx, tx, r.schema, wo.ID, needs); err != nil {
-		return productionapp.WorkOrderStartResult{}, err
+	if requireWholeOrderReady {
+		if err := ensureWIPStockForWorkOrderNeedsTx(ctx, tx, r.schema, wo.ID, needs); err != nil {
+			return productionapp.WorkOrderStartResult{}, err
+		}
 	}
 	workOrderTag, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.work_orders
@@ -3023,9 +3037,6 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 	wo.RunningItemID = runningItemID
 	wo.BatchID = batchID
 	wo.Status = "running"
-	if err := tx.Commit(ctx); err != nil {
-		return productionapp.WorkOrderStartResult{}, err
-	}
 	return productionapp.WorkOrderStartResult{BatchID: batchID, RunningItemID: runningItemID, WorkOrder: wo}, nil
 }
 

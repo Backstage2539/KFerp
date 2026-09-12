@@ -20,6 +20,8 @@ func TestCreateQualityInspectionAppliesBatchQualityStatus(t *testing.T) {
 	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
 CREATE TABLE %s.quality_inspections (
 	id BIGSERIAL PRIMARY KEY,
+	work_order_id BIGINT NOT NULL DEFAULT 0,
+	job_card_id BIGINT NOT NULL DEFAULT 0,
 	scope TEXT NOT NULL DEFAULT '',
 	reference_type TEXT NOT NULL DEFAULT '',
 	reference_no TEXT NOT NULL DEFAULT '',
@@ -28,6 +30,18 @@ CREATE TABLE %s.quality_inspections (
 	metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	note TEXT NOT NULL DEFAULT '',
 	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,
+	actor TEXT NOT NULL DEFAULT '',
+	entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',
+	field TEXT,
+	old_value TEXT,
+	new_value TEXT,
+	meta JSONB,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE %s.work_orders (
@@ -65,7 +79,7 @@ VALUES
 	('FP-0000000020','finished_product',9,'橘皮乌龙',454,'production_run',20,'A20260427-071539-6b',9840,21,9840,21),
 	('MB-0000000007','material',7,'孟连水洗5T批次',0,'material_receipt',7,'MB-0000000007',60000,0,60000,0);
 INSERT INTO %s.material_batches(batch_code,material_id) VALUES ('MB-0000000007',7);
-`, schema, schema, schema, schema, schema, schema, schema))
+`, schema, schema, schema, schema, schema, schema, schema, schema))
 
 	repo := NewRepository(pool, schema)
 	if _, err := repo.CreateQualityInspection(ctx, productionapp.QualityInspectionCommand{

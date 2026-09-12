@@ -18,7 +18,7 @@ import {
 } from './production-execution-hub.js'
 import * as executionHub from './production-execution-hub.js'
 
-test('execution hub actions carry production context to work order, WIP, job card, quality, costs and logs pages', () => {
+test('work order detail actions carry production context to assignment, workstation, receipt and records', () => {
   const hub = {
     work_order: { id: 88, work_order_no: 'WO-00088', running_item_id: 99, batch_id: 'BATCH-WO-88' },
     job_cards: [{ id: 91, work_order_id: 88, status: 'running' }],
@@ -36,21 +36,18 @@ test('execution hub actions carry production context to work order, WIP, job car
     action.params,
   ])
 
-  assert.deepEqual(actions.slice(0, 10), [
-    ['startProduction', '开始生产', 'command', '/api/produce/work-orders/88/start', '', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['productionIssue', '生产领料', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['productionSupplement', '补料', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'supplement', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['productionReturn', '退回未用原料', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'return', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['productionConsume', '记录生产消耗', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'consume', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['finishedReceipt', '完工入库', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'finish', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['openJobCard', '打开工序卡', 'navigate', '', 'jobCards', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['openQuality', '打开质检', 'navigate', '', 'qualityInspections', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88', reference_no: 'WO-00088' }],
+  assert.deepEqual(actions, [
+    ['assignTask', '分配任务', 'navigate', '', 'workstationView', { work_order_id: 88, job_card_id: 91, running_item_id: 99, focus: 'assignment', batch_id: 'BATCH-WO-88' }],
+    ['openWorkstation', '进入工位', 'navigate', '', 'workstationView', { work_order_id: 88, job_card_id: 91, running_item_id: 99, focus: 'workstation_task', batch_id: 'BATCH-WO-88' }],
+    ['finishedReceipt', '完工入库', 'navigate', '', 'productionAcceptance', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['openOperationRecords', '工序记录', 'navigate', '', 'jobCards', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['openQuality', '查看质检', 'navigate', '', 'qualityInspections', { work_order_id: 88, job_card_id: 91, running_item_id: 99, reference_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
     ['openCost', '成本', 'navigate', '', 'productionCosts', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
     ['openLogs', '日志', 'navigate', '', 'produceLogs', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
   ])
 })
 
-test('execution hub offers in-place cancellation only for released unstarted work orders', () => {
+test('legacy action builder keeps cancellation compatible while detail leaves it in the list more menu', () => {
   const cancellable = buildExecutionHubActions({
     work_order: { id: 88, work_order_no: 'WO-00088', status: 'released', running_item_id: 0 },
   }).find((action) => action.key === 'cancelWorkOrder')
@@ -68,25 +65,18 @@ test('execution hub offers in-place cancellation only for released unstarted wor
   }).some((action) => action.key === 'cancelWorkOrder'), false)
 
   const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
-  assert.match(drawerSource, /fallbackCancelAction/)
-  assert.match(drawerSource, /action\.key === 'cancelWorkOrder'/)
-  assert.match(drawerSource, /确认取消未开工工单/)
+  assert.doesNotMatch(drawerSource, /确认取消未开工工单/)
 })
 
-test('execution hub runs command actions in place and refreshes without navigating away', () => {
+test('work order detail assigns tasks in place and delegates execution to workstations', () => {
   const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
 
   assert.match(drawerSource, /import \{ apiGet, apiSend \}/)
-  assert.match(drawerSource, /action\.action_type === 'command'/)
-  assert.match(drawerSource, /await apiSend\(action\.endpoint/)
-  assert.match(drawerSource, /const refreshed = await load\(\)/)
-  assert.match(drawerSource, /if \(!refreshed\)/)
-  assert.match(drawerSource, /已提交，但状态刷新失败，请手动刷新/)
-  assert.match(drawerSource, /return true/)
-  assert.match(drawerSource, /return false/)
+  assert.match(drawerSource, /\/api\/production-schedule\/assign/)
+  assert.match(drawerSource, /assigned_employee_id/)
+  assert.match(drawerSource, /function enterWorkstation/)
   assert.match(drawerSource, /emit\('updated'/)
-  assert.match(drawerSource, /:disabled="action\.disabled \|\| Boolean\(actionBusyKey\)"/)
-  assert.doesNotMatch(drawerSource, /@click="navigate\(action\)"/)
+  assert.doesNotMatch(drawerSource, /\/api\/produce\/work-orders\/\$\{[^}]+\}\/start/)
 })
 
 test('execution hub command failures stay Chinese and do not expose backend English errors', () => {
@@ -176,12 +166,12 @@ test('production pages mount the shared execution hub drawer instead of separate
 
 test('execution hub and stock-entry UI expose WIP shortage detail and business-facing production issue fields', () => {
   const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
-  assert.match(drawerSource, /WIP库存不足/)
-  assert.match(drawerSource, /wipStatus\.materials/)
-  for (const field of ['required_qty', 'available_qty', 'shortage_qty', 'inventory_unit']) {
+  assert.match(drawerSource, /查看缺料明细/)
+  assert.match(drawerSource, /materialRows/)
+  for (const field of ['required', 'available', 'shortage']) {
     assert.match(drawerSource, new RegExp(field), `execution hub should display ${field}`)
   }
-  assert.match(drawerSource, /productionIssue/)
+  assert.match(drawerSource, /去领料/)
 
   const operationsSource = fs.readFileSync(new URL('../views/StockOperationsView.vue', import.meta.url), 'utf8')
   assert.match(operationsSource, /工单号：/)
@@ -269,14 +259,12 @@ test('execution hub exposes typed output and upstream blocker contracts', () => 
   assert.deepEqual(executionHub.executionHubUpstreamBlockers(hub).map((row) => row.work_order_no), ['WO-000121'])
 
   const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
-  assert.match(drawerSource, /产出对象/)
-  assert.match(drawerSource, /executionHubOutputLabel/)
-  assert.match(drawerSource, /上游依赖/)
-  assert.match(drawerSource, /executionHubUpstreamBlockers/)
+  assert.match(drawerSource, /typedOutputLabel/)
+  assert.match(drawerSource, /配方、成本与订单追溯/)
 })
 
-test('execution hub start action honors backend unfinished dependency fields even when readiness is stale', () => {
-  const start = buildExecutionHubActions({
+test('work order detail never exposes work-order-level start despite stale readiness', () => {
+  const actions = buildExecutionHubActions({
     header: {
       id: 27,
       has_unfinished_dependencies: true,
@@ -284,8 +272,7 @@ test('execution hub start action honors backend unfinished dependency fields eve
       upstream_work_order_ids: [121],
     },
     readiness: { can_start: true },
-  }).find((action) => action.key === 'startProduction')
+  })
 
-  assert.equal(start?.disabled, true)
-  assert.equal(start?.reason, '上游物料工单尚未完成')
+  assert.equal(actions.some((action) => action.key === 'startProduction'), false)
 })

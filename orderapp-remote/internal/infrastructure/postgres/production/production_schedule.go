@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (r Repository) SaveScheduleAssignment(ctx context.Context, cmd productionapp.ScheduleAssignmentCommand) (productionapp.ScheduleAssignmentResult, error) {
@@ -18,25 +19,56 @@ func (r Repository) SaveScheduleAssignment(ctx context.Context, cmd productionap
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+	if cmd.AssignedEmployeeID <= 0 && cmd.JobCardID > 0 && strings.TrimSpace(cmd.AssignedTo) != "" {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id,COALESCE(name,'')
+			FROM %s.company_employees
+			WHERE active=true AND name=$1
+			ORDER BY id LIMIT 1
+		`, r.schema), strings.TrimSpace(cmd.AssignedTo)).Scan(&cmd.AssignedEmployeeID, &cmd.AssignedTo); err != nil {
+			if err == pgx.ErrNoRows {
+				return productionapp.ScheduleAssignmentResult{}, fmt.Errorf("执行人必须选择启用员工")
+			}
+			return productionapp.ScheduleAssignmentResult{}, err
+		}
+	}
+	if cmd.AssignedEmployeeID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(name,'')
+			FROM %s.company_employees
+			WHERE id=$1 AND active=true
+		`, r.schema), cmd.AssignedEmployeeID).Scan(&cmd.AssignedTo); err != nil {
+			if err == pgx.ErrNoRows {
+				return productionapp.ScheduleAssignmentResult{}, fmt.Errorf("employee not found or inactive")
+			}
+			return productionapp.ScheduleAssignmentResult{}, err
+		}
+	}
+
+	var tag pgconn.CommandTag
+	if cmd.JobCardID <= 0 {
+		tag, err = tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.work_orders
 		SET planned_start_at=NULLIF($2,'')::timestamptz,
 		    planned_end_at=NULLIF($3,'')::timestamptz,
 		    shift_code=$4,
 		    assigned_to=$5,
+		    assigned_employee_id=$9,
+		    assigned_employee_name=$5,
 		    priority=$6,
 		    scheduling_note=$7,
 		    work_center=$8
 		WHERE id=$1
-	`, r.schema), cmd.WorkOrderID, cmd.PlannedStartAt, cmd.PlannedEndAt, cmd.ShiftCode, cmd.AssignedTo, cmd.Priority, cmd.Note, cmd.WorkCenter)
-	if err != nil {
-		return productionapp.ScheduleAssignmentResult{}, err
-	}
-	if tag.RowsAffected() == 0 {
-		return productionapp.ScheduleAssignmentResult{}, fmt.Errorf("work order not found")
-	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &cmd.WorkOrderID, "schedule", postgresinfra.StrPtr("planned_start_at"), nil, postgresinfra.StrPtr(cmd.PlannedStartAt), postgresinfra.AuditMeta{"planned_end_at": cmd.PlannedEndAt, "shift_code": cmd.ShiftCode, "assigned_to": cmd.AssignedTo, "priority": cmd.Priority, "work_center": cmd.WorkCenter}); err != nil {
-		return productionapp.ScheduleAssignmentResult{}, err
+		`, r.schema), cmd.WorkOrderID, cmd.PlannedStartAt, cmd.PlannedEndAt, cmd.ShiftCode, cmd.AssignedTo, cmd.Priority, cmd.Note, cmd.WorkCenter, cmd.AssignedEmployeeID)
+		if err != nil {
+			return productionapp.ScheduleAssignmentResult{}, err
+		}
+		if tag.RowsAffected() == 0 {
+			return productionapp.ScheduleAssignmentResult{}, fmt.Errorf("work order not found")
+		}
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &cmd.WorkOrderID, "schedule", postgresinfra.StrPtr("planned_start_at"), nil, postgresinfra.StrPtr(cmd.PlannedStartAt), postgresinfra.AuditMeta{"planned_end_at": cmd.PlannedEndAt, "shift_code": cmd.ShiftCode, "assigned_to": cmd.AssignedTo, "assigned_employee_id": cmd.AssignedEmployeeID, "priority": cmd.Priority, "work_center": cmd.WorkCenter}); err != nil {
+			return productionapp.ScheduleAssignmentResult{}, err
+		}
 	}
 
 	var card productionapp.JobCardRow
@@ -47,23 +79,32 @@ func (r Repository) SaveScheduleAssignment(ctx context.Context, cmd productionap
 			    planned_end_at=NULLIF($4,'')::timestamptz,
 			    shift_code=$5,
 			    assigned_to=$6,
+			    assigned_employee_id=$10,
+			    assigned_employee_name=$6,
 			    priority=$7,
 			    scheduling_note=$8,
 			    work_center=$9,
 			    workstation=COALESCE(NULLIF($9,''), workstation)
 			WHERE id=$1 AND work_order_id=$2
-		`, r.schema), cmd.JobCardID, cmd.WorkOrderID, cmd.PlannedStartAt, cmd.PlannedEndAt, cmd.ShiftCode, cmd.AssignedTo, cmd.Priority, cmd.Note, cmd.WorkCenter)
+		`, r.schema), cmd.JobCardID, cmd.WorkOrderID, cmd.PlannedStartAt, cmd.PlannedEndAt, cmd.ShiftCode, cmd.AssignedTo, cmd.Priority, cmd.Note, cmd.WorkCenter, cmd.AssignedEmployeeID)
 		if err != nil {
 			return productionapp.ScheduleAssignmentResult{}, err
 		}
 		if tag.RowsAffected() == 0 {
 			return productionapp.ScheduleAssignmentResult{}, fmt.Errorf("job card not found")
 		}
-		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.JobCardID, "schedule", postgresinfra.StrPtr("planned_start_at"), nil, postgresinfra.StrPtr(cmd.PlannedStartAt), postgresinfra.AuditMeta{"work_order_id": cmd.WorkOrderID, "planned_end_at": cmd.PlannedEndAt, "shift_code": cmd.ShiftCode, "assigned_to": cmd.AssignedTo, "priority": cmd.Priority, "work_center": cmd.WorkCenter}); err != nil {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.JobCardID, "schedule", postgresinfra.StrPtr("planned_start_at"), nil, postgresinfra.StrPtr(cmd.PlannedStartAt), postgresinfra.AuditMeta{"work_order_id": cmd.WorkOrderID, "planned_end_at": cmd.PlannedEndAt, "shift_code": cmd.ShiftCode, "assigned_to": cmd.AssignedTo, "assigned_employee_id": cmd.AssignedEmployeeID, "priority": cmd.Priority, "work_center": cmd.WorkCenter}); err != nil {
 			return productionapp.ScheduleAssignmentResult{}, err
 		}
 		card, err = loadScheduledJobCardTx(ctx, tx, r.schema, cmd.JobCardID)
 		if err != nil {
+			return productionapp.ScheduleAssignmentResult{}, err
+		}
+		summary, err := operationSummaryJSONForWorkOrderTx(ctx, tx, r.schema, cmd.WorkOrderID)
+		if err != nil {
+			return productionapp.ScheduleAssignmentResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET operation_summary_json=$2::jsonb WHERE id=$1`, r.schema), cmd.WorkOrderID, summary); err != nil {
 			return productionapp.ScheduleAssignmentResult{}, err
 		}
 	}

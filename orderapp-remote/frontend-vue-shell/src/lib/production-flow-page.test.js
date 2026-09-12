@@ -22,7 +22,7 @@ test('production menu consolidates five workflow pages and keeps the manual last
 test('production flow page groups the five workflow tabs', () => {
   const source = readFileSync(new URL('../views/ProductionFlowView.vue', import.meta.url), 'utf8')
 
-  for (const label of ['生产计划', '生产工单', '工序卡', '生产质检', '生产验收']) {
+  for (const label of ['生产计划', '生产工单', '工序记录', '生产质检', '完工入库']) {
     assert.match(source, new RegExp(label))
   }
   for (const component of ['ProducePlanView', 'WorkOrdersView', 'JobCardsView', 'QualityInspectionsView', 'ProductionAcceptanceView']) {

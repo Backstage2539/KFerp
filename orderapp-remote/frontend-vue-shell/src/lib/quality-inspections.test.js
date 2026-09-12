@@ -41,6 +41,8 @@ test('qualityTargetFromRow fills the quality form from selected target rows', ()
     reference_type: 'work_order',
     reference_no: 'WO-0000000020',
     item_name: '测试拼配',
+    work_order_id: 0,
+    job_card_id: 0,
   })
 
   assert.deepEqual(qualityTargetFromRow('raw_material', {

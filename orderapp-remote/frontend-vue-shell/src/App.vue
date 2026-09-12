@@ -211,6 +211,7 @@ import ProductionFlowView from './views/ProductionFlowView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
 import ProductionOverviewView from './views/ProductionOverviewView.vue'
 import ProductionScheduleView from './views/ProductionScheduleView.vue'
+import ProductionSystemCheckView from './views/ProductionSystemCheckView.vue'
 import ProductionSettingsView from './views/ProductionSettingsView.vue'
 import ProcessTemplatesView from './views/ProcessTemplatesView.vue'
 import ProductSettingsView from './views/ProductSettingsView.vue'
@@ -414,6 +415,7 @@ const internalViews = {
   productionOverview: ProductionOverviewView,
   workstationView: WorkstationView,
   productionAcceptance: ProductionAcceptanceView,
+  productionSystemCheck: ProductionSystemCheckView,
   productionConfig: ProductionSettingsView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,

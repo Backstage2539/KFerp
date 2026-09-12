@@ -21,7 +21,7 @@ func TestProductionAcceptanceWIPRequirementSeeds(t *testing.T) {
 		"UT-115-01",
 		"API-115-01",
 		"REV-115-01",
-		"生产验收",
+		"完工入库",
 		"WIP占用可视化",
 		"建议领到WIP",
 	} {
@@ -50,7 +50,7 @@ func TestProductionAcceptanceWIPVueWiring(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"生产验收",
+		"完工入库",
 		"productionAcceptance",
 	} {
 		if !strings.Contains(string(menu), want) {
@@ -72,7 +72,7 @@ func TestProductionAcceptanceWIPVueWiring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"WIP占用", "remaining_reserved_g"} {
+	for _, want := range []string{"WIP剩余占用", "remaining_reserved_g"} {
 		if !strings.Contains(string(orders), want) {
 			t.Fatalf("WorkOrdersView.vue missing %q", want)
 		}

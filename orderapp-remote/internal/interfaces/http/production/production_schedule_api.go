@@ -10,15 +10,16 @@ import (
 )
 
 type scheduleAssignmentRequest struct {
-	WorkOrderID    int64  `json:"work_order_id"`
-	JobCardID      int64  `json:"job_card_id"`
-	WorkCenter     string `json:"work_center"`
-	PlannedStartAt string `json:"planned_start_at"`
-	PlannedEndAt   string `json:"planned_end_at"`
-	ShiftCode      string `json:"shift_code"`
-	AssignedTo     string `json:"assigned_to"`
-	Priority       int    `json:"priority"`
-	Note           string `json:"note"`
+	WorkOrderID        int64  `json:"work_order_id"`
+	JobCardID          int64  `json:"job_card_id"`
+	AssignedEmployeeID int64  `json:"assigned_employee_id"`
+	WorkCenter         string `json:"work_center"`
+	PlannedStartAt     string `json:"planned_start_at"`
+	PlannedEndAt       string `json:"planned_end_at"`
+	ShiftCode          string `json:"shift_code"`
+	AssignedTo         string `json:"assigned_to"`
+	Priority           int    `json:"priority"`
+	Note               string `json:"note"`
 }
 
 type capacityCalendarRequest struct {
@@ -82,16 +83,17 @@ func registerProductionScheduleAPI(e *echo.Echo, productionSvc *productionapp.Se
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		res, err := productionSvc.SaveScheduleAssignment(c.Request().Context(), productionapp.ScheduleAssignmentCommand{
-			WorkOrderID:    req.WorkOrderID,
-			JobCardID:      req.JobCardID,
-			WorkCenter:     req.WorkCenter,
-			PlannedStartAt: req.PlannedStartAt,
-			PlannedEndAt:   req.PlannedEndAt,
-			ShiftCode:      req.ShiftCode,
-			AssignedTo:     req.AssignedTo,
-			Priority:       req.Priority,
-			Note:           req.Note,
-			Operator:       support.ActorOf(c),
+			WorkOrderID:        req.WorkOrderID,
+			JobCardID:          req.JobCardID,
+			AssignedEmployeeID: req.AssignedEmployeeID,
+			WorkCenter:         req.WorkCenter,
+			PlannedStartAt:     req.PlannedStartAt,
+			PlannedEndAt:       req.PlannedEndAt,
+			ShiftCode:          req.ShiftCode,
+			AssignedTo:         req.AssignedTo,
+			Priority:           req.Priority,
+			Note:               req.Note,
+			Operator:           support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

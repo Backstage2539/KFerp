@@ -76,10 +76,10 @@ func TestDev598MaterialOutputMultilevelManufacturingContracts(t *testing.T) {
 			"manufacturing_plan", "库存覆盖", "净缺口", "上游依赖",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"): {
-			"产出对象", "上游依赖", "workOrderUpstreamBlockerLabel",
+			"formatWorkOrderTypedOutput", "当前待办", "workOrderUpstreamBlockerLabel",
 		},
 		filepath.Join("frontend-vue-shell", "src", "components", "ProductionExecutionHubDrawer.vue"): {
-			"产出对象", "上游依赖", "executionHubUpstreamBlockers",
+			"typedOutputLabel", "配方、成本与订单追溯", "工序进度",
 		},
 		filepath.Join("frontend-vue-shell", "src", "App.vue"):                         {"stockManual: OperationManualView"},
 		filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"):               {"stockManual", "库存作业手册"},

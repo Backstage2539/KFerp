@@ -6,6 +6,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-654-PRODUCTION-EXECUTION-BUS
+- Branch: `codex/production-execution-bus-20260912`, base `e380b7ec`.
+- Owner/session: Codex / 2026-09-12
+- Status: implementation in progress; development merge and deployment authorized; production excluded.
+- Scope: simplify work-order list; turn work-order detail into assignment/status bus; execute, pick, report and hand off by workstation task batch; merge job-card records into work-order detail; redesign quality and finished receipt workflows.
+- DEV: DEV-654-WORK-ORDER-READMODEL; DEV-654-TASK-EXECUTION; DEV-654-QUALITY-RECEIPT; DEV-654-EXECUTION-UI; DEV-654-DELIVERY.
+- Verifier: targeted Go/API/Vue RED-GREEN; isolated PostgreSQL task-batch concurrency and WIP allocation; full backend/frontend/build gates; desktop/tablet/narrow screenshots.
+- Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, inventory manual, Vue help, and acceptance evidence.
+- Deployment: verified feature branch -> `develop` -> development; browser/API acceptance and six-page screenshots required.
+- Notes: `scripts/reserve_req_id.sh --claim production-execution-bus` selected PR-654 but the local awk rejected its multiline placeholder; PR-654 was confirmed unused and reserved here manually.
+
+
 ### PR-653-PRODUCTION-AUTO-PICKING
 - Branch: `codex/production-auto-picking-20260911`, base `1ef28cdb`.
 - Owner/session: Codex / 2026-09-11
