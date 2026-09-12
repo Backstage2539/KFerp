@@ -264,6 +264,8 @@ test('released unstarted work orders expose the formal cancel action and refresh
 })
 
 test('work order planned output falls back to planned grams and spec when packed counts are absent', () => {
+  assert.equal(formatWorkOrderPlannedOutput({ output_type: 'material', output_qty: 4.54, output_unit: 'kg', planned_g: 5640 }), '4.54 kg')
+  assert.equal(formatWorkOrderPlannedOutput({ output_type: 'product', output_qty: 20, output_unit: '袋', planned_g: 4540 }), '20 袋')
   assert.deepEqual(workOrderPlannedOutput({ planned_g: 55706, spec_g: 454 }), {
     units: 122,
     loose_g: 318,

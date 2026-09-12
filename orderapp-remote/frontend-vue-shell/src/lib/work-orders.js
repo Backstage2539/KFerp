@@ -38,6 +38,10 @@ export function workOrderPlannedOutput(row = {}) {
 }
 
 export function formatWorkOrderPlannedOutput(row = {}) {
+  const typedOutput = workOrderOutputIdentity(row)
+  if (typedOutput.qty > 0 && typedOutput.unit) {
+    return `${typedOutput.qty.toLocaleString('zh-CN', { maximumFractionDigits: 3 })} ${typedOutput.unit}`
+  }
   const output = workOrderPlannedOutput(row)
   return `${output.units} 袋 + ${output.loose_g}g`
 }
