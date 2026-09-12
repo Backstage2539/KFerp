@@ -46,6 +46,8 @@ type WIPReservationReleaseAPIResponse struct {
 }
 
 type QualityInspectionAPIRequest struct {
+	WorkOrderID              int64  `json:"work_order_id"`
+	JobCardID                int64  `json:"job_card_id"`
 	Scope                    string `json:"scope"`
 	ReferenceType            string `json:"reference_type"`
 	ReferenceNo              string `json:"reference_no"`
@@ -171,6 +173,8 @@ func registerManufacturingGapAPI(e *echo.Echo, productionSvc *productionapp.Serv
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := productionSvc.CreateQualityInspection(c.Request().Context(), productionapp.QualityInspectionCommand{
+			WorkOrderID:              req.WorkOrderID,
+			JobCardID:                req.JobCardID,
 			Scope:                    req.Scope,
 			ReferenceType:            req.ReferenceType,
 			ReferenceNo:              req.ReferenceNo,

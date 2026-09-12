@@ -82,6 +82,8 @@ export function productionTaskActionEndpoint(task, action) {
       return `/api/production/workstation/tasks/${id}/exception`
     case 'material_call':
       return `/api/production/workstation/tasks/${id}/material-call`
+    case 'claim':
+      return `/api/production/workstation/tasks/${id}/claim`
     default:
       return ''
   }
@@ -130,7 +132,6 @@ export function productionCompletionMetrics({
   inventoryUnit = '',
   leftoverQty = 0,
   note = '',
-  warehouse = '',
   finishedUnits = 0,
 } = {}) {
   const normalizedUnit = String(inventoryUnit || '').trim()
@@ -140,7 +141,6 @@ export function productionCompletionMetrics({
     inventory_unit: normalizedUnit,
     leftover_qty: completionQuantity(leftoverQty, '余料'),
     note: String(note || '').trim(),
-    warehouse: String(warehouse || '').trim(),
     finished_units: completionCount(finishedUnits, '成品件数'),
   }
 }
@@ -183,14 +183,14 @@ export function productionTaskActionErrorMessage(error, action = '') {
     return `当前工序状态不允许${actionLabel}，请刷新后按最新状态操作`
   }
   if (normalized.includes('work order must be running before job card start')) {
-    return '请先从工单执行枢纽开始生产，再在工位开始本工序'
+    return '本任务暂不能开始，请刷新任务状态后重试'
   }
   if (normalized.includes('work order must be released')) return '工单必须先下达后才能执行工序'
   if (
     normalized.includes('work order must be running')
     || normalized.includes('work order is not running')
   ) {
-    return '工单尚未开始生产，请先从执行枢纽开始生产'
+    return '本任务暂不能开始，请刷新任务状态后重试'
   }
   if (
     normalized.includes('actual input')

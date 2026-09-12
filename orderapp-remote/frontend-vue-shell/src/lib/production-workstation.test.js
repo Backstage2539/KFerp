@@ -99,7 +99,7 @@ test('production task action failures are explained in Chinese without changing 
   )
   assert.equal(
     productionTaskActionErrorMessage(new Error('work order must be running before job card start'), 'start'),
-    '请先从工单执行枢纽开始生产，再在工位开始本工序',
+    '本任务暂不能开始，请刷新任务状态后重试',
   )
   assert.equal(
     productionTaskActionErrorMessage(new Error('permission denied'), 'complete'),
@@ -111,7 +111,7 @@ test('production task action failures are explained in Chinese without changing 
   )
   assert.equal(
     productionTaskActionErrorMessage(new Error('work order is not running'), 'resume'),
-    '工单尚未开始生产，请先从执行枢纽开始生产',
+    '本任务暂不能开始，请刷新任务状态后重试',
   )
   assert.equal(
     productionTaskActionErrorMessage(new Error('actual input and output quantity invalid'), 'complete'),
@@ -289,7 +289,6 @@ test('workstation completion freezes inventory-unit interpretation and hides leg
     inventory_unit: 'Kg',
     leftover_qty: 0.2,
     note: '包装抽检',
-    warehouse: 'finished_goods',
     finished_units: 14,
   })
   assert.deepEqual(workstationVisibleActions({

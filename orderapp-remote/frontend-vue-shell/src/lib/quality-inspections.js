@@ -48,6 +48,8 @@ export function qualityTargetFromRow(scope, row = {}) {
     reference_type: 'work_order',
     reference_no: row.work_order_no || row.reference_no || '',
     item_name: row.product_name || row.item_name || '',
+    work_order_id: Number(row.id || row.work_order_id || 0),
+    job_card_id: Number(row.job_card_id || 0),
   }
 }
 

@@ -87,6 +87,13 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
 	})
+	e.GET("/api/produce/finished-receipts", func(c echo.Context) error {
+		rows, err := productionSvc.ListFinishedReceiptTasks(c.Request().Context(), c.QueryParam("status"))
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
 	workOrderID := func(c echo.Context) (int64, error) {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {

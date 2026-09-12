@@ -14,8 +14,13 @@
       <div v-if="error" class="error">{{ error }}</div>
       <div class="filters">
         <label>
+          <span>搜索</span>
+          <input v-model.trim="query" placeholder="产品或工单号" />
+        </label>
+        <label>
           <span>状态</span>
           <select v-model="status">
+            <option value="active">未结束</option>
             <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
@@ -23,83 +28,41 @@
       </div>
     </section>
 
-    <section class="panel table-wrap no-print">
-      <table>
+    <section class="panel table-wrap no-print work-order-list-card">
+      <table data-work-order-status-list>
         <thead>
           <tr>
-            <th>工单</th>
-            <th>批次</th>
-            <th>产出对象</th>
-            <th>上游依赖</th>
-            <th>商品</th>
-            <th>规格</th>
-            <th>计划数量</th>
-            <th>BOM/工艺路线</th>
+            <th>产品 / 工单</th>
+            <th>目标数量</th>
+            <th>当前状态</th>
             <th>工序进度</th>
-            <th>工艺参数</th>
-            <th>原料参考</th>
-            <th>损耗汇总</th>
-            <th>领退料/WIP占用</th>
-            <th>状态</th>
-            <th>成本汇总</th>
-            <th>时间</th>
-            <th>操作</th>
+            <th>当前待办</th>
+            <th>快捷操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in rows" :key="row.id">
-            <td><button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'summary')">{{ row.work_order_no }}</button><small>{{ row.order_nos || '-' }}</small></td>
-            <td>{{ row.batch_id }}</td>
-            <td class="summary"><strong>{{ formatWorkOrderTypedOutput(row) }}</strong><small>{{ row.target_warehouse ? `目标仓库 ${row.target_warehouse}` : '-' }}</small></td>
-            <td class="summary">
-              <span :class="['status', workOrderHasUpstreamBlocker(row) ? 'warning' : 'success']">{{ workOrderHasUpstreamBlocker(row) ? '等待上游' : '依赖就绪' }}</span>
-              <small>{{ workOrderUpstreamBlockerLabel(row) }}</small>
+          <tr v-for="row in visibleRows" :key="row.id">
+            <td class="product-cell">
+              <strong>{{ row.output_name || row.product_name || '-' }}</strong>
+              <button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'summary')">{{ row.work_order_no }}</button>
+              <small>{{ formatWorkOrderTypedOutput(row) }}</small>
             </td>
-            <td>{{ row.product_name }}</td>
-            <td>{{ row.spec_g }}g</td>
-            <td>
-              <strong>{{ formatG(row.planned_g) }}</strong>
-              <small>预计 {{ formatWorkOrderPlannedOutput(row) }}</small>
-            </td>
-            <td class="summary">
-              <strong>{{ bomProcessSummary(row) }}</strong>
-              <small>{{ processSnapshotName(row) }}</small>
-              <small v-if="processSnapshotSourceText(row)">{{ processSnapshotSourceText(row) }}</small>
-            </td>
-            <td class="summary">
-              <strong>{{ operationProgressText(row) }}</strong>
-              <small>工序摘要 {{ operationSummaryText(row) }}</small>
-              <small>计划 {{ operationPlanText(row) }}</small>
-            </td>
-            <td class="summary">
-              <strong>{{ productionParamsText(row) }}</strong>
-              <small>商品生产配置快照</small>
-            </td>
-            <td class="summary">{{ row.material_summary || '-' }}</td>
-            <td class="summary">
-              <strong>{{ formatQty(operationActualSummary(row).actual_loss_qty) }}</strong>
-              <small>实际损耗率 {{ percent(operationActualSummary(row).actual_loss_rate) }}</small>
-              <small>实际产出 {{ formatQty(operationActualSummary(row).actual_output_qty) }}</small>
-            </td>
-            <td>
-              <strong>可退料 {{ formatG(returnableWipG(row)) }}</strong>
-              <small>已领料 {{ formatG(row.wip_reserved_g) }}</small>
-              <small>已消耗 {{ formatG(row.wip_consumed_g) }}</small>
-            </td>
-            <td><span class="status" :class="statusBadgeClass(row.status)">{{ workOrderStatusLabel(row.status) }}</span></td>
-            <td>
-              <strong>{{ money(row.actual_cost) }}</strong>
-              <small>物料 + 工序实际成本</small>
-            </td>
-            <td><small>建 {{ row.created_at }}</small><small>完 {{ row.completed_at || '-' }}</small></td>
+            <td><strong>{{ formatWorkOrderPlannedOutput(row) }}</strong><small>{{ row.target_warehouse ? `入库至 ${row.target_warehouse}` : '' }}</small></td>
+            <td><span class="status" :class="statusBadgeClass(row.status)">{{ workOrderStatusLabel(row.status) }}</span><small>{{ row.batch_id || '尚未建立运行批次' }}</small></td>
+            <td><strong>{{ operationProgressText(row) }}</strong><small>{{ operationCurrentText(row) }}</small></td>
+            <td class="todo-cell"><strong>{{ workOrderTodo(row).title }}</strong><small>{{ workOrderTodo(row).detail }}</small></td>
             <td class="row-actions">
-              <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">执行枢纽</button>
-              <button class="secondary compact" v-if="canEditWorkOrderSplits(row)" @click="openWorkOrderSplitDrawer(row)">编辑拆分</button>
-              <button class="secondary compact danger-text" v-if="canCancelWorkOrder(row)" type="button" @click="cancelWorkOrder(row)">取消工单</button>
-              <button class="secondary compact" @click="printWorkOrder(row)">打印</button>
+              <button class="primary compact" type="button" @click="openPrimaryAction(row)">{{ primaryActionLabel(row) }}</button>
+              <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">查看工单</button>
+              <details class="more-menu">
+                <summary>更多</summary>
+                <button v-if="canEditWorkOrderSplits(row)" @click="openWorkOrderSplitDrawer(row)">编辑拆分</button>
+                <button @click="printWorkOrder(row)">打印</button>
+                <button v-if="canCancelWorkOrder(row)" class="danger-text" type="button" @click="cancelWorkOrder(row)">取消工单</button>
+              </details>
             </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="17" class="muted">暂无工单</td></tr>
+          <tr v-if="!visibleRows.length"><td colspan="6" class="muted">暂无符合条件的生产工单</td></tr>
         </tbody>
       </table>
     </section>
@@ -264,7 +227,8 @@ function returnToSource() {
   if (source?.key) window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: source.key, params: source.params || {} } }))
 }
 const workstationCapacities = ref([])
-const status = ref('')
+const status = ref('active')
+const query = ref('')
 const loading = ref(false)
 const error = ref('')
 const printRow = ref(null)
@@ -274,6 +238,14 @@ const workOrderSplitSaving = ref(false)
 const workOrderSplitError = ref('')
 const statusOptions = workOrderStatusOptions()
 const executionHub = ref({ open: false, workOrderId: 0, focus: '' })
+const visibleRows = computed(() => {
+  const q = query.value.toLowerCase()
+  return rows.value.filter((row) => {
+    if (status.value === 'active' && ['completed', 'cancelled'].includes(String(row.status || ''))) return false
+    if (!q) return true
+    return [row.work_order_no, row.output_name, row.product_name].some((value) => String(value || '').toLowerCase().includes(q))
+  })
+})
 
 const money = (v) => Number(v || 0).toFixed(2)
 const percent = (v) => formatPercent(v)
@@ -416,6 +388,45 @@ function operationProgressText(row) {
   return `${completed}/${items.length}`
 }
 
+function operationCurrentText(row) {
+  const items = operationSummaryRows(row)
+  const current = items.find((item) => !['completed', 'cancelled'].includes(String(item.status || '').trim()))
+  if (!current) return items.length ? '全部工序已报工' : '等待生成工序任务'
+  return `${current.operation || '工序'} · ${current.workstation || current.work_center || '待分配工位'}`
+}
+
+function workOrderTodo(row) {
+  if (workOrderHasUpstreamBlocker(row)) return { title: '等待上游供给', detail: workOrderUpstreamBlockerLabel(row) }
+  const items = operationSummaryRows(row)
+  const unassigned = items.filter((item) => !String(item.assigned_to || '').trim()).length
+  if (unassigned > 0) return { title: `待分配 ${unassigned} 项任务`, detail: '为工序任务指定执行人' }
+  const incomplete = items.filter((item) => !['completed', 'cancelled'].includes(String(item.status || '').trim()))
+  if (!incomplete.length && String(row.status || '') !== 'completed') return { title: '待完工入库', detail: '核对本次产出并过账' }
+  if (incomplete.some((item) => String(item.status || '') === 'running')) return { title: '生产执行中', detail: operationCurrentText(row) }
+  return { title: '等待工位处理', detail: operationCurrentText(row) }
+}
+
+function primaryActionLabel(row) {
+  const todo = workOrderTodo(row).title
+  if (todo.includes('入库')) return '去完工入库'
+  if (todo.includes('执行中') || todo.includes('工位')) return '进入工位'
+  if (todo.includes('分配')) return '分配任务'
+  return '查看状态'
+}
+
+function openPrimaryAction(row) {
+  const label = primaryActionLabel(row)
+  if (label === '进入工位') {
+    window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'workstationView', params: { work_order_id: row.id } } }))
+    return
+  }
+  if (label === '去完工入库') {
+    window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productionAcceptance', params: { work_order_id: row.id } } }))
+    return
+  }
+  openExecutionHub(row, label === '分配任务' ? 'assignment' : 'summary')
+}
+
 function operationSummaryText(row) {
   const items = operationSummaryRows(row)
   if (!items.length) return '-'
@@ -462,10 +473,10 @@ async function load() {
   error.value = ''
   try {
     const url = new URL('/api/produce/work-orders', window.location.origin)
-    if (status.value) url.searchParams.set('status', status.value)
+    if (status.value && status.value !== 'active') url.searchParams.set('status', status.value)
     const [data, capacityData] = await Promise.all([
       Number(props.viewParams?.production_plan_id || 0) > 0
-        ? loadProductionPlanWorkOrders(apiGet, props.viewParams.production_plan_id, status.value)
+        ? loadProductionPlanWorkOrders(apiGet, props.viewParams.production_plan_id, status.value === 'active' ? '' : status.value)
         : apiGet(url),
       apiGet('/api/manufacturing-workstation-capacities'),
     ])
@@ -709,9 +720,14 @@ onBeforeUnmount(() => {
 <style scoped>
 .page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.danger-text{color:#b91c1c}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:700}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.text-left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:40;display:flex;justify-content:flex-end}.work-order-split-drawer{width:min(900px,92vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 28px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #e5e7eb;padding-bottom:12px}.drawer-head p{margin:6px 0 0;color:#666}.split-operation-block{border-top:1px solid #e5e7eb;padding-top:14px;display:grid;gap:10px}.split-operation-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.split-operation-head span{color:#666}.split-row{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(130px,.6fr) repeat(3,minmax(92px,.4fr)) auto;gap:10px;align-items:end;border:1px solid #eef2f7;border-radius:8px;padding:10px}.split-metric{border:1px solid #e5e7eb;border-radius:6px;padding:7px 9px;background:#fbfbfb}.split-metric span{display:block;font-size:12px;color:#666}.split-metric strong{font-size:14px}.split-batch-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.split-batch-card{border:1px solid #dbeafe;border-radius:6px;background:#eff6ff;padding:8px;display:grid;gap:3px}.split-batch-card small,.split-batch-card span{color:#374151}.split-batch-card.underfilled{border-color:#fed7aa;background:#fff7ed}.split-batch-card em{color:#c2410c;font-style:normal;font-size:12px}.section-hint{padding:8px 0}.drawer-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
 
+.page{background:#f7f8fafa}.panel{border-radius:10px;padding:14px}.filters{grid-template-columns:minmax(220px,1fr) 160px 90px}.work-order-list-card table{min-width:900px}.work-order-list-card th,.work-order-list-card td{padding:13px 10px;border-color:#edf0f2}.work-order-list-card th{background:#f6f8f9;color:#56616b}.product-cell{display:grid;gap:4px}.todo-cell strong{color:#a85a08}.primary{border-color:#2f8f5b;background:#2f8f5b}.link-button{color:#24704a;text-decoration:none}.row-actions{align-items:flex-start}.more-menu summary{list-style:none;border:1px solid #b9c0c7;border-radius:7px;padding:6px 10px;cursor:pointer}.more-menu button{display:block;width:100%;margin-top:4px;background:#fff;border:1px solid #e0e4e7;white-space:nowrap}
+
+@media (max-width:760px){.filters{grid-template-columns:1fr}.work-order-list-card{overflow:visible}.work-order-list-card table,.work-order-list-card tbody,.work-order-list-card tr,.work-order-list-card td{display:block;min-width:0}.work-order-list-card thead{display:none}.work-order-list-card tr{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px}.work-order-list-card td{border:0;padding:5px 0}.row-actions{margin-top:6px}}
+
 @media print{
   :global(body.work-order-printing .sidebar),:global(body.work-order-printing .top){display:none!important}
   :global(body.work-order-printing .content){width:100%!important;margin:0!important;padding:0!important}
   .page{display:block;padding:0}.no-print{display:none!important}.print-sheet{display:block;color:#111;padding:18mm;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}.print-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:16px}.print-head h1{font-size:24px;margin:0 0 6px}.print-head p{margin:0;color:#444}.print-status{border:1px solid #111;border-radius:4px;padding:6px 12px}.print-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}.print-grid div{border:1px solid #ddd;border-radius:6px;padding:8px}.print-grid span{display:block;color:#555;font-size:11px;margin-bottom:4px}.print-grid strong{font-size:13px}.print-sheet h2{font-size:16px;margin:18px 0 8px}.print-table{min-width:0;width:100%;border:1px solid #ddd}.print-table th,.print-table td{border:1px solid #ddd;padding:8px}.print-table th{width:120px;background:#f7f7f7}
 }
+.page{background:#f7f8fa}
 </style>

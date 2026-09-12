@@ -15,8 +15,15 @@
             <option v-for="section in sections" :key="section.workstation" :value="section.workstation">{{ section.workstation }}</option>
           </select>
         </label>
+        <button class="secondary" type="button" @click="bulkAssignOpen = !bulkAssignOpen">批量分配</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
+    </section>
+
+    <section v-if="bulkAssignOpen" class="bulk-assignment panel">
+      <div><strong>批量分配当前工位的未分配任务</strong><p>只更新任务执行人，不改变工单调度负责人。</p></div>
+      <select v-model="bulkEmployee"><option value="">请选择启用员工</option><option v-for="employee in activeEmployees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select>
+      <button class="primary" type="button" :disabled="!bulkEmployee || Boolean(busyKey)" @click="assignVisibleTasks">确认分配</button>
     </section>
 
     <div v-if="message" class="notice">{{ message }}</div>
@@ -44,9 +51,9 @@
             <small>{{ taskMeta(section.nextTask) }}</small>
           </div>
           <div class="answer-block blocked" :class="{ empty: !section.blockingReason }">
-            <span>阻塞原因 / 不能做原因</span>
+            <span>当前待办</span>
             <strong>{{ section.blockingReason || '无阻塞' }}</strong>
-            <small>{{ section.blockingReason ? nextHandler(section) : '可继续执行' }}</small>
+            <small>{{ section.blockingReason ? `待协同岗位：${nextHandler(section)}` : '可继续执行' }}</small>
           </div>
         </div>
 
@@ -54,7 +61,7 @@
           <div class="task-row header">
             <span>任务</span>
             <span>状态</span>
-            <span>负责人</span>
+            <span>执行人</span>
             <span>动作</span>
           </div>
           <div v-for="task in section.tasks"
@@ -64,13 +71,23 @@
             :data-task-key="taskKey(task)">
             <div class="task-title">
               <strong>{{ taskTitle(task) }}</strong>
-              <small>{{ task.work_order_no || '-' }} · P{{ task.priority || 0 }}</small>
+              <small>{{ taskBatchLabel(task) }} · {{ task.work_order_no || '-' }} · P{{ task.priority || 0 }}</small>
               <small>工序要求：{{ task.process_requirement || '按冻结工艺路线执行' }}</small>
+              <details v-if="task.material_readiness?.length" class="material-readiness">
+                <summary>{{ materialSummary(task) }}</summary>
+                <div class="material-row material-head"><span>物料名称</span><span>需求</span><span>WIP 可用</span><span>缺口</span></div>
+                <div v-for="material in task.material_readiness" :key="material.reservation_id || material.material_id" class="material-row"><strong>{{ material.material_name }}</strong><span>{{ materialQuantity(material, 'required') }}</span><span>{{ materialQuantity(material, 'wip') }}</span><span :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span></div>
+              </details>
             </div>
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
-            <span>{{ task.next_handler || task.assigned_to || '-' }}</span>
+            <span>{{ task.assigned_to || '未分配' }}<small v-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
             <div class="actions">
-              <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">详情</button>
+              <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
+              <button v-if="!task.assigned_to" type="button" class="secondary" @click="claimTask(task)">领取任务</button>
+              <button v-if="!task.assigned_to" type="button" class="primary" @click="openTaskAssignment(task)">分配人员</button>
+              <button v-if="materialHasShortageTask(task)" type="button" class="primary" @click="openPicking(task)">领料</button>
+              <button v-if="task.readiness_label === '待质检'" type="button" class="secondary" @click="openQuality(task)">查看质检</button>
+              <details v-if="isFirstOperationTask(task)" class="material-actions"><summary>物料操作</summary><button type="button" @click="openStockAction(task, 'issue')">领料</button><button type="button" @click="openStockAction(task, 'supplement')">补料</button><button type="button" @click="openStockAction(task, 'consume')">耗料</button><button type="button" @click="openStockAction(task, 'return')">退料</button></details>
               <button
                 v-for="action in workstationVisibleActions(task)"
                 :key="action"
@@ -81,6 +98,11 @@
               >
                 {{ actionLabel(action) }}
               </button>
+            </div>
+            <div v-if="assignmentTask && sameTask(assignmentTask, task)" class="task-action-panel assignment-panel">
+              <label><span>执行人</span><select v-model="assignmentEmployee"><option value="">请选择启用员工</option><option v-for="employee in activeEmployees" :key="employee.id" :value="String(employee.id)">{{ employee.name }}</option></select></label>
+              <button class="primary" type="button" :disabled="!assignmentEmployee || Boolean(busyKey)" @click="saveTaskAssignment(task)">保存分配</button>
+              <button class="secondary" type="button" @click="assignmentTask = null">取消</button>
             </div>
             <div
               v-if="taskFeedback.taskKey === taskKey(task) && (taskFeedback.message || taskFeedback.error)"
@@ -117,7 +139,6 @@
                 <label><span>实际产出（{{ finishPanel.inventory_unit || '-' }}）</span><input v-model.number="finishPanel.actual_output_qty" type="number" min="0" step="any" :disabled="Number(finishPanel.finished_units || 0) > 0" /></label>
                 <label><span>成品件数（件）</span><input v-model.number="finishPanel.finished_units" type="number" min="0" step="1" :disabled="Number(finishPanel.actual_output_qty || 0) > 0" /><small>实际产出或成品件数二选一</small></label>
                 <label><span>余料（{{ finishPanel.inventory_unit || '-' }}）</span><input v-model.number="finishPanel.leftover_qty" type="number" min="0" step="any" /></label>
-                <label><span>入库仓</span><input v-model.trim="finishPanel.warehouse" /></label>
                 <label><span>损耗原因</span><input v-model.trim="finishPanel.loss_reason" /></label>
                 <label><span>异常原因</span><input v-model.trim="finishPanel.exception_reason" /></label>
                 <label class="span-2"><span>备注</span><input v-model.trim="finishPanel.note" /></label>
@@ -144,6 +165,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchProductionWorkstationOverview, runProductionTaskAction } from '../api/production.js'
+import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import {
@@ -166,6 +188,11 @@ const error = ref('')
 const message = ref('')
 const selectedWorkstation = ref('')
 const overview = ref({ tasks: [] })
+const employees = ref([])
+const bulkAssignOpen = ref(false)
+const bulkEmployee = ref('')
+const assignmentTask = ref(null)
+const assignmentEmployee = ref('')
 const issue = reactive({ open: false, mode: '', title: '', task: null, note: '' })
 const executionHub = reactive({ open: false, workOrderId: 0, jobCardId: 0, focus: '' })
 const requestedJobCardID = computed(() => Number(props.viewParams?.job_card_id || 0))
@@ -182,7 +209,6 @@ const finishPanel = reactive({
   leftover_qty: 0,
   loss_reason: '',
   exception_reason: '',
-  warehouse: 'finished_goods',
   note: '',
 })
 
@@ -191,6 +217,7 @@ const sections = computed(() => workstationTaskSections(tasks.value))
 const workstationLoad = computed(() => overview.value.workstation_load || [])
 const visibleSections = computed(() => selectedWorkstation.value ? sections.value.filter((section) => section.workstation === selectedWorkstation.value) : sections.value)
 const singleStationLayout = computed(() => visibleSections.value.length === 1)
+const activeEmployees = computed(() => employees.value.filter((row) => row.active !== false))
 
 function taskKey(task) {
   return `${task.job_card_id || 0}:${task.work_order_id || 0}`
@@ -226,6 +253,31 @@ function taskMeta(task) {
   return `${task.work_order_no || '-'} · ${task.next_handler || task.assigned_to || '-'} · ${task.planned_start_at || '未排时间'}`
 }
 
+function taskBatchLabel(task) {
+  return `第 ${Number(task?.batch_index || 1)} 批 / 共 ${Number(task?.batch_count || 1)} 批`
+}
+
+function materialHasShortage(material) {
+  return Number(material?.shortage_g || 0) > 0 || Number(material?.shortage_units || 0) > 0
+}
+
+function materialHasShortageTask(task) {
+  return (task?.material_readiness || []).some(materialHasShortage)
+}
+
+function materialSummary(task) {
+  const rows = task?.material_readiness || []
+  const shortages = rows.filter(materialHasShortage).length
+  return shortages ? `缺料 ${shortages} 项，展开查看` : `本次用料 ${rows.length} 项，WIP 已齐套`
+}
+
+function materialQuantity(material, kind) {
+  const g = Number(material?.[`${kind === 'wip' ? 'wip_available' : kind}_g`] || 0)
+  const units = Number(material?.[`${kind === 'wip' ? 'wip_available' : kind}_units`] || 0)
+  if (g > 0) return `${g.toLocaleString('zh-CN')}g`
+  return `${units.toLocaleString('zh-CN')}${material?.unit || '件'}`
+}
+
 function nextHandler(section) {
   return section.tasks.find((task) => task.blocking_reason)?.next_handler || '现场主管'
 }
@@ -242,13 +294,70 @@ function statusClass(task) {
 
 function actionLabel(action) {
   return {
-    start: '开始',
+    start: '开始本任务',
     pause: '暂停',
     resume: '继续',
     complete: '完成本工序',
     report_exception: '报异常',
     material_call: '呼叫补料',
   }[action] || action
+}
+
+function openTaskAssignment(task) {
+  assignmentTask.value = task
+  assignmentEmployee.value = String(activeEmployees.value.find((employee) => employee.name === task.assigned_to)?.id || '')
+}
+
+async function saveTaskAssignment(task) {
+  if (!assignmentEmployee.value) return
+  const employee = activeEmployees.value.find((item) => Number(item.id) === Number(assignmentEmployee.value))
+  if (!employee) { error.value = '所选员工已停用，请重新选择'; return }
+  busyKey.value = `${task.job_card_id}:assign`
+  error.value = ''
+  try {
+    await apiSend('/api/production-schedule/assign', { body: { work_order_id: task.work_order_id, job_card_id: task.job_card_id, work_center: task.work_center || task.workstation || '', assigned_employee_id: Number(employee.id), assigned_to: employee.name, priority: task.priority || 0 } })
+    assignmentTask.value = null
+    await load()
+    message.value = '任务执行人已更新'
+  } catch (err) { error.value = err.message || '分配失败' } finally { busyKey.value = '' }
+}
+
+async function claimTask(task) {
+  const endpoint = productionTaskActionEndpoint(task, 'claim')
+  if (!endpoint) return
+  busyKey.value = `${task.job_card_id}:claim`
+  error.value = ''
+  try { await apiSend(endpoint, { body: {} }); await load(); message.value = '任务已领取' } catch (err) { error.value = err.message || '领取任务失败' } finally { busyKey.value = '' }
+}
+
+async function assignVisibleTasks() {
+  const rows = visibleSections.value.flatMap((section) => section.tasks).filter((task) => task.job_card_id && !task.assigned_to)
+  if (!rows.length) { message.value = '当前范围没有未分配任务'; return }
+  const employee = activeEmployees.value.find((item) => Number(item.id) === Number(bulkEmployee.value))
+  if (!employee) { error.value = '请选择启用员工'; return }
+  busyKey.value = 'bulk-assign'
+  error.value = ''
+  try {
+    for (const task of rows) await apiSend('/api/production-schedule/assign', { body: { work_order_id: task.work_order_id, job_card_id: task.job_card_id, work_center: task.work_center || task.workstation || '', assigned_employee_id: Number(employee.id), assigned_to: employee.name, priority: task.priority || 0 } })
+    await load(); bulkAssignOpen.value = false; message.value = `已分配 ${rows.length} 项任务`
+  } catch (err) { error.value = err.message || '批量分配失败' } finally { busyKey.value = '' }
+}
+
+function openPicking(task) {
+  openStockAction(task, 'issue')
+}
+
+function isFirstOperationTask(task) {
+  const sequences = tasks.value.filter((row) => Number(row.work_order_id) === Number(task.work_order_id)).map((row) => Number(row.sequence_no || 0)).filter((value) => value > 0)
+  return sequences.length > 0 && Number(task.sequence_no || 0) === Math.min(...sequences)
+}
+
+function openStockAction(task, action) {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'stockOperations', params: { tab: 'stockEntries', action, return_source: 'workstation_task', work_order_id: task.work_order_id, job_card_id: task.job_card_id } } }))
+}
+
+function openQuality(task) {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'qualityInspections', params: { work_order_id: task.work_order_id, job_card_id: task.job_card_id, reference_no: task.work_order_no } } }))
 }
 
 function sameTask(a, b) {
@@ -297,7 +406,6 @@ function openFinishPanel(task) {
   finishPanel.leftover_qty = Number(task.leftover_qty || 0)
   finishPanel.loss_reason = task.loss_reason || ''
   finishPanel.exception_reason = task.exception_reason || ''
-  finishPanel.warehouse = 'finished_goods'
   finishPanel.note = task.note || ''
 }
 
@@ -402,7 +510,6 @@ async function submitFinishPanel() {
         inventoryUnit: finishPanel.inventory_unit,
         leftoverQty: finishPanel.leftover_qty,
         note: finishPanel.note,
-        warehouse: finishPanel.warehouse,
         finishedUnits,
       }),
     })
@@ -429,7 +536,9 @@ async function load(options = {}) {
   loading.value = true
   error.value = ''
   try {
-    overview.value = await fetchProductionWorkstationOverview({ limit: 500 })
+    const [workstationData, employeeRows] = await Promise.all([fetchProductionWorkstationOverview({ limit: 500 }), apiGet('/api/company/employees')])
+    overview.value = workstationData
+    employees.value = Array.isArray(employeeRows) ? employeeRows : (employeeRows.rows || [])
     if (selectedWorkstation.value && !sections.value.some((section) => section.workstation === selectedWorkstation.value)) {
       selectedWorkstation.value = ''
     }
@@ -485,7 +594,7 @@ button {
   cursor: pointer;
   font: inherit;
 }
-button.primary { background: #1f1f1f; border-color: #1f1f1f; color: #fff; }
+button.primary { background: #2f8f5b; border-color: #2f8f5b; color: #fff; }
 button.secondary { background: #f8f7f5; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 .toolbar-actions {
@@ -591,6 +700,7 @@ textarea { resize: vertical; }
   white-space: nowrap;
 }
 .task-title small { color: #777; }
+.task-title>details{margin-top:5px}.material-readiness summary{cursor:pointer;color:#a85a08;font-size:12px}.material-row{display:grid;grid-template-columns:minmax(130px,1fr) repeat(3,minmax(74px,.55fr));gap:7px;padding:6px 0;border-top:1px solid #eee;font-size:12px}.material-row.material-head{color:#707a75}.material-row .shortage{color:#b85d0a;font-weight:700}.bulk-assignment{display:grid;grid-template-columns:minmax(240px,1fr) minmax(180px,260px) auto;gap:12px;align-items:end}.bulk-assignment p{font-size:12px}.assignment-panel{grid-template-columns:minmax(180px,280px) auto auto;align-items:end}
 .pill {
   justify-self: start;
   border: 1px solid #d8d2c8;
@@ -603,6 +713,7 @@ textarea { resize: vertical; }
 .pill.danger { border-color: #efb9b9; background: #fff2f2; color: #9d2424; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .actions button { min-height: 30px; padding: 4px 8px; font-size: 12px; }
+.material-actions{position:relative}.material-actions summary{list-style:none;border:1px solid #cfc8bf;border-radius:8px;padding:5px 8px;cursor:pointer;font-size:12px}.material-actions button{display:block;width:100%;margin-top:4px;background:#fff}
 .task-feedback {
   grid-column: 1 / -1;
   border: 1px solid #b7dfc4;
@@ -662,5 +773,6 @@ textarea { resize: vertical; }
   .form-grid .span-2 { grid-column: auto; }
   .task-row { grid-template-columns: 1fr; min-width: 0; align-items: start; }
   .task-row.header { display: none; }
+  .bulk-assignment,.assignment-panel,.material-row{grid-template-columns:1fr}.material-row.material-head{display:none}
 }
 </style>

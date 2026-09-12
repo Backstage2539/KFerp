@@ -84,6 +84,22 @@ func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits in
 	return 0, qty
 }
 
+func scaleMaterialNeedsForTask(needs []materialConsumptionNeed, numerator, denominator int64) []materialConsumptionNeed {
+	if numerator <= 0 || denominator <= 0 || numerator >= denominator {
+		return append([]materialConsumptionNeed(nil), needs...)
+	}
+	out := make([]materialConsumptionNeed, 0, len(needs))
+	for _, source := range needs {
+		row := source
+		row.DeductG = int64(math.Ceil(float64(source.DeductG) * float64(numerator) / float64(denominator)))
+		row.DeductUnits = int64(math.Ceil(float64(source.DeductUnits) * float64(numerator) / float64(denominator)))
+		row.Qty = int64(math.Ceil(float64(source.Qty) * float64(numerator) / float64(denominator)))
+		row.QtyDecimal = source.QtyDecimal * float64(numerator) / float64(denominator)
+		out = append(out, row)
+	}
+	return out
+}
+
 func componentConsumptionQty(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, packedUnits int64, boxUnits int64) int64 {
 	return componentConsumptionQtyWithOutputBasis(consumeUnit, qtyPerUnit, ratioPct, unit, rawG, 0, packedUnits, boxUnits, 0, "")
 }

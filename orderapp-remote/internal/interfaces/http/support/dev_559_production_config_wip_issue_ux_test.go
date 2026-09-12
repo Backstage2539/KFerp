@@ -35,11 +35,12 @@ func TestDev559ProductionConfigWIPIssueUXContracts(t *testing.T) {
 			"GetWorkOrderWIPCoverage",
 		},
 		filepath.Join("frontend-vue-shell", "src", "components", "ProductionExecutionHubDrawer.vue"): {
-			"WIP库存不足",
-			"生产领料",
-			"required_qty",
-			"available_qty",
-			"shortage_qty",
+			"查看缺料明细",
+			"去领料",
+			"materialRows",
+			"required",
+			"available",
+			"shortage",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "StockEntriesView.vue"): {
 			"工单号：",

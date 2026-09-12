@@ -3,6 +3,7 @@ package production
 import (
 	"context"
 	"fmt"
+	"math"
 	productionapp "orderapp/internal/application/production"
 	stockdomain "orderapp/internal/domain/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
@@ -51,7 +52,7 @@ func (r Repository) ListStockEntries(ctx context.Context, query productionapp.St
 	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT se.id,se.entry_no,se.entry_type,se.status,se.work_order_id,se.job_card_id,se.running_item_id,
-		       se.source_type,se.source_id,COUNT(si.id)::bigint,COALESCE(SUM(si.qty_g),0)::bigint,
+		       se.source_type,se.source_id,COUNT(si.id)::bigint,COALESCE(SUM(si.qty_g),0)::bigint,COALESCE(SUM(si.qty_units),0)::bigint,
 		       COALESCE(SUM(si.total_cost),0)::float8,se.operator,se.note,to_char(se.created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.stock_entries se
 		LEFT JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id
@@ -67,7 +68,7 @@ func (r Repository) ListStockEntries(ctx context.Context, query productionapp.St
 	out := make([]productionapp.StockEntryRow, 0)
 	for rows.Next() {
 		var row productionapp.StockEntryRow
-		if err := rows.Scan(&row.ID, &row.EntryNo, &row.EntryType, &row.Status, &row.WorkOrderID, &row.JobCardID, &row.RunningItemID, &row.SourceType, &row.SourceID, &row.ItemCount, &row.TotalQtyG, &row.TotalCost, &row.Operator, &row.Note, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.EntryNo, &row.EntryType, &row.Status, &row.WorkOrderID, &row.JobCardID, &row.RunningItemID, &row.SourceType, &row.SourceID, &row.ItemCount, &row.TotalQtyG, &row.TotalQtyUnits, &row.TotalCost, &row.Operator, &row.Note, &row.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -345,6 +346,19 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	if !validJobCardTransition(currentStatus, cmd.Action) {
 		return productionapp.JobCardActionResult{}, fmt.Errorf("invalid job card action %s from %s", cmd.Action, currentStatus)
 	}
+	if cmd.Action == "start" {
+		if err := ensureJobCardTaskReadyTx(ctx, tx, r.schema, workOrderID, cmd.ID); err != nil {
+			return productionapp.JobCardActionResult{}, err
+		}
+		if workOrderStatus == "released" && runningItemID <= 0 {
+			started, err := r.startWorkOrderTx(ctx, tx, productionapp.WorkOrderStartCommand{ID: workOrderID, Operator: cmd.Operator}, false)
+			if err != nil {
+				return productionapp.JobCardActionResult{}, err
+			}
+			workOrderStatus = started.WorkOrder.Status
+			runningItemID = started.RunningItemID
+		}
+	}
 	actualPieceQty := actualPieceQuantity(cmd.MetricsJSON, cmd.ActualOutputQty, inventoryQtyPerSalesUnit)
 	if cmd.Action == "complete" && normalizeProductionCostMethod(currentCostMethod) == "piece" && actualPieceQty <= 0 {
 		return productionapp.JobCardActionResult{}, fmt.Errorf("计件工序完成时必须填写成品件数，或提供可按冻结规格换算的实际产出数量")
@@ -510,6 +524,9 @@ func validJobCardTransition(current, action string) bool {
 }
 
 func jobCardStartAllowedForWorkOrder(status string, runningItemID int64) bool {
+	if strings.TrimSpace(status) == "released" && runningItemID <= 0 {
+		return true
+	}
 	if runningItemID <= 0 {
 		return false
 	}
@@ -519,6 +536,165 @@ func jobCardStartAllowedForWorkOrder(status string, runningItemID int64) bool {
 	default:
 		return false
 	}
+}
+
+func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, jobCardID int64) error {
+	var sequenceNo, minSequence int
+	var assignedTo, workstation, workCenter string
+	var plannedInput, sequenceInput float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT jc.sequence_no,COALESCE(jc.assigned_to,''),COALESCE(jc.workstation,''),COALESCE(jc.work_center,''),
+		       COALESCE(jc.planned_input_qty,0)::float8,
+		       COALESCE((SELECT MIN(sequence_no) FROM %s.job_cards WHERE work_order_id=jc.work_order_id AND status<>'cancelled'),jc.sequence_no),
+		       COALESCE((SELECT SUM(planned_input_qty) FROM %s.job_cards WHERE work_order_id=jc.work_order_id AND sequence_no=jc.sequence_no AND status<>'cancelled'),0)::float8
+		FROM %s.job_cards jc WHERE jc.id=$1 AND jc.work_order_id=$2 FOR UPDATE
+	`, schema, schema, schema), jobCardID, workOrderID).Scan(&sequenceNo, &assignedTo, &workstation, &workCenter, &plannedInput, &minSequence, &sequenceInput); err != nil {
+		return err
+	}
+	if strings.TrimSpace(assignedTo) == "" {
+		return fmt.Errorf("本任务尚未分配执行人")
+	}
+	if strings.TrimSpace(firstNonEmpty(workstation, workCenter)) == "" {
+		return fmt.Errorf("本任务尚未分配工位")
+	}
+	var qualityResult string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE((
+			SELECT lower(COALESCE(qi.result,'')) FROM %s.quality_inspections qi
+			JOIN %s.work_orders wo ON wo.id=$1
+			WHERE qi.work_order_id=$1 OR qi.job_card_id=$2
+			   OR (qi.work_order_id=0 AND qi.job_card_id=0 AND qi.reference_no IN (wo.work_order_no,$1::text,$2::text))
+			ORDER BY qi.created_at DESC,qi.id DESC LIMIT 1
+		),'')
+	`, schema, schema), workOrderID, jobCardID).Scan(&qualityResult); err != nil && !strings.Contains(err.Error(), "quality_inspections") {
+		return err
+	}
+	if taskQualityResultBlocks(qualityResult) {
+		return fmt.Errorf("本任务仍被质检冻结，请先处理质检")
+	}
+	if sequenceNo > minSequence {
+		return ensureJobCardPredecessorOutputTx(ctx, tx, schema, workOrderID, jobCardID, sequenceNo, plannedInput)
+	}
+	if plannedInput <= 0 || sequenceInput <= 0 {
+		return fmt.Errorf("本任务缺少冻结批次数量，请先确认工序拆分")
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id,COALESCE(NULLIF(component_type,''),'material'),material_id,material_name,unit,
+		       GREATEST(0,required_g-consumed_g),GREATEST(0,required_units-consumed_units)
+		FROM %s.work_order_material_reservations
+		WHERE work_order_id=$1 AND status='reserved'
+		ORDER BY id FOR UPDATE
+	`, schema), workOrderID)
+	if err != nil {
+		return err
+	}
+	type reservation struct {
+		id, materialID, requiredG, requiredUnits int64
+		componentType, name, unit                string
+	}
+	reservations := make([]reservation, 0)
+	for rows.Next() {
+		var row reservation
+		if err := rows.Scan(&row.id, &row.componentType, &row.materialID, &row.name, &row.unit, &row.requiredG, &row.requiredUnits); err != nil {
+			rows.Close()
+			return err
+		}
+		reservations = append(reservations, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(reservations) == 0 {
+		return fmt.Errorf("旧工单缺少可核对的冻结用料，请刷新计划或由调度确认")
+	}
+	var committedInput float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(planned_input_qty),0)::float8 FROM %s.job_cards
+		WHERE work_order_id=$1 AND sequence_no=$2 AND id<>$3 AND status IN ('running','paused','completed')
+	`, schema), workOrderID, sequenceNo, jobCardID).Scan(&committedInput); err != nil {
+		return err
+	}
+	for _, row := range reservations {
+		committedG := int64(math.Ceil(float64(row.requiredG) * committedInput / sequenceInput))
+		committedUnits := int64(math.Ceil(float64(row.requiredUnits) * committedInput / sequenceInput))
+		currentG := taskQuantitySlice(row.requiredG, committedInput, plannedInput, sequenceInput)
+		currentUnits := taskQuantitySlice(row.requiredUnits, committedInput, plannedInput, sequenceInput)
+		availableG, availableUnits, err := taskReservationWIPAvailableTx(ctx, tx, schema, row.id, row.componentType)
+		if err != nil {
+			return err
+		}
+		if availableG < committedG+currentG || availableUnits < committedUnits+currentUnits {
+			unit := strings.TrimSpace(row.unit)
+			if currentG > 0 {
+				return fmt.Errorf("本任务物料不足：%s，需求 %dg，WIP 可用 %dg，缺口 %dg", row.name, currentG, nonnegativeQuantity(availableG-committedG), nonnegativeQuantity(committedG+currentG-availableG))
+			}
+			return fmt.Errorf("本任务物料不足：%s，需求 %d%s，WIP 可用 %d%s，缺口 %d%s", row.name, currentUnits, unit, nonnegativeQuantity(availableUnits-committedUnits), unit, nonnegativeQuantity(committedUnits+currentUnits-availableUnits), unit)
+		}
+	}
+	return nil
+}
+
+func taskQuantitySlice(total int64, before, current, denominator float64) int64 {
+	if total <= 0 || current <= 0 || denominator <= 0 {
+		return 0
+	}
+	start := int64(math.Ceil(float64(total) * math.Max(0, before) / denominator))
+	end := int64(math.Ceil(float64(total) * math.Min(denominator, math.Max(0, before)+current) / denominator))
+	return nonnegativeQuantity(end - start)
+}
+
+func taskQualityResultBlocks(result string) bool {
+	switch strings.ToLower(strings.TrimSpace(result)) {
+	case "hold", "reject", "failed", "fail", "blocked":
+		return true
+	default:
+		return false
+	}
+}
+
+func taskReservationWIPAvailableTx(ctx context.Context, tx pgx.Tx, schema string, reservationID int64, componentType string) (int64, int64, error) {
+	var availableG, availableUnits int64
+	if strings.EqualFold(componentType, "product") || strings.EqualFold(componentType, "finished_product") {
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(LEAST(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g),GREATEST(0,s.remaining_g))),0)::bigint,
+			       COALESCE(SUM(LEAST(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units),GREATEST(0,s.remaining_units))),0)::bigint
+			FROM %s.work_order_material_reservation_batches b
+			JOIN %s.stock_batches s ON s.id=b.stock_batch_id
+			WHERE b.reservation_id=$1 AND b.status='reserved' AND b.warehouse='wip'
+			  AND COALESCE(s.quality_status,'unchecked') NOT IN ('hold','reject')
+		`, schema, schema), reservationID).Scan(&availableG, &availableUnits)
+		return availableG, availableUnits, err
+	}
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(LEAST(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g),GREATEST(0,l.qty_g))),0)::bigint,
+		       COALESCE(SUM(LEAST(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units),GREATEST(0,l.qty_units))),0)::bigint
+		FROM %s.work_order_material_reservation_batches b
+		JOIN %s.material_batches mb ON mb.id=b.material_batch_id
+		JOIN %s.material_batch_locations l ON l.material_batch_id=mb.id AND l.warehouse='wip'
+		WHERE b.reservation_id=$1 AND b.status='reserved' AND b.warehouse='wip'
+		  AND COALESCE(mb.quality_status,'unchecked') NOT IN ('hold','reject')
+	`, schema, schema, schema), reservationID).Scan(&availableG, &availableUnits)
+	return availableG, availableUnits, err
+}
+
+func ensureJobCardPredecessorOutputTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, jobCardID int64, sequenceNo int, plannedInput float64) error {
+	var previousSequence int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(MAX(sequence_no),0) FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no<$2 AND status<>'cancelled'`, schema), workOrderID, sequenceNo).Scan(&previousSequence); err != nil {
+		return err
+	}
+	var produced, committed float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(actual_output_qty),0)::float8 FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no=$2 AND status='completed'`, schema), workOrderID, previousSequence).Scan(&produced); err != nil {
+		return err
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(planned_input_qty),0)::float8 FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no=$2 AND id<>$3 AND status IN ('running','paused','completed')`, schema), workOrderID, sequenceNo, jobCardID).Scan(&committed); err != nil {
+		return err
+	}
+	if produced+0.000001 < committed+plannedInput {
+		return fmt.Errorf("前序可交接数量不足：本任务需要 %.3f，当前可用 %.3f", plannedInput, math.Max(0, produced-committed))
+	}
+	return nil
 }
 
 func nextJobCardStatus(action string) string {
@@ -675,9 +851,11 @@ func loadBatchCostForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string
 
 func stockEntryRowFromDetail(detail productionapp.StockEntryDetail) productionapp.StockEntryRow {
 	var qtyG int64
+	var qtyUnits int64
 	var totalCost float64
 	for _, item := range detail.Items {
 		qtyG += item.QtyG
+		qtyUnits += item.QtyUnits
 		totalCost += item.TotalCost
 	}
 	return productionapp.StockEntryRow{
@@ -693,6 +871,7 @@ func stockEntryRowFromDetail(detail productionapp.StockEntryDetail) productionap
 		SourceID:      detail.SourceID,
 		ItemCount:     int64(len(detail.Items)),
 		TotalQtyG:     qtyG,
+		TotalQtyUnits: qtyUnits,
 		TotalCost:     totalCost,
 		Operator:      detail.Operator,
 		Note:          detail.Note,

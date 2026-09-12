@@ -113,36 +113,12 @@ function stockActionParams(hub = {}, extra = {}) {
 
 export function buildExecutionHubActions(hub = {}) {
   const wo = hubWorkOrder(hub)
-  const readiness = hub.readiness || {}
-  const header = executionHubHeader(hub)
-  const dependencyBlocked = Boolean(
-    header.has_unfinished_dependencies
-    || header.upstream_blocked
-    || executionHubUpstreamBlockers(hub).length,
-  )
-  const startBlocked = readiness.can_start === false || dependencyBlocked
-  const startReason = startBlocked
-    ? String(header.dependency_blocking_reason || header.upstream_blocking_reason || '').trim()
-      || (readiness.blocking_reasons || []).map((row) => row?.label).find(Boolean)
-      || (dependencyBlocked ? '等待本工单组件批次备齐后再开始生产' : '当前状态不可开始生产')
-    : ''
   const actions = [
-    {
-      key: 'startProduction',
-      label: '开始生产',
-      action_type: 'command',
-      endpoint: wo.id ? `/api/produce/work-orders/${wo.id}/start` : '',
-      params: actionParams(hub),
-      disabled: startBlocked || !wo.id,
-      reason: startReason,
-    },
-    { key: 'productionIssue', label: '生产领料', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'issue', return_source: 'work_order' }) },
-    { key: 'productionSupplement', label: '补料', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'supplement', return_source: 'work_order' }) },
-    { key: 'productionReturn', label: '退回未用原料', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'return', return_source: 'work_order' }) },
-    { key: 'productionConsume', label: '记录生产消耗', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'consume', return_source: 'work_order' }) },
-    { key: 'finishedReceipt', label: '完工入库', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'finish', return_source: 'work_order' }) },
-    { key: 'openJobCard', label: '打开工序卡', action_type: 'navigate', view: 'jobCards', params: actionParams(hub) },
-    { key: 'openQuality', label: '打开质检', action_type: 'navigate', view: 'qualityInspections', params: actionParams(hub, { reference_no: wo.work_order_no }) },
+    { key: 'assignTask', label: '分配任务', action_type: 'navigate', view: 'workstationView', params: actionParams(hub, { focus: 'assignment' }) },
+    { key: 'openWorkstation', label: '进入工位', action_type: 'navigate', view: 'workstationView', params: actionParams(hub, { focus: 'workstation_task' }) },
+    { key: 'finishedReceipt', label: '完工入库', action_type: 'navigate', view: 'productionAcceptance', params: actionParams(hub) },
+    { key: 'openOperationRecords', label: '工序记录', action_type: 'navigate', view: 'jobCards', params: actionParams(hub) },
+    { key: 'openQuality', label: '查看质检', action_type: 'navigate', view: 'qualityInspections', params: actionParams(hub, { reference_no: wo.work_order_no }) },
     { key: 'openCost', label: '成本', action_type: 'navigate', view: 'productionCosts', params: actionParams(hub) },
     { key: 'openLogs', label: '日志', action_type: 'navigate', view: 'produceLogs', params: actionParams(hub) },
   ]
