@@ -67,7 +67,8 @@ test('schedule workspace is a weekly roster with automatic workstation assignmen
   const source = readFileSync(new URL('../views/ProductionScheduleView.vue', import.meta.url), 'utf8')
   for (const marker of ['生产排班', '/api/production-roster/preview', '/api/production-roster/save',
     '员工排班', '工位安排', '复制上一周', '恢复自动安排', '保存排班',
-    'beforeunload', 'version_conflict', 'requestID', '未排班', '无人值班', '待交接']) {
+    'beforeunload', 'version_conflict', 'requestID', '未排班', '无人值班', '待交接',
+    '本周排班尚未保存', '首次保存后，系统才会按本周出勤自动确定工位负责人']) {
     assert.ok(source.includes(marker), `missing workflow: ${marker}`)
   }
   assert.doesNotMatch(source, /MRP|甘特|ProductionStaffFields|production-schedule\/batch|v-model[^>]+assigned_to/)

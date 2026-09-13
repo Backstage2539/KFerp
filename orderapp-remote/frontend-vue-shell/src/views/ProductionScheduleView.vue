@@ -86,8 +86,18 @@ const allEmployeesSelected = computed(() => week.employees.length > 0 && selecte
 const unattendedCount = computed(() => week.assignments.filter(row => row.unattended && !row.override_invalid).length)
 const handoverCount = computed(() => week.assignments.reduce((sum, row) => sum + Number(row.handover_count || 0), 0))
 const savedSummary = computed(() => dirty.value ? '当前有未保存的排班调整' : `排班版本 V${week.version || 0} · 工位安排随出勤自动更新`)
-const footerTitle = computed(() => preview.value ? '已完成保存前核对' : dirty.value ? '有未保存的排班调整' : '排班已保存')
-const footerHint = computed(() => preview.value ? '确认后立即影响本周工位负责人，执行中任务仍需交接。' : '保存前会显示受影响工位和任务数量。')
+const footerTitle = computed(() => preview.value
+  ? '已完成保存前核对'
+  : dirty.value
+    ? '有未保存的排班调整'
+    : Number(week.version || 0) > 0
+      ? '排班已保存'
+      : '本周排班尚未保存')
+const footerHint = computed(() => preview.value
+  ? '确认后立即影响本周工位负责人，执行中任务仍需交接。'
+  : Number(week.version || 0) > 0
+    ? '保存前会显示受影响工位和任务数量。'
+    : '首次保存后，系统才会按本周出勤自动确定工位负责人。')
 
 function key(employeeID, date) { return `${employeeID}:${date}` }
 function stationKey(stationID, date) { return `${stationID}:${date}` }
