@@ -63,7 +63,7 @@ func TestProductionMenuClickMatrixViewsExposeActions(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductionLogsView.vue"): {
 			"/api/produce/logs",
-			"filters.batch_id",
+			"applied.batch_id",
 			"filters.operator",
 			"筛选",
 		},

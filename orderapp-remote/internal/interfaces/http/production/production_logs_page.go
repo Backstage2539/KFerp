@@ -26,8 +26,12 @@ type ProductionLogsPageData struct {
 }
 
 type ProductionLogsAPIResponse struct {
-	Products []productionProductOption `json:"products"`
-	Rows     []ProductionLogRow        `json:"rows"`
+	Products   []productionProductOption `json:"products"`
+	Rows       []ProductionLogRow        `json:"rows"`
+	Total      int                       `json:"total"`
+	Page       int                       `json:"page"`
+	Limit      int                       `json:"limit"`
+	TotalPages int                       `json:"total_pages"`
 }
 
 func registerProductionLogPages(e *echo.Echo, productionSvc *productionapp.Service) {
@@ -41,24 +45,33 @@ func registerProductionLogPages(e *echo.Echo, productionSvc *productionapp.Servi
 
 	e.GET("/api/produce/logs", func(c echo.Context) error {
 		query := parseProductionLogsQuery(c)
-		result, err := productionSvc.ListProductionLogs(c.Request().Context(), productionapp.ProductionLogsQuery{
-			From:          query.From,
-			To:            query.To,
-			ProductID:     query.ProductID,
-			BatchID:       query.BatchID,
-			Operator:      query.Operator,
-			RunningItemID: query.RunningItemID,
-			Limit:         200,
-		})
+		if err := productionapp.ValidateProductionLogsQuery(query); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		result, err := productionSvc.ListProductionLogs(c.Request().Context(), query)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
-		return c.JSON(http.StatusOK, ProductionLogsAPIResponse{Products: result.Products, Rows: result.Rows})
+		page, limit := result.Page, result.Limit
+		if page < 1 {
+			page = query.Page
+		}
+		if limit < 1 {
+			limit = query.Limit
+		}
+		totalPages := (result.Total + limit - 1) / limit
+		if totalPages < 1 {
+			totalPages = 1
+		}
+		return c.JSON(http.StatusOK, ProductionLogsAPIResponse{Products: result.Products, Rows: result.Rows, Total: result.Total, Page: page, Limit: limit, TotalPages: totalPages})
 	})
 }
 
-func parseProductionLogsQuery(c echo.Context) ProductionLogsPageData {
-	data := ProductionLogsPageData{
+func parseProductionLogsQuery(c echo.Context) productionapp.ProductionLogsQuery {
+	data := productionapp.ProductionLogsQuery{
+		Search:   strings.TrimSpace(c.QueryParam("q")),
+		Page:     support.IntParam(c, "page", 1),
+		Limit:    support.IntParam(c, "limit", 200),
 		From:     strings.TrimSpace(c.QueryParam("from")),
 		To:       strings.TrimSpace(c.QueryParam("to")),
 		BatchID:  strings.TrimSpace(c.QueryParam("batch_id")),
@@ -74,5 +87,12 @@ func parseProductionLogsQuery(c echo.Context) ProductionLogsPageData {
 			data.RunningItemID = n
 		}
 	}
+	if data.Page < 1 {
+		data.Page = 1
+	}
+	if data.Limit < 1 || data.Limit > 500 {
+		data.Limit = 200
+	}
+	data.WorkOrderID, _ = strconv.ParseInt(c.QueryParam("work_order_id"), 10, 64)
 	return data
 }
