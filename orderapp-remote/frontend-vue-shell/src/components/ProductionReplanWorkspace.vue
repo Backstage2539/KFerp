@@ -57,6 +57,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { summarizeReplanQuantities } from '../lib/production-replan.js'
 
 const props = defineProps({
   preview: { type: Object, default: null },
@@ -73,9 +74,9 @@ function quantity(value, unit, grams = 0) { if (Number(value) > 0 && unit) retur
 function demandQuantity(row) { return quantity(row.gap_inventory_qty || row.need_inventory_qty, row.inventory_unit, row.gap_g || row.need_g) }
 const available = computed(() => props.availableRows.filter(row => row.demand_status === 'unplanned' && row.demand_selectable !== false && (Number(row.gap_g || 0) > 0 || Number(row.gap_inventory_qty || 0) > 0) && selectionKey(row)))
 const filteredRows = computed(() => { const key = keyword.value.toLocaleLowerCase('zh-CN'); return key ? available.value.filter(row => [row.product, row.product_name, row.order_nos, row.spec_label].some(v => String(v || '').toLocaleLowerCase('zh-CN').includes(key))) : available.value })
-const originalQuantity = computed(() => quantity(0, '', (props.preview?.original_demands || []).reduce((sum, row) => sum + Number(row.quantity_g || 0), 0)))
-const additionalQuantity = computed(() => quantity(0, '', (props.preview?.additional_demands || []).reduce((sum, row) => sum + Number(row.quantity_g || 0), 0)))
-const totalQuantity = computed(() => quantity(0, '', Number(props.preview?.total_quantity_g || 0)))
+const originalQuantity = computed(() => summarizeReplanQuantities(props.preview?.original_demands || []))
+const additionalQuantity = computed(() => summarizeReplanQuantities(props.preview?.additional_demands || []))
+const totalQuantity = computed(() => summarizeReplanQuantities([...(props.preview?.original_demands || []), ...(props.preview?.additional_demands || [])]))
 </script>
 
 <style scoped>
