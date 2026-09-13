@@ -7,14 +7,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-657-PRODUCTION-ROSTER-AUTO-DISPATCH
-- Branch: `codex/production-roster-auto-dispatch-20260913` merged by PR #114; browser-found partial-replan fix on `codex/production-replan-in-progress-fix-20260913`, based on `origin/develop@fe1cd00f4607cb3a2cc9c61c7985a74ff7518eaa`.
+- Branches/PRs: main implementation #114; partial replan #115; initial roster copy #116; personal empty state #117; factory empty state and replan units #118; final evidence on `codex/production-roster-acceptance-evidence-20260913`.
 - Owner/session: Codex / 2026-09-13
-- Status: main implementation deployed to development at `fe1cd00f`; browser acceptance found and locally fixed the production-in-progress partial replan guard, follow-up verification/integration/redeploy in progress; production excluded.
+- Status: implementation, `develop` integration, development deployment and read-only browser acceptance complete; awaiting Van business acceptance; production excluded.
 - Scope: weekly employee attendance, workstation primary/ordered backup ownership, automatic task dispatch, workstation handover, and atomic unstarted-demand replan.
 - DEV: DEV-657-PRODUCTION-ROSTER-DATA; DEV-658-PRODUCTION-ROSTER-UI; DEV-659-PRODUCTION-AUTO-DISPATCH-HANDOVER; DEV-660-PRODUCTION-DEMAND-REPLAN.
 - Verifier: roster/owner unit tests; handler and isolated PostgreSQL lifecycle; automatic job-card start guards; replan transaction/idempotency/shared-upstream tests; full Go/Vue/build; development screenshots.
 - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue page help.
 - Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-production-roster-auto-dispatch.md`.
+- Deployment: development application `e82904f84693b68a8b1cd40383cb7913a3e3c736`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260913165023-e82904f84693`; rollback image `kferp-orderapp-rollback:development-20260913165023-e82904f84693`.
+- Evidence: Go all packages; Vue 1218/1218; miniapp 238/238; Vite build; isolated PostgreSQL roster, dispatch, handover and replan lifecycles; development desktop and 430px screenshots in `/private/tmp/kferp-pr657-acceptance/`. Login page and Vue shell return 200; orderapp is Up and PostgreSQL healthy.
 - Last update: 2026-09-13 Asia/Shanghai
 
 ### PR-656-WORKSTATION-SINGLE-OWNER-FIXES
