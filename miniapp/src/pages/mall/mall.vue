@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import {
+  defaultMiniappShare,
+  defaultMiniappTimelineShare,
+  refreshMiniappShareMenu,
+} from '../../utils/miniappShare'
 import { buildAPIURL } from '../../api/client'
 import { createMallOrder, fetchMallPage, type MallPageResponse } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
@@ -132,6 +137,10 @@ async function submitOrder() {
 onShow(() => {
   void loadMall()
 })
+
+onShareAppMessage(defaultMiniappShare)
+onShareTimeline(defaultMiniappTimelineShare)
+onShow(() => { void refreshMiniappShareMenu() })
 </script>
 
 <template>

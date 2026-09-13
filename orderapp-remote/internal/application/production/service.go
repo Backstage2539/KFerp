@@ -880,6 +880,9 @@ type ProductionLogsQuery struct {
 	BatchID       string
 	Operator      string
 	RunningItemID int64
+	WorkOrderID   int64
+	Search        string
+	Page          int
 	Limit         int
 }
 
@@ -917,6 +920,9 @@ type ProductionLogRow struct {
 type ProductionLogsResult struct {
 	Products []ProductionLogProductOption
 	Rows     []ProductionLogRow
+	Total    int
+	Page     int
+	Limit    int
 }
 
 type WorkOrderQuery struct {
@@ -3529,7 +3535,29 @@ func (s *Service) ListProductionLogs(ctx context.Context, query ProductionLogsQu
 	if query.Limit <= 0 || query.Limit > 500 {
 		query.Limit = 200
 	}
+	if err := ValidateProductionLogsQuery(query); err != nil {
+		return ProductionLogsResult{}, err
+	}
+	query.Search = strings.TrimSpace(query.Search)
+	if query.Page < 1 {
+		query.Page = 1
+	}
 	return s.repo.ListProductionLogs(ctx, query)
+}
+
+// ValidateProductionLogsQuery rejects invalid ranges before PostgreSQL casts dates.
+func ValidateProductionLogsQuery(query ProductionLogsQuery) error {
+	for _, value := range []string{query.From, query.To} {
+		if value != "" {
+			if _, err := time.Parse("2006-01-02", value); err != nil {
+				return fmt.Errorf("请选择有效的开始和结束日期")
+			}
+		}
+	}
+	if query.From != "" && query.To != "" && query.From > query.To {
+		return fmt.Errorf("开始日期不能晚于结束日期")
+	}
+	return nil
 }
 
 func (s *Service) ProductionWorkstationOverview(ctx context.Context, query ProductionWorkstationOverviewQuery) (ProductionWorkstationOverview, error) {

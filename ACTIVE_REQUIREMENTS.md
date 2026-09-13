@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-661-PRODUCTION-LOG-WORKSPACE
+- Branch: `codex/production-log-workspace-20260913`; base `origin/develop@0fc27ba5`.
+- Owner: Codex; acceptance Van pending.
+- Scope: 生产日志统一白底浅绿摘要、紧凑列表与右侧详情；明确查询、真实分页、数量单位及批次追溯；只读历史记录。
+- DEV: DEV-671-LOG-QUERY; DEV-672-LOG-WORKSPACE; DEV-673-LOG-DELIVERY.
+- Verifier: targeted RED/GREEN, Go/API and isolated PostgreSQL paging/date/context tests, Vue interaction/unit tests and build, desktop/narrow browser evidence.
+- Delivery: 用户授权 develop 开发环境 → develop 合入 main → 正式环境；保留各环境配置与业务数据，使用干净克隆，不发布微信。
+- Status: 实现、针对性 RED/GREEN、Go 全包、真实 PostgreSQL 205 条分页/北京时间、Vue 1231 项、构建与隔离桌面/430px 页面验收通过；准备合入 develop 并按授权发布两环境。Van 业务验收待进行。
+- Evidence: orderapp-remote/docs/acceptance/2026-09-13-production-log-workspace.md.
+- Coordination: 原本地预留 659 与并行已合入需求撞号，改用 PR-661 / DEV-671–673；测试隔离数据与证据目录沿用 659 标识。
+
 ### PR-660-PRICE-TIER-FIXED-ORDER-CATEGORY
 - Branch: `codex/price-tier-fixed-order-category-20260913`; base `0fc27ba5`.
 - Owner/session: Codex / 2026-09-13
@@ -22,10 +33,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-659-MINIAPP-SHARE-SCOPE
 - Branch: `codex/miniapp-production-share-20260913`, base `0fc27ba5767ad93547ec9433f684a4c20d5b1e37`.
 - Owner/session: Codex / 2026-09-13
-- Status: implementation complete; targeted RED/GREEN, Go full package test, Vue full gate, miniapp 245/245, typecheck and production-mode build passed. Initial integration reached `develop` at `f9a54f8e` and `main` at `ffb6926d`; the fixed production miniapp package was regenerated. Production ERP deployment and WeChat upload, review and publication remain pending.
+- Status: implementation complete; targeted RED/GREEN, Go full package test, Vue full gate, miniapp 246/246, typecheck and production-mode build passed. DevTools follow-up found the global mixin did not emit page share lifecycles; all 14 declared pages now register them directly and the artifact verifier rejects the old broken package. Initial integration reached `develop` at `f9a54f8e` and `main` at `ffb6926d`; follow-up integration, production ERP deployment and package regeneration are in progress. WeChat upload, review and publication remain pending.
 - Scope: restore WeChat page sharing and let an employee administrator choose admin-only, employee, or everyone scope. Default employee; shared cards open the safe miniapp home without business identifiers.
 - DEV: DEV-664-MINIAPP-SHARE-POLICY; DEV-665-MINIAPP-SHARE-UI; DEV-666-MINIAPP-SHARE-DELIVERY.
-- Verifier: share policy API roles/defaults/validation; transactional readable audit setting; miniapp share-menu visibility, API helpers, profile source contract, typecheck and production-mode build.
+- Verifier: share policy API roles/defaults/validation; transactional readable audit setting; miniapp share-menu visibility, API helpers, every declared page's source and built lifecycle registration, profile source contract, typecheck and production-mode build.
 - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`.
 - Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-miniapp-share-scope.md`.
 - Release: fixed package `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`; previous production package retained as a timestamped sibling backup. Rebuild the package after this evidence commit reaches the final `main`, then verify `RELEASE_INFO` matches that commit.

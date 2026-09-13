@@ -1,5 +1,6 @@
 <template>
   <div class="page">
+    <ProductionReturnLink :source="viewParams.return_navigation" />
     <section class="panel">
       <div class="panel-head">
         <div>
@@ -382,6 +383,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import {

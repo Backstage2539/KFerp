@@ -164,7 +164,7 @@ describe('employee mini order entry page contract', () => {
     expect(restoreDraftSource).toContain('await loadCustomerProductCatalog')
     expect(restoreDraftSource).toContain('preserveManualPrice: true')
     expect(restoreDraftSource).not.toContain('preserveUnitPrice: true')
-    expect(pageSource).toContain("import { onLoad, onShow } from '@dcloudio/uni-app'")
+    expect(pageSource).toMatch(/import \{[^}]*onLoad[^}]*onShow[^}]*\} from '@dcloudio\/uni-app'/)
     expect(pageSource).toContain('onShow(() =>')
     expect(pageSource).toContain('void refreshCurrentProductCatalog()')
     const openProductSource = pageSource.slice(

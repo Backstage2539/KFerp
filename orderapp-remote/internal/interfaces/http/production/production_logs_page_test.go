@@ -12,7 +12,7 @@ func TestProductionLogsVueContainsKeyColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"生产日志", "实际产出率", "投料数(g)", "完成时间", "/api/produce/logs", "running_item_id", "applyProductionContextParams"} {
+	for _, needle := range []string{"生产日志", "实际产出率", "实际投料", "完成时间", "/api/produce/logs", "running_item_id", "applyProductionContextParams"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("ProductionLogsView.vue missing %q", needle)
 		}

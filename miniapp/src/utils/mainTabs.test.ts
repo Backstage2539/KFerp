@@ -7,14 +7,9 @@ function readSource(path: string): string {
 }
 
 describe('miniapp startup route and main tabs', () => {
-  it('enables WeChat page forwarding through one privacy-safe global entry', () => {
-    const main = readSource('src/main.ts')
+  it('uses privacy-safe defaults for page sharing', () => {
     const share = readSource('src/utils/miniappShare.ts')
 
-    expect(main).toContain('app.mixin')
-    expect(main).toContain('onShow: refreshMiniappShareMenu')
-    expect(main).toContain('onShareAppMessage: defaultMiniappShare')
-    expect(main).toContain('onShareTimeline: defaultMiniappTimelineShare')
     expect(share).toContain("path: '/pages/index/index'")
     expect(share).toContain("title: 'KFerp 客户中心'")
     expect(share).not.toContain('order_id')
