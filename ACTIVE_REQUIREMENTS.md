@@ -9,11 +9,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-658-PRODUCTION-ROSTER-RELIEF
 - Branch: `codex/production-roster-relief-20260913`; base `cdd6768c`.
 - Owner/session: Codex / 2026-09-13
-- Status: RED/GREEN、Go 全包、Vue 1225/1225、针对性真实 PostgreSQL、构建及隔离页面开工/交接通过；等待本分支整合并部署 development。扩大 PostgreSQL 17 项失败与未修改 develop 基线一致，无新增。
+- Status: 已合入 develop 并部署 development，技术与隔离页面验收完成；Van 业务验收待进行。RED/GREEN、Go 全包、Vue 1225/1225、针对性真实 PostgreSQL、构建通过。扩大 PostgreSQL 17 项失败与未修改 develop 基线一致，无新增。
 - Scope: reliable ordered backup selection, live roster preview, daily manual owner and bulk replacement, leave relief.
 - DEV: DEV-661-ROSTER-RELIEF; DEV-662-ROSTER-ADJUSTMENT-UI; DEV-663-ROSTER-RELIEF-DELIVERY.
 - Verifier: resolver and edit unit tests; PostgreSQL API lifecycle, conflict, replay and rollback; Vue interaction tests and build; isolated browser writes and screenshots.
-- Deployment ownership: Codex PR-658 / 2026-09-13; latest fetched develop cdd6768c. Pending verified feature push, PR merge and clean-clone development deploy. Real attendance V3 and unsaved user edits preserved. Verified 智烘 primary 段其晶 id6 / empty backups; 刘祎泊 id10 active and all-week working; only that explicitly confirmed backup relation will be repaired after deployment.
+- Deployment ownership: Codex PR-658 / 2026-09-13; feature `ae3c240c16bacf03a07d9a7821e2ec3af75b3c9e` pushed, GitHub PR #120 merged as `9e143dd5542e9d105e944eada59a51763452b84a`; clean-clone `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` completed. Release metadata, feature/UI/manual hashes and external API checks agree; application restart count 0. Evidence follow-up branch: `codex/production-roster-relief-delivery-20260913` (docs only).
+- Rollback: source `/opt/stacks/erp/orderapp.backup.deploy-20260913205817-9e143dd5542e`; image `kferp-orderapp-rollback:development-20260913205817-9e143dd5542e`.
+- Real data: 已按核实关系为智烘 id3 补存刘祎泊 id10 为替补，主负责人段其晶 id6 及其他配置不变；周二/四/六返回 backup=10。出勤、临时安排、排班 V3 与原未保存页面保留；操作日志 2026-09-13 21:07:08 可查。其他工位没有推测补人。
 - Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
 - Acceptance: orderapp-remote/docs/acceptance/2026-09-13-production-roster-relief.md
 
