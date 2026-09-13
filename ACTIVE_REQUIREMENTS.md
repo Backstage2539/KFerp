@@ -9,13 +9,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-660-PRICE-TIER-FIXED-ORDER-CATEGORY
 - Branch: `codex/price-tier-fixed-order-category-20260913`; base `0fc27ba5`.
 - Owner/session: Codex / 2026-09-13
-- Status: implementation, full verification, `develop` integration, development deployment and read-only browser acceptance complete; production delivery in progress, Van business acceptance pending.
+- Status: implementation, full verification, development and production deployment, and read-only browser acceptance complete; Van business acceptance pending.
 - Scope: mixed pricing-rule/fixed-price tiers with stable tier identity; spec-tier fixed-price draft and publication snapshots; row override/revert; order entry categories sourced from selected published price lists.
 - DEV: DEV-667-PRICE-TIER-MODE; DEV-668-SPEC-TIER-FIXED-PRICE; DEV-669-ORDER-PUBLISHED-CATEGORY; DEV-670-PRICE-TIER-DELIVERY.
 - Verifier: targeted Go/Vue RED-GREEN; published-row validation and old snapshot compatibility; full Go/Vue/build; development browser acceptance; production read-only smoke.
 - Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md` and `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`.
 - Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-price-tier-fixed-order-category.md`.
-- Development: runtime `25603ec86aac4902302c4bc25f7f13d9463b5261`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260913231558-25603ec86aac`; rollback image `kferp-orderapp-rollback:development-20260913231558-25603ec86aac`; application running with restart count 0.
+- Development: runtime `6304bc91059352a6ca2810ed2592fd6ac713536f`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260913232913-6304bc910593`; rollback image `kferp-orderapp-rollback:development-20260913232913-6304bc910593`; application running with restart count 0.
+- Production: runtime `d1db829aeca709435129a3a37b3a84eab575ef3a`; source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260913233941-d1db829aeca7`; rollback image `kferp-orderapp-rollback:production-20260913233941-d1db829aeca7`; application running with restart count 0 and PostgreSQL healthy. Existing published price lists were read only during browser smoke; no order or price data was saved.
 - Notes: reservation helper initially selected PR-659 but its macOS awk multiline placeholder failed; concurrent development claimed PR-659 and DEV-664 through DEV-666 before integration, so this requirement moved to the next free IDs.
 
 ### PR-659-MINIAPP-SHARE-SCOPE
