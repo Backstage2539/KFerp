@@ -180,3 +180,10 @@ test("batch trace navigation carries filters and selected record for return", as
     "PB-8",
   );
 });
+
+
+test("operation manual opened from logs provides the same transient return link", () => {
+  const source = readFileSync(new URL("../views/OperationManualView.vue", import.meta.url), "utf8");
+  assert.match(source, /ProductionReturnLink :source="viewParams.return_navigation"/);
+  assert.match(source, /viewParams: \{ type: Object/);
+});
