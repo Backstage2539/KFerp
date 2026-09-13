@@ -61,7 +61,7 @@ describe('employee order detail miniapp page contract', () => {
   })
 
   it('refreshes on show and exposes a valid edit action only when the backend allows it', () => {
-    expect(detailSource).toContain("import { onLoad, onShow } from '@dcloudio/uni-app'")
+    expect(detailSource).toMatch(/import \{[^}]*onLoad[^}]*onShow[^}]*\} from '@dcloudio\/uni-app'/)
     expect(detailSource).toContain('onShow(() => void loadDetail())')
     expect(detailSource).toContain('response.can_edit ?? response.order.can_edit')
     expect(detailSource).toContain('v-if="canEdit"')

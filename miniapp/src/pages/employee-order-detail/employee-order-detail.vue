@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { computed, ref } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import {
+  defaultMiniappShare,
+  defaultMiniappTimelineShare,
+  refreshMiniappShareMenu,
+} from '../../utils/miniappShare'
 import {
   buildEmployeeOrderDocumentPath,
   fetchEmployeeOrderDetail,
@@ -239,6 +244,10 @@ onLoad((options) => {
   orderID.value = Number(options?.id || 0)
 })
 onShow(() => void loadDetail())
+
+onShareAppMessage(defaultMiniappShare)
+onShareTimeline(defaultMiniappTimelineShare)
+onShow(() => { void refreshMiniappShareMenu() })
 </script>
 
 <template>
