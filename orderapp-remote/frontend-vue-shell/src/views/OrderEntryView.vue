@@ -303,7 +303,7 @@
                 class="combo-option"
                 @mousedown.prevent="chooseProduct(row, product)"
               >
-                <strong>{{ product.name }} <span class="kind-badge" :class="productKindBadgeClass(product)">{{ productKindLabel(product) }}</span></strong>
+                <strong>{{ product.name }} <span class="kind-badge" :class="orderProductCategoryBadgeClass(product)">{{ orderProductCategoryLabel(product) }}</span></strong>
                 <small v-if="productSpecCountForCurrentList(product)">{{ productSpecCountForCurrentList(product) }} 个可售规格</small>
                 <small v-else-if="!product.__order_concrete_price_family && product.tiers?.length">{{ product.tiers.length }} 个价格梯度</small>
               </button>
@@ -504,7 +504,7 @@
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
           <li>客户有历史订单时，商品下拉会把常用商品排在最前面。</li>
-          <li>商品下拉可按当前可选的熟豆、挂耳、生豆、速溶咖啡分类过滤，并可继续输入名称或拼音；点击下拉外部会自动收起。</li>
+          <li>商品下拉按当前已选择并发布的商品价格表真实分类过滤，例如烘焙咖啡豆、咖啡生豆、咖啡挂耳、速溶咖啡和好玩的产品；还可输入名称或拼音。</li>
           <li>来源、客户类型和订单类型只在客户资料维护，录单选择客户后只读展示。</li>
           <li>商品明细区点击“选择价格表”可切换熟豆、生豆、挂耳已发布价格表；客户没有自定义价格表时使用公共价格表。</li>
           <li>同一价格表类型已有按商品分类发布的价格表时，新订单只自动启用当前分类价格表；旧全局价格表默认不参与商品候选，需要时可手工启用。仅有旧全局价格表时仍按历史规则自动使用。</li>
@@ -693,6 +693,9 @@ import {
   orderProductFamilyOptions,
   orderProductFamilyForContext,
   orderProductFamilyIdentity,
+  orderProductClassificationFilterOptions,
+  orderProductClassificationForFamily,
+  orderProductFamiliesForClassification,
   orderProductKindFilterOptions,
   orderSpecSelectionAfterPublicationChange,
   orderRowPriceUnit,
@@ -1658,7 +1661,9 @@ function scopedOrderProductOptions() {
 }
 
 function productKindFilterOptions() {
-  return orderProductKindFilterOptions(scopedOrderProductOptions())
+  const families = scopedOrderProductOptions()
+  const classified = orderProductClassificationFilterOptions(families, beanListVersionGroups.value, selectedBeanListPublicationIDs)
+  return classified.length ? classified : orderProductKindFilterOptions(families)
 }
 
 function activeProductKindFilter(row) {
@@ -1667,11 +1672,28 @@ function activeProductKindFilter(row) {
 }
 
 function productOptions(row) {
+  const families = scopedOrderProductOptions()
+  const classified = orderProductClassificationFilterOptions(families, beanListVersionGroups.value, selectedBeanListPublicationIDs)
+  const selected = activeProductKindFilter(row)
+  const scopedFamilies = classified.length
+    ? orderProductFamiliesForClassification(families, selected, beanListVersionGroups.value, selectedBeanListPublicationIDs)
+    : families
   return sortProductsByCustomerUsage(
-    orderProductFamilyOptions(scopedOrderProductOptions(), row.product_query, activeProductKindFilter(row)),
+    orderProductFamilyOptions(scopedFamilies, row.product_query, classified.length ? '' : selected),
     form.customer_id,
     customerProductUsages.value,
   ).slice(0, 30)
+}
+
+function orderProductCategoryLabel(product = {}) {
+  return orderProductClassificationForFamily(product, beanListVersionGroups.value, selectedBeanListPublicationIDs)?.label
+    || productKindLabel(product)
+}
+
+function orderProductCategoryBadgeClass(product = {}) {
+  return orderProductClassificationForFamily(product, beanListVersionGroups.value, selectedBeanListPublicationIDs)
+    ? 'kind-price-list'
+    : productKindBadgeClass(product)
 }
 
 function handleOrderProductPointerDown(event) {
@@ -2886,6 +2908,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .product-kind-filter-option:hover { background: #f3f6fb; }
 .product-kind-filter-option.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
 .kind-badge { display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-left: 4px; }
+.kind-price-list { color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
 .kind-drip { color: #1f4b7a; background: #eaf3ff; border: 1px solid #9bc4ef; }

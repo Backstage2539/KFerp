@@ -340,6 +340,23 @@ test('price-list generation snapshot persists template inheritance, editable fla
   assert.equal(row.customer_reference_snapshot.customer_display_name, 'Karen 拼配')
 })
 
+test('price-list snapshot preserves a fixed-price tier inside a mixed tier template', () => {
+  const row = buildPriceListGenerationSnapshot({ rows: [{
+    product_id: 940,
+    pricing_mode: 'tier_template',
+    tier_pricing_mode: 'fixed_price',
+    tier_template_id: 8,
+    template_tier_id: 81,
+    fixed_unit_price: 58,
+    final_unit_price: 58,
+  }] }).content.price_rows[0]
+
+  assert.equal(row.pricing_mode, 'tier_template')
+  assert.equal(row.tier_pricing_mode, 'fixed_price')
+  assert.equal(row.fixed_unit_price, 58)
+  assert.equal(row.pricing_rule_id, 0)
+})
+
 test('PDF bean-list helper builds a green bean list from template tiers and quality data', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 90,

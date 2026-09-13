@@ -300,6 +300,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.price_tier_template_tiers (
 	min_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
 	max_qty NUMERIC(14,4),
 	quantity_unit TEXT NOT NULL DEFAULT 'kg',
+	pricing_mode TEXT NOT NULL DEFAULT 'pricing_rule',
 	position INT NOT NULL DEFAULT 100,
 	active BOOLEAN NOT NULL DEFAULT true,
 	remark TEXT NOT NULL DEFAULT '',
@@ -309,6 +310,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.price_tier_template_tiers (
 CREATE INDEX IF NOT EXISTS price_tier_template_tiers_template_idx
 ON %[1]s.price_tier_template_tiers(template_id, active, position, id);
 ALTER TABLE %[1]s.price_tier_template_tiers ADD COLUMN IF NOT EXISTS pricing_rule_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.price_tier_template_tiers ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'pricing_rule';
 CREATE TABLE IF NOT EXISTS %[1]s.product_price_groups (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
