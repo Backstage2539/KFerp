@@ -6,7 +6,7 @@
 - 员工管理员可在个人中心设置“管理员可以分享、员工可以分享、所有人可以分享”。默认“员工可以分享”；服务端按当前登录身份计算是否可分享，未登录访客只在“所有人”范围内可分享。
 - 页面每次显示时重新读取范围并显示或隐藏微信分享菜单；读取失败安全隐藏。分享范围与订单图片携带小程序入口是两个独立设置。
 - 保存范围要求管理员角色和系统设置权限，配置与操作日志在同一事务中提交；操作日志使用中文范围名称。
-- DEV-664-MINIAPP-SHARE-POLICY / DEV-665-MINIAPP-SHARE-UI / DEV-666-MINIAPP-SHARE-DELIVERY。代码合入 develop；正式微信版本上传、审核和发布需另行授权。
+- DEV-664-MINIAPP-SHARE-POLICY / DEV-665-MINIAPP-SHARE-UI / DEV-666-MINIAPP-SHARE-DELIVERY。源码已合入 develop 和 main，正式环境小程序包已生成；production ERP 服务部署以及微信上传、审核和发布仍分别执行。
 
 ## PR-658 生产排班替补生效、请假补位与整日换人
 
