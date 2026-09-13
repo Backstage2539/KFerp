@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import {
+  defaultMiniappShare,
+  defaultMiniappTimelineShare,
+  refreshMiniappShareMenu,
+} from '../../utils/miniappShare'
 import {
   buildBeanListPDFPath,
   buildBeanListPNGPath,
@@ -94,6 +99,10 @@ async function loadFactoryProducts() {
 onShow(() => {
   void loadFactoryProducts()
 })
+
+onShareAppMessage(defaultMiniappShare)
+onShareTimeline(defaultMiniappTimelineShare)
+onShow(() => { void refreshMiniappShareMenu() })
 </script>
 
 <template>

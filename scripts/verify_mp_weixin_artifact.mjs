@@ -63,6 +63,7 @@ if (declaredPages.length === 0) {
 
 const requiredFiles = []
 const missing = []
+const pagesWithoutShareHooks = []
 for (const page of declaredPages) {
   for (const extension of ['.js', '.json', '.wxml', '.wxss']) {
     const relativeFile = `${page}${extension}`
@@ -76,11 +77,27 @@ for (const page of declaredPages) {
       missing.push(relativeFile)
     }
   }
+
+  try {
+    const pageScript = await readFile(path.join(absoluteRoot, ...`${page}.js`.split('/')), 'utf8')
+    if (!pageScript.includes('onShareAppMessage') || !pageScript.includes('onShareTimeline')) {
+      pagesWithoutShareHooks.push(`${page}.js`)
+    }
+  } catch {
+    // Missing page scripts are reported together with the other required files below.
+  }
 }
 
 if (missing.length > 0) {
   for (const relativeFile of missing) {
     console.error(`ERROR: mp-weixin artifact is missing declared page file: ${relativeFile}`)
+  }
+  process.exit(1)
+}
+
+if (pagesWithoutShareHooks.length > 0) {
+  for (const relativeFile of pagesWithoutShareHooks) {
+    console.error(`ERROR: mp-weixin page does not register share hooks: ${relativeFile}`)
   }
   process.exit(1)
 }
