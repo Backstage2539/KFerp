@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-659-MINIAPP-SHARE-SCOPE", title: "恢复小程序页面分享并由管理员设置分享范围", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-miniapp-share-scope.md"},
+		{table: "req_dev", code: "DEV-664-MINIAPP-SHARE-POLICY", title: "按管理员、员工和所有人范围统一计算页面分享权限", status: "done", assignee: "Codex", evidence: "mini_employee_share_settings_api.go; mini_employee_share_settings_api_test.go"},
+		{table: "req_dev", code: "DEV-665-MINIAPP-SHARE-UI", title: "个人中心三档范围设置及逐页微信分享菜单显隐", status: "done", assignee: "Codex", evidence: "profile.vue; miniappShare.ts; miniapp tests"},
+		{table: "req_dev", code: "DEV-666-MINIAPP-SHARE-DELIVERY", title: "操作日志、手册、全量验证和生产模式小程序包构建", status: "done", assignee: "Codex", evidence: "audit_page.go; OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; acceptance/2026-09-13-miniapp-share-scope.md"},
+		{table: "req_review", code: "REV-659-MINIAPP-SHARE-SCOPE", prCode: "PR-659-MINIAPP-SHARE-SCOPE", title: "微信正式版发布后验收四类身份分享入口与安全首页卡片", status: "todo", assignee: "VA", evidence: "待 production 微信包上传、审核、发布后由 Van 真机验收"},
+
 		{table: "req_product", code: "PR-658-PRODUCTION-ROSTER-RELIEF", title: "替补保存生效、请假自动补位与整日换人", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-production-roster-relief.md"},
 		{table: "req_dev", code: "DEV-661-ROSTER-RELIEF", title: "当日临时员工、请假补位、整日替换与任务范围事务校验", status: "done", assignee: "Codex", evidence: "production_roster_relief.go; production_roster_relief_acceptance_test.go"},
 		{table: "req_dev", code: "DEV-662-ROSTER-ADJUSTMENT-UI", title: "替补选中即加入、实时预览、负责人面板和整日换人", status: "done", assignee: "Codex", evidence: "ProductionScheduleView.vue; ManufacturingWorkstationsView.vue; production-roster-interaction.test.js"},

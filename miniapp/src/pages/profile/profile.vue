@@ -5,8 +5,10 @@ import {
   fetchEmployeeShareSettings,
   fetchMe,
   saveEmployeeShareSettings,
+  saveEmployeeShareScope,
   switchCurrentCustomer,
 } from '../../api/customerPortal'
+import type { EmployeeShareScope } from '../../api/customerPortal'
 import { isAuthenticationExpiredRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
@@ -21,6 +23,7 @@ import {
   shouldShowCustomerSwitcher,
 } from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
+import { refreshMiniappShareMenu } from '../../utils/miniappShare'
 
 const session = useSessionStore()
 const {
@@ -39,6 +42,13 @@ const shareSettingLoaded = ref(false)
 const shareSettingError = ref('')
 const imageNeedShowEntrance = ref(false)
 const savedImageNeedShowEntrance = ref(false)
+const shareScope = ref<EmployeeShareScope>('employee')
+const savedShareScope = ref<EmployeeShareScope>('employee')
+const shareScopeOptions: Array<{ value: EmployeeShareScope; label: string; hint: string }> = [
+  { value: 'employee', label: '员工可以分享', hint: '所有员工可分享，客户和访客不可分享' },
+  { value: 'all', label: '所有人可以分享', hint: '员工、客户和未登录访客均可分享' },
+  { value: 'admin', label: '管理员可以分享', hint: '仅管理员显示小程序转发入口' },
+]
 
 const isEmployee = computed(() => session.accountType === 'employee')
 function hasCapability(code: string): boolean {
@@ -70,6 +80,11 @@ function redirectExpiredShareSettingsSession(error: unknown): boolean {
   if (!isAuthenticationExpiredRequestError(error)) return false
   clearAndLogin()
   return true
+}
+
+function normalizeShareScope(value: unknown): EmployeeShareScope {
+  if (value === 'admin' || value === 'all') return value
+  return 'employee'
 }
 
 function openCustomerProducts() {
@@ -108,12 +123,40 @@ async function loadShareSettings() {
     const value = response.settings?.image_need_show_entrance === true
     imageNeedShowEntrance.value = value
     savedImageNeedShowEntrance.value = value
+    const loadedScope = normalizeShareScope(response.settings?.share_scope)
+    shareScope.value = loadedScope
+    savedShareScope.value = loadedScope
     shareSettingLoaded.value = true
   } catch (error) {
     if (redirectExpiredShareSettingsSession(error)) return
     shareSettingError.value = error instanceof Error ? error.message : '分享设置加载失败'
   } finally {
     shareSettingLoading.value = false
+  }
+}
+
+async function handleShareScopeChange(event: Event) {
+  if (!canManageShareSettings.value || !shareSettingLoaded.value || shareSettingSaving.value) return
+  const detail = (event as unknown as { detail?: { value?: string } }).detail
+  const nextScope = normalizeShareScope(detail?.value)
+  if (nextScope === savedShareScope.value) return
+  shareScope.value = nextScope
+  shareSettingSaving.value = true
+  shareSettingError.value = ''
+  try {
+    const response = await saveEmployeeShareScope(session.token, nextScope)
+    const savedScope = normalizeShareScope(response.settings?.share_scope)
+    shareScope.value = savedScope
+    savedShareScope.value = savedScope
+    await refreshMiniappShareMenu()
+    uni.showToast({ title: '分享范围已保存', icon: 'success' })
+  } catch (error) {
+    shareScope.value = savedShareScope.value
+    if (redirectExpiredShareSettingsSession(error)) return
+    shareSettingError.value = error instanceof Error ? error.message : '分享范围保存失败'
+    uni.showToast({ title: '保存失败，已恢复原设置', icon: 'none' })
+  } finally {
+    shareSettingSaving.value = false
   }
 }
 
@@ -193,6 +236,26 @@ onShow(() => {
       </view>
 
       <view v-if="canManageShareSettings" class="settings-card">
+        <view class="setting-copy">
+          <text class="setting-title">小程序分享范围</text>
+          <text class="setting-hint">控制微信右上角“转发”和“分享到朋友圈”的可见范围。</text>
+        </view>
+        <radio-group class="scope-options" @change="handleShareScopeChange">
+          <label v-for="option in shareScopeOptions" :key="option.value" class="scope-option">
+            <radio
+              color="#28624a"
+              :value="option.value"
+              :checked="shareScope === option.value"
+              :disabled="shareSettingLoading || shareSettingSaving || !shareSettingLoaded"
+            />
+            <view class="setting-copy">
+              <text class="scope-label">{{ option.label }}</text>
+              <text class="setting-hint">{{ option.hint }}</text>
+            </view>
+          </label>
+        </radio-group>
+
+        <view class="setting-divider" />
         <view class="setting-row">
           <view class="setting-copy">
             <text class="setting-title">分享图片时携带小程序入口</text>
@@ -320,6 +383,35 @@ onShow(() => {
   border: 1rpx solid #d8e4dd;
   border-radius: 16rpx;
   background: #ffffff;
+}
+
+.scope-options {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  margin-top: 22rpx;
+}
+
+.scope-option {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  padding: 20rpx;
+  border: 1rpx solid #e3ebe6;
+  border-radius: 12rpx;
+  background: #f8fbf9;
+}
+
+.scope-label {
+  color: #172c22;
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.setting-divider {
+  height: 1rpx;
+  margin: 28rpx 0;
+  background: #e3ebe6;
 }
 
 .setting-row,

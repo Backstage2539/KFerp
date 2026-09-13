@@ -83,6 +83,32 @@ func TestDecorateAuditLogRowMakesMiniappShareSettingReadable(t *testing.T) {
 	}
 }
 
+func TestDecorateAuditLogRowMakesMiniappShareScopeReadable(t *testing.T) {
+	field := "miniapp.share.scope"
+	oldValue := "employee"
+	newValue := "all"
+	row := AuditLogRow{
+		Actor:      "mini-employee:17:管理员甲",
+		EntityType: "ui_setting",
+		Action:     "update",
+		Field:      &field,
+		OldValue:   &oldValue,
+		NewValue:   &newValue,
+	}
+
+	decorateAuditLogRow(&row, nil, nil)
+
+	if row.Menu != "系统 / 小程序设置" || row.Feature != "设置小程序分享范围" {
+		t.Fatalf("menu/feature = %q/%q", row.Menu, row.Feature)
+	}
+	if row.Field == nil || *row.Field != "小程序分享范围" {
+		t.Fatalf("field = %v", row.Field)
+	}
+	if row.OldValue == nil || *row.OldValue != "员工可以分享" || row.NewValue == nil || *row.NewValue != "所有人可以分享" {
+		t.Fatalf("old/new = %v/%v", row.OldValue, row.NewValue)
+	}
+}
+
 func TestAuditSearchTermsIncludeReadableMiniappSettingAliases(t *testing.T) {
 	for _, tc := range []struct {
 		q    string
@@ -91,6 +117,7 @@ func TestAuditSearchTermsIncludeReadableMiniappSettingAliases(t *testing.T) {
 		{q: "系统设置", want: "ui_setting"},
 		{q: "小程序设置", want: keyMiniappShareImageNeedShowEntrance},
 		{q: "分享图片携带小程序入口", want: keyMiniappShareImageNeedShowEntrance},
+		{q: "小程序分享范围", want: keyMiniappShareScope},
 	} {
 		t.Run(tc.q, func(t *testing.T) {
 			terms := auditSearchTerms(tc.q)

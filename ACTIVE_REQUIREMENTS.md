@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-659-MINIAPP-SHARE-SCOPE
+- Branch: `codex/miniapp-production-share-20260913`, base `0fc27ba5767ad93547ec9433f684a4c20d5b1e37`.
+- Owner/session: Codex / 2026-09-13
+- Status: implementation complete; targeted RED/GREEN, Go full package test, miniapp 245/245, typecheck and production-mode build passed. Develop integration in progress. Production WeChat upload, review and publication are excluded until explicitly authorized.
+- Scope: restore WeChat page sharing and let an employee administrator choose admin-only, employee, or everyone scope. Default employee; shared cards open the safe miniapp home without business identifiers.
+- DEV: DEV-664-MINIAPP-SHARE-POLICY; DEV-665-MINIAPP-SHARE-UI; DEV-666-MINIAPP-SHARE-DELIVERY.
+- Verifier: share policy API roles/defaults/validation; transactional readable audit setting; miniapp share-menu visibility, API helpers, profile source contract, typecheck and production-mode build.
+- Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`.
+- Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-miniapp-share-scope.md`.
+- Notes: reservation helper selected PR-659 but its existing macOS awk multiline placeholder failed; PR-659 was confirmed unused and reserved here manually.
+
 ### PR-658-PRODUCTION-ROSTER-RELIEF
 - Branch: `codex/production-roster-relief-20260913`; base `cdd6768c`.
 - Owner/session: Codex / 2026-09-13
