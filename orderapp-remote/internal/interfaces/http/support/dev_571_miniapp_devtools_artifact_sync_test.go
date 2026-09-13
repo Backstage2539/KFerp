@@ -60,6 +60,20 @@ func TestDev571MiniappArtifactValidationAndDevToolsRefreshContract(t *testing.T)
 		}
 	})
 
+	t.Run("each generated page must register both share hooks", func(t *testing.T) {
+		for _, script := range []string{"Page({})", "Page({onShareAppMessage(){}})", "Page({onShareTimeline(){}})"} {
+			artifact := filepath.Join(t.TempDir(), "mp-weixin")
+			writeDev570MiniappArtifact(t, artifact, []string{"pages/index/index"})
+			if err := os.WriteFile(filepath.Join(artifact, "pages/index/index.js"), []byte(script), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			output, err := exec.Command("node", validator, artifact).CombinedOutput()
+			if err == nil || !strings.Contains(string(output), "page does not register share hooks: pages/index/index.js") {
+				t.Fatalf("missing hook was not rejected: %v\n%s", err, output)
+			}
+		}
+	})
+
 	t.Run("subpackage pages are included", func(t *testing.T) {
 		artifact := filepath.Join(t.TempDir(), "mp-weixin")
 		writeDev570MiniappArtifact(t, artifact, []string{"pages/index/index"})
@@ -265,15 +279,7 @@ func writeDev570MiniappArtifact(t *testing.T, root string, pages []string) {
 		t.Fatal(err)
 	}
 	for _, page := range pages {
-		base := filepath.Join(root, filepath.FromSlash(page))
-		if err := os.MkdirAll(filepath.Dir(base), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for _, ext := range []string{".js", ".json", ".wxml", ".wxss"} {
-			if err := os.WriteFile(base+ext, []byte("{}"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
+		writeDev570MiniappPageFiles(t, root, page)
 	}
 }
 
@@ -284,7 +290,11 @@ func writeDev570MiniappPageFiles(t *testing.T, root, page string) {
 		t.Fatal(err)
 	}
 	for _, ext := range []string{".js", ".json", ".wxml", ".wxss"} {
-		if err := os.WriteFile(base+ext, []byte("{}"), 0o644); err != nil {
+		content := "{}"
+		if ext == ".js" {
+			content = "Page({onShareAppMessage(){},onShareTimeline(){}})"
+		}
+		if err := os.WriteFile(base+ext, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

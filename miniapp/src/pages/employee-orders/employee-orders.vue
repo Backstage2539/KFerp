@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import {
+  defaultMiniappShare,
+  defaultMiniappTimelineShare,
+  refreshMiniappShareMenu,
+} from '../../utils/miniappShare'
 import { fetchEmployeeOrders, type EmployeeOrder } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
@@ -51,6 +56,10 @@ function rememberListQuery() {
   rememberEmployeeOrderListQuery(q.value)
 }
 onShow(() => void load())
+
+onShareAppMessage(defaultMiniappShare)
+onShareTimeline(defaultMiniappTimelineShare)
+onShow(() => { void refreshMiniappShareMenu() })
 </script>
 
 <template>

@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-661-PRODUCTION-LOG-WORKSPACE", title: "生产日志统一阅读、查询分页与批次追溯体验", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-production-log-workspace.md"},
+		{table: "req_dev", code: "DEV-671-LOG-QUERY", title: "日志日期校验、查询和真实分页", status: "done", assignee: "Codex", evidence: "production_logs_workspace_test.go; production_logs_postgres_test.go"},
+		{table: "req_dev", code: "DEV-672-LOG-WORKSPACE", title: "日志列表详情、单位与窄屏交互", status: "done", assignee: "Codex", evidence: "ProductionLogsView.vue; production-logs-workspace.test.js"},
+		{table: "req_dev", code: "DEV-673-LOG-DELIVERY", title: "手册、回归验收与开发正式环境发布", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-13-production-log-workspace.md"},
+
 		{table: "req_product", code: "PR-660-PRICE-TIER-FIXED-ORDER-CATEGORY", title: "阶梯档位固定价与录单真实价格表分类", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-price-tier-fixed-order-category.md"},
 		{table: "req_dev", code: "DEV-667-PRICE-TIER-MODE", title: "阶梯档位定价方式、稳定身份和旧模板兼容", status: "done", assignee: "Codex", evidence: "catalog service and repository tests"},
 		{table: "req_dev", code: "DEV-668-SPEC-TIER-FIXED-PRICE", title: "规格档位固定价、草稿恢复、行覆盖撤销和发布快照", status: "done", assignee: "Codex", evidence: "costing price list workflow tests"},
