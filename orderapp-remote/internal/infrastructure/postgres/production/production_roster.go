@@ -36,6 +36,14 @@ func resolveProductionWorkstationOwnerTx(ctx context.Context, tx pgx.Tx, schema 
 			return app.WorkstationOwnerResolution{}, true, err
 		}
 	}
+
+	var stationActive bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status='active' FROM %s.manufacturing_workstations WHERE id=$1`, schema), workstationID).Scan(&stationActive); err != nil && err != pgx.ErrNoRows {
+		return app.WorkstationOwnerResolution{}, true, err
+	}
+	if !stationActive {
+		return app.WorkstationOwnerResolution{Unattended: true, Reason: "工位不存在或已停用"}, true, nil
+	}
 	attendance := map[int64]string{}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT employee_id,status FROM %s.production_employee_attendance WHERE work_date=$1::date`, schema), workDate)
 	if err != nil {
@@ -56,7 +64,7 @@ func resolveProductionWorkstationOwnerTx(ctx context.Context, tx pgx.Tx, schema 
 	}
 	rows.Close()
 	staff := []app.WorkstationStaffCandidate{}
-	rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT s.employee_id,COALESCE(e.name,''),s.staff_role,s.sort_order,COALESCE(e.active,false) FROM %s.manufacturing_workstation_employees s LEFT JOIN %s.company_employees e ON e.id=s.employee_id WHERE s.workstation_id=$1 ORDER BY CASE WHEN s.staff_role='primary' THEN 0 ELSE 1 END,s.sort_order,s.employee_id`, schema, schema), workstationID)
+	rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT s.employee_id,COALESCE(e.name,''),s.staff_role,s.sort_order,COALESCE(e.active,false) AND COALESCE(e.account_type,'internal_employee')<>'channel_customer' FROM %s.manufacturing_workstation_employees s LEFT JOIN %s.company_employees e ON e.id=s.employee_id WHERE s.workstation_id=$1 ORDER BY CASE WHEN s.staff_role='primary' THEN 0 ELSE 1 END,s.sort_order,s.employee_id`, schema, schema), workstationID)
 	if err != nil {
 		return app.WorkstationOwnerResolution{}, true, err
 	}
@@ -78,7 +86,18 @@ func resolveProductionWorkstationOwnerTx(ctx context.Context, tx pgx.Tx, schema 
 	if err != nil && err != pgx.ErrNoRows {
 		return app.WorkstationOwnerResolution{}, true, err
 	}
-	return app.ResolveWorkstationOwner(staff, attendance, overrideID), true, nil
+	manual := []app.WorkstationStaffCandidate{}
+	if overrideID > 0 {
+		var candidate app.WorkstationStaffCandidate
+		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,COALESCE(name,''),active AND COALESCE(account_type,'internal_employee')<>'channel_customer' FROM %s.company_employees WHERE id=$1`, schema), overrideID).Scan(&candidate.EmployeeID, &candidate.EmployeeName, &candidate.Active)
+		if err != nil && err != pgx.ErrNoRows {
+			return app.WorkstationOwnerResolution{}, true, err
+		}
+		if err == nil {
+			manual = append(manual, candidate)
+		}
+	}
+	return app.ResolveWorkstationOwner(staff, attendance, overrideID, manual...), true, nil
 }
 
 func productionWorkDate() string {
@@ -91,7 +110,11 @@ type rosterQuerier interface {
 }
 
 func (r Repository) ProductionRosterWeek(ctx context.Context, query app.ProductionRosterQuery) (app.ProductionRosterWeek, error) {
-	return r.loadProductionRosterWeek(ctx, r.pool, query.WeekStart, nil, nil)
+	week, err := r.loadProductionRosterWeek(ctx, r.pool, query.WeekStart, nil, nil)
+	if err == nil {
+		err = r.attachRosterRecentChanges(ctx, r.pool, &week)
+	}
+	return week, err
 }
 
 func (r Repository) loadProductionRosterWeek(ctx context.Context, q rosterQuerier, weekStart string, suppliedEntries []app.ProductionAttendanceEntry, suppliedOverrides []app.ProductionWorkstationOverride) (app.ProductionRosterWeek, error) {
@@ -205,7 +228,7 @@ func (r Repository) loadProductionRosterWeek(ctx context.Context, q rosterQuerie
 	}
 	stationRows.Close()
 	staffByStation := map[int64][]app.WorkstationStaffCandidate{}
-	staffRows, err := q.Query(ctx, fmt.Sprintf(`SELECT s.workstation_id,s.employee_id,COALESCE(e.name,''),s.staff_role,s.sort_order,COALESCE(e.active,false) FROM %s.manufacturing_workstation_employees s LEFT JOIN %s.company_employees e ON e.id=s.employee_id ORDER BY s.workstation_id,CASE WHEN s.staff_role='primary' THEN 0 ELSE 1 END,s.sort_order,s.employee_id`, r.schema, r.schema))
+	staffRows, err := q.Query(ctx, fmt.Sprintf(`SELECT s.workstation_id,s.employee_id,COALESCE(e.name,''),s.staff_role,s.sort_order,COALESCE(e.active,false) AND COALESCE(e.account_type,'internal_employee')<>'channel_customer' FROM %s.manufacturing_workstation_employees s LEFT JOIN %s.company_employees e ON e.id=s.employee_id ORDER BY s.workstation_id,CASE WHEN s.staff_role='primary' THEN 0 ELSE 1 END,s.sort_order,s.employee_id`, r.schema, r.schema))
 	if err != nil {
 		return week, err
 	}
@@ -227,11 +250,30 @@ func (r Repository) loadProductionRosterWeek(ctx context.Context, q rosterQuerie
 	for _, station := range stations {
 		for _, day := range days {
 			override := overrideByKey[fmt.Sprintf("%d:%s", station.id, day)]
-			resolved := app.ResolveWorkstationOwner(staffByStation[station.id], attendance[day], override.EmployeeID)
+			manual := make([]app.WorkstationStaffCandidate, 0, len(week.Employees))
+			roles := map[int64]app.WorkstationStaffCandidate{}
+			for _, p := range staffByStation[station.id] {
+				roles[p.EmployeeID] = p
+			}
+			candidates := []app.WorkstationStaffCandidate{}
+			for _, p := range week.Employees {
+				candidate := app.WorkstationStaffCandidate{EmployeeID: p.ID, EmployeeName: p.Name, Role: "other", Active: true}
+				if role, ok := roles[p.ID]; ok {
+					candidate.Role = role.Role
+					candidate.SortOrder = role.SortOrder
+				}
+				manual = append(manual, candidate)
+				if attendance[day][p.ID] == "working" {
+					candidates = append(candidates, candidate)
+				}
+			}
+			resolved := app.ResolveWorkstationOwner(staffByStation[station.id], attendance[day], override.EmployeeID, manual...)
 			assignment := app.ProductionWorkstationDayAssignment{WorkstationID: station.id, Workstation: station.name, WorkDate: day, EmployeeID: resolved.EmployeeID, EmployeeName: resolved.EmployeeName, Source: resolved.Source, Unattended: resolved.Unattended, OverrideInvalid: resolved.OverrideInvalid, Reason: resolved.Reason}
-			if err := q.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FILTER (WHERE jc.status IN ('pending','ready')),count(*) FILTER (WHERE jc.status IN ('running','paused')),count(*) FILTER (WHERE jc.status IN ('running','paused') AND $4::bigint>0 AND COALESCE(jc.assigned_employee_id,0)>0 AND jc.assigned_employee_id<>$4::bigint) FROM %s.job_cards jc JOIN %s.work_orders wo ON wo.id=jc.work_order_id WHERE wo.status NOT IN ('completed','cancelled') AND jc.status NOT IN ('completed','cancelled') AND (jc.workstation_id=$1 OR (jc.workstation_id=0 AND TRIM(jc.workstation)=TRIM($2))) AND (jc.planned_start_at IS NULL OR (jc.planned_start_at AT TIME ZONE 'Asia/Shanghai')::date <= $3::date)`, r.schema, r.schema), station.id, station.name, day, assignment.EmployeeID).Scan(&assignment.TaskCount, &assignment.RunningTaskCount, &assignment.HandoverCount); err != nil {
+			if err := q.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FILTER (WHERE jc.status IN ('pending','ready')),count(*) FILTER (WHERE jc.status IN ('running','paused')),COALESCE(array_agg(jc.id ORDER BY jc.id) FILTER (WHERE jc.status IN ('running','paused') AND $4::bigint>0 AND COALESCE(jc.assigned_employee_id,0)>0 AND jc.assigned_employee_id<>$4::bigint), '{}'::bigint[]) FROM %s.job_cards jc JOIN %s.work_orders wo ON wo.id=jc.work_order_id WHERE wo.status NOT IN ('completed','cancelled') AND jc.status NOT IN ('completed','cancelled') AND (jc.workstation_id=$1 OR (jc.workstation_id=0 AND TRIM(jc.workstation)=TRIM($2))) AND (wo.created_at AT TIME ZONE 'Asia/Shanghai')::date <= $3::date AND (jc.started_at IS NULL OR (jc.started_at AT TIME ZONE 'Asia/Shanghai')::date <= $3::date) AND (jc.planned_start_at IS NULL OR (jc.planned_start_at AT TIME ZONE 'Asia/Shanghai')::date <= $3::date)`, r.schema, r.schema), station.id, station.name, day, assignment.EmployeeID).Scan(&assignment.TaskCount, &assignment.RunningTaskCount, &assignment.HandoverTaskIDs); err != nil {
 				return week, err
 			}
+			assignment.HandoverCount = len(assignment.HandoverTaskIDs)
+			assignment.Candidates = candidates
 			if assignment.Unattended {
 				code := "unattended"
 				if assignment.OverrideInvalid {
@@ -259,11 +301,13 @@ func (r Repository) SaveProductionRoster(ctx context.Context, cmd app.SaveProduc
 		return app.ProductionRosterWeek{}, err
 	}
 	payloadHash := scheduleHash(struct {
-		Week      string
-		Version   int64
-		Entries   []app.ProductionAttendanceEntry
-		Overrides []app.ProductionWorkstationOverride
-	}{cmd.WeekStart, cmd.ExpectedVersion, cmd.Entries, cmd.Overrides})
+		Week        string
+		Version     int64
+		Entries     []app.ProductionAttendanceEntry
+		Overrides   []app.ProductionWorkstationOverride
+		Replacement *app.ProductionRosterReplacement
+		Fingerprint string
+	}{cmd.WeekStart, cmd.ExpectedVersion, cmd.Entries, cmd.Overrides, cmd.Replacement, cmd.ExpectedPreviewFingerprint})
 	if !preview && strings.TrimSpace(cmd.RequestID) != "" {
 		var hash string
 		var data []byte
@@ -292,6 +336,38 @@ func (r Repository) SaveProductionRoster(ctx context.Context, cmd app.SaveProduc
 	}
 	if currentVersion != cmd.ExpectedVersion {
 		return app.ProductionRosterWeek{}, &app.ScheduleError{Code: "version_conflict", Message: "本周排班已被他人修改，请重新读取"}
+	}
+	before, err := r.loadProductionRosterWeek(ctx, tx, cmd.WeekStart, nil, nil)
+	if err != nil {
+		return app.ProductionRosterWeek{}, err
+	}
+	if err = r.attachRosterRecentChanges(ctx, tx, &before); err != nil {
+		return app.ProductionRosterWeek{}, err
+	}
+	cmd, released := app.NormalizeRosterLeaveOverrides(before, cmd)
+	if cmd.Replacement != nil {
+		draft, loadErr := r.loadProductionRosterWeek(ctx, tx, cmd.WeekStart, cmd.Entries, cmd.Overrides)
+		if loadErr != nil {
+			return app.ProductionRosterWeek{}, loadErr
+		}
+		cmd, err = app.ApplyRosterReplacement(before, draft, cmd)
+		if err != nil {
+			return app.ProductionRosterWeek{}, err
+		}
+		var extra []app.ProductionWorkstationOverride
+		cmd, extra = app.NormalizeRosterLeaveOverrides(before, cmd)
+		for _, o := range extra {
+			found := false
+			for _, old := range released {
+				if old.WorkstationID == o.WorkstationID && old.WorkDate == o.WorkDate {
+					found = true
+					break
+				}
+			}
+			if !found {
+				released = append(released, o)
+			}
+		}
 	}
 	ids := map[int64]bool{}
 	for _, entry := range cmd.Entries {
@@ -324,8 +400,24 @@ func (r Repository) SaveProductionRoster(ctx context.Context, cmd app.SaveProduc
 	}
 	for _, row := range previewResult.Assignments {
 		if row.OverrideInvalid {
-			return app.ProductionRosterWeek{}, fmt.Errorf("%s %s 的临时负责人当天未上班或不具备工位资格", row.WorkDate, row.Workstation)
+			return app.ProductionRosterWeek{}, fmt.Errorf("%s %s 的临时负责人当天未上班或已停用", row.WorkDate, row.Workstation)
 		}
+	}
+	previewResult.ReleasedOverrides = released
+	app.DescribeRosterChanges(before, &previewResult)
+	previewResult.RecentChanges = before.RecentChanges
+	if err = r.countRosterAffectedTasks(ctx, tx, &previewResult); err != nil {
+		return app.ProductionRosterWeek{}, err
+	}
+	previewResult.PreviewFingerprint = scheduleHash(struct {
+		Version     int64
+		Entries     []app.ProductionAttendanceEntry
+		Overrides   []app.ProductionWorkstationOverride
+		Assignments []app.ProductionWorkstationDayAssignment
+		Changes     []app.ProductionRosterAssignmentChange
+	}{currentVersion, previewResult.Entries, previewResult.Overrides, previewResult.Assignments, previewResult.Changes})
+	if !preview && cmd.ExpectedPreviewFingerprint != "" && cmd.ExpectedPreviewFingerprint != previewResult.PreviewFingerprint {
+		return app.ProductionRosterWeek{}, &app.ScheduleError{Code: "preview_changed", Message: "出勤、工位人员或任务范围已变化，请重新核对后保存"}
 	}
 	previewResult.Version = currentVersion + 1
 	if preview {
@@ -352,11 +444,12 @@ func (r Repository) SaveProductionRoster(ctx context.Context, cmd app.SaveProduc
 		return app.ProductionRosterWeek{}, err
 	}
 	previewResult.Saved = true
+	previewResult.RecentChanges = previewResult.Changes
 	data, _ := json.Marshal(previewResult)
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_roster_requests(actor,request_id,payload_hash,response_json) VALUES($1,$2,$3,$4)`, r.schema), cmd.Operator, cmd.RequestID, payloadHash, data); err != nil {
 		return app.ProductionRosterWeek{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_roster", nil, "save", postgresinfra.StrPtr("week"), nil, postgresinfra.StrPtr(cmd.WeekStart), postgresinfra.AuditMeta{"version": currentVersion + 1, "entry_count": len(cmd.Entries), "override_count": len(cmd.Overrides), "affected_workstation_count": previewResult.AffectedStationCount, "affected_task_count": previewResult.AffectedTaskCount}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_roster", nil, "save", postgresinfra.StrPtr("week"), nil, postgresinfra.StrPtr(cmd.WeekStart), postgresinfra.AuditMeta{"version": currentVersion + 1, "entry_count": len(cmd.Entries), "override_count": len(cmd.Overrides), "affected_workstation_count": previewResult.AffectedStationCount, "affected_task_count": previewResult.AffectedTaskCount, "attendance_changes": previewResult.AttendanceChanges, "assignment_changes": previewResult.Changes, "released_overrides": previewResult.ReleasedOverrides, "replacement": cmd.Replacement}); err != nil {
 		return app.ProductionRosterWeek{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -414,6 +507,14 @@ func (r Repository) HandoverWorkstation(ctx context.Context, cmd app.HandoverWor
 		return app.HandoverWorkstationResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	weekStart, _, err := app.NormalizeProductionRosterWeek(cmd.WorkDate, nil)
+	if err != nil {
+		return app.HandoverWorkstationResult{}, err
+	}
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, r.schema+":production_roster:"+weekStart); err != nil {
+		return app.HandoverWorkstationResult{}, err
+	}
+
 	var existing []byte
 	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT jsonb_build_object('workstation_id',workstation_id,'work_date',to_char(work_date,'YYYY-MM-DD'),'employee_id',new_employee_id,'job_card_ids',job_card_ids_json) FROM %s.production_workstation_handovers WHERE operator=$1 AND request_id=$2`, r.schema), cmd.Operator, cmd.RequestID).Scan(&existing)
 	if err == nil {
@@ -421,14 +522,13 @@ func (r Repository) HandoverWorkstation(ctx context.Context, cmd app.HandoverWor
 		if err := json.Unmarshal(existing, &out); err != nil {
 			return out, err
 		}
+		if out.WorkstationID != cmd.WorkstationID || out.WorkDate != cmd.WorkDate || out.EmployeeID != cmd.EmployeeID {
+			return out, fmt.Errorf("同一请求编号不能用于不同交接")
+		}
 		out.Replayed = true
 		return out, nil
 	}
 	if err != pgx.ErrNoRows {
-		return app.HandoverWorkstationResult{}, err
-	}
-	weekStart, _, err := app.NormalizeProductionRosterWeek(cmd.WorkDate, nil)
-	if err != nil {
 		return app.HandoverWorkstationResult{}, err
 	}
 	var currentVersion int64
@@ -498,4 +598,65 @@ func (r Repository) HandoverWorkstation(ctx context.Context, cmd app.HandoverWor
 		return app.HandoverWorkstationResult{}, err
 	}
 	return app.HandoverWorkstationResult{WorkstationID: cmd.WorkstationID, WorkDate: cmd.WorkDate, EmployeeID: cmd.EmployeeID, EmployeeName: assignment.EmployeeName, JobCardIDs: ids}, nil
+}
+
+func (r Repository) attachRosterRecentChanges(ctx context.Context, q rosterQuerier, week *app.ProductionRosterWeek) error {
+	week.RecentChanges = []app.ProductionRosterAssignmentChange{}
+	if week.Version <= 0 {
+		return nil
+	}
+	var raw []byte
+	err := q.QueryRow(ctx, fmt.Sprintf(`SELECT response_json FROM %s.production_roster_requests WHERE response_json->>'week_start'=$1 AND response_json->>'version'=$2 ORDER BY created_at DESC,request_id DESC LIMIT 1`, r.schema), week.WeekStart, fmt.Sprint(week.Version)).Scan(&raw)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var prior app.ProductionRosterWeek
+	if err = json.Unmarshal(raw, &prior); err != nil {
+		return err
+	}
+	if prior.Changes != nil {
+		week.RecentChanges = prior.Changes
+	}
+	return nil
+}
+
+func (r Repository) countRosterAffectedTasks(ctx context.Context, q rosterQuerier, week *app.ProductionRosterWeek) error {
+	ids := map[int64]bool{}
+	for i := range week.Changes {
+		change := &week.Changes[i]
+		change.TaskIDs = []int64{}
+		change.HandoverTaskIDs = []int64{}
+		rows, err := q.Query(ctx, fmt.Sprintf(`SELECT jc.id,jc.status,COALESCE(jc.assigned_employee_id,0) FROM %s.job_cards jc JOIN %s.work_orders wo ON wo.id=jc.work_order_id WHERE wo.status NOT IN ('completed','cancelled') AND jc.status IN ('pending','ready','running','paused') AND (jc.workstation_id=$1 OR (jc.workstation_id=0 AND TRIM(jc.workstation)=TRIM($2))) AND (wo.created_at AT TIME ZONE 'Asia/Shanghai')::date <= $3::date AND (jc.started_at IS NULL OR (jc.started_at AT TIME ZONE 'Asia/Shanghai')::date <= $3::date) AND (jc.planned_start_at IS NULL OR (jc.planned_start_at AT TIME ZONE 'Asia/Shanghai')::date <= $3::date)`, r.schema, r.schema), change.WorkstationID, change.Workstation, change.WorkDate)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id, assigned int64
+			var status string
+			if err = rows.Scan(&id, &status, &assigned); err != nil {
+				rows.Close()
+				return err
+			}
+			if status == "pending" || status == "ready" {
+				ids[id] = true
+				change.TaskIDs = append(change.TaskIDs, id)
+			} else if change.ToEmployeeID > 0 && assigned > 0 && assigned != change.ToEmployeeID {
+				change.HandoverTaskIDs = append(change.HandoverTaskIDs, id)
+			}
+		}
+		sort.Slice(change.TaskIDs, func(i, j int) bool { return change.TaskIDs[i] < change.TaskIDs[j] })
+		sort.Slice(change.HandoverTaskIDs, func(i, j int) bool { return change.HandoverTaskIDs[i] < change.HandoverTaskIDs[j] })
+		change.TaskCount = len(change.TaskIDs)
+		change.HandoverCount = len(change.HandoverTaskIDs)
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
+	week.AffectedTaskCount = len(ids)
+	return nil
 }

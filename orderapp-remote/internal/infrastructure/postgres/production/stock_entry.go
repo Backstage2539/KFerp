@@ -305,6 +305,16 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 		return productionapp.JobCardActionResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// Serialize start with roster save and handover before locking any task rows.
+	if cmd.Action == "start" {
+		week, _, dateErr := productionapp.NormalizeProductionRosterWeek(productionWorkDate(), nil)
+		if dateErr != nil {
+			return productionapp.JobCardActionResult{}, dateErr
+		}
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, r.schema+":production_roster:"+week); err != nil {
+			return productionapp.JobCardActionResult{}, err
+		}
+	}
 
 	var workOrderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT work_order_id FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&workOrderID); err != nil {
@@ -363,7 +373,7 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 			cmd.EmployeeID = owner.EmployeeID
 			cmd.AssignedEmployeeName = owner.EmployeeName
 		}
-		if err := ensureJobCardTaskReadyTx(ctx, tx, r.schema, workOrderID, cmd.ID); err != nil {
+		if err := ensureJobCardTaskReadyTx(ctx, tx, r.schema, workOrderID, cmd.ID, cmd.AssignedEmployeeName); err != nil {
 			return productionapp.JobCardActionResult{}, err
 		}
 		if workOrderStatus == "released" && runningItemID <= 0 {
@@ -554,7 +564,7 @@ func jobCardStartAllowedForWorkOrder(status string, runningItemID int64) bool {
 	}
 }
 
-func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, jobCardID int64) error {
+func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, jobCardID int64, resolvedOwner string) error {
 	var sequenceNo, minSequence int
 	var assignedTo, workstation, workCenter string
 	var plannedInput, sequenceInput float64
@@ -567,7 +577,7 @@ func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, wor
 	`, schema, schema, schema), jobCardID, workOrderID).Scan(&sequenceNo, &assignedTo, &workstation, &workCenter, &plannedInput, &minSequence, &sequenceInput); err != nil {
 		return err
 	}
-	if strings.TrimSpace(assignedTo) == "" {
+	if strings.TrimSpace(assignedTo) == "" && strings.TrimSpace(resolvedOwner) == "" {
 		return fmt.Errorf("本任务尚未分配执行人")
 	}
 	if strings.TrimSpace(firstNonEmpty(workstation, workCenter)) == "" {

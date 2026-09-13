@@ -27,9 +27,9 @@ type WorkstationOwnerResolution struct {
 	Reason          string `json:"reason"`
 }
 
-func ResolveWorkstationOwner(staff []WorkstationStaffCandidate, attendance map[int64]string, overrideEmployeeID int64) WorkstationOwnerResolution {
+func ResolveWorkstationOwner(staff []WorkstationStaffCandidate, attendance map[int64]string, overrideEmployeeID int64, manualCandidates ...WorkstationStaffCandidate) WorkstationOwnerResolution {
 	byID := make(map[int64]WorkstationStaffCandidate, len(staff))
-	for _, candidate := range staff {
+	for _, candidate := range append(append([]WorkstationStaffCandidate(nil), staff...), manualCandidates...) {
 		if candidate.EmployeeID > 0 && candidate.Active {
 			byID[candidate.EmployeeID] = candidate
 		}
@@ -38,7 +38,7 @@ func ResolveWorkstationOwner(staff []WorkstationStaffCandidate, attendance map[i
 	if overrideEmployeeID > 0 {
 		candidate, ok := byID[overrideEmployeeID]
 		if !ok || !working(overrideEmployeeID) {
-			return WorkstationOwnerResolution{Unattended: true, OverrideInvalid: true, Source: "override", Reason: "人工调整人员已失效或当天未上班"}
+			return WorkstationOwnerResolution{Unattended: true, OverrideInvalid: true, Source: "override", Reason: "人工调整人员已停用或当天未上班"}
 		}
 		return WorkstationOwnerResolution{EmployeeID: candidate.EmployeeID, EmployeeName: candidate.EmployeeName, Source: "override"}
 	}
@@ -62,7 +62,7 @@ func ResolveWorkstationOwner(staff []WorkstationStaffCandidate, attendance map[i
 		}
 		return WorkstationOwnerResolution{EmployeeID: candidate.EmployeeID, EmployeeName: candidate.EmployeeName, Source: source}
 	}
-	return WorkstationOwnerResolution{Unattended: true, Source: "automatic", Reason: "主负责人和替补当天均未上班"}
+	return WorkstationOwnerResolution{Unattended: true, Source: "automatic", Reason: workstationAbsenceReason(staff, attendance)}
 }
 
 type ProductionRosterEmployee struct {
@@ -84,18 +84,20 @@ type ProductionWorkstationOverride struct {
 }
 
 type ProductionWorkstationDayAssignment struct {
-	WorkstationID    int64  `json:"workstation_id"`
-	Workstation      string `json:"workstation"`
-	WorkDate         string `json:"work_date"`
-	EmployeeID       int64  `json:"employee_id"`
-	EmployeeName     string `json:"employee_name"`
-	Source           string `json:"source"`
-	Unattended       bool   `json:"unattended"`
-	OverrideInvalid  bool   `json:"override_invalid"`
-	Reason           string `json:"reason"`
-	TaskCount        int    `json:"task_count"`
-	RunningTaskCount int    `json:"running_task_count"`
-	HandoverCount    int    `json:"handover_count"`
+	WorkstationID    int64                       `json:"workstation_id"`
+	Workstation      string                      `json:"workstation"`
+	WorkDate         string                      `json:"work_date"`
+	EmployeeID       int64                       `json:"employee_id"`
+	EmployeeName     string                      `json:"employee_name"`
+	Source           string                      `json:"source"`
+	Unattended       bool                        `json:"unattended"`
+	OverrideInvalid  bool                        `json:"override_invalid"`
+	Reason           string                      `json:"reason"`
+	TaskCount        int                         `json:"task_count"`
+	RunningTaskCount int                         `json:"running_task_count"`
+	HandoverCount    int                         `json:"handover_count"`
+	HandoverTaskIDs  []int64                     `json:"handover_task_ids"`
+	Candidates       []WorkstationStaffCandidate `json:"candidates"`
 }
 
 type ProductionRosterIssue struct {
@@ -117,6 +119,11 @@ type ProductionRosterWeek struct {
 	Issues               []ProductionRosterIssue              `json:"issues"`
 	AffectedTaskCount    int                                  `json:"affected_task_count"`
 	AffectedStationCount int                                  `json:"affected_workstation_count"`
+	Changes              []ProductionRosterAssignmentChange   `json:"changes"`
+	RecentChanges        []ProductionRosterAssignmentChange   `json:"recent_changes"`
+	AttendanceChanges    []ProductionAttendanceChange         `json:"attendance_changes"`
+	ReleasedOverrides    []ProductionWorkstationOverride      `json:"released_overrides"`
+	PreviewFingerprint   string                               `json:"preview_fingerprint"`
 	Saved                bool                                 `json:"saved"`
 	Replayed             bool                                 `json:"replayed"`
 }
@@ -126,12 +133,14 @@ type ProductionRosterQuery struct {
 }
 
 type SaveProductionRosterCommand struct {
-	WeekStart       string                          `json:"week_start"`
-	ExpectedVersion int64                           `json:"expected_version"`
-	Entries         []ProductionAttendanceEntry     `json:"entries"`
-	Overrides       []ProductionWorkstationOverride `json:"overrides"`
-	RequestID       string                          `json:"request_id"`
-	Operator        string                          `json:"-"`
+	WeekStart                  string                          `json:"week_start"`
+	ExpectedVersion            int64                           `json:"expected_version"`
+	Entries                    []ProductionAttendanceEntry     `json:"entries"`
+	Overrides                  []ProductionWorkstationOverride `json:"overrides"`
+	RequestID                  string                          `json:"request_id"`
+	Replacement                *ProductionRosterReplacement    `json:"replacement,omitempty"`
+	ExpectedPreviewFingerprint string                          `json:"expected_preview_fingerprint,omitempty"`
+	Operator                   string                          `json:"-"`
 }
 
 type ProductionTodayRoster struct {
@@ -307,6 +316,9 @@ func (s *Service) HandoverWorkstation(ctx context.Context, cmd HandoverWorkstati
 	}
 	if strings.TrimSpace(cmd.WorkDate) == "" {
 		cmd.WorkDate = time.Now().In(productionLocation()).Format("2006-01-02")
+	}
+	if cmd.WorkDate != time.Now().In(productionLocation()).Format("2006-01-02") {
+		return HandoverWorkstationResult{}, fmt.Errorf("只能接手今日工位，请刷新今日排班")
 	}
 	r, ok := s.repo.(productionRosterRepository)
 	if !ok {

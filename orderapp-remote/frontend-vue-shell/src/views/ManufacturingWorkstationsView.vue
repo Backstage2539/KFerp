@@ -24,7 +24,7 @@
               <td>
                 <strong>{{ row.name }}</strong>
                 <small>#{{ row.id }} · {{ row.code || '无编码' }}</small>
-                <small :class="{ 'staff-warning': !row.staffing_ready }">{{ row.staffing_ready ? `主负责人：${row.primary_employee_name}` : '待补人员配置' }}</small>
+                <small v-if="row.backup_employees?.length">替补：{{ row.backup_employees.map(p => p.name).join(' → ') }}</small><small :class="{ 'staff-warning': !row.staffing_ready }">{{ row.staffing_ready ? `主负责人：${row.primary_employee_name}` : '待补人员配置' }}</small>
                 <small>小时成本合计 {{ Number(row.hourly_rate || 0).toFixed(2) }} · {{ row.updated_at || '-' }}</small>
               </td>
               <td class="master-status">
@@ -71,8 +71,8 @@
           <div class="backup-editor">
             <span>替补人员（按顺序接班）</span>
             <div v-for="(employeeID, index) in form.backup_employee_ids" :key="employeeID" class="backup-row"><strong>{{ employeeName(employeeID) }}</strong><button type="button" class="text" :disabled="index === 0" @click="moveBackup(index, -1)">上移</button><button type="button" class="text" :disabled="index === form.backup_employee_ids.length - 1" @click="moveBackup(index, 1)">下移</button><button type="button" class="text danger" @click="removeBackup(index)">移除</button></div>
-            <div class="backup-add"><select v-model.number="newBackupEmployeeID"><option :value="0">选择替补员工</option><option v-for="person in availableBackupEmployees" :key="person.id" :value="person.id">{{ person.name }}</option></select><button class="secondary compact" type="button" :disabled="!newBackupEmployeeID" @click="addBackup">添加替补</button></div>
-            <small>替补可为空；同一员工可以负责多个工位。</small>
+            <div class="backup-add"><select v-model.number="newBackupEmployeeID" aria-label="选择替补员工，选中即加入" @change="addBackup"><option :value="0">选择替补员工</option><option v-for="person in availableBackupEmployees" :key="person.id" :value="person.id">{{ person.name }}</option></select></div>
+            <small>选择员工即加入替补顺序，保存工位后生效；同一员工可以负责多个工位。</small>
           </div>
           <div class="staff-impact">
             <span>本周负责人影响预览</span>

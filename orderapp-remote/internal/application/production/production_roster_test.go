@@ -77,3 +77,34 @@ func TestSaveProductionRosterRejectsOverrideOutsideWeek(t *testing.T) {
 		t.Fatalf("outside-week override err=%v", err)
 	}
 }
+
+func TestRosterManualOwnerCanBeWorkingEmployeeOutsideStationRoster(t *testing.T) {
+	staff := []WorkstationStaffCandidate{{EmployeeID: 1, EmployeeName: "主负责人", Role: "primary", Active: true}}
+	people := []WorkstationStaffCandidate{{EmployeeID: 3, EmployeeName: "临时接替", Active: true}}
+	owner := ResolveWorkstationOwner(staff, map[int64]string{1: "working", 3: "working"}, 3, people...)
+	if owner.EmployeeID != 3 || owner.Source != "override" {
+		t.Fatalf("manual owner: %+v", owner)
+	}
+	owner = ResolveWorkstationOwner(staff, map[int64]string{1: "off", 3: "working"}, 0, people...)
+	if !owner.Unattended {
+		t.Fatal("non-station employee was automatically assigned")
+	}
+	owner = ResolveWorkstationOwner(staff, map[int64]string{3: "off"}, 3, people...)
+	if !owner.OverrideInvalid {
+		t.Fatal("off employee manually assigned")
+	}
+}
+
+func TestRosterLeaveClearsOverrideButPreservesExternalInvalidity(t *testing.T) {
+	before := ProductionRosterWeek{Employees: []ProductionRosterEmployee{{ID: 1, Name: "A"}}, Entries: []ProductionAttendanceEntry{{EmployeeID: 1, WorkDate: "2026-09-14", Status: "working"}}}
+	cmd := SaveProductionRosterCommand{Entries: []ProductionAttendanceEntry{{EmployeeID: 1, WorkDate: "2026-09-14", Status: "off"}}, Overrides: []ProductionWorkstationOverride{{WorkstationID: 9, WorkDate: "2026-09-14", EmployeeID: 1}}}
+	normalized, released := NormalizeRosterLeaveOverrides(before, cmd)
+	if len(normalized.Overrides) != 0 || len(released) != 1 {
+		t.Fatalf("leave did not release override: %+v %+v", normalized, released)
+	}
+	before.Employees = nil
+	normalized, released = NormalizeRosterLeaveOverrides(before, cmd)
+	if len(normalized.Overrides) != 1 || len(released) != 0 {
+		t.Fatal("disabled employee override silently removed")
+	}
+}

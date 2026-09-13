@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-658-PRODUCTION-ROSTER-RELIEF
+- Branch: `codex/production-roster-relief-20260913`; base `cdd6768c`.
+- Owner/session: Codex / 2026-09-13
+- Status: RED/GREEN、Go 全包、Vue 1225/1225、针对性真实 PostgreSQL、构建及隔离页面开工/交接通过；等待本分支整合并部署 development。扩大 PostgreSQL 17 项失败与未修改 develop 基线一致，无新增。
+- Scope: reliable ordered backup selection, live roster preview, daily manual owner and bulk replacement, leave relief.
+- DEV: DEV-661-ROSTER-RELIEF; DEV-662-ROSTER-ADJUSTMENT-UI; DEV-663-ROSTER-RELIEF-DELIVERY.
+- Verifier: resolver and edit unit tests; PostgreSQL API lifecycle, conflict, replay and rollback; Vue interaction tests and build; isolated browser writes and screenshots.
+- Deployment ownership: Codex PR-658 / 2026-09-13; latest fetched develop cdd6768c. Pending verified feature push, PR merge and clean-clone development deploy. Real attendance V3 and unsaved user edits preserved. Verified 智烘 primary 段其晶 id6 / empty backups; 刘祎泊 id10 active and all-week working; only that explicitly confirmed backup relation will be repaired after deployment.
+- Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
+- Acceptance: orderapp-remote/docs/acceptance/2026-09-13-production-roster-relief.md
+
 ### PR-657-PRODUCTION-ROSTER-AUTO-DISPATCH
 - Branches/PRs: main implementation #114; partial replan #115; initial roster copy #116; personal empty state #117; factory empty state and replan units #118; final evidence on `codex/production-roster-acceptance-evidence-20260913`.
 - Owner/session: Codex / 2026-09-13

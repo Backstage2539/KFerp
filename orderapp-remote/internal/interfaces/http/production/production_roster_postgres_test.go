@@ -126,3 +126,111 @@ func TestPR657ProductionRosterPostgresLifecycle(t *testing.T) {
 		t.Fatalf("audit count=%d", audits)
 	}
 }
+
+func TestPR658RosterReliefAndManualReplacementAPI(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.company_departments(id,name,active) VALUES(658,'替补测试',true);
+ INSERT INTO %s.company_employees(id,name,phone,department_id,active,account_type) VALUES
+ (6581,'A 主负责人','6581',658,true,'internal_employee'),(6582,'B 替补','6582',658,true,'internal_employee'),(6583,'C 临时员工','6583',658,true,'internal_employee');`, schema, schema))
+	m := manufacturingapp.NewService(manufacturingpg.NewRepository(pool, schema))
+	stations := []int64{}
+	for _, name := range []string{"替补工位一", "替补工位二"} {
+		station, err := m.SaveManufacturingWorkstation(ctx, manufacturingapp.SaveManufacturingWorkstationCommand{Name: name, Code: name, Status: "active", PrimaryEmployeeID: 6581, BackupEmployeeIDs: []int64{6582}, Actor: "PR658"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(station.BackupEmployeeIDs) != 1 || station.BackupEmployeeIDs[0] != 6582 {
+			t.Fatalf("saved backup missing: %+v", station)
+		}
+		stations = append(stations, station.ID)
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error { c.Set("actor", "PR658"); c.Set("employee_id", int64(6583)); return next(c) }
+	})
+	registerProductionRosterAPI(e, productionapp.NewService(productionpg.NewRepository(pool, schema)))
+	post := func(path string, body map[string]any) (int, productionapp.ProductionRosterWeek, string) {
+		b, _ := json.Marshal(body)
+		req := httptest.NewRequest("POST", path, strings.NewReader(string(b)))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		e.ServeHTTP(res, req)
+		var out productionapp.ProductionRosterWeek
+		_ = json.Unmarshal(res.Body.Bytes(), &out)
+		return res.Code, out, res.Body.String()
+	}
+	entries := []map[string]any{}
+	for _, day := range []string{"2026-09-14", "2026-09-15"} {
+		for _, id := range []int64{6581, 6582, 6583} {
+			entries = append(entries, map[string]any{"employee_id": id, "work_date": day, "status": "working"})
+		}
+	}
+	body := map[string]any{"week_start": "2026-09-14", "expected_version": 0, "entries": entries, "overrides": []map[string]any{{"workstation_id": stations[0], "work_date": "2026-09-15", "employee_id": 6583}}, "request_id": "initial"}
+	code, _, raw := post("/api/production-roster/save", body)
+	if code != 200 {
+		t.Fatalf("outside-list working owner rejected: %d %s", code, raw)
+	}
+	body["expected_version"] = 1
+	body["request_id"] = "leave"
+	for _, entry := range entries {
+		if entry["work_date"] == "2026-09-15" && (entry["employee_id"] == int64(6581) || entry["employee_id"] == int64(6583)) {
+			entry["status"] = "off"
+		}
+	}
+	code, out, raw := post("/api/production-roster/preview", body)
+	if code != 200 {
+		t.Fatalf("leave preview: %d %s", code, raw)
+	}
+	for _, a := range out.Assignments {
+		if a.WorkDate == "2026-09-15" && a.EmployeeID != 6582 {
+			t.Fatalf("backup did not relieve: %+v", a)
+		}
+	}
+	if len(out.Overrides) != 0 {
+		t.Fatalf("off manual owner not released: %+v", out.Overrides)
+	}
+	code, _, raw = post("/api/production-roster/save", body)
+	if code != 200 {
+		t.Fatalf("leave save: %d %s", code, raw)
+	}
+	body["expected_version"] = 2
+	body["request_id"] = "replace"
+	body["overrides"] = []any{}
+	body["replacement"] = map[string]any{"work_date": "2026-09-14", "from_employee_id": 6581, "to_employee_id": 6583, "workstation_ids": stations, "mark_from_off": true}
+	code, out, raw = post("/api/production-roster/save", body)
+	if code != 200 {
+		t.Fatalf("bulk replace: %d %s", code, raw)
+	}
+	for _, a := range out.Assignments {
+		if a.WorkDate == "2026-09-14" && a.EmployeeID != 6583 {
+			t.Fatalf("replacement not applied: %+v", a)
+		}
+	}
+	for _, entry := range out.Entries {
+		if entry.EmployeeID == 6581 && entry.WorkDate == "2026-09-14" && entry.Status != "off" {
+			t.Fatal("A not set off")
+		}
+	}
+	code, replayed, raw := post("/api/production-roster/save", body)
+	if code != 200 || !replayed.Replayed {
+		t.Fatalf("replay failed %d %s", code, raw)
+	}
+	body["request_id"] = "stale"
+	code, _, _ = post("/api/production-roster/save", body)
+	if code != 409 {
+		t.Fatalf("stale version=%d", code)
+	}
+	body["expected_version"] = 3
+	body["request_id"] = "invalid"
+	body["replacement"] = map[string]any{"work_date": "2026-09-15", "from_employee_id": 6582, "to_employee_id": 6583, "workstation_ids": stations}
+	code, _, _ = post("/api/production-roster/save", body)
+	if code == 200 {
+		t.Fatal("off replacement accepted")
+	}
+	var version int
+	_ = pool.QueryRow(ctx, fmt.Sprintf(`SELECT version FROM %s.production_roster_weeks WHERE week_start='2026-09-14'`, schema)).Scan(&version)
+	if version != 3 {
+		t.Fatal("invalid batch partially saved")
+	}
+}

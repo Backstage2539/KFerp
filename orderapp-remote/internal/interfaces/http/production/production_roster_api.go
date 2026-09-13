@@ -52,6 +52,10 @@ func registerProductionRosterAPI(e *echo.Echo, svc *productionapp.Service) {
 		if err := c.Bind(&cmd); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
+		employeeID := support.CurrentEmployeeID(c)
+		if employeeID <= 0 || employeeID != cmd.EmployeeID {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: "请接替员工本人登录后确认接手工位"})
+		}
 		cmd.Operator = support.ActorOf(c)
 		result, err := svc.HandoverWorkstation(c.Request().Context(), cmd)
 		if err != nil {

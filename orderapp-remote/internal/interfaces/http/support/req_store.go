@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-658-PRODUCTION-ROSTER-RELIEF", title: "替补保存生效、请假自动补位与整日换人", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-production-roster-relief.md"},
+		{table: "req_dev", code: "DEV-661-ROSTER-RELIEF", title: "当日临时员工、请假补位、整日替换与任务范围事务校验", status: "done", assignee: "Codex", evidence: "production_roster_relief.go; production_roster_relief_acceptance_test.go"},
+		{table: "req_dev", code: "DEV-662-ROSTER-ADJUSTMENT-UI", title: "替补选中即加入、实时预览、负责人面板和整日换人", status: "done", assignee: "Codex", evidence: "ProductionScheduleView.vue; ManufacturingWorkstationsView.vue; production-roster-interaction.test.js"},
+		{table: "req_dev", code: "DEV-663-ROSTER-RELIEF-DELIVERY", title: "隔离数据页面开工交接、回归构建、手册与开发环境交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-13-production-roster-relief.md"},
 		{table: "req_product", code: "PR-657-PRODUCTION-ROSTER-AUTO-DISPATCH", title: "按周排班确定每日工位负责人并自动派工，支持交接和未开工需求重排", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-production-roster-auto-dispatch.md"},
 		{table: "req_dev", code: "DEV-657-PRODUCTION-ROSTER-DATA", title: "员工周出勤、工位主负责人和有序替补、当日调整及版本幂等", status: "done", assignee: "Codex", evidence: "production_roster.go; production_roster_postgres_test.go"},
 		{table: "req_dev", code: "DEV-658-PRODUCTION-ROSTER-UI", title: "员工周表、工位周表、复制预览、我的今日工位和窄屏界面", status: "done", assignee: "Codex", evidence: "ProductionScheduleView.vue; WorkstationView.vue"},

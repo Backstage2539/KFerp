@@ -54,3 +54,12 @@ func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 		t.Fatalf("processing billing/template view permissions=%q/%q, want finance.read/settings.write", views["processingBilling"], views["outsourceSettings"])
 	}
 }
+
+func TestRosterAndWorkstationViewsReuseProductionPermissions(t *testing.T) {
+	views := defaultViewPermissions()
+	for view, permission := range map[string]string{"workstationView": "production.read", "productionSchedule": "production.run"} {
+		if views[view] != permission {
+			t.Fatalf("%s permission=%q, want %s", view, views[view], permission)
+		}
+	}
+}

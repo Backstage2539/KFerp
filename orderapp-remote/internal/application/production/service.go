@@ -3546,6 +3546,21 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 		return ProductionWorkstationOverview{}, err
 	}
 
+	date := time.Now().In(productionLocation()).Format("2006-01-02")
+	var rosterAssignments []ProductionWorkstationDayAssignment
+	byID := map[int64]ProductionWorkstationDayAssignment{}
+	byName := map[string]ProductionWorkstationDayAssignment{}
+	if rosterRepo, ok := s.repo.(productionRosterRepository); ok {
+		rosterAssignments, err = rosterRepo.ResolveProductionWorkstationAssignments(ctx, date)
+		if err != nil {
+			return ProductionWorkstationOverview{}, err
+		}
+		for _, assignment := range rosterAssignments {
+			byID[assignment.WorkstationID] = assignment
+			byName[strings.TrimSpace(assignment.Workstation)] = assignment
+		}
+	}
+
 	workOrderByID := make(map[int64]WorkOrderRow, len(workOrders))
 	for _, row := range workOrders {
 		workOrderByID[row.ID] = row
@@ -3559,6 +3574,19 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 			continue
 		}
 		activeWorkOrders[card.WorkOrderID] = true
+
+		// Resolve queued ownership before deriving readiness and actions. Persisted
+		// execution snapshots stay untouched until the actual start transaction.
+		if card.Status == "pending" || card.Status == "ready" || card.Status == "released" {
+			assignment, found := byID[card.WorkstationID]
+			if !found {
+				assignment, found = byName[strings.TrimSpace(firstNonEmpty(card.Workstation, card.WorkCenter, workOrder.WorkCenter))]
+			}
+			if found {
+				card.AssignedEmployeeID = assignment.EmployeeID
+				card.AssignedTo = assignment.EmployeeName
+			}
+		}
 		tasks = append(tasks, productionTaskFromJobCard(card, workOrder))
 	}
 	for _, workOrder := range workOrders {
@@ -3605,18 +3633,7 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 			}
 		}
 	}
-	date := time.Now().In(productionLocation()).Format("2006-01-02")
-	if rosterRepo, ok := s.repo.(productionRosterRepository); ok {
-		assignments, assignmentErr := rosterRepo.ResolveProductionWorkstationAssignments(ctx, date)
-		if assignmentErr != nil {
-			return ProductionWorkstationOverview{}, assignmentErr
-		}
-		byID := map[int64]ProductionWorkstationDayAssignment{}
-		byName := map[string]ProductionWorkstationDayAssignment{}
-		for _, assignment := range assignments {
-			byID[assignment.WorkstationID] = assignment
-			byName[strings.TrimSpace(assignment.Workstation)] = assignment
-		}
+	if _, ok := s.repo.(productionRosterRepository); ok {
 		filtered := make([]ProductionTask, 0, len(tasks))
 		for i := range tasks {
 			task := &tasks[i]
@@ -3643,7 +3660,7 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 						task.CanStart = false
 						task.AvailableActions = removeProductionAction(task.AvailableActions, "start")
 						task.BlockingReasons = append(task.BlockingReasons, ProductionBlockingReason{Code: "roster_unattended", Label: "今日该工位无人值班，请先完成排班", Severity: "blocking", NextHandler: "生产排班"})
-						if task.BlockingReason == "" {
+						if task.BlockingReason == "" || task.BlockingReason == "未分配处理人" {
 							task.BlockingReason = "今日该工位无人值班"
 							task.NextHandler = "生产排班"
 						}
