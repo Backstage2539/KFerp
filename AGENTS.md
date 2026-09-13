@@ -248,17 +248,18 @@ Unified frontend architecture is `Vue + Vite`. Do not add user-facing behavior t
 
 There may be multiple agents or worktrees writing code at the same time.
 
-- Do not push commits directly to `develop`.
+- Run Git operations directly on Van's authorized local macOS host. The host SSH key is the approved Git transport; if `git fetch` and `git push` work, do not block on GitHub CLI or browser login.
 - Always do implementation work on your own feature branch, normally `codex/<task-name>`.
 - Normal feature work targets the development stack from `develop` unless Van names another target.
-- Current default: verified feature branch -> push branch -> merge into `develop` -> deploy agreed environment, unless Van explicitly says not to merge/deploy.
+- Current default: verified feature branch -> push branch -> merge locally into a clean, current `develop` -> push `develop` -> deploy the agreed environment, unless Van explicitly says not to merge/deploy. A GitHub PR is optional unless Van requests one.
+- When Van authorizes a formal release, merge the verified, pushed `develop` locally into a clean, current `main`, push `main`, and build or deploy only the explicitly requested production artifacts or services.
 - Before integration, fetch `origin`, merge/rebase latest `origin/develop` into the feature branch, rerun relevant checks, and push the feature branch.
 - Deploy only after the feature branch is pushed and merged into `develop`.
 - Treat other worktrees' changes as user/agent work. Never revert them unless Van explicitly asks.
 
 ## Develop Deployment Coordination
 
-Treat `develop` as the shared integration/deployment branch. Serialize merge/deploy ownership, never force-push, never deploy stale local `develop`, and never deploy another workflow's newly merged commit unless that workflow has finished verification or Van asks. Use `kferp-deploy-dev` for the exact checklist and required final evidence.
+Treat `develop` as the shared integration/deployment branch. Use a clean local checkout on the authorized macOS host for integration, serialize merge/deploy ownership, never force-push, never deploy stale local `develop`, and never deploy another workflow's newly merged commit unless that workflow has finished verification or Van asks. Use `kferp-deploy-dev` for the exact checklist and required final evidence.
 
 ## Make It Yours
 
