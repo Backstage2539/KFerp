@@ -27,7 +27,9 @@ import {
   fetchEmployeeOrderForm,
   parseEmployeeCustomerRecipient,
   fetchEmployeeShareSettings,
+  fetchMiniappSharePolicy,
   saveEmployeeShareSettings,
+  saveEmployeeShareScope,
   updateEmployeeOrder,
 } from './customerPortal'
 import type {
@@ -176,6 +178,28 @@ describe('customer portal API helpers', () => {
       method: 'PUT',
       token: 'employee-token',
       data: { image_need_show_entrance: true },
+    })
+  })
+
+  it('reads the current share policy and lets an administrator save its scope', async () => {
+    vi.mocked(miniRequest).mockResolvedValue({
+      settings: { image_need_show_entrance: true, share_scope: 'employee' },
+      can_share: true,
+    })
+
+    await fetchMiniappSharePolicy()
+    expect(miniRequest).toHaveBeenLastCalledWith('/api/mini/share-settings')
+
+    await fetchMiniappSharePolicy('employee-token')
+    expect(miniRequest).toHaveBeenLastCalledWith('/api/mini/share-settings', {
+      token: 'employee-token',
+    })
+
+    await saveEmployeeShareScope('employee-token', 'all')
+    expect(miniRequest).toHaveBeenLastCalledWith('/api/mini/employee/share-settings', {
+      method: 'PUT',
+      token: 'employee-token',
+      data: { share_scope: 'all' },
     })
   })
 

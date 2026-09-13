@@ -823,8 +823,8 @@ test('pricing rules and tier templates are independent templates used by price l
     final_unit_price: 88,
     cost_formula: 'cost_plus',
     tiers: [
-      { label: '10kg+', min_qty: '10', max_qty: '', quantity_unit: ' kg ', position: 2, pricing_rule_id: '20', final_unit_price: 66 },
-      { label: '1kg+', min_qty: '1', max_qty: '9', quantity_unit: 'kg', position: 1, pricing_rule_id: '10' },
+      { id: 72, label: '10kg+', min_qty: '10', max_qty: '', quantity_unit: ' kg ', position: 2, pricing_mode: 'fixed_price', pricing_rule_id: '20', final_unit_price: 66 },
+      { id: 71, label: '1kg+', min_qty: '1', max_qty: '9', quantity_unit: 'kg', position: 1, pricing_rule_id: '10' },
     ],
   }), {
     id: 7,
@@ -832,8 +832,8 @@ test('pricing rules and tier templates are independent templates used by price l
     active: true,
     remark: '',
     tiers: [
-      { label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'sales_spec_count', pricing_rule_id: 10, position: 1, active: true, remark: '' },
-      { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'sales_spec_count', pricing_rule_id: 20, position: 2, active: true, remark: '' },
+      { id: 71, label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'sales_spec_count', pricing_mode: 'pricing_rule', pricing_rule_id: 10, position: 1, active: true, remark: '' },
+      { id: 72, label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'sales_spec_count', pricing_mode: 'fixed_price', pricing_rule_id: 0, position: 2, active: true, remark: '' },
     ],
   })
 })

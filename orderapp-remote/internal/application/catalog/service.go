@@ -294,6 +294,7 @@ type PriceTierTemplateTier struct {
 	MinQty        float64  `json:"min_qty"`
 	MaxQty        *float64 `json:"max_qty,omitempty"`
 	QuantityUnit  string   `json:"quantity_unit"`
+	PricingMode   string   `json:"pricing_mode"`
 	PricingRuleID int64    `json:"pricing_rule_id"`
 	Position      int      `json:"position"`
 	Active        bool     `json:"active"`
@@ -2176,7 +2177,17 @@ func (s *Service) SavePriceTierTemplate(ctx context.Context, cmd PriceTierTempla
 	for i := range cmd.Tiers {
 		cmd.Tiers[i].Label = strings.TrimSpace(cmd.Tiers[i].Label)
 		cmd.Tiers[i].QuantityUnit = strings.TrimSpace(cmd.Tiers[i].QuantityUnit)
+		cmd.Tiers[i].PricingMode = strings.ToLower(strings.TrimSpace(cmd.Tiers[i].PricingMode))
 		cmd.Tiers[i].Remark = strings.TrimSpace(cmd.Tiers[i].Remark)
+		if cmd.Tiers[i].PricingMode == "" {
+			cmd.Tiers[i].PricingMode = "pricing_rule"
+		}
+		if cmd.Tiers[i].PricingMode != "pricing_rule" && cmd.Tiers[i].PricingMode != "fixed_price" {
+			return PriceTierTemplate{}, ValidationError{Message: "invalid pricing_mode"}
+		}
+		if cmd.Tiers[i].PricingMode == "fixed_price" {
+			cmd.Tiers[i].PricingRuleID = 0
+		}
 		if cmd.Tiers[i].MinQty < 0 {
 			return PriceTierTemplate{}, ValidationError{Message: "min_qty must not be negative"}
 		}
@@ -2192,8 +2203,28 @@ func (s *Service) SavePriceTierTemplate(ctx context.Context, cmd PriceTierTempla
 		if cmd.Tiers[i].ID == 0 && !cmd.Tiers[i].Active {
 			cmd.Tiers[i].Active = true
 		}
-		if cmd.Tiers[i].Active && cmd.Tiers[i].PricingRuleID <= 0 {
+		if cmd.Tiers[i].Active && cmd.Tiers[i].PricingMode == "pricing_rule" && cmd.Tiers[i].PricingRuleID <= 0 {
 			return PriceTierTemplate{}, ValidationError{Message: "pricing_rule_id required"}
+		}
+	}
+	requiredRuleIDs := map[int64]struct{}{}
+	for _, tier := range cmd.Tiers {
+		if tier.Active && tier.PricingMode == "pricing_rule" {
+			requiredRuleIDs[tier.PricingRuleID] = struct{}{}
+		}
+	}
+	if len(requiredRuleIDs) > 0 {
+		rules, err := s.repo.ListProductPricingRules(ctx)
+		if err != nil {
+			return PriceTierTemplate{}, err
+		}
+		for _, rule := range rules {
+			if rule.Active {
+				delete(requiredRuleIDs, rule.ID)
+			}
+		}
+		if len(requiredRuleIDs) > 0 {
+			return PriceTierTemplate{}, ValidationError{Message: "pricing_rule_id must reference an active pricing rule"}
 		}
 	}
 	sort.SliceStable(cmd.Tiers, func(i, j int) bool {

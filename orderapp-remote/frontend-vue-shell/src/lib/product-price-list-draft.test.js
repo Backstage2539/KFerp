@@ -36,6 +36,10 @@ test('price list generation draft persists pricing selections by scope and produ
       { parent_product_id: 550, sku_id: 551, selection_source: 'product_default', default_sku_id_at_selection: 551 },
       { parent_product_id: 550, sku_id: 552, selection_source: 'explicit', default_sku_id_at_selection: 551 },
     ],
+    tierFixedPrices: {
+      '551:tier-template:8:81:袋': 39.9,
+      '552:tier-template:8:81:袋': 69.9,
+    },
   }, storage)
 
   const restored = readPriceListGenerationDraft(key, storage)
@@ -45,6 +49,10 @@ test('price list generation draft persists pricing selections by scope and produ
     { parent_product_id: 550, sku_id: 551, selection_source: 'product_default', default_sku_id_at_selection: 551 },
     { parent_product_id: 550, sku_id: 552, selection_source: 'explicit', default_sku_id_at_selection: 551 },
   ])
+  assert.deepEqual(restored.tierFixedPrices, {
+    '551:tier-template:8:81:袋': 39.9,
+    '552:tier-template:8:81:袋': 69.9,
+  })
 })
 
 test('legacy price-list drafts do not invent an empty product spec selection field', () => {

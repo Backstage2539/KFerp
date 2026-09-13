@@ -206,12 +206,19 @@ export function priceListFlatRowErrors(row = {}, options = {}) {
   if (!mode) {
     errors.push(`${title}：缺少计价模式`)
   } else if (mode === 'tier_template') {
+    const tierPricingMode = String(row?.tier_pricing_mode || row?.tierPricingMode || '').trim() || 'pricing_rule'
     const pricingRuleID = Number(row?.pricing_rule_id || row?.pricingRuleID || row?.tier_pricing_rule_id || row?.tierPricingRuleID || 0)
     const pricingRuleVersion = String(row?.pricing_rule_version || row?.pricingRuleVersion || row?.tier_pricing_rule_version || row?.tierPricingRuleVersion || '').trim()
     if (Number(row?.tier_template_id || row?.tierTemplateID || 0) <= 0) errors.push(`${title}：缺少阶梯模板`)
     if (Number(row?.template_tier_id || row?.templateTierID || 0) <= 0) errors.push(`${title}：缺少阶梯档位`)
-    if (pricingRuleID <= 0) errors.push(`${title}：缺少计算模板`)
-    else if (!pricingRuleVersion) errors.push(`${title}：缺少计算模板版本`)
+    if (tierPricingMode === 'fixed_price') {
+      if (Number(row?.fixed_unit_price || row?.fixedUnitPrice || 0) <= 0) errors.push(`${title}：缺少固定价`)
+    } else if (tierPricingMode === 'pricing_rule') {
+      if (pricingRuleID <= 0) errors.push(`${title}：缺少计算模板`)
+      else if (!pricingRuleVersion) errors.push(`${title}：缺少计算模板版本`)
+    } else {
+      errors.push(`${title}：档位计价模式无效`)
+    }
   } else if (mode === 'pricing_rule') {
     if (Number(row?.pricing_rule_id || row?.pricingRuleID || 0) <= 0) errors.push(`${title}：缺少计算模板`)
     if (!String(row?.pricing_rule_version || row?.pricingRuleVersion || '').trim()) errors.push(`${title}：缺少计算模板版本`)
@@ -249,7 +256,10 @@ export function priceListFlatRowErrors(row = {}, options = {}) {
 function priceListFlatRowUsesLiveTrial(row = {}) {
   if (!priceListFlatRowUsesSalesSpecCount(row) && (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false)) return false
   const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
-  return mode === 'pricing_rule' || mode === 'tier_template'
+  if (mode === 'tier_template') {
+    return (String(row?.tier_pricing_mode || row?.tierPricingMode || '').trim() || 'pricing_rule') === 'pricing_rule'
+  }
+  return mode === 'pricing_rule'
 }
 
 function priceListFlatRowUsesSalesSpecCount(row = {}) {

@@ -1200,11 +1200,19 @@ export type EmployeeOrderDocumentGenerateResponse = EmployeeOrderDocumentAsset &
 
 export type EmployeeShareSettings = {
   image_need_show_entrance: boolean
+  share_scope: EmployeeShareScope
 }
+
+export type EmployeeShareScope = 'admin' | 'employee' | 'all'
 
 export type EmployeeShareSettingsResponse = {
   settings: EmployeeShareSettings
   can_manage: boolean
+}
+
+export type MiniappSharePolicyResponse = {
+  settings: EmployeeShareSettings
+  can_share: boolean
 }
 
 const employeeOrderDocumentFiles: Record<
@@ -1234,11 +1242,24 @@ export function fetchEmployeeShareSettings(token: string): Promise<EmployeeShare
   return miniRequest<EmployeeShareSettingsResponse>('/api/mini/employee/share-settings', { token })
 }
 
+export function fetchMiniappSharePolicy(token = ''): Promise<MiniappSharePolicyResponse> {
+  if (!token) return miniRequest<MiniappSharePolicyResponse>('/api/mini/share-settings')
+  return miniRequest<MiniappSharePolicyResponse>('/api/mini/share-settings', { token })
+}
+
 export function saveEmployeeShareSettings(token: string, imageNeedShowEntrance: boolean): Promise<EmployeeShareSettingsResponse> {
   return miniRequest<EmployeeShareSettingsResponse>('/api/mini/employee/share-settings', {
     method: 'PUT',
     token,
     data: { image_need_show_entrance: imageNeedShowEntrance },
+  })
+}
+
+export function saveEmployeeShareScope(token: string, shareScope: EmployeeShareScope): Promise<EmployeeShareSettingsResponse> {
+  return miniRequest<EmployeeShareSettingsResponse>('/api/mini/employee/share-settings', {
+    method: 'PUT',
+    token,
+    data: { share_scope: shareScope },
   })
 }
 

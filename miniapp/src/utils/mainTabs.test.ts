@@ -7,6 +7,20 @@ function readSource(path: string): string {
 }
 
 describe('miniapp startup route and main tabs', () => {
+  it('enables WeChat page forwarding through one privacy-safe global entry', () => {
+    const main = readSource('src/main.ts')
+    const share = readSource('src/utils/miniappShare.ts')
+
+    expect(main).toContain('app.mixin')
+    expect(main).toContain('onShow: refreshMiniappShareMenu')
+    expect(main).toContain('onShareAppMessage: defaultMiniappShare')
+    expect(main).toContain('onShareTimeline: defaultMiniappTimelineShare')
+    expect(share).toContain("path: '/pages/index/index'")
+    expect(share).toContain("title: 'KFerp 客户中心'")
+    expect(share).not.toContain('order_id')
+    expect(share).not.toContain('customer_id')
+  })
+
   it('uses an index startup page as the first published miniapp route', () => {
     const pages = JSON.parse(readSource('src/pages.json')) as { pages: { path: string }[] }
 
@@ -64,13 +78,18 @@ describe('miniapp startup route and main tabs', () => {
     expect(profile).toContain("session.roles.includes('admin')")
     expect(profile).toContain("session.permissions.includes('settings.write')")
     expect(profile).toContain('v-if="canManageShareSettings"')
+    expect(profile).toContain('管理员可以分享')
+    expect(profile).toContain('员工可以分享')
+    expect(profile).toContain('所有人可以分享')
     expect(profile).toContain('分享图片时携带小程序入口')
     expect(profile).toContain('fetchEmployeeShareSettings')
     expect(profile).toContain('saveEmployeeShareSettings')
+    expect(profile).toContain('saveEmployeeShareScope')
     expect(profile).toContain('isAuthenticationExpiredRequestError')
     expect(profile).toContain('redirectExpiredShareSettingsSession(error)')
     expect(profile).toContain('clearAndLogin()')
     expect(api).toContain("'/api/mini/employee/share-settings'")
+    expect(api).toContain("'/api/mini/share-settings'")
   })
 
   it('lets guests browse and routes signed-in users to their workspace', () => {
