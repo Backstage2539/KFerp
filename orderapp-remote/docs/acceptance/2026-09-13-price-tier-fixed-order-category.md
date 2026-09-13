@@ -1,4 +1,4 @@
-# PR-659 阶梯档位固定价与录单真实分类
+# PR-660 阶梯档位固定价与录单真实分类
 
 日期：2026-09-13。功能分支：`codex/price-tier-fixed-order-category-20260913`。目标：合入 `develop` 并部署 development，完成技术验收后合入 `main` 并部署 production。业务验收人：Van。
 

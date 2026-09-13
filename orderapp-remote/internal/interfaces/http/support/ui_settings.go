@@ -14,6 +14,7 @@ import (
 
 const keyHideCustomerAccountFulfillment = "ui.customer_account.hide_fulfillment_console"
 const keyMiniappShareImageNeedShowEntrance = "miniapp.share_image.need_show_entrance"
+const keyMiniappShareScope = "miniapp.share.scope"
 
 type UISettings struct {
 	HideCustomerAccountFulfillment bool `json:"hide_customer_account_fulfillment"`
@@ -115,6 +116,7 @@ func effectiveAppConfigOldValue(key, raw string, exists bool) (string, bool) {
 	defaultValue, hasDefault := map[string]string{
 		keyHideCustomerAccountFulfillment:    "true",
 		keyMiniappShareImageNeedShowEntrance: "true",
+		keyMiniappShareScope:                 "employee",
 	}[strings.TrimSpace(key)]
 	if !hasDefault {
 		return raw, exists

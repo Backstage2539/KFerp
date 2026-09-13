@@ -3,6 +3,7 @@ package customerportal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,19 +15,24 @@ import (
 )
 
 type fakeEmployeeShareSettingsStore struct {
-	value    string
-	hasValue bool
-	setActor string
-	setKey   string
-	setValue string
-	setCalls int
-	getCalls int
-	getErr   error
-	setErr   error
+	value         string
+	hasValue      bool
+	scopeValue    string
+	hasScopeValue bool
+	setActor      string
+	setKey        string
+	setValue      string
+	setCalls      int
+	getCalls      int
+	getErr        error
+	setErr        error
 }
 
-func (f *fakeEmployeeShareSettingsStore) Get(context.Context, string) (string, bool, error) {
+func (f *fakeEmployeeShareSettingsStore) Get(_ context.Context, key string) (string, bool, error) {
 	f.getCalls++
+	if key == miniappShareScopeKey {
+		return f.scopeValue, f.hasScopeValue, f.getErr
+	}
 	return f.value, f.hasValue, f.getErr
 }
 
@@ -38,8 +44,13 @@ func (f *fakeEmployeeShareSettingsStore) Set(_ context.Context, actor, key, valu
 	f.setKey = key
 	f.setValue = value
 	f.setCalls++
-	f.value = value
-	f.hasValue = true
+	if key == miniappShareScopeKey {
+		f.scopeValue = value
+		f.hasScopeValue = true
+	} else {
+		f.value = value
+		f.hasValue = true
+	}
 	return nil
 }
 
@@ -67,8 +78,89 @@ func TestMiniEmployeeShareSettingsDefaultsToExistingEntranceBehavior(t *testing.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"image_need_show_entrance":true`) || !strings.Contains(rec.Body.String(), `"can_manage":false`) {
+	if !strings.Contains(rec.Body.String(), `"image_need_show_entrance":true`) || !strings.Contains(rec.Body.String(), `"share_scope":"employee"`) || !strings.Contains(rec.Body.String(), `"can_manage":false`) {
 		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestMiniappSharePolicyAppliesAdminEmployeeAndAllScopes(t *testing.T) {
+	tests := []struct {
+		name         string
+		scope        string
+		hasScope     bool
+		portal       fakeService
+		token        string
+		wantCanShare bool
+	}{
+		{name: "default rejects guest", wantCanShare: false},
+		{name: "default allows employee", portal: fakeService{me: employeeShareSettingsContext("sales", "orders.read")}, token: "employee-token", wantCanShare: true},
+		{name: "employee rejects customer", portal: fakeService{me: customerportalapp.CurrentContext{AccountType: "customer"}}, token: "customer-token", wantCanShare: false},
+		{name: "employee rejects expired token", portal: fakeService{err: customerportalapp.ErrMiniSessionNotFound}, token: "expired-token", wantCanShare: false},
+		{name: "all allows guest", scope: "all", hasScope: true, wantCanShare: true},
+		{name: "admin rejects sales", scope: "admin", hasScope: true, portal: fakeService{me: employeeShareSettingsContext("sales", "orders.read")}, token: "sales-token", wantCanShare: false},
+		{name: "admin allows admin", scope: "admin", hasScope: true, portal: fakeService{me: employeeShareSettingsContext("admin", "orders.read")}, token: "admin-token", wantCanShare: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			store := &fakeEmployeeShareSettingsStore{scopeValue: tc.scope, hasScopeValue: tc.hasScope}
+			registerMiniEmployeeShareSettingsAPI(e, tc.portal, store)
+			req := httptest.NewRequest(http.MethodGet, "/api/mini/share-settings", nil)
+			if tc.token != "" {
+				req.Header.Set(echo.HeaderAuthorization, "Bearer "+tc.token)
+			}
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			want := fmt.Sprintf(`"can_share":%t`, tc.wantCanShare)
+			if !strings.Contains(rec.Body.String(), want) {
+				t.Fatalf("body=%s want=%s", rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestMiniEmployeeShareSettingsAdminCanSaveShareScope(t *testing.T) {
+	e := echo.New()
+	store := &fakeEmployeeShareSettingsStore{}
+	portal := fakeService{me: employeeShareSettingsContext("admin", "settings.write")}
+	registerMiniEmployeeShareSettingsAPI(e, portal, store)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/share-settings", strings.NewReader(`{"share_scope":"all"}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer admin-token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.setCalls != 1 || store.setKey != miniappShareScopeKey || store.setValue != "all" {
+		t.Fatalf("store=%+v", store)
+	}
+	if !strings.Contains(rec.Body.String(), `"share_scope":"all"`) {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeShareSettingsRejectsInvalidShareScope(t *testing.T) {
+	e := echo.New()
+	store := &fakeEmployeeShareSettingsStore{}
+	portal := fakeService{me: employeeShareSettingsContext("admin", "settings.write")}
+	registerMiniEmployeeShareSettingsAPI(e, portal, store)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/share-settings", strings.NewReader(`{"share_scope":"customer"}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer admin-token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || store.setCalls != 0 {
+		t.Fatalf("status=%d store=%+v body=%s", rec.Code, store, rec.Body.String())
 	}
 }
 
