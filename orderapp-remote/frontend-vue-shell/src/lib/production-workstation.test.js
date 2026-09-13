@@ -396,4 +396,7 @@ test('employee workstation defaults to personal roster and only administrators s
   assert.match(source, /actorHasFullViewAccess\(props\.actor\)/)
   assert.match(source, /v-if="canViewAll" class="scope-switch"/)
   assert.match(source, /scope \|\| 'mine'/)
+  for (const marker of ['本周排班尚未保存', '今天尚未排班', '今天休息', '今天已上班，暂未负责工位']) {
+    assert.ok(source.includes(marker), `missing personal roster state: ${marker}`)
+  }
 })

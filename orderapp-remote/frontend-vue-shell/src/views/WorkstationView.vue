@@ -145,7 +145,10 @@
           </div>
         </div>
       </article>
-      <p v-if="!visibleSections.length" class="empty-state">暂无工位任务</p>
+      <div v-if="!visibleSections.length" class="empty-state">
+        <strong>{{ emptyState.title }}</strong>
+        <span>{{ emptyState.hint }}</span>
+      </div>
     </section>
     <ProductionExecutionHubDrawer
       :open="executionHub.open"
@@ -227,6 +230,13 @@ const workstationLoad = computed(() => overview.value.workstation_load || [])
 const visibleSections = computed(() => selectedWorkstation.value ? sections.value.filter((section) => section.workstation === selectedWorkstation.value) : sections.value)
 const visibleTaskCount = computed(() => visibleSections.value.reduce((total, section) => total + section.tasks.length, 0))
 const singleStationLayout = computed(() => visibleSections.value.length === 1)
+const emptyState = computed(() => {
+  if (scope.value !== 'mine') return { title: '暂无工位任务', hint: '当前筛选范围内没有待执行或执行中的任务。' }
+  if (Number(todayRoster.value.roster_version || 0) === 0) return { title: '本周排班尚未保存', hint: '请先完成本周生产排班，再查看今天负责的工位。' }
+  if (todayRoster.value.attendance === 'off') return { title: '今天休息', hint: '今天不参与工位自动安排。' }
+  if (todayRoster.value.attendance === 'unplanned') return { title: '今天尚未排班', hint: '请联系排班人员确认今天上班或休息。' }
+  return { title: '今天已上班，暂未负责工位', hint: '如需临时换岗，请由排班人员调整当天工位负责人。' }
+})
 
 function loadStatusLabel(value) {
   return ({
@@ -726,12 +736,15 @@ textarea { resize: vertical; }
 }
 .empty-state {
   grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
   border: 1px solid #e2ded7;
   border-radius: 8px;
   padding: 18px;
   color: #777;
   background: #fff;
 }
+.empty-state strong { color: #222; font-size: 16px; }
 .task-action-panel {
   grid-column: 1 / -1;
   display: grid;
