@@ -824,7 +824,7 @@ func TestProduceFinishAPIRejectsOutputGreaterThanConsumedInputWithoutWritingArti
 		);
 		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status)
 		VALUES ('WO-OUTPUT-GT-INPUT',1,'BATCH-OUTPUT-GT-INPUT',1,'异常产出拼配',227,600,'running');
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-OUTPUT-GT-INPUT", "异常产出生豆", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
@@ -1483,6 +1483,109 @@ func TestProductionPlanWithdrawsUnstartedDemandAndMergesNewDemandAtomically(t *t
 		t.Fatalf("replay = %+v err=%v", replayed, err)
 	}
 	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='replan'", plan.ID), 1)
+}
+
+func TestProductionPlanReplansUnstartedItemWhileAnotherItemIsRunning(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(
+			id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES (2,'计划拼配二号',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES(2,'SO-PLAN-2','2026-06-10',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES(2,1,'计划拼配二号',2,'袋','227g',2,50,100);
+		INSERT INTO %s.production_boms(id,code,name,output_product_id,status)
+		VALUES (101,'PBOM-PLAN-2','计划拼配二号 BOM',2,'active');
+		INSERT INTO %s.production_bom_versions(id,bom_id,version_no,status,yield_rate,output_qty,output_unit,published_at,process_route_id)
+		VALUES (101,101,'V001','published',0.8200,1,'kg',now(),30);
+		INSERT INTO %s.production_bom_version_items(version_id,material_id,component_type,ratio_pct)
+		VALUES (101,10,'material',100.0000);
+		INSERT INTO %s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
+		VALUES (2,101,101,'test');
+		INSERT INTO %s.product_production_configs(product_id,production_bom_id,production_bom_version_id,process_route_id,expected_loss_rate,created_by,updated_by)
+		VALUES (2,101,101,30,0.1800,'test','test');
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-REPLAN-PARTIAL", "计划生豆", 5000)
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From: "2026-06-01", To: "2026-06-30",
+		Selected:   map[string]bool{"1-227": true, "2-227": true},
+		InputByKey: map[string]int64{"1-227": 600, "2-227": 600},
+		Operator:   "计划员", RequestID: "replan-partial-old",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Items) != 2 {
+		t.Fatalf("production plan items = %+v, want two independent items", plan.Items)
+	}
+	for _, item := range plan.Items {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.production_plan_operation_splits(
+				production_plan_id,production_plan_item_id,operation_seq,operation_id,operation,workstation,
+				batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,
+				planned_qty,planned_qty_g,planned_minutes
+			)
+			SELECT $1,$2,op.seq,op.operation_id,op.operation,op.workstation,$3::numeric,'g',op.default_minutes,1,$3::numeric,$3::bigint,op.default_minutes
+			FROM %s.process_route_operations op
+			WHERE op.route_id=30
+			ORDER BY op.seq
+		`, schema, schema), plan.ID, item.ID, item.PlannedG); err != nil {
+			t.Fatal(err)
+		}
+	}
+	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(submitted.WorkOrders) != 2 {
+		t.Fatalf("submitted work orders = %+v, want two", submitted.WorkOrders)
+	}
+
+	itemByProduct := map[int64]productionapp.ProductionPlanItem{}
+	for _, item := range plan.Items {
+		itemByProduct[item.ProductID] = item
+	}
+	var runningWO productionapp.WorkOrderRow
+	for _, wo := range submitted.WorkOrders {
+		if wo.ProductionPlanItemID == itemByProduct[1].ID {
+			runningWO = wo
+		}
+	}
+	if runningWO.ID == 0 {
+		t.Fatalf("work orders = %+v, missing product 1 work order", submitted.WorkOrders)
+	}
+	if _, err := repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: runningWO.ID, Operator: "开工员"}); err != nil {
+		t.Fatal(err)
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='in_progress'", plan.ID), 1)
+
+	cmd := productionapp.ProductionReplanPreviewCommand{
+		ProductionPlanID: plan.ID, Revision: submitted.Plan.Revision,
+		ProductionPlanItemIDs: []int64{itemByProduct[2].ID}, From: "2026-06-01", To: "2026-06-30",
+	}
+	preview, err := repo.PreviewProductionReplan(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.CanReplan || len(preview.OriginalDemands) != 1 || len(preview.WorkOrders) != 1 || preview.WorkOrders[0].ProductionPlanItemID != itemByProduct[2].ID {
+		t.Fatalf("preview = %+v, want only the unstarted second item", preview)
+	}
+	result, err := repo.ReplanProduction(ctx, productionapp.ProductionReplanCommand{
+		ProductionReplanPreviewCommand: cmd, RequestID: "replan-partial-once", Operator: "调度员",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NewPlan.Status != "draft" {
+		t.Fatalf("new plan = %+v, want draft", result.NewPlan)
+	}
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("id=%d AND status='running'", runningWO.ID), 1)
+	assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='in_progress' AND replan_note='部分未开工需求已撤回重排'", plan.ID), 1)
 }
 
 func TestJobCardStartUsesFrozenBatchTailRemainder(t *testing.T) {
