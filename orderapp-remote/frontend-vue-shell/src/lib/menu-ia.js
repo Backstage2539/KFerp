@@ -29,7 +29,7 @@ export const menuGroups = [
       { key: 'workstationView', label: '工位视图', title: '工位视图' },
       { key: 'productionConfig', label: '生产配置', title: '生产配置' },
       { key: 'productionFlow', label: '生产流程', title: '生产流程' },
-      { key: 'productionSchedule', label: '生产排程', title: '生产排程' },
+      { key: 'productionSchedule', label: '生产排班', title: '生产排班' },
       { key: 'produceLogs', label: '生产日志', title: '生产日志' },
       { key: 'productionManual', label: '生产手册', title: '生产手册' },
     ],

@@ -33,7 +33,9 @@ func registerProductionWorkstationAPI(e *echo.Echo, productionSvc *productionapp
 	})
 	e.GET("/api/production/workstation-overview", func(c echo.Context) error {
 		rows, err := productionSvc.ProductionWorkstationOverview(c.Request().Context(), productionapp.ProductionWorkstationOverviewQuery{
-			Limit: support.IntParam(c, "limit", 500),
+			Limit:      support.IntParam(c, "limit", 500),
+			EmployeeID: support.CurrentEmployeeID(c),
+			Scope:      strings.TrimSpace(c.QueryParam("scope")),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -92,16 +94,7 @@ func registerProductionWorkstationAPI(e *echo.Echo, productionSvc *productionapp
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "job_card": res.JobCard, "work_order": res.WorkOrder})
 	})
 	e.POST("/api/production/workstation/tasks/:id/claim", func(c echo.Context) error {
-		id, err := parseJobCardID(c.Param("id"))
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		}
-		employeeID, _ := c.Get("employee_id").(int64)
-		res, err := productionSvc.ClaimProductionTask(c.Request().Context(), id, employeeID, support.ActorOf(c))
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]any{"ok": true, "job_card": res.JobCard, "work_order": res.WorkOrder})
+		return c.JSON(http.StatusGone, ErrorResponse{Error: "任务已改为跟随当日工位排班，无需领取"})
 	})
 }
 

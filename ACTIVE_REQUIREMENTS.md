@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-657-PRODUCTION-ROSTER-AUTO-DISPATCH
+- Branch: `codex/production-roster-auto-dispatch-20260913`, base `origin/develop@611095c707bf8f142ca4442d72f14c275a05aea9`.
+- Owner/session: Codex / 2026-09-13
+- Status: implementation and isolated PostgreSQL verification complete; full gates, develop integration, development deployment and browser acceptance in progress; production excluded.
+- Scope: weekly employee attendance, workstation primary/ordered backup ownership, automatic task dispatch, workstation handover, and atomic unstarted-demand replan.
+- DEV: DEV-657-PRODUCTION-ROSTER-DATA; DEV-658-PRODUCTION-ROSTER-UI; DEV-659-PRODUCTION-AUTO-DISPATCH-HANDOVER; DEV-660-PRODUCTION-DEMAND-REPLAN.
+- Verifier: roster/owner unit tests; handler and isolated PostgreSQL lifecycle; automatic job-card start guards; replan transaction/idempotency/shared-upstream tests; full Go/Vue/build; development screenshots.
+- Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue page help.
+- Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-production-roster-auto-dispatch.md`.
+- Last update: 2026-09-13 Asia/Shanghai
+
 ### PR-656-WORKSTATION-SINGLE-OWNER-FIXES
 - Branch: `codex/workstation-single-owner-fixes-20260913`, base `9b99b00e`.
 - Owner/session: Codex / 2026-09-13

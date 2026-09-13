@@ -329,12 +329,14 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	}
 	var currentStatus string
 	var currentCostMethod string
+	var workstationID int64
+	var workstation string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT status,COALESCE(NULLIF(cost_method,''),'time')
+		SELECT status,COALESCE(NULLIF(cost_method,''),'time'),COALESCE(workstation_id,0),COALESCE(NULLIF(workstation,''),NULLIF(work_center,''),'')
 		FROM %s.job_cards
 		WHERE id=$1 AND work_order_id=$2
 		FOR UPDATE
-	`, r.schema), cmd.ID, workOrderID).Scan(&currentStatus, &currentCostMethod); err != nil {
+	`, r.schema), cmd.ID, workOrderID).Scan(&currentStatus, &currentCostMethod, &workstationID, &workstation); err != nil {
 		if err == pgx.ErrNoRows {
 			return productionapp.JobCardActionResult{}, fmt.Errorf("job card not found")
 		}
@@ -347,6 +349,20 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 		return productionapp.JobCardActionResult{}, fmt.Errorf("invalid job card action %s from %s", cmd.Action, currentStatus)
 	}
 	if cmd.Action == "start" {
+		owner, rosterEnabled, ownerErr := resolveProductionWorkstationOwnerTx(ctx, tx, r.schema, workstationID, workstation, productionWorkDate())
+		if ownerErr != nil {
+			return productionapp.JobCardActionResult{}, ownerErr
+		}
+		if rosterEnabled {
+			if owner.EmployeeID <= 0 {
+				return productionapp.JobCardActionResult{}, fmt.Errorf("今日该工位无人值班，请先完成排班")
+			}
+			if cmd.EmployeeID > 0 && cmd.EmployeeID != owner.EmployeeID {
+				return productionapp.JobCardActionResult{}, fmt.Errorf("今日该工位负责人为%s，请由负责人登录后开工", owner.EmployeeName)
+			}
+			cmd.EmployeeID = owner.EmployeeID
+			cmd.AssignedEmployeeName = owner.EmployeeName
+		}
 		if err := ensureJobCardTaskReadyTx(ctx, tx, r.schema, workOrderID, cmd.ID); err != nil {
 			return productionapp.JobCardActionResult{}, err
 		}
@@ -366,7 +382,7 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	nextStatus := nextJobCardStatus(cmd.Action)
 	switch cmd.Action {
 	case "start":
-		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status=$2,started_at=now(),operator=$3 WHERE id=$1`, r.schema), cmd.ID, nextStatus, cmd.Operator)
+		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status=$2,started_at=now(),operator=$3,assigned_employee_id=CASE WHEN $4>0 THEN $4 ELSE assigned_employee_id END,assigned_to=CASE WHEN $4>0 THEN $5 ELSE assigned_to END WHERE id=$1`, r.schema), cmd.ID, nextStatus, cmd.Operator, cmd.EmployeeID, cmd.AssignedEmployeeName)
 	case "pause":
 		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status=$2,paused_at=now(),operator=$3 WHERE id=$1`, r.schema), cmd.ID, nextStatus, cmd.Operator)
 	case "resume":
@@ -410,7 +426,7 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	if err := updateWorkOrderStatusFromJobCardsTx(ctx, tx, r.schema, workOrderID); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, cmd.Action, postgresinfra.StrPtr("status"), postgresinfra.StrPtr(currentStatus), postgresinfra.StrPtr(nextStatus), postgresinfra.AuditMeta{"work_order_id": workOrderID, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_piece_qty": actualPieceQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "loss_reason": cmd.LossReason, "exception_reason": cmd.ExceptionReason}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, cmd.Action, postgresinfra.StrPtr("status"), postgresinfra.StrPtr(currentStatus), postgresinfra.StrPtr(nextStatus), postgresinfra.AuditMeta{"work_order_id": workOrderID, "employee_id": cmd.EmployeeID, "employee_name": cmd.AssignedEmployeeName, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_piece_qty": actualPieceQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "loss_reason": cmd.LossReason, "exception_reason": cmd.ExceptionReason}); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
 	card, err := loadJobCardRowTx(ctx, tx, r.schema, cmd.ID)

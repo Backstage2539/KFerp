@@ -38,10 +38,12 @@ test('work order detail is a status bus with embedded operation records', () => 
 
 test('workstation owns task execution and report excludes receipt warehouse', () => {
   const source = read('../views/WorkstationView.vue')
-  assert.match(source, /执行人/)
-  assert.match(source, /领取任务/)
-  assert.match(source, /安排人员与时间/)
-  assert.match(source, /ProductionTaskStaffEditor/)
+  assert.match(source, /我的今日工位/)
+  assert.match(source, /今日负责人/)
+  assert.match(source, /接手工位/)
+  assert.match(source, /查看生产排班/)
+  assert.doesNotMatch(source, /领取任务/)
+  assert.doesNotMatch(source, /ProductionTaskStaffEditor/)
   assert.doesNotMatch(source, /ProductionTopNav/)
   assert.match(source, /查看工单/)
   assert.match(source, /第.*批.*共.*批/)

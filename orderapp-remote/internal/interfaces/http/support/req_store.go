@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-657-PRODUCTION-ROSTER-AUTO-DISPATCH", title: "按周排班确定每日工位负责人并自动派工，支持交接和未开工需求重排", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-production-roster-auto-dispatch.md"},
+		{table: "req_dev", code: "DEV-657-PRODUCTION-ROSTER-DATA", title: "员工周出勤、工位主负责人和有序替补、当日调整及版本幂等", status: "done", assignee: "Codex", evidence: "production_roster.go; production_roster_postgres_test.go"},
+		{table: "req_dev", code: "DEV-658-PRODUCTION-ROSTER-UI", title: "员工周表、工位周表、复制预览、我的今日工位和窄屏界面", status: "done", assignee: "Codex", evidence: "ProductionScheduleView.vue; WorkstationView.vue"},
+		{table: "req_dev", code: "DEV-659-PRODUCTION-AUTO-DISPATCH-HANDOVER", title: "任务按当天工位自动归属、无人值班开工门禁和整工位交接", status: "done", assignee: "Codex", evidence: "production_roster.go; service.go; production_roster_postgres_test.go"},
+		{table: "req_dev", code: "DEV-660-PRODUCTION-DEMAND-REPLAN", title: "未开工需求撤回、共享范围确认、合并新草稿和旧新单据追溯", status: "done", assignee: "Codex", evidence: "production_replan.go; production_flow_api_test.go; ProductionReplanWorkspace.vue"},
+		{table: "req_review", code: "REV-657-PRODUCTION-ROSTER-AUTO-DISPATCH", prCode: "PR-657-PRODUCTION-ROSTER-AUTO-DISPATCH", title: "验收周排班、自动工位负责人、我的今日工位、交接与撤回合并重排", status: "todo", assignee: "VA", evidence: "待 Van 在 development 页面验收"},
+
 		{table: "req_product", code: "PR-656-WORKSTATION-SINGLE-OWNER-FIXES", title: "工位任务状态、批次数量、开工领料与单负责人统一", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-workstation-single-owner-fixes.md"},
 		{table: "req_dev", code: "DEV-656-TASK-STATE-QUANTITY", title: "工位队列过滤结束工单并统一本批规格、数量与齐套状态", status: "done", assignee: "Codex", evidence: "workstation_service_test.go; production-task-view.test.js"},
 		{table: "req_dev", code: "DEV-656-START-PICKING", title: "按工单身份开工并统一批次尾差、WIP 齐套和领料预览", status: "done", assignee: "Codex", evidence: "postgres_integration_test.go; stock_entry_test.go"},

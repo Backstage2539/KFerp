@@ -157,6 +157,7 @@
         :customer-context-id="workspaceCustomerContextId"
         :customer-context-label="workspaceCustomerLabel"
         :customer-account-actor="isCustomerActor"
+        :actor="currentActor"
         :portal-page="currentKey" />
     </main>
   </div>

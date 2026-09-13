@@ -45,9 +45,6 @@ func (r Repository) ListManufacturingOperations(ctx context.Context) ([]manufact
 		return nil, err
 	}
 	rows.Close()
-	if err := r.attachOperationStaff(ctx, out); err != nil {
-		return nil, err
-	}
 	return out, nil
 }
 
@@ -81,10 +78,7 @@ func (r Repository) SaveManufacturingOperation(ctx context.Context, cmd manufact
 	if err != nil {
 		return manufacturingapp.ManufacturingOperation{}, err
 	}
-	if err := saveOperationStaffTx(ctx, tx, r.schema, id, cmd); err != nil {
-		return manufacturingapp.ManufacturingOperation{}, err
-	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_operation", &id, action, postgresinfra.StrPtr("operation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status, "standard_operation_cost": cmd.StandardOperationCost, "eligible_employee_ids": cmd.EligibleEmployeeIDs, "default_employee_id": cmd.DefaultEmployeeID, "default_collaborator_ids": cmd.DefaultCollaboratorIDs}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_operation", &id, action, postgresinfra.StrPtr("operation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status, "standard_operation_cost": cmd.StandardOperationCost}); err != nil {
 		return manufacturingapp.ManufacturingOperation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -151,7 +145,55 @@ func (r Repository) ListManufacturingWorkstations(ctx context.Context) ([]manufa
 	if err := r.attachWorkstationOperations(ctx, out); err != nil {
 		return nil, err
 	}
+	if err := r.attachWorkstationStaff(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+func (r Repository) attachWorkstationStaff(ctx context.Context, rows []manufacturingapp.ManufacturingWorkstation) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(rows))
+	index := map[int64]int{}
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+		index[rows[i].ID] = i
+	}
+	staffRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT s.workstation_id,s.employee_id,COALESCE(e.name,''),s.staff_role,s.sort_order,COALESCE(e.active,false)
+		FROM %s.manufacturing_workstation_employees s
+		LEFT JOIN %s.company_employees e ON e.id=s.employee_id
+		WHERE s.workstation_id=ANY($1)
+		ORDER BY s.workstation_id,CASE WHEN s.staff_role='primary' THEN 0 ELSE 1 END,s.sort_order,s.employee_id
+	`, r.schema, r.schema), ids)
+	if err != nil {
+		return err
+	}
+	defer staffRows.Close()
+	for staffRows.Next() {
+		var workstationID, employeeID int64
+		var name, role string
+		var sortOrder int
+		var active bool
+		if err := staffRows.Scan(&workstationID, &employeeID, &name, &role, &sortOrder, &active); err != nil {
+			return err
+		}
+		i, ok := index[workstationID]
+		if !ok {
+			continue
+		}
+		if role == "primary" {
+			rows[i].PrimaryEmployeeID = employeeID
+			rows[i].PrimaryEmployeeName = name
+			rows[i].StaffingReady = active
+			continue
+		}
+		rows[i].BackupEmployeeIDs = append(rows[i].BackupEmployeeIDs, employeeID)
+		rows[i].BackupEmployees = append(rows[i].BackupEmployees, manufacturingapp.WorkstationEmployee{ID: employeeID, Name: name, SortOrder: sortOrder, Active: active})
+	}
+	return staffRows.Err()
 }
 
 func (r Repository) attachWorkstationOperations(ctx context.Context, rows []manufacturingapp.ManufacturingWorkstation) error {
@@ -234,7 +276,33 @@ func (r Repository) SaveManufacturingWorkstation(ctx context.Context, cmd manufa
 			return manufacturingapp.ManufacturingWorkstation{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation", &id, action, postgresinfra.StrPtr("workstation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status, "machine_hourly_cost": cmd.MachineHourlyCost, "labor_hourly_cost": cmd.LaborHourlyCost, "overhead_hourly_cost": cmd.OverheadHourlyCost, "hourly_rate": cmd.HourlyRate, "applicable_operation_ids": cmd.ApplicableOperationIDs}); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.manufacturing_workstation_employees WHERE workstation_id=$1`, r.schema), id); err != nil {
+		return manufacturingapp.ManufacturingWorkstation{}, err
+	}
+	staffIDs := append([]int64(nil), cmd.BackupEmployeeIDs...)
+	if cmd.PrimaryEmployeeID > 0 {
+		staffIDs = append([]int64{cmd.PrimaryEmployeeID}, staffIDs...)
+	}
+	if len(staffIDs) > 0 {
+		var activeCount int
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.company_employees WHERE id=ANY($1) AND active=true AND COALESCE(account_type,'internal_employee')<>'channel_customer'`, r.schema), staffIDs).Scan(&activeCount); err != nil {
+			return manufacturingapp.ManufacturingWorkstation{}, err
+		}
+		if activeCount != len(staffIDs) {
+			return manufacturingapp.ManufacturingWorkstation{}, fmt.Errorf("工位负责人和替补必须是启用的内部员工")
+		}
+	}
+	if cmd.PrimaryEmployeeID > 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.manufacturing_workstation_employees(workstation_id,employee_id,staff_role,sort_order) VALUES($1,$2,'primary',0)`, r.schema), id, cmd.PrimaryEmployeeID); err != nil {
+			return manufacturingapp.ManufacturingWorkstation{}, err
+		}
+	}
+	for position, employeeID := range cmd.BackupEmployeeIDs {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.manufacturing_workstation_employees(workstation_id,employee_id,staff_role,sort_order) VALUES($1,$2,'backup',$3)`, r.schema), id, employeeID, position+1); err != nil {
+			return manufacturingapp.ManufacturingWorkstation{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation", &id, action, postgresinfra.StrPtr("workstation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status, "machine_hourly_cost": cmd.MachineHourlyCost, "labor_hourly_cost": cmd.LaborHourlyCost, "overhead_hourly_cost": cmd.OverheadHourlyCost, "hourly_rate": cmd.HourlyRate, "applicable_operation_ids": cmd.ApplicableOperationIDs, "primary_employee_id": cmd.PrimaryEmployeeID, "backup_employee_ids": cmd.BackupEmployeeIDs}); err != nil {
 		return manufacturingapp.ManufacturingWorkstation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -38,7 +38,13 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureScheduleStaffTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureProductionRosterTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureMultilevelProductionTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensureProductionReplanSchema(ctx, pool, schema); err != nil {
 		return err
 	}
 	if err := ensurePlanningSupplyTables(ctx, pool, schema); err != nil {

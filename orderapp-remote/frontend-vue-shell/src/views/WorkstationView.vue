@@ -4,10 +4,11 @@
     <ProductionReturnLink :source="viewParams.return_navigation" />
     <section class="toolbar">
       <div>
-        <h2>工位视图</h2>
-        <p>{{ visibleSections.length }} 个工位 · {{ visibleTaskCount }} 个任务</p>
+        <h2>{{ scope === 'mine' ? '我的今日工位' : '全厂工位视图' }}</h2>
+        <p>{{ todayRoster.date || overview.date || '今天' }} · {{ visibleSections.length }} 个工位 · {{ visibleTaskCount }} 个任务</p>
       </div>
       <div class="toolbar-actions">
+        <div v-if="canViewAll" class="scope-switch"><button type="button" :class="{ active: scope === 'mine' }" @click="switchScope('mine')">我的今日工位</button><button type="button" :class="{ active: scope === 'all' }" @click="switchScope('all')">全厂总览</button></div>
         <label>
           <span>工位</span>
           <select v-model="selectedWorkstation">
@@ -15,7 +16,7 @@
             <option v-for="section in sections" :key="section.workstation" :value="section.workstation">{{ section.workstation }}</option>
           </select>
         </label>
-        <button class="secondary" type="button" @click="openScheduling">安排人员与时间</button>
+        <button class="secondary" type="button" @click="openScheduling">查看生产排班</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
     </section>
@@ -29,8 +30,9 @@
           <div>
             <h3>{{ section.workstation }}</h3>
             <p>{{ loadStatusLabel(stationLoad(section).load_status) }} · 队列 {{ stationLoad(section).queue_count || section.tasks.length }} · 阻塞 {{ stationLoad(section).blocked_count || 0 }} · 预计 {{ stationLoad(section).estimated_minutes || 0 }} 分钟</p>
+            <p class="station-owner" :class="{ unattended: !section.assignment?.employee_id }">今日负责人：{{ section.assignment?.employee_name || '无人值班' }} · {{ rosterSourceLabel(section.assignment) }}</p>
           </div>
-          <span v-if="section.blockingReason" class="blocker">{{ section.blockingReason }}</span>
+          <div class="station-head-actions"><span v-if="section.blockingReason" class="blocker">{{ section.blockingReason }}</span><button v-if="section.assignment?.handover_count" class="handover" type="button" :disabled="busyKey !== ''" @click="handoverStation(section)">接手工位（{{ section.assignment.handover_count }}）</button></div>
         </div>
 
         <div class="answer-grid">
@@ -51,7 +53,8 @@
           </div>
         </div>
 
-        <button v-if="!selectedWorkstation" class="enter-station primary" type="button" @click="selectedWorkstation = section.workstation">进入本工位</button>
+        <div v-if="!section.tasks.length" class="no-task">今日负责此工位，暂无任务</div>
+        <button v-else-if="!selectedWorkstation" class="enter-station primary" type="button" @click="selectedWorkstation = section.workstation">进入本工位</button>
 
         <div v-if="selectedWorkstation" class="task-table">
           <div class="task-row header">
@@ -78,11 +81,10 @@
               <div v-else-if="materialReadinessState(task) === 'unknown'" class="material-readiness material-state-unknown">用料待核对</div>
             </div>
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
-            <span class="task-staff">{{ task.assigned_to || '待配置负责人' }}<small v-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
+            <span class="task-staff">{{ task.assigned_to || task.roster_employee_name || '无人值班' }}<small v-if="task.pending_handover">排班已换人，待接手工位</small><small v-else-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
             <div class="actions">
               <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
-              <button v-if="!task.assigned_to" type="button" class="secondary" @click="claimTask(task)">领取任务</button>
-              <button type="button" class="secondary" @click="openTaskAssignment(task)">{{ task.assigned_to ? '调整人员' : '分配人员' }}</button>
+              <button v-if="['pending','ready'].includes(task.status) && task.production_plan_id && task.production_plan_item_id" type="button" class="secondary" @click="openProductionReplan(task)">撤回并重新安排</button>
               <button v-if="workstationCanOpenIssue(task)" type="button" class="primary" @click="openPicking(task)">领料</button>
               <button v-if="task.readiness_label === '待质检'" type="button" class="secondary" @click="openQuality(task)">查看质检</button>
               <details v-if="isFirstOperationTask(task) && (workstationCanOpenIssue(task) || task.status === 'running')" class="material-actions"><summary>物料操作</summary><button v-if="workstationCanOpenIssue(task)" type="button" @click="openStockAction(task, 'issue')">领料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'consume')">耗料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'return')">退料</button></details>
@@ -96,9 +98,6 @@
               >
                 {{ actionLabel(action) }}
               </button>
-            </div>
-            <div v-if="assignmentTask && sameTask(assignmentTask, task)" class="task-action-panel">
-              <ProductionTaskStaffEditor ref="staffEditors" :job-card-id="Number(task.job_card_id)" :work-order-id="Number(task.work_order_id)" @saved="assignmentTask = null; load()" @cancel="assignmentTask = null" />
             </div>
             <div
               v-if="taskFeedback.taskKey === taskKey(task) && (taskFeedback.message || taskFeedback.error)"
@@ -163,8 +162,8 @@ import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchProductionWorkstationOverview, runProductionTaskAction } from '../api/production.js'
 import { apiGet, apiSend } from '../api/client'
+import { actorHasFullViewAccess } from '../lib/menu-permissions.js'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
-import ProductionTaskStaffEditor from '../components/ProductionTaskStaffEditor.vue'
 import {
   productionCompletionMetrics,
   productionCompletionOutputQty,
@@ -180,18 +179,19 @@ import {
 
 const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
+  actor: { type: Object, default: null },
 })
 
 const loading = ref(false)
 const busyKey = ref('')
 const error = ref('')
 const message = ref('')
-const staffEditors = ref([])
-function staffCanLeave() { return (Array.isArray(staffEditors.value) ? staffEditors.value : [staffEditors.value]).filter(Boolean).every(editor => editor.canLeave()) }
 const selectedWorkstationValue = ref('')
-const selectedWorkstation = computed({ get: () => selectedWorkstationValue.value, set: value => { if (value !== selectedWorkstationValue.value && !staffCanLeave()) return; selectedWorkstationValue.value = value; assignmentTask.value = null } })
+const selectedWorkstation = computed({ get: () => selectedWorkstationValue.value, set: value => { selectedWorkstationValue.value = value } })
 const overview = ref({ tasks: [] })
-const assignmentTask = ref(null)
+const todayRoster = ref({ assignments: [] })
+const canViewAll = computed(() => actorHasFullViewAccess(props.actor))
+const scope = ref(String(props.viewParams?.scope || 'mine') === 'all' && canViewAll.value ? 'all' : 'mine')
 const issue = reactive({ open: false, mode: '', title: '', task: null, note: '' })
 const executionHub = reactive({ open: false, workOrderId: 0, jobCardId: 0, focus: '' })
 const requestedJobCardID = computed(() => Number(props.viewParams?.job_card_id || 0))
@@ -212,7 +212,17 @@ const finishPanel = reactive({
 })
 
 const tasks = computed(() => overview.value.tasks || [])
-const sections = computed(() => workstationTaskSections(tasks.value))
+const sections = computed(() => {
+  const taskSections = workstationTaskSections(tasks.value)
+  const byName = new Map(taskSections.map(section => [section.workstation, section]))
+  for (const assignment of todayRoster.value.assignments || []) {
+    const section = byName.get(assignment.workstation) || { workstation: assignment.workstation, tasks: [], currentTask: null, nextTask: null, blockingReason: '' }
+    section.assignment = assignment
+    byName.set(assignment.workstation, section)
+  }
+  for (const section of byName.values()) if (!section.assignment) section.assignment = assignmentForSection(section)
+  return Array.from(byName.values()).sort((a, b) => a.workstation.localeCompare(b.workstation, 'zh-Hans-CN'))
+})
 const workstationLoad = computed(() => overview.value.workstation_load || [])
 const visibleSections = computed(() => selectedWorkstation.value ? sections.value.filter((section) => section.workstation === selectedWorkstation.value) : sections.value)
 const visibleTaskCount = computed(() => visibleSections.value.reduce((total, section) => total + section.tasks.length, 0))
@@ -316,16 +326,13 @@ function actionLabel(action) {
   }[action] || action
 }
 
-function openTaskAssignment(task) { if (staffCanLeave()) assignmentTask.value = task }
 function openScheduling() { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productionSchedule', params: { work_center: selectedWorkstation.value }, returnNavigation: { key: 'workstationView', params: { ...props.viewParams }, label: '返回工位视图' } } })) }
+function openProductionReplan(task) { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'producePlan', params: { production_plan_id: task.production_plan_id, replan_plan_id: task.production_plan_id, replan_item_id: task.production_plan_item_id }, returnNavigation: { key: 'workstationView', params: { workstation: selectedWorkstation.value, work_order_id: task.work_order_id, job_card_id: task.job_card_id, focus: 'workstation_task' }, label: '返回工位视图' } } })) }
 
-async function claimTask(task) {
-  const endpoint = productionTaskActionEndpoint(task, 'claim')
-  if (!endpoint) return
-  busyKey.value = `${task.job_card_id}:claim`
-  error.value = ''
-  try { await apiSend(endpoint, { body: {} }); await load(); message.value = '任务已领取' } catch (err) { error.value = err.message || '领取任务失败' } finally { busyKey.value = '' }
-}
+function assignmentForSection(section) { const task = section.tasks[0]; return task ? { workstation_id: task.workstation_id, workstation: section.workstation, employee_id: task.roster_employee_id, employee_name: task.roster_employee_name, source: task.roster_source, unattended: task.roster_status === 'unattended', override_invalid: task.roster_status === 'invalid_override', handover_count: section.tasks.filter(row => row.pending_handover).length } : null }
+function rosterSourceLabel(row) { if (!row) return '尚未排班'; if (row.override_invalid) return '临时调整已失效'; if (row.unattended) return row.reason || '请先排班'; return ({ override: '临时调整', primary: '主负责人', backup: '替补接班' })[row.source] || '自动安排' }
+async function switchScope(next) { scope.value = next; selectedWorkstation.value = ''; await load() }
+async function handoverStation(section) { if (!section.assignment?.employee_id) return; busyKey.value = `handover:${section.assignment.workstation_id}`; error.value = ''; try { const result = await apiSend('/api/production-roster/handover', { body: { workstation_id: Number(section.assignment.workstation_id), work_date: todayRoster.value.date, employee_id: Number(section.assignment.employee_id), expected_version: Number(todayRoster.value.roster_version || 0), request_id: crypto.randomUUID() } }); message.value = `已接手 ${section.workstation}，共 ${result.job_card_ids?.length || 0} 项执行中任务`; await load() } catch (err) { error.value = err.message || '工位交接失败' } finally { busyKey.value = '' } }
 
 function openPicking(task) {
   openStockAction(task, 'issue')
@@ -520,7 +527,9 @@ async function load(options = {}) {
   loading.value = true
   error.value = ''
   try {
-    overview.value = await fetchProductionWorkstationOverview({ limit: 500 })
+    const [overviewData, rosterData] = await Promise.all([fetchProductionWorkstationOverview({ limit: 500, scope: scope.value }), apiGet(`/api/production-roster/today?scope=${scope.value}`)])
+    overview.value = overviewData
+    todayRoster.value = rosterData
     if (selectedWorkstation.value && !sections.value.some((section) => section.workstation === selectedWorkstation.value)) {
       selectedWorkstation.value = ''
     }
@@ -585,6 +594,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   gap: 10px;
   flex-wrap: wrap;
 }
+.scope-switch{display:flex;border:1px solid #cfdad3;border-radius:8px;overflow:hidden}.scope-switch button{border:0;border-radius:0}.scope-switch button.active{background:#e9f6ed;color:#217546;font-weight:700}.station-owner{color:#26814d!important;font-weight:700}.station-owner.unattended{color:#b36f19!important}.station-head-actions{display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap;justify-content:flex-end}.handover{background:#fff5e5;color:#9a641d;border-color:#e8c890}.no-task{padding:22px;border:1px dashed #cfded4;border-radius:8px;background:#f7fbf8;color:#5e7967;text-align:center}
 label { display: grid; gap: 5px; color: #555; font-size: 13px; }
 select, input, textarea {
   min-height: 34px;

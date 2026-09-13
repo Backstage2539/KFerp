@@ -30,7 +30,7 @@ func TestDev480To484ManufacturingPhase3Contracts(t *testing.T) {
 			"/api/production-trace/analytics",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductionScheduleView.vue"): {
-			"生产排程工作区", "批量带入默认人员", "工位占用", "保存前核对",
+			"生产排班", "员工排班", "工位安排", "保存前核对",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "IndustryFieldTemplatesView.vue"): {
 			"行业字段模板",
@@ -52,7 +52,7 @@ func TestDev480To484ManufacturingPhase3Contracts(t *testing.T) {
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-480-MANUFACTURING-PHASE3-SCHEDULE-CAPACITY",
-			"生产排程工作台",
+			"生产排程",
 			"MRP",
 			"异常损耗",
 		},

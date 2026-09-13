@@ -63,18 +63,8 @@ func registerProductionScheduleAPI(e *echo.Echo, productionSvc *productionapp.Se
 		return c.JSON(http.StatusOK, result)
 	})
 	for _, path := range []string{"/api/production-schedule/preview", "/api/production-schedule/batch"} {
-		preview := strings.HasSuffix(path, "preview")
 		e.POST(path, func(c echo.Context) error {
-			var cmd productionapp.ScheduleBatchCommand
-			if err := c.Bind(&cmd); err != nil {
-				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
-			}
-			cmd.Operator = support.ActorOf(c)
-			result, err := productionSvc.ScheduleBatch(c.Request().Context(), cmd, preview)
-			if err != nil {
-				return scheduleAPIError(c, err)
-			}
-			return c.JSON(http.StatusOK, result)
+			return c.JSON(http.StatusGone, ErrorResponse{Error: "逐任务人员排程已停用，请使用生产排班设置员工出勤和工位负责人"})
 		})
 	}
 
@@ -124,28 +114,7 @@ func registerProductionScheduleAPI(e *echo.Echo, productionSvc *productionapp.Se
 	})
 
 	e.POST("/api/production-schedule/assign", func(c echo.Context) error {
-		var req scheduleAssignmentRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
-		}
-		res, err := productionSvc.SaveScheduleAssignment(c.Request().Context(), productionapp.ScheduleAssignmentCommand{
-			Patch: &req.Patch, RequestID: req.RequestID, PreviewToken: req.PreviewToken,
-			WorkOrderID:        req.WorkOrderID,
-			JobCardID:          req.JobCardID,
-			AssignedEmployeeID: req.AssignedEmployeeID,
-			WorkCenter:         req.WorkCenter,
-			PlannedStartAt:     req.PlannedStartAt,
-			PlannedEndAt:       req.PlannedEndAt,
-			ShiftCode:          req.ShiftCode,
-			AssignedTo:         req.AssignedTo,
-			Priority:           req.Priority,
-			Note:               req.Note,
-			Operator:           support.ActorOf(c),
-		})
-		if err != nil {
-			return scheduleAPIError(c, err)
-		}
-		return c.JSON(http.StatusOK, res)
+		return c.JSON(http.StatusGone, ErrorResponse{Error: "逐任务配人已停用，请到生产排班调整当天工位负责人"})
 	})
 
 	e.POST("/api/production-capacity-calendar", func(c echo.Context) error {

@@ -321,6 +321,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 		}
 		cmd := productionapp.JobCardActionCommand{
 			ID:              id,
+			EmployeeID:      support.CurrentEmployeeID(c),
 			Operator:        support.ActorOf(c),
 			ActualInputQty:  req.ActualInputQty,
 			ActualOutputQty: req.ActualOutputQty,

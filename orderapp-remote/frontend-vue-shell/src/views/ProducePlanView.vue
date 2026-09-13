@@ -1,15 +1,30 @@
 <template>
   <div
     class="page"
-    :class="{ 'detail-open': !!(productionPlanDetail || productionPlanSplitDrawer), embedded: props.embedded }"
+    :class="{ 'detail-open': !!(productionPlanDetail || productionPlanSplitDrawer || replan.open), embedded: props.embedded }"
     @pointerdown="startTableScrollDrag"
     @pointermove="moveTableScrollDrag"
     @pointerup="stopTableScrollDrag"
     @pointercancel="stopTableScrollDrag"
   >
-    <ProductionTopNav v-if="!props.embedded" active-key="producePlan" />
+    <ProductionTopNav v-if="!props.embedded && !replan.open" active-key="producePlan" />
 
-    <div v-if="productionPlanSplitDrawer" class="production-plan-workspace-shell production-plan-capacity-shell">
+    <div v-if="replan.open" class="production-plan-workspace-shell">
+      <ProductionReplanWorkspace
+        :preview="replan.preview"
+        :available-rows="replan.availableRows"
+        :selected-keys="Object.keys(replan.selected).filter(key => replan.selected[key])"
+        :loading="replan.loading"
+        :saving="replan.saving"
+        :error="replan.error"
+        @back="closeProductionReplan"
+        @toggle="toggleProductionReplanDemand"
+        @preview="previewProductionReplan"
+        @commit="commitProductionReplan"
+      />
+    </div>
+
+    <div v-else-if="productionPlanSplitDrawer" class="production-plan-workspace-shell production-plan-capacity-shell">
       <ProductionPlanCapacityWorkspace
         :detail="productionPlanSplitDrawer"
         :rows="productionPlanSplitRows"
@@ -49,6 +64,7 @@
         @edit-splits="openProductionPlanSplitDrawer(productionPlanDetail, 'detail')"
         @refresh="refreshProductionPlanDetailSupply"
         @cancel="cancelProductionPlanDraft(productionPlanDetail, 'detail')"
+        @replan="beginProductionReplan"
         @navigate="navigateProductionView"
         @source-change="selectComponentSourceOption"
         @adjust-source="(source, allocations) => adjustPreparationSource(source, allocations, 'detail')"
@@ -697,6 +713,7 @@ import { IconClipboardList, IconChevronRight, IconAlertCircle, IconCheck } from 
 import ProductionSupplyAllocations from '../components/ProductionSupplyAllocations.vue'
 import ProductionPlanDetailWorkspace from '../components/ProductionPlanDetailWorkspace.vue'
 import ProductionPlanCapacityWorkspace from '../components/ProductionPlanCapacityWorkspace.vue'
+import ProductionReplanWorkspace from '../components/ProductionReplanWorkspace.vue'
 import { computed, nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
@@ -836,6 +853,9 @@ const productionPlanDetailLoading = ref(initialProductionPlanID > 0)
 const productionPlanDetailError = ref('')
 const productionPlanDetailSaving = ref(false)
 const productionPlanDetailSavedFingerprint = ref('')
+const initialReplanPlanID = typeof window === 'undefined' ? 0 : Number(props.viewParams?.replan_plan_id || new URL(window.location.href).searchParams.get('replan_plan_id') || initialProductionPlanID || 0)
+const initialReplanItemID = typeof window === 'undefined' ? 0 : Number(props.viewParams?.replan_item_id || new URL(window.location.href).searchParams.get('replan_item_id') || 0)
+const replan = reactive({ open: false, planID: 0, itemIDs: [], revision: 0, preview: null, availableRows: [], selected: {}, loading: false, saving: false, error: '', requestID: '' })
 const planRecordsOpen = ref(false)
 const lastViewedProductionPlanID = ref(0)
 const productionPlanSplitDrawer = ref(null)
@@ -1028,6 +1048,7 @@ function writePlanningLocation({ plan = productionPlanDetail.value, history = 'r
     else url.searchParams.delete(key)
   }
   for (const key of ['plan', 'selected', 'planning_step']) url.searchParams.delete(key)
+  for (const key of ['replan_plan_id', 'replan_item_id']) url.searchParams.delete(key)
   if (Number(plan?.id) > 0) {
     url.searchParams.set('production_plan_id', String(plan.id))
     url.hash = ''
@@ -1130,6 +1151,97 @@ async function restorePlanningLocation() {
 
 function buildUnproducedURL(plan, keys = selectedKeys()) {
   return new URL(buildProductionDemandSummaryQuery(filters, plan, keys), window.location.origin)
+}
+
+function productionReplanPayload(includeRequest = false) {
+  const payload = {
+    revision: Number(replan.revision || productionPlanDetail.value?.revision || 0),
+    production_plan_item_ids: replan.itemIDs.map(Number).filter(Boolean),
+    from: filters.from,
+    to: filters.to,
+    customer_id: Number(filters.customer_id || 0),
+    selected: Object.keys(replan.selected).filter(key => replan.selected[key]),
+    input_by_key: {},
+  }
+  if (includeRequest) {
+    if (!replan.requestID) replan.requestID = crypto.randomUUID()
+    payload.request_id = replan.requestID
+  }
+  return payload
+}
+
+async function beginProductionReplan(item) {
+  const planID = Number(item?.production_plan_id || productionPlanDetail.value?.id || initialReplanPlanID || 0)
+  const itemID = Number(item?.id || item?.production_plan_item_id || initialReplanItemID || 0)
+  if (!planID || !itemID) return
+  replan.open = true
+  replan.planID = planID
+  replan.itemIDs = [itemID]
+  replan.revision = Number(productionPlanDetail.value?.revision || 0)
+  replan.preview = null
+  replan.availableRows = []
+  replan.selected = {}
+  replan.requestID = ''
+  replan.error = ''
+  replan.loading = true
+  try {
+    if (!replan.revision || Number(productionPlanDetail.value?.id || 0) !== planID) {
+      productionPlanDetail.value = normalizeProductionPlanDetailForSplitEditor(await apiGet(`/api/production-plans/${planID}`))
+      replan.revision = Number(productionPlanDetail.value?.revision || 0)
+    }
+    const demand = await apiGet(buildUnproducedURL(false, []))
+    replan.availableRows = visibleRowsForProductSpecMigration(demand.rows || [])
+    await previewProductionReplan()
+  } catch (err) {
+    replan.error = err.message || '撤回范围加载失败'
+  } finally { replan.loading = false }
+}
+
+function closeProductionReplan() {
+  if (replan.saving) return
+  replan.open = false
+  replan.error = ''
+  replan.preview = null
+  replan.selected = {}
+  replan.requestID = ''
+}
+
+async function toggleProductionReplanDemand(key, checked) {
+  if (checked) replan.selected[key] = true
+  else delete replan.selected[key]
+  replan.requestID = ''
+  await previewProductionReplan()
+}
+
+async function previewProductionReplan() {
+  if (!replan.planID || !replan.itemIDs.length) return
+  replan.loading = true
+  replan.error = ''
+  try {
+    replan.preview = await apiSend(`/api/production-plans/${replan.planID}/replan/preview`, { body: productionReplanPayload(false) })
+    replan.revision = Number(replan.preview?.revision || replan.revision)
+  } catch (err) {
+    replan.preview = null
+    replan.error = err.message || '撤回重排核对失败'
+  } finally { replan.loading = false }
+}
+
+async function commitProductionReplan() {
+  if (replan.saving || !replan.preview?.can_replan) return
+  const total = Number(replan.preview.total_quantity_g || 0) / 1000
+  if (!window.confirm(`将撤回 ${replan.preview.work_orders?.length || 0} 张未开工工单，并创建合计 ${total} kg 的新草稿。确认继续吗？`)) return
+  replan.saving = true
+  replan.error = ''
+  try {
+    const result = await apiSend(`/api/production-plans/${replan.planID}/replan`, { body: productionReplanPayload(true) })
+    const created = result.new_plan
+    replan.open = false
+    notice.value = `原计划 ${result.previous_plan_no} 的未开工需求已撤回，新草稿 ${created.plan_no} 已创建。`
+    await openProductionPlanDetail(created, { history: 'push' })
+    await loadProductionPlans()
+  } catch (err) {
+    replan.error = err.message || '撤回并创建新草稿失败；原安排未改变'
+  } finally { replan.saving = false }
 }
 
 function applyUnproducedData(data, plan) {
@@ -2300,6 +2412,7 @@ function openShipReadyOrders() {
 onMounted(async () => {
   await Promise.allSettled([loadWorkstationCapacities(), loadWarehouses()])
   await restorePlanningLocation()
+  if (initialReplanPlanID > 0 && initialReplanItemID > 0) await beginProductionReplan({ production_plan_id: initialReplanPlanID, id: initialReplanItemID })
   await loadProductionPlans()
   if (new URL(window.location.href).hash === '#plan-records') { await nextTick(); scrollToPlanRecords() }
   window.addEventListener('beforeunload', handlePlanningBeforeUnload)
