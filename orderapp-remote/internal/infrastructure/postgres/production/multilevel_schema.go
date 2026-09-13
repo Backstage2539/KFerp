@@ -9,6 +9,7 @@ import (
 
 func ensureMultilevelProductionTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
+ALTER TABLE %[1]s.production_plans ADD COLUMN IF NOT EXISTS picking_version INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_plan_items ADD COLUMN IF NOT EXISTS output_type TEXT NOT NULL DEFAULT 'product';
 ALTER TABLE %[1]s.production_plan_items ADD COLUMN IF NOT EXISTS output_product_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_plan_items ADD COLUMN IF NOT EXISTS output_material_id BIGINT NOT NULL DEFAULT 0;
@@ -130,6 +131,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_plan_component_sources (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.production_plan_component_sources ADD COLUMN IF NOT EXISTS allocation_mode TEXT NOT NULL DEFAULT 'auto';
+ALTER TABLE %[1]s.production_plan_component_sources ADD COLUMN IF NOT EXISTS allocations_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 CREATE UNIQUE INDEX IF NOT EXISTS production_plan_component_sources_identity_uq
 	ON %[1]s.production_plan_component_sources(
 		production_plan_item_id,component_type,component_id,component_bom_spec_id,component_spec_g
@@ -256,7 +259,7 @@ END $$;
 DROP INDEX IF EXISTS %[1]s.work_order_material_reservation_batches_typed_uq;
 CREATE UNIQUE INDEX work_order_material_reservation_batches_typed_uq
 	ON %[1]s.work_order_material_reservation_batches(
-		reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id
+		reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id,warehouse
 	);
 CREATE INDEX IF NOT EXISTS work_order_material_reservation_batches_work_order_idx
 	ON %[1]s.work_order_material_reservation_batches(work_order_id, material_id, status);

@@ -28,9 +28,11 @@ test('work orders display frozen route operations from process snapshot when no 
 test('work order list keeps query actions only and delegates lifecycle commands to the execution hub', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
   const template = source.slice(0, source.indexOf('<script setup>'))
-  const rowActions = template.slice(template.indexOf('<td class="row-actions">'), template.indexOf('</td>', template.indexOf('<td class="row-actions">')) + 5)
+  const rowActionsStart = template.indexOf('<td class="row-actions"')
+  const rowActions = template.slice(rowActionsStart, template.indexOf('</td>', rowActionsStart) + 5)
 
-  for (const marker of ['执行枢纽', '编辑拆分', '打印']) assert.match(rowActions, new RegExp(marker))
+  for (const marker of ['查看工单', '更多']) assert.match(rowActions, new RegExp(marker))
+  for (const marker of ['编辑拆分', '打印']) assert.match(template, new RegExp(marker))
   for (const forbidden of ['开始生产', '完工入库', 'startWorkOrder(row)', "openStockDocument(row, 'finish')"]) {
     assert.doesNotMatch(rowActions, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
@@ -96,7 +98,7 @@ test('job card main table is a read-only execution record', () => {
     '异常原因',
     '工序要求',
     '进入工位',
-    '执行枢纽',
+    '查看工单',
   ]) {
     assert.match(template, new RegExp(required))
   }
@@ -114,8 +116,8 @@ test('job cards show product and BOM recipe context with execution navigation', 
   const template = source.slice(0, source.indexOf('<script setup>'))
 
   for (const marker of [
-    '<th>商品</th>',
-    '<th>BOM/配方</th>',
+    '<th>商品 / 工单</th>',
+    '<th>工序批次 / BOM</th>',
     'row.work_order_no',
     'openExecutionHub',
     'openWorkstation',
@@ -151,8 +153,7 @@ test('current production views remove legacy expected yield and keep actual yiel
 
   assert.doesNotMatch(workOrderSource, /预期产出率|预期损耗率/)
   assert.doesNotMatch(workOrderSource, /expectedYield|expectedLoss\(/)
-  assert.match(workOrderSource, /实际损耗率/)
-  assert.match(workOrderSource, /实际产出/)
+  assert.match(workOrderSource, /工序进度/)
 
   assert.doesNotMatch(logSource, /BOM预期产出率|row\.bom_yield_rate/)
   assert.match(logSource, /实际产出率/)
@@ -264,6 +265,8 @@ test('released unstarted work orders expose the formal cancel action and refresh
 })
 
 test('work order planned output falls back to planned grams and spec when packed counts are absent', () => {
+  assert.equal(formatWorkOrderPlannedOutput({ output_type: 'material', output_qty: 4.54, output_unit: 'kg', planned_g: 5640 }), '4.54 kg')
+  assert.equal(formatWorkOrderPlannedOutput({ output_type: 'product', output_qty: 20, output_unit: '袋', planned_g: 4540 }), '20 袋')
   assert.deepEqual(workOrderPlannedOutput({ planned_g: 55706, spec_g: 454 }), {
     units: 122,
     loose_g: 318,
@@ -323,9 +326,10 @@ test('work order typed output and upstream blockers are readable for material ma
 
 test('work order list shows typed outputs and upstream dependency blockers', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
-  assert.match(source, /<th>产出对象<\/th>/)
+  assert.match(source, /<th>产品 \/ 工单<\/th>/)
   assert.match(source, /formatWorkOrderTypedOutput\(row\)/)
-  assert.match(source, /<th>上游依赖<\/th>/)
+  assert.match(source, /<th>当前待办<\/th>/)
+  assert.match(source, /workOrderTodo\(row\)/)
   assert.match(source, /workOrderUpstreamBlockerLabel\(row\)/)
   assert.match(source, /workOrderHasUpstreamBlocker\(row\)/)
 })

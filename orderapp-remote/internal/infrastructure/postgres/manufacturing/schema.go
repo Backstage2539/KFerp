@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_operations (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE %[1]s.manufacturing_operations ADD COLUMN IF NOT EXISTS standard_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_operation_employees (
+ operation_id BIGINT NOT NULL REFERENCES %[1]s.manufacturing_operations(id),
+ employee_id BIGINT NOT NULL,
+ default_role TEXT NOT NULL DEFAULT '' CHECK(default_role IN ('','lead','collaborator')),
+ PRIMARY KEY(operation_id,employee_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_operation_employees_lead_uq ON %[1]s.manufacturing_operation_employees(operation_id) WHERE default_role='lead';
 CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_operations_code_uq
 	ON %[1]s.manufacturing_operations(code)
 	WHERE code <> '';
@@ -79,6 +86,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_workstations_code_uq
 	WHERE code <> '';
 CREATE INDEX IF NOT EXISTS manufacturing_workstations_status_idx
 	ON %[1]s.manufacturing_workstations(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_employees (
+	workstation_id BIGINT NOT NULL REFERENCES %[1]s.manufacturing_workstations(id) ON DELETE CASCADE,
+	employee_id BIGINT NOT NULL,
+	staff_role TEXT NOT NULL CHECK(staff_role IN ('primary','backup')),
+	sort_order INT NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(workstation_id, employee_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_workstation_employees_primary_uq
+	ON %[1]s.manufacturing_workstation_employees(workstation_id) WHERE staff_role='primary';
+CREATE INDEX IF NOT EXISTS manufacturing_workstation_employees_backup_idx
+	ON %[1]s.manufacturing_workstation_employees(workstation_id, staff_role, sort_order, employee_id);
 
 CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_operations (
 	workstation_id BIGINT NOT NULL,

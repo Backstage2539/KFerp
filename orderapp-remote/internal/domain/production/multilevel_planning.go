@@ -13,6 +13,7 @@ const (
 )
 
 type ManufacturingItemRef struct {
+	Scope        string `json:"scope,omitempty"`
 	Type         string `json:"type"`
 	ID           int64  `json:"id"`
 	BomSpecID    int64  `json:"bom_spec_id,omitempty"`
@@ -22,6 +23,11 @@ type ManufacturingItemRef struct {
 }
 
 func (r ManufacturingItemRef) Key() string {
+	if r.Scope != "" {
+		copy := r
+		copy.Scope = ""
+		return copy.Key() + "::" + r.Scope
+	}
 	if strings.EqualFold(strings.TrimSpace(r.Type), "product") && r.BomSpecID > 0 {
 		return fmt.Sprintf("product:%d:bom_spec:%d", r.ID, r.BomSpecID)
 	}
@@ -65,22 +71,24 @@ type ManufacturingBOM struct {
 }
 
 type ManufacturingPlanNode struct {
-	Item            ManufacturingItemRef `json:"item"`
-	RequiredQty     float64              `json:"required_qty"`
-	StockCoveredQty float64              `json:"stock_covered_qty"`
-	ShortageQty     float64              `json:"shortage_qty"`
-	Action          string               `json:"action"`
-	BOMVersionID    int64                `json:"bom_version_id"`
-	TargetWarehouse string               `json:"target_warehouse"`
-	Blocking        bool                 `json:"blocking"`
+	Item               ManufacturingItemRef `json:"item"`
+	RequiredQty        float64              `json:"required_qty"`
+	InflightCoveredQty float64              `json:"inflight_covered_qty"`
+	StockCoveredQty    float64              `json:"stock_covered_qty"`
+	ShortageQty        float64              `json:"shortage_qty"`
+	Action             string               `json:"action"`
+	BOMVersionID       int64                `json:"bom_version_id"`
+	TargetWarehouse    string               `json:"target_warehouse"`
+	Blocking           bool                 `json:"blocking"`
 }
 
 type ManufacturingSupplyEdge struct {
-	ConsumerKey     string  `json:"consumer_key"`
-	SupplierKey     string  `json:"supplier_key"`
-	RequiredQty     float64 `json:"required_qty"`
-	StockCoveredQty float64 `json:"stock_covered_qty"`
-	ShortageQty     float64 `json:"shortage_qty"`
+	ConsumerKey        string  `json:"consumer_key"`
+	SupplierKey        string  `json:"supplier_key"`
+	RequiredQty        float64 `json:"required_qty"`
+	InflightCoveredQty float64 `json:"inflight_covered_qty"`
+	StockCoveredQty    float64 `json:"stock_covered_qty"`
+	ShortageQty        float64 `json:"shortage_qty"`
 }
 
 type ManufacturingPlan struct {
@@ -92,6 +100,7 @@ type ManufacturingPlan struct {
 
 type manufacturingPlanBuilder struct {
 	boms      map[string]ManufacturingBOM
+	inflight  map[string]float64
 	available map[string]float64
 	reserved  map[string]float64
 	nodes     []ManufacturingPlanNode
@@ -106,12 +115,22 @@ type manufacturingPlanBuilder struct {
 // the caller. Inventory is consumed from a private availability snapshot so a
 // batch can never be counted twice across sibling demands.
 func BuildMultilevelManufacturingPlan(demands []ManufacturingDemand, boms []ManufacturingBOM, available map[string]float64) (ManufacturingPlan, error) {
+	return BuildMultilevelManufacturingPlanWithSupply(demands, boms, available, nil)
+}
+
+func BuildMultilevelManufacturingPlanWithSupply(demands []ManufacturingDemand, boms []ManufacturingBOM, available, inflight map[string]float64) (ManufacturingPlan, error) {
 	builder := manufacturingPlanBuilder{
+		inflight:  map[string]float64{},
 		boms:      make(map[string]ManufacturingBOM, len(boms)),
 		available: make(map[string]float64, len(available)),
 		reserved:  map[string]float64{},
 		nodeIndex: map[string]int{},
 		path:      map[string]bool{},
+	}
+	for key, qty := range inflight {
+		if qty > 0 {
+			builder.inflight[key] = qty
+		}
 	}
 	for key, qty := range available {
 		if qty > 0 {
@@ -199,17 +218,20 @@ func (b *manufacturingPlanBuilder) expand(outputKey string, bom ManufacturingBOM
 		key := component.Item.Key()
 		covered := math.Min(required, math.Max(0, b.available[key]))
 		covered = normalizeManufacturingQty(covered)
-		shortage := normalizeManufacturingQty(required - covered)
+		transit := normalizeManufacturingQty(math.Min(required-covered, math.Max(0, b.inflight[key])))
+		b.inflight[key] = normalizeManufacturingQty(b.inflight[key] - transit)
+		shortage := normalizeManufacturingQty(required - covered - transit)
 		b.available[key] = normalizeManufacturingQty(b.available[key] - covered)
 		b.reserved[key] = normalizeManufacturingQty(b.reserved[key] + covered)
 
 		node := ManufacturingPlanNode{
-			Item:            component.Item,
-			RequiredQty:     required,
-			StockCoveredQty: covered,
-			ShortageQty:     shortage,
-			Action:          ManufacturingSupplyInventory,
-			TargetWarehouse: defaultManufacturingWarehouse(component.Item.Type),
+			Item:               component.Item,
+			RequiredQty:        required,
+			InflightCoveredQty: transit,
+			StockCoveredQty:    covered,
+			ShortageQty:        shortage,
+			Action:             ManufacturingSupplyInventory,
+			TargetWarehouse:    defaultManufacturingWarehouse(component.Item.Type),
 		}
 		componentBom, canManufacture := b.boms[key]
 		if shortage > 0 {
@@ -225,7 +247,8 @@ func (b *manufacturingPlanBuilder) expand(outputKey string, bom ManufacturingBOM
 		b.upsertNode(node)
 		b.edges = append(b.edges, ManufacturingSupplyEdge{
 			ConsumerKey: outputKey, SupplierKey: key,
-			RequiredQty: required, StockCoveredQty: covered, ShortageQty: shortage,
+			RequiredQty: required, InflightCoveredQty: transit,
+			StockCoveredQty: covered, ShortageQty: shortage,
 		})
 		if shortage > 0 && canManufacture {
 			if b.path[key] {
@@ -244,6 +267,7 @@ func (b *manufacturingPlanBuilder) upsertNode(add ManufacturingPlanNode) {
 	if index, ok := b.nodeIndex[key]; ok {
 		current := b.nodes[index]
 		current.RequiredQty = normalizeManufacturingQty(current.RequiredQty + add.RequiredQty)
+		current.InflightCoveredQty = normalizeManufacturingQty(current.InflightCoveredQty + add.InflightCoveredQty)
 		current.StockCoveredQty = normalizeManufacturingQty(current.StockCoveredQty + add.StockCoveredQty)
 		current.ShortageQty = normalizeManufacturingQty(current.ShortageQty + add.ShortageQty)
 		if manufacturingActionPriority(add.Action) > manufacturingActionPriority(current.Action) {

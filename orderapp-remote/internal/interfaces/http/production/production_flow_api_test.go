@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	manufacturingapp "orderapp/internal/application/manufacturing"
 	productionapp "orderapp/internal/application/production"
 	stockapp "orderapp/internal/application/stock"
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
@@ -823,7 +824,7 @@ func TestProduceFinishAPIRejectsOutputGreaterThanConsumedInputWithoutWritingArti
 		);
 		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status)
 		VALUES ('WO-OUTPUT-GT-INPUT',1,'BATCH-OUTPUT-GT-INPUT',1,'异常产出拼配',227,600,'running');
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-OUTPUT-GT-INPUT", "异常产出生豆", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
@@ -1296,6 +1297,41 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	assertProductionFlowCount(t, pool, schema, "production_plan_items", "product_id=1 AND planned_g=600", 1)
 	assertNoProductionWorkOpened(t, ctx, pool, schema)
 	assertProductionFlowCount(t, pool, schema, "production_logs", "1=1", 0)
+	originalWarehouse := plan.Items[0].TargetWarehouse
+	sources := append([]productionapp.ProductionPlanComponentSource(nil), plan.ComponentSources...)
+	for index := range sources {
+		for _, option := range sources[index].Options {
+			if option.Warehouse == "wip" {
+				sources[index].SourceWarehouse = option.Warehouse
+				sources[index].SourceOwnerCustomerID = option.OwnerCustomerID
+				break
+			}
+		}
+	}
+	savedDraft, err := repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+		ID: plan.ID, DraftToken: plan.DraftToken, Items: []productionapp.ProductionPlanDraftItem{{ID: plan.Items[0].ID, TargetWarehouse: "wip"}},
+		ComponentSources: sources, OperationSplits: nil, Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("SaveProductionPlanDraft: %v", err)
+	}
+	if savedDraft.Items[0].TargetWarehouse != "wip" || savedDraft.DraftToken == plan.DraftToken {
+		t.Fatalf("saved draft = %+v, want atomic target update and new token", savedDraft)
+	}
+	if _, err := repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+		ID: plan.ID, DraftToken: plan.DraftToken, Items: []productionapp.ProductionPlanDraftItem{{ID: plan.Items[0].ID, TargetWarehouse: originalWarehouse}},
+		ComponentSources: sources, Operator: "stale-editor",
+	}); err == nil || !strings.Contains(err.Error(), "draft has changed") {
+		t.Fatalf("stale SaveProductionPlanDraft err=%v, want version conflict", err)
+	}
+	plan, err = repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+		ID: plan.ID, DraftToken: savedDraft.DraftToken, Items: []productionapp.ProductionPlanDraftItem{{ID: plan.Items[0].ID, TargetWarehouse: originalWarehouse}},
+		ComponentSources: sources, Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("restore lifecycle draft target: %v", err)
+	}
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='save_draft'", plan.ID), 2)
 	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
 
 	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
@@ -1316,7 +1352,7 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 		t.Fatalf("submitted job cards = %+v, want pending route operations", submitted.JobCards)
 	}
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 0)
-	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 0)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 1)
 
 	productionSvc := productionapp.NewService(repo)
 	if _, err := productionSvc.StartJobCard(ctx, productionapp.JobCardActionCommand{
@@ -1384,6 +1420,345 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	}
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 1)
+}
+
+func TestProductionPlanWithdrawsUnstartedDemandAndMergesNewDemandAtomically(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-REPLAN-RAW", "计划生豆", 1000)
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From: "2026-06-01", To: "2026-06-30", Selected: map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600}, Operator: "计划员", RequestID: "replan-old",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
+	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES(2,'SO-PLAN-NEW','2026-06-11',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES(2,1,'计划拼配',4,'袋','227g',1,50,200);
+	`, schema, schema, schema))
+	cmd := productionapp.ProductionReplanPreviewCommand{
+		ProductionPlanID: plan.ID, Revision: submitted.Plan.Revision,
+		ProductionPlanItemIDs: []int64{plan.Items[0].ID}, From: "2026-06-01", To: "2026-06-30",
+		Selected: map[string]bool{"1-227": true}, InputByKey: map[string]int64{"1-227": 1800},
+	}
+	preview, err := repo.PreviewProductionReplan(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.CanReplan || len(preview.OriginalDemands) != 1 || len(preview.AdditionalDemands) != 1 || preview.TotalQuantityG != 1362 {
+		t.Fatalf("preview = %+v", preview)
+	}
+	result, err := repo.ReplanProduction(ctx, productionapp.ProductionReplanCommand{
+		ProductionReplanPreviewCommand: cmd, RequestID: "replan-merge-once", Operator: "调度员",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NewPlan.Status != "draft" || len(result.NewPlan.Items) == 0 || result.NewPlan.Items[0].SalesSpecCount != 6 {
+		t.Fatalf("new plan = %+v", result.NewPlan)
+	}
+	var oldWOStatus, oldItemStatus string
+	var oldWOLink, oldItemLink int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT status,replan_status,replaced_by_plan_id FROM %s.work_orders WHERE id=$1`, schema), submitted.WorkOrders[0].ID).Scan(&oldWOStatus, &oldItemStatus, &oldWOLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT replan_status,replaced_by_plan_id FROM %s.production_plan_items WHERE id=$1`, schema), plan.Items[0].ID).Scan(&oldItemStatus, &oldItemLink); err != nil {
+		t.Fatal(err)
+	}
+	if oldWOStatus != "cancelled" || oldItemStatus != "withdrawn" || oldWOLink != result.NewPlan.ID || oldItemLink != result.NewPlan.ID {
+		t.Fatalf("old links work_order=%s/%d item=%s/%d", oldWOStatus, oldWOLink, oldItemStatus, oldItemLink)
+	}
+	replayed, err := repo.ReplanProduction(ctx, productionapp.ProductionReplanCommand{ProductionReplanPreviewCommand: cmd, RequestID: "replan-merge-once", Operator: "调度员"})
+	if err != nil || replayed.NewPlan.ID != result.NewPlan.ID {
+		t.Fatalf("replay = %+v err=%v", replayed, err)
+	}
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='replan'", plan.ID), 1)
+}
+
+func TestProductionPlanReplansUnstartedItemWhileAnotherItemIsRunning(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(
+			id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES (2,'计划拼配二号',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES(2,'SO-PLAN-2','2026-06-10',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES(2,1,'计划拼配二号',2,'袋','227g',2,50,100);
+		INSERT INTO %s.production_boms(id,code,name,output_product_id,status)
+		VALUES (101,'PBOM-PLAN-2','计划拼配二号 BOM',2,'active');
+		INSERT INTO %s.production_bom_versions(id,bom_id,version_no,status,yield_rate,output_qty,output_unit,published_at,process_route_id)
+		VALUES (101,101,'V001','published',0.8200,1,'kg',now(),30);
+		INSERT INTO %s.production_bom_version_items(version_id,material_id,component_type,ratio_pct)
+		VALUES (101,10,'material',100.0000);
+		INSERT INTO %s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
+		VALUES (2,101,101,'test');
+		INSERT INTO %s.product_production_configs(product_id,production_bom_id,production_bom_version_id,process_route_id,expected_loss_rate,created_by,updated_by)
+		VALUES (2,101,101,30,0.1800,'test','test');
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-REPLAN-PARTIAL", "计划生豆", 5000)
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From: "2026-06-01", To: "2026-06-30",
+		Selected:   map[string]bool{"1-227": true, "2-227": true},
+		InputByKey: map[string]int64{"1-227": 600, "2-227": 600},
+		Operator:   "计划员", RequestID: "replan-partial-old",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Items) != 2 {
+		t.Fatalf("production plan items = %+v, want two independent items", plan.Items)
+	}
+	for _, item := range plan.Items {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.production_plan_operation_splits(
+				production_plan_id,production_plan_item_id,operation_seq,operation_id,operation,workstation,
+				batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,
+				planned_qty,planned_qty_g,planned_minutes
+			)
+			SELECT $1,$2,op.seq,op.operation_id,op.operation,op.workstation,$3::numeric,'g',op.default_minutes,1,$3::numeric,$3::bigint,op.default_minutes
+			FROM %s.process_route_operations op
+			WHERE op.route_id=30
+			ORDER BY op.seq
+		`, schema, schema), plan.ID, item.ID, item.PlannedG); err != nil {
+			t.Fatal(err)
+		}
+	}
+	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(submitted.WorkOrders) != 2 {
+		t.Fatalf("submitted work orders = %+v, want two", submitted.WorkOrders)
+	}
+
+	itemByProduct := map[int64]productionapp.ProductionPlanItem{}
+	for _, item := range plan.Items {
+		itemByProduct[item.ProductID] = item
+	}
+	var runningWO productionapp.WorkOrderRow
+	for _, wo := range submitted.WorkOrders {
+		if wo.ProductionPlanItemID == itemByProduct[1].ID {
+			runningWO = wo
+		}
+	}
+	if runningWO.ID == 0 {
+		t.Fatalf("work orders = %+v, missing product 1 work order", submitted.WorkOrders)
+	}
+	if _, err := repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: runningWO.ID, Operator: "开工员"}); err != nil {
+		t.Fatal(err)
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='in_progress'", plan.ID), 1)
+
+	cmd := productionapp.ProductionReplanPreviewCommand{
+		ProductionPlanID: plan.ID, Revision: submitted.Plan.Revision,
+		ProductionPlanItemIDs: []int64{itemByProduct[2].ID}, From: "2026-06-01", To: "2026-06-30",
+	}
+	preview, err := repo.PreviewProductionReplan(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.CanReplan || len(preview.OriginalDemands) != 1 || len(preview.WorkOrders) != 1 || preview.WorkOrders[0].ProductionPlanItemID != itemByProduct[2].ID {
+		t.Fatalf("preview = %+v, want only the unstarted second item", preview)
+	}
+	result, err := repo.ReplanProduction(ctx, productionapp.ProductionReplanCommand{
+		ProductionReplanPreviewCommand: cmd, RequestID: "replan-partial-once", Operator: "调度员",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NewPlan.Status != "draft" {
+		t.Fatalf("new plan = %+v, want draft", result.NewPlan)
+	}
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("id=%d AND status='running'", runningWO.ID), 1)
+	assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='in_progress' AND replan_note='部分未开工需求已撤回重排'", plan.ID), 1)
+}
+
+func TestJobCardStartUsesFrozenBatchTailRemainder(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		availableG    int64
+		firstStatus   string
+		consumedG     int64
+		wantSecondErr string
+	}{
+		{name: "1749g splits into 875g and 874g", availableG: 1749, firstStatus: "pending"},
+		{name: "a real one gram shortage remains blocked", availableG: 1748, firstStatus: "pending", wantSecondErr: "缺口 1g"},
+		{name: "completed first batch consumption is not counted twice", availableG: 874, firstStatus: "completed", consumedG: 875},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			pool, schema := newProductionFlowTestDB(t)
+			ctx := context.Background()
+			mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+				INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+				VALUES (10,'RAW-TAIL','尾差测试生豆','bean','kg','kg',1749,0,50,0);
+				INSERT INTO %s.produce_running_items(
+					id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,input_g
+				) VALUES (656,'BATCH-TAIL',1,'尾差测试拼配',0,1749,'SO-TAIL','running','隔离测试',1749);
+				INSERT INTO %s.work_orders(
+					id,work_order_no,running_item_id,batch_id,product_id,product_name,inventory_unit,
+					planned_inventory_qty,planned_g,planned_output_g,order_nos,status
+				) VALUES (656,'WO-TAIL-656',656,'BATCH-TAIL',1,'尾差测试拼配','kg',1.749,1749,1749,'SO-TAIL','running');
+			`, schema, schema, schema))
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.job_cards(
+					id,work_order_id,sequence_no,operation,workstation,status,assigned_to,planned_input_qty
+				) VALUES
+					(6561,656,1,'咖啡烘焙+除石','智烘',$1,'隔离负责人',875),
+					(6562,656,1,'咖啡烘焙+除石','智烘','pending','隔离负责人',875)
+			`, schema), testCase.firstStatus); err != nil {
+				t.Fatalf("seed tail-remainder job cards: %v", err)
+			}
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.work_order_material_reservations(
+					id,work_order_id,running_item_id,material_id,material_name,unit,
+					required_g,reserved_g,consumed_g,status,component_type
+				) VALUES (656,656,656,10,'尾差测试生豆','g',1749,1749,$1,'reserved','material')
+			`, schema), testCase.consumedG); err != nil {
+				t.Fatalf("seed tail-remainder reservation: %v", err)
+			}
+			seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-TAIL", "尾差测试生豆", testCase.availableG)
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.work_order_material_reservation_batches(
+					reservation_id,work_order_id,material_id,component_type,component_id,
+					material_batch_id,batch_code,warehouse,reserved_g,consumed_g,status
+				) VALUES (656,656,10,'material',10,10,'MB-TAIL','wip',1749,$1,'reserved')
+			`, schema), testCase.consumedG); err != nil {
+				t.Fatalf("seed tail-remainder reservation batch: %v", err)
+			}
+
+			svc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
+			if testCase.firstStatus == "pending" {
+				first, err := svc.StartJobCard(ctx, productionapp.JobCardActionCommand{ID: 6561, Operator: "隔离负责人"})
+				if err != nil || first.JobCard.Status != "running" {
+					t.Fatalf("start first batch result=%+v err=%v", first, err)
+				}
+				if _, err := svc.StartJobCard(ctx, productionapp.JobCardActionCommand{ID: 6561, Operator: "重复点击"}); err == nil || !strings.Contains(err.Error(), "invalid job card action") {
+					t.Fatalf("duplicate first-batch start err=%v, want idempotent transition guard", err)
+				}
+			}
+			second, err := svc.StartJobCard(ctx, productionapp.JobCardActionCommand{ID: 6562, Operator: "隔离负责人"})
+			if testCase.wantSecondErr != "" {
+				if err == nil || !strings.Contains(err.Error(), testCase.wantSecondErr) {
+					t.Fatalf("start second batch err=%v, want %q", err, testCase.wantSecondErr)
+				}
+				assertProductionFlowCount(t, pool, schema, "job_cards", "id=6562 AND status='pending'", 1)
+				return
+			}
+			if err != nil || second.JobCard.Status != "running" {
+				t.Fatalf("start second batch result=%+v err=%v", second, err)
+			}
+			wantAudits := 1
+			if testCase.firstStatus == "pending" {
+				wantAudits++
+			}
+			assertProductionFlowCount(t, pool, schema, "audit_logs", "entity_type='job_card' AND action='start'", wantAudits)
+		})
+	}
+}
+
+func TestJobCardStartUsesWorkOrderIdentityAndAutoDefaultLead(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-WORK-IDENTITY", "计划生豆", 1000)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.company_departments(id,name) VALUES(656,'隔离生产部门');
+		INSERT INTO %s.company_employees(id,name,phone,department_id,active)
+		VALUES(656,'默认负责人','test-pr656-default',656,true);
+	`, schema, schema))
+	operationSvc := manufacturingapp.NewService(postgresmanufacturing.NewRepository(pool, schema))
+	operation, err := operationSvc.SaveManufacturingOperation(ctx, manufacturingapp.SaveManufacturingOperationCommand{
+		Name: "烘焙", Code: "TEST-ROAST-IDENTITY", Status: "active",
+		EligibleEmployeeIDs: []int64{656}, DefaultEmployeeID: 656, Actor: "隔离测试",
+	})
+	if err != nil {
+		t.Fatalf("save operation default lead: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.process_route_operations SET operation_id=$1 WHERE route_id=30 AND operation='烘焙'`, schema), operation.ID); err != nil {
+		t.Fatalf("bind route operation identity: %v", err)
+	}
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From: "2026-06-01", To: "2026-06-30", Selected: map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600}, Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	sources := append([]productionapp.ProductionPlanComponentSource(nil), plan.ComponentSources...)
+	for sourceIndex := range sources {
+		for _, option := range sources[sourceIndex].Options {
+			if option.Warehouse == "wip" {
+				sources[sourceIndex].SourceWarehouse = option.Warehouse
+				sources[sourceIndex].SourceOwnerCustomerID = option.OwnerCustomerID
+				break
+			}
+		}
+	}
+	plan, err = repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+		ID: plan.ID, DraftToken: plan.DraftToken,
+		Items:            []productionapp.ProductionPlanDraftItem{{ID: plan.Items[0].ID, TargetWarehouse: plan.Items[0].TargetWarehouse}},
+		ComponentSources: sources, Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("save WIP source: %v", err)
+	}
+	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
+	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatalf("SubmitProductionPlan: %v", err)
+	}
+	if len(submitted.WorkOrders) != 1 || len(submitted.JobCards) != 2 {
+		t.Fatalf("submitted result=%+v", submitted)
+	}
+	workOrder := submitted.WorkOrders[0]
+	firstTask := submitted.JobCards[0]
+	if firstTask.AssignedEmployeeID != 656 || firstTask.AssignedTo != "默认负责人" {
+		t.Fatalf("new task default lead=%+v, want employee 656", firstTask)
+	}
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,input_g
+		) VALUES(900000,'BATCH-OTHER-WO',1,'同订单另一工单',227,454,$1,'running','其他操作员',600)
+	`, schema), workOrder.OrderNos); err != nil {
+		t.Fatalf("seed another running item: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.work_orders(
+			id,work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,
+			planned_output_g,order_nos,status
+		) VALUES(900000,'WO-OTHER-SAME-ORDER',900000,'BATCH-OTHER-WO',1,'同订单另一工单',227,600,454,$1,'running')
+	`, schema), workOrder.OrderNos); err != nil {
+		t.Fatalf("seed another running work order: %v", err)
+	}
+
+	started, err := productionapp.NewService(repo).StartJobCard(ctx, productionapp.JobCardActionCommand{ID: firstTask.ID, Operator: "默认负责人"})
+	if err != nil || started.JobCard.Status != "running" {
+		t.Fatalf("start current work order task with same-order peer running result=%+v err=%v", started, err)
+	}
+	assertProductionFlowCount(t, pool, schema, "produce_running_items", "status='running'", 2)
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("id=%d AND status='running' AND running_item_id>0", workOrder.ID), 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='job_card' AND entity_id=%d AND action='start'", firstTask.ID), 1)
+	if _, err := productionapp.NewService(repo).StartJobCard(ctx, productionapp.JobCardActionCommand{ID: firstTask.ID, Operator: "重复点击"}); err == nil || !strings.Contains(err.Error(), "invalid job card action") {
+		t.Fatalf("duplicate task start err=%v, want exact-task transition guard", err)
+	}
 }
 
 func TestHistoricalWorkOrderStartUsesReservationRequirementsWhenMaterialSnapshotIsMissing(t *testing.T) {
@@ -1651,6 +2026,7 @@ func TestProductionPlanDraftCancelAPIRejectsNonDraftAndDownstreamWork(t *testing
 		pool, schema := newProductionFlowTestDB(t)
 		ctx := context.Background()
 		seedProductionPlanLifecycleData(t, ctx, pool, schema)
+		seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-CANCEL-RAW", "计划生豆", 1000)
 		repo := postgresproduction.NewRepository(pool, schema)
 		plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
 			Selected: map[string]bool{"1-227": true},
@@ -1658,6 +2034,16 @@ func TestProductionPlanDraftCancelAPIRejectsNonDraftAndDownstreamWork(t *testing
 		})
 		if err != nil {
 			t.Fatalf("CreateProductionPlan: %v", err)
+		}
+		sources := append([]productionapp.ProductionPlanComponentSource(nil), plan.ComponentSources...)
+		for index := range sources {
+			sources[index].SourceWarehouse = "wip"
+		}
+		plan, err = repo.SaveProductionPlanDraft(ctx, productionapp.SaveProductionPlanDraftCommand{
+			ID: plan.ID, DraftToken: plan.DraftToken, ComponentSources: sources, Operator: "计划员",
+		})
+		if err != nil {
+			t.Fatalf("save source before submit: %v", err)
 		}
 		seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
 		if _, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"}); err != nil {
@@ -2349,11 +2735,11 @@ func seedProductionPlanLifecycleOperationSplits(t *testing.T, ctx context.Contex
 	plannedG := plan.Items[0].PlannedG
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_plan_operation_splits(
-			production_plan_id,production_plan_item_id,operation_seq,operation,
+			production_plan_id,production_plan_item_id,operation_seq,operation_id,operation,workstation,
 			batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,
 			planned_qty,planned_qty_g,planned_minutes
 		)
-		SELECT $1,$2,op.seq,op.operation,$3::numeric,'g',op.default_minutes,1,$3::numeric,$3::bigint,op.default_minutes
+		SELECT $1,$2,op.seq,op.operation_id,op.operation,op.workstation,$3::numeric,'g',op.default_minutes,1,$3::numeric,$3::bigint,op.default_minutes
 		FROM %s.process_route_operations op
 		WHERE op.route_id=30
 		ORDER BY op.seq
@@ -2452,7 +2838,12 @@ func productionFlowTestBaseDDL(schema string) string {
 			is_void BOOLEAN NOT NULL DEFAULT false,
 			process_status_id INTEGER REFERENCES %s.order_process_statuses(id),
 			ship_status_id BIGINT REFERENCES %s.ship_statuses(id),
-			ship_tracking_no TEXT NOT NULL DEFAULT ''
+			ship_tracking_no TEXT NOT NULL DEFAULT '',
+			receiver_name TEXT NOT NULL DEFAULT '',
+			receiver_phone TEXT NOT NULL DEFAULT '',
+			receiver_address TEXT NOT NULL DEFAULT '',
+			receiver_company TEXT NOT NULL DEFAULT '',
+			portal_service_code TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE %s.order_items (
 			id BIGSERIAL PRIMARY KEY,

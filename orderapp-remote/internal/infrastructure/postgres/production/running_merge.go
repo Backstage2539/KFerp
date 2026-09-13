@@ -30,6 +30,7 @@ type ProduceRunOutputRow struct {
 }
 
 type startRunGroup struct {
+	OrderDetails             []productionapp.ProductionDemandOrder
 	ProductID                int64
 	ParentProductID          int64
 	BomSpecID                int64
@@ -97,11 +98,16 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 		if group.OperationTemplateID <= 0 && need.OperationTemplateID > 0 {
 			group.OperationTemplateID = need.OperationTemplateID
 		}
+		group.OrderDetails = append(group.OrderDetails, need.OrderDetails...)
 		group.NeedG += need.GapG
 		group.SalesSpecCount += need.SalesSpecCount
 		group.PlannedInventoryQty += need.PlannedInventoryQty
 		if input := inputByKey[productionDemandScopedSelectionKey(need.ProductID, need.BomSpecID, need.SpecG, need.CustomerID, need.TargetWarehouse)]; input > 0 {
 			group.InputG += input
+			group.ManualInput = true
+		}
+		if input := inputByKey[need.SelectionID]; input > 0 {
+			group.InputG = input
 			group.ManualInput = true
 		}
 		for _, no := range splitOrderNos(need.OrderNos) {

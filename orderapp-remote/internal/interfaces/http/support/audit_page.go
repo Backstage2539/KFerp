@@ -156,6 +156,10 @@ func decorateAuditLogRow(r *AuditLogRow, payMap, shipMap map[int64]string) {
 		r.OldValue = labelAuditBoolValue(r.OldValue)
 		r.NewValue = labelAuditBoolValue(r.NewValue)
 	}
+	if rawField == keyMiniappShareScope {
+		r.OldValue = labelAuditShareScopeValue(r.OldValue)
+		r.NewValue = labelAuditShareScopeValue(r.NewValue)
+	}
 	r.EntityType = labelEntityType(rawEntityType)
 	r.Action = labelAction(rawAction)
 	if r.Field != nil {
@@ -176,6 +180,7 @@ func auditSearchTerms(q string) []string {
 	aliases := map[string][]string{
 		"ui_setting":                         {"系统设置"},
 		keyMiniappShareImageNeedShowEntrance: {"小程序设置", "分享图片携带小程序入口", "分享图片小程序入口"},
+		keyMiniappShareScope:                 {"小程序设置", "小程序分享范围", "管理员可以分享", "员工可以分享", "所有人可以分享"},
 		"customer_external_user":             {"客户外部用户", "外部用户", "客户门户外部用户", "创建外部用户", "复用外部用户", "替换外部用户", "重置外部用户密码", "修改外部用户登录状态"},
 		"reset_password":                     {"重置外部用户密码", "重置密码"},
 		"set_login_enabled":                  {"修改外部用户登录状态", "启用外部用户", "停用外部用户"},
@@ -215,6 +220,22 @@ func labelAuditBoolValue(value *string) *string {
 		label = "开启"
 	case "false":
 		label = "关闭"
+	}
+	return &label
+}
+
+func labelAuditShareScopeValue(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	label := strings.TrimSpace(*value)
+	switch label {
+	case "admin":
+		label = "管理员可以分享"
+	case "employee":
+		label = "员工可以分享"
+	case "all":
+		label = "所有人可以分享"
 	}
 	return &label
 }
@@ -352,6 +373,9 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 	case "ui_setting":
 		if field == "miniapp.share_image.need_show_entrance" {
 			return "系统 / 小程序设置", "设置分享图片小程序入口"
+		}
+		if field == keyMiniappShareScope {
+			return "系统 / 小程序设置", "设置小程序分享范围"
 		}
 		return "系统 / 全局设置", "修改系统设置"
 	case "sales_order_settings":
@@ -1334,6 +1358,8 @@ func labelField(f string) string {
 		return "设置"
 	case "miniapp.share_image.need_show_entrance":
 		return "分享图片携带小程序入口"
+	case "miniapp.share.scope":
+		return "小程序分享范围"
 	case "template":
 		return "模板"
 	case "asset_id":

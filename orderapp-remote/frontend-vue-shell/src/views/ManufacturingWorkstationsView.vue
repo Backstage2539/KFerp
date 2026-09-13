@@ -24,6 +24,7 @@
               <td>
                 <strong>{{ row.name }}</strong>
                 <small>#{{ row.id }} · {{ row.code || '无编码' }}</small>
+                <small v-if="row.backup_employees?.length">替补：{{ row.backup_employees.map(p => p.name).join(' → ') }}</small><small :class="{ 'staff-warning': !row.staffing_ready }">{{ row.staffing_ready ? `主负责人：${row.primary_employee_name}` : '待补人员配置' }}</small>
                 <small>小时成本合计 {{ Number(row.hourly_rate || 0).toFixed(2) }} · {{ row.updated_at || '-' }}</small>
               </td>
               <td class="master-status">
@@ -64,6 +65,21 @@
           <div v-else class="muted inline-muted">暂无启用工序</div>
           <small>生产计划自动拆分会按这里筛选该工位下的产能；工位产能本身不再维护适用工序。</small>
         </div>
+        <section class="staff-panel">
+          <div><strong>工位人员</strong><p>系统按主负责人、替补顺序和当天出勤自动确定负责人。</p></div>
+          <label><span>主负责人</span><select v-model.number="form.primary_employee_id"><option :value="0">请选择启用员工</option><option v-for="person in activeEmployees" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
+          <div class="backup-editor">
+            <span>替补人员（按顺序接班）</span>
+            <div v-for="(employeeID, index) in form.backup_employee_ids" :key="employeeID" class="backup-row"><strong>{{ employeeName(employeeID) }}</strong><button type="button" class="text" :disabled="index === 0" @click="moveBackup(index, -1)">上移</button><button type="button" class="text" :disabled="index === form.backup_employee_ids.length - 1" @click="moveBackup(index, 1)">下移</button><button type="button" class="text danger" @click="removeBackup(index)">移除</button></div>
+            <div class="backup-add"><select v-model.number="newBackupEmployeeID" aria-label="选择替补员工，选中即加入" @change="addBackup"><option :value="0">选择替补员工</option><option v-for="person in availableBackupEmployees" :key="person.id" :value="person.id">{{ person.name }}</option></select></div>
+            <small>选择员工即加入替补顺序，保存工位后生效；同一员工可以负责多个工位。</small>
+          </div>
+          <div class="staff-impact">
+            <span>本周负责人影响预览</span>
+            <div><article v-for="row in staffingImpact" :key="row.date" :class="{ warning: row.owner.unattended }"><small>{{ row.label }}</small><strong>{{ row.owner.employee_name || (row.owner.override_invalid ? '临时调整已失效' : '无人值班') }}</strong><em>{{ staffImpactSource(row.owner) }}</em></article></div>
+            <small>按当前排班即时计算；保存工位后，今天及未来未开工任务会跟随这些负责人。</small>
+          </div>
+        </section>
         <label class="wide"><span>备注</span><textarea v-model.trim="form.note" rows="3"></textarea></label>
         <div class="footer-actions">
           <button class="primary" type="button" @click="saveWorkstation" :disabled="loading">保存工位/设备</button>
@@ -147,6 +163,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { formatLocalDateInput } from '../lib/local-date.js'
+import { buildWeekDays, previewWorkstationOwner } from '../lib/production-roster.js'
 import {
   capacityCostMethodLabel,
   isCountCapacityUnit,
@@ -160,6 +178,9 @@ const ok = ref('')
 const workstations = ref([])
 const workstationCapacities = ref([])
 const operations = ref([])
+const employees = ref([])
+const rosterWeek = ref({ days: [], entries: [], overrides: [] })
+const newBackupEmployeeID = ref(0)
 const form = reactive(blankWorkstation())
 const capacityForm = reactive(blankCapacity())
 
@@ -170,9 +191,20 @@ const capacityCandidateCost = computed(() => workstationCapacityCostMeta({
   ...capacityForm,
   hourly_rate: workstationHourlyRate.value,
 }))
+const activeEmployees = computed(() => employees.value.filter(row => row.active !== false && row.account_type !== 'channel_customer'))
+const availableBackupEmployees = computed(() => activeEmployees.value.filter(row => Number(row.id) !== Number(form.primary_employee_id) && !form.backup_employee_ids.includes(Number(row.id))))
+const staffingImpact = computed(() => {
+  const today = formatLocalDateInput(new Date())
+  const days = (rosterWeek.value.days?.length ? rosterWeek.value.days : buildWeekDays(today).map(row => row.date)).filter(date => date >= today)
+  return days.map(date => {
+    const attendance = Object.fromEntries((rosterWeek.value.entries || []).filter(row => row.work_date === date).map(row => [Number(row.employee_id), row.status]))
+    const override = (rosterWeek.value.overrides || []).find(row => Number(row.workstation_id) === Number(form.id || 0) && row.work_date === date)
+    return { date, label: `${date.slice(5)} ${buildWeekDays(date).find(row => row.date === date)?.label || ''}`, owner: previewWorkstationOwner(form.primary_employee_id, form.backup_employee_ids, attendance, override?.employee_id, employees.value) }
+  })
+})
 
 function blankWorkstation() {
-  return { id: 0, name: '', code: '', status: 'active', default_minutes: 0, machine_hourly_cost: 0, labor_hourly_cost: 0, overhead_hourly_cost: 0, hourly_rate: 0, applicable_operation_ids: [], note: '' }
+  return { id: 0, name: '', code: '', status: 'inactive', default_minutes: 0, machine_hourly_cost: 0, labor_hourly_cost: 0, overhead_hourly_cost: 0, hourly_rate: 0, applicable_operation_ids: [], primary_employee_id: 0, backup_employee_ids: [], note: '' }
 }
 
 function blankCapacity() {
@@ -197,6 +229,8 @@ function resetForm(next = blankWorkstation()) {
   Object.assign(form, {
     ...next,
     applicable_operation_ids: Array.isArray(next.applicable_operation_ids) ? next.applicable_operation_ids.map((id) => Number(id || 0)).filter((id) => id > 0) : [],
+    primary_employee_id: Number(next.primary_employee_id || 0),
+    backup_employee_ids: Array.isArray(next.backup_employee_ids) ? next.backup_employee_ids.map(Number) : [],
   })
 }
 
@@ -212,14 +246,18 @@ async function loadWorkstations() {
   loading.value = true
   error.value = ''
   try {
-    const [data, capacityData, operationData] = await Promise.all([
+    const [data, capacityData, operationData, employeeData, rosterData] = await Promise.all([
       apiGet('/api/manufacturing-workstations'),
       apiGet('/api/manufacturing-workstation-capacities'),
       apiGet('/api/manufacturing-operations'),
+      apiGet('/api/company/employees'),
+      apiGet('/api/production-roster').catch(() => null),
     ])
     workstations.value = data?.rows || []
     workstationCapacities.value = capacityData?.rows || []
     operations.value = operationData?.rows || []
+    employees.value = (employeeData?.rows || employeeData || []).map(row => ({ ...row, id: Number(row.id) }))
+    if (rosterData) rosterWeek.value = rosterData
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -246,6 +284,8 @@ function editWorkstation(row) {
     overhead_hourly_cost: Number(row.overhead_hourly_cost || 0),
     hourly_rate: Number(row.hourly_rate || 0),
     applicable_operation_ids: Array.isArray(row.applicable_operation_ids) ? row.applicable_operation_ids : [],
+    primary_employee_id: Number(row.primary_employee_id || 0),
+    backup_employee_ids: Array.isArray(row.backup_employee_ids) ? row.backup_employee_ids.map(Number) : [],
     note: row.note || '',
   })
   resetCapacity({ ...blankCapacity(), workstation_id: Number(row.id || 0) })
@@ -291,9 +331,19 @@ async function mutate(action) {
   }
 }
 
+function employeeName(id) { return activeEmployees.value.find(row => Number(row.id) === Number(id))?.name || `员工 #${id}` }
+function staffImpactSource(owner) { if (owner.override_invalid) return '需先处理临时调整'; if (owner.unattended) return '禁止新任务开工'; return ({ override: '临时调整', primary: '主负责人', backup: '替补接班' })[owner.source] || '自动安排' }
+function addBackup() { if (!newBackupEmployeeID.value) return; form.backup_employee_ids.push(Number(newBackupEmployeeID.value)); newBackupEmployeeID.value = 0 }
+function removeBackup(index) { form.backup_employee_ids.splice(index, 1) }
+function moveBackup(index, direction) { const target = index + direction; if (target < 0 || target >= form.backup_employee_ids.length) return; const next = [...form.backup_employee_ids]; [next[index], next[target]] = [next[target], next[index]]; form.backup_employee_ids = next }
+
 async function saveWorkstation() {
   if (!form.name.trim()) {
     error.value = '请填写工位/设备名称'
+    return
+  }
+  if (form.status === 'active' && !Number(form.primary_employee_id || 0)) {
+    error.value = '启用工位前请配置主负责人'
     return
   }
   await mutate(async () => {
@@ -306,6 +356,8 @@ async function saveWorkstation() {
         overhead_hourly_cost: Number(form.overhead_hourly_cost || 0),
         hourly_rate: workstationHourlyRate.value,
         applicable_operation_ids: form.applicable_operation_ids.map((id) => Number(id || 0)).filter((id) => id > 0),
+        primary_employee_id: Number(form.primary_employee_id || 0),
+        backup_employee_ids: form.backup_employee_ids.map(Number),
       },
     })
     editWorkstation(saved)
@@ -413,6 +465,7 @@ tbody tr.active { background: #f3f7fb; }
 .capacity-form .wide { grid-column: 1 / -1; margin-top: 0; }
 .operation-checks > span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 .operation-checks small { display: block; color: #777; margin-top: 6px; }
+.staff-panel{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(220px,1fr);gap:14px;margin-top:16px;padding:16px;border:1px solid #d7e8dc;background:#f4fbf6;border-radius:10px}.staff-panel>div:first-child p{font-size:12px;color:#718276;line-height:1.6}.backup-editor,.staff-impact{grid-column:1/-1}.backup-editor>span,.staff-impact>span{display:block;color:#666;font-size:12px;margin-bottom:7px}.backup-row{display:grid;grid-template-columns:1fr auto auto auto;gap:9px;align-items:center;padding:8px 10px;background:#fff;border:1px solid #dce5df;border-radius:7px;margin-bottom:6px}.backup-row button{min-height:28px}.backup-add{display:flex;gap:8px}.backup-add select{flex:1}.backup-editor small,.staff-impact>small{display:block;color:#77867c;margin-top:7px}.staff-impact>div{display:grid;grid-template-columns:repeat(7,minmax(90px,1fr));gap:6px;overflow-x:auto}.staff-impact article{display:grid;gap:3px;padding:8px;border:1px solid #d7e6dc;border-radius:7px;background:#fff;color:#257848}.staff-impact article.warning{background:#fff8e9;color:#a36a19}.staff-impact article small,.staff-impact article em{font-size:10px;color:inherit;font-style:normal}.staff-warning{color:#b07825!important}
 .operation-check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
 .operation-checkbox { display: flex; align-items: center; gap: 6px; border: 1px solid #ddd7ce; border-radius: 6px; padding: 7px 9px; margin: 0; }
 .operation-checkbox input { width: 16px; height: 16px; padding: 0; flex: 0 0 auto; }
@@ -428,6 +481,7 @@ tbody tr.active { background: #f3f7fb; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
 @media (max-width: 760px) {
-  .master-data-layout, .form-grid, .capacity-form { grid-template-columns: 1fr; }
+  .master-data-layout, .form-grid, .capacity-form, .staff-panel { grid-template-columns: 1fr; }
+	.backup-row{grid-template-columns:1fr auto}.backup-row strong{grid-column:1/-1}
 }
 </style>

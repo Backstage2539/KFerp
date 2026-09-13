@@ -37,7 +37,7 @@ func TestDev562ProductionExecutionJobCardConsolidationContracts(t *testing.T) {
 	}
 
 	workOrderTemplate := beforeScript(contents["workOrders"])
-	for _, marker := range []string{"执行枢纽", "编辑拆分", "打印", `@updated="load"`} {
+	for _, marker := range []string{"查看工单", "编辑拆分", "打印", `@updated="load"`} {
 		if !strings.Contains(contents["workOrders"], marker) {
 			t.Fatalf("WorkOrdersView missing %s", marker)
 		}
@@ -49,7 +49,7 @@ func TestDev562ProductionExecutionJobCardConsolidationContracts(t *testing.T) {
 	}
 
 	jobCardTemplate := beforeScript(contents["jobCards"])
-	for _, marker := range []string{"工序要求", "进入工位", "执行枢纽", "process_requirement", "按冻结工艺路线执行"} {
+	for _, marker := range []string{"工序要求", "进入工位", "查看工单", "process_requirement", "按冻结工艺路线执行"} {
 		if !strings.Contains(contents["jobCards"], marker) {
 			t.Fatalf("JobCardsView missing %s", marker)
 		}
@@ -65,7 +65,7 @@ func TestDev562ProductionExecutionJobCardConsolidationContracts(t *testing.T) {
 			t.Fatalf("WorkstationView missing %s", marker)
 		}
 	}
-	for _, marker := range []string{"action_type", "command", "apiSend", "actionBusyKey", "updated"} {
+	for _, marker := range []string{"工单详情", "分配任务", "apiSend", "进入工位", "updated"} {
 		if !strings.Contains(contents["hub"], marker) {
 			t.Fatalf("ExecutionHub missing %s", marker)
 		}

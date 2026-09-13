@@ -84,6 +84,22 @@ func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits in
 	return 0, qty
 }
 
+func scaleMaterialNeedsForTask(needs []materialConsumptionNeed, numerator, denominator int64) []materialConsumptionNeed {
+	if numerator <= 0 || denominator <= 0 || numerator >= denominator {
+		return append([]materialConsumptionNeed(nil), needs...)
+	}
+	out := make([]materialConsumptionNeed, 0, len(needs))
+	for _, source := range needs {
+		row := source
+		row.DeductG = int64(math.Ceil(float64(source.DeductG) * float64(numerator) / float64(denominator)))
+		row.DeductUnits = int64(math.Ceil(float64(source.DeductUnits) * float64(numerator) / float64(denominator)))
+		row.Qty = int64(math.Ceil(float64(source.Qty) * float64(numerator) / float64(denominator)))
+		row.QtyDecimal = source.QtyDecimal * float64(numerator) / float64(denominator)
+		out = append(out, row)
+	}
+	return out
+}
+
 func componentConsumptionQty(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, packedUnits int64, boxUnits int64) int64 {
 	return componentConsumptionQtyWithOutputBasis(consumeUnit, qtyPerUnit, ratioPct, unit, rawG, 0, packedUnits, boxUnits, 0, "")
 }
@@ -409,6 +425,9 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 			boxUnits = ceilDiv64(packedUnits, bi.dripBoxBagCount)
 		}
 		outputG := finishedTotalG(r.SpecG, packedUnits, finished.LooseG)
+		if r.OutputType == "material" {
+			outputG = finished.LooseG
+		}
 		if outputG <= 0 {
 			outputG = r.NeedG
 		}
@@ -865,6 +884,9 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 		packedUnits = 0
 	}
 	outputG := finishedTotalG(r.SpecG, packedUnits, finished.LooseG)
+	if r.OutputType == "material" {
+		outputG = finished.LooseG
+	}
 	if outputG <= 0 {
 		outputG = r.NeedG
 	}
@@ -1705,6 +1727,9 @@ func releaseMaterialReservationsForRunningItemTx(ctx context.Context, tx pgx.Tx,
 }
 
 func releaseMaterialReservationsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_supply_allocations SET status='released' WHERE work_order_id=$1`, schema), workOrderID); err != nil {
+		return err
+	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.work_order_material_reservations
 		SET status='released',

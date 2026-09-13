@@ -7,22 +7,23 @@ import {
   productionCompletionOutputQty,
   productionTaskActionEndpoint,
   productionTaskActionErrorMessage,
+  materialReadinessState,
   productionTopNavItems,
   stockOperationContextParams,
+  taskQuantityLines,
+  workstationCanOpenIssue,
   workstationVisibleActions,
   workstationTaskSections,
 } from './production-workstation.js'
 
 test('production top nav lists high-frequency views before legacy production pages', () => {
   assert.deepEqual(productionTopNavItems.map((item) => item.key), [
-    'productionOverview',
     'workstationView',
     'productionFlow',
     'produceRunning',
     'produceLogs',
   ])
-  assert.equal(productionTopNavItems[0].label, '生产视图')
-  assert.equal(productionTopNavItems[1].label, '工位视图')
+  assert.equal(productionTopNavItems[0].label, '工位视图')
 })
 
 test('workstation task sections answer current task, next task, and blocked reason', () => {
@@ -73,6 +74,41 @@ test('workstation task sections answer current task, next task, and blocked reas
   assert.equal(roast.blockingReason, '缺少生豆领料')
 })
 
+test('workstation sections ignore tasks from completed or cancelled work orders', () => {
+  const sections = workstationTaskSections([
+    { job_card_id: 1, work_order_id: 1, work_order_status: 'released', workstation: '智烘', status: 'pending' },
+    { job_card_id: 2, work_order_id: 2, work_order_status: 'cancelled', workstation: '智烘', status: 'pending' },
+    { job_card_id: 3, work_order_id: 3, work_order_status: 'completed', workstation: '智烘', status: 'pending' },
+  ])
+  assert.equal(sections.length, 1)
+  assert.deepEqual(sections[0].tasks.map((row) => row.job_card_id), [1])
+})
+
+test('workstation quantity and material state use frozen batch units', () => {
+  assert.deepEqual(taskQuantityLines({
+    operation: '咖啡烘焙+除石',
+    spec_g: 0,
+    planned_input_inventory_qty: 3,
+    inventory_unit: 'kg',
+    planned_output_inventory_qty: 4.994,
+    planned_input_qty: 3000,
+    operation_total_input_qty: 6000,
+  }), ['本批投料 3 kg', '目标产出 2.497 kg'])
+  assert.deepEqual(taskQuantityLines({
+    operation: '包装',
+    spec_g: 227,
+    planned_output_inventory_qty: 20,
+    inventory_unit: '袋',
+    planned_input_qty: 10,
+    operation_total_input_qty: 20,
+  }), ['规格 227g', '本批生产 10 袋'])
+  assert.equal(materialReadinessState({ material_readiness: [{ shortage_g: 0 }], material_data_complete: true }), 'ready')
+  assert.equal(materialReadinessState({ material_readiness: [{ shortage_g: 1 }], material_data_complete: true }), 'shortage')
+  assert.equal(materialReadinessState({ material_readiness: [], material_data_complete: false }), 'unknown')
+  assert.equal(workstationCanOpenIssue({ stock_action: 'issue' }), true)
+  assert.equal(workstationCanOpenIssue({ stock_action: 'none', material_readiness_state: 'ready' }), false)
+})
+
 test('production task action endpoints stay aligned with workstation action buttons', () => {
   assert.equal(productionTaskActionEndpoint({ job_card_id: 91 }, 'start'), '/api/job-cards/91/start')
   assert.equal(productionTaskActionEndpoint({ job_card_id: 91 }, 'pause'), '/api/job-cards/91/pause')
@@ -99,7 +135,7 @@ test('production task action failures are explained in Chinese without changing 
   )
   assert.equal(
     productionTaskActionErrorMessage(new Error('work order must be running before job card start'), 'start'),
-    '请先从工单执行枢纽开始生产，再在工位开始本工序',
+    '本任务暂不能开始，请刷新任务状态后重试',
   )
   assert.equal(
     productionTaskActionErrorMessage(new Error('permission denied'), 'complete'),
@@ -111,7 +147,7 @@ test('production task action failures are explained in Chinese without changing 
   )
   assert.equal(
     productionTaskActionErrorMessage(new Error('work order is not running'), 'resume'),
-    '工单尚未开始生产，请先从执行枢纽开始生产',
+    '本任务暂不能开始，请刷新任务状态后重试',
   )
   assert.equal(
     productionTaskActionErrorMessage(new Error('actual input and output quantity invalid'), 'complete'),
@@ -122,8 +158,16 @@ test('production task action failures are explained in Chinese without changing 
     '实际产出和成品件数只能填写一项',
   )
   assert.equal(
+    productionTaskActionErrorMessage(new Error('本任务物料不足：榇巧拼配，需求 875g，WIP 可用 874g，缺口 1g'), 'start'),
+    '本任务物料不足：榇巧拼配，需求 875g，WIP 可用 874g，缺口 1g',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(Object.assign(new Error('database unavailable'), { status: 400, code: 'JC-START-91-20260913123045' }), 'start'),
+    '开始失败（错误编号：JC-START-91-20260913123045），请稍后重试；如持续失败请联系管理员',
+  )
+  assert.equal(
     productionTaskActionErrorMessage(new Error('network unavailable'), 'pause'),
-    '暂停失败，请稍后重试；如持续失败请联系管理员',
+    '暂停失败（错误编号：NETWORK），请稍后重试；如持续失败请联系管理员',
   )
 })
 
@@ -138,10 +182,10 @@ test('production top nav renders count badges for high-frequency production view
     key: item.key,
     badge: item.badge,
   })), [
-    { key: 'productionOverview', badge: '待2 阻1 中3' },
     { key: 'workstationView', badge: '待2 阻1 中3' },
     { key: 'productionFlow', badge: '' },
     { key: 'produceRunning', badge: '待0 阻0 中3' },
+    { key: 'produceLogs', badge: '' },
   ])
 })
 
@@ -219,7 +263,36 @@ test('workstation is the only job-card execution surface and completes with actu
   assert.doesNotMatch(source, /partial_finish/)
 })
 
-test('workstation entry focuses the requested task instead of reopening the execution hub', () => {
+test('workstation renders quantity, ready material state and one responsible employee only', () => {
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+  assert.match(source, /taskQuantityLines\(task\)/)
+  assert.match(source, /material-state-ready/)
+  assert.match(source, /workstationCanOpenIssue\(task\)/)
+  assert.doesNotMatch(source, /协作：/)
+  assert.doesNotMatch(source, /task\.collaborators/)
+})
+
+test('operation, schedule and task staff editors expose one responsible employee', () => {
+  for (const relativePath of [
+    '../components/ProductionStaffFields.vue',
+    '../components/ProductionTaskStaffEditor.vue',
+    '../views/ManufacturingOperationsView.vue',
+    '../views/ProductionScheduleView.vue',
+  ]) {
+    const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+    assert.doesNotMatch(source, /默认协作人员|协作人员|协作：/)
+  }
+})
+
+test('stock entry preview keeps production identity and renders no-action state without an empty editable form', () => {
+  const source = readFileSync(new URL('../views/StockEntriesView.vue', import.meta.url), 'utf8')
+  assert.match(source, /preview\.availability/)
+  assert.match(source, /preview\.message/)
+  assert.match(source, /stock-preview-state/)
+  assert.match(source, /return_navigation/)
+})
+
+test('workstation entry focuses an active task and opens the work order when an ended task left the queue', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /focus === 'workstation_task'/)
@@ -228,8 +301,16 @@ test('workstation entry focuses the requested task instead of reopening the exec
   assert.match(source, /:class="\{ focused: isRequestedTask\(task\) \}"/)
   assert.match(source, /load\(\{ focusRequested: true \}\)/)
   assert.match(source, /if \(options\?\.focusRequested === true\) focusRequestedTask\(\)/)
+  assert.match(source, /该任务已结束或已移出待执行队列/)
+  assert.match(source, /executionHub\.open = true/)
   assert.doesNotMatch(source, /^\s*focusRequestedTask\(\)\s*$/m)
-  assert.doesNotMatch(source, /if \(id > 0\) \{\s*executionHub\.workOrderId = id/s)
+})
+
+test('completed or cancelled work orders are read-only in the shared detail drawer', () => {
+  const source = readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
+  assert.match(source, /const workOrderClosed = computed/)
+  assert.match(source, /v-if="workOrderClosed" class="muted"/)
+  assert.match(source, /该工单已结束，不再开放人员调整、领料或执行动作/)
 })
 
 test('workstation completion keeps input and output in the frozen inventory unit', () => {
@@ -289,7 +370,6 @@ test('workstation completion freezes inventory-unit interpretation and hides leg
     inventory_unit: 'Kg',
     leftover_qty: 0.2,
     note: '包装抽检',
-    warehouse: 'finished_goods',
     finished_units: 14,
   })
   assert.deepEqual(workstationVisibleActions({
@@ -306,4 +386,18 @@ test('workstation distinguishes a submitted command whose state refresh failed',
   assert.match(source, /return true/)
   assert.match(source, /return false/)
   assert.doesNotMatch(source, /await load\(\)\s*\n\s*message\.value = `\$\{actionLabel\(action\)\}成功`/)
+})
+
+test('employee workstation defaults to personal roster and only administrators see the factory switch', () => {
+  const appSource = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+
+  assert.match(appSource, /:actor="currentActor"/)
+  assert.match(source, /actorHasFullViewAccess\(props\.actor\)/)
+  assert.match(source, /v-if="canViewAll" class="scope-switch"/)
+  assert.match(source, /scope \|\| 'mine'/)
+  for (const marker of ['本周排班尚未保存', '今天尚未排班', '今天休息', '今天已上班，暂未负责工位']) {
+    assert.ok(source.includes(marker), `missing personal roster state: ${marker}`)
+  }
+  assert.ok(source.includes('今日工位暂无任务'), 'factory overview must not imply that the administrator owns an unattended workstation')
 })

@@ -23,7 +23,7 @@
             <tr v-for="row in operations" :key="row.id" :class="{ active: row.id === form.id }" @click="editOperation(row)">
               <td>
                 <strong>{{ row.name }}</strong>
-                <small>#{{ row.id }} · {{ row.code || '无编码' }}</small>
+                <small>{{ row.code || '无编码' }}</small><small>人员按工位与周排班自动安排</small>
                 <small>{{ row.updated_at || '-' }}</small>
               </td>
               <td class="master-status">
@@ -49,6 +49,7 @@
             </select>
           </label>
         </div>
+        <div class="operation-staff-note">工序只维护工艺定义。人员资格、主负责人和替补请在“工位/设备”中配置。</div>
         <label class="wide"><span>备注</span><textarea v-model.trim="form.note" rows="3"></textarea></label>
         <div class="footer-actions">
           <button class="primary" type="button" @click="saveOperation" :disabled="loading">保存工序</button>
@@ -59,9 +60,10 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 
+const props = defineProps({ viewParams: { type: Object, default: () => ({}) } })
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -69,7 +71,7 @@ const operations = ref([])
 const form = reactive(blankOperation())
 
 function blankOperation() {
-  return { id: 0, name: '', code: '', status: 'active', default_minutes: 0, standard_operation_cost: 0, note: '' }
+  return { id: 0, name: '', code: '', status: 'inactive', default_minutes: 0, standard_operation_cost: 0, note: '' }
 }
 
 function resetForm(next = blankOperation()) {
@@ -106,7 +108,7 @@ function editOperation(row) {
     code: row.code || '',
     status: row.status === 'inactive' ? 'inactive' : 'active',
     default_minutes: Number(row.default_minutes || 0),
-    standard_operation_cost: 0,
+    standard_operation_cost: Number(row.standard_operation_cost || 0),
     note: row.note || '',
   })
   error.value = ''
@@ -150,7 +152,9 @@ async function deactivateOperation(row) {
   })
 }
 
-onMounted(loadOperations)
+async function focusOperation() { const row = operations.value.find(row => Number(row.id) === Number(props.viewParams.operation_id)); if (row) editOperation(row) }
+watch(() => props.viewParams.operation_id, focusOperation)
+onMounted(async () => { await loadOperations(); await focusOperation() })
 </script>
 
 <style scoped>
@@ -170,7 +174,7 @@ input, select { height: 38px; }
 textarea { resize: vertical; }
 button { min-height: 36px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
-.primary { background: #1f1f1f; color: #fff; }
+.primary { background: #2f8f5b; border-color: #2f8f5b; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; border-color: #999; }
 .text { border: 0; background: transparent; color: #1f4f82; padding: 0; }
 .text.danger { color: #9d2626; }
@@ -179,7 +183,7 @@ th:last-child, td:last-child { width: 86px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 td small { display: block; color: #777; margin-top: 3px; }
-tbody tr.active { background: #f3f7fb; }
+tbody tr.active { background: #eef8f1; }
 .section-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .form-grid label, .wide { min-width: 0; }
@@ -196,4 +200,5 @@ tbody tr.active { background: #f3f7fb; }
 @media (max-width: 760px) {
   .master-data-layout, .form-grid { grid-template-columns: 1fr; }
 }
+.operation-staff-note{margin-top:16px;padding:13px;border:1px solid #d5e7db;border-radius:9px;background:#f2faf5;color:#4f705a;font-size:13px;line-height:1.7}.operation-editor-panel{border-color:#dce6df}
 </style>

@@ -30,9 +30,14 @@ func TestDev519ProductionPlanSplitDemandGapContracts(t *testing.T) {
 			"productionPlanPreviewStatus",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
-			"产能安排总览",
-			"用料需求差距",
+			"ProductionPlanCapacityWorkspace",
 			"productionPlanOperationSplitsPreviewEndpoint",
+		},
+		filepath.Join("frontend-vue-shell", "src", "components", "ProductionPlanCapacityWorkspace.vue"): {
+			"拆分核对",
+			"计划数量",
+			"已安排",
+			"还需安排",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.js"): {
 			"operation-splits/preview",
@@ -47,8 +52,9 @@ func TestDev519ProductionPlanSplitDemandGapContracts(t *testing.T) {
 			"20kg 实际需求安排 12kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"产能安排总览",
-			"用料需求差距",
+			"拆分核对",
+			"计划数量",
+			"还需安排",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-05-production-plan-split-demand-gap.md"): {
 			"PR-519",

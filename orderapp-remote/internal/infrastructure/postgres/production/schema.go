@@ -35,9 +35,22 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureWorkOrderTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureScheduleStaffTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensureProductionRosterTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureMultilevelProductionTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureProductionReplanSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensurePlanningSupplyTables(ctx, pool, schema); err != nil {
+		return err
+	}
+
 	if err := ensureQualityInspectionTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -106,6 +119,7 @@ CREATE TABLE IF NOT EXISTS %s.production_plans (
 	plan_no TEXT NOT NULL UNIQUE,
 	source_type TEXT NOT NULL DEFAULT 'manual',
 	status TEXT NOT NULL DEFAULT 'draft',
+	revision BIGINT NOT NULL DEFAULT 1,
 	from_date DATE,
 	to_date DATE,
 	customer_id BIGINT NOT NULL DEFAULT 0,
@@ -225,6 +239,8 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	planned_end_at TIMESTAMPTZ,
 	shift_code TEXT NOT NULL DEFAULT '',
 	assigned_to TEXT NOT NULL DEFAULT '',
+	assigned_employee_id BIGINT NOT NULL DEFAULT 0,
+	assigned_employee_name TEXT NOT NULL DEFAULT '',
 	priority INT NOT NULL DEFAULT 0,
 	scheduling_note TEXT NOT NULL DEFAULT '',
 	work_center TEXT NOT NULL DEFAULT ''
@@ -276,6 +292,8 @@ CREATE TABLE IF NOT EXISTS %s.job_cards (
 	planned_end_at TIMESTAMPTZ,
 	shift_code TEXT NOT NULL DEFAULT '',
 	assigned_to TEXT NOT NULL DEFAULT '',
+	assigned_employee_id BIGINT NOT NULL DEFAULT 0,
+	assigned_employee_name TEXT NOT NULL DEFAULT '',
 	priority INT NOT NULL DEFAULT 0,
 	scheduling_note TEXT NOT NULL DEFAULT '',
 	work_center TEXT NOT NULL DEFAULT ''
@@ -339,6 +357,7 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 	}
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.production_plans ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plans ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 1`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS parent_product_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
@@ -386,6 +405,8 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS planned_end_at TIMESTAMPTZ`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS shift_code TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS assigned_to TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS assigned_employee_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS assigned_employee_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS scheduling_note TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS work_center TEXT NOT NULL DEFAULT ''`, schema),
@@ -428,6 +449,8 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS planned_end_at TIMESTAMPTZ`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS shift_code TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS assigned_to TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS assigned_employee_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS assigned_employee_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS scheduling_note TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS work_center TEXT NOT NULL DEFAULT ''`, schema),
@@ -636,6 +659,8 @@ func ensureQualityInspectionTables(ctx context.Context, pool *pgxpool.Pool, sche
 	q := fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s.quality_inspections (
 	id BIGSERIAL PRIMARY KEY,
+	work_order_id BIGINT NOT NULL DEFAULT 0,
+	job_card_id BIGINT NOT NULL DEFAULT 0,
 	scope TEXT NOT NULL DEFAULT '',
 	reference_type TEXT NOT NULL DEFAULT '',
 	reference_no TEXT NOT NULL DEFAULT '',
@@ -649,6 +674,17 @@ CREATE TABLE IF NOT EXISTS %s.quality_inspections (
 CREATE INDEX IF NOT EXISTS quality_inspections_ref_idx ON %s.quality_inspections(reference_type, reference_no, created_at DESC);
 CREATE INDEX IF NOT EXISTS quality_inspections_scope_idx ON %s.quality_inspections(scope, result, created_at DESC);
 `, schema, schema, schema)
-	_, err := pool.Exec(ctx, q)
-	return err
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.quality_inspections ADD COLUMN IF NOT EXISTS work_order_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.quality_inspections ADD COLUMN IF NOT EXISTS job_card_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS quality_inspections_task_idx ON %s.quality_inspections(work_order_id,job_card_id,created_at DESC)`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -3,12 +3,14 @@ package production
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	productionapp "orderapp/internal/application/production"
 	stockapp "orderapp/internal/application/stock"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -25,6 +27,8 @@ type jobCardActualsRequest struct {
 }
 
 type workOrderCompleteRequest struct {
+	CompletionMode   string `json:"completion_mode"`
+	RequestID        string `json:"request_id"`
 	FinishedUnits    int64  `json:"finished_units"`
 	FinishedLooseG   int64  `json:"finished_loose_g"`
 	FinishedQtyG     int64  `json:"finished_qty_g"`
@@ -80,6 +84,13 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			Status: strings.TrimSpace(c.QueryParam("status")),
 			Limit:  support.IntParam(c, "limit", 200),
 		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+	e.GET("/api/produce/finished-receipts", func(c echo.Context) error {
+		rows, err := productionSvc.ListFinishedReceiptTasks(c.Request().Context(), c.QueryParam("status"))
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
@@ -167,9 +178,10 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			FinishedQtyG:     req.FinishedQtyG,
 			FinishedQtyUnits: req.FinishedQtyUnits,
 			ConsumedInputG:   req.ConsumedInputG,
-			Warehouse:        req.Warehouse,
-			Operator:         support.ActorOf(c),
-			Note:             req.Note,
+			CompletionMode:   req.CompletionMode, RequestID: req.RequestID,
+			Warehouse: req.Warehouse,
+			Operator:  support.ActorOf(c),
+			Note:      req.Note,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -309,6 +321,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 		}
 		cmd := productionapp.JobCardActionCommand{
 			ID:              id,
+			EmployeeID:      support.CurrentEmployeeID(c),
 			Operator:        support.ActorOf(c),
 			ActualInputQty:  req.ActualInputQty,
 			ActualOutputQty: req.ActualOutputQty,
@@ -332,7 +345,9 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			err = fmt.Errorf("invalid job card action")
 		}
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			failureCode := fmt.Sprintf("JC-%s-%d-%d", strings.ToUpper(action), id, time.Now().UnixMilli())
+			log.Printf("production job card action failed code=%s action=%s job_card_id=%d actor=%s err=%v", failureCode, action, id, cmd.Operator, err)
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error(), Code: failureCode})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "job_card": res.JobCard, "work_order": res.WorkOrder})
 	}

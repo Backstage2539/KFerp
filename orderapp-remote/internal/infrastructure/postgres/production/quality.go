@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	productionapp "orderapp/internal/application/production"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -24,16 +25,24 @@ func (r Repository) CreateQualityInspection(ctx context.Context, cmd productiona
 	var row productionapp.QualityInspectionRow
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.quality_inspections(
-			scope,reference_type,reference_no,item_name,result,metrics_json,note,operator,created_at
-		) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,now())
-		RETURNING id,scope,reference_type,reference_no,item_name,result,metrics_json::text,note,operator,to_char(created_at,'YYYY-MM-DD HH24:MI')
+			work_order_id,job_card_id,scope,reference_type,reference_no,item_name,result,metrics_json,note,operator,created_at
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,now())
+		RETURNING id,work_order_id,job_card_id,scope,reference_type,reference_no,item_name,result,metrics_json::text,note,operator,to_char(created_at,'YYYY-MM-DD HH24:MI')
 	`, r.schema),
-		cmd.Scope, cmd.ReferenceType, cmd.ReferenceNo, cmd.ItemName, cmd.Result, metricsJSON, cmd.Note, cmd.Operator,
-	).Scan(&row.ID, &row.Scope, &row.ReferenceType, &row.ReferenceNo, &row.ItemName, &row.Result, &row.MetricsJSON, &row.Note, &row.Operator, &row.CreatedAt)
+		cmd.WorkOrderID, cmd.JobCardID, cmd.Scope, cmd.ReferenceType, cmd.ReferenceNo, cmd.ItemName, cmd.Result, metricsJSON, cmd.Note, cmd.Operator,
+	).Scan(&row.ID, &row.WorkOrderID, &row.JobCardID, &row.Scope, &row.ReferenceType, &row.ReferenceNo, &row.ItemName, &row.Result, &row.MetricsJSON, &row.Note, &row.Operator, &row.CreatedAt)
 	if err != nil {
 		return productionapp.QualityInspectionRow{}, err
 	}
 	if err := applyQualityInspectionStatusTx(ctx, tx, r.schema, cmd); err != nil {
+		return productionapp.QualityInspectionRow{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "quality_inspection", &row.ID, "create", postgresinfra.StrPtr("result"), nil, postgresinfra.StrPtr(cmd.Result), postgresinfra.AuditMeta{
+		"work_order_id": cmd.WorkOrderID,
+		"job_card_id":   cmd.JobCardID,
+		"scope":         cmd.Scope,
+		"reference_no":  cmd.ReferenceNo,
+	}); err != nil {
 		return productionapp.QualityInspectionRow{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -216,7 +225,7 @@ func (r Repository) ListQualityInspections(ctx context.Context, query production
 	args = append(args, query.Limit)
 	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,scope,reference_type,reference_no,item_name,result,metrics_json::text,note,operator,to_char(created_at,'YYYY-MM-DD HH24:MI')
+		SELECT id,work_order_id,job_card_id,scope,reference_type,reference_no,item_name,result,metrics_json::text,note,operator,to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.quality_inspections
 		WHERE %s
 		ORDER BY created_at DESC,id DESC
@@ -229,7 +238,7 @@ func (r Repository) ListQualityInspections(ctx context.Context, query production
 	out := make([]productionapp.QualityInspectionRow, 0)
 	for rows.Next() {
 		var row productionapp.QualityInspectionRow
-		if err := rows.Scan(&row.ID, &row.Scope, &row.ReferenceType, &row.ReferenceNo, &row.ItemName, &row.Result, &row.MetricsJSON, &row.Note, &row.Operator, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkOrderID, &row.JobCardID, &row.Scope, &row.ReferenceType, &row.ReferenceNo, &row.ItemName, &row.Result, &row.MetricsJSON, &row.Note, &row.Operator, &row.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

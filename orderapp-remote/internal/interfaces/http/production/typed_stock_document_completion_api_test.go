@@ -447,6 +447,7 @@ func TestTypedProductStockDocumentFinishUnlocksDownstreamThroughCompleteFlow(t *
 		       planned_output_g,'g',15,1,planned_output_g,planned_output_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
+	selectPlanningTestSources(t, app, planID)
 	submitPlan := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submitPlan.Code != http.StatusOK {
 		t.Fatalf("submit typed product stock-operations plan status=%d body=%s", submitPlan.Code, submitPlan.Body.String())
@@ -520,6 +521,7 @@ func TestTypedProductStockDocumentFinishUnlocksDownstreamThroughCompleteFlow(t *
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf(
 		"work_order_id=%d AND component_type='product' AND component_id=2 AND required_g=22700 AND reserved_g=22700 AND status='reserved'", rootWorkOrderID,
 	), 1)
+	pickAllProductionComponents(t, pool, schema, app, rootWorkOrderID)
 	downstreamStart := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/start", rootWorkOrderID), nil)
 	if downstreamStart.Code != http.StatusOK {
 		t.Fatalf("start downstream after StockOperations product completion status=%d body=%s", downstreamStart.Code, downstreamStart.Body.String())

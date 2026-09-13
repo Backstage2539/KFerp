@@ -95,7 +95,7 @@ func TestDev491ProductionDemandStatusJobCardContextContracts(t *testing.T) {
 	for _, marker := range []string{
 		"openExecutionHub",
 		"openWorkstation",
-		"BOM/配方",
+		"工序批次 / BOM",
 		"工序要求",
 		"进入工位",
 	} {

@@ -56,12 +56,10 @@ func TestDev552StockEntryConvergenceContracts(t *testing.T) {
 			"StockAdjustmentsView",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "production-execution-hub.js"): {
-			"productionIssue",
-			"productionSupplement",
-			"productionReturn",
-			"productionConsume",
+			"openWorkstation",
 			"finishedReceipt",
-			"stockEntries",
+			"productionAcceptance",
+			"openOperationRecords",
 		},
 		filepath.Join("internal", "interfaces", "http", "support", "audit_page.go"): {
 			`case "stock_entry"`,

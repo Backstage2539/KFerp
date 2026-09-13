@@ -13,7 +13,7 @@ func TestDev495ProductionWorkstationOverviewContracts(t *testing.T) {
 		"api":             filepath.Join("internal", "interfaces", "http", "production", "production_workstation_api.go"),
 		"postgres":        filepath.Join("internal", "infrastructure", "postgres", "production", "work_order.go"),
 		"topNav":          filepath.Join("frontend-vue-shell", "src", "components", "ProductionTopNav.vue"),
-		"overviewView":    filepath.Join("frontend-vue-shell", "src", "views", "ProductionOverviewView.vue"),
+		"scheduleView":    filepath.Join("frontend-vue-shell", "src", "views", "ProductionScheduleView.vue"),
 		"workstationView": filepath.Join("frontend-vue-shell", "src", "views", "WorkstationView.vue"),
 		"helper":          filepath.Join("frontend-vue-shell", "src", "lib", "production-workstation.js"),
 		"menu":            filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"),
@@ -70,17 +70,14 @@ func TestDev495ProductionWorkstationOverviewContracts(t *testing.T) {
 	for _, marker := range []string{
 		"productionOverview",
 		"workstationView",
-		"ProductionTopNav",
 		"workstationTaskSections",
 		"partial_finish",
-		"今日生产总览",
 		"关键操作",
 		"当前任务",
 		"阻塞原因",
 		"不能做原因",
-		"今日整体进度",
 	} {
-		if !strings.Contains(contents["topNav"]+contents["overviewView"]+contents["workstationView"]+contents["helper"]+contents["menu"]+contents["manual"]+contents["requirements"]+contents["acceptance"]+contents["evidence"], marker) {
+		if !strings.Contains(contents["topNav"]+contents["scheduleView"]+contents["workstationView"]+contents["helper"]+contents["menu"]+contents["manual"]+contents["requirements"]+contents["acceptance"]+contents["evidence"], marker) {
 			t.Fatalf("frontend/docs missing %s", marker)
 		}
 	}

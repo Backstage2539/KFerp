@@ -10,7 +10,7 @@ func TestDev499ProductionExecutionHubPhase2Contracts(t *testing.T) {
 	files := map[string]string{
 		"reqStore":        filepath.Join("internal", "interfaces", "http", "support", "req_store.go"),
 		"service":         filepath.Join("internal", "application", "production", "service.go"),
-		"overviewView":    filepath.Join("frontend-vue-shell", "src", "views", "ProductionOverviewView.vue"),
+		"scheduleView":    filepath.Join("frontend-vue-shell", "src", "views", "ProductionScheduleView.vue"),
 		"workstationView": filepath.Join("frontend-vue-shell", "src", "views", "WorkstationView.vue"),
 		"workOrdersView":  filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"),
 		"jobCardsView":    filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue"),
@@ -52,7 +52,7 @@ func TestDev499ProductionExecutionHubPhase2Contracts(t *testing.T) {
 			t.Fatalf("production service missing %s", marker)
 		}
 	}
-	frontend := contents["overviewView"] + contents["workstationView"] + contents["workOrdersView"] + contents["jobCardsView"] + contents["appShell"] + contents["hubDrawer"] + contents["hubLib"]
+	frontend := contents["scheduleView"] + contents["workstationView"] + contents["workOrdersView"] + contents["jobCardsView"] + contents["appShell"] + contents["hubDrawer"] + contents["hubLib"]
 	for _, marker := range []string{
 		"ProductionExecutionHubDrawer",
 		"openExecutionHub",

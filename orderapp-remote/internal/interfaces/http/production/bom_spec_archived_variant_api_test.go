@@ -185,6 +185,7 @@ func TestProductionPlanKeepsFrozenArchivedBOMVariantAfterSameBOMVersionPublish(t
 			(%[2]d,%[3]d,1,'包装',100,'袋',15,1,100,0,15),
 			(%[2]d,%[4]d,1,'新版包装',100,'袋',20,1,100,0,20);
 	`, schema, planID, planned[0].itemID, planned[1].itemID))
+	selectPlanningTestSources(t, app, planID)
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit production plan status=%d body=%s", submit.Code, submit.Body.String())

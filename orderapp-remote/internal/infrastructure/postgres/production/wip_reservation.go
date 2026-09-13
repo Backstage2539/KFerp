@@ -19,6 +19,20 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	hasVersion, err := schemaColumnExistsTx(ctx, tx, r.schema, "production_plans", "picking_version")
+	if err != nil {
+		return productionapp.ProductionWIPStatus{}, err
+	}
+	if hasVersion {
+		modern, err := autoPickingWorkOrderTx(ctx, tx, r.schema, workOrderID)
+		if err != nil {
+			return productionapp.ProductionWIPStatus{}, err
+		}
+		if modern {
+			return automaticWorkOrderWIPStatusTx(ctx, tx, r.schema, workOrderID)
+		}
+	}
+
 	var wo productionapp.WorkOrderRow
 	var materialSnapshot string
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
@@ -253,7 +267,7 @@ func (r Repository) GetWorkOrderStockDocumentDraft(ctx context.Context, workOrde
 		return nil, err
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT material_id,product_id,item_type,item_name,spec_g,inventory_unit,
+		SELECT material_id,product_id,item_type,item_name,spec_g,inventory_unit,COALESCE(owner_customer_id,0),bom_spec_id,bom_variant_id,
 		       from_warehouse,to_warehouse,qty_g,qty_units,batch_code,COALESCE(unit_cost,0)::float8
 		FROM %s.stock_entry_items
 		WHERE stock_entry_id=$1
@@ -266,7 +280,7 @@ func (r Repository) GetWorkOrderStockDocumentDraft(ctx context.Context, workOrde
 	for rows.Next() {
 		var item productionapp.StockEntryItemCommand
 		if err := rows.Scan(
-			&item.MaterialID, &item.ProductID, &item.ItemType, &item.ItemName, &item.SpecG, &item.InventoryUnit,
+			&item.MaterialID, &item.ProductID, &item.ItemType, &item.ItemName, &item.SpecG, &item.InventoryUnit, &item.OwnerCustomerID, &item.BomSpecID, &item.BomVariantID,
 			&item.FromWarehouse, &item.ToWarehouse, &item.QtyG, &item.QtyUnits, &item.BatchCode, &item.UnitCost,
 		); err != nil {
 			return nil, err
@@ -285,6 +299,19 @@ func (r Repository) GetWorkOrderStockDocumentDraft(ctx context.Context, workOrde
 	}
 	if len(draft.Items) == 0 {
 		return nil, nil
+	}
+	rows.Close()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	automatic, err := autoPickingWorkOrderTx(ctx, tx, r.schema, workOrderID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range draft.Items {
+		draft.Items[i].FrozenPicking = automatic
 	}
 	return &draft, nil
 }

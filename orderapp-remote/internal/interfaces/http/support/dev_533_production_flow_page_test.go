@@ -12,10 +12,10 @@ func TestDev533ProductionFlowPageContracts(t *testing.T) {
 			"PR-533-PRODUCTION-FLOW-PAGE", "DEV-533-PRODUCTION-FLOW-TABS", "DEV-533-NAVIGATION-CONSOLIDATION",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductionFlowView.vue"): {
-			"生产流程", "生产计划", "生产工单", "工序卡", "生产质检", "生产验收",
+			"生产流程", "生产计划", "生产工单", "工序记录", "生产质检", "完工入库",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"): {
-			"key: 'productionFlow', label: '生产流程'", "productionAcceptance: '生产验收'", "key: 'productionManual', label: '生产手册'",
+			"key: 'productionFlow', label: '生产流程'", "productionAcceptance: '完工入库'", "key: 'productionManual', label: '生产手册'",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"):                                  {"PR-533-PRODUCTION-FLOW-PAGE"},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                              {"PR-533-PRODUCTION-FLOW-PAGE"},

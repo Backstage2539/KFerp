@@ -43,12 +43,12 @@ func TestDev479ManufacturingPhase2ExecutionContracts(t *testing.T) {
 			"finished_receipt",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"): {
-			"已领料",
-			"已消耗",
-			"可退料",
+			"产品 / 工单",
+			"当前状态",
+			"当前待办",
 			"工序进度",
-			"成本汇总",
-			"执行枢纽",
+			"查看工单",
+			"更多",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue"): {
 			"工序要求",
@@ -56,7 +56,7 @@ func TestDev479ManufacturingPhase2ExecutionContracts(t *testing.T) {
 			"实际损耗",
 			"损耗原因",
 			"进入工位",
-			"执行枢纽",
+			"查看工单",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkstationView.vue"): {
 			"workstationVisibleActions",
@@ -72,10 +72,10 @@ func TestDev479ManufacturingPhase2ExecutionContracts(t *testing.T) {
 			"exception_reason",
 		},
 		filepath.Join("frontend-vue-shell", "src", "components", "ProductionExecutionHubDrawer.vue"): {
-			"action_type",
-			"command",
+			"工单详情",
+			"分配任务",
 			"apiSend",
-			"actionBusyKey",
+			"进入工位",
 			"updated",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "StockEntriesView.vue"): {

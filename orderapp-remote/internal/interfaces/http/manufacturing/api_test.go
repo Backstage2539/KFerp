@@ -198,7 +198,7 @@ func TestWorkstationAPISavesCostComponentsAndDerivedHourlyRate(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
 
-	body := `{"name":"Loring S15","machine_hourly_cost":42.5,"labor_hourly_cost":60,"overhead_hourly_cost":7.5,"hourly_rate":999,"applicable_operation_ids":[1,2]}`
+	body := `{"name":"Loring S15","machine_hourly_cost":42.5,"labor_hourly_cost":60,"overhead_hourly_cost":7.5,"hourly_rate":999,"applicable_operation_ids":[1,2],"primary_employee_id":7,"backup_employee_ids":[8,9]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstations", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -221,6 +221,9 @@ func TestWorkstationAPISavesCostComponentsAndDerivedHourlyRate(t *testing.T) {
 	}
 	if len(repo.workstationSaved.ApplicableOperationIDs) != 2 || repo.workstationSaved.ApplicableOperationIDs[0] != 1 || repo.workstationSaved.ApplicableOperationIDs[1] != 2 {
 		t.Fatalf("saved workstation applicable operations = %+v", repo.workstationSaved.ApplicableOperationIDs)
+	}
+	if repo.workstationSaved.PrimaryEmployeeID != 7 || len(repo.workstationSaved.BackupEmployeeIDs) != 2 {
+		t.Fatalf("saved workstation staff = %+v", repo.workstationSaved)
 	}
 }
 

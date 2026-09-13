@@ -32,6 +32,11 @@ type IndustryFieldTemplate struct {
 }
 
 type ManufacturingOperation struct {
+	EligibleEmployeeIDs    []int64 `json:"eligible_employee_ids"`
+	DefaultEmployeeID      int64   `json:"default_employee_id"`
+	DefaultCollaboratorIDs []int64 `json:"default_collaborator_ids"`
+	StaffingReady          bool    `json:"staffing_ready"`
+
 	ID                    int64   `json:"id"`
 	Code                  string  `json:"code"`
 	Name                  string  `json:"name"`
@@ -44,6 +49,11 @@ type ManufacturingOperation struct {
 }
 
 type ManufacturingWorkstation struct {
+	PrimaryEmployeeID      int64                    `json:"primary_employee_id"`
+	PrimaryEmployeeName    string                   `json:"primary_employee_name"`
+	BackupEmployeeIDs      []int64                  `json:"backup_employee_ids"`
+	BackupEmployees        []WorkstationEmployee    `json:"backup_employees"`
+	StaffingReady          bool                     `json:"staffing_ready"`
 	ID                     int64                    `json:"id"`
 	Code                   string                   `json:"code"`
 	Name                   string                   `json:"name"`
@@ -58,6 +68,13 @@ type ManufacturingWorkstation struct {
 	Note                   string                   `json:"note"`
 	CreatedAt              string                   `json:"created_at"`
 	UpdatedAt              string                   `json:"updated_at"`
+}
+
+type WorkstationEmployee struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+	Active    bool   `json:"active"`
 }
 
 type ManufacturingWorkstationCapacity struct {
@@ -193,6 +210,10 @@ type SaveIndustryTemplateCommand struct {
 }
 
 type SaveManufacturingOperationCommand struct {
+	EligibleEmployeeIDs    []int64 `json:"eligible_employee_ids"`
+	DefaultEmployeeID      int64   `json:"default_employee_id"`
+	DefaultCollaboratorIDs []int64 `json:"default_collaborator_ids"`
+
 	ID                    int64
 	Code                  string
 	Name                  string
@@ -204,6 +225,8 @@ type SaveManufacturingOperationCommand struct {
 }
 
 type SaveManufacturingWorkstationCommand struct {
+	PrimaryEmployeeID      int64
+	BackupEmployeeIDs      []int64
 	ID                     int64
 	Code                   string
 	Name                   string
@@ -323,6 +346,9 @@ func (s *Service) SaveManufacturingOperation(ctx context.Context, cmd SaveManufa
 	if cmd.Code == "" {
 		cmd.Code = codeFromName(cmd.Name)
 	}
+	if err := validateOperationStaff(cmd); err != nil {
+		return ManufacturingOperation{}, err
+	}
 	return s.repo.SaveManufacturingOperation(ctx, cmd)
 }
 
@@ -371,7 +397,28 @@ func (s *Service) SaveManufacturingWorkstation(ctx context.Context, cmd SaveManu
 		cmd.HourlyRate = roundMoney(componentTotal)
 	}
 	cmd.ApplicableOperationIDs = normalizePositiveInt64IDs(cmd.ApplicableOperationIDs)
+	cmd.BackupEmployeeIDs = normalizePositiveInt64IDs(cmd.BackupEmployeeIDs)
+	if err := validateWorkstationStaff(cmd); err != nil {
+		return ManufacturingWorkstation{}, err
+	}
 	return s.repo.SaveManufacturingWorkstation(ctx, cmd)
+}
+
+func validateWorkstationStaff(cmd SaveManufacturingWorkstationCommand) error {
+	if cmd.Status == "inactive" {
+		return nil
+	}
+	if cmd.PrimaryEmployeeID <= 0 {
+		return fmt.Errorf("启用工位必须配置主负责人")
+	}
+	seen := map[int64]bool{cmd.PrimaryEmployeeID: true}
+	for _, id := range cmd.BackupEmployeeIDs {
+		if id <= 0 || seen[id] {
+			return fmt.Errorf("主负责人和替补人员不能重复")
+		}
+		seen[id] = true
+	}
+	return nil
 }
 
 func (s *Service) DeactivateManufacturingWorkstation(ctx context.Context, cmd TemplateStatusCommand) error {
@@ -910,4 +957,11 @@ func normalizeJSONArray(raw string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+func validateOperationStaff(cmd SaveManufacturingOperationCommand) error {
+	if len(cmd.EligibleEmployeeIDs) > 0 || cmd.DefaultEmployeeID > 0 || len(cmd.DefaultCollaboratorIDs) > 0 {
+		return fmt.Errorf("工序人员配置已迁移到工位，请在工位中设置主负责人和替补")
+	}
+	return nil
 }

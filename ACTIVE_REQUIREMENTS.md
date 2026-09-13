@@ -6,54 +6,194 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-647-ORDER-CONFIRMATION-PRICE-SORT
-- Branch: `codex/order-confirmation-price-sort-20260910`; synchronized base `afb2c0cc4da2a6a142ca4d33bc9283f8afffa980`.
-- Status: verified and deployed to development at `2bd15db4`; production release authorized; Van business acceptance pending.
-- Owner/session: Codex / 2026-09-10; serialized integration completed from unchanged develop base.
-- Pushed feature commit: `c4c6523310413306feb7bb947327ebe9624c7f44`; integration commit is the develop merge containing this record.
-- Scope: 分类即时显示；价格表独立排序和草稿 PDF 缓存；同一履约订单待确认、接单、拒绝恢复及整单状态同步。
-- DEV: DEV-647-CATEGORY-SORT; DEV-647-ORDER-CONFIRMATION; DEV-647-ORDER-STATUS.
-- Verifier: targeted real PostgreSQL 6 complete-flow tests pass / 0 skip; Vue 1159/1159 and build; full standard Go and changed gates pass. Extra full PostgreSQL packages match baseline failures exactly (101 sales/fulfillment + 1 production); those runs are not counted as passes.
-- Evidence: `orderapp-remote/docs/acceptance/2026-09-10-order-confirmation-price-sort.md`.
-- Deployment: the earlier develop-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production; no price publication or business data rewrite.
+### PR-659-MINIAPP-SHARE-SCOPE
+- Branch: `codex/miniapp-production-share-20260913`, base `0fc27ba5767ad93547ec9433f684a4c20d5b1e37`.
+- Owner/session: Codex / 2026-09-13
+- Status: implementation complete; targeted RED/GREEN, Go full package test, miniapp 245/245, typecheck and production-mode build passed. Develop integration in progress. Production WeChat upload, review and publication are excluded until explicitly authorized.
+- Scope: restore WeChat page sharing and let an employee administrator choose admin-only, employee, or everyone scope. Default employee; shared cards open the safe miniapp home without business identifiers.
+- DEV: DEV-664-MINIAPP-SHARE-POLICY; DEV-665-MINIAPP-SHARE-UI; DEV-666-MINIAPP-SHARE-DELIVERY.
+- Verifier: share policy API roles/defaults/validation; transactional readable audit setting; miniapp share-menu visibility, API helpers, profile source contract, typecheck and production-mode build.
+- Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`.
+- Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-miniapp-share-scope.md`.
+- Notes: reservation helper selected PR-659 but its existing macOS awk multiline placeholder failed; PR-659 was confirmed unused and reserved here manually.
+
+### PR-658-PRODUCTION-ROSTER-RELIEF
+- Branch: `codex/production-roster-relief-20260913`; base `cdd6768c`.
+- Owner/session: Codex / 2026-09-13
+- Status: 已合入 develop 并部署 development，技术与隔离页面验收完成；Van 业务验收待进行。RED/GREEN、Go 全包、Vue 1225/1225、针对性真实 PostgreSQL、构建通过。扩大 PostgreSQL 17 项失败与未修改 develop 基线一致，无新增。
+- Scope: reliable ordered backup selection, live roster preview, daily manual owner and bulk replacement, leave relief.
+- DEV: DEV-661-ROSTER-RELIEF; DEV-662-ROSTER-ADJUSTMENT-UI; DEV-663-ROSTER-RELIEF-DELIVERY.
+- Verifier: resolver and edit unit tests; PostgreSQL API lifecycle, conflict, replay and rollback; Vue interaction tests and build; isolated browser writes and screenshots.
+- Deployment ownership: Codex PR-658 / 2026-09-13; feature `ae3c240c16bacf03a07d9a7821e2ec3af75b3c9e` pushed, GitHub PR #120 merged as `9e143dd5542e9d105e944eada59a51763452b84a`; clean-clone `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` completed. Release metadata, feature/UI/manual hashes and external API checks agree; application restart count 0. Evidence follow-up branch: `codex/production-roster-relief-delivery-20260913` (docs only).
+- Rollback: source `/opt/stacks/erp/orderapp.backup.deploy-20260913205817-9e143dd5542e`; image `kferp-orderapp-rollback:development-20260913205817-9e143dd5542e`.
+- Real data: 已按核实关系为智烘 id3 补存刘祎泊 id10 为替补，主负责人段其晶 id6 及其他配置不变；周二/四/六返回 backup=10。出勤、临时安排、排班 V3 与原未保存页面保留；操作日志 2026-09-13 21:07:08 可查。其他工位没有推测补人。
+- Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
+- Acceptance: orderapp-remote/docs/acceptance/2026-09-13-production-roster-relief.md
+
+### PR-657-PRODUCTION-ROSTER-AUTO-DISPATCH
+- Branches/PRs: main implementation #114; partial replan #115; initial roster copy #116; personal empty state #117; factory empty state and replan units #118; final evidence on `codex/production-roster-acceptance-evidence-20260913`.
+- Owner/session: Codex / 2026-09-13
+- Status: implementation, `develop` integration, development deployment and read-only browser acceptance complete; awaiting Van business acceptance; production excluded.
+- Scope: weekly employee attendance, workstation primary/ordered backup ownership, automatic task dispatch, workstation handover, and atomic unstarted-demand replan.
+- DEV: DEV-657-PRODUCTION-ROSTER-DATA; DEV-658-PRODUCTION-ROSTER-UI; DEV-659-PRODUCTION-AUTO-DISPATCH-HANDOVER; DEV-660-PRODUCTION-DEMAND-REPLAN.
+- Verifier: roster/owner unit tests; handler and isolated PostgreSQL lifecycle; automatic job-card start guards; replan transaction/idempotency/shared-upstream tests; full Go/Vue/build; development screenshots.
+- Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue page help.
+- Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-production-roster-auto-dispatch.md`.
+- Deployment: development application `e82904f84693b68a8b1cd40383cb7913a3e3c736`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260913165023-e82904f84693`; rollback image `kferp-orderapp-rollback:development-20260913165023-e82904f84693`.
+- Evidence: Go all packages; Vue 1218/1218; miniapp 238/238; Vite build; isolated PostgreSQL roster, dispatch, handover and replan lifecycles; development desktop and 430px screenshots in `/private/tmp/kferp-pr657-acceptance/`. Login page and Vue shell return 200; orderapp is Up and PostgreSQL healthy.
+- Last update: 2026-09-13 Asia/Shanghai
+
+### PR-656-WORKSTATION-SINGLE-OWNER-FIXES
+- Branch: `codex/workstation-single-owner-fixes-20260913`, base `9b99b00e`.
+- Owner/session: Codex / 2026-09-13
+- Status: implementation, `develop` integration, development deployment and read-only browser acceptance complete; awaiting Van business acceptance; production excluded.
+- Scope: unify workstation task state, batch quantities, WIP readiness, picking actions and start validation; remove collaborator assignment and use one eligible default responsible employee.
+- DEV: DEV-656-TASK-STATE-QUANTITY; DEV-656-START-PICKING; DEV-656-SINGLE-OWNER; DEV-656-DELIVERY.
+- Verifier:
+  - Unit: task filtering, conserved batch allocation, single-owner validation and start identity tests.
+  - API: workstation overview, scheduling compatibility, stock preview states and isolated PostgreSQL lifecycle.
+  - Frontend/build: workstation/config/scheduling tests, full Vue tests and Vite build.
+  - Manual: production and inventory source manuals plus Vue help.
+  - Review/acceptance: isolated writes; listed real work orders remain read-only; desktop and narrow screenshots.
+- Deployment: development `ad106d4df8295d8c646817039601d6e1694fd32f`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260913014827-ad106d4df829`; rollback `kferp-orderapp-rollback:development-20260913014827-ad106d4df829`.
+- Last update: 2026-09-13 Asia/Shanghai
+- Evidence: Go all packages, Vue 1209/1209, miniapp 238/238, Vite build and isolated PostgreSQL batch/start/staff lifecycle pass. Development login 200, requirement APIs 200, application running with restart count 0, PostgreSQL healthy and recent production execution error scan 0. PR-656, four DEV records and one REV record are visible. Screenshots: `/private/tmp/kferp-pr656-acceptance/`.
+- Notes: reservation helper selected PR-656 but its multiline awk placeholder failed; the unused id was reserved here manually.
+
+### PR-654-PRODUCTION-EXECUTION-BUS
+- Branch: `codex/production-execution-bus-20260912`, base `e380b7ec`.
+- Owner/session: Codex / 2026-09-12
+- Status: implementation, `develop` integration, development deployment and read-only browser acceptance complete; awaiting Van business acceptance; production excluded.
+- Scope: simplify work-order list; turn work-order detail into assignment/status bus; execute, pick, report and hand off by workstation task batch; merge job-card records into work-order detail; redesign quality and finished receipt workflows.
+- DEV: DEV-654-WORK-ORDER-READMODEL; DEV-654-TASK-EXECUTION; DEV-654-QUALITY-RECEIPT; DEV-654-EXECUTION-UI; DEV-654-DELIVERY.
+- Verifier: targeted Go/API/Vue RED-GREEN; isolated PostgreSQL task-batch concurrency and WIP allocation; full backend/frontend/build gates; desktop/tablet/narrow screenshots.
+- Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, inventory manual, Vue help, and acceptance evidence.
+- Deployment: feature/develop/runtime `56f2ca1833964b92ca34cb5585d41f3c7f8a5b37`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260912174636-56f2ca183396`; rollback `kferp-orderapp-rollback:development-20260912174636-56f2ca183396`; production unchanged.
+- Evidence: frontend 1199/1199, miniapp 238/238, Go all packages and Vite build pass; PostgreSQL healthy, orderapp restart count 0, Vue shell 200, PR-654 visible; screenshots `/private/tmp/kferp-pr654-acceptance/` cover six pages plus desktop/tablet/narrow layouts.
+- Notes: `scripts/reserve_req_id.sh --claim production-execution-bus` selected PR-654 but the local awk rejected its multiline placeholder; PR-654 was confirmed unused and reserved here manually. The first final rollout stopped when rebuild cache filled the development host disk; 22GB of rebuildable Docker cache was removed, PostgreSQL recovered, the prior app was restored, and the same commit then deployed cleanly without business-data changes.
+
+
+### PR-653-PRODUCTION-AUTO-PICKING
+- Branch: `codex/production-auto-picking-20260911`, base `1ef28cdb`.
+- Owner/session: Codex / 2026-09-11
+- Status: merged and deployed to development; full automated gates and isolated browser workflow pass; awaiting Van business acceptance.
+- Scope: WIP-first same-owner multi-warehouse picking suggestions; supply reservation versus WIP readiness; partial transfer; compact material preparation UI.
+- DEV: DEV-653-ALLOCATION; DEV-653-WIP-TRANSFER; DEV-653-PREPARATION-UI; DEV-653-DELIVERY.
+- Verifier: isolated PostgreSQL API/concurrency/ownership/partial-transfer tests; allocation unit tests; Vue render tests; backend/frontend/build gates.
+- Manual: production and inventory source manuals plus Vue help.
+- Deployment: application `52e625721b46e0338bdd5e31ba254ca8986b9e47`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260912003654-52e625721b46`; rollback `kferp-orderapp-rollback:development-20260912003654-52e625721b46`; production unchanged.
+- Notes: reservation script selected PR-652 but macOS awk rejected multiline placeholder; reserved here manually, then reassigned to PR-653 after concurrent PR-652 integration. Other worktrees are untouched.
+
+- Evidence: orderapp-remote/docs/acceptance/2026-09-11-production-auto-picking.md; screenshots /private/tmp/kferp-pr653-acceptance/.
+- Last update: 2026-09-12 Asia/Shanghai. PR review, all four DEV done; status writes audited.
+
+### PR-652-PRODUCTION-PLAN-UNIFIED-DRAFT
+- Branch: codex/production-plan-unified-draft-20260911
+- Status: implementation, isolated acceptance, develop integration, and development deployment complete; awaiting Van product acceptance. Deployment ownership released.
+- Scope: 创建前两步、统一草稿详情、撤销重建、地址恢复、保存与离开保护、桌面与窄屏 UI。
+- DEV: DEV-652-UNIFIED-DRAFT; DEV-652-CREATION-UI; DEV-652-RECOVERY; DEV-652-DELIVERY.
+- Verifier: actual Vue handlers; isolated PostgreSQL/API lifecycle; Go/Vue tests and build; screenshots.
+- Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
+- Evidence: orderapp-remote/docs/acceptance/2026-09-11-production-plan-unified-draft.md
+- Boundaries: PP-0000000113 read-only; writes only to isolated test data; development only.
+- Delivery: feature 09c605851376f68354a1fd85d42665803cdf10da -> develop/runtime 4ac8514978470bb8f012c67f4a8fa8464727a222, deployed 2026-09-12 00:14 Asia/Shanghai. Subsequent evidence commit changes documentation only.
+- Rollback: /opt/stacks/erp/orderapp.backup.deploy-20260912000655-4ac851497847; image kferp-orderapp-rollback:development-20260912000655-4ac851497847.
+- Smoke: release exit 0, authenticated shell 200, login 200, unauthenticated app 303; PR-652 review and four DEV-652 done; live two-step preview and draft/cancelled detail verified read-only. PP-113 status/revision/cancelled_at unchanged.
+- Evidence artifacts: /private/tmp/kferp-pr652-acceptance/01-select.png through 09-development-draft-readonly.png; isolated schema cleaned up.
+
+
+### PR-651-PRODUCTION-PLAN-CAPACITY-WORKSPACE
+- Branch: `codex/production-plan-capacity-ui-20260911`, base `6ce1c5b6`.
+- Owner/session: Codex / 2026-09-11
+- Status: implementation, dependency-aware ordering revision, develop integration, development deployment, and live browser acceptance complete; awaiting Van product acceptance.
+- Scope: group capacity splits by the production plan's actual operation names, preserve task/specification/quantity/order traceability, show task-level coverage in native units, and separate save-draft from readiness confirmation.
+- DEV: DEV-651-OPERATION-GROUPING; DEV-651-TASK-COVERAGE; DEV-651-CAPACITY-WORKSPACE; DEV-651-DEVELOPMENT-DELIVERY.
+- Verifier:
+  - Unit: production-plan capacity grouping/readiness frontend tests and native-unit preview Go tests.
+  - API: production-plan split preview/save contract, draft-only guard, validation, and audit tests.
+  - Frontend/build: targeted Vue tests, frontend test gate, Vite build, browser interaction, desktop screenshots, and design QA.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue manual surface.
+  - Review/acceptance: development flow with isolated test data; PP-0000000109 stays read-only.
+- Deployment: development `455b3df8ed1eb1e2b46ad151dd19a52f18963698`; rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260911211634-455b3df8ed1e`; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-plan-capacity-workspace.md`; final screenshots `/private/tmp/kferp-pr651-acceptance/pp109-capacity-roast.png` and `/private/tmp/kferp-pr651-acceptance/pp109-capacity-package.png`.
+- Last update: 2026-09-11 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim production-plan-capacity-ui` selected PR-651 but failed while updating `ACTIVE_REQUIREMENTS.md` because the local awk implementation rejected its multiline program; the id was reserved manually after confirming no existing PR-651/DEV-651 records.
+
+### PR-650-PRODUCTION-PLAN-DETAIL-WORKSPACE
+- Branch: `codex/production-plan-detail-ux-20260911`, base `3d272faa`.
+- Owner/session: Codex / 2026-09-11
+- Status: implementation and latest-develop conflict resolution complete; full merged verification and first deployment passed. Browser acceptance caught and fixed the material-summary field mismatch; revision deployment and screenshots in progress. Van approved the UI target and development delivery.
+- Scope: unify frozen production-plan quantities, expose submit readiness, save the draft atomically, and replace the detail drawer with a staged Vue workspace.
+- DEV: DEV-650-QUANTITY-AUTHORITY; DEV-650-DRAFT-READINESS-API; DEV-650-DETAIL-WORKSPACE; DEV-650-DEVELOPMENT-DELIVERY.
+- Verifier:
+  - Unit: production quantity/material/readiness Go tests and produce-plan frontend helper tests.
+  - API: production plan detail, atomic draft save, conflict, validation, audit, and submit parity tests.
+  - Frontend/build: targeted Vue tests, frontend test gate, Vite build, browser interaction and responsive screenshots.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md` and Vue manual surface.
+  - Review/acceptance: development flow with isolated test data; PP-0000000109 stays read-only.
+- Deployment: development after branch integration; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-plan-detail-workspace.md`; full Go, Vue 1175/1175 and Vite build pass after merging latest develop.
+- Last update: 2026-09-11 Asia/Shanghai
+- Notes: the initial local reservation selected PR-649, but concurrent integration claimed that id first; this requirement was moved to the next id, PR-650.
+
+### PR-649-PRODUCTION-PLANNING-WORKSPACE
+- Branch: `codex/production-planning-workspace-20260910`, base `3d272faa`.
+- Owner/session: Codex / 2026-09-11
+- Status: implementation and full repository verification complete; integration, development deployment, and browser screenshots in progress.
+- Scope: three-step planning workspace, business-first product/material gap review, actionable blockers, editable/recalculable draft, consistent preview/detail quantities, responsive acceptance screenshots.
+- DEV: DEV-649-DEMAND-SELECT; DEV-649-GAP-REVIEW; DEV-649-DRAFT-RECALCULATE; DEV-649-SCHEDULE-DELIVERY.
+- Verifier: targeted Vue 74/74 and draft-recalculation API GREEN; full Go packages, frontend 1172/1172, changed-file checks, and Vue production build GREEN. Development browser acceptance remains.
+- Deployment: development authorized after complete verification; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-11-production-planning-workspace.md`.
+- Notes: PR-649 is the next available requirement id. Van retains final business acceptance.
+
+### PR-648-PRODUCTION-PLANNING-MULTILEVEL
+- Branch: `codex/production-planning-multilevel-20260910`, base `2bd15db4`.
+- Status: demand blocking-reason follow-up in progress; branch `codex/production-demand-blocking-reasons-20260910` from `950963ca`. Show the exact blocker outside collapsed order details; keep known sales quantities despite BOM errors. Targeted RED (2 failures) then GREEN (69 tests); development deploy ownership held by this thread. Original page initialization regression remains verified; Van full business acceptance pending.
+- Scope: demand preview crash, product/spec/order grouping, standalone material production, cross-plan supply allocation, partial material receipts and quantity-based downstream release.
+- DEV: DEV-648-DEMAND; DEV-648-STOCK-PLAN; DEV-648-SUPPLY; DEV-648-PARTIAL-RECEIPT; DEV-648-DELIVERY.
+- Verifier: targeted Vue render/helper RED/GREEN, isolated PostgreSQL API/concurrency/cost tests, full Go and Vue/build gates.
+- Deployment: development `5f69aed128799fc39778084c40880bbb0cdb8f83` via regression PR #111 (original delivery PR #107 / #108 / #109); script exit 0, frontend 1165/1165 and actual browser verification passed; production excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-10-production-planning-multilevel.md`; 30 isolated API cases, 1164 frontend tests, full Go/build gates.
+- Deploy ownership: released. Initialization regression branch `codex/production-plan-initialization-20260910`, base `afa92065`, pushed fix `7b96622c`. Previous demand query: 5 products / 9 rows, 3 selectable / 6 configuration-blocked; both selected GET and unified POST previews succeed. Current rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260910232420-5f69aed12879`. Existing development authentication bypass is unchanged; details in acceptance evidence.
+- Notes: reservation script selected PR-648 but macOS awk rejected its multiline placeholder; reserved here instead.
 
 
 ### PR-646-PRICE-TABLE-REFRESH
 - Branch: `codex/price-table-refresh-20260909`, base `4c3de319`.
-- Status: deployed to development `afb2c0cc` and production `31b200c7`; Van product acceptance pending.
+- Status: implementation and automated/local Vue verification complete; Van product acceptance pending.
 - Scope: independently refresh product/BOM specification candidates and current price table template calculations without restoring the entire draft.
 - DEV: DEV-646-SELECTION-REFRESH; DEV-646-PRICE-REFRESH.
 - Verifier: 12 refresh regression tests and 13 HTTP tests pass (0 skip); frontend 1148/1148 and build; full backend and repository checks pass. Local desktop/390px interactions verified with fixture APIs.
 - Evidence: `orderapp-remote/docs/acceptance/2026-09-09-price-table-refresh.md`.
-- Deployment: the earlier develop-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production; no business price publication.
+- Deployment: merge to develop only; no application deployment or business price publication.
 
 ### PR-645-MATERIAL-STOCK-BOM-MOVE
 - Branch: `codex/material-stock-bom-move-20260909`, base `32279ff6`.
-- Status: deployed to development `afb2c0cc` and production `31b200c7`; development/production orphan inventory cleanup remains complete (12/23 materials, remaining 0/0); Van product acceptance pending.
+- Status: implementation and verification complete; development/production orphan inventory cleanup complete (12/23 materials, remaining 0/0); Van product acceptance pending.
 - Scope: block material deprecation until all inventory is zero; fix BOM move selection after category collapse; remove inventory remnants of absent/deprecated materials in development and production with backup and audit.
 - DEV: DEV-645-STOCK-GUARD; DEV-645-BOM-MOVE; DEV-645-ORPHAN-STOCK-CLEANUP.
 - Verifier: real PostgreSQL focused 3 top-level / 6 stock subcases pass, 0 skip; frontend 1136/1136 and build; standard Go gate. Extra real DB materials packages have 2 independently reproduced baseline failures.
 - Evidence: `orderapp-remote/docs/acceptance/2026-09-09-material-stock-bom-move.md`.
-- Deployment: the earlier data-cleanup-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production.
+- Deployment: code integration to develop; this request explicitly authorizes development and production data cleanup. No application deployment requested.
 
 ### PR-644-BOM-CATEGORY-FEEDBACK
 - Branch: `codex/bom-category-fixes-20260909`
-- Status: verified and deployed to development at `32279ff6`; production release authorized; Van business acceptance pending
+- Status: implemented and verified on latest develop `76c12328`; feature `dd479663`, integration `91ab44e2`; Van business acceptance pending
 - Scope: category move feedback, draft response atomicity, template-owned spec identities.
-- Deployment: the earlier develop-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production.
+- Deployment: explicitly disabled by Van; merge to develop only.
 - DEV: DEV-644-CATEGORY; DEV-644-DRAFT; DEV-644-TEMPLATE
 - Verifier: real PostgreSQL focused 6 top-level tests / 0 skips; frontend 1133/1133 and build; backend standard gate; changed checks. Extra DB package has 11 pre-existing failures (baseline 14) and 2 explicitly excluded migration skips.
-- Evidence: `orderapp-remote/docs/acceptance/2026-09-09-bom-category-feedback.md`; development rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260909205403-32279ff6b401`. No production business data changes.
-
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-09-bom-category-feedback.md`. No production data changes; no deployment.
 
 ### PR-639-MATERIAL-UNIQUE-OWNERSHIP
 - Branch: `codex/material-unique-ownership-20260908`
 - Owner/session: Codex / 2026-09-08
-- Status: implementation, development/production deployment and automated acceptance complete; awaiting Van product acceptance
+- Status: implementation, integration, development deployment and customer-inventory split complete; awaiting Van product acceptance
 - Scope: 物料档案唯一归属本公司或一个客户；取消多客户关联；BOM、库存和客户视图按物料归属隔离；拆分历史客户库存。
 - DEV: DEV-639-MATERIAL-OWNER; DEV-639-BOM-STOCK-OWNER-GUARDS; DEV-639-MATERIAL-OWNER-UX; DEV-639-MIGRATION-DELIVERY
-- Verifier: targeted Go/API/PostgreSQL and Vue RED/GREEN, full backend/frontend/miniapp builds, migration preflight/apply/rollback evidence, development and production deployment smoke.
-- Deployment: development `715bc7260ef4cfd953ada43a00c0bebd87e958fa`; backup `/opt/stacks/erp/backups/pr639-material-owner-predeploy-20260908161659-33661519.dump`; manifest `3195bc2f1cb80e33`, mappings 8→77 and 66→78. Production `e279da417a26f1a51056a8c4bc094f5a011500ee`; backup `/opt/stacks/erp-production/backups/pr639-material-owner-predeploy-20260908203303-e279da41.dump`; manifest `afcd44717d037135`, candidates/conflicts/mappings/applied all 0; inventory quantities and amount unchanged. Full Go/Vue/miniapp/build, focused real-PostgreSQL ownership/cutover tests, desktop/390px layout and live API checks passed.
+- Verifier: targeted Go/API/PostgreSQL and Vue RED/GREEN, full backend/frontend build, migration preflight/apply/rollback evidence, development deployment smoke.
+- Deployment: development `715bc7260ef4cfd953ada43a00c0bebd87e958fa`; database backup `/opt/stacks/erp/backups/pr639-material-owner-predeploy-20260908161659-33661519.dump`; migration manifest `3195bc2f1cb80e33`, mappings 8→77 and 66→78, candidates/conflicts now 0; full Go/Vue/build, focused real-PostgreSQL ownership/cutover tests, desktop/390px layout and live API checks passed. Production untouched.
 - Last update: 2026-09-08 Asia/Shanghai
 - Notes: reservation script failed on macOS awk multiline value; PR-639 manually reserved. Product requirement remains review until Van completes page acceptance.
 
@@ -5094,13 +5234,6 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: customer-price-template.test.js RED；模板切换、原草稿恢复、局部优先级、缺模板阻止和草稿隔离；完整 Vue/Vite、部署门禁及开发页面复验。
 - Status: 6 项定向及完整 Vue 1114/1114、Vite、Go、小程序 238 项及类型/构建通过；开发 5692d613 已部署。EFS 227g 的两档 26/24、切回四档、恢复两档及刷新实测通过。公共/NB 已发布表指纹、生产版本不变；验收 docs/acceptance/2026-09-08-customer-tier-template.md。未发布客户/公共价格表或微信。
 
-### PR-640-ERP-SESSION-POOL
-- Branch: codex/fulfillment-empty-login-20260908；production baseline origin/main 491388ec。
-- Scope: 履约客户登录并发加载耗尽连接池；会话资格查询移出持锁事务；绑定查询关闭结果后再查模板；保持旧会话撤销和客户隔离。
-- Status: targeted RED/GREEN and full backend gate passed；production app restarted for temporary recovery, permanent fix pending release。
-- Verifier: PostgreSQL pools 1/4 and 8 concurrent bearer requests; security changes during eligibility; existing session-revocation/login tests; scripts/verify_kferp.sh backend and changed。
-- Evidence: orderapp-remote/docs/acceptance/2026-09-08-erp-session-pool.md。
-- Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md。
 ### PR-641-ORDER-DELIVERY-EDIT-DOCUMENTS
 - Branch: codex/order-experience-documents-20260908 (production: codex/order-experience-production-20260908)
 - Owner/acceptance: Codex
@@ -5111,6 +5244,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Business evidence: SO-20260908-0002 normal save/reopen, three products and prices preserved, default type updated to wholesale; order audit4094
 - Evidence: orderapp-remote/docs/acceptance/2026-09-08-order-delivery-edit-documents.md
 - Last update: 2026-09-09
+
+### PR-640-ERP-SESSION-POOL
+- Branch: codex/fulfillment-empty-login-20260908；production baseline origin/main 491388ec。
+- Scope: 履约客户登录并发加载耗尽连接池；会话资格查询移出持锁事务；绑定查询关闭结果后再查模板；保持旧会话撤销和客户隔离。
+- Status: targeted RED/GREEN and full backend gate passed；production app restarted for temporary recovery, permanent fix pending release。
+- Verifier: PostgreSQL pools 1/4 and 8 concurrent bearer requests; security changes during eligibility; existing session-revocation/login tests; scripts/verify_kferp.sh backend and changed。
+- Evidence: orderapp-remote/docs/acceptance/2026-09-08-erp-session-pool.md。
+- Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md。
 
 ### PR-642-EFS-FULFILLMENT-HOME
 - Branch: codex/efs-release-acceptance-20260909
@@ -5124,20 +5265,43 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-643-CUSTOMER-ACCOUNT-ORDERS
 - Branch: codex/customer-account-orders-20260909
-- Status: development deployed at 0e0408f2; production release authorized by Van, integration in progress
+- Status: verified; integration/development deployment pending
 - Scope: 客户全部订单、收件解析、销售单授权及合并、订单费用、周月账单；仅开发环境
 - Verifier: scripts/verify_kferp.sh all PASS; Vue 1124/1124; isolated PostgreSQL/API, PDF/PNG, 205-row Excel/PDF, desktop/mobile fixture checks PASS
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_ACCOUNT.md
 - Acceptance: Van pending
 - Notes: reserve_req_id.sh --claim failed on macOS awk multiline; reserved PR-643 here after inspecting next id.
-
 ### PR-643 生产发布稳定性跟进（2026-09-09）
 - Branch: codex/bom-pool-exhaustion-20260909
-- Status: RED/GREEN complete; production integration pending
+- Status: production deployed at main 5b78f202; develop integration in progress
 - Reproduction: four concurrent product/BOM detail loads occupied the four-connection production pool; login response stalled after headers and the deployment readiness check could not finish.
 - Cause: specification-template and production-BOM variant readers queried child rows before closing their outer pgx rows, so each request needed a second connection while retaining the first.
 - RED: with MaxConns=1 both variant readers timed out after one second (`context deadline exceeded`).
 - GREEN: both readers collect and close outer rows before querying child items; single-connection PostgreSQL regression passes.
 - Manual impact: none; no user-visible workflow or field changes.
+- Production: main 5b78f202 deployed; rollback source `/opt/stacks/erp-production/orderapp.backup.deploy-20260909193146-5b78f2022348`; eight concurrent BOM reads and simultaneous login passed, then customer account smoke passed.
+
+### PR-647-ORDER-CONFIRMATION-PRICE-SORT
+- Branch: `codex/order-confirmation-price-sort-20260910`; synchronized base `afb2c0cc4da2a6a142ca4d33bc9283f8afffa980`.
+- Status: verified and deployed to development at `2bd15db4`; production release authorized; Van business acceptance pending.
+- Owner/session: Codex / 2026-09-10; serialized integration completed from unchanged develop base.
+- Pushed feature commit: `c4c6523310413306feb7bb947327ebe9624c7f44`; integration commit is the develop merge containing this record.
+- Scope: 分类即时显示；价格表独立排序和草稿 PDF 缓存；同一履约订单待确认、接单、拒绝恢复及整单状态同步。
+- DEV: DEV-647-CATEGORY-SORT; DEV-647-ORDER-CONFIRMATION; DEV-647-ORDER-STATUS.
+- Verifier: targeted real PostgreSQL 6 complete-flow tests pass / 0 skip; Vue 1159/1159 and build; full standard Go and changed gates pass. Extra full PostgreSQL packages match baseline failures exactly (101 sales/fulfillment + 1 production); those runs are not counted as passes.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-10-order-confirmation-price-sort.md`.
+- Deployment: the earlier develop-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production; no price publication or business data rewrite.
+
+### PR-655-PRODUCTION-SCHEDULING-STAFF
+- Branch: codex/production-scheduling-staff-20260912
+- Owner/session: Codex / production scheduling staff
+- Status: development deployed; PR/DEV delivery review; native leave-dialog follow-up and Van business acceptance pending
+- Scope: 工序可执行员工与默认人员；工序任务排程、批量预览保存、人员冲突；工位衔接与菜单精简。
+- DEV: DEV-655-STAFF; DEV-655-SCHEDULE; DEV-655-UI; DEV-655-DELIVERY.
+- Verifier: targeted Go service/API/PostgreSQL tests; frontend behavioral tests; verify_kferp.sh backend/frontend/changed; isolated browser acceptance.
+- Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
+- Deployment: development release 6df328eb203ef124043c4e06456d2f31c67c5a21 completed; source rollback /opt/stacks/erp/orderapp.backup.deploy-20260912212752-6df328eb203e; this follow-up records delivery evidence and tracking status only.
+- Evidence: orderapp-remote/docs/acceptance/2026-09-12-production-scheduling-staff.md; Go all packages, real PostgreSQL lifecycle, Vue 1203/1203 and build passed. Six screenshot categories captured; native unsaved-confirm dismissal and subsequent click QA limited by browser automation.
+- Notes: reservation selected PR-655; macOS awk multiline placeholder failed, reserved manually before implementation.
 
 - PR-643 production promotion: codex/customer-account-production-20260909 from origin/main 1d111a4f; only verified PR-643 change, preserving existing production acceptance records; development Go/API/Vue/PDF verification and 27 post-deploy checks passed.

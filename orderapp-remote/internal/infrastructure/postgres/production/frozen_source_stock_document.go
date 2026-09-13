@@ -23,18 +23,21 @@ func (r Repository) GetWorkOrderFrozenSourceIssueItems(ctx context.Context, work
 	if err != nil || !usesFrozenSources {
 		return usesFrozenSources, nil, err
 	}
+	automatic, err := autoPickingWorkOrderTx(ctx, tx, r.schema, workOrderID)
+	if err != nil {
+		return true, nil, err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT reservation.material_id,COALESCE(NULLIF(reservation.material_name,''),material.name),
+		SELECT binding.component_type,binding.component_id,binding.component_bom_spec_id,binding.component_bom_variant_id,binding.component_spec_g,reservation.material_id,COALESCE(NULLIF(reservation.material_name,''),material.name),
 		       COALESCE(NULLIF(reservation.unit,''),material.unit),binding.batch_code,binding.warehouse,
 		       COALESCE(binding.owner_customer_id,0),
 		       GREATEST(0,binding.reserved_g-binding.consumed_g-binding.returned_g)::bigint,
 		       GREATEST(0,binding.reserved_units-binding.consumed_units-binding.returned_units)::bigint
 		FROM %s.work_order_material_reservation_batches binding
 		JOIN %s.work_order_material_reservations reservation ON reservation.id=binding.reservation_id
-		JOIN %s.materials material ON material.id=reservation.material_id
+		LEFT JOIN %s.materials material ON material.id=reservation.material_id
 		WHERE binding.work_order_id=$1 AND binding.status='reserved'
-		  AND reservation.status='reserved' AND binding.component_type='material'
-		  AND binding.material_batch_id>0 AND COALESCE(NULLIF(binding.warehouse,''),$2)<>$2
+		  AND reservation.status='reserved' AND (binding.material_batch_id>0 OR binding.stock_batch_id>0) AND COALESCE(NULLIF(binding.warehouse,''),$2)<>$2
 		  AND (binding.reserved_g>binding.consumed_g+binding.returned_g
 		       OR binding.reserved_units>binding.consumed_units+binding.returned_units)
 		ORDER BY reservation.id,binding.id
@@ -46,17 +49,28 @@ func (r Repository) GetWorkOrderFrozenSourceIssueItems(ctx context.Context, work
 	items := make([]productionapp.StockEntryItemCommand, 0)
 	for rows.Next() {
 		var item productionapp.StockEntryItemCommand
-		if err := rows.Scan(&item.MaterialID, &item.ItemName, &item.InventoryUnit, &item.BatchCode,
+		var componentType string
+		var componentID int64
+		if err := rows.Scan(&componentType, &componentID, &item.BomSpecID, &item.BomVariantID, &item.SpecG, &item.MaterialID, &item.ItemName, &item.InventoryUnit, &item.BatchCode,
 			&item.FromWarehouse, &item.OwnerCustomerID, &item.QtyG, &item.QtyUnits); err != nil {
 			return true, nil, err
 		}
+		item.FrozenPicking = automatic
 		item.ItemType = "material"
+		if componentType == "product" {
+			item.ItemType = "finished_product"
+			item.ProductID = componentID
+		}
 		item.ToWarehouse = stockdomain.WarehouseWIP
 		item.QuantityBasis = "count"
 		item.DefaultQty = float64(item.QtyUnits)
 		if item.QtyG > 0 {
 			item.QuantityBasis = "weight"
 			item.DefaultQty = productionInventoryQuantity(item.QtyG, strings.TrimSpace(item.InventoryUnit))
+		}
+		if componentType == "product" && item.SpecG > 0 {
+			// Stock Entry accepts loose grams plus whole units, not total grams twice.
+			item.QtyG = nonnegativeQuantity(item.QtyG - item.QtyUnits*item.SpecG)
 		}
 		items = append(items, item)
 	}

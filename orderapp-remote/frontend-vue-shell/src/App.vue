@@ -157,6 +157,7 @@
         :customer-context-id="workspaceCustomerContextId"
         :customer-context-label="workspaceCustomerLabel"
         :customer-account-actor="isCustomerActor"
+        :actor="currentActor"
         :portal-page="currentKey" />
     </main>
   </div>
@@ -209,8 +210,8 @@ import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionFlowView from './views/ProductionFlowView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
-import ProductionOverviewView from './views/ProductionOverviewView.vue'
 import ProductionScheduleView from './views/ProductionScheduleView.vue'
+import ProductionSystemCheckView from './views/ProductionSystemCheckView.vue'
 import ProductionSettingsView from './views/ProductionSettingsView.vue'
 import ProcessTemplatesView from './views/ProcessTemplatesView.vue'
 import ProductSettingsView from './views/ProductSettingsView.vue'
@@ -294,6 +295,7 @@ const collapsed = ref(false)
 const content = ref(null)
 const notificationStack = ref(null)
 const viewAliases = {
+  productionOverview: 'workstationView',
   userPermissions: 'employees',
   materialReceipts: 'purchase',
   wipMaterials: 'stockOperations',
@@ -411,9 +413,9 @@ const internalViews = {
   financeManual: OperationManualView,
   producePlan: ProducePlanView,
   productionFlow: ProductionFlowView,
-  productionOverview: ProductionOverviewView,
   workstationView: WorkstationView,
   productionAcceptance: ProductionAcceptanceView,
+  productionSystemCheck: ProductionSystemCheckView,
   productionConfig: ProductionSettingsView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,
@@ -469,7 +471,8 @@ const customerAccountActorMenuGroups = computed(() => customerWorkspaceMenu(cust
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
-  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'work_order_id', 'work_order_no', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab', 'action', 'return_source', 'production_bom_id', 'bom_id']) {
+  if (params.get('production_plan_id')) out.production_plan_id = params.get('production_plan_id')
+  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'work_center', 'operation_id', 'employee_id', 'work_order_id', 'work_order_no', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab', 'action', 'return_source', 'production_bom_id', 'bom_id']) {
     const value = params.get(key)
     if (value) out[key] = value
   }
@@ -622,6 +625,7 @@ function open(key, params = {}, options = {}) {
   if (requestedKey === 'bom') params = { ...params, tab: params?.tab || 'bom' }
   if (!menuMap[key]) return
   if (!isViewAllowed(key, allowedViewKeys.value)) return
+  if (!window.dispatchEvent(new CustomEvent('kferp:before-navigate', { cancelable: true, detail: { key, params } }))) return
   transientReturnNavigation.value = options.returnNavigation
     ? { ...options.returnNavigation, targetKey: key }
     : null

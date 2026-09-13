@@ -52,9 +52,12 @@ func TestDev487ProductionPlanCapacitySplitContracts(t *testing.T) {
 			"继承工位小时成本",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
-			"工序产能拆分",
-			"添加拆分",
+			"ProductionPlanCapacityWorkspace",
 			"saveCurrentPlanOperationSplits",
+		},
+		filepath.Join("frontend-vue-shell", "src", "components", "ProductionPlanCapacityWorkspace.vue"): {
+			"生产计划 · 产能拆分",
+			"添加工位",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS",

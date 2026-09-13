@@ -1,5 +1,4 @@
 export const productionTopNavItems = [
-  { key: 'productionOverview', label: '生产视图' },
   { key: 'workstationView', label: '工位视图' },
   { key: 'productionFlow', label: '生产流程' },
   { key: 'produceRunning', label: '生产中' },
@@ -36,13 +35,14 @@ const pendingStatuses = new Set(['pending', 'ready', 'released'])
 export function workstationTaskSections(tasks = []) {
   const groups = new Map()
   for (const task of tasks || []) {
+    if (['completed', 'cancelled'].includes(String(task.work_order_status || '').toLowerCase())) continue
     const workstation = task.workstation || task.work_center || '未分配工位'
     if (!groups.has(workstation)) groups.set(workstation, [])
     groups.get(workstation).push(task)
   }
   return Array.from(groups.entries()).map(([workstation, rows]) => {
     const sorted = [...rows].sort(compareProductionTasks)
-    const currentTask = sorted.find((task) => runningStatuses.has(task.status) || task.is_blocked || task.blocking_reason) || sorted[0] || null
+    const currentTask = sorted.find((task) => runningStatuses.has(task.status)) || sorted.find((task) => task.is_blocked || task.blocking_reason) || sorted[0] || null
     const nextTask = sorted.find((task) => pendingStatuses.has(task.status) && task !== currentTask) || null
     const blocked = sorted.find((task) => task.blocking_reason)
     return {
@@ -58,6 +58,43 @@ export function workstationTaskSections(tasks = []) {
     if (aBlocked !== bBlocked) return bBlocked - aBlocked
     return a.workstation.localeCompare(b.workstation, 'zh-Hans-CN')
   })
+}
+
+function quantityText(value) {
+  const quantity = Number(value || 0)
+  if (!Number.isFinite(quantity)) return '0'
+  return quantity.toLocaleString('zh-CN', { maximumFractionDigits: 3 })
+}
+
+export function taskQuantityLines(task = {}) {
+  const lines = []
+  const operation = String(task.operation || '')
+  const unit = String(task.inventory_unit || '').trim()
+  const inputQuantity = Number(task.planned_input_inventory_qty || 0)
+  const totalInput = Number(task.operation_total_input_qty || 0)
+  const outputTotal = Number(task.planned_output_inventory_qty || 0)
+  const batchOutput = totalInput > 0 ? outputTotal * Number(task.planned_input_qty || 0) / totalInput : 0
+  const packaging = /包装|分装|装盒|装袋/.test(operation)
+  if (Number(task.spec_g || 0) > 0) lines.push(`规格 ${quantityText(task.spec_g)}g`)
+  if (packaging && batchOutput > 0 && unit) {
+    lines.push(`本批生产 ${quantityText(batchOutput)} ${unit}`)
+    return lines
+  }
+  if (inputQuantity > 0 && unit) lines.push(`本批投料 ${quantityText(inputQuantity)} ${unit}`)
+  if (batchOutput > 0 && unit) lines.push(`目标产出 ${quantityText(batchOutput)} ${unit}`)
+  if (!lines.length) lines.push('本批数量待核对')
+  return lines
+}
+
+export function materialReadinessState(task = {}) {
+  const explicit = String(task.material_readiness_state || '').trim()
+  if (['ready', 'shortage', 'unknown'].includes(explicit)) return explicit
+  if (task.material_data_complete !== true) return 'unknown'
+  return (task.material_readiness || []).some((row) => Number(row.shortage_g || 0) > 0 || Number(row.shortage_units || 0) > 0) ? 'shortage' : 'ready'
+}
+
+export function workstationCanOpenIssue(task = {}) {
+  return String(task.stock_action || '') === 'issue'
 }
 
 export function compareProductionTasks(a, b) {
@@ -82,6 +119,8 @@ export function productionTaskActionEndpoint(task, action) {
       return `/api/production/workstation/tasks/${id}/exception`
     case 'material_call':
       return `/api/production/workstation/tasks/${id}/material-call`
+    case 'claim':
+      return `/api/production/workstation/tasks/${id}/claim`
     default:
       return ''
   }
@@ -130,7 +169,6 @@ export function productionCompletionMetrics({
   inventoryUnit = '',
   leftoverQty = 0,
   note = '',
-  warehouse = '',
   finishedUnits = 0,
 } = {}) {
   const normalizedUnit = String(inventoryUnit || '').trim()
@@ -140,7 +178,6 @@ export function productionCompletionMetrics({
     inventory_unit: normalizedUnit,
     leftover_qty: completionQuantity(leftoverQty, '余料'),
     note: String(note || '').trim(),
-    warehouse: String(warehouse || '').trim(),
     finished_units: completionCount(finishedUnits, '成品件数'),
   }
 }
@@ -166,6 +203,18 @@ export function productionTaskActionErrorMessage(error, action = '') {
   ) {
     return raw
   }
+  if ([
+    '本任务',
+    '前序',
+    '后续工序',
+    '工单',
+    '质检',
+    '负责人',
+    '执行人',
+    '工位',
+  ].some((prefix) => raw.startsWith(prefix))) {
+    return raw
+  }
   if (
     normalized.includes('permission denied')
     || normalized.includes('forbidden')
@@ -183,14 +232,14 @@ export function productionTaskActionErrorMessage(error, action = '') {
     return `当前工序状态不允许${actionLabel}，请刷新后按最新状态操作`
   }
   if (normalized.includes('work order must be running before job card start')) {
-    return '请先从工单执行枢纽开始生产，再在工位开始本工序'
+    return '本任务暂不能开始，请刷新任务状态后重试'
   }
   if (normalized.includes('work order must be released')) return '工单必须先下达后才能执行工序'
   if (
     normalized.includes('work order must be running')
     || normalized.includes('work order is not running')
   ) {
-    return '工单尚未开始生产，请先从执行枢纽开始生产'
+    return '本任务暂不能开始，请刷新任务状态后重试'
   }
   if (
     normalized.includes('actual input')
@@ -204,7 +253,10 @@ export function productionTaskActionErrorMessage(error, action = '') {
     return '数量不正确，请检查后重试'
   }
   if (normalized.includes('operator required')) return '当前登录人缺少操作员信息，请联系管理员补充后重试'
-  return `${actionLabel}失败，请稍后重试；如持续失败请联系管理员`
+  const code = String(error?.code || '').trim()
+    || (/(network|failed to fetch|load failed)/i.test(raw) ? 'NETWORK' : '')
+    || (Number(error?.status || 0) > 0 ? `HTTP-${Number(error.status)}` : 'CLIENT')
+  return `${actionLabel}失败（错误编号：${code}），请稍后重试；如持续失败请联系管理员`
 }
 
 export function taskTitle(task) {

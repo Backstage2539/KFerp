@@ -44,16 +44,11 @@ func TestManufacturingPhase3ScheduleCapacityAPIs(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusGone || !strings.Contains(rec.Body.String(), "生产排班") {
 		t.Fatalf("POST /api/production-schedule/assign status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.scheduleAssignment.WorkOrderID != 88 || repo.scheduleAssignment.JobCardID != 91 || repo.scheduleAssignment.Operator == "" {
-		t.Fatalf("schedule assignment command = %+v", repo.scheduleAssignment)
-	}
-	for _, want := range []string{`"work_order"`, `"job_card"`, `"conflicts"`, `"planned_start_at":"2026-06-13 09:00"`, `"shift_code":"早班"`} {
-		if !strings.Contains(rec.Body.String(), want) {
-			t.Fatalf("schedule assignment response missing %s: %s", want, rec.Body.String())
-		}
+	if repo.scheduleAssignment.WorkOrderID != 0 {
+		t.Fatalf("retired endpoint still wrote schedule assignment = %+v", repo.scheduleAssignment)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/production-capacity-calendar", strings.NewReader(`{"work_center":"印刷线","work_date":"2026-06-13","shift_code":"早班","available_minutes":480,"downtime_minutes":30,"note":"设备保养"}`))

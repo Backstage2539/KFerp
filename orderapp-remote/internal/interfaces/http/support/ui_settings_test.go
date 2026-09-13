@@ -42,6 +42,7 @@ func TestEffectiveAppConfigOldValueUsesKnownDefaultsForFirstOrInvalidSave(t *tes
 		wantOK bool
 	}{
 		{name: "first miniapp save", key: keyMiniappShareImageNeedShowEntrance, want: "true", wantOK: true},
+		{name: "first miniapp share scope save", key: keyMiniappShareScope, want: "employee", wantOK: true},
 		{name: "invalid miniapp value remains visible in audit", key: keyMiniappShareImageNeedShowEntrance, raw: "invalid", exists: true, want: "invalid", wantOK: true},
 		{name: "existing false", key: keyMiniappShareImageNeedShowEntrance, raw: "false", exists: true, want: "false", wantOK: true},
 		{name: "unknown key", key: "unknown", exists: false, want: "", wantOK: false},

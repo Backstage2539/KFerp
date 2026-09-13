@@ -1013,6 +1013,157 @@ func TestServiceOwnsWorkOrderInventoryControlWithStockDocumentPurpose(t *testing
 	}
 }
 
+func TestProductionQualityStatusIsUncheckedWithoutInspection(t *testing.T) {
+	status := buildProductionQualityStatus(WorkOrderRow{WorkOrderNo: "WO-UNCHECKED"}, nil)
+	if status.Status != "unchecked" || status.Result != "" {
+		t.Fatalf("quality status = %+v, want unchecked without a result", status)
+	}
+}
+
+func TestTaskBatchMaterialReadinessConsumesWIPOnceAcrossBatches(t *testing.T) {
+	tasks := []ProductionTask{
+		{JobCardID: 101, WorkOrderID: 88, SequenceNo: 10, PlannedInputQty: 6, Status: "pending", AssignedTo: "甲", Workstation: "包装A"},
+		{JobCardID: 102, WorkOrderID: 88, SequenceNo: 10, PlannedInputQty: 4, Status: "pending", AssignedTo: "乙", Workstation: "包装A"},
+	}
+	coverage := map[int64]ProductionWIPStatus{88: {
+		DataComplete: true,
+		Materials:    []WIPReservationRow{{ID: 501, MaterialID: 20, MaterialName: "熟豆", Unit: "g", RequiredG: 100, AvailableG: 60}},
+	}}
+
+	applyTaskBatchAndMaterialReadiness(tasks, nil, coverage)
+
+	if tasks[0].BatchIndex != 1 || tasks[0].BatchCount != 2 || len(tasks[0].MaterialReadiness) != 1 {
+		t.Fatalf("first batch = %+v", tasks[0])
+	}
+	if got := tasks[0].MaterialReadiness[0]; got.RequiredG != 60 || got.WIPAvailableG != 60 || got.ShortageG != 0 {
+		t.Fatalf("first batch material = %+v", got)
+	}
+	if got := tasks[1].MaterialReadiness[0]; got.RequiredG != 40 || got.WIPAvailableG != 0 || got.ShortageG != 40 {
+		t.Fatalf("second batch material = %+v", got)
+	}
+	if tasks[0].ReadinessLabel == "待领料" || tasks[1].ReadinessLabel != "待领料" {
+		t.Fatalf("batch readiness first=%q second=%q", tasks[0].ReadinessLabel, tasks[1].ReadinessLabel)
+	}
+}
+
+func TestTaskBatchMaterialReadinessConservesRoundedTotalsAcrossFullBatchSet(t *testing.T) {
+	tasks := []ProductionTask{
+		{JobCardID: 201, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending", AssignedTo: "甲", Workstation: "智烘"},
+		{JobCardID: 202, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending", AssignedTo: "甲", Workstation: "智烘"},
+	}
+	cards := []JobCardRow{
+		{ID: 201, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending"},
+		{ID: 202, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending"},
+	}
+	coverage := map[int64]ProductionWIPStatus{99: {
+		DataComplete: true,
+		Materials: []WIPReservationRow{{
+			ID: 601, MaterialID: 30, MaterialName: "孟连水洗A", Unit: "kg",
+			RequiredG: 1749, AvailableG: 1749,
+		}},
+	}}
+
+	applyTaskBatchAndMaterialReadiness(tasks, cards, coverage)
+
+	first := tasks[0].MaterialReadiness[0]
+	second := tasks[1].MaterialReadiness[0]
+	if first.RequiredG != 875 || second.RequiredG != 874 || first.RequiredG+second.RequiredG != 1749 {
+		t.Fatalf("rounded batch requirements = %d + %d, want 875 + 874", first.RequiredG, second.RequiredG)
+	}
+	if first.ShortageG != 0 || second.ShortageG != 0 || tasks[1].ReadinessLabel == "待领料" {
+		t.Fatalf("full WIP must make both batches ready: first=%+v second=%+v", tasks[0], tasks[1])
+	}
+}
+
+func TestTaskBatchMaterialReadinessKeepsOriginalBatchIdentityAfterEarlierCompletion(t *testing.T) {
+	tasks := []ProductionTask{{JobCardID: 202, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending", AssignedTo: "甲", Workstation: "智烘"}}
+	cards := []JobCardRow{
+		{ID: 201, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "completed"},
+		{ID: 202, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending"},
+	}
+	coverage := map[int64]ProductionWIPStatus{99: {
+		DataComplete: true,
+		Materials: []WIPReservationRow{{ID: 601, MaterialID: 30, RequiredG: 1749, AvailableG: 874}},
+	}}
+
+	applyTaskBatchAndMaterialReadiness(tasks, cards, coverage)
+
+	if tasks[0].BatchIndex != 2 || tasks[0].BatchCount != 2 || tasks[0].MaterialReadiness[0].RequiredG != 874 || tasks[0].MaterialReadiness[0].ShortageG != 0 {
+		t.Fatalf("remaining task lost frozen batch identity: %+v", tasks[0])
+	}
+}
+
+func TestTaskBatchMaterialReadinessReservesHiddenEarlierBatchBeforeFilteredTask(t *testing.T) {
+	tasks := []ProductionTask{{JobCardID: 202, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending", AssignedTo: "甲", Workstation: "智烘B"}}
+	cards := []JobCardRow{
+		{ID: 201, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending", Workstation: "智烘A"},
+		{ID: 202, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending", Workstation: "智烘B"},
+	}
+	coverage := map[int64]ProductionWIPStatus{99: {
+		DataComplete: true,
+		Materials: []WIPReservationRow{{
+			ID: 601, MaterialID: 30, MaterialName: "孟连水洗A", RequiredG: 1749, AvailableG: 1748,
+		}},
+	}}
+
+	applyTaskBatchAndMaterialReadiness(tasks, cards, coverage)
+
+	if tasks[0].MaterialReadiness[0].RequiredG != 874 || tasks[0].MaterialReadiness[0].WIPAvailableG != 873 || tasks[0].MaterialReadiness[0].ShortageG != 1 {
+		t.Fatalf("filtered second batch ignored hidden first batch allocation: %+v", tasks[0])
+	}
+}
+
+func TestFinishedReceiptDisplayQuantityUsesOutputUnit(t *testing.T) {
+	entries := []StockEntryRow{
+		{EntryType: "finished_receipt", Status: "submitted", TotalQtyG: 12500, TotalQtyUnits: 25},
+		{EntryType: "finished_receipt", Status: "draft", TotalQtyG: 9999, TotalQtyUnits: 99},
+	}
+	if got := finishedReceiptDisplayQuantity(entries, "kg"); got != 12.5 {
+		t.Fatalf("kg receipt = %v", got)
+	}
+	if got := finishedReceiptDisplayQuantity(entries, "袋"); got != 25 {
+		t.Fatalf("count receipt = %v", got)
+	}
+}
+
+func TestTaskStockDocumentScalingUsesFrozenBatchShare(t *testing.T) {
+	reservations := []WIPReservationRow{{ID: 7, RequiredG: 21000, AvailableG: 15000, ShortageG: 6000, RequiredQty: 21, AvailableQty: 15, ShortageQty: 6}}
+	got := scaleWIPReservationRowsForTask(reservations, 0, 2, 3)
+	if len(got) != 1 || got[0].RequiredG != 14000 || got[0].AvailableG != 10000 || got[0].ShortageG != 4000 {
+		t.Fatalf("scaled reservation = %+v", got)
+	}
+	items := scaleStockEntryItemsForTask([]StockEntryItemCommand{{QtyG: 15000, DefaultQty: 15, RequiredQty: 21, RemainingQty: 6}}, 0, 2, 3)
+	if len(items) != 1 || items[0].QtyG != 10000 || items[0].DefaultQty != 10 || items[0].RequiredQty != 14 || items[0].RemainingQty != 4 {
+		t.Fatalf("scaled stock item = %+v", items)
+	}
+}
+
+func TestFrozenSourcePreviewReturnsReadyStateInsteadOfOpeningEmptyIssue(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-READY", Status: "released"}},
+		jobCards: []JobCardRow{{ID: 91, WorkOrderID: 88, SequenceNo: 1, PlannedInputQty: 1000, Status: "pending"}},
+		reservationRows: []WIPReservationRow{{ID: 1, WorkOrderID: 88, MaterialID: 10, MaterialName: "生豆", RequiredG: 1000, AvailableG: 1000, ShortageG: 0, InventoryUnit: "g", QuantityBasis: "weight", RequiredQty: 1000, AvailableQty: 1000}},
+		usesFrozenSources: true,
+	}
+
+	preview, err := NewService(repo).PreviewWorkOrderStockDocument(context.Background(), StockDocumentPreviewCommand{ID: 88, JobCardID: 91, Action: "issue", ReturnSource: "workstation_task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Availability != "ready" || preview.Message != "本次任务用料已在 WIP 齐套，无需重复领料" || preview.WorkOrder.WorkOrderNo != "WO-READY" || len(preview.Document.Items) != 0 {
+		t.Fatalf("ready preview = %+v", preview)
+	}
+}
+
+func TestTaskStockDocumentScalingKeepsRoundedTotalsAcrossBatches(t *testing.T) {
+	rows := []WIPReservationRow{{RequiredUnits: 1, ShortageUnits: 1}}
+	first := scaleWIPReservationRowsForTask(rows, 0, 1, 2)
+	second := scaleWIPReservationRowsForTask(rows, 1, 1, 2)
+	if first[0].RequiredUnits != 1 || second[0].RequiredUnits != 0 {
+		t.Fatalf("rounded task units = %d + %d, want 1 + 0", first[0].RequiredUnits, second[0].RequiredUnits)
+	}
+}
+
 func TestWorkOrderExecutionHubReadModelAndTraceTimeline(t *testing.T) {
 	repo := &fakeFlowRepo{
 		workOrders: []WorkOrderRow{{
@@ -1805,6 +1956,31 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 		if stringSliceContains(blocked.AvailableActions, forbidden) {
 			t.Fatalf("paused task actions must not include %s: %+v", forbidden, blocked.AvailableActions)
 		}
+	}
+}
+
+func TestProductionWorkstationOverviewExcludesTasksWhoseParentWorkOrderIsTerminal(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{
+			{ID: 88, WorkOrderNo: "WO-ACTIVE", Status: "released"},
+			{ID: 89, WorkOrderNo: "WO-CANCELLED", Status: "cancelled"},
+			{ID: 90, WorkOrderNo: "WO-COMPLETED", Status: "completed"},
+			{ID: 91, WorkOrderNo: "WO-PARTIAL", Status: "partially_completed"},
+		},
+		jobCards: []JobCardRow{
+			{ID: 301, WorkOrderID: 88, Status: "pending", Workstation: "智烘"},
+			{ID: 302, WorkOrderID: 89, Status: "pending", Workstation: "智烘"},
+			{ID: 303, WorkOrderID: 90, Status: "pending", Workstation: "智烘"},
+			{ID: 304, WorkOrderID: 91, Status: "pending", Workstation: "包装台"},
+		},
+	}
+
+	overview, err := NewService(repo).ProductionWorkstationOverview(context.Background(), ProductionWorkstationOverviewQuery{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Tasks) != 2 || overview.Tasks[0].WorkOrderID != 88 || overview.Tasks[1].WorkOrderID != 91 {
+		t.Fatalf("workstation tasks = %+v, want released and partially completed parent work orders", overview.Tasks)
 	}
 }
 

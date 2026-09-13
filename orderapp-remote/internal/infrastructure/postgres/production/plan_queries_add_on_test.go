@@ -3,6 +3,7 @@ package production
 import (
 	productionapp "orderapp/internal/application/production"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -107,13 +108,17 @@ func TestSelectedProductionPlanStartNeedsKeepsAddOnOrdersWhenOlderOrdersArePlann
 		t.Fatalf("selected start needs = %d, want 1: %+v", len(needs), needs)
 	}
 	want := productionapp.StartNeed{
+		SelectionID: needs[0].SelectionID,
 		ProductID:   554,
 		ProductName: "榛巧拼配",
 		SpecG:       454,
 		GapG:        1362,
 		OrderNos:    "SO-NEW",
 	}
-	if needs[0] != want {
+	if needs[0].SelectionID == "" {
+		t.Fatal("missing precise selection identity")
+	}
+	if !reflect.DeepEqual(needs[0], want) {
 		t.Fatalf("selected start need = %+v, want %+v", needs[0], want)
 	}
 }

@@ -517,6 +517,7 @@ type StockDocumentBatchAllocation struct {
 }
 
 type StockDocumentItemRow struct {
+	FrozenPicking             bool                           `json:"frozen_picking,omitempty"`
 	ID                        int64                          `json:"id"`
 	StockEntryID              int64                          `json:"stock_entry_id"`
 	MaterialID                int64                          `json:"material_id"`

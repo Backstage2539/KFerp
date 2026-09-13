@@ -9,64 +9,59 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (r Repository) SaveScheduleAssignment(ctx context.Context, cmd productionapp.ScheduleAssignmentCommand) (productionapp.ScheduleAssignmentResult, error) {
+	if cmd.JobCardID > 0 {
+		return r.saveTaskAssignmentCompat(ctx, cmd)
+	}
+
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return productionapp.ScheduleAssignmentResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+	if cmd.AssignedEmployeeID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(name,'')
+			FROM %s.company_employees
+			WHERE id=$1 AND active=true
+		`, r.schema), cmd.AssignedEmployeeID).Scan(&cmd.AssignedTo); err != nil {
+			if err == pgx.ErrNoRows {
+				return productionapp.ScheduleAssignmentResult{}, fmt.Errorf("employee not found or inactive")
+			}
+			return productionapp.ScheduleAssignmentResult{}, err
+		}
+	}
+
+	var tag pgconn.CommandTag
+	if cmd.JobCardID <= 0 {
+		tag, err = tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.work_orders
 		SET planned_start_at=NULLIF($2,'')::timestamptz,
 		    planned_end_at=NULLIF($3,'')::timestamptz,
 		    shift_code=$4,
 		    assigned_to=$5,
+		    assigned_employee_id=$9,
+		    assigned_employee_name=$5,
 		    priority=$6,
 		    scheduling_note=$7,
 		    work_center=$8
-		WHERE id=$1
-	`, r.schema), cmd.WorkOrderID, cmd.PlannedStartAt, cmd.PlannedEndAt, cmd.ShiftCode, cmd.AssignedTo, cmd.Priority, cmd.Note, cmd.WorkCenter)
-	if err != nil {
-		return productionapp.ScheduleAssignmentResult{}, err
-	}
-	if tag.RowsAffected() == 0 {
-		return productionapp.ScheduleAssignmentResult{}, fmt.Errorf("work order not found")
-	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &cmd.WorkOrderID, "schedule", postgresinfra.StrPtr("planned_start_at"), nil, postgresinfra.StrPtr(cmd.PlannedStartAt), postgresinfra.AuditMeta{"planned_end_at": cmd.PlannedEndAt, "shift_code": cmd.ShiftCode, "assigned_to": cmd.AssignedTo, "priority": cmd.Priority, "work_center": cmd.WorkCenter}); err != nil {
-		return productionapp.ScheduleAssignmentResult{}, err
-	}
-
-	var card productionapp.JobCardRow
-	if cmd.JobCardID > 0 {
-		tag, err = tx.Exec(ctx, fmt.Sprintf(`
-			UPDATE %s.job_cards
-			SET planned_start_at=NULLIF($3,'')::timestamptz,
-			    planned_end_at=NULLIF($4,'')::timestamptz,
-			    shift_code=$5,
-			    assigned_to=$6,
-			    priority=$7,
-			    scheduling_note=$8,
-			    work_center=$9,
-			    workstation=COALESCE(NULLIF($9,''), workstation)
-			WHERE id=$1 AND work_order_id=$2
-		`, r.schema), cmd.JobCardID, cmd.WorkOrderID, cmd.PlannedStartAt, cmd.PlannedEndAt, cmd.ShiftCode, cmd.AssignedTo, cmd.Priority, cmd.Note, cmd.WorkCenter)
+		WHERE id=$1 AND status NOT IN ('completed','cancelled')
+		`, r.schema), cmd.WorkOrderID, cmd.PlannedStartAt, cmd.PlannedEndAt, cmd.ShiftCode, cmd.AssignedTo, cmd.Priority, cmd.Note, cmd.WorkCenter, cmd.AssignedEmployeeID)
 		if err != nil {
 			return productionapp.ScheduleAssignmentResult{}, err
 		}
 		if tag.RowsAffected() == 0 {
-			return productionapp.ScheduleAssignmentResult{}, fmt.Errorf("job card not found")
+			return productionapp.ScheduleAssignmentResult{}, fmt.Errorf("work order not found")
 		}
-		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.JobCardID, "schedule", postgresinfra.StrPtr("planned_start_at"), nil, postgresinfra.StrPtr(cmd.PlannedStartAt), postgresinfra.AuditMeta{"work_order_id": cmd.WorkOrderID, "planned_end_at": cmd.PlannedEndAt, "shift_code": cmd.ShiftCode, "assigned_to": cmd.AssignedTo, "priority": cmd.Priority, "work_center": cmd.WorkCenter}); err != nil {
-			return productionapp.ScheduleAssignmentResult{}, err
-		}
-		card, err = loadScheduledJobCardTx(ctx, tx, r.schema, cmd.JobCardID)
-		if err != nil {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &cmd.WorkOrderID, "schedule", postgresinfra.StrPtr("planned_start_at"), nil, postgresinfra.StrPtr(cmd.PlannedStartAt), postgresinfra.AuditMeta{"planned_end_at": cmd.PlannedEndAt, "shift_code": cmd.ShiftCode, "assigned_to": cmd.AssignedTo, "assigned_employee_id": cmd.AssignedEmployeeID, "priority": cmd.Priority, "work_center": cmd.WorkCenter}); err != nil {
 			return productionapp.ScheduleAssignmentResult{}, err
 		}
 	}
+
 	wo, err := loadScheduledWorkOrderTx(ctx, tx, r.schema, cmd.WorkOrderID)
 	if err != nil {
 		return productionapp.ScheduleAssignmentResult{}, err
@@ -78,7 +73,7 @@ func (r Repository) SaveScheduleAssignment(ctx context.Context, cmd productionap
 	if err := tx.Commit(ctx); err != nil {
 		return productionapp.ScheduleAssignmentResult{}, err
 	}
-	return productionapp.ScheduleAssignmentResult{WorkOrder: wo, JobCard: card, Conflicts: conflicts}, nil
+	return productionapp.ScheduleAssignmentResult{WorkOrder: wo, Conflicts: conflicts}, nil
 }
 
 func (r Repository) SaveCapacityCalendar(ctx context.Context, cmd productionapp.CapacityCalendarCommand) (productionapp.CapacityCalendarRow, error) {
@@ -116,6 +111,9 @@ func (r Repository) SaveCapacityCalendar(ctx context.Context, cmd productionapp.
 }
 
 func (r Repository) ScheduleBoard(ctx context.Context, query productionapp.ScheduleBoardQuery) (productionapp.ScheduleBoardResult, error) {
+	if query.Scope != "" || query.Page > 0 {
+		return r.scheduleTaskBoard(ctx, query)
+	}
 	workOrders, err := r.listScheduledWorkOrders(ctx, query)
 	if err != nil {
 		return productionapp.ScheduleBoardResult{}, err
@@ -246,7 +244,9 @@ func loadCapacityCalendarRowTx(ctx context.Context, tx pgx.Tx, schema string, id
 	return row, err
 }
 
-func loadScheduledWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (productionapp.WorkOrderRow, error) {
+func loadScheduledWorkOrderTx(ctx context.Context, tx interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, schema string, id int64) (productionapp.WorkOrderRow, error) {
 	var row productionapp.WorkOrderRow
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,work_order_no,running_item_id,production_plan_id,production_plan_item_id,batch_id,product_id,product_name,spec_g,planned_g,COALESCE(NULLIF(planned_output_g,0),planned_g),status,

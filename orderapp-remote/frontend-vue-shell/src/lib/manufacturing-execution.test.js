@@ -87,16 +87,16 @@ test('buildJobCardActionPayload includes actual quantities and loss reason witho
   })
 })
 
-test('phase2 Vue pages keep work-order and job-card lists read-only while retaining stock documents', () => {
+test('execution Vue pages keep work-order and operation lists read-only while retaining stock documents', () => {
   const workOrders = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
-  for (const want of ['已领料', '已消耗', '可退料', '工序进度', '成本汇总', '执行枢纽']) {
+  for (const want of ['产品 / 工单', '目标数量', '工序进度', '当前待办', '查看工单', '更多']) {
     assert.ok(workOrders.includes(want), `WorkOrdersView.vue missing ${want}`)
   }
   assert.ok(!workOrders.includes("openStockDocument(row, 'finish')"), 'WorkOrdersView.vue must not finish directly from the list')
   assert.ok(!workOrders.includes('startWorkOrder(row)'), 'WorkOrdersView.vue must not start directly from the list')
 
   const jobCards = fs.readFileSync(new URL('../views/JobCardsView.vue', import.meta.url), 'utf8')
-  for (const want of ['jobCardStatusOptions()', '进入工位', '执行枢纽', '工序要求', '损耗原因']) {
+  for (const want of ['jobCardStatusOptions()', '进入工位', '查看工单', '工序要求', '损耗原因', '工序记录']) {
     assert.ok(jobCards.includes(want), `JobCardsView.vue missing ${want}`)
   }
   for (const forbidden of ['jobCardActionEndpoint(row, action)', '保存实际', 'runJobCardAction', 'saveActuals']) {

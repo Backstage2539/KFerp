@@ -67,12 +67,12 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			"实际损耗",
 			"损耗原因",
 			"进入工位",
-			"执行枢纽",
+			"查看工单",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"): {
 			"v-model=\"status\"",
 			"workOrderStatusOptions",
-			"损耗汇总",
+			"工序进度",
 			"operation_summary_json",
 		},
 	}

@@ -43,6 +43,10 @@ func productionPlanItemConsumptionNeeds(item productionapp.ProductionPlanItem) (
 }
 
 func syncProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, items []productionapp.ProductionPlanItem) error {
+	modern, err := autoPickingPlanTx(ctx, tx, schema, planID)
+	if err != nil {
+		return err
+	}
 	type dependencyQty struct{ g, units int64 }
 	dependencies := map[string]dependencyQty{}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
@@ -83,7 +87,7 @@ func syncProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema
 			dependency := dependencies[fmt.Sprintf("%d:%s", item.ID, manufacturingReservationIdentityKey(componentType, componentID, bomSpecID, componentSpecG))]
 			requiredG = nonnegativeQuantity(requiredG - dependency.g)
 			requiredUnits = nonnegativeQuantity(requiredUnits - dependency.units)
-			if requiredG <= 0 && requiredUnits <= 0 {
+			if requiredG <= 0 && requiredUnits <= 0 && (!modern || (dependency.g <= 0 && dependency.units <= 0)) {
 				continue
 			}
 			identity := fmt.Sprintf("%d:%s", item.ID, manufacturingReservationIdentityKey(componentType, componentID, bomSpecID, componentSpecG))
@@ -229,22 +233,24 @@ func componentSourceOptionsTx(ctx context.Context, tx pgx.Tx, schema string, sou
 			return nil, err
 		}
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT code,name,COALESCE(kind,''),COALESCE(customer_id,0) FROM %s.warehouses WHERE active=true ORDER BY sort_order,code`, schema))
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT code,name,COALESCE(kind,''),COALESCE(customer_id,0),sort_order FROM %s.warehouses WHERE active=true ORDER BY sort_order,code`, schema))
 	if err != nil {
 		return nil, err
 	}
 	type warehouseRow struct {
 		code, name, kind string
 		customerID       int64
+		sortOrder        int
 	}
 	warehouses := make([]warehouseRow, 0)
 	for rows.Next() {
 		var row warehouseRow
-		if err := rows.Scan(&row.code, &row.name, &row.kind, &row.customerID); err != nil {
+		if err := rows.Scan(&row.code, &row.name, &row.kind, &row.customerID, &row.sortOrder); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		if row.customerID > 0 && row.customerID != planCustomerID {
+        if row.kind=="loss"||row.code=="loss" {continue}
+        if row.customerID > 0 && row.customerID != planCustomerID {
 			continue
 		}
 		warehouses = append(warehouses, row)
@@ -275,7 +281,7 @@ func componentSourceOptionsTx(ctx context.Context, tx pgx.Tx, schema string, sou
 				_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, schema), ownerCustomerID).Scan(&ownerName)
 			}
 			out = append(out, productionapp.ProductionPlanComponentSourceOption{
-				Warehouse: warehouse.code, WarehouseName: warehouse.name, OwnerCustomerID: ownerCustomerID,
+				SortOrder: warehouse.sortOrder, Warehouse: warehouse.code, WarehouseName: warehouse.name, OwnerCustomerID: ownerCustomerID,
 				OwnerName: ownerName, AvailableG: availableG, AvailableUnits: availableUnits,
 			})
 		}
@@ -300,7 +306,7 @@ func loadProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema
 		SELECT id,production_plan_id,production_plan_item_id,bom_version_id,component_type,component_id,
 		       component_bom_spec_id,component_bom_variant_id,component_spec_g,component_name,unit,
 		       required_g,required_units,source_warehouse,source_owner_customer_id,
-		       available_g_snapshot,available_units_snapshot
+		       available_g_snapshot,available_units_snapshot,allocation_mode,allocations_json
 		FROM %s.production_plan_component_sources WHERE production_plan_id=$1
 		ORDER BY production_plan_item_id,id
 	`, schema), planID)
@@ -313,7 +319,7 @@ func loadProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema
 		if err := rows.Scan(&row.ID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BOMVersionID,
 			&row.ComponentType, &row.ComponentID, &row.ComponentBOMSpecID, &row.ComponentBOMVariantID,
 			&row.ComponentSpecG, &row.ComponentName, &row.Unit, &row.RequiredG, &row.RequiredUnits,
-			&row.SourceWarehouse, &row.SourceOwnerCustomerID, &row.AvailableGSnapshot, &row.AvailableUnitsSnapshot); err != nil {
+			&row.SourceWarehouse, &row.SourceOwnerCustomerID, &row.AvailableGSnapshot, &row.AvailableUnitsSnapshot, &row.AllocationMode, &row.Allocations); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -324,6 +330,11 @@ func loadProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema
 		return nil, err
 	}
 	rows.Close()
+	var version int
+	var status string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT picking_version,status FROM %s.production_plans WHERE id=$1`, schema), planID).Scan(&version, &status); err != nil {
+		return nil, err
+	}
 	itemCustomerIDs := map[int64]int64{}
 	for i := range out {
 		out[i].Selected = strings.TrimSpace(out[i].SourceWarehouse) != ""
@@ -338,7 +349,7 @@ func loadProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema
 		if err != nil {
 			return nil, err
 		}
-		if out[i].Selected {
+		if out[i].Selected && version == 0 {
 			availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, out[i].ComponentType, out[i].ComponentID,
 				out[i].ComponentBOMSpecID, out[i].ComponentSpecG, out[i].SourceWarehouse, out[i].SourceOwnerCustomerID, false)
 			if err != nil {
@@ -346,6 +357,11 @@ func loadProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema
 			}
 			out[i].ShortageG = nonnegativeQuantity(out[i].RequiredG - availableG)
 			out[i].ShortageUnits = nonnegativeQuantity(out[i].RequiredUnits - availableUnits)
+		}
+	}
+	if version > 0 {
+		if err := preparePickingSourcesTx(ctx, tx, schema, planID, out, status); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil
@@ -412,7 +428,24 @@ func (r Repository) UpdateProductionPlanItemComponentSources(ctx context.Context
 	if status != "draft" {
 		return nil, fmt.Errorf("仅草稿生产计划可选择来源仓库")
 	}
+	modern, err := autoPickingPlanTx(ctx, tx, r.schema, cmd.ProductionPlanID)
+	if err != nil {
+		return nil, err
+	}
 	for _, source := range cmd.Sources {
+		if modern {
+			stored, ok, err := productionPlanComponentSourceForIdentityTx(ctx, tx, r.schema, cmd.ProductionPlanItemID, source.ComponentType, source.ComponentID, source.ComponentBOMSpecID, source.ComponentSpecG)
+			if err != nil {
+				return nil, err
+			}
+			if !ok || stored.ProductionPlanID != cmd.ProductionPlanID {
+				return nil, fmt.Errorf("组件不属于当前计划")
+			}
+			if err = savePickingAdjustmentTx(ctx, tx, r.schema, stored, source, planCustomerID, cmd.Operator); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		warehouse := strings.TrimSpace(source.SourceWarehouse)
 		warehouseOwner, err := warehouseCustomerID(ctx, tx, r.schema, warehouse)
 		if err != nil {
@@ -470,6 +503,13 @@ func validateProductionPlanComponentSourcesAtSubmitTx(ctx context.Context, tx pg
 	if err := syncProductionPlanComponentSourcesTx(ctx, tx, schema, planID, items); err != nil {
 		return err
 	}
+	modern, err := autoPickingPlanTx(ctx, tx, schema, planID)
+	if err != nil {
+		return err
+	}
+	if modern {
+		return validateAutoPickingAtSubmitTx(ctx, tx, schema, planID)
+	}
 	rows, err := loadProductionPlanComponentSourcesTx(ctx, tx, schema, planID)
 	if err != nil {
 		return err
@@ -477,6 +517,11 @@ func validateProductionPlanComponentSourcesAtSubmitTx(ctx context.Context, tx pg
 	if len(rows) == 0 {
 		return nil
 	}
+	type sourceGroup struct {
+		row                      productionapp.ProductionPlanComponentSource
+		requiredG, requiredUnits int64
+	}
+	groups := map[string]sourceGroup{}
 	for _, row := range rows {
 		if !row.Selected {
 			return fmt.Errorf("生产计划组件「%s」必须选择来源仓库", row.ComponentName)
@@ -484,14 +529,32 @@ func validateProductionPlanComponentSourcesAtSubmitTx(ctx context.Context, tx pg
 		if err := validateMaterialComponentSourceOwnerTx(ctx, tx, schema, row.ComponentType, row.ComponentID, row.SourceOwnerCustomerID); err != nil {
 			return err
 		}
+		key := fmt.Sprintf("%s:%d:%d:%d:%s:%d", row.ComponentType, row.ComponentID, row.ComponentBOMSpecID,
+			row.ComponentSpecG, row.SourceWarehouse, row.SourceOwnerCustomerID)
+		group := groups[key]
+		if group.row.ID == 0 {
+			group.row = row
+		}
+		group.requiredG += row.RequiredG
+		group.requiredUnits += row.RequiredUnits
+		groups[key] = group
+	}
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		group := groups[key]
+		row := group.row
 		availableG, availableUnits, err := componentSourceAvailabilityTx(ctx, tx, schema, row.ComponentType, row.ComponentID,
 			row.ComponentBOMSpecID, row.ComponentSpecG, row.SourceWarehouse, row.SourceOwnerCustomerID, true)
 		if err != nil {
 			return err
 		}
-		if availableG < row.RequiredG || availableUnits < row.RequiredUnits {
+		if availableG < group.requiredG || availableUnits < group.requiredUnits {
 			return fmt.Errorf("所选来源仓库存不足：%s / %s / 货主%d，缺少 %dg/%d units", row.ComponentName, row.SourceWarehouse,
-				row.SourceOwnerCustomerID, nonnegativeQuantity(row.RequiredG-availableG), nonnegativeQuantity(row.RequiredUnits-availableUnits))
+				row.SourceOwnerCustomerID, nonnegativeQuantity(group.requiredG-availableG), nonnegativeQuantity(group.requiredUnits-availableUnits))
 		}
 	}
 	return nil
@@ -502,14 +565,14 @@ func productionPlanComponentSourceForIdentityTx(ctx context.Context, tx pgx.Tx, 
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,production_plan_id,production_plan_item_id,bom_version_id,component_type,component_id,
 		       component_bom_spec_id,component_bom_variant_id,component_spec_g,component_name,unit,
-		       required_g,required_units,source_warehouse,source_owner_customer_id,available_g_snapshot,available_units_snapshot
+		       required_g,required_units,source_warehouse,source_owner_customer_id,available_g_snapshot,available_units_snapshot,allocation_mode,allocations_json
 		FROM %s.production_plan_component_sources
 		WHERE production_plan_item_id=$1 AND component_type=$2 AND component_id=$3 AND component_bom_spec_id=$4 AND component_spec_g=$5
 	`, schema), planItemID, componentType, componentID, bomSpecID, specG).Scan(
 		&row.ID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BOMVersionID, &row.ComponentType, &row.ComponentID,
 		&row.ComponentBOMSpecID, &row.ComponentBOMVariantID, &row.ComponentSpecG, &row.ComponentName, &row.Unit,
 		&row.RequiredG, &row.RequiredUnits, &row.SourceWarehouse, &row.SourceOwnerCustomerID,
-		&row.AvailableGSnapshot, &row.AvailableUnitsSnapshot,
+		&row.AvailableGSnapshot, &row.AvailableUnitsSnapshot, &row.AllocationMode, &row.Allocations,
 	)
 	if err == pgx.ErrNoRows {
 		return productionapp.ProductionPlanComponentSource{}, false, nil
@@ -518,6 +581,10 @@ func productionPlanComponentSourceForIdentityTx(ctx context.Context, tx pgx.Tx, 
 }
 
 func bindMaterialReservationBatchesTx(ctx context.Context, tx pgx.Tx, schema string, reservationID, workOrderID, materialID int64, warehouse string, ownerCustomerID, reserveG, reserveUnits int64) error {
+	return bindMaterialReservationBatchesModeTx(ctx, tx, schema, reservationID, workOrderID, materialID, warehouse, ownerCustomerID, reserveG, reserveUnits, false)
+}
+
+func bindMaterialReservationBatchesModeTx(ctx context.Context, tx pgx.Tx, schema string, reservationID, workOrderID, materialID int64, warehouse string, ownerCustomerID, reserveG, reserveUnits int64, additional bool) error {
 	if reserveG <= 0 && reserveUnits <= 0 {
 		return nil
 	}
@@ -531,12 +598,12 @@ func bindMaterialReservationBatchesTx(ctx context.Context, tx pgx.Tx, schema str
 			SELECT COALESCE(SUM(GREATEST(0,rb.reserved_g-rb.consumed_g-rb.returned_g)),0)::bigint AS reserved_g,
 			       COALESCE(SUM(GREATEST(0,rb.reserved_units-rb.consumed_units-rb.returned_units)),0)::bigint AS reserved_units
 			FROM %s.work_order_material_reservation_batches rb
-			WHERE rb.material_batch_id=b.id AND rb.warehouse=l.warehouse AND rb.status='reserved' AND rb.reservation_id<>$4
+			WHERE rb.material_batch_id=b.id AND rb.warehouse=l.warehouse AND rb.status='reserved' AND ($5 OR rb.reservation_id<>$4)
 		) bound ON true
 		WHERE l.material_id=$1 AND l.warehouse=$2 AND COALESCE(b.owner_customer_id,0)=$3
 		  AND b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.received_at,b.id FOR UPDATE OF b,l
-	`, schema, schema, schema), materialID, warehouse, ownerCustomerID, reservationID)
+	`, schema, schema, schema), materialID, warehouse, ownerCustomerID, reservationID, additional)
 	if err != nil {
 		return err
 	}
@@ -572,10 +639,10 @@ func bindMaterialReservationBatchesTx(ctx context.Context, tx pgx.Tx, schema str
 				reservation_id,work_order_id,material_id,component_type,component_id,material_batch_id,stock_batch_id,
 				batch_code,warehouse,owner_customer_id,reserved_g,reserved_units,status,created_at,updated_at
 			) VALUES($1,$2,$3,'material',$3,$4,0,$5,$6,$7,$8,$9,'reserved',now(),now())
-			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
-				reserved_g=excluded.reserved_g,reserved_units=excluded.reserved_units,warehouse=excluded.warehouse,
+			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id,warehouse) DO UPDATE SET
+				reserved_g=CASE WHEN $10 THEN work_order_material_reservation_batches.reserved_g+excluded.reserved_g ELSE excluded.reserved_g END,reserved_units=CASE WHEN $10 THEN work_order_material_reservation_batches.reserved_units+excluded.reserved_units ELSE excluded.reserved_units END,warehouse=excluded.warehouse,
 				owner_customer_id=excluded.owner_customer_id,status='reserved',updated_at=now()
-		`, schema), reservationID, workOrderID, materialID, batch.id, batch.code, warehouse, ownerCustomerID, addG, addUnits); err != nil {
+		`, schema), reservationID, workOrderID, materialID, batch.id, batch.code, warehouse, ownerCustomerID, addG, addUnits, additional); err != nil {
 			return err
 		}
 		remainingG -= addG

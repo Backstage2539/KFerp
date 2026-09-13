@@ -1,6 +1,8 @@
 package production
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	productionapp "orderapp/internal/application/production"
 	"orderapp/internal/interfaces/http/support"
@@ -10,15 +12,36 @@ import (
 )
 
 type scheduleAssignmentRequest struct {
-	WorkOrderID    int64  `json:"work_order_id"`
-	JobCardID      int64  `json:"job_card_id"`
-	WorkCenter     string `json:"work_center"`
-	PlannedStartAt string `json:"planned_start_at"`
-	PlannedEndAt   string `json:"planned_end_at"`
-	ShiftCode      string `json:"shift_code"`
-	AssignedTo     string `json:"assigned_to"`
-	Priority       int    `json:"priority"`
-	Note           string `json:"note"`
+	Patch              productionapp.ScheduleTaskPatch `json:"-"`
+	RequestID          string                          `json:"request_id"`
+	PreviewToken       string                          `json:"preview_token"`
+	WorkOrderID        int64                           `json:"work_order_id"`
+	JobCardID          int64                           `json:"job_card_id"`
+	AssignedEmployeeID int64                           `json:"assigned_employee_id"`
+	WorkCenter         string                          `json:"work_center"`
+	PlannedStartAt     string                          `json:"planned_start_at"`
+	PlannedEndAt       string                          `json:"planned_end_at"`
+	ShiftCode          string                          `json:"shift_code"`
+	AssignedTo         string                          `json:"assigned_to"`
+	Priority           int                             `json:"priority"`
+	Note               string                          `json:"note"`
+}
+
+func (r *scheduleAssignmentRequest) UnmarshalJSON(data []byte) error {
+	type plain scheduleAssignmentRequest
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = scheduleAssignmentRequest(decoded)
+	return json.Unmarshal(data, &r.Patch)
+}
+func scheduleAPIError(c echo.Context, err error) error {
+	var e *productionapp.ScheduleError
+	if errors.As(err, &e) {
+		return c.JSON(http.StatusConflict, e)
+	}
+	return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 }
 
 type capacityCalendarRequest struct {
@@ -32,9 +55,23 @@ type capacityCalendarRequest struct {
 }
 
 func registerProductionScheduleAPI(e *echo.Echo, productionSvc *productionapp.Service) {
+	e.GET("/api/production-schedule/options", func(c echo.Context) error {
+		result, err := productionSvc.ScheduleOptions(c.Request().Context())
+		if err != nil {
+			return scheduleAPIError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+	for _, path := range []string{"/api/production-schedule/preview", "/api/production-schedule/batch"} {
+		e.POST(path, func(c echo.Context) error {
+			return c.JSON(http.StatusGone, ErrorResponse{Error: "逐任务人员排程已停用，请使用生产排班设置员工出勤和工位负责人"})
+		})
+	}
+
 	e.GET("/api/production-schedule", func(c echo.Context) error {
 		limit := support.IntParam(c, "limit", 200)
 		rows, err := productionSvc.ScheduleBoard(c.Request().Context(), productionapp.ScheduleBoardQuery{
+			Scope: strings.TrimSpace(c.QueryParam("scope")), Search: strings.TrimSpace(c.QueryParam("q")), Page: support.IntParam(c, "page", 0), EmployeeID: parseInt64(c.QueryParam("employee_id")), OperationID: parseInt64(c.QueryParam("operation_id")), JobCardID: parseInt64(c.QueryParam("job_card_id")), WorkOrderID: parseInt64(c.QueryParam("work_order_id")),
 			From:       strings.TrimSpace(c.QueryParam("from")),
 			To:         strings.TrimSpace(c.QueryParam("to")),
 			WorkCenter: strings.TrimSpace(c.QueryParam("work_center")),
@@ -77,26 +114,7 @@ func registerProductionScheduleAPI(e *echo.Echo, productionSvc *productionapp.Se
 	})
 
 	e.POST("/api/production-schedule/assign", func(c echo.Context) error {
-		var req scheduleAssignmentRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
-		}
-		res, err := productionSvc.SaveScheduleAssignment(c.Request().Context(), productionapp.ScheduleAssignmentCommand{
-			WorkOrderID:    req.WorkOrderID,
-			JobCardID:      req.JobCardID,
-			WorkCenter:     req.WorkCenter,
-			PlannedStartAt: req.PlannedStartAt,
-			PlannedEndAt:   req.PlannedEndAt,
-			ShiftCode:      req.ShiftCode,
-			AssignedTo:     req.AssignedTo,
-			Priority:       req.Priority,
-			Note:           req.Note,
-			Operator:       support.ActorOf(c),
-		})
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		}
-		return c.JSON(http.StatusOK, res)
+		return c.JSON(http.StatusGone, ErrorResponse{Error: "逐任务配人已停用，请到生产排班调整当天工位负责人"})
 	})
 
 	e.POST("/api/production-capacity-calendar", func(c echo.Context) error {

@@ -29,7 +29,7 @@ func TestDev554ProductionSummaryConversionIsolationContracts(t *testing.T) {
 			"demand_selectable",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
-			"资料待完善",
+			"配置异常",
 			"blocking_reason",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {

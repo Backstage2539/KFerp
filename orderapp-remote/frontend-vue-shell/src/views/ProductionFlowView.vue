@@ -3,7 +3,7 @@
     <header class="page-head">
       <div>
         <h2>生产流程</h2>
-        <p>按生产计划、生产工单、工序执行、生产质检和生产验收推进制造流程。</p>
+        <p>按生产计划、生产工单、工位执行、生产质检和完工入库推进制造流程。</p>
       </div>
     </header>
 
@@ -15,7 +15,7 @@
         role="tab"
         :aria-selected="activeTab === tab.key"
         :class="{ active: activeTab === tab.key }"
-        @click="activeTab = tab.key">
+        @click="selectTab(tab.key)">
         {{ tab.label }}
       </button>
     </nav>
@@ -43,13 +43,18 @@ const props = defineProps({
 const tabs = [
   { key: 'plan', label: '生产计划', component: markRaw(ProducePlanView) },
   { key: 'orders', label: '生产工单', component: markRaw(WorkOrdersView) },
-  { key: 'cards', label: '工序卡', component: markRaw(JobCardsView) },
+  { key: 'cards', label: '工序记录', component: markRaw(JobCardsView) },
   { key: 'quality', label: '生产质检', component: markRaw(QualityInspectionsView) },
-  { key: 'acceptance', label: '生产验收', component: markRaw(ProductionAcceptanceView) },
+  { key: 'acceptance', label: '完工入库', component: markRaw(ProductionAcceptanceView) },
 ]
 
 const activeTab = ref(tabs[0].key)
 const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || tabs[0].component)
+function selectTab(key) {
+  if (key === activeTab.value) return
+  if (!window.dispatchEvent(new CustomEvent('kferp:before-navigate', { cancelable: true, detail: { key: 'productionFlow', tab: key } }))) return
+  activeTab.value = key
+}
 </script>
 
 <style scoped>

@@ -29,8 +29,8 @@ func TestDev557ProductionPlanBomLossDemandContracts(t *testing.T) {
 			`json:"input_includes_material_loss,omitempty"`,
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
-			"{{ productionPlanBomSummary(row) }}",
-			"物料需求汇总（预计消耗）",
+			"productionGapMaterialRows",
+			"生产用料",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-557-PRODUCTION-PLAN-BOM-LOSS-DEMAND",

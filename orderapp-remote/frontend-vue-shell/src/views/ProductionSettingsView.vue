@@ -1,5 +1,6 @@
 <template>
   <div class="production-settings-page">
+    <ProductionReturnLink :source="viewParams.return_navigation" />
     <header class="page-head">
       <div>
         <h2>生产配置</h2>
@@ -27,12 +28,13 @@
         :workspace-mode="workspaceMode"
         :customer-context-id="customerContextId"
         :customer-context-label="customerContextLabel" />
-      <component v-else :is="activeComponent" />
+      <component v-else :is="activeComponent" :view-params="viewParams" />
     </section>
   </div>
 </template>
 
 <script setup>
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { computed, markRaw, ref, watch } from 'vue'
 import BomView from './BomView.vue'
 import ManufacturingOperationsView from './ManufacturingOperationsView.vue'
@@ -67,6 +69,7 @@ function selectTab(key) {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
       key: 'productionConfig',
+      returnNavigation: props.viewParams.return_navigation,
       params: next === tabs[0].key ? {} : { tab: next },
     },
   }))

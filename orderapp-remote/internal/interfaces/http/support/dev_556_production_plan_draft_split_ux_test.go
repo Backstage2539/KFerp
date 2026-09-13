@@ -36,11 +36,12 @@ func TestDev556ProductionPlanDraftSplitUXContracts(t *testing.T) {
 			"BOM 配置待完善",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
-			"{{ productionPlanBomSummary(row) }}",
-			"await openCurrentPlanSplitDrawer()",
-			`v-if="currentPlan" class="primary" type="button" @click="submitCurrentProductionPlan"`,
-			`@click="cancelProductionPlanDraft(currentPlan, 'current')"`,
-			"创建成功后会自动打开拆分产能",
+			"productionGapProductRows",
+			"productionGapMaterialRows",
+			"await openProductionPlanDetail(created)",
+			`@submit="submitProductionPlanDetail"`,
+			`@cancel="cancelProductionPlanDraft(productionPlanDetail, 'detail')"`,
+			"创建草稿并编辑",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-556-PRODUCTION-PLAN-DRAFT-SPLIT-UX",
@@ -53,7 +54,7 @@ func TestDev556ProductionPlanDraftSplitUXContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-556-PRODUCTION-PLAN-DRAFT-SPLIT-UX",
-			"成功后自动打开拆分产能抽屉",
+			"草稿创建后直接进入统一详情",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-27-production-plan-draft-split-ux.md"): {
 			"PR-556 Production Plan Draft Split UX",

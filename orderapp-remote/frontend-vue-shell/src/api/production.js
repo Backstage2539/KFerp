@@ -15,6 +15,7 @@ export async function cancelRunningProduction(id) {
 export async function fetchProductionWorkstationOverview(params = {}) {
   const query = new URLSearchParams()
   if (params.limit) query.set('limit', String(params.limit))
+  if (params.scope) query.set('scope', String(params.scope))
   const suffix = query.toString()
   return apiGet(`/api/production/workstation-overview${suffix ? `?${suffix}` : ''}`)
 }

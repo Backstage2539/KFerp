@@ -45,7 +45,7 @@ func TestProductionQACustomerDrawerVueWiring(t *testing.T) {
 			t.Fatalf("App.vue missing %q", want)
 		}
 	}
-	for _, want := range []string{"view_params", "openView(row)", "params"} {
+	for _, want := range []string{"defineProps", "viewParams", "openWorkOrder(row)", "work_order_id"} {
 		if !strings.Contains(acceptance, want) {
 			t.Fatalf("ProductionAcceptanceView.vue missing %q", want)
 		}

@@ -18,7 +18,7 @@ type workstationTaskIssueRequest struct {
 
 func registerProductionWorkstationAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.GET("/production-overview", func(c echo.Context) error {
-		target := "/vue-shell?view=productionOverview"
+		target := "/vue-shell?view=workstationView"
 		if raw := c.QueryString(); raw != "" {
 			target += "&" + raw
 		}
@@ -33,7 +33,9 @@ func registerProductionWorkstationAPI(e *echo.Echo, productionSvc *productionapp
 	})
 	e.GET("/api/production/workstation-overview", func(c echo.Context) error {
 		rows, err := productionSvc.ProductionWorkstationOverview(c.Request().Context(), productionapp.ProductionWorkstationOverviewQuery{
-			Limit: support.IntParam(c, "limit", 500),
+			Limit:      support.IntParam(c, "limit", 500),
+			EmployeeID: support.CurrentEmployeeID(c),
+			Scope:      strings.TrimSpace(c.QueryParam("scope")),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -90,6 +92,9 @@ func registerProductionWorkstationAPI(e *echo.Echo, productionSvc *productionapp
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "job_card": res.JobCard, "work_order": res.WorkOrder})
+	})
+	e.POST("/api/production/workstation/tasks/:id/claim", func(c echo.Context) error {
+		return c.JSON(http.StatusGone, ErrorResponse{Error: "任务已改为跟随当日工位排班，无需领取"})
 	})
 }
 
