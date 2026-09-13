@@ -184,8 +184,8 @@ func (r Repository) productionReplanPreviewTx(ctx context.Context, tx pgx.Tx, cm
 	if revision != cmd.Revision {
 		return preview, nil, fmt.Errorf("生产计划版本已变化，请重新读取后再操作")
 	}
-	if status != "submitted" {
-		return preview, nil, fmt.Errorf("只有已提交且尚未开工的生产需求可以撤回重排")
+	if status != "submitted" && status != "in_progress" {
+		return preview, nil, fmt.Errorf("只有已提交或部分生产中的计划，才可撤回其中尚未开工的生产需求")
 	}
 	rootIDs := uniquePositiveProductionIDs(cmd.ProductionPlanItemIDs)
 	items, err := loadProductionPlanItemsTx(ctx, tx, r.schema, cmd.ProductionPlanID)

@@ -7,9 +7,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-657-PRODUCTION-ROSTER-AUTO-DISPATCH
-- Branch: `codex/production-roster-auto-dispatch-20260913`, base `origin/develop@611095c707bf8f142ca4442d72f14c275a05aea9`.
+- Branch: `codex/production-roster-auto-dispatch-20260913` merged by PR #114; browser-found partial-replan fix on `codex/production-replan-in-progress-fix-20260913`, based on `origin/develop@fe1cd00f4607cb3a2cc9c61c7985a74ff7518eaa`.
 - Owner/session: Codex / 2026-09-13
-- Status: implementation and isolated PostgreSQL verification complete; full gates, develop integration, development deployment and browser acceptance in progress; production excluded.
+- Status: main implementation deployed to development at `fe1cd00f`; browser acceptance found and locally fixed the production-in-progress partial replan guard, follow-up verification/integration/redeploy in progress; production excluded.
 - Scope: weekly employee attendance, workstation primary/ordered backup ownership, automatic task dispatch, workstation handover, and atomic unstarted-demand replan.
 - DEV: DEV-657-PRODUCTION-ROSTER-DATA; DEV-658-PRODUCTION-ROSTER-UI; DEV-659-PRODUCTION-AUTO-DISPATCH-HANDOVER; DEV-660-PRODUCTION-DEMAND-REPLAN.
 - Verifier: roster/owner unit tests; handler and isolated PostgreSQL lifecycle; automatic job-card start guards; replan transaction/idempotency/shared-upstream tests; full Go/Vue/build; development screenshots.
