@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-659-PRICE-TIER-FIXED-ORDER-CATEGORY", title: "阶梯档位固定价与录单真实价格表分类", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-13-price-tier-fixed-order-category.md"},
+		{table: "req_dev", code: "DEV-664-PRICE-TIER-MODE", title: "阶梯档位定价方式、稳定身份和旧模板兼容", status: "doing", assignee: "Codex", evidence: "catalog service and repository tests"},
+		{table: "req_dev", code: "DEV-665-SPEC-TIER-FIXED-PRICE", title: "规格档位固定价、草稿恢复、行覆盖撤销和发布快照", status: "doing", assignee: "Codex", evidence: "costing price list workflow tests"},
+		{table: "req_dev", code: "DEV-666-ORDER-PUBLISHED-CATEGORY", title: "录单按所选发布价格表真实分类筛选和标注", status: "doing", assignee: "Codex", evidence: "order-entry tests and OrderEntryView.vue"},
+		{table: "req_dev", code: "DEV-667-PRICE-TIER-DELIVERY", title: "手册、全量验证、development 与 production 交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-13-price-tier-fixed-order-category.md"},
 		{table: "req_product", code: "PR-658-PRODUCTION-ROSTER-RELIEF", title: "替补保存生效、请假自动补位与整日换人", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-production-roster-relief.md"},
 		{table: "req_dev", code: "DEV-661-ROSTER-RELIEF", title: "当日临时员工、请假补位、整日替换与任务范围事务校验", status: "done", assignee: "Codex", evidence: "production_roster_relief.go; production_roster_relief_acceptance_test.go"},
 		{table: "req_dev", code: "DEV-662-ROSTER-ADJUSTMENT-UI", title: "替补选中即加入、实时预览、负责人面板和整日换人", status: "done", assignee: "Codex", evidence: "ProductionScheduleView.vue; ManufacturingWorkstationsView.vue; production-roster-interaction.test.js"},

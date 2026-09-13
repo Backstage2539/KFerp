@@ -1225,20 +1225,25 @@ export function buildPriceTierTemplatePayload(form = {}) {
     active: Boolean(form.active ?? true),
     remark: String(form.remark ?? '').trim(),
     tiers: tiers
-      .map((tier, index) => ({
-        label: String(tier.label ?? '').trim(),
-        min_qty: Number(tier.min_qty ?? tier.minQty ?? 0) || 0,
-        max_qty: tier.max_qty === '' || tier.max_qty === null || tier.max_qty === undefined
-          ? null
-          : Number(tier.max_qty ?? tier.maxQty ?? 0),
-        // The persisted column is kept for backward reads, but new templates are
-        // always interpreted as counts of the concrete sales spec selected later.
-        quantity_unit: 'sales_spec_count',
-        pricing_rule_id: Number(tier.pricing_rule_id ?? tier.pricingRuleID ?? 0) || 0,
-        position: Number(tier.position || index + 1),
-        active: Boolean(tier.active ?? true),
-        remark: String(tier.remark ?? '').trim(),
-      }))
+      .map((tier, index) => {
+        const pricingMode = String(tier.pricing_mode ?? tier.pricingMode ?? '').trim().toLowerCase() || 'pricing_rule'
+        return {
+          id: Number(tier.id || 0),
+          label: String(tier.label ?? '').trim(),
+          min_qty: Number(tier.min_qty ?? tier.minQty ?? 0) || 0,
+          max_qty: tier.max_qty === '' || tier.max_qty === null || tier.max_qty === undefined
+            ? null
+            : Number(tier.max_qty ?? tier.maxQty ?? 0),
+          // The persisted column is kept for backward reads, but new templates are
+          // always interpreted as counts of the concrete sales spec selected later.
+          quantity_unit: 'sales_spec_count',
+          pricing_mode: pricingMode,
+          pricing_rule_id: pricingMode === 'fixed_price' ? 0 : (Number(tier.pricing_rule_id ?? tier.pricingRuleID ?? 0) || 0),
+          position: Number(tier.position || index + 1),
+          active: Boolean(tier.active ?? true),
+          remark: String(tier.remark ?? '').trim(),
+        }
+      })
       .sort((a, b) => a.position - b.position || a.min_qty - b.min_qty),
   }
 }

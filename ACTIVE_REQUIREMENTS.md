@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-659-PRICE-TIER-FIXED-ORDER-CATEGORY
+- Branch: `codex/price-tier-fixed-order-category-20260913`; base `0fc27ba5`.
+- Owner/session: Codex / 2026-09-13
+- Status: implementing; development and production delivery authorized, Van business acceptance pending after development verification.
+- Scope: mixed pricing-rule/fixed-price tiers with stable tier identity; spec-tier fixed-price draft and publication snapshots; row override/revert; order entry categories sourced from selected published price lists.
+- DEV: DEV-664-PRICE-TIER-MODE; DEV-665-SPEC-TIER-FIXED-PRICE; DEV-666-ORDER-PUBLISHED-CATEGORY; DEV-667-PRICE-TIER-DELIVERY.
+- Verifier: targeted Go/Vue RED-GREEN; published-row validation and old snapshot compatibility; full Go/Vue/build; development browser acceptance; production read-only smoke.
+- Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md` and `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`.
+- Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-price-tier-fixed-order-category.md`.
+- Notes: reservation helper selected PR-659 but its macOS awk multiline placeholder failed; PR-659 was confirmed unused and reserved here manually.
+
 ### PR-658-PRODUCTION-ROSTER-RELIEF
 - Branch: `codex/production-roster-relief-20260913`; base `cdd6768c`.
 - Owner/session: Codex / 2026-09-13

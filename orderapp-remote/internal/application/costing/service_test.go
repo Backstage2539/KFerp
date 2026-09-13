@@ -5276,6 +5276,29 @@ func TestPublishBeanListAcceptsPricingRuleAndFixedPriceModes(t *testing.T) {
 	}
 }
 
+func TestValidateBeanListFlatPriceRowsAcceptsFixedPriceTemplateTier(t *testing.T) {
+	row := map[string]any{
+		"product_id": float64(940), "product_name": "甜香茶韵-挂耳-盒装",
+		"pricing_mode": "tier_template", "pricing_mode_source": "product",
+		"tier_pricing_mode": "fixed_price", "tier_template_id": float64(8),
+		"tier_template_source": "product", "template_tier_id": float64(81),
+		"fixed_unit_price": float64(58), "final_unit_price": float64(58),
+		"price_unit": "盒", "inventory_unit": "盒",
+		"inventory_conversion_json":   map[string]any{"盒": map[string]any{"盒": float64(1)}},
+		"group_snapshot":              map[string]any{"group_item_id": float64(163)},
+		"group_source":                PriceListGroupSourceProductCatalog,
+		"cost_source_snapshot":        map[string]any{"cost_source_mode": "fixed_price"},
+		"customer_reference_snapshot": map[string]any{}, "manual_adjusted": false,
+	}
+	if err := validateBeanListFlatPriceRows(PublishBeanListCommand{Content: map[string]any{"price_rows": []any{row}}}); err != nil {
+		t.Fatalf("fixed-price template tier must not require pricing rule: %v", err)
+	}
+	row["fixed_unit_price"] = float64(0)
+	if err := validateBeanListFlatPriceRows(PublishBeanListCommand{Content: map[string]any{"price_rows": []any{row}}}); err == nil || !strings.Contains(err.Error(), "固定价") {
+		t.Fatalf("missing fixed-price template tier must be rejected, got %v", err)
+	}
+}
+
 func TestPublishBeanListRejectsExplicitZeroFixedPriceRowWithoutConcreteSpecSelections(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	row := map[string]any{

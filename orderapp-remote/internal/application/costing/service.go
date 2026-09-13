@@ -4852,11 +4852,24 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 			if numberValue(row["template_tier_id"]) <= 0 {
 				return fmt.Errorf("价格表平铺行缺少阶梯模板档位：第%d行", position)
 			}
-			if numberValue(row["pricing_rule_id"]) <= 0 || stringValue(row["pricing_rule_source"]) == "" || stringValue(row["pricing_rule_version"]) == "" {
-				return fmt.Errorf("价格表平铺行缺少 Pricing Rule 来源：第%d行", position)
+			tierPricingMode := strings.ToLower(strings.TrimSpace(stringValue(row["tier_pricing_mode"])))
+			if tierPricingMode == "" {
+				tierPricingMode = "pricing_rule"
 			}
-			if numberValue(row["tier_pricing_rule_id"]) <= 0 || stringValue(row["tier_pricing_rule_version"]) == "" {
-				return fmt.Errorf("价格表平铺行缺少档位 Pricing Rule 来源：第%d行", position)
+			switch tierPricingMode {
+			case "fixed_price":
+				if numberValue(row["fixed_unit_price"]) <= 0 {
+					return fmt.Errorf("价格表平铺行缺少固定价：第%d行", position)
+				}
+			case "pricing_rule":
+				if numberValue(row["pricing_rule_id"]) <= 0 || stringValue(row["pricing_rule_source"]) == "" || stringValue(row["pricing_rule_version"]) == "" {
+					return fmt.Errorf("价格表平铺行缺少 Pricing Rule 来源：第%d行", position)
+				}
+				if numberValue(row["tier_pricing_rule_id"]) <= 0 || stringValue(row["tier_pricing_rule_version"]) == "" {
+					return fmt.Errorf("价格表平铺行缺少档位 Pricing Rule 来源：第%d行", position)
+				}
+			default:
+				return fmt.Errorf("价格表平铺行档位计价模式无效：第%d行", position)
 			}
 		case "pricing_rule":
 			if numberValue(row["pricing_rule_id"]) <= 0 || stringValue(row["pricing_rule_source"]) == "" || stringValue(row["pricing_rule_version"]) == "" {
