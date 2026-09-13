@@ -257,11 +257,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-672-LOG-WORKSPACE", title: "日志列表详情、单位与窄屏交互", status: "done", assignee: "Codex", evidence: "ProductionLogsView.vue; production-logs-workspace.test.js"},
 		{table: "req_dev", code: "DEV-673-LOG-DELIVERY", title: "手册、回归验收与开发正式环境发布", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-13-production-log-workspace.md"},
 
-		{table: "req_product", code: "PR-660-PRICE-TIER-FIXED-ORDER-CATEGORY", title: "阶梯档位固定价与录单真实价格表分类", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-13-price-tier-fixed-order-category.md"},
-		{table: "req_dev", code: "DEV-667-PRICE-TIER-MODE", title: "阶梯档位定价方式、稳定身份和旧模板兼容", status: "doing", assignee: "Codex", evidence: "catalog service and repository tests"},
-		{table: "req_dev", code: "DEV-668-SPEC-TIER-FIXED-PRICE", title: "规格档位固定价、草稿恢复、行覆盖撤销和发布快照", status: "doing", assignee: "Codex", evidence: "costing price list workflow tests"},
-		{table: "req_dev", code: "DEV-669-ORDER-PUBLISHED-CATEGORY", title: "录单按所选发布价格表真实分类筛选和标注", status: "doing", assignee: "Codex", evidence: "order-entry tests and OrderEntryView.vue"},
-		{table: "req_dev", code: "DEV-670-PRICE-TIER-DELIVERY", title: "手册、全量验证、development 与 production 交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-13-price-tier-fixed-order-category.md"},
+		{table: "req_product", code: "PR-660-PRICE-TIER-FIXED-ORDER-CATEGORY", title: "阶梯档位固定价与录单真实价格表分类", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-price-tier-fixed-order-category.md"},
+		{table: "req_dev", code: "DEV-667-PRICE-TIER-MODE", title: "阶梯档位定价方式、稳定身份和旧模板兼容", status: "done", assignee: "Codex", evidence: "catalog service and repository tests"},
+		{table: "req_dev", code: "DEV-668-SPEC-TIER-FIXED-PRICE", title: "规格档位固定价、草稿恢复、行覆盖撤销和发布快照", status: "done", assignee: "Codex", evidence: "costing price list workflow tests"},
+		{table: "req_dev", code: "DEV-669-ORDER-PUBLISHED-CATEGORY", title: "录单按所选发布价格表真实分类筛选和标注", status: "done", assignee: "Codex", evidence: "order-entry tests and OrderEntryView.vue"},
+		{table: "req_dev", code: "DEV-670-PRICE-TIER-DELIVERY", title: "手册、全量验证、development 与 production 交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-13-price-tier-fixed-order-category.md"},
+		{table: "req_review", code: "REV-660-PRICE-TIER-FIXED-ORDER-CATEGORY", prCode: "PR-660-PRICE-TIER-FIXED-ORDER-CATEGORY", title: "验收混合阶梯固定价、发布校验与录单真实分类", status: "todo", assignee: "VA", evidence: "待 Van 在实际价格表和录单流程中验收"},
 
 		{table: "req_product", code: "PR-659-MINIAPP-SHARE-SCOPE", title: "恢复小程序页面分享并由管理员设置分享范围", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-miniapp-share-scope.md"},
 		{table: "req_dev", code: "DEV-664-MINIAPP-SHARE-POLICY", title: "按管理员、员工和所有人范围统一计算页面分享权限", status: "done", assignee: "Codex", evidence: "mini_employee_share_settings_api.go; mini_employee_share_settings_api_test.go"},

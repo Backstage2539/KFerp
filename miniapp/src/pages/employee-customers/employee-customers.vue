@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
+import { onLoad, onPullDownRefresh, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import {
+  defaultMiniappShare,
+  defaultMiniappTimelineShare,
+  refreshMiniappShareMenu,
+} from '../../utils/miniappShare'
 import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
@@ -130,6 +135,10 @@ watch(query, () => {
 
 onLoad(reloadCustomers)
 onPullDownRefresh(reloadCustomers)
+
+onShareAppMessage(defaultMiniappShare)
+onShareTimeline(defaultMiniappTimelineShare)
+onShow(() => { void refreshMiniappShareMenu() })
 </script>
 
 <template>

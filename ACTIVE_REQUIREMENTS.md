@@ -20,21 +20,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-660-PRICE-TIER-FIXED-ORDER-CATEGORY
 - Branch: `codex/price-tier-fixed-order-category-20260913`; base `0fc27ba5`.
 - Owner/session: Codex / 2026-09-13
-- Status: implementing; development and production delivery authorized, Van business acceptance pending after development verification.
+- Status: implementation, full verification, development and production deployment, and read-only browser acceptance complete; Van business acceptance pending.
 - Scope: mixed pricing-rule/fixed-price tiers with stable tier identity; spec-tier fixed-price draft and publication snapshots; row override/revert; order entry categories sourced from selected published price lists.
 - DEV: DEV-667-PRICE-TIER-MODE; DEV-668-SPEC-TIER-FIXED-PRICE; DEV-669-ORDER-PUBLISHED-CATEGORY; DEV-670-PRICE-TIER-DELIVERY.
 - Verifier: targeted Go/Vue RED-GREEN; published-row validation and old snapshot compatibility; full Go/Vue/build; development browser acceptance; production read-only smoke.
 - Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md` and `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`.
 - Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-price-tier-fixed-order-category.md`.
+- Development: runtime `6304bc91059352a6ca2810ed2592fd6ac713536f`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260913232913-6304bc910593`; rollback image `kferp-orderapp-rollback:development-20260913232913-6304bc910593`; application running with restart count 0.
+- Production: runtime `d1db829aeca709435129a3a37b3a84eab575ef3a`; source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260913233941-d1db829aeca7`; rollback image `kferp-orderapp-rollback:production-20260913233941-d1db829aeca7`; application running with restart count 0 and PostgreSQL healthy. Existing published price lists were read only during browser smoke; no order or price data was saved.
 - Notes: reservation helper initially selected PR-659 but its macOS awk multiline placeholder failed; concurrent development claimed PR-659 and DEV-664 through DEV-666 before integration, so this requirement moved to the next free IDs.
 
 ### PR-659-MINIAPP-SHARE-SCOPE
 - Branch: `codex/miniapp-production-share-20260913`, base `0fc27ba5767ad93547ec9433f684a4c20d5b1e37`.
 - Owner/session: Codex / 2026-09-13
-- Status: implementation complete; targeted RED/GREEN, Go full package test, Vue full gate, miniapp 245/245, typecheck and production-mode build passed. Initial integration reached `develop` at `f9a54f8e` and `main` at `ffb6926d`; the fixed production miniapp package was regenerated. Production ERP deployment and WeChat upload, review and publication remain pending.
+- Status: implementation complete; targeted RED/GREEN, Go full package test, Vue full gate, miniapp 246/246, typecheck and production-mode build passed. DevTools follow-up found the global mixin did not emit page share lifecycles; all 14 declared pages now register them directly and the artifact verifier rejects the old broken package. Initial integration reached `develop` at `f9a54f8e` and `main` at `ffb6926d`; follow-up integration, production ERP deployment and package regeneration are in progress. WeChat upload, review and publication remain pending.
 - Scope: restore WeChat page sharing and let an employee administrator choose admin-only, employee, or everyone scope. Default employee; shared cards open the safe miniapp home without business identifiers.
 - DEV: DEV-664-MINIAPP-SHARE-POLICY; DEV-665-MINIAPP-SHARE-UI; DEV-666-MINIAPP-SHARE-DELIVERY.
-- Verifier: share policy API roles/defaults/validation; transactional readable audit setting; miniapp share-menu visibility, API helpers, profile source contract, typecheck and production-mode build.
+- Verifier: share policy API roles/defaults/validation; transactional readable audit setting; miniapp share-menu visibility, API helpers, every declared page's source and built lifecycle registration, profile source contract, typecheck and production-mode build.
 - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`.
 - Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-miniapp-share-scope.md`.
 - Release: fixed package `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`; previous production package retained as a timestamped sibling backup. Rebuild the package after this evidence commit reaches the final `main`, then verify `RELEASE_INFO` matches that commit.
