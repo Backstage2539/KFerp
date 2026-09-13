@@ -1,5 +1,6 @@
 <template>
   <div class="manual-page">
+    <ProductionReturnLink :source="viewParams.return_navigation" />
     <section class="manual-head">
       <p class="eyebrow">操作手册</p>
       <h2>{{ manualTitle }}</h2>
@@ -57,9 +58,11 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { apiFetch } from '../api/client.js'
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { manualDocNameForView, manualTitleForView, parseManualMarkdown } from '../lib/operation-manuals.js'
 
 const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
   title: { type: String, default: '' },
   viewKey: { type: String, default: '' },
 })
