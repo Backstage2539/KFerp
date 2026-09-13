@@ -42,7 +42,7 @@ test('production module top navigation points to the consolidated flow', () => {
 test('embedded production workflow pages hide their nested module navigation', () => {
   for (const file of ['ProducePlanView.vue', 'WorkOrdersView.vue', 'JobCardsView.vue', 'QualityInspectionsView.vue']) {
     const source = readFileSync(new URL(`../views/${file}`, import.meta.url), 'utf8')
-    assert.match(source, /<ProductionTopNav\s+v-if="!props\.embedded"/)
+    assert.match(source, /<ProductionTopNav\s+v-if="!props\.embedded(?:\s*&&[^\"]+)?"/)
     assert.match(source, /embedded:\s*\{\s*type:\s*Boolean,\s*default:\s*false\s*\}/)
   }
 })

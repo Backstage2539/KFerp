@@ -49,6 +49,11 @@ type ManufacturingOperation struct {
 }
 
 type ManufacturingWorkstation struct {
+	PrimaryEmployeeID      int64                    `json:"primary_employee_id"`
+	PrimaryEmployeeName    string                   `json:"primary_employee_name"`
+	BackupEmployeeIDs      []int64                  `json:"backup_employee_ids"`
+	BackupEmployees        []WorkstationEmployee    `json:"backup_employees"`
+	StaffingReady          bool                     `json:"staffing_ready"`
 	ID                     int64                    `json:"id"`
 	Code                   string                   `json:"code"`
 	Name                   string                   `json:"name"`
@@ -63,6 +68,13 @@ type ManufacturingWorkstation struct {
 	Note                   string                   `json:"note"`
 	CreatedAt              string                   `json:"created_at"`
 	UpdatedAt              string                   `json:"updated_at"`
+}
+
+type WorkstationEmployee struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+	Active    bool   `json:"active"`
 }
 
 type ManufacturingWorkstationCapacity struct {
@@ -213,6 +225,8 @@ type SaveManufacturingOperationCommand struct {
 }
 
 type SaveManufacturingWorkstationCommand struct {
+	PrimaryEmployeeID      int64
+	BackupEmployeeIDs      []int64
 	ID                     int64
 	Code                   string
 	Name                   string
@@ -383,7 +397,28 @@ func (s *Service) SaveManufacturingWorkstation(ctx context.Context, cmd SaveManu
 		cmd.HourlyRate = roundMoney(componentTotal)
 	}
 	cmd.ApplicableOperationIDs = normalizePositiveInt64IDs(cmd.ApplicableOperationIDs)
+	cmd.BackupEmployeeIDs = normalizePositiveInt64IDs(cmd.BackupEmployeeIDs)
+	if err := validateWorkstationStaff(cmd); err != nil {
+		return ManufacturingWorkstation{}, err
+	}
 	return s.repo.SaveManufacturingWorkstation(ctx, cmd)
+}
+
+func validateWorkstationStaff(cmd SaveManufacturingWorkstationCommand) error {
+	if cmd.Status == "inactive" {
+		return nil
+	}
+	if cmd.PrimaryEmployeeID <= 0 {
+		return fmt.Errorf("启用工位必须配置主负责人")
+	}
+	seen := map[int64]bool{cmd.PrimaryEmployeeID: true}
+	for _, id := range cmd.BackupEmployeeIDs {
+		if id <= 0 || seen[id] {
+			return fmt.Errorf("主负责人和替补人员不能重复")
+		}
+		seen[id] = true
+	}
+	return nil
 }
 
 func (s *Service) DeactivateManufacturingWorkstation(ctx context.Context, cmd TemplateStatusCommand) error {
@@ -925,21 +960,8 @@ func normalizeJSONArray(raw string) (string, error) {
 }
 
 func validateOperationStaff(cmd SaveManufacturingOperationCommand) error {
-	if len(cmd.DefaultCollaboratorIDs) > 0 {
-		return fmt.Errorf("协作人员功能已停用，请只设置默认负责人")
-	}
-	eligible := map[int64]bool{}
-	for _, id := range cmd.EligibleEmployeeIDs {
-		if id <= 0 || eligible[id] {
-			return fmt.Errorf("可执行员工不能重复或为空")
-		}
-		eligible[id] = true
-	}
-	if cmd.Status == "active" && (len(eligible) == 0 || cmd.DefaultEmployeeID <= 0) {
-		return fmt.Errorf("启用工序必须配置可执行员工和默认负责人；可先保存为停用")
-	}
-	if cmd.DefaultEmployeeID > 0 && !eligible[cmd.DefaultEmployeeID] {
-		return fmt.Errorf("默认负责人必须属于可执行员工")
+	if len(cmd.EligibleEmployeeIDs) > 0 || cmd.DefaultEmployeeID > 0 || len(cmd.DefaultCollaboratorIDs) > 0 {
+		return fmt.Errorf("工序人员配置已迁移到工位，请在工位中设置主负责人和替补")
 	}
 	return nil
 }

@@ -23,7 +23,7 @@
             <tr v-for="row in operations" :key="row.id" :class="{ active: row.id === form.id }" @click="editOperation(row)">
               <td>
                 <strong>{{ row.name }}</strong>
-                <small>{{ row.code || '无编码' }}</small><small :class="{ 'staff-warning': !row.staffing_ready }">{{ row.staffing_ready ? '人员配置完整' : '待补人员配置' }}</small>
+                <small>{{ row.code || '无编码' }}</small><small>人员按工位与周排班自动安排</small>
                 <small>{{ row.updated_at || '-' }}</small>
               </td>
               <td class="master-status">
@@ -49,14 +49,7 @@
             </select>
           </label>
         </div>
-        <section class="operation-staff-section">
-          <h3>工序人员</h3><p>先设置谁可以执行，再选择默认负责人。新任务会自动带入，调度仍可临时更换。</p>
-          <label><span>搜索可执行员工</span><input v-model.trim="employeeSearch" placeholder="按员工姓名搜索" /></label>
-          <div class="eligible-grid"><label v-for="person in filteredEmployees" :key="person.id" :class="{ selected: form.eligible_employee_ids.includes(person.id) }"><input v-model="form.eligible_employee_ids" type="checkbox" :value="person.id" /><span>{{ person.name }}</span></label></div>
-          <p v-if="!employees.length" class="staff-warning">暂无启用员工，请先在员工管理中维护。</p>
-          <ProductionStaffFields defaults :model-value="{ assigned_employee_id: form.default_employee_id }" :employees="eligibleEmployees" :disabled="loading" @update:model-value="updateDefaultStaff" />
-          <p class="staff-help">以上为默认人员，仅用于后续排程带入，不会覆盖已保存的任务安排。</p>
-        </section>
+        <div class="operation-staff-note">工序只维护工艺定义。人员资格、主负责人和替补请在“工位/设备”中配置。</div>
         <label class="wide"><span>备注</span><textarea v-model.trim="form.note" rows="3"></textarea></label>
         <div class="footer-actions">
           <button class="primary" type="button" @click="saveOperation" :disabled="loading">保存工序</button>
@@ -67,14 +60,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import ProductionStaffFields from '../components/ProductionStaffFields.vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 
 const props = defineProps({ viewParams: { type: Object, default: () => ({}) } })
-const employees = ref([]), employeeSearch = ref('')
-const filteredEmployees = computed(() => employees.value.filter(row => row.name.includes(employeeSearch.value)))
-const eligibleEmployees = computed(() => employees.value.filter(row => form.eligible_employee_ids.includes(Number(row.id))))
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -82,7 +71,7 @@ const operations = ref([])
 const form = reactive(blankOperation())
 
 function blankOperation() {
-  return { id: 0, eligible_employee_ids: [], default_employee_id: 0, name: '', code: '', status: 'inactive', default_minutes: 0, standard_operation_cost: 0, note: '' }
+  return { id: 0, name: '', code: '', status: 'inactive', default_minutes: 0, standard_operation_cost: 0, note: '' }
 }
 
 function resetForm(next = blankOperation()) {
@@ -114,7 +103,7 @@ function newOperation() {
 
 function editOperation(row) {
   resetForm({
-    id: Number(row.id || 0), eligible_employee_ids: [...(row.eligible_employee_ids || [])], default_employee_id: Number(row.default_employee_id || 0),
+    id: Number(row.id || 0),
     name: row.name || '',
     code: row.code || '',
     status: row.status === 'inactive' ? 'inactive' : 'active',
@@ -163,11 +152,9 @@ async function deactivateOperation(row) {
   })
 }
 
-function updateDefaultStaff(value) { form.default_employee_id = value.assigned_employee_id }
-watch(() => [...form.eligible_employee_ids], ids => { if (!ids.includes(form.default_employee_id)) form.default_employee_id = 0 })
 async function focusOperation() { const row = operations.value.find(row => Number(row.id) === Number(props.viewParams.operation_id)); if (row) editOperation(row) }
 watch(() => props.viewParams.operation_id, focusOperation)
-onMounted(async () => { await loadOperations(); try { const data = await apiGet('/api/company/employees'); employees.value = (data.rows || data.employees || data || []).filter(row => row.active !== false).map(row => ({ ...row, id: Number(row.id) })) } catch (err) { error.value = err.message } await focusOperation() })
+onMounted(async () => { await loadOperations(); await focusOperation() })
 </script>
 
 <style scoped>
@@ -213,5 +200,5 @@ tbody tr.active { background: #eef8f1; }
 @media (max-width: 760px) {
   .master-data-layout, .form-grid { grid-template-columns: 1fr; }
 }
-.operation-staff-section{margin-top:18px;padding:16px;background:#f5fbf7;border:1px solid #d5e7db;border-radius:10px}.operation-staff-section h3{margin:0;font-size:16px;color:#244b36}.operation-staff-section p{font-size:12px;line-height:1.7;color:#718578}.eligible-grid{display:flex;flex-wrap:wrap;gap:8px;max-height:180px;overflow:auto;margin:12px 0 18px}.eligible-grid label{display:flex;align-items:center;gap:7px;border:1px solid #d5ded8;background:#fff;padding:8px 10px;border-radius:8px;cursor:pointer}.eligible-grid label.selected{background:#e8f6ed;border-color:#91c3a3}.eligible-grid label span{margin:0;color:#45654f;font-size:13px}.eligible-grid input{width:15px;height:15px;accent-color:#2f8f5b}.staff-warning{color:#b17a2c!important}.operation-staff-section .staff-help{margin-bottom:0}.operation-editor-panel{border-color:#dce6df}
+.operation-staff-note{margin-top:16px;padding:13px;border:1px solid #d5e7db;border-radius:9px;background:#f2faf5;color:#4f705a;font-size:13px;line-height:1.7}.operation-editor-panel{border-color:#dce6df}
 </style>

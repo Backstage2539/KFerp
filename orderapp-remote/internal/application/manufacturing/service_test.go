@@ -192,6 +192,7 @@ func TestSaveManufacturingWorkstationDerivesHourlyRateFromCostComponents(t *test
 	svc := NewService(repo)
 	got, err := svc.SaveManufacturingWorkstation(context.Background(), SaveManufacturingWorkstationCommand{
 		Name:               "Loring S15",
+		PrimaryEmployeeID:  1,
 		MachineHourlyCost:  42.5,
 		LaborHourlyCost:    60,
 		OverheadHourlyCost: 7.5,
@@ -213,7 +214,7 @@ func TestSaveManufacturingOperationKeepsStandardOperationCost(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	got, err := svc.SaveManufacturingOperation(context.Background(), SaveManufacturingOperationCommand{
-		Name: "烘焙", EligibleEmployeeIDs: []int64{1}, DefaultEmployeeID: 1,
+		Name: "烘焙",
 		StandardOperationCost: 8.5,
 		Actor:                 "tester",
 	})
@@ -233,6 +234,7 @@ func TestSaveManufacturingWorkstationNormalizesApplicableOperationIDs(t *testing
 	svc := NewService(repo)
 	got, err := svc.SaveManufacturingWorkstation(context.Background(), SaveManufacturingWorkstationCommand{
 		Name:                   "布勒烘焙机",
+		PrimaryEmployeeID:      1,
 		ApplicableOperationIDs: []int64{2, 0, 2, -1, 1},
 	})
 	if err != nil {

@@ -1092,13 +1092,15 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 		SELECT id,revision,plan_no,source_type,status,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI'),
 		       submitted_by,COALESCE(to_char(submitted_at,'YYYY-MM-DD HH24:MI'),''),
 		       COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),
-		       COALESCE(to_char(cancelled_at,'YYYY-MM-DD HH24:MI'),'')
+		       COALESCE(to_char(cancelled_at,'YYYY-MM-DD HH24:MI'),''),
+		       replanned_from_plan_id,replan_note
 		FROM %s.production_plans
 		WHERE id=$1
 	`, schema), id).Scan(
 		&detail.ID, &detail.Revision, &detail.PlanNo, &detail.SourceType, &detail.Status,
 		&detail.CreatedBy, &detail.CreatedAt, &detail.SubmittedBy,
 		&detail.SubmittedAt, &detail.CompletedAt, &detail.CancelledAt,
+		&detail.ReplannedFromPlanID, &detail.ReplanNote,
 	)
 	if err == pgx.ErrNoRows {
 		return productionapp.ProductionPlanDetail{}, fmt.Errorf("production plan not found")
@@ -1163,7 +1165,8 @@ func loadProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schema string, pl
 		       COALESCE(process_route_snapshot_json,'{}'::jsonb)::text,
 		       COALESCE(production_config_snapshot_json,'{}'::jsonb)::text,
 		       COALESCE(customer_product_snapshot_json,'[]'::jsonb)::text,
-		       customer_id,target_warehouse,processing_request_item_id,demand_sources_json
+		       customer_id,target_warehouse,processing_request_item_id,demand_sources_json,
+		       replan_status,replaced_by_plan_id,replan_reason
 		FROM %s.production_plan_items
 		WHERE production_plan_id=$1
 		ORDER BY id
@@ -1186,6 +1189,7 @@ func loadProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schema string, pl
 			&item.OperationTemplateID, &item.ProcessRouteID, &item.MaterialSnapshot, &item.ProcessSnapshotJSON,
 			&item.ProductionConfigSnapshotJSON, &item.CustomerProductSnapshotJSON,
 			&item.CustomerID, &item.TargetWarehouse, &item.ProcessingRequestItemID, &sources,
+			&item.ReplanStatus, &item.ReplacedByPlanID, &item.ReplanReason,
 		); err != nil {
 			return nil, err
 		}
@@ -2153,7 +2157,7 @@ func loadProductionPlanRelatedWorkOrdersTx(ctx context.Context, tx pgx.Tx, schem
 		       wo.product_name,wo.spec_g,
 		       wo.planned_g,COALESCE(NULLIF(wo.planned_output_g,0),wo.planned_g),wo.status,
 		       to_char(wo.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(wo.completed_at,'YYYY-MM-DD HH24:MI'),''),
-		       COUNT(jc.id)::bigint
+		       COUNT(jc.id)::bigint,wo.replan_status,wo.replaced_by_plan_id,wo.replan_reason
 		FROM %s.work_orders wo
 		LEFT JOIN %s.job_cards jc ON jc.work_order_id=wo.id
 		WHERE wo.production_plan_id=$1
@@ -2174,6 +2178,7 @@ func loadProductionPlanRelatedWorkOrdersTx(ctx context.Context, tx pgx.Tx, schem
 			&row.TargetWarehouse,
 			&row.ProductName, &row.SpecG,
 			&row.PlannedG, &row.PlannedOutputG, &row.Status, &row.CreatedAt, &row.CompletedAt, &row.JobCardCount,
+			&row.ReplanStatus, &row.ReplacedByPlanID, &row.ReplanReason,
 		); err != nil {
 			return nil, 0, err
 		}

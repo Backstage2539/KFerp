@@ -485,6 +485,9 @@ type ProductionPlanItem struct {
 	CustomerID                   int64                   `json:"customer_id,omitempty"`
 	TargetWarehouse              string                  `json:"target_warehouse,omitempty"`
 	ProcessingRequestItemID      int64                   `json:"processing_request_item_id,omitempty"`
+	ReplanStatus                 string                  `json:"replan_status,omitempty"`
+	ReplacedByPlanID             int64                   `json:"replaced_by_plan_id,omitempty"`
+	ReplanReason                 string                  `json:"replan_reason,omitempty"`
 }
 
 type ProductionPlanOperationSplit struct {
@@ -574,30 +577,32 @@ type WorkOrderOperationSplitsResult struct {
 }
 
 type ProductionPlanDetail struct {
-	PickingVersion    int                              `json:"picking_version"`
-	SupplyPlan        json.RawMessage                  `json:"multilevel_plan,omitempty"`
-	SupplyAllocations []ProductionSupplyAllocation     `json:"supply_allocations"`
-	ID                int64                            `json:"id"`
-	Revision          int64                            `json:"revision"`
-	PlanNo            string                           `json:"plan_no"`
-	SourceType        string                           `json:"source_type"`
-	Status            string                           `json:"status"`
-	CreatedBy         string                           `json:"created_by"`
-	CreatedAt         string                           `json:"created_at"`
-	SubmittedBy       string                           `json:"submitted_by"`
-	SubmittedAt       string                           `json:"submitted_at"`
-	CompletedAt       string                           `json:"completed_at"`
-	CancelledAt       string                           `json:"cancelled_at"`
-	Items             []ProductionPlanItem             `json:"items"`
-	OperationSplits   []ProductionPlanOperationSplit   `json:"operation_splits"`
-	MaterialSummary   []MaterialNeed                   `json:"material_summary"`
-	SupplyGaps        []ProductionPlanSupplyGap        `json:"supply_gaps"`
-	ComponentSources  []ProductionPlanComponentSource  `json:"component_sources"`
-	ManufacturingPlan ProductionManufacturingPlan      `json:"manufacturing_plan"`
-	RelatedWorkOrders []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
-	JobCardCount      int64                            `json:"job_card_count"`
-	DraftToken        string                           `json:"draft_token,omitempty"`
-	Readiness         ProductionPlanReadiness          `json:"readiness"`
+	PickingVersion      int                              `json:"picking_version"`
+	SupplyPlan          json.RawMessage                  `json:"multilevel_plan,omitempty"`
+	SupplyAllocations   []ProductionSupplyAllocation     `json:"supply_allocations"`
+	ID                  int64                            `json:"id"`
+	Revision            int64                            `json:"revision"`
+	PlanNo              string                           `json:"plan_no"`
+	SourceType          string                           `json:"source_type"`
+	Status              string                           `json:"status"`
+	CreatedBy           string                           `json:"created_by"`
+	CreatedAt           string                           `json:"created_at"`
+	SubmittedBy         string                           `json:"submitted_by"`
+	SubmittedAt         string                           `json:"submitted_at"`
+	CompletedAt         string                           `json:"completed_at"`
+	CancelledAt         string                           `json:"cancelled_at"`
+	Items               []ProductionPlanItem             `json:"items"`
+	OperationSplits     []ProductionPlanOperationSplit   `json:"operation_splits"`
+	MaterialSummary     []MaterialNeed                   `json:"material_summary"`
+	SupplyGaps          []ProductionPlanSupplyGap        `json:"supply_gaps"`
+	ComponentSources    []ProductionPlanComponentSource  `json:"component_sources"`
+	ManufacturingPlan   ProductionManufacturingPlan      `json:"manufacturing_plan"`
+	RelatedWorkOrders   []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
+	JobCardCount        int64                            `json:"job_card_count"`
+	DraftToken          string                           `json:"draft_token,omitempty"`
+	Readiness           ProductionPlanReadiness          `json:"readiness"`
+	ReplannedFromPlanID int64                            `json:"replanned_from_plan_id,omitempty"`
+	ReplanNote          string                           `json:"replan_note,omitempty"`
 }
 
 type ProductionPlanReadiness struct {
@@ -784,6 +789,9 @@ type ProductionPlanRelatedWorkOrder struct {
 	CreatedAt            string  `json:"created_at"`
 	CompletedAt          string  `json:"completed_at"`
 	JobCardCount         int64   `json:"job_card_count"`
+	ReplanStatus         string  `json:"replan_status,omitempty"`
+	ReplacedByPlanID     int64   `json:"replaced_by_plan_id,omitempty"`
+	ReplanReason         string  `json:"replan_reason,omitempty"`
 }
 
 type SubmitProductionPlanCommand struct {
@@ -1079,7 +1087,9 @@ type JobCardRow struct {
 }
 
 type ProductionWorkstationOverviewQuery struct {
-	Limit int
+	Limit      int
+	EmployeeID int64
+	Scope      string
 }
 
 type ProductionWorkstationOverview struct {
@@ -1131,7 +1141,15 @@ type ProductionWorkstationLoad struct {
 }
 
 type ProductionTask struct {
-	OperationID int64 `json:"operation_id"`
+	ProductionPlanID     int64  `json:"production_plan_id"`
+	ProductionPlanItemID int64  `json:"production_plan_item_id"`
+	OperationID          int64  `json:"operation_id"`
+	WorkstationID        int64  `json:"workstation_id"`
+	RosterEmployeeID     int64  `json:"roster_employee_id"`
+	RosterEmployeeName   string `json:"roster_employee_name"`
+	RosterSource         string `json:"roster_source"`
+	RosterStatus         string `json:"roster_status"`
+	PendingHandover      bool   `json:"pending_handover"`
 
 	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
 	CollaboratorEmployeeIDs []int64            `json:"collaborator_employee_ids"`
@@ -1762,17 +1780,19 @@ type WorkOrderDetail struct {
 }
 
 type JobCardActionCommand struct {
-	ID              int64
-	Action          string
-	Operator        string
-	ActualInputQty  float64
-	ActualOutputQty float64
-	ActualLossQty   float64
-	ActualLossRate  float64
-	ActualMinutes   int
-	LossReason      string
-	ExceptionReason string
-	MetricsJSON     string
+	ID                   int64
+	EmployeeID           int64
+	AssignedEmployeeName string
+	Action               string
+	Operator             string
+	ActualInputQty       float64
+	ActualOutputQty      float64
+	ActualLossQty        float64
+	ActualLossRate       float64
+	ActualMinutes        int
+	LossReason           string
+	ExceptionReason      string
+	MetricsJSON          string
 }
 
 type JobCardActionResult struct {
@@ -3585,13 +3605,69 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 			}
 		}
 	}
+	date := time.Now().In(productionLocation()).Format("2006-01-02")
+	if rosterRepo, ok := s.repo.(productionRosterRepository); ok {
+		assignments, assignmentErr := rosterRepo.ResolveProductionWorkstationAssignments(ctx, date)
+		if assignmentErr != nil {
+			return ProductionWorkstationOverview{}, assignmentErr
+		}
+		byID := map[int64]ProductionWorkstationDayAssignment{}
+		byName := map[string]ProductionWorkstationDayAssignment{}
+		for _, assignment := range assignments {
+			byID[assignment.WorkstationID] = assignment
+			byName[strings.TrimSpace(assignment.Workstation)] = assignment
+		}
+		filtered := make([]ProductionTask, 0, len(tasks))
+		for i := range tasks {
+			task := &tasks[i]
+			assignment, found := byID[task.WorkstationID]
+			if !found {
+				assignment, found = byName[strings.TrimSpace(task.Workstation)]
+			}
+			if found {
+				task.RosterEmployeeID = assignment.EmployeeID
+				task.RosterEmployeeName = assignment.EmployeeName
+				task.RosterSource = assignment.Source
+				if assignment.OverrideInvalid {
+					task.RosterStatus = "invalid_override"
+				} else if assignment.Unattended {
+					task.RosterStatus = "unattended"
+				} else {
+					task.RosterStatus = "assigned"
+				}
+				if task.Status == "pending" || task.Status == "ready" || task.Status == "released" || task.Status == "blocked" {
+					task.AssignedEmployeeID = assignment.EmployeeID
+					task.AssignedTo = assignment.EmployeeName
+					if assignment.Unattended {
+						task.IsBlocked = true
+						task.CanStart = false
+						task.AvailableActions = removeProductionAction(task.AvailableActions, "start")
+						task.BlockingReasons = append(task.BlockingReasons, ProductionBlockingReason{Code: "roster_unattended", Label: "今日该工位无人值班，请先完成排班", Severity: "blocking", NextHandler: "生产排班"})
+						if task.BlockingReason == "" {
+							task.BlockingReason = "今日该工位无人值班"
+							task.NextHandler = "生产排班"
+						}
+						task.Readiness, task.ReadinessLabel = productionTaskReadiness(*task)
+						applyProductionTaskReadinessDetail(task)
+					}
+				} else if (task.Status == "running" || task.Status == "paused") && assignment.EmployeeID > 0 && task.AssignedEmployeeID != assignment.EmployeeID {
+					task.PendingHandover = true
+				}
+			}
+			if query.Scope == "mine" && query.EmployeeID > 0 && task.AssignedEmployeeID != query.EmployeeID && task.RosterEmployeeID != query.EmployeeID {
+				continue
+			}
+			filtered = append(filtered, *task)
+		}
+		tasks = filtered
+	}
 
 	sortProductionTasks(tasks)
 	load := buildProductionWorkstationLoad(tasks)
 	statusSummary, blockedSummary, prioritySummary := buildProductionTaskSummaries(tasks)
 	todaySummary := buildProductionTodaySummary(tasks, workOrders, jobCards)
 	return ProductionWorkstationOverview{
-		Date:            time.Now().Format("2006-01-02"),
+		Date:            date,
 		TotalTasks:      len(tasks),
 		TodaySummary:    todaySummary,
 		NavBadges:       buildProductionNavBadges(todaySummary),
@@ -3601,6 +3677,16 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 		WorkstationLoad: load,
 		Tasks:           tasks,
 	}, nil
+}
+
+func removeProductionAction(actions []string, target string) []string {
+	out := make([]string, 0, len(actions))
+	for _, action := range actions {
+		if action != target {
+			out = append(out, action)
+		}
+	}
+	return out
 }
 
 func (s *Service) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error) {
@@ -3760,7 +3846,8 @@ func productionTaskFromJobCard(card JobCardRow, workOrder WorkOrderRow) Producti
 	status := normalizeProductionTaskStatus(card.Status)
 	blockingReason := productionBlockingReason(status, card.ExceptionReason, workCenter, assignedTo)
 	task := ProductionTask{
-		JobCardID: card.ID, OperationID: card.OperationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: []int64{}, Collaborators: []ScheduleEmployee{}, ScheduleVersion: card.ScheduleVersion,
+		ProductionPlanID: workOrder.ProductionPlanID, ProductionPlanItemID: workOrder.ProductionPlanItemID,
+		JobCardID: card.ID, OperationID: card.OperationID, WorkstationID: card.WorkstationID, AssignedEmployeeID: card.AssignedEmployeeID, CollaboratorEmployeeIDs: []int64{}, Collaborators: []ScheduleEmployee{}, ScheduleVersion: card.ScheduleVersion,
 		SequenceNo:                card.SequenceNo,
 		WorkOrderID:               firstNonZeroInt64(card.WorkOrderID, workOrder.ID),
 		RunningItemID:             workOrder.RunningItemID,
@@ -3815,6 +3902,8 @@ func productionTaskFromWorkOrder(workOrder WorkOrderRow) ProductionTask {
 	status := normalizeProductionTaskStatus(workOrder.Status)
 	blockingReason := productionBlockingReason(status, "", workCenter, workOrder.AssignedTo)
 	task := ProductionTask{
+		ProductionPlanID:          workOrder.ProductionPlanID,
+		ProductionPlanItemID:      workOrder.ProductionPlanItemID,
 		WorkOrderID:               workOrder.ID,
 		RunningItemID:             workOrder.RunningItemID,
 		WorkOrderNo:               strings.TrimSpace(workOrder.WorkOrderNo),
@@ -4975,11 +5064,20 @@ func applyProductionTaskReadinessDetail(task *ProductionTask) {
 	if task == nil {
 		return
 	}
-	reasons := make([]ProductionBlockingReason, 0)
+	reasons := append([]ProductionBlockingReason(nil), task.BlockingReasons...)
 	if strings.TrimSpace(task.BlockingReason) != "" {
-		code := productionTaskBlockingCode(task.BlockingReason)
-		link := productionTaskBlockingLink(*task, code)
-		reasons = append(reasons, productionBlockingReasonRow(code, task.BlockingReason, "blocked", firstNonEmpty(task.NextHandler, "现场主管"), []ProductionRelatedLink{link}))
+		found := false
+		for _, reason := range reasons {
+			if strings.TrimSpace(reason.Label) == strings.TrimSpace(task.BlockingReason) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			code := productionTaskBlockingCode(task.BlockingReason)
+			link := productionTaskBlockingLink(*task, code)
+			reasons = append(reasons, productionBlockingReasonRow(code, task.BlockingReason, "blocked", firstNonEmpty(task.NextHandler, "现场主管"), []ProductionRelatedLink{link}))
+		}
 	}
 	if task.Status == "completed" || task.Status == "cancelled" {
 		reasons = append(reasons, productionBlockingReasonRow("complete_cancelled", task.StatusLabel, "info", "生产负责人", []ProductionRelatedLink{productionRelatedLink("workOrder", "打开工单", "workOrders", productionTaskContextParams(*task, nil))}))

@@ -309,7 +309,7 @@ test('workstation entry focuses an active task and opens the work order when an 
 test('completed or cancelled work orders are read-only in the shared detail drawer', () => {
   const source = readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
   assert.match(source, /const workOrderClosed = computed/)
-  assert.match(source, /v-if="!workOrderClosed && assignmentJobCardID/)
+  assert.match(source, /v-if="workOrderClosed" class="muted"/)
   assert.match(source, /该工单已结束，不再开放人员调整、领料或执行动作/)
 })
 
@@ -386,4 +386,14 @@ test('workstation distinguishes a submitted command whose state refresh failed',
   assert.match(source, /return true/)
   assert.match(source, /return false/)
   assert.doesNotMatch(source, /await load\(\)\s*\n\s*message\.value = `\$\{actionLabel\(action\)\}成功`/)
+})
+
+test('employee workstation defaults to personal roster and only administrators see the factory switch', () => {
+  const appSource = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+
+  assert.match(appSource, /:actor="currentActor"/)
+  assert.match(source, /actorHasFullViewAccess\(props\.actor\)/)
+  assert.match(source, /v-if="canViewAll" class="scope-switch"/)
+  assert.match(source, /scope \|\| 'mine'/)
 })

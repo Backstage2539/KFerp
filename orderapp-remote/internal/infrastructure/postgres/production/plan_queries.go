@@ -516,6 +516,7 @@ func (r Repository) fetchProductionDemandPartsQuery(ctx context.Context, queryer
 			WHERE pi.product_id=sn.product_id
 			  AND pi.spec_g=sn.spec_g
 			  AND COALESCE(pp.status,'') <> 'cancelled'
+			  AND COALESCE(pi.replan_status,'active') <> 'withdrawn'
 			  AND sn.order_no = ANY(string_to_array(replace(COALESCE(pi.order_nos,''),' ',''), ','))
 			ORDER BY priority DESC,pp.created_at DESC,pp.id DESC,wo.id DESC
 			LIMIT 1
@@ -704,6 +705,7 @@ func (r Repository) productionDemandStatusByKeyQuery(ctx context.Context, querye
 		WHERE pi.product_id = ANY($1::bigint[])
 		  AND pi.spec_g = ANY($2::bigint[])
 		  AND COALESCE(pp.status,'') <> 'cancelled'
+		  AND COALESCE(pi.replan_status,'active') <> 'withdrawn'
 		ORDER BY pp.created_at DESC,pp.id DESC,wo.id DESC
 	`, r.schema, r.schema, r.schema)
 	sqlRows, err := queryer.Query(ctx, q, productIDs, specGs)

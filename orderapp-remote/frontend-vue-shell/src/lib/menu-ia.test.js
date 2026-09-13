@@ -113,7 +113,7 @@ test('manufacturing master data lives in production configuration while legacy r
   assert.equal(menuMap.manufacturingOperations?.title, '工序')
   assert.equal(menuMap.manufacturingWorkstations?.title, '工位/设备')
   assert.equal(menuMap.bom?.title, '生产 BOM')
-  assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'productionSchedule')?.label, '生产排程')
+  assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'productionSchedule')?.label, '生产排班')
 })
 
 test('industry field templates move to settings industry setup', () => {

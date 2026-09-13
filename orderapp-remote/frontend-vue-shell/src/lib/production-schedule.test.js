@@ -63,12 +63,12 @@ test('production schedule helper builds phase3 endpoints and normalized payloads
   })
 })
 
-test('schedule workspace uses task selection, shared staff, batch preview and explicit conflict confirmation', () => {
+test('schedule workspace is a weekly roster with automatic workstation assignment', () => {
   const source = readFileSync(new URL('../views/ProductionScheduleView.vue', import.meta.url), 'utf8')
-  for (const marker of ['生产排程工作区', '/api/production-schedule/preview', '/api/production-schedule/batch',
-    'ProductionStaffFields', '批量带入默认人员', '确认重叠并保存安排', '可用工时待配置', 'PaginationControls',
-    'beforeunload', 'version_conflict', 'request_id', 'returnNavigation', '待安排', '已安排', '生产中', '历史']) {
+  for (const marker of ['生产排班', '/api/production-roster/preview', '/api/production-roster/save',
+    '员工排班', '工位安排', '复制上一周', '恢复自动安排', '保存排班',
+    'beforeunload', 'version_conflict', 'requestID', '未排班', '无人值班', '待交接']) {
     assert.ok(source.includes(marker), `missing workflow: ${marker}`)
   }
-  assert.doesNotMatch(source, /MRP|甘特|mrpSuggestionsEndpoint|v-model[^>]+assigned_to/)
+  assert.doesNotMatch(source, /MRP|甘特|ProductionStaffFields|production-schedule\/batch|v-model[^>]+assigned_to/)
 })

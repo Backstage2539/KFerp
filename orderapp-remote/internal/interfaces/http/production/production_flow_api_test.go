@@ -1422,6 +1422,69 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 1)
 }
 
+func TestProductionPlanWithdrawsUnstartedDemandAndMergesNewDemandAtomically(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-REPLAN-RAW", "计划生豆", 1000)
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From: "2026-06-01", To: "2026-06-30", Selected: map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600}, Operator: "计划员", RequestID: "replan-old",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
+	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES(2,'SO-PLAN-NEW','2026-06-11',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES(2,1,'计划拼配',4,'袋','227g',1,50,200);
+	`, schema, schema, schema))
+	cmd := productionapp.ProductionReplanPreviewCommand{
+		ProductionPlanID: plan.ID, Revision: submitted.Plan.Revision,
+		ProductionPlanItemIDs: []int64{plan.Items[0].ID}, From: "2026-06-01", To: "2026-06-30",
+		Selected: map[string]bool{"1-227": true}, InputByKey: map[string]int64{"1-227": 1800},
+	}
+	preview, err := repo.PreviewProductionReplan(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.CanReplan || len(preview.OriginalDemands) != 1 || len(preview.AdditionalDemands) != 1 || preview.TotalQuantityG != 1362 {
+		t.Fatalf("preview = %+v", preview)
+	}
+	result, err := repo.ReplanProduction(ctx, productionapp.ProductionReplanCommand{
+		ProductionReplanPreviewCommand: cmd, RequestID: "replan-merge-once", Operator: "调度员",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NewPlan.Status != "draft" || len(result.NewPlan.Items) == 0 || result.NewPlan.Items[0].SalesSpecCount != 6 {
+		t.Fatalf("new plan = %+v", result.NewPlan)
+	}
+	var oldWOStatus, oldItemStatus string
+	var oldWOLink, oldItemLink int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT status,replan_status,replaced_by_plan_id FROM %s.work_orders WHERE id=$1`, schema), submitted.WorkOrders[0].ID).Scan(&oldWOStatus, &oldItemStatus, &oldWOLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT replan_status,replaced_by_plan_id FROM %s.production_plan_items WHERE id=$1`, schema), plan.Items[0].ID).Scan(&oldItemStatus, &oldItemLink); err != nil {
+		t.Fatal(err)
+	}
+	if oldWOStatus != "cancelled" || oldItemStatus != "withdrawn" || oldWOLink != result.NewPlan.ID || oldItemLink != result.NewPlan.ID {
+		t.Fatalf("old links work_order=%s/%d item=%s/%d", oldWOStatus, oldWOLink, oldItemStatus, oldItemLink)
+	}
+	replayed, err := repo.ReplanProduction(ctx, productionapp.ProductionReplanCommand{ProductionReplanPreviewCommand: cmd, RequestID: "replan-merge-once", Operator: "调度员"})
+	if err != nil || replayed.NewPlan.ID != result.NewPlan.ID {
+		t.Fatalf("replay = %+v err=%v", replayed, err)
+	}
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='replan'", plan.ID), 1)
+}
+
 func TestJobCardStartUsesFrozenBatchTailRemainder(t *testing.T) {
 	for _, testCase := range []struct {
 		name          string

@@ -35,28 +35,25 @@ func TestScheduleStaffBatchAPI(t *testing.T) {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
-		if rec.Code != 200 {
+		if rec.Code != http.StatusGone || !strings.Contains(rec.Body.String(), "生产排班") {
 			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
 		}
-		if repo.batch.Operator == "" || len(repo.batch.Items) != 1 || repo.batch.Items[0].PlannedStartAt != nil {
-			t.Fatalf("patch fields lost %+v", repo.batch)
-		}
-		if repo.preview != strings.HasSuffix(path, "preview") {
-			t.Fatal("preview became a write")
+		if len(repo.batch.Items) != 0 {
+			t.Fatalf("retired endpoint still wrote task staff %+v", repo.batch)
 		}
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/production-schedule/preview", strings.NewReader(`{"request_id":"retired-collaborator","items":[{"work_order_id":2,"job_card_id":4,"expected_version":7,"assigned_employee_id":11,"collaborator_employee_ids":[12]}]}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "协作人员功能已停用") {
+	if rec.Code != http.StatusGone || !strings.Contains(rec.Body.String(), "生产排班") {
 		t.Fatalf("nonempty collaborator payload accepted: %d %s", rec.Code, rec.Body.String())
 	}
 	req = httptest.NewRequest(http.MethodPost, "/api/production-schedule/preview", strings.NewReader(`{"items":[{"work_order_id":2,"job_card_id":4,"assigned_employee_id":11}]}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != 400 {
+	if rec.Code != http.StatusGone {
 		t.Fatalf("missing version accepted %s", rec.Body.String())
 	}
 	req = httptest.NewRequest(http.MethodGet, "/api/production-schedule/options", nil)
@@ -78,12 +75,11 @@ func TestScheduleSingleAPIKeepsFieldPresence(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != 200 || repo.scheduleAssignment.Patch == nil {
-		t.Fatalf("missing partial patch %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGone || !strings.Contains(rec.Body.String(), "生产排班") {
+		t.Fatalf("retired task assignment endpoint = %d %s", rec.Code, rec.Body.String())
 	}
-	p := repo.scheduleAssignment.Patch
-	if p.PlannedStartAt != nil || p.ShiftCode != nil || p.Note != nil || p.AssignedEmployeeID == nil {
-		t.Fatalf("personnel update sends empty schedule fields %+v", p)
+	if repo.scheduleAssignment.Patch != nil {
+		t.Fatalf("retired endpoint wrote a task patch %+v", repo.scheduleAssignment.Patch)
 	}
 }
 

@@ -86,6 +86,8 @@
                     <div v-if="task.order_nos.length" class="trace-row"><span>订单</span><div><b v-for="orderNo in task.order_nos" :key="orderNo">{{ orderNo }}</b></div></div>
                     <div v-if="task.dependencies.length" class="dependency-row"><span>等待</span><div v-for="link in task.dependencies" :key="link.item.id">{{ link.item.output_name || link.item.product_name }} {{ link.quantity_label }}</div></div>
                     <div v-if="task.supplies.length" class="dependency-row supplies"><span>供应</span><div v-for="link in task.supplies" :key="link.item.id">{{ link.item.output_name || link.item.product_name }} {{ link.quantity_label }}</div></div>
+                    <div v-if="!isDraft && task.item.replan_status === 'withdrawn'" class="replan-state"><span>已撤回重排</span><button v-if="task.item.replaced_by_plan_id" type="button" @click="$emit('navigate', 'producePlan', { production_plan_id: task.item.replaced_by_plan_id })">查看新计划</button></div>
+                    <button v-else-if="!isDraft && task.item.output_type !== 'material'" class="replan-button" type="button" @click="$emit('replan', task.item)">撤回并重新安排</button>
                   </article>
                 </div>
               </div>
@@ -228,7 +230,7 @@ const props = defineProps({
   dirty: { type: Boolean, default: false },
   notice: { type: String, default: '' },
 })
-const emit = defineEmits(['back', 'reload', 'save', 'submit', 'edit-splits', 'refresh', 'cancel', 'navigate', 'source-change', 'warehouse-change', 'adjust-source'])
+const emit = defineEmits(['back', 'reload', 'save', 'submit', 'edit-splits', 'refresh', 'cancel', 'replan', 'navigate', 'source-change', 'warehouse-change', 'adjust-source'])
 
 const stages = computed(() => buildProductionPlanStages(props.detail))
 const isDraft = computed(() => String(props.detail?.status || '') === 'draft')
@@ -276,6 +278,7 @@ function focusIssue(issue) {
 @media(max-width:720px){.workspace-header,.workspace-body,.workspace-footer{padding-left:16px;padding-right:16px}.header-main,.workspace-footer{align-items:flex-start;flex-direction:column}.summary-grid,.material-summary,.frozen-grid,.source-card{grid-template-columns:1fr}.footer-actions{width:100%;flex-wrap:wrap}.footer-actions .primary{flex:1}.production-plan-workspace{padding-bottom:130px}}
 
 .production-plan-workspace{--ink:#111827;--muted:#65748b;--line:#e1e7ed;--green:#238653;--green-soft:#ecf7f1;--paper:#fff;padding-bottom:0;display:flex;flex-direction:column}
+.replan-button{margin-top:12px;border:0;background:none;color:var(--green);font-weight:750;cursor:pointer;padding:0}.replan-state{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:8px 10px;border-radius:7px;background:#fff0df;color:#92590c;font-size:12px;font-weight:750}.replan-state button{border:0;background:none;color:var(--green);font-weight:750;cursor:pointer}
 .workspace-header{position:relative;box-shadow:none;padding-bottom:0;border-bottom:0}
 .workspace-body{padding-top:18px;width:100%;box-sizing:border-box}
 .summary-grid{background:var(--green-soft);border-radius:8px;gap:0}
