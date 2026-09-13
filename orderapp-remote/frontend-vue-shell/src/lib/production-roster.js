@@ -40,11 +40,12 @@ export function workstationOwnerState(row = {}) {
 export function previewWorkstationOwner(primaryEmployeeID, backupEmployeeIDs = [], attendance = {}, overrideEmployeeID = 0, employees = []) {
   const ids = [Number(primaryEmployeeID || 0), ...backupEmployeeIDs.map(Number)].filter((id, index, rows) => id > 0 && rows.indexOf(id) === index)
   const employeeByID = new Map(employees.map(row => [Number(row.id), row]))
-  const eligible = id => ids.includes(Number(id)) && employeeByID.get(Number(id))?.active !== false && employeeByID.get(Number(id))?.account_type !== 'channel_customer'
+  const active = id => employeeByID.has(Number(id)) && employeeByID.get(Number(id))?.active !== false && employeeByID.get(Number(id))?.account_type !== 'channel_customer'
+  const eligible = id => ids.includes(Number(id)) && active(id)
   const working = id => attendance[Number(id)] === 'working'
   const overrideID = Number(overrideEmployeeID || 0)
   if (overrideID > 0) {
-    if (!eligible(overrideID) || !working(overrideID)) return { employee_id: 0, employee_name: '', source: 'override', unattended: true, override_invalid: true }
+    if (!active(overrideID) || !working(overrideID)) return { employee_id: 0, employee_name: '', source: 'override', unattended: true, override_invalid: true }
     return { employee_id: overrideID, employee_name: employeeByID.get(overrideID)?.name || '', source: 'override', unattended: false, override_invalid: false }
   }
   for (const [index, id] of ids.entries()) {
@@ -70,7 +71,7 @@ export function rosterSavePayload(week, entries, overrides, requestID) {
     expected_version: Number(week.version || 0),
     request_id: requestID,
     entries: entries.map(row => ({ employee_id: Number(row.employee_id), work_date: row.work_date, status: row.status || 'unplanned' })),
-    overrides: overrides.map(row => ({ workstation_id: Number(row.workstation_id), work_date: row.work_date, employee_id: Number(row.employee_id) })),
+    overrides: overrides.map(row => ({ workstation_id: Number(row.workstation_id), work_date: row.work_date, employee_id: Number(row.employee_id), ...(row.reason ? { reason: row.reason } : {}) })),
   }
 }
 

@@ -53,3 +53,11 @@ test('save payload carries version attendance overrides and idempotency', () => 
     overrides: [{ workstation_id: 9, work_date: '2026-09-14', employee_id: 1 }],
   })
 })
+
+
+test('manual working employee outside the backup list is allowed only for that day', () => {
+ const people = [{id: 1, name: 'A', active: true}, {id: 2, name: 'B', active: true}]
+ assert.equal(previewWorkstationOwner(1, [], {1: 'working', 2: 'working'}, 2, people).employee_id, 2)
+ assert.equal(previewWorkstationOwner(1, [], {1: 'off', 2: 'working'}, 0, people).unattended, true)
+ assert.equal(previewWorkstationOwner(1, [], {2: 'off'}, 2, people).override_invalid, true)
+})
