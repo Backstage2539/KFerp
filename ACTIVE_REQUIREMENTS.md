@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-660-PRICE-TIER-FIXED-ORDER-CATEGORY
+- Branch: `codex/price-tier-fixed-order-category-20260913`; base `0fc27ba5`.
+- Owner/session: Codex / 2026-09-13
+- Status: implementing; development and production delivery authorized, Van business acceptance pending after development verification.
+- Scope: mixed pricing-rule/fixed-price tiers with stable tier identity; spec-tier fixed-price draft and publication snapshots; row override/revert; order entry categories sourced from selected published price lists.
+- DEV: DEV-667-PRICE-TIER-MODE; DEV-668-SPEC-TIER-FIXED-PRICE; DEV-669-ORDER-PUBLISHED-CATEGORY; DEV-670-PRICE-TIER-DELIVERY.
+- Verifier: targeted Go/Vue RED-GREEN; published-row validation and old snapshot compatibility; full Go/Vue/build; development browser acceptance; production read-only smoke.
+- Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md` and `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`.
+- Acceptance: `orderapp-remote/docs/acceptance/2026-09-13-price-tier-fixed-order-category.md`.
+- Notes: reservation helper initially selected PR-659 but its macOS awk multiline placeholder failed; concurrent development claimed PR-659 and DEV-664 through DEV-666 before integration, so this requirement moved to the next free IDs.
+
 ### PR-659-MINIAPP-SHARE-SCOPE
 - Branch: `codex/miniapp-production-share-20260913`, base `0fc27ba5767ad93547ec9433f684a4c20d5b1e37`.
 - Owner/session: Codex / 2026-09-13

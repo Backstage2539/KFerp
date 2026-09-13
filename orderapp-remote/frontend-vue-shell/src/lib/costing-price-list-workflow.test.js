@@ -515,6 +515,30 @@ describe('costing price-list workflow helpers', () => {
     assert.equal(priceListWorkflow.priceListFlatRowsReady([badRow]), false)
   })
 
+  it('validates fixed-price template tiers without requiring a pricing rule', () => {
+    const row = {
+      product_name: '挂耳咖啡',
+      spec_label: '10袋盒装',
+      pricing_mode: 'tier_template',
+      tier_pricing_mode: 'fixed_price',
+      tier_template_id: 3,
+      template_tier_id: 31,
+      fixed_unit_price: 58,
+      final_unit_price: 58,
+      price_unit: '盒',
+      inventory_unit: '盒',
+      inventory_conversion_json: { 盒: { 盒: 1 } },
+      group_snapshot: { group_item_name: '咖啡挂耳' },
+      cost_source_snapshot: { cost_source_mode: 'fixed_price' },
+    }
+
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(row), [])
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors({ ...row, fixed_unit_price: 0, final_unit_price: 0 }), [
+      '挂耳咖啡 / 规格：10袋盒装：缺少固定价',
+      '挂耳咖啡 / 规格：10袋盒装：最终价必须大于 0',
+    ])
+  })
+
   it('does not show a final-price error while the live pricing trial is loading', () => {
     const loadingRow = {
       product_name: '榛巧拼配',

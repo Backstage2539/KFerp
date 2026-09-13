@@ -865,7 +865,24 @@ test('price list generation persists pricing drafts and applies tier-template tr
   const flatRowEnd = viewSource.indexOf('function priceListPricingRuleTrialResultForRow', flatRowStart)
   assert.ok(flatRowStart > -1 && flatRowEnd > flatRowStart, 'priceListFlatRowFromSource block not found')
   const flatRowSource = viewSource.slice(flatRowStart, flatRowEnd)
-  assert.match(flatRowSource, /mode === 'pricing_rule' \|\| mode === 'tier_template'/)
+  assert.match(flatRowSource, /mode === 'tier_template' && effectiveTierPricingMode === 'pricing_rule'/)
+  assert.match(flatRowSource, /tier_pricing_mode: effectiveTierPricingMode/)
+  assert.match(flatRowSource, /usesFixedPrice \? Number\(fixedUnitPrice/)
+})
+
+test('mixed tier templates collect fixed prices per selected spec and preserve them in named drafts', () => {
+  for (const expected of [
+    'v-model="tier.pricing_mode"',
+    "<option value=\"fixed_price\">固定价</option>",
+    'priceListProductFixedTiers(row, spec)',
+    'setPriceListProductTierFixedPrice(row, spec, tier',
+    'const priceListTierFixedPrices = ref({})',
+    'tierFixedPrices: priceListTierFixedPrices.value',
+    'tier_pricing_mode: effectiveTierPricingMode',
+    "row.tier_pricing_mode === 'fixed_price' ? '引用规格固定价'",
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing fixed tier price behavior: ${expected}`)
+  }
 })
 
 test('price list restored product template overrides schedule pricing-rule trial refresh', () => {

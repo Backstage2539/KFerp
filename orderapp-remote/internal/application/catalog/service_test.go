@@ -551,6 +551,7 @@ func (r *fakeRepo) SaveProductPricingRule(ctx context.Context, cmd ProductPricin
 	if cmd.ID == 0 {
 		cmd.ID = 63
 	}
+	r.pricingRules = append(r.pricingRules, cmd)
 	return cmd, nil
 }
 
@@ -1196,7 +1197,8 @@ func TestLegacyProductTierPriceSchemeWritesAreReadonly(t *testing.T) {
 }
 
 func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.T) {
-	svc := NewService(&fakeRepo{})
+	repo := &fakeRepo{}
+	svc := NewService(repo)
 
 	rule, err := svc.SaveProductPricingRule(context.Background(), ProductPricingRule{
 		Name:         " 成本加成模板 ",
@@ -1217,7 +1219,7 @@ func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.
 	template, err := svc.SavePriceTierTemplate(context.Background(), PriceTierTemplate{
 		Name: " 批发档位 ",
 		Tiers: []PriceTierTemplateTier{
-			{Label: "10kg+", MinQty: 10, QuantityUnit: " kg ", PricingRuleID: rule.ID, Position: 2},
+			{Label: "10kg+", MinQty: 10, QuantityUnit: " kg ", PricingMode: "fixed_price", PricingRuleID: rule.ID, Position: 2},
 			{Label: "1kg+", MinQty: 1, MaxQty: &maxQty, QuantityUnit: "", PricingRuleID: rule.ID, Position: 1},
 		},
 	})
@@ -1230,6 +1232,9 @@ func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.
 	if template.Tiers[0].Label != "1kg+" || template.Tiers[0].QuantityUnit != "kg" || template.Tiers[1].Label != "10kg+" || template.Tiers[1].QuantityUnit != "kg" {
 		t.Fatalf("price tier template tiers not normalized/sorted: %+v", template.Tiers)
 	}
+	if template.Tiers[0].PricingMode != "pricing_rule" || template.Tiers[1].PricingMode != "fixed_price" || template.Tiers[1].PricingRuleID != 0 {
+		t.Fatalf("price tier template pricing modes not normalized: %+v", template.Tiers)
+	}
 	if _, err := svc.SavePriceTierTemplate(context.Background(), PriceTierTemplate{
 		Name: " 缺少计算模板 ",
 		Tiers: []PriceTierTemplateTier{
@@ -1237,6 +1242,19 @@ func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.
 		},
 	}); err == nil {
 		t.Fatalf("SavePriceTierTemplate() must reject enabled tiers without pricing_rule_id")
+	}
+	if _, err := svc.SavePriceTierTemplate(context.Background(), PriceTierTemplate{
+		Name:  "无效方式",
+		Tiers: []PriceTierTemplateTier{{Label: "1件+", PricingMode: "manual", PricingRuleID: rule.ID}},
+	}); err == nil {
+		t.Fatalf("SavePriceTierTemplate() must reject invalid pricing_mode")
+	}
+	repo.pricingRules = []ProductPricingRule{{ID: rule.ID, Active: false}}
+	if _, err := svc.SavePriceTierTemplate(context.Background(), PriceTierTemplate{
+		Name:  "停用计算模板",
+		Tiers: []PriceTierTemplateTier{{Label: "1件+", PricingMode: "pricing_rule", PricingRuleID: rule.ID, Active: true}},
+	}); err == nil || !strings.Contains(err.Error(), "active pricing rule") {
+		t.Fatalf("SavePriceTierTemplate() must reject inactive pricing rule, err=%v", err)
 	}
 }
 

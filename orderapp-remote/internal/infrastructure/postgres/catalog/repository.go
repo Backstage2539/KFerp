@@ -3437,7 +3437,7 @@ func (r Repository) ListPriceTierTemplates(ctx context.Context) ([]catalogapp.Pr
 		ids = append(ids, row.ID)
 	}
 	tierRows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, template_id, label, min_qty::float8, max_qty::float8, quantity_unit, pricing_rule_id, position, active, remark
+		SELECT id, template_id, label, min_qty::float8, max_qty::float8, quantity_unit, pricing_mode, pricing_rule_id, position, active, remark
 		FROM %s.price_tier_template_tiers
 		WHERE active=true AND template_id=ANY($1)
 		ORDER BY template_id, position, min_qty, id
@@ -3448,7 +3448,7 @@ func (r Repository) ListPriceTierTemplates(ctx context.Context) ([]catalogapp.Pr
 	defer tierRows.Close()
 	for tierRows.Next() {
 		var row catalogapp.PriceTierTemplateTier
-		if err := tierRows.Scan(&row.ID, &row.TemplateID, &row.Label, &row.MinQty, &row.MaxQty, &row.QuantityUnit, &row.PricingRuleID, &row.Position, &row.Active, &row.Remark); err != nil {
+		if err := tierRows.Scan(&row.ID, &row.TemplateID, &row.Label, &row.MinQty, &row.MaxQty, &row.QuantityUnit, &row.PricingMode, &row.PricingRuleID, &row.Position, &row.Active, &row.Remark); err != nil {
 			return nil, err
 		}
 		if i, ok := index[row.TemplateID]; ok {
@@ -3492,10 +3492,27 @@ func (r Repository) SavePriceTierTemplate(ctx context.Context, cmd catalogapp.Pr
 	}
 	for i := range cmd.Tiers {
 		cmd.Tiers[i].TemplateID = id
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.price_tier_template_tiers(template_id, label, min_qty, max_qty, quantity_unit, pricing_rule_id, position, active, remark)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		`, r.schema), id, cmd.Tiers[i].Label, cmd.Tiers[i].MinQty, cmd.Tiers[i].MaxQty, cmd.Tiers[i].QuantityUnit, cmd.Tiers[i].PricingRuleID, cmd.Tiers[i].Position, cmd.Tiers[i].Active, cmd.Tiers[i].Remark); err != nil {
+		if cmd.Tiers[i].ID > 0 {
+			var tierID int64
+			err := tx.QueryRow(ctx, fmt.Sprintf(`
+				UPDATE %s.price_tier_template_tiers
+				SET label=$3, min_qty=$4, max_qty=$5, quantity_unit=$6, pricing_mode=$7, pricing_rule_id=$8, position=$9, active=$10, remark=$11, updated_at=now()
+				WHERE id=$1 AND template_id=$2
+				RETURNING id
+			`, r.schema), cmd.Tiers[i].ID, id, cmd.Tiers[i].Label, cmd.Tiers[i].MinQty, cmd.Tiers[i].MaxQty, cmd.Tiers[i].QuantityUnit, cmd.Tiers[i].PricingMode, cmd.Tiers[i].PricingRuleID, cmd.Tiers[i].Position, cmd.Tiers[i].Active, cmd.Tiers[i].Remark).Scan(&tierID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return catalogapp.PriceTierTemplate{}, fmt.Errorf("price tier template tier %d does not belong to template %d", cmd.Tiers[i].ID, id)
+			}
+			if err != nil {
+				return catalogapp.PriceTierTemplate{}, err
+			}
+			continue
+		}
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.price_tier_template_tiers(template_id, label, min_qty, max_qty, quantity_unit, pricing_mode, pricing_rule_id, position, active, remark)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			RETURNING id
+		`, r.schema), id, cmd.Tiers[i].Label, cmd.Tiers[i].MinQty, cmd.Tiers[i].MaxQty, cmd.Tiers[i].QuantityUnit, cmd.Tiers[i].PricingMode, cmd.Tiers[i].PricingRuleID, cmd.Tiers[i].Position, cmd.Tiers[i].Active, cmd.Tiers[i].Remark).Scan(&cmd.Tiers[i].ID); err != nil {
 			return catalogapp.PriceTierTemplate{}, err
 		}
 	}

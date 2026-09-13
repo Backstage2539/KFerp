@@ -516,6 +516,65 @@ export function orderProductFamilyOptions(families = [], query = '', productKind
   })
 }
 
+function orderFamilyPublicationIDs(family = {}) {
+  const ids = new Set()
+  const add = (value) => {
+    const id = toInt(value)
+    if (id > 0) ids.add(id)
+  }
+  add(family?.bean_list_publication_id)
+  for (const tier of family?.tiers || []) add(tierPublicationID(tier))
+  for (const spec of family?.specs || []) {
+    add(spec?.bean_list_publication_id)
+    for (const tier of spec?.tiers || []) add(tierPublicationID(tier))
+  }
+  return ids
+}
+
+function activeOrderProductClassifications(groups = [], selections = {}) {
+  return (groups || []).flatMap((group) => {
+    if (group?.classified === false || !String(group?.key || '').startsWith('classification:')) return []
+    const selected = beanListVersionOptionForGroup(group, selections?.[group.key])
+    const publicationID = toInt(selected?.id)
+    if (publicationID <= 0) return []
+    return [{
+      value: String(group.key),
+      label: String(group.label || selected?.classification_template_name || selected?.product_type_name || '').trim(),
+      publication_ids: [publicationID],
+    }]
+  }).filter((row) => row.label)
+}
+
+export function orderProductClassificationFilterOptions(families = [], groups = [], selections = {}) {
+  const categories = activeOrderProductClassifications(groups, selections)
+  if (!categories.length) return []
+  const available = categories.filter((category) => (families || []).some((family) => {
+    const ids = orderFamilyPublicationIDs(family)
+    return category.publication_ids.some((id) => ids.has(id))
+  }))
+  return [
+    { value: '', label: '全部', publication_ids: categories.flatMap((row) => row.publication_ids) },
+    ...available,
+  ]
+}
+
+export function orderProductClassificationForFamily(family = {}, groups = [], selections = {}) {
+  const ids = orderFamilyPublicationIDs(family)
+  return activeOrderProductClassifications(groups, selections)
+    .find((category) => category.publication_ids.some((id) => ids.has(id))) || null
+}
+
+export function orderProductFamiliesForClassification(families = [], classification = '', groups = [], selections = {}) {
+  const categories = activeOrderProductClassifications(groups, selections)
+  if (!categories.length) return families || []
+  const selected = String(classification || '').trim()
+  const allowed = selected
+    ? categories.filter((category) => category.value === selected).flatMap((category) => category.publication_ids)
+    : categories.flatMap((category) => category.publication_ids)
+  const allowedIDs = new Set(allowed)
+  return (families || []).filter((family) => [...orderFamilyPublicationIDs(family)].some((id) => allowedIDs.has(id)))
+}
+
 export function closeOrderProductDropdowns(rows = [], keepKey = '') {
   const preservedKey = String(keepKey || '')
   for (const row of rows || []) {

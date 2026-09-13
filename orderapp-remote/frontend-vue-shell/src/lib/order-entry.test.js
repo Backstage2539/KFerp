@@ -67,6 +67,9 @@ import {
   orderProductFamilyOptions,
   orderProductFamilyForContext,
   orderProductFamilyIdentity,
+  orderProductClassificationFilterOptions,
+  orderProductClassificationForFamily,
+  orderProductFamiliesForClassification,
   orderProductKindFilterOptions,
   orderSpecSelectionAfterPublicationChange,
   orderRowPriceUnit,
@@ -235,6 +238,31 @@ test('order product options combine visible category and text filters', () => {
   assert.deepEqual(orderProductFamilyOptions(families, '', 'drip_bag').map((item) => item.id), [2])
   assert.deepEqual(orderProductFamilyOptions(families, '初晓', 'drip_bag').map((item) => item.id), [2])
   assert.deepEqual(orderProductFamilyOptions(families, '森林', 'drip_bag'), [])
+})
+
+test('order entry classifies products by selected published price lists instead of legacy product kind', () => {
+  const families = [
+    { id: 940, name: '甜香茶韵-挂耳-盒装', product_kind: 'roasted', specs: [{ sku_id: 940, tiers: [{ publication_id: 62 }] }] },
+    { id: 941, name: '咖啡果皮茶', product_kind: 'roasted', specs: [{ sku_id: 941, tiers: [{ publication_id: 63 }] }] },
+    { id: 942, name: '无价格商品', product_kind: 'green_bean', specs: [{ sku_id: 942, tiers: [] }] },
+  ]
+  const groups = [
+    { key: 'classification:56:commercial', label: '烘焙咖啡豆', options: [{ id: 65 }] },
+    { key: 'classification:162:green', label: '咖啡生豆', options: [{ id: 59 }] },
+    { key: 'classification:163:commercial', label: '咖啡挂耳', options: [{ id: 62 }] },
+    { key: 'classification:164:commercial', label: '速溶咖啡', options: [{ id: 67 }] },
+    { key: 'classification:464:commercial', label: '好玩的产品', options: [{ id: 63 }] },
+  ]
+  const selections = Object.fromEntries(groups.map((group) => [group.key, group.options[0].id]))
+
+  assert.deepEqual(orderProductClassificationFilterOptions(families, groups, selections), [
+    { value: '', label: '全部', publication_ids: [65, 59, 62, 67, 63] },
+    { value: 'classification:163:commercial', label: '咖啡挂耳', publication_ids: [62] },
+    { value: 'classification:464:commercial', label: '好玩的产品', publication_ids: [63] },
+  ])
+  assert.equal(orderProductClassificationForFamily(families[0], groups, selections)?.label, '咖啡挂耳')
+  assert.equal(orderProductClassificationForFamily(families[1], groups, selections)?.label, '好玩的产品')
+  assert.deepEqual(orderProductFamiliesForClassification(families, 'classification:163:commercial', groups, selections).map((row) => row.id), [940])
 })
 
 test('order product dropdown closer keeps only the clicked combobox open', () => {
@@ -2685,7 +2713,9 @@ test('order entry product dropdown applies customer product usage after filterin
   assert.match(source, /customerProductUsages\.value = data\.customer_product_usages \|\| \[\]/)
   assert.match(source, /function scopedOrderProductOptions\(\) \{\s*return filterProductsForCustomer\(/s)
   assert.doesNotMatch(source, /scopedLegacyProducts/)
-  assert.match(source, /sortProductsByCustomerUsage\(\s*orderProductFamilyOptions\(scopedOrderProductOptions\(\), row\.product_query, activeProductKindFilter\(row\)\)/s)
+  assert.match(source, /const families = scopedOrderProductOptions\(\)/)
+  assert.match(source, /orderProductFamiliesForClassification\(families, selected, beanListVersionGroups\.value, selectedBeanListPublicationIDs\)/)
+  assert.match(source, /sortProductsByCustomerUsage\(\s*orderProductFamilyOptions\(scopedFamilies, row\.product_query/s)
   assert.match(source, /form\.customer_id,\s*customerProductUsages\.value/s)
 })
 

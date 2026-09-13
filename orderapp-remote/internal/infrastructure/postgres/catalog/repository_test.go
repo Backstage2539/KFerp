@@ -2751,3 +2751,21 @@ func TestCreateProductUsesOneBigintTypeForCustomerIDParameter(t *testing.T) {
 		}
 	}
 }
+
+func TestSavePriceTierTemplatePreservesExistingTierIdentity(t *testing.T) {
+	repositoryBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := catalogRepositoryFunctionForTest(t, string(repositoryBytes), "func (r Repository) SavePriceTierTemplate", "func (r Repository) DeletePriceTierTemplate")
+	for _, want := range []string{
+		"WHERE id=$1 AND template_id=$2",
+		"pricing_mode=$7",
+		"RETURNING id",
+		"INSERT INTO %s.price_tier_template_tiers",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("tier template edits must update existing tiers by stable identity; missing %q", want)
+		}
+	}
+}
