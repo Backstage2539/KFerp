@@ -219,6 +219,7 @@ export function normalizePriceListGenerationDraft(draft = {}) {
     groupSelections: cloneDraft(draft.groupSelections || {}),
     productOverrides: cloneDraft(draft.productOverrides || {}),
     flatRowOverrides: cloneDraft(draft.flatRowOverrides || {}),
+    tierFixedPrices: cloneDraft(draft.tierFixedPrices || draft.tier_fixed_prices || {}),
   }
   if (draft.price_list_display_order) normalized.price_list_display_order = cloneDraft(draft.price_list_display_order)
   if (Array.isArray(draft.customerPriceSeedRows)) normalized.customerPriceSeedRows = cloneDraft(draft.customerPriceSeedRows)

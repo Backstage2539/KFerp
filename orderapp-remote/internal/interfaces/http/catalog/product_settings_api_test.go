@@ -3740,13 +3740,14 @@ func TestProductTierPriceSchemeAPIRejectsLegacyWrites(t *testing.T) {
 }
 
 func TestPriceTierTemplateAPIUsesReusableQuantityTiers(t *testing.T) {
+	repo := &productSettingsRepo{productPricingRules: []catalogapp.ProductPricingRule{{ID: 10, Active: true}}}
 	e := echo.New()
-	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+	registerProductRoutes(e, catalogapp.NewService(repo))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/price-tier-templates", bytes.NewBufferString(`{
 		"name":"批发档位",
 		"tiers":[
-			{"label":"10kg+","min_qty":10,"quantity_unit":"kg","pricing_rule_id":20,"position":2},
+			{"id":72,"label":"10kg+","min_qty":10,"quantity_unit":"kg","pricing_mode":"fixed_price","pricing_rule_id":20,"position":2},
 			{"label":"1kg+","min_qty":1,"max_qty":10,"pricing_rule_id":10,"position":1}
 		]
 	}`))
@@ -3756,7 +3757,7 @@ func TestPriceTierTemplateAPIUsesReusableQuantityTiers(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST price tier template status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"name":"批发档位"`, `"label":"1kg+"`, `"pricing_rule_id":10`, `"quantity_unit":"kg"`, `"label":"10kg+"`, `"pricing_rule_id":20`} {
+	for _, want := range []string{`"name":"批发档位"`, `"label":"1kg+"`, `"pricing_mode":"pricing_rule"`, `"pricing_rule_id":10`, `"quantity_unit":"kg"`, `"id":72`, `"label":"10kg+"`, `"pricing_mode":"fixed_price"`, `"pricing_rule_id":0`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("price tier template response missing %s: %s", want, rec.Body.String())
 		}

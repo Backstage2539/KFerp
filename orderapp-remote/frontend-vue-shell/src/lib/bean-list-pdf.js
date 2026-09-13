@@ -631,8 +631,9 @@ function normalizePriceListFlatRow(row = {}) {
     ...(stringField(row.tier_template_name ?? row.tierTemplateName) ? { tier_template_name: stringField(row.tier_template_name ?? row.tierTemplateName) } : {}),
     tier_template_source: stringField(row.tier_template_source ?? row.tierTemplateSource),
     template_tier_id: firstNumber(row.template_tier_id, row.templateTierID),
-	quantity_basis: stringField(row.quantity_basis ?? row.quantityBasis),
-	effective_sales_spec: parseJSONObject(row.effective_sales_spec ?? row.effectiveSalesSpec),
+    tier_pricing_mode: stringField(row.tier_pricing_mode ?? row.tierPricingMode) || (firstNumber(row.tier_template_id, row.tierTemplateID) > 0 ? 'pricing_rule' : ''),
+    quantity_basis: stringField(row.quantity_basis ?? row.quantityBasis),
+    effective_sales_spec: parseJSONObject(row.effective_sales_spec ?? row.effectiveSalesSpec),
     ...(stringField(row.tier_quantity_unit ?? row.tierQuantityUnit) ? { tier_quantity_unit: stringField(row.tier_quantity_unit ?? row.tierQuantityUnit) } : {}),
     ...(stringField(row.product_sales_spec_unit ?? row.productSalesSpecUnit) ? { product_sales_spec_unit: stringField(row.product_sales_spec_unit ?? row.productSalesSpecUnit) } : {}),
     ...((Object.prototype.hasOwnProperty.call(row, 'tier_unit_compatible') || Object.prototype.hasOwnProperty.call(row, 'tierUnitCompatible'))
@@ -731,6 +732,8 @@ function flatRowTierSnapshot(row = {}) {
     pricing_rule_version: row.pricing_rule_version,
     tier_pricing_rule_id: row.tier_pricing_rule_id,
     tier_pricing_rule_version: row.tier_pricing_rule_version,
+    tier_pricing_mode: row.tier_pricing_mode,
+    fixed_unit_price: row.fixed_unit_price,
     manual_adjusted: row.manual_adjusted,
   }
 }

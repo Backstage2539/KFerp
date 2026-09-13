@@ -24,7 +24,7 @@ func TestDev467PriceListGenerationPersistencePreviewGroupFixContracts(t *testing
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"restorePriceListGenerationDraftForActiveType",
 			"savePriceListGenerationDraftForActiveType",
-			"mode === 'pricing_rule' || mode === 'tier_template'",
+			"mode === 'pricing_rule' || (mode === 'tier_template' && effectiveTierPricingMode === 'pricing_rule')",
 			"selectedProductCatalogGroupTemplates",
 			"businessGroupRowsForFeatureSelection",
 		},
@@ -41,7 +41,7 @@ func TestDev467PriceListGenerationPersistencePreviewGroupFixContracts(t *testing
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "costing-bean-list-version-ui.test.js"): {
 			"price list generation persists pricing drafts and applies tier-template trial results",
-			"assert.match(flatRowSource, /mode === 'pricing_rule' \\|\\| mode === 'tier_template'/)",
+			"assert.match(flatRowSource, /mode === 'tier_template' && effectiveTierPricingMode === 'pricing_rule'/)",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "business-grouping.test.js"): {
 			"feature-owned business group selection resolves templates in the selected order without template usages",

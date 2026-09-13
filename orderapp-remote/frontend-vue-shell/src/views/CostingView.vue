@@ -474,6 +474,25 @@
                       @input="setPriceListProductFixedPrice(row, spec, $event.target.value)"
                     />
                   </label>
+                  <div
+                    v-if="isPdfProductSpecSelected(row, spec) && priceListProductFixedTiers(row, spec).length"
+                    class="product-spec-tier-fixed-prices"
+                  >
+                    <label
+                      v-for="tier in priceListProductFixedTiers(row, spec)"
+                      :key="`spec-tier-fixed-${priceListSkuID(spec)}-${tier.id}`"
+                      :class="['product-spec-fixed-price', { invalid: !(priceListProductTierFixedPrice(row, spec, tier) > 0) }]"
+                    >
+                      <span>{{ priceListSalesSpecCountTierLabel(tier) || tier.label }}固定价（元/{{ priceListProductSpecLabel(spec) }}）</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        :value="priceListProductTierFixedPrice(row, spec, tier)"
+                        @input="setPriceListProductTierFixedPrice(row, spec, tier, $event.target.value)"
+                      />
+                    </label>
+                  </div>
                   <small v-if="isPdfProductSpecSelected(row, spec) && priceListProductSpecPricingWarning(row, spec)" class="product-spec-pricing-warning">
                     {{ priceListProductSpecPricingWarning(row, spec) }}
                   </small>
@@ -572,6 +591,7 @@
             <div>
               <span>{{ priceTablePricingModeLabel(row.pricing_mode) }}：{{ priceListSourceLabel(row.pricing_mode_source) }}</span>
               <span v-if="row.tier_template_id">阶梯模板：{{ priceListSourceLabel(row.tier_template_source) }}</span>
+              <span v-if="row.tier_pricing_mode === 'fixed_price'">档位定价：规格固定价</span>
               <span v-if="row.pricing_rule_id">计算模板：{{ priceListSourceLabel(row.pricing_rule_source) }}</span>
             </div>
             <label>
@@ -579,8 +599,8 @@
               <small>/{{ priceListFlatRowPriceUnitLabel(row) }}</small>
             </label>
             <div>
-             <span>{{ row.pricing_rule_version ? ('计算规则：' + row.pricing_rule_version) : (row.pricing_mode === 'fixed_price' ? '计算规则：固定价' : '计算规则：未选择 Pricing Rule') }}</span>
-             <span :class="{ adjusted: row.manual_adjusted }">状态：{{ row.manual_adjusted ? '人工调整' : (priceListFlatRowPricingTrialStatus(row) === 'loading' ? '价格计算中…' : (priceListFlatRowPricingTrialStatus(row) === 'error' ? '计算失败' : '自动计算')) }}</span>
+             <span>{{ row.pricing_rule_version ? ('计算规则：' + row.pricing_rule_version) : ((row.pricing_mode === 'fixed_price' || row.tier_pricing_mode === 'fixed_price') ? '计算规则：固定价' : '计算规则：未选择 Pricing Rule') }}</span>
+             <span :class="{ adjusted: row.manual_adjusted }">状态：{{ row.manual_adjusted ? '人工调整' : (row.tier_pricing_mode === 'fixed_price' ? '引用规格固定价' : (priceListFlatRowPricingTrialStatus(row) === 'loading' ? '价格计算中…' : (priceListFlatRowPricingTrialStatus(row) === 'error' ? '计算失败' : '自动计算'))) }}</span>
               <button v-if="canRevertPriceListFlatRow(row)" class="secondary compact flat-row-revert" type="button" @click="revertPriceListFlatRowPrice(row)">撤销人工修改</button>
            </div>
             <ul v-if="priceListFlatRowVisibleErrors(row).length" class="flat-price-row-error-list">
@@ -772,7 +792,7 @@
         <div class="drawer-head">
           <div>
             <h3>阶梯模板</h3>
-    <p>阶梯模板只定义 BOM 规格件数。每个档位选择一个价格计算模板，档位显示为 1件、10件；不同 BOM 规格单独展示。</p>
+    <p>阶梯模板只定义 BOM 规格件数和定价方式。每个档位可使用价格计算模板或固定价；固定金额在商品规格下填写。</p>
           </div>
           <button class="secondary" type="button" @click="closeTierTemplateDrawer">关闭</button>
         </div>
@@ -809,7 +829,7 @@
               <button class="secondary compact-action" type="button" @click="addPriceTierTemplateTier">新增档位</button>
             </div>
             <div class="template-tier-list">
-              <div v-for="(tier, index) in priceTierTemplateForm.tiers" :key="`drawer-price-tier-template-${index}`" class="template-tier-row price-list-tier-template-row">
+              <div v-for="(tier, index) in priceTierTemplateForm.tiers" :key="`drawer-price-tier-template-${tier.id || index}`" class="template-tier-row price-list-tier-template-row">
                 <label>
                   <span>档位名</span>
                   <input v-model.trim="tier.label" placeholder="如 1件、10件、100件" />
@@ -823,12 +843,20 @@
                   <input v-model="tier.max_qty" type="number" min="0" step="0.0001" placeholder="无上限" />
                 </label>
                 <label>
+                  <span>定价方式</span>
+                  <select v-model="tier.pricing_mode">
+                    <option value="pricing_rule">价格计算模板</option>
+                    <option value="fixed_price">固定价</option>
+                  </select>
+                </label>
+                <label v-if="tier.pricing_mode === 'pricing_rule'">
                   <span>价格计算模板</span>
                   <select v-model.number="tier.pricing_rule_id">
                     <option :value="0">请选择</option>
                     <option v-for="rule in pricingRules" :key="`tier-template-rule-${index}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
                   </select>
                 </label>
+                <p v-else class="muted tier-fixed-mode-note">金额在选择商品规格后逐档填写</p>
                 <button class="text-button danger-text" type="button" @click="removePriceTierTemplateTier(index)">删除</button>
               </div>
             </div>
@@ -1339,6 +1367,7 @@ const priceListGroupTemplateSelections = ref({})
 const priceListProductTemplateOverrides = ref({})
 const priceListLegacyPricingConflicts = ref([])
 const priceListFlatRowOverrides = ref({})
+const priceListTierFixedPrices = ref({})
 const customerPriceSeedRows = ref([])
 const customerPriceConfiguredSources = ref({})
 let customerPriceSeedScope = ''
@@ -2006,6 +2035,7 @@ function savePriceListGenerationDraftForActiveType() {
     groupSelections: priceListGroupTemplateSelections.value,
     productOverrides: priceListProductTemplateOverrides.value,
     flatRowOverrides: priceListFlatRowOverrides.value,
+    tierFixedPrices: priceListTierFixedPrices.value,
     customerPriceSeedRows: customerPriceSeedRows.value,
     customerPriceConfiguredSources: customerPriceConfiguredSources.value,
     product_spec_selections: pdfProductSpecSelections.value,
@@ -2016,7 +2046,7 @@ function savePriceListGenerationDraftForActiveType() {
 function restorePriceListGenerationDraftForActiveType() {
   priceListLegacyPricingConflicts.value = []
   const scopeKey = priceListGenerationDraftStorageKey()
-  if (customerPriceSeedScope !== scopeKey) { customerPriceSeedRows.value = []; customerPriceConfiguredSources.value = {}; priceListFlatRowOverrides.value = {}; customerPriceSeedScope = scopeKey }
+  if (customerPriceSeedScope !== scopeKey) { customerPriceSeedRows.value = []; customerPriceConfiguredSources.value = {}; priceListFlatRowOverrides.value = {}; priceListTierFixedPrices.value = {}; customerPriceSeedScope = scopeKey }
   const draft = readPriceListGenerationDraft(scopeKey)
   priceListDisplayOrder.value = clonePriceTable(draft?.price_list_display_order || {})
   if (!draft) return false
@@ -2040,6 +2070,7 @@ function restorePriceListGenerationDraftForActiveType() {
   priceListProductTemplateOverrides.value = migratedFixedPriceRows.productOverrides
   priceListLegacyPricingConflicts.value = migratedProductOverrides.conflicts
   priceListFlatRowOverrides.value = migratedFixedPriceRows.flatRowOverrides
+  priceListTierFixedPrices.value = normalizePriceListFlatRowOverrides(draft.tierFixedPrices || {})
   if (Object.prototype.hasOwnProperty.call(draft, 'product_spec_selections')) {
     const key = activePriceListTypeKey.value
     productSpecSelectionsByType.value = {
@@ -2217,6 +2248,11 @@ function priceListProductSpecPricingResolution(family = {}, spec = {}) {
 }
 
 function priceListProductSpecPricingWarning(family = {}, spec = {}) {
+  const missingFixedTier = priceListProductFixedTiers(family, spec)
+    .find((tier) => !(priceListProductTierFixedPrice(family, spec, tier) > 0))
+  if (missingFixedTier) {
+    return `${priceListSalesSpecCountTierLabel(missingFixedTier) || missingFixedTier.label || '固定价档位'}未填写固定价`
+  }
   return priceTablePricingResolutionWarning(priceListProductSpecPricingResolution(family, spec))
 }
 
@@ -2644,6 +2680,52 @@ function priceListProductTemplateOverride(row = {}) {
 
 function priceListProductFixedPrice(family = {}, spec = {}) {
   return Number(priceListProductTemplateOverride(priceListProductRowForSpec(family, spec)).fixed_unit_price || 0) || 0
+}
+
+function priceListProductFixedTiers(family = {}, spec = {}) {
+  const resolved = priceListProductSpecPricingResolution(family, spec)
+  if (String(resolved.pricing_mode || '').trim() !== 'tier_template') return []
+  const template = priceTierTemplateByID(resolved.tier_template_id)
+  return (Array.isArray(template?.tiers) ? template.tiers : [])
+    .filter((tier) => tier?.active !== false && (String(tier?.pricing_mode || tier?.pricingMode || '').trim() || 'pricing_rule') === 'fixed_price')
+}
+
+function priceListProductTierFixedPriceKey(family = {}, spec = {}, tier = {}) {
+  const row = priceListProductRowForSpec(family, spec)
+  const resolved = priceListProductSpecPricingResolution(family, spec)
+  return priceTierTemplateRowKey({
+    productID: priceListSkuID(spec),
+    templateID: resolved.tier_template_id,
+    tierID: tier.id || tier.label,
+    product: row,
+    tier,
+  })
+}
+
+function priceListProductTierFixedPrice(family = {}, spec = {}, tier = {}) {
+  return Number(priceListTierFixedPrices.value[priceListProductTierFixedPriceKey(family, spec, tier)] || 0) || 0
+}
+
+function priceListResolvedConfigurationScope(resolved = {}, family = {}) {
+  if (String(resolved.pricing_mode_source || '').trim() === 'parent_product') {
+    return `product:${priceListParentProductID(family)}`
+  }
+  if (['subgroup', 'parent_group'].includes(String(resolved.pricing_mode_source || '').trim())) {
+    return `group:${Number(resolved.pricing_mode_source_group_item_id || 0)}`
+  }
+  return 'default'
+}
+
+function setPriceListProductTierFixedPrice(family = {}, spec = {}, tier = {}, value) {
+  const key = priceListProductTierFixedPriceKey(family, spec, tier)
+  if (!key) return
+  const amount = Number(value)
+  const next = { ...priceListTierFixedPrices.value }
+  if (Number.isFinite(amount) && amount > 0) next[key] = amount
+  else delete next[key]
+  priceListTierFixedPrices.value = next
+  markCustomerPriceConfigured(priceListResolvedConfigurationScope(priceListProductSpecPricingResolution(family, spec), family))
+  savePriceListGenerationDraftForActiveType()
 }
 
 function setPriceListSkuFixedPrice(row = {}, value) {
@@ -3159,7 +3241,8 @@ function priceListFlatRowsFromGroups(groups = []) {
           )) || templateTiers[0] || {}
           const incompatibleTierIndex = Math.max(0, templateTiers.indexOf(incompatibleTier))
           const sourceTier = tierForTemplateTier(incompatibleTier, tiers, incompatibleTierIndex)
-          const pricingRule = pricingRuleByID(incompatibleTier.pricing_rule_id)
+          const tierPricingMode = String(incompatibleTier.pricing_mode || incompatibleTier.pricingMode || '').trim() || 'pricing_rule'
+          const pricingRule = tierPricingMode === 'pricing_rule' ? pricingRuleByID(incompatibleTier.pricing_rule_id) : null
           rows.push(priceListFlatRowFromSource({
             item,
             groupRow,
@@ -3187,12 +3270,23 @@ function priceListFlatRowsFromGroups(groups = []) {
             pricingRuleID: Number(incompatibleTier.pricing_rule_id || 0),
             pricingRuleSource: resolved.tier_template_source,
             tierPricingRuleID: Number(incompatibleTier.pricing_rule_id || 0),
+            tierPricingMode,
           }))
           return
         }
         ;(Array.isArray(template?.tiers) ? template.tiers : []).forEach((templateTier, tierIndex) => {
           const sourceTier = tierForTemplateTier(templateTier, tiers, tierIndex)
-          const pricingRule = pricingRuleByID(templateTier.pricing_rule_id)
+          const tierPricingMode = String(templateTier.pricing_mode || templateTier.pricingMode || '').trim() || 'pricing_rule'
+          const pricingRule = tierPricingMode === 'pricing_rule' ? pricingRuleByID(templateTier.pricing_rule_id) : null
+          const fixedUnitPrice = tierPricingMode === 'fixed_price'
+            ? Number(priceListTierFixedPrices.value[priceTierTemplateRowKey({
+              productID: skuID || productID || itemProductID(item),
+              templateID: resolved.tier_template_id,
+              tierID: templateTier.id || templateTier.label || tierIndex,
+              product: item,
+              tier: templateTier,
+            })] || 0)
+            : 0
           rows.push(priceListFlatRowFromSource({
             item,
             groupRow,
@@ -3219,6 +3313,8 @@ function priceListFlatRowsFromGroups(groups = []) {
             pricingRuleID: Number(templateTier.pricing_rule_id || 0),
             pricingRuleSource: resolved.tier_template_source,
             tierPricingRuleID: Number(templateTier.pricing_rule_id || 0),
+            tierPricingMode,
+            fixedUnitPrice,
           }))
         })
       } else {
@@ -3269,11 +3365,14 @@ function priceListFlatRowFromSource({
   pricingRuleID = 0,
   pricingRuleSource = '',
   tierPricingRuleID = 0,
+  tierPricingMode = '',
   fixedUnitPrice = 0,
 } = {}) {
   const mode = String(resolved.pricing_mode || '').trim()
+  const effectiveTierPricingMode = mode === 'tier_template' ? (String(tierPricingMode || '').trim() || 'pricing_rule') : ''
   const tierUnitIncompatible = tierUnitCompatibility?.compatible === false
-  const originalPrice = tierUnitIncompatible ? 0 : (mode === 'fixed_price' ? Number(fixedUnitPrice || 0) : tierFlatFinalPrice(sourceTier))
+  const usesFixedPrice = mode === 'fixed_price' || effectiveTierPricingMode === 'fixed_price'
+  const originalPrice = tierUnitIncompatible ? 0 : (usesFixedPrice ? Number(fixedUnitPrice || 0) : tierFlatFinalPrice(sourceTier))
   const override = Number(priceListFlatRowOverrides.value[rowKey])
   const hasOverride = !tierUnitIncompatible && Number.isFinite(override) && override > 0
   const finalPrice = hasOverride ? override : originalPrice
@@ -3327,18 +3426,19 @@ function priceListFlatRowFromSource({
     } : {}),
     tier_template_source: tierTemplateSource,
     template_tier_id: Number(templateTierID || 0),
+    tier_pricing_mode: effectiveTierPricingMode,
     pricing_rule_id: Number(pricingRuleID || 0),
     pricing_rule_source: pricingRuleSource,
-	    pricing_rule_version: ruleVersion,
-	    tier_pricing_rule_id: Number(tierPricingRuleID || 0),
-	    tier_pricing_rule_version: tierPricingRuleID ? ruleVersion : '',
-	    customer_product_alias_id: Number(item.customer_product_alias_id || item.customerProductAliasID || 0),
-	    fixed_unit_price: Number(fixedUnitPrice || 0) || 0,
-	    cost_source_snapshot: costSourceSnapshotForPriceRow(item, sourceTier, pricingRule, mode),
-	    customer_reference_snapshot: customerReferenceSnapshotForPriceRow(item),
+    pricing_rule_version: ruleVersion,
+    tier_pricing_rule_id: Number(tierPricingRuleID || 0),
+    tier_pricing_rule_version: tierPricingRuleID ? ruleVersion : '',
+    customer_product_alias_id: Number(item.customer_product_alias_id || item.customerProductAliasID || 0),
+    fixed_unit_price: Number(fixedUnitPrice || 0) || 0,
+    cost_source_snapshot: costSourceSnapshotForPriceRow(item, sourceTier, pricingRule, usesFixedPrice ? 'fixed_price' : mode),
+    customer_reference_snapshot: customerReferenceSnapshotForPriceRow(item),
     manual_adjusted: hasOverride,
   }
-  const trial = mode === 'pricing_rule' || mode === 'tier_template' ? priceListPricingRuleTrialResultForRow(row) : null
+  const trial = mode === 'pricing_rule' || (mode === 'tier_template' && effectiveTierPricingMode === 'pricing_rule') ? priceListPricingRuleTrialResultForRow(row) : null
   return trial ? applyPricingRuleTrialToPriceTableRow(row, trial) : row
 }
 
@@ -3626,6 +3726,7 @@ function defaultPriceTierTemplateTier(tier = {}, index = 0) {
     min_qty: Number(tier.min_qty ?? tier.minQty ?? 0) || 0,
     max_qty: tier.max_qty === null || tier.max_qty === undefined ? '' : tier.max_qty,
     quantity_unit: 'sales_spec_count',
+    pricing_mode: String(tier.pricing_mode || tier.pricingMode || '').trim() || 'pricing_rule',
     pricing_rule_id: Number(tier.pricing_rule_id || tier.pricingRuleID || 0),
     position: Number(tier.position || index + 1),
     active: Boolean(tier.active ?? true),
@@ -3667,8 +3768,8 @@ async function savePriceTierTemplate() {
     error.value = '请填写阶梯模板名称'
     return
   }
-  if (!payload.tiers.length || payload.tiers.some((tier) => !tier.label || !(Number(tier.pricing_rule_id || 0) > 0))) {
-    error.value = '每个档位都需要档位名和价格计算模板'
+  if (!payload.tiers.length || payload.tiers.some((tier) => !tier.label || (tier.pricing_mode === 'pricing_rule' && !(Number(tier.pricing_rule_id || 0) > 0)))) {
+    error.value = '每个档位都需要档位名；价格计算档位还需选择价格计算模板'
     return
   }
   tierTemplateSaving.value = true
@@ -5186,7 +5287,7 @@ function captureNamedPriceTablePayload() {
   return clonePriceTable({ ...beanListPublicationPayload(), blocked_reason: priceListPublishBlockedReason.value,
     draft: { defaults: priceListTemplateDefaults.value, parentSelections: priceListParentTemplateSelections.value,
       groupSelections: priceListGroupTemplateSelections.value, productOverrides: priceListProductTemplateOverrides.value,
-      flatRowOverrides: priceListFlatRowOverrides.value, customerPriceSeedRows: customerPriceSeedRows.value,
+      flatRowOverrides: priceListFlatRowOverrides.value, tierFixedPrices: priceListTierFixedPrices.value, customerPriceSeedRows: customerPriceSeedRows.value,
       customerPriceConfiguredSources: customerPriceConfiguredSources.value,
       product_spec_selections: pdfProductSpecSelections.value, price_list_display_order: priceListDisplayOrder.value },
     editor: { pdfOptions: pdfOptions.value, customizers: pdfCustomizers.value,
@@ -5223,6 +5324,7 @@ async function applyNamedPriceTablePayload() {
     priceListGroupTemplateSelections.value = {}
     priceListProductTemplateOverrides.value = {}
     priceListFlatRowOverrides.value = {}
+    priceListTierFixedPrices.value = {}
     productSpecSelectionsByType.value = { ...productSpecSelectionsByType.value, [key]: [] }
     savePriceListGenerationDraft(priceListGenerationDraftStorageKey(), draft)
     restorePriceListGenerationDraftForActiveType()
@@ -5321,7 +5423,7 @@ watch([activePriceListTypeKey, activeBeanListCustomerID, publicationScope, loadi
   if (!loading.value) { await nextTick(); await restoreNamedPriceTableBatch() }
 }, { flush: 'post' })
 watch([priceListDisplayOrder, pdfOptions, pdfCustomizers, priceListTemplateDefaults, priceListParentTemplateSelections, priceListGroupTemplateSelections,
-  priceListProductTemplateOverrides, priceListFlatRowOverrides, customerPriceConfiguredSources, pdfProductSpecSelections, pdfGroups], persistNamedPriceTableBatch, { deep: true, flush: 'post' })
+  priceListProductTemplateOverrides, priceListFlatRowOverrides, priceListTierFixedPrices, customerPriceConfiguredSources, pdfProductSpecSelections, pdfGroups], persistNamedPriceTableBatch, { deep: true, flush: 'post' })
 watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name])]), () => {
   if (!restoringNamedPriceTable && namedPriceTableBatch.value) savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
 })
@@ -5556,6 +5658,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .product-spec-option.selected { border-color: #9fc2f6; background: #f7faff; }
 .product-spec-fixed-price { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(90px, 130px); align-items: center; gap: 8px; flex: 1 0 100%; color: #222; font-size: 12px; }
 .product-spec-fixed-price input { width: 100%; min-width: 0; box-sizing: border-box; }
+.product-spec-tier-fixed-prices { display: grid; gap: 6px; flex: 1 0 100%; padding: 8px; border-radius: 8px; background: #f8fafc; }
+.product-spec-fixed-price.invalid { color: #b42318; }
+.product-spec-fixed-price.invalid input { border-color: #f04438; background: #fff5f4; }
 .product-spec-pricing-warning { flex: 1 0 100%; color: #b42318; font-weight: 700; }
 .product-spec-selection-warning { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #d89a2b; border-radius: 8px; background: #fff8e8; color: #7b4e00; padding: 9px 10px; }
 .product-spec-selection-warning-actions { display: flex; gap: 6px; flex-wrap: wrap; flex: none; }
@@ -5660,7 +5765,8 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
 .tier-template-list-row strong, .tier-template-list-row small { display: block; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .tier-template-list-row.active { border-color: #111; }
 .tier-template-form { display: grid; gap: 10px; }
-.price-list-tier-template-row { grid-template-columns: minmax(100px, .8fr) minmax(90px, .65fr) minmax(90px, .65fr) minmax(180px, 1.2fr) auto; }
+.price-list-tier-template-row { grid-template-columns: minmax(100px, .8fr) minmax(90px, .65fr) minmax(90px, .65fr) minmax(130px, .9fr) minmax(180px, 1.2fr) auto; }
+.tier-fixed-mode-note { align-self: center; margin: 0; max-width: 180px; }
 .template-select-pair input { width: 100%; }
 
 @media (max-width: 1200px) {
