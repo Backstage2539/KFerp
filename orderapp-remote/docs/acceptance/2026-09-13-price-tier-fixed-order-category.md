@@ -34,7 +34,10 @@
 
 ## Development 与 Production 证据
 
-- Development 提交、备份、回滚路径、运行状态、浏览器截图：部署后填写。
+- Development 已运行提交 `25603ec86aac4902302c4bc25f7f13d9463b5261`。`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` 退出 0；登录页和外部 Vue 地址返回 200，`erp_orderapp` 状态 running、重启次数 0，PostgreSQL healthy。
+- Development 源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260913231558-25603ec86aac`；回滚镜像 `kferp-orderapp-rollback:development-20260913231558-25603ec86aac`。
+- Development API 只读烟测：需求接口能读取 PR-660；阶梯模板接口返回 `pricing_mode`；录单表单接口返回 200。
+- Development 浏览器验收：阶梯模板抽屉逐档显示“价格计算模板 / 固定价”，说明固定金额在商品规格下填写；录单商品下拉按当前发布价格表显示“咖啡生豆”真实分类和发布版本，未出现旧“熟豆 / 挂耳”硬编码标签；浏览器控制台无错误。开发数据当前没有已发布的挂耳或好玩的产品候选，因此这两类用生产结构自动测试和 production 只读页面继续核对。
 - Production 提交、备份、回滚路径、运行状态、只读烟测：部署后填写。
 - 生产烟测只读取现有已发布价格表与录单候选，不新建、修改或发布正式业务价格。
 - 技术验证由 Codex 完成；Van 的业务验收不代签。
