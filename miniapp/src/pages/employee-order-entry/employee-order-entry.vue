@@ -3,7 +3,12 @@ import { computed, ref, watch } from 'vue'
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import { prepaymentPresets, prepaymentByRate } from '../../utils/prepayment'
 import PaymentSummary from '../../components/PaymentSummary.vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import {
+  defaultMiniappShare,
+  defaultMiniappTimelineShare,
+  refreshMiniappShareMenu,
+} from '../../utils/miniappShare'
 import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
 import ProductFamilyPickerSheet from '../../components/ProductFamilyPickerSheet.vue'
 import {
@@ -876,6 +881,10 @@ onShow(() => {
   if (loading.value || productCatalogLoading.value || Number(form.value.customer_id || 0) <= 0) return
   void refreshCurrentProductCatalog()
 })
+
+onShareAppMessage(defaultMiniappShare)
+onShareTimeline(defaultMiniappTimelineShare)
+onShow(() => { void refreshMiniappShareMenu() })
 </script>
 
 <template>

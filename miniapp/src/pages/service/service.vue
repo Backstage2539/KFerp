@@ -2,7 +2,12 @@
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { computed, ref } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import {
+  defaultMiniappShare,
+  defaultMiniappTimelineShare,
+  refreshMiniappShareMenu,
+} from '../../utils/miniappShare'
 import {
   acknowledgeBeanListVersion,
   assignCustomerProductCategory,
@@ -938,6 +943,10 @@ onLoad((query) => {
 onShow(() => {
   void loadPage()
 })
+
+onShareAppMessage(defaultMiniappShare)
+onShareTimeline(defaultMiniappTimelineShare)
+onShow(() => { void refreshMiniappShareMenu() })
 </script>
 
 <template>

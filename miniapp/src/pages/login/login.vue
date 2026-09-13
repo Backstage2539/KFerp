@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import {
+  defaultMiniappShare,
+  defaultMiniappTimelineShare,
+  refreshMiniappShareMenu,
+} from '../../utils/miniappShare'
 import { ref } from 'vue'
 import { loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
@@ -95,6 +101,10 @@ async function handlePasswordLogin() {
     loading.value = false
   }
 }
+
+onShareAppMessage(defaultMiniappShare)
+onShareTimeline(defaultMiniappTimelineShare)
+onShow(() => { void refreshMiniappShareMenu() })
 </script>
 
 <template>

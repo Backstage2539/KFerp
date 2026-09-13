@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import {
+  defaultMiniappShare,
+  defaultMiniappTimelineShare,
+  refreshMiniappShareMenu,
+} from '../../utils/miniappShare'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import GuestHome from '../../components/GuestHome.vue'
 import { useSessionStore } from '../../stores/session'
@@ -7,6 +12,10 @@ const session = useSessionStore()
 onShow(() => {
   if (session.token) uni.reLaunch({ url: '/pages/home/home' })
 })
+
+onShareAppMessage(defaultMiniappShare)
+onShareTimeline(defaultMiniappTimelineShare)
+onShow(() => { void refreshMiniappShareMenu() })
 </script>
 <template>
   <view class="page">
