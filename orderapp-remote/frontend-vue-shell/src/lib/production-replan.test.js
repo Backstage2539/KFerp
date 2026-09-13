@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { summarizeReplanQuantities } from './production-replan.js'
+
+test('replan summary preserves business units and groups different units separately', () => {
+  assert.equal(summarizeReplanQuantities([{ quantity: 11, unit: '袋' }]), '11 袋')
+  assert.equal(summarizeReplanQuantities([{ quantity_g: 1749 }]), '1.749 kg')
+  assert.equal(summarizeReplanQuantities([{ quantity: 11, unit: '袋' }, { quantity: 4, unit: 'kg' }]), '11 袋 · 4 kg')
+  assert.equal(summarizeReplanQuantities([]), '0')
+})
 
 test('unstarted demand replan is reviewed then opens one new draft', () => {
   const page = readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
