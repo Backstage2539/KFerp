@@ -58,6 +58,13 @@ GREEN：
 
 ## 部署与业务验收边界
 
-- 待本分支整合最新 develop 后部署 development，部署版本和回滚点写入本记录及 ACTIVE_REQUIREMENTS。
-- 用户当前真实排班、未保存修改和实际生产工单保留；上述写操作均使用隔离数据。
+- 实现分支 `codex/production-roster-relief-20260913`；已推送提交 `ae3c240c16bacf03a07d9a7821e2ec3af75b3c9e`。整合最新 develop 后 `scripts/verify_kferp.sh all` 通过；GitHub [PR #120](https://github.com/Backstage2539/KFerp/pull/120) 合并为 `9e143dd5542e9d105e944eada59a51763452b84a`。
+- 从干净、与远端一致的 develop 克隆执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`，返回 `Release completed` 和 exit 0。开发环境运行版本为上述 `9e143dd5`；本次后续证据提交仅更新文档，不改变运行应用版本。
+- 回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20260913205817-9e143dd5542e`；镜像 `kferp-orderapp-rollback:development-20260913205817-9e143dd5542e`。
+- 技术冒烟：登录页、认证后 Vue 排班页及排班 API 均 HTTP 200；未认证排班 API 401，未认证 `/app/` 按现有机制跳转登录页。PR-658 在需求 API 中为 review / VA。服务端排班、Vue 页面和生产手册 SHA256 与验证源码一致；RELEASE_INFO 版本一致。
+- `erp_orderapp` 运行、重启次数 0，开发 PostgreSQL healthy，实际承载入口的共享 `erp_prod_caddy` 运行。旧 `erp_caddy` 为已停止容器，不是当前入口；未改动它。上线后应用日志无新增 error/panic/fatal。生产应用保持原运行状态，没有发布微信。
+- 用户当前真实排班、未保存修改和实际生产工单保留；开工、换人、交接写操作均使用隔离数据。真实人员配置只修正已明确核实的智烘关系：工位 id3，主负责人段其晶 id6 保持，替补从空补为刘祎泊 id10；工位价格、适配工序等其他字段相同。
+- 修正后 GET 重新读取：9/8、9/10、9/12 的智烘负责人均为刘祎泊，来源 backup；其他日期仍为段其晶。保存前后完整出勤、当日人工安排及周版本 V3 相同。配置操作日志时间 2026-09-13 21:07:08，actor=order，记录 primary=6 / backups=[10]。没有推测或补改其他工位名单。
+- 独立打开开发页面只读复核，新增 `08-live-auto-relief.png`；原浏览器未保存页面没有刷新、导航或保存。其他工位仍缺替补或替补未排班时，页面显示具体原因。
+- 部署证据：`deploy.log`、`deployment-smoke.json`、`runtime.log`、`live-config-repair.json`、`live-repair-audit.json`，均位于 `/private/tmp/kferp-pr658-evidence/`。截图总览 `screenshots.md`。
 - 技术验证与隔离页面场景已完成，Van 的真实业务验收待进行。
