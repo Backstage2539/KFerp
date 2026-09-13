@@ -40,3 +40,16 @@
 - 开发回滚源 `/opt/stacks/erp/orderapp.backup.deploy-20260914002020-793fe8966a91`，镜像 `kferp-orderapp-rollback:development-20260914002020-793fe8966a91`。正式回滚源 `/opt/stacks/erp-production/orderapp.backup.deploy-20260914003028-b3b1c76ad03f`，镜像 `kferp-orderapp-rollback:production-20260914003028-b3b1c76ad03f`。
 - 最终手册路径核对发现“操作说明”缺返回入口，页面读取确认无返回按钮，针对性测试RED。补充共用 ProductionReturnLink 和来源参数，返回原日志筛选及选中记录；无来源时不显示。随后再次通过检查并同步两个环境，最终运行版本见后续交付记录。
 - 隔离验收服务与schema已清理，剩余schema=0。PR处于review，Van业务验收待进行；DEV交付状态done，并以独立操作日志记录技术交付状态更新。
+
+## 最终发布与验收结果（2026-09-14）
+
+- 开发运行版本 `2f5625ae172454093a9942dde5a57300ae03b316`，正式运行版本 `b263fe746d066057da8090f695a4b7e2444f441d`。两次发布均从干净且与上游一致的源码启动发布流程；正式最终由 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production` 完成。开发最终补丁在下述空间故障恢复后复用了已测试、校验散列一致的不可变镜像，由持有服务器发布锁的恢复流程提升。没有上传或发布微信版本。
+- 开发补丁发布期间服务器根盘空间耗尽，开发应用启动失败，开发 PostgreSQL 发生重启及自动恢复。清理约13GB Docker构建缓存及14GB Go编译缓存后恢复空间；保留业务数据卷、源备份和回滚镜像，先恢复旧应用，再提升已验证的新镜像。恢复后开发数据库健康，累计重启计数53，正式数据库重启计数0。该故障与恢复记录保存在 `deploy-development-disk-full.log`、`disk-full-recovery.log` 与 `deploy-development-final.log`。
+- 开发回滚源 `/opt/stacks/erp/orderapp.backup.recovery-20260914011424-2f5625ae1724`，镜像 `kferp-orderapp-rollback:development-recovery-20260914011424-2f5625ae1724`。
+- 正式回滚源 `/opt/stacks/erp-production/orderapp.backup.deploy-20260914011810-b263fe746d06`，镜像 `kferp-orderapp-rollback:production-20260914011810-b263fe746d06`。
+- 最终 Go 全包、Vue **1236/1236**、Vite 构建通过；服务器 miniapp **246/246**、类型检查与构建、14页面产物校验通过。针对性真实 PostgreSQL 205条分页/搜索/时区用例通过。
+- 两环境无鉴权日志接口401、鉴权200、非法日期400、页面200；日志页面/手册组件/查询代码/生产手册散列与发布源一致，两应用 restart=0，PostgreSQL healthy。最终发布后的健康、磁盘与近期日志复核见 `final-health.json`；此前开发空间故障单独保留，不计作成功发布。
+- 开发真实34条日志已核对数量、规格、1kg用料与旧单位提示；正式当前0条日志，列表空状态正常。正式详情不以虚构业务记录演示，详情与分页验收来自开发和隔离数据。
+- “操作说明”进入手册后左上显示返回生产日志，返回后恢复筛选和所选记录；最终页面证据已保存。原用户未保存排班页面保留。独立测试schema已清理。
+- PR-661 为 review；DEV-671/672/673 为 done；Van 业务验收待进行。交付状态更新写入操作日志，未改写业务订单、生产记录、库存或实际排班。
+- 截图与完整本地交付记录：`/Users/yiiiple-work/.codex/visualizations/2026/09/10/01a08c12-acfc-7603-b432-179e1de49410/production-logs/生产日志验收.md`。服务器原始发布记录与技术证据：`/private/tmp/kferp-pr659-evidence`。后续验收文档提交只补充本次发布事实，不代表重新发布应用。
