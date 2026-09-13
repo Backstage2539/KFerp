@@ -13,7 +13,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-671-LOG-QUERY; DEV-672-LOG-WORKSPACE; DEV-673-LOG-DELIVERY.
 - Verifier: targeted RED/GREEN, Go/API and isolated PostgreSQL paging/date/context tests, Vue interaction/unit tests and build, desktop/narrow browser evidence.
 - Delivery: 用户授权 develop 开发环境 → develop 合入 main → 正式环境；保留各环境配置与业务数据，使用干净克隆，不发布微信。
-- Status: 首次双环境已发布：development 793fe896 / production b3b1c76a，外网API/页面和源码核对通过。Go全包、Vue1235、真实PostgreSQL及隔离/真实页面验收通过。最后补齐操作说明返回链接，补丁再次检查和发布中。Van业务验收待进行。
+- Status: 已完成双环境发布与技术/页面验收。development `2f5625ae172454093a9942dde5a57300ae03b316`；production `b263fe746d066057da8090f695a4b7e2444f441d`。Go全包、Vue1236、真实PostgreSQL、构建与截图通过；Van业务验收待进行。
 - Evidence: orderapp-remote/docs/acceptance/2026-09-13-production-log-workspace.md.
 - Coordination: 原本地预留 659 与并行已合入需求撞号，改用 PR-661 / DEV-671–673；测试隔离数据与证据目录沿用 659 标识。
 
