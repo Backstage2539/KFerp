@@ -15,7 +15,9 @@
 
 ## 发布边界
 
-本次可把源码合入 `develop`，但不上传或发布微信正式版。ERP development/production 服务部署与微信小程序上传是两条独立链路；只有 production 包经微信平台上传、审核并发布后，生产用户才会看到本次变化。
+源码已在本机通过 SSH 合入并推送：初始 `develop` 集成提交为 `f9a54f8e`，初始 `main` 发布提交为 `ffb6926d`。正式环境小程序固定包已重新生成到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，旧包保留为同级时间戳备份；最终包必须在本验收记录合入后再次从最终 `main` 构建，并以 `RELEASE_INFO` 回读提交号。
+
+本次没有部署 production ERP 服务，也没有在微信开发者工具上传或在微信平台提交审核、发布。小程序依赖新增的 `/api/mini/share-settings` 接口；正式包上传前应先完成 production ERP 部署，否则策略读取会按安全规则隐藏分享入口。
 
 ## 真机验收
 
