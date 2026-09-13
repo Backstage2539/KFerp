@@ -399,4 +399,5 @@ test('employee workstation defaults to personal roster and only administrators s
   for (const marker of ['本周排班尚未保存', '今天尚未排班', '今天休息', '今天已上班，暂未负责工位']) {
     assert.ok(source.includes(marker), `missing personal roster state: ${marker}`)
   }
+  assert.ok(source.includes('今日工位暂无任务'), 'factory overview must not imply that the administrator owns an unattended workstation')
 })

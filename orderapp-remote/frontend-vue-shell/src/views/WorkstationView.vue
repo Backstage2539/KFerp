@@ -53,7 +53,7 @@
           </div>
         </div>
 
-        <div v-if="!section.tasks.length" class="no-task">今日负责此工位，暂无任务</div>
+        <div v-if="!section.tasks.length" class="no-task">{{ scope === 'mine' ? '今日负责此工位，暂无任务' : '今日工位暂无任务' }}</div>
         <button v-else-if="!selectedWorkstation" class="enter-station primary" type="button" @click="selectedWorkstation = section.workstation">进入本工位</button>
 
         <div v-if="selectedWorkstation" class="task-table">
