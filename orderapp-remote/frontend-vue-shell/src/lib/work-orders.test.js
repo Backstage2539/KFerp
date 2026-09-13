@@ -157,8 +157,9 @@ test('current production views remove legacy expected yield and keep actual yiel
 
   assert.doesNotMatch(logSource, /BOM预期产出率|row\.bom_yield_rate/)
   assert.match(logSource, /实际产出率/)
-  assert.match(logSource, /row\.actual_yield_rate/)
-  assert.match(logSource, /colspan="19"/)
+  assert.match(logSource, /productionLogYield/)
+  assert.match(logSource, /实际投料/)
+  assert.doesNotMatch(logSource, /ProductionTopNav/)
 })
 
 test('WorkOrdersView filters work orders only by status without BOM demand preview', () => {

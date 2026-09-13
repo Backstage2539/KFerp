@@ -6,6 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-661-PRODUCTION-LOG-WORKSPACE
+- Branch: `codex/production-log-workspace-20260913`; base `origin/develop@0fc27ba5`.
+- Owner: Codex; acceptance Van pending.
+- Scope: 生产日志统一白底浅绿摘要、紧凑列表与右侧详情；明确查询、真实分页、数量单位及批次追溯；只读历史记录。
+- DEV: DEV-671-LOG-QUERY; DEV-672-LOG-WORKSPACE; DEV-673-LOG-DELIVERY.
+- Verifier: targeted RED/GREEN, Go/API and isolated PostgreSQL paging/date/context tests, Vue interaction/unit tests and build, desktop/narrow browser evidence.
+- Delivery: 用户授权 develop 开发环境 → develop 合入 main → 正式环境；保留各环境配置与业务数据，使用干净克隆，不发布微信。
+- Status: 实现、针对性 RED/GREEN、Go 全包、真实 PostgreSQL 205 条分页/北京时间、Vue 1231 项、构建与隔离桌面/430px 页面验收通过；准备合入 develop 并按授权发布两环境。Van 业务验收待进行。
+- Evidence: orderapp-remote/docs/acceptance/2026-09-13-production-log-workspace.md.
+- Coordination: 原本地预留 659 与并行已合入需求撞号，改用 PR-661 / DEV-671–673；测试隔离数据与证据目录沿用 659 标识。
+
 ### PR-660-PRICE-TIER-FIXED-ORDER-CATEGORY
 - Branch: `codex/price-tier-fixed-order-category-20260913`; base `0fc27ba5`.
 - Owner/session: Codex / 2026-09-13
