@@ -25,8 +25,11 @@ function harness(t) {
     activeBeanListCustomerID: customerID, activePriceListTypeKey: ref('coffee'), customerPriceSeedRows: seeds,
     priceListGenerationDraftBaseKey: baseKey, priceListGenerationDraftStorageKey: draftKey,
     seedCustomerPriceRows, pdfTheme: ref({ listType: 'commercial' }), window: { location: { origin: 'https://example.test' } },
-    beanListPublicationURL: (type, owner) => `/publications?scope=${owner}`,
-    apiGet: url => new Promise(resolve => pending.push({ url: String(url), resolve })), error: ref(''),
+    priceListPublicationTypeOptionsReady: ref(true), activeProductTypeCategoryID: ref(56),
+    activePublicationProductTypeCategoryID: id => Number(id || 0),
+    activePublicationClassificationTemplateID: () => 0,
+    FACTORY_SUPPLY_PUBLICATION_PURPOSE: 'factory_supply',
+    publicationRequestOnce: url => new Promise(resolve => pending.push({ url: String(url), resolve })), error: ref(''),
     restoreDraft: () => { seeds.value = structuredClone(drafts.get(draftKey()) || []) },
     savePriceListGenerationDraftForActiveType: () => drafts.set(draftKey(), JSON.parse(JSON.stringify(seeds.value))),
   }
@@ -47,8 +50,9 @@ test('public quote response remains usable when named customer draft initializes
   const h = harness(t)
   const loading = h.loadCustomerPriceSources()
   h.tableKey.value = 'default'
-  h.pending[0].resolve({ rows: [] })
-  h.pending[1].resolve({ rows: [official] })
+  assert.equal(h.pending.length, 1)
+  assert.match(h.pending[0].url, /\/api\/costing\/bean-list\/publications\/price-sources\?/)
+  h.pending[0].resolve({ rows: [official] })
   await loading
   await nextTick()
   assert.deepEqual(h.output.value.map(row => row.final_unit_price), [28, 33, 26, 24])
@@ -59,8 +63,8 @@ test('switching named tables reuses loaded quotes and preserves the other table 
   const h = harness(t)
   h.tableKey.value = 'standard'
   const loading = h.loadCustomerPriceSources()
-  h.pending[0].resolve({ rows: [] })
-  h.pending[1].resolve({ rows: [official] })
+  assert.equal(h.pending.length, 1)
+  h.pending[0].resolve({ rows: [official] })
   await loading
   await nextTick()
   h.drafts.set(h.draftKey(), [{ ...rows[0], final_unit_price: 55 }])
@@ -81,7 +85,7 @@ test('a late source response cannot populate a different customer draft', async 
   h.customerID.value = 303
   await nextTick()
   h.pending[0].resolve({ rows: [{ ...official, owner_type: 'customer', owner_key: '302' }] })
-  h.pending[1].resolve({ rows: [official] })
+  h.pending[1].resolve({ rows: [] })
   await loading
   await nextTick()
   assert.deepEqual(h.seeds.value, [])
