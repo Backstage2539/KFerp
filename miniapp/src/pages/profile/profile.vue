@@ -8,12 +8,13 @@ import {
 } from '../../utils/miniappShare'
 import {
   fetchEmployeeShareSettings,
+  fetchDirectShipRequests,
   fetchMe,
   saveEmployeeShareSettings,
   saveEmployeeShareScope,
   switchCurrentCustomer,
 } from '../../api/customerPortal'
-import type { EmployeeShareScope } from '../../api/customerPortal'
+import type { EmployeeShareScope, MeResponse } from '../../api/customerPortal'
 import { isAuthenticationExpiredRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
@@ -40,6 +41,10 @@ const {
 const loading = ref(false)
 const switching = ref(false)
 const errorMessage = ref('')
+const currentContext = ref<MeResponse | null>(null)
+const recentRecipients = ref<Array<{ key: string; name: string; phone: string; address: string }>>([])
+const recipientLoading = ref(false)
+const recipientError = ref('')
 const shareSettingLoading = ref(false)
 const shareSettingSaving = ref(false)
 const shareSettingLoaded = ref(false)
@@ -74,6 +79,15 @@ const themeMeta = computed(() => miniappThemeMeta(session.themeKey))
 const canSwitchCustomer = computed(() => shouldShowCustomerSwitcher(session.bindings))
 const customerPickerLabels = computed(() => buildCustomerPickerLabels(session.bindings, session.currentCustomerID))
 const customerPickerIndex = computed(() => selectedCustomerPickerIndex(session.bindings, session.currentCustomerID))
+const serviceDescriptions = computed(() => {
+  const items: string[] = []
+  if (hasCapability('direct_ship')) items.push('一件代发按 ERP 指定价格表下单，缺货订单自动进入现有生产流程。')
+  if (hasCapability('processing')) items.push('生产工单可提交代加工需求并查看排产、完工与入库进度。')
+  if (hasCapability('inventory_custody')) items.push('我的库存按客户货权查看成品、生豆、包材和半成品。')
+  if (hasCapability('shipping_query')) items.push('发货中心可查看订单包裹、运单号和已获取的物流轨迹。')
+  if (hasCapability('settlement')) items.push('费用中心可下载账单、确认对账或对具体费用提出异议。')
+  return items
+})
 
 function clearAndLogin() {
   session.clearSession()
@@ -97,6 +111,29 @@ function openCustomerProducts() {
 
 function openFactoryProducts() {
   uni.navigateTo({ url: '/pages/factory-products/factory-products' })
+}
+
+async function loadRecentRecipients() {
+  recentRecipients.value = []
+  recipientError.value = ''
+  if (isEmployee.value || !session.token || !hasCapability('direct_ship')) return
+  recipientLoading.value = true
+  try {
+    const response = await fetchDirectShipRequests(session.token, { page: 1, limit: 20 })
+    const seen = new Set<string>()
+    recentRecipients.value = (response.rows || []).flatMap((row) => {
+      const address = [row.province, row.city, row.district, row.detail_address].filter(Boolean).join('')
+      const key = `${row.recipient_name}|${row.recipient_phone}|${address}`
+      if (!row.recipient_name || seen.has(key)) return []
+      seen.add(key)
+      return [{ key, name: row.recipient_name, phone: row.recipient_phone, address }]
+    }).slice(0, 5)
+  } catch (error) {
+    if (redirectExpiredShareSettingsSession(error)) return
+    recipientError.value = error instanceof Error ? error.message : '常用收件人加载失败'
+  } finally {
+    recipientLoading.value = false
+  }
 }
 
 async function handleCustomerSwitch(event: { detail?: { value?: number | string } }) {
@@ -197,8 +234,10 @@ async function loadContext() {
   errorMessage.value = ''
   try {
     const response = await fetchMe(session.token)
+    currentContext.value = response
     session.applyContext(response)
     if (canManageShareSettings.value) await loadShareSettings()
+    await loadRecentRecipients()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '账号信息加载失败'
     session.clearSession()
@@ -241,6 +280,48 @@ onShow(() => { void refreshMiniappShareMenu() })
       <view class="info-row">
         <text class="label">{{ isEmployee ? '当前员工' : '当前客户' }}</text>
         <text class="value">{{ accountName }}</text>
+      </view>
+
+      <view v-if="!isEmployee" class="profile-card">
+        <text class="card-title">客户资料</text>
+        <view class="detail-row">
+          <text class="label">联系人</text>
+          <text class="value">{{ currentContext?.current_customer_contact || '未配置' }}</text>
+        </view>
+        <view class="detail-row">
+          <text class="label">联系电话</text>
+          <text class="value">{{ currentContext?.current_customer_phone || '未配置' }}</text>
+        </view>
+        <view class="detail-row">
+          <text class="label">联系地址</text>
+          <text class="value value-wrap">{{ currentContext?.current_customer_address || '未配置' }}</text>
+        </view>
+      </view>
+
+      <view v-if="!isEmployee" class="profile-card">
+        <text class="card-title">业务联系人</text>
+        <text class="card-copy">
+          {{ currentContext?.business_contact_name || 'ERP 暂未配置业务联系人' }}
+          <template v-if="currentContext?.business_contact_phone"> · {{ currentContext.business_contact_phone }}</template>
+        </text>
+      </view>
+
+      <view v-if="!isEmployee && hasCapability('direct_ship')" class="profile-card">
+        <text class="card-title">常用收件人</text>
+        <text v-if="recipientLoading" class="card-copy">正在读取最近收件人...</text>
+        <text v-else-if="recipientError" class="error">{{ recipientError }}</text>
+        <view v-else-if="recentRecipients.length" class="recipient-list">
+          <view v-for="recipient in recentRecipients" :key="recipient.key" class="recipient-item">
+            <text class="recipient-title">{{ recipient.name }} · {{ recipient.phone }}</text>
+            <text class="card-copy">{{ recipient.address }}</text>
+          </view>
+        </view>
+        <text v-else class="card-copy">完成一件代发订单后，最近使用的收件人会显示在这里。</text>
+      </view>
+
+      <view v-if="!isEmployee && serviceDescriptions.length" class="profile-card">
+        <text class="card-title">服务说明</text>
+        <text v-for="item in serviceDescriptions" :key="item" class="service-copy">{{ item }}</text>
       </view>
 
       <view v-if="canManageShareSettings" class="settings-card">
@@ -391,6 +472,72 @@ onShow(() => { void refreshMiniappShareMenu() })
   border: 1rpx solid #d8e4dd;
   border-radius: 16rpx;
   background: #ffffff;
+}
+
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+  padding: 28rpx;
+  border: 1rpx solid #ead9bd;
+  border-radius: 16rpx;
+  background: #fffdf8;
+}
+
+.card-title {
+  color: #2b2118;
+  font-size: 29rpx;
+  font-weight: 900;
+}
+
+.card-copy,
+.service-copy {
+  color: #6f665d;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
+.service-copy {
+  display: block;
+  padding-left: 22rpx;
+  position: relative;
+}
+
+.service-copy::before {
+  position: absolute;
+  left: 0;
+  content: '•';
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 24rpx;
+}
+
+.value-wrap {
+  max-width: 68%;
+  line-height: 1.55;
+}
+
+.recipient-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.recipient-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #eee2cf;
+}
+
+.recipient-title {
+  color: #2b2118;
+  font-size: 25rpx;
+  font-weight: 800;
 }
 
 .scope-options {

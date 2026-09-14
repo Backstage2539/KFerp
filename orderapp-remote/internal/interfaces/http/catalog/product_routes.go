@@ -126,6 +126,7 @@ type productUpdateAPIRequest struct {
 	DripBoxBagCount             *int                      `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder       *bool                     `json:"allow_fulfillment_order"`
 	AllowMallOrder              *bool                     `json:"allow_mall_order"`
+	IsProcessingProduct         *bool                     `json:"is_processing_product"`
 	RetailPrice100G             *float64                  `json:"retail_price_100g"`
 	RetailPrice200G             *float64                  `json:"retail_price_200g"`
 	RetailPrice227G             *float64                  `json:"retail_price_227g"`
@@ -162,6 +163,7 @@ type productCreateAPIRequest struct {
 	DripBoxBagCount          *int                      `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder    *bool                     `json:"allow_fulfillment_order"`
 	AllowMallOrder           *bool                     `json:"allow_mall_order"`
+	IsProcessingProduct      *bool                     `json:"is_processing_product"`
 	DefaultPrice             float64                   `json:"default_price"`
 	RetailPrice100G          float64                   `json:"retail_price_100g"`
 	RetailPrice200G          float64                   `json:"retail_price_200g"`
@@ -651,6 +653,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	dripBoxBagCount := existing.DripBoxBagCount
 	allowFulfillmentOrder := existing.AllowFulfillmentOrder
 	allowMallOrder := existing.AllowMallOrder
+	isProcessingProduct := existing.IsProcessingProduct
 	if req.DripBagGrams != nil {
 		dripBagGrams = *req.DripBagGrams
 	}
@@ -662,6 +665,9 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	}
 	if req.AllowMallOrder != nil {
 		allowMallOrder = *req.AllowMallOrder
+	}
+	if req.IsProcessingProduct != nil {
+		isProcessingProduct = *req.IsProcessingProduct
 	}
 	if err := validateExplicitDripConfig(productKind, req.DripBagGrams, req.DripBoxBagCount); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -707,6 +713,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		DripBoxBagCount:             dripBoxBagCount,
 		AllowFulfillmentOrder:       allowFulfillmentOrder,
 		AllowMallOrder:              allowMallOrder,
+		IsProcessingProduct:         isProcessingProduct,
 		RetailPrice100G:             retailPrice100G,
 		RetailPrice200G:             retailPrice200G,
 		RetailPrice227G:             retailPrice227G,
@@ -910,6 +917,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	if req.AllowMallOrder != nil {
 		allowMallOrder = *req.AllowMallOrder
 	}
+	isProcessingProduct := req.IsProcessingProduct != nil && *req.IsProcessingProduct
 	product, err := h.catalog.CreateProduct(c.Request().Context(), catalogapp.CreateProductCommand{
 		Actor:                    support.ActorOf(c),
 		OwnershipType:            req.OwnershipType,
@@ -927,6 +935,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		AllowFulfillmentOrder:    allowFulfillmentOrder,
 		AllowFulfillmentOrderSet: req.AllowFulfillmentOrder != nil,
 		AllowMallOrder:           allowMallOrder,
+		IsProcessingProduct:      isProcessingProduct,
 		DefaultPrice:             req.DefaultPrice,
 		RetailPrice100G:          req.RetailPrice100G,
 		RetailPrice200G:          req.RetailPrice200G,

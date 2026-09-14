@@ -10,6 +10,9 @@ import (
 
 	customerfulfillmentapp "orderapp/internal/application/customerfulfillment"
 	customerportalapp "orderapp/internal/application/customerportal"
+	excelinfra "orderapp/internal/infrastructure/excel"
+	pdfinfra "orderapp/internal/infrastructure/pdf"
+	supporthttp "orderapp/internal/interfaces/http/support"
 
 	"github.com/labstack/echo/v4"
 )
@@ -23,6 +26,12 @@ type MiniCustomerFulfillment interface {
 	CancelMiniDirectShipRequest(context.Context, int64, int64, string) (customerfulfillmentapp.MiniDirectShipRequest, error)
 	ListCustomerCentralInventory(context.Context, customerfulfillmentapp.CustomerInventoryListQuery) (customerfulfillmentapp.CustomerInventoryListResult, error)
 	ListCustomerCentralInventoryBatches(context.Context, customerfulfillmentapp.CustomerInventoryBatchQuery) ([]customerfulfillmentapp.CustomerInventoryBatch, error)
+	ListCustomerAssetInventory(context.Context, customerfulfillmentapp.CustomerAssetInventoryQuery) ([]customerfulfillmentapp.CustomerAssetInventory, error)
+	ListCustomerAssetInventoryLedger(context.Context, customerfulfillmentapp.CustomerAssetInventoryLedgerQuery) ([]customerfulfillmentapp.CustomerAssetInventoryLedgerEntry, error)
+	CustomerAccount(context.Context, customerfulfillmentapp.AccountQuery) (customerfulfillmentapp.AccountData, error)
+	ConfirmCustomerStatement(context.Context, customerfulfillmentapp.ConfirmCustomerStatementCommand) (customerfulfillmentapp.AccountSettlement, error)
+	CreateCustomerStatementDispute(context.Context, customerfulfillmentapp.CreateCustomerStatementDisputeCommand) (customerfulfillmentapp.AccountStatementDispute, error)
+	ReplyCustomerStatementDispute(context.Context, customerfulfillmentapp.ReplyCustomerStatementDisputeCommand) (customerfulfillmentapp.AccountStatementDispute, error)
 }
 
 func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment) {
@@ -209,6 +218,208 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
 	})
+
+	e.GET("/api/mini/customer-inventory/assets", func(c echo.Context) error {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityInventoryCustody, customerportalapp.CapabilityProcessing)
+		if err != nil || !allowed {
+			return err
+		}
+		if fulfillment == nil {
+			return miniInternalError(c)
+		}
+		rows, err := fulfillment.ListCustomerAssetInventory(c.Request().Context(), customerfulfillmentapp.CustomerAssetInventoryQuery{
+			CustomerID: current.CurrentCustomerID, InventoryType: c.QueryParam("type"), Q: c.QueryParam("q"),
+		})
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.GET("/api/mini/customer-inventory/assets/:inventory_type/:item_id/ledger", func(c echo.Context) error {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityInventoryCustody, customerportalapp.CapabilityProcessing)
+		if err != nil || !allowed {
+			return err
+		}
+		itemID, parseErr := strconv.ParseInt(strings.TrimSpace(c.Param("item_id")), 10, 64)
+		if parseErr != nil || itemID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		bomSpecID, _ := strconv.ParseInt(strings.TrimSpace(c.QueryParam("bom_spec_id")), 10, 64)
+		specG, _ := strconv.ParseInt(strings.TrimSpace(c.QueryParam("spec_g")), 10, 64)
+		limit, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("limit")))
+		if fulfillment == nil {
+			return miniInternalError(c)
+		}
+		rows, err := fulfillment.ListCustomerAssetInventoryLedger(c.Request().Context(), customerfulfillmentapp.CustomerAssetInventoryLedgerQuery{
+			CustomerID: current.CurrentCustomerID, InventoryType: c.Param("inventory_type"), ItemID: itemID,
+			BomSpecID: bomSpecID, SpecG: specG, Limit: limit,
+		})
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	accountHandler := func(c echo.Context) error {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilitySettlement)
+		if err != nil || !allowed {
+			return err
+		}
+		if fulfillment == nil {
+			return miniInternalError(c)
+		}
+		page, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("page")))
+		limit, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("limit")))
+		query, err := customerfulfillmentapp.NormalizeAccountQuery(customerfulfillmentapp.AccountQuery{
+			CustomerID: current.CurrentCustomerID, Query: strings.TrimSpace(c.QueryParam("q")),
+			DateFrom: c.QueryParam("date_from"), DateTo: c.QueryParam("date_to"), Period: c.QueryParam("period"),
+			Anchor: c.QueryParam("anchor"), PayStatus: c.QueryParam("pay_status"), ShipStatus: c.QueryParam("ship_status"),
+			Page: page, Limit: limit,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		data, err := fulfillment.CustomerAccount(c.Request().Context(), query)
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		path := c.Request().URL.Path
+		if strings.HasSuffix(path, ".pdf") || strings.HasSuffix(path, ".xlsx") {
+			var body []byte
+			contentType := "application/pdf"
+			filename := "customer-statement.pdf"
+			if strings.HasSuffix(path, ".xlsx") {
+				body, err = excelinfra.RenderCustomerAccount(data)
+				contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+				filename = "customer-statement.xlsx"
+			} else {
+				body, err = pdfinfra.RenderCustomerAccount(data)
+			}
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "账单生成失败"})
+			}
+			c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+			return c.Blob(http.StatusOK, contentType, body)
+		}
+		data.Paginate(query.Page, query.Limit)
+		return c.JSON(http.StatusOK, data)
+	}
+	e.GET("/api/mini/customer-account", accountHandler)
+	e.GET("/api/mini/customer-account/statements.pdf", accountHandler)
+	e.GET("/api/mini/customer-account/statements.xlsx", accountHandler)
+
+	e.POST("/api/mini/customer-account/settlements/:id/confirm", func(c echo.Context) error {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilitySettlement)
+		if err != nil || !allowed {
+			return err
+		}
+		settlementID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		var req struct {
+			StatementRevision string `json:"statement_revision"`
+		}
+		if err != nil || settlementID <= 0 || c.Bind(&req) != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		if fulfillment == nil {
+			return miniInternalError(c)
+		}
+		actor := strings.TrimSpace(current.EmployeeName)
+		if actor == "" {
+			actor = fmt.Sprintf("mini_user:%d", current.MiniUserID)
+		}
+		row, err := fulfillment.ConfirmCustomerStatement(c.Request().Context(), customerfulfillmentapp.ConfirmCustomerStatementCommand{
+			CustomerID: current.CurrentCustomerID, SettlementID: settlementID, StatementRevision: req.StatementRevision,
+			MiniUserID: current.MiniUserID, Actor: actor,
+		})
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/mini/customer-account/settlements/:id/disputes", func(c echo.Context) error {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilitySettlement)
+		if err != nil || !allowed {
+			return err
+		}
+		settlementID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		var req struct {
+			StatementRevision string `json:"statement_revision"`
+			FeeItemID         int64  `json:"fee_item_id"`
+			Reason            string `json:"reason"`
+		}
+		if err != nil || settlementID <= 0 || c.Bind(&req) != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		if fulfillment == nil {
+			return miniInternalError(c)
+		}
+		actor := strings.TrimSpace(current.EmployeeName)
+		if actor == "" {
+			actor = fmt.Sprintf("mini_user:%d", current.MiniUserID)
+		}
+		row, err := fulfillment.CreateCustomerStatementDispute(c.Request().Context(), customerfulfillmentapp.CreateCustomerStatementDisputeCommand{
+			CustomerID: current.CurrentCustomerID, SettlementID: settlementID, FeeItemID: req.FeeItemID,
+			StatementRevision: req.StatementRevision, Reason: req.Reason, MiniUserID: current.MiniUserID, Actor: actor,
+		})
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		return c.JSON(http.StatusCreated, row)
+	})
+
+	e.GET("/api/customer-portal/admin/customers/:id/statement-disputes", func(c echo.Context) error {
+		if fulfillment == nil {
+			return miniInternalError(c)
+		}
+		customerID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || customerID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		data, err := fulfillment.CustomerAccount(c.Request().Context(), customerfulfillmentapp.AccountQuery{CustomerID: customerID, Page: 1, Limit: 200})
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		rows := make([]map[string]any, 0)
+		for _, settlement := range data.Settlements {
+			feeNames := make(map[int64]string, len(settlement.Fees))
+			for _, fee := range settlement.Fees {
+				feeNames[fee.ID] = fee.FeeName
+			}
+			for _, dispute := range settlement.Disputes {
+				rows = append(rows, map[string]any{
+					"id": dispute.ID, "customer_id": customerID, "customer_name": data.CustomerName,
+					"settlement_id": settlement.ID, "settlement_no": settlement.SettlementNo,
+					"fee_item_id": dispute.FeeItemID, "fee_name": feeNames[dispute.FeeItemID],
+					"reason": dispute.Reason, "status": dispute.Status, "created_at": dispute.CreatedAt,
+					"reply": dispute.Reply, "replied_by": dispute.RepliedBy, "replied_at": dispute.RepliedAt,
+				})
+			}
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/customer-portal/admin/statement-disputes/:id/reply", func(c echo.Context) error {
+		if fulfillment == nil {
+			return miniInternalError(c)
+		}
+		disputeID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		var req struct {
+			Reply  string `json:"reply"`
+			Status string `json:"status"`
+		}
+		if err != nil || disputeID <= 0 || c.Bind(&req) != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		row, err := fulfillment.ReplyCustomerStatementDispute(c.Request().Context(), customerfulfillmentapp.ReplyCustomerStatementDisputeCommand{
+			DisputeID: disputeID, Reply: req.Reply, Status: req.Status, Actor: supporthttp.ActorOf(c),
+		})
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		return c.JSON(http.StatusOK, row)
+	})
 }
 
 func requireMiniCustomerFulfillmentContext(c echo.Context, portal Service, capabilities ...string) (customerportalapp.CurrentContext, bool, error) {
@@ -262,12 +473,20 @@ func miniCustomerFulfillmentError(c echo.Context, err error) error {
 		return c.JSON(http.StatusConflict, map[string]string{"error": "当前客户成品仓库存不足，无法提交发货"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipIdempotency):
 		return c.JSON(http.StatusConflict, map[string]string{"error": "该发货请求已提交，不能使用同一请求编号修改内容"})
+	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipPriceChanged):
+		return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipCannotCancel):
-		return c.JSON(http.StatusConflict, map[string]string{"error": "包裹已发货，不能取消发货申请"})
+		return c.JSON(http.StatusConflict, map[string]string{"error": "订单已进入 ERP 履约或已经发货，不能在小程序直接取消"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipRequestNotFound):
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "未找到该发货申请"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipUnavailable):
 		return miniInternalError(c)
+	case strings.Contains(message, "账单内容已更新") || strings.Contains(message, "未处理异议"):
+		return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+	case strings.Contains(message, "账单") || strings.Contains(message, "异议") || strings.Contains(message, "费用项"):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	case strings.Contains(message, "价格表") || strings.Contains(message, "当前有效数量档位"):
+		return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
 	case miniCustomerFulfillmentValidationError(err):
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "发货信息不完整，请检查收件信息和商品数量"})
 	default:

@@ -44,8 +44,8 @@ func TestMiniappAccountingBillsEvidenceExists(t *testing.T) {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
 			"费用中心",
-			"关联真实工单",
-			"不显示订单应收",
+			"统一账单",
+			"具体费用项",
 		} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s missing replacement miniapp accounting bills manual marker %q", path, want)
@@ -71,9 +71,10 @@ func TestMiniappAccountingBillsSourceWiring(t *testing.T) {
 			"fetchCustomerBillDetail",
 		},
 		filepath.Join("..", "miniapp", "src", "components", "CustomerBillsPanel.vue"): {
-			"关联工单",
-			"费用项目",
-			"计费依据",
+			"关联单据：",
+			"confirmCustomerStatement",
+			"createCustomerStatementDispute",
+			"下载 Excel",
 		},
 	} {
 		body := string(readOrderAppFileForTest(t, path))

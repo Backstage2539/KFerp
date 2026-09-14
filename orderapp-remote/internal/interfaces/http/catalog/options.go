@@ -45,6 +45,7 @@ type ProductOption struct {
 	DripBoxBagCount             int                 `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder       bool                `json:"allow_fulfillment_order"`
 	AllowMallOrder              bool                `json:"allow_mall_order"`
+	IsProcessingProduct         bool                `json:"is_processing_product"`
 	SalesUnits                  []string            `json:"sales_units"`
 	DefaultPrice                float64             `json:"default_price"`
 	RetailPrice100G             float64             `json:"retail_price_100g"`

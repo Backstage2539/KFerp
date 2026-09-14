@@ -16,6 +16,7 @@ export type DirectShipDraftLine = {
   spec_g: number
   spec_label: string
   inventory_unit?: string
+  sales_unit?: string
   qty: number
 }
 
@@ -49,6 +50,7 @@ export function selectDirectShipDraftSpec(
     spec_g: canonical ? 0 : productSpecWeightG(spec),
     spec_label: productSpecLabel(spec),
     inventory_unit: canonical ? String(spec.inventory_unit || '').trim() : undefined,
+    sales_unit: String(spec.sales_unit || '').trim() || undefined,
   }
 }
 
@@ -113,10 +115,11 @@ export function buildDirectShipDraftItems(lines: DirectShipDraftLine[] = []): Pr
         bom_spec_id: bomSpecID,
         bom_variant_id: bomVariantID,
         inventory_unit: String(line.inventory_unit || '').trim() || undefined,
+        sales_unit: String(line.sales_unit || '').trim() || undefined,
         spec_g: 0,
         qty,
       })
-    } else merged.set(key, { product_id: productID, spec_g: specG, qty })
+    } else merged.set(key, { product_id: productID, spec_g: specG, sales_unit: String(line.sales_unit || '').trim() || undefined, qty })
   }
   return Array.from(merged.values())
 }

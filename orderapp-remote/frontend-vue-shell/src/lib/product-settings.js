@@ -3282,6 +3282,7 @@ export function buildProductProductionConfigForm(config = {}, product = {}, indu
     name: String(sourceProduct.name || '').trim(),
     remark: String(sourceProduct.remark || '').trim(),
     product_kind: sourceProduct.product_kind || 'roasted',
+    is_processing_product: Boolean(sourceProduct.is_processing_product),
     unit_template_id: unitTemplateID,
     unit_template_name: String(sourceProduct.unit_template_name || sourceProduct.unitTemplateName || '').trim(),
     unit_rule_source: String(sourceProduct.unit_rule_source || sourceProduct.unitRuleSource || '').trim(),
@@ -3308,8 +3309,9 @@ export function buildProductBasicsPayload(row = {}) {
     product_kind: kind,
     remark: String(row.remark || '').trim(),
   }
-	const name = String(row.name || '').trim()
-	if (name) payload.name = name
+  if (Object.hasOwn(row, 'is_processing_product')) payload.is_processing_product = Boolean(row.is_processing_product)
+  const name = String(row.name || '').trim()
+  if (name) payload.name = name
   return payload
 }
 
@@ -3325,6 +3327,7 @@ export function buildProductProductionConfigBasicsPayload(originalProduct = {}, 
     unit_rule_override_json: sourceProduct.unit_rule_override_json || sourceProduct.unitRuleOverrideJSON || '{}',
     inventory_unit: sourceForm.inventory_unit,
     integer_inventory_unit: Boolean(sourceForm.integer_inventory_unit),
+    is_processing_product: Boolean(sourceForm.is_processing_product),
   }
   if (productUnitOverrideShouldSave(payloadSource) && productProductionConfigSalesUnitOverrideShouldSave(sourceProduct, sourceForm)) {
     payloadSource.default_sales_unit = sourceForm.default_sales_unit

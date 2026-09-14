@@ -13,8 +13,9 @@ import {
 } from '../api/customerPortal'
 import {
   mergeProcessingTargetLines,
+  processingPreviewErrorMessage,
+  processingPreviewValidationError,
   productionStatusLabel,
-  productionSubmissionBlockReason,
 } from '../utils/customerFulfillment'
 import {
   normalizeProcessingPrefillItems,
@@ -53,15 +54,18 @@ const catalog = ref<DirectShipCatalog>({ current_customer_id: 0, product_familie
 const requests = ref<ProcessingRequest[]>([])
 const lines = ref<DraftLine[]>([])
 const note = ref('')
+const expectedCompletionDate = ref('')
+const idempotencyKey = ref(newProcessingIdempotencyKey())
+const showCreate = ref(false)
 const preview = ref<ProcessingRequestPreview | null>(null)
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 let previewVersion = 0
 let prefillApplied = false
-const submissionBlock = computed(() => productionSubmissionBlockReason(preview.value ? {
-  complete: preview.value.complete ?? preview.value.items.every((item) => Number(item.bom_version_id || 0) > 0),
-  canSubmit: preview.value.can_submit,
-  materials: preview.value.materials,
-} : null))
+const submissionBlock = computed(() => preview.value && preview.value.configuration_valid !== false && preview.value.can_submit ? '' : '商品不可用或生产配置不完整')
+
+function newProcessingIdempotencyKey(): string {
+  return `mini-processing-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 async function load() {
   loading.value = true
@@ -145,12 +149,13 @@ function schedulePreview() {
   preview.value = null
   errorMessage.value = ''
   if (previewTimer) clearTimeout(previewTimer)
-  if (!lines.value.length || lines.value.some((item) => Number(item.qty || 0) <= 0)) return
+  if (processingPreviewValidationError(lines.value, expectedCompletionDate.value)) return
   previewTimer = setTimeout(() => { void runPreview() }, 300)
 }
 
 function payload() {
   return {
+    idempotency_key: idempotencyKey.value,
     items: mergeProcessingTargetLines(lines.value.map(({
       product_id,
       bom_spec_id,
@@ -167,6 +172,7 @@ function payload() {
       qty: Number(qty || 0),
     }))),
     note: note.value.trim(),
+    expected_completion_date: expectedCompletionDate.value,
   }
 }
 
@@ -191,20 +197,17 @@ function targetQtyLabel(item: { qty?: number; inventory_unit?: string; bom_spec_
 
 async function runPreview() {
   const requestVersion = ++previewVersion
-  if (!payload().items.length) { errorMessage.value = '请选择至少一个目标商品规格'; return }
+  const validationError = processingPreviewValidationError(lines.value, expectedCompletionDate.value)
+  if (validationError) { errorMessage.value = validationError; return }
   errorMessage.value = ''
   try {
     const value = await previewProcessingRequest(props.token, payload())
     if (requestVersion !== previewVersion) return
     preview.value = value
-    errorMessage.value = productionSubmissionBlockReason({
-      complete: preview.value.complete ?? preview.value.items.every((item) => Number(item.bom_version_id || 0) > 0),
-      canSubmit: preview.value.can_submit,
-      materials: preview.value.materials,
-    })
+    errorMessage.value = ''
   } catch (error) {
     if (requestVersion !== previewVersion) return
-    errorMessage.value = error instanceof Error ? error.message : 'BOM 试算失败'
+    errorMessage.value = processingPreviewErrorMessage(error)
   }
 }
 
@@ -220,6 +223,9 @@ async function submit() {
     lines.value = []
     preview.value = null
     note.value = ''
+    expectedCompletionDate.value = ''
+    idempotencyKey.value = newProcessingIdempotencyKey()
+    showCreate.value = false
     uni.showToast({ title: '生产工单申请已提交', icon: 'success' })
     await load()
   } catch (error) {
@@ -235,7 +241,7 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
 
 <template>
   <view class="workspace">
-    <view class="panel">
+    <view v-if="showCreate" class="panel create-panel">
       <text class="title">提交生产工单</text>
       <text class="hint">只选择目标 SKU、规格和数量；系统按当前有效 BOM 自动汇总物料需求。</text>
       <text v-if="prefillWarning" class="warning">{{ prefillWarning }}</text>
@@ -246,9 +252,11 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
         <button class="remove" @tap="removeLine(index)">删除</button>
       </view>
       <textarea v-model="note" class="textarea" placeholder="生产要求（可选）" />
+      <view class="field-row"><text class="hint">期望完成日期</text><input v-model="expectedCompletionDate" class="date-input" type="date" @change="schedulePreview" /></view>
       <button class="secondary" :disabled="loading" @tap="runPreview">BOM 试算</button>
 
       <view v-if="preview" class="preview">
+        <text :class="preview.materials_ready ? 'ready' : 'warning'">{{ preview.materials_ready ? '当前物料齐套' : '当前物料有缺口，可提交待排产需求；申请阶段不会占用物料' }}</text>
         <text class="subtitle">目标商品</text>
         <view v-for="item in preview.items" :key="item.line_no" class="preview-row">
           <text>{{ item.product_name }} · {{ targetSpecLabel(item) }} · {{ targetQtyLabel(item) }}</text>
@@ -263,16 +271,18 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
         </view>
       </view>
       <button class="primary" :disabled="submitting || Boolean(submissionBlock)" @tap="submit">提交生产工单</button>
+      <button class="secondary" @tap="showCreate = false">取消新建</button>
     </view>
 
-    <view class="panel">
-      <text class="title">工单列表</text>
+    <view class="panel requests-panel">
+      <view class="request-head"><text class="title">生产工单</text><button class="primary compact" @tap="showCreate = true">新建工单</button></view>
       <view v-for="item in requests" :key="item.id" class="request">
         <view class="request-head"><text class="line-name">{{ item.request_no }}</text><text class="status">{{ productionStatusLabel(item.status) }}</text></view>
-        <text class="hint">{{ item.created_at }}</text>
+        <text class="hint">申请 {{ item.created_at }}{{ item.expected_completion_date ? ` · 期望 ${item.expected_completion_date}` : '' }}</text>
         <view v-for="target in item.items || []" :key="target.id || target.line_no" class="preview-row">
           <text>{{ target.product_name }} · {{ targetSpecLabel(target) }} · {{ targetQtyLabel(target) }}</text>
           <text class="hint">{{ productionStatusLabel(target.status) }}{{ target.work_order_no ? ` · ${target.work_order_no}` : '' }}</text>
+          <text class="hint">申请 {{ target.qty }} {{ target.inventory_unit || '件' }} · 实际入库 {{ target.actual_inbound_qty || 0 }} {{ target.inventory_unit || '件' }}{{ Number(target.actual_inbound_qty || 0) > 0 && Number(target.actual_inbound_qty || 0) < Number(target.qty || 0) ? '（部分完成）' : '' }}</text>
         </view>
       </view>
       <text v-if="!loading && !requests.length" class="hint">暂无生产工单</text>
@@ -282,5 +292,5 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
 </template>
 
 <style scoped>
-.workspace,.panel,.preview,.request,.preview-row,.line-copy{display:flex;flex-direction:column;gap:15rpx}.panel{padding:24rpx;margin-bottom:20rpx;border:1rpx solid #e6e0d8;border-radius:8rpx;background:#fff}.title{font-size:30rpx;font-weight:900}.subtitle,.line-name{font-size:27rpx;font-weight:800}.hint{color:#707070;font-size:23rpx;line-height:1.5}.warning{display:block;padding:14rpx 16rpx;border-radius:8rpx;background:#fff4e5;color:#8a4b08;font-size:23rpx;line-height:1.5}.line,.request-head{display:flex;align-items:center;gap:12rpx}.line{padding:14rpx 0;border-top:1rpx solid #eee}.line-copy{flex:1;gap:4rpx}.qty{width:120rpx;min-height:72rpx;padding:0 16rpx;border:1rpx solid #ddd;border-radius:8rpx;box-sizing:border-box}.remove{margin:0;color:#a22;background:#fff;border:1rpx solid #e5caca}.textarea{min-height:112rpx;padding:16rpx;border:1rpx solid #ddd;border-radius:8rpx;background:#fafafa;box-sizing:border-box}.primary,.secondary{min-height:76rpx;margin:0;border-radius:8rpx;font-size:25rpx}.primary{background:#2b2118;color:#fff}.secondary{background:#fff;border:1rpx solid #d8d8d8}.preview,.request{padding:16rpx;border:1rpx solid #eee;border-radius:8rpx}.preview-row{gap:6rpx;padding:12rpx 0;border-top:1rpx solid #eee}.preview-row.shortage{background:#fff6f4}.request-head{justify-content:space-between}.status{color:#28624a;font-weight:800}.danger,.error{color:#b42318}.error{display:block;padding:18rpx}
+.workspace,.panel,.preview,.request,.preview-row,.line-copy{display:flex;flex-direction:column;gap:15rpx}.panel{padding:24rpx;margin-bottom:20rpx;border:1rpx solid #e6e0d8;border-radius:8rpx;background:#fff}.title{font-size:30rpx;font-weight:900}.subtitle,.line-name{font-size:27rpx;font-weight:800}.hint{color:#707070;font-size:23rpx;line-height:1.5}.warning{display:block;padding:14rpx 16rpx;border-radius:8rpx;background:#fff4e5;color:#8a4b08;font-size:23rpx;line-height:1.5}.ready{color:#28624a;font-weight:800}.line,.request-head,.field-row{display:flex;align-items:center;gap:12rpx}.line{padding:14rpx 0;border-top:1rpx solid #eee}.line-copy{flex:1;gap:4rpx}.qty{width:120rpx;min-height:72rpx;padding:0 16rpx;border:1rpx solid #ddd;border-radius:8rpx;box-sizing:border-box}.date-input{flex:1;min-height:72rpx;padding:0 16rpx;border:1rpx solid #ddd;border-radius:8rpx;box-sizing:border-box}.remove{margin:0;color:#a22;background:#fff;border:1rpx solid #e5caca}.textarea{min-height:112rpx;padding:16rpx;border:1rpx solid #ddd;border-radius:8rpx;background:#fafafa;box-sizing:border-box}.primary,.secondary{min-height:76rpx;margin:0;border-radius:8rpx;font-size:25rpx}.primary{background:#2b2118;color:#fff}.primary.compact{min-height:64rpx;padding:0 24rpx}.secondary{background:#fff;border:1rpx solid #d8d8d8}.preview,.request{padding:16rpx;border:1rpx solid #eee;border-radius:8rpx}.preview-row{gap:6rpx;padding:12rpx 0;border-top:1rpx solid #eee}.preview-row.shortage{background:#fff6f4}.request-head{justify-content:space-between;flex-direction:row}.status{color:#28624a;font-weight:800}.danger,.error{color:#b42318}.error{display:block;padding:18rpx}
 </style>

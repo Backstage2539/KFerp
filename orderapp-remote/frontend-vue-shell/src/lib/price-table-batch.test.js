@@ -5,6 +5,7 @@ import { createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTa
 test('named table drafts isolate all configuration and survive scope-specific restoration', () => {
   const source = { config: { selectedProductIDs: ['12'], version: 'V1' }, content: { price_rows: [{ final_unit_price: 38 }] }, draft: { defaults: { pricing_mode: 'fixed_price' } } }
   let batch = createPriceTableBatch(source, '227g价格表')
+  batch.tables[0].direct_ship_enabled = true
   batch = addPriceTable(batch, batch.tables[0].key)
   batch = addPriceTable(batch, batch.tables[0].key)
   assert.equal(batch.tables.length, 3)
@@ -12,6 +13,7 @@ test('named table drafts isolate all configuration and survive scope-specific re
   batch.tables[1].payload.content.price_rows[0].final_unit_price = 88
   assert.deepEqual(batch.tables[0].payload.config.selectedProductIDs, ['12'])
   assert.equal(batch.tables[0].payload.content.price_rows[0].final_unit_price, 38)
+  assert.equal(batch.tables[1].direct_ship_enabled, true)
   assert.equal(validatePriceTableBatch(batch), '')
   const values = new Map(); const storage = { setItem: (k,v) => values.set(k,v), getItem:k=>values.get(k) }
   savePriceTableBatchDraft('customer:42:coffee', batch, storage)
@@ -50,6 +52,8 @@ test('price-table editor places configuration directly before batch publication 
   assert.match(template, />价格表配置<\/button>\s*<button[^>]*@click="publishBeanList"[^>]*>发布价格表<\/button>/)
   assert.match(template, /aria-label="当前编辑价格表"/)
   assert.match(template, /默认价格表/)
+  assert.match(template, /适用于一件代发/)
+  assert.match(source, /direct_ship_enabled: Boolean\(table\.direct_ship_enabled\)/)
   assert.match(source, /bean-list\/publication-batches/)
 })
 

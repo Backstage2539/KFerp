@@ -20,7 +20,8 @@ func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema s
 		WITH selected AS (
 			SELECT b.id, b.owner_type, b.owner_key, b.list_type,
 			       COALESCE(NULLIF(b.classification_template_id,0), NULLIF(b.product_type_category_id,0), 0) AS group_id,
-			       b.published_at, NULLIF(b.config_json->'publication_batch'->>'release_id','') AS release_id
+			       b.published_at, NULLIF(b.config_json->'publication_batch'->>'release_id','') AS release_id,
+			       COALESCE(b.config_json->'publication_batch'->>'table_key','') AS table_key
 			FROM %[1]s.bean_list_publications b
 			WHERE b.id=$2
 			  AND b.list_type=$3
@@ -39,6 +40,7 @@ func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema s
 					  AND newer.list_type=s.list_type AND newer.status='published'
 					  AND newer.publication_purpose='factory_supply'
 					  AND COALESCE(NULLIF(newer.classification_template_id,0), NULLIF(newer.product_type_category_id,0), 0)=s.group_id
+					  AND (NOT $4::boolean OR s.table_key='' OR COALESCE(newer.config_json->'publication_batch'->>'table_key','')=s.table_key)
 					  AND (s.release_id IS NULL OR NULLIF(newer.config_json->'publication_batch'->>'release_id','') IS DISTINCT FROM s.release_id)
 					  AND (
 						newer.published_at > s.published_at
@@ -62,6 +64,7 @@ func isCurrentDefaultOrderPublicationTx(ctx context.Context, tx pgx.Tx, schema s
 					WHERE newer.owner_type='official' AND newer.list_type=s.list_type
 					  AND newer.status='published' AND newer.publication_purpose='factory_supply'
 					  AND COALESCE(NULLIF(newer.classification_template_id,0), NULLIF(newer.product_type_category_id,0), 0)=s.group_id
+					  AND (NOT $4::boolean OR s.table_key='' OR COALESCE(newer.config_json->'publication_batch'->>'table_key','')=s.table_key)
 					  AND (s.release_id IS NULL OR NULLIF(newer.config_json->'publication_batch'->>'release_id','') IS DISTINCT FROM s.release_id)
 					  AND (
 						newer.published_at > s.published_at

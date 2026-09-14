@@ -3,6 +3,10 @@ import { miniRequest } from './client'
 import {
   buildCustomerBillDetailPath,
   buildCustomerBillsPath,
+  buildCustomerAccountDocumentPath,
+  buildCustomerAccountPath,
+  buildCustomerStatementConfirmPath,
+  buildCustomerStatementDisputePath,
   buildCustomerInventoryBatchesPath,
   buildCustomerInventoryPath,
   buildDirectShipCatalogPath,
@@ -13,9 +17,12 @@ import {
   buildProcessingCatalogPath,
   cancelDirectShipRequest,
   createDirectShipRequest,
+  confirmCustomerStatement,
+  createCustomerStatementDispute,
   createProcessingRequest,
   fetchCustomerBillDetail,
   fetchCustomerBills,
+  fetchCustomerAccount,
   fetchCustomerInventory,
   fetchCustomerInventoryBatches,
   fetchDirectShipCatalog,
@@ -54,6 +61,11 @@ describe('customer fulfillment API', () => {
     expect(buildCustomerInventoryBatchesPath(911, 60000)).toBe('/api/mini/customer-inventory/911/batches?spec_g=60000')
     expect(buildCustomerBillsPath()).toBe('/api/mini/customer-bills')
     expect(buildCustomerBillDetailPath(19)).toBe('/api/mini/customer-bills/19')
+    expect(buildCustomerAccountPath({ period: 'month', anchor: '2026-09-14', page: 2 })).toBe('/api/mini/customer-account?period=month&anchor=2026-09-14&page=2')
+    expect(buildCustomerAccountDocumentPath('pdf', { period: 'month' })).toBe('/api/mini/customer-account/statements.pdf?period=month')
+    expect(buildCustomerAccountDocumentPath('xlsx', { date_from: '2026-09-01', date_to: '2026-09-30' })).toBe('/api/mini/customer-account/statements.xlsx?date_from=2026-09-01&date_to=2026-09-30')
+    expect(buildCustomerStatementConfirmPath(19)).toBe('/api/mini/customer-account/settlements/19/confirm')
+    expect(buildCustomerStatementDisputePath(19)).toBe('/api/mini/customer-account/settlements/19/disputes')
   })
 
   it('submits one idempotent multi-item direct-ship request and can cancel it', async () => {
@@ -85,7 +97,7 @@ describe('customer fulfillment API', () => {
   })
 
   it('uses multi-item BOM preview and submit without client-selected input materials', async () => {
-    const payload = { items: [{ product_id: 911, spec_g: 60000, qty: 2 }], note: '客户生产' }
+    const payload = { idempotency_key: 'processing-once', items: [{ product_id: 911, spec_g: 60000, qty: 2 }], note: '客户生产' }
     vi.mocked(miniRequest).mockResolvedValue({ can_submit: true, items: [], materials: [] })
 
     await previewProcessingRequest('token', payload)
@@ -130,6 +142,18 @@ describe('customer fulfillment API', () => {
       '/api/mini/customer-inventory/911/batches?spec_g=60000',
       '/api/mini/customer-bills',
       '/api/mini/customer-bills/19',
+    ])
+  })
+
+  it('reads unified ERP accounts and submits version-bound reconciliation actions', async () => {
+    vi.mocked(miniRequest).mockResolvedValue({ rows: [], fees: [], settlements: [] })
+    await fetchCustomerAccount('token', { period: 'month', anchor: '2026-09-14' })
+    await confirmCustomerStatement('token', 19, 'revision-1')
+    await createCustomerStatementDispute('token', 19, { statement_revision: 'revision-1', fee_item_id: 7, reason: '运费不符' })
+    expect(vi.mocked(miniRequest).mock.calls).toEqual([
+      ['/api/mini/customer-account?period=month&anchor=2026-09-14', { token: 'token' }],
+      ['/api/mini/customer-account/settlements/19/confirm', { method: 'POST', token: 'token', data: { statement_revision: 'revision-1' } }],
+      ['/api/mini/customer-account/settlements/19/disputes', { method: 'POST', token: 'token', data: { statement_revision: 'revision-1', fee_item_id: 7, reason: '运费不符' } }],
     ])
   })
 })

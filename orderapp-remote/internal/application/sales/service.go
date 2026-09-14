@@ -425,6 +425,7 @@ type BeanListVersionOption struct {
 	TableKey                   string `json:"table_key,omitempty"`
 	TableName                  string `json:"table_name,omitempty"`
 	IsDefaultTable             bool   `json:"is_default_table"`
+	DirectShipEnabled          bool   `json:"direct_ship_enabled"`
 	CustomerID                 int64  `json:"customer_id"`
 	ListType                   string `json:"list_type"`
 	ProductTypeCategoryID      int64  `json:"product_type_category_id,omitempty"`

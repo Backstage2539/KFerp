@@ -48,6 +48,7 @@ func (r Repository) loadNamedPriceTableOptions(ctx context.Context, options []sa
 		options[i].TableKey = m.TableKey
 		options[i].TableName = m.TableName
 		options[i].IsDefaultTable = m.IsDefaultTable
+		options[i].DirectShipEnabled = m.DirectShipEnabled
 		if m.TableName != "" {
 			options[i].Label = m.TableName + " · " + options[i].VersionNo
 		}

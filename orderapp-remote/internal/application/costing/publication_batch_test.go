@@ -95,13 +95,26 @@ func TestBeanListBatchRejectsEmptyPublishedTableAndDoesNotMutateInput(t *testing
 }
 
 func TestNamedPublicationPDFFilenameAndMetadata(t *testing.T) {
-	row := BeanListPublication{ID: 23, ListType: "commercial", Version: "V3.0.6", Config: map[string]any{"publication_batch": map[string]any{"release_id": "batch-1", "table_key": "a", "table_name": "227g价格表", "is_default_table": true}}}
+	row := BeanListPublication{ID: 23, ListType: "commercial", Version: "V3.0.6", Config: map[string]any{"publication_batch": map[string]any{"release_id": "batch-1", "table_key": "a", "table_name": "227g价格表", "is_default_table": true, "direct_ship_enabled": true}}}
 	if got := beanListPublicationPDFFilename(row); !strings.Contains(got, "227g价格表") || !strings.Contains(got, "V3.0.6") {
 		t.Fatalf("filename=%s", got)
 	}
 	meta := BeanListBatchMetadata(row.Config)
-	if meta.ReleaseID != "batch-1" || !meta.IsDefaultTable {
+	if meta.ReleaseID != "batch-1" || !meta.IsDefaultTable || !meta.DirectShipEnabled {
 		t.Fatalf("meta=%+v", meta)
+	}
+}
+
+func TestPublishBeanListBatchFreezesDirectShipFlag(t *testing.T) {
+	r := &batchRepoFake{}
+	cmd := batchFixture(1)
+	cmd.Tables[0].DirectShipEnabled = true
+	result, err := NewService(r).PublishBeanListBatch(context.Background(), cmd)
+	if err != nil {
+		t.Fatalf("PublishBeanListBatch: %v", err)
+	}
+	if len(result.Tables) != 1 || !result.Tables[0].PublicationTableMetadata.DirectShipEnabled {
+		t.Fatalf("direct ship metadata not frozen: %#v", result.Tables)
 	}
 }
 

@@ -16,6 +16,10 @@ func (r *sharedOrderTestRepository) CustomerWorkspace(context.Context, int64, st
 
 type sharedOrderTestSales struct{ command salesapp.SaveOrderCommand }
 
+func (s *sharedOrderTestSales) OrderForm(context.Context, int64) (salesapp.OrderFormData, error) {
+	return salesapp.OrderFormData{}, nil
+}
+
 func (s *sharedOrderTestSales) SaveOrder(_ context.Context, c salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	s.command = c
 	return salesapp.SaveOrderResult{OrderID: 42, OrderNo: "SO-test"}, nil

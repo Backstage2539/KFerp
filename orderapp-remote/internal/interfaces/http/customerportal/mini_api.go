@@ -39,8 +39,10 @@ type directShipBatchRequest struct {
 }
 
 type processingRequestPayload struct {
-	Items []customerportalapp.ProcessingRequestItemCommand `json:"items"`
-	Note  string                                           `json:"note"`
+	IdempotencyKey         string                                           `json:"idempotency_key"`
+	Items                  []customerportalapp.ProcessingRequestItemCommand `json:"items"`
+	Note                   string                                           `json:"note"`
+	ExpectedCompletionDate string                                           `json:"expected_completion_date"`
 }
 
 type miniProcessingRequestService interface {
@@ -680,8 +682,10 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
 		result, err := svc.CreateProcessingRequest(c.Request().Context(), token, customerportalapp.CreateProcessingRequestCommand{
-			Items: req.Items,
-			Note:  req.Note,
+			IdempotencyKey:         req.IdempotencyKey,
+			Items:                  req.Items,
+			Note:                   req.Note,
+			ExpectedCompletionDate: req.ExpectedCompletionDate,
 		})
 		if err != nil {
 			var unavailable *customerportalapp.ProcessingMaterialsUnavailableError
@@ -1011,6 +1015,9 @@ func miniBusinessError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrCustomerBillNotFound) {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "customer bill not found"})
 	}
+	if errors.Is(err, customerportalapp.ErrProcessingRequestIdempotency) {
+		return c.JSON(http.StatusConflict, map[string]string{"error": "该生产工单请求已提交，不能使用同一请求编号修改内容"})
+	}
 	if err != nil && err.Error() == "processing request not found" {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "processing request not found"})
 	}
@@ -1043,7 +1050,7 @@ func isMiniValidationError(err error) bool {
 		"input_qty required", "target_product required", "target_spec required", "target_qty required",
 		"input material unavailable", "target product unavailable", "target_qty invalid", "processing_request required",
 		"bean_list required", "recipient_name required", "recipient_phone required", "recipient_address required",
-		"items required", "mall_product required", "qty required", "product unavailable", "mall product unavailable",
+		"items required", "idempotency_key too long", "mall_product required", "qty required", "product unavailable", "mall product unavailable",
 		"mall price unavailable", "sales_unit invalid", "drip price unpublished", "product BOM not configured":
 		return true
 	default:

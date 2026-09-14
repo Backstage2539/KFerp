@@ -407,11 +407,13 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 		       GREATEST(COALESCE(fi.onhand_units,0),0), GREATEST(COALESCE(fi.onhand_loose_g,0),0), fi.updated_at
 		FROM %s.finished_inventory fi
 		JOIN %s.warehouses w ON w.code=fi.warehouse AND w.active=true
-		  AND w.kind IN ('finished','customer_processing','customer_finished','customer') AND w.customer_id=$1
+		  AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
+		  AND (w.customer_id=$1 OR (w.customer_id=0 AND fi.owner_customer_id=$1))
 		LEFT JOIN %s.products p ON p.id=fi.product_id
 		LEFT JOIN %s.production_bom_specs spec ON spec.id=fi.bom_spec_id
 		LEFT JOIN %s.production_bom_version_variants variant ON variant.id=fi.bom_variant_id AND variant.bom_spec_id=fi.bom_spec_id
-		WHERE COALESCE(fi.onhand_units,0)>0 OR COALESCE(fi.onhand_loose_g,0)>0
+		WHERE (COALESCE(fi.onhand_units,0)>0 OR COALESCE(fi.onhand_loose_g,0)>0)
+		  AND fi.owner_customer_id IN (0,$1)
 		ORDER BY fi.product_id, fi.spec_g, w.sort_order, fi.warehouse%s
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause), customerID)
 	if err != nil {
@@ -586,8 +588,8 @@ func (r *Repository) loadMiniHistoricalUnsyncedTraceableDeductions(ctx context.C
 			FROM %s.order_stock_deductions d
 			JOIN %s.orders o ON o.id=d.order_id AND o.customer_id=$1
 			JOIN %s.warehouses w ON w.code=COALESCE(NULLIF(o.source_warehouse,''),'finished_goods')
-			  AND w.active=true AND w.kind IN ('finished','customer_processing','customer_finished','customer')
-			  AND w.customer_id=$1
+			  AND w.active=true AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
+			  AND (w.customer_id=$1 OR (w.customer_id=0 AND o.customer_id=$1))
 			WHERE d.batch_id>0 AND d.deducted_g>0
 			  AND COALESCE(d.source_doc_type,'')<>$2
 			GROUP BY d.product_id,COALESCE(d.bom_spec_id,0),d.spec_g,COALESCE(NULLIF(o.source_warehouse,''),'finished_goods')
@@ -634,7 +636,8 @@ func (r *Repository) loadMiniHistoricalUnsyncedTraceableDeductions(ctx context.C
 		            ORDER BY b2.id LIMIT 1)
 		JOIN %s.orders o ON o.id=l.source_doc_id AND o.customer_id=$1
 		JOIN %s.warehouses w ON w.code=l.warehouse AND w.active=true
-		  AND w.kind IN ('finished','customer_processing','customer_finished','customer') AND w.customer_id=$1
+		  AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
+		  AND (w.customer_id=$1 OR (w.customer_id=0 AND o.customer_id=$1))
 		WHERE l.source_doc_type=$2 AND l.item_type='finished_product' AND l.qty_change_g<0
 		%s
 		GROUP BY l.item_id,COALESCE(l.bom_spec_id,0),l.spec_g,l.warehouse
@@ -673,9 +676,10 @@ func (r *Repository) loadMiniStockReservations(ctx context.Context, q miniDirect
 		       SUM(CASE WHEN COALESCE(a.bom_spec_id,0)>0 THEN COALESCE(a.allocated_units,0)
 		                WHEN a.spec_g>0 THEN a.allocated_g/a.spec_g ELSE 0 END)::bigint AS qty
 		FROM %s.order_stock_batch_allocations a
-		JOIN %s.orders o ON o.id=a.order_id
+		JOIN %s.orders o ON o.id=a.order_id AND o.customer_id=$1
 		JOIN %s.warehouses w ON w.code=COALESCE(NULLIF(a.warehouse,''), NULLIF(o.source_warehouse,''), 'finished_goods')
-		  AND w.active=true AND w.kind IN ('finished','customer_processing','customer_finished','customer') AND w.customer_id=$1
+		  AND w.active=true AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
+		  AND (w.customer_id=$1 OR (w.customer_id=0 AND o.customer_id=$1))
 		%s
 		GROUP BY a.product_id,COALESCE(a.bom_spec_id,0),a.spec_g,
 		         COALESCE(NULLIF(a.warehouse,''), NULLIF(o.source_warehouse,''), 'finished_goods'),
@@ -733,7 +737,8 @@ func (r *Repository) loadMiniFinishedBatches(ctx context.Context, q miniDirectSh
 			ORDER BY l.id DESC LIMIT 1
 		) latest ON true
 		JOIN %s.warehouses w ON w.code=latest.warehouse AND w.active=true
-		  AND w.kind IN ('finished','customer_processing','customer_finished','customer') AND w.customer_id=$1
+		  AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
+		  AND (w.customer_id=$1 OR (w.customer_id=0 AND b.owner_customer_id=$1))
 		LEFT JOIN %s.products p ON p.id=b.item_id
 		LEFT JOIN %s.production_bom_specs spec ON spec.id=b.bom_spec_id
 		LEFT JOIN %s.production_bom_version_variants variant ON variant.id=b.bom_variant_id AND variant.bom_spec_id=b.bom_spec_id
@@ -743,7 +748,7 @@ func (r *Repository) loadMiniFinishedBatches(ctx context.Context, q miniDirectSh
 			WHERE l.source_batch_code=b.batch_code AND l.warehouse=latest.warehouse
 			  AND (l.qty_change_units>0 OR l.qty_change_g>0)
 		) inbound ON true
-		WHERE b.item_type='finished_product'
+		WHERE b.item_type='finished_product' AND b.owner_customer_id IN (0,$1)
 		  AND (COALESCE(b.qty_units,0)>0 OR COALESCE(b.qty_g,0)>0 OR COALESCE(b.remaining_units,0)>0 OR COALESCE(b.remaining_g,0)>0)
 		ORDER BY b.created_at, b.id%s
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause), customerID)
@@ -791,14 +796,15 @@ func miniLegacyBatchCode(warehouse string, productID, bomSpecID, specG int64) st
 
 func miniDirectShipRequestHash(cmd app.MiniDirectShipCommand) (string, error) {
 	type itemHash struct {
-		ProductID int64 `json:"product_id"`
-		BomSpecID int64 `json:"bom_spec_id,omitempty"`
-		SpecG     int64 `json:"spec_g"`
-		Qty       int64 `json:"qty"`
+		ProductID int64  `json:"product_id"`
+		BomSpecID int64  `json:"bom_spec_id,omitempty"`
+		SpecG     int64  `json:"spec_g"`
+		Qty       int64  `json:"qty"`
+		SalesUnit string `json:"sales_unit,omitempty"`
 	}
 	items := make([]itemHash, 0, len(cmd.Items))
 	for _, item := range cmd.Items {
-		items = append(items, itemHash{ProductID: item.ProductID, BomSpecID: item.BomSpecID, SpecG: item.SpecG, Qty: item.Qty})
+		items = append(items, itemHash{ProductID: item.ProductID, BomSpecID: item.BomSpecID, SpecG: item.SpecG, Qty: item.Qty, SalesUnit: item.SalesUnit})
 	}
 	payload := struct {
 		RecipientName    string     `json:"recipient_name"`
@@ -853,6 +859,272 @@ func (r *Repository) resolveMiniDirectShipItems(ctx context.Context, q miniDirec
 		item.SpecG = 0
 	}
 	return out, nil
+}
+
+func (r *Repository) DirectShipPriceTables(ctx context.Context, customerID int64) ([]app.MiniDirectShipPriceTable, error) {
+	if customerID <= 0 {
+		return nil, fmt.Errorf("customer required")
+	}
+	var raw []byte
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT config_json
+		FROM %s.customer_service_capabilities
+		WHERE customer_id=$1 AND capability_code='direct_ship' AND enabled=true
+	`, r.schema), customerID).Scan(&raw); errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("一件代发尚未配置指定价格表")
+	} else if err != nil {
+		return nil, err
+	}
+	var config struct {
+		PriceTableKeys []string `json:"price_table_keys"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, fmt.Errorf("一件代发价格表配置无效")
+	}
+	keys := make([]string, 0, len(config.PriceTableKeys))
+	seen := map[string]bool{}
+	for _, key := range config.PriceTableKeys {
+		key = strings.TrimSpace(key)
+		if key != "" && !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("一件代发尚未配置指定价格表")
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		WITH candidates AS (
+			SELECT b.id,
+			       b.config_json->'publication_batch'->>'table_key' AS table_key,
+			       COALESCE(NULLIF(b.config_json->'publication_batch'->>'table_name',''),b.version_no) AS table_name,
+			       b.version_no,b.list_type,
+			       ROW_NUMBER() OVER (
+			         PARTITION BY b.config_json->'publication_batch'->>'table_key',
+			                      COALESCE(NULLIF(b.classification_template_id,0),NULLIF(b.product_type_category_id,0),0),
+			                      b.list_type
+			         ORDER BY b.published_at DESC NULLS LAST,b.id DESC
+			       ) AS rn
+			FROM %s.bean_list_publications b
+			WHERE b.status='published'
+			  AND b.publication_purpose='factory_supply'
+			  AND b.config_json->'publication_batch'->>'table_key'=ANY($2::text[])
+			  AND COALESCE((b.config_json->'publication_batch'->>'direct_ship_enabled')::boolean,false)=true
+			  AND (b.owner_type='official' OR (b.owner_type='customer' AND b.owner_key=($1::bigint)::text))
+		)
+		SELECT id,table_key,table_name,version_no,list_type
+		FROM candidates WHERE rn=1
+		ORDER BY table_key,list_type,id
+	`, r.schema), customerID, keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.MiniDirectShipPriceTable, 0)
+	found := map[string]bool{}
+	for rows.Next() {
+		var row app.MiniDirectShipPriceTable
+		if err := rows.Scan(&row.ID, &row.TableKey, &row.TableName, &row.VersionNo, &row.ListType); err != nil {
+			return nil, err
+		}
+		found[row.TableKey] = true
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	missing := make([]string, 0)
+	for _, key := range keys {
+		if !found[key] {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("一件代发指定价格表未发布、已失效或未启用：%s", strings.Join(missing, "、"))
+	}
+	return out, nil
+}
+
+func (r *Repository) PrepareMiniDirectShipOrder(ctx context.Context, cmd app.MiniDirectShipCommand) (app.PreparedMiniDirectShipOrder, error) {
+	requestHash, err := miniDirectShipRequestHash(cmd)
+	if err != nil {
+		return app.PreparedMiniDirectShipOrder{}, err
+	}
+	var existingID int64
+	var existingHash string
+	err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,request_hash FROM %s.customer_direct_ship_requests
+		WHERE customer_id=$1 AND idempotency_key=$2
+	`, r.schema), cmd.CustomerID, cmd.IdempotencyKey).Scan(&existingID, &existingHash)
+	if err == nil {
+		if existingHash != requestHash {
+			return app.PreparedMiniDirectShipOrder{}, app.ErrMiniDirectShipIdempotency
+		}
+		existing, loadErr := r.GetMiniDirectShipRequest(ctx, cmd.CustomerID, existingID)
+		if loadErr != nil {
+			return app.PreparedMiniDirectShipOrder{}, loadErr
+		}
+		return app.PreparedMiniDirectShipOrder{Command: cmd, RequestHash: requestHash, Existing: &existing}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return app.PreparedMiniDirectShipOrder{}, err
+	}
+	items, err := r.resolveMiniDirectShipItems(ctx, r.pool, cmd.Items)
+	if err != nil {
+		return app.PreparedMiniDirectShipOrder{}, err
+	}
+	products, err := r.loadMiniDirectShipProductSnapshots(ctx, r.pool, items)
+	if err != nil {
+		return app.PreparedMiniDirectShipOrder{}, err
+	}
+	for idx := range items {
+		product := products[miniStockKey(items[idx].ProductID, items[idx].BomSpecID, items[idx].SpecG)]
+		items[idx].ProductName = product.ProductName
+		items[idx].SKUCode = product.SKUCode
+		items[idx].SpecLabel = product.SpecLabel
+		items[idx].BomSpecKey = product.BomSpecKey
+		items[idx].InventoryUnit = product.InventoryUnit
+		if strings.TrimSpace(items[idx].SalesUnit) == "" {
+			if product.InventoryUnit != "" {
+				items[idx].SalesUnit = product.InventoryUnit
+			} else {
+				items[idx].SalesUnit = "bag"
+			}
+		}
+	}
+	cmd.Items = items
+	tables, err := r.DirectShipPriceTables(ctx, cmd.CustomerID)
+	if err != nil {
+		return app.PreparedMiniDirectShipOrder{}, err
+	}
+	ids := make([]int64, 0, len(tables))
+	for _, table := range tables {
+		ids = append(ids, table.ID)
+	}
+	return app.PreparedMiniDirectShipOrder{
+		Command: cmd, RequestHash: requestHash, SelectedPriceTableIDs: ids, PriceTables: tables,
+	}, nil
+}
+
+func (r *Repository) RecordMiniDirectShipOrder(ctx context.Context, prepared app.PreparedMiniDirectShipOrder, order app.DirectShipOrderSummary) (app.MiniDirectShipRequest, error) {
+	cmd := prepared.Command
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, fmt.Sprintf("mini-direct-ship:%d", cmd.CustomerID)); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	var existingID int64
+	var existingHash string
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,request_hash FROM %s.customer_direct_ship_requests WHERE customer_id=$1 AND idempotency_key=$2 FOR UPDATE`, r.schema), cmd.CustomerID, cmd.IdempotencyKey).Scan(&existingID, &existingHash)
+	if err == nil {
+		if existingHash != prepared.RequestHash {
+			return app.MiniDirectShipRequest{}, app.ErrMiniDirectShipIdempotency
+		}
+		return r.loadMiniDirectShipRequest(ctx, tx, cmd.CustomerID, existingID)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return app.MiniDirectShipRequest{}, err
+	}
+	var orderCustomerID int64
+	var orderNo string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT customer_id,order_no FROM %s.orders WHERE id=$1 AND COALESCE(is_void,false)=false FOR SHARE`, r.schema), order.OrderID).Scan(&orderCustomerID, &orderNo); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	if orderCustomerID != cmd.CustomerID {
+		return app.MiniDirectShipRequest{}, fmt.Errorf("order customer scope mismatch")
+	}
+	var requestID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_requests(
+			customer_id,employee_id,mini_user_id,idempotency_key,request_hash,
+			recipient_name,recipient_phone,province,city,district,detail_address,
+			recipient_company,status,note,created_by
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'submitted',$13,$14)
+		RETURNING id
+	`, r.schema), cmd.CustomerID, cmd.EmployeeID, cmd.MiniUserID, cmd.IdempotencyKey, prepared.RequestHash,
+		cmd.RecipientName, cmd.RecipientPhone, cmd.Province, cmd.City, cmd.District, cmd.DetailAddress,
+		cmd.RecipientCompany, cmd.Note, cmd.Actor).Scan(&requestID); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	requestNo := fmt.Sprintf("DSR-%s-%06d", time.Now().Format("20060102"), requestID)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_direct_ship_requests SET request_no=$2 WHERE id=$1`, r.schema), requestID, requestNo); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	orderItems, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT COALESCE(product_id,0),COALESCE(bom_spec_id,0),COALESCE(bom_variant_id,0),
+		       COALESCE(item_name,''),COALESCE(spec,''),COALESCE(unit,''),COALESCE(qty,0)::bigint,
+		       COALESCE(unit_price,0)::float8,COALESCE(line_total,0)::float8,
+		       COALESCE(bean_list_publication_id,0),COALESCE(price_source_json,'{}'::jsonb)
+		FROM %s.order_items WHERE order_id=$1 ORDER BY line_no,id
+	`, r.schema), order.OrderID)
+	if err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	type savedLine struct {
+		ProductID, BomSpecID, BomVariantID, Qty, PublicationID int64
+		Name, Spec, Unit                                       string
+		UnitPrice, LineTotal                                   float64
+		PriceSource                                            []byte
+	}
+	saved := make([]savedLine, 0)
+	for orderItems.Next() {
+		var line savedLine
+		if err := orderItems.Scan(&line.ProductID, &line.BomSpecID, &line.BomVariantID, &line.Name, &line.Spec, &line.Unit, &line.Qty, &line.UnitPrice, &line.LineTotal, &line.PublicationID, &line.PriceSource); err != nil {
+			orderItems.Close()
+			return app.MiniDirectShipRequest{}, err
+		}
+		saved = append(saved, line)
+	}
+	if err := orderItems.Err(); err != nil {
+		orderItems.Close()
+		return app.MiniDirectShipRequest{}, err
+	}
+	orderItems.Close()
+	if len(saved) != len(cmd.Items) {
+		return app.MiniDirectShipRequest{}, fmt.Errorf("saved order item count mismatch")
+	}
+	for idx, item := range cmd.Items {
+		line := saved[idx]
+		priceSource := map[string]any{}
+		_ = json.Unmarshal(line.PriceSource, &priceSource)
+		snapshot := mustPayloadJSON(map[string]any{
+			"product_id": line.ProductID, "bom_spec_id": line.BomSpecID, "bom_variant_id": line.BomVariantID,
+			"bom_spec_key": item.BomSpecKey, "product_name": line.Name, "sku_code": item.SKUCode,
+			"spec_label": line.Spec, "inventory_unit": item.InventoryUnit, "sales_unit": line.Unit,
+			"spec_g": item.SpecG, "qty": line.Qty, "unit_price": line.UnitPrice,
+			"line_amount": line.LineTotal, "price_table_publication_id": line.PublicationID,
+			"price_source": priceSource,
+		})
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_direct_ship_request_items(
+				request_id,line_no,product_id,bom_spec_id,bom_variant_id,bom_spec_key,
+				product_name,sku_code,spec_label,inventory_unit,spec_g,qty,snapshot
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
+		`, r.schema), requestID, idx+1, line.ProductID, line.BomSpecID, line.BomVariantID, item.BomSpecKey,
+			line.Name, item.SKUCode, line.Spec, item.InventoryUnit, item.SpecG, line.Qty, snapshot); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_request_orders(request_id,order_id,warehouse_code,order_no,status)
+		VALUES($1,$2,'',$3,'submitted')
+	`, r.schema), requestID, order.OrderID, orderNo); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_direct_ship_request", &requestID, "submit", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("submitted"), postgresinfra.AuditMeta{
+		"customer_id": cmd.CustomerID, "request_no": requestNo, "order_id": order.OrderID,
+		"order_no": orderNo, "item_count": len(cmd.Items), "idempotency_key": cmd.IdempotencyKey,
+		"price_table_ids": prepared.SelectedPriceTableIDs,
+	}); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	return r.GetMiniDirectShipRequest(ctx, cmd.CustomerID, requestID)
 }
 
 func (r *Repository) SubmitMiniDirectShip(ctx context.Context, cmd app.MiniDirectShipCommand) (app.MiniDirectShipRequest, error) {
@@ -1307,7 +1579,10 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 	}
 	itemRows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT product_id,bom_spec_id,bom_variant_id,bom_spec_key,product_name,sku_code,
-		       spec_label,inventory_unit,spec_g,qty
+		       spec_label,inventory_unit,spec_g,qty,
+		       COALESCE(snapshot->>'sales_unit',''),
+		       COALESCE((snapshot->>'unit_price')::numeric,0)::float8,
+		       COALESCE((snapshot->>'line_amount')::numeric,0)::float8
 		FROM %s.customer_direct_ship_request_items
 		WHERE request_id=$1 ORDER BY line_no,id
 	`, r.schema), requestID)
@@ -1318,7 +1593,8 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 	for itemRows.Next() {
 		var item app.MiniDirectShipItemCommand
 		if err := itemRows.Scan(&item.ProductID, &item.BomSpecID, &item.BomVariantID, &item.BomSpecKey,
-			&item.ProductName, &item.SKUCode, &item.SpecLabel, &item.InventoryUnit, &item.SpecG, &item.Qty); err != nil {
+			&item.ProductName, &item.SKUCode, &item.SpecLabel, &item.InventoryUnit, &item.SpecG, &item.Qty,
+			&item.SalesUnit, &item.UnitPrice, &item.LineAmount); err != nil {
 			itemRows.Close()
 			return app.MiniDirectShipRequest{}, err
 		}
@@ -1338,26 +1614,27 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 	)
 	shipmentJoin := fmt.Sprintf("LEFT JOIN LATERAL (SELECT %s AS shipped_at) shipment ON true", effectiveShipmentTime)
 	packageRows, err := q.Query(ctx, fmt.Sprintf(`
-		SELECT ro.id,ro.order_id,ro.order_no,ro.warehouse_code,ro.status,
+		SELECT CASE WHEN tracking.id IS NULL THEN ro.id ELSE -tracking.id END,
+		       ro.order_id,ro.order_no,ro.warehouse_code,ro.status,
+		       COALESCE(ops.name,''),COALESCE(ss.name,''),
 		       COALESCE(o.ship_method,''),
 		       COALESCE(NULLIF(tracking.tracking_no,''),NULLIF(o.ship_tracking_no,''),''),
-		       COALESCE(to_char(shipment.shipped_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),'')
+		       COALESCE(to_char(COALESCE(tracking.created_at,shipment.shipped_at) AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),'')
 		FROM %s.customer_direct_ship_request_orders ro
 		JOIN %s.orders o ON o.id=ro.order_id
-		LEFT JOIN LATERAL (
-			SELECT string_agg(t.tracking_no, '、' ORDER BY t.id) AS tracking_no
-			FROM %s.order_shipping_trackings t WHERE t.order_id=o.id
-		) tracking ON true
+		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
+		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
+		LEFT JOIN %s.order_shipping_trackings tracking ON tracking.order_id=o.id
 		%s
-		WHERE ro.request_id=$1 ORDER BY ro.id
-	`, r.schema, r.schema, r.schema, shipmentJoin), requestID)
+		WHERE ro.request_id=$1 ORDER BY ro.id,tracking.id
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, shipmentJoin), requestID)
 	if err != nil {
 		return app.MiniDirectShipRequest{}, err
 	}
 	out.Packages = make([]app.MiniDirectShipPackage, 0)
 	for packageRows.Next() {
 		var pkg app.MiniDirectShipPackage
-		if err := packageRows.Scan(&pkg.ID, &pkg.OrderID, &pkg.OrderNo, &pkg.Warehouse, &pkg.Status, &pkg.CarrierName, &pkg.TrackingNo, &pkg.ShippedAt); err != nil {
+		if err := packageRows.Scan(&pkg.ID, &pkg.OrderID, &pkg.OrderNo, &pkg.Warehouse, &pkg.Status, &pkg.ProcessStatus, &pkg.ShipStatus, &pkg.CarrierName, &pkg.TrackingNo, &pkg.ShippedAt); err != nil {
 			packageRows.Close()
 			return app.MiniDirectShipRequest{}, err
 		}
@@ -1387,6 +1664,46 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 				out.Packages[idx].Status = "delivered"
 			}
 		}
+	}
+	if len(out.Packages) > 0 {
+		out.OrderID = out.Packages[0].OrderID
+		out.OrderNo = out.Packages[0].OrderNo
+		if err := q.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(o.grand_total),0)::float8
+			FROM %s.orders o
+			JOIN %s.customer_direct_ship_request_orders ro ON ro.order_id=o.id
+			WHERE ro.request_id=$1
+		`, r.schema, r.schema), requestID).Scan(&out.TotalAmount); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+		tableRows, tableErr := q.Query(ctx, fmt.Sprintf(`
+			SELECT DISTINCT p.id,
+			       COALESCE(p.config_json->'publication_batch'->>'table_key',''),
+			       COALESCE(NULLIF(p.config_json->'publication_batch'->>'table_name',''),p.version_no),
+			       p.version_no,p.list_type
+			FROM %s.customer_direct_ship_request_orders ro
+			JOIN %s.order_items oi ON oi.order_id=ro.order_id
+			JOIN %s.bean_list_publications p ON p.id=oi.bean_list_publication_id
+			WHERE ro.request_id=$1
+			ORDER BY p.id
+		`, r.schema, r.schema, r.schema), requestID)
+		if tableErr != nil {
+			return app.MiniDirectShipRequest{}, tableErr
+		}
+		out.PriceTables = make([]app.MiniDirectShipPriceTable, 0)
+		for tableRows.Next() {
+			var table app.MiniDirectShipPriceTable
+			if err := tableRows.Scan(&table.ID, &table.TableKey, &table.TableName, &table.VersionNo, &table.ListType); err != nil {
+				tableRows.Close()
+				return app.MiniDirectShipRequest{}, err
+			}
+			out.PriceTables = append(out.PriceTables, table)
+		}
+		if err := tableRows.Err(); err != nil {
+			tableRows.Close()
+			return app.MiniDirectShipRequest{}, err
+		}
+		tableRows.Close()
 	}
 	if out.Status != "cancelled" && len(out.Packages) > 0 {
 		shipped := 0
@@ -1433,7 +1750,35 @@ func (r *Repository) loadMiniDirectShipPackageItems(ctx context.Context, q miniD
 		}
 		out = append(out, item)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) > 0 {
+		return out, nil
+	}
+	fallback, err := q.Query(ctx, fmt.Sprintf(`
+		SELECT product_id,bom_spec_id,bom_variant_id,bom_spec_key,product_name,sku_code,
+		       spec_label,inventory_unit,spec_g,qty,
+		       COALESCE(snapshot->>'sales_unit',''),
+		       COALESCE((snapshot->>'unit_price')::numeric,0)::float8,
+		       COALESCE((snapshot->>'line_amount')::numeric,0)::float8
+		FROM %s.customer_direct_ship_request_items
+		WHERE request_id=$1 ORDER BY line_no,id
+	`, r.schema), requestID)
+	if err != nil {
+		return nil, err
+	}
+	defer fallback.Close()
+	for fallback.Next() {
+		var item app.MiniDirectShipItemCommand
+		if err := fallback.Scan(&item.ProductID, &item.BomSpecID, &item.BomVariantID, &item.BomSpecKey,
+			&item.ProductName, &item.SKUCode, &item.SpecLabel, &item.InventoryUnit, &item.SpecG, &item.Qty,
+			&item.SalesUnit, &item.UnitPrice, &item.LineAmount); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, fallback.Err()
 }
 
 func (r *Repository) loadMiniDirectShipTrackingEvents(ctx context.Context, q miniDirectShipQuerier, pkg app.MiniDirectShipPackage) ([]app.MiniDirectShipTrackingEvent, error) {
@@ -1442,8 +1787,8 @@ func (r *Repository) loadMiniDirectShipTrackingEvents(ctx context.Context, q min
 		rows, err := q.Query(ctx, fmt.Sprintf(`
 				SELECT to_char(event_time AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),status,description,location
 			FROM %s.order_shipping_tracking_events
-			WHERE order_id=$1 ORDER BY event_time,id
-		`, r.schema), pkg.OrderID)
+			WHERE order_id=$1 AND ($2='' OR tracking_no=$2 OR tracking_no='') ORDER BY event_time,id
+		`, r.schema), pkg.OrderID, pkg.TrackingNo)
 		if err != nil {
 			return nil, err
 		}
@@ -1489,6 +1834,9 @@ func (r *Repository) CancelMiniDirectShipRequest(ctx context.Context, customerID
 	}
 	if status == "cancelled" {
 		return r.loadMiniDirectShipRequest(ctx, tx, customerID, requestID)
+	}
+	if !miniDirectShipCancellationAllowed(status) {
+		return app.MiniDirectShipRequest{}, app.ErrMiniDirectShipCannotCancel
 	}
 	if relationExists(ctx, tx, fmt.Sprintf("%s.order_stock_deductions", r.schema)) {
 		var deducted bool
@@ -1538,6 +1886,15 @@ func (r *Repository) CancelMiniDirectShipRequest(ctx context.Context, customerID
 		return app.MiniDirectShipRequest{}, err
 	}
 	return r.GetMiniDirectShipRequest(ctx, customerID, requestID)
+}
+
+func miniDirectShipCancellationAllowed(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "pending", "reserved":
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Repository) ListCustomerCentralInventory(ctx context.Context, customerID int64) ([]app.CustomerInventorySummary, error) {

@@ -374,6 +374,9 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 				return customerportalapp.PortalAdminDetail{}, err
 			}
 		}
+		if err := auditPortalCapabilityTx(ctx, tx, r.schema, cmd, capability, raw); err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled, config_json, updated_at)
 			VALUES($1,$2,$3,$4::jsonb,now())
@@ -654,6 +657,44 @@ func auditPortalProfileVisibilityTx(ctx context.Context, tx pgx.Tx, schema strin
 		return err
 	}
 	return nil
+}
+
+func auditPortalCapabilityTx(ctx context.Context, tx pgx.Tx, schema string, cmd customerportalapp.UpdatePortalVisibilityCommand, capability customerportalapp.CapabilityOption, raw []byte) error {
+	var oldEnabled bool
+	var oldRaw []byte
+	oldExists := true
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT enabled,config_json FROM %s.customer_service_capabilities
+		WHERE customer_id=$1 AND capability_code=$2
+	`, schema), cmd.CustomerID, capability.Code).Scan(&oldEnabled, &oldRaw)
+	if err == pgx.ErrNoRows {
+		oldExists = false
+	} else if err != nil {
+		return err
+	}
+	oldValue := ""
+	if oldExists {
+		oldValue = portalCapabilityAuditValue(oldEnabled, oldRaw)
+	}
+	newValue := portalCapabilityAuditValue(capability.Enabled, raw)
+	if oldExists && oldValue == newValue {
+		return nil
+	}
+	var oldPtr *string
+	if oldExists {
+		oldPtr = postgresinfra.StrPtr(oldValue)
+	}
+	actor := strings.TrimSpace(cmd.UpdatedBy)
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_service_capability", &cmd.CustomerID, "update", postgresinfra.StrPtr(capability.Code), oldPtr, postgresinfra.StrPtr(newValue), postgresinfra.AuditMeta{
+		"customer_id": cmd.CustomerID, "capability_code": capability.Code,
+	})
+}
+
+func portalCapabilityAuditValue(enabled bool, raw []byte) string {
+	config := map[string]any{}
+	_ = json.Unmarshal(raw, &config)
+	value, _ := json.Marshal(map[string]any{"enabled": enabled, "config": config})
+	return string(value)
 }
 
 func auditPortalProfileTextField(ctx context.Context, tx pgx.Tx, schema, actor string, customerID int64, oldExists bool, field, oldValue, newValue string, meta postgresinfra.AuditMeta) error {

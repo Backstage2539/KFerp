@@ -55,7 +55,9 @@ describe('service page helpers', () => {
     const billsPanel = readSource('src/components/CustomerBillsPanel.vue')
 
     expect(servicePage).toContain("serviceKey.value === 'settlement'")
-    expect(billsPanel).toContain('fetchCustomerBills')
+    expect(billsPanel).toContain('fetchCustomerAccount')
+    expect(billsPanel).toContain('confirmCustomerStatement')
+    expect(billsPanel).toContain('createCustomerStatementDispute')
     expect(servicePage).not.toContain("serviceKey.value === 'settlement' ? buildOrderServiceFilters")
     expect(servicePage).not.toContain('账期筛选')
   })
