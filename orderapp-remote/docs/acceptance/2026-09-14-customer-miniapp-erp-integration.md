@@ -4,7 +4,7 @@
 
 本需求把客户小程序的一件代发、代加工工单、客户库存、客户商品物流和客户账单接入 ERP 现有价格、订单、生产、库存、应收、费用与结算链路。新增客户写操作按登录身份锁定客户范围并记录操作日志；历史订单、工单、价格、预留和账单快照保留，不批量回算。
 
-本次交付目标为 `develop` 与 development 环境。正式环境部署以及微信小程序上传、审核和发布不在范围内。
+Van 于 2026-09-14 将交付边界调整为仅在本地操作。本次在本地功能分支完成实现、验证、生产配置构建和微信开发者工具逐页走查；没有继续创建 PR、合入、部署，也没有上传、审核或发布微信小程序。
 
 ## 最终行为
 
@@ -24,7 +24,8 @@
 - RED：`TestMiniDirectShipCancellationOnlyAllowsLegacyUnshippedReservations` 首次运行因新 ERP 订单取消边界不存在而编译失败；实现后转为 GREEN。
 - RED：客户库存生产中数量契约首次缺少“目标数量减实际入库数量”；实现后转为 GREEN。
 - RED：代加工申请最初没有提交标识，网络重试会生成重复待排产需求；新增客户级防重键、内容摘要和并发锁后转为 GREEN。
-- GREEN：合入最新 `origin/develop@5c48f4e8` 后，任务验证脚本通过相关 Go 应用、PostgreSQL、API、PDF 与 Excel 包；ERP Vue 1218 项测试全部通过且构建成功；小程序 39 个测试文件、249 项测试全部通过，类型检查及 development 微信包构建成功。`scripts/verify_kferp.sh backend` 同步通过全部 Go 包。
+- RED：微信开发者工具走查发现选择代加工规格后，在尚未填写期望完成日期时会提前调用 BOM 试算并显示英文 `invalid request`；新增完整性校验、日期变更触发和中文错误映射后，定向测试转为 GREEN，空日期不再发起试算。
+- GREEN：合入最新 `origin/develop@5c48f4e8` 后，任务验证脚本通过相关 Go 应用、PostgreSQL、API、PDF 与 Excel 包；ERP Vue 1218 项测试全部通过且构建成功；小程序 39 个测试文件、250 项测试全部通过，类型检查及 development 微信包构建成功。`scripts/verify_kferp.sh backend` 同步通过全部 Go 包。
 
 真实 PostgreSQL 定向验证使用一次性本机数据库完成：代加工请求覆盖首次写入、同内容重试复用原 ID、变更数量冲突、只有一条待排产需求和一条提交日志；统一账单覆盖订单、独立费用、已付金额、应付金额、客户隔离和分页。旧的无 BOM 规格测试夹具不属于本次新流程，未用它们放宽当前 ERP 的 BOM 规格权威校验。
 
@@ -44,11 +45,16 @@
 - PDF 视觉检查：三页 A4 中文可读，订单摘要、独立费用、正式结算单和异议回复分页正常；本地证据 `/private/tmp/kferp-pr663-acceptance/customer-account.pdf` 及对应 PNG。
 - Excel 内容检查：四个工作表包含订单账单、费用明细、正式结算单和账单异议，金额、来源、付款和对账字段可读取。
 
-## 自动验证与 development 验收
+## 本地微信开发者工具验收
 
-待最终全量验证、合入和 development 部署后补充：
+- 本地生产配置包构建成功，API 指向 `https://erp.qacoohee.com/app`，并覆盖到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。覆盖前备份保存在 `/private/tmp/KFerp-miniapp-mp-weixin.backup-20260914173645`。
+- 使用微信开发者工具 RC 2.02.2607271 和已登录客户“陈丹燕”逐页走查：首页显示订单、生产摘要和三个快捷入口；一件代发显示 ERP 指定价格表规则、地址解析、商品规格和金额流程；生产工单默认列表，可进入商品规格选择；发货中心提供订单、日期及状态查询；费用中心提供账期、四类费用、下载、确认和异议入口；个人中心显示客户资料、业务联系人、常用收件人、服务说明和账号操作。
+- 当前客户的一件代发目录、生产工单和发货记录为空，空态均正常；未提交订单、生产申请、对账确认或异议，也未执行退出或切换用户。
+- 当前正式服务器仍运行旧后端，`/api/mini/customer-inventory/assets` 和 `/api/mini/customer-account` 返回 404；这是未部署本分支的预期边界。新增接口及客户隔离已通过本地 Go、API 和一次性 PostgreSQL 测试，需后续部署匹配后端才能在该登录客户下联调真实库存与账单数据。
+- 生产工单预览时机修复后，选择流程在商品、数量和期望日期完整前不调用 BOM 试算；英文 `invalid request` 已映射为明确中文提示。
 
-- 功能分支、合并提交和运行版本。
-- Go 全包、Vue、miniapp、类型检查和构建结果。
-- development 服务、数据库、页面/API smoke 与回滚信息。
-- 使用 development 完整业务数据逐页核对的结果及仍需 Van 人工确认的业务口径。
+## 本地交付状态
+
+- 功能分支：`codex/customer-miniapp-erp-integration-20260914`。
+- 任务验证脚本、Go 后端、Vue 全量测试和构建、小程序测试、类型检查、PDF/Excel 输出检查均已通过；真实 PostgreSQL 定向流程已通过。
+- 未创建 PR，未合入 `develop`，未部署 development 或 production，未上传微信版本。Van 的完整业务数据验收保留为 `REV-663-CUSTOMER-MINIAPP-ERP-INTEGRATION`。

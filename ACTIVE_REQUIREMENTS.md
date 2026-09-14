@@ -5355,7 +5355,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-663-CUSTOMER-MINIAPP-ERP-INTEGRATION
 - Branch: `codex/customer-miniapp-erp-integration-20260914`; baseline `origin/develop@2ad3ac75256dd6b207abd68d4e94c3811aa84be3`.
 - Owner/session: Codex / 2026-09-14.
-- Status: implementation, RED/GREEN and latest-develop integration verified; PR merge and development deployment pending.
+- Status: implementation, RED/GREEN, latest-develop integration and local WeChat DevTools walkthrough complete; local branch ready for Van review.
 - Scope: 客户小程序一件代发、代加工工单、客户货权库存、订单物流和统一账单与 ERP 现有价格、订单、生产、库存、应收和结算链路适配。
 - DEV:
   - DEV-676-DIRECT-SHIP-PRICE-ORDER：价格表标记与客户稳定绑定；小程序目录服务端报价；提交防篡价、防重复并进入共享系统订单链路。
@@ -5363,6 +5363,6 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-678-CUSTOMER-ASSET-INVENTORY：按客户货权展示成品、生豆、包材和半成品，分单位显示可用、占用、质量、批次与流水，生产中独立展示。
   - DEV-679-SHIPPING-TRACE：发货中心按系统订单展示商品、生产进度、部分发货、多包裹、运单及已有物流轨迹，无轨迹时显示未获取。
   - DEV-680-CUSTOMER-STATEMENT：商品货款、加工费、代发服务费和运费按来源去重；PDF/Excel 下载、确认对账、异议及 ERP 回复；确认不改变付款状态。
-  - DEV-681-MINIAPP-UX-DOCS-DELIVERY：首页、发货、费用、生产、库存和个人中心统一标题、空态、首屏与摘要；同步操作手册、验收证据并部署 development。
-- Verifier: `bash scripts/verify_pr663_customer_miniapp_erp.sh`; targeted RED/GREEN; PDF/Excel render/content checks; development data walkthrough and smoke.
-- Delivery: merge to `develop` and deploy development only after all gates pass; production and WeChat upload/review/publish excluded.
+  - DEV-681-MINIAPP-UX-DOCS-DELIVERY：首页、发货、费用、生产、库存和个人中心统一标题、空态、首屏与摘要；同步操作手册、验收证据并完成本地微信开发者工具走查。
+- Verifier: `bash scripts/verify_pr663_customer_miniapp_erp.sh`; targeted RED/GREEN; PDF/Excel render/content checks; local production-mode miniapp build and WeChat DevTools walkthrough.
+- Delivery: Van 于 2026-09-14 指定仅在本地操作；不继续创建 PR、合入、部署或上传微信版本。后端部署和完整业务数据验收另行安排。

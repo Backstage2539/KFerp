@@ -13,6 +13,8 @@ import {
 } from '../api/customerPortal'
 import {
   mergeProcessingTargetLines,
+  processingPreviewErrorMessage,
+  processingPreviewValidationError,
   productionStatusLabel,
 } from '../utils/customerFulfillment'
 import {
@@ -147,7 +149,7 @@ function schedulePreview() {
   preview.value = null
   errorMessage.value = ''
   if (previewTimer) clearTimeout(previewTimer)
-  if (!lines.value.length || lines.value.some((item) => Number(item.qty || 0) <= 0)) return
+  if (processingPreviewValidationError(lines.value, expectedCompletionDate.value)) return
   previewTimer = setTimeout(() => { void runPreview() }, 300)
 }
 
@@ -195,7 +197,8 @@ function targetQtyLabel(item: { qty?: number; inventory_unit?: string; bom_spec_
 
 async function runPreview() {
   const requestVersion = ++previewVersion
-  if (!payload().items.length) { errorMessage.value = '请选择至少一个目标商品规格'; return }
+  const validationError = processingPreviewValidationError(lines.value, expectedCompletionDate.value)
+  if (validationError) { errorMessage.value = validationError; return }
   errorMessage.value = ''
   try {
     const value = await previewProcessingRequest(props.token, payload())
@@ -204,7 +207,7 @@ async function runPreview() {
     errorMessage.value = ''
   } catch (error) {
     if (requestVersion !== previewVersion) return
-    errorMessage.value = error instanceof Error ? error.message : 'BOM 试算失败'
+    errorMessage.value = processingPreviewErrorMessage(error)
   }
 }
 
@@ -249,7 +252,7 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
         <button class="remove" @tap="removeLine(index)">删除</button>
       </view>
       <textarea v-model="note" class="textarea" placeholder="生产要求（可选）" />
-      <view class="field-row"><text class="hint">期望完成日期</text><input v-model="expectedCompletionDate" class="date-input" type="date" /></view>
+      <view class="field-row"><text class="hint">期望完成日期</text><input v-model="expectedCompletionDate" class="date-input" type="date" @change="schedulePreview" /></view>
       <button class="secondary" :disabled="loading" @tap="runPreview">BOM 试算</button>
 
       <view v-if="preview" class="preview">
