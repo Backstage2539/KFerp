@@ -42,6 +42,24 @@ type miniCustomerFulfillmentFake struct {
 	replyCmd          customerfulfillmentapp.ReplyCustomerStatementDisputeCommand
 }
 
+func (f *miniCustomerFulfillmentFake) MiniProductOrderCatalog(_ context.Context, query customerfulfillmentapp.MiniDirectShipCatalogQuery) (customerfulfillmentapp.MiniDirectShipCatalog, error) {
+	f.calls++
+	f.catalogQuery = query
+	return customerfulfillmentapp.MiniDirectShipCatalog{CurrentCustomerID: query.CustomerID, ProductFamilies: []map[string]any{}}, nil
+}
+
+func (f *miniCustomerFulfillmentFake) PreviewMiniProductOrder(_ context.Context, cmd customerfulfillmentapp.MiniDirectShipCommand) (customerfulfillmentapp.MiniDirectShipPreview, error) {
+	f.calls++
+	f.previewCmd = cmd
+	return customerfulfillmentapp.MiniDirectShipPreview{CanSubmit: true, PriceQuoteToken: "product-quote"}, nil
+}
+
+func (f *miniCustomerFulfillmentFake) SubmitMiniProductOrder(_ context.Context, cmd customerfulfillmentapp.MiniDirectShipCommand) (customerfulfillmentapp.MiniDirectShipRequest, error) {
+	f.calls++
+	f.submitCmd = cmd
+	return customerfulfillmentapp.MiniDirectShipRequest{ID: 72, RequestNo: "PO-72", Status: "submitted", Items: cmd.Items}, f.submitErr
+}
+
 func (f *miniCustomerFulfillmentFake) MiniDirectShipCatalog(_ context.Context, query customerfulfillmentapp.MiniDirectShipCatalogQuery) (customerfulfillmentapp.MiniDirectShipCatalog, error) {
 	f.calls++
 	f.catalogQuery = query
@@ -181,6 +199,44 @@ func TestMiniDirectShipSubmitBindsCurrentCustomerAndIdempotencyHeader(t *testing
 	var body customerfulfillmentapp.MiniDirectShipRequest
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.ID != 71 {
 		t.Fatalf("body=%s err=%v", rec.Body.String(), err)
+	}
+}
+
+func TestMiniProductOrderRoutesRequireProductOrderAndBindCurrentCustomer(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+			MiniUserID: 21, CurrentCustomerID: 88,
+			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityProductOrder, Enabled: true}},
+		}},
+		CustomerFulfillment: fulfillment,
+	})
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+		status int
+	}{
+		{method: http.MethodGet, path: "/api/mini/product-orders/catalog?customer_id=999", status: http.StatusOK},
+		{method: http.MethodPost, path: "/api/mini/product-orders/preview", body: `{"recipient_name":"张三","recipient_phone":"13800138000","detail_address":"咖啡路","items":[{"product_id":7,"spec_g":227,"qty":1}]}`, status: http.StatusOK},
+		{method: http.MethodPost, path: "/api/mini/product-orders", body: `{"recipient_name":"张三","recipient_phone":"13800138000","detail_address":"咖啡路","price_quote_token":"product-quote","items":[{"product_id":7,"spec_g":227,"qty":1}]}`, status: http.StatusCreated},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != tc.status {
+			t.Fatalf("%s %s status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+	if fulfillment.catalogQuery.CustomerID != 88 || fulfillment.previewCmd.CustomerID != 88 || fulfillment.submitCmd.CustomerID != 88 {
+		t.Fatalf("product-order customer scope catalog/preview/submit=%d/%d/%d", fulfillment.catalogQuery.CustomerID, fulfillment.previewCmd.CustomerID, fulfillment.submitCmd.CustomerID)
+	}
+	if fulfillment.submitCmd.MiniUserID != 21 {
+		t.Fatalf("product-order principal=%+v", fulfillment.submitCmd)
 	}
 }
 

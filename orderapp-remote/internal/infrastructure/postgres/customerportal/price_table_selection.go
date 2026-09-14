@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	app "orderapp/internal/application/customerportal"
@@ -17,15 +18,28 @@ func (r Repository) loadPortalPriceTableCatalog(ctx context.Context, query app.S
 	if err != nil {
 		return err
 	}
-	page.PriceTableOptions = salesapp.CurrentOrderPriceTableOptions(options, query.CustomerID)
-	selected, err := salesapp.ResolveOrderPriceTableSelection(options, query.CustomerID, query.SelectedPriceTableIDs, true)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT publication_id FROM %s.customer_order_price_table_bindings WHERE customer_id=$1 AND usage_code='product_order' ORDER BY product_type_key`, r.schema), query.CustomerID)
 	if err != nil {
 		return err
 	}
 	ids := []int64{}
-	for _, row := range selected {
-		ids = append(ids, row.ID)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	selected, err := salesapp.ResolveExactCustomerOrderPriceTableSelection(options, query.CustomerID, ids)
+	if err != nil {
+		return err
+	}
+	page.PriceTableOptions = selected
 	page.SelectedPriceTableIDs = ids
 	snapshots := map[int64][]byte{}
 	if len(ids) > 0 {
@@ -83,7 +97,23 @@ func (r Repository) freezePortalPriceTableTx(ctx context.Context, tx pgx.Tx, cmd
 	if err := json.Unmarshal(raw, &metadata); err != nil {
 		return "", err
 	}
-	if cmd.BeanListPublicationID > 0 || metadata.ReleaseID != "" {
+	serviceCode := strings.TrimSpace(cmd.PortalServiceCode)
+	if serviceCode == app.PortalServiceDirectShip || serviceCode == app.PortalServiceProductOrder {
+		var bound bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1 FROM %s.customer_order_price_table_bindings x
+				JOIN %s.bean_list_publications b ON b.id=x.publication_id
+				WHERE x.customer_id=$1 AND x.usage_code=$2 AND x.publication_id=$3
+				  AND b.status='published' AND b.deleted_at IS NULL AND b.owner_type='customer' AND b.owner_key=($1::bigint)::text
+			)
+		`, r.schema, r.schema), cmd.CustomerID, serviceCode, usage.PublicationID).Scan(&bound); err != nil {
+			return "", err
+		}
+		if !bound {
+			return "", fmt.Errorf("价格表指定已变化，请重新核价确认")
+		}
+	} else if cmd.BeanListPublicationID > 0 || metadata.ReleaseID != "" {
 		if cmd.BeanListPublicationID == 0 && !metadata.IsDefaultTable {
 			return "", fmt.Errorf("请先选择价格表，再选择该表中的商品规格")
 		}

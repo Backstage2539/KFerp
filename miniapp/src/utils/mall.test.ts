@@ -228,13 +228,15 @@ describe('mini mall helpers', () => {
 
   it('uses customer-facing pickers instead of raw system ID fields for service order forms', () => {
     const servicePage = fs.readFileSync(path.join(currentDir, '..', 'pages', 'service', 'service.vue'), 'utf8')
+    const orderingPanel = fs.readFileSync(path.join(currentDir, '..', 'components', 'CustomerDirectShipPanel.vue'), 'utf8')
     const productSelector = fs.readFileSync(path.join(currentDir, '..', 'components', 'CustomerProductSelector.vue'), 'utf8')
     const processingPanel = fs.readFileSync(path.join(currentDir, '..', 'components', 'CustomerProcessingPanel.vue'), 'utf8')
     const api = fs.readFileSync(path.join(currentDir, '..', 'api', 'customerPortal.ts'), 'utf8')
     expect(api).toContain('product_kind?:')
-    expect(servicePage).toContain('fulfillmentProductOptions')
-    expect(servicePage).toContain('setFulfillmentProduct')
-    expect(servicePage).toContain('<picker mode="selector" :range="fulfillmentProductLabels"')
+    expect(servicePage).toContain('order-mode="product_order"')
+    expect(orderingPanel).toContain('openProductSelector')
+    expect(orderingPanel).toContain('从收件地址簿选择')
+    expect(orderingPanel).toContain('商品和价格由 ERP 为当前客户指定')
     expect(productSelector).toContain('employeeOrderProductCategories')
     expect(productSelector).toContain('搜索商品名、拼音、编码或 SKU')
     expect(processingPanel).toContain('CustomerProductSelector')

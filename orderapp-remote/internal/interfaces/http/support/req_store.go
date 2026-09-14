@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-664-CUSTOMER-ORDER-PRICE-BINDINGS", title: "客户一件代发和商品下单指定价格表版本与共用地址簿", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-14-customer-order-price-bindings-addressbook.md"},
+		{table: "req_dev", code: "DEV-682-PRICE-BINDINGS", title: "客户商品类型和入口绑定具体发布记录、严格目录报价与归档删除保护", status: "done", assignee: "Codex", evidence: "customer_order_price_table_bindings.go; price_table_selection_test.go; PostgreSQL binding test"},
+		{table: "req_dev", code: "DEV-683-PRODUCT-ORDER", title: "商品下单多商品地址录单、服务端核价和共享 ERP 订单", status: "done", assignee: "Codex", evidence: "mini_direct_ship.go; CustomerDirectShipPanel.vue; mini product-order API tests"},
+		{table: "req_dev", code: "DEV-684-RECIPIENT-ADDRESS-BOOK", title: "ERP 与小程序按客户共用收件地址、默认地址、并发和操作日志", status: "done", assignee: "Codex", evidence: "recipient_addresses.go; CustomersView.vue; customer-addresses.vue; PostgreSQL address test"},
+		{table: "req_dev", code: "DEV-685-DELIVERY", title: "手册、完整验证、开发正式环境和生产小程序包交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-14-customer-order-price-bindings-addressbook.md"},
+		{table: "req_review", code: "REV-664-CUSTOMER-ORDER-PRICE-BINDINGS", prCode: "PR-664-CUSTOMER-ORDER-PRICE-BINDINGS", title: "验收陈丹燕指定表、商品下单和两端共用地址簿", status: "todo", assignee: "VA", evidence: "待 Van 在 development 与 production 验收"},
+
 		{table: "req_product", code: "PR-663-PUBLICATIONS-SUMMARY-CLEANUP", title: "商品价格表摘要加载、请求合并与归档永久清理", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-14-publication-summary-cleanup.md"},
 		{table: "req_dev", code: "DEV-676-PUBLICATION-SUMMARY", title: "版本批次摘要分页、历史元数据补齐与按需详情报价来源", status: "done", assignee: "Codex", evidence: "publication_summary_cleanup.go; publication_summary_cleanup_postgres_test.go"},
 		{table: "req_dev", code: "DEV-677-PUBLICATION-DELETE", title: "归档单张批量清空预览、原子删除、幂等与逐表审计", status: "done", assignee: "Codex", evidence: "publication_summary_cleanup.go; costing_api.go; PostgreSQL delete tests"},

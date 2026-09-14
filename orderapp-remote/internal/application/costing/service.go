@@ -735,6 +735,55 @@ type ArchiveBeanListPublicationsCommand struct {
 	Actor              string  `json:"actor,omitempty"`
 }
 
+const (
+	CustomerOrderPriceTableUsageDirectShip   = "direct_ship"
+	CustomerOrderPriceTableUsageProductOrder = "product_order"
+)
+
+type CustomerOrderPriceTableCandidate struct {
+	PublicationID            int64  `json:"publication_id"`
+	ProductTypeKey           string `json:"product_type_key"`
+	ListType                 string `json:"list_type"`
+	ProductTypeCategoryID    int64  `json:"product_type_category_id,omitempty"`
+	ProductTypeName          string `json:"product_type_name,omitempty"`
+	ClassificationTemplateID int64  `json:"classification_template_id,omitempty"`
+	TableName                string `json:"table_name"`
+	Version                  string `json:"version"`
+}
+
+type CustomerOrderPriceTableBinding struct {
+	CustomerID               int64  `json:"customer_id"`
+	UsageCode                string `json:"usage_code"`
+	ProductTypeKey           string `json:"product_type_key"`
+	PublicationID            int64  `json:"publication_id"`
+	ListType                 string `json:"list_type"`
+	ProductTypeCategoryID    int64  `json:"product_type_category_id,omitempty"`
+	ProductTypeName          string `json:"product_type_name,omitempty"`
+	ClassificationTemplateID int64  `json:"classification_template_id,omitempty"`
+	TableName                string `json:"table_name"`
+	Version                  string `json:"version"`
+	Revision                 int64  `json:"revision"`
+	UpdatedAt                string `json:"updated_at,omitempty"`
+}
+
+type CustomerOrderPriceTableConfig struct {
+	Candidates []CustomerOrderPriceTableCandidate `json:"candidates"`
+	Bindings   []CustomerOrderPriceTableBinding   `json:"bindings"`
+}
+
+type CustomerOrderPriceTableQuery struct {
+	CustomerID int64
+}
+
+type SaveCustomerOrderPriceTableBindingCommand struct {
+	CustomerID       int64  `json:"customer_id"`
+	UsageCode        string `json:"usage_code"`
+	ProductTypeKey   string `json:"product_type_key"`
+	PublicationID    int64  `json:"publication_id"`
+	ExpectedRevision int64  `json:"expected_revision,omitempty"`
+	Actor            string `json:"-"`
+}
+
 type Repository interface {
 	ValidateBeanListOrderability(ctx context.Context, cmd PublishBeanListCommand) error
 	LoadParameters(ctx context.Context) (domain.Parameters, error)
@@ -768,6 +817,11 @@ type beanListPublicationSummaryRepository interface {
 
 type beanListPublicationVersionRepository interface {
 	ListBeanListPublicationVersions(context.Context, BeanListPublicationQuery) ([]BeanListPublication, error)
+}
+
+type customerOrderPriceTableRepository interface {
+	CustomerOrderPriceTableConfig(context.Context, CustomerOrderPriceTableQuery) (CustomerOrderPriceTableConfig, error)
+	SaveCustomerOrderPriceTableBinding(context.Context, SaveCustomerOrderPriceTableBindingCommand) (CustomerOrderPriceTableConfig, error)
 }
 
 type productSalesUnitRuleRepository interface {
@@ -3202,6 +3256,40 @@ func (s *Service) ListBeanListPublicationSummaries(ctx context.Context, query Be
 		return BeanListPublicationSummaryPage{Rows: []BeanListPublicationSummary{}, Page: query.Page, PageSize: query.PageSize}, nil
 	}
 	return repo.ListBeanListPublicationSummaries(ctx, query)
+}
+
+func (s *Service) CustomerOrderPriceTableConfig(ctx context.Context, query CustomerOrderPriceTableQuery) (CustomerOrderPriceTableConfig, error) {
+	if query.CustomerID <= 0 {
+		return CustomerOrderPriceTableConfig{}, fmt.Errorf("customer required")
+	}
+	repo, ok := s.repo.(customerOrderPriceTableRepository)
+	if !ok {
+		return CustomerOrderPriceTableConfig{Candidates: []CustomerOrderPriceTableCandidate{}, Bindings: []CustomerOrderPriceTableBinding{}}, nil
+	}
+	return repo.CustomerOrderPriceTableConfig(ctx, query)
+}
+
+func (s *Service) SaveCustomerOrderPriceTableBinding(ctx context.Context, cmd SaveCustomerOrderPriceTableBindingCommand) (CustomerOrderPriceTableConfig, error) {
+	cmd.UsageCode = strings.TrimSpace(cmd.UsageCode)
+	cmd.ProductTypeKey = strings.TrimSpace(cmd.ProductTypeKey)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.CustomerID <= 0 {
+		return CustomerOrderPriceTableConfig{}, fmt.Errorf("customer required")
+	}
+	if cmd.UsageCode != CustomerOrderPriceTableUsageDirectShip && cmd.UsageCode != CustomerOrderPriceTableUsageProductOrder {
+		return CustomerOrderPriceTableConfig{}, fmt.Errorf("invalid usage_code")
+	}
+	if cmd.PublicationID <= 0 && cmd.ProductTypeKey == "" {
+		return CustomerOrderPriceTableConfig{}, fmt.Errorf("product_type_key required when clearing a binding")
+	}
+	if cmd.Actor == "" {
+		return CustomerOrderPriceTableConfig{}, fmt.Errorf("actor required")
+	}
+	repo, ok := s.repo.(customerOrderPriceTableRepository)
+	if !ok {
+		return CustomerOrderPriceTableConfig{}, fmt.Errorf("repository required")
+	}
+	return repo.SaveCustomerOrderPriceTableBinding(ctx, cmd)
 }
 
 func (s *Service) LoadBeanListPublication(ctx context.Context, query BeanListPublicationQuery, publicationID int64) (*BeanListPublication, error) {

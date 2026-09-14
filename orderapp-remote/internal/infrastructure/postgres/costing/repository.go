@@ -3807,6 +3807,9 @@ func (r Repository) ArchiveBeanListPublications(ctx context.Context, cmd appcost
 	if err != nil {
 		return err
 	}
+	if err := r.rejectBoundCustomerOrderPriceTablePublications(ctx, tx, cmd.IDs); err != nil {
+		return err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		WITH selected AS (
 			SELECT id, COALESCE(NULLIF(publication_purpose,''),'factory_supply') AS publication_purpose,

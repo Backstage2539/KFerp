@@ -54,6 +54,30 @@ func TestNamedOrderTablesOnlySelectedProductsAndPrices(t *testing.T) {
 	}
 }
 
+func TestExactCustomerOrderTablesDoNotBackfillUnspecifiedProductTypes(t *testing.T) {
+	options := ApplyNamedPriceTableDefaults(namedOrderTableOptions())
+	for index := 0; index < 3; index++ {
+		options[index].IsCustomerOwned = true
+	}
+	products := []ProductOption{
+		{ID: 10, CustomerID: 42, ProductKind: "roasted_bean", Tiers: []ProductTierOption{{PublicationID: 2, UnitPrice: 38}}},
+		{ID: 20, CustomerID: 42, ProductKind: "green_bean", Tiers: []ProductTierOption{{PublicationID: 4, UnitPrice: 16}}},
+	}
+	got, err := FilterOrderProductsForExactCustomerPublications(products, 42, options, nil, []int64{2}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != 10 || len(got[0].Tiers) != 1 || got[0].Tiers[0].PublicationID != 2 {
+		t.Fatalf("exact catalog leaked an unbound default table: %+v", got)
+	}
+	if _, err := FilterOrderProductsForExactCustomerPublications(products, 42, options, nil, []int64{4}, false); err == nil {
+		t.Fatal("public price table must not be accepted as a customer-bound publication")
+	}
+	if _, err := FilterOrderProductsForExactCustomerPublications(products, 42, options, nil, []int64{1, 2}, false); err == nil {
+		t.Fatal("two versions for one product type must not be accepted")
+	}
+}
+
 func TestCustomerDefaultAndExplicitPublicNamedTable(t *testing.T) {
 	options := []BeanListVersionOption{{ID: 11, CustomerID: 42, IsCustomerOwned: true, IsDefault: true, ListType: "commercial", ReleaseID: "C1", IsDefaultTable: true}, {ID: 12, CustomerID: 0, IsDefault: true, ListType: "commercial", ReleaseID: "P1", IsDefaultTable: true}, {ID: 14, CustomerID: 0, ListType: "commercial", ReleaseID: "P1"}, {ID: 13, CustomerID: 43, IsCustomerOwned: true, IsDefault: true, ListType: "commercial"}}
 	defaults, e := ResolveOrderPriceTableSelection(options, 42, nil, true)

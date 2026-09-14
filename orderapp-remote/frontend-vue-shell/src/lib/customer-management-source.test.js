@@ -83,3 +83,14 @@ test('customer drawer uses the shared recipient parsing API', () => {
   assert.match(view, /\{\{ customerPhoneForERPForm\(row\) \}\}/)
   assert.match(view, /company_phone: form\.company_phone,[\s\S]*?phone: form\.company_phone,/)
 })
+
+test('customer drawer maintains the shared recipient address book', () => {
+  const view = source('views/CustomersView.vue')
+  assert.match(view, /<h4>收件地址<\/h4>/)
+  assert.match(view, /将客户档案地址加入地址簿/)
+  assert.match(view, /recipient-addresses/)
+  assert.match(view, /parseRecipientAddress/)
+  assert.match(view, /设为默认地址/)
+  assert.match(view, /expected_revision/)
+  assert.match(view, /后续修改地址簿不会改历史订单/)
+})

@@ -44,6 +44,11 @@ type MaterialCostTrialService interface {
 	MaterialCostTrial(context.Context, appcosting.MaterialCostTrialCommand) (appcosting.MaterialCostTrialResult, error)
 }
 
+type CustomerOrderPriceTableService interface {
+	CustomerOrderPriceTableConfig(context.Context, appcosting.CustomerOrderPriceTableQuery) (appcosting.CustomerOrderPriceTableConfig, error)
+	SaveCustomerOrderPriceTableBinding(context.Context, appcosting.SaveCustomerOrderPriceTableBindingCommand) (appcosting.CustomerOrderPriceTableConfig, error)
+}
+
 type Dependencies struct {
 	Costing Service
 	Authz   support.AuthzService

@@ -807,6 +807,7 @@ func miniDirectShipRequestHash(cmd app.MiniDirectShipCommand) (string, error) {
 		items = append(items, itemHash{ProductID: item.ProductID, BomSpecID: item.BomSpecID, SpecG: item.SpecG, Qty: item.Qty, SalesUnit: item.SalesUnit})
 	}
 	payload := struct {
+		UsageCode        string     `json:"usage_code"`
 		RecipientName    string     `json:"recipient_name"`
 		RecipientPhone   string     `json:"recipient_phone"`
 		Province         string     `json:"province"`
@@ -816,7 +817,7 @@ func miniDirectShipRequestHash(cmd app.MiniDirectShipCommand) (string, error) {
 		RecipientCompany string     `json:"recipient_company"`
 		Items            []itemHash `json:"items"`
 		Note             string     `json:"note"`
-	}{cmd.RecipientName, cmd.RecipientPhone, cmd.Province, cmd.City, cmd.District, cmd.DetailAddress, cmd.RecipientCompany, items, cmd.Note}
+	}{cmd.UsageCode, cmd.RecipientName, cmd.RecipientPhone, cmd.Province, cmd.City, cmd.District, cmd.DetailAddress, cmd.RecipientCompany, items, cmd.Note}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -861,88 +862,53 @@ func (r *Repository) resolveMiniDirectShipItems(ctx context.Context, q miniDirec
 	return out, nil
 }
 
-func (r *Repository) DirectShipPriceTables(ctx context.Context, customerID int64) ([]app.MiniDirectShipPriceTable, error) {
+func (r *Repository) CustomerOrderPriceTables(ctx context.Context, customerID int64, usageCode string) ([]app.MiniDirectShipPriceTable, error) {
 	if customerID <= 0 {
 		return nil, fmt.Errorf("customer required")
 	}
-	var raw []byte
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT config_json
-		FROM %s.customer_service_capabilities
-		WHERE customer_id=$1 AND capability_code='direct_ship' AND enabled=true
-	`, r.schema), customerID).Scan(&raw); errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("一件代发尚未配置指定价格表")
-	} else if err != nil {
-		return nil, err
-	}
-	var config struct {
-		PriceTableKeys []string `json:"price_table_keys"`
-	}
-	if err := json.Unmarshal(raw, &config); err != nil {
-		return nil, fmt.Errorf("一件代发价格表配置无效")
-	}
-	keys := make([]string, 0, len(config.PriceTableKeys))
-	seen := map[string]bool{}
-	for _, key := range config.PriceTableKeys {
-		key = strings.TrimSpace(key)
-		if key != "" && !seen[key] {
-			seen[key] = true
-			keys = append(keys, key)
-		}
-	}
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("一件代发尚未配置指定价格表")
+	usageCode = strings.TrimSpace(usageCode)
+	if usageCode != "direct_ship" && usageCode != "product_order" {
+		return nil, fmt.Errorf("invalid customer order price-table usage")
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		WITH candidates AS (
-			SELECT b.id,
-			       b.config_json->'publication_batch'->>'table_key' AS table_key,
-			       COALESCE(NULLIF(b.config_json->'publication_batch'->>'table_name',''),b.version_no) AS table_name,
-			       b.version_no,b.list_type,
-			       ROW_NUMBER() OVER (
-			         PARTITION BY b.config_json->'publication_batch'->>'table_key',
-			                      COALESCE(NULLIF(b.classification_template_id,0),NULLIF(b.product_type_category_id,0),0),
-			                      b.list_type
-			         ORDER BY b.published_at DESC NULLS LAST,b.id DESC
-			       ) AS rn
-			FROM %s.bean_list_publications b
-			WHERE b.status='published'
-			  AND b.publication_purpose='factory_supply'
-			  AND b.config_json->'publication_batch'->>'table_key'=ANY($2::text[])
-			  AND COALESCE((b.config_json->'publication_batch'->>'direct_ship_enabled')::boolean,false)=true
-			  AND (b.owner_type='official' OR (b.owner_type='customer' AND b.owner_key=($1::bigint)::text))
-		)
-		SELECT id,table_key,table_name,version_no,list_type
-		FROM candidates WHERE rn=1
-		ORDER BY table_key,list_type,id
-	`, r.schema), customerID, keys)
+		SELECT b.id,
+		       COALESCE(NULLIF(b.publication_table_key,''),b.config_json->'publication_batch'->>'table_key','') AS table_key,
+		       COALESCE(NULLIF(b.publication_table_name,''),NULLIF(b.config_json->'publication_batch'->>'table_name',''),b.version_no) AS table_name,
+		       b.version_no,b.list_type
+		FROM %s.customer_order_price_table_bindings x
+		JOIN %s.bean_list_publications b ON b.id=x.publication_id
+		WHERE x.customer_id=$1 AND x.usage_code=$2
+		  AND b.owner_type='customer' AND b.owner_key=($1::bigint)::text
+		  AND b.publication_purpose='factory_supply'
+		  AND b.status='published' AND b.deleted_at IS NULL
+		ORDER BY x.product_type_key,b.id
+	`, r.schema, r.schema), customerID, usageCode)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := make([]app.MiniDirectShipPriceTable, 0)
-	found := map[string]bool{}
 	for rows.Next() {
 		var row app.MiniDirectShipPriceTable
 		if err := rows.Scan(&row.ID, &row.TableKey, &row.TableName, &row.VersionNo, &row.ListType); err != nil {
 			return nil, err
 		}
-		found[row.TableKey] = true
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	missing := make([]string, 0)
-	for _, key := range keys {
-		if !found[key] {
-			missing = append(missing, key)
+	if len(out) == 0 {
+		if usageCode == "direct_ship" {
+			return nil, fmt.Errorf("一件代发尚未在商品价格表中指定价格表")
 		}
-	}
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("一件代发指定价格表未发布、已失效或未启用：%s", strings.Join(missing, "、"))
+		return nil, fmt.Errorf("商品下单尚未在商品价格表中指定价格表")
 	}
 	return out, nil
+}
+
+func (r *Repository) DirectShipPriceTables(ctx context.Context, customerID int64) ([]app.MiniDirectShipPriceTable, error) {
+	return r.CustomerOrderPriceTables(ctx, customerID, "direct_ship")
 }
 
 func (r *Repository) PrepareMiniDirectShipOrder(ctx context.Context, cmd app.MiniDirectShipCommand) (app.PreparedMiniDirectShipOrder, error) {
@@ -993,7 +959,11 @@ func (r *Repository) PrepareMiniDirectShipOrder(ctx context.Context, cmd app.Min
 		}
 	}
 	cmd.Items = items
-	tables, err := r.DirectShipPriceTables(ctx, cmd.CustomerID)
+	usageCode := strings.TrimSpace(cmd.UsageCode)
+	if usageCode == "" {
+		usageCode = "direct_ship"
+	}
+	tables, err := r.CustomerOrderPriceTables(ctx, cmd.CustomerID, usageCode)
 	if err != nil {
 		return app.PreparedMiniDirectShipOrder{}, err
 	}

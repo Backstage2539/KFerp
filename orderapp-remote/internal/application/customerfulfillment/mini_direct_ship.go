@@ -39,6 +39,7 @@ type MiniDirectShipItemCommand struct {
 }
 
 type MiniDirectShipCommand struct {
+	UsageCode        string                      `json:"-"`
 	CustomerID       int64                       `json:"-"`
 	EmployeeID       int64                       `json:"-"`
 	MiniUserID       int64                       `json:"-"`
@@ -60,6 +61,7 @@ type MiniDirectShipCatalogQuery struct {
 	CustomerID int64
 	Q          string
 	Category   string
+	UsageCode  string
 }
 
 type MiniDirectShipCategory struct {
@@ -163,6 +165,10 @@ type MiniDirectShipOrderRepository interface {
 	DirectShipPriceTables(context.Context, int64) ([]MiniDirectShipPriceTable, error)
 	PrepareMiniDirectShipOrder(context.Context, MiniDirectShipCommand) (PreparedMiniDirectShipOrder, error)
 	RecordMiniDirectShipOrder(context.Context, PreparedMiniDirectShipOrder, DirectShipOrderSummary) (MiniDirectShipRequest, error)
+}
+
+type MiniCustomerOrderPriceTableRepository interface {
+	CustomerOrderPriceTables(context.Context, int64, string) ([]MiniDirectShipPriceTable, error)
 }
 
 type MiniDirectShipListQuery struct {
@@ -353,12 +359,22 @@ func (s *Service) MiniDirectShipCatalog(ctx context.Context, query MiniDirectShi
 	}
 	query.Q = strings.TrimSpace(query.Q)
 	query.Category = strings.TrimSpace(query.Category)
+	query.UsageCode = strings.TrimSpace(query.UsageCode)
+	if query.UsageCode == "" {
+		query.UsageCode = "direct_ship"
+	}
+	if query.UsageCode != "direct_ship" && query.UsageCode != "product_order" {
+		return MiniDirectShipCatalog{}, fmt.Errorf("invalid customer order usage")
+	}
 	repo, err := s.miniDirectShipRepository()
 	if err != nil {
 		return MiniDirectShipCatalog{}, err
 	}
 	if bridge, ok := repo.(MiniDirectShipOrderRepository); ok && s.sales != nil {
 		tables, tableErr := bridge.DirectShipPriceTables(ctx, query.CustomerID)
+		if exactRepo, exactOK := repo.(MiniCustomerOrderPriceTableRepository); exactOK {
+			tables, tableErr = exactRepo.CustomerOrderPriceTables(ctx, query.CustomerID, query.UsageCode)
+		}
 		if tableErr != nil {
 			return MiniDirectShipCatalog{}, tableErr
 		}
@@ -370,13 +386,21 @@ func (s *Service) MiniDirectShipCatalog(ctx context.Context, query MiniDirectShi
 		for _, table := range tables {
 			ids = append(ids, table.ID)
 		}
-		products, filterErr := salesapp.FilterOrderProductsForSelectedPublications(form.Products, query.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, ids, false)
+		products, filterErr := salesapp.FilterOrderProductsForExactCustomerPublications(form.Products, query.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, ids, false)
 		if filterErr != nil {
 			return MiniDirectShipCatalog{}, filterErr
 		}
 		return miniDirectShipCatalogFromSales(query, tables, products), nil
 	}
+	if query.UsageCode == "product_order" {
+		return MiniDirectShipCatalog{}, ErrMiniDirectShipUnavailable
+	}
 	return repo.MiniDirectShipCatalog(ctx, query)
+}
+
+func (s *Service) MiniProductOrderCatalog(ctx context.Context, query MiniDirectShipCatalogQuery) (MiniDirectShipCatalog, error) {
+	query.UsageCode = "product_order"
+	return s.MiniDirectShipCatalog(ctx, query)
 }
 
 func (s *Service) PreviewMiniDirectShip(ctx context.Context, cmd MiniDirectShipCommand) (MiniDirectShipPreview, error) {
@@ -412,6 +436,11 @@ func (s *Service) PreviewMiniDirectShip(ctx context.Context, cmd MiniDirectShipC
 	return preview, nil
 }
 
+func (s *Service) PreviewMiniProductOrder(ctx context.Context, cmd MiniDirectShipCommand) (MiniDirectShipPreview, error) {
+	cmd.UsageCode = "product_order"
+	return s.PreviewMiniDirectShip(ctx, cmd)
+}
+
 func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCommand) (MiniDirectShipRequest, error) {
 	cmd, err := normalizeMiniDirectShipCommand(cmd, true)
 	if err != nil {
@@ -445,13 +474,18 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 			})
 		}
 		fullAddress := strings.TrimSpace(prepared.Command.Province + prepared.Command.City + prepared.Command.District + prepared.Command.DetailAddress)
+		usageCode := prepared.Command.UsageCode
+		if usageCode == "" {
+			usageCode = "direct_ship"
+		}
 		order, orderErr := s.SubmitCustomerDirectShipOrder(ctx, SubmitCustomerDirectShipOrderCommand{
 			CustomerID: prepared.Command.CustomerID, ReceiverName: prepared.Command.RecipientName,
 			ReceiverPhone: prepared.Command.RecipientPhone, ReceiverAddress: fullAddress,
 			ReceiverCompany: prepared.Command.RecipientCompany, Items: items, Note: prepared.Command.Note,
 			Actor:               prepared.Command.Actor,
-			CustomerRequestID:   fmt.Sprintf("mini-direct-ship:%d:%s", prepared.Command.CustomerID, prepared.Command.IdempotencyKey),
+			CustomerRequestID:   fmt.Sprintf("mini-%s:%d:%s", usageCode, prepared.Command.CustomerID, prepared.Command.IdempotencyKey),
 			CustomerRequestHash: prepared.RequestHash, SelectedPriceTableIDs: prepared.SelectedPriceTableIDs,
+			PortalServiceCode: usageCode,
 		})
 		if orderErr != nil {
 			return MiniDirectShipRequest{}, orderErr
@@ -461,12 +495,17 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 	return repo.SubmitMiniDirectShip(ctx, cmd)
 }
 
+func (s *Service) SubmitMiniProductOrder(ctx context.Context, cmd MiniDirectShipCommand) (MiniDirectShipRequest, error) {
+	cmd.UsageCode = "product_order"
+	return s.SubmitMiniDirectShip(ctx, cmd)
+}
+
 func (s *Service) pricePreparedMiniDirectShipOrder(ctx context.Context, prepared PreparedMiniDirectShipOrder) ([]MiniDirectShipItemCommand, float64, error) {
 	form, err := s.sales.OrderForm(ctx, 0)
 	if err != nil {
 		return nil, 0, err
 	}
-	products, err := salesapp.FilterOrderProductsForSelectedPublications(
+	products, err := salesapp.FilterOrderProductsForExactCustomerPublications(
 		form.Products,
 		prepared.Command.CustomerID,
 		form.BeanListVersionOptions,
@@ -882,6 +921,13 @@ func normalizeMiniDirectShipCommand(cmd MiniDirectShipCommand, requireIdempotenc
 		return MiniDirectShipCommand{}, fmt.Errorf("customer required")
 	}
 	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	cmd.UsageCode = strings.TrimSpace(cmd.UsageCode)
+	if cmd.UsageCode == "" {
+		cmd.UsageCode = "direct_ship"
+	}
+	if cmd.UsageCode != "direct_ship" && cmd.UsageCode != "product_order" {
+		return MiniDirectShipCommand{}, fmt.Errorf("invalid customer order usage")
+	}
 	cmd.PriceQuoteToken = strings.TrimSpace(cmd.PriceQuoteToken)
 	if requireIdempotency && cmd.IdempotencyKey == "" {
 		return MiniDirectShipCommand{}, fmt.Errorf("idempotency_key required")

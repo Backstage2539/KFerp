@@ -124,6 +124,19 @@ CREATE INDEX IF NOT EXISTS bean_list_publications_owner_status_idx
 	ON %[1]s.bean_list_publications(publication_purpose, owner_type, owner_key, status, published_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS bean_list_publications_summary_idx
 	ON %[1]s.bean_list_publications(publication_purpose, owner_type, owner_key, list_type, status, classification_template_id, created_at DESC, id DESC);
+CREATE TABLE IF NOT EXISTS %[1]s.customer_order_price_table_bindings (
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	usage_code TEXT NOT NULL CHECK (usage_code IN ('direct_ship','product_order')),
+	product_type_key TEXT NOT NULL,
+	publication_id BIGINT NOT NULL REFERENCES %[1]s.bean_list_publications(id) ON DELETE RESTRICT,
+	revision BIGINT NOT NULL DEFAULT 1,
+	updated_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(customer_id,usage_code,product_type_key)
+);
+CREATE INDEX IF NOT EXISTS customer_order_price_table_bindings_publication_idx
+	ON %[1]s.customer_order_price_table_bindings(publication_id);
 CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publication_assets (
 	id BIGSERIAL PRIMARY KEY,
 	publication_id BIGINT NOT NULL REFERENCES %[1]s.bean_list_publications(id) ON DELETE CASCADE,
@@ -204,10 +217,58 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_source_json SET NOT NUL
 	if err := backfillBeanListPublicationSummaryMetadata(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := migrateLegacyDirectShipPriceTableBindings(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := seedParameters(ctx, pool, schema); err != nil {
 		return err
 	}
 	return nil
+}
+
+func migrateLegacyDirectShipPriceTableBindings(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+DO $$
+BEGIN
+	IF to_regclass('%[1]s.customer_service_capabilities') IS NULL THEN
+		RETURN;
+	END IF;
+	WITH legacy_keys AS (
+		SELECT c.customer_id,trim(k.value) AS table_key
+		FROM %[1]s.customer_service_capabilities c
+		CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(c.config_json->'price_table_keys','[]'::jsonb)) k(value)
+		WHERE c.capability_code='direct_ship' AND c.enabled=true AND trim(k.value)<>''
+	), ranked AS (
+		SELECT l.customer_id,b.id AS publication_id,
+		       CASE WHEN b.classification_template_id>0 THEN 'classification:'||b.classification_template_id::text
+		            WHEN b.product_type_category_id>0 THEN 'classification:'||b.product_type_category_id::text
+		            ELSE 'legacy:'||trim(b.list_type) END AS product_type_key,
+		       row_number() OVER (
+		         PARTITION BY l.customer_id,l.table_key,
+		           CASE WHEN b.classification_template_id>0 THEN 'classification:'||b.classification_template_id::text
+		                WHEN b.product_type_category_id>0 THEN 'classification:'||b.product_type_category_id::text
+		                ELSE 'legacy:'||trim(b.list_type) END
+		         ORDER BY b.published_at DESC NULLS LAST,b.id DESC
+		       ) AS version_rank
+		FROM legacy_keys l
+		JOIN %[1]s.bean_list_publications b
+		  ON b.owner_type='customer' AND b.owner_key=l.customer_id::text
+		 AND b.status='published' AND b.deleted_at IS NULL
+		 AND b.publication_purpose='factory_supply'
+		 AND COALESCE(NULLIF(b.publication_table_key,''),b.config_json->'publication_batch'->>'table_key')=l.table_key
+	), latest AS (
+		SELECT customer_id,product_type_key,publication_id
+		FROM ranked WHERE version_rank=1
+	), unique_types AS (
+		SELECT customer_id,product_type_key,min(publication_id) AS publication_id
+		FROM latest GROUP BY customer_id,product_type_key HAVING count(*)=1
+	)
+	INSERT INTO %[1]s.customer_order_price_table_bindings(customer_id,usage_code,product_type_key,publication_id,updated_by)
+	SELECT customer_id,'direct_ship',product_type_key,publication_id,'system:legacy-direct-ship-migration'
+	FROM unique_types
+	ON CONFLICT (customer_id,usage_code,product_type_key) DO NOTHING;
+END $$;`, schema))
+	return err
 }
 
 func backfillBeanListPublicationSummaryMetadata(ctx context.Context, pool *pgxpool.Pool, schema string) error {

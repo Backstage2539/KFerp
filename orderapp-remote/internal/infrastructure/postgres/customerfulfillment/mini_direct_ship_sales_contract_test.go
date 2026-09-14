@@ -18,8 +18,9 @@ func TestMiniDirectShipUsesAssignedPriceTableAndSharedSalesOrder(t *testing.T) {
 	for _, want := range []string{
 		"PrepareMiniDirectShipOrder",
 		"RecordMiniDirectShipOrder",
-		"price_table_keys",
-		"direct_ship_enabled",
+		"customer_order_price_table_bindings",
+		"usage_code=$2",
+		"b.owner_type='customer'",
 		"LEFT JOIN %s.order_shipping_trackings tracking",
 		"tracking_no=$2",
 	} {

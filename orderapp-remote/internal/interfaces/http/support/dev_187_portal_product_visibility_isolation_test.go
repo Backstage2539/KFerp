@@ -70,7 +70,7 @@ func TestPortalProductVisibilityIsolationManualsAndRequirementDocs(t *testing.T)
 	} {
 		doc := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
-			"现货下单商品可见范围",
+			"商品下单商品可见范围",
 			"公共商品",
 			"不能显示其他客户专属商品",
 		} {

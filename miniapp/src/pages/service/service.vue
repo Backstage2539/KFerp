@@ -131,6 +131,7 @@ const title = computed(() => {
 })
 const isClosedLoopService = computed(() => (
   serviceKey.value === 'directShip'
+  || serviceKey.value === 'productOrder'
   || serviceKey.value === 'processing'
   || serviceKey.value === 'inventory'
   || serviceKey.value === 'settlement'
@@ -981,6 +982,13 @@ onShow(() => { void refreshMiniappShareMenu() })
         :customer-id="session.currentCustomerID"
       />
       <CustomerDirectShipPanel
+        v-else-if="serviceKey === 'productOrder'"
+        :key="`product-order:${session.currentCustomerID}`"
+        :token="session.token"
+        :customer-id="session.currentCustomerID"
+        order-mode="product_order"
+      />
+      <CustomerDirectShipPanel
         v-else-if="serviceKey === 'orders' && isProcessingCustomer"
         :key="`fulfillment-center:${session.currentCustomerID}`"
         :token="session.token"
@@ -1017,32 +1025,6 @@ onShow(() => { void refreshMiniappShareMenu() })
         </view>
       </view>
 
-      <view v-if="serviceKey === 'productOrder'" class="panel">
-        <text class="panel-title">新建现货订单</text>
-        <view v-for="group in namedPriceTableGroups" :key="group.key">
-          <text>{{ group.label }}价格表</text>
-          <picker mode="selector" :range="group.options.map(priceTableLabel)" :value="group.options.findIndex(row => row.id === selectedPriceTable(group)?.id)" @change="changePriceTable(group, $event)">
-            <view class="picker-field">{{ priceTableLabel(selectedPriceTable(group)) }}</view>
-          </picker>
-        </view>
-        <input v-model="fulfillmentForm.recipient_name" class="input" placeholder="收件人" />
-        <input v-model="fulfillmentForm.recipient_phone" class="input" placeholder="手机号" />
-        <input v-model="fulfillmentForm.recipient_address" class="input" placeholder="收件地址" />
-        <input v-model="fulfillmentForm.recipient_company" class="input" placeholder="公司/门店，可选" />
-        <picker mode="selector" :range="fulfillmentProductLabels" @change="setFulfillmentProduct">
-          <view class="picker-field">{{ selectedFulfillmentProductLabel }}</view>
-        </picker>
-        <picker v-if="fulfillmentSalesUnitPickerOptions.length" mode="selector" :range="fulfillmentSalesUnitLabels" @change="setFulfillmentSalesUnit">
-          <view class="picker-field">{{ selectedFulfillmentSalesUnitLabel }}</view>
-        </picker>
-        <view v-if="fulfillmentForm.bom_spec_id" class="picker-field">
-          {{ selectedFulfillmentProduct?.spec_name || 'BOM规格' }} / {{ fulfillmentForm.inventory_unit }}
-        </view>
-        <input v-else v-model.number="fulfillmentForm.spec_g" class="input" type="number" placeholder="规格克重" />
-        <input v-model.number="fulfillmentForm.qty" class="input" type="number" :placeholder="fulfillmentQuantityPlaceholder" />
-        <textarea v-model="fulfillmentForm.note" class="textarea" placeholder="订单备注" />
-        <button class="primary" :disabled="submitting" @tap="submitFulfillmentOrder">提交订单</button>
-      </view>
 
       <view v-if="sections.length" class="section-list">
         <view v-for="section in sections" :key="section.title" class="section-row">

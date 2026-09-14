@@ -25,4 +25,6 @@ test('customer portal settings opens the scoped fulfillment workspace and refres
   }
 
   assert.equal(source.includes('openCustomerProcessingPortal'), false)
+  assert.equal(source.includes('一件代发指定价格表'), false)
+  assert.equal(source.includes('direct_ship_price_table_keys'), false)
 })
