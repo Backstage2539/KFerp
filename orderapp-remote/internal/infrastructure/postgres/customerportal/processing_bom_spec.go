@@ -219,6 +219,12 @@ func (r Repository) ListProcessingCatalogTargets(ctx context.Context, customerID
 		if productID <= 0 {
 			continue
 		}
+		if err := r.ensureProcessingTargetProductTx(ctx, tx, customerID, productID); err != nil {
+			if strings.Contains(err.Error(), "target product unavailable") {
+				continue
+			}
+			return nil, err
+		}
 		{
 			rows, err := tx.Query(ctx, fmt.Sprintf(`
 				SELECT binding.output_id,spec.id,variant.id,

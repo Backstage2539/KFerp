@@ -34,6 +34,11 @@ export type MeResponse = {
   mini_user_id: number
   current_customer_id: number
   current_customer_name: string
+  current_customer_contact?: string
+  current_customer_phone?: string
+  current_customer_address?: string
+  business_contact_name?: string
+  business_contact_phone?: string
   theme_key?: MiniappThemeKey | string
   miniapp_entry_mode?: MiniappEntryMode | string
   account_type?: 'employee' | 'customer' | string
@@ -338,6 +343,7 @@ export type DirectShipBatch = {
   valid_rows: number
   invalid_rows: number
   note: string
+  expected_completion_date?: string
   created_at: string
 }
 
@@ -367,6 +373,7 @@ export type ProcessingRequest = {
   target_qty: number
   status: string
   note: string
+  expected_completion_date?: string
   created_at: string
   accepted_at: string
   linked_work_order_id: number
@@ -378,6 +385,7 @@ export type ProcessingRequest = {
     work_order_id?: number
     work_order_no?: string
     production_plan_id?: number
+    actual_inbound_qty?: number
   }>
 }
 
@@ -460,11 +468,16 @@ export type ProcessingTargetItem = {
   spec_name?: string
   bom_spec_name?: string
   inventory_unit?: string
+  sales_unit?: string
+  unit_price?: number
+  line_amount?: number
 }
 
 export type CreateProcessingRequestPayload = {
+  idempotency_key?: string
   items: ProcessingTargetItem[]
   note?: string
+  expected_completion_date?: string
 }
 
 export type ProcessingMaterialPreview = {
@@ -506,6 +519,8 @@ export type ProcessingTargetPreview = ProcessingTargetItem & {
 }
 
 export type ProcessingRequestPreview = {
+  configuration_valid: boolean
+  materials_ready: boolean
   can_submit: boolean
   complete?: boolean
   items: ProcessingTargetPreview[]
@@ -514,6 +529,7 @@ export type ProcessingRequestPreview = {
 
 export type DirectShipRequestPayload = {
   idempotency_key: string
+  price_quote_token?: string
   recipient_name: string
   recipient_phone: string
   province?: string
@@ -529,6 +545,15 @@ export type DirectShipCatalog = {
   current_customer_id: number
   categories?: Array<{ key: string; label: string }>
   product_families: EmployeeOrderProductFamily[]
+  price_tables?: DirectShipPriceTable[]
+}
+
+export type DirectShipPriceTable = {
+  id: number
+  table_key: string
+  table_name: string
+  version_no: string
+  list_type: string
 }
 
 export type DirectShipPackage = {
@@ -537,6 +562,8 @@ export type DirectShipPackage = {
   order_no: string
   warehouse: string
   status: string
+  process_status?: string
+  ship_status?: string
   carrier_name?: string
   tracking_no?: string
   shipped_at?: string
@@ -563,6 +590,10 @@ export type DirectShipRequest = {
   recipient_company?: string
   items: ProcessingTargetItem[]
   packages?: DirectShipPackage[]
+  order_id?: number
+  order_no?: string
+  total_amount?: number
+  price_tables?: DirectShipPriceTable[]
   created_at: string
   note?: string
 }
@@ -586,6 +617,11 @@ export type DirectShipRequestListResponse = {
 
 export type DirectShipPreview = {
   can_submit: boolean
+  stock_ready: boolean
+  total_amount: number
+  price_quote_token: string
+  price_tables?: DirectShipPriceTable[]
+  items?: ProcessingTargetItem[]
   warehouses: Array<{ warehouse: string; items: ProcessingTargetItem[] }>
   shortages?: Array<ProcessingTargetItem & { available_qty: number }>
 }
@@ -644,6 +680,64 @@ export type CustomerInventoryBatch = {
   historical_without_production_date?: boolean
 }
 
+export type CustomerAssetWarehouseBalance = {
+  warehouse_code: string
+  warehouse_name: string
+  available_qty: number
+  occupied_qty: number
+  in_production_qty: number
+}
+
+export type CustomerAssetInventoryBatch = {
+  batch_id: number
+  batch_no: string
+  warehouse_code: string
+  warehouse_name: string
+  total_qty: number
+  available_qty: number
+  occupied_qty: number
+  in_production_qty: number
+  quality_status: string
+  inbound_at?: string
+}
+
+export type CustomerAssetInventory = {
+  inventory_type: 'finished_product' | 'green_bean' | 'packaging' | 'semi_finished'
+  item_id: number
+  product_id?: number
+  bom_spec_id?: number
+  bom_variant_id?: number
+  spec_g?: number
+  item_code?: string
+  item_name: string
+  spec?: string
+  unit: string
+  total_qty: number
+  available_qty: number
+  occupied_qty: number
+  in_production_qty: number
+  quality_status: string
+  legacy?: boolean
+  can_create_processing_request?: boolean
+  warehouses: CustomerAssetWarehouseBalance[]
+  batches: CustomerAssetInventoryBatch[]
+}
+
+export type CustomerAssetInventoryLedgerEntry = {
+  id: number
+  occurred_at: string
+  movement_type: string
+  source_type: string
+  source_id?: number
+  source_no?: string
+  batch_no?: string
+  warehouse_code?: string
+  warehouse_name?: string
+  quantity_delta: number
+  unit: string
+  note?: string
+}
+
 export type CustomerBillSummary = {
   id: number
   settlement_no: string
@@ -667,6 +761,118 @@ export type CustomerBillDetail = CustomerBillSummary & {
     unit_price: string
     amount: string
   }>
+}
+
+export type CustomerAccountSummary = {
+  count: number
+  goods_cents: number
+  shipping_cents: number
+  discount_cents: number
+  total_cents: number
+  paid_cents: number
+  due_cents: number
+  processing_cents: number
+  direct_ship_service_cents: number
+  fee_shipping_cents: number
+  adjustment_cents: number
+  refund_cents: number
+  additional_fee_cents: number
+  payable_cents: number
+}
+
+export type CustomerAccountOrder = {
+  id: number
+  order_no: string
+  order_date: string
+  receiver_name: string
+  receiver_phone: string
+  receiver_address: string
+  ship_status: string
+  ship_tracking_no: string
+  pay_status: string
+  payment_status: 'unpaid' | 'partial' | 'paid' | string
+  portal_service_code: string
+  process_status: string
+  goods_cents: number
+  shipping_cents: number
+  discount_cents: number
+  total_cents: number
+  paid_cents: number
+  due_cents: number
+}
+
+export type CustomerAccountFee = {
+  id: number
+  order_id: number
+  order_no: string
+  fee_type: string
+  fee_name: string
+  amount_cents: number
+  currency: string
+  occurred_at: string
+  settlement_id: number
+  settlement_no: string
+  settlement_status: string
+  payment_status: string
+  source_type: string
+  source_id: number
+  included_in_order: boolean
+}
+
+export type CustomerStatementDispute = {
+  id: number
+  settlement_id: number
+  fee_item_id?: number
+  statement_revision: string
+  reason: string
+  status: string
+  created_at: string
+  reply?: string
+  replied_by?: string
+  replied_at?: string
+}
+
+export type CustomerAccountSettlement = {
+  id: number
+  settlement_no: string
+  period_from: string
+  period_to: string
+  status: string
+  total_cents: number
+  confirmed_at?: string
+  paid_at?: string
+  fees?: CustomerAccountFee[]
+  statement_revision: string
+  reconciliation_status: 'pending' | 'confirmed' | 'changed' | 'disputed' | string
+  reconciled_at?: string
+  disputes?: CustomerStatementDispute[]
+}
+
+export type CustomerAccountData = {
+  customer_name: string
+  date_from: string
+  date_to: string
+  as_of: string
+  rows: CustomerAccountOrder[]
+  summary: CustomerAccountSummary
+  fees: CustomerAccountFee[]
+  settlements: CustomerAccountSettlement[]
+  total: number
+  page: number
+  limit: number
+  total_pages: number
+}
+
+export type CustomerAccountFilters = {
+  period?: 'week' | 'month'
+  anchor?: string
+  date_from?: string
+  date_to?: string
+  pay_status?: string
+  ship_status?: string
+  q?: string
+  page?: number
+  limit?: number
 }
 
 export type CreateFulfillmentOrderPayload = {
@@ -952,6 +1158,8 @@ export type EmployeeOrderProductSpec = {
   is_default_sku?: boolean
   product_kind?: string
   sales_unit?: string
+  unit_price?: number
+  price_tiers?: EmployeeOrderProductTier[]
   unit_bag_count?: number
   unit_bean_g?: number
   default_publication_id?: number
@@ -1468,12 +1676,46 @@ export function buildCustomerInventoryBatchesPath(
   return specG > 0 ? `${path}?spec_g=${specG}` : path
 }
 
+export function buildCustomerAssetInventoryPath(inventoryType = '', q = ''): string {
+  const params: string[] = []
+  if (String(inventoryType || '').trim()) params.push(`type=${encodeURIComponent(String(inventoryType).trim())}`)
+  if (String(q || '').trim()) params.push(`q=${encodeURIComponent(String(q).trim())}`)
+  return `/api/mini/customer-inventory/assets${params.length ? `?${params.join('&')}` : ''}`
+}
+
+export function buildCustomerAssetInventoryLedgerPath(item: CustomerAssetInventory): string {
+  const params: string[] = []
+  if (Number(item.bom_spec_id || 0) > 0) params.push(`bom_spec_id=${Number(item.bom_spec_id)}`)
+  if (Number(item.spec_g || 0) > 0) params.push(`spec_g=${Number(item.spec_g)}`)
+  const suffix = params.length ? `?${params.join('&')}` : ''
+  return `/api/mini/customer-inventory/assets/${encodeURIComponent(item.inventory_type)}/${Number(item.item_id || 0)}/ledger${suffix}`
+}
+
 export function buildCustomerBillsPath(): string {
   return '/api/mini/customer-bills'
 }
 
 export function buildCustomerBillDetailPath(billID: number): string {
   return `${buildCustomerBillsPath()}/${Number(billID || 0)}`
+}
+
+export function buildCustomerAccountPath(filters: CustomerAccountFilters = {}): string {
+  const params = Object.entries(filters)
+    .filter(([, value]) => String(value ?? '').trim() !== '')
+    .map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(String(value).trim())}`)
+  return `/api/mini/customer-account${params.length ? `?${params.join('&')}` : ''}`
+}
+
+export function buildCustomerAccountDocumentPath(kind: 'pdf' | 'xlsx', filters: CustomerAccountFilters = {}): string {
+  return buildCustomerAccountPath(filters).replace('/api/mini/customer-account', `/api/mini/customer-account/statements.${kind}`)
+}
+
+export function buildCustomerStatementConfirmPath(settlementID: number): string {
+  return `/api/mini/customer-account/settlements/${Number(settlementID || 0)}/confirm`
+}
+
+export function buildCustomerStatementDisputePath(settlementID: number): string {
+  return `/api/mini/customer-account/settlements/${Number(settlementID || 0)}/disputes`
 }
 
 export function buildMallPagePath(): string {
@@ -1658,12 +1900,48 @@ export function fetchCustomerInventoryBatches(
   return miniRequest<{ rows: CustomerInventoryBatch[] }>(buildCustomerInventoryBatchesPath(productID, identity), { token })
 }
 
+export function fetchCustomerAssetInventory(token: string, inventoryType = '', q = ''): Promise<{ rows: CustomerAssetInventory[] }> {
+  return miniRequest<{ rows: CustomerAssetInventory[] }>(buildCustomerAssetInventoryPath(inventoryType, q), { token })
+}
+
+export function fetchCustomerAssetInventoryLedger(token: string, item: CustomerAssetInventory): Promise<{ rows: CustomerAssetInventoryLedgerEntry[] }> {
+  return miniRequest<{ rows: CustomerAssetInventoryLedgerEntry[] }>(buildCustomerAssetInventoryLedgerPath(item), { token })
+}
+
 export function fetchCustomerBills(token: string): Promise<{ rows: CustomerBillSummary[] }> {
   return miniRequest<{ rows: CustomerBillSummary[] }>(buildCustomerBillsPath(), { token })
 }
 
 export function fetchCustomerBillDetail(token: string, billID: number): Promise<{ bill: CustomerBillDetail }> {
   return miniRequest<{ bill: CustomerBillDetail }>(buildCustomerBillDetailPath(billID), { token })
+}
+
+export function fetchCustomerAccount(token: string, filters: CustomerAccountFilters = {}): Promise<CustomerAccountData> {
+  return miniRequest<CustomerAccountData>(buildCustomerAccountPath(filters), { token })
+}
+
+export function confirmCustomerStatement(
+  token: string,
+  settlementID: number,
+  statementRevision: string,
+): Promise<CustomerAccountSettlement> {
+  return miniRequest<CustomerAccountSettlement>(buildCustomerStatementConfirmPath(settlementID), {
+    method: 'POST',
+    token,
+    data: { statement_revision: statementRevision },
+  })
+}
+
+export function createCustomerStatementDispute(
+  token: string,
+  settlementID: number,
+  payload: { statement_revision: string; fee_item_id?: number; reason: string },
+): Promise<CustomerStatementDispute> {
+  return miniRequest<CustomerStatementDispute>(buildCustomerStatementDisputePath(settlementID), {
+    method: 'POST',
+    token,
+    data: payload,
+  })
 }
 
 export function createFulfillmentOrder(

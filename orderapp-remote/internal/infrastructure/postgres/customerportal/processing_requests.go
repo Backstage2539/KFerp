@@ -2,6 +2,9 @@ package customerportal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -32,6 +35,29 @@ type preparedProcessingRequest struct {
 	Identities   map[int]portalProcessingOutputIdentity
 	Warehouse    string
 	SourcesByKey map[string][]processingAvailabilitySource
+}
+
+func processingRequestHash(cmd customerportalapp.CreateProcessingRequestCommand) (string, error) {
+	type itemHash struct {
+		ProductID int64 `json:"product_id"`
+		BomSpecID int64 `json:"bom_spec_id,omitempty"`
+		SpecG     int64 `json:"spec_g,omitempty"`
+		Qty       int64 `json:"qty"`
+	}
+	items := make([]itemHash, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		items = append(items, itemHash{ProductID: item.ProductID, BomSpecID: item.BomSpecID, SpecG: item.SpecG, Qty: item.Qty})
+	}
+	raw, err := json.Marshal(struct {
+		Items                  []itemHash `json:"items"`
+		Note                   string     `json:"note"`
+		ExpectedCompletionDate string     `json:"expected_completion_date"`
+	}{Items: items, Note: strings.TrimSpace(cmd.Note), ExpectedCompletionDate: strings.TrimSpace(cmd.ExpectedCompletionDate)})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 var processingTargetWeightPattern = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)\s*(kg|g|lb|克|千克|公斤|磅)`)
@@ -148,25 +174,50 @@ func (r Repository) createProcessingRequestV2(ctx context.Context, cmd customerp
 		return customerportalapp.ProcessingRequest{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	requestHash := ""
+	if cmd.IdempotencyKey != "" {
+		requestHash, err = processingRequestHash(cmd)
+		if err != nil {
+			return customerportalapp.ProcessingRequest{}, err
+		}
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, fmt.Sprintf("mini-processing:%d:%s", cmd.CustomerID, cmd.IdempotencyKey)); err != nil {
+			return customerportalapp.ProcessingRequest{}, err
+		}
+		var existingID int64
+		var existingHash string
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id,request_hash FROM %s.processing_job_requests
+			WHERE customer_id=$1 AND idempotency_key=$2
+		`, r.schema), cmd.CustomerID, cmd.IdempotencyKey).Scan(&existingID, &existingHash)
+		if err == nil {
+			if existingHash != requestHash {
+				return customerportalapp.ProcessingRequest{}, customerportalapp.ErrProcessingRequestIdempotency
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return customerportalapp.ProcessingRequest{}, err
+			}
+			return r.GetProcessingRequest(ctx, cmd.CustomerID, existingID)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return customerportalapp.ProcessingRequest{}, err
+		}
+	}
 
-	prepared, err := r.prepareProcessingRequestTx(ctx, tx, cmd, true)
+	prepared, err := r.prepareProcessingRequestTx(ctx, tx, cmd, false)
 	if err != nil {
 		return customerportalapp.ProcessingRequest{}, err
-	}
-	if !prepared.Preview.CanSubmit {
-		return customerportalapp.ProcessingRequest{}, &customerportalapp.ProcessingMaterialsUnavailableError{Preview: prepared.Preview}
 	}
 
 	first := prepared.Resolved[0]
 	var requestID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.processing_job_requests(
-			customer_id,input_material_id,input_qty_g,target_product_id,target_spec_g,target_qty,
-			status,note,created_by_mini_user_id
+			customer_id,idempotency_key,request_hash,input_material_id,input_qty_g,target_product_id,target_spec_g,target_qty,
+			status,note,expected_completion_date,created_by_mini_user_id
 		)
-		VALUES($1,0,0,$2,$3,$4,'awaiting_schedule',$5,$6)
+		VALUES($1,$2,$3,0,0,$4,$5,$6,'awaiting_schedule',$7,NULLIF($8,'')::date,$9)
 		RETURNING id
-	`, r.schema), cmd.CustomerID, first.ProductID, first.SpecG, first.Qty, strings.TrimSpace(cmd.Note), cmd.CreatedByMiniUserID).Scan(&requestID); err != nil {
+	`, r.schema), cmd.CustomerID, cmd.IdempotencyKey, requestHash, first.ProductID, first.SpecG, first.Qty, strings.TrimSpace(cmd.Note), cmd.ExpectedCompletionDate, cmd.CreatedByMiniUserID).Scan(&requestID); err != nil {
 		return customerportalapp.ProcessingRequest{}, err
 	}
 	requestNo := fmt.Sprintf("PJ-%010d", requestID)
@@ -174,11 +225,6 @@ func (r Repository) createProcessingRequestV2(ctx context.Context, cmd customerp
 		return customerportalapp.ProcessingRequest{}, err
 	}
 
-	mutableSources := make(map[string][]processingAvailabilitySource, len(prepared.SourcesByKey))
-	for key, rows := range prepared.SourcesByKey {
-		mutableSources[key] = append([]processingAvailabilitySource(nil), rows...)
-	}
-	reservationCount := 0
 	for _, item := range prepared.Resolved {
 		identity := prepared.Identities[item.LineNo]
 		var requestItemID int64
@@ -209,40 +255,10 @@ func (r Repository) createProcessingRequestV2(ctx context.Context, cmd customerp
 			item.SpecG, item.Qty, item.NeedG, prepared.Warehouse); err != nil {
 			return customerportalapp.ProcessingRequest{}, err
 		}
-		for _, need := range item.Materials {
-			key := processingNeedKey(need.ComponentType, need.MaterialID, need.ComponentSpecG)
-			allocations, remaining, ok := allocateProcessingSources(mutableSources[key], need.RequiredG, need.RequiredUnits)
-			if !ok {
-				return customerportalapp.ProcessingRequest{}, &customerportalapp.ProcessingMaterialsUnavailableError{Preview: prepared.Preview}
-			}
-			mutableSources[key] = remaining
-			for _, allocation := range allocations {
-				if _, err := tx.Exec(ctx, fmt.Sprintf(`
-					INSERT INTO %s.customer_processing_material_reservations(
-						request_id,request_item_id,customer_id,material_id,component_type,component_product_id,
-						component_spec_g,required_g,required_units,reserved_g,reserved_units,
-						source_owner_type,source_customer_id,source_warehouse_code,material_batch_id,status,
-						created_at,updated_at
-					)
-					VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$8,$9,$10,$11,$12,0,'reserved',now(),now())
-				`, r.schema), requestID, requestItemID, cmd.CustomerID, need.MaterialID,
-					firstNonEmpty(need.ComponentType, "material"), need.ComponentProductID, need.ComponentSpecG,
-					allocation.AvailableG, allocation.AvailableUnits, allocation.OwnerType,
-					allocation.SourceCustomerID, allocation.WarehouseCode); err != nil {
-					return customerportalapp.ProcessingRequest{}, err
-				}
-				reservationCount++
-			}
-		}
 	}
 	actor := portalMiniActor(cmd.CreatedByMiniUserID)
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "processing_job_request", &requestID, "mini_submit", nil, nil, postgresinfra.StrPtr("awaiting_schedule"), postgresinfra.AuditMeta{
-		"customer_id": cmd.CustomerID, "request_no": requestNo, "item_count": len(prepared.Resolved),
-	}); err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "customer_processing_material_reservation", &requestID, "reserve", nil, nil, postgresinfra.StrPtr(fmt.Sprintf("%d", reservationCount)), postgresinfra.AuditMeta{
-		"customer_id": cmd.CustomerID, "request_no": requestNo, "reservation_count": reservationCount,
+		"customer_id": cmd.CustomerID, "request_no": requestNo, "item_count": len(prepared.Resolved), "idempotency_key": cmd.IdempotencyKey,
 	}); err != nil {
 		return customerportalapp.ProcessingRequest{}, err
 	}
@@ -334,7 +350,7 @@ func (r Repository) prepareProcessingRequestTx(ctx context.Context, tx pgx.Tx, c
 	sort.Strings(keys)
 	previewByKey := map[string]customerportalapp.ProcessingMaterialPreview{}
 	sourcesByKey := map[string][]processingAvailabilitySource{}
-	canSubmit := true
+	materialsReady := true
 	materials := make([]customerportalapp.ProcessingMaterialPreview, 0, len(keys))
 	for _, key := range keys {
 		need := aggregated[key]
@@ -356,7 +372,7 @@ func (r Repository) prepareProcessingRequestTx(ctx context.Context, tx pgx.Tx, c
 		preview.ShortageG = nonnegativeInt64(need.RequiredG - preview.AvailableG)
 		preview.ShortageUnits = nonnegativeInt64(need.RequiredUnits - preview.AvailableUnits)
 		if preview.ShortageG > 0 || preview.ShortageUnits > 0 {
-			canSubmit = false
+			materialsReady = false
 		}
 		previewByKey[key] = preview
 		sourcesByKey[key] = sources
@@ -396,7 +412,7 @@ func (r Repository) prepareProcessingRequestTx(ctx context.Context, tx pgx.Tx, c
 		items = append(items, row)
 	}
 	return preparedProcessingRequest{
-		Preview:  customerportalapp.ProcessingRequestPreview{CanSubmit: canSubmit, Items: items, Materials: materials},
+		Preview:  customerportalapp.ProcessingRequestPreview{ConfigurationValid: true, MaterialsReady: materialsReady, CanSubmit: true, Items: items, Materials: materials},
 		Resolved: resolved, Identities: identities, Warehouse: warehouse, SourcesByKey: sourcesByKey,
 	}, nil
 }
@@ -671,7 +687,7 @@ func (r Repository) ListProcessingRequests(ctx context.Context, customerID int64
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT r.id,r.request_no,r.input_material_id,COALESCE(m.name,''),r.input_qty_g,
 		       r.target_product_id,COALESCE(p.name,''),r.target_spec_g,r.target_qty,
-		       r.status,r.note,to_char(r.created_at,'YYYY-MM-DD HH24:MI'),
+		       r.status,r.note,COALESCE(to_char(r.expected_completion_date,'YYYY-MM-DD'),''),to_char(r.created_at,'YYYY-MM-DD HH24:MI'),
 		       COALESCE(to_char(r.accepted_at,'YYYY-MM-DD HH24:MI'),''),r.linked_work_order_id
 		FROM %s.processing_job_requests r
 		LEFT JOIN %s.materials m ON m.id=r.input_material_id
@@ -689,7 +705,7 @@ func (r Repository) ListProcessingRequests(ctx context.Context, customerID int64
 		var row customerportalapp.ProcessingRequest
 		if err := rows.Scan(&row.ID, &row.RequestNo, &row.InputMaterialID, &row.InputMaterialName, &row.InputQtyG,
 			&row.TargetProductID, &row.TargetProductName, &row.TargetSpecG, &row.TargetQty,
-			&row.Status, &row.Note, &row.CreatedAt, &row.AcceptedAt, &row.LinkedWorkOrderID); err != nil {
+			&row.Status, &row.Note, &row.ExpectedCompletionDate, &row.CreatedAt, &row.AcceptedAt, &row.LinkedWorkOrderID); err != nil {
 			return nil, err
 		}
 		row.Items, err = r.listProcessingRequestItems(ctx, customerID, row.ID)
@@ -707,7 +723,7 @@ func (r Repository) GetProcessingRequest(ctx context.Context, customerID, reques
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT r.id,r.request_no,r.input_material_id,COALESCE(m.name,''),r.input_qty_g,
 		       r.target_product_id,COALESCE(p.name,''),r.target_spec_g,r.target_qty,
-		       r.status,r.note,to_char(r.created_at,'YYYY-MM-DD HH24:MI'),
+		       r.status,r.note,COALESCE(to_char(r.expected_completion_date,'YYYY-MM-DD'),''),to_char(r.created_at,'YYYY-MM-DD HH24:MI'),
 		       COALESCE(to_char(r.accepted_at,'YYYY-MM-DD HH24:MI'),''),r.linked_work_order_id
 		FROM %s.processing_job_requests r
 		LEFT JOIN %s.materials m ON m.id=r.input_material_id
@@ -716,7 +732,7 @@ func (r Repository) GetProcessingRequest(ctx context.Context, customerID, reques
 	`, r.schema, r.schema, r.schema), customerID, requestID).Scan(
 		&row.ID, &row.RequestNo, &row.InputMaterialID, &row.InputMaterialName, &row.InputQtyG,
 		&row.TargetProductID, &row.TargetProductName, &row.TargetSpecG, &row.TargetQty,
-		&row.Status, &row.Note, &row.CreatedAt, &row.AcceptedAt, &row.LinkedWorkOrderID,
+		&row.Status, &row.Note, &row.ExpectedCompletionDate, &row.CreatedAt, &row.AcceptedAt, &row.LinkedWorkOrderID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return customerportalapp.ProcessingRequest{}, fmt.Errorf("processing request not found")
@@ -739,6 +755,7 @@ func (r Repository) listProcessingRequestItems(ctx context.Context, customerID, 
 		       i.target_warehouse,i.bom_version_id,i.bom_version_no,i.bom_source_product_id,i.bom_inherited,
 		       COALESCE(i.material_snapshot_json,'[]'::jsonb)::text,
 		       i.production_plan_id,i.production_plan_item_id,i.linked_work_order_id,COALESCE(wo.work_order_no,''),
+		       COALESCE(receipt.actual_inbound_qty,0)::float8,
 		       CASE
 		         WHEN COALESCE(wo.status,'')='completed' THEN 'completed'
 		         WHEN COALESCE(wo.status,'')='partially_completed' THEN 'partially_completed'
@@ -754,9 +771,18 @@ func (r Repository) listProcessingRequestItems(ctx context.Context, customerID, 
 		JOIN %s.processing_job_requests r ON r.id=i.request_id AND r.customer_id=$1
 		LEFT JOIN %s.production_plans pp ON pp.id=i.production_plan_id
 		LEFT JOIN %s.work_orders wo ON wo.id=i.linked_work_order_id
+		LEFT JOIN LATERAL (
+			SELECT SUM(CASE WHEN si.qty_units>0 THEN si.qty_units::numeric
+			                    WHEN si.spec_g>0 THEN si.qty_g::numeric/si.spec_g ELSE 0 END) AS actual_inbound_qty
+			FROM %s.stock_entries se
+			JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id
+			WHERE se.work_order_id=i.linked_work_order_id AND se.status='submitted'
+			  AND se.purpose='manufacture' AND COALESCE(se.is_return,false)=false
+			  AND si.item_type='finished_product'
+		) receipt ON true
 		WHERE i.request_id=$2
 		ORDER BY i.line_no,i.id
-	`, r.schema, r.schema, r.schema, r.schema), customerID, requestID)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), customerID, requestID)
 	if err != nil {
 		return nil, err
 	}
@@ -768,7 +794,7 @@ func (r Repository) listProcessingRequestItems(ctx context.Context, customerID, 
 			&row.ProductName, &row.SpecName, &row.InventoryUnit, &row.SpecG, &row.Qty, &row.NeedG,
 			&row.TargetWarehouse, &row.BomVersionID, &row.BomVersionNo,
 			&row.BomSourceProductID, &row.BomInherited, &row.MaterialSnapshot,
-			&row.ProductionPlanID, &row.ProductionPlanItemID, &row.LinkedWorkOrderID, &row.WorkOrderNo, &row.Status); err != nil {
+			&row.ProductionPlanID, &row.ProductionPlanItemID, &row.LinkedWorkOrderID, &row.WorkOrderNo, &row.ActualInboundQty, &row.Status); err != nil {
 			return nil, err
 		}
 		row.WorkOrderID = row.LinkedWorkOrderID

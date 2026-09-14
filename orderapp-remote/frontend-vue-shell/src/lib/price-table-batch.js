@@ -6,7 +6,7 @@ function tableKey() {
 
 export function createPriceTableBatch(payload = {}, name = '价格表') {
   const key = tableKey()
-  return { version: payload.version || payload.config?.version || '', changelog: payload.changelog || '', default_table_key: key, active_table_key: key, tables: [{ key, name, payload: clonePriceTable(payload) }] }
+  return { version: payload.version || payload.config?.version || '', changelog: payload.changelog || '', default_table_key: key, active_table_key: key, tables: [{ key, name, direct_ship_enabled: false, payload: clonePriceTable(payload) }] }
 }
 
 export function addPriceTable(batch, copyKey = '') {
@@ -15,7 +15,7 @@ export function addPriceTable(batch, copyKey = '') {
   const key = tableKey()
   let index = 1; let name = ''
   do { name = source ? `${source.name}（副本${index++}）` : `价格表${index++}` } while (next.tables.some(table => table.name.trim() === name))
-  next.tables.push({ key, name, payload: clonePriceTable(source?.payload || {}) })
+  next.tables.push({ key, name, direct_ship_enabled: Boolean(source?.direct_ship_enabled), payload: clonePriceTable(source?.payload || {}) })
   next.active_table_key = key
   return next
 }
@@ -55,7 +55,7 @@ export function readPriceTableBatchDraft(scope, storage) {
 }
 
 export function publicationTableMetadata(row) {
-  return { ...(row?.config?.publication_batch || {}), ...Object.fromEntries(['release_id','table_key','table_name','is_default_table'].filter(key => row?.[key] !== undefined).map(key => [key,row[key]])) }
+  return { ...(row?.config?.publication_batch || {}), ...Object.fromEntries(['release_id','table_key','table_name','is_default_table','direct_ship_enabled'].filter(key => row?.[key] !== undefined).map(key => [key,row[key]])) }
 }
 
 export function publicationBatchGroups(rows = []) {

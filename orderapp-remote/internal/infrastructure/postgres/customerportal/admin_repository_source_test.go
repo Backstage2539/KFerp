@@ -70,6 +70,8 @@ func TestCustomerPortalAdminRepositoryAuditsPortalProfileFields(t *testing.T) {
 		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "capability_template_key"`,
 		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "display_name"`,
 		`auditPortalProfileIntField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "default_sender_id"`,
+		`auditPortalCapabilityTx(ctx, tx, r.schema, cmd, capability, raw)`,
+		`"customer_service_capability"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("admin repository missing portal profile audit marker %q", want)

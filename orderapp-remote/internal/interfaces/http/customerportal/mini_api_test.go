@@ -1856,10 +1856,12 @@ func TestMiniServicePageCapabilityDeniedMapsToForbidden(t *testing.T) {
 
 func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
 	var cmd customerportalapp.CreateFulfillmentOrderCommand
+	var processingCmd customerportalapp.CreateProcessingRequestCommand
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
 		directShip:     customerportalapp.DirectShipBatch{ID: 5, BatchNo: "DS-20260503-0005", Status: "submitted", TotalRows: 100},
 		processing:     customerportalapp.ProcessingRequest{ID: 7, RequestNo: "PJ-20260503-0007", Status: "submitted"},
+		processingCmd:  &processingCmd,
 		fulfillment:    customerportalapp.FulfillmentOrder{OrderID: 9, OrderNo: "SO-20260504-0009", PortalServiceCode: customerportalapp.PortalServiceProcessingShipment, SourceWarehouse: "cust_147_processing"},
 		fulfillmentCmd: &cmd,
 	}})
@@ -1873,13 +1875,16 @@ func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
 		t.Fatalf("direct status=%d body=%s", directRec.Code, directRec.Body.String())
 	}
 
-	processingReq := httptest.NewRequest(http.MethodPost, "/api/mini/processing-requests", strings.NewReader(`{"items":[{"product_id":5,"spec_g":454,"qty":50}],"note":"代加工申请"}`))
+	processingReq := httptest.NewRequest(http.MethodPost, "/api/mini/processing-requests", strings.NewReader(`{"idempotency_key":"processing-once","items":[{"product_id":5,"spec_g":454,"qty":50}],"note":"代加工申请"}`))
 	processingReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	processingReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
 	processingRec := httptest.NewRecorder()
 	e.ServeHTTP(processingRec, processingReq)
 	if processingRec.Code != http.StatusOK || !strings.Contains(processingRec.Body.String(), `"request_no":"PJ-20260503-0007"`) {
 		t.Fatalf("processing status=%d body=%s", processingRec.Code, processingRec.Body.String())
+	}
+	if processingCmd.IdempotencyKey != "processing-once" {
+		t.Fatalf("processing idempotency key=%q", processingCmd.IdempotencyKey)
 	}
 
 	orderReq := httptest.NewRequest(http.MethodPost, "/api/mini/fulfillment-orders", strings.NewReader(`{"service_code":"processing_ship","recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","product_id":5,"spec_g":454,"qty":2,"shipping_amount":12}`))
@@ -1892,6 +1897,19 @@ func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
 	}
 	if cmd.ShippingAmount != 0 {
 		t.Fatalf("fulfillment shipping amount=%v, want 0 for customer-side order submit", cmd.ShippingAmount)
+	}
+}
+
+func TestMiniProcessingIdempotencyConflictMapsToConflict(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: customerportalapp.ErrProcessingRequestIdempotency}})
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/processing-requests", strings.NewReader(`{"idempotency_key":"processing-once","items":[{"product_id":5,"spec_g":454,"qty":50}]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "不能使用同一请求编号修改内容") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -84,6 +84,7 @@ var (
 	ErrResaleGradientTemplateNotFound            = errors.New("resale gradient template not found")
 	ErrCapabilityTemplateInvalid                 = errors.New("capability template invalid")
 	ErrCapabilityTemplateERPWorkbenchUnavailable = errors.New("ERP workbench unavailable for capability template")
+	ErrProcessingRequestIdempotency              = errors.New("processing request idempotency conflict")
 )
 
 type LoginCommand struct {
@@ -158,18 +159,23 @@ type Capability struct {
 }
 
 type CurrentContext struct {
-	MiniUserID          int64             `json:"mini_user_id"`
-	AccountType         string            `json:"account_type"`
-	EmployeeID          int64             `json:"employee_id,omitempty"`
-	EmployeeName        string            `json:"employee_name,omitempty"`
-	Roles               []string          `json:"roles"`
-	Permissions         []string          `json:"permissions"`
-	CurrentCustomerID   int64             `json:"current_customer_id"`
-	CurrentCustomerName string            `json:"current_customer_name"`
-	ThemeKey            string            `json:"theme_key"`
-	MiniappEntryMode    string            `json:"miniapp_entry_mode"`
-	Bindings            []CustomerBinding `json:"bindings"`
-	Capabilities        []Capability      `json:"capabilities"`
+	MiniUserID             int64             `json:"mini_user_id"`
+	AccountType            string            `json:"account_type"`
+	EmployeeID             int64             `json:"employee_id,omitempty"`
+	EmployeeName           string            `json:"employee_name,omitempty"`
+	Roles                  []string          `json:"roles"`
+	Permissions            []string          `json:"permissions"`
+	CurrentCustomerID      int64             `json:"current_customer_id"`
+	CurrentCustomerName    string            `json:"current_customer_name"`
+	CurrentCustomerContact string            `json:"current_customer_contact,omitempty"`
+	CurrentCustomerPhone   string            `json:"current_customer_phone,omitempty"`
+	CurrentCustomerAddress string            `json:"current_customer_address,omitempty"`
+	BusinessContactName    string            `json:"business_contact_name,omitempty"`
+	BusinessContactPhone   string            `json:"business_contact_phone,omitempty"`
+	ThemeKey               string            `json:"theme_key"`
+	MiniappEntryMode       string            `json:"miniapp_entry_mode"`
+	Bindings               []CustomerBinding `json:"bindings"`
+	Capabilities           []Capability      `json:"capabilities"`
 }
 
 type ServiceMetric struct {
@@ -716,21 +722,22 @@ type InventoryItem struct {
 }
 
 type ProcessingRequest struct {
-	ID                int64                   `json:"id"`
-	RequestNo         string                  `json:"request_no"`
-	InputMaterialID   int64                   `json:"input_material_id"`
-	InputMaterialName string                  `json:"input_material_name"`
-	InputQtyG         int64                   `json:"input_qty_g"`
-	TargetProductID   int64                   `json:"target_product_id"`
-	TargetProductName string                  `json:"target_product_name"`
-	TargetSpecG       int64                   `json:"target_spec_g"`
-	TargetQty         int                     `json:"target_qty"`
-	Status            string                  `json:"status"`
-	Note              string                  `json:"note"`
-	CreatedAt         string                  `json:"created_at"`
-	AcceptedAt        string                  `json:"accepted_at"`
-	LinkedWorkOrderID int64                   `json:"linked_work_order_id"`
-	Items             []ProcessingRequestItem `json:"items,omitempty"`
+	ID                     int64                   `json:"id"`
+	RequestNo              string                  `json:"request_no"`
+	InputMaterialID        int64                   `json:"input_material_id"`
+	InputMaterialName      string                  `json:"input_material_name"`
+	InputQtyG              int64                   `json:"input_qty_g"`
+	TargetProductID        int64                   `json:"target_product_id"`
+	TargetProductName      string                  `json:"target_product_name"`
+	TargetSpecG            int64                   `json:"target_spec_g"`
+	TargetQty              int                     `json:"target_qty"`
+	Status                 string                  `json:"status"`
+	Note                   string                  `json:"note"`
+	ExpectedCompletionDate string                  `json:"expected_completion_date,omitempty"`
+	CreatedAt              string                  `json:"created_at"`
+	AcceptedAt             string                  `json:"accepted_at"`
+	LinkedWorkOrderID      int64                   `json:"linked_work_order_id"`
+	Items                  []ProcessingRequestItem `json:"items,omitempty"`
 }
 
 type ProcessingRequestItem struct {
@@ -757,6 +764,7 @@ type ProcessingRequestItem struct {
 	LinkedWorkOrderID    int64                       `json:"linked_work_order_id"`
 	WorkOrderID          int64                       `json:"work_order_id,omitempty"`
 	WorkOrderNo          string                      `json:"work_order_no,omitempty"`
+	ActualInboundQty     float64                     `json:"actual_inbound_qty"`
 	Status               string                      `json:"status"`
 	MaxProducibleQty     int64                       `json:"max_producible_qty,omitempty"`
 	Materials            []ProcessingMaterialPreview `json:"materials,omitempty"`
@@ -788,9 +796,11 @@ type ProcessingMaterialPreview struct {
 }
 
 type ProcessingRequestPreview struct {
-	CanSubmit bool                        `json:"can_submit"`
-	Items     []ProcessingRequestItem     `json:"items"`
-	Materials []ProcessingMaterialPreview `json:"materials"`
+	ConfigurationValid bool                        `json:"configuration_valid"`
+	MaterialsReady     bool                        `json:"materials_ready"`
+	CanSubmit          bool                        `json:"can_submit"`
+	Items              []ProcessingRequestItem     `json:"items"`
+	Materials          []ProcessingMaterialPreview `json:"materials"`
 }
 
 type ProcessingMaterialsUnavailableError struct {
@@ -891,15 +901,17 @@ type CreateDirectShipBatchCommand struct {
 type CreateProcessingRequestCommand struct {
 	CustomerID          int64
 	CreatedByMiniUserID int64
+	IdempotencyKey      string
 	Items               []ProcessingRequestItemCommand
 	// Legacy scalar fields remain for historical repository/read compatibility.
 	// New miniapp writes must use Items.
-	InputMaterialID int64
-	InputQtyG       int64
-	TargetProductID int64
-	TargetSpecG     int64
-	TargetQty       int
-	Note            string
+	InputMaterialID        int64
+	InputQtyG              int64
+	TargetProductID        int64
+	TargetSpecG            int64
+	TargetQty              int
+	Note                   string
+	ExpectedCompletionDate string
 }
 
 type ProcessingRequestItemCommand struct {
@@ -2290,6 +2302,7 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	}
 	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
+	requestedCapabilities := normalizeCapabilityOptions(cmd.Capabilities)
 	rawTemplateKey := strings.TrimSpace(cmd.CapabilityTemplateKey)
 	cmd.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey)
 	if rawTemplateKey != "" && cmd.CapabilityTemplateKey == "" {
@@ -2304,6 +2317,7 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 		cmd.ThemeKey = template.ThemeKey
 		cmd.MiniappEntryMode = template.MiniappEntryMode
 		cmd.Capabilities = cloneCapabilityOptions(template.Capabilities)
+		mergeDirectShipPriceTableKeys(cmd.Capabilities, requestedCapabilities)
 	} else {
 		cmd.ThemeKey = NormalizePortalThemeKey(cmd.ThemeKey)
 		cmd.MiniappEntryMode = NormalizeMiniappEntryMode(cmd.MiniappEntryMode)
@@ -2316,6 +2330,29 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	detail.Customer = normalizePortalAdminCustomer(detail.Customer)
 	detail.Capabilities = completeCapabilityOptions(detail.Capabilities)
 	return detail, nil
+}
+
+func mergeDirectShipPriceTableKeys(target, requested []CapabilityOption) {
+	var keys any
+	for _, capability := range requested {
+		if capability.Code == CapabilityDirectShip && capability.Config != nil {
+			keys = capability.Config["price_table_keys"]
+			break
+		}
+	}
+	if keys == nil {
+		return
+	}
+	for i := range target {
+		if target[i].Code != CapabilityDirectShip {
+			continue
+		}
+		if target[i].Config == nil {
+			target[i].Config = map[string]any{}
+		}
+		target[i].Config["price_table_keys"] = keys
+		return
+	}
 }
 
 func (s *Service) ListCapabilityTemplates(ctx context.Context) ([]CapabilityTemplate, error) {
@@ -2727,7 +2764,17 @@ func (s *Service) CreateProcessingRequest(ctx context.Context, token string, cmd
 	}
 	cmd.CustomerID = current.CurrentCustomerID
 	cmd.CreatedByMiniUserID = current.MiniUserID
+	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	if len(cmd.IdempotencyKey) > 160 {
+		return ProcessingRequest{}, fmt.Errorf("idempotency_key too long")
+	}
 	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.ExpectedCompletionDate = strings.TrimSpace(cmd.ExpectedCompletionDate)
+	if cmd.ExpectedCompletionDate != "" {
+		if _, err := time.Parse("2006-01-02", cmd.ExpectedCompletionDate); err != nil {
+			return ProcessingRequest{}, fmt.Errorf("expected_completion_date invalid")
+		}
+	}
 	cmd.Items, err = normalizeProcessingRequestItems(cmd.Items)
 	if err != nil {
 		return ProcessingRequest{}, err

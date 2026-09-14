@@ -2,6 +2,7 @@ package customerportal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -44,6 +45,7 @@ func TestProcessingRequestCutoverBOMSpecIdentityPersistsWithoutLegacyMapping(t *
 	cmd := customerportalapp.CreateProcessingRequestCommand{
 		CustomerID:          fixture.CustomerID,
 		CreatedByMiniUserID: 600,
+		IdempotencyKey:      "PR-663-PROCESSING-IDEMPOTENT",
 		Items: []customerportalapp.ProcessingRequestItemCommand{{
 			ProductID: fixture.ProductID, BomSpecID: fixture.BomSpecID, Qty: 2,
 		}},
@@ -72,6 +74,16 @@ func TestProcessingRequestCutoverBOMSpecIdentityPersistsWithoutLegacyMapping(t *
 	}
 	if len(created.Items) != 1 || created.Items[0].BomSpecID != fixture.BomSpecID || created.Items[0].BomVariantID != fixture.BomVariantID || created.Items[0].InventoryUnit != "袋" {
 		t.Fatalf("created=%+v", created)
+	}
+	retried, err := repo.CreateProcessingRequest(ctx, cmd)
+	if err != nil || retried.ID != created.ID {
+		t.Fatalf("idempotent retry=%+v err=%v", retried, err)
+	}
+	changed := cmd
+	changed.Items = append([]customerportalapp.ProcessingRequestItemCommand(nil), cmd.Items...)
+	changed.Items[0].Qty++
+	if _, err := repo.CreateProcessingRequest(ctx, changed); !errors.Is(err, customerportalapp.ErrProcessingRequestIdempotency) {
+		t.Fatalf("changed retry error=%v", err)
 	}
 	listed, err := repo.ListProcessingRequests(ctx, fixture.CustomerID, 10)
 	if err != nil {
@@ -106,7 +118,7 @@ func TestProcessingRequestCutoverBOMSpecIdentityPersistsWithoutLegacyMapping(t *
 		CustomerID: fixture.CustomerID, CreatedByMiniUserID: 600,
 		Items: []customerportalapp.ProcessingRequestItemCommand{{ProductID: fixture.ProductID, Qty: 1}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "bom_spec_id") {
+	if err == nil || !strings.Contains(err.Error(), "product_bom_spec_not_configured") {
 		t.Fatalf("missing spec error=%v", err)
 	}
 	_, err = repo.CreateProcessingRequest(ctx, customerportalapp.CreateProcessingRequestCommand{
@@ -131,7 +143,7 @@ func TestProcessingRequestCutoverBOMSpecIdentityPersistsWithoutLegacyMapping(t *
 		CustomerID: fixture.CustomerID, CreatedByMiniUserID: 600,
 		Items: []customerportalapp.ProcessingRequestItemCommand{{ProductID: legacyChildID, SpecG: 227, Qty: 1}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "legacy") {
+	if err == nil || !strings.Contains(err.Error(), "target product unavailable") {
 		t.Fatalf("legacy child error=%v", err)
 	}
 	targets, err = repo.ListProcessingCatalogTargets(ctx, fixture.CustomerID, []int64{fixture.ProductID, legacyChildID})
@@ -231,9 +243,9 @@ func seedPortalProcessingBOMSpecFixture(t *testing.T, ctx context.Context, pool 
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.products(name,sku_name,sku_code,product_kind,active,customer_id,visibility,custom_type)
-		VALUES('PR600袋装商品','PR600袋装商品','PR600-PARENT','roasted_bean',true,0,'public','') RETURNING id
-	`, schema)).Scan(&fixture.ProductID); err != nil {
+		INSERT INTO %s.products(name,sku_name,sku_code,product_kind,active,customer_id,visibility,custom_type,is_processing_product)
+		VALUES('PR600袋装商品','PR600袋装商品','PR600-PARENT','roasted_bean',true,$1,'customer_only','',true) RETURNING id
+	`, schema), fixture.CustomerID).Scan(&fixture.ProductID); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,unit,cost_unit) VALUES('PR600-BEAN','PR600熟豆','kg','kg') RETURNING id`, schema)).Scan(&fixture.BeanID); err != nil {
@@ -279,8 +291,10 @@ func seedPortalProcessingBOMSpecFixture(t *testing.T, ctx context.Context, pool 
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom_spec_migrations(product_id,state,cutover_by,cutover_at)
-		VALUES($1,'cutover','test',now())
+		INSERT INTO %s.product_bom_spec_migrations(
+			product_id,state,legacy_catalog_product,spec_identity_mode,cutover_by,cutover_at
+		)
+		VALUES($1,'cutover',false,'bom_spec','test',now())
 	`, schema), fixture.ProductID); err != nil {
 		t.Fatal(err)
 	}
@@ -311,14 +325,18 @@ func seedPortalProcessingLegacyChildMapping(t *testing.T, ctx context.Context, p
 	// Legacy children existed before cutover. Temporarily model that historical
 	// state because the production guard correctly rejects creating a child once
 	// the parent is already cut over.
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_bom_spec_migrations SET state='preparing' WHERE product_id=$1`, schema), fixture.ProductID); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.product_bom_spec_migrations
+		SET state='preparing',legacy_catalog_product=true,spec_identity_mode='legacy_sku'
+		WHERE product_id=$1
+	`, schema), fixture.ProductID); err != nil {
 		t.Fatal(err)
 	}
 	var childID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.products(name,sku_name,sku_code,parent_product_id,base_product_id,product_kind,active,customer_id,visibility,custom_type,spec_label,net_content_qty,net_content_unit)
-		VALUES('PR600旧227g子SKU','PR600旧227g子SKU','OLD-PR600-227',$1,$1,'roasted_bean',true,0,'public','derived_sku','227g',227,'g') RETURNING id
-	`, schema), fixture.ProductID).Scan(&childID); err != nil {
+		VALUES('PR600旧227g子SKU','PR600旧227g子SKU','OLD-PR600-227',$1,$1,'roasted_bean',true,$2,'customer_only','derived_sku','227g',227,'g') RETURNING id
+	`, schema), fixture.ProductID, fixture.CustomerID).Scan(&childID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
@@ -329,7 +347,11 @@ func seedPortalProcessingLegacyChildMapping(t *testing.T, ctx context.Context, p
 	`, schema), fixture.ProductID, childID, fixture.BomID, fixture.BomSpecID, fixture.BomVariantID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_bom_spec_migrations SET state='cutover' WHERE product_id=$1`, schema), fixture.ProductID); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.product_bom_spec_migrations
+		SET state='cutover',legacy_catalog_product=false,spec_identity_mode='bom_spec'
+		WHERE product_id=$1
+	`, schema), fixture.ProductID); err != nil {
 		t.Fatal(err)
 	}
 	return childID
