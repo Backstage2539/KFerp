@@ -153,7 +153,7 @@ test('product price list waits for product-catalog feature selection before reso
   )
 })
 
-test('product price list loads synthetic publication views when remembered template options first become ready', () => {
+test('product price list waits for type readiness and loads one visible summary plus the official source summary', () => {
   assert.match(viewSource, /const priceListPublicationTypeOptionsReady = ref\(false\)/)
 
   const watcherStart = viewSource.indexOf('watch(productPriceListTypeOptions, (options) => {')
@@ -170,9 +170,12 @@ test('product price list loads synthetic publication views when remembered templ
   assert.match(loaderSource, /const productTypeCategoryID = activeProductTypeCategoryID\.value/)
   assert.match(loaderSource, /selectedProductPriceListType\.value\?\.listType/)
   assert.match(loaderSource, /loadBeanListPublications\(listType, versionListScope\.value, productTypeCategoryID\)/)
-  assert.match(loaderSource, /loadBeanListPublications\(listType, 'official', productTypeCategoryID, 'factory_supply'\)/)
-  assert.match(loaderSource, /loadBeanListPublications\(listType, 'mine', productTypeCategoryID, 'factory_supply'\)/)
-  assert.match(loaderSource, /loadBeanListPublications\(listType, 'customer', productTypeCategoryID, 'factory_supply'\)/)
+  assert.match(loaderSource, /versionListScope\.value !== 'official'/)
+  assert.match(loaderSource, /loadBeanListPublications\(listType, 'official', productTypeCategoryID, 'factory_supply', \{ pageSize: 100 \}\)/)
+  assert.doesNotMatch(loaderSource, /loadBeanListPublications\(listType, 'mine'/)
+  assert.doesNotMatch(loaderSource, /loadBeanListPublications\(listType, 'customer'/)
+  assert.match(loaderSource, /publicationArchiveListCollapsed\.value/)
+  assert.match(loaderSource, /status: 'archived'/)
 })
 
 test('product bean-list version list downloads the selected publication snapshot', () => {
@@ -414,6 +417,31 @@ test('product price-list published versions can be archived and restored from ar
   assert.ok(viewSource.includes('for (const refreshProductTypeID of publicationArchiveRefreshProductTypeIDs'), 'archive refresh should cover all affected cache keys')
   assert.ok(viewSource.includes("setBeanListPublicationStatusInCache(rows.map((row) => Number(row.id || 0)), 'archived')"), 'archive should update cached rows immediately')
   assert.ok(viewSource.includes('setBeanListPublicationStatusInCache([Number(row.id || 0)], beanListPublicationArchivedFromStatus(row))'), 'unarchive should restore cached rows immediately')
+})
+
+test('product price-list uses paged summaries, lazy archive loading, detail-on-copy and permanent archive cleanup', () => {
+  for (const expected of [
+    'createInFlightRequestDeduper',
+    'createLatestRequestGate',
+    'publicationListQuery',
+    'window.setTimeout(() => {',
+    '}, 300)',
+    "status: 'archived'",
+    'publicationArchiveListCollapsed.value',
+    '/api/costing/bean-list/publications/price-sources?',
+    'loadBeanListPublicationDetail(row)',
+    '/api/costing/bean-list/publications/${id}?',
+    '/api/costing/bean-list/publications/delete-preview?',
+    "/api/costing/bean-list/publications/delete'",
+    '删除选中',
+    '清空当前归档',
+    '永久删除原价格表内容和 PDF，无法恢复',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing summary or archive cleanup behavior: ${expected}`)
+  }
+  assert.match(viewSource, /catch \(err\) \{\s*if \(publicationRequestGate\.isCurrent\(summaryKey, revision\)\) error\.value/)
+  assert.match(viewSource, /const retained = existing\.filter/)
+  assert.doesNotMatch(viewSource, /onMounted\(\(\) => \{[\s\S]*loadBeanListPublications/s)
 })
 
 test('product price-list version scope selector lists public and each fulfillment customer', () => {

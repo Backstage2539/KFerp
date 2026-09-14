@@ -39,7 +39,8 @@ function setup() {
     defaultPriceTierTemplateForm: row => row,
     priceListFlatRowVisibleErrors: () => [], priceListFlatRowPricingTrialStatus: () => 'success',
     currentPriceListPricingRuleTrialRequests: () => [{ key: 'auto' }],
-    refreshCalls: [], trialCalls: 0, saves: 0,
+    refreshCalls: [], publicationRefreshCalls: 0, trialCalls: 0, saves: 0,
+    loadActiveProductTypePublicationViews: () => { state.publicationRefreshCalls++ },
     savePriceListGenerationDraftForActiveType: () => state.saves++,
     persistNamedPriceTableBatch: () => {},
     fetchPriceListRefreshSnapshot: async args => { state.refreshCalls.push(args); return {
@@ -66,6 +67,7 @@ test('spec refresh immediately reports pending, loads new candidates, preserves 
   await run('products')
   gate.resolve(); await task
   assert.equal(state.refreshCalls.length, 1)
+  assert.equal(state.publicationRefreshCalls, 1)
   assert.equal(state.items.value[0].fresh, true)
   assert.equal(state.productSpecSelectionsByType.value.beans[0].selection_issue, 'invalid_spec')
   assert.deepEqual(plain(state.productSpecSelectionsByType.value.other), [{ sku_id: 90 }])
