@@ -71,3 +71,9 @@
 ## 待业务验收
 
 - 技术、接口、性能、生产只读页面与回滚证据已完成；由 Van 在 production 完成实际业务验收。
+
+## 交付状态同步
+
+- 验收证据与需求状态同步到 development 提交 `5c48f4e872fdde916a477a786939496d1e1f1533`；源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260914165015-5c48f4e872fd`，回滚镜像 `kferp-orderapp-rollback:development-20260914165015-5c48f4e872fd`。
+- 验收证据与需求状态同步到 production 提交 `55413e93423721e4212a6ed35ca1cab151043bbf`；源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20260914170318-55413e934237`，回滚镜像 `kferp-orderapp-rollback:production-20260914170318-55413e934237`。兼容基础回滚镜像 `kferp-orderapp-rollback:production-20260914163145-bc960916a136` 同时保留。
+- 同步后生产客户 450 摘要 HTTP 200、73.7 ms、3,317 B；容器 running、restart count 0、错误日志命中 0。需求接口显示 PR-663 为 `review`、负责人 VA，DEV-679 为 `done`。
