@@ -1443,6 +1443,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
+	if cmd.CustomerSubmission && editID == 0 {
+		if err := validateCustomerOrderPriceBindingsTx(ctx, tx, r.schema, cmd); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
 
 	customerProfile, err := r.requiredOrderCustomerProfileTx(ctx, tx, cmd.CustomerID)
 	if err != nil {

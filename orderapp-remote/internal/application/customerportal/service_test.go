@@ -69,6 +69,11 @@ type fakeRepository struct {
 	orderAccessCustomer      int64
 	orderAccessOrder         int64
 	orderAccessOK            bool
+	recipientAddresses       []CustomerRecipientAddress
+	recipientListCustomerID  int64
+	recipientListSearch      string
+	recipientSaveCommand     SaveCustomerRecipientAddressCommand
+	recipientDeleteCommand   DeleteCustomerRecipientAddressCommand
 	err                      error
 	switchErr                error
 	phoneVerifiedErr         error
@@ -113,6 +118,25 @@ func (r *fakeRepository) SwitchCurrentCustomer(ctx context.Context, token string
 	}
 	r.context.CurrentCustomerID = customerID
 	return r.context, nil
+}
+
+func (r *fakeRepository) ListCustomerRecipientAddresses(ctx context.Context, customerID int64, search string) ([]CustomerRecipientAddress, error) {
+	r.recipientListCustomerID = customerID
+	r.recipientListSearch = search
+	return r.recipientAddresses, r.err
+}
+
+func (r *fakeRepository) SaveCustomerRecipientAddress(ctx context.Context, cmd SaveCustomerRecipientAddressCommand) (CustomerRecipientAddress, error) {
+	r.recipientSaveCommand = cmd
+	if r.err != nil {
+		return CustomerRecipientAddress{}, r.err
+	}
+	return CustomerRecipientAddress{ID: 91, CustomerID: cmd.CustomerID, RecipientName: cmd.RecipientName, Phone: cmd.Phone, DetailAddress: cmd.DetailAddress, IsDefault: cmd.IsDefault, Revision: 1}, nil
+}
+
+func (r *fakeRepository) DeleteCustomerRecipientAddress(ctx context.Context, cmd DeleteCustomerRecipientAddressCommand) error {
+	r.recipientDeleteCommand = cmd
+	return r.err
 }
 
 func (r *fakeRepository) LoadServicePage(ctx context.Context, query ServicePageQuery) (ServicePage, error) {
@@ -791,6 +815,50 @@ func (r *fakeRepository) CustomerOwnsOrder(ctx context.Context, customerID, orde
 	return r.orderAccessOK, nil
 }
 
+func TestRecipientAddressUsesCustomerFromMiniSession(t *testing.T) {
+	repo := &fakeRepository{
+		context:            CurrentContext{MiniUserID: 41, CurrentCustomerID: 77},
+		recipientAddresses: []CustomerRecipientAddress{{ID: 8, CustomerID: 77, RecipientName: "门店甲"}},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	rows, err := svc.ListRecipientAddresses(context.Background(), "mini-token")
+	if err != nil || len(rows) != 1 || repo.recipientListCustomerID != 77 {
+		t.Fatalf("ListRecipientAddresses() rows=%+v customer=%d err=%v", rows, repo.recipientListCustomerID, err)
+	}
+	row, err := svc.SaveRecipientAddress(context.Background(), "mini-token", SaveCustomerRecipientAddressCommand{
+		CustomerID: 999, RecipientName: " 收件人 ", Phone: " 13800138000 ", DetailAddress: " 咖啡路 1 号 ", IsDefault: true, Actor: "forged",
+	})
+	if err != nil {
+		t.Fatalf("SaveRecipientAddress() err=%v", err)
+	}
+	if row.CustomerID != 77 || repo.recipientSaveCommand.CustomerID != 77 || repo.recipientSaveCommand.Actor != "mini-user:41" {
+		t.Fatalf("mini save scope not fixed by session: row=%+v cmd=%+v", row, repo.recipientSaveCommand)
+	}
+	if repo.recipientSaveCommand.RecipientName != "收件人" || repo.recipientSaveCommand.DetailAddress != "咖啡路 1 号" {
+		t.Fatalf("mini save fields not normalized: %+v", repo.recipientSaveCommand)
+	}
+	if err := svc.DeleteRecipientAddress(context.Background(), "mini-token", 8, 3); err != nil {
+		t.Fatalf("DeleteRecipientAddress() err=%v", err)
+	}
+	if repo.recipientDeleteCommand.CustomerID != 77 || repo.recipientDeleteCommand.ID != 8 || repo.recipientDeleteCommand.ExpectedRevision != 3 || repo.recipientDeleteCommand.Actor != "mini-user:41" {
+		t.Fatalf("mini delete scope not fixed by session: %+v", repo.recipientDeleteCommand)
+	}
+}
+
+func TestRecipientAddressRequiresCoreFields(t *testing.T) {
+	svc := NewService(&fakeRepository{}, fakeIdentityProvider{})
+	for _, cmd := range []SaveCustomerRecipientAddressCommand{
+		{CustomerID: 7, Phone: "13800138000", DetailAddress: "咖啡路", Actor: "admin"},
+		{CustomerID: 7, RecipientName: "收件人", DetailAddress: "咖啡路", Actor: "admin"},
+		{CustomerID: 7, RecipientName: "收件人", Phone: "13800138000", Actor: "admin"},
+	} {
+		if _, err := svc.SaveRecipientAddressForCustomer(context.Background(), cmd); err == nil {
+			t.Fatalf("SaveRecipientAddressForCustomer(%+v) error=nil", cmd)
+		}
+	}
+}
+
 func TestLoginRejectsEmptyCode(t *testing.T) {
 	svc := NewService(&fakeRepository{}, fakeIdentityProvider{})
 	_, err := svc.Login(context.Background(), LoginCommand{})
@@ -1299,7 +1367,7 @@ func TestDefaultCapabilityTemplatesIncludeChannelDirectShipWorkbench(t *testing.
 	if !ok {
 		t.Fatal("missing channel direct ship capability template")
 	}
-	if template.Label != "渠道代发/现货下单" {
+	if template.Label != "渠道代发/商品下单" {
 		t.Fatalf("channel template label=%q", template.Label)
 	}
 	if !template.ExposesERPWorkbench() {

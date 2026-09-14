@@ -61,6 +61,12 @@
       }
     },
     {
+      "path": "pages/customer-addresses/customer-addresses",
+      "style": {
+        "navigationBarTitleText": "收件地址"
+      }
+    },
+    {
       "path": "pages/employee-order-entry/employee-order-entry",
       "style": {
         "navigationBarTitleText": "录单"

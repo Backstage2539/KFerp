@@ -164,6 +164,45 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
 	})
 
+	e.GET("/api/costing/customer-order-price-table-bindings", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
+		bindingSvc, ok := svc.(CustomerOrderPriceTableService)
+		if !ok {
+			return c.JSON(http.StatusNotImplemented, map[string]string{"error": "customer order price-table configuration unavailable"})
+		}
+		customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
+		if err != nil || customerID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "customer_id required"})
+		}
+		result, err := bindingSvc.CustomerOrderPriceTableConfig(c.Request().Context(), appcosting.CustomerOrderPriceTableQuery{CustomerID: customerID})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.PUT("/api/costing/customer-order-price-table-bindings", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
+		bindingSvc, ok := svc.(CustomerOrderPriceTableService)
+		if !ok {
+			return c.JSON(http.StatusNotImplemented, map[string]string{"error": "customer order price-table configuration unavailable"})
+		}
+		var cmd appcosting.SaveCustomerOrderPriceTableBindingCommand
+		if err := c.Bind(&cmd); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		cmd.Actor = support.ActorOf(c)
+		result, err := bindingSvc.SaveCustomerOrderPriceTableBinding(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.GET("/api/costing/bean-list", func(c echo.Context) error {
 		customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
 		if err != nil {

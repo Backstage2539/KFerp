@@ -113,6 +113,39 @@
       </form>
 
       <div v-if="editingId" class="customer-extra">
+        <section class="recipient-address-book">
+          <div class="section-head">
+            <div><h4>收件地址</h4><p class="muted">同一客户的多个小程序账号共用。订单保存收件快照，后续修改地址簿不会改历史订单。</p></div>
+            <div class="actions">
+              <input v-model.trim="recipientAddressSearch" type="search" placeholder="搜索收件人/电话/地址" @keyup.enter="loadRecipientAddresses" />
+              <button class="secondary" type="button" @click="loadRecipientAddresses">搜索</button>
+              <button class="secondary" type="button" @click="prefillRecipientAddressFromCustomer">将客户档案地址加入地址簿</button>
+            </div>
+          </div>
+          <div class="recipient-address-list">
+            <article v-for="address in recipientAddresses" :key="address.id" class="recipient-address-card">
+              <strong>{{ address.recipient_name }} · {{ address.phone }} <span v-if="address.is_default" class="default-badge">默认</span></strong>
+              <span>{{ address.company || '' }}</span>
+              <span>{{ address.province }}{{ address.city }}{{ address.district }}{{ address.detail_address }}</span>
+              <div class="actions"><button class="secondary compact" type="button" @click="editRecipientAddress(address)">编辑</button><button class="text-button" type="button" @click="deleteRecipientAddress(address)">删除</button></div>
+            </article>
+            <p v-if="!recipientAddresses.length" class="muted">暂无收件地址，可新增或将客户档案地址显式加入。</p>
+          </div>
+          <form class="recipient-address-form" @submit.prevent="saveRecipientAddress">
+            <label class="wide"><span>粘贴收件信息</span><textarea v-model.trim="recipientAddressPaste" rows="2" placeholder="张三 13800138000 云南省普洱市思茅区咖啡路 88 号"></textarea></label>
+            <button class="secondary parse-button" type="button" :disabled="recipientAddressParsing || !recipientAddressPaste" @click="parseRecipientAddress">{{ recipientAddressParsing ? '解析中...' : '解析收件信息' }}</button>
+            <label><span>收件人</span><input v-model.trim="recipientAddressForm.recipient_name" required /></label>
+            <label><span>联系电话</span><input v-model.trim="recipientAddressForm.phone" required /></label>
+            <label><span>公司/门店</span><input v-model.trim="recipientAddressForm.company" /></label>
+            <label><span>省</span><input v-model.trim="recipientAddressForm.province" /></label>
+            <label><span>市</span><input v-model.trim="recipientAddressForm.city" /></label>
+            <label><span>区/县</span><input v-model.trim="recipientAddressForm.district" /></label>
+            <label class="wide"><span>详细地址</span><input v-model.trim="recipientAddressForm.detail_address" required /></label>
+            <label class="check"><input v-model="recipientAddressForm.is_default" type="checkbox" /><span>设为默认地址</span></label>
+            <div class="actions"><button class="primary" type="submit">{{ recipientAddressForm.id ? '保存修改' : '新增地址' }}</button><button class="secondary" type="button" @click="resetRecipientAddressForm">取消编辑</button></div>
+          </form>
+        </section>
+
         <div class="stats">
           <div><span>订单</span><strong>{{ dashboard.total_orders }}</strong></div>
           <div><span>未收款</span><strong>{{ dashboard.unpaid_orders }}</strong></div>
@@ -252,6 +285,11 @@ const dashboard = reactive({ total_orders: 0, unpaid_orders: 0, unshipped_orders
 const assetKind = ref('label_front')
 const assetInput = ref(null)
 const customerPaste = ref('')
+const recipientAddresses = ref([])
+const recipientAddressSearch = ref('')
+const recipientAddressPaste = ref('')
+const recipientAddressParsing = ref(false)
+const recipientAddressForm = reactive(emptyRecipientAddressForm())
 const addressParsing = ref(false)
 const form = reactive(emptyForm())
 const addressParseAvailable = computed(() => Boolean(String(customerPaste.value || form.address || '').trim()))
@@ -278,6 +316,15 @@ function emptyForm() {
     active: true,
     portal_enabled: false,
   }
+}
+
+function emptyRecipientAddressForm() {
+  return { id: 0, recipient_name: '', phone: '', company: '', province: '', city: '', district: '', detail_address: '', is_default: false, revision: 0 }
+}
+
+function resetRecipientAddressForm() {
+  Object.assign(recipientAddressForm, emptyRecipientAddressForm())
+  recipientAddressPaste.value = ''
 }
 
 function assignForm(data) {
@@ -474,6 +521,8 @@ function startNew() {
   assignForm(emptyForm())
   applyFormDefaults()
   customerPaste.value = ''
+  recipientAddresses.value = []
+  resetRecipientAddressForm()
   ok.value = ''
   error.value = ''
   updateUrl({ mode: 'new' })
@@ -485,6 +534,9 @@ function closeCustomerDrawer() {
   editingId.value = 0
   assets.value = []
   customerPaste.value = ''
+  recipientAddresses.value = []
+  recipientAddressSearch.value = ''
+  resetRecipientAddressForm()
   updateUrl()
 }
 
@@ -505,11 +557,90 @@ async function openCustomerDrawer(id) {
     assets.value = data.assets || []
     assignDashboard(data.dashboard)
     customerPaste.value = ''
+    await loadRecipientAddresses()
     updateUrl({ edit_id: editingId.value })
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadRecipientAddresses() {
+  if (!editingId.value) return
+  const params = new URLSearchParams()
+  if (recipientAddressSearch.value) params.set('q', recipientAddressSearch.value)
+  try {
+    const data = await apiGet(`/api/customer-portal/admin/customers/${editingId.value}/recipient-addresses${params.toString() ? `?${params}` : ''}`)
+    recipientAddresses.value = data.rows || []
+  } catch (err) {
+    error.value = err.message || '收件地址加载失败'
+  }
+}
+
+function editRecipientAddress(address) {
+  Object.assign(recipientAddressForm, address)
+  recipientAddressPaste.value = ''
+}
+
+function prefillRecipientAddressFromCustomer() {
+  Object.assign(recipientAddressForm, emptyRecipientAddressForm(), {
+    recipient_name: form.contact || form.name,
+    phone: form.company_phone,
+    company: form.company_name || form.name,
+    detail_address: form.address,
+    is_default: recipientAddresses.value.length === 0,
+  })
+}
+
+async function parseRecipientAddress() {
+  const source = String(recipientAddressPaste.value || '').trim()
+  if (!source || recipientAddressParsing.value) return
+  recipientAddressParsing.value = true
+  error.value = ''
+  try {
+    const parsed = await apiSend('/api/customer-recipient/parse', { body: { text: source } })
+    Object.assign(recipientAddressForm, {
+      recipient_name: parsed.recipient_name || recipientAddressForm.recipient_name,
+      phone: parsed.phone || recipientAddressForm.phone,
+      province: parsed.province || '',
+      city: parsed.city || '',
+      district: parsed.district || '',
+      detail_address: parsed.detail_address || parsed.address || recipientAddressForm.detail_address,
+    })
+  } catch (err) {
+    error.value = err.message || '收件信息解析失败'
+  } finally {
+    recipientAddressParsing.value = false
+  }
+}
+
+async function saveRecipientAddress() {
+  if (!editingId.value) return
+  error.value = ''
+  try {
+    const id = Number(recipientAddressForm.id || 0)
+    const row = await apiSend(`/api/customer-portal/admin/customers/${editingId.value}/recipient-addresses${id ? `/${id}` : ''}`, {
+      method: id ? 'PUT' : 'POST',
+      body: { ...recipientAddressForm, expected_revision: Number(recipientAddressForm.revision || 0) },
+    })
+    ok.value = `已保存收件地址：${row.recipient_name}`
+    resetRecipientAddressForm()
+    await loadRecipientAddresses()
+  } catch (err) {
+    error.value = err.message || '收件地址保存失败'
+  }
+}
+
+async function deleteRecipientAddress(address) {
+  if (!window.confirm(`删除 ${address.recipient_name} 的收件地址？`)) return
+  try {
+    await apiSend(`/api/customer-portal/admin/customers/${editingId.value}/recipient-addresses/${address.id}?revision=${address.revision}`, { method: 'DELETE' })
+    ok.value = '收件地址已删除'
+    if (Number(recipientAddressForm.id) === Number(address.id)) resetRecipientAddressForm()
+    await loadRecipientAddresses()
+  } catch (err) {
+    error.value = err.message || '收件地址删除失败'
   }
 }
 
@@ -723,6 +854,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .check span { margin: 0; }
 .form-actions { align-self: center; }
 .customer-extra { margin-top: 14px; border-top: 1px solid #eee8df; padding-top: 14px; }
+.recipient-address-book { display: grid; gap: 12px; margin-bottom: 16px; padding: 14px; border: 1px solid #d8e7dc; border-radius: 8px; background: #f7fbf8; }
+.recipient-address-book h4, .recipient-address-book p { margin: 0; }
+.section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.recipient-address-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.recipient-address-card { display: grid; gap: 5px; padding: 10px; border: 1px solid #dfe8e1; border-radius: 7px; background: #fff; font-size: 13px; }
+.recipient-address-form { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 10px; align-items: end; }
+.default-badge { display: inline; margin-left: 4px; padding: 2px 6px; border-radius: 999px; color: #28624a; background: #e8f5ed; font-size: 11px; }
 .stats { display: grid; grid-template-columns: repeat(6, minmax(88px, 1fr)); gap: 8px; margin-bottom: 14px; }
 .stats div { border: 1px solid #eee8df; border-radius: 6px; padding: 9px; }
 .stats strong { font-size: 18px; }
@@ -745,6 +883,7 @@ tr.active { background: #f3f7fb; }
   .page { padding: 12px; }
   .filters { align-items: end; }
   .form-grid { grid-template-columns: 1fr; }
+  .recipient-address-form { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
   table { min-width: 940px; }
 }

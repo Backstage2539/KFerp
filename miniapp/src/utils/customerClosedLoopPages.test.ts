@@ -105,13 +105,19 @@ describe('customer closed-loop miniapp pages', () => {
     expect(service).toContain('v-if="!isProcessingCustomer"')
   })
 
-  it('shows the current customer, ERP business contact, recent recipients and service explanation', () => {
+  it('shows the current customer, ERP business contact, shared recipient address book and service explanation', () => {
     const page = source('src/pages/profile/profile.vue')
+    const addresses = source('src/pages/customer-addresses/customer-addresses.vue')
 
     expect(page).toContain('客户资料')
     expect(page).toContain('business_contact_name')
-    expect(page).toContain('fetchDirectShipRequests')
-    expect(page).toContain('常用收件人')
+    expect(page).toContain('openRecipientAddresses')
+    expect(page).toContain('收件地址')
+    expect(addresses).toContain('fetchRecipientAddresses')
+    expect(addresses).toContain('createRecipientAddress')
+    expect(addresses).toContain('updateRecipientAddress')
+    expect(addresses).toContain('deleteRecipientAddress')
+    expect(addresses).toContain('当前客户的所有账号共用')
     expect(page).toContain('服务说明')
     expect(page).toContain('一件代发按 ERP 指定价格表下单')
   })

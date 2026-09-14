@@ -178,6 +178,43 @@ type CurrentContext struct {
 	Capabilities           []Capability      `json:"capabilities"`
 }
 
+type CustomerRecipientAddress struct {
+	ID            int64  `json:"id"`
+	CustomerID    int64  `json:"customer_id"`
+	RecipientName string `json:"recipient_name"`
+	Phone         string `json:"phone"`
+	Company       string `json:"company,omitempty"`
+	Province      string `json:"province,omitempty"`
+	City          string `json:"city,omitempty"`
+	District      string `json:"district,omitempty"`
+	DetailAddress string `json:"detail_address"`
+	IsDefault     bool   `json:"is_default"`
+	Revision      int64  `json:"revision"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+}
+
+type SaveCustomerRecipientAddressCommand struct {
+	ID               int64  `json:"id,omitempty"`
+	CustomerID       int64  `json:"customer_id,omitempty"`
+	RecipientName    string `json:"recipient_name"`
+	Phone            string `json:"phone"`
+	Company          string `json:"company,omitempty"`
+	Province         string `json:"province,omitempty"`
+	City             string `json:"city,omitempty"`
+	District         string `json:"district,omitempty"`
+	DetailAddress    string `json:"detail_address"`
+	IsDefault        bool   `json:"is_default"`
+	ExpectedRevision int64  `json:"expected_revision,omitempty"`
+	Actor            string `json:"-"`
+}
+
+type DeleteCustomerRecipientAddressCommand struct {
+	ID               int64
+	CustomerID       int64
+	ExpectedRevision int64
+	Actor            string
+}
+
 type ServiceMetric struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
@@ -1186,6 +1223,12 @@ type processingBOMSpecCatalogRepository interface {
 	ListProcessingCatalogTargets(context.Context, int64, []int64) ([]ProcessingCatalogTarget, error)
 }
 
+type customerRecipientAddressRepository interface {
+	ListCustomerRecipientAddresses(context.Context, int64, string) ([]CustomerRecipientAddress, error)
+	SaveCustomerRecipientAddress(context.Context, SaveCustomerRecipientAddressCommand) (CustomerRecipientAddress, error)
+	DeleteCustomerRecipientAddress(context.Context, DeleteCustomerRecipientAddressCommand) error
+}
+
 func NewService(repo Repository, identity IdentityProvider) *Service {
 	return &Service{repo: repo, identity: identity}
 }
@@ -1289,6 +1332,95 @@ func (s *Service) Me(ctx context.Context, token string) (CurrentContext, error) 
 		return CurrentContext{}, err
 	}
 	return normalizeCurrentContext(current), nil
+}
+
+func (s *Service) ListRecipientAddresses(ctx context.Context, token string) ([]CustomerRecipientAddress, error) {
+	current, err := s.Me(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	return s.ListRecipientAddressesForCustomer(ctx, current.CurrentCustomerID, "")
+}
+
+func (s *Service) SaveRecipientAddress(ctx context.Context, token string, cmd SaveCustomerRecipientAddressCommand) (CustomerRecipientAddress, error) {
+	current, err := s.Me(ctx, token)
+	if err != nil {
+		return CustomerRecipientAddress{}, err
+	}
+	cmd.CustomerID = current.CurrentCustomerID
+	cmd.Actor = fmt.Sprintf("mini-user:%d", current.MiniUserID)
+	return s.SaveRecipientAddressForCustomer(ctx, cmd)
+}
+
+func (s *Service) DeleteRecipientAddress(ctx context.Context, token string, addressID, expectedRevision int64) error {
+	current, err := s.Me(ctx, token)
+	if err != nil {
+		return err
+	}
+	return s.DeleteRecipientAddressForCustomer(ctx, DeleteCustomerRecipientAddressCommand{ID: addressID, CustomerID: current.CurrentCustomerID, ExpectedRevision: expectedRevision, Actor: fmt.Sprintf("mini-user:%d", current.MiniUserID)})
+}
+
+func (s *Service) ListRecipientAddressesForCustomer(ctx context.Context, customerID int64, search string) ([]CustomerRecipientAddress, error) {
+	if customerID <= 0 {
+		return nil, fmt.Errorf("customer required")
+	}
+	repo, ok := s.repo.(customerRecipientAddressRepository)
+	if !ok {
+		return []CustomerRecipientAddress{}, nil
+	}
+	return repo.ListCustomerRecipientAddresses(ctx, customerID, strings.TrimSpace(search))
+}
+
+func (s *Service) SaveRecipientAddressForCustomer(ctx context.Context, cmd SaveCustomerRecipientAddressCommand) (CustomerRecipientAddress, error) {
+	cmd.RecipientName = strings.TrimSpace(cmd.RecipientName)
+	cmd.Phone = strings.TrimSpace(cmd.Phone)
+	cmd.Company = strings.TrimSpace(cmd.Company)
+	cmd.Province = strings.TrimSpace(cmd.Province)
+	cmd.City = strings.TrimSpace(cmd.City)
+	cmd.District = strings.TrimSpace(cmd.District)
+	cmd.DetailAddress = strings.TrimSpace(cmd.DetailAddress)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.CustomerID <= 0 {
+		return CustomerRecipientAddress{}, fmt.Errorf("customer required")
+	}
+	if cmd.RecipientName == "" {
+		return CustomerRecipientAddress{}, fmt.Errorf("recipient_name required")
+	}
+	if cmd.Phone == "" {
+		return CustomerRecipientAddress{}, fmt.Errorf("phone required")
+	}
+	if cmd.DetailAddress == "" {
+		return CustomerRecipientAddress{}, fmt.Errorf("detail_address required")
+	}
+	if cmd.Actor == "" {
+		return CustomerRecipientAddress{}, fmt.Errorf("actor required")
+	}
+	if cmd.ID > 0 && cmd.ExpectedRevision <= 0 {
+		return CustomerRecipientAddress{}, fmt.Errorf("expected_revision required")
+	}
+	repo, ok := s.repo.(customerRecipientAddressRepository)
+	if !ok {
+		return CustomerRecipientAddress{}, fmt.Errorf("recipient address repository required")
+	}
+	return repo.SaveCustomerRecipientAddress(ctx, cmd)
+}
+
+func (s *Service) DeleteRecipientAddressForCustomer(ctx context.Context, cmd DeleteCustomerRecipientAddressCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.CustomerID <= 0 || cmd.ID <= 0 {
+		return fmt.Errorf("customer and address required")
+	}
+	if cmd.ExpectedRevision <= 0 {
+		return fmt.Errorf("expected_revision required")
+	}
+	if cmd.Actor == "" {
+		return fmt.Errorf("actor required")
+	}
+	repo, ok := s.repo.(customerRecipientAddressRepository)
+	if !ok {
+		return fmt.Errorf("recipient address repository required")
+	}
+	return repo.DeleteCustomerRecipientAddress(ctx, cmd)
 }
 
 func (s *Service) SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (CurrentContext, error) {
@@ -3047,7 +3179,7 @@ func serviceDefinition(key string) (serviceDef, error) {
 			capabilities: []string{CapabilityProductOrder, CapabilityDirectShip, CapabilityShippingQuery, CapabilityMall},
 		}, nil
 	case "productorder", "product_order":
-		return singleCapabilityServiceDef(ServiceKeyProductOrder, "现货下单", CapabilityProductOrder), nil
+		return singleCapabilityServiceDef(ServiceKeyProductOrder, "商品下单", CapabilityProductOrder), nil
 	case "directship", "direct_ship":
 		return singleCapabilityServiceDef(ServiceKeyDirectShip, "一件代发", CapabilityDirectShip), nil
 	case "processing":
@@ -3235,7 +3367,7 @@ func DefaultCapabilityOptions() []CapabilityOption {
 	return []CapabilityOption{
 		{Code: CapabilityBeanList, Label: "我的豆单", Description: "查看客户专属豆单；没有专属豆单时默认查看系统最新已发布豆单"},
 		{Code: CapabilityMall, Label: "商城下单", Description: "面向 C 端客户展示商城、浏览上架商品并提交订单"},
-		{Code: CapabilityProductOrder, Label: "现货下单", Description: "查看现货商品和自己的历史订单"},
+		{Code: CapabilityProductOrder, Label: "商品下单", Description: "查看可下单商品和自己的历史订单"},
 		{Code: CapabilityDirectShip, Label: "一件代发", Description: "查看代发批次、订单生产和发货状态"},
 		{Code: CapabilityProcessing, Label: "代加工", Description: "查看托管库存并提交加工申请"},
 		{Code: CapabilityInventoryCustody, Label: "我的库存", Description: "查看客户托管的生豆、成品和包材库存"},
@@ -3296,8 +3428,8 @@ func DefaultCapabilityTemplates() []CapabilityTemplate {
 			Key:              CapabilityTemplateChannelDirectShip,
 			Active:           true,
 			SortOrder:        25,
-			Label:            "渠道代发/现货下单",
-			Description:      "渠道客户使用公共 SKU 或客户专属 SKU 现货下单，收件人为渠道客户的终端收件人，不新增客户档案",
+			Label:            "渠道代发/商品下单",
+			Description:      "渠道客户按指定客户价格表提交商品订单，收件人为渠道客户的终端收件人，不新增客户档案",
 			ThemeKey:         PortalThemeCleanOps,
 			MiniappEntryMode: MiniappEntryModeServices,
 			ERPRoleCodes:     []string{},

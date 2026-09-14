@@ -84,6 +84,9 @@ ALTER TABLE %s.customer_portal_profiles
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
+	if err := ensureRecipientAddressSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureBusinessSchema(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -97,6 +100,36 @@ ALTER TABLE %s.customer_portal_profiles
 		return err
 	}
 	return ensureCapabilityConfigConstraint(ctx, pool, schema)
+}
+
+func ensureRecipientAddressSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.customer_recipient_addresses (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	recipient_name TEXT NOT NULL,
+	phone TEXT NOT NULL,
+	company TEXT NOT NULL DEFAULT '',
+	province TEXT NOT NULL DEFAULT '',
+	city TEXT NOT NULL DEFAULT '',
+	district TEXT NOT NULL DEFAULT '',
+	detail_address TEXT NOT NULL,
+	is_default BOOLEAN NOT NULL DEFAULT false,
+	active BOOLEAN NOT NULL DEFAULT true,
+	revision BIGINT NOT NULL DEFAULT 1,
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS customer_recipient_addresses_customer_idx
+	ON %[1]s.customer_recipient_addresses(customer_id,is_default DESC,updated_at DESC,id DESC)
+	WHERE active=true;
+CREATE UNIQUE INDEX IF NOT EXISTS customer_recipient_addresses_default_uq
+	ON %[1]s.customer_recipient_addresses(customer_id)
+	WHERE active=true AND is_default=true;
+`, schema))
+	return err
 }
 
 func ensureCapabilityTemplateSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {

@@ -101,7 +101,7 @@
           <div class="group-title">代发和公共 SKU 规则</div>
           <label class="check-row">
             <input v-model="capabilityOf(editor, 'product_order').config.public_sku_aliases" type="checkbox" />
-            <span>现货下单支持公共 SKU 别名</span>
+            <span>商品下单支持公共 SKU 别名</span>
           </label>
           <label class="check-row">
             <input v-model="capabilityOf(editor, 'direct_ship').config.public_sku_aliases" type="checkbox" />
@@ -171,7 +171,7 @@ import { customerPortalThemeOptions, normalizeCustomerPortalThemeKey } from '../
 const capabilityDefinitions = [
   { code: 'bean_list', label: '我的豆单' },
   { code: 'mall', label: '商城下单' },
-  { code: 'product_order', label: '现货下单' },
+  { code: 'product_order', label: '商品下单' },
   { code: 'direct_ship', label: '一件代发' },
   { code: 'processing', label: '代加工' },
   { code: 'inventory_custody', label: '我的库存' },

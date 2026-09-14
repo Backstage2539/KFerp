@@ -160,6 +160,7 @@ type SubmitCustomerDirectShipOrderCommand struct {
 	CustomerRequestID     string
 	CustomerRequestHash   string
 	SelectedPriceTableIDs []int64
+	PortalServiceCode     string
 }
 
 type SubmitCustomerDirectShipOrderItem struct {
@@ -1031,13 +1032,20 @@ func (s *Service) submitSharedSalesOrder(ctx context.Context, cmd SubmitCustomer
 	}
 	codes, _ := data["capabilities"].([]string)
 	mode := ""
+	requestedMode := strings.TrimSpace(cmd.PortalServiceCode)
 	for _, code := range codes {
-		if code == "direct_ship" {
-			mode = "direct_ship"
+		if requestedMode != "" && code == requestedMode {
+			mode = requestedMode
 			break
 		}
-		if code == "product_order" {
-			mode = "product_order"
+		if requestedMode == "" {
+			if code == "direct_ship" {
+				mode = "direct_ship"
+				break
+			}
+			if code == "product_order" {
+				mode = "product_order"
+			}
 		}
 	}
 	if mode == "" {
@@ -1061,7 +1069,7 @@ func (s *Service) submitSharedSalesOrder(ctx context.Context, cmd SubmitCustomer
 		PortalServiceCode:                 mode,
 		ShippingAmount:                    cmd.ShippingAmount,
 		Notes:                             cmd.Note,
-		RequireCurrentDefaultPublications: true,
+		RequireCurrentDefaultPublications: false,
 		OrdersScope:                       "fulfillment",
 	}
 	for _, item := range cmd.Items {

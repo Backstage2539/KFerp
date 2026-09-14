@@ -3,10 +3,16 @@ import { computed, onMounted, ref } from 'vue'
 import {
   cancelDirectShipRequest,
   createDirectShipRequest,
+  createProductOrder,
+  createRecipientAddress,
   fetchDirectShipCatalog,
   fetchDirectShipRequests,
+  fetchProductOrderCatalog,
+  fetchRecipientAddresses,
   parseEmployeeCustomerRecipient,
   previewDirectShipRequest,
+  previewProductOrder,
+  type CustomerRecipientAddress,
   type DirectShipCatalog,
   type DirectShipPreview,
   type DirectShipRequest,
@@ -30,7 +36,7 @@ import {
 } from '../utils/directShipFilters'
 import ProductFamilyPickerSheet from './ProductFamilyPickerSheet.vue'
 
-const props = withDefaults(defineProps<{ token: string; customerId: number; showCreate?: boolean }>(), { showCreate: true })
+const props = withDefaults(defineProps<{ token: string; customerId: number; showCreate?: boolean; orderMode?: 'direct_ship' | 'product_order' }>(), { showCreate: true, orderMode: 'direct_ship' })
 type PickerChangeEvent = { detail?: { value?: string | number } }
 
 const loading = ref(false)
@@ -38,6 +44,7 @@ const submitting = ref(false)
 const errorMessage = ref('')
 const catalog = ref<DirectShipCatalog>({ current_customer_id: 0, product_families: [] })
 const requests = ref<DirectShipRequest[]>([])
+const recipientAddresses = ref<CustomerRecipientAddress[]>([])
 const pastedRecipient = ref('')
 const recipientName = ref('')
 const recipientPhone = ref('')
@@ -67,13 +74,19 @@ const pageLimitLabels = pageLimitOptions.map((value) => `每页 ${value} 条`)
 let loadVersion = 0
 let previewVersion = 0
 
+const isProductOrder = computed(() => props.orderMode === 'product_order')
+const createTitle = computed(() => isProductOrder.value ? '商品下单' : '一件代发下单')
+const productSectionTitle = computed(() => isProductOrder.value ? '选择商品' : '选择代发商品')
+const submitTitle = computed(() => isProductOrder.value ? '提交商品订单' : '提交代发订单')
+const addressLabels = computed(() => recipientAddresses.value.map((row) => `${row.is_default ? '默认 · ' : ''}${row.recipient_name} ${row.phone} · ${row.province || ''}${row.city || ''}${row.district || ''}${row.detail_address}`))
+
 const selectedSummary = computed(() => lines.value
   .filter((line) => Number(line.product_id || 0) > 0)
   .map((line) => `${line.product_name} ${line.spec_label} × ${line.qty}`)
   .join('；'))
 
 function newIdempotencyKey(): string {
-  return `mini-ds-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  return `mini-${props.orderMode === 'product_order' ? 'po' : 'ds'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 async function load() {
@@ -82,9 +95,15 @@ async function load() {
   errorMessage.value = ''
   try {
     if (props.showCreate) {
-      const value = await fetchDirectShipCatalog(props.token)
+      const [value, addressData] = await Promise.all([
+        isProductOrder.value ? fetchProductOrderCatalog(props.token) : fetchDirectShipCatalog(props.token),
+        fetchRecipientAddresses(props.token),
+      ])
       if (version !== loadVersion) return
       catalog.value = value
+      recipientAddresses.value = addressData.rows || []
+      const defaultAddress = recipientAddresses.value.find((row) => row.is_default)
+      if (defaultAddress && !recipientName.value && !recipientPhone.value && !detailAddress.value) applyRecipientAddress(defaultAddress)
     } else {
       const value = await fetchDirectShipRequests(props.token, {
         q: shipmentQuery.value,
@@ -107,6 +126,43 @@ async function load() {
   } finally {
     if (version === loadVersion) loading.value = false
   }
+}
+
+function applyRecipientAddress(address?: CustomerRecipientAddress) {
+  if (!address) return
+  recipientName.value = address.recipient_name || ''
+  recipientPhone.value = address.phone || ''
+  recipientCompany.value = address.company || ''
+  province.value = address.province || ''
+  city.value = address.city || ''
+  district.value = address.district || ''
+  detailAddress.value = address.detail_address || ''
+  invalidatePreview()
+}
+
+function chooseRecipientAddress(event: PickerChangeEvent) {
+  applyRecipientAddress(recipientAddresses.value[Number(event.detail?.value || 0)])
+}
+
+async function saveCurrentRecipientAddress() {
+  const validation = validateRecipient()
+  if (validation) { errorMessage.value = validation; return }
+  try {
+    await createRecipientAddress(props.token, {
+      recipient_name: recipientName.value.trim(), phone: recipientPhone.value.trim(), company: recipientCompany.value.trim(),
+      province: province.value.trim(), city: city.value.trim(), district: district.value.trim(), detail_address: detailAddress.value.trim(),
+      is_default: recipientAddresses.value.length === 0,
+    })
+    const data = await fetchRecipientAddresses(props.token)
+    recipientAddresses.value = data.rows || []
+    uni.showToast({ title: '已保存到地址簿', icon: 'success' })
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '地址保存失败'
+  }
+}
+
+function validateRecipient(): string {
+  return !recipientName.value.trim() || !recipientPhone.value.trim() || !detailAddress.value.trim() ? '请确认收件人、电话和详细地址' : ''
 }
 
 async function parseRecipient() {
@@ -242,7 +298,7 @@ function payload() {
 }
 
 function validate(): string {
-  if (!recipientName.value.trim() || !recipientPhone.value.trim() || !detailAddress.value.trim()) return '请确认收件人、电话和详细地址'
+  if (validateRecipient()) return validateRecipient()
   return directShipDraftValidation(lines.value)
 }
 
@@ -252,7 +308,7 @@ async function previewRequest() {
   const version = ++previewVersion
   const command = payload()
   try {
-    const checked = await previewDirectShipRequest(props.token, command)
+    const checked = isProductOrder.value ? await previewProductOrder(props.token, command) : await previewDirectShipRequest(props.token, command)
     if (version !== previewVersion) return
     preview.value = checked
     errorMessage.value = preview.value.can_submit ? '' : '当前商品暂不可下单，请检查价格表与商品配置'
@@ -271,17 +327,18 @@ async function submitRequest() {
   submitting.value = true
   errorMessage.value = ''
   try {
-    const checked = await previewDirectShipRequest(props.token, command)
+    const checked = isProductOrder.value ? await previewProductOrder(props.token, command) : await previewDirectShipRequest(props.token, command)
     if (version !== previewVersion) throw new Error('发货内容已变更，请重新预览后提交')
     preview.value = checked
     if (!checked.can_submit) throw new Error('当前商品暂不可下单，请检查价格表与商品配置')
     if (!checked.price_quote_token) throw new Error('报价版本缺失，请重新预览后提交')
-    await createDirectShipRequest(props.token, { ...command, price_quote_token: checked.price_quote_token })
+    if (isProductOrder.value) await createProductOrder(props.token, { ...command, price_quote_token: checked.price_quote_token })
+    else await createDirectShipRequest(props.token, { ...command, price_quote_token: checked.price_quote_token })
     lines.value = [createDirectShipDraftLine()]
     preview.value = null
     note.value = ''
     idempotencyKey.value = newIdempotencyKey()
-    uni.showToast({ title: '代发订单已创建', icon: 'success' })
+    uni.showToast({ title: isProductOrder.value ? '商品订单已创建' : '代发订单已创建', icon: 'success' })
     await load()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '发货提交失败'
@@ -361,12 +418,15 @@ onMounted(() => { void load() })
 <template>
   <view class="workspace">
     <view v-if="showCreate" class="panel">
-      <text class="title">一件代发下单</text>
+      <text class="title">{{ createTitle }}</text>
       <text class="muted">商品和价格由 ERP 为当前客户指定，小程序内不可切换价格表。订单提交后进入正常订单流程，缺货商品会沿用 ERP 生产流程补货。</text>
       <view v-if="catalog.price_tables?.length" class="price-table-note">
         <text class="line-label">本次适用价格表</text>
         <text v-for="table in catalog.price_tables" :key="table.id" class="muted">{{ priceTableLabel(table) }}</text>
       </view>
+      <picker v-if="recipientAddresses.length" mode="selector" :range="addressLabels" @change="chooseRecipientAddress">
+        <view class="selector-field"><text>从收件地址簿选择</text><text class="chevron">›</text></view>
+      </picker>
       <textarea v-model="pastedRecipient" class="textarea" :disabled="submitting" placeholder="粘贴收货信息，例如：张三 13800138000 云南省普洱市思茅区咖啡路88号" />
       <button class="secondary" :disabled="submitting" @tap="parseRecipient">一键解析地址</button>
       <input v-model="recipientName" class="input" :disabled="submitting" placeholder="收件人" @input="invalidatePreview" />
@@ -378,7 +438,8 @@ onMounted(() => { void load() })
       </view>
       <input v-model="detailAddress" class="input" :disabled="submitting" placeholder="详细地址" @input="invalidatePreview" />
       <input v-model="recipientCompany" class="input" :disabled="submitting" placeholder="公司/门店（可选）" @input="invalidatePreview" />
-      <text class="subtitle">选择代发商品</text>
+      <button class="secondary" :disabled="submitting" @tap="saveCurrentRecipientAddress">保存当前信息到地址簿</button>
+      <text class="subtitle">{{ productSectionTitle }}</text>
       <view v-for="(line, index) in lines" :key="line.key" class="line">
         <view class="line-head">
           <text class="line-name">商品 {{ index + 1 }}</text>
@@ -417,7 +478,7 @@ onMounted(() => { void load() })
         <text v-if="preview.stock_ready" class="ready">库存可直接进入发货。</text>
         <text v-else class="shortage">当前库存不足，订单仍可提交；ERP 将按现有订单生产流程补货，不会重复创建生产需求。</text>
       </view>
-      <view class="actions"><button class="secondary" :disabled="submitting" @tap="previewRequest">核对价格</button><button class="primary" :disabled="submitting" @tap="submitRequest">提交代发订单</button></view>
+      <view class="actions"><button class="secondary" :disabled="submitting" @tap="previewRequest">核对价格</button><button class="primary" :disabled="submitting" @tap="submitRequest">{{ submitTitle }}</button></view>
     </view>
 
     <view v-if="!showCreate" class="panel">
