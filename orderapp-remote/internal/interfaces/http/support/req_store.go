@@ -254,7 +254,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 	for _, row := range []reqSeedRow{
 		{table: "req_product", code: "PR-662-BEAN-LIST-PERFORMANCE", title: "商品价格表接口性能优化", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-14-bean-list-performance.md"},
 		{table: "req_dev", code: "DEV-674-COSTING-QUERY", title: "价格表只读事务关闭 JIT、BOM 成本单次汇总及规格范围收敛", status: "done", assignee: "Codex", evidence: "repository.go; repository_test.go; read_transaction_postgres_test.go"},
-		{table: "req_dev", code: "DEV-675-COSTING-PERFORMANCE-DELIVERY", title: "真实 PostgreSQL 性能验收与开发正式环境交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-14-bean-list-performance.md"},
+		{table: "req_dev", code: "DEV-675-COSTING-PERFORMANCE-DELIVERY", title: "真实 PostgreSQL 性能验收与开发正式环境交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-14-bean-list-performance.md"},
 		{table: "req_review", code: "REV-662-BEAN-LIST-PERFORMANCE", prCode: "PR-662-BEAN-LIST-PERFORMANCE", title: "验收客户与公共价格表响应速度及结果一致性", status: "todo", assignee: "VA", evidence: "待 Van 在生产商品价格表中验收"},
 
 		{table: "req_product", code: "PR-661-PRODUCTION-LOG-WORKSPACE", title: "生产日志统一阅读、查询分页与批次追溯体验", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-production-log-workspace.md"},
