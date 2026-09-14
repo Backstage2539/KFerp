@@ -110,6 +110,15 @@ type CustomerMaintenance interface {
 	UpsertManaged(context.Context, customerapp.MaintenancePrincipal, *int64, customerapp.UpsertCommand) (int64, error)
 }
 
+type RecipientAddressService interface {
+	ListRecipientAddresses(context.Context, string) ([]customerportalapp.CustomerRecipientAddress, error)
+	SaveRecipientAddress(context.Context, string, customerportalapp.SaveCustomerRecipientAddressCommand) (customerportalapp.CustomerRecipientAddress, error)
+	DeleteRecipientAddress(context.Context, string, int64, int64) error
+	ListRecipientAddressesForCustomer(context.Context, int64, string) ([]customerportalapp.CustomerRecipientAddress, error)
+	SaveRecipientAddressForCustomer(context.Context, customerportalapp.SaveCustomerRecipientAddressCommand) (customerportalapp.CustomerRecipientAddress, error)
+	DeleteRecipientAddressForCustomer(context.Context, customerportalapp.DeleteCustomerRecipientAddressCommand) error
+}
+
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	renderer := deps.BeanListPDFRenderer
 	if renderer == nil {
@@ -118,6 +127,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments, deps.CustomerFulfillment != nil)
 	registerMiniProcessingCatalogAPI(e, deps.CustomerPortal, deps.EmployeeSales)
 	registerRecipientParseAPI(e, deps.CustomerPortal, deps.Authz)
+	registerRecipientAddressAPI(e, deps.CustomerPortal, deps.Authz)
 	registerMiniEmployeeAPI(e, deps.CustomerPortal, deps.EmployeeSales, deps.CustomerMaintenance)
 	registerMiniEmployeeShareSettingsAPI(e, deps.CustomerPortal, deps.EmployeeShareSettings)
 	registerMiniCustomerFulfillmentAPI(e, deps.CustomerPortal, deps.CustomerFulfillment)

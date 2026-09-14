@@ -34,7 +34,69 @@ type MiniCustomerFulfillment interface {
 	ReplyCustomerStatementDispute(context.Context, customerfulfillmentapp.ReplyCustomerStatementDisputeCommand) (customerfulfillmentapp.AccountStatementDispute, error)
 }
 
+type MiniProductOrderFulfillment interface {
+	MiniProductOrderCatalog(context.Context, customerfulfillmentapp.MiniDirectShipCatalogQuery) (customerfulfillmentapp.MiniDirectShipCatalog, error)
+	PreviewMiniProductOrder(context.Context, customerfulfillmentapp.MiniDirectShipCommand) (customerfulfillmentapp.MiniDirectShipPreview, error)
+	SubmitMiniProductOrder(context.Context, customerfulfillmentapp.MiniDirectShipCommand) (customerfulfillmentapp.MiniDirectShipRequest, error)
+}
+
 func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment) {
+	e.GET("/api/mini/product-orders/catalog", func(c echo.Context) error {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityProductOrder)
+		if err != nil || !allowed {
+			return err
+		}
+		productOrders, ok := fulfillment.(MiniProductOrderFulfillment)
+		if !ok {
+			return miniInternalError(c)
+		}
+		result, err := productOrders.MiniProductOrderCatalog(c.Request().Context(), customerfulfillmentapp.MiniDirectShipCatalogQuery{CustomerID: current.CurrentCustomerID, Q: c.QueryParam("q"), Category: c.QueryParam("category")})
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+	e.POST("/api/mini/product-orders/preview", func(c echo.Context) error {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityProductOrder)
+		if err != nil || !allowed {
+			return err
+		}
+		productOrders, ok := fulfillment.(MiniProductOrderFulfillment)
+		if !ok {
+			return miniInternalError(c)
+		}
+		var cmd customerfulfillmentapp.MiniDirectShipCommand
+		if err := c.Bind(&cmd); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		bindMiniDirectShipPrincipal(c, current, &cmd)
+		result, err := productOrders.PreviewMiniProductOrder(c.Request().Context(), cmd)
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+	e.POST("/api/mini/product-orders", func(c echo.Context) error {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityProductOrder)
+		if err != nil || !allowed {
+			return err
+		}
+		productOrders, ok := fulfillment.(MiniProductOrderFulfillment)
+		if !ok {
+			return miniInternalError(c)
+		}
+		var cmd customerfulfillmentapp.MiniDirectShipCommand
+		if err := c.Bind(&cmd); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		bindMiniDirectShipPrincipal(c, current, &cmd)
+		result, err := productOrders.SubmitMiniProductOrder(c.Request().Context(), cmd)
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		return c.JSON(http.StatusCreated, result)
+	})
+
 	e.GET("/api/mini/direct-ship/catalog", func(c echo.Context) error {
 		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip)
 		if err != nil || !allowed {

@@ -1,5 +1,16 @@
 # ACTIVE_REQUIREMENTS
 
+### PR-664-CUSTOMER-ORDER-PRICE-BINDINGS
+- Branch: `codex/customer-price-bindings-addressbook-20260914`; base `origin/develop@31eb729a`.
+- Owner/session: Codex / Van / 2026-09-14.
+- Status: implementation in progress; development and production release authorized; Van business acceptance pending.
+- Scope: bind one-piece direct ship and product order independently by customer, product type and exact published price-list version; remove portal-side price-list selection; rename product order; add shared ERP/miniapp customer recipient address book.
+- DEV: DEV-682-PRICE-BINDINGS; DEV-683-PRODUCT-ORDER; DEV-684-RECIPIENT-ADDRESS-BOOK; DEV-685-DELIVERY.
+- Verifier: exact-publication catalog and submit guards; archive/delete binding guard; address ownership/default/concurrency; Go/API/Vue/miniapp targeted RED-GREEN and builds.
+- Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md`, `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`, `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`.
+- Delivery: feature -> develop -> development -> main -> production; generate production miniapp package; WeChat upload/review/publication excluded.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-14-customer-order-price-bindings-addressbook.md`.
+
 ### PR-663-PUBLICATIONS-SUMMARY-CLEANUP
 - Branch: codex/publications-summary-cleanup-20260914
 - Owner/session: Codex / Van

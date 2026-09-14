@@ -135,3 +135,45 @@ func FilterOrderProductsForSelectedPublications(products []ProductOption, custom
 	}
 	return FilterOrderProductsForDefaultPublications(products, customerID, selected, usages, retailOrder), nil
 }
+
+// FilterOrderProductsForExactCustomerPublications is used by customer-facing
+// order entry points whose price-list access is explicitly configured. It does
+// not seed defaults or public tables, and it deliberately allows an older
+// published version to remain usable while it is still bound.
+func FilterOrderProductsForExactCustomerPublications(products []ProductOption, customerID int64, options []BeanListVersionOption, usages []CustomerPublicUsageOption, ids []int64, retailOrder bool) ([]ProductOption, error) {
+	selected, err := ResolveExactCustomerOrderPriceTableSelection(options, customerID, ids)
+	if err != nil {
+		return nil, err
+	}
+	return FilterOrderProductsForDefaultPublications(products, customerID, selected, usages, retailOrder), nil
+}
+
+func ResolveExactCustomerOrderPriceTableSelection(options []BeanListVersionOption, customerID int64, ids []int64) ([]BeanListVersionOption, error) {
+	byID := map[int64]BeanListVersionOption{}
+	for _, row := range options {
+		if row.ID > 0 && row.CustomerID == customerID && row.IsCustomerOwned {
+			byID[row.ID] = row
+		}
+	}
+	seenIDs := map[int64]bool{}
+	seenTypes := map[string]bool{}
+	selected := make([]BeanListVersionOption, 0, len(ids))
+	for _, id := range ids {
+		if seenIDs[id] {
+			continue
+		}
+		row, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf("所选价格表不存在或不属于当前客户")
+		}
+		key := OrderPriceTableTypeKey(row)
+		if seenTypes[key] {
+			return nil, fmt.Errorf("同一商品类型只能指定一张价格表")
+		}
+		seenIDs[id] = true
+		seenTypes[key] = true
+		row.IsDefault = true
+		selected = append(selected, row)
+	}
+	return selected, nil
+}

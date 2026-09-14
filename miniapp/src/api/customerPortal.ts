@@ -50,6 +50,25 @@ export type MeResponse = {
   capabilities: Capability[]
 }
 
+export type CustomerRecipientAddress = {
+  id: number
+  customer_id: number
+  recipient_name: string
+  phone: string
+  company?: string
+  province?: string
+  city?: string
+  district?: string
+  detail_address: string
+  is_default: boolean
+  revision: number
+  updated_at?: string
+}
+
+export type CustomerRecipientAddressPayload = Omit<CustomerRecipientAddress, 'id' | 'customer_id' | 'revision' | 'updated_at'> & {
+  expected_revision?: number
+}
+
 export type MiniappEntryMode = 'services' | 'mall'
 
 export type ServiceMetric = {
@@ -1603,6 +1622,10 @@ export function buildDirectShipCatalogPath(): string {
   return '/api/mini/direct-ship/catalog'
 }
 
+export function buildProductOrderCatalogPath(): string {
+  return '/api/mini/product-orders/catalog'
+}
+
 export function buildDirectShipRequestsPath(filters: DirectShipRequestListFilters = {}): string {
   const query = String(filters.q || '').trim().replace(/\s+/g, ' ')
   const shippedFrom = String(filters.shipped_from || '').trim()
@@ -1849,6 +1872,34 @@ export function fetchProcessingRequestDetail(token: string, requestID: number): 
 
 export function fetchDirectShipCatalog(token: string): Promise<DirectShipCatalog> {
   return miniRequest<DirectShipCatalog>(buildDirectShipCatalogPath(), { token })
+}
+
+export function fetchProductOrderCatalog(token: string): Promise<DirectShipCatalog> {
+  return miniRequest<DirectShipCatalog>(buildProductOrderCatalogPath(), { token })
+}
+
+export function previewProductOrder(token: string, payload: DirectShipRequestPayload): Promise<DirectShipPreview> {
+  return miniRequest<DirectShipPreview>('/api/mini/product-orders/preview', { method: 'POST', token, data: payload })
+}
+
+export function createProductOrder(token: string, payload: DirectShipRequestPayload): Promise<DirectShipRequest> {
+  return miniRequest<DirectShipRequest>('/api/mini/product-orders', { method: 'POST', token, data: payload })
+}
+
+export function fetchRecipientAddresses(token: string): Promise<{ rows: CustomerRecipientAddress[] }> {
+  return miniRequest<{ rows: CustomerRecipientAddress[] }>('/api/mini/recipient-addresses', { token })
+}
+
+export function createRecipientAddress(token: string, payload: CustomerRecipientAddressPayload): Promise<CustomerRecipientAddress> {
+  return miniRequest<CustomerRecipientAddress>('/api/mini/recipient-addresses', { method: 'POST', token, data: payload })
+}
+
+export function updateRecipientAddress(token: string, id: number, payload: CustomerRecipientAddressPayload): Promise<CustomerRecipientAddress> {
+  return miniRequest<CustomerRecipientAddress>(`/api/mini/recipient-addresses/${id}`, { method: 'PUT', token, data: payload })
+}
+
+export function deleteRecipientAddress(token: string, address: Pick<CustomerRecipientAddress, 'id' | 'revision'>): Promise<{ ok: boolean }> {
+  return miniRequest<{ ok: boolean }>(`/api/mini/recipient-addresses/${address.id}?revision=${address.revision}`, { method: 'DELETE', token })
 }
 
 export function previewDirectShipRequest(token: string, payload: DirectShipRequestPayload): Promise<DirectShipPreview> {

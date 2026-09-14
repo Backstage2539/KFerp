@@ -8,7 +8,6 @@ import {
 } from '../../utils/miniappShare'
 import {
   fetchEmployeeShareSettings,
-  fetchDirectShipRequests,
   fetchMe,
   saveEmployeeShareSettings,
   saveEmployeeShareScope,
@@ -42,9 +41,6 @@ const loading = ref(false)
 const switching = ref(false)
 const errorMessage = ref('')
 const currentContext = ref<MeResponse | null>(null)
-const recentRecipients = ref<Array<{ key: string; name: string; phone: string; address: string }>>([])
-const recipientLoading = ref(false)
-const recipientError = ref('')
 const shareSettingLoading = ref(false)
 const shareSettingSaving = ref(false)
 const shareSettingLoaded = ref(false)
@@ -113,27 +109,8 @@ function openFactoryProducts() {
   uni.navigateTo({ url: '/pages/factory-products/factory-products' })
 }
 
-async function loadRecentRecipients() {
-  recentRecipients.value = []
-  recipientError.value = ''
-  if (isEmployee.value || !session.token || !hasCapability('direct_ship')) return
-  recipientLoading.value = true
-  try {
-    const response = await fetchDirectShipRequests(session.token, { page: 1, limit: 20 })
-    const seen = new Set<string>()
-    recentRecipients.value = (response.rows || []).flatMap((row) => {
-      const address = [row.province, row.city, row.district, row.detail_address].filter(Boolean).join('')
-      const key = `${row.recipient_name}|${row.recipient_phone}|${address}`
-      if (!row.recipient_name || seen.has(key)) return []
-      seen.add(key)
-      return [{ key, name: row.recipient_name, phone: row.recipient_phone, address }]
-    }).slice(0, 5)
-  } catch (error) {
-    if (redirectExpiredShareSettingsSession(error)) return
-    recipientError.value = error instanceof Error ? error.message : '常用收件人加载失败'
-  } finally {
-    recipientLoading.value = false
-  }
+function openRecipientAddresses() {
+  uni.navigateTo({ url: '/pages/customer-addresses/customer-addresses' })
 }
 
 async function handleCustomerSwitch(event: { detail?: { value?: number | string } }) {
@@ -237,7 +214,6 @@ async function loadContext() {
     currentContext.value = response
     session.applyContext(response)
     if (canManageShareSettings.value) await loadShareSettings()
-    await loadRecentRecipients()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '账号信息加载失败'
     session.clearSession()
@@ -306,17 +282,10 @@ onShow(() => { void refreshMiniappShareMenu() })
         </text>
       </view>
 
-      <view v-if="!isEmployee && hasCapability('direct_ship')" class="profile-card">
-        <text class="card-title">常用收件人</text>
-        <text v-if="recipientLoading" class="card-copy">正在读取最近收件人...</text>
-        <text v-else-if="recipientError" class="error">{{ recipientError }}</text>
-        <view v-else-if="recentRecipients.length" class="recipient-list">
-          <view v-for="recipient in recentRecipients" :key="recipient.key" class="recipient-item">
-            <text class="recipient-title">{{ recipient.name }} · {{ recipient.phone }}</text>
-            <text class="card-copy">{{ recipient.address }}</text>
-          </view>
-        </view>
-        <text v-else class="card-copy">完成一件代发订单后，最近使用的收件人会显示在这里。</text>
+      <view v-if="!isEmployee && (hasCapability('direct_ship') || hasCapability('product_order'))" class="profile-card">
+        <text class="card-title">收件地址</text>
+        <text class="card-copy">维护当前客户共用的收件地址；一件代发和商品下单可直接选择。</text>
+        <button class="secondary" @tap="openRecipientAddresses">管理收件地址</button>
       </view>
 
       <view v-if="!isEmployee && serviceDescriptions.length" class="profile-card">

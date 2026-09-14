@@ -1,6 +1,6 @@
 export const customerWorkspacePages = [
   ['customerPriceTables', '我的价格表', 'bean_list'],
-  ['customerProductOrder', '现货录单', 'product_order'],
+  ['customerProductOrder', '商品下单', 'product_order'],
   ['customerDirectShip', '代发录单', 'direct_ship'],
   ['customerProcessing', '代加工', 'processing'],
   ['customerInventory', '我的库存', 'inventory_custody'],

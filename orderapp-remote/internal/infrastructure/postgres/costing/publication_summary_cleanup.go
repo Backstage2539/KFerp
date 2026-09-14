@@ -330,6 +330,9 @@ func (r Repository) DeleteBeanListPublications(ctx context.Context, cmd appcosti
 	if len(doomedRows) != len(ids) {
 		return appcosting.DeleteBeanListPublicationsResult{}, fmt.Errorf("archived publications changed; preview again")
 	}
+	if err := r.rejectBoundCustomerOrderPriceTablePublications(ctx, tx, ids); err != nil {
+		return appcosting.DeleteBeanListPublicationsResult{}, err
+	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.bean_list_publication_assets WHERE publication_id=ANY($1)`, r.schema), ids); err != nil {
 		return appcosting.DeleteBeanListPublicationsResult{}, err
 	}

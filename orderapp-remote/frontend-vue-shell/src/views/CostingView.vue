@@ -72,6 +72,36 @@
         </div>
       </div>
 
+      <div v-if="!publicationListCollapsed && activeBeanListCustomerID > 0 && isBeanListAdmin" class="customer-order-price-bindings">
+        <div>
+          <strong>{{ selectedProductPriceListLabel }} · 客户下单价格表</strong>
+          <p class="muted">指定具体发布版本。以后发布新版不会自动替换；未指定时，该入口不显示此类别商品。</p>
+        </div>
+        <label>
+          <span>该类别的一件代发价格表</span>
+          <select v-model="customerOrderPriceTableSelections.direct_ship" :disabled="customerOrderPriceTableConfigLoading">
+            <option value="">未指定</option>
+            <option v-for="row in activeCustomerOrderPriceTableCandidates" :key="`direct:${row.publication_id}`" :value="String(row.publication_id)">{{ customerOrderPriceTableCandidateLabel(row) }}</option>
+          </select>
+          <div class="actions">
+            <button class="primary compact" type="button" :disabled="customerOrderPriceTableConfigLoading" @click="saveCustomerOrderPriceTableBinding('direct_ship')">保存指定</button>
+            <button class="secondary compact" type="button" :disabled="customerOrderPriceTableConfigLoading || !customerOrderPriceTableBinding('direct_ship')" @click="clearCustomerOrderPriceTableBinding('direct_ship')">取消指定</button>
+          </div>
+        </label>
+        <label>
+          <span>该类别的商品下单价格表</span>
+          <select v-model="customerOrderPriceTableSelections.product_order" :disabled="customerOrderPriceTableConfigLoading">
+            <option value="">未指定</option>
+            <option v-for="row in activeCustomerOrderPriceTableCandidates" :key="`product:${row.publication_id}`" :value="String(row.publication_id)">{{ customerOrderPriceTableCandidateLabel(row) }}</option>
+          </select>
+          <div class="actions">
+            <button class="primary compact" type="button" :disabled="customerOrderPriceTableConfigLoading" @click="saveCustomerOrderPriceTableBinding('product_order')">保存指定</button>
+            <button class="secondary compact" type="button" :disabled="customerOrderPriceTableConfigLoading || !customerOrderPriceTableBinding('product_order')" @click="clearCustomerOrderPriceTableBinding('product_order')">取消指定</button>
+          </div>
+        </label>
+        <p v-if="!activeCustomerOrderPriceTableCandidates.length" class="muted">当前客户在此商品类型下暂无已发布且未归档的价格表版本。</p>
+      </div>
+
       <div v-if="!publicationListCollapsed && isBeanListAdmin && currentScopePublicationRows.length" class="version-bulk-actions">
         <label class="table-select-all">
           <input
@@ -998,7 +1028,6 @@
           <div class="section-bar"><strong>本版本的价格表</strong><button class="secondary compact" type="button" @click="addNamedPriceTable(false)">新增价格表</button></div>
           <div v-for="table in namedPriceTableBatch.tables" :key="table.key" class="named-price-table-config-row">
             <label class="named-default"><input v-model="namedPriceTableBatch.default_table_key" type="radio" :value="table.key" name="default-price-table" />默认价格表</label>
-            <label class="named-default"><input v-model="table.direct_ship_enabled" type="checkbox" />适用于一件代发</label>
             <input v-model="table.name" :aria-label="`价格表名称 ${table.key}`" placeholder="例如：227g价格表" />
             <div class="actions">
               <button class="secondary compact" type="button" @click="selectNamedPriceTable(table.key)">{{ table.key === namedPriceTableBatch.active_table_key ? '当前编辑' : '编辑此表' }}</button>
@@ -1341,6 +1370,9 @@ const actorLoaded = ref(false)
 const currentActor = ref(null)
 const selectedPriceSourcePublicationID = ref('')
 const selectedProductTypeCategoryID = ref(initialPriceListPagePreferences.productTypeCategoryID)
+const customerOrderPriceTableConfig = ref({ candidates: [], bindings: [] })
+const customerOrderPriceTableConfigLoading = ref(false)
+const customerOrderPriceTableSelections = reactive({ direct_ship: '', product_order: '' })
 const downloadSourcePublication = ref(null)
 const error = ref('')
 const message = ref('')
@@ -1479,6 +1511,15 @@ const selectedProductPriceListType = computed(() => {
 const activeProductTypeCategoryID = computed(() => Number(selectedProductPriceListType.value?.id || selectedProductTypeCategoryID.value || 0))
 const selectedProductPriceListLabel = computed(() => selectedProductPriceListType.value?.label || beanListTypeLabel(pdfTheme.value.listType))
 const activePriceListTypeKey = computed(() => productPriceListTypeKey(selectedProductPriceListType.value, pdfTheme.value.listType))
+const activeCustomerOrderProductTypeKey = computed(() => {
+  const productTypeCategoryID = activePublicationProductTypeCategoryID(activeProductTypeCategoryID.value)
+  const classificationTemplateID = activePublicationClassificationTemplateID(activeProductTypeCategoryID.value)
+  if (classificationTemplateID > 0) return `classification:${classificationTemplateID}`
+  if (productTypeCategoryID > 0) return `classification:${productTypeCategoryID}`
+  return `legacy:${normalizeBeanListType(selectedProductPriceListType.value?.listType || pdfTheme.value.listType)}`
+})
+const activeCustomerOrderPriceTableCandidates = computed(() => (customerOrderPriceTableConfig.value.candidates || [])
+  .filter((row) => row.product_type_key === activeCustomerOrderProductTypeKey.value))
 const selectedProductCatalogGroupTemplate = computed(() => {
   const groupID = Number(selectedProductPriceListType.value?.productCatalogGroupID || 0)
   if (!(groupID > 0)) return null
@@ -1911,6 +1952,9 @@ async function loadCustomerPriceSources() {
     customerPriceSourcesReadyKey.value = key
   } catch (err) { if (revision === customerPriceSourcesRevision) error.value = err.message || '客户报价来源加载失败' }
 }
+
+watch(activeBeanListCustomerID, () => { loadCustomerOrderPriceTableConfig() }, { immediate: true })
+watch(activeCustomerOrderProductTypeKey, () => { syncCustomerOrderPriceTableSelections() })
 
 watch(activeBeanListCustomerID, () => {
   loadPriceListProductBusinessGroups()
@@ -4997,6 +5041,72 @@ async function loadPriceListTemplateOptions() {
   }
 }
 
+function customerOrderPriceTableBinding(usageCode) {
+  return (customerOrderPriceTableConfig.value.bindings || []).find((row) => row.usage_code === usageCode && row.product_type_key === activeCustomerOrderProductTypeKey.value) || null
+}
+
+function syncCustomerOrderPriceTableSelections() {
+  customerOrderPriceTableSelections.direct_ship = String(customerOrderPriceTableBinding('direct_ship')?.publication_id || '')
+  customerOrderPriceTableSelections.product_order = String(customerOrderPriceTableBinding('product_order')?.publication_id || '')
+}
+
+function customerOrderPriceTableCandidateLabel(row) {
+  return `${row.table_name || '价格表'} · ${row.version || '未标版本'}`
+}
+
+async function loadCustomerOrderPriceTableConfig() {
+  const customerID = Number(activeBeanListCustomerID.value || 0)
+  if (customerID <= 0) {
+    customerOrderPriceTableConfig.value = { candidates: [], bindings: [] }
+    syncCustomerOrderPriceTableSelections()
+    return
+  }
+  customerOrderPriceTableConfigLoading.value = true
+  try {
+    const data = await apiGet(`/api/costing/customer-order-price-table-bindings?customer_id=${customerID}`)
+    if (customerID !== Number(activeBeanListCustomerID.value || 0)) return
+    customerOrderPriceTableConfig.value = { candidates: data.candidates || [], bindings: data.bindings || [] }
+    syncCustomerOrderPriceTableSelections()
+  } catch (err) {
+    error.value = err.message || '客户下单价格表配置加载失败'
+  } finally {
+    customerOrderPriceTableConfigLoading.value = false
+  }
+}
+
+async function saveCustomerOrderPriceTableBinding(usageCode, publicationID = Number(customerOrderPriceTableSelections[usageCode] || 0)) {
+  const customerID = Number(activeBeanListCustomerID.value || 0)
+  if (customerID <= 0) return
+  customerOrderPriceTableConfigLoading.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    const binding = customerOrderPriceTableBinding(usageCode)
+    const data = await apiSend('/api/costing/customer-order-price-table-bindings', {
+      method: 'PUT',
+      body: {
+        customer_id: customerID,
+        usage_code: usageCode,
+        product_type_key: activeCustomerOrderProductTypeKey.value,
+        publication_id: Number(publicationID || 0),
+        expected_revision: Number(binding?.revision || 0),
+      },
+    })
+    customerOrderPriceTableConfig.value = { candidates: data.candidates || [], bindings: data.bindings || [] }
+    syncCustomerOrderPriceTableSelections()
+    message.value = publicationID > 0 ? '客户下单价格表指定已保存' : '客户下单价格表指定已取消'
+  } catch (err) {
+    error.value = err.message || '客户下单价格表配置保存失败'
+    await loadCustomerOrderPriceTableConfig()
+  } finally {
+    customerOrderPriceTableConfigLoading.value = false
+  }
+}
+
+async function clearCustomerOrderPriceTableBinding(usageCode) {
+  await saveCustomerOrderPriceTableBinding(usageCode, 0)
+}
+
 async function loadCurrentActor() {
   try {
     currentActor.value = await fetchCurrentActor()
@@ -5663,6 +5773,10 @@ onBeforeUnmount(() => {
 .version-controls { display: grid; grid-template-columns: minmax(110px, .55fr) minmax(170px, .9fr) repeat(3, minmax(90px, .45fr)); gap: 10px; align-items: end; }
 .version-controls label span, .version-summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 .version-controls input, .version-controls select { width: 100%; height: 38px; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
+.customer-order-price-bindings { display: grid; grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(260px, 1fr)); gap: 12px; align-items: end; padding: 14px; border: 1px solid #d8e7dc; border-radius: 10px; background: #f7fbf8; }
+.customer-order-price-bindings label { display: grid; gap: 6px; }
+.customer-order-price-bindings select { width: 100%; min-height: 38px; border: 1px solid #ccd9cf; border-radius: 8px; padding: 7px 9px; background: #fff; }
+.customer-order-price-bindings p { margin: 4px 0 0; }
 .version-control-customer { grid-column: span 2; }
 .version-summary { min-height: 38px; border: 1px solid #eee; border-radius: 8px; background: #fafafa; padding: 8px 10px; box-sizing: border-box; }
 .version-summary strong { display: block; overflow-wrap: anywhere; font-size: 14px; line-height: 1.2; }
@@ -5977,6 +6091,7 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .formula-step strong { text-align: left; }
   .section-bar.bean-list-version-head { align-items: flex-start; flex-direction: column; }
   .version-controls { grid-template-columns: 1fr; }
+  .customer-order-price-bindings { grid-template-columns: 1fr; }
   .version-control-customer { grid-column: auto; }
   .copy-config-box, .copy-config-actions { grid-template-columns: 1fr; }
   .current-owner-pill { justify-self: start; }

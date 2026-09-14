@@ -58,19 +58,13 @@ func (s *Service) validateCustomerCatalog(ctx context.Context, cmd *SaveOrderCom
 	if err != nil {
 		return err
 	}
-	tables, err := ResolveOrderPriceTableSelection(data.BeanListVersionOptions, cmd.CustomerID, cmd.SelectedPriceTableIDs, true)
+	if len(cmd.SelectedPriceTableIDs) == 0 {
+		return fmt.Errorf("客户尚未指定该入口的价格表")
+	}
+	products, err := FilterOrderProductsForExactCustomerPublications(data.Products, cmd.CustomerID, data.BeanListVersionOptions, data.CustomerPublicUsages, cmd.SelectedPriceTableIDs, false)
 	if err != nil {
 		return err
 	}
-	if len(tables) == 0 {
-		return fmt.Errorf("客户尚无可用价格表")
-	}
-	if len(cmd.SelectedPriceTableIDs) == 0 {
-		for _, table := range tables {
-			cmd.SelectedPriceTableIDs = append(cmd.SelectedPriceTableIDs, table.ID)
-		}
-	}
-	products := FilterOrderProductsForCustomer(data.Products, cmd.CustomerID, data.BeanListVersionOptions, data.CustomerPublicUsages)
 	allowed := map[int64]bool{}
 	for _, p := range products {
 		allowed[p.ID] = true

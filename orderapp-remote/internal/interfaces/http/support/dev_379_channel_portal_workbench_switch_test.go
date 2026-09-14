@@ -62,7 +62,7 @@ func TestDev379ChannelPortalWorkbenchSwitchSourceMarkers(t *testing.T) {
 	for _, want := range []string{
 		"CapabilityTemplateChannelDirectShip",
 		`"channel_direct_ship"`,
-		"渠道代发/现货下单",
+		"渠道代发/商品下单",
 		"external_recipients",
 		"customerProcessingPortal",
 	} {
