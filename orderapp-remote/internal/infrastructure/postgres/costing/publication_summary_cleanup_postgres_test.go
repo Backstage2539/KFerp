@@ -372,6 +372,12 @@ func TestPublicationSummaryMetadataBackfillRunsInBoundedBatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var emptyID int64
+	if err := r.pool.QueryRow(ctx, `INSERT INTO `+r.schema+`.bean_list_publications
+		(list_type,classification_template_id,version_no,status,owner_type,config_json,content_json)
+		VALUES('commercial',56,'V3.0.empty','archived','official','{}','{}') RETURNING id`).Scan(&emptyID); err != nil {
+		t.Fatal(err)
+	}
 	if err := backfillBeanListPublicationSummaryMetadata(ctx, r.pool, r.schema); err != nil {
 		t.Fatal(err)
 	}
@@ -381,6 +387,13 @@ func TestPublicationSummaryMetadataBackfillRunsInBoundedBatches(t *testing.T) {
 	}
 	if pending != 0 || withContent != 1201 || named != 1201 {
 		t.Fatalf("pending=%d withContent=%d named=%d", pending, withContent, named)
+	}
+	var emptyHasContent bool
+	if err := r.pool.QueryRow(ctx, `SELECT publication_has_content FROM `+r.schema+`.bean_list_publications WHERE id=$1`, emptyID).Scan(&emptyHasContent); err != nil {
+		t.Fatal(err)
+	}
+	if emptyHasContent {
+		t.Fatal("empty historical snapshot was marked as having content")
 	}
 }
 

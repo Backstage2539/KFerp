@@ -225,7 +225,7 @@ func backfillBeanListPublicationSummaryMetadata(ctx context.Context, pool *pgxpo
 		    publication_table_name=COALESCE(p.config_json->'publication_batch'->>'table_name',''),
 		    publication_is_default_table=CASE lower(COALESCE(p.config_json->'publication_batch'->>'is_default_table','true')) WHEN 'false' THEN false ELSE true END,
 		    publication_has_content=(
-		      (jsonb_typeof(p.content_json->'price_rows')='array' AND jsonb_array_length(p.content_json->'price_rows')>0)
+		      CASE WHEN jsonb_typeof(p.content_json->'price_rows')='array' THEN jsonb_array_length(p.content_json->'price_rows')>0 ELSE false END
 		      OR EXISTS (
 		        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p.content_json->'groups')='array' THEN p.content_json->'groups' ELSE '[]'::jsonb END) AS g
 		        WHERE jsonb_typeof(g->'items')='array' AND jsonb_array_length(g->'items')>0
