@@ -65,7 +65,7 @@ func publicationSummaryBaseScope(query appcosting.BeanListPublicationQuery, incl
 		args[3] = query.ProductTypeCategoryID
 		where += " AND (COALESCE(product_type_category_id,0)=$4 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$5))"
 	} else {
-		where += " AND list_type=$5"
+		where += " AND list_type=$5 AND $4::bigint=0"
 	}
 	return where, args
 }
