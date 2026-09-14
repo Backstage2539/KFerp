@@ -111,6 +111,9 @@ func (r Repository) insertBeanListBatchTable(ctx context.Context, tx pgx.Tx, cmd
 	if err != nil {
 		return row, err
 	}
+	if err := syncBeanListPublicationSummaryMetadata(ctx, tx, r.schema, row.ID, cmd.Config, cmd.Content); err != nil {
+		return row, err
+	}
 	action := "save_draft"
 	if status == "published" {
 		action = "publish"
@@ -123,8 +126,9 @@ func (r Repository) insertBeanListBatchTable(ctx context.Context, tx pgx.Tx, cmd
 func (r Repository) expandBeanListBatchIDs(ctx context.Context, tx pgx.Tx, ids []int64, purpose, ownerType, ownerKey string) ([]int64, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT b.id FROM %[1]s.bean_list_publications b
 	WHERE b.publication_purpose=$2 AND b.owner_type=$3 AND b.owner_key=$4
+	AND b.status<>'deleted' AND b.deleted_at IS NULL
 	AND (b.id=ANY($1) OR NULLIF(b.config_json->'publication_batch'->>'release_id','') IN
-	(SELECT NULLIF(s.config_json->'publication_batch'->>'release_id','') FROM %[1]s.bean_list_publications s WHERE s.id=ANY($1) AND s.publication_purpose=$2 AND s.owner_type=$3 AND s.owner_key=$4))
+	(SELECT NULLIF(s.config_json->'publication_batch'->>'release_id','') FROM %[1]s.bean_list_publications s WHERE s.id=ANY($1) AND s.publication_purpose=$2 AND s.owner_type=$3 AND s.owner_key=$4 AND s.status<>'deleted' AND s.deleted_at IS NULL))
 	ORDER BY b.id FOR UPDATE OF b`, r.schema), ids, purpose, ownerType, ownerKey)
 	if err != nil {
 		return nil, err

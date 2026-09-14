@@ -41,7 +41,7 @@
           <div class="section-title">已发布价格表</div>
         </div>
         <div class="actions">
-          <button class="secondary compact" type="button" @click="publicationArchiveListCollapsed = !publicationArchiveListCollapsed">归档列表 {{ publicationArchiveListCollapsed ? `(${currentScopeArchivedPublicationRows.length})` : '收起' }}</button>
+          <button class="secondary compact" type="button" @click="publicationArchiveListCollapsed = !publicationArchiveListCollapsed">归档列表 {{ publicationArchiveListCollapsed ? `(${currentScopeArchivedCount})` : '收起' }}</button>
         </div>
       </div>
 
@@ -68,7 +68,7 @@
         </div>
         <div class="version-summary">
           <span>已归档</span>
-          <strong>{{ currentScopeArchivedPublicationRows.length }}</strong>
+          <strong>{{ currentScopeArchivedCount }}</strong>
         </div>
       </div>
 
@@ -169,11 +169,25 @@
             <div class="section-title">归档列表</div>
             <p class="muted">归档价格表不在已发布价格表列表展示；需要恢复时点击移出归档。</p>
           </div>
+          <div v-if="isBeanListAdmin" class="actions">
+            <button class="danger compact" type="button" :disabled="!selectedArchivedPublicationDeleteIDs.length || beanListDeleting" @click="deleteSelectedArchivedBeanListPublications">删除选中（{{ selectedArchivedPublicationDeleteIDs.length }}）</button>
+            <button class="danger compact" type="button" :disabled="!currentScopeArchivedCount || beanListDeleting" @click="clearCurrentArchivedBeanListPublications">清空当前归档</button>
+          </div>
         </div>
         <div v-if="paginatedArchivedPublicationRows.length" class="version-table-wrap">
           <table class="version-table">
             <thead>
               <tr>
+                <th class="select-col">
+                  <input
+                    v-if="isBeanListAdmin"
+                    type="checkbox"
+                    :checked="currentPageArchivedDeleteAllSelected"
+                    :disabled="!paginatedArchivedPublicationRows.length || beanListDeleting"
+                    aria-label="选择当前页归档价格表"
+                    @change="toggleCurrentPageArchivedDeleteSelection($event.target.checked)"
+                  />
+                </th>
                 <th>版本号</th>
                 <th>类型</th>
                 <th>归属</th>
@@ -185,6 +199,16 @@
             </thead>
             <tbody>
               <tr v-for="row in paginatedArchivedPublicationRows" :key="`bean-list-archived-version-${row.id}`">
+                <td class="select-col">
+                  <input
+                    v-if="isBeanListAdmin"
+                    type="checkbox"
+                    :checked="isArchivedPublicationDeleteSelected(row)"
+                    :disabled="beanListDeleting"
+                    :aria-label="`选择删除 ${row.table_name || row.version || row.id}`"
+                    @change="toggleArchivedPublicationDeleteSelection(row)"
+                  />
+                </td>
                 <td class="version-main">
                   <strong>{{ row.table_name || row.config?.publication_batch?.table_name || row.version || '价格表' }}</strong>
                 <span v-if="row.release_id && row.is_default_table" class="named-default-badge">默认</span>
@@ -204,6 +228,7 @@
                   <div class="version-actions">
                     <button class="secondary compact" type="button" :disabled="!beanListPublicationHasContent(row)" @click="downloadBeanListPublication(row)">下载 PDF</button>
                     <button v-if="isBeanListAdmin" class="secondary compact" type="button" :disabled="beanListArchiving" @click="restoreArchivedBeanListPublication(row)">移出归档</button>
+                    <button v-if="isBeanListAdmin" class="danger compact" type="button" :disabled="beanListDeleting" @click="deleteArchivedBeanListPublication(row)">删除</button>
                   </div>
                 </td>
               </tr>
@@ -1151,11 +1176,12 @@ import { seedCustomerPriceRows, applyCustomerPriceRows } from '../lib/customer-p
 import { customerCatalogProjection } from '../lib/customer-catalog.js'
 import { fetchPriceListRefreshSnapshot } from '../lib/price-list-refresh.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { clonePriceTable, createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, publicationBatchGroups, publicationBatchListState, publicationTableMetadata } from '../lib/price-table-batch'
+import { clonePriceTable, createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, publicationBatchGroups, publicationTableMetadata } from '../lib/price-table-batch'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { fetchAllCustomerOptions } from '../api/view-context'
 import { fetchCurrentActor } from '../api/auth'
 import { apiFetch, apiGet, apiSend } from '../api/client'
+import { buildPublicationSummaryURL, createInFlightRequestDeduper, createLatestRequestGate } from '../lib/publication-summary-client.js'
 import PaginationControls from '../components/PaginationControls.vue'
 import PricingRuleEditorForm from '../components/PricingRuleEditorForm.vue'
 import {
@@ -1194,7 +1220,6 @@ import {
   matchesProductTypeCategory as matchesCurrentProductTypeCategory,
   preferredPublicationForPriceListType,
   priceListTypeOptionForPublication,
-  publicationVersionListState,
   priceListRenderTypeForItem as currentPriceListRenderTypeForItem,
   priceListSelectionStateKey,
   publicationTypeIdentityForPriceListType,
@@ -1300,6 +1325,7 @@ const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
 const versionListScope = ref(initialPriceListPagePreferences.scope)
 const publicationListSearch = ref('')
+const publicationListQuery = ref('')
 const publicationListPage = ref(1)
 const publicationListPageSize = ref(10)
 const publicationListCollapsed = ref(false)
@@ -1307,6 +1333,8 @@ const publicationArchiveListPage = ref(1)
 const publicationArchiveListPageSize = ref(10)
 const publicationArchiveListCollapsed = ref(true)
 const selectedPublicationArchiveIDs = ref([])
+const selectedArchivedPublicationDeleteIDs = ref([])
+const beanListDeleting = ref(false)
 const publicationScope = ref('official')
 const selectedBeanListCustomerID = ref(0)
 const actorLoaded = ref(false)
@@ -1333,6 +1361,10 @@ const beanListPublications = ref({
   mine: {},
   customer: {},
 })
+const beanListPublicationSummaryMeta = ref({})
+const publicationRequestOnce = createInFlightRequestDeduper((url) => apiGet(url))
+const publicationRequestGate = createLatestRequestGate()
+let publicationSearchTimer = 0
 const priceSourcePublicationByType = ref({})
 const styleSourcePublicationIDByType = ref({})
 const productSpecSelectionsByType = ref({})
@@ -1688,26 +1720,32 @@ const currentScopeAllPublicationRows = computed(() => publicationRows(versionLis
 const currentScopeActivePublicationRows = computed(() => currentScopeAllPublicationRows.value.filter((row) => row.status !== 'archived'))
 const currentScopeArchivedPublicationRows = computed(() => currentScopeAllPublicationRows.value.filter((row) => row.status === 'archived'))
 const currentScopePublicationRows = computed(() => currentScopeActivePublicationRows.value)
-const publicationListState = computed(() => publicationBatchListState(currentScopePublicationRows.value, {
-  query: publicationListSearch.value,
+const currentPublicationSummaryMeta = computed(() => publicationSummaryMeta(versionListScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, 'active'))
+const archivedPublicationSummaryMeta = computed(() => publicationSummaryMeta(versionListScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, 'archived'))
+const publicationListState = computed(() => ({
+  total: Number(currentPublicationSummaryMeta.value?.total || 0),
   page: publicationListPage.value,
   pageSize: publicationListPageSize.value,
-  collapsed: publicationListCollapsed.value,
+  batches: publicationListCollapsed.value ? [] : publicationBatchGroups(currentScopePublicationRows.value),
+  rows: publicationListCollapsed.value ? [] : currentScopePublicationRows.value,
 }))
 const paginatedCurrentScopePublicationRows = computed(() => publicationListState.value.rows)
-const versionListCurrentPublication = computed(() => preferredPublicationForPriceListType(currentScopePublicationRows.value, selectedProductPriceListType.value || {}))
-const archivedPublicationListState = computed(() => publicationBatchListState(currentScopeArchivedPublicationRows.value, {
-  query: publicationListSearch.value,
+const versionListCurrentPublication = computed(() => currentPublicationSummaryMeta.value?.current || preferredPublicationForPriceListType(currentScopePublicationRows.value, selectedProductPriceListType.value || {}))
+const archivedPublicationListState = computed(() => ({
+  total: Number(archivedPublicationSummaryMeta.value?.total || 0),
   page: publicationArchiveListPage.value,
   pageSize: publicationArchiveListPageSize.value,
-  collapsed: publicationArchiveListCollapsed.value,
+  batches: publicationArchiveListCollapsed.value ? [] : publicationBatchGroups(currentScopeArchivedPublicationRows.value),
+  rows: publicationArchiveListCollapsed.value ? [] : currentScopeArchivedPublicationRows.value,
 }))
 const paginatedArchivedPublicationRows = computed(() => archivedPublicationListState.value.rows)
 const archiveSelectableCurrentPagePublicationRows = computed(() => paginatedCurrentScopePublicationRows.value.filter((row) => canArchiveBeanListPublication(row)))
 const currentPagePublicationArchiveAllSelected = computed(() => archiveSelectableCurrentPagePublicationRows.value.length > 0 && archiveSelectableCurrentPagePublicationRows.value.every((row) => isPublicationArchiveSelected(row)))
 const currentPagePublicationArchiveSomeSelected = computed(() => archiveSelectableCurrentPagePublicationRows.value.some((row) => isPublicationArchiveSelected(row)))
+const currentPageArchivedDeleteAllSelected = computed(() => paginatedArchivedPublicationRows.value.length > 0 && paginatedArchivedPublicationRows.value.every((row) => selectedArchivedPublicationDeleteIDs.value.includes(Number(row.id || 0))))
+const currentScopeArchivedCount = computed(() => Number(currentPublicationSummaryMeta.value?.archived_total ?? archivedPublicationSummaryMeta.value?.total ?? 0))
 const publicationScopeRows = computed(() => publicationRows(publicationScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, 'factory_supply'))
-const currentBeanListPublication = computed(() => preferredPublicationForPriceListType(publicationScopeRows.value, selectedProductPriceListType.value || {}))
+const currentBeanListPublication = computed(() => publicationSummaryMeta(publicationScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, 'active')?.current || preferredPublicationForPriceListType(publicationScopeRows.value, selectedProductPriceListType.value || {}))
 const officialPriceSourcePublications = computed(() => publicationRows('official', pdfTheme.value.listType, activeProductTypeCategoryID.value, 'factory_supply').filter((row) => row.status === 'published'))
 const selectedPriceSourcePublication = computed(() => officialPriceSourcePublications.value.find((row) => String(row.id) === String(selectedPriceSourcePublicationID.value)) || null)
 const currentPublicationOwnerLabel = computed(() => publicationScopeLabel(publicationScope.value))
@@ -1747,13 +1785,15 @@ const pdfPageStyle = computed(() => {
 })
 
 function loadActiveProductTypePublicationViews() {
+  if (!priceListPublicationTypeOptionsReady.value) return
   const productTypeCategoryID = activeProductTypeCategoryID.value
   const listType = normalizeBeanListType(selectedProductPriceListType.value?.listType || pdfTheme.value.listType)
   loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID)
-  loadBeanListPublications(listType, 'official', productTypeCategoryID, 'factory_supply')
-  loadBeanListPublications(listType, 'mine', productTypeCategoryID, 'factory_supply')
-  if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
-    loadBeanListPublications(listType, 'customer', productTypeCategoryID, 'factory_supply')
+  if (versionListScope.value !== 'official') {
+    loadBeanListPublications(listType, 'official', productTypeCategoryID, 'factory_supply', { pageSize: 100 })
+  }
+  if (!publicationArchiveListCollapsed.value) {
+    loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID, FACTORY_SUPPLY_PUBLICATION_PURPOSE, { status: 'archived' })
   }
 }
 
@@ -1771,7 +1811,10 @@ watch(productPriceListTypeOptions, (options) => {
   }
   if (!options.length) return
   syncPdfListTypeFromSelectedProductType()
-  if (optionsJustBecameReady) loadActiveProductTypePublicationViews()
+  if (optionsJustBecameReady) {
+    loadActiveProductTypePublicationViews()
+    loadCustomerPriceSources()
+  }
 }, { immediate: true })
 
 watch(selectedProductTypeCategoryID, () => {
@@ -1781,24 +1824,14 @@ watch(selectedProductTypeCategoryID, () => {
   resetPdfSelectionDefaults()
   initializePdfDefaultsIfItemsLoaded()
   restorePriceListGenerationDraftForActiveType()
-  loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value)
-  loadBeanListPublications(pdfTheme.value.listType, 'official', activeProductTypeCategoryID.value, 'factory_supply')
-  loadBeanListPublications(pdfTheme.value.listType, 'mine', activeProductTypeCategoryID.value, 'factory_supply')
-  if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
-    loadBeanListPublications(pdfTheme.value.listType, 'customer', activeProductTypeCategoryID.value, 'factory_supply')
-  }
+  loadActiveProductTypePublicationViews()
 })
 
 watch(() => pdfOptions.value.listType, (listType) => {
   selectedPriceSourcePublicationID.value = ''
   initializePdfDefaultsForType(listType, activeProductTypeCategoryID.value)
   restorePriceListGenerationDraftForActiveType()
-  loadBeanListPublications(listType, versionListScope.value, activeProductTypeCategoryID.value)
-  loadBeanListPublications(listType, 'official', activeProductTypeCategoryID.value, 'factory_supply')
-  loadBeanListPublications(listType, 'mine', activeProductTypeCategoryID.value, 'factory_supply')
-  if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
-    loadBeanListPublications(listType, 'customer', activeProductTypeCategoryID.value, 'factory_supply')
-  }
+  loadActiveProductTypePublicationViews()
 })
 
 watch(versionListScope, (scope) => {
@@ -1807,13 +1840,34 @@ watch(versionListScope, (scope) => {
   resetPdfSelectionDefaults()
   initializePdfDefaultsIfItemsLoaded()
   loadBeanList()
-  loadBeanListPublications(pdfTheme.value.listType, scope, activeProductTypeCategoryID.value)
+  loadActiveProductTypePublicationViews()
 })
 
-watch([versionListScope, selectedProductTypeCategoryID, publicationListSearch], () => {
+watch([versionListScope, selectedProductTypeCategoryID], () => {
   publicationListPage.value = 1
   publicationArchiveListPage.value = 1
   selectedPublicationArchiveIDs.value = []
+  selectedArchivedPublicationDeleteIDs.value = []
+})
+
+watch(publicationListSearch, (search) => {
+  window.clearTimeout(publicationSearchTimer)
+  publicationSearchTimer = window.setTimeout(() => {
+    publicationListQuery.value = String(search || '').trim()
+    publicationListPage.value = 1
+    publicationArchiveListPage.value = 1
+    loadActiveProductTypePublicationViews()
+  }, 300)
+})
+
+watch([publicationListPage, publicationListPageSize], () => {
+  loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value)
+})
+
+watch([publicationArchiveListCollapsed, publicationArchiveListPage, publicationArchiveListPageSize], ([collapsed]) => {
+  if (!collapsed) {
+    loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value, FACTORY_SUPPLY_PUBLICATION_PURPOSE, { status: 'archived' })
+  }
 })
 
 watch([generatedPriceListFlatRows, customerPriceSources, customerPriceSourcesReadyKey, activeBeanListCustomerID, activePriceListTypeKey, priceListGenerationDraftStorageKey], () => {
@@ -1834,16 +1888,26 @@ async function loadCustomerPriceSources() {
   const revision = ++customerPriceSourcesRevision
   customerPriceSourcesReadyKey.value = ''
   customerPriceSources.value = []
+  if (!priceListPublicationTypeOptionsReady.value) return
   const customerID = activeBeanListCustomerID.value
   if (!customerID) return
   // Quotes belong to the customer/type; individual named tables keep separate edits.
   const key = priceListGenerationDraftBaseKey()
-  const customerURL = new URL(beanListPublicationURL(pdfTheme.value.listType, 'customer'), window.location.origin)
-  customerURL.searchParams.set('customer_id', String(customerID))
+  const params = new URLSearchParams({
+    list_type: pdfTheme.value.listType,
+    scope: 'customer',
+    customer_id: String(customerID),
+    publication_purpose: FACTORY_SUPPLY_PUBLICATION_PURPOSE,
+  })
+  const productTypeID = activePublicationProductTypeCategoryID(activeProductTypeCategoryID.value)
+  const classificationTemplateID = activePublicationClassificationTemplateID(activeProductTypeCategoryID.value)
+  if (productTypeID > 0) params.set('product_type_category_id', String(productTypeID))
+  if (classificationTemplateID > 0) params.set('classification_template_id', String(classificationTemplateID))
+  const url = `/api/costing/bean-list/publications/price-sources?${params.toString()}`
   try {
-    const [customer, official] = await Promise.all([apiGet(customerURL), apiGet(beanListPublicationURL(pdfTheme.value.listType, 'official'))])
+    const data = await publicationRequestOnce(url)
     if (revision !== customerPriceSourcesRevision || key !== priceListGenerationDraftBaseKey()) return
-    customerPriceSources.value = [...(customer.rows || []), ...(official.rows || [])]
+    customerPriceSources.value = Array.isArray(data.rows) ? data.rows : []
     customerPriceSourcesReadyKey.value = key
   } catch (err) { if (revision === customerPriceSourcesRevision) error.value = err.message || '客户报价来源加载失败' }
 }
@@ -1854,7 +1918,7 @@ watch(activeBeanListCustomerID, () => {
 })
 
 watch(publicationScope, (scope) => {
-  loadBeanListPublications(pdfTheme.value.listType, scope, activeProductTypeCategoryID.value, 'factory_supply')
+  if (scope !== versionListScope.value) loadBeanListPublications(pdfTheme.value.listType, scope, activeProductTypeCategoryID.value, 'factory_supply', { pageSize: 100 })
   initializePdfDefaultsForType(pdfTheme.value.listType, activeProductTypeCategoryID.value)
   restorePriceListGenerationDraftForActiveType()
 })
@@ -1867,9 +1931,7 @@ watch(selectedBeanListCustomerID, () => {
   resetPdfSelectionDefaults()
   initializePdfDefaultsIfItemsLoaded()
   restorePriceListGenerationDraftForActiveType()
-  if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
-    loadBeanListPublications(pdfTheme.value.listType, 'customer', activeProductTypeCategoryID.value, 'factory_supply')
-  }
+  loadActiveProductTypePublicationViews()
   notifyWorkspaceCustomerChanged(selectedBeanListCustomerID.value)
 })
 
@@ -4008,6 +4070,14 @@ function publicationRows(scope, listType, productTypeCategoryID = activeProductT
   return rows.filter((row) => matchesCurrentPublicationProductType(row, selectedType || productTypeCategoryID))
 }
 
+function publicationSummaryMetaKey(scope, listType, productTypeCategoryID = activeProductTypeCategoryID.value, status = 'active', purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
+  return `${beanListPublicationCacheKey(scope, purpose)}:${beanListPublicationTypeKey(listType, productTypeCategoryID)}:${status}`
+}
+
+function publicationSummaryMeta(scope, listType, productTypeCategoryID = activeProductTypeCategoryID.value, status = 'active', purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
+  return beanListPublicationSummaryMeta.value[publicationSummaryMetaKey(scope, listType, productTypeCategoryID, status, purpose)] || null
+}
+
 function initializePdfDefaults() {
   productPriceListTypeOptions.value.forEach((type) => {
     initializePdfDefaultsForType(type.listType, type.id)
@@ -4066,17 +4136,15 @@ function openBeanListDrawer(listType = selectedProductPriceListType.value?.listT
   }
   initializePdfDefaultsForType(resolvedListType, activeProductTypeCategoryID.value)
   restorePriceListGenerationDraftForActiveType()
-  loadBeanListPublications(resolvedListType, 'official', activeProductTypeCategoryID.value, 'factory_supply')
-  loadBeanListPublications(resolvedListType, 'mine', activeProductTypeCategoryID.value, 'factory_supply')
-  if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
-    loadBeanListPublications(resolvedListType, 'customer', activeProductTypeCategoryID.value, 'factory_supply')
-  }
+  loadActiveProductTypePublicationViews()
   pdfDrawerOpen.value = true
 }
 
 function defaultBeanListVersionForScope(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
   const key = beanListPublicationTypeKey(listType, productTypeCategoryID)
   const source = priceSourcePublicationByType.value[key]
+  const suggested = publicationSummaryMeta(publicationScope.value, listType, productTypeCategoryID, 'active')?.suggested_version
+  if (String(suggested || '').trim()) return String(suggested).trim()
   return defaultBeanListDraftVersion(publicationRows(publicationScope.value, listType, productTypeCategoryID), source)
 }
 
@@ -4199,6 +4267,31 @@ function toggleCurrentPagePublicationArchiveSelection(checked) {
   selectedPublicationArchiveIDs.value = [...selected]
 }
 
+function isArchivedPublicationDeleteSelected(row) {
+  return selectedArchivedPublicationDeleteIDs.value.includes(Number(row?.id || 0))
+}
+
+function toggleArchivedPublicationDeleteSelection(row) {
+  const id = Number(row?.id || 0)
+  if (id <= 0) return
+  if (selectedArchivedPublicationDeleteIDs.value.includes(id)) {
+    selectedArchivedPublicationDeleteIDs.value = selectedArchivedPublicationDeleteIDs.value.filter((value) => value !== id)
+  } else {
+    selectedArchivedPublicationDeleteIDs.value = [...selectedArchivedPublicationDeleteIDs.value, id]
+  }
+}
+
+function toggleCurrentPageArchivedDeleteSelection(checked) {
+  const selected = new Set(selectedArchivedPublicationDeleteIDs.value)
+  paginatedArchivedPublicationRows.value.forEach((row) => {
+    const id = Number(row?.id || 0)
+    if (id <= 0) return
+    if (checked) selected.add(id)
+    else selected.delete(id)
+  })
+  selectedArchivedPublicationDeleteIDs.value = [...selected]
+}
+
 function selectedPublicationArchiveRows() {
   const selected = new Set(selectedPublicationArchiveIDs.value)
   return currentScopePublicationRows.value.filter((row) => selected.has(Number(row.id || 0)) && canArchiveBeanListPublication(row))
@@ -4218,6 +4311,9 @@ function publicationArchiveRefreshProductTypeIDs(row = {}, fallbackProductTypeCa
 async function reloadBeanListPublicationsAfterArchiveChange(listType, scope, row, fallbackProductTypeCategoryID, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
   for (const refreshProductTypeID of publicationArchiveRefreshProductTypeIDs(row, fallbackProductTypeCategoryID)) {
     await loadBeanListPublications(listType, scope, refreshProductTypeID, purpose)
+    if (!publicationArchiveListCollapsed.value) {
+      await loadBeanListPublications(listType, scope, refreshProductTypeID, purpose, { status: 'archived' })
+    }
   }
 }
 
@@ -4245,6 +4341,7 @@ function setBeanListPublicationStatusInCache(ids = [], status = '') {
 }
 
 function beanListPublicationHasContent(row) {
+  if (typeof row?.has_content === 'boolean') return row.has_content
   return Array.isArray(row?.content?.groups) && row.content.groups.length > 0
 }
 
@@ -4319,17 +4416,30 @@ function beanListTypeName(listType) {
   return normalized === 'retail' ? '零售' : '商用'
 }
 
-function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.value) {
+async function loadBeanListPublicationDetail(row) {
+  const id = Number(row?.id || 0)
+  if (id <= 0) throw new Error('价格表记录无效')
+  const params = beanListPublicationDownloadParams(row)
+  return publicationRequestOnce(`/api/costing/bean-list/publications/${id}?${params.toString()}`)
+}
+
+async function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.value) {
   if (!row) return
-  const listType = normalizeBeanListType(row.list_type)
-  selectProductTypeFromPublication(row)
-  const keyProductTypeID = productTypeSelectionIDForPublication(row)
-  const key = beanListPublicationTypeKey(listType, keyProductTypeID)
-  downloadSourcePublication.value = null
-  priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [key]: row }
-  selectedPriceSourcePublicationID.value = String(row.id)
-  pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType, keyProductTypeID) }
-  message.value = `已复制${beanListPublicationLabel(row)}价格来源，发布后会锁定为客户价格表快照`
+  error.value = ''
+  try {
+    const detail = await loadBeanListPublicationDetail(row)
+    const listType = normalizeBeanListType(detail.list_type)
+    selectProductTypeFromPublication(detail)
+    const keyProductTypeID = productTypeSelectionIDForPublication(detail)
+    const key = beanListPublicationTypeKey(listType, keyProductTypeID)
+    downloadSourcePublication.value = null
+    priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [key]: detail }
+    selectedPriceSourcePublicationID.value = String(detail.id)
+    pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType, keyProductTypeID) }
+    message.value = `已复制${beanListPublicationLabel(detail)}价格来源，发布后会锁定为客户价格表快照`
+  } catch (err) {
+    error.value = err.message || '加载价格表详情失败'
+  }
 }
 
 function beanListTypeLabel(listType) {
@@ -4696,6 +4806,7 @@ async function refreshPriceListData(kind) {
   const current = () => revision === priceListRefreshRevision && context === priceListRefreshContext.value
   priceListDisplayOrder.value = capturePriceListDisplayOrder(categoryProductGroups.value, priceListDisplayOrder.value)
   priceListRefresh.value = { kind, busy: true, error: '', message: '' }
+  loadActiveProductTypePublicationViews()
   try {
     const snapshot = await fetchPriceListRefreshSnapshot({ apiGet, customerID: activeBeanListCustomerID.value, prices: kind === 'prices' })
     if (!current()) return
@@ -4897,49 +5008,68 @@ async function loadCurrentActor() {
   }
 }
 
-async function loadBeanListPublications(listType = pdfTheme.value.listType, scope = publicationScope.value, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
+async function loadBeanListPublications(listType = pdfTheme.value.listType, scope = publicationScope.value, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE, options = {}) {
+  if (!priceListPublicationTypeOptionsReady.value) return
   const cacheKey = beanListPublicationCacheKey(scope, purpose)
   const typeKey = beanListPublicationTypeKey(listType, productTypeCategoryID)
   const requestScope = beanListPublicationRequestScope(scope)
   const customerID = beanListPublicationCustomerID(scope)
+  const status = options.status === 'archived' ? 'archived' : 'active'
+  const isVisibleScope = scope === versionListScope.value
+  const page = Number(options.page || (isVisibleScope ? (status === 'archived' ? publicationArchiveListPage.value : publicationListPage.value) : 1)) || 1
+  const pageSize = Number(options.pageSize || (isVisibleScope ? (status === 'archived' ? publicationArchiveListPageSize.value : publicationListPageSize.value) : 100)) || 10
+  const search = options.search ?? (isVisibleScope ? publicationListQuery.value : '')
+  const summaryKey = publicationSummaryMetaKey(scope, listType, productTypeCategoryID, status, purpose)
   if (requestScope === 'customer' && !customerID) {
-    beanListPublications.value = {
-      ...beanListPublications.value,
-      [cacheKey]: {
-        ...(beanListPublications.value[cacheKey] || {}),
-        [typeKey]: [],
-      },
-    }
     return
   }
+  const url = beanListPublicationURL(listType, scope, productTypeCategoryID, purpose, { status, page, pageSize, search })
+  const revision = publicationRequestGate.begin(summaryKey)
   try {
-    const data = await apiGet(beanListPublicationURL(listType, scope, productTypeCategoryID, purpose))
+    const data = await publicationRequestOnce(url)
+    if (!publicationRequestGate.isCurrent(summaryKey, revision)) return
     const rows = Array.isArray(data.rows) ? data.rows : []
+    const existing = beanListPublications.value?.[cacheKey]?.[typeKey] || []
+    const retained = existing.filter((row) => (status === 'archived' ? row.status !== 'archived' : row.status === 'archived'))
     beanListPublications.value = {
       ...beanListPublications.value,
       [cacheKey]: {
         ...(beanListPublications.value[cacheKey] || {}),
-        [typeKey]: rows,
+        [typeKey]: [...retained, ...rows],
       },
     }
+    beanListPublicationSummaryMeta.value = {
+      ...beanListPublicationSummaryMeta.value,
+      [summaryKey]: data,
+    }
+    if (isVisibleScope) {
+      const maxPage = Math.max(1, Math.ceil(Number(data.total || 0) / pageSize))
+      if (status === 'archived' && publicationArchiveListPage.value > maxPage) publicationArchiveListPage.value = maxPage
+      if (status === 'active' && publicationListPage.value > maxPage) publicationListPage.value = maxPage
+    }
+    return data
   } catch (err) {
-    error.value = err.message || '加载豆单发布记录失败'
+    if (publicationRequestGate.isCurrent(summaryKey, revision)) error.value = err.message || '加载价格表版本失败，可点击刷新重试'
   }
 }
 
-function beanListPublicationURL(listType, scope, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
+function beanListPublicationURL(listType, scope, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE, options = {}) {
   const requestScope = beanListPublicationRequestScope(scope)
-  const params = new URLSearchParams({ list_type: listType, scope: requestScope })
-  params.set('publication_purpose', purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE)
   const productTypeID = activePublicationProductTypeCategoryID(productTypeCategoryID)
   const classificationTemplateID = activePublicationClassificationTemplateID(productTypeCategoryID)
-  if (productTypeID > 0) params.set('product_type_category_id', String(productTypeID))
-  if (classificationTemplateID > 0) params.set('classification_template_id', String(classificationTemplateID))
   const customerID = beanListPublicationCustomerID(scope)
-  if (requestScope === 'customer') {
-    params.set('customer_id', String(customerID || 0))
-  }
-  return `/api/costing/bean-list/publications?${params.toString()}`
+  return buildPublicationSummaryURL({
+    listType,
+    scope: requestScope,
+    customerID,
+    publicationPurpose: purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE,
+    productTypeCategoryID: productTypeID,
+    classificationTemplateID,
+    status: options.status || 'active',
+    page: options.page || 1,
+    pageSize: options.pageSize || 10,
+    search: options.search || '',
+  })
 }
 
 function versionListScopeCustomerID(scope = versionListScope.value) {
@@ -5266,6 +5396,66 @@ async function restoreArchivedBeanListPublication(row) {
   }
 }
 
+function currentBeanListPublicationScopeParams() {
+  const url = new URL(beanListPublicationURL(
+    pdfTheme.value.listType,
+    versionListScope.value,
+    activeProductTypeCategoryID.value,
+    FACTORY_SUPPLY_PUBLICATION_PURPOSE,
+  ), window.location.origin)
+  for (const key of ['view', 'status', 'page', 'page_size', 'search']) url.searchParams.delete(key)
+  return url.searchParams
+}
+
+async function previewAndDeleteArchivedBeanListPublications({ ids = [], clearAll = false } = {}) {
+  if (beanListDeleting.value) return
+  beanListDeleting.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    const params = currentBeanListPublicationScopeParams()
+    const preview = await apiSend(`/api/costing/bean-list/publications/delete-preview?${params.toString()}`, {
+      body: clearAll ? { clear_all: true } : { ids },
+    })
+    const versions = [...new Set((preview.rows || []).map((row) => row.version).filter(Boolean))]
+    const range = `${publicationScopeLabel(versionListScope.value)} / ${selectedProductPriceListLabel.value}`
+    const versionText = versions.length <= 5 ? versions.join('、') : `${versions.slice(0, 5).join('、')} 等 ${versions.length} 个版本`
+    const confirmed = window.confirm([
+      `删除范围：${range}`,
+      `价格表数量：${Number(preview.count || 0)} 张${versionText ? `；版本：${versionText}` : ''}`,
+      '此操作会永久删除原价格表内容和 PDF，无法恢复。',
+    ].join('\n'))
+    if (!confirmed) return
+    const result = await apiSend('/api/costing/bean-list/publications/delete', {
+      body: { confirmation_token: preview.confirmation_token },
+    })
+    const deleted = new Set((result.ids || []).map((id) => Number(id || 0)))
+    selectedArchivedPublicationDeleteIDs.value = selectedArchivedPublicationDeleteIDs.value.filter((id) => !deleted.has(Number(id || 0)))
+    message.value = `已永久删除 ${Number(result.deleted_count || 0)} 张归档价格表及其 PDF`
+    await Promise.all([
+      loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value),
+      loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value, FACTORY_SUPPLY_PUBLICATION_PURPOSE, { status: 'archived' }),
+    ])
+  } catch (err) {
+    error.value = err.message || '删除归档价格表失败，请重新预览后再试'
+  } finally {
+    beanListDeleting.value = false
+  }
+}
+
+function deleteArchivedBeanListPublication(row) {
+  const id = Number(row?.id || 0)
+  if (id > 0) return previewAndDeleteArchivedBeanListPublications({ ids: [id] })
+}
+
+function deleteSelectedArchivedBeanListPublications() {
+  return previewAndDeleteArchivedBeanListPublications({ ids: [...selectedArchivedPublicationDeleteIDs.value] })
+}
+
+function clearCurrentArchivedBeanListPublications() {
+  return previewAndDeleteArchivedBeanListPublications({ clearAll: true })
+}
+
 function beanListWithdrawScopeParams(row) {
   const publicationPurpose = row?.publication_purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE
   let params
@@ -5431,18 +5621,16 @@ watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, named
 
 onMounted(() => {
   loadCurrentActor()
-  loadCustomerPriceSources()
   loadBeanList()
   loadCustomers()
   loadCustomerProductAliases()
   loadPriceListTemplateOptions()
-  loadBeanListPublications(pdfTheme.value.listType, 'official', activeProductTypeCategoryID.value, 'factory_supply')
-  loadBeanListPublications(pdfTheme.value.listType, 'mine', activeProductTypeCategoryID.value, 'factory_supply')
   window.addEventListener('afterprint', clearPdfPrintMode)
 })
 
 onBeforeUnmount(() => {
   priceListRefreshRevision++
+  window.clearTimeout(publicationSearchTimer)
   window.removeEventListener('afterprint', clearPdfPrintMode)
   clearPdfPrintMode()
 })

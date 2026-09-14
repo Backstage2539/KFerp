@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-663-PUBLICATIONS-SUMMARY-CLEANUP", title: "商品价格表摘要加载、请求合并与归档永久清理", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-14-publication-summary-cleanup.md"},
+		{table: "req_dev", code: "DEV-676-PUBLICATION-SUMMARY", title: "版本批次摘要分页、历史元数据补齐与按需详情报价来源", status: "done", assignee: "Codex", evidence: "publication_summary_cleanup.go; publication_summary_cleanup_postgres_test.go"},
+		{table: "req_dev", code: "DEV-677-PUBLICATION-DELETE", title: "归档单张批量清空预览、原子删除、幂等与逐表审计", status: "done", assignee: "Codex", evidence: "publication_summary_cleanup.go; costing_api.go; PostgreSQL delete tests"},
+		{table: "req_dev", code: "DEV-678-PUBLICATION-UI", title: "摘要列表、归档按需加载、请求去重与归档删除入口", status: "done", assignee: "Codex", evidence: "CostingView.vue; publication-summary-client.js; frontend tests"},
+		{table: "req_dev", code: "DEV-679-PUBLICATION-DELIVERY", title: "操作手册、完整验证、兼容基础版本与双环境交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-14-publication-summary-cleanup.md"},
+		{table: "req_review", code: "REV-663-PUBLICATIONS-SUMMARY-CLEANUP", prCode: "PR-663-PUBLICATIONS-SUMMARY-CLEANUP", title: "验收价格表加载速度、按需详情和归档永久清理", status: "todo", assignee: "VA", evidence: "待 Van 在 production 商品价格表中验收"},
+
 		{table: "req_product", code: "PR-662-BEAN-LIST-PERFORMANCE", title: "商品价格表接口性能优化", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-14-bean-list-performance.md"},
 		{table: "req_dev", code: "DEV-674-COSTING-QUERY", title: "价格表只读事务关闭 JIT、BOM 成本单次汇总及规格范围收敛", status: "done", assignee: "Codex", evidence: "repository.go; repository_test.go; read_transaction_postgres_test.go"},
 		{table: "req_dev", code: "DEV-675-COSTING-PERFORMANCE-DELIVERY", title: "真实 PostgreSQL 性能验收与开发正式环境交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-14-bean-list-performance.md"},

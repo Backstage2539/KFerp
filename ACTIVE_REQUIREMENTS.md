@@ -1,5 +1,18 @@
 # ACTIVE_REQUIREMENTS
 
+### PR-663-PUBLICATIONS-SUMMARY-CLEANUP
+- Branch: codex/publications-summary-cleanup-20260914
+- Owner/session: Codex / Van
+- Status: implementation, full gates, development and production final delivery, read-only performance and page verification complete; Van business acceptance pending
+- Scope: 发布记录摘要分页、按需详情、请求去重；单张/批量/当前归属类型归档永久清理，保留必要版本标识与审计。
+- Verifier: PostgreSQL RED/GREEN、API/权限/原子删除/失效确认、Vue 实际加载流程、完整 backend/frontend、当前及十倍规模真实接口、20 次性能采样。
+- Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md
+- DEV: DEV-676-PUBLICATION-SUMMARY; DEV-677-PUBLICATION-DELETE; DEV-678-PUBLICATION-UI; DEV-679-PUBLICATION-DELIVERY.
+- Deployment: develop → development → main → production；先保留支持 deleted 状态的兼容回滚版本，生产只读验收，不清理真实归档。
+- Last update: 2026-09-14
+- Evidence: orderapp-remote/docs/acceptance/2026-09-14-publication-summary-cleanup.md
+- Notes: development `e8fcb782`，production 兼容基础版 `2580b99e`，production 最终版 `bc960916`，回滚镜像 `kferp-orderapp-rollback:production-20260914163145-bc960916a136`；生产只读验收未删除归档。每张价格表为独立快照，来源 ID 不构成删除阻断。原工作区保留。reserve_req_id.sh 在 macOS awk 因多行 -v 失败，手动登记其计算结果 PR-663。
+
 Purpose: short-lived coordination for Codex workflows. Keep active requirement ids, branches, verifier commands, deployment ownership, and unresolved blockers here so future sessions do not have to recover this from chat history.
 
 This is not long-term memory. Move durable product/deployment decisions to `MEMORY.md` or source docs, then remove stale entries from this file.
