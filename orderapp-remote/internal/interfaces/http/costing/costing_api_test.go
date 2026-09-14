@@ -303,6 +303,41 @@ func (fakeService) ListBeanListPublications(context.Context, appcosting.BeanList
 	return []appcosting.BeanListPublication{row}, nil
 }
 
+func (fakeService) ListBeanListPublicationSummaries(context.Context, appcosting.BeanListPublicationSummaryQuery) (appcosting.BeanListPublicationSummaryPage, error) {
+	return appcosting.BeanListPublicationSummaryPage{Rows: []appcosting.BeanListPublicationSummary{{ID: 7, Version: "V3.0.5", Status: "archived", HasContent: true, PublicationTableMetadata: appcosting.PublicationTableMetadata{TableName: "227g价格表"}}}, Total: 1, ArchivedTotal: 1, Page: 1, PageSize: 10, SuggestedVersion: "V3.0.6"}, nil
+}
+
+func (fakeService) LoadBeanListPublication(context.Context, appcosting.BeanListPublicationQuery, int64) (*appcosting.BeanListPublication, error) {
+	row := fakePublishedBeanListPublication()
+	return &row, nil
+}
+
+func (fakeService) ListBeanListPriceSources(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
+	return []appcosting.BeanListPublication{fakePublishedBeanListPublication()}, nil
+}
+
+func (fakeService) PreviewDeleteBeanListPublications(context.Context, appcosting.DeleteBeanListPublicationsPreviewCommand) (appcosting.DeleteBeanListPublicationsPreview, error) {
+	return appcosting.DeleteBeanListPublicationsPreview{ConfirmationToken: "confirm-token", Count: 1}, nil
+}
+
+func (fakeService) DeleteBeanListPublications(context.Context, appcosting.DeleteBeanListPublicationsCommand) (appcosting.DeleteBeanListPublicationsResult, error) {
+	return appcosting.DeleteBeanListPublicationsResult{DeletedCount: 1, IDs: []int64{7}}, nil
+}
+
+type deletedPublicationService struct{ fakeService }
+
+func (deletedPublicationService) LoadBeanListPublication(context.Context, appcosting.BeanListPublicationQuery, int64) (*appcosting.BeanListPublication, error) {
+	return nil, appcosting.ErrBeanListPublicationDeleted
+}
+
+func (deletedPublicationService) GenerateBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand, func(appcosting.BeanListPublication) ([]byte, error)) (appcosting.BeanListPublicationPDFFile, error) {
+	return appcosting.BeanListPublicationPDFFile{}, appcosting.ErrBeanListPublicationDeleted
+}
+
+func (deletedPublicationService) LoadBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand) (appcosting.BeanListPublicationPDFFile, error) {
+	return appcosting.BeanListPublicationPDFFile{}, appcosting.ErrBeanListPublicationDeleted
+}
+
 func (fakeService) PublishedBeanList(context.Context, appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
 	row := fakePublishedBeanListPublication()
 	return &row, nil
@@ -2075,6 +2110,79 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("withdraw status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBeanListPublicationSummaryDetailSourcesAndDeletionAPI(t *testing.T) {
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+	for _, tc := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{http.MethodGet, "/api/costing/bean-list/publications?view=summary&list_type=commercial&scope=official&status=archived&page=1&page_size=10", "", http.StatusOK},
+		{http.MethodGet, "/api/costing/bean-list/publications/7?list_type=commercial&scope=official", "", http.StatusOK},
+		{http.MethodGet, "/api/costing/bean-list/publications/price-sources?list_type=commercial&scope=customer&customer_id=450", "", http.StatusOK},
+		{http.MethodPost, "/api/costing/bean-list/publications/delete-preview?list_type=commercial&scope=official&classification_template_id=8000000000000056", `{"ids":[7]}`, http.StatusOK},
+		{http.MethodPost, "/api/costing/bean-list/publications/delete", `{"confirmation_token":"confirm-token"}`, http.StatusOK},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Fatalf("%s %s status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestDeletedBeanListPublicationDetailAndPDFReturnGone(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: deletedPublicationService{}})
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/api/costing/bean-list/publications/7?list_type=commercial&scope=official"},
+		{http.MethodGet, "/api/costing/bean-list/publications/7/pdf?list_type=commercial&scope=official"},
+		{http.MethodPost, "/api/costing/bean-list/publications/7/pdf?list_type=commercial&scope=official"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusGone {
+			t.Fatalf("%s %s status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestBeanListPublicationDeleteRequiresArchiveManagementPermission(t *testing.T) {
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		_ = c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()})
+	}
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}, Authz: &fakeCostingAuthz{actor: authzapp.Actor{Name: "客户", Permissions: []string{"costing.read", "costing.write"}}}})
+	for _, path := range []string{
+		"/api/costing/bean-list/publications/delete-preview?list_type=commercial&scope=official",
+		"/api/costing/bean-list/publications/delete",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"ids":[7],"confirmation_token":"x"}`))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
 	}
 }
 
