@@ -5357,7 +5357,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-663-CUSTOMER-MINIAPP-ERP-INTEGRATION
 - Branch: `codex/customer-miniapp-erp-integration-20260914`; baseline `origin/develop@2ad3ac75256dd6b207abd68d4e94c3811aa84be3`.
 - Owner/session: Codex / 2026-09-14.
-- Status: implementation, local verification, PR #128 merge and development deployment `d3833ae3` complete; production promotion authorized and in progress; Van business acceptance pending.
+- Status: implementation, local WeChat DevTools walkthrough, PR #128 development integration, PR #130 production promotion and both environment deployments complete; Van business acceptance pending.
 - Scope: 客户小程序一件代发、代加工工单、客户货权库存、订单物流和统一账单与 ERP 现有价格、订单、生产、库存、应收和结算链路适配。
 - DEV:
   - DEV-676-DIRECT-SHIP-PRICE-ORDER：价格表标记与客户稳定绑定；小程序目录服务端报价；提交防篡价、防重复并进入共享系统订单链路。
@@ -5367,4 +5367,4 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-680-CUSTOMER-STATEMENT：商品货款、加工费、代发服务费和运费按来源去重；PDF/Excel 下载、确认对账、异议及 ERP 回复；确认不改变付款状态。
   - DEV-681-MINIAPP-UX-DOCS-DELIVERY：首页、发货、费用、生产、库存和个人中心统一标题、空态、首屏与摘要；同步操作手册、验收证据并完成本地微信开发者工具走查。
 - Verifier: `bash scripts/verify_pr663_customer_miniapp_erp.sh`; targeted RED/GREEN; PDF/Excel render/content checks; local production-mode miniapp build and WeChat DevTools walkthrough.
-- Delivery: Van 于 2026-09-14 后续明确授权合入 `develop`、部署 development、合入 `main` 并部署 production；不上传微信版本，业务验收由 Van 执行。
+- Delivery: development `d3833ae366c7088ca1475bbbf0401e7e157447c4`，rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260914203936-d3833ae366c7`，rollback image `kferp-orderapp-rollback:development-20260914203936-d3833ae366c7`；production `c0b1f3ab14dd2f3146a63010c2e0897d76661238`，rollback source `/opt/stacks/erp-production/orderapp.backup.deploy-20260914205024-c0b1f3ab14dd`，rollback image `kferp-orderapp-rollback:production-20260914205024-c0b1f3ab14dd`。两环境登录页 HTTP 200；微信上传、审核和发布未执行。

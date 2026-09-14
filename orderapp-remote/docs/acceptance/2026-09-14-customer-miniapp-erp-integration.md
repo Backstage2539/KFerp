@@ -4,7 +4,7 @@
 
 本需求把客户小程序的一件代发、代加工工单、客户库存、客户商品物流和客户账单接入 ERP 现有价格、订单、生产、库存、应收、费用与结算链路。新增客户写操作按登录身份锁定客户范围并记录操作日志；历史订单、工单、价格、预留和账单快照保留，不批量回算。
 
-Van 于 2026-09-14 将交付边界调整为仅在本地操作。本次在本地功能分支完成实现、验证、生产配置构建和微信开发者工具逐页走查；没有继续创建 PR、合入、部署，也没有上传、审核或发布微信小程序。
+Van 于 2026-09-14 先要求在本地完成实现与微信开发者工具走查，随后明确授权合入 `develop`、部署 development、合入 `main` 并部署 production。两套 ERP 后端已完成发布；微信小程序上传、审核和发布仍未执行。
 
 ## 最终行为
 
@@ -50,11 +50,14 @@ Van 于 2026-09-14 将交付边界调整为仅在本地操作。本次在本地�
 - 本地生产配置包构建成功，API 指向 `https://erp.qacoohee.com/app`，并覆盖到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。覆盖前备份保存在 `/private/tmp/KFerp-miniapp-mp-weixin.backup-20260914173645`。
 - 使用微信开发者工具 RC 2.02.2607271 和已登录客户“陈丹燕”逐页走查：首页显示订单、生产摘要和三个快捷入口；一件代发显示 ERP 指定价格表规则、地址解析、商品规格和金额流程；生产工单默认列表，可进入商品规格选择；发货中心提供订单、日期及状态查询；费用中心提供账期、四类费用、下载、确认和异议入口；个人中心显示客户资料、业务联系人、常用收件人、服务说明和账号操作。
 - 当前客户的一件代发目录、生产工单和发货记录为空，空态均正常；未提交订单、生产申请、对账确认或异议，也未执行退出或切换用户。
-- 当前正式服务器仍运行旧后端，`/api/mini/customer-inventory/assets` 和 `/api/mini/customer-account` 返回 404；这是未部署本分支的预期边界。新增接口及客户隔离已通过本地 Go、API 和一次性 PostgreSQL 测试，需后续部署匹配后端才能在该登录客户下联调真实库存与账单数据。
+- 发布前正式服务器仍运行旧后端，因此 `customer-inventory/assets` 和 `customer-account` 曾返回 404；匹配的新后端现已部署到 development 和 production，真实客户数据结果由 Van 在发布后验收。
 - 生产工单预览时机修复后，选择流程在商品、数量和期望日期完整前不调用 BOM 试算；英文 `invalid request` 已映射为明确中文提示。
 
-## 本地交付状态
+## 发布状态
 
 - 功能分支：`codex/customer-miniapp-erp-integration-20260914`。
 - 任务验证脚本、Go 后端、Vue 全量测试和构建、小程序测试、类型检查、PDF/Excel 输出检查均已通过；真实 PostgreSQL 定向流程已通过。
-- 未创建 PR，未合入 `develop`，未部署 development 或 production，未上传微信版本。Van 的完整业务数据验收保留为 `REV-663-CUSTOMER-MINIAPP-ERP-INTEGRATION`。
+- PR #128 合入 `develop`，运行提交为 `d3833ae366c7088ca1475bbbf0401e7e157447c4`；回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20260914203936-d3833ae366c7`，回滚镜像 `kferp-orderapp-rollback:development-20260914203936-d3833ae366c7`。
+- PR #130 基于最新 `main` 保留既有正式发布记录后完成生产提升，运行提交为 `c0b1f3ab14dd2f3146a63010c2e0897d76661238`；回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20260914205024-c0b1f3ab14dd`，回滚镜像 `kferp-orderapp-rollback:production-20260914205024-c0b1f3ab14dd`。
+- 两次发布脚本均完整结束，开发与正式登录页均返回 HTTP 200。Van 要求不另跑测试，由发布脚本执行的内置构建检查通过；完整业务数据验收保留为 `REV-663-CUSTOMER-MINIAPP-ERP-INTEGRATION`。
+- 未上传、审核或发布微信小程序。
