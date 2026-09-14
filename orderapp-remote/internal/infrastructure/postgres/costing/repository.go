@@ -3328,6 +3328,7 @@ func (r Repository) ListBeanListPublications(ctx context.Context, query appcosti
 		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
 		orderClause = "ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, CASE WHEN COALESCE(product_type_category_id,0)=$2 THEN 0 ELSE 1 END, created_at DESC, id DESC"
 	}
+	whereClause += " AND status<>'deleted' AND deleted_at IS NULL"
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(publication_purpose,''),'factory_supply'),
@@ -3430,6 +3431,8 @@ func (r Repository) LoadBeanListPublication(ctx context.Context, query appcostin
 		whereClause = "id=$1 AND publication_purpose=$2 AND owner_type=$4 AND owner_key=$5 AND (COALESCE(product_type_category_id,0)=$3 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$6))"
 		args = []any{publicationID, strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
 	}
+	publicationScopeWhereClause := whereClause
+	whereClause += " AND status<>'deleted' AND deleted_at IS NULL"
 	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(publication_purpose,''),'factory_supply'),
@@ -3458,6 +3461,10 @@ func (r Repository) LoadBeanListPublication(ctx context.Context, query appcostin
 	`, r.schema, whereClause), args...))
 	if err != nil {
 		if err == pgx.ErrNoRows {
+			var deleted bool
+			if checkErr := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.bean_list_publications WHERE %s AND status='deleted')`, r.schema, publicationScopeWhereClause), args...).Scan(&deleted); checkErr == nil && deleted {
+				return nil, appcosting.ErrBeanListPublicationDeleted
+			}
 			return nil, appcosting.ErrBeanListPublicationNotFound
 		}
 		return nil, err
@@ -3602,6 +3609,9 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	); err != nil {
 		return nil, err
 	}
+	if err := syncBeanListPublicationSummaryMetadata(ctx, tx, r.schema, published.ID, cmd.Config, cmd.Content); err != nil {
+		return nil, err
+	}
 	published.Config = map[string]any{}
 	published.Content = map[string]any{}
 	if len(configJSON) > 0 {
@@ -3694,6 +3704,9 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 		&draft.WithdrawnAt,
 		&draft.CreatedAt,
 	); err != nil {
+		return nil, err
+	}
+	if err := syncBeanListPublicationSummaryMetadata(ctx, tx, r.schema, draft.ID, cmd.Config, cmd.Content); err != nil {
 		return nil, err
 	}
 	draft.Config = map[string]any{}
@@ -3870,7 +3883,7 @@ func (r Repository) UnarchiveBeanListPublications(ctx context.Context, cmd appco
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		WITH selected AS (
 			SELECT id, COALESCE(NULLIF(publication_purpose,''),'factory_supply') AS publication_purpose,
-			       list_type, version_no, owner_type, owner_key, status AS old_status,
+			       list_type, version_no, owner_type, owner_key, status AS old_status, COALESCE(publication_release_id,'') AS release_id,
 			       COALESCE(NULLIF(config_json->>'archived_from_status',''), 'published') AS restored_status
 			FROM %s.bean_list_publications
 			WHERE id=ANY($1) AND publication_purpose=$2 AND owner_type=$3 AND owner_key=$4 AND status='archived'
@@ -3881,7 +3894,7 @@ func (r Repository) UnarchiveBeanListPublications(ctx context.Context, cmd appco
 		    updated_at=now()
 		FROM selected s
 		WHERE b.id=s.id
-		RETURNING b.id, s.publication_purpose, s.list_type, s.version_no, s.owner_type, s.owner_key, s.old_status, s.restored_status
+		RETURNING b.id, s.publication_purpose, s.list_type, s.version_no, s.owner_type, s.owner_key, s.old_status, s.restored_status, s.release_id
 	`, r.schema, r.schema), cmd.IDs, cmd.PublicationPurpose, cmd.OwnerType, cmd.OwnerKey)
 	if err != nil {
 		return err
@@ -3896,11 +3909,12 @@ func (r Repository) UnarchiveBeanListPublications(ctx context.Context, cmd appco
 		ownerKey           string
 		oldStatus          string
 		newStatus          string
+		releaseID          string
 	}
 	unarchived := make([]unarchivedRow, 0)
 	for rows.Next() {
 		var row unarchivedRow
-		if err := rows.Scan(&row.id, &row.publicationPurpose, &row.listType, &row.version, &row.ownerType, &row.ownerKey, &row.oldStatus, &row.newStatus); err != nil {
+		if err := rows.Scan(&row.id, &row.publicationPurpose, &row.listType, &row.version, &row.ownerType, &row.ownerKey, &row.oldStatus, &row.newStatus, &row.releaseID); err != nil {
 			return err
 		}
 		unarchived = append(unarchived, row)
@@ -3910,6 +3924,28 @@ func (r Repository) UnarchiveBeanListPublications(ctx context.Context, cmd appco
 	}
 	if len(unarchived) == 0 {
 		return fmt.Errorf("archived bean list publication not found")
+	}
+	releases := map[string]bool{}
+	for _, row := range unarchived {
+		if row.releaseID != "" {
+			releases[row.releaseID] = true
+		}
+	}
+	for releaseID := range releases {
+		var hasDefault bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.bean_list_publications WHERE publication_release_id=$1 AND status<>'deleted' AND deleted_at IS NULL AND publication_is_default_table=true)`, r.schema), releaseID).Scan(&hasDefault); err != nil {
+			return err
+		}
+		if hasDefault {
+			continue
+		}
+		var fallbackID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.bean_list_publications WHERE publication_release_id=$1 AND status<>'deleted' AND status<>'archived' AND deleted_at IS NULL ORDER BY created_at DESC,id DESC LIMIT 1`, r.schema), releaseID).Scan(&fallbackID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.bean_list_publications SET publication_is_default_table=true,config_json=jsonb_set(config_json,'{publication_batch,is_default_table}','true'::jsonb,true),updated_at=now() WHERE id=$1`, r.schema), fallbackID); err != nil {
+			return err
+		}
 	}
 	for _, row := range unarchived {
 		id := row.id

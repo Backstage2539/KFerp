@@ -54,6 +54,12 @@ CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
 	price_source_publication_id BIGINT NULL,
 	style_source_publication_id BIGINT NULL,
 	source_version_no TEXT NOT NULL DEFAULT '',
+	publication_release_id TEXT NOT NULL DEFAULT '',
+	publication_table_key TEXT NOT NULL DEFAULT '',
+	publication_table_name TEXT NOT NULL DEFAULT '',
+	publication_is_default_table BOOLEAN NOT NULL DEFAULT true,
+	publication_has_content BOOLEAN NOT NULL DEFAULT false,
+	publication_summary_ready BOOLEAN NOT NULL DEFAULT false,
 	config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	content_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	changelog TEXT NOT NULL DEFAULT '',
@@ -61,7 +67,9 @@ CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
 	published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	withdrawn_at TIMESTAMPTZ NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	deleted_at TIMESTAMPTZ NULL,
+	deleted_by TEXT NOT NULL DEFAULT ''
 );
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS publication_purpose TEXT NOT NULL DEFAULT 'factory_supply';
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS product_type_category_id BIGINT NOT NULL DEFAULT 0;
@@ -75,6 +83,14 @@ ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS owner_key TEXT
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS price_source_publication_id BIGINT NULL;
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS style_source_publication_id BIGINT NULL;
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS source_version_no TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS publication_release_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS publication_table_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS publication_table_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS publication_is_default_table BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS publication_has_content BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS publication_summary_ready BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS deleted_by TEXT NOT NULL DEFAULT '';
 UPDATE %[1]s.bean_list_publications SET publication_purpose='factory_supply' WHERE COALESCE(publication_purpose,'')='';
 UPDATE %[1]s.bean_list_publications
 SET product_type_name = CASE
@@ -106,6 +122,8 @@ DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_owner_idx;
 DROP INDEX IF EXISTS %[1]s.bean_list_publications_owner_status_idx;
 CREATE INDEX IF NOT EXISTS bean_list_publications_owner_status_idx
 	ON %[1]s.bean_list_publications(publication_purpose, owner_type, owner_key, status, published_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS bean_list_publications_summary_idx
+	ON %[1]s.bean_list_publications(publication_purpose, owner_type, owner_key, list_type, status, classification_template_id, created_at DESC, id DESC);
 CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publication_assets (
 	id BIGSERIAL PRIMARY KEY,
 	publication_id BIGINT NOT NULL REFERENCES %[1]s.bean_list_publications(id) ON DELETE CASCADE,
@@ -126,6 +144,18 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_bean_list_acknowledgements (
 	acknowledged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	UNIQUE(customer_id, publication_id)
 );
+CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publication_delete_previews (
+	token_hash TEXT PRIMARY KEY,
+	actor TEXT NOT NULL,
+	publication_ids BIGINT[] NOT NULL,
+	row_versions JSONB NOT NULL,
+	expires_at TIMESTAMPTZ NOT NULL,
+	completed_at TIMESTAMPTZ NULL,
+	result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bean_list_publication_delete_previews_expiry_idx
+	ON %[1]s.bean_list_publication_delete_previews(expires_at);
 CREATE TABLE IF NOT EXISTS %[1]s.drip_price_templates (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -171,10 +201,46 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_source_json SET NOT NUL
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
+	if err := backfillBeanListPublicationSummaryMetadata(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := seedParameters(ctx, pool, schema); err != nil {
 		return err
 	}
 	return nil
+}
+
+func backfillBeanListPublicationSummaryMetadata(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	for {
+		tag, err := pool.Exec(ctx, fmt.Sprintf(`WITH pending AS (
+			SELECT id,config_json,content_json
+			FROM %s.bean_list_publications
+			WHERE status<>'deleted' AND publication_summary_ready=false
+			ORDER BY id
+			LIMIT 500
+		)
+		UPDATE %s.bean_list_publications b
+		SET publication_release_id=COALESCE(p.config_json->'publication_batch'->>'release_id',''),
+		    publication_table_key=COALESCE(p.config_json->'publication_batch'->>'table_key',''),
+		    publication_table_name=COALESCE(p.config_json->'publication_batch'->>'table_name',''),
+		    publication_is_default_table=CASE lower(COALESCE(p.config_json->'publication_batch'->>'is_default_table','true')) WHEN 'false' THEN false ELSE true END,
+		    publication_has_content=(
+		      (jsonb_typeof(p.content_json->'price_rows')='array' AND jsonb_array_length(p.content_json->'price_rows')>0)
+		      OR EXISTS (
+		        SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p.content_json->'groups')='array' THEN p.content_json->'groups' ELSE '[]'::jsonb END) AS g
+		        WHERE jsonb_typeof(g->'items')='array' AND jsonb_array_length(g->'items')>0
+		      )
+		    ),
+		    publication_summary_ready=true
+		FROM pending p
+		WHERE b.id=p.id`, schema, schema))
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() < 500 {
+			return nil
+		}
+	}
 }
 
 func seedParameters(ctx context.Context, pool *pgxpool.Pool, schema string) error {

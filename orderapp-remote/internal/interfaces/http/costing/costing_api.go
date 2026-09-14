@@ -181,11 +181,102 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
+		if strings.TrimSpace(c.QueryParam("view")) == "summary" {
+			page, parseErr := strconv.Atoi(c.QueryParam("page"))
+			if parseErr != nil && c.QueryParam("page") != "" {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid page"})
+			}
+			pageSize, parseErr := strconv.Atoi(c.QueryParam("page_size"))
+			if parseErr != nil && c.QueryParam("page_size") != "" {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid page_size"})
+			}
+			result, summaryErr := svc.ListBeanListPublicationSummaries(c.Request().Context(), appcosting.BeanListPublicationSummaryQuery{BeanListPublicationQuery: query, Status: c.QueryParam("status"), Search: c.QueryParam("search"), Page: page, PageSize: pageSize})
+			if summaryErr != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": summaryErr.Error()})
+			}
+			return c.JSON(http.StatusOK, result)
+		}
 		rows, err := svc.ListBeanListPublications(c.Request().Context(), query)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.GET("/api/costing/bean-list/publications/price-sources", func(c echo.Context) error {
+		query, err := beanListPublicationQueryFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		rows, err := svc.ListBeanListPriceSources(c.Request().Context(), query)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.GET("/api/costing/bean-list/publications/:id", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		}
+		query, err := beanListPublicationQueryFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		row, err := svc.LoadBeanListPublication(c.Request().Context(), query, id)
+		if errors.Is(err, appcosting.ErrBeanListPublicationDeleted) {
+			return c.JSON(http.StatusGone, map[string]string{"error": err.Error()})
+		}
+		if errors.Is(err, appcosting.ErrBeanListPublicationNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		}
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		if row == nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "bean list publication not found"})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/costing/bean-list/publications/delete-preview", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
+		var request struct {
+			IDs      []int64 `json:"ids"`
+			ClearAll bool    `json:"clear_all"`
+		}
+		if err := c.Bind(&request); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		query, err := beanListPublicationQueryFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		result, err := svc.PreviewDeleteBeanListPublications(c.Request().Context(), appcosting.DeleteBeanListPublicationsPreviewCommand{IDs: request.IDs, ClearAll: request.ClearAll, Query: query, Actor: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/costing/bean-list/publications/delete", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
+		var request struct {
+			ConfirmationToken string `json:"confirmation_token"`
+		}
+		if err := c.Bind(&request); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.DeleteBeanListPublications(c.Request().Context(), appcosting.DeleteBeanListPublicationsCommand{ConfirmationToken: request.ConfirmationToken, Actor: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
 	})
 
 	e.POST("/api/costing/bean-list/publications", func(c echo.Context) error {
@@ -433,6 +524,9 @@ func beanListPublicationPDFDownloadURL(cmd appcosting.BeanListPublicationPDFComm
 }
 
 func beanListPDFError(c echo.Context, err error) error {
+	if errors.Is(err, appcosting.ErrBeanListPublicationDeleted) {
+		return c.JSON(http.StatusGone, map[string]string{"error": "bean list publication deleted"})
+	}
 	if errors.Is(err, appcosting.ErrBeanListPublicationNotFound) {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "bean list PDF not found"})
 	}

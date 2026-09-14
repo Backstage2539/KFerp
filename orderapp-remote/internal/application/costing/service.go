@@ -18,6 +18,7 @@ import (
 
 var (
 	ErrBeanListPublicationNotFound       = errors.New("bean list publication not found")
+	ErrBeanListPublicationDeleted        = errors.New("bean list publication deleted")
 	ErrProductPricingRuleNotFound        = errors.New("product pricing rule not found")
 	ErrProductSalesUnitRuleNotFound      = errors.New("product sales unit rule not found")
 	ErrProductSpecIdentityNotFound       = errors.New("product spec identity not found")
@@ -595,6 +596,73 @@ type BeanListPublicationQuery struct {
 	OwnerKey                 string `json:"owner_key,omitempty"`
 }
 
+type BeanListPublicationSummary struct {
+	PublicationTableMetadata
+	ID                         int64  `json:"id"`
+	PublicationPurpose         string `json:"publication_purpose"`
+	ListType                   string `json:"list_type"`
+	ProductTypeCategoryID      int64  `json:"product_type_category_id,omitempty"`
+	ProductTypeName            string `json:"product_type_name,omitempty"`
+	ClassificationTemplateID   int64  `json:"classification_template_id,omitempty"`
+	ClassificationTemplateName string `json:"classification_template_name,omitempty"`
+	ClassificationCategoryID   int64  `json:"classification_category_id,omitempty"`
+	ClassificationCategoryName string `json:"classification_category_name,omitempty"`
+	Version                    string `json:"version"`
+	Status                     string `json:"status"`
+	OwnerType                  string `json:"owner_type"`
+	OwnerKey                   string `json:"owner_key,omitempty"`
+	PriceSourcePublicationID   int64  `json:"price_source_publication_id,omitempty"`
+	StyleSourcePublicationID   int64  `json:"style_source_publication_id,omitempty"`
+	SourceVersion              string `json:"source_version,omitempty"`
+	Changelog                  string `json:"changelog"`
+	HasContent                 bool   `json:"has_content"`
+	PublishedAt                string `json:"published_at,omitempty"`
+	WithdrawnAt                string `json:"withdrawn_at,omitempty"`
+	CreatedAt                  string `json:"created_at,omitempty"`
+}
+
+type BeanListPublicationSummaryQuery struct {
+	BeanListPublicationQuery
+	Status   string `json:"status,omitempty"`
+	Search   string `json:"search,omitempty"`
+	Page     int    `json:"page,omitempty"`
+	PageSize int    `json:"page_size,omitempty"`
+}
+
+type BeanListPublicationSummaryPage struct {
+	Rows             []BeanListPublicationSummary `json:"rows"`
+	Total            int                          `json:"total"`
+	ArchivedTotal    int                          `json:"archived_total"`
+	Page             int                          `json:"page"`
+	PageSize         int                          `json:"page_size"`
+	Current          *BeanListPublicationSummary  `json:"current,omitempty"`
+	SuggestedVersion string                       `json:"suggested_version"`
+}
+
+type DeleteBeanListPublicationsPreviewCommand struct {
+	IDs      []int64                  `json:"ids,omitempty"`
+	ClearAll bool                     `json:"clear_all,omitempty"`
+	Query    BeanListPublicationQuery `json:"-"`
+	Actor    string                   `json:"-"`
+}
+
+type DeleteBeanListPublicationsPreview struct {
+	ConfirmationToken string                       `json:"confirmation_token"`
+	ExpiresAt         string                       `json:"expires_at"`
+	Count             int                          `json:"count"`
+	Rows              []BeanListPublicationSummary `json:"rows"`
+}
+
+type DeleteBeanListPublicationsCommand struct {
+	ConfirmationToken string `json:"confirmation_token"`
+	Actor             string `json:"-"`
+}
+
+type DeleteBeanListPublicationsResult struct {
+	DeletedCount int     `json:"deleted_count"`
+	IDs          []int64 `json:"ids"`
+}
+
 type BeanListPublicationAsset struct {
 	PublicationID int64  `json:"publication_id"`
 	AssetType     string `json:"asset_type"`
@@ -689,6 +757,17 @@ type Repository interface {
 	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
 	ArchiveBeanListPublications(ctx context.Context, cmd ArchiveBeanListPublicationsCommand) error
 	UnarchiveBeanListPublications(ctx context.Context, cmd ArchiveBeanListPublicationsCommand) error
+}
+
+type beanListPublicationSummaryRepository interface {
+	ListBeanListPublicationSummaries(context.Context, BeanListPublicationSummaryQuery) (BeanListPublicationSummaryPage, error)
+	ListBeanListPriceSources(context.Context, BeanListPublicationQuery) ([]BeanListPublication, error)
+	PreviewDeleteBeanListPublications(context.Context, DeleteBeanListPublicationsPreviewCommand) (DeleteBeanListPublicationsPreview, error)
+	DeleteBeanListPublications(context.Context, DeleteBeanListPublicationsCommand) (DeleteBeanListPublicationsResult, error)
+}
+
+type beanListPublicationVersionRepository interface {
+	ListBeanListPublicationVersions(context.Context, BeanListPublicationQuery) ([]BeanListPublication, error)
 }
 
 type productSalesUnitRuleRepository interface {
@@ -3095,6 +3174,65 @@ func (s *Service) ListBeanListPublications(ctx context.Context, query BeanListPu
 	return s.repo.ListBeanListPublications(ctx, normalized)
 }
 
+func (s *Service) ListBeanListPublicationSummaries(ctx context.Context, query BeanListPublicationSummaryQuery) (BeanListPublicationSummaryPage, error) {
+	normalized, err := normalizeBeanListPublicationQuery(query.BeanListPublicationQuery)
+	if err != nil {
+		return BeanListPublicationSummaryPage{}, err
+	}
+	query.BeanListPublicationQuery = normalized
+	query.Status = strings.TrimSpace(query.Status)
+	if query.Status == "" {
+		query.Status = "active"
+	}
+	if query.Status != "active" && query.Status != "archived" {
+		return BeanListPublicationSummaryPage{}, fmt.Errorf("invalid status")
+	}
+	query.Search = strings.TrimSpace(query.Search)
+	if query.Page <= 0 {
+		query.Page = 1
+	}
+	if query.PageSize == 0 {
+		query.PageSize = 10
+	}
+	if query.PageSize != 5 && query.PageSize != 10 && query.PageSize != 20 && query.PageSize != 50 && query.PageSize != 100 {
+		return BeanListPublicationSummaryPage{}, fmt.Errorf("invalid page_size")
+	}
+	repo, ok := s.repo.(beanListPublicationSummaryRepository)
+	if !ok {
+		return BeanListPublicationSummaryPage{Rows: []BeanListPublicationSummary{}, Page: query.Page, PageSize: query.PageSize}, nil
+	}
+	return repo.ListBeanListPublicationSummaries(ctx, query)
+}
+
+func (s *Service) LoadBeanListPublication(ctx context.Context, query BeanListPublicationQuery, publicationID int64) (*BeanListPublication, error) {
+	if publicationID <= 0 {
+		return nil, fmt.Errorf("invalid id")
+	}
+	normalized, err := normalizeBeanListPublicationQuery(query)
+	if err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	return s.repo.LoadBeanListPublication(ctx, normalized, publicationID)
+}
+
+func (s *Service) ListBeanListPriceSources(ctx context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error) {
+	normalized, err := normalizeBeanListPublicationQuery(query)
+	if err != nil {
+		return nil, err
+	}
+	if normalized.OwnerType != "customer" {
+		return nil, fmt.Errorf("customer scope required")
+	}
+	repo, ok := s.repo.(beanListPublicationSummaryRepository)
+	if !ok {
+		return []BeanListPublication{}, nil
+	}
+	return repo.ListBeanListPriceSources(ctx, normalized)
+}
+
 func (s *Service) PublishedBeanList(ctx context.Context, query BeanListPublicationQuery) (*BeanListPublication, error) {
 	normalized, err := normalizeBeanListPublicationQuery(query)
 	if err != nil {
@@ -3218,14 +3356,21 @@ func (s *Service) applyNextBeanListPublicationVersion(ctx context.Context, cmd *
 	if s.repo == nil || cmd == nil {
 		return nil
 	}
-	rows, err := s.repo.ListBeanListPublications(ctx, BeanListPublicationQuery{
+	query := BeanListPublicationQuery{
 		ListType:                 cmd.ListType,
 		PublicationPurpose:       cmd.PublicationPurpose,
 		ProductTypeCategoryID:    cmd.ProductTypeCategoryID,
 		ClassificationTemplateID: cmd.ClassificationTemplateID,
 		OwnerType:                cmd.OwnerType,
 		OwnerKey:                 cmd.OwnerKey,
-	})
+	}
+	var rows []BeanListPublication
+	var err error
+	if versionRepo, ok := s.repo.(beanListPublicationVersionRepository); ok {
+		rows, err = versionRepo.ListBeanListPublicationVersions(ctx, query)
+	} else {
+		rows, err = s.repo.ListBeanListPublications(ctx, query)
+	}
 	if err != nil {
 		return err
 	}
@@ -5545,6 +5690,48 @@ func (s *Service) UnarchiveBeanListPublications(ctx context.Context, cmd Archive
 		return fmt.Errorf("repository required")
 	}
 	return s.repo.UnarchiveBeanListPublications(ctx, normalized)
+}
+
+func (s *Service) PreviewDeleteBeanListPublications(ctx context.Context, cmd DeleteBeanListPublicationsPreviewCommand) (DeleteBeanListPublicationsPreview, error) {
+	query, err := normalizeBeanListPublicationQuery(cmd.Query)
+	if err != nil {
+		return DeleteBeanListPublicationsPreview{}, err
+	}
+	cmd.Query = query
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		return DeleteBeanListPublicationsPreview{}, fmt.Errorf("actor required")
+	}
+	seen := map[int64]bool{}
+	ids := make([]int64, 0, len(cmd.IDs))
+	for _, id := range cmd.IDs {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	cmd.IDs = ids
+	if cmd.ClearAll == (len(cmd.IDs) > 0) {
+		return DeleteBeanListPublicationsPreview{}, fmt.Errorf("provide ids or clear_all")
+	}
+	repo, ok := s.repo.(beanListPublicationSummaryRepository)
+	if !ok {
+		return DeleteBeanListPublicationsPreview{}, fmt.Errorf("repository required")
+	}
+	return repo.PreviewDeleteBeanListPublications(ctx, cmd)
+}
+
+func (s *Service) DeleteBeanListPublications(ctx context.Context, cmd DeleteBeanListPublicationsCommand) (DeleteBeanListPublicationsResult, error) {
+	cmd.ConfirmationToken = strings.TrimSpace(cmd.ConfirmationToken)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ConfirmationToken == "" || cmd.Actor == "" {
+		return DeleteBeanListPublicationsResult{}, fmt.Errorf("confirmation_token and actor required")
+	}
+	repo, ok := s.repo.(beanListPublicationSummaryRepository)
+	if !ok {
+		return DeleteBeanListPublicationsResult{}, fmt.Errorf("repository required")
+	}
+	return repo.DeleteBeanListPublications(ctx, cmd)
 }
 
 func normalizeArchiveBeanListPublicationsCommand(cmd ArchiveBeanListPublicationsCommand) (ArchiveBeanListPublicationsCommand, error) {

@@ -185,6 +185,12 @@ func beanListBatchHasContent(content map[string]any) bool {
 	return false
 }
 
+// BeanListPublicationHasContent reports whether a saved publication contains
+// at least one price row that can be rendered or downloaded.
+func BeanListPublicationHasContent(content map[string]any) bool {
+	return beanListBatchHasContent(content)
+}
+
 func validateBeanListBatchPrices(cmd PublishBeanListCommand) error {
 	if rows, ok := cmd.Content["price_rows"].([]any); ok && len(rows) > 0 {
 		for i, raw := range rows {
