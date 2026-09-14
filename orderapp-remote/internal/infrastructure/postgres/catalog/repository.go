@@ -336,10 +336,10 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6,
-		    product_kind=$7, drip_bag_grams=$8, drip_box_bag_count=$9, allow_fulfillment_order=$10, allow_mall_order=$11,
+		    product_kind=$7, drip_bag_grams=$8, drip_box_bag_count=$9, allow_fulfillment_order=$10, allow_mall_order=$11, is_processing_product=$17,
 		    green_bean_type=$12, green_bean_bom_product_id=$13, remark=$14, name=COALESCE(NULLIF($15,''), name),
 		    special_attrs_json=$16::jsonb
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON); err != nil {
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON, cmd.IsProcessingProduct); err != nil {
 		return err
 	}
 	if catalogdomain.ProductKindSupportsBomParams(productKind) && yieldRate > 0 {
@@ -383,6 +383,7 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	meta["drip_box_bag_count"] = cmd.DripBoxBagCount
 	meta["allow_fulfillment_order"] = cmd.AllowFulfillmentOrder
 	meta["allow_mall_order"] = cmd.AllowMallOrder
+	meta["is_processing_product"] = cmd.IsProcessingProduct
 	meta["sales_units"] = cmd.SalesUnits
 	meta["green_bean_type"] = greenBeanType
 	meta["green_bean_bom"] = greenBeanBomProductID
@@ -501,13 +502,13 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		INSERT INTO %s.products(
 			name, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
-			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
+			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order, is_processing_product,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
 			special_attrs_json, unit_rule_override_json, unit_template_id, created_at
 		)
-		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,$14::bigint,0,CASE WHEN $14::bigint>0 THEN 'customer_only' ELSE 'public' END,'',$15,$16,$17::jsonb,$18::jsonb,$19,now())
+		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::bigint,0,CASE WHEN $15::bigint>0 THEN 'customer_only' ELSE 'public' END,'',$16,$17,$18::jsonb,$19::jsonb,$20,now())
 		RETURNING id
-	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, cmd.CustomerID, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
+	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, cmd.IsProcessingProduct, cmd.CustomerID, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 	if err := postgresproductspecmigration.PrepareNewProductTx(ctx, tx, r.schema, productID, cmd.Actor); err != nil {
@@ -548,6 +549,7 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		"drip_box_bag_count":      cmd.DripBoxBagCount,
 		"allow_fulfillment_order": cmd.AllowFulfillmentOrder,
 		"allow_mall_order":        cmd.AllowMallOrder,
+		"is_processing_product":   cmd.IsProcessingProduct,
 		"sales_units":             cmd.SalesUnits,
 		"green_bean_type":         greenBeanType,
 		"green_bean_bom":          greenBeanBomProductID,
@@ -601,14 +603,14 @@ func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductC
 		INSERT INTO %s.products(
 			name, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
-			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
+			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order, is_processing_product,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
 			special_attrs_json, created_at
 		)
 		SELECT
 			$2, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
-			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
+			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order, is_processing_product,
 			0, 0, 'public', '', green_bean_type, green_bean_bom_product_id,
 			'{}'::jsonb, now()
 		FROM %s.products
@@ -5638,6 +5640,7 @@ func fetchCatalogProductByIDTx(ctx context.Context, tx pgx.Tx, schema string, pr
 		COALESCE(drip_box_bag_count, 10),
 		COALESCE(allow_fulfillment_order, true),
 		COALESCE(allow_mall_order, false),
+		COALESCE(is_processing_product, false),
 		COALESCE(retail_price_100g, 0), COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0), COALESCE(retail_price_250g, 0),
 		COALESCE((SELECT yield_rate FROM %[1]s.product_bom WHERE product_id=products.id), 0.8),
@@ -5650,7 +5653,7 @@ func fetchCatalogProductByIDTx(ctx context.Context, tx pgx.Tx, schema string, pr
 		COALESCE(unit_rule_override_json::text,'{}'),
 		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=products.id),0),
 		COALESCE((SELECT NULLIF(status,'') FROM %[1]s.product_bom WHERE product_id=products.id), 'missing')
-		FROM %[1]s.products WHERE id=$1`, schema), productID).Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus)
+		FROM %[1]s.products WHERE id=$1`, schema), productID).Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.IsProcessingProduct, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus)
 	if err != nil {
 		return catalogapp.Product{}, err
 	}
@@ -7519,6 +7522,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		COALESCE(drip_box_bag_count, 10),
 		COALESCE(allow_fulfillment_order, true),
 		COALESCE(allow_mall_order, false),
+		COALESCE(is_processing_product, false),
 		COALESCE(retail_price_100g, 0), COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0), COALESCE(retail_price_250g, 0),
 		COALESCE((SELECT yield_rate FROM %[1]s.product_bom WHERE product_id=products.id), 0.8),
@@ -7539,7 +7543,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		COALESCE(product_config_template_id,0),
 		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=products.id),0),
 		COALESCE((SELECT NULLIF(status,'') FROM %[1]s.product_bom WHERE product_id=products.id), 'missing')
-		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.ClassificationTemplateID, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.InventoryUnit, &p.IntegerInventoryUnit, &p.ProductConfigTemplateID, &p.BomItemCount, &p.BomStatus)
+		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.IsProcessingProduct, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.ClassificationTemplateID, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.InventoryUnit, &p.IntegerInventoryUnit, &p.ProductConfigTemplateID, &p.BomItemCount, &p.BomStatus)
 	if err != nil {
 		return nil, nil
 	}
@@ -7556,6 +7560,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
 	out := catalogapp.Product{ID: p.ID, SKUID: p.SKUID, ParentProductID: p.ParentProductID, EffectiveParentProductID: p.EffectiveParentProductID, SKUName: p.SKUName, SKUCode: p.SKUCode, Barcode: p.Barcode, SpecLabel: p.SpecLabel, NetContentQty: p.NetContentQty, NetContentUnit: p.NetContentUnit, IsDefaultSKU: p.IsDefaultSKU, DefaultSKUID: p.DefaultSKUID, EffectiveDefaultSKUID: p.EffectiveDefaultSKUID, DefaultSpecLabel: p.DefaultSpecLabel, AutoDerivedSKU: p.AutoDerivedSKU, DerivedUnitTemplateID: p.DerivedUnitTemplateID, DerivedSpecKey: p.DerivedSpecKey, DerivedSpecName: p.DerivedSpecName, DerivedSalesUnit: p.DerivedSalesUnit, DerivedSpecStatus: p.DerivedSpecStatus, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, ClassificationTemplateID: p.ClassificationTemplateID, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, InventoryUnit: p.InventoryUnit, IntegerInventoryUnit: p.IntegerInventoryUnit, DefaultSalesUnit: p.DefaultSalesUnit, UnitConversionJSON: p.UnitConversionJSON, SalesUnitRulesJSON: p.SalesUnitRulesJSON, UnitTemplateID: p.UnitTemplateID, UnitTemplateName: p.UnitTemplateName, UnitRuleSource: p.UnitRuleSource, ProductConfigTemplateID: p.ProductConfigTemplateID, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount, SpecIdentityMode: p.SpecIdentityMode, BomSpecAuthoritative: p.BomSpecAuthoritative, MigrationState: p.MigrationState, LegacyCatalogProduct: p.LegacyCatalogProduct}
+	out.IsProcessingProduct = p.IsProcessingProduct
 	out.BOMSpecs = make([]catalogapp.BOMSpecOption, 0, len(p.BOMSpecs))
 	for _, spec := range p.BOMSpecs {
 		out.BOMSpecs = append(out.BOMSpecs, catalogapp.BOMSpecOption{ProductID: spec.ProductID, BomID: spec.BomID, BomVersionID: spec.BomVersionID, BomVersionNo: spec.BomVersionNo, BomSpecID: spec.BomSpecID, BomVariantID: spec.BomVariantID, SpecCode: spec.SpecCode, Barcode: spec.Barcode, SpecKey: spec.SpecKey, SpecName: spec.SpecName, InventoryUnit: spec.InventoryUnit, IsDefault: spec.IsDefault, SortOrder: spec.SortOrder})

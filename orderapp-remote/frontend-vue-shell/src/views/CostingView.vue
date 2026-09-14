@@ -973,6 +973,7 @@
           <div class="section-bar"><strong>本版本的价格表</strong><button class="secondary compact" type="button" @click="addNamedPriceTable(false)">新增价格表</button></div>
           <div v-for="table in namedPriceTableBatch.tables" :key="table.key" class="named-price-table-config-row">
             <label class="named-default"><input v-model="namedPriceTableBatch.default_table_key" type="radio" :value="table.key" name="default-price-table" />默认价格表</label>
+            <label class="named-default"><input v-model="table.direct_ship_enabled" type="checkbox" />适用于一件代发</label>
             <input v-model="table.name" :aria-label="`价格表名称 ${table.key}`" placeholder="例如：227g价格表" />
             <div class="actions">
               <button class="secondary compact" type="button" @click="selectNamedPriceTable(table.key)">{{ table.key === namedPriceTableBatch.active_table_key ? '当前编辑' : '编辑此表' }}</button>
@@ -5402,7 +5403,7 @@ async function saveNamedPriceTableBatch(publish) {
   const batch = clonePriceTable(namedPriceTableBatch.value)
   const common = beanListPublicationPayload()
   const payload = { ...common, version: batch.version, changelog: batch.changelog, default_table_key: batch.default_table_key,
-    tables: batch.tables.map(table => ({ key: table.key, name: table.name.trim(), config: table.payload?.config || {}, content: table.payload?.content || {},
+    tables: batch.tables.map(table => ({ key: table.key, name: table.name.trim(), direct_ship_enabled: Boolean(table.direct_ship_enabled), config: table.payload?.config || {}, content: table.payload?.content || {},
       price_source_publication_id: table.payload?.price_source_publication_id || 0, style_source_publication_id: table.payload?.style_source_publication_id || 0, source_version: table.payload?.source_version || '' })) }
   beanListPublishing.value = true; error.value = ''; message.value = ''
   try {
@@ -5424,7 +5425,7 @@ watch([activePriceListTypeKey, activeBeanListCustomerID, publicationScope, loadi
 }, { flush: 'post' })
 watch([priceListDisplayOrder, pdfOptions, pdfCustomizers, priceListTemplateDefaults, priceListParentTemplateSelections, priceListGroupTemplateSelections,
   priceListProductTemplateOverrides, priceListFlatRowOverrides, priceListTierFixedPrices, customerPriceConfiguredSources, pdfProductSpecSelections, pdfGroups], persistNamedPriceTableBatch, { deep: true, flush: 'post' })
-watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name])]), () => {
+watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name, table.direct_ship_enabled])]), () => {
   if (!restoringNamedPriceTable && namedPriceTableBatch.value) savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
 })
 

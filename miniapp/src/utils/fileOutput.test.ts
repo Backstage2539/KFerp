@@ -65,6 +65,17 @@ describe('shareDownloadedMiniappFile', () => {
     expect(calls).toEqual(['pdf:true'])
   })
 
+  it('opens Excel statements with the system document viewer when sharing is unavailable', async () => {
+    const calls: string[] = []
+    await shareDownloadedMiniappFile({ filePath: '/tmp/customer-statement.xlsx', kind: 'xlsx' }, {
+      openDocument: (options) => {
+        calls.push(`${options.fileType}:${String(options.showMenu)}`)
+        options.success?.({ errMsg: 'ok' })
+      },
+    })
+    expect(calls).toEqual(['xlsx:true'])
+  })
+
   it('passes the global miniapp entrance setting to image sharing', async () => {
     const shared: Array<{ path: string; needShowEntrance?: boolean }> = []
     await shareDownloadedMiniappFile({

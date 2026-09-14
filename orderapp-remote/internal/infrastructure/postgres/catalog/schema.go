@@ -30,6 +30,7 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_bag_grams NUMERIC(12,3)
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_box_bag_count INT;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_fulfillment_order BOOLEAN;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_mall_order BOOLEAN;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS is_processing_product BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS gradient_template_id_override BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS operation_template_id_override BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb;
@@ -72,6 +73,7 @@ DROP INDEX IF EXISTS %[1]s.products_name_key;
 CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(customer_id, visibility, active);
 CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id);
 CREATE INDEX IF NOT EXISTS products_kind_active_idx ON %[1]s.products(product_kind, active);
+CREATE INDEX IF NOT EXISTS products_processing_customer_idx ON %[1]s.products(is_processing_product, customer_id, active) WHERE is_processing_product=true;
 	CREATE INDEX IF NOT EXISTS products_classification_template_idx ON %[1]s.products(classification_template_id, active);
 	CREATE INDEX IF NOT EXISTS products_unit_template_idx ON %[1]s.products(unit_template_id, active);
 	CREATE INDEX IF NOT EXISTS products_parent_product_idx ON %[1]s.products(parent_product_id, active, id);

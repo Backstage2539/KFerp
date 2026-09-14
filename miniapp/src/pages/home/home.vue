@@ -6,7 +6,13 @@ import {
   defaultMiniappTimelineShare,
   refreshMiniappShareMenu,
 } from '../../utils/miniappShare'
-import { fetchMe } from '../../api/customerPortal'
+import {
+  fetchCustomerAccount,
+  fetchCustomerAssetInventory,
+  fetchDirectShipRequests,
+  fetchMe,
+  fetchProcessingRequests,
+} from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
@@ -25,6 +31,8 @@ const {
 } = usePullUpBrandGesture()
 const loading = ref(false)
 const errorMessage = ref('')
+const overviewLoading = ref(false)
+const overviewMetrics = ref<Array<{ key: string; label: string; value: string; hint: string; url: string }>>([])
 
 const entries = computed(() => visibleHomeEntries(session.capabilities))
 const employeeEntries = [
@@ -47,6 +55,44 @@ function openEntry(url: string) {
   uni.navigateTo({ url })
 }
 
+function capabilityEnabled(code: string): boolean {
+  return session.capabilities.some((item) => item.code === code && item.enabled)
+}
+
+async function loadCustomerOverview() {
+  if (session.accountType === 'employee' || !session.token) { overviewMetrics.value = []; return }
+  overviewLoading.value = true
+  const jobs: Array<Promise<{ key: string; label: string; value: string; hint: string; url: string }>> = []
+  if (capabilityEnabled('direct_ship') || capabilityEnabled('processing')) jobs.push(
+    fetchDirectShipRequests(session.token, { page: 1, limit: 50 }).then((result) => {
+      const pending = (result.rows || []).filter((item) => !['shipped', 'delivered', 'cancelled'].includes(item.status)).length
+      return { key: 'orders', label: '待处理订单', value: String(pending), hint: '查看生产与发货', url: '/pages/service/service?key=orders' }
+    }),
+  )
+  if (capabilityEnabled('processing')) jobs.push(
+    fetchProcessingRequests(session.token).then((result) => ({
+      key: 'processing', label: '生产进度',
+      value: String((result.rows || []).filter((item) => !['completed', 'cancelled'].includes(item.status)).length),
+      hint: '待排产及生产中', url: '/pages/service/service?key=processing',
+    })),
+  )
+  if (capabilityEnabled('inventory_custody') || capabilityEnabled('processing')) jobs.push(
+    fetchCustomerAssetInventory(session.token).then((result) => ({
+      key: 'inventory', label: '客户库存', value: String((result.rows || []).length), hint: '项客户货权库存', url: '/pages/service/service?key=inventory',
+    })),
+  )
+  if (capabilityEnabled('settlement')) jobs.push(
+    fetchCustomerAccount(session.token, { period: 'month', page: 1, limit: 1 }).then((result) => ({
+      key: 'settlement', label: '待对账',
+      value: String((result.settlements || []).filter((item) => item.reconciliation_status !== 'confirmed').length),
+      hint: `未付 ¥${(Number(result.summary?.due_cents || 0) / 100).toFixed(2)}`, url: '/pages/service/service?key=settlement',
+    })),
+  )
+  const results = await Promise.allSettled(jobs)
+  overviewMetrics.value = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
+  overviewLoading.value = false
+}
+
 async function loadContext() {
   if (!session.token) {
     uni.reLaunch({ url: '/pages/index/index' })
@@ -59,6 +105,7 @@ async function loadContext() {
   try {
     const response = await fetchMe(session.token)
     session.applyContext(response)
+    await loadCustomerOverview()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
     session.clearSession()
@@ -101,9 +148,17 @@ onShow(() => { void refreshMiniappShareMenu() })
       <text>{{ errorMessage }}</text>
     </view>
 
-    <view v-else-if="visibleEntries.length" class="grid">
+    <view v-else-if="visibleEntries.length">
+      <view v-if="overviewMetrics.length" class="overview-grid">
+        <view v-for="metric in overviewMetrics" :key="metric.key" class="metric" @tap="openEntry(metric.url)">
+          <text class="metric-label">{{ metric.label }}</text><text class="metric-value">{{ metric.value }}</text><text class="metric-hint">{{ metric.hint }}</text>
+        </view>
+      </view>
+      <text v-else-if="overviewLoading" class="overview-loading">业务摘要加载中...</text>
+      <view class="grid">
       <view v-for="entry in visibleEntries" :key="entry.key" class="entry" hover-class="entry-pressed" @tap="openEntry(entry.url)">
         <text class="entry-label">{{ entry.label }}</text>
+      </view>
       </view>
     </view>
 
@@ -196,6 +251,9 @@ onShow(() => { void refreshMiniappShareMenu() })
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20rpx;
 }
+.overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14rpx; margin-bottom: 24rpx; }
+.metric { display: flex; flex-direction: column; gap: 8rpx; padding: 20rpx; border: 1rpx solid #e5ddd2; border-radius: 14rpx; background: #fff; }
+.metric-label,.metric-hint { color: #666; font-size: 22rpx; }.metric-value { color: #2b2118; font-size: 38rpx; font-weight: 900; }.overview-loading { display:block; margin-bottom:20rpx; color:#666; font-size:24rpx; }
 
 .entry {
   min-height: 168rpx;

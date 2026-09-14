@@ -1649,6 +1649,11 @@
                 <input :value="productProductionBomSpecsSummary" disabled />
                 <small>规格统一来自默认制造 BOM 的规格组，到 BOM 维护；商品档案不再单独选择规格模板。</small>
               </label>
+              <label class="checkline wide-field">
+                <input v-model="productProductionConfigForm.is_processing_product" type="checkbox" />
+                <span>是否代加工商品</span>
+                <small>开启后，归属客户且生产配置完整时才会出现在客户小程序“新建工单”目录中；规格沿用商品档案标记。</small>
+              </label>
             </div>
             <div class="sales-spec-template-detail bom-spec-readonly-panel">
               <div class="sales-spec-template-detail-head">

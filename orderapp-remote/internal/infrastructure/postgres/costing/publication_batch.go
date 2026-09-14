@@ -115,7 +115,7 @@ func (r Repository) insertBeanListBatchTable(ctx context.Context, tx pgx.Tx, cmd
 	if status == "published" {
 		action = "publish"
 	}
-	err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &row.ID, action, postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), postgresinfra.AuditMeta{"release_id": row.ReleaseID, "table_key": row.TableKey, "table_name": row.TableName, "is_default_table": row.IsDefaultTable, "version": row.Version, "owner_type": row.OwnerType, "owner_key": row.OwnerKey, "publication_purpose": row.PublicationPurpose, "list_type": row.ListType, "product_type_category_id": row.ProductTypeCategoryID, "classification_template_id": row.ClassificationTemplateID})
+	err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &row.ID, action, postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), postgresinfra.AuditMeta{"release_id": row.ReleaseID, "table_key": row.TableKey, "table_name": row.TableName, "is_default_table": row.IsDefaultTable, "direct_ship_enabled": row.DirectShipEnabled, "version": row.Version, "owner_type": row.OwnerType, "owner_key": row.OwnerKey, "publication_purpose": row.PublicationPurpose, "list_type": row.ListType, "product_type_category_id": row.ProductTypeCategoryID, "classification_template_id": row.ClassificationTemplateID})
 	return row, err
 }
 

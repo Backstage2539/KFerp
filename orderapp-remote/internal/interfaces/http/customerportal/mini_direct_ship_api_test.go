@@ -20,6 +20,7 @@ type miniCustomerFulfillmentFake struct {
 	catalogQuery      customerfulfillmentapp.MiniDirectShipCatalogQuery
 	previewCmd        customerfulfillmentapp.MiniDirectShipCommand
 	submitCmd         customerfulfillmentapp.MiniDirectShipCommand
+	submitErr         error
 	listQuery         customerfulfillmentapp.MiniDirectShipListQuery
 	listResult        customerfulfillmentapp.MiniDirectShipListResult
 	listErr           error
@@ -35,6 +36,10 @@ type miniCustomerFulfillmentFake struct {
 	batchBomSpecID    int64
 	batchBomVariantID int64
 	batchSpecG        int64
+	accountQuery      customerfulfillmentapp.AccountQuery
+	confirmCmd        customerfulfillmentapp.ConfirmCustomerStatementCommand
+	disputeCmd        customerfulfillmentapp.CreateCustomerStatementDisputeCommand
+	replyCmd          customerfulfillmentapp.ReplyCustomerStatementDisputeCommand
 }
 
 func (f *miniCustomerFulfillmentFake) MiniDirectShipCatalog(_ context.Context, query customerfulfillmentapp.MiniDirectShipCatalogQuery) (customerfulfillmentapp.MiniDirectShipCatalog, error) {
@@ -52,6 +57,9 @@ func (f *miniCustomerFulfillmentFake) PreviewMiniDirectShip(_ context.Context, c
 func (f *miniCustomerFulfillmentFake) SubmitMiniDirectShip(_ context.Context, cmd customerfulfillmentapp.MiniDirectShipCommand) (customerfulfillmentapp.MiniDirectShipRequest, error) {
 	f.calls++
 	f.submitCmd = cmd
+	if f.submitErr != nil {
+		return customerfulfillmentapp.MiniDirectShipRequest{}, f.submitErr
+	}
 	return customerfulfillmentapp.MiniDirectShipRequest{ID: 71, RequestNo: "DSR-71", Status: "reserved", Items: cmd.Items}, nil
 }
 
@@ -104,6 +112,40 @@ func (f *miniCustomerFulfillmentFake) ListCustomerCentralInventoryBatches(_ cont
 	return []customerfulfillmentapp.CustomerInventoryBatch{{BatchID: 9, ProductID: query.ProductID, BomSpecID: query.BomSpecID, BomVariantID: query.BomVariantID, SpecG: query.SpecG}}, nil
 }
 
+func (f *miniCustomerFulfillmentFake) ListCustomerAssetInventory(_ context.Context, query customerfulfillmentapp.CustomerAssetInventoryQuery) ([]customerfulfillmentapp.CustomerAssetInventory, error) {
+	f.calls++
+	return []customerfulfillmentapp.CustomerAssetInventory{{InventoryType: "green_bean", ItemID: 31, ItemName: "客户生豆", Unit: "kg", AvailableQty: 12.5}}, nil
+}
+
+func (f *miniCustomerFulfillmentFake) ListCustomerAssetInventoryLedger(_ context.Context, query customerfulfillmentapp.CustomerAssetInventoryLedgerQuery) ([]customerfulfillmentapp.CustomerAssetInventoryLedgerEntry, error) {
+	f.calls++
+	return []customerfulfillmentapp.CustomerAssetInventoryLedgerEntry{{ID: 41, QuantityDelta: 2.5, Unit: "kg"}}, nil
+}
+
+func (f *miniCustomerFulfillmentFake) CustomerAccount(_ context.Context, query customerfulfillmentapp.AccountQuery) (customerfulfillmentapp.AccountData, error) {
+	f.calls++
+	f.accountQuery = query
+	return customerfulfillmentapp.AccountData{CustomerName: "测试客户", DateFrom: query.DateFrom, DateTo: query.DateTo}, nil
+}
+
+func (f *miniCustomerFulfillmentFake) ConfirmCustomerStatement(_ context.Context, cmd customerfulfillmentapp.ConfirmCustomerStatementCommand) (customerfulfillmentapp.AccountSettlement, error) {
+	f.calls++
+	f.confirmCmd = cmd
+	return customerfulfillmentapp.AccountSettlement{ID: cmd.SettlementID, StatementRevision: cmd.StatementRevision, ReconciliationStatus: "confirmed"}, nil
+}
+
+func (f *miniCustomerFulfillmentFake) CreateCustomerStatementDispute(_ context.Context, cmd customerfulfillmentapp.CreateCustomerStatementDisputeCommand) (customerfulfillmentapp.AccountStatementDispute, error) {
+	f.calls++
+	f.disputeCmd = cmd
+	return customerfulfillmentapp.AccountStatementDispute{ID: 81, SettlementID: cmd.SettlementID, FeeItemID: cmd.FeeItemID, StatementRevision: cmd.StatementRevision, Reason: cmd.Reason, Status: "open"}, nil
+}
+
+func (f *miniCustomerFulfillmentFake) ReplyCustomerStatementDispute(_ context.Context, cmd customerfulfillmentapp.ReplyCustomerStatementDisputeCommand) (customerfulfillmentapp.AccountStatementDispute, error) {
+	f.calls++
+	f.replyCmd = cmd
+	return customerfulfillmentapp.AccountStatementDispute{ID: cmd.DisputeID, Reply: cmd.Reply, Status: cmd.Status}, nil
+}
+
 func TestMiniDirectShipSubmitBindsCurrentCustomerAndIdempotencyHeader(t *testing.T) {
 	fulfillment := &miniCustomerFulfillmentFake{}
 	e := echo.New()
@@ -116,6 +158,7 @@ func TestMiniDirectShipSubmitBindsCurrentCustomerAndIdempotencyHeader(t *testing
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/mini/direct-ship/requests", strings.NewReader(`{
 		"recipient_name":"张三","recipient_phone":"13800138000","detail_address":"咖啡路 8 号",
+		"price_quote_token":"quote-1",
 		"items":[{"product_id":911,"spec_g":1000,"qty":2}]
 	}`))
 	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
@@ -132,9 +175,40 @@ func TestMiniDirectShipSubmitBindsCurrentCustomerAndIdempotencyHeader(t *testing
 	if fulfillment.submitCmd.IdempotencyKey != "mini-ds-unique" || fulfillment.submitCmd.Actor != "mini_employee:19" {
 		t.Fatalf("idempotency/actor = %q/%q", fulfillment.submitCmd.IdempotencyKey, fulfillment.submitCmd.Actor)
 	}
+	if fulfillment.submitCmd.PriceQuoteToken != "quote-1" {
+		t.Fatalf("price quote token = %q", fulfillment.submitCmd.PriceQuoteToken)
+	}
 	var body customerfulfillmentapp.MiniDirectShipRequest
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.ID != 71 {
 		t.Fatalf("body=%s err=%v", rec.Body.String(), err)
+	}
+}
+
+func TestMiniDirectShipSubmitMapsChangedPriceQuoteToConflict(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{submitErr: customerfulfillmentapp.ErrMiniDirectShipPriceChanged}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+			MiniUserID: 17, EmployeeID: 19, CurrentCustomerID: 9,
+			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityDirectShip, Enabled: true}},
+		}},
+		CustomerFulfillment: fulfillment,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/direct-ship/requests", strings.NewReader(`{
+		"recipient_name":"张三","recipient_phone":"13800138000","detail_address":"咖啡路 8 号",
+		"price_quote_token":"stale-quote",
+		"items":[{"product_id":911,"spec_g":1000,"qty":2}]
+	}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set("Idempotency-Key", "mini-ds-price-changed")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), customerfulfillmentapp.ErrMiniDirectShipPriceChanged.Error()) {
+		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
 
@@ -418,5 +492,63 @@ func TestMiniClosedLoopRetiresLegacyMiniDirectShipWrites(t *testing.T) {
 	e.ServeHTTP(orderRec, orderReq)
 	if orderRec.Code != http.StatusGone {
 		t.Fatalf("legacy direct order status=%d body=%s", orderRec.Code, orderRec.Body.String())
+	}
+}
+
+func TestMiniCustomerAccountBindsCurrentCustomerAndERPPeriod(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+			MiniUserID: 17, CurrentCustomerID: 9,
+			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilitySettlement, Enabled: true}},
+		}},
+		CustomerFulfillment: fulfillment,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/customer-account?customer_id=999&period=month&anchor=2026-09-14&page=2&limit=10", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if fulfillment.accountQuery.CustomerID != 9 || fulfillment.accountQuery.DateFrom != "2026-09-01" || fulfillment.accountQuery.DateTo != "2026-09-30" {
+		t.Fatalf("account query=%#v", fulfillment.accountQuery)
+	}
+}
+
+func TestMiniCustomerAccountConfirmationAndDisputeBindIdentityAndRevision(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+			MiniUserID: 17, EmployeeName: "客户操作员", CurrentCustomerID: 9,
+			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilitySettlement, Enabled: true}},
+		}},
+		CustomerFulfillment: fulfillment,
+	})
+
+	confirmReq := httptest.NewRequest(http.MethodPost, "/api/mini/customer-account/settlements/31/confirm", strings.NewReader(`{"statement_revision":"revision-1"}`))
+	confirmReq.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	confirmReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	confirmRec := httptest.NewRecorder()
+	e.ServeHTTP(confirmRec, confirmReq)
+	if confirmRec.Code != http.StatusOK {
+		t.Fatalf("confirm status=%d body=%s", confirmRec.Code, confirmRec.Body.String())
+	}
+	if fulfillment.confirmCmd.CustomerID != 9 || fulfillment.confirmCmd.SettlementID != 31 || fulfillment.confirmCmd.StatementRevision != "revision-1" || fulfillment.confirmCmd.MiniUserID != 17 {
+		t.Fatalf("confirm cmd=%#v", fulfillment.confirmCmd)
+	}
+
+	disputeReq := httptest.NewRequest(http.MethodPost, "/api/mini/customer-account/settlements/31/disputes", strings.NewReader(`{"statement_revision":"revision-1","fee_item_id":7,"reason":"运费不符"}`))
+	disputeReq.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	disputeReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	disputeRec := httptest.NewRecorder()
+	e.ServeHTTP(disputeRec, disputeReq)
+	if disputeRec.Code != http.StatusCreated {
+		t.Fatalf("dispute status=%d body=%s", disputeRec.Code, disputeRec.Body.String())
+	}
+	if fulfillment.disputeCmd.CustomerID != 9 || fulfillment.disputeCmd.SettlementID != 31 || fulfillment.disputeCmd.FeeItemID != 7 || fulfillment.disputeCmd.Reason != "运费不符" {
+		t.Fatalf("dispute cmd=%#v", fulfillment.disputeCmd)
 	}
 }

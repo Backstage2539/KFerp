@@ -3,8 +3,11 @@ package customerportal
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
+
+	customerportalapp "orderapp/internal/application/customerportal"
 )
 
 func TestAuthoritativeProcessingTargetSpecG(t *testing.T) {
@@ -22,6 +25,27 @@ func TestAuthoritativeProcessingTargetSpecG(t *testing.T) {
 		if got := authoritativeProcessingTargetSpecG(tc.qty, tc.unit, tc.label); got != tc.want {
 			t.Fatalf("authoritative spec %v%s/%q = %d, want %d", tc.qty, tc.unit, tc.label, got, tc.want)
 		}
+	}
+}
+
+func TestProcessingRequestSubmissionDoesNotReserveMaterials(t *testing.T) {
+	src, err := os.ReadFile("processing_requests.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	if strings.Contains(body, "INSERT INTO %s.customer_processing_material_reservations") {
+		t.Fatal("customer processing submission must not reserve materials before scheduling")
+	}
+	if strings.Contains(body, "ProcessingMaterialsUnavailableError{Preview: prepared.Preview}") {
+		t.Fatal("material shortage must not reject a valid processing demand")
+	}
+	productGate, err := os.ReadFile("business_repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(productGate), "is_processing_product") {
+		t.Fatal("processing catalog must require the ERP-managed processing product flag")
 	}
 }
 
@@ -101,6 +125,33 @@ INSERT INTO %s.warehouses(code,kind,customer_id,is_default,sort_order) VALUES
 	}
 	if _, err := resolve(); err == nil || !strings.Contains(err.Error(), "configured warehouse") {
 		t.Fatalf("invalid explicit raw warehouse error = %v", err)
+	}
+}
+
+func TestProcessingRequestIdempotencyUsesStableBOMSpecAndDetectsChangedQuantity(t *testing.T) {
+	base := customerportalapp.CreateProcessingRequestCommand{
+		Items: []customerportalapp.ProcessingRequestItemCommand{{ProductID: 700, BomSpecID: 501, BomVariantID: 801, Qty: 2}},
+		Note:  "客户申请", ExpectedCompletionDate: "2026-09-30",
+	}
+	first, err := processingRequestHash(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.Items[0].BomVariantID = 802
+	second, err := processingRequestHash(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("same stable BOM spec changed request hash: %s != %s", first, second)
+	}
+	base.Items[0].Qty++
+	changed, err := processingRequestHash(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == first {
+		t.Fatal("changed quantity must not reuse the original request hash")
 	}
 }
 

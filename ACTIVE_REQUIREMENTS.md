@@ -5338,3 +5338,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development release 6df328eb203ef124043c4e06456d2f31c67c5a21 completed; source rollback /opt/stacks/erp/orderapp.backup.deploy-20260912212752-6df328eb203e; this follow-up records delivery evidence and tracking status only.
 - Evidence: orderapp-remote/docs/acceptance/2026-09-12-production-scheduling-staff.md; Go all packages, real PostgreSQL lifecycle, Vue 1203/1203 and build passed. Six screenshot categories captured; native unsaved-confirm dismissal and subsequent click QA limited by browser automation.
 - Notes: reservation selected PR-655; macOS awk multiline placeholder failed, reserved manually before implementation.
+
+### PR-663-CUSTOMER-MINIAPP-ERP-INTEGRATION
+- Branch: `codex/customer-miniapp-erp-integration-20260914`; baseline `origin/develop@2ad3ac75256dd6b207abd68d4e94c3811aa84be3`.
+- Owner/session: Codex / 2026-09-14.
+- Status: implementation and RED/GREEN verified; latest-develop integration and development deployment pending.
+- Scope: 客户小程序一件代发、代加工工单、客户货权库存、订单物流和统一账单与 ERP 现有价格、订单、生产、库存、应收和结算链路适配。
+- DEV:
+  - DEV-676-DIRECT-SHIP-PRICE-ORDER：价格表标记与客户稳定绑定；小程序目录服务端报价；提交防篡价、防重复并进入共享系统订单链路。
+  - DEV-677-PROCESSING-DEMAND：商品档案代加工标记；客户隔离目录；缺料可提交、申请时不预留；待排产和部分完工进度回传。
+  - DEV-678-CUSTOMER-ASSET-INVENTORY：按客户货权展示成品、生豆、包材和半成品，分单位显示可用、占用、质量、批次与流水，生产中独立展示。
+  - DEV-679-SHIPPING-TRACE：发货中心按系统订单展示商品、生产进度、部分发货、多包裹、运单及已有物流轨迹，无轨迹时显示未获取。
+  - DEV-680-CUSTOMER-STATEMENT：商品货款、加工费、代发服务费和运费按来源去重；PDF/Excel 下载、确认对账、异议及 ERP 回复；确认不改变付款状态。
+  - DEV-681-MINIAPP-UX-DOCS-DELIVERY：首页、发货、费用、生产、库存和个人中心统一标题、空态、首屏与摘要；同步操作手册、验收证据并部署 development。
+- Verifier: `bash scripts/verify_pr663_customer_miniapp_erp.sh`; targeted RED/GREEN; PDF/Excel render/content checks; development data walkthrough and smoke.
+- Delivery: merge to `develop` and deploy development only after all gates pass; production and WeChat upload/review/publish excluded.

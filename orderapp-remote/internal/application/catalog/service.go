@@ -53,6 +53,7 @@ type Product struct {
 	DripBoxBagCount             int
 	AllowFulfillmentOrder       bool
 	AllowMallOrder              bool
+	IsProcessingProduct         bool
 	SalesUnits                  []string
 	DefaultPrice                float64
 	RetailPrice100G             float64
@@ -405,6 +406,7 @@ type ProductSettingsProduct struct {
 	DripBoxBagCount             int             `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder       bool            `json:"allow_fulfillment_order"`
 	AllowMallOrder              bool            `json:"allow_mall_order"`
+	IsProcessingProduct         bool            `json:"is_processing_product"`
 	SalesUnits                  []string        `json:"sales_units"`
 	DefaultPrice                float64         `json:"default_price"`
 	RetailPrice100G             float64         `json:"retail_price_100g"`
@@ -763,6 +765,7 @@ type UpdateProductBasicsCommand struct {
 	DripBoxBagCount             int
 	AllowFulfillmentOrder       bool
 	AllowMallOrder              bool
+	IsProcessingProduct         bool
 	SalesUnits                  []string
 	RetailPrice100G             float64
 	RetailPrice200G             float64
@@ -802,6 +805,7 @@ type CreateProductCommand struct {
 	AllowFulfillmentOrder    bool
 	AllowFulfillmentOrderSet bool
 	AllowMallOrder           bool
+	IsProcessingProduct      bool
 	SalesUnits               []string
 	DefaultPrice             float64
 	RetailPrice100G          float64
@@ -4269,6 +4273,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		DripBoxBagCount:             dripBoxBagCount,
 		AllowFulfillmentOrder:       p.AllowFulfillmentOrder,
 		AllowMallOrder:              p.AllowMallOrder,
+		IsProcessingProduct:         p.IsProcessingProduct,
 		SalesUnits:                  salesUnits,
 		DefaultPrice:                p.DefaultPrice,
 		RetailPrice100G:             p.RetailPrice100G,

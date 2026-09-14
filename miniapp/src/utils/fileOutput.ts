@@ -1,6 +1,6 @@
 import { buildAPIURL, MiniRequestError } from '../api/client'
 
-export type MiniappFileOutputKind = 'pdf' | 'png'
+export type MiniappFileOutputKind = 'pdf' | 'png' | 'xlsx'
 
 type MiniappCallbackResult = { errMsg?: string }
 
@@ -111,9 +111,16 @@ export async function shareDownloadedMiniappFile(
   options: { filePath: string; fileName?: string; kind: MiniappFileOutputKind; needShowEntrance?: boolean },
   platform: MiniappSharePlatform,
 ): Promise<void> {
-  if (options.kind === 'pdf') {
+  if (options.kind === 'pdf' || options.kind === 'xlsx') {
     if (!platform.shareFileMessage) {
-      await openDownloadedPDF(options.filePath, platform)
+      if (!platform.openDocument) throw new Error('当前微信版本无法打开文件')
+      await invokeMiniappCallback((success, fail) => platform.openDocument?.({
+        filePath: options.filePath,
+        fileType: options.kind,
+        showMenu: true,
+        success,
+        fail,
+      }))
       return
     }
     try {
@@ -124,7 +131,14 @@ export async function shareDownloadedMiniappFile(
         fail,
       }))
     } catch {
-      await openDownloadedPDF(options.filePath, platform)
+      if (options.kind === 'pdf') await openDownloadedPDF(options.filePath, platform)
+      else if (platform.openDocument) await invokeMiniappCallback((success, fail) => platform.openDocument?.({
+        filePath: options.filePath,
+        fileType: 'xlsx',
+        showMenu: true,
+        success,
+        fail,
+      }))
     }
     return
   }
@@ -220,7 +234,7 @@ export function shareMiniappFileOutput(options: {
           }, currentSharePlatform())
         } catch {
           uni.showToast({
-            title: options.kind === 'pdf' ? '分享失败，请从 PDF 菜单转发' : '分享失败，请从图片预览转发',
+            title: options.kind === 'png' ? '分享失败，请从图片预览转发' : '分享失败，请从文件菜单转发',
             icon: 'none',
           })
         } finally {
@@ -263,12 +277,12 @@ export function openMiniappFileOutput(options: {
           uni.showToast({ title: '文件暂不可用', icon: 'none' })
           return
         }
-        if (options.kind === 'pdf') {
+        if (options.kind === 'pdf' || options.kind === 'xlsx') {
           uni.openDocument({
             filePath: res.tempFilePath,
-            fileType: 'pdf',
+            fileType: options.kind,
             showMenu: true,
-            fail: () => uni.showToast({ title: 'PDF 打开失败', icon: 'none' }),
+            fail: () => uni.showToast({ title: '文件打开失败', icon: 'none' }),
           })
           return
         }

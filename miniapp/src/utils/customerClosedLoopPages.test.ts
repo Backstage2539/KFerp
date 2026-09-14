@@ -10,7 +10,7 @@ describe('customer closed-loop miniapp pages', () => {
   it('keeps direct ship to one new-shipment flow and reuses the shared recipient parser', () => {
     const page = source('src/components/CustomerDirectShipPanel.vue')
 
-    expect(page).toContain('新建发货')
+    expect(page).toContain('一件代发下单')
     expect(page).toContain('parseEmployeeCustomerRecipient')
     expect(page).toContain('粘贴收货信息')
     expect(page).toContain('createDirectShipRequest')
@@ -26,6 +26,10 @@ describe('customer closed-loop miniapp pages', () => {
     expect(page).toContain('line.bom_spec_id')
     expect(page).toContain('item.bom_spec_id')
     expect(page).toContain('inventory_unit')
+    expect(page).toContain('price_tables')
+    expect(page).toContain('订单金额')
+    expect(page).toContain('ERP 将按现有订单生产流程补货')
+    expect(page).toContain('暂未获取物流轨迹')
     expect(page).not.toContain('新建代发批次')
     expect(page).not.toContain('导入代发地址')
     expect(page).not.toContain('现货商品')
@@ -36,6 +40,8 @@ describe('customer closed-loop miniapp pages', () => {
 
     expect(page).toContain('CustomerProductSelector')
     expect(page).toContain('previewProcessingRequest')
+    expect(page).toContain('idempotency_key')
+    expect(page).toContain('newProcessingIdempotencyKey')
     expect(page).toContain('mergeProcessingTargetLines')
     expect(page).toContain('最大可生产')
     expect(page).toContain('客户库存')
@@ -52,36 +58,37 @@ describe('customer closed-loop miniapp pages', () => {
     expect(page).not.toContain('新建发货订单')
   })
 
-  it('opens central inventory batches in a separate page and prefills production requests', () => {
+  it('shows owned finished, green, packaging and semi-finished assets with batches and ledger', () => {
     const list = source('src/components/CustomerInventoryPanel.vue')
-    const detail = source('src/pages/customer-inventory-detail/customer-inventory-detail.vue')
 
-    expect(list).toContain('fetchCustomerInventory')
-    expect(list).toContain('customerInventoryDetailPath')
-    expect(list).toContain('生成生产工单')
-    expect(list).not.toContain('fetchCustomerInventoryBatches')
-    expect(detail).toContain('fetchCustomerInventoryBatches')
-    expect(detail).toContain('生产日期')
-    expect(detail).toContain('入库时间')
-    expect(detail).toContain('历史库存，暂无生产日期')
-    expect(detail).toContain('添加生产工单')
-    expect(detail).toContain('processingPrefill.stage')
-    expect(detail).toContain('bomSpecID')
-    expect(detail).toContain('bomVariantID')
-    expect(detail).toContain('inventoryUnit')
+    expect(list).toContain('fetchCustomerAssetInventory')
+    expect(list).toContain('fetchCustomerAssetInventoryLedger')
+    expect(list).toContain("key: 'finished_product'")
+    expect(list).toContain("key: 'green_bean'")
+    expect(list).toContain("key: 'packaging'")
+    expect(list).toContain("key: 'semi_finished'")
+    expect(list).toContain('可用')
+    expect(list).toContain('占用')
+    expect(list).toContain('生产中')
+    expect(list).toContain('库存批次')
+    expect(list).toContain('出入库流水')
+    expect(list).toContain('processingPrefill.stage')
   })
 
-  it('shows only pushed processing bills and opens snapshotted bill details', () => {
+  it('shows unified ERP account statements with downloads, reconciliation and disputes', () => {
     const page = source('src/components/CustomerBillsPanel.vue')
 
-    expect(page).toContain('fetchCustomerBills')
-    expect(page).toContain('fetchCustomerBillDetail')
-    expect(page).toContain('关联工单')
-    expect(page).toContain('计费数量')
-    expect(page).toContain('单价')
-    expect(page).toContain('billingStatusLabel')
-    expect(page).toContain('billingBasisLabel')
-    expect(page).not.toContain('销售订单')
+    expect(page).toContain('fetchCustomerAccount')
+    expect(page).toContain('confirmCustomerStatement')
+    expect(page).toContain('createCustomerStatementDispute')
+    expect(page).toContain("download('pdf')")
+    expect(page).toContain("download('xlsx')")
+    expect(page).toContain('商品货款')
+    expect(page).toContain('加工费')
+    expect(page).toContain('代发服务费')
+    expect(page).toContain('确认对账')
+    expect(page).toContain('不会改变付款状态')
+    expect(page).toContain('ERP 回复')
   })
 
   it('routes processing customers to a shipment-only fulfillment center', () => {
@@ -96,5 +103,16 @@ describe('customer closed-loop miniapp pages', () => {
     expect(service).toContain('inventory:${session.currentCustomerID}')
     expect(service).not.toContain('closedLoopRefreshKey')
     expect(service).toContain('v-if="!isProcessingCustomer"')
+  })
+
+  it('shows the current customer, ERP business contact, recent recipients and service explanation', () => {
+    const page = source('src/pages/profile/profile.vue')
+
+    expect(page).toContain('客户资料')
+    expect(page).toContain('business_contact_name')
+    expect(page).toContain('fetchDirectShipRequests')
+    expect(page).toContain('常用收件人')
+    expect(page).toContain('服务说明')
+    expect(page).toContain('一件代发按 ERP 指定价格表下单')
   })
 })

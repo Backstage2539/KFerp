@@ -257,6 +257,15 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-675-COSTING-PERFORMANCE-DELIVERY", title: "真实 PostgreSQL 性能验收与开发正式环境交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-14-bean-list-performance.md"},
 		{table: "req_review", code: "REV-662-BEAN-LIST-PERFORMANCE", prCode: "PR-662-BEAN-LIST-PERFORMANCE", title: "验收客户与公共价格表响应速度及结果一致性", status: "todo", assignee: "VA", evidence: "待 Van 在生产商品价格表中验收"},
 
+		{table: "req_product", code: "PR-663-CUSTOMER-MINIAPP-ERP-INTEGRATION", title: "客户小程序一件代发、生产、库存、物流和账单适配现有 ERP", status: "doing", assignee: "VA", evidence: "docs/acceptance/2026-09-14-customer-miniapp-erp-integration.md"},
+		{table: "req_dev", code: "DEV-676-DIRECT-SHIP-PRICE-ORDER", title: "指定代发价格表、服务端报价快照和共享 ERP 订单", status: "done", assignee: "Codex", evidence: "publication_batch_test.go; mini_direct_ship_test.go; mini_direct_ship_api_test.go"},
+		{table: "req_dev", code: "DEV-677-PROCESSING-DEMAND", title: "代加工商品标记、客户目录和缺料可提交待排产需求", status: "done", assignee: "Codex", evidence: "processing_request_authority_test.go; processing_bom_spec_identity_postgres_test.go"},
+		{table: "req_dev", code: "DEV-678-CUSTOMER-ASSET-INVENTORY", title: "客户货权成品、生豆、包材、半成品、批次和流水", status: "done", assignee: "Codex", evidence: "customer_asset_inventory_contract_test.go; CustomerInventoryPanel.vue"},
+		{table: "req_dev", code: "DEV-679-SHIPPING-TRACE", title: "系统订单生产状态、部分发货、多包裹和物流轨迹", status: "done", assignee: "Codex", evidence: "mini_direct_ship.go; CustomerDirectShipPanel.vue"},
+		{table: "req_dev", code: "DEV-680-CUSTOMER-STATEMENT", title: "统一客户账单、PDF Excel、确认对账、异议和 ERP 回复", status: "done", assignee: "Codex", evidence: "account_test.go; customer_account_test.go; CustomerBillsPanel.vue"},
+		{table: "req_dev", code: "DEV-681-MINIAPP-UX-DOCS-DELIVERY", title: "客户小程序页面收口、手册、验收和 development 交付", status: "doing", assignee: "Codex", evidence: "OP_MANUAL_CUSTOMER_FULFILLMENT.md; acceptance pending"},
+		{table: "req_review", code: "REV-663-CUSTOMER-MINIAPP-ERP-INTEGRATION", prCode: "PR-663-CUSTOMER-MINIAPP-ERP-INTEGRATION", title: "验收代发、代加工、客户库存、物流和统一账单完整业务链路", status: "todo", assignee: "VA", evidence: "待 Van 在 development 使用完整客户数据验收"},
+
 		{table: "req_product", code: "PR-661-PRODUCTION-LOG-WORKSPACE", title: "生产日志统一阅读、查询分页与批次追溯体验", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-13-production-log-workspace.md"},
 		{table: "req_dev", code: "DEV-671-LOG-QUERY", title: "日志日期校验、查询和真实分页", status: "done", assignee: "Codex", evidence: "production_logs_workspace_test.go; production_logs_postgres_test.go"},
 		{table: "req_dev", code: "DEV-672-LOG-WORKSPACE", title: "日志列表详情、单位与窄屏交互", status: "done", assignee: "Codex", evidence: "ProductionLogsView.vue; production-logs-workspace.test.js"},

@@ -4451,6 +4451,21 @@ test('product production config form tolerates newly created products without pr
   assert.deepEqual(form.fields, [])
 })
 
+test('processing product flag stays on the base product production configuration', () => {
+  const form = buildProductProductionConfigForm(null, {
+    id: 812,
+    name: '客户代加工豆',
+    product_kind: 'roasted',
+    is_processing_product: true,
+  })
+  assert.equal(form.is_processing_product, true)
+  assert.equal(buildProductBasicsPayload(form).is_processing_product, true)
+
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  assert.match(source, /v-model="productProductionConfigForm\.is_processing_product"/)
+  assert.match(source, /规格沿用商品档案标记/)
+})
+
 test('SKU settings renders one unified SKU form as a full-width drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 

@@ -10,15 +10,17 @@ import (
 // PublicationTableMetadata is frozen inside config_json.publication_batch.
 // Legacy rows have no batch metadata and remain independent publications.
 type PublicationTableMetadata struct {
-	ReleaseID      string `json:"release_id,omitempty"`
-	TableKey       string `json:"table_key,omitempty"`
-	TableName      string `json:"table_name,omitempty"`
-	IsDefaultTable bool   `json:"is_default_table"`
+	ReleaseID         string `json:"release_id,omitempty"`
+	TableKey          string `json:"table_key,omitempty"`
+	TableName         string `json:"table_name,omitempty"`
+	IsDefaultTable    bool   `json:"is_default_table"`
+	DirectShipEnabled bool   `json:"direct_ship_enabled"`
 }
 
 type BeanListBatchTable struct {
 	Key                      string         `json:"key"`
 	Name                     string         `json:"name"`
+	DirectShipEnabled        bool           `json:"direct_ship_enabled"`
 	Config                   map[string]any `json:"config"`
 	Content                  map[string]any `json:"content"`
 	PriceSourcePublicationID int64          `json:"price_source_publication_id,omitempty"`
@@ -55,7 +57,7 @@ func BeanListBatchMetadata(config map[string]any) PublicationTableMetadata {
 }
 
 func SetBeanListBatchMetadata(config map[string]any, meta PublicationTableMetadata) {
-	config["publication_batch"] = map[string]any{"release_id": meta.ReleaseID, "table_key": meta.TableKey, "table_name": meta.TableName, "is_default_table": meta.IsDefaultTable}
+	config["publication_batch"] = map[string]any{"release_id": meta.ReleaseID, "table_key": meta.TableKey, "table_name": meta.TableName, "is_default_table": meta.IsDefaultTable, "direct_ship_enabled": meta.DirectShipEnabled}
 }
 
 func copyBeanListMap(source map[string]any) (map[string]any, error) {
@@ -149,7 +151,7 @@ func (s *Service) saveBeanListBatch(ctx context.Context, cmd BeanListBatchComman
 		if err != nil {
 			return nil, fmt.Errorf("价格表「%s」：%w", name, err)
 		}
-		SetBeanListBatchMetadata(item.Config, PublicationTableMetadata{TableKey: strings.TrimSpace(table.Key), TableName: name, IsDefaultTable: strings.TrimSpace(table.Key) == defaultKey})
+		SetBeanListBatchMetadata(item.Config, PublicationTableMetadata{TableKey: strings.TrimSpace(table.Key), TableName: name, IsDefaultTable: strings.TrimSpace(table.Key) == defaultKey, DirectShipEnabled: table.DirectShipEnabled})
 		commands = append(commands, item)
 	}
 	rows, err := repo.SaveBeanListBatch(ctx, commands, publish)

@@ -55,6 +55,7 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		DripBoxBagCount:             p.DripBoxBagCount,
 		AllowFulfillmentOrder:       p.AllowFulfillmentOrder,
 		AllowMallOrder:              p.AllowMallOrder,
+		IsProcessingProduct:         p.IsProcessingProduct,
 		SalesUnits:                  p.SalesUnits,
 		DefaultPrice:                p.DefaultPrice,
 		RetailPrice100G:             p.RetailPrice100G,
