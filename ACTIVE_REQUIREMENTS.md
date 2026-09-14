@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-662-BEAN-LIST-PERFORMANCE
+- Branch: `codex/bean-list-performance-20260914`; base `origin/develop@6ad5b11a`.
+- Owner/session: Codex / 2026-09-14.
+- Status: implementation and predeploy PostgreSQL performance verification complete; development and production delivery pending.
+- Scope: locally disable JIT for the expensive price-list read transaction, materialize BOM unit-cost aggregation once, and scope BOM-spec projection to returned parent products without changing API or UI behavior.
+- DEV: DEV-674-COSTING-QUERY; DEV-675-COSTING-PERFORMANCE-DELIVERY.
+- Verifier: targeted RED/GREEN; costing repository/application/API packages; real PostgreSQL single-connection failure/cancel/concurrency; production-data read-only 20-run customer/public P95; full backend gate before integration.
+- Manual: no update required because the existing refresh controls and user workflow are unchanged.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-14-bean-list-performance.md`.
+
 ### PR-661-PRODUCTION-LOG-WORKSPACE
 - Branch: `codex/production-log-workspace-20260913`; base `origin/develop@0fc27ba5`.
 - Owner: Codex; acceptance Van pending.
