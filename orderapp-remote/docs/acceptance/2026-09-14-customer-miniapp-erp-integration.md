@@ -24,7 +24,7 @@
 - RED：`TestMiniDirectShipCancellationOnlyAllowsLegacyUnshippedReservations` 首次运行因新 ERP 订单取消边界不存在而编译失败；实现后转为 GREEN。
 - RED：客户库存生产中数量契约首次缺少“目标数量减实际入库数量”；实现后转为 GREEN。
 - RED：代加工申请最初没有提交标识，网络重试会生成重复待排产需求；新增客户级防重键、内容摘要和并发锁后转为 GREEN。
-- GREEN：任务验证脚本通过相关 Go 应用、PostgreSQL、API、PDF 与 Excel 包；ERP Vue 1214 项测试全部通过且构建成功；小程序 39 个测试文件、249 项测试全部通过，类型检查及 development 微信包构建成功。合入最新 `develop` 后会再次执行。
+- GREEN：合入最新 `origin/develop@5c48f4e8` 后，任务验证脚本通过相关 Go 应用、PostgreSQL、API、PDF 与 Excel 包；ERP Vue 1218 项测试全部通过且构建成功；小程序 39 个测试文件、249 项测试全部通过，类型检查及 development 微信包构建成功。`scripts/verify_kferp.sh backend` 同步通过全部 Go 包。
 
 真实 PostgreSQL 定向验证使用一次性本机数据库完成：代加工请求覆盖首次写入、同内容重试复用原 ID、变更数量冲突、只有一条待排产需求和一条提交日志；统一账单覆盖订单、独立费用、已付金额、应付金额、客户隔离和分页。旧的无 BOM 规格测试夹具不属于本次新流程，未用它们放宽当前 ERP 的 BOM 规格权威校验。
 

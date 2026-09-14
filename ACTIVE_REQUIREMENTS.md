@@ -5355,7 +5355,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-663-CUSTOMER-MINIAPP-ERP-INTEGRATION
 - Branch: `codex/customer-miniapp-erp-integration-20260914`; baseline `origin/develop@2ad3ac75256dd6b207abd68d4e94c3811aa84be3`.
 - Owner/session: Codex / 2026-09-14.
-- Status: implementation and RED/GREEN verified; latest-develop integration and development deployment pending.
+- Status: implementation, RED/GREEN and latest-develop integration verified; PR merge and development deployment pending.
 - Scope: 客户小程序一件代发、代加工工单、客户货权库存、订单物流和统一账单与 ERP 现有价格、订单、生产、库存、应收和结算链路适配。
 - DEV:
   - DEV-676-DIRECT-SHIP-PRICE-ORDER：价格表标记与客户稳定绑定；小程序目录服务端报价；提交防篡价、防重复并进入共享系统订单链路。
