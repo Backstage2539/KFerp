@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-662-BEAN-LIST-PERFORMANCE
 - Branch: `codex/bean-list-performance-20260914`; base `origin/develop@6ad5b11a`.
 - Owner/session: Codex / 2026-09-14.
-- Status: implementation and predeploy PostgreSQL performance verification complete; development and production delivery pending.
+- Status: implementation, PostgreSQL performance verification, development deployment `a59a8741` and production deployment `47cb515b` complete; Van business acceptance pending.
 - Scope: locally disable JIT for the expensive price-list read transaction, materialize BOM unit-cost aggregation once, and scope BOM-spec projection to returned parent products without changing API or UI behavior.
 - DEV: DEV-674-COSTING-QUERY; DEV-675-COSTING-PERFORMANCE-DELIVERY.
 - Verifier: targeted RED/GREEN; costing repository/application/API packages; real PostgreSQL single-connection failure/cancel/concurrency; production-data read-only 20-run customer/public P95; full backend gate before integration.
