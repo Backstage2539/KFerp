@@ -29,6 +29,11 @@
 
 ## 交付状态
 
-- development：待部署和 API/页面刷新验证。
-- production：待 development 验证通过后部署，保留源码备份和回滚镜像。
+- development：`origin/develop@a59a8741` 已部署。公共表服务端 20 次 P95：首字节 166.18 ms、完整返回 167.23 ms；公网首字节 149.31 ms、完整下载 1,357.64 ms。开发库客户 450 无商品，20 次均返回空列表，完整返回 P95 8.61 ms。公共表 91 项、摘要连续一致；容器重启次数 0，PostgreSQL 健康。
+- production：`origin/main@47cb515b` 已部署。客户 450 服务端 20 次 P95：首字节 104.54 ms、完整返回 105.29 ms；公共表服务端 20 次 P95：首字节 201.43 ms、完整返回 204.07 ms，均达到 P95 不超过 1 秒目标。
+- 生产公网 20 次：客户 450 首字节 P95 93.42 ms、完整下载 P95 98.23 ms；公共表首字节 P95 421.70 ms、完整下载 P95 2,324.27 ms。公共表完整下载包含约 314 项响应传输时间，服务端计算仍为 204.07 ms。
+- 结果一致性：客户 450 保持 9 项且均为“曲奇”，公共表保持 314 项且“曲奇”9 条规格；部署前后完整响应摘要分别保持 `51f6e61d04e60951ba7958a3265571ee4ff89c38fb8e0f7fbc7710e5613e008a` 与 `834635a2872206f6547606d918a4994966cbd1f47fde529bd5f9085b6ced0c20`。
+- 运行状态：生产 `erp_prod_orderapp` 重启次数 0，PostgreSQL 健康且默认 JIT 仍为 `on`，无 `idle in transaction` 连接；应用启动日志无错误。
+- 回滚：development 源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260914132626-a59a87416b8e`，镜像 `kferp-orderapp-rollback:development-20260914132626-a59a87416b8e`；production 源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20260914133705-47cb515b832e`，镜像 `kferp-orderapp-rollback:production-20260914133705-47cb515b832e`。
 - 操作手册：无变化；沿用“刷新商品和规格”“刷新价格”。
+- 业务验收：待 Van 在生产商品价格表完成最终确认。
