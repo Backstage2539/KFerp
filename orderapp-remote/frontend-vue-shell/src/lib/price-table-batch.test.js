@@ -57,6 +57,7 @@ test('price-table editor places configuration directly before batch publication 
   assert.match(template, /该类别的商品下单价格表/)
   assert.match(source, /customer-order-price-table-bindings/)
   assert.match(source, /expected_revision/)
+  assert.match(source, /import \{[^}]*\breactive\b[^}]*\} from 'vue'/)
   assert.match(source, /direct_ship_enabled: Boolean\(table\.direct_ship_enabled\)/)
   assert.match(source, /bean-list\/publication-batches/)
 })
