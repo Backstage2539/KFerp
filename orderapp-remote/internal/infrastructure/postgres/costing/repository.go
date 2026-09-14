@@ -29,6 +29,36 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
 }
 
+func (r Repository) queryCostingReadRows(ctx context.Context, query string, args []any, scan func(pgx.Rows) error) error {
+	if r.pool == nil {
+		return fmt.Errorf("repository pool required")
+	}
+	if scan == nil {
+		return fmt.Errorf("row scanner required")
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(ctx, "SET LOCAL jit = off"); err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if err := scan(rows); err != nil {
+		return err
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func uniquePositiveInt64s(values []int64) []int64 {
 	seen := make(map[int64]struct{}, len(values))
 	out := make([]int64, 0, len(values))
@@ -1900,7 +1930,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			WHERE p.active = true
 			GROUP BY p.id
 		),
-		bom_unit_cost AS (
+		bom_unit_cost AS MATERIALIZED (
 			SELECT p.id AS product_id,
 			       COALESCE(SUM(CASE
 			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') = 'g_per_bag'
@@ -2448,124 +2478,123 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			GROUP BY p.id, p.parent_product_id, p.sku_name, p.sku_code, p.barcode, p.derived_spec_key, p.spec_label, p.net_content_qty, p.net_content_unit, p.is_default_sku, parent_product.id, parent_product.default_sku_id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, p.process_route_id, product_process_route.name, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, p.auto_derived_sku, p.derived_sales_unit, parent_units.parent_inventory_unit, derived_sku_units.derived_sku_unit_factor, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, product_unit_template.inventory_unit, product_unit_template.quote_unit, product_unit_template.order_unit, product_unit_template.unit_conversion_json, product_unit_template.integer_unit, product_unit_template_default_spec.spec_key, product_unit_template_default_spec.spec_name, product_unit_template_default_spec.sales_unit, product_unit_template_default_spec.net_content_qty, product_unit_template_default_spec.net_content_unit, product_unit_template_default_spec.unit_conversion_json, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.customer_id, cpro.product_subtype_category_id, cpro.price_list_rule_json, cpro.unit_rule_json, pps.product_price_snapshots_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, current_bom.id, current_bom.status, current_bv.id, current_bv.version_no, current_bv.yield_rate, current_bv.special_attrs_json, current_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
-	rows, err := r.pool.Query(ctx, q, customerID, scopedProductIDs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	out := make([]domain.ProductInput, 0)
 	templateIDs := map[int64]bool{}
 	templateIDByProduct := map[int64]int64{}
-	for rows.Next() {
-		var input domain.ProductInput
-		var roastLevel string
-		var fallbackYield float64
-		var gradientTemplateID int64
-		var productPriceSnapshotsJSON string
-		if err := rows.Scan(
-			&input.ProductID,
-			&input.SKUID,
-			&input.ParentProductID,
-			&input.EffectiveParentProductID,
-			&input.SKUName,
-			&input.SKUCode,
-			&input.Barcode,
-			&input.SpecKey,
-			&input.SpecLabel,
-			&input.NetContentQty,
-			&input.NetContentUnit,
-			&input.IsDefaultSKU,
-			&input.DefaultSKUID,
-			&input.Name,
-			&input.ProductCode,
-			&input.ProductName,
-			&input.CustomerProductAliasID,
-			&input.CustomerProductDisplayName,
-			&input.CustomerItemCode,
-			&input.BrandName,
-			&input.DisplayCategoryID,
-			&input.DisplayCategoryName,
-			&input.ClassificationTemplateID,
-			&input.ClassificationTemplateName,
-			&input.ClassificationCategoryID,
-			&input.ClassificationCategoryName,
-			&input.BeanListTemplateName,
-			&roastLevel,
-			&input.SpecialAttrsJSON,
-			&input.CustomerID,
-			&input.BaseProductID,
-			&input.Visibility,
-			&input.CustomType,
-			&input.ProductKind,
-			&input.DripBagGrams,
-			&input.DripBoxBagCount,
-			&input.ProductCategoryID,
-			&input.ProductCategoryPosition,
-			&input.ProductTypeCategoryID,
-			&input.ProductSubtypeCategoryID,
-			&input.CategoryPrimaryName,
-			&input.CategoryPrimaryPosition,
-			&input.CategorySecondaryName,
-			&input.CategorySecondaryPosition,
-			&gradientTemplateID,
-			&input.OperationTemplateID,
-			&input.ProcessRouteID,
-			&input.ProcessRouteName,
-			&input.PriceListRuleJSON,
-			&input.SpecialAttrsSchemaJSON,
-			&input.InventoryUnit,
-			&input.QuoteUnit,
-			&input.OrderUnit,
-			&input.UnitConversionJSON,
-			&input.IntegerUnit,
-			&productPriceSnapshotsJSON,
-			&input.MarginRateOverride,
-			&fallbackYield,
-			&input.GreenBeanCostPerKg,
-			&input.BomCostPerUnit,
-			&input.OperationCostPerUnit,
-			&input.OperationCostPerKg,
-			&input.Flavor,
-			&input.Origin,
-			&input.ProcessingStation,
-			&input.Variety,
-			&input.ProcessMethod,
-			&input.Grade,
-			&input.Altitude,
-			&input.BeanListNote,
-			&input.BomStatus,
-			&input.BomVersionID,
-			&input.BomVersionNo,
-			&input.BomUsageMode,
-			&input.BeanListQuality.FactoryFlavorDescription,
-			&input.BeanListQuality.Moisture,
-			&input.BeanListQuality.Density,
-			&input.BeanListQuality.InspectionCreatedAt,
-			&input.BeanListQuality.InspectionReferenceNo,
-		); err != nil {
-			return nil, err
+	err := r.queryCostingReadRows(ctx, q, []any{customerID, scopedProductIDs}, func(rows pgx.Rows) error {
+		for rows.Next() {
+			var input domain.ProductInput
+			var roastLevel string
+			var fallbackYield float64
+			var gradientTemplateID int64
+			var productPriceSnapshotsJSON string
+			if err := rows.Scan(
+				&input.ProductID,
+				&input.SKUID,
+				&input.ParentProductID,
+				&input.EffectiveParentProductID,
+				&input.SKUName,
+				&input.SKUCode,
+				&input.Barcode,
+				&input.SpecKey,
+				&input.SpecLabel,
+				&input.NetContentQty,
+				&input.NetContentUnit,
+				&input.IsDefaultSKU,
+				&input.DefaultSKUID,
+				&input.Name,
+				&input.ProductCode,
+				&input.ProductName,
+				&input.CustomerProductAliasID,
+				&input.CustomerProductDisplayName,
+				&input.CustomerItemCode,
+				&input.BrandName,
+				&input.DisplayCategoryID,
+				&input.DisplayCategoryName,
+				&input.ClassificationTemplateID,
+				&input.ClassificationTemplateName,
+				&input.ClassificationCategoryID,
+				&input.ClassificationCategoryName,
+				&input.BeanListTemplateName,
+				&roastLevel,
+				&input.SpecialAttrsJSON,
+				&input.CustomerID,
+				&input.BaseProductID,
+				&input.Visibility,
+				&input.CustomType,
+				&input.ProductKind,
+				&input.DripBagGrams,
+				&input.DripBoxBagCount,
+				&input.ProductCategoryID,
+				&input.ProductCategoryPosition,
+				&input.ProductTypeCategoryID,
+				&input.ProductSubtypeCategoryID,
+				&input.CategoryPrimaryName,
+				&input.CategoryPrimaryPosition,
+				&input.CategorySecondaryName,
+				&input.CategorySecondaryPosition,
+				&gradientTemplateID,
+				&input.OperationTemplateID,
+				&input.ProcessRouteID,
+				&input.ProcessRouteName,
+				&input.PriceListRuleJSON,
+				&input.SpecialAttrsSchemaJSON,
+				&input.InventoryUnit,
+				&input.QuoteUnit,
+				&input.OrderUnit,
+				&input.UnitConversionJSON,
+				&input.IntegerUnit,
+				&productPriceSnapshotsJSON,
+				&input.MarginRateOverride,
+				&fallbackYield,
+				&input.GreenBeanCostPerKg,
+				&input.BomCostPerUnit,
+				&input.OperationCostPerUnit,
+				&input.OperationCostPerKg,
+				&input.Flavor,
+				&input.Origin,
+				&input.ProcessingStation,
+				&input.Variety,
+				&input.ProcessMethod,
+				&input.Grade,
+				&input.Altitude,
+				&input.BeanListNote,
+				&input.BomStatus,
+				&input.BomVersionID,
+				&input.BomVersionNo,
+				&input.BomUsageMode,
+				&input.BeanListQuality.FactoryFlavorDescription,
+				&input.BeanListQuality.Moisture,
+				&input.BeanListQuality.Density,
+				&input.BeanListQuality.InspectionCreatedAt,
+				&input.BeanListQuality.InspectionReferenceNo,
+			); err != nil {
+				return err
+			}
+			input.ProductTypeName = input.CategoryPrimaryName
+			input.ProductSubtypeName = input.CategorySecondaryName
+			if gradientTemplateID > 0 {
+				templateIDs[gradientTemplateID] = true
+				templateIDByProduct[input.ProductID] = gradientTemplateID
+			}
+			_ = roastLevel
+			input.ProductPriceSnapshots = productPriceSnapshotsFromJSON(productPriceSnapshotsJSON)
+			input.YieldRate = 1
+			input.ExpectedLossRate = 0
+			if strings.TrimSpace(input.BomStatus) == "inactive" {
+				input.Warnings = append(input.Warnings, "BOM已失效：请重新启用 BOM 后再发布价格策略")
+			}
+			input = domain.ApplyExcelCommercialPricingProfile(params, input)
+			out = append(out, input)
 		}
-		input.ProductTypeName = input.CategoryPrimaryName
-		input.ProductSubtypeName = input.CategorySecondaryName
-		if gradientTemplateID > 0 {
-			templateIDs[gradientTemplateID] = true
-			templateIDByProduct[input.ProductID] = gradientTemplateID
-		}
-		_ = roastLevel
-		input.ProductPriceSnapshots = productPriceSnapshotsFromJSON(productPriceSnapshotsJSON)
-		input.YieldRate = 1
-		input.ExpectedLossRate = 0
-		if strings.TrimSpace(input.BomStatus) == "inactive" {
-			input.Warnings = append(input.Warnings, "BOM已失效：请重新启用 BOM 后再发布价格策略")
-		}
-		input = domain.ApplyExcelCommercialPricingProfile(params, input)
-		out = append(out, input)
-	}
-	if err := rows.Err(); err != nil {
+		return rows.Err()
+	})
+	if err != nil {
 		return nil, err
 	}
-	rows.Close()
+	if len(out) == 0 {
+		return out, nil
+	}
 	productIDs := make([]int64, 0, len(out))
 	seenProductIDs := map[int64]bool{}
 	for _, input := range out {
@@ -2617,7 +2646,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			}
 		}
 	}
-	cutoverSpecs, err := r.loadCutoverProductBOMSpecs(ctx, scopedProductIDs)
+	cutoverSpecs, err := r.loadCutoverProductBOMSpecs(ctx, productIDs)
 	if err != nil {
 		return nil, err
 	}

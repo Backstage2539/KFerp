@@ -35,6 +35,31 @@ func TestLoadProductInputsDoesNotUsePublishedDefaultPriceAsBeanCost(t *testing.T
 	}
 }
 
+func TestLoadProductInputsBoundsExpensivePriceListWork(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	loadProductInputsIndex := strings.Index(src, "func (r Repository) loadProductInputs")
+	if loadProductInputsIndex < 0 {
+		t.Fatal("missing loadProductInputs")
+	}
+	loadProductInputsSrc := src[loadProductInputsIndex:]
+	for _, want := range []string{
+		"queryCostingReadRows(ctx, q",
+		"bom_unit_cost AS MATERIALIZED (",
+		"loadCutoverProductBOMSpecs(ctx, productIDs)",
+	} {
+		if !strings.Contains(loadProductInputsSrc, want) {
+			t.Fatalf("loadProductInputs must bound expensive price-list work; missing %q", want)
+		}
+	}
+	if strings.Contains(loadProductInputsSrc, "loadCutoverProductBOMSpecs(ctx, scopedProductIDs)") {
+		t.Fatal("loadProductInputs must not load all BOM specifications when no explicit product scope was supplied")
+	}
+}
+
 func TestResolveProductSpecIdentityChecksCurrentParentAndSalesSpecTemplate(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -793,7 +818,7 @@ func TestLoadProductInputsPricesCustomPackagingUnitFromMatchingInventoryUnit(t *
 		t.Fatal(err)
 	}
 	src := string(b)
-	start := strings.Index(src, "bom_unit_cost AS (")
+	start := strings.Index(src, "bom_unit_cost AS MATERIALIZED (")
 	if start < 0 {
 		t.Fatal("bom_unit_cost CTE not found")
 	}
