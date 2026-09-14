@@ -11,7 +11,7 @@
 - Deployment: develop → development → main → production；先保留支持 deleted 状态的兼容回滚版本，生产只读验收，不清理真实归档。
 - Last update: 2026-09-14
 - Evidence: orderapp-remote/docs/acceptance/2026-09-14-publication-summary-cleanup.md
-- Notes: development `e8fcb782`，production 兼容基础版 `2580b99e`，production 最终版 `bc960916`，回滚镜像 `kferp-orderapp-rollback:production-20260914163145-bc960916a136`；生产只读验收未删除归档。每张价格表为独立快照，来源 ID 不构成删除阻断。原工作区保留。reserve_req_id.sh 在 macOS awk 因多行 -v 失败，手动登记其计算结果 PR-663。
+- Notes: 功能版 development `e8fcb782`，production 兼容基础版 `2580b99e`，production 最终功能版 `bc960916`；验收状态同步 development `5c48f4e8`、production `55413e93`。生产回滚镜像 `kferp-orderapp-rollback:production-20260914170318-55413e934237`，兼容基础回滚 `kferp-orderapp-rollback:production-20260914163145-bc960916a136`；生产只读验收未删除归档。每张价格表为独立快照，来源 ID 不构成删除阻断。原工作区保留。reserve_req_id.sh 在 macOS awk 因多行 -v 失败，手动登记其计算结果 PR-663。
 
 Purpose: short-lived coordination for Codex workflows. Keep active requirement ids, branches, verifier commands, deployment ownership, and unresolved blockers here so future sessions do not have to recover this from chat history.
 
