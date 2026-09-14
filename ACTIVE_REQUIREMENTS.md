@@ -3,7 +3,7 @@
 ### PR-663-PUBLICATIONS-SUMMARY-CLEANUP
 - Branch: codex/publications-summary-cleanup-20260914
 - Owner/session: Codex / Van
-- Status: implementation and targeted verification complete; full gates and delivery in progress
+- Status: implementation, full gates, development and production foundation delivery complete; production final delivery in progress
 - Scope: 发布记录摘要分页、按需详情、请求去重；单张/批量/当前归属类型归档永久清理，保留必要版本标识与审计。
 - Verifier: PostgreSQL RED/GREEN、API/权限/原子删除/失效确认、Vue 实际加载流程、完整 backend/frontend、当前及十倍规模真实接口、20 次性能采样。
 - Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md
@@ -11,7 +11,7 @@
 - Deployment: develop → development → main → production；先保留支持 deleted 状态的兼容回滚版本，生产只读验收，不清理真实归档。
 - Last update: 2026-09-14
 - Evidence: orderapp-remote/docs/acceptance/2026-09-14-publication-summary-cleanup.md
-- Notes: 每张价格表为独立快照；来源 ID 不构成删除阻断。原工作区保留。reserve_req_id.sh 在 macOS awk 因多行 -v 失败，手动登记其计算结果 PR-663。
+- Notes: development `e8fcb782`，production 兼容基础版 `2580b99e`；每张价格表为独立快照，来源 ID 不构成删除阻断。原工作区保留。reserve_req_id.sh 在 macOS awk 因多行 -v 失败，手动登记其计算结果 PR-663。
 
 Purpose: short-lived coordination for Codex workflows. Keep active requirement ids, branches, verifier commands, deployment ownership, and unresolved blockers here so future sessions do not have to recover this from chat history.
 
