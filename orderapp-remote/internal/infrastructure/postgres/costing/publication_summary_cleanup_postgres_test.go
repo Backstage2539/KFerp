@@ -89,6 +89,23 @@ func TestPublicationSummaryPaginatesWholeReleaseWithoutSnapshotPayload(t *testin
 	}
 }
 
+func TestPublicationSummaryWithoutClassificationFilter(t *testing.T) {
+	r, ctx := publicationCleanupPostgres(t)
+	insertPublicationForCleanupTest(t, r, ctx, "published", "official", "", 56, "V3.0.1")
+	insertPublicationForCleanupTest(t, r, ctx, "archived", "official", "", 0, "V3.0.2")
+
+	page, err := r.ListBeanListPublicationSummaries(ctx, appcosting.BeanListPublicationSummaryQuery{
+		BeanListPublicationQuery: appcosting.BeanListPublicationQuery{ListType: "commercial", PublicationPurpose: "factory_supply", OwnerType: "official"},
+		Status:                   "active", Page: 1, PageSize: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Rows) != 1 || page.Rows[0].Version != "V3.0.1" || page.ArchivedTotal != 1 {
+		t.Fatalf("page=%+v", page)
+	}
+}
+
 func TestPublicationSummaryMatchesFullRowsSearchesWholeReleaseAndIsolatesCustomers(t *testing.T) {
 	r, ctx := publicationCleanupPostgres(t)
 	for index := 1; index <= 2; index++ {
