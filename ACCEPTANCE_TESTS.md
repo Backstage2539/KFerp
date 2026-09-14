@@ -7,7 +7,8 @@
 - [x] 单张、跨页批量和当前范围清空使用短期确认凭据；删除原子、幂等并保留版本标识与逐表日志。
 - [x] 其他价格表、客户确认和订单冻结内容不受删除影响；已删除表不再列表、选价或恢复，版本号不重用。
 - [x] 真实 PostgreSQL 当前及十倍历史规模摘要响应满足体积和服务端耗时目标。
-- [ ] development 与 production 交付及只读性能复测完成后，由 Van 验收。
+- [x] development 接口、页面与归档删除入口只读验收完成，未执行删除；production 兼容基础版本已部署并保留回滚镜像。
+- [ ] production 最终版、客户 450“曲奇”9 条规格及 20 次性能复测完成后，由 Van 验收。
 
 证据：`orderapp-remote/docs/acceptance/2026-09-14-publication-summary-cleanup.md`。
 
