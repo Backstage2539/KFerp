@@ -35,8 +35,10 @@ func TestCustomerAccountHistorySummaryFeesAndIsolation(t *testing.T) {
  CREATE TABLE %[1]s.order_items(id bigint,order_id bigint,item_name text,spec text,qty numeric,unit text,unit_price numeric,line_total numeric);INSERT INTO %[1]s.order_items VALUES(1,1,'测试豆','3kg',1,'袋',95,95);
  CREATE TABLE %[1]s.customer_settlement_batches(id bigint,customer_id bigint,settlement_no text,period_from date,period_to date,status text,total_amount numeric,confirmed_at timestamptz,paid_at timestamptz,created_at timestamptz);
  INSERT INTO %[1]s.customer_settlement_batches VALUES(1,1,'DRAFT','2026-09-01','2026-09-30','draft',10,null,null,now()),(2,1,'PAID','2026-09-01','2026-09-30','paid',20,now(),now(),now()),(3,2,'SECRET','2026-09-01','2026-09-30','confirmed',900,now(),null,now());
- CREATE TABLE %[1]s.customer_fee_items(id bigint,customer_id bigint,source_type text,source_id bigint,fee_type text,amount numeric,currency text,occurred_at timestamptz,settlement_batch_id bigint,status text);
- INSERT INTO %[1]s.customer_fee_items VALUES(1,1,'order',1,'shipping',10,'CNY','2026-09-09',1,'settled'),(2,1,'import',206,'adjustment',20,'CNY','2026-09-09',2,'settled'),(3,2,'order',206,'shipping',900,'CNY','2026-09-09',3,'unsettled');`, schema))
+ CREATE TABLE %[1]s.customer_fee_items(id bigint,customer_id bigint,source_type text,source_id bigint,fee_type text,note text DEFAULT '',amount numeric,currency text,occurred_at timestamptz,settlement_batch_id bigint,status text);
+ INSERT INTO %[1]s.customer_fee_items(id,customer_id,source_type,source_id,fee_type,amount,currency,occurred_at,settlement_batch_id,status) VALUES(1,1,'order',1,'shipping',10,'CNY','2026-09-09',1,'settled'),(2,1,'import',206,'adjustment',20,'CNY','2026-09-09',2,'settled'),(3,2,'order',206,'shipping',900,'CNY','2026-09-09',3,'unsettled');
+ CREATE TABLE %[1]s.customer_statement_reconciliations(id bigint,customer_id bigint,settlement_id bigint,statement_revision text,status text,confirmed_at timestamptz);
+ CREATE TABLE %[1]s.customer_statement_disputes(id bigint,customer_id bigint,settlement_id bigint,fee_item_id bigint,statement_revision text,reason text,status text,created_at timestamptz,reply text,replied_by text,replied_at timestamptz);`, schema))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +49,7 @@ func TestCustomerAccountHistorySummaryFeesAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(d.Rows) != 205 || d.Summary.TotalCents != 2050000 || d.Summary.PaidCents != 13000 || d.Summary.DueCents != 2037000 {
+	if len(d.Rows) != 205 || d.Summary.TotalCents != 2050000 || d.Summary.PaidCents != 15000 || d.Summary.DueCents != 2037000 {
 		t.Fatalf("summary %+v rows %d", d.Summary, len(d.Rows))
 	}
 	if len(d.Fees) != 2 || len(d.Settlements) != 1 || d.Settlements[0].SettlementNo != "PAID" {

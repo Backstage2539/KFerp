@@ -143,20 +143,23 @@ type SubmitCustomerProcessingWorkOrderCommand struct {
 }
 
 type SubmitCustomerDirectShipOrderCommand struct {
-	EmployeeID      int64
-	CustomerID      int64
-	ReceiverName    string
-	ReceiverPhone   string
-	ReceiverAddress string
-	ReceiverCompany string
-	ShippingAmount  float64
-	ProductID       int64
-	ProductName     string
-	Spec            string
-	QuantityUnits   int64
-	Items           []SubmitCustomerDirectShipOrderItem
-	Note            string
-	Actor           string
+	EmployeeID            int64
+	CustomerID            int64
+	ReceiverName          string
+	ReceiverPhone         string
+	ReceiverAddress       string
+	ReceiverCompany       string
+	ShippingAmount        float64
+	ProductID             int64
+	ProductName           string
+	Spec                  string
+	QuantityUnits         int64
+	Items                 []SubmitCustomerDirectShipOrderItem
+	Note                  string
+	Actor                 string
+	CustomerRequestID     string
+	CustomerRequestHash   string
+	SelectedPriceTableIDs []int64
 }
 
 type SubmitCustomerDirectShipOrderItem struct {
@@ -485,6 +488,7 @@ type Repository interface {
 
 type CustomerSalesService interface {
 	SaveOrder(context.Context, salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error)
+	OrderForm(context.Context, int64) (salesapp.OrderFormData, error)
 }
 
 type Service struct {
@@ -1041,7 +1045,25 @@ func (s *Service) submitSharedSalesOrder(ctx context.Context, cmd SubmitCustomer
 	}
 	today := time.Now()
 	date := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
-	save := salesapp.SaveOrderCommand{CustomerSubmission: external, CustomerID: customerID, Actor: cmd.Actor, DocumentDate: date, OrderDate: date, ReceiverName: cmd.ReceiverName, ReceiverPhone: cmd.ReceiverPhone, ReceiverAddress: cmd.ReceiverAddress, ReceiverCompany: cmd.ReceiverCompany, PortalServiceCode: mode, ShippingAmount: cmd.ShippingAmount, Notes: cmd.Note, RequireCurrentDefaultPublications: true, OrdersScope: "fulfillment"}
+	save := salesapp.SaveOrderCommand{
+		CustomerSubmission:                external || strings.TrimSpace(cmd.CustomerRequestID) != "",
+		CustomerID:                        customerID,
+		CustomerRequestID:                 strings.TrimSpace(cmd.CustomerRequestID),
+		CustomerRequestHash:               strings.TrimSpace(cmd.CustomerRequestHash),
+		SelectedPriceTableIDs:             append([]int64(nil), cmd.SelectedPriceTableIDs...),
+		Actor:                             cmd.Actor,
+		DocumentDate:                      date,
+		OrderDate:                         date,
+		ReceiverName:                      cmd.ReceiverName,
+		ReceiverPhone:                     cmd.ReceiverPhone,
+		ReceiverAddress:                   cmd.ReceiverAddress,
+		ReceiverCompany:                   cmd.ReceiverCompany,
+		PortalServiceCode:                 mode,
+		ShippingAmount:                    cmd.ShippingAmount,
+		Notes:                             cmd.Note,
+		RequireCurrentDefaultPublications: true,
+		OrdersScope:                       "fulfillment",
+	}
 	for _, item := range cmd.Items {
 		if item.ProductID <= 0 {
 			options, err := s.repo.CustomerFulfillmentOptions(ctx, customerID)

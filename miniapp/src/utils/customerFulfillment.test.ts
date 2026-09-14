@@ -4,6 +4,8 @@ import {
   canShowFactoryProductLinks,
   directShipStatusLabel,
   mergeProcessingTargetLines,
+  processingPreviewErrorMessage,
+  processingPreviewValidationError,
   productionStatusLabel,
   productionSubmissionBlockReason,
   scopedFulfillmentProductFamilies,
@@ -87,5 +89,13 @@ describe('customer fulfillment helpers', () => {
     expect(productionStatusLabel('partially_completed')).toBe('部分完成')
     expect(directShipStatusLabel('reserved')).toBe('待发货')
     expect(directShipStatusLabel('partially_shipped')).toBe('部分发货')
+  })
+
+  it('waits for a complete production request before previewing and localizes invalid requests', () => {
+    const validLines = [{ product_id: 911, spec_g: 60000, qty: 1 }]
+    expect(processingPreviewValidationError([], '')).toBe('请选择至少一个目标商品规格')
+    expect(processingPreviewValidationError(validLines, '')).toBe('请填写期望完成日期')
+    expect(processingPreviewValidationError(validLines, '2026-09-30')).toBe('')
+    expect(processingPreviewErrorMessage(new Error('invalid request'))).toBe('BOM 试算请求无效，请检查商品、数量和期望完成日期')
   })
 })

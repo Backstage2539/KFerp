@@ -7,30 +7,28 @@ function source(path: string): string {
 }
 
 describe('customer inventory miniapp pages', () => {
-  it('keeps the inventory list searchable, paginated and multi-selectable across filters', () => {
+  it('keeps customer-owned inventory searchable, typed, traceable and reusable for processing requests', () => {
     const panel = source('src/components/CustomerInventoryPanel.vue')
 
-    expect(panel).toContain('q: query.value')
-    expect(panel).toContain('page: page.value')
-    expect(panel).toContain('limit: pageSize.value')
-    expect(panel).toContain('搜索商品名称')
+    expect(panel).toContain('fetchCustomerAssetInventory(props.token, activeType.value, query.value)')
+    expect(panel).toContain("{ key: 'finished_product', label: '成品' }")
+    expect(panel).toContain("{ key: 'green_bean', label: '生豆' }")
+    expect(panel).toContain("{ key: 'packaging', label: '包材' }")
+    expect(panel).toContain("{ key: 'semi_finished', label: '半成品' }")
+    expect(panel).toContain('搜索名称、编码或规格')
     expect(panel).toContain('@tap.stop="toggleSelection(item)"')
-    expect(panel).toContain("`生成生产工单（${selectedItems.length}）`")
-    expect(panel).toContain('共 {{ totalRows }} 条')
-    expect(panel).toContain('共 {{ totalPages }} 页')
-    expect(panel).toContain('上一页')
-    expect(panel).toContain('下一页')
-    expect(panel).toContain('跳转')
-    expect(panel).toContain('每页')
+    expect(panel).toContain('带入生产工单')
     expect(panel).toContain('processingPrefill.stage')
     expect(panel).toContain('selectedByKey')
     expect(panel).toContain('let loadVersion = 0')
     expect(panel).toContain('if (version !== loadVersion) return')
-    expect(panel).toContain('if (navigating.value) return')
-    expect(panel).toContain(':value="Math.max(0, pageSizeOptions.indexOf(pageSize))"')
-    expect(panel).toContain('customerInventoryDetailPath')
-    expect(panel).not.toContain('fetchCustomerInventoryBatches')
-    expect(panel).not.toContain('v-if="selected"')
+    expect(panel).toContain('if (navigating.value || !selectedItems.value.length) return')
+    expect(panel).toContain('查看批次与流水')
+    expect(panel).toContain('fetchCustomerAssetInventoryLedger')
+    expect(panel).toContain('质量状态')
+    expect(panel).toContain('生产中数量不计入可用库存')
+    expect(panel).not.toContain('上一页')
+    expect(panel).not.toContain('下一页')
   })
 
   it('registers a separate inventory detail page with native stack navigation', () => {

@@ -2,8 +2,13 @@ package customerfulfillment
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	salesapp "orderapp/internal/application/sales"
+	"sort"
 	"strings"
 	"time"
 )
@@ -14,19 +19,23 @@ var (
 	ErrMiniDirectShipRequestNotFound   = errors.New("direct ship request not found")
 	ErrMiniDirectShipIdempotency       = errors.New("idempotency key already used with different request")
 	ErrMiniDirectShipCannotCancel      = errors.New("shipped request cannot be cancelled")
+	ErrMiniDirectShipPriceChanged      = errors.New("direct ship price quote changed")
 )
 
 type MiniDirectShipItemCommand struct {
-	ProductID     int64  `json:"product_id"`
-	BomSpecID     int64  `json:"bom_spec_id,omitempty"`
-	BomVariantID  int64  `json:"bom_variant_id,omitempty"`
-	BomSpecKey    string `json:"bom_spec_key,omitempty"`
-	ProductName   string `json:"product_name,omitempty"`
-	SKUCode       string `json:"sku_code,omitempty"`
-	SpecLabel     string `json:"spec_label,omitempty"`
-	InventoryUnit string `json:"inventory_unit,omitempty"`
-	SpecG         int64  `json:"spec_g"`
-	Qty           int64  `json:"qty"`
+	ProductID     int64   `json:"product_id"`
+	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
+	BomSpecKey    string  `json:"bom_spec_key,omitempty"`
+	ProductName   string  `json:"product_name,omitempty"`
+	SKUCode       string  `json:"sku_code,omitempty"`
+	SpecLabel     string  `json:"spec_label,omitempty"`
+	InventoryUnit string  `json:"inventory_unit,omitempty"`
+	SpecG         int64   `json:"spec_g"`
+	Qty           int64   `json:"qty"`
+	SalesUnit     string  `json:"sales_unit,omitempty"`
+	UnitPrice     float64 `json:"unit_price,omitempty"`
+	LineAmount    float64 `json:"line_amount,omitempty"`
 }
 
 type MiniDirectShipCommand struct {
@@ -34,6 +43,7 @@ type MiniDirectShipCommand struct {
 	EmployeeID       int64                       `json:"-"`
 	MiniUserID       int64                       `json:"-"`
 	IdempotencyKey   string                      `json:"idempotency_key"`
+	PriceQuoteToken  string                      `json:"price_quote_token,omitempty"`
 	RecipientName    string                      `json:"recipient_name"`
 	RecipientPhone   string                      `json:"recipient_phone"`
 	Province         string                      `json:"province,omitempty"`
@@ -58,9 +68,18 @@ type MiniDirectShipCategory struct {
 }
 
 type MiniDirectShipCatalog struct {
-	CurrentCustomerID int64                    `json:"current_customer_id"`
-	Categories        []MiniDirectShipCategory `json:"categories,omitempty"`
-	ProductFamilies   []map[string]any         `json:"product_families"`
+	CurrentCustomerID int64                      `json:"current_customer_id"`
+	Categories        []MiniDirectShipCategory   `json:"categories,omitempty"`
+	ProductFamilies   []map[string]any           `json:"product_families"`
+	PriceTables       []MiniDirectShipPriceTable `json:"price_tables"`
+}
+
+type MiniDirectShipPriceTable struct {
+	ID        int64  `json:"id"`
+	TableKey  string `json:"table_key"`
+	TableName string `json:"table_name"`
+	VersionNo string `json:"version_no"`
+	ListType  string `json:"list_type"`
 }
 
 type MiniDirectShipPreviewWarehouse struct {
@@ -78,23 +97,30 @@ type MiniDirectShipShortage struct {
 }
 
 type MiniDirectShipPreview struct {
-	CanSubmit  bool                             `json:"can_submit"`
-	Warehouses []MiniDirectShipPreviewWarehouse `json:"warehouses"`
-	Shortages  []MiniDirectShipShortage         `json:"shortages,omitempty"`
+	CanSubmit       bool                             `json:"can_submit"`
+	StockReady      bool                             `json:"stock_ready"`
+	TotalAmount     float64                          `json:"total_amount"`
+	PriceQuoteToken string                           `json:"price_quote_token"`
+	PriceTables     []MiniDirectShipPriceTable       `json:"price_tables"`
+	Items           []MiniDirectShipItemCommand      `json:"items"`
+	Warehouses      []MiniDirectShipPreviewWarehouse `json:"warehouses"`
+	Shortages       []MiniDirectShipShortage         `json:"shortages,omitempty"`
 }
 
 type MiniDirectShipPackage struct {
-	ID          int64                         `json:"id"`
-	OrderID     int64                         `json:"order_id"`
-	OrderNo     string                        `json:"order_no"`
-	Warehouse   string                        `json:"warehouse"`
-	Status      string                        `json:"status"`
-	CarrierName string                        `json:"carrier_name,omitempty"`
-	TrackingNo  string                        `json:"tracking_no,omitempty"`
-	ShippedAt   string                        `json:"shipped_at,omitempty"`
-	DeliveredAt string                        `json:"delivered_at,omitempty"`
-	Items       []MiniDirectShipItemCommand   `json:"items,omitempty"`
-	Events      []MiniDirectShipTrackingEvent `json:"events,omitempty"`
+	ID            int64                         `json:"id"`
+	OrderID       int64                         `json:"order_id"`
+	OrderNo       string                        `json:"order_no"`
+	Warehouse     string                        `json:"warehouse"`
+	Status        string                        `json:"status"`
+	ProcessStatus string                        `json:"process_status,omitempty"`
+	ShipStatus    string                        `json:"ship_status,omitempty"`
+	CarrierName   string                        `json:"carrier_name,omitempty"`
+	TrackingNo    string                        `json:"tracking_no,omitempty"`
+	ShippedAt     string                        `json:"shipped_at,omitempty"`
+	DeliveredAt   string                        `json:"delivered_at,omitempty"`
+	Items         []MiniDirectShipItemCommand   `json:"items,omitempty"`
+	Events        []MiniDirectShipTrackingEvent `json:"events,omitempty"`
 }
 
 type MiniDirectShipTrackingEvent struct {
@@ -119,6 +145,24 @@ type MiniDirectShipRequest struct {
 	Packages         []MiniDirectShipPackage     `json:"packages,omitempty"`
 	CreatedAt        string                      `json:"created_at"`
 	Note             string                      `json:"note,omitempty"`
+	OrderID          int64                       `json:"order_id,omitempty"`
+	OrderNo          string                      `json:"order_no,omitempty"`
+	TotalAmount      float64                     `json:"total_amount,omitempty"`
+	PriceTables      []MiniDirectShipPriceTable  `json:"price_tables,omitempty"`
+}
+
+type PreparedMiniDirectShipOrder struct {
+	Command               MiniDirectShipCommand
+	RequestHash           string
+	SelectedPriceTableIDs []int64
+	PriceTables           []MiniDirectShipPriceTable
+	Existing              *MiniDirectShipRequest
+}
+
+type MiniDirectShipOrderRepository interface {
+	DirectShipPriceTables(context.Context, int64) ([]MiniDirectShipPriceTable, error)
+	PrepareMiniDirectShipOrder(context.Context, MiniDirectShipCommand) (PreparedMiniDirectShipOrder, error)
+	RecordMiniDirectShipOrder(context.Context, PreparedMiniDirectShipOrder, DirectShipOrderSummary) (MiniDirectShipRequest, error)
 }
 
 type MiniDirectShipListQuery struct {
@@ -203,6 +247,84 @@ type CustomerInventoryBatchQuery struct {
 	SpecG        int64
 }
 
+type CustomerAssetWarehouseBalance struct {
+	WarehouseCode   string  `json:"warehouse_code"`
+	WarehouseName   string  `json:"warehouse_name"`
+	AvailableQty    float64 `json:"available_qty"`
+	OccupiedQty     float64 `json:"occupied_qty"`
+	InProductionQty float64 `json:"in_production_qty"`
+}
+
+type CustomerAssetInventoryBatch struct {
+	BatchID         int64   `json:"batch_id"`
+	BatchNo         string  `json:"batch_no"`
+	WarehouseCode   string  `json:"warehouse_code"`
+	WarehouseName   string  `json:"warehouse_name"`
+	TotalQty        float64 `json:"total_qty"`
+	AvailableQty    float64 `json:"available_qty"`
+	OccupiedQty     float64 `json:"occupied_qty"`
+	InProductionQty float64 `json:"in_production_qty"`
+	QualityStatus   string  `json:"quality_status"`
+	InboundAt       string  `json:"inbound_at,omitempty"`
+}
+
+type CustomerAssetInventory struct {
+	InventoryType              string                          `json:"inventory_type"`
+	ItemID                     int64                           `json:"item_id"`
+	ProductID                  int64                           `json:"product_id,omitempty"`
+	BomSpecID                  int64                           `json:"bom_spec_id,omitempty"`
+	BomVariantID               int64                           `json:"bom_variant_id,omitempty"`
+	SpecG                      int64                           `json:"spec_g,omitempty"`
+	ItemCode                   string                          `json:"item_code,omitempty"`
+	ItemName                   string                          `json:"item_name"`
+	Spec                       string                          `json:"spec,omitempty"`
+	Unit                       string                          `json:"unit"`
+	TotalQty                   float64                         `json:"total_qty"`
+	AvailableQty               float64                         `json:"available_qty"`
+	OccupiedQty                float64                         `json:"occupied_qty"`
+	InProductionQty            float64                         `json:"in_production_qty"`
+	QualityStatus              string                          `json:"quality_status"`
+	Legacy                     bool                            `json:"legacy,omitempty"`
+	CanCreateProcessingRequest bool                            `json:"can_create_processing_request,omitempty"`
+	Warehouses                 []CustomerAssetWarehouseBalance `json:"warehouses"`
+	Batches                    []CustomerAssetInventoryBatch   `json:"batches"`
+}
+
+type CustomerAssetInventoryQuery struct {
+	CustomerID    int64
+	InventoryType string
+	Q             string
+}
+
+type CustomerAssetInventoryLedgerQuery struct {
+	CustomerID    int64
+	InventoryType string
+	ItemID        int64
+	BomSpecID     int64
+	SpecG         int64
+	Limit         int
+}
+
+type CustomerAssetInventoryLedgerEntry struct {
+	ID            int64   `json:"id"`
+	OccurredAt    string  `json:"occurred_at"`
+	MovementType  string  `json:"movement_type"`
+	SourceType    string  `json:"source_type"`
+	SourceID      int64   `json:"source_id,omitempty"`
+	SourceNo      string  `json:"source_no,omitempty"`
+	BatchNo       string  `json:"batch_no,omitempty"`
+	WarehouseCode string  `json:"warehouse_code,omitempty"`
+	WarehouseName string  `json:"warehouse_name,omitempty"`
+	QuantityDelta float64 `json:"quantity_delta"`
+	Unit          string  `json:"unit"`
+	Note          string  `json:"note,omitempty"`
+}
+
+type CustomerAssetInventoryRepository interface {
+	ListCustomerAssetInventory(context.Context, CustomerAssetInventoryQuery) ([]CustomerAssetInventory, error)
+	ListCustomerAssetInventoryLedger(context.Context, CustomerAssetInventoryLedgerQuery) ([]CustomerAssetInventoryLedgerEntry, error)
+}
+
 // MiniDirectShipRepository is kept separate from the legacy fulfillment
 // repository contract so the closed-loop endpoints can be introduced without
 // widening every test double used by the import and settlement workflows.
@@ -235,6 +357,25 @@ func (s *Service) MiniDirectShipCatalog(ctx context.Context, query MiniDirectShi
 	if err != nil {
 		return MiniDirectShipCatalog{}, err
 	}
+	if bridge, ok := repo.(MiniDirectShipOrderRepository); ok && s.sales != nil {
+		tables, tableErr := bridge.DirectShipPriceTables(ctx, query.CustomerID)
+		if tableErr != nil {
+			return MiniDirectShipCatalog{}, tableErr
+		}
+		form, formErr := s.sales.OrderForm(ctx, 0)
+		if formErr != nil {
+			return MiniDirectShipCatalog{}, formErr
+		}
+		ids := make([]int64, 0, len(tables))
+		for _, table := range tables {
+			ids = append(ids, table.ID)
+		}
+		products, filterErr := salesapp.FilterOrderProductsForSelectedPublications(form.Products, query.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, ids, false)
+		if filterErr != nil {
+			return MiniDirectShipCatalog{}, filterErr
+		}
+		return miniDirectShipCatalogFromSales(query, tables, products), nil
+	}
 	return repo.MiniDirectShipCatalog(ctx, query)
 }
 
@@ -247,7 +388,28 @@ func (s *Service) PreviewMiniDirectShip(ctx context.Context, cmd MiniDirectShipC
 	if err != nil {
 		return MiniDirectShipPreview{}, err
 	}
-	return repo.PreviewMiniDirectShip(ctx, cmd)
+	preview, err := repo.PreviewMiniDirectShip(ctx, cmd)
+	if err != nil {
+		return MiniDirectShipPreview{}, err
+	}
+	if bridge, ok := repo.(MiniDirectShipOrderRepository); ok && s.sales != nil {
+		prepared, prepareErr := bridge.PrepareMiniDirectShipOrder(ctx, cmd)
+		if prepareErr != nil {
+			return MiniDirectShipPreview{}, prepareErr
+		}
+		preview.PriceTables = prepared.PriceTables
+		preview.StockReady = len(preview.Shortages) == 0
+		preview.CanSubmit = true
+		preview.Items, preview.TotalAmount, err = s.pricePreparedMiniDirectShipOrder(ctx, prepared)
+		if err != nil {
+			return MiniDirectShipPreview{}, err
+		}
+		preview.PriceQuoteToken, err = miniDirectShipPriceQuoteToken(prepared, preview.Items)
+		if err != nil {
+			return MiniDirectShipPreview{}, err
+		}
+	}
+	return preview, nil
 }
 
 func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCommand) (MiniDirectShipRequest, error) {
@@ -259,7 +421,237 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 	if err != nil {
 		return MiniDirectShipRequest{}, err
 	}
+	if bridge, ok := repo.(MiniDirectShipOrderRepository); ok && s.sales != nil {
+		prepared, prepareErr := bridge.PrepareMiniDirectShipOrder(ctx, cmd)
+		if prepareErr != nil {
+			return MiniDirectShipRequest{}, prepareErr
+		}
+		if prepared.Existing != nil {
+			return *prepared.Existing, nil
+		}
+		pricedItems, _, priceErr := s.pricePreparedMiniDirectShipOrder(ctx, prepared)
+		if priceErr != nil {
+			return MiniDirectShipRequest{}, priceErr
+		}
+		if quoteErr := requireMiniDirectShipPriceQuote(cmd.PriceQuoteToken, prepared, pricedItems); quoteErr != nil {
+			return MiniDirectShipRequest{}, quoteErr
+		}
+		items := make([]SubmitCustomerDirectShipOrderItem, 0, len(prepared.Command.Items))
+		for _, item := range prepared.Command.Items {
+			items = append(items, SubmitCustomerDirectShipOrderItem{
+				ProductID: item.ProductID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID,
+				BomSpecKey: item.BomSpecKey, InventoryUnit: item.InventoryUnit, ProductName: item.ProductName,
+				Spec: item.SpecLabel, SpecG: item.SpecG, SalesUnit: item.SalesUnit, QuantityUnits: item.Qty,
+			})
+		}
+		fullAddress := strings.TrimSpace(prepared.Command.Province + prepared.Command.City + prepared.Command.District + prepared.Command.DetailAddress)
+		order, orderErr := s.SubmitCustomerDirectShipOrder(ctx, SubmitCustomerDirectShipOrderCommand{
+			CustomerID: prepared.Command.CustomerID, ReceiverName: prepared.Command.RecipientName,
+			ReceiverPhone: prepared.Command.RecipientPhone, ReceiverAddress: fullAddress,
+			ReceiverCompany: prepared.Command.RecipientCompany, Items: items, Note: prepared.Command.Note,
+			Actor:               prepared.Command.Actor,
+			CustomerRequestID:   fmt.Sprintf("mini-direct-ship:%d:%s", prepared.Command.CustomerID, prepared.Command.IdempotencyKey),
+			CustomerRequestHash: prepared.RequestHash, SelectedPriceTableIDs: prepared.SelectedPriceTableIDs,
+		})
+		if orderErr != nil {
+			return MiniDirectShipRequest{}, orderErr
+		}
+		return bridge.RecordMiniDirectShipOrder(ctx, prepared, order)
+	}
 	return repo.SubmitMiniDirectShip(ctx, cmd)
+}
+
+func (s *Service) pricePreparedMiniDirectShipOrder(ctx context.Context, prepared PreparedMiniDirectShipOrder) ([]MiniDirectShipItemCommand, float64, error) {
+	form, err := s.sales.OrderForm(ctx, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	products, err := salesapp.FilterOrderProductsForSelectedPublications(
+		form.Products,
+		prepared.Command.CustomerID,
+		form.BeanListVersionOptions,
+		form.CustomerPublicUsages,
+		prepared.SelectedPriceTableIDs,
+		false,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	return priceMiniDirectShipItems(prepared.Command.Items, products)
+}
+
+func miniDirectShipPriceQuoteToken(prepared PreparedMiniDirectShipOrder, items []MiniDirectShipItemCommand) (string, error) {
+	tables := append([]MiniDirectShipPriceTable(nil), prepared.PriceTables...)
+	sort.Slice(tables, func(i, j int) bool {
+		if tables[i].ID != tables[j].ID {
+			return tables[i].ID < tables[j].ID
+		}
+		return tables[i].ListType < tables[j].ListType
+	})
+	quotedItems := append([]MiniDirectShipItemCommand(nil), items...)
+	sort.Slice(quotedItems, func(i, j int) bool {
+		if quotedItems[i].ProductID != quotedItems[j].ProductID {
+			return quotedItems[i].ProductID < quotedItems[j].ProductID
+		}
+		if quotedItems[i].BomSpecID != quotedItems[j].BomSpecID {
+			return quotedItems[i].BomSpecID < quotedItems[j].BomSpecID
+		}
+		if quotedItems[i].SpecG != quotedItems[j].SpecG {
+			return quotedItems[i].SpecG < quotedItems[j].SpecG
+		}
+		return quotedItems[i].SalesUnit < quotedItems[j].SalesUnit
+	})
+	raw, err := json.Marshal(struct {
+		Tables []MiniDirectShipPriceTable  `json:"tables"`
+		Items  []MiniDirectShipItemCommand `json:"items"`
+	}{Tables: tables, Items: quotedItems})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func requireMiniDirectShipPriceQuote(expected string, prepared PreparedMiniDirectShipOrder, items []MiniDirectShipItemCommand) error {
+	actual, err := miniDirectShipPriceQuoteToken(prepared, items)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(expected) == "" || strings.TrimSpace(expected) != actual {
+		return fmt.Errorf("%w：价格表或商品价格已更新，请重新预览并确认", ErrMiniDirectShipPriceChanged)
+	}
+	return nil
+}
+
+func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []MiniDirectShipPriceTable, products []salesapp.ProductOption) MiniDirectShipCatalog {
+	type familyState struct {
+		row   map[string]any
+		specs []map[string]any
+	}
+	byParent := map[int64]*familyState{}
+	families := make([]*familyState, 0)
+	categorySeen := map[string]bool{}
+	categories := make([]MiniDirectShipCategory, 0)
+	q := strings.ToLower(strings.TrimSpace(query.Q))
+	categoryFilter := strings.TrimSpace(query.Category)
+	for _, product := range products {
+		categoryKey := ""
+		if product.ProductTypeCategoryID > 0 {
+			categoryKey = fmt.Sprint(product.ProductTypeCategoryID)
+			if !categorySeen[categoryKey] {
+				categorySeen[categoryKey] = true
+				categories = append(categories, MiniDirectShipCategory{Key: categoryKey, Label: product.ProductTypeName})
+			}
+		}
+		if categoryFilter != "" && categoryFilter != categoryKey && !strings.EqualFold(categoryFilter, product.ProductTypeName) {
+			continue
+		}
+		name := strings.TrimSpace(product.CustomerProductDisplayName)
+		if name == "" {
+			name = strings.TrimSpace(product.ParentProductName)
+		}
+		if name == "" {
+			name = strings.TrimSpace(product.Name)
+		}
+		search := strings.ToLower(strings.Join([]string{name, product.Name, product.SKUName, product.SKUCode, product.CustomerItemCode}, " "))
+		if q != "" && !strings.Contains(search, q) {
+			continue
+		}
+		parentID := product.ParentProductID
+		if parentID <= 0 {
+			parentID = product.ID
+		}
+		state := byParent[parentID]
+		if state == nil {
+			state = &familyState{row: map[string]any{
+				"parent_product_id": parentID, "parent_product_name": product.ParentProductName,
+				"name": name, "customer_product_display_name": product.CustomerProductDisplayName,
+				"customer_item_code": product.CustomerItemCode, "product_code": product.ProductCode,
+				"product_type_name": product.ProductTypeName, "product_kind": product.ProductKind,
+			}}
+			byParent[parentID] = state
+			families = append(families, state)
+		}
+		tierGroups := map[string][]salesapp.ProductTierOption{}
+		for _, tier := range product.Tiers {
+			key := fmt.Sprintf("%d:%d:%d:%s:%d", tier.BomSpecID, tier.BomVariantID, tier.SpecG, tier.SalesUnit, tier.UnitBagCount)
+			tierGroups[key] = append(tierGroups[key], tier)
+		}
+		for _, tiers := range tierGroups {
+			first := tiers[0]
+			specLabel := strings.TrimSpace(product.SpecLabel)
+			if first.BomSpecID > 0 {
+				specLabel = strings.TrimSpace(product.SKUName)
+			}
+			if specLabel == "" && first.SpecG > 0 {
+				specLabel = fmt.Sprintf("%dg", first.SpecG)
+			}
+			priceTiers := make([]map[string]any, 0, len(tiers))
+			for _, tier := range tiers {
+				priceTiers = append(priceTiers, map[string]any{
+					"min_qty": tier.MinQty, "max_qty": tier.MaxQty, "unit_price": tier.UnitPrice,
+					"sales_unit": tier.SalesUnit, "publication_id": tier.PublicationID,
+				})
+			}
+			state.specs = append(state.specs, map[string]any{
+				"product_id": product.ID, "sku_id": product.SKUID, "bom_spec_id": first.BomSpecID,
+				"bom_variant_id": first.BomVariantID, "sku_code": product.SKUCode, "sku_name": product.SKUName,
+				"spec_label": specLabel, "net_content_qty": product.NetContentQty,
+				"net_content_unit": product.NetContentUnit, "inventory_unit": product.InventoryUnit,
+				"sales_unit": first.SalesUnit, "spec_g": first.SpecG, "unit_bag_count": first.UnitBagCount,
+				"unit_price": first.UnitPrice, "price_tiers": priceTiers, "available_qty": int64(0),
+			})
+		}
+	}
+	out := make([]map[string]any, 0, len(families))
+	for _, family := range families {
+		if len(family.specs) > 0 {
+			family.row["specs"] = family.specs
+			out = append(out, family.row)
+		}
+	}
+	return MiniDirectShipCatalog{CurrentCustomerID: query.CustomerID, Categories: categories, ProductFamilies: out, PriceTables: tables}
+}
+
+func priceMiniDirectShipItems(items []MiniDirectShipItemCommand, products []salesapp.ProductOption) ([]MiniDirectShipItemCommand, float64, error) {
+	out := append([]MiniDirectShipItemCommand(nil), items...)
+	total := float64(0)
+	for idx := range out {
+		item := &out[idx]
+		found := false
+		bestMin := float64(-1)
+		for _, product := range products {
+			if product.ID != item.ProductID && product.ParentProductID != item.ProductID {
+				continue
+			}
+			for _, tier := range product.Tiers {
+				if item.BomSpecID > 0 {
+					if tier.BomSpecID != item.BomSpecID {
+						continue
+					}
+				} else if tier.SpecG != item.SpecG {
+					continue
+				}
+				if item.SalesUnit != "" && tier.SalesUnit != "" && !strings.EqualFold(item.SalesUnit, tier.SalesUnit) {
+					continue
+				}
+				qty := float64(item.Qty)
+				if qty < tier.MinQty || tier.MaxQty != nil && qty > *tier.MaxQty || tier.UnitPrice <= 0 || tier.MinQty < bestMin {
+					continue
+				}
+				bestMin = tier.MinQty
+				item.UnitPrice = tier.UnitPrice
+				item.SalesUnit = tier.SalesUnit
+				item.LineAmount = float64(item.Qty) * tier.UnitPrice
+				found = true
+			}
+		}
+		if !found {
+			return nil, 0, fmt.Errorf("商品「%s」不在指定价格表当前有效数量档位中", item.ProductName)
+		}
+		total += item.LineAmount
+	}
+	return out, total, nil
 }
 
 func (s *Service) ListMiniDirectShipRequests(ctx context.Context, query MiniDirectShipListQuery) (MiniDirectShipListResult, error) {
@@ -441,11 +833,56 @@ func (s *Service) ListCustomerCentralInventoryBatches(ctx context.Context, query
 	return repo.ListCustomerCentralInventoryBatches(ctx, query)
 }
 
+func (s *Service) ListCustomerAssetInventory(ctx context.Context, query CustomerAssetInventoryQuery) ([]CustomerAssetInventory, error) {
+	if query.CustomerID <= 0 {
+		return nil, fmt.Errorf("customer required")
+	}
+	query.InventoryType = strings.TrimSpace(query.InventoryType)
+	if query.InventoryType != "" && query.InventoryType != "finished_product" && query.InventoryType != "green_bean" && query.InventoryType != "packaging" && query.InventoryType != "semi_finished" {
+		return nil, fmt.Errorf("inventory type invalid")
+	}
+	query.Q = strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(query.Q)), ""))
+	repo, err := s.miniDirectShipRepository()
+	if err != nil {
+		return nil, err
+	}
+	assets, ok := repo.(CustomerAssetInventoryRepository)
+	if !ok {
+		return nil, fmt.Errorf("customer asset inventory unavailable")
+	}
+	return assets.ListCustomerAssetInventory(ctx, query)
+}
+
+func (s *Service) ListCustomerAssetInventoryLedger(ctx context.Context, query CustomerAssetInventoryLedgerQuery) ([]CustomerAssetInventoryLedgerEntry, error) {
+	if query.CustomerID <= 0 || query.ItemID <= 0 {
+		return nil, fmt.Errorf("customer and item required")
+	}
+	query.InventoryType = strings.TrimSpace(query.InventoryType)
+	if query.InventoryType != "finished_product" && query.InventoryType != "green_bean" && query.InventoryType != "packaging" && query.InventoryType != "semi_finished" {
+		return nil, fmt.Errorf("inventory type invalid")
+	}
+	if query.Limit <= 0 {
+		query.Limit = 100
+	} else if query.Limit > 200 {
+		query.Limit = 200
+	}
+	repo, err := s.miniDirectShipRepository()
+	if err != nil {
+		return nil, err
+	}
+	assets, ok := repo.(CustomerAssetInventoryRepository)
+	if !ok {
+		return nil, fmt.Errorf("customer asset inventory unavailable")
+	}
+	return assets.ListCustomerAssetInventoryLedger(ctx, query)
+}
+
 func normalizeMiniDirectShipCommand(cmd MiniDirectShipCommand, requireIdempotency bool) (MiniDirectShipCommand, error) {
 	if cmd.CustomerID <= 0 {
 		return MiniDirectShipCommand{}, fmt.Errorf("customer required")
 	}
 	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	cmd.PriceQuoteToken = strings.TrimSpace(cmd.PriceQuoteToken)
 	if requireIdempotency && cmd.IdempotencyKey == "" {
 		return MiniDirectShipCommand{}, fmt.Errorf("idempotency_key required")
 	}
@@ -509,6 +946,7 @@ func normalizeMiniDirectShipItems(items []MiniDirectShipItemCommand) ([]MiniDire
 		item.SpecLabel = ""
 		item.BomSpecKey = strings.TrimSpace(item.BomSpecKey)
 		item.InventoryUnit = strings.TrimSpace(item.InventoryUnit)
+		item.SalesUnit = strings.TrimSpace(item.SalesUnit)
 		key := fmt.Sprintf("%d:legacy:%d", item.ProductID, item.SpecG)
 		if canonicalBOMSpec {
 			key = fmt.Sprintf("%d:bom_spec:%d", item.ProductID, item.BomSpecID)

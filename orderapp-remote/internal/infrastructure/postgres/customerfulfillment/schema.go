@@ -420,6 +420,40 @@ ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS need_un
 ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS allocated_units BIGINT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS customer_direct_ship_order_stock_request_idx
 	ON %[1]s.order_stock_batch_allocations(request_id, order_id);
+
+CREATE TABLE IF NOT EXISTS %[1]s.customer_statement_reconciliations (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	settlement_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_batches(id) ON DELETE CASCADE,
+	statement_revision TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','superseded')),
+	confirmed_by_mini_user_id BIGINT NOT NULL DEFAULT 0,
+	confirmed_by TEXT NOT NULL DEFAULT '',
+	confirmed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(settlement_id)
+);
+CREATE INDEX IF NOT EXISTS customer_statement_reconciliations_customer_idx
+	ON %[1]s.customer_statement_reconciliations(customer_id,confirmed_at DESC,id DESC);
+
+CREATE TABLE IF NOT EXISTS %[1]s.customer_statement_disputes (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	settlement_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_batches(id) ON DELETE CASCADE,
+	fee_item_id BIGINT NOT NULL DEFAULT 0,
+	statement_revision TEXT NOT NULL DEFAULT '',
+	reason TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','replied','resolved','closed')),
+	created_by_mini_user_id BIGINT NOT NULL DEFAULT 0,
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	reply TEXT NOT NULL DEFAULT '',
+	replied_by TEXT NOT NULL DEFAULT '',
+	replied_at TIMESTAMPTZ NULL,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS customer_statement_disputes_customer_settlement_idx
+	ON %[1]s.customer_statement_disputes(customer_id,settlement_id,status,created_at DESC,id DESC);
 `, schema)
 	_, err := pool.Exec(ctx, q)
 	if err != nil {

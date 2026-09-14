@@ -46,6 +46,7 @@ describe('shared product-family picker sheet', () => {
     expect(directShip).toContain('let previewVersion = 0')
     expect(directShip).toContain('if (version !== previewVersion) return')
     expect(directShip).toContain('const command = payload()')
-    expect(directShip).toContain('createDirectShipRequest(props.token, command)')
+    expect(directShip).toContain('price_quote_token: checked.price_quote_token')
+    expect(directShip).toContain('createDirectShipRequest(props.token, { ...command, price_quote_token: checked.price_quote_token })')
   })
 })

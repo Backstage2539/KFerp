@@ -253,7 +253,11 @@ describe('mini mall helpers', () => {
     expect(servicePage).toContain('已发布价格表')
     expect(servicePage).not.toContain('shipping_amount: Number(fulfillmentForm.value.shipping_amount)')
     expect(servicePage).not.toContain('unit_price: Number(fulfillmentForm.value.unit_price)')
-    expect(api).not.toContain('shipping_amount?: number')
-    expect(api).not.toContain('unit_price?: number')
+    const fulfillmentPayload = api.slice(
+      api.indexOf('export type CreateFulfillmentOrderPayload'),
+      api.indexOf('export type CreateProcessingRequestPayload'),
+    )
+    expect(fulfillmentPayload).not.toContain('shipping_amount?: number')
+    expect(fulfillmentPayload).not.toContain('unit_price?: number')
   })
 })

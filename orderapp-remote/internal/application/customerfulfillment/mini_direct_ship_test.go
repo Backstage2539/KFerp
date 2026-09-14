@@ -2,9 +2,60 @@ package customerfulfillment
 
 import (
 	"context"
+	"errors"
+	salesapp "orderapp/internal/application/sales"
 	"strings"
 	"testing"
 )
+
+func TestPriceMiniDirectShipItemsUsesServerTierAndRejectsTableOutsideQuantity(t *testing.T) {
+	maxNine := float64(9)
+	products := []salesapp.ProductOption{{
+		ID: 91,
+		Tiers: []salesapp.ProductTierOption{
+			{BomSpecID: 801, SalesUnit: "bag", MinQty: 1, MaxQty: &maxNine, UnitPrice: 12.5},
+			{BomSpecID: 801, SalesUnit: "bag", MinQty: 10, UnitPrice: 10},
+		},
+	}}
+	priced, total, err := priceMiniDirectShipItems([]MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, SalesUnit: "bag", Qty: 12}}, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(priced) != 1 || priced[0].UnitPrice != 10 || priced[0].LineAmount != 120 || total != 120 {
+		t.Fatalf("priced=%+v total=%v", priced, total)
+	}
+	if _, _, err := priceMiniDirectShipItems([]MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, SalesUnit: "box", Qty: 2}}, products); err == nil {
+		t.Fatal("sales unit outside assigned table was accepted")
+	}
+}
+
+func TestMiniDirectShipPriceQuoteRequiresExactPublishedPriceSnapshot(t *testing.T) {
+	prepared := PreparedMiniDirectShipOrder{PriceTables: []MiniDirectShipPriceTable{{ID: 31, TableKey: "retail", VersionNo: "V3"}}}
+	items := []MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, Qty: 12, SalesUnit: "bag", UnitPrice: 10, LineAmount: 120}}
+	token, err := miniDirectShipPriceQuoteToken(prepared, items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token == "" {
+		t.Fatal("price quote token is empty")
+	}
+	if err := requireMiniDirectShipPriceQuote("", prepared, items); !errors.Is(err, ErrMiniDirectShipPriceChanged) {
+		t.Fatalf("missing quote error=%v", err)
+	}
+	if err := requireMiniDirectShipPriceQuote(token, prepared, items); err != nil {
+		t.Fatalf("matching quote rejected: %v", err)
+	}
+	changed := append([]MiniDirectShipItemCommand(nil), items...)
+	changed[0].UnitPrice = 11
+	changed[0].LineAmount = 132
+	if err := requireMiniDirectShipPriceQuote(token, prepared, changed); !errors.Is(err, ErrMiniDirectShipPriceChanged) {
+		t.Fatalf("changed price error=%v", err)
+	}
+	prepared.PriceTables[0].ID = 32
+	if err := requireMiniDirectShipPriceQuote(token, prepared, items); !errors.Is(err, ErrMiniDirectShipPriceChanged) {
+		t.Fatalf("changed publication error=%v", err)
+	}
+}
 
 func TestNormalizeMiniDirectShipListQueryDefaultsAndBounds(t *testing.T) {
 	got, err := normalizeMiniDirectShipListQuery(MiniDirectShipListQuery{

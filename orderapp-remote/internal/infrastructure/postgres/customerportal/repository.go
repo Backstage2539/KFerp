@@ -578,17 +578,38 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 	if err != nil {
 		return customerportalapp.CurrentContext{}, err
 	}
+	var currentCustomerContact, currentCustomerPhone, currentCustomerAddress string
+	var businessContactName, businessContactPhone string
+	if currentCustomerID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(c.contact,''), COALESCE(c.phone,''), COALESCE(c.address,''),
+			       COALESCE(e.name,''), COALESCE(e.phone,'')
+			FROM %s.customers c
+			LEFT JOIN %s.company_employees e ON e.id=NULLIF(c.responsible_employee_id,0)
+			WHERE c.id=$1
+		`, r.schema, r.schema), currentCustomerID).Scan(
+			&currentCustomerContact, &currentCustomerPhone, &currentCustomerAddress,
+			&businessContactName, &businessContactPhone,
+		); err != nil {
+			return customerportalapp.CurrentContext{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.CurrentContext{}, err
 	}
 	return customerportalapp.CurrentContext{
-		MiniUserID:          miniUserID,
-		CurrentCustomerID:   currentCustomerID,
-		CurrentCustomerName: currentCustomerName,
-		Bindings:            bindings,
-		Capabilities:        capabilities,
-		ThemeKey:            themeKey,
-		MiniappEntryMode:    entryMode,
+		MiniUserID:             miniUserID,
+		CurrentCustomerID:      currentCustomerID,
+		CurrentCustomerName:    currentCustomerName,
+		CurrentCustomerContact: currentCustomerContact,
+		CurrentCustomerPhone:   currentCustomerPhone,
+		CurrentCustomerAddress: currentCustomerAddress,
+		BusinessContactName:    businessContactName,
+		BusinessContactPhone:   businessContactPhone,
+		Bindings:               bindings,
+		Capabilities:           capabilities,
+		ThemeKey:               themeKey,
+		MiniappEntryMode:       entryMode,
 	}, nil
 }
 

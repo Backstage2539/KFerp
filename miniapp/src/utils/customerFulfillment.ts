@@ -69,6 +69,24 @@ export function mergeProcessingTargetLines(lines: ProcessingTargetLine[] = []): 
   return Array.from(merged.values())
 }
 
+export function processingPreviewValidationError(
+  lines: ProcessingTargetLine[] = [],
+  expectedCompletionDate = '',
+): string {
+  const items = mergeProcessingTargetLines(lines)
+  if (!items.length) return '请选择至少一个目标商品规格'
+  if (!String(expectedCompletionDate || '').trim()) return '请填写期望完成日期'
+  return ''
+}
+
+export function processingPreviewErrorMessage(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message.trim() : ''
+  if (!message || message === 'invalid request') {
+    return 'BOM 试算请求无效，请检查商品、数量和期望完成日期'
+  }
+  return message
+}
+
 export function productionSubmissionBlockReason(preview?: ProductionPreviewLike | null): string {
   if (!preview) return '请先完成 BOM 试算'
   if (preview.complete === false) return '当前目标商品没有可用 BOM 配置'

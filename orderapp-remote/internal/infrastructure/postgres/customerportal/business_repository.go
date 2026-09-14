@@ -2245,9 +2245,10 @@ func (r Repository) ensureProcessingTargetProductTx(ctx context.Context, tx pgx.
 			SELECT 1
 			FROM %s.products
 			WHERE id=$1 AND active=true
-			  AND %s
+			  AND COALESCE(is_processing_product,false)=true
+			  AND COALESCE(customer_id,0)=$2
 		)
-	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2")), targetProductID, customerID).Scan(&exists); err != nil {
+	`, r.schema), targetProductID, customerID).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {

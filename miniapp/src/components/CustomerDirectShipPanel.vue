@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   cancelDirectShipRequest,
   createDirectShipRequest,
@@ -66,6 +66,11 @@ const pageLimitOptions = [10, 20, 50]
 const pageLimitLabels = pageLimitOptions.map((value) => `每页 ${value} 条`)
 let loadVersion = 0
 let previewVersion = 0
+
+const selectedSummary = computed(() => lines.value
+  .filter((line) => Number(line.product_id || 0) > 0)
+  .map((line) => `${line.product_name} ${line.spec_label} × ${line.qty}`)
+  .join('；'))
 
 function newIdempotencyKey(): string {
   return `mini-ds-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -182,6 +187,12 @@ function directShipItemQtyLabel(item: { qty?: number; bom_spec_id?: number; inve
   return `${Number(item.qty || 0)} ${unit || '件'}`
 }
 
+function money(value?: number): string { return Number(value || 0).toFixed(2) }
+
+function priceTableLabel(item: { table_name?: string; version_no?: string; list_type?: string }): string {
+  return [item.table_name || item.list_type || '指定价格表', item.version_no ? `版本 ${item.version_no}` : ''].filter(Boolean).join(' · ')
+}
+
 function openProductSelector(lineKey: string) {
   if (loading.value || submitting.value) return
   editingLineKey.value = lineKey
@@ -244,7 +255,7 @@ async function previewRequest() {
     const checked = await previewDirectShipRequest(props.token, command)
     if (version !== previewVersion) return
     preview.value = checked
-    errorMessage.value = preview.value.can_submit ? '' : '当前客户仓库存不足，无法提交发货'
+    errorMessage.value = preview.value.can_submit ? '' : '当前商品暂不可下单，请检查价格表与商品配置'
   } catch (error) {
     if (version !== previewVersion) return
     errorMessage.value = error instanceof Error ? error.message : '发货预览失败'
@@ -263,13 +274,14 @@ async function submitRequest() {
     const checked = await previewDirectShipRequest(props.token, command)
     if (version !== previewVersion) throw new Error('发货内容已变更，请重新预览后提交')
     preview.value = checked
-    if (!checked.can_submit) throw new Error('当前客户仓库存不足，无法提交发货')
-    await createDirectShipRequest(props.token, command)
+    if (!checked.can_submit) throw new Error('当前商品暂不可下单，请检查价格表与商品配置')
+    if (!checked.price_quote_token) throw new Error('报价版本缺失，请重新预览后提交')
+    await createDirectShipRequest(props.token, { ...command, price_quote_token: checked.price_quote_token })
     lines.value = [createDirectShipDraftLine()]
     preview.value = null
     note.value = ''
     idempotencyKey.value = newIdempotencyKey()
-    uni.showToast({ title: '发货申请已提交', icon: 'success' })
+    uni.showToast({ title: '代发订单已创建', icon: 'success' })
     await load()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '发货提交失败'
@@ -281,7 +293,7 @@ async function submitRequest() {
 async function cancelRequest(item: DirectShipRequest) {
   try {
     await cancelDirectShipRequest(props.token, item.id)
-    uni.showToast({ title: '已取消并释放库存', icon: 'success' })
+    uni.showToast({ title: '代发申请已取消', icon: 'success' })
     await load()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '取消失败'
@@ -349,7 +361,12 @@ onMounted(() => { void load() })
 <template>
   <view class="workspace">
     <view v-if="showCreate" class="panel">
-      <text class="title">新建发货</text>
+      <text class="title">一件代发下单</text>
+      <text class="muted">商品和价格由 ERP 为当前客户指定，小程序内不可切换价格表。订单提交后进入正常订单流程，缺货商品会沿用 ERP 生产流程补货。</text>
+      <view v-if="catalog.price_tables?.length" class="price-table-note">
+        <text class="line-label">本次适用价格表</text>
+        <text v-for="table in catalog.price_tables" :key="table.id" class="muted">{{ priceTableLabel(table) }}</text>
+      </view>
       <textarea v-model="pastedRecipient" class="textarea" :disabled="submitting" placeholder="粘贴收货信息，例如：张三 13800138000 云南省普洱市思茅区咖啡路88号" />
       <button class="secondary" :disabled="submitting" @tap="parseRecipient">一键解析地址</button>
       <input v-model="recipientName" class="input" :disabled="submitting" placeholder="收件人" @input="invalidatePreview" />
@@ -361,7 +378,7 @@ onMounted(() => { void load() })
       </view>
       <input v-model="detailAddress" class="input" :disabled="submitting" placeholder="详细地址" @input="invalidatePreview" />
       <input v-model="recipientCompany" class="input" :disabled="submitting" placeholder="公司/门店（可选）" @input="invalidatePreview" />
-      <text class="subtitle">选择当前客户成品仓内的商品</text>
+      <text class="subtitle">选择代发商品</text>
       <view v-for="(line, index) in lines" :key="line.key" class="line">
         <view class="line-head">
           <text class="line-name">商品 {{ index + 1 }}</text>
@@ -387,11 +404,20 @@ onMounted(() => { void load() })
         </picker>
         <text class="line-label">数量</text>
         <input v-model.number="line.qty" class="qty" type="number" :disabled="submitting" placeholder="填写数量" @input="invalidatePreview" />
+        <text v-if="familyForLine(line)?.specs[selectedSpecIndexForLine(line)]?.price_tiers?.length" class="muted">
+          数量报价：{{ familyForLine(line)?.specs[selectedSpecIndexForLine(line)]?.price_tiers?.map(tier => `${tier.min_qty || tier.min || 1}${tier.max_qty || tier.max ? `-${tier.max_qty || tier.max}` : '+'} ${tier.sales_unit || line.sales_unit || '件'} ¥${money(tier.unit_price)}`).join('；') }}
+        </text>
       </view>
       <button class="secondary add-line" :disabled="submitting" @tap="addLine">新增商品</button>
       <textarea v-model="note" class="textarea" :disabled="submitting" placeholder="发货备注（可选）" @input="invalidatePreview" />
-      <view v-if="preview" class="preview"><text>系统将按先进先出自动分配批次；跨仓时拆成 {{ preview.warehouses?.length || 0 }} 个包裹。</text></view>
-      <view class="actions"><button class="secondary" :disabled="submitting" @tap="previewRequest">预览分配</button><button class="primary" :disabled="submitting" @tap="submitRequest">提交发货</button></view>
+      <view v-if="selectedSummary" class="selected-summary"><text class="line-label">已选商品</text><text>{{ selectedSummary }}</text></view>
+      <view v-if="preview" class="preview">
+        <view class="request-head"><text class="line-name">订单金额</text><text class="amount">¥{{ money(preview.total_amount) }}</text></view>
+        <text v-for="item in preview.items || []" :key="`preview:${item.product_id}:${item.bom_spec_id || 0}:${item.spec_g}`" class="muted">{{ item.product_name }} · {{ directShipItemSpecLabel(item) }} · {{ directShipItemQtyLabel(item) }} · ¥{{ money(item.unit_price) }} / {{ item.sales_unit || item.inventory_unit || '件' }} · 小计 ¥{{ money(item.line_amount) }}</text>
+        <text v-if="preview.stock_ready" class="ready">库存可直接进入发货。</text>
+        <text v-else class="shortage">当前库存不足，订单仍可提交；ERP 将按现有订单生产流程补货，不会重复创建生产需求。</text>
+      </view>
+      <view class="actions"><button class="secondary" :disabled="submitting" @tap="previewRequest">核对价格</button><button class="primary" :disabled="submitting" @tap="submitRequest">提交代发订单</button></view>
     </view>
 
     <view v-if="!showCreate" class="panel">
@@ -427,22 +453,28 @@ onMounted(() => { void load() })
       <text v-if="loading" class="muted">加载中...</text>
       <view v-for="item in requests" :key="item.id" class="request">
         <view class="request-head"><text class="line-name">{{ directShipRequestTitle(item) }}</text><text class="status">{{ directShipStatusLabel(item.status) }}</text></view>
+        <text v-if="item.order_no" class="muted">系统订单：{{ item.order_no }} · 金额 ¥{{ money(item.total_amount) }}</text>
+        <text v-for="table in item.price_tables || []" :key="`${item.id}:table:${table.id}`" class="muted">价格快照：{{ priceTableLabel(table) }}</text>
         <text v-if="item.recipient_company" class="muted">收件客户/公司：{{ item.recipient_company }}</text>
         <text class="muted">{{ item.recipient_phone }} · {{ item.province }}{{ item.city }}{{ item.district }}{{ item.detail_address }}</text>
         <text v-for="line in item.items || []" :key="`${line.product_id}:${line.bom_spec_id || 0}:${line.bom_variant_id || 0}:${line.spec_g}`" class="muted">{{ line.product_name || `商品 ${line.product_id}` }}{{ line.sku_code ? `（${line.sku_code}）` : '' }} · {{ directShipItemSpecLabel(line) }} · {{ directShipItemQtyLabel(line) }}</text>
         <view v-for="pkg in item.packages || []" :key="pkg.id" class="package">
           <text>{{ pkg.order_no }} · {{ pkg.warehouse }} · {{ directShipStatusLabel(pkg.status) }}</text>
+          <text class="muted">生产：{{ pkg.process_status || '待进入生产流程' }} · 发货：{{ pkg.ship_status || '待发货' }}</text>
+          <text v-if="(item.packages || []).length > 1" class="muted">ERP 未登记包裹商品拆分时，此处显示整单商品明细。</text>
+          <text v-for="line in pkg.items || []" :key="`${pkg.id}:item:${line.product_id}:${line.bom_spec_id || 0}:${line.spec_g}`" class="muted">{{ line.product_name }} · {{ directShipItemSpecLabel(line) }} · {{ directShipItemQtyLabel(line) }}</text>
           <text v-if="pkg.shipped_at" class="muted">发货时间：{{ pkg.shipped_at }}</text>
-          <text class="muted">{{ pkg.carrier_name || '物流待录入' }} {{ pkg.tracking_no || '' }}</text>
+          <text class="muted">{{ pkg.tracking_no ? `${pkg.carrier_name || '承运商待录入'} ${pkg.tracking_no}` : '运单号尚未录入' }}</text>
           <view v-for="(event, index) in pkg.events || []" :key="`${pkg.id}:event:${index}`" class="event">
             <text class="muted">{{ event.time || '' }} {{ event.description || directShipStatusLabel(event.status) }}</text>
             <text v-if="event.location" class="muted">{{ event.location }}</text>
           </view>
+          <text v-if="pkg.tracking_no && !(pkg.events || []).length" class="muted">暂未获取物流轨迹</text>
         </view>
         <button v-if="['pending','reserved','待处理','待发货'].includes(item.status)" class="secondary compact" @tap="cancelRequest(item)">取消发货</button>
       </view>
       <text v-if="!loading && !requests.length" class="muted">暂无发货记录</text>
-      <view class="pagination">
+      <view v-if="totalPages > 1" class="pagination">
         <text class="muted">共 {{ totalRows }} 条 · 共 {{ totalPages }} 页</text>
         <view class="page-actions">
           <button class="secondary compact" :disabled="currentPage <= 1 || loading" @tap="goToPage(currentPage - 1)">上一页</button>
@@ -492,7 +524,10 @@ onMounted(() => { void load() })
 .primary{background:#2b2118;color:#fff}
 .secondary,.chip{background:#fff;color:#333;border:1rpx solid #d8d8d8}
 .compact{min-height:64rpx}
-.request,.package,.preview,.filters,.pagination{padding:16rpx;border:1rpx solid #eee;border-radius:8rpx}
+.request,.package,.preview,.filters,.pagination,.price-table-note,.selected-summary{padding:16rpx;border:1rpx solid #eee;border-radius:8rpx}
+.price-table-note,.selected-summary{display:flex;flex-direction:column;gap:8rpx;background:#faf8f4}
+.selected-summary{position:sticky;bottom:12rpx;z-index:2;background:#fffaf1;box-shadow:0 6rpx 20rpx rgba(0,0,0,.08)}
+.amount{font-size:30rpx;font-weight:900;color:#5d3b17}.ready{color:#28624a;font-size:23rpx}.shortage{color:#9a5b14;font-size:23rpx;line-height:1.5}
 .event{gap:4rpx;padding-top:8rpx;border-top:1rpx dashed #ddd}
 .request-head{justify-content:space-between;align-items:flex-start}
 .request-head .line-name{flex:1}

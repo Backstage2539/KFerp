@@ -1232,13 +1232,14 @@ func TestCreateProcessingRequestValidatesAndRequiresCapability(t *testing.T) {
 	}
 	svc := NewService(repo, fakeIdentityProvider{})
 	got, err := svc.CreateProcessingRequest(context.Background(), "mini-token", CreateProcessingRequestCommand{
-		Items: []ProcessingRequestItemCommand{{ProductID: 5, SpecG: 454, Qty: 50}},
-		Note:  "  做成454g  ",
+		Items:          []ProcessingRequestItemCommand{{ProductID: 5, SpecG: 454, Qty: 50}},
+		Note:           "  做成454g  ",
+		IdempotencyKey: "  processing-once  ",
 	})
 	if err != nil {
 		t.Fatalf("CreateProcessingRequest() err=%v", err)
 	}
-	if got.RequestNo != "PJ-20260503-0009" || repo.processingCommand.CustomerID != 7 || repo.processingCommand.Note != "做成454g" {
+	if got.RequestNo != "PJ-20260503-0009" || repo.processingCommand.CustomerID != 7 || repo.processingCommand.Note != "做成454g" || repo.processingCommand.IdempotencyKey != "processing-once" {
 		t.Fatalf("request=%+v command=%+v", got, repo.processingCommand)
 	}
 }

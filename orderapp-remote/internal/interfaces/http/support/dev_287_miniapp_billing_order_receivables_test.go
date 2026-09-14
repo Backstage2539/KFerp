@@ -42,8 +42,8 @@ func TestMiniappBillingOrderReceivablesEvidenceExists(t *testing.T) {
 	} {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
-			"已确认并推送",
-			"不显示订单应收",
+			"商品货款",
+			"确认对账不改变 ERP 付款状态",
 		} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s missing replacement billing manual marker %q", path, want)
@@ -69,8 +69,10 @@ func TestMiniappBillingOrderReceivablesSourceWiring(t *testing.T) {
 			"serviceKey.value === 'settlement'",
 		},
 		filepath.Join("..", "miniapp", "src", "components", "CustomerBillsPanel.vue"): {
-			"只显示 ERP 已确认并推送的代加工账单",
-			"fetchCustomerBillDetail",
+			"fetchCustomerAccount",
+			"商品货款",
+			"代发服务费",
+			"已计入订单金额，不重复汇总",
 		},
 	} {
 		body := string(readOrderAppFileForTest(t, path))

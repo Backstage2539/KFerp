@@ -180,6 +180,8 @@ CREATE TABLE IF NOT EXISTS %s.processing_job_requests (
 	id BIGSERIAL PRIMARY KEY,
 	customer_id BIGINT NOT NULL REFERENCES %s.customers(id) ON DELETE CASCADE,
 	request_no TEXT NOT NULL DEFAULT '',
+	idempotency_key TEXT NOT NULL DEFAULT '',
+	request_hash TEXT NOT NULL DEFAULT '',
 	input_material_id BIGINT NOT NULL DEFAULT 0,
 	input_qty_g BIGINT NOT NULL DEFAULT 0,
 	target_product_id BIGINT NOT NULL DEFAULT 0,
@@ -187,6 +189,7 @@ CREATE TABLE IF NOT EXISTS %s.processing_job_requests (
 	target_qty INTEGER NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'submitted',
 	note TEXT NOT NULL DEFAULT '',
+	expected_completion_date DATE NULL,
 	created_by_mini_user_id BIGINT NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	accepted_at TIMESTAMPTZ NULL,
@@ -197,6 +200,12 @@ CREATE INDEX IF NOT EXISTS processing_job_requests_customer_idx
 CREATE UNIQUE INDEX IF NOT EXISTS processing_job_requests_request_no_uq
 	ON %s.processing_job_requests(request_no)
 	WHERE request_no <> '';
+ALTER TABLE %s.processing_job_requests ADD COLUMN IF NOT EXISTS expected_completion_date DATE NULL;
+ALTER TABLE %s.processing_job_requests ADD COLUMN IF NOT EXISTS idempotency_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE %s.processing_job_requests ADD COLUMN IF NOT EXISTS request_hash TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS processing_job_requests_customer_idempotency_uq
+	ON %s.processing_job_requests(customer_id,idempotency_key)
+	WHERE idempotency_key <> '';
 
 CREATE TABLE IF NOT EXISTS %s.customer_processing_production_demands (
 	id BIGSERIAL PRIMARY KEY,
@@ -306,7 +315,7 @@ ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS spec_name TEXT NOT NULL
 ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT '';
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }

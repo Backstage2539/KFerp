@@ -86,6 +86,30 @@
             <input v-model="row.form.enabled" type="checkbox" />
             <span>{{ row.form.enabled ? '门户启用' : '门户停用' }}</span>
           </label>
+          <label v-if="row.capabilities.some(item => item.code === 'direct_ship' && item.enabled)">
+            <span>一件代发指定价格表</span>
+            <select v-model="row.form.direct_ship_price_table_keys" multiple>
+              <option v-for="option in row.priceTableOptions" :key="option.id" :value="option.table_key">
+                {{ option.table_name || option.label }} · {{ option.version_no }}
+              </option>
+            </select>
+            <small>只列出已发布且标记“适用于一件代发”的价格表；按商品类型可分别指定，小程序不能切换。</small>
+          </label>
+          <details v-if="row.capabilities.some(item => item.code === 'settlement' && item.enabled)" class="statement-disputes" @toggle="loadRowStatementDisputes(row, $event)">
+            <summary>客户账单异议 <b v-if="row.statementDisputes.length">{{ row.statementDisputes.length }}</b></summary>
+            <span v-if="row.statementDisputesLoading" class="muted">异议加载中...</span>
+            <div v-for="dispute in row.statementDisputes" :key="dispute.id" class="statement-dispute">
+              <strong>{{ dispute.settlement_no }} · {{ dispute.fee_name || '整张账单' }}</strong>
+              <span>{{ dispute.created_at }} · {{ dispute.reason }}</span>
+              <span v-if="dispute.reply">已回复：{{ dispute.reply }}</span>
+              <template v-if="!['resolved','closed'].includes(dispute.status)">
+                <textarea v-model.trim="dispute.reply_draft" placeholder="填写给客户的回复" />
+                <button class="secondary" type="button" :disabled="row.statementDisputesLoading || !dispute.reply_draft" @click="replyStatementDispute(row, dispute)">回复并标记已处理</button>
+              </template>
+              <span v-else class="resolved">已处理</span>
+            </div>
+            <span v-if="row.statementDisputesLoaded && !row.statementDisputes.length" class="muted">暂无账单异议</span>
+          </details>
           <button class="primary" type="button" @click="saveVisibility(row)" :disabled="!canSaveRow(row)">
             {{ row.saving ? '保存中' : '保存并应用模板' }}
           </button>
@@ -313,8 +337,10 @@ function createPortalRow(customer) {
       default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
       capability_template_key: trimTemplateKey(customer.capability_template_key),
+      direct_ship_price_table_keys: [],
     },
     capabilities: [],
+    priceTableOptions: [],
     bindings: [],
     externalUsers: [],
     externalUserForm: {
@@ -323,9 +349,46 @@ function createPortalRow(customer) {
       password: '',
     },
     externalUserPasswordMap: {},
+    statementDisputes: [],
+    statementDisputesLoaded: false,
+    statementDisputesLoading: false,
     loading: false,
     saving: false,
     externalUsersLoading: false,
+  }
+}
+
+async function loadRowStatementDisputes(row, event) {
+  if (event && !event.target?.open) return
+  if (!row?.customer?.id || row.statementDisputesLoading) return
+  row.statementDisputesLoading = true
+  try {
+    const data = await apiGet(`/api/customer-portal/admin/customers/${row.customer.id}/statement-disputes`)
+    row.statementDisputes = (data.rows || []).map((item) => ({ ...item, reply_draft: item.reply || '' }))
+    row.statementDisputesLoaded = true
+  } catch (err) {
+    error.value = err.message || '账单异议加载失败'
+  } finally {
+    row.statementDisputesLoading = false
+  }
+}
+
+async function replyStatementDispute(row, dispute) {
+  const reply = String(dispute?.reply_draft || '').trim()
+  if (!dispute?.id || !reply) return
+  row.statementDisputesLoading = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const updated = await apiSend(`/api/customer-portal/admin/statement-disputes/${dispute.id}/reply`, {
+      method: 'POST', body: { reply, status: 'resolved' },
+    })
+    Object.assign(dispute, updated, { reply_draft: updated.reply || reply })
+    ok.value = `已回复 ${dispute.settlement_no} 的账单异议`
+  } catch (err) {
+    error.value = err.message || '账单异议回复失败'
+  } finally {
+    row.statementDisputesLoading = false
   }
 }
 
@@ -334,6 +397,12 @@ async function loadRowDetail(row) {
   try {
     const data = await apiGet(`/api/customer-portal/admin/customers/${row.customer.id}`)
     assignRowDetail(row, data)
+    try {
+      const form = await apiGet(`/api/order/form?customer_id=${row.customer.id}`)
+      row.priceTableOptions = (form?.bean_list_version_options || []).filter((item) => item.direct_ship_enabled && item.table_key)
+    } catch {
+      row.priceTableOptions = []
+    }
   } finally {
     row.loading = false
   }
@@ -353,6 +422,8 @@ function assignRowDetail(row, data) {
     enabled: !!item.enabled,
     config: item.config || {},
   }))
+  const directShip = row.capabilities.find((item) => item.code === 'direct_ship')
+  row.form.direct_ship_price_table_keys = Array.isArray(directShip?.config?.price_table_keys) ? directShip.config.price_table_keys.map(String) : []
 }
 
 function assignExternalUsers(row, data) {
@@ -382,6 +453,10 @@ async function saveVisibility(row) {
         default_sender_id: Number(row.form.default_sender_id || 0),
         enabled: !!row.form.enabled,
         capability_template_key: trimTemplateKey(row.form.capability_template_key),
+        capabilities: row.capabilities.map((item) => item.code === 'direct_ship' ? {
+          ...item,
+          config: { ...(item.config || {}), price_table_keys: row.form.direct_ship_price_table_keys },
+        } : item),
       },
     })
     assignRowDetail(row, data)
@@ -592,6 +667,7 @@ watch(() => props.customerContextId, () => {
 h2 { margin: 0; font-size: 20px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select { width: min(420px, 70vw); height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
+textarea { width: 100%; min-height: 72px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; resize: vertical; }
 button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
@@ -644,6 +720,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .password-row input { width: 100%; }
 .history-note { margin: 0; color: #666; font-size: 12px; }
 .binding-hint { margin: 0; color: #8a5a16; background: #fff7e6; border: 1px solid #f0d7a0; border-radius: 6px; padding: 7px 8px; font-size: 12px; line-height: 1.45; }
+.statement-disputes { border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; }
+.statement-disputes summary { cursor: pointer; font-size: 13px; font-weight: 700; }
+.statement-disputes summary b { display: inline-flex; min-width: 20px; justify-content: center; border-radius: 999px; background: #8a1f1f; color: #fff; }
+.statement-dispute { display: grid; gap: 6px; margin-top: 8px; padding: 8px; border-top: 1px solid #eef1f4; font-size: 12px; line-height: 1.45; }
+.statement-dispute .resolved { color: #1f6a3f; font-weight: 700; }
 .active-binding { border-color: #b7d9c2; background: #f7fff9; }
 .muted { color: #666; }
 .empty { min-height: 80px; display: flex; align-items: center; justify-content: center; }
