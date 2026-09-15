@@ -34,3 +34,17 @@ func TestPR616MaterialOutputCountCapacityUsesFrozenInventoryQuantity(t *testing.
 		t.Fatal("short material count capacity should still be rejected")
 	}
 }
+
+func TestJobCardPlannedInputQtyFallsBackToFrozenCountQuantity(t *testing.T) {
+	split := productionapp.ProductionPlanOperationSplit{
+		BatchSizeQty:      100,
+		BatchSizeUnit:     "件",
+		PlannedBatchCount: 1,
+		PlannedQty:        100,
+		PlannedQtyG:       0,
+	}
+
+	if got := jobCardPlannedInputQty(split, 0); got != 100 {
+		t.Fatalf("planned input qty = %v, want frozen 100 pieces", got)
+	}
+}

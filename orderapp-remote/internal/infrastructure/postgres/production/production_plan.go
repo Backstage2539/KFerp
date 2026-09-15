@@ -2871,10 +2871,7 @@ func operationSplitsForSnapshotOperation(op processSnapshotOperation, splits []p
 
 func insertPendingJobCardForOperationSplitTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, op processSnapshotOperation, split productionapp.ProductionPlanOperationSplit, plannedG int64) (productionapp.JobCardRow, error) {
 	var id int64
-	plannedInputQty := float64(plannedG)
-	if split.PlannedQtyG > 0 {
-		plannedInputQty = float64(split.PlannedQtyG)
-	}
+	plannedInputQty := jobCardPlannedInputQty(split, plannedG)
 	operation := firstNonEmpty(strings.TrimSpace(split.Operation), op.Operation)
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.job_cards(
@@ -2911,6 +2908,16 @@ func insertPendingJobCardForOperationSplitTx(ctx context.Context, tx pgx.Tx, sch
 		RecordsLoss:             op.RecordsLoss,
 		ParameterSchemaJSON:     defaultJSONObject(op.ParameterSchemaJSON),
 	}, nil
+}
+
+func jobCardPlannedInputQty(split productionapp.ProductionPlanOperationSplit, plannedG int64) float64 {
+	if split.PlannedQtyG > 0 {
+		return float64(split.PlannedQtyG)
+	}
+	if split.PlannedQty > 0 {
+		return split.PlannedQty
+	}
+	return float64(plannedG)
 }
 
 func firstPositiveInt64(values ...int64) int64 {
