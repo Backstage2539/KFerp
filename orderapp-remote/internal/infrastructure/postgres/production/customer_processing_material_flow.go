@@ -492,13 +492,17 @@ func moveCustomerProcessingBatchTx(ctx context.Context, tx pgx.Tx, schema string
 
 func bindCustomerProcessingReservationAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, reservation customerProcessingMaterialReservation, allocations []customerProcessingBatchAllocation) error {
 	for index, allocation := range allocations {
+		sourceWarehouse := strings.TrimSpace(allocation.Warehouse)
+		if sourceWarehouse == "" {
+			sourceWarehouse = reservation.SourceWarehouseCode
+		}
 		if index == 0 {
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
 				UPDATE %s.customer_processing_material_reservations
 				SET required_g=$2,required_units=$3,reserved_g=$2,reserved_units=$3,
-				    material_batch_id=$4,updated_at=now()
+				    material_batch_id=$4,source_warehouse_code=$5,updated_at=now()
 				WHERE id=$1 AND status='reserved'
-			`, schema), reservation.ID, allocation.QtyG, allocation.QtyUnits, allocation.BatchID); err != nil {
+			`, schema), reservation.ID, allocation.QtyG, allocation.QtyUnits, allocation.BatchID, sourceWarehouse); err != nil {
 				return err
 			}
 			continue
@@ -514,12 +518,94 @@ func bindCustomerProcessingReservationAllocationsTx(ctx context.Context, tx pgx.
 		`, schema), reservation.RequestID, reservation.RequestItemID, reservation.CustomerID,
 			reservation.MaterialID, reservation.ComponentType, reservation.ComponentProductID,
 			reservation.ComponentSpecG, allocation.QtyG, allocation.QtyUnits,
-			reservation.SourceOwnerType, reservation.SourceCustomerID, reservation.SourceWarehouseCode,
+			reservation.SourceOwnerType, reservation.SourceCustomerID, sourceWarehouse,
 			allocation.BatchID, reservation.ProductionPlanID, reservation.ProductionPlanItemID, reservation.WorkOrderID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// bindCustomerProcessingReservationFromIssuedWIPTx links the customer request
+// reservation to a frozen work-order batch that a submitted picking document
+// has already moved into WIP. It does not move stock a second time.
+func bindCustomerProcessingReservationFromIssuedWIPTx(ctx context.Context, tx pgx.Tx, schema string, reservation customerProcessingMaterialReservation) (int64, error) {
+	hasBindings, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservation_batches", "id")
+	if err != nil || !hasBindings {
+		return 0, err
+	}
+	componentType := strings.TrimSpace(reservation.ComponentType)
+	if componentType == "" {
+		componentType = "material"
+	}
+	componentID := reservation.MaterialID
+	if componentType != "material" && reservation.ComponentProductID > 0 {
+		componentID = reservation.ComponentProductID
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT binding.material_batch_id,binding.batch_code,
+		       GREATEST(0,LEAST(
+		         GREATEST(0,binding.reserved_g-binding.consumed_g-binding.returned_g),location.qty_g
+		       )-COALESCE(bound.reserved_g,0))::bigint,
+		       GREATEST(0,LEAST(
+		         GREATEST(0,binding.reserved_units-binding.consumed_units-binding.returned_units),location.qty_units
+		       )-COALESCE(bound.reserved_units,0))::bigint,
+		       COALESCE(EXTRACT(EPOCH FROM batch.received_at)::bigint,batch.id)
+		FROM %s.work_order_material_reservation_batches binding
+		JOIN %s.work_order_material_reservations parent ON parent.id=binding.reservation_id AND parent.status='reserved'
+		JOIN %s.material_batches batch ON batch.id=binding.material_batch_id
+		JOIN %s.material_batch_locations location
+		  ON location.material_batch_id=binding.material_batch_id AND location.warehouse=$6
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(SUM(GREATEST(0,other.reserved_g-other.consumed_g-other.returned_g)),0)::bigint AS reserved_g,
+			       COALESCE(SUM(GREATEST(0,other.reserved_units-other.consumed_units-other.returned_units)),0)::bigint AS reserved_units
+			FROM %s.customer_processing_material_reservations other
+			WHERE other.work_order_id=$1 AND other.material_id=$3
+			  AND other.material_batch_id=binding.material_batch_id
+			  AND other.source_warehouse_code=$6 AND other.status='reserved' AND other.id<>$7
+		) bound ON true
+		WHERE binding.work_order_id=$1 AND binding.component_type=$2 AND binding.component_id=$3
+		  AND binding.component_spec_g=$4 AND binding.owner_customer_id=$5
+		  AND binding.warehouse=$6 AND binding.status='reserved'
+		  AND batch.status='active' AND COALESCE(batch.quality_status,'unchecked') NOT IN ('hold','reject')
+		ORDER BY batch.received_at,batch.id,binding.id
+		FOR UPDATE OF binding,parent,batch,location
+	`, schema, schema, schema, schema, schema), reservation.WorkOrderID, componentType, componentID,
+		reservation.ComponentSpecG, reservation.SourceCustomerID, stockdomain.WarehouseWIP, reservation.ID)
+	if err != nil {
+		return 0, err
+	}
+	candidates := make([]customerProcessingBatchAvailability, 0)
+	for rows.Next() {
+		var row customerProcessingBatchAvailability
+		if err := rows.Scan(&row.BatchID, &row.BatchCode, &row.AvailableG, &row.AvailableUnits, &row.ReceivedOrder); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		candidates = append(candidates, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+	if len(candidates) == 0 {
+		return 0, nil
+	}
+	allocations, err := allocateCustomerProcessingBatches(candidates,
+		customerProcessingReservationRemainingG(reservation), customerProcessingReservationRemainingUnits(reservation))
+	if err != nil {
+		return 0, nil
+	}
+	for index := range allocations {
+		allocations[index].Warehouse = stockdomain.WarehouseWIP
+		allocations[index].OwnerCustomerID = reservation.SourceCustomerID
+		allocations[index].ReservationID = reservation.ID
+	}
+	if err := bindCustomerProcessingReservationAllocationsTx(ctx, tx, schema, reservation, allocations); err != nil {
+		return 0, err
+	}
+	return int64(len(allocations)), nil
 }
 
 func bindCustomerProcessingFinishedAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, reservation customerProcessingMaterialReservation, allocations []customerProcessingFinishedBatchAllocation) error {
@@ -603,6 +689,14 @@ func issueCustomerProcessingReservationsToWIPTx(ctx context.Context, tx pgx.Tx, 
 			continue
 		}
 		if reservation.MaterialBatchID > 0 {
+			continue
+		}
+		reused, err := bindCustomerProcessingReservationFromIssuedWIPTx(ctx, tx, schema, reservation)
+		if err != nil {
+			return 0, err
+		}
+		if reused > 0 {
+			bound += reused
 			continue
 		}
 		candidates, err := availableCustomerProcessingMaterialBatchesTx(ctx, tx, schema, reservation)
