@@ -67,6 +67,18 @@ func TestProcessingRequestCutoverBOMSpecIdentityPersistsWithoutLegacyMapping(t *
 	}
 	assertPortalProcessingMaterialNeed(t, preview.Materials, fixture.BeanID, 454, 0)
 	assertPortalProcessingMaterialNeed(t, preview.Materials, fixture.BagID, 0, 2)
+	overCapacity := cmd
+	overCapacity.Items = []customerportalapp.ProcessingRequestItemCommand{{ProductID: fixture.ProductID, BomSpecID: fixture.BomSpecID, Qty: 441}}
+	overPreview, err := repo.PreviewProcessingRequest(ctx, overCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overPreview.CanSubmit || overPreview.Items[0].MaxProducibleQty != 440 {
+		t.Fatalf("over-capacity preview=%+v, want exact max 440", overPreview)
+	}
+	if _, err := repo.CreateProcessingRequest(ctx, overCapacity); err == nil {
+		t.Fatal("over-capacity processing request must be rejected")
+	}
 
 	created, err := repo.CreateProcessingRequest(ctx, cmd)
 	if err != nil {
@@ -75,6 +87,7 @@ func TestProcessingRequestCutoverBOMSpecIdentityPersistsWithoutLegacyMapping(t *
 	if len(created.Items) != 1 || created.Items[0].BomSpecID != fixture.BomSpecID || created.Items[0].BomVariantID != fixture.BomVariantID || created.Items[0].InventoryUnit != "袋" {
 		t.Fatalf("created=%+v", created)
 	}
+	assertPortalProcessingCount(t, pool, schema, "customer_processing_material_reservations", "request_id=$1", created.ID, 2)
 	retried, err := repo.CreateProcessingRequest(ctx, cmd)
 	if err != nil || retried.ID != created.ID {
 		t.Fatalf("idempotent retry=%+v err=%v", retried, err)

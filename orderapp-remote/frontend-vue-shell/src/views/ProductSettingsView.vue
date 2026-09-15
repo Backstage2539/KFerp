@@ -8106,11 +8106,9 @@ async function saveCustomerCatalogCopy() {
   } catch (err) { error.value = err.message || '复制失败' } finally { catalogCopySaving.value = false }
 }
 function openCustomerAwareProductName(row) {
-  if (!catalogCustomerID.value) { openProductProductionConfig(row); return }
-  openProductReferenceEditor(row)
-  customerProductAliasForm.value.customer_id = catalogCustomerID.value
-  productReferenceCustomerLocked.value = true
-  syncProductReferenceFormForCustomer()
+  // 客户归属只改变数据边界，不改变商品档案的编辑入口。客户对外别名
+  // 继续在独立的“客户商品”页维护，避免名称覆盖生产/BOM 配置。
+  openProductProductionConfig(row)
 }
 function openCustomerCategoryNames() {
   const nodes = customerCatalogData.value.nodes || []

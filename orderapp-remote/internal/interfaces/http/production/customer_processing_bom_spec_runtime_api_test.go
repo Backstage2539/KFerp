@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	postgrescustomerfulfillment "orderapp/internal/infrastructure/postgres/customerfulfillment"
 	postgrescustomerportal "orderapp/internal/infrastructure/postgres/customerportal"
 )
 
@@ -20,6 +21,9 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 	`, schema))
 	if err := postgrescustomerportal.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("customer portal EnsureSchema: %v", err)
+	}
+	if err := postgrescustomerfulfillment.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("customer fulfillment EnsureSchema: %v", err)
 	}
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		DELETE FROM %[1]s.order_items;
@@ -143,6 +147,24 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 		"request_item_id=60011 AND linked_work_order_id=%d AND linked_running_item_id=%d AND status='running'", workOrderID, runningItemID,
 	), 1)
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(id,order_no,order_date,customer_id,is_void)
+		VALUES(70001,'SO-PR667-WIP','2026-08-20',6001,false);
+		INSERT INTO %[1]s.order_items(
+			id,order_id,line_no,product_id,bom_spec_id,bom_variant_id,item_name,qty,unit,spec,unit_price,line_total
+		) VALUES(70011,70001,1,1,16001,16101,'PR600加工父商品',2,'袋','227g袋',1,2);
+		INSERT INTO %[1]s.customer_direct_ship_requests(id,customer_id,request_no,status)
+		VALUES(70021,6001,'DSR-PR667-WIP','reserved');
+		INSERT INTO %[1]s.customer_direct_ship_request_items(
+			id,request_id,line_no,product_id,bom_spec_id,bom_variant_id,product_name,spec_label,inventory_unit,qty
+		) VALUES(70031,70021,1,1,16001,16101,'PR600加工父商品','227g袋','袋',2);
+		INSERT INTO %[1]s.customer_direct_ship_request_orders(request_id,order_id,warehouse_code,order_no,status)
+		VALUES(70021,70001,'','SO-PR667-WIP','reserved');
+		INSERT INTO %[1]s.customer_processing_output_reservations(
+			customer_id,request_id,request_item_id,order_id,order_item_id,
+			processing_request_id,processing_request_item_id,product_id,bom_spec_id,bom_variant_id,reserved_qty,status
+		) VALUES(6001,70021,70031,70001,70011,60001,60011,1,16001,16101,2,'reserved');
+	`, schema))
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		UPDATE %s.job_cards
 		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),
 		    actual_input_qty=2,actual_output_qty=2
@@ -174,6 +196,14 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 		"request_item_id=60011 AND status='done'", 1)
 	assertProductionFlowCount(t, pool, schema, "processing_job_request_items",
 		"id=60011 AND status='completed'", 1)
+	assertProductionFlowCount(t, pool, schema, "customer_processing_output_reservations",
+		"request_item_id=70031 AND processing_request_item_id=60011 AND reserved_qty=2 AND converted_qty=2 AND status='converted'", 1)
+	assertProductionFlowCount(t, pool, schema, "customer_processing_output_conversions",
+		"output_reservation_id>0 AND processing_request_item_id=60011 AND order_id=70001 AND order_item_id=70011 AND converted_qty=2", 1)
+	assertProductionFlowCount(t, pool, schema, "order_stock_batch_allocations",
+		"order_id=70001 AND order_item_id=70011 AND product_id=1 AND bom_spec_id=16001 AND bom_variant_id=16101 AND allocated_units=2", 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs",
+		"entity_type='customer_processing_output_reservation' AND action='processing_output_convert'", 1)
 	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf(
 		"entity_type='work_order' AND entity_id=%d AND action='complete'", workOrderID,
 	), 1)

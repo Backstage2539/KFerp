@@ -567,7 +567,7 @@ func miniCustomerFulfillmentError(c echo.Context, err error) error {
 	case strings.Contains(message, "shipment date range invalid"):
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "发货开始日期不能晚于结束日期"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipStockInsufficient):
-		return c.JSON(http.StatusConflict, map[string]string{"error": "当前客户成品仓库存不足，无法提交发货"})
+		return c.JSON(http.StatusConflict, map[string]string{"error": "代加工商品的成品库存与有效在制产出合计不足，整单未创建"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipIdempotency):
 		return c.JSON(http.StatusConflict, map[string]string{"error": "该发货请求已提交，不能使用同一请求编号修改内容"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipPriceChanged):

@@ -117,6 +117,10 @@ func fetchUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, sch
 	if err != nil {
 		return nil, err
 	}
+	demands, err = excludeReservedOrderFulfillment(ctx, pool, schema, demands)
+	if err != nil {
+		return nil, err
+	}
 	processing, err := fetchCustomerProcessingProductionDemands(ctx, pool, schema, strings.Join(demandWhere, " AND "), args)
 	if err != nil {
 		return nil, err
@@ -129,6 +133,118 @@ type productionDemand struct {
 	UnprodNeedRow
 	forceSalesSpecCount float64
 	orderNos            map[string]bool
+}
+
+// excludeReservedOrderFulfillment removes the part of each sales-order line
+// already covered by finished-stock allocation or a valid customer-processing
+// output promise. Without this bridge, a mixed “stock first + WIP output”
+// direct-ship order would appear in the production board as a second demand and
+// could be produced twice.
+func excludeReservedOrderFulfillment(ctx context.Context, pool productionDemandQueryer, schema string, demands []productionDemand) ([]productionDemand, error) {
+	orderItemIDs := make([]int64, 0)
+	seen := map[int64]bool{}
+	for _, demand := range demands {
+		for _, detail := range demand.OrderDetails {
+			if detail.OrderItemID > 0 && !seen[detail.OrderItemID] {
+				seen[detail.OrderItemID] = true
+				orderItemIDs = append(orderItemIDs, detail.OrderItemID)
+			}
+		}
+	}
+	if len(orderItemIDs) == 0 {
+		return demands, nil
+	}
+	covered := map[int64]float64{}
+	hasStockItemID, err := productionDemandColumnExists(ctx, pool, schema, "order_stock_batch_allocations", "order_item_id")
+	if err != nil {
+		return nil, err
+	}
+	hasStockUnits, err := productionDemandColumnExists(ctx, pool, schema, "order_stock_batch_allocations", "allocated_units")
+	if err != nil {
+		return nil, err
+	}
+	if hasStockItemID && hasStockUnits {
+		rows, err := pool.Query(ctx, fmt.Sprintf(`
+			SELECT order_item_id,COALESCE(SUM(allocated_units),0)::float8
+			FROM %s.order_stock_batch_allocations
+			WHERE order_item_id=ANY($1)
+			GROUP BY order_item_id
+		`, schema), orderItemIDs)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var orderItemID int64
+			var qty float64
+			if err := rows.Scan(&orderItemID, &qty); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			covered[orderItemID] += qty
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	hasOutputItemID, err := productionDemandColumnExists(ctx, pool, schema, "customer_processing_output_reservations", "order_item_id")
+	if err != nil {
+		return nil, err
+	}
+	if hasOutputItemID {
+		rows, err := pool.Query(ctx, fmt.Sprintf(`
+			SELECT order_item_id,
+			       COALESCE(SUM(GREATEST(reserved_qty-converted_qty-released_qty,0)),0)::float8
+			FROM %s.customer_processing_output_reservations
+			WHERE order_item_id=ANY($1)
+			  AND status IN ('reserved','partially_converted')
+			GROUP BY order_item_id
+		`, schema), orderItemIDs)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var orderItemID int64
+			var qty float64
+			if err := rows.Scan(&orderItemID, &qty); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			covered[orderItemID] += qty
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	if len(covered) == 0 {
+		return demands, nil
+	}
+	out := make([]productionDemand, 0, len(demands))
+	for _, source := range demands {
+		demand := source
+		demand.OrderDetails = make([]productionapp.ProductionDemandOrder, 0, len(source.OrderDetails))
+		demand.SalesSpecCount = 0
+		demand.forceSalesSpecCount = 0
+		for _, detail := range source.OrderDetails {
+			remaining := math.Max(0, detail.Quantity-covered[detail.OrderItemID])
+			if remaining <= 0 {
+				continue
+			}
+			detail.Quantity = remaining
+			demand.OrderDetails = append(demand.OrderDetails, detail)
+			demand.SalesSpecCount += remaining
+			if detail.ForceProduce {
+				demand.forceSalesSpecCount += remaining
+			}
+		}
+		if demand.SalesSpecCount > 0 {
+			out = append(out, demand)
+		}
+	}
+	return out, nil
 }
 
 type productionQuantitySnapshot struct {

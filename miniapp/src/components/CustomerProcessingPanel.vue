@@ -243,7 +243,7 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
   <view class="workspace">
     <view v-if="showCreate" class="panel create-panel">
       <text class="title">提交生产工单</text>
-      <text class="hint">只选择目标 SKU、规格和数量；系统按当前有效 BOM 自动汇总物料需求。</text>
+      <text class="hint">只选择目标 SKU、规格和数量；系统按当前有效 BOM 自动汇总物料需求，提交时重新核对并立即预订物料。</text>
       <text v-if="prefillWarning" class="warning">{{ prefillWarning }}</text>
       <CustomerProductSelector :families="catalog.product_families" :customer-id="customerId" @select="addProduct" />
       <view v-for="(line, index) in lines" :key="`${line.product_id}:${line.bom_spec_id || 0}:${line.bom_variant_id || 0}:${line.spec_g}`" class="line">
@@ -256,7 +256,7 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
       <button class="secondary" :disabled="loading" @tap="runPreview">BOM 试算</button>
 
       <view v-if="preview" class="preview">
-        <text :class="preview.materials_ready ? 'ready' : 'warning'">{{ preview.materials_ready ? '当前物料齐套' : '当前物料有缺口，可提交待排产需求；申请阶段不会占用物料' }}</text>
+        <text :class="preview.materials_ready ? 'ready' : 'warning'">{{ preview.materials_ready ? '当前物料齐套；提交后立即预订物料' : '当前物料有缺口，不能提交；请按最大可生产数量调整' }}</text>
         <text class="subtitle">目标商品</text>
         <view v-for="item in preview.items" :key="item.line_no" class="preview-row">
           <text>{{ item.product_name }} · {{ targetSpecLabel(item) }} · {{ targetQtyLabel(item) }}</text>

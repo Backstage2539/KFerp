@@ -1,5 +1,16 @@
 # ACTIVE_REQUIREMENTS
 
+### PR-667-CUSTOMER-PROCESSING-RESERVATION-FULFILLMENT
+- Branch: `codex/customer-processing-reservations-20260915`; baseline `origin/develop@d111908e`.
+- Owner/session: Codex / Van / 2026-09-15.
+- Status: implementation and local full verification complete; develop/development/main/production delivery in progress; Van business acceptance pending.
+- Scope: 客户代加工按发布 BOM 预览并原子预订物料；一件代发先占客户成品库存、再按申请 FIFO 预订在制产出；不足整单拦截；完工入库自动转为订单批次占用；取消、减产、跨客户和历史兼容按方案处理。
+- DEV: DEV-689-PROCESSING-MATERIAL-RESERVATION; DEV-690-PROCESSING-OUTPUT-ALLOCATION; DEV-691-FULFILLMENT-RECEIPT-STATUS; DEV-692-ERP-MINIAPP-UI; DEV-693-DELIVERY.
+- Verifier: targeted RED/GREEN Go, PostgreSQL atomicity/concurrency/ownership, API contracts, Vue/miniapp tests and builds, development functional acceptance, production read-only/write-isolated smoke.
+- Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`, `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OP_MANUAL_STOCK.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-15-customer-processing-reservation-fulfillment.md`.
+- Delivery: feature -> develop -> development -> main -> production; production explicitly authorized by Van.
+
 ### PR-664-CUSTOMER-ORDER-PRICE-BINDINGS
 - Branch: `codex/customer-price-bindings-addressbook-20260914`; base `origin/develop@31eb729a`.
 - Owner/session: Codex / Van / 2026-09-14.

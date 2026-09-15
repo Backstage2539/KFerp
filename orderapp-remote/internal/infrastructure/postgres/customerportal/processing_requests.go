@@ -203,9 +203,12 @@ func (r Repository) createProcessingRequestV2(ctx context.Context, cmd customerp
 		}
 	}
 
-	prepared, err := r.prepareProcessingRequestTx(ctx, tx, cmd, false)
+	prepared, err := r.prepareProcessingRequestTx(ctx, tx, cmd, true)
 	if err != nil {
 		return customerportalapp.ProcessingRequest{}, err
+	}
+	if !prepared.Preview.MaterialsReady || !prepared.Preview.CanSubmit {
+		return customerportalapp.ProcessingRequest{}, &customerportalapp.ProcessingMaterialsUnavailableError{Preview: prepared.Preview}
 	}
 
 	first := prepared.Resolved[0]
@@ -213,9 +216,9 @@ func (r Repository) createProcessingRequestV2(ctx context.Context, cmd customerp
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.processing_job_requests(
 			customer_id,idempotency_key,request_hash,input_material_id,input_qty_g,target_product_id,target_spec_g,target_qty,
-			status,note,expected_completion_date,created_by_mini_user_id
+			status,note,expected_completion_date,created_by_mini_user_id,material_reservation_validated
 		)
-		VALUES($1,$2,$3,0,0,$4,$5,$6,'awaiting_schedule',$7,NULLIF($8,'')::date,$9)
+		VALUES($1,$2,$3,0,0,$4,$5,$6,'awaiting_schedule',$7,NULLIF($8,'')::date,$9,true)
 		RETURNING id
 	`, r.schema), cmd.CustomerID, cmd.IdempotencyKey, requestHash, first.ProductID, first.SpecG, first.Qty, strings.TrimSpace(cmd.Note), cmd.ExpectedCompletionDate, cmd.CreatedByMiniUserID).Scan(&requestID); err != nil {
 		return customerportalapp.ProcessingRequest{}, err
@@ -255,8 +258,34 @@ func (r Repository) createProcessingRequestV2(ctx context.Context, cmd customerp
 			item.SpecG, item.Qty, item.NeedG, prepared.Warehouse); err != nil {
 			return customerportalapp.ProcessingRequest{}, err
 		}
+		for _, need := range item.Materials {
+			key := processingNeedKey(need.ComponentType, need.MaterialID, need.ComponentSpecG)
+			allocations, remaining, ok := allocateProcessingSources(prepared.SourcesByKey[key], need.RequiredG, need.RequiredUnits)
+			if !ok {
+				return customerportalapp.ProcessingRequest{}, &customerportalapp.ProcessingMaterialsUnavailableError{Preview: prepared.Preview}
+			}
+			prepared.SourcesByKey[key] = remaining
+			for _, allocation := range allocations {
+				if _, err := tx.Exec(ctx, fmt.Sprintf(`
+					INSERT INTO %s.customer_processing_material_reservations(
+						request_id,request_item_id,customer_id,material_id,component_type,component_product_id,
+						component_spec_g,required_g,required_units,reserved_g,reserved_units,
+						source_owner_type,source_customer_id,source_warehouse_code,status,created_at,updated_at
+					)
+					VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$8,$9,$10,$11,$12,'reserved',now(),now())
+				`, r.schema), requestID, requestItemID, cmd.CustomerID, need.MaterialID,
+					firstNonEmpty(need.ComponentType, "material"), need.ComponentProductID, need.ComponentSpecG,
+					allocation.AvailableG, allocation.AvailableUnits, allocation.OwnerType,
+					allocation.SourceCustomerID, allocation.WarehouseCode); err != nil {
+					return customerportalapp.ProcessingRequest{}, err
+				}
+			}
+		}
 	}
-	actor := portalMiniActor(cmd.CreatedByMiniUserID)
+	actor := strings.TrimSpace(cmd.CreatedBy)
+	if actor == "" {
+		actor = portalMiniActor(cmd.CreatedByMiniUserID)
+	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "processing_job_request", &requestID, "mini_submit", nil, nil, postgresinfra.StrPtr("awaiting_schedule"), postgresinfra.AuditMeta{
 		"customer_id": cmd.CustomerID, "request_no": requestNo, "item_count": len(prepared.Resolved), "idempotency_key": cmd.IdempotencyKey,
 	}); err != nil {
@@ -407,12 +436,12 @@ func (r Repository) prepareProcessingRequestTx(ctx context.Context, tx pgx.Tx, c
 			}
 		}
 		if row.MaxProducibleQty == math.MaxInt64 {
-			row.MaxProducibleQty = 0
+			row.MaxProducibleQty = item.Qty
 		}
 		items = append(items, row)
 	}
 	return preparedProcessingRequest{
-		Preview:  customerportalapp.ProcessingRequestPreview{ConfigurationValid: true, MaterialsReady: materialsReady, CanSubmit: true, Items: items, Materials: materials},
+		Preview:  customerportalapp.ProcessingRequestPreview{ConfigurationValid: true, MaterialsReady: materialsReady, CanSubmit: materialsReady, Items: items, Materials: materials},
 		Resolved: resolved, Identities: identities, Warehouse: warehouse, SourcesByKey: sourcesByKey,
 	}, nil
 }

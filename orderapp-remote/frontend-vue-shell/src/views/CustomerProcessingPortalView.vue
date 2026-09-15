@@ -229,44 +229,63 @@
         </section>
       </template>
       <section v-else-if="portalPage === 'customerProcessing'" class="panel">
-        <h3>提交加工工单</h3>
-        <form class="fields" @submit.prevent="submitProcessing">
-          <label
-            >成品<select v-model.number="processing.product_id" required>
-              <option :value="0">选择商品</option>
-              <option v-for="row in options.customer_skus || []" :key="row.product_id" :value="row.product_id">
-                {{ row.product_name }}
-              </option>
-            </select></label
-          ><label
-            >原料<select v-model.number="processing.raw_bean_item_id" required>
-              <option :value="0">选择托管原料</option>
-              <option v-for="row in options.custody_items || []" :key="row.item_id" :value="row.item_id">
-                {{ row.item_name }}
-              </option>
-            </select></label
-          ><label>投料克重<input v-model.number="processing.input_quantity_g" type="number" min="1" required /></label
-          ><label
-            >计划产量<input v-model.number="processing.planned_output_units" type="number" min="1" required /></label
-          ><label>期望日期<input v-model="processing.expected_date" type="date" /></label
-          ><label>备注<input v-model="processing.note" /></label><button :disabled="saving">提交工单</button>
+        <h3>提交代加工申请</h3>
+        <p>成品配置以已发布的默认 BOM 为准。先预览可生产上限；提交时系统会再次校验，并立即预订客户原料和包材。</p>
+        <form class="processing-request" @submit.prevent="submitProcessing">
+          <div v-for="(item, index) in processing.items" :key="item.row_id" class="processing-line">
+            <label
+              >成品 / 规格<select v-model="item.target_key" required @change="applyProcessingTarget(item)">
+                <option value="">选择已配置的代加工商品</option>
+                <option v-for="target in processingTargets" :key="targetKey(target)" :value="targetKey(target)">
+                  {{ processingTargetLabel(target) }}
+                </option>
+              </select></label
+            ><label
+              >申请数量<input v-model.number="item.qty" type="number" min="1" step="1" required @input="processingPreview = null"
+            /></label>
+            <button v-if="processing.items.length > 1" type="button" @click="removeProcessingLine(index)">删除</button>
+          </div>
+          <div class="links">
+            <button type="button" @click="addProcessingLine">增加成品</button>
+            <label>期望日期<input v-model="processing.expected_completion_date" type="date" /></label>
+            <label>备注<input v-model.trim="processing.note" /></label>
+          </div>
+          <div class="links">
+            <button type="button" :disabled="saving || !processingPayloadItems.length" @click="previewProcessingRequest">预览可生产量</button>
+            <button :disabled="saving || !processingPreview?.can_submit">确认提交并预订原料</button>
+          </div>
         </form>
+        <div v-if="processingPreview" class="processing-preview" :class="{ blocked: !processingPreview.can_submit }">
+          <strong>{{ processingPreview.can_submit ? '当前可提交' : '当前不能提交' }}</strong>
+          <p v-if="!processingPreview.can_submit">请把申请数量调整到可生产上限以内；整张申请不会部分提交。</p>
+          <table>
+            <thead><tr><th>成品</th><th>申请</th><th>可生产上限</th><th>原料 / 包材</th></tr></thead>
+            <tbody>
+              <tr v-for="(row, index) in processingPreview.items || []" :key="row.id || index">
+                <td>{{ row.product_name }} {{ row.spec_name }}</td><td>{{ row.qty }}</td><td>{{ row.max_producible_qty }}</td>
+                <td>{{ (row.materials || []).map((material) => `${material.material_name}：需 ${material.required_g || material.required_units}，缺 ${material.shortage_g || material.shortage_units}`).join('；') || '无需领料' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>代加工申请进度</h3>
         <table>
           <thead>
             <tr>
-              <th>工单号</th>
+              <th>申请单号</th>
               <th>成品</th>
               <th>状态</th>
               <th>数量</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in data.processing_orders || []" :key="row.work_order_no">
-              <td>{{ row.work_order_no }}</td>
-              <td>{{ row.product_name }}</td>
-              <td>{{ row.status }}</td>
-              <td>{{ row.units }}</td>
+            <tr v-for="row in processingRequests" :key="row.id">
+              <td>{{ row.request_no }}</td>
+              <td>{{ (row.items || []).map((item) => `${item.product_name} ${item.spec_name || ''}`).join('、') }}</td>
+              <td>{{ processingStatusLabel(row.status) }}</td>
+              <td>{{ (row.items || []).map((item) => item.qty).join('、') }}</td>
             </tr>
+            <tr v-if="!processingRequests.length"><td colspan="4">暂无代加工申请</td></tr>
           </tbody>
         </table>
       </section>
@@ -380,7 +399,9 @@ const loading = ref(false),
   error = ref(''),
   message = ref(''),
   data = ref({}),
-  options = ref({}),
+  processingCatalog = ref({}),
+  processingRequests = ref([]),
+  processingPreview = ref(null),
   previewID = ref(0),
   previewRows = ref([]),
   previewLoading = ref(false),
@@ -392,14 +413,24 @@ const loading = ref(false),
   detail = ref(null),
   salesIDs = ref([])
 const recipient = reactive({ receiver_name: '', receiver_phone: '', receiver_address: '' })
-const processing = reactive({
-  product_id: 0,
-  raw_bean_item_id: 0,
-  input_quantity_g: '',
-  planned_output_units: '',
-  expected_date: '',
-  note: ''
-})
+let processingRowID = 0
+function newProcessingLine() {
+  processingRowID += 1
+  return { row_id: processingRowID, target_key: '', product_id: 0, bom_spec_id: 0, bom_variant_id: 0, spec_g: 0, qty: 1 }
+}
+const processing = reactive({ items: [newProcessingLine()], expected_completion_date: '', note: '' })
+const processingTargets = computed(() => processingCatalog.value.targets || [])
+const processingPayloadItems = computed(() =>
+  processing.items
+    .filter((item) => item.product_id > 0 && Number(item.qty) > 0)
+    .map(({ product_id, bom_spec_id, bom_variant_id, spec_g, qty }) => ({
+      product_id,
+      bom_spec_id,
+      bom_variant_id,
+      spec_g,
+      qty: Number(qty)
+    }))
+)
 const capability = computed(() => customerWorkspaceCapability(props.portalPage))
 const title = computed(() =>
   props.portalPage === 'customerProcessingPortal'
@@ -448,6 +479,58 @@ function scopedURL(path, params = {}) {
   }
   return path + (query.size ? '?' + query : '')
 }
+function processingEndpointBase() {
+  return props.customerAccountActor
+    ? '/api/customer-processing/portal'
+    : `/api/customer-processing/internal/${data.value.customer_id}`
+}
+function targetKey(target) {
+  return [target.product_id || 0, target.bom_spec_id || 0, target.bom_variant_id || 0, target.spec_g || 0].join(':')
+}
+function processingProduct(target) {
+  return (processingCatalog.value.products || []).find(
+    (product) => Number(product.product_id) === Number(target.product_id) || Number(product.base_product_id) === Number(target.product_id)
+  )
+}
+function processingTargetLabel(target) {
+  const product = processingProduct(target)
+  const name = product?.customer_product_display_name || product?.product_name || `商品 ${target.product_id}`
+  return `${name} · ${target.spec_name || (target.spec_g ? `${target.spec_g}g` : target.inventory_unit || '默认规格')}`
+}
+function applyProcessingTarget(item) {
+  const target = processingTargets.value.find((row) => targetKey(row) === item.target_key)
+  Object.assign(item, {
+    product_id: Number(target?.product_id || 0),
+    bom_spec_id: Number(target?.bom_spec_id || 0),
+    bom_variant_id: Number(target?.bom_variant_id || 0),
+    spec_g: Number(target?.spec_g || 0)
+  })
+  processingPreview.value = null
+}
+function addProcessingLine() {
+  processing.items.push(newProcessingLine())
+  processingPreview.value = null
+}
+function removeProcessingLine(index) {
+  processing.items.splice(index, 1)
+  processingPreview.value = null
+}
+function processingStatusLabel(status) {
+  return (
+    {
+      submitted: '待接单',
+      draft: '待接单',
+      awaiting_schedule: '待接单',
+      planned: '待接单',
+      released: '已接单',
+      running: '开始生产',
+      paused: '开始生产（暂停）',
+      partially_completed: '开始生产（部分入库）',
+      completed: '生产完成',
+      cancelled: '已取消'
+    }[String(status || '').trim()] || '待接单'
+  )
+}
 function navigate(key) {
   window.dispatchEvent(
     new CustomEvent('kferp:navigate-view', {
@@ -487,12 +570,7 @@ async function load() {
     if (version !== loadVersion) return
     data.value = result
     if (props.portalPage === 'customerOrders') await loadOrders(1)
-    if (props.portalPage === 'customerProcessing')
-      options.value = await apiGet(
-        props.customerAccountActor
-          ? '/api/customer-processing/portal/options'
-          : `/api/customer-processing/internal/${data.value.customer_id}/options`
-      )
+    if (props.portalPage === 'customerProcessing') await loadProcessingWorkspace()
   } catch (e) {
     if (version === loadVersion) error.value = e.message
   } finally {
@@ -572,21 +650,49 @@ async function submitProcessing() {
   saving.value = true
   error.value = ''
   try {
-    const product = (options.value.customer_skus || []).find((r) => r.product_id === processing.product_id)
-    const raw = (options.value.custody_items || []).find((r) => r.item_id === processing.raw_bean_item_id)
-    const path = props.customerAccountActor
-      ? '/api/customer-processing/portal/work-orders'
-      : `/api/customer-fulfillment/${data.value.customer_id}/work-orders`
-    await apiSend(path, {
-      body: { ...processing, product_name: product?.product_name || '', raw_bean_name: raw?.item_name || '' }
+    if (!processingPreview.value?.can_submit) throw new Error('请先预览并确认当前可生产量')
+    await apiSend(`${processingEndpointBase()}/processing-requests`, {
+      body: {
+        idempotency_key: `erp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        items: processingPayloadItems.value,
+        expected_completion_date: processing.expected_completion_date,
+        note: processing.note
+      }
     })
-    message.value = '加工工单已提交'
-    await load()
+    message.value = '代加工申请已提交，原料和包材已预订'
+    processing.items.splice(0, processing.items.length, newProcessingLine())
+    processing.expected_completion_date = ''
+    processing.note = ''
+    processingPreview.value = null
+    await loadProcessingWorkspace()
   } catch (e) {
     error.value = e.message
+    if (e.status === 409) {
+      try {
+        await previewProcessingRequest()
+        error.value = '原料或包材可用量已变化，请按最新预览调整'
+      } catch {}
+    }
   } finally {
     saving.value = false
   }
+}
+async function loadProcessingWorkspace() {
+  const base = processingEndpointBase()
+  const [catalog, requests] = await Promise.all([
+    apiGet(`${base}/processing-catalog`),
+    apiGet(`${base}/processing-requests?limit=100`)
+  ])
+  processingCatalog.value = catalog || {}
+  processingRequests.value = requests.rows || []
+}
+async function previewProcessingRequest() {
+  if (!processingPayloadItems.value.length) throw new Error('请先选择成品规格和申请数量')
+  error.value = ''
+  processingPreview.value = await apiSend(`${processingEndpointBase()}/processing-requests/preview`, {
+    body: { items: processingPayloadItems.value }
+  })
+  return processingPreview.value
 }
 watch(() => [props.portalPage, props.customerContextId, props.viewParams.customer_id], load, { immediate: true })
 </script>
@@ -631,6 +737,32 @@ watch(() => [props.portalPage, props.customerContextId, props.viewParams.custome
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px;
   margin: 16px 0;
+}
+.processing-request,
+.processing-preview {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.processing-line {
+  display: grid;
+  grid-template-columns: minmax(260px, 2fr) minmax(120px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #dce6de;
+  border-radius: 8px;
+  background: #f8faf8;
+}
+.processing-preview {
+  padding: 14px;
+  border: 1px solid #b9d8be;
+  border-radius: 8px;
+  background: #f1faf2;
+}
+.processing-preview.blocked {
+  border-color: #efb2b2;
+  background: #fff3f3;
 }
 label {
   display: grid;

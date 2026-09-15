@@ -85,8 +85,12 @@ describe('customer fulfillment helpers', () => {
   })
 
   it('shows customer-facing production and shipment status labels', () => {
-    expect(productionStatusLabel('awaiting_schedule')).toBe('待排产')
-    expect(productionStatusLabel('partially_completed')).toBe('部分完成')
+    expect(productionStatusLabel('awaiting_schedule')).toBe('待接单')
+    expect(productionStatusLabel('planned')).toBe('待接单')
+    expect(productionStatusLabel('released')).toBe('已接单')
+    expect(productionStatusLabel('running')).toBe('开始生产')
+    expect(productionStatusLabel('partially_completed')).toBe('开始生产（部分入库）')
+    expect(productionStatusLabel('completed')).toBe('生产完成')
     expect(directShipStatusLabel('reserved')).toBe('待发货')
     expect(directShipStatusLabel('partially_shipped')).toBe('部分发货')
   })

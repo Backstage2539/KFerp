@@ -938,6 +938,7 @@ type CreateDirectShipBatchCommand struct {
 type CreateProcessingRequestCommand struct {
 	CustomerID          int64
 	CreatedByMiniUserID int64
+	CreatedBy           string
 	IdempotencyKey      string
 	Items               []ProcessingRequestItemCommand
 	// Legacy scalar fields remain for historical repository/read compatibility.
@@ -2896,6 +2897,16 @@ func (s *Service) CreateProcessingRequest(ctx context.Context, token string, cmd
 	}
 	cmd.CustomerID = current.CurrentCustomerID
 	cmd.CreatedByMiniUserID = current.MiniUserID
+	return s.CreateProcessingRequestForCustomer(ctx, cmd)
+}
+
+// CreateProcessingRequestForCustomer is the shared ERP/miniapp write path.
+// The caller resolves and authorizes the customer scope; all BOM, inventory,
+// locking, idempotency and material-reservation rules remain centralized here.
+func (s *Service) CreateProcessingRequestForCustomer(ctx context.Context, cmd CreateProcessingRequestCommand) (ProcessingRequest, error) {
+	if cmd.CustomerID <= 0 {
+		return ProcessingRequest{}, fmt.Errorf("customer required")
+	}
 	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
 	if len(cmd.IdempotencyKey) > 160 {
 		return ProcessingRequest{}, fmt.Errorf("idempotency_key too long")
@@ -2907,10 +2918,11 @@ func (s *Service) CreateProcessingRequest(ctx context.Context, token string, cmd
 			return ProcessingRequest{}, fmt.Errorf("expected_completion_date invalid")
 		}
 	}
-	cmd.Items, err = normalizeProcessingRequestItems(cmd.Items)
+	items, err := normalizeProcessingRequestItems(cmd.Items)
 	if err != nil {
 		return ProcessingRequest{}, err
 	}
+	cmd.Items = items
 	cmd.InputMaterialID = 0
 	cmd.InputQtyG = 0
 	cmd.TargetProductID = 0
@@ -2926,10 +2938,18 @@ func (s *Service) PreviewProcessingRequest(ctx context.Context, token string, cm
 	}
 	cmd.CustomerID = current.CurrentCustomerID
 	cmd.CreatedByMiniUserID = current.MiniUserID
-	cmd.Items, err = normalizeProcessingRequestItems(cmd.Items)
+	return s.PreviewProcessingRequestForCustomer(ctx, cmd)
+}
+
+func (s *Service) PreviewProcessingRequestForCustomer(ctx context.Context, cmd CreateProcessingRequestCommand) (ProcessingRequestPreview, error) {
+	if cmd.CustomerID <= 0 {
+		return ProcessingRequestPreview{}, fmt.Errorf("customer required")
+	}
+	items, err := normalizeProcessingRequestItems(cmd.Items)
 	if err != nil {
 		return ProcessingRequestPreview{}, err
 	}
+	cmd.Items = items
 	repo, ok := s.repo.(processingRequestPreviewRepository)
 	if !ok {
 		return ProcessingRequestPreview{}, fmt.Errorf("processing preview unavailable")
@@ -2942,6 +2962,13 @@ func (s *Service) ListProcessingRequests(ctx context.Context, token string, limi
 	if err != nil {
 		return nil, err
 	}
+	return s.ListProcessingRequestsForCustomer(ctx, current.CurrentCustomerID, limit)
+}
+
+func (s *Service) ListProcessingRequestsForCustomer(ctx context.Context, customerID int64, limit int) ([]ProcessingRequest, error) {
+	if customerID <= 0 {
+		return nil, fmt.Errorf("customer required")
+	}
 	if limit <= 0 {
 		limit = 50
 	}
@@ -2952,7 +2979,7 @@ func (s *Service) ListProcessingRequests(ctx context.Context, token string, limi
 	if !ok {
 		return nil, fmt.Errorf("processing request reader unavailable")
 	}
-	return repo.ListProcessingRequests(ctx, current.CurrentCustomerID, limit)
+	return repo.ListProcessingRequests(ctx, customerID, limit)
 }
 
 func (s *Service) GetProcessingRequest(ctx context.Context, token string, requestID int64) (ProcessingRequest, error) {
@@ -3000,6 +3027,13 @@ func (s *Service) ListProcessingCatalogTargets(ctx context.Context, token string
 	if err != nil {
 		return nil, err
 	}
+	return s.ListProcessingCatalogTargetsForCustomer(ctx, current.CurrentCustomerID, productIDs)
+}
+
+func (s *Service) ListProcessingCatalogTargetsForCustomer(ctx context.Context, customerID int64, productIDs []int64) ([]ProcessingCatalogTarget, error) {
+	if customerID <= 0 {
+		return nil, fmt.Errorf("customer required")
+	}
 	unique := make([]int64, 0, len(productIDs))
 	seen := make(map[int64]bool, len(productIDs))
 	for _, productID := range productIDs {
@@ -3013,7 +3047,7 @@ func (s *Service) ListProcessingCatalogTargets(ctx context.Context, token string
 	if !ok {
 		return nil, fmt.Errorf("processing catalog unavailable")
 	}
-	return repo.ListProcessingCatalogTargets(ctx, current.CurrentCustomerID, unique)
+	return repo.ListProcessingCatalogTargets(ctx, customerID, unique)
 }
 
 func normalizeProcessingRequestItems(items []ProcessingRequestItemCommand) ([]ProcessingRequestItemCommand, error) {

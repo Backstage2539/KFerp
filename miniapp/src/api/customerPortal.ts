@@ -490,6 +490,11 @@ export type ProcessingTargetItem = {
   sales_unit?: string
   unit_price?: number
   line_amount?: number
+  is_processing_product?: boolean
+  stock_reserved_qty?: number
+  production_reserved_qty?: number
+  production_converted_qty?: number
+  production_shortfall_qty?: number
 }
 
 export type CreateProcessingRequestPayload = {
@@ -667,7 +672,22 @@ export type DirectShipPreview = {
   price_tables?: DirectShipPriceTable[]
   items?: ProcessingTargetItem[]
   warehouses: Array<{ warehouse: string; items: ProcessingTargetItem[] }>
-  shortages?: Array<ProcessingTargetItem & { available_qty: number }>
+  shortages?: Array<ProcessingTargetItem & {
+    available_qty: number
+    stock_available_qty: number
+    production_available_qty: number
+    blocking: boolean
+    blocking_reason?: string
+  }>
+  production_allocations?: Array<{
+    processing_request_id: number
+    processing_request_item_id: number
+    product_id: number
+    bom_spec_id?: number
+    bom_variant_id?: number
+    spec_g: number
+    qty: number
+  }>
 }
 
 export type CustomerInventorySummary = {
