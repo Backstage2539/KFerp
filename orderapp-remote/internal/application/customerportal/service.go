@@ -761,6 +761,8 @@ type InventoryItem struct {
 type ProcessingRequest struct {
 	ID                     int64                   `json:"id"`
 	RequestNo              string                  `json:"request_no"`
+	CustomerID             int64                   `json:"customer_id,omitempty"`
+	CustomerName           string                  `json:"customer_name,omitempty"`
 	InputMaterialID        int64                   `json:"input_material_id"`
 	InputMaterialName      string                  `json:"input_material_name"`
 	InputQtyG              int64                   `json:"input_qty_g"`
@@ -773,38 +775,68 @@ type ProcessingRequest struct {
 	ExpectedCompletionDate string                  `json:"expected_completion_date,omitempty"`
 	CreatedAt              string                  `json:"created_at"`
 	AcceptedAt             string                  `json:"accepted_at"`
+	StartedAt              string                  `json:"started_at,omitempty"`
+	CompletedAt            string                  `json:"completed_at,omitempty"`
+	RequestedQty           int64                   `json:"requested_qty"`
+	ActualInboundQty       float64                 `json:"actual_inbound_qty"`
+	OutputReservedQty      int64                   `json:"output_reserved_qty"`
+	OutputConvertedQty     int64                   `json:"output_converted_qty"`
+	OutputReleasedQty      int64                   `json:"output_released_qty"`
+	OutputShortfallQty     int64                   `json:"output_shortfall_qty"`
+	RemainingReservableQty float64                 `json:"remaining_reservable_qty"`
 	LinkedWorkOrderID      int64                   `json:"linked_work_order_id"`
 	Items                  []ProcessingRequestItem `json:"items,omitempty"`
 }
 
 type ProcessingRequestItem struct {
-	ID                   int64                       `json:"id"`
-	LineNo               int                         `json:"line_no"`
-	ProductID            int64                       `json:"product_id"`
-	ParentProductID      int64                       `json:"parent_product_id"`
-	BomSpecID            int64                       `json:"bom_spec_id,omitempty"`
-	BomVariantID         int64                       `json:"bom_variant_id,omitempty"`
-	ProductName          string                      `json:"product_name"`
-	SpecName             string                      `json:"spec_name,omitempty"`
-	InventoryUnit        string                      `json:"inventory_unit,omitempty"`
-	SpecG                int64                       `json:"spec_g"`
-	Qty                  int64                       `json:"qty"`
-	NeedG                int64                       `json:"need_g"`
-	TargetWarehouse      string                      `json:"target_warehouse"`
-	BomVersionID         int64                       `json:"bom_version_id"`
-	BomVersionNo         string                      `json:"bom_version_no"`
-	BomSourceProductID   int64                       `json:"bom_source_product_id"`
-	BomInherited         bool                        `json:"bom_inherited"`
-	MaterialSnapshot     string                      `json:"material_snapshot,omitempty"`
-	ProductionPlanID     int64                       `json:"production_plan_id"`
-	ProductionPlanItemID int64                       `json:"production_plan_item_id"`
-	LinkedWorkOrderID    int64                       `json:"linked_work_order_id"`
-	WorkOrderID          int64                       `json:"work_order_id,omitempty"`
-	WorkOrderNo          string                      `json:"work_order_no,omitempty"`
-	ActualInboundQty     float64                     `json:"actual_inbound_qty"`
-	Status               string                      `json:"status"`
-	MaxProducibleQty     int64                       `json:"max_producible_qty,omitempty"`
-	Materials            []ProcessingMaterialPreview `json:"materials,omitempty"`
+	ID                    int64                       `json:"id"`
+	LineNo                int                         `json:"line_no"`
+	ProductID             int64                       `json:"product_id"`
+	ParentProductID       int64                       `json:"parent_product_id"`
+	BomSpecID             int64                       `json:"bom_spec_id,omitempty"`
+	BomVariantID          int64                       `json:"bom_variant_id,omitempty"`
+	ProductName           string                      `json:"product_name"`
+	SpecName              string                      `json:"spec_name,omitempty"`
+	InventoryUnit         string                      `json:"inventory_unit,omitempty"`
+	SpecG                 int64                       `json:"spec_g"`
+	Qty                   int64                       `json:"qty"`
+	NeedG                 int64                       `json:"need_g"`
+	TargetWarehouse       string                      `json:"target_warehouse"`
+	BomVersionID          int64                       `json:"bom_version_id"`
+	BomVersionNo          string                      `json:"bom_version_no"`
+	BomSourceProductID    int64                       `json:"bom_source_product_id"`
+	BomInherited          bool                        `json:"bom_inherited"`
+	MaterialSnapshot      string                      `json:"material_snapshot,omitempty"`
+	ProductionPlanID      int64                       `json:"production_plan_id"`
+	ProductionPlanItemID  int64                       `json:"production_plan_item_id"`
+	LinkedWorkOrderID     int64                       `json:"linked_work_order_id"`
+	WorkOrderID           int64                       `json:"work_order_id,omitempty"`
+	WorkOrderNo           string                      `json:"work_order_no,omitempty"`
+	ActualInboundQty      float64                     `json:"actual_inbound_qty"`
+	AcceptedAt            string                      `json:"accepted_at,omitempty"`
+	StartedAt             string                      `json:"started_at,omitempty"`
+	CompletedAt           string                      `json:"completed_at,omitempty"`
+	CurrentOperation      string                      `json:"current_operation,omitempty"`
+	MaterialReservedG     int64                       `json:"material_reserved_g"`
+	MaterialReservedUnits int64                       `json:"material_reserved_units"`
+	OutputReservedQty     int64                       `json:"output_reserved_qty"`
+	OutputConvertedQty    int64                       `json:"output_converted_qty"`
+	OutputReleasedQty     int64                       `json:"output_released_qty"`
+	OutputShortfallQty    int64                       `json:"output_shortfall_qty"`
+	RelatedOrders         []ProcessingRelatedOrder    `json:"related_orders,omitempty"`
+	Status                string                      `json:"status"`
+	MaxProducibleQty      int64                       `json:"max_producible_qty,omitempty"`
+	Materials             []ProcessingMaterialPreview `json:"materials,omitempty"`
+}
+
+type ProcessingRelatedOrder struct {
+	OrderID      int64  `json:"order_id"`
+	OrderNo      string `json:"order_no"`
+	Status       string `json:"status"`
+	ReservedQty  int64  `json:"reserved_qty"`
+	ConvertedQty int64  `json:"converted_qty"`
+	ReleasedQty  int64  `json:"released_qty"`
+	ShortfallQty int64  `json:"shortfall_qty"`
 }
 
 type ProcessingMaterialPreview struct {

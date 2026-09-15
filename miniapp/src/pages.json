@@ -37,6 +37,18 @@
       }
     },
     {
+      "path": "pages/processing-request-create/processing-request-create",
+      "style": {
+        "navigationBarTitleText": "新建生产工单"
+      }
+    },
+    {
+      "path": "pages/processing-request-detail/processing-request-detail",
+      "style": {
+        "navigationBarTitleText": "生产工单详情"
+      }
+    },
+    {
       "path": "pages/factory-products/factory-products",
       "style": {
         "navigationBarTitleText": "工厂商品表"

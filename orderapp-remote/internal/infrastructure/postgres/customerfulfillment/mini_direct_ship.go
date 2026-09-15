@@ -2380,6 +2380,127 @@ func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, qu
 		}
 	}
 	productionDates := map[int64]string{}
+	type batchTrace struct {
+		ProcessingRequestID int64
+		ProcessingRequestNo string
+		WorkOrderID         int64
+		WorkOrderNo         string
+		StockEntryID        int64
+		StockEntryNo        string
+	}
+	stockEntryTrace := map[int64]batchTrace{}
+	productionRunTrace := map[int64]batchTrace{}
+	relatedOrdersByBatch := map[int64][]app.CustomerInventoryRelatedOrder{}
+	stockEntryIDs := make([]int64, 0)
+	productionRunIDs := make([]int64, 0)
+	batchIDs := make([]int64, 0)
+	for _, batch := range snapshot.Batches {
+		if !miniCustomerInventoryIdentityMatches(query, batch.ProductID, batch.BomSpecID, batch.SpecG) {
+			continue
+		}
+		if batch.BatchID > 0 {
+			batchIDs = append(batchIDs, batch.BatchID)
+		}
+		switch batch.SourceDocType {
+		case "stock_entry":
+			stockEntryIDs = append(stockEntryIDs, batch.SourceDocID)
+		case "production_run":
+			productionRunIDs = append(productionRunIDs, batch.SourceDocID)
+		}
+	}
+	if len(stockEntryIDs) > 0 {
+		rows, queryErr := r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT se.id,se.entry_no,COALESCE(wo.id,0),COALESCE(wo.work_order_no,''),COALESCE(pr.id,0),COALESCE(pr.request_no,'')
+			FROM %s.stock_entries se
+			LEFT JOIN %s.work_orders wo ON wo.id=se.work_order_id
+			LEFT JOIN %s.processing_job_request_items pri ON pri.id=wo.processing_request_item_id
+			LEFT JOIN %s.processing_job_requests pr ON pr.id=pri.request_id
+			WHERE se.id=ANY($1::bigint[])
+		`, r.schema, r.schema, r.schema, r.schema), stockEntryIDs)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		for rows.Next() {
+			var sourceID int64
+			var trace batchTrace
+			if scanErr := rows.Scan(&sourceID, &trace.StockEntryNo, &trace.WorkOrderID, &trace.WorkOrderNo, &trace.ProcessingRequestID, &trace.ProcessingRequestNo); scanErr != nil {
+				rows.Close()
+				return nil, scanErr
+			}
+			trace.StockEntryID = sourceID
+			stockEntryTrace[sourceID] = trace
+		}
+		if queryErr = rows.Err(); queryErr != nil {
+			rows.Close()
+			return nil, queryErr
+		}
+		rows.Close()
+	}
+	if len(productionRunIDs) > 0 {
+		rows, queryErr := r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT run.id,COALESCE(wo.id,0),COALESCE(wo.work_order_no,''),COALESCE(pr.id,0),COALESCE(pr.request_no,'')
+			FROM %s.produce_running_items run
+			LEFT JOIN %s.work_orders wo ON wo.running_item_id=run.id
+			LEFT JOIN %s.processing_job_request_items pri ON pri.id=wo.processing_request_item_id
+			LEFT JOIN %s.processing_job_requests pr ON pr.id=pri.request_id
+			WHERE run.id=ANY($1::bigint[])
+		`, r.schema, r.schema, r.schema, r.schema), productionRunIDs)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		for rows.Next() {
+			var sourceID int64
+			var trace batchTrace
+			if scanErr := rows.Scan(&sourceID, &trace.WorkOrderID, &trace.WorkOrderNo, &trace.ProcessingRequestID, &trace.ProcessingRequestNo); scanErr != nil {
+				rows.Close()
+				return nil, scanErr
+			}
+			productionRunTrace[sourceID] = trace
+		}
+		if queryErr = rows.Err(); queryErr != nil {
+			rows.Close()
+			return nil, queryErr
+		}
+		rows.Close()
+	}
+	if len(batchIDs) > 0 && relationExists(ctx, r.pool, fmt.Sprintf("%s.order_stock_batch_allocations", r.schema)) {
+		deductionPredicate := "COALESCE(o.is_void,false)=false"
+		if relationExists(ctx, r.pool, fmt.Sprintf("%s.order_stock_deductions", r.schema)) {
+			deductionPredicate += fmt.Sprintf(" AND NOT EXISTS (SELECT 1 FROM %s.order_stock_deductions d WHERE d.order_id=a.order_id)", r.schema)
+		}
+		rows, queryErr := r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT a.batch_id,a.order_id,COALESCE(o.order_no,''),
+			       SUM(CASE WHEN COALESCE(a.bom_spec_id,0)>0 THEN COALESCE(a.allocated_units,0)
+			                WHEN a.spec_g>0 THEN COALESCE(a.allocated_g,0)/a.spec_g ELSE 0 END)::bigint,
+			       COALESCE(NULLIF(ss.name,''),NULLIF(ops.name,''),'待发货')
+			FROM %s.order_stock_batch_allocations a
+			JOIN %s.orders o ON o.id=a.order_id AND o.customer_id=$2
+			LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
+			LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
+			WHERE a.batch_id=ANY($1::bigint[]) AND %s
+			GROUP BY a.batch_id,a.order_id,o.order_no,ss.name,ops.name
+			HAVING SUM(CASE WHEN COALESCE(a.bom_spec_id,0)>0 THEN COALESCE(a.allocated_units,0)
+			                WHEN a.spec_g>0 THEN COALESCE(a.allocated_g,0)/a.spec_g ELSE 0 END)>0
+			ORDER BY MIN(a.created_at),a.order_id
+		`, r.schema, r.schema, r.schema, r.schema, deductionPredicate), batchIDs, query.CustomerID)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		for rows.Next() {
+			var batchID int64
+			var order app.CustomerInventoryRelatedOrder
+			if scanErr := rows.Scan(&batchID, &order.OrderID, &order.OrderNo, &order.ReservedQty, &order.Status); scanErr != nil {
+				rows.Close()
+				return nil, scanErr
+			}
+			relatedOrdersByBatch[batchID] = append(relatedOrdersByBatch[batchID], order)
+		}
+		if queryErr = rows.Err(); queryErr != nil {
+			rows.Close()
+			return nil, queryErr
+		}
+		rows.Close()
+	}
 	if relationExists(ctx, r.pool, fmt.Sprintf("%s.produce_running_items", r.schema)) {
 		ids := make([]int64, 0)
 		for _, batch := range snapshot.Batches {
@@ -2423,6 +2544,10 @@ func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, qu
 		if batch.SourceDocType == "production_run" {
 			productionDate = productionDates[batch.SourceDocID]
 		}
+		trace := stockEntryTrace[batch.SourceDocID]
+		if batch.SourceDocType == "production_run" {
+			trace = productionRunTrace[batch.SourceDocID]
+		}
 		out = append(out, app.CustomerInventoryBatch{
 			BatchID: batch.BatchID, BatchNo: batch.BatchCode, ProductID: batch.ProductID,
 			BomSpecID: batch.BomSpecID, BomVariantID: batch.BomVariantID, BomSpecKey: batch.BomSpecKey,
@@ -2431,6 +2556,10 @@ func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, qu
 			Warehouse: batch.WarehouseName, ProductionDate: productionDate, InboundAt: inboundAt,
 			AvailableQty: availableByBatch[batch.BatchID], ReservedQty: batch.ReservedQty,
 			QualityStatus: batch.QualityStatus, HistoricalWithoutProductionDate: productionDate == "",
+			SourceProcessingRequestID: trace.ProcessingRequestID, SourceProcessingRequestNo: trace.ProcessingRequestNo,
+			SourceWorkOrderID: trace.WorkOrderID, SourceWorkOrderNo: trace.WorkOrderNo,
+			SourceStockEntryID: trace.StockEntryID, SourceStockEntryNo: trace.StockEntryNo,
+			RelatedOrders: relatedOrdersByBatch[batch.BatchID],
 		})
 	}
 	for _, inventory := range snapshot.Inventory {

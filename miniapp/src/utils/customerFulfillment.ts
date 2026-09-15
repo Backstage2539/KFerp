@@ -132,6 +132,84 @@ export function directShipStatusLabel(status?: string): string {
   return directShipStatusLabels[value] || value || '待处理'
 }
 
+type ProcessingProgressItem = {
+  qty?: number
+  actual_inbound_qty?: number
+  output_reserved_qty?: number
+  output_converted_qty?: number
+  output_released_qty?: number
+}
+
+export function processingRequestProgress(request: { items?: ProcessingProgressItem[] } = {}) {
+  const items = Array.isArray(request.items) ? request.items : []
+  return items.reduce((result, item) => {
+    const requested = Math.max(0, Number(item.qty || 0))
+    const inbound = Math.min(requested, Math.max(0, Number(item.actual_inbound_qty || 0)))
+    const reserved = Math.max(0, Number(item.output_reserved_qty || 0))
+    const converted = Math.max(0, Number(item.output_converted_qty || 0))
+    const released = Math.max(0, Number(item.output_released_qty || 0))
+    result.requestedQty += requested
+    result.inboundQty += inbound
+    result.activeReservedQty += Math.max(0, reserved - converted - released)
+    result.remainingReservableQty += Math.max(0, requested - inbound - Math.max(0, reserved - converted - released))
+    return result
+  }, { requestedQty: 0, inboundQty: 0, activeReservedQty: 0, remainingReservableQty: 0 })
+}
+
+type ProcessingTimelineInput = {
+  status?: string
+  created_at?: string
+  accepted_at?: string
+  started_at?: string
+  completed_at?: string
+}
+
+export function processingRequestTimeline(request: ProcessingTimelineInput = {}) {
+  const statusRank: Record<string, number> = {
+    awaiting_schedule: 0,
+    planned: 0,
+    released: 1,
+    paused: 2,
+    running: 2,
+    partially_completed: 2,
+    completed: 3,
+  }
+  const currentRank = statusRank[String(request.status || '')] ?? 0
+  const steps = [
+    { key: 'submitted', label: '待接单', time: request.created_at },
+    { key: 'accepted', label: '已接单', time: request.accepted_at },
+    { key: 'running', label: '开始生产', time: request.started_at },
+    { key: 'completed', label: '生产完成', time: request.completed_at },
+  ]
+  return steps.map((step, index) => ({
+    ...step,
+    time: String(step.time || '').trim() || '暂无记录',
+    state: index < currentRank ? 'done' : index === currentRank ? 'current' : 'pending',
+  }))
+}
+
+type DirectShipAvailabilityInput = {
+  qty?: number
+  stock_available_qty?: number
+  production_available_qty?: number
+  production_allocations?: Array<{ qty?: number; processing_request_id?: number }>
+}
+
+export function directShipAvailabilityBreakdown(input: DirectShipAvailabilityInput = {}) {
+  const requested = Math.max(0, Number(input.qty || 0))
+  const stockAvailable = Math.max(0, Number(input.stock_available_qty || 0))
+  const productionAvailable = Math.max(0, Number(input.production_available_qty || 0))
+  const stockQty = Math.min(requested, stockAvailable)
+  const allocationQty = (input.production_allocations || []).reduce((sum, item) => sum + Math.max(0, Number(item.qty || 0)), 0)
+  const productionQty = Math.min(Math.max(0, requested - stockQty), allocationQty || productionAvailable)
+  return {
+    stockQty,
+    productionQty,
+    orderableQty: stockAvailable + productionAvailable,
+    remainingProductionQty: Math.max(0, productionAvailable - productionQty),
+  }
+}
+
 export function canShowFactoryProductLinks(capabilities: Capability[] = []): boolean {
   const enabled = new Set(capabilities.filter((item) => item.enabled).map((item) => item.code))
   return enabled.has('product_order') && enabled.has('bean_list')

@@ -1637,6 +1637,18 @@
             </div>
             <div class="production-config-grid">
               <label>
+                <span>商品编号</span>
+                <input :value="productProductionConfigProduct?.number || productProductionConfigProduct?.code || '-'" disabled />
+              </label>
+              <label>
+                <span>客户归属</span>
+                <input :value="productProductionCustomerLabel" disabled />
+              </label>
+              <label>
+                <span>目标客户成品仓</span>
+                <input :value="productProductionTargetWarehouseLabel" disabled />
+              </label>
+              <label>
                 <span>商品名</span>
                 <input v-model.trim="productProductionConfigForm.name" :disabled="!canEditSkuRow(productProductionConfigProduct || {})" placeholder="商品档案名称" />
               </label>
@@ -1654,6 +1666,10 @@
                 <span>是否代加工商品</span>
                 <small>开启后，归属客户且生产配置完整时才会出现在客户小程序“新建工单”目录中；规格沿用商品档案标记。</small>
               </label>
+              <div class="wide-field product-config-readiness" :class="{ blocked: !productProductionConfigurationReady }">
+                <strong>{{ productProductionConfigurationReady ? '生产配置完整，可供客户提交生产申请' : '生产配置尚未完成' }}</strong>
+                <span>{{ productProductionConfigurationReason }}</span>
+              </div>
             </div>
             <div class="sales-spec-template-detail bom-spec-readonly-panel">
               <div class="sales-spec-template-detail-head">
@@ -1673,6 +1689,30 @@
                 <span v-if="row.is_default" class="template-meta-chip default-spec-chip">默认规格</span>
               </article>
               <p v-if="!productProductionBomSpecs.length" class="muted">{{ productProductionDefaultBomUsageRow ? '默认 BOM 暂无可用规格，请到 BOM 检查规格组和发布版本。' : '该商品尚未绑定默认制造 BOM；请到 生产配置 -> 生产 BOM 创建规格组并设为默认 BOM。' }}</p>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="field-group-head"><div class="field-group-copy"><strong>默认已发布 BOM · 配方与工艺</strong><small>客户生产申请、生产计划和工单统一读取这一版本。</small></div><button class="secondary compact-action" type="button" @click="navigateProductBom(productProductionDefaultBomUsageRow || {})">维护 BOM</button></div>
+            <div class="production-config-grid">
+              <label><span>默认 BOM</span><input :value="productProductionDefaultBomLabel" disabled /></label>
+              <label><span>工艺路线</span><input :value="productProductionProcessRouteLabel" disabled /></label>
+            </div>
+            <div class="component-summary-list">
+              <article v-for="(component, index) in productProductionComponents" :key="`component-${index}`"><strong>{{ component.component_name || component.material_name || component.product_name || `组件 ${index + 1}` }}</strong><span>{{ component.quantity || component.qty || component.required_qty || '-' }} {{ component.unit || component.inventory_unit || '' }}</span></article>
+              <p v-if="!productProductionComponents.length" class="muted">默认 BOM 暂无可展示的组件；请进入 BOM 检查已发布版本与规格配方。</p>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="field-group-head"><div class="field-group-copy"><strong>客户别名与代发价格表</strong><small>客户别名单独维护；价格表只引用当前商品和已发布 BOM 规格。</small></div><button class="secondary compact-action" type="button" @click="openProductPriceTables">进入价格表</button></div>
+            <div class="readonly-link-list">
+              <div v-for="reference in productProductionCustomerReferences" :key="reference.id || `${reference.customer_id}:${reference.product_id}`" class="bom-default-row"><div><strong>{{ customerName(reference.customer_id) || `客户 #${reference.customer_id}` }}</strong><small>{{ reference.customer_display_name || '未维护客户别名' }}</small></div><span class="template-meta-chip">{{ reference.include_in_price_list === false ? '未纳入价格表' : '可加入价格表' }}</span></div>
+              <div v-for="binding in productProductionDirectShipPriceTables" :key="`direct-ship-price-${binding.publication_id}`" class="bom-default-row"><div><strong>{{ binding.table_name || '一件代发价格表' }}</strong><small>{{ binding.product_type_name || binding.list_type || '当前商品类型' }} · {{ binding.version || '未标版本' }}</small></div><span class="template-meta-chip default">一件代发已绑定</span></div>
+              <small v-if="productProductionPriceTables.loading" class="muted">正在读取客户一件代发价格表…</small>
+              <small v-else-if="productProductionPriceTables.error" class="muted">{{ productProductionPriceTables.error }}</small>
+              <small v-else-if="Number(productProductionConfigProduct?.customer_id || 0) > 0 && !productProductionDirectShipPriceTables.length" class="muted">当前客户尚未绑定一件代发价格表。</small>
+              <small v-if="!productProductionCustomerReferences.length && Number(productProductionConfigProduct?.customer_id || 0) <= 0" class="muted">暂无客户引用；客户自建商品会显示其归属客户。</small>
             </div>
           </section>
 
@@ -2237,6 +2277,8 @@ const classificationCategoryForm = ref(defaultClassificationCategoryForm())
 const productProductionConfigProduct = ref(null)
 const productProductionConfigForm = ref(defaultProductProductionConfigForm())
 const productProductionConfigSaving = ref(false)
+const productProductionProcessingPreview = ref({ loading: false, data: null, error: '' })
+const productProductionPriceTables = ref({ loading: false, rows: [], error: '' })
 const aliasIndustryFieldDrawerOpen = ref(false)
 const aliasIndustryFieldSaving = ref(false)
 const aliasIndustryFieldAlias = ref(null)
@@ -2532,6 +2574,53 @@ const productProductionBomSpecsSummary = computed(() => {
   if (!specs.length) return productProductionDefaultBomUsageRow.value ? '默认 BOM 暂无可用规格' : '尚未绑定默认制造 BOM'
   const names = specs.map((row) => `${row.name || row.code || `规格 #${row.bom_spec_id}`}${row.is_default ? '（默认）' : ''}`)
   return names.length > 3 ? `${names.slice(0, 3).join('、')} 等 ${names.length} 个规格` : names.join('、')
+})
+const productProductionDefaultBomDetail = computed(() => {
+  const bomID = bomUsageBomID(productProductionDefaultBomUsageRow.value || {}) || Number(productProductionConfigForm.value.production_bom_id || 0)
+  return productionBomDetails.value[String(bomID)] || {}
+})
+const productProductionCustomerLabel = computed(() => {
+  const customerID = Number(productProductionConfigProduct.value?.customer_id || 0)
+  return customerID > 0 ? (customerName(customerID) || `客户 #${customerID}`) : (productCustomerReferenceSummary(productProductionConfigProduct.value || {}) || '工厂公共商品')
+})
+const productProductionCustomerReferences = computed(() => productCustomerReferences.value.filter((row) => row.active !== false && Number(row.product_id || 0) === Number(productProductionConfigProduct.value?.id || 0)))
+const productProductionDirectShipPriceTables = computed(() => (productProductionPriceTables.value.rows || []).filter((row) => row.usage_code === 'direct_ship'))
+const productProductionDefaultBomLabel = computed(() => {
+  const row = productProductionDefaultBomUsageRow.value || {}
+  if (!bomUsageBomID(row)) return '尚未绑定默认制造 BOM'
+  return `${row.bom_name || row.name || `BOM #${bomUsageBomID(row)}`} / ${bomUsageVersionLabel(row)}`
+})
+const productProductionProcessRouteLabel = computed(() => {
+  const detail = productProductionDefaultBomDetail.value || {}
+  const routeID = Number(detail.process_route_id || detail.process_template_id || 0)
+  return String(detail.process_route_name || detail.process_template_name || processRoutes.value.find((row) => Number(row.id || 0) === routeID)?.name || '').trim() || '未配置工艺路线'
+})
+const productProductionComponents = computed(() => {
+  const detail = productProductionDefaultBomDetail.value || {}
+  const variants = Array.isArray(detail.variants) ? detail.variants : []
+  const defaultVariant = variants.find((row) => row.is_default) || variants[0] || {}
+  return (Array.isArray(defaultVariant.items) ? defaultVariant.items : (Array.isArray(detail.items) ? detail.items : [])).slice(0, 12)
+})
+const productProductionProcessingPreviewItem = computed(() => productProductionProcessingPreview.value.data?.items?.[0] || {})
+const productProductionTargetWarehouseLabel = computed(() => {
+  if (productProductionProcessingPreview.value.loading) return '校验客户货权仓中…'
+  const warehouse = String(productProductionProcessingPreviewItem.value.target_warehouse || '').trim()
+  if (warehouse) return warehouse
+  if (Number(productProductionConfigProduct.value?.customer_id || 0) <= 0) return '工厂成品仓（排产时确认）'
+  return productProductionProcessingPreview.value.error || '未找到有效客户成品仓'
+})
+const productProductionConfigurationReady = computed(() => Boolean(
+  productProductionDefaultBomUsageRow.value
+  && productProductionBomSpecs.value.length
+  && productProductionProcessRouteLabel.value !== '未配置工艺路线'
+  && (!productProductionConfigForm.value.is_processing_product || Number(productProductionConfigProduct.value?.customer_id || 0) <= 0 || Boolean(productProductionProcessingPreviewItem.value.target_warehouse))
+))
+const productProductionConfigurationReason = computed(() => {
+  if (!productProductionDefaultBomUsageRow.value) return '缺少默认已发布 BOM，请先到 BOM 配置并设为默认。'
+  if (!productProductionBomSpecs.value.length) return '默认 BOM 缺少有效规格与库存单位。'
+  if (productProductionProcessRouteLabel.value === '未配置工艺路线') return '默认 BOM 缺少有效工艺路线。'
+  if (productProductionConfigForm.value.is_processing_product && Number(productProductionConfigProduct.value?.customer_id || 0) > 0 && !productProductionProcessingPreviewItem.value.target_warehouse) return productProductionProcessingPreview.value.error || '客户货权目标仓尚未配置。'
+  return productProductionConfigForm.value.is_processing_product ? '代加工已启用，客户目录会在仓库配置有效时开放。' : '生产配置已就绪；开启“是否代加工商品”后客户可申请生产。'
 })
 const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categories.value).map((category) => ({
   id: Number(category.id || 0),
@@ -6328,6 +6417,11 @@ function navigateCurrentProductBom() {
   navigateProductBom({ id: productProductionConfigForm.value.product_id || productProductionConfigProduct.value?.id || 0 })
 }
 
+function openProductPriceTables() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productPriceManagement', params: { product_id: Number(productProductionConfigProduct.value?.id || 0), customer_id: Number(productProductionConfigProduct.value?.customer_id || 0) } } }))
+  closeProductProductionConfigDrawer()
+}
+
 function returnToPreviousView() {
   const navigation = productReturnNavigation.value
   if (!navigation?.key) return
@@ -6513,6 +6607,8 @@ async function openProductProductionConfig(row) {
     applyProductUnitTemplateToForm(productProductionConfigForm.value)
   }
   productProductionConfigDrawerOpen.value = true
+  productProductionProcessingPreview.value = { loading: false, data: null, error: '' }
+  productProductionPriceTables.value = { loading: false, rows: [], error: '' }
   error.value = ''
   try {
     let industryFieldTemplatesPromise = loadIndustryFieldTemplates()
@@ -6544,9 +6640,41 @@ async function openProductProductionConfig(row) {
       const latest = productProductionConfigVersionOptions.value[0]
       if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
     }
+    await Promise.all([
+      loadProductProductionProcessingPreview(),
+      loadProductProductionPriceTables(),
+    ])
   } catch (err) {
     if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
     error.value = err.message || '加载商品生产配置失败'
+  }
+}
+
+async function loadProductProductionPriceTables() {
+  const customerID = Number(productProductionConfigProduct.value?.customer_id || 0)
+  if (customerID <= 0) return
+  productProductionPriceTables.value = { loading: true, rows: [], error: '' }
+  try {
+    const data = await apiGet(`/api/costing/customer-order-price-table-bindings?customer_id=${customerID}`)
+    productProductionPriceTables.value = { loading: false, rows: data?.bindings || [], error: '' }
+  } catch (err) {
+    productProductionPriceTables.value = { loading: false, rows: [], error: err.message || '一件代发价格表读取失败' }
+  }
+}
+
+async function loadProductProductionProcessingPreview() {
+  const customerID = Number(productProductionConfigProduct.value?.customer_id || 0)
+  const productID = Number(productProductionConfigProduct.value?.parent_product_id || productProductionConfigProduct.value?.id || 0)
+  const spec = productProductionBomSpecs.value.find((row) => row.is_default) || productProductionBomSpecs.value[0]
+  if (!customerID || !productID || !spec || !productProductionConfigForm.value.is_processing_product) return
+  productProductionProcessingPreview.value = { loading: true, data: null, error: '' }
+  try {
+    const data = await apiSend(`/api/customer-processing/internal/${customerID}/processing-requests/preview`, {
+      body: { items: [{ product_id: productID, bom_spec_id: Number(spec.bom_spec_id || 0), bom_variant_id: Number(spec.bom_variant_id || 0), qty: 1 }] },
+    })
+    productProductionProcessingPreview.value = { loading: false, data, error: '' }
+  } catch (err) {
+    productProductionProcessingPreview.value = { loading: false, data: null, error: err.message || '客户货权仓校验失败' }
   }
 }
 
@@ -8717,6 +8845,15 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .production-config-grid label, .production-config-field-row label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
 .production-config-grid label span, .production-config-field-row label span { color: #5f5a52; font-weight: 600; }
 .production-config-grid .wide-field { grid-column: 1 / -1; }
+.product-config-readiness { border: 1px solid #b9dec8; border-radius: 8px; background: #f3fbf6; padding: 10px 12px; color: #28624a; }
+.product-config-readiness.blocked { border-color: #f1c27d; background: #fff8ec; color: #8a5400; }
+.product-config-readiness span { color: inherit !important; font-weight: 700; }
+.field-group-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.field-group-copy { display: grid; gap: 3px; }
+.field-group-copy small { color: #6d665c; line-height: 1.4; }
+.component-summary-list,.readonly-link-list { display: grid; gap: 7px; }
+.component-summary-list .bom-default-row>div,.readonly-link-list .bom-default-row>div { display: grid; gap: 2px; min-width: 0; }
+.component-summary-list small,.readonly-link-list small { color: #6d665c; }
 .readonly-link-button { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; }
 .bom-default-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f0e7d8; }
 .bom-default-row:last-child { border-bottom: 0; }

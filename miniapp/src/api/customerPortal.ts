@@ -395,6 +395,15 @@ export type ProcessingRequest = {
   expected_completion_date?: string
   created_at: string
   accepted_at: string
+  started_at?: string
+  completed_at?: string
+  requested_qty?: number
+  actual_inbound_qty?: number
+  output_reserved_qty?: number
+  output_converted_qty?: number
+  output_released_qty?: number
+  output_shortfall_qty?: number
+  remaining_reservable_qty?: number
   linked_work_order_id: number
   items?: Array<ProcessingTargetItem & {
     id?: number
@@ -405,6 +414,27 @@ export type ProcessingRequest = {
     work_order_no?: string
     production_plan_id?: number
     actual_inbound_qty?: number
+    accepted_at?: string
+    started_at?: string
+    completed_at?: string
+    current_operation?: string
+    target_warehouse?: string
+    bom_version_no?: string
+    material_reserved_g?: number
+    material_reserved_units?: number
+    output_reserved_qty?: number
+    output_converted_qty?: number
+    output_released_qty?: number
+    output_shortfall_qty?: number
+    related_orders?: Array<{
+      order_id: number
+      order_no: string
+      status: string
+      reserved_qty: number
+      converted_qty: number
+      released_qty: number
+      shortfall_qty: number
+    }>
   }>
 }
 
@@ -742,6 +772,13 @@ export type CustomerInventoryBatch = {
   reserved_qty: number
   quality_status: string
   historical_without_production_date?: boolean
+  source_processing_request_id?: number
+  source_processing_request_no?: string
+  source_work_order_id?: number
+  source_work_order_no?: string
+  source_stock_entry_id?: number
+  source_stock_entry_no?: string
+  related_orders?: Array<{ order_id: number; order_no: string; reserved_qty: number; status: string }>
 }
 
 export type CustomerAssetWarehouseBalance = {

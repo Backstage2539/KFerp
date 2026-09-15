@@ -9,15 +9,21 @@ import {
 import {
   fetchCustomerInventory,
   fetchCustomerInventoryBatches,
+  fetchProcessingRequests,
   type CustomerInventoryBatch,
   type CustomerInventorySummary,
+  type ProcessingRequest,
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useProcessingPrefillStore } from '../../stores/processingPrefill'
+import { useCustomerOrderDraftStore } from '../../stores/customerOrderDraft'
 import { useSessionStore } from '../../stores/session'
 import { matchesCustomerInventoryIdentity } from '../../utils/customerInventory'
+import { createDirectShipDraftLine } from '../../utils/directShipDraft'
+import { shanghaiToday } from '../../utils/employeeOrder'
+import { processingRequestProgress, productionStatusLabel } from '../../utils/customerFulfillment'
 
 const session = useSessionStore()
 const {
@@ -28,6 +34,7 @@ const {
   handlePullUpBrandTouchCancel,
 } = usePullUpBrandGesture()
 const processingPrefill = useProcessingPrefillStore()
+const orderDraft = useCustomerOrderDraftStore()
 const productID = ref(0)
 const specG = ref(0)
 const bomSpecID = ref(0)
@@ -38,6 +45,7 @@ const errorMessage = ref('')
 const navigating = ref(false)
 const summary = ref<CustomerInventorySummary | null>(null)
 const batches = ref<CustomerInventoryBatch[]>([])
+const processingRequests = ref<ProcessingRequest[]>([])
 let navigationUnlockTimer: ReturnType<typeof setTimeout> | null = null
 let loadVersion = 0
 
@@ -54,6 +62,15 @@ const specLabel = computed(() => {
   }
   return `${specG.value}g`
 })
+const sourceRequestLines = computed(() => processingRequests.value.flatMap((request) => (request.items || [])
+  .filter((item) => matchesCustomerInventoryIdentity(item, {
+    product_id: productID.value,
+    bom_spec_id: bomSpecID.value,
+    bom_variant_id: bomVariantID.value,
+    spec_g: specG.value,
+  }))
+  .map((item) => ({ request, item, progress: processingRequestProgress({ items: [item] }) }))))
+const incompleteReservableQty = computed(() => sourceRequestLines.value.reduce((sum, row) => sum + row.progress.remainingReservableQty, 0))
 
 async function load() {
   const version = ++loadVersion
@@ -85,12 +102,13 @@ async function load() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [inventoryResponse, batchResponse] = await Promise.all([
+    const [inventoryResponse, batchResponse, processingResponse] = await Promise.all([
       fetchCustomerInventory(token),
       fetchCustomerInventoryBatches(token, requestedProductID, requestedCanonical ? {
         bom_spec_id: requestedBomSpecID,
         bom_variant_id: requestedBomVariantID,
       } : requestedSpecG),
+      fetchProcessingRequests(token),
     ])
     if (
       version !== loadVersion
@@ -116,6 +134,7 @@ async function load() {
     }
     summary.value = currentSummary
     batches.value = (batchResponse.rows || []).filter((item) => matchesCustomerInventoryIdentity(item, requestedIdentity))
+    processingRequests.value = processingResponse.rows || []
     uni.setNavigationBarTitle({ title: `${productName.value}库存` })
   } catch (error) {
     if (version !== loadVersion) return
@@ -148,7 +167,7 @@ function addProductionOrder() {
     sku_code: skuCode.value,
   }])
   uni.navigateTo({
-    url: '/pages/service/service?key=processing',
+    url: '/pages/processing-request-create/processing-request-create',
     fail: () => {
       processingPrefill.clear()
       navigating.value = false
@@ -157,6 +176,34 @@ function addProductionOrder() {
       navigationUnlockTimer = setTimeout(() => { navigating.value = false }, 800)
     },
   })
+}
+
+function useSpotStock() {
+  const line = {
+    ...createDirectShipDraftLine(),
+    product_family_key: `inventory:${productID.value}`,
+    product_id: productID.value,
+    bom_spec_id: bomSpecID.value || undefined,
+    bom_variant_id: bomVariantID.value || undefined,
+    product_name: productName.value,
+    spec_g: bomSpecID.value > 0 ? 0 : specG.value,
+    spec_label: specLabel.value,
+    inventory_unit: inventoryUnit.value || summary.value?.inventory_unit,
+    qty: 1,
+  }
+  orderDraft.saveDraft(session.currentCustomerID, 'direct_ship', {
+    order_date: shanghaiToday(), recipient: null, note: '', lines: [line],
+    idempotency_key: `inventory-direct-ship-${Date.now()}`,
+  })
+  uni.navigateTo({ url: '/pages/service/service?key=directShip' })
+}
+
+function openProcessingRequest(id: number) {
+  uni.navigateTo({ url: `/pages/processing-request-detail/processing-request-detail?id=${id}` })
+}
+
+function openRelatedOrder(orderNo: string) {
+  uni.navigateTo({ url: `/pages/service/service?key=orders&q=${encodeURIComponent(orderNo)}` })
 }
 
 onLoad((query) => {
@@ -203,10 +250,20 @@ onShow(() => { void refreshMiniappShareMenu() })
         </view>
         <view class="summary-grid">
           <view><text class="label">库存总数</text><text>{{ summary?.total_qty || 0 }}</text></view>
-          <view><text class="label">已预留</text><text>{{ summary?.reserved_qty || 0 }}</text></view>
+          <view><text class="label">订单占用</text><text>{{ summary?.reserved_qty || 0 }}</text></view>
+          <view><text class="label">现货可用</text><text>{{ summary?.available_qty || 0 }}</text></view>
+          <view><text class="label">未入库可预订</text><text>{{ incompleteReservableQty }}</text></view>
           <view class="wide"><text class="label">所在仓库</text><text>{{ warehouses.join('、') || '暂无记录' }}</text></view>
         </view>
-        <button v-if="summary" class="primary" :disabled="navigating" @tap="addProductionOrder">{{ navigating ? '打开中...' : '添加生产工单' }}</button>
+        <view v-if="summary" class="action-row"><button class="primary" @tap="useSpotStock">使用现货下单</button><button class="secondary" :disabled="navigating" @tap="addProductionOrder">{{ navigating ? '打开中...' : '提交生产工单' }}</button></view>
+      </view>
+
+      <view class="section">
+        <text class="section-title">生产完成与来源工单</text>
+        <view v-for="row in sourceRequestLines" :key="`${row.request.id}:${row.item.id || row.item.line_no}`" class="source" @tap="openProcessingRequest(row.request.id)">
+          <view><text class="batch-no">{{ row.request.request_no }}</text><text class="hint">{{ productionStatusLabel(row.item.status || row.request.status) }}{{ row.item.completed_at ? ` ${row.item.completed_at}` : '' }} · 本规格申请 {{ row.progress.requestedQty }} · 入库 {{ row.progress.inboundQty }} · 剩余可预订 {{ row.progress.remainingReservableQty }}</text></view><text class="available">查看 ›</text>
+        </view>
+        <text v-if="!sourceRequestLines.length" class="empty">历史库存暂无可追溯生产工单</text>
       </view>
 
       <view class="section">
@@ -217,6 +274,9 @@ onShow(() => { void refreshMiniappShareMenu() })
           <text class="hint">所在仓库：{{ batch.warehouse }}</text>
           <text class="hint">入库时间：{{ batch.inbound_at || '暂无记录' }}</text>
           <text class="hint">已预留 {{ batch.reserved_qty }} · 质量状态 {{ batch.quality_status || '正常' }}</text>
+          <text v-if="batch.source_stock_entry_no" class="hint">入库单：{{ batch.source_stock_entry_no }}</text>
+          <text v-if="batch.source_work_order_no" class="hint">生产工单：{{ batch.source_work_order_no }}</text>
+          <view v-for="order in batch.related_orders || []" :key="`${batch.batch_id}:${order.order_id}`" class="related-order" @tap.stop="openRelatedOrder(order.order_no)"><text>关联代发订单 {{ order.order_no }} · 占用 {{ order.reserved_qty }}</text><text class="available">查看 ›</text></view>
         </view>
         <text v-if="!batches.length" class="empty">当前库存已变化，暂无可追溯批次</text>
       </view>
@@ -229,5 +289,5 @@ onShow(() => { void refreshMiniappShareMenu() })
 </template>
 
 <style scoped>
-.page{min-height:100vh;padding:28rpx;background:#f5f7f6;box-sizing:border-box;color:#172c22}.summary-card,.section,.state-card{margin-bottom:20rpx;padding:26rpx;border:1rpx solid #dfe7e2;border-radius:18rpx;background:#fff}.summary-copy,.batch,.state-card{display:flex;flex-direction:column;gap:12rpx}.summary-head,.batch-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx}.summary-copy{min-width:0;flex:1}.title{font-size:34rpx;font-weight:850;overflow-wrap:anywhere}.hint,.empty{color:#68766f;font-size:23rpx;line-height:1.55}.available{flex:0 0 auto;color:#28624a;font-weight:850}.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:18rpx;margin:24rpx 0}.summary-grid .wide{grid-column:1/-1}.summary-grid text:not(.label){display:block;font-size:25rpx;line-height:1.5}.label{display:block;margin-bottom:5rpx;color:#748078;font-size:22rpx}.primary,.secondary{width:100%;min-height:76rpx;margin:0;border-radius:10rpx}.primary{background:#2b2118;color:#fff}.secondary{background:#fff;border:1rpx solid #d8d8d8}.section-title{display:block;margin-bottom:18rpx;font-size:30rpx;font-weight:850}.batch{padding:18rpx 0;border-top:1rpx solid #edf1ee}.batch:first-of-type{border-top:0}.batch-no{font-size:26rpx;font-weight:800}.empty{display:block;padding:28rpx 0;text-align:center}.state-card{align-items:stretch}.error-card{color:#b42318}.retry{margin-top:10rpx}
+.page{min-height:100vh;padding:28rpx;background:#f5f7f6;box-sizing:border-box;color:#172c22}.summary-card,.section,.state-card{margin-bottom:20rpx;padding:26rpx;border:1rpx solid #dfe7e2;border-radius:18rpx;background:#fff}.summary-copy,.batch,.state-card{display:flex;flex-direction:column;gap:12rpx}.summary-head,.batch-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18rpx}.summary-copy{min-width:0;flex:1}.title{font-size:34rpx;font-weight:850;overflow-wrap:anywhere}.hint,.empty{color:#68766f;font-size:23rpx;line-height:1.55}.available{flex:0 0 auto;color:#28624a;font-weight:850}.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:18rpx;margin:24rpx 0}.summary-grid .wide{grid-column:1/-1}.summary-grid text:not(.label){display:block;font-size:25rpx;line-height:1.5}.label{display:block;margin-bottom:5rpx;color:#748078;font-size:22rpx}.primary,.secondary{width:100%;min-height:76rpx;margin:0;border-radius:10rpx}.primary{background:#2b2118;color:#fff}.secondary{background:#fff;border:1rpx solid #d8d8d8}.action-row{display:grid;grid-template-columns:1fr 1fr;gap:14rpx}.section-title{display:block;margin-bottom:18rpx;font-size:30rpx;font-weight:850}.batch{padding:18rpx 0;border-top:1rpx solid #edf1ee}.batch:first-of-type{border-top:0}.batch-no{font-size:26rpx;font-weight:800}.source{display:flex;align-items:center;justify-content:space-between;gap:16rpx;padding:18rpx 0;border-top:1rpx solid #edf1ee}.source>view{display:flex;flex-direction:column;gap:8rpx}.related-order{display:flex;align-items:center;justify-content:space-between;gap:12rpx;padding:12rpx;border-radius:10rpx;background:#f7f2eb;color:#6b4d2d;font-size:22rpx}.empty{display:block;padding:28rpx 0;text-align:center}.state-card{align-items:stretch}.error-card{color:#b42318}.retry{margin-top:10rpx}
 </style>

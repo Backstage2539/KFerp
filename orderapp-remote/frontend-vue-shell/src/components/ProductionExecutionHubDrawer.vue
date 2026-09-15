@@ -22,6 +22,13 @@
           <span class="status-pill" :class="statusTone(header.status)">{{ statusLabel(header.status) }}</span>
         </section>
 
+        <section v-if="customerProcessingRequest" class="customer-processing-trace">
+          <div class="trace-head"><div><span>客户生产申请</span><strong>{{ customerProcessingRequest.request_no }}</strong><small>{{ customerProcessingRequest.customer_name || `客户 #${header.customer_id}` }} · {{ customerProcessingStatusLabel(customerProcessingRequest.status) }}</small></div><button class="secondary" type="button" @click="openCustomerRequest">查看客户申请</button></div>
+          <div class="trace-summary"><div><span>生产计划</span><strong>{{ customerProcessingItem.production_plan_id || '-' }}</strong></div><div><span>目标仓库 / 货权</span><strong>{{ customerProcessingItem.target_warehouse || header.target_warehouse || '-' }}</strong></div><div><span>申请 / 入库</span><strong>{{ customerProgress.requestedQty }} / {{ customerProgress.inboundQty }}</strong></div><div><span>订单占用 / 可预订</span><strong>{{ customerProgress.orderOccupiedQty }} / {{ customerProgress.remainingReservableQty }}</strong></div></div>
+          <div class="customer-timeline"><article v-for="step in customerTimeline" :key="step.key" :class="step.state"><i></i><strong>{{ step.label }}</strong><small>{{ step.time }}</small></article></div>
+          <div class="trace-links"><span>BOM {{ customerProcessingItem.bom_version_no || header.bom_version_id || '-' }} · 物料预订 {{ customerProcessingItem.material_reserved_g || customerProcessingItem.material_reserved_units || 0 }}</span><button v-for="order in customerProcessingItem.related_orders || []" :key="order.order_id" class="secondary" type="button" @click="openRelatedOrder(order)">{{ order.order_no }} · 预订 {{ order.reserved_qty }} · 已转 {{ order.converted_qty }}</button></div>
+        </section>
+
         <section class="summary-grid">
           <div><span>工序进度</span><strong>{{ completedOperations }}/{{ operations.length }}</strong><small>{{ currentOperationText }}</small></div>
           <div><span>人员安排</span><strong>跟随工位排班</strong><small>开工时记录当天工位负责人</small></div>
@@ -78,6 +85,7 @@
 import { computed, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { executionHubOutputLabel } from '../lib/production-execution-hub'
+import { customerProcessingProgress, customerProcessingTimeline } from '../lib/customer-processing-trace'
 
 const props = defineProps({ open: { type: Boolean, default: false }, workOrderId: { type: Number, default: 0 }, focus: { type: String, default: '' }, viewParams: { type: Object, default: () => ({}) } })
 const emit = defineEmits(['close', 'updated'])
@@ -85,6 +93,7 @@ const loading = ref(false)
 const error = ref('')
 const message = ref('')
 const detail = ref({})
+const customerProcessingRequest = ref(null)
 
 const hub = computed(() => detail.value.execution_hub || {})
 const header = computed(() => hub.value.header || detail.value.work_order || {})
@@ -96,6 +105,9 @@ const completedOperations = computed(() => operations.value.filter((row) => row.
 const currentOperationText = computed(() => operations.value.find((row) => !['completed', 'cancelled'].includes(row.status))?.operation || '工序已结束')
 const finishedReceipts = computed(() => hub.value.finished_receipts || [])
 const materialRows = computed(() => hub.value.wip_status?.materials || [])
+const customerProcessingItem = computed(() => (customerProcessingRequest.value?.items || []).find((item) => Number(item.id || 0) === Number(header.value.processing_request_item_id || 0)) || {})
+const customerProgress = computed(() => customerProcessingProgress({ target_qty: customerProcessingItem.value.qty, actual_inbound_qty: customerProcessingItem.value.actual_inbound_qty, output_reserved_qty: customerProcessingItem.value.output_reserved_qty, output_converted_qty: customerProcessingItem.value.output_converted_qty }))
+const customerTimeline = computed(() => customerProcessingTimeline(customerProcessingRequest.value || {}))
 const receiptStatus = computed(() => header.value.status === 'completed' ? '已入库' : finishedReceipts.value.length ? '部分入库' : operations.value.length && completedOperations.value === operations.value.length ? '待入库' : '等待报工')
 const receiptQuantityText = computed(() => finishedReceipts.value.length ? `${finishedReceipts.value.length} 笔入库记录` : `目标 ${formatTargetQuantity(header.value)}`)
 const qualityLabel = computed(() => ({ unchecked: '未检查', pass: '通过', hold: '待处理', reject: '不合格', blocked: '已冻结' }[qualityStatus.value.status] || qualityStatus.value.result || '未检查'))
@@ -120,12 +132,15 @@ function money(value) { return `¥${Number(value || 0).toFixed(2)}` }
 function formatTargetQuantity(row) { const value = Number(row.output_qty || row.planned_units || row.planned_output_g || row.planned_g || 0); return `${quantity(value)} ${row.output_unit || (row.planned_units ? '件' : 'g')}` }
 function isOperationRecorded(row) { return Boolean(row.started_at || row.completed_at || row.actual_minutes || row.actual_input_qty || row.actual_output_qty) }
 function materialQty(row, kind) { const g = Number(row?.[`${kind}_g`] || 0); if (g > 0) return `${quantity(g)}g`; const units = Number(row?.[`${kind}_units`] || 0); return `${quantity(units)}${row?.unit || '件'}` }
+function customerProcessingStatusLabel(value) { return ({ awaiting_schedule: '待接单', planned: '待接单', released: '已接单', running: '开始生产', paused: '开始生产（暂停）', partially_completed: '开始生产（部分入库）', completed: '生产完成', cancelled: '已取消' }[String(value || '')] || value || '待接单') }
 function todoActionLabel(code) { return ({ wip_shortage: '去领料', quality_freeze: '查看质检', prior_operation_incomplete: '进入前序工位', job_cards_incomplete: '进入工位', schedule_risk: '调整排程' }[code] || '查看处理') }
 function requestClose() { emit('close') }
 function navigate(key, params = {}) { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params: { work_order_id: header.value.work_order_id, ...params }, returnNavigation: { key: 'workOrders', label: '返回工单详情', params: { work_order_id: header.value.work_order_id } } } })); emit('close') }
 function enterWorkstation(row) { navigate('workstationView', { job_card_id: row.job_card_id, focus: 'workstation_task' }) }
 function enterFirstWorkstation() { const row = operations.value.find((item) => !['completed', 'cancelled'].includes(item.status)) || operations.value[0]; if (row) enterWorkstation(row) }
 function openRoster() { navigate('productionSchedule') }
+function openCustomerRequest() { navigate('customerProcessing', { customer_id: header.value.customer_id, processing_request_id: customerProcessingRequest.value?.id }) }
+function openRelatedOrder(order) { navigate('customerOrders', { customer_id: header.value.customer_id, q: order.order_no, order_id: order.order_id }) }
 
 function runTodo(todo) {
   if (todo.key === 'receipt') { navigate('productionAcceptance'); return }
@@ -138,6 +153,11 @@ async function load() {
   loading.value = true; error.value = ''
   try {
     detail.value = await apiGet(`/api/produce/work-orders/${props.workOrderId}`)
+    customerProcessingRequest.value = null
+    if (Number(header.value.customer_id || 0) > 0 && Number(header.value.processing_request_item_id || 0) > 0) {
+      const requestData = await apiGet(`/api/customer-processing/internal/${header.value.customer_id}/processing-requests?limit=100`)
+      customerProcessingRequest.value = (requestData.rows || []).find((request) => (request.items || []).some((item) => Number(item.id || 0) === Number(header.value.processing_request_item_id || 0))) || null
+    }
     if (props.focus === 'assignment') openRoster()
   } catch (err) { error.value = err.message || '加载工单详情失败' } finally { loading.value = false }
 }
@@ -176,6 +196,7 @@ watch(() => [props.open, props.workOrderId], ([isOpen]) => { if (isOpen) load() 
 .status-pill.danger { border-color: #efb1aa; color: #9e3328; }
 .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
 .summary-grid > div { display: grid; gap: 5px; padding: 12px; border: 1px solid #e0e5e2; border-radius: 10px; background: #fff; }
+.customer-processing-trace{display:grid;gap:14px;padding:16px;margin-bottom:16px;border:1px solid #d8c2a7;border-radius:12px;background:#fffaf3}.trace-head,.trace-links{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.trace-head>div{display:grid;gap:4px}.trace-head>div>span,.trace-head small,.trace-summary span,.customer-timeline small{color:#786b5c;font-size:12px}.trace-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.trace-summary>div{display:grid;gap:5px;padding:10px;border-radius:8px;background:#fff}.customer-timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.customer-timeline article{display:grid;justify-items:center;gap:4px;text-align:center}.customer-timeline i{width:12px;height:12px;border-radius:50%;background:#d4cabe}.customer-timeline article.done i,.customer-timeline article.current i{background:#9a6938}.customer-timeline article.current strong{color:#9a6938}.trace-links>span{font-size:12px;color:#786b5c}
 .summary-grid strong { font-size: 17px; }
 .detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; }
 .operation-column, .todo-column { padding: 16px; border: 1px solid #e0e5e2; border-radius: 12px; background: #fff; }
@@ -224,6 +245,7 @@ watch(() => [props.open, props.workOrderId], ([isOpen]) => { if (isOpen) load() 
   .detail-layout { grid-template-columns: 1fr; }
   .todo-column { order: -1; }
   .record-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trace-summary{grid-template-columns:repeat(2,1fr)}
 }
 @media (max-width: 560px) {
   .detail-head, .assignment-panel { display: grid; }

@@ -1,5 +1,16 @@
 # ACTIVE_REQUIREMENTS
 
+### PR-668-PR667-COMPLETE-UI-FLOW
+- Branch: `codex/pr667-complete-ui-flow-20260916`; baseline `origin/develop@8584038f`.
+- Owner/session: Codex / Van / 2026-09-16.
+- Status: implementation in progress; Van business acceptance pending.
+- Scope: 补齐 PR-667 的 8 个 ERP/小程序界面、共享详情数据、跨页跳转、完整 454g × 100 件生产与 20 件提前预订验收、双环境发布和生产小程序包。
+- DEV: DEV-694-SHARED-PROCESSING-DETAIL; DEV-695-ERP-CUSTOMER-PROCESSING-UI; DEV-696-ERP-PRODUCTION-TRACE-UI; DEV-697-MINIAPP-PROCESSING-UI; DEV-698-MINIAPP-ORDER-INVENTORY-UI; DEV-699-VISUAL-FLOW-DELIVERY.
+- Verifier: targeted RED/GREEN Go/API/Vue/miniapp tests; PostgreSQL quantity/status invariants; complete verifier; 8 reference-image comparisons; development full-flow and device validation before main/production.
+- Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`, `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OP_MANUAL_STOCK.md`.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-16-pr667-complete-ui-flow.md`.
+- Delivery: feature -> develop -> development acceptance -> main -> production; production miniapp artifact and device validation, excluding WeChat review/publication.
+
 ### PR-667-CUSTOMER-PROCESSING-RESERVATION-FULFILLMENT
 - Branch: `codex/customer-processing-reservations-20260915`; baseline `origin/develop@d111908e`.
 - Owner/session: Codex / Van / 2026-09-15.
