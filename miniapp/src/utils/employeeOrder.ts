@@ -228,11 +228,14 @@ export function defaultProductSpec(
 }
 
 export function productSpecLabel(spec?: EmployeeOrderProductSpec) {
-  const explicit = String(spec?.spec_label || spec?.spec_name || spec?.sku_name || '').trim()
+  const explicit = [spec?.spec_label, spec?.spec_name, spec?.sku_name]
+    .map((value) => String(value || '').trim())
+    .find((value) => value && value !== '默认规格')
   if (explicit) return explicit
   const qty = Number(spec?.net_content_qty || 0)
   const unit = String(spec?.net_content_unit || '').trim()
-  return qty > 0 && unit ? `${qty}${unit}` : '默认规格'
+  if (qty > 0 && unit) return `${qty}${unit}`
+  return String(spec?.spec_code || spec?.sku_code || '').trim() || '规格待维护'
 }
 
 export function productSpecWeightG(spec?: EmployeeOrderProductSpec) {

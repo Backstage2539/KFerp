@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-666-CUSTOMER-ORDER-SPEC-COPY-BUTTONS", title: "客户录单真实规格直选与价格表按钮合并", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-15-customer-order-spec-copy-buttons.md"},
+		{table: "req_dev", code: "DEV-686-CUSTOMER-SPEC-IDENTITY", title: "从发布快照补齐 BOM 规格身份并统一目录预览核价真实名称", status: "done", assignee: "Codex", evidence: "mini_order_entry_ui_test.go; mini_direct_ship.go"},
+		{table: "req_dev", code: "DEV-687-INLINE-SPEC-SELECTION", title: "一件代发和现货下单在录单行内直接列出并选择全部可用规格", status: "done", assignee: "Codex", evidence: "CustomerDirectShipPanel.vue; customerOrderEntryPages.test.ts"},
+		{table: "req_dev", code: "DEV-688-PRICE-BINDING-ACTIONS-DELIVERY", title: "ERP 两个下单用途共用保存取消并完成手册测试与双环境交付", status: "done", assignee: "Codex", evidence: "customer-order-price-binding-actions.test.js; docs/acceptance/2026-09-15-customer-order-spec-copy-buttons.md"},
+		{table: "req_review", code: "REV-666-CUSTOMER-ORDER-SPEC-COPY-BUTTONS", prCode: "PR-666-CUSTOMER-ORDER-SPEC-COPY-BUTTONS", title: "验收真实规格直选、价格表预览和后台共用保存取消", status: "todo", assignee: "VA", evidence: "待 Van 使用真实客户数据验收"},
+
 		{table: "req_product", code: "PR-665-CUSTOMER-ORDER-ENTRY-UI", title: "客户端一件代发与现货下单共用员工录单交互", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-15-customer-order-entry-ui.md"},
 		{table: "req_dev", code: "DEV-665-RECIPIENT-FLOW", title: "收件客户独立选择维护、临时使用、保存使用及录单草稿往返隔离", status: "done", assignee: "Codex", evidence: "customer-addresses.vue; customerOrderDraft.ts; customerOrderDraft.test.ts"},
 		{table: "req_dev", code: "DEV-665-PRODUCT-SPEC-ENTRY", title: "两个入口共用员工录单式商品搜索、多行商品与真实 BOM 规格列表", status: "done", assignee: "Codex", evidence: "CustomerDirectShipPanel.vue; ProductSpecPickerSheet.vue; mini_order_entry_ui_test.go"},

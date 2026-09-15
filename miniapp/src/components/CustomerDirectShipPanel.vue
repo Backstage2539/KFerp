@@ -37,7 +37,6 @@ import {
 } from '../utils/directShipFilters'
 import { filterRecipientAddresses, recipientAddressSummary, tierQuantityLabel } from '../utils/customerOrderEntry'
 import ProductFamilyPickerSheet from './ProductFamilyPickerSheet.vue'
-import ProductSpecPickerSheet from './ProductSpecPickerSheet.vue'
 
 const props = withDefaults(defineProps<{ token: string; customerId: number; showCreate?: boolean; orderMode?: CustomerOrderMode }>(), { showCreate: true, orderMode: 'direct_ship' })
 type PickerChangeEvent = { detail?: { value?: string | number } }
@@ -59,7 +58,6 @@ const note = ref('')
 const lines = ref<DirectShipDraftLine[]>([createDirectShipDraftLine()])
 const preview = ref<DirectShipPreview | null>(null)
 const productSelectorOpen = ref(false)
-const specSelectorOpen = ref(false)
 const editingLineKey = ref('')
 const idempotencyKey = ref(newIdempotencyKey())
 const shipmentQueryInput = ref('')
@@ -85,8 +83,6 @@ const selectedSummary = computed(() => lines.value.filter((line) => Number(line.
 const filteredRecipients = computed(() => filterRecipientAddresses(recipientAddresses.value, recipientQuery.value))
 const selectedRecipientSummary = computed(() => recipientAddressSummary(selectedRecipient.value))
 const totalAmount = computed(() => preview.value?.total_amount ?? 0)
-const activeSpecLine = computed(() => lines.value.find((line) => line.key === editingLineKey.value))
-const activeSpecFamily = computed(() => activeSpecLine.value ? familyForLine(activeSpecLine.value) : undefined)
 
 function newIdempotencyKey(): string {
   return `mini-${props.orderMode === 'product_order' ? 'po' : 'ds'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -221,10 +217,6 @@ function selectedSpecForLine(line: DirectShipDraftLine): EmployeeOrderProductSpe
     : Number(spec.sku_id || spec.product_id || 0) === Number(line.product_id || 0))
 }
 
-function allSpecLabels(line: DirectShipDraftLine): string {
-  return familyForLine(line)?.specs.map(productSpecLabel).join('、') || ''
-}
-
 function previewItemForLine(line: DirectShipDraftLine) {
   return (preview.value?.items || []).find((item) => Number(item.product_id || 0) === Number(line.product_id || 0)
     && (Number(line.bom_spec_id || 0) > 0
@@ -259,20 +251,9 @@ function chooseProduct(family: EmployeeOrderProductFamily) {
   invalidatePreview()
 }
 
-function openSpecSelector(lineKey: string) {
-  const line = lines.value.find((item) => item.key === lineKey)
-  if (!line || !familyForLine(line) || submitting.value) return
-  editingLineKey.value = lineKey
-  specSelectorOpen.value = true
-}
-
-function closeSpecSelector() { specSelectorOpen.value = false; editingLineKey.value = '' }
-
-function chooseSpec(spec: EmployeeOrderProductSpec) {
-  const line = lines.value.find((item) => item.key === editingLineKey.value)
-  if (!line) return
+function chooseInlineSpec(line: DirectShipDraftLine, spec: EmployeeOrderProductSpec) {
+  if (submitting.value) return
   Object.assign(line, selectDirectShipDraftSpec(line, spec))
-  closeSpecSelector()
   invalidatePreview()
 }
 
@@ -394,8 +375,20 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
         <text class="field-label">商品</text>
         <view class="selector-field" @tap="openProductSelector(line.key)"><text :class="{ muted: !line.product_name }">{{ line.product_name || '搜索并选择商品' }}</text><text class="chevron">›</text></view>
         <text class="field-label">规格</text>
-        <view class="selector-field" :class="{ disabled: !familyForLine(line) }" @tap="openSpecSelector(line.key)"><text :class="{ muted: !line.spec_label }">{{ line.spec_label || (familyForLine(line) ? '选择该商品的规格' : '请先选择商品') }}</text><text class="chevron">›</text></view>
-        <text v-if="allSpecLabels(line)" class="spec-options">全部可选规格：{{ allSpecLabels(line) }}</text>
+        <view v-if="familyForLine(line)?.specs?.length" class="spec-choice-list">
+          <button
+            v-for="spec in familyForLine(line)?.specs || []"
+            :key="`${line.key}:${spec.bom_spec_id || 0}:${spec.bom_variant_id || 0}:${spec.sku_id || spec.product_id || 0}`"
+            class="spec-choice"
+            :class="{ selected: selectedSpecForLine(line) === spec }"
+            type="button"
+            @tap="chooseInlineSpec(line, spec)"
+          >
+            <text>{{ productSpecLabel(spec) }}</text>
+            <text v-if="selectedSpecForLine(line) === spec" class="spec-check">✓</text>
+          </button>
+        </view>
+        <text v-else class="spec-empty">请先选择商品</text>
         <text class="field-label">数量（{{ line.sales_unit || line.inventory_unit || '件' }}）</text>
         <view class="quantity-field"><input v-model.number="line.qty" type="number" :disabled="submitting" placeholder="填写数量" @input="invalidatePreview()" /><text>{{ line.sales_unit || line.inventory_unit || '件' }}</text></view>
         <text v-if="selectedSpecForLine(line)?.price_tiers?.length" class="tier-hint">数量报价：{{ selectedSpecForLine(line)?.price_tiers?.map(tier => `${tierQuantityLabel(tier)} ¥${money(tier.unit_price)}`).join('；') }}</text>
@@ -435,7 +428,6 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
 
     <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
     <ProductFamilyPickerSheet :visible="productSelectorOpen" :families="catalog.product_families" :customer-id="customerId" :loading="loading" customer-facing-names @close="closeProductSelector" @select="chooseProduct" />
-    <ProductSpecPickerSheet :visible="specSelectorOpen" :family="activeSpecFamily" :selected-bom-spec-id="activeSpecLine?.bom_spec_id" :selected-product-id="activeSpecLine?.product_id" @close="closeSpecSelector" @select="chooseSpec" />
     <view v-if="recipientSelectorOpen" class="overlay recipient-overlay" @tap.self="closeRecipientSelector">
       <view class="recipient-sheet" @tap.stop>
         <view class="sheet-head"><view><text class="sheet-title">选择收件客户</text><text class="sheet-subtitle">选择后返回录单，已录商品会保留</text></view><text class="sheet-close" @tap="closeRecipientSelector">关闭</text></view>
@@ -451,5 +443,5 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
 </template>
 
 <style scoped>
-.workspace{display:flex;flex-direction:column;gap:18rpx}.order-panel,.list-panel{display:flex;flex-direction:column;gap:22rpx;padding:28rpx;border:1rpx solid #dce5df;border-radius:20rpx;background:#fff}.title{font-size:38rpx;font-weight:900;color:#173126}.subtitle{font-size:31rpx;font-weight:850;color:#173126}.field-block,.price-table-copy,.line-card,.filters,.request,.package,.event{display:flex;flex-direction:column;gap:12rpx}.field-head,.section-head,.line-head,.line-price,.total-card,.request-head,.sheet-head,.recipient-head,.recipient-row{display:flex;align-items:center;justify-content:space-between;gap:14rpx}.field-label,.line-name{font-weight:800;color:#29483a}.manage-link,.edit-link,.text-button{color:#28624a;font-weight:750}.selector-field,.quantity-field,.input,.textarea,.picker-field,.search-input{width:100%;min-height:86rpx;padding:0 22rpx;border:1rpx solid #d6e0da;border-radius:13rpx;box-sizing:border-box;background:#fafcfb}.selector-field,.quantity-field{display:flex;align-items:center;justify-content:space-between;gap:16rpx}.selector-field text:first-child{flex:1}.selector-field.disabled{background:#f1f4f2;color:#9aa49e}.chevron{color:#718078;font-size:38rpx}.price-table-card{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:22rpx;border:1rpx solid #dbe5df;border-radius:16rpx;background:#f7faf8}.text-button{min-width:150rpx;min-height:62rpx;margin:0;padding:0 12rpx;border:1rpx solid #b8cec1;border-radius:10rpx;background:#fff;font-size:23rpx}.text-button::after,.remove::after{border:0}.line-card{padding:24rpx;border:1rpx solid #dbe5df;border-radius:18rpx;background:#fbfdfc}.remove{min-height:58rpx;margin:0;padding:0 18rpx;border:1rpx solid #e2c5c0;border-radius:10rpx;background:#fff;color:#9e3e35;font-size:23rpx}.spec-options,.tier-hint,.selected-summary,.muted{color:#74827a;font-size:23rpx;line-height:1.55}.quantity-field input{flex:1}.line-price{padding-top:10rpx;color:#53675d;font-size:23rpx}.line-price text:nth-child(2),.amount{color:#17603f;font-weight:900}.add-line{min-height:76rpx;margin:0;border:1rpx dashed #7ea28e;border-radius:12rpx;background:#fff;color:#28624a;font-size:26rpx}.total-card{padding:24rpx;border-radius:16rpx;background:#eaf4ee;color:#244839;font-size:29rpx;font-weight:850}.amount{font-size:34rpx}.textarea{min-height:120rpx;padding-top:18rpx}.primary,.secondary{min-height:76rpx;margin:0;border-radius:12rpx;font-size:26rpx}.primary{background:#28624a;color:#fff}.secondary{border:1rpx solid #cbd8d1;background:#fff;color:#315844}.submit{margin-top:2rpx}.error,.shortage{padding:18rpx;border-radius:10rpx;color:#b42318;background:#fff4f1;font-size:24rpx}.ready{color:#28624a}.filters{padding:18rpx;background:#fafcfb;border-radius:12rpx}.date-presets,.date-range,.filter-actions,.page-actions,.page-jump{display:flex;gap:12rpx}.date-range picker,.filter-actions button,.page-actions button{flex:1}.chip{min-height:56rpx;margin:0;padding:0 14rpx;border:1rpx solid #d4ded8;border-radius:30rpx;background:#fff;font-size:22rpx}.chip.active{background:#e6f2eb;color:#28624a}.compact{min-height:60rpx}.request,.package{padding:20rpx;border:1rpx solid #e2e8e4;border-radius:12rpx}.package{background:#f8faf9}.status{color:#28624a;font-weight:800}.pagination{display:flex;flex-direction:column;gap:14rpx}.page-current{display:flex;align-items:center}.page-jump{align-items:center}.page-jump picker{flex:1}.jump-input{width:120rpx;min-height:60rpx;border:1rpx solid #d5ddd8;border-radius:8rpx;text-align:center}.overlay{position:fixed;inset:0;z-index:1110;display:flex;align-items:flex-end;background:rgba(16,28,22,.48)}.recipient-sheet{width:100%;max-height:82vh;padding:28rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));border-radius:24rpx 24rpx 0 0;box-sizing:border-box;background:#fff}.sheet-title,.sheet-subtitle{display:block}.sheet-title{font-size:32rpx;font-weight:850;color:#173126}.sheet-subtitle{margin-top:6rpx;color:#7a8880;font-size:22rpx}.sheet-close{padding:12rpx;color:#607268}.search-input{margin:18rpx 0}.recipient-list{height:46vh}.recipient-row{padding:20rpx 8rpx;border-bottom:1rpx solid #edf1ee}.recipient-copy{display:flex;flex:1;flex-direction:column;gap:8rpx}.recipient-name{font-size:28rpx;font-weight:800;color:#213b2f}.recipient-address{color:#53655b;font-size:24rpx}.badge{padding:3rpx 10rpx;border-radius:999rpx;background:#e6f3eb;color:#28624a;font-size:20rpx}.empty{display:block;padding:70rpx 20rpx;color:#7d8982;text-align:center}
+.workspace{display:flex;flex-direction:column;gap:18rpx}.order-panel,.list-panel{display:flex;flex-direction:column;gap:22rpx;padding:28rpx;border:1rpx solid #dce5df;border-radius:20rpx;background:#fff}.title{font-size:38rpx;font-weight:900;color:#173126}.subtitle{font-size:31rpx;font-weight:850;color:#173126}.field-block,.price-table-copy,.line-card,.filters,.request,.package,.event{display:flex;flex-direction:column;gap:12rpx}.field-head,.section-head,.line-head,.line-price,.total-card,.request-head,.sheet-head,.recipient-head,.recipient-row{display:flex;align-items:center;justify-content:space-between;gap:14rpx}.field-label,.line-name{font-weight:800;color:#29483a}.manage-link,.edit-link,.text-button{color:#28624a;font-weight:750}.selector-field,.quantity-field,.input,.textarea,.picker-field,.search-input{width:100%;min-height:86rpx;padding:0 22rpx;border:1rpx solid #d6e0da;border-radius:13rpx;box-sizing:border-box;background:#fafcfb}.selector-field,.quantity-field{display:flex;align-items:center;justify-content:space-between;gap:16rpx}.selector-field text:first-child{flex:1}.chevron{color:#718078;font-size:38rpx}.price-table-card{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:22rpx;border:1rpx solid #dbe5df;border-radius:16rpx;background:#f7faf8}.text-button{min-width:150rpx;min-height:62rpx;margin:0;padding:0 12rpx;border:1rpx solid #b8cec1;border-radius:10rpx;background:#fff;font-size:23rpx}.text-button::after,.remove::after,.spec-choice::after{border:0}.line-card{padding:24rpx;border:1rpx solid #dbe5df;border-radius:18rpx;background:#fbfdfc}.remove{min-height:58rpx;margin:0;padding:0 18rpx;border:1rpx solid #e2c5c0;border-radius:10rpx;background:#fff;color:#9e3e35;font-size:23rpx}.spec-choice-list{display:flex;flex-wrap:wrap;gap:12rpx}.spec-choice{display:flex;align-items:center;gap:10rpx;min-height:64rpx;margin:0;padding:0 20rpx;border:1rpx solid #cddbd3;border-radius:12rpx;background:#fff;color:#29483a;font-size:24rpx}.spec-choice.selected{border-color:#28624a;background:#eaf4ee;color:#1f5d42;font-weight:800}.spec-check{color:#17603f}.spec-empty,.tier-hint,.selected-summary,.muted{color:#74827a;font-size:23rpx;line-height:1.55}.quantity-field input{flex:1}.line-price{padding-top:10rpx;color:#53675d;font-size:23rpx}.line-price text:nth-child(2),.amount{color:#17603f;font-weight:900}.add-line{min-height:76rpx;margin:0;border:1rpx dashed #7ea28e;border-radius:12rpx;background:#fff;color:#28624a;font-size:26rpx}.total-card{padding:24rpx;border-radius:16rpx;background:#eaf4ee;color:#244839;font-size:29rpx;font-weight:850}.amount{font-size:34rpx}.textarea{min-height:120rpx;padding-top:18rpx}.primary,.secondary{min-height:76rpx;margin:0;border-radius:12rpx;font-size:26rpx}.primary{background:#28624a;color:#fff}.secondary{border:1rpx solid #cbd8d1;background:#fff;color:#315844}.submit{margin-top:2rpx}.error,.shortage{padding:18rpx;border-radius:10rpx;color:#b42318;background:#fff4f1;font-size:24rpx}.ready{color:#28624a}.filters{padding:18rpx;background:#fafcfb;border-radius:12rpx}.date-presets,.date-range,.filter-actions,.page-actions,.page-jump{display:flex;gap:12rpx}.date-range picker,.filter-actions button,.page-actions button{flex:1}.chip{min-height:56rpx;margin:0;padding:0 14rpx;border:1rpx solid #d4ded8;border-radius:30rpx;background:#fff;font-size:22rpx}.chip.active{background:#e6f2eb;color:#28624a}.compact{min-height:60rpx}.request,.package{padding:20rpx;border:1rpx solid #e2e8e4;border-radius:12rpx}.package{background:#f8faf9}.status{color:#28624a;font-weight:800}.pagination{display:flex;flex-direction:column;gap:14rpx}.page-current{display:flex;align-items:center}.page-jump{align-items:center}.page-jump picker{flex:1}.jump-input{width:120rpx;min-height:60rpx;border:1rpx solid #d5ddd8;border-radius:8rpx;text-align:center}.overlay{position:fixed;inset:0;z-index:1110;display:flex;align-items:flex-end;background:rgba(16,28,22,.48)}.recipient-sheet{width:100%;max-height:82vh;padding:28rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));border-radius:24rpx 24rpx 0 0;box-sizing:border-box;background:#fff}.sheet-title,.sheet-subtitle{display:block}.sheet-title{font-size:32rpx;font-weight:850;color:#173126}.sheet-subtitle{margin-top:6rpx;color:#7a8880;font-size:22rpx}.sheet-close{padding:12rpx;color:#607268}.search-input{margin:18rpx 0}.recipient-list{height:46vh}.recipient-row{padding:20rpx 8rpx;border-bottom:1rpx solid #edf1ee}.recipient-copy{display:flex;flex:1;flex-direction:column;gap:8rpx}.recipient-name{font-size:28rpx;font-weight:800;color:#213b2f}.recipient-address{color:#53655b;font-size:24rpx}.badge{padding:3rpx 10rpx;border-radius:999rpx;background:#e6f3eb;color:#28624a;font-size:20rpx}.empty{display:block;padding:70rpx 20rpx;color:#7d8982;text-align:center}
 </style>
