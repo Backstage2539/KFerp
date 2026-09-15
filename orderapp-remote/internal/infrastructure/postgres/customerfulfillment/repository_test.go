@@ -2337,7 +2337,8 @@ func TestCustomerPortalDirectShipSubmitWritesOneTransactionalAuditPerRequest(t *
 	}
 	auditAt := strings.Index(body, "postgresinfra.AuditInsertTx(")
 	commitAt := strings.Index(body, "tx.Commit(ctx)")
-	if auditAt < 0 || commitAt < 0 || auditAt > commitAt {
+	helperAt := strings.Index(body, "submitCustomerDirectShipOrderTx(ctx, tx")
+	if auditAt < 0 || commitAt < 0 || helperAt < 0 || helperAt > commitAt {
 		t.Fatal("direct ship audit must be written before the transaction commits")
 	}
 }

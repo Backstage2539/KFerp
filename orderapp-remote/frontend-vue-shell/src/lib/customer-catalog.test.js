@@ -20,6 +20,9 @@ test('three copy actions share the API and customer editing cannot write the pro
  const s=readFileSync(new URL('../views/ProductSettingsView.vue',import.meta.url),'utf8')
  assert.ok(s.includes('复制全部商品到客户'));assert.ok(s.includes('复制所选商品到客户'))
  assert.ok(s.includes('/api/product-settings/customer-catalog/copy'));assert.ok(s.includes('openCustomerAwareProductName'))
+ const customerProductClick = s.slice(s.indexOf('function openCustomerAwareProductName'), s.indexOf('function openCustomerCategoryNames'))
+ assert.match(customerProductClick, /openProductProductionConfig\(row\)/)
+ assert.doesNotMatch(customerProductClick, /openProductReferenceEditor/)
  const costing=readFileSync(new URL('../views/CostingView.vue',import.meta.url),'utf8');assert.ok(costing.includes('customerCatalogProjection'))
 })
 test('copy feedback remains visible in the product page and price ownership searches the complete customer directory',()=>{

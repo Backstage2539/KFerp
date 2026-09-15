@@ -28,17 +28,20 @@ func TestAuthoritativeProcessingTargetSpecG(t *testing.T) {
 	}
 }
 
-func TestProcessingRequestSubmissionDoesNotReserveMaterials(t *testing.T) {
+func TestProcessingRequestSubmissionRechecksAndReservesMaterials(t *testing.T) {
 	src, err := os.ReadFile("processing_requests.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(src)
-	if strings.Contains(body, "INSERT INTO %s.customer_processing_material_reservations") {
-		t.Fatal("customer processing submission must not reserve materials before scheduling")
+	if !strings.Contains(body, "prepareProcessingRequestTx(ctx, tx, cmd, true)") {
+		t.Fatal("customer processing submission must lock and recheck material availability")
 	}
-	if strings.Contains(body, "ProcessingMaterialsUnavailableError{Preview: prepared.Preview}") {
-		t.Fatal("material shortage must not reject a valid processing demand")
+	if !strings.Contains(body, "INSERT INTO %s.customer_processing_material_reservations") {
+		t.Fatal("customer processing submission must immediately reserve materials")
+	}
+	if !strings.Contains(body, "ProcessingMaterialsUnavailableError{Preview: prepared.Preview}") {
+		t.Fatal("material shortage must reject the whole processing request")
 	}
 	productGate, err := os.ReadFile("business_repository.go")
 	if err != nil {

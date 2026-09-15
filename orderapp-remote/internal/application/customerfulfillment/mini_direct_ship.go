@@ -24,19 +24,24 @@ var (
 )
 
 type MiniDirectShipItemCommand struct {
-	ProductID     int64   `json:"product_id"`
-	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
-	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
-	BomSpecKey    string  `json:"bom_spec_key,omitempty"`
-	ProductName   string  `json:"product_name,omitempty"`
-	SKUCode       string  `json:"sku_code,omitempty"`
-	SpecLabel     string  `json:"spec_label,omitempty"`
-	InventoryUnit string  `json:"inventory_unit,omitempty"`
-	SpecG         int64   `json:"spec_g"`
-	Qty           int64   `json:"qty"`
-	SalesUnit     string  `json:"sales_unit,omitempty"`
-	UnitPrice     float64 `json:"unit_price,omitempty"`
-	LineAmount    float64 `json:"line_amount,omitempty"`
+	ProductID              int64   `json:"product_id"`
+	BomSpecID              int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID           int64   `json:"bom_variant_id,omitempty"`
+	BomSpecKey             string  `json:"bom_spec_key,omitempty"`
+	ProductName            string  `json:"product_name,omitempty"`
+	SKUCode                string  `json:"sku_code,omitempty"`
+	SpecLabel              string  `json:"spec_label,omitempty"`
+	InventoryUnit          string  `json:"inventory_unit,omitempty"`
+	SpecG                  int64   `json:"spec_g"`
+	Qty                    int64   `json:"qty"`
+	SalesUnit              string  `json:"sales_unit,omitempty"`
+	UnitPrice              float64 `json:"unit_price,omitempty"`
+	LineAmount             float64 `json:"line_amount,omitempty"`
+	IsProcessingProduct    bool    `json:"is_processing_product,omitempty"`
+	StockReservedQty       int64   `json:"stock_reserved_qty,omitempty"`
+	ProductionReservedQty  int64   `json:"production_reserved_qty,omitempty"`
+	ProductionConvertedQty int64   `json:"production_converted_qty,omitempty"`
+	ProductionShortfallQty int64   `json:"production_shortfall_qty,omitempty"`
 }
 
 type MiniDirectShipCommand struct {
@@ -121,23 +126,38 @@ type MiniDirectShipPreviewWarehouse struct {
 }
 
 type MiniDirectShipShortage struct {
-	ProductID    int64 `json:"product_id"`
-	BomSpecID    int64 `json:"bom_spec_id,omitempty"`
-	BomVariantID int64 `json:"bom_variant_id,omitempty"`
-	SpecG        int64 `json:"spec_g"`
-	Qty          int64 `json:"qty"`
-	AvailableQty int64 `json:"available_qty"`
+	ProductID              int64  `json:"product_id"`
+	BomSpecID              int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID           int64  `json:"bom_variant_id,omitempty"`
+	SpecG                  int64  `json:"spec_g"`
+	Qty                    int64  `json:"qty"`
+	AvailableQty           int64  `json:"available_qty"`
+	StockAvailableQty      int64  `json:"stock_available_qty"`
+	ProductionAvailableQty int64  `json:"production_available_qty"`
+	Blocking               bool   `json:"blocking"`
+	BlockingReason         string `json:"blocking_reason,omitempty"`
+}
+
+type MiniDirectShipProductionAllocation struct {
+	ProcessingRequestID     int64 `json:"processing_request_id"`
+	ProcessingRequestItemID int64 `json:"processing_request_item_id"`
+	ProductID               int64 `json:"product_id"`
+	BomSpecID               int64 `json:"bom_spec_id,omitempty"`
+	BomVariantID            int64 `json:"bom_variant_id,omitempty"`
+	SpecG                   int64 `json:"spec_g"`
+	Qty                     int64 `json:"qty"`
 }
 
 type MiniDirectShipPreview struct {
-	CanSubmit       bool                             `json:"can_submit"`
-	StockReady      bool                             `json:"stock_ready"`
-	TotalAmount     float64                          `json:"total_amount"`
-	PriceQuoteToken string                           `json:"price_quote_token"`
-	PriceTables     []MiniDirectShipPriceTable       `json:"price_tables"`
-	Items           []MiniDirectShipItemCommand      `json:"items"`
-	Warehouses      []MiniDirectShipPreviewWarehouse `json:"warehouses"`
-	Shortages       []MiniDirectShipShortage         `json:"shortages,omitempty"`
+	CanSubmit             bool                                 `json:"can_submit"`
+	StockReady            bool                                 `json:"stock_ready"`
+	TotalAmount           float64                              `json:"total_amount"`
+	PriceQuoteToken       string                               `json:"price_quote_token"`
+	PriceTables           []MiniDirectShipPriceTable           `json:"price_tables"`
+	Items                 []MiniDirectShipItemCommand          `json:"items"`
+	Warehouses            []MiniDirectShipPreviewWarehouse     `json:"warehouses"`
+	Shortages             []MiniDirectShipShortage             `json:"shortages,omitempty"`
+	ProductionAllocations []MiniDirectShipProductionAllocation `json:"production_allocations,omitempty"`
 }
 
 type MiniDirectShipPackage struct {
@@ -196,6 +216,14 @@ type MiniDirectShipOrderRepository interface {
 	DirectShipPriceTables(context.Context, int64) ([]MiniDirectShipPriceTable, error)
 	PrepareMiniDirectShipOrder(context.Context, MiniDirectShipCommand) (PreparedMiniDirectShipOrder, error)
 	RecordMiniDirectShipOrder(context.Context, PreparedMiniDirectShipOrder, DirectShipOrderSummary) (MiniDirectShipRequest, error)
+}
+
+type MiniDirectShipCatalogEnricher interface {
+	EnrichMiniDirectShipCatalog(context.Context, MiniDirectShipCatalogQuery, MiniDirectShipCatalog) (MiniDirectShipCatalog, error)
+}
+
+type MiniDirectShipAtomicOrderRepository interface {
+	SubmitPreparedMiniDirectShipOrder(context.Context, PreparedMiniDirectShipOrder, SubmitCustomerDirectShipOrderCommand) (MiniDirectShipRequest, error)
 }
 
 type MiniCustomerOrderPriceTableRepository interface {
@@ -421,7 +449,11 @@ func (s *Service) MiniDirectShipCatalog(ctx context.Context, query MiniDirectShi
 		if filterErr != nil {
 			return MiniDirectShipCatalog{}, filterErr
 		}
-		return miniDirectShipCatalogFromSales(query, tables, products, form.ProductBOMSpecOptions), nil
+		catalog := miniDirectShipCatalogFromSales(query, tables, products, form.ProductBOMSpecOptions)
+		if enricher, ok := repo.(MiniDirectShipCatalogEnricher); ok {
+			return enricher.EnrichMiniDirectShipCatalog(ctx, query, catalog)
+		}
+		return catalog, nil
 	}
 	if query.UsageCode == "product_order" {
 		return MiniDirectShipCatalog{}, ErrMiniDirectShipUnavailable
@@ -491,8 +523,6 @@ func (s *Service) PreviewMiniDirectShip(ctx context.Context, cmd MiniDirectShipC
 			return MiniDirectShipPreview{}, prepareErr
 		}
 		preview.PriceTables = prepared.PriceTables
-		preview.StockReady = len(preview.Shortages) == 0
-		preview.CanSubmit = true
 		preview.Items, preview.TotalAmount, err = s.pricePreparedMiniDirectShipOrder(ctx, prepared)
 		if err != nil {
 			return MiniDirectShipPreview{}, err
@@ -547,7 +577,7 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 		if usageCode == "" {
 			usageCode = "direct_ship"
 		}
-		order, orderErr := s.SubmitCustomerDirectShipOrder(ctx, SubmitCustomerDirectShipOrderCommand{
+		orderCommand := SubmitCustomerDirectShipOrderCommand{
 			CustomerID: prepared.Command.CustomerID, ReceiverName: prepared.Command.RecipientName,
 			ReceiverPhone: prepared.Command.RecipientPhone, ReceiverAddress: fullAddress,
 			ReceiverCompany: prepared.Command.RecipientCompany, Items: items, Note: prepared.Command.Note,
@@ -556,7 +586,11 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 			CustomerRequestID:   fmt.Sprintf("mini-%s:%d:%s", usageCode, prepared.Command.CustomerID, prepared.Command.IdempotencyKey),
 			CustomerRequestHash: prepared.RequestHash, SelectedPriceTableIDs: prepared.SelectedPriceTableIDs,
 			PortalServiceCode: usageCode,
-		})
+		}
+		if atomic, ok := repo.(MiniDirectShipAtomicOrderRepository); ok {
+			return atomic.SubmitPreparedMiniDirectShipOrder(ctx, prepared, orderCommand)
+		}
+		order, orderErr := s.SubmitCustomerDirectShipOrder(ctx, orderCommand)
 		if orderErr != nil {
 			return MiniDirectShipRequest{}, orderErr
 		}

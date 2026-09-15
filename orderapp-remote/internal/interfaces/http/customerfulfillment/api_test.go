@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
+	customerportalapp "orderapp/internal/application/customerportal"
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
 	"strings"
@@ -17,6 +18,72 @@ import (
 
 	"github.com/labstack/echo/v4"
 )
+
+type fakeSharedProcessingService struct {
+	previewCmd customerportalapp.CreateProcessingRequestCommand
+	createCmd  customerportalapp.CreateProcessingRequestCommand
+	targetIDs  []int64
+}
+
+func (f *fakeSharedProcessingService) CreateProcessingRequestForCustomer(_ context.Context, cmd customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error) {
+	f.createCmd = cmd
+	return customerportalapp.ProcessingRequest{ID: 88, RequestNo: "PJ-88", Status: "submitted", Items: []customerportalapp.ProcessingRequestItem{{ProductID: 943, BomSpecID: 501, Qty: 80}}}, nil
+}
+
+func (f *fakeSharedProcessingService) PreviewProcessingRequestForCustomer(_ context.Context, cmd customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequestPreview, error) {
+	f.previewCmd = cmd
+	return customerportalapp.ProcessingRequestPreview{ConfigurationValid: true, MaterialsReady: true, CanSubmit: true, Items: []customerportalapp.ProcessingRequestItem{{ProductID: 943, BomSpecID: 501, Qty: 80, MaxProducibleQty: 80}}}, nil
+}
+
+func (f *fakeSharedProcessingService) ListProcessingRequestsForCustomer(_ context.Context, _ int64, _ int) ([]customerportalapp.ProcessingRequest, error) {
+	return []customerportalapp.ProcessingRequest{{ID: 88, RequestNo: "PJ-88", Status: "submitted"}}, nil
+}
+
+func (f *fakeSharedProcessingService) ListProcessingCatalogTargetsForCustomer(_ context.Context, _ int64, productIDs []int64) ([]customerportalapp.ProcessingCatalogTarget, error) {
+	f.targetIDs = append([]int64(nil), productIDs...)
+	return []customerportalapp.ProcessingCatalogTarget{{ProductID: 943, BomSpecID: 501, BomVariantID: 601, SpecName: "227g", InventoryUnit: "bag", IsDefault: true}}, nil
+}
+
+func TestERPProcessingRequestUsesSharedPreviewAndSubmitContract(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		customerOverviewResult: app.CustomerPortalOverview{CustomerID: 149, CustomerName: "代加工客户"},
+		portalOptionsResult:    app.CustomerFulfillmentOptions{CustomerSKUs: []app.CustomerSKUOption{{ProductID: 943, BaseProductID: 900, ProductName: "客户别名"}}},
+	}
+	shared := &fakeSharedProcessingService{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(23))
+			c.Set("operator_employee", "验证员")
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, SharedProcessing: shared})
+
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		return rec
+	}
+	catalog := request(http.MethodGet, "/api/customer-processing/portal/processing-catalog", "")
+	if catalog.Code != http.StatusOK || !strings.Contains(catalog.Body.String(), `"product_name":"客户别名"`) || !strings.Contains(catalog.Body.String(), `"bom_spec_id":501`) {
+		t.Fatalf("catalog status=%d body=%s", catalog.Code, catalog.Body.String())
+	}
+	payload := `{"items":[{"product_id":943,"bom_spec_id":501,"bom_variant_id":601,"qty":80}],"idempotency_key":"erp-80"}`
+	preview := request(http.MethodPost, "/api/customer-processing/portal/processing-requests/preview", payload)
+	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), `"max_producible_qty":80`) {
+		t.Fatalf("preview status=%d body=%s", preview.Code, preview.Body.String())
+	}
+	submit := request(http.MethodPost, "/api/customer-processing/portal/processing-requests", payload)
+	if submit.Code != http.StatusOK || !strings.Contains(submit.Body.String(), `"request_no":"PJ-88"`) {
+		t.Fatalf("submit status=%d body=%s", submit.Code, submit.Body.String())
+	}
+	if shared.previewCmd.CustomerID != 149 || shared.createCmd.CustomerID != 149 || shared.createCmd.IdempotencyKey != "erp-80" || shared.createCmd.CreatedBy != "验证员" {
+		t.Fatalf("shared commands preview=%+v create=%+v", shared.previewCmd, shared.createCmd)
+	}
+}
 
 func TestParseImportAPIAcceptsMultipartFile(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{

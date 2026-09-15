@@ -99,6 +99,26 @@ type miniPlannedAllocation struct {
 	Qty          int64
 }
 
+type miniProcessingOutputCandidate struct {
+	ProcessingRequestID     int64
+	ProcessingRequestItemID int64
+	ProductID               int64
+	BomSpecID               int64
+	BomVariantID            int64
+	SpecG                   int64
+	AvailableQty            int64
+}
+
+type miniPlannedProcessingAllocation struct {
+	ProcessingRequestID     int64
+	ProcessingRequestItemID int64
+	ProductID               int64
+	BomSpecID               int64
+	BomVariantID            int64
+	SpecG                   int64
+	Qty                     int64
+}
+
 func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDirectShipCatalogQuery) (app.MiniDirectShipCatalog, error) {
 	summaries, err := r.ListCustomerCentralInventory(ctx, query.CustomerID)
 	if err != nil {
@@ -306,12 +326,21 @@ func (r *Repository) PreviewMiniDirectShip(ctx context.Context, cmd app.MiniDire
 	if err != nil {
 		return app.MiniDirectShipPreview{}, err
 	}
-	allocations, shortages := planMiniDirectShipAllocations(cmd.Items, snapshot.Candidates)
-	preview := miniDirectShipPreview(allocations, shortages)
 	products, err := r.loadMiniDirectShipProductSnapshots(ctx, r.pool, cmd.Items)
 	if err != nil {
 		return app.MiniDirectShipPreview{}, err
 	}
+	for index := range cmd.Items {
+		// 在制产出只参与“一件代发”。普通商品下单沿用原有缺口生产逻辑，
+		// 即使同一商品同时具备代加工配置，也不能把商品下单整单拦截。
+		cmd.Items[index].IsProcessingProduct = cmd.UsageCode != "product_order" && products[miniStockKey(cmd.Items[index].ProductID, cmd.Items[index].BomSpecID, cmd.Items[index].SpecG)].IsProcessingProduct
+	}
+	outputCandidates, err := r.loadMiniProcessingOutputCandidates(ctx, r.pool, cmd.CustomerID, false)
+	if err != nil {
+		return app.MiniDirectShipPreview{}, err
+	}
+	allocations, outputAllocations, shortages := planMiniDirectShipFulfillment(cmd.Items, snapshot.Candidates, outputCandidates)
+	preview := miniDirectShipFulfillmentPreview(allocations, outputAllocations, shortages)
 	for warehouseIndex := range preview.Warehouses {
 		for itemIndex := range preview.Warehouses[warehouseIndex].Items {
 			item := &preview.Warehouses[warehouseIndex].Items[itemIndex]
@@ -321,6 +350,142 @@ func (r *Repository) PreviewMiniDirectShip(ctx context.Context, cmd app.MiniDire
 		}
 	}
 	return preview, nil
+}
+
+func (r *Repository) EnrichMiniDirectShipCatalog(ctx context.Context, query app.MiniDirectShipCatalogQuery, catalog app.MiniDirectShipCatalog) (app.MiniDirectShipCatalog, error) {
+	stock, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, query.CustomerID, false)
+	if err != nil {
+		return app.MiniDirectShipCatalog{}, err
+	}
+	outputs, err := r.loadMiniProcessingOutputCandidates(ctx, r.pool, query.CustomerID, false)
+	if err != nil {
+		return app.MiniDirectShipCatalog{}, err
+	}
+	items := make([]app.MiniDirectShipItemCommand, 0)
+	for _, family := range catalog.ProductFamilies {
+		specs, _ := family["specs"].([]map[string]any)
+		for _, spec := range specs {
+			items = append(items, app.MiniDirectShipItemCommand{
+				ProductID: catalogMapInt64(spec["product_id"]), BomSpecID: catalogMapInt64(spec["bom_spec_id"]),
+				BomVariantID: catalogMapInt64(spec["bom_variant_id"]), SpecG: catalogMapInt64(spec["spec_g"]), Qty: 1,
+			})
+		}
+	}
+	products, err := r.loadMiniDirectShipProductSnapshots(ctx, r.pool, items)
+	if err != nil {
+		return app.MiniDirectShipCatalog{}, err
+	}
+	for _, family := range catalog.ProductFamilies {
+		specs, _ := family["specs"].([]map[string]any)
+		familyProcessing := false
+		for _, spec := range specs {
+			productID, bomSpecID, specG := catalogMapInt64(spec["product_id"]), catalogMapInt64(spec["bom_spec_id"]), catalogMapInt64(spec["spec_g"])
+			key := miniStockKey(productID, bomSpecID, specG)
+			stockQty, outputQty := int64(0), int64(0)
+			for _, candidate := range stock.Candidates {
+				if miniStockKey(candidate.ProductID, candidate.BomSpecID, candidate.SpecG) == key {
+					stockQty += candidate.AvailableQty
+				}
+			}
+			if query.UsageCode != "product_order" {
+				for _, candidate := range outputs {
+					if miniStockKey(candidate.ProductID, candidate.BomSpecID, candidate.SpecG) == key {
+						outputQty += candidate.AvailableQty
+					}
+				}
+			}
+			isProcessing := products[key].IsProcessingProduct
+			spec["is_processing_product"] = isProcessing
+			spec["stock_available_qty"] = stockQty
+			spec["production_available_qty"] = outputQty
+			spec["available_qty"] = stockQty + outputQty
+			familyProcessing = familyProcessing || isProcessing
+		}
+		family["is_processing_product"] = familyProcessing
+	}
+	return catalog, nil
+}
+
+func catalogMapInt64(value any) int64 {
+	switch typed := value.(type) {
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	case float64:
+		return int64(typed)
+	case json.Number:
+		out, _ := typed.Int64()
+		return out
+	case string:
+		out, _ := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
+		return out
+	default:
+		return 0
+	}
+}
+
+func (r *Repository) loadMiniProcessingOutputCandidates(ctx context.Context, q miniDirectShipQuerier, customerID int64, lock bool) ([]miniProcessingOutputCandidate, error) {
+	if customerID <= 0 || !relationExists(ctx, q, fmt.Sprintf("%s.customer_processing_output_reservations", r.schema)) || !relationExists(ctx, q, fmt.Sprintf("%s.processing_job_request_items", r.schema)) {
+		return []miniProcessingOutputCandidate{}, nil
+	}
+	lockClause := ""
+	if lock {
+		lockClause = " FOR UPDATE OF i"
+	}
+	rows, err := q.Query(ctx, fmt.Sprintf(`
+		WITH receipts AS (
+			SELECT i.id AS request_item_id,
+			       COALESCE(SUM(CASE WHEN si.qty_units>0 THEN si.qty_units
+			                         WHEN si.spec_g>0 THEN si.qty_g/si.spec_g ELSE 0 END),0)::bigint AS received_qty
+			FROM %s.processing_job_request_items i
+			LEFT JOIN %s.stock_entries se ON se.work_order_id=i.linked_work_order_id
+			  AND se.status='submitted' AND se.purpose='manufacture' AND COALESCE(se.is_return,false)=false
+			LEFT JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id AND si.item_type='finished_product'
+			GROUP BY i.id
+		), promised AS (
+			SELECT processing_request_item_id,
+			       COALESCE(SUM(GREATEST(0,reserved_qty-converted_qty-released_qty)),0)::bigint AS promised_qty
+			FROM %s.customer_processing_output_reservations
+			WHERE status IN ('reserved','partially_converted')
+			GROUP BY processing_request_item_id
+		)
+		SELECT r.id,i.id,i.product_id,COALESCE(i.bom_spec_id,0),COALESCE(i.bom_variant_id,0),i.spec_g,
+		       GREATEST(0,i.target_qty-COALESCE(receipts.received_qty,0)-COALESCE(promised.promised_qty,0))::bigint
+		FROM %s.processing_job_request_items i
+		JOIN %s.processing_job_requests r ON r.id=i.request_id AND r.customer_id=$1
+		LEFT JOIN receipts ON receipts.request_item_id=i.id
+		LEFT JOIN promised ON promised.processing_request_item_id=i.id
+		WHERE r.status NOT IN ('cancelled','completed') AND i.status NOT IN ('cancelled','completed')
+		  AND COALESCE(r.material_reservation_validated,false)=true
+		  AND i.target_qty>COALESCE(receipts.received_qty,0)+COALESCE(promised.promised_qty,0)
+		  AND (
+			jsonb_array_length(CASE WHEN jsonb_typeof(i.material_snapshot_json)='array' THEN i.material_snapshot_json ELSE '[]'::jsonb END)=0
+			OR EXISTS (
+				SELECT 1 FROM %s.customer_processing_material_reservations mr
+				WHERE mr.request_item_id=i.id AND mr.customer_id=$1
+				  AND mr.status IN ('reserved','consumed','partially_consumed','completed')
+			)
+		  )
+		  AND NOT EXISTS (
+			SELECT 1 FROM %s.customer_processing_material_reservations mr
+			WHERE mr.request_item_id=i.id AND (mr.reserved_g<mr.required_g OR mr.reserved_units<mr.required_units)
+		  )
+		ORDER BY r.created_at,r.id,i.line_no,i.id%s
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]miniProcessingOutputCandidate, 0)
+	for rows.Next() {
+		var row miniProcessingOutputCandidate
+		if err := rows.Scan(&row.ProcessingRequestID, &row.ProcessingRequestItemID, &row.ProductID, &row.BomSpecID, &row.BomVariantID, &row.SpecG, &row.AvailableQty); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
 func miniDirectShipPreview(allocations []miniPlannedAllocation, shortages []app.MiniDirectShipShortage) app.MiniDirectShipPreview {
@@ -384,6 +549,94 @@ func planMiniDirectShipAllocations(items []app.MiniDirectShipItemCommand, candid
 		}
 	}
 	return allocations, shortages
+}
+
+func planMiniDirectShipFulfillment(items []app.MiniDirectShipItemCommand, stockCandidates []miniStockCandidate, outputCandidates []miniProcessingOutputCandidate) ([]miniPlannedAllocation, []miniPlannedProcessingAllocation, []app.MiniDirectShipShortage) {
+	stock := append([]miniStockCandidate(nil), stockCandidates...)
+	outputs := append([]miniProcessingOutputCandidate(nil), outputCandidates...)
+	stockAllocations := make([]miniPlannedAllocation, 0)
+	outputAllocations := make([]miniPlannedProcessingAllocation, 0)
+	shortages := make([]app.MiniDirectShipShortage, 0)
+	for _, item := range items {
+		remaining := item.Qty
+		stockAvailable := int64(0)
+		for index := range stock {
+			candidate := &stock[index]
+			if candidate.ProductID != item.ProductID || candidate.BomSpecID != item.BomSpecID || candidate.SpecG != item.SpecG || candidate.AvailableQty <= 0 {
+				continue
+			}
+			stockAvailable += candidate.AvailableQty
+			if remaining <= 0 {
+				continue
+			}
+			take := candidate.AvailableQty
+			if take > remaining {
+				take = remaining
+			}
+			stockAllocations = append(stockAllocations, miniPlannedAllocation{
+				ProductID: item.ProductID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID,
+				SpecG: item.SpecG, Warehouse: candidate.Warehouse, BatchID: candidate.BatchID, BatchCode: candidate.BatchCode, Qty: take,
+			})
+			candidate.AvailableQty -= take
+			remaining -= take
+		}
+		productionAvailable := int64(0)
+		if item.IsProcessingProduct {
+			for index := range outputs {
+				candidate := &outputs[index]
+				if candidate.ProductID != item.ProductID || candidate.BomSpecID != item.BomSpecID || candidate.SpecG != item.SpecG || candidate.AvailableQty <= 0 {
+					continue
+				}
+				productionAvailable += candidate.AvailableQty
+				if remaining <= 0 {
+					continue
+				}
+				take := candidate.AvailableQty
+				if take > remaining {
+					take = remaining
+				}
+				outputAllocations = append(outputAllocations, miniPlannedProcessingAllocation{
+					ProcessingRequestID: candidate.ProcessingRequestID, ProcessingRequestItemID: candidate.ProcessingRequestItemID,
+					ProductID: item.ProductID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, SpecG: item.SpecG, Qty: take,
+				})
+				candidate.AvailableQty -= take
+				remaining -= take
+			}
+		}
+		if remaining > 0 {
+			shortage := app.MiniDirectShipShortage{
+				ProductID: item.ProductID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, SpecG: item.SpecG,
+				Qty: item.Qty, StockAvailableQty: stockAvailable, ProductionAvailableQty: productionAvailable,
+				AvailableQty: stockAvailable + productionAvailable, Blocking: item.IsProcessingProduct,
+			}
+			if item.IsProcessingProduct {
+				shortage.BlockingReason = "代加工成品库存与已预订物料支持的在制产出合计不足"
+			}
+			shortages = append(shortages, shortage)
+		}
+	}
+	return stockAllocations, outputAllocations, shortages
+}
+
+func miniDirectShipFulfillmentPreview(stockAllocations []miniPlannedAllocation, outputAllocations []miniPlannedProcessingAllocation, shortages []app.MiniDirectShipShortage) app.MiniDirectShipPreview {
+	preview := miniDirectShipPreview(stockAllocations, shortages)
+	preview.StockReady = len(shortages) == 0 && len(outputAllocations) == 0
+	preview.CanSubmit = true
+	for _, shortage := range shortages {
+		if shortage.Blocking {
+			preview.CanSubmit = false
+			break
+		}
+	}
+	preview.ProductionAllocations = make([]app.MiniDirectShipProductionAllocation, 0, len(outputAllocations))
+	for _, allocation := range outputAllocations {
+		preview.ProductionAllocations = append(preview.ProductionAllocations, app.MiniDirectShipProductionAllocation{
+			ProcessingRequestID: allocation.ProcessingRequestID, ProcessingRequestItemID: allocation.ProcessingRequestItemID,
+			ProductID: allocation.ProductID, BomSpecID: allocation.BomSpecID, BomVariantID: allocation.BomVariantID,
+			SpecG: allocation.SpecG, Qty: allocation.Qty,
+		})
+	}
+	return preview
 }
 
 func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDirectShipQuerier, customerID int64, lock bool) (miniStockSnapshot, error) {
@@ -828,15 +1081,16 @@ func miniDirectShipRequestHash(cmd app.MiniDirectShipCommand) (string, error) {
 }
 
 type miniDirectShipProductSnapshot struct {
-	ProductID     int64
-	BomSpecID     int64
-	BomVariantID  int64
-	BomSpecKey    string
-	ProductName   string
-	SKUCode       string
-	SpecLabel     string
-	InventoryUnit string
-	ProductKind   string
+	ProductID           int64
+	BomSpecID           int64
+	BomVariantID        int64
+	BomSpecKey          string
+	ProductName         string
+	SKUCode             string
+	SpecLabel           string
+	InventoryUnit       string
+	ProductKind         string
+	IsProcessingProduct bool
 }
 
 func (r *Repository) resolveMiniDirectShipItems(ctx context.Context, q miniDirectShipQuerier, items []app.MiniDirectShipItemCommand) ([]app.MiniDirectShipItemCommand, error) {
@@ -977,8 +1231,18 @@ func (r *Repository) PrepareMiniDirectShipOrder(ctx context.Context, cmd app.Min
 	}, nil
 }
 
-func (r *Repository) RecordMiniDirectShipOrder(ctx context.Context, prepared app.PreparedMiniDirectShipOrder, order app.DirectShipOrderSummary) (app.MiniDirectShipRequest, error) {
+func (r *Repository) SubmitPreparedMiniDirectShipOrder(ctx context.Context, prepared app.PreparedMiniDirectShipOrder, orderCommand app.SubmitCustomerDirectShipOrderCommand) (app.MiniDirectShipRequest, error) {
 	cmd := prepared.Command
+	if cmd.CustomerID <= 0 || orderCommand.CustomerID != cmd.CustomerID {
+		return app.MiniDirectShipRequest{}, fmt.Errorf("customer scope mismatch")
+	}
+	usageCode := strings.TrimSpace(cmd.UsageCode)
+	if usageCode == "" {
+		usageCode = "direct_ship"
+	}
+	if err := r.requireCustomerCapability(ctx, cmd.CustomerID, usageCode); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return app.MiniDirectShipRequest{}, err
@@ -989,7 +1253,65 @@ func (r *Repository) RecordMiniDirectShipOrder(ctx context.Context, prepared app
 	}
 	var existingID int64
 	var existingHash string
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,request_hash FROM %s.customer_direct_ship_requests WHERE customer_id=$1 AND idempotency_key=$2 FOR UPDATE`, r.schema), cmd.CustomerID, cmd.IdempotencyKey).Scan(&existingID, &existingHash)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,request_hash FROM %s.customer_direct_ship_requests
+		WHERE customer_id=$1 AND idempotency_key=$2 FOR UPDATE
+	`, r.schema), cmd.CustomerID, cmd.IdempotencyKey).Scan(&existingID, &existingHash)
+	if err == nil {
+		if existingHash != prepared.RequestHash {
+			return app.MiniDirectShipRequest{}, app.ErrMiniDirectShipIdempotency
+		}
+		result, loadErr := r.loadMiniDirectShipRequest(ctx, tx, cmd.CustomerID, existingID)
+		if loadErr != nil {
+			return app.MiniDirectShipRequest{}, loadErr
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+		return result, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return app.MiniDirectShipRequest{}, err
+	}
+	items := normalizeSubmittedDirectShipItems(orderCommand)
+	order, err := r.submitCustomerDirectShipOrderTx(ctx, tx, orderCommand, cmd.CustomerID, items)
+	if err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	result, err := r.recordMiniDirectShipOrderTx(ctx, tx, prepared, order)
+	if err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	return result, nil
+}
+
+func (r *Repository) RecordMiniDirectShipOrder(ctx context.Context, prepared app.PreparedMiniDirectShipOrder, order app.DirectShipOrderSummary) (app.MiniDirectShipRequest, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, fmt.Sprintf("mini-direct-ship:%d", prepared.Command.CustomerID)); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	result, err := r.recordMiniDirectShipOrderTx(ctx, tx, prepared, order)
+	if err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	return result, nil
+}
+
+func (r *Repository) recordMiniDirectShipOrderTx(ctx context.Context, tx pgx.Tx, prepared app.PreparedMiniDirectShipOrder, order app.DirectShipOrderSummary) (app.MiniDirectShipRequest, error) {
+	cmd := prepared.Command
+	var existingID int64
+	var existingHash string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,request_hash FROM %s.customer_direct_ship_requests WHERE customer_id=$1 AND idempotency_key=$2 FOR UPDATE`, r.schema), cmd.CustomerID, cmd.IdempotencyKey).Scan(&existingID, &existingHash)
 	if err == nil {
 		if existingHash != prepared.RequestHash {
 			return app.MiniDirectShipRequest{}, app.ErrMiniDirectShipIdempotency
@@ -1007,13 +1329,43 @@ func (r *Repository) RecordMiniDirectShipOrder(ctx context.Context, prepared app
 	if orderCustomerID != cmd.CustomerID {
 		return app.MiniDirectShipRequest{}, fmt.Errorf("order customer scope mismatch")
 	}
+	stockAllocations := []miniPlannedAllocation{}
+	outputAllocations := []miniPlannedProcessingAllocation{}
+	shortages := []app.MiniDirectShipShortage{}
+	usageCode := strings.TrimSpace(cmd.UsageCode)
+	if usageCode == "" {
+		usageCode = "direct_ship"
+	}
+	if usageCode == "direct_ship" {
+		products, loadErr := r.loadMiniDirectShipProductSnapshots(ctx, tx, cmd.Items)
+		if loadErr != nil {
+			return app.MiniDirectShipRequest{}, loadErr
+		}
+		for index := range cmd.Items {
+			cmd.Items[index].IsProcessingProduct = products[miniStockKey(cmd.Items[index].ProductID, cmd.Items[index].BomSpecID, cmd.Items[index].SpecG)].IsProcessingProduct
+		}
+		stock, loadErr := r.loadMiniCustomerFinishedStock(ctx, tx, cmd.CustomerID, true)
+		if loadErr != nil {
+			return app.MiniDirectShipRequest{}, loadErr
+		}
+		outputs, loadErr := r.loadMiniProcessingOutputCandidates(ctx, tx, cmd.CustomerID, true)
+		if loadErr != nil {
+			return app.MiniDirectShipRequest{}, loadErr
+		}
+		stockAllocations, outputAllocations, shortages = planMiniDirectShipFulfillment(cmd.Items, stock.Candidates, outputs)
+		for _, shortage := range shortages {
+			if shortage.Blocking {
+				return app.MiniDirectShipRequest{}, &miniDirectShipStockError{Shortages: shortages}
+			}
+		}
+	}
 	var requestID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_direct_ship_requests(
 			customer_id,employee_id,mini_user_id,idempotency_key,request_hash,
 			recipient_name,recipient_phone,province,city,district,detail_address,
 			recipient_company,status,note,created_by
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'submitted',$13,$14)
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'reserved',$13,$14)
 		RETURNING id
 	`, r.schema), cmd.CustomerID, cmd.EmployeeID, cmd.MiniUserID, cmd.IdempotencyKey, prepared.RequestHash,
 		cmd.RecipientName, cmd.RecipientPhone, cmd.Province, cmd.City, cmd.District, cmd.DetailAddress,
@@ -1025,7 +1377,7 @@ func (r *Repository) RecordMiniDirectShipOrder(ctx context.Context, prepared app
 		return app.MiniDirectShipRequest{}, err
 	}
 	orderItems, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT COALESCE(product_id,0),COALESCE(bom_spec_id,0),COALESCE(bom_variant_id,0),
+		SELECT id,COALESCE(product_id,0),COALESCE(bom_spec_id,0),COALESCE(bom_variant_id,0),
 		       COALESCE(item_name,''),COALESCE(spec,''),COALESCE(unit,''),COALESCE(qty,0)::bigint,
 		       COALESCE(unit_price,0)::float8,COALESCE(line_total,0)::float8,
 		       COALESCE(bean_list_publication_id,0),COALESCE(price_source_json,'{}'::jsonb)
@@ -1035,15 +1387,15 @@ func (r *Repository) RecordMiniDirectShipOrder(ctx context.Context, prepared app
 		return app.MiniDirectShipRequest{}, err
 	}
 	type savedLine struct {
-		ProductID, BomSpecID, BomVariantID, Qty, PublicationID int64
-		Name, Spec, Unit                                       string
-		UnitPrice, LineTotal                                   float64
-		PriceSource                                            []byte
+		ID, ProductID, BomSpecID, BomVariantID, Qty, PublicationID int64
+		Name, Spec, Unit                                           string
+		UnitPrice, LineTotal                                       float64
+		PriceSource                                                []byte
 	}
 	saved := make([]savedLine, 0)
 	for orderItems.Next() {
 		var line savedLine
-		if err := orderItems.Scan(&line.ProductID, &line.BomSpecID, &line.BomVariantID, &line.Name, &line.Spec, &line.Unit, &line.Qty, &line.UnitPrice, &line.LineTotal, &line.PublicationID, &line.PriceSource); err != nil {
+		if err := orderItems.Scan(&line.ID, &line.ProductID, &line.BomSpecID, &line.BomVariantID, &line.Name, &line.Spec, &line.Unit, &line.Qty, &line.UnitPrice, &line.LineTotal, &line.PublicationID, &line.PriceSource); err != nil {
 			orderItems.Close()
 			return app.MiniDirectShipRequest{}, err
 		}
@@ -1057,6 +1409,7 @@ func (r *Repository) RecordMiniDirectShipOrder(ctx context.Context, prepared app
 	if len(saved) != len(cmd.Items) {
 		return app.MiniDirectShipRequest{}, fmt.Errorf("saved order item count mismatch")
 	}
+	requestItemIDs := make([]int64, len(cmd.Items))
 	for idx, item := range cmd.Items {
 		line := saved[idx]
 		priceSource := map[string]any{}
@@ -1069,33 +1422,98 @@ func (r *Repository) RecordMiniDirectShipOrder(ctx context.Context, prepared app
 			"line_amount": line.LineTotal, "price_table_publication_id": line.PublicationID,
 			"price_source": priceSource,
 		})
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_direct_ship_request_items(
 				request_id,line_no,product_id,bom_spec_id,bom_variant_id,bom_spec_key,
 				product_name,sku_code,spec_label,inventory_unit,spec_g,qty,snapshot
 			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
+			RETURNING id
 		`, r.schema), requestID, idx+1, line.ProductID, line.BomSpecID, line.BomVariantID, item.BomSpecKey,
-			line.Name, item.SKUCode, line.Spec, item.InventoryUnit, item.SpecG, line.Qty, snapshot); err != nil {
+			line.Name, item.SKUCode, line.Spec, item.InventoryUnit, item.SpecG, line.Qty, snapshot).Scan(&requestItemIDs[idx]); err != nil {
 			return app.MiniDirectShipRequest{}, err
 		}
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+	var requestOrderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_direct_ship_request_orders(request_id,order_id,warehouse_code,order_no,status)
-		VALUES($1,$2,'',$3,'submitted')
-	`, r.schema), requestID, order.OrderID, orderNo); err != nil {
+		VALUES($1,$2,'',$3,'reserved') RETURNING id
+	`, r.schema), requestID, order.OrderID, orderNo).Scan(&requestOrderID); err != nil {
 		return app.MiniDirectShipRequest{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_direct_ship_request", &requestID, "submit", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("submitted"), postgresinfra.AuditMeta{
+	orderItemFor := func(productID, bomSpecID, specG int64) (int64, int64) {
+		for index, line := range saved {
+			if line.ProductID == productID && line.BomSpecID == bomSpecID && cmd.Items[index].SpecG == specG {
+				return line.ID, requestItemIDs[index]
+			}
+		}
+		return 0, 0
+	}
+	for _, allocation := range stockAllocations {
+		orderItemID, requestItemID := orderItemFor(allocation.ProductID, allocation.BomSpecID, allocation.SpecG)
+		if orderItemID <= 0 || requestItemID <= 0 {
+			return app.MiniDirectShipRequest{}, fmt.Errorf("stock allocation order item mismatch")
+		}
+		allocatedG, allocatedUnits := allocation.Qty*allocation.SpecG, int64(0)
+		if allocation.BomSpecID > 0 {
+			allocatedG, allocatedUnits = 0, allocation.Qty
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_direct_ship_request_allocations(
+				request_id,request_item_id,request_order_id,order_id,order_item_id,
+				product_id,bom_spec_id,bom_variant_id,spec_g,warehouse_code,batch_id,batch_code,
+				allocated_qty,allocated_units,allocated_g,status
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'reserved')
+		`, r.schema), requestID, requestItemID, requestOrderID, order.OrderID, orderItemID,
+			allocation.ProductID, allocation.BomSpecID, allocation.BomVariantID, allocation.SpecG,
+			allocation.Warehouse, allocation.BatchID, allocation.BatchCode, allocation.Qty, allocatedUnits, allocatedG); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.order_stock_batch_allocations(
+				order_id,order_item_id,product_id,bom_spec_id,bom_variant_id,spec_g,need_g,need_units,
+				batch_id,batch_code,allocated_g,allocated_units,warehouse,request_id,operator
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$7,$11,$12,$13,$14)
+		`, r.schema), order.OrderID, orderItemID, allocation.ProductID, allocation.BomSpecID, allocation.BomVariantID,
+			allocation.SpecG, allocatedG, allocatedUnits, allocation.BatchID, allocation.BatchCode,
+			allocatedUnits, allocation.Warehouse, requestID, cmd.Actor); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+	}
+	for _, allocation := range outputAllocations {
+		orderItemID, requestItemID := orderItemFor(allocation.ProductID, allocation.BomSpecID, allocation.SpecG)
+		if orderItemID <= 0 || requestItemID <= 0 {
+			return app.MiniDirectShipRequest{}, fmt.Errorf("processing allocation order item mismatch")
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_processing_output_reservations(
+				customer_id,request_id,request_item_id,order_id,order_item_id,
+				processing_request_id,processing_request_item_id,product_id,bom_spec_id,bom_variant_id,spec_g,reserved_qty,status
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'reserved')
+		`, r.schema), cmd.CustomerID, requestID, requestItemID, order.OrderID, orderItemID,
+			allocation.ProcessingRequestID, allocation.ProcessingRequestItemID, allocation.ProductID,
+			allocation.BomSpecID, allocation.BomVariantID, allocation.SpecG, allocation.Qty); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+	}
+	needsProduction := len(outputAllocations) > 0 || len(shortages) > 0
+	processName := "库存待发货"
+	if needsProduction {
+		processName = "待生产"
+	}
+	processStatusID := customerFulfillmentStatusID(ctx, tx, r.schema, "order_process_statuses", processName)
+	shipStatusID := customerFulfillmentStatusID(ctx, tx, r.schema, "ship_statuses", "待发货", "未发货")
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET process_status_id=$2,ship_status_id=$3 WHERE id=$1`, r.schema), order.OrderID, nullableCustomerFulfillmentID(processStatusID), nullableCustomerFulfillmentID(shipStatusID)); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_direct_ship_request", &requestID, "submit", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("reserved"), postgresinfra.AuditMeta{
 		"customer_id": cmd.CustomerID, "request_no": requestNo, "order_id": order.OrderID,
 		"order_no": orderNo, "item_count": len(cmd.Items), "idempotency_key": cmd.IdempotencyKey,
-		"price_table_ids": prepared.SelectedPriceTableIDs,
+		"price_table_ids": prepared.SelectedPriceTableIDs, "stock_allocation_count": len(stockAllocations),
+		"processing_output_allocation_count": len(outputAllocations), "production_required": needsProduction,
 	}); err != nil {
 		return app.MiniDirectShipRequest{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
-	return r.GetMiniDirectShipRequest(ctx, cmd.CustomerID, requestID)
+	return r.loadMiniDirectShipRequest(ctx, tx, cmd.CustomerID, requestID)
 }
 
 func (r *Repository) SubmitMiniDirectShip(ctx context.Context, cmd app.MiniDirectShipCommand) (app.MiniDirectShipRequest, error) {
@@ -1348,7 +1766,7 @@ func (r *Repository) loadMiniDirectShipProductSnapshots(ctx context.Context, q m
 	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(NULLIF(sku_name,''),NULLIF(name,''),''), COALESCE(sku_code,''),
 		       COALESCE(NULLIF(spec_label,''), CASE WHEN net_content_qty>0 THEN trim(to_char(net_content_qty,'FM999999990.###')) || net_content_unit ELSE '' END, ''),
-		       COALESCE(product_kind,'')
+		       COALESCE(product_kind,''),COALESCE(is_processing_product,false)
 		FROM %s.products WHERE id=ANY($1::bigint[]) AND active=true
 	`, r.schema), ids)
 	if err != nil {
@@ -1358,7 +1776,7 @@ func (r *Repository) loadMiniDirectShipProductSnapshots(ctx context.Context, q m
 	base := make(map[int64]miniDirectShipProductSnapshot, len(ids))
 	for rows.Next() {
 		var row miniDirectShipProductSnapshot
-		if err := rows.Scan(&row.ProductID, &row.ProductName, &row.SKUCode, &row.SpecLabel, &row.ProductKind); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.ProductName, &row.SKUCode, &row.SpecLabel, &row.ProductKind, &row.IsProcessingProduct); err != nil {
 			return nil, err
 		}
 		base[row.ProductID] = row
@@ -1549,14 +1967,27 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 		return app.MiniDirectShipRequest{}, err
 	}
 	itemRows, err := q.Query(ctx, fmt.Sprintf(`
-		SELECT product_id,bom_spec_id,bom_variant_id,bom_spec_key,product_name,sku_code,
-		       spec_label,inventory_unit,spec_g,qty,
-		       COALESCE(snapshot->>'sales_unit',''),
-		       COALESCE((snapshot->>'unit_price')::numeric,0)::float8,
-		       COALESCE((snapshot->>'line_amount')::numeric,0)::float8
-		FROM %s.customer_direct_ship_request_items
-		WHERE request_id=$1 ORDER BY line_no,id
-	`, r.schema), requestID)
+		SELECT i.product_id,i.bom_spec_id,i.bom_variant_id,i.bom_spec_key,i.product_name,i.sku_code,
+		       i.spec_label,i.inventory_unit,i.spec_g,i.qty,
+		       COALESCE(i.snapshot->>'sales_unit',''),
+		       COALESCE((i.snapshot->>'unit_price')::numeric,0)::float8,
+		       COALESCE((i.snapshot->>'line_amount')::numeric,0)::float8,
+		       COALESCE(stock.qty,0)::bigint,COALESCE(output.reserved_qty,0)::bigint,
+		       COALESCE(output.converted_qty,0)::bigint,COALESCE(output.shortfall_qty,0)::bigint
+		FROM %s.customer_direct_ship_request_items i
+		LEFT JOIN LATERAL (
+			SELECT SUM(a.allocated_qty)::bigint AS qty
+			FROM %s.customer_direct_ship_request_allocations a
+			WHERE a.request_item_id=i.id AND a.status='reserved'
+		) stock ON true
+		LEFT JOIN LATERAL (
+			SELECT SUM(r.reserved_qty)::bigint AS reserved_qty,SUM(r.converted_qty)::bigint AS converted_qty,
+			       SUM(r.shortfall_qty)::bigint AS shortfall_qty
+			FROM %s.customer_processing_output_reservations r
+			WHERE r.direct_request_item_id=i.id AND r.status<>'released'
+		) output ON true
+		WHERE i.request_id=$1 ORDER BY i.line_no,i.id
+	`, r.schema, r.schema, r.schema), requestID)
 	if err != nil {
 		return app.MiniDirectShipRequest{}, err
 	}
@@ -1565,7 +1996,8 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 		var item app.MiniDirectShipItemCommand
 		if err := itemRows.Scan(&item.ProductID, &item.BomSpecID, &item.BomVariantID, &item.BomSpecKey,
 			&item.ProductName, &item.SKUCode, &item.SpecLabel, &item.InventoryUnit, &item.SpecG, &item.Qty,
-			&item.SalesUnit, &item.UnitPrice, &item.LineAmount); err != nil {
+			&item.SalesUnit, &item.UnitPrice, &item.LineAmount, &item.StockReservedQty, &item.ProductionReservedQty,
+			&item.ProductionConvertedQty, &item.ProductionShortfallQty); err != nil {
 			itemRows.Close()
 			return app.MiniDirectShipRequest{}, err
 		}
@@ -1834,6 +2266,13 @@ func (r *Repository) CancelMiniDirectShipRequest(ctx context.Context, customerID
 		return app.MiniDirectShipRequest{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_processing_output_reservations
+		SET released_qty=GREATEST(released_qty,reserved_qty-converted_qty),status='released',updated_at=now()
+		WHERE request_id=$1 AND status IN ('reserved','partially_converted')
+	`, r.schema), requestID); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.orders SET is_void=true,voided_at=now(),void_reason='客户取消发货申请'
 		WHERE id IN (SELECT order_id FROM %s.customer_direct_ship_request_orders WHERE request_id=$1)
 	`, r.schema, r.schema), requestID); err != nil {
@@ -1861,7 +2300,7 @@ func (r *Repository) CancelMiniDirectShipRequest(ctx context.Context, customerID
 
 func miniDirectShipCancellationAllowed(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "pending", "reserved":
+	case "pending", "reserved", "submitted":
 		return true
 	default:
 		return false

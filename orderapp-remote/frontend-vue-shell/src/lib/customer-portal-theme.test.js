@@ -104,6 +104,19 @@ test('customer workspace separates pages and shares the employee order form', ()
   assert.doesNotMatch(source,/JSON\.stringify|submitCustomerDirectShipOrder|directShipItems/)
 })
 
+test('erp processing workspace reuses authoritative preview and reservation contract', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerProcessingPortalView.vue'), 'utf8')
+  for (const marker of [
+    '/processing-catalog',
+    '/processing-requests/preview',
+    'max_producible_qty',
+    '确认提交并预订原料',
+    'processingStatusLabel',
+    'partially_completed'
+  ]) assert.ok(source.includes(marker), marker)
+  assert.doesNotMatch(source, /raw_bean_item_id|input_quantity_g|planned_output_units/)
+})
+
 test('shared order payload retains customer identity snapshots', () => {
  const source=fs.readFileSync(path.join(currentDir,'order-entry.js'),'utf8')
  for(const field of ['customer_product_alias_id','customer_product_reference_id','customer_product_display_name_snapshot','customer_item_code_snapshot']) assert.ok(source.includes(`payload.${field}.push`))

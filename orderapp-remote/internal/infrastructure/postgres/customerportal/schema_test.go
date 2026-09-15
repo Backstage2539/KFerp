@@ -51,6 +51,7 @@ func TestCustomerPortalSchemaDefinesBusinessTables(t *testing.T) {
 	for _, want := range []string{
 		"CREATE TABLE IF NOT EXISTS %s.direct_ship_import_batches",
 		"CREATE TABLE IF NOT EXISTS %s.processing_job_requests",
+		"material_reservation_validated BOOLEAN NOT NULL DEFAULT false",
 		"CREATE TABLE IF NOT EXISTS %s.customer_fee_items",
 		"CREATE TABLE IF NOT EXISTS %s.customer_settlement_batches",
 		"CREATE TABLE IF NOT EXISTS %s.mall_products",

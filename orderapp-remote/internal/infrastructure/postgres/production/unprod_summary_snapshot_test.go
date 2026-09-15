@@ -3,6 +3,7 @@ package production
 import (
 	"context"
 	"fmt"
+	productionapp "orderapp/internal/application/production"
 	"testing"
 )
 
@@ -116,5 +117,42 @@ func TestFinalizeUnproducedNeedsAllocatesSharedFinishedInventoryOnceDeterministi
 	}
 	if got := byOrder["SO-B"]; got.GapG != 454 || !sameProductionQuantity(got.GapInventoryQty, 0.454) {
 		t.Fatalf("second group must see only one remaining unit: %+v", got)
+	}
+}
+
+func TestSalesOrderProductionDemandExcludesReservedStockAndProcessingOutput(t *testing.T) {
+	pool, schema := newProductionTestDB(t)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	})
+	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
+		CREATE TABLE %[1]s.order_stock_batch_allocations (
+			order_item_id BIGINT NOT NULL,
+			allocated_units BIGINT NOT NULL DEFAULT 0
+		);
+		CREATE TABLE %[1]s.customer_processing_output_reservations (
+			order_item_id BIGINT NOT NULL,
+			reserved_qty BIGINT NOT NULL DEFAULT 0,
+			converted_qty BIGINT NOT NULL DEFAULT 0,
+			released_qty BIGINT NOT NULL DEFAULT 0,
+			status TEXT NOT NULL
+		);
+		INSERT INTO %[1]s.order_stock_batch_allocations(order_item_id,allocated_units) VALUES (501,80);
+		INSERT INTO %[1]s.customer_processing_output_reservations(
+			order_item_id,reserved_qty,converted_qty,released_qty,status
+		) VALUES (501,20,0,0,'reserved');
+	`, schema))
+
+	demands := []productionDemand{{
+		UnprodNeedRow: UnprodNeedRow{OrderDetails: []productionapp.ProductionDemandOrder{{OrderItemID: 501, Quantity: 100}}, SalesSpecCount: 100},
+	}}
+	adjusted, err := excludeReservedOrderFulfillment(ctx, pool, schema, demands)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adjusted) != 0 {
+		t.Fatalf("fully covered order demand must not be produced again: %+v", adjusted)
 	}
 }
