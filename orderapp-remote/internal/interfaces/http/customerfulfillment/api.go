@@ -1,6 +1,7 @@
 package customerfulfillment
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 
 	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
+	customerportalapp "orderapp/internal/application/customerportal"
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	"orderapp/internal/interfaces/http/support"
 
@@ -15,10 +17,11 @@ import (
 )
 
 type api struct {
-	svc       Service
-	customers CustomerDirectory
-	messages  MessagePublisher
-	sales     SalesSaver
+	svc              Service
+	customers        CustomerDirectory
+	messages         MessagePublisher
+	sales            SalesSaver
+	sharedProcessing SharedProcessingService
 }
 
 const externalUsersRouteSegment = "external-users"
@@ -173,6 +176,128 @@ func (a api) internalCustomerPortalOptions(c echo.Context) error {
 		return customerPortalError(c, err)
 	}
 	return c.JSON(http.StatusOK, options)
+}
+
+type sharedProcessingRequestPayload struct {
+	IdempotencyKey         string                                           `json:"idempotency_key"`
+	Items                  []customerportalapp.ProcessingRequestItemCommand `json:"items"`
+	Note                   string                                           `json:"note"`
+	ExpectedCompletionDate string                                           `json:"expected_completion_date"`
+}
+
+func (a api) sharedProcessingCustomerID(c echo.Context) (int64, error) {
+	if raw := strings.TrimSpace(c.Param("customer_id")); raw != "" {
+		return parseID(raw, "customer")
+	}
+	employeeID := support.CurrentEmployeeID(c)
+	if employeeID <= 0 {
+		return 0, fmt.Errorf("employee required")
+	}
+	overview, err := a.svc.CustomerPortalOverview(c.Request().Context(), employeeID)
+	if err != nil {
+		return 0, err
+	}
+	if overview.CustomerID <= 0 {
+		return 0, fmt.Errorf("customer required")
+	}
+	return overview.CustomerID, nil
+}
+
+func (a api) sharedProcessingCatalog(c echo.Context) error {
+	if a.sharedProcessing == nil {
+		return customerFulfillmentError(c, http.StatusInternalServerError, fmt.Errorf("processing service unavailable"))
+	}
+	customerID, err := a.sharedProcessingCustomerID(c)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	var options app.CustomerFulfillmentOptions
+	if strings.TrimSpace(c.Param("customer_id")) == "" {
+		options, err = a.svc.CustomerPortalOptions(c.Request().Context(), support.CurrentEmployeeID(c))
+	} else {
+		options, err = a.svc.InternalCustomerPortalOptions(c.Request().Context(), customerID)
+	}
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	productIDs := make([]int64, 0, len(options.CustomerSKUs))
+	seen := map[int64]bool{}
+	for _, product := range options.CustomerSKUs {
+		if product.ProductID > 0 && !seen[product.ProductID] {
+			seen[product.ProductID] = true
+			productIDs = append(productIDs, product.ProductID)
+		}
+		if product.BaseProductID > 0 && !seen[product.BaseProductID] {
+			seen[product.BaseProductID] = true
+			productIDs = append(productIDs, product.BaseProductID)
+		}
+	}
+	targets, err := a.sharedProcessing.ListProcessingCatalogTargetsForCustomer(c.Request().Context(), customerID, productIDs)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"current_customer_id": customerID, "products": options.CustomerSKUs, "targets": targets})
+}
+
+func (a api) listSharedProcessingRequests(c echo.Context) error {
+	if a.sharedProcessing == nil {
+		return customerFulfillmentError(c, http.StatusInternalServerError, fmt.Errorf("processing service unavailable"))
+	}
+	customerID, err := a.sharedProcessingCustomerID(c)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	limit, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("limit")))
+	rows, err := a.sharedProcessing.ListProcessingRequestsForCustomer(c.Request().Context(), customerID, limit)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+}
+
+func (a api) previewSharedProcessingRequest(c echo.Context) error {
+	if a.sharedProcessing == nil {
+		return customerFulfillmentError(c, http.StatusInternalServerError, fmt.Errorf("processing service unavailable"))
+	}
+	customerID, err := a.sharedProcessingCustomerID(c)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	var req sharedProcessingRequestPayload
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	preview, err := a.sharedProcessing.PreviewProcessingRequestForCustomer(c.Request().Context(), customerportalapp.CreateProcessingRequestCommand{CustomerID: customerID, Items: req.Items})
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, preview)
+}
+
+func (a api) submitSharedProcessingRequest(c echo.Context) error {
+	if a.sharedProcessing == nil {
+		return customerFulfillmentError(c, http.StatusInternalServerError, fmt.Errorf("processing service unavailable"))
+	}
+	customerID, err := a.sharedProcessingCustomerID(c)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	var req sharedProcessingRequestPayload
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.sharedProcessing.CreateProcessingRequestForCustomer(c.Request().Context(), customerportalapp.CreateProcessingRequestCommand{
+		CustomerID: customerID, CreatedBy: currentCustomerFulfillmentActor(c), IdempotencyKey: req.IdempotencyKey,
+		Items: req.Items, Note: req.Note, ExpectedCompletionDate: req.ExpectedCompletionDate,
+	})
+	if err != nil {
+		var unavailable *customerportalapp.ProcessingMaterialsUnavailableError
+		if errors.As(err, &unavailable) {
+			return c.JSON(http.StatusConflict, map[string]any{"error": "原料或包材可用量已变化，请按最新预览调整", "preview": unavailable.Preview})
+		}
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, row)
 }
 
 func (a api) submitCustomerProcessingWorkOrder(c echo.Context) error {

@@ -83,6 +83,14 @@ const selectedSummary = computed(() => lines.value.filter((line) => Number(line.
 const filteredRecipients = computed(() => filterRecipientAddresses(recipientAddresses.value, recipientQuery.value))
 const selectedRecipientSummary = computed(() => recipientAddressSummary(selectedRecipient.value))
 const totalAmount = computed(() => preview.value?.total_amount ?? 0)
+const processingAllocationQty = computed(() => (preview.value?.production_allocations || []).reduce((sum, item) => sum + Number(item.qty || 0), 0))
+const blockingShortages = computed(() => (preview.value?.shortages || []).filter((item) => item.blocking))
+const fulfillmentMessage = computed(() => {
+  if (!preview.value || preview.value.stock_ready) return ''
+  if (blockingShortages.value.length) return '代加工商品可履约数量不足，整单不能提交。请先提交代加工申请或减少数量。'
+  if (processingAllocationQty.value > 0) return `成品库存优先占用，不足部分已从有效在制产出预订 ${processingAllocationQty.value} 件；全部入库后自动转为待发货库存。`
+  return '成品库存优先占用；普通商品未覆盖数量仍可提交，ERP 只对实际缺口安排生产。'
+})
 
 function newIdempotencyKey(): string {
   return `mini-${props.orderMode === 'product_order' ? 'po' : 'ds'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -288,7 +296,7 @@ async function previewRequest(silent = false): Promise<DirectShipPreview | null>
     const checked = isProductOrder.value ? await previewProductOrder(props.token, command) : await previewDirectShipRequest(props.token, command)
     if (version !== previewVersion) return null
     preview.value = checked
-    errorMessage.value = checked.can_submit ? '' : '当前商品暂不可下单，请检查价格表与商品配置'
+    errorMessage.value = checked.can_submit ? '' : '代加工商品可履约数量不足，整单不能提交'
     return checked
   } catch (error) {
     if (version !== previewVersion) return null
@@ -311,7 +319,7 @@ async function submitRequest() {
     const checked = isProductOrder.value ? await previewProductOrder(props.token, command) : await previewDirectShipRequest(props.token, command)
     if (version !== previewVersion) throw new Error('订单内容已变更，请重新提交')
     preview.value = checked
-    if (!checked.can_submit) throw new Error('当前商品暂不可下单，请检查价格表与商品配置')
+    if (!checked.can_submit) throw new Error('代加工商品可履约数量不足，整单不能提交')
     if (!checked.price_quote_token) throw new Error('报价版本缺失，请重新提交')
     if (isProductOrder.value) await createProductOrder(props.token, { ...command, price_quote_token: checked.price_quote_token })
     else await createDirectShipRequest(props.token, { ...command, price_quote_token: checked.price_quote_token })
@@ -398,8 +406,11 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
       <view class="total-card"><text>商品估算合计</text><text class="amount">{{ previewing ? '核价中…' : `¥${money(totalAmount)}` }}</text></view>
       <textarea v-model="note" class="textarea" :disabled="submitting" placeholder="订单备注（可选）" @input="saveDraft" />
       <text v-if="selectedSummary" class="selected-summary">已选：{{ selectedSummary }}</text>
-      <text v-if="preview && !preview.stock_ready" class="shortage">当前库存不足，订单仍可提交；ERP 将按现有订单生产流程补货。</text>
-      <button class="primary submit" :disabled="submitting" @tap="submitRequest">{{ submitting ? '提交中...' : submitTitle }}</button>
+      <text v-if="fulfillmentMessage" class="shortage">{{ fulfillmentMessage }}</text>
+      <view v-if="blockingShortages.length" class="shortage-detail">
+        <text v-for="item in blockingShortages" :key="`${item.product_id}:${item.bom_spec_id || 0}`">需求 {{ item.qty }}；成品库存 {{ item.stock_available_qty || 0 }}；在制产出 {{ item.production_available_qty || 0 }}；缺口 {{ Math.max(0, Number(item.qty || 0) - Number(item.available_qty || 0)) }}</text>
+      </view>
+      <button class="primary submit" :disabled="submitting || Boolean(preview && !preview.can_submit)" @tap="submitRequest">{{ submitting ? '提交中...' : submitTitle }}</button>
     </view>
 
     <view v-if="!showCreate" class="list-panel">
@@ -418,7 +429,11 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
         <text v-for="table in item.price_tables || []" :key="`${item.id}:table:${table.id}`" class="muted">价格快照：{{ priceTableLabel(table) }}</text>
         <text v-if="item.recipient_company" class="muted">收件客户/公司：{{ item.recipient_company }}</text>
         <text class="muted">{{ item.recipient_phone }} · {{ item.province }}{{ item.city }}{{ item.district }}{{ item.detail_address }}</text>
-        <text v-for="line in item.items || []" :key="`${line.product_id}:${line.bom_spec_id || 0}:${line.bom_variant_id || 0}:${line.spec_g}`" class="muted">{{ line.product_name || `商品 ${line.product_id}` }} · {{ directShipItemSpecLabel(line) }} · {{ directShipItemQtyLabel(line) }}</text>
+        <view v-for="line in item.items || []" :key="`${line.product_id}:${line.bom_spec_id || 0}:${line.bom_variant_id || 0}:${line.spec_g}`">
+          <text class="muted">{{ line.product_name || `商品 ${line.product_id}` }} · {{ directShipItemSpecLabel(line) }} · {{ directShipItemQtyLabel(line) }}</text>
+          <text v-if="line.production_reserved_qty" class="muted">在制预订 {{ line.production_reserved_qty }} 件，已转成品 {{ line.production_converted_qty || 0 }} 件</text>
+          <text v-if="line.production_shortfall_qty" class="shortage">实际入库减少，当前缺口 {{ line.production_shortfall_qty }} 件，请联系工厂处理</text>
+        </view>
         <view v-for="pkg in item.packages || []" :key="pkg.id" class="package"><text>{{ pkg.order_no }} · {{ pkg.warehouse }} · {{ directShipStatusLabel(pkg.status) }}</text><text class="muted">生产：{{ pkg.process_status || '待进入生产流程' }} · 发货：{{ pkg.ship_status || '待发货' }}</text><text v-for="line in pkg.items || []" :key="`${pkg.id}:item:${line.product_id}:${line.bom_spec_id || 0}:${line.spec_g}`" class="muted">{{ line.product_name }} · {{ directShipItemSpecLabel(line) }} · {{ directShipItemQtyLabel(line) }}</text><text v-if="pkg.shipped_at" class="muted">发货时间：{{ pkg.shipped_at }}</text><text class="muted">{{ pkg.tracking_no ? `${pkg.carrier_name || '承运商待录入'} ${pkg.tracking_no}` : '运单号尚未录入' }}</text><view v-for="(event, index) in pkg.events || []" :key="`${pkg.id}:event:${index}`" class="event"><text class="muted">{{ event.time || '' }} {{ event.description || directShipStatusLabel(event.status) }}</text><text v-if="event.location" class="muted">{{ event.location }}</text></view><text v-if="pkg.tracking_no && !(pkg.events || []).length" class="muted">暂未获取物流轨迹</text></view>
         <button v-if="['pending','reserved','待处理','待发货'].includes(item.status)" class="secondary compact" @tap="cancelRequest(item)">取消发货</button>
       </view>
@@ -444,4 +459,5 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
 
 <style scoped>
 .workspace{display:flex;flex-direction:column;gap:18rpx}.order-panel,.list-panel{display:flex;flex-direction:column;gap:22rpx;padding:28rpx;border:1rpx solid #dce5df;border-radius:20rpx;background:#fff}.title{font-size:38rpx;font-weight:900;color:#173126}.subtitle{font-size:31rpx;font-weight:850;color:#173126}.field-block,.price-table-copy,.line-card,.filters,.request,.package,.event{display:flex;flex-direction:column;gap:12rpx}.field-head,.section-head,.line-head,.line-price,.total-card,.request-head,.sheet-head,.recipient-head,.recipient-row{display:flex;align-items:center;justify-content:space-between;gap:14rpx}.field-label,.line-name{font-weight:800;color:#29483a}.manage-link,.edit-link,.text-button{color:#28624a;font-weight:750}.selector-field,.quantity-field,.input,.textarea,.picker-field,.search-input{width:100%;min-height:86rpx;padding:0 22rpx;border:1rpx solid #d6e0da;border-radius:13rpx;box-sizing:border-box;background:#fafcfb}.selector-field,.quantity-field{display:flex;align-items:center;justify-content:space-between;gap:16rpx}.selector-field text:first-child{flex:1}.chevron{color:#718078;font-size:38rpx}.price-table-card{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:22rpx;border:1rpx solid #dbe5df;border-radius:16rpx;background:#f7faf8}.text-button{min-width:150rpx;min-height:62rpx;margin:0;padding:0 12rpx;border:1rpx solid #b8cec1;border-radius:10rpx;background:#fff;font-size:23rpx}.text-button::after,.remove::after,.spec-choice::after{border:0}.line-card{padding:24rpx;border:1rpx solid #dbe5df;border-radius:18rpx;background:#fbfdfc}.remove{min-height:58rpx;margin:0;padding:0 18rpx;border:1rpx solid #e2c5c0;border-radius:10rpx;background:#fff;color:#9e3e35;font-size:23rpx}.spec-choice-list{display:flex;flex-wrap:wrap;gap:12rpx}.spec-choice{display:flex;align-items:center;gap:10rpx;min-height:64rpx;margin:0;padding:0 20rpx;border:1rpx solid #cddbd3;border-radius:12rpx;background:#fff;color:#29483a;font-size:24rpx}.spec-choice.selected{border-color:#28624a;background:#eaf4ee;color:#1f5d42;font-weight:800}.spec-check{color:#17603f}.spec-empty,.tier-hint,.selected-summary,.muted{color:#74827a;font-size:23rpx;line-height:1.55}.quantity-field input{flex:1}.line-price{padding-top:10rpx;color:#53675d;font-size:23rpx}.line-price text:nth-child(2),.amount{color:#17603f;font-weight:900}.add-line{min-height:76rpx;margin:0;border:1rpx dashed #7ea28e;border-radius:12rpx;background:#fff;color:#28624a;font-size:26rpx}.total-card{padding:24rpx;border-radius:16rpx;background:#eaf4ee;color:#244839;font-size:29rpx;font-weight:850}.amount{font-size:34rpx}.textarea{min-height:120rpx;padding-top:18rpx}.primary,.secondary{min-height:76rpx;margin:0;border-radius:12rpx;font-size:26rpx}.primary{background:#28624a;color:#fff}.secondary{border:1rpx solid #cbd8d1;background:#fff;color:#315844}.submit{margin-top:2rpx}.error,.shortage{padding:18rpx;border-radius:10rpx;color:#b42318;background:#fff4f1;font-size:24rpx}.ready{color:#28624a}.filters{padding:18rpx;background:#fafcfb;border-radius:12rpx}.date-presets,.date-range,.filter-actions,.page-actions,.page-jump{display:flex;gap:12rpx}.date-range picker,.filter-actions button,.page-actions button{flex:1}.chip{min-height:56rpx;margin:0;padding:0 14rpx;border:1rpx solid #d4ded8;border-radius:30rpx;background:#fff;font-size:22rpx}.chip.active{background:#e6f2eb;color:#28624a}.compact{min-height:60rpx}.request,.package{padding:20rpx;border:1rpx solid #e2e8e4;border-radius:12rpx}.package{background:#f8faf9}.status{color:#28624a;font-weight:800}.pagination{display:flex;flex-direction:column;gap:14rpx}.page-current{display:flex;align-items:center}.page-jump{align-items:center}.page-jump picker{flex:1}.jump-input{width:120rpx;min-height:60rpx;border:1rpx solid #d5ddd8;border-radius:8rpx;text-align:center}.overlay{position:fixed;inset:0;z-index:1110;display:flex;align-items:flex-end;background:rgba(16,28,22,.48)}.recipient-sheet{width:100%;max-height:82vh;padding:28rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));border-radius:24rpx 24rpx 0 0;box-sizing:border-box;background:#fff}.sheet-title,.sheet-subtitle{display:block}.sheet-title{font-size:32rpx;font-weight:850;color:#173126}.sheet-subtitle{margin-top:6rpx;color:#7a8880;font-size:22rpx}.sheet-close{padding:12rpx;color:#607268}.search-input{margin:18rpx 0}.recipient-list{height:46vh}.recipient-row{padding:20rpx 8rpx;border-bottom:1rpx solid #edf1ee}.recipient-copy{display:flex;flex:1;flex-direction:column;gap:8rpx}.recipient-name{font-size:28rpx;font-weight:800;color:#213b2f}.recipient-address{color:#53655b;font-size:24rpx}.badge{padding:3rpx 10rpx;border-radius:999rpx;background:#e6f3eb;color:#28624a;font-size:20rpx}.empty{display:block;padding:70rpx 20rpx;color:#7d8982;text-align:center}
+.shortage-detail{display:flex;flex-direction:column;gap:8rpx;padding:18rpx;border-radius:10rpx;color:#b42318;background:#fff4f1;font-size:24rpx}
 </style>

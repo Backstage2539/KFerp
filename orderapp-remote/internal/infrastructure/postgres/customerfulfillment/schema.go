@@ -349,6 +349,52 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_request_items (
 	UNIQUE(request_id, line_no)
 );
 
+CREATE TABLE IF NOT EXISTS %[1]s.customer_processing_output_reservations (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	request_id BIGINT NOT NULL REFERENCES %[1]s.customer_direct_ship_requests(id) ON DELETE CASCADE,
+	request_item_id BIGINT NOT NULL REFERENCES %[1]s.customer_direct_ship_request_items(id) ON DELETE CASCADE,
+	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
+	order_item_id BIGINT NOT NULL REFERENCES %[1]s.order_items(id) ON DELETE CASCADE,
+	processing_request_id BIGINT NOT NULL REFERENCES %[1]s.processing_job_requests(id) ON DELETE RESTRICT,
+	processing_request_item_id BIGINT NOT NULL REFERENCES %[1]s.processing_job_request_items(id) ON DELETE RESTRICT,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	reserved_qty BIGINT NOT NULL DEFAULT 0,
+	converted_qty BIGINT NOT NULL DEFAULT 0,
+	released_qty BIGINT NOT NULL DEFAULT 0,
+	shortfall_qty BIGINT NOT NULL DEFAULT 0,
+	shortfall_reason TEXT NOT NULL DEFAULT '',
+	converted_stock_batch_id BIGINT NOT NULL DEFAULT 0,
+	converted_batch_code TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'reserved',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(order_item_id, processing_request_item_id)
+);
+CREATE INDEX IF NOT EXISTS customer_processing_output_reservations_order_idx
+	ON %[1]s.customer_processing_output_reservations(customer_id,order_id,order_item_id,status);
+CREATE INDEX IF NOT EXISTS customer_processing_output_reservations_request_idx
+	ON %[1]s.customer_processing_output_reservations(processing_request_item_id,status,created_at,id);
+
+CREATE TABLE IF NOT EXISTS %[1]s.customer_processing_output_conversions (
+	id BIGSERIAL PRIMARY KEY,
+	output_reservation_id BIGINT NOT NULL REFERENCES %[1]s.customer_processing_output_reservations(id) ON DELETE CASCADE,
+	processing_request_item_id BIGINT NOT NULL DEFAULT 0,
+	order_id BIGINT NOT NULL DEFAULT 0,
+	order_item_id BIGINT NOT NULL DEFAULT 0,
+	stock_batch_id BIGINT NOT NULL DEFAULT 0,
+	batch_code TEXT NOT NULL DEFAULT '',
+	warehouse TEXT NOT NULL DEFAULT '',
+	converted_qty BIGINT NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(output_reservation_id,stock_batch_id,batch_code)
+);
+CREATE INDEX IF NOT EXISTS customer_processing_output_conversions_order_idx
+	ON %[1]s.customer_processing_output_conversions(order_id,order_item_id,id);
+
 CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_request_orders (
 	id BIGSERIAL PRIMARY KEY,
 	request_id BIGINT NOT NULL REFERENCES %[1]s.customer_direct_ship_requests(id) ON DELETE CASCADE,

@@ -5,6 +5,7 @@ import (
 
 	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
+	customerportalapp "orderapp/internal/application/customerportal"
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
 
@@ -48,15 +49,23 @@ type MessagePublisher interface {
 	Publish(context.Context, messagecenterapp.PublishCommand) (int64, error)
 }
 
+type SharedProcessingService interface {
+	CreateProcessingRequestForCustomer(context.Context, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error)
+	PreviewProcessingRequestForCustomer(context.Context, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequestPreview, error)
+	ListProcessingRequestsForCustomer(context.Context, int64, int) ([]customerportalapp.ProcessingRequest, error)
+	ListProcessingCatalogTargetsForCustomer(context.Context, int64, []int64) ([]customerportalapp.ProcessingCatalogTarget, error)
+}
+
 type Dependencies struct {
 	CustomerFulfillment Service
 	Customers           CustomerDirectory
 	MessageCenter       MessagePublisher
 	Sales               SalesSaver
+	SharedProcessing    SharedProcessingService
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
-	api := api{svc: deps.CustomerFulfillment, customers: deps.Customers, messages: deps.MessageCenter, sales: deps.Sales}
+	api := api{svc: deps.CustomerFulfillment, customers: deps.Customers, messages: deps.MessageCenter, sales: deps.Sales, sharedProcessing: deps.SharedProcessing}
 	e.GET("/api/customer-fulfillment/customers", api.listCustomers)
 	e.GET("/api/customer-fulfillment/:customer_id/overview", api.overview)
 	e.GET("/api/customer-fulfillment/:customer_id/options", api.options)
@@ -80,5 +89,13 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	e.GET("/api/customer-processing/internal/:customer_id/overview", api.internalCustomerPortalOverview)
 	e.GET("/api/customer-processing/internal/:customer_id/options", api.internalCustomerPortalOptions)
 	e.POST("/api/customer-processing/portal/work-orders", api.submitCustomerProcessingWorkOrder)
+	e.GET("/api/customer-processing/portal/processing-catalog", api.sharedProcessingCatalog)
+	e.GET("/api/customer-processing/portal/processing-requests", api.listSharedProcessingRequests)
+	e.POST("/api/customer-processing/portal/processing-requests/preview", api.previewSharedProcessingRequest)
+	e.POST("/api/customer-processing/portal/processing-requests", api.submitSharedProcessingRequest)
+	e.GET("/api/customer-processing/internal/:customer_id/processing-catalog", api.sharedProcessingCatalog)
+	e.GET("/api/customer-processing/internal/:customer_id/processing-requests", api.listSharedProcessingRequests)
+	e.POST("/api/customer-processing/internal/:customer_id/processing-requests/preview", api.previewSharedProcessingRequest)
+	e.POST("/api/customer-processing/internal/:customer_id/processing-requests", api.submitSharedProcessingRequest)
 	e.POST("/api/customer-processing/portal/direct-ship-orders", api.submitCustomerDirectShipOrder)
 }
