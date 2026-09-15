@@ -45,6 +45,7 @@ type MiniDirectShipCommand struct {
 	MiniUserID       int64                       `json:"-"`
 	IdempotencyKey   string                      `json:"idempotency_key"`
 	PriceQuoteToken  string                      `json:"price_quote_token,omitempty"`
+	OrderDate        string                      `json:"order_date,omitempty"`
 	RecipientName    string                      `json:"recipient_name"`
 	RecipientPhone   string                      `json:"recipient_phone"`
 	Province         string                      `json:"province,omitempty"`
@@ -82,6 +83,35 @@ type MiniDirectShipPriceTable struct {
 	TableName string `json:"table_name"`
 	VersionNo string `json:"version_no"`
 	ListType  string `json:"list_type"`
+}
+
+type MiniOrderPriceTablePreviewQuery struct {
+	CustomerID int64
+	UsageCode  string
+}
+
+type MiniOrderPriceTablePreviewRow struct {
+	PublicationID int64    `json:"publication_id"`
+	TableName     string   `json:"table_name"`
+	VersionNo     string   `json:"version_no"`
+	ProductID     int64    `json:"product_id"`
+	ProductName   string   `json:"product_name"`
+	BomSpecID     int64    `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64    `json:"bom_variant_id,omitempty"`
+	SpecName      string   `json:"spec_name"`
+	SalesUnit     string   `json:"sales_unit"`
+	MinQty        float64  `json:"min_qty"`
+	MaxQty        *float64 `json:"max_qty,omitempty"`
+	UnitPrice     float64  `json:"unit_price"`
+	SortOrder     int      `json:"sort_order,omitempty"`
+	IsDefault     bool     `json:"is_default,omitempty"`
+}
+
+type MiniOrderPriceTablePreview struct {
+	CurrentCustomerID int64                           `json:"current_customer_id"`
+	UsageCode         string                          `json:"usage_code"`
+	PriceTables       []MiniDirectShipPriceTable      `json:"price_tables"`
+	Rows              []MiniOrderPriceTablePreviewRow `json:"rows"`
 }
 
 type MiniDirectShipPreviewWarehouse struct {
@@ -390,12 +420,50 @@ func (s *Service) MiniDirectShipCatalog(ctx context.Context, query MiniDirectShi
 		if filterErr != nil {
 			return MiniDirectShipCatalog{}, filterErr
 		}
-		return miniDirectShipCatalogFromSales(query, tables, products), nil
+		return miniDirectShipCatalogFromSales(query, tables, products, form.ProductBOMSpecOptions), nil
 	}
 	if query.UsageCode == "product_order" {
 		return MiniDirectShipCatalog{}, ErrMiniDirectShipUnavailable
 	}
 	return repo.MiniDirectShipCatalog(ctx, query)
+}
+
+func (s *Service) MiniOrderPriceTablePreview(ctx context.Context, query MiniOrderPriceTablePreviewQuery) (MiniOrderPriceTablePreview, error) {
+	if query.CustomerID <= 0 {
+		return MiniOrderPriceTablePreview{}, fmt.Errorf("customer required")
+	}
+	query.UsageCode = strings.TrimSpace(query.UsageCode)
+	if query.UsageCode != "direct_ship" && query.UsageCode != "product_order" {
+		return MiniOrderPriceTablePreview{}, fmt.Errorf("invalid customer order usage")
+	}
+	repo, err := s.miniDirectShipRepository()
+	if err != nil {
+		return MiniOrderPriceTablePreview{}, err
+	}
+	bridge, ok := repo.(MiniDirectShipOrderRepository)
+	if !ok || s.sales == nil {
+		return MiniOrderPriceTablePreview{}, ErrMiniDirectShipUnavailable
+	}
+	tables, err := bridge.DirectShipPriceTables(ctx, query.CustomerID)
+	if exactRepo, exactOK := repo.(MiniCustomerOrderPriceTableRepository); exactOK {
+		tables, err = exactRepo.CustomerOrderPriceTables(ctx, query.CustomerID, query.UsageCode)
+	}
+	if err != nil {
+		return MiniOrderPriceTablePreview{}, err
+	}
+	form, err := s.sales.OrderForm(ctx, 0)
+	if err != nil {
+		return MiniOrderPriceTablePreview{}, err
+	}
+	ids := make([]int64, 0, len(tables))
+	for _, table := range tables {
+		ids = append(ids, table.ID)
+	}
+	products, err := salesapp.FilterOrderProductsForExactCustomerPublications(form.Products, query.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, ids, false)
+	if err != nil {
+		return MiniOrderPriceTablePreview{}, err
+	}
+	return miniOrderPriceTablePreviewFromSales(query, tables, products, form.ProductBOMSpecOptions), nil
 }
 
 func (s *Service) MiniProductOrderCatalog(ctx context.Context, query MiniDirectShipCatalogQuery) (MiniDirectShipCatalog, error) {
@@ -482,6 +550,7 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 			CustomerID: prepared.Command.CustomerID, ReceiverName: prepared.Command.RecipientName,
 			ReceiverPhone: prepared.Command.RecipientPhone, ReceiverAddress: fullAddress,
 			ReceiverCompany: prepared.Command.RecipientCompany, Items: items, Note: prepared.Command.Note,
+			OrderDate:           prepared.Command.OrderDate,
 			Actor:               prepared.Command.Actor,
 			CustomerRequestID:   fmt.Sprintf("mini-%s:%d:%s", usageCode, prepared.Command.CustomerID, prepared.Command.IdempotencyKey),
 			CustomerRequestHash: prepared.RequestHash, SelectedPriceTableIDs: prepared.SelectedPriceTableIDs,
@@ -562,7 +631,40 @@ func requireMiniDirectShipPriceQuote(expected string, prepared PreparedMiniDirec
 	return nil
 }
 
-func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []MiniDirectShipPriceTable, products []salesapp.ProductOption) MiniDirectShipCatalog {
+type miniOrderBOMSpecKey struct {
+	parentID, specID, variantID int64
+}
+
+func miniOrderBOMSpecOptions(customerID int64, options []salesapp.ProductBOMSpecOption) map[miniOrderBOMSpecKey]salesapp.ProductBOMSpecOption {
+	out := make(map[miniOrderBOMSpecKey]salesapp.ProductBOMSpecOption)
+	for _, option := range options {
+		if !option.Published || option.ParentProductID <= 0 || option.BomSpecID <= 0 || (option.OwnerCustomerID != 0 && option.OwnerCustomerID != customerID) {
+			continue
+		}
+		key := miniOrderBOMSpecKey{option.ParentProductID, option.BomSpecID, option.BomVariantID}
+		current, exists := out[key]
+		if !exists || current.OwnerCustomerID == 0 && option.OwnerCustomerID == customerID {
+			out[key] = option
+		}
+		if option.BomVariantID > 0 {
+			fallback := miniOrderBOMSpecKey{option.ParentProductID, option.BomSpecID, 0}
+			if _, exists := out[fallback]; !exists {
+				out[fallback] = option
+			}
+		}
+	}
+	return out
+}
+
+func miniOrderBOMSpecOption(options map[miniOrderBOMSpecKey]salesapp.ProductBOMSpecOption, parentID, specID, variantID int64) (salesapp.ProductBOMSpecOption, bool) {
+	option, ok := options[miniOrderBOMSpecKey{parentID, specID, variantID}]
+	if !ok {
+		option, ok = options[miniOrderBOMSpecKey{parentID, specID, 0}]
+	}
+	return option, ok
+}
+
+func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []MiniDirectShipPriceTable, products []salesapp.ProductOption, specOptions []salesapp.ProductBOMSpecOption) MiniDirectShipCatalog {
 	type familyState struct {
 		row   map[string]any
 		specs []map[string]any
@@ -573,6 +675,7 @@ func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []M
 	categories := make([]MiniDirectShipCategory, 0)
 	q := strings.ToLower(strings.TrimSpace(query.Q))
 	categoryFilter := strings.TrimSpace(query.Category)
+	options := miniOrderBOMSpecOptions(query.CustomerID, specOptions)
 	for _, product := range products {
 		categoryKey := ""
 		if product.ProductTypeCategoryID > 0 {
@@ -612,15 +715,25 @@ func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []M
 			families = append(families, state)
 		}
 		tierGroups := map[string][]salesapp.ProductTierOption{}
+		tierGroupOrder := make([]string, 0)
 		for _, tier := range product.Tiers {
 			key := fmt.Sprintf("%d:%d:%d:%s:%d", tier.BomSpecID, tier.BomVariantID, tier.SpecG, tier.SalesUnit, tier.UnitBagCount)
+			if _, exists := tierGroups[key]; !exists {
+				tierGroupOrder = append(tierGroupOrder, key)
+			}
 			tierGroups[key] = append(tierGroups[key], tier)
 		}
-		for _, tiers := range tierGroups {
+		for _, groupKey := range tierGroupOrder {
+			tiers := tierGroups[groupKey]
 			first := tiers[0]
 			specLabel := strings.TrimSpace(product.SpecLabel)
+			option, hasOption := miniOrderBOMSpecOption(options, parentID, first.BomSpecID, first.BomVariantID)
 			if first.BomSpecID > 0 {
-				specLabel = strings.TrimSpace(product.SKUName)
+				if hasOption {
+					specLabel = strings.TrimSpace(option.SpecName)
+				} else {
+					specLabel = strings.TrimSpace(product.SKUName)
+				}
 			}
 			if specLabel == "" && first.SpecG > 0 {
 				specLabel = fmt.Sprintf("%dg", first.SpecG)
@@ -632,24 +745,101 @@ func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []M
 					"sales_unit": tier.SalesUnit, "publication_id": tier.PublicationID,
 				})
 			}
-			state.specs = append(state.specs, map[string]any{
+			specRow := map[string]any{
 				"product_id": product.ID, "sku_id": product.SKUID, "bom_spec_id": first.BomSpecID,
 				"bom_variant_id": first.BomVariantID, "sku_code": product.SKUCode, "sku_name": product.SKUName,
 				"spec_label": specLabel, "net_content_qty": product.NetContentQty,
 				"net_content_unit": product.NetContentUnit, "inventory_unit": product.InventoryUnit,
 				"sales_unit": first.SalesUnit, "spec_g": first.SpecG, "unit_bag_count": first.UnitBagCount,
 				"unit_price": first.UnitPrice, "price_tiers": priceTiers, "available_qty": int64(0),
-			})
+			}
+			if hasOption {
+				specRow["product_id"] = option.ParentProductID
+				specRow["sku_id"] = option.ParentProductID
+				specRow["bom_spec_id"] = option.BomSpecID
+				specRow["bom_variant_id"] = option.BomVariantID
+				specRow["spec_code"] = option.SpecCode
+				specRow["spec_key"] = option.SpecKey
+				specRow["spec_name"] = option.SpecName
+				specRow["spec_label"] = option.SpecName
+				specRow["inventory_unit"] = option.InventoryUnit
+				specRow["is_default"] = option.IsDefault
+				specRow["is_default_sku"] = option.IsDefault
+				specRow["sort_order"] = option.SortOrder
+				specRow["migration_state"] = option.MigrationState
+				if option.IsDefault {
+					state.row["default_bom_spec_id"] = option.BomSpecID
+				}
+			}
+			state.specs = append(state.specs, specRow)
 		}
 	}
 	out := make([]map[string]any, 0, len(families))
 	for _, family := range families {
 		if len(family.specs) > 0 {
+			sort.SliceStable(family.specs, func(i, j int) bool {
+				leftDefault, _ := family.specs[i]["is_default"].(bool)
+				rightDefault, _ := family.specs[j]["is_default"].(bool)
+				if leftDefault != rightDefault {
+					return leftDefault
+				}
+				leftOrder, _ := family.specs[i]["sort_order"].(int)
+				rightOrder, _ := family.specs[j]["sort_order"].(int)
+				if leftOrder != rightOrder {
+					return leftOrder < rightOrder
+				}
+				return fmt.Sprint(family.specs[i]["spec_label"]) < fmt.Sprint(family.specs[j]["spec_label"])
+			})
 			family.row["specs"] = family.specs
 			out = append(out, family.row)
 		}
 	}
 	return MiniDirectShipCatalog{CurrentCustomerID: query.CustomerID, Categories: categories, ProductFamilies: out, PriceTables: tables}
+}
+
+func miniOrderPriceTablePreviewFromSales(query MiniOrderPriceTablePreviewQuery, tables []MiniDirectShipPriceTable, products []salesapp.ProductOption, specOptions []salesapp.ProductBOMSpecOption) MiniOrderPriceTablePreview {
+	options := miniOrderBOMSpecOptions(query.CustomerID, specOptions)
+	tableByID := make(map[int64]MiniDirectShipPriceTable, len(tables))
+	for _, table := range tables {
+		tableByID[table.ID] = table
+	}
+	rows := make([]MiniOrderPriceTablePreviewRow, 0)
+	for _, product := range products {
+		parentID := product.ParentProductID
+		if parentID <= 0 {
+			parentID = product.ID
+		}
+		productName := strings.TrimSpace(product.CustomerProductDisplayName)
+		if productName == "" {
+			productName = strings.TrimSpace(product.ParentProductName)
+		}
+		if productName == "" {
+			productName = strings.TrimSpace(product.Name)
+		}
+		for _, tier := range product.Tiers {
+			option, hasOption := miniOrderBOMSpecOption(options, parentID, tier.BomSpecID, tier.BomVariantID)
+			specName := strings.TrimSpace(product.SpecLabel)
+			sortOrder := 0
+			isDefault := product.IsDefaultSKU
+			if tier.BomSpecID > 0 {
+				specName = strings.TrimSpace(product.SKUName)
+			}
+			if hasOption {
+				specName, sortOrder, isDefault = strings.TrimSpace(option.SpecName), option.SortOrder, option.IsDefault
+			}
+			if specName == "" && tier.SpecG > 0 {
+				specName = fmt.Sprintf("%dg", tier.SpecG)
+			}
+			table := tableByID[tier.PublicationID]
+			rows = append(rows, MiniOrderPriceTablePreviewRow{
+				PublicationID: tier.PublicationID, TableName: table.TableName, VersionNo: table.VersionNo,
+				ProductID: parentID, ProductName: productName, BomSpecID: tier.BomSpecID, BomVariantID: tier.BomVariantID,
+				SpecName: specName, SalesUnit: tier.SalesUnit, MinQty: tier.MinQty, MaxQty: tier.MaxQty,
+				UnitPrice: tier.UnitPrice, SortOrder: sortOrder, IsDefault: isDefault,
+			})
+		}
+	}
+	return MiniOrderPriceTablePreview{CurrentCustomerID: query.CustomerID, UsageCode: query.UsageCode, PriceTables: tables, Rows: rows}
 }
 
 func priceMiniDirectShipItems(items []MiniDirectShipItemCommand, products []salesapp.ProductOption) ([]MiniDirectShipItemCommand, float64, error) {
@@ -666,6 +856,9 @@ func priceMiniDirectShipItems(items []MiniDirectShipItemCommand, products []sale
 			for _, tier := range product.Tiers {
 				if item.BomSpecID > 0 {
 					if tier.BomSpecID != item.BomSpecID {
+						continue
+					}
+					if item.BomVariantID > 0 && tier.BomVariantID != item.BomVariantID {
 						continue
 					}
 				} else if tier.SpecG != item.SpecG {
@@ -929,6 +1122,11 @@ func normalizeMiniDirectShipCommand(cmd MiniDirectShipCommand, requireIdempotenc
 		return MiniDirectShipCommand{}, fmt.Errorf("invalid customer order usage")
 	}
 	cmd.PriceQuoteToken = strings.TrimSpace(cmd.PriceQuoteToken)
+	orderDate, err := normalizeCustomerOrderDate(cmd.OrderDate, time.Now())
+	if err != nil {
+		return MiniDirectShipCommand{}, err
+	}
+	cmd.OrderDate = orderDate.Format("2006-01-02")
 	if requireIdempotency && cmd.IdempotencyKey == "" {
 		return MiniDirectShipCommand{}, fmt.Errorf("idempotency_key required")
 	}

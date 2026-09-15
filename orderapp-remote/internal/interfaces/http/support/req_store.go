@@ -252,6 +252,14 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-665-CUSTOMER-ORDER-ENTRY-UI", title: "客户端一件代发与现货下单共用员工录单交互", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-15-customer-order-entry-ui.md"},
+		{table: "req_dev", code: "DEV-665-RECIPIENT-FLOW", title: "收件客户独立选择维护、临时使用、保存使用及录单草稿往返隔离", status: "done", assignee: "Codex", evidence: "customer-addresses.vue; customerOrderDraft.ts; customerOrderDraft.test.ts"},
+		{table: "req_dev", code: "DEV-665-PRODUCT-SPEC-ENTRY", title: "两个入口共用员工录单式商品搜索、多行商品与真实 BOM 规格列表", status: "done", assignee: "Codex", evidence: "CustomerDirectShipPanel.vue; ProductSpecPickerSheet.vue; mini_order_entry_ui_test.go"},
+		{table: "req_dev", code: "DEV-665-PRICE-TABLE-PREVIEW", title: "按登录客户和用途提供当前发布价格表只读表格预览", status: "done", assignee: "Codex", evidence: "mini_direct_ship_api.go; order-price-table-preview.vue; API tests"},
+		{table: "req_dev", code: "DEV-665-ORDER-DATE", title: "客户预览提交保存可选订单日期并纳入幂等内容", status: "done", assignee: "Codex", evidence: "mini_direct_ship.go; service.go; application and PostgreSQL tests"},
+		{table: "req_dev", code: "DEV-665-DOCS-DELIVERY", title: "测试、操作手册、双环境部署和微信小程序产物交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-15-customer-order-entry-ui.md"},
+		{table: "req_review", code: "REV-665-CUSTOMER-ORDER-ENTRY-UI", prCode: "PR-665-CUSTOMER-ORDER-ENTRY-UI", title: "验收一件代发与现货录单、收件客户、真实规格和价格表预览", status: "todo", assignee: "VA", evidence: "待 Van 使用真实客户数据验收"},
+
 		{table: "req_product", code: "PR-664-CUSTOMER-ORDER-PRICE-BINDINGS", title: "客户一件代发和商品下单指定价格表版本与共用地址簿", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-14-customer-order-price-bindings-addressbook.md"},
 		{table: "req_dev", code: "DEV-682-PRICE-BINDINGS", title: "客户商品类型和入口绑定具体发布记录、严格目录报价与归档删除保护", status: "done", assignee: "Codex", evidence: "customer_order_price_table_bindings.go; price_table_selection_test.go; PostgreSQL binding test"},
 		{table: "req_dev", code: "DEV-683-PRODUCT-ORDER", title: "商品下单多商品地址录单、服务端核价和共享 ERP 订单", status: "done", assignee: "Codex", evidence: "mini_direct_ship.go; CustomerDirectShipPanel.vue; mini product-order API tests"},

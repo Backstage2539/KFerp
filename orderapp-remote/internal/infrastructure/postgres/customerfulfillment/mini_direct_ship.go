@@ -808,6 +808,7 @@ func miniDirectShipRequestHash(cmd app.MiniDirectShipCommand) (string, error) {
 	}
 	payload := struct {
 		UsageCode        string     `json:"usage_code"`
+		OrderDate        string     `json:"order_date"`
 		RecipientName    string     `json:"recipient_name"`
 		RecipientPhone   string     `json:"recipient_phone"`
 		Province         string     `json:"province"`
@@ -817,7 +818,7 @@ func miniDirectShipRequestHash(cmd app.MiniDirectShipCommand) (string, error) {
 		RecipientCompany string     `json:"recipient_company"`
 		Items            []itemHash `json:"items"`
 		Note             string     `json:"note"`
-	}{cmd.UsageCode, cmd.RecipientName, cmd.RecipientPhone, cmd.Province, cmd.City, cmd.District, cmd.DetailAddress, cmd.RecipientCompany, items, cmd.Note}
+	}{cmd.UsageCode, cmd.OrderDate, cmd.RecipientName, cmd.RecipientPhone, cmd.Province, cmd.City, cmd.District, cmd.DetailAddress, cmd.RecipientCompany, items, cmd.Note}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err

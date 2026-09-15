@@ -145,6 +145,7 @@ type SubmitCustomerProcessingWorkOrderCommand struct {
 type SubmitCustomerDirectShipOrderCommand struct {
 	EmployeeID            int64
 	CustomerID            int64
+	OrderDate             string
 	ReceiverName          string
 	ReceiverPhone         string
 	ReceiverAddress       string
@@ -639,6 +640,11 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 	cmd.ReceiverPhone = strings.TrimSpace(cmd.ReceiverPhone)
 	cmd.ReceiverAddress = strings.Join(strings.Fields(strings.TrimSpace(cmd.ReceiverAddress)), " ")
 	cmd.ReceiverCompany = strings.Join(strings.Fields(strings.TrimSpace(cmd.ReceiverCompany)), " ")
+	orderDate, err := normalizeCustomerOrderDate(cmd.OrderDate, time.Now())
+	if err != nil {
+		return DirectShipOrderSummary{}, err
+	}
+	cmd.OrderDate = orderDate.Format("2006-01-02")
 	cmd.ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.ProductName)), " ")
 	cmd.Spec = strings.Join(strings.Fields(strings.TrimSpace(cmd.Spec)), " ")
 	if cmd.ShippingAmount < 0 {
@@ -1051,8 +1057,10 @@ func (s *Service) submitSharedSalesOrder(ctx context.Context, cmd SubmitCustomer
 	if mode == "" {
 		return DirectShipOrderSummary{}, fmt.Errorf("录单能力未开通")
 	}
-	today := time.Now()
-	date := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+	date, err := normalizeCustomerOrderDate(cmd.OrderDate, time.Now())
+	if err != nil {
+		return DirectShipOrderSummary{}, err
+	}
 	save := salesapp.SaveOrderCommand{
 		CustomerSubmission:                external || strings.TrimSpace(cmd.CustomerRequestID) != "",
 		CustomerID:                        customerID,
@@ -1106,4 +1114,18 @@ func (s *Service) submitSharedSalesOrder(ctx context.Context, cmd SubmitCustomer
 		return DirectShipOrderSummary{}, err
 	}
 	return DirectShipOrderSummary{OrderID: result.OrderID, OrderNo: result.OrderNo, OrderDate: date.Format("2006-01-02"), ReceiverAddress: cmd.ReceiverAddress, Status: "submitted", ItemCount: len(save.Items)}, nil
+}
+
+func normalizeCustomerOrderDate(value string, now time.Time) (time.Time, error) {
+	location := time.FixedZone("Asia/Shanghai", 8*60*60)
+	value = strings.TrimSpace(value)
+	if value == "" {
+		current := now.In(location)
+		return time.Date(current.Year(), current.Month(), current.Day(), 0, 0, 0, 0, location), nil
+	}
+	date, err := time.ParseInLocation("2006-01-02", value, location)
+	if err != nil || date.Format("2006-01-02") != value {
+		return time.Time{}, fmt.Errorf("order_date invalid")
+	}
+	return date, nil
 }

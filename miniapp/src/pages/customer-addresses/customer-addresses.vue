@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { onShareAppMessage, onShareTimeline, onShow } from '@dcloudio/uni-app'
+import { computed, reactive, ref } from 'vue'
+import { onLoad, onShareAppMessage, onShareTimeline, onShow } from '@dcloudio/uni-app'
 import {
   createRecipientAddress,
   deleteRecipientAddress,
@@ -8,14 +8,17 @@ import {
   parseEmployeeCustomerRecipient,
   updateRecipientAddress,
   type CustomerRecipientAddress,
+  type CustomerRecipientAddressPayload,
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
+import { useCustomerOrderDraftStore, type CustomerOrderMode, type CustomerOrderRecipient } from '../../stores/customerOrderDraft'
 import { useSessionStore } from '../../stores/session'
 import { defaultMiniappShare, defaultMiniappTimelineShare, refreshMiniappShareMenu } from '../../utils/miniappShare'
 
 const session = useSessionStore()
+const orderDraft = useCustomerOrderDraftStore()
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -29,7 +32,11 @@ const errorMessage = ref('')
 const rows = ref<CustomerRecipientAddress[]>([])
 const pastedRecipient = ref('')
 const editing = ref(false)
+const orderMode = ref<CustomerOrderMode | ''>('')
+const requestedAddressID = ref(0)
+const orderEditorInitialized = ref(false)
 const form = reactive(emptyForm())
+const isOrderFlow = computed(() => orderMode.value === 'direct_ship' || orderMode.value === 'product_order')
 
 function emptyForm() {
   return { id: 0, recipient_name: '', phone: '', company: '', province: '', city: '', district: '', detail_address: '', is_default: false, revision: 0 }
@@ -39,6 +46,12 @@ function resetForm() {
   Object.assign(form, emptyForm())
   pastedRecipient.value = ''
   editing.value = false
+}
+
+function fillForm(row: Partial<CustomerOrderRecipient>) {
+  Object.assign(form, emptyForm(), row)
+  pastedRecipient.value = ''
+  editing.value = true
 }
 
 async function load() {
@@ -51,10 +64,23 @@ async function load() {
   try {
     const data = await fetchRecipientAddresses(session.token)
     rows.value = data.rows || []
+    initializeOrderEditor()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '收件地址加载失败'
   } finally {
     loading.value = false
+  }
+}
+
+function initializeOrderEditor() {
+  if (!isOrderFlow.value || orderEditorInitialized.value) return
+  orderEditorInitialized.value = true
+  const existing = rows.value.find((row) => row.id === requestedAddressID.value)
+  if (existing) fillForm(existing)
+  else {
+    const draft = orderDraft.restoreDraft(Number(session.currentCustomerID), orderMode.value as CustomerOrderMode)
+    if (draft?.recipient) fillForm(draft.recipient)
+    else startCreate()
   }
 }
 
@@ -65,9 +91,7 @@ function startCreate() {
 }
 
 function startEdit(row: CustomerRecipientAddress) {
-  Object.assign(form, row)
-  pastedRecipient.value = ''
-  editing.value = true
+  fillForm(row)
 }
 
 async function parseRecipient() {
@@ -85,23 +109,46 @@ async function parseRecipient() {
   }
 }
 
-async function save() {
-  if (saving.value) return
+function formPayload(): CustomerRecipientAddressPayload | null {
   if (!form.recipient_name.trim() || !form.phone.trim() || !form.detail_address.trim()) {
     errorMessage.value = '请填写收件人、联系电话和详细地址'
-    return
+    return null
   }
-  saving.value = true
-  errorMessage.value = ''
-  const payload = {
+  return {
     recipient_name: form.recipient_name.trim(), phone: form.phone.trim(), company: form.company.trim(),
     province: form.province.trim(), city: form.city.trim(), district: form.district.trim(), detail_address: form.detail_address.trim(),
     is_default: form.is_default, expected_revision: Number(form.revision || 0),
   }
+}
+
+function stageForOrder(recipient: CustomerOrderRecipient) {
+  if (!isOrderFlow.value) return
+  orderDraft.stageRecipient(Number(session.currentCustomerID), orderMode.value as CustomerOrderMode, recipient)
+  uni.$emit('customer-order-recipient-selected', { customerID: Number(session.currentCustomerID), orderMode: orderMode.value })
+  uni.navigateBack()
+}
+
+function useOnlyThisOrder() {
+  const payload = formPayload()
+  if (!payload) return
+  stageForOrder({ ...payload, id: Number(form.id || 0), revision: Number(form.revision || 0) })
+}
+
+async function save(saveAndUse = false) {
+  if (saving.value) return
+  const payload = formPayload()
+  if (!payload) return
+  saving.value = true
+  errorMessage.value = ''
   try {
-    if (form.id) await updateRecipientAddress(session.token, form.id, payload)
-    else await createRecipientAddress(session.token, payload)
-    uni.showToast({ title: '收件地址已保存', icon: 'success' })
+    const saved = form.id
+      ? await updateRecipientAddress(session.token, form.id, payload)
+      : await createRecipientAddress(session.token, payload)
+    uni.showToast({ title: '收件客户已保存', icon: 'success' })
+    if (saveAndUse && isOrderFlow.value) {
+      stageForOrder(saved)
+      return
+    }
     resetForm()
     await load()
   } catch (error) {
@@ -127,22 +174,23 @@ function setDefault(event: Event) {
   form.is_default = (event as unknown as { detail?: { value?: boolean } }).detail?.value === true
 }
 
+onLoad((options) => {
+  orderMode.value = options?.order_mode === 'product_order' ? 'product_order' : options?.order_mode === 'direct_ship' ? 'direct_ship' : ''
+  requestedAddressID.value = Math.max(0, Number(options?.address_id || 0))
+})
 onShow(() => { void load(); void refreshMiniappShareMenu() })
 onShareAppMessage(defaultMiniappShare)
 onShareTimeline(defaultMiniappTimelineShare)
 </script>
 
 <template>
-  <view
-    class="page pull-up-brand-page"
-    @touchstart="handlePullUpBrandTouchStart"
-    @touchmove="handlePullUpBrandTouchMove"
-    @touchend="handlePullUpBrandTouchEnd"
-    @touchcancel="handlePullUpBrandTouchCancel"
-  >
+  <view class="page pull-up-brand-page" @touchstart="handlePullUpBrandTouchStart" @touchmove="handlePullUpBrandTouchMove" @touchend="handlePullUpBrandTouchEnd" @touchcancel="handlePullUpBrandTouchCancel">
     <EnvironmentBadge />
-    <view class="header"><text class="title">收件地址</text><text class="muted">当前客户的所有账号共用</text></view>
-    <button v-if="!editing" class="primary" @tap="startCreate">新增收件地址</button>
+    <view class="header">
+      <text class="title">{{ isOrderFlow ? '维护收件客户' : '收件地址' }}</text>
+      <text class="muted">当前客户的所有账号共用</text>
+    </view>
+    <button v-if="!isOrderFlow && !editing" class="primary" @tap="startCreate">新增收件地址</button>
     <view v-if="editing" class="panel form">
       <textarea v-model="pastedRecipient" class="textarea" placeholder="粘贴收件人、电话和地址" />
       <button class="secondary" @tap="parseRecipient">解析收件信息</button>
@@ -152,23 +200,27 @@ onShareTimeline(defaultMiniappTimelineShare)
       <view class="region"><input v-model="form.province" class="input" placeholder="省" /><input v-model="form.city" class="input" placeholder="市" /><input v-model="form.district" class="input" placeholder="区/县" /></view>
       <input v-model="form.detail_address" class="input" placeholder="详细地址" />
       <label class="switch-row"><text>设为默认地址</text><switch :checked="form.is_default" color="#28624a" @change="setDefault" /></label>
-      <view class="actions"><button class="secondary" @tap="resetForm">取消</button><button class="primary" :disabled="saving" @tap="save">保存</button></view>
+      <view v-if="isOrderFlow" class="order-actions">
+        <button class="secondary" :disabled="saving" @tap="useOnlyThisOrder">仅本单使用</button>
+        <button class="primary" :disabled="saving" @tap="save(true)">保存并使用</button>
+      </view>
+      <view v-else class="actions"><button class="secondary" @tap="resetForm">取消</button><button class="primary" :disabled="saving" @tap="save(false)">保存</button></view>
     </view>
     <text v-if="loading" class="muted">加载中...</text>
-    <view v-for="row in rows" :key="row.id" class="panel address-card">
-      <view class="address-head"><text class="name">{{ row.recipient_name }} · {{ row.phone }}</text><text v-if="row.is_default" class="badge">默认</text></view>
-      <text v-if="row.company" class="muted">{{ row.company }}</text>
-      <text>{{ row.province }}{{ row.city }}{{ row.district }}{{ row.detail_address }}</text>
-      <view class="actions"><button class="secondary compact" @tap="startEdit(row)">编辑</button><button class="danger compact" @tap="remove(row)">删除</button></view>
-    </view>
-    <text v-if="!loading && !rows.length" class="muted empty">暂无收件地址</text>
+    <template v-if="!isOrderFlow">
+      <view v-for="row in rows" :key="row.id" class="panel address-card">
+        <view class="address-head"><text class="name">{{ row.recipient_name }} · {{ row.phone }}</text><text v-if="row.is_default" class="badge">默认</text></view>
+        <text v-if="row.company" class="muted">{{ row.company }}</text>
+        <text>{{ row.province }}{{ row.city }}{{ row.district }}{{ row.detail_address }}</text>
+        <view class="actions"><button class="secondary compact" @tap="startEdit(row)">编辑</button><button class="danger compact" @tap="remove(row)">删除</button></view>
+      </view>
+      <text v-if="!loading && !rows.length" class="muted empty">暂无收件地址</text>
+    </template>
     <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
-    <view class="pull-up-brand-footer-anchor">
-      <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
-    </view>
+    <view class="pull-up-brand-footer-anchor"><PullUpBrandFooter :revealed="pullUpBrandRevealed" /></view>
   </view>
 </template>
 
 <style scoped>
-.page,.form,.address-card{display:flex;flex-direction:column;gap:16rpx}.page{padding:24rpx;background:#f6f4ef;min-height:100vh;box-sizing:border-box}.header{display:flex;justify-content:space-between;align-items:center}.title{font-size:34rpx;font-weight:900}.panel{padding:22rpx;border:1rpx solid #e4ded4;border-radius:12rpx;background:#fff}.input,.textarea{min-height:76rpx;padding:0 18rpx;border:1rpx solid #d8d2ca;border-radius:8rpx;background:#fafafa;box-sizing:border-box}.textarea{min-height:120rpx;padding-top:16rpx}.region,.actions,.address-head,.switch-row{display:flex;gap:12rpx;align-items:center}.region .input,.actions button{flex:1}.address-head,.switch-row{justify-content:space-between}.name{font-weight:800}.badge{padding:4rpx 12rpx;border-radius:999rpx;background:#e8f5ed;color:#28624a;font-size:22rpx}.primary,.secondary,.danger{min-height:72rpx;margin:0;border-radius:8rpx;font-size:25rpx}.primary{background:#2b2118;color:#fff}.secondary{background:#fff;border:1rpx solid #d8d2ca}.danger{background:#fff4f2;color:#a12b21;border:1rpx solid #e8c6c0}.compact{min-height:60rpx}.muted{color:#707070;font-size:24rpx}.empty{text-align:center;padding:40rpx}.error{padding:18rpx;color:#b42318}
+.page,.form,.address-card{display:flex;flex-direction:column;gap:16rpx}.page{padding:24rpx;background:#f6f8f6;min-height:100vh;box-sizing:border-box}.header{display:flex;justify-content:space-between;align-items:center}.title{font-size:34rpx;font-weight:900;color:#173126}.panel{padding:22rpx;border:1rpx solid #dbe5df;border-radius:16rpx;background:#fff}.input,.textarea{min-height:76rpx;padding:0 18rpx;border:1rpx solid #d8e1dc;border-radius:10rpx;background:#fafcfb;box-sizing:border-box}.textarea{min-height:120rpx;padding-top:16rpx}.region,.actions,.order-actions,.address-head,.switch-row{display:flex;gap:12rpx;align-items:center}.region .input,.actions button,.order-actions button{flex:1}.address-head,.switch-row{justify-content:space-between}.name{font-weight:800}.badge{padding:4rpx 12rpx;border-radius:999rpx;background:#e8f5ed;color:#28624a;font-size:22rpx}.primary,.secondary,.danger{min-height:72rpx;margin:0;border-radius:10rpx;font-size:25rpx}.primary{background:#28624a;color:#fff}.secondary{background:#fff;border:1rpx solid #bfcfc6;color:#315844}.danger{background:#fff4f2;color:#a12b21;border:1rpx solid #e8c6c0}.compact{min-height:60rpx}.muted{color:#707d76;font-size:24rpx}.empty{text-align:center;padding:40rpx}.error{padding:18rpx;color:#b42318}
 </style>
