@@ -1036,10 +1036,16 @@ func miniDirectShipQualityAvailable(status string) bool {
 }
 
 func miniStockKey(productID, bomSpecID, specG int64) string {
+	if bomSpecID > 0 {
+		specG = 0
+	}
 	return fmt.Sprintf("%d:%d:%d", productID, bomSpecID, specG)
 }
 
 func miniWarehouseStockKey(productID, bomSpecID, specG int64, warehouse string) string {
+	if bomSpecID > 0 {
+		specG = 0
+	}
 	return fmt.Sprintf("%d:%d:%d:%s", productID, bomSpecID, specG, strings.TrimSpace(warehouse))
 }
 
@@ -1984,7 +1990,7 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 			SELECT SUM(r.reserved_qty)::bigint AS reserved_qty,SUM(r.converted_qty)::bigint AS converted_qty,
 			       SUM(r.shortfall_qty)::bigint AS shortfall_qty
 			FROM %s.customer_processing_output_reservations r
-			WHERE r.direct_request_item_id=i.id AND r.status<>'released'
+			WHERE r.request_item_id=i.id AND r.status<>'released'
 		) output ON true
 		WHERE i.request_id=$1 ORDER BY i.line_no,i.id
 	`, r.schema, r.schema, r.schema), requestID)
