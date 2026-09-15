@@ -7,15 +7,16 @@ function source(path: string): string {
 }
 
 describe('customer closed-loop miniapp pages', () => {
-  it('keeps direct ship to one new-shipment flow and reuses the shared recipient parser', () => {
+  it('keeps direct ship in one employee-style order flow with independent recipient maintenance', () => {
     const page = source('src/components/CustomerDirectShipPanel.vue')
 
-    expect(page).toContain('一件代发下单')
-    expect(page).toContain('parseEmployeeCustomerRecipient')
-    expect(page).toContain('粘贴收货信息')
+    expect(page).toContain('新建代发订单')
+    expect(page).toContain('useCustomerOrderDraftStore')
+    expect(page).toContain('选择收件客户')
     expect(page).toContain('createDirectShipRequest')
     expect(page).toContain('idempotency_key')
     expect(page).toContain('ProductFamilyPickerSheet')
+    expect(page).toContain('ProductSpecPickerSheet')
     expect(page).toContain('createDirectShipDraftLine')
     expect(page).toContain('buildDirectShipDraftItems')
     expect(page).toContain('v-if="!showCreate"')
@@ -27,12 +28,13 @@ describe('customer closed-loop miniapp pages', () => {
     expect(page).toContain('item.bom_spec_id')
     expect(page).toContain('inventory_unit')
     expect(page).toContain('price_tables')
-    expect(page).toContain('订单金额')
+    expect(page).toContain('商品估算合计')
     expect(page).toContain('ERP 将按现有订单生产流程补货')
     expect(page).toContain('暂未获取物流轨迹')
     expect(page).not.toContain('新建代发批次')
     expect(page).not.toContain('导入代发地址')
     expect(page).not.toContain('现货商品')
+    expect(page).not.toContain('v-model="pastedRecipient"')
   })
 
   it('selects multiple production targets and previews the server BOM without input-material controls', () => {

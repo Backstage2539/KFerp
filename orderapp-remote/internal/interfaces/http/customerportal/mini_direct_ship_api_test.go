@@ -40,6 +40,18 @@ type miniCustomerFulfillmentFake struct {
 	confirmCmd        customerfulfillmentapp.ConfirmCustomerStatementCommand
 	disputeCmd        customerfulfillmentapp.CreateCustomerStatementDisputeCommand
 	replyCmd          customerfulfillmentapp.ReplyCustomerStatementDisputeCommand
+	pricePreviewQuery customerfulfillmentapp.MiniOrderPriceTablePreviewQuery
+}
+
+func (f *miniCustomerFulfillmentFake) MiniOrderPriceTablePreview(_ context.Context, query customerfulfillmentapp.MiniOrderPriceTablePreviewQuery) (customerfulfillmentapp.MiniOrderPriceTablePreview, error) {
+	f.calls++
+	f.pricePreviewQuery = query
+	return customerfulfillmentapp.MiniOrderPriceTablePreview{
+		CurrentCustomerID: query.CustomerID,
+		UsageCode:         query.UsageCode,
+		PriceTables:       []customerfulfillmentapp.MiniDirectShipPriceTable{{ID: 31, TableName: "客户价格表", VersionNo: "V3"}},
+		Rows:              []customerfulfillmentapp.MiniOrderPriceTablePreviewRow{{PublicationID: 31, ProductName: "小菠萝", SpecName: "227g 袋装", MinQty: 2, UnitPrice: 31}},
+	}, nil
 }
 
 func (f *miniCustomerFulfillmentFake) MiniProductOrderCatalog(_ context.Context, query customerfulfillmentapp.MiniDirectShipCatalogQuery) (customerfulfillmentapp.MiniDirectShipCatalog, error) {
@@ -175,8 +187,9 @@ func TestMiniDirectShipSubmitBindsCurrentCustomerAndIdempotencyHeader(t *testing
 		CustomerFulfillment: fulfillment,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/mini/direct-ship/requests", strings.NewReader(`{
-		"recipient_name":"张三","recipient_phone":"13800138000","detail_address":"咖啡路 8 号",
-		"price_quote_token":"quote-1",
+			"recipient_name":"张三","recipient_phone":"13800138000","detail_address":"咖啡路 8 号",
+			"order_date":"2026-09-15",
+			"price_quote_token":"quote-1",
 		"items":[{"product_id":911,"spec_g":1000,"qty":2}]
 	}`))
 	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
@@ -195,6 +208,9 @@ func TestMiniDirectShipSubmitBindsCurrentCustomerAndIdempotencyHeader(t *testing
 	}
 	if fulfillment.submitCmd.PriceQuoteToken != "quote-1" {
 		t.Fatalf("price quote token = %q", fulfillment.submitCmd.PriceQuoteToken)
+	}
+	if fulfillment.submitCmd.OrderDate != "2026-09-15" {
+		t.Fatalf("order date = %q", fulfillment.submitCmd.OrderDate)
 	}
 	var body customerfulfillmentapp.MiniDirectShipRequest
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.ID != 71 {
@@ -237,6 +253,36 @@ func TestMiniProductOrderRoutesRequireProductOrderAndBindCurrentCustomer(t *test
 	}
 	if fulfillment.submitCmd.MiniUserID != 21 {
 		t.Fatalf("product-order principal=%+v", fulfillment.submitCmd)
+	}
+}
+
+func TestMiniOrderPriceTablePreviewUsesLoginCustomerAndRequestedUsageCapability(t *testing.T) {
+	for _, tc := range []struct {
+		usage      string
+		capability string
+	}{
+		{usage: "direct_ship", capability: customerportalapp.CapabilityDirectShip},
+		{usage: "product_order", capability: customerportalapp.CapabilityProductOrder},
+	} {
+		fulfillment := &miniCustomerFulfillmentFake{}
+		e := echo.New()
+		RegisterRoutes(e, Dependencies{
+			CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+				MiniUserID: 17, CurrentCustomerID: 9,
+				Capabilities: []customerportalapp.Capability{{Code: tc.capability, Enabled: true}},
+			}},
+			CustomerFulfillment: fulfillment,
+		})
+		req := httptest.NewRequest(http.MethodGet, "/api/mini/order-price-tables/preview?usage_code="+tc.usage+"&customer_id=999&publication_id=888", nil)
+		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("usage=%s status=%d body=%s", tc.usage, rec.Code, rec.Body.String())
+		}
+		if fulfillment.pricePreviewQuery.CustomerID != 9 || fulfillment.pricePreviewQuery.UsageCode != tc.usage {
+			t.Fatalf("usage=%s query=%#v", tc.usage, fulfillment.pricePreviewQuery)
+		}
 	}
 }
 
@@ -452,6 +498,7 @@ func TestMiniCustomerFulfillmentRoutesWithoutTokenStopBeforeFulfillment(t *testi
 		body   string
 	}{
 		{name: "catalog", method: http.MethodGet, path: "/api/mini/direct-ship/catalog"},
+		{name: "price table preview", method: http.MethodGet, path: "/api/mini/order-price-tables/preview?usage_code=direct_ship"},
 		{name: "preview", method: http.MethodPost, path: "/api/mini/direct-ship/preview", body: `{}`},
 		{name: "submit", method: http.MethodPost, path: "/api/mini/direct-ship/requests", body: `{}`},
 		{name: "list requests", method: http.MethodGet, path: "/api/mini/direct-ship/requests"},

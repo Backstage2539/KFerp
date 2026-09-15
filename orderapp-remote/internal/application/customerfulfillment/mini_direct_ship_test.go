@@ -29,6 +29,23 @@ func TestPriceMiniDirectShipItemsUsesServerTierAndRejectsTableOutsideQuantity(t 
 	}
 }
 
+func TestPriceMiniDirectShipItemsKeepsBOMVariantPriceIdentity(t *testing.T) {
+	products := []salesapp.ProductOption{{
+		ID: 91,
+		Tiers: []salesapp.ProductTierOption{
+			{BomSpecID: 801, BomVariantID: 901, SalesUnit: "bag", MinQty: 1, UnitPrice: 12.5},
+			{BomSpecID: 801, BomVariantID: 902, SalesUnit: "bag", MinQty: 1, UnitPrice: 15},
+		},
+	}}
+	priced, total, err := priceMiniDirectShipItems([]MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, BomVariantID: 902, SalesUnit: "bag", Qty: 2}}, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(priced) != 1 || priced[0].UnitPrice != 15 || total != 30 {
+		t.Fatalf("priced=%+v total=%v", priced, total)
+	}
+}
+
 func TestMiniDirectShipPriceQuoteRequiresExactPublishedPriceSnapshot(t *testing.T) {
 	prepared := PreparedMiniDirectShipOrder{PriceTables: []MiniDirectShipPriceTable{{ID: 31, TableKey: "retail", VersionNo: "V3"}}}
 	items := []MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, Qty: 12, SalesUnit: "bag", UnitPrice: 10, LineAmount: 120}}

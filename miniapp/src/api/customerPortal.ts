@@ -547,8 +547,9 @@ export type ProcessingRequestPreview = {
 }
 
 export type DirectShipRequestPayload = {
-  idempotency_key: string
-  price_quote_token?: string
+	idempotency_key: string
+	price_quote_token?: string
+	order_date?: string
   recipient_name: string
   recipient_phone: string
   province?: string
@@ -573,6 +574,30 @@ export type DirectShipPriceTable = {
   table_name: string
   version_no: string
   list_type: string
+}
+
+export type OrderPriceTablePreviewRow = {
+	publication_id: number
+	table_name: string
+	version_no: string
+	product_id: number
+	product_name: string
+	bom_spec_id?: number
+	bom_variant_id?: number
+	spec_name: string
+	sales_unit: string
+	min_qty: number
+	max_qty?: number
+	unit_price: number
+	sort_order?: number
+	is_default?: boolean
+}
+
+export type OrderPriceTablePreview = {
+	current_customer_id: number
+	usage_code: 'direct_ship' | 'product_order'
+	price_tables: DirectShipPriceTable[]
+	rows: OrderPriceTablePreviewRow[]
 }
 
 export type DirectShipPackage = {
@@ -1626,6 +1651,10 @@ export function buildProductOrderCatalogPath(): string {
   return '/api/mini/product-orders/catalog'
 }
 
+export function buildOrderPriceTablePreviewPath(usageCode: 'direct_ship' | 'product_order'): string {
+	return `/api/mini/order-price-tables/preview?usage_code=${usageCode}`
+}
+
 export function buildDirectShipRequestsPath(filters: DirectShipRequestListFilters = {}): string {
   const query = String(filters.q || '').trim().replace(/\s+/g, ' ')
   const shippedFrom = String(filters.shipped_from || '').trim()
@@ -1876,6 +1905,10 @@ export function fetchDirectShipCatalog(token: string): Promise<DirectShipCatalog
 
 export function fetchProductOrderCatalog(token: string): Promise<DirectShipCatalog> {
   return miniRequest<DirectShipCatalog>(buildProductOrderCatalogPath(), { token })
+}
+
+export function fetchOrderPriceTablePreview(token: string, usageCode: 'direct_ship' | 'product_order'): Promise<OrderPriceTablePreview> {
+	return miniRequest<OrderPriceTablePreview>(buildOrderPriceTablePreviewPath(usageCode), { token })
 }
 
 export function previewProductOrder(token: string, payload: DirectShipRequestPayload): Promise<DirectShipPreview> {

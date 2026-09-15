@@ -5377,3 +5377,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-681-MINIAPP-UX-DOCS-DELIVERY：首页、发货、费用、生产、库存和个人中心统一标题、空态、首屏与摘要；同步操作手册、验收证据并完成本地微信开发者工具走查。
 - Verifier: `bash scripts/verify_pr663_customer_miniapp_erp.sh`; targeted RED/GREEN; PDF/Excel render/content checks; local production-mode miniapp build and WeChat DevTools walkthrough.
 - Delivery: development `d3833ae366c7088ca1475bbbf0401e7e157447c4`，rollback source `/opt/stacks/erp/orderapp.backup.deploy-20260914203936-d3833ae366c7`，rollback image `kferp-orderapp-rollback:development-20260914203936-d3833ae366c7`；production `c0b1f3ab14dd2f3146a63010c2e0897d76661238`，rollback source `/opt/stacks/erp-production/orderapp.backup.deploy-20260914205024-c0b1f3ab14dd`，rollback image `kferp-orderapp-rollback:production-20260914205024-c0b1f3ab14dd`。两环境登录页 HTTP 200；微信上传、审核和发布未执行。
+
+### PR-665-CUSTOMER-ORDER-ENTRY-UI
+- Branch: `codex/customer-order-entry-ui-20260915`; baseline `origin/develop@13bc82d0180dae8553b5d42a6429b54e6de8aa19`.
+- Owner/session: Codex / 2026-09-15.
+- Status: implementation and required local verification complete; integration/deployment in progress; Van business acceptance pending.
+- Scope: 客户小程序一件代发和现货下单共用员工端录单式界面；独立维护收件客户；展示全部真实规格；只读预览当前绑定商品价格表；订单日期可选且金额由后端核价。
+- DEV: DEV-665-RECIPIENT-FLOW; DEV-665-PRODUCT-SPEC-ENTRY; DEV-665-PRICE-TABLE-PREVIEW; DEV-665-ORDER-DATE; DEV-665-DOCS-DELIVERY.
+- Verifier: targeted miniapp unit/source tests; customer fulfillment service/API tests; miniapp typecheck/build; `scripts/verify_kferp.sh changed`; development and production smoke.
+- Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`.
+- Review/acceptance: implementation and technical deployment evidence by Codex; real customer business acceptance by Van.
+- Deployment: authorized for development then main/production; pending.
+- Last update: 2026-09-15.
+- Notes: `scripts/reserve_req_id.sh --claim` failed on macOS awk multiline; PR-665 reserved manually after confirming the next id.

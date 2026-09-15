@@ -59,6 +59,25 @@ func TestMiniDirectShipIdempotencyUsesStableBOMSpecIdentityAcrossVersions(t *tes
 	}
 }
 
+func TestMiniDirectShipIdempotencyIncludesOrderDate(t *testing.T) {
+	base := app.MiniDirectShipCommand{
+		OrderDate: "2026-09-15", RecipientName: "张三", RecipientPhone: "13800138000", DetailAddress: "咖啡路 8 号",
+		Items: []app.MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, Qty: 2}},
+	}
+	first, err := miniDirectShipRequestHash(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.OrderDate = "2026-09-16"
+	second, err := miniDirectShipRequestHash(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("different order dates must not share an idempotency hash")
+	}
+}
+
 func TestMiniDirectShipCatalogExcludesPublicOtherCustomerFrozenAndReservedStock(t *testing.T) {
 	pool, schema := newMiniDirectShipTestDB(t)
 	ctx := context.Background()

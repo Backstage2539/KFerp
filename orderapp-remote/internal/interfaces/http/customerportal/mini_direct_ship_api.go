@@ -40,7 +40,40 @@ type MiniProductOrderFulfillment interface {
 	SubmitMiniProductOrder(context.Context, customerfulfillmentapp.MiniDirectShipCommand) (customerfulfillmentapp.MiniDirectShipRequest, error)
 }
 
+type MiniOrderPriceTablePreviewer interface {
+	MiniOrderPriceTablePreview(context.Context, customerfulfillmentapp.MiniOrderPriceTablePreviewQuery) (customerfulfillmentapp.MiniOrderPriceTablePreview, error)
+}
+
 func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment) {
+	e.GET("/api/mini/order-price-tables/preview", func(c echo.Context) error {
+		usageCode := strings.TrimSpace(c.QueryParam("usage_code"))
+		capability := ""
+		switch usageCode {
+		case "direct_ship":
+			capability = customerportalapp.CapabilityDirectShip
+		case "product_order":
+			capability = customerportalapp.CapabilityProductOrder
+		default:
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid usage_code"})
+		}
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, capability)
+		if err != nil || !allowed {
+			return err
+		}
+		previewer, ok := fulfillment.(MiniOrderPriceTablePreviewer)
+		if !ok {
+			return miniInternalError(c)
+		}
+		result, err := previewer.MiniOrderPriceTablePreview(c.Request().Context(), customerfulfillmentapp.MiniOrderPriceTablePreviewQuery{
+			CustomerID: current.CurrentCustomerID,
+			UsageCode:  usageCode,
+		})
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.GET("/api/mini/product-orders/catalog", func(c echo.Context) error {
 		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityProductOrder)
 		if err != nil || !allowed {
@@ -525,6 +558,8 @@ func miniCustomerFulfillmentActor(current customerportalapp.CurrentContext) stri
 func miniCustomerFulfillmentError(c echo.Context, err error) error {
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
+	case strings.Contains(message, "order_date invalid"):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "订单日期格式不正确，请使用 YYYY-MM-DD"})
 	case strings.Contains(message, "shipped_from invalid"):
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "发货开始日期格式不正确，请使用 YYYY-MM-DD"})
 	case strings.Contains(message, "shipped_to invalid"):

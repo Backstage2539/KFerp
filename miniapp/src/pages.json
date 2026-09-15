@@ -67,6 +67,12 @@
       }
     },
     {
+      "path": "pages/order-price-table-preview/order-price-table-preview",
+      "style": {
+        "navigationBarTitleText": "价格表预览"
+      }
+    },
+    {
       "path": "pages/employee-order-entry/employee-order-entry",
       "style": {
         "navigationBarTitleText": "录单"
