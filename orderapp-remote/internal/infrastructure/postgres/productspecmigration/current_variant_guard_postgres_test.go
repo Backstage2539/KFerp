@@ -32,6 +32,14 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
 
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %[1]s.products(
+			id BIGINT PRIMARY KEY,active BOOLEAN NOT NULL DEFAULT true,
+			parent_product_id BIGINT NOT NULL DEFAULT 0,auto_derived_sku BOOLEAN NOT NULL DEFAULT false
+		);
+		CREATE TABLE %[1]s.production_boms(
+			id BIGINT PRIMARY KEY,output_type TEXT NOT NULL,output_product_id BIGINT NOT NULL,
+			status TEXT NOT NULL
+		);
 		CREATE TABLE %[1]s.production_bom_versions(
 			id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,status TEXT NOT NULL
 		);
@@ -78,6 +86,9 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 			id BIGINT PRIMARY KEY,running_item_id BIGINT NOT NULL DEFAULT 0,product_id BIGINT NOT NULL,
 			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0
 		);
+		INSERT INTO %[1]s.products(id) VALUES(42);
+		INSERT INTO %[1]s.production_boms(id,output_type,output_product_id,status)
+		VALUES(10,'product',42,'active');
 		INSERT INTO %[1]s.production_bom_versions(id,bom_id,status)
 		VALUES(11,10,'archived'),(12,10,'published');
 		INSERT INTO %[1]s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default)
@@ -96,12 +107,25 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 	if err := EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatal(err)
 	}
+	// Match app startup: the final authority projection runs only after all
+	// business tables exist, so it must preserve the historical-production
+	// allowances installed by EnsureSchema.
+	if err := EnsureAuthorityProjection(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_bom_spec_migrations(product_id,state) VALUES(42,'cutover')
 	`, schema)); err != nil {
 		t.Fatal(err)
 	}
 
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_plan_items(
+			id,product_id,order_nos,processing_request_item_id,bom_spec_id,bom_variant_id
+		) VALUES(10,42,'SO-V1',0,100,110)
+	`, schema)); err != nil {
+		t.Fatalf("historical plan derived from frozen order identity: %v", err)
+	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.order_items SET bom_variant_id=bom_variant_id WHERE id=1
 	`, schema)); err != nil {
@@ -127,13 +151,6 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 		t.Fatalf("identity-changing historical variant update error=%v, want bom_variant_not_current", err)
 	}
 
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_plan_items(
-			id,product_id,order_nos,processing_request_item_id,bom_spec_id,bom_variant_id
-		) VALUES(10,42,'SO-V1',0,100,110)
-	`, schema)); err != nil {
-		t.Fatalf("historical plan derived from frozen order identity: %v", err)
-	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_plan_items(
 			id,product_id,order_nos,processing_request_item_id,bom_spec_id,bom_variant_id
