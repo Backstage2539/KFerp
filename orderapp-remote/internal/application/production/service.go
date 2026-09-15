@@ -178,6 +178,7 @@ type FinishCommand struct {
 	ID               int64
 	WorkOrderID      int64
 	StockDocumentID  int64
+	RequestID        string
 	FinishedUnits    int64
 	FinishedLooseG   int64
 	HasFinishedInput bool
@@ -198,7 +199,7 @@ type FinishResult struct {
 	RunningItemID  int64           `json:"running_item_id"`
 	Completed      bool            `json:"completed"`
 	FinishedOrders []FinishedOrder `json:"finished_orders,omitempty"`
-	StockEntryID   int64           `json:"-"`
+	StockEntryID   int64           `json:"stock_entry_id,omitempty"`
 }
 
 type FinishOutputCommand struct {
