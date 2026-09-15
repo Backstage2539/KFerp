@@ -85,3 +85,28 @@ func TestMiniDirectShipCancellationAllowsEveryUnshippedReservationState(t *testi
 		}
 	}
 }
+
+func TestCustomerInventoryBatchRelatedOrdersUseExactStockBatchAllocations(t *testing.T) {
+	repoSource, err := os.ReadFile("mini_direct_ship.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(repoSource)
+	start := strings.Index(source, "func (r *Repository) ListCustomerCentralInventoryBatches")
+	if start < 0 {
+		t.Fatal("ListCustomerCentralInventoryBatches source not found")
+	}
+	body := source[start:]
+	queryStart := strings.Index(body, "if len(batchIDs) > 0")
+	queryEnd := strings.Index(body[queryStart:], "if relationExists(ctx, r.pool")
+	if queryStart < 0 || queryEnd < 0 {
+		t.Fatal("batch related-order query not found")
+	}
+	query := body[queryStart : queryStart+queryEnd]
+	if !strings.Contains(query, "order_stock_batch_allocations") {
+		t.Fatal("batch related orders must use exact order-to-stock-batch allocations")
+	}
+	if strings.Contains(query, "customer_processing_output_reservations") {
+		t.Fatal("processing reservation summary cannot identify each partially converted stock batch")
+	}
+}

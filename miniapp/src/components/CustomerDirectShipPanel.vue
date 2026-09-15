@@ -20,7 +20,7 @@ import {
 } from '../api/customerPortal'
 import { useCustomerOrderDraftStore, type CustomerOrderMode, type CustomerOrderRecipient } from '../stores/customerOrderDraft'
 import { employeeOrderProductFamilyKey, productSpecLabel, shanghaiToday } from '../utils/employeeOrder'
-import { directShipStatusLabel } from '../utils/customerFulfillment'
+import { directShipAvailabilityBreakdown, directShipStatusLabel } from '../utils/customerFulfillment'
 import {
   buildDirectShipDraftItems,
   createDirectShipDraftLine,
@@ -85,6 +85,15 @@ const selectedRecipientSummary = computed(() => recipientAddressSummary(selected
 const totalAmount = computed(() => preview.value?.total_amount ?? 0)
 const processingAllocationQty = computed(() => (preview.value?.production_allocations || []).reduce((sum, item) => sum + Number(item.qty || 0), 0))
 const blockingShortages = computed(() => (preview.value?.shortages || []).filter((item) => item.blocking))
+const previewSupplyRows = computed(() => (preview.value?.shortages || []).map((item) => {
+  const allocations = (preview.value?.production_allocations || []).filter((allocation) => (
+    Number(allocation.product_id || 0) === Number(item.product_id || 0)
+    && Number(allocation.bom_spec_id || 0) === Number(item.bom_spec_id || 0)
+    && Number(allocation.bom_variant_id || 0) === Number(item.bom_variant_id || 0)
+    && Number(allocation.spec_g || 0) === Number(item.spec_g || 0)
+  ))
+  return { ...item, allocations, ...directShipAvailabilityBreakdown({ ...item, production_allocations: allocations }) }
+}))
 const fulfillmentMessage = computed(() => {
   if (!preview.value || preview.value.stock_ready) return ''
   if (blockingShortages.value.length) return '代加工商品可履约数量不足，整单不能提交。请先提交代加工申请或减少数量。'
@@ -407,6 +416,15 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
       <textarea v-model="note" class="textarea" :disabled="submitting" placeholder="订单备注（可选）" @input="saveDraft" />
       <text v-if="selectedSummary" class="selected-summary">已选：{{ selectedSummary }}</text>
       <text v-if="fulfillmentMessage" class="shortage">{{ fulfillmentMessage }}</text>
+      <view v-if="previewSupplyRows.length" class="supply-board">
+        <view class="section-head"><text class="subtitle">履约来源预览</text><text class="muted">提交后才形成实际占用</text></view>
+        <view v-for="item in previewSupplyRows" :key="`supply:${item.product_id}:${item.bom_spec_id || 0}:${item.spec_g}`" class="supply-row">
+          <view class="supply-title"><text>{{ item.product_name || `商品 ${item.product_id}` }}</text><text>本次可下单 {{ item.orderableQty }}</text></view>
+          <view class="supply-metrics"><text>现货可用 {{ item.stock_available_qty || 0 }}</text><text>工单可预订 {{ item.production_available_qty || 0 }}</text><text>本单拟占用现货 {{ item.stockQty }}</text><text>本单拟占用在制 {{ item.productionQty }}</text></view>
+          <text v-for="allocation in item.allocations" :key="`${allocation.processing_request_id}:${allocation.processing_request_item_id}`" class="allocation">生产申请 #{{ allocation.processing_request_id }} · 拟预订 {{ allocation.qty }} · 提交后剩余 {{ item.remainingProductionQty }}</text>
+        </view>
+        <text v-for="table in preview?.price_tables || []" :key="`preview-table:${table.id}`" class="price-source">价格来源：{{ priceTableLabel(table) }}</text>
+      </view>
       <view v-if="blockingShortages.length" class="shortage-detail">
         <text v-for="item in blockingShortages" :key="`${item.product_id}:${item.bom_spec_id || 0}`">需求 {{ item.qty }}；成品库存 {{ item.stock_available_qty || 0 }}；在制产出 {{ item.production_available_qty || 0 }}；缺口 {{ Math.max(0, Number(item.qty || 0) - Number(item.available_qty || 0)) }}</text>
       </view>
@@ -460,4 +478,5 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
 <style scoped>
 .workspace{display:flex;flex-direction:column;gap:18rpx}.order-panel,.list-panel{display:flex;flex-direction:column;gap:22rpx;padding:28rpx;border:1rpx solid #dce5df;border-radius:20rpx;background:#fff}.title{font-size:38rpx;font-weight:900;color:#173126}.subtitle{font-size:31rpx;font-weight:850;color:#173126}.field-block,.price-table-copy,.line-card,.filters,.request,.package,.event{display:flex;flex-direction:column;gap:12rpx}.field-head,.section-head,.line-head,.line-price,.total-card,.request-head,.sheet-head,.recipient-head,.recipient-row{display:flex;align-items:center;justify-content:space-between;gap:14rpx}.field-label,.line-name{font-weight:800;color:#29483a}.manage-link,.edit-link,.text-button{color:#28624a;font-weight:750}.selector-field,.quantity-field,.input,.textarea,.picker-field,.search-input{width:100%;min-height:86rpx;padding:0 22rpx;border:1rpx solid #d6e0da;border-radius:13rpx;box-sizing:border-box;background:#fafcfb}.selector-field,.quantity-field{display:flex;align-items:center;justify-content:space-between;gap:16rpx}.selector-field text:first-child{flex:1}.chevron{color:#718078;font-size:38rpx}.price-table-card{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:22rpx;border:1rpx solid #dbe5df;border-radius:16rpx;background:#f7faf8}.text-button{min-width:150rpx;min-height:62rpx;margin:0;padding:0 12rpx;border:1rpx solid #b8cec1;border-radius:10rpx;background:#fff;font-size:23rpx}.text-button::after,.remove::after,.spec-choice::after{border:0}.line-card{padding:24rpx;border:1rpx solid #dbe5df;border-radius:18rpx;background:#fbfdfc}.remove{min-height:58rpx;margin:0;padding:0 18rpx;border:1rpx solid #e2c5c0;border-radius:10rpx;background:#fff;color:#9e3e35;font-size:23rpx}.spec-choice-list{display:flex;flex-wrap:wrap;gap:12rpx}.spec-choice{display:flex;align-items:center;gap:10rpx;min-height:64rpx;margin:0;padding:0 20rpx;border:1rpx solid #cddbd3;border-radius:12rpx;background:#fff;color:#29483a;font-size:24rpx}.spec-choice.selected{border-color:#28624a;background:#eaf4ee;color:#1f5d42;font-weight:800}.spec-check{color:#17603f}.spec-empty,.tier-hint,.selected-summary,.muted{color:#74827a;font-size:23rpx;line-height:1.55}.quantity-field input{flex:1}.line-price{padding-top:10rpx;color:#53675d;font-size:23rpx}.line-price text:nth-child(2),.amount{color:#17603f;font-weight:900}.add-line{min-height:76rpx;margin:0;border:1rpx dashed #7ea28e;border-radius:12rpx;background:#fff;color:#28624a;font-size:26rpx}.total-card{padding:24rpx;border-radius:16rpx;background:#eaf4ee;color:#244839;font-size:29rpx;font-weight:850}.amount{font-size:34rpx}.textarea{min-height:120rpx;padding-top:18rpx}.primary,.secondary{min-height:76rpx;margin:0;border-radius:12rpx;font-size:26rpx}.primary{background:#28624a;color:#fff}.secondary{border:1rpx solid #cbd8d1;background:#fff;color:#315844}.submit{margin-top:2rpx}.error,.shortage{padding:18rpx;border-radius:10rpx;color:#b42318;background:#fff4f1;font-size:24rpx}.ready{color:#28624a}.filters{padding:18rpx;background:#fafcfb;border-radius:12rpx}.date-presets,.date-range,.filter-actions,.page-actions,.page-jump{display:flex;gap:12rpx}.date-range picker,.filter-actions button,.page-actions button{flex:1}.chip{min-height:56rpx;margin:0;padding:0 14rpx;border:1rpx solid #d4ded8;border-radius:30rpx;background:#fff;font-size:22rpx}.chip.active{background:#e6f2eb;color:#28624a}.compact{min-height:60rpx}.request,.package{padding:20rpx;border:1rpx solid #e2e8e4;border-radius:12rpx}.package{background:#f8faf9}.status{color:#28624a;font-weight:800}.pagination{display:flex;flex-direction:column;gap:14rpx}.page-current{display:flex;align-items:center}.page-jump{align-items:center}.page-jump picker{flex:1}.jump-input{width:120rpx;min-height:60rpx;border:1rpx solid #d5ddd8;border-radius:8rpx;text-align:center}.overlay{position:fixed;inset:0;z-index:1110;display:flex;align-items:flex-end;background:rgba(16,28,22,.48)}.recipient-sheet{width:100%;max-height:82vh;padding:28rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));border-radius:24rpx 24rpx 0 0;box-sizing:border-box;background:#fff}.sheet-title,.sheet-subtitle{display:block}.sheet-title{font-size:32rpx;font-weight:850;color:#173126}.sheet-subtitle{margin-top:6rpx;color:#7a8880;font-size:22rpx}.sheet-close{padding:12rpx;color:#607268}.search-input{margin:18rpx 0}.recipient-list{height:46vh}.recipient-row{padding:20rpx 8rpx;border-bottom:1rpx solid #edf1ee}.recipient-copy{display:flex;flex:1;flex-direction:column;gap:8rpx}.recipient-name{font-size:28rpx;font-weight:800;color:#213b2f}.recipient-address{color:#53655b;font-size:24rpx}.badge{padding:3rpx 10rpx;border-radius:999rpx;background:#e6f3eb;color:#28624a;font-size:20rpx}.empty{display:block;padding:70rpx 20rpx;color:#7d8982;text-align:center}
 .shortage-detail{display:flex;flex-direction:column;gap:8rpx;padding:18rpx;border-radius:10rpx;color:#b42318;background:#fff4f1;font-size:24rpx}
+.supply-board{display:flex;flex-direction:column;gap:14rpx;padding:22rpx;border:1rpx solid #dac5ad;border-radius:16rpx;background:#fffaf3}.supply-row{display:flex;flex-direction:column;gap:10rpx;padding-top:14rpx;border-top:1rpx solid #eadfd1}.supply-title{display:flex;justify-content:space-between;gap:12rpx;font-weight:850}.supply-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8rpx;color:#665749;font-size:22rpx}.allocation,.price-source{color:#8a5d30;font-size:22rpx}
 </style>

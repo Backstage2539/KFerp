@@ -214,6 +214,12 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	if len(batches) != 2 || batches[0].ProductionDate != "2026-08-01" || batches[0].AvailableQty != 0 || batches[0].ReservedQty != 2 || batches[1].AvailableQty != 1 || batches[1].ReservedQty != 1 {
 		t.Fatalf("batch inventory = %#v", batches)
 	}
+	if len(batches[0].RelatedOrders) != 1 || batches[0].RelatedOrders[0].OrderID <= 0 || batches[0].RelatedOrders[0].ReservedQty != 2 || batches[0].RelatedOrders[0].Status != "待发货" {
+		t.Fatalf("first batch related orders = %#v", batches[0].RelatedOrders)
+	}
+	if len(batches[1].RelatedOrders) != 1 || batches[1].RelatedOrders[0].OrderID <= 0 || batches[1].RelatedOrders[0].ReservedQty != 1 || batches[1].RelatedOrders[0].Status != "待发货" {
+		t.Fatalf("second batch related orders = %#v", batches[1].RelatedOrders)
+	}
 
 	cancelled, err := repo.CancelMiniDirectShipRequest(ctx, 501, created.ID, "mini_user:801")
 	if err != nil {

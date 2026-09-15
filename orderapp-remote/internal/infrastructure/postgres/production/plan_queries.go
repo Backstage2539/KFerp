@@ -237,6 +237,11 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 			ProductionPlanNo:         row.ProductionPlanNo,
 			WorkOrderID:              row.WorkOrderID,
 			WorkOrderNo:              row.WorkOrderNo,
+			DemandSource:             row.DemandSource,
+			CustomerID:               row.CustomerID,
+			CustomerName:             row.CustomerName,
+			TargetWarehouse:          row.TargetWarehouse,
+			ProcessingRequestItemID:  row.ProcessingRequestItemID,
 		})
 	}
 	return out

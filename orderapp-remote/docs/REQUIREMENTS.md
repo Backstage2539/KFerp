@@ -1,5 +1,11 @@
 # orderapp 业务需求（精简版）
 
+## PR-668 PR-667 八界面与完整流程补交
+
+- 补齐 PR-667 确认的 8 个 ERP/小程序界面及完整客户代加工闭环；所有状态、预订、库存和关联单据由共享接口提供，两端只负责一致展示。
+- 以 454g × 100 件、提前预订 20 件执行申请、计划、生产、部分/全部入库、待发货与发货验收，并逐页对照原效果图。
+- DEV-694-SHARED-PROCESSING-DETAIL / DEV-695-ERP-CUSTOMER-PROCESSING-UI / DEV-696-ERP-PRODUCTION-TRACE-UI / DEV-697-MINIAPP-PROCESSING-UI / DEV-698-MINIAPP-ORDER-INVENTORY-UI / DEV-699-VISUAL-FLOW-DELIVERY。
+
 ## PR-667 客户代加工在制预订与一件代发贯通
 
 - 客户代加工商品必须指定客户、发布 BOM 和完整规格配置；预览按客户可用原料计算最大可生产数量，提交时锁定并重算，超量整单拒绝，成功后立即建立可追溯物料预订。

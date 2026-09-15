@@ -68,6 +68,20 @@ export function productionDemandStatusTone(status) {
   return PRODUCTION_DEMAND_STATUS[key]?.tone || 'unplanned'
 }
 
+export function demandSourceKey(row = {}) {
+  return row.demand_source === 'customer_processing' || Number(row.processing_request_item_id || 0) > 0
+    ? 'customer_processing'
+    : 'sales_order'
+}
+
+export function demandSourceLabel(row = {}) {
+  return demandSourceKey(row) === 'customer_processing' ? '客户工单' : '销售订单'
+}
+
+export function demandGroupSourceLabel(rows = []) {
+  return [...new Set(rows.map(demandSourceLabel))].join('、')
+}
+
 export function productionDemandPanelTitle(status) {
   const value = String(status || '').trim()
   if (!value) return '生产需求'

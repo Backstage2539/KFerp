@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { EmployeeOrderProductFamily } from '../api/customerPortal'
 import {
   canShowFactoryProductLinks,
+  directShipAvailabilityBreakdown,
   directShipStatusLabel,
   mergeProcessingTargetLines,
   processingPreviewErrorMessage,
   processingPreviewValidationError,
+  processingRequestProgress,
+  processingRequestTimeline,
   productionStatusLabel,
   productionSubmissionBlockReason,
   scopedFulfillmentProductFamilies,
@@ -93,6 +96,43 @@ describe('customer fulfillment helpers', () => {
     expect(productionStatusLabel('completed')).toBe('生产完成')
     expect(directShipStatusLabel('reserved')).toBe('待发货')
     expect(directShipStatusLabel('partially_shipped')).toBe('部分发货')
+  })
+
+  it('derives production progress from actual inbound and active output reservations', () => {
+    expect(processingRequestProgress({
+      items: [
+        { qty: 100, actual_inbound_qty: 10, output_reserved_qty: 20, output_converted_qty: 10 },
+      ],
+    })).toEqual({ requestedQty: 100, inboundQty: 10, activeReservedQty: 10, remainingReservableQty: 80 })
+
+    expect(processingRequestProgress({
+      items: [
+        { qty: 100, actual_inbound_qty: 10, output_reserved_qty: 20, output_converted_qty: 10, output_released_qty: 5 },
+      ],
+    })).toEqual({ requestedQty: 100, inboundQty: 10, activeReservedQty: 5, remainingReservableQty: 85 })
+  })
+
+  it('builds a four-step timeline without inventing missing event times', () => {
+    expect(processingRequestTimeline({
+      status: 'running',
+      created_at: '2026-09-16 09:00',
+      accepted_at: '2026-09-16 10:00',
+      started_at: '2026-09-16 11:00',
+    })).toEqual([
+      { key: 'submitted', label: '待接单', time: '2026-09-16 09:00', state: 'done' },
+      { key: 'accepted', label: '已接单', time: '2026-09-16 10:00', state: 'done' },
+      { key: 'running', label: '开始生产', time: '2026-09-16 11:00', state: 'current' },
+      { key: 'completed', label: '生产完成', time: '暂无记录', state: 'pending' },
+    ])
+  })
+
+  it('keeps spot and in-production supply separate in direct-ship preview', () => {
+    expect(directShipAvailabilityBreakdown({
+      qty: 20,
+      stock_available_qty: 6,
+      production_available_qty: 30,
+      production_allocations: [{ processing_request_id: 667, qty: 14 }],
+    })).toEqual({ stockQty: 6, productionQty: 14, orderableQty: 36, remainingProductionQty: 16 })
   })
 
   it('waits for a complete production request before previewing and localizes invalid requests', () => {

@@ -14,7 +14,7 @@ const pages = (JSON.parse(source('src/pages.json')) as { pages: Array<{ path: st
 
 describe('pull-up brand footer', () => {
   it('covers every real miniapp page without changing the transient startup page', () => {
-    expect(pages).toHaveLength(15)
+    expect(pages).toHaveLength(17)
 
     for (const page of pages) {
       const pageSource = source(`src/${page}.vue`)
