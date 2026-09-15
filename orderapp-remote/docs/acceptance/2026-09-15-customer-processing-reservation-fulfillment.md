@@ -33,6 +33,8 @@
 - 发布前完整校验：`./scripts/verify_kferp.sh all` 通过；Go 全包、Vue 1244 项测试及生产构建通过。
 - 小程序校验：类型检查、42 个文件共 256 项测试、development 微信构建通过；16 个声明页面的四类产物文件及分享钩子完整。
 - PostgreSQL 关键链路：物料上限与立即预订、80 成品 + 20 在制、101 整单拦截、入库转换、重复生产扣减、取消与客户隔离均通过。
-- development：待完整验证后填写提交、部署时间、容器与接口/页面烟测。
-- production：仅在 development 功能验证通过并合入 `main` 后填写；保留部署前镜像与回滚提交。
+- development：`develop@e0ec50ad18f7a8e2a1a77c29710fe17cb55ea4e8` 部署完成；旧源码 `/opt/stacks/erp/orderapp.backup.deploy-20260915233405-e0ec50ad18f7`，回滚镜像 `kferp-orderapp-rollback:development-20260915233405-e0ec50ad18f7`。应用运行且重启次数 0，PostgreSQL healthy，登录页 HTTP 200，新表与字段迁移存在；固定开发小程序包同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`。
+- development 功能验收：在专用开发夹具中打开客户商品完整配置，确认代加工标记、BOM 规格和默认 BOM；申请数量 1 显示最大可生产 3 且可提交，数量 4 显示超上限并明确整单不部分提交。未提交申请；临时打开的代加工标记已恢复，数据库确认商品标记为关闭、客户申请数为 0、产出预订数为 0。
+- production：`main@0fb6d24e5b67f27c39f0f9a7523fc0fb3e97c4ba` 部署完成；旧源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20260916000423-0fb6d24e5b67`，回滚镜像 `kferp-orderapp-rollback:production-20260916000423-0fb6d24e5b67`。应用运行且重启次数 0，PostgreSQL healthy，登录页 HTTP 200，新表与字段迁移存在，近 15 分钟无 panic、fatal 或迁移失败；生产代加工页面只读加载成功，未修改商品、提交申请或创建订单。
+- 小程序产物：development 与 production 固定目录分别同步；production 旧包保留在 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260916001147-0fb6d24e5b67`。服务器部署不等于微信发布，本次未执行上传、审核或发布。
 - Van 业务验收：自动和部署验证不替代真实客户业务验收，最终状态保留在 `REV-667`。
