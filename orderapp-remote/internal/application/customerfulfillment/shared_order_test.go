@@ -31,13 +31,16 @@ func TestLegacyPortalSubmitUsesSharedSalesAndBoundCustomer(t *testing.T) {
 	sales := &sharedOrderTestSales{}
 	svc := NewService(repo)
 	svc.UseSalesOrderService(sales)
-	result, err := svc.SubmitCustomerDirectShipOrder(context.Background(), SubmitCustomerDirectShipOrderCommand{EmployeeID: 13, Actor: "测试客户", ReceiverName: "收件人", ReceiverPhone: "13800000000", ReceiverAddress: "测试地址", ProductName: "测试商品", Spec: "227g", QuantityUnits: 2, ShippingAmount: 10})
+	result, err := svc.SubmitCustomerDirectShipOrder(context.Background(), SubmitCustomerDirectShipOrderCommand{EmployeeID: 13, OrderDate: "2026-09-15", Actor: "测试客户", ReceiverName: "收件人", ReceiverPhone: "13800000000", ReceiverAddress: "测试地址", ProductName: "测试商品", Spec: "227g", QuantityUnits: 2, ShippingAmount: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := sales.command
 	if result.OrderID != 42 || result.OrderNo != "SO-test" || !c.CustomerSubmission || c.CustomerID != 14 || c.ShippingAmount != 0 || c.PortalServiceCode != "direct_ship" || len(c.Items) != 1 || *c.Items[0].ProductID != 7 || c.Items[0].SpecG != 227 || c.Items[0].Units != 2 {
 		t.Fatalf("legacy adapter did not preserve shared contract: %+v", c)
+	}
+	if c.OrderDate.Format("2006-01-02") != "2026-09-15" || c.DocumentDate.Format("2006-01-02") != "2026-09-15" {
+		t.Fatalf("order/document date not preserved: %s/%s", c.OrderDate, c.DocumentDate)
 	}
 	if repo.customerDirectShipCmd.EmployeeID != 0 {
 		t.Fatal("legacy save repository used")
