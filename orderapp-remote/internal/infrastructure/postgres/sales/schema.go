@@ -218,6 +218,7 @@ func ensureOrderProcessStatuses(ctx context.Context, pool *pgxpool.Pool, schema 
 		name string
 		sort int
 	}{
+		{name: "待生产", sort: 32},
 		{name: "库存待发货", sort: 33},
 		{name: "无需生产", sort: 34},
 		{name: "生产完成", sort: 35},
