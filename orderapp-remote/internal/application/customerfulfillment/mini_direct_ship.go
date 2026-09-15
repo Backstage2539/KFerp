@@ -9,6 +9,7 @@ import (
 	"fmt"
 	salesapp "orderapp/internal/application/sales"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -664,6 +665,40 @@ func miniOrderBOMSpecOption(options map[miniOrderBOMSpecKey]salesapp.ProductBOMS
 	return option, ok
 }
 
+func miniOrderTierBOMSpecIdentity(tier salesapp.ProductTierOption) (int64, int64) {
+	specID, variantID := tier.BomSpecID, tier.BomVariantID
+	if specID <= 0 {
+		specID = miniOrderMapInt64(tier.EffectiveSalesSpec, "bom_spec_id")
+	}
+	if variantID <= 0 {
+		variantID = miniOrderMapInt64(tier.EffectiveSalesSpec, "bom_variant_id")
+	}
+	return specID, variantID
+}
+
+func miniOrderMapInt64(values map[string]any, key string) int64 {
+	value, ok := values[key]
+	if !ok {
+		return 0
+	}
+	switch value := value.(type) {
+	case int:
+		return int64(value)
+	case int64:
+		return value
+	case float64:
+		return int64(value)
+	case json.Number:
+		parsed, _ := value.Int64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+		return parsed
+	default:
+		return 0
+	}
+}
+
 func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []MiniDirectShipPriceTable, products []salesapp.ProductOption, specOptions []salesapp.ProductBOMSpecOption) MiniDirectShipCatalog {
 	type familyState struct {
 		row   map[string]any
@@ -717,7 +752,8 @@ func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []M
 		tierGroups := map[string][]salesapp.ProductTierOption{}
 		tierGroupOrder := make([]string, 0)
 		for _, tier := range product.Tiers {
-			key := fmt.Sprintf("%d:%d:%d:%s:%d", tier.BomSpecID, tier.BomVariantID, tier.SpecG, tier.SalesUnit, tier.UnitBagCount)
+			specID, variantID := miniOrderTierBOMSpecIdentity(tier)
+			key := fmt.Sprintf("%d:%d:%d:%s:%d", specID, variantID, tier.SpecG, tier.SalesUnit, tier.UnitBagCount)
 			if _, exists := tierGroups[key]; !exists {
 				tierGroupOrder = append(tierGroupOrder, key)
 			}
@@ -726,9 +762,10 @@ func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []M
 		for _, groupKey := range tierGroupOrder {
 			tiers := tierGroups[groupKey]
 			first := tiers[0]
+			bomSpecID, bomVariantID := miniOrderTierBOMSpecIdentity(first)
 			specLabel := strings.TrimSpace(product.SpecLabel)
-			option, hasOption := miniOrderBOMSpecOption(options, parentID, first.BomSpecID, first.BomVariantID)
-			if first.BomSpecID > 0 {
+			option, hasOption := miniOrderBOMSpecOption(options, parentID, bomSpecID, bomVariantID)
+			if bomSpecID > 0 {
 				if hasOption {
 					specLabel = strings.TrimSpace(option.SpecName)
 				} else {
@@ -746,8 +783,8 @@ func miniDirectShipCatalogFromSales(query MiniDirectShipCatalogQuery, tables []M
 				})
 			}
 			specRow := map[string]any{
-				"product_id": product.ID, "sku_id": product.SKUID, "bom_spec_id": first.BomSpecID,
-				"bom_variant_id": first.BomVariantID, "sku_code": product.SKUCode, "sku_name": product.SKUName,
+				"product_id": product.ID, "sku_id": product.SKUID, "bom_spec_id": bomSpecID,
+				"bom_variant_id": bomVariantID, "sku_code": product.SKUCode, "sku_name": product.SKUName,
 				"spec_label": specLabel, "net_content_qty": product.NetContentQty,
 				"net_content_unit": product.NetContentUnit, "inventory_unit": product.InventoryUnit,
 				"sales_unit": first.SalesUnit, "spec_g": first.SpecG, "unit_bag_count": first.UnitBagCount,
@@ -817,11 +854,12 @@ func miniOrderPriceTablePreviewFromSales(query MiniOrderPriceTablePreviewQuery, 
 			productName = strings.TrimSpace(product.Name)
 		}
 		for _, tier := range product.Tiers {
-			option, hasOption := miniOrderBOMSpecOption(options, parentID, tier.BomSpecID, tier.BomVariantID)
+			bomSpecID, bomVariantID := miniOrderTierBOMSpecIdentity(tier)
+			option, hasOption := miniOrderBOMSpecOption(options, parentID, bomSpecID, bomVariantID)
 			specName := strings.TrimSpace(product.SpecLabel)
 			sortOrder := 0
 			isDefault := product.IsDefaultSKU
-			if tier.BomSpecID > 0 {
+			if bomSpecID > 0 {
 				specName = strings.TrimSpace(product.SKUName)
 			}
 			if hasOption {
@@ -833,7 +871,7 @@ func miniOrderPriceTablePreviewFromSales(query MiniOrderPriceTablePreviewQuery, 
 			table := tableByID[tier.PublicationID]
 			rows = append(rows, MiniOrderPriceTablePreviewRow{
 				PublicationID: tier.PublicationID, TableName: table.TableName, VersionNo: table.VersionNo,
-				ProductID: parentID, ProductName: productName, BomSpecID: tier.BomSpecID, BomVariantID: tier.BomVariantID,
+				ProductID: parentID, ProductName: productName, BomSpecID: bomSpecID, BomVariantID: bomVariantID,
 				SpecName: specName, SalesUnit: tier.SalesUnit, MinQty: tier.MinQty, MaxQty: tier.MaxQty,
 				UnitPrice: tier.UnitPrice, SortOrder: sortOrder, IsDefault: isDefault,
 			})
@@ -854,11 +892,12 @@ func priceMiniDirectShipItems(items []MiniDirectShipItemCommand, products []sale
 				continue
 			}
 			for _, tier := range product.Tiers {
+				tierBomSpecID, tierBomVariantID := miniOrderTierBOMSpecIdentity(tier)
 				if item.BomSpecID > 0 {
-					if tier.BomSpecID != item.BomSpecID {
+					if tierBomSpecID != item.BomSpecID {
 						continue
 					}
-					if item.BomVariantID > 0 && tier.BomVariantID != item.BomVariantID {
+					if item.BomVariantID > 0 && tierBomVariantID != item.BomVariantID {
 						continue
 					}
 				} else if tier.SpecG != item.SpecG {

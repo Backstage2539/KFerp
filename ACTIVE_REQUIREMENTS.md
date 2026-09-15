@@ -5390,3 +5390,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: authorized for development then main/production; pending.
 - Last update: 2026-09-15.
 - Notes: `scripts/reserve_req_id.sh --claim` failed on macOS awk multiline; PR-665 reserved manually after confirming the next id.
+
+### PR-666-CUSTOMER-ORDER-SPEC-COPY-BUTTONS
+- Branch: `codex/customer-order-spec-copy-buttons-20260915`; baseline `origin/develop@db0453491aaccaf29fbe889b09fe374bceb7a648`.
+- Owner/session: Codex / 2026-09-15.
+- Status: implementation and required verification complete; development and production delivery authorized in this task; Van business acceptance pending.
+- Scope: 客户录单从价格发布快照恢复真实 BOM 规格；商品行内直接列出可选规格；价格表预览不再显示“默认规格”；ERP 两个用途共用一组“保存 / 取消”。
+- DEV: DEV-686-CUSTOMER-SPEC-IDENTITY; DEV-687-INLINE-SPEC-SELECTION; DEV-688-PRICE-BINDING-ACTIONS-DELIVERY.
+- Verifier: targeted RED/GREEN Go, miniapp and Vue source tests; affected package/full frontend builds; development and production smoke; mp-weixin manifest checks.
+- Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
+- Review/acceptance: implementation and technical deployment evidence by Codex; real customer business acceptance by Van.
+- Deployment: merge develop and main; deploy development and production; sync both miniapp artifacts; no WeChat upload/review/publication.
+- Last update: 2026-09-15.
+- Notes: `scripts/reserve_req_id.sh --claim` has the recorded macOS awk multiline failure; PR-666 reserved manually after confirming the next id.
