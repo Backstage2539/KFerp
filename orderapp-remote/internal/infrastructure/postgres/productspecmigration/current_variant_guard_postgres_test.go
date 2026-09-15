@@ -96,9 +96,9 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 		INSERT INTO %[1]s.production_bom_specs(id,bom_id) VALUES(100,10);
 		INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id)
 		VALUES(110,11,100),(120,12,100);
-		INSERT INTO %[1]s.orders(id,order_no) VALUES(1,'SO-V1');
+		INSERT INTO %[1]s.orders(id,order_no) VALUES(1,'SO-V1'),(2,'SO-V2');
 		INSERT INTO %[1]s.order_items(id,order_id,product_id,bom_spec_id,bom_variant_id)
-		VALUES(1,1,42,100,110);
+		VALUES(1,1,42,100,110),(4,2,42,100,110);
 		INSERT INTO %[1]s.processing_job_request_items(id,product_id,bom_spec_id,bom_variant_id)
 		VALUES(500,42,100,110),(501,42,100,120);
 	`, schema)); err != nil {
@@ -125,6 +125,13 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 		) VALUES(10,42,'SO-V1',0,100,110)
 	`, schema)); err != nil {
 		t.Fatalf("historical plan derived from frozen order identity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_plan_items(
+			id,product_id,order_nos,processing_request_item_id,bom_spec_id,bom_variant_id
+		) VALUES(14,42,'SO-V1, SO-V2',0,100,110)
+	`, schema)); err != nil {
+		t.Fatalf("historical plan derived from multiple frozen order identities: %v", err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.order_items SET bom_variant_id=bom_variant_id WHERE id=1

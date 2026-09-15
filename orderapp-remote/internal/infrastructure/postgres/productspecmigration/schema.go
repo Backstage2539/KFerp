@@ -309,7 +309,7 @@ BEGIN
 			production_source_text := btrim(COALESCE(to_jsonb(NEW)->>'order_nos',''));
 			IF NOT frozen_production_identity_derived AND production_source_text <> ''
 			   AND to_regclass('%[1]s.orders') IS NOT NULL AND to_regclass('%[1]s.order_items') IS NOT NULL THEN
-				frozen_order_refs := regexp_split_to_array(production_source_text,'\\s*,\\s*');
+				frozen_order_refs := regexp_split_to_array(production_source_text,'[[:space:]]*,[[:space:]]*');
 				SELECT COALESCE(cardinality(frozen_order_refs),0)>0 AND NOT EXISTS (
 					SELECT 1
 					FROM unnest(frozen_order_refs) AS ref(order_no)
