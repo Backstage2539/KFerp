@@ -1189,3 +1189,15 @@ func assertMiniCatalogAvailableQty(t *testing.T, catalog app.MiniDirectShipCatal
 	}
 	t.Fatalf("catalog product/spec %d/%d not found in %#v", productID, specG, catalog)
 }
+
+func TestMiniStockKeyUsesPublishedBOMSpecAsCanonicalIdentity(t *testing.T) {
+	if miniStockKey(1089, 408, 454) != miniStockKey(1089, 408, 0) {
+		t.Fatal("published BOM specification must match regardless of legacy gram field")
+	}
+	if miniWarehouseStockKey(1089, 408, 454, "PR668-454-FG") != miniWarehouseStockKey(1089, 408, 0, "PR668-454-FG") {
+		t.Fatal("warehouse stock key must use the same canonical BOM specification identity")
+	}
+	if miniStockKey(1089, 0, 454) == miniStockKey(1089, 0, 0) {
+		t.Fatal("legacy stock without a BOM specification must still be isolated by gram value")
+	}
+}
