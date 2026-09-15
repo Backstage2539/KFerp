@@ -252,12 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-667-CUSTOMER-PROCESSING-RESERVATION-FULFILLMENT", title: "客户代加工物料与在制产出预订贯通一件代发", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-15-customer-processing-reservation-fulfillment.md"},
+		{table: "req_product", code: "PR-667-CUSTOMER-PROCESSING-RESERVATION-FULFILLMENT", title: "客户代加工物料与在制产出预订贯通一件代发", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-15-customer-processing-reservation-fulfillment.md"},
 		{table: "req_dev", code: "DEV-689-PROCESSING-MATERIAL-RESERVATION", title: "代加工预览上限并在提交事务内重算和预订物料", status: "done", assignee: "Codex", evidence: "processing_request_authority_test.go"},
 		{table: "req_dev", code: "DEV-690-PROCESSING-OUTPUT-ALLOCATION", title: "一件代发库存优先并按申请 FIFO 预订有效在制产出", status: "done", assignee: "Codex", evidence: "customer fulfillment allocation tests"},
 		{table: "req_dev", code: "DEV-691-FULFILLMENT-RECEIPT-STATUS", title: "完工入库转订单批次占用并处理取消缺口和状态", status: "done", assignee: "Codex", evidence: "production receipt integration tests"},
 		{table: "req_dev", code: "DEV-692-ERP-MINIAPP-UI", title: "ERP 与客户小程序共用代加工预览提交进度和配置语义", status: "done", assignee: "Codex", evidence: "Vue and miniapp tests"},
-		{table: "req_dev", code: "DEV-693-DELIVERY", title: "手册验证及 development main production 双环境交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-15-customer-processing-reservation-fulfillment.md"},
+		{table: "req_dev", code: "DEV-693-DELIVERY", title: "手册验证及 development main production 双环境交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-09-15-customer-processing-reservation-fulfillment.md"},
 		{table: "req_review", code: "REV-667-CUSTOMER-PROCESSING-RESERVATION-FULFILLMENT", prCode: "PR-667-CUSTOMER-PROCESSING-RESERVATION-FULFILLMENT", title: "验收代加工在制预订入库发货取消完整链路", status: "todo", assignee: "VA", evidence: "待 Van 使用真实客户数据验收"},
 
 		{table: "req_product", code: "PR-666-CUSTOMER-ORDER-SPEC-COPY-BUTTONS", title: "客户录单真实规格直选与价格表按钮合并", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-15-customer-order-spec-copy-buttons.md"},
