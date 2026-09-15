@@ -29,6 +29,103 @@ func TestCustomerProcessingReservationRemainingTracksActualConsumption(t *testin
 	}
 }
 
+func TestCustomerProcessingReservationReusesMaterialAlreadyIssuedToWIP(t *testing.T) {
+	pool, schema := newProductionTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.material_batches (
+	id BIGINT PRIMARY KEY,batch_code TEXT NOT NULL,material_id BIGINT NOT NULL,
+	remaining_g BIGINT NOT NULL DEFAULT 0,remaining_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'active',quality_status TEXT NOT NULL DEFAULT 'unchecked',
+	received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.material_batch_locations (
+	material_batch_id BIGINT NOT NULL,warehouse TEXT NOT NULL,qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,PRIMARY KEY(material_batch_id,warehouse)
+);
+CREATE TABLE %s.customer_processing_material_reservations (
+	id BIGINT PRIMARY KEY,request_id BIGINT NOT NULL,request_item_id BIGINT NOT NULL,customer_id BIGINT NOT NULL,
+	material_id BIGINT NOT NULL,component_type TEXT NOT NULL DEFAULT 'material',component_product_id BIGINT NOT NULL DEFAULT 0,
+	component_spec_g BIGINT NOT NULL DEFAULT 0,required_g BIGINT NOT NULL DEFAULT 0,required_units BIGINT NOT NULL DEFAULT 0,
+	reserved_g BIGINT NOT NULL DEFAULT 0,reserved_units BIGINT NOT NULL DEFAULT 0,
+	consumed_g BIGINT NOT NULL DEFAULT 0,consumed_units BIGINT NOT NULL DEFAULT 0,
+	returned_g BIGINT NOT NULL DEFAULT 0,returned_units BIGINT NOT NULL DEFAULT 0,
+	source_owner_type TEXT NOT NULL DEFAULT 'factory',source_customer_id BIGINT NOT NULL DEFAULT 0,
+	source_warehouse_code TEXT NOT NULL DEFAULT '',material_batch_id BIGINT NOT NULL DEFAULT 0,
+	finished_stock_batch_id BIGINT NOT NULL DEFAULT 0,production_plan_id BIGINT NOT NULL DEFAULT 0,
+	production_plan_item_id BIGINT NOT NULL DEFAULT 0,work_order_id BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved',created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.work_order_material_reservations (
+	id BIGINT PRIMARY KEY,work_order_id BIGINT NOT NULL,material_id BIGINT NOT NULL,status TEXT NOT NULL DEFAULT 'reserved'
+);
+CREATE TABLE %s.work_order_material_reservation_batches (
+	id BIGINT PRIMARY KEY,reservation_id BIGINT NOT NULL,work_order_id BIGINT NOT NULL,
+	material_id BIGINT NOT NULL,component_type TEXT NOT NULL DEFAULT 'material',component_id BIGINT NOT NULL,
+	component_bom_spec_id BIGINT NOT NULL DEFAULT 0,component_spec_g BIGINT NOT NULL DEFAULT 0,
+	material_batch_id BIGINT NOT NULL DEFAULT 0,batch_code TEXT NOT NULL DEFAULT '',warehouse TEXT NOT NULL DEFAULT '',
+	owner_customer_id BIGINT NOT NULL DEFAULT 0,reserved_g BIGINT NOT NULL DEFAULT 0,reserved_units BIGINT NOT NULL DEFAULT 0,
+	consumed_g BIGINT NOT NULL DEFAULT 0,consumed_units BIGINT NOT NULL DEFAULT 0,
+	returned_g BIGINT NOT NULL DEFAULT 0,returned_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved'
+);
+INSERT INTO %s.material_batches(id,batch_code,material_id,remaining_g,status,quality_status)
+VALUES(1,'ISSUED-BATCH',7,1000,'active','pass');
+INSERT INTO %s.material_batch_locations(material_batch_id,warehouse,qty_g) VALUES
+	(1,'raw_materials',100),(1,'wip',900);
+INSERT INTO %s.customer_processing_material_reservations(
+	id,request_id,request_item_id,customer_id,material_id,required_g,reserved_g,
+	source_owner_type,source_warehouse_code,work_order_id
+) VALUES(50,5,18,305,7,900,900,'factory','raw_materials',65);
+INSERT INTO %s.work_order_material_reservations(id,work_order_id,material_id) VALUES(60,65,7);
+INSERT INTO %s.work_order_material_reservation_batches(
+	id,reservation_id,work_order_id,material_id,component_id,material_batch_id,batch_code,warehouse,reserved_g
+) VALUES(61,60,65,7,7,1,'ISSUED-BATCH','wip',900);
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation := customerProcessingMaterialReservation{
+		ID: 50, RequestID: 5, RequestItemID: 18, CustomerID: 305, MaterialID: 7,
+		ComponentType: "material", RequiredG: 900, ReservedG: 900,
+		SourceOwnerType: "factory", SourceWarehouseCode: "raw_materials", WorkOrderID: 65,
+	}
+	bound, err := bindCustomerProcessingReservationFromIssuedWIPTx(ctx, tx, schema, reservation)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if bound != 1 {
+		t.Fatalf("reused WIP bindings = %d, want 1", bound)
+	}
+	var batchID, rawG, wipG int64
+	var warehouse string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT material_batch_id,source_warehouse_code
+		FROM %s.customer_processing_material_reservations WHERE id=50
+	`, schema)).Scan(&batchID, &warehouse); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT MAX(qty_g) FILTER (WHERE warehouse='raw_materials'),MAX(qty_g) FILTER (WHERE warehouse='wip')
+		FROM %s.material_batch_locations WHERE material_batch_id=1
+	`, schema)).Scan(&rawG, &wipG); err != nil {
+		t.Fatal(err)
+	}
+	if batchID != 1 || warehouse != "wip" || rawG != 100 || wipG != 900 {
+		t.Fatalf("reservation batch/warehouse and physical balances = %d/%s %d/%d, want 1/wip 100/900", batchID, warehouse, rawG, wipG)
+	}
+}
+
 func TestCustomerProcessingMaterialLifecycleUsesCustomerFirstAndConsumesOnlyAtFinish(t *testing.T) {
 	pool, schema := newProductionTestDB(t)
 	ctx := context.Background()
