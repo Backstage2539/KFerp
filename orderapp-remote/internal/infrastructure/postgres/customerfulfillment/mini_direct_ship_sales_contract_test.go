@@ -48,13 +48,38 @@ func TestMiniDirectShipUsesAssignedPriceTableAndSharedSalesOrder(t *testing.T) {
 	}
 }
 
-func TestMiniDirectShipCancellationOnlyAllowsLegacyUnshippedReservations(t *testing.T) {
-	for _, status := range []string{"pending", "reserved"} {
+func TestRecordedDirectShipOrderReservesStockAndProcessingOutputBeforeRequestCommit(t *testing.T) {
+	repoSource, err := os.ReadFile("mini_direct_ship.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(repoSource)
+	start := strings.Index(source, "func (r *Repository) RecordMiniDirectShipOrder")
+	end := strings.Index(source[start:], "func (r *Repository) SubmitMiniDirectShip")
+	if start < 0 || end < 0 {
+		t.Fatal("RecordMiniDirectShipOrder body not found")
+	}
+	body := source[start : start+end]
+	for _, want := range []string{
+		"loadMiniCustomerFinishedStock(ctx, tx, cmd.CustomerID, true)",
+		"loadMiniProcessingOutputCandidates(ctx, tx, cmd.CustomerID, true)",
+		"planMiniDirectShipFulfillment",
+		"customer_processing_output_reservations",
+		"order_stock_batch_allocations",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("atomic fulfillment record missing %q", want)
+		}
+	}
+}
+
+func TestMiniDirectShipCancellationAllowsEveryUnshippedReservationState(t *testing.T) {
+	for _, status := range []string{"pending", "reserved", "submitted"} {
 		if !miniDirectShipCancellationAllowed(status) {
 			t.Fatalf("status %q should remain cancellable", status)
 		}
 	}
-	for _, status := range []string{"submitted", "partially_shipped", "shipped", "delivered", "cancelled"} {
+	for _, status := range []string{"partially_shipped", "shipped", "delivered", "cancelled"} {
 		if miniDirectShipCancellationAllowed(status) {
 			t.Fatalf("ERP order status %q must not use legacy direct cancellation", status)
 		}

@@ -485,6 +485,17 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 		return app.DirectShipOrderSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := r.submitCustomerDirectShipOrderTx(ctx, tx, cmd, customerID, items)
+	if err != nil {
+		return app.DirectShipOrderSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.DirectShipOrderSummary{}, err
+	}
+	return result, nil
+}
+
+func (r *Repository) submitCustomerDirectShipOrderTx(ctx context.Context, tx pgx.Tx, cmd app.SubmitCustomerDirectShipOrderCommand, customerID int64, items []submittedDirectShipItem) (app.DirectShipOrderSummary, error) {
 	quotedItems := make([]submittedDirectShipQuotedItem, 0, len(items))
 	for _, item := range items {
 		quoted, err := r.quoteSubmittedDirectShipItemTx(ctx, tx, customerID, item)
@@ -596,9 +607,6 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 		"portal_service_code": "direct_ship",
 		"items":               auditItems,
 	}); err != nil {
-		return app.DirectShipOrderSummary{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
 	return app.DirectShipOrderSummary{

@@ -101,13 +101,13 @@ export function productionSubmissionBlockReason(preview?: ProductionPreviewLike 
 }
 
 const productionStatusLabels: Record<string, string> = {
-  awaiting_schedule: '待排产',
-  planned: '已排产',
-  released: '已下达',
-  running: '生产中',
-  paused: '已暂停',
-  partially_completed: '部分完成',
-  completed: '已完成',
+  awaiting_schedule: '待接单',
+  planned: '待接单',
+  released: '已接单',
+  running: '开始生产',
+  paused: '开始生产（暂停）',
+  partially_completed: '开始生产（部分入库）',
+  completed: '生产完成',
   cancelled: '已取消',
   canceled: '已取消',
 }
@@ -124,7 +124,7 @@ const directShipStatusLabels: Record<string, string> = {
 
 export function productionStatusLabel(status?: string): string {
   const value = String(status || '').trim()
-  return productionStatusLabels[value] || value || '待排产'
+  return productionStatusLabels[value] || value || '待接单'
 }
 
 export function directShipStatusLabel(status?: string): string {

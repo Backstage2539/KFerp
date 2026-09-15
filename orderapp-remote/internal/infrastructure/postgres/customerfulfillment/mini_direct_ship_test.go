@@ -777,6 +777,60 @@ func TestMiniDirectShipPlannerMergesBatchAllocationsIntoWarehousePackages(t *tes
 	}
 }
 
+func TestMiniDirectShipPlannerUsesStockThenProcessingOutputFIFOAndBlocksOnlyProcessingShortage(t *testing.T) {
+	items := []app.MiniDirectShipItemCommand{
+		{ProductID: 943, BomSpecID: 51, BomVariantID: 61, Qty: 100, IsProcessingProduct: true},
+		{ProductID: 944, BomSpecID: 52, BomVariantID: 62, Qty: 8},
+	}
+	stock := []miniStockCandidate{
+		{ProductID: 943, BomSpecID: 51, BomVariantID: 61, Warehouse: "CUSTOMER-7-FINISHED", BatchID: 9, BatchCode: "FP-9", AvailableQty: 30},
+		{ProductID: 944, BomSpecID: 52, BomVariantID: 62, Warehouse: "CUSTOMER-7-FINISHED", BatchID: 10, BatchCode: "FP-10", AvailableQty: 3},
+	}
+	outputs := []miniProcessingOutputCandidate{
+		{ProcessingRequestID: 1001, ProcessingRequestItemID: 2001, ProductID: 943, BomSpecID: 51, BomVariantID: 61, AvailableQty: 20},
+		{ProcessingRequestID: 1002, ProcessingRequestItemID: 2002, ProductID: 943, BomSpecID: 51, BomVariantID: 61, AvailableQty: 50},
+	}
+	stockAllocations, outputAllocations, shortages := planMiniDirectShipFulfillment(items, stock, outputs)
+	if len(stockAllocations) != 2 || stockAllocations[0].Qty != 30 || stockAllocations[1].Qty != 3 {
+		t.Fatalf("stock allocations = %#v", stockAllocations)
+	}
+	if len(outputAllocations) != 2 || outputAllocations[0].ProcessingRequestItemID != 2001 || outputAllocations[0].Qty != 20 || outputAllocations[1].ProcessingRequestItemID != 2002 || outputAllocations[1].Qty != 50 {
+		t.Fatalf("FIFO processing allocations = %#v", outputAllocations)
+	}
+	if len(shortages) != 1 || shortages[0].ProductID != 944 || shortages[0].Blocking || shortages[0].StockAvailableQty != 3 || shortages[0].ProductionAvailableQty != 0 {
+		t.Fatalf("ordinary product shortage = %#v", shortages)
+	}
+	preview := miniDirectShipFulfillmentPreview(stockAllocations, outputAllocations, shortages)
+	if !preview.CanSubmit || preview.StockReady || len(preview.ProductionAllocations) != 2 {
+		t.Fatalf("combined preview = %#v", preview)
+	}
+
+	exactItems := []app.MiniDirectShipItemCommand{{
+		ProductID: 943, BomSpecID: 51, BomVariantID: 61, Qty: 100, IsProcessingProduct: true,
+	}}
+	exactStock := []miniStockCandidate{{
+		ProductID: 943, BomSpecID: 51, BomVariantID: 61, Warehouse: "CUSTOMER-7-FINISHED", BatchID: 11, BatchCode: "FP-11", AvailableQty: 80,
+	}}
+	exactOutputs := []miniProcessingOutputCandidate{{
+		ProcessingRequestID: 1003, ProcessingRequestItemID: 2003, ProductID: 943, BomSpecID: 51, BomVariantID: 61, AvailableQty: 20,
+	}}
+	exactStockAllocations, exactOutputAllocations, exactShortages := planMiniDirectShipFulfillment(exactItems, exactStock, exactOutputs)
+	if len(exactStockAllocations) != 1 || exactStockAllocations[0].Qty != 80 || len(exactOutputAllocations) != 1 || exactOutputAllocations[0].Qty != 20 || len(exactShortages) != 0 {
+		t.Fatalf("exact 80 stock + 20 processing output allocation = stock %#v output %#v shortages %#v", exactStockAllocations, exactOutputAllocations, exactShortages)
+	}
+	exactItems[0].Qty = 101
+	_, _, exactShortages = planMiniDirectShipFulfillment(exactItems, exactStock, exactOutputs)
+	if len(exactShortages) != 1 || !exactShortages[0].Blocking || exactShortages[0].AvailableQty != 100 {
+		t.Fatalf("exact 80 stock + 20 processing output must block quantity 101 = %#v", exactShortages)
+	}
+
+	items[0].Qty = 101
+	_, _, shortages = planMiniDirectShipFulfillment(items[:1], stock[:1], outputs)
+	if len(shortages) != 1 || !shortages[0].Blocking || shortages[0].AvailableQty != 100 {
+		t.Fatalf("processing shortage must block whole order = %#v", shortages)
+	}
+}
+
 func TestListMiniDirectShipRequestsFiltersRealShipmentTimePaginatesAndIsolatesCustomer(t *testing.T) {
 	pool, schema := newMiniDirectShipTestDB(t)
 	ctx := context.Background()

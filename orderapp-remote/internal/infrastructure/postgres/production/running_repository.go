@@ -176,6 +176,16 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := recordFinishedProductStockMovementTx(ctx, tx, schema, r, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	outputQty := add.Units
+	if outputQty <= 0 && r.SpecG > 0 {
+		outputQty = finishedTotal / r.SpecG
+	}
+	if err := allocateCustomerProcessingOutputReservationsTx(
+		ctx, tx, schema, r.ID, r.ProductID, r.BomSpecID, r.BomVariantID, r.SpecG, outputQty,
+		finishedProductionBatchCode(r.ID), warehouse, operator,
+	); err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	if err := allocateFinishedProductOutputToDownstreamReservationsTx(
 		ctx, tx, schema, r.ID, r.ProductID, r.BomSpecID, r.BomVariantID,
 		r.SpecG, finishedTotal, add.Units,
@@ -298,6 +308,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := markProcessingDemandsDoneTx(ctx, tx, schema, r.ID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	if err := markCustomerProcessingOutputShortfallsTx(ctx, tx, schema, r.ID, operator); err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	finishedOrders := make([]productionapp.FinishedOrder, 0)
 	for _, no := range splitOrderNos(r.OrderNos) {
 		order, changed, err := completeOrderIfAllRunningDone(ctx, tx, schema, no)
@@ -385,6 +398,16 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 		if err := recordFinishedProductStockMovementWithBatchCodeTx(ctx, tx, schema, finishedProductionBatchCodeForSpec(r.ID, output.SpecG), outputRun, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
 			return productionapp.FinishResult{}, err
 		}
+		outputQty := add.Units
+		if outputQty <= 0 && output.SpecG > 0 {
+			outputQty = finishedTotal / output.SpecG
+		}
+		if err := allocateCustomerProcessingOutputReservationsTx(
+			ctx, tx, schema, r.ID, output.ProductID, output.BomSpecID, output.BomVariantID, output.SpecG, outputQty,
+			finishedProductionBatchCodeForSpec(r.ID, output.SpecG), warehouse, operator,
+		); err != nil {
+			return productionapp.FinishResult{}, err
+		}
 		if err := allocateFinishedProductOutputToDownstreamReservationsTx(
 			ctx, tx, schema, r.ID, output.ProductID, output.BomSpecID, output.BomVariantID,
 			output.SpecG, finishedTotal, add.Units,
@@ -455,6 +478,9 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 		return productionapp.FinishResult{}, err
 	}
 	if err := markProcessingDemandsDoneTx(ctx, tx, schema, r.ID); err != nil {
+		return productionapp.FinishResult{}, err
+	}
+	if err := markCustomerProcessingOutputShortfallsTx(ctx, tx, schema, r.ID, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	finishedOrders := make([]productionapp.FinishedOrder, 0)
@@ -849,6 +875,9 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,status FROM %s.work_orders WHERE running_item_id=$1 FOR UPDATE
 	`, schema), r.ID).Scan(&workOrderID, &workOrderStatus); err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	if err := guardCustomerProcessingPromisedOutputTx(ctx, tx, schema, workOrderID); err != nil {
 		return err
 	}
 	if err := cancelWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {

@@ -355,6 +355,8 @@ ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_variant_id 
 
 func ensureProcessingRequestSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	q := fmt.Sprintf(`
+ALTER TABLE %[1]s.processing_job_requests
+	ADD COLUMN IF NOT EXISTS material_reservation_validated BOOLEAN NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS %[1]s.processing_job_request_items (
 	id BIGSERIAL PRIMARY KEY,
 	request_id BIGINT NOT NULL REFERENCES %[1]s.processing_job_requests(id) ON DELETE CASCADE,
