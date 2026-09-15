@@ -205,11 +205,7 @@ DECLARE
 	old_business_bom_variant_id BIGINT;
 	old_business_item_type TEXT := '';
 	identity_changed BOOLEAN := true;
-	cutover_parent_id BIGINT;
-	cutover_parent_state TEXT;
-	cutover_parent_identity_mode TEXT;
-	product_state TEXT;
-	product_identity_mode TEXT;
+	product_configured BOOLEAN := false;
 	production_source_id BIGINT := 0;
 	production_source_text TEXT := '';
 	frozen_order_refs TEXT[];
@@ -238,28 +234,14 @@ BEGIN
 			OR old_business_item_type IS DISTINCT FROM business_item_type;
 	END IF;
 
-	SELECT mapping.parent_product_id,migration.state,
-	       COALESCE(NULLIF(migration.spec_identity_mode,''),CASE WHEN migration.state='cutover' OR migration.legacy_catalog_product=false THEN 'bom_spec' ELSE 'legacy_sku' END)
-	INTO cutover_parent_id,cutover_parent_state,cutover_parent_identity_mode
-	FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping
-	JOIN %[1]s.product_bom_spec_migrations migration ON migration.product_id=mapping.parent_product_id
-	WHERE mapping.legacy_child_product_id=business_product_id
-	FOR SHARE OF migration;
-	IF FOUND AND (cutover_parent_state='cutover' OR cutover_parent_identity_mode IN ('product','bom_spec')) THEN
-		RAISE EXCEPTION 'legacy_child_sku_write_rejected: child %% belongs to cutover product %%', business_product_id,cutover_parent_id
-			USING ERRCODE='check_violation';
-	END IF;
-
-	SELECT state,
-	       COALESCE(NULLIF(spec_identity_mode,''),CASE WHEN state='cutover' OR legacy_catalog_product=false THEN 'bom_spec' ELSE 'legacy_sku' END)
-	INTO product_state,product_identity_mode
-	FROM %[1]s.product_bom_spec_migrations
-	WHERE product_id=business_product_id
-	FOR SHARE;
-	IF COALESCE(product_identity_mode,'legacy_sku')='legacy_sku' THEN
-		RETURN NEW;
-	END IF;
-	IF product_identity_mode='product' THEN
+	-- PR-622 retired the per-product migration and legacy child mapping tables.
+	-- Runtime identity now comes only from the current default published BOM
+	-- authority view, which is rebuilt before these triggers are installed.
+	SELECT COALESCE(authority.configured,false)
+	INTO product_configured
+	FROM %[1]s.product_bom_spec_authorities authority
+	WHERE authority.product_id=business_product_id;
+	IF NOT FOUND OR NOT product_configured THEN
 		IF business_bom_spec_id<>0 OR business_bom_variant_id<>0 THEN
 			RAISE EXCEPTION 'direct_product_identity_requires_zero_spec: product %%',business_product_id
 				USING ERRCODE='check_violation';
