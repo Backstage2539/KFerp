@@ -464,10 +464,8 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 	if wo.OutputType == "material" {
 		return r.completeMaterialOutputWorkOrder(ctx, wo, cmd)
 	}
-	if cmd.CompletionMode == "partial" {
-		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("本入口仅自制物料支持部分入库")
-	}
-	if incomplete > 0 {
+	partial := cmd.CompletionMode == "partial"
+	if incomplete > 0 && !partial {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("work order has unfinished job cards")
 	}
 	if wo.Status == "completed" {
@@ -483,7 +481,8 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 	finished, err := r.Finish(ctx, productionapp.FinishCommand{
 		ID: wo.RunningItemID, WorkOrderID: wo.ID, StockDocumentID: cmd.StockDocumentID,
 		FinishedUnits: cmd.FinishedUnits, FinishedLooseG: cmd.FinishedLooseG, HasFinishedInput: true,
-		Warehouse: completionWarehouse, ConsumedInputG: cmd.ConsumedInputG, Operator: cmd.Operator, Note: cmd.Note,
+		Warehouse: completionWarehouse, Partial: partial, RequestID: cmd.RequestID,
+		ConsumedInputG: cmd.ConsumedInputG, Operator: cmd.Operator, Note: cmd.Note,
 	})
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
