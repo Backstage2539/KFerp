@@ -44,6 +44,10 @@ async function load() {
 }
 
 function money(value?: number): string { return Number(value || 0).toFixed(2) }
+function priceTableSpecLabel(row: { spec_name?: string }): string {
+  const name = String(row.spec_name || '').trim()
+  return name && name !== '默认规格' ? name : '规格待维护'
+}
 
 onShow(() => { void load(); void refreshMiniappShareMenu() })
 onShareAppMessage(defaultMiniappShare)
@@ -67,7 +71,7 @@ onShareTimeline(defaultMiniappTimelineShare)
         <view class="table-row table-header"><text>商品</text><text>规格</text><text>数量档位</text><text>单价</text></view>
         <view v-for="(row, index) in preview.rows" :key="`${row.publication_id}:${row.product_id}:${row.bom_spec_id || 0}:${index}`" class="table-row">
           <text>{{ row.product_name }}</text>
-          <text>{{ row.spec_name || '默认规格' }}</text>
+          <text>{{ priceTableSpecLabel(row) }}</text>
           <text>{{ tierQuantityLabel(row) }}</text>
           <text class="price">¥{{ money(row.unit_price) }}/{{ row.sales_unit || '件' }}</text>
         </view>

@@ -83,10 +83,6 @@
             <option value="">未指定</option>
             <option v-for="row in activeCustomerOrderPriceTableCandidates" :key="`direct:${row.publication_id}`" :value="String(row.publication_id)">{{ customerOrderPriceTableCandidateLabel(row) }}</option>
           </select>
-          <div class="actions">
-            <button class="primary compact" type="button" :disabled="customerOrderPriceTableConfigLoading" @click="saveCustomerOrderPriceTableBinding('direct_ship')">保存指定</button>
-            <button class="secondary compact" type="button" :disabled="customerOrderPriceTableConfigLoading || !customerOrderPriceTableBinding('direct_ship')" @click="clearCustomerOrderPriceTableBinding('direct_ship')">取消指定</button>
-          </div>
         </label>
         <label>
           <span>该类别的商品下单价格表</span>
@@ -94,11 +90,11 @@
             <option value="">未指定</option>
             <option v-for="row in activeCustomerOrderPriceTableCandidates" :key="`product:${row.publication_id}`" :value="String(row.publication_id)">{{ customerOrderPriceTableCandidateLabel(row) }}</option>
           </select>
-          <div class="actions">
-            <button class="primary compact" type="button" :disabled="customerOrderPriceTableConfigLoading" @click="saveCustomerOrderPriceTableBinding('product_order')">保存指定</button>
-            <button class="secondary compact" type="button" :disabled="customerOrderPriceTableConfigLoading || !customerOrderPriceTableBinding('product_order')" @click="clearCustomerOrderPriceTableBinding('product_order')">取消指定</button>
-          </div>
         </label>
+        <div class="actions">
+          <button class="primary compact" type="button" :disabled="customerOrderPriceTableConfigLoading" @click="saveCustomerOrderPriceTableBindings">保存</button>
+          <button class="secondary compact" type="button" :disabled="customerOrderPriceTableConfigLoading" @click="cancelCustomerOrderPriceTableBindings">取消</button>
+        </div>
         <p v-if="!activeCustomerOrderPriceTableCandidates.length" class="muted">当前客户在此商品类型下暂无已发布且未归档的价格表版本。</p>
       </div>
 
@@ -5074,27 +5070,34 @@ async function loadCustomerOrderPriceTableConfig() {
   }
 }
 
-async function saveCustomerOrderPriceTableBinding(usageCode, publicationID = Number(customerOrderPriceTableSelections[usageCode] || 0)) {
+async function persistCustomerOrderPriceTableBinding(usageCode, publicationID = Number(customerOrderPriceTableSelections[usageCode] || 0)) {
   const customerID = Number(activeBeanListCustomerID.value || 0)
-  if (customerID <= 0) return
+  if (customerID <= 0) return null
+  const binding = customerOrderPriceTableBinding(usageCode)
+  const data = await apiSend('/api/costing/customer-order-price-table-bindings', {
+    method: 'PUT',
+    body: {
+      customer_id: customerID,
+      usage_code: usageCode,
+      product_type_key: activeCustomerOrderProductTypeKey.value,
+      publication_id: publicationID,
+      expected_revision: Number(binding?.revision || 0),
+    },
+  })
+  customerOrderPriceTableConfig.value = { candidates: data.candidates || [], bindings: data.bindings || [] }
+  return data
+}
+
+async function saveCustomerOrderPriceTableBindings() {
+  if (Number(activeBeanListCustomerID.value || 0) <= 0) return
   customerOrderPriceTableConfigLoading.value = true
   error.value = ''
   message.value = ''
   try {
-    const binding = customerOrderPriceTableBinding(usageCode)
-    const data = await apiSend('/api/costing/customer-order-price-table-bindings', {
-      method: 'PUT',
-      body: {
-        customer_id: customerID,
-        usage_code: usageCode,
-        product_type_key: activeCustomerOrderProductTypeKey.value,
-        publication_id: Number(publicationID || 0),
-        expected_revision: Number(binding?.revision || 0),
-      },
-    })
-    customerOrderPriceTableConfig.value = { candidates: data.candidates || [], bindings: data.bindings || [] }
+    await persistCustomerOrderPriceTableBinding('direct_ship')
+    await persistCustomerOrderPriceTableBinding('product_order')
     syncCustomerOrderPriceTableSelections()
-    message.value = publicationID > 0 ? '客户下单价格表指定已保存' : '客户下单价格表指定已取消'
+    message.value = '客户下单价格表已保存'
   } catch (err) {
     error.value = err.message || '客户下单价格表配置保存失败'
     await loadCustomerOrderPriceTableConfig()
@@ -5103,8 +5106,22 @@ async function saveCustomerOrderPriceTableBinding(usageCode, publicationID = Num
   }
 }
 
-async function clearCustomerOrderPriceTableBinding(usageCode) {
-  await saveCustomerOrderPriceTableBinding(usageCode, 0)
+async function cancelCustomerOrderPriceTableBindings() {
+  if (Number(activeBeanListCustomerID.value || 0) <= 0) return
+  customerOrderPriceTableConfigLoading.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    await persistCustomerOrderPriceTableBinding('direct_ship', 0)
+    await persistCustomerOrderPriceTableBinding('product_order', 0)
+    syncCustomerOrderPriceTableSelections()
+    message.value = '客户下单价格表已取消'
+  } catch (err) {
+    error.value = err.message || '客户下单价格表配置取消失败'
+    await loadCustomerOrderPriceTableConfig()
+  } finally {
+    customerOrderPriceTableConfigLoading.value = false
+  }
 }
 
 async function loadCurrentActor() {

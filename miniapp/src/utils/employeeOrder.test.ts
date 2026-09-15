@@ -114,6 +114,16 @@ describe('employee mini order entry', () => {
     expect(selected?.product_id).toBe(552)
   })
 
+  it('never presents the placeholder default-spec copy as a customer specification', () => {
+    expect(productSpecLabel({
+      product_id: 57,
+      spec_label: '默认规格',
+      net_content_qty: 454,
+      net_content_unit: 'g',
+    })).toBe('454g')
+    expect(productSpecLabel({ product_id: 57, spec_name: '默认规格' })).toBe('规格待维护')
+  })
+
   it('shows public and selected-customer products only', () => {
     const families = [
       { parent_product_id: 1, name: '公共商品', customer_id: 0, specs: [] },

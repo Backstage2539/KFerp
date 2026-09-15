@@ -8,10 +8,10 @@ import (
 
 func TestMiniDirectShipCatalogUsesPublishedBOMSpecNamesDefaultsAndOrder(t *testing.T) {
 	products := []salesapp.ProductOption{{
-		ID: 91, ParentProductID: 91, Name: "小菠萝", ParentProductName: "小菠萝",
+		ID: 91, ParentProductID: 91, Name: "小菠萝", ParentProductName: "小菠萝", SpecLabel: "默认规格",
 		Tiers: []salesapp.ProductTierOption{
-			{BomSpecID: 802, BomVariantID: 902, SalesUnit: "袋", MinQty: 1, UnitPrice: 27},
-			{BomSpecID: 801, BomVariantID: 901, SalesUnit: "袋", MinQty: 1, UnitPrice: 31},
+			{EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(802), "bom_variant_id": float64(902)}, SalesUnit: "袋", MinQty: 1, UnitPrice: 27},
+			{EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(801), "bom_variant_id": float64(901)}, SalesUnit: "袋", MinQty: 1, UnitPrice: 31},
 		},
 	}}
 	specs := []salesapp.ProductBOMSpecOption{
@@ -44,10 +44,10 @@ func TestMiniDirectShipCatalogUsesPublishedBOMSpecNamesDefaultsAndOrder(t *testi
 func TestMiniOrderPriceTablePreviewReturnsReadOnlyPublishedTierRows(t *testing.T) {
 	maxSeven := float64(7)
 	products := []salesapp.ProductOption{{
-		ID: 91, ParentProductID: 91, Name: "小菠萝", ParentProductName: "小菠萝",
+		ID: 91, ParentProductID: 91, Name: "小菠萝", ParentProductName: "小菠萝", SpecLabel: "默认规格",
 		Tiers: []salesapp.ProductTierOption{
-			{PublicationID: 31, BomSpecID: 801, BomVariantID: 901, SalesUnit: "袋", MinQty: 2, MaxQty: &maxSeven, UnitPrice: 31},
-			{PublicationID: 31, BomSpecID: 801, BomVariantID: 901, SalesUnit: "袋", MinQty: 8, UnitPrice: 27},
+			{PublicationID: 31, EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(801), "bom_variant_id": float64(901)}, SalesUnit: "袋", MinQty: 2, MaxQty: &maxSeven, UnitPrice: 31},
+			{PublicationID: 31, EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(801), "bom_variant_id": float64(901)}, SalesUnit: "袋", MinQty: 8, UnitPrice: 27},
 		},
 	}}
 	specs := []salesapp.ProductBOMSpecOption{{ParentProductID: 91, BomSpecID: 801, BomVariantID: 901, SpecName: "227g 袋装", InventoryUnit: "袋", Published: true, IsDefault: true}}
@@ -62,6 +62,25 @@ func TestMiniOrderPriceTablePreviewReturnsReadOnlyPublishedTierRows(t *testing.T
 	}
 	if preview.Rows[0].ProductName != "小菠萝" || preview.Rows[0].SpecName != "227g 袋装" || preview.Rows[0].MinQty != 2 || preview.Rows[0].MaxQty == nil || *preview.Rows[0].MaxQty != 7 || preview.Rows[1].UnitPrice != 27 {
 		t.Fatalf("rows=%#v", preview.Rows)
+	}
+}
+
+func TestPriceMiniDirectShipItemsUsesPublishedEffectiveBOMSpecIdentity(t *testing.T) {
+	products := []salesapp.ProductOption{{
+		ID: 91,
+		Tiers: []salesapp.ProductTierOption{{
+			EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(801), "bom_variant_id": float64(901)},
+			SalesUnit:          "袋", MinQty: 1, UnitPrice: 31,
+		}},
+	}}
+	priced, total, err := priceMiniDirectShipItems([]MiniDirectShipItemCommand{{
+		ProductID: 91, BomSpecID: 801, BomVariantID: 901, Qty: 2,
+	}}, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(priced) != 1 || priced[0].UnitPrice != 31 || total != 62 {
+		t.Fatalf("priced=%+v total=%v", priced, total)
 	}
 }
 
