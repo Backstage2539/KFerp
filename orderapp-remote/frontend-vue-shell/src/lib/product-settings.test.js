@@ -5198,6 +5198,12 @@ test('product archive displays and saves the ordered union of selected industry 
   assert.match(closeBlock, /productProductionConfigOpenGeneration \+= 1\s*productProductionConfigDrawerOpen\.value = false/)
 })
 
+test('product production drawer displays the stable product code instead of the category row number', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  assert.match(source, /<span>商品编号<\/span>\s*<input :value="productCodeLabel\(productProductionConfigProduct \|\| \{\}\) \|\| '-'" disabled \/>/)
+  assert.doesNotMatch(source, /productProductionConfigProduct\?\.number/)
+})
+
 test('product settings uses product business groups instead of product classification page controls', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')

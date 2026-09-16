@@ -30,6 +30,11 @@ test('PR-667 ERP delivery keeps product, demand, work-order and receipt trace sc
   }
   assert.match(workOrder, /navigate\('customerProcessing',[\s\S]*processing_request_id/)
   assert.match(receipt, /navigateFromCompletion\('customerProcessing',[\s\S]*processing_request_no/)
+  assert.match(receipt, /@click="openExisting\(row\)"/)
+  assert.doesNotMatch(receipt, /v-if="!row\.legacy" class="link" type="button" @click="openExisting\(row\)"/)
+  assert.match(receipt, /const stockEntryID = Number\(params\.stock_entry_id \|\| 0\)/)
+  assert.match(receipt, /await openExisting\(row\)/)
   assert.match(customer, /openRequestedProcessingRequest/)
   assert.match(app, /'processing_request_id', 'processing_request_no'/)
+  assert.match(app, /'stock_entry_id'/)
 })
