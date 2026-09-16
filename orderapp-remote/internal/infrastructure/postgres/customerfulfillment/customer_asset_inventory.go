@@ -83,7 +83,8 @@ func (r *Repository) customerFinishedAssetInventory(ctx context.Context, custome
 				FROM %s.stock_entries se
 				JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id
 				WHERE se.work_order_id=i.linked_work_order_id AND se.status='submitted'
-				  AND se.purpose='manufacture' AND COALESCE(se.is_return,false)=false
+				  AND (se.purpose='manufacture' OR (se.entry_type='finished_receipt' AND se.source_type='work_order_complete'))
+				  AND COALESCE(se.is_return,false)=false
 				  AND si.item_type='finished_product' AND si.product_id=i.product_id
 				  AND (COALESCE(i.bom_spec_id,0)=0 OR si.bom_spec_id=i.bom_spec_id)
 			) receipt ON true

@@ -846,7 +846,8 @@ func (r Repository) listProcessingRequestItemsForRequests(ctx context.Context, c
 			FROM %s.stock_entries se
 			JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id
 			WHERE se.work_order_id=i.linked_work_order_id AND se.status='submitted'
-			  AND se.purpose='manufacture' AND COALESCE(se.is_return,false)=false
+			  AND (se.purpose='manufacture' OR (se.entry_type='finished_receipt' AND se.source_type='work_order_complete'))
+			  AND COALESCE(se.is_return,false)=false
 			  AND si.item_type='finished_product'
 			  AND si.product_id=i.product_id AND si.owner_customer_id=r.customer_id
 			  AND (i.target_warehouse='' OR si.to_warehouse=i.target_warehouse)

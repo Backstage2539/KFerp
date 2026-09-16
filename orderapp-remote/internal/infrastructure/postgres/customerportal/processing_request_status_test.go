@@ -27,6 +27,16 @@ func TestApplyProcessingRequestDerivedFieldsRequiresInboundQuantityForCompletion
 	}
 }
 
+func TestProcessingRequestReceiptTraceIncludesWorkOrderCompletionEntries(t *testing.T) {
+	source, err := os.ReadFile("processing_requests.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), "se.source_type='work_order_complete'") {
+		t.Fatal("processing request receipt trace must include final work-order completion entries")
+	}
+}
+
 func TestProcessingRequestListLoadsItemTraceInOneBatch(t *testing.T) {
 	source, err := os.ReadFile("processing_requests.go")
 	if err != nil {

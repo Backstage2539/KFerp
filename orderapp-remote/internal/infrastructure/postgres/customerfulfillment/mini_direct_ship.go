@@ -440,7 +440,9 @@ func (r *Repository) loadMiniProcessingOutputCandidates(ctx context.Context, q m
 			                         WHEN si.spec_g>0 THEN si.qty_g/si.spec_g ELSE 0 END),0)::bigint AS received_qty
 			FROM %s.processing_job_request_items i
 			LEFT JOIN %s.stock_entries se ON se.work_order_id=i.linked_work_order_id
-			  AND se.status='submitted' AND se.purpose='manufacture' AND COALESCE(se.is_return,false)=false
+			  AND se.status='submitted'
+			  AND (se.purpose='manufacture' OR (se.entry_type='finished_receipt' AND se.source_type='work_order_complete'))
+			  AND COALESCE(se.is_return,false)=false
 			LEFT JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id AND si.item_type='finished_product'
 			GROUP BY i.id
 		), promised AS (

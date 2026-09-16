@@ -286,7 +286,7 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 		)
 	} else {
 		entry, err = createStockEntryRecordTx(ctx, tx, r.schema, productionapp.StockEntryCommand{
-			EntryType: "finished_receipt", WorkOrderID: wo.ID, RunningItemID: run.ID,
+			EntryType: "finished_receipt", Purpose: "manufacture", WorkOrderID: wo.ID, RunningItemID: run.ID,
 			SourceType: "work_order_complete", SourceID: wo.ID, Operator: cmd.Operator, Note: cmd.Note,
 			Items: []productionapp.StockEntryItemCommand{{
 				MaterialID: wo.OutputMaterialID, ItemType: stockItemTypeMaterial, ItemName: materialName,
