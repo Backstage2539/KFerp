@@ -94,9 +94,11 @@ describe('customer closed-loop miniapp pages', () => {
 
   it('shows owned finished, green, packaging and semi-finished assets with batches and ledger', () => {
     const list = source('src/components/CustomerInventoryPanel.vue')
+    const detail = source('src/pages/customer-inventory-detail/customer-inventory-detail.vue')
 
     expect(list).toContain('fetchCustomerAssetInventory')
-    expect(list).toContain('fetchCustomerAssetInventoryLedger')
+    expect(list).toContain('customerInventoryDetailPath')
+    expect(detail).toContain('fetchCustomerInventoryBatches')
     expect(list).toContain("key: 'finished_product'")
     expect(list).toContain("key: 'green_bean'")
     expect(list).toContain("key: 'packaging'")
@@ -104,8 +106,8 @@ describe('customer closed-loop miniapp pages', () => {
     expect(list).toContain('可用')
     expect(list).toContain('占用')
     expect(list).toContain('生产中')
-    expect(list).toContain('库存批次')
-    expect(list).toContain('出入库流水')
+    expect(detail).toContain('库存批次')
+    expect(detail).toContain('入库时间')
     expect(list).toContain('processingPrefill.stage')
   })
 

@@ -48,8 +48,8 @@
             <td>{{ row.created_at || '-' }}</td>
             <td>{{ row.note || '-' }}</td>
             <td class="row-actions">
-              <button v-if="!row.legacy" class="link" type="button" @click="openExisting(row)">查看</button>
-              <span v-else class="legacy-readonly">只读</span>
+              <button class="link" type="button" @click="openExisting(row)">{{ row.purpose === 'manufacture' ? '查看结果' : '查看' }}</button>
+              <span v-if="row.legacy" class="legacy-readonly">只读</span>
               <button v-if="row.status === 'cancelled'" class="link disabled" type="button" disabled>已取消</button>
               <button v-else-if="row.status === 'submitted' && !row.legacy && row.purpose !== 'material_receipt'" class="danger-link" type="button" @click="cancelDocument(row)">取消</button>
             </td>
@@ -780,7 +780,13 @@ async function applyViewParams(params = {}) {
   receiptMode.value = params.receipt_mode === 'partial' ? 'partial' : 'final'
   receiptInputKg.value = 0
   const workOrderID = Number(params.work_order_id || 0)
+  const stockEntryID = Number(params.stock_entry_id || 0)
   filters.work_order_id = workOrderID
+  if (stockEntryID > 0) {
+    const row = rows.value.find((candidate) => Number(candidate.id || 0) === stockEntryID) || { id: stockEntryID }
+    await openExisting(row)
+    return
+  }
   let action = String(params.action || '').trim()
   if (!action && (params.tab === 'wip' || Number(params.shortage_g || 0) > 0)) action = 'issue'
   if (action === 'receipt') {
@@ -821,7 +827,7 @@ function navigateFromCompletion(key, params = {}) {
     detail: {
       key,
       params,
-      returnNavigation: { key: 'stockOperations', label: '返回完工入库结果', params: { tab: 'stockEntries', work_order_id: completionResult.value?.workOrderID } },
+      returnNavigation: { key: 'stockOperations', label: '返回完工入库结果', params: { tab: 'stockEntries', work_order_id: completionResult.value?.workOrderID, stock_entry_id: Number(form.id || 0) } },
     },
   }))
 }

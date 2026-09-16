@@ -381,6 +381,22 @@ func TestProductionBomUsageLookupsUseCurrentVersionOnly(t *testing.T) {
 	}
 }
 
+func TestProductionBomUsageUsesCanonicalDefaultOutputBinding(t *testing.T) {
+	repository := readRepositorySource(t)
+	body := repository[strings.Index(repository, "func (r Repository) listProductionBomUsageByProduct"):]
+	body = body[:strings.Index(body, "func (r Repository) listProductionBomComponentUsedByBoms")]
+	for _, want := range []string{
+		"production_bom_output_bindings default_binding",
+		"default_binding.output_type='product'",
+		"default_binding.is_default=true",
+		"default_binding.bom_id",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("product BOM usage must use canonical default output binding; missing %q", want)
+		}
+	}
+}
+
 func TestProductionBomVersionSpecialAttrsSchemaBackfillAndAuditMarkers(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

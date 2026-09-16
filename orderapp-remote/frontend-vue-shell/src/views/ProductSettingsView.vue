@@ -1638,7 +1638,7 @@
             <div class="production-config-grid">
               <label>
                 <span>商品编号</span>
-                <input :value="productProductionConfigProduct?.number || productProductionConfigProduct?.code || '-'" disabled />
+                <input :value="productCodeLabel(productProductionConfigProduct || {}) || '-'" disabled />
               </label>
               <label>
                 <span>客户归属</span>
