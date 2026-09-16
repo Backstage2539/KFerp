@@ -234,10 +234,15 @@ type DirectShipSupplyPreview = {
 }
 
 function sameDirectShipIdentity(left: DirectShipIdentity = {}, right: DirectShipIdentity = {}): boolean {
-  return Number(left.product_id || 0) === Number(right.product_id || 0)
-    && Number(left.bom_spec_id || 0) === Number(right.bom_spec_id || 0)
-    && Number(left.bom_variant_id || 0) === Number(right.bom_variant_id || 0)
-    && Number(left.spec_g || 0) === Number(right.spec_g || 0)
+  if (Number(left.product_id || 0) !== Number(right.product_id || 0)) return false
+  const leftCanonical = Number(left.bom_spec_id || 0) > 0 || Number(left.bom_variant_id || 0) > 0
+  const rightCanonical = Number(right.bom_spec_id || 0) > 0 || Number(right.bom_variant_id || 0) > 0
+  if (leftCanonical || rightCanonical) {
+    return leftCanonical && rightCanonical
+      && Number(left.bom_spec_id || 0) === Number(right.bom_spec_id || 0)
+      && Number(left.bom_variant_id || 0) === Number(right.bom_variant_id || 0)
+  }
+  return Number(left.spec_g || 0) === Number(right.spec_g || 0)
 }
 
 export function directShipPreviewSupplyRows(input: {

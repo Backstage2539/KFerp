@@ -157,6 +157,25 @@ describe('customer fulfillment helpers', () => {
     })])
   })
 
+  it('matches canonical BOM specs even when the draft omits legacy spec grams', () => {
+    expect(directShipPreviewSupplyRows({
+      lines: [{ product_id: 1089, bom_spec_id: 408, bom_variant_id: 502, spec_g: 0, qty: 20, product_name: '代发产品-蜜瓜' }],
+      specs: [{ product_id: 1089, bom_spec_id: 408, bom_variant_id: 502, spec_g: 454, stock_available_qty: 10, production_available_qty: 90 }],
+      preview: {
+        warehouses: [{ warehouse: '客户成品仓', items: [{ product_id: 1089, bom_spec_id: 408, bom_variant_id: 502, spec_g: 454, qty: 10 }] }],
+        production_allocations: [{ processing_request_id: 5, processing_request_item_id: 18, product_id: 1089, bom_spec_id: 408, bom_variant_id: 502, spec_g: 454, qty: 10 }],
+      },
+    })).toEqual([expect.objectContaining({
+      stock_available_qty: 10,
+      production_available_qty: 90,
+      stockQty: 10,
+      productionQty: 10,
+      orderableQty: 100,
+      remainingProductionQty: 80,
+      allocations: [expect.objectContaining({ processing_request_id: 5, qty: 10 })],
+    })])
+  })
+
   it('waits for a complete production request before previewing and localizes invalid requests', () => {
     const validLines = [{ product_id: 911, spec_g: 60000, qty: 1 }]
     expect(processingPreviewValidationError([], '')).toBe('请选择至少一个目标商品规格')
