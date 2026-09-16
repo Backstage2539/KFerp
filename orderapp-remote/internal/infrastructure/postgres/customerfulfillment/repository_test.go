@@ -3876,6 +3876,95 @@ func TestRepairSubmittedDirectShipERPOrderDiscountsKeepsHistoricalPricingForInac
 	}
 }
 
+func TestRepairSubmittedDirectShipERPOrderDiscountsKeepsCurrentRequestOrderItemIdentity(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+
+	var customerID, productID, orderID, orderItemID, importOrderID, requestID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, customer_type) VALUES('当前代发客户','wholesale') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, visibility, product_kind)
+		VALUES('当前代发商品', 36.8, true, 'public', 'roasted_bean') RETURNING id
+	`, schema)).Scan(&productID); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.orders(order_no, order_date, customer_id, portal_service_code, total_amount, grand_total)
+		VALUES('CURRENT-CDS-001','2026-09-16',$1,'direct_ship',736,736) RETURNING id
+	`, schema), customerID).Scan(&orderID); err != nil {
+		t.Fatalf("insert order: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES($1,1,$2,'当前代发商品',20,'件','454g/件',36.8,736) RETURNING id
+	`, schema), orderID, productID).Scan(&orderItemID); err != nil {
+		t.Fatalf("insert order item: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_import_orders(
+			batch_id, customer_id, external_order_no, external_seq, order_date,
+			receiver_address, status, order_id, payload
+		) VALUES(0,$1,'CURRENT-CDS-001','1','2026-09-16','验收地址','submitted',$2,'{}'::jsonb)
+		RETURNING id
+	`, schema), customerID, orderID).Scan(&importOrderID); err != nil {
+		t.Fatalf("insert import order: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_import_order_items(
+			import_order_id,batch_id,customer_id,line_no,product_id,product_title,spec,quantity_units,payload
+		) VALUES($1,0,$2,1,$3,'当前代发商品','454g/件',20,$4::jsonb)
+	`, schema), importOrderID, customerID, productID, mustPayloadJSON(map[string]any{
+		"product_id":                 productID,
+		"product_name_snapshot":      "当前代发商品",
+		"product_kind":               "roasted_bean",
+		"sales_unit":                 "件",
+		"unit_price":                 36.8,
+		"line_total_before_discount": 736,
+		"line_total":                 736,
+		"price_source_snapshot":      `{"price_source":"current_request","unit_price":36.8}`,
+	})); err != nil {
+		t.Fatalf("insert import item: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_requests(customer_id,request_no,status)
+		VALUES($1,'DSR-CURRENT-001','reserved') RETURNING id
+	`, schema), customerID).Scan(&requestID); err != nil {
+		t.Fatalf("insert direct ship request: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_request_orders(request_id,order_id,warehouse_code,order_no,status)
+		VALUES($1,$2,'','CURRENT-CDS-001','reserved')
+	`, schema), requestID, orderID); err != nil {
+		t.Fatalf("insert request order: %v", err)
+	}
+
+	if err := repairSubmittedDirectShipERPOrderDiscounts(ctx, pool, schema); err != nil {
+		t.Fatalf("repairSubmittedDirectShipERPOrderDiscounts: %v", err)
+	}
+	var preserved int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s.order_items WHERE id=$1 AND order_id=$2
+	`, schema), orderItemID, orderID).Scan(&preserved); err != nil {
+		t.Fatalf("count preserved order item: %v", err)
+	}
+	if preserved != 1 {
+		t.Fatalf("current direct-ship order item identity was rebuilt: id=%d order_id=%d", orderItemID, orderID)
+	}
+}
+
+func TestSubmittedDirectShipDiscountRepairDecisionKeepsCurrentRequestOrders(t *testing.T) {
+	if shouldRepairSubmittedDirectShipOrder(true) {
+		t.Fatal("current direct-ship request orders must keep their stable order-item identity")
+	}
+	if !shouldRepairSubmittedDirectShipOrder(false) {
+		t.Fatal("historical import-only orders must remain eligible for frozen discount repair")
+	}
+}
+
 func TestSubmittedDirectShipERPRebuildKeepsHistoricalPricingErrors(t *testing.T) {
 	for _, msg := range []string{
 		"product unavailable",
