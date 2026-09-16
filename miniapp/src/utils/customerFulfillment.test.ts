@@ -3,6 +3,7 @@ import type { EmployeeOrderProductFamily } from '../api/customerPortal'
 import {
   canShowFactoryProductLinks,
   directShipAvailabilityBreakdown,
+  directShipPreviewSupplyRows,
   directShipStatusLabel,
   mergeProcessingTargetLines,
   processingPreviewErrorMessage,
@@ -133,6 +134,27 @@ describe('customer fulfillment helpers', () => {
       production_available_qty: 30,
       production_allocations: [{ processing_request_id: 667, qty: 14 }],
     })).toEqual({ stockQty: 6, productionQty: 14, orderableQty: 36, remainingProductionQty: 16 })
+  })
+
+  it('keeps the fulfillment breakdown when a preview has no shortage rows', () => {
+    expect(directShipPreviewSupplyRows({
+      lines: [{ product_id: 1089, bom_spec_id: 408, bom_variant_id: 502, spec_g: 0, qty: 20, product_name: '代发产品-蜜瓜' }],
+      specs: [{ product_id: 1089, bom_spec_id: 408, bom_variant_id: 502, spec_g: 0, stock_available_qty: 10, production_available_qty: 90 }],
+      preview: {
+        shortages: [],
+        warehouses: [{ warehouse: '客户成品仓', items: [{ product_id: 1089, bom_spec_id: 408, bom_variant_id: 502, spec_g: 0, qty: 10 }] }],
+        production_allocations: [{ processing_request_id: 5, processing_request_item_id: 18, product_id: 1089, bom_spec_id: 408, bom_variant_id: 502, spec_g: 0, qty: 10 }],
+      },
+    })).toEqual([expect.objectContaining({
+      product_id: 1089,
+      stock_available_qty: 10,
+      production_available_qty: 90,
+      stockQty: 10,
+      productionQty: 10,
+      orderableQty: 100,
+      remainingProductionQty: 80,
+      allocations: [expect.objectContaining({ processing_request_id: 5, qty: 10 })],
+    })])
   })
 
   it('waits for a complete production request before previewing and localizes invalid requests', () => {
