@@ -252,6 +252,15 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-668-PR667-COMPLETE-UI-FLOW", title: "补齐客户代加工八界面与生产预订入库发货完整流程", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-16-pr667-complete-ui-flow.md"},
+		{table: "req_dev", code: "DEV-694-SHARED-PROCESSING-DETAIL", title: "统一生产申请时间线状态数量及订单入库批次追溯", status: "done", assignee: "Codex", evidence: "processing_request_status_test.go; customer-processing-trace.test.js"},
+		{table: "req_dev", code: "DEV-695-ERP-CUSTOMER-PROCESSING-UI", title: "商品完整配置与客户申请待计划需求界面", status: "done", assignee: "Codex", evidence: "ProductSettingsView.vue; CustomerProcessingPortalView.vue; ProducePlanView.vue"},
+		{table: "req_dev", code: "DEV-696-ERP-PRODUCTION-TRACE-UI", title: "生产工单详情与完工入库结果追溯界面", status: "done", assignee: "Codex", evidence: "ProductionExecutionHubDrawer.vue; StockEntriesView.vue"},
+		{table: "req_dev", code: "DEV-697-MINIAPP-PROCESSING-UI", title: "小程序生产申请新建列表详情与真实时间线", status: "done", assignee: "Codex", evidence: "processing-request-create; processing-request-detail; CustomerProcessingPanel.vue"},
+		{table: "req_dev", code: "DEV-698-MINIAPP-ORDER-INVENTORY-UI", title: "小程序提前下单占用预览与库存批次来源", status: "done", assignee: "Codex", evidence: "CustomerDirectShipPanel.vue; customer-inventory-detail.vue; batch allocation tests"},
+		{table: "req_dev", code: "DEV-699-VISUAL-FLOW-DELIVERY", title: "八图对照完整流程真机小程序包及双环境发布", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-16-pr667-complete-ui-flow.md"},
+		{table: "req_review", code: "REV-668-PR667-COMPLETE-UI-FLOW", prCode: "PR-668-PR667-COMPLETE-UI-FLOW", title: "验收八个界面和代加工申请预订生产入库发货完整链路", status: "todo", assignee: "VA", evidence: "待八图和双环境验证后由 Van 验收"},
+
 		{table: "req_product", code: "PR-667-CUSTOMER-PROCESSING-RESERVATION-FULFILLMENT", title: "客户代加工物料与在制产出预订贯通一件代发", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-15-customer-processing-reservation-fulfillment.md"},
 		{table: "req_dev", code: "DEV-689-PROCESSING-MATERIAL-RESERVATION", title: "代加工预览上限并在提交事务内重算和预订物料", status: "done", assignee: "Codex", evidence: "processing_request_authority_test.go"},
 		{table: "req_dev", code: "DEV-690-PROCESSING-OUTPUT-ALLOCATION", title: "一件代发库存优先并按申请 FIFO 预订有效在制产出", status: "done", assignee: "Codex", evidence: "customer fulfillment allocation tests"},
@@ -385,7 +394,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-648-SUPPLY", title: "在途供应关联及并发占用", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
 		{table: "req_dev", code: "DEV-648-PARTIAL-RECEIPT", title: "分批入库、成本和数量放行", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
 		{table: "req_dev", code: "DEV-648-DELIVERY", title: "自动验证、手册及开发环境交付", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-10-production-planning-multilevel.md"},
-		{table: "req_product", code: "PR-647-ORDER-CONFIRMATION-PRICE-SORT", title: "分类显示、价格表排序与履约订单确认状态", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-10-order-confirmation-price-sort.md; development 2bd15db4; production authorized"},
+		{table: "req_product", code: "PR-647-ORDER-CONFIRMATION-PRICE-SORT", title: "分类显示、价格表排序与履约订单确认状态", status: "review", assignee: "VA", evidence: "docs/acceptance/2026-09-10-order-confirmation-price-sort.md"},
 		{table: "req_dev", code: "DEV-647-CATEGORY-SORT", title: "修复分类返回结构并支持价格表独立排序", status: "review", assignee: "Codex", evidence: "category-move-feedback.test.js / price-list-display-order.test.js"},
 		{table: "req_dev", code: "DEV-647-ORDER-CONFIRMATION", title: "同一订单待确认、接单、拒绝恢复与执行锁", status: "review", assignee: "Codex", evidence: "order_confirmation_api_test.go"},
 		{table: "req_dev", code: "DEV-647-ORDER-STATUS", title: "订单编辑与生产发货状态自动刷新", status: "review", assignee: "Codex", evidence: "OrderConfirmationPanel.vue / order-confirmation.test.js"},

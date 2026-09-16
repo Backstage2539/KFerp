@@ -166,14 +166,56 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 	`, schema))
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		UPDATE %s.job_cards
-		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),
-		    actual_input_qty=2,actual_output_qty=2
+		SET status='running',started_at=COALESCE(started_at,now()),
+		    actual_input_qty=1,actual_output_qty=1
+		WHERE work_order_id=%d;
+	`, schema, workOrderID))
+	partial := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/complete", workOrderID), map[string]any{
+		"completion_mode": "partial",
+		"request_id":      "pr667-product-receipt-1",
+		"finished_units":  1,
+		"warehouse":       "PR600-CUSTOMER-FINISHED",
+		"note":            "customer processing BOM spec partial completion",
+	})
+	if partial.Code != http.StatusOK {
+		t.Fatalf("partial customer processing BOM spec work order status=%d body=%s", partial.Code, partial.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "finished_inventory",
+		"product_id=1 AND bom_spec_id=16001 AND bom_variant_id=16101 AND spec_g=0 AND warehouse='PR600-CUSTOMER-FINISHED' AND onhand_units=1", 1)
+	assertProductionFlowCount(t, pool, schema, "stock_entries", fmt.Sprintf(
+		"work_order_id=%d AND running_item_id=%d AND entry_type='finished_receipt' AND status='submitted'", workOrderID, runningItemID,
+	), 1)
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("id=%d AND status='partially_completed'", workOrderID), 1)
+	assertProductionFlowCount(t, pool, schema, "processing_job_request_items", "id=60011 AND status<>'completed'", 1)
+	assertProductionFlowCount(t, pool, schema, "customer_processing_output_reservations",
+		"request_item_id=70031 AND processing_request_item_id=60011 AND reserved_qty=2 AND converted_qty=1 AND status='partially_converted'", 1)
+	assertProductionFlowCount(t, pool, schema, "order_stock_batch_allocations",
+		"order_id=70001 AND order_item_id=70011 AND product_id=1 AND bom_spec_id=16001 AND bom_variant_id=16101 AND allocated_units=1", 1)
+
+	partialReplay := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/complete", workOrderID), map[string]any{
+		"completion_mode": "partial",
+		"request_id":      "pr667-product-receipt-1",
+		"finished_units":  1,
+		"warehouse":       "PR600-CUSTOMER-FINISHED",
+		"note":            "customer processing BOM spec partial completion",
+	})
+	if partialReplay.Code != http.StatusOK {
+		t.Fatalf("replay partial customer processing BOM spec work order status=%d body=%s", partialReplay.Code, partialReplay.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "finished_inventory",
+		"product_id=1 AND bom_spec_id=16001 AND bom_variant_id=16101 AND spec_g=0 AND warehouse='PR600-CUSTOMER-FINISHED' AND onhand_units=1", 1)
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.job_cards
+		SET status='completed',completed_at=now(),actual_input_qty=2,actual_output_qty=2
 		WHERE work_order_id=%d;
 	`, schema, workOrderID))
 	complete := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/complete", workOrderID), map[string]any{
-		"finished_units": 2,
-		"warehouse":      "PR600-CUSTOMER-FINISHED",
-		"note":           "customer processing BOM spec completion",
+		"completion_mode": "final",
+		"request_id":      "pr667-product-receipt-2",
+		"finished_units":  1,
+		"warehouse":       "PR600-CUSTOMER-FINISHED",
+		"note":            "customer processing BOM spec completion",
 	})
 	if complete.Code != http.StatusOK {
 		t.Fatalf("complete customer processing BOM spec work order status=%d body=%s", complete.Code, complete.Body.String())
@@ -206,5 +248,8 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 		"entity_type='customer_processing_output_reservation' AND action='processing_output_convert'", 1)
 	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf(
 		"entity_type='work_order' AND entity_id=%d AND action='complete'", workOrderID,
+	), 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf(
+		"entity_type='work_order' AND entity_id=%d AND action='product_receipt'", workOrderID,
 	), 1)
 }

@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -90,6 +91,15 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		return productionapp.FinishResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	replayID, replay, err := requestProductionKeyTx(ctx, tx, schema, "product_receipt", operator, cmd.RequestID, cmd)
+	if err != nil {
+		return productionapp.FinishResult{}, err
+	}
+	if replayID > 0 {
+		var result productionapp.FinishResult
+		err = json.Unmarshal(replay, &result)
+		return result, err
+	}
 
 	var r ProduceRunRow
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,bom_spec_id,bom_variant_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.BomSpecID, &r.BomVariantID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
@@ -148,7 +158,10 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	consumedInputG, partial := int64(0), false
 	actualYield := float64(1)
 	if r.BomSpecID > 0 {
-		consumedInputG = maxInt64(0, cmd.ConsumedInputG)
+		consumedInputG, partial, err = resolveBOMSpecFinishInput(r, cmd, add)
+		if err != nil {
+			return productionapp.FinishResult{}, err
+		}
 		if r.PlanUnits > 0 {
 			actualYield = math.Round((float64(add.Units)/float64(r.PlanUnits))*10000) / 10000
 		}
@@ -231,35 +244,6 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if partial {
-		remainingNeedG := r.NeedG - finishedTotal
-		remainingInputG := r.InputG - consumedInputG
-		if remainingNeedG <= 0 || remainingInputG <= 0 {
-			partial = false
-		} else {
-			remainingPlan := runningInventoryPlan(r.SpecG, remainingNeedG, remainingInputG, r.BomYieldRate)
-			if materialSnapshotUsesCurrentBomLoss([]byte(r.MaterialSnapshot)) {
-				remainingPlan = plannedFinishedInventoryAddition(r.SpecG, remainingNeedG)
-			}
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`
-				UPDATE %s.produce_running_items
-				SET need_g=$2,input_g=$3,planned_units=$4,planned_loose_g=$5
-				WHERE id=$1
-			`, schema), id, remainingNeedG, remainingInputG, remainingPlan.Units, remainingPlan.LooseG); err != nil {
-				return productionapp.FinishResult{}, err
-			}
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET planned_g=$2 WHERE running_item_id=$1`, schema), id, remainingInputG); err != nil {
-				return productionapp.FinishResult{}, err
-			}
-			if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &id, "partial_finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "remaining_need_g": remainingNeedG, "remaining_input_g": remainingInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield}); err != nil {
-				return productionapp.FinishResult{}, err
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return productionapp.FinishResult{}, err
-			}
-			return productionapp.FinishResult{RunningItemID: id}, nil
-		}
-	}
 	totalFinishedG, err := cumulativeFinishedTotalGForRunningItemTx(ctx, tx, schema, r.ID)
 	if err != nil {
 		return productionapp.FinishResult{}, err
@@ -288,6 +272,58 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 			return productionapp.FinishResult{}, err
 		}
 		stockEntryID = entry.ID
+	}
+	if partial {
+		remainingInputG := maxInt64(0, r.InputG-consumedInputG)
+		remainingNeedG := r.NeedG - finishedTotal
+		remainingPlanUnits := r.PlanUnits - add.Units
+		if r.BomSpecID > 0 {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.produce_running_items
+				SET input_g=$2,planned_units=$3
+				WHERE id=$1
+			`, schema), id, remainingInputG, remainingPlanUnits); err != nil {
+				return productionapp.FinishResult{}, err
+			}
+		} else {
+			remainingPlan := runningInventoryPlan(r.SpecG, remainingNeedG, remainingInputG, r.BomYieldRate)
+			if materialSnapshotUsesCurrentBomLoss([]byte(r.MaterialSnapshot)) {
+				remainingPlan = plannedFinishedInventoryAddition(r.SpecG, remainingNeedG)
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.produce_running_items
+				SET need_g=$2,input_g=$3,planned_units=$4,planned_loose_g=$5
+				WHERE id=$1
+			`, schema), id, remainingNeedG, remainingInputG, remainingPlan.Units, remainingPlan.LooseG); err != nil {
+				return productionapp.FinishResult{}, err
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET planned_g=$2 WHERE running_item_id=$1`, schema), id, remainingInputG); err != nil {
+				return productionapp.FinishResult{}, err
+			}
+		}
+		if cmd.WorkOrderID > 0 {
+			var previousStatus string
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.work_orders WHERE id=$1 FOR UPDATE`, schema), cmd.WorkOrderID).Scan(&previousStatus); err != nil {
+				return productionapp.FinishResult{}, err
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET status='partially_completed',actual_cost=$2 WHERE id=$1`, schema), cmd.WorkOrderID, actualCost); err != nil {
+				return productionapp.FinishResult{}, err
+			}
+			if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "work_order", &cmd.WorkOrderID, "product_receipt", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(previousStatus), postgresinfra.StrPtr("partially_completed"), postgresinfra.AuditMeta{"completion_mode": "partial", "finished_units": add.Units, "finished_loose_g": add.LooseG, "consumed_input_g": consumedInputG, "remaining_units": remainingPlanUnits, "remaining_input_g": remainingInputG, "stock_entry_id": stockEntryID, "warehouse": warehouse}); err != nil {
+				return productionapp.FinishResult{}, err
+			}
+		}
+		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &id, "partial_finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "bom_spec_id": r.BomSpecID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "remaining_need_g": maxInt64(0, remainingNeedG), "remaining_units": maxInt64(0, remainingPlanUnits), "remaining_input_g": remainingInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield, "stock_entry_id": stockEntryID}); err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		result := productionapp.FinishResult{RunningItemID: id, StockEntryID: stockEntryID}
+		if err := finishProductionKeyTx(ctx, tx, schema, "product_receipt", operator, cmd.RequestID, id, result); err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		return result, nil
 	}
 	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
 		return productionapp.FinishResult{}, err
@@ -324,10 +360,14 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &id, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield}); err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	result := productionapp.FinishResult{RunningItemID: id, Completed: true, FinishedOrders: finishedOrders, StockEntryID: stockEntryID}
+	if err := finishProductionKeyTx(ctx, tx, schema, "product_receipt", operator, cmd.RequestID, id, result); err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	return productionapp.FinishResult{RunningItemID: id, Completed: true, FinishedOrders: finishedOrders, StockEntryID: stockEntryID}, nil
+	return result, nil
 }
 
 func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r ProduceRunRow, outputs []ProduceRunOutputRow, cmd productionapp.FinishCommand) (productionapp.FinishResult, error) {
@@ -639,6 +679,31 @@ func resolveFinishConsumedInput(r ProduceRunRow, cmd productionapp.FinishCommand
 		return 0, false, fmt.Errorf("本次消耗投料不能大于工单剩余投料")
 	}
 	return consumedInputG, true, nil
+}
+
+func resolveBOMSpecFinishInput(r ProduceRunRow, cmd productionapp.FinishCommand, finished InvQty) (int64, bool, error) {
+	if r.PlanUnits <= 0 {
+		return 0, false, fmt.Errorf("工单剩余件数必须大于0")
+	}
+	if finished.Units <= 0 || finished.Units > r.PlanUnits {
+		return 0, false, fmt.Errorf("本次完成件数不能超过工单剩余件数 %d", r.PlanUnits)
+	}
+	partial := cmd.Partial
+	if partial && finished.Units >= r.PlanUnits {
+		return 0, false, fmt.Errorf("部分入库数量必须小于工单剩余件数 %d", r.PlanUnits)
+	}
+	consumedInputG := cmd.ConsumedInputG
+	if consumedInputG <= 0 && r.InputG > 0 {
+		if finished.Units == r.PlanUnits {
+			consumedInputG = r.InputG
+		} else {
+			consumedInputG = int64(math.Ceil(float64(r.InputG) * float64(finished.Units) / float64(r.PlanUnits)))
+		}
+	}
+	if consumedInputG < 0 || (r.InputG > 0 && consumedInputG > r.InputG) {
+		return 0, false, fmt.Errorf("本次消耗投料不能大于工单剩余投料")
+	}
+	return consumedInputG, partial, nil
 }
 
 func nextCompletionNoForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) (int64, error) {

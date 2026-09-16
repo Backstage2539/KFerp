@@ -273,19 +273,23 @@
           <thead>
             <tr>
               <th>申请单号</th>
+              <th>来源 / 客户</th>
               <th>成品</th>
               <th>状态</th>
-              <th>数量</th>
+              <th>申请 / 入库 / 可预订</th>
+              <th>计划 / 工单</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in processingRequests" :key="row.id">
-              <td>{{ row.request_no }}</td>
+            <tr v-for="row in processingRequests" :key="row.id" class="clickable-row" @click="selectedProcessingRequest = row">
+              <td><strong>{{ row.request_no }}</strong><small>{{ row.created_at }}</small></td>
+              <td>客户工单<small>{{ row.customer_name || data.customer_name }}</small></td>
               <td>{{ (row.items || []).map((item) => `${item.product_name} ${item.spec_name || ''}`).join('、') }}</td>
               <td>{{ processingStatusLabel(row.status) }}</td>
-              <td>{{ (row.items || []).map((item) => item.qty).join('、') }}</td>
+              <td>{{ row.requested_qty || 0 }} / {{ row.actual_inbound_qty || 0 }} / {{ row.remaining_reservable_qty || 0 }}</td>
+              <td>{{ (row.items || []).map((item) => item.work_order_no || (item.production_plan_id ? `计划 #${item.production_plan_id}` : '待计划')).join('、') }}</td>
             </tr>
-            <tr v-if="!processingRequests.length"><td colspan="4">暂无代加工申请</td></tr>
+            <tr v-if="!processingRequests.length"><td colspan="6">暂无代加工申请</td></tr>
           </tbody>
         </table>
       </section>
@@ -320,6 +324,19 @@
       </section>
       <CustomerMallView v-else-if="portalPage === 'customerMall'" :customer-id="data.customer_id" />
     </template>
+    <div v-if="selectedProcessingRequest" class="drawer-mask" @click.self="selectedProcessingRequest = null">
+      <aside class="drawer processing-detail-drawer">
+        <div class="portal-head"><div><small>客户工单详情</small><h3>{{ selectedProcessingRequest.request_no }}</h3><p>{{ selectedProcessingRequest.customer_name || data.customer_name }} · {{ processingStatusLabel(selectedProcessingRequest.status) }}</p></div><button @click="selectedProcessingRequest = null">关闭</button></div>
+        <section class="processing-timeline"><article v-for="step in customerProcessingTimeline(selectedProcessingRequest)" :key="step.key" :class="step.state"><span></span><strong>{{ step.label }}</strong><small>{{ step.time }}</small></article></section>
+        <section class="metrics processing-detail-metrics"><article><span>申请数量</span><strong>{{ customerProcessingRequestProgress.requestedQty }}</strong></article><article><span>累计入库</span><strong>{{ customerProcessingRequestProgress.inboundQty }}</strong></article><article><span>订单占用</span><strong>{{ customerProcessingRequestProgress.orderOccupiedQty }}</strong></article><article><span>剩余可预订</span><strong>{{ customerProcessingRequestProgress.remainingReservableQty }}</strong></article></section>
+        <article v-for="item in selectedProcessingRequest.items || []" :key="item.id" class="processing-detail-item">
+          <div class="portal-head"><div><strong>{{ item.product_name }}</strong><small>{{ item.spec_name || `${item.spec_g}g` }} · BOM {{ item.bom_version_no || '-' }}</small></div><span>{{ processingStatusLabel(item.status) }}</span></div>
+          <div class="processing-detail-grid"><span>目标仓库 <strong>{{ item.target_warehouse || '-' }}</strong></span><span>物料预订 <strong>{{ item.material_reserved_g || item.material_reserved_units || 0 }}</strong></span><span>生产计划 <strong>{{ item.production_plan_id || '-' }}</strong></span><span>生产工单 <strong>{{ item.work_order_no || '-' }}</strong></span></div>
+          <button v-if="item.work_order_id" @click="navigateWorkOrder(item.work_order_id)">查看生产工单</button>
+          <div v-for="order in item.related_orders || []" :key="order.order_id" class="related-order"><span>{{ order.order_no }}</span><span>预订 {{ order.reserved_qty }} · 已转库存 {{ order.converted_qty }} · 缺口 {{ order.shortfall_qty }}</span></div>
+        </article>
+      </aside>
+    </div>
     <div v-if="detail" class="drawer-mask" @click.self="detail = null">
       <aside class="drawer">
         <button @click="detail = null">关闭</button>
@@ -383,6 +400,7 @@ import DeliveryNoteView from './DeliveryNoteView.vue'
 import { fetchCustomerFulfillmentOrders, fetchCustomerFulfillmentOrderDetail } from '../api/customer-fulfillment'
 import CustomerMallView from './CustomerMallView.vue'
 import { customerWorkspaceMenu, customerWorkspaceCapability, customerWorkspacePages } from '../lib/customer-workspace'
+import { customerProcessingProgress, customerProcessingTimeline } from '../lib/customer-processing-trace'
 const props = defineProps({
   portalPage: { type: String, default: 'customerProcessingPortal' },
   viewParams: { type: Object, default: () => ({}) },
@@ -401,6 +419,7 @@ const loading = ref(false),
   data = ref({}),
   processingCatalog = ref({}),
   processingRequests = ref([]),
+  selectedProcessingRequest = ref(null),
   processingPreview = ref(null),
   previewID = ref(0),
   previewRows = ref([]),
@@ -420,6 +439,14 @@ function newProcessingLine() {
 }
 const processing = reactive({ items: [newProcessingLine()], expected_completion_date: '', note: '' })
 const processingTargets = computed(() => processingCatalog.value.targets || [])
+const customerProcessingRequestProgress = computed(() => {
+  const rows = selectedProcessingRequest.value?.items || []
+  return rows.reduce((total, item) => {
+    const progress = customerProcessingProgress({ target_qty: item.qty, actual_inbound_qty: item.actual_inbound_qty, output_reserved_qty: item.output_reserved_qty, output_converted_qty: item.output_converted_qty })
+    for (const key of Object.keys(total)) total[key] += progress[key]
+    return total
+  }, { requestedQty: 0, inboundQty: 0, orderOccupiedQty: 0, remainingReservableQty: 0 })
+})
 const processingPayloadItems = computed(() =>
   processing.items
     .filter((item) => item.product_id > 0 && Number(item.qty) > 0)
@@ -541,6 +568,10 @@ function navigate(key) {
       }
     })
   )
+}
+function navigateWorkOrder(workOrderID) {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'workOrders', params: { work_order_id: Number(workOrderID), customer_id: data.value.customer_id }, returnNavigation: { key: props.portalPage, params: { customer_id: data.value.customer_id }, label: '返回客户生产工单' } } }))
+  selectedProcessingRequest.value = null
 }
 let loadVersion = 0
 async function load() {
@@ -685,6 +716,16 @@ async function loadProcessingWorkspace() {
   ])
   processingCatalog.value = catalog || {}
   processingRequests.value = requests.rows || []
+  openRequestedProcessingRequest()
+}
+function openRequestedProcessingRequest() {
+  const requestedID = Number(props.viewParams.processing_request_id || 0)
+  const requestedNo = String(props.viewParams.processing_request_no || '').trim()
+  if (!requestedID && !requestedNo) return
+  selectedProcessingRequest.value = processingRequests.value.find((row) =>
+    (requestedID > 0 && Number(row.id || 0) === requestedID) ||
+    (requestedNo && String(row.request_no || '').trim() === requestedNo)
+  ) || null
 }
 async function previewProcessingRequest() {
   if (!processingPayloadItems.value.length) throw new Error('请先选择成品规格和申请数量')
@@ -695,6 +736,7 @@ async function previewProcessingRequest() {
   return processingPreview.value
 }
 watch(() => [props.portalPage, props.customerContextId, props.viewParams.customer_id], load, { immediate: true })
+watch(() => [props.viewParams.processing_request_id, props.viewParams.processing_request_no], openRequestedProcessingRequest)
 </script>
 <style scoped>
 .page {
@@ -836,6 +878,7 @@ select {
 .price-preview {
   background: #f8faf8;
 }
+.clickable-row{cursor:pointer}.clickable-row:hover{background:#f5faf6}.processing-detail-drawer{width:min(960px,96vw)}.processing-timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px;margin:18px 0;border:1px solid #e4e8e5;border-radius:10px}.processing-timeline article{display:grid;justify-items:center;gap:6px;text-align:center}.processing-timeline article>span{width:14px;height:14px;border-radius:50%;background:#cfd7d2}.processing-timeline article.done>span,.processing-timeline article.current>span{background:#2f7a50}.processing-timeline article.current strong{color:#2f7a50}.processing-detail-metrics{margin-bottom:16px}.processing-detail-item{display:grid;gap:12px;padding:16px;margin-bottom:12px;border:1px solid #e2e8e4;border-radius:10px}.processing-detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.processing-detail-grid span{display:grid;gap:5px;color:#66736c}.related-order{display:flex;justify-content:space-between;gap:12px;padding:10px;border-radius:7px;background:#f7f5f1}@media(max-width:720px){.processing-timeline,.processing-detail-grid{grid-template-columns:repeat(2,1fr)}}
 .links {
   justify-content: flex-start;
   margin: 10px 0;

@@ -284,24 +284,38 @@ type CustomerInventoryListResult struct {
 }
 
 type CustomerInventoryBatch struct {
-	BatchID                         int64  `json:"batch_id"`
-	BatchNo                         string `json:"batch_no"`
-	ProductID                       int64  `json:"product_id"`
-	BomSpecID                       int64  `json:"bom_spec_id,omitempty"`
-	BomVariantID                    int64  `json:"bom_variant_id,omitempty"`
-	BomSpecKey                      string `json:"bom_spec_key,omitempty"`
-	BomSpecName                     string `json:"bom_spec_name,omitempty"`
-	InventoryUnit                   string `json:"inventory_unit,omitempty"`
-	ProductName                     string `json:"product_name"`
-	SKUCode                         string `json:"sku_code,omitempty"`
-	SpecG                           int64  `json:"spec_g"`
-	Warehouse                       string `json:"warehouse"`
-	ProductionDate                  string `json:"production_date,omitempty"`
-	InboundAt                       string `json:"inbound_at,omitempty"`
-	AvailableQty                    int64  `json:"available_qty"`
-	ReservedQty                     int64  `json:"reserved_qty"`
-	QualityStatus                   string `json:"quality_status"`
-	HistoricalWithoutProductionDate bool   `json:"historical_without_production_date,omitempty"`
+	BatchID                         int64                           `json:"batch_id"`
+	BatchNo                         string                          `json:"batch_no"`
+	ProductID                       int64                           `json:"product_id"`
+	BomSpecID                       int64                           `json:"bom_spec_id,omitempty"`
+	BomVariantID                    int64                           `json:"bom_variant_id,omitempty"`
+	BomSpecKey                      string                          `json:"bom_spec_key,omitempty"`
+	BomSpecName                     string                          `json:"bom_spec_name,omitempty"`
+	InventoryUnit                   string                          `json:"inventory_unit,omitempty"`
+	ProductName                     string                          `json:"product_name"`
+	SKUCode                         string                          `json:"sku_code,omitempty"`
+	SpecG                           int64                           `json:"spec_g"`
+	Warehouse                       string                          `json:"warehouse"`
+	ProductionDate                  string                          `json:"production_date,omitempty"`
+	InboundAt                       string                          `json:"inbound_at,omitempty"`
+	AvailableQty                    int64                           `json:"available_qty"`
+	ReservedQty                     int64                           `json:"reserved_qty"`
+	QualityStatus                   string                          `json:"quality_status"`
+	HistoricalWithoutProductionDate bool                            `json:"historical_without_production_date,omitempty"`
+	SourceProcessingRequestID       int64                           `json:"source_processing_request_id,omitempty"`
+	SourceProcessingRequestNo       string                          `json:"source_processing_request_no,omitempty"`
+	SourceWorkOrderID               int64                           `json:"source_work_order_id,omitempty"`
+	SourceWorkOrderNo               string                          `json:"source_work_order_no,omitempty"`
+	SourceStockEntryID              int64                           `json:"source_stock_entry_id,omitempty"`
+	SourceStockEntryNo              string                          `json:"source_stock_entry_no,omitempty"`
+	RelatedOrders                   []CustomerInventoryRelatedOrder `json:"related_orders,omitempty"`
+}
+
+type CustomerInventoryRelatedOrder struct {
+	OrderID     int64  `json:"order_id"`
+	OrderNo     string `json:"order_no"`
+	ReservedQty int64  `json:"reserved_qty"`
+	Status      string `json:"status"`
 }
 
 type CustomerInventoryBatchQuery struct {

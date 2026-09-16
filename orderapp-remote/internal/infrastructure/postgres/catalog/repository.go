@@ -1279,10 +1279,31 @@ func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.Pro
 
 func (r Repository) ListProductProductionConfigs(ctx context.Context) ([]catalogapp.ProductProductionConfig, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-			SELECT product_id, production_bom_id, production_bom_version_id, process_route_id, COALESCE(industry_field_template_id,0),
-		       0::float8 AS neutral_expected_loss_rate, COALESCE(note,'')
-		FROM %s.product_production_configs
-		ORDER BY product_id
+		WITH product_ids AS (
+			SELECT product_id FROM %[1]s.product_production_configs
+			UNION
+			SELECT output_id AS product_id
+			FROM %[1]s.production_bom_output_bindings
+			WHERE output_type='product' AND is_default=true
+		)
+		SELECT ids.product_id,
+		       COALESCE(NULLIF(config.production_bom_id,0),default_binding.bom_id,0),
+		       COALESCE(NULLIF(config.production_bom_version_id,0),default_binding.bom_version_id,0),
+		       COALESCE(NULLIF(config.process_route_id,0),default_version.process_route_id,0),
+		       COALESCE(config.industry_field_template_id,0),
+		       0::float8 AS neutral_expected_loss_rate,
+		       COALESCE(config.note,'')
+		FROM product_ids ids
+		LEFT JOIN %[1]s.product_production_configs config ON config.product_id=ids.product_id
+		LEFT JOIN %[1]s.production_bom_output_bindings default_binding
+		  ON default_binding.output_type='product'
+		 AND default_binding.output_id=ids.product_id
+		 AND default_binding.is_default=true
+		LEFT JOIN %[1]s.production_bom_versions default_version
+		  ON default_version.id=default_binding.bom_version_id
+		 AND default_version.bom_id=default_binding.bom_id
+		 AND default_version.status='published'
+		ORDER BY ids.product_id
 	`, r.schema))
 	if err != nil {
 		return nil, err

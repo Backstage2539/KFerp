@@ -35,6 +35,7 @@ const props = withDefaults(defineProps<{
   prefillBomVariantId?: number
   prefillInventoryUnit?: string
   prefillItems?: ProcessingPrefillItem[]
+  standalone?: boolean
 }>(), {
   prefillProductId: 0,
   prefillSpecG: 0,
@@ -42,6 +43,7 @@ const props = withDefaults(defineProps<{
   prefillBomVariantId: 0,
   prefillInventoryUnit: '',
   prefillItems: () => [],
+  standalone: false,
 })
 
 const emit = defineEmits<{ prefillConsumed: [] }>()
@@ -56,7 +58,7 @@ const lines = ref<DraftLine[]>([])
 const note = ref('')
 const expectedCompletionDate = ref('')
 const idempotencyKey = ref(newProcessingIdempotencyKey())
-const showCreate = ref(false)
+const showCreate = ref(props.standalone)
 const preview = ref<ProcessingRequestPreview | null>(null)
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 let previewVersion = 0
@@ -144,6 +146,22 @@ function removeLine(index: number) {
   schedulePreview()
 }
 
+function changeLineQty(index: number, delta: number) {
+  const line = lines.value[index]
+  if (!line) return
+  line.qty = Math.max(0, Number(line.qty || 0) + delta)
+  schedulePreview()
+}
+
+function previewForLine(line: DraftLine) {
+  return (preview.value?.items || []).find((item) => (
+    Number(item.product_id || 0) === Number(line.product_id || 0)
+    && Number(item.bom_spec_id || 0) === Number(line.bom_spec_id || 0)
+    && Number(item.bom_variant_id || 0) === Number(line.bom_variant_id || 0)
+    && Number(item.spec_g || 0) === Number(line.spec_g || 0)
+  ))
+}
+
 function schedulePreview() {
   previewVersion += 1
   preview.value = null
@@ -219,7 +237,7 @@ async function submit() {
   submitting.value = true
   errorMessage.value = ''
   try {
-    await createProcessingRequest(props.token, payload())
+    const created = await createProcessingRequest(props.token, payload())
     lines.value = []
     preview.value = null
     note.value = ''
@@ -227,12 +245,29 @@ async function submit() {
     idempotencyKey.value = newProcessingIdempotencyKey()
     showCreate.value = false
     uni.showToast({ title: '生产工单申请已提交', icon: 'success' })
+    if (props.standalone) {
+      uni.redirectTo({ url: `/pages/processing-request-detail/processing-request-detail?id=${created.id}` })
+      return
+    }
     await load()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '生产工单提交失败'
   } finally {
     submitting.value = false
   }
+}
+
+function openCreate() {
+  uni.navigateTo({ url: '/pages/processing-request-create/processing-request-create' })
+}
+
+function openDetail(requestID: number) {
+  uni.navigateTo({ url: `/pages/processing-request-detail/processing-request-detail?id=${requestID}` })
+}
+
+function cancelCreate() {
+  if (props.standalone) uni.navigateBack()
+  else showCreate.value = false
 }
 
 onMounted(() => { void load() })
@@ -248,8 +283,13 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
       <CustomerProductSelector :families="catalog.product_families" :customer-id="customerId" @select="addProduct" />
       <view v-for="(line, index) in lines" :key="`${line.product_id}:${line.bom_spec_id || 0}:${line.bom_variant_id || 0}:${line.spec_g}`" class="line">
         <view class="line-copy"><text class="line-name">{{ line.product_name }}</text><text class="hint">{{ line.spec_label }}</text></view>
-        <input v-model.number="line.qty" class="qty" type="number" @input="schedulePreview" />
+        <view class="qty-stepper">
+          <button class="qty-button" :disabled="Number(line.qty || 0) <= 0" @tap="changeLineQty(index, -1)">−</button>
+          <input v-model.number="line.qty" class="qty" type="number" @input="schedulePreview" />
+          <button class="qty-button" @tap="changeLineQty(index, 1)">+</button>
+        </view>
         <button class="remove" @tap="removeLine(index)">删除</button>
+        <text v-if="previewForLine(line)" class="max-production">最大可生产 {{ previewForLine(line)?.max_producible_qty }} {{ line.inventory_unit || '件' }}</text>
       </view>
       <textarea v-model="note" class="textarea" placeholder="生产要求（可选）" />
       <view class="field-row"><text class="hint">期望完成日期</text><input v-model="expectedCompletionDate" class="date-input" type="date" @change="schedulePreview" /></view>
@@ -270,13 +310,14 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
           <text v-if="item.shortage_g > 0 || item.shortage_units > 0" class="danger">缺口 {{ item.shortage_g || item.shortage_units }}</text>
         </view>
       </view>
+      <text v-if="submissionBlock" class="submission-block">{{ submissionBlock }}</text>
       <button class="primary" :disabled="submitting || Boolean(submissionBlock)" @tap="submit">提交生产工单</button>
-      <button class="secondary" @tap="showCreate = false">取消新建</button>
+      <button class="secondary" @tap="cancelCreate">取消新建</button>
     </view>
 
-    <view class="panel requests-panel">
-      <view class="request-head"><text class="title">生产工单</text><button class="primary compact" @tap="showCreate = true">新建工单</button></view>
-      <view v-for="item in requests" :key="item.id" class="request">
+    <view v-if="!standalone" class="panel requests-panel">
+      <view class="request-head"><text class="title">生产工单</text><button class="primary compact" @tap="openCreate">新建工单</button></view>
+      <view v-for="item in requests" :key="item.id" class="request" @tap="openDetail(item.id)">
         <view class="request-head"><text class="line-name">{{ item.request_no }}</text><text class="status">{{ productionStatusLabel(item.status) }}</text></view>
         <text class="hint">申请 {{ item.created_at }}{{ item.expected_completion_date ? ` · 期望 ${item.expected_completion_date}` : '' }}</text>
         <view v-for="target in item.items || []" :key="target.id || target.line_no" class="preview-row">
@@ -292,5 +333,5 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
 </template>
 
 <style scoped>
-.workspace,.panel,.preview,.request,.preview-row,.line-copy{display:flex;flex-direction:column;gap:15rpx}.panel{padding:24rpx;margin-bottom:20rpx;border:1rpx solid #e6e0d8;border-radius:8rpx;background:#fff}.title{font-size:30rpx;font-weight:900}.subtitle,.line-name{font-size:27rpx;font-weight:800}.hint{color:#707070;font-size:23rpx;line-height:1.5}.warning{display:block;padding:14rpx 16rpx;border-radius:8rpx;background:#fff4e5;color:#8a4b08;font-size:23rpx;line-height:1.5}.ready{color:#28624a;font-weight:800}.line,.request-head,.field-row{display:flex;align-items:center;gap:12rpx}.line{padding:14rpx 0;border-top:1rpx solid #eee}.line-copy{flex:1;gap:4rpx}.qty{width:120rpx;min-height:72rpx;padding:0 16rpx;border:1rpx solid #ddd;border-radius:8rpx;box-sizing:border-box}.date-input{flex:1;min-height:72rpx;padding:0 16rpx;border:1rpx solid #ddd;border-radius:8rpx;box-sizing:border-box}.remove{margin:0;color:#a22;background:#fff;border:1rpx solid #e5caca}.textarea{min-height:112rpx;padding:16rpx;border:1rpx solid #ddd;border-radius:8rpx;background:#fafafa;box-sizing:border-box}.primary,.secondary{min-height:76rpx;margin:0;border-radius:8rpx;font-size:25rpx}.primary{background:#2b2118;color:#fff}.primary.compact{min-height:64rpx;padding:0 24rpx}.secondary{background:#fff;border:1rpx solid #d8d8d8}.preview,.request{padding:16rpx;border:1rpx solid #eee;border-radius:8rpx}.preview-row{gap:6rpx;padding:12rpx 0;border-top:1rpx solid #eee}.preview-row.shortage{background:#fff6f4}.request-head{justify-content:space-between;flex-direction:row}.status{color:#28624a;font-weight:800}.danger,.error{color:#b42318}.error{display:block;padding:18rpx}
+.workspace,.panel,.preview,.request,.preview-row,.line-copy{display:flex;flex-direction:column;gap:15rpx}.panel{padding:24rpx;margin-bottom:20rpx;border:1rpx solid #e6e0d8;border-radius:8rpx;background:#fff}.title{font-size:30rpx;font-weight:900}.subtitle,.line-name{font-size:27rpx;font-weight:800}.hint{color:#707070;font-size:23rpx;line-height:1.5}.warning{display:block;padding:14rpx 16rpx;border-radius:8rpx;background:#fff4e5;color:#8a4b08;font-size:23rpx;line-height:1.5}.ready{color:#28624a;font-weight:800}.line,.request-head,.field-row{display:flex;align-items:center;gap:12rpx}.line{padding:14rpx 0;border-top:1rpx solid #eee;flex-wrap:wrap}.line-copy{flex:1;min-width:220rpx;gap:4rpx}.qty-stepper{display:flex;align-items:center;gap:6rpx}.qty{width:104rpx;min-height:72rpx;padding:0 10rpx;border:1rpx solid #ddd;border-radius:8rpx;box-sizing:border-box;text-align:center}.qty-button{width:66rpx;min-height:66rpx;margin:0;padding:0;border:1rpx solid #d9c8b5;border-radius:12rpx;background:#fff8ef;color:#70491f;font-size:32rpx}.max-production{flex-basis:100%;padding:14rpx 18rpx;border-radius:12rpx;background:#fff1d8;color:#8b571f;font-size:27rpx;font-weight:900}.date-input{flex:1;min-height:72rpx;padding:0 16rpx;border:1rpx solid #ddd;border-radius:8rpx;box-sizing:border-box}.remove{margin:0;color:#a22;background:#fff;border:1rpx solid #e5caca}.textarea{min-height:112rpx;padding:16rpx;border:1rpx solid #ddd;border-radius:8rpx;background:#fafafa;box-sizing:border-box}.primary,.secondary{min-height:76rpx;margin:0;border-radius:8rpx;font-size:25rpx}.primary{background:#2b2118;color:#fff}.primary.compact{min-height:64rpx;padding:0 24rpx}.secondary{background:#fff;border:1rpx solid #d8d8d8}.preview,.request{padding:16rpx;border:1rpx solid #eee;border-radius:8rpx}.preview-row{gap:6rpx;padding:12rpx 0;border-top:1rpx solid #eee}.preview-row.shortage{background:#fff6f4}.request-head{justify-content:space-between;flex-direction:row}.status{color:#28624a;font-weight:800}.submission-block{display:block;padding:14rpx 16rpx;border-radius:10rpx;background:#f3eee8;color:#77685b;font-size:22rpx}.danger,.error{color:#b42318}.error{display:block;padding:18rpx}
 </style>

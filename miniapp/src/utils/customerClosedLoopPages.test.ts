@@ -50,6 +50,8 @@ describe('customer closed-loop miniapp pages', () => {
     expect(page).toContain('newProcessingIdempotencyKey')
     expect(page).toContain('mergeProcessingTargetLines')
     expect(page).toContain('最大可生产')
+		expect(page).toContain('qty-stepper')
+		expect(page).toContain('changeLineQty')
 		expect(page).toContain('提交后立即预订物料')
 		expect(page).not.toContain('申请阶段不会占用物料')
     expect(page).toContain('客户库存')
@@ -64,13 +66,39 @@ describe('customer closed-loop miniapp pages', () => {
     expect(page).not.toContain('选择投入的物料')
     expect(page).not.toContain('投入生豆克重')
     expect(page).not.toContain('新建发货订单')
+		expect(page).toContain('processing-request-detail')
+  })
+
+  it('shows the pre-order supply split and a real processing timeline on standalone pages', () => {
+    const directShip = source('src/components/CustomerDirectShipPanel.vue')
+    const create = source('src/pages/processing-request-create/processing-request-create.vue')
+    const detail = source('src/pages/processing-request-detail/processing-request-detail.vue')
+    const fulfillment = source('src/utils/customerFulfillment.ts')
+    const pages = source('src/pages.json')
+
+    for (const label of ['现货可用', '工单可预订', '本次可下单', '本单拟占用现货', '本单拟占用在制', '提交后剩余', '价格来源']) {
+      expect(directShip).toContain(label)
+    }
+    expect(create).toContain('CustomerProcessingPanel')
+    expect(create).toContain('standalone')
+    for (const label of ['待接单', '已接单', '开始生产', '生产完成']) {
+      expect(fulfillment).toContain(label)
+    }
+    for (const label of ['申请数量', '累计入库', '有效预订', '剩余可预订', '当前工序', '使用现货或在制产出继续下单']) {
+      expect(detail).toContain(label)
+    }
+    expect(detail).toContain('processingRequestTimeline')
+    expect(pages).toContain('pages/processing-request-create/processing-request-create')
+    expect(pages).toContain('pages/processing-request-detail/processing-request-detail')
   })
 
   it('shows owned finished, green, packaging and semi-finished assets with batches and ledger', () => {
     const list = source('src/components/CustomerInventoryPanel.vue')
+    const detail = source('src/pages/customer-inventory-detail/customer-inventory-detail.vue')
 
     expect(list).toContain('fetchCustomerAssetInventory')
-    expect(list).toContain('fetchCustomerAssetInventoryLedger')
+    expect(list).toContain('customerInventoryDetailPath')
+    expect(detail).toContain('fetchCustomerInventoryBatches')
     expect(list).toContain("key: 'finished_product'")
     expect(list).toContain("key: 'green_bean'")
     expect(list).toContain("key: 'packaging'")
@@ -78,8 +106,8 @@ describe('customer closed-loop miniapp pages', () => {
     expect(list).toContain('可用')
     expect(list).toContain('占用')
     expect(list).toContain('生产中')
-    expect(list).toContain('库存批次')
-    expect(list).toContain('出入库流水')
+    expect(detail).toContain('库存批次')
+    expect(detail).toContain('入库时间')
     expect(list).toContain('processingPrefill.stage')
   })
 

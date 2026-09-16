@@ -214,6 +214,12 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	if len(batches) != 2 || batches[0].ProductionDate != "2026-08-01" || batches[0].AvailableQty != 0 || batches[0].ReservedQty != 2 || batches[1].AvailableQty != 1 || batches[1].ReservedQty != 1 {
 		t.Fatalf("batch inventory = %#v", batches)
 	}
+	if len(batches[0].RelatedOrders) != 1 || batches[0].RelatedOrders[0].OrderID <= 0 || batches[0].RelatedOrders[0].ReservedQty != 2 || batches[0].RelatedOrders[0].Status != "待发货" {
+		t.Fatalf("first batch related orders = %#v", batches[0].RelatedOrders)
+	}
+	if len(batches[1].RelatedOrders) != 1 || batches[1].RelatedOrders[0].OrderID <= 0 || batches[1].RelatedOrders[0].ReservedQty != 1 || batches[1].RelatedOrders[0].Status != "待发货" {
+		t.Fatalf("second batch related orders = %#v", batches[1].RelatedOrders)
+	}
 
 	cancelled, err := repo.CancelMiniDirectShipRequest(ctx, 501, created.ID, "mini_user:801")
 	if err != nil {
@@ -1182,4 +1188,16 @@ func assertMiniCatalogAvailableQty(t *testing.T, catalog app.MiniDirectShipCatal
 		}
 	}
 	t.Fatalf("catalog product/spec %d/%d not found in %#v", productID, specG, catalog)
+}
+
+func TestMiniStockKeyUsesPublishedBOMSpecAsCanonicalIdentity(t *testing.T) {
+	if miniStockKey(1089, 408, 454) != miniStockKey(1089, 408, 0) {
+		t.Fatal("published BOM specification must match regardless of legacy gram field")
+	}
+	if miniWarehouseStockKey(1089, 408, 454, "PR668-454-FG") != miniWarehouseStockKey(1089, 408, 0, "PR668-454-FG") {
+		t.Fatal("warehouse stock key must use the same canonical BOM specification identity")
+	}
+	if miniStockKey(1089, 0, 454) == miniStockKey(1089, 0, 0) {
+		t.Fatal("legacy stock without a BOM specification must still be isolated by gram value")
+	}
 }

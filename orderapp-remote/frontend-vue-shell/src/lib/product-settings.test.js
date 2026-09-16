@@ -4367,7 +4367,8 @@ test('product archive list uses the product name as the only production config e
   assert.doesNotMatch(template, /当前引用/)
   assert.doesNotMatch(template, />生产配置<\/button>/)
   assert.doesNotMatch(template, /更换生产 BOM/)
-  assert.doesNotMatch(template, />维护 BOM<\/button>/)
+  assert.doesNotMatch(skuTable, />维护 BOM<\/button>/)
+  assert.match(template, /默认已发布 BOM · 配方与工艺[\s\S]*>维护 BOM<\/button>/)
   assert.doesNotMatch(template, /<th>BOM<\/th>/)
   assert.doesNotMatch(template, /product-action-guide/)
   assert.doesNotMatch(template, /production-config-summary/)
@@ -5195,6 +5196,12 @@ test('product archive displays and saves the ordered union of selected industry 
   assert.match(projectionGuardBlock, /isCurrentProductProductionConfigOpen\(generation, productID\)/)
   assert.match(projectionGuardBlock, /industryFieldTemplateIDsFromConfig\(productProductionConfigForm\.value\)\.join\(','\) === String\(industryFieldTemplateSignature \|\| ''\)/)
   assert.match(closeBlock, /productProductionConfigOpenGeneration \+= 1\s*productProductionConfigDrawerOpen\.value = false/)
+})
+
+test('product production drawer displays the stable product code instead of the category row number', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  assert.match(source, /<span>商品编号<\/span>\s*<input :value="productCodeLabel\(productProductionConfigProduct \|\| \{\}\) \|\| '-'" disabled \/>/)
+  assert.doesNotMatch(source, /productProductionConfigProduct\?\.number/)
 })
 
 test('product settings uses product business groups instead of product classification page controls', () => {

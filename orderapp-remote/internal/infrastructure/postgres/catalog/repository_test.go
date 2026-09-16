@@ -826,6 +826,25 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndCleansIndustryFields(
 	}
 }
 
+func TestListProductProductionConfigsReadsCanonicalDefaultOutputBinding(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) ListProductProductionConfigs", "func (r Repository) GetProductProductionConfig")
+	for _, want := range []string{
+		"production_bom_output_bindings default_binding",
+		"default_binding.output_type='product'",
+		"default_binding.is_default=true",
+		"COALESCE(NULLIF(config.production_bom_id,0),default_binding.bom_id,0)",
+		"COALESCE(NULLIF(config.production_bom_version_id,0),default_binding.bom_version_id,0)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("product production config must read canonical default output binding; missing %q", want)
+		}
+	}
+}
+
 func TestPR598SaveProductProductionConfigDualWritesUnifiedOutputBinding(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

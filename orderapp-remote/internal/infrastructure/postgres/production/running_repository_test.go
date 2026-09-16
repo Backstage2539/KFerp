@@ -55,3 +55,28 @@ func TestResolveFinishConsumedInputProratesFrozenAdditiveBomInput(t *testing.T) 
 		t.Fatalf("partial=%v consumed input=%d, want additive BOM ratio 500/1000 * 1200 = 600", partial, consumedInputG)
 	}
 }
+
+func TestResolveBOMSpecFinishInputKeepsPartialRemainder(t *testing.T) {
+	consumedInputG, partial, err := resolveBOMSpecFinishInput(
+		ProduceRunRow{BomSpecID: 16001, PlanUnits: 100, InputG: 45_400},
+		productionapp.FinishCommand{Partial: true},
+		InvQty{Units: 10},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !partial || consumedInputG != 4_540 {
+		t.Fatalf("partial=%v consumed input=%d, want partial 4540", partial, consumedInputG)
+	}
+}
+
+func TestResolveBOMSpecFinishInputRejectsPartialAtRemainingQuantity(t *testing.T) {
+	_, _, err := resolveBOMSpecFinishInput(
+		ProduceRunRow{BomSpecID: 16001, PlanUnits: 90, InputG: 40_860},
+		productionapp.FinishCommand{Partial: true},
+		InvQty{Units: 90},
+	)
+	if err == nil {
+		t.Fatal("expected partial receipt at the full remaining quantity to be rejected")
+	}
+}

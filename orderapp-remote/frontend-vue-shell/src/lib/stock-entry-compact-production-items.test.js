@@ -77,7 +77,7 @@ test('opening a bound production draft refreshes it through the work-order previ
   assert.match(source, /stock_document_id: Number\(row\.id \|\| 0\)/)
   assert.match(source, /return_source: 'stock_document_list'/)
   assert.match(source, /preview\.warnings/)
-  assert.match(source, /applyDocument\(await apiGet\(`\$\{stockEntryEndpoint\(\)\}\/\$\{row\.id\}`\)\)/)
+  assert.match(source, /const data = await apiGet\(`\$\{stockEntryEndpoint\(\)\}\/\$\{row\.id\}`\)[\s\S]*applyDocument\(data\)/)
 })
 
 test('regular stock documents keep the existing card form', () => {

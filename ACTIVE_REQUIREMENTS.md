@@ -1,5 +1,16 @@
 # ACTIVE_REQUIREMENTS
 
+### PR-668-PR667-COMPLETE-UI-FLOW
+- Branch: `codex/pr667-complete-ui-flow-20260916`; baseline `origin/develop@8584038f`.
+- Owner/session: Codex / Van / 2026-09-16.
+- Status: implementation in progress; Van business acceptance pending.
+- Scope: 补齐 PR-667 的 8 个 ERP/小程序界面、共享详情数据、跨页跳转、完整 454g × 100 件生产与 20 件提前预订验收、双环境发布和生产小程序包。
+- DEV: DEV-694-SHARED-PROCESSING-DETAIL; DEV-695-ERP-CUSTOMER-PROCESSING-UI; DEV-696-ERP-PRODUCTION-TRACE-UI; DEV-697-MINIAPP-PROCESSING-UI; DEV-698-MINIAPP-ORDER-INVENTORY-UI; DEV-699-VISUAL-FLOW-DELIVERY.
+- Verifier: targeted RED/GREEN Go/API/Vue/miniapp tests; PostgreSQL quantity/status invariants; complete verifier; 8 reference-image comparisons; development full-flow and device validation before main/production.
+- Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`, `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OP_MANUAL_STOCK.md`.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-16-pr667-complete-ui-flow.md`.
+- Delivery: feature -> develop -> development acceptance -> main -> production; production miniapp artifact and device validation, excluding WeChat review/publication.
+
 ### PR-667-CUSTOMER-PROCESSING-RESERVATION-FULFILLMENT
 - Branch: `codex/customer-processing-reservations-20260915`; baseline `origin/develop@d111908e`.
 - Owner/session: Codex / Van / 2026-09-15.
@@ -5354,14 +5365,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-647-ORDER-CONFIRMATION-PRICE-SORT
 - Branch: `codex/order-confirmation-price-sort-20260910`; synchronized base `afb2c0cc4da2a6a142ca4d33bc9283f8afffa980`.
-- Status: verified and deployed to development at `2bd15db4`; production release authorized; Van business acceptance pending.
-- Owner/session: Codex / 2026-09-10; serialized integration completed from unchanged develop base.
+- Status: verified feature merged into develop in the merge containing this record; Van business acceptance pending; not deployed.
+- Owner/session: Codex / 2026-09-10; serialized integration completed from unchanged develop base; no deployment.
 - Pushed feature commit: `c4c6523310413306feb7bb947327ebe9624c7f44`; integration commit is the develop merge containing this record.
 - Scope: 分类即时显示；价格表独立排序和草稿 PDF 缓存；同一履约订单待确认、接单、拒绝恢复及整单状态同步。
 - DEV: DEV-647-CATEGORY-SORT; DEV-647-ORDER-CONFIRMATION; DEV-647-ORDER-STATUS.
 - Verifier: targeted real PostgreSQL 6 complete-flow tests pass / 0 skip; Vue 1159/1159 and build; full standard Go and changed gates pass. Extra full PostgreSQL packages match baseline failures exactly (101 sales/fulfillment + 1 production); those runs are not counted as passes.
 - Evidence: `orderapp-remote/docs/acceptance/2026-09-10-order-confirmation-price-sort.md`.
-- Deployment: the earlier develop-only boundary was superseded by Van’s later authorization to deploy latest develop to development and production; no price publication or business data rewrite.
+- Deployment: merge develop only; no application deployment, server migration, price publication or development/production business data writes.
 
 ### PR-655-PRODUCTION-SCHEDULING-STAFF
 - Branch: codex/production-scheduling-staff-20260912
@@ -5374,8 +5385,6 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development release 6df328eb203ef124043c4e06456d2f31c67c5a21 completed; source rollback /opt/stacks/erp/orderapp.backup.deploy-20260912212752-6df328eb203e; this follow-up records delivery evidence and tracking status only.
 - Evidence: orderapp-remote/docs/acceptance/2026-09-12-production-scheduling-staff.md; Go all packages, real PostgreSQL lifecycle, Vue 1203/1203 and build passed. Six screenshot categories captured; native unsaved-confirm dismissal and subsequent click QA limited by browser automation.
 - Notes: reservation selected PR-655; macOS awk multiline placeholder failed, reserved manually before implementation.
-
-- PR-643 production promotion: codex/customer-account-production-20260909 from origin/main 1d111a4f; only verified PR-643 change, preserving existing production acceptance records; development Go/API/Vue/PDF verification and 27 post-deploy checks passed.
 
 ### PR-663-CUSTOMER-MINIAPP-ERP-INTEGRATION
 - Branch: `codex/customer-miniapp-erp-integration-20260914`; baseline `origin/develop@2ad3ac75256dd6b207abd68d4e94c3811aa84be3`.

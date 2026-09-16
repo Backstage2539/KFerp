@@ -714,52 +714,64 @@ func (r Repository) ListProcessingRequests(ctx context.Context, customerID int64
 		limit = 50
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT r.id,r.request_no,r.input_material_id,COALESCE(m.name,''),r.input_qty_g,
+		SELECT r.id,r.request_no,r.customer_id,COALESCE(c.name,''),r.input_material_id,COALESCE(m.name,''),r.input_qty_g,
 		       r.target_product_id,COALESCE(p.name,''),r.target_spec_g,r.target_qty,
 		       r.status,r.note,COALESCE(to_char(r.expected_completion_date,'YYYY-MM-DD'),''),to_char(r.created_at,'YYYY-MM-DD HH24:MI'),
 		       COALESCE(to_char(r.accepted_at,'YYYY-MM-DD HH24:MI'),''),r.linked_work_order_id
 		FROM %s.processing_job_requests r
 		LEFT JOIN %s.materials m ON m.id=r.input_material_id
 		LEFT JOIN %s.products p ON p.id=r.target_product_id
+		LEFT JOIN %s.customers c ON c.id=r.customer_id
 		WHERE r.customer_id=$1
 		ORDER BY r.created_at DESC,r.id DESC
 		LIMIT $2
-	`, r.schema, r.schema, r.schema), customerID, limit)
+	`, r.schema, r.schema, r.schema, r.schema), customerID, limit)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := make([]customerportalapp.ProcessingRequest, 0)
+	requestIDs := make([]int64, 0)
 	for rows.Next() {
 		var row customerportalapp.ProcessingRequest
-		if err := rows.Scan(&row.ID, &row.RequestNo, &row.InputMaterialID, &row.InputMaterialName, &row.InputQtyG,
+		if err := rows.Scan(&row.ID, &row.RequestNo, &row.CustomerID, &row.CustomerName, &row.InputMaterialID, &row.InputMaterialName, &row.InputQtyG,
 			&row.TargetProductID, &row.TargetProductName, &row.TargetSpecG, &row.TargetQty,
 			&row.Status, &row.Note, &row.ExpectedCompletionDate, &row.CreatedAt, &row.AcceptedAt, &row.LinkedWorkOrderID); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		row.Items, err = r.listProcessingRequestItems(ctx, customerID, row.ID)
-		if err != nil {
-			return nil, err
-		}
-		applyProcessingRequestDerivedFields(&row)
 		out = append(out, row)
+		requestIDs = append(requestIDs, row.ID)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	itemsByRequestID, err := r.listProcessingRequestItemsForRequests(ctx, customerID, requestIDs)
+	if err != nil {
+		return nil, err
+	}
+	for index := range out {
+		out[index].Items = itemsByRequestID[out[index].ID]
+		applyProcessingRequestDerivedFields(&out[index])
+	}
+	return out, nil
 }
 
 func (r Repository) GetProcessingRequest(ctx context.Context, customerID, requestID int64) (customerportalapp.ProcessingRequest, error) {
 	var row customerportalapp.ProcessingRequest
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT r.id,r.request_no,r.input_material_id,COALESCE(m.name,''),r.input_qty_g,
+		SELECT r.id,r.request_no,r.customer_id,COALESCE(c.name,''),r.input_material_id,COALESCE(m.name,''),r.input_qty_g,
 		       r.target_product_id,COALESCE(p.name,''),r.target_spec_g,r.target_qty,
 		       r.status,r.note,COALESCE(to_char(r.expected_completion_date,'YYYY-MM-DD'),''),to_char(r.created_at,'YYYY-MM-DD HH24:MI'),
 		       COALESCE(to_char(r.accepted_at,'YYYY-MM-DD HH24:MI'),''),r.linked_work_order_id
 		FROM %s.processing_job_requests r
 		LEFT JOIN %s.materials m ON m.id=r.input_material_id
 		LEFT JOIN %s.products p ON p.id=r.target_product_id
+		LEFT JOIN %s.customers c ON c.id=r.customer_id
 		WHERE r.customer_id=$1 AND r.id=$2
-	`, r.schema, r.schema, r.schema), customerID, requestID).Scan(
-		&row.ID, &row.RequestNo, &row.InputMaterialID, &row.InputMaterialName, &row.InputQtyG,
+	`, r.schema, r.schema, r.schema, r.schema), customerID, requestID).Scan(
+		&row.ID, &row.RequestNo, &row.CustomerID, &row.CustomerName, &row.InputMaterialID, &row.InputMaterialName, &row.InputQtyG,
 		&row.TargetProductID, &row.TargetProductName, &row.TargetSpecG, &row.TargetQty,
 		&row.Status, &row.Note, &row.ExpectedCompletionDate, &row.CreatedAt, &row.AcceptedAt, &row.LinkedWorkOrderID,
 	)
@@ -778,18 +790,38 @@ func (r Repository) GetProcessingRequest(ctx context.Context, customerID, reques
 }
 
 func (r Repository) listProcessingRequestItems(ctx context.Context, customerID, requestID int64) ([]customerportalapp.ProcessingRequestItem, error) {
+	itemsByRequestID, err := r.listProcessingRequestItemsForRequests(ctx, customerID, []int64{requestID})
+	if err != nil {
+		return nil, err
+	}
+	return itemsByRequestID[requestID], nil
+}
+
+func (r Repository) listProcessingRequestItemsForRequests(ctx context.Context, customerID int64, requestIDs []int64) (map[int64][]customerportalapp.ProcessingRequestItem, error) {
+	out := make(map[int64][]customerportalapp.ProcessingRequestItem, len(requestIDs))
+	if len(requestIDs) == 0 {
+		return out, nil
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT i.id,i.line_no,i.product_id,i.parent_product_id,i.bom_spec_id,i.bom_variant_id,
+		SELECT i.request_id,i.id,i.line_no,i.product_id,i.parent_product_id,i.bom_spec_id,i.bom_variant_id,
 		       i.product_name,i.spec_name,i.inventory_unit,i.spec_g,i.target_qty,i.need_g,
 		       i.target_warehouse,i.bom_version_id,i.bom_version_no,i.bom_source_product_id,i.bom_inherited,
 		       COALESCE(i.material_snapshot_json,'[]'::jsonb)::text,
 		       i.production_plan_id,i.production_plan_item_id,i.linked_work_order_id,COALESCE(wo.work_order_no,''),
 		       COALESCE(receipt.actual_inbound_qty,0)::float8,
+		       COALESCE(to_char(wo.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(to_char(progress.started_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(to_char(receipt.completed_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(progress.current_operation,''),
+		       COALESCE(materials.reserved_g,0),COALESCE(materials.reserved_units,0),
+		       COALESCE(output.reserved_qty,0),COALESCE(output.converted_qty,0),COALESCE(output.released_qty,0),COALESCE(output.shortfall_qty,0),
+		       COALESCE(output.related_orders,'[]'::jsonb)::text,
 		       CASE
 		         WHEN COALESCE(wo.status,'')='completed' THEN 'completed'
 		         WHEN COALESCE(wo.status,'')='partially_completed' THEN 'partially_completed'
-		         WHEN COALESCE(wo.status,'')='paused' THEN 'paused'
-		         WHEN COALESCE(wo.status,'')='running' THEN 'running'
+		         WHEN COALESCE(wo.status,'')='paused' AND progress.started_at IS NOT NULL THEN 'paused'
+		         WHEN COALESCE(wo.status,'')='running' AND progress.started_at IS NOT NULL THEN 'running'
+		         WHEN COALESCE(wo.status,'') IN ('running','paused') THEN 'released'
 		         WHEN COALESCE(wo.status,'')='released' THEN 'released'
 		         WHEN COALESCE(wo.status,'')='cancelled' THEN 'cancelled'
 		         WHEN COALESCE(pp.status,'')='cancelled' OR i.status='cancelled' THEN 'cancelled'
@@ -801,33 +833,83 @@ func (r Repository) listProcessingRequestItems(ctx context.Context, customerID, 
 		LEFT JOIN %s.production_plans pp ON pp.id=i.production_plan_id
 		LEFT JOIN %s.work_orders wo ON wo.id=i.linked_work_order_id
 		LEFT JOIN LATERAL (
+			SELECT MIN(jc.started_at) AS started_at,
+			       (array_agg(NULLIF(jc.operation,'') ORDER BY CASE jc.status WHEN 'running' THEN 0 WHEN 'paused' THEN 1 WHEN 'ready' THEN 2 ELSE 3 END,jc.sequence_no,jc.id)
+			          FILTER (WHERE jc.status NOT IN ('completed','cancelled')))[1] AS current_operation
+			FROM %s.job_cards jc
+			WHERE jc.work_order_id=i.linked_work_order_id
+		) progress ON true
+		LEFT JOIN LATERAL (
 			SELECT SUM(CASE WHEN si.qty_units>0 THEN si.qty_units::numeric
-			                    WHEN si.spec_g>0 THEN si.qty_g::numeric/si.spec_g ELSE 0 END) AS actual_inbound_qty
+			                    WHEN si.spec_g>0 THEN si.qty_g::numeric/si.spec_g ELSE 0 END) AS actual_inbound_qty,
+			       MAX(COALESCE(se.submitted_at,se.created_at)) AS completed_at
 			FROM %s.stock_entries se
 			JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id
 			WHERE se.work_order_id=i.linked_work_order_id AND se.status='submitted'
-			  AND se.purpose='manufacture' AND COALESCE(se.is_return,false)=false
+			  AND (se.purpose='manufacture' OR (se.entry_type='finished_receipt' AND se.source_type='work_order_complete'))
+			  AND COALESCE(se.is_return,false)=false
 			  AND si.item_type='finished_product'
+			  AND si.product_id=i.product_id AND si.owner_customer_id=r.customer_id
+			  AND (i.target_warehouse='' OR si.to_warehouse=i.target_warehouse)
+			  AND ((i.bom_spec_id>0 AND si.bom_spec_id=i.bom_spec_id) OR (i.bom_spec_id=0 AND si.spec_g=i.spec_g))
+			  AND EXISTS (
+			    SELECT 1 FROM %s.stock_batches finished_batch
+			    WHERE finished_batch.item_type='finished_product' AND finished_batch.item_id=si.product_id
+			      AND finished_batch.owner_customer_id=si.owner_customer_id AND finished_batch.batch_code=si.batch_code
+			      AND COALESCE(finished_batch.quality_status,'unchecked') NOT IN ('hold','reject')
+			  )
 		) receipt ON true
-		WHERE i.request_id=$2
-		ORDER BY i.line_no,i.id
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), customerID, requestID)
+		LEFT JOIN LATERAL (
+			SELECT SUM(GREATEST(reserved_g-consumed_g-returned_g,0))::bigint AS reserved_g,
+			       SUM(GREATEST(reserved_units-consumed_units-returned_units,0))::bigint AS reserved_units
+			FROM %s.customer_processing_material_reservations mr
+			WHERE mr.request_item_id=i.id AND mr.status NOT IN ('cancelled','released')
+		) materials ON true
+		LEFT JOIN LATERAL (
+			SELECT SUM(orow.reserved_qty)::bigint AS reserved_qty,
+			       SUM(orow.converted_qty)::bigint AS converted_qty,
+			       SUM(orow.released_qty)::bigint AS released_qty,
+			       SUM(orow.shortfall_qty)::bigint AS shortfall_qty,
+			       jsonb_agg(jsonb_build_object(
+			         'order_id',orow.order_id,'order_no',orow.order_no,'status',orow.status,
+			         'reserved_qty',orow.reserved_qty,'converted_qty',orow.converted_qty,
+			         'released_qty',orow.released_qty,'shortfall_qty',orow.shortfall_qty
+			       ) ORDER BY orow.created_at,orow.order_id) AS related_orders
+			FROM (
+				SELECT reservation.order_id,COALESCE(o.order_no,'') AS order_no,reservation.status,
+				       reservation.reserved_qty,reservation.converted_qty,reservation.released_qty,reservation.shortfall_qty,
+				       reservation.created_at
+				FROM %s.customer_processing_output_reservations reservation
+				JOIN %s.orders o ON o.id=reservation.order_id
+				WHERE reservation.processing_request_item_id=i.id
+			) orow
+		) output ON true
+		WHERE i.request_id=ANY($2::bigint[])
+		ORDER BY i.request_id,i.line_no,i.id
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), customerID, requestIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]customerportalapp.ProcessingRequestItem, 0)
 	for rows.Next() {
+		var requestID int64
 		var row customerportalapp.ProcessingRequestItem
-		if err := rows.Scan(&row.ID, &row.LineNo, &row.ProductID, &row.ParentProductID, &row.BomSpecID, &row.BomVariantID,
+		var relatedOrdersJSON string
+		if err := rows.Scan(&requestID, &row.ID, &row.LineNo, &row.ProductID, &row.ParentProductID, &row.BomSpecID, &row.BomVariantID,
 			&row.ProductName, &row.SpecName, &row.InventoryUnit, &row.SpecG, &row.Qty, &row.NeedG,
 			&row.TargetWarehouse, &row.BomVersionID, &row.BomVersionNo,
 			&row.BomSourceProductID, &row.BomInherited, &row.MaterialSnapshot,
-			&row.ProductionPlanID, &row.ProductionPlanItemID, &row.LinkedWorkOrderID, &row.WorkOrderNo, &row.ActualInboundQty, &row.Status); err != nil {
+			&row.ProductionPlanID, &row.ProductionPlanItemID, &row.LinkedWorkOrderID, &row.WorkOrderNo, &row.ActualInboundQty,
+			&row.AcceptedAt, &row.StartedAt, &row.CompletedAt, &row.CurrentOperation, &row.MaterialReservedG, &row.MaterialReservedUnits,
+			&row.OutputReservedQty, &row.OutputConvertedQty, &row.OutputReleasedQty, &row.OutputShortfallQty,
+			&relatedOrdersJSON, &row.Status); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(relatedOrdersJSON), &row.RelatedOrders); err != nil {
 			return nil, err
 		}
 		row.WorkOrderID = row.LinkedWorkOrderID
-		out = append(out, row)
+		out[requestID] = append(out[requestID], row)
 	}
 	return out, rows.Err()
 }
@@ -845,7 +927,41 @@ func applyProcessingRequestDerivedFields(row *customerportalapp.ProcessingReques
 	priority := map[string]int{"cancelled": 0, "awaiting_schedule": 1, "planned": 2, "released": 3, "paused": 4, "running": 5, "partially_completed": 6, "completed": 7}
 	bestStatus, bestPriority := "awaiting_schedule", -1
 	completed := 0
-	for _, item := range row.Items {
+	row.RequestedQty = 0
+	row.ActualInboundQty = 0
+	row.OutputReservedQty = 0
+	row.OutputConvertedQty = 0
+	row.OutputReleasedQty = 0
+	row.OutputShortfallQty = 0
+	acceptedAt := ""
+	for index := range row.Items {
+		item := &row.Items[index]
+		row.RequestedQty += item.Qty
+		row.ActualInboundQty += item.ActualInboundQty
+		row.OutputReservedQty += item.OutputReservedQty
+		row.OutputConvertedQty += item.OutputConvertedQty
+		row.OutputReleasedQty += item.OutputReleasedQty
+		row.OutputShortfallQty += item.OutputShortfallQty
+		if acceptedAt == "" || (item.AcceptedAt != "" && item.AcceptedAt < acceptedAt) {
+			acceptedAt = item.AcceptedAt
+		}
+		if row.StartedAt == "" || (item.StartedAt != "" && item.StartedAt < row.StartedAt) {
+			row.StartedAt = item.StartedAt
+		}
+		if item.CompletedAt > row.CompletedAt {
+			row.CompletedAt = item.CompletedAt
+		}
+		if item.Status != "cancelled" {
+			satisfied := item.Qty > 0 && item.ActualInboundQty >= float64(item.Qty)
+			switch {
+			case satisfied:
+				item.Status = "completed"
+			case item.Status == "completed" && item.ActualInboundQty > 0:
+				item.Status = "partially_completed"
+			case item.Status == "completed":
+				item.Status = "running"
+			}
+		}
 		if item.Status == "completed" {
 			completed++
 		}
@@ -858,4 +974,12 @@ func applyProcessingRequestDerivedFields(row *customerportalapp.ProcessingReques
 		bestStatus = "partially_completed"
 	}
 	row.Status = bestStatus
+	if acceptedAt != "" {
+		row.AcceptedAt = acceptedAt
+	}
+	if row.Status != "completed" {
+		row.CompletedAt = ""
+	}
+	activeReserved := float64(nonnegativeInt64(row.OutputReservedQty - row.OutputConvertedQty - row.OutputReleasedQty))
+	row.RemainingReservableQty = math.Max(0, float64(row.RequestedQty)-row.ActualInboundQty-activeReserved)
 }

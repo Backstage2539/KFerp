@@ -1624,22 +1624,27 @@ func repairSubmittedDirectShipERPOrderReceivers(ctx context.Context, pool *pgxpo
 func repairSubmittedDirectShipERPOrderDiscounts(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	repo := NewRepository(pool, schema)
 	rows, err := pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, COALESCE(order_id,0)
-		FROM %s.customer_direct_ship_import_orders
-		WHERE COALESCE(order_id,0)>0
-		ORDER BY id
-	`, schema))
+		SELECT import_order.id, COALESCE(import_order.order_id,0),
+		       EXISTS(
+		         SELECT 1 FROM %s.customer_direct_ship_request_orders request_order
+		         WHERE request_order.order_id=import_order.order_id
+		       ) AS current_request_order
+		FROM %s.customer_direct_ship_import_orders import_order
+		WHERE COALESCE(import_order.order_id,0)>0
+		ORDER BY import_order.id
+	`, schema, schema))
 	if err != nil {
 		return err
 	}
 	type seed struct {
-		importOrderID int64
-		orderID       int64
+		importOrderID       int64
+		orderID             int64
+		currentRequestOrder bool
 	}
 	seeds := make([]seed, 0)
 	for rows.Next() {
 		var s seed
-		if err := rows.Scan(&s.importOrderID, &s.orderID); err != nil {
+		if err := rows.Scan(&s.importOrderID, &s.orderID, &s.currentRequestOrder); err != nil {
 			rows.Close()
 			return err
 		}
@@ -1652,6 +1657,9 @@ func repairSubmittedDirectShipERPOrderDiscounts(ctx context.Context, pool *pgxpo
 	rows.Close()
 
 	for _, s := range seeds {
+		if !shouldRepairSubmittedDirectShipOrder(s.currentRequestOrder) {
+			continue
+		}
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			return err
@@ -1676,6 +1684,10 @@ func repairSubmittedDirectShipERPOrderDiscounts(ctx context.Context, pool *pgxpo
 		}
 	}
 	return nil
+}
+
+func shouldRepairSubmittedDirectShipOrder(currentRequestOrder bool) bool {
+	return !currentRequestOrder
 }
 
 func (r *Repository) createSubmittedDirectShipERPOrderTx(ctx context.Context, tx pgx.Tx, importOrderID int64) (int64, error) {

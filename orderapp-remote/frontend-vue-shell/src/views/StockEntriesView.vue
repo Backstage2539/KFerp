@@ -48,8 +48,8 @@
             <td>{{ row.created_at || '-' }}</td>
             <td>{{ row.note || '-' }}</td>
             <td class="row-actions">
-              <button v-if="!row.legacy" class="link" type="button" @click="openExisting(row)">查看</button>
-              <span v-else class="legacy-readonly">只读</span>
+              <button class="link" type="button" @click="openExisting(row)">{{ row.purpose === 'manufacture' ? '查看结果' : '查看' }}</button>
+              <span v-if="row.legacy" class="legacy-readonly">只读</span>
               <button v-if="row.status === 'cancelled'" class="link disabled" type="button" disabled>已取消</button>
               <button v-else-if="row.status === 'submitted' && !row.legacy && row.purpose !== 'material_receipt'" class="danger-link" type="button" @click="cancelDocument(row)">取消</button>
             </td>
@@ -82,6 +82,42 @@
           <p>{{ stockPreviewState.message }}</p>
           <ProductionReturnLink :source="props.viewParams?.return_navigation" />
         </div>
+        <section v-if="completionResultLoading || completionResult" class="completion-result" aria-label="完工入库结果">
+          <div class="completion-result-head">
+            <div><span>完工入库结果</span><h4>{{ completionResult?.stockEntryNo || form.entry_no }}</h4><p>入库、客户货权、成品占用和发货状态使用同一组后台数据。</p></div>
+            <span class="status submitted">{{ completionResultLoading ? '正在核对' : '已入库' }}</span>
+          </div>
+          <div v-if="completionResultLoading" class="completion-result-loading">正在核对客户生产申请、库存批次和订单预订…</div>
+          <template v-else-if="completionResult">
+            <div class="completion-metrics">
+              <div><span>本次实际入库</span><strong>{{ numberLabel(completionResult.receiptQty) }} 件</strong></div>
+              <div><span>库存总量</span><strong>{{ numberLabel(completionResult.inventoryTotalQty) }} 件</strong></div>
+              <div><span>订单占用</span><strong>{{ numberLabel(completionResult.occupiedQty) }} 件</strong></div>
+              <div><span>现货可用</span><strong>{{ numberLabel(completionResult.availableQty) }} 件</strong></div>
+            </div>
+            <div class="completion-trace-grid">
+              <div><span>质检结果</span><strong>{{ completionResult.qualityLabel }}</strong></div>
+              <div><span>客户货权</span><strong>{{ completionResult.customerName || (completionResult.customerID ? `客户 #${completionResult.customerID}` : '-') }}</strong></div>
+              <div><span>目标仓库</span><strong>{{ warehouseName(completionResult.warehouse) }}</strong></div>
+              <div><span>来源工单</span><strong>{{ completionResult.workOrderNo || '-' }}</strong></div>
+              <div><span>客户生产申请</span><strong>{{ completionResult.requestNo || '-' }}</strong></div>
+              <div><span>成品批次</span><strong>{{ completionResult.batchCode || '暂无批次编号' }}</strong></div>
+            </div>
+            <div class="completion-conversions">
+              <strong>本次预订转换与订单状态</strong>
+              <p v-if="!completionResult.convertedOrders.length">本次没有需要转换的客户订单预订。</p>
+              <article v-for="order in completionResult.convertedOrders" :key="order.order_id">
+                <div><strong>{{ order.order_no }}</strong><span>已转成品占用 {{ numberLabel(order.converted_qty - (order.released_qty || 0)) }} 件 · {{ orderFulfillmentLabel(order) }}</span></div>
+                <button class="secondary" type="button" @click="openCompletionOrder(order)">查看订单</button>
+              </article>
+            </div>
+            <div class="completion-actions">
+              <button class="secondary" type="button" @click="openCompletionWorkOrder">查看来源工单</button>
+              <button v-if="completionResult.requestNo" class="secondary" type="button" @click="openCompletionRequest">查看客户申请</button>
+              <button class="primary" type="button" @click="openCompletionInventory">查看库存批次</button>
+            </div>
+          </template>
+        </section>
         <template v-if="stockPreviewState.availability === 'actionable' || !stockPreviewState.message">
         <div class="document-form">
           <label>
@@ -237,6 +273,7 @@ import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { isSemiFinishedMaterial, selectableStockEntryMaterials } from '../lib/material-receipts'
 import { stockEntryEndpoint, stockEntryTypeLabel, stockEntryTypeOptions } from '../lib/manufacturing-execution'
 import { inventoryUnitWeightInGrams, productionStockDocumentPreviewAction, stockCanonicalQuantity, stockDocumentPositiveItems, stockQuantityUsesCount } from '../lib/production-execution-hub'
+import { customerProcessingReceiptResult } from '../lib/customer-processing-trace'
 import {
   buildProductSpecWriteIdentity,
   isProductBomSpecCutover,
@@ -261,6 +298,8 @@ const drawerError = ref('')
 const drawerWarnings = ref([])
 const stockPreviewState = reactive({ availability: '', message: '' })
 const drawerOpen = ref(false)
+const completionResult = ref(null)
+const completionResultLoading = ref(false)
 const filters = reactive({ q: '', purpose: '', status: '', work_order_id: 0 })
 let localKey = 0
 const form = reactive(emptyDocument())
@@ -336,6 +375,19 @@ function quantityLabel(row) {
   if (Number(row.total_qty_g || 0) > 0) return `${Number(row.total_qty_g).toLocaleString('zh-CN')}g`
   if (Number(row.total_qty_units || 0) > 0) return `${Number(row.total_qty_units).toLocaleString('zh-CN')}件`
   return '-'
+}
+
+function numberLabel(value) {
+  return Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 })
+}
+
+function warehouseName(code) {
+  return warehouses.value.find((row) => row.code === code)?.name || code || '-'
+}
+
+function orderFulfillmentLabel(order = {}) {
+  if (Number(order.shortfall_qty || 0) > 0) return `仍缺 ${numberLabel(order.shortfall_qty)} 件`
+  return Number(order.converted_qty || 0) >= Number(order.reserved_qty || 0) ? '待发货' : '待生产'
 }
 
 function itemUsesCount(item = {}) {
@@ -467,6 +519,7 @@ function applyEntryDefaults() {
 }
 
 function openNewDrawer(purpose = '') {
+  completionResult.value = null
   resetForm(emptyDocument())
   if (purpose) form.purpose_key = purpose
   applyEntryDefaults()
@@ -477,6 +530,7 @@ function openNewDrawer(purpose = '') {
 }
 
 function closeDrawer() {
+  completionResult.value = null
   drawerOpen.value = false
   drawerError.value = ''
   drawerWarnings.value = []
@@ -549,11 +603,64 @@ async function submitDocument() {
   try {
     const data = await apiSend(`${stockEntryEndpoint()}/${draft.id}/submit`, { body: receiptOptions })
     applyDocument(data)
+    await loadCompletionResult(data)
     await load()
   } catch (err) {
     drawerError.value = err.message || '提交过账失败'
   } finally {
     saving.value = false
+  }
+}
+
+async function loadCompletionResult(document = {}) {
+  completionResult.value = null
+  const isFinishedReceipt = String(document.status || '') === 'submitted'
+    && String(document.purpose || document.entry_type || '') === 'manufacture'
+    && Number(document.work_order_id || 0) > 0
+    && (document.items || []).some((item) => item.item_type === 'finished_product')
+  if (!isFinishedReceipt) return
+  completionResultLoading.value = true
+  try {
+    const workOrder = await apiGet(`/api/produce/work-orders/${Number(document.work_order_id)}`)
+    const hub = workOrder.execution_hub || {}
+    const header = hub.header || workOrder.work_order || {}
+    const workOrderRow = workOrder.work_order || {}
+    const customerID = Number(header.customer_id || workOrderRow.customer_id || document.items?.[0]?.owner_customer_id || 0)
+    const processingRequestItemID = Number(header.processing_request_item_id || workOrderRow.processing_request_item_id || 0)
+    let request = null
+    if (customerID > 0 && processingRequestItemID > 0) {
+      const requestData = await apiGet(`/api/customer-processing/internal/${customerID}/processing-requests?limit=100`)
+      request = (requestData.rows || []).find((candidate) => (candidate.items || []).some((item) => Number(item.id || 0) === processingRequestItemID)) || null
+    }
+    const summary = customerProcessingReceiptResult({ document, workOrder, request: request || {}, processingRequestItemID })
+    let inventoryTotalQty = summary.inboundQty
+    const productID = Number(header.output_product_id || workOrderRow.output_product_id || workOrderRow.product_id || document.items?.[0]?.product_id || 0)
+    if (productID > 0 && summary.warehouse) {
+      const inventoryURL = new URL('/api/stock/warehouse-inventory', window.location.origin)
+      inventoryURL.searchParams.set('warehouse', summary.warehouse)
+      inventoryURL.searchParams.set('item_type', 'finished_product')
+      inventoryURL.searchParams.set('q', String(header.output_name || workOrderRow.output_name || workOrderRow.product_name || document.items?.[0]?.item_name || ''))
+      inventoryURL.searchParams.set('limit', '500')
+      if (customerID > 0) inventoryURL.searchParams.set('customer_id', String(customerID))
+      const inventory = await apiGet(inventoryURL)
+      const bomSpecID = Number(workOrderRow.bom_spec_id || document.items?.[0]?.bom_spec_id || 0)
+      const specG = Number(workOrderRow.spec_g || document.items?.[0]?.spec_g || 0)
+      inventoryTotalQty = (inventory.rows || [])
+        .filter((row) => Number(row.item_id || 0) === productID)
+        .filter((row) => bomSpecID > 0 ? Number(row.bom_spec_id || 0) === bomSpecID : Number(row.spec_g || 0) === specG)
+        .reduce((sum, row) => sum + Number(row.qty_units || 0), 0)
+    }
+    completionResult.value = {
+      ...summary,
+      customerID,
+      customerName: request?.customer_name || '',
+      inventoryTotalQty,
+      availableQty: Math.max(0, inventoryTotalQty - summary.occupiedQty),
+    }
+  } catch (err) {
+    drawerWarnings.value = [...drawerWarnings.value, err.message || '完工入库结果核对失败，请从工单或库存详情重试']
+  } finally {
+    completionResultLoading.value = false
   }
 }
 
@@ -626,7 +733,9 @@ async function openExisting(row) {
       Object.assign(stockPreviewState, { availability: preview.availability || 'actionable', message: preview.message || '' })
       return
     }
-    applyDocument(await apiGet(`${stockEntryEndpoint()}/${row.id}`))
+    const data = await apiGet(`${stockEntryEndpoint()}/${row.id}`)
+    applyDocument(data)
+    await loadCompletionResult(data)
   } catch (err) {
     error.value = err.message || '加载单据失败'
   }
@@ -671,7 +780,13 @@ async function applyViewParams(params = {}) {
   receiptMode.value = params.receipt_mode === 'partial' ? 'partial' : 'final'
   receiptInputKg.value = 0
   const workOrderID = Number(params.work_order_id || 0)
+  const stockEntryID = Number(params.stock_entry_id || 0)
   filters.work_order_id = workOrderID
+  if (stockEntryID > 0) {
+    const row = rows.value.find((candidate) => Number(candidate.id || 0) === stockEntryID) || { id: stockEntryID }
+    await openExisting(row)
+    return
+  }
   let action = String(params.action || '').trim()
   if (!action && (params.tab === 'wip' || Number(params.shortage_g || 0) > 0)) action = 'issue'
   if (action === 'receipt') {
@@ -707,6 +822,32 @@ function openWipInventory() {
   }))
 }
 
+function navigateFromCompletion(key, params = {}) {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key,
+      params,
+      returnNavigation: { key: 'stockOperations', label: '返回完工入库结果', params: { tab: 'stockEntries', work_order_id: completionResult.value?.workOrderID, stock_entry_id: Number(form.id || 0) } },
+    },
+  }))
+}
+
+function openCompletionWorkOrder() {
+  navigateFromCompletion('workOrders', { work_order_id: completionResult.value?.workOrderID })
+}
+
+function openCompletionRequest() {
+  navigateFromCompletion('customerProcessing', { customer_id: completionResult.value?.customerID, processing_request_no: completionResult.value?.requestNo })
+}
+
+function openCompletionOrder(order) {
+  navigateFromCompletion('customerOrders', { customer_id: completionResult.value?.customerID, q: order.order_no, order_id: order.order_id })
+}
+
+function openCompletionInventory() {
+  navigateFromCompletion('warehouseInventory', { warehouse: completionResult.value?.warehouse, item_type: 'finished_product', customer_id: completionResult.value?.customerID })
+}
+
 function openPurchase() {
   closeDrawer()
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'purchase' } }))
@@ -730,6 +871,7 @@ onMounted(async () => {
 <style scoped>
 .stock-entry-page,.stock-entry-page *{box-sizing:border-box}.stock-entry-page{padding:16px;display:grid;gap:16px}.stock-entry-page.embedded{padding:0}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head,.drawer-head,.line-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head{margin-bottom:12px}.panel-head h2,.drawer-head h3,.line-head h4{margin:0 0 4px}.panel-head p,.drawer-head p{margin:0;color:#6b7280;font-size:13px}.head-actions,.row-actions,.drawer-actions{display:flex;gap:8px;flex-wrap:wrap}.filters{display:grid;grid-template-columns:minmax(200px,1.5fr) repeat(2,minmax(130px,1fr)) auto;gap:10px;align-items:end}label{min-width:0}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #d1d5db;padding:7px 9px}.readonly-value{display:block;min-height:36px;border:1px solid #d1d5db;border-radius:6px;background:#f9fafb;padding:7px 9px;color:#374151}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.link,.danger-link{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0}.danger-link{color:#b91c1c}.disabled{color:#9ca3af}.legacy-readonly{color:#6b7280}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.warning-list{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;color:#92400e}.warning-list p{margin:0}.warning-list p+p{margin-top:4px}.production-issue-hint{margin:0;padding:6px 8px;border-radius:6px;background:#eff6ff;color:#1e40af;font-size:12px}.source-balance{display:block;margin-top:4px;color:#1e40af;font-size:11px;line-height:1.35}.table-wrap{overflow:auto}table{width:100%;min-width:1050px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px}.status.submitted{border-color:#86efac;background:#f0fdf4;color:#15803d}.status.draft{border-color:#fcd34d;background:#fffbeb;color:#a16207}.muted{text-align:center;color:#666}.drawer-mask{position:fixed;inset:0;background:rgba(17,24,39,.35);z-index:80;display:flex;justify-content:flex-end}.drawer{width:min(980px,96vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 32px rgba(15,23,42,.2);display:grid;align-content:start;gap:16px}.drawer-head{border-bottom:1px solid #e5e7eb;padding-bottom:12px}.document-form,.item-grid{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px}.wide{grid-column:span 2}.line-head{align-items:center}.item-card{border:1px solid #e5e7eb;border-radius:8px;padding:12px;display:grid;gap:10px}.compact-production-items{display:grid;gap:4px}.compact-production-items-head,.compact-production-item-grid{display:grid;grid-template-columns:minmax(150px,2fr) minmax(90px,1fr) minmax(90px,1fr) minmax(90px,.8fr) minmax(64px,.55fr) minmax(120px,1.2fr) 52px;gap:6px;align-items:end}.compact-production-items-head{padding:0 6px;color:#6b7280;font-size:12px;font-weight:600}.compact-production-item{border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px}.compact-production-item-grid>label{margin:0}.compact-production-item-grid .mobile-field-label{display:none}.compact-production-item-grid select,.compact-production-item-grid input,.compact-production-item-grid .readonly-value{min-height:32px;height:32px;padding:4px 6px}.compact-delete{align-self:center;justify-self:center}.compact-allocations{margin-top:4px}.allocations{display:flex;flex-wrap:wrap;gap:6px}.allocations span{background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;padding:3px 8px;font-size:12px}.drawer-actions{justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
 .stock-preview-state{border:1px solid #e4d3ad;border-radius:9px;background:#fff9eb;padding:16px;color:#815418}.stock-preview-state.ready{border-color:#b9ddc5;background:#eff9f2;color:#237146}.stock-preview-state p{margin:6px 0 12px;line-height:1.6}
-@media(max-width:900px){.stock-entry-page{padding:12px}.panel-head,.drawer-head{display:grid}.filters,.document-form,.item-grid{grid-template-columns:1fr}.wide{grid-column:auto}.drawer{width:100%}.compact-production-items-head{display:none}.compact-production-item-grid{grid-template-columns:1fr 1fr;align-items:end}.compact-production-item-grid .mobile-field-label{display:block}.compact-production-item-grid .compact-material-name{grid-column:1/-1}.compact-delete{justify-self:start;margin-top:4px}}
+.completion-result{border:1px solid #cbded2;border-radius:12px;background:linear-gradient(135deg,#f2f8f4,#fff);padding:16px;display:grid;gap:14px}.completion-result-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.completion-result-head span,.completion-trace-grid span,.completion-metrics span{color:#65746b;font-size:12px}.completion-result-head h4{margin:3px 0;font-size:20px;color:#183b2b}.completion-result-head p{margin:0;color:#65746b;font-size:13px}.completion-result-loading{padding:18px;text-align:center;color:#65746b}.completion-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.completion-metrics>div{border:1px solid #dce9e1;border-radius:10px;background:#fff;padding:12px;display:grid;gap:5px}.completion-metrics strong{font-size:20px;color:#236844}.completion-trace-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.completion-trace-grid>div{display:grid;gap:4px}.completion-conversions{border-top:1px solid #dce9e1;padding-top:12px;display:grid;gap:8px}.completion-conversions>p{margin:0;color:#65746b}.completion-conversions article{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #e2e9e5;border-radius:9px;background:#fff;padding:10px}.completion-conversions article div{display:grid;gap:3px}.completion-conversions article span{font-size:12px;color:#65746b}.completion-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+@media(max-width:900px){.stock-entry-page{padding:12px}.panel-head,.drawer-head{display:grid}.filters,.document-form,.item-grid{grid-template-columns:1fr}.wide{grid-column:auto}.drawer{width:100%}.compact-production-items-head{display:none}.compact-production-item-grid{grid-template-columns:1fr 1fr;align-items:end}.compact-production-item-grid .mobile-field-label{display:block}.compact-production-item-grid .compact-material-name{grid-column:1/-1}.compact-delete{justify-self:start;margin-top:4px}.completion-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.completion-trace-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.compact-production-item-grid{grid-template-columns:1fr}.compact-production-item-grid .compact-material-name{grid-column:auto}}
 </style>

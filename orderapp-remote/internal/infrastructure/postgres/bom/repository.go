@@ -1298,6 +1298,21 @@ func (r Repository) SetBomSource(ctx context.Context, cmd bomapp.SetBomSourceCom
 func productionBomBindingForProduct(ctx context.Context, q bomQueryer, schema string, productID int64) (bomapp.ProductProductionBomBinding, bool, error) {
 	var row bomapp.ProductProductionBomBinding
 	err := q.QueryRow(ctx, fmt.Sprintf(`
+		WITH bindings AS (
+			SELECT output_id AS product_id,bom_id,bom_version_id,0 AS source_priority
+			FROM %[1]s.production_bom_output_bindings
+			WHERE output_type='product' AND output_id=$1 AND is_default=true
+			UNION ALL
+			SELECT product_id,bom_id,bom_version_id,1 AS source_priority
+			FROM %[1]s.product_production_bom_bindings legacy_binding
+			WHERE product_id=$1
+			  AND NOT EXISTS (
+				SELECT 1 FROM %[1]s.production_bom_output_bindings default_binding
+				WHERE default_binding.output_type='product'
+				  AND default_binding.output_id=$1
+				  AND default_binding.is_default=true
+			  )
+		)
 		SELECT b.product_id,
 		       pb.id,
 		       COALESCE(pb.code,''),
@@ -1309,19 +1324,21 @@ func productionBomBindingForProduct(ctx context.Context, q bomQueryer, schema st
 		       v.id=COALESCE(latest.id,0),
 		       COALESCE(g.id,0),
 		       COALESCE(g.name,'')
-		FROM %s.product_production_bom_bindings b
-		JOIN %s.production_boms pb ON pb.id=b.bom_id
-		JOIN %s.production_bom_versions v ON v.id=b.bom_version_id
-		LEFT JOIN %s.production_bom_groups g ON g.id=pb.group_id
+		FROM bindings b
+		JOIN %[1]s.production_boms pb ON pb.id=b.bom_id
+		JOIN %[1]s.production_bom_versions v ON v.id=b.bom_version_id
+		LEFT JOIN %[1]s.production_bom_groups g ON g.id=pb.group_id
 		LEFT JOIN LATERAL (
 			SELECT id, version_no
-			FROM %s.production_bom_versions lv
+			FROM %[1]s.production_bom_versions lv
 			WHERE lv.bom_id=pb.id AND lv.status='published'
 			ORDER BY lv.published_at DESC NULLS LAST, lv.id DESC
 			LIMIT 1
 		) latest ON true
 		WHERE b.product_id=$1
-	`, schema, schema, schema, schema, schema), productID).Scan(
+		ORDER BY b.source_priority
+		LIMIT 1
+	`, schema), productID).Scan(
 		&row.ProductID,
 		&row.BomID,
 		&row.BomCode,
@@ -3868,7 +3885,7 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			       COALESCE(pb.output_product_id,0) AS output_product_id,
 			       COALESCE(op.name,'') AS output_product_name,
 			       COALESCE(NULLIF(pb.status,''),'active') AS bom_status,
-			       COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0)=pb.id AS is_default,
+		       COALESCE(default_binding.bom_id,NULLIF(ppc.production_bom_id,0),pbb.bom_id,0)=pb.id AS is_default,
 			       COALESCE(NULLIF(pb.status,''),'active')='active' AND COALESCE(published_v.id,0)>0 AS can_set_default,
 			       COALESCE(published_v.id,0) AS current_published_version_id,
 			       COALESCE(published_v.version_no,'') AS current_published_version_no,
@@ -3881,6 +3898,10 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			JOIN %[1]s.products op ON op.id=pb.output_product_id AND op.active=true
 			LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=$1
 			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=$1
+			LEFT JOIN %[1]s.production_bom_output_bindings default_binding
+			  ON default_binding.output_type='product'
+			 AND default_binding.output_id=$1
+			 AND default_binding.is_default=true
 			LEFT JOIN LATERAL (
 				SELECT id, version_no
 				FROM %[1]s.production_bom_versions v

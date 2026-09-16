@@ -472,7 +472,7 @@ function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
   if (params.get('production_plan_id')) out.production_plan_id = params.get('production_plan_id')
-  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'work_center', 'operation_id', 'employee_id', 'work_order_id', 'work_order_no', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab', 'action', 'return_source', 'production_bom_id', 'bom_id']) {
+  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'processing_request_id', 'processing_request_no', 'stock_entry_id', 'work_center', 'operation_id', 'employee_id', 'work_order_id', 'work_order_no', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab', 'action', 'return_source', 'production_bom_id', 'bom_id']) {
     const value = params.get(key)
     if (value) out[key] = value
   }

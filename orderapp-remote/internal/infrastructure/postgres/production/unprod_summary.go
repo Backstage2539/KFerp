@@ -57,6 +57,11 @@ type UnprodNeedRow struct {
 	ProductionPlanNo         string                                `json:"production_plan_no,omitempty"`
 	WorkOrderID              int64                                 `json:"work_order_id,omitempty"`
 	WorkOrderNo              string                                `json:"work_order_no,omitempty"`
+	DemandSource             string                                `json:"demand_source,omitempty"`
+	CustomerID               int64                                 `json:"customer_id,omitempty"`
+	CustomerName             string                                `json:"customer_name,omitempty"`
+	TargetWarehouse          string                                `json:"target_warehouse,omitempty"`
+	ProcessingRequestItemID  int64                                 `json:"processing_request_item_id,omitempty"`
 }
 
 func productionPlanOpenStatusNames() []string {
@@ -495,7 +500,8 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 			COALESCE(d.target_qty,0)::float8,
 			COALESCE(d.customer_id,0),
 			COALESCE(d.target_warehouse,''),
-			COALESCE(NULLIF(to_jsonb(d)->>'request_item_id','')::bigint,0)
+			COALESCE(NULLIF(to_jsonb(d)->>'request_item_id','')::bigint,0),
+			COALESCE(rule_customer.name,'')
 		FROM %s.customer_processing_production_demands d
 		JOIN %s.products p ON p.id=d.product_id
 		LEFT JOIN %s.product_categories subtype_pc ON subtype_pc.id=COALESCE(p.product_category_id,0)
@@ -524,13 +530,13 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 			productID, bomSpecID, bomVariantID, parentProductID                      int64
 			typeID, subtypeID, operationTemplateID, specG, customerID, requestItemID int64
 			product, productionKind, typeName, subtypeName, requestNo                string
-			specName, inventoryUnit, targetWarehouse                                 string
+			specName, inventoryUnit, targetWarehouse, customerName                   string
 			qty                                                                      float64
 		)
 		if err := rows.Scan(
 			&productID, &bomSpecID, &bomVariantID, &parentProductID, &product, &productionKind, &typeID, &subtypeID,
 			&typeName, &subtypeName, &operationTemplateID, &requestNo, &specName, &inventoryUnit, &specG, &qty,
-			&customerID, &targetWarehouse, &requestItemID,
+			&customerID, &targetWarehouse, &requestItemID, &customerName,
 		); err != nil {
 			return nil, err
 		}
@@ -576,6 +582,8 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 					SpecLabel: snapshot.SpecLabel, SalesUnit: snapshot.SalesUnit, SpecG: specG,
 					InventoryQtyPerSalesUnit: snapshot.InventoryQtyPerSalesUnit,
 					InventoryUnit:            snapshot.InventoryUnit, SalesSpecSnapshotJSON: string(raw),
+					DemandSource: "customer_processing", CustomerID: customerID, CustomerName: customerName,
+					TargetWarehouse: strings.TrimSpace(targetWarehouse), ProcessingRequestItemID: requestItemID,
 				},
 				orderNos: map[string]bool{},
 			}

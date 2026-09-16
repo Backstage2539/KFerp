@@ -1,11 +1,23 @@
 package production
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	productionapp "orderapp/internal/application/production"
 )
+
+func TestInternalStockEntryInsertPersistsPurposeAndReturnDirection(t *testing.T) {
+	source, err := os.ReadFile("stock_entry.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	if !strings.Contains(body, "entry_type,purpose,is_return,status,work_order_id") {
+		t.Fatal("internal stock entry insert must persist purpose and return direction")
+	}
+}
 
 func TestWorkOrderLedgerWhereTreatsWorkOrderAndRunningItemAsSameEvidenceSet(t *testing.T) {
 	where, args := workOrderLedgerWhere(productionapp.WorkOrderLedgerQuery{WorkOrderID: 88, RunningItemID: 99})

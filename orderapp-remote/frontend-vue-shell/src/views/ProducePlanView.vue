@@ -156,6 +156,10 @@
             <option v-for="option in demandStatusOptions" :key="option.value || 'all'" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
+        <label>
+          <span>需求来源</span>
+          <select v-model="demandSourceFilter"><option value="">全部来源</option><option value="customer_processing">客户工单</option><option value="sales_order">销售订单</option></select>
+        </label>
         </div>
       </details>
         <div class="panel-head">
@@ -184,6 +188,7 @@
                 <th>选择</th>
                 <th>商品</th>
                 <th>订单号</th>
+                <th>来源 / 客户</th>
                 <th>规格</th>
                 <th>需求数量</th>
                 <th>可用库存</th>
@@ -196,7 +201,7 @@
                 <tr class="demand-product-row" :class="{ 'row-selected': productionDemandSelectionState(group.rows, selected).selectedCount > 0 }">
                   <td><input type="checkbox" :aria-label="`选择商品 ${group.product}`" :checked="productionDemandSelectionState(group.rows, selected).checked" :indeterminate="productionDemandSelectionState(group.rows, selected).indeterminate" :aria-checked="productionDemandSelectionState(group.rows, selected).indeterminate ? 'mixed' : String(productionDemandSelectionState(group.rows, selected).checked)" :disabled="!productionDemandSelectionState(group.rows, selected).total" @change="toggleDemandGroup(group.rows, $event.target.checked)" /></td>
                   <td><button class="secondary compact" type="button" :aria-expanded="!collapsedDemandGroups[group.key]" @click="collapsedDemandGroups[group.key] = !collapsedDemandGroups[group.key]">{{ collapsedDemandGroups[group.key] ? '展开' : '收起' }} {{ group.product }}</button></td>
-                  <td class="demand-orders">{{ group.order_nos }}</td>
+                  <td class="demand-orders">{{ group.order_nos }}</td><td>{{ demandGroupSourceLabel(group.rows) }}</td>
                   <td>{{ group.specs.length }} 种规格</td><td>{{ group.need_label }}<small v-if="group.need_weight_label">{{ group.need_weight_label }}</small></td><td>{{ group.available_label }}</td><td><strong>{{ group.gap_label }}</strong></td><td></td>
                 </tr>
                 <template v-if="!collapsedDemandGroups[group.key]">
@@ -209,7 +214,7 @@
                         <div v-else>{{ row.order_nos }} · {{ productionSalesQuantityLabel([row]) }}</div>
                         <small>{{ row.target_warehouse || '' }} {{ row.blocking_reason || '' }} {{ row.production_plan_no || '' }}</small>
                       </div>
-                    </details></td>
+                    </details></td><td><strong>{{ demandSourceLabel(spec.rows[0]) }}</strong><small>{{ [...new Set(spec.rows.map(row => row.customer_name).filter(Boolean))].join('、') || '工厂' }}</small></td>
                     <td>{{ spec.label }}</td><td>{{ spec.need_label }}<small v-if="spec.need_weight_label">{{ spec.need_weight_label }}</small></td><td>{{ spec.available_label }}</td><td><strong>{{ spec.gap_label }}</strong></td>
                     <td class="demand-status-cell">
                       <span v-for="status in [...new Set(spec.rows.map(row => row.blocking_reason ? '配置异常' : productionDemandStatusLabel(row.demand_status)))]" :key="status" class="status">{{ status }}</span>
@@ -219,7 +224,7 @@
                 </template>
               </template>
               <tr v-if="!filteredStockInsufficientRows.length">
-                <td colspan="8" class="muted">{{ demandPanelEmptyText }}</td>
+                <td colspan="9" class="muted">{{ demandPanelEmptyText }}</td>
               </tr>
             </tbody>
           </table>
@@ -232,7 +237,7 @@
         <div v-if="!selectedSpecCount" class="selection-empty">还没有选择需求<br /><small>勾选左侧商品或规格开始</small></div>
         <template v-for="group in selectedDemandGroups" :key="group.key">
           <article v-for="spec in group.specs" :key="spec.key" class="selected-spec">
-            <div><strong>{{ group.product }}</strong><span>{{ spec.label }} · {{ spec.need_label }}</span><small>{{ spec.order_nos }}</small></div>
+            <div><strong>{{ group.product }}</strong><span>{{ spec.label }} · {{ spec.need_label }}</span><small>{{ demandSourceLabel(spec.rows[0]) }} · {{ spec.rows[0]?.customer_name || '工厂' }} · {{ spec.rows[0]?.target_warehouse || '成品仓' }}</small><small>BOM 规格 #{{ spec.rows[0]?.bom_spec_id || '-' }} · 申请要求新增生产，现货不冲减客户申请数量</small></div>
             <button type="button" class="text-action" :disabled="saving" :aria-label="`移除 ${group.product} ${spec.label}`" @click="toggleDemandGroup(spec.rows, false)">移除</button>
           </article>
         </template>
@@ -740,6 +745,9 @@ import {
   buildProductionDemandSummaryQuery,
   capacityDefaultPlannedQty,
   defaultProductionDemandStatusFilter,
+  demandGroupSourceLabel,
+  demandSourceKey,
+  demandSourceLabel,
   operationCapacityAutoSplitError,
   qtyFromGForCapacityUnit,
   productionDemandGapQuantity,
@@ -809,6 +817,7 @@ const productionPlans = ref([])
 const currentPlan = ref(null)
 const activePlanningStep = ref('selectDemand')
 const demandKeyword = ref('')
+const demandSourceFilter = ref('')
 const materialFilter = ref('all')
 const stockPlanningOpen = ref(false)
 const stockMaterials = ref([])
@@ -948,8 +957,11 @@ const stockInsufficientRows = computed(() => rows.value.filter((row) => String(r
 const stockSufficientRows = computed(() => rows.value.filter((row) => !String(row.blocking_reason || '').trim() && productionDemandGapQuantity(row) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
 const filteredStockInsufficientRows = computed(() => {
   const keyword = demandKeyword.value.trim().toLocaleLowerCase('zh-CN')
-  if (!keyword) return stockInsufficientRows.value
-  return stockInsufficientRows.value.filter((row) => [
+  const sourceRows = demandSourceFilter.value
+    ? stockInsufficientRows.value.filter((row) => demandSourceKey(row) === demandSourceFilter.value)
+    : stockInsufficientRows.value
+  if (!keyword) return sourceRows
+  return sourceRows.filter((row) => [
     row.product,
     row.parent_product_name,
     row.order_nos,

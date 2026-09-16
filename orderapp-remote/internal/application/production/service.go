@@ -178,6 +178,7 @@ type FinishCommand struct {
 	ID               int64
 	WorkOrderID      int64
 	StockDocumentID  int64
+	RequestID        string
 	FinishedUnits    int64
 	FinishedLooseG   int64
 	HasFinishedInput bool
@@ -198,7 +199,7 @@ type FinishResult struct {
 	RunningItemID  int64           `json:"running_item_id"`
 	Completed      bool            `json:"completed"`
 	FinishedOrders []FinishedOrder `json:"finished_orders,omitempty"`
-	StockEntryID   int64           `json:"-"`
+	StockEntryID   int64           `json:"stock_entry_id,omitempty"`
 }
 
 type FinishOutputCommand struct {
@@ -279,6 +280,11 @@ type UnprodNeedRow struct {
 	ProductionPlanNo                  string                  `json:"production_plan_no,omitempty"`
 	WorkOrderID                       int64                   `json:"work_order_id,omitempty"`
 	WorkOrderNo                       string                  `json:"work_order_no,omitempty"`
+	DemandSource                      string                  `json:"demand_source,omitempty"`
+	CustomerID                        int64                   `json:"customer_id,omitempty"`
+	CustomerName                      string                  `json:"customer_name,omitempty"`
+	TargetWarehouse                   string                  `json:"target_warehouse,omitempty"`
+	ProcessingRequestItemID           int64                   `json:"processing_request_item_id,omitempty"`
 }
 
 type MaterialNeed struct {
@@ -1263,32 +1269,34 @@ type ProductionExecutionReadiness struct {
 }
 
 type WorkOrderExecutionHeader struct {
-	WorkOrderID      int64   `json:"work_order_id"`
-	WorkOrderNo      string  `json:"work_order_no"`
-	OutputType       string  `json:"output_type"`
-	OutputProductID  int64   `json:"output_product_id"`
-	OutputMaterialID int64   `json:"output_material_id"`
-	OutputName       string  `json:"output_name"`
-	OutputQty        float64 `json:"output_qty"`
-	OutputUnit       string  `json:"output_unit"`
-	ProductID        int64   `json:"product_id"`
-	ProductName      string  `json:"product_name"`
-	SpecG            int64   `json:"spec_g"`
-	OrderNos         string  `json:"order_nos"`
-	PlannedG         int64   `json:"planned_g"`
-	PlannedOutputG   int64   `json:"planned_output_g"`
-	PlannedUnits     int64   `json:"planned_units"`
-	PlannedLooseG    int64   `json:"planned_loose_g"`
-	Status           string  `json:"status"`
-	BatchID          string  `json:"batch_id"`
-	BomVersionID     int64   `json:"bom_version_id"`
-	ProductionPlanID int64   `json:"production_plan_id"`
-	RunningItemID    int64   `json:"running_item_id"`
-	Priority         int     `json:"priority"`
-	AssignedTo       string  `json:"assigned_to"`
-	WorkCenter       string  `json:"work_center"`
-	TargetWarehouse  string  `json:"target_warehouse"`
-	CreatedAt        string  `json:"created_at"`
+	WorkOrderID             int64   `json:"work_order_id"`
+	WorkOrderNo             string  `json:"work_order_no"`
+	OutputType              string  `json:"output_type"`
+	OutputProductID         int64   `json:"output_product_id"`
+	OutputMaterialID        int64   `json:"output_material_id"`
+	OutputName              string  `json:"output_name"`
+	OutputQty               float64 `json:"output_qty"`
+	OutputUnit              string  `json:"output_unit"`
+	ProductID               int64   `json:"product_id"`
+	ProductName             string  `json:"product_name"`
+	SpecG                   int64   `json:"spec_g"`
+	OrderNos                string  `json:"order_nos"`
+	PlannedG                int64   `json:"planned_g"`
+	PlannedOutputG          int64   `json:"planned_output_g"`
+	PlannedUnits            int64   `json:"planned_units"`
+	PlannedLooseG           int64   `json:"planned_loose_g"`
+	Status                  string  `json:"status"`
+	BatchID                 string  `json:"batch_id"`
+	BomVersionID            int64   `json:"bom_version_id"`
+	ProductionPlanID        int64   `json:"production_plan_id"`
+	RunningItemID           int64   `json:"running_item_id"`
+	Priority                int     `json:"priority"`
+	AssignedTo              string  `json:"assigned_to"`
+	WorkCenter              string  `json:"work_center"`
+	TargetWarehouse         string  `json:"target_warehouse"`
+	CustomerID              int64   `json:"customer_id,omitempty"`
+	ProcessingRequestItemID int64   `json:"processing_request_item_id,omitempty"`
+	CreatedAt               string  `json:"created_at"`
 }
 
 type ProductionOperationProgress struct {
@@ -4372,32 +4380,34 @@ func buildWorkOrderExecutionHub(wo WorkOrderRow, wipStatus ProductionWIPStatus, 
 
 func buildWorkOrderExecutionHeader(wo WorkOrderRow) WorkOrderExecutionHeader {
 	return WorkOrderExecutionHeader{
-		WorkOrderID:      wo.ID,
-		WorkOrderNo:      wo.WorkOrderNo,
-		OutputType:       wo.OutputType,
-		OutputProductID:  wo.OutputProductID,
-		OutputMaterialID: wo.OutputMaterialID,
-		OutputName:       wo.OutputName,
-		OutputQty:        wo.OutputQty,
-		OutputUnit:       wo.OutputUnit,
-		ProductID:        wo.ProductID,
-		ProductName:      wo.ProductName,
-		SpecG:            wo.SpecG,
-		OrderNos:         wo.OrderNos,
-		PlannedG:         wo.PlannedG,
-		PlannedOutputG:   wo.PlannedOutputG,
-		PlannedUnits:     wo.PlannedUnits,
-		PlannedLooseG:    wo.PlannedLooseG,
-		Status:           wo.Status,
-		BatchID:          wo.BatchID,
-		BomVersionID:     wo.BomVersionID,
-		ProductionPlanID: wo.ProductionPlanID,
-		RunningItemID:    wo.RunningItemID,
-		Priority:         wo.Priority,
-		AssignedTo:       wo.AssignedTo,
-		WorkCenter:       wo.WorkCenter,
-		TargetWarehouse:  wo.TargetWarehouse,
-		CreatedAt:        wo.CreatedAt,
+		WorkOrderID:             wo.ID,
+		WorkOrderNo:             wo.WorkOrderNo,
+		OutputType:              wo.OutputType,
+		OutputProductID:         wo.OutputProductID,
+		OutputMaterialID:        wo.OutputMaterialID,
+		OutputName:              wo.OutputName,
+		OutputQty:               wo.OutputQty,
+		OutputUnit:              wo.OutputUnit,
+		ProductID:               wo.ProductID,
+		ProductName:             wo.ProductName,
+		SpecG:                   wo.SpecG,
+		OrderNos:                wo.OrderNos,
+		PlannedG:                wo.PlannedG,
+		PlannedOutputG:          wo.PlannedOutputG,
+		PlannedUnits:            wo.PlannedUnits,
+		PlannedLooseG:           wo.PlannedLooseG,
+		Status:                  wo.Status,
+		BatchID:                 wo.BatchID,
+		BomVersionID:            wo.BomVersionID,
+		ProductionPlanID:        wo.ProductionPlanID,
+		RunningItemID:           wo.RunningItemID,
+		Priority:                wo.Priority,
+		AssignedTo:              wo.AssignedTo,
+		WorkCenter:              wo.WorkCenter,
+		TargetWarehouse:         wo.TargetWarehouse,
+		CustomerID:              wo.CustomerID,
+		ProcessingRequestItemID: wo.ProcessingRequestItemID,
+		CreatedAt:               wo.CreatedAt,
 	}
 }
 

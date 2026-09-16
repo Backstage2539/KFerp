@@ -21,6 +21,13 @@ func TestEnsureSchemaSucceedsWithoutStockModuleTablesPostgres(t *testing.T) {
 			t.Fatalf("sales EnsureSchema run %d must not require stock-owned tables: %v", run, err)
 		}
 	}
+	var pendingProductionStatuses int
+	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM "+schema+".order_process_statuses WHERE name='待生产' AND active=true").Scan(&pendingProductionStatuses); err != nil {
+		t.Fatalf("inspect pending production order status: %v", err)
+	}
+	if pendingProductionStatuses != 1 {
+		t.Fatalf("pending production order statuses = %d, want 1", pendingProductionStatuses)
+	}
 
 	for _, table := range []string{"stock_batches", "stock_ledger_entries", "finished_inventory"} {
 		var exists bool
