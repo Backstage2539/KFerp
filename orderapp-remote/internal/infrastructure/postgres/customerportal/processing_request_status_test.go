@@ -41,6 +41,26 @@ func TestProcessingRequestListLoadsItemTraceInOneBatch(t *testing.T) {
 	}
 }
 
+func TestProcessingRequestInboundTraceAcceptsProductionRunFinishedBatches(t *testing.T) {
+	source, err := os.ReadFile("processing_requests.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	if strings.Contains(body, "finished_batch.source_doc_type='stock_entry' AND finished_batch.source_doc_id=se.id") {
+		t.Fatal("processing request inbound trace must not exclude finished batches created by production runs")
+	}
+	for _, want := range []string{
+		"finished_batch.batch_code=si.batch_code",
+		"finished_batch.item_id=si.product_id",
+		"finished_batch.owner_customer_id=si.owner_customer_id",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("processing request inbound trace is missing %q", want)
+		}
+	}
+}
+
 func TestApplyProcessingRequestDerivedFieldsCompletesOnlyWhenEveryLineIsSatisfied(t *testing.T) {
 	request := customerportalapp.ProcessingRequest{
 		Items: []customerportalapp.ProcessingRequestItem{
