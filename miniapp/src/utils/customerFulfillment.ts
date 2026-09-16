@@ -210,6 +210,68 @@ export function directShipAvailabilityBreakdown(input: DirectShipAvailabilityInp
   }
 }
 
+type DirectShipIdentity = {
+  product_id?: number
+  bom_spec_id?: number
+  bom_variant_id?: number
+  spec_g?: number
+}
+
+type DirectShipSupplyLine = DirectShipIdentity & {
+  qty?: number
+  product_name?: string
+}
+
+type DirectShipSupplySpec = DirectShipIdentity & {
+  stock_available_qty?: number
+  production_available_qty?: number
+}
+
+type DirectShipSupplyPreview = {
+  shortages?: Array<DirectShipSupplyLine & DirectShipSupplySpec & { available_qty?: number; blocking?: boolean; blocking_reason?: string }>
+  warehouses?: Array<{ warehouse?: string; items?: Array<DirectShipSupplyLine> }>
+  production_allocations?: Array<DirectShipIdentity & { processing_request_id?: number; processing_request_item_id?: number; qty?: number }>
+}
+
+function sameDirectShipIdentity(left: DirectShipIdentity = {}, right: DirectShipIdentity = {}): boolean {
+  return Number(left.product_id || 0) === Number(right.product_id || 0)
+    && Number(left.bom_spec_id || 0) === Number(right.bom_spec_id || 0)
+    && Number(left.bom_variant_id || 0) === Number(right.bom_variant_id || 0)
+    && Number(left.spec_g || 0) === Number(right.spec_g || 0)
+}
+
+export function directShipPreviewSupplyRows(input: {
+  lines?: DirectShipSupplyLine[]
+  specs?: DirectShipSupplySpec[]
+  preview?: DirectShipSupplyPreview | null
+} = {}) {
+  const preview = input.preview || {}
+  return (input.lines || []).filter((line) => Number(line.product_id || 0) > 0).map((line) => {
+    const shortage = (preview.shortages || []).find((item) => sameDirectShipIdentity(item, line))
+    const spec = (input.specs || []).find((item) => sameDirectShipIdentity(item, line))
+    const allocations = (preview.production_allocations || []).filter((item) => sameDirectShipIdentity(item, line))
+    const allocatedStockQty = (preview.warehouses || []).flatMap((warehouse) => warehouse.items || [])
+      .filter((item) => sameDirectShipIdentity(item, line))
+      .reduce((sum, item) => sum + Math.max(0, Number(item.qty || 0)), 0)
+    const stockAvailableQty = Number(shortage?.stock_available_qty ?? spec?.stock_available_qty ?? allocatedStockQty)
+    const productionAvailableQty = Number(shortage?.production_available_qty ?? spec?.production_available_qty
+      ?? allocations.reduce((sum, item) => sum + Math.max(0, Number(item.qty || 0)), 0))
+    return {
+      ...line,
+      ...(shortage || {}),
+      stock_available_qty: stockAvailableQty,
+      production_available_qty: productionAvailableQty,
+      allocations,
+      ...directShipAvailabilityBreakdown({
+        qty: line.qty,
+        stock_available_qty: stockAvailableQty,
+        production_available_qty: productionAvailableQty,
+        production_allocations: allocations,
+      }),
+    }
+  })
+}
+
 export function canShowFactoryProductLinks(capabilities: Capability[] = []): boolean {
   const enabled = new Set(capabilities.filter((item) => item.enabled).map((item) => item.code))
   return enabled.has('product_order') && enabled.has('bean_list')

@@ -20,7 +20,7 @@ import {
 } from '../api/customerPortal'
 import { useCustomerOrderDraftStore, type CustomerOrderMode, type CustomerOrderRecipient } from '../stores/customerOrderDraft'
 import { employeeOrderProductFamilyKey, productSpecLabel, shanghaiToday } from '../utils/employeeOrder'
-import { directShipAvailabilityBreakdown, directShipStatusLabel } from '../utils/customerFulfillment'
+import { directShipPreviewSupplyRows, directShipStatusLabel } from '../utils/customerFulfillment'
 import {
   buildDirectShipDraftItems,
   createDirectShipDraftLine,
@@ -85,14 +85,10 @@ const selectedRecipientSummary = computed(() => recipientAddressSummary(selected
 const totalAmount = computed(() => preview.value?.total_amount ?? 0)
 const processingAllocationQty = computed(() => (preview.value?.production_allocations || []).reduce((sum, item) => sum + Number(item.qty || 0), 0))
 const blockingShortages = computed(() => (preview.value?.shortages || []).filter((item) => item.blocking))
-const previewSupplyRows = computed(() => (preview.value?.shortages || []).map((item) => {
-  const allocations = (preview.value?.production_allocations || []).filter((allocation) => (
-    Number(allocation.product_id || 0) === Number(item.product_id || 0)
-    && Number(allocation.bom_spec_id || 0) === Number(item.bom_spec_id || 0)
-    && Number(allocation.bom_variant_id || 0) === Number(item.bom_variant_id || 0)
-    && Number(allocation.spec_g || 0) === Number(item.spec_g || 0)
-  ))
-  return { ...item, allocations, ...directShipAvailabilityBreakdown({ ...item, production_allocations: allocations }) }
+const previewSupplyRows = computed(() => directShipPreviewSupplyRows({
+  lines: lines.value,
+  specs: catalog.value.product_families.flatMap((family) => family.specs || []),
+  preview: preview.value,
 }))
 const fulfillmentMessage = computed(() => {
   if (!preview.value || preview.value.stock_ready) return ''
