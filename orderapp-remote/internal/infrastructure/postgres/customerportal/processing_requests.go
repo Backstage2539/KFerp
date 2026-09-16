@@ -853,8 +853,7 @@ func (r Repository) listProcessingRequestItemsForRequests(ctx context.Context, c
 			  AND ((i.bom_spec_id>0 AND si.bom_spec_id=i.bom_spec_id) OR (i.bom_spec_id=0 AND si.spec_g=i.spec_g))
 			  AND EXISTS (
 			    SELECT 1 FROM %s.stock_batches finished_batch
-			    WHERE finished_batch.source_doc_type='stock_entry' AND finished_batch.source_doc_id=se.id
-			      AND finished_batch.item_type='finished_product' AND finished_batch.item_id=si.product_id
+			    WHERE finished_batch.item_type='finished_product' AND finished_batch.item_id=si.product_id
 			      AND finished_batch.owner_customer_id=si.owner_customer_id AND finished_batch.batch_code=si.batch_code
 			      AND COALESCE(finished_batch.quality_status,'unchecked') NOT IN ('hold','reject')
 			  )
