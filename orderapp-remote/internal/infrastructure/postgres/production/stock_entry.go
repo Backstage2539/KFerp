@@ -155,10 +155,13 @@ func createStockEntryRecordTx(ctx context.Context, tx pgx.Tx, schema string, cmd
 	tempEntryNo := fmt.Sprintf("SE-TMP-%d", time.Now().UnixNano())
 	var entryID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.stock_entries(entry_no,entry_type,status,work_order_id,job_card_id,running_item_id,source_type,source_id,operator,note,created_at)
-		VALUES($1,$2,'submitted',$3,$4,$5,$6,$7,$8,$9,now())
+		INSERT INTO %s.stock_entries(
+			entry_no,entry_type,purpose,is_return,status,work_order_id,job_card_id,running_item_id,
+			source_type,source_id,return_source,operator,note,submitted_at,created_at,updated_at
+		)
+		VALUES($1,$2,$3,$4,'submitted',$5,$6,$7,$8,$9,$10,$11,$12,now(),now(),now())
 		RETURNING id
-	`, schema), tempEntryNo, cmd.EntryType, cmd.WorkOrderID, cmd.JobCardID, cmd.RunningItemID, cmd.SourceType, cmd.SourceID, cmd.Operator, cmd.Note).Scan(&entryID); err != nil {
+	`, schema), tempEntryNo, cmd.EntryType, cmd.Purpose, cmd.IsReturn, cmd.WorkOrderID, cmd.JobCardID, cmd.RunningItemID, cmd.SourceType, cmd.SourceID, cmd.ReturnSource, cmd.Operator, cmd.Note).Scan(&entryID); err != nil {
 		return productionapp.StockEntryDetail{}, err
 	}
 	entryNo := fmt.Sprintf("SE-%010d", entryID)
@@ -186,7 +189,7 @@ func createStockEntryRecordTx(ctx context.Context, tx pgx.Tx, schema string, cmd
 			}
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, cmd.Operator, "stock_entry", &entryID, "submit", postgresinfra.StrPtr("entry_type"), nil, postgresinfra.StrPtr(cmd.EntryType), postgresinfra.AuditMeta{"entry_no": entryNo, "work_order_id": cmd.WorkOrderID, "job_card_id": cmd.JobCardID, "running_item_id": cmd.RunningItemID, "source_type": cmd.SourceType, "source_id": cmd.SourceID}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, cmd.Operator, "stock_entry", &entryID, "submit", postgresinfra.StrPtr("entry_type"), nil, postgresinfra.StrPtr(cmd.EntryType), postgresinfra.AuditMeta{"entry_no": entryNo, "purpose": cmd.Purpose, "is_return": cmd.IsReturn, "work_order_id": cmd.WorkOrderID, "job_card_id": cmd.JobCardID, "running_item_id": cmd.RunningItemID, "source_type": cmd.SourceType, "source_id": cmd.SourceID}); err != nil {
 		return productionapp.StockEntryDetail{}, err
 	}
 	return loadStockEntryDetailTx(ctx, tx, schema, entryID)
@@ -225,6 +228,7 @@ func createProductCompletionStockEntryTx(
 	}
 	return createStockEntryRecordTx(ctx, tx, schema, productionapp.StockEntryCommand{
 		EntryType:     "finished_receipt",
+		Purpose:       "manufacture",
 		WorkOrderID:   workOrderID,
 		RunningItemID: run.ID,
 		SourceType:    "work_order_complete",

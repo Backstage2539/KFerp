@@ -30,6 +30,18 @@ func TestCustomerAssetInventoryCoversOwnedFinishedGreenPackagingAndSemiFinished(
 	}
 }
 
+func TestFinishedReceiptQueriesIncludeWorkOrderCompletionCompatibility(t *testing.T) {
+	for _, name := range []string{"customer_asset_inventory.go", "mini_direct_ship.go"} {
+		source, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(source), "se.source_type='work_order_complete'") {
+			t.Fatalf("%s must count final work-order completion receipts", name)
+		}
+	}
+}
+
 func TestCustomerMaterialAssetTypeDoesNotMisclassifyOtherMaterialsAsGreenBeans(t *testing.T) {
 	for input, want := range map[string]string{
 		"bean": "green_bean", "green_bean": "green_bean", "pack": "packaging", "packaging": "packaging",
