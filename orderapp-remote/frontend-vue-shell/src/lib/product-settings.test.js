@@ -5519,3 +5519,22 @@ test('product archive grouping is template-driven without category tabs or categ
   assert.doesNotMatch(productArchiveBlock, /<th>分类<\/th>/)
   assert.doesNotMatch(productArchiveBlock, /productClassificationLabel\(row\)/)
 })
+
+test('ownership-filtered rows rename the customer reference without touching the factory product name', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  const nameCell = template.match(/<td class="sku-name-cell">[\s\S]*?<\/td>/)?.[0] || ''
+  assert.match(nameCell, /canonical_name/, 'customer-renamed rows must surface the factory name')
+  assert.match(nameCell, /工厂名/, 'factory name caption must be visible next to the customer display name')
+
+  assert.match(script, /const productReferenceRenameContext = computed/, 'drawer needs a customer-reference rename context')
+  const drawer = template.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+  assert.match(drawer, /客户商品名/, 'drawer name field must switch to customer naming')
+  assert.match(drawer, /工厂商品名/, 'drawer must show the read-only factory name')
+
+  const saveBlock = script.match(/async function saveProductProductionConfig\(\) \{[\s\S]*?\n\}\n/)?.[0] || ''
+  assert.match(saveBlock, /\/api\/product-customer-references\//, 'saving the rename must update the customer reference')
+  assert.match(saveBlock, /delete basicsPayload\.name/, 'factory product basics must not carry the customer display name')
+})
