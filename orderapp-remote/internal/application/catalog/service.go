@@ -124,6 +124,40 @@ type Product struct {
 	BOMSpecs                    []BOMSpecOption
 }
 
+// ProductOption is the lightweight identity payload used by searchable product
+// selectors. Full BOM, pricing, grouping and unit details are loaded only after
+// a product is selected.
+type ProductOption struct {
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	SKUCode         string `json:"code"`
+	Barcode         string `json:"barcode,omitempty"`
+	SpecLabel       string `json:"spec_label,omitempty"`
+	ProductKind     string `json:"product_kind,omitempty"`
+	ParentProductID int64  `json:"parent_product_id,omitempty"`
+	Active          bool   `json:"active"`
+}
+
+type ProductOptionQuery struct {
+	Query string
+	Page  int
+	Limit int
+}
+
+type ProductOptionPage struct {
+	Rows    []ProductOption `json:"rows"`
+	Total   int             `json:"total"`
+	Page    int             `json:"page"`
+	Limit   int             `json:"limit"`
+	HasNext bool            `json:"has_next"`
+}
+
+// ProductOptionsRepository is optional so existing catalog repository fakes and
+// legacy integrations can keep implementing the original Repository contract.
+type ProductOptionsRepository interface {
+	ListProductOptions(ctx context.Context, query ProductOptionQuery) (ProductOptionPage, error)
+}
+
 type BOMSpecOption struct {
 	ProductID     int64  `json:"product_id"`
 	BomID         int64  `json:"bom_id"`
@@ -1391,6 +1425,23 @@ func (s *Service) ListProducts(ctx context.Context) ([]Product, error) {
 		normalizeLegacyProductYield(&rows[i])
 	}
 	return rows, nil
+}
+
+func (s *Service) ListProductOptions(ctx context.Context, query ProductOptionQuery) (ProductOptionPage, error) {
+	repo, ok := s.repo.(ProductOptionsRepository)
+	if !ok {
+		return ProductOptionPage{}, errors.New("product options are not supported by this catalog repository")
+	}
+	if query.Page < 1 {
+		query.Page = 1
+	}
+	if query.Limit < 1 {
+		query.Limit = 20
+	}
+	if query.Limit > 100 {
+		query.Limit = 100
+	}
+	return repo.ListProductOptions(ctx, query)
 }
 
 func (s *Service) GetProduct(ctx context.Context, id int64) (*Product, error) {

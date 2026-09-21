@@ -9,7 +9,7 @@ const businessSettingsSource = readFileSync(new URL('../views/BusinessSettingsVi
 const globalUnitsSource = readFileSync(new URL('../views/GlobalUnitDefinitionsView.vue', import.meta.url), 'utf8')
 
 test('system settings and group templates use independent Vue pages', () => {
-  assert.match(appSource, /import GroupTemplatesView from '.\/views\/GroupTemplatesView\.vue'/)
+  assert.match(appSource, /(?:import GroupTemplatesView from '.\/views\/GroupTemplatesView\.vue'|const GroupTemplatesView = lazyView\(\(\) => import\('.\/views\/GroupTemplatesView\.vue'\)\))/)
   assert.match(appSource, /groupManagement:\s*GroupTemplatesView/)
   assert.match(appSource, /groupTemplates:\s*GroupTemplatesView/)
   assert.match(appSource, /businessSettings:\s*BusinessSettingsView/)

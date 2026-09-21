@@ -4,14 +4,14 @@ import { test } from 'node:test'
 
 test('costing view routes to the bean list and pricing workspace', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
-  assert.match(source, /import\s+CostingView\s+from\s+['"]\.\/views\/CostingView\.vue['"]/)
+  assert.match(source, /(?:import\s+CostingView\s+from\s+['"]\.\/views\/CostingView\.vue['"]|const\s+CostingView\s*=\s*lazyView\(\(\)\s*=>\s*import\(['"]\.\/views\/CostingView\.vue['"]\)\))/)
   assert.match(source, /\bcosting:\s*CostingView\b/)
 })
 
 test('production high-frequency views route through the Vue shell', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /import\s+ProductionOverviewView/)
-  assert.match(source, /import\s+WorkstationView\s+from\s+['"]\.\/views\/WorkstationView\.vue['"]/)
+  assert.match(source, /(?:import\s+WorkstationView\s+from\s+['"]\.\/views\/WorkstationView\.vue['"]|const\s+WorkstationView\s*=\s*lazyView\(\(\)\s*=>\s*import\(['"]\.\/views\/WorkstationView\.vue['"]\)\))/)
   assert.match(source, /productionOverview:\s*'workstationView'/)
   assert.match(source, /\bworkstationView:\s*WorkstationView\b/)
 })
