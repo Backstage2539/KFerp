@@ -264,6 +264,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-669-REFERENCE-RENAME-CONTEXT", title: "归属过滤=客户X时配置抽屉商品名切换为客户引用名编辑并只读展示工厂名", status: "done", assignee: "Codex", evidence: "productReferenceRenameContext; 抽屉字段切换+工厂商品名只读提示; 保存走PUT /api/product-customer-references且basics剔除name"},
 		{table: "req_dev", code: "DEV-669-FACTORY-NAME-CAPTION", title: "客户名行在列表附带工厂名小字标注防混淆", status: "done", assignee: "Codex", evidence: "sku-name-cell内canonical_name标注(工厂名：xxx)"},
 		{table: "req_review", code: "REV-669-OWNER-FILTER-CUSTOMER-RENAME", prCode: "PR-669-OWNER-FILTER-CUSTOMER-RENAME", title: "验收归属过滤视图客户改名不改原品名", status: "todo", assignee: "VA", evidence: "待 Van 在 development 验收：复制到客户后按归属过滤改名仅影响客户视角, 工厂过滤视图原名不变"},
+		{table: "req_product", code: "PR-670-ERP-STARTUP-PERFORMANCE", title: "ERP 页面按需加载、库存商品选项分页与慢请求观测", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-21-erp-startup-performance.md"},
+		{table: "req_dev", code: "DEV-700-ASYNC-ERP-VIEWS", title: "App.vue 业务页面按需加载并保留上下文、加载失败重试和未保存表单", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/App.vue; npm run build"},
+		{table: "req_dev", code: "DEV-701-STOCK-PRODUCT-OPTIONS", title: "库存作业接入 GET /api/products/options 搜索分页与商品详情回显", status: "done", assignee: "Codex", evidence: "product_options_api_test.go; StockEntriesView.vue"},
+		{table: "req_dev", code: "DEV-702-SLOW-REQUEST-TIMING", title: "前端慢请求计时与订单列表/汇总/选项阶段日志", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/api/client.js; sales/order_queries.go"},
+		{table: "req_unit", code: "UT-670-STARTUP-STOCK-OPTIONS", title: "产品选项分页归一化、历史选择详情加载和提交门禁单测", status: "done", assignee: "Codex", evidence: "catalog/service_test.go; product_options_api_test.go"},
+		{table: "req_api", code: "API-670-PRODUCT-OPTIONS", title: "GET /api/products/options 返回分页字段并保持 /api/products 兼容", status: "done", assignee: "Codex", evidence: "product_options_api_test.go"},
+		{table: "req_review", code: "REV-670-ERP-STARTUP-PERFORMANCE", prCode: "PR-670-ERP-STARTUP-PERFORMANCE", title: "验收 ERP 冷启动、页面切换、库存产品搜索和性能取样证据", status: "todo", assignee: "VA", evidence: "待 development 部署后按 acceptance/2026-09-21-erp-startup-performance.md 实测"},
 
 		{table: "req_product", code: "PR-667-CUSTOMER-PROCESSING-RESERVATION-FULFILLMENT", title: "客户代加工物料与在制产出预订贯通一件代发", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-09-15-customer-processing-reservation-fulfillment.md"},
 		{table: "req_dev", code: "DEV-689-PROCESSING-MATERIAL-RESERVATION", title: "代加工预览上限并在提交事务内重算和预订物料", status: "done", assignee: "Codex", evidence: "processing_request_authority_test.go"},

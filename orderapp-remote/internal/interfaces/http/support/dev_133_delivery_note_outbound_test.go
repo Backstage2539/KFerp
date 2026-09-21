@@ -48,8 +48,11 @@ func TestDeliveryNoteVueShellWiring(t *testing.T) {
 	app := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "App.vue")))
 	menu := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js")))
 	authz := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "authz", "schema.go")))
+	if !strings.Contains(app, "import DeliveryNoteView from './views/DeliveryNoteView.vue'") &&
+		!strings.Contains(app, "const DeliveryNoteView = lazyView(() => import('./views/DeliveryNoteView.vue'))") {
+		t.Fatal("delivery note vue shell wiring missing DeliveryNoteView import")
+	}
 	for _, want := range []string{
-		"import DeliveryNoteView from './views/DeliveryNoteView.vue'",
 		"deliveryNote: DeliveryNoteView",
 		"deliveryNote: '出库单'",
 		`"deliveryNote":`,

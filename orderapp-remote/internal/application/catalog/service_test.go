@@ -75,6 +75,17 @@ type fakeRepo struct {
 	tierSchemeSaved        bool
 }
 
+type productOptionsRepo struct {
+	fakeRepo
+	page  ProductOptionPage
+	query ProductOptionQuery
+}
+
+func (r *productOptionsRepo) ListProductOptions(ctx context.Context, query ProductOptionQuery) (ProductOptionPage, error) {
+	r.query = query
+	return r.page, nil
+}
+
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
 	if r.listedProducts != nil {
 		return r.listedProducts, nil
@@ -2093,5 +2104,21 @@ func TestResolvePriceTableTemplateInheritanceInfersLegacyTemplateModeFromNearest
 
 	if got.PricingMode != "pricing_rule" || got.PricingModeSource != "subgroup" || got.PricingRuleID != 22 {
 		t.Fatalf("resolution = %+v, want nearest legacy pricing-rule config", got)
+	}
+}
+
+func TestListProductOptionsClampsPagingWithoutLoadingFullCatalog(t *testing.T) {
+	repo := &productOptionsRepo{page: ProductOptionPage{
+		Rows: []ProductOption{{ID: 527, Name: "产品 527"}}, Total: 527, Page: 1, Limit: 100, HasNext: true,
+	}}
+	got, err := NewService(repo).ListProductOptions(context.Background(), ProductOptionQuery{Page: 0, Limit: 1000})
+	if err != nil {
+		t.Fatalf("ListProductOptions() error = %v", err)
+	}
+	if got.Total != 527 || len(got.Rows) != 1 || got.Rows[0].ID != 527 {
+		t.Fatalf("unexpected page = %+v", got)
+	}
+	if repo.query.Page != 1 || repo.query.Limit != 100 {
+		t.Fatalf("query was not normalized: %+v", repo.query)
 	}
 }

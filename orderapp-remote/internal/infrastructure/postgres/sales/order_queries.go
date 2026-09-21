@@ -3,9 +3,11 @@ package sales
 import (
 	"context"
 	"fmt"
+	"log"
 	"orderapp/internal/infrastructure/postgres/orderconfirmation"
 	"strconv"
 	"strings"
+	"time"
 
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
@@ -14,30 +16,42 @@ import (
 )
 
 func (r Repository) ListOrders(ctx context.Context, query salesapp.OrderListQuery) (salesapp.OrderListResult, error) {
+	startedAt := time.Now()
 	rows, hasNext, err := fetchOrders(ctx, r.pool, r.schema, query)
 	if err != nil {
 		return salesapp.OrderListResult{}, err
 	}
+	logSlowOrdersStage("list", startedAt, len(rows))
+	startedAt = time.Now()
 	summary, err := fetchOrdersSummary(ctx, r.pool, r.schema, query)
 	if err != nil {
 		return salesapp.OrderListResult{}, err
 	}
+	logSlowOrdersStage("summary", startedAt, summary.Orders)
+	startedAt = time.Now()
 	orderTypes, err := fetchOrderOptions(ctx, r.pool, "SELECT id, name FROM "+r.schema+".order_types ORDER BY id")
 	if err != nil {
 		return salesapp.OrderListResult{}, err
 	}
+	logSlowOrdersStage("options.order_types", startedAt, len(orderTypes))
+	startedAt = time.Now()
 	payStatuses, err := fetchOrderOptions(ctx, r.pool, "SELECT id, name FROM "+r.schema+".pay_statuses ORDER BY id")
 	if err != nil {
 		return salesapp.OrderListResult{}, err
 	}
+	logSlowOrdersStage("options.pay_statuses", startedAt, len(payStatuses))
+	startedAt = time.Now()
 	shipStatuses, err := fetchOrderOptions(ctx, r.pool, "SELECT id, name FROM "+r.schema+".ship_statuses ORDER BY id")
 	if err != nil {
 		return salesapp.OrderListResult{}, err
 	}
+	logSlowOrdersStage("options.ship_statuses", startedAt, len(shipStatuses))
+	startedAt = time.Now()
 	processStatuses, err := fetchOrderOptions(ctx, r.pool, "SELECT id, name FROM "+r.schema+".order_process_statuses WHERE active=true ORDER BY sort,id")
 	if err != nil {
 		return salesapp.OrderListResult{}, err
 	}
+	logSlowOrdersStage("options.process_statuses", startedAt, len(processStatuses))
 	return salesapp.OrderListResult{
 		Rows:            rows,
 		Summary:         summary,
@@ -47,6 +61,14 @@ func (r Repository) ListOrders(ctx context.Context, query salesapp.OrderListQuer
 		ProcessStatuses: processStatuses,
 		HasNext:         hasNext,
 	}, nil
+}
+
+func logSlowOrdersStage(stage string, startedAt time.Time, rows int) {
+	duration := time.Since(startedAt)
+	if duration < 500*time.Millisecond {
+		return
+	}
+	log.Printf("slow orders query stage=%s duration_ms=%d rows=%d", stage, duration.Milliseconds(), rows)
 }
 
 func (r Repository) ListOrderAuditLogs(ctx context.Context, orderID int64, limit int) ([]salesapp.AuditRow, error) {

@@ -182,6 +182,17 @@ func (r Repository) ListProducts(ctx context.Context) ([]catalogapp.Product, err
 	return out, nil
 }
 
+func (r Repository) ListProductOptions(ctx context.Context, query catalogapp.ProductOptionQuery) (catalogapp.ProductOptionPage, error) {
+	rows, total, err := postgresinfra.FetchProductOptions(ctx, r.pool, r.schema, query.Query, query.Page, query.Limit)
+	if err != nil {
+		return catalogapp.ProductOptionPage{}, err
+	}
+	return catalogapp.ProductOptionPage{
+		Rows: rows, Total: total, Page: query.Page, Limit: query.Limit,
+		HasNext: query.Page*query.Limit < total,
+	}, nil
+}
+
 func (r Repository) GetProduct(ctx context.Context, id int64) (*catalogapp.Product, error) {
 	p, err := fetchProductByID(ctx, r.pool, r.schema, id)
 	if err != nil || p == nil {

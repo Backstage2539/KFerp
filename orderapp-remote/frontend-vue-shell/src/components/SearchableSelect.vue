@@ -51,6 +51,7 @@
         </slot>
       </button>
       <div v-if="!filteredOptions.length" class="select-empty">{{ emptyText }}</div>
+      <slot name="menu-footer" />
     </div>
   </div>
 </template>
@@ -69,10 +70,11 @@ const props = defineProps({
   emptyText: { type: String, default: '没有匹配项' },
   emptyValue: { type: [Number, String], default: 0 },
   maxOptions: { type: Number, default: 80 },
+  remote: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update:modelValue', 'select'])
+const emit = defineEmits(['update:modelValue', 'select', 'input', 'focus', 'open', 'load-more'])
 const root = ref(null)
 const inputEl = ref(null)
 const open = ref(false)
@@ -87,7 +89,7 @@ const selectedOption = computed(() => {
 })
 
 const filteredOptions = computed(() => (
-  filterSearchableOptions(props.options, query.value, labelOf).slice(0, props.maxOptions)
+  (props.remote ? (props.options || []) : filterSearchableOptions(props.options, query.value, labelOf)).slice(0, props.maxOptions)
 ))
 
 const showClear = computed(() => !props.disabled && String(query.value || '').length > 0)
@@ -120,6 +122,8 @@ function syncQueryToSelection() {
 function openMenu(event) {
   if (props.disabled) return
   open.value = true
+  emit('focus')
+  emit('open')
   if (event?.target?.select) event.target.select()
 }
 
@@ -136,11 +140,13 @@ function toggleMenu() {
   }
   if (selectedOption.value && query.value === labelOf(selectedOption.value)) query.value = ''
   open.value = true
+  emit('open')
 }
 
 function handleInput(event) {
   query.value = event.target.value
   open.value = true
+  emit('input', query.value)
   const selectedLabel = selectedOption.value ? labelOf(selectedOption.value) : ''
   if (selectedOption.value && query.value !== selectedLabel) {
     emit('update:modelValue', props.emptyValue)

@@ -25,6 +25,7 @@ func expectLegacyClassificationWriteGone(t *testing.T, rec *httptest.ResponseRec
 
 type productSettingsRepo struct {
 	products                            []catalogapp.Product
+	productOptions                      catalogapp.ProductOptionPage
 	categories                          []catalogapp.ProductCategory
 	gradientTemplates                   []catalogapp.GradientTemplate
 	productConfigTemplates              []catalogapp.ProductConfigTemplate
@@ -158,6 +159,17 @@ type productSettingsRepo struct {
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
 	return r.products, nil
+}
+
+func (r *productSettingsRepo) ListProductOptions(ctx context.Context, query catalogapp.ProductOptionQuery) (catalogapp.ProductOptionPage, error) {
+	page := r.productOptions
+	if page.Page == 0 {
+		page.Page = query.Page
+	}
+	if page.Limit == 0 {
+		page.Limit = query.Limit
+	}
+	return page, nil
 }
 
 func (r *productSettingsRepo) GetProduct(ctx context.Context, id int64) (*catalogapp.Product, error) {

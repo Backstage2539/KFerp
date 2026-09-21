@@ -63,7 +63,8 @@
             :option-meta="customerOptionMeta"
             :option-value="optionNumericValue"
             placeholder="选择客户"
-            empty-text="没有匹配客户" />
+            empty-text="没有匹配客户"
+            @focus="loadWorkspaceCustomers" />
         </label>
         <label v-if="showWorkspaceOrderSelector" class="workspace-customer view-context-order">
           <span>订单</span>
@@ -74,11 +75,12 @@
             :option-meta="orderOptionMeta"
             :option-value="optionNumericValue"
             placeholder="选择订单"
-            empty-text="没有匹配订单" />
+            empty-text="没有匹配订单"
+            @focus="loadWorkspaceOrders" />
         </label>
         <div v-if="currentViewContextLabel" class="view-context-label">当前视图：{{ currentViewContextLabel }}</div>
         <div v-if="showViewContextSelector" class="view-context-presets" aria-label="保存视图">
-          <select v-model.number="selectedViewContextPresetId" @change="applySelectedViewContextPreset">
+          <select v-model.number="selectedViewContextPresetId" @focus="loadViewContextPresets" @change="applySelectedViewContextPreset">
             <option :value="0">常用视图</option>
             <option v-for="preset in viewContextPresets" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
           </select>
@@ -164,72 +166,107 @@
 </template>
 
 <script setup>
-import { computed, h, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import AllocationLogsView from './views/AllocationLogsView.vue'
-import AuditView from './views/AuditView.vue'
-import BusinessSettingsView from './views/BusinessSettingsView.vue'
-import CompanyProfileView from './views/CompanyProfileView.vue'
-import CompanyStaffView from './views/CompanyStaffView.vue'
-import ContractsView from './views/ContractsView.vue'
-import CostingView from './views/CostingView.vue'
-import CustomerCapabilityTemplatesView from './views/CustomerCapabilityTemplatesView.vue'
-import CustomersView from './views/CustomersView.vue'
-import CustomerFulfillmentView from './views/CustomerFulfillmentView.vue'
+import { computed, defineAsyncComponent, h, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet } from './api/client'
 import { customerWorkspaceMenu, customerWorkspacePages } from './lib/customer-workspace'
-import CustomerAccountView from './views/CustomerAccountView.vue'
 import { customerAccountView } from './lib/customer-account'
-import CustomerProcessingPortalView from './views/CustomerProcessingPortalView.vue'
-import CustomerPortalSettingsView from './views/CustomerPortalSettingsView.vue'
-import DeliveryNoteView from './views/DeliveryNoteView.vue'
-import FinanceClosingView from './views/FinanceClosingView.vue'
-import FinanceDashboardView from './views/FinanceDashboardView.vue'
-import FinanceExpensesView from './views/FinanceExpensesView.vue'
-import FinanceReportView from './views/FinanceReportView.vue'
-import FinanceSettingsView from './views/FinanceSettingsView.vue'
-import FinanceTaxLedgerView from './views/FinanceTaxLedgerView.vue'
-import InventoryView from './views/InventoryView.vue'
-import IndustryFieldTemplatesView from './views/IndustryFieldTemplatesView.vue'
-import JobCardsView from './views/JobCardsView.vue'
-import LogisticsSettingsView from './views/LogisticsSettingsView.vue'
-import MachinesView from './views/MachinesView.vue'
-import MallSettingsView from './views/MallSettingsView.vue'
-import ManufacturingOperationsView from './views/ManufacturingOperationsView.vue'
-import ManufacturingWorkstationsView from './views/ManufacturingWorkstationsView.vue'
-import MaterialBatchesView from './views/MaterialBatchesView.vue'
-import MaterialsView from './views/MaterialsView.vue'
-import OrderEntryView from './views/OrderEntryView.vue'
-import OrderInvoiceView from './views/OrderInvoiceView.vue'
-import OrdersView from './views/OrdersView.vue'
-import OperationManualView from './views/OperationManualView.vue'
-import OutsourceSettingsView from './views/OutsourceSettingsView.vue'
-import NotificationSettingsView from './views/NotificationSettingsView.vue'
-import ProducePlanView from './views/ProducePlanView.vue'
-import ProduceRunningView from './views/ProduceRunningView.vue'
-import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
-import ProductionCostsView from './views/ProductionCostsView.vue'
-import ProductionFlowView from './views/ProductionFlowView.vue'
-import ProductionLogsView from './views/ProductionLogsView.vue'
-import ProductionScheduleView from './views/ProductionScheduleView.vue'
-import ProductionSystemCheckView from './views/ProductionSystemCheckView.vue'
-import ProductionSettingsView from './views/ProductionSettingsView.vue'
-import ProcessTemplatesView from './views/ProcessTemplatesView.vue'
-import ProductSettingsView from './views/ProductSettingsView.vue'
-import PurchaseView from './views/PurchaseView.vue'
-import QualityInspectionsView from './views/QualityInspectionsView.vue'
-import RequirementsView from './views/RequirementsView.vue'
-import SalesOrderSettingsView from './views/SalesOrderSettingsView.vue'
-import SalesOrderView from './views/SalesOrderView.vue'
-import SenderSettingsView from './views/SenderSettingsView.vue'
-import StockBatchesView from './views/StockBatchesView.vue'
-import StockLedgerView from './views/StockLedgerView.vue'
-import StockOperationsView from './views/StockOperationsView.vue'
-import StockOutboundLogsView from './views/StockOutboundLogsView.vue'
-import UISettingsView from './views/UISettingsView.vue'
-import GroupTemplatesView from './views/GroupTemplatesView.vue'
-import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
-import WorkstationView from './views/WorkstationView.vue'
-import WorkOrdersView from './views/WorkOrdersView.vue'
+const AsyncViewLoading = {
+  name: 'AsyncViewLoading',
+  setup() {
+    return () => h('section', { class: 'view-loading', role: 'status' }, [
+      h('strong', '正在打开页面'),
+      h('span', '正在加载当前页面数据与功能…'),
+    ])
+  },
+}
+
+const AsyncViewError = {
+  name: 'AsyncViewError',
+  setup() {
+    return () => h('section', { class: 'view-load-error', role: 'alert' }, [
+      h('strong', '页面加载失败'),
+      h('span', '可能是版本文件已更新，请重试；未保存的表单不会自动刷新。'),
+      h('button', { type: 'button', onClick: () => window.dispatchEvent(new Event('kferp:retry-view')) }, '重试'),
+    ])
+  },
+}
+
+function lazyView(loader) {
+  return defineAsyncComponent({
+    loader,
+    loadingComponent: AsyncViewLoading,
+    errorComponent: AsyncViewError,
+    delay: 0,
+    timeout: 30000,
+    onError(error, retry, fail, attempts) {
+      if (attempts < 2) retry()
+      else fail(error)
+    },
+  })
+}
+const AllocationLogsView = lazyView(() => import('./views/AllocationLogsView.vue'))
+const AuditView = lazyView(() => import('./views/AuditView.vue'))
+const BusinessSettingsView = lazyView(() => import('./views/BusinessSettingsView.vue'))
+const CompanyProfileView = lazyView(() => import('./views/CompanyProfileView.vue'))
+const CompanyStaffView = lazyView(() => import('./views/CompanyStaffView.vue'))
+const ContractsView = lazyView(() => import('./views/ContractsView.vue'))
+const CostingView = lazyView(() => import('./views/CostingView.vue'))
+const CustomerCapabilityTemplatesView = lazyView(() => import('./views/CustomerCapabilityTemplatesView.vue'))
+const CustomersView = lazyView(() => import('./views/CustomersView.vue'))
+const CustomerFulfillmentView = lazyView(() => import('./views/CustomerFulfillmentView.vue'))
+const CustomerAccountView = lazyView(() => import('./views/CustomerAccountView.vue'))
+const CustomerProcessingPortalView = lazyView(() => import('./views/CustomerProcessingPortalView.vue'))
+const CustomerPortalSettingsView = lazyView(() => import('./views/CustomerPortalSettingsView.vue'))
+const DeliveryNoteView = lazyView(() => import('./views/DeliveryNoteView.vue'))
+const FinanceClosingView = lazyView(() => import('./views/FinanceClosingView.vue'))
+const FinanceDashboardView = lazyView(() => import('./views/FinanceDashboardView.vue'))
+const FinanceExpensesView = lazyView(() => import('./views/FinanceExpensesView.vue'))
+const FinanceReportView = lazyView(() => import('./views/FinanceReportView.vue'))
+const FinanceSettingsView = lazyView(() => import('./views/FinanceSettingsView.vue'))
+const FinanceTaxLedgerView = lazyView(() => import('./views/FinanceTaxLedgerView.vue'))
+const InventoryView = lazyView(() => import('./views/InventoryView.vue'))
+const IndustryFieldTemplatesView = lazyView(() => import('./views/IndustryFieldTemplatesView.vue'))
+const JobCardsView = lazyView(() => import('./views/JobCardsView.vue'))
+const LogisticsSettingsView = lazyView(() => import('./views/LogisticsSettingsView.vue'))
+const MachinesView = lazyView(() => import('./views/MachinesView.vue'))
+const MallSettingsView = lazyView(() => import('./views/MallSettingsView.vue'))
+const ManufacturingOperationsView = lazyView(() => import('./views/ManufacturingOperationsView.vue'))
+const ManufacturingWorkstationsView = lazyView(() => import('./views/ManufacturingWorkstationsView.vue'))
+const MaterialBatchesView = lazyView(() => import('./views/MaterialBatchesView.vue'))
+const MaterialsView = lazyView(() => import('./views/MaterialsView.vue'))
+const OrderEntryView = lazyView(() => import('./views/OrderEntryView.vue'))
+const OrderInvoiceView = lazyView(() => import('./views/OrderInvoiceView.vue'))
+const OrdersView = lazyView(() => import('./views/OrdersView.vue'))
+const OperationManualView = lazyView(() => import('./views/OperationManualView.vue'))
+const OutsourceSettingsView = lazyView(() => import('./views/OutsourceSettingsView.vue'))
+const NotificationSettingsView = lazyView(() => import('./views/NotificationSettingsView.vue'))
+const ProducePlanView = lazyView(() => import('./views/ProducePlanView.vue'))
+const ProduceRunningView = lazyView(() => import('./views/ProduceRunningView.vue'))
+const ProductionAcceptanceView = lazyView(() => import('./views/ProductionAcceptanceView.vue'))
+const ProductionCostsView = lazyView(() => import('./views/ProductionCostsView.vue'))
+const ProductionFlowView = lazyView(() => import('./views/ProductionFlowView.vue'))
+const ProductionLogsView = lazyView(() => import('./views/ProductionLogsView.vue'))
+const ProductionScheduleView = lazyView(() => import('./views/ProductionScheduleView.vue'))
+const ProductionSystemCheckView = lazyView(() => import('./views/ProductionSystemCheckView.vue'))
+const ProductionSettingsView = lazyView(() => import('./views/ProductionSettingsView.vue'))
+const ProcessTemplatesView = lazyView(() => import('./views/ProcessTemplatesView.vue'))
+const ProductSettingsView = lazyView(() => import('./views/ProductSettingsView.vue'))
+const PurchaseView = lazyView(() => import('./views/PurchaseView.vue'))
+const QualityInspectionsView = lazyView(() => import('./views/QualityInspectionsView.vue'))
+const RequirementsView = lazyView(() => import('./views/RequirementsView.vue'))
+const SalesOrderSettingsView = lazyView(() => import('./views/SalesOrderSettingsView.vue'))
+const SalesOrderView = lazyView(() => import('./views/SalesOrderView.vue'))
+const SenderSettingsView = lazyView(() => import('./views/SenderSettingsView.vue'))
+const StockBatchesView = lazyView(() => import('./views/StockBatchesView.vue'))
+const StockLedgerView = lazyView(() => import('./views/StockLedgerView.vue'))
+const StockOperationsView = lazyView(() => import('./views/StockOperationsView.vue'))
+const StockOutboundLogsView = lazyView(() => import('./views/StockOutboundLogsView.vue'))
+const UISettingsView = lazyView(() => import('./views/UISettingsView.vue'))
+const GroupTemplatesView = lazyView(() => import('./views/GroupTemplatesView.vue'))
+const WarehouseInventoryView = lazyView(() => import('./views/WarehouseInventoryView.vue'))
+const WorkstationView = lazyView(() => import('./views/WorkstationView.vue'))
+const WorkOrdersView = lazyView(() => import('./views/WorkOrdersView.vue'))
+
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
 import { appURL } from './api/client.js'
 import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillment.js'
@@ -322,6 +359,10 @@ const workspaceOrderId = ref(orderIDForViewContext(initialViewContext) || Number
 const workspaceCustomerOptions = ref([])
 const workspaceOrderOptions = ref([])
 const viewContextPresets = ref([])
+const workspaceCustomersLoaded = ref(false)
+const workspaceOrdersLoaded = ref(false)
+const viewContextPresetsLoaded = ref(false)
+const viewLoadGeneration = ref(0)
 const selectedViewContextPresetId = ref(0)
 const unknownRequestedView = requestedViewFromUrl && requestedView && !menuMap[requestedView] ? requestedView : ''
 const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : (unknownRequestedView || 'order'))
@@ -775,6 +816,10 @@ function handleNavigateView(event) {
   }
 }
 
+function handleRetryView() {
+  viewLoadGeneration.value += 1
+}
+
 function handleWorkspaceCustomerChange(event) {
   const nextCustomerID = Number(event?.detail?.customerID || 0)
   if (nextCustomerID > 0 && currentViewContext.value.type === CUSTOMER_VIEW_CONTEXT) {
@@ -784,19 +829,32 @@ function handleWorkspaceCustomerChange(event) {
 }
 
 function handleWorkspaceCustomersRefresh() {
-  loadWorkspaceCustomers()
+  workspaceCustomersLoaded.value = false
+  void loadWorkspaceCustomers({ force: true }).catch(() => {})
 }
 
-async function loadWorkspaceCustomers() {
-  workspaceCustomerOptions.value = await fetchAllCustomerOptions()
+async function loadWorkspaceCustomers({ force = false } = {}) {
+  if (workspaceCustomersLoaded.value && !force) return workspaceCustomerOptions.value
+  const rows = await fetchAllCustomerOptions()
+  workspaceCustomerOptions.value = rows
+  workspaceCustomersLoaded.value = true
+  return rows
 }
 
-async function loadWorkspaceOrders() {
-  workspaceOrderOptions.value = await fetchWorkspaceOrderOptions()
+async function loadWorkspaceOrders({ force = false } = {}) {
+  if (workspaceOrdersLoaded.value && !force) return workspaceOrderOptions.value
+  const rows = await fetchWorkspaceOrderOptions()
+  workspaceOrderOptions.value = rows
+  workspaceOrdersLoaded.value = true
+  return rows
 }
 
-async function loadViewContextPresets() {
-  viewContextPresets.value = await fetchViewContextPresets()
+async function loadViewContextPresets({ force = false } = {}) {
+  if (viewContextPresetsLoaded.value && !force) return viewContextPresets.value
+  const rows = await fetchViewContextPresets()
+  viewContextPresets.value = rows
+  viewContextPresetsLoaded.value = true
+  return rows
 }
 
 function presetPayloadForCurrentViewContext(name) {
@@ -825,7 +883,7 @@ async function saveCurrentViewContextPreset() {
   if (!name || !name.trim()) return
   try {
     const data = await saveViewContextPreset(presetPayloadForCurrentViewContext(name.trim()))
-    await loadViewContextPresets()
+    await loadViewContextPresets({ force: true })
     selectedViewContextPresetId.value = Number(data?.preset?.id || 0)
   } catch (err) {
     window.alert(err.message || '保存视图失败')
@@ -847,7 +905,7 @@ async function disableSelectedViewContextPreset() {
   try {
     await disableViewContextPresetAPI(id)
     selectedViewContextPresetId.value = 0
-    await loadViewContextPresets()
+    await loadViewContextPresets({ force: true })
   } catch (err) {
     window.alert(err.message || '停用视图失败')
   }
@@ -1087,11 +1145,14 @@ onMounted(async () => {
     readStoredExpandedGroups(),
     currentKey.value,
   )
-  await Promise.all([loadActor(), loadWorkspaceCustomers(), loadWorkspaceOrders(), loadViewContextPresets()])
+  await loadActor()
+  if (workspaceCustomerId.value > 0) void loadWorkspaceCustomers()
+  if (workspaceOrderId.value > 0) void loadWorkspaceOrders()
   window.addEventListener('resize', handleResize)
   window.addEventListener('touchstart', handleTouchStart, { passive: true })
   window.addEventListener('touchend', handleTouchEnd, { passive: true })
   window.addEventListener('kferp:navigate-view', handleNavigateView)
+  window.addEventListener('kferp:retry-view', handleRetryView)
   window.addEventListener('kferp:notify', handleLocalNotification)
   window.addEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
   window.addEventListener(workspaceCustomersRefreshEventName, handleWorkspaceCustomersRefresh)
@@ -1102,6 +1163,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('touchstart', handleTouchStart)
   window.removeEventListener('touchend', handleTouchEnd)
   window.removeEventListener('kferp:navigate-view', handleNavigateView)
+  window.removeEventListener('kferp:retry-view', handleRetryView)
   window.removeEventListener('kferp:notify', handleLocalNotification)
   window.removeEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
   window.removeEventListener(workspaceCustomersRefreshEventName, handleWorkspaceCustomersRefresh)
@@ -1151,7 +1213,7 @@ const productSettingsSectionMode = computed(() => {
   if (currentKey.value === 'productUnitTemplates') return 'productUnitTemplates'
   return 'master'
 })
-const currentViewIdentity = computed(() => `${currentKey.value}:${currentViewContext.value.type}:${workspaceCustomerContextId.value || 0}:${orderIDForViewContext(currentViewContext.value) || 0}`)
+const currentViewIdentity = computed(() => `${currentKey.value}:${currentViewContext.value.type}:${workspaceCustomerContextId.value || 0}:${orderIDForViewContext(currentViewContext.value) || 0}:${viewLoadGeneration.value}`)
 const renderedViewParams = computed(() => {
   const params = { ...(currentViewParams.value || {}) }
   if (transientReturnNavigation.value && transientReturnNavigation.value.targetKey === currentKey.value) {
@@ -1223,6 +1285,7 @@ watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'po
 </script>
 
 <style scoped>
+.view-loading,.view-load-error{min-height:180px;display:grid;place-content:center;justify-items:center;gap:8px;padding:32px;color:#4b5563}.view-loading strong,.view-load-error strong{color:#111827}.view-load-error button{border:1px solid #9ca3af;background:#fff;border-radius:6px;padding:7px 14px;cursor:pointer}
 * { box-sizing: border-box; }
 .layout { display: flex; height: 100vh; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; position: relative; }
 .sidebar { width: 260px; flex: 0 0 260px; height: 100vh; border-right: 1px solid #eee; padding: 18px 14px; background: #fafafa; transition: width .2s ease, flex-basis .2s ease, transform .2s ease, padding .2s ease; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }

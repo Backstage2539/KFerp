@@ -49,7 +49,7 @@ test('system settings owns notification settings while global units move to busi
 test('Vue shell maps the business settings page and keeps legacy settings routes', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /import BusinessSettingsView from '.\/views\/BusinessSettingsView\.vue'/)
+  assert.match(source, /(?:import BusinessSettingsView from '.\/views\/BusinessSettingsView\.vue'|const BusinessSettingsView = lazyView\(\(\) => import\('.\/views\/BusinessSettingsView\.vue'\)\))/)
   assert.match(source, /businessSettings:\s*BusinessSettingsView/)
   assert.match(source, /salesOrderSettings:\s*SalesOrderSettingsView/)
   assert.match(source, /logisticsSettings:\s*LogisticsSettingsView/)

@@ -10,18 +10,17 @@ import (
 func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 	app := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "App.vue")))
 	menu := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js")))
-			account := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerFulfillmentView.vue")))
+	account := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerFulfillmentView.vue")))
 	orderEntry := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	portalView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerProcessingPortalView.vue")))
 	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md")))
 
-	for _, want := range []string{
-		"import OperationManualView from './views/OperationManualView.vue'",
-		"customerFulfillmentManual: OperationManualView",
-	} {
-		if !strings.Contains(app, want) {
-			t.Fatalf("App.vue missing %q", want)
-		}
+	if !strings.Contains(app, "import OperationManualView from './views/OperationManualView.vue'") &&
+		!strings.Contains(app, "const OperationManualView = lazyView(() => import('./views/OperationManualView.vue'))") {
+		t.Fatal("App.vue missing OperationManualView import")
+	}
+	if !strings.Contains(app, "customerFulfillmentManual: OperationManualView") {
+		t.Fatal("App.vue missing customer fulfillment manual wiring")
 	}
 	for _, want := range []string{
 		"customerFulfillmentManual",
