@@ -5426,3 +5426,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: merge develop and main; deploy development and production; sync both miniapp artifacts; no WeChat upload/review/publication.
 - Last update: 2026-09-15.
 - Notes: `scripts/reserve_req_id.sh --claim` has the recorded macOS awk multiline failure; PR-666 reserved manually after confirming the next id.
+
+### PR-669-OWNER-FILTER-CUSTOMER-RENAME 商品归属过滤视图客户改名（2026-09-20）
+- Branch: codex/product-owner-filter-customer-rename-20260907
+- Owner/session: Codex
+- Status: review（待 Van 在 development 人工验收）
+- Scope: 商品归属过滤=客户X 时，列表显示客户商品名+工厂名小字标注；配置抽屉"商品名"切换为"客户商品名"（编辑客户引用），工厂商品名只读；保存走 PUT /api/product-customer-references/:id 且 basics payload 剔除 name——客户名不再写回工厂商品。
+- Verifier:
+  - Frontend: `node --test src/lib/*.test.js` 1227/1227 全绿（新增合同 1 项 4 断言，RED->GREEN）
+  - Build: `vite build` ✓
+  - Go: `go test ./...` 全部通过
+  - Manual: OP_MANUAL_INVENTORY_MATERIALS.md（PR-634 章节补 PR-669 口径）
+- Deployment: development 1f75730f3ee19f41d4412f0ae104fcdcedec74b5；smoke 200；backup /opt/stacks/erp/orderapp.backup.deploy-20260920231814-1f75730f3ee1；rollback kferp-orderapp-rollback:development-20260920231814-1f75730f3ee1
+- Last update: 2026-09-20
+- Notes: 方案A（引用体系内补全）。兼容：客户自有商品/客户SKU上下文保护/工厂视图维护入口均不变；订单录单 CustomerProductDisplayName 改名后自动生效。

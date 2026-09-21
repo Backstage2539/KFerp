@@ -242,6 +242,7 @@
                         </td>
                         <td class="sku-name-cell">
                           <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openCustomerAwareProductName(row)">{{ row.name || '未命名商品' }}</button>
+                          <small v-if="row.canonical_name && row.canonical_name !== row.name" class="muted">工厂名：{{ row.canonical_name }}</small>
                           <div v-if="row.bom_specs?.length" class="product-bom-specs">
                             <span class="product-bom-spec-label">BOM 规格</span>
                             <button
@@ -1649,8 +1650,9 @@
                 <input :value="productProductionTargetWarehouseLabel" disabled />
               </label>
               <label>
-                <span>商品名</span>
-                <input v-model.trim="productProductionConfigForm.name" :disabled="!canEditSkuRow(productProductionConfigProduct || {})" placeholder="商品档案名称" />
+                <span>{{ productReferenceRenameContext ? '客户商品名' : '商品名' }}</span>
+                <input v-model.trim="productProductionConfigForm.name" :disabled="!canEditSkuRow(productProductionConfigProduct || {})" :placeholder="productReferenceRenameContext ? '该客户视角显示的商品名' : '商品档案名称'" />
+                <small v-if="productReferenceRenameContext">工厂商品名：{{ productReferenceRenameContext.originalName || '-' }}（在工厂商品视图维护，此视图只改客户名）</small>
               </label>
               <label class="wide-field">
                 <span>备注</span>
@@ -5597,6 +5599,25 @@ function openProductDrawer() {
   productsCollapsed.value = false
 }
 
+const productReferenceRenameContext = computed(() => {
+  const customerID = catalogCustomerID.value
+  if (!(Number(customerID) > 0)) return null
+  const product = productProductionConfigProduct.value || {}
+  if (Number(product.customer_id || 0) > 0) return null
+  const productID = Number(product.id || 0)
+  if (!productID) return null
+  const reference = activeProductCustomerReference(productID, customerID)
+  if (!reference) return null
+  return {
+    referenceId: Number(reference.id || 0),
+    customerID: Number(customerID),
+    customerItemCode: String(reference.customer_item_code || ''),
+    remark: String(reference.remark || ''),
+    active: reference.active !== false,
+    originalName: String(product.canonical_name || product.name || '').trim(),
+  }
+})
+
 function activeProductCustomerReference(productID, customerID) {
   return productCustomerReferences.value.find((reference) => (
     reference.active !== false
@@ -7056,9 +7077,31 @@ async function saveProductProductionConfig() {
   ok.value = ''
   try {
 	    const originalProduct = productProductionConfigProduct.value || {}
+	    const renameContext = productReferenceRenameContext.value
+	    const basicsPayload = buildProductProductionConfigBasicsPayload(originalProduct, productProductionConfigForm.value)
+	    if (renameContext) {
+	      delete basicsPayload.name
+	      const customerDisplayName = String(productProductionConfigForm.value.name || '').trim()
+	      if (!customerDisplayName) {
+	        error.value = '请填写客户商品名'
+	        return
+	      }
+	      await apiSend(`/api/product-customer-references/${renameContext.referenceId}`, {
+	        method: 'PUT',
+	        body: buildProductCustomerReferencePayload({
+	          id: renameContext.referenceId,
+	          product_id: productID,
+	          customer_id: renameContext.customerID,
+	          customer_item_code: renameContext.customerItemCode,
+	          customer_display_name: customerDisplayName,
+	          active: renameContext.active,
+	          remark: renameContext.remark,
+	        }),
+	      })
+	    }
 	    await apiSend(`/api/products/${productID}`, {
 	      method: 'PUT',
-	      body: buildProductProductionConfigBasicsPayload(originalProduct, productProductionConfigForm.value),
+	      body: basicsPayload,
 	    })
     const result = await apiSend(`/api/product-production-configs/${productID}`, {
       method: 'PUT',
