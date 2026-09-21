@@ -19,9 +19,15 @@
 - `npm run build` 通过；构建产物已拆出当前页面 chunk（例如 `OrdersView`、`StockOperationsView`、`ProductSettingsView`），PDF worker 保持独立大 chunk。
 - API 单测覆盖 `/api/products/options` 的分页响应及 527 条总量场景；应用层单测覆盖 page/limit 归一化。
 
-## 待开发环境实测
+## 开发环境实测证据（2026-09-21）
 
-需在同一浏览器、数据和网络条件下取样 10 次，对比完整 JS 压缩传输量和冷启动首批数据显示中位耗时；预热后对产品选项接口取样 30 次并记录 P95。库存列表首进需核对不再请求全量 `/api/products`，同时保存请求数量、体积和耗时证据。生产环境发布不在本次范围。
+- 已部署 `develop` 提交 `7fd53f01fa58b0c630c7661bb7ade3223024e0de`，开发登录冒烟 `https://dev.qacoohee.com/app/login` 返回 HTTP 200；生产环境未操作。
+- `GET /api/products/options?page=1&limit=20` 返回 `total=563`、`rows=20`、`has_next=true`；第 29 页返回 3 条且 `has_next=false`，第 30 页返回 0 条；`q=咖啡` 返回 25 条总数。接口返回字段为识别所需的 `id/name/code/product_kind/active`（空值字段按 JSON 省略）。
+- 预热后连续 30 次第一页请求均 HTTP 200，单页响应体 1,883 bytes；`time_starttransfer` P95 约 37.7ms，低于 300ms 目标。
+- 登录后的 Vue shell HTML 只预加载公共入口、Vue 导出辅助和客户收件信息三个 JS 文件，使用 `curl --compressed` 实测合计约 54.5KB；订单页 chunk 与 PDF 预览 chunk 均未在首屏 HTML 中预加载。构建产物全量 JS（所有页面合计）仍约 846KB gzip，不能用全量数字代替首屏传输量。
+- `GET /api/stock-documents` 返回 63 条单据、31,373 bytes；`StockEntriesView` 首次 `onMounted` 只调用单据列表，物料、仓库在新建/编辑打开时调用，代码中已无库存列表阶段的全量 `/api/products` 请求；商品选项只通过 `/api/products/options` 触发。
+
+仍需在相同浏览器、数据和网络条件下取样 10 次，记录冷启动到菜单可操作及首批数据的中位耗时、页面切换 100ms 反馈，以及库存页面实际 Network 面板请求数量。生产环境发布不在本次范围。
 
 ## 回退
 
