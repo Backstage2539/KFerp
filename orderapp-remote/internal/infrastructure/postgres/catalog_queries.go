@@ -3,13 +3,60 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	catalogapp "orderapp/internal/application/catalog"
 	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	catalogdomain "orderapp/internal/domain/catalog"
 	salesdomain "orderapp/internal/domain/sales"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func FetchProductOptions(ctx context.Context, pool *pgxpool.Pool, schema, query string, page, limit int) ([]catalogapp.ProductOption, int, error) {
+	query = strings.TrimSpace(query)
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+	search := "%" + query + "%"
+	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM %[1]s.products p
+		WHERE $1='' OR p.name ILIKE $2 OR COALESCE(p.sku_code,'') ILIKE $2 OR COALESCE(p.barcode,'') ILIKE $2 OR p.id::text ILIKE $2`, schema)
+	var total int
+	if err := pool.QueryRow(ctx, countSQL, query, search).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rowsSQL := fmt.Sprintf(`SELECT p.id, COALESCE(p.name,''), COALESCE(p.sku_code,''), COALESCE(p.barcode,''),
+		COALESCE(p.spec_label,''), COALESCE(NULLIF(p.product_kind,''),'roasted_bean'),
+		COALESCE(p.parent_product_id,0), COALESCE(p.active,true)
+		FROM %[1]s.products p
+		WHERE $1='' OR p.name ILIKE $2 OR COALESCE(p.sku_code,'') ILIKE $2 OR COALESCE(p.barcode,'') ILIKE $2 OR p.id::text ILIKE $2
+		ORDER BY COALESCE(p.active,true) DESC, p.name, p.id
+		LIMIT $3 OFFSET $4`, schema)
+	rows, err := pool.Query(ctx, rowsSQL, query, search, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductOption, 0, limit)
+	for rows.Next() {
+		var row catalogapp.ProductOption
+		if err := rows.Scan(&row.ID, &row.Name, &row.SKUCode, &row.Barcode, &row.SpecLabel, &row.ProductKind, &row.ParentProductID, &row.Active); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
+}
 
 type Option struct {
 	ID   int64

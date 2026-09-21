@@ -23,13 +23,12 @@ func TestVueShellUsesInternalMaterialsView(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(app)
-	for _, want := range []string{
-		`import MaterialsView from './views/MaterialsView.vue'`,
-		`materials: MaterialsView`,
-	} {
-		if !strings.Contains(src, want) {
-			t.Fatalf("App.vue missing %q", want)
-		}
+	if !strings.Contains(src, `import MaterialsView from './views/MaterialsView.vue'`) &&
+		!strings.Contains(src, `const MaterialsView = lazyView(() => import('./views/MaterialsView.vue'))`) {
+		t.Fatal("App.vue missing MaterialsView import")
+	}
+	if !strings.Contains(src, `materials: MaterialsView`) {
+		t.Fatal("App.vue missing materials view wiring")
 	}
 	menuIA, err := os.ReadFile("frontend-vue-shell/src/lib/menu-ia.js")
 	if err != nil {

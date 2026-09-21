@@ -21,6 +21,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 
 	e.GET("/products", h.index)
 	e.GET("/api/products", h.listAPI)
+	e.GET("/api/products/options", h.optionsAPI)
 	e.GET("/api/products/:id", h.detailAPI)
 	e.PUT("/api/products/:id", h.updateAPI)
 	e.GET("/api/product-settings", h.productSettingsAPI)
@@ -588,6 +589,29 @@ func (h productHandler) listAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"rows": productMasterPayload(productOptionsFromCatalog(ps))})
+}
+
+func (h productHandler) optionsAPI(c echo.Context) error {
+	page, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("page")))
+	limit, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("limit")))
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	query := strings.TrimSpace(c.QueryParam("q"))
+	if queryRunes := []rune(query); len(queryRunes) > 100 {
+		query = string(queryRunes[:100])
+	}
+	data, err := h.catalog.ListProductOptions(c.Request().Context(), catalogapp.ProductOptionQuery{Query: query, Page: page, Limit: limit})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, data)
 }
 
 func (h productHandler) detailAPI(c echo.Context) error {

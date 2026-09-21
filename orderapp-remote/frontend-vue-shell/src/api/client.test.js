@@ -72,6 +72,34 @@ test('apiGet sends Bearer token from localStorage', async () => {
   }
 })
 
+test('apiGet merges concurrent requests with the same final URL', async () => {
+  const previousWindow = globalThis.window
+  const previousFetch = globalThis.fetch
+  let calls = 0
+  let release
+  globalThis.window = {
+    location: { origin: 'https://erp.qacoohee.com' },
+    localStorage: { getItem: () => null },
+  }
+  globalThis.fetch = async () => {
+    calls += 1
+    await new Promise((resolve) => { release = resolve })
+    return new Response(JSON.stringify({ rows: [{ id: 1 }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    const first = apiGet('/api/products/options?q=coffee&page=1')
+    const second = apiGet('/api/products/options?q=coffee&page=1')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls, 1)
+    release()
+    const [one, two] = await Promise.all([first, second])
+    assert.deepEqual(one, two)
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.fetch = previousFetch
+  }
+})
+
 test('apiSend preserves custom headers while sending Bearer token', async () => {
   const previousWindow = globalThis.window
   const previousFetch = globalThis.fetch

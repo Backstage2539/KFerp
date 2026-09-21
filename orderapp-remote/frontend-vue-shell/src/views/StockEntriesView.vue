@@ -217,9 +217,20 @@
                 :model-value="selectedObjectID(item)"
                 :options="item.item_type === 'material' ? stockEntryMaterialOptions : products"
                 :option-label="itemOptionLabel"
+                :remote="item.item_type === 'finished_product'"
+                :max-options="item.item_type === 'finished_product' ? 20 : 80"
+                :empty-text="item.item_type === 'finished_product' ? (productOptionsLoading ? '正在加载产品…' : '没有匹配产品') : (baseOptionsLoading ? '正在加载物料…' : '没有匹配物料')"
+                :disabled="baseOptionsLoading && item.item_type === 'material'"
                 placeholder="输入名称 / 编号"
-                @update:model-value="selectItemObject(item, $event)"
-              />
+                @focus="item.item_type === 'finished_product' && handleProductOptionsFocus()"
+                @open="item.item_type === 'finished_product' && handleProductOptionsFocus()"
+                @input="item.item_type === 'finished_product' && handleProductSearch($event)"
+                @update:model-value="selectItemObject(item, $event)">
+                <template #menu-footer>
+                  <div v-if="item.item_type === 'finished_product' && productOptionsLoading" class="select-loading">正在加载…</div>
+                  <button v-else-if="item.item_type === 'finished_product' && productOptionsHasNext" type="button" class="select-load-more" @mousedown.prevent @click="loadMoreProductOptions">加载更多</button>
+                </template>
+              </SearchableSelect>
               <input v-else :value="item.item_name || '-'" disabled />
             </label>
             <label v-if="item.item_type === 'finished_product' && itemUsesBomSpecs(item)">
@@ -256,8 +267,8 @@
           <button v-if="isDraft && form.items.length > 1" class="danger-link" type="button" @click="form.items.splice(index, 1)">删除明细</button>
         </div>
         <div class="drawer-actions">
-          <button v-if="isDraft && !isRetiredReceiptDraft" class="secondary" type="button" @click="saveDraft" :disabled="saving || !form.items.length">保存草稿</button>
-          <button v-if="isDraft && !isRetiredReceiptDraft" class="primary" type="button" @click="submitDocument" :disabled="saving || !form.items.length">提交并过账</button>
+          <button v-if="isDraft && !isRetiredReceiptDraft" class="secondary" type="button" @click="saveDraft" :disabled="saving || productDetailsLoading || !form.items.length">保存草稿</button>
+          <button v-if="isDraft && !isRetiredReceiptDraft" class="primary" type="button" @click="submitDocument" :disabled="saving || productDetailsLoading || !form.items.length">提交并过账</button>
         </div>
         </template>
       </aside>
@@ -278,7 +289,6 @@ import {
   buildProductSpecWriteIdentity,
   isProductBomSpecCutover,
   normalizeProductBomSpecs,
-  visibleRowsForProductSpecMigration,
 } from '../lib/product-spec-cutover'
 
 const props = defineProps({
@@ -304,6 +314,18 @@ const filters = reactive({ q: '', purpose: '', status: '', work_order_id: 0 })
 let localKey = 0
 const form = reactive(emptyDocument())
 let materialBalanceRequest = 0
+const baseOptionsLoading = ref(false)
+const baseOptionsLoaded = ref(false)
+const productOptionsLoading = ref(false)
+const productOptionsLoaded = ref(false)
+const productOptionsPage = ref(1)
+const productOptionsHasNext = ref(false)
+const productSearchQuery = ref('')
+const productDetailsLoading = ref(0)
+let productSearchTimer = 0
+let productOptionsRequest = 0
+let baseOptionsRequest = null
+const productDetailRequests = new Map()
 
 const receiptMode = ref('final')
 const receiptInputKg = ref(0)
@@ -340,7 +362,7 @@ function emptyItem() {
     quantity: 0, quantity_basis: '', canonical_qty_per_unit: 0,
     required_qty: 0, remaining_qty: null, remembered_qty: 0, default_qty: 0,
     qty_g: 0, qty_units: 0, batch_code: '', unit_cost: 0, supplier: '', crop_season: '',
-    origin: '', producer_flavor_description: '', allocations: [], source_balance: { book_qty: 0, available_qty: 0, frozen_qty: 0 },
+    origin: '', producer_flavor_description: '', product_detail_ready: false, allocations: [], source_balance: { book_qty: 0, available_qty: 0, frozen_qty: 0 },
   }
 }
 
@@ -468,19 +490,81 @@ function selectItemBomSpec(item) {
   item.inventory_unit = String(selected?.unit || item.inventory_unit || '')
 }
 
+function mergeProductOption(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return row
+  const current = products.value.find((candidate) => Number(candidate.id || 0) === id)
+  const merged = current ? { ...current, ...row } : row
+  products.value = current
+    ? products.value.map((candidate) => Number(candidate.id || 0) === id ? merged : candidate)
+    : [...products.value, merged]
+  return merged
+}
+
+function applySelectedProduct(item, selected) {
+  if (!selected) return
+  item.product_detail_ready = Boolean(selected.product_detail_loaded)
+  item.migration_state = isProductBomSpecCutover(selected) ? 'cutover' : 'legacy'
+  item.bom_spec_id = Number(normalizeProductBomSpecs(selected).find((row) => row.is_default)?.bom_spec_id || normalizeProductBomSpecs(selected)[0]?.bom_spec_id || 0)
+  item.bom_variant_id = 0
+  item.item_name = selected.name || selected.Name || item.item_name || ''
+  item.inventory_unit = selected.inventory_unit || selected.unit || item.inventory_unit || ''
+  if (item.item_type === 'finished_product') item.spec_g = Number(selected.spec_g || item.spec_g || 0)
+  if (item.migration_state === 'cutover') selectItemBomSpec(item)
+}
+
+async function loadProductDetail(productID) {
+  const id = Number(productID || 0)
+  if (!id) return null
+  const existing = productDetailRequests.get(id)
+  if (existing) return existing
+  productDetailsLoading.value += 1
+  const request = apiGet(`/api/products/${id}`)
+    .then((data) => {
+      const product = data?.product || data
+      return mergeProductOption({ ...product, product_detail_loaded: true })
+    })
+    .finally(() => {
+      productDetailsLoading.value = Math.max(0, productDetailsLoading.value - 1)
+      productDetailRequests.delete(id)
+    })
+  productDetailRequests.set(id, request)
+  return request
+}
+
+async function ensureProductDetailForItem(item) {
+  const id = Number(item?.product_id || 0)
+  if (!id) return
+  const selected = products.value.find((row) => Number(row.id || 0) === id)
+  if (selected?.product_detail_loaded) {
+    applySelectedProduct(item, selected)
+    return
+  }
+  item.product_detail_ready = false
+  try {
+    const detail = await loadProductDetail(id)
+    if (Number(item.product_id || 0) === id) applySelectedProduct(item, detail)
+  } catch (err) {
+    drawerError.value = err.message || '加载产品规格失败，请重试'
+  }
+}
+
 function selectItemObject(item, id) {
   const value = Number(id || 0)
   const options = item.item_type === 'material' ? materials.value : products.value
   const selected = options.find((row) => Number(row.id || 0) === value)
   item.material_id = item.item_type === 'material' ? value : 0
   item.product_id = item.item_type === 'finished_product' ? value : 0
-  item.migration_state = item.item_type === 'finished_product' && isProductBomSpecCutover(selected || {}) ? 'cutover' : 'legacy'
-  item.bom_spec_id = Number(normalizeProductBomSpecs(selected || {}).find((row) => row.is_default)?.bom_spec_id || normalizeProductBomSpecs(selected || {})[0]?.bom_spec_id || 0)
-  item.bom_variant_id = 0
   item.item_name = selected?.name || selected?.Name || ''
-  item.inventory_unit = selected?.unit || selected?.inventory_unit || ''
-  if (item.item_type === 'finished_product') item.spec_g = Number(selected?.spec_g || item.spec_g || 0)
-  if (item.migration_state === 'cutover') selectItemBomSpec(item)
+  if (item.item_type === 'material') {
+    item.product_detail_ready = false
+    item.inventory_unit = selected?.unit || selected?.inventory_unit || ''
+  } else if (value > 0) {
+    item.product_detail_ready = false
+    void ensureProductDetailForItem(item)
+  } else {
+    item.product_detail_ready = false
+  }
   loadMaterialBalances()
 }
 
@@ -491,6 +575,7 @@ function resetItemObject(item) {
   item.bom_spec_id = 0
   item.bom_variant_id = 0
   item.item_name = ''
+  item.product_detail_ready = false
   item.spec_g = item.item_type === 'finished_product' ? 454 : 0
 }
 
@@ -527,6 +612,7 @@ function openNewDrawer(purpose = '') {
   drawerWarnings.value = []
   Object.assign(stockPreviewState, { availability: '', message: '' })
   drawerOpen.value = true
+  void loadOptions().catch(() => {})
 }
 
 function closeDrawer() {
@@ -538,6 +624,9 @@ function closeDrawer() {
 }
 
 function requestBody() {
+  if (form.items.some((item) => item.item_type === 'finished_product' && Number(item.product_id || 0) > 0 && !item.product_detail_ready)) {
+    throw new Error('正在加载产品完整规格，请稍候再提交')
+  }
   const requestItems = stockDocumentPositiveItems(form.items, (item) => (
     usesSingleQuantity(item)
       ? canonicalQuantity(item)
@@ -685,6 +774,9 @@ function applyDocument(data = {}, warnings = [], previewState = {}) {
   drawerWarnings.value = Array.isArray(warnings) ? warnings.filter(Boolean) : []
   Object.assign(stockPreviewState, { availability: previewState.availability || 'actionable', message: previewState.message || '' })
   drawerOpen.value = true
+  for (const item of form.items) {
+    if (item.item_type === 'finished_product' && Number(item.product_id || 0) > 0) void ensureProductDetailForItem(item)
+  }
   loadMaterialBalances()
 }
 
@@ -719,6 +811,7 @@ async function loadMaterialBalances() {
 async function openExisting(row) {
   drawerError.value = ''
   try {
+    await loadOptions()
     const action = productionStockDocumentPreviewAction(row)
     const workOrderID = Number(row.work_order_id || 0)
     if (row.status === 'draft' && workOrderID > 0 && action) {
@@ -764,16 +857,85 @@ async function load() {
 }
 
 async function loadOptions() {
-  try {
-    const [materialData, productData, warehouseData] = await Promise.all([
-      apiGet('/api/materials?limit=500'), apiGet('/api/products'), apiGet('/api/stock/warehouses'),
-    ])
-    materials.value = materialData.rows || []
-    products.value = visibleRowsForProductSpecMigration(productData.rows || productData.products || [])
-    warehouses.value = warehouseData.rows || []
-  } catch (err) {
-    error.value = err.message || '基础资料加载失败'
+  if (baseOptionsLoaded.value) return
+  if (baseOptionsRequest) return baseOptionsRequest
+  baseOptionsLoading.value = true
+  baseOptionsRequest = (async () => {
+    try {
+      const [materialData, warehouseData] = await Promise.all([
+        apiGet('/api/materials?limit=500'), apiGet('/api/stock/warehouses'),
+      ])
+      materials.value = materialData.rows || []
+      warehouses.value = warehouseData.rows || []
+      baseOptionsLoaded.value = true
+    } catch (err) {
+      error.value = err.message || '基础资料加载失败'
+      throw err
+    } finally {
+      baseOptionsLoading.value = false
+      baseOptionsRequest = null
+    }
+  })()
+  return baseOptionsRequest
+}
+
+function mergeProductRows(rows = [], keep = []) {
+  const byID = new Map()
+  for (const row of [...keep, ...products.value, ...rows]) {
+    const id = Number(row?.id || 0)
+    if (!id) continue
+    const current = byID.get(id)
+    byID.set(id, current
+      ? (current.product_detail_loaded && !row.product_detail_loaded ? current : { ...current, ...row })
+      : row)
   }
+  return [...byID.values()]
+}
+
+async function loadProductOptions(query = productSearchQuery.value, page = 1, append = false) {
+  const requestID = ++productOptionsRequest
+  productOptionsLoading.value = true
+  const url = new URL('/api/products/options', window.location.origin)
+  if (query) url.searchParams.set('q', query)
+  url.searchParams.set('page', String(page))
+  url.searchParams.set('limit', '20')
+  try {
+    const data = await apiGet(url)
+    if (requestID !== productOptionsRequest) return
+    const selected = form.items
+      .filter((item) => item.item_type === 'finished_product' && Number(item.product_id || 0) > 0)
+      .map((item) => products.value.find((row) => Number(row.id || 0) === Number(item.product_id || 0)))
+      .filter(Boolean)
+    products.value = append ? mergeProductRows(data.rows || []) : mergeProductRows(data.rows || [], selected)
+    productOptionsLoaded.value = true
+    productSearchQuery.value = query
+    productOptionsPage.value = Number(data.page || page)
+    productOptionsHasNext.value = Boolean(data.has_next)
+  } catch (err) {
+    if (requestID === productOptionsRequest) error.value = err.message || '产品选项加载失败'
+  } finally {
+    if (requestID === productOptionsRequest) productOptionsLoading.value = false
+  }
+}
+
+function handleProductOptionsFocus() {
+  if (!productOptionsLoaded.value || productSearchQuery.value) {
+    void loadProductOptions(productSearchQuery.value, 1, false)
+  }
+}
+
+function handleProductSearch(query) {
+  productSearchQuery.value = String(query || '').trim()
+  if (productSearchTimer) window.clearTimeout(productSearchTimer)
+  productSearchTimer = window.setTimeout(() => {
+    productSearchTimer = 0
+    void loadProductOptions(productSearchQuery.value, 1, false)
+  }, 250)
+}
+
+function loadMoreProductOptions() {
+  if (productOptionsLoading.value || !productOptionsHasNext.value) return
+  void loadProductOptions(productSearchQuery.value, productOptionsPage.value + 1, true)
 }
 
 async function applyViewParams(params = {}) {
@@ -794,6 +956,7 @@ async function applyViewParams(params = {}) {
     return
   }
   if (!workOrderID || !['issue', 'supplement', 'return', 'consume', 'finish'].includes(action)) return
+  await loadOptions().catch(() => {})
   drawerError.value = ''
   try {
     const preview = await apiSend(`/api/produce/work-orders/${workOrderID}/stock-document-preview`, {
@@ -863,13 +1026,13 @@ watch(() => form.purpose_key, (purpose) => {
 })
 watch(() => form.items.map((item) => `${item.item_type}:${item.material_id}:${item.from_warehouse}`).join('|'), loadMaterialBalances)
 onMounted(async () => {
-  await Promise.all([load(), loadOptions()])
+  await load()
   await applyViewParams(props.viewParams || {})
 })
 </script>
 
 <style scoped>
-.stock-entry-page,.stock-entry-page *{box-sizing:border-box}.stock-entry-page{padding:16px;display:grid;gap:16px}.stock-entry-page.embedded{padding:0}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head,.drawer-head,.line-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head{margin-bottom:12px}.panel-head h2,.drawer-head h3,.line-head h4{margin:0 0 4px}.panel-head p,.drawer-head p{margin:0;color:#6b7280;font-size:13px}.head-actions,.row-actions,.drawer-actions{display:flex;gap:8px;flex-wrap:wrap}.filters{display:grid;grid-template-columns:minmax(200px,1.5fr) repeat(2,minmax(130px,1fr)) auto;gap:10px;align-items:end}label{min-width:0}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #d1d5db;padding:7px 9px}.readonly-value{display:block;min-height:36px;border:1px solid #d1d5db;border-radius:6px;background:#f9fafb;padding:7px 9px;color:#374151}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.link,.danger-link{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0}.danger-link{color:#b91c1c}.disabled{color:#9ca3af}.legacy-readonly{color:#6b7280}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.warning-list{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;color:#92400e}.warning-list p{margin:0}.warning-list p+p{margin-top:4px}.production-issue-hint{margin:0;padding:6px 8px;border-radius:6px;background:#eff6ff;color:#1e40af;font-size:12px}.source-balance{display:block;margin-top:4px;color:#1e40af;font-size:11px;line-height:1.35}.table-wrap{overflow:auto}table{width:100%;min-width:1050px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px}.status.submitted{border-color:#86efac;background:#f0fdf4;color:#15803d}.status.draft{border-color:#fcd34d;background:#fffbeb;color:#a16207}.muted{text-align:center;color:#666}.drawer-mask{position:fixed;inset:0;background:rgba(17,24,39,.35);z-index:80;display:flex;justify-content:flex-end}.drawer{width:min(980px,96vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 32px rgba(15,23,42,.2);display:grid;align-content:start;gap:16px}.drawer-head{border-bottom:1px solid #e5e7eb;padding-bottom:12px}.document-form,.item-grid{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px}.wide{grid-column:span 2}.line-head{align-items:center}.item-card{border:1px solid #e5e7eb;border-radius:8px;padding:12px;display:grid;gap:10px}.compact-production-items{display:grid;gap:4px}.compact-production-items-head,.compact-production-item-grid{display:grid;grid-template-columns:minmax(150px,2fr) minmax(90px,1fr) minmax(90px,1fr) minmax(90px,.8fr) minmax(64px,.55fr) minmax(120px,1.2fr) 52px;gap:6px;align-items:end}.compact-production-items-head{padding:0 6px;color:#6b7280;font-size:12px;font-weight:600}.compact-production-item{border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px}.compact-production-item-grid>label{margin:0}.compact-production-item-grid .mobile-field-label{display:none}.compact-production-item-grid select,.compact-production-item-grid input,.compact-production-item-grid .readonly-value{min-height:32px;height:32px;padding:4px 6px}.compact-delete{align-self:center;justify-self:center}.compact-allocations{margin-top:4px}.allocations{display:flex;flex-wrap:wrap;gap:6px}.allocations span{background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;padding:3px 8px;font-size:12px}.drawer-actions{justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
+.stock-entry-page,.stock-entry-page *{box-sizing:border-box}.stock-entry-page{padding:16px;display:grid;gap:16px}.stock-entry-page.embedded{padding:0}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head,.drawer-head,.line-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head{margin-bottom:12px}.panel-head h2,.drawer-head h3,.line-head h4{margin:0 0 4px}.panel-head p,.drawer-head p{margin:0;color:#6b7280;font-size:13px}.head-actions,.row-actions,.drawer-actions{display:flex;gap:8px;flex-wrap:wrap}.filters{display:grid;grid-template-columns:minmax(200px,1.5fr) repeat(2,minmax(130px,1fr)) auto;gap:10px;align-items:end}label{min-width:0}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #d1d5db;padding:7px 9px}.readonly-value{display:block;min-height:36px;border:1px solid #d1d5db;border-radius:6px;background:#f9fafb;padding:7px 9px;color:#374151}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.link,.danger-link{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0}.danger-link{color:#b91c1c}.disabled{color:#9ca3af}.legacy-readonly{color:#6b7280}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.warning-list{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;color:#92400e}.warning-list p{margin:0}.warning-list p+p{margin-top:4px}.production-issue-hint{margin:0;padding:6px 8px;border-radius:6px;background:#eff6ff;color:#1e40af;font-size:12px}.source-balance{display:block;margin-top:4px;color:#1e40af;font-size:11px;line-height:1.35}.table-wrap{overflow:auto}table{width:100%;min-width:1050px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px}.status.submitted{border-color:#86efac;background:#f0fdf4;color:#15803d}.status.draft{border-color:#fcd34d;background:#fffbeb;color:#a16207}.muted{text-align:center;color:#666}.drawer-mask{position:fixed;inset:0;background:rgba(17,24,39,.35);z-index:80;display:flex;justify-content:flex-end}.drawer{width:min(980px,96vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 32px rgba(15,23,42,.2);display:grid;align-content:start;gap:16px}.drawer-head{border-bottom:1px solid #e5e7eb;padding-bottom:12px}.document-form,.item-grid{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px}.wide{grid-column:span 2}.line-head{align-items:center}.item-card{border:1px solid #e5e7eb;border-radius:8px;padding:12px;display:grid;gap:10px}.compact-production-items{display:grid;gap:4px}.compact-production-items-head,.compact-production-item-grid{display:grid;grid-template-columns:minmax(150px,2fr) minmax(90px,1fr) minmax(90px,1fr) minmax(90px,.8fr) minmax(64px,.55fr) minmax(120px,1.2fr) 52px;gap:6px;align-items:end}.compact-production-items-head{padding:0 6px;color:#6b7280;font-size:12px;font-weight:600}.compact-production-item{border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px}.compact-production-item-grid>label{margin:0}.compact-production-item-grid .mobile-field-label{display:none}.compact-production-item-grid select,.compact-production-item-grid input,.compact-production-item-grid .readonly-value{min-height:32px;height:32px;padding:4px 6px}.compact-delete{align-self:center;justify-self:center}.compact-allocations{margin-top:4px}.allocations{display:flex;flex-wrap:wrap;gap:6px}.allocations span{background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;padding:3px 8px;font-size:12px}.drawer-actions{justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}.select-loading,.select-load-more{display:block;width:100%;padding:8px 10px;text-align:center;color:#6b7280;font-size:12px;border:0;background:#f9fafb}.select-load-more{color:#1d4ed8;cursor:pointer}
 .stock-preview-state{border:1px solid #e4d3ad;border-radius:9px;background:#fff9eb;padding:16px;color:#815418}.stock-preview-state.ready{border-color:#b9ddc5;background:#eff9f2;color:#237146}.stock-preview-state p{margin:6px 0 12px;line-height:1.6}
 .completion-result{border:1px solid #cbded2;border-radius:12px;background:linear-gradient(135deg,#f2f8f4,#fff);padding:16px;display:grid;gap:14px}.completion-result-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.completion-result-head span,.completion-trace-grid span,.completion-metrics span{color:#65746b;font-size:12px}.completion-result-head h4{margin:3px 0;font-size:20px;color:#183b2b}.completion-result-head p{margin:0;color:#65746b;font-size:13px}.completion-result-loading{padding:18px;text-align:center;color:#65746b}.completion-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.completion-metrics>div{border:1px solid #dce9e1;border-radius:10px;background:#fff;padding:12px;display:grid;gap:5px}.completion-metrics strong{font-size:20px;color:#236844}.completion-trace-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.completion-trace-grid>div{display:grid;gap:4px}.completion-conversions{border-top:1px solid #dce9e1;padding-top:12px;display:grid;gap:8px}.completion-conversions>p{margin:0;color:#65746b}.completion-conversions article{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #e2e9e5;border-radius:9px;background:#fff;padding:10px}.completion-conversions article div{display:grid;gap:3px}.completion-conversions article span{font-size:12px;color:#65746b}.completion-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 @media(max-width:900px){.stock-entry-page{padding:12px}.panel-head,.drawer-head{display:grid}.filters,.document-form,.item-grid{grid-template-columns:1fr}.wide{grid-column:auto}.drawer{width:100%}.compact-production-items-head{display:none}.compact-production-item-grid{grid-template-columns:1fr 1fr;align-items:end}.compact-production-item-grid .mobile-field-label{display:block}.compact-production-item-grid .compact-material-name{grid-column:1/-1}.compact-delete{justify-self:start;margin-top:4px}.completion-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.completion-trace-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

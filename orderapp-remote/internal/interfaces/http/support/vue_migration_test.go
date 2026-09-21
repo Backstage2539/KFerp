@@ -26,10 +26,12 @@ func TestVueShellMigratesOrdersAuditAndRequirementTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
+	for _, view := range []string{"OrdersView", "AuditView", "RequirementsView"} {
+		if !hasViewImport(content, view) {
+			t.Fatalf("App.vue missing migrated Vue import for %q", view)
+		}
+	}
 	for _, want := range []string{
-		"import OrdersView from './views/OrdersView.vue'",
-		"import AuditView from './views/AuditView.vue'",
-		"import RequirementsView from './views/RequirementsView.vue'",
 		"orders: OrdersView",
 		"audit: AuditView",
 		"reqProduct: RequirementsView",
@@ -70,17 +72,23 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
+	for _, view := range []string{
+		"CustomersView",
+		"ProductSettingsView",
+		"ProductionSettingsView",
+		"CompanyStaffView",
+		"InventoryView",
+		"MachinesView",
+		"AllocationLogsView",
+		"LogisticsSettingsView",
+		"SenderSettingsView",
+		"OutsourceSettingsView",
+	} {
+		if !hasViewImport(content, view) {
+			t.Fatalf("App.vue missing catalog/settings Vue import for %q", view)
+		}
+	}
 	for _, want := range []string{
-		"import CustomersView from './views/CustomersView.vue'",
-		"import ProductSettingsView from './views/ProductSettingsView.vue'",
-		"import ProductionSettingsView from './views/ProductionSettingsView.vue'",
-		"import CompanyStaffView from './views/CompanyStaffView.vue'",
-		"import InventoryView from './views/InventoryView.vue'",
-		"import MachinesView from './views/MachinesView.vue'",
-		"import AllocationLogsView from './views/AllocationLogsView.vue'",
-		"import LogisticsSettingsView from './views/LogisticsSettingsView.vue'",
-		"import SenderSettingsView from './views/SenderSettingsView.vue'",
-		"import OutsourceSettingsView from './views/OutsourceSettingsView.vue'",
 		"customers: CustomersView",
 		"products: ProductSettingsView",
 		"productSettings: ProductSettingsView",
@@ -110,6 +118,11 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 			t.Fatalf("App.vue should remove quote export page wiring %q", removed)
 		}
 	}
+}
+
+func hasViewImport(content, view string) bool {
+	return strings.Contains(content, "import "+view+" from './views/"+view+".vue'") ||
+		strings.Contains(content, "const "+view+" = lazyView(() => import('./views/"+view+".vue'))")
 }
 
 func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {

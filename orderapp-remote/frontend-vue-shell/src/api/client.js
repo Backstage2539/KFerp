@@ -10,6 +10,43 @@ async function readJson(res) {
   return data
 }
 
+const inflightGetRequests = new Map()
+
+function requestDuration(startedAt) {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now() - startedAt
+    : Date.now() - startedAt
+}
+
+function rowCount(payload) {
+  if (Array.isArray(payload)) return payload.length
+  if (!payload || typeof payload !== 'object') return 0
+  for (const key of ['rows', 'items', 'options', 'products']) {
+    if (Array.isArray(payload[key])) return payload[key].length
+  }
+  return 0
+}
+
+function requestPath(url) {
+  try {
+    return new URL(String(url), typeof window !== 'undefined' ? window.location.origin : 'http://localhost').pathname
+  } catch {
+    return String(url).split('?')[0]
+  }
+}
+
+function reportSlowRequest(method, url, startedAt, payload, error = null) {
+  const durationMs = Math.round(requestDuration(startedAt))
+  if (durationMs < 500 || typeof console === 'undefined' || typeof console.warn !== 'function') return
+  console.warn('[KFerp slow request]', {
+    method,
+    path: requestPath(url),
+    durationMs,
+    rowCount: rowCount(payload),
+    status: error?.status || undefined,
+  })
+}
+
 function readAuthToken() {
   try {
     if (typeof window === 'undefined') return ''
@@ -60,10 +97,28 @@ export async function apiFetch(url, options = {}) {
 }
 
 export async function apiGet(url) {
-  const res = await apiFetch(url, {
-    headers: { Accept: 'application/json' },
+  const key = apiURL(url)
+  const existing = inflightGetRequests.get(key)
+  if (existing) return existing
+  const startedAt = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
+  const request = (async () => {
+    try {
+      const res = await apiFetch(url, { headers: { Accept: 'application/json' } })
+      const payload = await readJson(res)
+      reportSlowRequest('GET', key, startedAt, payload)
+      return payload
+    } catch (error) {
+      reportSlowRequest('GET', key, startedAt, null, error)
+      throw error
+    }
+  })()
+  inflightGetRequests.set(key, request)
+  request.then(() => {
+    if (inflightGetRequests.get(key) === request) inflightGetRequests.delete(key)
+  }, () => {
+    if (inflightGetRequests.get(key) === request) inflightGetRequests.delete(key)
   })
-  return readJson(res)
+  return request
 }
 
 export async function apiSend(url, { method = 'POST', body, headers = {}, signal } = {}) {
@@ -72,11 +127,20 @@ export async function apiSend(url, { method = 'POST', body, headers = {}, signal
   if (!(body instanceof FormData)) {
     baseHeaders['Content-Type'] = body instanceof URLSearchParams ? 'application/x-www-form-urlencoded' : 'application/json'
   }
-  const res = await apiFetch(url, {
-    method,
-    headers: { ...baseHeaders, ...headers },
-    body: payload,
-    signal,
-  })
-  return readJson(res)
+  const key = apiURL(url)
+  const startedAt = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
+  try {
+    const res = await apiFetch(url, {
+      method,
+      headers: { ...baseHeaders, ...headers },
+      body: payload,
+      signal,
+    })
+    const data = await readJson(res)
+    reportSlowRequest(method, key, startedAt, data)
+    return data
+  } catch (error) {
+    reportSlowRequest(method, key, startedAt, null, error)
+    throw error
+  }
 }
