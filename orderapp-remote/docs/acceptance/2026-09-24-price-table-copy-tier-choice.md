@@ -23,7 +23,7 @@
 
 ## 集成、开发环境部署与只读验收
 
-- 功能 PR #141 已合并。功能提交：`e6bec3ba7e2f9ba777bf985db48347ea1d9074bc`；功能合并提交：`b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`。交付状态/证据 PR #142 已合并；最终 `origin/develop` 与当前 development 部署：`f50d51e492a5c2587cf04f84910d5e8ec1e319d1`。
+- 功能 PR #141 已合并。功能提交：`e6bec3ba7e2f9ba777bf985db48347ea1d9074bc`；功能合并提交：`b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`。交付状态 PR #142 已合并并部署；当前 development 应用运行提交：`f50d51e492a5c2587cf04f84910d5e8ec1e319d1`。随后 PR #143 只合并验收证据文档（当前 `origin/develop` 为 `f0bc5aeff06c9a782dff82c02ab7b327859e1ffe`），未改运行时代码，无需再次部署。
 - 按 `./deploy_orderapp.sh --preflight development` 完成远端预检（Vue shell 测试/构建、小程序 42 个文件共 264 项测试/类型检查/开发构建、Go 全包测试及隔离 Docker 镜像构建）；无服务栈或容器变更。随后以 `./deploy_orderapp.sh development` 部署，重建并仅重启 `erp_orderapp`。
 - 功能版本先于 2026-09-24 03:03 部署为 `b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`。为同步 PR/DEV 看板的 `review`/`done` 状态，PR #142 更新了启动种子与交付证据，并于 03:23 再次部署；当前服务运行 `f50d51e492a5c2587cf04f84910d5e8ec1e319d1`。第二次部署再次通过 Vue shell 测试/构建、小程序 42 个文件共 264 项测试/类型检查/开发构建、Go 全包测试及 Docker 镜像构建；只重启 `erp_orderapp`。
 - 最终部署服务器旧源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260924031554-f50d51e492a5`；回滚镜像：`kferp-orderapp-rollback:development-20260924031554-f50d51e492a5`。部署后 `erp_orderapp`、`erp_docconvert` running，PostgreSQL healthy；开发登录页 `https://dev.qacoohee.com/app/login` 返回 HTTP 200；未登录访问 `/app/` 返回 303 登录跳转；带 Basic Auth 的 `/app/vue-shell`、`/app/api/req/product`、`/app/api/req/dev` 均返回 HTTP 200。看板读取到 PR-671=`review`、DEV-671-01 至 DEV-671-06=`done`。

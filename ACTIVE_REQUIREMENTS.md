@@ -1,7 +1,7 @@
 # ACTIVE_REQUIREMENTS
 
 ### PR-671-PRICE-TABLE-COPY-TIER-CHOICE
-- Branch: `codex/price-table-copy-tier-choice-20260924`; PR #141; feature commit `e6bec3ba`; merged to `develop` as `b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`. Deployment evidence/status follow-up PR #142.
+- Branch: `codex/price-table-copy-tier-choice-20260924`; PR #141; feature commit `e6bec3ba`; merged to `develop` as `b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`. Deployment status PR #142; post-deployment evidence PR #143.
 - Owner/session: Codex / Van / 2026-09-24.
 - Status: implementation, automated verification, and development deployment complete; awaiting Van business acceptance.
 - Scope: product archive-owner display; grouped industry fields across Vue/share/PDF snapshots; full published price-table copy filtered by current customer product/spec identities; employee auto/manual published-tier selection in ERP and miniapp, preserving customer self-order auto-pricing.
