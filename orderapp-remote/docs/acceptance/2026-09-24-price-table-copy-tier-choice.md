@@ -23,10 +23,10 @@
 
 ## 集成、开发环境部署与只读验收
 
-- PR #141 已合并。功能提交：`e6bec3ba7e2f9ba777bf985db48347ea1d9074bc`；合并提交及 `origin/develop`：`b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`。
+- 功能 PR #141 已合并。功能提交：`e6bec3ba7e2f9ba777bf985db48347ea1d9074bc`；功能合并提交：`b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`。交付状态/证据 PR #142 已合并；最终 `origin/develop` 与当前 development 部署：`f50d51e492a5c2587cf04f84910d5e8ec1e319d1`。
 - 按 `./deploy_orderapp.sh --preflight development` 完成远端预检（Vue shell 测试/构建、小程序 42 个文件共 264 项测试/类型检查/开发构建、Go 全包测试及隔离 Docker 镜像构建）；无服务栈或容器变更。随后以 `./deploy_orderapp.sh development` 部署，重建并仅重启 `erp_orderapp`。
-- 部署时间：2026-09-24 03:03 Asia/Shanghai。服务器旧源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260924025603-b4f5ad6b1693`；回滚镜像：`kferp-orderapp-rollback:development-20260924025603-b4f5ad6b1693`。
-- 部署后：`erp_orderapp` 与 `erp_docconvert` running，PostgreSQL healthy；开发登录页 `https://dev.qacoohee.com/app/login` 返回 HTTP 200；未登录访问 `/app/` 返回 303 登录跳转；带 Basic Auth 的 `/app/vue-shell`、`/app/api/req/product`、`/app/api/req/dev` 均返回 HTTP 200，PR-671 及 DEV-671-01 至 DEV-671-06 可通过需求 API 读取。
-- 开发小程序产物的 72 个声明文件清单校验通过；产物同步至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧目录保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260924030322-b4f5ad6b1693`。此操作仅准备本地开发包，没有上传微信平台。
+- 功能版本先于 2026-09-24 03:03 部署为 `b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`。为同步 PR/DEV 看板的 `review`/`done` 状态，PR #142 更新了启动种子与交付证据，并于 03:23 再次部署；当前服务运行 `f50d51e492a5c2587cf04f84910d5e8ec1e319d1`。第二次部署再次通过 Vue shell 测试/构建、小程序 42 个文件共 264 项测试/类型检查/开发构建、Go 全包测试及 Docker 镜像构建；只重启 `erp_orderapp`。
+- 最终部署服务器旧源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260924031554-f50d51e492a5`；回滚镜像：`kferp-orderapp-rollback:development-20260924031554-f50d51e492a5`。部署后 `erp_orderapp`、`erp_docconvert` running，PostgreSQL healthy；开发登录页 `https://dev.qacoohee.com/app/login` 返回 HTTP 200；未登录访问 `/app/` 返回 303 登录跳转；带 Basic Auth 的 `/app/vue-shell`、`/app/api/req/product`、`/app/api/req/dev` 均返回 HTTP 200。看板读取到 PR-671=`review`、DEV-671-01 至 DEV-671-06=`done`。
+- 开发小程序产物的 72 个声明文件清单校验通过；最终产物同步至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧目录保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260924032319-f50d51e492a5`。此操作仅准备本地开发包，没有上传微信平台。
 - 本次未对共享开发业务数据执行价格表复制或创建/保存订单，因此此处的真实业务工作流验收留给 Van 使用隔离/指定测试客户完成；Van 业务验收待进行。
 - 生产部署、生产写入、微信小程序上传/审核/发布均不在本次授权范围。
