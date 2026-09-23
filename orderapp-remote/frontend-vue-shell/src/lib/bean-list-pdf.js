@@ -368,7 +368,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers, optio
     recommendedUse: includeMarketingFields ? (meta.recommended_use || '') : '',
     flavor: includeMarketingFields ? (meta.flavor || item.flavor || '') : '',
     description: includeMarketingFields ? (meta.description || item.bean_list_note || '') : '',
-    ...(productAttributes.length ? { productAttributes, attributeLines: productAttributes.map((attr) => `${attr.label}：${attr.value}`) } : {}),
+    ...(productAttributes.length ? { productAttributes, attributeLines: groupBeanListProductAttributeLines(productAttributes) } : {}),
     badge,
     badgeLabel: badgeLabel(badge),
     highlightTerms,
@@ -385,11 +385,13 @@ function normalizeProductAttributes(value = [], selectedSalesSpec = '') {
   source.forEach((row) => {
     const key = String(row?.key || '').trim()
     const label = productAttributeDisplayLabel(key, row?.label)
-    const attr = {
-      key,
-      label,
-      value: String(row?.value || '').trim(),
-    }
+    const attr = { key, label, value: String(row?.value || '').trim() }
+    const templateID = firstNumber(row?.template_id, row?.templateID)
+    const templatePosition = firstNumber(row?.template_position, row?.templatePosition)
+    const position = firstNumber(row?.position, row?.sort_order, row?.sortOrder)
+    if (templateID > 0) attr.template_id = templateID
+    if (templatePosition > 0) attr.template_position = templatePosition
+    if (position > 0) attr.position = position
     if (!attr.key || !attr.label || !attr.value) return
     const dedupeKey = productAttributeDedupeKey(attr)
     if (seen.has(dedupeKey)) return
@@ -403,6 +405,27 @@ function normalizeProductAttributes(value = [], selectedSalesSpec = '') {
     return withoutOldSalesSpec
   }
   return rows
+}
+
+export function groupBeanListProductAttributeLines(attributes = []) {
+  const source = Array.isArray(attributes) ? attributes : []
+  const groups = []
+  const byTemplate = new Map()
+  for (const raw of source) {
+    const label = String(raw?.label || raw?.key || '').trim()
+    const value = String(raw?.value || '').trim()
+    if (!label || !value) continue
+    const templateID = firstNumber(raw?.template_id, raw?.templateID)
+    const key = templateID > 0 ? `template:${templateID}` : `legacy:${groups.length}`
+    let group = byTemplate.get(key)
+    if (!group) {
+      group = { templateID, templatePosition: firstNumber(raw?.template_position, raw?.templatePosition), attributes: [] }
+      byTemplate.set(key, group)
+      groups.push(group)
+    }
+    group.attributes.push(`${label}：${value}`)
+  }
+  return groups.map((group) => group.attributes.join('；'))
 }
 
 function productAttributeDisplayLabel(key, label) {
@@ -648,6 +671,7 @@ function normalizePriceListFlatRow(row = {}) {
     fixed_unit_price: firstNumber(row.fixed_unit_price, row.fixedUnitPrice),
     cost_source_snapshot: parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot),
     customer_reference_snapshot: parseJSONObject(row.customer_reference_snapshot ?? row.customerReferenceSnapshot),
+    ...(row.frozen_final_price === true || row.frozenFinalPrice === true ? { frozen_final_price: true } : {}),
     manual_adjusted: manualAdjusted,
     manual_adjustment_label: manualAdjusted ? '人工调整' : '',
   }
@@ -734,6 +758,7 @@ function flatRowTierSnapshot(row = {}) {
     tier_pricing_rule_version: row.tier_pricing_rule_version,
     tier_pricing_mode: row.tier_pricing_mode,
     fixed_unit_price: row.fixed_unit_price,
+    ...(row.frozen_final_price === true ? { frozen_final_price: true } : {}),
     manual_adjusted: row.manual_adjusted,
   }
 }

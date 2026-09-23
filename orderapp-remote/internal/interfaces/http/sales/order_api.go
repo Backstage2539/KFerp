@@ -138,6 +138,8 @@ type orderSaveAPIRequest struct {
 	ItemBeanListVersionNo              []string `json:"item_bean_list_version_no"`
 	PriceSourceJSON                    []string `json:"price_source_json"`
 	TierID                             []string `json:"tier_id"`
+	PriceSelectionMode                 []string `json:"price_selection_mode"`
+	SelectedPriceRowKey                []string `json:"selected_price_row_key"`
 	UnitPrice                          []string `json:"unit_price"`
 	ItemName                           []string `json:"item_name"`
 	ItemNote                           []string `json:"item_note"`
@@ -693,6 +695,8 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		ItemBeanListVersionNo:              r.ItemBeanListVersionNo,
 		PriceSourceJSON:                    r.PriceSourceJSON,
 		TierID:                             r.TierID,
+		PriceSelectionMode:                 r.PriceSelectionMode,
+		SelectedPriceRowKey:                r.SelectedPriceRowKey,
 		UnitPrice:                          r.UnitPrice,
 		ItemName:                           r.ItemName,
 		ItemNote:                           r.ItemNote,
@@ -804,6 +808,8 @@ func apiProducts(ps []ProductOption) []map[string]any {
 func apiProductTier(t ProductTierOption) map[string]any {
 	tier := map[string]any{
 		"id":                     t.ID,
+		"price_row_key":          t.PriceRowKey,
+		"tier_label":             t.TierLabel,
 		"spec_g":                 t.SpecG,
 		"min":                    t.MinQty,
 		"max":                    t.MaxQty,
@@ -1063,6 +1069,8 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		Note                               string `json:"note"`
 		TierID                             string `json:"tier_id"`
 		PriceOverride                      bool   `json:"price_override"`
+		PriceSelectionMode                 string `json:"price_selection_mode"`
+		SelectedPriceRowKey                string `json:"selected_price_row_key"`
 		UnitPrice                          string `json:"unit_price"`
 		Qty                                string `json:"qty"`
 		LineTotal                          string `json:"line_total"`
@@ -1091,8 +1099,12 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		}
 		spec := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(it.Spec)), "g")
 		tierID := "auto"
+		priceSource := orderPriceSourceSnapshot(it.PriceSourceJSON)
+		selectionMode := orderTraceString(priceSource["price_selection_mode"])
+		selectedRowKey := orderTraceString(priceSource["selected_price_row_key"])
 		if it.PriceOverride {
 			tierID = "manual"
+			selectionMode = "manual"
 		} else if it.PriceTierID > 0 {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
@@ -1131,6 +1143,8 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			MatchedPriceQty:                    it.MatchedPriceQty,
 			UnitConversionLabel:                it.UnitConversionLabel,
 			PriceSourceJSON:                    it.PriceSourceJSON,
+			PriceSelectionMode:                 selectionMode,
+			SelectedPriceRowKey:                selectedRowKey,
 		})
 	}
 	itemPublicationByType := func(listType string) (int64, string, bool) {

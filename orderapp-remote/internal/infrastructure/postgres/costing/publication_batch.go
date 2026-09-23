@@ -118,7 +118,28 @@ func (r Repository) insertBeanListBatchTable(ctx context.Context, tx pgx.Tx, cmd
 	if status == "published" {
 		action = "publish"
 	}
-	err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &row.ID, action, postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), postgresinfra.AuditMeta{"release_id": row.ReleaseID, "table_key": row.TableKey, "table_name": row.TableName, "is_default_table": row.IsDefaultTable, "direct_ship_enabled": row.DirectShipEnabled, "version": row.Version, "owner_type": row.OwnerType, "owner_key": row.OwnerKey, "publication_purpose": row.PublicationPurpose, "list_type": row.ListType, "product_type_category_id": row.ProductTypeCategoryID, "classification_template_id": row.ClassificationTemplateID})
+	if status == "draft" && row.CopyRequestID != "" {
+		action = "copy_to_draft"
+	}
+	auditMeta := postgresinfra.AuditMeta{
+		"release_id": row.ReleaseID, "table_key": row.TableKey, "table_name": row.TableName,
+		"is_default_table": row.IsDefaultTable, "direct_ship_enabled": row.DirectShipEnabled,
+		"version": row.Version, "owner_type": row.OwnerType, "owner_key": row.OwnerKey,
+		"publication_purpose": row.PublicationPurpose, "list_type": row.ListType,
+		"product_type_category_id": row.ProductTypeCategoryID, "classification_template_id": row.ClassificationTemplateID,
+	}
+	if row.CopyRequestID != "" {
+		auditMeta["copy_request_id"] = row.CopyRequestID
+		auditMeta["copy_source_publication_id"] = row.CopySourcePublicationID
+		auditMeta["copy_source_version"] = row.CopySourceVersion
+		auditMeta["copy_source_product_count"] = row.CopySourceProductCount
+		auditMeta["copy_source_spec_count"] = row.CopySourceSpecCount
+		auditMeta["copy_product_count"] = row.CopyProductCount
+		auditMeta["copy_spec_count"] = row.CopySpecCount
+		auditMeta["copy_skip_product_count"] = row.CopySkipProductCount
+		auditMeta["copy_skip_spec_count"] = row.CopySkipSpecCount
+	}
+	err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &row.ID, action, postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), auditMeta)
 	return row, err
 }
 

@@ -1174,6 +1174,8 @@ export type EmployeeOrderDraftItem = {
   bean_list_publication_id?: number
   bean_list_version_no?: string
   price_override?: boolean
+  price_selection_mode?: 'auto' | 'tier' | 'manual'
+  selected_price_row_key?: string
   price_source_json?: string
   discount_type?: string
   discount_value?: number
@@ -1219,6 +1221,8 @@ export type EmployeeOrderLegacyProduct = {
 
 export type EmployeeOrderProductTier = {
   id?: number
+  price_row_key?: string
+  tier_label?: string
   unit_price: number
   price?: number
   min?: number
@@ -1353,6 +1357,8 @@ export type EmployeeOrderDetailItem = {
   unit_price: string
   line_total: string
   price_override?: boolean
+  price_selection_mode?: 'auto' | 'tier' | 'manual'
+  selected_price_row_key?: string
   bean_list_publication_id?: number
   bean_list_version_no?: string
   product_kind?: string

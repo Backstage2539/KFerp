@@ -55,7 +55,7 @@ func TestCustomerSkuBomBeanListWiring(t *testing.T) {
 
 	costingView := string(readDev152File(t, filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue")))
 	for _, want := range []string{
-		"publicationScope === 'customer'",
+		"publicationScope.value !== 'customer'",
 		"selectedBeanListCustomerID",
 		"customerBeanListItems",
 		"customer_id",

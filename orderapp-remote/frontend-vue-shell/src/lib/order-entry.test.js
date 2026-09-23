@@ -1470,6 +1470,25 @@ test('resolveWholesaleTierPrice keeps kg tier unit and source version for small 
   assert.equal(Number(lineTotal({ tiers: [] }, pricedRow, false).toFixed(2)), 2053.28)
 })
 
+test('resolveWholesaleTierPrice honors an employee-selected published row below its quantity threshold', () => {
+  const product = {
+    id: 11,
+    tiers: [
+      { id: 31, price_row_key: '91:commercial:11:0:0:flat:0', tier_label: 'A', spec_g: 454, unit_price: 68, min_qty: 1, max_qty: 9, publication_id: 91, price_source_json: '{"source":"published_bean_list"}' },
+      { id: 32, price_row_key: '91:commercial:11:0:0:flat:1', tier_label: 'C', spec_g: 454, unit_price: 57.25, min_qty: 10, publication_id: 91, price_source_json: '{"source":"published_bean_list"}' },
+    ],
+  }
+  const row = {
+    spec_mode: '454',
+    qty: 2,
+    bean_list_publication_id: 91,
+    price_selection_mode: 'tier',
+    selected_price_row_key: '91:commercial:11:0:0:flat:1',
+  }
+
+  assert.equal(resolveWholesaleTierPrice(product, row).unitPrice, '57.25')
+})
+
 test('resolveWholesaleTierPrice leaves price blank below minimum, above finite maximum, and in tier gaps', () => {
   const product = {
     tiers: [
@@ -2035,6 +2054,7 @@ test('buildOrderPayload preserves manual unit price override', () => {
   })
 
   assert.equal(payload.tier_id[0], 'manual')
+  assert.equal(payload.price_selection_mode[0], 'manual')
   assert.equal(payload.unit_price[0], '92')
 })
 

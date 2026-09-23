@@ -336,10 +336,12 @@ type BeanListQuality struct {
 }
 
 type ProductAttribute struct {
-	Key      string `json:"key"`
-	Label    string `json:"label"`
-	Value    string `json:"value"`
-	Position int    `json:"position,omitempty"`
+	Key              string `json:"key"`
+	Label            string `json:"label"`
+	Value            string `json:"value"`
+	TemplateID       int64  `json:"template_id,omitempty"`
+	TemplatePosition int    `json:"template_position,omitempty"`
+	Position         int    `json:"position,omitempty"`
 }
 
 type ProductResult struct {
@@ -1585,13 +1587,15 @@ func boolValue(value any) bool {
 }
 
 type specialAttrSchemaRow struct {
-	Key             string   `json:"key"`
-	Label           string   `json:"label"`
-	ValueType       string   `json:"value_type"`
-	Options         []string `json:"options"`
-	Required        bool     `json:"required"`
-	ShowInPriceList bool     `json:"show_in_price_list"`
-	Position        int      `json:"position"`
+	Key              string   `json:"key"`
+	Label            string   `json:"label"`
+	ValueType        string   `json:"value_type"`
+	Options          []string `json:"options"`
+	Required         bool     `json:"required"`
+	ShowInPriceList  bool     `json:"show_in_price_list"`
+	Position         int      `json:"position"`
+	TemplateID       int64    `json:"template_id"`
+	TemplatePosition int      `json:"template_position"`
 }
 
 func productAttributesFromSpecialAttrs(schemaJSON string, valuesJSON string) []ProductAttribute {
@@ -1625,13 +1629,18 @@ func productAttributesFromSpecialAttrs(schemaJSON string, valuesJSON string) []P
 			position = index + 1
 		}
 		out = append(out, ProductAttribute{
-			Key:      key,
-			Label:    label,
-			Value:    value,
-			Position: position,
+			Key:              key,
+			Label:            label,
+			Value:            value,
+			TemplateID:       row.TemplateID,
+			TemplatePosition: row.TemplatePosition,
+			Position:         position,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].TemplateID > 0 && out[j].TemplateID > 0 && out[i].TemplatePosition != out[j].TemplatePosition {
+			return out[i].TemplatePosition < out[j].TemplatePosition
+		}
 		if out[i].Position != out[j].Position {
 			return out[i].Position < out[j].Position
 		}

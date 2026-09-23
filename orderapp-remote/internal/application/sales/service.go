@@ -96,6 +96,8 @@ type OrderItemCommand struct {
 	BeanListVersionNo                  string
 	PriceSourceJSON                    string
 	TierID                             *int64
+	PriceSelectionMode                 string
+	SelectedPriceRowKey                string
 	ManualPrice                        *float64
 	DiscountType                       string
 	DiscountValue                      float64
@@ -322,6 +324,8 @@ type EmployeeOption struct {
 
 type ProductTierOption struct {
 	ID                   int64          `json:"id"`
+	PriceRowKey          string         `json:"price_row_key,omitempty"`
+	TierLabel            string         `json:"tier_label,omitempty"`
 	SpecG                int64          `json:"spec_g"`
 	MinQty               float64        `json:"min_qty"`
 	MaxQty               *float64       `json:"max_qty"`

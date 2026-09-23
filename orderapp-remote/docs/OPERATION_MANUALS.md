@@ -10,6 +10,8 @@ PR-635：同版本多张命名价格表的配置、发布与选表下单，参�
 
 PR-670：ERP 页面按需加载、库存商品选项搜索分页与库存详情回显，参见[库存作业手册](OP_MANUAL_STOCK.md)。
 
+PR-671：客户价格表完整复制到当前草稿、员工录单手动选档、行业字段分组展示与商品档案真实归属，参见[成本核价手册](OP_MANUAL_COSTING.md)、[订单销售手册](OP_MANUAL_ORDER_SALES.md)、[员工小程序 ERP 手册](OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md)、[客户门户手册](OP_MANUAL_CUSTOMER_PORTAL.md)和[物料与商品档案手册](OP_MANUAL_INVENTORY_MATERIALS.md)。
+
 - [小程序员工简易 ERP](OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md)：销售/管理员员工登录、客户维护（按负责人权限）、粘贴收货信息并复用 ERP 地址解析、录单内快捷维护、多商品明细、本人服务器订单草稿、完整订单详情、页面底部继续上拉展示品牌标识、管理员图片分享入口全局开关，以及销售单/发货单 PDF 与图片微信分享。
 
 > 目的：把“用户怎么操作系统”沉淀成可查、可验收、可部署的手册，避免功能做完但现场不知道怎么用。

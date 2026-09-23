@@ -138,6 +138,8 @@ type miniEmployeeOrderItemDetailDTO struct {
 	Note                               string `json:"note"`
 	TierID                             string `json:"tier_id"`
 	PriceOverride                      bool   `json:"price_override"`
+	PriceSelectionMode                 string `json:"price_selection_mode"`
+	SelectedPriceRowKey                string `json:"selected_price_row_key"`
 	UnitPrice                          string `json:"unit_price"`
 	Qty                                string `json:"qty"`
 	Unit                               string `json:"unit"`
@@ -228,6 +230,8 @@ type miniEmployeeOrderItemRequest struct {
 	BeanListPublicationID  int64   `json:"bean_list_publication_id"`
 	BeanListVersionNo      string  `json:"bean_list_version_no"`
 	PriceSourceJSON        string  `json:"price_source_json"`
+	PriceSelectionMode     string  `json:"price_selection_mode"`
+	SelectedPriceRowKey    string  `json:"selected_price_row_key"`
 	PriceOverride          bool    `json:"price_override"`
 	Name                   string  `json:"name"`
 	Qty                    int64   `json:"qty"`
@@ -627,6 +631,8 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 			BeanListPublicationID:  item.BeanListPublicationID,
 			BeanListVersionNo:      strings.TrimSpace(item.BeanListVersionNo),
 			PriceSourceJSON:        strings.TrimSpace(item.PriceSourceJSON),
+			PriceSelectionMode:     strings.TrimSpace(item.PriceSelectionMode),
+			SelectedPriceRowKey:    strings.TrimSpace(item.SelectedPriceRowKey),
 			Name:                   strings.TrimSpace(item.Name),
 			Units:                  item.Qty,
 			Unit:                   strings.TrimSpace(item.Unit),
@@ -639,6 +645,9 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 		if item.PriceOverride {
 			price := item.UnitPrice
 			command.ManualPrice = &price
+			command.PriceSelectionMode = "manual"
+		} else if command.PriceSelectionMode == "" {
+			command.PriceSelectionMode = "auto"
 		}
 		items = append(items, command)
 	}
@@ -1396,8 +1405,12 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 	items := make([]miniEmployeeOrderItemDetailDTO, 0, len(ed.Items))
 	for _, item := range ed.Items {
 		tierID := "auto"
+		priceSource := miniEmployeeTraceSnapshot(item.PriceSourceJSON)
+		selectionMode := miniEmployeeTraceString(priceSource["price_selection_mode"])
+		selectedRowKey := miniEmployeeTraceString(priceSource["selected_price_row_key"])
 		if item.PriceOverride {
 			tierID = "manual"
+			selectionMode = "manual"
 		} else if item.PriceTierID > 0 {
 			tierID = strconv.FormatInt(item.PriceTierID, 10)
 		}
@@ -1408,7 +1421,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 			CustomerProductAliasID: item.CustomerProductAliasID, CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot: item.CustomerItemCodeSnapshot, BrandNameSnapshot: item.BrandNameSnapshot,
 			ProductCodeSnapshot: item.ProductCodeSnapshot, ProductNameSnapshot: item.ProductNameSnapshot, Note: item.Note,
-			TierID: tierID, PriceOverride: item.PriceOverride, UnitPrice: item.UnitPrice, Qty: item.Qty, Unit: item.Unit,
+			TierID: tierID, PriceOverride: item.PriceOverride, PriceSelectionMode: selectionMode, SelectedPriceRowKey: selectedRowKey, UnitPrice: item.UnitPrice, Qty: item.Qty, Unit: item.Unit,
 			Spec: strings.TrimSuffix(strings.TrimSpace(strings.ToLower(item.Spec)), "g"), LineTotal: item.LineTotal,
 			BeanListPublicationID: item.BeanListPublicationID, BeanListVersionNo: item.BeanListVersionNo,
 			DiscountType: item.DiscountType, DiscountValue: item.DiscountValue, DiscountAmount: item.DiscountAmount,

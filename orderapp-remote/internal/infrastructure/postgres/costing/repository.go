@@ -1982,12 +1982,25 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			       COALESCE(jsonb_agg(jsonb_build_object(
 			         'key', ppcf.field_key,
 			         'label', ppcf.label,
+			         'template_id', COALESCE(field_template.template_id,0),
+			         'template_position', COALESCE(field_template.template_position,0),
 			         'field_type', ppcf.field_type,
 			         'unit', ppcf.unit,
 			         'show_in_price_list', ppcf.show_in_price_list,
-			         'sort_order', ppcf.sort_order
-			       ) ORDER BY ppcf.sort_order, ppcf.id) FILTER (WHERE ppcf.show_in_price_list=true AND NULLIF(ppcf.field_key,'') IS NOT NULL), '[]'::jsonb) AS production_config_attrs_schema_json
+			         'sort_order', ppcf.sort_order,
+			         'position', ppcf.sort_order
+			       ) ORDER BY COALESCE(field_template.template_position,2147483647), ppcf.sort_order, ppcf.id) FILTER (WHERE ppcf.show_in_price_list=true AND NULLIF(ppcf.field_key,'') IS NOT NULL), '[]'::jsonb) AS production_config_attrs_schema_json
 			FROM %[1]s.product_production_config_fields ppcf
+			LEFT JOIN LATERAL (
+				SELECT selected.template_id, selected.sort_order AS template_position
+				FROM %[1]s.product_production_config_industry_templates selected
+				JOIN %[1]s.industry_field_definitions definition
+				  ON definition.template_id=selected.template_id
+				 AND lower(definition.field_key)=lower(COALESCE(NULLIF(ppcf.template_field_key,''),ppcf.field_key))
+				WHERE selected.product_id=ppcf.product_id
+				ORDER BY selected.sort_order, definition.sort_order, definition.id
+				LIMIT 1
+			) field_template ON true
 			GROUP BY ppcf.product_id
 		),
 		alias_config_attrs AS (

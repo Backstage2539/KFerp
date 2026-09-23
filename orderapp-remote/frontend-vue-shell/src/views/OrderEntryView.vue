@@ -332,7 +332,7 @@
                   {{ option.spec }}
                 </option>
               </select>
-              <select v-else v-model="row.spec_mode" @change="syncPrice(row)">
+              <select v-else v-model="row.spec_mode" @change="onLegacySpecChange(row)">
                 <option value="">选择规格</option>
                 <option v-for="option in specOptions(row)" :key="option.value" :value="option.value">
                   {{ option.label }}
@@ -421,7 +421,8 @@
             <input v-model.trim="row.item_note" placeholder="如贴标、磨粉、特殊包装" />
           </label>
 
-          <div v-if="tierRows(row).length" class="tier-prices">
+          <div v-if="!props.customerPortal && tierRows(row).length" class="tier-prices">
+            <small class="tier-choice-hint">手动选择价格档（不受数量门槛限制）</small>
             <button
               v-for="tier in tierRows(row)"
               :key="tier.id || `${tier.specG}-${tier.rangeLabel}`"
@@ -848,6 +849,8 @@ function newRow() {
     product_type_category_id: 0,
     product_type_name: '',
     tier_id: 'auto',
+    price_selection_mode: 'auto',
+    selected_price_row_key: '',
     quantity_basis: '',
     price_source_json: '',
     bean_list_publication_id: 0,
@@ -1782,6 +1785,8 @@ function applyPriceListSpecToRow(row, family, spec, publicationID) {
   clearWholesalePriceMetadata(row)
   Object.assign(row, orderFamilySpecRowPatch(family, spec, publicationID), {
     tier_id: 'auto',
+    price_selection_mode: 'auto',
+    selected_price_row_key: '',
     unit_price: '',
     manual_price: false,
     qty,
@@ -1821,6 +1826,9 @@ function invalidatePriceListSpecRow(row, message = '所选价格表不包含该�
 }
 
 function chooseProduct(row, product) {
+  row.price_selection_mode = 'auto'
+  row.selected_price_row_key = ''
+  row.manual_price = false
   const family = product?.__order_legacy_price_product
     ? null
     : (product?.__order_product_family ? product : productFamilyByParentID(product?.parent_product_id || product?.id, product))
@@ -1925,8 +1933,20 @@ function onSpecChange(row) {
   syncPrice(row, { force: true })
 }
 
+function onLegacySpecChange(row) {
+  row.price_selection_mode = 'auto'
+  row.selected_price_row_key = ''
+  row.manual_price = false
+  syncPrice(row, { force: true })
+}
+
 function syncRowsForType(options = {}) {
   rows.value.forEach((row) => {
+    if (options.priceListChanged) {
+      row.price_selection_mode = 'auto'
+      row.selected_price_row_key = ''
+      row.manual_price = false
+    }
     if (row.spec_source === 'legacy_price_list' && options.priceListChanged) {
       const legacyProduct = products.value.find((item) => Number(item.id || 0) === Number(row.product_id || 0)) || null
       const selected = selectedBeanListVersionOptionForProduct(row)
@@ -1989,6 +2009,33 @@ function syncPrice(row, options = {}) {
   if (!product) {
     row.unit_price = ''
     clearWholesalePriceMetadata(row)
+    return
+  }
+  if (row.price_selection_mode === 'tier') {
+    const selectedTier = tierRows(row).find((tier) => String(tier.priceRowKey || '') === String(row.selected_price_row_key || ''))
+    if (!selectedTier || !(Number(selectedTier.unitPrice) > 0)) {
+      row.unit_price = ''
+      row.tier_id = 'auto'
+      row.price_missing = true
+      row.tier_below_min = false
+      row.tier_price_label = '所选价格档已失效，请重新选择'
+      row.price_source_json = ''
+      return
+    }
+    row.manual_price = false
+    row.tier_id = 'auto'
+    row.unit_price = String(selectedTier.unitPrice)
+    row.price_source_json = String(selectedTier.priceSourceJSON || '')
+    row.price_unit = selectedTier.priceUnit?.label || ''
+    row.price_unit_suffix = selectedTier.priceUnit?.suffix || ''
+    row.price_unit_g = Number(selectedTier.priceUnit?.unitG || 0)
+    row.tier_price_label = String(selectedTier.tierLabel || selectedTier.rangeLabel || '')
+    row.price_missing = false
+    row.tier_below_min = false
+    ensureRowBeanListVersion(row, {
+      beanListPublicationID: selectedTier.publicationID,
+      beanListVersionNo: selectedTier.versionNo,
+    })
     return
   }
   if (isConcretePriceListRow(row)) {
@@ -2095,6 +2142,8 @@ function applyDripUnit(row, product) {
 
 function onDripUnitChange(row) {
   row.manual_price = false
+  row.price_selection_mode = 'auto'
+  row.selected_price_row_key = ''
   syncPrice(row, { force: true })
 }
 
@@ -2105,6 +2154,8 @@ function dripUnitOptionsForRow(row) {
 function markManualPrice(row) {
   row.manual_price = true
   row.tier_id = 'manual'
+  row.price_selection_mode = 'manual'
+  row.selected_price_row_key = ''
 }
 
 function hasPositiveManualPrice(row) {
@@ -2128,37 +2179,35 @@ function rowPriceBlockingMessage(row) {
 
 function resetAutoPrice(row) {
   row.manual_price = false
+  row.price_selection_mode = 'auto'
+  row.selected_price_row_key = ''
   syncPrice(row, { force: true })
 }
 
 function tierRows(row) {
-  if (retailOrder.value && !isConcretePriceListRow(row)) return []
-  if (!isConcretePriceListRow(row) && isDripRow(row)) return dripTierPriceRows(productForRow(row), row)
-  return wholesaleTierPriceRows(productForRow(row), row)
+  const product = productForRow(row)
+  if (!isConcretePriceListRow(row) && isDripRow(row)) return dripTierPriceRows(product, row)
+  const specG = normalizeSpecG(row)
+  return wholesaleTierPriceRows(product, row).filter((tier) => Number(tier.specG || 0) === specG)
 }
 
 function selectTier(row, tier) {
-  if (isConcretePriceListRow(row)) {
-    row.manual_price = false
-    syncPrice(row, { force: true })
-    return
-  }
-  if (isDripRow(row)) {
-    row.manual_price = false
-    syncPrice(row, { force: true })
-    return
-  }
-  row.spec_mode = String(tier.specG || '')
-  row.custom_spec_g = ''
+  if (props.customerPortal || !String(tier?.priceRowKey || '').trim()) return
   row.manual_price = false
+  row.price_selection_mode = 'tier'
+  row.selected_price_row_key = String(tier.priceRowKey)
+  row.tier_id = 'auto'
   syncPrice(row, { force: true })
 }
 
 function isTierActive(row, tier) {
+  if (row?.price_selection_mode === 'tier') return String(row.selected_price_row_key || '') === String(tier?.priceRowKey || '')
   return isOrderTierActive(row, tier)
 }
 
 function autoPriceLabel(row) {
+  if (row?.price_selection_mode === 'tier') return `手动选档 ${row.tier_price_label || ''}`.trim()
+  if (row?.price_selection_mode === 'manual' || row?.manual_price) return '手动输入单价'
   if (isDripRow(row)) return row.sales_unit === 'box' ? '挂耳盒价' : '挂耳袋价'
   if (retailOrder.value) return '零售价'
   if (row.tier_price_label) return `梯度 ${row.tier_price_label}`
@@ -2338,6 +2387,8 @@ function applyEditData(data) {
       product_type_category_id: Number(product?.product_type_category_id || 0),
       product_type_name: product?.product_type_name || '',
       tier_id: item.tier_id || 'auto',
+      price_selection_mode: item.price_selection_mode || (item.price_override === true || item.tier_id === 'manual' ? 'manual' : 'auto'),
+      selected_price_row_key: item.selected_price_row_key || '',
       quantity_basis: '',
       price_source_json: item.price_source_json || '',
       bean_list_publication_id: Number(item.bean_list_publication_id || 0),
@@ -2404,6 +2455,8 @@ function applyEditData(data) {
           bom_spec_id: Number(item.bom_spec_id || 0),
           bom_variant_id: Number(item.bom_variant_id || 0),
           tier_id: item.tier_id || 'auto',
+          price_selection_mode: item.price_selection_mode || (item.price_override === true || item.tier_id === 'manual' ? 'manual' : 'auto'),
+          selected_price_row_key: item.selected_price_row_key || '',
           unit_price: item.unit_price || '',
           price_source_json: item.price_source_json || '',
           bean_list_publication_id: publicationID,
@@ -2454,6 +2507,8 @@ function repriceHydratedRows() {
       const frozen = {
         unit_price: row.unit_price,
         tier_id: row.tier_id,
+        price_selection_mode: row.price_selection_mode,
+        selected_price_row_key: row.selected_price_row_key,
         manual_price: row.manual_price,
         price_source_json: row.price_source_json,
         qty: row.qty,
@@ -2663,6 +2718,8 @@ async function save(options = {}) {
       Object.assign(payload,{request_id:form.customer_request_id,backfill_mode:backfillMode.value,portal_service_code:props.portalService,pay_status_id:0,ship_status_id:0,payment_method:'',payment_goods_amount:'',payment_shipping_amount:'',payment_voucher_asset_id:0,prepayment_amount:'0',shipping_amount:'0',discount_amount:'0',round_to_int:'',ship_tracking_no:'',source_warehouse:''})
       payload.unit_price=payload.unit_price.map(()=> '')
       payload.tier_id=payload.tier_id.map(()=> 'auto')
+      payload.price_selection_mode=payload.price_selection_mode.map(()=> 'auto')
+      payload.selected_price_row_key=payload.selected_price_row_key.map(()=> '')
       payload.discount_value=payload.discount_value?.map(()=> '')
       payload.discount_type=payload.discount_type?.map(()=> '')
     }

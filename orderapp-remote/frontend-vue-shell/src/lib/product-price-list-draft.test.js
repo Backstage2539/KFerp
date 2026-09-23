@@ -40,6 +40,7 @@ test('price list generation draft persists pricing selections by scope and produ
       '551:tier-template:8:81:袋': 39.9,
       '552:tier-template:8:81:袋': 69.9,
     },
+    customerPriceCopyFrozen: true,
   }, storage)
 
   const restored = readPriceListGenerationDraft(key, storage)
@@ -53,6 +54,7 @@ test('price list generation draft persists pricing selections by scope and produ
     '551:tier-template:8:81:袋': 39.9,
     '552:tier-template:8:81:袋': 69.9,
   })
+  assert.equal(restored.customerPriceCopyFrozen, true)
 })
 
 test('legacy price-list drafts do not invent an empty product spec selection field', () => {

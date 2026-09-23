@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"orderapp/internal/infrastructure/postgres/orderbeans"
 	"orderapp/internal/infrastructure/postgres/orderconfirmation"
 	"os"
 	"strconv"
@@ -1528,6 +1529,7 @@ type orderBeanListPublicationContent struct {
 
 type orderGreenBeanPublicationTier struct {
 	Label                   string          `json:"label"`
+	TierLabel               string          `json:"tier_label"`
 	SourcePriceRecordID     int64           `json:"source_price_record_id"`
 	FinalUnitPrice          float64         `json:"final_unit_price"`
 	SpecG                   int64           `json:"spec_g"`
@@ -1616,13 +1618,15 @@ func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo
 		}
 		normalizeCommercialOrderFlatTierBounds(&tier)
 		option := commercialOrderTierOption(publicationID, versionNo, idx, tier, tier.ProductKind, listType)
+		option.PriceRowKey = orderbeans.PublishedPriceRowKey(publicationID, listType, productID, rawJSONInt64(fields["bom_spec_id"]), rawJSONInt64(fields["bom_variant_id"]), "flat", idx)
+		option.TierLabel = firstNonEmpty(rawJSONString(fields["tier_label"]), tier.Label)
 		if option.UnitPrice <= 0 {
 			continue
 		}
 		flatTiers[productID] = append(flatTiers[productID], option)
 	}
-	for _, group := range content.Groups {
-		for _, itemRaw := range group.Items {
+	for groupIndex, group := range content.Groups {
+		for itemIndex, itemRaw := range group.Items {
 			productID := orderBeanListProductID(itemRaw)
 			if productID <= 0 {
 				continue
@@ -1642,8 +1646,12 @@ func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo
 				continue
 			}
 			productKind := rawJSONString(fields["product_kind"])
+			bomSpecID := rawJSONInt64(fields["bom_spec_id"])
+			bomVariantID := rawJSONInt64(fields["bom_variant_id"])
 			for idx, tier := range tiers {
 				option := commercialOrderTierOption(publicationID, versionNo, idx, tier, productKind, listType)
+				option.PriceRowKey = orderbeans.PublishedPriceRowKey(publicationID, listType, productID, bomSpecID, bomVariantID, "group", groupIndex, itemIndex, idx)
+				option.TierLabel = firstNonEmpty(tier.TierLabel, tier.Label)
 				if option.UnitPrice <= 0 {
 					continue
 				}
@@ -1747,12 +1755,14 @@ func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo 
 		}
 		normalizeCommercialOrderFlatTierBounds(&tier)
 		option := commercialOrderTierOption(publicationID, versionNo, idx, tier, "green_bean", "green")
+		option.PriceRowKey = orderbeans.PublishedPriceRowKey(publicationID, "green", productID, rawJSONInt64(fields["bom_spec_id"]), rawJSONInt64(fields["bom_variant_id"]), "flat", idx)
+		option.TierLabel = firstNonEmpty(rawJSONString(fields["tier_label"]), tier.Label)
 		if option.UnitPrice > 0 {
 			flatTiers[productID] = append(flatTiers[productID], option)
 		}
 	}
-	for _, group := range content.Groups {
-		for _, itemRaw := range group.Items {
+	for groupIndex, group := range content.Groups {
+		for itemIndex, itemRaw := range group.Items {
 			productID := orderBeanListProductID(itemRaw)
 			if productID <= 0 {
 				continue
@@ -1769,6 +1779,8 @@ func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo 
 				continue
 			}
 			itemName := rawJSONString(fields["name"])
+			bomSpecID := rawJSONInt64(fields["bom_spec_id"])
+			bomVariantID := rawJSONInt64(fields["bom_variant_id"])
 			productOverrides := overrides[strconv.FormatInt(productID, 10)]
 			if len(productOverrides) == 0 && itemName != "" {
 				productOverrides = overrides[itemName]
@@ -1778,6 +1790,8 @@ func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo 
 					applyGreenBeanOrderManualPrice(&tier, price)
 				}
 				option := greenBeanOrderTierOption(publicationID, versionNo, idx, tier)
+				option.PriceRowKey = orderbeans.PublishedPriceRowKey(publicationID, "green", productID, bomSpecID, bomVariantID, "group", groupIndex, itemIndex, idx)
+				option.TierLabel = firstNonEmpty(tier.TierLabel, tier.Label)
 				if option.UnitPrice <= 0 {
 					continue
 				}
@@ -1969,6 +1983,7 @@ func commercialOrderTierOption(publicationID int64, versionNo string, idx int, t
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
 		ID:                   id,
+		TierLabel:            firstNonEmpty(tier.TierLabel, tier.Label),
 		SpecG:                specG,
 		MinQty:               tier.MinQty,
 		MaxQty:               tier.MaxQty,
@@ -2060,6 +2075,7 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
 		ID:                   id,
+		TierLabel:            firstNonEmpty(tier.TierLabel, tier.Label),
 		SpecG:                specG,
 		MinQty:               tier.MinQty,
 		MaxQty:               tier.MaxQty,

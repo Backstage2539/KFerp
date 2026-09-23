@@ -5974,7 +5974,7 @@ func beanListPublicationPDFCacheKey(row BeanListPublication) string {
 	if version == "" {
 		version = "published"
 	}
-	key := fmt.Sprintf("bean-list-preview-style-v4:%d:%s", row.ID, version)
+	key := fmt.Sprintf("bean-list-preview-style-v5:%d:%s", row.ID, version)
 	if row.Status == "draft" && row.Config["price_list_display_order"] != nil {
 		raw, _ := json.Marshal(struct{ Config, Content map[string]any }{row.Config, row.Content})
 		sum := sha256.Sum256(raw)
