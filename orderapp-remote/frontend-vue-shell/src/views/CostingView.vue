@@ -290,6 +290,45 @@
         </select>
       </label>
       <span>共 {{ namedPriceTableBatch.tables.length }} 张 · 统一版本 {{ pdfTheme.version }} · 发布时整组保存</span>
+      <button v-if="activeBeanListCustomerID > 0 && isBeanListAdmin" class="secondary" type="button" :disabled="beanListPublishing" @click="openPublicationCopy()">复制其他价格表</button>
+    </section>
+
+    <section v-if="publicationCopyOpen" class="panel publication-copy-panel" aria-label="完整复制其他价格表">
+      <div class="section-bar">
+        <strong>完整复制其他价格表到「{{ activeNamedPriceTable?.name || '当前表' }}」</strong>
+        <button class="secondary compact" type="button" :disabled="publicationCopyBusy" @click="closePublicationCopy()">关闭</button>
+      </div>
+      <p class="muted">只会保留当前客户已有的同一商品和有效规格；不会按名称匹配，也不会创建商品或建立后续同步。</p>
+      <div class="publication-copy-source-row">
+        <label><span>第 1 步：来源类型</span>
+          <select v-model="publicationCopySourceKind" @change="changePublicationCopySourceKind()">
+            <option value="official">公共价格表</option>
+            <option value="customer">客户已发布供货价格表</option>
+          </select>
+        </label>
+        <label v-if="publicationCopySourceKind === 'customer'"><span>来源客户</span>
+          <select v-model.number="publicationCopySourceCustomerID" @change="changePublicationCopySourceKind()">
+            <option :value="0">请选择客户</option>
+            <option v-for="customer in customers" :key="`copy-customer-${customer.id}`" :value="Number(customer.id)">{{ customerOptionLabel(customer) }}</option>
+          </select>
+        </label>
+        <label><span>来源价格表及版本</span>
+          <select v-model="publicationCopySourceID" :disabled="publicationCopySourceLoading || !publicationCopySources.length" @change="publicationCopyStats = null; publicationCopyConfirmed = false">
+            <option value="">{{ publicationCopySourceLoading ? '正在加载…' : '请选择已发布价格表' }}</option>
+            <option v-for="row in publicationCopySources" :key="`copy-source-${row.id}`" :value="String(row.id)">{{ beanListPublicationLabel(row) }}</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions publication-copy-actions">
+        <button class="secondary" type="button" :disabled="publicationCopyBusy || !selectedPublicationCopySource" @click="previewPublicationCopy()">第 2 步：查看可复制数量</button>
+        <span v-if="publicationCopyStats">来源 {{ publicationCopyStats.source_product_count }} 个商品 / {{ publicationCopyStats.source_spec_count }} 个规格；将复制 {{ publicationCopyStats.copy_product_count }} 个商品 / {{ publicationCopyStats.copy_spec_count }} 个规格；跳过 {{ publicationCopyStats.skip_product_count }} 个商品 / {{ publicationCopyStats.skip_spec_count }} 个规格。</span>
+      </div>
+      <div v-if="publicationCopyStats" class="publication-copy-confirm">
+        <p v-if="publicationCopyStats.copy_spec_count > 0">第 3 步：确认后将完整替换当前表的选品、规格、计价配置、展示配置和手动修改后的最终价格，并保存为客户草稿。其他命名价格表不变。</p>
+        <p v-else class="muted">没有可复制的商品或有效规格，因此不能覆盖当前价格表。</p>
+        <label v-if="publicationCopyStats.copy_spec_count > 0"><input v-model="publicationCopyConfirmed" type="checkbox" /> 我已确认只覆盖当前这张价格表；已有的手动改价也会被来源最终价替换。</label>
+        <button class="primary" type="button" :disabled="publicationCopyBusy || publicationCopyStats.copy_spec_count <= 0 || !publicationCopyConfirmed" @click="confirmPublicationCopy()">确认完整复制到当前表</button>
+      </div>
     </section>
 
     <section class="panel price-list-page-config">
@@ -739,7 +778,7 @@
                     <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`pn-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                     <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
                   </div>
-                  <div v-for="line in item.attributeLines || []" :key="`pa-${item.code}-${line}`" class="pdf-table-line"><b>属性</b> {{ line }}</div>
+                  <div v-for="line in item.attributeLines || []" :key="`pa-${item.code}-${line}`" class="pdf-table-line">{{ line }}</div>
                 </td>
                 <td class="pdf-table-prices">
                   <div v-for="priceRow in item.prices" :key="`preview-table-price-${item.code}-${priceRow.label}`">
@@ -768,7 +807,7 @@
                   </div>
                 </div>
                 <div class="pdf-meta-block">
-                  <p v-for="line in item.attributeLines || []" :key="`card-attr-${item.code}-${line}`" class="pdf-meta-line"><b>属性</b> {{ line }}</p>
+                  <p v-for="line in item.attributeLines || []" :key="`card-attr-${item.code}-${line}`" class="pdf-meta-line">{{ line }}</p>
                 </div>
                 <div class="pdf-price-block">
                   <div class="pdf-section-label">报价</div>
@@ -1004,22 +1043,6 @@
           </div>
         </div>
 
-        <div class="copy-config-box" v-if="(publicationScope === 'mine' || publicationScope === 'customer') && officialPriceSourcePublications.length">
-          <div>
-            <strong>复制官方价格来源</strong>
-            <p>复制棵凡已发布价格表的报价和商品展示快照，作为本次客户价格表的锁定内容快照。</p>
-          </div>
-          <div class="copy-config-actions">
-            <select v-model="selectedPriceSourcePublicationID">
-              <option value="">选择官方价格表价格</option>
-              <option v-for="row in officialPriceSourcePublications" :key="`price-source-${row.id}`" :value="String(row.id)">
-                {{ beanListPublicationLabel(row) }}
-              </option>
-            </select>
-            <button class="secondary" type="button" :disabled="!selectedPriceSourcePublication" @click="applyCopiedBeanListPriceSource()">复制价格</button>
-          </div>
-        </div>
-
         <section v-if="namedPriceTableBatch" class="named-price-table-config">
           <div class="section-bar"><strong>本版本的价格表</strong><button class="secondary compact" type="button" @click="addNamedPriceTable(false)">新增价格表</button></div>
           <div v-for="table in namedPriceTableBatch.tables" :key="table.key" class="named-price-table-config-row">
@@ -1131,7 +1154,7 @@
                     <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`pn-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                     <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
                   </div>
-                  <div v-for="line in item.attributeLines || []" :key="`pa-print-${item.code}-${line}`" class="pdf-table-line"><b>属性</b> {{ line }}</div>
+                  <div v-for="line in item.attributeLines || []" :key="`pa-print-${item.code}-${line}`" class="pdf-table-line">{{ line }}</div>
                 </td>
                 <td class="pdf-table-prices">
                   <div v-for="priceRow in item.prices" :key="`pdf-table-price-${item.code}-${priceRow.label}`">
@@ -1160,7 +1183,7 @@
                   </div>
                 </div>
                 <div class="pdf-meta-block">
-                  <p v-for="line in item.attributeLines || []" :key="`pdf-attr-${item.code}-${line}`" class="pdf-meta-line"><b>属性</b><span>{{ line }}</span></p>
+                  <p v-for="line in item.attributeLines || []" :key="`pdf-attr-${item.code}-${line}`" class="pdf-meta-line"><span>{{ line }}</span></p>
                 </div>
                 <div class="pdf-price-block">
                   <div class="pdf-section-label">报价</div>
@@ -1396,6 +1419,15 @@ let publicationSearchTimer = 0
 const priceSourcePublicationByType = ref({})
 const styleSourcePublicationIDByType = ref({})
 const productSpecSelectionsByType = ref({})
+const publicationCopyOpen = ref(false)
+const publicationCopySourceKind = ref('official')
+const publicationCopySourceCustomerID = ref(0)
+const publicationCopySourceID = ref('')
+const publicationCopySourceLoading = ref(false)
+const publicationCopyBusy = ref(false)
+const publicationCopyStats = ref(null)
+const publicationCopyConfirmed = ref(false)
+const publicationCopyRequestID = ref('')
 const visibleCategoryCodesByType = ref({})
 const productSelectionInitialized = ref({})
 const categorySelectionInitialized = ref({})
@@ -1404,6 +1436,14 @@ const namedPriceTableBatch = ref(null)
 const namedPriceTableScope = ref('')
 let restoringNamedPriceTable = false
 const activeNamedPriceTable = computed(() => namedPriceTableBatch.value?.tables.find(table => table.key === namedPriceTableBatch.value.active_table_key) || null)
+const publicationCopySourceScope = computed(() => publicationCopySourceKind.value === 'customer'
+  ? (Number(publicationCopySourceCustomerID.value || 0) > 0 ? `customer:${Number(publicationCopySourceCustomerID.value)}` : '')
+  : 'official')
+const publicationCopySources = computed(() => publicationCopySourceScope.value
+  ? publicationRows(publicationCopySourceScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, FACTORY_SUPPLY_PUBLICATION_PURPOSE)
+    .filter(row => row.status === 'published' && (row.owner_type === 'official' || row.owner_type === 'customer'))
+  : [])
+const selectedPublicationCopySource = computed(() => publicationCopySources.value.find(row => String(row.id) === String(publicationCopySourceID.value)) || null)
 const pdfOptions = ref({
   listType: 'commercial',
   version: DEFAULT_BEAN_LIST_PDF_VERSION,
@@ -1431,6 +1471,7 @@ const priceListFlatRowOverrides = ref({})
 const priceListTierFixedPrices = ref({})
 const customerPriceSeedRows = ref([])
 const customerPriceConfiguredSources = ref({})
+const customerPriceCopyFrozen = ref(false)
 let customerPriceSeedScope = ''
 const customerPriceSources = ref([])
 const customerPriceSourcesReadyKey = ref('')
@@ -1911,6 +1952,7 @@ watch([generatedPriceListFlatRows, customerPriceSources, customerPriceSourcesRea
   if (!(activeBeanListCustomerID.value > 0)) return
   const scopeKey = priceListGenerationDraftStorageKey()
   if (customerPriceSeedScope !== scopeKey) restorePriceListGenerationDraftForActiveType()
+  if (customerPriceCopyFrozen.value) return
   if (customerPriceSourcesReadyKey.value !== priceListGenerationDraftBaseKey()) return
   const sources = customerPriceSources.value
   const next = seedCustomerPriceRows(customerPriceSeedRows.value, generatedPriceListFlatRows.value, sources, activeBeanListCustomerID.value)
@@ -2141,6 +2183,7 @@ function savePriceListGenerationDraftForActiveType() {
     tierFixedPrices: priceListTierFixedPrices.value,
     customerPriceSeedRows: customerPriceSeedRows.value,
     customerPriceConfiguredSources: customerPriceConfiguredSources.value,
+    customerPriceCopyFrozen: customerPriceCopyFrozen.value,
     product_spec_selections: pdfProductSpecSelections.value,
     price_list_display_order: priceListDisplayOrder.value,
   })
@@ -2149,12 +2192,13 @@ function savePriceListGenerationDraftForActiveType() {
 function restorePriceListGenerationDraftForActiveType() {
   priceListLegacyPricingConflicts.value = []
   const scopeKey = priceListGenerationDraftStorageKey()
-  if (customerPriceSeedScope !== scopeKey) { customerPriceSeedRows.value = []; customerPriceConfiguredSources.value = {}; priceListFlatRowOverrides.value = {}; priceListTierFixedPrices.value = {}; customerPriceSeedScope = scopeKey }
+  if (customerPriceSeedScope !== scopeKey) { customerPriceSeedRows.value = []; customerPriceConfiguredSources.value = {}; customerPriceCopyFrozen.value = false; priceListFlatRowOverrides.value = {}; priceListTierFixedPrices.value = {}; customerPriceSeedScope = scopeKey }
   const draft = readPriceListGenerationDraft(scopeKey)
   priceListDisplayOrder.value = clonePriceTable(draft?.price_list_display_order || {})
   if (!draft) return false
   customerPriceSeedRows.value = Array.isArray(draft.customerPriceSeedRows) ? draft.customerPriceSeedRows : []
   customerPriceConfiguredSources.value = { ...(draft.customerPriceConfiguredSources || {}) }
+  customerPriceCopyFrozen.value = draft.customerPriceCopyFrozen === true
   priceListTemplateDefaults.value = {
     ...priceListTemplateDefaults.value,
     ...defaultPriceListTemplateSelection(draft.defaults || {}),
@@ -4463,22 +4507,210 @@ async function loadBeanListPublicationDetail(row) {
   return publicationRequestOnce(`/api/costing/bean-list/publications/${id}?${params.toString()}`)
 }
 
-async function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.value) {
-  if (!row) return
+function openPublicationCopy() {
+  publicationCopyOpen.value = true
+  publicationCopySourceKind.value = 'official'
+  publicationCopySourceCustomerID.value = activeBeanListCustomerID.value
+  publicationCopySourceID.value = ''
+  publicationCopyStats.value = null
+  publicationCopyConfirmed.value = false
+  publicationCopyRequestID.value = ''
+  changePublicationCopySourceKind()
+}
+
+function closePublicationCopy() {
+  if (publicationCopyBusy.value) return
+  publicationCopyOpen.value = false
+}
+
+async function changePublicationCopySourceKind() {
+  publicationCopySourceID.value = ''
+  publicationCopyStats.value = null
+  publicationCopyConfirmed.value = false
+  publicationCopyRequestID.value = ''
+  const scope = publicationCopySourceScope.value
+  if (!scope) return
+  publicationCopySourceLoading.value = true
+  try {
+    await loadBeanListPublications(pdfTheme.value.listType, scope, activeProductTypeCategoryID.value, FACTORY_SUPPLY_PUBLICATION_PURPOSE, { pageSize: 100 })
+  } finally {
+    publicationCopySourceLoading.value = false
+  }
+}
+
+function publicationCopyBatchPayload() {
+  const currentKey = String(namedPriceTableBatch.value?.active_table_key || '')
+  const currentPayload = captureNamedPriceTablePayload()
+  const common = beanListPublicationPayload()
+  const tables = (namedPriceTableBatch.value?.tables || []).map((table) => {
+    const payload = table.key === currentKey ? currentPayload : clonePriceTable(table.payload || {})
+    return {
+      key: table.key,
+      name: table.name,
+      direct_ship_enabled: Boolean(table.direct_ship_enabled),
+      config: payload.config || {},
+      content: payload.content || {},
+      price_source_publication_id: Number(payload.price_source_publication_id || 0),
+      style_source_publication_id: Number(payload.style_source_publication_id || 0),
+      source_version: String(payload.source_version || ''),
+    }
+  })
+  return {
+    ...common,
+    scope: 'customer',
+    customer_id: Number(activeBeanListCustomerID.value),
+    owner_type: 'customer',
+    owner_key: String(activeBeanListCustomerID.value),
+    publication_purpose: FACTORY_SUPPLY_PUBLICATION_PURPOSE,
+    price_source_publication_id: 0,
+    style_source_publication_id: 0,
+    source_version: '',
+    default_table_key: namedPriceTableBatch.value?.default_table_key || currentKey,
+    tables,
+    config: {},
+    content: {},
+  }
+}
+
+async function sendPublicationCopyRequest(action) {
+  const source = selectedPublicationCopySource.value
+  if (!source || !(activeBeanListCustomerID.value > 0) || !activeNamedPriceTable.value) throw new Error('请先选择当前客户、目标价格表和已发布来源')
+  const params = beanListPublicationDownloadParams(source)
+  const targetTableKey = String(activeNamedPriceTable.value.key)
+  return apiSend(`/api/costing/bean-list/publications/${source.id}/${action}?${params.toString()}`, {
+    body: {
+      customer_id: Number(activeBeanListCustomerID.value),
+      target_table_key: targetTableKey,
+      copy_request_id: action === 'copy-to-draft' ? publicationCopyRequestID.value : undefined,
+      batch: publicationCopyBatchPayload(),
+    },
+  })
+}
+
+async function previewPublicationCopy() {
+  publicationCopyBusy.value = true
+  publicationCopyStats.value = null
+  publicationCopyConfirmed.value = false
+  publicationCopyRequestID.value = ''
   error.value = ''
   try {
-    const detail = await loadBeanListPublicationDetail(row)
-    const listType = normalizeBeanListType(detail.list_type)
-    selectProductTypeFromPublication(detail)
-    const keyProductTypeID = productTypeSelectionIDForPublication(detail)
-    const key = beanListPublicationTypeKey(listType, keyProductTypeID)
-    downloadSourcePublication.value = null
-    priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [key]: detail }
-    selectedPriceSourcePublicationID.value = String(detail.id)
-    pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType, keyProductTypeID) }
-    message.value = `已复制${beanListPublicationLabel(detail)}价格来源，发布后会锁定为客户价格表快照`
+    const result = await sendPublicationCopyRequest('copy-preview')
+    publicationCopyStats.value = result.copy_stats || null
   } catch (err) {
-    error.value = err.message || '加载价格表详情失败'
+    error.value = err.message || '读取可复制商品失败'
+  } finally {
+    publicationCopyBusy.value = false
+  }
+}
+
+function productOverridesFromPublicationConfig(rows = []) {
+  const out = {}
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const scope = String(row.scope || '').trim()
+    const parentID = Number(row.parent_product_id || 0)
+    const skuID = Number(row.sku_id || row.product_id || 0)
+    const key = scope === 'parent_product' ? `parent:${parentID || Number(row.product_id || 0)}` : `sku:${skuID}`
+    if (key === 'parent:0' || key === 'sku:0') continue
+    out[key] = { ...row }
+  }
+  return out
+}
+
+async function restoreCopiedPriceTable(row, result) {
+  const key = activePriceListTypeKey.value
+  const targetConfig = clonePriceTable(row.config || {})
+  const targetContent = clonePriceTable(row.content || {})
+  const priceRows = (Array.isArray(targetContent.price_rows) ? targetContent.price_rows : []).map((priceRow) => ({
+    ...priceRow,
+    frozen_final_price: true,
+  }))
+  const templateSelection = targetConfig.price_list_template_selection || {}
+  const copiedSelections = Array.isArray(targetConfig.product_spec_selections) ? targetConfig.product_spec_selections : []
+  const groupSelections = {}
+  const parentSelections = {}
+  for (const selection of Array.isArray(templateSelection.group_selections) ? templateSelection.group_selections : []) {
+    const normalized = defaultPriceListTemplateSelection(selection)
+    if (!priceListTemplateHasOverride(normalized)) continue
+    const itemID = Number(selection.group_item_id || selection.parent_group_item_id || 0)
+    if (!(itemID > 0)) continue
+    if (Number(selection.level || 0) === 1) parentSelections[String(itemID)] = normalized
+    else {
+      const match = priceListGroupTemplateRows.value.find((group) => Number(group.group_item_id || 0) === itemID)
+      groupSelections[match ? priceListGroupTemplateKey(match) : String(selection.group_key || itemID)] = normalized
+    }
+  }
+  const productOverrides = productOverridesFromPublicationConfig(templateSelection.product_overrides)
+  const generationDraft = {
+    defaults: defaultPriceListTemplateSelection(templateSelection.defaults || {}),
+    parentSelections,
+    groupSelections,
+    productOverrides,
+    flatRowOverrides: {},
+    tierFixedPrices: {},
+    customerPriceSeedRows: priceRows,
+    customerPriceConfiguredSources: {},
+    customerPriceCopyFrozen: true,
+    product_spec_selections: copiedSelections,
+    price_list_display_order: targetConfig.price_list_display_order || {},
+  }
+
+  pdfOptions.value = { ...pdfOptions.value, ...targetConfig, version: result.draft?.version || pdfOptions.value.version, listType: pdfTheme.value.listType }
+  pdfCustomizers.value = clonePriceTable(targetConfig.customizers || {})
+  customerPriceSeedRows.value = priceRows
+  customerPriceConfiguredSources.value = {}
+  customerPriceCopyFrozen.value = true
+  priceListFlatRowOverrides.value = {}
+  priceListTierFixedPrices.value = {}
+  priceListTemplateDefaults.value = generationDraft.defaults
+  priceListParentTemplateSelections.value = parentSelections
+  priceListGroupTemplateSelections.value = groupSelections
+  priceListProductTemplateOverrides.value = productOverrides
+  priceListDisplayOrder.value = generationDraft.price_list_display_order
+  productSpecSelectionsByType.value = { ...productSpecSelectionsByType.value, [key]: copiedSelections }
+  productSelectionInitialized.value = { ...productSelectionInitialized.value, [key]: true }
+  priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [key]: null }
+  styleSourcePublicationIDByType.value = { ...styleSourcePublicationIDByType.value, [key]: 0 }
+  selectedPriceSourcePublicationID.value = ''
+  downloadSourcePublication.value = null
+  await nextTick()
+  savePriceListGenerationDraft(priceListGenerationDraftStorageKey(), generationDraft)
+
+  const activeTable = activeNamedPriceTable.value
+  if (activeTable) {
+    const payload = captureNamedPriceTablePayload()
+    activeTable.payload = {
+      ...payload,
+      config: targetConfig,
+      content: targetContent,
+      draft: generationDraft,
+      editor: { pdfOptions: pdfOptions.value, customizers: pdfCustomizers.value, priceSource: null, styleSource: 0 },
+    }
+  }
+  if (result.draft?.version) namedPriceTableBatch.value.version = result.draft.version
+  namedPriceTableBatch.value.changelog = pdfOptions.value.changelog || ''
+  persistNamedPriceTableBatch()
+  savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
+}
+
+async function confirmPublicationCopy() {
+  if (!publicationCopyConfirmed.value || !(publicationCopyStats.value?.copy_spec_count > 0)) return
+  publicationCopyBusy.value = true
+  error.value = ''
+  message.value = ''
+  if (!publicationCopyRequestID.value) publicationCopyRequestID.value = globalThis.crypto?.randomUUID?.() || `copy-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  try {
+    const result = await sendPublicationCopyRequest('copy-to-draft')
+    const targetKey = String(activeNamedPriceTable.value?.key || '')
+    const table = result.draft?.tables?.find((row) => String(row.table_key || row.publication_batch?.table_key || '') === targetKey)
+    if (!table) throw new Error('复制接口未返回目标价格表草稿，请刷新后检查')
+    await restoreCopiedPriceTable(table, result)
+    publicationCopyOpen.value = false
+    message.value = `已将${beanListPublicationLabel(selectedPublicationCopySource.value)}完整复制到当前表并保存为草稿；其他命名价格表未改动。`
+    await loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value, FACTORY_SUPPLY_PUBLICATION_PURPOSE, { pageSize: 100 })
+  } catch (err) {
+    error.value = err.message || '复制价格表失败；可以重试，服务端会避免重复覆盖'
+  } finally {
+    publicationCopyBusy.value = false
   }
 }
 
@@ -5607,6 +5839,7 @@ function captureNamedPriceTablePayload() {
       groupSelections: priceListGroupTemplateSelections.value, productOverrides: priceListProductTemplateOverrides.value,
       flatRowOverrides: priceListFlatRowOverrides.value, tierFixedPrices: priceListTierFixedPrices.value, customerPriceSeedRows: customerPriceSeedRows.value,
       customerPriceConfiguredSources: customerPriceConfiguredSources.value,
+      customerPriceCopyFrozen: customerPriceCopyFrozen.value,
       product_spec_selections: pdfProductSpecSelections.value, price_list_display_order: priceListDisplayOrder.value },
     editor: { pdfOptions: pdfOptions.value, customizers: pdfCustomizers.value,
       priceSource: currentPriceSourcePublication.value, styleSource: styleSourcePublicationIDByType.value[activePriceListTypeKey.value] || 0 },
@@ -5766,6 +5999,17 @@ onBeforeUnmount(() => {
 <style scoped>
 .named-price-table-toolbar { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
 .named-price-table-toolbar label { display:grid; gap:6px; min-width:220px; }
+.publication-copy-panel { display:grid; gap:12px; }
+.publication-copy-panel > p { margin:0; }
+.publication-copy-source-row { display:grid; grid-template-columns:minmax(180px,.7fr) minmax(180px,.8fr) minmax(280px,1.5fr); gap:10px; align-items:end; }
+.publication-copy-source-row label { display:grid; gap:5px; min-width:0; }
+.publication-copy-source-row select { min-width:0; min-height:38px; border:1px solid #ddd; border-radius:8px; padding:7px 9px; background:#fff; font:inherit; }
+.publication-copy-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.publication-copy-actions > span { color:#45535b; font-size:13px; line-height:1.5; }
+.publication-copy-confirm { display:grid; gap:10px; border:1px solid #edc876; border-radius:9px; background:#fffaf0; padding:12px; }
+.publication-copy-confirm p { margin:0; line-height:1.5; }
+.publication-copy-confirm label { display:flex; align-items:flex-start; gap:8px; }
+.publication-copy-confirm button { justify-self:start; }
 .named-price-table-config { display:grid; gap:12px; padding:16px 0; border-bottom:1px solid #e4e7e5; }
 .named-price-table-config-row { display:grid; gap:8px; padding:10px; border:1px solid #ddd; border-radius:8px; }
 .named-default { display:flex; align-items:center; gap:6px; }
@@ -6090,6 +6334,7 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
 .template-select-pair input { width: 100%; }
 
 @media (max-width: 1200px) {
+  .publication-copy-source-row { grid-template-columns:1fr; }
   .price-list-top-toolbar { grid-template-columns: minmax(120px, .35fr) minmax(260px, 1fr); }
   .price-list-toolbar-actions { grid-column: 1 / -1; min-height: auto; }
 }

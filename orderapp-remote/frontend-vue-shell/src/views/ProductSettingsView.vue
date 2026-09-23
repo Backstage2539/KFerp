@@ -1642,7 +1642,7 @@
                 <input :value="productCodeLabel(productProductionConfigProduct || {}) || '-'" disabled />
               </label>
               <label>
-                <span>客户归属</span>
+                <span>档案归属</span>
                 <input :value="productProductionCustomerLabel" disabled />
               </label>
               <label>
@@ -2583,7 +2583,7 @@ const productProductionDefaultBomDetail = computed(() => {
 })
 const productProductionCustomerLabel = computed(() => {
   const customerID = Number(productProductionConfigProduct.value?.customer_id || 0)
-  return customerID > 0 ? (customerName(customerID) || `客户 #${customerID}`) : (productCustomerReferenceSummary(productProductionConfigProduct.value || {}) || '工厂公共商品')
+  return customerID > 0 ? (customerName(customerID) || `客户 #${customerID}`) : '工厂公共商品'
 })
 const productProductionCustomerReferences = computed(() => productCustomerReferences.value.filter((row) => row.active !== false && Number(row.product_id || 0) === Number(productProductionConfigProduct.value?.id || 0)))
 const productProductionDirectShipPriceTables = computed(() => (productProductionPriceTables.value.rows || []).filter((row) => row.usage_code === 'direct_ship'))

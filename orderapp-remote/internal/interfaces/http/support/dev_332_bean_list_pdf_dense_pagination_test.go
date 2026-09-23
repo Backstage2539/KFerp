@@ -45,7 +45,7 @@ func TestDev332BeanListPDFDensePaginationSeedDocsAndCode(t *testing.T) {
 			"name:           \"dense\"",
 		},
 		"internal/application/costing/service.go": {
-			"bean-list-preview-style-v4",
+			"bean-list-preview-style-v5",
 		},
 	}
 	for rel, wants := range markers {

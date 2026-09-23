@@ -15,6 +15,18 @@ type PublicationTableMetadata struct {
 	TableName         string `json:"table_name,omitempty"`
 	IsDefaultTable    bool   `json:"is_default_table"`
 	DirectShipEnabled bool   `json:"direct_ship_enabled"`
+	// Copy metadata is an audit/idempotency marker only. It never drives price
+	// synchronization or a source-publication relationship.
+	CopyRequestID           string `json:"copy_request_id,omitempty"`
+	CopyActor               string `json:"copy_actor,omitempty"`
+	CopySourcePublicationID int64  `json:"copy_source_publication_id,omitempty"`
+	CopySourceVersion       string `json:"copy_source_version,omitempty"`
+	CopySourceProductCount  int    `json:"copy_source_product_count,omitempty"`
+	CopySourceSpecCount     int    `json:"copy_source_spec_count,omitempty"`
+	CopyProductCount        int    `json:"copy_product_count,omitempty"`
+	CopySpecCount           int    `json:"copy_spec_count,omitempty"`
+	CopySkipProductCount    int    `json:"copy_skip_product_count,omitempty"`
+	CopySkipSpecCount       int    `json:"copy_skip_spec_count,omitempty"`
 }
 
 type BeanListBatchTable struct {
@@ -26,6 +38,16 @@ type BeanListBatchTable struct {
 	PriceSourcePublicationID int64          `json:"price_source_publication_id,omitempty"`
 	StyleSourcePublicationID int64          `json:"style_source_publication_id,omitempty"`
 	SourceVersion            string         `json:"source_version,omitempty"`
+	CopyRequestID            string         `json:"copy_request_id,omitempty"`
+	CopyActor                string         `json:"copy_actor,omitempty"`
+	CopySourcePublicationID  int64          `json:"copy_source_publication_id,omitempty"`
+	CopySourceVersion        string         `json:"copy_source_version,omitempty"`
+	CopySourceProductCount   int            `json:"copy_source_product_count,omitempty"`
+	CopySourceSpecCount      int            `json:"copy_source_spec_count,omitempty"`
+	CopyProductCount         int            `json:"copy_product_count,omitempty"`
+	CopySpecCount            int            `json:"copy_spec_count,omitempty"`
+	CopySkipProductCount     int            `json:"copy_skip_product_count,omitempty"`
+	CopySkipSpecCount        int            `json:"copy_skip_spec_count,omitempty"`
 }
 
 type BeanListBatchCommand struct {
@@ -57,7 +79,15 @@ func BeanListBatchMetadata(config map[string]any) PublicationTableMetadata {
 }
 
 func SetBeanListBatchMetadata(config map[string]any, meta PublicationTableMetadata) {
-	config["publication_batch"] = map[string]any{"release_id": meta.ReleaseID, "table_key": meta.TableKey, "table_name": meta.TableName, "is_default_table": meta.IsDefaultTable, "direct_ship_enabled": meta.DirectShipEnabled}
+	config["publication_batch"] = map[string]any{
+		"release_id": meta.ReleaseID, "table_key": meta.TableKey, "table_name": meta.TableName,
+		"is_default_table": meta.IsDefaultTable, "direct_ship_enabled": meta.DirectShipEnabled,
+		"copy_request_id": meta.CopyRequestID, "copy_actor": meta.CopyActor,
+		"copy_source_publication_id": meta.CopySourcePublicationID, "copy_source_version": meta.CopySourceVersion,
+		"copy_source_product_count": meta.CopySourceProductCount, "copy_source_spec_count": meta.CopySourceSpecCount,
+		"copy_product_count": meta.CopyProductCount, "copy_spec_count": meta.CopySpecCount,
+		"copy_skip_product_count": meta.CopySkipProductCount, "copy_skip_spec_count": meta.CopySkipSpecCount,
+	}
 }
 
 func copyBeanListMap(source map[string]any) (map[string]any, error) {
@@ -151,7 +181,15 @@ func (s *Service) saveBeanListBatch(ctx context.Context, cmd BeanListBatchComman
 		if err != nil {
 			return nil, fmt.Errorf("价格表「%s」：%w", name, err)
 		}
-		SetBeanListBatchMetadata(item.Config, PublicationTableMetadata{TableKey: strings.TrimSpace(table.Key), TableName: name, IsDefaultTable: strings.TrimSpace(table.Key) == defaultKey, DirectShipEnabled: table.DirectShipEnabled})
+		SetBeanListBatchMetadata(item.Config, PublicationTableMetadata{
+			TableKey: strings.TrimSpace(table.Key), TableName: name,
+			IsDefaultTable: strings.TrimSpace(table.Key) == defaultKey, DirectShipEnabled: table.DirectShipEnabled,
+			CopyRequestID: table.CopyRequestID, CopyActor: table.CopyActor,
+			CopySourcePublicationID: table.CopySourcePublicationID, CopySourceVersion: table.CopySourceVersion,
+			CopySourceProductCount: table.CopySourceProductCount, CopySourceSpecCount: table.CopySourceSpecCount,
+			CopyProductCount: table.CopyProductCount, CopySpecCount: table.CopySpecCount,
+			CopySkipProductCount: table.CopySkipProductCount, CopySkipSpecCount: table.CopySkipSpecCount,
+		})
 		commands = append(commands, item)
 	}
 	rows, err := repo.SaveBeanListBatch(ctx, commands, publish)

@@ -5,8 +5,27 @@ import (
 	appcosting "orderapp/internal/application/costing"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
+
+func TestBeanListPDFIndustryAttributesGroupOnlyByFrozenTemplateIdentity(t *testing.T) {
+	item := map[string]any{"product_attributes": []any{
+		map[string]any{"key": "roast", "label": "烘焙度", "value": "中深烘", "template_id": float64(11)},
+		map[string]any{"key": "origin", "label": "产地", "value": "云南", "template_id": float64(11)},
+		map[string]any{"key": "pack", "label": "包装", "value": "250g", "template_id": float64(12)},
+		map[string]any{"key": "old_a", "label": "历史甲", "value": "甲"},
+		map[string]any{"key": "old_b", "label": "历史乙", "value": "乙"},
+	}}
+	got := beanListPublicationPDFAttributeLines(item)
+	want := []string{"烘焙度：中深烘；产地：云南", "包装：250g", "历史甲：甲", "历史乙：乙"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("attribute lines = %#v, want %#v", got, want)
+	}
+	if got := beanListPublicationPDFAttributeLines(map[string]any{"attributeLines": []any{"旧历史分行：保留", "另一行：保留"}}); !reflect.DeepEqual(got, []string{"旧历史分行：保留", "另一行：保留"}) {
+		t.Fatalf("historical attribute lines were regrouped: %#v", got)
+	}
+}
 
 func TestBeanListPDFKeepsPriceTableDisplayOrder(t *testing.T) {
 	item := func(name string) map[string]any {

@@ -58,6 +58,8 @@ export function createEmployeeOrderItem(key = ''): EmployeeOrderDraftItem {
     bean_list_publication_id: 0,
     bean_list_version_no: '',
     price_override: false,
+    price_selection_mode: 'auto',
+    selected_price_row_key: '',
     price_source_json: '',
     discount_type: '',
     discount_value: 0,
@@ -430,6 +432,8 @@ export function employeeOrderItemFromSpec(
     bean_list_publication_id: publicationID,
     bean_list_version_no: publicationVersion,
     price_override: false,
+    price_selection_mode: 'auto',
+    selected_price_row_key: '',
     price_source_json: String(tier?.price_source_json || ''),
     validation_error: tier || Number(item.qty || 0) <= 0 ? '' : '当前数量没有匹配的价格档，请调整数量',
   })
@@ -466,6 +470,25 @@ export function repriceEmployeeOrderItemForQuantity(
   )
   if (!spec) return withEmployeeOrderItemDiscount({ ...item })
   const repriced = employeeOrderItemFromSpec(item, family, spec)
+  if (item.price_selection_mode === 'tier' && item.selected_price_row_key) {
+    const selectedTier = (spec.tiers || []).find((tier) => String(tier.price_row_key || '') === item.selected_price_row_key)
+    if (!selectedTier) {
+      return withEmployeeOrderItemDiscount({
+        ...repriced,
+        price_selection_mode: 'tier',
+        selected_price_row_key: item.selected_price_row_key,
+        validation_error: '所选价格档已失效，请重新选择档位或恢复自动匹配',
+      })
+    }
+    return withEmployeeOrderItemDiscount({
+      ...repriced,
+      unit_price: Number(selectedTier.unit_price || selectedTier.price || 0),
+      price_selection_mode: 'tier',
+      selected_price_row_key: item.selected_price_row_key,
+      price_source_json: String(selectedTier.price_source_json || ''),
+      validation_error: Number(selectedTier.unit_price || selectedTier.price || 0) > 0 ? '' : '所选价格档没有有效单价',
+    })
+  }
   return item.price_override
     ? withEmployeeOrderItemDiscount({
         ...repriced,
@@ -473,6 +496,42 @@ export function repriceEmployeeOrderItemForQuantity(
         price_override: true,
       })
     : repriced
+}
+
+export function chooseEmployeeOrderPriceTier(
+  item: EmployeeOrderDraftItem,
+  family: EmployeeOrderProductFamily | undefined,
+  priceRowKey: string,
+): EmployeeOrderDraftItem {
+  const priced = repriceEmployeeOrderItemForQuantity({ ...item, price_selection_mode: 'auto', selected_price_row_key: '' }, family)
+  const spec = family?.specs.find((candidate) => item.migration_state === 'cutover'
+    ? Number(candidate.bom_spec_id || 0) === Number(item.bom_spec_id || 0)
+    : Number(candidate.product_id || candidate.sku_id || 0) === Number(item.product_id || 0))
+  const tier = spec?.tiers?.find((candidate) => String(candidate.price_row_key || '') === String(priceRowKey || ''))
+  if (!tier || !priceRowKey || !(Number(tier.unit_price || tier.price || 0) > 0)) {
+    return withEmployeeOrderItemDiscount({ ...item, validation_error: '当前价格档不可用，请刷新价格表后重选' })
+  }
+  return withEmployeeOrderItemDiscount({
+    ...priced,
+    unit_price: Number(tier.unit_price || tier.price || 0),
+    price_selection_mode: 'tier',
+    selected_price_row_key: priceRowKey,
+    price_source_json: String(tier.price_source_json || ''),
+    price_override: false,
+    validation_error: '',
+  })
+}
+
+export function restoreEmployeeOrderAutomaticPrice(
+  item: EmployeeOrderDraftItem,
+  family?: EmployeeOrderProductFamily,
+): EmployeeOrderDraftItem {
+  return repriceEmployeeOrderItemForQuantity({
+    ...item,
+    price_selection_mode: 'auto',
+    selected_price_row_key: '',
+    price_override: false,
+  }, family)
 }
 
 export function applyEmployeeOrderQuantityChange(
@@ -519,6 +578,19 @@ function historicalOrderSpecWeightG(item: EmployeeOrderDetailItem): number {
   if (Number.isFinite(explicit) && explicit > 0) return explicit
   const match = String(item.spec || '').match(/([0-9]+(?:\.[0-9]+)?)/)
   return match ? Number(match[1]) : 0
+}
+
+function savedEmployeeOrderPriceSelection(item: EmployeeOrderDetailItem): { mode: string; rowKey: string } {
+  let source: Record<string, unknown> = {}
+  try {
+    source = JSON.parse(String(item.price_source_json || '{}')) as Record<string, unknown>
+  } catch {
+    source = {}
+  }
+  return {
+    mode: String(item.price_selection_mode || source.price_selection_mode || (item.price_override ? 'manual' : 'auto')),
+    rowKey: String(item.selected_price_row_key || source.selected_price_row_key || ''),
+  }
 }
 
 export function hydrateEmployeeOrderEditItems(
@@ -580,6 +652,8 @@ export function hydrateEmployeeOrderEditItems(
       bean_list_publication_id: Number(detail.bean_list_publication_id || 0),
       bean_list_version_no: String(detail.bean_list_version_no || ''),
       price_override: Boolean(detail.price_override),
+      price_selection_mode: savedEmployeeOrderPriceSelection(detail).mode as EmployeeOrderDraftItem['price_selection_mode'],
+      selected_price_row_key: savedEmployeeOrderPriceSelection(detail).rowKey,
       price_source_json: String(detail.price_source_json || ''),
       discount_type: String(detail.discount_type || ''),
       discount_value: Number(detail.discount_value || 0),
@@ -597,6 +671,16 @@ export function hydrateEmployeeOrderEditItems(
     }
 
     const current = employeeOrderItemFromSpec(historical, family, spec)
+    const savedSelection = savedEmployeeOrderPriceSelection(detail)
+    if (savedSelection.mode === 'tier') {
+      return repriceEmployeeOrderItemForQuantity({
+        ...current,
+        qty: Number(detail.qty || 0),
+        price_selection_mode: 'tier',
+        selected_price_row_key: savedSelection.rowKey,
+        price_override: false,
+      }, family)
+    }
     const historicalUnitPrice = Number(detail.unit_price || 0)
     const currentUnitPrice = Number(current.unit_price || 0)
     const hasOverrideSemantic = typeof detail.price_override === 'boolean'
@@ -627,8 +711,8 @@ export function copyEmployeeOrderItems(
       item_id: 0,
       key: `copy-${Date.now()}-${index + 1}`,
       qty: Number(detail?.qty || item.qty || 0),
-      unit_price: historicalPrice,
-      price_override: historicalPrice > 0,
+      unit_price: item.price_selection_mode === 'tier' ? Number(item.unit_price || historicalPrice) : historicalPrice,
+      price_override: item.price_selection_mode === 'tier' ? false : historicalPrice > 0,
     }
   })
 }
@@ -662,7 +746,7 @@ export function revalidateEmployeeOrderItems(
   items: EmployeeOrderDraftItem[],
   families: EmployeeOrderProductFamily[],
   customerID: number,
-  options: { preserveUnitPrice?: boolean; preserveManualPrice?: boolean; preserveUnavailable?: boolean } = {},
+  options: { preserveUnitPrice?: boolean; preserveManualPrice?: boolean; preserveUnavailable?: boolean; clearPriceSelection?: boolean } = {},
 ): EmployeeOrderDraftItem[] {
   const available = customerProductFamilies(families, customerID)
   return items.map((item) => {
@@ -679,6 +763,14 @@ export function revalidateEmployeeOrderItems(
       )
       if (spec) {
         const validated = employeeOrderItemFromSpec(item, family, spec)
+        if (!options.clearPriceSelection && item.price_selection_mode === 'tier' && item.selected_price_row_key) {
+          return repriceEmployeeOrderItemForQuantity({
+            ...validated,
+            qty: Number(item.qty || 0),
+            price_selection_mode: 'tier',
+            selected_price_row_key: item.selected_price_row_key,
+          }, family)
+        }
         const preservePrice = options.preserveUnitPrice || (options.preserveManualPrice && item.price_override)
         return preservePrice
           ? withEmployeeOrderItemDiscount({
@@ -730,6 +822,8 @@ export function buildEmployeeOrderItemsPayload(items: EmployeeOrderDraftItem[]) 
         bean_list_publication_id: Number(item.bean_list_publication_id || 0),
         bean_list_version_no: String(item.bean_list_version_no || ''),
         price_override: Boolean(item.price_override),
+        price_selection_mode: item.price_override ? 'manual' : (item.price_selection_mode || 'auto'),
+        selected_price_row_key: item.price_selection_mode === 'tier' ? String(item.selected_price_row_key || '') : '',
         price_source_json: String(item.price_source_json || ''),
       }
     })

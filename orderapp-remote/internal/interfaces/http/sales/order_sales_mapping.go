@@ -153,7 +153,7 @@ func parseCreateOrderAmount(raw, field string) (float64, error) {
 
 func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.OrderItemCommand {
 	items := make([]salesapp.OrderItemCommand, 0)
-	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.ParentProductID, req.ItemParentProductID, req.BomSpecID, req.BomVariantID, req.CustomerProductAliasID, req.CustomerProductReferenceID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
+	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.ParentProductID, req.ItemParentProductID, req.BomSpecID, req.BomVariantID, req.CustomerProductAliasID, req.CustomerProductReferenceID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.PriceSelectionMode, req.SelectedPriceRowKey, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
 		pidStr := strings.TrimSpace(getStr(req.ProductID, i))
 		name := strings.TrimSpace(getStr(req.ItemName, i))
 		if pidStr == "" && name == "" {
@@ -170,6 +170,8 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 			ProductNameSnapshot:                strings.TrimSpace(getStr(req.ProductNameSnapshot, i)),
 			BeanListVersionNo:                  strings.TrimSpace(getStr(req.ItemBeanListVersionNo, i)),
 			PriceSourceJSON:                    strings.TrimSpace(getStr(req.PriceSourceJSON, i)),
+			PriceSelectionMode:                 strings.TrimSpace(getStr(req.PriceSelectionMode, i)),
+			SelectedPriceRowKey:                strings.TrimSpace(getStr(req.SelectedPriceRowKey, i)),
 			ProductKind:                        strings.TrimSpace(getStr(req.ProductKind, i)),
 			SalesUnit:                          strings.TrimSpace(getStr(req.SalesUnit, i)),
 		}
@@ -214,6 +216,9 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 		}
 		if tidStr := strings.TrimSpace(getStr(req.TierID, i)); tidStr != "" && tidStr != "auto" {
 			if tidStr == "manual" {
+				if it.PriceSelectionMode == "" {
+					it.PriceSelectionMode = "manual"
+				}
 				if v := strings.TrimSpace(getStr(req.UnitPrice, i)); v != "" {
 					if f, err := strconv.ParseFloat(v, 64); err == nil {
 						it.ManualPrice = &f
@@ -222,6 +227,9 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 			} else if tid, err := strconv.ParseInt(tidStr, 10, 64); err == nil && tid > 0 {
 				it.TierID = &tid
 			}
+		}
+		if it.PriceSelectionMode == "" {
+			it.PriceSelectionMode = "auto"
 		}
 		it.DiscountType = strings.TrimSpace(strings.ToLower(getStr(req.DiscountType, i)))
 		if v := strings.TrimSpace(getStr(req.DiscountValue, i)); v != "" {

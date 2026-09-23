@@ -837,10 +837,14 @@ func renderBeanListItem(pdf *gofpdf.Fpdf, item BeanListItem) {
 		{"出品建议", item.RecommendedUse},
 		{"风味", item.Flavor},
 		{"特点", item.Description},
-		{"属性", strings.Join(item.AttributeLines, " / ")},
 	} {
 		if value := strings.TrimSpace(line.value); value != "" {
 			pdf.MultiCell(0, 5, line.label+"："+value, "", "L", false)
+		}
+	}
+	for _, attributeLine := range item.AttributeLines {
+		if value := strings.TrimSpace(attributeLine); value != "" {
+			pdf.MultiCell(0, 5, value, "", "L", false)
 		}
 	}
 	for _, line := range item.QualityLines {

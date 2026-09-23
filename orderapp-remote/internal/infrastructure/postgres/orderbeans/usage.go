@@ -34,6 +34,9 @@ type PublishedPricing struct {
 	InventoryUnit           string
 	InventoryConversionJSON string
 	TierLabel               string
+	TemplateTierID          int64
+	MinQty                  float64
+	MaxQty                  *float64
 	FinalUnitPrice          float64
 	PricingRuleVersion      string
 	ManualAdjusted          bool
@@ -42,6 +45,17 @@ type PublishedPricing struct {
 	QuantityBasis           string
 	TierQuantityUnit        string
 	EffectiveSalesSpecJSON  string
+}
+
+// PublishedPriceRowKey identifies one immutable quote row within a publication.
+// The identity includes product/specification and its source position so the
+// client never supplies a price and cannot reuse a key across rows.
+func PublishedPriceRowKey(publicationID int64, listType string, productID, bomSpecID, bomVariantID int64, source string, indexes ...int) string {
+	parts := []string{strconv.FormatInt(publicationID, 10), strings.TrimSpace(listType), strconv.FormatInt(productID, 10), strconv.FormatInt(bomSpecID, 10), strconv.FormatInt(bomVariantID, 10), strings.TrimSpace(source)}
+	for _, index := range indexes {
+		parts = append(parts, strconv.Itoa(index))
+	}
+	return strings.Join(parts, ":")
 }
 
 // PublishedProductSpec is the immutable SKU identity and sales specification
@@ -150,6 +164,99 @@ func ResolvePublishedPricingForPublicationWithBOMSpec(ctx context.Context, q row
 		return PublishedPricing{}, nil
 	}
 	return pricing, nil
+}
+
+// ResolveSelectedPublishedTier resolves an exact row from the requested active
+// publication. It deliberately ignores the quantity threshold, but still
+// requires the exact product/spec identity and a positive final snapshot price.
+func ResolveSelectedPublishedTier(ctx context.Context, q rowQuerier, schema string, customerID, productID int64, listType string, requestedPublicationID, bomSpecID, bomVariantID, specG, qty int64, salesUnit string, unitBagCount int64, priceRowKey string) (Usage, PublishedPricing, error) {
+	if strings.TrimSpace(priceRowKey) == "" || qty <= 0 {
+		return Usage{}, PublishedPricing{}, nil
+	}
+	usage, err := ResolveUsageForPublication(ctx, q, schema, customerID, productID, listType, requestedPublicationID)
+	if err != nil || usage.PublicationID <= 0 {
+		return usage, PublishedPricing{}, err
+	}
+	var raw []byte
+	if err := q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(content_json, '{}'::jsonb) FROM %s.bean_list_publications WHERE id=$1`, schema), usage.PublicationID).Scan(&raw); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || isMissingBeanListSchema(err) {
+			return Usage{}, PublishedPricing{}, nil
+		}
+		return Usage{}, PublishedPricing{}, err
+	}
+	pricing, ok := PublishedSnapshotTierPricing(raw, usage.PublicationID, productID, bomSpecID, bomVariantID, specG, listType, salesUnit, unitBagCount, priceRowKey)
+	if !ok || pricing.UnitPrice <= 0 {
+		return Usage{}, PublishedPricing{}, nil
+	}
+	return usage, pricing, nil
+}
+
+// PublishedSnapshotTierPricing finds a row key in a publication snapshot while
+// validating its exact product/spec identity. The order option mapper uses the
+// same key constructor and source-array indexes.
+func PublishedSnapshotTierPricing(raw []byte, publicationID, productID, bomSpecID, bomVariantID, specG int64, listType, salesUnit string, unitBagCount int64, priceRowKey string) (PublishedPricing, bool) {
+	var root map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &root) != nil {
+		return PublishedPricing{}, false
+	}
+	var flatRows []json.RawMessage
+	_ = json.Unmarshal(root["price_rows"], &flatRows)
+	for index, row := range flatRows {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(row, &fields) != nil || publishedFlatPriceRowProductID(fields) != productID {
+			continue
+		}
+		rowSpecID := publishedJSONInt64Field(fields, "bom_spec_id")
+		rowVariantID := publishedJSONInt64Field(fields, "bom_variant_id")
+		rowSpecG := publishedJSONInt64Field(fields, "spec_g")
+		if rowSpecID != bomSpecID || (bomVariantID > 0 && rowVariantID > 0 && rowVariantID != bomVariantID) || (specG > 0 && rowSpecID == 0 && rowSpecG > 0 && rowSpecG != specG) {
+			continue
+		}
+		if PublishedPriceRowKey(publicationID, listType, productID, rowSpecID, rowVariantID, "flat", index) != priceRowKey {
+			continue
+		}
+		var tier publishedPriceTier
+		if json.Unmarshal(row, &tier) != nil {
+			return PublishedPricing{}, false
+		}
+		price := publishedTierPricing(tier, specG)
+		price.QuantityBasis = strings.TrimSpace(tier.QuantityBasis)
+		price.TierQuantityUnit = strings.TrimSpace(tier.TierQuantityUnit)
+		return price, price.UnitPrice > 0
+	}
+
+	var content publishedBeanListContent
+	if json.Unmarshal(raw, &content) != nil {
+		return PublishedPricing{}, false
+	}
+	for groupIndex, group := range content.Groups {
+		for itemIndex, itemRaw := range group.Items {
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(itemRaw, &fields) != nil || publishedBeanListItemProductID(fields) != productID {
+				continue
+			}
+			itemSpecID := publishedJSONInt64Field(fields, "bom_spec_id")
+			itemVariantID := publishedJSONInt64Field(fields, "bom_variant_id")
+			if itemSpecID != bomSpecID || (bomVariantID > 0 && itemVariantID > 0 && itemVariantID != bomVariantID) {
+				continue
+			}
+			tiers := publishedItemTiers(itemRaw, listType)
+			for tierIndex, tier := range tiers {
+				key := PublishedPriceRowKey(publicationID, listType, productID, itemSpecID, itemVariantID, "group", groupIndex, itemIndex, tierIndex)
+				if key != priceRowKey {
+					continue
+				}
+				if specG > 0 && tier.SpecG > 0 && tier.SpecG != specG {
+					return PublishedPricing{}, false
+				}
+				price := publishedTierPricing(tier, specG)
+				price.QuantityBasis = strings.TrimSpace(tier.QuantityBasis)
+				price.TierQuantityUnit = strings.TrimSpace(tier.TierQuantityUnit)
+				return price, price.UnitPrice > 0
+			}
+		}
+	}
+	return PublishedPricing{}, false
 }
 
 // ResolvePublishedProductSpecForPublication resolves the effective price-list
@@ -623,6 +730,7 @@ type publishedPriceTier struct {
 	BomVariantID            int64           `json:"bom_variant_id"`
 	Label                   string          `json:"label"`
 	TierLabel               string          `json:"tier_label"`
+	TemplateTierID          int64           `json:"template_tier_id"`
 	SourcePriceRecordID     int64           `json:"source_price_record_id"`
 	FinalUnitPrice          float64         `json:"final_unit_price"`
 	SpecG                   int64           `json:"spec_g"`
@@ -1077,6 +1185,9 @@ func publishedPricingWithSnapshot(pricing PublishedPricing, tier publishedPriceT
 	if pricing.TierLabel == "" {
 		pricing.TierLabel = strings.TrimSpace(tier.Label)
 	}
+	pricing.TemplateTierID = tier.TemplateTierID
+	pricing.MinQty = tier.MinQty
+	pricing.MaxQty = tier.MaxQty
 	if tier.FinalUnitPrice > 0 {
 		pricing.FinalUnitPrice = roundPublishedPrice(tier.FinalUnitPrice)
 	} else if pricing.UnitPrice > 0 {
