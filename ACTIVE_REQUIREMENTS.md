@@ -1,14 +1,14 @@
 # ACTIVE_REQUIREMENTS
 
 ### PR-671-PRICE-TABLE-COPY-TIER-CHOICE
-- Branch: `codex/price-table-copy-tier-choice-20260924`; baseline `origin/develop@8f241a9b2969fc4bf930b573b98d54ebff9a791f`.
+- Branch: `codex/price-table-copy-tier-choice-20260924`; PR #141; feature commit `e6bec3ba`; merged to `develop` as `b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`.
 - Owner/session: Codex / Van / 2026-09-24.
-- Status: implementation in progress; development deployment and Van business acceptance pending.
+- Status: implementation, automated verification, and development deployment complete; awaiting Van business acceptance.
 - Scope: product archive-owner display; grouped industry fields across Vue/share/PDF snapshots; full published price-table copy filtered by current customer product/spec identities; employee auto/manual published-tier selection in ERP and miniapp, preserving customer self-order auto-pricing.
 - DEV: DEV-671-01-PRICE-TABLE-COPY; DEV-671-02-PUBLISHED-TIER-VALIDATION; DEV-671-03-ERP-TIER-SELECTION; DEV-671-04-MINIAPP-TIER-SELECTION; DEV-671-05-INDUSTRY-SNAPSHOT-PDF; DEV-671-06-DOCS-DELIVERY.
 - Verifier: targeted RED/GREEN Go/API/Vue/miniapp tests; affected Go packages; Vue and miniapp typecheck/build; snapshot/PDF tests; relevant full gates and development acceptance.
 - Manuals: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`, `OP_MANUAL_COSTING.md`, `OP_MANUAL_ORDER_SALES.md`, `OP_MANUAL_CUSTOMER_PORTAL.md`.
-- Deployment: merge latest-synced feature to develop and deploy development only; production deployment and WeChat upload/review/publication excluded.
+- Deployment: development `b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f` deployed 2026-09-24 03:03 Asia/Shanghai; previous source `/opt/stacks/erp/orderapp.backup.deploy-20260924025603-b4f5ad6b1693`; rollback image `kferp-orderapp-rollback:development-20260924025603-b4f5ad6b1693`. `erp_orderapp` running, PostgreSQL healthy, development login HTTP 200, authenticated Vue shell and product/development requirement APIs HTTP 200. Development mp-weixin artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`, previous artifact retained in its timestamped backup. Production deployment and WeChat upload/review/publication excluded.
 - Last update: 2026-09-24.
 
 ### PR-668-PR667-COMPLETE-UI-FLOW

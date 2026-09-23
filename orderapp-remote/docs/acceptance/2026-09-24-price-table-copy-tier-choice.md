@@ -21,8 +21,12 @@
 - 已更新 `docs/OP_MANUAL_COSTING.md`、`docs/OP_MANUAL_ORDER_SALES.md`、`docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`、`docs/OP_MANUAL_CUSTOMER_PORTAL.md`、`docs/OP_MANUAL_INVENTORY_MATERIALS.md` 及 `docs/OPERATION_MANUALS.md`；ERP Vue/Vite 手册入口继续读取单一来源 `docs/`。
 - PR/DEV 跟踪见 `internal/interfaces/http/support/req_store.go` 与仓库根 `ACTIVE_REQUIREMENTS.md`。DEV-671-01 至 DEV-671-05 的实现和自动验证完成；DEV-671-06 等开发环境发布和验收记录。
 
-## 尚未完成的环境验收与边界
+## 集成、开发环境部署与只读验收
 
-- 本报告编写时尚未集成至最新 `develop`、部署 development 或执行 development 浏览器/真实 API 只读验收；不得据此声称已发布或业务验收完成。
-- Van 业务验收待进行。
+- PR #141 已合并。功能提交：`e6bec3ba7e2f9ba777bf985db48347ea1d9074bc`；合并提交及 `origin/develop`：`b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`。
+- 按 `./deploy_orderapp.sh --preflight development` 完成远端预检（Vue shell 测试/构建、小程序 42 个文件共 264 项测试/类型检查/开发构建、Go 全包测试及隔离 Docker 镜像构建）；无服务栈或容器变更。随后以 `./deploy_orderapp.sh development` 部署，重建并仅重启 `erp_orderapp`。
+- 部署时间：2026-09-24 03:03 Asia/Shanghai。服务器旧源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260924025603-b4f5ad6b1693`；回滚镜像：`kferp-orderapp-rollback:development-20260924025603-b4f5ad6b1693`。
+- 部署后：`erp_orderapp` 与 `erp_docconvert` running，PostgreSQL healthy；开发登录页 `https://dev.qacoohee.com/app/login` 返回 HTTP 200；未登录访问 `/app/` 返回 303 登录跳转；带 Basic Auth 的 `/app/vue-shell`、`/app/api/req/product`、`/app/api/req/dev` 均返回 HTTP 200，PR-671 及 DEV-671-01 至 DEV-671-06 可通过需求 API 读取。
+- 开发小程序产物的 72 个声明文件清单校验通过；产物同步至 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧目录保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260924030322-b4f5ad6b1693`。此操作仅准备本地开发包，没有上传微信平台。
+- 本次未对共享开发业务数据执行价格表复制或创建/保存订单，因此此处的真实业务工作流验收留给 Van 使用隔离/指定测试客户完成；Van 业务验收待进行。
 - 生产部署、生产写入、微信小程序上传/审核/发布均不在本次授权范围。
