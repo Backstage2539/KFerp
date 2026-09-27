@@ -3,13 +3,13 @@
 ### PR-672-PRODUCT-CREATOR-WORKFLOW
 - Branch: `codex/product-creator-workflow`; base `origin/develop@b2a7729a`.
 - Owner/session: Codex / Van / 2026-09-27.
-- Status: implementation complete; automated verification and development UI acceptance in progress; Van product acceptance pending.
+- Status: implementation, automated verification and development deployment complete; Van product acceptance pending.
 - Scope: versioned reusable business templates, typed Vue Flow designer, generated run form, validation/preview, safe business configuration commit, and separately resumable purchase/receipt/pricing steps.
 - DEV: DEV-672-PC-GRAPH; DEV-672-PC-TEMPLATE-RUN; DEV-672-PC-CONFIG-EXECUTION; DEV-672-PC-TRADE-STEPS; DEV-672-PC-UI-DOCS-DELIVERY.
 - Verifier: Go application/repository/API RED/GREEN and PostgreSQL transaction/idempotence tests; Vue unit tests and build; browser canvas/run flow; three business acceptance paths and failure recovery.
 - Manuals: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`.
-- Deployment: development only after gates and integration; production not authorized.
-- Evidence: `orderapp-remote/docs/acceptance/2026-09-27-product-creator-workflow.md`.
+- Deployment: development `8cfa2305b5cf47afbbc468ec4a924453126309ca`; login HTTP 200; production not authorized.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-27-product-creator-workflow.md`; Van still needs the three business-template acceptance paths and remaining browser/recovery checks.
 - Last update: 2026-09-28.
 
 ### PR-671-PRICE-TABLE-COPY-TIER-CHOICE
