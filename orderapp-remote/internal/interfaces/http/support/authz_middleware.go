@@ -211,6 +211,27 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "settings.write"
 	}
+	if strings.HasPrefix(path, "/api/product-creator/templates") {
+		if method == http.MethodGet {
+			return "products.read"
+		}
+		return "settings.write"
+	}
+	if strings.HasPrefix(path, "/api/product-creator/modules") {
+		return "products.read"
+	}
+	if strings.HasPrefix(path, "/api/product-creator/pricing/") {
+		if method == http.MethodGet {
+			return "costing.read"
+		}
+		return "costing.write"
+	}
+	if strings.HasPrefix(path, "/api/product-creator/runs") {
+		if method == http.MethodGet {
+			return "products.read"
+		}
+		return "products.write"
+	}
 	if path == "/api/company/profile" {
 		return "settings.write"
 	}

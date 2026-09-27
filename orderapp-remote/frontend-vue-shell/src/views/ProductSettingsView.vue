@@ -198,6 +198,7 @@
                 </label>
                 <div class="filter-actions sku-list-actions">
                   <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
+                  <button class="secondary compact-action" type="button" @click="openProductCreator">按流程创建商品</button>
                   <button class="text-button" type="button" :disabled="loading" @click="openCustomerCatalogCopy('all')">复制全部商品到客户</button>
                   <button class="text-button" type="button" :disabled="loading || !selectedProductIds.length" @click="openCustomerCatalogCopy('selected', selectedProductIds)">复制所选商品到客户</button>
                   <button class="secondary compact-action danger-outline" type="button" @click="catalogCustomerID ? removeCustomerCatalogProducts(selectedProductIds) : deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
@@ -5590,6 +5591,10 @@ function canSelectSkuRow(row) {
 
 function canEditSkuRow(row) {
   return !isPublicReferenceRow(row, { customerID: skuContextCustomerID.value })
+}
+
+function openProductCreator() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productCreator' } }))
 }
 
 function openProductDrawer() {

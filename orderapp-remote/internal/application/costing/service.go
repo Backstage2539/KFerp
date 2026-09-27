@@ -715,6 +715,10 @@ type PublishBeanListCommand struct {
 	Content                    map[string]any `json:"content"`
 	Changelog                  string         `json:"changelog"`
 	Actor                      string         `json:"actor,omitempty"`
+	// WorkflowPublicationMetadata is an internal, server supplied snapshot used
+	// by workflow executions that create a new version of a selected price table.
+	// It is excluded from JSON so callers cannot choose release or table identity.
+	WorkflowPublicationMetadata *PublicationTableMetadata `json:"-"`
 }
 
 type WithdrawBeanListCommand struct {
@@ -4145,6 +4149,33 @@ func (s *Service) SaveBeanListDraft(ctx context.Context, cmd PublishBeanListComm
 	return s.repo.SaveBeanListDraft(ctx, normalized)
 }
 
+// ValidateBeanListDraft performs the same identity, scope, sales-unit and
+// frozen-price checks as save/publish without persisting a publication.
+func (s *Service) ValidateBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) error {
+	normalized, err := normalizeBeanListCommand(cmd)
+	if err != nil {
+		return err
+	}
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	if err := s.validateProductSpecSelections(ctx, &normalized); err != nil {
+		return err
+	}
+	if !beanListUsesConcreteProductSpecSelections(&normalized) {
+		if err := s.validatePriceTierTemplateUnitCompatibility(ctx, &normalized); err != nil {
+			return err
+		}
+	}
+	if err := s.applyProductSalesUnitSnapshots(ctx, &normalized); err != nil {
+		return err
+	}
+	if err := validateBeanListFinalPriceSnapshots(normalized); err != nil {
+		return err
+	}
+	return s.ValidateBeanListOrderability(ctx, normalized)
+}
+
 type beanListProductSpecSelection struct {
 	ParentProductID         int64
 	SKUID                   int64
@@ -4895,7 +4926,19 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 		return PublishBeanListCommand{}, copyErr
 	}
 	delete(config, "publication_batch")
+	if meta := cmd.WorkflowPublicationMetadata; meta != nil {
+		key := strings.TrimSpace(meta.TableKey)
+		name := strings.TrimSpace(meta.TableName)
+		if key == "" || name == "" {
+			return PublishBeanListCommand{}, fmt.Errorf("workflow price table key and name are required")
+		}
+		SetBeanListBatchMetadata(config, PublicationTableMetadata{
+			ReleaseID: strings.TrimSpace(meta.ReleaseID), TableKey: key, TableName: name,
+			IsDefaultTable: meta.IsDefaultTable, DirectShipEnabled: meta.DirectShipEnabled,
+		})
+	}
 	cmd.Config = config
+	cmd.WorkflowPublicationMetadata = nil
 
 	listType, err := normalizeBeanListType(cmd.ListType)
 	if err != nil {

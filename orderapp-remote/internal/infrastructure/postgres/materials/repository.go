@@ -547,16 +547,20 @@ func createMaterialInlineWithOwner(ctx context.Context, pool *pgxpool.Pool, sche
 	if err != nil {
 		return materialRow{}, err
 	}
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return materialRow{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	var conn *pgxpool.Conn
+	if !inheritedTx {
+		conn, err = pool.Acquire(ctx)
+		if err != nil {
+			return materialRow{}, err
+		}
+		defer conn.Release()
+		tx, err = conn.Begin(ctx)
+		if err != nil {
+			return materialRow{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return materialRow{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if err := validateMaterialInventoryUnitDefinitionTx(ctx, tx, schema, next.Unit); err != nil {
 		return materialRow{}, err
 	}
@@ -602,6 +606,9 @@ func createMaterialInlineWithOwner(ctx context.Context, pool *pgxpool.Pool, sche
 		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "material", &id, "copy", postgresinfra.StrPtr("copied_from_material_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", copiedFromMaterialID)), postgresinfra.StrPtr(fmt.Sprintf("%d", id)), postgresinfra.AuditMeta{"source_material_id": copiedFromMaterialID, "target_material_id": id, "owner_customer_id": ownerCustomerID, "inventory_copied": false, "bom_copied": false}); err != nil {
 			return materialRow{}, err
 		}
+	}
+	if inheritedTx {
+		return materialRow{ID: id, Code: next.Code, Name: next.Name, Kind: next.Kind, IsSemiFinished: next.IsSemiFinished, SupplyMode: next.SupplyMode, Unit: next.Unit, CostUnit: next.CostUnit, OwnerCustomerID: ownerCustomerID}, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return materialRow{}, err
