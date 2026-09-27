@@ -286,6 +286,7 @@ import {
 import ProductCreatorNode from './ProductCreatorNode.vue'
 import ProductCreatorRunView from './ProductCreatorRunView.vue'
 import {
+  appendGraphSnapshot,
   cloneValue,
   autoLayout,
   connectionIsValid,
@@ -685,7 +686,7 @@ function addModule(module, position = null) {
   nodes.value.push(node)
   selectedNodeId.value = node.id
   selectedEdgeId.value = ''
-  touchGraph()
+  finishGraphChange()
 }
 
 function isValidConnection(connection) {
@@ -723,8 +724,7 @@ function connectNodes(connection) {
   selectedNodeId.value = target.id
   selectedEdgeId.value = ''
   errorMessage.value = ''
-  checkGraph()
-  touchGraph()
+  finishGraphChange()
 }
 
 function selectNode({ node }) {
@@ -781,7 +781,7 @@ function updateSelectedNode(patch) {
   rememberHistory()
   const index = nodes.value.findIndex((node) => node.id === selectedNodeId.value)
   nodes.value[index] = { ...nodes.value[index], ...patch }
-  touchGraph()
+  finishGraphChange()
 }
 
 function addVariant() {
@@ -789,14 +789,12 @@ function addVariant() {
   rememberHistory()
   const variants = [...selectedVariants.value, { row_id: makeNodeId(), name: '', unit: '件', is_default: false }]
   updateNodeConfig({ variants })
-  touchGraph()
 }
 
 function removeVariant(rowId) {
   if (!selectedNode.value) return
   rememberHistory()
   updateNodeConfig({ variants: selectedVariants.value.filter((variant) => variant.row_id !== rowId) })
-  touchGraph()
 }
 
 function deleteSelected() {
@@ -809,15 +807,13 @@ function deleteSelected() {
     edges.value = edges.value.filter((edge) => edge.id !== selectedEdgeId.value)
   }
   clearSelection()
-  checkGraph()
-  touchGraph()
+  finishGraphChange()
 }
 
 function reconcileDeletedEdges(deletedEdges) {
   const ids = new Set((deletedEdges || []).map((edge) => edge.id))
   edges.value = edges.value.filter((edge) => !ids.has(edge.id))
-  checkGraph()
-  touchGraph()
+  finishGraphChange()
 }
 
 function copySelected() {
@@ -830,7 +826,7 @@ function copySelected() {
   if (copy.data.condition) copy.data.condition.node_id = ''
   nodes.value.push(copy)
   selectedNodeId.value = copy.id
-  touchGraph()
+  finishGraphChange()
 }
 
 function edgeSourceLabel(edge) {
@@ -847,7 +843,7 @@ function miniMapNodeColor(node) {
 function autoArrange() {
   rememberHistory()
   nodes.value = autoLayout(nodes.value, edges.value)
-  touchGraph()
+  finishGraphChange()
   nextTick(() => fitView({ padding: 0.22, duration: 250 }))
 }
 
@@ -915,18 +911,19 @@ function touchGraph() {
   checkGraph()
 }
 
+function finishGraphChange() {
+  touchGraph()
+  rememberHistory()
+}
+
 function graphSnapshot() {
   return cloneValue({ nodes: nodes.value, edges: edges.value })
 }
 
 function rememberHistory() {
-  const next = graphSnapshot()
-  const current = history.value[historyIndex.value]
-  if (current && JSON.stringify(current) === JSON.stringify(next)) return
-  const prior = history.value.slice(0, historyIndex.value + 1)
-  prior.push(next)
-  history.value = prior.slice(-60)
-  historyIndex.value = history.value.length - 1
+  const next = appendGraphSnapshot(history.value, historyIndex.value, graphSnapshot())
+  history.value = next.history
+  historyIndex.value = next.index
 }
 
 function resetHistory() {
@@ -948,7 +945,7 @@ function restoreHistory(index) {
 function undo() { restoreHistory(historyIndex.value - 1) }
 function redo() { restoreHistory(historyIndex.value + 1) }
 function startDragHistory() { rememberHistory() }
-function finishDragHistory() { rememberHistory(); touchGraph() }
+function finishDragHistory() { finishGraphChange() }
 
 function statusLabel(status) {
   return ({ draft: '草稿', published: '已发布', disabled: '已停用' })[status] || '草稿'

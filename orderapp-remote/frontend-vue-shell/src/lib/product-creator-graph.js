@@ -10,6 +10,15 @@ export function cloneValue(value) {
   return serialized === undefined ? serialized : JSON.parse(serialized)
 }
 
+export function appendGraphSnapshot(history, currentIndex, snapshot, limit = 60) {
+  const current = history[currentIndex]
+  if (current && JSON.stringify(current) === JSON.stringify(snapshot)) return { history, index: currentIndex }
+  const prior = history.slice(0, currentIndex + 1)
+  prior.push(snapshot)
+  const nextHistory = prior.slice(-limit)
+  return { history: nextHistory, index: nextHistory.length - 1 }
+}
+
 export function toCanvasGraph(workflow = { nodes: [], edges: [] }, modules = []) {
   const moduleByKind = new Map(modules.map((module) => [module.kind, module]))
   return {

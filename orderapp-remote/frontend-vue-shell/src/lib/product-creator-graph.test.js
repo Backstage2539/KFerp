@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { reactive } from 'vue'
 
-import { autoLayout, cloneValue, connectionIsValid, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
+import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
 
 const modules = [
   { kind: 'product', name: '商品档案', inputs: [], outputs: [{ id: 'product', types: ['product.ref'] }], fields: [] },
@@ -16,6 +16,21 @@ test('graph history cloning accepts Vue reactive node and module values', () => 
   const snapshot = cloneValue(graph)
   assert.deepEqual(snapshot.nodes[0].data.module, modules[0])
   assert.equal(snapshot.nodes[0].data.config.action, 'create')
+})
+
+test('graph history records edits so undo, redo and editing after undo use the right snapshots', () => {
+  const empty = { nodes: [], edges: [] }
+  const withProduct = { nodes: [{ id: 'product' }], edges: [] }
+  const withMaterial = { nodes: [{ id: 'product' }, { id: 'material' }], edges: [] }
+  let state = appendGraphSnapshot([empty], 0, withProduct)
+  assert.equal(state.index, 1)
+  assert.deepEqual(state.history[state.index - 1], empty)
+  state = appendGraphSnapshot(state.history, state.index, withMaterial)
+  assert.equal(state.index, 2)
+  assert.deepEqual(state.history[state.index - 1], withProduct)
+  const editedAfterUndo = appendGraphSnapshot(state.history, state.index - 1, { nodes: [{ id: 'assembly' }], edges: [] })
+  assert.deepEqual(editedAfterUndo.history, [empty, withProduct, { nodes: [{ id: 'assembly' }], edges: [] }])
+  assert.equal(editedAfterUndo.index, 2)
 })
 
 test('workflow graph survives canvas conversion with stable node, edge and row identifiers', () => {
