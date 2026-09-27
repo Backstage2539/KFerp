@@ -1,5 +1,13 @@
 export function cloneValue(value) {
-  return globalThis.structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value))
+  if (globalThis.structuredClone) {
+    try {
+      return structuredClone(value)
+    } catch {
+      // Vue Flow exposes reactive proxies, which structuredClone cannot copy.
+    }
+  }
+  const serialized = JSON.stringify(value)
+  return serialized === undefined ? serialized : JSON.parse(serialized)
 }
 
 export function toCanvasGraph(workflow = { nodes: [], edges: [] }, modules = []) {

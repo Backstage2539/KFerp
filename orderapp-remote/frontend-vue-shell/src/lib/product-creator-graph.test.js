@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { reactive } from 'vue'
 
-import { autoLayout, connectionIsValid, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
+import { autoLayout, cloneValue, connectionIsValid, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
 
 const modules = [
   { kind: 'product', name: '商品档案', inputs: [], outputs: [{ id: 'product', types: ['product.ref'] }], fields: [] },
@@ -9,6 +10,13 @@ const modules = [
   { kind: 'bom', name: 'BOM 与规格', inputs: [{ id: 'output', types: ['product.ref', 'material.ref'] }], outputs: [{ id: 'bom', types: ['bom.draft'] }], fields: [] },
   { kind: 'publish', name: '发布与默认绑定', inputs: [{ id: 'bom', types: ['bom.draft'] }], outputs: [], fields: [] },
 ]
+
+test('graph history cloning accepts Vue reactive node and module values', () => {
+  const graph = reactive({ nodes: [{ id: 'product', data: { module: modules[0], config: { action: 'create' } } }], edges: [] })
+  const snapshot = cloneValue(graph)
+  assert.deepEqual(snapshot.nodes[0].data.module, modules[0])
+  assert.equal(snapshot.nodes[0].data.config.action, 'create')
+})
 
 test('workflow graph survives canvas conversion with stable node, edge and row identifiers', () => {
   const workflow = {
