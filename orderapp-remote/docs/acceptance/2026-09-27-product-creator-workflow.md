@@ -6,7 +6,7 @@
 - 本记录覆盖模板图校验、真实 PostgreSQL 配置事务、采购收货、定价发布、幂等和失败回滚。
 - `bash scripts/verify_kferp.sh all` 已通过：Go 全包、Vue/Node 1,263 项测试和 Vite 生产构建；`git diff --check` 已通过。
 - 两条真实 PostgreSQL 商品创建器集成测试已通过，覆盖完整多级执行及中途失败回滚。
-- development 已部署到 `8cfa2305b5cf47afbbc468ec4a924453126309ca`，登录 HTTP 200；Van 的业务验收尚未进行。
+- development 已部署到最新合并提交 `fff9e9534cf2ff2526255b168dbfb67c4463fd43`（包含 PR #146/#147），登录 HTTP 200；Van 的业务验收尚未进行。
 - 不涉及 production 数据或生产环境发布。
 
 ## 已完成的真实 PostgreSQL 业务场景
@@ -40,11 +40,12 @@ ORDERAPP_TEST_DATABASE_URL='user=<local-user> dbname=postgres host=/tmp' go test
 
 ## Development 交付与浏览器证据
 
-- 部署环境：development；部署提交 `8cfa2305b5cf47afbbc468ec4a924453126309ca`（`origin/develop`）。
-- 部署前代码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260928021757-8cfa2305b5cf`。
-- 回滚镜像：`kferp-orderapp-rollback:development-20260928021757-8cfa2305b5cf`。
-- 部署脚本通过前端测试、微信小程序测试/类型检查/构建、服务端 Go 全量测试与镜像构建；PostgreSQL 健康检查通过，orderapp 已重建启动，development 登录 HTTP 200。
+- 部署环境：development；最终部署提交 `fff9e9534cf2ff2526255b168dbfb67c4463fd43`（`origin/develop`，包含 PR #146/#147）。
+- 部署前代码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260928025231-fff9e9534cf2`。
+- 回滚镜像：`kferp-orderapp-rollback:development-20260928025231-fff9e9534cf2`。
+- 部署脚本通过 Vue、微信小程序测试/类型检查/构建、服务端 Go 全量测试与镜像构建；脚本尾段 SSH 连接中断后，通过独立检查确认 `erp_orderapp` 正常运行、PostgreSQL healthy、development 登录 HTTP 200。未发布微信小程序。
 - 已登录页面确认「商品 → 商品创建器」入口、模板空列表和 Vue Flow 设计器可用；添加「商品档案」节点后撤销可用，撤销后重做可用，重做恢复节点。
+- Vue Flow 缩放状态已校验与画布同步：自动适配后显示 194%，放大时为 200%（画布 transform scale=2），缩小时为 167%（scale=1.66667）。
 - 本次浏览器回归的空白测试模板未保存；返回后列表仍为 0 个模板、0 条运行记录，未创建业务商品、物料或单据。
 - 初次浏览器检查发现 Vue 响应式代理的克隆异常，随后修复；再次检查发现图编辑没有进入撤销历史，随后补齐各项图编辑的历史快照。最终 development 浏览器回归通过上述添加/撤销/重做路径。
 - 画布拖动、连线及多分支交互、模板发布/版本列表、完整运行表单与草稿恢复/预览/错误定位尚未完成浏览器逐项验收。

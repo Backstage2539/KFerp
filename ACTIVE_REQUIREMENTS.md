@@ -8,7 +8,7 @@
 - DEV: DEV-672-PC-GRAPH; DEV-672-PC-TEMPLATE-RUN; DEV-672-PC-CONFIG-EXECUTION; DEV-672-PC-TRADE-STEPS; DEV-672-PC-UI-DOCS-DELIVERY.
 - Verifier: Go application/repository/API RED/GREEN and PostgreSQL transaction/idempotence tests; Vue unit tests and build; browser canvas/run flow; three business acceptance paths and failure recovery.
 - Manuals: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`.
-- Deployment: development `8cfa2305b5cf47afbbc468ec4a924453126309ca`; login HTTP 200; production not authorized.
+- Deployment: development `fff9e9534cf2ff2526255b168dbfb67c4463fd43` (PR #146/#147); orderapp running, PostgreSQL healthy, login HTTP 200; production not authorized.
 - Evidence: `orderapp-remote/docs/acceptance/2026-09-27-product-creator-workflow.md`; Van still needs the three business-template acceptance paths and remaining browser/recovery checks.
 - Last update: 2026-09-28.
 
