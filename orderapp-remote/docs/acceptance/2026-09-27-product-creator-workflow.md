@@ -4,9 +4,9 @@
 
 - 分支：`codex/product-creator-workflow`，基于 `origin/develop@b2a7729a`。
 - 本记录覆盖模板图校验、真实 PostgreSQL 配置事务、采购收货、定价发布、幂等和失败回滚。
-- `bash scripts/verify_kferp.sh all` 已通过：Go 全包、Vue/Node 1,231 项测试和 Vite 生产构建；`git diff --check` 已通过。
+- `bash scripts/verify_kferp.sh all` 已通过：Go 全包、Vue/Node 1,263 项测试和 Vite 生产构建；`git diff --check` 已通过。
 - 两条真实 PostgreSQL 商品创建器集成测试已通过，覆盖完整多级执行及中途失败回滚。
-- development 部署和浏览器交互检查随后补记。Van 的业务验收尚未进行。
+- development 已部署到 `8cfa2305b5cf47afbbc468ec4a924453126309ca`，登录 HTTP 200；Van 的业务验收尚未进行。
 - 不涉及 production 数据或生产环境发布。
 
 ## 已完成的真实 PostgreSQL 业务场景
@@ -38,8 +38,20 @@ ORDERAPP_TEST_DATABASE_URL='user=<local-user> dbname=postgres host=/tmp' go test
 
 结果：以上两个 PostgreSQL 集成测试通过。`graph_test.go` 还覆盖不同类型连线、环路、悬空/重复标识、条件跳过和三类模板预览校验；HTTP 测试覆盖模块目录、模板生命周期及提交接口约束。Vite 提示 `PDFStampPreview` chunk 超过 500 KB（840 KB）；商品创建器 chunk 为 285 KB，构建成功。
 
-## 尚待补齐
+## Development 交付与浏览器证据
 
-- development 部署提交、备份路径、容器/登录/需求接口烟测结果。
-- 已登录 development 环境中检查菜单、模板画布操作、模板发布/版本列表、运行表单、草稿恢复、预览和错误定位。
-- Van 按全新商品、复用半成品和非咖啡装配三条模板进行业务验收。
+- 部署环境：development；部署提交 `8cfa2305b5cf47afbbc468ec4a924453126309ca`（`origin/develop`）。
+- 部署前代码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260928021757-8cfa2305b5cf`。
+- 回滚镜像：`kferp-orderapp-rollback:development-20260928021757-8cfa2305b5cf`。
+- 部署脚本通过前端测试、微信小程序测试/类型检查/构建、服务端 Go 全量测试与镜像构建；PostgreSQL 健康检查通过，orderapp 已重建启动，development 登录 HTTP 200。
+- 已登录页面确认「商品 → 商品创建器」入口、模板空列表和 Vue Flow 设计器可用；添加「商品档案」节点后撤销可用，撤销后重做可用，重做恢复节点。
+- 本次浏览器回归的空白测试模板未保存；返回后列表仍为 0 个模板、0 条运行记录，未创建业务商品、物料或单据。
+- 初次浏览器检查发现 Vue 响应式代理的克隆异常，随后修复；再次检查发现图编辑没有进入撤销历史，随后补齐各项图编辑的历史快照。最终 development 浏览器回归通过上述添加/撤销/重做路径。
+- 画布拖动、连线及多分支交互、模板发布/版本列表、完整运行表单与草稿恢复/预览/错误定位尚未完成浏览器逐项验收。
+
+## 尚待业务验收
+
+- Van 按全新咖啡商品、复用半成品和非咖啡装配三条模板进行业务验收；复用与非咖啡三级装配另有真实 PostgreSQL 自动化证据，详见上文。
+- 单独验证复杂失败恢复、安全权限边界及未发布价格不可销售等验收表中未勾选场景。
+- development 部署完成；production 未部署。
+- Verifier: `bash scripts/verify_kferp.sh all`; two real PostgreSQL integration tests; authenticated development browser check; deployment container/database/login smoke. No PDF/PNG output path changed.

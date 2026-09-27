@@ -88,3 +88,58 @@ function handleStyle(index, count) {
   return { top: `${((index + 1) / (count + 1)) * 100}%` }
 }
 </script>
+
+<style scoped>
+.creator-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  box-sizing: border-box;
+  width: 300px;
+  min-height: 104px;
+  border: 1px solid #dbe4ec;
+  border-radius: 10px;
+  padding: 16px 19px;
+  color: #203149;
+  background: #fff;
+  box-shadow: 0 3px 12px #24364d0b;
+  cursor: grab;
+}
+
+.creator-node:active { cursor: grabbing; }
+.creator-node-icon {
+  display: grid;
+  flex: 0 0 40px;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  color: #21804f;
+  background: #e8f5ed;
+}
+.creator-node-copy { display: grid; flex: 1; min-width: 0; gap: 5px; }
+.creator-node-copy strong {
+  overflow: hidden;
+  color: #203149;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.creator-node-copy span { overflow: hidden; color: #748197; font-size: 11px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.creator-node-copy small { color: #278052; font-size: 10px; }
+.creator-node-copy .creator-node-tags { color: #8090a2; }
+.creator-node-more { align-self: flex-start; color: #8795a6; font-size: 15px; letter-spacing: 1px; line-height: 1; }
+.creator-node.kind-material .creator-node-icon { color: #3579ae; background: #eaf3fb; }
+.creator-node.kind-bom .creator-node-icon { color: #7858a7; background: #f1ecf8; }
+.creator-node.kind-process .creator-node-icon { color: #b27724; background: #fbf3e4; }
+.creator-node.kind-publish .creator-node-icon { color: #2f8357; background: #e8f5ed; }
+.creator-node.kind-purchase .creator-node-icon { color: #2876a7; background: #eaf3fa; }
+.creator-node.kind-pricing .creator-node-icon { color: #b26548; background: #fbefea; }
+@media (max-width: 720px) {
+  .creator-node { width: 258px; min-height: 88px; gap: 9px; padding: 12px 14px; }
+  .creator-node-icon { flex-basis: 34px; width: 34px; height: 34px; }
+}
+</style>
