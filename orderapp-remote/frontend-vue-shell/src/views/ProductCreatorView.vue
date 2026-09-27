@@ -122,6 +122,7 @@
             :is-valid-connection="isValidConnection"
             :default-edge-options="edgeDefaults"
             fit-view-on-init
+            @viewport-change="updateZoom"
             @connect="connectNodes"
             @edges-delete="reconcileDeletedEdges"
             @node-click="selectNode"
