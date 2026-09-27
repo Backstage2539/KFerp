@@ -126,11 +126,13 @@ func (r Repository) ListPurchaseOrders(ctx context.Context) ([]purchaseapp.Purch
 }
 
 func (r Repository) CreatePurchaseOrder(ctx context.Context, cmd purchaseapp.CreatePurchaseOrderCommand) (purchaseapp.PurchaseOrder, error) {
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, owned, err := purchaseTransaction(ctx, r.pool)
 	if err != nil {
 		return purchaseapp.PurchaseOrder{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	if owned {
+		defer func() { _ = tx.Rollback(ctx) }()
+	}
 	if err := r.assertMaterialPurchasableTx(ctx, tx, cmd.MaterialID); err != nil {
 		return purchaseapp.PurchaseOrder{}, err
 	}
@@ -162,8 +164,10 @@ func (r Repository) CreatePurchaseOrder(ctx context.Context, cmd purchaseapp.Cre
 	}); err != nil {
 		return purchaseapp.PurchaseOrder{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return purchaseapp.PurchaseOrder{}, err
+	if owned {
+		if err := tx.Commit(ctx); err != nil {
+			return purchaseapp.PurchaseOrder{}, err
+		}
 	}
 	return out, nil
 }
@@ -244,11 +248,13 @@ func (r Repository) CreatePurchaseReceipt(ctx context.Context, cmd purchaseapp.C
 }
 
 func (r Repository) CreatePurchaseReceiptAtomic(ctx context.Context, cmd purchaseapp.CreatePurchaseReceiptCommand) (purchaseapp.PurchaseReceipt, error) {
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, owned, err := purchaseTransaction(ctx, r.pool)
 	if err != nil {
 		return purchaseapp.PurchaseReceipt{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	if owned {
+		defer func() { _ = tx.Rollback(ctx) }()
+	}
 	if err := r.assertMaterialPurchasableTx(ctx, tx, cmd.MaterialID); err != nil {
 		return purchaseapp.PurchaseReceipt{}, err
 	}
@@ -348,10 +354,20 @@ func (r Repository) CreatePurchaseReceiptAtomic(ctx context.Context, cmd purchas
 	}); err != nil {
 		return purchaseapp.PurchaseReceipt{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return purchaseapp.PurchaseReceipt{}, err
+	if owned {
+		if err := tx.Commit(ctx); err != nil {
+			return purchaseapp.PurchaseReceipt{}, err
+		}
 	}
 	return out, nil
+}
+
+func purchaseTransaction(ctx context.Context, pool *pgxpool.Pool) (pgx.Tx, bool, error) {
+	if tx, ok := postgresinfra.TransactionFromContext(ctx); ok {
+		return tx, false, nil
+	}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	return tx, true, err
 }
 
 func (r Repository) resolvePurchaseStockIdentityTx(ctx context.Context, tx pgx.Tx, materialID int64, requestedUnit, requestedWarehouse string) (string, string, error) {

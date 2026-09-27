@@ -2007,7 +2007,7 @@ func ValidateProductionBomDraftItemInventoryUnits(items []ProductionBomDraftItem
 			inventoryUnit = productUnits[item.ComponentProductID]
 		}
 		if inventoryUnit == "" || !strings.EqualFold(strings.TrimSpace(item.ConsumeUnit), inventoryUnit) {
-			return fmt.Errorf("item %d consume_unit must match component inventory_unit", i+1)
+			return fmt.Errorf("item %d consume_unit %q must match component inventory_unit %q", i+1, item.ConsumeUnit, inventoryUnit)
 		}
 	}
 	return nil

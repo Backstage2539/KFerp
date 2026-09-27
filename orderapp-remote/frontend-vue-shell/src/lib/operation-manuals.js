@@ -2,6 +2,7 @@ export const operationManualsByView = {
   orderSalesManual: { doc: 'OP_MANUAL_ORDER_SALES.md', title: '订单销售手册' },
   productionManual: { doc: 'OP_MANUAL_PRODUCTION.md', title: '生产手册' },
   inventoryMaterialsManual: { doc: 'OP_MANUAL_INVENTORY_MATERIALS.md', title: '库存物料手册' },
+  productCreatorManual: { doc: 'OP_MANUAL_PRODUCT_CREATOR.md', title: '商品创建器手册' },
   stockManual: { doc: 'OP_MANUAL_STOCK.md', title: '库存作业手册' },
   costingManual: { doc: 'OP_MANUAL_COSTING.md', title: '成本核价手册' },
   greenBeanSalesManual: { doc: 'OP_MANUAL_GREEN_BEAN_SALES.md', title: '生豆销售手册' },

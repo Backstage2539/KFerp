@@ -54,7 +54,11 @@ func (r Repository) ProductionBomSpecInventoryUnits(ctx context.Context, specIDs
 	if len(specIDs) == 0 {
 		return units, nil
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	queryer := bomQueryer(r.pool)
+	if tx, ok := postgresinfra.TransactionFromContext(ctx); ok {
+		queryer = tx
+	}
+	rows, err := queryer.Query(ctx, fmt.Sprintf(`
 		SELECT id,COALESCE(NULLIF(inventory_unit,''),'unit')
 		FROM %s.production_bom_specs
 		WHERE id=ANY($1::bigint[])

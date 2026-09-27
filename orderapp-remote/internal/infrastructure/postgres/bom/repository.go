@@ -119,7 +119,11 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 }
 
 func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
-	return listProductionBomProductOptions(ctx, r.pool, r.schema, nil)
+	queryer := bomQueryer(r.pool)
+	if tx, ok := postgresinfra.TransactionFromContext(ctx); ok {
+		queryer = tx
+	}
+	return listProductionBomProductOptions(ctx, queryer, r.schema, nil)
 }
 
 func listProductionBomProductOptions(ctx context.Context, q bomQueryer, schema string, productIDs []int64) ([]bomapp.Option, error) {
@@ -164,7 +168,11 @@ func listProductionBomProductOptions(ctx context.Context, q bomQueryer, schema s
 }
 
 func (r Repository) Materials(ctx context.Context) ([]bomapp.Option, error) {
-	return listProductionBomMaterialOptions(ctx, r.pool, r.schema, nil)
+	queryer := bomQueryer(r.pool)
+	if tx, ok := postgresinfra.TransactionFromContext(ctx); ok {
+		queryer = tx
+	}
+	return listProductionBomMaterialOptions(ctx, queryer, r.schema, nil)
 }
 
 func listProductionBomMaterialOptions(ctx context.Context, q bomQueryer, schema string, materialIDs []int64) ([]bomapp.Option, error) {
@@ -1730,11 +1738,15 @@ func (r Repository) ListProductionBomUsageByProduct(ctx context.Context, product
 }
 
 func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return bomapp.ProductionBomSummary{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	var err error
+	if !inheritedTx {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if strings.EqualFold(strings.TrimSpace(cmd.OutputType), "material") {
 		var isSemi bool
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.OutputMaterialID).Scan(&isSemi); err != nil {
@@ -1813,6 +1825,9 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	}
 	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), bomID, groupID, groupCategoryID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
+	}
+	if inheritedTx {
+		return bomapp.ProductionBomSummary{ID: bomID, Code: code, Name: strings.TrimSpace(cmd.Name), OutputType: cmd.OutputType, SpecificationMode: cmd.SpecificationMode, OutputID: cmd.OutputID, OutputProductID: cmd.OutputProductID, OutputMaterialID: cmd.OutputMaterialID, LatestVersionID: versionID, LatestVersionNo: "V001", LatestVersionStatus: "draft", Status: "active"}, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomSummary{}, err
@@ -1971,11 +1986,15 @@ func (r Repository) updateProductionBomTx(ctx context.Context, tx pgx.Tx, cmd bo
 }
 
 func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProductionBomCommand) (bomapp.ProductionBomSummary, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return bomapp.ProductionBomSummary{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	var err error
+	if !inheritedTx {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	groupID := cmd.GroupID
 	groupCategoryID := cmd.GroupCategoryID
 	var sourceName string
@@ -2099,6 +2118,9 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	}
 	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), newBomID, groupID, groupCategoryID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
+	}
+	if inheritedTx {
+		return bomapp.ProductionBomSummary{ID: newBomID, Code: code, Name: name, OutputType: outputType, SpecificationMode: specificationMode, OutputID: outputProductID, OutputProductID: outputProductID, OutputMaterialID: outputMaterialID, LatestVersionID: newVersionID, LatestVersionNo: "V001", LatestVersionStatus: "draft", Status: "active"}, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomSummary{}, err
@@ -2238,17 +2260,24 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 	// Compatibility marker: material loss snapshots apply only when
 	// componentType == "material" && item.ConsumeUnit == "ratio_pct"; fixed
 	// packaging remains valid in the same draft.
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return bomapp.ProductionBomVersion{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	var err error
+	if !inheritedTx {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return bomapp.ProductionBomVersion{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, cmd); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	row, err := r.productionBomVersionByIDWith(ctx, tx, cmd.VersionID)
 	if err != nil {
 		return bomapp.ProductionBomVersion{}, err
+	}
+	if inheritedTx {
+		return row, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomVersion{}, err
@@ -2983,11 +3012,15 @@ func (r Repository) PublishProductionBomVersion(ctx context.Context, cmd bomapp.
 }
 
 func (r Repository) ValidateAndPublishProductionBomVersion(ctx context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	var err error
+	if !inheritedTx {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lockProductionBomDefaultGraphTx(ctx, tx, r.schema); err != nil {
 		return err
 	}
@@ -3041,6 +3074,9 @@ func (r Repository) ValidateAndPublishProductionBomVersion(ctx context.Context, 
 	}
 	if err := r.publishProductionBomVersionTx(ctx, tx, cmd); err != nil {
 		return err
+	}
+	if inheritedTx {
+		return nil
 	}
 	return tx.Commit(ctx)
 }
@@ -3187,7 +3223,7 @@ func (r Repository) publishProductionBomVersionTx(ctx context.Context, tx pgx.Tx
 	`, r.schema), cmd.VersionID, bomID, strings.TrimSpace(cmd.Actor)); err != nil {
 		return err
 	}
-	if outputType == "material" {
+	if outputType == "material" && postgresinfra.AutomaticMaterialBomDefaultAllowed(ctx) {
 		var inserted bool
 		err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.production_bom_output_bindings(output_type, output_id, bom_id, bom_version_id, is_default, updated_at, updated_by)
@@ -3447,11 +3483,15 @@ func bomOperationWeightKgFactor(unit string) float64 {
 }
 
 func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.BindProductProductionBomCommand) (bomapp.ProductProductionBomBinding, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return bomapp.ProductProductionBomBinding{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	var err error
+	if !inheritedTx {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return bomapp.ProductProductionBomBinding{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lockProductionBomDefaultGraphTx(ctx, tx, r.schema); err != nil {
 		return bomapp.ProductProductionBomBinding{}, err
 	}
@@ -3535,6 +3575,9 @@ func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.Bin
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &cmd.ProductID, "set_default_production_bom", postgresinfra.StrPtr("default_production_bom_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.BomID)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "production_bom_id": cmd.BomID, "production_bom_version_id": latestVersionID, "production_bom_version_no": versionNo, "specification_mode": specificationMode, "spec_identity_mode": identityMode}); err != nil {
 		return bomapp.ProductProductionBomBinding{}, err
 	}
+	if inheritedTx {
+		return bomapp.ProductProductionBomBinding{ProductID: cmd.ProductID, BomID: cmd.BomID, BomVersionID: latestVersionID, LatestBomVersionID: latestVersionID, LatestBomVersionNo: versionNo, IsLatestBomVersion: true}, nil
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductProductionBomBinding{}, err
 	}
@@ -3581,11 +3624,15 @@ func (r Repository) BindProductionBomOutput(ctx context.Context, cmd bomapp.Bind
 	if (outputType != "product" && outputType != "material") || cmd.OutputID <= 0 || cmd.BomID <= 0 {
 		return bomapp.ProductionBomOutputBinding{}, fmt.Errorf("invalid output binding")
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return bomapp.ProductionBomOutputBinding{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	var err error
+	if !inheritedTx {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return bomapp.ProductionBomOutputBinding{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if outputType == "material" {
 		var isSemi bool
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.OutputID).Scan(&isSemi); err != nil {
@@ -3665,6 +3712,9 @@ func (r Repository) BindProductionBomOutput(ctx context.Context, cmd bomapp.Bind
 	entityType := outputType
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, entityType, &cmd.OutputID, "set_default_production_bom", postgresinfra.StrPtr("default_production_bom_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.BomID)), postgresinfra.AuditMeta{"output_type": outputType, "output_id": cmd.OutputID, "production_bom_id": cmd.BomID, "production_bom_version_id": latestVersionID, "specification_mode": specificationMode, "spec_identity_mode": identityMode}); err != nil {
 		return bomapp.ProductionBomOutputBinding{}, err
+	}
+	if inheritedTx {
+		return bomapp.ProductionBomOutputBinding{OutputType: outputType, OutputID: cmd.OutputID, BomID: cmd.BomID, BomVersionID: latestVersionID, IsDefault: true}, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomOutputBinding{}, err

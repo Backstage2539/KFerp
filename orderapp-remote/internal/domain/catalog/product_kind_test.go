@@ -19,6 +19,7 @@ func TestNormalizeProductKindPreservesGreenBeanAndDripBag(t *testing.T) {
 		{name: "green alias", input: "green", want: ProductKindGreenBean},
 		{name: "raw alias", input: "raw_bean", want: ProductKindGreenBean},
 		{name: "Chinese alias", input: "生豆", want: ProductKindGreenBean},
+		{name: "generic product", input: "generic", want: ProductKindGeneric},
 		{name: "unknown defaults to roasted", input: "unexpected", want: ProductKindRoasted},
 	}
 
@@ -37,6 +38,7 @@ func TestProductKindLabelsDistinguishKnownKinds(t *testing.T) {
 		ProductKindGreenBean:     "生豆",
 		ProductKindDripBag:       "挂耳",
 		ProductKindInstantCoffee: "速溶咖啡",
+		ProductKindGeneric:       "通用商品",
 	}
 	for kind, want := range cases {
 		if got := ProductKindLabel(kind); got != want {

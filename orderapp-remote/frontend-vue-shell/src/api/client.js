@@ -5,6 +5,7 @@ async function readJson(res) {
     const err = new Error(data.error || data.message || '请求失败')
     err.status = res.status
 	err.code = String(data.code || '')
+	if (Array.isArray(data.issues)) err.issues = data.issues
     throw err
   }
   return data

@@ -29,6 +29,17 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
 }
 
+func (r Repository) beanListWriteTransaction(ctx context.Context) (pgx.Tx, bool, error) {
+	if tx, ok := postgresinfra.TransactionFromContext(ctx); ok {
+		return tx, false, nil
+	}
+	if r.pool == nil {
+		return nil, false, fmt.Errorf("repository pool required")
+	}
+	tx, err := r.pool.Begin(ctx)
+	return tx, true, err
+}
+
 func (r Repository) queryCostingReadRows(ctx context.Context, query string, args []any, scan func(pgx.Rows) error) error {
 	if r.pool == nil {
 		return fmt.Errorf("repository pool required")
@@ -3558,16 +3569,13 @@ func (r Repository) SaveBeanListPublicationAsset(ctx context.Context, asset appc
 }
 
 func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
-	conn, err := r.pool.Acquire(ctx)
+	tx, ownsTx, err := r.beanListWriteTransaction(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return nil, err
+	if ownsTx {
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := r.lockBeanListVersion(ctx, tx, &cmd, true); err != nil {
 		return nil, err
@@ -3637,6 +3645,7 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 			return nil, err
 		}
 	}
+	published.PublicationTableMetadata = appcosting.BeanListBatchMetadata(published.Config)
 	if published.ID <= 0 {
 		return nil, fmt.Errorf("publish failed")
 	}
@@ -3655,23 +3664,22 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+	if ownsTx {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return &published, nil
 }
 
 func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
-	conn, err := r.pool.Acquire(ctx)
+	tx, ownsTx, err := r.beanListWriteTransaction(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return nil, err
+	if ownsTx {
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
 		return nil, err
@@ -3734,6 +3742,7 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 			return nil, err
 		}
 	}
+	draft.PublicationTableMetadata = appcosting.BeanListBatchMetadata(draft.Config)
 	if draft.ID <= 0 {
 		return nil, fmt.Errorf("save draft failed")
 	}
@@ -3752,8 +3761,10 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 	}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+	if ownsTx {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return &draft, nil
 }
