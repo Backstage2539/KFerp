@@ -109,7 +109,7 @@
           <div class="pc-flow-mode">
             <span>连线方式</span>
             <button type="button" :class="{ active: edgeMode === 'data' }" @click="edgeMode = 'data'"><IconLink :size="15" /> 数据来源</button>
-            <button type="button" :class="{ active: edgeMode === 'prerequisite' }" @click="edgeMode = 'prerequisite'"><IconClock :size="15" /> 等待完成</button>
+            <button v-if="templateWorkflowVersion < 2" type="button" :class="{ active: edgeMode === 'prerequisite' }" @click="edgeMode = 'prerequisite'"><IconClock :size="15" /> 等待完成</button>
           </div>
           <VueFlow
             v-model:nodes="nodes"
@@ -158,11 +158,13 @@
             </div>
             <label class="pc-field-label">节点名称</label>
             <input class="pc-control" :value="selectedNode.data.label" @input="updateNodeLabel($event.target.value)" />
+            <template v-if="templateWorkflowVersion < 2">
             <label class="pc-field-label">执行动作</label>
             <select class="pc-control" :value="selectedNode.data.config.action || ''" @change="updateNodeConfig({ action: $event.target.value })">
               <option value="">选择处理方式</option>
               <option v-for="action in selectedNode.data.module.actions" :key="action" :value="action">{{ action }}</option>
             </select>
+            </template>
             <section class="pc-inspector-section">
               <h3>数据来源</h3>
               <div v-if="incomingEdges.length" class="pc-source-list">
@@ -173,7 +175,92 @@
               </div>
               <p v-else class="pc-muted">本次填写或引用现有对象</p>
             </section>
-            <section v-if="selectedNode.data.module.kind === 'bom'" class="pc-inspector-section">
+            <section v-if="templateWorkflowVersion >= 2 && ['material', 'product'].includes(selectedNode.data.module.kind)" class="pc-inspector-section">
+              <h3>对象用途</h3>
+              <label class="pc-field-label">节点角色</label>
+              <select class="pc-control" :value="selectedNode.data.config.data_role || 'input'" @change="updateNodeConfig({ data_role: $event.target.value })">
+                <option value="input">配方输入／引用来源</option>
+                <option value="output">接收 BOM 产出对象</option>
+              </select>
+              <template v-if="selectedNode.data.config.data_role === 'output'">
+                <label class="pc-field-label">产出处理</label>
+                <select class="pc-control" :value="selectedNode.data.config.object_action || 'create'" @change="updateNodeConfig({ object_action: $event.target.value })">
+                  <option value="create">自动生成新档案</option>
+                  <option value="reuse">使用时选择已有档案</option>
+                </select>
+                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('action')" @change="setFieldEditable('action', $event.target.checked)" /> 使用时允许修改</label>
+                <label class="pc-field-label">命名默认值</label>
+                <input class="pc-control" :value="selectedNode.data.config.name_pattern || ''" placeholder="例如：{{商品名称}} 半成品" @input="updateNodeConfig({ name_pattern: $event.target.value })" />
+                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('name')" @change="setFieldEditable('name', $event.target.checked)" /> 使用时允许修改名称</label>
+                <template v-if="selectedNode.data.module.kind === 'material'">
+                  <p class="pc-muted">库存单位由连接的 BOM 产出单位带入，物料档案保持一个规格。</p>
+                  <label class="pc-field-label">物料类别与取得方式</label>
+                  <div class="pc-inline-controls">
+                    <select class="pc-control" :value="selectedNode.data.config.kind || 'other'" @change="updateNodeConfig({ kind: $event.target.value })"><option value="other">通用物料（含半成品）</option><option value="pack">包装物料</option><option value="bean">原料</option></select>
+                    <select class="pc-control" :value="selectedNode.data.config.supply_mode || 'manufacture'" @change="updateNodeConfig({ supply_mode: $event.target.value })"><option value="manufacture">自制</option><option value="purchase">外购</option></select>
+                  </div>
+                  <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('kind')" @change="setFieldEditable('kind', $event.target.checked)" /> 使用时允许修改物料类别</label>
+                  <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('supply_mode')" @change="setFieldEditable('supply_mode', $event.target.checked)" /> 使用时允许修改取得方式</label>
+                </template>
+                <template v-else>
+                  <label class="pc-field-label">默认商品类型</label>
+                  <select class="pc-control" :value="selectedNode.data.config.product_kind || 'generic'" @change="updateNodeConfig({ product_kind: $event.target.value })"><option value="generic">通用商品／装配件</option><option value="roasted">熟豆</option><option value="green_bean">生豆</option><option value="drip_bag">挂耳</option><option value="instant_coffee">速溶咖啡</option></select>
+                  <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('product_kind')" @change="setFieldEditable('product_kind', $event.target.checked)" /> 使用时允许修改商品类型</label>
+                  <label class="pc-field-label">默认归属</label>
+                  <select class="pc-control" :value="selectedNode.data.config.owner || 'factory'" @change="updateNodeConfig({ owner: $event.target.value })"><option value="factory">本公司</option><option value="customer">客户</option></select>
+                  <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('owner')" @change="setFieldEditable('owner', $event.target.checked)" /> 使用时允许修改归属</label>
+                  <template v-if="selectedNode.data.config.owner === 'customer'">
+                    <label class="pc-field-label">默认归属客户</label>
+                    <select class="pc-control" :value="selectedNode.data.config.customer_id || 0" @change="updateNodeConfig({ customer_id: Number($event.target.value) })"><option :value="0">由使用者选择</option><option v-for="customer in customerOptions" :key="customer.id" :value="customer.id">{{ customer.name }}</option></select>
+                    <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('customer_id')" @change="setFieldEditable('customer_id', $event.target.checked)" /> 使用时允许更换客户</label>
+                  </template>
+                  <p class="pc-muted">商品规格与默认规格由连接的 BOM 一处维护，并随 BOM 一起发布。</p>
+                </template>
+              </template>
+            </section>
+            <section v-if="templateWorkflowVersion >= 2 && selectedNode.data.module.kind === 'process'" class="pc-inspector-section">
+              <h3>工艺默认配置</h3>
+              <label class="pc-field-label">有效工艺路线</label>
+              <select class="pc-control" :value="selectedNode.data.config.route_id || 0" @change="updateNodeConfig({ route_id: Number($event.target.value) })"><option :value="0">选择有效工艺路线</option><option v-for="route in processOptions" :key="route.id" :value="route.id">{{ route.name || route.route_name }}</option></select>
+              <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('route_id')" @change="setFieldEditable('route_id', $event.target.checked)" /> 使用时允许更换路线</label>
+            </section>
+            <section v-if="templateWorkflowVersion >= 2 && selectedNode.data.module.kind === 'bom'" class="pc-inspector-section">
+              <h3>BOM 默认配置</h3>
+              <label class="pc-field-label">产出类型</label>
+              <select class="pc-control" :value="selectedNode.data.config.output_type || 'material'" @change="changeBOMOutputType($event.target.value)"><option value="material">物料／半成品</option><option value="product">成品商品</option></select>
+              <div class="pc-inline-controls">
+                <label class="pc-field-label">产出数量<input class="pc-control" type="number" min="0.001" step="0.001" :value="selectedNode.data.config.output_qty ?? 1" @input="updateNodeConfig({ output_qty: Number($event.target.value) })" /></label>
+                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('output_qty')" @change="setFieldEditable('output_qty', $event.target.checked)" /> 使用时允许调整</label>
+                <label class="pc-field-label">产出单位<select class="pc-control" :value="selectedNode.data.config.output_unit || ''" @change="updateNodeConfig({ output_unit: $event.target.value })"><option value="">按产出物料或默认规格</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.label || unit.code }}</option></select></label>
+                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('output_unit')" @change="setFieldEditable('output_unit', $event.target.checked)" /> 使用时允许调整</label>
+              </div>
+              <label class="pc-field-label">默认工艺路线</label>
+              <select class="pc-control" :value="selectedNode.data.config.route_id || 0" :disabled="hasIncomingRoute(selectedNode.id)" @change="updateNodeConfig({ route_id: Number($event.target.value) })"><option :value="0">优先使用连线工艺</option><option v-for="route in processOptions" :key="route.id" :value="route.id">{{ route.name }}</option></select>
+              <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('route_id')" @change="setFieldEditable('route_id', $event.target.checked)" /> 使用时允许调整工艺</label>
+              <label class="pc-field-label">物料损耗率 %<input class="pc-control" type="number" min="0" max="99.99" step="0.01" :value="Number(selectedNode.data.config.material_loss_rate || 0) * 100" @input="updateNodeConfig({ material_loss_rate: Number($event.target.value || 0) / 100 })" /></label>
+              <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('material_loss_rate')" @change="setFieldEditable('material_loss_rate', $event.target.checked)" /> 使用时允许调整损耗</label>
+              <template v-if="selectedNode.data.config.output_type === 'product'">
+                <h3>商品规格</h3>
+                <div v-for="variant in selectedVariants" :key="variant.row_id" class="pc-variant-row">
+                  <input class="pc-control" v-model="variant.name" placeholder="规格名称" @change="touchGraph" />
+                  <select class="pc-control" v-model="variant.unit" @change="touchGraph"><option value="">选择单位</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.label || unit.code }}</option></select>
+                  <label class="pc-default-variant"><input v-model="variant.is_default" type="radio" :name="`default-${selectedNode.id}`" :value="true" @change="setDefaultVariant(variant.row_id)" /> 默认</label>
+                  <button class="pc-icon-button danger" type="button" aria-label="删除规格" @click="removeVariant(variant.row_id)"><IconTrash :size="16" /></button>
+                </div>
+                <button class="pc-text-action" type="button" @click="addVariant"><IconPlus :size="16" /> 添加规格</button>
+                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('variants')" @change="setFieldEditable('variants', $event.target.checked)" /> 使用时允许调整规格</label>
+              </template>
+              <template v-if="selectedNode.data.config.components?.length">
+                <h3>配方默认值</h3>
+                <div v-for="component in selectedBOMComponents" :key="component.row_id" class="pc-template-component-row">
+                  <strong>{{ nodeName(component.source_node_id) }}</strong>
+                  <label><span>默认用量</span><input class="pc-control" type="number" min="0" step="0.001" :value="component.quantity" placeholder="使用时填写" @input="updateBOMComponent(component.row_id, { quantity: Number($event.target.value || 0) })" /></label>
+                  <label><span>消耗单位</span><select class="pc-control" :value="component.unit || ''" @change="updateBOMComponent(component.row_id, { unit: $event.target.value })"><option value="">使用时选择</option><option value="ratio_pct">比例 %</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.label || unit.code }}</option></select></label>
+                </div>
+                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('components')" @change="setFieldEditable('components', $event.target.checked)" /> 使用时允许调整配方行、用量和单位</label>
+              </template>
+            </section>
+            <section v-if="templateWorkflowVersion < 2 && selectedNode.data.module.kind === 'bom'" class="pc-inspector-section">
               <h3>规格设置</h3>
               <div v-for="variant in selectedVariants" :key="variant.row_id" class="pc-variant-row">
                 <input class="pc-control" v-model="variant.name" placeholder="规格名称" @change="touchGraph" />
@@ -182,7 +269,7 @@
               </div>
               <button class="pc-text-action" type="button" @click="addVariant"><IconPlus :size="16" /> 添加规格</button>
             </section>
-            <details class="pc-advanced">
+            <details v-if="templateWorkflowVersion < 2" class="pc-advanced">
               <summary>高级设置 · 执行条件</summary>
               <label class="pc-field-label">满足条件时执行</label>
               <select class="pc-control" :value="conditionMode" @change="setConditionMode($event.target.value)">
@@ -286,6 +373,7 @@ import {
 } from '@tabler/icons-vue'
 import ProductCreatorNode from './ProductCreatorNode.vue'
 import ProductCreatorRunView from './ProductCreatorRunView.vue'
+import { apiGet } from '../api/client.js'
 import {
   appendGraphSnapshot,
   cloneValue,
@@ -294,6 +382,7 @@ import {
   makeEdgeId,
   makeNodeId,
   moduleFieldLabel,
+  moduleForNode,
   toCanvasGraph,
   toWorkflowGraph,
 } from '../lib/product-creator-graph.js'
@@ -341,6 +430,9 @@ const edges = ref([])
 const selectedNodeId = ref('')
 const selectedEdgeId = ref('')
 const edgeMode = ref('data')
+const processOptions = ref([])
+const unitOptions = ref([])
+const customerOptions = ref([])
 const graphIssues = ref([])
 const history = ref([{ nodes: [], edges: [] }])
 const historyIndex = ref(0)
@@ -350,6 +442,8 @@ let draggedKind = ''
 
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) || null)
 const selectedVariants = computed(() => selectedNode.value?.data.config?.variants || [])
+const selectedBOMComponents = computed(() => selectedNode.value?.data.config?.components || [])
+const templateWorkflowVersion = computed(() => Number(template.value.draft?.version || 1))
 const incomingEdges = computed(() => edges.value.filter((edge) => edge.target === selectedNodeId.value))
 const conditionSources = computed(() => nodes.value.filter((node) => node.id !== selectedNodeId.value))
 const conditionSourceNode = computed(() => nodes.value.find((node) => node.id === selectedNode.value?.data.condition?.node_id))
@@ -359,7 +453,10 @@ const draftCount = computed(() => templates.value.filter((item) => item.status =
 const filteredTemplates = computed(() => templates.value.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(search.value.trim().toLowerCase())))
 const groupedModules = computed(() => {
   const groups = new Map()
-  for (const module of modules.value) {
+  const available = modules.value.filter((module) => templateWorkflowVersion.value >= 2
+    ? module.palette_visible && Number(module.workflow_version) === 2
+    : Number(module.workflow_version || 1) === 1)
+  for (const module of available) {
     if (!groups.has(module.category)) groups.set(module.category, [])
     groups.get(module.category).push(module)
   }
@@ -384,10 +481,15 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const [moduleResult, templateResult, recentResult] = await Promise.all([getProductCreatorModules(), listProductCreatorTemplates(), listRecentProductCreatorRuns(5)])
+    const [moduleResult, templateResult, recentResult, routeResult, unitResult, customerResult] = await Promise.all([
+      getProductCreatorModules(), listProductCreatorTemplates(), listRecentProductCreatorRuns(5), apiGet('/api/process-routes?status=active'), apiGet('/api/product-settings/units'), apiGet('/api/customers?limit=500&active=true'),
+    ])
     modules.value = moduleResult.modules || []
     templates.value = templateResult.rows || []
     recentRuns.value = recentResult.rows || []
+    processOptions.value = (routeResult.rows || routeResult.routes || []).filter((route) => route.status === undefined || route.status === 'active')
+    unitOptions.value = (Array.isArray(unitResult) ? unitResult : unitResult.rows || unitResult.units || []).filter((unit) => unit.active !== false)
+    customerOptions.value = (customerResult.rows || customerResult.items || []).filter((customer) => customer.active !== false && Number(customer.id) > 0)
   } catch (error) {
     loadError.value = error.message || '商品创建器加载失败'
   } finally {
@@ -396,12 +498,13 @@ async function load() {
 }
 
 function emptyTemplate() {
-  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { nodes: [], edges: [] } }
+  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 2, nodes: [], edges: [] } }
 }
 
 function newTemplate() {
   errorMessage.value = ''
   template.value = emptyTemplate()
+  edgeMode.value = 'data'
   setCanvasGraph({ nodes: [], edges: [] })
   designerTab.value = 'flow'
   screen.value = 'designer'
@@ -412,6 +515,7 @@ function newTemplate() {
 function editTemplate(item) {
   errorMessage.value = ''
   template.value = cloneValue(item)
+  edgeMode.value = 'data'
   setCanvasGraph(toCanvasGraph(item.draft || { nodes: [], edges: [] }, modules.value))
   designerTab.value = 'flow'
   screen.value = 'designer'
@@ -441,9 +545,9 @@ async function saveTemplate() {
       revision: template.value.revision,
       name: template.value.name.trim(),
       description: template.value.description || '',
-      workflow: toWorkflowGraph(nodes.value, edges.value),
+      workflow: toWorkflowGraph(nodes.value, edges.value, templateWorkflowVersion.value),
     })
-    template.value = { ...template.value, ...saved, draft: saved.draft || toWorkflowGraph(nodes.value, edges.value) }
+    template.value = { ...template.value, ...saved, draft: saved.draft || toWorkflowGraph(nodes.value, edges.value, templateWorkflowVersion.value) }
     dirty.value = false
     await loadTemplatesOnly()
   } catch (error) {
@@ -664,7 +768,7 @@ function startModuleDrag(event, kind) {
 
 function dropModule(event) {
   const kind = event.dataTransfer?.getData('application/x-product-creator-module') || draggedKind
-  const module = modules.value.find((item) => item.kind === kind)
+  const module = modules.value.find((item) => item.kind === kind && Number(item.workflow_version || 1) === templateWorkflowVersion.value && (templateWorkflowVersion.value < 2 || item.palette_visible))
   if (!module) return
   const position = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   addModule(module, position)
@@ -674,14 +778,27 @@ function dropModule(event) {
 function addModule(module, position = null) {
   rememberHistory()
   const count = nodes.value.filter((node) => node.data.module.kind === module.kind).length
+  const config = module.kind === 'material' && templateWorkflowVersion.value >= 2
+    ? { data_role: 'input', rows: [] }
+    : module.kind === 'product' && templateWorkflowVersion.value >= 2
+      ? { data_role: 'output', object_action: 'create', action: 'create', product_kind: 'generic', owner: 'factory' }
+      : module.kind === 'process' && templateWorkflowVersion.value >= 2
+        ? { route_id: 0 }
+      : module.kind === 'bom' && templateWorkflowVersion.value >= 2
+        ? { output_type: 'material', output_qty: 1, output_unit: '', route_id: 0, material_loss_rate: 0, variants: [], components: [] }
+        : { action: '', variants: module.kind === 'bom' ? [{ row_id: makeNodeId(), name: '默认规格', unit: '件', is_default: true }] : [] }
+  if (module.kind === 'bom' && templateWorkflowVersion.value >= 2) {
+    config.variants = [{ row_id: makeNodeId(), name: '默认规格', unit: '', is_default: true }]
+  }
+  const resolvedModule = moduleForNode({ kind: module.kind, config }, modules.value, templateWorkflowVersion.value) || module
   const node = {
     id: makeNodeId(),
     type: 'business',
     position: position || { x: 85 + (nodes.value.length % 3) * 230, y: 85 + Math.floor(nodes.value.length / 3) * 185 },
     data: {
-      module,
+      module: resolvedModule,
       label: module.name,
-      config: { action: '', variants: module.kind === 'bom' ? [{ row_id: makeNodeId(), name: '默认规格', unit: '件', is_default: true }] : [] },
+      config,
     },
   }
   nodes.value.push(node)
@@ -715,6 +832,9 @@ function connectNodes(connection) {
     style: { stroke: color, strokeWidth: edgeMode.value === 'data' ? 1.55 : 1.3, ...(edgeMode.value === 'prerequisite' ? { strokeDasharray: '6 5' } : {}) },
     markerEnd: { type: 'arrowclosed', color },
   })
+  if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && connection.targetHandle === 'route') {
+    target.data = { ...target.data, config: { ...target.data.config, route_id: 0 } }
+  }
   if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && connection.targetHandle === 'components') {
     const components = [...(target.data.config.components || [])]
     if (!components.some((row) => row.source_node_id === source.id)) {
@@ -748,7 +868,33 @@ function updateNodeLabel(label) {
 }
 
 function updateNodeConfig(patch) {
-  updateSelectedNode({ data: { ...selectedNode.value.data, config: { ...selectedNode.value.data.config, ...patch } } })
+  const config = { ...selectedNode.value.data.config, ...patch }
+  const nextModule = moduleForNode({ kind: selectedNode.value.data.module.kind, config }, modules.value, templateWorkflowVersion.value)
+  updateSelectedNode({ data: { ...selectedNode.value.data, module: nextModule || selectedNode.value.data.module, config } })
+}
+
+function isFieldFixed(key) {
+  return (selectedNode.value?.data.config?.fixed_fields || []).includes(key)
+}
+
+function setFieldEditable(key, editable) {
+  const fixed = new Set(selectedNode.value?.data.config?.fixed_fields || [])
+  if (editable) fixed.delete(key)
+  else fixed.add(key)
+  updateNodeConfig({ fixed_fields: [...fixed] })
+}
+
+function updateBOMComponent(rowID, patch) {
+  const components = selectedBOMComponents.value.map((row) => row.row_id === rowID ? { ...row, ...patch } : { ...row })
+  updateNodeConfig({ components })
+}
+
+function hasIncomingRoute(nodeID) {
+  return edges.value.some((edge) => edge.target === nodeID && edge.targetHandle === 'route' && edge.data?.kind === 'data')
+}
+
+function nodeName(nodeID) {
+  return nodes.value.find((node) => node.id === nodeID)?.data.label || '连接的配方来源'
 }
 
 function updateCondition(patch) {
@@ -788,8 +934,21 @@ function updateSelectedNode(patch) {
 function addVariant() {
   if (!selectedNode.value) return
   rememberHistory()
-  const variants = [...selectedVariants.value, { row_id: makeNodeId(), name: '', unit: '件', is_default: false }]
+  const variants = [...selectedVariants.value, { row_id: makeNodeId(), name: '', unit: '', is_default: false }]
   updateNodeConfig({ variants })
+}
+
+function changeBOMOutputType(outputType) {
+  const variants = selectedVariants.value.length
+    ? selectedVariants.value
+    : [{ row_id: makeNodeId(), name: '默认规格', unit: '', is_default: true }]
+  if (outputType === 'product' && !variants.some((variant) => variant.is_default)) variants[0].is_default = true
+  updateNodeConfig({ output_type: outputType, variants })
+}
+
+function setDefaultVariant(rowID) {
+  if (!selectedNode.value) return
+  updateNodeConfig({ variants: selectedVariants.value.map((variant) => ({ ...variant, is_default: variant.row_id === rowID })) })
 }
 
 function removeVariant(rowId) {
@@ -1077,6 +1236,11 @@ function updateZoom() {
 .pc-inspector-module strong { font-size: 14px; }
 .pc-inspector-module span { margin-top: 3px; color: #728097; font-size: 11px; line-height: 1.4; }
 .pc-field-label { display: block; margin: 12px 0 6px; color: #36455b; font-size: 12px; font-weight: 600; }
+.pc-edit-toggle { display: flex; align-items: center; gap: 6px; margin: 5px 0 9px; color: #78869a; font-size: 10px; font-weight: 500; }
+.pc-template-component-row { display: grid; grid-template-columns: minmax(80px, 1fr) 95px 105px; align-items: end; gap: 6px; margin: 7px 0; }
+.pc-template-component-row > strong { align-self: center; overflow: hidden; color: #40516a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.pc-template-component-row label span { display: block; margin-bottom: 4px; color: #78869a; font-size: 9px; }
+.pc-template-component-row .pc-control { min-height: 32px; padding: 5px 6px; font-size: 10px; }
 .pc-control { width: 100%; min-height: 35px; border: 1px solid #dbe3ec; border-radius: 6px; padding: 7px 9px; outline: 0; color: #24334a; background: white; font: inherit; font-size: 12px; }
 .pc-control:focus { border-color: #53a878; box-shadow: 0 0 0 2px #ccebd8; }
 .pc-inspector-section { border-top: 1px solid #edf0f4; margin-top: 18px; padding-top: 14px; }

@@ -70,6 +70,7 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 	}
 	e.GET("/api/materials", func(c echo.Context) error {
 		limit := support.IntParam(c, "limit", 200)
+		offset := support.IntParam(c, "offset", 0)
 		active := strings.TrimSpace(c.QueryParam("active"))
 		includeDeprecated := strings.TrimSpace(c.QueryParam("include_deprecated")) == "1"
 		if active == "all" {
@@ -98,6 +99,7 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 			Query:             strings.TrimSpace(c.QueryParam("q")),
 			Active:            active,
 			Limit:             limit,
+			Offset:            offset,
 			IncludeDeprecated: includeDeprecated,
 			CustomerID:        customerID,
 			OwnerType:         ownerType,

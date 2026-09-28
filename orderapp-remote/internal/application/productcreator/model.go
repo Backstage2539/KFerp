@@ -222,6 +222,7 @@ func (s *Service) SaveRunInputs(ctx context.Context, id, revision int64, inputs 
 	if run.Status != "draft" {
 		return Run{}, fmt.Errorf("run is no longer editable")
 	}
+	inputs = ResolveWorkflowInputDefaults(run.Workflow, inputs)
 	issues := ValidateRunDraft(run.Workflow, inputs)
 	if hasRunFatalIssue(issues) {
 		return Run{}, InvalidWorkflowError{Issues: issues}
@@ -237,6 +238,7 @@ func (s *Service) PreviewRun(ctx context.Context, id, revision int64, actor stri
 	if run.Revision != revision {
 		return Run{}, ErrConflict
 	}
+	run.Inputs = ResolveWorkflowInputDefaults(run.Workflow, run.Inputs)
 	preview := BuildRunPreview(run.Workflow, run.Inputs)
 	return s.repo.SaveRunPreview(ctx, id, revision, preview, actor)
 }
@@ -257,6 +259,7 @@ func (s *Service) CommitConfiguration(ctx context.Context, id, revision int64, i
 	if run.Status != "draft" {
 		return Run{}, fmt.Errorf("run is no longer editable")
 	}
+	run.Inputs = ResolveWorkflowInputDefaults(run.Workflow, run.Inputs)
 	if run.Preview == nil || !run.Preview.Valid {
 		return Run{}, InvalidWorkflowError{Issues: []ValidationIssue{{Code: "preview_required", Message: "请先完成有效的业务预览"}}}
 	}
@@ -278,6 +281,13 @@ func (s *Service) CommitConfiguration(ctx context.Context, id, revision int64, i
 	return transactional.CommitConfiguration(ctx, id, revision, idempotencyKey, requestHash, actor, func(txCtx context.Context, locked Run) (map[string]any, error) {
 		if locked.Preview == nil || !locked.Preview.Valid {
 			return nil, InvalidWorkflowError{Issues: []ValidationIssue{{Code: "preview_required", Message: "请先完成有效的业务预览"}}}
+		}
+		// Preview resolves template defaults without persisting them. Resolve again
+		// from the locked snapshot so fixed template fields cannot be bypassed and
+		// the executor sees the same values that were previewed.
+		locked.Inputs = ResolveWorkflowInputDefaults(locked.Workflow, locked.Inputs)
+		if issues := ValidateRunInputs(locked.Workflow, locked.Inputs); hasRunFatalIssue(issues) {
+			return nil, InvalidWorkflowError{Issues: issues}
 		}
 		return s.executor.ExecuteConfiguration(txCtx, locked, actor)
 	})
@@ -374,6 +384,9 @@ type ExecutionError struct{ Issues []ValidationIssue }
 func (e ExecutionError) Error() string { return "business step execution failed" }
 
 func ValidateRunInputs(workflow Workflow, inputs map[string]map[string]any) []ValidationIssue {
+	if workflowVersion(workflow) >= 2 {
+		return validateBOMRunInputs(workflow, inputs)
+	}
 	issues := ValidateWorkflow(workflow)
 	nodes := make(map[string]Node, len(workflow.Nodes))
 	for _, node := range workflow.Nodes {
@@ -444,6 +457,237 @@ func ValidateRunInputs(workflow Workflow, inputs map[string]map[string]any) []Va
 		}
 	}
 	return issues
+}
+
+func ResolveWorkflowInputDefaults(workflow Workflow, inputs map[string]map[string]any) map[string]map[string]any {
+	raw, err := json.Marshal(inputs)
+	if err != nil {
+		return inputs
+	}
+	resolved := map[string]map[string]any{}
+	if err := json.Unmarshal(raw, &resolved); err != nil || resolved == nil {
+		resolved = map[string]map[string]any{}
+	}
+	for _, node := range workflow.Nodes {
+		values := resolved[node.ID]
+		if values == nil {
+			values = map[string]any{}
+			resolved[node.ID] = values
+		}
+		defaults := map[string]any{}
+		if configured, ok := node.Config["defaults"].(map[string]any); ok {
+			for key, value := range configured {
+				defaults[key] = value
+			}
+		}
+		for _, key := range []string{"action", "object_action", "product_kind", "owner", "customer_id", "kind", "supply_mode", "unit", "name", "name_pattern", "output_type", "output_qty", "output_unit", "route_id", "material_loss_rate", "rows", "variants", "components"} {
+			if value, exists := node.Config[key]; exists {
+				defaults[key] = value
+			}
+		}
+		if action, ok := defaults["object_action"]; ok {
+			if _, exists := defaults["action"]; !exists {
+				defaults["action"] = action
+			}
+		}
+		fixed := map[string]bool{}
+		switch keys := node.Config["fixed_fields"].(type) {
+		case []any:
+			for _, key := range keys {
+				fixed[stringValue(key)] = true
+			}
+		case []string:
+			for _, key := range keys {
+				fixed[key] = true
+			}
+		}
+		for key, value := range defaults {
+			if fixed[key] {
+				if key == "components" && node.Kind == ModuleBOM {
+					values[key] = applyFixedBOMComponentDefaults(values[key], value)
+				} else {
+					values[key] = value
+				}
+			} else if current, exists := values[key]; !exists || isUnsetForDefault(current) {
+				values[key] = value
+			}
+		}
+	}
+	return resolved
+}
+
+func applyFixedBOMComponentDefaults(currentValue, defaultValue any) []map[string]any {
+	current := rowValues(currentValue)
+	defaults := rowValues(defaultValue)
+	if len(current) == 0 {
+		current = make([]map[string]any, 0, len(defaults))
+		for _, row := range defaults {
+			copy := map[string]any{}
+			for key, value := range row {
+				copy[key] = value
+			}
+			current = append(current, copy)
+		}
+		return current
+	}
+	for _, row := range current {
+		var selected map[string]any
+		for _, candidate := range defaults {
+			if stringValue(candidate["source_node_id"]) != stringValue(row["source_node_id"]) {
+				continue
+			}
+			candidateRow := stringValue(candidate["source_row_id"])
+			if candidateRow == "" || candidateRow == stringValue(row["source_row_id"]) {
+				selected = candidate
+				if candidateRow != "" {
+					break
+				}
+			}
+		}
+		if selected == nil {
+			continue
+		}
+		for _, key := range []string{"quantity", "unit", "loss_rate", "variant_row_id"} {
+			if value, exists := selected[key]; exists {
+				row[key] = value
+			}
+		}
+	}
+	return current
+}
+
+func validateBOMRunInputs(workflow Workflow, inputs map[string]map[string]any) []ValidationIssue {
+	issues := ValidateWorkflow(workflow)
+	for _, node := range workflow.Nodes {
+		values := inputs[node.ID]
+		issues = append(issues, validateRowIdentities(node, values)...)
+		switch node.Kind {
+		case ModuleMaterial:
+			if stringValue(node.Config["data_role"]) == "output" {
+				action := stringValue(values["action"])
+				if action == "" {
+					action = stringValue(node.Config["object_action"])
+				}
+				if action != "reuse" && stringValue(values["name"]) == "" && stringValue(node.Config["name_pattern"]) == "" {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "name", Code: "required_field", Message: "产出物料名称不能为空"})
+				}
+				if action == "reuse" && positiveNumber(values["material_id"]) <= 0 {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "material_id", Code: "required_reference", Message: "请选择 BOM 使用的已有物料"})
+				}
+			} else {
+				rows := rowValues(values["rows"])
+				if len(rows) == 0 {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "rows", Code: "required_row", Message: "请添加至少一个配方物料"})
+				}
+				for _, row := range rows {
+					prefix := "rows." + stringValue(row["row_id"]) + "."
+					if stringValue(row["action"]) == "reuse" {
+						if positiveNumber(row["material_id"]) <= 0 {
+							issues = append(issues, ValidationIssue{NodeID: node.ID, Field: prefix + "material_id", Code: "required_reference", Message: "请选择配方物料"})
+						}
+					} else if stringValue(row["name"]) == "" || stringValue(row["unit"]) == "" {
+						issues = append(issues, ValidationIssue{NodeID: node.ID, Field: prefix + "name", Code: "required_field", Message: "新物料需要名称和库存单位"})
+					}
+				}
+			}
+		case ModuleProduct:
+			if stringValue(node.Config["data_role"]) == "output" {
+				if values["action"] == "reuse" && positiveNumber(values["product_id"]) <= 0 {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "product_id", Code: "required_reference", Message: "请选择已有商品"})
+				} else if values["action"] != "reuse" && stringValue(values["name"]) == "" && stringValue(node.Config["name_pattern"]) == "" {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "name", Code: "required_field", Message: "商品名称不能为空"})
+				}
+			} else if positiveNumber(values["product_id"]) <= 0 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "product_id", Code: "required_reference", Message: "请选择要作为配方的已有商品"})
+			} else if positiveNumber(values["bom_spec_id"]) <= 0 && hasProductSpecsInput(workflow, node.ID) {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "bom_spec_id", Code: "required_reference", Message: "请选择商品的具体已发布规格"})
+			}
+		case ModuleProcess:
+			if positiveNumber(values["route_id"]) <= 0 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "route_id", Code: "required_reference", Message: "请选择有效工艺路线"})
+			}
+		case ModuleBOM:
+			qty := numericValue(values["output_qty"])
+			if qty <= 0 {
+				qty = numericValue(node.Config["output_qty"])
+			}
+			if qty <= 0 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "output_qty", Code: "invalid_quantity", Message: "BOM产出数量必须大于零"})
+			}
+			if stringValue(node.Config["output_type"]) == "material" {
+				unit := stringValue(values["output_unit"])
+				if unit == "" {
+					unit = stringValue(node.Config["output_unit"])
+				}
+				if unit == "" {
+					for _, edge := range workflow.Edges {
+						if edge.Source == node.ID && edge.SourceHandle == "assembly" && edge.TargetHandle == "from_bom" {
+							if outputNode, ok := workflowNodeByID(workflow, edge.Target); ok {
+								unit = stringValue(outputNode.Config["unit"])
+							}
+						}
+					}
+				}
+				if unit == "" {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "output_unit", Code: "required_reference", Message: "物料产出 BOM 需要选择有效的产出单位"})
+				}
+			}
+			components := rowValues(values["components"])
+			if len(components) == 0 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "components", Code: "required_row", Message: "请为 BOM 选择配方物料并填写用量"})
+			}
+			for _, row := range components {
+				rowID := stringValue(row["row_id"])
+				if numericValue(row["quantity"]) <= 0 || stringValue(row["unit"]) == "" {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "components." + rowID + ".quantity", Code: "invalid_component_quantity", Message: "配方用量必须大于零并选择消耗单位"})
+				}
+				validSource := false
+				for _, edge := range workflow.Edges {
+					if edge.Target == node.ID && edge.TargetHandle == "components" && edge.Source == stringValue(row["source_node_id"]) {
+						validSource = true
+						break
+					}
+				}
+				if !validSource || stringValue(row["source_row_id"]) == "" {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "components." + rowID + ".source_node_id", Code: "missing_component_source", Message: "配方行必须对应画布上连接的物料或商品规格"})
+				}
+			}
+			if stringValue(node.Config["output_type"]) == "product" {
+				variants := rowValues(values["variants"])
+				defaultCount := 0
+				if len(variants) == 0 {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "variants", Code: "required_row", Message: "成品 BOM 至少需要一个商品规格"})
+				}
+				for _, variant := range variants {
+					if boolValue(variant["is_default"]) {
+						defaultCount++
+					}
+					if stringValue(variant["name"]) == "" || stringValue(variant["unit"]) == "" {
+						issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "variants." + stringValue(variant["row_id"]), Code: "required_field", Message: "商品规格名称和单位不能为空"})
+					}
+				}
+				if len(variants) > 0 && defaultCount != 1 {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "variants", Code: "default_variant_count", Message: "商品规格必须且只能有一个默认规格"})
+				}
+			}
+		case ModulePurchase:
+			for _, key := range []string{"supplier_id", "quantity", "warehouse", "unit_price"} {
+				if isEmptyValue(values[key]) || (key == "supplier_id" && positiveNumber(values[key]) <= 0) || (key == "quantity" && numericValue(values[key]) <= 0) || (key == "unit_price" && numericValue(values[key]) < 0) {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: key, Code: "required_field", Message: "采购信息不完整"})
+				}
+			}
+		}
+	}
+	return issues
+}
+
+func workflowNodeByID(workflow Workflow, id string) (Node, bool) {
+	for _, node := range workflow.Nodes {
+		if node.ID == id {
+			return node, true
+		}
+	}
+	return Node{}, false
 }
 
 func ValidateRunDraft(workflow Workflow, inputs map[string]map[string]any) []ValidationIssue {
@@ -833,6 +1077,56 @@ func isEmptyValue(value any) bool {
 		return len(v) == 0
 	case json.RawMessage:
 		return len(v) == 0 || string(v) == "null"
+	}
+	return false
+}
+
+func isUnsetForDefault(value any) bool {
+	if isEmptyValue(value) {
+		return true
+	}
+	switch current := value.(type) {
+	case float64:
+		return current == 0
+	case float32:
+		return current == 0
+	case int:
+		return current == 0
+	case int64:
+		return current == 0
+	case json.Number:
+		parsed, _ := current.Float64()
+		return parsed == 0
+	}
+	return false
+}
+
+func numericValue(value any) float64 {
+	switch current := value.(type) {
+	case float64:
+		return current
+	case float32:
+		return float64(current)
+	case int:
+		return float64(current)
+	case int64:
+		return float64(current)
+	case json.Number:
+		parsed, _ := current.Float64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(current), 64)
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func hasProductSpecsInput(workflow Workflow, nodeID string) bool {
+	for _, edge := range workflow.Edges {
+		if edge.Source == nodeID && edge.SourceHandle == "specs" && edge.TargetHandle == "components" {
+			return true
+		}
 	}
 	return false
 }

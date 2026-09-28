@@ -9,6 +9,7 @@ const modules = [
   { kind: 'material', name: '物料档案', inputs: [], outputs: [{ id: 'material', types: ['material.ref'] }], fields: [] },
   { kind: 'bom', name: 'BOM 与规格', inputs: [{ id: 'output', types: ['product.ref', 'material.ref'] }], outputs: [{ id: 'bom', types: ['bom.draft'] }], fields: [] },
   { kind: 'publish', name: '发布与默认绑定', inputs: [{ id: 'bom', types: ['bom.draft'] }], outputs: [], fields: [] },
+  { kind: 'pricing', name: '价格配置', inputs: [], outputs: [], fields: [] },
 ]
 
 test('graph history cloning accepts Vue reactive node and module values', () => {
@@ -71,4 +72,46 @@ test('automatic layout orders a multi-level graph from sources to downstream ste
   const x = Object.fromEntries(layout.map((node) => [node.id, node.position.x]))
   assert.ok(x.leaf < x.semi && x.semi < x.final)
   assert.ok(x.pack < x.final)
+})
+
+test('BOM workflow graph renders material sources before assembly and BOM output on generated objects', () => {
+  const workflow = {
+    version: 2,
+    nodes: [
+      { id: 'raw', kind: 'material', config: { data_role: 'input' } },
+      { id: 'semi-bom', kind: 'bom', config: { output_type: 'material', output_qty: 1, output_unit: 'kg' } },
+      { id: 'semi', kind: 'material', config: { data_role: 'output' } },
+    ],
+    edges: [
+      { id: 'ingredient', source: 'raw', source_handle: 'material', target: 'semi-bom', target_handle: 'components', kind: 'data' },
+      { id: 'output', source: 'semi-bom', source_handle: 'assembly', target: 'semi', target_handle: 'from_bom', kind: 'data' },
+    ],
+  }
+  const catalog = [
+    { kind: 'material', name: '物料档案', workflow_version: 1, palette_visible: false, inputs: [], outputs: [{ id: 'material', types: ['material.ref'] }] },
+    { kind: 'material', name: '物料', category: '数据类型', workflow_version: 2, palette_visible: true, inputs: [], outputs: [{ id: 'material', types: ['material.ref'] }] },
+    { kind: 'bom', name: 'BOM组装', category: '动作', workflow_version: 2, palette_visible: true, inputs: [{ id: 'components', types: ['material.ref'] }], outputs: [{ id: 'assembly', types: ['bom.output'] }] },
+  ]
+  const canvas = toCanvasGraph(workflow, catalog)
+  assert.equal(canvas.nodes.find((node) => node.id === 'raw').data.module.name, '物料')
+  assert.deepEqual(canvas.nodes.find((node) => node.id === 'raw').data.module.inputs, [])
+  assert.equal(canvas.nodes.find((node) => node.id === 'semi').data.module.inputs[0].id, 'from_bom')
+  const saved = toWorkflowGraph(canvas.nodes, canvas.edges, 2)
+  assert.equal(saved.version, 2)
+  assert.equal(saved.edges[1].source_handle, 'assembly')
+})
+
+test('new template catalog hides advanced and pricing nodes while preserving legacy module rendering', () => {
+  const catalog = [
+    ...modules.map((module) => ({ ...module, workflow_version: 1, palette_visible: false })),
+    { kind: 'material', name: '物料', category: '数据类型', workflow_version: 2, palette_visible: true, inputs: [], outputs: [{ id: 'material', types: ['material.ref'] }] },
+    { kind: 'product', name: '商品', category: '数据类型', workflow_version: 2, palette_visible: true, inputs: [], outputs: [{ id: 'product', types: ['product.ref'] }] },
+    { kind: 'bom', name: 'BOM组装', category: '动作', workflow_version: 2, palette_visible: true, inputs: [], outputs: [{ id: 'assembly', types: ['bom.output'] }] },
+    { kind: 'purchase', name: '物料购入', category: '动作', workflow_version: 2, palette_visible: true, inputs: [], outputs: [{ id: 'purchase', types: ['purchase.order'] }] },
+    { kind: 'process', name: '工艺', category: '数据类型', workflow_version: 2, palette_visible: true, inputs: [], outputs: [{ id: 'route', types: ['process.route'] }] },
+  ]
+  const visible = catalog.filter((module) => module.palette_visible)
+  assert.deepEqual(visible.map(({ kind }) => kind).sort(), ['bom', 'material', 'process', 'product', 'purchase'])
+  const legacy = toCanvasGraph({ nodes: [{ id: 'old-pricing', kind: 'pricing' }], edges: [] }, catalog)
+  assert.equal(legacy.nodes[0].data.module.workflow_version, 1)
 })

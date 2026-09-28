@@ -54,6 +54,8 @@ type apiFakeRepo struct {
 	reappliedProductionDraftCommand          bomapp.ReapplyProductionBomSpecTemplateVersionCommand
 	productionBomUsageProductID              int64
 	productionBomUsageRows                   []bomapp.ProductionBomUsedByBom
+	productionBomPublishedSpecsProductID     int64
+	productionBomPublishedSpecs              []bomapp.ProductionBomPublishedSpec
 	productBomBinding                        bomapp.ProductProductionBomBinding
 	boundProductBom                          bomapp.BindProductProductionBomCommand
 	publishedProductionVersionID             int64
@@ -181,6 +183,11 @@ func (r *apiFakeRepo) GetProductionBomDetail(context.Context, int64, int64) (bom
 func (r *apiFakeRepo) ListProductionBomUsageByProduct(_ context.Context, productID int64) ([]bomapp.ProductionBomUsedByBom, error) {
 	r.productionBomUsageProductID = productID
 	return r.productionBomUsageRows, nil
+}
+
+func (r *apiFakeRepo) ListProductionBomPublishedSpecs(_ context.Context, productID int64) ([]bomapp.ProductionBomPublishedSpec, error) {
+	r.productionBomPublishedSpecsProductID = productID
+	return r.productionBomPublishedSpecs, nil
 }
 
 func (r *apiFakeRepo) CreateProductionBom(_ context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {

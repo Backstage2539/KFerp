@@ -1348,3 +1348,15 @@
 - [x] 「商品 → 商品创建器」菜单入口、空列表页、设计器入口和「创建器手册」导航在 development 可见。
 
 技术测试、development 部署及基础画布交互已完成的范围见 `orderapp-remote/docs/acceptance/2026-09-27-product-creator-workflow.md`。其余画布/运行表单浏览器交互和未覆盖异常场景仍须在 development 验证；Van 的业务验收单独待进行。
+
+### PR-673 商品创建器 BOM 中心模板
+- [ ] 新版模块库只显示物料、商品、工艺和 BOM组装、物料购入；执行条件和价格配置隐藏。服务端拒绝新版条件/不兼容节点；历史旧版本运行行为保持不变。
+- [x] 图验证覆盖配方入口、工艺、BOM 与产出物料/商品，多级关系和唯一产出；物料/商品输入与产出角色不同，循环和错误类型连接被拒绝。证据：`orderapp-remote/internal/application/productcreator/graph_test.go`。
+- [x] BOM 配置默认值按字段可修改/固定；服务端套用固定数量、单位、路线、损耗和配方默认行，并保留运行时来源行身份。证据：`graph_test.go`、`business_executor.go`。
+- [x] 物料搜索接口支持服务端分页，并按名称、编码和物料规格字段筛选；新增商品 BOM 规格 API 返回每个 BOM 当前发布版本及稳定规格身份。证据：materials/BOM API tests。
+- [x] 隔离 PostgreSQL 集成：三种物料、两条有效工艺、两级 BOM、商品双规格及默认规格；提交后发布两个 BOM，仅新建产出对象默认绑定；中途失败整体回滚。使用一次性本地数据库 `pc_test_creator_673`，三条集成用例通过；证据：`orderapp-remote/internal/appmain/product_creator_configuration_integration_test.go`。
+- [x] 全量 Go 测试通过；Vue/Vite 全量 1,266 项测试通过；Vue/Vite 生产构建通过。
+- [ ] 浏览器设计验收：可拖放五类模块、按生产关系连线、设默认/可改字段、保存发布；新品模板不出现条件和价格模块；模板管理显示发布版本。
+- [ ] 浏览器运行验收：自动生成半成品名和商品表单；配方模糊搜索分页/行内新建；按商品规格分配配方与消耗单位；草稿恢复、预览零写入、提交成功及失败定位。
+- [ ] 已有商品引用后新建 BOM 不覆盖其默认绑定；物料购入只建立采购单，只有明确确认收货才生成批次和更新实际成本。
+- [ ] 手册、根目录需求/验收、development 线上需求表及 PR/DEV 表状态同步；PR 保持 review，等待 Van 业务验收，生产未发布。

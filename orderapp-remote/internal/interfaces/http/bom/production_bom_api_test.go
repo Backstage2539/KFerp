@@ -198,6 +198,38 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	}
 }
 
+func TestProductionBomPublishedProductSpecsAPI(t *testing.T) {
+	repo := &apiFakeRepo{
+		productionBomPublishedSpecs: []bomapp.ProductionBomPublishedSpec{{
+			BomID: 9, VersionID: 11, BomSpecID: 15, BomVariantID: 21,
+			SpecKey: "bag-250g", Name: "250g袋装", InventoryUnit: "袋", IsDefault: true,
+		}},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/production-bom-product-specs/42", nil)
+	response := httptest.NewRecorder()
+	e.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if repo.productionBomPublishedSpecsProductID != 42 {
+		t.Fatalf("product_id = %d, want 42", repo.productionBomPublishedSpecsProductID)
+	}
+	for _, expected := range []string{`"bom_spec_id":15`, `"spec_key":"bag-250g"`, `"is_default":true`} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("response %q does not include %q", response.Body.String(), expected)
+		}
+	}
+
+	invalid := httptest.NewRecorder()
+	e.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/api/production-bom-product-specs/0", nil))
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid product status = %d, want 400", invalid.Code)
+	}
+}
+
 func TestProductionBomAPIReappliesPublishedSpecTemplateToDraftAtomically(t *testing.T) {
 	repo := &apiFakeRepo{
 		updatedProductionDraft: bomapp.ProductionBomVersion{

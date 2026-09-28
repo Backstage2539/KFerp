@@ -10,7 +10,7 @@
 - Manuals: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`.
 - Deployment: development `fff9e9534cf2ff2526255b168dbfb67c4463fd43` (PR #146/#147); orderapp running, PostgreSQL healthy, login HTTP 200; production not authorized.
 - Evidence: `orderapp-remote/docs/acceptance/2026-09-27-product-creator-workflow.md`; Van still needs the three business-template acceptance paths and remaining browser/recovery checks.
-- Last update: 2026-09-28.
+- Last update: 2026-09-29.
 
 ### PR-671-PRICE-TABLE-COPY-TIER-CHOICE
 - Branch: `codex/price-table-copy-tier-choice-20260924`; PR #141; feature commit `e6bec3ba`; merged to `develop` as `b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`. Deployment status PR #142; post-deployment evidence updates PR #143/#144.
@@ -77,6 +77,17 @@ Purpose: short-lived coordination for Codex workflows. Keep active requirement i
 This is not long-term memory. Move durable product/deployment decisions to `MEMORY.md` or source docs, then remove stale entries from this file.
 
 ## Active
+
+### PR-673-PRODUCT-CREATOR-BOM-TEMPLATE
+- Branch: `codex/product-creator-bom-template-20260928`; base `origin/develop@26150f1b`.
+- Owner/session: Codex / Van / 2026-09-29.
+- Status: implementation and automated verification in progress; development delivery authorized; Van acceptance pending.
+- Scope: simplify module catalog to material/product/process data and BOM assembly/purchase actions; support BOM-centric generated outputs and configurable defaults while keeping material single-spec and product BOM multi-spec; hide conditions/pricing in new templates and preserve legacy runs.
+- DEV: DEV-703-PC-GRAPH-CONTRACT; DEV-704-PC-BOM-EXECUTION; DEV-705-PC-RUN-UI; DEV-706-PC-DOCS-DELIVERY.
+- Verifier: targeted Go application/repository/API and PostgreSQL transaction tests; Vue graph/API/form tests and build; development browser creation of a two-BOM, two-route product workflow.
+- Manuals: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`.
+- Deployment: authorized to merge to `develop` and deploy development; production not authorized.
+- Last update: 2026-09-29.
 
 ### PR-662-BEAN-LIST-PERFORMANCE
 - Branch: `codex/bean-list-performance-20260914`; base `origin/develop@6ad5b11a`.

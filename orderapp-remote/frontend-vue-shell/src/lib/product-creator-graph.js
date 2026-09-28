@@ -20,10 +20,10 @@ export function appendGraphSnapshot(history, currentIndex, snapshot, limit = 60)
 }
 
 export function toCanvasGraph(workflow = { nodes: [], edges: [] }, modules = []) {
-  const moduleByKind = new Map(modules.map((module) => [module.kind, module]))
+  const version = Number(workflow.version || 1)
   return {
     nodes: (workflow.nodes || []).flatMap((node) => {
-      const module = moduleByKind.get(node.kind)
+      const module = moduleForNode(node, modules, version)
       if (!module) return []
       return [{
         id: node.id,
@@ -47,8 +47,22 @@ export function toCanvasGraph(workflow = { nodes: [], edges: [] }, modules = [])
   }
 }
 
-export function toWorkflowGraph(nodes = [], edges = []) {
+export function moduleForNode(node, modules = [], version = 1) {
+  const choices = modules.filter((module) => module.kind === node.kind)
+  const base = choices.find((module) => Number(module.workflow_version || 1) === Number(version)) || choices[0]
+  if (!base) return null
+  const module = { ...base }
+  if (version >= 2 && ['material', 'product'].includes(node.kind)) {
+    module.inputs = node.config?.data_role === 'output'
+      ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }]
+      : []
+  }
+  return module
+}
+
+export function toWorkflowGraph(nodes = [], edges = [], version = 1) {
   return {
+    ...(version >= 2 ? { version } : {}),
     nodes: nodes.map((node) => ({
       id: node.id,
       kind: node.data.module.kind,
@@ -56,7 +70,7 @@ export function toWorkflowGraph(nodes = [], edges = []) {
       x: Math.round(node.position.x),
       y: Math.round(node.position.y),
       config: cloneValue(node.data.config || {}),
-      ...(node.data.condition ? { condition: cloneValue(node.data.condition) } : {}),
+      ...(version < 2 && node.data.condition ? { condition: cloneValue(node.data.condition) } : {}),
     })),
     edges: edges.map((edge) => ({
       id: edge.id,

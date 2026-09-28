@@ -58,6 +58,113 @@
             <span class="pc-run-step-state" :class="stepStatusClass(node.id)">{{ stepStatusLabel(node.id) }}</span>
           </header>
           <div class="pc-run-step-body">
+            <div v-if="workflowVersion >= 2" class="pc-bom-run-fields">
+              <template v-if="node.data.module.kind === 'material' && node.data.config.data_role !== 'output'">
+                <div class="pc-repeater-caption">配方物料 <small>搜索已有物料，或直接在当前行新建</small></div>
+                <div v-for="row in ensureMaterialRows(node.id)" :key="row.row_id" class="pc-material-row">
+                  <label class="pc-row-field"><span>处理方式</span><select v-model="row.action" @change="handleMaterialAction(node.id, row)"><option value="reuse">引用已有</option><option value="create">新建物料</option></select></label>
+                  <template v-if="row.action === 'reuse'">
+                    <label class="pc-row-field pc-row-wide"><span>搜索物料名称、编码或规格 *</span><input :value="materialSearchText[materialSearchKey(node.id, row.row_id)] || selectedMaterialLabel(row)" placeholder="输入关键词，例如：云南水洗豆" @input="searchMaterialForRow(node.id, row, $event.target.value)" /></label>
+                    <div v-if="materialSearchResults[materialSearchKey(node.id, row.row_id)]?.length" class="pc-material-search-results pc-row-wide">
+                      <button v-for="option in materialSearchResults[materialSearchKey(node.id, row.row_id)]" :key="option.id" type="button" @click="selectMaterialForRow(node.id, row, option)"><strong>{{ option.name }}</strong><span>{{ option.code || '无编码' }} · {{ option.unit || '无单位' }} · {{ option.owner_label }}</span></button>
+                      <button v-if="materialSearchHasMore[materialSearchKey(node.id, row.row_id)]" class="pc-material-search-more" type="button" @click="searchMoreMaterials(node.id, row)">查看更多</button>
+                    </div>
+                    <small v-if="row.material_id" class="pc-run-help pc-row-wide">已选择：{{ selectedMaterialLabel(row) }} · 库存单位 {{ row.unit }}</small>
+                  </template>
+                  <template v-else>
+                    <label class="pc-row-field"><span>物料名称 *</span><input v-model.trim="row.name" placeholder="例如：云南水洗豆" /></label>
+                    <label class="pc-row-field"><span>物料类别</span><select v-model="row.kind"><option value="bean">原料</option><option value="pack">包材</option><option value="other">其他</option></select></label>
+                    <label class="pc-row-field"><span>取得方式</span><select v-model="row.supply_mode"><option value="purchase">外购</option><option value="manufacture">自制</option></select></label>
+                    <label class="pc-row-field"><span>库存单位 *</span><select v-model="row.unit"><option value="">选择单位</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
+                    <label class="pc-row-field"><span>归属</span><select v-model="row.owner_type"><option value="factory">本公司</option><option value="customer">客户</option></select></label>
+                    <label v-if="row.owner_type === 'customer'" class="pc-row-field pc-row-wide"><span>归属客户 *</span><select v-model.number="row.owner_customer_id"><option :value="0">选择客户</option><option v-for="option in customerOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
+                  </template>
+                  <button class="pc-run-icon-button" type="button" aria-label="删除物料行" @click="removeMaterialRow(node.id, row.row_id)"><IconTrash :size="17" /></button>
+                </div>
+                <button class="pc-run-add" type="button" @click="addRepeaterRow(node.id, 'rows')"><IconPlus :size="16" /> 添加配方物料</button>
+              </template>
+
+              <template v-else-if="node.data.module.kind === 'material' && node.data.config.data_role === 'output'">
+                <label class="pc-run-field-inline"><span>产出物料处理</span><select v-model="valuesFor(node.id).action" :disabled="isNodeFieldFixed(node, 'action')"><option value="create">自动新建物料</option><option value="reuse">使用时选择已有物料</option></select></label>
+                <template v-if="valuesFor(node.id).action === 'reuse'">
+                  <label class="pc-run-field-inline"><span>搜索已有物料 *</span><input :value="materialSearchText[materialSearchKey(node.id, 'output')] || selectedMaterialLabel(valuesFor(node.id))" placeholder="输入物料名称或编码" @input="searchMaterialForOutput(node, $event.target.value)" /></label>
+                  <div v-if="materialSearchResults[materialSearchKey(node.id, 'output')]?.length" class="pc-material-search-results">
+                    <button v-for="option in materialSearchResults[materialSearchKey(node.id, 'output')]" :key="option.id" type="button" @click="selectMaterialOutput(node, option)"><strong>{{ option.name }}</strong><span>{{ option.code || '无编码' }} · {{ option.unit }} · {{ option.owner_label }}</span></button>
+                  </div>
+                </template>
+                <label v-else class="pc-run-field-inline"><span>产出名称 *</span><input v-model.trim="valuesFor(node.id).name" :placeholder="generatedOutputName(node) || '输入半成品名称'" :disabled="isNodeFieldFixed(node, 'name')" /></label>
+                <div class="pc-run-field-inline"><span>库存单位</span><strong>{{ outputMaterialUnit(node) || '请在 BOM 默认配置中选择产出单位' }}</strong></div>
+                <div class="pc-run-field-pair">
+                  <label><span>物料类别</span><select v-model="valuesFor(node.id).kind" :disabled="isNodeFieldFixed(node, 'kind')"><option value="other">通用物料（含半成品）</option><option value="pack">包装物料</option><option value="bean">原料</option></select></label>
+                  <label><span>取得方式</span><select v-model="valuesFor(node.id).supply_mode" :disabled="isNodeFieldFixed(node, 'supply_mode')"><option value="manufacture">自制</option><option value="purchase">外购</option></select></label>
+                </div>
+                <small class="pc-run-help">该物料由上游 BOM 生成；物料档案保持一个库存规格。</small>
+              </template>
+
+              <template v-else-if="node.data.module.kind === 'product' && node.data.config.data_role === 'output'">
+                <label class="pc-run-field-inline"><span>产出商品处理</span><select v-model="valuesFor(node.id).action" :disabled="isNodeFieldFixed(node, 'action')"><option value="create">自动新建商品</option><option value="reuse">使用时选择已有商品</option></select></label>
+                <label v-if="valuesFor(node.id).action === 'reuse'" class="pc-run-field-inline"><span>已有商品 *</span><select v-model.number="valuesFor(node.id).product_id" @change="setProductReferenceOwner(node.id)"><option :value="0">选择商品</option><option v-for="option in productOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
+                <label v-else class="pc-run-field-inline"><span>商品名称 *</span><input v-model.trim="valuesFor(node.id).name" placeholder="输入成品名称" :disabled="isNodeFieldFixed(node, 'name')" /></label>
+                <div v-if="valuesFor(node.id).action !== 'reuse'" class="pc-run-field-pair">
+                  <label><span>商品类型</span><select v-model="valuesFor(node.id).product_kind" :disabled="isNodeFieldFixed(node, 'product_kind')"><option value="generic">通用商品／装配件</option><option value="roasted">熟豆</option><option value="green_bean">生豆</option><option value="drip_bag">挂耳</option><option value="instant_coffee">速溶咖啡</option></select></label>
+                  <label><span>归属</span><select v-model="valuesFor(node.id).owner" :disabled="isNodeFieldFixed(node, 'owner')"><option value="factory">本公司</option><option value="customer">客户</option></select></label>
+                  <label v-if="valuesFor(node.id).owner === 'customer'"><span>归属客户 *</span><select v-model.number="valuesFor(node.id).customer_id" :disabled="isNodeFieldFixed(node, 'customer_id')"><option :value="0">选择客户</option><option v-for="option in customerOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
+                </div>
+                <small class="pc-run-help">商品规格在下方对应的 BOM 中维护；模板设定的默认规格会随 BOM 一起发布。</small>
+              </template>
+
+              <template v-else-if="node.data.module.kind === 'product'">
+                <label class="pc-run-field-inline"><span>选择已有商品 *</span><select v-model.number="valuesFor(node.id).product_id" @change="loadProductSpecs(node.id)"><option :value="0">搜索或选择商品</option><option v-for="option in productOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
+                <label class="pc-run-field-inline"><span>商品规格 *</span><select v-model.number="valuesFor(node.id).bom_spec_id" @change="syncProductInputComponents(node.id)"><option :value="0">选择商品的已发布规格</option><option v-for="option in productSpecOptions[node.id] || []" :key="option.bom_spec_id" :value="option.bom_spec_id">{{ option.label }}</option></select></label>
+                <small class="pc-run-help">商品作为 BOM 组件时，必须引用具体的已发布规格。</small>
+              </template>
+
+              <template v-else-if="node.data.module.kind === 'process'">
+                <label class="pc-run-field-inline"><span>采用工艺路线</span><select v-model.number="valuesFor(node.id).route_id" :disabled="isNodeFieldFixed(node, 'route_id')"><option :value="0">选择有效工艺路线</option><option v-for="route in routeOptions" :key="route.id" :value="route.id">{{ route.label }}</option></select></label>
+              </template>
+
+              <template v-else-if="node.data.module.kind === 'bom'">
+                <div class="pc-bom-run-defaults">
+                  <label><span>产出基准数量</span><input v-model.number="valuesFor(node.id).output_qty" type="number" min="0.001" step="0.001" :disabled="isNodeFieldFixed(node, 'output_qty')" /></label>
+                  <label><span>产出单位</span><select :value="valuesFor(node.id).output_unit" :disabled="isNodeFieldFixed(node, 'output_unit')" @change="setBOMOutputUnit(node.id, $event.target.value)"><option value="">采用物料／默认规格单位</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
+                  <label><span>工艺路线</span><select v-model.number="valuesFor(node.id).route_id" :disabled="isNodeFieldFixed(node, 'route_id') || hasConnectedRoute(node.id)"><option :value="0">采用模板连线工艺</option><option v-for="route in routeOptions" :key="route.id" :value="route.id">{{ route.label }}</option></select></label>
+                  <label><span>比例配方损耗 %</span><input :value="Number(valuesFor(node.id).material_loss_rate || 0) * 100" type="number" min="0" max="99.99" step="0.01" :disabled="isNodeFieldFixed(node, 'material_loss_rate')" @input="setBOMLossPercent(node.id, $event.target.value)" /></label>
+                </div>
+                <div v-if="node.data.config.output_type === 'product'" class="pc-bom-variant-list">
+                  <div class="pc-repeater-caption">商品规格 <small>各规格分别维护用量，可共用同一配方行</small></div>
+                  <div v-for="variant in ensureVariants(node)" :key="variant.row_id" class="pc-bom-variant-row">
+                    <input v-model.trim="variant.name" placeholder="规格名称，例如：200g" :disabled="isNodeFieldFixed(node, 'variants')" />
+                    <select v-model="variant.unit" :disabled="isNodeFieldFixed(node, 'variants')"><option value="">选择单位</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select>
+                    <label class="pc-default-variant"><input v-model="variant.is_default" type="radio" :name="`default-${node.id}`" :value="true" :disabled="isNodeFieldFixed(node, 'variants')" @change="setDefaultVariant(node.id, variant.row_id)" /> 默认</label>
+                    <button class="pc-run-icon-button" type="button" aria-label="删除规格" :disabled="isNodeFieldFixed(node, 'variants')" @click="removeRow(node.id, 'variants', variant.row_id)"><IconTrash :size="16" /></button>
+                  </div>
+                  <button class="pc-run-add" type="button" :disabled="isNodeFieldFixed(node, 'variants')" @click="addRepeaterRow(node.id, 'variants')"><IconPlus :size="15" /> 添加商品规格</button>
+                </div>
+                <div class="pc-bom-components">
+                  <div class="pc-repeater-caption">BOM 配方 <small>只需选择物料及规格，再填写用量和消耗单位</small></div>
+                  <div v-for="component in ensureComponents(node)" :key="component.row_id" class="pc-component-row">
+                    <div class="pc-component-source"><IconLink :size="15" /><span>{{ sourceNodeName(component.source_node_id) }} · {{ sourceRowLabel(component.source_node_id, component.source_row_id, node.id) }}</span></div>
+                    <label><span>配方对象 *</span><select v-model="component.source_row_id"><option value="">选择连接对象</option><option v-for="option in sourceRows(component.source_node_id, node.id)" :key="option.row_id" :value="option.row_id">{{ option.label }}</option></select></label>
+                    <label><span>用量／比例 *</span><input v-model.number="component.quantity" type="number" min="0.001" step="0.001" placeholder="填写本规格用量" :disabled="isNodeFieldFixed(node, 'components')" /></label>
+                    <label><span>消耗单位 *</span><select v-model="component.unit" :disabled="isNodeFieldFixed(node, 'components')"><option value="">选择单位</option><option value="ratio_pct">比例 %</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
+                    <label v-if="node.data.config.output_type === 'product' && ensureVariants(node).length > 1"><span>适用产出规格</span><select v-model="component.variant_row_id" :disabled="isNodeFieldFixed(node, 'components')"><option value="">全部规格</option><option v-for="variant in ensureVariants(node)" :key="variant.row_id" :value="variant.row_id">{{ variant.name }}</option></select></label>
+                    <button class="pc-run-icon-button" type="button" aria-label="删除配方行" :disabled="isNodeFieldFixed(node, 'components')" @click="removeRow(node.id, 'components', component.row_id)"><IconTrash :size="16" /></button>
+                  </div>
+                  <button class="pc-run-add" type="button" :disabled="isNodeFieldFixed(node, 'components')" @click="addComponentFromEdge(node)"><IconPlus :size="15" /> 添加已连接物料行</button>
+                </div>
+              </template>
+
+              <template v-else-if="node.data.module.kind === 'purchase'">
+                <div class="pc-run-field-pair">
+                  <label><span>采购物料 *</span><select v-model="valuesFor(node.id).material_source_row_id"><option value="">选择连接的物料</option><option v-for="option in purchaseMaterialRows(node.id)" :key="option.row_id" :value="option.row_id">{{ option.label }}</option></select></label>
+                  <label><span>供应商 *</span><select v-model.number="valuesFor(node.id).supplier_id"><option :value="0">选择供应商</option><option v-for="option in supplierOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
+                  <label><span>预计数量 *</span><input v-model.number="valuesFor(node.id).quantity" type="number" min="0.001" step="0.001" /></label>
+                  <label><span>目标仓库 *</span><select v-model="valuesFor(node.id).warehouse"><option value="">选择仓库</option><option v-for="option in warehouseOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
+                  <label><span>采购单价 *</span><input v-model.number="valuesFor(node.id).unit_price" type="number" min="0" step="0.01" /></label>
+                </div>
+              </template>
+            </div>
+            <template v-else>
             <div v-for="field in visibleFields(node)" :key="field.key" class="pc-run-field" :class="{ wide: field.type === 'record' || field.type === 'repeater' }">
               <label :for="`run-${node.id}-${field.key}`">{{ field.label }}<b v-if="field.required">*</b></label>
               <template v-if="field.type === 'repeater'">
@@ -166,6 +273,7 @@
                 <select v-model.number="valuesFor(node.id).product_id" @change="setProductReferenceOwner(node.id)"><option :value="0">选择商品名称</option><option v-for="option in productOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select>
               </div>
             </div>
+            </template>
           </div>
           <div v-if="dependencySummary(node).length" class="pc-run-dependencies"><IconLink :size="14" /> 数据来源：{{ dependencySummary(node).join('、') }}</div>
         </section>
@@ -239,6 +347,7 @@ const productOptions = ref([])
 const customerOptions = ref([])
 const supplierOptions = ref([])
 const routeOptions = ref([])
+const unitOptions = ref([])
 const warehouseOptions = ref([])
 const priceListOptions = ref([])
 const pricingRuleOptions = ref([])
@@ -248,6 +357,15 @@ let activeRunID = 0
 let priceTargetLoadRevision = 0
 const bomOptions = ref([])
 const templateName = ref('商品创建模板')
+const materialSearchText = ref({})
+const materialSearchResults = ref({})
+const materialSearchOffsets = ref({})
+const materialSearchHasMore = ref({})
+const materialSearchLoading = ref({})
+const productSpecOptions = ref({})
+const materialSearchTimers = new Map()
+const materialSearchRevisions = new Map()
+const workflowVersion = computed(() => Number(props.run.workflow?.version || 1))
 
 const graph = computed(() => toCanvasGraph(props.run.workflow || { nodes: [], edges: [] }, props.modules))
 const progressNodes = computed(() => graph.value.nodes.map((node) => ({
@@ -307,13 +425,15 @@ watch(() => props.run, (run) => {
   const saved = cloneValue(run.inputs || {})
   inputValues.value = saved
   for (const node of run.workflow?.nodes || []) {
-    if (!Object.prototype.hasOwnProperty.call(inputValues.value, node.id)) inputValues.value[node.id] = makeInitialValues(node)
+    const initial = makeInitialValues(node)
+    inputValues.value[node.id] = { ...initial, ...(inputValues.value[node.id] || {}) }
+    if (workflowVersion.value >= 2) applyNodeDefaults(node, inputValues.value[node.id])
   }
   for (const node of run.workflow?.nodes || []) {
     const values = inputValues.value[node.id]
     if (node.kind === 'bom') {
-      if (!Object.prototype.hasOwnProperty.call(values, 'output_source_row_id')) values.output_source_row_id = initialOutputSourceRow(node.id)
-      if (!Array.isArray(values.components)) values.components = initialComponentRows(node.id)
+      if (workflowVersion.value < 2 && !Object.prototype.hasOwnProperty.call(values, 'output_source_row_id')) values.output_source_row_id = initialOutputSourceRow(node.id)
+      if (!Array.isArray(values.components) || (workflowVersion.value >= 2 && values.components.length === 0)) values.components = initialComponentRows(node.id)
     }
     if (node.kind === 'purchase' && !Object.prototype.hasOwnProperty.call(values, 'material_source_row_id')) values.material_source_row_id = purchaseMaterialRows(node.id)[0]?.row_id || ''
     if (node.kind === 'pricing' && !Array.isArray(values.prices)) values.prices = initialPricingRows(node.id)
@@ -328,6 +448,9 @@ watch(() => props.run, (run) => {
 onMounted(async () => {
   await loadOptions()
   for (const node of graph.value.nodes) {
+    if (workflowVersion.value >= 2 && node.data.module.kind === 'product' && node.data.config.data_role !== 'output' && Number(valuesFor(node.id).product_id || 0) > 0) {
+      await loadProductSpecs(node.id)
+    }
     if (node.data.module.kind === 'bom' && valuesFor(node.id).action === 'reuse' && Number(valuesFor(node.id).bom_id) > 0) {
       await loadExistingBomVariants(node.id)
     }
@@ -343,6 +466,30 @@ onMounted(async () => {
 })
 
 function makeInitialValues(node) {
+  if (workflowVersion.value >= 2) {
+    if (node.kind === 'material' && node.config?.data_role !== 'output') {
+      return { rows: [{ row_id: makeNodeId(), name: '', action: 'reuse', kind: 'other', supply_mode: 'purchase', unit: '', owner_type: 'factory', owner_customer_id: 0 }] }
+    }
+    if (node.kind === 'material') {
+      return { action: node.config?.object_action || 'create', material_id: 0, name: '', unit: node.config?.unit || outputBOMUnitForDataNode(node.id), kind: node.config?.kind || 'other', supply_mode: node.config?.supply_mode || 'manufacture', owner_type: node.config?.owner || 'factory', owner_customer_id: 0 }
+    }
+    if (node.kind === 'product' && node.config?.data_role === 'output') {
+      return { action: node.config?.object_action || 'create', product_id: 0, name: '', product_kind: node.config?.product_kind || 'generic', owner: node.config?.owner || 'factory', customer_id: 0, industry_fields: '' }
+    }
+    if (node.kind === 'product') return { product_id: 0, bom_spec_id: 0 }
+    if (node.kind === 'bom') {
+      return {
+        output_qty: node.config?.output_qty ?? 1,
+        output_unit: node.config?.output_unit || '',
+        route_id: Number(node.config?.route_id || 0),
+        material_loss_rate: Number(node.config?.material_loss_rate || 0),
+        variants: (node.config?.variants || []).map((row) => ({ ...row, row_id: row.row_id || makeNodeId() })),
+        components: [],
+      }
+    }
+    if (node.kind === 'process') return { route_id: Number(node.config?.route_id || 0) }
+    if (node.kind === 'purchase') return { material_source_row_id: '', supplier_id: 0, quantity: '', warehouse: '', unit_price: '' }
+  }
   const values = {}
   const defaults = {
     product: { action: 'create', product_kind: 'generic', owner: 'factory', customer_id: 0, industry_fields: '' },
@@ -359,6 +506,20 @@ function makeInitialValues(node) {
     pricing: { price_list_id: 0, prices: [] },
   }
   return { ...(defaults[node.kind] || {}) }
+}
+
+function applyNodeDefaults(node, values) {
+  const defaults = { ...(node.config?.defaults || {}) }
+  for (const key of ['action', 'object_action', 'product_kind', 'owner', 'customer_id', 'kind', 'supply_mode', 'unit', 'name', 'name_pattern', 'output_type', 'output_qty', 'output_unit', 'route_id', 'material_loss_rate', 'rows', 'variants', 'components']) {
+    if (Object.prototype.hasOwnProperty.call(node.config || {}, key)) defaults[key] = node.config[key]
+  }
+  if (defaults.object_action && !defaults.action) defaults.action = defaults.object_action
+  const fixed = new Set(node.config?.fixed_fields || [])
+  for (const [key, value] of Object.entries(defaults)) {
+    const current = values[key]
+    const blank = current === undefined || current === null || current === '' || current === 0 || (Array.isArray(current) && current.length === 0)
+    if (fixed.has(key) || blank) values[key] = cloneValue(value)
+  }
 }
 
 function valuesFor(nodeID) {
@@ -442,7 +603,7 @@ function refreshComponentRowsForSource(sourceNodeID) {
     const existing = Array.isArray(targetValues.components) ? targetValues.components : []
     const sourceOptions = sourceRows(sourceNodeID, edge.target)
     const replacements = sourceOptions.map((source) => existing.find((row) => row.source_node_id === sourceNodeID && row.source_row_id === source.row_id)
-      || { row_id: makeNodeId(), source_node_id: sourceNodeID, source_row_id: source.row_id, quantity: '', unit: source.unit || '', loss_rate: 0, variant_row_id: '' })
+      || makeComponentRow(edge.target, sourceNodeID, source.row_id, source))
     targetValues.components = [...existing.filter((row) => row.source_node_id !== sourceNodeID), ...replacements]
   }
 }
@@ -467,8 +628,12 @@ function ensureComponents(node) {
 
 function addRepeaterRow(nodeID, field) {
   const rows = valuesFor(nodeID)[field] || (valuesFor(nodeID)[field] = [])
-  if (field === 'rows') rows.push({ row_id: makeNodeId(), name: '', action: 'create', kind: 'other', supply_mode: 'purchase', unit: '', owner_type: 'factory', owner_customer_id: 0 })
-  else rows.push({ row_id: makeNodeId(), name: '', unit: '', is_default: false })
+  if (field === 'rows') {
+    rows.push({ row_id: makeNodeId(), name: '', action: workflowVersion.value >= 2 ? 'reuse' : 'create', kind: 'other', supply_mode: 'purchase', unit: '', owner_type: 'factory', owner_customer_id: 0 })
+    if (workflowVersion.value >= 2) refreshComponentRowsForSource(nodeID)
+  } else if (field === 'variants') {
+    rows.push({ row_id: makeNodeId(), name: '', unit: '', is_default: false })
+  }
 }
 
 function addComponentFromEdge(node) {
@@ -478,7 +643,7 @@ function addComponentFromEdge(node) {
     const sourceRowsForEdge = sourceRows(edge.source, node.id)
     for (const source of sourceRowsForEdge) {
       if (values.some((row) => row.source_node_id === edge.source && row.source_row_id === source.row_id)) continue
-      values.push({ row_id: makeNodeId(), source_node_id: edge.source, source_row_id: source.row_id, quantity: '', unit: source.unit || '', loss_rate: 0, variant_row_id: '' })
+      values.push(makeComponentRow(node.id, edge.source, source.row_id, source))
     }
   }
   if (!connected.length && !values.length) values.push({ row_id: makeNodeId(), source_node_id: '', quantity: '', unit: '', loss_rate: 0, variant_row_id: '' })
@@ -488,6 +653,11 @@ function removeRow(nodeID, field, rowID) {
   const values = inputValues.value[nodeID]
   if (!values?.[field]) return
   values[field] = values[field].filter((row) => row.row_id !== rowID)
+}
+
+function removeMaterialRow(nodeID, rowID) {
+  removeRow(nodeID, 'rows', rowID)
+  refreshComponentRowsForSource(nodeID)
 }
 
 function setDefaultVariant(nodeID, rowID) {
@@ -504,6 +674,27 @@ function sourceRows(sourceNodeID, targetNodeID, targetHandle = 'components') {
   const sourceNode = graph.value.nodes.find((item) => item.id === sourceNodeID)
   if (!edge || !sourceNode) return []
   const values = valuesFor(sourceNodeID)
+  if (workflowVersion.value >= 2) {
+    if (sourceNode.data.module.kind === 'material') {
+      if (sourceNode.data.config.data_role === 'output') {
+        return [{ row_id: 'output', label: values.name || generatedOutputName(sourceNode) || sourceNode.data.label || '新物料', unit: values.unit || sourceNode.data.config.unit || '' }]
+      }
+      return ensureMaterialRows(sourceNodeID).map((row) => ({ row_id: row.row_id, label: row.name || selectedMaterialLabel(row) || '配方物料', unit: row.unit || '' }))
+    }
+    if (sourceNode.data.module.kind === 'product' && sourceNode.data.config.data_role === 'output') {
+      if (edge.sourceHandle === 'specs') {
+        const bomNodeID = graph.value.edges.find((item) => item.target === sourceNodeID && item.targetHandle === 'from_bom')?.source
+        return (valuesFor(bomNodeID || '').variants || []).map((variant) => ({ row_id: variant.row_id, label: `${variant.name || '商品规格'}${variant.unit ? ` · ${variant.unit}` : ''}`, unit: variant.unit || '' }))
+      }
+      return [{ row_id: 'output', label: values.name || sourceNode.data.label || '商品', unit: '' }]
+    }
+    if (sourceNode.data.module.kind === 'product' && edge.sourceHandle === 'specs') {
+      const selectedID = Number(values.bom_spec_id || 0)
+      return (productSpecOptions.value[sourceNodeID] || [])
+        .filter((spec) => selectedID <= 0 || spec.bom_spec_id === selectedID)
+        .map((spec) => ({ row_id: spec.row_id, label: spec.label, unit: spec.unit }))
+    }
+  }
   if (sourceNode.data.module.kind === 'material') {
     return ensureMaterialRows(sourceNodeID).map((row) => ({ row_id: row.row_id, label: row.name || (row.action === 'reuse' ? materialOptions.value.find((item) => item.id === Number(row.material_id))?.label : '') || '新物料', unit: row.unit || (row.action === 'reuse' ? materialOptions.value.find((item) => item.id === Number(row.material_id))?.unit : '') || '' }))
   }
@@ -527,7 +718,23 @@ function sourceRows(sourceNodeID, targetNodeID, targetHandle = 'components') {
 
 function initialComponentRows(nodeID) {
   const edges = graph.value.edges.filter((edge) => edge.target === nodeID && edge.targetHandle === 'components')
-  return edges.flatMap((edge) => sourceRows(edge.source, nodeID).map((source) => ({ row_id: makeNodeId(), source_node_id: edge.source, source_row_id: source.row_id, quantity: '', unit: source.unit || '', loss_rate: 0, variant_row_id: '' })))
+  return edges.flatMap((edge) => sourceRows(edge.source, nodeID).map((source) => makeComponentRow(nodeID, edge.source, source.row_id, source)))
+}
+
+function makeComponentRow(targetNodeID, sourceNodeID, sourceRowID, source) {
+  const defaults = workflowVersion.value >= 2
+    ? (graph.value.nodes.find((node) => node.id === targetNodeID)?.data.config?.components || []).find((row) => row.source_node_id === sourceNodeID && (!row.source_row_id || row.source_row_id === sourceRowID))
+      || (graph.value.nodes.find((node) => node.id === targetNodeID)?.data.config?.components || []).find((row) => row.source_node_id === sourceNodeID)
+    : null
+  return {
+    row_id: makeNodeId(), source_node_id: sourceNodeID, source_row_id: sourceRowID,
+    quantity: defaults?.quantity ?? '', unit: defaults?.unit || source.unit || '',
+    loss_rate: defaults?.loss_rate || 0, variant_row_id: defaults?.variant_row_id || '',
+  }
+}
+
+function sourceRowLabel(sourceNodeID, sourceRowID, targetNodeID) {
+  return sourceRows(sourceNodeID, targetNodeID).find((row) => row.row_id === sourceRowID)?.label || '待选择物料'
 }
 
 function pricingSpecRows(nodeID) {
@@ -608,6 +815,204 @@ function setMaterialReferenceOwner(row) {
   if (!option) return
   row.owner_type = Number(option.owner_customer_id || 0) > 0 ? 'customer' : 'factory'
   row.owner_customer_id = Number(option.owner_customer_id || 0)
+}
+
+function materialSearchKey(nodeID, rowID) {
+  return `${nodeID}:${rowID}`
+}
+
+function selectedMaterialLabel(record) {
+  const materialID = Number(record?.material_id || 0)
+  if (materialID <= 0) return ''
+  const option = (materialSearchResults.value[Object.keys(materialSearchResults.value).find((key) => materialSearchResults.value[key]?.some((row) => Number(row.id) === materialID))] || [])
+    .find((row) => Number(row.id) === materialID)
+  const fallback = materialOptions.value.find((row) => Number(row.id) === materialID)
+  return record.material_name || option?.name || fallback?.name || fallback?.label || `物料 #${materialID}`
+}
+
+function normalizedMaterialOption(row) {
+  const ownerCustomerID = Number(row.owner_customer_id || 0)
+  return {
+    id: Number(row.id), name: row.name || '', code: row.code || '', unit: row.unit || row.inventory_unit || '',
+    owner_customer_id: ownerCustomerID, owner_type: row.owner_type || (ownerCustomerID > 0 ? 'customer' : 'factory'),
+    owner_name: row.owner_name || '', owner_label: row.owner_name || (ownerCustomerID > 0 ? `客户 ${ownerCustomerID}` : '本公司'),
+  }
+}
+
+function searchMaterialForRow(nodeID, row, query) {
+  queueMaterialSearch(nodeID, row.row_id, query)
+}
+
+function searchMaterialForOutput(node, query) {
+  queueMaterialSearch(node.id, 'output', query)
+}
+
+function queueMaterialSearch(nodeID, rowID, query) {
+  const key = materialSearchKey(nodeID, rowID)
+  materialSearchText.value[key] = query
+  const revision = (materialSearchRevisions.get(key) || 0) + 1
+  materialSearchRevisions.set(key, revision)
+  if (materialSearchTimers.has(key)) clearTimeout(materialSearchTimers.get(key))
+  if (String(query || '').trim().length < 2) {
+    materialSearchResults.value[key] = []
+    materialSearchHasMore.value[key] = false
+    materialSearchOffsets.value[key] = 0
+    materialSearchLoading.value[key] = false
+    return
+  }
+  materialSearchLoading.value[key] = true
+  materialSearchTimers.set(key, setTimeout(() => fetchMaterialSearch(nodeID, rowID, query, 0, false, revision), 240))
+}
+
+async function fetchMaterialSearch(nodeID, rowID, query, offset, append, revision) {
+  const key = materialSearchKey(nodeID, rowID)
+  try {
+    const params = new URLSearchParams({ q: String(query || '').trim(), active: 'active', limit: '50', offset: String(offset) })
+    const response = await apiGet(`/api/materials?${params.toString()}`)
+    if (materialSearchRevisions.get(key) !== revision || materialSearchText.value[key] !== query) return
+    const rows = (response.rows || []).map(normalizedMaterialOption)
+    materialSearchResults.value[key] = append ? [...(materialSearchResults.value[key] || []), ...rows] : rows
+    materialSearchOffsets.value[key] = offset
+    materialSearchHasMore.value[key] = rows.length === 50
+  } catch (error) {
+    optionError.value = error.message || '搜索物料失败'
+    materialSearchResults.value[key] = []
+  } finally {
+    if (materialSearchRevisions.get(key) === revision) materialSearchLoading.value[key] = false
+  }
+}
+
+function searchMoreMaterials(nodeID, row) {
+  const key = materialSearchKey(nodeID, row.row_id)
+  const query = materialSearchText.value[key]
+  if (!query || materialSearchLoading.value[key] || !materialSearchHasMore.value[key]) return
+  const offset = Number(materialSearchOffsets.value[key] || 0) + (materialSearchResults.value[key] || []).length
+  const revision = materialSearchRevisions.get(key) || 0
+  materialSearchLoading.value[key] = true
+  fetchMaterialSearch(nodeID, row.row_id, query, offset, true, revision)
+}
+
+function selectMaterialForRow(nodeID, row, rawOption) {
+  const option = normalizedMaterialOption(rawOption)
+  row.material_id = option.id
+  row.material_name = option.name
+  row.material_code = option.code
+  row.unit = option.unit
+  row.owner_type = option.owner_type
+  row.owner_customer_id = option.owner_customer_id
+  const key = materialSearchKey(nodeID, row.row_id)
+  materialSearchResults.value[key] = []
+  materialSearchText.value[key] = ''
+  refreshComponentRowsForSource(nodeID)
+}
+
+function selectMaterialOutput(node, rawOption) {
+  const option = normalizedMaterialOption(rawOption)
+  const values = valuesFor(node.id)
+  values.material_id = option.id
+  values.material_name = option.name
+  values.material_code = option.code
+  values.name = option.name
+  values.unit = option.unit
+  values.owner_type = option.owner_type
+  values.owner_customer_id = option.owner_customer_id
+  const key = materialSearchKey(node.id, 'output')
+  materialSearchResults.value[key] = []
+  materialSearchText.value[key] = ''
+}
+
+function handleMaterialAction(nodeID, row) {
+  if (row.action === 'create') {
+    row.material_id = 0
+    row.material_name = ''
+    row.material_code = ''
+    row.unit = ''
+  } else {
+    row.name = ''
+  }
+  const key = materialSearchKey(nodeID, row.row_id)
+  materialSearchResults.value[key] = []
+  materialSearchText.value[key] = ''
+  refreshComponentRowsForSource(nodeID)
+}
+
+function generatedOutputName(node) {
+  const config = node.data.config || {}
+  let pattern = String(config.name_pattern || config.defaults?.name_pattern || '')
+  if (!pattern) return ''
+  const productNode = graph.value.nodes.find((candidate) => candidate.data.module.kind === 'product' && candidate.data.config.data_role === 'output')
+  const productValues = productNode ? valuesFor(productNode.id) : {}
+  const productName = String(productValues.name || productNode?.data.config.name || productNode?.data.label || '')
+  for (const token of ['{{商品名称}}', '{{商品}}', '{商品名称}', '{商品}']) pattern = pattern.replaceAll(token, productName)
+  return pattern.trim()
+}
+
+async function loadProductSpecs(nodeID) {
+  const productID = Number(valuesFor(nodeID).product_id || 0)
+  if (productID <= 0) {
+    productSpecOptions.value[nodeID] = []
+    valuesFor(nodeID).bom_spec_id = 0
+    syncProductInputComponents(nodeID)
+    return
+  }
+  try {
+    const response = await apiGet(`/api/production-bom-product-specs/${productID}`)
+    if (Number(valuesFor(nodeID).product_id || 0) !== productID) return
+    const rows = Array.isArray(response) ? response : (response.rows || [])
+    productSpecOptions.value[nodeID] = rows.map((row) => ({
+      row_id: String(row.bom_spec_id), bom_spec_id: Number(row.bom_spec_id), spec_key: row.spec_key,
+      label: `${row.name || row.spec_key} · ${row.inventory_unit}${row.bom_name ? ` · ${row.bom_name}` : ` · BOM ${row.bom_id}`}`,
+      unit: row.inventory_unit || '', is_default: Boolean(row.is_default),
+    }))
+    const options = productSpecOptions.value[nodeID]
+    const currentID = Number(valuesFor(nodeID).bom_spec_id || 0)
+    if (!options.some((row) => row.bom_spec_id === currentID)) {
+      const defaults = options.filter((row) => row.is_default)
+      valuesFor(nodeID).bom_spec_id = defaults.length === 1 ? defaults[0].bom_spec_id : options.length === 1 ? options[0].bom_spec_id : 0
+    }
+    syncProductInputComponents(nodeID)
+  } catch (error) {
+    optionError.value = error.message || '读取商品已发布规格失败'
+    productSpecOptions.value[nodeID] = []
+  }
+}
+
+function syncProductInputComponents(nodeID) {
+  const selectedID = Number(valuesFor(nodeID).bom_spec_id || 0)
+  const options = productSpecOptions.value[nodeID] || []
+  if (selectedID > 0 && !options.some((row) => row.bom_spec_id === selectedID)) valuesFor(nodeID).bom_spec_id = 0
+  refreshComponentRowsForSource(nodeID)
+}
+
+function setBOMLossPercent(nodeID, value) {
+  const percent = Number(value)
+  valuesFor(nodeID).material_loss_rate = Number.isFinite(percent) ? Math.max(0, Math.min(99.99, percent)) / 100 : 0
+}
+
+function setBOMOutputUnit(nodeID, unit) {
+  valuesFor(nodeID).output_unit = unit
+  for (const edge of graph.value.edges.filter((item) => item.source === nodeID && item.sourceHandle === 'assembly')) {
+    const output = graph.value.nodes.find((node) => node.id === edge.target && node.data.config.data_role === 'output' && node.data.module.kind === 'material')
+    if (output) valuesFor(output.id).unit = unit
+  }
+}
+
+function outputBOMUnitForDataNode(nodeID) {
+  const edge = graph.value.edges.find((item) => item.target === nodeID && item.targetHandle === 'from_bom')
+  const bom = graph.value.nodes.find((node) => node.id === edge?.source)
+  return String(bom?.data.config.output_unit || valuesFor(bom?.id || '').output_unit || '')
+}
+
+function outputMaterialUnit(node) {
+  return valuesFor(node.id).unit || outputBOMUnitForDataNode(node.id) || node.data.config.unit || ''
+}
+
+function hasConnectedRoute(nodeID) {
+  return graph.value.edges.some((edge) => edge.target === nodeID && edge.targetHandle === 'route')
+}
+
+function isNodeFieldFixed(node, key) {
+  return (node?.data.config?.fixed_fields || []).includes(key)
 }
 
 function issueForNode(nodeID) {
@@ -706,10 +1111,11 @@ async function loadPriceListOptions() {
 
 async function loadOptions() {
   const results = await Promise.allSettled([
-    apiGet('/api/materials?active=active&limit=500'),
+    workflowVersion.value >= 2 ? Promise.resolve({ rows: [] }) : apiGet('/api/materials?active=active&limit=500'),
     apiGet('/api/products/options?limit=500'),
     apiGet('/api/purchase/suppliers'),
     apiGet('/api/process-routes?status=active'),
+    apiGet('/api/product-settings/units'),
     apiGet('/api/stock/warehouses'),
     apiGet('/api/production-boms?status=all'),
     apiGet('/api/customers?limit=500&active=true'),
@@ -720,10 +1126,11 @@ async function loadOptions() {
   productOptions.value = rows(results[1]).map((item) => ({ id: item.id, label: `${item.name}${item.product_code ? ` · ${item.product_code}` : ''}`, customer_id: item.customer_id || 0 }))
   supplierOptions.value = rows(results[2]).filter((item) => item.active !== false).map((item) => ({ id: item.id, label: item.name }))
   routeOptions.value = rows(results[3]).map((item) => ({ id: item.id, label: item.name }))
-  warehouseOptions.value = rows(results[4]).filter((item) => item.active !== false).map((item) => ({ id: item.code || item.id, label: item.name || item.code }))
-  bomOptions.value = rows(results[5]).filter((item) => item.active !== false).map((item) => ({ id: item.id, label: `${item.name || item.code}${item.code ? ` · ${item.code}` : ''}` }))
-  customerOptions.value = rows(results[6]).filter((item) => item.active !== false && Number(item.id) > 0).map((item) => ({ id: item.id, label: item.name || `客户 ${item.code || ''}` }))
-  pricingRuleOptions.value = rows(results[7]).filter((item) => item.active !== false && Number(item.id) > 0)
+  unitOptions.value = (results[4].status === 'fulfilled' ? (Array.isArray(results[4].value) ? results[4].value : results[4].value.rows || results[4].value.units || []) : []).filter((item) => item.active !== false)
+  warehouseOptions.value = rows(results[5]).filter((item) => item.active !== false).map((item) => ({ id: item.code || item.id, label: item.name || item.code }))
+  bomOptions.value = rows(results[6]).filter((item) => item.active !== false).map((item) => ({ id: item.id, label: `${item.name || item.code}${item.code ? ` · ${item.code}` : ''}` }))
+  customerOptions.value = rows(results[7]).filter((item) => item.active !== false && Number(item.id) > 0).map((item) => ({ id: item.id, label: item.name || `客户 ${item.code || ''}` }))
+  pricingRuleOptions.value = rows(results[8]).filter((item) => item.active !== false && Number(item.id) > 0)
   loadPriceListOptions()
 }
 

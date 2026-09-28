@@ -113,17 +113,27 @@ func TestProductCreatorModuleCatalogAndTemplateLifecycleAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Modules) != 7 {
-		t.Fatalf("module count=%d, want 7", len(catalog.Modules))
+	if len(catalog.Modules) != 12 {
+		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules", len(catalog.Modules))
 	}
-	var foundBOM bool
+	var legacyModules, bomCentricModules int
+	var foundLegacyBOM, foundBOMCentricBOM bool
 	for _, module := range catalog.Modules {
-		if module.Kind == app.ModuleBOM {
-			foundBOM = len(module.Inputs) == 3 && len(module.Outputs) == 3
+		if module.WorkflowVersion == 1 {
+			legacyModules++
+			if module.Kind == app.ModuleBOM {
+				foundLegacyBOM = len(module.Inputs) == 3 && len(module.Outputs) == 3
+			}
+		}
+		if module.WorkflowVersion == 2 {
+			bomCentricModules++
+			if module.Kind == app.ModuleBOM {
+				foundBOMCentricBOM = len(module.Inputs) == 2 && len(module.Outputs) == 1 && module.Category == "动作" && module.PaletteVisible
+			}
 		}
 	}
-	if !foundBOM {
-		t.Fatal("BOM module must expose typed product/material/route inputs, draft specs, and output object")
+	if legacyModules != 7 || bomCentricModules != 5 || !foundLegacyBOM || !foundBOMCentricBOM {
+		t.Fatalf("catalog versions legacy=%d bom-centric=%d legacy BOM=%t BOM-centric BOM=%t", legacyModules, bomCentricModules, foundLegacyBOM, foundBOMCentricBOM)
 	}
 
 	rec = httptest.NewRecorder()
