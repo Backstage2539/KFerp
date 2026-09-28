@@ -1615,6 +1615,45 @@ func (r Repository) ListProductionBoms(ctx context.Context) ([]bomapp.Production
 	return r.ListProductionBomsFiltered(ctx, bomapp.ProductionBomFilter{})
 }
 
+// ListProductionBomPublishedSpecs returns the usable specification identities
+// from each active product BOM's latest published version. The creator uses
+// these identities when a product is selected as a recipe component.
+func (r Repository) ListProductionBomPublishedSpecs(ctx context.Context, productID int64) ([]bomapp.ProductionBomPublishedSpec, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT pb.id, pb.name, version.id, variant.bom_spec_id, variant.id,
+		       spec.spec_key, COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
+		       variant.inventory_unit, variant.is_default
+		FROM %[1]s.production_boms pb
+		JOIN %[1]s.products product ON product.id=pb.output_product_id AND COALESCE(product.active,true)=true
+		JOIN LATERAL (
+			SELECT id
+			FROM %[1]s.production_bom_versions
+			WHERE bom_id=pb.id AND status='published'
+			ORDER BY published_at DESC NULLS LAST, created_at DESC, id DESC
+			LIMIT 1
+		) version ON true
+		JOIN %[1]s.production_bom_version_variants variant ON variant.version_id=version.id
+		JOIN %[1]s.production_bom_specs spec ON spec.id=variant.bom_spec_id AND spec.bom_id=pb.id
+		WHERE pb.output_type='product'
+		  AND pb.output_product_id=$1
+		  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+		ORDER BY pb.id, variant.sort_order, variant.id
+	`, r.schema), productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]bomapp.ProductionBomPublishedSpec, 0)
+	for rows.Next() {
+		var row bomapp.ProductionBomPublishedSpec
+		if err := rows.Scan(&row.BomID, &row.BomName, &row.VersionID, &row.BomSpecID, &row.BomVariantID, &row.SpecKey, &row.Name, &row.InventoryUnit, &row.IsDefault); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func (r Repository) ListProductionBomsFiltered(ctx context.Context, filter bomapp.ProductionBomFilter) ([]bomapp.ProductionBomSummary, error) {
 	if err := repairLegacyProductionBomBindings(ctx, r.pool, r.schema); err != nil {
 		return nil, err

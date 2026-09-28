@@ -8,6 +8,7 @@
       :position="Position.Left"
       :style="handleStyle(index, data.module.inputs.length)" />
     <Handle
+      v-if="Number(data.module.workflow_version || 1) < 2"
       id="__prerequisite"
       type="target"
       :position="Position.Left"
@@ -18,7 +19,7 @@
     </div>
     <div class="creator-node-copy">
       <strong>{{ data.label || data.module.name }}</strong>
-      <span>{{ nodeSummary(data.module) }}</span>
+      <span>{{ nodeSummary(data.module, data.config) }}</span>
       <small v-if="data.countLabel">{{ data.countLabel }}</small>
       <small v-else-if="data.module.kind === 'material'" class="creator-node-tags">外购 · 自制</small>
     </div>
@@ -31,6 +32,7 @@
       :position="Position.Right"
       :style="handleStyle(index, data.module.outputs.length)" />
     <Handle
+      v-if="Number(data.module.workflow_version || 1) < 2"
       id="__prerequisite"
       type="source"
       :position="Position.Right"
@@ -71,7 +73,15 @@ function iconFor(kind) {
   return icons[kind] || IconBox
 }
 
-function nodeSummary(module) {
+function nodeSummary(module, config = {}) {
+  if (Number(module.workflow_version || 1) >= 2) {
+    const role = config.data_role
+    if (module.kind === 'material') return role === 'output' ? 'BOM产出 · 自动生成物料' : '配方物料入口 · 选择或新建'
+    if (module.kind === 'product') return role === 'output' ? 'BOM产出 · 商品与多规格' : '商品规格入口 · 引用已发布规格'
+    if (module.kind === 'bom') return `BOM组装 · ${config.output_type === 'product' ? '产出商品' : '产出物料'}`
+    if (module.kind === 'process') return '选择有效工艺路线'
+    if (module.kind === 'purchase') return '物料购入 · 采购单与后续收货'
+  }
   const summaries = {
     product: '新建 / 选择已有',
     material: '原料与自制半成品',

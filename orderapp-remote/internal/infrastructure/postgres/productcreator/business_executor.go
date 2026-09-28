@@ -46,9 +46,13 @@ type createdReference struct {
 	SpecID    int64  `json:"bom_spec_id,omitempty"`
 	VariantID int64  `json:"bom_variant_id,omitempty"`
 	Published bool   `json:"published,omitempty"`
+	New       bool   `json:"new,omitempty"`
 }
 
 func (e BusinessExecutor) ExecuteConfiguration(ctx context.Context, run creatorapp.Run, actor string) (map[string]any, error) {
+	if run.Workflow.Version >= 2 {
+		return e.executeBOMCentricConfiguration(ctx, run, actor)
+	}
 	order, err := creatorapp.TopologicalOrder(run.Workflow)
 	if err != nil {
 		return nil, err
@@ -113,6 +117,309 @@ func (e BusinessExecutor) ExecuteConfiguration(ctx context.Context, run creatora
 		runStatus = "in_progress"
 	}
 	return map[string]any{"run_status": runStatus, "steps": steps, "objects": allReferences(refs)}, nil
+}
+
+// executeBOMCentricConfiguration compiles the visible BOM graph into the
+// existing domain operations. Data records are prepared first inside the
+// caller's transaction; BOMs then execute in dependency order and are
+// published before their outputs can feed a downstream BOM.
+func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, run creatorapp.Run, actor string) (map[string]any, error) {
+	run.Inputs = creatorapp.ResolveWorkflowInputDefaults(run.Workflow, run.Inputs)
+	order, err := creatorapp.TopologicalOrder(run.Workflow)
+	if err != nil {
+		return nil, err
+	}
+	nodes := make(map[string]creatorapp.Node, len(run.Workflow.Nodes))
+	for _, node := range run.Workflow.Nodes {
+		nodes[node.ID] = node
+	}
+	refs := make(map[string]map[string]createdReference, len(nodes))
+	for id := range nodes {
+		refs[id] = map[string]createdReference{}
+	}
+	steps := make(map[string]any, len(nodes))
+	outputNodeForBOM := make(map[string]string)
+	for _, edge := range run.Workflow.Edges {
+		if source, ok := nodes[edge.Source]; ok && source.Kind == creatorapp.ModuleBOM && edge.SourceHandle == "assembly" {
+			if target, exists := nodes[edge.Target]; exists && (target.Kind == creatorapp.ModuleMaterial || target.Kind == creatorapp.ModuleProduct) && edge.TargetHandle == "from_bom" {
+				outputNodeForBOM[source.ID] = target.ID
+			}
+		}
+	}
+
+	// Prepare component inputs and output records first. Output records are
+	// created only once and are reused by every downstream edge.
+	for _, id := range order {
+		node := nodes[id]
+		values := run.Inputs[id]
+		stepCtx := postgresinfra.WithBusinessProvenance(ctx, run.ID, id)
+		switch node.Kind {
+		case creatorapp.ModuleMaterial:
+			if stringValue(node.Config["data_role"]) == "output" {
+				row := map[string]any{
+					"row_id": "output", "action": outputObjectAction(node, values), "material_id": values["material_id"],
+					"name": resolvedOutputName(run, node, values), "kind": values["kind"], "supply_mode": values["supply_mode"],
+					"unit": resolvedMaterialOutputUnit(run, node, values), "owner_type": materialOwnerType(values), "owner_customer_id": values["owner_customer_id"],
+					"industry_fields": values["industry_fields"],
+				}
+				result, execErr := e.executeMaterials(stepCtx, node, map[string]any{"rows": []any{row}}, actor, refs)
+				if execErr != nil {
+					return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "name", Code: "business_validation", Message: execErr.Error()}}}
+				}
+				ref := refs[id]["output"]
+				refs[id]["material"] = ref
+				steps[id] = result
+			} else {
+				result, execErr := e.executeMaterials(stepCtx, node, values, actor, refs)
+				if execErr != nil {
+					return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "rows", Code: "business_validation", Message: execErr.Error()}}}
+				}
+				steps[id] = result
+			}
+		case creatorapp.ModuleProduct:
+			if stringValue(node.Config["data_role"]) == "output" {
+				productValues := cloneJSONMap(values)
+				productValues["action"] = outputObjectAction(node, values)
+				productValues["name"] = resolvedOutputName(run, node, values)
+				if _, exists := productValues["owner"]; !exists {
+					productValues["owner"] = node.Config["owner"]
+				}
+				result, execErr := e.executeProduct(stepCtx, node, productValues, actor, refs)
+				if execErr != nil {
+					return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "name", Code: "business_validation", Message: execErr.Error()}}}
+				}
+				ref := refs[id]["product"]
+				ref.RowID = "output"
+				refs[id]["output"] = ref
+				steps[id] = result
+			} else {
+				result, execErr := e.executeBOMProductInput(stepCtx, node, values, refs)
+				if execErr != nil {
+					return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "product_id", Code: "business_validation", Message: execErr.Error()}}}
+				}
+				steps[id] = result
+			}
+		case creatorapp.ModuleProcess:
+			result, execErr := e.executeProcess(stepCtx, node, values, refs)
+			if execErr != nil {
+				return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "route_id", Code: "business_validation", Message: execErr.Error()}}}
+			}
+			steps[id] = result
+		}
+	}
+
+	needsFollowup := false
+	for _, id := range order {
+		node := nodes[id]
+		values := run.Inputs[id]
+		switch node.Kind {
+		case creatorapp.ModuleBOM:
+			outputNodeID := outputNodeForBOM[id]
+			if outputNodeID == "" {
+				return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "assembly", Code: "bom_output_required", Message: "BOM组装没有连接产出对象"}}}
+			}
+			output := refs[outputNodeID]["output"]
+			if output.ID <= 0 {
+				return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: outputNodeID, Code: "output_not_ready", Message: "BOM产出档案尚未准备好"}}}
+			}
+			bomValues := cloneJSONMap(values)
+			bomValues["action"] = "create"
+			bomValues["output_source_row_id"] = "output"
+			if bomValues["route_id"] == nil || positiveNumber(bomValues["route_id"]) == 0 {
+				for _, edge := range run.Workflow.Edges {
+					if edge.Target == id && edge.TargetHandle == "route" {
+						bomValues["route_id"] = refs[edge.Source]["route"].ID
+					}
+				}
+			}
+			executionRun := run
+			executionRun.Workflow = run.Workflow
+			executionRun.Workflow.Edges = append(append([]creatorapp.Edge(nil), run.Workflow.Edges...), creatorapp.Edge{
+				ID: "compiled-output-" + id, Source: outputNodeID, SourceHandle: map[string]string{"product": "product", "material": "material"}[output.Type], Target: id, TargetHandle: "output", Kind: creatorapp.EdgeData,
+			})
+			executionRun.Inputs = cloneNestedJSONMap(run.Inputs)
+			executionRun.Inputs[id] = bomValues
+			stepCtx := postgresinfra.WithBusinessProvenance(ctx, run.ID, id)
+			created, execErr := e.executeBOM(stepCtx, executionRun, node, bomValues, actor, refs)
+			if execErr != nil {
+				return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "components", Code: "business_validation", Message: execErr.Error()}}}
+			}
+			publishID := "compiled-publish-" + id
+			publishNode := creatorapp.Node{ID: publishID, Kind: creatorapp.ModulePublish}
+			refs[publishID] = map[string]createdReference{}
+			publishRun := executionRun
+			publishRun.Workflow.Edges = append(publishRun.Workflow.Edges, creatorapp.Edge{ID: "compiled-publish-edge-" + id, Source: id, SourceHandle: "bom", Target: publishID, TargetHandle: "bom", Kind: creatorapp.EdgeData})
+			publishRun.Inputs[publishID] = map[string]any{"set_default": output.New}
+			published, execErr := e.executePublish(stepCtx, publishRun, publishNode, publishRun.Inputs[publishID], actor, refs)
+			if execErr != nil {
+				return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "publish", Code: "business_validation", Message: execErr.Error()}}}
+			}
+			for key, ref := range refs[publishID] {
+				if key != "output" && ref.Type != "spec" {
+					continue
+				}
+				refs[outputNodeID][key] = ref
+			}
+			delete(refs, publishID)
+			steps[id] = map[string]any{"status": "succeeded", "bom": created, "publication": published, "default_bound": output.New}
+		case creatorapp.ModulePurchase:
+			steps[id] = map[string]any{"status": "ready", "action": "waiting_for_configuration"}
+			needsFollowup = true
+		}
+	}
+
+	runStatus := "config_committed"
+	if needsFollowup {
+		runStatus = "in_progress"
+	}
+	return map[string]any{"run_status": runStatus, "steps": steps, "objects": allReferences(refs)}, nil
+}
+
+func (e BusinessExecutor) executeBOMProductInput(ctx context.Context, node creatorapp.Node, values map[string]any, refs map[string]map[string]createdReference) (map[string]any, error) {
+	id := positiveNumber(values["product_id"])
+	if id <= 0 {
+		return nil, fmt.Errorf("请选择已有商品")
+	}
+	var name string
+	var ownerID int64
+	var active bool
+	if err := queryWithTransaction(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT name,COALESCE(customer_id,0),COALESCE(active,true) FROM %s.products WHERE id=$1 FOR SHARE`, e.schema), id).Scan(&name, &ownerID, &active); err != nil || !active {
+		return nil, fmt.Errorf("引用的商品不存在或当前不可见")
+	}
+	specID := positiveNumber(values["bom_spec_id"])
+	rows, err := queryWithTransaction(ctx).Query(ctx, fmt.Sprintf(`
+		SELECT spec.id,spec.spec_key,COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),variant.inventory_unit,variant.id
+		FROM %s.production_bom_specs spec
+		JOIN LATERAL (
+			SELECT version.id
+			FROM %s.production_bom_versions version
+			WHERE version.bom_id=spec.bom_id AND version.status='published'
+			ORDER BY version.published_at DESC NULLS LAST,version.created_at DESC,version.id DESC
+			LIMIT 1
+		) latest ON true
+		JOIN %s.production_bom_version_variants variant ON variant.version_id=latest.id AND variant.bom_spec_id=spec.id
+		JOIN %s.production_boms bom ON bom.id=spec.bom_id AND bom.output_type='product' AND bom.output_product_id=$1 AND COALESCE(bom.status,'active')='active'
+		WHERE ($2=0 OR spec.id=$2) ORDER BY bom.id,variant.sort_order,variant.id`, e.schema, e.schema, e.schema, e.schema), id, specID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var ref createdReference
+		if err := rows.Scan(&ref.ID, &ref.RowID, &ref.Name, &ref.Unit, &ref.VariantID); err != nil {
+			return nil, err
+		}
+		ref.Type, ref.SpecID, ref.ProductID, ref.OwnerID, ref.Published = "spec", ref.ID, id, ownerID, true
+		refs[node.ID][fmt.Sprintf("%d", ref.SpecID)] = ref
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, fmt.Errorf("所选商品没有可用的已发布规格")
+	}
+	refs[node.ID]["product"] = createdReference{Type: "product", RowID: "product", ID: id, Name: name, OwnerID: ownerID, ProductID: id}
+	return map[string]any{"product_id": id, "specifications": refsForNode(refs[node.ID])}, nil
+}
+
+func outputObjectAction(node creatorapp.Node, values map[string]any) string {
+	action := stringValue(values["action"])
+	if action == "" {
+		action = stringValue(node.Config["object_action"])
+	}
+	if action == "" {
+		action = stringValue(node.Config["action"])
+	}
+	if action == "" {
+		action = "create"
+	}
+	return action
+}
+
+func materialOwnerType(values map[string]any) string {
+	owner := stringValue(values["owner_type"])
+	if owner == "" {
+		owner = stringValue(values["owner"])
+	}
+	if owner == "" {
+		owner = "factory"
+	}
+	return owner
+}
+
+func resolvedOutputName(run creatorapp.Run, node creatorapp.Node, values map[string]any) string {
+	if name := stringValue(values["name"]); name != "" && !workflowFieldIsFixed(node, "name") {
+		return name
+	}
+	pattern := stringValue(node.Config["name_pattern"])
+	if pattern == "" {
+		pattern = stringValue(values["name_pattern"])
+	}
+	if pattern == "" {
+		return ""
+	}
+	productName := ""
+	for _, candidate := range run.Workflow.Nodes {
+		if candidate.Kind == creatorapp.ModuleProduct && stringValue(candidate.Config["data_role"]) == "output" {
+			productName = stringValue(run.Inputs[candidate.ID]["name"])
+			if productName != "" {
+				break
+			}
+		}
+	}
+	for _, token := range []string{"{{商品名称}}", "{{商品}}", "{商品名称}", "{商品}"} {
+		pattern = strings.ReplaceAll(pattern, token, productName)
+	}
+	return strings.TrimSpace(pattern)
+}
+
+func resolvedMaterialOutputUnit(run creatorapp.Run, node creatorapp.Node, values map[string]any) string {
+	for _, edge := range run.Workflow.Edges {
+		if edge.Target != node.ID || edge.TargetHandle != "from_bom" || edge.Kind != creatorapp.EdgeData {
+			continue
+		}
+		unit := stringValue(run.Inputs[edge.Source]["output_unit"])
+		if unit == "" {
+			for _, source := range run.Workflow.Nodes {
+				if source.ID == edge.Source {
+					unit = stringValue(source.Config["output_unit"])
+					break
+				}
+			}
+		}
+		if unit != "" {
+			return unit
+		}
+	}
+	return defaultString(stringValue(values["unit"]), defaultString(stringValue(node.Config["unit"]), "unit"))
+}
+
+func workflowFieldIsFixed(node creatorapp.Node, key string) bool {
+	switch fields := node.Config["fixed_fields"].(type) {
+	case []any:
+		for _, field := range fields {
+			if stringValue(field) == key {
+				return true
+			}
+		}
+	case []string:
+		for _, field := range fields {
+			if field == key {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func cloneNestedJSONMap(values map[string]map[string]any) map[string]map[string]any {
+	copy := make(map[string]map[string]any, len(values))
+	for key, value := range values {
+		copy[key] = cloneJSONMap(value)
+	}
+	return copy
 }
 
 func (e BusinessExecutor) ExecuteRunStep(ctx context.Context, run creatorapp.Run, node creatorapp.Node, action string, stepInputs map[string]any, actor string) (map[string]any, error) {
@@ -505,7 +812,7 @@ func (e BusinessExecutor) executeProduct(ctx context.Context, node creatorapp.No
 	if err != nil {
 		return nil, err
 	}
-	refs[node.ID]["product"] = createdReference{Type: "product", RowID: "product", ID: product.ID, Name: product.Name, Code: product.SKUCode, OwnerID: customerID, ProductID: product.ID}
+	refs[node.ID]["product"] = createdReference{Type: "product", RowID: "product", ID: product.ID, Name: product.Name, Code: product.SKUCode, OwnerID: customerID, ProductID: product.ID, New: true}
 	return map[string]any{"object": refs[node.ID]["product"]}, nil
 }
 
@@ -551,15 +858,19 @@ func (e BusinessExecutor) executeMaterials(ctx context.Context, node creatorapp.
 				return nil, err
 			}
 		}
-		ref := createdReference{Type: "material", RowID: rowID, ID: material.ID, Name: material.Name, Code: material.Code, Unit: material.Unit, OwnerID: material.OwnerCustomerID}
+		ref := createdReference{Type: "material", RowID: rowID, ID: material.ID, Name: material.Name, Code: material.Code, Unit: material.Unit, OwnerID: material.OwnerCustomerID, New: stringValue(row["action"]) != "reuse"}
 		refs[node.ID][rowID] = ref
 		created = append(created, ref)
 	}
 	return map[string]any{"objects": created}, nil
 }
 
-func (e BusinessExecutor) executeProcess(_ context.Context, node creatorapp.Node, values map[string]any, refs map[string]map[string]createdReference) (map[string]any, error) {
+func (e BusinessExecutor) executeProcess(ctx context.Context, node creatorapp.Node, values map[string]any, refs map[string]map[string]createdReference) (map[string]any, error) {
 	if id := positiveNumber(values["route_id"]); id > 0 {
+		var status string
+		if err := queryWithTransaction(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.process_routes WHERE id=$1 FOR SHARE`, e.schema), id).Scan(&status); err != nil || status != "active" {
+			return nil, fmt.Errorf("请选择有效工艺路线")
+		}
 		refs[node.ID]["route"] = createdReference{Type: "route", ID: id}
 		return map[string]any{"route_id": id}, nil
 	}
@@ -623,13 +934,25 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 		}
 		variants = append(variants, variant)
 	}
-	routeID := int64(0)
+	routeID := positiveNumber(values["route_id"])
 	for _, edge := range run.Workflow.Edges {
 		if edge.Target == node.ID && edge.TargetHandle == "route" {
 			if route, ok := refs[edge.Source]["route"]; ok {
 				routeID = route.ID
 			}
 		}
+	}
+	for index := range variants {
+		variants[index].ProcessRouteID = routeID
+		variants[index].MaterialLossRate = numberValue(values["material_loss_rate"])
+	}
+	outputQty := numberValue(values["output_qty"])
+	if outputQty <= 0 {
+		outputQty = 1
+	}
+	outputMaterialLossRate := numberValue(values["material_loss_rate"])
+	if outputMaterialLossRate < 0 || outputMaterialLossRate >= 1 {
+		return nil, fmt.Errorf("物料损耗率必须大于等于 0 且小于 100%%")
 	}
 	name := strings.TrimSpace(stringValue(values["name"]))
 	if name == "" {
@@ -649,12 +972,16 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 		}
 		summary, err = e.bom.CopyProductionBom(ctx, bomapp.CopyProductionBomCommand{ID: positiveNumber(values["bom_id"]), Name: name, OutputType: outputType, OutputID: output.ID, OutputProductID: outputProductID, OutputMaterialID: outputMaterialID, SpecificationMode: specificationMode, Actor: actor})
 		if err == nil {
-			_, err = e.bom.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{VersionID: summary.LatestVersionID, OutputQty: 1, OutputUnit: outputUnit(output, variants), ProcessRouteID: routeID, Variants: variants, Items: materialItems(components), Actor: actor})
+			_, err = e.bom.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{VersionID: summary.LatestVersionID, MaterialLossRate: &outputMaterialLossRate, OutputQty: outputQty, OutputUnit: defaultString(stringValue(values["output_unit"]), outputUnit(output, variants)), ProcessRouteID: routeID, Variants: variants, Items: materialItems(components), Actor: actor})
 		}
 	} else {
-		summary, err = e.bom.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{Name: name, OutputType: outputType, OutputID: output.ID, OutputProductID: outputProductID, OutputMaterialID: outputMaterialID, SpecificationMode: map[bool]string{true: bomapp.ProductionBomSpecificationModeSpecGroup, false: bomapp.ProductionBomSpecificationModeSingle}[outputType == "product"], OutputQty: 1, OutputUnit: outputUnit(output, variants), Variants: variants, Actor: actor})
-		if err == nil && outputType == "material" {
-			_, err = e.bom.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{VersionID: summary.LatestVersionID, OutputQty: 1, OutputUnit: output.Unit, ProcessRouteID: routeID, Items: materialItems(components), Actor: actor})
+		summary, err = e.bom.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{Name: name, OutputType: outputType, OutputID: output.ID, OutputProductID: outputProductID, OutputMaterialID: outputMaterialID, SpecificationMode: map[bool]string{true: bomapp.ProductionBomSpecificationModeSpecGroup, false: bomapp.ProductionBomSpecificationModeSingle}[outputType == "product"], OutputQty: outputQty, OutputUnit: defaultString(stringValue(values["output_unit"]), outputUnit(output, variants)), Variants: variants, Actor: actor})
+		if err == nil {
+			var draftVariants []bomapp.ProductionBomDraftVariant
+			if outputType == "product" {
+				draftVariants = variants
+			}
+			_, err = e.bom.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{VersionID: summary.LatestVersionID, MaterialLossRate: &outputMaterialLossRate, OutputQty: outputQty, OutputUnit: defaultString(stringValue(values["output_unit"]), outputUnit(output, variants)), ProcessRouteID: routeID, Variants: draftVariants, Items: materialItems(components), Actor: actor})
 		}
 	}
 	if err != nil {
@@ -662,7 +989,11 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 	}
 	ref := createdReference{Type: "bom", ID: summary.ID, Name: summary.Name, BOMID: summary.ID, VersionID: summary.LatestVersionID}
 	refs[node.ID]["bom"] = ref
-	refs[node.ID]["output"] = createdReference{Type: outputType, RowID: "output", ID: output.ID, Name: output.Name, Unit: output.Unit, OwnerID: output.OwnerID, ProductID: output.ID, BOMID: summary.ID, VersionID: summary.LatestVersionID}
+	outputRef := createdReference{Type: outputType, RowID: "output", ID: output.ID, Name: output.Name, Unit: defaultString(stringValue(values["output_unit"]), output.Unit), OwnerID: output.OwnerID, New: output.New, BOMID: summary.ID, VersionID: summary.LatestVersionID}
+	if outputType == "product" {
+		outputRef.ProductID = output.ID
+	}
+	refs[node.ID]["output"] = outputRef
 	return map[string]any{"bom_id": summary.ID, "bom_code": summary.Code, "version_id": summary.LatestVersionID, "output": output}, nil
 }
 
@@ -773,6 +1104,10 @@ func resolveBOMComponents(run creatorapp.Run, node creatorapp.Node, values map[s
 			return nil, fmt.Errorf("BOM 组件 %s 的数据来源已失效", rowID)
 		}
 		item := bomapp.ProductionBomDraftItem{ConsumeUnit: stringValue(row["unit"]), QtyPerUnit: numberValue(row["quantity"]), MaterialLossRate: percentageFraction(row["loss_rate"])}
+		if item.ConsumeUnit == "ratio_pct" {
+			item.RatioPct = item.QtyPerUnit
+			item.QtyPerUnit = 0
+		}
 		switch ref.Type {
 		case "material":
 			item.ComponentType, item.MaterialID = "material", ref.ID

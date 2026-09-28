@@ -277,3 +277,121 @@ func componentRow(id, source, sourceRow, variant string, quantity float64, unit 
 func priceRow(id, specID string, price float64) map[string]any {
 	return map[string]any{"row_id": id, "spec_row_id": specID, "pricing_mode": "fixed", "price": price}
 }
+
+func TestBOMTemplateCatalogSeparatesReusableDataAndActions(t *testing.T) {
+	counts := map[string]int{}
+	for _, module := range ModuleCatalog() {
+		if module.PaletteVisible {
+			counts[module.Category]++
+			if module.Kind == ModulePricing || module.Kind == ModulePublish {
+				t.Fatalf("legacy module %q must not be visible for new templates", module.Kind)
+			}
+		}
+	}
+	if counts["数据类型"] != 3 || counts["动作"] != 2 {
+		t.Fatalf("visible module groups=%v, want 3 data types and 2 actions", counts)
+	}
+}
+
+func TestBOMCentricWorkflowSupportsInputToAssemblyToGeneratedMaterial(t *testing.T) {
+	workflow := Workflow{Version: 2, Nodes: []Node{
+		{ID: "raw", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "roast", Kind: ModuleProcess, Config: map[string]any{"route_id": 4}},
+		{ID: "semi-bom", Kind: ModuleBOM, Config: map[string]any{"output_type": "material", "output_qty": 1, "output_unit": "kg", "route_id": 4, "material_loss_rate": 0}},
+		{ID: "semi", Kind: ModuleMaterial, Config: map[string]any{"data_role": "output", "object_action": "create"}},
+		{ID: "pack", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "pack-route", Kind: ModuleProcess, Config: map[string]any{"route_id": 5}},
+		{ID: "finish", Kind: ModuleBOM, Config: map[string]any{"output_type": "product", "output_qty": 1, "variants": []any{variantRow("200g", "200g", "袋", true)}}},
+		{ID: "product", Kind: ModuleProduct, Config: map[string]any{"data_role": "output", "object_action": "create"}},
+	}, Edges: []Edge{
+		dataEdge("e1", "raw", "material", "semi-bom", "components"),
+		dataEdge("e2", "roast", "route", "semi-bom", "route"),
+		dataEdge("e3", "semi-bom", "assembly", "semi", "from_bom"),
+		dataEdge("e4", "semi", "material", "finish", "components"),
+		dataEdge("e5", "pack", "material", "finish", "components"),
+		dataEdge("e6", "pack-route", "route", "finish", "route"),
+		dataEdge("e7", "finish", "assembly", "product", "from_bom"),
+	}}
+	if issues := ValidateWorkflow(workflow); len(issues) != 0 {
+		t.Fatalf("BOM-centred graph should validate: %+v", issues)
+	}
+	order, err := TopologicalOrder(workflow)
+	if err != nil || len(order) != len(workflow.Nodes) {
+		t.Fatalf("topological order = %v, %v", order, err)
+	}
+}
+
+func TestBOMCentricWorkflowRejectsHiddenConditionsAndWrongOutputObject(t *testing.T) {
+	workflow := Workflow{Version: 2, Nodes: []Node{
+		{ID: "source", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "bom", Kind: ModuleBOM, Config: map[string]any{"output_type": "product"}},
+		{ID: "material", Kind: ModuleMaterial, Config: map[string]any{"data_role": "output"}},
+	}, Edges: []Edge{
+		dataEdge("e1", "source", "material", "bom", "components"),
+		dataEdge("e2", "bom", "assembly", "material", "from_bom"),
+	}}
+	if issues := ValidateWorkflow(workflow); !hasIssue(issues, "output_type_mismatch") {
+		t.Fatalf("product BOM must not target material data node, got %+v", issues)
+	}
+	workflow.Nodes[0].Condition = &Condition{NodeID: "source", Field: "action", Operator: "equals", Value: "create"}
+	if issues := ValidateWorkflow(workflow); !hasIssue(issues, "conditions_disabled") {
+		t.Fatalf("new workflow must reject hidden conditions, got %+v", issues)
+	}
+}
+
+func TestBOMCentricDefaultsFillBlankInputsAndProtectFixedFields(t *testing.T) {
+	workflow := Workflow{Version: 2, Nodes: []Node{
+		{ID: "raw", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "route", Kind: ModuleProcess, Config: map[string]any{"route_id": 4}},
+		{ID: "bom", Kind: ModuleBOM, Config: map[string]any{
+			"output_type": "material", "output_qty": 0.5, "output_unit": "kg", "route_id": 4,
+			"material_loss_rate": 0.04, "fixed_fields": []any{"output_qty"},
+			"components": []any{map[string]any{"row_id": "raw-use", "source_node_id": "raw", "source_row_id": "raw", "quantity": 0.25, "unit": "kg"}},
+		}},
+		{ID: "semi", Kind: ModuleMaterial, Config: map[string]any{"data_role": "output", "object_action": "create", "unit": "kg", "name_pattern": "半成品"}},
+	}, Edges: []Edge{
+		dataEdge("ingredient", "raw", "material", "bom", "components"),
+		dataEdge("route-edge", "route", "route", "bom", "route"),
+		dataEdge("bom-output", "bom", "assembly", "semi", "from_bom"),
+	}}
+	inputs := map[string]map[string]any{
+		"raw":   {"rows": []any{map[string]any{"row_id": "raw", "action": "create", "name": "生料", "unit": "kg"}}},
+		"route": {"route_id": 4},
+		"bom":   {"output_qty": 3.0, "components": []any{}},
+		"semi":  {"action": "create", "name": "半成品A", "unit": "kg"},
+	}
+	resolved := ResolveWorkflowInputDefaults(workflow, inputs)
+	bomValues := resolved["bom"]
+	if numericValue(bomValues["output_qty"]) != 0.5 || stringValue(bomValues["output_unit"]) != "kg" || numericValue(bomValues["material_loss_rate"]) != 0.04 {
+		t.Fatalf("BOM defaults were not applied or fixed values were overridden: %#v", bomValues)
+	}
+	components := rowValues(bomValues["components"])
+	if len(components) != 1 || numericValue(components[0]["quantity"]) != 0.25 {
+		t.Fatalf("blank recipe defaults were not applied: %#v", bomValues["components"])
+	}
+	issues := ValidateRunInputs(workflow, resolved)
+	if len(issues) != 0 {
+		t.Fatalf("fractional quantities and configured defaults should validate: %+v", issues)
+	}
+}
+
+func TestFixedBOMComponentDefaultsPreserveRuntimeSourceIdentity(t *testing.T) {
+	workflow := Workflow{Version: 2, Nodes: []Node{{ID: "bom", Kind: ModuleBOM, Config: map[string]any{
+		"fixed_fields": []any{"components"},
+		"components":   []any{map[string]any{"row_id": "template-component", "source_node_id": "materials", "quantity": 2.5, "unit": "kg"}},
+	}}}}
+	inputs := map[string]map[string]any{"bom": {"components": []any{map[string]any{
+		"row_id": "run-component", "source_node_id": "materials", "source_row_id": "material-row-7", "quantity": 99.0, "unit": "g",
+	}}}}
+	resolved := ResolveWorkflowInputDefaults(workflow, inputs)
+	rows := rowValues(resolved["bom"]["components"])
+	if len(rows) != 1 {
+		t.Fatalf("component rows = %#v", rows)
+	}
+	if rows[0]["row_id"] != "run-component" || rows[0]["source_row_id"] != "material-row-7" {
+		t.Fatalf("fixed defaults must preserve the runtime-selected source identity: %#v", rows[0])
+	}
+	if numericValue(rows[0]["quantity"]) != 2.5 || rows[0]["unit"] != "kg" {
+		t.Fatalf("fixed recipe defaults = %#v, want 2.5 kg", rows[0])
+	}
+}

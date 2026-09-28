@@ -26,8 +26,9 @@ const (
 )
 
 type Workflow struct {
-	Nodes []Node `json:"nodes"`
-	Edges []Edge `json:"edges"`
+	Version int    `json:"version,omitempty"`
+	Nodes   []Node `json:"nodes"`
+	Edges   []Edge `json:"edges"`
 }
 
 type Node struct {
@@ -75,14 +76,16 @@ type Field struct {
 }
 
 type Module struct {
-	Kind        ModuleKind `json:"kind"`
-	Name        string     `json:"name"`
-	Category    string     `json:"category"`
-	Description string     `json:"description"`
-	Inputs      []Port     `json:"inputs"`
-	Outputs     []Port     `json:"outputs"`
-	Fields      []Field    `json:"fields"`
-	Actions     []string   `json:"actions"`
+	Kind            ModuleKind `json:"kind"`
+	Name            string     `json:"name"`
+	Category        string     `json:"category"`
+	WorkflowVersion int        `json:"workflow_version,omitempty"`
+	PaletteVisible  bool       `json:"palette_visible"`
+	Description     string     `json:"description"`
+	Inputs          []Port     `json:"inputs"`
+	Outputs         []Port     `json:"outputs"`
+	Fields          []Field    `json:"fields"`
+	Actions         []string   `json:"actions"`
 }
 
 type ValidationIssue struct {
@@ -112,12 +115,57 @@ var moduleByKind = func() map[ModuleKind]Module {
 }()
 
 func ModuleCatalog() []Module {
-	out := make([]Module, len(modules))
-	copy(out, modules)
+	out := make([]Module, 0, len(modules)+5)
+	for _, module := range modules {
+		module.PaletteVisible = false
+		module.WorkflowVersion = 1
+		out = append(out, module)
+	}
+	out = append(out, bomCentricModules()...)
 	return out
 }
 
+func workflowVersion(workflow Workflow) int {
+	if workflow.Version >= 2 {
+		return workflow.Version
+	}
+	return 1 // Missing versions are the original workflow format.
+}
+
+func bomCentricModules() []Module {
+	return []Module{
+		{Kind: ModuleMaterial, Name: "物料", Category: "数据类型", WorkflowVersion: 2, PaletteVisible: true, Description: "选择配方物料，或接收 BOM 生成的半成品", Inputs: []Port{{ID: "from_bom", Label: "BOM产出", Types: []string{"bom.output"}, Required: true}}, Outputs: []Port{{ID: "material", Label: "物料对象", Types: []string{"material.ref"}}}, Fields: []Field{{Key: "data_role", Label: "物料用途", Type: "choice", Required: true, SourceMode: "template"}, {Key: "rows", Label: "配方物料", Type: "repeater", SourceMode: "input"}, {Key: "name", Label: "产出物料名称", Type: "text", SourceMode: "input"}, {Key: "unit", Label: "库存单位", Type: "unit", SourceMode: "template"}, {Key: "kind", Label: "物料类型", Type: "choice", SourceMode: "template"}, {Key: "supply_mode", Label: "外购或自制", Type: "choice", SourceMode: "template"}}, Actions: []string{"选择物料", "自动生成物料"}},
+		{Kind: ModuleProduct, Name: "商品", Category: "数据类型", WorkflowVersion: 2, PaletteVisible: true, Description: "创建成品或引用已有商品", Inputs: []Port{{ID: "from_bom", Label: "BOM产出", Types: []string{"bom.output"}, Required: true}}, Outputs: []Port{{ID: "product", Label: "商品对象", Types: []string{"product.ref"}}, {ID: "specs", Label: "商品规格", Types: []string{"item.specs"}}}, Fields: []Field{{Key: "data_role", Label: "商品用途", Type: "choice", Required: true, SourceMode: "template"}, {Key: "name", Label: "商品名称", Type: "text", Required: true, SourceMode: "input"}, {Key: "action", Label: "处理方式", Type: "choice", Required: true, SourceMode: "template"}, {Key: "product_kind", Label: "商品类型", Type: "choice", SourceMode: "template"}, {Key: "owner", Label: "商品归属", Type: "owner", Required: true, SourceMode: "input"}, {Key: "customer_id", Label: "归属客户", Type: "reference", SourceMode: "input"}, {Key: "industry_fields", Label: "行业字段", Type: "record", SourceMode: "input"}}, Actions: []string{"自动生成商品", "引用已有商品"}},
+		{Kind: ModuleProcess, Name: "工艺", Category: "数据类型", WorkflowVersion: 2, PaletteVisible: true, Description: "选择可供 BOM 使用的有效工艺路线", Outputs: []Port{{ID: "route", Label: "工艺路线", Types: []string{"process.route"}}}, Fields: []Field{{Key: "route_id", Label: "工艺路线", Type: "reference", Required: true, SourceMode: "template"}}, Actions: []string{"选择有效工艺"}},
+		{Kind: ModuleBOM, Name: "BOM组装", Category: "动作", WorkflowVersion: 2, PaletteVisible: true, Description: "按模板默认值组装配方、规格、工艺和损耗，并发布绑定", Inputs: []Port{{ID: "components", Label: "配方物料或商品规格", Types: []string{"material.ref", "item.specs"}, Required: true, Multiple: true}, {ID: "route", Label: "工艺路线", Types: []string{"process.route"}}}, Outputs: []Port{{ID: "assembly", Label: "BOM产出", Types: []string{"bom.output"}}}, Fields: []Field{{Key: "name", Label: "BOM名称", Type: "text", SourceMode: "template"}, {Key: "output_type", Label: "产出类型", Type: "choice", Required: true, SourceMode: "template"}, {Key: "output_qty", Label: "产出数量", Type: "quantity", Required: true, SourceMode: "template"}, {Key: "output_unit", Label: "产出单位", Type: "unit", Required: true, SourceMode: "template"}, {Key: "route_id", Label: "默认工艺路线", Type: "reference", SourceMode: "template"}, {Key: "material_loss_rate", Label: "物料损耗率", Type: "percentage", SourceMode: "template"}, {Key: "variants", Label: "商品规格", Type: "repeater", SourceMode: "template"}, {Key: "components", Label: "配方用量", Type: "repeater", Required: true, SourceMode: "reference"}}, Actions: []string{"BOM组装并发布"}},
+		{Kind: ModulePurchase, Name: "物料购入", Category: "动作", WorkflowVersion: 2, PaletteVisible: true, Description: "创建采购单；到货后由用户确认收货", Inputs: []Port{{ID: "material", Label: "采购物料", Types: []string{"material.ref"}, Required: true, Multiple: true}}, Outputs: []Port{{ID: "purchase", Label: "采购单", Types: []string{"purchase.order"}}}, Fields: []Field{{Key: "supplier_id", Label: "供应商", Type: "reference", Required: true, SourceMode: "input"}, {Key: "quantity", Label: "预计采购量", Type: "quantity", Required: true, SourceMode: "input"}, {Key: "warehouse", Label: "目标仓库", Type: "reference", Required: true, SourceMode: "input"}, {Key: "unit_price", Label: "采购单价", Type: "money", Required: true, SourceMode: "input"}}, Actions: []string{"创建采购单", "确认收货"}},
+	}
+}
+
+func moduleForNode(node Node, version int) Module {
+	if version < 2 {
+		return moduleByKind[node.Kind]
+	}
+	for _, module := range bomCentricModules() {
+		if module.Kind != node.Kind {
+			continue
+		}
+		if node.Kind == ModuleMaterial || node.Kind == ModuleProduct {
+			if stringValue(node.Config["data_role"]) == "output" {
+				module.Inputs = []Port{{ID: "from_bom", Label: "BOM产出", Types: []string{"bom.output"}, Required: true}}
+			} else {
+				module.Inputs = nil
+			}
+		}
+		return module
+	}
+	return Module{}
+}
+
 func ValidateWorkflow(workflow Workflow) []ValidationIssue {
+	if workflowVersion(workflow) >= 2 {
+		return validateBOMWorkflow(workflow)
+	}
 	issues := make([]ValidationIssue, 0)
 	if len(workflow.Nodes) == 0 {
 		issues = append(issues, ValidationIssue{Code: "empty_workflow", Message: "模板至少需要一个业务步骤"})
@@ -218,6 +266,108 @@ func ValidateWorkflow(workflow Workflow) []ValidationIssue {
 			if !validField {
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "condition.field", Code: "missing_condition_field", Message: "执行条件字段不属于所选前置步骤"})
 			}
+		}
+	}
+	if _, err := topologicalOrder(workflow); err != nil && !hasValidationCode(issues, "cycle") {
+		issues = append(issues, ValidationIssue{Code: "cycle", Message: "流程依赖中存在循环"})
+	}
+	return issues
+}
+
+func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
+	issues := make([]ValidationIssue, 0)
+	if len(workflow.Nodes) == 0 {
+		return []ValidationIssue{{Code: "empty_workflow", Message: "模板至少需要一个业务步骤"}}
+	}
+	nodes := make(map[string]Node, len(workflow.Nodes))
+	for _, node := range workflow.Nodes {
+		id := strings.TrimSpace(node.ID)
+		if id == "" {
+			issues = append(issues, ValidationIssue{Code: "missing_node_id", Message: "每个节点必须有稳定的节点标识"})
+			continue
+		}
+		if _, exists := nodes[id]; exists {
+			issues = append(issues, ValidationIssue{NodeID: id, Code: "duplicate_node_id", Message: "节点标识重复"})
+			continue
+		}
+		nodes[id] = node
+		if node.Condition != nil {
+			issues = append(issues, ValidationIssue{NodeID: id, Field: "condition", Code: "conditions_disabled", Message: "新版模板暂不支持执行条件"})
+		}
+		if moduleForNode(node, 2).Kind == "" {
+			issues = append(issues, ValidationIssue{NodeID: id, Code: "module_not_available", Message: "该模块不属于新版模板的数据类型或动作"})
+		}
+		if (node.Kind == ModuleMaterial || node.Kind == ModuleProduct) && stringValue(node.Config["data_role"]) != "input" && stringValue(node.Config["data_role"]) != "output" {
+			issues = append(issues, ValidationIssue{NodeID: id, Field: "data_role", Code: "invalid_data_role", Message: "请选择配方输入或 BOM 产出对象"})
+		}
+		if node.Kind == ModuleBOM {
+			if output := stringValue(node.Config["output_type"]); output != "material" && output != "product" {
+				issues = append(issues, ValidationIssue{NodeID: id, Field: "output_type", Code: "invalid_output_type", Message: "请选择物料或商品作为 BOM 产出类型"})
+			}
+		}
+		if node.Kind == ModuleProcess && positiveNumber(node.Config["route_id"]) == 0 {
+			issues = append(issues, ValidationIssue{NodeID: id, Field: "route_id", Code: "route_required", Message: "工艺节点需要在模板中选择一条有效路线"})
+		}
+	}
+
+	connectedInputs := make(map[string]int)
+	outputTargets := make(map[string][]Node)
+	for _, edge := range workflow.Edges {
+		source, sourceOK := nodes[edge.Source]
+		target, targetOK := nodes[edge.Target]
+		if !sourceOK || !targetOK {
+			issues = append(issues, ValidationIssue{EdgeID: edge.ID, Code: "missing_node", Message: "连线引用的节点不存在"})
+			continue
+		}
+		if edge.Source == edge.Target {
+			issues = append(issues, ValidationIssue{EdgeID: edge.ID, Code: "cycle", Message: "流程不能连接到自身"})
+			continue
+		}
+		if edge.Kind != EdgeData {
+			issues = append(issues, ValidationIssue{EdgeID: edge.ID, Code: "edge_kind_disabled", Message: "新版模板只使用传递业务数据的连线"})
+			continue
+		}
+		outPort, okOut := findPort(moduleForNode(source, 2).Outputs, edge.SourceHandle)
+		inPort, okIn := findPort(moduleForNode(target, 2).Inputs, edge.TargetHandle)
+		if !okOut || !okIn {
+			issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Code: "unknown_port", Message: "连线端口不存在"})
+			continue
+		}
+		if !portsCompatible(outPort, inPort) {
+			issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Code: "incompatible_data_type", Message: fmt.Sprintf("%s 不能作为 %s 的数据来源", outPort.Label, inPort.Label)})
+			continue
+		}
+		connectedInputs[target.ID+"\x00"+inPort.ID]++
+		if source.Kind == ModuleBOM && edge.SourceHandle == "assembly" && (target.Kind == ModuleMaterial || target.Kind == ModuleProduct) {
+			outputTargets[source.ID] = append(outputTargets[source.ID], target)
+		}
+	}
+
+	for _, node := range workflow.Nodes {
+		module := moduleForNode(node, 2)
+		for _, port := range module.Inputs {
+			if port.Required && connectedInputs[node.ID+"\x00"+port.ID] == 0 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: port.ID, Code: "missing_data_source", Message: port.Label + "需要连接一个数据来源"})
+			}
+		}
+		if node.Kind == ModuleBOM {
+			if connectedInputs[node.ID+"\x00components"] == 0 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "components", Code: "missing_data_source", Message: "BOM组装至少需要连接一个配方物料或商品规格"})
+			}
+			if len(outputTargets[node.ID]) != 1 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "assembly", Code: "bom_output_required", Message: "BOM组装需要连接一个产出物料或商品"})
+			} else if stringValue(node.Config["output_type"]) != string(outputTargets[node.ID][0].Kind) {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "output_type", Code: "output_type_mismatch", Message: "BOM产出类型必须与连接的物料或商品一致"})
+			}
+			if connectedInputs[node.ID+"\x00route"] == 0 && positiveNumber(node.Config["route_id"]) == 0 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "route", Code: "route_required", Message: "请连接工艺路线或在模板中选择默认路线"})
+			}
+			if connectedInputs[node.ID+"\x00route"] > 1 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "route", Code: "multiple_routes", Message: "一个 BOM 只能连接一条工艺路线"})
+			}
+		}
+		if (node.Kind == ModuleMaterial || node.Kind == ModuleProduct) && stringValue(node.Config["data_role"]) == "output" && connectedInputs[node.ID+"\x00from_bom"] != 1 {
+			issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "from_bom", Code: "output_bom_required", Message: "产出对象需要且只能连接一个 BOM组装"})
 		}
 	}
 	if _, err := topologicalOrder(workflow); err != nil && !hasValidationCode(issues, "cycle") {
