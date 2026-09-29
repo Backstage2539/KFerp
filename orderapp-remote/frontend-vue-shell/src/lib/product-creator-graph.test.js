@@ -110,6 +110,24 @@ test('automatic layout orders a multi-level graph from sources to downstream ste
   assert.ok(x.pack < x.final)
 })
 
+test('automatic layout keeps adjacent columns far enough apart to expose connection handles', () => {
+  const nodes = ['material', 'process', 'bom', 'output'].map((id) => ({
+    id,
+    position: { x: 0, y: 0 },
+    data: { label: id },
+  }))
+  const edges = [
+    { source: 'material', target: 'bom' },
+    { source: 'process', target: 'bom' },
+    { source: 'bom', target: 'output' },
+  ]
+
+  const layout = autoLayout(nodes, edges)
+  const x = Object.fromEntries(layout.map((node) => [node.id, node.position.x]))
+  assert.ok(x.bom - x.material >= 300, 'source and BOM cards must not overlap across the input handles')
+  assert.ok(x.output - x.bom >= 300, 'BOM and output cards must not overlap across the output handles')
+})
+
 test('BOM workflow graph renders material sources before assembly and BOM output on generated objects', () => {
   const workflow = {
     version: 2,

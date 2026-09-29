@@ -155,7 +155,7 @@ export function makeEdgeId() {
   return globalThis.crypto?.randomUUID?.() || `edge-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-export function autoLayout(nodes, edges, { xGap = 205, yGap = 156, left = 90, top = 70 } = {}) {
+export function autoLayout(nodes, edges, { xGap = 320, yGap = 156, left = 90, top = 70 } = {}) {
   const incoming = new Map(nodes.map((node) => [node.id, 0]))
   const outgoing = new Map(nodes.map((node) => [node.id, []]))
   for (const edge of edges) {
