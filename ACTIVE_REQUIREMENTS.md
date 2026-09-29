@@ -1,15 +1,16 @@
 # ACTIVE_REQUIREMENTS
 
 ### PR-675-PRODUCT-CREATOR-VARIABLES-INPUTS
-- Branch: `codex/product-creator-template-tuning`; follow-up layout fix `codex/product-creator-bom-port-layout` based on `origin/develop@62788eaa992c8ed54d9ecbe3a5496cb60e13696a`.
+- Integration: follow-up PRs #159 and #160; final development commit `7ebfbe2a154c6ecd3045f0efd0e041d5d5accef9`.
 - Owner/session: Codex / Van / 2026-09-29.
-- Status: implementation and deployment complete; business acceptance in progress. Follow-up fix removes auto-arrange card overlap that obscured BOM recipe input handles.
+- Status: implementation, automated verification, development deployment, and template-driven product creation complete; Van business acceptance pending.
 - Scope: template-scoped naming variables, editable runtime defaults, dynamic multiple BOM recipe inputs, neutral unclassified objects, and responsive/consistent creator forms.
 - DEV: DEV-675-PC-GRAPH-V3; DEV-675-PC-NAME-VARIABLES; DEV-675-PC-BOM-INPUTS; DEV-675-PC-RUN-UX; DEV-675-PC-DOCS-DELIVERY.
-- Verifier: RED/GREEN Go application/repository/API and Vue graph/variable tests; PostgreSQL persistence tests; Vue build; browser interaction/responsive check; docs acceptance.
+- Verifier: RED/GREEN Go application/repository/API and Vue graph/variable tests; PostgreSQL persistence tests; 1,281 Vue shell tests; Vite build; full development deployment gates; browser template run, product/material archive and operation-log checks. The specified 1440/1024/768 viewport sweep remains for acceptance.
 - Manuals: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`.
-- Deployment: development requested; production excluded.
-- Last update: 2026-09-30; auto-arrange spacing fix RED/GREEN complete, waiting for merge/deployment and browser business acceptance.
+- Deployment: development `7ebfbe2a154c6ecd3045f0efd0e041d5d5accef9` from PR #160 deployed 2026-09-30; production and WeChat publication excluded.
+- Example: template #3 V1, `商品创建器V3验收模板-变量多物料-20260930`; run #12 created product 1097 / SKU-001097, materials PC-MAT-CBA341FD5EE2C51A, PC-MAT-E809A09BADB913E9, PC-MAT-10D47433BE655671, and published BOMs 49660/49661. Business acceptance remains with Van.
+- Last update: 2026-09-30.
 
 ### PR-674-PRICE-TABLE-EDITOR-TABS
 - Branch: `codex/price-table-tabs-20260929`; base `origin/develop@7d12711d`.
