@@ -433,7 +433,7 @@ import {
 
 const nodeTypes = { business: markRaw(ProductCreatorNode) }
 const edgeDefaults = { type: 'smoothstep', animated: false, style: { stroke: '#75839b', strokeWidth: 1.4 }, markerEnd: { type: 'arrowclosed', color: '#75839b' } }
-const { fitView, zoomIn, zoomOut, screenToFlowCoordinate, getViewport } = useVueFlow()
+const { fitView, zoomIn, zoomOut, screenToFlowCoordinate, getViewport, addEdges } = useVueFlow()
 const screen = ref('list')
 const loading = ref(false)
 const saving = ref(false)
@@ -876,12 +876,13 @@ function connectNodes(connection) {
   const routedConnection = edgeMode.value === 'prerequisite'
     ? { ...connection, sourceHandle: '__prerequisite', targetHandle: '__prerequisite' }
     : { ...connection, targetHandle: target.data.module.kind === 'bom' && canonicalTarget === 'components' ? recipePortForEdge(edgeID) : connection.targetHandle }
-  edges.value.push({
+  const edge = {
     id: edgeID, ...routedConnection, type: 'smoothstep', label,
     data: { kind: edgeMode.value },
     style: { stroke: color, strokeWidth: edgeMode.value === 'data' ? 1.55 : 1.3, ...(edgeMode.value === 'prerequisite' ? { strokeDasharray: '6 5' } : {}) },
     markerEnd: { type: 'arrowclosed', color },
-  })
+  }
+  addEdges([edge])
   if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && canonicalTarget === 'route') {
     target.data = { ...target.data, config: { ...target.data.config, route_id: 0 } }
   }
