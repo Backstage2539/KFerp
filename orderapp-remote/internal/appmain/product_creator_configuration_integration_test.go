@@ -437,14 +437,13 @@ func TestProductCreatorBOMCentricCommitsMaterialThenMultiSpecProduct(t *testing.
 		t.Fatal(err)
 	}
 
-	workflow := creatorapp.Workflow{Version: 2, Nodes: []creatorapp.Node{
+	workflow := creatorapp.Workflow{Version: 3, Variables: []creatorapp.WorkflowVariable{{ID: "product-name", Name: "商品名称", DefaultValue: "坚果风味拼配咖啡"}}, Nodes: []creatorapp.Node{
 		{ID: "raw", Kind: creatorapp.ModuleMaterial, Config: map[string]any{"data_role": "input"}},
 		{ID: "semi-bom", Kind: creatorapp.ModuleBOM, Config: map[string]any{
 			"output_type": "material", "output_qty": 10.0, "output_unit": "kg", "route_id": float64(0), "material_loss_rate": 0.04,
-			"fixed_fields": []any{"output_qty", "components"},
-			"components":   []any{map[string]any{"row_id": "raw-default", "source_node_id": "raw", "quantity": 100.0, "unit": "ratio_pct"}},
+			"components": []any{map[string]any{"row_id": "raw-default", "source_node_id": "raw", "quantity": 100.0, "unit": "ratio_pct"}},
 		}},
-		{ID: "semi", Kind: creatorapp.ModuleMaterial, Config: map[string]any{"data_role": "output", "object_action": "create", "name_pattern": "{{商品名称}} 半成品", "kind": "other", "supply_mode": "manufacture"}},
+		{ID: "semi", Kind: creatorapp.ModuleMaterial, Config: map[string]any{"data_role": "output", "object_action": "create", "name_parts": []any{map[string]any{"type": "variable", "variable_id": "product-name"}, map[string]any{"type": "text", "value": " 半成品"}}, "supply_mode": "manufacture"}},
 		{ID: "roast-route", Kind: creatorapp.ModuleProcess, Config: map[string]any{"route_id": roastRouteID}},
 		{ID: "pack", Kind: creatorapp.ModuleMaterial, Config: map[string]any{"data_role": "input"}},
 		{ID: "finished-bom", Kind: creatorapp.ModuleBOM, Config: map[string]any{
@@ -455,7 +454,7 @@ func TestProductCreatorBOMCentricCommitsMaterialThenMultiSpecProduct(t *testing.
 				map[string]any{"row_id": "pack-default", "source_node_id": "pack", "quantity": 1.0, "unit": "个"},
 			},
 		}},
-		{ID: "product", Kind: creatorapp.ModuleProduct, Config: map[string]any{"data_role": "output", "object_action": "create", "product_kind": "generic", "owner": "factory"}},
+		{ID: "product", Kind: creatorapp.ModuleProduct, Config: map[string]any{"data_role": "output", "object_action": "create", "name_parts": []any{map[string]any{"type": "variable", "variable_id": "product-name"}}, "owner": "factory"}},
 		{ID: "pack-route", Kind: creatorapp.ModuleProcess, Config: map[string]any{"route_id": packRouteID}},
 	}, Edges: []creatorapp.Edge{
 		productCreatorEdge("raw-to-semi", "raw", "material", "semi-bom", "components"),
@@ -484,20 +483,23 @@ func TestProductCreatorBOMCentricCommitsMaterialThenMultiSpecProduct(t *testing.
 	}
 	inputs := map[string]map[string]any{
 		"raw":         {"rows": []any{map[string]any{"row_id": "raw-row", "name": "浅焙拼配原料", "action": "create", "kind": "bean", "supply_mode": "purchase", "unit": "kg", "owner_type": "factory"}}},
-		"semi-bom":    {"output_qty": 99.0, "output_unit": "kg", "material_loss_rate": 0.04, "components": []any{map[string]any{"row_id": "raw-run", "source_node_id": "raw", "source_row_id": "raw-row", "quantity": 12.0, "unit": "kg"}}},
-		"semi":        {"action": "create", "name": "", "kind": "other", "supply_mode": "manufacture", "owner_type": "factory"},
+		"semi-bom":    {"output_qty": 12.0, "output_unit": "kg", "material_loss_rate": 0.04, "components": []any{map[string]any{"row_id": "raw-run", "source_node_id": "raw", "source_row_id": "raw-row", "quantity": 100.0, "unit": "ratio_pct"}}},
+		"semi":        {"action": "create", "name": "", "name_mode": "automatic", "kind": "bean", "supply_mode": "manufacture", "owner_type": "factory"},
 		"roast-route": {"route_id": roastRouteID},
 		"pack":        {"rows": []any{map[string]any{"row_id": "pack-row", "name": "复合铝箔袋", "action": "create", "kind": "pack", "supply_mode": "purchase", "unit": "个", "owner_type": "factory"}}},
 		"finished-bom": {"output_qty": 1.0, "variants": []any{productCreatorVariant("bag-200", "200g", "袋", true), productCreatorVariant("bag-500", "500g", "袋", false)}, "components": []any{
 			productCreatorComponent("semi-200", "semi", "output", "bag-200", 0.2, "kg"), productCreatorComponent("pack-200", "pack", "pack-row", "bag-200", 1, "个"),
 			productCreatorComponent("semi-500", "semi", "output", "bag-500", 0.5, "kg"), productCreatorComponent("pack-500", "pack", "pack-row", "bag-500", 1, "个"),
 		}},
-		"product":    {"name": "坚果风味拼配咖啡", "action": "create", "product_kind": "generic", "owner": "factory"},
+		"product":    {"name": "", "name_mode": "automatic", "action": "create", "product_kind": "roasted", "owner": "factory"},
 		"pack-route": {"route_id": packRouteID},
 	}
-	run, err = creatorSvc.SaveRunInputs(ctx, run.ID, run.Revision, inputs, "integration-test")
+	run, err = creatorSvc.SaveRunDraft(ctx, run.ID, run.Revision, inputs, map[string]string{"product-name": "坚果风味拼配咖啡"}, "integration-test")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if run.VariableValues["product-name"] != "坚果风味拼配咖啡" || run.Inputs["semi"]["name"] != "坚果风味拼配咖啡半成品" || run.Inputs["product"]["name"] != "坚果风味拼配咖啡" {
+		t.Fatalf("V3 draft must persist one shared variable and resolve both output names: version=%d semi_parts=%#v product_parts=%#v vars=%v semi=%v product=%v", run.Workflow.Version, run.Workflow.Nodes[2].Config["name_parts"], run.Workflow.Nodes[6].Config["name_parts"], run.VariableValues, run.Inputs["semi"], run.Inputs["product"])
 	}
 	countsBefore, err := productCreatorBusinessCounts(ctx, pool, schema)
 	if err != nil {
@@ -540,7 +542,7 @@ func TestProductCreatorBOMCentricCommitsMaterialThenMultiSpecProduct(t *testing.
 	if materialCount != 3 || productCount != 1 || bomCount != 2 {
 		t.Fatalf("created material/product/BOM counts=%d/%d/%d, want 3/1/2", materialCount, productCount, bomCount)
 	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE name='坚果风味拼配咖啡 半成品'`, schema)).Scan(&semiID); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE name='坚果风味拼配咖啡半成品'`, schema)).Scan(&semiID); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.products WHERE name='坚果风味拼配咖啡'`, schema)).Scan(&productID); err != nil {
@@ -552,8 +554,19 @@ func TestProductCreatorBOMCentricCommitsMaterialThenMultiSpecProduct(t *testing.
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT version.output_qty,version.output_unit,version.material_loss_rate,version.process_route_id,version.status FROM %s.production_boms bom JOIN %s.production_bom_versions version ON version.bom_id=bom.id WHERE bom.output_type='material' AND bom.output_material_id=$1`, schema, schema), semiID).Scan(&semiQty, &semiUnit, &semiLoss, &semiRoute, &semiStatus); err != nil {
 		t.Fatal(err)
 	}
-	if semiQty != 10 || semiUnit != "kg" || semiLoss != 0.04 || semiRoute != roastRouteID || semiStatus != "published" {
+	if semiQty != 12 || semiUnit != "kg" || semiLoss != 0.04 || semiRoute != roastRouteID || semiStatus != "published" {
 		t.Fatalf("semi BOM qty/unit/loss/route/status=%v/%s/%v/%d/%s", semiQty, semiUnit, semiLoss, semiRoute, semiStatus)
+	}
+	var materialKinds int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.materials WHERE kind <> 'other'`, schema)).Scan(&materialKinds); err != nil {
+		t.Fatal(err)
+	}
+	var productKind string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT product_kind FROM %s.products WHERE id=$1`, schema), productID).Scan(&productKind); err != nil {
+		t.Fatal(err)
+	}
+	if materialKinds != 0 || productKind != "generic" {
+		t.Fatalf("V3 forged category values should resolve to neutral defaults: nonneutral_materials=%d product_kind=%q", materialKinds, productKind)
 	}
 	var variantCount, defaultVariantCount, finishedRouteCount, productDefaultBindingCount, semiDefaultBindingCount int
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*),COUNT(*) FILTER (WHERE variant.is_default) FROM %s.production_boms bom JOIN %s.production_bom_versions version ON version.bom_id=bom.id AND version.status='published' JOIN %s.production_bom_version_variants variant ON variant.version_id=version.id WHERE bom.output_type='product' AND bom.output_product_id=$1`, schema, schema, schema), productID).Scan(&variantCount, &defaultVariantCount); err != nil {

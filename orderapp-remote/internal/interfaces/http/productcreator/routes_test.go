@@ -88,6 +88,13 @@ func (r *memoryRepository) SaveRunInputs(_ context.Context, id, revision int64, 
 	r.run.Inputs, r.run.Revision = inputs, r.run.Revision+1
 	return r.run, nil
 }
+func (r *memoryRepository) SaveRunDraft(_ context.Context, id, revision int64, inputs map[string]map[string]any, variables map[string]string, _ string) (app.Run, error) {
+	if id != r.run.ID || revision != r.run.Revision {
+		return app.Run{}, app.ErrConflict
+	}
+	r.run.Inputs, r.run.VariableValues, r.run.Revision = inputs, variables, r.run.Revision+1
+	return r.run, nil
+}
 func (r *memoryRepository) SaveRunPreview(_ context.Context, id, revision int64, preview app.RunPreview, _ string) (app.Run, error) {
 	if id != r.run.ID || revision != r.run.Revision {
 		return app.Run{}, app.ErrConflict
@@ -113,10 +120,10 @@ func TestProductCreatorModuleCatalogAndTemplateLifecycleAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Modules) != 12 {
-		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules", len(catalog.Modules))
+	if len(catalog.Modules) != 17 {
+		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules for versions 2 and 3", len(catalog.Modules))
 	}
-	var legacyModules, bomCentricModules int
+	var legacyModules, bomCentricModules, variableModules int
 	var foundLegacyBOM, foundBOMCentricBOM bool
 	for _, module := range catalog.Modules {
 		if module.WorkflowVersion == 1 {
@@ -131,9 +138,19 @@ func TestProductCreatorModuleCatalogAndTemplateLifecycleAPI(t *testing.T) {
 				foundBOMCentricBOM = len(module.Inputs) == 2 && len(module.Outputs) == 1 && module.Category == "动作" && module.PaletteVisible
 			}
 		}
+		if module.WorkflowVersion == 3 {
+			variableModules++
+			if module.Kind == app.ModuleProduct || module.Kind == app.ModuleMaterial {
+				for _, field := range module.Fields {
+					if field.Key == "kind" || field.Key == "product_kind" {
+						t.Fatalf("V3 module %q exposes removed category field %q", module.Kind, field.Key)
+					}
+				}
+			}
+		}
 	}
-	if legacyModules != 7 || bomCentricModules != 5 || !foundLegacyBOM || !foundBOMCentricBOM {
-		t.Fatalf("catalog versions legacy=%d bom-centric=%d legacy BOM=%t BOM-centric BOM=%t", legacyModules, bomCentricModules, foundLegacyBOM, foundBOMCentricBOM)
+	if legacyModules != 7 || bomCentricModules != 5 || variableModules != 5 || !foundLegacyBOM || !foundBOMCentricBOM {
+		t.Fatalf("catalog versions legacy=%d bom-centric=%d variable=%d legacy BOM=%t BOM-centric BOM=%t", legacyModules, bomCentricModules, variableModules, foundLegacyBOM, foundBOMCentricBOM)
 	}
 
 	rec = httptest.NewRecorder()

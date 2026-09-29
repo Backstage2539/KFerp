@@ -186,13 +186,14 @@ func RegisterRoutes(e *echo.Echo, dependencies Dependencies) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid run id"})
 		}
 		var request struct {
-			Revision int64                     `json:"revision"`
-			Inputs   map[string]map[string]any `json:"inputs"`
+			Revision       int64                     `json:"revision"`
+			Inputs         map[string]map[string]any `json:"inputs"`
+			VariableValues map[string]string         `json:"variable_values"`
 		}
 		if err := c.Bind(&request); err != nil || request.Revision <= 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "revision and inputs required"})
 		}
-		row, err := service.SaveRunInputs(c.Request().Context(), id, request.Revision, request.Inputs, support.ActorOf(c))
+		row, err := service.SaveRunDraft(c.Request().Context(), id, request.Revision, request.Inputs, request.VariableValues, support.ActorOf(c))
 		if err != nil {
 			return productCreatorError(c, err)
 		}

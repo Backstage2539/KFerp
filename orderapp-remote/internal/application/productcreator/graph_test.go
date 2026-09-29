@@ -1,6 +1,7 @@
 package productcreator
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -288,8 +289,17 @@ func TestBOMTemplateCatalogSeparatesReusableDataAndActions(t *testing.T) {
 			}
 		}
 	}
-	if counts["数据类型"] != 3 || counts["动作"] != 2 {
-		t.Fatalf("visible module groups=%v, want 3 data types and 2 actions", counts)
+	if counts["数据类型"] != 6 || counts["动作"] != 4 {
+		t.Fatalf("visible module groups=%v, want three data types and two actions for workflow versions 2 and 3", counts)
+	}
+	for _, module := range ModuleCatalog() {
+		if module.WorkflowVersion == 3 {
+			for _, field := range module.Fields {
+				if field.Key == "kind" || field.Key == "product_kind" {
+					t.Fatalf("V3 module %q still exposes industry category field %q", module.Kind, field.Key)
+				}
+			}
+		}
 	}
 }
 
@@ -318,6 +328,32 @@ func TestBOMCentricWorkflowSupportsInputToAssemblyToGeneratedMaterial(t *testing
 	order, err := TopologicalOrder(workflow)
 	if err != nil || len(order) != len(workflow.Nodes) {
 		t.Fatalf("topological order = %v, %v", order, err)
+	}
+}
+
+func TestV3BOMWorkflowSupportsManyStableRecipeInputsAndOneRoute(t *testing.T) {
+	nodes := []Node{
+		{ID: "route", Kind: ModuleProcess, Config: map[string]any{"route_id": 7}},
+		{ID: "bom", Kind: ModuleBOM, Config: map[string]any{"output_type": "material", "output_qty": 1, "output_unit": "kg"}},
+		{ID: "output", Kind: ModuleMaterial, Config: map[string]any{"data_role": "output", "object_action": "create", "unit": "kg"}},
+	}
+	edges := []Edge{dataEdge("route-edge", "route", "route", "bom", "route"), dataEdge("output-edge", "bom", "assembly", "output", "from_bom")}
+	for index := 1; index <= 4; index++ {
+		sourceID := fmt.Sprintf("input-%d", index)
+		nodes = append(nodes, Node{ID: sourceID, Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}})
+		edges = append(edges, dataEdge(fmt.Sprintf("recipe-%d", index), sourceID, "material", "bom", "components"))
+	}
+	workflow := Workflow{Version: 3, Variables: []WorkflowVariable{{ID: "product-name", Name: "商品名称"}}, Nodes: nodes, Edges: edges}
+	if issues := ValidateWorkflow(workflow); len(issues) != 0 {
+		t.Fatalf("V3 BOM with four distinct recipe inputs and one route should validate: %+v", issues)
+	}
+	workflow.Edges = append(workflow.Edges, dataEdge("duplicate-recipe", "input-1", "material", "bom", "components"))
+	if issues := ValidateWorkflow(workflow); !hasIssue(issues, "duplicate_recipe_source") {
+		t.Fatalf("duplicate source connections should be rejected: %+v", issues)
+	}
+	workflow.Edges[len(workflow.Edges)-1].ID = ""
+	if issues := ValidateWorkflow(workflow); !hasIssue(issues, "missing_edge_id") {
+		t.Fatalf("V3 edge identity must be stable: %+v", issues)
 	}
 }
 

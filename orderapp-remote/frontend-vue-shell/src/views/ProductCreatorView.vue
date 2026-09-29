@@ -142,9 +142,12 @@
             <button type="button" aria-label="放大" title="放大" @click="zoomIn"><IconPlus :size="18" /></button>
             <i></i>
             <button type="button" @click="autoArrange"><IconWand :size="17" /> 自动整理</button>
+            <button v-if="templateWorkflowVersion >= 3" type="button" @click="variableManagerOpen = true">变量 · {{ workflowVariables.length }}</button>
             <button v-if="selectedNode" type="button" class="pc-delete-selection" @click="deleteSelected"><IconTrash :size="17" /> 删除</button>
           </div>
         </div>
+
+        <div v-if="templateWorkflowVersion >= 3 && workflowUpgradeNotice" class="pc-upgrade-notice">旧模板已转换为 V3 草稿。历史发布版本和运行记录保持原样；保存或发布后才会应用新版变量与字段规则。</div>
 
         <aside class="pc-node-inspector">
           <template v-if="selectedNode">
@@ -188,31 +191,38 @@
                   <option value="create">自动生成新档案</option>
                   <option value="reuse">使用时选择已有档案</option>
                 </select>
-                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('action')" @change="setFieldEditable('action', $event.target.checked)" /> 使用时允许修改</label>
                 <label class="pc-field-label">命名默认值</label>
-                <input class="pc-control" :value="selectedNode.data.config.name_pattern || ''" placeholder="例如：{{商品名称}} 半成品" @input="updateNodeConfig({ name_pattern: $event.target.value })" />
-                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('name')" @change="setFieldEditable('name', $event.target.checked)" /> 使用时允许修改名称</label>
+                <div class="pc-name-parts-editor">
+                  <template v-for="(part, index) in selectedNameParts" :key="`${selectedNode.id}-${index}`">
+                    <span v-if="part.type === 'variable'" class="pc-name-variable-chip">{{ variableName(part.variable_id) }}<button type="button" :aria-label="`移除变量${variableName(part.variable_id)}`" @click="removeNamePart(index)"><IconX :size="13" /></button></span>
+                    <input v-else class="pc-control pc-name-literal" :value="part.value" placeholder="固定文字" @change="updateNamePart(index, { value: $event.target.value })" />
+                  </template>
+                  <button class="pc-text-action" type="button" @click="appendNameText"><IconPlus :size="14" />固定文字</button>
+                </div>
+                <div class="pc-variable-picker">
+                  <input v-model="variablePickerQuery" class="pc-control" placeholder="搜索或新建命名变量" />
+                  <button v-for="variable in filteredNameVariables" :key="variable.id" class="pc-variable-option" type="button" @click="appendNameVariable(variable.id)">{{ variable.name }}</button>
+                  <button v-if="variablePickerQuery.trim() && !filteredNameVariables.some((variable) => variable.name.toLocaleLowerCase() === variablePickerQuery.trim().toLocaleLowerCase())" class="pc-variable-option create" type="button" @click="createAndAppendVariable">＋ 新建“{{ variablePickerQuery.trim() }}”</button>
+                </div>
+                <p class="pc-muted">使用时填写变量，名称会自动生成；填写者仍可直接修改名称。</p>
                 <template v-if="selectedNode.data.module.kind === 'material'">
                   <p class="pc-muted">库存单位由连接的 BOM 产出单位带入，物料档案保持一个规格。</p>
-                  <label class="pc-field-label">物料类别与取得方式</label>
+                  <label v-if="templateWorkflowVersion < 3" class="pc-field-label">物料类别与取得方式</label>
                   <div class="pc-inline-controls">
-                    <select class="pc-control" :value="selectedNode.data.config.kind || 'other'" @change="updateNodeConfig({ kind: $event.target.value })"><option value="other">通用物料（含半成品）</option><option value="pack">包装物料</option><option value="bean">原料</option></select>
+                    <select v-if="templateWorkflowVersion < 3" class="pc-control" :value="selectedNode.data.config.kind || 'other'" @change="updateNodeConfig({ kind: $event.target.value })"><option value="other">通用物料（含半成品）</option><option value="pack">包装物料</option><option value="bean">原料</option></select>
                     <select class="pc-control" :value="selectedNode.data.config.supply_mode || 'manufacture'" @change="updateNodeConfig({ supply_mode: $event.target.value })"><option value="manufacture">自制</option><option value="purchase">外购</option></select>
                   </div>
-                  <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('kind')" @change="setFieldEditable('kind', $event.target.checked)" /> 使用时允许修改物料类别</label>
-                  <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('supply_mode')" @change="setFieldEditable('supply_mode', $event.target.checked)" /> 使用时允许修改取得方式</label>
+                  <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('kind')" @change="setFieldEditable('kind', $event.target.checked)" /> 使用时允许修改物料类别</label>
+                  <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('supply_mode')" @change="setFieldEditable('supply_mode', $event.target.checked)" /> 使用时允许修改取得方式</label>
                 </template>
                 <template v-else>
-                  <label class="pc-field-label">默认商品类型</label>
-                  <select class="pc-control" :value="selectedNode.data.config.product_kind || 'generic'" @change="updateNodeConfig({ product_kind: $event.target.value })"><option value="generic">通用商品／装配件</option><option value="roasted">熟豆</option><option value="green_bean">生豆</option><option value="drip_bag">挂耳</option><option value="instant_coffee">速溶咖啡</option></select>
-                  <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('product_kind')" @change="setFieldEditable('product_kind', $event.target.checked)" /> 使用时允许修改商品类型</label>
                   <label class="pc-field-label">默认归属</label>
                   <select class="pc-control" :value="selectedNode.data.config.owner || 'factory'" @change="updateNodeConfig({ owner: $event.target.value })"><option value="factory">本公司</option><option value="customer">客户</option></select>
-                  <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('owner')" @change="setFieldEditable('owner', $event.target.checked)" /> 使用时允许修改归属</label>
+                  <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('owner')" @change="setFieldEditable('owner', $event.target.checked)" /> 使用时允许修改归属</label>
                   <template v-if="selectedNode.data.config.owner === 'customer'">
                     <label class="pc-field-label">默认归属客户</label>
                     <select class="pc-control" :value="selectedNode.data.config.customer_id || 0" @change="updateNodeConfig({ customer_id: Number($event.target.value) })"><option :value="0">由使用者选择</option><option v-for="customer in customerOptions" :key="customer.id" :value="customer.id">{{ customer.name }}</option></select>
-                    <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('customer_id')" @change="setFieldEditable('customer_id', $event.target.checked)" /> 使用时允许更换客户</label>
+                    <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('customer_id')" @change="setFieldEditable('customer_id', $event.target.checked)" /> 使用时允许更换客户</label>
                   </template>
                   <p class="pc-muted">商品规格与默认规格由连接的 BOM 一处维护，并随 BOM 一起发布。</p>
                 </template>
@@ -222,7 +232,7 @@
               <h3>工艺默认配置</h3>
               <label class="pc-field-label">有效工艺路线</label>
               <select class="pc-control" :value="selectedNode.data.config.route_id || 0" @change="updateNodeConfig({ route_id: Number($event.target.value) })"><option :value="0">选择有效工艺路线</option><option v-for="route in processOptions" :key="route.id" :value="route.id">{{ route.name || route.route_name }}</option></select>
-              <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('route_id')" @change="setFieldEditable('route_id', $event.target.checked)" /> 使用时允许更换路线</label>
+              <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('route_id')" @change="setFieldEditable('route_id', $event.target.checked)" /> 使用时允许更换路线</label>
             </section>
             <section v-if="templateWorkflowVersion >= 2 && selectedNode.data.module.kind === 'bom'" class="pc-inspector-section">
               <h3>BOM 默认配置</h3>
@@ -230,15 +240,15 @@
               <select class="pc-control" :value="selectedNode.data.config.output_type || 'material'" @change="changeBOMOutputType($event.target.value)"><option value="material">物料／半成品</option><option value="product">成品商品</option></select>
               <div class="pc-inline-controls">
                 <label class="pc-field-label">产出数量<input class="pc-control" type="number" min="0.001" step="0.001" :value="selectedNode.data.config.output_qty ?? 1" @input="updateNodeConfig({ output_qty: Number($event.target.value) })" /></label>
-                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('output_qty')" @change="setFieldEditable('output_qty', $event.target.checked)" /> 使用时允许调整</label>
+                <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('output_qty')" @change="setFieldEditable('output_qty', $event.target.checked)" /> 使用时允许调整</label>
                 <label class="pc-field-label">产出单位<select class="pc-control" :value="selectedNode.data.config.output_unit || ''" @change="updateNodeConfig({ output_unit: $event.target.value })"><option value="">按产出物料或默认规格</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.label || unit.code }}</option></select></label>
-                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('output_unit')" @change="setFieldEditable('output_unit', $event.target.checked)" /> 使用时允许调整</label>
+                <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('output_unit')" @change="setFieldEditable('output_unit', $event.target.checked)" /> 使用时允许调整</label>
               </div>
               <label class="pc-field-label">默认工艺路线</label>
               <select class="pc-control" :value="selectedNode.data.config.route_id || 0" :disabled="hasIncomingRoute(selectedNode.id)" @change="updateNodeConfig({ route_id: Number($event.target.value) })"><option :value="0">优先使用连线工艺</option><option v-for="route in processOptions" :key="route.id" :value="route.id">{{ route.name }}</option></select>
-              <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('route_id')" @change="setFieldEditable('route_id', $event.target.checked)" /> 使用时允许调整工艺</label>
+              <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('route_id')" @change="setFieldEditable('route_id', $event.target.checked)" /> 使用时允许调整工艺</label>
               <label class="pc-field-label">物料损耗率 %<input class="pc-control" type="number" min="0" max="99.99" step="0.01" :value="Number(selectedNode.data.config.material_loss_rate || 0) * 100" @input="updateNodeConfig({ material_loss_rate: Number($event.target.value || 0) / 100 })" /></label>
-              <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('material_loss_rate')" @change="setFieldEditable('material_loss_rate', $event.target.checked)" /> 使用时允许调整损耗</label>
+              <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('material_loss_rate')" @change="setFieldEditable('material_loss_rate', $event.target.checked)" /> 使用时允许调整损耗</label>
               <template v-if="selectedNode.data.config.output_type === 'product'">
                 <h3>商品规格</h3>
                 <div v-for="variant in selectedVariants" :key="variant.row_id" class="pc-variant-row">
@@ -248,16 +258,15 @@
                   <button class="pc-icon-button danger" type="button" aria-label="删除规格" @click="removeVariant(variant.row_id)"><IconTrash :size="16" /></button>
                 </div>
                 <button class="pc-text-action" type="button" @click="addVariant"><IconPlus :size="16" /> 添加规格</button>
-                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('variants')" @change="setFieldEditable('variants', $event.target.checked)" /> 使用时允许调整规格</label>
+                <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('variants')" @change="setFieldEditable('variants', $event.target.checked)" /> 使用时允许调整规格</label>
               </template>
               <template v-if="selectedNode.data.config.components?.length">
                 <h3>配方默认值</h3>
                 <div v-for="component in selectedBOMComponents" :key="component.row_id" class="pc-template-component-row">
                   <strong>{{ nodeName(component.source_node_id) }}</strong>
-                  <label><span>默认用量</span><input class="pc-control" type="number" min="0" step="0.001" :value="component.quantity" placeholder="使用时填写" @input="updateBOMComponent(component.row_id, { quantity: Number($event.target.value || 0) })" /></label>
-                  <label><span>消耗单位</span><select class="pc-control" :value="component.unit || ''" @change="updateBOMComponent(component.row_id, { unit: $event.target.value })"><option value="">使用时选择</option><option value="ratio_pct">比例 %</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.label || unit.code }}</option></select></label>
+                  <div><label><span>默认用量</span><input class="pc-control" type="number" min="0" step="0.001" :value="component.quantity" placeholder="使用时填写" @input="updateBOMComponent(component.row_id, { quantity: Number($event.target.value || 0) })" /></label><label><span>消耗单位</span><select class="pc-control" :value="component.unit || ''" @change="updateBOMComponent(component.row_id, { unit: $event.target.value })"><option value="">使用时选择</option><option value="ratio_pct">比例 %</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.label || unit.code }}</option></select></label></div>
                 </div>
-                <label class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('components')" @change="setFieldEditable('components', $event.target.checked)" /> 使用时允许调整配方行、用量和单位</label>
+                <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('components')" @change="setFieldEditable('components', $event.target.checked)" /> 使用时允许调整配方行、用量和单位</label>
               </template>
             </section>
             <section v-if="templateWorkflowVersion < 2 && selectedNode.data.module.kind === 'bom'" class="pc-inspector-section">
@@ -321,6 +330,19 @@
           </div>
         </article>
       </div>
+
+      <div v-if="variableManagerOpen" class="pc-modal-backdrop" @click.self="variableManagerOpen = false">
+        <section class="pc-variable-manager" role="dialog" aria-modal="true" aria-labelledby="pc-variable-title">
+          <header><div><h2 id="pc-variable-title">模板命名变量</h2><p>变量在本模板的所有节点共用，每次运行单独填写。</p></div><button class="pc-icon-button" type="button" aria-label="关闭变量管理" @click="variableManagerOpen = false"><IconX :size="18" /></button></header>
+          <div v-if="!workflowVariables.length" class="pc-empty-small">还没有变量。在节点命名配置中可直接创建。</div>
+          <div v-for="variable in workflowVariables" :key="variable.id" class="pc-variable-row">
+            <label><span>变量名称</span><input class="pc-control" :value="variable.name" @change="updateWorkflowVariable(variable.id, { name: $event.target.value })" /></label>
+            <label><span>默认值</span><input class="pc-control" :value="variable.default_value || ''" @change="updateWorkflowVariable(variable.id, { default_value: $event.target.value })" /></label>
+            <div><small>{{ variableReferences(variable.id) || '未被引用' }}</small><button class="pc-icon-button danger" type="button" :disabled="hasVariableReferences(variable.id)" :title="hasVariableReferences(variable.id) ? '先解除节点命名引用后才能删除' : '删除变量'" @click="removeWorkflowVariable(variable.id)"><IconTrash :size="16" /></button></div>
+          </div>
+          <footer><button class="pc-secondary" type="button" @click="addManagedVariable"><IconPlus :size="15" /> 添加变量</button><button class="pc-primary" type="button" @click="variableManagerOpen = false">完成</button></footer>
+        </section>
+      </div>
     </div>
 
     <ProductCreatorRunView
@@ -378,15 +400,18 @@ import {
   appendGraphSnapshot,
   cloneValue,
   autoLayout,
+  canonicalInputPortID,
   connectionIsValid,
   makeEdgeId,
   makeNodeId,
   connectionRoleUpdates,
   moduleFieldLabel,
   moduleForNode,
+  recipePortForEdge,
   toCanvasGraph,
   toWorkflowGraph,
 } from '../lib/product-creator-graph.js'
+import { filterWorkflowVariables, upgradeWorkflowToV3 } from '../lib/product-creator-variables.js'
 import {
   copyProductCreatorTemplate,
   commitProductCreatorRun,
@@ -424,6 +449,10 @@ const historyTemplateId = ref(0)
 const historyLoading = ref(false)
 const templateHistory = ref({})
 const template = ref(emptyTemplate())
+const workflowVariables = ref([])
+const variableManagerOpen = ref(false)
+const workflowUpgradeNotice = ref(false)
+const variablePickerQuery = ref('')
 const run = ref(null)
 const designerTab = ref('flow')
 const nodes = ref([])
@@ -444,6 +473,8 @@ let draggedKind = ''
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) || null)
 const selectedVariants = computed(() => selectedNode.value?.data.config?.variants || [])
 const selectedBOMComponents = computed(() => selectedNode.value?.data.config?.components || [])
+const selectedNameParts = computed(() => selectedNode.value?.data.config?.name_parts || [])
+const filteredNameVariables = computed(() => filterWorkflowVariables(variablePickerQuery.value, workflowVariables.value))
 const templateWorkflowVersion = computed(() => Number(template.value.draft?.version || 1))
 const incomingEdges = computed(() => edges.value.filter((edge) => edge.target === selectedNodeId.value))
 const conditionSources = computed(() => nodes.value.filter((node) => node.id !== selectedNodeId.value))
@@ -455,7 +486,7 @@ const filteredTemplates = computed(() => templates.value.filter((item) => `${ite
 const groupedModules = computed(() => {
   const groups = new Map()
   const available = modules.value.filter((module) => templateWorkflowVersion.value >= 2
-    ? module.palette_visible && Number(module.workflow_version) === 2
+    ? module.palette_visible && Number(module.workflow_version) === templateWorkflowVersion.value
     : Number(module.workflow_version || 1) === 1)
   for (const module of available) {
     if (!groups.has(module.category)) groups.set(module.category, [])
@@ -499,12 +530,14 @@ async function load() {
 }
 
 function emptyTemplate() {
-  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 2, nodes: [], edges: [] } }
+  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 3, variables: [], nodes: [], edges: [] } }
 }
 
 function newTemplate() {
   errorMessage.value = ''
   template.value = emptyTemplate()
+  workflowVariables.value = []
+  workflowUpgradeNotice.value = false
   edgeMode.value = 'data'
   setCanvasGraph({ nodes: [], edges: [] })
   designerTab.value = 'flow'
@@ -515,12 +548,16 @@ function newTemplate() {
 
 function editTemplate(item) {
   errorMessage.value = ''
-  template.value = cloneValue(item)
+  const sourceVersion = Number(item.draft?.version || 1)
+  const upgradedWorkflow = upgradeWorkflowToV3(item.draft || { nodes: [], edges: [] })
+  template.value = { ...cloneValue(item), draft: upgradedWorkflow }
+  workflowVariables.value = cloneValue(upgradedWorkflow.variables || [])
+  workflowUpgradeNotice.value = sourceVersion >= 2 && sourceVersion < 3
   edgeMode.value = 'data'
-  setCanvasGraph(toCanvasGraph(item.draft || { nodes: [], edges: [] }, modules.value))
+  setCanvasGraph(toCanvasGraph(upgradedWorkflow, modules.value))
   designerTab.value = 'flow'
   screen.value = 'designer'
-  dirty.value = false
+  dirty.value = workflowUpgradeNotice.value
   resetHistory()
   nextTick(() => fitView({ padding: 0.22 }))
 }
@@ -546,9 +583,11 @@ async function saveTemplate() {
       revision: template.value.revision,
       name: template.value.name.trim(),
       description: template.value.description || '',
-      workflow: toWorkflowGraph(nodes.value, edges.value, templateWorkflowVersion.value),
+      workflow: toWorkflowGraph(nodes.value, edges.value, templateWorkflowVersion.value, workflowVariables.value),
     })
-    template.value = { ...template.value, ...saved, draft: saved.draft || toWorkflowGraph(nodes.value, edges.value, templateWorkflowVersion.value) }
+    template.value = { ...template.value, ...saved, draft: saved.draft || toWorkflowGraph(nodes.value, edges.value, templateWorkflowVersion.value, workflowVariables.value) }
+    workflowVariables.value = cloneValue(template.value.draft.variables || [])
+    workflowUpgradeNotice.value = false
     dirty.value = false
     await loadTemplatesOnly()
   } catch (error) {
@@ -655,12 +694,18 @@ async function continueRun(record) {
   }
 }
 
-async function saveRunInputs(inputs) {
+function unpackRunDraft(payload) {
+  if (payload && typeof payload === 'object' && payload.inputs) return payload
+  return { inputs: payload || {}, variable_values: null }
+}
+
+async function saveRunInputs(payload) {
   if (!run.value) return
+  const draft = unpackRunDraft(payload)
   saving.value = true
   errorMessage.value = ''
   try {
-    run.value = await saveProductCreatorRunDraft(run.value.id, run.value.revision, inputs)
+    run.value = await saveProductCreatorRunDraft(run.value.id, run.value.revision, draft.inputs, draft.variable_values)
   } catch (error) {
     errorMessage.value = error.message || '草稿保存失败'
   } finally {
@@ -668,12 +713,13 @@ async function saveRunInputs(inputs) {
   }
 }
 
-async function previewRun(inputs) {
+async function previewRun(payload) {
   if (!run.value) return
+  const draft = payload ? unpackRunDraft(payload) : null
   saving.value = true
   errorMessage.value = ''
   try {
-    if (inputs) run.value = await saveProductCreatorRunDraft(run.value.id, run.value.revision, inputs)
+    if (draft) run.value = await saveProductCreatorRunDraft(run.value.id, run.value.revision, draft.inputs, draft.variable_values)
     run.value = await previewProductCreatorRun(run.value.id, run.value.revision)
     if (!run.value.preview?.valid) errorMessage.value = '请根据步骤提示补齐字段后再预览。'
   } catch (error) {
@@ -683,12 +729,13 @@ async function previewRun(inputs) {
   }
 }
 
-async function commitRun(inputs) {
+async function commitRun(payload) {
   if (!run.value) return
+  const draft = payload ? unpackRunDraft(payload) : null
   saving.value = true
   errorMessage.value = ''
   try {
-    if (inputs) run.value = await saveProductCreatorRunDraft(run.value.id, run.value.revision, inputs)
+    if (draft) run.value = await saveProductCreatorRunDraft(run.value.id, run.value.revision, draft.inputs, draft.variable_values)
     run.value = await previewProductCreatorRun(run.value.id, run.value.revision)
     if (!run.value.preview?.valid) {
       errorMessage.value = '请根据步骤提示补齐字段后再提交。'
@@ -782,7 +829,7 @@ function addModule(module, position = null) {
   const config = module.kind === 'material' && templateWorkflowVersion.value >= 2
     ? { data_role: 'input', rows: [] }
     : module.kind === 'product' && templateWorkflowVersion.value >= 2
-      ? { data_role: 'output', object_action: 'create', action: 'create', product_kind: 'generic', owner: 'factory' }
+      ? { data_role: 'output', object_action: 'create', action: 'create', owner: 'factory' }
       : module.kind === 'process' && templateWorkflowVersion.value >= 2
         ? { route_id: 0 }
       : module.kind === 'bom' && templateWorkflowVersion.value >= 2
@@ -798,7 +845,7 @@ function addModule(module, position = null) {
     position: position || { x: 85 + (nodes.value.length % 3) * 230, y: 85 + Math.floor(nodes.value.length / 3) * 185 },
     data: {
       module: resolvedModule,
-      label: module.name,
+      label: module.kind === 'bom' ? `BOM组装 ${count + 1}` : module.name,
       config,
     },
   }
@@ -809,7 +856,7 @@ function addModule(module, position = null) {
 }
 
 function isValidConnection(connection) {
-  return connectionIsValid(connection, nodes.value, modules.value, edgeMode.value)
+  return connectionIsValid(connection, nodes.value, modules.value, edgeMode.value, edges.value)
 }
 
 function connectNodes(connection) {
@@ -820,28 +867,31 @@ function connectNodes(connection) {
   rememberHistory()
   const source = nodes.value.find((node) => node.id === connection.source)
   const target = nodes.value.find((node) => node.id === connection.target)
+  const edgeID = makeEdgeId()
+  const canonicalTarget = canonicalInputPortID(connection.targetHandle)
   const label = edgeMode.value === 'prerequisite'
     ? '等待步骤完成'
-    : `${moduleFieldLabel(source.data.module, connection.sourceHandle)} → ${moduleFieldLabel(target.data.module, connection.targetHandle)}`
+    : `${moduleFieldLabel(source.data.module, connection.sourceHandle)} → ${moduleFieldLabel(target.data.module, canonicalTarget)}`
   const color = edgeMode.value === 'prerequisite' ? '#97a6b9' : '#71829a'
   const routedConnection = edgeMode.value === 'prerequisite'
     ? { ...connection, sourceHandle: '__prerequisite', targetHandle: '__prerequisite' }
-    : connection
+    : { ...connection, targetHandle: target.data.module.kind === 'bom' && canonicalTarget === 'components' ? recipePortForEdge(edgeID) : connection.targetHandle }
   edges.value.push({
-    id: makeEdgeId(), ...routedConnection, type: 'smoothstep', label,
+    id: edgeID, ...routedConnection, type: 'smoothstep', label,
     data: { kind: edgeMode.value },
     style: { stroke: color, strokeWidth: edgeMode.value === 'data' ? 1.55 : 1.3, ...(edgeMode.value === 'prerequisite' ? { strokeDasharray: '6 5' } : {}) },
     markerEnd: { type: 'arrowclosed', color },
   })
-  if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && connection.targetHandle === 'route') {
+  if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && canonicalTarget === 'route') {
     target.data = { ...target.data, config: { ...target.data.config, route_id: 0 } }
   }
-  if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && connection.targetHandle === 'components') {
+  if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && canonicalTarget === 'components') {
     const components = [...(target.data.config.components || [])]
-    if (!components.some((row) => row.source_node_id === source.id)) {
-      components.push({ row_id: makeNodeId(), source_node_id: source.id, quantity: '', unit: '', loss_rate: 0, variant_row_id: '' })
+    if (!components.some((row) => row.source_node_id === source.id && (row.source_handle || 'material') === connection.sourceHandle)) {
+      components.push({ row_id: makeNodeId(), edge_id: edgeID, source_node_id: source.id, source_handle: connection.sourceHandle, quantity: '', unit: '', loss_rate: 0, variant_row_id: '' })
       target.data = { ...target.data, config: { ...target.data.config, components } }
     }
+    refreshRecipeInputs(target.id)
   }
   for (const [nodeId, role] of Object.entries(connectionRoleUpdates(connection, nodes.value, edgeMode.value, edges.value))) {
     const node = nodes.value.find((item) => item.id === nodeId)
@@ -876,6 +926,96 @@ function updateNodeConfig(patch) {
   const config = { ...selectedNode.value.data.config, ...patch }
   const nextModule = moduleForNode({ kind: selectedNode.value.data.module.kind, config }, modules.value, templateWorkflowVersion.value)
   updateSelectedNode({ data: { ...selectedNode.value.data, module: nextModule || selectedNode.value.data.module, config } })
+}
+
+function updateNamePart(index, patch) {
+  const parts = selectedNameParts.value.map((part, partIndex) => partIndex === index ? { ...part, ...patch } : { ...part })
+  updateNodeConfig({ name_parts: parts })
+}
+
+function appendNameText() {
+  updateNodeConfig({ name_parts: [...selectedNameParts.value, { type: 'text', value: '' }] })
+}
+
+function appendNameVariable(variableID) {
+  updateNodeConfig({ name_parts: [...selectedNameParts.value, { type: 'variable', variable_id: variableID }] })
+  variablePickerQuery.value = ''
+}
+
+function removeNamePart(index) {
+  updateNodeConfig({ name_parts: selectedNameParts.value.filter((_, partIndex) => partIndex !== index) })
+}
+
+function variableName(variableID) {
+  return workflowVariables.value.find((variable) => variable.id === variableID)?.name || '缺失变量'
+}
+
+function upsertWorkflowVariable(name, defaultValue = '') {
+  const trimmed = String(name || '').trim()
+  if (!trimmed) return null
+  const existing = workflowVariables.value.find((variable) => variable.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase())
+  if (existing) return existing
+  rememberHistory()
+  const variable = { id: makeNodeId(), name: trimmed, default_value: String(defaultValue || '') }
+  workflowVariables.value = [...workflowVariables.value, variable]
+  finishGraphChange()
+  return variable
+}
+
+function createAndAppendVariable() {
+  const variable = upsertWorkflowVariable(variablePickerQuery.value)
+  if (variable) appendNameVariable(variable.id)
+  variablePickerQuery.value = ''
+}
+
+function addManagedVariable() {
+  const name = window.prompt('变量名称')
+  if (name?.trim()) upsertWorkflowVariable(name)
+}
+
+function updateWorkflowVariable(variableID, patch) {
+  rememberHistory()
+  const nextValue = { ...patch }
+  if (typeof nextValue.name === 'string') {
+    nextValue.name = nextValue.name.trim()
+    if (!nextValue.name || workflowVariables.value.some((variable) => variable.id !== variableID && variable.name.toLocaleLowerCase() === nextValue.name.toLocaleLowerCase())) {
+      errorMessage.value = '变量名称不能为空或与其他变量重复。'
+      return
+    }
+  }
+  workflowVariables.value = workflowVariables.value.map((variable) => variable.id === variableID ? { ...variable, ...nextValue } : variable)
+  finishGraphChange()
+}
+
+function variableReferences(variableID) {
+  return nodes.value.filter((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID)).map((node) => node.data.label).join('、')
+}
+
+function hasVariableReferences(variableID) {
+  return nodes.value.some((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID))
+}
+
+function removeWorkflowVariable(variableID) {
+  if (hasVariableReferences(variableID)) {
+    errorMessage.value = `变量仍被使用：${variableReferences(variableID)}。请先解除这些命名引用。`
+    return
+  }
+  rememberHistory()
+  workflowVariables.value = workflowVariables.value.filter((variable) => variable.id !== variableID)
+  finishGraphChange()
+}
+
+function refreshRecipeInputs(nodeID) {
+  const target = nodes.value.find((node) => node.id === nodeID)
+  if (!target || target.data.module.kind !== 'bom') return
+  const connected = edges.value.filter((edge) => edge.target === nodeID && canonicalInputPortID(edge.targetHandle) === 'components')
+  target.data = { ...target.data, recipeInputs: [
+    ...connected.map((edge) => {
+      const source = nodes.value.find((node) => node.id === edge.source)
+      return { id: edge.targetHandle, label: `${source?.data.label || source?.data.module.name || '配方来源'}${edge.sourceHandle === 'specs' ? ' · 商品规格' : ''}`, edgeId: edge.id }
+    }),
+    { id: 'components:add', label: '＋配方输入', add: true },
+  ] }
 }
 
 function isFieldFixed(key) {
@@ -966,10 +1106,14 @@ function deleteSelected() {
   rememberHistory()
   if (selectedNodeId.value) {
     const deletedID = selectedNodeId.value
+    const removedEdges = edges.value.filter((edge) => edge.source === deletedID || edge.target === deletedID)
     nodes.value = nodes.value.filter((node) => node.id !== deletedID)
     edges.value = edges.value.filter((edge) => edge.source !== deletedID && edge.target !== deletedID)
+    pruneBOMRows(removedEdges)
   } else if (selectedEdgeId.value) {
+    const removedEdges = edges.value.filter((edge) => edge.id === selectedEdgeId.value)
     edges.value = edges.value.filter((edge) => edge.id !== selectedEdgeId.value)
+    pruneBOMRows(removedEdges)
   }
   clearSelection()
   finishGraphChange()
@@ -977,8 +1121,25 @@ function deleteSelected() {
 
 function reconcileDeletedEdges(deletedEdges) {
   const ids = new Set((deletedEdges || []).map((edge) => edge.id))
+  const removed = deletedEdges || []
   edges.value = edges.value.filter((edge) => !ids.has(edge.id))
+  pruneBOMRows(removed)
   finishGraphChange()
+}
+
+function pruneBOMRows(removedEdges) {
+  const byTarget = new Map()
+  for (const edge of removedEdges) {
+    if (canonicalInputPortID(edge.targetHandle) !== 'components') continue
+    byTarget.set(edge.target, [...(byTarget.get(edge.target) || []), edge])
+  }
+  for (const [targetID, edgesToRemove] of byTarget) {
+    const target = nodes.value.find((node) => node.id === targetID)
+    if (!target) continue
+    const edgeIDs = new Set(edgesToRemove.map((edge) => edge.id))
+    target.data = { ...target.data, config: { ...target.data.config, components: (target.data.config.components || []).filter((row) => !edgeIDs.has(row.edge_id) && !edgesToRemove.some((edge) => !row.edge_id && row.source_node_id === edge.source)) } }
+    refreshRecipeInputs(targetID)
+  }
 }
 
 function copySelected() {
@@ -1044,7 +1205,7 @@ function checkGraph() {
   const ids = new Set(nodes.value.map((node) => node.id))
   for (const node of nodes.value) {
     for (const port of node.data.module.inputs || []) {
-      if (port.required && !edges.value.some((edge) => edge.target === node.id && edge.targetHandle === port.id && (edge.data?.kind || 'data') === 'data')) {
+      if (port.required && !edges.value.some((edge) => edge.target === node.id && canonicalInputPortID(edge.targetHandle) === port.id && (edge.data?.kind || 'data') === 'data')) {
         graphIssues.value.push({ node_id: node.id, field: port.id, message: `${port.label}需要连接一个数据来源。` })
       }
     }
@@ -1062,7 +1223,7 @@ function checkGraph() {
     const source = nodes.value.find((node) => node.id === edge.source)
     const target = nodes.value.find((node) => node.id === edge.target)
     const out = source?.data.module.outputs?.find((port) => port.id === edge.sourceHandle)
-    const input = target?.data.module.inputs?.find((port) => port.id === edge.targetHandle)
+    const input = target?.data.module.inputs?.find((port) => port.id === canonicalInputPortID(edge.targetHandle))
     if (!out || !input || !out.types?.some((type) => input.types?.includes(type) || input.types?.includes('*'))) {
       graphIssues.value.push({ node_id: edge.target, edge_id: edge.id, message: '连线两端的数据类型不兼容。' })
     }
@@ -1082,7 +1243,7 @@ function finishGraphChange() {
 }
 
 function graphSnapshot() {
-  return cloneValue({ nodes: nodes.value, edges: edges.value })
+  return cloneValue({ nodes: nodes.value, edges: edges.value, variables: workflowVariables.value })
 }
 
 function rememberHistory() {
@@ -1101,6 +1262,7 @@ function restoreHistory(index) {
   const snapshot = cloneValue(history.value[index])
   nodes.value = snapshot.nodes
   edges.value = snapshot.edges
+  workflowVariables.value = snapshot.variables || []
   historyIndex.value = index
   dirty.value = true
   clearSelection()
@@ -1242,10 +1404,32 @@ function updateZoom() {
 .pc-inspector-module span { margin-top: 3px; color: #728097; font-size: 11px; line-height: 1.4; }
 .pc-field-label { display: block; margin: 12px 0 6px; color: #36455b; font-size: 12px; font-weight: 600; }
 .pc-edit-toggle { display: flex; align-items: center; gap: 6px; margin: 5px 0 9px; color: #78869a; font-size: 10px; font-weight: 500; }
-.pc-template-component-row { display: grid; grid-template-columns: minmax(80px, 1fr) 95px 105px; align-items: end; gap: 6px; margin: 7px 0; }
+.pc-template-component-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; border: 1px solid #edf0f4; border-radius: 7px; margin: 8px 0; padding: 9px; background: #fbfcfd; }
 .pc-template-component-row > strong { align-self: center; overflow: hidden; color: #40516a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.pc-template-component-row > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.pc-template-component-row > div label { display: grid; gap: 4px; min-width: 0; }
 .pc-template-component-row label span { display: block; margin-bottom: 4px; color: #78869a; font-size: 9px; }
 .pc-template-component-row .pc-control { min-height: 32px; padding: 5px 6px; font-size: 10px; }
+.pc-name-parts-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+.pc-name-literal { flex: 1 1 125px; min-width: 100px; }
+.pc-name-variable-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #cbdcf5; border-radius: 14px; padding: 5px 8px; color: #315d98; background: #f0f5ff; font-size: 11px; }
+.pc-name-variable-chip button { display: grid; place-items: center; border: 0; padding: 0; color: inherit; background: transparent; cursor: pointer; }
+.pc-variable-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, max-content)); gap: 5px; margin: 7px 0; }
+.pc-variable-picker > input { grid-column: 1 / -1; }
+.pc-variable-option { border: 1px solid #e0e7f0; border-radius: 5px; padding: 5px 8px; color: #53647d; background: white; text-align: left; font: inherit; font-size: 10px; cursor: pointer; }
+.pc-variable-option.create { color: #226f49; background: #f4fbf6; }
+.pc-upgrade-notice { grid-column: 1 / -1; border: 1px solid #d7e5f4; border-radius: 6px; margin: 0 12px; padding: 8px 11px; color: #526e91; background: #f4f8fd; font-size: 11px; }
+.pc-modal-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: #15223866; }
+.pc-variable-manager { width: min(720px, 100%); max-height: min(80vh, 680px); overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; background: white; box-shadow: 0 18px 55px #15223833; }
+.pc-variable-manager > header, .pc-variable-manager > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pc-variable-manager h2 { margin: 0 0 4px; font-size: 17px; }
+.pc-variable-manager header p { margin: 0; color: #77859a; font-size: 11px; }
+.pc-variable-row { display: grid; grid-template-columns: minmax(140px, .8fr) minmax(160px, 1fr) auto; align-items: end; gap: 10px; border-bottom: 1px solid #eef1f5; padding: 12px 0; }
+.pc-variable-row label { display: grid; gap: 5px; color: #69788e; font-size: 10px; }
+.pc-variable-row > div { display: flex; align-items: center; gap: 8px; }
+.pc-variable-row small { color: #8290a2; font-size: 9px; }
+.pc-variable-manager > footer { justify-content: flex-end; margin-top: 14px; }
+@media (max-width: 620px) { .pc-variable-row { grid-template-columns: 1fr 1fr; } .pc-variable-row > div { grid-column: 1 / -1; justify-content: space-between; } }
 .pc-control { width: 100%; min-height: 35px; border: 1px solid #dbe3ec; border-radius: 6px; padding: 7px 9px; outline: 0; color: #24334a; background: white; font: inherit; font-size: 12px; }
 .pc-control:focus { border-color: #53a878; box-shadow: 0 0 0 2px #ccebd8; }
 .pc-inspector-section { border-top: 1px solid #edf0f4; margin-top: 18px; padding-top: 14px; }

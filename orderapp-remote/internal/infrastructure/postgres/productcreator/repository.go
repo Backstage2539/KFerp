@@ -204,8 +204,16 @@ func (r Repository) StartRun(ctx context.Context, templateID int64, actor string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT workflow FROM %s.business_template_versions WHERE template_id=$1 AND version=$2`, r.schema), templateID, version).Scan(&workflow); err != nil {
 		return app.Run{}, err
 	}
+	var snapshot app.Workflow
+	if err := json.Unmarshal(workflow, &snapshot); err != nil {
+		return app.Run{}, err
+	}
+	variableValues, err := json.Marshal(app.ResolveWorkflowVariableValues(snapshot, nil))
+	if err != nil {
+		return app.Run{}, err
+	}
 	var id int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.product_creator_runs(template_id,template_version,workflow_snapshot,created_by) VALUES($1,$2,$3::jsonb,$4) RETURNING id`, r.schema), templateID, version, workflow, actor).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.product_creator_runs(template_id,template_version,workflow_snapshot,variable_values,created_by) VALUES($1,$2,$3::jsonb,$4::jsonb,$5) RETURNING id`, r.schema), templateID, version, workflow, variableValues, actor).Scan(&id); err != nil {
 		return app.Run{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "product_creator_run", &id, "create", postgresinfra.StrPtr("template_version"), nil, postgresinfra.StrPtr(fmt.Sprint(version)), postgresinfra.AuditMeta{"run_id": id, "template_id": templateID, "template_version": version}); err != nil {
@@ -241,11 +249,41 @@ func (r Repository) ListTemplateRuns(ctx context.Context, templateID int64, limi
 }
 
 func (r Repository) GetRun(ctx context.Context, id int64) (app.Run, error) {
-	run, err := scanRun(r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT id,template_id,template_version,status,revision,workflow_snapshot,inputs,preview,created_at,updated_at,commit_result FROM %s.product_creator_runs WHERE id=$1`, r.schema), id))
+	run, err := scanRun(r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT id,template_id,template_version,status,revision,workflow_snapshot,inputs,variable_values,preview,created_at,updated_at,commit_result FROM %s.product_creator_runs WHERE id=$1`, r.schema), id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return app.Run{}, app.ErrNotFound
 	}
 	return run, err
+}
+
+func (r Repository) SaveRunDraft(ctx context.Context, id, revision int64, inputs map[string]map[string]any, variableValues map[string]string, actor string) (app.Run, error) {
+	inputsBody, err := json.Marshal(inputs)
+	if err != nil {
+		return app.Run{}, err
+	}
+	variablesBody, err := json.Marshal(variableValues)
+	if err != nil {
+		return app.Run{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.Run{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_creator_runs SET inputs=$3::jsonb,variable_values=$4::jsonb,preview=NULL,revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$2 AND status='draft'`, r.schema), id, revision, inputsBody, variablesBody)
+	if err != nil {
+		return app.Run{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return app.Run{}, r.resolveRunWriteConflict(ctx, tx, id)
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "product_creator_run", &id, "save_draft", postgresinfra.StrPtr("inputs_and_variables"), nil, postgresinfra.StrPtr("saved"), postgresinfra.AuditMeta{"run_id": id, "revision": revision + 1}); err != nil {
+		return app.Run{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.Run{}, err
+	}
+	return r.GetRun(ctx, id)
 }
 
 func (r Repository) SaveRunInputs(ctx context.Context, id, revision int64, inputs map[string]map[string]any, actor string) (app.Run, error) {
@@ -308,7 +346,7 @@ func (r Repository) CommitConfiguration(ctx context.Context, id int64, revision 
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var commitKey, commitHash string
-	run, err := scanRun(tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,template_id,template_version,status,revision,workflow_snapshot,inputs,preview,created_at,updated_at,commit_result FROM %s.product_creator_runs WHERE id=$1 FOR UPDATE`, r.schema), id))
+	run, err := scanRun(tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,template_id,template_version,status,revision,workflow_snapshot,inputs,variable_values,preview,created_at,updated_at,commit_result FROM %s.product_creator_runs WHERE id=$1 FOR UPDATE`, r.schema), id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return app.Run{}, app.ErrNotFound
@@ -404,7 +442,7 @@ func (r Repository) ExecuteRunStep(ctx context.Context, id, revision int64, node
 		return app.Run{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	run, err := scanRun(tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,template_id,template_version,status,revision,workflow_snapshot,inputs,preview,created_at,updated_at,commit_result FROM %s.product_creator_runs WHERE id=$1 FOR UPDATE`, r.schema), id))
+	run, err := scanRun(tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,template_id,template_version,status,revision,workflow_snapshot,inputs,variable_values,preview,created_at,updated_at,commit_result FROM %s.product_creator_runs WHERE id=$1 FOR UPDATE`, r.schema), id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return app.Run{}, app.ErrNotFound
@@ -578,8 +616,8 @@ func scanVersion(row rowScanner) (app.TemplateVersion, error) {
 
 func scanRun(row rowScanner) (app.Run, error) {
 	var out app.Run
-	var workflow, inputs, preview, businessResults []byte
-	err := row.Scan(&out.ID, &out.TemplateID, &out.Version, &out.Status, &out.Revision, &workflow, &inputs, &preview, &out.CreatedAt, &out.UpdatedAt, &businessResults)
+	var workflow, inputs, variableValues, preview, businessResults []byte
+	err := row.Scan(&out.ID, &out.TemplateID, &out.Version, &out.Status, &out.Revision, &workflow, &inputs, &variableValues, &preview, &out.CreatedAt, &out.UpdatedAt, &businessResults)
 	if err != nil {
 		return app.Run{}, err
 	}
@@ -591,6 +629,14 @@ func scanRun(row rowScanner) (app.Run, error) {
 	}
 	if out.Inputs == nil {
 		out.Inputs = map[string]map[string]any{}
+	}
+	if len(variableValues) > 0 {
+		if err := json.Unmarshal(variableValues, &out.VariableValues); err != nil {
+			return app.Run{}, err
+		}
+	}
+	if out.VariableValues == nil {
+		out.VariableValues = map[string]string{}
 	}
 	if len(preview) > 0 && string(preview) != "null" {
 		var value app.RunPreview

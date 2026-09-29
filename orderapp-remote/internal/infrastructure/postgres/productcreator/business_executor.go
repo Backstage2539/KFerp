@@ -151,7 +151,20 @@ func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, ru
 	// created only once and are reused by every downstream edge.
 	for _, id := range order {
 		node := nodes[id]
-		values := run.Inputs[id]
+		values := cloneJSONMap(run.Inputs[id])
+		if run.Workflow.Version >= 3 {
+			// V3 intentionally has no industry-category controls. Keep the
+			// domain's compatibility fields neutral even if a client forges them.
+			switch node.Kind {
+			case creatorapp.ModuleMaterial:
+				values["kind"] = "other"
+				for _, row := range mapRows(values["rows"]) {
+					row["kind"] = "other"
+				}
+			case creatorapp.ModuleProduct:
+				values["product_kind"] = "generic"
+			}
+		}
 		stepCtx := postgresinfra.WithBusinessProvenance(ctx, run.ID, id)
 		switch node.Kind {
 		case creatorapp.ModuleMaterial:

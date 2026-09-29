@@ -41,6 +41,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 			revision BIGINT NOT NULL DEFAULT 1,
 			workflow_snapshot JSONB NOT NULL,
 			inputs JSONB NOT NULL DEFAULT '{}'::jsonb,
+			variable_values JSONB NOT NULL DEFAULT '{}'::jsonb,
 			preview JSONB,
 			commit_key TEXT NOT NULL DEFAULT '',
 			commit_hash TEXT NOT NULL DEFAULT '',
@@ -49,6 +50,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`, schema, schema),
+		fmt.Sprintf(`ALTER TABLE %s.product_creator_runs ADD COLUMN IF NOT EXISTS variable_values JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.product_creator_run_steps (
 			id BIGSERIAL PRIMARY KEY,
 			run_id BIGINT NOT NULL REFERENCES %s.product_creator_runs(id) ON DELETE CASCADE,
