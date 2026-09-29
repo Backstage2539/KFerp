@@ -1010,6 +1010,39 @@ func TestMergeLatestCommercialOrderPublicationTierMapsKeepsAllConcretePublishedV
 	}
 }
 
+func TestMergeLatestCommercialOrderPublicationTierMapsKeepsSiblingBOMSpecPublications(t *testing.T) {
+	kg := commercialOrderTierMapFromPublicationContent(112, "V3.0.51", []byte(`{
+		"price_rows":[{"product_id":58,"parent_product_id":58,"bom_spec_id":218,"bom_variant_id":460,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":134,
+		"effective_sales_spec":{"bom_spec_id":218,"bom_variant_id":460,"spec_name":"1KG袋装"}}]
+	}`))
+	pound := commercialOrderTierMapFromPublicationContent(111, "V3.0.51", []byte(`{
+		"price_rows":[{"product_id":58,"parent_product_id":58,"bom_spec_id":69,"bom_variant_id":458,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":63,
+		"effective_sales_spec":{"bom_spec_id":69,"bom_variant_id":458,"spec_name":"454g袋装"}}]
+	}`))
+
+	coverage := map[int64]bool{}
+	merged := mergeLatestCommercialOrderPublicationTierMaps(nil, kg, coverage)
+	merged = mergeLatestCommercialOrderPublicationTierMaps(merged, pound, coverage)
+
+	kgTiers := orderBOMSpecPublicationTiers(salesapp.ProductBOMSpecOption{
+		MigrationState: "cutover",
+		BomSpecID:      218,
+		BomVariantID:   460,
+	}, merged[58])
+	poundTiers := orderBOMSpecPublicationTiers(salesapp.ProductBOMSpecOption{
+		MigrationState: "cutover",
+		BomSpecID:      69,
+		BomVariantID:   458,
+	}, merged[58])
+
+	if len(kgTiers) != 1 || kgTiers[0].PublicationID != 112 {
+		t.Fatalf("KG table tiers = %+v, want its V3.0.51 publication", kgTiers)
+	}
+	if len(poundTiers) != 1 || poundTiers[0].PublicationID != 111 {
+		t.Fatalf("pound table tiers = %+v, want its sibling V3.0.51 publication", poundTiers)
+	}
+}
+
 func TestMergeLatestCommercialOrderPublicationTierMapsKeepsNewestLegacyAlongsideConcrete(t *testing.T) {
 	concrete := commercialOrderTierMapFromPublicationContent(9903, "V2", []byte(`{
 		"price_rows":[{"product_id":7,"sku_id":7,"parent_product_id":7,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":64,
@@ -1029,7 +1062,7 @@ func TestMergeLatestCommercialOrderPublicationTierMapsKeepsNewestLegacyAlongside
 	if merged[7][0].PublicationID != 9903 || merged[7][1].PublicationID != 9902 {
 		t.Fatalf("concrete + newest legacy publication order = %+v, want 9903 then 9902", merged[7])
 	}
-	if !orderPublicationTierHasConcreteSKU(merged[7][0]) || orderPublicationTierHasConcreteSKU(merged[7][1]) {
+	if !orderPublicationTierHasConcreteSalesSpec(merged[7][0]) || orderPublicationTierHasConcreteSalesSpec(merged[7][1]) {
 		t.Fatalf("concrete + legacy classification = %+v, want concrete then legacy", merged[7])
 	}
 }
@@ -1052,7 +1085,7 @@ func TestMergeLatestCommercialOrderPublicationTierMapsKeepsBlankLegacyCoverageBe
 	merged := mergeLatestCommercialOrderPublicationTierMaps(nil, concrete, legacyCoverage)
 	merged = mergeLatestCommercialOrderPublicationTierMaps(merged, blankLegacy, legacyCoverage)
 	merged = mergeLatestCommercialOrderPublicationTierMaps(merged, olderLegacy, legacyCoverage)
-	if len(merged[7]) != 1 || !orderPublicationTierHasConcreteSKU(merged[7][0]) || merged[7][0].PublicationID != 9904 {
+	if len(merged[7]) != 1 || !orderPublicationTierHasConcreteSalesSpec(merged[7][0]) || merged[7][0].PublicationID != 9904 {
 		t.Fatalf("concrete + blank legacy coverage = %+v, want concrete only without older legacy fallback", merged[7])
 	}
 }
