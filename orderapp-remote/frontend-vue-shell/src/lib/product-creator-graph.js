@@ -155,6 +155,10 @@ export function makeEdgeId() {
   return globalThis.crypto?.randomUUID?.() || `edge-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+export function replaceGraphEdge(edges = [], edge) {
+  return [...edges.filter((current) => current.id !== edge.id), edge]
+}
+
 export function autoLayout(nodes, edges, { xGap = 320, yGap = 156, left = 90, top = 70 } = {}) {
   const incoming = new Map(nodes.map((node) => [node.id, 0]))
   const outgoing = new Map(nodes.map((node) => [node.id, []]))
