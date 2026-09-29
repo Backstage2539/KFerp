@@ -6438,6 +6438,10 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .bean-list-generate-bar { align-items: flex-start; flex-direction: column; }
 }
 
+@media (max-width: 480px) {
+  .named-price-table-tab { max-width: calc(100vw - 190px); }
+}
+
 @media print {
   @page { size: 108mm 192mm; margin: 0; }
   :global(body.bean-list-pdf-printing #app) { display: none !important; }
