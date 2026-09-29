@@ -7,7 +7,7 @@
 ## 自动验证
 
 - [x] RED：新增动态连线和命名变量测试后，旧 V2 画布回归用例曾因物料端口变化失败；保留 V2 端口合同后，定向 Node 测试转为 GREEN。
-- [x] Node 定向测试：`node --test src/lib/product-creator-*.test.js src/api/product-creator.test.js`，15/15 通过；全量 Vue shell 1,275/1,275 通过。
+- [x] Node 定向测试：创建器图、变量、API 与动态端口用例通过；全量 Vue shell 1,278/1,278 通过。
 - [x] Go 定向测试：应用、HTTP、PostgreSQL repository 与 support 包通过；`go test ./...` 全量通过。
 - [x] Go 变量测试覆盖缺少变量、默认名称、手动覆盖、持久化能力缺失、草稿变量一起保存、提交摘要变量隔离；图验证覆盖 4 个配方来源、工艺路线、重复来源和稳定连线 ID。
 - [x] PostgreSQL：变量与节点输入同修订保存、审计行及旧修订冲突测试通过；ProductCreator 数据库集成场景验证两级 BOM、多规格、两条工艺、分类中性值和默认绑定。
@@ -15,7 +15,8 @@
 - [x] 自动整理布局回归：节点列间距覆盖 300px 节点宽度；新增连接端口不会被相邻列的卡片遮住。
 - [x] 动态配方端口回归：连接后等待 Vue 更新端口，再刷新 Vue Flow 节点内部尺寸与句柄位置，避免运行数据已有配方来源但画布连线未显示。
 - [x] 动态端口针对性测试：先确认缺少节点内部刷新时测试 RED，再验证 watcher 调用 `updateNodeInternals` 后 GREEN。
-- [x] Vue shell 全量测试：1,277/1,277 通过；Vite 构建成功。
+- [x] 连线状态回归：先在开发环境复现“配方表有来源、保存重开后连线消失”；连接逻辑改用 Vue Flow `addEdges` 动作后，源代码合同测试 RED/GREEN。
+- [x] Vue shell 全量测试：1,278/1,278 通过；Vite 构建成功。
 - [x] `git diff --check` 通过。
 - [x] `scripts/verify_kferp.sh changed` 与 `scripts/verify_kferp.sh backend` 通过。
 
@@ -37,4 +38,4 @@
 
 ## 交付记录
 
-- 记录更新：2026-09-30。开发版上一轮部署和登录页冒烟已完成；此次动态端口修复待合入部署。浏览器多来源连线、模板发布及真实商品创建记录待补。
+- 记录更新：2026-09-30。PR #152 的端口刷新部署后，开发环境揭示画布边未通过 Vue Flow 状态动作持久化；新增 `addEdges` 连接状态修复，已通过 RED/GREEN、1,278 项前端测试与构建，待合入部署及浏览器复验。
