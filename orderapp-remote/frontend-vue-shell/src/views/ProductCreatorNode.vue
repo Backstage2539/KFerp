@@ -47,8 +47,8 @@
 </template>
 
 <script setup>
-import { Handle, Position } from '@vue-flow/core'
-import { computed } from 'vue'
+import { Handle, Position, useVueFlow } from '@vue-flow/core'
+import { computed, nextTick, watch } from 'vue'
 import {
   IconBox,
   IconPackage,
@@ -71,6 +71,11 @@ const inputPorts = computed(() => {
   if (Number(props.data.module.workflow_version || 1) < 3 || props.data.module.kind !== 'bom') return moduleInputs
   return [...moduleInputs.filter((port) => port.id !== 'components'), ...recipePorts.value, ...(props.data.recipeInputs || []).filter((port) => port.add)]
 })
+const { updateNodeInternals } = useVueFlow()
+
+watch(inputPorts, () => {
+  nextTick(() => updateNodeInternals([props.id]))
+}, { flush: 'post' })
 
 const icons = {
   product: IconBox,
