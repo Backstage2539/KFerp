@@ -25,7 +25,7 @@ test('product creator API uses the shared client, /app prefix, revisions, and st
   try {
     await getProductCreatorModules()
     await saveProductCreatorTemplate({ id: 4, revision: 2, name: '装配', workflow: { nodes: [], edges: [] } })
-    await saveProductCreatorRunDraft(21, 3, { material: { rows: [{ row_id: 'stable-row-a' }] } })
+    await saveProductCreatorRunDraft(21, 3, { material: { rows: [{ row_id: 'stable-row-a' }] } }, { product_name: '豆子' })
     await previewProductCreatorRun(21, 4)
     await commitProductCreatorRun(21, 4, 'pc-run-21-rev-4')
     await executeProductCreatorRunStep(21, 'purchase-node', 5, 'create_purchase_order', {}, 'pc-run-21-purchase-node-order-rev-5')
@@ -36,7 +36,7 @@ test('product creator API uses the shared client, /app prefix, revisions, and st
     assert.equal(calls[1].init.method, 'PUT')
     assert.equal(calls[1].init.headers.Authorization, 'Bearer session-token')
     assert.equal(calls[2].url, 'https://erp.example.test/app/api/product-creator/runs/21/draft')
-    assert.deepEqual(JSON.parse(calls[2].init.body), { revision: 3, inputs: { material: { rows: [{ row_id: 'stable-row-a' }] } } })
+    assert.deepEqual(JSON.parse(calls[2].init.body), { revision: 3, inputs: { material: { rows: [{ row_id: 'stable-row-a' }] } }, variable_values: { product_name: '豆子' } })
     assert.equal(calls[3].url, 'https://erp.example.test/app/api/product-creator/runs/21/preview')
     assert.deepEqual(JSON.parse(calls[3].init.body), { revision: 4 })
     assert.equal(calls[4].url, 'https://erp.example.test/app/api/product-creator/runs/21/commit')

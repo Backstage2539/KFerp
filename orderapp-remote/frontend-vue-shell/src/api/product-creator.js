@@ -16,7 +16,10 @@ export const listProductCreatorRuns = (id, limit = 20) => apiGet(`${base}/templa
 export const listRecentProductCreatorRuns = (limit = 5) => apiGet(`${base}/runs/recent?limit=${limit}`)
 export const startProductCreatorRun = (templateId) => apiSend(`${base}/runs`, { body: { template_id: templateId } })
 export const getProductCreatorRun = (id) => apiGet(`${base}/runs/${id}`)
-export const saveProductCreatorRunDraft = (id, revision, inputs) => apiSend(`${base}/runs/${id}/draft`, { method: 'PUT', body: { revision, inputs } })
+export const saveProductCreatorRunDraft = (id, revision, inputs, variableValues = null) => apiSend(`${base}/runs/${id}/draft`, {
+  method: 'PUT',
+  body: { revision, inputs, ...(variableValues ? { variable_values: variableValues } : {}) },
+})
 export const previewProductCreatorRun = (id, revision) => apiSend(`${base}/runs/${id}/preview`, { body: { revision } })
 export const commitProductCreatorRun = (id, revision, idempotencyKey) => apiSend(`${base}/runs/${id}/commit`, {
   body: { revision },

@@ -49,6 +49,42 @@ test('workflow graph survives canvas conversion with stable node, edge and row i
   assert.equal(saved.edges[0].target_handle, 'output')
 })
 
+test('V3 workflow serializes variable definitions and dynamic BOM recipe targets canonically', () => {
+  const sources = Array.from({ length: 4 }, (_, index) => ({ id: `material-${index}`, kind: 'material', name: `来源${index}`, config: { data_role: 'input' } }))
+  const workflow = {
+    version: 3,
+    variables: [{ id: 'product-name', name: '商品名称', default_value: '' }],
+    nodes: [...sources, { id: 'bom', kind: 'bom', name: 'BOM组装 1', config: { output_type: 'material', name_parts: [{ type: 'variable', variable_id: 'product-name' }, { type: 'text', value: '_半成品' }] } }],
+    edges: sources.map((source, index) => ({ id: `material-edge-${index}`, source: source.id, source_handle: 'material', target: 'bom', target_handle: 'components', kind: 'data' })),
+  }
+
+  const canvas = toCanvasGraph(workflow, [
+    { kind: 'material', name: '物料', workflow_version: 3, palette_visible: true, inputs: [], outputs: [{ id: 'material', types: ['material.ref'] }] },
+    { kind: 'bom', name: 'BOM组装', workflow_version: 3, palette_visible: true, inputs: [{ id: 'components', types: ['material.ref'], multiple: true }], outputs: [] },
+  ])
+  const bom = canvas.nodes.find((node) => node.id === 'bom')
+  assert.equal(bom.data.recipeInputs.length, 5, 'four connected sources leave one add input')
+  assert.deepEqual(bom.data.recipeInputs.map((port) => port.label), ['来源0', '来源1', '来源2', '来源3', '＋配方输入'])
+  assert.notEqual(canvas.edges[0].targetHandle, canvas.edges[1].targetHandle)
+
+  const saved = toWorkflowGraph(canvas.nodes, canvas.edges, 3, workflow.variables)
+  assert.equal(saved.edges.length, 4)
+  assert.ok(saved.edges.every((edge) => edge.target_handle === 'components'))
+  assert.deepEqual(saved.variables, workflow.variables)
+  assert.deepEqual(saved.nodes.find((node) => node.id === 'bom').config.name_parts, workflow.nodes.at(-1).config.name_parts)
+})
+
+test('V3 BOM recipe handles accept multiple connections and reject duplicate sources', () => {
+  const source = { id: 'material', data: { module: { kind: 'material', outputs: [{ id: 'material', types: ['material.ref'] }] }, label: '云南豆' } }
+  const bom = { id: 'bom', data: { module: { kind: 'bom', inputs: [{ id: 'components', types: ['material.ref'], multiple: true }] }, recipeInputs: [{ id: 'components:add', label: '＋配方输入' }] } }
+  const nodes = [source, bom]
+  const edges = []
+  assert.equal(connectionIsValid({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:add' }, nodes, modules), true)
+  edges.push({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:source:edge-1', data: { kind: 'data' } })
+  assert.equal(connectionIsValid({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:add' }, nodes, modules, 'data', edges), false)
+  assert.equal(connectionIsValid({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'route' }, nodes, modules), false)
+})
+
 test('connections reject wrong business types and accept compatible data ports', () => {
   const nodes = [
     { id: 'product', data: { module: modules[0] } },
@@ -78,7 +114,7 @@ test('BOM workflow graph renders material sources before assembly and BOM output
   const workflow = {
     version: 2,
     nodes: [
-      { id: 'raw', kind: 'material', config: { data_role: 'input' } },
+      { id: 'raw', kind: 'material', config: { data_role: 'output' } },
       { id: 'semi-bom', kind: 'bom', config: { output_type: 'material', output_qty: 1, output_unit: 'kg' } },
       { id: 'semi', kind: 'material', config: { data_role: 'output' } },
     ],

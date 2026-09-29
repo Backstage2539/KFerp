@@ -168,3 +168,60 @@ func TestCommitConfigurationRollsBackBusinessCallbackFailure(t *testing.T) {
 		t.Fatalf("callback failure was not atomic: effects=%d audits=%d status=%q", effects, auditCount, status)
 	}
 }
+
+func TestSaveRunDraftPersistsInputsAndVariablesTogether(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		dsn = "postgres:///postgres?host=/tmp"
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("test_product_creator_draft_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s.audit_logs(id BIGSERIAL PRIMARY KEY,ts TIMESTAMPTZ NOT NULL DEFAULT now(),actor TEXT NOT NULL DEFAULT '',entity_type TEXT NOT NULL DEFAULT '',entity_id BIGINT,action TEXT NOT NULL DEFAULT '',field TEXT,old_value TEXT,new_value TEXT,meta JSONB)`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	workflowJSON, _ := json.Marshal(app.Workflow{Version: 3, Variables: []app.WorkflowVariable{{ID: "product_name", Name: "商品名称", DefaultValue: "豆子"}}, Nodes: []app.Node{{ID: "product", Kind: app.ModuleProduct}}})
+	inputsJSON, _ := json.Marshal(map[string]map[string]any{"product": {"name": "豆子"}})
+	previewJSON, _ := json.Marshal(app.RunPreview{Valid: true})
+	var templateID, runID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_templates(name,status,published_version,draft_graph) VALUES('变量模板','published',1,$1::jsonb) RETURNING id`, schema), workflowJSON).Scan(&templateID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.product_creator_runs(template_id,template_version,status,revision,workflow_snapshot,inputs,variable_values,preview,created_by) VALUES($1,1,'draft',7,$2::jsonb,$3::jsonb,'{}'::jsonb,$4::jsonb,'test') RETURNING id`, schema), templateID, workflowJSON, inputsJSON, previewJSON).Scan(&runID); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool, schema)
+	updatedInputs := map[string]map[string]any{"product": {"name": "云南咖啡豆"}}
+	updatedVariables := map[string]string{"product_name": "云南咖啡豆"}
+	updated, err := repo.SaveRunDraft(ctx, runID, 7, updatedInputs, updatedVariables, "test-actor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Revision != 8 || updated.Inputs["product"]["name"] != "云南咖啡豆" || updated.VariableValues["product_name"] != "云南咖啡豆" {
+		t.Fatalf("draft inputs and variables were not saved together: revision=%d inputs=%v variables=%v", updated.Revision, updated.Inputs, updated.VariableValues)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='product_creator_run' AND action='save_draft' AND entity_id=$1`, schema), runID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("save draft audit count=%d, want 1", auditCount)
+	}
+	if _, err := repo.SaveRunDraft(ctx, runID, 7, map[string]map[string]any{}, map[string]string{}, "test-actor"); !errors.Is(err, app.ErrConflict) {
+		t.Fatalf("stale revision save error=%v, want conflict", err)
+	}
+}

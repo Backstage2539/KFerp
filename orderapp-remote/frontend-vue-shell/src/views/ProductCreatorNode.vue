@@ -1,12 +1,17 @@
 <template>
   <article class="creator-node" :class="[`kind-${data.module.kind}`, { selected }]" :aria-label="data.module.name">
     <Handle
-      v-for="(port, index) in data.module.inputs"
+      v-for="(port, index) in inputPorts"
       :id="port.id"
       :key="`in-${port.id}`"
       type="target"
       :position="Position.Left"
-      :style="handleStyle(index, data.module.inputs.length)" />
+      :style="handleStyle(index, inputPorts.length)" />
+    <span
+      v-for="port in recipePorts"
+      :key="`label-${port.id}`"
+      class="creator-node-input-label"
+      :style="recipePortStyle(port.id)">{{ port.label }}</span>
     <Handle
       v-if="Number(data.module.workflow_version || 1) < 2"
       id="__prerequisite"
@@ -43,6 +48,7 @@
 
 <script setup>
 import { Handle, Position } from '@vue-flow/core'
+import { computed } from 'vue'
 import {
   IconBox,
   IconPackage,
@@ -53,10 +59,17 @@ import {
   IconTags,
 } from '@tabler/icons-vue'
 
-defineProps({
+const props = defineProps({
   id: { type: String, required: true },
   data: { type: Object, required: true },
   selected: { type: Boolean, default: false },
+})
+
+const recipePorts = computed(() => (props.data.recipeInputs || []).filter((port) => !port.add))
+const inputPorts = computed(() => {
+  const moduleInputs = props.data.module.inputs || []
+  if (Number(props.data.module.workflow_version || 1) < 3 || props.data.module.kind !== 'bom') return moduleInputs
+  return [...moduleInputs.filter((port) => port.id !== 'components'), ...recipePorts.value, ...(props.data.recipeInputs || []).filter((port) => port.add)]
 })
 
 const icons = {
@@ -97,6 +110,11 @@ function nodeSummary(module, config = {}) {
 function handleStyle(index, count) {
   return { top: `${((index + 1) / (count + 1)) * 100}%` }
 }
+
+function recipePortStyle(portID) {
+  const index = inputPorts.value.findIndex((port) => port.id === portID)
+  return { top: `${((index + 1) / (inputPorts.value.length + 1)) * 100}%` }
+}
 </script>
 
 <style scoped>
@@ -118,6 +136,7 @@ function handleStyle(index, count) {
 }
 
 .creator-node:active { cursor: grabbing; }
+.creator-node-input-label { position: absolute; left: -9px; z-index: 2; max-width: 112px; overflow: hidden; padding: 2px 5px; border-radius: 4px; color: #62738a; background: #f7f9fc; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; transform: translate(-100%, -50%); pointer-events: none; }
 .creator-node-icon {
   display: grid;
   flex: 0 0 40px;

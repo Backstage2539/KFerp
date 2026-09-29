@@ -1,5 +1,16 @@
 # ACTIVE_REQUIREMENTS
 
+### PR-675-PRODUCT-CREATOR-VARIABLES-INPUTS
+- Branch: `codex/product-creator-template-tuning`; base `origin/develop@c53fe2ee7b29498d74246c8f20b615de13cea17b`.
+- Owner/session: Codex / Van / 2026-09-29.
+- Status: implementation in progress; business acceptance pending.
+- Scope: template-scoped naming variables, editable runtime defaults, dynamic multiple BOM recipe inputs, neutral unclassified objects, and responsive/consistent creator forms.
+- DEV: DEV-675-PC-GRAPH-V3; DEV-675-PC-NAME-VARIABLES; DEV-675-PC-BOM-INPUTS; DEV-675-PC-RUN-UX; DEV-675-PC-DOCS-DELIVERY.
+- Verifier: RED/GREEN Go application/repository/API and Vue graph/variable tests; PostgreSQL persistence tests; Vue build; browser interaction/responsive check; docs acceptance.
+- Manuals: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`.
+- Deployment: development requested; production excluded.
+- Last update: 2026-09-29.
+
 ### PR-674-PRICE-TABLE-EDITOR-TABS
 - Branch: `codex/price-table-tabs-20260929`; base `origin/develop@7d12711d`.
 - Owner/session: Codex / Van / 2026-09-29.

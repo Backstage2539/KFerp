@@ -21,30 +21,41 @@ export function appendGraphSnapshot(history, currentIndex, snapshot, limit = 60)
 
 export function toCanvasGraph(workflow = { nodes: [], edges: [] }, modules = []) {
   const version = Number(workflow.version || 1)
-  return {
-    nodes: (workflow.nodes || []).flatMap((node) => {
+  const nodes = (workflow.nodes || []).flatMap((node) => {
       const module = moduleForNode(node, modules, version)
       if (!module) return []
       return [{
         id: node.id,
         type: 'business',
         position: { x: Number(node.x) || 0, y: Number(node.y) || 0 },
-      data: { module, label: node.name || module.name, config: cloneValue(node.config || {}), condition: node.condition ? cloneValue(node.condition) : null },
+        data: { module, label: node.name || module.name, config: cloneValue(node.config || {}), condition: node.condition ? cloneValue(node.condition) : null },
       }]
-    }),
-    edges: (workflow.edges || []).map((edge) => ({
+  })
+  const edges = (workflow.edges || []).map((edge) => ({
       id: edge.id,
       source: edge.source,
       sourceHandle: edge.source_handle || undefined,
       target: edge.target,
-      targetHandle: edge.target_handle || undefined,
+      targetHandle: version >= 3 && edge.target_handle === 'components' ? recipePortForEdge(edge.id) : edge.target_handle || undefined,
       type: 'smoothstep',
       label: edge.label || '',
       data: { kind: edge.kind || 'data' },
       style: edge.kind === 'prerequisite' ? { strokeDasharray: '6 5' } : {},
       markerEnd: { type: 'arrowclosed', color: edge.kind === 'prerequisite' ? '#94a3b8' : '#75839b' },
-    })),
+  }))
+  if (version >= 3) {
+    for (const node of nodes.filter((item) => item.data.module.kind === 'bom')) {
+      const connected = edges.filter((edge) => edge.target === node.id && isRecipePort(edge.targetHandle))
+      node.data.recipeInputs = connected.map((edge) => {
+        const source = nodes.find((item) => item.id === edge.source)
+        const sourceName = source?.data.label || source?.data.module.name || '配方来源'
+        const label = edge.sourceHandle === 'specs' ? `${sourceName} · 商品规格` : sourceName
+        return { id: edge.targetHandle, label, edgeId: edge.id }
+      })
+      node.data.recipeInputs.push({ id: 'components:add', label: '＋配方输入', add: true })
+    }
   }
+  return { nodes, edges }
 }
 
 export function moduleForNode(node, modules = [], version = 1) {
@@ -53,7 +64,9 @@ export function moduleForNode(node, modules = [], version = 1) {
   if (!base) return null
   const module = { ...base }
   if (version >= 2 && ['material', 'product'].includes(node.kind)) {
-    module.inputs = [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }]
+    module.inputs = node.config?.data_role === 'output'
+      ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }]
+      : []
   }
   return module
 }
@@ -68,16 +81,17 @@ export function connectionRoleUpdates(connection, nodes, mode = 'data', edges = 
   if (sourceKind === 'bom' && ['material', 'product'].includes(targetKind) && connection.targetHandle === 'from_bom') {
     return { [target.id]: 'output' }
   }
-  if (['material', 'product'].includes(sourceKind) && targetKind === 'bom' && connection.targetHandle === 'components') {
+  if (['material', 'product'].includes(sourceKind) && targetKind === 'bom' && canonicalInputPortID(connection.targetHandle) === 'components') {
     const hasProducingBOM = edges.some((edge) => edge.target === source.id && edge.targetHandle === 'from_bom' && edge.data?.kind !== 'prerequisite')
     return hasProducingBOM ? {} : { [source.id]: 'input' }
   }
   return {}
 }
 
-export function toWorkflowGraph(nodes = [], edges = [], version = 1) {
+export function toWorkflowGraph(nodes = [], edges = [], version = 1, variables = []) {
   return {
     ...(version >= 2 ? { version } : {}),
+    ...(version >= 3 ? { variables: cloneValue(variables) } : {}),
     nodes: nodes.map((node) => ({
       id: node.id,
       kind: node.data.module.kind,
@@ -92,23 +106,39 @@ export function toWorkflowGraph(nodes = [], edges = [], version = 1) {
       source: edge.source,
       source_handle: edge.sourceHandle || '',
       target: edge.target,
-      target_handle: edge.targetHandle || '',
+      target_handle: canonicalInputPortID(edge.targetHandle) || '',
       kind: edge.data?.kind || 'data',
       label: edge.label || '',
     })),
   }
 }
 
-export function connectionIsValid(connection, nodes, modules, mode = 'data') {
+export function connectionIsValid(connection, nodes, modules, mode = 'data', edges = []) {
   if (!connection?.source || !connection?.target || connection.source === connection.target) return false
   const source = nodes.find((node) => node.id === connection.source)
   const target = nodes.find((node) => node.id === connection.target)
   if (!source || !target) return false
   if (mode === 'prerequisite') return true
   const sourcePort = source.data.module.outputs?.find((port) => port.id === connection.sourceHandle)
-  const targetPort = target.data.module.inputs?.find((port) => port.id === connection.targetHandle)
+  const targetPort = target.data.module.inputs?.find((port) => port.id === canonicalInputPortID(connection.targetHandle))
   if (!sourcePort || !targetPort) return false
+  if (isRecipePort(connection.targetHandle) || connection.targetHandle === 'components:add') {
+    const duplicate = edges.some((edge) => edge.target === connection.target && edge.source === connection.source && edge.sourceHandle === connection.sourceHandle && canonicalInputPortID(edge.targetHandle) === 'components')
+    if (duplicate) return false
+  }
   return sourcePort.types?.some((sourceType) => targetPort.types?.includes(sourceType) || targetPort.types?.includes('*')) || false
+}
+
+export function recipePortForEdge(edgeID) {
+  return `components:source:${edgeID}`
+}
+
+export function isRecipePort(portID) {
+  return String(portID || '').startsWith('components:source:')
+}
+
+export function canonicalInputPortID(portID) {
+  return isRecipePort(portID) || portID === 'components:add' ? 'components' : portID
 }
 
 export function moduleFieldLabel(module, key) {

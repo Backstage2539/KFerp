@@ -16,6 +16,7 @@ var ErrNotFound = errors.New("product creator object not found")
 var ErrNotPublished = errors.New("template has no published version")
 var ErrConfigurationExecutorUnavailable = errors.New("product creator configuration executor unavailable")
 var ErrRunStepExecutorUnavailable = errors.New("product creator run-step executor unavailable")
+var ErrVariableDraftPersistenceUnavailable = errors.New("product creator V3 draft persistence unavailable")
 
 type Template struct {
 	ID               int64     `json:"id"`
@@ -47,6 +48,7 @@ type Run struct {
 	Revision        int64                     `json:"revision"`
 	Workflow        Workflow                  `json:"workflow"`
 	Inputs          map[string]map[string]any `json:"inputs"`
+	VariableValues  map[string]string         `json:"variable_values,omitempty"`
 	Preview         *RunPreview               `json:"preview,omitempty"`
 	BusinessResults map[string]any            `json:"business_results,omitempty"`
 	CreatedAt       time.Time                 `json:"created_at"`
@@ -100,6 +102,12 @@ type Repository interface {
 	GetRun(context.Context, int64) (Run, error)
 	SaveRunInputs(context.Context, int64, int64, map[string]map[string]any, string) (Run, error)
 	SaveRunPreview(context.Context, int64, int64, RunPreview, string) (Run, error)
+}
+
+// VariableDraftRepository stores V3 variable values and node inputs as one
+// revision so a restored run cannot combine values from different edits.
+type VariableDraftRepository interface {
+	SaveRunDraft(context.Context, int64, int64, map[string]map[string]any, map[string]string, string) (Run, error)
 }
 
 // ConfigurationTransactionRepository keeps run state and business writes in
@@ -215,6 +223,10 @@ func (s *Service) ListTemplateRuns(ctx context.Context, templateID int64, limit 
 func (s *Service) GetRun(ctx context.Context, id int64) (Run, error) { return s.repo.GetRun(ctx, id) }
 
 func (s *Service) SaveRunInputs(ctx context.Context, id, revision int64, inputs map[string]map[string]any, actor string) (Run, error) {
+	return s.SaveRunDraft(ctx, id, revision, inputs, nil, actor)
+}
+
+func (s *Service) SaveRunDraft(ctx context.Context, id, revision int64, inputs map[string]map[string]any, variableValues map[string]string, actor string) (Run, error) {
 	run, err := s.repo.GetRun(ctx, id)
 	if err != nil {
 		return Run{}, err
@@ -223,9 +235,22 @@ func (s *Service) SaveRunInputs(ctx context.Context, id, revision int64, inputs 
 		return Run{}, fmt.Errorf("run is no longer editable")
 	}
 	inputs = ResolveWorkflowInputDefaults(run.Workflow, inputs)
+	if variableValues == nil {
+		variableValues = run.VariableValues
+	}
+	variableValues = ResolveWorkflowVariableValues(run.Workflow, variableValues)
+	if workflowVersion(run.Workflow) >= 3 {
+		inputs = ResolveWorkflowVariableNames(run.Workflow, inputs, variableValues)
+	}
 	issues := ValidateRunDraft(run.Workflow, inputs)
 	if hasRunFatalIssue(issues) {
 		return Run{}, InvalidWorkflowError{Issues: issues}
+	}
+	if variableRepo, ok := s.repo.(VariableDraftRepository); ok && workflowVersion(run.Workflow) >= 3 {
+		return variableRepo.SaveRunDraft(ctx, id, revision, inputs, variableValues, actor)
+	}
+	if workflowVersion(run.Workflow) >= 3 {
+		return Run{}, ErrVariableDraftPersistenceUnavailable
 	}
 	return s.repo.SaveRunInputs(ctx, id, revision, inputs, actor)
 }
@@ -239,7 +264,15 @@ func (s *Service) PreviewRun(ctx context.Context, id, revision int64, actor stri
 		return Run{}, ErrConflict
 	}
 	run.Inputs = ResolveWorkflowInputDefaults(run.Workflow, run.Inputs)
+	if workflowVersion(run.Workflow) >= 3 {
+		run.VariableValues = ResolveWorkflowVariableValues(run.Workflow, run.VariableValues)
+		run.Inputs = ResolveWorkflowVariableNames(run.Workflow, run.Inputs, run.VariableValues)
+	}
 	preview := BuildRunPreview(run.Workflow, run.Inputs)
+	if workflowVersion(run.Workflow) >= 3 {
+		preview.Issues = append(preview.Issues, ValidateWorkflowVariableValues(run.Workflow, run.Inputs, run.VariableValues)...)
+		preview.Valid = len(preview.Issues) == 0
+	}
 	return s.repo.SaveRunPreview(ctx, id, revision, preview, actor)
 }
 
@@ -260,20 +293,30 @@ func (s *Service) CommitConfiguration(ctx context.Context, id, revision int64, i
 		return Run{}, fmt.Errorf("run is no longer editable")
 	}
 	run.Inputs = ResolveWorkflowInputDefaults(run.Workflow, run.Inputs)
+	if workflowVersion(run.Workflow) >= 3 {
+		run.VariableValues = ResolveWorkflowVariableValues(run.Workflow, run.VariableValues)
+		run.Inputs = ResolveWorkflowVariableNames(run.Workflow, run.Inputs, run.VariableValues)
+	}
 	if run.Preview == nil || !run.Preview.Valid {
 		return Run{}, InvalidWorkflowError{Issues: []ValidationIssue{{Code: "preview_required", Message: "请先完成有效的业务预览"}}}
 	}
 	if issues := ValidateRunInputs(run.Workflow, run.Inputs); hasRunFatalIssue(issues) {
 		return Run{}, InvalidWorkflowError{Issues: issues}
 	}
+	if workflowVersion(run.Workflow) >= 3 {
+		if issues := ValidateWorkflowVariableValues(run.Workflow, run.Inputs, run.VariableValues); len(issues) != 0 {
+			return Run{}, InvalidWorkflowError{Issues: issues}
+		}
+	}
 	transactional, ok := s.repo.(ConfigurationTransactionRepository)
 	if !ok || s.executor == nil {
 		return Run{}, ErrConfigurationExecutorUnavailable
 	}
 	requestBytes, err := json.Marshal(struct {
-		Workflow Workflow                  `json:"workflow"`
-		Inputs   map[string]map[string]any `json:"inputs"`
-	}{Workflow: run.Workflow, Inputs: run.Inputs})
+		Workflow       Workflow                  `json:"workflow"`
+		Inputs         map[string]map[string]any `json:"inputs"`
+		VariableValues map[string]string         `json:"variable_values,omitempty"`
+	}{Workflow: run.Workflow, Inputs: run.Inputs, VariableValues: run.VariableValues})
 	if err != nil {
 		return Run{}, err
 	}
@@ -286,6 +329,13 @@ func (s *Service) CommitConfiguration(ctx context.Context, id, revision int64, i
 		// from the locked snapshot so fixed template fields cannot be bypassed and
 		// the executor sees the same values that were previewed.
 		locked.Inputs = ResolveWorkflowInputDefaults(locked.Workflow, locked.Inputs)
+		if workflowVersion(locked.Workflow) >= 3 {
+			locked.VariableValues = ResolveWorkflowVariableValues(locked.Workflow, locked.VariableValues)
+			locked.Inputs = ResolveWorkflowVariableNames(locked.Workflow, locked.Inputs, locked.VariableValues)
+			if issues := ValidateWorkflowVariableValues(locked.Workflow, locked.Inputs, locked.VariableValues); len(issues) != 0 {
+				return nil, InvalidWorkflowError{Issues: issues}
+			}
+		}
 		if issues := ValidateRunInputs(locked.Workflow, locked.Inputs); hasRunFatalIssue(issues) {
 			return nil, InvalidWorkflowError{Issues: issues}
 		}
@@ -481,6 +531,9 @@ func ResolveWorkflowInputDefaults(workflow Workflow, inputs map[string]map[strin
 			}
 		}
 		for _, key := range []string{"action", "object_action", "product_kind", "owner", "customer_id", "kind", "supply_mode", "unit", "name", "name_pattern", "output_type", "output_qty", "output_unit", "route_id", "material_loss_rate", "rows", "variants", "components"} {
+			if workflowVersion(workflow) >= 3 && (key == "product_kind" || key == "kind") {
+				continue
+			}
 			if value, exists := node.Config[key]; exists {
 				defaults[key] = value
 			}
@@ -491,14 +544,16 @@ func ResolveWorkflowInputDefaults(workflow Workflow, inputs map[string]map[strin
 			}
 		}
 		fixed := map[string]bool{}
-		switch keys := node.Config["fixed_fields"].(type) {
-		case []any:
-			for _, key := range keys {
-				fixed[stringValue(key)] = true
-			}
-		case []string:
-			for _, key := range keys {
-				fixed[key] = true
+		if workflowVersion(workflow) < 3 {
+			switch keys := node.Config["fixed_fields"].(type) {
+			case []any:
+				for _, key := range keys {
+					fixed[stringValue(key)] = true
+				}
+			case []string:
+				for _, key := range keys {
+					fixed[key] = true
+				}
 			}
 		}
 		for key, value := range defaults {
@@ -514,6 +569,77 @@ func ResolveWorkflowInputDefaults(workflow Workflow, inputs map[string]map[strin
 		}
 	}
 	return resolved
+}
+
+func ResolveWorkflowVariableValues(workflow Workflow, values map[string]string) map[string]string {
+	resolved := make(map[string]string, len(workflow.Variables))
+	for _, variable := range workflow.Variables {
+		value, exists := values[variable.ID]
+		if !exists {
+			value = variable.DefaultValue
+		}
+		resolved[variable.ID] = strings.TrimSpace(value)
+	}
+	return resolved
+}
+
+func ResolveWorkflowVariableNames(workflow Workflow, inputs map[string]map[string]any, values map[string]string) map[string]map[string]any {
+	resolved := cloneRunInputs(inputs)
+	values = ResolveWorkflowVariableValues(workflow, values)
+	for _, node := range workflow.Nodes {
+		parts := rowValues(node.Config["name_parts"])
+		if len(parts) == 0 {
+			continue
+		}
+		current := resolved[node.ID]
+		if stringValue(current["name_mode"]) == "manual" {
+			continue
+		}
+		var name strings.Builder
+		for _, part := range parts {
+			switch stringValue(part["type"]) {
+			case "text":
+				name.WriteString(stringValue(part["value"]))
+			case "variable":
+				name.WriteString(values[stringValue(part["variable_id"])])
+			}
+		}
+		current["name"] = strings.TrimSpace(name.String())
+		current["name_mode"] = "automatic"
+	}
+	return resolved
+}
+
+func ValidateWorkflowVariableValues(workflow Workflow, inputs map[string]map[string]any, values map[string]string) []ValidationIssue {
+	values = ResolveWorkflowVariableValues(workflow, values)
+	issues := make([]ValidationIssue, 0)
+	for _, node := range workflow.Nodes {
+		if stringValue(inputs[node.ID]["name_mode"]) == "manual" {
+			continue
+		}
+		for _, part := range rowValues(node.Config["name_parts"]) {
+			if stringValue(part["type"]) != "variable" {
+				continue
+			}
+			id := stringValue(part["variable_id"])
+			if strings.TrimSpace(values[id]) == "" {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, VariableID: id, Field: "name", Code: "required_name_variable", Message: "请填写命名变量，或手动输入此对象名称"})
+			}
+		}
+	}
+	return issues
+}
+
+func cloneRunInputs(inputs map[string]map[string]any) map[string]map[string]any {
+	body, err := json.Marshal(inputs)
+	if err != nil {
+		return map[string]map[string]any{}
+	}
+	var cloned map[string]map[string]any
+	if err := json.Unmarshal(body, &cloned); err != nil || cloned == nil {
+		return map[string]map[string]any{}
+	}
+	return cloned
 }
 
 func applyFixedBOMComponentDefaults(currentValue, defaultValue any) []map[string]any {

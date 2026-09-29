@@ -1095,3 +1095,11 @@
 - 运行预览不创建正式数据；商品、物料、BOM、规格、发布及新对象默认绑定在一个事务提交。已有对象默认绑定不覆盖；物料购入、确认收货为提交后的独立动作。
 - DEV-703-PC-GRAPH-CONTRACT / DEV-704-PC-BOM-EXECUTION / DEV-705-PC-RUN-UI / DEV-706-PC-DOCS-DELIVERY。
 - 验收人：Van；按 `orderapp-remote/docs/acceptance/2026-09-29-product-creator-bom-template.md` 记录自动验证和 development 业务流程；生产发布另行授权。
+
+## PR-675 商品创建器：模板命名变量、多物料 BOM 输入与表单优化
+
+- 同一模板内可用稳定 ID 共用命名变量；运行填写一次并能覆盖单个自动名称。变量改名保留引用，删除被引用变量时列出使用节点并阻止删除。
+- 新模板默认值均可在运行时调整，不配置商品类型或物料类别；新建档案沿用系统未分类规则，旧模板发布版本和历史运行继续保持原语义。
+- 每个 BOM 配方来源显示独立动态输入口，并保留空闲的“＋配方输入”；工艺路线单独输入。同一来源只连一次，多行配方在填写表中增加。
+- 运行页面将变量、物料行和配方行完整铺开；窄窗口下表格自适应换行，BOM 名称与产出对象始终可辨。
+- DEV-675-PC-GRAPH-V3 / DEV-675-PC-NAME-VARIABLES / DEV-675-PC-BOM-INPUTS / DEV-675-PC-RUN-UX / DEV-675-PC-DOCS-DELIVERY。验收人：Van；开发部署及业务验收证据见 `orderapp-remote/docs/acceptance/2026-09-29-product-creator-variables-inputs.md`。

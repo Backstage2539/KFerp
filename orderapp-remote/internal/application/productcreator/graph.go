@@ -26,9 +26,16 @@ const (
 )
 
 type Workflow struct {
-	Version int    `json:"version,omitempty"`
-	Nodes   []Node `json:"nodes"`
-	Edges   []Edge `json:"edges"`
+	Version   int                `json:"version,omitempty"`
+	Variables []WorkflowVariable `json:"variables,omitempty"`
+	Nodes     []Node             `json:"nodes"`
+	Edges     []Edge             `json:"edges"`
+}
+
+type WorkflowVariable struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	DefaultValue string `json:"default_value,omitempty"`
 }
 
 type Node struct {
@@ -89,11 +96,12 @@ type Module struct {
 }
 
 type ValidationIssue struct {
-	NodeID  string `json:"node_id,omitempty"`
-	EdgeID  string `json:"edge_id,omitempty"`
-	Field   string `json:"field,omitempty"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	NodeID     string `json:"node_id,omitempty"`
+	EdgeID     string `json:"edge_id,omitempty"`
+	VariableID string `json:"variable_id,omitempty"`
+	Field      string `json:"field,omitempty"`
+	Code       string `json:"code"`
+	Message    string `json:"message"`
 }
 
 var modules = []Module{
@@ -115,13 +123,14 @@ var moduleByKind = func() map[ModuleKind]Module {
 }()
 
 func ModuleCatalog() []Module {
-	out := make([]Module, 0, len(modules)+5)
+	out := make([]Module, 0, len(modules)+10)
 	for _, module := range modules {
 		module.PaletteVisible = false
 		module.WorkflowVersion = 1
 		out = append(out, module)
 	}
 	out = append(out, bomCentricModules()...)
+	out = append(out, variableWorkflowModules()...)
 	return out
 }
 
@@ -142,11 +151,32 @@ func bomCentricModules() []Module {
 	}
 }
 
+func variableWorkflowModules() []Module {
+	modules := bomCentricModules()
+	for index := range modules {
+		module := &modules[index]
+		module.WorkflowVersion = 3
+		for fieldIndex := 0; fieldIndex < len(module.Fields); {
+			key := module.Fields[fieldIndex].Key
+			if (module.Kind == ModuleMaterial && key == "kind") || (module.Kind == ModuleProduct && key == "product_kind") {
+				module.Fields = append(module.Fields[:fieldIndex], module.Fields[fieldIndex+1:]...)
+				continue
+			}
+			fieldIndex++
+		}
+	}
+	return modules
+}
+
 func moduleForNode(node Node, version int) Module {
 	if version < 2 {
 		return moduleByKind[node.Kind]
 	}
-	for _, module := range bomCentricModules() {
+	definitions := bomCentricModules()
+	if version >= 3 {
+		definitions = variableWorkflowModules()
+	}
+	for _, module := range definitions {
 		if module.Kind != node.Kind {
 			continue
 		}
@@ -164,7 +194,11 @@ func moduleForNode(node Node, version int) Module {
 
 func ValidateWorkflow(workflow Workflow) []ValidationIssue {
 	if workflowVersion(workflow) >= 2 {
-		return validateBOMWorkflow(workflow)
+		issues := validateBOMWorkflow(workflow)
+		if workflow.Version >= 3 {
+			issues = append(issues, ValidateWorkflowVariableDefinitions(workflow)...)
+		}
+		return issues
 	}
 	issues := make([]ValidationIssue, 0)
 	if len(workflow.Nodes) == 0 {
@@ -274,7 +308,52 @@ func ValidateWorkflow(workflow Workflow) []ValidationIssue {
 	return issues
 }
 
+func ValidateWorkflowVariableDefinitions(workflow Workflow) []ValidationIssue {
+	issues := make([]ValidationIssue, 0)
+	variables := make(map[string]WorkflowVariable, len(workflow.Variables))
+	names := make(map[string]string, len(workflow.Variables))
+	for _, variable := range workflow.Variables {
+		id := strings.TrimSpace(variable.ID)
+		name := strings.TrimSpace(variable.Name)
+		if id == "" || name == "" {
+			issues = append(issues, ValidationIssue{VariableID: id, Code: "invalid_workflow_variable", Message: "变量需要稳定标识和名称"})
+			continue
+		}
+		if _, exists := variables[id]; exists {
+			issues = append(issues, ValidationIssue{VariableID: id, Code: "duplicate_variable_id", Message: "变量标识重复"})
+			continue
+		}
+		key := strings.ToLower(name)
+		if existingID, exists := names[key]; exists && existingID != id {
+			issues = append(issues, ValidationIssue{VariableID: id, Code: "duplicate_variable_name", Message: "变量名称重复，请复用已有变量"})
+			continue
+		}
+		variables[id] = variable
+		names[key] = id
+	}
+	for _, node := range workflow.Nodes {
+		parts := rowValues(node.Config["name_parts"])
+		if len(parts) > 0 && ((node.Kind != ModuleMaterial && node.Kind != ModuleProduct) || stringValue(node.Config["data_role"]) != "output") {
+			issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "name_parts", Code: "invalid_name_target", Message: "命名变量只能用于新建物料或商品名称"})
+		}
+		for _, part := range parts {
+			switch stringValue(part["type"]) {
+			case "text":
+			case "variable":
+				id := strings.TrimSpace(stringValue(part["variable_id"]))
+				if _, exists := variables[id]; !exists {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "name_parts", VariableID: id, Code: "unknown_name_variable", Message: "命名引用的变量不存在，请重新选择"})
+				}
+			default:
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "name_parts", Code: "invalid_name_part", Message: "名称只能由文字和变量组成"})
+			}
+		}
+	}
+	return issues
+}
+
 func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
+	version := workflowVersion(workflow)
 	issues := make([]ValidationIssue, 0)
 	if len(workflow.Nodes) == 0 {
 		return []ValidationIssue{{Code: "empty_workflow", Message: "模板至少需要一个业务步骤"}}
@@ -294,7 +373,7 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 		if node.Condition != nil {
 			issues = append(issues, ValidationIssue{NodeID: id, Field: "condition", Code: "conditions_disabled", Message: "新版模板暂不支持执行条件"})
 		}
-		if moduleForNode(node, 2).Kind == "" {
+		if moduleForNode(node, version).Kind == "" {
 			issues = append(issues, ValidationIssue{NodeID: id, Code: "module_not_available", Message: "该模块不属于新版模板的数据类型或动作"})
 		}
 		if (node.Kind == ModuleMaterial || node.Kind == ModuleProduct) && stringValue(node.Config["data_role"]) != "input" && stringValue(node.Config["data_role"]) != "output" {
@@ -312,7 +391,19 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 
 	connectedInputs := make(map[string]int)
 	outputTargets := make(map[string][]Node)
+	edgeIDs := make(map[string]struct{}, len(workflow.Edges))
+	recipeSources := make(map[string]map[string]struct{})
 	for _, edge := range workflow.Edges {
+		if version >= 3 {
+			id := strings.TrimSpace(edge.ID)
+			if id == "" {
+				issues = append(issues, ValidationIssue{EdgeID: edge.ID, Code: "missing_edge_id", Message: "V3 连线需要稳定标识，请重新连接后保存"})
+			} else if _, exists := edgeIDs[id]; exists {
+				issues = append(issues, ValidationIssue{EdgeID: id, Code: "duplicate_edge_id", Message: "连线标识重复"})
+			} else {
+				edgeIDs[id] = struct{}{}
+			}
+		}
 		source, sourceOK := nodes[edge.Source]
 		target, targetOK := nodes[edge.Target]
 		if !sourceOK || !targetOK {
@@ -327,8 +418,8 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 			issues = append(issues, ValidationIssue{EdgeID: edge.ID, Code: "edge_kind_disabled", Message: "新版模板只使用传递业务数据的连线"})
 			continue
 		}
-		outPort, okOut := findPort(moduleForNode(source, 2).Outputs, edge.SourceHandle)
-		inPort, okIn := findPort(moduleForNode(target, 2).Inputs, edge.TargetHandle)
+		outPort, okOut := findPort(moduleForNode(source, version).Outputs, edge.SourceHandle)
+		inPort, okIn := findPort(moduleForNode(target, version).Inputs, edge.TargetHandle)
 		if !okOut || !okIn {
 			issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Code: "unknown_port", Message: "连线端口不存在"})
 			continue
@@ -338,13 +429,23 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 			continue
 		}
 		connectedInputs[target.ID+"\x00"+inPort.ID]++
+		if version >= 3 && target.Kind == ModuleBOM && inPort.ID == "components" {
+			if recipeSources[target.ID] == nil {
+				recipeSources[target.ID] = map[string]struct{}{}
+			}
+			if _, exists := recipeSources[target.ID][source.ID]; exists {
+				issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Field: "components", Code: "duplicate_recipe_source", Message: "同一配方来源不能重复连接；需要多个配方行时在填写表格中增加行"})
+			} else {
+				recipeSources[target.ID][source.ID] = struct{}{}
+			}
+		}
 		if source.Kind == ModuleBOM && edge.SourceHandle == "assembly" && (target.Kind == ModuleMaterial || target.Kind == ModuleProduct) {
 			outputTargets[source.ID] = append(outputTargets[source.ID], target)
 		}
 	}
 
 	for _, node := range workflow.Nodes {
-		module := moduleForNode(node, 2)
+		module := moduleForNode(node, version)
 		for _, port := range module.Inputs {
 			if port.Required && connectedInputs[node.ID+"\x00"+port.ID] == 0 {
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: port.ID, Code: "missing_data_source", Message: port.Label + "需要连接一个数据来源"})

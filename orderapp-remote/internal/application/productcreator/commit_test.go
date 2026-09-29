@@ -22,6 +22,34 @@ type commitTestRepository struct {
 	callback func(context.Context, Run) (map[string]any, error)
 }
 
+type v3DraftFallbackRepository struct {
+	Repository
+	run         Run
+	legacySaved bool
+}
+
+type v3DraftRepository struct {
+	Repository
+	run            Run
+	savedInputs    map[string]map[string]any
+	savedVariables map[string]string
+}
+
+func (r *v3DraftRepository) GetRun(context.Context, int64) (Run, error) { return r.run, nil }
+func (r *v3DraftRepository) SaveRunDraft(_ context.Context, _ int64, revision int64, inputs map[string]map[string]any, variables map[string]string, _ string) (Run, error) {
+	r.savedInputs, r.savedVariables = inputs, variables
+	r.run.Inputs, r.run.VariableValues, r.run.Revision = inputs, variables, revision+1
+	return r.run, nil
+}
+
+func (r *v3DraftFallbackRepository) GetRun(context.Context, int64) (Run, error) { return r.run, nil }
+func (r *v3DraftFallbackRepository) SaveRunInputs(_ context.Context, _ int64, revision int64, inputs map[string]map[string]any, _ string) (Run, error) {
+	r.legacySaved = true
+	r.run.Inputs = inputs
+	r.run.Revision = revision + 1
+	return r.run, nil
+}
+
 type runStepTestRepository struct {
 	Repository
 	run      Run
@@ -97,6 +125,25 @@ func TestCommitConfigurationUsesIdempotencyKeyAndTransactionalExecutor(t *testin
 	}
 }
 
+func TestCommitConfigurationRequestHashIncludesV3VariableValues(t *testing.T) {
+	workflow := Workflow{Version: 3, Variables: []WorkflowVariable{{ID: "batch-name", Name: "批次名称"}}, Nodes: []Node{{ID: "materials", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}}}}
+	inputs := map[string]map[string]any{"materials": {"rows": []any{map[string]any{"row_id": "material-1", "action": "create", "name": "咖啡生豆", "unit": "kg", "owner_type": "factory"}}}}
+	hashes := make([]string, 0, 2)
+	for _, variableValue := range []string{"第一批", "第二批"} {
+		run := Run{ID: 82, Revision: 4, Status: "draft", Workflow: workflow, Inputs: inputs, VariableValues: map[string]string{"batch-name": variableValue}, Preview: &RunPreview{Valid: true}}
+		repo := &commitTestRepository{run: run}
+		svc := NewService(repo)
+		svc.UseConfigurationExecutor(&commitTestExecutor{})
+		if _, err := svc.CommitConfiguration(context.Background(), run.ID, run.Revision, "same-key", "tester"); err != nil {
+			t.Fatalf("commit with variable %q failed: %v", variableValue, err)
+		}
+		hashes = append(hashes, repo.hash)
+	}
+	if hashes[0] == hashes[1] {
+		t.Fatal("different V3 variable values must produce different idempotency request hashes")
+	}
+}
+
 func TestPricingStepSupportsPreviewDraftAndPublishActions(t *testing.T) {
 	run := Run{ID: 19, Revision: 8, Status: "in_progress", Version: 3, Workflow: Workflow{Nodes: []Node{{ID: "pricing", Kind: ModulePricing}}}, Inputs: map[string]map[string]any{"pricing": {"price_list_id": 12, "prices": []any{map[string]any{"row_id": "spec-1", "price": 19.9}}}}}
 	for _, action := range []string{"preview_pricing", "save_price_draft", "publish_price"} {
@@ -113,5 +160,34 @@ func TestPricingStepSupportsPreviewDraftAndPublishActions(t *testing.T) {
 				t.Fatalf("pricing action did not pass through the idempotent executor: repo=%+v executor=%+v", repo, executor)
 			}
 		})
+	}
+}
+
+func TestV3DraftSaveDoesNotFallBackToInputsOnlyPersistence(t *testing.T) {
+	repo := &v3DraftFallbackRepository{run: Run{
+		ID: 41, Revision: 2, Status: "draft",
+		Workflow: Workflow{Version: 3, Variables: []WorkflowVariable{{ID: "product-name", Name: "商品名称", DefaultValue: "默认商品"}}, Nodes: []Node{{ID: "input", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}}}},
+		Inputs:   map[string]map[string]any{}, VariableValues: map[string]string{},
+	}}
+	_, err := NewService(repo).SaveRunDraft(context.Background(), 41, 2, map[string]map[string]any{}, map[string]string{"product-name": "本次商品"}, "tester")
+	if err != ErrVariableDraftPersistenceUnavailable {
+		t.Fatalf("V3 save error=%v, want explicit variable persistence error", err)
+	}
+	if repo.legacySaved {
+		t.Fatal("V3 variables and node inputs must never be saved through the inputs-only fallback")
+	}
+}
+
+func TestV3DraftSavePersistsVariableValuesWithResolvedNodeInputs(t *testing.T) {
+	repo := &v3DraftRepository{run: Run{
+		ID: 42, Revision: 3, Status: "draft",
+		Workflow: Workflow{Version: 3, Variables: []WorkflowVariable{{ID: "product-name", Name: "商品名称", DefaultValue: "模板默认"}}, Nodes: []Node{{ID: "input", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}}}},
+	}}
+	got, err := NewService(repo).SaveRunDraft(context.Background(), 42, 3, map[string]map[string]any{}, map[string]string{"product-name": "本次商品"}, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Revision != 4 || repo.savedVariables["product-name"] != "本次商品" {
+		t.Fatalf("saved V3 draft revision/variables=%d/%v", got.Revision, repo.savedVariables)
 	}
 }
