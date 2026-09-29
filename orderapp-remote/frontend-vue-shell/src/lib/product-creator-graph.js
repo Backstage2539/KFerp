@@ -123,7 +123,7 @@ export function connectionIsValid(connection, nodes, modules, mode = 'data', edg
   const targetPort = target.data.module.inputs?.find((port) => port.id === canonicalInputPortID(connection.targetHandle))
   if (!sourcePort || !targetPort) return false
   if (isRecipePort(connection.targetHandle) || connection.targetHandle === 'components:add') {
-    const duplicate = edges.some((edge) => edge.target === connection.target && edge.source === connection.source && edge.sourceHandle === connection.sourceHandle && canonicalInputPortID(edge.targetHandle) === 'components')
+    const duplicate = edges.some((edge) => edge.id !== connection.id && edge.target === connection.target && edge.source === connection.source && edge.sourceHandle === connection.sourceHandle && canonicalInputPortID(edge.targetHandle) === 'components')
     if (duplicate) return false
   }
   return sourcePort.types?.some((sourceType) => targetPort.types?.includes(sourceType) || targetPort.types?.includes('*')) || false
