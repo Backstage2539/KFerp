@@ -92,8 +92,9 @@ test('V3 BOM recipe handles accept multiple connections and reject duplicate sou
   const nodes = [source, bom]
   const edges = []
   assert.equal(connectionIsValid({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:add' }, nodes, modules), true)
-  edges.push({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:source:edge-1', data: { kind: 'data' } })
+  edges.push({ id: 'edge-1', source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:source:edge-1', data: { kind: 'data' } })
   assert.equal(connectionIsValid({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:add' }, nodes, modules, 'data', edges), false)
+  assert.equal(connectionIsValid({ id: 'edge-1', source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:source:edge-1' }, nodes, modules, 'data', edges), true, 'revalidating an edge must not reject the edge itself as a duplicate')
   assert.equal(connectionIsValid({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'route' }, nodes, modules), false)
 })
 
