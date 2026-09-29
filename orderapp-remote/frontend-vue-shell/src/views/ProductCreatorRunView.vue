@@ -338,7 +338,7 @@ import {
 } from '@tabler/icons-vue'
 import { apiGet } from '../api/client.js'
 import { canonicalInputPortID, cloneValue, makeNodeId, toCanvasGraph } from '../lib/product-creator-graph.js'
-import { duplicateBOMComponentRow } from '../lib/product-creator-component-rows.js'
+import { appendDuplicatedBOMComponentRow } from '../lib/product-creator-component-rows.js'
 import { renderNameParts } from '../lib/product-creator-variables.js'
 import ProductCreatorNode from './ProductCreatorNode.vue'
 
@@ -678,7 +678,7 @@ function removeRow(nodeID, field, rowID) {
 }
 
 function duplicateComponentRow(nodeID, component) {
-  ensureComponents(nodeID).push(duplicateBOMComponentRow(component, makeNodeId()))
+  valuesFor(nodeID).components = appendDuplicatedBOMComponentRow(ensureComponents(nodeID), component, makeNodeId())
 }
 
 function removeMaterialRow(nodeID, rowID) {

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { duplicateBOMComponentRow } from './product-creator-component-rows.js'
+import { appendDuplicatedBOMComponentRow } from './product-creator-component-rows.js'
 
 const runtime = readFileSync(new URL('../views/ProductCreatorRunView.vue', import.meta.url), 'utf8')
 
@@ -16,14 +16,16 @@ test('duplicating a BOM component keeps its source and recipe values but gives t
     loss_rate: 0,
   }
 
-  const duplicate = duplicateBOMComponentRow(source, 'component-500g')
+  const rows = [source]
+  const duplicatedRows = appendDuplicatedBOMComponentRow(rows, source, 'component-500g')
 
-  assert.deepEqual(duplicate, { ...source, row_id: 'component-500g' })
-  assert.notEqual(duplicate.row_id, source.row_id)
+  assert.deepEqual(duplicatedRows, [source, { ...source, row_id: 'component-500g' }])
+  assert.notEqual(duplicatedRows[1].row_id, source.row_id)
+  assert.equal(rows.length, 1)
   assert.equal(source.row_id, 'component-200g')
 })
 
 test('the BOM run form exposes duplication on each recipe row', () => {
   assert.match(runtime, /aria-label="复制配方行"[^>]*@click="duplicateComponentRow\(node\.id, component\)"/)
-  assert.match(runtime, /function duplicateComponentRow\(nodeID, component\)[\s\S]*?duplicateBOMComponentRow\(component, makeNodeId\(\)\)/)
+  assert.match(runtime, /function duplicateComponentRow\(nodeID, component\)[\s\S]*?valuesFor\(nodeID\)\.components = appendDuplicatedBOMComponentRow\(ensureComponents\(nodeID\), component, makeNodeId\(\)\)/)
 })
