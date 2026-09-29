@@ -17,5 +17,6 @@ test('new connections are added through Vue Flow so the rendered graph and templ
   assert.ok(connectNodes, 'connectNodes handler should remain easy to inspect')
   assert.match(source.match(/const \{ ([^\n]+) \} = useVueFlow\(\)/)?.[1] || '', /addEdges/)
   assert.match(connectNodes, /addEdges\(\[edge\]\)/)
+  assert.match(connectNodes, /edges\.value\s*=\s*\[\.\.\.edges\.value/)
   assert.doesNotMatch(connectNodes, /edges\.value\.push\(/)
 })
