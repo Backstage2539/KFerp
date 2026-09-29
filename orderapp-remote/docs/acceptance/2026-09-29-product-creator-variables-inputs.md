@@ -13,6 +13,9 @@
 - [x] PostgreSQL：变量与节点输入同修订保存、审计行及旧修订冲突测试通过；ProductCreator 数据库集成场景验证两级 BOM、多规格、两条工艺、分类中性值和默认绑定。
 - [x] Vite：`npm run build` 成功；构建报告一个大 chunk 提示。
 - [x] 自动整理布局回归：节点列间距覆盖 300px 节点宽度；新增连接端口不会被相邻列的卡片遮住。
+- [x] 动态配方端口回归：连接后等待 Vue 更新端口，再刷新 Vue Flow 节点内部尺寸与句柄位置，避免运行数据已有配方来源但画布连线未显示。
+- [x] 动态端口针对性测试：先确认缺少节点内部刷新时测试 RED，再验证 watcher 调用 `updateNodeInternals` 后 GREEN。
+- [x] Vue shell 全量测试：1,277/1,277 通过；Vite 构建成功。
 - [x] `git diff --check` 通过。
 - [x] `scripts/verify_kferp.sh changed` 与 `scripts/verify_kferp.sh backend` 通过。
 
@@ -34,4 +37,4 @@
 
 ## 交付记录
 
-- 记录更新：2026-09-30。已完成开发前自动验证；development 部署、浏览器交互与本次真实商品创建记录待补。
+- 记录更新：2026-09-30。开发版上一轮部署和登录页冒烟已完成；此次动态端口修复待合入部署。浏览器多来源连线、模板发布及真实商品创建记录待补。
