@@ -53,11 +53,26 @@ export function moduleForNode(node, modules = [], version = 1) {
   if (!base) return null
   const module = { ...base }
   if (version >= 2 && ['material', 'product'].includes(node.kind)) {
-    module.inputs = node.config?.data_role === 'output'
-      ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }]
-      : []
+    module.inputs = [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }]
   }
   return module
+}
+
+export function connectionRoleUpdates(connection, nodes, mode = 'data', edges = []) {
+  if (mode !== 'data') return {}
+  const source = nodes.find((node) => node.id === connection?.source)
+  const target = nodes.find((node) => node.id === connection?.target)
+  if (!source || !target) return {}
+  const sourceKind = source.data?.module?.kind
+  const targetKind = target.data?.module?.kind
+  if (sourceKind === 'bom' && ['material', 'product'].includes(targetKind) && connection.targetHandle === 'from_bom') {
+    return { [target.id]: 'output' }
+  }
+  if (['material', 'product'].includes(sourceKind) && targetKind === 'bom' && connection.targetHandle === 'components') {
+    const hasProducingBOM = edges.some((edge) => edge.target === source.id && edge.targetHandle === 'from_bom' && edge.data?.kind !== 'prerequisite')
+    return hasProducingBOM ? {} : { [source.id]: 'input' }
+  }
+  return {}
 }
 
 export function toWorkflowGraph(nodes = [], edges = [], version = 1) {

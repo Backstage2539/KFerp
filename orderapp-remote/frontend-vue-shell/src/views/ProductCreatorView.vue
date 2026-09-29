@@ -381,6 +381,7 @@ import {
   connectionIsValid,
   makeEdgeId,
   makeNodeId,
+  connectionRoleUpdates,
   moduleFieldLabel,
   moduleForNode,
   toCanvasGraph,
@@ -841,6 +842,10 @@ function connectNodes(connection) {
       components.push({ row_id: makeNodeId(), source_node_id: source.id, quantity: '', unit: '', loss_rate: 0, variant_row_id: '' })
       target.data = { ...target.data, config: { ...target.data.config, components } }
     }
+  }
+  for (const [nodeId, role] of Object.entries(connectionRoleUpdates(connection, nodes.value, edgeMode.value, edges.value))) {
+    const node = nodes.value.find((item) => item.id === nodeId)
+    if (node) node.data = { ...node.data, config: { ...node.data.config, data_role: role } }
   }
   selectedNodeId.value = target.id
   selectedEdgeId.value = ''

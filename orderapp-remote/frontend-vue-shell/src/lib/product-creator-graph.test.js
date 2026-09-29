@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { reactive } from 'vue'
 
-import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
+import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, connectionRoleUpdates, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
 
 const modules = [
   { kind: 'product', name: '商品档案', inputs: [], outputs: [{ id: 'product', types: ['product.ref'] }], fields: [] },
@@ -94,12 +94,32 @@ test('BOM workflow graph renders material sources before assembly and BOM output
   ]
   const canvas = toCanvasGraph(workflow, catalog)
   assert.equal(canvas.nodes.find((node) => node.id === 'raw').data.module.name, '物料')
-  assert.deepEqual(canvas.nodes.find((node) => node.id === 'raw').data.module.inputs, [])
+  assert.equal(canvas.nodes.find((node) => node.id === 'raw').data.module.inputs[0].id, 'from_bom')
   assert.equal(canvas.nodes.find((node) => node.id === 'semi').data.module.inputs[0].id, 'from_bom')
+  assert.equal(connectionIsValid({ source: 'semi-bom', sourceHandle: 'assembly', target: 'raw', targetHandle: 'from_bom' }, canvas.nodes, catalog), true)
   const saved = toWorkflowGraph(canvas.nodes, canvas.edges, 2)
   assert.equal(saved.version, 2)
   assert.equal(saved.edges[1].source_handle, 'assembly')
 })
+
+test('data connections infer whether product and material nodes are BOM outputs or recipe inputs', () => {
+  const nodes = [
+    { id: 'bom', data: { module: { kind: 'bom' } } },
+    { id: 'semi', data: { module: { kind: 'material' }, config: { data_role: 'output' } } },
+    { id: 'component', data: { module: { kind: 'material' }, config: { data_role: 'output' } } },
+    { id: 'finish', data: { module: { kind: 'bom' } } },
+  ]
+  assert.deepEqual(connectionRoleUpdates({ source: 'bom', sourceHandle: 'assembly', target: 'semi', targetHandle: 'from_bom' }, nodes), { semi: 'output' })
+  assert.deepEqual(connectionRoleUpdates({ source: 'component', sourceHandle: 'material', target: 'finish', targetHandle: 'components' }, nodes), { component: 'input' })
+  assert.deepEqual(connectionRoleUpdates(
+    { source: 'semi', sourceHandle: 'material', target: 'finish', targetHandle: 'components' },
+    nodes,
+    'data',
+    [{ source: 'bom', target: 'semi', targetHandle: 'from_bom', data: { kind: 'data' } }],
+  ), {})
+  assert.deepEqual(connectionRoleUpdates({ source: 'bom', sourceHandle: '__prerequisite', target: 'semi', targetHandle: '__prerequisite' }, nodes, 'prerequisite'), {})
+})
+
 
 test('new template catalog hides advanced and pricing nodes while preserving legacy module rendering', () => {
   const catalog = [
