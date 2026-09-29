@@ -284,13 +284,30 @@
     </section>
 
     <section v-if="namedPriceTableBatch" class="panel named-price-table-toolbar">
-      <label><span>当前编辑价格表</span>
-        <select :value="namedPriceTableBatch.active_table_key" aria-label="当前编辑价格表" :disabled="beanListPublishing" @change="selectNamedPriceTable($event.target.value)">
-          <option v-for="table in namedPriceTableBatch.tables" :key="table.key" :value="table.key">{{ table.name || '未命名价格表' }}{{ table.key === namedPriceTableBatch.default_table_key ? '（默认）' : '' }}</option>
-        </select>
-      </label>
-      <span>共 {{ namedPriceTableBatch.tables.length }} 张 · 统一版本 {{ pdfTheme.version }} · 发布时整组保存</span>
-      <button v-if="activeBeanListCustomerID > 0 && isBeanListAdmin" class="secondary" type="button" :disabled="beanListPublishing" @click="openPublicationCopy()">复制其他价格表</button>
+      <div class="named-price-table-tab-row">
+        <div class="named-price-table-tabs" role="tablist" aria-label="当前编辑价格表">
+          <button
+            v-for="(table, index) in namedPriceTableBatch.tables"
+            :key="table.key"
+            :class="['named-price-table-tab', { active: table.key === namedPriceTableBatch.active_table_key }]"
+            type="button"
+            role="tab"
+            :aria-selected="table.key === namedPriceTableBatch.active_table_key"
+            :tabindex="table.key === namedPriceTableBatch.active_table_key ? 0 : -1"
+            :disabled="beanListPublishing"
+            @click="selectNamedPriceTable(table.key)"
+            @keydown="handleNamedPriceTableTabKeydown($event, index)"
+          >
+            <span>{{ table.name || '未命名价格表' }}</span>
+            <small v-if="table.key === namedPriceTableBatch.default_table_key" class="named-default-badge">默认</small>
+          </button>
+        </div>
+        <button class="secondary named-price-table-config-button" type="button" :disabled="loading || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>
+      </div>
+      <div class="named-price-table-toolbar-details">
+        <span>共 {{ namedPriceTableBatch.tables.length }} 张 · 统一版本 {{ pdfTheme.version }} · 发布时整组保存</span>
+        <button v-if="activeBeanListCustomerID > 0 && isBeanListAdmin" class="secondary" type="button" :disabled="beanListPublishing" @click="openPublicationCopy()">复制其他价格表</button>
+      </div>
     </section>
 
     <section v-if="publicationCopyOpen" class="panel publication-copy-panel" aria-label="完整复制其他价格表">
@@ -745,7 +762,6 @@
           <span>{{ pdfTotalItems }} 款</span>
           <div class="pdf-actions">
             <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
-            <button class="secondary" type="button" :disabled="loading || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>
             <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || priceListRefresh.busy" @click="publishBeanList">发布价格表</button>
             <button v-else class="primary" type="button" :disabled="beanListPublishing || priceListRefresh.busy || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
             <button class="secondary" type="button" :disabled="beanListPdfGenerating || priceListRefresh.busy || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
@@ -5901,6 +5917,24 @@ async function selectNamedPriceTable(key) {
   savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
 }
 
+function handleNamedPriceTableTabKeydown(event, index) {
+  const tables = namedPriceTableBatch.value?.tables || []
+  if (!tables.length) return
+
+  let targetIndex = index
+  if (event.key === 'ArrowLeft') targetIndex = (index - 1 + tables.length) % tables.length
+  else if (event.key === 'ArrowRight') targetIndex = (index + 1) % tables.length
+  else if (event.key === 'Home') targetIndex = 0
+  else if (event.key === 'End') targetIndex = tables.length - 1
+  else return
+
+  event.preventDefault()
+  const tabs = event.currentTarget?.parentElement?.querySelectorAll('[role="tab"]') || []
+  const target = tabs[targetIndex]
+  target?.focus()
+  target?.click()
+}
+
 async function openNamedTableConfig() {
   await restoreNamedPriceTableBatch()
   pdfDrawerOpen.value = true
@@ -5997,8 +6031,17 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.named-price-table-toolbar { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
-.named-price-table-toolbar label { display:grid; gap:6px; min-width:220px; }
+.named-price-table-toolbar { display:grid; gap:12px; min-width:0; }
+.named-price-table-tab-row { display:flex; align-items:center; gap:12px; min-width:0; }
+.named-price-table-tabs { display:flex; flex:1 1 auto; gap:6px; min-width:0; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:thin; }
+.named-price-table-tab { display:flex; align-items:center; gap:6px; flex:0 0 auto; max-width:260px; min-height:40px; border:1px solid #d7ded9; border-bottom:2px solid transparent; border-radius:8px 8px 0 0; background:#f7f9f7; color:#45534b; padding:7px 12px; font:inherit; cursor:pointer; white-space:nowrap; }
+.named-price-table-tab > span { overflow:hidden; text-overflow:ellipsis; }
+.named-price-table-tab.active { border-bottom-color:#268253; background:#fff; color:#185c39; font-weight:650; }
+.named-price-table-tab:focus-visible { outline:2px solid #20784c; outline-offset:2px; }
+.named-price-table-tab:disabled { cursor:not-allowed; opacity:.55; }
+.named-price-table-tab .named-default-badge { flex:0 0 auto; margin-left:0; }
+.named-price-table-config-button { flex:0 0 auto; white-space:nowrap; }
+.named-price-table-toolbar-details { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .publication-copy-panel { display:grid; gap:12px; }
 .publication-copy-panel > p { margin:0; }
 .publication-copy-source-row { display:grid; grid-template-columns:minmax(180px,.7fr) minmax(180px,.8fr) minmax(280px,1.5fr); gap:10px; align-items:end; }

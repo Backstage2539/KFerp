@@ -1,5 +1,16 @@
 # ACTIVE_REQUIREMENTS
 
+### PR-674-PRICE-TABLE-EDITOR-TABS
+- Branch: `codex/price-table-tabs-20260929`; base `origin/develop@955b642667eca703f2cd71cc0acf3285882b745a`.
+- Owner/session: Codex / Van / 2026-09-29.
+- Status: implementation in progress; automated verification, browser check and development deployment pending.
+- Scope: replace the current named price table selector with keyboard accessible horizontal tabs, keep the configuration action pinned at the right, and move table count/version/copy details below the tabs.
+- DEV: DEV-674-NAMED-TABLE-TABS; DEV-674-DOCS-DELIVERY.
+- Verifier: frontend RED/GREEN; costing API regression; support requirement contract; Vue build; narrow/wide browser interaction and draft restoration.
+- Manuals: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-09-29-price-table-editor-tabs.md`.
+- Deployment: development requested after verification; production excluded.
+- Last update: 2026-09-29.
+
 ### PR-672-PRODUCT-CREATOR-WORKFLOW
 - Branch: `codex/product-creator-workflow`; base `origin/develop@b2a7729a`.
 - Owner/session: Codex / Van / 2026-09-27.
