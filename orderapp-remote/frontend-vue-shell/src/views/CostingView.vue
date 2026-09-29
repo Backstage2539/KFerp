@@ -285,7 +285,7 @@
 
     <section v-if="namedPriceTableBatch" class="panel named-price-table-toolbar">
       <div class="named-price-table-tab-row">
-        <div class="named-price-table-tabs" role="tablist" aria-label="当前编辑价格表">
+        <div ref="namedPriceTableTabsElement" class="named-price-table-tabs" role="tablist" aria-label="当前编辑价格表">
           <button
             v-for="(table, index) in namedPriceTableBatch.tables"
             :key="table.key"
@@ -1241,6 +1241,7 @@ import { customerCatalogProjection } from '../lib/customer-catalog.js'
 import { fetchPriceListRefreshSnapshot } from '../lib/price-list-refresh.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { clonePriceTable, createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, publicationBatchGroups, publicationTableMetadata } from '../lib/price-table-batch'
+import { keepElementHorizontallyVisible } from '../lib/price-table-tab-scroll.js'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { fetchAllCustomerOptions } from '../api/view-context'
 import { fetchCurrentActor } from '../api/auth'
@@ -1450,6 +1451,7 @@ const categorySelectionInitialized = ref({})
 const pdfCustomizers = ref({})
 const namedPriceTableBatch = ref(null)
 const namedPriceTableScope = ref('')
+const namedPriceTableTabsElement = ref(null)
 let restoringNamedPriceTable = false
 const activeNamedPriceTable = computed(() => namedPriceTableBatch.value?.tables.find(table => table.key === namedPriceTableBatch.value.active_table_key) || null)
 const publicationCopySourceScope = computed(() => publicationCopySourceKind.value === 'customer'
@@ -5917,6 +5919,12 @@ async function selectNamedPriceTable(key) {
   savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
 }
 
+function keepActiveNamedPriceTableTabVisible() {
+  const strip = namedPriceTableTabsElement.value
+  const activeTab = strip?.querySelector('[role="tab"][aria-selected="true"]')
+  keepElementHorizontallyVisible(strip, activeTab)
+}
+
 function handleNamedPriceTableTabKeydown(event, index) {
   const tables = namedPriceTableBatch.value?.tables || []
   if (!tables.length) return
@@ -6012,8 +6020,13 @@ watch([priceListDisplayOrder, pdfOptions, pdfCustomizers, priceListTemplateDefau
 watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name, table.direct_ship_enabled])]), () => {
   if (!restoringNamedPriceTable && namedPriceTableBatch.value) savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
 })
+watch(() => JSON.stringify([namedPriceTableBatch.value?.active_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name])]), async () => {
+  await nextTick()
+  keepActiveNamedPriceTableTabVisible()
+}, { flush: 'post' })
 
 onMounted(() => {
+  window.addEventListener('resize', keepActiveNamedPriceTableTabVisible)
   loadCurrentActor()
   loadBeanList()
   loadCustomers()
@@ -6025,6 +6038,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   priceListRefreshRevision++
   window.clearTimeout(publicationSearchTimer)
+  window.removeEventListener('resize', keepActiveNamedPriceTableTabVisible)
   window.removeEventListener('afterprint', clearPdfPrintMode)
   clearPdfPrintMode()
 })
