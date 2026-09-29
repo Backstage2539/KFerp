@@ -77,7 +77,7 @@
                   </template>
                   <template v-else>
                     <label class="pc-row-field"><span>物料名称 *</span><input v-model.trim="row.name" placeholder="例如：云南水洗豆" /></label>
-                    <label class="pc-row-field"><span>物料类别</span><select v-model="row.kind"><option value="bean">原料</option><option value="pack">包材</option><option value="other">其他</option></select></label>
+                    <label v-if="workflowVersion < 3" class="pc-row-field"><span>物料类别</span><select v-model="row.kind"><option value="bean">原料</option><option value="pack">包材</option><option value="other">其他</option></select></label>
                     <label class="pc-row-field"><span>取得方式</span><select v-model="row.supply_mode"><option value="purchase">外购</option><option value="manufacture">自制</option></select></label>
                     <label class="pc-row-field"><span>库存单位 *</span><select v-model="row.unit"><option value="">选择单位</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
                     <label class="pc-row-field"><span>归属</span><select v-model="row.owner_type"><option value="factory">本公司</option><option value="customer">客户</option></select></label>
