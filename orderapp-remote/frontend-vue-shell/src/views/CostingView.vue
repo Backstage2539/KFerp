@@ -5917,6 +5917,8 @@ async function selectNamedPriceTable(key) {
   namedPriceTableBatch.value.active_table_key = key
   await applyNamedPriceTablePayload()
   savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
+  await nextTick()
+  keepActiveNamedPriceTableTabVisible()
 }
 
 function keepActiveNamedPriceTableTabVisible() {

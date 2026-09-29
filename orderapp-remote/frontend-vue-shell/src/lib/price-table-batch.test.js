@@ -63,6 +63,8 @@ test('price-table editor exposes named tables as keyboard-accessible tabs with a
   assert.match(source, /named-price-table-tabs[\s\S]*overflow-x:\s*auto/)
   assert.match(source, /keepActiveNamedPriceTableTabVisible/)
   assert.match(source, /window\.addEventListener\('resize', keepActiveNamedPriceTableTabVisible\)/)
+  const tableSelectionSource = source.split('async function selectNamedPriceTable')[1].split('function keepActiveNamedPriceTableTabVisible')[0]
+  assert.match(tableSelectionSource, /keepActiveNamedPriceTableTabVisible/)
   assert.doesNotMatch(template, /适用于一件代发/)
   assert.match(template, /该类别的一件代发价格表/)
   assert.match(template, /该类别的商品下单价格表/)
