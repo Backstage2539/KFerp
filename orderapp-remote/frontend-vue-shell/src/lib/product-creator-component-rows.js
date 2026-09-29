@@ -10,3 +10,8 @@ export function duplicateBOMComponentRow(component, nextRowID) {
 
   return { ...component, row_id: rowID }
 }
+
+export function appendDuplicatedBOMComponentRow(components, component, nextRowID) {
+  if (!Array.isArray(components)) throw new TypeError('BOM component rows are required')
+  return [...components, duplicateBOMComponentRow(component, nextRowID)]
+}
