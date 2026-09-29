@@ -408,6 +408,7 @@ import {
   moduleFieldLabel,
   moduleForNode,
   recipePortForEdge,
+  replaceGraphEdge,
   toCanvasGraph,
   toWorkflowGraph,
 } from '../lib/product-creator-graph.js'
@@ -883,9 +884,7 @@ function connectNodes(connection) {
     markerEnd: { type: 'arrowclosed', color },
   }
   addEdges([edge])
-  if (!edges.value.some((current) => current.id === edge.id)) {
-    edges.value = [...edges.value, edge]
-  }
+  edges.value = replaceGraphEdge(edges.value, edge)
   if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && canonicalTarget === 'route') {
     target.data = { ...target.data, config: { ...target.data.config, route_id: 0 } }
   }

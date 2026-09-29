@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { reactive } from 'vue'
 
-import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, connectionRoleUpdates, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
+import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, connectionRoleUpdates, replaceGraphEdge, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
 
 const modules = [
   { kind: 'product', name: '商品档案', inputs: [], outputs: [{ id: 'product', types: ['product.ref'] }], fields: [] },
@@ -72,6 +72,18 @@ test('V3 workflow serializes variable definitions and dynamic BOM recipe targets
   assert.ok(saved.edges.every((edge) => edge.target_handle === 'components'))
   assert.deepEqual(saved.variables, workflow.variables)
   assert.deepEqual(saved.nodes.find((node) => node.id === 'bom').config.name_parts, workflow.nodes.at(-1).config.name_parts)
+})
+
+test('replacing a connected Vue Flow edge always creates a saved-model snapshot with one stable edge', () => {
+  const existing = { id: 'recipe-edge', source: 'raw', sourceHandle: 'material', target: 'bom', targetHandle: 'components:source:recipe-edge', data: { kind: 'data' } }
+  const staleCollection = [existing]
+  const refreshed = replaceGraphEdge(staleCollection, { ...existing, label: '物料对象 → 配方物料或商品规格' })
+
+  assert.notEqual(refreshed, staleCollection, 'the v-model receives a new array even if Vue Flow already inserted this edge')
+  assert.equal(refreshed.length, 1, 'replacing the same edge does not duplicate it')
+  const saved = toWorkflowGraph([], refreshed, 3)
+  assert.equal(saved.edges[0].target_handle, 'components')
+  assert.equal(saved.edges[0].label, '物料对象 → 配方物料或商品规格')
 })
 
 test('V3 BOM recipe handles accept multiple connections and reject duplicate sources', () => {
