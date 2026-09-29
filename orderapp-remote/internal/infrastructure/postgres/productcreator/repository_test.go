@@ -175,7 +175,7 @@ func TestSaveRunDraftPersistsInputsAndVariablesTogether(t *testing.T) {
 		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	}
 	if dsn == "" {
-		dsn = "postgres:///postgres?host=/tmp"
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for product creator postgres tests")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
