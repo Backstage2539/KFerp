@@ -152,7 +152,10 @@
                     <label><span>用量／比例 *</span><input v-model.number="component.quantity" type="number" min="0.001" step="0.001" placeholder="填写本规格用量" :disabled="isNodeFieldFixed(node, 'components')" /></label>
                     <label><span>消耗单位 *</span><select v-model="component.unit" :disabled="isNodeFieldFixed(node, 'components')"><option value="">选择单位</option><option value="ratio_pct">比例 %</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
                     <label v-if="node.data.config.output_type === 'product' && ensureVariants(node).length > 1"><span>适用产出规格</span><select v-model="component.variant_row_id" :disabled="isNodeFieldFixed(node, 'components')"><option value="">全部规格</option><option v-for="variant in ensureVariants(node)" :key="variant.row_id" :value="variant.row_id">{{ variant.name }}</option></select></label>
-                    <button class="pc-run-icon-button" type="button" aria-label="删除配方行" :disabled="isNodeFieldFixed(node, 'components')" @click="removeRow(node.id, 'components', component.row_id)"><IconTrash :size="16" /></button>
+                    <div class="pc-component-actions">
+                      <button class="pc-run-icon-button" type="button" aria-label="复制配方行" :disabled="isNodeFieldFixed(node, 'components')" @click="duplicateComponentRow(node.id, component)"><IconCopy :size="16" /></button>
+                      <button class="pc-run-icon-button" type="button" aria-label="删除配方行" :disabled="isNodeFieldFixed(node, 'components')" @click="removeRow(node.id, 'components', component.row_id)"><IconTrash :size="16" /></button>
+                    </div>
                   </div>
                   <button class="pc-run-add" type="button" :disabled="isNodeFieldFixed(node, 'components')" @click="addComponentFromEdge(node)"><IconPlus :size="15" /> 添加已连接物料行</button>
                 </div>
@@ -319,6 +322,7 @@ import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCircleCheck,
+  IconCopy,
   IconDeviceFloppy,
   IconEye,
   IconInfoCircle,
@@ -334,6 +338,7 @@ import {
 } from '@tabler/icons-vue'
 import { apiGet } from '../api/client.js'
 import { canonicalInputPortID, cloneValue, makeNodeId, toCanvasGraph } from '../lib/product-creator-graph.js'
+import { duplicateBOMComponentRow } from '../lib/product-creator-component-rows.js'
 import { renderNameParts } from '../lib/product-creator-variables.js'
 import ProductCreatorNode from './ProductCreatorNode.vue'
 
@@ -670,6 +675,10 @@ function removeRow(nodeID, field, rowID) {
   const values = inputValues.value[nodeID]
   if (!values?.[field]) return
   values[field] = values[field].filter((row) => row.row_id !== rowID)
+}
+
+function duplicateComponentRow(nodeID, component) {
+  ensureComponents(nodeID).push(duplicateBOMComponentRow(component, makeNodeId()))
 }
 
 function removeMaterialRow(nodeID, rowID) {
@@ -1306,7 +1315,8 @@ function cloneInputs() {
 .pc-bom-variant-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px 55px 30px; gap: 7px; margin-bottom: 8px; }
 .pc-default-variant { display: flex; align-items: center; gap: 3px; color: #607088; font-size: 10px; white-space: nowrap; }
 .pc-default-variant input { accent-color: #268252; }
-.pc-component-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)) 30px; align-items: end; gap: 8px; margin-bottom: 10px; }
+.pc-component-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)) 62px; align-items: end; gap: 8px; margin-bottom: 10px; }
+.pc-component-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .pc-component-source { display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 34px; overflow: hidden; border: 1px solid #dce7df; border-radius: 5px; padding: 0 7px; color: #33724f; background: #f5fbf7; font-size: 10px; }
 .pc-component-source span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pc-component-row label span { display: block; margin-bottom: 4px; color: #728096; font-size: 9px; }
@@ -1343,7 +1353,7 @@ function cloneInputs() {
   .pc-run-layout { grid-template-columns: minmax(460px, 1.3fr) minmax(270px, .8fr); }
   .pc-material-row { grid-template-columns: repeat(2, minmax(0, 1fr)) 30px; }
   .pc-material-row .pc-run-icon-button { grid-column: 3; grid-row: 1; }
-  .pc-component-row { grid-template-columns: repeat(2, minmax(0, 1fr)) 30px; }
+  .pc-component-row { grid-template-columns: repeat(2, minmax(0, 1fr)) 62px; }
   .pc-component-source { grid-column: 1 / -1; }
   .pc-component-row label:nth-of-type(n+3) { grid-row: auto; }
 }
@@ -1363,6 +1373,6 @@ function cloneInputs() {
   .pc-run-field.wide { grid-column: 1; }
   .pc-bom-variant-row { grid-template-columns: minmax(0, 1fr) 68px 48px 28px; gap: 4px; }
   .pc-bom-variant-row input { padding-inline: 5px; }
-  .pc-component-row { grid-template-columns: repeat(2, minmax(0, 1fr)) 28px; }
+  .pc-component-row { grid-template-columns: repeat(2, minmax(0, 1fr)) 62px; }
 }
 </style>
