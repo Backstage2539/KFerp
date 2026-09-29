@@ -12,6 +12,7 @@
 - [x] Go 变量测试覆盖缺少变量、默认名称、手动覆盖、持久化能力缺失、草稿变量一起保存、提交摘要变量隔离；图验证覆盖 4 个配方来源、工艺路线、重复来源和稳定连线 ID。
 - [x] PostgreSQL：变量与节点输入同修订保存、审计行及旧修订冲突测试通过；ProductCreator 数据库集成场景验证两级 BOM、多规格、两条工艺、分类中性值和默认绑定。
 - [x] Vite：`npm run build` 成功；构建报告一个大 chunk 提示。
+- [x] 自动整理布局回归：节点列间距覆盖 300px 节点宽度；新增连接端口不会被相邻列的卡片遮住。
 - [x] `git diff --check` 通过。
 - [x] `scripts/verify_kferp.sh changed` 与 `scripts/verify_kferp.sh backend` 通过。
 
