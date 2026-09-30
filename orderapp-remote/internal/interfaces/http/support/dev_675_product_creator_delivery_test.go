@@ -53,10 +53,11 @@ func TestProductCreatorV5ProcessAndNamePreviewFollowupSeeds(t *testing.T) {
 		code   string
 		status string
 	}{
-		{table: "req_dev", code: "DEV-710-PC-V5-ROUTE-CONNECTION", status: "doing"},
-		{table: "req_dev", code: "DEV-711-PC-V5-ROUTE-OVERRIDE", status: "doing"},
-		{table: "req_dev", code: "DEV-712-PC-NAME-LIVE-PREVIEW", status: "doing"},
-		{table: "req_dev", code: "DEV-713-PC-V5-DOCS-DELIVERY", status: "doing"},
+		{table: "req_dev", code: "DEV-710-PC-V5-ROUTE-CONNECTION", status: "done"},
+		{table: "req_dev", code: "DEV-711-PC-V5-ROUTE-OVERRIDE", status: "done"},
+		{table: "req_dev", code: "DEV-712-PC-NAME-LIVE-PREVIEW", status: "done"},
+		{table: "req_dev", code: "DEV-713-PC-V5-DOCS-DELIVERY", status: "done"},
+		{table: "req_dev", code: "DEV-714-PC-V5-PREVIEW-ROUTE-LOOKUP", status: "done"},
 	} {
 		pattern := regexp.MustCompile(`(?m)^[\t ]*\{table: "` + regexp.QuoteMeta(row.table) + `"[^\n]*code: "` + regexp.QuoteMeta(row.code) + `"[^\n]*status: "` + regexp.QuoteMeta(row.status) + `"[^\n]*\},[\t ]*$`)
 		if !pattern.MatchString(reqStore) {
