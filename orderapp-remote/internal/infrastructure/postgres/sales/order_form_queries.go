@@ -1401,7 +1401,7 @@ func mergeLatestCommercialOrderPublicationTierMaps(dst, src map[int64][]salesapp
 				continue
 			}
 			for _, tier := range tiers {
-				if !orderPublicationTierHasConcreteSKU(tier) {
+				if !orderPublicationTierHasConcreteSalesSpec(tier) {
 					legacyCovered[productID] = true
 					break
 				}
@@ -1412,7 +1412,7 @@ func mergeLatestCommercialOrderPublicationTierMaps(dst, src map[int64][]salesapp
 		concrete := make([]salesapp.ProductTierOption, 0, len(tiers))
 		legacy := make([]salesapp.ProductTierOption, 0, len(tiers))
 		for _, tier := range tiers {
-			if orderPublicationTierHasConcreteSKU(tier) {
+			if orderPublicationTierHasConcreteSalesSpec(tier) {
 				concrete = append(concrete, tier)
 			} else {
 				legacy = append(legacy, tier)
@@ -1439,11 +1439,12 @@ func mergeLatestCommercialOrderPublicationTierMaps(dst, src map[int64][]salesapp
 	return dst
 }
 
-func orderPublicationTierHasConcreteSKU(tier salesapp.ProductTierOption) bool {
+func orderPublicationTierHasConcreteSalesSpec(tier salesapp.ProductTierOption) bool {
 	if strings.TrimSpace(tier.QuantityBasis) != "sales_spec_count" || tier.PublicationID <= 0 || len(tier.EffectiveSalesSpec) == 0 {
 		return false
 	}
-	return orderFamilyTierMapInt64(tier.EffectiveSalesSpec, "sku_id") > 0
+	return orderFamilyTierMapInt64(tier.EffectiveSalesSpec, "sku_id") > 0 ||
+		orderFamilyTierMapInt64(tier.EffectiveSalesSpec, "bom_spec_id") > 0
 }
 
 func appendUniqueOrderPublicationTiers(dst, src []salesapp.ProductTierOption) []salesapp.ProductTierOption {
