@@ -52,6 +52,8 @@ export const menuGroups = [
     name: '商品',
     items: [
       { key: 'productMaster', label: '商品档案', title: '商品档案' },
+      { key: 'productCreator', label: '商品创建器', title: '商品创建器' },
+      { key: 'productCreatorManual', label: '创建器手册', title: '商品创建器手册' },
       { key: 'productPriceManagement', label: '商品价格管理', title: '商品价格管理' },
       { key: 'costing', label: '商品价格表', title: '商品价格表' },
       { key: 'costingManual', label: '成本核价手册', title: '成本核价手册' },

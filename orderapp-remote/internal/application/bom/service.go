@@ -389,6 +389,18 @@ type ProductionBomVersionVariant struct {
 	Items            []Item  `json:"items"`
 }
 
+type ProductionBomPublishedSpec struct {
+	BomID         int64  `json:"bom_id"`
+	BomName       string `json:"bom_name"`
+	VersionID     int64  `json:"version_id"`
+	BomSpecID     int64  `json:"bom_spec_id"`
+	BomVariantID  int64  `json:"bom_variant_id"`
+	SpecKey       string `json:"spec_key"`
+	Name          string `json:"name"`
+	InventoryUnit string `json:"inventory_unit"`
+	IsDefault     bool   `json:"is_default"`
+}
+
 type ProductionBomDraftVariant struct {
 	BomVariantID     int64                    `json:"bom_variant_id"`
 	BomSpecID        int64                    `json:"bom_spec_id"`
@@ -805,6 +817,10 @@ type ProductionBomSpecInventoryUnitRepository interface {
 	ProductionBomSpecInventoryUnits(ctx context.Context, specIDs []int64) (map[int64]string, error)
 }
 
+type ProductionBomPublishedSpecRepository interface {
+	ListProductionBomPublishedSpecs(context.Context, int64) ([]ProductionBomPublishedSpec, error)
+}
+
 type Service struct {
 	repo Repository
 }
@@ -819,6 +835,17 @@ func (s *Service) productionBomSpecRepo() (ProductionBomSpecRepository, error) {
 		return nil, fmt.Errorf("production BOM specification templates are unavailable")
 	}
 	return repo, nil
+}
+
+func (s *Service) ListProductionBomPublishedSpecs(ctx context.Context, productID int64) ([]ProductionBomPublishedSpec, error) {
+	if productID <= 0 {
+		return nil, fmt.Errorf("product_id required")
+	}
+	repo, ok := s.repo.(ProductionBomPublishedSpecRepository)
+	if !ok {
+		return nil, fmt.Errorf("published product BOM specifications are unavailable")
+	}
+	return repo.ListProductionBomPublishedSpecs(ctx, productID)
 }
 
 func (s *Service) ListProductionBomSpecTemplates(ctx context.Context) ([]ProductionBomSpecTemplate, error) {
@@ -2007,7 +2034,7 @@ func ValidateProductionBomDraftItemInventoryUnits(items []ProductionBomDraftItem
 			inventoryUnit = productUnits[item.ComponentProductID]
 		}
 		if inventoryUnit == "" || !strings.EqualFold(strings.TrimSpace(item.ConsumeUnit), inventoryUnit) {
-			return fmt.Errorf("item %d consume_unit must match component inventory_unit", i+1)
+			return fmt.Errorf("item %d consume_unit %q must match component inventory_unit %q", i+1, item.ConsumeUnit, inventoryUnit)
 		}
 	}
 	return nil

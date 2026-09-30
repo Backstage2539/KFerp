@@ -16,12 +16,13 @@ const official = { id: 122, owner_type: 'official', status: 'published', version
 function harness(t) {
   const scope = effectScope()
   t.after(() => scope.stop())
-  const customerID = ref(302), tableKey = ref(''), seeds = ref([]), drafts = new Map(), pending = []
+  const customerID = ref(302), tableKey = ref(''), seeds = ref([]), drafts = new Map(), pending = [], copyFrozen = ref(false)
   const baseKey = () => `customer:${customerID.value}:coffee`
   const draftKey = () => baseKey() + (tableKey.value ? `:table:${tableKey.value}` : '')
   const generated = ref([{ ...rows[0], customer_reference_snapshot: { customer_id: 302 }, final_unit_price: 999 }])
   const bindings = {
     watch, generatedPriceListFlatRows: generated, customerPriceSources: ref([]), customerPriceSourcesReadyKey: ref(''),
+    customerPriceCopyFrozen: copyFrozen,
     activeBeanListCustomerID: customerID, activePriceListTypeKey: ref('coffee'), customerPriceSeedRows: seeds,
     priceListGenerationDraftBaseKey: baseKey, priceListGenerationDraftStorageKey: draftKey,
     seedCustomerPriceRows, pdfTheme: ref({ listType: 'commercial' }), window: { location: { origin: 'https://example.test' } },
@@ -43,7 +44,7 @@ function harness(t) {
   `)
   const handlers = scope.run(() => setup(...Object.values(bindings)))
   const output = computed(() => applyCustomerPriceRows(generated.value, seeds.value, {}, customerID.value))
-  return { ...handlers, customerID, tableKey, seeds, drafts, pending, draftKey, output }
+  return { ...handlers, customerID, tableKey, seeds, drafts, pending, draftKey, output, copyFrozen }
 }
 
 test('public quote response remains usable when named customer draft initializes during the request', async t => {
@@ -86,6 +87,17 @@ test('a late source response cannot populate a different customer draft', async 
   await nextTick()
   h.pending[0].resolve({ rows: [{ ...official, owner_type: 'customer', owner_key: '302' }] })
   h.pending[1].resolve({ rows: [] })
+  await loading
+  await nextTick()
+  assert.deepEqual(h.seeds.value, [])
+})
+
+test('restored full-copy drafts do not seed over published rows when source quotes load', async t => {
+  const h = harness(t)
+  h.tableKey.value = 'default'
+  const loading = h.loadCustomerPriceSources()
+  h.copyFrozen.value = true
+  h.pending[0].resolve({ rows: [official] })
   await loading
   await nextTick()
   assert.deepEqual(h.seeds.value, [])

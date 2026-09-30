@@ -993,3 +993,18 @@ func TestPublishedPricingMatchesStableBOMSpecAcrossVersionsWithoutWeightConversi
 		t.Fatalf("grouped stable BOM spec pricing=%+v/%v", pricing, ok)
 	}
 }
+
+func TestPublishedSnapshotTierPricingAllowsEmployeeCrossThresholdButKeepsRowIdentity(t *testing.T) {
+	raw := []byte(`{"price_rows":[{"product_id":10,"bom_spec_id":20,"bom_variant_id":30,"spec_g":454,"template_tier_id":44,"tier_label":"C","min_qty":10,"max_qty":null,"final_unit_price":57.25}]}`)
+	key := PublishedPriceRowKey(91, ListTypeCommercial, 10, 20, 30, "flat", 0)
+	pricing, ok := PublishedSnapshotTierPricing(raw, 91, 10, 20, 30, 454, ListTypeCommercial, "bag", 1, key)
+	if !ok || pricing.UnitPrice != 57.25 || pricing.TierLabel != "C" || pricing.TemplateTierID != 44 || pricing.MinQty != 10 {
+		t.Fatalf("selected published tier = %+v, %v", pricing, ok)
+	}
+	if _, ok := PublishedSnapshotTierPricing(raw, 91, 11, 20, 30, 454, ListTypeCommercial, "bag", 1, key); ok {
+		t.Fatal("row key from another product must not be accepted")
+	}
+	if _, ok := PublishedSnapshotTierPricing(raw, 91, 10, 21, 30, 454, ListTypeCommercial, "bag", 1, key); ok {
+		t.Fatal("row key from another specification must not be accepted")
+	}
+}

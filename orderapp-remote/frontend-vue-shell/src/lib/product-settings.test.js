@@ -4043,6 +4043,15 @@ test('customer context filters product config templates while allowing public te
   assert.equal(productConfigTemplateBelongsToSkuContext(customerTemplate, { customerID: 42 }), true)
 })
 
+test('product archive drawer shows true archive ownership separately from customer references', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  assert.match(source, /档案归属<\/span>\s*<input :value="productProductionCustomerLabel"/)
+  const labelBlock = source.slice(source.indexOf('const productProductionCustomerLabel = computed'), source.indexOf('const productProductionCustomerReferences = computed'))
+  assert.match(labelBlock, /customerID > 0[\s\S]*: '工厂公共商品'/)
+  assert.doesNotMatch(labelBlock, /productCustomerReferenceSummary/)
+  assert.match(source, /productProductionCustomerReferences/)
+})
+
 test('SKU template panes render context-filtered template lists', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 

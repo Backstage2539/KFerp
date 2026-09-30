@@ -139,6 +139,7 @@ type ListCommand struct {
 	Query             string
 	Active            string
 	Limit             int
+	Offset            int
 	IncludeDeprecated bool
 	CustomerID        int64
 	OwnerType         string

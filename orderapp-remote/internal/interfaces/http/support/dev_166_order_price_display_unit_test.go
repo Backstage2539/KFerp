@@ -40,7 +40,7 @@ func TestDev166OrderEntryUsesSpecDisplayPriceUnit(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	for _, want := range []string{
 		"`单价（${priceUnitLabel(row)}）`",
-		"wholesaleTierPriceRows(productForRow(row), row)",
+		"wholesaleTierPriceRows(product, row).filter",
 		"unitPriceMoney(tier.unitPrice)",
 	} {
 		if !strings.Contains(view, want) {

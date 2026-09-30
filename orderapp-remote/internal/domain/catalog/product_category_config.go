@@ -20,6 +20,8 @@ func LegacyKindDefaultTypeName(kind string) string {
 		return "挂耳"
 	case ProductKindInstantCoffee:
 		return "速溶咖啡"
+	case ProductKindGeneric:
+		return "通用商品"
 	default:
 		return "熟豆"
 	}

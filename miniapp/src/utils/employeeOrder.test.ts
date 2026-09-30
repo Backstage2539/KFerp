@@ -23,6 +23,8 @@ import {
   employeeOrderEditableOrderDiscount,
   employeeOrderOutsourceTotal,
   employeeOrderTierForQuantity,
+  chooseEmployeeOrderPriceTier,
+  restoreEmployeeOrderAutomaticPrice,
   repriceEmployeeOrderItemForQuantity,
   isEmployeeOrderNonNegativeMoney,
   hydrateEmployeeOrderEditItems,
@@ -492,6 +494,73 @@ describe('employee mini order entry', () => {
       price_override: false,
     }], [family], 8)
     expect(hydrated).toMatchObject({ unit_price: 60, price_override: false })
+  })
+
+  it('keeps an employee-selected published tier across quantity changes and restores automatic matching on request', () => {
+    const family = {
+      customer_id: 0,
+      parent_product_id: 10,
+      name: '分档商品',
+      specs: [{
+        product_id: 11,
+        spec_label: '227g',
+        tiers: [
+          { id: 31, price_row_key: 'pub-91-row-31', unit_price: 68, min_qty: 1, max_qty: 9, publication_id: 91, tier_label: 'A' },
+          { id: 32, price_row_key: 'pub-91-row-32', unit_price: 60, min_qty: 10, publication_id: 91, tier_label: 'B' },
+        ],
+      }],
+    }
+    const automatic = employeeOrderItemFromSpec(Object.assign(createEmployeeOrderItem('selected-tier'), { qty: 2 }), family, family.specs[0])
+    const selected = chooseEmployeeOrderPriceTier(automatic, family, 'pub-91-row-32')
+    const changed = repriceEmployeeOrderItemForQuantity({ ...selected, qty: 3 }, family)
+
+    expect(selected).toMatchObject({ unit_price: 60, price_selection_mode: 'tier', selected_price_row_key: 'pub-91-row-32' })
+    expect(changed).toMatchObject({ qty: 3, unit_price: 60, price_selection_mode: 'tier' })
+    expect(restoreEmployeeOrderAutomaticPrice(changed, family)).toMatchObject({
+      unit_price: 68,
+      price_selection_mode: 'auto',
+      selected_price_row_key: '',
+    })
+    expect(buildEmployeeOrderItemsPayload([selected])[0]).toMatchObject({
+      price_selection_mode: 'tier',
+      selected_price_row_key: 'pub-91-row-32',
+    })
+  })
+
+  it('rehydrates a selected tier from order history and revalidates it when copying an order', () => {
+    const family = {
+      customer_id: 0,
+      parent_product_id: 10,
+      name: '分档商品',
+      specs: [{
+        product_id: 11,
+        spec_label: '227g',
+        tiers: [
+          { id: 31, price_row_key: 'pub-91-row-31', unit_price: 68, min_qty: 1, max_qty: 9, publication_id: 91 },
+          { id: 32, price_row_key: 'pub-91-row-32', unit_price: 60, min_qty: 10, publication_id: 91 },
+        ],
+      }],
+    }
+    const detail = {
+      item_id: 88,
+      product_id: 11,
+      parent_product_id: 10,
+      product_name: '分档商品',
+      qty: '2',
+      spec: '227g',
+      unit: '袋',
+      unit_price: '60',
+      line_total: '120',
+      price_override: false,
+      price_selection_mode: 'tier' as const,
+      selected_price_row_key: 'pub-91-row-32',
+      bean_list_publication_id: 91,
+    }
+
+    const [hydrated] = hydrateEmployeeOrderEditItems([detail], [family], 8)
+    const [copied] = copyEmployeeOrderItems([detail], [family], 8)
+    expect(hydrated).toMatchObject({ price_selection_mode: 'tier', selected_price_row_key: 'pub-91-row-32', unit_price: 60, price_override: false })
+    expect(copied).toMatchObject({ price_selection_mode: 'tier', selected_price_row_key: 'pub-91-row-32', unit_price: 60, price_override: false })
   })
 
   it('marks an item unavailable when its quantity falls into a price-tier gap', () => {

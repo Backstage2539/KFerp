@@ -146,7 +146,7 @@ func defaultRoles() []roleSeed {
 		{Code: "warehouse", Name: "仓库", Description: "库存、采购收货和物料维护", Permissions: []string{"stock.read", "stock.write", "purchase.read", "purchase.write", "materials.read", "materials.write", "products.read"}},
 		{Code: "finance", Name: "财务", Description: "订单、库存、采购、报价、成本核算和财务月结", Permissions: []string{"orders.read", "stock.read", "purchase.read", "products.read", "costing.read", "finance.read", "finance.write", "finance.close"}},
 		{Code: "product", Name: "商品", Description: "商品、BOM 和成本维护", Permissions: []string{"products.read", "products.write", "bom.read", "bom.write", "costing.read", "costing.write"}},
-		{Code: "system", Name: "系统管理员", Description: "员工、设置、日志和需求维护", Permissions: []string{"auth.manage", "company.manage", "settings.write", "audit.read", "requirements.manage"}},
+		{Code: "system", Name: "系统管理员", Description: "员工、设置、日志和需求维护", Permissions: []string{"auth.manage", "company.manage", "settings.write", "audit.read", "requirements.manage", "products.read"}},
 		{Code: "customer_processing_customer", Name: "代加工客户", Description: "客户登录 ERP 后查看自己的代加工数据并提交工单和代发信息", Permissions: []string{"customer_processing.read", "customer_processing.submit"}},
 		{Code: "customer_direct_ship_customer", Name: "公共SKU代发客户", Description: "客户登录 ERP 后查看自己的代发订单并提交公共 SKU 一件代发信息", Permissions: []string{"customer_processing.read", "customer_processing.submit"}},
 	}
@@ -192,6 +192,7 @@ func defaultViewPermissions() map[string]string {
 		"inventory":                   "stock.read",
 		"allocationLogs":              "stock.read",
 		"productSettings":             "products.write",
+		"productCreator":              "products.read",
 		"mallSettings":                "products.write",
 		"bom":                         "bom.read",
 		"products":                    "products.read",

@@ -260,6 +260,11 @@ func TestProductionConfigurationAPIPermissionsSeparateReadAndWrite(t *testing.T)
 		want   string
 	}{
 		{http.MethodGet, "/api/production-boms?status=all", "bom.read"},
+		{http.MethodGet, "/api/product-creator/modules", "products.read"},
+		{http.MethodGet, "/api/product-creator/templates", "products.read"},
+		{http.MethodPost, "/api/product-creator/templates/12/publish", "settings.write"},
+		{http.MethodPost, "/api/product-creator/runs", "products.write"},
+		{http.MethodPut, "/api/product-creator/runs/18/draft", "products.write"},
 		{http.MethodPost, "/api/production-boms", "bom.write"},
 		{http.MethodPut, "/api/production-boms/11", "bom.write"},
 		{http.MethodPost, "/api/production-bom-versions/103/publish", "bom.write"},
@@ -455,6 +460,12 @@ func TestPricingRuleTrialPermissionIsReadOnly(t *testing.T) {
 	}
 	if got := requiredPermissionForRequest(http.MethodPost, "/api/costing/pricing-rule-trials"); got != "costing.read" {
 		t.Fatalf("POST /api/costing/pricing-rule-trials permission = %q, want costing.read", got)
+	}
+	if got := requiredPermissionForRequest(http.MethodPost, "/api/product-creator/pricing/runs/2/nodes/price/execute"); got != "costing.write" {
+		t.Fatalf("pricing workflow write permission = %q, want costing.write", got)
+	}
+	if got := requiredPermissionForRequest(http.MethodPost, "/api/product-creator/runs/2/nodes/purchase/execute"); got != "products.write" {
+		t.Fatalf("general workflow route permission = %q, want products.write", got)
 	}
 }
 

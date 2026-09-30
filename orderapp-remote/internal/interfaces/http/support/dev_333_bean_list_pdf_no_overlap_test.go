@@ -24,9 +24,9 @@ func TestDev333BeanListPDFNoOverlapSeedsDocsAndCode(t *testing.T) {
 	for _, want := range []string{
 		"groupStartMinHeight",
 		"keepAfter",
-		"bean-list-preview-style-v4",
+		"bean-list-preview-style-v5",
 	} {
-		if !strings.Contains(renderer, want) && want == "bean-list-preview-style-v4" {
+		if !strings.Contains(renderer, want) && want == "bean-list-preview-style-v5" {
 			service := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "costing", "service.go")))
 			if !strings.Contains(service, want) {
 				t.Fatalf("renderer/service missing PR-333 marker %q", want)

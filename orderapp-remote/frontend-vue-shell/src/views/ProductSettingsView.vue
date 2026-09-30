@@ -198,6 +198,7 @@
                 </label>
                 <div class="filter-actions sku-list-actions">
                   <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
+                  <button class="secondary compact-action" type="button" @click="openProductCreator">按流程创建商品</button>
                   <button class="text-button" type="button" :disabled="loading" @click="openCustomerCatalogCopy('all')">复制全部商品到客户</button>
                   <button class="text-button" type="button" :disabled="loading || !selectedProductIds.length" @click="openCustomerCatalogCopy('selected', selectedProductIds)">复制所选商品到客户</button>
                   <button class="secondary compact-action danger-outline" type="button" @click="catalogCustomerID ? removeCustomerCatalogProducts(selectedProductIds) : deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
@@ -1642,7 +1643,7 @@
                 <input :value="productCodeLabel(productProductionConfigProduct || {}) || '-'" disabled />
               </label>
               <label>
-                <span>客户归属</span>
+                <span>档案归属</span>
                 <input :value="productProductionCustomerLabel" disabled />
               </label>
               <label>
@@ -2583,7 +2584,7 @@ const productProductionDefaultBomDetail = computed(() => {
 })
 const productProductionCustomerLabel = computed(() => {
   const customerID = Number(productProductionConfigProduct.value?.customer_id || 0)
-  return customerID > 0 ? (customerName(customerID) || `客户 #${customerID}`) : (productCustomerReferenceSummary(productProductionConfigProduct.value || {}) || '工厂公共商品')
+  return customerID > 0 ? (customerName(customerID) || `客户 #${customerID}`) : '工厂公共商品'
 })
 const productProductionCustomerReferences = computed(() => productCustomerReferences.value.filter((row) => row.active !== false && Number(row.product_id || 0) === Number(productProductionConfigProduct.value?.id || 0)))
 const productProductionDirectShipPriceTables = computed(() => (productProductionPriceTables.value.rows || []).filter((row) => row.usage_code === 'direct_ship'))
@@ -5590,6 +5591,10 @@ function canSelectSkuRow(row) {
 
 function canEditSkuRow(row) {
   return !isPublicReferenceRow(row, { customerID: skuContextCustomerID.value })
+}
+
+function openProductCreator() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productCreator' } }))
 }
 
 function openProductDrawer() {

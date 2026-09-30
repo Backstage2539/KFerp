@@ -11,7 +11,7 @@ func TestPriceTableDraftDisplayOrderChangesPDFCacheWithoutRewritingPublishedAsse
 		t.Fatal("draft sorting reused stale PDF cache")
 	}
 	row.Status = "published"
-	if got := beanListPublicationPDFCacheKey(row); got != "bean-list-preview-style-v4:7:V3.0.5" {
+	if got := beanListPublicationPDFCacheKey(row); got != "bean-list-preview-style-v5:7:V3.0.5" {
 		t.Fatalf("published cache changed: %s", got)
 	}
 }

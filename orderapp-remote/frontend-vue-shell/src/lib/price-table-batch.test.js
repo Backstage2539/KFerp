@@ -44,14 +44,28 @@ test('published grouping uses release identity and keeps unrelated legacy versio
   assert.deepEqual(groups[0].tables.map(row=>row.id),[1,2])
 })
 
-test('price-table editor places configuration directly before batch publication and exposes named selection', async () => {
+test('price-table editor exposes named tables as keyboard-accessible tabs with a fixed config action', async () => {
   const { readFile } = await import('node:fs/promises')
   const source = await readFile(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
   const template = source.split('<script')[0]
   assert.equal((template.match(/>价格表配置<\/button>/g) || []).length, 1)
-  assert.match(template, />价格表配置<\/button>\s*<button[^>]*@click="publishBeanList"[^>]*>发布价格表<\/button>/)
-  assert.match(template, /aria-label="当前编辑价格表"/)
-  assert.match(template, /默认价格表/)
+  const namedToolbar = template.split('<section v-if="namedPriceTableBatch"')[1].split('<section v-if="publicationCopyOpen"')[0]
+  assert.match(namedToolbar, /class="named-price-table-tab-row"/)
+  assert.match(namedToolbar, /class="named-price-table-tabs" role="tablist" aria-label="当前编辑价格表"/)
+  assert.match(namedToolbar, /role="tab"[\s\S]*?:aria-selected=/)
+  assert.match(namedToolbar, /:tabindex=/)
+  assert.match(namedToolbar, /@keydown="handleNamedPriceTableTabKeydown\(/)
+  assert.match(namedToolbar, /named-default-badge[\s\S]*默认/)
+  assert.match(namedToolbar, /@click="openNamedTableConfig"[^>]*>价格表配置/)
+  assert.match(namedToolbar, /ref="namedPriceTableTabsElement"/)
+  assert.doesNotMatch(namedToolbar, /<select[^>]*aria-label="当前编辑价格表"/)
+  assert.match(source, /ArrowLeft[\s\S]*ArrowRight[\s\S]*Home[\s\S]*End/)
+  assert.match(source, /named-price-table-tabs[\s\S]*overflow-x:\s*auto/)
+  assert.match(source, /keepActiveNamedPriceTableTabVisible/)
+  assert.match(source, /window\.addEventListener\('resize', keepActiveNamedPriceTableTabVisible\)/)
+  const tableSelectionSource = source.split('async function selectNamedPriceTable')[1].split('function keepActiveNamedPriceTableTabVisible')[0]
+  assert.match(tableSelectionSource, /keepActiveNamedPriceTableTabVisible/)
+  assert.match(source, /@media \(max-width:\s*480px\)[\s\S]*?\.named-price-table-tab\s*\{[^}]*max-width:\s*calc\(100vw - 190px\)/)
   assert.doesNotMatch(template, /适用于一件代发/)
   assert.match(template, /该类别的一件代发价格表/)
   assert.match(template, /该类别的商品下单价格表/)

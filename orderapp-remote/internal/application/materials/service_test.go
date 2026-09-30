@@ -74,11 +74,11 @@ func TestServiceOwnsMaterialUseCases(t *testing.T) {
 	svc := NewService(repo)
 	ctx := context.Background()
 
-	rows, err := svc.List(ctx, ListCommand{Query: "豆袋", Limit: 50})
+	rows, err := svc.List(ctx, ListCommand{Query: "豆袋", Limit: 50, Offset: 25})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Code != "BAG-227" || !rows[0].IsSemiFinished || !rows[0].CanManufacture || repo.list.Limit != 50 {
+	if len(rows) != 1 || rows[0].Code != "BAG-227" || !rows[0].IsSemiFinished || !rows[0].CanManufacture || repo.list.Limit != 50 || repo.list.Offset != 25 {
 		t.Fatalf("List() rows=%+v repo=%+v", rows, repo.list)
 	}
 

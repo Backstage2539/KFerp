@@ -49,6 +49,15 @@ func (s AuditService) Insert(ctx context.Context, entry AuditEntry) error {
 	if entry.Action == "" {
 		entry.Action = "unknown"
 	}
+	if provenance, ok := BusinessProvenanceFromContext(ctx); ok {
+		meta := make(AuditMeta, len(entry.Meta)+2)
+		for key, value := range entry.Meta {
+			meta[key] = value
+		}
+		meta["product_creator_run_id"] = provenance.RunID
+		meta["product_creator_node_id"] = provenance.NodeID
+		entry.Meta = meta
+	}
 
 	var metaJSON any
 	if entry.Meta != nil {
