@@ -12,6 +12,11 @@
       :key="`label-${port.id}`"
       class="creator-node-input-label"
       :style="recipePortStyle(port.id)">{{ port.label }}</span>
+    <span
+      v-for="port in namedInputPorts"
+      :key="`label-${port.id}`"
+      class="creator-node-input-label"
+      :style="recipePortStyle(port.id)">{{ port.label }}</span>
     <Handle
       v-if="Number(data.module.workflow_version || 1) < 2"
       id="__prerequisite"
@@ -66,6 +71,7 @@ const props = defineProps({
 })
 
 const recipePorts = computed(() => (props.data.recipeInputs || []).filter((port) => !port.add))
+const namedInputPorts = computed(() => (props.data.module.inputs || []).filter((port) => port.id !== 'components'))
 const inputPorts = computed(() => {
   const moduleInputs = props.data.module.inputs || []
   if (Number(props.data.module.workflow_version || 1) < 3 || props.data.module.kind !== 'bom') return moduleInputs

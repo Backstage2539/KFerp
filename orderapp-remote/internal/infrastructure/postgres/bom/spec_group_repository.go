@@ -116,6 +116,7 @@ func (r Repository) listProductionBomSpecTemplateVersions(ctx context.Context, t
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT v.id,v.template_id,v.version_no,v.status,v.note,
 		       (SELECT count(*) FROM %[1]s.production_bom_spec_template_variants x WHERE x.version_id=v.id),
+		       COALESCE((SELECT x.name FROM %[1]s.production_bom_spec_template_variants x WHERE x.version_id=v.id AND x.is_default=true ORDER BY x.sort_order,x.id LIMIT 1),''),
 		       to_char(v.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(v.published_at,'YYYY-MM-DD HH24:MI'),'')
 		FROM %[1]s.production_bom_spec_template_versions v
 		WHERE v.template_id=$1
@@ -128,7 +129,7 @@ func (r Repository) listProductionBomSpecTemplateVersions(ctx context.Context, t
 	out := make([]bomapp.ProductionBomSpecTemplateVersion, 0)
 	for rows.Next() {
 		var row bomapp.ProductionBomSpecTemplateVersion
-		if err := rows.Scan(&row.ID, &row.TemplateID, &row.VersionNo, &row.Status, &row.Note, &row.VariantCount, &row.CreatedAt, &row.PublishedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.TemplateID, &row.VersionNo, &row.Status, &row.Note, &row.VariantCount, &row.DefaultVariantName, &row.CreatedAt, &row.PublishedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -162,17 +163,21 @@ func (r Repository) listProductionBomSpecTemplateVariants(ctx context.Context, v
 	for variantIndex := range out {
 		variant := &out[variantIndex]
 		itemRows, err := r.pool.Query(ctx, fmt.Sprintf(`
-			SELECT is_main_input,material_id,component_type,component_product_id,component_bom_spec_id,component_spec_g,consume_unit,
-			       qty_per_unit::float8,ratio_pct::float8,material_loss_rate::float8,sort_order
-			FROM %s.production_bom_spec_template_variant_items
-			WHERE variant_id=$1 ORDER BY sort_order,id
-		`, r.schema), variant.ID)
+			SELECT i.is_main_input,i.material_id,i.component_type,i.component_product_id,i.component_bom_spec_id,i.component_spec_g,i.consume_unit,
+			       i.qty_per_unit::float8,i.ratio_pct::float8,i.material_loss_rate::float8,i.sort_order,
+			       COALESCE(NULLIF(m.name,''),NULLIF(p.name,''),''),COALESCE(NULLIF(s.name,''),''),COALESCE(NULLIF(s.inventory_unit,''),'')
+			FROM %s.production_bom_spec_template_variant_items i
+			LEFT JOIN %s.materials m ON m.id=i.material_id AND i.component_type NOT IN ('product','finished_product')
+			LEFT JOIN %s.products p ON p.id=i.component_product_id AND i.component_type IN ('product','finished_product')
+			LEFT JOIN %s.production_bom_specs s ON s.id=i.component_bom_spec_id
+			WHERE i.variant_id=$1 ORDER BY i.sort_order,i.id
+		`, r.schema, r.schema, r.schema, r.schema), variant.ID)
 		if err != nil {
 			return nil, err
 		}
 		for itemRows.Next() {
 			var item bomapp.ProductionBomSpecTemplateVariantDraftItem
-			if err := itemRows.Scan(&item.IsMainInput, &item.MaterialID, &item.ComponentType, &item.ComponentProductID, &item.ComponentBomSpecID, &item.ComponentSpecG, &item.ConsumeUnit, &item.QtyPerUnit, &item.RatioPct, &item.MaterialLossRate, &item.SortOrder); err != nil {
+			if err := itemRows.Scan(&item.IsMainInput, &item.MaterialID, &item.ComponentType, &item.ComponentProductID, &item.ComponentBomSpecID, &item.ComponentSpecG, &item.ConsumeUnit, &item.QtyPerUnit, &item.RatioPct, &item.MaterialLossRate, &item.SortOrder, &item.ComponentName, &item.ComponentSpecName, &item.ComponentSpecUnit); err != nil {
 				itemRows.Close()
 				return nil, err
 			}
@@ -763,6 +768,10 @@ func copySpecTemplateToProductionBomTx(ctx context.Context, tx pgx.Tx, schema st
 }
 
 func copySpecTemplateToProductionBomWithComponentTx(ctx context.Context, tx pgx.Tx, schema string, bomID, versionID, templateVersionID int64, mainInput bomapp.ProductionBomMainInputComponent, actor string) error {
+	return copySpecTemplateToProductionBomWithComponentAndRouteTx(ctx, tx, schema, bomID, versionID, templateVersionID, mainInput, 0, actor)
+}
+
+func copySpecTemplateToProductionBomWithComponentAndRouteTx(ctx context.Context, tx pgx.Tx, schema string, bomID, versionID, templateVersionID int64, mainInput bomapp.ProductionBomMainInputComponent, processRouteOverrideID int64, actor string) error {
 	var status string
 	var templateID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,template_id FROM %s.production_bom_spec_template_versions WHERE id=$1 FOR SHARE`, schema), templateVersionID).Scan(&status, &templateID); err != nil || status != "published" {
@@ -830,7 +839,11 @@ func copySpecTemplateToProductionBomWithComponentTx(ctx context.Context, tx pgx.
 			return err
 		}
 		var bomVariantID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), versionID, bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, variant.routeID).Scan(&bomVariantID); err != nil {
+		effectiveRouteID := variant.routeID
+		if processRouteOverrideID > 0 {
+			effectiveRouteID = processRouteOverrideID
+		}
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), versionID, bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, effectiveRouteID).Scan(&bomVariantID); err != nil {
 			return err
 		}
 		type sourceItem struct {
@@ -877,7 +890,7 @@ func copySpecTemplateToProductionBomWithComponentTx(ctx context.Context, tx pgx.
 		if variant.isDefault {
 			defaultUnit = variant.unit
 			defaultLoss = variant.loss
-			defaultRouteID = variant.routeID
+			defaultRouteID = effectiveRouteID
 		}
 	}
 	if len(variants) == 0 {

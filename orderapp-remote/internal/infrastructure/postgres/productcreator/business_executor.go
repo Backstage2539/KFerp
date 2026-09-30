@@ -17,10 +17,12 @@ import (
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type BusinessExecutor struct {
 	schema    string
+	pool      *pgxpool.Pool
 	catalog   *catalogapp.Service
 	materials *materialsapp.Service
 	bom       *bomapp.Service
@@ -28,8 +30,233 @@ type BusinessExecutor struct {
 	costing   *costingapp.Service
 }
 
-func NewBusinessExecutor(schema string, catalog *catalogapp.Service, materials *materialsapp.Service, bom *bomapp.Service, purchase *purchaseapp.Service, costing *costingapp.Service) BusinessExecutor {
-	return BusinessExecutor{schema: schema, catalog: catalog, materials: materials, bom: bom, purchase: purchase, costing: costing}
+func NewBusinessExecutor(schema string, pool *pgxpool.Pool, catalog *catalogapp.Service, materials *materialsapp.Service, bom *bomapp.Service, purchase *purchaseapp.Service, costing *costingapp.Service) BusinessExecutor {
+	return BusinessExecutor{schema: schema, pool: pool, catalog: catalog, materials: materials, bom: bom, purchase: purchase, costing: costing}
+}
+
+func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run creatorapp.Run) (map[string]map[string]any, []creatorapp.ValidationIssue) {
+	details := map[string]map[string]any{}
+	issues := []creatorapp.ValidationIssue{}
+	if run.Workflow.Version < 4 || e.bom == nil {
+		return details, issues
+	}
+	if run.Workflow.Version >= 5 {
+		for _, node := range run.Workflow.Nodes {
+			if node.Kind != creatorapp.ModuleBOM || stringValue(node.Config["output_type"]) != "material" {
+				continue
+			}
+			connectedRoutes := map[string]int64{}
+			for _, edge := range run.Workflow.Edges {
+				if edge.Kind == creatorapp.EdgeData && edge.Target == node.ID && edge.TargetHandle == "route" {
+					connectedRoutes[edge.Source] = int64(positiveNumber(run.Inputs[edge.Source]["route_id"]))
+				}
+			}
+			selection := creatorapp.ResolveBOMProcessRoute(run.Workflow, node, run.Inputs[node.ID], connectedRoutes)
+			name := ""
+			if selection.ID > 0 {
+				var status string
+				var routeErr error
+				name, status, routeErr = e.readProcessRoute(ctx, selection.ID)
+				if routeErr != nil || status != "active" {
+					field, message := "route_override_id", "本次选择的工艺路线已失效，请重新选择"
+					if selection.Source == "connected_node" {
+						field, message = "route", "连接的工艺路线已失效，请更换工艺节点路线"
+					}
+					issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: field, Code: "process_route_unavailable", Message: message})
+					selection.ID = 0
+				}
+			}
+			details[node.ID] = map[string]any{"process_route": map[string]any{"id": selection.ID, "name": name, "source": selection.Source, "process_node_id": selection.ProcessNodeID}}
+		}
+	}
+	var templateCatalog []bomapp.ProductionBomSpecTemplate
+	loaded := false
+	for _, node := range run.Workflow.Nodes {
+		if node.Kind != creatorapp.ModuleBOM || stringValue(node.Config["output_type"]) != "product" {
+			continue
+		}
+		versionID := positiveNumber(node.Config["spec_template_version_id"])
+		if versionID <= 0 {
+			continue // The graph validator reports the required selection.
+		}
+		if !loaded {
+			var err error
+			templateCatalog, err = e.bom.ListProductionBomSpecTemplates(ctx)
+			if err != nil {
+				issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "spec_template_unavailable", Message: "规格模板暂时无法读取，请稍后重试"})
+				return details, issues
+			}
+			loaded = true
+		}
+		var selectedTemplate *bomapp.ProductionBomSpecTemplate
+		var selectedVersion *bomapp.ProductionBomSpecTemplateVersion
+		for index := range templateCatalog {
+			candidate := &templateCatalog[index]
+			if !candidate.Active {
+				continue
+			}
+			for versionIndex := range candidate.Versions {
+				version := &candidate.Versions[versionIndex]
+				if version.ID == versionID && version.Status == "published" {
+					selectedTemplate, selectedVersion = candidate, version
+					break
+				}
+			}
+			if selectedVersion != nil {
+				break
+			}
+		}
+		if selectedTemplate == nil || selectedVersion == nil {
+			issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "spec_template_not_published", Message: "所选规格模板版本已停用或不再发布，请重新选择"})
+			continue
+		}
+		templateDetail, err := e.bom.GetProductionBomSpecTemplate(ctx, selectedTemplate.ID, versionID)
+		if err != nil {
+			issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "spec_template_unavailable", Message: "所选规格模板详情无法读取"})
+			continue
+		}
+		// Keep run-specific route overrides on this preview copy only.
+		templateDetail.Variants = append([]bomapp.ProductionBomSpecTemplateVariant(nil), templateDetail.Variants...)
+		if len(templateDetail.Variants) == 0 {
+			issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "spec_template_empty", Message: "所选规格模板没有规格，请先发布有效版本"})
+			continue
+		}
+		inputValues := run.Inputs[node.ID]
+		processRoute := creatorapp.BOMProcessRoute{Source: "specification_template"}
+		processRouteName := "规格模板各规格默认工艺"
+		if run.Workflow.Version >= 5 {
+			connectedRoutes := map[string]int64{}
+			for _, edge := range run.Workflow.Edges {
+				if edge.Kind == creatorapp.EdgeData && edge.Target == node.ID && edge.TargetHandle == "route" {
+					connectedRoutes[edge.Source] = int64(positiveNumber(run.Inputs[edge.Source]["route_id"]))
+				}
+			}
+			processRoute = creatorapp.ResolveBOMProcessRoute(run.Workflow, node, inputValues, connectedRoutes)
+			if processRoute.ID > 0 {
+				var status string
+				var routeErr error
+				processRouteName, status, routeErr = e.readProcessRoute(ctx, processRoute.ID)
+				if routeErr != nil || status != "active" {
+					field := "route_override_id"
+					message := "本次选择的工艺路线已失效，请重新选择"
+					if processRoute.Source == "connected_node" {
+						field = "route"
+						message = "连接的工艺路线已失效，请更换工艺节点路线"
+					}
+					issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: field, Code: "process_route_unavailable", Message: message})
+					processRoute.ID = 0
+				}
+			} else if processRoute.Source == "specification_template" {
+				processRouteName = "规格模板各规格默认工艺"
+			}
+			if processRoute.ID > 0 {
+				for index := range templateDetail.Variants {
+					templateDetail.Variants[index].ProcessRouteID = processRoute.ID
+				}
+			}
+			for index := range templateDetail.Variants {
+				variant := &templateDetail.Variants[index]
+				variant.ProcessRouteSource = processRoute.Source
+				if variant.ProcessRouteID <= 0 || strings.TrimSpace(e.schema) == "" {
+					continue
+				}
+				var status string
+				var routeErr error
+				variant.ProcessRouteName, status, routeErr = e.readProcessRoute(ctx, variant.ProcessRouteID)
+				if routeErr != nil || status != "active" {
+					issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "process_route_unavailable", Message: fmt.Sprintf("规格 %s 使用的工艺路线已失效，请更新规格模板", variant.Name)})
+					variant.ProcessRouteName = ""
+				}
+			}
+		}
+		mainInputNodeID := strings.TrimSpace(stringValue(inputValues["main_input_source_node_id"]))
+		var mainInputNode creatorapp.Node
+		mainInputExists := false
+		for _, candidate := range run.Workflow.Nodes {
+			if candidate.ID == mainInputNodeID {
+				mainInputNode, mainInputExists = candidate, true
+				break
+			}
+		}
+		if mainInputExists && mainInputNode.Kind == creatorapp.ModuleProduct {
+			selectedRowID := strings.TrimSpace(stringValue(inputValues["main_input_source_row_id"]))
+			if stringValue(mainInputNode.Config["data_role"]) == "output" {
+				var upstreamBOM *creatorapp.Node
+				for index := range run.Workflow.Nodes {
+					candidate := &run.Workflow.Nodes[index]
+					if candidate.Kind != creatorapp.ModuleBOM || stringValue(candidate.Config["output_type"]) != "product" {
+						continue
+					}
+					for _, edge := range run.Workflow.Edges {
+						if edge.Source == candidate.ID && edge.Target == mainInputNode.ID && edge.SourceHandle == "assembly" && edge.TargetHandle == "from_bom" {
+							upstreamBOM = candidate
+							break
+						}
+					}
+					if upstreamBOM != nil {
+						break
+					}
+				}
+				validSpecKey := false
+				if upstreamBOM != nil {
+					upstreamVersionID := positiveNumber(upstreamBOM.Config["spec_template_version_id"])
+					for _, sourceTemplate := range templateCatalog {
+						if !sourceTemplate.Active {
+							continue
+						}
+						published := false
+						for _, sourceVersion := range sourceTemplate.Versions {
+							if sourceVersion.ID == int64(upstreamVersionID) && sourceVersion.Status == "published" {
+								published = true
+								break
+							}
+						}
+						if !published {
+							continue
+						}
+						sourceDetail, detailErr := e.bom.GetProductionBomSpecTemplate(ctx, sourceTemplate.ID, int64(upstreamVersionID))
+						if detailErr != nil {
+							continue
+						}
+						for _, variant := range sourceDetail.Variants {
+							if variant.SpecKey == selectedRowID {
+								validSpecKey = true
+								break
+							}
+						}
+						break
+					}
+				}
+				if !validSpecKey {
+					issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_row_invalid", Message: "所选主体不属于该上游商品 BOM 生成的已发布规格"})
+				}
+			} else if selectedSpecID := positiveNumber(run.Inputs[mainInputNode.ID]["bom_spec_id"]); selectedSpecID <= 0 || selectedRowID != fmt.Sprintf("%d", int64(selectedSpecID)) {
+				issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_row_invalid", Message: "请从已有商品已发布规格中选择主体"})
+			}
+			for _, variant := range templateDetail.Variants {
+				for _, item := range variant.Items {
+					if item.IsMainInput && (strings.EqualFold(strings.TrimSpace(item.ConsumeUnit), "ratio_pct") || item.RatioPct > 0 || variant.MaterialLossRate > 0) {
+						issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "main_input_source_row_id", Code: "product_main_input_requires_fixed_template", Message: "当前规格模板含比例配方或原料损耗，主体来源必须选择物料"})
+						break
+					}
+				}
+			}
+		}
+		mainInput := map[string]any{}
+		if mainInputExists {
+			mainInput = map[string]any{"source_node_name": mainInputNode.Name, "type": mainInputNode.Kind}
+		}
+		details[node.ID] = map[string]any{
+			"specification_template": map[string]any{
+				"template_id": selectedTemplate.ID, "name": selectedTemplate.Name,
+				"version_id": selectedVersion.ID, "version_no": selectedVersion.VersionNo,
+				"variant_count": len(templateDetail.Variants), "variants": templateDetail.Variants,
+			},
+			"main_input":    mainInput,
+			"process_route": map[string]any{"id": processRoute.ID, "name": processRouteName, "source": processRoute.Source, "process_node_id": processRoute.ProcessNodeID},
+		}
+	}
+	return details, issues
 }
 
 type createdReference struct {
@@ -948,10 +1175,25 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 		variants = append(variants, variant)
 	}
 	routeID := positiveNumber(values["route_id"])
-	for _, edge := range run.Workflow.Edges {
-		if edge.Target == node.ID && edge.TargetHandle == "route" {
-			if route, ok := refs[edge.Source]["route"]; ok {
-				routeID = route.ID
+	routeSelection := creatorapp.BOMProcessRoute{ID: int64(routeID), Source: "bom_default"}
+	if run.Workflow.Version >= 5 {
+		connectedRoutes := map[string]int64{}
+		for _, edge := range run.Workflow.Edges {
+			if edge.Kind == creatorapp.EdgeData && edge.Target == node.ID && edge.TargetHandle == "route" {
+				if route, ok := refs[edge.Source]["route"]; ok {
+					connectedRoutes[edge.Source] = route.ID
+				}
+			}
+		}
+		routeSelection = creatorapp.ResolveBOMProcessRoute(run.Workflow, node, values, connectedRoutes)
+		routeID = routeSelection.ID
+	} else {
+		for _, edge := range run.Workflow.Edges {
+			if edge.Target == node.ID && edge.TargetHandle == "route" {
+				if route, ok := refs[edge.Source]["route"]; ok {
+					routeID = route.ID
+					routeSelection = creatorapp.BOMProcessRoute{ID: route.ID, Source: "connected_node", ProcessNodeID: edge.Source}
+				}
 			}
 		}
 	}
@@ -978,14 +1220,39 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 	} else {
 		outputMaterialID = output.ID
 	}
-	if stringValue(values["action"]) == "copy" {
+	processRouteSource := ""
+	processRouteNodeID := ""
+	if run.Workflow.Version >= 5 {
+		processRouteSource = routeSelection.Source
+		processRouteNodeID = routeSelection.ProcessNodeID
+	}
+	if run.Workflow.Version >= 4 && outputType == "product" {
+		templateVersionID := positiveNumber(node.Config["spec_template_version_id"])
+		mainInput, inputErr := resolveProductBOMMainInput(run, node, values, refs)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		command := bomapp.CreateProductionBomCommand{
+			Name: name, OutputType: "product", OutputID: output.ID, OutputProductID: output.ID,
+			SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+			OutputQty:         1, SpecTemplateVersionID: templateVersionID, MainInputComponent: mainInput, Actor: actor,
+		}
+		if run.Workflow.Version >= 5 {
+			command.ProcessRouteSource = routeSelection.Source
+			command.ProcessRouteNodeID = routeSelection.ProcessNodeID
+			if routeSelection.ID > 0 && (routeSelection.Source == "run_override" || routeSelection.Source == "connected_node") {
+				command.ProcessRouteOverrideID = routeSelection.ID
+			}
+		}
+		summary, err = e.bom.CreateProductionBom(ctx, command)
+	} else if stringValue(values["action"]) == "copy" {
 		specificationMode := bomapp.ProductionBomSpecificationModeSingle
 		if outputType == "product" {
 			specificationMode = bomapp.ProductionBomSpecificationModeSpecGroup
 		}
 		summary, err = e.bom.CopyProductionBom(ctx, bomapp.CopyProductionBomCommand{ID: positiveNumber(values["bom_id"]), Name: name, OutputType: outputType, OutputID: output.ID, OutputProductID: outputProductID, OutputMaterialID: outputMaterialID, SpecificationMode: specificationMode, Actor: actor})
 		if err == nil {
-			_, err = e.bom.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{VersionID: summary.LatestVersionID, MaterialLossRate: &outputMaterialLossRate, OutputQty: outputQty, OutputUnit: defaultString(stringValue(values["output_unit"]), outputUnit(output, variants)), ProcessRouteID: routeID, Variants: variants, Items: materialItems(components), Actor: actor})
+			_, err = e.bom.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{VersionID: summary.LatestVersionID, MaterialLossRate: &outputMaterialLossRate, OutputQty: outputQty, OutputUnit: defaultString(stringValue(values["output_unit"]), outputUnit(output, variants)), ProcessRouteID: routeID, ProcessRouteSource: processRouteSource, ProcessRouteNodeID: processRouteNodeID, Variants: variants, Items: materialItems(components), Actor: actor})
 		}
 	} else {
 		summary, err = e.bom.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{Name: name, OutputType: outputType, OutputID: output.ID, OutputProductID: outputProductID, OutputMaterialID: outputMaterialID, SpecificationMode: map[bool]string{true: bomapp.ProductionBomSpecificationModeSpecGroup, false: bomapp.ProductionBomSpecificationModeSingle}[outputType == "product"], OutputQty: outputQty, OutputUnit: defaultString(stringValue(values["output_unit"]), outputUnit(output, variants)), Variants: variants, Actor: actor})
@@ -994,11 +1261,48 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 			if outputType == "product" {
 				draftVariants = variants
 			}
-			_, err = e.bom.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{VersionID: summary.LatestVersionID, MaterialLossRate: &outputMaterialLossRate, OutputQty: outputQty, OutputUnit: defaultString(stringValue(values["output_unit"]), outputUnit(output, variants)), ProcessRouteID: routeID, Variants: draftVariants, Items: materialItems(components), Actor: actor})
+			_, err = e.bom.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{VersionID: summary.LatestVersionID, MaterialLossRate: &outputMaterialLossRate, OutputQty: outputQty, OutputUnit: defaultString(stringValue(values["output_unit"]), outputUnit(output, variants)), ProcessRouteID: routeID, ProcessRouteSource: processRouteSource, ProcessRouteNodeID: processRouteNodeID, Variants: draftVariants, Items: materialItems(components), Actor: actor})
 		}
 	}
 	if err != nil {
 		return nil, err
+	}
+	processRouteName := ""
+	if routeSelection.ID > 0 {
+		var status string
+		if err := queryWithTransaction(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT name,status FROM %s.process_routes WHERE id=$1 FOR SHARE`, e.schema), routeSelection.ID).Scan(&processRouteName, &status); err != nil || status != "active" {
+			return nil, fmt.Errorf("所选工艺路线已失效，请重新预览")
+		}
+	}
+	processRoute := map[string]any{"id": routeSelection.ID, "name": processRouteName, "source": routeSelection.Source, "process_node_id": routeSelection.ProcessNodeID}
+	result := map[string]any{"bom_id": summary.ID, "bom_code": summary.Code, "version_id": summary.LatestVersionID, "output": output, "process_route": processRoute}
+	if run.Workflow.Version >= 5 && outputType == "product" {
+		rows, queryErr := queryWithTransaction(ctx).Query(ctx, fmt.Sprintf(`
+			SELECT COALESCE(spec.spec_key,''),COALESCE(variant.process_route_id,0),COALESCE(route.name,'')
+			FROM %s.production_bom_version_variants variant
+			JOIN %s.production_bom_specs spec ON spec.id=variant.bom_spec_id
+			LEFT JOIN %s.process_routes route ON route.id=variant.process_route_id
+			WHERE variant.version_id=$1 ORDER BY variant.sort_order,variant.id
+		`, e.schema, e.schema, e.schema), summary.LatestVersionID)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		effectiveRoutes := make([]map[string]any, 0)
+		for rows.Next() {
+			var specKey, routeName string
+			var routeID int64
+			if err := rows.Scan(&specKey, &routeID, &routeName); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			effectiveRoutes = append(effectiveRoutes, map[string]any{"spec_key": specKey, "route_id": routeID, "route_name": routeName})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+		result["effective_specification_routes"] = effectiveRoutes
 	}
 	ref := createdReference{Type: "bom", ID: summary.ID, Name: summary.Name, BOMID: summary.ID, VersionID: summary.LatestVersionID}
 	refs[node.ID]["bom"] = ref
@@ -1007,7 +1311,37 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 		outputRef.ProductID = output.ID
 	}
 	refs[node.ID]["output"] = outputRef
-	return map[string]any{"bom_id": summary.ID, "bom_code": summary.Code, "version_id": summary.LatestVersionID, "output": output}, nil
+	return result, nil
+}
+
+func resolveProductBOMMainInput(run creatorapp.Run, node creatorapp.Node, values map[string]any, refs map[string]map[string]createdReference) (bomapp.ProductionBomMainInputComponent, error) {
+	sourceNodeID := stringValue(values["main_input_source_node_id"])
+	sourceRowID := stringValue(values["main_input_source_row_id"])
+	var source creatorapp.Edge
+	for _, edge := range run.Workflow.Edges {
+		if edge.Kind == creatorapp.EdgeData && edge.Target == node.ID && edge.TargetHandle == "components" && edge.Source == sourceNodeID {
+			source = edge
+			break
+		}
+	}
+	if source.ID == "" || sourceRowID == "" {
+		return bomapp.ProductionBomMainInputComponent{}, fmt.Errorf("请选择一个已连接的规格主体来源")
+	}
+	ref, ok := refs[sourceNodeID][sourceRowID]
+	if !ok || ref.ID <= 0 {
+		return bomapp.ProductionBomMainInputComponent{}, fmt.Errorf("所选规格主体已失效，请重新选择")
+	}
+	switch ref.Type {
+	case "material":
+		return bomapp.ProductionBomMainInputComponent{ComponentType: "material", MaterialID: ref.ID}, nil
+	case "spec":
+		if source.SourceHandle != "specs" || ref.ProductID <= 0 || ref.SpecID <= 0 || !ref.Published {
+			return bomapp.ProductionBomMainInputComponent{}, fmt.Errorf("商品规格主体必须引用已发布的具体商品规格")
+		}
+		return bomapp.ProductionBomMainInputComponent{ComponentType: "product", ComponentProductID: ref.ProductID, ComponentBomSpecID: ref.SpecID}, nil
+	default:
+		return bomapp.ProductionBomMainInputComponent{}, fmt.Errorf("规格主体只支持物料或已发布商品规格")
+	}
 }
 
 func (e BusinessExecutor) executePublish(ctx context.Context, run creatorapp.Run, node creatorapp.Node, values map[string]any, actor string, refs map[string]map[string]createdReference) (map[string]any, error) {
@@ -1219,6 +1553,19 @@ func generatedMaterialCode() (string, error) {
 func queryWithTransaction(ctx context.Context) pgx.Tx {
 	tx, _ := postgresinfra.TransactionFromContext(ctx)
 	return tx
+}
+
+func (e BusinessExecutor) readProcessRoute(ctx context.Context, id int64) (name, status string, err error) {
+	query := fmt.Sprintf(`SELECT name,status FROM %s.process_routes WHERE id=$1`, e.schema)
+	if tx := queryWithTransaction(ctx); tx != nil {
+		err = tx.QueryRow(ctx, query, id).Scan(&name, &status)
+		return name, status, err
+	}
+	if e.pool == nil {
+		return "", "", fmt.Errorf("product creator process-route lookup requires a database pool or transaction")
+	}
+	err = e.pool.QueryRow(ctx, query, id).Scan(&name, &status)
+	return name, status, err
 }
 
 func mapRows(value any) []map[string]any {

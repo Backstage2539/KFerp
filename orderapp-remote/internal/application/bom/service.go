@@ -336,32 +336,38 @@ type ProductionBomSpecTemplate struct {
 }
 
 type ProductionBomSpecTemplateVersion struct {
-	ID           int64  `json:"id"`
-	TemplateID   int64  `json:"template_id"`
-	VersionNo    string `json:"version_no"`
-	Status       string `json:"status"`
-	Note         string `json:"note"`
-	VariantCount int    `json:"variant_count"`
-	CreatedAt    string `json:"created_at"`
-	PublishedAt  string `json:"published_at"`
+	ID                 int64  `json:"id"`
+	TemplateID         int64  `json:"template_id"`
+	VersionNo          string `json:"version_no"`
+	Status             string `json:"status"`
+	Note               string `json:"note"`
+	VariantCount       int    `json:"variant_count"`
+	DefaultVariantName string `json:"default_variant_name,omitempty"`
+	CreatedAt          string `json:"created_at"`
+	PublishedAt        string `json:"published_at"`
 }
 
 type ProductionBomSpecTemplateVariant struct {
-	ID               int64                                       `json:"id"`
-	SpecKey          string                                      `json:"spec_key"`
-	Name             string                                      `json:"name"`
-	InventoryUnit    string                                      `json:"inventory_unit"`
-	IsDefault        bool                                        `json:"is_default"`
-	SortOrder        int                                         `json:"sort_order"`
-	MaterialLossRate float64                                     `json:"material_loss_rate"`
-	ProcessRouteID   int64                                       `json:"process_route_id"`
-	Items            []ProductionBomSpecTemplateVariantDraftItem `json:"items"`
+	ID                 int64                                       `json:"id"`
+	SpecKey            string                                      `json:"spec_key"`
+	Name               string                                      `json:"name"`
+	InventoryUnit      string                                      `json:"inventory_unit"`
+	IsDefault          bool                                        `json:"is_default"`
+	SortOrder          int                                         `json:"sort_order"`
+	MaterialLossRate   float64                                     `json:"material_loss_rate"`
+	ProcessRouteID     int64                                       `json:"process_route_id"`
+	ProcessRouteName   string                                      `json:"process_route_name,omitempty"`
+	ProcessRouteSource string                                      `json:"process_route_source,omitempty"`
+	Items              []ProductionBomSpecTemplateVariantDraftItem `json:"items"`
 }
 
 type ProductionBomSpecTemplateVariantDraftItem struct {
 	ProductionBomDraftItem
-	IsMainInput bool `json:"is_main_input"`
-	SortOrder   int  `json:"sort_order"`
+	ComponentName     string `json:"component_name,omitempty"`
+	ComponentSpecName string `json:"component_spec_name,omitempty"`
+	ComponentSpecUnit string `json:"component_spec_unit,omitempty"`
+	IsMainInput       bool   `json:"is_main_input"`
+	SortOrder         int    `json:"sort_order"`
 }
 
 type ProductionBomSpec struct {
@@ -473,22 +479,25 @@ type DeleteProductionBomGroupCategoryCommand struct {
 }
 
 type CreateProductionBomCommand struct {
-	Name                  string                          `json:"name"`
-	OutputType            string                          `json:"output_type"`
-	SpecificationMode     string                          `json:"specification_mode"`
-	OutputID              int64                           `json:"output_id"`
-	OutputProductID       int64                           `json:"output_product_id"`
-	OutputMaterialID      int64                           `json:"output_material_id"`
-	OutputQty             float64                         `json:"output_qty"`
-	OutputUnit            string                          `json:"output_unit"`
-	GroupID               int64                           `json:"group_id"`
-	GroupCategoryID       int64                           `json:"group_category_id"`
-	ExpectedLossRate      *float64                        `json:"expected_loss_rate,omitempty"`
-	SpecTemplateVersionID int64                           `json:"spec_template_version_id"`
-	MainInputMaterialID   int64                           `json:"main_input_material_id"`
-	MainInputComponent    ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
-	Variants              []ProductionBomDraftVariant     `json:"variants,omitempty"`
-	Actor                 string                          `json:"actor"`
+	Name                   string                          `json:"name"`
+	OutputType             string                          `json:"output_type"`
+	SpecificationMode      string                          `json:"specification_mode"`
+	OutputID               int64                           `json:"output_id"`
+	OutputProductID        int64                           `json:"output_product_id"`
+	OutputMaterialID       int64                           `json:"output_material_id"`
+	OutputQty              float64                         `json:"output_qty"`
+	OutputUnit             string                          `json:"output_unit"`
+	GroupID                int64                           `json:"group_id"`
+	GroupCategoryID        int64                           `json:"group_category_id"`
+	ExpectedLossRate       *float64                        `json:"expected_loss_rate,omitempty"`
+	SpecTemplateVersionID  int64                           `json:"spec_template_version_id"`
+	MainInputMaterialID    int64                           `json:"main_input_material_id"`
+	MainInputComponent     ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
+	ProcessRouteOverrideID int64                           `json:"-"`
+	ProcessRouteSource     string                          `json:"-"`
+	ProcessRouteNodeID     string                          `json:"-"`
+	Variants               []ProductionBomDraftVariant     `json:"variants,omitempty"`
+	Actor                  string                          `json:"actor"`
 }
 
 type UpdateProductionBomCommand struct {
@@ -569,6 +578,8 @@ type UpdateProductionBomVersionDraftCommand struct {
 	OutputQty              float64                     `json:"output_qty"`
 	OutputUnit             string                      `json:"output_unit"`
 	ProcessRouteID         int64                       `json:"process_route_id"`
+	ProcessRouteSource     string                      `json:"-"`
+	ProcessRouteNodeID     string                      `json:"-"`
 	Items                  []ProductionBomDraftItem    `json:"items"`
 	Variants               []ProductionBomDraftVariant `json:"variants"`
 	SpecialAttrsSchemaJSON string                      `json:"special_attrs_schema_json"`
@@ -1355,6 +1366,9 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	if cmd.Name == "" {
 		return ProductionBomSummary{}, fmt.Errorf("name required")
+	}
+	if cmd.ProcessRouteOverrideID > 0 && (cmd.OutputType != "product" || cmd.SpecTemplateVersionID <= 0) {
+		return ProductionBomSummary{}, fmt.Errorf("process route override requires a product BOM using a specification template")
 	}
 	if err := normalizeProductionBomOutputBinding(&cmd.OutputType, &cmd.OutputID, &cmd.OutputProductID, &cmd.OutputMaterialID, true); err != nil {
 		return ProductionBomSummary{}, err

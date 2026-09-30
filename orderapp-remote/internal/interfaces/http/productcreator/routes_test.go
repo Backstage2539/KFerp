@@ -120,11 +120,11 @@ func TestProductCreatorModuleCatalogAndTemplateLifecycleAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Modules) != 17 {
-		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules for versions 2 and 3", len(catalog.Modules))
+	if len(catalog.Modules) != 27 {
+		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules for versions 2 through 5", len(catalog.Modules))
 	}
-	var legacyModules, bomCentricModules, variableModules int
-	var foundLegacyBOM, foundBOMCentricBOM bool
+	var legacyModules, bomCentricModules, variableModules, specificationTemplateModules, processPreviewModules int
+	var foundLegacyBOM, foundBOMCentricBOM, foundSpecificationTemplateBOM, foundV5ProcessRouteBOM bool
 	for _, module := range catalog.Modules {
 		if module.WorkflowVersion == 1 {
 			legacyModules++
@@ -148,9 +148,47 @@ func TestProductCreatorModuleCatalogAndTemplateLifecycleAPI(t *testing.T) {
 				}
 			}
 		}
+		if module.WorkflowVersion == 4 {
+			specificationTemplateModules++
+			if module.Kind == app.ModuleBOM {
+				foundTemplateField := false
+				for _, field := range module.Fields {
+					if field.Key == "spec_template_version_id" {
+						foundTemplateField = !field.Required
+					}
+				}
+				foundSpecificationTemplateBOM = foundTemplateField && module.Category == "动作" && module.PaletteVisible
+			}
+			if module.Kind == app.ModuleProduct {
+				for _, field := range module.Fields {
+					if field.Key == "spec_template_version_id" || field.Key == "variants" {
+						t.Fatalf("V4 product node exposes BOM specification field %q", field.Key)
+					}
+				}
+			}
+		}
+		if module.WorkflowVersion == 5 {
+			processPreviewModules++
+			if module.Kind == app.ModuleBOM {
+				hasRouteInput := false
+				for _, port := range module.Inputs {
+					if port.ID == "route" && port.Label == "工艺路线" {
+						hasRouteInput = true
+					}
+				}
+				foundV5ProcessRouteBOM = hasRouteInput && module.Category == "动作" && module.PaletteVisible
+			}
+			if module.Kind == app.ModuleProduct {
+				for _, field := range module.Fields {
+					if field.Key == "spec_template_version_id" || field.Key == "variants" {
+						t.Fatalf("V5 product node exposes BOM specification field %q", field.Key)
+					}
+				}
+			}
+		}
 	}
-	if legacyModules != 7 || bomCentricModules != 5 || variableModules != 5 || !foundLegacyBOM || !foundBOMCentricBOM {
-		t.Fatalf("catalog versions legacy=%d bom-centric=%d variable=%d legacy BOM=%t BOM-centric BOM=%t", legacyModules, bomCentricModules, variableModules, foundLegacyBOM, foundBOMCentricBOM)
+	if legacyModules != 7 || bomCentricModules != 5 || variableModules != 5 || specificationTemplateModules != 5 || processPreviewModules != 5 || !foundLegacyBOM || !foundBOMCentricBOM || !foundSpecificationTemplateBOM || !foundV5ProcessRouteBOM {
+		t.Fatalf("catalog versions legacy=%d bom-centric=%d variable=%d specification-template=%d process-preview=%d legacy BOM=%t BOM-centric BOM=%t specification-template BOM=%t V5 process-route BOM=%t", legacyModules, bomCentricModules, variableModules, specificationTemplateModules, processPreviewModules, foundLegacyBOM, foundBOMCentricBOM, foundSpecificationTemplateBOM, foundV5ProcessRouteBOM)
 	}
 
 	rec = httptest.NewRecorder()

@@ -10,6 +10,11 @@ export function cloneValue(value) {
   return serialized === undefined ? serialized : JSON.parse(serialized)
 }
 
+export function initialRecipeInputs(kind, version) {
+  if (kind !== 'bom' || Number(version || 1) < 3) return []
+  return [{ id: 'components:add', label: '＋配方输入', add: true }]
+}
+
 export function appendGraphSnapshot(history, currentIndex, snapshot, limit = 60) {
   const current = history[currentIndex]
   if (current && JSON.stringify(current) === JSON.stringify(snapshot)) return { history, index: currentIndex }
@@ -50,7 +55,8 @@ export function toCanvasGraph(workflow = { nodes: [], edges: [] }, modules = [])
         const source = nodes.find((item) => item.id === edge.source)
         const sourceName = source?.data.label || source?.data.module.name || '配方来源'
         const label = edge.sourceHandle === 'specs' ? `${sourceName} · 商品规格` : sourceName
-        return { id: edge.targetHandle, label, edgeId: edge.id }
+        const mainInputCandidate = version >= 4 && node.data.config?.output_type === 'product'
+        return { id: edge.targetHandle, label: `${label}${mainInputCandidate ? ' · 主体候选' : ''}`, edgeId: edge.id }
       })
       node.data.recipeInputs.push({ id: 'components:add', label: '＋配方输入', add: true })
     }
@@ -67,6 +73,16 @@ export function moduleForNode(node, modules = [], version = 1) {
     module.inputs = node.config?.data_role === 'output'
       ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }]
       : []
+  }
+  if (version >= 4 && node.kind === 'bom' && node.config?.output_type === 'product') {
+    module.inputs = (module.inputs || [])
+      .filter((port) => version !== 4 || port.id !== 'route')
+      .map((port) => port.id === 'components' ? { ...port, label: '规格主体候选' } : port)
+    module.fields = (module.fields || [])
+      .filter((field) => !['output_qty', 'output_unit', 'route_id', 'material_loss_rate', 'variants'].includes(field.key))
+      .map((field) => field.key === 'spec_template_version_id' ? { ...field, required: true } : field)
+  } else if (version >= 4 && node.kind === 'bom') {
+    module.fields = (module.fields || []).filter((field) => field.key !== 'spec_template_version_id')
   }
   return module
 }
@@ -114,19 +130,61 @@ export function toWorkflowGraph(nodes = [], edges = [], version = 1, variables =
 }
 
 export function connectionIsValid(connection, nodes, modules, mode = 'data', edges = []) {
-  if (!connection?.source || !connection?.target || connection.source === connection.target) return false
+  return connectionValidation(connection, nodes, modules, mode, edges).valid
+}
+
+export function connectionValidation(connection, nodes, modules, mode = 'data', edges = []) {
+  const invalid = (code, message) => ({ valid: false, code, message })
+  if (!connection?.source || !connection?.target) return invalid('missing_endpoint', '请从有效端口开始连接。')
+  if (connection.source === connection.target) return invalid('self_connection', '流程不能连接到自身。')
   const source = nodes.find((node) => node.id === connection.source)
   const target = nodes.find((node) => node.id === connection.target)
-  if (!source || !target) return false
-  if (mode === 'prerequisite') return true
+  if (!source || !target) return invalid('missing_node', '连线引用的节点不存在。')
+  if (mode === 'prerequisite') return { valid: true, code: '', message: '' }
   const sourcePort = source.data.module.outputs?.find((port) => port.id === connection.sourceHandle)
   const targetPort = target.data.module.inputs?.find((port) => port.id === canonicalInputPortID(connection.targetHandle))
-  if (!sourcePort || !targetPort) return false
+  if (!sourcePort || !targetPort) {
+    if (source.data.module.kind === 'process' && target.data.module.kind === 'bom' && connection.targetHandle !== 'route') {
+      return invalid('wrong_process_input', '工艺路线只能连接到 BOM 的“工艺路线”输入口。')
+    }
+    if (target.data.module.kind === 'bom' && connection.targetHandle === 'route') {
+      return invalid('wrong_route_type', 'BOM 的“工艺路线”输入口只能连接工艺节点。')
+    }
+    return invalid('unknown_port', '连线端口不存在，请确认起点和目标输入口。')
+  }
+  if (!sourcePort.types?.some((sourceType) => targetPort.types?.includes(sourceType) || targetPort.types?.includes('*'))) {
+    return invalid('incompatible_data_type', `${sourcePort.label || '该输出'}不能连接到${targetPort.label || '此输入'}。`)
+  }
+  if (target.data.module.kind === 'bom' && canonicalInputPortID(connection.targetHandle) === 'route') {
+    const existingRoute = edges.find((edge) => edge.id !== connection.id && edge.target === connection.target && edge.targetHandle === 'route' && (edge.data?.kind || 'data') === 'data')
+    if (existingRoute) {
+      const existingSource = nodes.find((node) => node.id === existingRoute.source)
+      const bomName = target.data.label || target.data.module.name || 'BOM'
+      const routeName = existingSource?.data.label || existingSource?.data.module.name || '现有工艺路线'
+      return invalid('multiple_routes', `${bomName} 已连接“${routeName}”，一个 BOM 只能连接一个工艺。请先删除原连线再更换。`)
+    }
+  }
   if (isRecipePort(connection.targetHandle) || connection.targetHandle === 'components:add') {
     const duplicate = edges.some((edge) => edge.id !== connection.id && edge.target === connection.target && edge.source === connection.source && edge.sourceHandle === connection.sourceHandle && canonicalInputPortID(edge.targetHandle) === 'components')
-    if (duplicate) return false
+    if (duplicate) return invalid('duplicate_recipe_source', '该来源已连接到此 BOM；需要多个配方行时，请在填写表格中增加行。')
   }
-  return sourcePort.types?.some((sourceType) => targetPort.types?.includes(sourceType) || targetPort.types?.includes('*')) || false
+  if (wouldCreateCycle(connection, edges)) return invalid('cycle', '这条连线会形成循环依赖，请调整流程方向。')
+  return { valid: true, code: '', message: '' }
+}
+
+function wouldCreateCycle(connection, edges) {
+  const pending = [connection.target]
+  const visited = new Set()
+  while (pending.length) {
+    const current = pending.pop()
+    if (current === connection.source) return true
+    if (visited.has(current)) continue
+    visited.add(current)
+    for (const edge of edges) {
+      if (edge.source === current && (edge.data?.kind || 'data') === 'data') pending.push(edge.target)
+    }
+  }
+  return false
 }
 
 export function recipePortForEdge(edgeID) {

@@ -1,5 +1,22 @@
 # ACTIVE_REQUIREMENTS
 
+### PR-676-PRODUCT-CREATOR-BOM-SPEC-TEMPLATE
+- Implementation: PR #164 merged into `develop`; deployed integration head `892d99bc9284643f712271ae822a09793bdb0bdb` includes PR #164 and #165. Live acceptance evidence follow-up branch `codex/product-creator-v4-live-acceptance-20260930`, based on current `origin/develop`.
+- Owner/session: Codex / Van / 2026-09-30.
+- Status: implementation, automated verification, merge, development deployment and successful template-driven product creation complete; Van business acceptance pending.
+- Scope: V4 商品创建器将已发布 BOM 规格模板固定配置在商品产出 BOM；运行时从已连接物料/商品规格中选择规格主体，整组复制模板规格、包材、工艺及损耗。
+- DEV: DEV-707-PC-BOM-SPEC-TEMPLATE; DEV-708-PC-TEMPLATE-EXECUTION; DEV-709-PC-TEMPLATE-UI-DOCS-DELIVERY.
+- Verifier:
+  - Unit: productcreator graph/run validation and workflow migration tests.
+  - API/DB: product creator V4 publication and template-backed BOM transaction integration.
+  - Frontend/build: product creator template selection/preview/runtime tests, Vue shell build, browser verification.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`.
+  - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-09-30-product-creator-bom-spec-template.md`.
+- Deployment: development `892d99bc9284643f712271ae822a09793bdb0bdb` deployed 2026-09-30; backup `/opt/stacks/erp/orderapp.backup.deploy-20260930143701-892d99bc9284`; development login HTTP 200, remote Go/Vue gates and health checks passed. Production and WeChat publication excluded.
+- Browser acceptance: template `PR-676 V4 商品规格模板验收-半成品到成品-20260930` published as V2; run #14 committed successfully. Created raw material `PC-MAT-1EE470478F767445`, semi-finished material `PC-MAT-985659443B0AC62C` with default BOM 49999, product 1099 with default BOM 50000/version 3320 and three BOM specs 420–422. Operation log records configuration commit, BOM publication and defaults. Van acceptance pending.
+- Last update: 2026-09-30.
+- Notes: existing V1–V3 workflows and published versions retain their behavior; Van business acceptance remains pending after development deployment.
+
 ### PR-675-PRODUCT-CREATOR-VARIABLES-INPUTS
 - Integration: follow-up PRs #159 and #160; final development commit `7ebfbe2a154c6ecd3045f0efd0e041d5d5accef9`.
 - Owner/session: Codex / Van / 2026-09-29.
@@ -101,6 +118,18 @@ Purpose: short-lived coordination for Codex workflows. Keep active requirement i
 This is not long-term memory. Move durable product/deployment decisions to `MEMORY.md` or source docs, then remove stale entries from this file.
 
 ## Active
+
+### PR-676 商品创建器 V5 后续：工艺接线与命名即时预览
+- Branches: V5 PR #167 and ordinary-preview fix PR #168 merged into `develop`; evidence follow-up branch `codex/product-creator-v5-acceptance-evidence-20261001`.
+- Owner/session: Codex / Van / 2026-10-01.
+- Status: implementation, RED/GREEN/API/UI checks, development deployment and V12 run #19 product creation complete; PR-676 remains `review` pending Van business acceptance.
+- Scope: V5 material/product BOMs each accept one connected process route; shared routes, independent per-BOM run override, per-spec route preview/results/audit, and live name composition preview with non-persistent examples; V1–V4 releases/runs remain unchanged.
+- DEV: DEV-710-PC-V5-ROUTE-CONNECTION; DEV-711-PC-V5-ROUTE-OVERRIDE; DEV-712-PC-NAME-LIVE-PREVIEW; DEV-713-PC-V5-DOCS-DELIVERY; DEV-714-PC-V5-PREVIEW-ROUTE-LOOKUP.
+- Verifier: `scripts/verify_kferp.sh all` passed (Vue 1,293 tests and Vite build); V5 PostgreSQL preview/commit tests and Go all passed; targeted regression reproduced and fixed ordinary preview without a transaction. Browser preview succeeded, created records were verified in 操作日志, and product specs/default BOM were verified in 商品档案. Additional PostgreSQL BOM-package legacy failures are recorded in the acceptance file.
+- Manuals/evidence: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`; `orderapp-remote/docs/acceptance/2026-09-30-product-creator-v5-process-preview.md`.
+- Development: V5 PR #167 and fix PR #168 merged; final commit `25889c3304eadf4c330942dae80c46cfb2b6c033` deployed with login HTTP 200; backup `/opt/stacks/erp/orderapp.backup.deploy-20261001002453-25889c3304ea`; rollback image `kferp-orderapp-rollback:development-20261001002453-25889c3304ea`. Template V12 run #19 committed product `SKU-001101`, semi-finished material, two BOMs and three specs; operation logs verified. Production and WeChat publication excluded.
+- PR-676 remains `review` until Van accepts the business behavior.
+- Last update: 2026-10-01.
 
 ### PR-673-PRODUCT-CREATOR-BOM-TEMPLATE
 - Branch: `codex/product-creator-bom-template-20260928`; base `origin/develop@26150f1b`.
