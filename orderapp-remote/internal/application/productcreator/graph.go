@@ -132,6 +132,7 @@ func ModuleCatalog() []Module {
 	out = append(out, bomCentricModules()...)
 	out = append(out, variableWorkflowModules()...)
 	out = append(out, specificationTemplateModules()...)
+	out = append(out, specificationTemplateModules(5)...)
 	return out
 }
 
@@ -169,11 +170,15 @@ func variableWorkflowModules() []Module {
 	return modules
 }
 
-func specificationTemplateModules() []Module {
+func specificationTemplateModules(version ...int) []Module {
+	workflowVersion := 4
+	if len(version) > 0 && version[0] > 4 {
+		workflowVersion = version[0]
+	}
 	definitions := variableWorkflowModules()
 	for index := range definitions {
 		module := &definitions[index]
-		module.WorkflowVersion = 4
+		module.WorkflowVersion = workflowVersion
 		if module.Kind != ModuleBOM {
 			continue
 		}
@@ -199,6 +204,9 @@ func moduleForNode(node Node, version int) Module {
 	}
 	if version >= 4 {
 		definitions = specificationTemplateModules()
+	}
+	if version >= 5 {
+		definitions = specificationTemplateModules(5)
 	}
 	for _, module := range definitions {
 		if module.Kind != node.Kind {
@@ -238,7 +246,7 @@ func moduleForNode(node Node, version int) Module {
 					module.Inputs[index].Label = "规格主体候选"
 				}
 			}
-			if stringValue(node.Config["output_type"]) == "product" {
+			if stringValue(node.Config["output_type"]) == "product" && version == 4 {
 				inputs := module.Inputs[:0]
 				for _, input := range module.Inputs {
 					if input.ID != "route" {
@@ -251,6 +259,38 @@ func moduleForNode(node Node, version int) Module {
 		return module
 	}
 	return Module{}
+}
+
+type BOMProcessRoute struct {
+	ID            int64  `json:"id"`
+	Source        string `json:"source"`
+	ProcessNodeID string `json:"process_node_id,omitempty"`
+}
+
+// ResolveBOMProcessRoute applies the creator's run override, connected route,
+// and BOM template default precedence. A product BOM with no route override
+// returns ID 0 so its specification-template routes remain intact.
+func ResolveBOMProcessRoute(workflow Workflow, node Node, values map[string]any, connectedRoutes map[string]int64) BOMProcessRoute {
+	if workflowVersion(workflow) >= 5 {
+		if routeID := positiveNumber(values["route_override_id"]); routeID > 0 {
+			return BOMProcessRoute{ID: int64(routeID), Source: "run_override"}
+		}
+	}
+	for _, edge := range workflow.Edges {
+		if edge.Kind != EdgeData || edge.Target != node.ID || edge.TargetHandle != "route" {
+			continue
+		}
+		if routeID := connectedRoutes[edge.Source]; routeID > 0 {
+			return BOMProcessRoute{ID: routeID, Source: "connected_node", ProcessNodeID: edge.Source}
+		}
+	}
+	if workflowVersion(workflow) >= 5 && stringValue(node.Config["output_type"]) == "product" {
+		return BOMProcessRoute{Source: "specification_template"}
+	}
+	if routeID := positiveNumber(values["route_id"]); routeID > 0 {
+		return BOMProcessRoute{ID: int64(routeID), Source: "bom_default"}
+	}
+	return BOMProcessRoute{ID: int64(positiveNumber(node.Config["route_id"])), Source: "bom_default"}
 }
 
 func ValidateWorkflow(workflow Workflow) []ValidationIssue {
@@ -498,7 +538,7 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 			issues = append(issues, ValidationIssue{EdgeID: edge.ID, Code: "edge_kind_disabled", Message: "新版模板只使用传递业务数据的连线"})
 			continue
 		}
-		if version >= 4 && target.Kind == ModuleBOM && stringValue(target.Config["output_type"]) == "product" && edge.TargetHandle == "route" {
+		if version == 4 && target.Kind == ModuleBOM && stringValue(target.Config["output_type"]) == "product" && edge.TargetHandle == "route" {
 			issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Field: "spec_template_version_id", Code: "template_route_conflict", Message: "商品 BOM 的工艺路线由规格模板提供，请移除独立工艺连线"})
 			continue
 		}
@@ -548,10 +588,11 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 			} else if stringValue(node.Config["output_type"]) != string(outputTargets[node.ID][0].Kind) {
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "output_type", Code: "output_type_mismatch", Message: "BOM产出类型必须与连接的物料或商品一致"})
 			}
-			if !(version >= 4 && stringValue(node.Config["output_type"]) == "product") && connectedInputs[node.ID+"\x00route"] == 0 && positiveNumber(node.Config["route_id"]) == 0 {
+			productTemplateBOM := version >= 4 && stringValue(node.Config["output_type"]) == "product"
+			if !productTemplateBOM && connectedInputs[node.ID+"\x00route"] == 0 && positiveNumber(node.Config["route_id"]) == 0 {
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "route", Code: "route_required", Message: "请连接工艺路线或在模板中选择默认路线"})
 			}
-			if !(version >= 4 && stringValue(node.Config["output_type"]) == "product") && connectedInputs[node.ID+"\x00route"] > 1 {
+			if connectedInputs[node.ID+"\x00route"] > 1 {
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "route", Code: "multiple_routes", Message: "一个 BOM 只能连接一条工艺路线"})
 			}
 		}

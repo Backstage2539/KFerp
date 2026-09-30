@@ -119,6 +119,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-676 商品创建器 V5 后续：工艺接线与命名即时预览
+- Branch: `codex/product-creator-v5-process-preview-20260930`; base `origin/develop@54e6432f`.
+- Owner/session: Codex / Van / 2026-09-30.
+- Status: implementation and automated verification complete; development integration/deployment and browser creation are in progress; Van business acceptance pending.
+- Scope: V5 material/product BOMs each accept one connected process route; shared routes, independent per-BOM run override, per-spec route preview/results/audit, and live name composition preview with non-persistent examples; V1–V4 releases/runs remain unchanged.
+- DEV: DEV-710-PC-V5-ROUTE-CONNECTION; DEV-711-PC-V5-ROUTE-OVERRIDE; DEV-712-PC-NAME-LIVE-PREVIEW; DEV-713-PC-V5-DOCS-DELIVERY.
+- Verifier: `scripts/verify_kferp.sh all` passed (Go all, Vue 1,293/1,293, Vite build); isolated PostgreSQL V5 template-copy/preview/schema tests passed; additional full PostgreSQL BOM-package run has recorded legacy PR-598/600/603/617 failures in the acceptance record.
+- Manuals/evidence: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`; `orderapp-remote/docs/acceptance/2026-09-30-product-creator-v5-process-preview.md`.
+- Development: authorized to merge to `develop` and deploy development. The existing V4 acceptance draft was saved at revision 23 before the rollout; V5 upgrade/publication and a new product are pending post-deployment browser verification. Production and WeChat publication excluded.
+- PR-676 remains `review` until Van accepts the business behavior.
+- Last update: 2026-09-30.
+
 ### PR-673-PRODUCT-CREATOR-BOM-TEMPLATE
 - Branch: `codex/product-creator-bom-template-20260928`; base `origin/develop@26150f1b`.
 - Owner/session: Codex / Van / 2026-09-29.

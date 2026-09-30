@@ -2,10 +2,18 @@ package productcreator
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	bomapp "orderapp/internal/application/bom"
 	creatorapp "orderapp/internal/application/productcreator"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type specTemplatePreviewRepository struct {
@@ -81,6 +89,116 @@ func TestProductBOMTemplatePreviewValidatesGeneratedProductSpecificationIdentity
 	_, issues = executor.InspectConfigurationPreview(context.Background(), run)
 	if !previewHasCode(issues, "product_main_input_requires_fixed_template") {
 		t.Fatalf("a product main input must be rejected when the selected template uses proportional recipe loss, got %+v", issues)
+	}
+}
+
+func TestV5BOMPreviewShowsSharedConnectedRouteAndOverridesEveryProductVariant(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for product creator postgres tests")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	schema := fmt.Sprintf("test_product_creator_v5_route_preview_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") }()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.process_routes(id BIGINT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL);
+		INSERT INTO %s.process_routes(id,name,status) VALUES(31,'规格模板工艺 200g','active'),(32,'规格模板工艺 500g','active'),(73,'共享工艺路线','active');
+	`, schema, schema)); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	ctx = postgresinfra.WithTransaction(ctx, tx)
+
+	template := previewSpecTemplate(12, 92, "成品规格", "finished-200g")
+	template.Variants = append(template.Variants, bomapp.ProductionBomSpecTemplateVariant{
+		SpecKey: "finished-500g", Name: "500g", InventoryUnit: "袋", ProcessRouteID: 32,
+	})
+	template.Variants[0].ProcessRouteID = 31
+	repo := specTemplatePreviewRepository{templates: []bomapp.ProductionBomSpecTemplate{template}}
+	executor := BusinessExecutor{schema: schema, bom: bomapp.NewService(repo)}
+	run := creatorapp.Run{
+		Workflow: creatorapp.Workflow{Version: 5, Nodes: []creatorapp.Node{
+			{ID: "route", Kind: creatorapp.ModuleProcess, Name: "共享工艺", Config: map[string]any{"route_id": 73}},
+			{ID: "material-bom", Kind: creatorapp.ModuleBOM, Name: "半成品烘焙 BOM", Config: map[string]any{"output_type": "material"}},
+			{ID: "product-bom", Kind: creatorapp.ModuleBOM, Name: "成品包装 BOM", Config: map[string]any{"output_type": "product", "spec_template_version_id": 92}},
+		}, Edges: []creatorapp.Edge{
+			{ID: "route-material", Source: "route", SourceHandle: "route", Target: "material-bom", TargetHandle: "route", Kind: creatorapp.EdgeData},
+			{ID: "route-product", Source: "route", SourceHandle: "route", Target: "product-bom", TargetHandle: "route", Kind: creatorapp.EdgeData},
+		}},
+		Inputs: map[string]map[string]any{
+			"route":        {"route_id": 73},
+			"material-bom": {"route_override_id": 0},
+			"product-bom":  {"route_override_id": 0},
+		},
+	}
+
+	details, issues := executor.InspectConfigurationPreview(ctx, run)
+	if len(issues) != 0 {
+		t.Fatalf("active route shared by material and product BOMs should preview cleanly, got %+v", issues)
+	}
+	for _, nodeID := range []string{"material-bom", "product-bom"} {
+		selection, ok := details[nodeID]["process_route"].(map[string]any)
+		if !ok || selection["id"] != int64(73) || selection["name"] != "共享工艺路线" || selection["source"] != "connected_node" {
+			t.Fatalf("%s process route preview=%+v, want connected shared route", nodeID, details[nodeID]["process_route"])
+		}
+	}
+	productDetail := details["product-bom"]["specification_template"].(map[string]any)
+	variants := productDetail["variants"].([]bomapp.ProductionBomSpecTemplateVariant)
+	if len(variants) != 2 || !reflect.DeepEqual([]int64{variants[0].ProcessRouteID, variants[1].ProcessRouteID}, []int64{73, 73}) || !reflect.DeepEqual([]string{variants[0].ProcessRouteName, variants[1].ProcessRouteName}, []string{"共享工艺路线", "共享工艺路线"}) || !reflect.DeepEqual([]string{variants[0].ProcessRouteSource, variants[1].ProcessRouteSource}, []string{"connected_node", "connected_node"}) {
+		t.Fatalf("connected route should apply to every generated product spec in preview: %+v", variants)
+	}
+
+	run.Workflow.Edges = run.Workflow.Edges[:1]
+	run.Inputs["product-bom"]["route_override_id"] = 0
+	details, issues = executor.InspectConfigurationPreview(ctx, run)
+	if len(issues) != 0 {
+		t.Fatalf("active per-specification template routes should preview cleanly after removing the shared route, got %+v", issues)
+	}
+	productDetail = details["product-bom"]["specification_template"].(map[string]any)
+	variants = productDetail["variants"].([]bomapp.ProductionBomSpecTemplateVariant)
+	if !reflect.DeepEqual([]int64{variants[0].ProcessRouteID, variants[1].ProcessRouteID}, []int64{31, 32}) || !reflect.DeepEqual([]string{variants[0].ProcessRouteName, variants[1].ProcessRouteName}, []string{"规格模板工艺 200g", "规格模板工艺 500g"}) || !reflect.DeepEqual([]string{variants[0].ProcessRouteSource, variants[1].ProcessRouteSource}, []string{"specification_template", "specification_template"}) {
+		t.Fatalf("removing the shared route should restore each named specification-template route: %+v", variants)
+	}
+}
+
+func TestV5ProductBOMPreviewPreservesPerVariantTemplateRoutesWithoutOverride(t *testing.T) {
+	template := previewSpecTemplate(12, 92, "成品规格", "finished-200g")
+	template.Variants = append(template.Variants, bomapp.ProductionBomSpecTemplateVariant{
+		SpecKey: "finished-500g", Name: "500g", InventoryUnit: "袋", ProcessRouteID: 32,
+	})
+	template.Variants[0].ProcessRouteID = 31
+	run := creatorapp.Run{
+		Workflow: creatorapp.Workflow{Version: 5, Nodes: []creatorapp.Node{{ID: "product-bom", Kind: creatorapp.ModuleBOM, Name: "成品包装 BOM", Config: map[string]any{"output_type": "product", "spec_template_version_id": 92}}}},
+		Inputs:   map[string]map[string]any{"product-bom": {"route_override_id": 0}},
+	}
+	executor := BusinessExecutor{bom: bomapp.NewService(specTemplatePreviewRepository{templates: []bomapp.ProductionBomSpecTemplate{template}})}
+	details, issues := executor.InspectConfigurationPreview(context.Background(), run)
+	if len(issues) != 0 {
+		t.Fatalf("following specification-template routes should preview cleanly, got %+v", issues)
+	}
+	selection := details["product-bom"]["process_route"].(map[string]any)
+	if selection["source"] != "specification_template" || selection["name"] != "规格模板各规格默认工艺" {
+		t.Fatalf("route summary=%+v, want per-specification template defaults", selection)
+	}
+	productDetail := details["product-bom"]["specification_template"].(map[string]any)
+	variants := productDetail["variants"].([]bomapp.ProductionBomSpecTemplateVariant)
+	if got := []int64{variants[0].ProcessRouteID, variants[1].ProcessRouteID}; !reflect.DeepEqual(got, []int64{31, 32}) {
+		t.Fatalf("without an override each spec must keep its own template route, got %+v", got)
 	}
 }
 

@@ -768,6 +768,10 @@ func copySpecTemplateToProductionBomTx(ctx context.Context, tx pgx.Tx, schema st
 }
 
 func copySpecTemplateToProductionBomWithComponentTx(ctx context.Context, tx pgx.Tx, schema string, bomID, versionID, templateVersionID int64, mainInput bomapp.ProductionBomMainInputComponent, actor string) error {
+	return copySpecTemplateToProductionBomWithComponentAndRouteTx(ctx, tx, schema, bomID, versionID, templateVersionID, mainInput, 0, actor)
+}
+
+func copySpecTemplateToProductionBomWithComponentAndRouteTx(ctx context.Context, tx pgx.Tx, schema string, bomID, versionID, templateVersionID int64, mainInput bomapp.ProductionBomMainInputComponent, processRouteOverrideID int64, actor string) error {
 	var status string
 	var templateID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,template_id FROM %s.production_bom_spec_template_versions WHERE id=$1 FOR SHARE`, schema), templateVersionID).Scan(&status, &templateID); err != nil || status != "published" {
@@ -835,7 +839,11 @@ func copySpecTemplateToProductionBomWithComponentTx(ctx context.Context, tx pgx.
 			return err
 		}
 		var bomVariantID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), versionID, bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, variant.routeID).Scan(&bomVariantID); err != nil {
+		effectiveRouteID := variant.routeID
+		if processRouteOverrideID > 0 {
+			effectiveRouteID = processRouteOverrideID
+		}
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), versionID, bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, effectiveRouteID).Scan(&bomVariantID); err != nil {
 			return err
 		}
 		type sourceItem struct {
@@ -882,7 +890,7 @@ func copySpecTemplateToProductionBomWithComponentTx(ctx context.Context, tx pgx.
 		if variant.isDefault {
 			defaultUnit = variant.unit
 			defaultLoss = variant.loss
-			defaultRouteID = variant.routeID
+			defaultRouteID = effectiveRouteID
 		}
 	}
 	if len(variants) == 0 {

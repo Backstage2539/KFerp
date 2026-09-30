@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { reactive } from 'vue'
 
-import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, connectionRoleUpdates, initialRecipeInputs, moduleForNode, replaceGraphEdge, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
+import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, connectionRoleUpdates, connectionValidation, initialRecipeInputs, moduleForNode, replaceGraphEdge, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
 
 const modules = [
   { kind: 'product', name: '商品档案', inputs: [], outputs: [{ id: 'product', types: ['product.ref'] }], fields: [] },
@@ -110,6 +110,31 @@ test('V4 product BOM exposes every connected source as a main-input candidate an
   assert.ok(saved.edges.every((edge) => edge.target_handle === 'components' || edge.target_handle === 'from_bom'))
 })
 
+test('V5 product BOM keeps a distinct process input alongside its specification-template recipe inputs', () => {
+  const workflow = {
+    version: 5,
+    nodes: [
+      { id: 'source', kind: 'material', name: '半成品', config: { data_role: 'input' } },
+      { id: 'route', kind: 'process', name: '包装工艺', config: { route_id: 9 } },
+      { id: 'bom', kind: 'bom', name: '成品包装 BOM', config: { output_type: 'product', spec_template_version_id: 91 } },
+    ],
+    edges: [
+      { id: 'ingredient', source: 'source', source_handle: 'material', target: 'bom', target_handle: 'components', kind: 'data' },
+      { id: 'route-edge', source: 'route', source_handle: 'route', target: 'bom', target_handle: 'route', kind: 'data' },
+    ],
+  }
+  const canvas = toCanvasGraph(workflow, [
+    { kind: 'material', name: '物料', workflow_version: 5, inputs: [], outputs: [{ id: 'material', types: ['material.ref'] }] },
+    { kind: 'process', name: '工艺', workflow_version: 5, inputs: [], outputs: [{ id: 'route', label: '工艺路线', types: ['process.route'] }] },
+    { kind: 'bom', name: 'BOM组装', workflow_version: 5, inputs: [{ id: 'components', types: ['material.ref', 'item.specs'], multiple: true }, { id: 'route', label: '工艺路线', types: ['process.route'] }], outputs: [], fields: [{ key: 'route_id' }, { key: 'spec_template_version_id' }] },
+  ])
+  const bom = canvas.nodes.find((node) => node.id === 'bom')
+  assert.equal(bom.data.module.inputs.some((port) => port.id === 'route'), true)
+  assert.equal(bom.data.module.inputs.find((port) => port.id === 'components').label, '规格主体候选')
+  assert.equal(bom.data.module.fields.some((field) => field.key === 'route_id'), false)
+  assert.equal(canvas.edges.find((edge) => edge.id === 'route-edge').targetHandle, 'route')
+})
+
 test('V4 specification-template selector is required for product BOMs and absent for material BOMs', () => {
   const modules = [{
     kind: 'bom', name: 'BOM组装', workflow_version: 4, inputs: [], outputs: [],
@@ -144,6 +169,34 @@ test('V3 BOM recipe handles accept multiple connections and reject duplicate sou
   assert.equal(connectionIsValid({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:add' }, nodes, modules, 'data', edges), false)
   assert.equal(connectionIsValid({ id: 'edge-1', source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:source:edge-1' }, nodes, modules, 'data', edges), true, 'revalidating an edge must not reject the edge itself as a duplicate')
   assert.equal(connectionIsValid({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'route' }, nodes, modules), false)
+})
+
+test('a BOM route input gives a precise message when a second process route is attempted', () => {
+  const process = { kind: 'process', outputs: [{ id: 'route', types: ['process.route'] }] }
+  const bomModule = { kind: 'bom', inputs: [{ id: 'route', label: '工艺路线', types: ['process.route'] }] }
+  const nodes = [
+    { id: 'first-route', data: { module: process, label: '半成品烘焙路线' } },
+    { id: 'second-route', data: { module: process, label: '成品包装路线' } },
+    { id: 'bom', data: { module: bomModule, label: '半成品烘焙 BOM' } },
+  ]
+  const edges = [{ id: 'existing-route', source: 'first-route', sourceHandle: 'route', target: 'bom', targetHandle: 'route', data: { kind: 'data' } }]
+  const result = connectionValidation({ source: 'second-route', sourceHandle: 'route', target: 'bom', targetHandle: 'route' }, nodes, [], 'data', edges)
+  assert.equal(result.valid, false)
+  assert.equal(result.code, 'multiple_routes')
+  assert.equal(result.message, '半成品烘焙 BOM 已连接“半成品烘焙路线”，一个 BOM 只能连接一个工艺。请先删除原连线再更换。')
+})
+
+test('a graph connection that closes a cycle is rejected with a cycle explanation', () => {
+  const material = { kind: 'material', inputs: [{ id: 'from_bom', types: ['material.ref'] }], outputs: [{ id: 'material', types: ['material.ref'] }] }
+  const bomModule = { kind: 'bom', inputs: [{ id: 'components', types: ['material.ref'], multiple: true }], outputs: [{ id: 'output', types: ['material.ref'] }] }
+  const nodes = [
+    { id: 'material', data: { module: material, label: '物料' } },
+    { id: 'bom', data: { module: bomModule, label: 'BOM' } },
+  ]
+  const edges = [{ id: 'existing', source: 'bom', sourceHandle: 'output', target: 'material', targetHandle: 'from_bom', data: { kind: 'data' } }]
+  const result = connectionValidation({ source: 'material', sourceHandle: 'material', target: 'bom', targetHandle: 'components:add' }, nodes, [], 'data', edges)
+  assert.equal(result.valid, false)
+  assert.equal(result.code, 'cycle')
 })
 
 test('connections reject wrong business types and accept compatible data ports', () => {

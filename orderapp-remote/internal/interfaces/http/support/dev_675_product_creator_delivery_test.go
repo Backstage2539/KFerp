@@ -45,3 +45,22 @@ func TestProductCreatorV4SpecTemplateDeliveryRequirementSeeds(t *testing.T) {
 		}
 	}
 }
+
+func TestProductCreatorV5ProcessAndNamePreviewFollowupSeeds(t *testing.T) {
+	reqStore := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+	for _, row := range []struct {
+		table  string
+		code   string
+		status string
+	}{
+		{table: "req_dev", code: "DEV-710-PC-V5-ROUTE-CONNECTION", status: "doing"},
+		{table: "req_dev", code: "DEV-711-PC-V5-ROUTE-OVERRIDE", status: "doing"},
+		{table: "req_dev", code: "DEV-712-PC-NAME-LIVE-PREVIEW", status: "doing"},
+		{table: "req_dev", code: "DEV-713-PC-V5-DOCS-DELIVERY", status: "doing"},
+	} {
+		pattern := regexp.MustCompile(`(?m)^[\t ]*\{table: "` + regexp.QuoteMeta(row.table) + `"[^\n]*code: "` + regexp.QuoteMeta(row.code) + `"[^\n]*status: "` + regexp.QuoteMeta(row.status) + `"[^\n]*\},[\t ]*$`)
+		if !pattern.MatchString(reqStore) {
+			t.Errorf("req_store.go must seed %s as %s", row.code, row.status)
+		}
+	}
+}

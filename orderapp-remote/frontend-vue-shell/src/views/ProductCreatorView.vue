@@ -123,6 +123,10 @@
             :default-edge-options="edgeDefaults"
             fit-view-on-init
             @viewport-change="updateZoom"
+            @connect-start="onConnectionStart"
+            @connect-end="onConnectionEnd"
+            @click-connect-start="onConnectionStart"
+            @click-connect-end="onConnectionEnd"
             @connect="connectNodes"
             @edges-delete="reconcileDeletedEdges"
             @node-click="selectNode"
@@ -147,7 +151,7 @@
           </div>
         </div>
 
-        <div v-if="templateWorkflowVersion >= 4 && workflowUpgradeNotice" class="pc-upgrade-notice">旧模板已升级为 V4 草稿。商品 BOM 现在必须引用已发布的规格模板；旧手工配置会逐个显示并要求核对。历史发布版本和运行记录保持原样。</div>
+        <div v-if="templateWorkflowVersion >= 5 && workflowUpgradeNotice" class="pc-upgrade-notice">旧模板已升级为 V5 草稿。商品和物料 BOM 现在都可连接一条工艺路线，商品 BOM 的规格模板路线可被本次运行整体覆盖；旧发布版本和运行记录保持原样。</div>
 
         <aside class="pc-node-inspector">
           <template v-if="selectedNode">
@@ -195,7 +199,7 @@
                 <div class="pc-name-parts-editor">
                   <template v-for="(part, index) in selectedNameParts" :key="`${selectedNode.id}-${index}`">
                     <span v-if="part.type === 'variable'" class="pc-name-variable-chip">{{ variableName(part.variable_id) }}<button type="button" :aria-label="`移除变量${variableName(part.variable_id)}`" @click="removeNamePart(index)"><IconX :size="13" /></button></span>
-                    <input v-else class="pc-control pc-name-literal" :value="part.value" placeholder="固定文字" @change="updateNamePart(index, { value: $event.target.value })" />
+                    <input v-else class="pc-control pc-name-literal" :value="part.value" placeholder="固定文字" @focus="rememberHistory" @input="updateNamePartLive(index, $event.target.value)" @blur="finishNamePartLiveEdit" />
                   </template>
                   <button class="pc-text-action" type="button" @click="appendNameText"><IconPlus :size="14" />固定文字</button>
                 </div>
@@ -203,6 +207,14 @@
                   <input v-model="variablePickerQuery" class="pc-control" placeholder="搜索或新建命名变量" />
                   <button v-for="variable in filteredNameVariables" :key="variable.id" class="pc-variable-option" type="button" @click="appendNameVariable(variable.id)">{{ variable.name }}</button>
                   <button v-if="variablePickerQuery.trim() && !filteredNameVariables.some((variable) => variable.name.toLocaleLowerCase() === variablePickerQuery.trim().toLocaleLowerCase())" class="pc-variable-option create" type="button" @click="createAndAppendVariable">＋ 新建“{{ variablePickerQuery.trim() }}”</button>
+                </div>
+                <div class="pc-name-preview">
+                  <div class="pc-name-preview-output"><span>生成名称预览</span><strong>{{ selectedNamePreview.value || '请输入固定文字或选择变量' }}</strong></div>
+                  <label v-for="variable in selectedNamePreviewVariables" :key="variable.id" class="pc-name-preview-sample">
+                    <span>{{ variable.name }} · 仅用于预览</span>
+                    <input class="pc-control" :value="namePreviewSamples[variable.id] || ''" :placeholder="variable.default_value || `填写${variable.name}示例值`" @input="setNamePreviewSample(variable.id, $event.target.value)" />
+                  </label>
+                  <small v-if="selectedNamePreview.missing.length">未设置默认值或示例值的变量，会显示“待填写”标记。</small>
                 </div>
                 <p class="pc-muted">使用时填写变量，名称会自动生成；填写者仍可直接修改名称。</p>
                 <template v-if="selectedNode.data.module.kind === 'material'">
@@ -257,9 +269,10 @@
                 <div v-if="specificationTemplateLoadError" class="pc-alert pc-alert-error">{{ specificationTemplateLoadError }}</div>
                 <div v-else-if="selectedSpecificationTemplateDetail" class="pc-spec-template-preview">
                   <header><strong>{{ selectedSpecificationTemplateDetail.name }}</strong><span>已发布 {{ selectedSpecificationTemplateVersion?.version_no }} · {{ selectedSpecificationTemplateDetail.variants?.length || 0 }} 个规格</span></header>
+                  <p class="pc-muted">当前工艺来源：{{ selectedBOMConnectedRoute ? `连线工艺 · ${selectedBOMConnectedRoute.name}` : '规格模板各规格默认工艺' }}。删除工艺连线后会恢复规格模板中的路线。</p>
                   <article v-for="variant in selectedSpecificationTemplateDetail.variants || []" :key="variant.spec_key">
                     <div class="pc-spec-template-variant-heading"><strong>{{ variant.name }}</strong><span>{{ variant.inventory_unit }}<b v-if="variant.is_default">默认规格</b></span></div>
-                    <div class="pc-spec-template-meta">主体用量 {{ mainInputItem(variant)?.qty_per_unit || 0 }} {{ mainInputItem(variant)?.consume_unit || '' }} · 工艺 {{ routeName(variant.process_route_id) }} · 损耗 {{ (Number(variant.material_loss_rate || 0) * 100).toFixed(2) }}%</div>
+                    <div class="pc-spec-template-meta">主体用量 {{ mainInputItem(variant)?.qty_per_unit || 0 }} {{ mainInputItem(variant)?.consume_unit || '' }} · 实际工艺 {{ routeName(selectedBOMConnectedRoute?.id || variant.process_route_id) }} · {{ selectedBOMConnectedRoute ? '来自连线' : '来自规格模板' }} · 损耗 {{ (Number(variant.material_loss_rate || 0) * 100).toFixed(2) }}%</div>
                     <div v-for="item in (variant.items || []).filter((row) => !row.is_main_input)" :key="`${variant.spec_key}-${item.sort_order}-${item.component_bom_spec_id || item.material_id}`" class="pc-spec-template-item">
                       <span>{{ item.component_name || item.component_spec_name || '模板包材' }}<small v-if="item.component_spec_name && item.component_name"> · {{ item.component_spec_name }}</small></span>
                       <strong>{{ item.qty_per_unit || item.ratio_pct }} {{ item.consume_unit }}<small v-if="item.component_spec_unit"> / {{ item.component_spec_unit }}</small></strong>
@@ -277,7 +290,7 @@
                 <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('output_unit')" @change="setFieldEditable('output_unit', $event.target.checked)" /> 使用时允许调整</label>
               </div>
               <label class="pc-field-label">默认工艺路线</label>
-              <select class="pc-control" :value="selectedNode.data.config.route_id || 0" :disabled="hasIncomingRoute(selectedNode.id)" @change="updateNodeConfig({ route_id: Number($event.target.value) })"><option :value="0">优先使用连线工艺</option><option v-for="route in processOptions" :key="route.id" :value="route.id">{{ route.name }}</option></select>
+              <select class="pc-control" :value="selectedNode.data.config.route_id || 0" @change="updateNodeConfig({ route_id: Number($event.target.value) })"><option :value="0">连线优先；未连接时按需选择</option><option v-for="route in processOptions" :key="route.id" :value="route.id">{{ route.name }}</option></select>
               <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('route_id')" @change="setFieldEditable('route_id', $event.target.checked)" /> 使用时允许调整工艺</label>
               <label class="pc-field-label">物料损耗率 %<input class="pc-control" type="number" min="0" max="99.99" step="0.01" :value="Number(selectedNode.data.config.material_loss_rate || 0) * 100" @input="updateNodeConfig({ material_loss_rate: Number($event.target.value || 0) / 100 })" /></label>
               <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('material_loss_rate')" @change="setFieldEditable('material_loss_rate', $event.target.checked)" /> 使用时允许调整损耗</label>
@@ -436,6 +449,7 @@ import {
   autoLayout,
   canonicalInputPortID,
   connectionIsValid,
+  connectionValidation,
   makeEdgeId,
   makeNodeId,
   connectionRoleUpdates,
@@ -447,7 +461,7 @@ import {
   toCanvasGraph,
   toWorkflowGraph,
 } from '../lib/product-creator-graph.js'
-import { filterWorkflowVariables, upgradeWorkflowToV4 } from '../lib/product-creator-variables.js'
+import { filterWorkflowVariables, renderNamePreview, upgradeWorkflowToV5 } from '../lib/product-creator-variables.js'
 import {
   copyProductCreatorTemplate,
   commitProductCreatorRun,
@@ -491,6 +505,7 @@ const workflowVariables = ref([])
 const variableManagerOpen = ref(false)
 const workflowUpgradeNotice = ref(false)
 const variablePickerQuery = ref('')
+const namePreviewSamples = ref({})
 const run = ref(null)
 const designerTab = ref('flow')
 const nodes = ref([])
@@ -510,6 +525,8 @@ const historyIndex = ref(0)
 const zoomLabel = ref('100%')
 const canvasVisible = ref(true)
 let draggedKind = ''
+let activeConnectionStart = null
+let activeConnectionAccepted = false
 
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) || null)
 const selectedVariants = computed(() => selectedNode.value?.data.config?.variants || [])
@@ -521,6 +538,20 @@ const selectedSpecificationTemplateVersion = computed(() => publishedSpecificati
 const selectedSpecificationTemplateDetail = computed(() => specificationTemplateDetails.value[String(selectedNode.value?.data.config?.spec_template_version_id || '')] || null)
 const selectedNameParts = computed(() => selectedNode.value?.data.config?.name_parts || [])
 const filteredNameVariables = computed(() => filterWorkflowVariables(variablePickerQuery.value, workflowVariables.value))
+const selectedNamePreview = computed(() => renderNamePreview(selectedNameParts.value, workflowVariables.value, namePreviewSamples.value))
+const selectedBOMConnectedRoute = computed(() => {
+  if (!selectedNode.value || selectedNode.value.data.module.kind !== 'bom') return null
+  const edge = edges.value.find((item) => item.target === selectedNode.value.id && canonicalInputPortID(item.targetHandle) === 'route' && item.data?.kind === 'data')
+  if (!edge) return null
+  const source = nodes.value.find((node) => node.id === edge.source)
+  const routeID = Number(source?.data.config?.route_id || 0)
+  const route = processOptions.value.find((option) => Number(option.id) === routeID)
+  return { id: routeID, name: route?.name || route?.route_name || (routeID > 0 ? `工艺路线 ${routeID}` : '未选择工艺路线') }
+})
+const selectedNamePreviewVariables = computed(() => {
+  const ids = new Set(selectedNameParts.value.filter((part) => part.type === 'variable').map((part) => part.variable_id))
+  return workflowVariables.value.filter((variable) => ids.has(variable.id))
+})
 const templateWorkflowVersion = computed(() => Number(template.value.draft?.version || 1))
 const incomingEdges = computed(() => edges.value.filter((edge) => edge.target === selectedNodeId.value))
 const conditionSources = computed(() => nodes.value.filter((node) => node.id !== selectedNodeId.value))
@@ -581,13 +612,14 @@ async function load() {
 }
 
 function emptyTemplate() {
-  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 4, variables: [], nodes: [], edges: [] } }
+  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 5, variables: [], nodes: [], edges: [] } }
 }
 
 function newTemplate() {
   errorMessage.value = ''
   template.value = emptyTemplate()
   workflowVariables.value = []
+  namePreviewSamples.value = {}
   workflowUpgradeNotice.value = false
   edgeMode.value = 'data'
   setCanvasGraph({ nodes: [], edges: [] })
@@ -600,10 +632,11 @@ function newTemplate() {
 function editTemplate(item) {
   errorMessage.value = ''
   const sourceVersion = Number(item.draft?.version || 1)
-  const upgradedWorkflow = upgradeWorkflowToV4(item.draft || { nodes: [], edges: [] })
+  const upgradedWorkflow = upgradeWorkflowToV5(item.draft || { nodes: [], edges: [] })
   template.value = { ...cloneValue(item), draft: upgradedWorkflow }
   workflowVariables.value = cloneValue(upgradedWorkflow.variables || [])
-  workflowUpgradeNotice.value = sourceVersion < 4
+  namePreviewSamples.value = {}
+  workflowUpgradeNotice.value = sourceVersion < 5
   edgeMode.value = 'data'
   setCanvasGraph(toCanvasGraph(upgradedWorkflow, modules.value))
   designerTab.value = 'flow'
@@ -913,11 +946,49 @@ function isValidConnection(connection) {
   return connectionIsValid(connection, nodes.value, modules.value, edgeMode.value, edges.value)
 }
 
+function onConnectionStart(payload) {
+  const start = payload || {}
+  activeConnectionStart = {
+    nodeId: start.nodeId || start.fromNode?.id || '',
+    handleId: start.handleId || start.fromHandle?.id || '',
+    handleType: start.handleType || start.fromHandle?.type || '',
+  }
+  activeConnectionAccepted = false
+}
+
+function onConnectionEnd(payload) {
+  const event = payload?.event || payload
+  const start = activeConnectionStart
+  if (start?.nodeId && !activeConnectionAccepted) {
+    const element = event?.target?.closest?.('.vue-flow__handle')
+    const end = element?.dataset || {}
+    const targetNodeID = end.nodeid || element?.getAttribute?.('data-nodeid') || ''
+    const targetHandleID = end.handleid || element?.getAttribute?.('data-handleid') || ''
+    const targetHandleType = end.handletype || element?.getAttribute?.('data-handletype') || (element?.classList?.contains('target') ? 'target' : element?.classList?.contains('source') ? 'source' : '')
+    if (targetNodeID && targetHandleID && targetNodeID !== start.nodeId) {
+      let connection = null
+      if (start.handleType === 'source' && targetHandleType === 'target') {
+        connection = { source: start.nodeId, sourceHandle: start.handleId, target: targetNodeID, targetHandle: targetHandleID }
+      } else if (start.handleType === 'target' && targetHandleType === 'source') {
+        connection = { source: targetNodeID, sourceHandle: targetHandleID, target: start.nodeId, targetHandle: start.handleId }
+      }
+      if (connection) {
+        const validation = connectionValidation(connection, nodes.value, modules.value, edgeMode.value, edges.value)
+        if (!validation.valid) errorMessage.value = validation.message
+      }
+    }
+  }
+  activeConnectionStart = null
+  activeConnectionAccepted = false
+}
+
 function connectNodes(connection) {
-  if (!isValidConnection(connection)) {
-    errorMessage.value = '这两个步骤的数据类型不匹配，请连接相同业务类型的端口。'
+  const validation = connectionValidation(connection, nodes.value, modules.value, edgeMode.value, edges.value)
+  if (!validation.valid) {
+    errorMessage.value = validation.message
     return
   }
+  activeConnectionAccepted = true
   rememberHistory()
   const source = nodes.value.find((node) => node.id === connection.source)
   const target = nodes.value.find((node) => node.id === connection.target)
@@ -937,9 +1008,6 @@ function connectNodes(connection) {
     markerEnd: { type: 'arrowclosed', color },
   }
   edges.value = replaceGraphEdge(edges.value, edge)
-  if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && canonicalTarget === 'route') {
-    target.data = { ...target.data, config: { ...target.data.config, route_id: 0 } }
-  }
   if (edgeMode.value === 'data' && target.data.module.kind === 'bom' && canonicalTarget === 'components') {
     const productTemplateBOM = templateWorkflowVersion.value >= 4 && target.data.config.output_type === 'product'
     if (!productTemplateBOM) {
@@ -1032,6 +1100,26 @@ function acknowledgeLegacyProductBOM() {
 function updateNamePart(index, patch) {
   const parts = selectedNameParts.value.map((part, partIndex) => partIndex === index ? { ...part, ...patch } : { ...part })
   updateNodeConfig({ name_parts: parts })
+}
+
+function updateNamePartLive(index, value) {
+  if (!selectedNode.value) return
+  const parts = selectedNameParts.value.map((part, partIndex) => partIndex === index ? { ...part, value } : { ...part })
+  const nodeIndex = nodes.value.findIndex((node) => node.id === selectedNodeId.value)
+  nodes.value[nodeIndex] = { ...nodes.value[nodeIndex], data: { ...nodes.value[nodeIndex].data, config: { ...nodes.value[nodeIndex].data.config, name_parts: parts } } }
+  touchGraph()
+}
+
+function finishNamePartLiveEdit() {
+  if (!selectedNode.value) return
+  finishGraphChange()
+}
+
+function setNamePreviewSample(variableID, value) {
+  const samples = { ...namePreviewSamples.value }
+  if (String(value || '').trim()) samples[variableID] = value
+  else delete samples[variableID]
+  namePreviewSamples.value = samples
 }
 
 function appendNameText() {
@@ -1332,7 +1420,7 @@ function checkGraph() {
     if (templateWorkflowVersion.value >= 4 && node.data.module.kind === 'bom' && node.data.config.output_type === 'product') {
       if (!Number(node.data.config.spec_template_version_id || 0)) graphIssues.value.push({ node_id: node.id, field: 'spec_template_version_id', message: '商品产出 BOM 必须选择一个已发布的规格模板版本。' })
       if (node.data.config.legacy_spec_configuration_pending) graphIssues.value.push({ node_id: node.id, field: 'spec_template_version_id', message: '请核对并处理该 BOM 的旧手工规格、配方或工艺配置。' })
-      if (edges.value.some((edge) => edge.target === node.id && edge.targetHandle === 'route')) graphIssues.value.push({ node_id: node.id, field: 'route', message: '商品 BOM 的工艺路线由规格模板提供，请移除独立工艺连线。' })
+      if (templateWorkflowVersion.value === 4 && edges.value.some((edge) => edge.target === node.id && edge.targetHandle === 'route')) graphIssues.value.push({ node_id: node.id, field: 'route', message: 'V4 商品 BOM 的工艺路线由规格模板提供；升级到 V5 后可连接独立工艺路线。' })
     }
     for (const port of node.data.module.inputs || []) {
       if (port.required && !edges.value.some((edge) => edge.target === node.id && canonicalInputPortID(edge.targetHandle) === port.id && (edge.data?.kind || 'data') === 'data')) {
@@ -1356,6 +1444,9 @@ function checkGraph() {
     const input = target?.data.module.inputs?.find((port) => port.id === canonicalInputPortID(edge.targetHandle))
     if (!out || !input || !out.types?.some((type) => input.types?.includes(type) || input.types?.includes('*'))) {
       graphIssues.value.push({ node_id: edge.target, edge_id: edge.id, message: '连线两端的数据类型不兼容。' })
+    }
+    if (source?.data.module.kind === 'bom' && edge.sourceHandle === 'assembly' && ['material', 'product'].includes(target?.data.module.kind) && target.data.module.kind !== source.data.config.output_type) {
+      graphIssues.value.push({ node_id: source.id, edge_id: edge.id, field: 'output_type', message: `BOM产出类型为${source.data.config.output_type === 'product' ? '商品' : '物料'}，但连接的产出对象是${target.data.module.kind === 'product' ? '商品' : '物料'}。请统一 BOM 类型或更换产出节点。` })
     }
   }
   const order = topologyIds()
@@ -1548,6 +1639,12 @@ function updateZoom() {
 .pc-variable-picker > input { grid-column: 1 / -1; }
 .pc-variable-option { border: 1px solid #e0e7f0; border-radius: 5px; padding: 5px 8px; color: #53647d; background: white; text-align: left; font: inherit; font-size: 10px; cursor: pointer; }
 .pc-variable-option.create { color: #226f49; background: #f4fbf6; }
+.pc-name-preview { display: grid; gap: 7px; border: 1px solid #dce7f2; border-radius: 7px; margin: 8px 0; padding: 9px; background: #f8fbff; }
+.pc-name-preview-output { display: grid; gap: 4px; }
+.pc-name-preview-output span, .pc-name-preview-sample span, .pc-name-preview small { color: #718198; font-size: 10px; }
+.pc-name-preview-output strong { overflow-wrap: anywhere; color: #2e593e; font-size: 12px; font-weight: 650; }
+.pc-name-preview-sample { display: grid; gap: 4px; }
+.pc-name-preview-sample .pc-control { min-height: 31px; font-size: 11px; }
 .pc-upgrade-notice { grid-column: 1 / -1; border: 1px solid #d7e5f4; border-radius: 6px; margin: 0 12px; padding: 8px 11px; color: #526e91; background: #f4f8fd; font-size: 11px; }
 .pc-modal-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: #15223866; }
 .pc-variable-manager { width: min(720px, 100%); max-height: min(80vh, 680px); overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; background: white; box-shadow: 0 18px 55px #15223833; }
