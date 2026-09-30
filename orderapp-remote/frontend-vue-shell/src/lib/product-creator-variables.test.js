@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { filterWorkflowVariables, renderNameParts, upgradeWorkflowToV3 } from './product-creator-variables.js'
+import { filterWorkflowVariables, renderNameParts, upgradeWorkflowToV3, upgradeWorkflowToV4 } from './product-creator-variables.js'
 
 test('variable search matches substrings and ordered fuzzy terms and permits adding the missing value', () => {
   const variables = [
@@ -42,4 +42,32 @@ test('V2 workflow upgrade preserves literals and converts old product-name place
   assert.equal(upgraded.nodes[0].config.kind, undefined)
   assert.equal(upgraded.nodes[1].config.product_kind, undefined)
   assert.equal(upgraded.edges[0].id, 'legacy-edge-1')
+})
+
+test('V3 product BOM migration preserves hand-maintained settings for explicit review and V4 snapshots stay immutable', () => {
+  const legacy = {
+    version: 3,
+    variables: [{ id: 'product-name', name: '商品名称', default_value: '' }],
+    nodes: [
+      { id: 'semi-bom', kind: 'bom', config: { output_type: 'material', output_qty: 5, route_id: 8, variants: [], components: [{ row_id: 'raw-1', quantity: 2 }] } },
+      { id: 'product-bom', kind: 'bom', config: { output_type: 'product', output_qty: 1, output_unit: 'bag', route_id: 9, material_loss_rate: 0.12, variants: [{ row_id: 'spec-a', name: '250g', unit: 'bag' }], components: [{ row_id: 'pack-a', source_node_id: 'pack', quantity: 1, unit: 'bag' }] } },
+      { id: 'product', kind: 'product', config: { data_role: 'output', name_parts: [{ type: 'variable', variable_id: 'product-name' }] } },
+    ],
+    edges: [{ id: 'route-edge', source: 'route', target: 'product-bom', target_handle: 'route' }],
+  }
+  const upgraded = upgradeWorkflowToV4(legacy)
+  const productBOM = upgraded.nodes.find((node) => node.id === 'product-bom')
+  const materialBOM = upgraded.nodes.find((node) => node.id === 'semi-bom')
+
+  assert.equal(upgraded.version, 4)
+  assert.equal(productBOM.config.spec_template_version_id, 0)
+  assert.equal(productBOM.config.legacy_spec_configuration_pending, true)
+  assert.deepEqual(productBOM.config.legacy_spec_configuration.variants, legacy.nodes[1].config.variants)
+  assert.deepEqual(productBOM.config.legacy_spec_configuration.components, legacy.nodes[1].config.components)
+  assert.equal(productBOM.config.variants, undefined)
+  assert.equal(productBOM.config.components, undefined)
+  assert.equal(materialBOM.config.output_qty, 5)
+  assert.deepEqual(upgraded.edges, legacy.edges)
+  assert.deepEqual(upgradeWorkflowToV4(upgraded), upgraded)
+  assert.equal(legacy.nodes[1].config.output_unit, 'bag')
 })

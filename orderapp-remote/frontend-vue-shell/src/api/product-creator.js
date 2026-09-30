@@ -3,6 +3,8 @@ import { apiGet, apiSend } from './client.js'
 const base = '/api/product-creator'
 
 export const getProductCreatorModules = () => apiGet(`${base}/modules`)
+export const listProductionBomSpecTemplates = () => apiGet('/api/production-bom-spec-templates')
+export const getProductionBomSpecTemplateVersion = (templateID, versionID) => apiGet(`/api/production-bom-spec-templates/${templateID}?version_id=${versionID}`)
 export const listProductCreatorTemplates = () => apiGet(`${base}/templates`)
 export const saveProductCreatorTemplate = (template) => template.id
   ? apiSend(`${base}/templates/${template.id}`, { method: 'PUT', body: template })

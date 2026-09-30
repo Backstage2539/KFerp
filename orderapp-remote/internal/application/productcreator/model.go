@@ -72,12 +72,13 @@ type RunPreview struct {
 }
 
 type StepPreview struct {
-	NodeID   string     `json:"node_id"`
-	Name     string     `json:"name"`
-	Kind     ModuleKind `json:"kind"`
-	Action   string     `json:"action"`
-	Status   string     `json:"status"`
-	RowCount int        `json:"row_count,omitempty"`
+	NodeID   string         `json:"node_id"`
+	Name     string         `json:"name"`
+	Kind     ModuleKind     `json:"kind"`
+	Action   string         `json:"action"`
+	Status   string         `json:"status"`
+	RowCount int            `json:"row_count,omitempty"`
+	Details  map[string]any `json:"details,omitempty"`
 }
 
 type TemplateSave struct {
@@ -119,6 +120,10 @@ type ConfigurationTransactionRepository interface {
 
 type ConfigurationExecutor interface {
 	ExecuteConfiguration(context.Context, Run, string) (map[string]any, error)
+}
+
+type ConfigurationPreviewInspector interface {
+	InspectConfigurationPreview(context.Context, Run) (map[string]map[string]any, []ValidationIssue)
 }
 
 // RunStepTransactionRepository atomically applies one explicitly confirmed
@@ -269,6 +274,16 @@ func (s *Service) PreviewRun(ctx context.Context, id, revision int64, actor stri
 		run.Inputs = ResolveWorkflowVariableNames(run.Workflow, run.Inputs, run.VariableValues)
 	}
 	preview := BuildRunPreview(run.Workflow, run.Inputs)
+	if inspector, ok := s.executor.(ConfigurationPreviewInspector); ok {
+		details, inspectionIssues := inspector.InspectConfigurationPreview(ctx, run)
+		preview.Issues = append(preview.Issues, inspectionIssues...)
+		for index := range preview.Steps {
+			if stepDetails := details[preview.Steps[index].NodeID]; len(stepDetails) > 0 {
+				preview.Steps[index].Details = stepDetails
+			}
+		}
+		preview.Valid = len(preview.Issues) == 0
+	}
 	if workflowVersion(run.Workflow) >= 3 {
 		preview.Issues = append(preview.Issues, ValidateWorkflowVariableValues(run.Workflow, run.Inputs, run.VariableValues)...)
 		preview.Valid = len(preview.Issues) == 0
@@ -733,12 +748,19 @@ func validateBOMRunInputs(workflow Workflow, inputs map[string]map[string]any) [
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "route_id", Code: "required_reference", Message: "请选择有效工艺路线"})
 			}
 		case ModuleBOM:
-			qty := numericValue(values["output_qty"])
-			if qty <= 0 {
-				qty = numericValue(node.Config["output_qty"])
+			productTemplateBOM := workflowVersion(workflow) >= 4 && stringValue(node.Config["output_type"]) == "product"
+			if productTemplateBOM {
+				issues = append(issues, validateProductBOMMainInput(node, values, workflow, inputs)...)
+				continue
 			}
-			if qty <= 0 {
-				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "output_qty", Code: "invalid_quantity", Message: "BOM产出数量必须大于零"})
+			if !productTemplateBOM {
+				qty := numericValue(values["output_qty"])
+				if qty <= 0 {
+					qty = numericValue(node.Config["output_qty"])
+				}
+				if qty <= 0 {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "output_qty", Code: "invalid_quantity", Message: "BOM产出数量必须大于零"})
+				}
 			}
 			if stringValue(node.Config["output_type"]) == "material" {
 				unit := stringValue(values["output_unit"])
@@ -757,6 +779,9 @@ func validateBOMRunInputs(workflow Workflow, inputs map[string]map[string]any) [
 				if unit == "" {
 					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "output_unit", Code: "required_reference", Message: "物料产出 BOM 需要选择有效的产出单位"})
 				}
+			}
+			if productTemplateBOM {
+				continue
 			}
 			components := rowValues(values["components"])
 			if len(components) == 0 {
@@ -845,6 +870,9 @@ func validateRunRows(node Node, values map[string]any, workflow Workflow, inputs
 		}
 	}
 	if node.Kind == ModuleBOM {
+		if workflowVersion(workflow) >= 4 && stringValue(node.Config["output_type"]) == "product" {
+			return append(issues, validateProductBOMMainInput(node, values, workflow, inputs)...)
+		}
 		variants := rowValues(values["variants"])
 		components := rowValues(values["components"])
 		if len(variants) == 0 && values["action"] != "reuse" {
@@ -955,6 +983,36 @@ func validateRunRows(node Node, values map[string]any, workflow Workflow, inputs
 	return issues
 }
 
+func validateProductBOMMainInput(node Node, values map[string]any, workflow Workflow, inputs map[string]map[string]any) []ValidationIssue {
+	sourceNodeID := strings.TrimSpace(stringValue(values["main_input_source_node_id"]))
+	sourceRowID := strings.TrimSpace(stringValue(values["main_input_source_row_id"]))
+	if sourceNodeID == "" || sourceRowID == "" {
+		return []ValidationIssue{{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_required", Message: "请选择一个已连接的物料或商品规格作为规格主体"}}
+	}
+	var source Edge
+	for _, edge := range workflow.Edges {
+		if edge.Kind == EdgeData && edge.Target == node.ID && edge.TargetHandle == "components" && edge.Source == sourceNodeID {
+			source = edge
+			break
+		}
+	}
+	if source.ID == "" {
+		return []ValidationIssue{{NodeID: node.ID, Field: "main_input_source_node_id", Code: "main_input_not_connected", Message: "规格主体必须来自画布上已连接的候选来源"}}
+	}
+	sourceNode, exists := workflowNodeByID(workflow, sourceNodeID)
+	if !exists || (sourceNode.Kind == ModuleProduct && source.SourceHandle != "specs") {
+		return []ValidationIssue{{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_spec_required", Message: "商品只能选择已连接的具体商品规格作为规格主体"}}
+	}
+	if sourceNode.Kind != ModuleMaterial && sourceNode.Kind != ModuleProduct {
+		return []ValidationIssue{{NodeID: node.ID, Field: "main_input_source_node_id", Code: "main_input_type_invalid", Message: "规格主体只能选择物料或商品规格"}}
+	}
+	validRows := componentSourceRowIDs(workflow, inputs, sourceNodeID, source.SourceHandle)
+	if len(validRows) > 0 && !containsString(validRows, sourceRowID) {
+		return []ValidationIssue{{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_row_invalid", Message: "所选规格主体不属于该已连接来源"}}
+	}
+	return nil
+}
+
 func componentSourceRowIDs(workflow Workflow, inputs map[string]map[string]any, sourceNodeID, sourceHandle string) []string {
 	nodes := make(map[string]Node, len(workflow.Nodes))
 	for _, node := range workflow.Nodes {
@@ -969,12 +1027,21 @@ func componentSourceRowIDs(workflow Workflow, inputs map[string]map[string]any, 
 		if sourceHandle != "material" {
 			return nil
 		}
+		if stringValue(node.Config["data_role"]) == "output" {
+			return []string{"output"}
+		}
 		ids := make([]string, 0)
 		for _, row := range rowValues(inputs[sourceNodeID]["rows"]) {
 			ids = append(ids, stringValue(row["row_id"]))
 		}
 		return ids
 	case ModuleProduct:
+		if sourceHandle == "specs" && stringValue(node.Config["data_role"]) != "output" {
+			if specID := positiveNumber(inputs[sourceNodeID]["bom_spec_id"]); specID > 0 {
+				return []string{strconv.FormatInt(int64(specID), 10)}
+			}
+			return nil
+		}
 		if sourceHandle == "product" {
 			return []string{"product"}
 		}

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { reactive } from 'vue'
 
-import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, connectionRoleUpdates, replaceGraphEdge, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
+import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, connectionRoleUpdates, moduleForNode, replaceGraphEdge, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
 
 const modules = [
   { kind: 'product', name: '商品档案', inputs: [], outputs: [{ id: 'product', types: ['product.ref'] }], fields: [] },
@@ -72,6 +72,47 @@ test('V3 workflow serializes variable definitions and dynamic BOM recipe targets
   assert.ok(saved.edges.every((edge) => edge.target_handle === 'components'))
   assert.deepEqual(saved.variables, workflow.variables)
   assert.deepEqual(saved.nodes.find((node) => node.id === 'bom').config.name_parts, workflow.nodes.at(-1).config.name_parts)
+})
+
+test('V4 product BOM exposes every connected source as a main-input candidate and hides the separate route input', () => {
+  const workflow = {
+    version: 4,
+    nodes: [
+      { id: 'raw', kind: 'material', name: '原料', config: { data_role: 'input' } },
+      { id: 'semi', kind: 'material', name: '半成品', config: { data_role: 'input' } },
+      { id: 'bom', kind: 'bom', name: '成品包装 BOM', config: { output_type: 'product', spec_template_version_id: 91 } },
+      { id: 'product', kind: 'product', name: '成品', config: { data_role: 'output' } },
+    ],
+    edges: [
+      { id: 'raw-edge', source: 'raw', source_handle: 'material', target: 'bom', target_handle: 'components', kind: 'data' },
+      { id: 'semi-edge', source: 'semi', source_handle: 'material', target: 'bom', target_handle: 'components', kind: 'data' },
+      { id: 'output-edge', source: 'bom', source_handle: 'assembly', target: 'product', target_handle: 'from_bom', kind: 'data' },
+    ],
+  }
+  const canvas = toCanvasGraph(workflow, [
+    { kind: 'material', name: '物料', workflow_version: 4, inputs: [{ id: 'from_bom' }], outputs: [{ id: 'material', types: ['material.ref'] }] },
+    { kind: 'bom', name: 'BOM组装', workflow_version: 4, inputs: [{ id: 'components', label: '配方输入', types: ['material.ref', 'item.specs'], multiple: true }, { id: 'route', label: '工艺路线', types: ['process.route'] }], outputs: [{ id: 'assembly', types: ['bom.output'] }], fields: [{ key: 'variants' }, { key: 'route_id' }, { key: 'spec_template_version_id' }] },
+    { kind: 'product', name: '商品', workflow_version: 4, inputs: [{ id: 'from_bom' }], outputs: [{ id: 'product', types: ['product.ref'] }, { id: 'specs', types: ['item.specs'] }] },
+  ])
+  const bom = canvas.nodes.find((node) => node.id === 'bom')
+  assert.deepEqual(bom.data.recipeInputs.map((port) => port.label), ['原料 · 主体候选', '半成品 · 主体候选', '＋配方输入'])
+  assert.equal(bom.data.module.inputs.some((port) => port.id === 'route'), false)
+  assert.equal(bom.data.module.inputs.find((port) => port.id === 'components').label, '规格主体候选')
+  assert.equal(bom.data.module.fields.some((field) => field.key === 'variants' || field.key === 'route_id'), false)
+  const saved = toWorkflowGraph(canvas.nodes, canvas.edges, 4)
+  assert.ok(saved.edges.every((edge) => edge.target_handle === 'components' || edge.target_handle === 'from_bom'))
+})
+
+test('V4 specification-template selector is required for product BOMs and absent for material BOMs', () => {
+  const modules = [{
+    kind: 'bom', name: 'BOM组装', workflow_version: 4, inputs: [], outputs: [],
+    fields: [{ key: 'spec_template_version_id', required: false }, { key: 'output_qty', required: true }],
+  }]
+  const product = moduleForNode({ kind: 'bom', config: { output_type: 'product' } }, modules, 4)
+  const material = moduleForNode({ kind: 'bom', config: { output_type: 'material' } }, modules, 4)
+  assert.deepEqual(product.fields.find((field) => field.key === 'spec_template_version_id'), { key: 'spec_template_version_id', required: true })
+  assert.equal(material.fields.some((field) => field.key === 'spec_template_version_id'), false)
+  assert.equal(material.fields.some((field) => field.key === 'output_qty'), true)
 })
 
 test('replacing a connected Vue Flow edge always creates a saved-model snapshot with one stable edge', () => {

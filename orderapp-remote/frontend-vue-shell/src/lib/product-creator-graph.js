@@ -50,7 +50,8 @@ export function toCanvasGraph(workflow = { nodes: [], edges: [] }, modules = [])
         const source = nodes.find((item) => item.id === edge.source)
         const sourceName = source?.data.label || source?.data.module.name || '配方来源'
         const label = edge.sourceHandle === 'specs' ? `${sourceName} · 商品规格` : sourceName
-        return { id: edge.targetHandle, label, edgeId: edge.id }
+        const mainInputCandidate = version >= 4 && node.data.config?.output_type === 'product'
+        return { id: edge.targetHandle, label: `${label}${mainInputCandidate ? ' · 主体候选' : ''}`, edgeId: edge.id }
       })
       node.data.recipeInputs.push({ id: 'components:add', label: '＋配方输入', add: true })
     }
@@ -67,6 +68,14 @@ export function moduleForNode(node, modules = [], version = 1) {
     module.inputs = node.config?.data_role === 'output'
       ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }]
       : []
+  }
+  if (version >= 4 && node.kind === 'bom' && node.config?.output_type === 'product') {
+    module.inputs = (module.inputs || []).filter((port) => port.id !== 'route').map((port) => port.id === 'components' ? { ...port, label: '规格主体候选' } : port)
+    module.fields = (module.fields || [])
+      .filter((field) => !['output_qty', 'output_unit', 'route_id', 'material_loss_rate', 'variants'].includes(field.key))
+      .map((field) => field.key === 'spec_template_version_id' ? { ...field, required: true } : field)
+  } else if (version >= 4 && node.kind === 'bom') {
+    module.fields = (module.fields || []).filter((field) => field.key !== 'spec_template_version_id')
   }
   return module
 }

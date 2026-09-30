@@ -90,3 +90,41 @@ export function upgradeWorkflowToV3(workflow = {}) {
 
   return { ...cloneValue(workflow), version: 3, variables, nodes, edges }
 }
+
+// V4 moves product variants, packaging, process, and loss from the product
+// output BOM into a published BOM specification-template version. Preserve
+// any prior hand-maintained product-BOM setup in a visible migration snapshot
+// so the designer can require an explicit review before publishing.
+export function upgradeWorkflowToV4(workflow = {}) {
+  const sourceVersion = Number(workflow.version || 1)
+  if (sourceVersion >= 4) return cloneValue(workflow)
+  const source = upgradeWorkflowToV3(workflow)
+  const nodes = (source.nodes || []).map((node) => {
+    if (node.kind !== 'bom' || String(node.config?.output_type || '') !== 'product') return cloneValue(node)
+    const config = cloneValue(node.config || {})
+    const snapshot = {
+      variants: cloneValue(config.variants || []),
+      components: cloneValue(config.components || []),
+      output_qty: config.output_qty,
+      output_unit: config.output_unit,
+      route_id: config.route_id,
+      material_loss_rate: config.material_loss_rate,
+    }
+    const hasLegacySetup = snapshot.variants.length > 0 || snapshot.components.length > 0 ||
+      Number(snapshot.route_id || 0) > 0 || Number(snapshot.material_loss_rate || 0) > 0 ||
+      Number(snapshot.output_qty || 0) > 0 || Boolean(snapshot.output_unit)
+    delete config.variants
+    delete config.components
+    delete config.output_qty
+    delete config.output_unit
+    delete config.route_id
+    delete config.material_loss_rate
+    config.spec_template_version_id = 0
+    if (hasLegacySetup) {
+      config.legacy_spec_configuration = snapshot
+      config.legacy_spec_configuration_pending = true
+    }
+    return { ...node, config }
+  })
+  return { ...cloneValue(source), version: 4, nodes }
+}
