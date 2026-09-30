@@ -10,6 +10,11 @@ export function cloneValue(value) {
   return serialized === undefined ? serialized : JSON.parse(serialized)
 }
 
+export function initialRecipeInputs(kind, version) {
+  if (kind !== 'bom' || Number(version || 1) < 3) return []
+  return [{ id: 'components:add', label: '＋配方输入', add: true }]
+}
+
 export function appendGraphSnapshot(history, currentIndex, snapshot, limit = 60) {
   const current = history[currentIndex]
   if (current && JSON.stringify(current) === JSON.stringify(snapshot)) return { history, index: currentIndex }
