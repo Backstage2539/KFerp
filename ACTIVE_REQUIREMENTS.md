@@ -1,9 +1,9 @@
 # ACTIVE_REQUIREMENTS
 
 ### PR-676-PRODUCT-CREATOR-BOM-SPEC-TEMPLATE
-- Branch: `codex/product-creator-bom-spec-template-20260930`; base `origin/develop@c8f0f4021027c0d26aa6ade953d073d31a9bea7f`.
+- Implementation: PR #164 merged into `develop`; deployed integration head `892d99bc9284643f712271ae822a09793bdb0bdb` includes PR #164 and #165. Live acceptance evidence follow-up branch `codex/product-creator-v4-live-acceptance-20260930`, based on current `origin/develop`.
 - Owner/session: Codex / Van / 2026-09-30.
-- Status: red; implementation and development delivery in progress.
+- Status: implementation, automated verification, merge, development deployment and successful template-driven product creation complete; Van business acceptance pending.
 - Scope: V4 商品创建器将已发布 BOM 规格模板固定配置在商品产出 BOM；运行时从已连接物料/商品规格中选择规格主体，整组复制模板规格、包材、工艺及损耗。
 - DEV: DEV-707-PC-BOM-SPEC-TEMPLATE; DEV-708-PC-TEMPLATE-EXECUTION; DEV-709-PC-TEMPLATE-UI-DOCS-DELIVERY.
 - Verifier:
@@ -12,7 +12,8 @@
   - Frontend/build: product creator template selection/preview/runtime tests, Vue shell build, browser verification.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`.
   - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-09-30-product-creator-bom-spec-template.md`.
-- Deployment: pending.
+- Deployment: development `892d99bc9284643f712271ae822a09793bdb0bdb` deployed 2026-09-30; backup `/opt/stacks/erp/orderapp.backup.deploy-20260930143701-892d99bc9284`; development login HTTP 200, remote Go/Vue gates and health checks passed. Production and WeChat publication excluded.
+- Browser acceptance: template `PR-676 V4 商品规格模板验收-半成品到成品-20260930` published as V2; run #14 committed successfully. Created raw material `PC-MAT-1EE470478F767445`, semi-finished material `PC-MAT-985659443B0AC62C` with default BOM 49999, product 1099 with default BOM 50000/version 3320 and three BOM specs 420–422. Operation log records configuration commit, BOM publication and defaults. Van acceptance pending.
 - Last update: 2026-09-30.
 - Notes: existing V1–V3 workflows and published versions retain their behavior; Van business acceptance remains pending after development deployment.
 
