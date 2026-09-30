@@ -6,7 +6,7 @@
 - 规格主体从该 BOM 已连接的物料或商品规格候选中选择。商品来源必须选择具体有效规格；不把未选候选自动加入配方。规格模板的整组规格、包材、主体用量、工艺、损耗和默认规格只读沿用。
 - 模板版本固定，发布新版本不改变既有模板或运行。旧 V1–V3 已发布版本和运行保持原语义；编辑生成 V4 草稿，并保留冲突的旧手工 BOM 配置，需人工核对后才能发布。
 - 配置提交沿用 ERP 规格模板建 BOM 逻辑，在同一事务内建立/发布 BOM、生成商品规格并为新建对象设置默认 BOM；已有对象的默认绑定不自动覆盖。模板保存、草稿和预览不创建正式业务数据。
-- DEV-707-PC-BOM-SPEC-TEMPLATE / DEV-708-PC-TEMPLATE-EXECUTION / DEV-709-PC-TEMPLATE-UI-DOCS-DELIVERY。验收证据见 `docs/acceptance/2026-09-30-product-creator-bom-spec-template.md`；Van 业务验收待办。
+- DEV-707-PC-BOM-SPEC-TEMPLATE / DEV-708-PC-TEMPLATE-EXECUTION / DEV-709-PC-TEMPLATE-UI-DOCS-DELIVERY 已完成；PR #164 已合入 `develop` 并部署 development。两级 BOM 创建商品及三种 BOM 规格的浏览器证据见 `docs/acceptance/2026-09-30-product-creator-bom-spec-template.md`；Van 业务验收待办。
 
 ## PR-675 商品创建器：模板命名变量、多物料 BOM 与表单优化
 

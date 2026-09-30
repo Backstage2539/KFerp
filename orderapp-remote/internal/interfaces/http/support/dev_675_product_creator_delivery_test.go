@@ -34,10 +34,10 @@ func TestProductCreatorV4SpecTemplateDeliveryRequirementSeeds(t *testing.T) {
 		code   string
 		status string
 	}{
-		{table: "req_product", code: "PR-676-PRODUCT-CREATOR-BOM-SPEC-TEMPLATE", status: "doing"},
-		{table: "req_dev", code: "DEV-707-PC-BOM-SPEC-TEMPLATE", status: "doing"},
-		{table: "req_dev", code: "DEV-708-PC-TEMPLATE-EXECUTION", status: "doing"},
-		{table: "req_dev", code: "DEV-709-PC-TEMPLATE-UI-DOCS-DELIVERY", status: "doing"},
+		{table: "req_product", code: "PR-676-PRODUCT-CREATOR-BOM-SPEC-TEMPLATE", status: "review"},
+		{table: "req_dev", code: "DEV-707-PC-BOM-SPEC-TEMPLATE", status: "done"},
+		{table: "req_dev", code: "DEV-708-PC-TEMPLATE-EXECUTION", status: "done"},
+		{table: "req_dev", code: "DEV-709-PC-TEMPLATE-UI-DOCS-DELIVERY", status: "done"},
 	} {
 		pattern := regexp.MustCompile(`(?m)^[\t ]*\{table: "` + regexp.QuoteMeta(row.table) + `"[^\n]*code: "` + regexp.QuoteMeta(row.code) + `"[^\n]*status: "` + regexp.QuoteMeta(row.status) + `"[^\n]*\},[\t ]*$`)
 		if !pattern.MatchString(reqStore) {
