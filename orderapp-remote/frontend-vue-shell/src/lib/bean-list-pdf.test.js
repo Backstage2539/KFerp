@@ -10,6 +10,7 @@ import {
   beanListPublicationPdfOptions,
   copyBeanListPublicationContentGroups,
   copyBeanListPublicationConfig,
+  groupBeanListProductAttributeLines,
   defaultBeanListDraftVersion,
   filterBeanListItemsForScope,
   formatBeanListPrice,
@@ -28,6 +29,17 @@ test('bean-list prices keep integers compact and show decimal prices to two plac
   assert.equal(formatBeanListPrice(38.2), '38.20')
   assert.equal(formatBeanListPrice(38.256), '38.26')
   assert.equal(formatBeanListPrice('4.00'), '4')
+})
+
+test('industry attributes group within a frozen template identity and keep legacy rows separate', () => {
+  assert.deepEqual(groupBeanListProductAttributeLines([
+    { key: 'roast', label: '烘焙度', value: '中深烘', template_id: 11, template_position: 1, position: 1 },
+    { key: 'origin', label: '产地', value: '云南', template_id: 11, template_position: 1, position: 2 },
+    { key: 'pack', label: '包装', value: '250g', template_id: 12, template_position: 2, position: 1 },
+    { key: 'old_a', label: '历史甲', value: '甲' },
+    { key: 'old_b', label: '历史乙', value: '乙' },
+    { key: 'empty', label: '空值', value: ' ' },
+  ]), ['烘焙度：中深烘；产地：云南', '包装：250g', '历史甲：甲', '历史乙：乙'])
 })
 
 const rows = [
@@ -355,6 +367,20 @@ test('price-list snapshot preserves a fixed-price tier inside a mixed tier templ
   assert.equal(row.tier_pricing_mode, 'fixed_price')
   assert.equal(row.fixed_unit_price, 58)
   assert.equal(row.pricing_rule_id, 0)
+})
+
+test('price-list snapshot preserves the frozen-final-price marker on copied published rows', () => {
+  const snapshot = buildPriceListGenerationSnapshot({ rows: [{
+    product_id: 941,
+    tier_label: 'C',
+    min_qty: 24,
+    final_unit_price: 83,
+    original_final_unit_price: 80,
+    frozen_final_price: true,
+  }] })
+
+  assert.equal(snapshot.content.price_rows[0].final_unit_price, 83)
+  assert.equal(snapshot.content.price_rows[0].frozen_final_price, true)
 })
 
 test('PDF bean-list helper builds a green bean list from template tiers and quality data', () => {

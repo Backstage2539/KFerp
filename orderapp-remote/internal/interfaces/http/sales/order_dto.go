@@ -68,6 +68,8 @@ type CreateOrderRequest struct {
 	ItemBeanListVersionNo              []string `form:"item_bean_list_version_no[]"`
 	PriceSourceJSON                    []string `form:"price_source_json[]"`
 	TierID                             []string `form:"tier_id[]"`
+	PriceSelectionMode                 []string `form:"price_selection_mode[]"`
+	SelectedPriceRowKey                []string `form:"selected_price_row_key[]"`
 	UnitPrice                          []string `form:"unit_price[]"`
 	ItemName                           []string `form:"item_name[]"`
 	ItemNote                           []string `form:"item_note[]"`

@@ -8,6 +8,7 @@ const (
 	ProductKindGreenBean     = "green_bean"
 	ProductKindDripBag       = "drip_bag"
 	ProductKindInstantCoffee = "instant_coffee"
+	ProductKindGeneric       = "generic"
 )
 
 func NormalizeProductKind(value string) string {
@@ -20,6 +21,8 @@ func NormalizeProductKind(value string) string {
 		return ProductKindGreenBean
 	case ProductKindRoasted, "roasted_bean", "熟豆":
 		return ProductKindRoasted
+	case ProductKindGeneric, "manufactured", "assembly", "装配", "通用商品":
+		return ProductKindGeneric
 	default:
 		return ProductKindRoasted
 	}
@@ -33,6 +36,8 @@ func ProductKindLabel(value string) string {
 		return "速溶咖啡"
 	case ProductKindGreenBean:
 		return "生豆"
+	case ProductKindGeneric:
+		return "通用商品"
 	default:
 		return "熟豆"
 	}

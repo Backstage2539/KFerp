@@ -1,5 +1,54 @@
 # ACTIVE_REQUIREMENTS
 
+### PR-675-PRODUCT-CREATOR-VARIABLES-INPUTS
+- Integration: follow-up PRs #159 and #160; final development commit `7ebfbe2a154c6ecd3045f0efd0e041d5d5accef9`.
+- Owner/session: Codex / Van / 2026-09-29.
+- Status: implementation, automated verification, development deployment, and template-driven product creation complete; Van business acceptance pending.
+- Scope: template-scoped naming variables, editable runtime defaults, dynamic multiple BOM recipe inputs, neutral unclassified objects, and responsive/consistent creator forms.
+- DEV: DEV-675-PC-GRAPH-V3; DEV-675-PC-NAME-VARIABLES; DEV-675-PC-BOM-INPUTS; DEV-675-PC-RUN-UX; DEV-675-PC-DOCS-DELIVERY.
+- Verifier: RED/GREEN Go application/repository/API and Vue graph/variable tests; PostgreSQL persistence tests; 1,281 Vue shell tests; Vite build; full development deployment gates; browser template run, product/material archive and operation-log checks. The specified 1440/1024/768 viewport sweep remains for acceptance.
+- Manuals: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`.
+- Deployment: development `7ebfbe2a154c6ecd3045f0efd0e041d5d5accef9` from PR #160 deployed 2026-09-30; production and WeChat publication excluded.
+- Example: template #3 V1, `商品创建器V3验收模板-变量多物料-20260930`; run #12 created product 1097 / SKU-001097, materials PC-MAT-CBA341FD5EE2C51A, PC-MAT-E809A09BADB913E9, PC-MAT-10D47433BE655671, and published BOMs 49660/49661. Business acceptance remains with Van.
+- Last update: 2026-09-30.
+
+### PR-674-PRICE-TABLE-EDITOR-TABS
+- Branch: `codex/price-table-tabs-20260929`; base `origin/develop@7d12711d`.
+- Owner/session: Codex / Van / 2026-09-29.
+- Status: implementation, automated verification, browser check and development deployment complete; Van business acceptance pending.
+- Scope: replace the current named price table selector with keyboard accessible horizontal tabs, keep the configuration action pinned at the right, and move table count/version/copy details below the tabs.
+- DEV: DEV-674-NAMED-TABLE-TABS; DEV-674-DOCS-DELIVERY.
+- Verifier: frontend RED/GREEN and 96 focused Node tests; focused costing/sales/support Go API regression; Vue build and `verify_kferp.sh changed`; full remote Node/Vue, miniapp, TypeScript, Go and binary gates during development deploy. Desktop/390px browser checks, single/multi-table state, fixed config action and draft restoration verified.
+- Manuals: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-09-29-price-table-editor-tabs.md`.
+- Deployment: development `c53fe2ee7b29498d74246c8f20b615de13cea17b` deployed 2026-09-29; backup `/opt/stacks/erp/orderapp.backup.deploy-20260929233908-c53fe2ee7b29`; login HTTP 200. Production and WeChat upload/publication excluded.
+- Acceptance: browser keyboard ArrowLeft/ArrowRight and independent table draft restoration verified; Home/End and publish-in-progress disabled state remain for Van’s acceptance. Development business acceptance pending.
+- Last update: 2026-09-30.
+
+### PR-672-PRODUCT-CREATOR-WORKFLOW
+- Branch: `codex/product-creator-workflow`; base `origin/develop@b2a7729a`.
+- Owner/session: Codex / Van / 2026-09-27.
+- Status: implementation, automated verification and development deployment complete; Van product acceptance pending.
+- Scope: versioned reusable business templates, typed Vue Flow designer, generated run form, validation/preview, safe business configuration commit, and separately resumable purchase/receipt/pricing steps.
+- DEV: DEV-672-PC-GRAPH; DEV-672-PC-TEMPLATE-RUN; DEV-672-PC-CONFIG-EXECUTION; DEV-672-PC-TRADE-STEPS; DEV-672-PC-UI-DOCS-DELIVERY.
+- Verifier: Go application/repository/API RED/GREEN and PostgreSQL transaction/idempotence tests; Vue unit tests and build; browser canvas/run flow; three business acceptance paths and failure recovery.
+- Manuals: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`.
+- Deployment: development `fff9e9534cf2ff2526255b168dbfb67c4463fd43` (PR #146/#147); orderapp running, PostgreSQL healthy, login HTTP 200; production not authorized.
+- Evidence: `orderapp-remote/docs/acceptance/2026-09-27-product-creator-workflow.md`; Van still needs the three business-template acceptance paths and remaining browser/recovery checks.
+- Last update: 2026-09-29.
+
+### PR-671-PRICE-TABLE-COPY-TIER-CHOICE
+- Branch: `codex/price-table-copy-tier-choice-20260924`; PR #141; feature commit `e6bec3ba`; merged to `develop` as `b4f5ad6b1693480c5c7735eb2d4e528a3f253a9f`. Deployment status PR #142; post-deployment evidence updates PR #143/#144.
+- Owner/session: Codex / Van / 2026-09-24.
+- Status: implementation, automated verification, and development deployment complete; awaiting Van business acceptance.
+- Scope: product archive-owner display; grouped industry fields across Vue/share/PDF snapshots; full published price-table copy filtered by current customer product/spec identities; employee auto/manual published-tier selection in ERP and miniapp, preserving customer self-order auto-pricing.
+- DEV: DEV-671-01-PRICE-TABLE-COPY; DEV-671-02-PUBLISHED-TIER-VALIDATION; DEV-671-03-ERP-TIER-SELECTION; DEV-671-04-MINIAPP-TIER-SELECTION; DEV-671-05-INDUSTRY-SNAPSHOT-PDF; DEV-671-06-DOCS-DELIVERY.
+- Verifier: targeted RED/GREEN Go/API/Vue/miniapp tests; affected Go packages; Vue and miniapp typecheck/build; snapshot/PDF tests; relevant full gates and development acceptance.
+- Manuals: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`, `OP_MANUAL_COSTING.md`, `OP_MANUAL_ORDER_SALES.md`, `OP_MANUAL_CUSTOMER_PORTAL.md`.
+- Deployment: final development source `f50d51e492a5c2587cf04f84910d5e8ec1e319d1` deployed 2026-09-24 03:23 Asia/Shanghai; previous source `/opt/stacks/erp/orderapp.backup.deploy-20260924031554-f50d51e492a5`; rollback image `kferp-orderapp-rollback:development-20260924031554-f50d51e492a5`.
+- Runtime evidence: `erp_orderapp` and `erp_docconvert` running, PostgreSQL healthy; development login HTTP 200; authenticated Vue shell and product/development requirement APIs HTTP 200; PR-671 is `review`, DEV-671-01 through DEV-671-06 are `done`.
+- Miniapp: development artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; previous artifact retained at `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260924032319-f50d51e492a5`. Production deployment and WeChat upload/review/publication excluded.
+- Last update: 2026-09-24.
+
 ### PR-668-PR667-COMPLETE-UI-FLOW
 - Branch: `codex/pr667-complete-ui-flow-20260916`; baseline `origin/develop@8584038f`.
 - Owner/session: Codex / Van / 2026-09-16.
@@ -52,6 +101,17 @@ Purpose: short-lived coordination for Codex workflows. Keep active requirement i
 This is not long-term memory. Move durable product/deployment decisions to `MEMORY.md` or source docs, then remove stale entries from this file.
 
 ## Active
+
+### PR-673-PRODUCT-CREATOR-BOM-TEMPLATE
+- Branch: `codex/product-creator-bom-template-20260928`; base `origin/develop@26150f1b`.
+- Owner/session: Codex / Van / 2026-09-29.
+- Status: implementation and automated verification in progress; development delivery authorized; Van acceptance pending.
+- Scope: simplify module catalog to material/product/process data and BOM assembly/purchase actions; support BOM-centric generated outputs and configurable defaults while keeping material single-spec and product BOM multi-spec; hide conditions/pricing in new templates and preserve legacy runs.
+- DEV: DEV-703-PC-GRAPH-CONTRACT; DEV-704-PC-BOM-EXECUTION; DEV-705-PC-RUN-UI; DEV-706-PC-DOCS-DELIVERY.
+- Verifier: targeted Go application/repository/API and PostgreSQL transaction tests; Vue graph/API/form tests and build; development browser creation of a two-BOM, two-route product workflow.
+- Manuals: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`.
+- Deployment: authorized to merge to `develop` and deploy development; production not authorized.
+- Last update: 2026-09-29.
 
 ### PR-662-BEAN-LIST-PERFORMANCE
 - Branch: `codex/bean-list-performance-20260914`; base `origin/develop@6ad5b11a`.

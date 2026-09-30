@@ -56,11 +56,12 @@ export function applyCustomerPriceRows(generated = [], seeds = [], overrides = {
   for (const [key,currentRows] of base) {
     const current = currentRows[currentRows.length - 1]
     const sources=seeds.filter(r => identity(r)===key)
-    if (usesConfiguredPricing(current, sources, options)) {
+    const frozenSources = sources.filter(r => r.frozen_final_price === true)
+    if (usesConfiguredPricing(current, sources, options) && frozenSources.length === 0) {
       out.push(...currentRows.map(row => ({ ...row, product_name: row.customer_reference_snapshot?.customer_display_name || row.product_name })))
       continue
     }
-    const candidates=sources.length?sources:[{...current,final_unit_price:0,customer_quote_missing:true}]
+    const candidates=frozenSources.length ? frozenSources : sources.length?sources:[{...current,final_unit_price:0,customer_quote_missing:true}]
     for (const source of candidates) {
       const rowKey=source.row_key||current.row_key
       const edited=Number(overrides[rowKey])

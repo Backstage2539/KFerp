@@ -14,7 +14,7 @@ test('PR-667 ERP delivery keeps product, demand, work-order and receipt trace sc
   const receipt = read('../views/StockEntriesView.vue')
   const customer = read('../views/CustomerProcessingPortalView.vue')
 
-  for (const label of ['客户归属', '是否代加工商品', '默认已发布 BOM · 配方与工艺', '工艺路线', '目标客户成品仓', '客户别名与代发价格表']) {
+  for (const label of ['档案归属', '是否代加工商品', '默认已发布 BOM · 配方与工艺', '工艺路线', '目标客户成品仓', '客户别名与代发价格表']) {
     assert.match(product, new RegExp(label))
   }
   assert.match(product, /customer-order-price-table-bindings\?customer_id=/)

@@ -37,6 +37,7 @@ import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import {
   buildEmployeeOrderItemsPayload,
   applyEmployeeOrderQuantityChange,
+  chooseEmployeeOrderPriceTier,
   createEmployeeOrderItem,
   customerProductFamilies,
   customerShippingDefaults,
@@ -57,6 +58,7 @@ import {
   productSpecLabel,
   preserveEmployeeOrderDraftItemsForMissingCustomer,
   revalidateEmployeeOrderItems,
+  restoreEmployeeOrderAutomaticPrice,
   salesUnitLabel,
   shanghaiToday,
   type EmployeeOrderShippingSnapshot,
@@ -213,6 +215,43 @@ function selectedSpecIndexForItem(item: EmployeeOrderDraftItem): number {
   ) ?? 0)
 }
 
+function priceTierChoicesForItem(item: EmployeeOrderDraftItem) {
+  const family = familyForItem(item)
+  const spec = family?.specs.find((candidate) => item.migration_state === 'cutover'
+    ? Number(candidate.bom_spec_id || 0) === Number(item.bom_spec_id || 0)
+    : Number(candidate.product_id || candidate.sku_id) === Number(item.product_id))
+  return (spec?.tiers || []).filter((tier) => String(tier.price_row_key || '').trim() && Number(tier.unit_price || tier.price || 0) > 0)
+}
+
+function priceTierLabel(tier: NonNullable<EmployeeOrderProductSpec['tiers']>[number]): string {
+  const minimum = Number(tier.min_qty ?? tier.min ?? 0)
+  const maximum = Number(tier.max_qty ?? tier.max ?? 0)
+  const range = maximum > 0 ? `${minimum}–${maximum}` : `${minimum}+`
+  const label = String((tier as typeof tier & { tier_label?: string }).tier_label || '').trim() || '价格档'
+  return `${label}（${range}，¥${Number(tier.unit_price || tier.price || 0).toFixed(2)}）`
+}
+
+function priceTierPickerLabels(item: EmployeeOrderDraftItem): string[] {
+  const automatic = item.price_selection_mode === 'tier' || item.price_selection_mode === 'manual'
+    ? `恢复自动匹配（${Number(item.unit_price || 0).toFixed(2)}）`
+    : `按数量自动匹配（${Number(item.unit_price || 0).toFixed(2)}）`
+  return [automatic, ...priceTierChoicesForItem(item).map(priceTierLabel)]
+}
+
+function selectedPriceTierIndex(item: EmployeeOrderDraftItem): number {
+  if (item.price_selection_mode !== 'tier') return 0
+  return priceTierChoicesForItem(item).findIndex((tier) => tier.price_row_key === item.selected_price_row_key) + 1
+}
+
+function choosePriceTier(item: EmployeeOrderDraftItem, event: unknown) {
+  const index = Number(employeeOrderInputValue(event) || 0)
+  const tiers = priceTierChoicesForItem(item)
+  const next = index <= 0
+    ? restoreEmployeeOrderAutomaticPrice(item, familyForItem(item))
+    : chooseEmployeeOrderPriceTier(item, familyForItem(item), String(tiers[index - 1]?.price_row_key || ''))
+  Object.assign(item, next)
+}
+
 function displayedSalesUnit(item: EmployeeOrderDraftItem): string {
   return salesUnitLabel(item.sales_unit)
 }
@@ -312,7 +351,7 @@ async function changeNamedPriceTable(group: PriceTableGroup, event: { detail: { 
   form.value.selected_price_table_ids = replaceSelectedPriceTable(form.value.selected_price_table_ids || [], group, table.id)
   const loaded = await loadCustomerProductCatalog(Number(form.value.customer_id))
   if (!loaded) return
-  form.value.items = revalidateEmployeeOrderItems(form.value.items, formData.value?.product_families || [], Number(form.value.customer_id), { preserveUnavailable: true })
+  form.value.items = revalidateEmployeeOrderItems(form.value.items, formData.value?.product_families || [], Number(form.value.customer_id), { preserveUnavailable: true, clearPriceSelection: true })
   quantityInputs.value = {}
 }
 
@@ -485,6 +524,8 @@ function applySpec(family: EmployeeOrderProductFamily, spec: EmployeeOrderProduc
 function markPriceOverride(item: EmployeeOrderDraftItem, event: unknown) {
   item.unit_price = Number(employeeOrderInputValue(event) || 0)
   item.price_override = true
+  item.price_selection_mode = 'manual'
+  item.selected_price_row_key = ''
   item.discount_amount = employeeOrderItemDiscountAmount(item)
 }
 
@@ -988,11 +1029,18 @@ onShow(() => { void refreshMiniappShareMenu() })
           <text class="unit-suffix">{{ displayedSalesUnit(item) }}</text>
         </view>
 
+        <view v-if="priceTierChoicesForItem(item).length" class="tier-choice-row">
+          <text class="label">计价档位</text>
+          <picker mode="selector" :range="priceTierPickerLabels(item)" :value="selectedPriceTierIndex(item)" @change="choosePriceTier(item, $event)">
+            <view class="field selector-field"><text>{{ priceTierPickerLabels(item)[selectedPriceTierIndex(item)] || '按数量自动匹配' }}</text><text class="chevron">›</text></view>
+          </picker>
+        </view>
         <text class="label">销售单价（元/{{ displayedSalesUnit(item) }}）*</text>
         <view class="input-with-unit">
           <input :value="unitPriceInputValue(item)" type="digit" class="field" :disabled="hasPendingQuantity(item) || Number(item.qty) <= 0" :placeholder="Number(item.qty) > 0 && !hasPendingQuantity(item) ? `填写每${displayedSalesUnit(item)}单价` : '先填写数量后自动匹配'" @input="markPriceOverride(item, $event)" />
           <text class="unit-suffix">元/{{ displayedSalesUnit(item) }}</text>
         </view>
+        <text class="price-mode-note">{{ item.price_selection_mode === 'tier' ? '手动选档；数量变化时仍使用所选档价' : item.price_selection_mode === 'manual' || item.price_override ? '手动输入单价' : '按数量自动匹配' }}</text>
       </view>
 
       <button class="add-item add-item-after-list" @tap="addItem">新增商品</button>

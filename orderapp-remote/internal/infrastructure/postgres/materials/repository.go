@@ -106,7 +106,7 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 }
 
 func (r Repository) List(ctx context.Context, cmd materialsapp.ListCommand) ([]materialsapp.Material, error) {
-	rows, err := listMaterialsForCustomer(ctx, r.pool, r.schema, cmd.Query, cmd.Active, cmd.Limit, cmd.IncludeDeprecated, cmd.OwnerType, cmd.CustomerID)
+	rows, err := listMaterialsForCustomer(ctx, r.pool, r.schema, cmd.Query, cmd.Active, cmd.Limit, cmd.Offset, cmd.IncludeDeprecated, cmd.OwnerType, cmd.CustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -170,12 +170,15 @@ func (r Repository) AssignClassification(ctx context.Context, cmd materialsapp.A
 }
 
 func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active string, limit int, includeDeprecated bool) ([]materialRow, error) {
-	return listMaterialsForCustomer(ctx, pool, schema, q, active, limit, includeDeprecated, "", 0)
+	return listMaterialsForCustomer(ctx, pool, schema, q, active, limit, 0, includeDeprecated, "", 0)
 }
 
-func listMaterialsForCustomer(ctx context.Context, pool *pgxpool.Pool, schema, q, active string, limit int, includeDeprecated bool, ownerType string, customerID int64) ([]materialRow, error) {
+func listMaterialsForCustomer(ctx context.Context, pool *pgxpool.Pool, schema, q, active string, limit, offset int, includeDeprecated bool, ownerType string, customerID int64) ([]materialRow, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	whereParts := []string{}
 	args := []any{}
@@ -193,7 +196,11 @@ func listMaterialsForCustomer(ctx context.Context, pool *pgxpool.Pool, schema, q
 		whereParts = append(whereParts, "m.deprecated_at IS NULL")
 	}
 	if s := strings.TrimSpace(q); s != "" {
-		whereParts = append(whereParts, fmt.Sprintf("(m.name ILIKE $%d OR m.code ILIKE $%d OR m.batch_no ILIKE $%d)", argn, argn, argn))
+		whereParts = append(whereParts, fmt.Sprintf(`(
+			m.name ILIKE $%[1]d OR m.code ILIKE $%[1]d OR m.batch_no ILIKE $%[1]d
+			OR EXISTS (SELECT 1 FROM %[2]s.material_bean_profiles bp WHERE bp.material_id=m.id AND concat_ws(' ',bp.origin,bp.processing_station,bp.variety,bp.process_method,bp.grade,bp.altitude,bp.flavor) ILIKE $%[1]d)
+			OR EXISTS (SELECT 1 FROM %[2]s.material_pack_profiles pp WHERE pp.material_id=m.id AND concat_ws(' ',pp.size_spec,pp.dimensions,pp.material_texture,pp.capacity,pp.color) ILIKE $%[1]d)
+		)`, argn, schema))
 		args = append(args, "%"+s+"%")
 		argn++
 	}
@@ -210,6 +217,8 @@ func listMaterialsForCustomer(ctx context.Context, pool *pgxpool.Pool, schema, q
 	}
 	args = append(args, limit)
 	limitArg := argn
+	args = append(args, offset)
+	offsetArg := argn + 1
 
 	canManufactureSQL, err := materialCanManufactureSQL(ctx, pool, schema)
 	if err != nil {
@@ -239,8 +248,8 @@ func listMaterialsForCustomer(ctx context.Context, pool *pgxpool.Pool, schema, q
 		LEFT JOIN %s.material_classification_group_categories gc ON gc.id = a.category_id
 		%s
 		ORDER BY COALESCE(g.sort_order,999999), COALESCE(gc.sort_order,999999), m.name, m.id DESC
-		LIMIT $%d
-	`, canManufactureSQL, schema, schema, schema, schema, schema, schema, where, limitArg)
+		LIMIT $%d OFFSET $%d
+	`, canManufactureSQL, schema, schema, schema, schema, schema, schema, where, limitArg, offsetArg)
 	rows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
@@ -547,16 +556,20 @@ func createMaterialInlineWithOwner(ctx context.Context, pool *pgxpool.Pool, sche
 	if err != nil {
 		return materialRow{}, err
 	}
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return materialRow{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	var conn *pgxpool.Conn
+	if !inheritedTx {
+		conn, err = pool.Acquire(ctx)
+		if err != nil {
+			return materialRow{}, err
+		}
+		defer conn.Release()
+		tx, err = conn.Begin(ctx)
+		if err != nil {
+			return materialRow{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return materialRow{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if err := validateMaterialInventoryUnitDefinitionTx(ctx, tx, schema, next.Unit); err != nil {
 		return materialRow{}, err
 	}
@@ -602,6 +615,9 @@ func createMaterialInlineWithOwner(ctx context.Context, pool *pgxpool.Pool, sche
 		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "material", &id, "copy", postgresinfra.StrPtr("copied_from_material_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", copiedFromMaterialID)), postgresinfra.StrPtr(fmt.Sprintf("%d", id)), postgresinfra.AuditMeta{"source_material_id": copiedFromMaterialID, "target_material_id": id, "owner_customer_id": ownerCustomerID, "inventory_copied": false, "bom_copied": false}); err != nil {
 			return materialRow{}, err
 		}
+	}
+	if inheritedTx {
+		return materialRow{ID: id, Code: next.Code, Name: next.Name, Kind: next.Kind, IsSemiFinished: next.IsSemiFinished, SupplyMode: next.SupplyMode, Unit: next.Unit, CostUnit: next.CostUnit, OwnerCustomerID: ownerCustomerID}, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return materialRow{}, err

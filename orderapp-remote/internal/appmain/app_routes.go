@@ -15,6 +15,7 @@ import (
 	manufacturingapp "orderapp/internal/application/manufacturing"
 	materialsapp "orderapp/internal/application/materials"
 	messagecenterapp "orderapp/internal/application/messagecenter"
+	productcreatorapp "orderapp/internal/application/productcreator"
 	productionapp "orderapp/internal/application/production"
 	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	purchaseapp "orderapp/internal/application/purchase"
@@ -35,6 +36,7 @@ import (
 	postgresmanufacturing "orderapp/internal/infrastructure/postgres/manufacturing"
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	postgresmessagecenter "orderapp/internal/infrastructure/postgres/messagecenter"
+	postgresproductcreator "orderapp/internal/infrastructure/postgres/productcreator"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgresproductspecmigration "orderapp/internal/infrastructure/postgres/productspecmigration"
 	postgrespurchase "orderapp/internal/infrastructure/postgres/purchase"
@@ -53,6 +55,7 @@ import (
 	manufacturinghttp "orderapp/internal/interfaces/http/manufacturing"
 	materialshttp "orderapp/internal/interfaces/http/materials"
 	messagecenterhttp "orderapp/internal/interfaces/http/messagecenter"
+	productcreatorhttp "orderapp/internal/interfaces/http/productcreator"
 	productionhttp "orderapp/internal/interfaces/http/production"
 	productspecmigrationhttp "orderapp/internal/interfaces/http/productspecmigration"
 	purchasehttp "orderapp/internal/interfaces/http/purchase"
@@ -90,6 +93,10 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	productSpecMigrationSvc := productspecmigrationapp.NewService(postgresproductspecmigration.NewRepository(pool, schema))
 	stockSvc := stockapp.NewService(postgresstock.NewRepository(pool, schema))
 	purchaseSvc := purchaseapp.NewService(postgrespurchase.NewRepository(pool, schema), stockSvc)
+	productCreatorSvc := productcreatorapp.NewService(postgresproductcreator.NewRepository(pool, schema))
+	productCreatorExecutor := postgresproductcreator.NewBusinessExecutor(schema, catalogSvc, materialsSvc, bomSvc, purchaseSvc, costingSvc)
+	productCreatorSvc.UseConfigurationExecutor(productCreatorExecutor)
+	productCreatorSvc.UseRunStepExecutor(productCreatorExecutor)
 	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema, postgressales.WithSalesOrderAssetDir(assetDir)))
 	customerFulfillmentSvc.UseSalesOrderService(salesSvc)
 
@@ -108,6 +115,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	stockhttp.RegisterRoutes(e, stockhttp.Dependencies{Stock: stockSvc})
 	purchasehttp.RegisterRoutes(e, purchasehttp.Dependencies{Purchase: purchaseSvc})
 	productionhttp.RegisterRoutes(e, productionhttp.Dependencies{Production: productionSvc, Stock: stockSvc, MessageCenter: messageCenterSvc})
+	productcreatorhttp.RegisterRoutes(e, productcreatorhttp.Dependencies{Creator: productCreatorSvc, Authz: authzSvc})
 	productspecmigrationhttp.RegisterRoutes(e, productspecmigrationhttp.Dependencies{Migration: productSpecMigrationSvc})
 	companyhttp.RegisterRoutes(e, companyhttp.Dependencies{Company: companySvc})
 	contractshttp.RegisterRoutes(e, contractshttp.Dependencies{Contracts: contractsSvc})

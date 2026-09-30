@@ -31,6 +31,11 @@ func TestCustomerOrderPolicy(t *testing.T) {
 			p := 1.0
 			c.Items[0].ManualPrice = &p
 		},
+		func(c *SaveOrderCommand) {
+			c.Items = append([]OrderItemCommand{}, c.Items...)
+			c.Items[0].PriceSelectionMode = "tier"
+			c.Items[0].SelectedPriceRowKey = "published-row"
+		},
 	} {
 		c := base
 		change(&c)

@@ -952,7 +952,7 @@ func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossOnlyToRatioMaterials
 			QtyPerUnit:    1,
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "consume_unit must match component inventory_unit") {
+	if err == nil || !strings.Contains(err.Error(), `consume_unit "盒" must match component inventory_unit "个"`) {
 		t.Fatalf("mismatched packaging unit must be rejected, got %v", err)
 	}
 

@@ -488,16 +488,25 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 	}
 	name := strings.TrimSpace(cmd.Name)
 
-	conn, err := r.pool.Acquire(ctx)
-	if err != nil {
-		return catalogapp.Product{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	ownsTx := false
+	var conn *pgxpool.Conn
+	var err error
+	if !inheritedTx {
+		conn, err = r.pool.Acquire(ctx)
+		if err != nil {
+			return catalogapp.Product{}, err
+		}
+		defer conn.Release()
+		tx, err = conn.Begin(ctx)
+		if err != nil {
+			return catalogapp.Product{}, err
+		}
+		ownsTx = true
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return catalogapp.Product{}, err
+	if ownsTx {
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if cmd.CustomerID > 0 {
 		var customerExists bool
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
@@ -572,6 +581,9 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		"unit_template_id":        cmd.UnitTemplateID,
 	}); err != nil {
 		return catalogapp.Product{}, err
+	}
+	if _, inherited := postgresinfra.TransactionFromContext(ctx); inherited {
+		return catalogapp.Product{ID: productID, Name: name, Remark: cmd.Remark, ProductKind: productKind, CustomerID: cmd.CustomerID, Active: true}, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.Product{}, err

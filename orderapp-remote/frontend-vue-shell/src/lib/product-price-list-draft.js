@@ -224,6 +224,7 @@ export function normalizePriceListGenerationDraft(draft = {}) {
   if (draft.price_list_display_order) normalized.price_list_display_order = cloneDraft(draft.price_list_display_order)
   if (Array.isArray(draft.customerPriceSeedRows)) normalized.customerPriceSeedRows = cloneDraft(draft.customerPriceSeedRows)
   if (draft.customerPriceConfiguredSources) normalized.customerPriceConfiguredSources = cloneDraft(draft.customerPriceConfiguredSources)
+  if (Object.prototype.hasOwnProperty.call(draft, 'customerPriceCopyFrozen')) normalized.customerPriceCopyFrozen = draft.customerPriceCopyFrozen === true
   if (Object.prototype.hasOwnProperty.call(draft, 'product_spec_selections') || Object.prototype.hasOwnProperty.call(draft, 'productSpecSelections')) {
     normalized.product_spec_selections = cloneDraft(draft.product_spec_selections ?? draft.productSpecSelections ?? []) || []
   }

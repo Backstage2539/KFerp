@@ -91,24 +91,43 @@ func beanListPublicationPDFAttributeLines(item map[string]any) []string {
 	if len(lines) > 0 {
 		return lines
 	}
-	for _, attr := range publicMapsFromAny(item["productAttributes"]) {
-		label := mapString(attr, "label", "")
-		value := mapString(attr, "value", "")
-		if strings.TrimSpace(label) == "" || strings.TrimSpace(value) == "" {
-			continue
-		}
-		lines = append(lines, strings.TrimSpace(label)+"："+strings.TrimSpace(value))
-	}
+	lines = append(lines, groupedBeanListProductAttributeLines(publicMapsFromAny(item["productAttributes"]))...)
 	if len(lines) > 0 {
 		return lines
 	}
-	for _, attr := range publicMapsFromAny(item["product_attributes"]) {
+	return groupedBeanListProductAttributeLines(publicMapsFromAny(item["product_attributes"]))
+}
+
+func groupedBeanListProductAttributeLines(attributes []map[string]any) []string {
+	type lineGroup struct {
+		templateID int64
+		lines      []string
+	}
+	groups := []lineGroup{}
+	byTemplate := map[int64]int{}
+	for _, attr := range attributes {
 		label := mapString(attr, "label", "")
 		value := mapString(attr, "value", "")
 		if strings.TrimSpace(label) == "" || strings.TrimSpace(value) == "" {
 			continue
 		}
-		lines = append(lines, strings.TrimSpace(label)+"："+strings.TrimSpace(value))
+		templateID := int64(mapNumber(attr, "template_id", mapNumber(attr, "templateID", 0)))
+		line := strings.TrimSpace(label) + "：" + strings.TrimSpace(value)
+		if templateID <= 0 {
+			groups = append(groups, lineGroup{lines: []string{line}})
+			continue
+		}
+		index, ok := byTemplate[templateID]
+		if !ok {
+			index = len(groups)
+			byTemplate[templateID] = index
+			groups = append(groups, lineGroup{templateID: templateID})
+		}
+		groups[index].lines = append(groups[index].lines, line)
+	}
+	lines := make([]string, 0, len(groups))
+	for _, group := range groups {
+		lines = append(lines, strings.Join(group.lines, "；"))
 	}
 	return lines
 }

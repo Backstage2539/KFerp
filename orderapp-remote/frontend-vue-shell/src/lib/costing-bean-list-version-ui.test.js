@@ -89,7 +89,7 @@ test('product price list keeps product count scope and tier template action on o
   assert.match(viewSource, /\.price-list-top-toolbar\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:/s)
 })
 
-test('product price list keeps template actions above and configuration next to publication', () => {
+test('product price list keeps template actions above and configuration beside named table tabs', () => {
   const pageHeaderStart = viewSource.indexOf('<section class="panel">')
   const versionPanelStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const pageHeaderSource = viewSource.slice(pageHeaderStart, versionPanelStart)
@@ -107,7 +107,12 @@ test('product price list keeps template actions above and configuration next to 
     'top toolbar contains only template and pricing rule management',
   )
   assert.doesNotMatch(generatePanelSource, />计价模式规则<\/button>/)
-  assert.match(viewSource, /@click="openNamedTableConfig">价格表配置<\/button>\s*<button[^>]*@click="publishBeanList">发布价格表<\/button>/)
+  const namedToolbarStart = viewSource.indexOf('<section v-if="namedPriceTableBatch"')
+  const namedToolbarEnd = viewSource.indexOf('<section v-if="publicationCopyOpen"', namedToolbarStart)
+  const namedToolbarSource = viewSource.slice(namedToolbarStart, namedToolbarEnd)
+  assert.match(namedToolbarSource, /class="named-price-table-tab-row"[\s\S]*class="named-price-table-tabs"[\s\S]*named-price-table-config-button/)
+  assert.doesNotMatch(namedToolbarSource, /<select[^>]*aria-label="当前编辑价格表"/)
+  assert.doesNotMatch(viewSource.slice(viewSource.indexOf('<section class="price-list-preview">')), />价格表配置<\/button>/)
   assert.equal((viewSource.match(/>管理阶梯模板<\/button>/g) || []).length, 1)
   assert.equal((viewSource.match(/>计价模式规则<\/button>/g) || []).length, 1)
   assert.equal((viewSource.match(/>价格表配置<\/button>/g) || []).length, 1)
@@ -519,7 +524,7 @@ test('product bean-list generate area uses inline price-list configuration inste
     'productPriceListTypeKey',
     'price-list-page-config',
     '<strong>计价规则</strong>',
-    '<button class="secondary" type="button" :disabled="loading || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>',
+    '<button class="secondary named-price-table-config-button" type="button" :disabled="loading || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>',
     'aria-label="价格表配置"',
     "greenTierPriceRows",
     "green_bean_list",

@@ -1127,6 +1127,13 @@ export function wholesaleTierPriceRows(product, row = null) {
           ? roundToCents(tierConfiguredUnitPrice(tier))
           : wholesaleTierDisplayUnitPrice(tier, priceUnit),
         priceUnit,
+        ...(String(tier.price_row_key || '').trim() ? {
+          priceRowKey: String(tier.price_row_key).trim(),
+          tierLabel: String(tier.tier_label || source.tier_label || tier.label || ''),
+          priceSourceJSON: String(tier.price_source_json || ''),
+          publicationID: tierPublicationID(tier),
+          versionNo: String(tier?.version_no || tier?.publication_version_no || tier?.publicationVersionNo || ''),
+        } : {}),
       }
     })
 }
@@ -1216,7 +1223,14 @@ export function findWholesaleTier(product, row) {
 }
 
 export function resolveWholesaleTierPrice(product, row) {
-  const matched = findWholesaleTierMatch(product, row)
+  const selectedRowKey = String(row?.selected_price_row_key || '').trim()
+  const manuallySelected = String(row?.price_selection_mode || '') === 'tier'
+  const selectedTier = manuallySelected
+    ? tiersForSelectedPublication(product, row).find((candidate) => String(candidate?.price_row_key || '') === selectedRowKey)
+    : null
+  const matched = manuallySelected
+    ? { tier: selectedTier || null, belowMin: false }
+    : findWholesaleTierMatch(product, row)
   const tier = matched.tier
   if (!tier) {
     const selectedTiers = tiersForSelectedPublication(product, row)
@@ -1228,7 +1242,7 @@ export function resolveWholesaleTierPrice(product, row) {
       tierID: 'auto',
       unitPrice: '',
       priceUnit: orderRowPriceUnit(row),
-      tierPriceLabel: '',
+      tierPriceLabel: manuallySelected ? '所选价格档已失效' : '',
       beanListPublicationID: 0,
       beanListVersionNo: '',
       quantityBasis,
@@ -1252,11 +1266,12 @@ export function resolveWholesaleTierPrice(product, row) {
     tierID: String(tier.id),
     unitPrice: String(unitPrice),
     priceUnit,
-    tierPriceLabel: `${formatTierUnitPrice(unitPrice)}${priceUnit.suffix}`,
+    tierPriceLabel: String(tier?.tier_label || tier?.label || `${formatTierUnitPrice(unitPrice)}${priceUnit.suffix}`),
     beanListPublicationID: tierPublicationID(tier),
     beanListVersionNo: String(tier?.version_no || tier?.versionNo || source.version_no || source.bean_list_version_no || source.version || '').trim(),
     quantityBasis: tierQuantityBasis(tier),
     priceSourceJSON: String(tier?.price_source_json || ''),
+    priceRowKey: String(tier?.price_row_key || ''),
     belowMinTier: matched.belowMin,
     priceMissing: false,
   }
@@ -1413,6 +1428,13 @@ export function dripTierPriceRows(product, row = {}) {
           label: spec.salesUnit === 'box' ? '元/盒' : '元/袋',
           suffix: spec.salesUnit === 'box' ? '/盒' : '/袋',
         },
+        ...(String(tier.price_row_key || '').trim() ? {
+          priceRowKey: String(tier.price_row_key).trim(),
+          tierLabel: String(tier.tier_label || tier.label || ''),
+          priceSourceJSON: String(tier.price_source_json || ''),
+          publicationID: tierPublicationID(tier),
+          versionNo: String(tier?.version_no || tier?.publication_version_no || ''),
+        } : {}),
       }
     })
 }
@@ -2018,6 +2040,8 @@ export function buildOrderPayload({ form, rows }) {
     item_bean_list_publication_id: [],
     item_bean_list_version_no: [],
     price_source_json: [],
+    price_selection_mode: [],
+    selected_price_row_key: [],
     tier_id: [],
     unit_price: [],
     item_name: [],
@@ -2056,7 +2080,14 @@ export function buildOrderPayload({ form, rows }) {
     payload.item_bean_list_publication_id.push(String(toInt(row.bean_list_publication_id)))
     payload.item_bean_list_version_no.push(String(row.bean_list_version_no || '').trim())
     payload.price_source_json.push(String(row.price_source_json || '').trim())
-    payload.tier_id.push(row.tier_id || 'auto')
+    const selectionMode = row.price_selection_mode === 'tier'
+      ? 'tier'
+      : row.price_selection_mode === 'manual' || row.manual_price || row.tier_id === 'manual'
+        ? 'manual'
+        : 'auto'
+    payload.price_selection_mode.push(selectionMode)
+    payload.selected_price_row_key.push(selectionMode === 'tier' ? String(row.selected_price_row_key || '') : '')
+    payload.tier_id.push(selectionMode === 'manual' ? 'manual' : 'auto')
     payload.unit_price.push(String(row.unit_price || ''))
     payload.item_name.push(row.product_name || row.item_name || '')
     payload.item_note.push(String(row.item_note || '').trim())

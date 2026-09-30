@@ -16,7 +16,7 @@ func ValidateCustomerOrder(c SaveOrderCommand, backfill bool) error {
 		return fmt.Errorf("客户只能提交商品、数量、日期和收件信息，不能修改价格或履约状态")
 	}
 	for _, item := range c.Items {
-		if item.ManualPrice != nil || item.DiscountValue != 0 {
+		if item.ManualPrice != nil || item.DiscountValue != 0 || strings.EqualFold(strings.TrimSpace(item.PriceSelectionMode), "tier") || strings.TrimSpace(item.SelectedPriceRowKey) != "" {
 			return fmt.Errorf("客户订单价格必须来自所选价格表")
 		}
 	}

@@ -29,6 +29,17 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
 }
 
+func (r Repository) beanListWriteTransaction(ctx context.Context) (pgx.Tx, bool, error) {
+	if tx, ok := postgresinfra.TransactionFromContext(ctx); ok {
+		return tx, false, nil
+	}
+	if r.pool == nil {
+		return nil, false, fmt.Errorf("repository pool required")
+	}
+	tx, err := r.pool.Begin(ctx)
+	return tx, true, err
+}
+
 func (r Repository) queryCostingReadRows(ctx context.Context, query string, args []any, scan func(pgx.Rows) error) error {
 	if r.pool == nil {
 		return fmt.Errorf("repository pool required")
@@ -1982,12 +1993,25 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			       COALESCE(jsonb_agg(jsonb_build_object(
 			         'key', ppcf.field_key,
 			         'label', ppcf.label,
+			         'template_id', COALESCE(field_template.template_id,0),
+			         'template_position', COALESCE(field_template.template_position,0),
 			         'field_type', ppcf.field_type,
 			         'unit', ppcf.unit,
 			         'show_in_price_list', ppcf.show_in_price_list,
-			         'sort_order', ppcf.sort_order
-			       ) ORDER BY ppcf.sort_order, ppcf.id) FILTER (WHERE ppcf.show_in_price_list=true AND NULLIF(ppcf.field_key,'') IS NOT NULL), '[]'::jsonb) AS production_config_attrs_schema_json
+			         'sort_order', ppcf.sort_order,
+			         'position', ppcf.sort_order
+			       ) ORDER BY COALESCE(field_template.template_position,2147483647), ppcf.sort_order, ppcf.id) FILTER (WHERE ppcf.show_in_price_list=true AND NULLIF(ppcf.field_key,'') IS NOT NULL), '[]'::jsonb) AS production_config_attrs_schema_json
 			FROM %[1]s.product_production_config_fields ppcf
+			LEFT JOIN LATERAL (
+				SELECT selected.template_id, selected.sort_order AS template_position
+				FROM %[1]s.product_production_config_industry_templates selected
+				JOIN %[1]s.industry_field_definitions definition
+				  ON definition.template_id=selected.template_id
+				 AND lower(definition.field_key)=lower(COALESCE(NULLIF(ppcf.template_field_key,''),ppcf.field_key))
+				WHERE selected.product_id=ppcf.product_id
+				ORDER BY selected.sort_order, definition.sort_order, definition.id
+				LIMIT 1
+			) field_template ON true
 			GROUP BY ppcf.product_id
 		),
 		alias_config_attrs AS (
@@ -3545,16 +3569,13 @@ func (r Repository) SaveBeanListPublicationAsset(ctx context.Context, asset appc
 }
 
 func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
-	conn, err := r.pool.Acquire(ctx)
+	tx, ownsTx, err := r.beanListWriteTransaction(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return nil, err
+	if ownsTx {
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := r.lockBeanListVersion(ctx, tx, &cmd, true); err != nil {
 		return nil, err
@@ -3624,6 +3645,7 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 			return nil, err
 		}
 	}
+	published.PublicationTableMetadata = appcosting.BeanListBatchMetadata(published.Config)
 	if published.ID <= 0 {
 		return nil, fmt.Errorf("publish failed")
 	}
@@ -3642,23 +3664,22 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+	if ownsTx {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return &published, nil
 }
 
 func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
-	conn, err := r.pool.Acquire(ctx)
+	tx, ownsTx, err := r.beanListWriteTransaction(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return nil, err
+	if ownsTx {
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
 		return nil, err
@@ -3721,6 +3742,7 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 			return nil, err
 		}
 	}
+	draft.PublicationTableMetadata = appcosting.BeanListBatchMetadata(draft.Config)
 	if draft.ID <= 0 {
 		return nil, fmt.Errorf("save draft failed")
 	}
@@ -3739,8 +3761,10 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 	}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+	if ownsTx {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return &draft, nil
 }

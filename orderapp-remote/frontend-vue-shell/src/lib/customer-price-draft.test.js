@@ -38,6 +38,14 @@ test('customer quote draft survives reload without resetting imported tiers or l
  assert.equal(readPriceListGenerationDraft('customer43',storage),null)
 })
 test('customer price rows use the reference display name even when canonical product_name is present',()=>{
- const current={...generated[0],product_name:'工厂名',customer_reference_snapshot:{customer_id:42,customer_display_name:'客户专用名'}}
- assert.equal(applyCustomerPriceRows([current],[row(10,65)],{},42)[0].product_name,'客户专用名')
+  const current={...generated[0],product_name:'工厂名',customer_reference_snapshot:{customer_id:42,customer_display_name:'客户专用名'}}
+  assert.equal(applyCustomerPriceRows([current],[row(10,65)],{},42)[0].product_name,'客户专用名')
+})
+
+test('copied final prices remain frozen even when copied pricing templates are configured',()=>{
+ const frozen={...row(10,65,24),frozen_final_price:true}
+ const output=applyCustomerPriceRows([{...generated[0],pricing_mode:'tier_template',tier_template_id:9}],[frozen],{},42,{configuredSources:{default:true}})
+ assert.equal(output.length,1)
+ assert.equal(output[0].final_unit_price,65)
+ assert.equal(output[0].pricing_mode,'fixed_price')
 })

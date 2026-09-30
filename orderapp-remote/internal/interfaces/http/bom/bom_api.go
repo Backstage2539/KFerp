@@ -474,6 +474,18 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		return c.JSON(http.StatusOK, rows)
 	})
 
+	e.GET("/api/production-bom-product-specs/:product_id", func(c echo.Context) error {
+		productID, err := strconv.ParseInt(c.Param("product_id"), 10, 64)
+		if err != nil || productID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid product_id"})
+		}
+		rows, err := bomSvc.ListProductionBomPublishedSpecs(c.Request().Context(), productID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, rows)
+	})
+
 	e.POST("/api/production-boms", func(c echo.Context) error {
 		var req createProductionBomRequest
 		if err := c.Bind(&req); err != nil {

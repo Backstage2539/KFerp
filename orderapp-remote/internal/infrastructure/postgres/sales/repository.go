@@ -1180,6 +1180,41 @@ func withOrderManualPriceSnapshotJSON(raw, priceUnit string, finalUnitPrice floa
 	}
 	source["final_unit_price"] = finalUnitPrice
 	source["manual_adjusted"] = true
+	source["price_selection_mode"] = "manual"
+	buf, err := json.Marshal(source)
+	if err != nil {
+		return "{}"
+	}
+	return string(buf)
+}
+
+func withOrderPriceSelectionSnapshotJSON(raw, mode, rowKey string, usage orderbeans.Usage, pricing orderbeans.PublishedPricing) string {
+	source := map[string]any{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(strings.TrimSpace(raw)), &source)
+	}
+	if source == nil {
+		source = map[string]any{}
+	}
+	source["price_selection_mode"] = strings.TrimSpace(mode)
+	if strings.TrimSpace(mode) == "tier" {
+		source["selected_price_row_key"] = strings.TrimSpace(rowKey)
+		source["selected_tier_id"] = pricing.TemplateTierID
+		source["selected_tier_label"] = pricing.TierLabel
+		source["selected_tier_min_qty"] = pricing.MinQty
+		if pricing.MaxQty != nil {
+			source["selected_tier_max_qty"] = *pricing.MaxQty
+		} else {
+			source["selected_tier_max_qty"] = nil
+		}
+	}
+	if usage.PublicationID > 0 {
+		source["price_selection_publication_id"] = usage.PublicationID
+		source["price_selection_version_no"] = usage.VersionNo
+	}
+	if pricing.FinalUnitPrice > 0 {
+		source["final_unit_price"] = pricing.FinalUnitPrice
+	}
 	buf, err := json.Marshal(source)
 	if err != nil {
 		return "{}"
@@ -1243,6 +1278,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		unitPrice                          float64
 		lineTotal                          float64
 		priceOverride                      bool
+		priceSelectionMode                 string
+		selectedPriceRowKey                string
 		productKind                        string
 		salesUnit                          string
 		unitBagCount                       int64
@@ -1274,6 +1311,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			itemBeanListPublicationID:          src.BeanListPublicationID,
 			itemBeanListVersionNo:              strings.TrimSpace(src.BeanListVersionNo),
 			tierID:                             src.TierID,
+			priceSelectionMode:                 strings.TrimSpace(src.PriceSelectionMode),
+			selectedPriceRowKey:                strings.TrimSpace(src.SelectedPriceRowKey),
 			manualPrice:                        src.ManualPrice,
 			discountType:                       normalizeOrderItemDiscountType(src.DiscountType),
 			discountValue:                      maxFloat(src.DiscountValue, 0),
@@ -1302,6 +1341,29 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		if it.manualPrice != nil {
 			it.priceOverride = true
+		}
+		if it.priceSelectionMode == "" {
+			if it.manualPrice != nil {
+				it.priceSelectionMode = "manual"
+			} else {
+				it.priceSelectionMode = "auto"
+			}
+		}
+		switch it.priceSelectionMode {
+		case "auto":
+			if it.selectedPriceRowKey != "" {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("自动计价不能携带手选档位，请重新选择计价方式")
+			}
+		case "tier":
+			if it.selectedPriceRowKey == "" || it.manualPrice != nil {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("手选价格档无效，请重新选择档位")
+			}
+		case "manual":
+			if it.manualPrice == nil {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("手动单价必须大于0")
+			}
+		default:
+			return salesapp.SaveOrderResult{}, fmt.Errorf("无效的计价方式")
 		}
 		if it.productKind == "drip_bag" {
 			spec := dripOrderItemLabel(it.salesUnit, it.unitBagCount, it.unitBeanG)
@@ -1553,6 +1615,19 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	totalAmt := 0.0
 	itemDiscountAmt := 0.0
 	orderWeightG := int64(0)
+	resolveEmployeeSelectedTier := func(itemIndex int, productID int64, listType string, publicationID int64, bomSpecID, bomVariantID, specG int64, salesUnit string, unitBagCount int64) (orderbeans.Usage, orderbeans.PublishedPricing, bool, error) {
+		if itemIndex < 0 || itemIndex >= len(items) || items[itemIndex].priceSelectionMode != "tier" {
+			return orderbeans.Usage{}, orderbeans.PublishedPricing{}, false, nil
+		}
+		usage, pricing, err := orderbeans.ResolveSelectedPublishedTier(ctx, tx, r.schema, cmd.CustomerID, productID, listType, publicationID, bomSpecID, bomVariantID, specG, items[itemIndex].units, salesUnit, unitBagCount, items[itemIndex].selectedPriceRowKey)
+		if err != nil {
+			return orderbeans.Usage{}, orderbeans.PublishedPricing{}, true, err
+		}
+		if usage.PublicationID <= 0 || pricing.UnitPrice <= 0 {
+			return orderbeans.Usage{}, orderbeans.PublishedPricing{}, true, fmt.Errorf("所选价格档已失效或不属于当前商品规格，请刷新价格表后重新选择")
+		}
+		return usage, pricing, true, nil
+	}
 	for idx := range items {
 		if items[idx].productID != nil && !items[idx].canonicalBOMSpec {
 			productKind, unitBeanG, unitBagCount := loadOrderProductUnitDefaultsTx(ctx, tx, r.schema, *items[idx].productID)
@@ -1720,6 +1795,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					return salesapp.SaveOrderResult{}, err
 				}
 			}
+			items[idx].priceSourceJSON = withOrderManualPriceSnapshotJSON(items[idx].priceSourceJSON, items[idx].salesUnit, *items[idx].manualPrice)
 			items[idx].baseLineTotal = lineTotal
 			applyItemDiscount(idx)
 			items[idx].unitPrice = *items[idx].manualPrice
@@ -1740,6 +1816,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 			var usage orderbeans.Usage
 			var pricing orderbeans.PublishedPricing
+			tierSelected := false
 			for _, candidate := range candidates {
 				resolvedUsage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType, candidate.RequestedPublicationID)
 				if err != nil {
@@ -1748,12 +1825,22 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				if resolvedUsage.PublicationID <= 0 {
 					continue
 				}
-				resolvedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithBOMSpec(
-					ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType,
-					resolvedUsage.PublicationID, items[idx].bomSpecID, items[idx].bomVariantID, items[idx].units,
-				)
+				selectedUsage, selectedPricing, selected, err := resolveEmployeeSelectedTier(idx, *items[idx].productID, candidate.ListType, resolvedUsage.PublicationID, items[idx].bomSpecID, items[idx].bomVariantID, 0, items[idx].salesUnit, items[idx].unitBagCount)
 				if err != nil {
 					return salesapp.SaveOrderResult{}, err
+				}
+				resolvedPricing := selectedPricing
+				if selected {
+					resolvedUsage = selectedUsage
+					tierSelected = true
+				} else {
+					resolvedPricing, err = orderbeans.ResolvePublishedPricingForPublicationWithBOMSpec(
+						ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType,
+						resolvedUsage.PublicationID, items[idx].bomSpecID, items[idx].bomVariantID, items[idx].units,
+					)
+					if err != nil {
+						return salesapp.SaveOrderResult{}, err
+					}
 				}
 				if resolvedPricing.UnitPrice <= 0 && items[idx].legacyPricingProductID > 0 {
 					resolvedPricing, err = orderbeans.ResolvePublishedPricingForPublicationWithUnit(
@@ -1778,6 +1865,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 			items[idx].productKind = concreteOrderProductKindForListType(items[idx].productKind, listType)
 			items[idx].tierID = nil
+			if tierSelected && pricing.TemplateTierID > 0 {
+				selectedTierID := pricing.TemplateTierID
+				items[idx].tierID = &selectedTierID
+			}
 			items[idx].unitPrice = pricing.UnitPrice
 			items[idx].quantityBasis = firstNonEmpty(strings.TrimSpace(pricing.QuantityBasis), "sales_spec_count")
 			items[idx].baseLineTotal = pricing.UnitPrice * float64(items[idx].units)
@@ -1787,6 +1878,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
 			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(listType, usage, *items[idx].productID, pricing))
+			items[idx].priceSourceJSON = withOrderPriceSelectionSnapshotJSON(items[idx].priceSourceJSON, items[idx].priceSelectionMode, items[idx].selectedPriceRowKey, usage, pricing)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -1797,6 +1889,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			var usage orderbeans.Usage
 			var pricing orderbeans.PublishedPricing
 			var priceListType string
+			tierSelected := false
 			for _, candidate := range dripOrderBeanListCandidates(cmd, items[idx].itemBeanListPublicationID, items[idx].priceListType, retailOrder) {
 				resolvedUsage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, candidate.ListType, candidate.RequestedPublicationID)
 				if err != nil {
@@ -1805,9 +1898,18 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				if resolvedUsage.PublicationID <= 0 {
 					continue
 				}
-				resolvedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, candidate.ListType, resolvedUsage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
+				selectedUsage, resolvedPricing, selected, err := resolveEmployeeSelectedTier(idx, pricingProductID, candidate.ListType, resolvedUsage.PublicationID, 0, 0, pricingSpecG, pricingSalesUnit, items[idx].unitBagCount)
 				if err != nil {
 					return salesapp.SaveOrderResult{}, err
+				}
+				if selected {
+					resolvedUsage = selectedUsage
+					tierSelected = true
+				} else {
+					resolvedPricing, err = orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, candidate.ListType, resolvedUsage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
+					if err != nil {
+						return salesapp.SaveOrderResult{}, err
+					}
 				}
 				if resolvedPricing.UnitPrice <= 0 {
 					return salesapp.SaveOrderResult{}, fmt.Errorf("缺少挂耳价格表价格")
@@ -1821,6 +1923,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少挂耳价格表价格")
 			}
 			items[idx].tierID = nil
+			if tierSelected && pricing.TemplateTierID > 0 {
+				selectedTierID := pricing.TemplateTierID
+				items[idx].tierID = &selectedTierID
+			}
 			items[idx].unitPrice = pricing.UnitPrice
 			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
 			items[idx].baseLineTotal = pricing.UnitPrice * float64(items[idx].units)
@@ -1830,6 +1936,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
 			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(priceListType, usage, *items[idx].productID, pricing, selection.Spec))
+			items[idx].priceSourceJSON = withOrderPriceSelectionSnapshotJSON(items[idx].priceSourceJSON, items[idx].priceSelectionMode, items[idx].selectedPriceRowKey, usage, pricing)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -1845,14 +1952,26 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少商品价格表价格")
 			}
-			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeRetail, usage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
+			selectedUsage, pricing, selected, err := resolveEmployeeSelectedTier(idx, pricingProductID, orderbeans.ListTypeRetail, usage.PublicationID, 0, 0, pricingSpecG, pricingSalesUnit, items[idx].unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
+			}
+			if selected {
+				usage = selectedUsage
+			} else {
+				pricing, err = orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeRetail, usage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
 			}
 			if pricing.UnitPrice <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少商品价格表价格")
 			}
 			items[idx].tierID = nil
+			if selected && pricing.TemplateTierID > 0 {
+				selectedTierID := pricing.TemplateTierID
+				items[idx].tierID = &selectedTierID
+			}
 			items[idx].unitPrice = pricing.UnitPrice
 			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
 			items[idx].baseLineTotal = publishedPricingLineTotal(pricing, pricingSpecG, items[idx].units)
@@ -1861,6 +1980,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
 			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(orderbeans.ListTypeRetail, usage, *items[idx].productID, pricing, selection.Spec))
+			items[idx].priceSourceJSON = withOrderPriceSelectionSnapshotJSON(items[idx].priceSourceJSON, items[idx].priceSelectionMode, items[idx].selectedPriceRowKey, usage, pricing)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -1873,16 +1993,28 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
-			items[idx].tierID = nil
 			if usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少生豆豆单价格")
 			}
-			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeGreen, usage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
+			selectedUsage, pricing, selected, err := resolveEmployeeSelectedTier(idx, pricingProductID, orderbeans.ListTypeGreen, usage.PublicationID, 0, 0, pricingSpecG, pricingSalesUnit, items[idx].unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
+			if selected {
+				usage = selectedUsage
+			} else {
+				pricing, err = orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeGreen, usage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+			}
 			if pricing.UnitPrice <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少生豆豆单价格")
+			}
+			items[idx].tierID = nil
+			if selected && pricing.TemplateTierID > 0 {
+				selectedTierID := pricing.TemplateTierID
+				items[idx].tierID = &selectedTierID
 			}
 			items[idx].unitPrice = pricing.UnitPrice
 			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
@@ -1890,6 +2022,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
 			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(orderbeans.ListTypeGreen, usage, *items[idx].productID, pricing, selection.Spec))
+			items[idx].priceSourceJSON = withOrderPriceSelectionSnapshotJSON(items[idx].priceSourceJSON, items[idx].priceSelectionMode, items[idx].selectedPriceRowKey, usage, pricing)
 			if items[idx].baseLineTotal <= 0 || strings.TrimSpace(pricing.QuantityBasis) == "sales_spec_count" {
 				items[idx].baseLineTotal = publishedPricingLineTotal(pricing, pricingSpecG, items[idx].units)
 			}
@@ -1909,14 +2042,26 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少商品价格表价格")
 			}
-			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeCommercial, usage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
+			selectedUsage, pricing, selected, err := resolveEmployeeSelectedTier(idx, pricingProductID, orderbeans.ListTypeCommercial, usage.PublicationID, 0, 0, pricingSpecG, pricingSalesUnit, items[idx].unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
+			}
+			if selected {
+				usage = selectedUsage
+			} else {
+				pricing, err = orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeCommercial, usage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
 			}
 			if pricing.UnitPrice <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少商品价格表价格")
 			}
 			items[idx].tierID = nil
+			if selected && pricing.TemplateTierID > 0 {
+				selectedTierID := pricing.TemplateTierID
+				items[idx].tierID = &selectedTierID
+			}
 			items[idx].unitPrice = pricing.UnitPrice
 			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
 			items[idx].baseLineTotal = publishedPricingLineTotal(pricing, pricingSpecG, items[idx].units)
@@ -1925,6 +2070,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
 			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(orderbeans.ListTypeCommercial, usage, *items[idx].productID, pricing, selection.Spec))
+			items[idx].priceSourceJSON = withOrderPriceSelectionSnapshotJSON(items[idx].priceSourceJSON, items[idx].priceSelectionMode, items[idx].selectedPriceRowKey, usage, pricing)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
