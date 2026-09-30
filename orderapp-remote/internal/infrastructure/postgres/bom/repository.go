@@ -1811,6 +1811,12 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	} else if cmd.OutputType != "product" && (cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0) {
 		return bomapp.ProductionBomSummary{}, fmt.Errorf("specification template requires product output")
 	}
+	if cmd.ProcessRouteOverrideID > 0 {
+		var routeStatus string
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.process_routes WHERE id=$1 FOR SHARE`, r.schema), cmd.ProcessRouteOverrideID).Scan(&routeStatus); err != nil || routeStatus != "active" {
+			return bomapp.ProductionBomSummary{}, fmt.Errorf("请选择有效工艺路线")
+		}
+	}
 	groupID := cmd.GroupID
 	groupCategoryID := cmd.GroupCategoryID
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
@@ -1836,7 +1842,7 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if cmd.SpecTemplateVersionID > 0 {
-		if err := copySpecTemplateToProductionBomWithComponentTx(ctx, tx, r.schema, bomID, versionID, cmd.SpecTemplateVersionID, cmd.MainInputComponent, cmd.Actor); err != nil {
+		if err := copySpecTemplateToProductionBomWithComponentAndRouteTx(ctx, tx, r.schema, bomID, versionID, cmd.SpecTemplateVersionID, cmd.MainInputComponent, cmd.ProcessRouteOverrideID, cmd.Actor); err != nil {
 			return bomapp.ProductionBomSummary{}, err
 		}
 	} else if cmd.OutputType == "product" {
@@ -1859,7 +1865,7 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 			return bomapp.ProductionBomSummary{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "output_type": cmd.OutputType, "specification_mode": cmd.SpecificationMode, "output_id": cmd.OutputID, "output_product_id": cmd.OutputProductID, "output_material_id": cmd.OutputMaterialID, "output_qty": cmd.OutputQty, "output_unit": strings.TrimSpace(cmd.OutputUnit), "group_id": groupID, "group_category_id": groupCategoryID, "spec_template_version_id": cmd.SpecTemplateVersionID, "main_input_material_id": cmd.MainInputMaterialID, "variant_count": len(cmd.Variants)}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "output_type": cmd.OutputType, "specification_mode": cmd.SpecificationMode, "output_id": cmd.OutputID, "output_product_id": cmd.OutputProductID, "output_material_id": cmd.OutputMaterialID, "output_qty": cmd.OutputQty, "output_unit": strings.TrimSpace(cmd.OutputUnit), "group_id": groupID, "group_category_id": groupCategoryID, "spec_template_version_id": cmd.SpecTemplateVersionID, "main_input_material_id": cmd.MainInputMaterialID, "process_route_override_id": cmd.ProcessRouteOverrideID, "process_route_source": cmd.ProcessRouteSource, "process_route_node_id": cmd.ProcessRouteNodeID, "variant_count": len(cmd.Variants)}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), bomID, groupID, groupCategoryID); err != nil {
@@ -2457,7 +2463,7 @@ func (r Repository) updateProductionBomVersionDraftTx(ctx context.Context, tx pg
 	if err := r.validateProductionBomVersionItemInventoryUnits(ctx, tx, cmd.VersionID); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &cmd.VersionID, "update_draft", postgresinfra.StrPtr("version_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.VersionID)), postgresinfra.AuditMeta{"version_id": cmd.VersionID, "item_count": len(cmd.Items), "variant_count": len(cmd.Variants), "material_loss_rate": materialLossRate}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &cmd.VersionID, "update_draft", postgresinfra.StrPtr("version_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.VersionID)), postgresinfra.AuditMeta{"version_id": cmd.VersionID, "item_count": len(cmd.Items), "variant_count": len(cmd.Variants), "material_loss_rate": materialLossRate, "process_route_id": cmd.ProcessRouteID, "process_route_source": cmd.ProcessRouteSource, "process_route_node_id": cmd.ProcessRouteNodeID}); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	if cmd.SpecialAttrsSchemaJSON != "" || cmd.SpecialAttrsJSON != "" {

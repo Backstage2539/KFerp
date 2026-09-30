@@ -309,17 +309,75 @@ func TestBOMTemplateCatalogSeparatesReusableDataAndActions(t *testing.T) {
 			}
 		}
 	}
-	if counts["数据类型"] != 9 || counts["动作"] != 6 {
-		t.Fatalf("visible module groups=%v, want three data types and two actions for workflow versions 2 through 4", counts)
+	if counts["数据类型"] != 12 || counts["动作"] != 8 {
+		t.Fatalf("visible module groups=%v, want three data types and two actions for workflow versions 2 through 5", counts)
 	}
 	for _, module := range ModuleCatalog() {
-		if module.WorkflowVersion == 3 || module.WorkflowVersion == 4 {
+		if module.WorkflowVersion >= 3 {
 			for _, field := range module.Fields {
 				if field.Key == "kind" || field.Key == "product_kind" {
 					t.Fatalf("V3 module %q still exposes industry category field %q", module.Kind, field.Key)
 				}
 			}
 		}
+	}
+}
+
+func TestV5ProductAndMaterialBOMsAcceptOneConnectedProcessRoute(t *testing.T) {
+	workflow := Workflow{Version: 5, Nodes: []Node{
+		{ID: "source", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "route", Kind: ModuleProcess, Config: map[string]any{"route_id": 4}},
+		{ID: "bom", Kind: ModuleBOM, Config: map[string]any{"output_type": "product", "spec_template_version_id": 53}},
+		{ID: "product", Kind: ModuleProduct, Config: map[string]any{"data_role": "output"}},
+	}, Edges: []Edge{
+		dataEdge("ingredient", "source", "material", "bom", "components"),
+		dataEdge("process", "route", "route", "bom", "route"),
+		dataEdge("output", "bom", "assembly", "product", "from_bom"),
+	}}
+	if issues := ValidateWorkflow(workflow); len(issues) != 0 {
+		t.Fatalf("V5 product BOM must accept a connected route alongside its specification template: %+v", issues)
+	}
+
+	workflow.Nodes[2].Config["output_type"] = "material"
+	workflow.Nodes[3].Kind = ModuleMaterial
+	delete(workflow.Nodes[2].Config, "spec_template_version_id")
+	workflow.Nodes[2].Config["output_qty"] = 1
+	workflow.Nodes[2].Config["output_unit"] = "kg"
+	if issues := ValidateWorkflow(workflow); len(issues) != 0 {
+		t.Fatalf("V5 material BOM must accept a connected route: %+v", issues)
+	}
+
+	workflow.Nodes = append(workflow.Nodes, Node{ID: "route-2", Kind: ModuleProcess, Config: map[string]any{"route_id": 5}})
+	workflow.Edges = append(workflow.Edges, dataEdge("process-2", "route-2", "route", "bom", "route"))
+	if issues := ValidateWorkflow(workflow); !hasValidationCode(issues, "multiple_routes") {
+		t.Fatalf("a BOM must reject a second process route: %+v", issues)
+	}
+
+	workflow.Edges = workflow.Edges[:len(workflow.Edges)-1]
+	workflow.Nodes[1].Config["route_id"] = 0
+	if issues := ValidateWorkflow(workflow); !hasValidationCode(issues, "route_required") {
+		t.Fatalf("a connected process node must select an active route before the template can publish: %+v", issues)
+	}
+}
+
+func TestResolveBOMProcessRouteV5PriorityAndLegacyBehavior(t *testing.T) {
+	workflow := Workflow{Version: 5, Edges: []Edge{dataEdge("route-edge", "process", "route", "bom", "route")}}
+	node := Node{ID: "bom", Kind: ModuleBOM, Config: map[string]any{"output_type": "product", "route_id": 7}}
+	if got := ResolveBOMProcessRoute(workflow, node, map[string]any{"route_override_id": float64(9)}, map[string]int64{"process": 8}); got.ID != 9 || got.Source != "run_override" {
+		t.Fatalf("run override=%+v, want route 9 from run_override", got)
+	}
+	if got := ResolveBOMProcessRoute(workflow, node, map[string]any{"route_override_id": float64(0)}, map[string]int64{"process": 8}); got.ID != 8 || got.Source != "connected_node" || got.ProcessNodeID != "process" {
+		t.Fatalf("connected route=%+v, want route 8 from process node", got)
+	}
+	if got := ResolveBOMProcessRoute(Workflow{Version: 5}, node, map[string]any{}, nil); got.ID != 0 || got.Source != "specification_template" {
+		t.Fatalf("template route=%+v, want per-spec template defaults", got)
+	}
+	node.Config["output_type"] = "material"
+	if got := ResolveBOMProcessRoute(Workflow{Version: 5}, node, map[string]any{}, nil); got.ID != 7 || got.Source != "bom_default" {
+		t.Fatalf("material default route=%+v, want route 7 from BOM default", got)
+	}
+	if got := ResolveBOMProcessRoute(Workflow{Version: 4}, node, map[string]any{"route_override_id": float64(9)}, nil); got.ID != 7 || got.Source != "bom_default" {
+		t.Fatalf("legacy route=%+v, V4 must ignore V5 route overrides", got)
 	}
 }
 

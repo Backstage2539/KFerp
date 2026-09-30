@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { filterWorkflowVariables, renderNameParts, upgradeWorkflowToV3, upgradeWorkflowToV4 } from './product-creator-variables.js'
+import { filterWorkflowVariables, renderNameParts, renderNamePreview, upgradeWorkflowToV3, upgradeWorkflowToV4, upgradeWorkflowToV5 } from './product-creator-variables.js'
 
 test('variable search matches substrings and ordered fuzzy terms and permits adding the missing value', () => {
   const variables = [
@@ -20,6 +20,26 @@ test('name parts combine literal text and one run-time variable value', () => {
   assert.deepEqual(result, { value: '云南日晒豆_半成品', missing: [] })
   assert.deepEqual(renderNameParts([{ type: 'variable', variable_id: 'product-name' }], [{ id: 'product-name' }], {}), {
     value: '', missing: ['product-name'],
+  })
+})
+
+test('template naming preview combines literals with preview samples, prefers defaults, and marks missing variables', () => {
+  const parts = [
+    { type: 'text', value: '半成品-烘焙豆_' },
+    { type: 'variable', variable_id: 'product-name' },
+    { type: 'text', value: '_' },
+    { type: 'variable', variable_id: 'batch' },
+  ]
+  const variables = [
+    { id: 'product-name', name: '商品名', default_value: '默认商品' },
+    { id: 'batch', name: '批次', default_value: '' },
+  ]
+
+  assert.deepEqual(renderNamePreview(parts, variables), {
+    value: '半成品-烘焙豆_默认商品_【批次待填写】', missing: ['batch'],
+  })
+  assert.deepEqual(renderNamePreview(parts, variables, { 'product-name': '春季新品', batch: 'A01' }), {
+    value: '半成品-烘焙豆_春季新品_A01', missing: [],
   })
 })
 
@@ -70,4 +90,18 @@ test('V3 product BOM migration preserves hand-maintained settings for explicit r
   assert.deepEqual(upgraded.edges, legacy.edges)
   assert.deepEqual(upgradeWorkflowToV4(upgraded), upgraded)
   assert.equal(legacy.nodes[1].config.output_unit, 'bag')
+})
+
+test('V5 migration preserves all V4 graph connections for review under the new process-route rules', () => {
+  const v4 = {
+    version: 4,
+    variables: [],
+    nodes: [{ id: 'bom', kind: 'bom', name: '成品包装 BOM', config: { output_type: 'product', spec_template_version_id: 91 } }],
+    edges: [{ id: 'route-edge', source: 'route', source_handle: 'route', target: 'bom', target_handle: 'route', kind: 'data' }],
+  }
+  const upgraded = upgradeWorkflowToV5(v4)
+  assert.equal(upgraded.version, 5)
+  assert.deepEqual(upgraded.edges, v4.edges)
+  assert.equal(upgraded.nodes[0].config.spec_template_version_id, 91)
+  assert.deepEqual(upgradeWorkflowToV5(upgraded), upgraded)
 })

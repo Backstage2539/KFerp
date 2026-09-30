@@ -17,7 +17,7 @@ export function filterWorkflowVariables(query, variables = []) {
   })
 }
 
-export function renderNameParts(parts = [], variables = [], values = {}) {
+export function renderNameParts(parts = [], variables = [], values = {}, options = {}) {
   const definitions = new Map(variables.map((variable) => [variable.id, variable]))
   const missing = []
   let output = ''
@@ -30,10 +30,25 @@ export function renderNameParts(parts = [], variables = [], values = {}) {
     const id = String(part.variable_id || '')
     const definition = definitions.get(id)
     const value = String(values[id] ?? definition?.default_value ?? '').trim()
-    if (!value) missing.push(id)
-    output += value
+    if (!value) {
+      missing.push(id)
+      output += typeof options.missingPlaceholder === 'function' ? options.missingPlaceholder(definition, id) : ''
+    } else {
+      output += value
+    }
   }
   return { value: output.trim(), missing: [...new Set(missing)] }
+}
+
+export function renderNamePreview(parts = [], variables = [], exampleValues = {}) {
+  const definitions = new Map(variables.map((variable) => [variable.id, variable]))
+  const previewValues = {}
+  for (const [id, variable] of definitions) {
+    previewValues[id] = exampleValues[id] ?? variable.default_value ?? ''
+  }
+  return renderNameParts(parts, variables, previewValues, {
+    missingPlaceholder: (variable) => `【${variable?.name || '变量'}待填写】`,
+  })
 }
 
 export function upgradeWorkflowToV3(workflow = {}) {
@@ -127,4 +142,10 @@ export function upgradeWorkflowToV4(workflow = {}) {
     return { ...node, config }
   })
   return { ...cloneValue(source), version: 4, nodes }
+}
+
+export function upgradeWorkflowToV5(workflow = {}) {
+  const upgraded = upgradeWorkflowToV4(workflow)
+  if (Number(upgraded.version || 1) >= 5) return upgraded
+  return { ...upgraded, version: 5 }
 }
