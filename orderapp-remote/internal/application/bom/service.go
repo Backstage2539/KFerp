@@ -336,14 +336,15 @@ type ProductionBomSpecTemplate struct {
 }
 
 type ProductionBomSpecTemplateVersion struct {
-	ID           int64  `json:"id"`
-	TemplateID   int64  `json:"template_id"`
-	VersionNo    string `json:"version_no"`
-	Status       string `json:"status"`
-	Note         string `json:"note"`
-	VariantCount int    `json:"variant_count"`
-	CreatedAt    string `json:"created_at"`
-	PublishedAt  string `json:"published_at"`
+	ID                 int64  `json:"id"`
+	TemplateID         int64  `json:"template_id"`
+	VersionNo          string `json:"version_no"`
+	Status             string `json:"status"`
+	Note               string `json:"note"`
+	VariantCount       int    `json:"variant_count"`
+	DefaultVariantName string `json:"default_variant_name,omitempty"`
+	CreatedAt          string `json:"created_at"`
+	PublishedAt        string `json:"published_at"`
 }
 
 type ProductionBomSpecTemplateVariant struct {
@@ -360,8 +361,11 @@ type ProductionBomSpecTemplateVariant struct {
 
 type ProductionBomSpecTemplateVariantDraftItem struct {
 	ProductionBomDraftItem
-	IsMainInput bool `json:"is_main_input"`
-	SortOrder   int  `json:"sort_order"`
+	ComponentName     string `json:"component_name,omitempty"`
+	ComponentSpecName string `json:"component_spec_name,omitempty"`
+	ComponentSpecUnit string `json:"component_spec_unit,omitempty"`
+	IsMainInput       bool   `json:"is_main_input"`
+	SortOrder         int    `json:"sort_order"`
 }
 
 type ProductionBomSpec struct {

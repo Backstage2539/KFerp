@@ -42,6 +42,26 @@ func TestValidateWorkflowAcceptsTypedMultiLevelBranchAndJoin(t *testing.T) {
 	}
 }
 
+func TestV4SpecTemplateFieldIsRequiredOnlyForProductOutputBOM(t *testing.T) {
+	fieldFor := func(outputType, key string) (Field, bool) {
+		module := moduleForNode(Node{Kind: ModuleBOM, Config: map[string]any{"output_type": outputType}}, 4)
+		for _, field := range module.Fields {
+			if field.Key == key {
+				return field, true
+			}
+		}
+		return Field{}, false
+	}
+
+	productTemplate, found := fieldFor("product", "spec_template_version_id")
+	if !found || !productTemplate.Required {
+		t.Fatalf("product output BOM must expose a required template selector, got found=%t field=%+v", found, productTemplate)
+	}
+	if materialTemplate, found := fieldFor("material", "spec_template_version_id"); found {
+		t.Fatalf("material output BOM must not expose a product specification template selector, got %+v", materialTemplate)
+	}
+}
+
 func TestValidateWorkflowRejectsInvalidHandleAndType(t *testing.T) {
 	issues := ValidateWorkflow(Workflow{Nodes: []Node{
 		{ID: "product", Kind: ModuleProduct},
@@ -289,11 +309,11 @@ func TestBOMTemplateCatalogSeparatesReusableDataAndActions(t *testing.T) {
 			}
 		}
 	}
-	if counts["数据类型"] != 6 || counts["动作"] != 4 {
-		t.Fatalf("visible module groups=%v, want three data types and two actions for workflow versions 2 and 3", counts)
+	if counts["数据类型"] != 9 || counts["动作"] != 6 {
+		t.Fatalf("visible module groups=%v, want three data types and two actions for workflow versions 2 through 4", counts)
 	}
 	for _, module := range ModuleCatalog() {
-		if module.WorkflowVersion == 3 {
+		if module.WorkflowVersion == 3 || module.WorkflowVersion == 4 {
 			for _, field := range module.Fields {
 				if field.Key == "kind" || field.Key == "product_kind" {
 					t.Fatalf("V3 module %q still exposes industry category field %q", module.Kind, field.Key)
@@ -372,6 +392,120 @@ func TestBOMCentricWorkflowRejectsHiddenConditionsAndWrongOutputObject(t *testin
 	workflow.Nodes[0].Condition = &Condition{NodeID: "source", Field: "action", Operator: "equals", Value: "create"}
 	if issues := ValidateWorkflow(workflow); !hasIssue(issues, "conditions_disabled") {
 		t.Fatalf("new workflow must reject hidden conditions, got %+v", issues)
+	}
+}
+
+func TestV4ProductBOMUsesSpecificationTemplateAndConnectedMainInputCandidates(t *testing.T) {
+	workflow := Workflow{Version: 4, Variables: []WorkflowVariable{{ID: "product-name", Name: "商品名称"}}, Nodes: []Node{
+		{ID: "semi", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "pack", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "finished-bom", Kind: ModuleBOM, Config: map[string]any{"output_type": "product", "spec_template_version_id": 53}},
+		{ID: "product", Kind: ModuleProduct, Config: map[string]any{"data_role": "output", "object_action": "create", "owner": "factory"}},
+	}, Edges: []Edge{
+		dataEdge("semi-input", "semi", "material", "finished-bom", "components"),
+		dataEdge("pack-input", "pack", "material", "finished-bom", "components"),
+		dataEdge("finished-output", "finished-bom", "assembly", "product", "from_bom"),
+	}}
+	if issues := ValidateWorkflow(workflow); len(issues) != 0 {
+		t.Fatalf("V4 product BOM with a template and multiple connected main-input candidates should validate: %+v", issues)
+	}
+
+	workflow.Nodes[2].Config["spec_template_version_id"] = 0
+	if issues := ValidateWorkflow(workflow); !hasValidationCode(issues, "spec_template_required") {
+		t.Fatalf("product-output BOM must require a specification template: %+v", issues)
+	}
+
+	workflow.Nodes[2].Config["spec_template_version_id"] = 53
+	workflow.Nodes = append(workflow.Nodes, Node{ID: "route", Kind: ModuleProcess, Config: map[string]any{"route_id": 9}})
+	workflow.Edges = append(workflow.Edges, dataEdge("separate-route", "route", "route", "finished-bom", "route"))
+	if issues := ValidateWorkflow(workflow); !hasValidationCode(issues, "template_route_conflict") {
+		t.Fatalf("V4 product BOM must inherit process route from the specification template: %+v", issues)
+	}
+}
+
+func TestV4SpecificationTemplateFieldLivesOnBOMOnly(t *testing.T) {
+	var bomModule, productModule *Module
+	for _, module := range ModuleCatalog() {
+		if module.WorkflowVersion != 4 {
+			continue
+		}
+		switch module.Kind {
+		case ModuleBOM:
+			copy := module
+			bomModule = &copy
+		case ModuleProduct:
+			copy := module
+			productModule = &copy
+		}
+	}
+	if bomModule == nil || productModule == nil {
+		t.Fatal("expected V4 product and BOM module definitions")
+	}
+	containsField := func(module *Module, key string) bool {
+		for _, field := range module.Fields {
+			if field.Key == key {
+				return true
+			}
+		}
+		return false
+	}
+	if !containsField(bomModule, "spec_template_version_id") {
+		t.Fatal("the V4 BOM module must expose the specification-template reference")
+	}
+	if containsField(productModule, "spec_template_version_id") || containsField(productModule, "variants") {
+		t.Fatal("product master nodes must not store a specification template or manual variants")
+	}
+}
+
+func TestV4ProductBOMBlocksUnreviewedLegacyManualConfiguration(t *testing.T) {
+	workflow := Workflow{Version: 4, Nodes: []Node{
+		{ID: "material", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "bom", Kind: ModuleBOM, Config: map[string]any{"output_type": "product", "spec_template_version_id": 53, "legacy_spec_configuration_pending": true}},
+		{ID: "product", Kind: ModuleProduct, Config: map[string]any{"data_role": "output"}},
+	}, Edges: []Edge{
+		dataEdge("component", "material", "material", "bom", "components"),
+		dataEdge("output", "bom", "assembly", "product", "from_bom"),
+	}}
+	issues := ValidateWorkflow(workflow)
+	if !hasValidationCode(issues, "legacy_product_bom_conflict") {
+		t.Fatalf("expected unresolved V3 product BOM settings to block V4 publication, got %+v", issues)
+	}
+	workflow.Nodes[1].Config["legacy_spec_configuration_pending"] = false
+	if issues := ValidateWorkflow(workflow); hasValidationCode(issues, "legacy_product_bom_conflict") {
+		t.Fatalf("explicitly reviewed legacy settings should no longer block publication: %+v", issues)
+	}
+}
+
+func TestV4ProductBOMRunRequiresOneConnectedMainInputReference(t *testing.T) {
+	workflow := Workflow{Version: 4, Nodes: []Node{
+		{ID: "semi", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "pack", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "finished-bom", Kind: ModuleBOM, Config: map[string]any{"output_type": "product", "spec_template_version_id": 53}},
+		{ID: "product", Kind: ModuleProduct, Config: map[string]any{"data_role": "output"}},
+	}, Edges: []Edge{
+		dataEdge("semi-input", "semi", "material", "finished-bom", "components"),
+		dataEdge("pack-input", "pack", "material", "finished-bom", "components"),
+		dataEdge("finished-output", "finished-bom", "assembly", "product", "from_bom"),
+	}}
+	inputs := map[string]map[string]any{
+		"semi":         {"rows": []any{materialRow("semi-row", "半成品", "manufacture", "kg")}},
+		"pack":         {"rows": []any{materialRow("pack-row", "包装", "purchase", "袋")}},
+		"product":      {"action": "create", "name": "新商品", "owner": "factory"},
+		"finished-bom": {"main_input_source_node_id": "semi", "main_input_source_row_id": "semi-row"},
+	}
+	if issues := ValidateRunInputs(workflow, inputs); len(issues) != 0 {
+		t.Fatalf("connected, selected product main-input candidate should validate: %+v", issues)
+	}
+
+	delete(inputs["finished-bom"], "main_input_source_row_id")
+	if issues := ValidateRunInputs(workflow, inputs); !hasIssue(issues, "main_input_required") {
+		t.Fatalf("product BOM must require a selected main-input candidate: %+v", issues)
+	}
+
+	inputs["finished-bom"]["main_input_source_node_id"] = "unconnected"
+	inputs["finished-bom"]["main_input_source_row_id"] = "row"
+	if issues := ValidateRunInputs(workflow, inputs); !hasIssue(issues, "main_input_not_connected") {
+		t.Fatalf("product BOM must reject a main input outside its connected sources: %+v", issues)
 	}
 }
 

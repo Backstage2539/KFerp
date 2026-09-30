@@ -123,7 +123,7 @@ var moduleByKind = func() map[ModuleKind]Module {
 }()
 
 func ModuleCatalog() []Module {
-	out := make([]Module, 0, len(modules)+10)
+	out := make([]Module, 0, len(modules)+15)
 	for _, module := range modules {
 		module.PaletteVisible = false
 		module.WorkflowVersion = 1
@@ -131,6 +131,7 @@ func ModuleCatalog() []Module {
 	}
 	out = append(out, bomCentricModules()...)
 	out = append(out, variableWorkflowModules()...)
+	out = append(out, specificationTemplateModules()...)
 	return out
 }
 
@@ -168,6 +169,26 @@ func variableWorkflowModules() []Module {
 	return modules
 }
 
+func specificationTemplateModules() []Module {
+	definitions := variableWorkflowModules()
+	for index := range definitions {
+		module := &definitions[index]
+		module.WorkflowVersion = 4
+		if module.Kind != ModuleBOM {
+			continue
+		}
+		fields := module.Fields[:0]
+		for _, field := range module.Fields {
+			if field.Key == "variants" {
+				continue
+			}
+			fields = append(fields, field)
+		}
+		module.Fields = append(fields, Field{Key: "spec_template_version_id", Label: "BOM 规格模板", Type: "reference", SourceMode: "template"})
+	}
+	return definitions
+}
+
 func moduleForNode(node Node, version int) Module {
 	if version < 2 {
 		return moduleByKind[node.Kind]
@@ -175,6 +196,9 @@ func moduleForNode(node Node, version int) Module {
 	definitions := bomCentricModules()
 	if version >= 3 {
 		definitions = variableWorkflowModules()
+	}
+	if version >= 4 {
+		definitions = specificationTemplateModules()
 	}
 	for _, module := range definitions {
 		if module.Kind != node.Kind {
@@ -185,6 +209,43 @@ func moduleForNode(node Node, version int) Module {
 				module.Inputs = []Port{{ID: "from_bom", Label: "BOM产出", Types: []string{"bom.output"}, Required: true}}
 			} else {
 				module.Inputs = nil
+			}
+		}
+		if version >= 4 && node.Kind == ModuleBOM {
+			if stringValue(node.Config["output_type"]) == "product" {
+				fields := module.Fields[:0]
+				for _, field := range module.Fields {
+					switch field.Key {
+					case "output_qty", "output_unit", "route_id", "material_loss_rate":
+						continue
+					case "spec_template_version_id":
+						field.Required = true
+					}
+					fields = append(fields, field)
+				}
+				module.Fields = fields
+			} else {
+				fields := module.Fields[:0]
+				for _, field := range module.Fields {
+					if field.Key != "spec_template_version_id" {
+						fields = append(fields, field)
+					}
+				}
+				module.Fields = fields
+			}
+			for index := range module.Inputs {
+				if module.Inputs[index].ID == "components" && stringValue(node.Config["output_type"]) == "product" {
+					module.Inputs[index].Label = "规格主体候选"
+				}
+			}
+			if stringValue(node.Config["output_type"]) == "product" {
+				inputs := module.Inputs[:0]
+				for _, input := range module.Inputs {
+					if input.ID != "route" {
+						inputs = append(inputs, input)
+					}
+				}
+				module.Inputs = inputs
 			}
 		}
 		return module
@@ -383,6 +444,25 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 			if output := stringValue(node.Config["output_type"]); output != "material" && output != "product" {
 				issues = append(issues, ValidationIssue{NodeID: id, Field: "output_type", Code: "invalid_output_type", Message: "请选择物料或商品作为 BOM 产出类型"})
 			}
+			if version >= 4 {
+				templateVersionID := positiveNumber(node.Config["spec_template_version_id"])
+				if stringValue(node.Config["output_type"]) == "product" &&
+					(len(rowValues(node.Config["variants"])) > 0 || len(rowValues(node.Config["components"])) > 0 || positiveNumber(node.Config["route_id"]) > 0 || positiveNumber(node.Config["output_qty"]) > 0 || strings.TrimSpace(stringValue(node.Config["output_unit"])) != "" || positiveNumber(node.Config["material_loss_rate"]) > 0) {
+					issues = append(issues, ValidationIssue{NodeID: id, Field: "spec_template_version_id", Code: "product_bom_manual_override", Message: "商品 BOM 的规格、配方、工艺、产出数量、单位和损耗必须全部来自规格模板"})
+				}
+				if boolValue(node.Config["legacy_spec_configuration_pending"]) {
+					issues = append(issues, ValidationIssue{NodeID: id, Field: "spec_template_version_id", Code: "legacy_product_bom_conflict", Message: "旧商品 BOM 的手工规格、配方或工艺配置尚未核对，请先处理迁移提示"})
+				}
+				if stringValue(node.Config["output_type"]) == "product" && templateVersionID <= 0 {
+					issues = append(issues, ValidationIssue{NodeID: id, Field: "spec_template_version_id", Code: "spec_template_required", Message: "商品产出 BOM 必须选择一个已发布的规格模板版本"})
+				}
+				if stringValue(node.Config["output_type"]) != "product" && templateVersionID > 0 {
+					issues = append(issues, ValidationIssue{NodeID: id, Field: "spec_template_version_id", Code: "spec_template_not_allowed", Message: "只有产出商品的 BOM 可以选择规格模板"})
+				}
+				if stringValue(node.Config["output_type"]) == "product" && positiveNumber(node.Config["route_id"]) > 0 {
+					issues = append(issues, ValidationIssue{NodeID: id, Field: "route_id", Code: "template_route_conflict", Message: "商品 BOM 的工艺路线由规格模板提供"})
+				}
+			}
 		}
 		if node.Kind == ModuleProcess && positiveNumber(node.Config["route_id"]) == 0 {
 			issues = append(issues, ValidationIssue{NodeID: id, Field: "route_id", Code: "route_required", Message: "工艺节点需要在模板中选择一条有效路线"})
@@ -416,6 +496,10 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 		}
 		if edge.Kind != EdgeData {
 			issues = append(issues, ValidationIssue{EdgeID: edge.ID, Code: "edge_kind_disabled", Message: "新版模板只使用传递业务数据的连线"})
+			continue
+		}
+		if version >= 4 && target.Kind == ModuleBOM && stringValue(target.Config["output_type"]) == "product" && edge.TargetHandle == "route" {
+			issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Field: "spec_template_version_id", Code: "template_route_conflict", Message: "商品 BOM 的工艺路线由规格模板提供，请移除独立工艺连线"})
 			continue
 		}
 		outPort, okOut := findPort(moduleForNode(source, version).Outputs, edge.SourceHandle)
@@ -453,17 +537,21 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 		}
 		if node.Kind == ModuleBOM {
 			if connectedInputs[node.ID+"\x00components"] == 0 {
-				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "components", Code: "missing_data_source", Message: "BOM组装至少需要连接一个配方物料或商品规格"})
+				label := "配方物料或商品规格"
+				if version >= 4 && stringValue(node.Config["output_type"]) == "product" {
+					label = "规格主体候选"
+				}
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "components", Code: "missing_data_source", Message: "BOM组装至少需要连接一个" + label})
 			}
 			if len(outputTargets[node.ID]) != 1 {
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "assembly", Code: "bom_output_required", Message: "BOM组装需要连接一个产出物料或商品"})
 			} else if stringValue(node.Config["output_type"]) != string(outputTargets[node.ID][0].Kind) {
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "output_type", Code: "output_type_mismatch", Message: "BOM产出类型必须与连接的物料或商品一致"})
 			}
-			if connectedInputs[node.ID+"\x00route"] == 0 && positiveNumber(node.Config["route_id"]) == 0 {
+			if !(version >= 4 && stringValue(node.Config["output_type"]) == "product") && connectedInputs[node.ID+"\x00route"] == 0 && positiveNumber(node.Config["route_id"]) == 0 {
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "route", Code: "route_required", Message: "请连接工艺路线或在模板中选择默认路线"})
 			}
-			if connectedInputs[node.ID+"\x00route"] > 1 {
+			if !(version >= 4 && stringValue(node.Config["output_type"]) == "product") && connectedInputs[node.ID+"\x00route"] > 1 {
 				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "route", Code: "multiple_routes", Message: "一个 BOM 只能连接一条工艺路线"})
 			}
 		}

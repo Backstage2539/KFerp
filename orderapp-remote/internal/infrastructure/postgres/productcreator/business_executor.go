@@ -32,6 +32,152 @@ func NewBusinessExecutor(schema string, catalog *catalogapp.Service, materials *
 	return BusinessExecutor{schema: schema, catalog: catalog, materials: materials, bom: bom, purchase: purchase, costing: costing}
 }
 
+func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run creatorapp.Run) (map[string]map[string]any, []creatorapp.ValidationIssue) {
+	details := map[string]map[string]any{}
+	issues := []creatorapp.ValidationIssue{}
+	if run.Workflow.Version < 4 || e.bom == nil {
+		return details, issues
+	}
+	var templateCatalog []bomapp.ProductionBomSpecTemplate
+	loaded := false
+	for _, node := range run.Workflow.Nodes {
+		if node.Kind != creatorapp.ModuleBOM || stringValue(node.Config["output_type"]) != "product" {
+			continue
+		}
+		versionID := positiveNumber(node.Config["spec_template_version_id"])
+		if versionID <= 0 {
+			continue // The graph validator reports the required selection.
+		}
+		if !loaded {
+			var err error
+			templateCatalog, err = e.bom.ListProductionBomSpecTemplates(ctx)
+			if err != nil {
+				issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "spec_template_unavailable", Message: "规格模板暂时无法读取，请稍后重试"})
+				return details, issues
+			}
+			loaded = true
+		}
+		var selectedTemplate *bomapp.ProductionBomSpecTemplate
+		var selectedVersion *bomapp.ProductionBomSpecTemplateVersion
+		for index := range templateCatalog {
+			candidate := &templateCatalog[index]
+			if !candidate.Active {
+				continue
+			}
+			for versionIndex := range candidate.Versions {
+				version := &candidate.Versions[versionIndex]
+				if version.ID == versionID && version.Status == "published" {
+					selectedTemplate, selectedVersion = candidate, version
+					break
+				}
+			}
+			if selectedVersion != nil {
+				break
+			}
+		}
+		if selectedTemplate == nil || selectedVersion == nil {
+			issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "spec_template_not_published", Message: "所选规格模板版本已停用或不再发布，请重新选择"})
+			continue
+		}
+		templateDetail, err := e.bom.GetProductionBomSpecTemplate(ctx, selectedTemplate.ID, versionID)
+		if err != nil {
+			issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "spec_template_unavailable", Message: "所选规格模板详情无法读取"})
+			continue
+		}
+		if len(templateDetail.Variants) == 0 {
+			issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "spec_template_empty", Message: "所选规格模板没有规格，请先发布有效版本"})
+			continue
+		}
+		inputValues := run.Inputs[node.ID]
+		mainInputNodeID := strings.TrimSpace(stringValue(inputValues["main_input_source_node_id"]))
+		var mainInputNode creatorapp.Node
+		mainInputExists := false
+		for _, candidate := range run.Workflow.Nodes {
+			if candidate.ID == mainInputNodeID {
+				mainInputNode, mainInputExists = candidate, true
+				break
+			}
+		}
+		if mainInputExists && mainInputNode.Kind == creatorapp.ModuleProduct {
+			selectedRowID := strings.TrimSpace(stringValue(inputValues["main_input_source_row_id"]))
+			if stringValue(mainInputNode.Config["data_role"]) == "output" {
+				var upstreamBOM *creatorapp.Node
+				for index := range run.Workflow.Nodes {
+					candidate := &run.Workflow.Nodes[index]
+					if candidate.Kind != creatorapp.ModuleBOM || stringValue(candidate.Config["output_type"]) != "product" {
+						continue
+					}
+					for _, edge := range run.Workflow.Edges {
+						if edge.Source == candidate.ID && edge.Target == mainInputNode.ID && edge.SourceHandle == "assembly" && edge.TargetHandle == "from_bom" {
+							upstreamBOM = candidate
+							break
+						}
+					}
+					if upstreamBOM != nil {
+						break
+					}
+				}
+				validSpecKey := false
+				if upstreamBOM != nil {
+					upstreamVersionID := positiveNumber(upstreamBOM.Config["spec_template_version_id"])
+					for _, sourceTemplate := range templateCatalog {
+						if !sourceTemplate.Active {
+							continue
+						}
+						published := false
+						for _, sourceVersion := range sourceTemplate.Versions {
+							if sourceVersion.ID == int64(upstreamVersionID) && sourceVersion.Status == "published" {
+								published = true
+								break
+							}
+						}
+						if !published {
+							continue
+						}
+						sourceDetail, detailErr := e.bom.GetProductionBomSpecTemplate(ctx, sourceTemplate.ID, int64(upstreamVersionID))
+						if detailErr != nil {
+							continue
+						}
+						for _, variant := range sourceDetail.Variants {
+							if variant.SpecKey == selectedRowID {
+								validSpecKey = true
+								break
+							}
+						}
+						break
+					}
+				}
+				if !validSpecKey {
+					issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_row_invalid", Message: "所选主体不属于该上游商品 BOM 生成的已发布规格"})
+				}
+			} else if selectedSpecID := positiveNumber(run.Inputs[mainInputNode.ID]["bom_spec_id"]); selectedSpecID <= 0 || selectedRowID != fmt.Sprintf("%d", int64(selectedSpecID)) {
+				issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_row_invalid", Message: "请从已有商品已发布规格中选择主体"})
+			}
+			for _, variant := range templateDetail.Variants {
+				for _, item := range variant.Items {
+					if item.IsMainInput && (strings.EqualFold(strings.TrimSpace(item.ConsumeUnit), "ratio_pct") || item.RatioPct > 0 || variant.MaterialLossRate > 0) {
+						issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "main_input_source_row_id", Code: "product_main_input_requires_fixed_template", Message: "当前规格模板含比例配方或原料损耗，主体来源必须选择物料"})
+						break
+					}
+				}
+			}
+		}
+		mainInput := map[string]any{}
+		if mainInputExists {
+			mainInput = map[string]any{"source_node_name": mainInputNode.Name, "type": mainInputNode.Kind}
+		}
+		details[node.ID] = map[string]any{
+			"specification_template": map[string]any{
+				"template_id": selectedTemplate.ID, "name": selectedTemplate.Name,
+				"version_id": selectedVersion.ID, "version_no": selectedVersion.VersionNo,
+				"variant_count": len(templateDetail.Variants), "variants": templateDetail.Variants,
+			},
+			"main_input": mainInput,
+		}
+	}
+	return details, issues
+}
+
 type createdReference struct {
 	Type      string `json:"type"`
 	RowID     string `json:"row_id,omitempty"`
@@ -978,7 +1124,18 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 	} else {
 		outputMaterialID = output.ID
 	}
-	if stringValue(values["action"]) == "copy" {
+	if run.Workflow.Version >= 4 && outputType == "product" {
+		templateVersionID := positiveNumber(node.Config["spec_template_version_id"])
+		mainInput, inputErr := resolveProductBOMMainInput(run, node, values, refs)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		summary, err = e.bom.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
+			Name: name, OutputType: "product", OutputID: output.ID, OutputProductID: output.ID,
+			SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
+			OutputQty:         1, SpecTemplateVersionID: templateVersionID, MainInputComponent: mainInput, Actor: actor,
+		})
+	} else if stringValue(values["action"]) == "copy" {
 		specificationMode := bomapp.ProductionBomSpecificationModeSingle
 		if outputType == "product" {
 			specificationMode = bomapp.ProductionBomSpecificationModeSpecGroup
@@ -1008,6 +1165,36 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 	}
 	refs[node.ID]["output"] = outputRef
 	return map[string]any{"bom_id": summary.ID, "bom_code": summary.Code, "version_id": summary.LatestVersionID, "output": output}, nil
+}
+
+func resolveProductBOMMainInput(run creatorapp.Run, node creatorapp.Node, values map[string]any, refs map[string]map[string]createdReference) (bomapp.ProductionBomMainInputComponent, error) {
+	sourceNodeID := stringValue(values["main_input_source_node_id"])
+	sourceRowID := stringValue(values["main_input_source_row_id"])
+	var source creatorapp.Edge
+	for _, edge := range run.Workflow.Edges {
+		if edge.Kind == creatorapp.EdgeData && edge.Target == node.ID && edge.TargetHandle == "components" && edge.Source == sourceNodeID {
+			source = edge
+			break
+		}
+	}
+	if source.ID == "" || sourceRowID == "" {
+		return bomapp.ProductionBomMainInputComponent{}, fmt.Errorf("请选择一个已连接的规格主体来源")
+	}
+	ref, ok := refs[sourceNodeID][sourceRowID]
+	if !ok || ref.ID <= 0 {
+		return bomapp.ProductionBomMainInputComponent{}, fmt.Errorf("所选规格主体已失效，请重新选择")
+	}
+	switch ref.Type {
+	case "material":
+		return bomapp.ProductionBomMainInputComponent{ComponentType: "material", MaterialID: ref.ID}, nil
+	case "spec":
+		if source.SourceHandle != "specs" || ref.ProductID <= 0 || ref.SpecID <= 0 || !ref.Published {
+			return bomapp.ProductionBomMainInputComponent{}, fmt.Errorf("商品规格主体必须引用已发布的具体商品规格")
+		}
+		return bomapp.ProductionBomMainInputComponent{ComponentType: "product", ComponentProductID: ref.ProductID, ComponentBomSpecID: ref.SpecID}, nil
+	default:
+		return bomapp.ProductionBomMainInputComponent{}, fmt.Errorf("规格主体只支持物料或已发布商品规格")
+	}
 }
 
 func (e BusinessExecutor) executePublish(ctx context.Context, run creatorapp.Run, node creatorapp.Node, values map[string]any, actor string, refs map[string]map[string]createdReference) (map[string]any, error) {
