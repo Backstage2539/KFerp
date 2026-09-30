@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { reactive } from 'vue'
 
-import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, connectionRoleUpdates, moduleForNode, replaceGraphEdge, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
+import { appendGraphSnapshot, autoLayout, cloneValue, connectionIsValid, connectionRoleUpdates, initialRecipeInputs, moduleForNode, replaceGraphEdge, toCanvasGraph, toWorkflowGraph } from './product-creator-graph.js'
 
 const modules = [
   { kind: 'product', name: '商品档案', inputs: [], outputs: [{ id: 'product', types: ['product.ref'] }], fields: [] },
@@ -72,6 +72,13 @@ test('V3 workflow serializes variable definitions and dynamic BOM recipe targets
   assert.ok(saved.edges.every((edge) => edge.target_handle === 'components'))
   assert.deepEqual(saved.variables, workflow.variables)
   assert.deepEqual(saved.nodes.find((node) => node.id === 'bom').config.name_parts, workflow.nodes.at(-1).config.name_parts)
+})
+
+test('new V3+ BOM nodes start with an empty recipe input handle', () => {
+  assert.deepEqual(initialRecipeInputs('bom', 4), [{ id: 'components:add', label: '＋配方输入', add: true }])
+  assert.deepEqual(initialRecipeInputs('bom', 3), [{ id: 'components:add', label: '＋配方输入', add: true }])
+  assert.deepEqual(initialRecipeInputs('material', 4), [])
+  assert.deepEqual(initialRecipeInputs('bom', 2), [])
 })
 
 test('V4 product BOM exposes every connected source as a main-input candidate and hides the separate route input', () => {

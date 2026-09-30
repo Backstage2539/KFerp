@@ -439,6 +439,7 @@ import {
   makeEdgeId,
   makeNodeId,
   connectionRoleUpdates,
+  initialRecipeInputs,
   moduleFieldLabel,
   moduleForNode,
   recipePortForEdge,
@@ -899,6 +900,7 @@ function addModule(module, position = null) {
       module: resolvedModule,
       label: module.kind === 'bom' ? `BOM组装 ${count + 1}` : module.name,
       config,
+      recipeInputs: initialRecipeInputs(module.kind, templateWorkflowVersion.value),
     },
   }
   nodes.value.push(node)
