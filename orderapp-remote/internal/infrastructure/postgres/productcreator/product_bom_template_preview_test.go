@@ -130,7 +130,7 @@ func TestV5BOMPreviewShowsSharedConnectedRouteAndOverridesEveryProductVariant(t 
 	})
 	template.Variants[0].ProcessRouteID = 31
 	repo := specTemplatePreviewRepository{templates: []bomapp.ProductionBomSpecTemplate{template}}
-	executor := BusinessExecutor{schema: schema, bom: bomapp.NewService(repo)}
+	executor := BusinessExecutor{schema: schema, pool: pool, bom: bomapp.NewService(repo)}
 	run := creatorapp.Run{
 		Workflow: creatorapp.Workflow{Version: 5, Nodes: []creatorapp.Node{
 			{ID: "route", Kind: creatorapp.ModuleProcess, Name: "共享工艺", Config: map[string]any{"route_id": 73}},
@@ -145,6 +145,24 @@ func TestV5BOMPreviewShowsSharedConnectedRouteAndOverridesEveryProductVariant(t 
 			"material-bom": {"route_override_id": 0},
 			"product-bom":  {"route_override_id": 0},
 		},
+	}
+
+	// The API preview path runs outside a write transaction. Route inspection
+	// must therefore use the repository pool instead of assuming a tx in ctx.
+	outsideTxDetails, outsideTxIssues := executor.InspectConfigurationPreview(context.Background(), run)
+	if len(outsideTxIssues) != 0 {
+		t.Fatalf("active shared routes should preview outside a transaction, got %+v", outsideTxIssues)
+	}
+	for _, nodeID := range []string{"material-bom", "product-bom"} {
+		selection, ok := outsideTxDetails[nodeID]["process_route"].(map[string]any)
+		if !ok || selection["id"] != int64(73) || selection["name"] != "共享工艺路线" || selection["source"] != "connected_node" {
+			t.Fatalf("outside-transaction route preview for %s=%+v, want the shared route", nodeID, outsideTxDetails[nodeID]["process_route"])
+		}
+	}
+	productTemplate := outsideTxDetails["product-bom"]["specification_template"].(map[string]any)
+	outsideTxVariants := productTemplate["variants"].([]bomapp.ProductionBomSpecTemplateVariant)
+	if !reflect.DeepEqual([]string{outsideTxVariants[0].ProcessRouteName, outsideTxVariants[1].ProcessRouteName}, []string{"共享工艺路线", "共享工艺路线"}) {
+		t.Fatalf("outside-transaction preview should resolve the route name for every product spec, got %+v", outsideTxVariants)
 	}
 
 	details, issues := executor.InspectConfigurationPreview(ctx, run)

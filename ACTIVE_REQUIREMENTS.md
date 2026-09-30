@@ -120,16 +120,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-676 商品创建器 V5 后续：工艺接线与命名即时预览
-- Branch: `codex/product-creator-v5-process-preview-20260930`; base `origin/develop@54e6432f`.
-- Owner/session: Codex / Van / 2026-09-30.
-- Status: implementation and automated verification complete; development integration/deployment and browser creation are in progress; Van business acceptance pending.
+- Branch: initial `codex/product-creator-v5-process-preview-20260930` merged as PR #167; preview fix `codex/product-creator-v5-preview-runtime-fix-20261001`; base `origin/develop@61ba2c59`.
+- Owner/session: Codex / Van / 2026-10-01.
+- Status: V5 implementation merged and initially deployed; browser found a preview 500, its RED/GREEN fix is in progress; template V12 is published and run #19 is saved; final preview/product creation and redeployment remain. Van business acceptance pending.
 - Scope: V5 material/product BOMs each accept one connected process route; shared routes, independent per-BOM run override, per-spec route preview/results/audit, and live name composition preview with non-persistent examples; V1–V4 releases/runs remain unchanged.
-- DEV: DEV-710-PC-V5-ROUTE-CONNECTION; DEV-711-PC-V5-ROUTE-OVERRIDE; DEV-712-PC-NAME-LIVE-PREVIEW; DEV-713-PC-V5-DOCS-DELIVERY.
-- Verifier: `scripts/verify_kferp.sh all` passed (Go all, Vue 1,293/1,293, Vite build); isolated PostgreSQL V5 template-copy/preview/schema tests passed; additional full PostgreSQL BOM-package run has recorded legacy PR-598/600/603/617 failures in the acceptance record.
+- DEV: DEV-710-PC-V5-ROUTE-CONNECTION; DEV-711-PC-V5-ROUTE-OVERRIDE; DEV-712-PC-NAME-LIVE-PREVIEW; DEV-713-PC-V5-DOCS-DELIVERY; DEV-714-PC-V5-PREVIEW-ROUTE-LOOKUP.
+- Verifier: initial `scripts/verify_kferp.sh all` passed (Go all, Vue 1,293/1,293, Vite build); V5 PostgreSQL template-copy/preview tests passed; browser reproduced a nil transaction panic in ordinary preview; new PostgreSQL regression is RED/GREEN and Go all passes. Additional full PostgreSQL BOM-package run recorded legacy PR-598/600/603/617 failures in the acceptance record.
 - Manuals/evidence: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`; `orderapp-remote/docs/acceptance/2026-09-30-product-creator-v5-process-preview.md`.
-- Development: authorized to merge to `develop` and deploy development. The existing V4 acceptance draft was saved at revision 23 before the rollout; V5 upgrade/publication and a new product are pending post-deployment browser verification. Production and WeChat publication excluded.
+- Development: PR #167 commit `61ba2c59cd424f6d0da6589058a7d70355d50bca` was deployed 2026-09-30 with login HTTP 200; backup `/opt/stacks/erp/orderapp.backup.deploy-20260930215610-61ba2c59cd42`. The existing draft was saved at revision 23, upgraded and published as V12; run #19 currently has revision 3. Its preview exposed the lookup bug; the follow-up fix must merge/deploy before completing preview and product creation. Production and WeChat publication excluded.
 - PR-676 remains `review` until Van accepts the business behavior.
-- Last update: 2026-09-30.
+- Last update: 2026-10-01.
 
 ### PR-673-PRODUCT-CREATOR-BOM-TEMPLATE
 - Branch: `codex/product-creator-bom-template-20260928`; base `origin/develop@26150f1b`.
