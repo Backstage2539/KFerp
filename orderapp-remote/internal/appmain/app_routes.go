@@ -94,7 +94,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	stockSvc := stockapp.NewService(postgresstock.NewRepository(pool, schema))
 	purchaseSvc := purchaseapp.NewService(postgrespurchase.NewRepository(pool, schema), stockSvc)
 	productCreatorSvc := productcreatorapp.NewService(postgresproductcreator.NewRepository(pool, schema))
-	productCreatorExecutor := postgresproductcreator.NewBusinessExecutor(schema, catalogSvc, materialsSvc, bomSvc, purchaseSvc, costingSvc)
+	productCreatorExecutor := postgresproductcreator.NewBusinessExecutor(schema, pool, catalogSvc, materialsSvc, bomSvc, purchaseSvc, costingSvc)
 	productCreatorSvc.UseConfigurationExecutor(productCreatorExecutor)
 	productCreatorSvc.UseRunStepExecutor(productCreatorExecutor)
 	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema, postgressales.WithSalesOrderAssetDir(assetDir)))

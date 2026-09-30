@@ -96,7 +96,7 @@ func TestProductCreatorCommitsMultiLevelGenericProductConfigurationAtomically(t 
 	costingSvc := costingapp.NewService(postgrescosting.NewRepository(pool, schema))
 	creatorRepo := postgrescreator.NewRepository(pool, schema)
 	creatorSvc := creatorapp.NewService(creatorRepo)
-	executor := postgrescreator.NewBusinessExecutor(schema, catalogSvc, materialsSvc, bomSvc, purchaseSvc, costingSvc)
+	executor := postgrescreator.NewBusinessExecutor(schema, pool, catalogSvc, materialsSvc, bomSvc, purchaseSvc, costingSvc)
 	creatorSvc.UseConfigurationExecutor(executor)
 	creatorSvc.UseRunStepExecutor(executor)
 	template, err := creatorSvc.SaveTemplate(ctx, creatorapp.TemplateSave{Name: "非咖啡多级装配", Workflow: workflow, Actor: "integration-test"})
@@ -469,7 +469,7 @@ func TestProductCreatorBOMCentricCommitsMaterialThenMultiSpecProduct(t *testing.
 	materialsSvc := materialsapp.NewService(postgresmaterials.NewRepository(pool, schema))
 	bomSvc := bomapp.NewService(postgresbom.NewRepository(pool, schema))
 	creatorSvc := creatorapp.NewService(postgrescreator.NewRepository(pool, schema))
-	creatorSvc.UseConfigurationExecutor(postgrescreator.NewBusinessExecutor(schema, catalogSvc, materialsSvc, bomSvc, nil, nil))
+	creatorSvc.UseConfigurationExecutor(postgrescreator.NewBusinessExecutor(schema, pool, catalogSvc, materialsSvc, bomSvc, nil, nil))
 	template, err := creatorSvc.SaveTemplate(ctx, creatorapp.TemplateSave{Name: "BOM中心物料到商品", Workflow: workflow, Actor: "integration-test"})
 	if err != nil {
 		t.Fatal(err)
@@ -623,7 +623,7 @@ func TestProductCreatorConfigurationRollsBackEarlierObjectsAfterCommitValidation
 	materialsSvc := materialsapp.NewService(postgresmaterials.NewRepository(pool, schema))
 	bomSvc := bomapp.NewService(postgresbom.NewRepository(pool, schema))
 	creatorSvc := creatorapp.NewService(postgrescreator.NewRepository(pool, schema))
-	creatorSvc.UseConfigurationExecutor(postgrescreator.NewBusinessExecutor(schema, catalogSvc, materialsSvc, bomSvc, nil, nil))
+	creatorSvc.UseConfigurationExecutor(postgrescreator.NewBusinessExecutor(schema, pool, catalogSvc, materialsSvc, bomSvc, nil, nil))
 	template, err := creatorSvc.SaveTemplate(ctx, creatorapp.TemplateSave{Name: "提交时单位失效回滚", Workflow: workflow, Actor: "integration-test"})
 	if err != nil {
 		t.Fatal(err)

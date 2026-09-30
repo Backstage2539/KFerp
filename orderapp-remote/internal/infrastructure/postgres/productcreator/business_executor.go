@@ -17,10 +17,12 @@ import (
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type BusinessExecutor struct {
 	schema    string
+	pool      *pgxpool.Pool
 	catalog   *catalogapp.Service
 	materials *materialsapp.Service
 	bom       *bomapp.Service
@@ -28,8 +30,8 @@ type BusinessExecutor struct {
 	costing   *costingapp.Service
 }
 
-func NewBusinessExecutor(schema string, catalog *catalogapp.Service, materials *materialsapp.Service, bom *bomapp.Service, purchase *purchaseapp.Service, costing *costingapp.Service) BusinessExecutor {
-	return BusinessExecutor{schema: schema, catalog: catalog, materials: materials, bom: bom, purchase: purchase, costing: costing}
+func NewBusinessExecutor(schema string, pool *pgxpool.Pool, catalog *catalogapp.Service, materials *materialsapp.Service, bom *bomapp.Service, purchase *purchaseapp.Service, costing *costingapp.Service) BusinessExecutor {
+	return BusinessExecutor{schema: schema, pool: pool, catalog: catalog, materials: materials, bom: bom, purchase: purchase, costing: costing}
 }
 
 func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run creatorapp.Run) (map[string]map[string]any, []creatorapp.ValidationIssue) {
@@ -53,7 +55,9 @@ func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run c
 			name := ""
 			if selection.ID > 0 {
 				var status string
-				if err := queryWithTransaction(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT name,status FROM %s.process_routes WHERE id=$1`, e.schema), selection.ID).Scan(&name, &status); err != nil || status != "active" {
+				var routeErr error
+				name, status, routeErr = e.readProcessRoute(ctx, selection.ID)
+				if routeErr != nil || status != "active" {
 					field, message := "route_override_id", "本次选择的工艺路线已失效，请重新选择"
 					if selection.Source == "connected_node" {
 						field, message = "route", "连接的工艺路线已失效，请更换工艺节点路线"
@@ -130,7 +134,9 @@ func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run c
 			processRoute = creatorapp.ResolveBOMProcessRoute(run.Workflow, node, inputValues, connectedRoutes)
 			if processRoute.ID > 0 {
 				var status string
-				if err := queryWithTransaction(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT name,status FROM %s.process_routes WHERE id=$1`, e.schema), processRoute.ID).Scan(&processRouteName, &status); err != nil || status != "active" {
+				var routeErr error
+				processRouteName, status, routeErr = e.readProcessRoute(ctx, processRoute.ID)
+				if routeErr != nil || status != "active" {
 					field := "route_override_id"
 					message := "本次选择的工艺路线已失效，请重新选择"
 					if processRoute.Source == "connected_node" {
@@ -155,7 +161,9 @@ func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run c
 					continue
 				}
 				var status string
-				if err := queryWithTransaction(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT name,status FROM %s.process_routes WHERE id=$1`, e.schema), variant.ProcessRouteID).Scan(&variant.ProcessRouteName, &status); err != nil || status != "active" {
+				var routeErr error
+				variant.ProcessRouteName, status, routeErr = e.readProcessRoute(ctx, variant.ProcessRouteID)
+				if routeErr != nil || status != "active" {
 					issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "spec_template_version_id", Code: "process_route_unavailable", Message: fmt.Sprintf("规格 %s 使用的工艺路线已失效，请更新规格模板", variant.Name)})
 					variant.ProcessRouteName = ""
 				}
@@ -1545,6 +1553,19 @@ func generatedMaterialCode() (string, error) {
 func queryWithTransaction(ctx context.Context) pgx.Tx {
 	tx, _ := postgresinfra.TransactionFromContext(ctx)
 	return tx
+}
+
+func (e BusinessExecutor) readProcessRoute(ctx context.Context, id int64) (name, status string, err error) {
+	query := fmt.Sprintf(`SELECT name,status FROM %s.process_routes WHERE id=$1`, e.schema)
+	if tx := queryWithTransaction(ctx); tx != nil {
+		err = tx.QueryRow(ctx, query, id).Scan(&name, &status)
+		return name, status, err
+	}
+	if e.pool == nil {
+		return "", "", fmt.Errorf("product creator process-route lookup requires a database pool or transaction")
+	}
+	err = e.pool.QueryRow(ctx, query, id).Scan(&name, &status)
+	return name, status, err
 }
 
 func mapRows(value any) []map[string]any {
