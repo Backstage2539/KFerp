@@ -19,10 +19,11 @@
 ## 已完成技术检查
 
 - Go 领域、API、PostgreSQL productcreator 三包通过。独立本机临时 PostgreSQL（端口 55438、独立数据目录）执行来源检查及已有事务测试，通过后停止；未连接开发/生产业务数据库执行写入测试。
-- Node 创建器定向 42/42；完整 Vue 测试 1303/1303；`scripts/verify_kferp.sh all` 标准环境通过，Vue 生产构建通过。
+- Node 创建器定向 42/42，补充实际运行表单渲染 2/2；完整 Vue 测试原 1303/1303，补充后完整门禁 1305/1305 及构建通过；`scripts/verify_kferp.sh all` 标准环境通过，Vue 生产构建通过。
 - 额外尝试为全仓库 Go 测试启用 PostgreSQL，发现现有无关 costing/customer 测试的精简表结构缺失 `customer_order_price_table_bindings`、`estimated_unit_price`、`customer_assets` 等，且存在旧错误文案断言；该扩展检查未通过，未将其计为通过。受影响的创建器 PostgreSQL 测试单独通过。标准发布门禁未启用这些可选全仓数据库测试。
 - 本机 Chrome 使用该真实模板的只读副本和拦截 API（无线上写入）验证：升级、外购无口、自制有口、命名逐字预览、变量新建、保存草稿、切换取得方式、撤销及保存重开。修正检查中发现的 VueFlow 端口刷新问题后通过。
 - 命名区域在 1440 / 1024 / 768 / 666 像素下检查无横向溢出；无页面脚本错误。截图保存在本机 `/tmp/pc-v7-name-*.png`。
+- 运行表单补充检查发现 V6 遗留的 `variableName` 缺失：含变量的产出名称会导致渲染异常。新增实际 SFC 渲染测试在 V6/V7 均 RED，补齐变量标签解析后均 GREEN。Chrome 进一步验证 V7 初始为引用已有、临时新建外购物料名称为空、无模板命名预设、新增行仍为引用已有，保存草稿保留名称和外购属性。修正物料行操作列挤压数据字段的问题，666px 下每个输入/选择控件宽度至少 150px，暂估价格标签可换行。
 - 手册：`docs/OP_MANUAL_PRODUCT_CREATOR.md`；Vue 菜单 `productCreatorManual` 继续读取该唯一来源；手册索引已更新。
 
 ## 交付边界
