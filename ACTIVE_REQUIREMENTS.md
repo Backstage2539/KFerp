@@ -5,7 +5,8 @@
 - Scope: fix implicit manufactured output publication; V7 removes input presets, chooses existing inputs by default; node-top acquisition mode controls BOM input; ordered text/variable editor.
 - Evidence: development template 4 revision 37 has an output without supply_mode, matching the failing regression. No live template/business writes performed.
 - Verifier: targeted RED/GREEN graph/resolver/component tests; API lifecycle; PostgreSQL actual material mode; Vue build; `scripts/verify_kferp.sh all`.
-- Status: implementation, targeted tests, isolated PostgreSQL, 1305 frontend tests, build, browser fixture checks and standard full verifier passed; development delivery pending; Van acceptance pending. Production excluded.
+- Delivery: PR #172 and #173 merged into `develop`; development source `d7cbf53516c4af4595936dfad0eda29d63fd4d83` deployed on 2026-10-02. Backup `/opt/stacks/erp/orderapp.backup.deploy-20261002014729-d7cbf53516c4`; rollback image `kferp-orderapp-rollback:development-20261002014729-d7cbf53516c4`.
+- Status: targeted tests, isolated PostgreSQL, 1305 frontend tests/build, standard full verifier, merge and deployment passed. Authenticated live browser confirmed the named template editor; its validation changed from `valid:false` to `valid:true`, with revision 37/published V13 unchanged. PR-678 is review; DEV-724/725/726 are done. Van acceptance pending. No production or live template/business edits.
 
 ## PR-677 商品创建器 V6 物料预设、分类与暂估成本（2026-10-02）
 - Branch: `codex/product-creator-v6-20261001`; base `origin/develop@16bee722f3aee71c2cb0d4a38f8e847e4b87af4c`.

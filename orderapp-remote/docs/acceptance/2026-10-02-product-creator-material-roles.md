@@ -30,4 +30,14 @@
 
 仅合并 develop 并部署 development。保留原 checkout 未提交工作；没有修改线上模板、商品、物料、BOM 或生产环境。Van 刷新页面后重新打开模板编辑，保存并发布即可使用 V7；原已发布版本和既有运行不会自动切换规则。Van 业务验收待确认。
 
-部署版本及服务验证将在完成部署后补记。
+## Development 交付证据
+
+- 实现 PR [#172](https://github.com/Backstage2539/KFerp/pull/172) 合并为 `c1b2b682611805853d14d8e8be12ba7e0d739b43`；运行渲染及窄屏后续修复 PR [#173](https://github.com/Backstage2539/KFerp/pull/173) 合并为 `d7cbf53516c4af4595936dfad0eda29d63fd4d83`。
+- 2026-10-02 从干净且与远端一致的 develop 执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`，退出 0。最终部署源码为 `d7cbf53516c4af4595936dfad0eda29d63fd4d83`；部署端 Go、Vue、miniapp 测试及构建门禁通过。发布证据的后续文档提交不改变本次运行版本。
+- 服务端源码 `/opt/stacks/erp/orderapp`；前版备份 `/opt/stacks/erp/orderapp.backup.deploy-20261002014729-d7cbf53516c4`；回滚镜像 `kferp-orderapp-rollback:development-20261002014729-d7cbf53516c4`。完整部署日志本机 `/tmp/pc-v7-final-deploy.log`。
+- `erp_orderapp`、`erp_docconvert` running，`erp_postgres` healthy。公网 `/app/login` HTTP 200，`/app/` HTTP 303；认证后的创建器 API 可正常读取。服务检查 `/tmp/pc-v7-final-smoke.log`。
+- 同一模板 #4 的只读发布校验：修复前 `valid:false`，错误为半成品节点 `bom_output_requires_manufacture`；最终部署后返回 `{"issues":[],"valid":true}`。再次读取模板仍为 revision 37、published V13，没有保存、发布或覆盖 Van 的配置。
+- 最终部署后使用独立、已认证的 Chrome 会话打开真实开发环境。检查该模板顶部自制选择、半成品输入口、外购无输入口、无默认物料行、简化命名按钮；无页面错误。会话阻止所有写请求，实际检查未尝试任何写入。日志 `/tmp/pc-v7-final-browser.log`，截图 `/tmp/pc-v7-live-inspector.png`。
+- 实际需求接口返回 PR-678 `review`，DEV-724/725/726 `done`。没有生产变更，没有微信小程序上传或发布。
+
+验收入口：[开发环境商品创建器](https://dev.qacoohee.com/app/vue-shell?view=productCreator)。Van 刷新并重新打开原模板编辑，保存、发布新版本，再开启新运行即可采用 V7；本次没有创建额外验收商品，业务验收仍待 Van 确认。
