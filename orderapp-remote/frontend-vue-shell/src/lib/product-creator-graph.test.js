@@ -303,3 +303,16 @@ test('new template catalog hides advanced and pricing nodes while preserving leg
   const legacy = toCanvasGraph({ nodes: [{ id: 'old-pricing', kind: 'pricing' }], edges: [] }, catalog)
   assert.equal(legacy.nodes[0].data.module.workflow_version, 1)
 })
+
+test('V6 material nodes expose BOM output ports but reject purchased or multi-row output defaults', () => {
+  const modulesV6 = [
+    { kind: 'material', name: '物料', workflow_version: 6, inputs: [{ id: 'from_bom', types: ['bom.output'] }], outputs: [{ id: 'material', types: ['material.ref'] }] },
+    { kind: 'bom', name: 'BOM组装', workflow_version: 6, inputs: [{ id: 'components', types: ['material.ref'], multiple: true }, { id: 'route', types: ['process.route'] }], outputs: [{ id: 'assembly', types: ['bom.output'] }] },
+  ]
+  const bom = { id: 'bom', type: 'business', data: { module: modulesV6[1], config: { output_type: 'material' } } }
+  const material = (rows) => ({ id: 'raw', type: 'business', data: { module: modulesV6[0], label: '投入物料', config: { data_role: 'input', default_rows: rows } } })
+  const connection = { source: 'bom', sourceHandle: 'assembly', target: 'raw', targetHandle: 'from_bom' }
+  assert.equal(connectionValidation(connection, [bom, material([{ row_id: 'raw-1', supply_mode: 'purchase' }])], modulesV6).code, 'purchased_material_output')
+  assert.equal(connectionValidation(connection, [bom, material([{ row_id: 'raw-1', supply_mode: 'manufacture' }, { row_id: 'raw-2', supply_mode: 'manufacture' }])], modulesV6).code, 'multirow_material_output')
+  assert.equal(connectionIsValid(connection, [bom, material([{ row_id: 'semi', supply_mode: 'manufacture' }])], modulesV6), true)
+})

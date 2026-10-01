@@ -83,12 +83,15 @@
                     <small v-if="row.material_id" class="pc-run-help pc-row-wide">已选择：{{ selectedMaterialLabel(row) }} · 库存单位 {{ row.unit }}</small>
                   </template>
                   <template v-else>
-                    <label class="pc-row-field"><span>物料名称 *</span><input v-model.trim="row.name" placeholder="例如：云南水洗豆" /></label>
+                    <label class="pc-row-field"><span>物料名称 * <button v-if="workflowVersion >= 6 && row.name_mode === 'manual'" class="pc-reset-name" type="button" @click.prevent="restoreMaterialRowName(node, row)">恢复模板命名</button></span><input v-model.trim="row.name" :placeholder="generatedMaterialRowName(node, row) || '例如：云南水洗豆'" @input="markMaterialRowNameManual(row)" /></label>
+                    <details v-if="workflowVersion >= 6" class="pc-runtime-name-editor"><summary>调整本次命名组合</summary><div class="pc-name-parts-editor"><template v-for="(part, partIndex) in runtimeNameParts(node, row)" :key="`${row.row_id}-${partIndex}`"><span v-if="part.type === 'variable'" class="pc-name-variable-chip">{{ variableName(part.variable_id) }}</span><input v-else class="pc-control pc-name-literal" :value="part.value" placeholder="固定文字" @input="updateRuntimeNameText(node, row, partIndex, $event.target.value)" /><span class="pc-name-part-actions"><button type="button" :disabled="partIndex === 0" @click="moveRuntimeNamePart(node, row, partIndex, -1)">↑</button><button type="button" :disabled="partIndex === runtimeNameParts(node, row).length - 1" @click="moveRuntimeNamePart(node, row, partIndex, 1)">↓</button><button type="button" @click="removeRuntimeNamePart(node, row, partIndex)">×</button></span></template><button class="pc-run-add" type="button" @click="appendRuntimeNameText(node, row)">＋ 固定文字</button><select class="pc-control" value="" @change="appendRuntimeNameVariable(node, row, $event.target.value); $event.target.value = ''"><option value="">＋ 插入变量</option><option v-for="variable in props.run.workflow?.variables || []" :key="variable.id" :value="variable.id">{{ variable.name }}</option></select></div><small>仅修改本次运行；恢复模板命名可还原默认组合。</small></details>
                     <label v-if="workflowVersion < 3" class="pc-row-field"><span>物料类别</span><select v-model="row.kind"><option value="bean">原料</option><option value="pack">包材</option><option value="other">其他</option></select></label>
                     <label class="pc-row-field"><span>取得方式</span><select v-model="row.supply_mode"><option value="purchase">外购</option><option value="manufacture">自制</option></select></label>
                     <label class="pc-row-field"><span>库存单位 *</span><select v-model="row.unit"><option value="">选择单位</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
                     <label class="pc-row-field"><span>归属</span><select v-model="row.owner_type"><option value="factory">本公司</option><option value="customer">客户</option></select></label>
                     <label v-if="row.owner_type === 'customer'" class="pc-row-field pc-row-wide"><span>归属客户 *</span><select v-model.number="row.owner_customer_id"><option :value="0">选择客户</option><option v-for="option in customerOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
+                    <label v-if="workflowVersion >= 6 && row.supply_mode === 'purchase'" class="pc-row-field"><span>暂估采购单价（元／{{ row.unit || '库存单位' }}）</span><input v-model.number="row.estimated_unit_price" type="number" min="0" step="0.01" placeholder="可留空或填写 0" /></label>
+                    <div v-if="workflowVersion >= 6" class="pc-row-field pc-row-classification"><span>分类</span><button class="pc-classification-pick" type="button" @click="openClassificationDrawer('material_catalog', node.id, row.row_id)">{{ classificationLabel(row.classification_group_id, row.classification_item_id, 'material_catalog') || '未分类 · 选择分类' }}</button></div>
                   </template>
                   <button class="pc-run-icon-button" type="button" aria-label="删除物料行" @click="removeMaterialRow(node.id, row.row_id)"><IconTrash :size="17" /></button>
                 </div>
@@ -104,11 +107,13 @@
                   </div>
                 </template>
                 <label v-else class="pc-run-field-inline"><span>产出名称 * <button v-if="workflowVersion >= 3 && valuesFor(node.id).name_mode === 'manual'" class="pc-reset-name" type="button" @click.prevent="restoreVariableName(node)">恢复变量默认值</button></span><input v-model.trim="valuesFor(node.id).name" :placeholder="generatedOutputName(node) || '输入半成品名称'" :disabled="isNodeFieldFixed(node, 'name')" @input="markNameManual(node)" /></label>
+                <details v-if="workflowVersion >= 6 && valuesFor(node.id).action !== 'reuse'" class="pc-runtime-name-editor"><summary>调整本次命名组合</summary><div class="pc-name-parts-editor"><template v-for="(part, partIndex) in runtimeNameParts(node, valuesFor(node.id))" :key="`${node.id}-${partIndex}`"><span v-if="part.type === 'variable'" class="pc-name-variable-chip">{{ variableName(part.variable_id) }}</span><input v-else class="pc-control pc-name-literal" :value="part.value" placeholder="固定文字" @input="updateRuntimeNameText(node, valuesFor(node.id), partIndex, $event.target.value)" /><span class="pc-name-part-actions"><button type="button" :disabled="partIndex === 0" @click="moveRuntimeNamePart(node, valuesFor(node.id), partIndex, -1)">↑</button><button type="button" :disabled="partIndex === runtimeNameParts(node, valuesFor(node.id)).length - 1" @click="moveRuntimeNamePart(node, valuesFor(node.id), partIndex, 1)">↓</button><button type="button" @click="removeRuntimeNamePart(node, valuesFor(node.id), partIndex)">×</button></span></template><button class="pc-run-add" type="button" @click="appendRuntimeNameText(node, valuesFor(node.id))">＋ 固定文字</button><select class="pc-control" value="" @change="appendRuntimeNameVariable(node, valuesFor(node.id), $event.target.value); $event.target.value = ''"><option value="">＋ 插入变量</option><option v-for="variable in props.run.workflow?.variables || []" :key="variable.id" :value="variable.id">{{ variable.name }}</option></select></div><small>仅修改本次运行；恢复变量默认值可还原模板组合。</small></details>
                 <div class="pc-run-field-inline"><span>库存单位</span><strong>{{ outputMaterialUnit(node) || '请在 BOM 默认配置中选择产出单位' }}</strong></div>
                 <div class="pc-run-field-pair">
                   <label v-if="workflowVersion < 3"><span>物料类别</span><select v-model="valuesFor(node.id).kind" :disabled="isNodeFieldFixed(node, 'kind')"><option value="other">通用物料（含半成品）</option><option value="pack">包装物料</option><option value="bean">原料</option></select></label>
                   <label><span>取得方式</span><select v-model="valuesFor(node.id).supply_mode" :disabled="isNodeFieldFixed(node, 'supply_mode')"><option value="manufacture">自制</option><option value="purchase">外购</option></select></label>
                 </div>
+                <div v-if="workflowVersion >= 6 && valuesFor(node.id).action !== 'reuse'" class="pc-row-classification"><span>分类</span><button class="pc-classification-pick" type="button" @click="openClassificationDrawer('material_catalog', node.id)">{{ classificationLabel(valuesFor(node.id).classification_group_id, valuesFor(node.id).classification_item_id, 'material_catalog') || '未分类 · 选择分类' }}</button></div>
                 <small class="pc-run-help">该物料由上游 BOM 生成；物料档案保持一个库存规格。</small>
               </template>
 
@@ -116,11 +121,13 @@
                 <label class="pc-run-field-inline"><span>产出商品处理</span><select v-model="valuesFor(node.id).action" :disabled="isNodeFieldFixed(node, 'action')"><option value="create">自动新建商品</option><option value="reuse">使用时选择已有商品</option></select></label>
                 <label v-if="valuesFor(node.id).action === 'reuse'" class="pc-run-field-inline"><span>已有商品 *</span><select v-model.number="valuesFor(node.id).product_id" @change="setProductReferenceOwner(node.id)"><option :value="0">选择商品</option><option v-for="option in productOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
                 <label v-else class="pc-run-field-inline"><span>商品名称 * <button v-if="workflowVersion >= 3 && valuesFor(node.id).name_mode === 'manual'" class="pc-reset-name" type="button" @click.prevent="restoreVariableName(node)">恢复变量默认值</button></span><input v-model.trim="valuesFor(node.id).name" :placeholder="generatedOutputName(node) || '输入成品名称'" :disabled="isNodeFieldFixed(node, 'name')" @input="markNameManual(node)" /></label>
+                <details v-if="workflowVersion >= 6 && valuesFor(node.id).action !== 'reuse'" class="pc-runtime-name-editor"><summary>调整本次命名组合</summary><div class="pc-name-parts-editor"><template v-for="(part, partIndex) in runtimeNameParts(node, valuesFor(node.id))" :key="`${node.id}-${partIndex}`"><span v-if="part.type === 'variable'" class="pc-name-variable-chip">{{ variableName(part.variable_id) }}</span><input v-else class="pc-control pc-name-literal" :value="part.value" placeholder="固定文字" @input="updateRuntimeNameText(node, valuesFor(node.id), partIndex, $event.target.value)" /><span class="pc-name-part-actions"><button type="button" :disabled="partIndex === 0" @click="moveRuntimeNamePart(node, valuesFor(node.id), partIndex, -1)">↑</button><button type="button" :disabled="partIndex === runtimeNameParts(node, valuesFor(node.id)).length - 1" @click="moveRuntimeNamePart(node, valuesFor(node.id), partIndex, 1)">↓</button><button type="button" @click="removeRuntimeNamePart(node, valuesFor(node.id), partIndex)">×</button></span></template><button class="pc-run-add" type="button" @click="appendRuntimeNameText(node, valuesFor(node.id))">＋ 固定文字</button><select class="pc-control" value="" @change="appendRuntimeNameVariable(node, valuesFor(node.id), $event.target.value); $event.target.value = ''"><option value="">＋ 插入变量</option><option v-for="variable in props.run.workflow?.variables || []" :key="variable.id" :value="variable.id">{{ variable.name }}</option></select></div><small>仅修改本次运行；恢复变量默认值可还原模板组合。</small></details>
                 <div v-if="valuesFor(node.id).action !== 'reuse'" class="pc-run-field-pair">
                   <label v-if="workflowVersion < 3"><span>商品类型</span><select v-model="valuesFor(node.id).product_kind" :disabled="isNodeFieldFixed(node, 'product_kind')"><option value="generic">通用商品／装配件</option><option value="roasted">熟豆</option><option value="green_bean">生豆</option><option value="drip_bag">挂耳</option><option value="instant_coffee">速溶咖啡</option></select></label>
                   <label><span>归属</span><select v-model="valuesFor(node.id).owner" :disabled="isNodeFieldFixed(node, 'owner')"><option value="factory">本公司</option><option value="customer">客户</option></select></label>
                   <label v-if="valuesFor(node.id).owner === 'customer'"><span>归属客户 *</span><select v-model.number="valuesFor(node.id).customer_id" :disabled="isNodeFieldFixed(node, 'customer_id')"><option :value="0">选择客户</option><option v-for="option in customerOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
                 </div>
+                <div v-if="workflowVersion >= 6 && valuesFor(node.id).action !== 'reuse'" class="pc-row-classification"><span>分类</span><button class="pc-classification-pick" type="button" @click="openClassificationDrawer('product_catalog', node.id)">{{ classificationLabel(valuesFor(node.id).classification_group_id, valuesFor(node.id).classification_item_id, 'product_catalog') || '未分类 · 选择分类' }}</button></div>
                 <small class="pc-run-help">商品规格和包装由上游 BOM 引用的规格模板生成。</small>
               </template>
 
@@ -144,13 +151,14 @@
                 <small v-if="issueForField(node.id, 'main_input_source_row_id')" class="pc-run-field-error">{{ issueForField(node.id, 'main_input_source_row_id') }}</small>
                 <small v-if="issueForField(node.id, 'main_input_source_node_id')" class="pc-run-field-error">{{ issueForField(node.id, 'main_input_source_node_id') }}</small>
                 <div v-if="workflowVersion >= 5" class="pc-bom-run-defaults pc-bom-route-override">
-                  <label><span>工艺路线 · 可单独改选</span><select v-model.number="valuesFor(node.id).route_override_id"><option :value="0">跟随默认 · {{ defaultBOMRouteLabel(node) }}</option><option v-for="route in routeOptions" :key="route.id" :value="route.id">本次采用 · {{ route.label }}</option></select></label>
+                  <label><span>工艺路线 · 可单独改选</span><select v-model.number="valuesFor(node.id).route_override_id"><option :value="0">{{ defaultBOMRouteSource(node) }} · {{ defaultBOMRouteLabel(node) }}</option><option v-for="route in routeOptions" :key="route.id" :value="route.id">本次改选 · {{ route.label }}</option></select></label>
                 </div>
+                <div v-if="workflowVersion >= 6 && valuesFor(node.id).action !== 'reuse'" class="pc-row-classification"><span>BOM 分类</span><button class="pc-classification-pick" type="button" @click="openClassificationDrawer('production_bom', node.id)">{{ classificationLabel(valuesFor(node.id).classification_group_id, valuesFor(node.id).classification_item_id, 'production_bom') || '未分类 · 选择分类' }}</button></div>
                 <section v-if="specificationTemplateForBOM(node.id)" class="pc-template-run-preview">
                   <header><strong>{{ specificationTemplateForBOM(node.id).name }}</strong><span>已发布 {{ specificationTemplateForBOM(node.id).selected_version?.version_no || '' }} · {{ specificationTemplateForBOM(node.id).variants?.length || 0 }} 个规格</span></header>
                   <article v-for="variant in specificationTemplateForBOM(node.id).variants || []" :key="variant.spec_key">
                     <div class="pc-template-run-variant-heading"><strong>{{ variant.name }}</strong><span>{{ variant.inventory_unit }}<b v-if="variant.is_default">默认规格</b></span></div>
-                    <div class="pc-template-run-meta">主体用量 {{ mainTemplateInput(variant)?.qty_per_unit || 0 }} {{ mainTemplateInput(variant)?.consume_unit || '' }} · 工艺 {{ routeLabel(effectiveTemplateVariantRouteID(node, variant)) }} · {{ processRouteSourceLabel(node) }} · 损耗 {{ (Number(variant.material_loss_rate || 0) * 100).toFixed(2) }}%</div>
+                    <div class="pc-template-run-meta">主体用量 {{ mainTemplateInput(variant)?.qty_per_unit || 0 }} {{ templateMainInputUnit(node, variant) }} · 工艺 {{ routeLabel(effectiveTemplateVariantRouteID(node, variant)) }} · {{ processRouteSourceLabel(node) }} · 损耗 {{ (Number(variant.material_loss_rate || 0) * 100).toFixed(2) }}%</div>
                     <div v-for="item in (variant.items || []).filter((row) => !row.is_main_input)" :key="`${variant.spec_key}-${item.sort_order}-${item.component_bom_spec_id || item.material_id}`" class="pc-template-run-item">
                       <span>{{ item.component_name || item.component_spec_name || '规格模板包材' }}<small v-if="item.component_spec_name && item.component_name"> · {{ item.component_spec_name }}</small></span>
                       <strong>{{ item.qty_per_unit || item.ratio_pct }} {{ item.consume_unit }}<small v-if="item.component_spec_unit"> / {{ item.component_spec_unit }}</small></strong>
@@ -165,9 +173,10 @@
                 <div class="pc-bom-run-defaults">
                   <label><span>产出基准数量</span><input v-model.number="valuesFor(node.id).output_qty" type="number" min="0.001" step="0.001" :disabled="isNodeFieldFixed(node, 'output_qty')" /></label>
                   <label><span>产出单位</span><select :value="valuesFor(node.id).output_unit" :disabled="isNodeFieldFixed(node, 'output_unit')" @change="setBOMOutputUnit(node.id, $event.target.value)"><option value="">采用物料／默认规格单位</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
-                  <label><span>工艺路线</span><select v-if="workflowVersion >= 5" v-model.number="valuesFor(node.id).route_override_id"><option :value="0">跟随默认 · {{ defaultBOMRouteLabel(node) }}</option><option v-for="route in routeOptions" :key="route.id" :value="route.id">本次采用 · {{ route.label }}</option></select><select v-else v-model.number="valuesFor(node.id).route_id"><option :value="0">采用模板连线工艺</option><option v-for="route in routeOptions" :key="route.id" :value="route.id">{{ route.label }}</option></select></label>
+                  <label><span>工艺路线</span><select v-if="workflowVersion >= 5" v-model.number="valuesFor(node.id).route_override_id"><option :value="0">{{ defaultBOMRouteSource(node) }} · {{ defaultBOMRouteLabel(node) }}</option><option v-for="route in routeOptions" :key="route.id" :value="route.id">本次改选 · {{ route.label }}</option></select><select v-else v-model.number="valuesFor(node.id).route_id"><option :value="0">使用模板预设工艺</option><option v-for="route in routeOptions" :key="route.id" :value="route.id">{{ route.label }}</option></select></label>
                   <label><span>比例配方损耗 %</span><input :value="Number(valuesFor(node.id).material_loss_rate || 0) * 100" type="number" min="0" max="99.99" step="0.01" :disabled="isNodeFieldFixed(node, 'material_loss_rate')" @input="setBOMLossPercent(node.id, $event.target.value)" /></label>
                 </div>
+                <div v-if="workflowVersion >= 6 && valuesFor(node.id).action !== 'reuse'" class="pc-row-classification"><span>BOM 分类</span><button class="pc-classification-pick" type="button" @click="openClassificationDrawer('production_bom', node.id)">{{ classificationLabel(valuesFor(node.id).classification_group_id, valuesFor(node.id).classification_item_id, 'production_bom') || '未分类 · 选择分类' }}</button></div>
                 <div v-if="node.data.config.output_type === 'product'" class="pc-bom-variant-list">
                   <div class="pc-repeater-caption">商品规格 <small>各规格分别维护用量，可共用同一配方行</small></div>
                   <div v-for="variant in ensureVariants(node)" :key="variant.row_id" class="pc-bom-variant-row">
@@ -182,7 +191,7 @@
                   <div class="pc-repeater-caption">{{ bomIdentity(node) }} · 配方 <small>只需选择物料及规格，再填写用量和消耗单位</small></div>
                   <div v-for="component in ensureComponents(node)" :key="component.row_id" class="pc-component-row">
                     <div class="pc-component-source"><IconLink :size="15" /><span>{{ sourceNodeName(component.source_node_id) }} · {{ sourceRowLabel(component.source_node_id, component.source_row_id, node.id) }}</span></div>
-                    <label><span>配方对象 *</span><select v-model="component.source_row_id"><option value="">选择连接对象</option><option v-for="option in sourceRows(component.source_node_id, node.id)" :key="option.row_id" :value="option.row_id">{{ option.label }}</option></select></label>
+                    <label><span>来源配方对象 *</span><select v-model="component.source_row_id"><option value="">选择连接对象</option><option v-for="option in sourceRows(component.source_node_id, node.id)" :key="option.row_id" :value="option.row_id">{{ option.label }}</option></select></label>
                     <label><span>用量／比例 *</span><input v-model.number="component.quantity" type="number" min="0.001" step="0.001" placeholder="填写本规格用量" :disabled="isNodeFieldFixed(node, 'components')" /></label>
                     <label><span>消耗单位 *</span><select v-model="component.unit" :disabled="isNodeFieldFixed(node, 'components')"><option value="">选择单位</option><option value="ratio_pct">比例 %</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
                     <label v-if="node.data.config.output_type === 'product' && ensureVariants(node).length > 1"><span>适用产出规格</span><select v-model="component.variant_row_id" :disabled="isNodeFieldFixed(node, 'components')"><option value="">全部规格</option><option v-for="variant in ensureVariants(node)" :key="variant.row_id" :value="variant.row_id">{{ variant.name }}</option></select></label>
@@ -342,8 +351,19 @@
           </VueFlow>
         </div>
         <div class="pc-progress-legend"><span><i class="complete"></i> 已完成</span><span><i class="current"></i> 本次填写</span><span><i class="waiting"></i> 等待前置</span></div>
-        <div class="pc-run-safety"><IconInfoCircle :size="16" /><p>提交前会重新检查关联对象与权限。采购收货和价格发布会在配置完成后分别确认。</p></div>
+        <div v-if="purchaseNodes.length || pricingNodes.length" class="pc-run-safety"><IconInfoCircle :size="16" /><p>提交前会重新检查关联对象与权限。采购收货和价格发布会在配置完成后分别确认。</p></div>
       </aside>
+    </div>
+    <div v-if="classificationDrawer.open" class="pc-classification-mask" @click.self="classificationDrawer.open = false" @keydown.esc.stop.prevent="classificationDrawer.open = false">
+      <section class="pc-classification-drawer" role="dialog" aria-modal="true" :aria-label="classificationTitle">
+        <header><div><strong>{{ classificationTitle }}</strong><small>分类会随档案与 BOM 配置一起提交；引用已有对象时沿用原分类。</small></div><button class="pc-run-icon-button" type="button" aria-label="关闭分类选择" @click="classificationDrawer.open = false"><IconX :size="16" /></button></header>
+        <input v-model.trim="classificationDrawer.query" class="pc-control" placeholder="搜索分类名称或完整路径" />
+        <div class="pc-classification-options">
+          <button type="button" @click="selectClassification(null)"><strong>未分类</strong><span>使用系统默认未分类</span></button>
+          <button v-for="option in classificationOptions" :key="option.key" type="button" @click="selectClassification(option)"><strong>{{ option.label }}</strong><span>{{ option.group_name || '' }}</span></button>
+          <p v-if="!classificationOptions.length" class="pc-run-help">当前功能没有已启用的分类。</p>
+        </div>
+      </section>
     </div>
   </section>
 </template>
@@ -370,12 +390,14 @@ import {
   IconSitemap,
   IconTags,
   IconTrash,
+  IconX,
 } from '@tabler/icons-vue'
 import { apiGet } from '../api/client.js'
 import { getProductionBomSpecTemplateVersion, listProductionBomSpecTemplates } from '../api/product-creator.js'
 import { canonicalInputPortID, cloneValue, makeNodeId, toCanvasGraph } from '../lib/product-creator-graph.js'
 import { appendDuplicatedBOMComponentRow } from '../lib/product-creator-component-rows.js'
 import { renderNameParts } from '../lib/product-creator-variables.js'
+import { businessGroupControlOptions, businessGroupFeatureSelectionIDs } from '../lib/business-grouping.js'
 import ProductCreatorNode from './ProductCreatorNode.vue'
 
 const props = defineProps({
@@ -400,6 +422,9 @@ const priceListOptions = ref([])
 const pricingRuleOptions = ref([])
 const optionError = ref('')
 const originalBomVariants = ref({})
+const businessGroups = ref([])
+const businessGroupSelections = ref({})
+const classificationDrawer = ref({ open: false, usage: '', nodeID: '', rowID: '', query: '' })
 let activeRunID = 0
 let priceTargetLoadRevision = 0
 const bomOptions = ref([])
@@ -422,8 +447,17 @@ const usedWorkflowVariables = computed(() => {
   const used = new Set()
   for (const node of props.run.workflow?.nodes || []) {
     for (const part of node.config?.name_parts || []) if (part.type === 'variable' && part.variable_id) used.add(part.variable_id)
+    for (const row of node.config?.default_rows || []) for (const part of row.name_parts || []) if (part.type === 'variable' && part.variable_id) used.add(part.variable_id)
   }
   return (props.run.workflow?.variables || []).filter((variable) => used.has(variable.id))
+})
+const classificationTitle = computed(() => ({ material_catalog: '选择物料分类', product_catalog: '选择商品分类', production_bom: '选择 BOM 分类' }[classificationDrawer.value.usage] || '选择分类'))
+const classificationOptions = computed(() => {
+  const usage = classificationDrawer.value.usage
+  const query = String(classificationDrawer.value.query || '').trim().toLocaleLowerCase()
+  const ids = businessGroupSelections.value[usage] || []
+  return ids.flatMap((groupID) => businessGroupControlOptions(businessGroups.value, { selectedTemplateID: groupID, usageKey: usage }).moveOptions)
+    .filter((option) => !query || `${option.label || ''} ${option.group_name || ''}`.toLocaleLowerCase().includes(query))
 })
 
 const graph = computed(() => toCanvasGraph(props.run.workflow || { nodes: [], edges: [] }, props.modules))
@@ -522,7 +556,8 @@ onMounted(async () => {
 function makeInitialValues(node) {
   if (workflowVersion.value >= 2) {
     if (node.kind === 'material' && node.config?.data_role !== 'output') {
-      return { rows: [{ row_id: makeNodeId(), name: '', action: 'reuse', kind: 'other', supply_mode: 'purchase', unit: '', owner_type: 'factory', owner_customer_id: 0 }] }
+      const defaults = workflowVersion.value >= 6 ? node.config?.default_rows || [] : []
+      return { rows: defaults.length ? cloneValue(defaults) : [{ row_id: makeNodeId(), name: '', action: workflowVersion.value >= 6 ? 'create' : 'reuse', kind: 'other', supply_mode: 'purchase', unit: '', owner_type: 'factory', owner_customer_id: 0 }] }
     }
     if (node.kind === 'material') {
       return { action: node.config?.object_action || 'create', material_id: 0, name: '', name_mode: 'automatic', unit: node.config?.unit || outputBOMUnitForDataNode(node.id), kind: 'other', supply_mode: node.config?.supply_mode || 'manufacture', owner_type: node.config?.owner || 'factory', owner_customer_id: 0 }
@@ -631,12 +666,20 @@ function mainInputCandidates(node) {
       candidates.push({
         source_node_id: edge.source,
         source_row_id: row.row_id,
+        unit: row.unit || '',
         value: JSON.stringify([edge.source, row.row_id]),
         label: `${sourceNodeName(edge.source)} · ${row.label}${row.unit ? ` · ${row.unit}` : ''}`,
       })
     }
   }
   return candidates
+}
+
+function templateMainInputUnit(node, variant) {
+  const configured = mainTemplateInput(variant)?.consume_unit || ''
+  if (configured !== 'main_input_unit') return configured
+  const selected = mainInputCandidates(node).find((candidate) => candidate.value === mainInputSelection(node.id))
+  return selected?.unit || '主体库存单位（待选择）'
 }
 
 function mainInputSelection(nodeID) {
@@ -690,6 +733,12 @@ function defaultBOMRouteLabel(node) {
   return routeLabel(node.data.config.route_id || 0)
 }
 
+function defaultBOMRouteSource(node) {
+  if (connectedBOMRouteID(node) > 0) return '使用连线工艺'
+  if (node.data.config.output_type === 'product') return '使用规格模板工艺'
+  return Number(valuesFor(node.id).route_id || node.data.config?.route_id || 0) > 0 ? '使用模板预设工艺' : '未设置工艺'
+}
+
 function effectiveTemplateVariantRouteID(node, variant) {
   const selected = Number(valuesFor(node.id).route_override_id || 0)
   if (workflowVersion.value >= 5 && selected > 0) return selected
@@ -699,8 +748,8 @@ function effectiveTemplateVariantRouteID(node, variant) {
 
 function processRouteSourceLabel(node) {
   if (Number(valuesFor(node.id).route_override_id || 0) > 0) return '本次改选'
-  if (connectedBOMRouteID(node) > 0) return '跟随连线工艺'
-  return '沿用规格模板'
+  if (connectedBOMRouteID(node) > 0) return '使用连线工艺'
+  return '使用规格模板工艺'
 }
 
 function valuesFor(nodeID) {
@@ -791,7 +840,10 @@ function refreshComponentRowsForSource(sourceNodeID) {
 
 function ensureMaterialRows(nodeID) {
   const values = valuesFor(nodeID)
-  if (!Array.isArray(values.rows)) values.rows = []
+  if (!Array.isArray(values.rows)) {
+    const node = graph.value.nodes.find((item) => item.id === nodeID)
+    values.rows = node?.data.config?.default_rows?.length ? cloneValue(node.data.config.default_rows) : []
+  }
   return values.rows
 }
 
@@ -979,7 +1031,7 @@ function bomExecutionResult(nodeID) {
 }
 
 function processRouteResultSourceLabel(source) {
-  return ({ run_override: '本次改选', connected_node: '跟随连线工艺', bom_default: 'BOM 默认工艺', specification_template: '规格模板工艺' })[source] || '工艺路线'
+  return ({ run_override: '本次改选', connected_node: '使用连线工艺', bom_default: '使用模板预设工艺', specification_template: '使用规格模板工艺' })[source] || '工艺路线'
 }
 
 function purchaseOrder(nodeID) { return stepResult(nodeID).purchase_order || null }
@@ -1134,7 +1186,7 @@ function handleMaterialAction(nodeID, row) {
 
 function generatedOutputName(node) {
   const config = node.data.config || {}
-  if (workflowVersion.value >= 3 && Array.isArray(config.name_parts)) return renderNameParts(config.name_parts, props.run.workflow?.variables || [], variableValues.value).value
+  if (workflowVersion.value >= 3 && runtimeNameParts(node, valuesFor(node.id)).length) return renderNameParts(runtimeNameParts(node, valuesFor(node.id)), props.run.workflow?.variables || [], variableValues.value).value
   let pattern = String(config.name_pattern || config.defaults?.name_pattern || '')
   if (!pattern) return ''
   const productNode = graph.value.nodes.find((candidate) => candidate.data.module.kind === 'product' && candidate.data.config.data_role === 'output')
@@ -1216,12 +1268,23 @@ function isNodeFieldFixed(node, key) {
 function applyVariableNames() {
   if (workflowVersion.value < 3) return
   for (const node of graph.value.nodes) {
-    const parts = node.data.config?.name_parts
-    if (!Array.isArray(parts) || !parts.length) continue
+    const parts = runtimeNameParts(node, valuesFor(node.id))
     const values = valuesFor(node.id)
+    if (!Array.isArray(parts) || (!parts.length && !values.name_parts_overridden)) continue
     if (values.name_mode === 'manual') continue
     values.name = renderNameParts(parts, props.run.workflow?.variables || [], variableValues.value).value
     values.name_mode = 'automatic'
+  }
+  if (workflowVersion.value >= 6) {
+    for (const node of graph.value.nodes.filter((item) => item.data.module.kind === 'material' && item.data.config.data_role !== 'output')) {
+      for (const row of ensureMaterialRows(node.id)) {
+        if (row.name_mode === 'manual') continue
+        const parts = rowDefaultNameParts(node, row)
+        if (!parts.length && !row.name_parts_overridden) continue
+        row.name = renderNameParts(parts, props.run.workflow?.variables || [], variableValues.value).value
+        row.name_mode = 'automatic'
+      }
+    }
   }
 }
 
@@ -1229,16 +1292,101 @@ function markNameManual(node) {
   if (workflowVersion.value >= 3) valuesFor(node.id).name_mode = 'manual'
 }
 
+function rowDefaultNameParts(node, row) {
+  if (row.name_parts_overridden) return Array.isArray(row.name_parts) ? row.name_parts : []
+  return row.name_parts?.length ? row.name_parts : (node.data.config.default_rows || []).find((item) => item.row_id === row.row_id)?.name_parts || []
+}
+
+function runtimeNameParts(node, target) {
+  if (target?.name_parts_overridden) return Array.isArray(target.name_parts) ? target.name_parts : []
+  if (target?.name_parts?.length) return target.name_parts
+  if (target?.row_id) return rowDefaultNameParts(node, target)
+  return Array.isArray(node.data.config?.name_parts) ? node.data.config.name_parts : []
+}
+
+function generatedMaterialRowName(node, row) {
+  return renderNameParts(rowDefaultNameParts(node, row), props.run.workflow?.variables || [], variableValues.value).value
+}
+
+function markMaterialRowNameManual(row) {
+  row.name_mode = 'manual'
+}
+
+function restoreMaterialRowName(node, row) {
+  delete row.name_parts
+  delete row.name_parts_overridden
+  row.name_mode = 'automatic'
+  row.name = generatedMaterialRowName(node, row)
+}
+
 function restoreVariableName(node) {
-  valuesFor(node.id).name_mode = 'automatic'
-  const parts = node.data.config?.name_parts || []
-  valuesFor(node.id).name = renderNameParts(parts, props.run.workflow?.variables || [], variableValues.value).value
+  const values = valuesFor(node.id)
+  delete values.name_parts
+  delete values.name_parts_overridden
+  values.name_mode = 'automatic'
+  values.name = generatedOutputName(node)
+}
+
+function updateRuntimeName(node, target, parts) {
+  target.name_parts = parts.map((part) => ({ ...part }))
+  target.name_parts_overridden = true
+  target.name_mode = 'automatic'
+  target.name = renderNameParts(target.name_parts, props.run.workflow?.variables || [], variableValues.value).value
+}
+
+function updateRuntimeNameText(node, target, index, value) {
+  const parts = runtimeNameParts(node, target).map((part, partIndex) => partIndex === index ? { ...part, value } : { ...part })
+  updateRuntimeName(node, target, parts)
+}
+
+function appendRuntimeNameText(node, target) {
+  updateRuntimeName(node, target, [...runtimeNameParts(node, target), { type: 'text', value: '' }])
+}
+
+function appendRuntimeNameVariable(node, target, variableID) {
+  if (!variableID) return
+  updateRuntimeName(node, target, [...runtimeNameParts(node, target), { type: 'variable', variable_id: variableID }])
+}
+
+function moveRuntimeNamePart(node, target, index, direction) {
+  const parts = runtimeNameParts(node, target).map((part) => ({ ...part }))
+  const next = index + direction
+  if (next < 0 || next >= parts.length) return
+  ;[parts[index], parts[next]] = [parts[next], parts[index]]
+  updateRuntimeName(node, target, parts)
+}
+
+function removeRuntimeNamePart(node, target, index) {
+  updateRuntimeName(node, target, runtimeNameParts(node, target).filter((_, partIndex) => partIndex !== index))
 }
 
 function cloneRunDraft() {
   const draft = { inputs: cloneValue(inputValues.value) }
   if (workflowVersion.value >= 3) draft.variable_values = cloneValue(variableValues.value)
   return draft
+}
+
+function openClassificationDrawer(usage, nodeID, rowID = '') {
+  classificationDrawer.value = { open: true, usage, nodeID, rowID, query: '' }
+}
+
+function classificationLabel(groupID, itemID, usage) {
+  const group = businessGroups.value.find((row) => Number(row.id || 0) === Number(groupID || 0))
+  if (!group) return ''
+  const options = businessGroupControlOptions(businessGroups.value, { selectedTemplateID: group.id, usageKey: usage }).moveOptions
+  return options.find((row) => Number(row.group_item_id || 0) === Number(itemID || 0))?.label || ''
+}
+
+function selectClassification(option) {
+  const { usage, nodeID, rowID } = classificationDrawer.value
+  const selection = option ? { classification_group_id: Number(option.group_id), classification_item_id: Number(option.group_item_id) } : { classification_group_id: 0, classification_item_id: 0 }
+  if (usage === 'material_catalog' && rowID) {
+    const row = ensureMaterialRows(nodeID).find((item) => item.row_id === rowID)
+    if (row) Object.assign(row, selection)
+  } else {
+    Object.assign(valuesFor(nodeID), selection)
+  }
+  classificationDrawer.value.open = false
 }
 
 function bomIdentity(node) {
@@ -1355,6 +1503,10 @@ async function loadOptions() {
     apiGet('/api/production-boms?status=all'),
     apiGet('/api/customers?limit=500&active=true'),
     apiGet('/api/product-pricing-rules'),
+    apiGet('/api/business-groups'),
+    apiGet('/api/business-group-feature-selections/material_catalog'),
+    apiGet('/api/business-group-feature-selections/product_catalog'),
+    apiGet('/api/business-group-feature-selections/production_bom'),
   ])
   const rows = (result) => result.status === 'fulfilled' ? (result.value.rows || result.value.items || result.value.options || []) : []
   materialOptions.value = rows(results[0]).map((item) => ({ id: item.id, label: `${item.name}${item.code ? ` · ${item.code}` : ''}`, owner_customer_id: item.owner_customer_id || 0, unit: item.unit || item.inventory_unit || '' }))
@@ -1366,6 +1518,12 @@ async function loadOptions() {
   bomOptions.value = rows(results[6]).filter((item) => item.active !== false).map((item) => ({ id: item.id, label: `${item.name || item.code}${item.code ? ` · ${item.code}` : ''}` }))
   customerOptions.value = rows(results[7]).filter((item) => item.active !== false && Number(item.id) > 0).map((item) => ({ id: item.id, label: item.name || `客户 ${item.code || ''}` }))
   pricingRuleOptions.value = rows(results[8]).filter((item) => item.active !== false && Number(item.id) > 0)
+  businessGroups.value = rows(results[9]).filter((item) => item.active !== false)
+  businessGroupSelections.value = {
+    material_catalog: results[10].status === 'fulfilled' ? businessGroupFeatureSelectionIDs(results[10].value) : [],
+    product_catalog: results[11].status === 'fulfilled' ? businessGroupFeatureSelectionIDs(results[11].value) : [],
+    production_bom: results[12].status === 'fulfilled' ? businessGroupFeatureSelectionIDs(results[12].value) : [],
+  }
   loadPriceListOptions()
 }
 
@@ -1477,6 +1635,26 @@ function cloneInputs() {
 .pc-price-spec small { color: #8090a3; font-size: 9px; }
 .pc-material-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) 30px; align-items: end; gap: 8px; border: 1px solid #e8edf2; border-radius: 7px; padding: 9px; background: #fbfcfd; }
 .pc-row-field { min-width: 0; }
+.pc-row-classification { display: flex; align-items: center; gap: 7px; min-width: 0; color: #718097; font-size: 10px; }
+.pc-classification-pick { min-height: 31px; border: 1px solid #d9e1eb; border-radius: 6px; padding: 0 9px; color: #2d6d4a; background: #f7fbf8; font: inherit; font-weight: 600; cursor: pointer; }
+.pc-runtime-name-editor { grid-column: 1 / -1; min-width: 0; border: 1px solid #e5ebf1; border-radius: 6px; padding: 7px 9px; background: #fbfcfd; }
+.pc-runtime-name-editor > summary { color: #60728b; font-size: 10px; cursor: pointer; }
+.pc-runtime-name-editor > small { color: #8290a3; font-size: 9px; }
+.pc-runtime-name-editor .pc-name-parts-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 7px 0; }
+.pc-runtime-name-editor .pc-name-literal { flex: 1 1 130px; min-width: 110px; }
+.pc-name-part-actions { display: inline-flex; align-items: center; gap: 2px; }
+.pc-name-part-actions button { min-width: 24px; height: 24px; border: 1px solid #dce4ed; border-radius: 4px; padding: 0 4px; color: #53657d; background: white; font: inherit; font-size: 10px; cursor: pointer; }
+.pc-name-part-actions button:disabled { opacity: .4; cursor: default; }
+.pc-classification-mask { position: fixed; z-index: 1500; inset: 0; display: flex; justify-content: flex-end; background: rgb(20 32 48 / 34%); }
+.pc-classification-drawer { display: flex; flex-direction: column; gap: 13px; width: min(480px, 92vw); height: 100%; padding: 20px; border-left: 1px solid #dce4ec; background: #fff; box-shadow: -12px 0 36px rgb(26 44 68 / 13%); }
+.pc-classification-drawer > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pc-classification-drawer > header strong, .pc-classification-drawer > header small { display: block; }
+.pc-classification-drawer > header strong { font-size: 17px; }
+.pc-classification-drawer > header small { margin-top: 5px; color: #718097; line-height: 1.5; }
+.pc-classification-options { display: grid; gap: 7px; overflow: auto; }
+.pc-classification-options button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 50px; border: 1px solid #e1e8ef; border-radius: 7px; padding: 8px 10px; color: #23364c; background: white; text-align: left; cursor: pointer; }
+.pc-classification-options button:hover { border-color: #76b58b; background: #f4fbf6; }
+.pc-classification-options button span { color: #8190a4; font-size: 10px; }
 .pc-row-field > span { display: block; overflow: hidden; margin-bottom: 5px; color: #718097; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .pc-row-wide { grid-column: 1 / -2; }
 .pc-run-icon-button { display: grid; place-items: center; width: 29px; height: 32px; border: 1px solid transparent; border-radius: 5px; color: #718097; background: transparent; cursor: pointer; }

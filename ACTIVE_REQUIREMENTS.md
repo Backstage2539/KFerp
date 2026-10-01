@@ -1,3 +1,11 @@
+## PR-677 商品创建器 V6 物料预设、分类与暂估成本（2026-10-02）
+- Branch: `codex/product-creator-v6-20261001`; base `origin/develop@16bee722f3aee71c2cb0d4a38f8e847e4b87af4c`.
+- DEV: DEV-719-PC-V6-GRAPH-MATERIAL-PRESETS; DEV-720-PC-V6-NAMING; DEV-721-PC-V6-CLASSIFICATION; DEV-722-PC-ESTIMATED-MATERIAL-COST; DEV-723-PC-V6-DOCS-DELIVERY.
+- Scope: remove purchase action from V6; support editable multi-row material defaults, ordered variable names, current classifications for newly created objects, and temporary purchased-material cost replaced by receipt cost.
+- Verifier: `scripts/verify_kferp.sh all` passed; focused product-creator tests 38/38 passed; API module-catalog assertions pass. `ORDERAPP_TEST_DATABASE_URL` is not configured, so live Postgres transaction coverage remains pending; browser and development smoke follow integration.
+- Delivery: isolated feature worktree on `codex/product-creator-v6-20261001`, base `origin/develop@16bee722f3aee71c2cb0d4a38f8e847e4b87af4c`; development only, no production archive changes.
+- Status: implementation and automated verification complete; latest-develop integration, deployment, browser smoke, and development acceptance template remain; Van business acceptance pending.
+
 ## PR-676 商品创建器物料与零价成本修复（2026-10-01）
 - Branch: `codex/product-creator-material-cost-fix-20261001`; base `084c1c26`.
 - DEV: DEV-715-PC-RESULT-IDENTITY; DEV-716-PC-MANUFACTURING-SOURCE; DEV-717-ZERO-PURCHASE-COST; DEV-718-PC-CHERRY-REPAIR-DELIVERY.

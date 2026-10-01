@@ -149,3 +149,21 @@ export function upgradeWorkflowToV5(workflow = {}) {
   if (Number(upgraded.version || 1) >= 5) return upgraded
   return { ...upgraded, version: 5 }
 }
+
+export function upgradeWorkflowToV6(workflow = {}) {
+  const upgraded = upgradeWorkflowToV5(workflow)
+  if (Number(upgraded.version || 1) >= 6) return upgraded
+  const nodes = (upgraded.nodes || []).map((node) => {
+    if (node.kind !== 'material' || node.config?.data_role === 'output') return cloneValue(node)
+    const config = cloneValue(node.config || {})
+    if (!Array.isArray(config.default_rows)) {
+      config.default_rows = Array.isArray(config.rows) ? config.rows : []
+    }
+    delete config.rows
+    return { ...node, config }
+  })
+  // Historical purchase nodes stay in the V6 draft for explicit removal. The
+  // designer renders them as legacy-only nodes and server validation blocks
+  // publication until the user resolves that old behavior.
+  return { ...cloneValue(upgraded), version: 6, nodes }
+}

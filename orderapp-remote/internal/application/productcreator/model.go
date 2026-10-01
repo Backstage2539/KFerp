@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -551,6 +552,9 @@ func ResolveWorkflowInputDefaults(workflow Workflow, inputs map[string]map[strin
 			values = map[string]any{}
 			resolved[node.ID] = values
 		}
+		if workflowVersion(workflow) >= 6 && node.Kind == ModuleMaterial && stringValue(node.Config["data_role"]) == "input" {
+			values["rows"] = resolveV6MaterialRows(values["rows"], node.Config["default_rows"])
+		}
 		defaults := map[string]any{}
 		if configured, ok := node.Config["defaults"].(map[string]any); ok {
 			for key, value := range configured {
@@ -558,6 +562,9 @@ func ResolveWorkflowInputDefaults(workflow Workflow, inputs map[string]map[strin
 			}
 		}
 		for _, key := range []string{"action", "object_action", "product_kind", "owner", "customer_id", "kind", "supply_mode", "unit", "name", "name_pattern", "output_type", "output_qty", "output_unit", "route_id", "material_loss_rate", "rows", "variants", "components"} {
+			if workflowVersion(workflow) >= 6 && node.Kind == ModuleMaterial && stringValue(node.Config["data_role"]) == "input" && key == "rows" {
+				continue
+			}
 			if workflowVersion(workflow) >= 3 && (key == "product_kind" || key == "kind") {
 				continue
 			}
@@ -598,6 +605,50 @@ func ResolveWorkflowInputDefaults(workflow Workflow, inputs map[string]map[strin
 	return resolved
 }
 
+func resolveV6MaterialRows(currentValue, defaultValue any) []map[string]any {
+	defaults := rowValues(defaultValue)
+	currentRows, explicitlySet := currentValue.([]any)
+	if typed, ok := currentValue.([]map[string]any); ok {
+		return typed
+	}
+	if !explicitlySet {
+		rows := make([]map[string]any, 0, len(defaults))
+		for _, row := range defaults {
+			rows = append(rows, cloneAnyMap(row))
+		}
+		return rows
+	}
+	current := make([]map[string]any, 0, len(currentRows))
+	defaultByID := make(map[string]map[string]any, len(defaults))
+	for _, row := range defaults {
+		defaultByID[stringValue(row["row_id"])] = row
+	}
+	for _, item := range currentRows {
+		row, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		merged := cloneAnyMap(row)
+		if configured := defaultByID[stringValue(row["row_id"])]; configured != nil {
+			for key, value := range configured {
+				if _, exists := merged[key]; !exists || isUnsetForDefault(merged[key]) {
+					merged[key] = value
+				}
+			}
+		}
+		current = append(current, merged)
+	}
+	return current
+}
+
+func cloneAnyMap(value map[string]any) map[string]any {
+	copy := make(map[string]any, len(value))
+	for key, item := range value {
+		copy[key] = item
+	}
+	return copy
+}
+
 func ResolveWorkflowVariableValues(workflow Workflow, values map[string]string) map[string]string {
 	resolved := make(map[string]string, len(workflow.Variables))
 	for _, variable := range workflow.Variables {
@@ -615,43 +666,105 @@ func ResolveWorkflowVariableNames(workflow Workflow, inputs map[string]map[strin
 	values = ResolveWorkflowVariableValues(workflow, values)
 	for _, node := range workflow.Nodes {
 		parts := rowValues(node.Config["name_parts"])
-		if len(parts) == 0 {
-			continue
-		}
 		current := resolved[node.ID]
-		if stringValue(current["name_mode"]) == "manual" {
+		namePartsOverridden := workflowVersion(workflow) >= 6 && boolValue(current["name_parts_overridden"])
+		if namePartsOverridden || workflowVersion(workflow) >= 6 && len(rowValues(current["name_parts"])) > 0 {
+			parts = rowValues(current["name_parts"])
+		}
+		if (len(parts) > 0 || namePartsOverridden) && stringValue(current["name_mode"]) != "manual" {
+			current["name"] = renderNameParts(parts, values)
+			current["name_mode"] = "automatic"
+		}
+		if workflowVersion(workflow) < 6 || node.Kind != ModuleMaterial || stringValue(node.Config["data_role"]) != "input" {
 			continue
 		}
-		var name strings.Builder
-		for _, part := range parts {
-			switch stringValue(part["type"]) {
-			case "text":
-				name.WriteString(stringValue(part["value"]))
-			case "variable":
-				name.WriteString(values[stringValue(part["variable_id"])])
+		defaultRows := map[string]map[string]any{}
+		for _, row := range rowValues(node.Config["default_rows"]) {
+			defaultRows[stringValue(row["row_id"])] = row
+		}
+		for _, row := range rowValues(current["rows"]) {
+			if stringValue(row["name_mode"]) == "manual" {
+				continue
+			}
+			rowParts := rowValues(row["name_parts"])
+			if len(rowParts) == 0 && !boolValue(row["name_parts_overridden"]) {
+				rowParts = rowValues(defaultRows[stringValue(row["row_id"])]["name_parts"])
+			}
+			if len(rowParts) > 0 || boolValue(row["name_parts_overridden"]) {
+				row["name"] = renderNameParts(rowParts, values)
+				row["name_mode"] = "automatic"
 			}
 		}
-		current["name"] = strings.TrimSpace(name.String())
-		current["name_mode"] = "automatic"
 	}
 	return resolved
 }
 
+func renderNameParts(parts []map[string]any, values map[string]string) string {
+	var name strings.Builder
+	for _, part := range parts {
+		switch stringValue(part["type"]) {
+		case "text":
+			name.WriteString(stringValue(part["value"]))
+		case "variable":
+			name.WriteString(values[stringValue(part["variable_id"])])
+		}
+	}
+	return strings.TrimSpace(name.String())
+}
+
 func ValidateWorkflowVariableValues(workflow Workflow, inputs map[string]map[string]any, values map[string]string) []ValidationIssue {
 	values = ResolveWorkflowVariableValues(workflow, values)
+	definedVariables := make(map[string]struct{}, len(workflow.Variables))
+	for _, variable := range workflow.Variables {
+		definedVariables[variable.ID] = struct{}{}
+	}
 	issues := make([]ValidationIssue, 0)
 	for _, node := range workflow.Nodes {
-		if stringValue(inputs[node.ID]["name_mode"]) == "manual" {
+		if stringValue(inputs[node.ID]["name_mode"]) != "manual" {
+			parts := rowValues(node.Config["name_parts"])
+			namePartsOverridden := workflowVersion(workflow) >= 6 && boolValue(inputs[node.ID]["name_parts_overridden"])
+			if namePartsOverridden || workflowVersion(workflow) >= 6 && len(rowValues(inputs[node.ID]["name_parts"])) > 0 {
+				parts = rowValues(inputs[node.ID]["name_parts"])
+			}
+			if len(parts) > 0 || namePartsOverridden {
+				issues = appendNameVariableIssues(issues, node.ID, "name", parts, definedVariables, values)
+			}
+		}
+		if workflowVersion(workflow) < 6 || node.Kind != ModuleMaterial || stringValue(node.Config["data_role"]) != "input" {
 			continue
 		}
-		for _, part := range rowValues(node.Config["name_parts"]) {
-			if stringValue(part["type"]) != "variable" {
+		defaults := map[string][]map[string]any{}
+		for _, row := range rowValues(node.Config["default_rows"]) {
+			defaults[stringValue(row["row_id"])] = rowValues(row["name_parts"])
+		}
+		for _, row := range rowValues(inputs[node.ID]["rows"]) {
+			if stringValue(row["name_mode"]) == "manual" {
 				continue
 			}
-			id := stringValue(part["variable_id"])
-			if strings.TrimSpace(values[id]) == "" {
-				issues = append(issues, ValidationIssue{NodeID: node.ID, VariableID: id, Field: "name", Code: "required_name_variable", Message: "请填写命名变量，或手动输入此对象名称"})
+			parts := rowValues(row["name_parts"])
+			if len(parts) == 0 && !boolValue(row["name_parts_overridden"]) {
+				parts = defaults[stringValue(row["row_id"])]
 			}
+			if len(parts) > 0 || boolValue(row["name_parts_overridden"]) {
+				issues = appendNameVariableIssues(issues, node.ID, "rows."+stringValue(row["row_id"])+".name", parts, definedVariables, values)
+			}
+		}
+	}
+	return issues
+}
+
+func appendNameVariableIssues(issues []ValidationIssue, nodeID, field string, parts []map[string]any, definedVariables map[string]struct{}, values map[string]string) []ValidationIssue {
+	for _, part := range parts {
+		if stringValue(part["type"]) != "variable" {
+			continue
+		}
+		id := stringValue(part["variable_id"])
+		if _, exists := definedVariables[id]; !exists {
+			issues = append(issues, ValidationIssue{NodeID: nodeID, VariableID: id, Field: field, Code: "unknown_name_variable", Message: "命名引用了模板中不存在的变量，请重新选择变量"})
+			continue
+		}
+		if strings.TrimSpace(values[id]) == "" {
+			issues = append(issues, ValidationIssue{NodeID: nodeID, VariableID: id, Field: field, Code: "required_name_variable", Message: "请填写命名变量，或手动输入此对象名称"})
 		}
 	}
 	return issues
@@ -740,6 +853,11 @@ func validateBOMRunInputs(workflow Workflow, inputs map[string]map[string]any) [
 						}
 					} else if stringValue(row["name"]) == "" || stringValue(row["unit"]) == "" {
 						issues = append(issues, ValidationIssue{NodeID: node.ID, Field: prefix + "name", Code: "required_field", Message: "新物料需要名称和库存单位"})
+					}
+					if workflowVersion(workflow) >= 6 && stringValue(row["action"]) != "reuse" && (stringValue(row["supply_mode"]) == "purchase" || stringValue(row["supply_mode"]) == "external") {
+						if price, exists := row["estimated_unit_price"]; exists && price != nil && !validNonNegativeMoney(price) {
+							issues = append(issues, ValidationIssue{NodeID: node.ID, Field: prefix + "estimated_unit_price", Code: "invalid_estimated_purchase_price", Message: "暂估采购单价必须是非负有效金额"})
+						}
 					}
 				}
 			}
@@ -842,6 +960,38 @@ func validateBOMRunInputs(workflow Workflow, inputs map[string]map[string]any) [
 		}
 	}
 	return issues
+}
+
+func validNonNegativeMoney(value any) bool {
+	var amount float64
+	switch typed := value.(type) {
+	case float64:
+		amount = typed
+	case float32:
+		amount = float64(typed)
+	case int:
+		amount = float64(typed)
+	case int64:
+		amount = float64(typed)
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err != nil {
+			return false
+		}
+		amount = parsed
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return true
+		}
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return false
+		}
+		amount = parsed
+	default:
+		return false
+	}
+	return !math.IsNaN(amount) && !math.IsInf(amount, 0) && amount >= 0
 }
 
 func workflowNodeByID(workflow Workflow, id string) (Node, bool) {

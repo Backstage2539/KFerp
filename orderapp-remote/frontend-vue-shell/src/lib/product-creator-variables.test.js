@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { filterWorkflowVariables, renderNameParts, renderNamePreview, upgradeWorkflowToV3, upgradeWorkflowToV4, upgradeWorkflowToV5 } from './product-creator-variables.js'
+import { filterWorkflowVariables, renderNameParts, renderNamePreview, upgradeWorkflowToV3, upgradeWorkflowToV4, upgradeWorkflowToV5, upgradeWorkflowToV6 } from './product-creator-variables.js'
 
 test('variable search matches substrings and ordered fuzzy terms and permits adding the missing value', () => {
   const variables = [
@@ -104,4 +104,23 @@ test('V5 migration preserves all V4 graph connections for review under the new p
   assert.deepEqual(upgraded.edges, v4.edges)
   assert.equal(upgraded.nodes[0].config.spec_template_version_id, 91)
   assert.deepEqual(upgradeWorkflowToV5(upgraded), upgraded)
+})
+
+test('V6 migration moves input material defaults into stable rows and preserves legacy purchase nodes for review', () => {
+  const legacy = {
+    version: 5,
+    variables: [],
+    nodes: [
+      { id: 'raw', kind: 'material', config: { data_role: 'input', rows: [{ row_id: 'raw-1', name: '生豆', supply_mode: 'purchase', unit: 'kg' }] } },
+      { id: 'purchase', kind: 'purchase', config: { supplier_id: 1 } },
+    ],
+    edges: [{ id: 'edge-purchase', source: 'raw', target: 'purchase', target_handle: 'material' }],
+  }
+  const upgraded = upgradeWorkflowToV6(legacy)
+  assert.equal(upgraded.version, 6)
+  assert.deepEqual(upgraded.nodes[0].config.default_rows, legacy.nodes[0].config.rows)
+  assert.equal(upgraded.nodes[0].config.rows, undefined)
+  assert.deepEqual(upgraded.nodes[1], legacy.nodes[1])
+  assert.deepEqual(upgraded.edges, legacy.edges)
+  assert.deepEqual(upgradeWorkflowToV6(upgraded), upgraded)
 })

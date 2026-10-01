@@ -287,8 +287,8 @@ func (r Repository) CreatePurchaseReceiptAtomic(ctx context.Context, cmd purchas
 	if cmd.SupplierName == "" && cmd.SupplierID > 0 {
 		_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.purchase_suppliers WHERE id=$1`, r.schema), cmd.SupplierID).Scan(&cmd.SupplierName)
 	}
-	var oldPurchasePrice float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(purchase_price,0)::float8 FROM %s.materials WHERE id=$1 FOR UPDATE`, r.schema), cmd.MaterialID).Scan(&oldPurchasePrice); err != nil {
+	var oldPurchasePrice, oldEstimatedPrice float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(purchase_price,0)::float8,COALESCE(estimated_unit_price,-1)::float8 FROM %s.materials WHERE id=$1 FOR UPDATE`, r.schema), cmd.MaterialID).Scan(&oldPurchasePrice, &oldEstimatedPrice); err != nil {
 		return purchaseapp.PurchaseReceipt{}, err
 	}
 	stockDetail, err := stockrepo.NewRepository(r.pool, r.schema).CreateAndSubmitStockDocumentTx(ctx, tx, stockapp.StockDocumentCommand{
@@ -310,7 +310,7 @@ func (r Repository) CreatePurchaseReceiptAtomic(ctx context.Context, cmd purchas
 			stockBatchCode = stockDetail.Items[0].Allocations[0].BatchCode
 		}
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET purchase_price=$2,updated_at=now() WHERE id=$1`, r.schema), cmd.MaterialID, cmd.UnitCost); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET purchase_price=$2,estimated_unit_price=NULL,updated_at=now() WHERE id=$1`, r.schema), cmd.MaterialID, cmd.UnitCost); err != nil {
 		return purchaseapp.PurchaseReceipt{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.purchase_receipts IN SHARE ROW EXCLUSIVE MODE", r.schema)); err != nil {
@@ -353,6 +353,11 @@ func (r Repository) CreatePurchaseReceiptAtomic(ctx context.Context, cmd purchas
 		"receipt_no": receiptNo, "purchase_order_id": cmd.PurchaseOrderID, "batch_code": stockBatchCode, "warehouse": cmd.TargetWarehouse,
 	}); err != nil {
 		return purchaseapp.PurchaseReceipt{}, err
+	}
+	if oldEstimatedPrice >= 0 {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "material", &cmd.MaterialID, "clear_estimated_purchase_price_after_receipt", postgresinfra.StrPtr("estimated_unit_price"), postgresinfra.StrPtr(fmt.Sprintf("%.4f", oldEstimatedPrice)), nil, postgresinfra.AuditMeta{"receipt_no": receiptNo, "purchase_order_id": cmd.PurchaseOrderID, "actual_unit_cost": cmd.UnitCost, "actual_zero_price_is_valid": true}); err != nil {
+			return purchaseapp.PurchaseReceipt{}, err
+		}
 	}
 	if owned {
 		if err := tx.Commit(ctx); err != nil {

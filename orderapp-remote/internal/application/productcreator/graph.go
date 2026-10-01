@@ -133,6 +133,7 @@ func ModuleCatalog() []Module {
 	out = append(out, variableWorkflowModules()...)
 	out = append(out, specificationTemplateModules()...)
 	out = append(out, specificationTemplateModules(5)...)
+	out = append(out, v6Modules()...)
 	return out
 }
 
@@ -194,6 +195,30 @@ func specificationTemplateModules(version ...int) []Module {
 	return definitions
 }
 
+func v6Modules() []Module {
+	definitions := specificationTemplateModules(6)
+	filtered := make([]Module, 0, len(definitions)-1)
+	for _, module := range definitions {
+		if module.Kind == ModulePurchase {
+			continue
+		}
+		module.WorkflowVersion = 6
+		if module.Kind == ModuleMaterial {
+			fields := module.Fields[:0]
+			for _, field := range module.Fields {
+				if field.Key == "rows" {
+					field.Key = "default_rows"
+					field.Label = "物料默认行"
+				}
+				fields = append(fields, field)
+			}
+			module.Fields = append(fields, Field{Key: "name_parts", Label: "命名默认值", Type: "name_parts", SourceMode: "template"})
+		}
+		filtered = append(filtered, module)
+	}
+	return filtered
+}
+
 func moduleForNode(node Node, version int) Module {
 	if version < 2 {
 		return moduleByKind[node.Kind]
@@ -208,12 +233,17 @@ func moduleForNode(node Node, version int) Module {
 	if version >= 5 {
 		definitions = specificationTemplateModules(5)
 	}
+	if version >= 6 {
+		definitions = v6Modules()
+	}
 	for _, module := range definitions {
 		if module.Kind != node.Kind {
 			continue
 		}
 		if node.Kind == ModuleMaterial || node.Kind == ModuleProduct {
-			if stringValue(node.Config["data_role"]) == "output" {
+			if node.Kind == ModuleMaterial && version >= 6 {
+				module.Inputs = []Port{{ID: "from_bom", Label: "BOM产出", Types: []string{"bom.output"}}}
+			} else if stringValue(node.Config["data_role"]) == "output" {
 				module.Inputs = []Port{{ID: "from_bom", Label: "BOM产出", Types: []string{"bom.output"}, Required: true}}
 			} else {
 				module.Inputs = nil
@@ -434,19 +464,28 @@ func ValidateWorkflowVariableDefinitions(workflow Workflow) []ValidationIssue {
 	}
 	for _, node := range workflow.Nodes {
 		parts := rowValues(node.Config["name_parts"])
-		if len(parts) > 0 && ((node.Kind != ModuleMaterial && node.Kind != ModuleProduct) || stringValue(node.Config["data_role"]) != "output") {
+		rowNameTarget := workflowVersion(workflow) >= 6 && node.Kind == ModuleMaterial && stringValue(node.Config["data_role"]) == "input"
+		if len(parts) > 0 && ((node.Kind != ModuleMaterial && node.Kind != ModuleProduct) || (stringValue(node.Config["data_role"]) != "output" && !rowNameTarget)) {
 			issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "name_parts", Code: "invalid_name_target", Message: "命名变量只能用于新建物料或商品名称"})
 		}
-		for _, part := range parts {
-			switch stringValue(part["type"]) {
-			case "text":
-			case "variable":
-				id := strings.TrimSpace(stringValue(part["variable_id"]))
-				if _, exists := variables[id]; !exists {
-					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "name_parts", VariableID: id, Code: "unknown_name_variable", Message: "命名引用的变量不存在，请重新选择"})
+		validateParts := func(field string, nameParts []map[string]any) {
+			for _, part := range nameParts {
+				switch stringValue(part["type"]) {
+				case "text":
+				case "variable":
+					id := strings.TrimSpace(stringValue(part["variable_id"]))
+					if _, exists := variables[id]; !exists {
+						issues = append(issues, ValidationIssue{NodeID: node.ID, Field: field, VariableID: id, Code: "unknown_name_variable", Message: "命名引用的变量不存在，请重新选择"})
+					}
+				default:
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: field, Code: "invalid_name_part", Message: "名称只能由文字和变量组成"})
 				}
-			default:
-				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "name_parts", Code: "invalid_name_part", Message: "名称只能由文字和变量组成"})
+			}
+		}
+		validateParts("name_parts", parts)
+		if workflowVersion(workflow) >= 6 && node.Kind == ModuleMaterial {
+			for index, row := range rowValues(node.Config["default_rows"]) {
+				validateParts(fmt.Sprintf("default_rows.%d.name_parts", index), rowValues(row["name_parts"]))
 			}
 		}
 	}
@@ -479,6 +518,24 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 		}
 		if (node.Kind == ModuleMaterial || node.Kind == ModuleProduct) && stringValue(node.Config["data_role"]) != "input" && stringValue(node.Config["data_role"]) != "output" {
 			issues = append(issues, ValidationIssue{NodeID: id, Field: "data_role", Code: "invalid_data_role", Message: "请选择配方输入或 BOM 产出对象"})
+		}
+		if version >= 6 && node.Kind == ModuleMaterial {
+			seenRows := map[string]struct{}{}
+			for index, row := range rowValues(node.Config["default_rows"]) {
+				rowID := strings.TrimSpace(stringValue(row["row_id"]))
+				field := fmt.Sprintf("default_rows.%d.row_id", index)
+				if rowID == "" {
+					issues = append(issues, ValidationIssue{NodeID: id, Field: field, Code: "missing_material_default_row_id", Message: "物料默认行需要稳定的行标识"})
+				} else if _, exists := seenRows[rowID]; exists {
+					issues = append(issues, ValidationIssue{NodeID: id, Field: field, Code: "duplicate_material_default_row_id", Message: "物料默认行标识重复"})
+				} else {
+					seenRows[rowID] = struct{}{}
+				}
+				supplyMode := stringValue(row["supply_mode"])
+				if supplyMode != "" && supplyMode != "purchase" && supplyMode != "manufacture" && supplyMode != "external" && supplyMode != "manufactured" {
+					issues = append(issues, ValidationIssue{NodeID: id, Field: fmt.Sprintf("default_rows.%d.supply_mode", index), Code: "invalid_material_supply_mode", Message: "物料取得方式只能选择外购或自制"})
+				}
+			}
 		}
 		if node.Kind == ModuleBOM {
 			if output := stringValue(node.Config["output_type"]); output != "material" && output != "product" {
@@ -565,6 +622,22 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 		}
 		if source.Kind == ModuleBOM && edge.SourceHandle == "assembly" && (target.Kind == ModuleMaterial || target.Kind == ModuleProduct) {
 			outputTargets[source.ID] = append(outputTargets[source.ID], target)
+			if version >= 6 && target.Kind == ModuleMaterial && stringValue(target.Config["data_role"]) != "output" {
+				issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Field: "data_role", Code: "bom_output_requires_output_role", Message: "接收 BOM 产出的物料节点必须设置为产出对象"})
+			}
+			if version >= 6 && target.Kind == ModuleMaterial && stringValue(target.Config["data_role"]) == "output" {
+				action := stringValue(target.Config["object_action"])
+				if action == "" {
+					action = stringValue(target.Config["action"])
+				}
+				supplyMode := stringValue(target.Config["supply_mode"])
+				if action != "reuse" && supplyMode != "manufacture" && supplyMode != "manufactured" {
+					issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Field: "supply_mode", Code: "bom_output_requires_manufacture", Message: "BOM 产出的物料必须设置为自制"})
+				}
+				if len(rowValues(target.Config["default_rows"])) > 1 {
+					issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Field: "default_rows", Code: "multirow_material_output", Message: "BOM 产出物料是单一档案，不能保留多行投入物料预设；请拆分物料节点"})
+				}
+			}
 		}
 	}
 
