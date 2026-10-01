@@ -35,8 +35,7 @@ func NewBusinessExecutor(schema string, pool *pgxpool.Pool, catalog *catalogapp.
 }
 
 func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run creatorapp.Run) (map[string]map[string]any, []creatorapp.ValidationIssue) {
-	details := map[string]map[string]any{}
-	issues := []creatorapp.ValidationIssue{}
+	details, issues := e.inspectMaterialSources(ctx, run)
 	if run.Workflow.Version < 4 || e.bom == nil {
 		return details, issues
 	}
@@ -352,6 +351,9 @@ func (e BusinessExecutor) ExecuteConfiguration(ctx context.Context, run creatora
 // published before their outputs can feed a downstream BOM.
 func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, run creatorapp.Run, actor string) (map[string]any, error) {
 	run.Inputs = creatorapp.ResolveWorkflowInputDefaults(run.Workflow, run.Inputs)
+	if _, issues := e.inspectMaterialSources(ctx, run); len(issues) > 0 {
+		return nil, creatorapp.ExecutionError{Issues: issues}
+	}
 	order, err := creatorapp.TopologicalOrder(run.Workflow)
 	if err != nil {
 		return nil, err

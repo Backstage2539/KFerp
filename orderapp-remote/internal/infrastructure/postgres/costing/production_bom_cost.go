@@ -10,25 +10,26 @@ import (
 )
 
 type productionBomCostItem struct {
-	ID                    int64
-	ComponentType         string
-	ComponentMaterialID   int64
-	ComponentIsSemi       bool
-	ComponentProductID    int64
-	ComponentBomSpecID    int64
-	ComponentSpecG        int64
-	ConsumeUnit           string
-	QtyPerUnit            float64
-	RatioPct              float64
-	MaterialLossRate      float64
-	UnitCost              float64
-	UnitCostUnit          string
-	ComponentName         string
-	ComponentMaterialName string
-	ComponentProductName  string
-	PurchasePrice         float64
-	WeightedBatchUnitCost float64
-	UnitCostSnapshot      float64
+	ID                           int64
+	ComponentType                string
+	ComponentMaterialID          int64
+	ComponentIsSemi              bool
+	ComponentProductID           int64
+	ComponentBomSpecID           int64
+	ComponentSpecG               int64
+	ConsumeUnit                  string
+	QtyPerUnit                   float64
+	RatioPct                     float64
+	MaterialLossRate             float64
+	UnitCost                     float64
+	UnitCostUnit                 string
+	ComponentName                string
+	ComponentMaterialUnavailable bool
+	ComponentMaterialName        string
+	ComponentProductName         string
+	PurchasePrice                float64
+	WeightedBatchUnitCost        float64
+	UnitCostSnapshot             float64
 }
 
 type productionBomCostNode struct {
@@ -277,6 +278,11 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 		}
 		for _, item := range node.Items {
 			componentType := normalizeProductionBomComponentType(item.ComponentType)
+			if componentType == "material" && item.ComponentMaterialUnavailable {
+				valid = false
+				result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, "material_unavailable", "配方物料不存在或已停用", nodePath))
+				continue
+			}
 			unitCost := item.UnitCost
 			costUnit := strings.TrimSpace(item.UnitCostUnit)
 			componentKey := ""
@@ -323,8 +329,10 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 			if !ok {
 				valid = false
 				code, reason := "component_cost_unresolved", "BOM组件成本无法解析"
-				if unitCost <= 0 {
-					code, reason = "zero_component_cost", "BOM组件单价为 0：请维护物料采购价；半成品物料需绑定默认已发布的制造 BOM"
+				if !finiteNonNegative(unitCost) {
+					code, reason = "invalid_component_cost", "BOM组件成本必须为有效的非负数"
+				} else {
+					code, reason = "invalid_component_quantity_or_unit", "BOM组件用量、损耗或成本单位换算无效"
 				}
 				result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, code, reason, nodePath))
 				continue
@@ -460,7 +468,7 @@ func productionBomDirectCostSource(item productionBomCostItem) string {
 	case item.UnitCostSnapshot > 0:
 		return "unit_cost_snapshot"
 	default:
-		return "missing_cost"
+		return "zero_purchase_cost"
 	}
 }
 
@@ -474,7 +482,7 @@ func productionBomDirectCostDescription(item productionBomCostItem) string {
 	case "unit_cost_snapshot":
 		return fmt.Sprintf("BOM 成本快照 %.4f/%s", item.UnitCostSnapshot, firstNonEmptyString(item.UnitCostUnit, "库存单位"))
 	default:
-		return "未找到有效批次成本、采购价或 BOM 成本快照"
+		return "暂无采购成本，暂按 0 计算"
 	}
 }
 
@@ -757,6 +765,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 		       COALESCE(m.is_semi_finished,false),
 		       COALESCE(i.component_product_id,0),
 		       COALESCE(NULLIF(m.name,''),'') AS component_material_name,
+		       (m.id IS NULL OR COALESCE(to_jsonb(m)->>'deprecated_at','') <> '') AS component_material_unavailable,
 		       COALESCE(NULLIF(cp.name,''),'') AS component_product_name,
 		       COALESCE(i.component_spec_g,0),
 		       COALESCE(NULLIF(i.consume_unit,''),'ratio_pct') AS consume_unit,
@@ -796,6 +805,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			&item.ComponentIsSemi,
 			&item.ComponentProductID,
 			&item.ComponentMaterialName,
+			&item.ComponentMaterialUnavailable,
 			&item.ComponentProductName,
 			&item.ComponentSpecG,
 			&item.ConsumeUnit,
@@ -865,6 +875,12 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 	}
 	productCosts := make(map[int64]productionBomResolvedCost)
 	for key, cost := range all {
+		// A product:<id> alias still carries the concrete specification's type and
+		// output id. Preserve the map key instead of losing the default fallback.
+		if strings.HasPrefix(key, "product:") && cost.ProductID > 0 {
+			productCosts[cost.ProductID] = cost
+			continue
+		}
 		nodeType := normalizeProductionBomCostOutputType(cost.OutputType)
 		switch nodeType {
 		case "product":
@@ -879,7 +895,6 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 			// Material nodes are intentionally not exposed through the legacy
 			// product-key map; material-cost trial reads the typed graph.
 		}
-		_ = key
 	}
 	return productCosts, nil
 }
@@ -934,6 +949,14 @@ func productionBomCostForProduct(costs map[int64]productionBomResolvedCost, prod
 
 func resolveProductionBomTrialItemCost(item productionBomCostItem, materialUnitCost float64, materialCostUnit string, _ float64, bomOutputQty float64, bomOutputUnit string, costs map[int64]productionBomResolvedCost) (productionBomResolvedItemCost, bool, string) {
 	componentType := normalizeProductionBomComponentType(item.ComponentType)
+	if componentType == "material" && item.ComponentIsSemi {
+		// A manufactured component must come from the resolved parent graph,
+		// never from this direct-purchase fallback (even when the amount is zero).
+		return productionBomResolvedItemCost{}, false, "半成品物料缺少可完整解析的默认已发布制造 BOM"
+	}
+	if item.ComponentMaterialUnavailable {
+		return productionBomResolvedItemCost{}, false, "配方物料不存在或已停用"
+	}
 	unitCost := materialUnitCost
 	costUnit := strings.TrimSpace(materialCostUnit)
 	if componentType == "product" {
@@ -954,8 +977,8 @@ func resolveProductionBomTrialItemCost(item productionBomCostItem, materialUnitC
 	}
 	amount, ok := productionBomItemCost(item, componentType, unitCost, costUnit, bomOutputUnit)
 	if !ok {
-		if unitCost <= 0 {
-			return productionBomResolvedItemCost{}, false, "BOM组件单价为 0：请维护物料采购价；半成品物料需绑定默认已发布的制造 BOM"
+		if !finiteNonNegative(unitCost) {
+			return productionBomResolvedItemCost{}, false, "BOM组件成本必须为有效的非负数"
 		}
 		return productionBomResolvedItemCost{}, false, fmt.Sprintf("BOM组件成本单位无法换算：消耗单位 %s 与成本单位 %s 不匹配", strings.TrimSpace(item.ConsumeUnit), strings.TrimSpace(costUnit))
 	}
@@ -992,8 +1015,7 @@ func productionBomItemCost(item productionBomCostItem, componentType string, uni
 	if qty <= 0 && item.ComponentSpecG > 0 {
 		qty = float64(item.ComponentSpecG)
 	}
-	hasUsage := (consumeUnit == "ratio_pct" && item.RatioPct > 0) || (consumeUnit != "ratio_pct" && qty > 0)
-	if hasUsage && unitCost <= 0 {
+	if !finiteNonNegative(qty) || !finiteNonNegative(item.RatioPct) {
 		return 0, false
 	}
 	switch consumeUnit {
@@ -1005,9 +1027,11 @@ func productionBomItemCost(item productionBomCostItem, componentType string, uni
 		outputMassKg := productionBomCostMassKgFactor(outputUnit)
 		if sourceMassKg > 0 && outputMassKg > 0 {
 			unitCost = unitCost * outputMassKg / sourceMassKg
+		} else if costUnit != "" && !strings.EqualFold(costUnit, outputUnit) {
+			return 0, false
 		}
 		lossRate := item.MaterialLossRate
-		if lossRate < 0 || lossRate >= 1 {
+		if !finiteNonNegative(lossRate) || lossRate >= 1 {
 			return 0, false
 		}
 		return unitCost * item.RatioPct / 100 / (1 - lossRate), true

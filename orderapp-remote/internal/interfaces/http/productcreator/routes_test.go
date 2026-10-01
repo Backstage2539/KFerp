@@ -237,3 +237,24 @@ func TestCommitConfigurationRouteRequiresIdempotencyKeyAndReturnsExecutorUnavail
 		t.Fatalf("unconfigured executor status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestRunAPIKeepsExecutionSnapshotAndCurrentArchiveNamesSeparate(t *testing.T) {
+	repo := &memoryRepository{run: app.Run{ID: 4, Status: "config_committed", CurrentObjects: []app.ResultObject{{Type: "material", ID: 166, Name: "快乐樱桃-生豆", CreationName: "误填半成品", SourceNodeIDs: []string{"raw"}}}, BusinessResults: map[string]any{"objects": map[string]any{"raw": []any{map[string]any{"type": "material", "id": 166, "name": "误填半成品"}}}}}}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Creator: app.NewService(repo)})
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/product-creator/runs/4", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var run app.Run
+	if err := json.Unmarshal(rec.Body.Bytes(), &run); err != nil {
+		t.Fatal(err)
+	}
+	if len(run.CurrentObjects) != 1 || run.CurrentObjects[0].Name != "快乐樱桃-生豆" || run.CurrentObjects[0].CreationName != "误填半成品" {
+		t.Fatal(run.CurrentObjects)
+	}
+	if !strings.Contains(rec.Body.String(), `"business_results"`) {
+		t.Fatal("execution snapshot disappeared")
+	}
+}

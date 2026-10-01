@@ -169,11 +169,16 @@ func (r Repository) AssignClassification(ctx context.Context, cmd materialsapp.A
 	return assignMaterialClassification(ctx, r.pool, r.schema, cmd)
 }
 
-func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active string, limit int, includeDeprecated bool) ([]materialRow, error) {
+type materialReader interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func listMaterials(ctx context.Context, pool materialReader, schema, q, active string, limit int, includeDeprecated bool) ([]materialRow, error) {
 	return listMaterialsForCustomer(ctx, pool, schema, q, active, limit, 0, includeDeprecated, "", 0)
 }
 
-func listMaterialsForCustomer(ctx context.Context, pool *pgxpool.Pool, schema, q, active string, limit, offset int, includeDeprecated bool, ownerType string, customerID int64) ([]materialRow, error) {
+func listMaterialsForCustomer(ctx context.Context, pool materialReader, schema, q, active string, limit, offset int, includeDeprecated bool, ownerType string, customerID int64) ([]materialRow, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
@@ -288,7 +293,7 @@ func listMaterialsForCustomer(ctx context.Context, pool *pgxpool.Pool, schema, q
 	return out, nil
 }
 
-func attachMaterialOwnerNames(ctx context.Context, pool *pgxpool.Pool, schema string, rows []materialRow) error {
+func attachMaterialOwnerNames(ctx context.Context, pool materialReader, schema string, rows []materialRow) error {
 	factoryName := "本公司"
 	var companyTableExists bool
 	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".company_profile").Scan(&companyTableExists); err != nil {
@@ -346,7 +351,7 @@ func attachMaterialOwnerNames(ctx context.Context, pool *pgxpool.Pool, schema st
 	return nil
 }
 
-func materialCanManufactureSQL(ctx context.Context, pool *pgxpool.Pool, schema string) (string, error) {
+func materialCanManufactureSQL(ctx context.Context, pool materialReader, schema string) (string, error) {
 	for _, table := range []string{"production_boms", "production_bom_versions", "production_bom_output_bindings"} {
 		var exists bool
 		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists); err != nil {
@@ -386,16 +391,19 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, err
 	}
 
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return materialRow{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	if !inheritedTx {
+		conn, acquireErr := pool.Acquire(ctx)
+		if acquireErr != nil {
+			return materialRow{}, acquireErr
+		}
+		defer conn.Release()
+		tx, err = conn.Begin(ctx)
+		if err != nil {
+			return materialRow{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return materialRow{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, materialManufactureOnlyLockKey(schema, id)); err != nil {
 		return materialRow{}, err
 	}
@@ -533,11 +541,14 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	if err := logMaterialDiffsTx(ctx, tx, schema, actor, old, next); err != nil {
 		return materialRow{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return materialRow{}, err
+	var reader materialReader = tx
+	if !inheritedTx {
+		if err := tx.Commit(ctx); err != nil {
+			return materialRow{}, err
+		}
+		reader = pool
 	}
-
-	rows, err := listMaterials(ctx, pool, schema, next.Code, "active", 1, false)
+	rows, err := listMaterials(ctx, reader, schema, next.Code, "active", 1, false)
 	if err != nil {
 		return materialRow{}, err
 	}
@@ -1315,7 +1326,7 @@ func loadMaterialIndustryFieldsForTx(ctx context.Context, tx pgx.Tx, schema stri
 	return out
 }
 
-func attachMaterialIndustryFields(ctx context.Context, pool *pgxpool.Pool, schema string, rows []materialRow) error {
+func attachMaterialIndustryFields(ctx context.Context, pool materialReader, schema string, rows []materialRow) error {
 	if len(rows) == 0 {
 		return nil
 	}

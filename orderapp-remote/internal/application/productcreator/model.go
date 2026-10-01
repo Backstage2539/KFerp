@@ -40,7 +40,19 @@ type TemplateVersion struct {
 	PublishedBy string    `json:"published_by"`
 }
 
+type ResultObject struct {
+	Type          string   `json:"type"`
+	ID            int64    `json:"id"`
+	Name          string   `json:"name"`
+	CreationName  string   `json:"creation_name"`
+	Code          string   `json:"code,omitempty"`
+	Unit          string   `json:"unit,omitempty"`
+	SourceNodeIDs []string `json:"source_node_ids"`
+	BOMIDs        []int64  `json:"bom_ids"`
+}
+
 type Run struct {
+	CurrentObjects  []ResultObject            `json:"current_objects,omitempty"`
 	ID              int64                     `json:"id"`
 	TemplateID      int64                     `json:"template_id"`
 	Version         int64                     `json:"template_version"`

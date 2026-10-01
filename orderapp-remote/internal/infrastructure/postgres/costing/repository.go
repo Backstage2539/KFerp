@@ -1423,7 +1423,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		} else {
 			if !(hasResolvedParentCost && len(resolvedParentCost.UnresolvedIssues) > 0 && (componentIsSemi || componentType == "product" || componentType == "finished_product")) {
 				issues = append(issues, appcosting.PricingRuleTrialCostIssue{
-					Code:                  "zero_component_cost",
+					Code:                  "component_cost_unresolved",
 					Reason:                warning,
 					ComponentType:         componentType,
 					ComponentID:           id,

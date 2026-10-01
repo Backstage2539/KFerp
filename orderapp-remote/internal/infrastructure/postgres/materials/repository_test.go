@@ -3,6 +3,7 @@ package materials
 import (
 	"context"
 	"fmt"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"os"
 	"strings"
 	"testing"
@@ -399,5 +400,60 @@ func TestNormalizeMaterialInputCarriesIndustryTemplateAndFields(t *testing.T) {
 	}
 	if got.IndustryFieldTemplateID != 7 || len(got.IndustryFields) != 1 || got.IndustryFields[0].FieldKey != "产地" || got.IndustryFields[0].ValueText != "云南" {
 		t.Fatalf("industry fields = %+v template=%d", got.IndustryFields, got.IndustryFieldTemplateID)
+	}
+}
+
+func TestMaterialUpdateUsesCallerTransactionAndRollsBackAudit(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		t.Skip("requires isolated postgres")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	schema := fmt.Sprintf("pc_material_update_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE")
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s.audit_logs(id bigserial,ts timestamptz default now(),actor text,entity_type text,entity_id bigint,action text,field text,old_value text,new_value text,meta jsonb)`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	created, err := createMaterialInline(ctx, pool, schema, "test", materialInput{Code: "RAW", Name: "原名", Unit: "kg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	txCtx := postgresinfra.WithTransaction(ctx, tx)
+	updated, err := updateMaterialInline(txCtx, pool, schema, "test", created.ID, materialInput{Code: "RAW", Name: "生豆", Unit: "kg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "生豆" {
+		t.Fatalf("transaction must read its new name: %+v", updated)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	var audits int
+	if err := pool.QueryRow(ctx, "SELECT name FROM "+schema+".materials WHERE id=$1", created.ID).Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+schema+".audit_logs WHERE new_value='生豆'").Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	if name != "原名" || audits != 0 {
+		t.Fatalf("outer rollback must include material and audit: name=%s audits=%d", name, audits)
 	}
 }

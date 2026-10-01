@@ -33,6 +33,7 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
 
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY, name TEXT);
 		CREATE TABLE %[1]s.materials(
 			id BIGINT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', unit TEXT NOT NULL DEFAULT 'kg',
 			is_semi_finished BOOLEAN NOT NULL DEFAULT false, purchase_price NUMERIC(12,4) NOT NULL DEFAULT 0
@@ -121,10 +122,10 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 		INSERT INTO %[1]s.production_bom_version_items(
 			id,version_id,variant_id,component_type,material_id,consume_unit,qty_per_unit
 		) SELECT 6100+n,600,1700+n,'material',2,'unit',1 FROM generate_series(4,9) AS n;
-		-- 第10个规格有实际用量但没有可用成本，必须只让自身 fail closed。
+		-- 第10个规格引用不存在的物料，必须只让自身 fail closed。
 		INSERT INTO %[1]s.production_bom_version_items(
 			id,version_id,variant_id,component_type,material_id,consume_unit,qty_per_unit
-		) VALUES(6010,600,1710,'material',3,'unit',1);
+		) VALUES(6010,600,1710,'material',999,'unit',1);
 	`, schema)); err != nil {
 		t.Fatal(err)
 	}
@@ -168,4 +169,23 @@ func TestResolvedBomCostsKeepPublishedProductSpecificationsIsolatedPostgres(t *t
 	if !legacy.Resolved || math.Abs(legacy.TotalCostPerOutputUnit-1.1) > 1e-9 {
 		t.Fatalf("legacy single-recipe product cost = %+v, want 1.1", legacy)
 	}
+	// Zero purchase cost must flow through the semi-finished BOM into all nine
+	// valid specs while the genuinely missing tenth component still fails.
+	if _, err := pool.Exec(ctx, "UPDATE "+schema+".materials SET purchase_price=0 WHERE id=1"); err != nil {
+		t.Fatal(err)
+	}
+	zero, err := NewRepository(pool, schema).loadResolvedProductionBomCosts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for specID := int64(701); specID <= 709; specID++ {
+		row := zero[-specID]
+		if !row.Resolved || row.TotalCostPerOutputUnit < 0 || len(row.UnresolvedIssues) > 0 {
+			t.Fatalf("zero raw price invalidated spec %d: %+v", specID, row)
+		}
+	}
+	if zero[-710].Resolved {
+		t.Fatal("zero cost must never hide a missing material")
+	}
+
 }

@@ -1,3 +1,10 @@
+## PR-676 商品创建器物料与零价成本修复（2026-10-01）
+- Branch: `codex/product-creator-material-cost-fix-20261001`; base `084c1c26`.
+- DEV: DEV-715-PC-RESULT-IDENTITY; DEV-716-PC-MANUFACTURING-SOURCE; DEV-717-ZERO-PURCHASE-COST; DEV-718-PC-CHERRY-REPAIR-DELIVERY.
+- Scope: unique current-object results, consumed manufactured-input validation, zero purchased cost, audited correction material 166, template #1 new version.
+- Verifier: focused Go/API/PostgreSQL and Node RED/GREEN; `scripts/verify_kferp.sh all`; browser result/default-spec trial.
+- Delivery: implementation in progress; development then main/production explicitly authorized; no business data changed yet; Van acceptance pending.
+
 # ACTIVE_REQUIREMENTS
 
 ### PR-676-PRODUCT-CREATOR-BOM-SPEC-TEMPLATE

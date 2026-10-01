@@ -253,6 +253,9 @@ func (r Repository) GetRun(ctx context.Context, id int64) (app.Run, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return app.Run{}, app.ErrNotFound
 	}
+	if err == nil && run.Status != "draft" {
+		run.CurrentObjects, err = r.currentResultObjects(ctx, run)
+	}
 	return run, err
 }
 

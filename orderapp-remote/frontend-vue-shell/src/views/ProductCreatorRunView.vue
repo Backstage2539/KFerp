@@ -17,9 +17,9 @@
     <div v-if="optionError" class="pc-run-alert"><IconAlertTriangle :size="16" /> {{ optionError }}</div>
 
     <section v-if="run.status !== 'draft'" class="pc-run-result-card">
-      <header><IconCircleCheck :size="19" /><div><strong>正式业务档案已创建</strong><span>配置结果已保存；重复刷新或恢复不会再次创建。</span></div></header>
+      <header><IconCircleCheck :size="19" /><div><strong>正式业务档案已创建</strong><span>配置结果已保存；同一档案合并展示，重复刷新或恢复不会再次创建。</span></div></header>
       <div v-if="resultRows.length" class="pc-run-created-objects">
-        <div v-for="row in resultRows" :key="`${row.nodeID}-${row.type}-${row.name}`"><span>{{ row.stepName }} · {{ row.typeName }}</span><strong>{{ row.name }}</strong><small v-if="row.code">{{ row.code }}</small></div>
+        <div v-for="row in resultRows" :key="row.key"><span>{{ row.stepName }} · {{ row.typeName }}</span><strong>{{ row.name }}</strong><small v-if="row.code">{{ row.code }}</small><small v-if="row.creation_name && row.creation_name !== row.name">创建时名称：{{ row.creation_name }}</small><small v-if="row.bom_ids?.length">关联 BOM：{{ row.bom_ids.join('、') }}</small></div>
       </div>
       <div v-if="workflowVersion >= 5 && bomResultNodes.length" class="pc-run-bom-route-results">
         <article v-for="node in bomResultNodes" :key="node.id">
@@ -71,7 +71,7 @@
           <div class="pc-run-step-body">
             <div v-if="workflowVersion >= 2" class="pc-bom-run-fields">
               <template v-if="node.data.module.kind === 'material' && node.data.config.data_role !== 'output'">
-                <div class="pc-repeater-caption">配方物料 <small>搜索已有物料，或直接在当前行新建</small></div>
+                <div class="pc-repeater-caption">投入配方物料 <small>这里填写生产所消耗的原料；新建默认外购，自制物料需要上游制造 BOM。</small></div>
                 <div v-for="row in ensureMaterialRows(node.id)" :key="row.row_id" class="pc-material-row">
                   <label class="pc-row-field"><span>处理方式</span><select v-model="row.action" @change="handleMaterialAction(node.id, row)"><option value="reuse">引用已有</option><option value="create">新建物料</option></select></label>
                   <template v-if="row.action === 'reuse'">
@@ -96,7 +96,7 @@
               </template>
 
               <template v-else-if="node.data.module.kind === 'material' && node.data.config.data_role === 'output'">
-                <label class="pc-run-field-inline"><span>产出物料处理</span><select v-model="valuesFor(node.id).action" :disabled="isNodeFieldFixed(node, 'action')"><option value="create">自动新建物料</option><option value="reuse">使用时选择已有物料</option></select></label>
+                <label class="pc-run-field-inline"><span>BOM 产出物料处理</span><select v-model="valuesFor(node.id).action" :disabled="isNodeFieldFixed(node, 'action')"><option value="create">自动新建物料</option><option value="reuse">使用时选择已有物料</option></select></label>
                 <template v-if="valuesFor(node.id).action === 'reuse'">
                   <label class="pc-run-field-inline"><span>搜索已有物料 *</span><input :value="materialSearchText[materialSearchKey(node.id, 'output')] || selectedMaterialLabel(valuesFor(node.id))" placeholder="输入物料名称或编码" @input="searchMaterialForOutput(node, $event.target.value)" /></label>
                   <div v-if="materialSearchResults[materialSearchKey(node.id, 'output')]?.length" class="pc-material-search-results">
@@ -321,7 +321,7 @@
 
         <section v-if="run.preview" class="pc-run-preview-result" :class="{ invalid: !run.preview.valid }">
           <header><component :is="run.preview.valid ? IconCircleCheck : IconAlertTriangle" :size="19" /><div><strong>{{ run.preview.valid ? '业务预览通过' : '还有信息需要补齐' }}</strong><span>预览只做校验，不会创建正式商品、物料、BOM 或单据。</span></div></header>
-          <div class="pc-run-preview-steps"><div v-for="step in run.preview.steps" :key="step.node_id"><span>{{ step.name }}</span><strong>{{ step.action }}</strong><small v-if="step.details?.specification_template">规格模板：{{ step.details.specification_template.name }} · {{ step.details.specification_template.version_no }}（{{ step.details.specification_template.variant_count }} 个规格）<template v-if="step.details.main_input?.source_node_name"> · 主体来源：{{ step.details.main_input.source_node_name }}</template></small></div></div>
+          <div class="pc-run-preview-steps"><div v-for="step in run.preview.steps" :key="step.node_id"><span>{{ step.name }}</span><strong>{{ step.action }}</strong><small v-for="material in step.details?.material_objects || []" :key="material.row_id">{{ material.role }}：{{ material.name || '待填写' }} · {{ material.supply_mode === 'manufacture' ? '自制' : '外购' }}<template v-if="material.producer_node_id"> · 由 {{ sourceNodeName(material.producer_node_id) }} 生成</template></small><small v-if="step.details?.specification_template">规格模板：{{ step.details.specification_template.name }} · {{ step.details.specification_template.version_no }}（{{ step.details.specification_template.variant_count }} 个规格）<template v-if="step.details.main_input?.source_node_name"> · 主体来源：{{ step.details.main_input.source_node_name }}</template></small></div></div>
           <div v-for="issue in run.preview.issues" :key="`${issue.node_id}-${issue.field}-${issue.code}`" class="pc-run-preview-issue">{{ issue.message }}</div>
         </section>
         </fieldset>
@@ -349,6 +349,7 @@
 </template>
 
 <script setup>
+import { productCreatorResultRows } from '../lib/product-creator-results.js'
 import { computed, markRaw, onMounted, ref, watch } from 'vue'
 import { Background } from '@vue-flow/background'
 import { VueFlow } from '@vue-flow/core'
@@ -454,19 +455,7 @@ const orderedNodes = computed(() => {
   const byID = new Map(graph.value.nodes.map((node) => [node.id, node]))
   return (order.length === byID.size ? order : [...byID.keys()]).map((id) => byID.get(id)).filter(Boolean)
 })
-const resultRows = computed(() => {
-  const outputs = props.run.business_results?.objects || {}
-  const nodeNames = new Map((props.run.workflow?.nodes || []).map((node) => [node.id, node.name || '业务步骤']))
-  const labels = { product: '商品', material: '物料', bom: 'BOM', spec: '规格', route: '工艺路线' }
-  const rows = []
-  for (const [nodeID, entries] of Object.entries(outputs)) {
-    for (const entry of Array.isArray(entries) ? entries : []) {
-      if (!entry?.type || entry.type === 'route') continue
-      rows.push({ nodeID, stepName: nodeNames.get(nodeID), typeName: labels[entry.type] || '业务档案', name: entry.name || labels[entry.type] || '已创建', code: entry.code || '' })
-    }
-  }
-  return rows
-})
+const resultRows = computed(() => productCreatorResultRows(props.run))
 const purchaseNodes = computed(() => orderedNodes.value.filter((node) => node.data.module.kind === 'purchase'))
 const pricingNodes = computed(() => orderedNodes.value.filter((node) => node.data.module.kind === 'pricing'))
 const bomResultNodes = computed(() => orderedNodes.value.filter((node) => node.data.module.kind === 'bom'))
@@ -1543,7 +1532,7 @@ function cloneInputs() {
 .pc-run-preview-result header strong, .pc-run-preview-result header span { display: block; }
 .pc-run-preview-result header strong { font-size: 12px; }
 .pc-run-preview-result header span { margin-top: 3px; color: #73839a; font-size: 10px; }
-.pc-run-preview-steps > div { display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid #e6eee8; margin-top: 8px; padding-top: 8px; font-size: 10px; }
+.pc-run-preview-steps > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; border-top: 1px solid #e6eee8; margin-top: 8px; padding-top: 8px; font-size: 10px; }
 .pc-run-preview-steps > div > small { flex-basis: 100%; color: #708099; font-size: 9px; text-align: right; }
 .pc-run-preview-steps strong { color: #34475e; font-weight: 600; text-align: right; }
 .pc-run-preview-issue { margin-top: 7px; color: #af352d; font-size: 10px; }

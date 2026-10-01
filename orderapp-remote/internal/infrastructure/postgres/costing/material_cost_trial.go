@@ -61,13 +61,15 @@ func (r Repository) LoadMaterialCostTrial(ctx context.Context, cmd appcosting.Ma
 		SELECT COALESCE((SELECT weighted FROM valuation),0), COALESCE((SELECT purchase_price FROM %s.materials WHERE id=$1),0)`, r.schema, r.schema, r.schema, r.schema), cmd.MaterialID).Scan(&weighted, &purchase); err != nil {
 		return result, err
 	}
+	if !finiteNonNegative(weighted) || !finiteNonNegative(purchase) {
+		return result, fmt.Errorf("物料成本必须为有效的非负数")
+	}
 	if weighted > 0 {
 		result.UnitCost, result.PartialCost, result.CostStatus, result.CostSource = weighted, weighted, "complete", "weighted_batch_cost"
 	} else if purchase > 0 {
 		result.UnitCost, result.PartialCost, result.CostStatus, result.CostSource = purchase, purchase, "complete", "purchase_price"
 	} else {
-		result.CostStatus, result.CostSource = "incomplete", "missing_purchase_or_batch_cost"
-		result.UnresolvedComponents = []appcosting.PricingRuleTrialCostIssue{{Code: "zero_material_cost", Reason: "外购物料采购价和有效批次单位成本均为 0，请维护采购价或批次成本", ComponentType: "material", ComponentID: cmd.MaterialID, ComponentMaterialID: cmd.MaterialID, ComponentName: result.MaterialName, CostUnit: result.CostUnit, UnitCost: 0, PurchasePrice: purchase, WeightedBatchUnitCost: weighted}}
+		result.CostStatus, result.CostSource = "complete", "zero_purchase_cost"
 	}
 	result.MaterialUnitCost = result.PartialCost
 	result.BomCostTotal = result.PartialCost
@@ -140,6 +142,8 @@ func (r Repository) loadManufacturedMaterialTrial(ctx context.Context, cmd appco
 
 func materialDirectCostDescription(source string, weighted, purchase float64) string {
 	switch source {
+	case "zero_purchase_cost":
+		return "暂无采购成本，暂按 0 计算"
 	case "weighted_batch_cost":
 		return fmt.Sprintf("有效批次加权成本 %.4f", weighted)
 	case "purchase_price":
