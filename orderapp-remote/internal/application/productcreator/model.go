@@ -552,7 +552,7 @@ func ResolveWorkflowInputDefaults(workflow Workflow, inputs map[string]map[strin
 			values = map[string]any{}
 			resolved[node.ID] = values
 		}
-		if workflowVersion(workflow) >= 6 && node.Kind == ModuleMaterial && stringValue(node.Config["data_role"]) == "input" {
+		if workflowVersion(workflow) == 6 && node.Kind == ModuleMaterial && stringValue(node.Config["data_role"]) == "input" {
 			values["rows"] = resolveV6MaterialRows(values["rows"], node.Config["default_rows"])
 		}
 		defaults := map[string]any{}
@@ -830,6 +830,9 @@ func validateBOMRunInputs(workflow Workflow, inputs map[string]map[string]any) [
 		switch node.Kind {
 		case ModuleMaterial:
 			if stringValue(node.Config["data_role"]) == "output" {
+				if workflowVersion(workflow) >= 7 && stringValue(values["supply_mode"]) != "" && stringValue(values["supply_mode"]) != "manufacture" && stringValue(values["supply_mode"]) != "manufactured" {
+					issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "supply_mode", Code: "bom_output_requires_manufacture", Message: "BOM 产出物料必须为自制"})
+				}
 				action := stringValue(values["action"])
 				if action == "" {
 					action = stringValue(node.Config["object_action"])
@@ -847,6 +850,10 @@ func validateBOMRunInputs(workflow Workflow, inputs map[string]map[string]any) [
 				}
 				for _, row := range rows {
 					prefix := "rows." + stringValue(row["row_id"]) + "."
+					if workflowVersion(workflow) >= 7 && stringValue(row["action"]) != "reuse" && stringValue(row["supply_mode"]) != "" && stringValue(row["supply_mode"]) != "purchase" && stringValue(row["supply_mode"]) != "external" {
+						issues = append(issues, ValidationIssue{NodeID: node.ID, Field: prefix + "supply_mode", Code: "input_material_requires_purchase", Message: "表内新建物料只能为外购；自制物料请使用连接 BOM 的产出节点"})
+					}
+
 					if stringValue(row["action"]) == "reuse" {
 						if positiveNumber(row["material_id"]) <= 0 {
 							issues = append(issues, ValidationIssue{NodeID: node.ID, Field: prefix + "material_id", Code: "required_reference", Message: "请选择配方物料"})

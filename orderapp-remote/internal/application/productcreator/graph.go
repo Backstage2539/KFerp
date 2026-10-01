@@ -134,6 +134,7 @@ func ModuleCatalog() []Module {
 	out = append(out, specificationTemplateModules()...)
 	out = append(out, specificationTemplateModules(5)...)
 	out = append(out, v6Modules()...)
+	out = append(out, v7Modules()...)
 	return out
 }
 
@@ -219,6 +220,44 @@ func v6Modules() []Module {
 	return filtered
 }
 
+// MaterialSupplyMode uses the same legacy default as the designer and executor.
+func MaterialSupplyMode(node Node) string {
+	mode := stringValue(node.Config["supply_mode"])
+	if mode == "" {
+		if defaults, ok := node.Config["defaults"].(map[string]any); ok {
+			mode = stringValue(defaults["supply_mode"])
+		}
+	}
+	if mode == "manufactured" {
+		return "manufacture"
+	}
+	if mode == "external" {
+		return "purchase"
+	}
+	if mode != "" {
+		return mode
+	}
+	if stringValue(node.Config["data_role"]) == "output" {
+		return "manufacture"
+	}
+	return "purchase"
+}
+
+func v7Modules() []Module {
+	modules := v6Modules()
+	for i := range modules {
+		modules[i].WorkflowVersion = 7
+		fields := []Field{}
+		for _, field := range modules[i].Fields {
+			if field.Key != "default_rows" {
+				fields = append(fields, field)
+			}
+		}
+		modules[i].Fields = fields
+	}
+	return modules
+}
+
 func moduleForNode(node Node, version int) Module {
 	if version < 2 {
 		return moduleByKind[node.Kind]
@@ -236,12 +275,20 @@ func moduleForNode(node Node, version int) Module {
 	if version >= 6 {
 		definitions = v6Modules()
 	}
+	if version >= 7 {
+		definitions = v7Modules()
+	}
 	for _, module := range definitions {
 		if module.Kind != node.Kind {
 			continue
 		}
 		if node.Kind == ModuleMaterial || node.Kind == ModuleProduct {
-			if node.Kind == ModuleMaterial && version >= 6 {
+			if node.Kind == ModuleMaterial && version >= 7 {
+				module.Inputs = nil
+				if MaterialSupplyMode(node) == "manufacture" {
+					module.Inputs = []Port{{ID: "from_bom", Label: "BOM产出", Types: []string{"bom.output"}, Required: true}}
+				}
+			} else if node.Kind == ModuleMaterial && version >= 6 {
 				module.Inputs = []Port{{ID: "from_bom", Label: "BOM产出", Types: []string{"bom.output"}}}
 			} else if stringValue(node.Config["data_role"]) == "output" {
 				module.Inputs = []Port{{ID: "from_bom", Label: "BOM产出", Types: []string{"bom.output"}, Required: true}}
@@ -464,7 +511,7 @@ func ValidateWorkflowVariableDefinitions(workflow Workflow) []ValidationIssue {
 	}
 	for _, node := range workflow.Nodes {
 		parts := rowValues(node.Config["name_parts"])
-		rowNameTarget := workflowVersion(workflow) >= 6 && node.Kind == ModuleMaterial && stringValue(node.Config["data_role"]) == "input"
+		rowNameTarget := workflowVersion(workflow) == 6 && node.Kind == ModuleMaterial && stringValue(node.Config["data_role"]) == "input"
 		if len(parts) > 0 && ((node.Kind != ModuleMaterial && node.Kind != ModuleProduct) || (stringValue(node.Config["data_role"]) != "output" && !rowNameTarget)) {
 			issues = append(issues, ValidationIssue{NodeID: node.ID, Field: "name_parts", Code: "invalid_name_target", Message: "命名变量只能用于新建物料或商品名称"})
 		}
@@ -518,6 +565,19 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 		}
 		if (node.Kind == ModuleMaterial || node.Kind == ModuleProduct) && stringValue(node.Config["data_role"]) != "input" && stringValue(node.Config["data_role"]) != "output" {
 			issues = append(issues, ValidationIssue{NodeID: id, Field: "data_role", Code: "invalid_data_role", Message: "请选择配方输入或 BOM 产出对象"})
+		}
+		if version >= 7 && node.Kind == ModuleMaterial {
+			mode := MaterialSupplyMode(node)
+			role := stringValue(node.Config["data_role"])
+			if mode != "manufacture" && mode != "purchase" {
+				issues = append(issues, ValidationIssue{NodeID: id, Field: "supply_mode", Code: "invalid_material_supply_mode", Message: "请选择外购或自制"})
+			}
+			if (mode == "manufacture" && role != "output") || (mode == "purchase" && role != "input") {
+				issues = append(issues, ValidationIssue{NodeID: id, Field: "supply_mode", Code: "material_role_mismatch", Message: "自制物料必须接收 BOM 产出；外购物料作为配方选择来源"})
+			}
+			if len(rowValues(node.Config["default_rows"])) > 0 || len(rowValues(node.Config["rows"])) > 0 {
+				issues = append(issues, ValidationIssue{NodeID: id, Field: "rows", Code: "material_presets_removed", Message: "模板不再预设物料行，请在使用时选择已有物料或新建外购物料"})
+			}
 		}
 		if version >= 6 && node.Kind == ModuleMaterial {
 			seenRows := map[string]struct{}{}
@@ -599,6 +659,10 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 			issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Field: "spec_template_version_id", Code: "template_route_conflict", Message: "商品 BOM 的工艺路线由规格模板提供，请移除独立工艺连线"})
 			continue
 		}
+		if version >= 7 && source.Kind == ModuleBOM && target.Kind == ModuleMaterial && edge.TargetHandle == "from_bom" && MaterialSupplyMode(target) != "manufacture" {
+			issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Field: "supply_mode", Code: "bom_output_requires_manufacture", Message: "外购物料不接收 BOM 产出，请先删除产出连线或改为自制"})
+			continue
+		}
 		outPort, okOut := findPort(moduleForNode(source, version).Outputs, edge.SourceHandle)
 		inPort, okIn := findPort(moduleForNode(target, version).Inputs, edge.TargetHandle)
 		if !okOut || !okIn {
@@ -630,7 +694,7 @@ func validateBOMWorkflow(workflow Workflow) []ValidationIssue {
 				if action == "" {
 					action = stringValue(target.Config["action"])
 				}
-				supplyMode := stringValue(target.Config["supply_mode"])
+				supplyMode := MaterialSupplyMode(target)
 				if action != "reuse" && supplyMode != "manufacture" && supplyMode != "manufactured" {
 					issues = append(issues, ValidationIssue{NodeID: target.ID, EdgeID: edge.ID, Field: "supply_mode", Code: "bom_output_requires_manufacture", Message: "BOM 产出的物料必须设置为自制"})
 				}

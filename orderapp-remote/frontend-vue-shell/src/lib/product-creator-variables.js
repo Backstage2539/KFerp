@@ -1,4 +1,4 @@
-import { cloneValue } from './product-creator-graph.js'
+import { cloneValue, materialSupplyMode } from './product-creator-graph.js'
 
 export function filterWorkflowVariables(query, variables = []) {
   const needle = String(query || '').trim().toLocaleLowerCase()
@@ -166,4 +166,23 @@ export function upgradeWorkflowToV6(workflow = {}) {
   // designer renders them as legacy-only nodes and server validation blocks
   // publication until the user resolves that old behavior.
   return { ...cloneValue(upgraded), version: 6, nodes }
+}
+
+// Only an editable draft is upgraded; published versions and runs keep their snapshots.
+export function upgradeWorkflowToV7(workflow = {}) {
+  const draft = upgradeWorkflowToV6(workflow)
+  return { ...draft, version: 7, nodes: (draft.nodes || []).map((node) => {
+    if (node.kind !== 'material') return node
+    const config = { ...node.config, supply_mode: materialSupplyMode(node.config) }
+    config.data_role = config.supply_mode === 'manufacture' ? 'output' : 'input'
+    delete config.default_rows
+    delete config.rows
+    if (config.data_role === 'input') {
+      delete config.name_parts
+      delete config.name_pattern
+      delete config.name
+      delete config.defaults
+    }
+    return { ...node, config }
+  }) }
 }

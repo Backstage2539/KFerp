@@ -1,3 +1,10 @@
+export function materialSupplyMode(config = {}) {
+  const mode = config.supply_mode || config.defaults?.supply_mode
+  if (mode === 'manufactured') return 'manufacture'
+  if (mode === 'external') return 'purchase'
+  return mode || (config.data_role === 'output' ? 'manufacture' : 'purchase')
+}
+
 export function cloneValue(value) {
   if (globalThis.structuredClone) {
     try {
@@ -72,7 +79,9 @@ export function moduleForNode(node, modules = [], version = 1) {
   if (!base) return null
   const module = { ...base, ...(Number(version) >= 6 && node.kind === 'purchase' ? { legacy_only: true, palette_visible: false } : {}) }
   if (version >= 2 && ['material', 'product'].includes(node.kind)) {
-    module.inputs = node.kind === 'material' && Number(version) >= 6
+    module.inputs = node.kind === 'material' && Number(version) >= 7
+      ? materialSupplyMode(node.config) === 'manufacture' ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }] : []
+      : node.kind === 'material' && Number(version) >= 6
       ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'] }]
       : node.config?.data_role === 'output'
       ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }]
@@ -102,6 +111,7 @@ export function connectionRoleUpdates(connection, nodes, mode = 'data', edges = 
     return { [target.id]: 'output' }
   }
   if (['material', 'product'].includes(sourceKind) && targetKind === 'bom' && canonicalInputPortID(connection.targetHandle) === 'components') {
+    if (sourceKind === 'material' && Number(source.data.module.workflow_version) >= 7 && materialSupplyMode(source.data.config) === 'manufacture') return {}
     const hasProducingBOM = edges.some((edge) => edge.target === source.id && edge.targetHandle === 'from_bom' && edge.data?.kind !== 'prerequisite')
     return hasProducingBOM ? {} : { [source.id]: 'input' }
   }
@@ -145,6 +155,10 @@ export function connectionValidation(connection, nodes, modules, mode = 'data', 
   const target = nodes.find((node) => node.id === connection.target)
   if (!source || !target) return invalid('missing_node', '连线引用的节点不存在。')
   if (mode === 'prerequisite') return { valid: true, code: '', message: '' }
+  if (source.data.module.kind === 'bom' && target.data.module.kind === 'material' && connection.targetHandle === 'from_bom' && Number(target.data.module.workflow_version || 1) >= 7) {
+    if (materialSupplyMode(target.data.config) !== 'manufacture') return invalid('purchased_material_output', '外购物料没有 BOM 产出入口，请先将物料改为自制。')
+    if (edges.some((edge) => edge.id !== connection.id && edge.target === target.id && edge.targetHandle === 'from_bom' && (edge.data?.kind || 'data') === 'data')) return invalid('multiple_material_producers', '一个自制物料只能连接一个生成 BOM，请先删除原连线。')
+  }
   const sourcePort = source.data.module.outputs?.find((port) => port.id === connection.sourceHandle)
   const targetPort = target.data.module.inputs?.find((port) => port.id === canonicalInputPortID(connection.targetHandle))
   if (!sourcePort || !targetPort) {

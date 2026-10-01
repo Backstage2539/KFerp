@@ -3,6 +3,7 @@ package productcreator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -120,8 +121,8 @@ func TestProductCreatorModuleCatalogAndTemplateLifecycleAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Modules) != 31 {
-		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules for versions 2 through 5 and 4 V6 modules", len(catalog.Modules))
+	if len(catalog.Modules) != 35 {
+		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules for versions 2 through 5 and 4 modules each for V6 and V7", len(catalog.Modules))
 	}
 	var legacyModules, bomCentricModules, variableModules, specificationTemplateModules, processPreviewModules, v6Modules int
 	var foundLegacyBOM, foundBOMCentricBOM, foundSpecificationTemplateBOM, foundV5ProcessRouteBOM bool
@@ -275,5 +276,43 @@ func TestRunAPIKeepsExecutionSnapshotAndCurrentArchiveNamesSeparate(t *testing.T
 	}
 	if !strings.Contains(rec.Body.String(), `"business_results"`) {
 		t.Fatal("execution snapshot disappeared")
+	}
+}
+
+func TestMaterialAcquisitionPublicationAPI(t *testing.T) {
+	for _, version := range []int{6, 7} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			workflow := app.Workflow{Version: version, Nodes: []app.Node{
+				{ID: "raw", Kind: app.ModuleMaterial, Config: map[string]any{"data_role": "input", "supply_mode": "purchase"}},
+				{ID: "bom", Kind: app.ModuleBOM, Config: map[string]any{"output_type": "material", "route_id": 4}},
+				{ID: "semi", Kind: app.ModuleMaterial, Config: map[string]any{"data_role": "output"}},
+			}, Edges: []app.Edge{
+				{ID: "in", Kind: app.EdgeData, Source: "raw", SourceHandle: "material", Target: "bom", TargetHandle: "components"},
+				{ID: "out", Kind: app.EdgeData, Source: "bom", SourceHandle: "assembly", Target: "semi", TargetHandle: "from_bom"},
+			}}
+			repo := &memoryRepository{template: app.Template{ID: 1, Revision: 1, Draft: workflow}}
+			e := echo.New()
+			RegisterRoutes(e, Dependencies{Creator: app.NewService(repo)})
+			publish := func() *httptest.ResponseRecorder {
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, "/api/product-creator/templates/1/publish", strings.NewReader(`{"revision":1}`))
+				req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+				e.ServeHTTP(rec, req)
+				return rec
+			}
+			if version == 7 {
+				repo.template.Draft.Nodes[2].Config["supply_mode"] = "manufacture"
+				repo.template.Draft.Edges = workflow.Edges[:1]
+				rec := publish()
+				if rec.Code != 422 || !strings.Contains(rec.Body.String(), "output_bom_required") || len(repo.versions) != 0 {
+					t.Fatalf("missing BOM accepted: %d %s", rec.Code, rec.Body.String())
+				}
+				repo.template.Draft.Edges = workflow.Edges
+			}
+			rec := publish()
+			if rec.Code != http.StatusCreated || len(repo.versions) != 1 {
+				t.Fatalf("valid manufactured output rejected: %d %s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }

@@ -309,8 +309,8 @@ func TestBOMTemplateCatalogSeparatesReusableDataAndActions(t *testing.T) {
 			}
 		}
 	}
-	if counts["数据类型"] != 15 || counts["动作"] != 9 {
-		t.Fatalf("visible module groups=%v, want three data types and one action for workflow versions 2 through 6", counts)
+	if counts["数据类型"] != 18 || counts["动作"] != 10 {
+		t.Fatalf("visible module groups=%v, want three data types and one action for workflow versions 2 through 7", counts)
 	}
 	for _, module := range ModuleCatalog() {
 		if module.WorkflowVersion >= 3 {
@@ -669,5 +669,46 @@ func TestFixedBOMComponentDefaultsPreserveRuntimeSourceIdentity(t *testing.T) {
 	}
 	if numericValue(rows[0]["quantity"]) != 2.5 || rows[0]["unit"] != "kg" {
 		t.Fatalf("fixed recipe defaults = %#v, want 2.5 kg", rows[0])
+	}
+}
+
+func TestLegacyV6OutputImplicitManufactureMatchesDisplayedDefault(t *testing.T) {
+	w := Workflow{Version: 6, Nodes: []Node{
+		{ID: "raw", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input"}},
+		{ID: "bom", Kind: ModuleBOM, Config: map[string]any{"output_type": "material", "route_id": 4}},
+		{ID: "semi", Kind: ModuleMaterial, Config: map[string]any{"data_role": "output", "rows": []any{}}},
+	}, Edges: []Edge{dataEdge("in", "raw", "material", "bom", "components"), dataEdge("out", "bom", "assembly", "semi", "from_bom")}}
+	if issues := ValidateWorkflow(w); len(issues) > 0 {
+		t.Fatalf("legacy UI shows manufacture but publish rejects: %+v", issues)
+	}
+	w.Nodes[2].Config["supply_mode"] = "purchase"
+	if issues := ValidateWorkflow(w); !hasValidationCode(issues, "bom_output_requires_manufacture") {
+		t.Fatalf("explicit purchase must remain rejected: %+v", issues)
+	}
+}
+
+func TestV7MaterialModeControlsPortsAndRequiresManufacturingBOM(t *testing.T) {
+	purchased := Node{ID: "raw", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input", "supply_mode": "purchase"}}
+	if len(moduleForNode(purchased, 7).Inputs) != 0 {
+		t.Fatal("purchased material must have no input port")
+	}
+	manufactured := Node{ID: "semi", Kind: ModuleMaterial, Config: map[string]any{"data_role": "output", "supply_mode": "manufacture"}}
+	if port, ok := findPort(moduleForNode(manufactured, 7).Inputs, "from_bom"); !ok || !port.Required {
+		t.Fatal("manufactured material needs required BOM input")
+	}
+	if issues := ValidateWorkflow(Workflow{Version: 7, Nodes: []Node{manufactured}}); !hasValidationCode(issues, "output_bom_required") {
+		t.Fatalf("manufacture without BOM accepted: %+v", issues)
+	}
+	manufactured.Config["data_role"] = "input"
+	if issues := ValidateWorkflow(Workflow{Version: 7, Nodes: []Node{manufactured}}); !hasValidationCode(issues, "material_role_mismatch") {
+		t.Fatalf("forged input role accepted: %+v", issues)
+	}
+}
+
+func TestV7InputDoesNotCreateTemplatePresetMaterials(t *testing.T) {
+	w := Workflow{Version: 7, Nodes: []Node{{ID: "raw", Kind: ModuleMaterial, Config: map[string]any{"data_role": "input", "supply_mode": "purchase", "default_rows": []any{map[string]any{"row_id": "old", "name": "old preset"}}}}}}
+	got := ResolveWorkflowInputDefaults(w, nil)
+	if len(rowValues(got["raw"]["rows"])) != 0 {
+		t.Fatalf("V7 must not instantiate removed presets: %+v", got)
 	}
 }
