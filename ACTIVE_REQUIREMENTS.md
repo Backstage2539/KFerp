@@ -2,9 +2,9 @@
 - Branch: `codex/product-creator-v6-20261001`; base `origin/develop@16bee722f3aee71c2cb0d4a38f8e847e4b87af4c`.
 - DEV: DEV-719-PC-V6-GRAPH-MATERIAL-PRESETS; DEV-720-PC-V6-NAMING; DEV-721-PC-V6-CLASSIFICATION; DEV-722-PC-ESTIMATED-MATERIAL-COST; DEV-723-PC-V6-DOCS-DELIVERY.
 - Scope: remove purchase action from V6; support editable multi-row material defaults, ordered variable names, current classifications for newly created objects, and temporary purchased-material cost replaced by receipt cost.
-- Verifier: `scripts/verify_kferp.sh all` passed; focused product-creator tests 38/38 passed; API module-catalog assertions pass. `ORDERAPP_TEST_DATABASE_URL` is not configured, so live Postgres transaction coverage remains pending; browser and development smoke follow integration.
-- Delivery: isolated feature worktree on `codex/product-creator-v6-20261001`, base `origin/develop@16bee722f3aee71c2cb0d4a38f8e847e4b87af4c`; development only, no production archive changes.
-- Status: implementation and automated verification complete; latest-develop integration, deployment, browser smoke, and development acceptance template remain; Van business acceptance pending.
+- Verifier: `scripts/verify_kferp.sh all` passed before and after integration; focused product-creator tests 38/38 passed; deployment ran Go/Vue/miniapp tests, typecheck and builds; API module-catalog assertions pass. `ORDERAPP_TEST_DATABASE_URL` is not configured, so separate local PostgreSQL transaction coverage remains unrun.
+- Delivery: PR #170 merged into `develop` as `79a17628ddd665c7bdb833595d07105827f6b20b`; deployed to development on 2026-10-02. Backup source `/opt/stacks/erp/orderapp.backup.deploy-20261002003406-79a17628ddd6`; rollback image `kferp-orderapp-rollback:development-20261002003406-79a17628ddd6`; login smoke HTTP 200. No production changes and no WeChat upload.
+- Status: implementation, automated verification, merge, and development deployment complete; authenticated browser walkthrough and V6 acceptance template/product run remain because this session has no authenticated browser controls; Van business acceptance pending.
 
 ## PR-676 商品创建器物料与零价成本修复（2026-10-01）
 - Branch: `codex/product-creator-material-cost-fix-20261001`; base `084c1c26`.
