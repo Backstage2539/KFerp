@@ -14,9 +14,7 @@ test('V5 designer keeps BOM defaults when a route is connected and previews each
 })
 
 test('V5 naming preview is live and sample values stay out of saved workflow data', () => {
-  assert.match(designer, /const selectedNamePreview = computed\(\(\) => renderNamePreview\(selectedNameParts\.value, workflowVariables\.value, namePreviewSamples\.value\)\)/)
-  assert.match(designer, /生成名称预览/)
-  assert.match(designer, /仅用于预览/)
+  assert.match(designer, /<ProductCreatorNameEditor[^>]+:parts="selectedNameParts"[^>]+:samples="namePreviewSamples"/)
   assert.match(designer, /function setNamePreviewSample\(variableID, value\)/)
   assert.match(designer, /workflow: toWorkflowGraph\(nodes\.value, edges\.value, templateWorkflowVersion\.value, workflowVariables\.value\)/)
   assert.doesNotMatch(designer.match(/function saveTemplate\(\)[\s\S]*?\n\}/)?.[0] || '', /namePreviewSamples/)

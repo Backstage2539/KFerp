@@ -5,14 +5,11 @@ import { readFileSync } from 'node:fs'
 const designer = readFileSync(new URL('../views/ProductCreatorView.vue', import.meta.url), 'utf8')
 const runtime = readFileSync(new URL('../views/ProductCreatorRunView.vue', import.meta.url), 'utf8')
 
-test('V6 material defaults configure ordered names, acquisition, unit and repeatable rows', () => {
-  assert.match(designer, /templateWorkflowVersion >= 6 && selectedNode\.data\.module\.kind === 'material'[\s\S]*?默认物料行/)
-  assert.match(designer, /row\.name_parts \|\| \[\]/)
-  assert.match(designer, /moveDefaultMaterialNamePart\(row\.row_id, partIndex, -1\)/)
-  assert.match(designer, /moveDefaultMaterialRow\(rowIndex, -1\)/)
-  assert.match(designer, /取得方式[\s\S]*?value="purchase">外购[\s\S]*?value="manufacture">自制/)
-  assert.match(designer, /库存单位[\s\S]*?unitOptions/)
-  assert.match(designer, /生成名称预览/)
+test('V7 designer removes material presets while historical V6 runtime retains them', () => {
+  assert.doesNotMatch(designer, /默认物料行|addDefaultMaterialRow|selectedDefaultMaterialRows/)
+  assert.match(designer, /changeMaterialSupplyMode\(selectedNode.id, \$event.target.value\)/)
+  assert.match(runtime, /workflowVersion.value === 6 \? node.config\?\.default_rows/)
+  assert.match(runtime, /action: workflowVersion.value === 6 \? 'create' : 'reuse'/)
 })
 
 test('V6 run rows apply material name variables and estimate purchased cost without mutating reused objects', () => {
