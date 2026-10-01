@@ -553,6 +553,10 @@ onMounted(async () => {
   }
 })
 
+function variableName(variableID) {
+  return (props.run.workflow?.variables || []).find((variable) => variable.id === variableID)?.name || '缺失变量'
+}
+
 function makeInitialValues(node) {
   if (workflowVersion.value >= 2) {
     if (node.kind === 'material' && node.config?.data_role !== 'output') {
@@ -1633,7 +1637,10 @@ function cloneInputs() {
 .pc-price-spec > div { display: grid; gap: 3px; min-width: 0; }
 .pc-price-spec strong { overflow: hidden; color: #304156; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .pc-price-spec small { color: #8090a3; font-size: 9px; }
-.pc-material-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) 30px; align-items: end; gap: 8px; border: 1px solid #e8edf2; border-radius: 7px; padding: 9px; background: #fbfcfd; }
+.pc-material-row { position: relative; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); align-items: end; gap: 8px; border: 1px solid #e8edf2; border-radius: 7px; padding: 12px 44px 12px 12px; background: #fbfcfd; }
+.pc-material-row > .pc-run-icon-button { position: absolute; top: 27px; right: 7px; }
+.pc-material-row .pc-row-wide { grid-column: 1 / -1; }
+.pc-material-row .pc-row-field > span { white-space: normal; overflow: visible; }
 .pc-row-field { min-width: 0; }
 .pc-row-classification { display: flex; align-items: center; gap: 7px; min-width: 0; color: #718097; font-size: 10px; }
 .pc-classification-pick { min-height: 31px; border: 1px solid #d9e1eb; border-radius: 6px; padding: 0 9px; color: #2d6d4a; background: #f7fbf8; font: inherit; font-weight: 600; cursor: pointer; }
@@ -1716,8 +1723,6 @@ function cloneInputs() {
 .pc-run-preview-issue { margin-top: 7px; color: #af352d; font-size: 10px; }
 @media (max-width: 1050px) {
   .pc-run-layout { grid-template-columns: minmax(460px, 1.3fr) minmax(270px, .8fr); }
-  .pc-material-row { grid-template-columns: repeat(2, minmax(0, 1fr)) 30px; }
-  .pc-material-row .pc-run-icon-button { grid-column: 3; grid-row: 1; }
   .pc-component-row { grid-template-columns: repeat(2, minmax(0, 1fr)) 62px; }
   .pc-component-source { grid-column: 1 / -1; }
   .pc-component-row label:nth-of-type(n+3) { grid-row: auto; }

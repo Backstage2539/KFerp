@@ -1,10 +1,11 @@
 ## PR-678 商品创建器物料角色与命名简化（2026-10-02）
 - Branch: `codex/product-creator-material-roles-20261002`; base `origin/develop@2e642b73b63afd335329a57aeeeed3541c561147`.
+- Follow-up branch: `codex/product-creator-v7-runtime-followup`; repairs the pre-existing V6 runtime variable label rendering error exposed by browser checks.
 - DEV: DEV-724-PC-MATERIAL-ROLE; DEV-725-PC-SIMPLE-NAME; DEV-726-PC-V7-DELIVERY.
 - Scope: fix implicit manufactured output publication; V7 removes input presets, chooses existing inputs by default; node-top acquisition mode controls BOM input; ordered text/variable editor.
 - Evidence: development template 4 revision 37 has an output without supply_mode, matching the failing regression. No live template/business writes performed.
 - Verifier: targeted RED/GREEN graph/resolver/component tests; API lifecycle; PostgreSQL actual material mode; Vue build; `scripts/verify_kferp.sh all`.
-- Status: implementation, targeted tests, isolated PostgreSQL, 1303 frontend tests, build, browser fixture checks and standard full verifier passed; development delivery pending; Van acceptance pending. Production excluded.
+- Status: implementation, targeted tests, isolated PostgreSQL, 1305 frontend tests, build, browser fixture checks and standard full verifier passed; development delivery pending; Van acceptance pending. Production excluded.
 
 ## PR-677 商品创建器 V6 物料预设、分类与暂估成本（2026-10-02）
 - Branch: `codex/product-creator-v6-20261001`; base `origin/develop@16bee722f3aee71c2cb0d4a38f8e847e4b87af4c`.
