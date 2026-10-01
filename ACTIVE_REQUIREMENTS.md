@@ -1,9 +1,10 @@
 ## PR-676 商品创建器物料与零价成本修复（2026-10-01）
 - Branch: `codex/product-creator-material-cost-fix-20261001`; base `084c1c26`.
 - DEV: DEV-715-PC-RESULT-IDENTITY; DEV-716-PC-MANUFACTURING-SOURCE; DEV-717-ZERO-PURCHASE-COST; DEV-718-PC-CHERRY-REPAIR-DELIVERY.
-- Scope: unique current-object results, consumed manufactured-input validation, zero purchased cost, audited correction material 166, template #1 new version.
+- Scope: unique current-object results, consumed manufactured-input validation, zero purchased cost, guarded correction capability, template #1 new version. Van will manually correct production material 166.
 - Verifier: focused Go/API/PostgreSQL and Node RED/GREEN; `scripts/verify_kferp.sh all`; browser result/default-spec trial.
-- Delivery: implementation in progress; development then main/production explicitly authorized; no business data changed yet; Van acceptance pending.
+- Delivery: feature `8ace20fc` integrated into develop `16bee722` and main `cffaddf1`; development deployed; production released 2026-10-01 22:24 CST using the identical fully tested image `be476fbb24dd`. Production backup: `/opt/stacks/erp-production/orderapp.backup.recovery-20261001222455-cffaddf128ee`. Van confirmed development testing passed. Material 166 was not automatically corrected; production business adjustment and acceptance belong to Van.
+- Recovery: disk-full deployment failure resolved with explicitly authorized Docker build-cache cleanup (8.654 GB); databases healthy; production login HTTP 200. Template #1 V6 already published with input-node name 生豆原料, before the manual-adjustment instruction.
 
 # ACTIVE_REQUIREMENTS
 
