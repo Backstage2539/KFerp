@@ -32,6 +32,7 @@ func TestResolvedBomCostsExposeDefaultSpecificationAsProductFallbackPostgres(t *
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
 
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY, name TEXT);
 		CREATE TABLE %[1]s.materials(
 			id BIGINT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', unit TEXT NOT NULL DEFAULT 'kg',
 			is_semi_finished BOOLEAN NOT NULL DEFAULT false, purchase_price NUMERIC(12,4) NOT NULL DEFAULT 0
@@ -157,8 +158,8 @@ func TestResolveProductionBomTrialItemCostReportsSpecificReasons(t *testing.T) {
 	if ok {
 		t.Fatal("zero unit cost must fail")
 	}
-	if !strings.Contains(reason, "单价为 0") || !strings.Contains(reason, "半成品") {
-		t.Fatalf("zero-cost reason must mention zero price and semi-finished guidance, got %q", reason)
+	if !strings.Contains(reason, "默认已发布制造 BOM") || !strings.Contains(reason, "半成品") {
+		t.Fatalf("missing manufactured source must not be accepted as zero price, got %q", reason)
 	}
 
 	// 单位不匹配：consume_unit=kg 但成本单位是“个”

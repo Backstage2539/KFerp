@@ -31,8 +31,9 @@ func TestResolvedBomCostDoesNotFallbackToSemiFinishedPurchaseOrBatchCostPostgres
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY, name TEXT);
 		CREATE TABLE %[1]s.materials(
-			id BIGINT PRIMARY KEY, unit TEXT NOT NULL DEFAULT 'kg',
+			id BIGINT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', unit TEXT NOT NULL DEFAULT 'kg',
 			is_semi_finished BOOLEAN NOT NULL DEFAULT false,
 			purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0
 		);

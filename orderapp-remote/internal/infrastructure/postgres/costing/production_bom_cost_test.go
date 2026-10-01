@@ -444,7 +444,7 @@ func TestResolveProductionBomCostsRejectsCyclesAndIgnoresLegacyZeroYield(t *test
 	}
 }
 
-func TestResolveProductionBomCostsRejectsMissingPositiveComponentCost(t *testing.T) {
+func TestResolveProductionBomCostsAllowsZeroPurchasedComponentCost(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		1: {
 			ProductID:  1,
@@ -453,14 +453,14 @@ func TestResolveProductionBomCostsRejectsMissingPositiveComponentCost(t *testing
 			OutputQty:  1,
 			OutputUnit: "kg",
 			Items: []productionBomCostItem{{
-				ID: 1001, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 0,
+				ID: 1001, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 0, UnitCostUnit: "kg",
 			}},
 		},
 	}
 
 	got := resolveProductionBomCosts(nodes)[1]
-	if got.Resolved {
-		t.Fatalf("zero-cost material with actual usage must fail closed, got %+v", got)
+	if !got.Resolved || got.TotalCostPerOutputUnit != 0 {
+		t.Fatalf("valid purchased raw material must allow zero cost, got %+v", got)
 	}
 }
 
@@ -471,8 +471,8 @@ func TestResolveProductionBomCostsKeepsPartialCostAndAllMissingComponents(t *tes
 			OutputQty: 1, OutputUnit: "kg",
 			Items: []productionBomCostItem{
 				{ID: 1001, ComponentType: "material", ComponentName: "已维护原料", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 10, UnitCostUnit: "kg"},
-				{ID: 1002, ComponentType: "material", ComponentName: "孟连水洗5T批次", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 0, UnitCostUnit: "kg"},
-				{ID: 1003, ComponentType: "material", ComponentName: "另一个缺口", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 0, UnitCostUnit: "kg"},
+				{ID: 1002, ComponentType: "material", ComponentName: "孟连水洗5T批次", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 0, ComponentMaterialUnavailable: true, UnitCostUnit: "kg"},
+				{ID: 1003, ComponentType: "material", ComponentName: "另一个缺口", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 0, ComponentMaterialUnavailable: true, UnitCostUnit: "kg"},
 			},
 		},
 	}
@@ -501,7 +501,7 @@ func TestResolveTypedProductionBomCostsKeepsVariantSpecificRecursivePaths(t *tes
 	nodes := map[string]productionBomCostNode{
 		"material:71": {
 			OutputType: "material", OutputID: 71, VersionID: 1833, BomID: 18306, BomName: "初晓烘焙", VersionNo: "V001", OutputUnit: "kg",
-			Items: []productionBomCostItem{{ID: 448, ComponentMaterialID: 1, ComponentName: "孟连水洗5T批次", ConsumeUnit: "ratio_pct", RatioPct: 15, UnitCost: 0, UnitCostUnit: "kg"}},
+			Items: []productionBomCostItem{{ID: 448, ComponentMaterialID: 1, ComponentMaterialUnavailable: true, ComponentName: "孟连水洗5T批次", ConsumeUnit: "ratio_pct", RatioPct: 15, UnitCost: 0, UnitCostUnit: "kg"}},
 		},
 		"product_spec:3": {
 			OutputType: "product_spec", OutputID: 3, ProductID: 1063, VersionID: 1848, BomID: 18587, BomName: "初晓拼配-商品", VersionNo: "V001", OutputUnit: "袋",
@@ -682,5 +682,29 @@ func TestCostingRepositorySharesResolvedProductionBomCostsBetweenPriceListAndTri
 		if !strings.Contains(resolverSource, want) {
 			t.Fatalf("shared production BOM cost loader missing %q", want)
 		}
+	}
+}
+
+func TestZeroCostStillValidatesUnitsAndManufacturingGraph(t *testing.T) {
+	item := productionBomCostItem{ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 0, UnitCostUnit: "kg"}
+	if got, ok, _ := resolveProductionBomTrialItemCost(item, 0, "kg", 0, 1, "kg", nil); !ok || got.ContributionPerOutputUnit != 0 {
+		t.Fatal("purchased zero cost must calculate")
+	}
+	if _, ok, _ := resolveProductionBomTrialItemCost(item, 0, "个", 0, 1, "kg", nil); ok {
+		t.Fatal("zero must not bypass unit conversion")
+	}
+	item.ConsumeUnit = "ratio_pct"
+	item.RatioPct = 100
+	if _, ok := productionBomItemCost(item, "material", 0, "个", "kg"); ok {
+		t.Fatal("zero ratio must not bypass unit conversion")
+	}
+	item.ComponentIsSemi = true
+	if _, ok, _ := resolveProductionBomTrialItemCost(item, 0, "kg", 0, 1, "kg", nil); ok {
+		t.Fatal("manufacturing fallback requires a resolved graph")
+	}
+	item.ComponentIsSemi = false
+	item.ComponentMaterialUnavailable = true
+	if _, ok, _ := resolveProductionBomTrialItemCost(item, 0, "kg", 0, 1, "kg", nil); ok {
+		t.Fatal("missing material is not a zero-price material")
 	}
 }
