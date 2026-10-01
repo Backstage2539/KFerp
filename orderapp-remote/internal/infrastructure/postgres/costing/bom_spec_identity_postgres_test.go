@@ -35,14 +35,14 @@ func TestResolveProductBOMSpecIdentityUsesOnlyCurrentDefaultPublishedBOMPostgres
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		CREATE TABLE %[1]s.products(id BIGINT PRIMARY KEY,name TEXT NOT NULL,active BOOLEAN NOT NULL DEFAULT true);
-		CREATE TABLE %[1]s.product_bom_spec_migrations(product_id BIGINT PRIMARY KEY,state TEXT NOT NULL);
+		CREATE TABLE %[1]s.product_bom_spec_authorities(product_id BIGINT PRIMARY KEY,state TEXT NOT NULL);
 		CREATE TABLE %[1]s.production_bom_output_bindings(output_type TEXT NOT NULL,output_id BIGINT NOT NULL,is_default BOOLEAN NOT NULL,bom_id BIGINT NOT NULL,bom_version_id BIGINT NOT NULL);
 		CREATE TABLE %[1]s.production_bom_versions(id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,version_no TEXT NOT NULL,status TEXT NOT NULL);
 		CREATE TABLE %[1]s.production_bom_specs(id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,code TEXT NOT NULL,barcode TEXT NOT NULL,spec_key TEXT NOT NULL,name TEXT NOT NULL,inventory_unit TEXT NOT NULL);
 		CREATE TABLE %[1]s.production_bom_version_variants(id BIGINT PRIMARY KEY,version_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,spec_name_snapshot TEXT NOT NULL,inventory_unit TEXT NOT NULL,is_default BOOLEAN NOT NULL,sort_order INT NOT NULL);
 
 		INSERT INTO %[1]s.products(id,name,active) VALUES(600,'初晓',true);
-		INSERT INTO %[1]s.product_bom_spec_migrations(product_id,state) VALUES(600,'cutover');
+		INSERT INTO %[1]s.product_bom_spec_authorities(product_id,state) VALUES(600,'cutover');
 		INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status) VALUES(901,90,'V001','published'),(902,91,'V001','published');
 		INSERT INTO %[1]s.production_bom_output_bindings(output_type,output_id,is_default,bom_id,bom_version_id)
 		VALUES('product',600,true,90,901),('product',600,false,91,902);

@@ -24,7 +24,7 @@ func TestDev602PricingTrialDefaultSpecFallbackContracts(t *testing.T) {
 
 	costingSrc := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "costing", "production_bom_cost.go")))
 	for _, want := range []string{
-		"BOM组件单价为 0：请维护物料采购价；半成品物料需绑定默认已发布的制造 BOM",
+		"半成品物料缺少可完整解析的默认已发布制造 BOM",
 		"BOM组件成本单位无法换算：消耗单位",
 	} {
 		if !strings.Contains(costingSrc, want) {
