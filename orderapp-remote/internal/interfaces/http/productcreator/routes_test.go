@@ -120,11 +120,13 @@ func TestProductCreatorModuleCatalogAndTemplateLifecycleAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Modules) != 27 {
-		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules for versions 2 through 5", len(catalog.Modules))
+	if len(catalog.Modules) != 31 {
+		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules for versions 2 through 5 and 4 V6 modules", len(catalog.Modules))
 	}
-	var legacyModules, bomCentricModules, variableModules, specificationTemplateModules, processPreviewModules int
+	var legacyModules, bomCentricModules, variableModules, specificationTemplateModules, processPreviewModules, v6Modules int
 	var foundLegacyBOM, foundBOMCentricBOM, foundSpecificationTemplateBOM, foundV5ProcessRouteBOM bool
+	var foundV6MaterialRows bool
+	foundV6NoPurchase := true
 	for _, module := range catalog.Modules {
 		if module.WorkflowVersion == 1 {
 			legacyModules++
@@ -186,9 +188,26 @@ func TestProductCreatorModuleCatalogAndTemplateLifecycleAPI(t *testing.T) {
 				}
 			}
 		}
+		if module.WorkflowVersion == 6 {
+			v6Modules++
+			if module.Kind == app.ModuleMaterial {
+				foundV6MaterialRows = false
+				for _, field := range module.Fields {
+					if field.Key == "default_rows" && field.Type == "repeater" {
+						foundV6MaterialRows = true
+					}
+					if field.Key == "rows" {
+						t.Fatal("V6 material module still exposes the legacy rows field")
+					}
+				}
+			}
+			if module.Kind == app.ModulePurchase {
+				foundV6NoPurchase = false
+			}
+		}
 	}
-	if legacyModules != 7 || bomCentricModules != 5 || variableModules != 5 || specificationTemplateModules != 5 || processPreviewModules != 5 || !foundLegacyBOM || !foundBOMCentricBOM || !foundSpecificationTemplateBOM || !foundV5ProcessRouteBOM {
-		t.Fatalf("catalog versions legacy=%d bom-centric=%d variable=%d specification-template=%d process-preview=%d legacy BOM=%t BOM-centric BOM=%t specification-template BOM=%t V5 process-route BOM=%t", legacyModules, bomCentricModules, variableModules, specificationTemplateModules, processPreviewModules, foundLegacyBOM, foundBOMCentricBOM, foundSpecificationTemplateBOM, foundV5ProcessRouteBOM)
+	if legacyModules != 7 || bomCentricModules != 5 || variableModules != 5 || specificationTemplateModules != 5 || processPreviewModules != 5 || v6Modules != 4 || !foundV6MaterialRows || !foundV6NoPurchase || !foundLegacyBOM || !foundBOMCentricBOM || !foundSpecificationTemplateBOM || !foundV5ProcessRouteBOM {
+		t.Fatalf("catalog versions legacy=%d bom-centric=%d variable=%d specification-template=%d process-preview=%d V6=%d V6 material rows=%t V6 hides purchase=%t legacy BOM=%t BOM-centric BOM=%t specification-template BOM=%t V5 process-route BOM=%t", legacyModules, bomCentricModules, variableModules, specificationTemplateModules, processPreviewModules, v6Modules, foundV6MaterialRows, foundV6NoPurchase, foundLegacyBOM, foundBOMCentricBOM, foundSpecificationTemplateBOM, foundV5ProcessRouteBOM)
 	}
 
 	rec = httptest.NewRecorder()

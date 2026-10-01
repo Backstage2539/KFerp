@@ -66,11 +66,15 @@ export function toCanvasGraph(workflow = { nodes: [], edges: [] }, modules = [])
 
 export function moduleForNode(node, modules = [], version = 1) {
   const choices = modules.filter((module) => module.kind === node.kind)
-  const base = choices.find((module) => Number(module.workflow_version || 1) === Number(version)) || choices[0]
+  const base = choices.find((module) => Number(module.workflow_version || 1) === Number(version))
+    || (Number(version) >= 6 && node.kind === 'purchase' ? choices.find((module) => Number(module.workflow_version || 1) === 5) : null)
+    || choices[0]
   if (!base) return null
-  const module = { ...base }
+  const module = { ...base, ...(Number(version) >= 6 && node.kind === 'purchase' ? { legacy_only: true, palette_visible: false } : {}) }
   if (version >= 2 && ['material', 'product'].includes(node.kind)) {
-    module.inputs = node.config?.data_role === 'output'
+    module.inputs = node.kind === 'material' && Number(version) >= 6
+      ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'] }]
+      : node.config?.data_role === 'output'
       ? [{ id: 'from_bom', label: 'BOM产出', types: ['bom.output'], required: true }]
       : []
   }
@@ -154,6 +158,12 @@ export function connectionValidation(connection, nodes, modules, mode = 'data', 
   }
   if (!sourcePort.types?.some((sourceType) => targetPort.types?.includes(sourceType) || targetPort.types?.includes('*'))) {
     return invalid('incompatible_data_type', `${sourcePort.label || '该输出'}不能连接到${targetPort.label || '此输入'}。`)
+  }
+  if (target.data.module.kind === 'material' && Number(target.data.module.workflow_version || 0) >= 6 && canonicalInputPortID(connection.targetHandle) === 'from_bom' && target.data.config?.data_role !== 'output') {
+    const configuredRows = target.data.config?.default_rows || []
+    if (configuredRows.length > 1) return invalid('multirow_material_output', '投入物料包含多行预设，不能直接作为单个 BOM 产出。请新增独立的自制物料节点。')
+    const supplyMode = configuredRows[0]?.supply_mode || target.data.config?.supply_mode || 'manufacture'
+    if (supplyMode !== 'manufacture' && supplyMode !== 'manufactured') return invalid('purchased_material_output', '外购物料不能接收 BOM 产出。请改为自制物料，或新增独立的自制物料节点。')
   }
   if (target.data.module.kind === 'bom' && canonicalInputPortID(connection.targetHandle) === 'route') {
     const existingRoute = edges.find((edge) => edge.id !== connection.id && edge.target === connection.target && edge.targetHandle === 'route' && (edge.data?.kind || 'data') === 'data')

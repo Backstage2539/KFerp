@@ -26,10 +26,10 @@ func TestPurchasedMaterialTrialAllowsZeroCostPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE")
-	_, err = pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE %[1]s.materials(id bigint,code text,name text,is_semi_finished bool,unit text,purchase_price numeric,deprecated_at timestamptz);
+	_, err = pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE %[1]s.materials(id bigint,code text,name text,is_semi_finished bool,unit text,purchase_price numeric,estimated_unit_price numeric,deprecated_at timestamptz);
  CREATE TABLE %[1]s.material_batches(id bigint,unit_cost numeric,status text,quality_status text);
  CREATE TABLE %[1]s.material_batch_locations(material_batch_id bigint,material_id bigint,qty_g numeric,qty_units numeric);
- INSERT INTO %[1]s.materials VALUES(1,'RAW','快乐樱桃-生豆',false,'kg',0,NULL);`, schema))
+	 INSERT INTO %[1]s.materials VALUES(1,'RAW','快乐樱桃-生豆',false,'kg',0,NULL,NULL);`, schema))
 	if err != nil {
 		t.Fatal(err)
 	}

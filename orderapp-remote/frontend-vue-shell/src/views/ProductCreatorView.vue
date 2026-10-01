@@ -151,7 +151,7 @@
           </div>
         </div>
 
-        <div v-if="templateWorkflowVersion >= 5 && workflowUpgradeNotice" class="pc-upgrade-notice">旧模板已升级为 V5 草稿。商品和物料 BOM 现在都可连接一条工艺路线，商品 BOM 的规格模板路线可被本次运行整体覆盖；旧发布版本和运行记录保持原样。</div>
+        <div v-if="templateWorkflowVersion >= 6 && workflowUpgradeNotice" class="pc-upgrade-notice">旧模板已升级为 V6 草稿。物料行可预设命名、外购／自制、单位和归属，并支持新建对象分类与暂估采购价。旧采购节点会保留为待处理节点；请确认移除后再发布。已发布版本和历史运行保持原样。</div>
 
         <aside class="pc-node-inspector">
           <template v-if="selectedNode">
@@ -185,7 +185,7 @@
             <section v-if="templateWorkflowVersion >= 2 && ['material', 'product'].includes(selectedNode.data.module.kind)" class="pc-inspector-section">
               <h3>对象用途</h3>
               <label class="pc-field-label">节点角色</label>
-              <select class="pc-control" :value="selectedNode.data.config.data_role || 'input'" @change="updateNodeConfig({ data_role: $event.target.value })">
+              <select class="pc-control" :value="selectedNode.data.config.data_role || 'input'" @change="changeSelectedDataRole($event.target.value)">
                 <option value="input">配方输入／引用来源</option>
                 <option value="output">接收 BOM 产出对象</option>
               </select>
@@ -200,6 +200,7 @@
                   <template v-for="(part, index) in selectedNameParts" :key="`${selectedNode.id}-${index}`">
                     <span v-if="part.type === 'variable'" class="pc-name-variable-chip">{{ variableName(part.variable_id) }}<button type="button" :aria-label="`移除变量${variableName(part.variable_id)}`" @click="removeNamePart(index)"><IconX :size="13" /></button></span>
                     <input v-else class="pc-control pc-name-literal" :value="part.value" placeholder="固定文字" @focus="rememberHistory" @input="updateNamePartLive(index, $event.target.value)" @blur="finishNamePartLiveEdit" />
+                    <span v-if="templateWorkflowVersion >= 6" class="pc-name-part-actions"><button type="button" :disabled="index === 0" aria-label="命名片段上移" @click="moveNamePart(index, -1)">↑</button><button type="button" :disabled="index === selectedNameParts.length - 1" aria-label="命名片段下移" @click="moveNamePart(index, 1)">↓</button></span>
                   </template>
                   <button class="pc-text-action" type="button" @click="appendNameText"><IconPlus :size="14" />固定文字</button>
                 </div>
@@ -239,6 +240,38 @@
                   <p class="pc-muted">商品规格与默认规格由连接的 BOM 一处维护，并随 BOM 一起发布。</p>
                 </template>
               </template>
+            </section>
+            <section v-if="templateWorkflowVersion >= 6 && selectedNode.data.module.kind === 'material' && selectedNode.data.config.data_role !== 'output'" class="pc-inspector-section">
+              <h3>默认物料行</h3>
+              <p class="pc-muted">设置本模板常用的投入物料。使用时可以增删和修改；外购物料可填写暂估采购价。</p>
+              <article v-for="(row, rowIndex) in selectedDefaultMaterialRows" :key="row.row_id" class="pc-v6-default-material">
+                <header><strong>物料 {{ rowIndex + 1 }}</strong><div class="pc-name-part-actions"><button type="button" :disabled="rowIndex === 0" aria-label="上移物料行" @click="moveDefaultMaterialRow(rowIndex, -1)">↑</button><button type="button" :disabled="rowIndex === selectedDefaultMaterialRows.length - 1" aria-label="下移物料行" @click="moveDefaultMaterialRow(rowIndex, 1)">↓</button><button class="pc-text-action danger" type="button" @click="removeDefaultMaterialRow(row.row_id)"><IconTrash :size="14" /> 删除</button></div></header>
+                <label class="pc-field-label">处理方式</label>
+                <select class="pc-control" :value="row.action || 'create'" @change="updateDefaultMaterialRow(row.row_id, { action: $event.target.value })"><option value="create">新建物料</option><option value="reuse">引用已有物料</option></select>
+                <label class="pc-field-label">命名组合</label>
+                <div class="pc-name-parts-editor">
+                  <template v-for="(part, partIndex) in row.name_parts || []" :key="`${row.row_id}-${partIndex}`">
+                    <span v-if="part.type === 'variable'" class="pc-name-variable-chip">{{ variableName(part.variable_id) }}<button type="button" :aria-label="`移除变量${variableName(part.variable_id)}`" @click="removeDefaultMaterialNamePart(row.row_id, partIndex)"><IconX :size="13" /></button></span>
+                    <input v-else class="pc-control pc-name-literal" :value="part.value" placeholder="固定文字" @focus="rememberHistory" @input="updateDefaultMaterialNamePart(row.row_id, partIndex, $event.target.value)" @blur="finishNamePartLiveEdit" />
+                    <span class="pc-name-part-actions"><button type="button" :disabled="partIndex === 0" aria-label="命名片段上移" @click="moveDefaultMaterialNamePart(row.row_id, partIndex, -1)">↑</button><button type="button" :disabled="partIndex === (row.name_parts || []).length - 1" aria-label="命名片段下移" @click="moveDefaultMaterialNamePart(row.row_id, partIndex, 1)">↓</button></span>
+                  </template>
+                  <button class="pc-text-action" type="button" @click="appendDefaultMaterialText(row.row_id)"><IconPlus :size="14" /> 固定文字</button>
+                </div>
+                <div class="pc-name-preview"><div class="pc-name-preview-output"><span>生成名称预览</span><strong>{{ renderNamePreview(row.name_parts || [], workflowVariables, namePreviewSamples).value || '请输入固定文字或选择变量' }}</strong></div></div>
+                <div class="pc-variable-picker">
+                  <input v-model="materialRowVariableQuery" class="pc-control" placeholder="搜索或新建命名变量" />
+                  <button v-for="variable in filteredNameVariables" :key="variable.id" class="pc-variable-option" type="button" @click="appendDefaultMaterialVariable(row.row_id, variable.id)">{{ variable.name }}</button>
+                  <button v-if="materialRowVariableQuery.trim() && !filteredNameVariables.some((variable) => variable.name.toLocaleLowerCase() === materialRowVariableQuery.trim().toLocaleLowerCase())" class="pc-variable-option create" type="button" @click="createAndAppendDefaultMaterialVariable(row.row_id)">＋ 新建“{{ materialRowVariableQuery.trim() }}”</button>
+                </div>
+                <div class="pc-inline-controls">
+                  <label class="pc-row-field"><span>取得方式</span><select class="pc-control" :value="row.supply_mode || 'purchase'" @change="updateDefaultMaterialRow(row.row_id, { supply_mode: $event.target.value })"><option value="purchase">外购</option><option value="manufacture">自制</option></select></label>
+                  <label class="pc-row-field"><span>库存单位</span><select class="pc-control" :value="row.unit || ''" @change="updateDefaultMaterialRow(row.row_id, { unit: $event.target.value })"><option value="">使用时选择</option><option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
+                  <label class="pc-row-field"><span>归属</span><select class="pc-control" :value="row.owner_type || 'factory'" @change="updateDefaultMaterialRow(row.row_id, { owner_type: $event.target.value, owner_customer_id: 0 })"><option value="factory">本公司</option><option value="customer">客户</option></select></label>
+                </div>
+                <label v-if="row.owner_type === 'customer'" class="pc-field-label">默认客户</label>
+                <select v-if="row.owner_type === 'customer'" class="pc-control" :value="row.owner_customer_id || 0" @change="updateDefaultMaterialRow(row.row_id, { owner_customer_id: Number($event.target.value) })"><option :value="0">使用时选择</option><option v-for="customer in customerOptions" :key="customer.id" :value="customer.id">{{ customer.name }}</option></select>
+              </article>
+              <button class="pc-run-add" type="button" @click="addDefaultMaterialRow"><IconPlus :size="16" /> 添加默认物料行</button>
             </section>
             <section v-if="templateWorkflowVersion >= 2 && selectedNode.data.module.kind === 'process'" class="pc-inspector-section">
               <h3>工艺默认配置</h3>
@@ -461,7 +494,7 @@ import {
   toCanvasGraph,
   toWorkflowGraph,
 } from '../lib/product-creator-graph.js'
-import { filterWorkflowVariables, renderNamePreview, upgradeWorkflowToV5 } from '../lib/product-creator-variables.js'
+import { filterWorkflowVariables, renderNamePreview, upgradeWorkflowToV6 } from '../lib/product-creator-variables.js'
 import {
   copyProductCreatorTemplate,
   commitProductCreatorRun,
@@ -504,6 +537,7 @@ const template = ref(emptyTemplate())
 const workflowVariables = ref([])
 const variableManagerOpen = ref(false)
 const workflowUpgradeNotice = ref(false)
+const materialRowVariableQuery = ref('')
 const variablePickerQuery = ref('')
 const namePreviewSamples = ref({})
 const run = ref(null)
@@ -537,6 +571,7 @@ const publishedSpecificationTemplateVersions = computed(() => specificationTempl
 const selectedSpecificationTemplateVersion = computed(() => publishedSpecificationTemplateVersions.value.find((version) => Number(version.version_id) === Number(selectedNode.value?.data.config?.spec_template_version_id || 0)) || null)
 const selectedSpecificationTemplateDetail = computed(() => specificationTemplateDetails.value[String(selectedNode.value?.data.config?.spec_template_version_id || '')] || null)
 const selectedNameParts = computed(() => selectedNode.value?.data.config?.name_parts || [])
+const selectedDefaultMaterialRows = computed(() => selectedNode.value?.data.config?.default_rows || [])
 const filteredNameVariables = computed(() => filterWorkflowVariables(variablePickerQuery.value, workflowVariables.value))
 const selectedNamePreview = computed(() => renderNamePreview(selectedNameParts.value, workflowVariables.value, namePreviewSamples.value))
 const selectedBOMConnectedRoute = computed(() => {
@@ -612,7 +647,7 @@ async function load() {
 }
 
 function emptyTemplate() {
-  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 5, variables: [], nodes: [], edges: [] } }
+  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 6, variables: [], nodes: [], edges: [] } }
 }
 
 function newTemplate() {
@@ -632,11 +667,11 @@ function newTemplate() {
 function editTemplate(item) {
   errorMessage.value = ''
   const sourceVersion = Number(item.draft?.version || 1)
-  const upgradedWorkflow = upgradeWorkflowToV5(item.draft || { nodes: [], edges: [] })
+  const upgradedWorkflow = upgradeWorkflowToV6(item.draft || { nodes: [], edges: [] })
   template.value = { ...cloneValue(item), draft: upgradedWorkflow }
   workflowVariables.value = cloneValue(upgradedWorkflow.variables || [])
   namePreviewSamples.value = {}
-  workflowUpgradeNotice.value = sourceVersion < 5
+  workflowUpgradeNotice.value = sourceVersion < 6
   edgeMode.value = 'data'
   setCanvasGraph(toCanvasGraph(upgradedWorkflow, modules.value))
   designerTab.value = 'flow'
@@ -911,7 +946,7 @@ function addModule(module, position = null) {
   rememberHistory()
   const count = nodes.value.filter((node) => node.data.module.kind === module.kind).length
   const config = module.kind === 'material' && templateWorkflowVersion.value >= 2
-    ? { data_role: 'input', rows: [] }
+    ? templateWorkflowVersion.value >= 6 ? { data_role: 'input', default_rows: [] } : { data_role: 'input', rows: [] }
     : module.kind === 'product' && templateWorkflowVersion.value >= 2
       ? { data_role: 'output', object_action: 'create', action: 'create', owner: 'factory' }
       : module.kind === 'process' && templateWorkflowVersion.value >= 2
@@ -1021,7 +1056,23 @@ function connectNodes(connection) {
   }
   for (const [nodeId, role] of Object.entries(connectionRoleUpdates(connection, nodes.value, edgeMode.value, edges.value))) {
     const node = nodes.value.find((item) => item.id === nodeId)
-    if (node) node.data = { ...node.data, config: { ...node.data.config, data_role: role } }
+    if (node) {
+      const config = { ...node.data.config, data_role: role }
+      if (templateWorkflowVersion.value >= 6 && node.data.module.kind === 'material' && role === 'output') {
+        const row = config.default_rows?.[0] || {}
+        Object.assign(config, {
+          object_action: row.action === 'reuse' ? 'reuse' : 'create',
+          supply_mode: row.supply_mode || 'manufacture',
+          unit: row.unit || '',
+          owner: row.owner_type || 'factory',
+          customer_id: Number(row.owner_customer_id || 0),
+          name_parts: row.name_parts || [],
+        })
+        delete config.default_rows
+      }
+      const module = moduleForNode({ kind: node.data.module.kind, config }, modules.value, templateWorkflowVersion.value)
+      node.data = { ...node.data, module: module || node.data.module, config }
+    }
   }
   selectedNodeId.value = target.id
   selectedEdgeId.value = ''
@@ -1135,6 +1186,109 @@ function removeNamePart(index) {
   updateNodeConfig({ name_parts: selectedNameParts.value.filter((_, partIndex) => partIndex !== index) })
 }
 
+function moveNamePart(index, direction) {
+  const parts = selectedNameParts.value.map((part) => ({ ...part }))
+  const target = index + direction
+  if (target < 0 || target >= parts.length) return
+  ;[parts[index], parts[target]] = [parts[target], parts[index]]
+  updateNodeConfig({ name_parts: parts })
+}
+
+function updateDefaultMaterialRow(rowID, patch) {
+  const rows = selectedDefaultMaterialRows.value.map((row) => row.row_id === rowID ? { ...row, ...patch } : { ...row })
+  updateNodeConfig({ default_rows: rows })
+}
+
+function addDefaultMaterialRow() {
+  rememberHistory()
+  updateNodeConfig({ default_rows: [...selectedDefaultMaterialRows.value, { row_id: makeNodeId(), action: 'create', supply_mode: 'purchase', unit: '', owner_type: 'factory', owner_customer_id: 0, name_parts: [] }] })
+  finishGraphChange()
+}
+
+function removeDefaultMaterialRow(rowID) {
+  rememberHistory()
+  updateNodeConfig({ default_rows: selectedDefaultMaterialRows.value.filter((row) => row.row_id !== rowID) })
+  finishGraphChange()
+}
+
+function moveDefaultMaterialRow(rowIndex, direction) {
+  const rows = [...selectedDefaultMaterialRows.value]
+  const target = rowIndex + direction
+  if (target < 0 || target >= rows.length) return
+  rememberHistory()
+  ;[rows[rowIndex], rows[target]] = [rows[target], rows[rowIndex]]
+  updateNodeConfig({ default_rows: rows })
+  finishGraphChange()
+}
+
+function moveDefaultMaterialNamePart(rowID, partIndex, direction) {
+  const row = selectedDefaultMaterialRows.value.find((item) => item.row_id === rowID)
+  const parts = [...(row?.name_parts || [])]
+  const target = partIndex + direction
+  if (!row || target < 0 || target >= parts.length) return
+  ;[parts[partIndex], parts[target]] = [parts[target], parts[partIndex]]
+  updateDefaultMaterialRow(rowID, { name_parts: parts })
+}
+
+function updateDefaultMaterialNamePart(rowID, partIndex, value) {
+  const rows = selectedDefaultMaterialRows.value.map((row) => ({
+    ...row,
+    name_parts: (row.name_parts || []).map((part, index) => index === partIndex ? { ...part, value } : { ...part }),
+  }))
+  const nodeIndex = nodes.value.findIndex((node) => node.id === selectedNodeId.value)
+  nodes.value[nodeIndex] = { ...nodes.value[nodeIndex], data: { ...nodes.value[nodeIndex].data, config: { ...nodes.value[nodeIndex].data.config, default_rows: rows } } }
+  touchGraph()
+}
+
+function appendDefaultMaterialText(rowID) {
+  updateDefaultMaterialRow(rowID, { name_parts: [...(selectedDefaultMaterialRows.value.find((row) => row.row_id === rowID)?.name_parts || []), { type: 'text', value: '' }] })
+}
+
+function appendDefaultMaterialVariable(rowID, variableID) {
+  updateDefaultMaterialRow(rowID, { name_parts: [...(selectedDefaultMaterialRows.value.find((row) => row.row_id === rowID)?.name_parts || []), { type: 'variable', variable_id: variableID }] })
+  materialRowVariableQuery.value = ''
+}
+
+function removeDefaultMaterialNamePart(rowID, partIndex) {
+  const row = selectedDefaultMaterialRows.value.find((item) => item.row_id === rowID)
+  updateDefaultMaterialRow(rowID, { name_parts: (row?.name_parts || []).filter((_, index) => index !== partIndex) })
+}
+
+function createAndAppendDefaultMaterialVariable(rowID) {
+  const variable = upsertWorkflowVariable(materialRowVariableQuery.value)
+  if (variable) appendDefaultMaterialVariable(rowID, variable.id)
+  materialRowVariableQuery.value = ''
+}
+
+function changeSelectedDataRole(role) {
+  if (!selectedNode.value) return
+  const config = { ...selectedNode.value.data.config }
+  if (templateWorkflowVersion.value >= 6 && selectedNode.value.data.module.kind === 'material' && role === 'output' && config.data_role !== 'output') {
+    const rows = Array.isArray(config.default_rows) ? config.default_rows : []
+    if (rows.length > 1) {
+      errorMessage.value = '投入物料有多行预设，不能改成单个 BOM 产出。请新增独立的自制物料节点。'
+      return
+    }
+    const row = rows[0] || {}
+    const supplyMode = row.supply_mode || config.supply_mode || 'manufacture'
+    if (!['manufacture', 'manufactured'].includes(supplyMode)) {
+      errorMessage.value = '外购物料不能作为 BOM 产出。请新增独立的自制物料节点。'
+      return
+    }
+    Object.assign(config, {
+      object_action: row.action === 'reuse' ? 'reuse' : 'create',
+      supply_mode: supplyMode,
+      unit: row.unit || '',
+      owner: row.owner_type || 'factory',
+      customer_id: Number(row.owner_customer_id || 0),
+      name_parts: row.name_parts || [],
+    })
+    delete config.default_rows
+  }
+  updateNodeConfig({ ...config, data_role: role })
+  errorMessage.value = ''
+}
+
 function variableName(variableID) {
   return workflowVariables.value.find((variable) => variable.id === variableID)?.name || '缺失变量'
 }
@@ -1177,11 +1331,13 @@ function updateWorkflowVariable(variableID, patch) {
 }
 
 function variableReferences(variableID) {
-  return nodes.value.filter((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID)).map((node) => node.data.label).join('、')
+  return nodes.value.filter((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID)
+    || (node.data.config?.default_rows || []).some((row) => (row.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID))).map((node) => node.data.label).join('、')
 }
 
 function hasVariableReferences(variableID) {
-  return nodes.value.some((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID))
+  return nodes.value.some((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID)
+    || (node.data.config?.default_rows || []).some((row) => (row.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID)))
 }
 
 function removeWorkflowVariable(variableID) {
@@ -1632,6 +1788,12 @@ function updateZoom() {
 .pc-template-component-row label span { display: block; margin-bottom: 4px; color: #78869a; font-size: 9px; }
 .pc-template-component-row .pc-control { min-height: 32px; padding: 5px 6px; font-size: 10px; }
 .pc-name-parts-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+.pc-name-part-actions { display: inline-flex; align-items: center; gap: 2px; }
+.pc-name-part-actions > button:not(.pc-text-action) { min-width: 24px; height: 24px; border: 1px solid #dce4ed; border-radius: 4px; padding: 0 4px; color: #53657d; background: white; font: inherit; font-size: 10px; cursor: pointer; }
+.pc-name-part-actions > button:disabled { opacity: .4; cursor: default; }
+.pc-v6-default-material { border: 1px solid #e5ebf1; border-radius: 7px; margin: 10px 0; padding: 10px; background: #fbfcfd; }
+.pc-v6-default-material > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; color: #41536a; font-size: 11px; }
+.pc-v6-default-material .pc-name-parts-editor { align-items: center; }
 .pc-name-literal { flex: 1 1 125px; min-width: 100px; }
 .pc-name-variable-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #cbdcf5; border-radius: 14px; padding: 5px 8px; color: #315d98; background: #f0f5ff; font-size: 11px; }
 .pc-name-variable-chip button { display: grid; place-items: center; border: 0; padding: 0; color: inherit; background: transparent; cursor: pointer; }
