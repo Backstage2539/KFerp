@@ -7,9 +7,9 @@
   - API: 不涉及 API 或服务端合同；继续沿用 `item.specs`。
   - Frontend/build: Vue shell 1,306/1,306 tests passed; `npm run build` passed (Vite 8.0.10, 6,650 modules); `git diff --check` passed.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md` 已补充商品档案口与商品规格口的区别。
-  - Review/acceptance: development and production deployment smoke pending.
-- Status: implementation and local automated verification complete; release in progress; Van acceptance pending.
-- Deployment: development then production explicitly authorized; commit/backup/smoke evidence to be recorded after each deployment.
+  - Review/acceptance: development and production login smoke both returned HTTP 200; Van's hang-ear template business acceptance pending.
+- Status: implementation, automated verification, develop/main integration, and development/production deployments complete; Van acceptance pending.
+- Deployment: development `c07697e2bc5f4bc6277990994e21ec63c0975321`, backup `/opt/stacks/erp/orderapp.backup.deploy-20261002145234-c07697e2bc5f`, rollback image `kferp-orderapp-rollback:development-20261002145234-c07697e2bc5f`; production `adb8a691cda64d4aa37a887342c5f9dcb13ff8b8`, backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261002150237-adb8a691cda6`, rollback image `kferp-orderapp-rollback:production-20261002150237-adb8a691cda6`. Both `/app/login` smoke checks returned HTTP 200. WeChat Mini Program was not uploaded or published.
 - Last update: 2026-10-02.
 
 ## PR-678 商品创建器物料角色与命名简化（2026-10-02）

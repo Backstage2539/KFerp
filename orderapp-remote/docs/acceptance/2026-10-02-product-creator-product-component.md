@@ -17,9 +17,11 @@
 - GREEN：商品档案口返回 `product_object_requires_specification`；商品规格口可连接 BOM 配方输入。
 - 前端：Vue shell 1,306/1,306 项通过；Vite build 成功，构建 6,650 个模块；`git diff --check` 通过。
 - API：未改 API 或服务端合同，配方继续使用 `item.specs`。
-- 发布后 smoke：待完成。
+- 开发环境部署：`c07697e2bc5f4bc6277990994e21ec63c0975321`；登录页 HTTP 200；备份 `/opt/stacks/erp/orderapp.backup.deploy-20261002145234-c07697e2bc5f`；回滚镜像 `kferp-orderapp-rollback:development-20261002145234-c07697e2bc5f`。
+- 生产环境部署：`adb8a691cda64d4aa37a887342c5f9dcb13ff8b8`；登录页 HTTP 200；备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261002150237-adb8a691cda6`；回滚镜像 `kferp-orderapp-rollback:production-20261002150237-adb8a691cda6`。
+- 开发、生产部署门禁均通过 Vue、小程序、Go/PostgreSQL/API 测试与构建；未上传或发布微信小程序。
 
 ## 部署与业务验收
 
-- 开发与生产部署版本、备份位置及 HTTP smoke 将在发布后补录。
+- 开发已合入 `develop`，生产已合入 `main`；版本、回滚锚点及登录 HTTP smoke 如上。
 - Van 的挂耳模板业务验收待进行。
