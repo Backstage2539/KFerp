@@ -25,4 +25,7 @@
 - 真实浏览器从模板记录继续 #63/#64，预览及提交成功，结果可见，页面无异常。768 宽度下收起工作台菜单后检查表单布局；命名恢复、有效变量和失效规格重选另有本地真实组件交互证据。
 - Smoke：未登录 `/app/` 跳转登录（303），创建器 API 未登录 401；登录后 shell/API 200；模块目录含 V8。开发及生产容器健康，生产未参与本次发布。
 - 收尾权限测试 RED/GREEN：已有商品投入只要求 products.read，旧版本仍沿用原权限。HTTP 创建器测试全组通过。该修正随收尾提交再次部署 development。
+- PR #178 部署 `2f3f411bd344e6579b05a05a467bda1cc796905e`，备份 `/opt/stacks/erp/orderapp.backup.deploy-20261002210019-2f3f411bd344`。重启核对暴露既有启动兼容回填问题：正式提交只创建 3 个下游 BOM，后续启动额外回填 3 个旧式草稿。补充 `TestStartupBackfillDoesNotDuplicateExplicitProductBOM`，RED 为 explicit=2；GREEN 验证已有独立 BOM 不重复、旧式配方正常回填、重复启动幂等。修正与原 repository repair 使用一致的独立有效 BOM 保护条件。
+- 回填、PR600 相关 PostgreSQL测试与标准 Go 全包通过。额外运行的两个 PR598 旧测试因外购物料制造校验失败，在未改动的 develop 基线同样失败，未计作通过；日志 `/tmp/pc-v8-backfill-{green,baseline,backend}.log`。
+- 多余草稿 #51682/#51648/#51675 来自 system-backfill，未发布、未被默认绑定；修正前快照 `/tmp/pc-v8-startup-before.json`。只对本次验收对象的这些草稿通过现有 BOM 维护 API 停用，日志可查；原 #51613/#51614/#51615 和默认绑定保持不变。历史业务对象未调整。
 - Van 业务验收：待确认。生产发布另行安排。
