@@ -171,6 +171,10 @@ export function connectionValidation(connection, nodes, modules, mode = 'data', 
     return invalid('unknown_port', '连线端口不存在，请确认起点和目标输入口。')
   }
   if (!sourcePort.types?.some((sourceType) => targetPort.types?.includes(sourceType) || targetPort.types?.includes('*'))) {
+    const hasProductSpecificationOutput = source.data.module.outputs?.some((port) => port.id === 'specs' && port.types?.includes('item.specs'))
+    if (source.data.module.kind === 'product' && connection.sourceHandle === 'product' && hasProductSpecificationOutput && target.data.module.kind === 'bom' && canonicalInputPortID(connection.targetHandle) === 'components') {
+      return invalid('product_object_requires_specification', '商品档案不能直接作为配方行。请从商品节点的“商品规格”输出口连接，再在填写时选择具体规格（如 10g 袋装）。')
+    }
     return invalid('incompatible_data_type', `${sourcePort.label || '该输出'}不能连接到${targetPort.label || '此输入'}。`)
   }
   if (target.data.module.kind === 'material' && Number(target.data.module.workflow_version || 0) >= 6 && canonicalInputPortID(connection.targetHandle) === 'from_bom' && target.data.config?.data_role !== 'output') {
