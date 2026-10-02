@@ -546,7 +546,11 @@ func ResolveWorkflowInputDefaults(workflow Workflow, inputs map[string]map[strin
 	if err := json.Unmarshal(raw, &resolved); err != nil || resolved == nil {
 		resolved = map[string]map[string]any{}
 	}
+	plan := BuildExecutionPlan(workflow, inputs)
 	for _, node := range workflow.Nodes {
+		if !plan.Active(node.ID) {
+			continue
+		}
 		values := resolved[node.ID]
 		if values == nil {
 			values = map[string]any{}
@@ -664,7 +668,11 @@ func ResolveWorkflowVariableValues(workflow Workflow, values map[string]string) 
 func ResolveWorkflowVariableNames(workflow Workflow, inputs map[string]map[string]any, values map[string]string) map[string]map[string]any {
 	resolved := cloneRunInputs(inputs)
 	values = ResolveWorkflowVariableValues(workflow, values)
+	plan := BuildExecutionPlan(workflow, inputs)
 	for _, node := range workflow.Nodes {
+		if !plan.Active(node.ID) || IsReusedOutput(workflow, node, inputs) {
+			continue
+		}
 		parts := rowValues(node.Config["name_parts"])
 		current := resolved[node.ID]
 		namePartsOverridden := workflowVersion(workflow) >= 6 && boolValue(current["name_parts_overridden"])
@@ -719,7 +727,11 @@ func ValidateWorkflowVariableValues(workflow Workflow, inputs map[string]map[str
 		definedVariables[variable.ID] = struct{}{}
 	}
 	issues := make([]ValidationIssue, 0)
+	plan := BuildExecutionPlan(workflow, inputs)
 	for _, node := range workflow.Nodes {
+		if !plan.Active(node.ID) || IsReusedOutput(workflow, node, inputs) {
+			continue
+		}
 		if stringValue(inputs[node.ID]["name_mode"]) != "manual" {
 			parts := rowValues(node.Config["name_parts"])
 			namePartsOverridden := workflowVersion(workflow) >= 6 && boolValue(inputs[node.ID]["name_parts_overridden"])
@@ -824,8 +836,22 @@ func applyFixedBOMComponentDefaults(currentValue, defaultValue any) []map[string
 
 func validateBOMRunInputs(workflow Workflow, inputs map[string]map[string]any) []ValidationIssue {
 	issues := ValidateWorkflow(workflow)
+	plan := BuildExecutionPlan(workflow, inputs)
 	for _, node := range workflow.Nodes {
+		if !plan.Active(node.ID) {
+			continue
+		}
 		values := inputs[node.ID]
+		if IsReusedOutput(workflow, node, inputs) {
+			key := "material_id"
+			if node.Kind == ModuleProduct {
+				key = "product_id"
+			}
+			if positiveNumber(values[key]) <= 0 {
+				issues = append(issues, ValidationIssue{NodeID: node.ID, Field: key, Code: "required_reference", Message: "请选择已有档案"})
+			}
+			continue
+		}
 		issues = append(issues, validateRowIdentities(node, values)...)
 		switch node.Kind {
 		case ModuleMaterial:
@@ -1012,7 +1038,11 @@ func workflowNodeByID(workflow Workflow, id string) (Node, bool) {
 
 func ValidateRunDraft(workflow Workflow, inputs map[string]map[string]any) []ValidationIssue {
 	issues := ValidateWorkflow(workflow)
+	plan := BuildExecutionPlan(workflow, inputs)
 	for _, node := range workflow.Nodes {
+		if !plan.Active(node.ID) {
+			continue
+		}
 		issues = append(issues, validateRowIdentities(node, inputs[node.ID])...)
 	}
 	return issues
@@ -1205,7 +1235,7 @@ func componentSourceRowIDs(workflow Workflow, inputs map[string]map[string]any, 
 		}
 		return ids
 	case ModuleProduct:
-		if sourceHandle == "specs" && stringValue(node.Config["data_role"]) != "output" {
+		if sourceHandle == "specs" && (stringValue(node.Config["data_role"]) != "output" || IsReusedOutput(workflow, node, inputs)) {
 			if specID := positiveNumber(inputs[sourceNodeID]["bom_spec_id"]); specID > 0 {
 				return []string{strconv.FormatInt(int64(specID), 10)}
 			}
@@ -1356,6 +1386,7 @@ func BuildRunPreview(workflow Workflow, inputs map[string]map[string]any) RunPre
 	for _, node := range nodes {
 		conditionNodes[node.ID] = node
 	}
+	plan := BuildExecutionPlan(workflow, inputs)
 	statuses := make(map[string]string, len(order))
 	for _, id := range order {
 		node := nodes[id]
@@ -1364,6 +1395,19 @@ func BuildRunPreview(workflow Workflow, inputs map[string]map[string]any) RunPre
 			name = moduleByKind[node.Kind].Name
 		}
 		values := inputs[id]
+		if state := plan[id]; state.Status == "skipped" || state.Status == "reused" {
+			action := "引用已有"
+			if state.Status == "skipped" {
+				action = "上游已停用"
+			}
+			details := map[string]any{}
+			if state.Status == "skipped" {
+				details = state.Details()
+			}
+			preview.Steps = append(preview.Steps, StepPreview{NodeID: id, Name: name, Kind: node.Kind, Action: action, Status: state.Status, Details: details})
+			statuses[id] = state.Status
+			continue
+		}
 		if !conditionApplies(node, inputs, conditionNodes) {
 			statuses[id] = "skipped"
 			preview.Steps = append(preview.Steps, StepPreview{NodeID: id, Name: name, Kind: node.Kind, Action: "按条件跳过", Status: "skipped"})

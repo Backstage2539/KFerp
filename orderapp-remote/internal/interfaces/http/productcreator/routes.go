@@ -232,7 +232,7 @@ func RegisterRoutes(e *echo.Echo, dependencies Dependencies) {
 		if err != nil {
 			return productCreatorError(c, err)
 		}
-		if err := requireCreatorPermissions(c, dependencies.Authz, configurationPermissions(run.Workflow)); err != nil {
+		if err := requireCreatorPermissions(c, dependencies.Authz, configurationRunPermissions(run)); err != nil {
 			return err
 		}
 		row, err := service.CommitConfiguration(c.Request().Context(), id, request.Revision, idempotencyKey, support.ActorOf(c))
@@ -360,4 +360,45 @@ func productCreatorError(c echo.Context, err error) error {
 	default:
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
+}
+
+func configurationRunPermissions(run app.Run) []string {
+	if run.Workflow.Version < 8 {
+		return configurationPermissions(run.Workflow)
+	}
+	inputs := app.ResolveWorkflowInputDefaults(run.Workflow, run.Inputs)
+	plan := app.BuildExecutionPlan(run.Workflow, inputs)
+	set := map[string]bool{}
+	for _, n := range run.Workflow.Nodes {
+		if !plan.Active(n.ID) {
+			continue
+		}
+		if app.IsReusedOutput(run.Workflow, n, inputs) {
+			if n.Kind == app.ModuleProduct {
+				set["products.read"] = true
+			} else {
+				set["materials.read"] = true
+			}
+			continue
+		}
+		if n.Kind == app.ModuleMaterial && n.Config["data_role"] != "output" {
+			set["materials.read"] = true
+			if rows, ok := inputs[n.ID]["rows"].([]any); ok {
+				for _, r := range rows {
+					if row, ok := r.(map[string]any); ok && row["action"] != "reuse" {
+						set["materials.write"] = true
+					}
+				}
+			}
+			continue
+		}
+		if n.Kind == app.ModuleProcess {
+			set["bom.read"] = true
+			continue
+		}
+		for _, p := range configurationPermissions(app.Workflow{Nodes: []app.Node{n}}) {
+			set[p] = true
+		}
+	}
+	return sortedPermissionKeys(set)
 }

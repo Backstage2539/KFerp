@@ -1,3 +1,10 @@
+## PR-680 商品创建器 V8 引用产出停用上游（2026-10-02）
+- Branch: `codex/product-creator-v8-reuse-20261002`; base `origin/develop@c07697e2`.
+- DEV: DEV-728-PC-V8-EXECUTION; DEV-729-PC-V8-RUNTIME; DEV-730-PC-V8-DELIVERY.
+- Scope: 物料/商品选择已有后停用专用上游；保留共享依赖；统一校验及事务执行。
+- Verifier: Go unit/API/PostgreSQL; Node helpers/runtime; Vue build; browser; full verifier.
+- Status: implementation and automated/browser verification complete; 1,310 frontend tests, Go/API/PostgreSQL transaction tests and Vite build passed. Integration/development deployment pending; Van acceptance pending.
+
 ## PR-679 商品规格作为 BOM 配方来源的连线提示（2026-10-02）
 - Branch: `codex/product-creator-product-component-20261002`; base `origin/develop@1d0042e09871bbb9c9e107eaa2d7718295297fb2`.
 - DEV: DEV-727-PC-PRODUCT-SPEC-RECIPE-CONNECTION.

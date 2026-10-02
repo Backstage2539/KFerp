@@ -584,6 +584,7 @@ func TestProductCreatorBOMCentricCommitsMaterialThenMultiSpecProduct(t *testing.
 	if variantCount != 2 || defaultVariantCount != 1 || finishedRouteCount != int(packRouteID) || productDefaultBindingCount != 1 || semiDefaultBindingCount != 1 {
 		t.Fatalf("variants/default/route/product binding/semi binding=%d/%d/%d/%d/%d", variantCount, defaultVariantCount, finishedRouteCount, productDefaultBindingCount, semiDefaultBindingCount)
 	}
+	verifyV8ReuseDownstream(t, ctx, pool, schema, creatorSvc, bomSvc, semiID, productID, packRouteID)
 }
 
 func TestProductCreatorConfigurationRollsBackEarlierObjectsAfterCommitValidationFailure(t *testing.T) {

@@ -186,3 +186,9 @@ export function upgradeWorkflowToV7(workflow = {}) {
     return { ...node, config }
   }) }
 }
+
+export function upgradeWorkflowToV8(workflow = {}) {
+  if (Number(workflow.version) >= 8) return cloneValue(workflow)
+  const draft = Number(workflow.version) >= 7 ? cloneValue(workflow) : upgradeWorkflowToV7(workflow)
+  return { ...draft, version: 8 }
+}
