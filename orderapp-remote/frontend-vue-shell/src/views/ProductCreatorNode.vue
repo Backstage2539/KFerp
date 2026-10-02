@@ -43,7 +43,14 @@
       :key="`out-${port.id}`"
       type="source"
       :position="Position.Right"
+      :title="port.label"
+      :aria-label="`${port.label}输出口`"
       :style="handleStyle(index, data.module.outputs.length)" />
+    <span
+      v-for="(port, index) in data.module.outputs"
+      :key="`output-label-${port.id}`"
+      class="creator-node-output-label"
+      :style="handleStyle(index, data.module.outputs.length)">{{ port.label }}</span>
     <Handle
       v-if="Number(data.module.workflow_version || 1) < 2"
       id="__prerequisite"
@@ -157,6 +164,7 @@ function recipePortStyle(portID) {
 .creator-material-mode select { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid #dbe4ec; border-radius: 6px; background: #f5faf7; color: #246b44; font: inherit; }
 .creator-node:active { cursor: grabbing; }
 .creator-node-input-label { position: absolute; left: -9px; z-index: 2; max-width: 112px; overflow: hidden; padding: 2px 5px; border-radius: 4px; color: #62738a; background: #f7f9fc; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; transform: translate(-100%, -50%); pointer-events: none; }
+.creator-node-output-label { position: absolute; right: -9px; z-index: 3; max-width: 112px; overflow: hidden; padding: 2px 5px; border: 1px solid #e1e8f0; border-radius: 4px; color: #62738a; background: #fff; box-shadow: 0 1px 3px #24364d0d; font-size: 9px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; transform: translate(100%, -50%); pointer-events: none; }
 .creator-node-icon {
   display: grid;
   flex: 0 0 40px;
