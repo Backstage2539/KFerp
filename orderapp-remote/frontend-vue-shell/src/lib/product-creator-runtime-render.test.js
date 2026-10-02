@@ -29,3 +29,17 @@ for (const version of [6, 7]) {
   }
  })
 }
+
+test('V8 reuse disables dedicated upstream forms and their variables, retaining the selection control', async () => {
+ const workflow = {version:8,variables:[{id:'upstream',name:'仅上游名称'}],nodes:[
+  {id:'raw',kind:'material',name:'生豆',config:{data_role:'input',supply_mode:'purchase'}},
+  {id:'roast',kind:'bom',name:'烘焙 BOM',config:{output_type:'material',route_id:1}},
+  {id:'semi',kind:'material',name:'烘焙半成品',config:{data_role:'output',supply_mode:'manufacture',name_parts:[{type:'variable',variable_id:'upstream'}]}}
+ ],edges:[{id:'a',source:'raw',source_handle:'material',target:'roast',target_handle:'components',kind:'data'},{id:'b',source:'roast',source_handle:'assembly',target:'semi',target_handle:'from_bom',kind:'data'}]}
+ const modules=['material','bom'].map(kind=>({kind,name:kind,workflow_version:8,inputs:[],outputs:[],fields:[]}))
+ const html=await renderToString(createSSRApp({render:()=>h(Run,{run:{id:8,status:'draft',workflow,inputs:{semi:{action:'reuse'}}},modules})}))
+ assert.match(html,/已使用现有烘焙半成品，本步骤本次不执行/)
+ assert.match(html,/pc-run-step-body[^>]* disabled/)
+ assert.match(html,/搜索已有物料/)
+ assert.doesNotMatch(html,/仅上游名称/)
+})

@@ -135,7 +135,16 @@ func ModuleCatalog() []Module {
 	out = append(out, specificationTemplateModules(5)...)
 	out = append(out, v6Modules()...)
 	out = append(out, v7Modules()...)
+	out = append(out, v8Modules()...)
 	return out
+}
+
+func v8Modules() []Module {
+	modules := v7Modules()
+	for i := range modules {
+		modules[i].WorkflowVersion = 8
+	}
+	return modules
 }
 
 func workflowVersion(workflow Workflow) int {
@@ -277,6 +286,9 @@ func moduleForNode(node Node, version int) Module {
 	}
 	if version >= 7 {
 		definitions = v7Modules()
+	}
+	if version >= 8 {
+		definitions = v8Modules()
 	}
 	for _, module := range definitions {
 		if module.Kind != node.Kind {
