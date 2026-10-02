@@ -165,6 +165,25 @@ test('product catalog price-list types accept flat business group items', () => 
   assert.equal(matchesProductCatalogPriceListType(rows[0], options[0], { assignments }), true)
 })
 
+test('template-root products remain selectable in their template price list but not in a child category', () => {
+  const template = {
+    id: 30,
+    name: '咖啡生豆',
+    items: [{ id: 300, name: '亚洲', parent_id: 0 }],
+  }
+  const row = { product_id: 901, name: '新建生豆商品' }
+  const assignments = [{ usage_key: 'product_catalog', object_key: 'product', object_id: 901, group_id: 30, group_item_id: 0 }]
+  const [templateType] = buildProductCatalogTemplatePriceListTypeOptions([row], { templates: [template], assignments })
+  const childType = {
+    productCatalogGroupID: 30,
+    productCatalogGroupItemID: 300,
+    productCatalogGroupItemIDs: [300],
+  }
+
+  assert.equal(matchesProductCatalogPriceListType(row, templateType, { assignments }), true)
+  assert.equal(matchesProductCatalogPriceListType(row, childType, { assignments }), false)
+})
+
 test('product catalog price-list types keep their own selection state key', () => {
   const productCatalogType = {
     id: -1003296,

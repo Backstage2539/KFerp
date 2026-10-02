@@ -483,6 +483,16 @@ func TestPR584BusinessGroupAssignmentNormalization(t *testing.T) {
 	}
 
 	_, err = service.SaveBusinessGroupAssignment(context.Background(), BusinessGroupAssignment{
+		GroupID: 61, GroupItemID: 0, UsageKey: BusinessGroupUsageProductCatalog, ObjectKey: "product", ObjectID: 92,
+	})
+	if err != nil {
+		t.Fatalf("root category assignment should be allowed: %v", err)
+	}
+	if repo.groupAssignment.GroupItemID != 0 {
+		t.Fatalf("root category assignment item id=%d, want 0", repo.groupAssignment.GroupItemID)
+	}
+
+	_, err = service.SaveBusinessGroupAssignment(context.Background(), BusinessGroupAssignment{
 		GroupID: 61, GroupItemID: 62, UsageKey: "unknown_usage", ObjectKey: "product", ObjectID: 91,
 	})
 	if err == nil || !IsValidationError(err) || err.Error() != "invalid business group usage" {

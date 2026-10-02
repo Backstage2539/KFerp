@@ -35,7 +35,7 @@ test('shared inline category workspace uses collapsible headings as immediate mo
   assert.match(workspace, /v-for="group in visibleGroups"/)
   assert.match(workspace, /watch\([\s\S]*props\.moveActive[\s\S]*businessGroupMoveCollapsedKeys\(props\.groups\)[\s\S]*await nextTick\(\)/s)
   assert.match(workspace, /businessGroupVisibleGroups\([\s\S]*showAllHeadings: props\.moveActive/)
-  assert.match(workspace, /v-if="!moveActive && !group\.is_template_group && !isCollapsed\(group\.key\)"/)
+  assert.match(workspace, /v-if="!moveActive && \(!group\.is_template_group \|\| \(group\.rows\?\.length \|\| 0\) > 0\) && !isCollapsed\(group\.key\)"/)
   assert.match(workspace, /businessGroupSearchCollapsedKeys\(groups\)/)
   assert.match(workspace, /querySelector\('\[data-business-group-item-row\]'\)/)
   assert.match(workspace, /focus\(\{ preventScroll: true \}\)/)

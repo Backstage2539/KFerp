@@ -3042,12 +3042,14 @@ func (r Repository) SaveBusinessGroupAssignment(ctx context.Context, cmd catalog
 	if !groupOK {
 		return catalogapp.BusinessGroupAssignment{}, fmt.Errorf("business group usage mismatch")
 	}
-	var itemOK bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_group_items WHERE id=$1 AND group_id=$2 AND active=true)`, r.schema), cmd.GroupItemID, cmd.GroupID).Scan(&itemOK); err != nil {
-		return catalogapp.BusinessGroupAssignment{}, err
-	}
-	if !itemOK {
-		return catalogapp.BusinessGroupAssignment{}, fmt.Errorf("business group item mismatch")
+	if cmd.GroupItemID > 0 {
+		var itemOK bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_group_items WHERE id=$1 AND group_id=$2 AND active=true)`, r.schema), cmd.GroupItemID, cmd.GroupID).Scan(&itemOK); err != nil {
+			return catalogapp.BusinessGroupAssignment{}, err
+		}
+		if !itemOK {
+			return catalogapp.BusinessGroupAssignment{}, fmt.Errorf("business group item mismatch")
+		}
 	}
 	var usageOK bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`

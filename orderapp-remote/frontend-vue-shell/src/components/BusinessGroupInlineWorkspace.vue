@@ -82,7 +82,7 @@
         </header>
 
         <div
-          v-if="!moveActive && !group.is_template_group && !isCollapsed(group.key)"
+          v-if="!moveActive && (!group.is_template_group || (group.rows?.length || 0) > 0) && !isCollapsed(group.key)"
           class="business-group-inline-body"
           :class="{ 'business-group-inline-disabled': moveActive }"
           :aria-disabled="moveActive ? 'true' : 'false'"

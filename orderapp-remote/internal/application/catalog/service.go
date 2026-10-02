@@ -2077,7 +2077,7 @@ func (s *Service) SaveBusinessGroupAssignment(ctx context.Context, cmd BusinessG
 	cmd.UsageKey = strings.ToLower(strings.TrimSpace(cmd.UsageKey))
 	cmd.ObjectKey = strings.ToLower(strings.TrimSpace(cmd.ObjectKey))
 	cmd.ObjectRef = strings.TrimSpace(cmd.ObjectRef)
-	if cmd.ID < 0 || cmd.GroupID <= 0 || cmd.GroupItemID <= 0 {
+	if cmd.ID < 0 || cmd.GroupID <= 0 || cmd.GroupItemID < 0 {
 		return BusinessGroupAssignment{}, ValidationError{Message: "invalid business group assignment"}
 	}
 	if cmd.UsageKey == "" || cmd.ObjectKey == "" {
