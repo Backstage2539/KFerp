@@ -3,7 +3,9 @@
 - DEV: DEV-728-PC-V8-EXECUTION; DEV-729-PC-V8-RUNTIME; DEV-730-PC-V8-DELIVERY.
 - Scope: 物料/商品选择已有后停用专用上游；保留共享依赖；统一校验及事务执行。
 - Verifier: Go unit/API/PostgreSQL; Node helpers/runtime; Vue build; browser; full verifier.
-- Status: implementation and automated/browser verification complete; 1,310 frontend tests, Go/API/PostgreSQL transaction tests and Vite build passed. Integration/development deployment pending; Van acceptance pending.
+- Delivery: PR #177 merged to develop `efb2a2eb8371e2ec4199de2b565b615f5157be81`, deployed development; backup `/opt/stacks/erp/orderapp.backup.deploy-20261002203637-efb2a2eb8371`.
+- Live acceptance: template #6 V1 `PR-680 V8 挂耳复用验收-20261002`; runs #63/#64 committed; products #1144/#1145/#1146, BOM #51613/#51614/#51615. Material count unchanged (94); only 3 downstream products/BOM created. Logs contain execution_plan. Source template #5 preserved.
+- Status: 1,310 frontend tests, Go/API/PostgreSQL transaction tests, Vite build and browser passed. PR review/Van acceptance pending. Read-only product-input permission follow-up and delivery evidence are being integrated; final development deployment pending.
 
 ## PR-679 商品规格作为 BOM 配方来源的连线提示（2026-10-02）
 - Branch: `codex/product-creator-product-component-20261002`; base `origin/develop@1d0042e09871bbb9c9e107eaa2d7718295297fb2`.
