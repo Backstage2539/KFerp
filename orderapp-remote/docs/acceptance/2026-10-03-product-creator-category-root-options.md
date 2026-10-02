@@ -2,7 +2,7 @@
 
 日期：2026-10-03
 范围：商品创建器运行表单分类抽屉、分类归属保存、通用分类列表展示与价格表分类筛选。
-环境：本地定向验证已完成；development / production 发布及线上 smoke 待完成。
+环境：development `5c34c51e2b4af63c95714b59be7bddd1e57c0196` 和 production `e5fcd41439be0ae7f078cd8edc533b40f4d6f286` 均已部署；两个登录入口 smoke 均返回 HTTP 200。
 
 ## 验收口径
 
@@ -20,10 +20,11 @@
   - Go：`go test ./internal/interfaces/http/catalog ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/productcreator -count=1`，通过。
   - 全量前端：`scripts/verify_kferp.sh frontend`，全部 Vue shell 单测和 Vite 构建通过；构建仅报告既有大 chunk 警告。
   - 全量后端：`scripts/verify_kferp.sh backend`，`go test ./...` 通过。
+  - 生产候选完整门禁：`scripts/verify_kferp.sh all`，Vue 1,313 项、Vite 构建及 Go 全量测试通过；服务器发布另通过小程序 264 项测试、类型检查、生产构建和容器内 Go 全量测试。
   - 仓库检查：`scripts/verify_kferp.sh changed` 通过。
   - 后端独立数据库集成测试 `TestCreatorAssignsBusinessGroupRoot` 已增加；当前本地未设置 `ORDERAPP_TEST_DATABASE_URL`，因此该隔离数据库测试会跳过，不能将其记为已执行。
   - `git diff --check` 通过。
-- 尚待：浏览器及两环境发布 smoke。
+- 已验证：development 与 production 发布脚本的 HTTPS 登录 smoke 均返回 200。未执行带业务账号的分类抽屉人工浏览器验收，也未创建/改动正式业务档案；Van 业务验收仍待确认。
 
 ## 变更与留痕
 
@@ -35,6 +36,6 @@
 
 ## 发布状态
 
-- development：待发布。
-- production：用户已明确授权在 development 发布后合入 `main` 并部署；待发布。
+- development：已部署；源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20261003005453-5c34c51e2b4a`。
+- production：已部署；源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261003011601-e5fcd41439be`，回滚镜像 `kferp-orderapp-rollback:production-20261003011601-e5fcd41439be`。
 - Van 产品业务验收：待确认。

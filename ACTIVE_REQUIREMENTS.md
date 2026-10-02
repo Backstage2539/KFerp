@@ -170,16 +170,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-681-PRODUCT-CREATOR-CATEGORY-ROOT-OPTIONS
 - Branch: `codex/product-creator-category-root-options-20261002`; base `origin/develop@780d5a1c`
 - Owner/session: Codex / Van / 2026-10-03
-- Status: implementation and targeted verification complete; full gates and ordered development/production deployment in progress
+- Status: implementation, full gates, development deployment, and production deployment complete; Van business acceptance pending
 - Scope: show selected classification template names (large categories) alongside nested categories in the creator drawer; permit a new object to be assigned directly to an enabled template root and display it under that heading.
 - DEV: DEV-732-PC-CATEGORY-ROOT-OPTIONS
 - Verifier:
   - Unit: business-group root options/search, root assignment display, price-list scope, and service validation.
   - API: `POST /api/business-group-assignments` accepts root assignment; creator transaction persists it with audit.
-  - Frontend/build: focused Node tests, full Vue shell tests/build, browser/development smoke.
+  - Frontend/build: 43 targeted Vue tests; 1,313 full Vue tests and Vite build passed on the production candidate; Go full suite passed. Deployment script passed miniapp tests (264), type-check/build, container Go tests, and HTTPS login smoke in both environments.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`.
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-10-03-product-creator-category-root-options.md`; Van business acceptance pending.
-- Deployment: development then main/production explicitly requested; pending.
+- Deployment: `develop` `5c34c51e2b4af63c95714b59be7bddd1e57c0196` deployed; source backup `/opt/stacks/erp/orderapp.backup.deploy-20261003005453-5c34c51e2b4a`. `main` `e5fcd41439be0ae7f078cd8edc533b40f4d6f286` deployed; source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261003011601-e5fcd41439be`, rollback image `kferp-orderapp-rollback:production-20261003011601-e5fcd41439be`. Both public login smoke checks returned HTTP 200.
 - Last update: 2026-10-03.
 - Notes: preserve existing object classifications and child-category behavior; root assignments use group_item_id=0.
 

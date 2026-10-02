@@ -6,6 +6,7 @@
 - [x] 新对象可保存到大类本身（group_item_id=0），现有子分类保持原行为；既有引用对象不改分类。
 - [x] 创建器提交及通用归类 API 接受大类归属；执行事务保留活动模板、用途校验及操作日志。
 - [x] 商品列表、物料列表及价格表分类范围正确展示/匹配大类归属。
+- [x] development `5c34c51e`、production `e5fcd414` 均已部署，公开登录入口 smoke 均为 HTTP 200。
 - [ ] Van 在 development / production 完成业务验收。
 
 证据：`docs/acceptance/2026-10-03-product-creator-category-root-options.md`。
