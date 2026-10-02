@@ -28,4 +28,5 @@
 - PR #178 部署 `2f3f411bd344e6579b05a05a467bda1cc796905e`，备份 `/opt/stacks/erp/orderapp.backup.deploy-20261002210019-2f3f411bd344`。重启核对暴露既有启动兼容回填问题：正式提交只创建 3 个下游 BOM，后续启动额外回填 3 个旧式草稿。补充 `TestStartupBackfillDoesNotDuplicateExplicitProductBOM`，RED 为 explicit=2；GREEN 验证已有独立 BOM 不重复、旧式配方正常回填、重复启动幂等。修正与原 repository repair 使用一致的独立有效 BOM 保护条件。
 - 回填、PR600 相关 PostgreSQL测试与标准 Go 全包通过。额外运行的两个 PR598 旧测试因外购物料制造校验失败，在未改动的 develop 基线同样失败，未计作通过；日志 `/tmp/pc-v8-backfill-{green,baseline,backend}.log`。
 - 多余草稿 #51682/#51648/#51675 来自 system-backfill，未发布、未被默认绑定；修正前快照 `/tmp/pc-v8-startup-before.json`。只对本次验收对象的这些草稿通过现有 BOM 维护 API 停用，日志可查；原 #51613/#51614/#51615 和默认绑定保持不变。历史业务对象未调整。
-- Van 业务验收：待确认。生产发布已授权并进入本次发布；生产版本、备份和烟测结果待补记。
+- 生产发布：PR #180 合入 `main`，提交 `a20a5911a8eab243615545adccdf6d8eb22d8d8b`。执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production`，生产 Go/Vue/小程序测试、类型检查及构建门禁通过；发布脚本内部健康检查完成，`/app/login` 返回 HTTP 200。回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261002225818-a20a5911a8ea`，回滚镜像 `kferp-orderapp-rollback:production-20261002225818-a20a5911a8ea`。发布后 `erp_prod_orderapp` 正常运行且重启次数为 0，PostgreSQL healthy，Caddy 与文档转换服务运行；未认证 `/app/` 返回 401，BasicAuth 只读需求标记和创建器模块接口返回 200，模块目录含 workflow V8。服务器剩余磁盘 13GB。未改生产业务档案，未上传或发布微信小程序。
+- Van 业务验收：待确认。
