@@ -392,6 +392,10 @@ func configurationRunPermissions(run app.Run) []string {
 			}
 			continue
 		}
+		if n.Kind == app.ModuleProduct && n.Config["data_role"] != "output" {
+			set["products.read"] = true
+			continue
+		}
 		if n.Kind == app.ModuleProcess {
 			set["bom.read"] = true
 			continue

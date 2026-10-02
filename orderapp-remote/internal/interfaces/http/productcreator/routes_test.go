@@ -357,3 +357,14 @@ func TestV8PreviewAPIDisablesUpstreamAndPermissionsFollowExecution(t *testing.T)
 		t.Fatal("old behavior must remain")
 	}
 }
+
+func TestV8ExistingInputProductNeedsReadOnlyPermission(t *testing.T) {
+	run := app.Run{Workflow: app.Workflow{Version: 8, Nodes: []app.Node{{ID: "source", Kind: app.ModuleProduct, Config: map[string]any{"data_role": "input"}}}}, Inputs: map[string]map[string]any{"source": {"action": "reuse", "product_id": 52}}}
+	if got := strings.Join(configurationRunPermissions(run), ","); got != "products.read" {
+		t.Fatalf("reference-only input requires no creation permission: %s", got)
+	}
+	run.Workflow.Version = 7
+	if got := strings.Join(configurationRunPermissions(run), ","); got != "products.write" {
+		t.Fatalf("legacy permission changed: %s", got)
+	}
+}
