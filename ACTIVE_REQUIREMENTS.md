@@ -1,3 +1,17 @@
+## PR-679 商品规格作为 BOM 配方来源的连线提示（2026-10-02）
+- Branch: `codex/product-creator-product-component-20261002`; base `origin/develop@1d0042e09871bbb9c9e107eaa2d7718295297fb2`.
+- DEV: DEV-727-PC-PRODUCT-SPEC-RECIPE-CONNECTION.
+- Scope: 商品节点的档案对象口不能作为配方行；画布标注所有输出口，并在误连档案对象时提示改连商品规格口。商品规格仍可作为配方来源，运行时选择具体规格。
+- Verifier:
+  - Unit: `product BOM components require and accept the product specification output`，RED 复现为 `incompatible_data_type`，GREEN 为指定错误码且规格口连接通过。
+  - API: 不涉及 API 或服务端合同；继续沿用 `item.specs`。
+  - Frontend/build: Vue shell 1,306/1,306 tests passed; `npm run build` passed (Vite 8.0.10, 6,650 modules); `git diff --check` passed.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md` 已补充商品档案口与商品规格口的区别。
+  - Review/acceptance: development and production deployment smoke pending.
+- Status: implementation and local automated verification complete; release in progress; Van acceptance pending.
+- Deployment: development then production explicitly authorized; commit/backup/smoke evidence to be recorded after each deployment.
+- Last update: 2026-10-02.
+
 ## PR-678 商品创建器物料角色与命名简化（2026-10-02）
 - Branch: `codex/product-creator-material-roles-20261002`; base `origin/develop@2e642b73b63afd335329a57aeeeed3541c561147`.
 - Follow-up branch: `codex/product-creator-v7-runtime-followup`; repairs the pre-existing V6 runtime variable label rendering error exposed by browser checks.

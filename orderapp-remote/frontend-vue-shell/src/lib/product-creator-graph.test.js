@@ -211,6 +211,34 @@ test('connections reject wrong business types and accept compatible data ports',
   assert.equal(connectionIsValid({ source: 'product', sourceHandle: 'product', target: 'product', targetHandle: 'product' }, nodes, modules), false)
 })
 
+test('product BOM components require and accept the product specification output', () => {
+  const productModule = {
+    kind: 'product',
+    workflow_version: 7,
+    outputs: [
+      { id: 'product', label: '商品对象', types: ['product.ref'] },
+      { id: 'specs', label: '商品规格', types: ['item.specs'] },
+    ],
+  }
+  const bomModule = {
+    kind: 'bom',
+    workflow_version: 7,
+    inputs: [{ id: 'components', label: '配方物料或商品规格', types: ['material.ref', 'item.specs'], multiple: true }],
+  }
+  const nodes = [
+    { id: 'ear-drip-product', data: { module: productModule, label: '10g袋装挂耳' } },
+    { id: 'boxing-bom', data: { module: bomModule, label: '挂耳包装成盒 BOM' } },
+  ]
+
+  const wrongOutput = connectionValidation({ source: 'ear-drip-product', sourceHandle: 'product', target: 'boxing-bom', targetHandle: 'components:add' }, nodes)
+  assert.equal(wrongOutput.valid, false)
+  assert.equal(wrongOutput.code, 'product_object_requires_specification')
+  assert.match(wrongOutput.message, /商品规格.*具体规格/)
+
+  const productSpecification = connectionValidation({ source: 'ear-drip-product', sourceHandle: 'specs', target: 'boxing-bom', targetHandle: 'components:add' }, nodes)
+  assert.equal(productSpecification.valid, true)
+})
+
 test('automatic layout orders a multi-level graph from sources to downstream steps', () => {
   const nodes = ['leaf', 'semi', 'pack', 'final'].map((id) => ({ id, position: { x: 0, y: 0 }, data: { label: id } }))
   const edges = [
