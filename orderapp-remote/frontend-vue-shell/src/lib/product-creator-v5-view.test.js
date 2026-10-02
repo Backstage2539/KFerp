@@ -14,9 +14,7 @@ test('V5 designer keeps BOM defaults when a route is connected and previews each
 })
 
 test('V5 naming preview is live and sample values stay out of saved workflow data', () => {
-  assert.match(designer, /const selectedNamePreview = computed\(\(\) => renderNamePreview\(selectedNameParts\.value, workflowVariables\.value, namePreviewSamples\.value\)\)/)
-  assert.match(designer, /生成名称预览/)
-  assert.match(designer, /仅用于预览/)
+  assert.match(designer, /<ProductCreatorNameEditor[^>]+:parts="selectedNameParts"[^>]+:samples="namePreviewSamples"/)
   assert.match(designer, /function setNamePreviewSample\(variableID, value\)/)
   assert.match(designer, /workflow: toWorkflowGraph\(nodes\.value, edges\.value, templateWorkflowVersion\.value, workflowVariables\.value\)/)
   assert.doesNotMatch(designer.match(/function saveTemplate\(\)[\s\S]*?\n\}/)?.[0] || '', /namePreviewSamples/)
@@ -24,9 +22,11 @@ test('V5 naming preview is live and sample values stay out of saved workflow dat
 
 test('V5 run forms allow independent route overrides for material and specification-template BOMs', () => {
   assert.match(runForm, /workflowVersion >= 5[\s\S]*?route_override_id/)
-  assert.match(runForm, /跟随默认 · \{\{ defaultBOMRouteLabel\(node\) \}\}/)
-  assert.match(runForm, /本次采用 · \{\{ route\.label \}\}/)
+  assert.match(runForm, /defaultBOMRouteSource\(node\).*defaultBOMRouteLabel\(node\)/)
+  assert.match(runForm, /本次改选 · \{\{ route\.label \}\}/)
   assert.match(runForm, /effectiveTemplateVariantRouteID\(node, variant\)/)
   assert.match(runForm, /pc-run-bom-route-results/)
   assert.match(runForm, /effective_specification_routes/)
+  assert.match(runForm, /connected_node: '使用连线工艺'/)
+  assert.doesNotMatch(runForm, /跟随连线工艺/)
 })

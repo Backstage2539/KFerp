@@ -104,6 +104,15 @@ func TestMaterialSourceReadsRealModeAndPublishedBindingPostgres(t *testing.T) {
 	if details["raw"]["material_objects"].([]map[string]any)[0]["supply_mode"] != "manufacture" {
 		t.Fatal("preview must show real archive mode")
 	}
+	// V7 nodes declare their acquisition mode. A forged runtime label cannot
+	// make an existing manufactured archive eligible for an external input.
+	run.Workflow.Version = 7
+	run.Workflow.Nodes[0].Config["supply_mode"] = "purchase"
+	_, issues = e.InspectConfigurationPreview(ctx, run)
+	if !previewHasCode(issues, "material_supply_mode_mismatch") {
+		t.Fatalf("V7 must use real archive mode: %+v", issues)
+	}
+	run.Workflow.Version = 5
 	// A shared producer in this run is enough; the existing archive is read in the same transaction.
 	tx, err := pool.Begin(ctx)
 	if err != nil {

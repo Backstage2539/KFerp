@@ -1054,6 +1054,9 @@ func (e BusinessExecutor) executeProduct(ctx context.Context, node creatorapp.No
 	if err != nil {
 		return nil, err
 	}
+	if err := e.assignBusinessGroup(ctx, actor, "product_catalog", "product", product.ID, positiveNumber(values["classification_group_id"]), positiveNumber(values["classification_item_id"])); err != nil {
+		return nil, err
+	}
 	refs[node.ID]["product"] = createdReference{Type: "product", RowID: "product", ID: product.ID, Name: product.Name, Code: product.SKUCode, OwnerID: customerID, ProductID: product.ID, New: true}
 	return map[string]any{"object": refs[node.ID]["product"]}, nil
 }
@@ -1099,12 +1102,65 @@ func (e BusinessExecutor) executeMaterials(ctx context.Context, node creatorapp.
 			if err != nil {
 				return nil, err
 			}
+			if estimate, present := row["estimated_unit_price"]; present && estimate != nil && supplyMode == "purchase" {
+				price := numberValue(estimate)
+				if _, err := queryWithTransaction(ctx).Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET estimated_unit_price=$2,updated_at=now() WHERE id=$1`, e.schema), material.ID, price); err != nil {
+					return nil, err
+				}
+				formatted := fmt.Sprintf("%.2f", price)
+				if err := postgresinfra.AuditInsertTx(ctx, queryWithTransaction(ctx), e.schema, actor, "material", &material.ID, "set_estimated_purchase_price", postgresinfra.StrPtr("estimated_unit_price"), nil, postgresinfra.StrPtr(formatted), postgresinfra.AuditMeta{"material_id": material.ID, "unit": material.Unit, "temporary": true}); err != nil {
+					return nil, err
+				}
+			}
+			if err := e.assignBusinessGroup(ctx, actor, "material_catalog", "material", material.ID, positiveNumber(row["classification_group_id"]), positiveNumber(row["classification_item_id"])); err != nil {
+				return nil, err
+			}
 		}
 		ref := createdReference{Type: "material", RowID: rowID, ID: material.ID, Name: material.Name, Code: material.Code, Unit: material.Unit, OwnerID: material.OwnerCustomerID, New: stringValue(row["action"]) != "reuse"}
 		refs[node.ID][rowID] = ref
 		created = append(created, ref)
 	}
 	return map[string]any{"objects": created}, nil
+}
+
+func (e BusinessExecutor) assignBusinessGroup(ctx context.Context, actor, usageKey, objectKey string, objectID, groupID, groupItemID int64) error {
+	if groupID == 0 && groupItemID == 0 {
+		return nil
+	}
+	if groupID <= 0 || groupItemID <= 0 || objectID <= 0 {
+		return fmt.Errorf("分类选择无效，请重新选择分类")
+	}
+	tx := queryWithTransaction(ctx)
+	var groupOK, itemOK, usageOK bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_groups WHERE id=$1 AND active=true)`, e.schema), groupID).Scan(&groupOK); err != nil {
+		return err
+	}
+	if !groupOK {
+		return fmt.Errorf("所选分类已停用，请重新选择")
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_group_items WHERE id=$1 AND group_id=$2 AND active=true)`, e.schema), groupItemID, groupID).Scan(&itemOK); err != nil {
+		return err
+	}
+	if !itemOK {
+		return fmt.Errorf("所选分类项目已停用或不属于当前分类")
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_group_usages WHERE group_id=$1 AND lower(usage_key)=lower($2) AND active=true)`, e.schema), groupID, usageKey).Scan(&usageOK); err != nil {
+		return err
+	}
+	if !usageOK {
+		return fmt.Errorf("所选分类未启用于当前业务")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_assignments WHERE lower(usage_key)=lower($1) AND lower(object_key)=lower($2) AND object_id=$3 AND COALESCE(object_ref,'')=''`, e.schema), usageKey, objectKey, objectID); err != nil {
+		return err
+	}
+	var assignmentID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.business_group_assignments(group_id,group_item_id,usage_key,object_key,object_id,object_ref,sort_order,created_by,updated_by)
+		VALUES($1,$2,$3,$4,$5,'',100,$6,$6) RETURNING id
+	`, e.schema), groupID, groupItemID, usageKey, objectKey, objectID, actor).Scan(&assignmentID); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, e.schema, actor, "business_group_assignment", &assignmentID, "assign_product_creator_classification", postgresinfra.StrPtr("group_item_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", groupItemID)), postgresinfra.AuditMeta{"group_id": groupID, "group_item_id": groupItemID, "usage_key": usageKey, "object_key": objectKey, "object_id": objectID, "template_run": true})
 }
 
 func (e BusinessExecutor) executeProcess(ctx context.Context, node creatorapp.Node, values map[string]any, refs map[string]map[string]createdReference) (map[string]any, error) {
@@ -1267,6 +1323,9 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 		}
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := e.assignBusinessGroup(ctx, actor, "production_bom", "production_bom", summary.ID, positiveNumber(values["classification_group_id"]), positiveNumber(values["classification_item_id"])); err != nil {
 		return nil, err
 	}
 	processRouteName := ""

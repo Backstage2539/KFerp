@@ -34,6 +34,9 @@ func TestPR605PurchaseReceiptPostsStockPriceAndOrderInOneTransaction(t *testing.
 	if priceBeforeReceipt != 288 {
 		t.Fatalf("purchase order changed material price to %.2f, want existing 288", priceBeforeReceipt)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET estimated_unit_price=77 WHERE id=1`, schema)); err != nil {
+		t.Fatal(err)
+	}
 
 	receipt, err := svc.CreatePurchaseReceipt(ctx, purchaseapp.CreatePurchaseReceiptCommand{
 		PurchaseOrderID: order.ID, SupplierID: 1, MaterialID: 1,
@@ -47,9 +50,10 @@ func TestPR605PurchaseReceiptPostsStockPriceAndOrderInOneTransaction(t *testing.
 	}
 
 	var price float64
+	var estimatePresent bool
 	var onhandG, locationG int64
 	var orderStatus, stockStatus string
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT purchase_price::float8,onhand_g FROM %s.materials WHERE id=1`, schema)).Scan(&price, &onhandG); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT purchase_price::float8,onhand_g,estimated_unit_price IS NOT NULL FROM %s.materials WHERE id=1`, schema)).Scan(&price, &onhandG, &estimatePresent); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.purchase_orders WHERE id=$1`, schema), order.ID).Scan(&orderStatus); err != nil {
@@ -61,8 +65,8 @@ func TestPR605PurchaseReceiptPostsStockPriceAndOrderInOneTransaction(t *testing.
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT qty_g FROM %s.material_batch_locations WHERE batch_code=$1 AND warehouse='raw_materials'`, schema), receipt.StockBatchCode).Scan(&locationG); err != nil {
 		t.Fatal(err)
 	}
-	if price != 42.5 || onhandG != 10000 || locationG != 10000 || orderStatus != "received" || stockStatus != "submitted" {
-		t.Fatalf("price/onhand/location/order/stock=%.2f/%d/%d/%s/%s", price, onhandG, locationG, orderStatus, stockStatus)
+	if price != 42.5 || estimatePresent || onhandG != 10000 || locationG != 10000 || orderStatus != "received" || stockStatus != "submitted" {
+		t.Fatalf("price/estimate/onhand/location/order/stock=%.2f/%t/%d/%d/%s/%s", price, estimatePresent, onhandG, locationG, orderStatus, stockStatus)
 	}
 
 	var auditCount int

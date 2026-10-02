@@ -5,7 +5,7 @@
         <div>
           <div class="pc-eyebrow">商品 · 工作流模板</div>
           <h1>商品创建器</h1>
-          <p>把商品、物料、配方和后续业务拼成模板，一次设计，重复使用。</p>
+          <p>连接生产关系，填写时选择已有原料，一次设计，重复使用。</p>
         </div>
         <button class="pc-primary" type="button" @click="newTemplate">
           <IconPlus :size="17" /> 新建模板
@@ -134,6 +134,7 @@
             @pane-click="clearSelection"
             @node-drag-start="startDragHistory"
             @node-drag-stop="finishDragHistory">
+            <template #node-business="nodeProps"><ProductCreatorNode v-bind="nodeProps" :editable="true" @material-mode-change="changeMaterialSupplyMode(nodeProps.id, $event)" /></template>
             <Background pattern-color="#d7e1eb" :gap="19" :size="1" />
             <MiniMap pannable zoomable :node-color="miniMapNodeColor" />
           </VueFlow>
@@ -151,7 +152,7 @@
           </div>
         </div>
 
-        <div v-if="templateWorkflowVersion >= 5 && workflowUpgradeNotice" class="pc-upgrade-notice">旧模板已升级为 V5 草稿。商品和物料 BOM 现在都可连接一条工艺路线，商品 BOM 的规格模板路线可被本次运行整体覆盖；旧发布版本和运行记录保持原样。</div>
+        <div v-if="workflowUpgradeNotice" class="pc-upgrade-notice">当前编辑草稿已升级为 V7：投入物料不再预设行或名称，填写时选择已有物料；取得方式统一在节点顶部设置，自制物料必须连接一个生成 BOM。旧采购节点需处理后再发布。已发布版本和历史运行保持原样。</div>
 
         <aside class="pc-node-inspector">
           <template v-if="selectedNode">
@@ -163,6 +164,11 @@
               <div class="pc-inspector-icon" :class="`kind-${selectedNode.data.module.kind}`"><component :is="moduleIcon(selectedNode.data.module.kind)" :size="23" /></div>
               <div><strong>{{ selectedNode.data.label || selectedNode.data.module.name }}</strong><span>{{ selectedNode.data.module.description }}</span></div>
             </div>
+            <template v-if="templateWorkflowVersion >= 7 && selectedNode.data.module.kind === 'material'">
+              <label class="pc-field-label">取得方式</label>
+              <select class="pc-control" :value="materialSupplyMode(selectedNode.data.config)" @change="changeMaterialSupplyMode(selectedNode.id, $event.target.value)"><option value="purchase">外购</option><option value="manufacture">自制</option></select>
+              <p class="pc-muted">{{ materialSupplyMode(selectedNode.data.config) === 'manufacture' ? '必须连接一个生成 BOM；此节点代表一个产出物料。' : '无 BOM 输入口；填写时选择已有外购物料，也可临时新建。' }}</p>
+            </template>
             <label class="pc-field-label">节点名称</label>
             <input class="pc-control" :value="selectedNode.data.label" @input="updateNodeLabel($event.target.value)" />
             <template v-if="templateWorkflowVersion < 2">
@@ -184,11 +190,13 @@
             </section>
             <section v-if="templateWorkflowVersion >= 2 && ['material', 'product'].includes(selectedNode.data.module.kind)" class="pc-inspector-section">
               <h3>对象用途</h3>
+              <template v-if="templateWorkflowVersion < 7 || selectedNode.data.module.kind !== 'material'">
               <label class="pc-field-label">节点角色</label>
-              <select class="pc-control" :value="selectedNode.data.config.data_role || 'input'" @change="updateNodeConfig({ data_role: $event.target.value })">
+              <select class="pc-control" :value="selectedNode.data.config.data_role || 'input'" @change="changeSelectedDataRole($event.target.value)">
                 <option value="input">配方输入／引用来源</option>
                 <option value="output">接收 BOM 产出对象</option>
               </select>
+              </template>
               <template v-if="selectedNode.data.config.data_role === 'output'">
                 <label class="pc-field-label">产出处理</label>
                 <select class="pc-control" :value="selectedNode.data.config.object_action || 'create'" @change="updateNodeConfig({ object_action: $event.target.value })">
@@ -196,33 +204,14 @@
                   <option value="reuse">使用时选择已有档案</option>
                 </select>
                 <label class="pc-field-label">命名默认值</label>
-                <div class="pc-name-parts-editor">
-                  <template v-for="(part, index) in selectedNameParts" :key="`${selectedNode.id}-${index}`">
-                    <span v-if="part.type === 'variable'" class="pc-name-variable-chip">{{ variableName(part.variable_id) }}<button type="button" :aria-label="`移除变量${variableName(part.variable_id)}`" @click="removeNamePart(index)"><IconX :size="13" /></button></span>
-                    <input v-else class="pc-control pc-name-literal" :value="part.value" placeholder="固定文字" @focus="rememberHistory" @input="updateNamePartLive(index, $event.target.value)" @blur="finishNamePartLiveEdit" />
-                  </template>
-                  <button class="pc-text-action" type="button" @click="appendNameText"><IconPlus :size="14" />固定文字</button>
-                </div>
-                <div class="pc-variable-picker">
-                  <input v-model="variablePickerQuery" class="pc-control" placeholder="搜索或新建命名变量" />
-                  <button v-for="variable in filteredNameVariables" :key="variable.id" class="pc-variable-option" type="button" @click="appendNameVariable(variable.id)">{{ variable.name }}</button>
-                  <button v-if="variablePickerQuery.trim() && !filteredNameVariables.some((variable) => variable.name.toLocaleLowerCase() === variablePickerQuery.trim().toLocaleLowerCase())" class="pc-variable-option create" type="button" @click="createAndAppendVariable">＋ 新建“{{ variablePickerQuery.trim() }}”</button>
-                </div>
-                <div class="pc-name-preview">
-                  <div class="pc-name-preview-output"><span>生成名称预览</span><strong>{{ selectedNamePreview.value || '请输入固定文字或选择变量' }}</strong></div>
-                  <label v-for="variable in selectedNamePreviewVariables" :key="variable.id" class="pc-name-preview-sample">
-                    <span>{{ variable.name }} · 仅用于预览</span>
-                    <input class="pc-control" :value="namePreviewSamples[variable.id] || ''" :placeholder="variable.default_value || `填写${variable.name}示例值`" @input="setNamePreviewSample(variable.id, $event.target.value)" />
-                  </label>
-                  <small v-if="selectedNamePreview.missing.length">未设置默认值或示例值的变量，会显示“待填写”标记。</small>
-                </div>
+                <ProductCreatorNameEditor :key="selectedNode.id" :parts="selectedNameParts" :variables="workflowVariables" :samples="namePreviewSamples" @update="updateNodeConfig({ name_parts: $event })" @create-variable="createNameVariableAt" @sample="setNamePreviewSample" />
                 <p class="pc-muted">使用时填写变量，名称会自动生成；填写者仍可直接修改名称。</p>
                 <template v-if="selectedNode.data.module.kind === 'material'">
                   <p class="pc-muted">库存单位由连接的 BOM 产出单位带入，物料档案保持一个规格。</p>
                   <label v-if="templateWorkflowVersion < 3" class="pc-field-label">物料类别与取得方式</label>
                   <div class="pc-inline-controls">
                     <select v-if="templateWorkflowVersion < 3" class="pc-control" :value="selectedNode.data.config.kind || 'other'" @change="updateNodeConfig({ kind: $event.target.value })"><option value="other">通用物料（含半成品）</option><option value="pack">包装物料</option><option value="bean">原料</option></select>
-                    <select class="pc-control" :value="selectedNode.data.config.supply_mode || 'manufacture'" @change="updateNodeConfig({ supply_mode: $event.target.value })"><option value="manufacture">自制</option><option value="purchase">外购</option></select>
+                    <select v-if="templateWorkflowVersion < 7" class="pc-control" :value="selectedNode.data.config.supply_mode || 'manufacture'" @change="updateNodeConfig({ supply_mode: $event.target.value })"><option value="manufacture">自制</option><option value="purchase">外购</option></select>
                   </div>
                   <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('kind')" @change="setFieldEditable('kind', $event.target.checked)" /> 使用时允许修改物料类别</label>
                   <label v-if="templateWorkflowVersion < 3" class="pc-edit-toggle"><input type="checkbox" :checked="!isFieldFixed('supply_mode')" @change="setFieldEditable('supply_mode', $event.target.checked)" /> 使用时允许修改取得方式</label>
@@ -440,6 +429,7 @@ import {
   IconX,
 } from '@tabler/icons-vue'
 import ProductCreatorNode from './ProductCreatorNode.vue'
+import ProductCreatorNameEditor from '../components/ProductCreatorNameEditor.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import ProductCreatorRunView from './ProductCreatorRunView.vue'
 import { apiGet } from '../api/client.js'
@@ -456,12 +446,13 @@ import {
   initialRecipeInputs,
   moduleFieldLabel,
   moduleForNode,
+  materialSupplyMode,
   recipePortForEdge,
   replaceGraphEdge,
   toCanvasGraph,
   toWorkflowGraph,
 } from '../lib/product-creator-graph.js'
-import { filterWorkflowVariables, renderNamePreview, upgradeWorkflowToV5 } from '../lib/product-creator-variables.js'
+import { upgradeWorkflowToV7 } from '../lib/product-creator-variables.js'
 import {
   copyProductCreatorTemplate,
   commitProductCreatorRun,
@@ -504,7 +495,6 @@ const template = ref(emptyTemplate())
 const workflowVariables = ref([])
 const variableManagerOpen = ref(false)
 const workflowUpgradeNotice = ref(false)
-const variablePickerQuery = ref('')
 const namePreviewSamples = ref({})
 const run = ref(null)
 const designerTab = ref('flow')
@@ -537,8 +527,6 @@ const publishedSpecificationTemplateVersions = computed(() => specificationTempl
 const selectedSpecificationTemplateVersion = computed(() => publishedSpecificationTemplateVersions.value.find((version) => Number(version.version_id) === Number(selectedNode.value?.data.config?.spec_template_version_id || 0)) || null)
 const selectedSpecificationTemplateDetail = computed(() => specificationTemplateDetails.value[String(selectedNode.value?.data.config?.spec_template_version_id || '')] || null)
 const selectedNameParts = computed(() => selectedNode.value?.data.config?.name_parts || [])
-const filteredNameVariables = computed(() => filterWorkflowVariables(variablePickerQuery.value, workflowVariables.value))
-const selectedNamePreview = computed(() => renderNamePreview(selectedNameParts.value, workflowVariables.value, namePreviewSamples.value))
 const selectedBOMConnectedRoute = computed(() => {
   if (!selectedNode.value || selectedNode.value.data.module.kind !== 'bom') return null
   const edge = edges.value.find((item) => item.target === selectedNode.value.id && canonicalInputPortID(item.targetHandle) === 'route' && item.data?.kind === 'data')
@@ -547,10 +535,6 @@ const selectedBOMConnectedRoute = computed(() => {
   const routeID = Number(source?.data.config?.route_id || 0)
   const route = processOptions.value.find((option) => Number(option.id) === routeID)
   return { id: routeID, name: route?.name || route?.route_name || (routeID > 0 ? `工艺路线 ${routeID}` : '未选择工艺路线') }
-})
-const selectedNamePreviewVariables = computed(() => {
-  const ids = new Set(selectedNameParts.value.filter((part) => part.type === 'variable').map((part) => part.variable_id))
-  return workflowVariables.value.filter((variable) => ids.has(variable.id))
 })
 const templateWorkflowVersion = computed(() => Number(template.value.draft?.version || 1))
 const incomingEdges = computed(() => edges.value.filter((edge) => edge.target === selectedNodeId.value))
@@ -612,7 +596,7 @@ async function load() {
 }
 
 function emptyTemplate() {
-  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 5, variables: [], nodes: [], edges: [] } }
+  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 7, variables: [], nodes: [], edges: [] } }
 }
 
 function newTemplate() {
@@ -632,11 +616,11 @@ function newTemplate() {
 function editTemplate(item) {
   errorMessage.value = ''
   const sourceVersion = Number(item.draft?.version || 1)
-  const upgradedWorkflow = upgradeWorkflowToV5(item.draft || { nodes: [], edges: [] })
+  const upgradedWorkflow = upgradeWorkflowToV7(item.draft || { nodes: [], edges: [] })
   template.value = { ...cloneValue(item), draft: upgradedWorkflow }
   workflowVariables.value = cloneValue(upgradedWorkflow.variables || [])
   namePreviewSamples.value = {}
-  workflowUpgradeNotice.value = sourceVersion < 5
+  workflowUpgradeNotice.value = sourceVersion < 7
   edgeMode.value = 'data'
   setCanvasGraph(toCanvasGraph(upgradedWorkflow, modules.value))
   designerTab.value = 'flow'
@@ -911,7 +895,7 @@ function addModule(module, position = null) {
   rememberHistory()
   const count = nodes.value.filter((node) => node.data.module.kind === module.kind).length
   const config = module.kind === 'material' && templateWorkflowVersion.value >= 2
-    ? { data_role: 'input', rows: [] }
+    ? templateWorkflowVersion.value >= 7 ? { data_role: 'input', supply_mode: 'purchase' } : templateWorkflowVersion.value >= 6 ? { data_role: 'input', default_rows: [] } : { data_role: 'input', rows: [] }
     : module.kind === 'product' && templateWorkflowVersion.value >= 2
       ? { data_role: 'output', object_action: 'create', action: 'create', owner: 'factory' }
       : module.kind === 'process' && templateWorkflowVersion.value >= 2
@@ -1021,7 +1005,23 @@ function connectNodes(connection) {
   }
   for (const [nodeId, role] of Object.entries(connectionRoleUpdates(connection, nodes.value, edgeMode.value, edges.value))) {
     const node = nodes.value.find((item) => item.id === nodeId)
-    if (node) node.data = { ...node.data, config: { ...node.data.config, data_role: role } }
+    if (node) {
+      const config = { ...node.data.config, data_role: role }
+      if (templateWorkflowVersion.value === 6 && node.data.module.kind === 'material' && role === 'output' && node.data.config.data_role !== 'output') {
+        const row = config.default_rows?.[0] || {}
+        Object.assign(config, {
+          object_action: row.action === 'reuse' ? 'reuse' : 'create',
+          supply_mode: row.supply_mode || 'manufacture',
+          unit: row.unit || '',
+          owner: row.owner_type || 'factory',
+          customer_id: Number(row.owner_customer_id || 0),
+          name_parts: row.name_parts || [],
+        })
+        delete config.default_rows
+      }
+      const module = moduleForNode({ kind: node.data.module.kind, config }, modules.value, templateWorkflowVersion.value)
+      node.data = { ...node.data, module: module || node.data.module, config }
+    }
   }
   selectedNodeId.value = target.id
   selectedEdgeId.value = ''
@@ -1052,6 +1052,24 @@ function updateNodeConfig(patch) {
   const config = { ...selectedNode.value.data.config, ...patch }
   const nextModule = moduleForNode({ kind: selectedNode.value.data.module.kind, config }, modules.value, templateWorkflowVersion.value)
   updateSelectedNode({ data: { ...selectedNode.value.data, module: nextModule || selectedNode.value.data.module, config } })
+}
+
+function changeMaterialSupplyMode(nodeID, supplyMode) {
+  const node = nodes.value.find((item) => item.id === nodeID)
+  if (!node || !['purchase', 'manufacture'].includes(supplyMode)) return
+  rememberHistory()
+  const config = { ...node.data.config, supply_mode: supplyMode, data_role: supplyMode === 'manufacture' ? 'output' : 'input' }
+  const module = moduleForNode({ kind: 'material', config }, modules.value, templateWorkflowVersion.value)
+  if (supplyMode === 'purchase') {
+    delete config.name_parts
+    delete config.name_pattern
+    delete config.name
+    delete config.defaults
+  }
+  nodes.value = nodes.value.map((item) => item.id === nodeID ? { ...item, data: { ...item.data, config, module } } : item)
+  errorMessage.value = supplyMode === 'purchase' && edges.value.some((edge) => edge.target === nodeID && edge.targetHandle === 'from_bom')
+    ? '外购物料不接收 BOM 产出，请先删除原产出连线或改为自制。' : ''
+  finishGraphChange()
 }
 
 function specificationTemplateOptionLabel(option) {
@@ -1097,24 +1115,6 @@ function acknowledgeLegacyProductBOM() {
   updateSelectedNode({ data: { ...selectedNode.value.data, module, config } })
 }
 
-function updateNamePart(index, patch) {
-  const parts = selectedNameParts.value.map((part, partIndex) => partIndex === index ? { ...part, ...patch } : { ...part })
-  updateNodeConfig({ name_parts: parts })
-}
-
-function updateNamePartLive(index, value) {
-  if (!selectedNode.value) return
-  const parts = selectedNameParts.value.map((part, partIndex) => partIndex === index ? { ...part, value } : { ...part })
-  const nodeIndex = nodes.value.findIndex((node) => node.id === selectedNodeId.value)
-  nodes.value[nodeIndex] = { ...nodes.value[nodeIndex], data: { ...nodes.value[nodeIndex].data, config: { ...nodes.value[nodeIndex].data.config, name_parts: parts } } }
-  touchGraph()
-}
-
-function finishNamePartLiveEdit() {
-  if (!selectedNode.value) return
-  finishGraphChange()
-}
-
 function setNamePreviewSample(variableID, value) {
   const samples = { ...namePreviewSamples.value }
   if (String(value || '').trim()) samples[variableID] = value
@@ -1122,17 +1122,33 @@ function setNamePreviewSample(variableID, value) {
   namePreviewSamples.value = samples
 }
 
-function appendNameText() {
-  updateNodeConfig({ name_parts: [...selectedNameParts.value, { type: 'text', value: '' }] })
-}
-
-function appendNameVariable(variableID) {
-  updateNodeConfig({ name_parts: [...selectedNameParts.value, { type: 'variable', variable_id: variableID }] })
-  variablePickerQuery.value = ''
-}
-
-function removeNamePart(index) {
-  updateNodeConfig({ name_parts: selectedNameParts.value.filter((_, partIndex) => partIndex !== index) })
+function changeSelectedDataRole(role) {
+  if (!selectedNode.value) return
+  const config = { ...selectedNode.value.data.config }
+  if (templateWorkflowVersion.value >= 6 && selectedNode.value.data.module.kind === 'material' && role === 'output' && config.data_role !== 'output') {
+    const rows = Array.isArray(config.default_rows) ? config.default_rows : []
+    if (rows.length > 1) {
+      errorMessage.value = '投入物料有多行预设，不能改成单个 BOM 产出。请新增独立的自制物料节点。'
+      return
+    }
+    const row = rows[0] || {}
+    const supplyMode = row.supply_mode || config.supply_mode || 'manufacture'
+    if (!['manufacture', 'manufactured'].includes(supplyMode)) {
+      errorMessage.value = '外购物料不能作为 BOM 产出。请新增独立的自制物料节点。'
+      return
+    }
+    Object.assign(config, {
+      object_action: row.action === 'reuse' ? 'reuse' : 'create',
+      supply_mode: supplyMode,
+      unit: row.unit || '',
+      owner: row.owner_type || 'factory',
+      customer_id: Number(row.owner_customer_id || 0),
+      name_parts: row.name_parts || [],
+    })
+    delete config.default_rows
+  }
+  updateNodeConfig({ ...config, data_role: role })
+  errorMessage.value = ''
 }
 
 function variableName(variableID) {
@@ -1151,10 +1167,9 @@ function upsertWorkflowVariable(name, defaultValue = '') {
   return variable
 }
 
-function createAndAppendVariable() {
-  const variable = upsertWorkflowVariable(variablePickerQuery.value)
-  if (variable) appendNameVariable(variable.id)
-  variablePickerQuery.value = ''
+function createNameVariableAt({ name, index }) {
+  const variable = upsertWorkflowVariable(name)
+  if (variable) updateNodeConfig({ name_parts: selectedNameParts.value.map((part, i) => i === index ? { type: 'variable', variable_id: variable.id } : part) })
 }
 
 function addManagedVariable() {
@@ -1177,11 +1192,13 @@ function updateWorkflowVariable(variableID, patch) {
 }
 
 function variableReferences(variableID) {
-  return nodes.value.filter((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID)).map((node) => node.data.label).join('、')
+  return nodes.value.filter((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID)
+    || (node.data.config?.default_rows || []).some((row) => (row.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID))).map((node) => node.data.label).join('、')
 }
 
 function hasVariableReferences(variableID) {
-  return nodes.value.some((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID))
+  return nodes.value.some((node) => (node.data.config?.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID)
+    || (node.data.config?.default_rows || []).some((row) => (row.name_parts || []).some((part) => part.type === 'variable' && part.variable_id === variableID)))
 }
 
 function removeWorkflowVariable(variableID) {
@@ -1631,20 +1648,6 @@ function updateZoom() {
 .pc-template-component-row > div label { display: grid; gap: 4px; min-width: 0; }
 .pc-template-component-row label span { display: block; margin-bottom: 4px; color: #78869a; font-size: 9px; }
 .pc-template-component-row .pc-control { min-height: 32px; padding: 5px 6px; font-size: 10px; }
-.pc-name-parts-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
-.pc-name-literal { flex: 1 1 125px; min-width: 100px; }
-.pc-name-variable-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #cbdcf5; border-radius: 14px; padding: 5px 8px; color: #315d98; background: #f0f5ff; font-size: 11px; }
-.pc-name-variable-chip button { display: grid; place-items: center; border: 0; padding: 0; color: inherit; background: transparent; cursor: pointer; }
-.pc-variable-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, max-content)); gap: 5px; margin: 7px 0; }
-.pc-variable-picker > input { grid-column: 1 / -1; }
-.pc-variable-option { border: 1px solid #e0e7f0; border-radius: 5px; padding: 5px 8px; color: #53647d; background: white; text-align: left; font: inherit; font-size: 10px; cursor: pointer; }
-.pc-variable-option.create { color: #226f49; background: #f4fbf6; }
-.pc-name-preview { display: grid; gap: 7px; border: 1px solid #dce7f2; border-radius: 7px; margin: 8px 0; padding: 9px; background: #f8fbff; }
-.pc-name-preview-output { display: grid; gap: 4px; }
-.pc-name-preview-output span, .pc-name-preview-sample span, .pc-name-preview small { color: #718198; font-size: 10px; }
-.pc-name-preview-output strong { overflow-wrap: anywhere; color: #2e593e; font-size: 12px; font-weight: 650; }
-.pc-name-preview-sample { display: grid; gap: 4px; }
-.pc-name-preview-sample .pc-control { min-height: 31px; font-size: 11px; }
 .pc-upgrade-notice { grid-column: 1 / -1; border: 1px solid #d7e5f4; border-radius: 6px; margin: 0 12px; padding: 8px 11px; color: #526e91; background: #f4f8fd; font-size: 11px; }
 .pc-modal-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: #15223866; }
 .pc-variable-manager { width: min(720px, 100%); max-height: min(80vh, 680px); overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; background: white; box-shadow: 0 18px 55px #15223833; }

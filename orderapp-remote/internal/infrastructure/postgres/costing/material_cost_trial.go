@@ -50,7 +50,7 @@ func (r Repository) LoadMaterialCostTrial(ctx context.Context, cmd appcosting.Ma
 		return r.loadManufacturedMaterialTrial(ctx, cmd, result)
 	}
 	result.SupplyMode = "purchase"
-	var weighted, purchase float64
+	var weighted, purchase, estimate float64
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		WITH valuation AS (
 			SELECT SUM((CASE WHEN lower(COALESCE(NULLIF(m.unit,''),'kg')) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司') THEN l.qty_g::numeric ELSE l.qty_units::numeric END) * COALESCE(b.unit_cost,0)) /
@@ -58,19 +58,25 @@ func (r Repository) LoadMaterialCostTrial(ctx context.Context, cmd appcosting.Ma
 			FROM %s.material_batch_locations l JOIN %s.material_batches b ON b.id=l.material_batch_id JOIN %s.materials m ON m.id=l.material_id
 			WHERE l.material_id=$1 AND (l.qty_g>0 OR l.qty_units>0) AND b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		)
-		SELECT COALESCE((SELECT weighted FROM valuation),0), COALESCE((SELECT purchase_price FROM %s.materials WHERE id=$1),0)`, r.schema, r.schema, r.schema, r.schema), cmd.MaterialID).Scan(&weighted, &purchase); err != nil {
+		SELECT COALESCE((SELECT weighted FROM valuation),0), COALESCE(m.purchase_price,0), COALESCE(m.estimated_unit_price,-1)
+		FROM %s.materials m WHERE m.id=$1`, r.schema, r.schema, r.schema, r.schema), cmd.MaterialID).Scan(&weighted, &purchase, &estimate); err != nil {
 		return result, err
 	}
 	if !finiteNonNegative(weighted) || !finiteNonNegative(purchase) {
 		return result, fmt.Errorf("物料成本必须为有效的非负数")
 	}
-	if weighted > 0 {
-		result.UnitCost, result.PartialCost, result.CostStatus, result.CostSource = weighted, weighted, "complete", "weighted_batch_cost"
-	} else if purchase > 0 {
-		result.UnitCost, result.PartialCost, result.CostStatus, result.CostSource = purchase, purchase, "complete", "purchase_price"
-	} else {
-		result.CostStatus, result.CostSource = "complete", "zero_purchase_cost"
+	estimatedSet := estimate >= 0
+	estimate = max(estimate, 0)
+	result.CostSource = materialDirectCostSource(weighted, purchase, 0, estimate, estimatedSet)
+	switch result.CostSource {
+	case "weighted_batch_cost":
+		result.UnitCost, result.PartialCost = weighted, weighted
+	case "purchase_price":
+		result.UnitCost, result.PartialCost = purchase, purchase
+	case "estimated_purchase_price":
+		result.UnitCost, result.PartialCost = estimate, estimate
 	}
+	result.CostStatus = "complete"
 	result.MaterialUnitCost = result.PartialCost
 	result.BomCostTotal = result.PartialCost
 	result.StandardManufacturingUnitCost = result.PartialCost
@@ -79,7 +85,7 @@ func (r Repository) LoadMaterialCostTrial(ctx context.Context, cmd appcosting.Ma
 		ComponentID: result.MaterialID, Quantity: 1, ConsumeUnit: result.CostUnit,
 		UnitCost: result.PartialCost, CostUnitCost: result.PartialCost, CostUnit: result.CostUnit,
 		CostSource: result.CostSource, Amount: result.PartialCost, Unit: result.CostUnit,
-		Description: materialDirectCostDescription(result.CostSource, weighted, purchase),
+		Description: materialDirectCostDescription(result.CostSource, weighted, purchase, estimate),
 	}}
 	result.FormulaExpression, result.FormulaExpressionLines, result.Steps = materialCostTrialFormula(result)
 	return result, nil
@@ -140,7 +146,22 @@ func (r Repository) loadManufacturedMaterialTrial(ctx context.Context, cmd appco
 	return result, nil
 }
 
-func materialDirectCostDescription(source string, weighted, purchase float64) string {
+func materialDirectCostSource(weighted, purchase, snapshot, estimate float64, hasEstimate bool) string {
+	switch {
+	case weighted > 0:
+		return "weighted_batch_cost"
+	case purchase > 0:
+		return "purchase_price"
+	case snapshot > 0:
+		return "unit_cost_snapshot"
+	case hasEstimate:
+		return "estimated_purchase_price"
+	default:
+		return "zero_purchase_cost"
+	}
+}
+
+func materialDirectCostDescription(source string, weighted, purchase, estimate float64) string {
 	switch source {
 	case "zero_purchase_cost":
 		return "暂无采购成本，暂按 0 计算"
@@ -148,6 +169,8 @@ func materialDirectCostDescription(source string, weighted, purchase float64) st
 		return fmt.Sprintf("有效批次加权成本 %.4f", weighted)
 	case "purchase_price":
 		return fmt.Sprintf("采购价 %.4f", purchase)
+	case "estimated_purchase_price":
+		return fmt.Sprintf("暂估采购价 %.4f", estimate)
 	case "missing_purchase_or_batch_cost":
 		return "有效批次加权成本和采购价均为 0"
 	default:

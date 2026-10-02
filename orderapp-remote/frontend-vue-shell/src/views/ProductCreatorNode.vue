@@ -1,5 +1,8 @@
 <template>
-  <article class="creator-node" :class="[`kind-${data.module.kind}`, { selected }]" :aria-label="data.module.name">
+  <article class="creator-node" :class="[`kind-${data.module.kind}`, { selected, 'has-material-mode': editable && data.module.kind === 'material' && Number(data.module.workflow_version) >= 7 }]" :aria-label="data.module.name">
+    <label v-if="editable && data.module.kind === 'material' && Number(data.module.workflow_version) >= 7" class="creator-material-mode nodrag nopan" @pointerdown.stop @click.stop>
+      <span>取得方式</span><select :value="materialSupplyMode(data.config)" @change="emit('material-mode-change', $event.target.value)"><option value="purchase">外购</option><option value="manufacture">自制</option></select>
+    </label>
     <Handle
       v-for="(port, index) in inputPorts"
       :id="port.id"
@@ -31,7 +34,7 @@
       <strong>{{ data.label || data.module.name }}</strong>
       <span>{{ nodeSummary(data.module, data.config) }}</span>
       <small v-if="data.countLabel">{{ data.countLabel }}</small>
-      <small v-else-if="data.module.kind === 'material'" class="creator-node-tags">外购 · 自制</small>
+      <small v-else-if="data.module.kind === 'material'" class="creator-node-tags">{{ materialSupplyMode(data.config) === 'manufacture' ? '自制 · 需要生成 BOM' : '外购 · 无 BOM 输入口' }}</small>
     </div>
     <span class="creator-node-more" aria-hidden="true">···</span>
     <Handle
@@ -54,6 +57,7 @@
 <script setup>
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import { computed, nextTick, watch } from 'vue'
+import { materialSupplyMode } from '../lib/product-creator-graph.js'
 import {
   IconBox,
   IconPackage,
@@ -67,9 +71,11 @@ import {
 const props = defineProps({
   id: { type: String, required: true },
   data: { type: Object, required: true },
+  editable: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
 })
 
+const emit = defineEmits(['material-mode-change'])
 const recipePorts = computed(() => (props.data.recipeInputs || []).filter((port) => !port.add))
 const namedInputPorts = computed(() => (props.data.module.inputs || []).filter((port) => port.id !== 'components'))
 const inputPorts = computed(() => {
@@ -146,6 +152,9 @@ function recipePortStyle(portID) {
   cursor: grab;
 }
 
+.creator-node.has-material-mode { padding-top: 57px; }
+.creator-material-mode { position: absolute; left: 16px; right: 16px; top: 10px; display: flex; align-items: center; gap: 10px; font-size: 12px; color: #607487; cursor: default; }
+.creator-material-mode select { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid #dbe4ec; border-radius: 6px; background: #f5faf7; color: #246b44; font: inherit; }
 .creator-node:active { cursor: grabbing; }
 .creator-node-input-label { position: absolute; left: -9px; z-index: 2; max-width: 112px; overflow: hidden; padding: 2px 5px; border-radius: 4px; color: #62738a; background: #f7f9fc; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; transform: translate(-100%, -50%); pointer-events: none; }
 .creator-node-icon {

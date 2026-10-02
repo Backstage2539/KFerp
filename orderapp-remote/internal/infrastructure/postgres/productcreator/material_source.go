@@ -74,7 +74,7 @@ func (e BusinessExecutor) inspectMaterialSources(ctx context.Context, run app.Ru
 				field = "rows." + rowID + ".supply_mode"
 			}
 			consumed := used[node.ID][rowID]
-			if stringValue(row["action"]) == "reuse" && consumed {
+			if stringValue(row["action"]) == "reuse" && (consumed || run.Workflow.Version >= 7) {
 				id := int64(positiveNumber(row["material_id"]))
 				var semi, hasBOM bool
 				q := fmt.Sprintf(`SELECT m.name,COALESCE(m.is_semi_finished,false),EXISTS(
@@ -100,6 +100,15 @@ func (e BusinessExecutor) inspectMaterialSources(ctx context.Context, run app.Ru
 					mode = "manufacture"
 				}
 				validProducer = validProducer || hasBOM
+			}
+			if mode == "external" {
+				mode = "purchase"
+			}
+			if mode == "manufactured" {
+				mode = "manufacture"
+			}
+			if run.Workflow.Version >= 7 && mode != app.MaterialSupplyMode(node) {
+				issues = append(issues, app.ValidationIssue{NodeID: node.ID, Field: field, Code: "material_supply_mode_mismatch", Message: fmt.Sprintf("%s：所选物料“%s”的真实取得方式与节点不符。外购节点只能选择外购物料，自制物料需使用连接了 BOM 的自制节点", node.Name, name)})
 			}
 			role := "投入配方物料"
 			if output {
