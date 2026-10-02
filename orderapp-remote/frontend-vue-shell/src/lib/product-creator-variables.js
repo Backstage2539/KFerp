@@ -1,4 +1,4 @@
-import { cloneValue } from './product-creator-graph.js'
+import { cloneValue, materialSupplyMode } from './product-creator-graph.js'
 
 export function filterWorkflowVariables(query, variables = []) {
   const needle = String(query || '').trim().toLocaleLowerCase()
@@ -148,4 +148,41 @@ export function upgradeWorkflowToV5(workflow = {}) {
   const upgraded = upgradeWorkflowToV4(workflow)
   if (Number(upgraded.version || 1) >= 5) return upgraded
   return { ...upgraded, version: 5 }
+}
+
+export function upgradeWorkflowToV6(workflow = {}) {
+  const upgraded = upgradeWorkflowToV5(workflow)
+  if (Number(upgraded.version || 1) >= 6) return upgraded
+  const nodes = (upgraded.nodes || []).map((node) => {
+    if (node.kind !== 'material' || node.config?.data_role === 'output') return cloneValue(node)
+    const config = cloneValue(node.config || {})
+    if (!Array.isArray(config.default_rows)) {
+      config.default_rows = Array.isArray(config.rows) ? config.rows : []
+    }
+    delete config.rows
+    return { ...node, config }
+  })
+  // Historical purchase nodes stay in the V6 draft for explicit removal. The
+  // designer renders them as legacy-only nodes and server validation blocks
+  // publication until the user resolves that old behavior.
+  return { ...cloneValue(upgraded), version: 6, nodes }
+}
+
+// Only an editable draft is upgraded; published versions and runs keep their snapshots.
+export function upgradeWorkflowToV7(workflow = {}) {
+  const draft = upgradeWorkflowToV6(workflow)
+  return { ...draft, version: 7, nodes: (draft.nodes || []).map((node) => {
+    if (node.kind !== 'material') return node
+    const config = { ...node.config, supply_mode: materialSupplyMode(node.config) }
+    config.data_role = config.supply_mode === 'manufacture' ? 'output' : 'input'
+    delete config.default_rows
+    delete config.rows
+    if (config.data_role === 'input') {
+      delete config.name_parts
+      delete config.name_pattern
+      delete config.name
+      delete config.defaults
+    }
+    return { ...node, config }
+  }) }
 }

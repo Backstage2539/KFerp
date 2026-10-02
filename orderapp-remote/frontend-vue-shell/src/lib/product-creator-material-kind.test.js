@@ -14,5 +14,6 @@ test('V3 hides industry material and product categories while keeping V2 legacy 
   assert.match(runtime, /v-if="workflowVersion < 3" class="pc-row-field"><span>物料类别<\/span>/)
   assert.match(runtime, /v-if="workflowVersion < 3"><span>商品类型<\/span>/)
   assert.match(runtime, /v-if="workflowVersion < 3"><span>物料类别<\/span>/)
-  assert.match(materialRecipeInputTemplate, /<label v-if="workflowVersion < 3" class="pc-row-field"><span>物料类别<\/span>/)
+  assert.match(materialRecipeInputTemplate, /<template v-else>[\s\S]*调整本次命名组合/)
+  assert.doesNotMatch(materialRecipeInputTemplate, /<label class="pc-row-field"><span>物料类别<\/span>/)
 })

@@ -28,6 +28,8 @@ type productionBomCostItem struct {
 	ComponentMaterialName        string
 	ComponentProductName         string
 	PurchasePrice                float64
+	EstimatedUnitPrice           float64
+	HasEstimatedUnitPrice        bool
 	WeightedBatchUnitCost        float64
 	UnitCostSnapshot             float64
 }
@@ -467,6 +469,8 @@ func productionBomDirectCostSource(item productionBomCostItem) string {
 		return "purchase_price"
 	case item.UnitCostSnapshot > 0:
 		return "unit_cost_snapshot"
+	case item.HasEstimatedUnitPrice:
+		return "estimated_purchase_price"
 	default:
 		return "zero_purchase_cost"
 	}
@@ -481,6 +485,8 @@ func productionBomDirectCostDescription(item productionBomCostItem) string {
 		return fmt.Sprintf("采购价 %.4f/%s", item.PurchasePrice, firstNonEmptyString(item.UnitCostUnit, "库存单位"))
 	case "unit_cost_snapshot":
 		return fmt.Sprintf("BOM 成本快照 %.4f/%s", item.UnitCostSnapshot, firstNonEmptyString(item.UnitCostUnit, "库存单位"))
+	case "estimated_purchase_price":
+		return fmt.Sprintf("暂估采购价 %.4f/%s", item.EstimatedUnitPrice, firstNonEmptyString(item.UnitCostUnit, "库存单位"))
 	default:
 		return "暂无采购成本，暂按 0 计算"
 	}
@@ -776,12 +782,15 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 		           NULLIF(mv.weighted_unit_cost,0),
 		           NULLIF(m.purchase_price,0),
 		           NULLIF(i.unit_cost_snapshot,0),
+		           CASE WHEN m.estimated_unit_price IS NOT NULL THEN m.estimated_unit_price END,
 		           0
 		       ) END::float8 AS unit_cost,
 		       COALESCE(NULLIF(m.unit,''), 'kg') AS unit_cost_unit,
 		       COALESCE(m.purchase_price,0)::float8 AS purchase_price,
 		       COALESCE(mv.weighted_unit_cost,0)::float8 AS weighted_batch_unit_cost,
 		       COALESCE(i.unit_cost_snapshot,0)::float8 AS unit_cost_snapshot
+		       , COALESCE(m.estimated_unit_price,0)::float8 AS estimated_unit_price,
+		       (m.estimated_unit_price IS NOT NULL) AS has_estimated_unit_price
 		FROM %[1]s.production_bom_version_items i
 		LEFT JOIN %[1]s.materials m ON m.id=i.material_id
 		LEFT JOIN %[1]s.products cp ON cp.id=i.component_product_id
@@ -817,6 +826,8 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			&item.PurchasePrice,
 			&item.WeightedBatchUnitCost,
 			&item.UnitCostSnapshot,
+			&item.EstimatedUnitPrice,
+			&item.HasEstimatedUnitPrice,
 		); err != nil {
 			itemRows.Close()
 			return nil, err

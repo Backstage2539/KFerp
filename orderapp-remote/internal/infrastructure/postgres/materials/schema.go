@@ -21,6 +21,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		cost_unit TEXT NOT NULL DEFAULT 'kg',
 		batch_no TEXT NOT NULL DEFAULT '',
 		purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+		estimated_unit_price NUMERIC(12,2) NULL CHECK(estimated_unit_price IS NULL OR estimated_unit_price>=0),
 		sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
 		onhand_g BIGINT NOT NULL DEFAULT 0,
 		onhand_units BIGINT NOT NULL DEFAULT 0,
@@ -35,6 +36,8 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	}
 	for _, stmt := range []string{
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS estimated_unit_price NUMERIC(12,2) NULL`,
+		`ALTER TABLE %[1]s.materials DROP CONSTRAINT IF EXISTS materials_estimated_unit_price_nonnegative; ALTER TABLE %[1]s.materials ADD CONSTRAINT materials_estimated_unit_price_nonnegative CHECK(estimated_unit_price IS NULL OR estimated_unit_price>=0)`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2) NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS batch_no TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS deprecated_at TIMESTAMPTZ NULL`,
