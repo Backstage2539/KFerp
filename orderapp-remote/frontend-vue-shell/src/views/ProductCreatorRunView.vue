@@ -401,7 +401,7 @@ import { canonicalInputPortID, cloneValue, makeNodeId, toCanvasGraph } from '../
 import { appendDuplicatedBOMComponentRow } from '../lib/product-creator-component-rows.js'
 import { buildExecutionPlan, isReusedOutput } from '../lib/product-creator-execution-plan.js'
 import { renderNameParts } from '../lib/product-creator-variables.js'
-import { businessGroupControlOptions, businessGroupFeatureSelectionIDs } from '../lib/business-grouping.js'
+import { businessGroupClassificationOptions, businessGroupFeatureSelectionIDs } from '../lib/business-grouping.js'
 import ProductCreatorNode from './ProductCreatorNode.vue'
 
 const props = defineProps({
@@ -462,10 +462,12 @@ const usedWorkflowVariables = computed(() => {
 const classificationTitle = computed(() => ({ material_catalog: '选择物料分类', product_catalog: '选择商品分类', production_bom: '选择 BOM 分类' }[classificationDrawer.value.usage] || '选择分类'))
 const classificationOptions = computed(() => {
   const usage = classificationDrawer.value.usage
-  const query = String(classificationDrawer.value.query || '').trim().toLocaleLowerCase()
   const ids = businessGroupSelections.value[usage] || []
-  return ids.flatMap((groupID) => businessGroupControlOptions(businessGroups.value, { selectedTemplateID: groupID, usageKey: usage }).moveOptions)
-    .filter((option) => !query || `${option.label || ''} ${option.group_name || ''}`.toLocaleLowerCase().includes(query))
+  return businessGroupClassificationOptions(businessGroups.value, {
+    selectedTemplateIDs: ids,
+    usageKey: usage,
+    query: classificationDrawer.value.query,
+  })
 })
 
 const graph = computed(() => toCanvasGraph(props.run.workflow || { nodes: [], edges: [] }, props.modules))
@@ -1472,7 +1474,10 @@ function openClassificationDrawer(usage, nodeID, rowID = '') {
 function classificationLabel(groupID, itemID, usage) {
   const group = businessGroups.value.find((row) => Number(row.id || 0) === Number(groupID || 0))
   if (!group) return ''
-  const options = businessGroupControlOptions(businessGroups.value, { selectedTemplateID: group.id, usageKey: usage }).moveOptions
+  const options = businessGroupClassificationOptions(businessGroups.value, {
+    selectedTemplateIDs: [group.id],
+    usageKey: usage,
+  })
   return options.find((row) => Number(row.group_item_id || 0) === Number(itemID || 0))?.label || ''
 }
 

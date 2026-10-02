@@ -633,6 +633,23 @@ func TestBusinessGroupItemsAPIWritesGenericGroupItems(t *testing.T) {
 	}
 }
 
+func TestBusinessGroupAssignmentAPIAllowsTemplateRootCategory(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/business-group-assignments", strings.NewReader(`{"group_id":66,"group_item_id":0,"usage_key":"product_catalog","object_key":"product","object_id":901}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("business group root assignment status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"group_item_id":0`)) {
+		t.Fatalf("business group root assignment response must preserve group_item_id=0: %s", rec.Body.String())
+	}
+}
+
 func TestBusinessGroupsAPIDeletesTemplate(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()

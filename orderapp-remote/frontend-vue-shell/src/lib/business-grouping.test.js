@@ -7,6 +7,7 @@ import {
   businessGroupRowsForFeatureSelection,
   businessGroupRowsForUsage,
   businessGroupControlOptions,
+  businessGroupClassificationOptions,
   businessGroupHiddenByCollapsedAncestor,
   businessGroupInlineListState,
   businessGroupSearchCollapsedKeys,
@@ -180,6 +181,53 @@ test('business group controls expose template and move options for any usage', (
     { label: '咖啡熟豆 / 精品意式', depth: 1, parent: 90 },
     { label: '挂耳咖啡', depth: 0, parent: 0 },
   ])
+})
+
+test('classification options include enabled category roots as well as their nested categories', () => {
+  const options = businessGroupClassificationOptions([
+    {
+      id: 30,
+      name: '烘焙咖啡豆',
+      active: true,
+      items: [{ id: 300, group_id: 30, parent_id: 0, name: '咖啡熟豆', active: true }],
+    },
+    {
+      id: 31,
+      name: '咖啡生豆',
+      active: true,
+      items: [{ id: 310, group_id: 31, parent_id: 0, name: '亚洲', active: true }],
+    },
+  ], {
+    selectedTemplateIDs: [30, 31],
+    usageKey: 'material_catalog',
+  })
+
+  assert.deepEqual(options.map(({ label, group_id, group_item_id }) => [label, group_id, group_item_id]), [
+    ['烘焙咖啡豆', 30, 0],
+    ['咖啡熟豆', 30, 300],
+    ['咖啡生豆', 31, 0],
+    ['亚洲', 31, 310],
+  ])
+  assert.equal(options[1].group_name, '烘焙咖啡豆')
+  assert.deepEqual(businessGroupClassificationOptions([
+    { id: 30, name: '烘焙咖啡豆', active: true, items: [{ id: 300, group_id: 30, name: '咖啡熟豆', active: true }] },
+  ], { selectedTemplateIDs: [30], usageKey: 'material_catalog', query: '烘焙咖啡豆' }).map((option) => option.label), [
+    '烘焙咖啡豆', '咖啡熟豆',
+  ])
+})
+
+test('template-root classification assignments stay under their category heading', () => {
+  const row = { id: 15, name: '烘焙咖啡豆-新档案' }
+  const groups = groupRowsByBusinessGroupTemplates([row], {
+    templates: [{ id: 30, name: '烘焙咖啡豆', active: true, items: [{ id: 300, group_id: 30, name: '咖啡熟豆', active: true }] }],
+    assignments: [{ usage_key: 'material_catalog', object_key: 'material', object_id: 15, group_id: 30, group_item_id: 0 }],
+    usageKey: 'material_catalog',
+    objectKey: 'material',
+  })
+  assert.deepEqual(groups.filter((group) => group.is_template_group).map((group) => [group.label, group.rows]), [
+    ['烘焙咖啡豆', [row]],
+  ])
+  assert.equal(groups.find((group) => group.unclassified).rows.length, 0)
 })
 
 test('preferred business group template keeps warehouse inventory on stock grouping after refresh', () => {
