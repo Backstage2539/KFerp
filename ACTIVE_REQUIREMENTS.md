@@ -167,6 +167,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-681-PRODUCT-CREATOR-CATEGORY-ROOT-OPTIONS
+- Branch: `codex/product-creator-category-root-options-20261002`; base `origin/develop@780d5a1c`
+- Owner/session: Codex / Van / 2026-10-03
+- Status: implementation and targeted verification complete; full gates and ordered development/production deployment in progress
+- Scope: show selected classification template names (large categories) alongside nested categories in the creator drawer; permit a new object to be assigned directly to an enabled template root and display it under that heading.
+- DEV: DEV-732-PC-CATEGORY-ROOT-OPTIONS
+- Verifier:
+  - Unit: business-group root options/search, root assignment display, price-list scope, and service validation.
+  - API: `POST /api/business-group-assignments` accepts root assignment; creator transaction persists it with audit.
+  - Frontend/build: focused Node tests, full Vue shell tests/build, browser/development smoke.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCT_CREATOR.md`.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-10-03-product-creator-category-root-options.md`; Van business acceptance pending.
+- Deployment: development then main/production explicitly requested; pending.
+- Last update: 2026-10-03.
+- Notes: preserve existing object classifications and child-category behavior; root assignments use group_item_id=0.
+
 ### PR-676 商品创建器 V5 后续：工艺接线与命名即时预览
 - Branches: V5 PR #167 and ordinary-preview fix PR #168 merged into `develop`; evidence follow-up branch `codex/product-creator-v5-acceptance-evidence-20261001`.
 - Owner/session: Codex / Van / 2026-10-01.

@@ -1179,22 +1179,25 @@ func (e BusinessExecutor) assignBusinessGroup(ctx context.Context, actor, usageK
 	if groupID == 0 && groupItemID == 0 {
 		return nil
 	}
-	if groupID <= 0 || groupItemID <= 0 || objectID <= 0 {
+	if groupID <= 0 || groupItemID < 0 || objectID <= 0 {
 		return fmt.Errorf("分类选择无效，请重新选择分类")
 	}
 	tx := queryWithTransaction(ctx)
-	var groupOK, itemOK, usageOK bool
+	var groupOK, usageOK bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_groups WHERE id=$1 AND active=true)`, e.schema), groupID).Scan(&groupOK); err != nil {
 		return err
 	}
 	if !groupOK {
 		return fmt.Errorf("所选分类已停用，请重新选择")
 	}
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_group_items WHERE id=$1 AND group_id=$2 AND active=true)`, e.schema), groupItemID, groupID).Scan(&itemOK); err != nil {
-		return err
-	}
-	if !itemOK {
-		return fmt.Errorf("所选分类项目已停用或不属于当前分类")
+	if groupItemID > 0 {
+		var itemOK bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_group_items WHERE id=$1 AND group_id=$2 AND active=true)`, e.schema), groupItemID, groupID).Scan(&itemOK); err != nil {
+			return err
+		}
+		if !itemOK {
+			return fmt.Errorf("所选分类项目已停用或不属于当前分类")
+		}
 	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_group_usages WHERE group_id=$1 AND lower(usage_key)=lower($2) AND active=true)`, e.schema), groupID, usageKey).Scan(&usageOK); err != nil {
 		return err

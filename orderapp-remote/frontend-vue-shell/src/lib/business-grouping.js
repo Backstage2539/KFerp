@@ -106,6 +106,37 @@ export function businessGroupControlOptions(groups = [], {
   return { templateOptions, selectedTemplate, moveOptions }
 }
 
+export function businessGroupClassificationOptions(groups = [], {
+  selectedTemplateIDs = [],
+  usageKey = '',
+  query = '',
+} = {}) {
+  const normalizedQuery = normalizedText(query).toLocaleLowerCase()
+  return uniquePositiveIDs(selectedTemplateIDs).flatMap((templateID) => {
+    const { templateOptions, moveOptions } = businessGroupControlOptions(groups, {
+      selectedTemplateID: templateID,
+      usageKey,
+    })
+    const template = templateOptions.find((option) => option.id === templateID)
+    if (!template) return []
+
+    const rootOption = {
+      id: 0,
+      group_id: templateID,
+      group_item_id: 0,
+      parent_group_item_id: 0,
+      label: template.label,
+      path_label: template.label,
+      title_label: template.label,
+      depth: -1,
+      key: `${templateID}:0`,
+    }
+    const categoryOptions = moveOptions.map((option) => ({ ...option, group_name: template.label }))
+    return [rootOption, ...categoryOptions]
+      .filter((option) => !normalizedQuery || `${option.label || ''} ${option.path_label || ''} ${option.group_name || ''}`.toLocaleLowerCase().includes(normalizedQuery))
+  })
+}
+
 export function preferredBusinessGroupTemplateID(groups = [], {
   selectedTemplateID = 0,
   usageKey = '',
@@ -342,6 +373,7 @@ export function groupRowsByBusinessGroupTemplates(rows = [], {
     }
     groups.push(templateHeader)
     templateHeaders.push(templateHeader)
+    groupsByAssignmentKey.set(`${templateID}:0`, templateHeader)
     const moveOptions = businessGroupItemMoveOptions([template], usageKey, {
       includeGroupName: false,
       includeGroupsWithoutUsage: true,
@@ -400,7 +432,7 @@ export function groupRowsByBusinessGroupTemplates(rows = [], {
 
   for (const templateHeader of templateHeaders) {
     const templateID = toNumber(templateHeader.group_id)
-    templateHeader.template_total = groups
+    templateHeader.template_total = templateHeader.rows.length + groups
       .filter((group) => !group.is_template_group && toNumber(group.group_id) === templateID)
       .reduce((sum, group) => sum + (Array.isArray(group.rows) ? group.rows.length : 0), 0)
   }

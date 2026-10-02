@@ -128,7 +128,7 @@ export function buildProductCatalogTemplatePriceListTypeOptions(sourceItems = []
 
   const scopeGroups = activeTemplates.map((template) => ({
     groupID: numberField(template.id),
-    groupItemIDs: businessGroupDescendantIDsForTemplate(template),
+    groupItemIDs: [0, ...businessGroupDescendantIDsForTemplate(template)],
   }))
   const options = activeTemplates.map((template, index) => {
     const templateID = numberField(template.id)
@@ -167,16 +167,17 @@ export function matchesProductCatalogPriceListType(item = {}, type = {}, {
   if (type?.productCatalogUnclassified) return !scopedAssignment
   const groupID = numberField(type?.productCatalogGroupID ?? type?.product_catalog_group_id)
   if (!(groupID > 0)) return false
-  const groupItemIDs = new Set((type?.productCatalogGroupItemIDs || type?.product_catalog_group_item_ids || [])
-    .map((id) => numberField(id))
-    .filter(Boolean))
-  if (!groupItemIDs.size) return false
+  const templateLevel = !(numberField(type?.productCatalogGroupItemID ?? type?.product_catalog_group_item_id) > 0)
   const assignment = scopeGroups.length
     ? scopedAssignment
     : productCatalogAssignmentForItem(item, assignments, groupID)
   if (numberField(assignment?.group_id ?? assignment?.groupID) !== groupID) return false
   const groupItemID = numberField(assignment?.group_item_id ?? assignment?.groupItemID)
-  return groupItemIDs.has(groupItemID)
+  if (!(groupItemID > 0)) return templateLevel
+  const groupItemIDs = new Set((type?.productCatalogGroupItemIDs || type?.product_catalog_group_item_ids || [])
+    .map((id) => numberField(id))
+    .filter(Boolean))
+  return groupItemIDs.size > 0 && groupItemIDs.has(groupItemID)
 }
 
 export function priceListSelectionStateKey(typeOptions = [], listType = 'commercial', productTypeCategoryID = 0) {
@@ -453,7 +454,7 @@ function normalizeProductCatalogScopeGroups(type = {}) {
     groupID: numberField(group?.groupID ?? group?.group_id),
     groupItemIDs: (Array.isArray(group?.groupItemIDs) ? group.groupItemIDs : (Array.isArray(group?.group_item_ids) ? group.group_item_ids : []))
       .map((id) => numberField(id))
-      .filter(Boolean),
+      .filter((id) => Number.isFinite(id) && id >= 0),
   })).filter((group) => group.groupID > 0)
 }
 
@@ -465,7 +466,7 @@ function productCatalogAssignmentForItemInScope(item = {}, assignments = [], sco
     if (!assignment) continue
     const allowedItemIDs = new Set((scope?.groupItemIDs || scope?.group_item_ids || [])
       .map((id) => numberField(id))
-      .filter(Boolean))
+      .filter((id) => Number.isFinite(id) && id >= 0))
     const groupItemID = numberField(assignment?.group_item_id ?? assignment?.groupItemID)
     if (allowedItemIDs.has(groupItemID)) return assignment
   }
