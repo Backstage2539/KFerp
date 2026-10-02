@@ -99,7 +99,11 @@ func (e BusinessExecutor) inspectMaterialSources(ctx context.Context, run app.Ru
 				if semi {
 					mode = "manufacture"
 				}
-				validProducer = validProducer || hasBOM
+				if app.IsReusedOutput(run.Workflow, node, run.Inputs) {
+					validProducer = hasBOM
+				} else {
+					validProducer = validProducer || hasBOM
+				}
 			}
 			if mode == "external" {
 				mode = "purchase"
@@ -115,7 +119,7 @@ func (e BusinessExecutor) inspectMaterialSources(ctx context.Context, run app.Ru
 				role = "BOM 产出物料"
 			}
 			summaries = append(summaries, map[string]any{"row_id": rowID, "name": name, "supply_mode": mode, "role": role, "producer_node_id": producers[node.ID], "consumed": consumed})
-			if consumed && (mode == "manufacture" || mode == "manufactured") && !validProducer {
+			if (consumed || app.IsReusedOutput(run.Workflow, node, run.Inputs)) && (mode == "manufacture" || mode == "manufactured") && !validProducer {
 				issues = append(issues, app.ValidationIssue{NodeID: node.ID, Field: field, Code: "manufacturing_source_missing", Message: fmt.Sprintf("%s：投入配方的自制物料“%s”缺少制造来源，请连接上游 BOM 产出，或引用具有默认已发布制造 BOM 的物料；外购原料请选择“外购”", node.Name, name)})
 			}
 		}

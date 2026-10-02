@@ -121,8 +121,8 @@ func TestProductCreatorModuleCatalogAndTemplateLifecycleAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Modules) != 35 {
-		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules for versions 2 through 5 and 4 modules each for V6 and V7", len(catalog.Modules))
+	if len(catalog.Modules) != 39 {
+		t.Fatalf("module count=%d, want 7 legacy modules plus 5 BOM-centric modules for versions 2 through 5 and 4 modules each for V6 through V8", len(catalog.Modules))
 	}
 	var legacyModules, bomCentricModules, variableModules, specificationTemplateModules, processPreviewModules, v6Modules int
 	var foundLegacyBOM, foundBOMCentricBOM, foundSpecificationTemplateBOM, foundV5ProcessRouteBOM bool
@@ -314,5 +314,57 @@ func TestMaterialAcquisitionPublicationAPI(t *testing.T) {
 				t.Fatalf("valid manufactured output rejected: %d %s", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestV8PreviewAPIDisablesUpstreamAndPermissionsFollowExecution(t *testing.T) {
+	w := app.Workflow{Version: 8, Nodes: []app.Node{
+		{ID: "raw", Kind: app.ModuleMaterial, Config: map[string]any{"data_role": "input", "supply_mode": "purchase"}},
+		{ID: "roast", Kind: app.ModuleBOM, Config: map[string]any{"output_type": "material", "route_id": 1}},
+		{ID: "semi", Kind: app.ModuleMaterial, Config: map[string]any{"data_role": "output", "supply_mode": "manufacture"}},
+	}, Edges: []app.Edge{
+		{ID: "a", Source: "raw", SourceHandle: "material", Target: "roast", TargetHandle: "components", Kind: app.EdgeData},
+		{ID: "b", Source: "roast", SourceHandle: "assembly", Target: "semi", TargetHandle: "from_bom", Kind: app.EdgeData},
+	}}
+	repo := &memoryRepository{run: app.Run{ID: 1, Revision: 1, Status: "draft", Workflow: w, Inputs: map[string]map[string]any{"semi": {"action": "reuse", "material_id": 42}}}}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Creator: app.NewService(repo)})
+	req := httptest.NewRequest(http.MethodPost, "/api/product-creator/runs/1/preview", strings.NewReader(`{"revision":1}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	var run app.Run
+	if err := json.Unmarshal(rec.Body.Bytes(), &run); err != nil {
+		t.Fatal(err)
+	}
+	if !run.Preview.Valid {
+		t.Fatal(run.Preview.Issues)
+	}
+	for _, s := range run.Preview.Steps {
+		if s.NodeID != "semi" && s.Status != "skipped" {
+			t.Fatal(s)
+		}
+	}
+	got := strings.Join(configurationRunPermissions(repo.run), ",")
+	if got != "materials.read" {
+		t.Fatalf("reuse must not require disabled write permissions: %s", got)
+	}
+	repo.run.Workflow.Version = 7
+	if strings.Join(configurationRunPermissions(repo.run), ",") == got {
+		t.Fatal("old behavior must remain")
+	}
+}
+
+func TestV8ExistingInputProductNeedsReadOnlyPermission(t *testing.T) {
+	run := app.Run{Workflow: app.Workflow{Version: 8, Nodes: []app.Node{{ID: "source", Kind: app.ModuleProduct, Config: map[string]any{"data_role": "input"}}}}, Inputs: map[string]map[string]any{"source": {"action": "reuse", "product_id": 52}}}
+	if got := strings.Join(configurationRunPermissions(run), ","); got != "products.read" {
+		t.Fatalf("reference-only input requires no creation permission: %s", got)
+	}
+	run.Workflow.Version = 7
+	if got := strings.Join(configurationRunPermissions(run), ","); got != "products.write" {
+		t.Fatalf("legacy permission changed: %s", got)
 	}
 }

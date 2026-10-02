@@ -1005,6 +1005,12 @@ WITH legacy_products AS (
 	    OR EXISTS (SELECT 1 FROM %[1]s.product_bom_items bi WHERE bi.product_id=p.id)
 	    OR EXISTS (SELECT 1 FROM %[1]s.bom_versions bv WHERE bv.product_id=p.id)
 	  )
+	  AND NOT EXISTS (
+	    SELECT 1 FROM %[1]s.production_boms explicit_bom
+	    WHERE explicit_bom.output_type='product' AND explicit_bom.output_product_id=p.id
+	      AND COALESCE(NULLIF(explicit_bom.status,''),'active')='active'
+	      AND COALESCE(explicit_bom.legacy_product_id,0)=0
+	  )
 )
 INSERT INTO %[1]s.production_boms(code, name, output_product_id, group_id, status, legacy_product_id, created_by, updated_by)
 SELECT 'BOM-' || LPAD(lp.id::text, 6, '0'),
