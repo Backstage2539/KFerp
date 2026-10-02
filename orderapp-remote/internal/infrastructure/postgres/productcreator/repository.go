@@ -430,7 +430,7 @@ func (r Repository) CommitConfiguration(ctx context.Context, id int64, revision 
 	if resultTag.RowsAffected() != 1 {
 		return app.Run{}, app.ErrConflict
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "product_creator_run", &id, "commit_configuration", postgresinfra.StrPtr("business_objects"), nil, postgresinfra.StrPtr("created"), postgresinfra.AuditMeta{"run_id": id, "template_id": run.TemplateID, "template_version": run.Version, "request_hash": requestHash, "step_count": len(run.Preview.Steps)}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "product_creator_run", &id, "commit_configuration", postgresinfra.StrPtr("business_objects"), nil, postgresinfra.StrPtr("created"), commitAuditMeta(run, id, requestHash, result)); err != nil {
 		return app.Run{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -659,3 +659,11 @@ func scanRun(row rowScanner) (app.Run, error) {
 var _ app.Repository = Repository{}
 
 func normalizeActor(actor string) string { return strings.TrimSpace(actor) }
+
+func commitAuditMeta(run app.Run, id int64, requestHash string, result map[string]any) postgresinfra.AuditMeta {
+	meta := postgresinfra.AuditMeta{"run_id": id, "template_id": run.TemplateID, "template_version": run.Version, "request_hash": requestHash, "step_count": len(run.Preview.Steps)}
+	if run.Workflow.Version >= 8 {
+		meta["execution_plan"] = result["execution_plan"]
+	}
+	return meta
+}

@@ -309,8 +309,8 @@ func TestBOMTemplateCatalogSeparatesReusableDataAndActions(t *testing.T) {
 			}
 		}
 	}
-	if counts["数据类型"] != 18 || counts["动作"] != 10 {
-		t.Fatalf("visible module groups=%v, want three data types and one action for workflow versions 2 through 7", counts)
+	if counts["数据类型"] != 21 || counts["动作"] != 11 {
+		t.Fatalf("visible module groups=%v, want three data types and one action for workflow versions 2 through 8", counts)
 	}
 	for _, module := range ModuleCatalog() {
 		if module.WorkflowVersion >= 3 {

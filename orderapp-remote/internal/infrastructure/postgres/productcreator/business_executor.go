@@ -35,7 +35,18 @@ func NewBusinessExecutor(schema string, pool *pgxpool.Pool, catalog *catalogapp.
 }
 
 func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run creatorapp.Run) (map[string]map[string]any, []creatorapp.ValidationIssue) {
+	run.Workflow = creatorapp.ActiveWorkflow(run.Workflow, run.Inputs)
 	details, issues := e.inspectMaterialSources(ctx, run)
+	if run.Workflow.Version >= 8 {
+		referenceDetails, referenceIssues := e.inspectReusedOutputs(ctx, run)
+		issues = append(issues, referenceIssues...)
+		for id, snapshot := range referenceDetails {
+			if details[id] == nil {
+				details[id] = map[string]any{}
+			}
+			details[id]["reference_snapshot"] = snapshot
+		}
+	}
 	if run.Workflow.Version < 4 || e.bom == nil {
 		return details, issues
 	}
@@ -179,7 +190,7 @@ func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run c
 		}
 		if mainInputExists && mainInputNode.Kind == creatorapp.ModuleProduct {
 			selectedRowID := strings.TrimSpace(stringValue(inputValues["main_input_source_row_id"]))
-			if stringValue(mainInputNode.Config["data_role"]) == "output" {
+			if stringValue(mainInputNode.Config["data_role"]) == "output" && !creatorapp.IsReusedOutput(run.Workflow, mainInputNode, run.Inputs) {
 				var upstreamBOM *creatorapp.Node
 				for index := range run.Workflow.Nodes {
 					candidate := &run.Workflow.Nodes[index]
@@ -228,6 +239,10 @@ func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run c
 				}
 				if !validSpecKey {
 					issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_row_invalid", Message: "所选主体不属于该上游商品 BOM 生成的已发布规格"})
+				}
+			} else if creatorapp.IsReusedOutput(run.Workflow, mainInputNode, run.Inputs) {
+				if !e.validExistingProductSpec(ctx, positiveNumber(run.Inputs[mainInputNode.ID]["product_id"]), positiveNumber(selectedRowID)) {
+					issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_row_invalid", Message: "请选择该已有商品的有效已发布规格"})
 				}
 			} else if selectedSpecID := positiveNumber(run.Inputs[mainInputNode.ID]["bom_spec_id"]); selectedSpecID <= 0 || selectedRowID != fmt.Sprintf("%d", int64(selectedSpecID)) {
 				issues = append(issues, creatorapp.ValidationIssue{NodeID: node.ID, Field: "main_input_source_row_id", Code: "main_input_row_invalid", Message: "请从已有商品已发布规格中选择主体"})
@@ -351,7 +366,13 @@ func (e BusinessExecutor) ExecuteConfiguration(ctx context.Context, run creatora
 // published before their outputs can feed a downstream BOM.
 func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, run creatorapp.Run, actor string) (map[string]any, error) {
 	run.Inputs = creatorapp.ResolveWorkflowInputDefaults(run.Workflow, run.Inputs)
-	if _, issues := e.inspectMaterialSources(ctx, run); len(issues) > 0 {
+	plan := creatorapp.BuildExecutionPlan(run.Workflow, run.Inputs)
+	if err := e.validateReusedSnapshots(ctx, run); err != nil {
+		return nil, err
+	}
+	inspectedRun := run
+	inspectedRun.Workflow = creatorapp.ActiveWorkflow(run.Workflow, run.Inputs)
+	if _, issues := e.inspectMaterialSources(ctx, inspectedRun); len(issues) > 0 {
 		return nil, creatorapp.ExecutionError{Issues: issues}
 	}
 	order, err := creatorapp.TopologicalOrder(run.Workflow)
@@ -380,6 +401,10 @@ func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, ru
 	// created only once and are reused by every downstream edge.
 	for _, id := range order {
 		node := nodes[id]
+		if state := plan[id]; state.Status == "skipped" {
+			steps[id] = map[string]any{"status": "skipped", "details": state.Details()}
+			continue
+		}
 		values := cloneJSONMap(run.Inputs[id])
 		if run.Workflow.Version >= 3 {
 			// V3 intentionally has no industry-category controls. Keep the
@@ -410,6 +435,10 @@ func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, ru
 				}
 				ref := refs[id]["output"]
 				refs[id]["material"] = ref
+				if creatorapp.IsReusedOutput(run.Workflow, node, run.Inputs) {
+					result["status"] = "succeeded"
+					result["action"] = "reuse"
+				}
 				steps[id] = result
 			} else {
 				result, execErr := e.executeMaterials(stepCtx, node, values, actor, refs)
@@ -419,6 +448,21 @@ func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, ru
 				steps[id] = result
 			}
 		case creatorapp.ModuleProduct:
+			if creatorapp.IsReusedOutput(run.Workflow, node, run.Inputs) {
+				reuseValues := cloneJSONMap(values)
+				delete(reuseValues, "bom_spec_id")
+				result, execErr := e.executeBOMProductInput(stepCtx, node, reuseValues, refs)
+				if execErr != nil {
+					return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "product_id", Code: "business_validation", Message: execErr.Error()}}}
+				}
+				ref := refs[id]["product"]
+				ref.RowID = "output"
+				refs[id]["output"] = ref
+				result["status"] = "succeeded"
+				result["action"] = "reuse"
+				steps[id] = result
+				continue
+			}
 			if stringValue(node.Config["data_role"]) == "output" {
 				productValues := cloneJSONMap(values)
 				productValues["action"] = outputObjectAction(node, values)
@@ -453,6 +497,10 @@ func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, ru
 	needsFollowup := false
 	for _, id := range order {
 		node := nodes[id]
+		if state := plan[id]; state.Status == "skipped" {
+			steps[id] = map[string]any{"status": "skipped", "details": state.Details()}
+			continue
+		}
 		values := run.Inputs[id]
 		switch node.Kind {
 		case creatorapp.ModuleBOM:
@@ -514,7 +562,11 @@ func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, ru
 	if needsFollowup {
 		runStatus = "in_progress"
 	}
-	return map[string]any{"run_status": runStatus, "steps": steps, "objects": allReferences(refs)}, nil
+	result := map[string]any{"run_status": runStatus, "steps": steps, "objects": allReferences(refs)}
+	if run.Workflow.Version >= 8 {
+		result["execution_plan"] = plan
+	}
+	return result, nil
 }
 
 func (e BusinessExecutor) executeBOMProductInput(ctx context.Context, node creatorapp.Node, values map[string]any, refs map[string]map[string]createdReference) (map[string]any, error) {

@@ -152,7 +152,7 @@
           </div>
         </div>
 
-        <div v-if="workflowUpgradeNotice" class="pc-upgrade-notice">当前编辑草稿已升级为 V7：投入物料不再预设行或名称，填写时选择已有物料；取得方式统一在节点顶部设置，自制物料必须连接一个生成 BOM。旧采购节点需处理后再发布。已发布版本和历史运行保持原样。</div>
+        <div v-if="workflowUpgradeNotice" class="pc-upgrade-notice">当前编辑草稿已升级为 V8：“选择已有”将直接复用物料或商品，并停用其专用上游步骤；共用来源继续执行。节点、连线和命名配置保留，已发布版本和历史运行保持原行为。</div>
 
         <aside class="pc-node-inspector">
           <template v-if="selectedNode">
@@ -452,7 +452,7 @@ import {
   toCanvasGraph,
   toWorkflowGraph,
 } from '../lib/product-creator-graph.js'
-import { upgradeWorkflowToV7 } from '../lib/product-creator-variables.js'
+import { upgradeWorkflowToV8 } from '../lib/product-creator-variables.js'
 import {
   copyProductCreatorTemplate,
   commitProductCreatorRun,
@@ -596,7 +596,7 @@ async function load() {
 }
 
 function emptyTemplate() {
-  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 7, variables: [], nodes: [], edges: [] } }
+  return { id: 0, revision: 0, name: '', description: '', status: 'draft', published_version: 0, draft: { version: 8, variables: [], nodes: [], edges: [] } }
 }
 
 function newTemplate() {
@@ -616,11 +616,11 @@ function newTemplate() {
 function editTemplate(item) {
   errorMessage.value = ''
   const sourceVersion = Number(item.draft?.version || 1)
-  const upgradedWorkflow = upgradeWorkflowToV7(item.draft || { nodes: [], edges: [] })
+  const upgradedWorkflow = upgradeWorkflowToV8(item.draft || { nodes: [], edges: [] })
   template.value = { ...cloneValue(item), draft: upgradedWorkflow }
   workflowVariables.value = cloneValue(upgradedWorkflow.variables || [])
   namePreviewSamples.value = {}
-  workflowUpgradeNotice.value = sourceVersion < 7
+  workflowUpgradeNotice.value = sourceVersion < 8
   edgeMode.value = 'data'
   setCanvasGraph(toCanvasGraph(upgradedWorkflow, modules.value))
   designerTab.value = 'flow'
