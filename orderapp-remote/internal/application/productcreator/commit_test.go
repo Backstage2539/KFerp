@@ -191,3 +191,38 @@ func TestV3DraftSavePersistsVariableValuesWithResolvedNodeInputs(t *testing.T) {
 		t.Fatalf("saved V3 draft revision/variables=%d/%v", got.Revision, repo.savedVariables)
 	}
 }
+
+// The transaction owns idempotency; the service must let a lost-response retry
+// reach it even though the successful first request incremented the revision.
+type committedRetryRepository struct{ commitTestRepository }
+
+func (r *committedRetryRepository) CommitConfiguration(_ context.Context, _ int64, _ int64, key, hash, _ string, _ func(context.Context, Run) (map[string]any, error)) (Run, error) {
+	r.called = true
+	if key != r.key || hash != r.hash {
+		return Run{}, ErrConflict
+	}
+	return r.run, nil
+}
+func TestCommitConfigurationRetryReachesTransactionAfterRevisionAdvanced(t *testing.T) {
+	base := &commitTestRepository{run: Run{ID: 8, Revision: 3, Status: "draft", Workflow: Workflow{Nodes: []Node{{ID: "p", Kind: ModuleProduct}}}, Inputs: map[string]map[string]any{"p": {"name": "测试商品", "action": "create", "owner": "factory"}}, Preview: &RunPreview{Valid: true}}}
+	executor := &commitTestExecutor{}
+	svc := NewService(base)
+	svc.UseConfigurationExecutor(executor)
+	if _, err := svc.CommitConfiguration(context.Background(), 8, 3, "request-1", "van"); err != nil {
+		t.Fatal(err)
+	}
+	base.run.Revision = 4
+	repo := &committedRetryRepository{commitTestRepository: *base}
+	repo.called = false
+	svc = NewService(repo)
+	svc.UseConfigurationExecutor(executor)
+	if _, err := svc.CommitConfiguration(context.Background(), 8, 3, "request-1", "van"); err != nil {
+		t.Fatalf("lost response retry rejected: %v", err)
+	}
+	if !repo.called || executor.calls != 1 {
+		t.Fatalf("must replay original result without execution: called=%v calls=%d", repo.called, executor.calls)
+	}
+	if _, err := svc.CommitConfiguration(context.Background(), 8, 3, "different-key", "van"); err != ErrConflict {
+		t.Fatalf("different key accepted: %v", err)
+	}
+}

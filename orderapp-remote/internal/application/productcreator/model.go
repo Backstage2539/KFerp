@@ -315,12 +315,8 @@ func (s *Service) CommitConfiguration(ctx context.Context, id, revision int64, i
 	if err != nil {
 		return Run{}, err
 	}
-	if run.Revision != revision {
-		return Run{}, ErrConflict
-	}
-	if run.Status != "draft" {
-		return Run{}, fmt.Errorf("run is no longer editable")
-	}
+	// The repository checks the stored key/hash before revision and status under
+	// its row lock, so successful requests can be replayed after a lost response.
 	run.Inputs = ResolveWorkflowInputDefaults(run.Workflow, run.Inputs)
 	if workflowVersion(run.Workflow) >= 3 {
 		run.VariableValues = ResolveWorkflowVariableValues(run.Workflow, run.VariableValues)
