@@ -37,3 +37,16 @@
 - 补充发现并修复：同键重试被应用层的旧修订检查提前拒绝（409），虽然没有重复建档。新增应用层RED后，将修订/状态检查交由已有事务仓库在幂等键检查之后执行，保留键/摘要冲突与行锁；应用、API、数据库测试GREEN。最终部署后再用原#67/#68请求重试验收。
 - 截图及API证据：`/private/tmp/pc-20261004-evidence/` 下 `root-product-visible.png`、`created-reused-result.png`、`category-tree.png`、`reuse-completed.json`、`allnew-completed.json`。
 - main 按用户要求同步；“测试环境”是否指生产等待用户澄清。无生产业务数据修复。
+
+
+## 最终发布核对
+
+- 修复代码已推送并合入 develop `7d725d073a17c6218bb295bc8145d24d94fa44a4`、main `10a524f1f09a50ab7d911eddd28479c1273f91b0`。本节为部署后的文档回执，不改变已部署应用代码。
+- 最终开发部署命令：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`；运行发布标记为 `7d725d07`，只跳过拉回本机小程序导出，服务端所有构建检查仍执行。
+- 备份：`/opt/stacks/erp/orderapp.backup.deploy-20261004015753-7d725d073a17`；回滚镜像 `kferp-orderapp-rollback:development-20261004015753-7d725d073a17`。
+- 外部登录200；未登录 `/app/` 303跳转登录；认证后 Vue shell 200；开发容器运行正常。PR-682需求接口可见且保持 review/Van。
+- 部署后重放运行#67/#68原提交键和修订，均HTTP200，business_results与首个成功响应完全相同，无重复对象。`retry-reuse-final.log`、`retry-allnew-final.log`记录PASS。
+- 七个新BOM逐个查询为published/latest usable；四个商品默认绑定与对应BOM一致，唯一默认规格、工艺与损耗正确。复用物料71的档案和分类与执行前完全一致。
+- 负向运行#70在预览返回 `process_route_capacity_invalid`，定位盒装BOM与失效产能档；没有提交业务数据。
+- 验收模板#7更新为 **PR-682 挂耳分类与复用验收-20261004 V2**，修正了开发测试路线的默认选择，原V1运行保持不变。浏览器草稿#69选择“咖啡豆 / 手冲咖啡”保存重开仍正确。
+- 正式运行标记仍为 `e5fcd414`，容器未重启、业务档案未更正。本次“测试环境”尚未澄清为production，未将main合并等同于正式发布。
