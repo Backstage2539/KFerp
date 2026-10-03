@@ -8,6 +8,7 @@ import {
   businessGroupRowsForUsage,
   businessGroupControlOptions,
   businessGroupClassificationOptions,
+  businessGroupClassificationTreeOptions,
   businessGroupHiddenByCollapsedAncestor,
   businessGroupInlineListState,
   businessGroupSearchCollapsedKeys,
@@ -460,4 +461,31 @@ test('inline business group lists keep the no-template all-products group pageab
   assert.equal(state.groups[0].all, true)
   assert.equal(state.groups[0].label, '全部物料')
   assert.deepEqual(state.groups[0].rows.map((row) => row.id), [11, 12])
+})
+
+test('root-assigned objects remain visible and paginated without duplicating child totals', () => {
+  const roots = Array.from({length: 12}, (_, i) => ({id:i+1}))
+  const state = businessGroupInlineListState([
+    {key:'root',is_template_group:true,group_id:9,template_total:13,rows:roots},
+    {key:'child',group_id:9,group_item_id:1,rows:[{id:99}]},
+  ], {root:{page:2,pageSize:10}})
+  assert.deepEqual(state.groups[0].rows.map(r=>r.id),[11,12])
+  assert.equal(state.groups[0].template_total,13)
+  assert.equal(state.groups[0].total,12)
+  assert.equal(state.total,13)
+  assert.deepEqual(state.visibleRows.map(r=>r.id),[11,12,99])
+})
+
+test('classification tree preserves ancestors, indentation, collapse and search visibility', () => {
+ const groups=[{id:30,name:'咖啡豆',active:true,items:[{id:40,name:'烘焙',children:[{id:41,name:'中深烘'}]}]}]
+ const opts={selectedTemplateIDs:[30],usageKey:'material_catalog'}
+ const all=businessGroupClassificationTreeOptions(groups,opts)
+ assert.deepEqual(all.map(r=>[r.key,r.depth,r.hasChildren]),[['30:0',0,true],['30:40',1,true],['30:41',2,false]])
+ assert.deepEqual(businessGroupClassificationTreeOptions(groups,{...opts,collapsedKeys:['30:0']}).map(r=>r.key),['30:0'])
+ assert.deepEqual(businessGroupClassificationTreeOptions(groups,{...opts,collapsedKeys:['30:40']}).map(r=>r.key),['30:0','30:40'])
+ const matches=businessGroupClassificationTreeOptions(groups,{...opts,collapsedKeys:['30:0'],query:'中深烘'})
+ assert.deepEqual(matches.map(r=>r.key),all.map(r=>r.key))
+ assert.equal(matches[2].path_label,'咖啡豆 / 烘焙 / 中深烘')
+ assert.equal(matches[0].expanded,true)
+ assert.equal(businessGroupClassificationTreeOptions(groups,{...opts,query:'不存在'}).length,0)
 })

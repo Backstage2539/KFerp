@@ -42,6 +42,7 @@ type TemplateVersion struct {
 }
 
 type ResultObject struct {
+	Origin        string   `json:"origin"`
 	Type          string   `json:"type"`
 	ID            int64    `json:"id"`
 	Name          string   `json:"name"`

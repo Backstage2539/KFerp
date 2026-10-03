@@ -13,3 +13,8 @@ test('object aliases merge by identity, never by name, with current and creation
  assert.equal(current[0].name,'生豆')
  assert.equal(current[0].creation_name,'误填半成品')
 })
+
+test('reused archives and specifications are separate from new objects including old snapshots',()=>{
+ const run={workflow:{nodes:[]},business_results:{objects:{old:[{type:'material',id:140,name:'已有豆'}],downstream:[{type:'material',id:171,name:'粉'},{type:'bom',id:100,name:'磨粉'}],output:[{type:'material',id:171,name:'粉',new:true}],newProduct:[{type:'product',id:957,new:true},{type:'spec',id:390,bom_id:100}],reuseProduct:[{type:'product',id:952},{type:'spec',id:300,bom_id:50}]}},current_objects:[{type:'material',id:140},{type:'material',id:171},{type:'bom',id:100},{type:'spec',id:390},{type:'spec',id:300}]}
+ assert.deepEqual(productCreatorResultRows(run).map(r=>r.origin),['reused','created','created','created','reused'])
+})

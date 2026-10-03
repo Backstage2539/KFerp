@@ -22,9 +22,10 @@ test('V6 run rows apply material name variables and estimate purchased cost with
 })
 
 test('V6 classification drawer scopes active choices to the object type and route/source wording is explicit', () => {
-  assert.match(runtime, /搜索分类名称或完整路径/)
-  assert.match(runtime, /businessGroupClassificationOptions\(businessGroups\.value, \{[\s\S]*selectedTemplateIDs: ids,[\s\S]*usageKey: usage,[\s\S]*query: classificationDrawer\.value\.query/)
-  assert.match(runtime, /return options\.find\(\(row\) => Number\(row\.group_item_id \|\| 0\) === Number\(itemID \|\| 0\)\)\?\.label \|\| ''/)
+  const picker = readFileSync(new URL('../components/BusinessGroupClassificationPicker.vue', import.meta.url), 'utf8')
+  assert.match(picker, /搜索分类名称或完整路径/)
+  assert.match(runtime, /BusinessGroupClassificationPicker :groups="businessGroups"[\s\S]*businessGroupSelections\[classificationDrawer.usage\]/)
+  assert.match(picker, /usageKey: props.usageKey/)
   assert.match(runtime, /classification_group_id: Number\(option\.group_id\)/)
   assert.match(runtime, /使用连线工艺/)
   assert.match(runtime, /使用模板预设工艺/)
