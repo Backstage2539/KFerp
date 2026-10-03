@@ -5597,12 +5597,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-682-PRODUCT-CREATOR-RUN-CLASSIFICATION
 - Branch: `codex/product-creator-run-classification-20261004`; base `origin/develop@5c34c51e`
 - Owner/session: current 商品创建器 task
-- Status: development runs #67/#68 and category-tree browser acceptance passed; retry regression fixed with RED/GREEN; final deployment in progress; Van acceptance pending
+- Status: code merged develop/main; development deployed and post-release retries passed; Van acceptance pending
 - Scope: output material classification; product root listing; created/reused result identity; expandable category drawer; fail preview on invalid route cost capacity.
 - DEV: DEV-733-PC-RUN-CLASSIFICATION.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-04-product-creator-run-classification.md`; pre-fix dev run #66; frontend 1318 pass; creator PostgreSQL tests pass. Broad database suite has reproduced baseline fixture failures, not claimed green.
 - Verifier: targeted RED/GREEN Go + frontend; PostgreSQL transaction tests; real development run and browser; full Go/frontend build before integration.
-- Deployment: authorized develop and main integration; development deployment; awaiting confirmation whether user's test environment means production.
+- Deployment: develop app `7d725d07`, main app merge `10a524f1`; final development health and #67/#68 replay PASS. Production remains `e5fcd414` pending clarification of "test environment". Post-release docs-only receipt may advance branch heads without changing deployed app code.
 - Notes: original ccd2 worktree preserved; production read-only; Van business acceptance pending.
 
 - PR-682 interim development release: `94cbfdf4`; runs #67/#68 all new-object category checks passed; repeat-request service conflict found and fixed before final delivery.
