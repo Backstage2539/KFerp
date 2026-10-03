@@ -2,6 +2,7 @@ package productcreator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
 	app "orderapp/internal/application/productcreator"
@@ -58,5 +59,33 @@ func TestCurrentResultObjectsReadCurrentNamesWithoutRewritingSnapshot(t *testing
 	}
 	if summarizeResultObjects(run)[0].Name != "误填半成品" {
 		t.Fatal("stored execution snapshot was mutated")
+	}
+}
+
+func TestResultObjectsDistinguishCreatedAndReusedArchives(t *testing.T) {
+	run := resultAliasFixture()
+	run.BusinessResults["objects"].(map[string]any)["semi"].([]any)[0].(map[string]any)["new"] = true
+	rows := summarizeResultObjects(run)
+	raw, _ := json.Marshal(rows)
+	var objects []map[string]any
+	json.Unmarshal(raw, &objects)
+	if objects[0]["origin"] != "reused" || objects[1]["origin"] != "created" {
+		t.Fatalf("missing origin: %s", raw)
+	}
+}
+
+func TestResultObjectsInferLegacyCreatedSpecsButKeepReusedSpecs(t *testing.T) {
+	run := app.Run{Inputs: map[string]map[string]any{"existing": {"action": "reuse"}}, BusinessResults: map[string]any{"objects": map[string]any{
+		"new":      []any{map[string]any{"type": "bom", "id": 10}, map[string]any{"type": "spec", "id": 20, "bom_id": 10}},
+		"existing": []any{map[string]any{"type": "bom", "id": 11}, map[string]any{"type": "spec", "id": 21, "bom_id": 11}},
+	}}}
+	for _, row := range summarizeResultObjects(run) {
+		expected := "created"
+		if row.ID == 11 || row.ID == 21 {
+			expected = "reused"
+		}
+		if row.Origin != expected {
+			t.Fatalf("%s %d origin=%s, want %s", row.Type, row.ID, row.Origin, expected)
+		}
 	}
 }

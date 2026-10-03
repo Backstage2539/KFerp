@@ -17,10 +17,13 @@
     <div v-if="optionError" class="pc-run-alert"><IconAlertTriangle :size="16" /> {{ optionError }}</div>
 
     <section v-if="run.status !== 'draft'" class="pc-run-result-card">
-      <header><IconCircleCheck :size="19" /><div><strong>正式业务档案已创建</strong><span>配置结果已保存；同一档案合并展示，重复刷新或恢复不会再次创建。</span></div></header>
-      <div v-if="resultRows.length" class="pc-run-created-objects">
-        <div v-for="row in resultRows" :key="row.key"><span>{{ row.stepName }} · {{ row.typeName }}</span><strong>{{ row.name }}</strong><small v-if="row.code">{{ row.code }}</small><small v-if="row.creation_name && row.creation_name !== row.name">创建时名称：{{ row.creation_name }}</small><small v-if="row.bom_ids?.length">关联 BOM：{{ row.bom_ids.join('、') }}</small></div>
+      <header><IconCircleCheck :size="19" /><div><strong>生产配置已完成</strong><span>配置结果已保存；同一档案合并展示，重复刷新或恢复不会再次创建。</span></div></header>
+      <section v-for="group in resultGroups" :key="group.origin" class="pc-run-result-group" :aria-label="group.label">
+      <h3>{{ group.label }} <small>{{ group.rows.length }} 项</small></h3>
+      <div class="pc-run-created-objects">
+        <div v-for="row in group.rows" :key="row.key"><span>{{ row.stepName }} · {{ row.typeName }}</span><strong>{{ row.name }}</strong><small v-if="row.code">{{ row.code }}</small><small v-if="row.creation_name && row.creation_name !== row.name">创建时名称：{{ row.creation_name }}</small><small v-if="row.bom_ids?.length">关联 BOM：{{ row.bom_ids.join('、') }}</small></div>
       </div>
+      </section>
       <p v-if="workflowVersion >= 8" class="pc-run-help">引用已有：{{ orderedNodes.filter(node => isReusedNode(node.id)).map(node => sourceNodeName(node.id)).join('、') || '无' }}；上游已停用：{{ orderedNodes.filter(node => isInactive(node.id)).map(node => sourceNodeName(node.id)).join('、') || '无' }}。</p>
       <div v-if="workflowVersion >= 5 && bomResultNodes.length" class="pc-run-bom-route-results">
         <article v-for="node in bomResultNodes" :key="node.id">
@@ -360,18 +363,14 @@
     <div v-if="classificationDrawer.open" class="pc-classification-mask" @click.self="classificationDrawer.open = false" @keydown.esc.stop.prevent="classificationDrawer.open = false">
       <section class="pc-classification-drawer" role="dialog" aria-modal="true" :aria-label="classificationTitle">
         <header><div><strong>{{ classificationTitle }}</strong><small>分类会随档案与 BOM 配置一起提交；引用已有对象时沿用原分类。</small></div><button class="pc-run-icon-button" type="button" aria-label="关闭分类选择" @click="classificationDrawer.open = false"><IconX :size="16" /></button></header>
-        <input v-model.trim="classificationDrawer.query" class="pc-control" placeholder="搜索分类名称或完整路径" />
-        <div class="pc-classification-options">
-          <button type="button" @click="selectClassification(null)"><strong>未分类</strong><span>使用系统默认未分类</span></button>
-          <button v-for="option in classificationOptions" :key="option.key" type="button" @click="selectClassification(option)"><strong>{{ option.label }}</strong><span>{{ option.group_name || '' }}</span></button>
-          <p v-if="!classificationOptions.length" class="pc-run-help">当前功能没有已启用的分类。</p>
-        </div>
+        <BusinessGroupClassificationPicker :groups="businessGroups" :selectedTemplateIDs="businessGroupSelections[classificationDrawer.usage] || []" :usage-key="classificationDrawer.usage" :value="classificationSelection" @select="selectClassification" />
       </section>
     </div>
   </section>
 </template>
 
 <script setup>
+import BusinessGroupClassificationPicker from '../components/BusinessGroupClassificationPicker.vue'
 import { productCreatorResultRows } from '../lib/product-creator-results.js'
 import { computed, markRaw, onMounted, ref, watch } from 'vue'
 import { Background } from '@vue-flow/background'
@@ -460,14 +459,9 @@ const usedWorkflowVariables = computed(() => {
   return (props.run.workflow?.variables || []).filter((variable) => used.has(variable.id))
 })
 const classificationTitle = computed(() => ({ material_catalog: '选择物料分类', product_catalog: '选择商品分类', production_bom: '选择 BOM 分类' }[classificationDrawer.value.usage] || '选择分类'))
-const classificationOptions = computed(() => {
-  const usage = classificationDrawer.value.usage
-  const ids = businessGroupSelections.value[usage] || []
-  return businessGroupClassificationOptions(businessGroups.value, {
-    selectedTemplateIDs: ids,
-    usageKey: usage,
-    query: classificationDrawer.value.query,
-  })
+const classificationSelection = computed(() => {
+  const {nodeID,rowID}=classificationDrawer.value
+  return rowID ? ensureMaterialRows(nodeID).find(row=>row.row_id===rowID) || {} : inputValues.value[nodeID] || {}
 })
 
 const graph = computed(() => toCanvasGraph(props.run.workflow || { nodes: [], edges: [] }, props.modules))
@@ -501,6 +495,7 @@ const orderedNodes = computed(() => {
   return (order.length === byID.size ? order : [...byID.keys()]).map((id) => byID.get(id)).filter(Boolean)
 })
 const resultRows = computed(() => productCreatorResultRows(props.run))
+const resultGroups = computed(() => [{origin:'created',label:'本次新建'}, {origin:'reused',label:'引用已有（未新建）'}].map(group=>({...group,rows:resultRows.value.filter(row=>row.origin===group.origin)})).filter(group=>group.rows.length))
 const purchaseNodes = computed(() => orderedNodes.value.filter((node) => node.data.module.kind === 'purchase'))
 const pricingNodes = computed(() => orderedNodes.value.filter((node) => node.data.module.kind === 'pricing'))
 const bomResultNodes = computed(() => orderedNodes.value.filter((node) => node.data.module.kind === 'bom' && !isInactive(node.id)))
@@ -1478,7 +1473,8 @@ function classificationLabel(groupID, itemID, usage) {
     selectedTemplateIDs: [group.id],
     usageKey: usage,
   })
-  return options.find((row) => Number(row.group_item_id || 0) === Number(itemID || 0))?.label || ''
+  const selected = options.find((row) => Number(row.group_item_id || 0) === Number(itemID || 0))
+  return selected ? [selected.group_name, selected.label].filter(Boolean).join(' / ') : ''
 }
 
 function selectClassification(option) {
@@ -1769,6 +1765,8 @@ function cloneInputs() {
 .pc-classification-drawer > header strong, .pc-classification-drawer > header small { display: block; }
 .pc-classification-drawer > header strong { font-size: 17px; }
 .pc-classification-drawer > header small { margin-top: 5px; color: #718097; line-height: 1.5; }
+.pc-run-result-group h3 { margin:16px 0 8px; font-size:14px; color:#355347; }
+.pc-run-result-group h3 small { font-weight:400; color:#728678; }
 .pc-classification-options { display: grid; gap: 7px; overflow: auto; }
 .pc-classification-options button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 50px; border: 1px solid #e1e8ef; border-radius: 7px; padding: 8px 10px; color: #23364c; background: white; text-align: left; cursor: pointer; }
 .pc-classification-options button:hover { border-color: #76b58b; background: #f4fbf6; }

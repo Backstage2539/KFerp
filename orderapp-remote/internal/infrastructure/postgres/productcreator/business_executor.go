@@ -270,6 +270,7 @@ func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run c
 			"process_route": map[string]any{"id": processRoute.ID, "name": processRouteName, "source": processRoute.Source, "process_node_id": processRoute.ProcessNodeID},
 		}
 	}
+	issues = append(issues, e.inspectPreviewRouteCapacities(ctx, details)...)
 	return details, issues
 }
 
@@ -423,12 +424,7 @@ func (e BusinessExecutor) executeBOMCentricConfiguration(ctx context.Context, ru
 		switch node.Kind {
 		case creatorapp.ModuleMaterial:
 			if stringValue(node.Config["data_role"]) == "output" {
-				row := map[string]any{
-					"row_id": "output", "action": outputObjectAction(node, values), "material_id": values["material_id"],
-					"name": resolvedOutputName(run, node, values), "kind": values["kind"], "supply_mode": values["supply_mode"],
-					"unit": resolvedMaterialOutputUnit(run, node, values), "owner_type": materialOwnerType(values), "owner_customer_id": values["owner_customer_id"],
-					"industry_fields": values["industry_fields"],
-				}
+				row := outputMaterialValues(run, node, values)
 				result, execErr := e.executeMaterials(stepCtx, node, map[string]any{"rows": []any{row}}, actor, refs)
 				if execErr != nil {
 					return nil, creatorapp.ExecutionError{Issues: []creatorapp.ValidationIssue{{NodeID: id, Field: "name", Code: "business_validation", Message: execErr.Error()}}}
@@ -1764,4 +1760,14 @@ func refsForNode(refs map[string]createdReference) []createdReference {
 		result = append(result, ref)
 	}
 	return result
+}
+
+func outputMaterialValues(run creatorapp.Run, node creatorapp.Node, values map[string]any) map[string]any {
+	return map[string]any{
+		"row_id": "output", "action": outputObjectAction(node, values), "material_id": values["material_id"],
+		"name": resolvedOutputName(run, node, values), "kind": values["kind"], "supply_mode": values["supply_mode"],
+		"unit": resolvedMaterialOutputUnit(run, node, values), "owner_type": materialOwnerType(values), "owner_customer_id": values["owner_customer_id"],
+		"industry_fields":         values["industry_fields"],
+		"classification_group_id": values["classification_group_id"], "classification_item_id": values["classification_item_id"],
+	}
 }

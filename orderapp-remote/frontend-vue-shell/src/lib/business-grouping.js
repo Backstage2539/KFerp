@@ -675,7 +675,7 @@ export function businessGroupInlineListState(groups = [], paginationByGroup = {}
 
   const paginatedGroups = sourceGroups.map((group, index) => {
     const key = normalizedText(group?.key) || `business-group-inline-${index}`
-    if (group?.is_template_group) {
+    if (group?.is_template_group && !(group.rows?.length > 0)) {
       return {
         ...group,
         key,
@@ -819,4 +819,36 @@ export function businessGroupHeaderIndentStyle(group = {}) {
 
 export function businessGroupItemIndentStyle(group = {}) {
   return { '--classification-item-indent': `${18 + toNumber(group.depth) * 24}px` }
+}
+
+// Category selection keeps template roots and ancestor context; expansion is
+// presentation-only and never changes the selected assignment identity.
+export function businessGroupClassificationTreeOptions(groups = [], { collapsedKeys = [], query = '', ...options } = {}) {
+  const rows = businessGroupClassificationOptions(groups, options).map(row => ({
+    ...row,
+    depth: Math.max(0, Number(row.depth) + 1),
+    label: row.title_label || row.label,
+    path_label: row.group_item_id ? `${row.group_name} / ${row.path_label || row.label}` : row.label,
+    parentKey: row.group_item_id ? `${row.group_id}:${row.parent_group_item_id || 0}` : '',
+  }))
+  const byKey = new Map(rows.map(row => [row.key, row]))
+  const parents = new Set(rows.map(row => row.parentKey).filter(Boolean))
+  const collapsed = new Set(collapsedKeys)
+  const term = normalizedText(query).toLocaleLowerCase()
+  const matching = new Set()
+  for (const row of rows) {
+    if (term && !row.path_label.toLocaleLowerCase().includes(term)) continue
+    let current = row
+    while (current && !matching.has(current.key)) { matching.add(current.key); current = byKey.get(current.parentKey) }
+  }
+  return rows.filter(row => {
+    if (term) return matching.has(row.key)
+    let parent = byKey.get(row.parentKey)
+    const seen = new Set()
+    while (parent && !seen.has(parent.key)) {
+      if (collapsed.has(parent.key)) return false
+      seen.add(parent.key); parent = byKey.get(parent.parentKey)
+    }
+    return true
+  }).map(row => ({ ...row, hasChildren: parents.has(row.key), expanded: Boolean(term) || !collapsed.has(row.key) }))
 }

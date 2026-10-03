@@ -12,6 +12,16 @@ func summarizeResultObjects(run app.Run) []app.ResultObject {
 	refs := map[string][]createdReference{}
 	raw, _ := json.Marshal(run.BusinessResults["objects"])
 	_ = json.Unmarshal(raw, &refs)
+	// Historical snapshots omit New on BOM/spec references. Identify created
+	// BOMs from their actual execution action, then inherit that origin for specs.
+	createdBOMs := map[int64]bool{}
+	for nodeID, entries := range refs {
+		for _, ref := range entries {
+			if ref.Type == "bom" && (ref.New || stringValue(run.Inputs[nodeID]["action"]) != "reuse") {
+				createdBOMs[ref.ID] = true
+			}
+		}
+	}
 	nodes := []string{}
 	seen := map[string]bool{}
 	for _, n := range run.Workflow.Nodes {
@@ -38,9 +48,12 @@ func summarizeResultObjects(run app.Run) []app.ResultObject {
 			if !exists {
 				i = len(rows)
 				index[key] = i
-				rows = append(rows, app.ResultObject{Type: ref.Type, ID: ref.ID, Name: ref.Name, CreationName: ref.Name, Code: ref.Code, Unit: ref.Unit, SourceNodeIDs: []string{}, BOMIDs: []int64{}})
+				rows = append(rows, app.ResultObject{Origin: "reused", Type: ref.Type, ID: ref.ID, Name: ref.Name, CreationName: ref.Name, Code: ref.Code, Unit: ref.Unit, SourceNodeIDs: []string{}, BOMIDs: []int64{}})
 			}
 			row := &rows[i]
+			if ref.New || (ref.Type == "bom" && createdBOMs[ref.ID]) || (ref.Type == "spec" && createdBOMs[ref.BOMID]) {
+				row.Origin = "created"
+			}
 			found := false
 			for _, id := range row.SourceNodeIDs {
 				if id == nodeID {

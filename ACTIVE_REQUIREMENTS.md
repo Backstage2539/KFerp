@@ -5593,3 +5593,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development 1f75730f3ee19f41d4412f0ae104fcdcedec74b5；smoke 200；backup /opt/stacks/erp/orderapp.backup.deploy-20260920231814-1f75730f3ee1；rollback kferp-orderapp-rollback:development-20260920231814-1f75730f3ee1
 - Last update: 2026-09-20
 - Notes: 方案A（引用体系内补全）。兼容：客户自有商品/客户SKU上下文保护/工厂视图维护入口均不变；订单录单 CustomerProductDisplayName 改名后自动生效。
+
+### PR-682-PRODUCT-CREATOR-RUN-CLASSIFICATION
+- Branch: `codex/product-creator-run-classification-20261004`; base `origin/develop@5c34c51e`
+- Owner/session: current 商品创建器 task
+- Status: targeted RED/GREEN and development reproduction complete; integration in progress; Van acceptance pending
+- Scope: output material classification; product root listing; created/reused result identity; expandable category drawer; fail preview on invalid route cost capacity.
+- DEV: DEV-733-PC-RUN-CLASSIFICATION.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-04-product-creator-run-classification.md`; pre-fix dev run #66; frontend 1318 pass; creator PostgreSQL tests pass. Broad database suite has reproduced baseline fixture failures, not claimed green.
+- Verifier: targeted RED/GREEN Go + frontend; PostgreSQL transaction tests; real development run and browser; full Go/frontend build before integration.
+- Deployment: authorized develop and main integration; development deployment; awaiting confirmation whether user's test environment means production.
+- Notes: original ccd2 worktree preserved; production read-only; Van business acceptance pending.
