@@ -117,6 +117,15 @@ func TestV5BOMPreviewShowsSharedConnectedRouteAndOverridesEveryProductVariant(t 
 	`, schema, schema)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+ CREATE TABLE %[1]s.process_route_operations(id bigint, route_id bigint, seq int, operation_id bigint, operation text, standard_cost_capacity_id bigint);
+ CREATE TABLE %[1]s.manufacturing_operations(id bigint,name text);
+ CREATE TABLE %[1]s.manufacturing_workstation_capacities(id bigint,name text,status text,workstation_id bigint);
+ CREATE TABLE %[1]s.manufacturing_workstations(id bigint,name text,status text);
+ CREATE TABLE %[1]s.manufacturing_workstation_operations(workstation_id bigint,operation_id bigint);
+ `, schema)); err != nil {
+		t.Fatal(err)
+	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -191,6 +200,20 @@ func TestV5BOMPreviewShowsSharedConnectedRouteAndOverridesEveryProductVariant(t 
 	variants = productDetail["variants"].([]bomapp.ProductionBomSpecTemplateVariant)
 	if !reflect.DeepEqual([]int64{variants[0].ProcessRouteID, variants[1].ProcessRouteID}, []int64{31, 32}) || !reflect.DeepEqual([]string{variants[0].ProcessRouteName, variants[1].ProcessRouteName}, []string{"规格模板工艺 200g", "规格模板工艺 500g"}) || !reflect.DeepEqual([]string{variants[0].ProcessRouteSource, variants[1].ProcessRouteSource}, []string{"specification_template", "specification_template"}) {
 		t.Fatalf("removing the shared route should restore each named specification-template route: %+v", variants)
+	}
+	// A route can remain active while its standard-cost capacity is deactivated.
+	// Preview must reject the same broken dependency that publication rejects.
+	if _, err := pool.Exec(context.Background(), fmt.Sprintf(`INSERT INTO %s.process_route_operations VALUES(1,31,1,1,'包装',99)`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	_, issues = executor.InspectConfigurationPreview(context.Background(), run)
+	if !previewHasCode(issues, "process_route_capacity_invalid") {
+		t.Fatalf("preview accepted broken capacity: %+v", issues)
+	}
+	run.Inputs["product-bom"]["route_override_id"] = 73
+	_, issues = executor.InspectConfigurationPreview(context.Background(), run)
+	if len(issues) > 0 {
+		t.Fatalf("effective override must replace invalid template route: %+v", issues)
 	}
 }
 

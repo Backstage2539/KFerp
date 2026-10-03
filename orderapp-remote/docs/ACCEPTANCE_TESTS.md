@@ -2750,3 +2750,11 @@
 - [ ] Postgres 实际事务/迁移验证及 development 环境 API、页面烟测完成。当前本机没有 `ORDERAPP_TEST_DATABASE_URL`，数据库集成测试待 development 验收环境确认。
 - [ ] 创建 development 验收模板并走通一次 V6 新商品创建；记录运行结果、规格/分类/成本细节，Van 产品业务验收待办。
 - [x] 创建器独立手册和 Vue/Vite 手册入口已更新：`docs/OP_MANUAL_PRODUCT_CREATOR.md`、`docs/OPERATION_MANUALS.md`。
+
+
+## PR-682 商品创建器分类与结果来源
+
+- 产品验收：待 Van；开发复现和自动化证据见 [专项记录](acceptance/2026-10-04-product-creator-run-classification.md)。
+- 自制产出分类随建档事务写入；直接放在大类下的商品在列表可见。
+- 运行结果分别展示本次新建、引用已有；分类树支持层级缩进、逐层和全部展开收缩。
+- 有效工艺的成本配置失效时在预览定位到 BOM；失败事务不能留下部分档案。

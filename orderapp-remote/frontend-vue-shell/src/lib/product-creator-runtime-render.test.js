@@ -9,6 +9,7 @@ const { descriptor } = parse(fs.readFileSync(filename, 'utf8'), { filename: file
 let code = compileScript(descriptor, { id: 'pc-runtime-render', inlineTemplate: true }).content
 // The canvas is irrelevant to form rendering; keep the real form and helpers.
 code = code.replace(/import \{ (Background|VueFlow) \} from '[^']+'/g, (_, name) => `const ${name} = {render: () => null}`)
+code = code.replace(/import BusinessGroupClassificationPicker from '[^']+'/g, 'const BusinessGroupClassificationPicker = {render: () => null}')
 code = code.replace(/import ProductCreatorNode from '[^']+'/g, 'const ProductCreatorNode = {render: () => null}')
 code = code.replace(/from (['"])([^'"]+)\1/g, (match, quote, path) => `from ${JSON.stringify(path.startsWith('.') ? new URL(path, filename).href : import.meta.resolve(path))}`)
 const { default: Run } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
@@ -42,4 +43,12 @@ test('V8 reuse disables dedicated upstream forms and their variables, retaining 
  assert.match(html,/pc-run-step-body[^>]* disabled/)
  assert.match(html,/搜索已有物料/)
  assert.doesNotMatch(html,/仅上游名称/)
+})
+
+test('completed run separates reused archives from created results',async()=>{
+ const workflow={version:8,nodes:[],edges:[]}
+ const current_objects=[{type:'material',id:140,name:'卡蒂姆5T中深烘',origin:'reused'},{type:'product',id:957,name:'坚果浓香挂耳-盒装',origin:'created'}]
+ const html=await renderToString(createSSRApp({render:()=>h(Run,{run:{id:16,status:'config_committed',workflow,inputs:{},current_objects},modules:[]})}))
+ assert.match(html,/aria-label="本次新建"[^]*坚果浓香挂耳-盒装[^]*aria-label="引用已有（未新建）"[^]*卡蒂姆5T中深烘/)
+ assert.doesNotMatch(html,/正式业务档案已创建/)
 })
