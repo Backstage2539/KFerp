@@ -4,7 +4,8 @@
 - DEV: DEV-734-AUTH-LOGIN-ENTRY; DEV-735-CONTRACT-FILE-AUTH; DEV-736-CONTRACT-DOWNLOAD-UX.
 - Scope: make `/app/login` explicitly public, prevent protected contract files from advertising Basic challenges, and download stamped PDFs with the app Bearer token plus clear 401/403 messages.
 - Verifier: `go test ./...`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `scripts/verify_kferp.sh changed`.
-- Status: implementation, docs and automated verification complete; integration to develop pending; no production inspection or deployment.
+- Delivery: PR #182 merged into develop as `f248c9b30d93acae0c4011cd064bd99eef69b7e6`; no environment deployed.
+- Status: implementation, docs and automated verification complete; production configuration and logs remain uninspected; no deployment.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-06-authenticated-contract-download.md`.
 
 ## PR-680 商品创建器 V8 引用产出停用上游（2026-10-02）
