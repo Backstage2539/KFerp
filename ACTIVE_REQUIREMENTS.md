@@ -1,3 +1,12 @@
+### PR-683-AUTHENTICATED-CONTRACT-DOWNLOAD
+- Owner/session: Codex / Van / 2026-10-06.
+- Branch: `codex/auth-download-login-path-20261006`; base `develop@c66fc707`.
+- DEV: DEV-734-AUTH-LOGIN-ENTRY; DEV-735-CONTRACT-FILE-AUTH; DEV-736-CONTRACT-DOWNLOAD-UX.
+- Scope: make `/app/login` explicitly public, prevent protected contract files from advertising Basic challenges, and download stamped PDFs with the app Bearer token plus clear 401/403 messages.
+- Verifier: `go test ./...`; `scripts/verify_kferp.sh frontend-tests`; `scripts/verify_kferp.sh frontend-build`; `scripts/verify_kferp.sh changed`.
+- Status: implementation, docs and automated verification complete; integration to develop pending; no production inspection or deployment.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-06-authenticated-contract-download.md`.
+
 ## PR-680 商品创建器 V8 引用产出停用上游（2026-10-02）
 - Branch: `codex/product-creator-v8-reuse-20261002`; base `origin/develop@c07697e2`.
 - DEV: DEV-728-PC-V8-EXECUTION; DEV-729-PC-V8-RUNTIME; DEV-730-PC-V8-DELIVERY; DEV-731-PC-V8-STARTUP.

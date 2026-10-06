@@ -120,6 +120,7 @@ func TestBasicAuthChallengeIsNotAdvertisedForAPIOrBearerFailures(t *testing.T) {
 		{name: "page request can trigger outer browser auth", path: "/orders", requestPath: "/app/orders", want: true},
 		{name: "api path returns JSON unauthorized", path: "/api/orders", requestPath: "/api/orders", want: false},
 		{name: "app prefixed api path returns JSON unauthorized", path: "/api/auth/me", requestPath: "/app/api/auth/me", want: false},
+		{name: "contract file path returns JSON unauthorized", path: "/contracts/:id/stamped/:version_id.pdf", requestPath: "/app/contracts/7/stamped/11.pdf", want: false},
 		{name: "expired bearer never triggers browser basic auth prompt", path: "/api/auth/me", requestPath: "/app/api/auth/me", authz: "Bearer stale-token", want: false},
 	}
 	for _, tc := range tests {
@@ -129,6 +130,47 @@ func TestBasicAuthChallengeIsNotAdvertisedForAPIOrBearerFailures(t *testing.T) {
 				t.Fatalf("shouldAdvertiseBasicAuthChallenge=%v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAppPrefixedLoginPageBypassesBasicAuth(t *testing.T) {
+	e := echo.New()
+	e.Use(BasicAuth("order", "secret", "public", nil))
+	e.GET("/app/login", func(c echo.Context) error {
+		return c.String(http.StatusOK, "system login")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/app/login", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "system login" {
+		t.Fatalf("login status=%d body=%q, want public login page", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("login page advertised Basic challenge %q", got)
+	}
+}
+
+func TestContractFileUnauthorizedDoesNotAdvertiseBasicAuth(t *testing.T) {
+	e := echo.New()
+	e.Use(BasicAuth("order", "secret", "public", nil))
+	e.GET("/contracts/:id/stamped/:version.pdf", func(c echo.Context) error {
+		return c.String(http.StatusOK, "pdf")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/contracts/7/stamped/11.pdf", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d, want 401", rec.Code)
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("contract download advertised Basic challenge %q", got)
+	}
+	if !strings.Contains(rec.Header().Get(echo.HeaderContentType), echo.MIMEApplicationJSON) {
+		t.Fatalf("content type=%q, want JSON unauthorized response", rec.Header().Get(echo.HeaderContentType))
 	}
 }
 
