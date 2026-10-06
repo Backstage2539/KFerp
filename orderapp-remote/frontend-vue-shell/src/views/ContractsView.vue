@@ -79,7 +79,7 @@
           </label>
           <button class="secondary" type="button" :disabled="!selectedContract || !selectedSeal || !pages.length" @click="stampAllPages">全部页加盖</button>
           <button class="primary" type="button" :disabled="saving || !canSave" @click="saveStampedPDF">{{ saving ? '保存中' : '保存盖章PDF' }}</button>
-          <a v-if="latestStampedURL" class="secondary button-link" :href="appURL(latestStampedURL)">下载已盖章PDF</a>
+          <button v-if="latestStampedURL" class="secondary button-link" type="button" :disabled="downloading" @click="downloadStampedPDF">{{ downloading ? '下载中' : '下载已盖章PDF' }}</button>
         </div>
 
         <div v-if="selectedContract && !selectedSeal" class="notice">请先在公章设置中上传公章，或从已有公章中选择一个。</div>
@@ -110,6 +110,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import PDFStampPreview from '../components/PDFStampPreview.vue'
 import { apiFetch, apiGet, apiSend, appURL } from '../api/client'
+import { downloadCustomerFile } from '../api/customer-account.js'
 import {
   contractStampPayload,
   createStampedContractPDF,
@@ -133,6 +134,7 @@ const rendering = ref(false)
 const saving = ref(false)
 const savingMetadata = ref(false)
 const deleting = ref(false)
+const downloading = ref(false)
 const error = ref('')
 const message = ref('')
 const contractSealMinWidth = 60
@@ -417,6 +419,21 @@ async function saveStampedPDF() {
     error.value = err.message || '保存盖章 PDF 失败'
   } finally {
     saving.value = false
+  }
+}
+
+async function downloadStampedPDF() {
+  if (!latestStampedURL.value || downloading.value) return
+  downloading.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    await downloadCustomerFile(latestStampedURL.value)
+    message.value = '已开始下载盖章 PDF'
+  } catch (err) {
+    error.value = err.message || '下载盖章 PDF 失败'
+  } finally {
+    downloading.value = false
   }
 }
 

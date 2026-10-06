@@ -49,6 +49,18 @@ func TestDev273ContractPDFStampingVueShellWiring(t *testing.T) {
 		t.Fatal("ContractsView.vue missing stamped PDF download action")
 	}
 	for _, want := range []string{
+		"@click=\"downloadStampedPDF\"",
+		"downloadCustomerFile(latestStampedURL.value)",
+		"下载已盖章PDF",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("ContractsView.vue missing authenticated download marker %q", want)
+		}
+	}
+	if strings.Contains(view, `:href="appURL(latestStampedURL)"`) {
+		t.Fatal("ContractsView.vue must not open protected contract PDFs through a direct link")
+	}
+	for _, want := range []string{
 		"PDFStampPreview",
 		"saveContractMetadata",
 		"deleteContract",

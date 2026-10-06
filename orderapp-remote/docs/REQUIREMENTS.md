@@ -1,5 +1,12 @@
 # orderapp 业务需求（精简版）
 
+## PR-683 新登录环境入口与合同文件认证下载
+
+- `/app/login` 和 `/login` 在有无 `/app` 前缀时都可直接打开，不弹出外层 Basic 认证框；受保护业务页面仍保留原认证。
+- 合同 PDF 下载必须沿用当前系统 Bearer 令牌；合同文件无令牌或令牌失效时返回 JSON 401，不返回 Basic challenge，且文件仍受服务端鉴权保护。
+- 下载失败时，401 明确引导到 `/app/login` 重新登录；403 明确提示当前账号无权下载。
+- DEV-734-AUTH-LOGIN-ENTRY / DEV-735-CONTRACT-FILE-AUTH / DEV-736-CONTRACT-DOWNLOAD-UX；自动化证据见 `docs/acceptance/2026-10-06-authenticated-contract-download.md`。仅代码修复，不部署生产环境。
+
 ## PR-682 商品创建器完整产出、分类与结果核对
 
 - 修复自制产出物料分类丢失，以及大类下商品在分页列表中漏显示；对象和分类在原事务中一起落库。

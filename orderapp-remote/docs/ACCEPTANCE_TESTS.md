@@ -1,5 +1,15 @@
 # orderapp 验收清单与测试用例（截至 2026-02-13）
 
+## PR-683 新登录环境入口与合同文件认证下载
+
+- [x] `/app/login` 与 `/login` 在外层 BasicAuth 中间件下公开访问，不返回 `WWW-Authenticate`；受保护页面仍保留外层认证挑战。
+- [x] 无令牌访问 `/contracts/...` 返回 JSON 401，且不返回 `WWW-Authenticate`；合同文件路由仍需经过应用身份与权限检查。
+- [x] 合同盖章下载按钮调用共享 `downloadCustomerFile()`，通过 `apiFetch()` 附带 Bearer 令牌，不再使用普通 `<a href>` 导航。
+- [x] 下载 401 提示先打开 `/app/login` 重新登录；403 提示当前账号没有下载权限；其他错误保留服务端说明。
+- [x] 全量 Go、前端 Node 测试、Vite 构建和 `git diff --check` 通过。未进行生产环境验证或部署。
+
+证据：`docs/acceptance/2026-10-06-authenticated-contract-download.md`。
+
 ## PR-681 商品创建器分类抽屉显示大类（Van 待验收）
 
 - [x] 抽屉列出当前启用的分类大类和下级分类，大类可单独选择；模糊搜索可命中大类名称及下级完整路径。

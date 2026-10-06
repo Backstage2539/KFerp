@@ -14,7 +14,7 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool, eligibility ...ERP
 		return func(c echo.Context) error {
 			path := c.Path()
 			requestPath := c.Request().URL.Path
-			if isAuthPublicPath(path) || isAuthPublicPath(requestPath) || path == "/login" || isPublicUnauthenticatedPath(path) || isPublicUnauthenticatedPath(requestPath) {
+			if isAuthPublicPath(path) || isAuthPublicPath(requestPath) || isLoginPagePath(path) || isLoginPagePath(requestPath) || isPublicUnauthenticatedPath(path) || isPublicUnauthenticatedPath(requestPath) {
 				return next(c)
 			}
 			authz := strings.TrimSpace(c.Request().Header.Get("Authorization"))
@@ -67,7 +67,18 @@ func shouldAdvertiseBasicAuthChallenge(path, requestPath, authz string) bool {
 	if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
 		return false
 	}
-	return !isAPIPath(path) && !isAPIPath(requestPath)
+	return !isAPIPath(path) && !isAPIPath(requestPath) && !isContractFilePath(path) && !isContractFilePath(requestPath)
+}
+
+func isLoginPagePath(path string) bool {
+	path = strings.TrimSpace(path)
+	return path == "/login" || path == "/app/login"
+}
+
+func isContractFilePath(path string) bool {
+	path = strings.TrimSpace(path)
+	path = strings.TrimPrefix(path, "/app")
+	return path == "/contracts" || strings.HasPrefix(path, "/contracts/")
 }
 
 func isAPIPath(path string) bool {
