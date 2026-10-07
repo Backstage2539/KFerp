@@ -1,6 +1,6 @@
 # PR-684 公众号豆单与客户订单查询
 
-- Branch: codex/wechat-official-portal, base develop 25bdce07.
+- Branch: codex/wechat-official-portal-ready, base develop 25bdce07.
 - Product: review; Van business acceptance pending.
 - DEV-737/738/739/740: implementation complete. DEV-741: development delivery in progress.
 - Canonical manual: orderapp-remote/docs/OP_MANUAL_WECHAT_OFFICIAL.md; linked from customer portal/costing manuals and Vue help entry `wechatOfficialManual`.
@@ -10,7 +10,7 @@
 - One stable entry per logical price-table scope. Existing published tables backfilled; legacy snapshots without table identity kept separate; future first publications trigger entry creation. Default authenticated, manual pinning, independent scopes, optimistic revision saves, withdrawn/disabled fail closed. No historical snapshots/orders rewritten.
 - Miniapp direct display, new read and permission check on each entry; no persistent private sheet cache. Existing customer certification, safe login return, official all-orders route with pagination beyond 50 (including processing customers).
 - Trusted server UnionID resolution; manual one-time hashed code, five-minute expiry, concurrent single consumption, attempt limit, explicit multi-customer selection. Revocation tombstones prevent automatic rebind. Every order query checks live mini account, customer, binding, projected ERP account and capability.
-- Encrypted callback validates signature, timestamp and AppID; replay binding requests are deduplicated, read replies recheck permission. Summary 1/3 orders uses existing sort/void scope, bounded UTF-8 text and item truncation.
+- Encrypted callback validates signature, timestamp and AppID; replay binding requests are deduplicated, read replies recheck permission. Summary 1/3 orders uses existing sort/void scope, bounded UTF-8 text and item truncation. A worst-case 2,074-byte regression now stays under the WeChat 2,048-byte limit, retains three order headers and the full-order link hint.
 - ERP config status only (no secrets), stable entry settings, binding revoke, import/save menu drafts, full current/proposed comparison, signed short-lived preview, publish with previous menu snapshot, history load for recovery, audit events.
 - Configuration flags default off. Remote deploy forwards server-side WeChat env only. No actual WeChat API calls or publishing performed during implementation.
 

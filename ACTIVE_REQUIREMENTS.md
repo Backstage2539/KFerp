@@ -5618,7 +5618,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - PR-682 interim development release: `94cbfdf4`; runs #67/#68 all new-object category checks passed; repeat-request service conflict found and fixed before final delivery.
 
 ### PR-684-WECHAT-OFFICIAL-PORTAL
-- Branch: codex/wechat-official-portal
+- Branch: codex/wechat-official-portal-ready
 - Owner/session: Codex
 - Status: automated verification and local UI review complete; development integration/deploy in progress; Van acceptance pending
 - Scope: 固定价格表入口、公众号客户认证与订单文字回复、ERP 菜单管理。

@@ -61,3 +61,20 @@ func TestMenuOnlyAllowsRegisteredActionsAndSafePaths(t *testing.T) {
 		t.Fatal("employee path allowed")
 	}
 }
+
+func TestSummaryFitsWeChatByteLimitWithLongFieldsAndManyItems(t *testing.T) {
+	rows := []portal.CustomerOrderSummary{}
+	for _, number := range []string{"SO-A", "SO-B", "SO-C"} {
+		item := portal.CustomerOrderItemSummary{ItemName: strings.Repeat("豆", 100), Spec: strings.Repeat("规", 100), Qty: strings.Repeat("9", 30), Unit: strings.Repeat("袋", 30)}
+		rows = append(rows, portal.CustomerOrderSummary{OrderNo: number + strings.Repeat("N", 100), OrderDate: "2026-10-08", GrandTotal: strings.Repeat("9", 30), PayStatus: strings.Repeat("款", 30), ProcessStatus: strings.Repeat("产", 30), ShipStatus: strings.Repeat("发", 30), ShipTrackingNo: strings.Repeat("W", 100), Items: []portal.CustomerOrderItemSummary{item, item, item}})
+	}
+	text := OrderSummary(strings.Repeat("客", 100), rows)
+	if len(text) > 2048 {
+		t.Fatalf("WeChat 2048-byte limit exceeded: %d", len(text))
+	}
+	for _, part := range []string{"SO-A", "SO-B", "SO-C", "完整明细请点击"} {
+		if !strings.Contains(text, part) {
+			t.Fatalf("lost header or truncation hint: %s", part)
+		}
+	}
+}

@@ -92,7 +92,7 @@ func OrderSummary(customer string, rows []portal.CustomerOrderSummary) string {
 			out += Clip(item.ItemName, 60) + " " + Clip(item.Spec, 36) + " × " + Clip(item.Qty, 15) + Clip(item.Unit, 12) + "\n"
 		}
 	}
-	return out + "\n完整明细请点击「我的订单 → 全部订单」。"
+	return Clip(out, 1800) + "\n完整明细请点击「我的订单 → 全部订单」。"
 }
 
 type Button struct {
