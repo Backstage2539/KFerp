@@ -5616,3 +5616,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: original ccd2 worktree preserved; production read-only; Van business acceptance pending.
 
 - PR-682 interim development release: `94cbfdf4`; runs #67/#68 all new-object category checks passed; repeat-request service conflict found and fixed before final delivery.
+
+### PR-684-WECHAT-OFFICIAL-PORTAL
+- Branch: codex/wechat-official-portal
+- Owner/session: Codex
+- Status: automated verification and local UI review complete; development integration/deploy in progress; Van acceptance pending
+- Scope: 固定价格表入口、公众号客户认证与订单文字回复、ERP 菜单管理。
+- DEV: DEV-737-WECHAT-ENTRIES; DEV-738-WECHAT-IDENTITY; DEV-739-WECHAT-MENUS; DEV-740-WECHAT-MINIAPP; DEV-741-WECHAT-DELIVERY
+- Verifier: Go unit/API/PostgreSQL; Vue helper/API tests + build; miniapp tests/typecheck/build.
+- Manual: orderapp-remote/docs/OP_MANUAL_WECHAT_OFFICIAL.md
+- Deployment: development delivery in progress; production/WeChat menu activation pending account setup.
+- Last update: 2026-10-08
+- Notes: default authenticated entry, manually selected published version, automatic UnionID plus binding code; Van acceptance pending.

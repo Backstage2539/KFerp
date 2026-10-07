@@ -44,7 +44,11 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	case customerportalapp.ServiceKeyBeanList:
 		page.BeanLists, page.BeanListVersions, page.HasBeanListVersions, err = r.loadBeanListServiceData(ctx, query.CustomerID, limit)
 	case customerportalapp.ServiceKeyOrders:
-		page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit+1, true)
+		page.HasMore = len(page.Orders) > limit
+		if page.HasMore {
+			page.Orders = page.Orders[:limit]
+		}
 	case customerportalapp.ServiceKeyProductOrder:
 		if page.Products, err = r.listProducts(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
@@ -1967,7 +1971,10 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		args = append(args, strings.ToLower(status))
 		where = append(where, fmt.Sprintf("LOWER(COALESCE(ss.name,'')) = $%d", len(args)))
 	}
-	args = append(args, limit)
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	args = append(args, limit, query.Offset)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT o.id,
 			       COALESCE(o.order_no,''),
@@ -1990,8 +1997,8 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
 		WHERE %s
 		ORDER BY o.document_date DESC NULLS LAST, o.id DESC
-		LIMIT $%d
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, strings.Join(where, " AND "), len(args)), args...)
+		LIMIT $%d OFFSET $%d
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, strings.Join(where, " AND "), len(args)-1, len(args)), args...)
 	if err != nil {
 		return nil, err
 	}

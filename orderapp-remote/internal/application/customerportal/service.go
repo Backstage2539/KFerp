@@ -913,6 +913,9 @@ type SettlementBatch struct {
 }
 
 type ServicePage struct {
+	Page                  int                              `json:"page"`
+	PageSize              int                              `json:"page_size"`
+	HasMore               bool                             `json:"has_more"`
 	PriceTableOptions     []salesapp.BeanListVersionOption `json:"price_table_options,omitempty"`
 	SelectedPriceTableIDs []int64                          `json:"selected_price_table_ids,omitempty"`
 	// MiniappEntryMode    string                 `json:"miniapp_entry_mode"`
@@ -937,6 +940,7 @@ type ServicePage struct {
 }
 
 type ServicePageQuery struct {
+	Offset                int
 	SelectedPriceTableIDs []int64
 	CustomerID            int64
 	Key                   string
@@ -950,6 +954,8 @@ type ServicePageQuery struct {
 }
 
 type ServicePageFilter struct {
+	Page                  int
+	PageSize              int
 	SelectedPriceTableIDs []int64
 	Query                 string
 	DateFrom              string
@@ -1534,7 +1540,25 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 	} else if def.key == ServiceKeySettlement {
 		limit = 200
 	}
+	pageNo := filter.Page
+	if pageNo < 1 {
+		pageNo = 1
+	}
+	if pageNo > 100000 {
+		return ServicePage{}, fmt.Errorf("page out of range")
+	}
+	if def.key == ServiceKeyOrders && filter.PageSize > 0 {
+		limit = filter.PageSize
+		if limit > 50 {
+			limit = 50
+		}
+	}
+	offset := 0
+	if def.key == ServiceKeyOrders {
+		offset = (pageNo - 1) * limit
+	}
 	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{
+		Offset:                offset,
 		SelectedPriceTableIDs: filter.SelectedPriceTableIDs,
 		CustomerID:            current.CurrentCustomerID,
 		Key:                   def.key,
@@ -1548,6 +1572,10 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 	})
 	if err != nil {
 		return ServicePage{}, err
+	}
+	if def.key == ServiceKeyOrders {
+		page.Page = pageNo
+		page.PageSize = limit
 	}
 	page.Key = def.key
 	page.Title = def.title
@@ -3397,6 +3425,7 @@ func NormalizeMallTemplateKey(value string) string {
 
 func normalizeServicePageFilter(filter ServicePageFilter) ServicePageFilter {
 	out := ServicePageFilter{
+		Page: filter.Page, PageSize: filter.PageSize,
 		Query:         strings.Join(strings.Fields(strings.TrimSpace(filter.Query)), " "),
 		DateFrom:      normalizeDateString(filter.DateFrom),
 		DateTo:        normalizeDateString(filter.DateTo),

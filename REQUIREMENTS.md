@@ -1116,3 +1116,8 @@
 - 每个 BOM 配方来源显示独立动态输入口，并保留空闲的“＋配方输入”；工艺路线单独输入。同一来源只连一次，多行配方在填写表中增加。
 - 运行页面将变量、物料行和配方行完整铺开；窄窗口下表格自适应换行，BOM 名称与产出对象始终可辨。
 - DEV-675-PC-GRAPH-V3 / DEV-675-PC-NAME-VARIABLES / DEV-675-PC-BOM-INPUTS / DEV-675-PC-RUN-UX / DEV-675-PC-DOCS-DELIVERY。验收人：Van；开发部署及业务验收证据见 `orderapp-remote/docs/acceptance/2026-09-29-product-creator-variables-inputs.md`。
+
+## PR-684-WECHAT-OFFICIAL-PORTAL 公众号豆单入口与客户订单查询
+- 每张价格表固定小程序路径，后台手动切换发布版本，公共/客户专属权限隔离；停用撤回立即失效。
+- 公众号通过可信 UnionID 或一次性绑定码关联已有认证客户；全部订单分页，最近 1/3 单回复商品、金额及进度；每次重新校验权限。
+- ERP 管理公众号菜单预览、导入、发布、历史恢复、绑定和日志；密钥仅服务端。DEV-737 至 DEV-741；验收人 Van。

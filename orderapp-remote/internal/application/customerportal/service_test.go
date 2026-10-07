@@ -2374,3 +2374,14 @@ func TestCreateFulfillmentOrderAcceptsCanonicalBOMSpecAndKeepsLegacyValidation(t
 		t.Fatalf("legacy missing spec err=%v, want spec required", err)
 	}
 }
+
+func TestOrdersPaginationRetainsCustomerScope(t *testing.T) {
+	r := &fakeRepository{context: CurrentContext{CurrentCustomerID: 7, Capabilities: []Capability{{Code: CapabilityProductOrder, Enabled: true}}}}
+	page, err := NewService(r, fakeIdentityProvider{}).GetServicePage(context.Background(), "token", ServiceKeyOrders, ServicePageFilter{Page: 3, PageSize: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.serviceQuery.Offset != 40 || r.serviceQuery.CustomerID != 7 || r.serviceQuery.Limit != 20 || page.Page != 3 {
+		t.Fatalf("query=%+v page=%+v", r.serviceQuery, page)
+	}
+}
