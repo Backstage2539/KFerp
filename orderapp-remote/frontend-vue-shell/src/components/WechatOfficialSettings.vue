@@ -31,6 +31,14 @@ const labels = {
   media_id: '发送素材',
   view_limited: '查看图文',
 }
+function removeGroup(index) {
+  groups.value.splice(index, 1)
+  changed()
+}
+function removeChild(group, index) {
+  group.sub_button.splice(index, 1)
+  changed()
+}
 function changed() {
   preview.value = null
 }
@@ -240,10 +248,7 @@ onMounted(load)
           </label>
           <button
             type="button"
-            @click="
-              groups.splice(i, 1)
-              changed()
-            "
+            @click="removeGroup(i)"
           >
             删除本组
           </button>
@@ -256,10 +261,7 @@ onMounted(load)
             :app-id="status.mini_app_id"
             :entries="entries"
             @change="changed"
-            @remove="
-              group.sub_button.splice(j, 1)
-              changed()
-            "
+            @remove="removeChild(group, j)"
           />
         </template>
         <WechatMenuButton
@@ -268,10 +270,7 @@ onMounted(load)
           :app-id="status.mini_app_id"
           :entries="entries"
           @change="changed"
-          @remove="
-            groups.splice(i, 1)
-            changed()
-          "
+          @remove="removeGroup(i)"
         />
         <button
           type="button"
