@@ -5620,11 +5620,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-684-WECHAT-OFFICIAL-PORTAL
 - Branch: codex/wechat-official-portal-ready
 - Owner/session: Codex
-- Status: automated verification and local UI review complete; development integration/deploy in progress; Van acceptance pending
+- Status: implementation, automated verification and development delivery complete; Van acceptance pending
 - Scope: 固定价格表入口、公众号客户认证与订单文字回复、ERP 菜单管理。
 - DEV: DEV-737-WECHAT-ENTRIES; DEV-738-WECHAT-IDENTITY; DEV-739-WECHAT-MENUS; DEV-740-WECHAT-MINIAPP; DEV-741-WECHAT-DELIVERY
 - Verifier: Go unit/API/PostgreSQL; Vue helper/API tests + build; miniapp tests/typecheck/build.
 - Manual: orderapp-remote/docs/OP_MANUAL_WECHAT_OFFICIAL.md
-- Deployment: development delivery in progress; production/WeChat menu activation pending account setup.
+- Deployment: PR #185 merged to develop; application b1521ba30d61b4398f400b9602e343c5fa4db3aa deployed 2026-10-08. Backup /opt/stacks/erp/orderapp.backup.deploy-20261008011249-b1521ba30d61. App running with zero restarts, PostgreSQL healthy, public gateway running; authenticated status/docs/entries 200, anonymous admin/binding 401, disabled callback 503. 30 authenticated fixed entries backfilled. Miniapp development artifact verified (19 pages / 76 page files). Production/WeChat activation remains pending.
 - Last update: 2026-10-08
 - Notes: default authenticated entry, manually selected published version, automatic UnionID plus binding code; Van acceptance pending.
+- Delivery receipt: docs/acceptance/2026-10-08-wechat-official-portal.md. DEV-737 through DEV-741 complete; post-release tracking/docs commit does not change the deployed application identity above.
