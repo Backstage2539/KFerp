@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import { onLoad, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import {
   defaultMiniappShare,
   defaultMiniappTimelineShare,
   refreshMiniappShareMenu,
 } from '../../utils/miniappShare'
 import { ref } from 'vue'
+import { safeLoginReturn } from '../../utils/loginReturn'
 import { loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
@@ -15,6 +16,8 @@ import { customerEntryRoute } from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
+const returnTo=ref('')
+onLoad(query=>{try{returnTo.value=safeLoginReturn(decodeURIComponent(String(query?.return_to||'')))}catch{returnTo.value=''}})
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -53,7 +56,7 @@ function requestLoginCode(): Promise<string> {
 function completeLogin(response: LoginResponse) {
   session.setToken(response.token)
   session.applyContext(response)
-  uni.reLaunch({ url: customerEntryRoute(response) })
+  uni.reLaunch({ url: returnTo.value || customerEntryRoute(response) })
 }
 
 async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: string } }) {

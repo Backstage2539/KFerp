@@ -12,6 +12,7 @@ export const operationManualsByView = {
   workspaceModeManual: { doc: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md', title: '客户履约手册' },
   customerPortalManual: { doc: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md', title: '客户履约手册' },
   customerFulfillmentManual: { doc: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md', title: '客户履约手册' },
+  wechatOfficialManual: { doc: 'OP_MANUAL_WECHAT_OFFICIAL.md', title: '公众号操作手册' },
   requirementsManual: { doc: 'OP_MANUAL_REQUIREMENTS.md', title: '需求管理手册' },
 }
 

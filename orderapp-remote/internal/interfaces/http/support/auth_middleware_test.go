@@ -315,3 +315,16 @@ func readSupportTestFile(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+func TestOfficialAccountCallbackHasExactPublicBoundary(t *testing.T) {
+	for _, path := range []string{"/api/wechat/official-account/callback", "/app/api/wechat/official-account/callback"} {
+		if !isPublicUnauthenticatedPath(path) {
+			t.Fatal("callback blocked", path)
+		}
+	}
+	for _, path := range []string{"/api/wechat/official-account/orders", "/api/customer-portal/admin/wechat/entries", "/api/wechat/official-account/callback/admin"} {
+		if isPublicUnauthenticatedPath(path) {
+			t.Fatal("admin exposed", path)
+		}
+	}
+}

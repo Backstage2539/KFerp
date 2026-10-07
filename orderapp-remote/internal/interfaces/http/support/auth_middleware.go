@@ -87,7 +87,7 @@ func isAPIPath(path string) bool {
 }
 
 func isPublicUnauthenticatedPath(path string) bool {
-	return strings.HasPrefix(path, "/api/mini/") ||
+	return path == "/api/wechat/official-account/callback" || path == "/app/api/wechat/official-account/callback" || strings.HasPrefix(path, "/api/mini/") ||
 		strings.HasPrefix(path, "/public/bean-list/") ||
 		strings.HasPrefix(path, "/share/") ||
 		strings.HasPrefix(path, "/assets/sales_order_assets/") ||

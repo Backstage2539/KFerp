@@ -479,6 +479,9 @@ export type SettlementBatch = {
 }
 
 export type ServicePageResponse = {
+ page?: number
+ page_size?: number
+ has_more?: boolean
   price_table_options?: PriceTableOption[]
   selected_price_table_ids?: number[]
   key: ServiceKey
@@ -997,6 +1000,8 @@ export type CreateFulfillmentOrderPayload = {
 }
 
 export type ServicePageFilters = {
+ page?: number
+ page_size?: number
   selected_price_table_ids?: number[]
   q?: string
   date_from?: string
@@ -1692,6 +1697,8 @@ export function buildEmployeeOrderDraftPath(): string {
 
 export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilters = {}): string {
   const params = [
+    ['page',filters.page],
+    ['page_size',filters.page_size],
     ['selected_price_table_ids', filters.selected_price_table_ids?.join(',')],
     ['q', filters.q],
     ['date_from', filters.date_from],

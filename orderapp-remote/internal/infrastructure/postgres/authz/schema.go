@@ -218,6 +218,7 @@ func defaultViewPermissions() map[string]string {
 		"customerCapabilityTemplates": "customers.write",
 		"customerPortalSettings":      "customers.write",
 		"customerPortalManual":        "customers.read",
+		"wechatOfficialManual":        "settings.write",
 		"customerFulfillment":         "stock.write",
 		"customerFulfillmentManual":   "stock.read",
 		"customerProcessingPortal":    "customer_processing.read",

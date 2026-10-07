@@ -77,3 +77,5 @@ flowchart TD
 - 履约客户首页、按能力独立页面、价格表按需预览及连续补录：见 [客户履约操作手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md#客户首页与连续录单2026-09pr-642)。
 
 - [客户订单与往来账单](OP_MANUAL_CUSTOMER_ACCOUNT.md)：客户订单、收件解析、销售单合并、统一费用和周月账单、PDF/Excel 下载、客户确认对账、费用异议与 ERP 回复。
+
+- [公众号豆单与订单查询](OP_MANUAL_WECHAT_OFFICIAL.md)：固定入口、客户绑定、菜单草稿与发布、接入配置及上线顺序。

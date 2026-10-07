@@ -220,6 +220,7 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": selectionErr.Error()})
 		}
 		result, err := svc.GetServicePage(c.Request().Context(), token, c.Param("key"), customerportalapp.ServicePageFilter{
+			Page: miniPageNumber(c.QueryParam("page")), PageSize: miniPageNumber(c.QueryParam("page_size")),
 			SelectedPriceTableIDs: selected,
 			Query:                 c.QueryParam("q"),
 			DateFrom:              c.QueryParam("date_from"),
@@ -1073,3 +1074,5 @@ func miniTokenFromHeader(authz string) string {
 	}
 	return ""
 }
+
+func miniPageNumber(s string) int { n, _ := strconv.Atoi(s); return n }

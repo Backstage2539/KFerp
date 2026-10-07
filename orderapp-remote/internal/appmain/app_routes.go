@@ -55,6 +55,7 @@ import (
 	manufacturinghttp "orderapp/internal/interfaces/http/manufacturing"
 	materialshttp "orderapp/internal/interfaces/http/materials"
 	messagecenterhttp "orderapp/internal/interfaces/http/messagecenter"
+	officialaccounthttp "orderapp/internal/interfaces/http/officialaccount"
 	productcreatorhttp "orderapp/internal/interfaces/http/productcreator"
 	productionhttp "orderapp/internal/interfaces/http/production"
 	productspecmigrationhttp "orderapp/internal/interfaces/http/productspecmigration"
@@ -102,6 +103,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 
 	e.Use(supporthttp.AuthorizationMiddleware(authzSvc))
 
+	officialaccounthttp.RegisterRoutes(e, pool, schema, customerPortalSvc, authzSvc, officialaccounthttp.ConfigFromEnv(cfg.WechatMiniAppID))
 	supporthttp.RegisterRoutes(e, pool, schema, supporthttp.Dependencies{Authz: authzSvc, ERPLoginEligibility: customerFulfillmentSvc})
 	messagecenterhttp.RegisterRoutes(e, messagecenterhttp.Dependencies{MessageCenter: messageCenterSvc})
 	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, CustomerFulfillment: customerFulfillmentSvc, Authz: authzSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, EmployeeShareSettings: supporthttp.NewAppConfigStore(pool, schema), AssetDir: assetDir})

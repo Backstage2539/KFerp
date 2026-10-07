@@ -153,6 +153,7 @@ export const hiddenViewTitles = {
   customerProcessingPortal: '客户履约工作台',
   workspaceModeManual: '客户履约手册',
   customerPortalManual: '客户履约手册',
+  wechatOfficialManual: '公众号操作手册',
 }
 
 export const menuMap = Object.fromEntries([
