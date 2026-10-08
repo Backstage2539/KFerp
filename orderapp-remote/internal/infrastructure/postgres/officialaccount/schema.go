@@ -45,14 +45,12 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
        INTO resolved_type_key,resolved_type_name
        FROM %[1]s.bean_list_publications p
        WHERE p.id=old_entry.publication_id AND p.status='published' AND p.deleted_at IS NULL
-         AND p.product_type_category_id=substring(old_entry.type_key from 14)::bigint
-         AND %[1]s.wechat_price_type_key(p)<>old_entry.type_key;
+         AND p.product_type_category_id=substring(old_entry.type_key from 14)::bigint;
      ELSE
        SELECT count(DISTINCT %[1]s.wechat_price_type_key(p)) INTO candidate_count
        FROM %[1]s.bean_list_publications p
        WHERE p.product_type_category_id=substring(old_entry.type_key from 14)::bigint
-         AND p.status='published' AND p.deleted_at IS NULL
-         AND %[1]s.wechat_price_type_key(p)<>old_entry.type_key;
+         AND p.status='published' AND p.deleted_at IS NULL;
        IF candidate_count=1 THEN
          SELECT %[1]s.wechat_price_type_key(p),
            COALESCE(NULLIF(BTRIM(p.classification_template_name),''),NULLIF(BTRIM(p.product_type_name),''),NULLIF(BTRIM(p.classification_category_name),''),NULLIF(BTRIM(p.publication_table_name),''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.list_type,''),'价格表')
@@ -60,9 +58,16 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
          FROM %[1]s.bean_list_publications p
          WHERE p.product_type_category_id=substring(old_entry.type_key from 14)::bigint
            AND p.status='published' AND p.deleted_at IS NULL
-           AND %[1]s.wechat_price_type_key(p)<>old_entry.type_key
          ORDER BY p.published_at DESC,p.id DESC LIMIT 1;
        END IF;
+     END IF;
+
+     IF resolved_type_key=old_entry.type_key THEN
+       -- A publication without a classification template still uses this valid fallback identity.
+       UPDATE %[1]s.wechat_price_entries SET type_name=resolved_type_name,
+         name=resolved_type_name||CASE WHEN old_entry.purpose='wholesale' THEN ' 批发' ELSE ' 一件代发' END
+       WHERE entry_key=old_entry.entry_key;
+       CONTINUE;
      END IF;
 
      IF COALESCE(resolved_type_key,'')='' THEN

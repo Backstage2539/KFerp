@@ -283,6 +283,25 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		if saved, saveErr := r.SaveEntry(ctx, classifiedWholesale.Key, classifiedWholesale, "test"); saveErr != nil || saved.PublicationID != classifiedSecond {
 			t.Fatalf("same current classification version rejected because of legacy IDs: %+v err=%v", saved, saveErr)
 		}
+		legacyOnlyTypeID := typeID + 9000
+		id(`INSERT INTO %s.bean_list_publications(list_type,product_type_category_id,product_type_name,classification_template_id,classification_template_name,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json)
+			VALUES('commercial',$1,'旧版豆类',0,'',$2,$2,'v1','official','', '{"title":"兼容豆单"}', '{"groups":[]}') RETURNING id`, legacyOnlyTypeID, "legacy-only")
+		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatalf("legacy-only product-type entries must survive schema initialization: %v", err)
+		}
+		rows, err = r.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacyOnlyCount := 0
+		for _, row := range rows {
+			if row.TypeKey == fmt.Sprintf("product-type:%d", legacyOnlyTypeID) {
+				legacyOnlyCount++
+			}
+		}
+		if legacyOnlyCount != 2 {
+			t.Fatalf("fallback identity must keep both configured-use entries after schema initialization: %d rows=%+v", legacyOnlyCount, rows)
+		}
 		exec(`UPDATE %s.bean_list_publications SET status='withdrawn' WHERE id=$1`, first)
 		withdrawn, err := r.Entry(ctx, directShip.Key)
 		if err != nil || withdrawn.PublicationID != first || app.CheckEntry(withdrawn, nil) == nil {
