@@ -20,20 +20,27 @@ type Entry struct {
 	Scope         string `json:"-"`
 	Name          string `json:"name"`
 	PublicationID int64  `json:"publication_id"`
+	TypeKey       string `json:"type_key,omitempty"`
+	TypeName      string `json:"type_name,omitempty"`
+	Purpose       string `json:"purpose,omitempty"`
 	Visibility    string `json:"visibility"`
 	Enabled       bool   `json:"enabled"`
 	Revision      int64  `json:"revision"`
 	OwnerType     string `json:"owner_type"`
 	OwnerKey      string `json:"owner_key"`
 	Version       string `json:"version"`
+	TableName     string `json:"table_name"`
 	Status        string `json:"status"`
 	PagePath      string `json:"page_path"`
 }
 type Version struct {
-	ID      int64  `json:"id"`
-	Version string `json:"version"`
-	Name    string `json:"name"`
-	Status  string `json:"status"`
+	ID        int64  `json:"id"`
+	Version   string `json:"version"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	TableKey  string `json:"table_key,omitempty"`
+	OwnerType string `json:"owner_type,omitempty"`
+	OwnerKey  string `json:"owner_key,omitempty"`
 }
 
 func CheckEntry(e Entry, c *portal.CurrentContext) error {

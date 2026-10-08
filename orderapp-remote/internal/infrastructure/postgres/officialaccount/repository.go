@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	portal "orderapp/internal/application/customerportal"
 	app "orderapp/internal/application/officialaccount"
@@ -31,18 +32,24 @@ func (r Repository) audit(ctx context.Context, tx pgx.Tx, actor, action string, 
 	return pg.AuditInsertTx(ctx, tx, r.Schema, actor, "wechat_official_account", nil, action, nil, nil, nil, meta)
 }
 
-const entryColumns = `e.entry_key,e.scope_key,e.name,e.publication_id,e.visibility,e.enabled,e.revision,p.owner_type,p.owner_key,p.version_no,CASE WHEN p.deleted_at IS NULL THEN p.status ELSE 'deleted' END`
+const publicationTypeKey = `CASE
+ WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
+ WHEN COALESCE(p.classification_template_id,0)>0 THEN 'classification-template:'||p.classification_template_id::text
+ WHEN COALESCE(p.classification_category_id,0)>0 THEN 'classification-category:'||p.classification_category_id::text
+ ELSE '' END`
+
+const entryColumns = `e.entry_key,e.scope_key,e.name,COALESCE(e.publication_id,0),e.visibility,e.enabled,e.revision,COALESCE(p.owner_type,''),COALESCE(p.owner_key,''),COALESCE(p.version_no,''),COALESCE(NULLIF(p.publication_table_name,''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.product_type_name,''),''),CASE WHEN COALESCE(e.publication_id,0)=0 THEN 'unconfigured' WHEN p.deleted_at IS NULL THEN p.status ELSE 'deleted' END,e.type_key,e.type_name,e.purpose`
 
 func scanEntry(row pgx.Row) (e app.Entry, err error) {
-	err = row.Scan(&e.Key, &e.Scope, &e.Name, &e.PublicationID, &e.Visibility, &e.Enabled, &e.Revision, &e.OwnerType, &e.OwnerKey, &e.Version, &e.Status)
+	err = row.Scan(&e.Key, &e.Scope, &e.Name, &e.PublicationID, &e.Visibility, &e.Enabled, &e.Revision, &e.OwnerType, &e.OwnerKey, &e.Version, &e.TableName, &e.Status, &e.TypeKey, &e.TypeName, &e.Purpose)
 	e.PagePath = "pages/price-list/price-list?entry=" + e.Key
 	return
 }
 func (r Repository) Entry(ctx context.Context, key string) (app.Entry, error) {
-	return scanEntry(r.Pool.QueryRow(ctx, r.q(`SELECT `+entryColumns+` FROM %[1]s.wechat_price_entries e JOIN %[1]s.bean_list_publications p ON p.id=e.publication_id WHERE e.entry_key=$1`), key))
+	return scanEntry(r.Pool.QueryRow(ctx, r.q(`SELECT `+entryColumns+` FROM %[1]s.wechat_price_entries e LEFT JOIN %[1]s.bean_list_publications p ON p.id=e.publication_id WHERE e.entry_key=$1`), key))
 }
 func (r Repository) Entries(ctx context.Context) ([]app.Entry, error) {
-	rows, err := r.Pool.Query(ctx, r.q(`SELECT `+entryColumns+` FROM %[1]s.wechat_price_entries e JOIN %[1]s.bean_list_publications p ON p.id=e.publication_id ORDER BY e.name,e.entry_key`))
+	rows, err := r.Pool.Query(ctx, r.q(`SELECT `+entryColumns+` FROM %[1]s.wechat_price_entries e LEFT JOIN %[1]s.bean_list_publications p ON p.id=e.publication_id WHERE e.type_key<>'' ORDER BY e.type_name,e.purpose,e.entry_key`))
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +65,11 @@ func (r Repository) Entries(ctx context.Context) ([]app.Entry, error) {
 	return out, rows.Err()
 }
 func (r Repository) Versions(ctx context.Context, key string) ([]app.Version, error) {
-	rows, err := r.Pool.Query(ctx, r.q(`SELECT p.id,p.version_no,p.publication_table_name,p.status FROM %[1]s.bean_list_publications p JOIN %[1]s.wechat_price_entries e ON e.scope_key=%[1]s.wechat_price_scope(p) WHERE e.entry_key=$1 AND p.status='published' AND p.deleted_at IS NULL ORDER BY p.published_at DESC,p.id DESC`), key)
+	query := `SELECT p.id,p.version_no,COALESCE(NULLIF(p.publication_table_name,''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.product_type_name,''),p.list_type),p.status,COALESCE(p.publication_table_key,''),p.owner_type,p.owner_key
+	 FROM %[1]s.bean_list_publications p JOIN %[1]s.wechat_price_entries e ON e.entry_key=$1
+	 WHERE p.status='published' AND p.deleted_at IS NULL AND ((e.type_key<>'' AND e.type_key=` + publicationTypeKey + `) OR (e.type_key='' AND e.scope_key=%[1]s.wechat_price_scope(p)))
+	 ORDER BY p.published_at DESC,p.id DESC`
+	rows, err := r.Pool.Query(ctx, r.q(query), key)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +77,7 @@ func (r Repository) Versions(ctx context.Context, key string) ([]app.Version, er
 	out := []app.Version{}
 	for rows.Next() {
 		var v app.Version
-		if err = rows.Scan(&v.ID, &v.Version, &v.Name, &v.Status); err != nil {
+		if err = rows.Scan(&v.ID, &v.Version, &v.Name, &v.Status, &v.TableKey, &v.OwnerType, &v.OwnerKey); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
@@ -77,7 +88,7 @@ func (r Repository) SaveEntry(ctx context.Context, key string, e app.Entry, acto
 	if e.Visibility != "public" && e.Visibility != "authenticated" {
 		return e, errors.New("请选择可见范围")
 	}
-	if len(e.Name) > 160 || e.Name == "" {
+	if e.TypeKey == "" && (len(e.Name) > 160 || e.Name == "") {
 		return e, errors.New("请输入入口名称（最多 160 字节）")
 	}
 	tx, err := r.Pool.Begin(ctx)
@@ -85,14 +96,27 @@ func (r Repository) SaveEntry(ctx context.Context, key string, e app.Entry, acto
 		return e, err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, r.q(`UPDATE %[1]s.wechat_price_entries e SET name=$2,publication_id=p.id,visibility=$4,enabled=$5,revision=e.revision+1,updated_at=now() FROM %[1]s.bean_list_publications p WHERE e.entry_key=$1 AND p.id=$3 AND e.revision=$6 AND %[1]s.wechat_price_scope(p)=e.scope_key AND ((p.status='published' AND p.deleted_at IS NULL) OR ($5=false AND p.id=e.publication_id)) AND ($4<>'public' OR p.owner_type='official')`), key, e.Name, e.PublicationID, e.Visibility, e.Enabled, e.Revision)
+	var tag pgconn.CommandTag
+	var typeKey string
+	if err = tx.QueryRow(ctx, r.q(`SELECT type_key FROM %[1]s.wechat_price_entries WHERE entry_key=$1 FOR UPDATE`), key).Scan(&typeKey); err != nil {
+		return e, err
+	}
+	if typeKey != "" {
+		if e.PublicationID <= 0 {
+			return e, errors.New("请选择同一商品类型下的已发布价格表版本")
+		}
+		purposeLabel := `CASE WHEN e.purpose='wholesale' THEN ' 批发' ELSE ' 一件代发' END`
+		tag, err = tx.Exec(ctx, r.q(`UPDATE %[1]s.wechat_price_entries e SET name=e.type_name||`+purposeLabel+`,publication_id=p.id,visibility=$3,enabled=$4,revision=e.revision+1,updated_at=now() FROM %[1]s.bean_list_publications p WHERE e.entry_key=$1 AND p.id=$2 AND e.revision=$5 AND e.type_key<>'' AND e.type_key=`+publicationTypeKey+` AND ((p.status='published' AND p.deleted_at IS NULL) OR ($4=false AND p.id=e.publication_id)) AND ($3<>'public' OR p.owner_type='official')`), key, e.PublicationID, e.Visibility, e.Enabled, e.Revision)
+	} else {
+		tag, err = tx.Exec(ctx, r.q(`UPDATE %[1]s.wechat_price_entries e SET name=$2,publication_id=p.id,visibility=$4,enabled=$5,revision=e.revision+1,updated_at=now() FROM %[1]s.bean_list_publications p WHERE e.entry_key=$1 AND p.id=$3 AND e.revision=$6 AND %[1]s.wechat_price_scope(p)=e.scope_key AND ((p.status='published' AND p.deleted_at IS NULL) OR ($5=false AND p.id=e.publication_id)) AND ($4<>'public' OR p.owner_type='official')`), key, e.Name, e.PublicationID, e.Visibility, e.Enabled, e.Revision)
+	}
 	if err != nil {
 		return e, err
 	}
 	if tag.RowsAffected() != 1 {
 		return e, errors.New("版本不可用、价格表归属不符或配置已更新，请刷新")
 	}
-	if err = r.audit(ctx, tx, actor, "entry_update", pg.AuditMeta{"entry_key": key, "publication_id": e.PublicationID, "visibility": e.Visibility, "enabled": e.Enabled}); err != nil {
+	if err = r.audit(ctx, tx, actor, "entry_update", pg.AuditMeta{"entry_key": key, "publication_id": e.PublicationID, "type_key": typeKey, "purpose": e.Purpose, "visibility": e.Visibility, "enabled": e.Enabled}); err != nil {
 		return e, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -313,4 +337,24 @@ func (r Repository) FirstEvent(ctx context.Context, appID, key string) (bool, er
 
 func (r Repository) EntryForPublication(ctx context.Context, id int64) (app.Entry, error) {
 	return scanEntry(r.Pool.QueryRow(ctx, r.q(`SELECT `+entryColumns+` FROM %[1]s.wechat_price_entries e JOIN %[1]s.bean_list_publications p ON p.id=e.publication_id JOIN %[1]s.bean_list_publications source ON e.scope_key=%[1]s.wechat_price_scope(source) WHERE source.id=$1`), id))
+}
+
+func (r Repository) EntriesForPublication(ctx context.Context, id int64) ([]app.Entry, error) {
+	rows, err := r.Pool.Query(ctx, r.q(`SELECT `+entryColumns+` FROM %[1]s.bean_list_publications source
+	 JOIN %[1]s.wechat_price_entries e ON e.type_key=%[1]s.wechat_price_type_key(source) AND e.type_key<>''
+	 LEFT JOIN %[1]s.bean_list_publications p ON p.id=e.publication_id
+	 WHERE source.id=$1 ORDER BY e.purpose,e.entry_key`), id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []app.Entry{}
+	for rows.Next() {
+		e, scanErr := scanEntry(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }

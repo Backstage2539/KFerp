@@ -19,11 +19,25 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
+	authzapp "orderapp/internal/application/authz"
 	portal "orderapp/internal/application/customerportal"
 	app "orderapp/internal/application/officialaccount"
 	repo "orderapp/internal/infrastructure/postgres/officialaccount"
 	officialhttp "orderapp/internal/interfaces/http/officialaccount"
 )
+
+type wechatTestAuthz struct{}
+
+func (wechatTestAuthz) ActorByEmployeeID(_ context.Context, employeeID int64) (authzapp.Actor, error) {
+	return authzapp.Actor{EmployeeID: employeeID, Name: "公众号配置测试员", Permissions: []string{"settings.write"}}, nil
+}
+func (wechatTestAuthz) ListRoles(context.Context) ([]authzapp.Role, error) { return nil, nil }
+func (wechatTestAuthz) ListEmployeeRoles(context.Context) (map[int64][]string, error) {
+	return map[int64][]string{}, nil
+}
+func (wechatTestAuthz) AssignEmployeeRoles(context.Context, authzapp.AssignmentCommand) error {
+	return nil
+}
 
 func TestWechatOfficialPostgres(t *testing.T) {
 	dsn := os.Getenv("ORDERAPP_TEST_DATABASE_URL")
@@ -75,6 +89,144 @@ func TestWechatOfficialPostgres(t *testing.T) {
 	publication := func(table, version, owner, key string) int64 {
 		return id(`INSERT INTO %s.bean_list_publications(list_type,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json) VALUES('commercial',$1,$1,$2,$3,$4,'{"title":"测试豆单"}','{"groups":[{"category":"熟豆","items":[{"name":"测试豆","prices":[{"label":"227g","value":"¥50"}]}]}]}') RETURNING id`, table, version, owner, key)
 	}
+	t.Run("canonical entries are product type by configured use", func(t *testing.T) {
+		typeID := int64(71001)
+		typedPublication := func(table, version, owner, ownerKey, typeName string, productTypeID int64) int64 {
+			return id(`INSERT INTO %s.bean_list_publications(list_type,product_type_category_id,product_type_name,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json)
+				VALUES('commercial',$1,$2,$3,$3,$4,$5,$6,'{"title":"测试豆单"}','{"groups":[{"category":"熟豆","items":[]}]}') RETURNING id`, productTypeID, typeName, table, version, owner, ownerKey)
+		}
+		first := typedPublication("coffee-wholesale", "v1", "official", "", "咖啡豆", typeID)
+		second := typedPublication("coffee-direct-ship", "v2", "official", "", "咖啡豆", typeID)
+		private := typedPublication("coffee-customer", "v1", "customer", fmt.Sprint(customer), "咖啡豆", typeID)
+		typedPublication("drip-wholesale", "v1", "official", "", "挂耳咖啡", typeID+1)
+		typedPublication("instant-direct", "v1", "official", "", "速溶咖啡", typeID+2)
+		rows, err := r.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 6 {
+			t.Fatalf("three product types must create six entries, got %d: %+v", len(rows), rows)
+		}
+		seen := map[string]bool{}
+		var wholesale app.Entry
+		var directShip app.Entry
+		for _, row := range rows {
+			if row.PublicationID != 0 || row.Enabled || row.Visibility != "authenticated" {
+				t.Fatalf("new entry must remain unconfigured and disabled: %+v", row)
+			}
+			seen[row.TypeKey+"/"+row.Purpose] = true
+			if row.TypeKey == fmt.Sprintf("product-type:%d", typeID) && row.Purpose == "wholesale" {
+				wholesale = row
+			}
+			if row.TypeKey == fmt.Sprintf("product-type:%d", typeID) && row.Purpose == "direct_ship" {
+				directShip = row
+			}
+		}
+		for _, categoryID := range []int64{typeID, typeID + 1, typeID + 2} {
+			for _, purpose := range []string{"wholesale", "direct_ship"} {
+				if !seen[fmt.Sprintf("product-type:%d/%s", categoryID, purpose)] {
+					t.Fatalf("missing type/use entry %d/%s", categoryID, purpose)
+				}
+			}
+		}
+		for _, added := range []int64{
+			typedPublication("coffee-wholesale-copy", "v2", "official", "", "咖啡豆", typeID),
+			typedPublication("coffee-other-customer", "v1", "customer", fmt.Sprint(other), "咖啡豆", typeID),
+		} {
+			_ = added
+		}
+		rows, err = r.Entries(ctx)
+		if err != nil || len(rows) != 6 {
+			t.Fatalf("new tables, versions or owners must not create entries: count=%d err=%v", len(rows), err)
+		}
+		pair, err := r.EntriesForPublication(ctx, first)
+		if err != nil || len(pair) != 2 {
+			t.Fatalf("a price table shortcut must show its two type entries: %+v err=%v", pair, err)
+		}
+		versions, err := r.Versions(ctx, wholesale.Key)
+		if err != nil || len(versions) < 4 {
+			t.Fatalf("same type candidates across tables missing: %+v err=%v", versions, err)
+		}
+		configured := wholesale
+		configured.PublicationID, configured.Enabled, configured.Visibility = second, true, "public"
+		configured, err = r.SaveEntry(ctx, wholesale.Key, configured, "test")
+		if err != nil || configured.PublicationID != second || configured.TableName != "coffee-direct-ship" || configured.Version != "v2" {
+			t.Fatalf("same type table/version must be selectable: %+v err=%v", configured, err)
+		}
+		directShip.PublicationID, directShip.Enabled = first, true
+		directShip, err = r.SaveEntry(ctx, directShip.Key, directShip, "test")
+		if err != nil || directShip.PublicationID != first {
+			t.Fatalf("the second use must be independently configurable: %+v err=%v", directShip, err)
+		}
+		configured, err = r.Entry(ctx, wholesale.Key)
+		if err != nil || configured.PublicationID != second {
+			t.Fatalf("saving one use changed the other use: %+v err=%v", configured, err)
+		}
+		wrongType := configured
+		wrongType.PublicationID = id(`SELECT id FROM %s.bean_list_publications WHERE product_type_category_id=$1 ORDER BY id LIMIT 1`, typeID+1)
+		if _, err = r.SaveEntry(ctx, wholesale.Key, wrongType, "test"); err == nil {
+			t.Fatal("cross-type publication was accepted")
+		}
+		privateSelection := configured
+		privateSelection.PublicationID, privateSelection.Visibility = private, "public"
+		if _, err = r.SaveEntry(ctx, wholesale.Key, privateSelection, "test"); err == nil {
+			t.Fatal("customer-private publication became public")
+		}
+		originalKey := configured.Key
+		exec(`UPDATE %s.bean_list_publications SET product_type_name='咖啡豆新名称' WHERE product_type_category_id=$1`, typeID)
+		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatal(err)
+		}
+		refreshed, err := r.EntriesForPublication(ctx, first)
+		if err != nil || len(refreshed) != 2 || refreshed[0].Key != originalKey && refreshed[1].Key != originalKey {
+			t.Fatalf("renaming the product type changed its fixed path: %+v err=%v", refreshed, err)
+		}
+
+		api := echo.New()
+		api.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				c.Set("employee_id", int64(93))
+				return next(c)
+			}
+		})
+		officialhttp.RegisterRoutes(api, pool, schema, portal.NewService(r.Portal, nil), wechatTestAuthz{}, officialhttp.Config{})
+		requestAPI := func(method, path string, body []byte) *httptest.ResponseRecorder {
+			t.Helper()
+			req := httptest.NewRequest(method, path, strings.NewReader(string(body)))
+			if body != nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			res := httptest.NewRecorder()
+			api.ServeHTTP(res, req)
+			return res
+		}
+		pairResponse := requestAPI(http.MethodGet, fmt.Sprintf("/api/customer-portal/admin/wechat/entries?publication_id=%d", first), nil)
+		var pairBody struct {
+			Rows []app.Entry `json:"rows"`
+		}
+		if pairResponse.Code != http.StatusOK || json.Unmarshal(pairResponse.Body.Bytes(), &pairBody) != nil || len(pairBody.Rows) != 2 {
+			t.Fatalf("price-table API must return both type uses: %d %s", pairResponse.Code, pairResponse.Body.String())
+		}
+		listResponse := requestAPI(http.MethodGet, "/api/customer-portal/admin/wechat/entries", nil)
+		var listBody struct {
+			Rows []app.Entry `json:"rows"`
+		}
+		if listResponse.Code != http.StatusOK || json.Unmarshal(listResponse.Body.Bytes(), &listBody) != nil || len(listBody.Rows) != 6 {
+			t.Fatalf("new menu API must expose only canonical type/use rows: %d %s", listResponse.Code, listResponse.Body.String())
+		}
+		apiCrossType := pairBody.Rows[0]
+		apiCrossType.PublicationID = id(`SELECT id FROM %s.bean_list_publications WHERE product_type_category_id=$1 ORDER BY id LIMIT 1`, typeID+2)
+		payload, _ := json.Marshal(apiCrossType)
+		badSave := requestAPI(http.MethodPut, "/api/customer-portal/admin/wechat/entries/"+apiCrossType.Key, payload)
+		if badSave.Code != http.StatusConflict {
+			t.Fatalf("cross-type API save was accepted: %d %s", badSave.Code, badSave.Body.String())
+		}
+		exec(`UPDATE %s.bean_list_publications SET status='withdrawn' WHERE id=$1`, first)
+		withdrawn, err := r.Entry(ctx, directShip.Key)
+		if err != nil || withdrawn.PublicationID != first || app.CheckEntry(withdrawn, nil) == nil {
+			t.Fatalf("withdrawal changed the fixed target or remained visible: %+v err=%v", withdrawn, err)
+		}
+	})
 	first := publication("roasted", "v1", "official", "")
 	e, err := r.EntryForPublication(ctx, first)
 	if err != nil {

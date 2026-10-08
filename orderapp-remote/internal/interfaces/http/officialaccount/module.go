@@ -69,7 +69,7 @@ func (h *Handler) admin(c echo.Context, write bool) (string, error) {
 		perm = "settings.write"
 	}
 	if err != nil || !ok || a.AccountType == support.AccountTypeChannelCustomer || !a.Can(perm) {
-		return "", echo.NewHTTPError(http.StatusForbidden, "需要客户门户设置权限")
+		return "", echo.NewHTTPError(http.StatusForbidden, "需要系统设置维护权限")
 	}
 	return support.ActorOf(c), nil
 }
@@ -115,11 +115,11 @@ func (h *Handler) entries(c echo.Context) error {
 	}
 	if raw := c.QueryParam("publication_id"); raw != "" {
 		id, _ := strconv.ParseInt(raw, 10, 64)
-		entry, err := h.Repo.EntryForPublication(c.Request().Context(), id)
+		entries, err := h.Repo.EntriesForPublication(c.Request().Context(), id)
 		if err != nil {
-			return c.JSON(200, map[string]any{"rows": []app.Entry{}})
+			return fail(c, 500, "无法读取该类型的价格表入口")
 		}
-		return c.JSON(200, map[string]any{"rows": []app.Entry{entry}})
+		return c.JSON(200, map[string]any{"rows": entries})
 	}
 	rows, err := h.Repo.Entries(c.Request().Context())
 	if err != nil {
@@ -283,7 +283,7 @@ func (h *Handler) validateMenu(c echo.Context, m app.Menu) error {
 				key := strings.TrimPrefix(b.PagePath, "pages/price-list/price-list?entry=")
 				entry, err := h.Repo.Entry(c.Request().Context(), key)
 				if err != nil || !entry.Enabled || entry.Status != "published" {
-					return errors.New("菜单引用的豆单入口不可用")
+					return errors.New("菜单引用的价格表入口未配置、已停用或版本不可用")
 				}
 			}
 		}
@@ -380,6 +380,9 @@ func (h *Handler) previewEntry(c echo.Context) error {
 	e, err := h.Repo.Entry(c.Request().Context(), c.Param("key"))
 	if err != nil {
 		return fail(c, 404, "入口不存在")
+	}
+	if e.PublicationID <= 0 {
+		return fail(c, 409, "此价格表入口尚未选择展示版本")
 	}
 	p, err := h.Repo.Portal.LoadEntryPublication(c.Request().Context(), e.PublicationID)
 	if err != nil {

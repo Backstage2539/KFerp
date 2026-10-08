@@ -1,6 +1,5 @@
 <template>
   <div class="page">
-    <WechatOfficialSettings />
     <section class="panel">
       <div class="panel-head">
         <h2>客户门户配置</h2>
@@ -224,7 +223,6 @@
 </template>
 
 <script setup>
-import WechatOfficialSettings from "../components/WechatOfficialSettings.vue"
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import {

@@ -21,7 +21,7 @@ const status = ref({}),
   preview = ref(null)
 const base = '/api/customer-portal/admin/wechat'
 const labels = {
-  price: '查看指定豆单',
+  price: '查看指定价格表',
   orders: '查看全部订单',
   recent1: '回复最近一次订单',
   recent3: '回复最近三次订单',
@@ -57,7 +57,9 @@ async function run(fn) {
 async function load() {
   await run(async () => {
     status.value = await apiGet(base + '/status')
-    entries.value = (await apiGet(base + '/entries')).rows
+    entries.value = ((await apiGet(base + '/entries')).rows || []).filter(
+      (entry) => entry.enabled && entry.publication_id > 0 && entry.status === 'published',
+    )
     bindings.value = (await apiGet(base + '/bindings')).rows
     history.value = (await apiGet(base + '/menus')).rows
     if (!history.value.length && status.value.enabled) {
@@ -155,8 +157,9 @@ function openManual() {
       detail: {
         key: 'wechatOfficialManual',
         returnNavigation: {
-          key: 'customerPortalSettings',
-          label: '返回公众号设置',
+          key: 'uiSettings',
+          params: { tab: 'wechat' },
+          label: '返回公众号管理',
         },
       },
     }),
@@ -169,7 +172,7 @@ onMounted(load)
     <header>
       <div>
         <h2>公众号管理</h2>
-        <p>为客户提供固定豆单入口和认证后的订单查询。</p>
+        <p>配置价格表入口、公众号菜单和认证后的订单查询。</p>
       </div>
       <div>
         <button type="button" @click="openManual">操作说明</button>
@@ -180,7 +183,7 @@ onMounted(load)
       <button
         v-for="[key, label] in [
           ['status', '接入状态'],
-          ['entries', '豆单入口'],
+          ['entries', '价格表入口'],
           ['menu', '公众号菜单'],
           ['bindings', '客户绑定'],
           ['history', '发布记录'],
