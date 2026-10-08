@@ -1,5 +1,6 @@
 export function safeLoginReturn(raw: unknown): string {
   const path = typeof raw === 'string' ? raw : ''
+  if (/^\/pages\/page-entry\/page-entry\?entry=[a-f0-9]{32}$/.test(path)) return path
   if (/^\/pages\/price-list\/price-list\?entry=[a-zA-Z0-9_-]{1,64}$/.test(path))
     return path
   if (

@@ -168,7 +168,7 @@
                 <div class="version-actions">
                   <button class="secondary compact" type="button" :disabled="!beanListPublicationHasContent(row)" @click="downloadBeanListPublication(row)">下载 PDF</button>
                   <button class="secondary compact" type="button" @click="startBeanListFromPublication(row)">生成新版</button>
-                  <button v-if="isBeanListAdmin" class="secondary compact" type="button" @click="wechatEntryPublicationId=Number(row.id)">价格表入口</button>
+                  <button v-if="isBeanListAdmin" class="secondary compact" type="button" @click="openNewPageEntry(Number(row.id))">新建页面入口</button>
                   <button v-if="isBeanListAdmin && row.status === 'published'" class="danger compact" type="button" :disabled="beanListWithdrawing" @click="withdrawBeanList(row)">撤回</button>
                 </div>
               </td>
@@ -1284,12 +1284,14 @@
       </section>
     </Teleport>
   </div>
-<div v-if="wechatEntryPublicationId" class="wechat-entry-modal" role="dialog" aria-modal="true" aria-label="价格表入口配置"><section><button type="button" @click="wechatEntryPublicationId=0">关闭</button><WechatPriceEntries :key="wechatEntryPublicationId" :publication-id="wechatEntryPublicationId" /></section></div>
+
 </template>
 
 <script setup>
-import WechatPriceEntries from "../components/WechatPriceEntries.vue"
-const wechatEntryPublicationId = ref(0)
+
+function openNewPageEntry(publicationId) {
+ window.dispatchEvent(new CustomEvent('kferp:navigate-view', {detail:{key:'uiSettings',params:{tab:'pages',publication_id:publicationId}}}))
+}
 import { capturePriceListDisplayOrder, applyPriceListDisplayOrder, movePriceListCategory, movePriceListProduct } from '../lib/price-list-display-order.js'
 import { priceTableOrderabilityBlockedReason } from '../lib/price-table-orderability.js'
 import { seedCustomerPriceRows, applyCustomerPriceRows } from '../lib/customer-price-draft.js'

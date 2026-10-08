@@ -30,13 +30,14 @@ test('restoring a historical menu refreshes current price-entry targets first', 
   assert.ok(restore.indexOf('await loadMenuEntries()') < restore.indexOf("tab.value = 'menu'"))
 })
 
-test('price table menu lists only configured active targets and preserves imported legacy paths', () => {
-  assert.match(settings, /entry\.enabled && entry\.publication_id > 0 && entry\.status === 'published'/)
-  assert.match(menu, /历史价格表入口（保留现有路径）/)
-  assert.match(menu, /查看指定价格表/)
+test('menu offers manual published pages and preserves imported destinations', () => {
+  assert.match(settings, /entry\.enabled && entry\.published && !entry\.deleted/)
+  assert.match(settings, /\/api\/admin\/page-entries/)
+  assert.match(menu, /选择页面入口/)
+  assert.match(menu, /保留已导入的/)
 })
-
-test('price table shortcut opens the two entries belonging to its product type', () => {
-  assert.match(costing, /aria-label="价格表入口配置"/)
-  assert.match(costing, /<WechatPriceEntries[^>]+:publication-id=/)
+test('price table shortcut prefills a new manually created page', () => {
+  assert.match(costing, /新建页面入口/)
+  assert.match(costing, /publication_id:publicationId/)
+  assert.match(view, /PageEntryManager/)
 })

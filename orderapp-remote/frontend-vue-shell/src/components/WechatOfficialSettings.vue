@@ -8,7 +8,7 @@ import {
   menuAction,
 } from '../lib/wechat-official'
 import WechatMenuButton from './WechatMenuButton.vue'
-import WechatPriceEntries from './WechatPriceEntries.vue'
+
 const status = ref({}),
   tab = ref('status'),
   error = ref(''),
@@ -21,7 +21,8 @@ const status = ref({}),
   preview = ref(null)
 const base = '/api/customer-portal/admin/wechat'
 const labels = {
-  price: '查看指定价格表',
+  price: '历史价格表入口',
+  page: '页面入口',
   orders: '查看全部订单',
   recent1: '回复最近一次订单',
   recent3: '回复最近三次订单',
@@ -55,8 +56,8 @@ async function run(fn) {
   }
 }
 async function loadMenuEntries() {
-  entries.value = ((await apiGet(base + '/entries')).rows || []).filter(
-    (entry) => entry.enabled && entry.publication_id > 0 && entry.status === 'published',
+  entries.value = ((await apiGet('/api/admin/page-entries')).rows || []).filter(
+    (entry) => entry.enabled && entry.published && !entry.deleted,
   )
 }
 async function selectTab(key) {
@@ -90,7 +91,7 @@ function addChild(group) {
   if (!group.sub_button) group.sub_button = []
   if (group.sub_button.length >= 5) return
   const b = { name: '新子菜单' }
-  setMenuAction(b, 'home', status.value.mini_app_id)
+  setMenuAction(b, 'recent1', status.value.mini_app_id)
   group.sub_button.push(b)
   delete group.type
   delete group.url
@@ -182,7 +183,7 @@ onMounted(load)
     <header>
       <div>
         <h2>公众号管理</h2>
-        <p>配置价格表入口、公众号菜单和认证后的订单查询。</p>
+        <p>配置公众号菜单和认证后的订单查询。页面请在“页面入口管理”中维护。</p>
       </div>
       <div>
         <button type="button" @click="openManual">操作说明</button>
@@ -193,7 +194,6 @@ onMounted(load)
       <button
         v-for="[key, label] in [
           ['status', '接入状态'],
-          ['entries', '价格表入口'],
           ['menu', '公众号菜单'],
           ['bindings', '客户绑定'],
           ['history', '发布记录'],
@@ -232,11 +232,12 @@ onMounted(load)
             status.unionid_enabled ? '已开启' : '待核对，绑定码可作为备用方式'
           }}
         </dd>
+        <dt>网页授权</dt><dd>{{ status.web_oauth_ready ? '已开启' : '未启用或配置未齐' }}</dd><dt>网页授权回调</dt><dd>{{ status.web_oauth_callback || '待配置授权域名' }}</dd>
         <dt>菜单发布</dt>
         <dd>{{ status.menu_publish_enabled ? '已开启' : '等待正式上线' }}</dd>
       </dl>
     </div>
-    <WechatPriceEntries v-else-if="tab === 'entries'" />
+
     <div v-else-if="tab === 'menu'" class="menu">
       <div class="actions">
         <button

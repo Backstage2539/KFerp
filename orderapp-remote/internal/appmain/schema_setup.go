@@ -3,6 +3,7 @@ package appmain
 import (
 	"context"
 	postgresofficialaccount "orderapp/internal/infrastructure/postgres/officialaccount"
+	postgrespageentry "orderapp/internal/infrastructure/postgres/pageentry"
 
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
@@ -49,6 +50,7 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		{Name: "customerfulfillment", Run: func(ctx context.Context) error { return postgrescustomerfulfillment.EnsureSchema(ctx, pool, schema) }},
 		{Name: "costing", Run: func(ctx context.Context) error { return postgrescosting.EnsureSchema(ctx, pool, schema) }},
 		{Name: "officialaccount", Run: func(ctx context.Context) error { return postgresofficialaccount.EnsureSchema(ctx, pool, schema) }},
+		{Name: "pageentry", Run: func(ctx context.Context) error { return postgrespageentry.EnsureSchema(ctx, pool, schema) }},
 		{Name: "finance", Run: func(ctx context.Context) error { return postgresfinance.EnsureSchema(ctx, pool, schema) }},
 		{Name: "stock", Run: func(ctx context.Context) error { return postgresstock.EnsureSchema(ctx, pool, schema) }},
 		{Name: "purchase", Run: func(ctx context.Context) error { return postgrespurchase.EnsureSchema(ctx, pool, schema) }},

@@ -44,6 +44,9 @@ const viewScopedParams = [
   'gap_g',
   'production_bom_id',
   'bom_id',
+  'entry',
+  'section',
+  'publication_id',
 ]
 
 export function viewNavigationURL(currentURL, key, params = {}) {
