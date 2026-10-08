@@ -790,15 +790,17 @@
                     <strong v-else>待完善成本</strong>
                   </div>
                   <dl class="price-template-trial-details">
-                    <div><dt>生产成本</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.base_cost) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
-                    <div><dt>其他成本</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.other_cost_total) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
-                    <div><dt>加价金额</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.profit_markup_amount) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
-                    <div><dt>税费</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.tax_amount) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
-                    <div><dt>取整变化</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.rounding_adjustment) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
-                    <div><dt>预估毛利率</dt><dd>{{ `${(Number(priceTemplateTrialState.result.gross_margin_rate || 0) * 100).toFixed(2)}%` }}<span v-if="priceTemplateTrialState.result.minimum_margin_rate > priceTemplateTrialState.result.gross_margin_rate" class="price-template-trial-warning">低于模板最低毛利预警</span></dd></div>
+                    <div><dt>{{ priceTemplateTrialState.result.cost_status === 'incomplete' ? '已解析生产成本' : '生产成本' }}</dt><dd>{{ formatBeanListPrice(priceTemplateTrialProductionCost(priceTemplateTrialState.result)) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                    <template v-if="priceTemplateTrialState.result.cost_status !== 'incomplete'">
+                      <div><dt>其他成本</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.other_cost_total) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                      <div><dt>加价金额</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.profit_markup_amount) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                      <div><dt>税费</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.tax_amount) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                      <div><dt>取整变化</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.rounding_adjustment) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                      <div><dt>预估毛利率</dt><dd>{{ `${(Number(priceTemplateTrialState.result.gross_margin_rate || 0) * 100).toFixed(2)}%` }}<span v-if="priceTemplateTrialState.result.minimum_margin_rate > priceTemplateTrialState.result.gross_margin_rate" class="price-template-trial-warning">低于模板最低毛利预警</span></dd></div>
+                    </template>
                   </dl>
                   <p v-if="priceTemplateTrialState.result.warnings?.length" class="price-template-trial-warnings">{{ priceTemplateTrialState.result.warnings.join('；') }}</p>
-                  <p v-if="priceTemplateTrialState.result.unresolved_components?.length" class="price-template-trial-warnings">未解决成本：{{ priceTemplateTrialState.result.unresolved_components.map((item) => item.name || item.label || item.key).filter(Boolean).join('、') }}</p>
+                  <p v-if="priceTemplateTrialState.result.unresolved_components?.length" class="price-template-trial-warnings">未解决成本：{{ priceTemplateTrialState.result.unresolved_components.map(priceTemplateTrialIssueLabel).filter(Boolean).join('；') }}</p>
                 </div>
                 <p v-else-if="!priceTemplateTrialState.loading && !priceTemplateTrialState.error" class="muted price-template-trial-empty">修改模板参数后自动试算，不会保存或改动平铺价格行。</p>
               </section>
@@ -1293,7 +1295,7 @@ import { priceTableOrderabilityBlockedReason } from '../lib/price-table-orderabi
 import { seedCustomerPriceRows, applyCustomerPriceRows } from '../lib/customer-price-draft.js'
 import { customerCatalogProjection } from '../lib/customer-catalog.js'
 import { fetchPriceListRefreshSnapshot } from '../lib/price-list-refresh.js'
-import { createPriceTemplateTrialRunner, priceTemplateTrialCandidates as buildPriceTemplateTrialCandidates, priceTemplateTrialPayload, selectPriceTemplateTrialCandidate } from '../lib/price-template-editor-trial.js'
+import { createPriceTemplateTrialRunner, priceTemplateTrialCandidates as buildPriceTemplateTrialCandidates, priceTemplateTrialIssueLabel, priceTemplateTrialPayload, priceTemplateTrialProductionCost, selectPriceTemplateTrialCandidate } from '../lib/price-template-editor-trial.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { clonePriceTable, createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, publicationBatchGroups, publicationTableMetadata } from '../lib/price-table-batch'
 import { keepElementHorizontallyVisible } from '../lib/price-table-tab-scroll.js'

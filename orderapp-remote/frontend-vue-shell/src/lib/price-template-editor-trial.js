@@ -1,5 +1,28 @@
 import { priceTablePricingRuleTrialPayload, buildPricingRulePayload } from './product-settings.js'
 
+export function priceTemplateTrialProductionCost(result = {}) {
+  const incomplete = String(result?.cost_status ?? result?.costStatus ?? '').trim() === 'incomplete'
+  const raw = incomplete
+    ? (result?.partial_cost ?? result?.partialCost)
+    : (result?.base_cost ?? result?.baseCost)
+  const amount = Number(raw ?? 0)
+  return Number.isFinite(amount) ? amount : 0
+}
+
+export function priceTemplateTrialIssueLabel(issue = {}) {
+  const name = [
+    issue?.component_material_name,
+    issue?.componentMaterialName,
+    issue?.component_product_name,
+    issue?.componentProductName,
+    issue?.component_name,
+    issue?.componentName,
+  ].map((value) => String(value ?? '').trim()).find(Boolean) || ''
+  const reason = String(issue?.reason ?? '').trim()
+  if (!name) return reason
+  return reason ? `${name}：${reason}` : name
+}
+
 function positiveID(...values) {
   for (const value of values) {
     const id = Number(value || 0)

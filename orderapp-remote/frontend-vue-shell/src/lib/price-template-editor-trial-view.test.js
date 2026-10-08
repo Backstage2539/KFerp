@@ -26,3 +26,10 @@ test('trial uses draft endpoint independently and cancels when context or editor
   assert.ok(/priceTemplateTrialCandidates = computed\(\(\) => buildPriceTemplateTrialCandidates\(priceListFlatRows\.value\)\)/.test(source), 'candidates come from selected flat price rows')
   assert.ok(/function closePriceListPricingRuleEditor\(\)[\s\S]*?priceTemplateTrialRunner\.cancel\(\)/.test(source), 'closing the editor cancels its trial')
 })
+
+
+test('incomplete trials show partial production cost and actual unresolved component details', () => {
+  assert.match(source, /priceTemplateTrialProductionCost\(priceTemplateTrialState\.result\)/)
+  assert.match(source, /priceTemplateTrialState\.result\.cost_status !== 'incomplete'[\s\S]*?其他成本/)
+  assert.match(source, /unresolved_components\.map\(priceTemplateTrialIssueLabel\)/)
+})

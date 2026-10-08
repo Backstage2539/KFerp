@@ -39,6 +39,24 @@ test('draft payload uses selected spec and customer without changing source rows
   assert.equal(trial.priceTemplateTrialPayload(trial.priceTemplateTrialCandidates(rows)[2], form, 90).pricing_rule_id, 7)
 })
 
+test('incomplete trial exposes the resolved partial production cost instead of the empty base cost', () => {
+  assert.equal(trial.priceTemplateTrialProductionCost({ cost_status: 'incomplete', base_cost: 0, partial_cost: 12.5 }), 12.5)
+  assert.equal(trial.priceTemplateTrialProductionCost({ cost_status: 'complete', base_cost: 17.5, partial_cost: 12.5 }), 17.5)
+})
+
+test('incomplete BOM issue labels read serialized component names and reasons', () => {
+  assert.equal(trial.priceTemplateTrialIssueLabel({
+    component_name: '包装组件',
+    component_material_name: '纸盒',
+    reason: '采购成本缺失',
+  }), '纸盒：采购成本缺失')
+  assert.equal(trial.priceTemplateTrialIssueLabel({
+    component_name: '烘焙子商品',
+    component_product_name: '拼配豆',
+    reason: 'BOM 版本不可用',
+  }), '拼配豆：BOM 版本不可用')
+})
+
 function deferred() {
   let resolve, reject
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
