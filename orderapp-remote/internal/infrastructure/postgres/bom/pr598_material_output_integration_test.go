@@ -67,7 +67,16 @@ func TestPR598MaterialOutputRepositoryAndCompatibilityMigrationPostgres(t *testi
 	if !outputConstraintValidated {
 		t.Fatal("production_boms_output_binding_check must be validated")
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_boms(code,name,output_type,output_material_id,legacy_product_id)
+		VALUES('BOM-PR598-LEGACY-MATERIAL','legacy material output','material',9001,949)
+	`, schema)); err != nil {
+		t.Fatal(err)
+	}
 	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("repeated schema setup must preserve a material BOM with a legacy product id: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_boms WHERE code='BOM-PR598-LEGACY-MATERIAL'`, schema)); err != nil {
 		t.Fatal(err)
 	}
 	var outputConstraintOIDAfter int64

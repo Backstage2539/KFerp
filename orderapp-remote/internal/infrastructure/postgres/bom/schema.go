@@ -650,11 +650,20 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_production_bom_bindings (
 	bound_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	bound_by TEXT NOT NULL DEFAULT ''
 );
-UPDATE %[1]s.production_boms SET output_product_id=legacy_product_id WHERE output_product_id=0 AND legacy_product_id > 0;
+UPDATE %[1]s.production_boms
+SET output_product_id=legacy_product_id
+WHERE output_product_id=0
+  AND legacy_product_id > 0
+  AND COALESCE(NULLIF(output_type,''),'product')='product'
+  AND output_material_id=0;
 UPDATE %[1]s.production_boms pb
 SET output_product_id=b.product_id
 FROM %[1]s.product_production_bom_bindings b
-WHERE pb.id=b.bom_id AND pb.output_product_id=0 AND b.product_id > 0;
+WHERE pb.id=b.bom_id
+  AND pb.output_product_id=0
+  AND b.product_id > 0
+  AND COALESCE(NULLIF(pb.output_type,''),'product')='product'
+  AND pb.output_material_id=0;
 UPDATE %[1]s.production_boms
 SET output_type=CASE WHEN output_material_id>0 AND output_product_id=0 THEN 'material' ELSE 'product' END
 WHERE COALESCE(NULLIF(output_type,''),'')='' OR output_type NOT IN ('product','material');
