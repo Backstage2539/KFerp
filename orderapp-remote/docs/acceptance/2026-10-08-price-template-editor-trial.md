@@ -20,6 +20,9 @@
 
 ## 开发交付与人工验收
 
-- PR 状态：待 Van 在开发环境确认编辑界面选品、参数修改后的试算结果和保存后平铺价格重算。
-- DEV 验证、分支集成和部署证据填入 `ACTIVE_REQUIREMENTS.md`。
-- 生产环境未纳入此需求。
+- PR #188 已合入 `develop`，部署版本为 `57c5b29970c1630f644010067bb6c30bb8276300`。
+- 开发环境部署于 2026-10-09 完成。服务器完整 Go 测试、Vue 测试与构建、小程序 43 个测试（267 项）、类型检查及微信小程序开发构建均通过；`erp_orderapp` 和 PostgreSQL 正在运行，PostgreSQL 健康，`https://dev.qacoohee.com/app/login` 返回 HTTP 200。
+- 服务器备份：`/opt/stacks/erp/orderapp.backup.deploy-20261009004710-57c5b29970c1`；回滚镜像：`kferp-orderapp-rollback:development-20261009004710-57c5b29970c1`。
+- 微信小程序产物只生成在开发环境，未上传或发布；生产环境未纳入此需求。
+- 待 Van 在开发环境人工确认：编辑界面选品、未保存参数变化后的试算结果，以及保存后平铺自动价格行重算。人工业务验收仍待确认。
+- 开发 PR/DEV 进度见 `ACTIVE_REQUIREMENTS.md`；PR-686 已转为 review，DEV-748 已完成。
