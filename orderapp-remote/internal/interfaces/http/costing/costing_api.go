@@ -109,6 +109,9 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
+		if err := req.ValidateDraftUsage(false); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
 		resp, err := svc.PricingRuleTrial(c.Request().Context(), req)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -157,6 +160,11 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		}
 		if len(req.Requests) == 0 || len(req.Requests) > 100 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "requests must contain 1 to 100 items"})
+		}
+		for _, trial := range req.Requests {
+			if err := trial.ValidateDraftUsage(true); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			}
 		}
 		rows, err := svc.PricingRuleTrialBatch(c.Request().Context(), req.Requests)
 		if err != nil {

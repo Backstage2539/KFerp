@@ -1,3 +1,14 @@
+### PR-686-PRICE-TEMPLATE-EDITOR-TRIAL
+- Branch: `codex/price-template-editor-trial-20261008`; base `origin/develop@2316f663`.
+- Owner/session: Codex / Van / 2026-10-08.
+- Status: automated implementation and full gates complete; latest develop integration and development deployment pending; Van acceptance pending.
+- Scope: current price-table product/spec selection, unsaved full-template auto trial, isolated results, existing save and publication semantics.
+- DEV: DEV-746-PRICE-RULE-DRAFT; DEV-747-PRICE-EDITOR-TRIAL; DEV-748-PRICE-EDITOR-DELIVERY.
+- Verifier: `./scripts/verify_kferp.sh all` passed; Go full suite, Vue 1337/1337, Vue/Vite production build, and `git diff --check`.
+- Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md` and Vue drawer help.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-08-price-template-editor-trial.md`.
+- Deployment: development after verified feature push and develop integration; production excluded; Van acceptance pending.
+
 ### PR-685-WECHAT-PRICE-ENTRIES-BY-TYPE
 - Owner/session: Codex / Van / 2026-10-08.
 - Branch: `codex/wechat-price-entry-types-20261008`; base `origin/develop@49bc988c22f390bff174e56d31b4fad2a9e93839`.
