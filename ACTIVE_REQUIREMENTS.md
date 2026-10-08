@@ -1,10 +1,10 @@
 ### PR-687-UNIFIED-PAGE-ENTRIES
 - Branch: `codex/unified-page-entries-20261009`; base `origin/develop@df9c83ba`.
-- Status: implementation, Go/Vue/miniapp and isolated PostgreSQL race gates passed; integration/development deployment pending; Van acceptance pending.
+- Status: implementation, tests, PR #190 integration and development deployment complete; Van product acceptance and real WeChat OAuth remain pending.
 - Scope: manual page registry; price/function/article targets; draft/publish; miniapp and H5; WeChat OAuth/password; legacy compatibility.
 - DEV: DEV-749-PAGE-DATA; DEV-750-PAGE-ADMIN; DEV-751-PAGE-CLIENTS; DEV-752-PAGE-WEB-AUTH; DEV-753-PAGE-DELIVERY.
 - Verifier: full Go/Vue suite (1,346 tests), miniapp 268 tests/typecheck/development build; isolated PostgreSQL API race tests; desktop/mobile fixture UI and manual return check. Evidence: `orderapp-remote/docs/acceptance/2026-10-09-unified-page-entries.md`.
-- Deployment: development after PR and exact develop verification; real WeChat switches and menus remain unchanged.
+- Deployment: `./deploy_orderapp.sh development` deployed `69a53e657df165611fdf14c9134b96e42972de30` on 2026-10-09. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20261009022737-69a53e657df1`; rollback image `kferp-orderapp-rollback:development-20261009022737-69a53e657df1`. Runtime, route/API boundaries and manual smoke passed. Manual entries 0; 46 historical entries have identical before/after hashes; automatic trigger count 0. Official-account, menu publish and web OAuth switches remain 0. Development miniapp exported to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`, not uploaded.
 
 ### PR-686-PRICE-TEMPLATE-EDITOR-TRIAL
 - Branch: `codex/price-template-editor-trial-20261008`; PR #188 merged into `develop` as `57c5b29970c1630f644010067bb6c30bb8276300`.

@@ -37,4 +37,13 @@ PR-687；DEV-749（数据）、DEV-750（管理界面）、DEV-751（两端）�
 
 ## 开发交付
 
-合入、部署和运行健康结果在此追加。此文档的自动检查通过不代表真实微信授权实测或 Van 产品验收完成。
+- Feature commit: `7b5f6bfe913e2de60bbf2ef5b9683d71154c842b`; GitHub [PR #190](https://github.com/Backstage2539/KFerp/pull/190) merged into develop as `69a53e657df165611fdf14c9134b96e42972de30`.
+- 2026-10-09: `./deploy_orderapp.sh development` completed. Before deployment, fetched and confirmed HEAD and origin/develop both exactly matched this merge. Server reran Go, Vue, miniapp tests/builds serially.
+- Source backup: `/opt/stacks/erp/orderapp.backup.deploy-20261009022737-69a53e657df1`; rollback image: `kferp-orderapp-rollback:development-20261009022737-69a53e657df1`.
+- `erp_orderapp` running; `erp_postgres` running/healthy. Login, settings shell, standalone customer shell and manual returned 200; nonexistent published page returned 404; anonymous admin entry API returned 403. These are deployment boundary checks, not business-flow acceptance.
+- New page table contains 0 entries. Historical table remains 46 rows, identical before/after fingerprint `e43ce80573eb69ee612d1d4ef2e32ff6`; both automatic generation triggers absent. No price snapshots, orders or published menus were changed.
+- Official-account, menu publishing and web OAuth environment switches all remain 0. Anonymous web auth status returns authenticated=false, oauth_ready=false.
+- Miniapp manifest verified (80 files), exported to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; no WeChat upload/release performed. Existing artifact backed up to the timestamped adjacent directory by the deployment script.
+- Delivery-record follow-up updates documentation/requirement progress only. The feature deployment recorded above remains the runtime code provenance.
+
+DEV-749～753 / UT-687 / API-687 complete. PR-687 remains review; REV-687 waits for Van. Real WeChat domain/permission configuration, OAuth/mobile testing, menu publication and miniapp release are separate follow-up activities.
