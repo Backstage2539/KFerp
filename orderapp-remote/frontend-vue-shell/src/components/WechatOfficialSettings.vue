@@ -54,12 +54,19 @@ async function run(fn) {
     busy.value = false
   }
 }
+async function loadMenuEntries() {
+  entries.value = ((await apiGet(base + '/entries')).rows || []).filter(
+    (entry) => entry.enabled && entry.publication_id > 0 && entry.status === 'published',
+  )
+}
+async function selectTab(key) {
+  tab.value = key
+  if (key === 'menu') await run(loadMenuEntries)
+}
 async function load() {
   await run(async () => {
     status.value = await apiGet(base + '/status')
-    entries.value = ((await apiGet(base + '/entries')).rows || []).filter(
-      (entry) => entry.enabled && entry.publication_id > 0 && entry.status === 'published',
-    )
+    await loadMenuEntries()
     bindings.value = (await apiGet(base + '/bindings')).rows
     history.value = (await apiGet(base + '/menus')).rows
     if (!history.value.length && status.value.enabled) {
@@ -145,11 +152,14 @@ async function unbind(b) {
     notice.value = '已解除绑定，公众号订单查询立即停止。'
   })
 }
-function restore(row) {
-  groups.value = menuToEditor(row.menu)
-  changed()
-  tab.value = 'menu'
-  notice.value = '历史菜单已载入编辑区，预览后发布才会生效。'
+async function restore(row) {
+  await run(async () => {
+    await loadMenuEntries()
+    groups.value = menuToEditor(row.menu)
+    changed()
+    tab.value = 'menu'
+    notice.value = '历史菜单已载入编辑区，预览后发布才会生效。'
+  })
 }
 function openManual() {
   window.dispatchEvent(
@@ -191,7 +201,7 @@ onMounted(load)
         :key="key"
         :class="{ active: tab === key }"
         type="button"
-        @click="tab = key"
+        @click="selectTab(key)"
       >
         {{ label }}
       </button>

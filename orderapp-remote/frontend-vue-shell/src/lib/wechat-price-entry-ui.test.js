@@ -15,6 +15,21 @@ test('official account management is a system settings tab and is removed from c
   assert.doesNotMatch(portal, /WechatOfficialSettings/)
 })
 
+test('menu target choices refresh when returning from price-entry settings', () => {
+  assert.match(settings, /async function selectTab\(key\)/)
+  assert.match(settings, /if \(key === 'menu'\) await run\(loadMenuEntries\)/)
+  assert.match(settings, /@click="selectTab\(key\)"/)
+})
+
+test('restoring a historical menu refreshes current price-entry targets first', () => {
+  const restoreStart = settings.indexOf('async function restore(row)')
+  const restoreEnd = settings.indexOf('\nfunction openManual()', restoreStart)
+  assert.ok(restoreStart >= 0 && restoreEnd > restoreStart, 'async restore handler not found')
+  const restore = settings.slice(restoreStart, restoreEnd)
+  assert.match(restore, /await loadMenuEntries\(\)/)
+  assert.ok(restore.indexOf('await loadMenuEntries()') < restore.indexOf("tab.value = 'menu'"))
+})
+
 test('price table menu lists only configured active targets and preserves imported legacy paths', () => {
   assert.match(settings, /entry\.enabled && entry\.publication_id > 0 && entry\.status === 'published'/)
   assert.match(menu, /历史价格表入口（保留现有路径）/)
