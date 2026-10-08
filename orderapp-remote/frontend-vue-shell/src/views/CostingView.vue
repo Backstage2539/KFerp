@@ -743,16 +743,66 @@
                 </option>
               </select>
             </label>
-            <PricingRuleEditorForm
-              :form="priceListPricingRuleEditorForm"
-              :saving="priceListPricingRuleEditorSaving"
-              :error="priceListPricingRuleEditorError"
-              :message="priceListPricingRuleEditorMessage"
-              :legacy-blocked="pricingRuleEditorLegacyBlocked(priceListPricingRuleEditorForm)"
-              :legacy-method-label="pricingRuleEditorLegacyMethodLabel(priceListPricingRuleEditorForm)"
-              :legacy-value-label="pricingRuleEditorLegacyValueLabel(priceListPricingRuleEditorForm)"
-              @save="savePriceListPricingRule"
-            />
+            <div class="price-list-pricing-rule-editor-columns">
+              <div class="price-list-pricing-rule-editor-form">
+                <PricingRuleEditorForm
+                  :form="priceListPricingRuleEditorForm"
+                  :saving="priceListPricingRuleEditorSaving"
+                  :error="priceListPricingRuleEditorError"
+                  :message="priceListPricingRuleEditorMessage"
+                  :legacy-blocked="pricingRuleEditorLegacyBlocked(priceListPricingRuleEditorForm)"
+                  :legacy-method-label="pricingRuleEditorLegacyMethodLabel(priceListPricingRuleEditorForm)"
+                  :legacy-value-label="pricingRuleEditorLegacyValueLabel(priceListPricingRuleEditorForm)"
+                  @save="savePriceListPricingRule"
+                />
+              </div>
+              <section class="price-template-trial-panel" aria-label="价格模板试算">
+                <div class="price-template-trial-head">
+                  <div><strong>试算价格</strong><small>使用当前未保存模板参数，只读取所选商品规格及成本。</small></div>
+                  <span v-if="priceTemplateTrialState.loading" class="muted" role="status">正在计算…</span>
+                </div>
+                <label class="price-template-trial-picker">
+                  <span>商品</span>
+                  <select :value="priceTemplateTrialProductID" :disabled="!priceTemplateTrialProductOptions.length" @change="setPriceTemplateTrialProduct($event.target.value)">
+                    <option value="0">{{ priceTemplateTrialProductOptions.length ? '选择商品' : '当前价格表没有已选规格' }}</option>
+                    <option v-for="product in priceTemplateTrialProductOptions" :key="product.id" :value="product.id">
+                      {{ product.name || `商品 #${product.id}` }}
+                    </option>
+                  </select>
+                </label>
+                <label class="price-template-trial-picker">
+                  <span>规格</span>
+                  <select v-model="priceTemplateTrialCandidateKey" :disabled="!priceTemplateTrialSpecCandidates.length">
+                    <option value="">{{ priceTemplateTrialSpecCandidates.length ? '选择规格' : '该商品没有已选规格' }}</option>
+                    <option v-for="candidate in priceTemplateTrialSpecCandidates" :key="candidate.key" :value="candidate.key">
+                      {{ candidate.specName || priceListFlatRowSpecDescription(candidate.row) }}
+                    </option>
+                  </select>
+                </label>
+                <div v-if="priceTemplateTrialState.error" class="error price-template-trial-error" role="alert">
+                  <span>{{ priceTemplateTrialState.error }}</span>
+                  <button type="button" class="secondary compact" :disabled="priceTemplateTrialState.loading" @click="schedulePriceTemplateTrial(true)">重试</button>
+                </div>
+                <div v-if="priceTemplateTrialState.result" class="price-template-trial-result" aria-live="polite">
+                  <div class="price-template-trial-price">
+                    <span>{{ priceTemplateTrialState.result.cost_status === 'incomplete' ? '成本不完整，暂不能确认最终售价' : '试算单价' }}</span>
+                    <strong v-if="priceTemplateTrialState.result.cost_status !== 'incomplete'">￥{{ formatBeanListPrice(priceTemplateTrialState.result.final_unit_price) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</strong>
+                    <strong v-else>待完善成本</strong>
+                  </div>
+                  <dl class="price-template-trial-details">
+                    <div><dt>生产成本</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.base_cost) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                    <div><dt>其他成本</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.other_cost_total) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                    <div><dt>加价金额</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.profit_markup_amount) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                    <div><dt>税费</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.tax_amount) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                    <div><dt>取整变化</dt><dd>{{ formatBeanListPrice(priceTemplateTrialState.result.rounding_adjustment) }}/{{ priceTemplateTrialState.result.quote_unit || '-' }}</dd></div>
+                    <div><dt>预估毛利率</dt><dd>{{ `${(Number(priceTemplateTrialState.result.gross_margin_rate || 0) * 100).toFixed(2)}%` }}<span v-if="priceTemplateTrialState.result.minimum_margin_rate > priceTemplateTrialState.result.gross_margin_rate" class="price-template-trial-warning">低于模板最低毛利预警</span></dd></div>
+                  </dl>
+                  <p v-if="priceTemplateTrialState.result.warnings?.length" class="price-template-trial-warnings">{{ priceTemplateTrialState.result.warnings.join('；') }}</p>
+                  <p v-if="priceTemplateTrialState.result.unresolved_components?.length" class="price-template-trial-warnings">未解决成本：{{ priceTemplateTrialState.result.unresolved_components.map((item) => item.name || item.label || item.key).filter(Boolean).join('、') }}</p>
+                </div>
+                <p v-else-if="!priceTemplateTrialState.loading && !priceTemplateTrialState.error" class="muted price-template-trial-empty">修改模板参数后自动试算，不会保存或改动平铺价格行。</p>
+              </section>
+            </div>
           </div>
         </aside>
       </div>
@@ -1243,6 +1293,7 @@ import { priceTableOrderabilityBlockedReason } from '../lib/price-table-orderabi
 import { seedCustomerPriceRows, applyCustomerPriceRows } from '../lib/customer-price-draft.js'
 import { customerCatalogProjection } from '../lib/customer-catalog.js'
 import { fetchPriceListRefreshSnapshot } from '../lib/price-list-refresh.js'
+import { createPriceTemplateTrialRunner, priceTemplateTrialCandidates as buildPriceTemplateTrialCandidates, priceTemplateTrialPayload, selectPriceTemplateTrialCandidate } from '../lib/price-template-editor-trial.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { clonePriceTable, createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, publicationBatchGroups, publicationTableMetadata } from '../lib/price-table-batch'
 import { keepElementHorizontallyVisible } from '../lib/price-table-tab-scroll.js'
@@ -1506,6 +1557,22 @@ const priceListPricingRuleEditorForm = ref(pricingRuleEditorForm())
 const priceListPricingRuleEditorSaving = ref(false)
 const priceListPricingRuleEditorError = ref('')
 const priceListPricingRuleEditorMessage = ref('')
+const priceTemplateTrialCandidateKey = ref('')
+const priceTemplateTrialProductID = ref(0)
+const priceTemplateTrialState = ref({ loading: false, result: null, error: '' })
+const priceTemplateTrialCandidates = computed(() => buildPriceTemplateTrialCandidates(priceListFlatRows.value))
+const priceTemplateTrialProductOptions = computed(() => {
+  const products = new Map()
+  priceTemplateTrialCandidates.value.forEach((candidate) => {
+    if (!products.has(candidate.parentProductID)) products.set(candidate.parentProductID, { id: candidate.parentProductID, name: candidate.productName })
+  })
+  return [...products.values()]
+})
+const priceTemplateTrialSpecCandidates = computed(() => priceTemplateTrialCandidates.value.filter((candidate) => candidate.parentProductID === Number(priceTemplateTrialProductID.value || 0)))
+const priceTemplateTrialRunner = createPriceTemplateTrialRunner({
+  request: (payload) => apiSend('/api/costing/pricing-rule-trial', { method: 'POST', body: payload }),
+  onState: (state) => { priceTemplateTrialState.value = state },
+})
 const priceListProductBusinessGroups = ref([])
 const priceListProductBusinessGroupAssignments = ref([])
 const priceListProductCatalogFeatureSelection = ref({ feature_key: 'product_catalog', group_template_ids: [] })
@@ -1705,6 +1772,10 @@ function openPriceListPricingRuleEditor() {
   }
   priceListPricingRuleEditorID.value = selectedID
   selectPriceListPricingRuleEditor()
+  const defaultCandidate = selectPriceTemplateTrialCandidate(priceTemplateTrialCandidates.value, '', selectedID)
+  priceTemplateTrialProductID.value = defaultCandidate?.parentProductID || 0
+  priceTemplateTrialCandidateKey.value = defaultCandidate?.key || ''
+  priceTemplateTrialState.value = { loading: false, result: null, error: '' }
   priceListPricingRuleEditorDrawerOpen.value = true
   nextTick(() => {
     const firstField = priceListPricingRuleEditorDrawer.value?.querySelector('select:not([disabled]), input:not([disabled]), textarea:not([disabled]), button:not([disabled])')
@@ -1717,9 +1788,42 @@ function selectPriceListPricingRuleEditor() {
   priceListPricingRuleEditorForm.value = pricingRuleEditorForm(JSON.parse(JSON.stringify(rule || {})))
   priceListPricingRuleEditorError.value = ''
   priceListPricingRuleEditorMessage.value = ''
+  schedulePriceTemplateTrial()
+}
+
+function schedulePriceTemplateTrial() {
+  const candidate = selectPriceTemplateTrialCandidate(
+    priceTemplateTrialSpecCandidates.value,
+    priceTemplateTrialCandidateKey.value,
+    priceListPricingRuleEditorID.value,
+  )
+  const payload = priceTemplateTrialPayload(candidate, priceListPricingRuleEditorForm.value, activeBeanListCustomerID.value)
+  if (!priceListPricingRuleEditorDrawerOpen.value) {
+    priceTemplateTrialRunner.cancel()
+    return
+  }
+  if (!candidate) {
+    priceTemplateTrialRunner.cancel()
+    return
+  }
+  if (!payload) {
+    priceTemplateTrialRunner.cancel()
+    priceTemplateTrialState.value = { loading: false, result: null, error: '该规格缺少可用价格模板或报价单位换算，请先核对价格表规格配置' }
+    return
+  }
+  priceTemplateTrialRunner.schedule(payload)
+}
+
+function setPriceTemplateTrialProduct(rawID) {
+  priceTemplateTrialProductID.value = Number(rawID || 0)
+  const next = selectPriceTemplateTrialCandidate(priceTemplateTrialSpecCandidates.value, '', priceListPricingRuleEditorID.value)
+  priceTemplateTrialCandidateKey.value = next?.key || ''
 }
 
 function closePriceListPricingRuleEditor() {
+  priceTemplateTrialRunner.cancel()
+  priceTemplateTrialCandidateKey.value = ''
+  priceTemplateTrialProductID.value = 0
   priceListPricingRuleEditorDrawerOpen.value = false
   priceListPricingRuleEditorError.value = ''
   priceListPricingRuleEditorMessage.value = ''
@@ -5085,6 +5189,37 @@ watch(priceListRefreshContext, () => {
   priceListRefresh.value = { kind: '', busy: false, error: '', message: '' }
 }, { flush: 'sync' })
 
+watch([
+  priceListPricingRuleEditorDrawerOpen,
+  priceListPricingRuleEditorID,
+  priceTemplateTrialCandidateKey,
+  priceTemplateTrialProductID,
+  priceTemplateTrialCandidates,
+  activeBeanListCustomerID,
+  activePriceListTypeKey,
+  () => activeNamedPriceTable.value?.key || '',
+  () => JSON.stringify(priceListPricingRuleEditorForm.value),
+], () => {
+  if (!priceListPricingRuleEditorDrawerOpen.value) {
+    priceTemplateTrialRunner.cancel()
+    return
+  }
+  const candidate = selectPriceTemplateTrialCandidate(
+    priceTemplateTrialSpecCandidates.value,
+    priceTemplateTrialCandidateKey.value,
+    priceListPricingRuleEditorID.value,
+  )
+  if (candidate?.key !== priceTemplateTrialCandidateKey.value) {
+    priceTemplateTrialCandidateKey.value = candidate?.key || ''
+    return
+  }
+  if (candidate && candidate.parentProductID !== Number(priceTemplateTrialProductID.value || 0)) {
+    priceTemplateTrialProductID.value = candidate.parentProductID
+    return
+  }
+  schedulePriceTemplateTrial()
+}, { flush: 'sync' })
+
 function invalidatePriceListTrialCache() {
   Object.keys(priceListPricingRuleTrialCache.value).forEach(key => {
     priceListPricingRuleTrialGeneration.set(key, (priceListPricingRuleTrialGeneration.get(key) || 0) + 1)
@@ -6163,12 +6298,36 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .settings-drawer { box-sizing: border-box; width: min(620px, 100vw); height: 100vh; overflow: auto; background: #f7f7f7; border-left: 1px solid #d9d9d9; padding: 14px; box-shadow: -18px 0 36px rgba(0,0,0,.18); }
 .price-list-pricing-rule-editor-drawer { width: min(860px, 96vw); }
 .price-list-pricing-rule-editor-body { display: grid; gap: 12px; align-content: start; }
+.price-list-pricing-rule-editor-columns { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); align-items: start; gap: 14px; }
+.price-list-pricing-rule-editor-form { min-width: 0; }
+.price-template-trial-panel { position: sticky; top: 58px; display: grid; gap: 12px; min-width: 0; border: 1px solid #d8e5dc; border-radius: 10px; padding: 14px; background: #f4faf5; }
+.price-template-trial-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.price-template-trial-head > div { display: grid; gap: 4px; }
+.price-template-trial-head small, .price-template-trial-empty { color: #68766c; font-size: 12px; line-height: 1.5; }
+.price-template-trial-picker { display: grid; gap: 5px; font-size: 12px; font-weight: 650; }
+.price-template-trial-picker select { min-height: 38px; width: 100%; }
+.price-template-trial-price { display: grid; gap: 4px; padding: 12px; border-radius: 8px; background: #e5f2e8; }
+.price-template-trial-price > span, .price-template-trial-price > small { color: #52675a; font-size: 12px; }
+.price-template-trial-price > strong { color: #17633a; font-size: 22px; }
+.price-template-trial-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.price-template-trial-details > div { min-width: 0; border: 1px solid #e3ebe5; border-radius: 7px; padding: 8px; background: #fff; }
+.price-template-trial-details dt { color: #68766c; font-size: 11px; }
+.price-template-trial-details dd { display: grid; gap: 3px; margin: 4px 0 0; font-weight: 650; overflow-wrap: anywhere; }
+.price-template-trial-warning, .price-template-trial-warnings { color: #9a5700; font-size: 11px; }
+.price-template-trial-warnings { margin: 0; line-height: 1.5; }
+.price-template-trial-error { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0; }
+.price-template-trial-empty { margin: 0; }
 .price-list-pricing-rule-selector { display: grid; gap: 5px; border: 1px solid #e1d9ce; border-radius: 8px; padding: 10px; background: #fff; }
 .price-list-pricing-rule-selector > span { font-weight: 700; }
 .explanation-drawer { width: min(680px, 100vw); }
 .drawer-head { position: sticky; top: 0; z-index: 2; background: #f7f7f7; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; margin-bottom: 4px; }
 .drawer-head h3 { margin: 0; font-size: 18px; }
 .drawer-head p { margin: 4px 0 0; color: #666; font-size: 12px; line-height: 1.45; }
+@media (max-width: 1100px) {
+  .price-list-pricing-rule-editor-drawer { width: min(760px, 100vw); }
+  .price-list-pricing-rule-editor-columns { grid-template-columns: minmax(0, 1fr); }
+  .price-template-trial-panel { position: static; }
+}
 .explanation-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
 .explanation-summary > div { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 10px; }
 .explanation-summary span { display: block; margin-bottom: 5px; color: #666; font-size: 12px; }

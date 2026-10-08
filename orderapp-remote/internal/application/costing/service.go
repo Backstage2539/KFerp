@@ -118,18 +118,20 @@ type PriceTierTemplateUnitRule struct {
 }
 
 type PricingRuleTrialCommand struct {
-	PricingRuleID       int64                     `json:"pricing_rule_id"`
-	ProductID           int64                     `json:"product_id"`
-	CustomerID          int64                     `json:"customer_id,omitempty"`
-	BomID               int64                     `json:"bom_id,omitempty"`
-	BomVersionID        int64                     `json:"bom_version_id,omitempty"`
-	BomSpecID           int64                     `json:"bom_spec_id,omitempty"`
-	BomVariantID        int64                     `json:"bom_variant_id,omitempty"`
-	ProcessRouteID      int64                     `json:"process_route_id,omitempty"`
-	OperationTemplateID int64                     `json:"operation_template_id,omitempty"`
-	QuoteUnit           string                    `json:"quote_unit,omitempty"`
-	Overrides           PricingRuleTrialOverrides `json:"overrides,omitempty"`
-	allowDraftBom       bool
+	PricingRuleID                     int64                     `json:"pricing_rule_id"`
+	PricingRuleDraft                  *ProductPricingRule       `json:"pricing_rule_draft,omitempty"`
+	ProductID                         int64                     `json:"product_id"`
+	CustomerID                        int64                     `json:"customer_id,omitempty"`
+	BomID                             int64                     `json:"bom_id,omitempty"`
+	BomVersionID                      int64                     `json:"bom_version_id,omitempty"`
+	BomSpecID                         int64                     `json:"bom_spec_id,omitempty"`
+	BomVariantID                      int64                     `json:"bom_variant_id,omitempty"`
+	ProcessRouteID                    int64                     `json:"process_route_id,omitempty"`
+	OperationTemplateID               int64                     `json:"operation_template_id,omitempty"`
+	QuoteUnit                         string                    `json:"quote_unit,omitempty"`
+	Overrides                         PricingRuleTrialOverrides `json:"overrides,omitempty"`
+	allowDraftBom                     bool
+	pricingRuleTrialOverridesProvided bool
 }
 
 // MaterialCostTrialCommand deliberately has no pricing-rule or selling-price
@@ -1014,6 +1016,9 @@ func (s *Service) ExplainPrice(ctx context.Context, req PriceExplanationCommand)
 }
 
 func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialCommand) (*PricingRuleTrialResult, error) {
+	if err := cmd.ValidateDraftUsage(false); err != nil {
+		return nil, err
+	}
 	if cmd.PricingRuleID <= 0 {
 		return nil, fmt.Errorf("pricing_rule_id required")
 	}
@@ -1034,6 +1039,12 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 			return nil, ErrProductPricingRuleNotFound
 		}
 		return nil, err
+	}
+	if cmd.PricingRuleDraft != nil {
+		rule, err = pricingRuleTrialDraftRule(rule, *cmd.PricingRuleDraft)
+		if err != nil {
+			return nil, err
+		}
 	}
 	inputs, err := s.pricingRuleTrialProductInputs(ctx, params, cmd.CustomerID)
 	if err != nil {
@@ -1167,6 +1178,11 @@ func firstNonZeroInt64(values ...int64) int64 {
 }
 
 func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingRuleTrialCommand) ([]PricingRuleTrialBatchRow, error) {
+	for _, cmd := range commands {
+		if err := cmd.ValidateDraftUsage(true); err != nil {
+			return nil, err
+		}
+	}
 	rows := make([]PricingRuleTrialBatchRow, len(commands))
 	for i := range rows {
 		rows[i].Index = i
