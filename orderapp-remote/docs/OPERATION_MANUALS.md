@@ -80,4 +80,6 @@ flowchart TD
 
 - [客户订单与往来账单](OP_MANUAL_CUSTOMER_ACCOUNT.md)：客户订单、收件解析、销售单合并、统一费用和周月账单、PDF/Excel 下载、客户确认对账、费用异议与 ERP 回复。
 
-- [公众号豆单与订单查询](OP_MANUAL_WECHAT_OFFICIAL.md)：固定入口、客户绑定、菜单草稿与发布、接入配置及上线顺序。
+- [公众号菜单与订单查询](OP_MANUAL_WECHAT_OFFICIAL.md)：固定入口、客户绑定、菜单草稿与发布、接入配置及上线顺序。
+
+- [页面入口管理](OP_MANUAL_PAGE_ENTRIES.md)：手工页面、草稿与发布、图文图片权限、网页授权和客户登录、历史入口。

@@ -110,6 +110,10 @@
       }
     },
     {
+      "path": "pages/page-entry/page-entry",
+      "style": { "navigationBarTitleText": "棵凡咖啡", "enableShareAppMessage": true, "enableShareTimeline": true }
+    },
+    {
       "path": "pages/price-list/price-list",
       "style": {
         "navigationBarTitleText": "商品价格表"

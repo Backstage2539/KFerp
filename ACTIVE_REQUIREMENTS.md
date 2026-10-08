@@ -1,3 +1,11 @@
+### PR-687-UNIFIED-PAGE-ENTRIES
+- Branch: `codex/unified-page-entries-20261009`; base `origin/develop@df9c83ba`.
+- Status: implementation, Go/Vue/miniapp and isolated PostgreSQL race gates passed; integration/development deployment pending; Van acceptance pending.
+- Scope: manual page registry; price/function/article targets; draft/publish; miniapp and H5; WeChat OAuth/password; legacy compatibility.
+- DEV: DEV-749-PAGE-DATA; DEV-750-PAGE-ADMIN; DEV-751-PAGE-CLIENTS; DEV-752-PAGE-WEB-AUTH; DEV-753-PAGE-DELIVERY.
+- Verifier: full Go/Vue suite (1,346 tests), miniapp 268 tests/typecheck/development build; isolated PostgreSQL API race tests; desktop/mobile fixture UI and manual return check. Evidence: `orderapp-remote/docs/acceptance/2026-10-09-unified-page-entries.md`.
+- Deployment: development after PR and exact develop verification; real WeChat switches and menus remain unchanged.
+
 ### PR-686-PRICE-TEMPLATE-EDITOR-TRIAL
 - Branch: `codex/price-template-editor-trial-20261008`; PR #188 merged into `develop` as `57c5b29970c1630f644010067bb6c30bb8276300`.
 - Owner/session: Codex / Van / 2026-10-08.

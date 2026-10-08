@@ -359,3 +359,39 @@ func (r Repository) EntriesForPublication(ctx context.Context, id int64) ([]app.
 	}
 	return out, rows.Err()
 }
+
+// HistoricalEntries keeps all prior links, including pre-type entries, visible for retirement.
+func (r Repository) HistoricalEntries(ctx context.Context) ([]app.Entry, error) {
+	rows, err := r.Pool.Query(ctx, r.q(`SELECT `+entryColumns+` FROM %[1]s.wechat_price_entries e LEFT JOIN %[1]s.bean_list_publications p ON p.id=e.publication_id ORDER BY e.updated_at DESC,e.entry_key`))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []app.Entry{}
+	for rows.Next() {
+		e, err := scanEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+func (r Repository) DisableHistoricalEntry(ctx context.Context, key, actor string) error {
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, r.q(`UPDATE %[1]s.wechat_price_entries SET enabled=false,revision=revision+1,updated_at=now() WHERE entry_key=$1`), key)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return pgx.ErrNoRows
+	}
+	if err = r.audit(ctx, tx, actor, "disable_historical_entry", pg.AuditMeta{"entry_key": key}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
