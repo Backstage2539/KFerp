@@ -310,6 +310,12 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "customers.write"
 	}
+	if strings.HasPrefix(path, "/api/customer-portal/admin/wechat/") {
+		if method == http.MethodGet {
+			return "settings.write"
+		}
+		return "settings.write"
+	}
 	if strings.HasPrefix(path, "/api/customer-portal/admin/") {
 		if method == http.MethodGet {
 			return "customers.read"

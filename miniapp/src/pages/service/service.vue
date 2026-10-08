@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { loginRouteFor } from "../../utils/loginReturn"
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { computed, ref } from 'vue'
@@ -37,7 +38,8 @@ import {
   type ServicePageResponse,
   updateCustomerProductCategory,
 } from '../../api/customerPortal'
-import { buildAPIURL } from '../../api/client'
+import { buildAPIURL, isAuthenticationExpiredRequestError } from '../../api/client'
+import { fetchMe } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import CustomerBillsPanel from '../../components/CustomerBillsPanel.vue'
 import CustomerDirectShipPanel from '../../components/CustomerDirectShipPanel.vue'
@@ -110,6 +112,7 @@ const customerCategoryName = ref('')
 const selectedCustomerCategoryID = ref(0)
 const categoryNameEdits = ref<Record<number, string>>({})
 const expandedCustomerPriceTableTypes = ref<string[]>([])
+const orderPage=ref(1)
 const orderSearch = ref<OrderSearchForm>(emptyOrderSearch())
 
 const defaultProcessStatusOptions = ['待处理', '生产中', '生产完成', '库存待发货', '无需生产']
@@ -124,9 +127,10 @@ const prefillBomVariantID = ref(0)
 const prefillInventoryUnit = ref('')
 const processingPrefillItems = ref<ProcessingPrefillItem[]>([])
 
+const officialOrders = ref(false)
 const isProcessingCustomer = computed(() => session.capabilities.some((item) => item.code === 'processing' && item.enabled))
 const title = computed(() => {
-  if (serviceKey.value === 'orders' && isProcessingCustomer.value) return '发货中心'
+  if (serviceKey.value === 'orders' && isProcessingCustomer.value && !officialOrders.value) return '发货中心'
   return page.value?.title || serviceTitle(serviceKey.value)
 })
 const isClosedLoopService = computed(() => (
@@ -135,7 +139,7 @@ const isClosedLoopService = computed(() => (
   || serviceKey.value === 'processing'
   || serviceKey.value === 'inventory'
   || serviceKey.value === 'settlement'
-  || (serviceKey.value === 'orders' && isProcessingCustomer.value)
+  || (serviceKey.value === 'orders' && isProcessingCustomer.value && !officialOrders.value)
 ))
 const mainTab = computed(() => {
   if (serviceKey.value === 'orders') return 'orders'
@@ -228,10 +232,11 @@ async function changePriceTable(group: PriceTableGroup, event: { detail: { value
   }
 }
 
-async function loadPage() {
+async function loadPage(pageNumber=1) {
+  orderPage.value=pageNumber
   if (selectedPriceTableCustomerID !== Number(session.currentCustomerID)) { selectedPriceTableIDs.value = []; selectedPriceTableCustomerID = Number(session.currentCustomerID) }
   if (!session.token) {
-    uni.reLaunch({ url: '/pages/login/login' })
+    uni.reLaunch({ url: loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`) })
     return
   }
   if (isClosedLoopService.value) {
@@ -242,10 +247,11 @@ async function loadPage() {
   loading.value = true
   errorMessage.value = ''
   try {
+    if (officialOrders.value) session.applyContext(await fetchMe(session.token))
     if (serviceKey.value === 'beanList') {
       primeCachedBeanListPage()
     }
-    const filters = serviceKey.value === 'orders' ? buildOrderServiceFilters(orderSearch.value) : { selected_price_table_ids: selectedPriceTableIDs.value }
+    const filters = serviceKey.value === 'orders' ? {...buildOrderServiceFilters(orderSearch.value),page:orderPage.value,page_size:20} : { selected_price_table_ids: selectedPriceTableIDs.value }
     page.value = await fetchServicePage(session.token, serviceKey.value, filters)
     if (serviceKey.value === 'productOrder') selectedPriceTableIDs.value = page.value.selected_price_table_ids || []
     if (page.value.theme_key) {
@@ -265,6 +271,8 @@ async function loadPage() {
       await loadResaleBeanListWorkspace()
     }
   } catch (error) {
+    page.value = null
+    if (isAuthenticationExpiredRequestError(error)) { session.clearSession(); uni.reLaunch({url:loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`)}); return }
     errorMessage.value = error instanceof Error ? error.message : '服务数据加载失败'
   } finally {
     loading.value = false
@@ -377,7 +385,7 @@ function openOrderDocument(path?: string) {
     return
   }
   if (!session.token) {
-    uni.reLaunch({ url: '/pages/login/login' })
+    uni.reLaunch({ url: loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`) })
     return
   }
   uni.showLoading({ title: '打开中' })
@@ -730,7 +738,7 @@ async function submitResaleBeanList(status: 'draft' | 'published') {
 
 function openResaleOutput(item: BeanListSummary, kind: 'pdf' | 'png') {
   if (!session.token) {
-    uni.reLaunch({ url: '/pages/login/login' })
+    uni.reLaunch({ url: loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`) })
     return
   }
   const path = kind === 'pdf' ? buildResaleBeanListPDFPath(item.id) : buildResaleBeanListPNGPath(item.id)
@@ -926,6 +934,7 @@ async function confirmBeanListUpdateIfNeeded(): Promise<boolean> {
 
 onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
+  officialOrders.value = serviceKey.value === 'orders' && query?.source === 'official'
   prefillProductID.value = Number(query?.product_id || 0)
   prefillSpecG.value = Number(query?.spec_g || 0)
   prefillBomSpecID.value = Number(query?.bom_spec_id || 0)
@@ -989,7 +998,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         order-mode="product_order"
       />
       <CustomerDirectShipPanel
-        v-else-if="serviceKey === 'orders' && isProcessingCustomer"
+        v-else-if="serviceKey === 'orders' && isProcessingCustomer && !officialOrders"
         :key="`fulfillment-center:${session.currentCustomerID}`"
         :token="session.token"
         :customer-id="session.currentCustomerID"
@@ -1364,6 +1373,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         </view>
       </view>
 
+      <view v-if="serviceKey==='orders' && page" class="panel"><button :disabled="loading || orderPage<=1" @tap="loadPage(orderPage-1)">上一页</button><text>第 {{orderPage}} 页</text><button :disabled="loading || !page.has_more" @tap="loadPage(orderPage+1)">下一页</button></view>
       <view v-if="page?.direct_ship_batches?.length" class="panel">
         <text class="panel-title">一件代发批次</text>
         <view v-for="item in page.direct_ship_batches" :key="item.id" class="list-row">

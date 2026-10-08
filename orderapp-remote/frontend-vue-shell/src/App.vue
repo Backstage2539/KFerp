@@ -487,6 +487,7 @@ const internalViews = {
   customerCapabilityTemplates: CustomerCapabilityTemplatesView,
   customerPortalSettings: CustomerPortalSettingsView,
   customerPortalManual: OperationManualView,
+  wechatOfficialManual: OperationManualView,
   customerFulfillment: CustomerFulfillmentView,
   customerFulfillmentManual: OperationManualView,
   workspaceModeManual: OperationManualView,

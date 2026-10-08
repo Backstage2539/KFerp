@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import OfficialAccountBinding from "../../components/OfficialAccountBinding.vue"
 import { computed, ref } from 'vue'
 import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import {
@@ -350,6 +351,7 @@ onShow(() => { void refreshMiniappShareMenu() })
     <view class="pull-up-brand-footer-anchor">
       <PullUpBrandFooter :with-fixed-tabbar="!isEmployee" :revealed="pullUpBrandRevealed" />
     </view>
+    <OfficialAccountBinding v-if="!isEmployee && session.currentCustomerID" />
     <MainTabBar v-if="!isEmployee" current="mine" />
   </view>
 </template>

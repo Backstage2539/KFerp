@@ -8,8 +8,9 @@
     </header>
 
     <nav class="settings-tabs" role="tablist" aria-label="系统设置">
-      <button type="button" role="tab" :aria-selected="activeTab === 'base'" :class="{ active: activeTab === 'base' }" @click="activeTab = 'base'">系统基础设置</button>
-      <button type="button" role="tab" :aria-selected="activeTab === 'notifications'" :class="{ active: activeTab === 'notifications' }" @click="activeTab = 'notifications'">通知设置</button>
+      <button type="button" role="tab" :aria-selected="activeTab === 'base'" :class="{ active: activeTab === 'base' }" @click="selectTab('base')">系统基础设置</button>
+      <button type="button" role="tab" :aria-selected="activeTab === 'notifications'" :class="{ active: activeTab === 'notifications' }" @click="selectTab('notifications')">通知设置</button>
+      <button type="button" role="tab" :aria-selected="activeTab === 'wechat'" :class="{ active: activeTab === 'wechat' }" @click="selectTab('wechat')">公众号管理</button>
     </nav>
 
     <section v-if="activeTab === 'base'" class="page" role="tabpanel">
@@ -38,21 +39,34 @@
       </div>
     </section>
 
-    <NotificationSettingsView v-else />
+    <NotificationSettingsView v-else-if="activeTab === 'notifications'" />
+    <WechatOfficialSettings v-else />
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { fetchUISettings, saveUISettings } from '../api/ui-settings'
 import NotificationSettingsView from './NotificationSettingsView.vue'
+import WechatOfficialSettings from '../components/WechatOfficialSettings.vue'
 
-const activeTab = ref('base')
+const props = defineProps({ viewParams: { type: Object, default: () => ({}) } })
+const settingsTabs = ['base', 'notifications', 'wechat']
+const normalizeTab = (value) => settingsTabs.includes(String(value || '')) ? String(value) : 'base'
+const activeTab = ref(normalizeTab(props.viewParams?.tab))
 const loading = ref(false)
 const saving = ref(false)
 const ok = ref('')
 const error = ref('')
 const form = reactive({ hide_customer_account_fulfillment: true })
+
+function selectTab(tab) {
+  const next = normalizeTab(tab)
+  if (next === activeTab.value) return
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: { key: 'uiSettings', params: next === 'base' ? {} : { tab: next } },
+  }))
+}
 
 function assignSettings(data) {
   const settings = data?.settings || data || {}
@@ -87,6 +101,7 @@ async function save() {
 }
 
 onMounted(load)
+watch(() => props.viewParams?.tab, (value) => { activeTab.value = normalizeTab(value) })
 </script>
 
 <style scoped>

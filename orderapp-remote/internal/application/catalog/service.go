@@ -2162,7 +2162,9 @@ func (s *Service) ListProductPricingRules(ctx context.Context) ([]ProductPricing
 	return rules, nil
 }
 
-func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error) {
+// NormalizeProductPricingRule is shared by template saves and read-only draft
+// trials so zero values and deleted cost entries have identical semantics.
+func NormalizeProductPricingRule(cmd ProductPricingRule) (ProductPricingRule, error) {
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Code = strings.TrimSpace(cmd.Code)
@@ -2189,17 +2191,6 @@ func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricing
 	if pricingRuleCalculationHasLegacyQuarantine(cmd.CalculationJSON) {
 		return ProductPricingRule{}, ValidationError{Message: "quarantined legacy pricing rule must be replaced with a new markup template"}
 	}
-	if cmd.ID > 0 {
-		existingRules, err := s.repo.ListProductPricingRules(ctx)
-		if err != nil {
-			return ProductPricingRule{}, err
-		}
-		for _, existing := range existingRules {
-			if existing.ID == cmd.ID && pricingRuleCalculationNeedsQuarantine(existing.CalculationJSON) {
-				return ProductPricingRule{}, ValidationError{Message: "quarantined legacy pricing rule must be replaced with a new markup template"}
-			}
-		}
-	}
 	calculationJSON, err := normalizePricingRuleCalculationJSON(cmd.CalculationJSON)
 	if err != nil {
 		return ProductPricingRule{}, ValidationError{Message: err.Error()}
@@ -2208,6 +2199,36 @@ func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricing
 	cmd.MarginRate = normalizeLegacyPricingRuleMarkupRate(cmd.MarginRate, legacyProfitMethod)
 	if cmd.ID == 0 {
 		cmd.Active = true
+	}
+	return cmd, nil
+}
+
+// ValidateProductPricingRuleReplacement prevents a clean draft from bypassing
+// the quarantine of the stored template it would replace.
+func ValidateProductPricingRuleReplacement(existing map[string]any) error {
+	if pricingRuleCalculationNeedsQuarantine(existing) {
+		return ValidationError{Message: "quarantined legacy pricing rule must be replaced with a new markup template"}
+	}
+	return nil
+}
+
+func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error) {
+	cmd, err := NormalizeProductPricingRule(cmd)
+	if err != nil {
+		return ProductPricingRule{}, err
+	}
+	if cmd.ID > 0 {
+		existingRules, err := s.repo.ListProductPricingRules(ctx)
+		if err != nil {
+			return ProductPricingRule{}, err
+		}
+		for _, existing := range existingRules {
+			if existing.ID == cmd.ID {
+				if err := ValidateProductPricingRuleReplacement(existing.CalculationJSON); err != nil {
+					return ProductPricingRule{}, err
+				}
+			}
+		}
 	}
 	return s.repo.SaveProductPricingRule(ctx, cmd)
 }

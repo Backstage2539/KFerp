@@ -1,3 +1,29 @@
+### PR-686-PRICE-TEMPLATE-EDITOR-TRIAL
+- Branch: `codex/price-template-editor-trial-20261008`; PR #188 merged into `develop` as `57c5b29970c1630f644010067bb6c30bb8276300`.
+- Owner/session: Codex / Van / 2026-10-08.
+- Status: implementation, review fixes, full gates, develop integration, and development deployment complete; Van business acceptance pending.
+- Scope: current price-table product/spec selection, unsaved full-template auto trial, isolated results, existing save and publication semantics.
+- DEV: DEV-746-PRICE-RULE-DRAFT; DEV-747-PRICE-EDITOR-TRIAL; DEV-748-PRICE-EDITOR-DELIVERY.
+- Verifier: `./scripts/verify_kferp.sh all` passed after review fixes; Go full suite, Vue tests including 9/9 targeted editor-trial tests, Vue/Vite production build, and `git diff --check`.
+- Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md` and Vue drawer help.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-08-price-template-editor-trial.md`.
+- Deployment: development `57c5b29970c1630f644010067bb6c30bb8276300` deployed 2026-10-09. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261009004710-57c5b29970c1`; rollback image: `kferp-orderapp-rollback:development-20261009004710-57c5b29970c1`. Go/Vue/miniapp tests and builds passed on the server; `erp_orderapp` and PostgreSQL are running, PostgreSQL is healthy, and `https://dev.qacoohee.com/app/login` returned HTTP 200. Miniapp development artifact was built but not uploaded to WeChat. Production excluded; Van business acceptance pending.
+
+### PR-685-WECHAT-PRICE-ENTRIES-BY-TYPE
+- Owner/session: Codex / Van / 2026-10-08.
+- Branch: `codex/wechat-price-entry-types-20261008`; base `origin/develop@49bc988c22f390bff174e56d31b4fad2a9e93839`.
+- Status: implementation and review in progress; development deployment pending; Van business acceptance pending.
+- Scope: move 公众号管理 to the System Settings tab; create two stable price-list entries per product type (批发 / 一件代发), each manually mapped to one same-type publication version; preserve old paths without exposing them to the new menu selector.
+- DEV: DEV-742-WECHAT-TYPE-ENTRY-DATA; DEV-743-WECHAT-SYSTEM-SETTINGS; DEV-744-WECHAT-LEGACY-MENU-COMPAT; DEV-745-WECHAT-DOCS-DELIVERY.
+- Verifier:
+  - Unit: product-type grouping and independent use slots; old keys excluded from canonical grouping.
+  - API/DB: three product types create six unconfigured entries; new tables, versions and owners do not multiply entries; same-type version switch succeeds; cross-type and private-public violations fail.
+  - Frontend/build: System Settings tab, price-table shortcut, menu selector and historic path preservation; Vue tests and build.
+  - Manual: WeChat, System Settings, Customer Portal and Costing guides updated.
+  - Review/acceptance: review the five requirement tables; Van confirms development workflow and responsive UI.
+- Deployment: after feature-branch push and clean integration with latest origin/develop, deploy development only. Do not enable the real official account or publish its menu.
+- Evidence: `docs/acceptance/2026-10-08-wechat-entry-by-type.md`.
+
 ### PR-683-AUTHENTICATED-CONTRACT-DOWNLOAD
 - Owner/session: Codex / Van / 2026-10-06.
 - Branch: `codex/auth-download-login-path-20261006`; base `develop@c66fc707`.
@@ -5617,3 +5643,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: original ccd2 worktree preserved; production read-only; Van business acceptance pending.
 
 - PR-682 interim development release: `94cbfdf4`; runs #67/#68 all new-object category checks passed; repeat-request service conflict found and fixed before final delivery.
+
+### PR-684-WECHAT-OFFICIAL-PORTAL
+- Branch: codex/wechat-official-portal-ready
+- Owner/session: Codex
+- Status: implementation, automated verification and development delivery complete; Van acceptance pending
+- Scope: 固定价格表入口、公众号客户认证与订单文字回复、ERP 菜单管理。
+- DEV: DEV-737-WECHAT-ENTRIES; DEV-738-WECHAT-IDENTITY; DEV-739-WECHAT-MENUS; DEV-740-WECHAT-MINIAPP; DEV-741-WECHAT-DELIVERY
+- Verifier: Go unit/API/PostgreSQL; Vue helper/API tests + build; miniapp tests/typecheck/build.
+- Manual: orderapp-remote/docs/OP_MANUAL_WECHAT_OFFICIAL.md
+- Deployment: PR #185 merged to develop; application b1521ba30d61b4398f400b9602e343c5fa4db3aa deployed 2026-10-08. Backup /opt/stacks/erp/orderapp.backup.deploy-20261008011249-b1521ba30d61. App running with zero restarts, PostgreSQL healthy, public gateway running; authenticated status/docs/entries 200, anonymous admin/binding 401, disabled callback 503. 30 authenticated fixed entries backfilled. Miniapp development artifact verified (19 pages / 76 page files). Production/WeChat activation remains pending.
+- Last update: 2026-10-08
+- Notes: default authenticated entry, manually selected published version, automatic UnionID plus binding code; Van acceptance pending.
+- Delivery receipt: docs/acceptance/2026-10-08-wechat-official-portal.md. DEV-737 through DEV-741 complete; post-release tracking/docs commit does not change the deployed application identity above.
