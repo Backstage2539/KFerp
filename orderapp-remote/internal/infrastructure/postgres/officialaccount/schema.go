@@ -32,6 +32,16 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
    WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
    WHEN COALESCE(p.classification_category_id,0)>0 THEN 'classification-category:'||p.classification_category_id::text
    ELSE '' END $$;
+ CREATE OR REPLACE FUNCTION %[1]s.wechat_new_price_entry_key(p_type_key text,p_purpose text) RETURNS text LANGUAGE plpgsql AS $$
+ DECLARE candidate_key text; recovery_index int:=0;
+ BEGIN
+   candidate_key := md5('wechat-price-entry:'||p_type_key||':'||p_purpose);
+   WHILE EXISTS(SELECT 1 FROM %[1]s.wechat_price_entries e WHERE e.entry_key=candidate_key) LOOP
+     recovery_index := recovery_index+1;
+     candidate_key := md5('wechat-price-entry:'||p_type_key||':'||p_purpose||':recovered:'||recovery_index::text);
+   END LOOP;
+   RETURN candidate_key;
+ END $$;
  DO $wechat_price_entry_type_migration$
  DECLARE old_entry RECORD; resolved_type_key text; resolved_type_name text; candidate_count bigint; canonical_entry RECORD;
  BEGIN
@@ -73,7 +83,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 
      IF COALESCE(resolved_type_key,'')='' THEN
        -- Keep an ambiguous or withdrawn historical URL out of the new typed-entry editor.
-       UPDATE %[1]s.wechat_price_entries SET type_key='',enabled=false,revision=revision+1,updated_at=now() WHERE entry_key=old_entry.entry_key;
+       UPDATE %[1]s.wechat_price_entries SET type_key='',scope_key='historical:'||entry_key,enabled=false,revision=revision+1,updated_at=now() WHERE entry_key=old_entry.entry_key;
        CONTINUE;
      END IF;
 
@@ -86,7 +96,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
          DELETE FROM %[1]s.wechat_price_entries WHERE entry_key=canonical_entry.entry_key;
        ELSE
          -- Keep an already configured canonical entry and retain the prior URL as a hidden historical row.
-         UPDATE %[1]s.wechat_price_entries SET type_key='',enabled=false,revision=revision+1,updated_at=now() WHERE entry_key=old_entry.entry_key;
+         UPDATE %[1]s.wechat_price_entries SET type_key='',scope_key='historical:'||entry_key,enabled=false,revision=revision+1,updated_at=now() WHERE entry_key=old_entry.entry_key;
          CONTINUE;
        END IF;
      END IF;
@@ -107,8 +117,8 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
      IF resolved_type_key<>'' THEN
        INSERT INTO %[1]s.wechat_price_entries(entry_key,scope_key,type_key,type_name,purpose,name,publication_id,visibility,enabled)
        VALUES
-         (md5('wechat-price-entry:'||resolved_type_key||':wholesale'),'type:'||resolved_type_key||':wholesale',resolved_type_key,resolved_type_name,'wholesale',resolved_type_name||' 批发',NULL,'authenticated',false),
-         (md5('wechat-price-entry:'||resolved_type_key||':direct_ship'),'type:'||resolved_type_key||':direct_ship',resolved_type_key,resolved_type_name,'direct_ship',resolved_type_name||' 一件代发',NULL,'authenticated',false)
+         (%[1]s.wechat_new_price_entry_key(resolved_type_key,'wholesale'),'type:'||resolved_type_key||':wholesale',resolved_type_key,resolved_type_name,'wholesale',resolved_type_name||' 批发',NULL,'authenticated',false),
+         (%[1]s.wechat_new_price_entry_key(resolved_type_key,'direct_ship'),'type:'||resolved_type_key||':direct_ship',resolved_type_key,resolved_type_name,'direct_ship',resolved_type_name||' 一件代发',NULL,'authenticated',false)
        ON CONFLICT(type_key,purpose) WHERE type_key<>'' DO UPDATE SET type_name=excluded.type_name,name=excluded.name,updated_at=now();
      END IF;
    END IF;
@@ -117,7 +127,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  DROP TRIGGER IF EXISTS wechat_create_typed_price_entries ON %[1]s.bean_list_publications;
  CREATE TRIGGER wechat_create_typed_price_entries AFTER INSERT OR UPDATE OF status ON %[1]s.bean_list_publications FOR EACH ROW EXECUTE FUNCTION %[1]s.wechat_create_typed_price_entries();
  INSERT INTO %[1]s.wechat_price_entries(entry_key,scope_key,type_key,type_name,purpose,name,publication_id,visibility,enabled)
- SELECT md5('wechat-price-entry:'||x.type_key||':'||u.purpose),'type:'||x.type_key||':'||u.purpose,x.type_key,x.type_name,u.purpose,x.type_name||CASE WHEN u.purpose='wholesale' THEN ' 批发' ELSE ' 一件代发' END,NULL,'authenticated',false
+ SELECT %[1]s.wechat_new_price_entry_key(x.type_key,u.purpose),'type:'||x.type_key||':'||u.purpose,x.type_key,x.type_name,u.purpose,x.type_name||CASE WHEN u.purpose='wholesale' THEN ' 批发' ELSE ' 一件代发' END,NULL,'authenticated',false
  FROM (
    SELECT DISTINCT ON (%[1]s.wechat_price_type_key(p)) %[1]s.wechat_price_type_key(p) AS type_key,
      COALESCE(NULLIF(BTRIM(p.classification_template_name),''),NULLIF(BTRIM(p.product_type_name),''),NULLIF(BTRIM(p.classification_category_name),''),NULLIF(BTRIM(p.publication_table_name),''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.list_type,''),'价格表') AS type_name

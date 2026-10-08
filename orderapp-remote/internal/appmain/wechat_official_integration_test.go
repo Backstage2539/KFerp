@@ -327,11 +327,15 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		newTarget := typedPublication("canonical-new-target", "v2", "official", "", "旧切换分类", "当前切换分类", conflictProductTypeID, conflictTemplateID)
 		conflictKey := fmt.Sprintf("classification-template:%d", conflictTemplateID)
 		exec(`UPDATE %s.wechat_price_entries SET publication_id=$1,enabled=true WHERE type_key=$2 AND purpose='wholesale'`, newTarget, conflictKey)
-		legacyConflictKey := "legacy-entry-with-canonical-conflict"
+		var legacyConflictKey string
+		if err = pool.QueryRow(ctx, `SELECT md5($1)`, "wechat-price-entry:product-type:"+fmt.Sprint(conflictProductTypeID)+":wholesale").Scan(&legacyConflictKey); err != nil {
+			t.Fatal(err)
+		}
 		exec(`INSERT INTO %s.wechat_price_entries(entry_key,scope_key,name,publication_id,visibility,enabled,revision,type_key,type_name,purpose)
 			VALUES($1,$2,'旧切换分类 批发',$3,'authenticated',true,5,$4,'旧切换分类','wholesale')`, legacyConflictKey, "type:product-type:"+fmt.Sprint(conflictProductTypeID)+":wholesale", oldTarget, "product-type:"+fmt.Sprint(conflictProductTypeID))
+		typedPublication("legacy-fallback-same-type", "v1", "official", "", "旧切换分类", "旧切换分类", conflictProductTypeID, 0)
 		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
-			t.Fatalf("a configured legacy entry must not block a configured canonical entry: %v", err)
+			t.Fatalf("demoting a legacy entry must free its scope for a fallback type entry: %v", err)
 		}
 		demoted, err := r.Entry(ctx, legacyConflictKey)
 		if err != nil || demoted.PublicationID != oldTarget || demoted.Enabled || app.CheckEntry(demoted, nil) == nil {
@@ -341,10 +345,20 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		fallbackEntryFound := false
 		for _, row := range rows {
 			if row.Key == legacyConflictKey {
 				t.Fatalf("a historical path must not appear in the new typed-entry selector: %+v", row)
 			}
+			if row.TypeKey == fmt.Sprintf("product-type:%d", conflictProductTypeID) && row.Purpose == "wholesale" {
+				fallbackEntryFound = true
+				if row.Key == legacyConflictKey || row.PublicationID != 0 || row.Enabled {
+					t.Fatalf("the fallback entry must use a fresh stable path and remain unconfigured: %+v", row)
+				}
+			}
+		}
+		if !fallbackEntryFound {
+			t.Fatalf("the type fallback entry was not recreated after preserving the historical path")
 		}
 		exec(`UPDATE %s.bean_list_publications SET status='withdrawn' WHERE id=$1`, first)
 		withdrawn, err := r.Entry(ctx, directShip.Key)
@@ -419,7 +433,7 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		}
 		exec(`UPDATE %s.bean_list_publications SET status='published' WHERE id=$1`, second)
 		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
-			t.Fatal(err)
+			t.Fatalf("reapplying official-account schema failed: %v", err)
 		}
 		preserved, _ := r.Entry(ctx, e.Key)
 		if preserved.Enabled {
