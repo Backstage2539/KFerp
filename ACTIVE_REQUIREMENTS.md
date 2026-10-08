@@ -1,13 +1,13 @@
 ### PR-686-PRICE-TEMPLATE-EDITOR-TRIAL
 - Branch: `codex/price-template-editor-trial-20261008`; PR #188 merged into `develop` as `57c5b29970c1630f644010067bb6c30bb8276300`.
 - Owner/session: Codex / Van / 2026-10-08.
-- Status: implementation, review fixes, full gates, develop integration, and development deployment complete; Van business acceptance pending.
+- Status: implementation, review fixes, full gates, develop integration, and development/production deployments complete; Van business acceptance pending.
 - Scope: current price-table product/spec selection, unsaved full-template auto trial, isolated results, existing save and publication semantics.
 - DEV: DEV-746-PRICE-RULE-DRAFT; DEV-747-PRICE-EDITOR-TRIAL; DEV-748-PRICE-EDITOR-DELIVERY.
 - Verifier: `./scripts/verify_kferp.sh all` passed after review fixes; Go full suite, Vue tests including 9/9 targeted editor-trial tests, Vue/Vite production build, and `git diff --check`.
 - Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md` and Vue drawer help.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-08-price-template-editor-trial.md`.
-- Deployment: development `57c5b29970c1630f644010067bb6c30bb8276300` deployed 2026-10-09. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261009004710-57c5b29970c1`; rollback image: `kferp-orderapp-rollback:development-20261009004710-57c5b29970c1`. Go/Vue/miniapp tests and builds passed on the server; `erp_orderapp` and PostgreSQL are running, PostgreSQL is healthy, and `https://dev.qacoohee.com/app/login` returned HTTP 200. Miniapp development artifact was built but not uploaded to WeChat. Production excluded; Van business acceptance pending.
+- Deployment: development `57c5b29970c1630f644010067bb6c30bb8276300` deployed 2026-10-09. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261009004710-57c5b29970c1`; rollback image: `kferp-orderapp-rollback:development-20261009004710-57c5b29970c1`. Go/Vue/miniapp tests and builds passed on the server; `erp_orderapp` and PostgreSQL are running, PostgreSQL is healthy, and `https://dev.qacoohee.com/app/login` returned HTTP 200. Production `aefe1567103c68e4297ab5457a70d8473191489f` deployed 2026-10-09 after integrating verified `develop` (`b390c2b6`) and the BOM startup compatibility fix (`5217b6f4`). Production backup: `/opt/stacks/erp-production/orderapp.backup.deploy-20261009021555-aefe1567103c`; rollback image: `kferp-orderapp-rollback:production-20261009021555-aefe1567103c`. `erp_prod_orderapp` is running, PostgreSQL is healthy, and `https://erp.qacoohee.com/app/login` returned HTTP 200. Server Vue/Vite, Go, and miniapp tests/builds passed (267 miniapp tests, typecheck, and 19-page validation). The miniapp artifact was generated but not uploaded or published to WeChat. Van business acceptance pending.
 
 ### PR-685-WECHAT-PRICE-ENTRIES-BY-TYPE
 - Owner/session: Codex / Van / 2026-10-08.
