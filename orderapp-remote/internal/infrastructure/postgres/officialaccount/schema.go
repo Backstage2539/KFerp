@@ -26,28 +26,99 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  VALUES(%[1]s.wechat_price_scope(NEW),COALESCE(NULLIF(NEW.publication_table_name,''),NULLIF(NEW.config_json->'publication_batch'->>'table_name',''),NULLIF(NEW.config_json->>'title',''),NULLIF(NEW.product_type_name,''),NEW.list_type),NEW.id)
  ON CONFLICT(scope_key) DO NOTHING; END IF; RETURN NEW; END $$;
  DROP TRIGGER IF EXISTS wechat_create_price_entry ON %[1]s.bean_list_publications;
- CREATE TRIGGER wechat_create_price_entry AFTER INSERT OR UPDATE OF status ON %[1]s.bean_list_publications FOR EACH ROW EXECUTE FUNCTION %[1]s.wechat_create_price_entry();
- INSERT INTO %[1]s.wechat_price_entries(scope_key,name,publication_id)
- SELECT DISTINCT ON (%[1]s.wechat_price_scope(p)) %[1]s.wechat_price_scope(p),COALESCE(NULLIF(p.publication_table_name,''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.config_json->>'title',''),NULLIF(p.product_type_name,''),p.list_type),p.id
- FROM %[1]s.bean_list_publications p WHERE p.status='published' AND p.deleted_at IS NULL
- ORDER BY %[1]s.wechat_price_scope(p),p.published_at DESC,p.id DESC ON CONFLICT(scope_key) DO NOTHING;
  CREATE OR REPLACE FUNCTION %[1]s.wechat_price_type_key(p %[1]s.bean_list_publications) RETURNS text LANGUAGE sql IMMUTABLE AS $$
  SELECT CASE
-   WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
    WHEN COALESCE(p.classification_template_id,0)>0 THEN 'classification-template:'||p.classification_template_id::text
+   WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
    WHEN COALESCE(p.classification_category_id,0)>0 THEN 'classification-category:'||p.classification_category_id::text
    ELSE '' END $$;
+ CREATE OR REPLACE FUNCTION %[1]s.wechat_new_price_entry_key(p_type_key text,p_purpose text) RETURNS text LANGUAGE plpgsql AS $$
+ DECLARE candidate_key text; recovery_index int:=0;
+ BEGIN
+   candidate_key := md5('wechat-price-entry:'||p_type_key||':'||p_purpose);
+   WHILE EXISTS(SELECT 1 FROM %[1]s.wechat_price_entries e WHERE e.entry_key=candidate_key) LOOP
+     recovery_index := recovery_index+1;
+     candidate_key := md5('wechat-price-entry:'||p_type_key||':'||p_purpose||':recovered:'||recovery_index::text);
+   END LOOP;
+   RETURN candidate_key;
+ END $$;
+ DO $wechat_price_entry_type_migration$
+ DECLARE old_entry RECORD; resolved_type_key text; resolved_type_name text; candidate_count bigint; canonical_entry RECORD;
+ BEGIN
+   FOR old_entry IN SELECT entry_key,type_key,purpose,publication_id FROM %[1]s.wechat_price_entries
+     WHERE type_key ~ '^product-type:[0-9]+$' AND purpose IN ('wholesale','direct_ship')
+   LOOP
+     resolved_type_key := NULL;
+     resolved_type_name := NULL;
+     IF COALESCE(old_entry.publication_id,0)>0 THEN
+       SELECT %[1]s.wechat_price_type_key(p),
+         COALESCE(NULLIF(BTRIM(p.classification_template_name),''),NULLIF(BTRIM(p.product_type_name),''),NULLIF(BTRIM(p.classification_category_name),''),NULLIF(BTRIM(p.publication_table_name),''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.list_type,''),'价格表')
+       INTO resolved_type_key,resolved_type_name
+       FROM %[1]s.bean_list_publications p
+       WHERE p.id=old_entry.publication_id AND p.status='published' AND p.deleted_at IS NULL
+         AND p.product_type_category_id=substring(old_entry.type_key from 14)::bigint;
+     ELSE
+       SELECT count(DISTINCT %[1]s.wechat_price_type_key(p)) INTO candidate_count
+       FROM %[1]s.bean_list_publications p
+       WHERE p.product_type_category_id=substring(old_entry.type_key from 14)::bigint
+         AND p.status='published' AND p.deleted_at IS NULL;
+       IF candidate_count=1 THEN
+         SELECT %[1]s.wechat_price_type_key(p),
+           COALESCE(NULLIF(BTRIM(p.classification_template_name),''),NULLIF(BTRIM(p.product_type_name),''),NULLIF(BTRIM(p.classification_category_name),''),NULLIF(BTRIM(p.publication_table_name),''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.list_type,''),'价格表')
+         INTO resolved_type_key,resolved_type_name
+         FROM %[1]s.bean_list_publications p
+         WHERE p.product_type_category_id=substring(old_entry.type_key from 14)::bigint
+           AND p.status='published' AND p.deleted_at IS NULL
+         ORDER BY p.published_at DESC,p.id DESC LIMIT 1;
+       END IF;
+     END IF;
+
+     IF resolved_type_key=old_entry.type_key THEN
+       -- A publication without a classification template still uses this valid fallback identity.
+       UPDATE %[1]s.wechat_price_entries SET type_name=resolved_type_name,
+         name=resolved_type_name||CASE WHEN old_entry.purpose='wholesale' THEN ' 批发' ELSE ' 一件代发' END
+       WHERE entry_key=old_entry.entry_key;
+       CONTINUE;
+     END IF;
+
+     IF COALESCE(resolved_type_key,'')='' THEN
+       -- Keep an ambiguous or withdrawn historical URL out of the new typed-entry editor.
+       UPDATE %[1]s.wechat_price_entries SET type_key='',scope_key='historical:'||entry_key,enabled=false,revision=revision+1,updated_at=now() WHERE entry_key=old_entry.entry_key;
+       CONTINUE;
+     END IF;
+
+     SELECT entry_key,publication_id,enabled INTO canonical_entry
+     FROM %[1]s.wechat_price_entries
+     WHERE type_key=resolved_type_key AND purpose=old_entry.purpose AND entry_key<>old_entry.entry_key;
+     IF FOUND THEN
+       IF COALESCE(canonical_entry.publication_id,0)=0 AND NOT canonical_entry.enabled THEN
+         -- The canonical row is only an empty placeholder; preserve the old stable URL and configuration.
+         DELETE FROM %[1]s.wechat_price_entries WHERE entry_key=canonical_entry.entry_key;
+       ELSE
+         -- Keep an already configured canonical entry and retain the prior URL as a hidden historical row.
+         UPDATE %[1]s.wechat_price_entries SET type_key='',scope_key='historical:'||entry_key,enabled=false,revision=revision+1,updated_at=now() WHERE entry_key=old_entry.entry_key;
+         CONTINUE;
+       END IF;
+     END IF;
+
+     UPDATE %[1]s.wechat_price_entries SET type_key=resolved_type_key,
+       scope_key='type:'||resolved_type_key||':'||old_entry.purpose,
+       type_name=resolved_type_name,
+       name=resolved_type_name||CASE WHEN old_entry.purpose='wholesale' THEN ' 批发' ELSE ' 一件代发' END
+     WHERE entry_key=old_entry.entry_key;
+   END LOOP;
+ END $wechat_price_entry_type_migration$;
  CREATE OR REPLACE FUNCTION %[1]s.wechat_create_typed_price_entries() RETURNS trigger LANGUAGE plpgsql AS $$
  DECLARE resolved_type_key text; resolved_type_name text;
  BEGIN
    IF NEW.status='published' AND NEW.deleted_at IS NULL THEN
      resolved_type_key := %[1]s.wechat_price_type_key(NEW);
-     resolved_type_name := COALESCE(NULLIF(BTRIM(NEW.product_type_name),''),NULLIF(BTRIM(NEW.classification_template_name),''),NULLIF(BTRIM(NEW.classification_category_name),''),NULLIF(BTRIM(NEW.publication_table_name),''),NULLIF(NEW.config_json->'publication_batch'->>'table_name',''),NULLIF(NEW.list_type,''),'价格表');
+     resolved_type_name := COALESCE(NULLIF(BTRIM(NEW.classification_template_name),''),NULLIF(BTRIM(NEW.product_type_name),''),NULLIF(BTRIM(NEW.classification_category_name),''),NULLIF(BTRIM(NEW.publication_table_name),''),NULLIF(NEW.config_json->'publication_batch'->>'table_name',''),NULLIF(NEW.list_type,''),'价格表');
      IF resolved_type_key<>'' THEN
        INSERT INTO %[1]s.wechat_price_entries(entry_key,scope_key,type_key,type_name,purpose,name,publication_id,visibility,enabled)
        VALUES
-         (md5('wechat-price-entry:'||resolved_type_key||':wholesale'),'type:'||resolved_type_key||':wholesale',resolved_type_key,resolved_type_name,'wholesale',resolved_type_name||' 批发',NULL,'authenticated',false),
-         (md5('wechat-price-entry:'||resolved_type_key||':direct_ship'),'type:'||resolved_type_key||':direct_ship',resolved_type_key,resolved_type_name,'direct_ship',resolved_type_name||' 一件代发',NULL,'authenticated',false)
+         (%[1]s.wechat_new_price_entry_key(resolved_type_key,'wholesale'),'type:'||resolved_type_key||':wholesale',resolved_type_key,resolved_type_name,'wholesale',resolved_type_name||' 批发',NULL,'authenticated',false),
+         (%[1]s.wechat_new_price_entry_key(resolved_type_key,'direct_ship'),'type:'||resolved_type_key||':direct_ship',resolved_type_key,resolved_type_name,'direct_ship',resolved_type_name||' 一件代发',NULL,'authenticated',false)
        ON CONFLICT(type_key,purpose) WHERE type_key<>'' DO UPDATE SET type_name=excluded.type_name,name=excluded.name,updated_at=now();
      END IF;
    END IF;
@@ -56,10 +127,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  DROP TRIGGER IF EXISTS wechat_create_typed_price_entries ON %[1]s.bean_list_publications;
  CREATE TRIGGER wechat_create_typed_price_entries AFTER INSERT OR UPDATE OF status ON %[1]s.bean_list_publications FOR EACH ROW EXECUTE FUNCTION %[1]s.wechat_create_typed_price_entries();
  INSERT INTO %[1]s.wechat_price_entries(entry_key,scope_key,type_key,type_name,purpose,name,publication_id,visibility,enabled)
- SELECT md5('wechat-price-entry:'||x.type_key||':'||u.purpose),'type:'||x.type_key||':'||u.purpose,x.type_key,x.type_name,u.purpose,x.type_name||CASE WHEN u.purpose='wholesale' THEN ' 批发' ELSE ' 一件代发' END,NULL,'authenticated',false
+ SELECT %[1]s.wechat_new_price_entry_key(x.type_key,u.purpose),'type:'||x.type_key||':'||u.purpose,x.type_key,x.type_name,u.purpose,x.type_name||CASE WHEN u.purpose='wholesale' THEN ' 批发' ELSE ' 一件代发' END,NULL,'authenticated',false
  FROM (
    SELECT DISTINCT ON (%[1]s.wechat_price_type_key(p)) %[1]s.wechat_price_type_key(p) AS type_key,
-     COALESCE(NULLIF(BTRIM(p.product_type_name),''),NULLIF(BTRIM(p.classification_template_name),''),NULLIF(BTRIM(p.classification_category_name),''),NULLIF(BTRIM(p.publication_table_name),''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.list_type,''),'价格表') AS type_name
+     COALESCE(NULLIF(BTRIM(p.classification_template_name),''),NULLIF(BTRIM(p.product_type_name),''),NULLIF(BTRIM(p.classification_category_name),''),NULLIF(BTRIM(p.publication_table_name),''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.list_type,''),'价格表') AS type_name
    FROM %[1]s.bean_list_publications p
    WHERE p.status='published' AND p.deleted_at IS NULL AND %[1]s.wechat_price_type_key(p)<>''
    ORDER BY %[1]s.wechat_price_type_key(p),p.published_at DESC,p.id DESC

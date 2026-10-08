@@ -87,19 +87,36 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		return c
 	}
 	publication := func(table, version, owner, key string) int64 {
-		return id(`INSERT INTO %s.bean_list_publications(list_type,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json) VALUES('commercial',$1,$1,$2,$3,$4,'{"title":"测试豆单"}','{"groups":[{"category":"熟豆","items":[{"name":"测试豆","prices":[{"label":"227g","value":"¥50"}]}]}]}') RETURNING id`, table, version, owner, key)
+		publicationID := id(`INSERT INTO %s.bean_list_publications(list_type,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json) VALUES('commercial',$1,$1,$2,$3,$4,'{"title":"测试豆单"}','{"groups":[{"category":"熟豆","items":[{"name":"测试豆","prices":[{"label":"227g","value":"¥50"}]}]}]}') RETURNING id`, table, version, owner, key)
+		exec(`INSERT INTO %[1]s.wechat_price_entries(scope_key,name,publication_id) SELECT %[1]s.wechat_price_scope(p),COALESCE(NULLIF(p.publication_table_name,''),p.list_type),p.id FROM %[1]s.bean_list_publications p WHERE p.id=$1 ON CONFLICT(scope_key) DO NOTHING`, publicationID)
+		return publicationID
 	}
 	t.Run("canonical entries are product type by configured use", func(t *testing.T) {
 		typeID := int64(71001)
-		typedPublication := func(table, version, owner, ownerKey, typeName string, productTypeID int64) int64 {
-			return id(`INSERT INTO %s.bean_list_publications(list_type,product_type_category_id,product_type_name,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json)
-				VALUES('commercial',$1,$2,$3,$3,$4,$5,$6,'{"title":"测试豆单"}','{"groups":[{"category":"熟豆","items":[]}]}') RETURNING id`, productTypeID, typeName, table, version, owner, ownerKey)
+		typedPublication := func(table, version, owner, ownerKey, legacyTypeName, typeName string, productTypeID, classificationTemplateID int64) int64 {
+			return id(`INSERT INTO %s.bean_list_publications(list_type,product_type_category_id,product_type_name,classification_template_id,classification_template_name,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json)
+				VALUES('commercial',$1,$2,$3,$4,$5,$5,$6,$7,$8,'{"title":"测试豆单"}','{"groups":[{"category":"熟豆","items":[]}]}') RETURNING id`, productTypeID, legacyTypeName, classificationTemplateID, typeName, table, version, owner, ownerKey)
 		}
-		first := typedPublication("coffee-wholesale", "v1", "official", "", "咖啡豆", typeID)
-		second := typedPublication("coffee-direct-ship", "v2", "official", "", "咖啡豆", typeID)
-		private := typedPublication("coffee-customer", "v1", "customer", fmt.Sprint(customer), "咖啡豆", typeID)
-		typedPublication("drip-wholesale", "v1", "official", "", "挂耳咖啡", typeID+1)
-		typedPublication("instant-direct", "v1", "official", "", "速溶咖啡", typeID+2)
+		productTypeID := typeID + 1000
+		first := typedPublication("coffee-wholesale", "v1", "official", "", "旧咖啡豆分类", "咖啡豆", productTypeID, typeID)
+		second := typedPublication("coffee-direct-ship", "v2", "official", "", "旧咖啡豆分类", "咖啡豆", productTypeID, typeID)
+		private := typedPublication("coffee-customer", "v1", "customer", fmt.Sprint(customer), "旧咖啡豆分类", "咖啡豆", productTypeID, typeID)
+		typedPublication("drip-wholesale", "v1", "official", "", "旧挂耳分类", "挂耳咖啡", productTypeID+1, typeID+1)
+		typedPublication("instant-direct", "v1", "official", "", "旧速溶分类", "速溶咖啡", productTypeID+2, typeID+2)
+		legacyEntryKey := "legacy-coffee-wholesale-entry"
+		exec(`INSERT INTO %s.wechat_price_entries(entry_key,scope_key,name,publication_id,visibility,enabled,revision,type_key,type_name,purpose)
+			VALUES($1,$2,'旧咖啡豆分类 批发',$3,'authenticated',true,7,$4,'旧咖啡豆分类','wholesale')`, legacyEntryKey, "type:product-type:"+fmt.Sprint(productTypeID)+":wholesale", first, "product-type:"+fmt.Sprint(productTypeID))
+		exec(`UPDATE %s.wechat_price_entries SET type_name='错误回填名称' WHERE type_key=$1`, "classification-template:"+fmt.Sprint(typeID))
+		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatalf("re-running the migration failed: %v", err)
+		}
+		var legacyEntryCount int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.wechat_price_entries WHERE type_key=''`, schema)).Scan(&legacyEntryCount); err != nil {
+			t.Fatal(err)
+		}
+		if legacyEntryCount != 0 {
+			t.Fatalf("new publications must not create legacy per-table entries, got %d", legacyEntryCount)
+		}
 		rows, err := r.Entries(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -111,27 +128,35 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		var wholesale app.Entry
 		var directShip app.Entry
 		for _, row := range rows {
-			if row.PublicationID != 0 || row.Enabled || row.Visibility != "authenticated" {
-				t.Fatalf("new entry must remain unconfigured and disabled: %+v", row)
+			if row.TypeKey == "classification-template:"+fmt.Sprint(typeID) && row.TypeName != "咖啡豆" {
+				t.Fatalf("the current classification name must win over the legacy name on every schema run: %+v", row)
 			}
 			seen[row.TypeKey+"/"+row.Purpose] = true
-			if row.TypeKey == fmt.Sprintf("product-type:%d", typeID) && row.Purpose == "wholesale" {
+			if row.TypeKey == fmt.Sprintf("classification-template:%d", typeID) && row.Purpose == "wholesale" {
 				wholesale = row
 			}
-			if row.TypeKey == fmt.Sprintf("product-type:%d", typeID) && row.Purpose == "direct_ship" {
+			if row.TypeKey == fmt.Sprintf("classification-template:%d", typeID) && row.Purpose == "direct_ship" {
 				directShip = row
 			}
 		}
 		for _, categoryID := range []int64{typeID, typeID + 1, typeID + 2} {
 			for _, purpose := range []string{"wholesale", "direct_ship"} {
-				if !seen[fmt.Sprintf("product-type:%d/%s", categoryID, purpose)] {
+				if !seen[fmt.Sprintf("classification-template:%d/%s", categoryID, purpose)] {
 					t.Fatalf("missing type/use entry %d/%s", categoryID, purpose)
 				}
 			}
 		}
+		if wholesale.Key != legacyEntryKey || wholesale.PublicationID != first || !wholesale.Enabled || wholesale.Revision != 7 {
+			t.Fatalf("the prior configured entry must migrate without changing its stable URL or settings: %+v", wholesale)
+		}
+		for _, row := range rows {
+			if row.Key != legacyEntryKey && (row.PublicationID != 0 || row.Enabled) {
+				t.Fatalf("new entries must begin unconfigured and disabled: %+v", row)
+			}
+		}
 		for _, added := range []int64{
-			typedPublication("coffee-wholesale-copy", "v2", "official", "", "咖啡豆", typeID),
-			typedPublication("coffee-other-customer", "v1", "customer", fmt.Sprint(other), "咖啡豆", typeID),
+			typedPublication("coffee-wholesale-copy", "v2", "official", "", "旧咖啡豆分类", "咖啡豆", productTypeID, typeID),
+			typedPublication("coffee-other-customer", "v1", "customer", fmt.Sprint(other), "旧咖啡豆分类", "咖啡豆", productTypeID, typeID),
 		} {
 			_ = added
 		}
@@ -154,16 +179,21 @@ func TestWechatOfficialPostgres(t *testing.T) {
 			t.Fatalf("same type table/version must be selectable: %+v err=%v", configured, err)
 		}
 		directShip.PublicationID, directShip.Enabled = first, true
+		directShip.Purpose = "wholesale" // Client input must not override the authoritative entry purpose.
 		directShip, err = r.SaveEntry(ctx, directShip.Key, directShip, "test")
-		if err != nil || directShip.PublicationID != first {
-			t.Fatalf("the second use must be independently configurable: %+v err=%v", directShip, err)
+		if err != nil || directShip.PublicationID != first || directShip.Purpose != "direct_ship" {
+			t.Fatalf("the second use must be independently configurable and retain its purpose: %+v err=%v", directShip, err)
+		}
+		var auditedPurpose string
+		if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT meta->>'purpose' FROM %s.audit_logs WHERE entity_type='wechat_official_account' AND action='entry_update' ORDER BY id DESC LIMIT 1`, schema)).Scan(&auditedPurpose); err != nil || auditedPurpose != "direct_ship" {
+			t.Fatalf("audit must record the stored purpose, got %q err=%v", auditedPurpose, err)
 		}
 		configured, err = r.Entry(ctx, wholesale.Key)
 		if err != nil || configured.PublicationID != second {
 			t.Fatalf("saving one use changed the other use: %+v err=%v", configured, err)
 		}
 		wrongType := configured
-		wrongType.PublicationID = id(`SELECT id FROM %s.bean_list_publications WHERE product_type_category_id=$1 ORDER BY id LIMIT 1`, typeID+1)
+		wrongType.PublicationID = id(`SELECT id FROM %s.bean_list_publications WHERE classification_template_id=$1 ORDER BY id LIMIT 1`, typeID+1)
 		if _, err = r.SaveEntry(ctx, wholesale.Key, wrongType, "test"); err == nil {
 			t.Fatal("cross-type publication was accepted")
 		}
@@ -173,7 +203,7 @@ func TestWechatOfficialPostgres(t *testing.T) {
 			t.Fatal("customer-private publication became public")
 		}
 		originalKey := configured.Key
-		exec(`UPDATE %s.bean_list_publications SET product_type_name='咖啡豆新名称' WHERE product_type_category_id=$1`, typeID)
+		exec(`UPDATE %s.bean_list_publications SET classification_template_name='咖啡豆新名称' WHERE classification_template_id=$1`, typeID)
 		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
 			t.Fatal(err)
 		}
@@ -215,11 +245,120 @@ func TestWechatOfficialPostgres(t *testing.T) {
 			t.Fatalf("new menu API must expose only canonical type/use rows: %d %s", listResponse.Code, listResponse.Body.String())
 		}
 		apiCrossType := pairBody.Rows[0]
-		apiCrossType.PublicationID = id(`SELECT id FROM %s.bean_list_publications WHERE product_type_category_id=$1 ORDER BY id LIMIT 1`, typeID+2)
+		apiCrossType.PublicationID = id(`SELECT id FROM %s.bean_list_publications WHERE classification_template_id=$1 ORDER BY id LIMIT 1`, typeID+2)
 		payload, _ := json.Marshal(apiCrossType)
 		badSave := requestAPI(http.MethodPut, "/api/customer-portal/admin/wechat/entries/"+apiCrossType.Key, payload)
 		if badSave.Code != http.StatusConflict {
 			t.Fatalf("cross-type API save was accepted: %d %s", badSave.Code, badSave.Body.String())
+		}
+		classificationID := typeID + 1000
+		classifiedPublication := func(table, version string, legacyTypeID int64) int64 {
+			return id(`INSERT INTO %s.bean_list_publications(list_type,product_type_category_id,product_type_name,classification_template_id,classification_template_name,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json)
+				VALUES('commercial',$1,'旧类型名称',$2,'当前分类类型',$3,$3,$4,'official','', '{"title":"分类豆单"}', '{"groups":[]}') RETURNING id`, legacyTypeID, classificationID, table, version)
+		}
+		classifiedFirst := classifiedPublication("classified-first", "v1", typeID+100)
+		classifiedSecond := classifiedPublication("classified-second", "v2", typeID+200)
+		rows, err = r.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var classifiedWholesale app.Entry
+		classificationEntryCount := 0
+		for _, row := range rows {
+			if row.TypeKey == fmt.Sprintf("classification-template:%d", classificationID) {
+				classificationEntryCount++
+				if row.Purpose == "wholesale" {
+					classifiedWholesale = row
+				}
+			}
+		}
+		if classificationEntryCount != 2 {
+			t.Fatalf("current classification identity must override differing legacy type IDs; entries=%d rows=%+v", classificationEntryCount, rows)
+		}
+		classifiedVersions, versionErr := r.Versions(ctx, classifiedWholesale.Key)
+		if versionErr != nil || len(classifiedVersions) != 2 || classifiedVersions[0].ID != classifiedSecond || classifiedVersions[1].ID != classifiedFirst {
+			t.Fatalf("same classification versions not grouped: %+v err=%v", classifiedVersions, versionErr)
+		}
+		classifiedWholesale.PublicationID = classifiedSecond
+		if saved, saveErr := r.SaveEntry(ctx, classifiedWholesale.Key, classifiedWholesale, "test"); saveErr != nil || saved.PublicationID != classifiedSecond {
+			t.Fatalf("same current classification version rejected because of legacy IDs: %+v err=%v", saved, saveErr)
+		}
+		legacyOnlyTypeID := typeID + 9000
+		id(`INSERT INTO %s.bean_list_publications(list_type,product_type_category_id,product_type_name,classification_template_id,classification_template_name,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json)
+			VALUES('commercial',$1,'旧版豆类',0,'',$2,$2,'v1','official','', '{"title":"兼容豆单"}', '{"groups":[]}') RETURNING id`, legacyOnlyTypeID, "legacy-only")
+		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatalf("legacy-only product-type entries must survive schema initialization: %v", err)
+		}
+		rows, err = r.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacyOnlyCount := 0
+		for _, row := range rows {
+			if row.TypeKey == fmt.Sprintf("product-type:%d", legacyOnlyTypeID) {
+				legacyOnlyCount++
+			}
+		}
+		if legacyOnlyCount != 2 {
+			t.Fatalf("fallback identity must keep both configured-use entries after schema initialization: %d rows=%+v", legacyOnlyCount, rows)
+		}
+		categoryOnlyID := typeID + 9500
+		id(`INSERT INTO %s.bean_list_publications(list_type,product_type_category_id,product_type_name,classification_template_id,classification_template_name,classification_category_id,classification_category_name,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json)
+			VALUES('commercial',0,'',0,'',$1,'咖啡饮品',$2,$2,'v1','official','', '{"title":"分类类别兼容"}', '{"groups":[]}') RETURNING id`, categoryOnlyID, "category-only")
+		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatalf("classification-category entries must remain compatible: %v", err)
+		}
+		rows, err = r.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		categoryEntryCount := 0
+		for _, row := range rows {
+			if row.TypeKey == fmt.Sprintf("classification-category:%d", categoryOnlyID) {
+				categoryEntryCount++
+			}
+		}
+		if categoryEntryCount != 2 {
+			t.Fatalf("classification-category fallback must keep both use entries: %d rows=%+v", categoryEntryCount, rows)
+		}
+
+		conflictTemplateID, conflictProductTypeID := typeID+9600, typeID+9700
+		oldTarget := typedPublication("legacy-old-target", "v1", "official", "", "旧切换分类", "当前切换分类", conflictProductTypeID, conflictTemplateID)
+		newTarget := typedPublication("canonical-new-target", "v2", "official", "", "旧切换分类", "当前切换分类", conflictProductTypeID, conflictTemplateID)
+		conflictKey := fmt.Sprintf("classification-template:%d", conflictTemplateID)
+		exec(`UPDATE %s.wechat_price_entries SET publication_id=$1,enabled=true WHERE type_key=$2 AND purpose='wholesale'`, newTarget, conflictKey)
+		var legacyConflictKey string
+		if err = pool.QueryRow(ctx, `SELECT md5($1)`, "wechat-price-entry:product-type:"+fmt.Sprint(conflictProductTypeID)+":wholesale").Scan(&legacyConflictKey); err != nil {
+			t.Fatal(err)
+		}
+		exec(`INSERT INTO %s.wechat_price_entries(entry_key,scope_key,name,publication_id,visibility,enabled,revision,type_key,type_name,purpose)
+			VALUES($1,$2,'旧切换分类 批发',$3,'authenticated',true,5,$4,'旧切换分类','wholesale')`, legacyConflictKey, "type:product-type:"+fmt.Sprint(conflictProductTypeID)+":wholesale", oldTarget, "product-type:"+fmt.Sprint(conflictProductTypeID))
+		typedPublication("legacy-fallback-same-type", "v1", "official", "", "旧切换分类", "旧切换分类", conflictProductTypeID, 0)
+		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatalf("demoting a legacy entry must free its scope for a fallback type entry: %v", err)
+		}
+		demoted, err := r.Entry(ctx, legacyConflictKey)
+		if err != nil || demoted.PublicationID != oldTarget || demoted.Enabled || app.CheckEntry(demoted, nil) == nil {
+			t.Fatalf("a superseded historical path must keep its target but stay disabled: %+v err=%v", demoted, err)
+		}
+		rows, err = r.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fallbackEntryFound := false
+		for _, row := range rows {
+			if row.Key == legacyConflictKey {
+				t.Fatalf("a historical path must not appear in the new typed-entry selector: %+v", row)
+			}
+			if row.TypeKey == fmt.Sprintf("product-type:%d", conflictProductTypeID) && row.Purpose == "wholesale" {
+				fallbackEntryFound = true
+				if row.Key == legacyConflictKey || row.PublicationID != 0 || row.Enabled {
+					t.Fatalf("the fallback entry must use a fresh stable path and remain unconfigured: %+v", row)
+				}
+			}
+		}
+		if !fallbackEntryFound {
+			t.Fatalf("the type fallback entry was not recreated after preserving the historical path")
 		}
 		exec(`UPDATE %s.bean_list_publications SET status='withdrawn' WHERE id=$1`, first)
 		withdrawn, err := r.Entry(ctx, directShip.Key)
@@ -294,7 +433,7 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		}
 		exec(`UPDATE %s.bean_list_publications SET status='published' WHERE id=$1`, second)
 		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
-			t.Fatal(err)
+			t.Fatalf("reapplying official-account schema failed: %v", err)
 		}
 		preserved, _ := r.Entry(ctx, e.Key)
 		if preserved.Enabled {
@@ -313,6 +452,7 @@ func TestWechatOfficialPostgres(t *testing.T) {
 			t.Fatal("unrelated legacy sheets collapsed", err)
 		}
 		pub := id(`INSERT INTO %s.bean_list_publications(list_type,config_json,content_json) VALUES('commercial','{"publication_batch":{"table_key":"actual-batch","table_name":"挂耳批发"}}','{"groups":[]}') RETURNING id`)
+		exec(`INSERT INTO %[1]s.wechat_price_entries(scope_key,name,publication_id) SELECT %[1]s.wechat_price_scope(p),COALESCE(NULLIF(p.config_json->'publication_batch'->>'table_name',''),p.list_type),p.id FROM %[1]s.bean_list_publications p WHERE p.id=$1 ON CONFLICT(scope_key) DO NOTHING`, pub)
 		before, err := r.EntryForPublication(ctx, pub)
 		if err != nil || before.Name != "挂耳批发" {
 			t.Fatal("batch metadata missing", before, err)
