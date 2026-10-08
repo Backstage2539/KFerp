@@ -1,3 +1,18 @@
+### PR-685-WECHAT-PRICE-ENTRIES-BY-TYPE
+- Owner/session: Codex / Van / 2026-10-08.
+- Branch: `codex/wechat-price-entry-types-20261008`; base `origin/develop@49bc988c22f390bff174e56d31b4fad2a9e93839`.
+- Status: implementation and review in progress; development deployment pending; Van business acceptance pending.
+- Scope: move 公众号管理 to the System Settings tab; create two stable price-list entries per product type (批发 / 一件代发), each manually mapped to one same-type publication version; preserve old paths without exposing them to the new menu selector.
+- DEV: DEV-742-WECHAT-TYPE-ENTRY-DATA; DEV-743-WECHAT-SYSTEM-SETTINGS; DEV-744-WECHAT-LEGACY-MENU-COMPAT; DEV-745-WECHAT-DOCS-DELIVERY.
+- Verifier:
+  - Unit: product-type grouping and independent use slots; old keys excluded from canonical grouping.
+  - API/DB: three product types create six unconfigured entries; new tables, versions and owners do not multiply entries; same-type version switch succeeds; cross-type and private-public violations fail.
+  - Frontend/build: System Settings tab, price-table shortcut, menu selector and historic path preservation; Vue tests and build.
+  - Manual: WeChat, System Settings, Customer Portal and Costing guides updated.
+  - Review/acceptance: review the five requirement tables; Van confirms development workflow and responsive UI.
+- Deployment: after feature-branch push and clean integration with latest origin/develop, deploy development only. Do not enable the real official account or publish its menu.
+- Evidence: `docs/acceptance/2026-10-08-wechat-entry-by-type.md`.
+
 ### PR-683-AUTHENTICATED-CONTRACT-DOWNLOAD
 - Owner/session: Codex / Van / 2026-10-06.
 - Branch: `codex/auth-download-login-path-20261006`; base `develop@c66fc707`.

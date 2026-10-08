@@ -32,6 +32,18 @@ test('unknown imported buttons remain visible until deliberately edited', () => 
   assert.deepEqual(menuFromEditor(menuToEditor(menu)), menu)
 })
 
+test('imported historical price-entry paths roundtrip without being redirected', () => {
+  const menu = {
+    button: [{
+      name: '旧价格表',
+      type: 'miniprogram',
+      appid: 'wx-mini',
+      pagepath: 'pages/price-list/price-list?entry=0123456789abcdef0123456789abcdef',
+    }],
+  }
+  assert.deepEqual(menuFromEditor(menuToEditor(menu)), menu)
+})
+
 test('import does not mislabel custom WeChat actions as order replies', () => {
   assert.equal(menuAction({ type: 'click', key: 'LEGACY_CLICK' }), 'custom')
   assert.equal(

@@ -26,7 +26,7 @@ function changeEntry(key) {
     <label>
       点击后
       <select :value="action" @change="setAction($event.target.value)">
-        <option value="price">查看指定豆单</option>
+        <option value="price">查看指定价格表</option>
         <option value="orders">查看全部订单</option>
         <option value="recent1">回复最近一次订单</option>
         <option value="recent3">回复最近三次订单</option>
@@ -58,6 +58,12 @@ function changeEntry(key) {
         @change="changeEntry($event.target.value)"
       >
         <option value="">请选择入口</option>
+        <option
+          v-if="(button.pagepath || '').includes('entry=') && !entries.some((entry) => entry.key === (button.pagepath || '').split('entry=')[1])"
+          :value="(button.pagepath || '').split('entry=')[1]"
+        >
+          历史价格表入口（保留现有路径）
+        </option>
         <option v-for="entry in entries" :key="entry.key" :value="entry.key">
           {{ entry.name }} · {{ entry.version }}
         </option>

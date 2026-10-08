@@ -168,7 +168,7 @@
                 <div class="version-actions">
                   <button class="secondary compact" type="button" :disabled="!beanListPublicationHasContent(row)" @click="downloadBeanListPublication(row)">下载 PDF</button>
                   <button class="secondary compact" type="button" @click="startBeanListFromPublication(row)">生成新版</button>
-                  <button v-if="isBeanListAdmin" class="secondary compact" type="button" @click="wechatEntryPublicationId=Number(row.id)">公众号入口</button>
+                  <button v-if="isBeanListAdmin" class="secondary compact" type="button" @click="wechatEntryPublicationId=Number(row.id)">价格表入口</button>
                   <button v-if="isBeanListAdmin && row.status === 'published'" class="danger compact" type="button" :disabled="beanListWithdrawing" @click="withdrawBeanList(row)">撤回</button>
                 </div>
               </td>
@@ -1232,7 +1232,7 @@
       </section>
     </Teleport>
   </div>
-<div v-if="wechatEntryPublicationId" class="wechat-entry-modal" role="dialog" aria-modal="true" aria-label="公众号豆单入口"><section><button type="button" @click="wechatEntryPublicationId=0">关闭</button><WechatPriceEntries :key="wechatEntryPublicationId" :publication-id="wechatEntryPublicationId" /></section></div>
+<div v-if="wechatEntryPublicationId" class="wechat-entry-modal" role="dialog" aria-modal="true" aria-label="价格表入口配置"><section><button type="button" @click="wechatEntryPublicationId=0">关闭</button><WechatPriceEntries :key="wechatEntryPublicationId" :publication-id="wechatEntryPublicationId" /></section></div>
 </template>
 
 <script setup>
