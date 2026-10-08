@@ -152,11 +152,14 @@ async function unbind(b) {
     notice.value = '已解除绑定，公众号订单查询立即停止。'
   })
 }
-function restore(row) {
-  groups.value = menuToEditor(row.menu)
-  changed()
-  tab.value = 'menu'
-  notice.value = '历史菜单已载入编辑区，预览后发布才会生效。'
+async function restore(row) {
+  await run(async () => {
+    await loadMenuEntries()
+    groups.value = menuToEditor(row.menu)
+    changed()
+    tab.value = 'menu'
+    notice.value = '历史菜单已载入编辑区，预览后发布才会生效。'
+  })
 }
 function openManual() {
   window.dispatchEvent(

@@ -276,7 +276,7 @@ func TestWechatOfficialPostgres(t *testing.T) {
 			t.Fatalf("current classification identity must override differing legacy type IDs; entries=%d rows=%+v", classificationEntryCount, rows)
 		}
 		classifiedVersions, versionErr := r.Versions(ctx, classifiedWholesale.Key)
-		if versionErr != nil || len(classifiedVersions) != 2 || classifiedVersions[0].ID != classifiedSecond && classifiedVersions[1].ID != classifiedFirst {
+		if versionErr != nil || len(classifiedVersions) != 2 || classifiedVersions[0].ID != classifiedSecond || classifiedVersions[1].ID != classifiedFirst {
 			t.Fatalf("same classification versions not grouped: %+v err=%v", classifiedVersions, versionErr)
 		}
 		classifiedWholesale.PublicationID = classifiedSecond
@@ -301,6 +301,50 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		}
 		if legacyOnlyCount != 2 {
 			t.Fatalf("fallback identity must keep both configured-use entries after schema initialization: %d rows=%+v", legacyOnlyCount, rows)
+		}
+		categoryOnlyID := typeID + 9500
+		id(`INSERT INTO %s.bean_list_publications(list_type,product_type_category_id,product_type_name,classification_template_id,classification_template_name,classification_category_id,classification_category_name,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json)
+			VALUES('commercial',0,'',0,'',$1,'咖啡饮品',$2,$2,'v1','official','', '{"title":"分类类别兼容"}', '{"groups":[]}') RETURNING id`, categoryOnlyID, "category-only")
+		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatalf("classification-category entries must remain compatible: %v", err)
+		}
+		rows, err = r.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		categoryEntryCount := 0
+		for _, row := range rows {
+			if row.TypeKey == fmt.Sprintf("classification-category:%d", categoryOnlyID) {
+				categoryEntryCount++
+			}
+		}
+		if categoryEntryCount != 2 {
+			t.Fatalf("classification-category fallback must keep both use entries: %d rows=%+v", categoryEntryCount, rows)
+		}
+
+		conflictTemplateID, conflictProductTypeID := typeID+9600, typeID+9700
+		oldTarget := typedPublication("legacy-old-target", "v1", "official", "", "旧切换分类", "当前切换分类", conflictProductTypeID, conflictTemplateID)
+		newTarget := typedPublication("canonical-new-target", "v2", "official", "", "旧切换分类", "当前切换分类", conflictProductTypeID, conflictTemplateID)
+		conflictKey := fmt.Sprintf("classification-template:%d", conflictTemplateID)
+		exec(`UPDATE %s.wechat_price_entries SET publication_id=$1,enabled=true WHERE type_key=$2 AND purpose='wholesale'`, newTarget, conflictKey)
+		legacyConflictKey := "legacy-entry-with-canonical-conflict"
+		exec(`INSERT INTO %s.wechat_price_entries(entry_key,scope_key,name,publication_id,visibility,enabled,revision,type_key,type_name,purpose)
+			VALUES($1,$2,'旧切换分类 批发',$3,'authenticated',true,5,$4,'旧切换分类','wholesale')`, legacyConflictKey, "type:product-type:"+fmt.Sprint(conflictProductTypeID)+":wholesale", oldTarget, "product-type:"+fmt.Sprint(conflictProductTypeID))
+		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatalf("a configured legacy entry must not block a configured canonical entry: %v", err)
+		}
+		demoted, err := r.Entry(ctx, legacyConflictKey)
+		if err != nil || demoted.PublicationID != oldTarget || demoted.Enabled || app.CheckEntry(demoted, nil) == nil {
+			t.Fatalf("a superseded historical path must keep its target but stay disabled: %+v err=%v", demoted, err)
+		}
+		rows, err = r.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if row.Key == legacyConflictKey {
+				t.Fatalf("a historical path must not appear in the new typed-entry selector: %+v", row)
+			}
 		}
 		exec(`UPDATE %s.bean_list_publications SET status='withdrawn' WHERE id=$1`, first)
 		withdrawn, err := r.Entry(ctx, directShip.Key)

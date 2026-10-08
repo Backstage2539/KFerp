@@ -30,6 +30,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  SELECT CASE
    WHEN COALESCE(p.classification_template_id,0)>0 THEN 'classification-template:'||p.classification_template_id::text
    WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
+   WHEN COALESCE(p.classification_category_id,0)>0 THEN 'classification-category:'||p.classification_category_id::text
    ELSE '' END $$;
  DO $wechat_price_entry_type_migration$
  DECLARE old_entry RECORD; resolved_type_key text; resolved_type_name text; candidate_count bigint; canonical_entry RECORD;
@@ -72,7 +73,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 
      IF COALESCE(resolved_type_key,'')='' THEN
        -- Keep an ambiguous or withdrawn historical URL out of the new typed-entry editor.
-       UPDATE %[1]s.wechat_price_entries SET type_key='' WHERE entry_key=old_entry.entry_key;
+       UPDATE %[1]s.wechat_price_entries SET type_key='',enabled=false,revision=revision+1,updated_at=now() WHERE entry_key=old_entry.entry_key;
        CONTINUE;
      END IF;
 
@@ -85,7 +86,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
          DELETE FROM %[1]s.wechat_price_entries WHERE entry_key=canonical_entry.entry_key;
        ELSE
          -- Keep an already configured canonical entry and retain the prior URL as a hidden historical row.
-         UPDATE %[1]s.wechat_price_entries SET type_key='' WHERE entry_key=old_entry.entry_key;
+         UPDATE %[1]s.wechat_price_entries SET type_key='',enabled=false,revision=revision+1,updated_at=now() WHERE entry_key=old_entry.entry_key;
          CONTINUE;
        END IF;
      END IF;

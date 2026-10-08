@@ -35,6 +35,7 @@ func (r Repository) audit(ctx context.Context, tx pgx.Tx, actor, action string, 
 const publicationTypeKey = `CASE
  WHEN COALESCE(p.classification_template_id,0)>0 THEN 'classification-template:'||p.classification_template_id::text
  WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
+ WHEN COALESCE(p.classification_category_id,0)>0 THEN 'classification-category:'||p.classification_category_id::text
  ELSE '' END`
 
 const entryColumns = `e.entry_key,e.scope_key,e.name,COALESCE(e.publication_id,0),e.visibility,e.enabled,e.revision,COALESCE(p.owner_type,''),COALESCE(p.owner_key,''),COALESCE(p.version_no,''),COALESCE(NULLIF(p.publication_table_name,''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.product_type_name,''),''),CASE WHEN COALESCE(e.publication_id,0)=0 THEN 'unconfigured' WHEN p.deleted_at IS NULL THEN p.status ELSE 'deleted' END,e.type_key,e.type_name,e.purpose`
