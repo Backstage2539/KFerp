@@ -33,9 +33,8 @@ func (r Repository) audit(ctx context.Context, tx pgx.Tx, actor, action string, 
 }
 
 const publicationTypeKey = `CASE
- WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
  WHEN COALESCE(p.classification_template_id,0)>0 THEN 'classification-template:'||p.classification_template_id::text
- WHEN COALESCE(p.classification_category_id,0)>0 THEN 'classification-category:'||p.classification_category_id::text
+ WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
  ELSE '' END`
 
 const entryColumns = `e.entry_key,e.scope_key,e.name,COALESCE(e.publication_id,0),e.visibility,e.enabled,e.revision,COALESCE(p.owner_type,''),COALESCE(p.owner_key,''),COALESCE(p.version_no,''),COALESCE(NULLIF(p.publication_table_name,''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.product_type_name,''),''),CASE WHEN COALESCE(e.publication_id,0)=0 THEN 'unconfigured' WHEN p.deleted_at IS NULL THEN p.status ELSE 'deleted' END,e.type_key,e.type_name,e.purpose`
@@ -97,10 +96,11 @@ func (r Repository) SaveEntry(ctx context.Context, key string, e app.Entry, acto
 	}
 	defer tx.Rollback(ctx)
 	var tag pgconn.CommandTag
-	var typeKey string
-	if err = tx.QueryRow(ctx, r.q(`SELECT type_key FROM %[1]s.wechat_price_entries WHERE entry_key=$1 FOR UPDATE`), key).Scan(&typeKey); err != nil {
+	var typeKey, storedPurpose string
+	if err = tx.QueryRow(ctx, r.q(`SELECT type_key,purpose FROM %[1]s.wechat_price_entries WHERE entry_key=$1 FOR UPDATE`), key).Scan(&typeKey, &storedPurpose); err != nil {
 		return e, err
 	}
+	e.Purpose = storedPurpose
 	if typeKey != "" {
 		if e.PublicationID <= 0 {
 			return e, errors.New("请选择同一商品类型下的已发布价格表版本")
@@ -116,7 +116,7 @@ func (r Repository) SaveEntry(ctx context.Context, key string, e app.Entry, acto
 	if tag.RowsAffected() != 1 {
 		return e, errors.New("版本不可用、价格表归属不符或配置已更新，请刷新")
 	}
-	if err = r.audit(ctx, tx, actor, "entry_update", pg.AuditMeta{"entry_key": key, "publication_id": e.PublicationID, "type_key": typeKey, "purpose": e.Purpose, "visibility": e.Visibility, "enabled": e.Enabled}); err != nil {
+	if err = r.audit(ctx, tx, actor, "entry_update", pg.AuditMeta{"entry_key": key, "publication_id": e.PublicationID, "type_key": typeKey, "purpose": storedPurpose, "visibility": e.Visibility, "enabled": e.Enabled}); err != nil {
 		return e, err
 	}
 	if err = tx.Commit(ctx); err != nil {

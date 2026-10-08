@@ -26,23 +26,17 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
  VALUES(%[1]s.wechat_price_scope(NEW),COALESCE(NULLIF(NEW.publication_table_name,''),NULLIF(NEW.config_json->'publication_batch'->>'table_name',''),NULLIF(NEW.config_json->>'title',''),NULLIF(NEW.product_type_name,''),NEW.list_type),NEW.id)
  ON CONFLICT(scope_key) DO NOTHING; END IF; RETURN NEW; END $$;
  DROP TRIGGER IF EXISTS wechat_create_price_entry ON %[1]s.bean_list_publications;
- CREATE TRIGGER wechat_create_price_entry AFTER INSERT OR UPDATE OF status ON %[1]s.bean_list_publications FOR EACH ROW EXECUTE FUNCTION %[1]s.wechat_create_price_entry();
- INSERT INTO %[1]s.wechat_price_entries(scope_key,name,publication_id)
- SELECT DISTINCT ON (%[1]s.wechat_price_scope(p)) %[1]s.wechat_price_scope(p),COALESCE(NULLIF(p.publication_table_name,''),NULLIF(p.config_json->'publication_batch'->>'table_name',''),NULLIF(p.config_json->>'title',''),NULLIF(p.product_type_name,''),p.list_type),p.id
- FROM %[1]s.bean_list_publications p WHERE p.status='published' AND p.deleted_at IS NULL
- ORDER BY %[1]s.wechat_price_scope(p),p.published_at DESC,p.id DESC ON CONFLICT(scope_key) DO NOTHING;
  CREATE OR REPLACE FUNCTION %[1]s.wechat_price_type_key(p %[1]s.bean_list_publications) RETURNS text LANGUAGE sql IMMUTABLE AS $$
  SELECT CASE
-   WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
    WHEN COALESCE(p.classification_template_id,0)>0 THEN 'classification-template:'||p.classification_template_id::text
-   WHEN COALESCE(p.classification_category_id,0)>0 THEN 'classification-category:'||p.classification_category_id::text
+   WHEN COALESCE(p.product_type_category_id,0)>0 THEN 'product-type:'||p.product_type_category_id::text
    ELSE '' END $$;
  CREATE OR REPLACE FUNCTION %[1]s.wechat_create_typed_price_entries() RETURNS trigger LANGUAGE plpgsql AS $$
  DECLARE resolved_type_key text; resolved_type_name text;
  BEGIN
    IF NEW.status='published' AND NEW.deleted_at IS NULL THEN
      resolved_type_key := %[1]s.wechat_price_type_key(NEW);
-     resolved_type_name := COALESCE(NULLIF(BTRIM(NEW.product_type_name),''),NULLIF(BTRIM(NEW.classification_template_name),''),NULLIF(BTRIM(NEW.classification_category_name),''),NULLIF(BTRIM(NEW.publication_table_name),''),NULLIF(NEW.config_json->'publication_batch'->>'table_name',''),NULLIF(NEW.list_type,''),'价格表');
+     resolved_type_name := COALESCE(NULLIF(BTRIM(NEW.classification_template_name),''),NULLIF(BTRIM(NEW.product_type_name),''),NULLIF(BTRIM(NEW.classification_category_name),''),NULLIF(BTRIM(NEW.publication_table_name),''),NULLIF(NEW.config_json->'publication_batch'->>'table_name',''),NULLIF(NEW.list_type,''),'价格表');
      IF resolved_type_key<>'' THEN
        INSERT INTO %[1]s.wechat_price_entries(entry_key,scope_key,type_key,type_name,purpose,name,publication_id,visibility,enabled)
        VALUES

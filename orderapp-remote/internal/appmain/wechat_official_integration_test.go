@@ -87,7 +87,9 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		return c
 	}
 	publication := func(table, version, owner, key string) int64 {
-		return id(`INSERT INTO %s.bean_list_publications(list_type,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json) VALUES('commercial',$1,$1,$2,$3,$4,'{"title":"测试豆单"}','{"groups":[{"category":"熟豆","items":[{"name":"测试豆","prices":[{"label":"227g","value":"¥50"}]}]}]}') RETURNING id`, table, version, owner, key)
+		publicationID := id(`INSERT INTO %s.bean_list_publications(list_type,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json) VALUES('commercial',$1,$1,$2,$3,$4,'{"title":"测试豆单"}','{"groups":[{"category":"熟豆","items":[{"name":"测试豆","prices":[{"label":"227g","value":"¥50"}]}]}]}') RETURNING id`, table, version, owner, key)
+		exec(`INSERT INTO %[1]s.wechat_price_entries(scope_key,name,publication_id) SELECT %[1]s.wechat_price_scope(p),COALESCE(NULLIF(p.publication_table_name,''),p.list_type),p.id FROM %[1]s.bean_list_publications p WHERE p.id=$1 ON CONFLICT(scope_key) DO NOTHING`, publicationID)
+		return publicationID
 	}
 	t.Run("canonical entries are product type by configured use", func(t *testing.T) {
 		typeID := int64(71001)
@@ -100,6 +102,16 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		private := typedPublication("coffee-customer", "v1", "customer", fmt.Sprint(customer), "咖啡豆", typeID)
 		typedPublication("drip-wholesale", "v1", "official", "", "挂耳咖啡", typeID+1)
 		typedPublication("instant-direct", "v1", "official", "", "速溶咖啡", typeID+2)
+		if err = repo.EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatalf("re-running the migration failed: %v", err)
+		}
+		var legacyEntryCount int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.wechat_price_entries WHERE type_key=''`, schema)).Scan(&legacyEntryCount); err != nil {
+			t.Fatal(err)
+		}
+		if legacyEntryCount != 0 {
+			t.Fatalf("new publications must not create legacy per-table entries, got %d", legacyEntryCount)
+		}
 		rows, err := r.Entries(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -154,9 +166,14 @@ func TestWechatOfficialPostgres(t *testing.T) {
 			t.Fatalf("same type table/version must be selectable: %+v err=%v", configured, err)
 		}
 		directShip.PublicationID, directShip.Enabled = first, true
+		directShip.Purpose = "wholesale" // Client input must not override the authoritative entry purpose.
 		directShip, err = r.SaveEntry(ctx, directShip.Key, directShip, "test")
-		if err != nil || directShip.PublicationID != first {
-			t.Fatalf("the second use must be independently configurable: %+v err=%v", directShip, err)
+		if err != nil || directShip.PublicationID != first || directShip.Purpose != "direct_ship" {
+			t.Fatalf("the second use must be independently configurable and retain its purpose: %+v err=%v", directShip, err)
+		}
+		var auditedPurpose string
+		if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT meta->>'purpose' FROM %s.audit_logs WHERE entity_type='wechat_official_account' AND action='entry_update' ORDER BY id DESC LIMIT 1`, schema)).Scan(&auditedPurpose); err != nil || auditedPurpose != "direct_ship" {
+			t.Fatalf("audit must record the stored purpose, got %q err=%v", auditedPurpose, err)
 		}
 		configured, err = r.Entry(ctx, wholesale.Key)
 		if err != nil || configured.PublicationID != second {
@@ -220,6 +237,38 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		badSave := requestAPI(http.MethodPut, "/api/customer-portal/admin/wechat/entries/"+apiCrossType.Key, payload)
 		if badSave.Code != http.StatusConflict {
 			t.Fatalf("cross-type API save was accepted: %d %s", badSave.Code, badSave.Body.String())
+		}
+		classificationID := typeID + 1000
+		classifiedPublication := func(table, version string, legacyTypeID int64) int64 {
+			return id(`INSERT INTO %s.bean_list_publications(list_type,product_type_category_id,product_type_name,classification_template_id,classification_template_name,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json)
+				VALUES('commercial',$1,'旧类型名称',$2,'当前分类类型',$3,$3,$4,'official','', '{"title":"分类豆单"}', '{"groups":[]}') RETURNING id`, legacyTypeID, classificationID, table, version)
+		}
+		classifiedFirst := classifiedPublication("classified-first", "v1", typeID+100)
+		classifiedSecond := classifiedPublication("classified-second", "v2", typeID+200)
+		rows, err = r.Entries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var classifiedWholesale app.Entry
+		classificationEntryCount := 0
+		for _, row := range rows {
+			if row.TypeKey == fmt.Sprintf("classification-template:%d", classificationID) {
+				classificationEntryCount++
+				if row.Purpose == "wholesale" {
+					classifiedWholesale = row
+				}
+			}
+		}
+		if classificationEntryCount != 2 {
+			t.Fatalf("current classification identity must override differing legacy type IDs; entries=%d rows=%+v", classificationEntryCount, rows)
+		}
+		classifiedVersions, versionErr := r.Versions(ctx, classifiedWholesale.Key)
+		if versionErr != nil || len(classifiedVersions) != 2 || classifiedVersions[0].ID != classifiedSecond && classifiedVersions[1].ID != classifiedFirst {
+			t.Fatalf("same classification versions not grouped: %+v err=%v", classifiedVersions, versionErr)
+		}
+		classifiedWholesale.PublicationID = classifiedSecond
+		if saved, saveErr := r.SaveEntry(ctx, classifiedWholesale.Key, classifiedWholesale, "test"); saveErr != nil || saved.PublicationID != classifiedSecond {
+			t.Fatalf("same current classification version rejected because of legacy IDs: %+v err=%v", saved, saveErr)
 		}
 		exec(`UPDATE %s.bean_list_publications SET status='withdrawn' WHERE id=$1`, first)
 		withdrawn, err := r.Entry(ctx, directShip.Key)
@@ -313,6 +362,7 @@ func TestWechatOfficialPostgres(t *testing.T) {
 			t.Fatal("unrelated legacy sheets collapsed", err)
 		}
 		pub := id(`INSERT INTO %s.bean_list_publications(list_type,config_json,content_json) VALUES('commercial','{"publication_batch":{"table_key":"actual-batch","table_name":"挂耳批发"}}','{"groups":[]}') RETURNING id`)
+		exec(`INSERT INTO %[1]s.wechat_price_entries(scope_key,name,publication_id) SELECT %[1]s.wechat_price_scope(p),COALESCE(NULLIF(p.config_json->'publication_batch'->>'table_name',''),p.list_type),p.id FROM %[1]s.bean_list_publications p WHERE p.id=$1 ON CONFLICT(scope_key) DO NOTHING`, pub)
 		before, err := r.EntryForPublication(ctx, pub)
 		if err != nil || before.Name != "挂耳批发" {
 			t.Fatal("batch metadata missing", before, err)
