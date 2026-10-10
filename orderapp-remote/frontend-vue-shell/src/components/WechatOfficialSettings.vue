@@ -215,7 +215,7 @@ onMounted(load)
     <div v-if="tab === 'status'" class="status">
       <h3>{{ status.enabled ? '公众号已启用' : '公众号尚未启用' }}</h3>
       <p>
-        正式菜单发布前，需完成服务号权限、开放平台绑定、第三方消息服务及小程序正式版本核对。
+        正式菜单发布前，需核对菜单接口权限、已关联小程序及小程序正式版本；消息推送另行核对第三方接管情况。
       </p>
       <dl>
         <dt>公众号标识</dt>
@@ -230,10 +230,10 @@ onMounted(load)
         </dd>
         <dt>消息加密</dt>
         <dd>{{ status.encryption_configured ? '已配置' : '待配置' }}</dd>
-        <dt>跨平台身份识别</dt>
+        <dt>历史跨平台身份识别</dt>
         <dd>
           {{
-            status.unionid_enabled ? '已开启' : '待核对，绑定码可作为备用方式'
+            status.unionid_enabled ? '已开启（历史兼容）' : '未开启；豆单登记和订单使用小程序身份'
           }}
         </dd>
         <dt>网页授权</dt><dd>{{ status.web_oauth_ready ? '已开启' : '未启用或配置未齐' }}</dd><dt>网页授权回调</dt><dd>{{ status.web_oauth_callback || '待配置授权域名' }}</dd>
