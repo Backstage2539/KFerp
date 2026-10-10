@@ -91,9 +91,9 @@ describe('miniapp startup route and main tabs', () => {
     const index = readSource('src/pages/index/index.vue')
 
     expect(index).toContain('useSessionStore')
-    expect(index).toContain('GuestHome v-if="!session.token"')
+    expect(index).toContain('<GuestHome />')
     expect(index).not.toContain("uni.reLaunch({ url: '/pages/login/login' })")
-    expect(index).toContain("uni.reLaunch({ url: '/pages/home/home' })")
+    expect(index).toContain("uni.reLaunch({url:'/pages/home/home'})")
     expect(index).not.toContain('redirectTo')
   })
 
@@ -101,15 +101,15 @@ describe('miniapp startup route and main tabs', () => {
     const index = readSource('src/pages/index/index.vue')
     const home = readSource('src/pages/home/home.vue')
 
-    expect(index).toContain("uni.reLaunch({ url: '/pages/home/home' })")
+    expect(index).toContain("uni.reLaunch({url:'/pages/home/home'})")
     expect(home).toContain('fetchMe(session.token)')
     expect(home).toContain('session.applyContext(response)')
     expect(home).toContain('session.clearSession()')
     expect(home).toContain("uni.reLaunch({ url: '/pages/index/index' })")
   })
 
-  it('renders four bottom main entries and renames order center for processing customers', () => {
-    const tabBar = readSource('src/components/MainTabBar.vue')
+  it('renders customer business tabs plus the bean centre', () => {
+    const tabBar = readSource('src/components/MainTabBar.vue') + readSource('src/utils/beanCenter.ts')
     const pages = [
       readSource('src/pages/home/home.vue'),
       readSource('src/pages/mall/mall.vue'),
@@ -117,13 +117,11 @@ describe('miniapp startup route and main tabs', () => {
       readSource('src/pages/profile/profile.vue'),
     ]
 
-    for (const label of ['首页', '订单中心', '费用中心', '个人中心']) {
+    for (const label of ['首页', '豆单', '我的订单', '费用', '我的']) {
       expect(tabBar).toContain(label)
     }
-    expect(tabBar).toContain('发货中心')
-    expect(tabBar).toContain("session.capabilities.some((item) => item.code === 'processing' && item.enabled)")
     for (const url of [
-      '/pages/home/home',
+      '/pages/index/index',
       '/pages/service/service?key=orders',
       '/pages/service/service?key=settlement',
       '/pages/profile/profile',

@@ -57,3 +57,14 @@ test("menu selection changes only on explicit action and obeys page modes", asyn
   assert.equal(b.type, "miniprogram");
   assert.equal(b.pagepath, "pages/page-entry/page-entry?entry=" + key);
 });
+
+test('new entries remain out of the catalogue until manually selected and published',()=>{
+ assert.equal(newPageDraft().bean_center,false);
+ assert.equal(newPageDraft().bean_sort,0);
+});
+test('official menu navigation sends orders and beans into the miniapp',async()=>{
+ const {setMenuAction,menuAction}=await import('./wechat-official.js');
+ const button={name:'豆单获取'};setMenuAction(button,'beans','mini');
+ assert.equal(button.pagepath,'pages/bean-list-center/bean-list-center');assert.equal(menuAction(button),'beans');
+ setMenuAction(button,'orders','mini');assert.equal(button.type,'miniprogram');assert.equal(button.pagepath,'pages/service/service?key=orders&source=official');
+});

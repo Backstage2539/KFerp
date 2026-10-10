@@ -489,6 +489,7 @@ const internalViews = {
   customerPortalManual: OperationManualView,
   wechatOfficialManual: OperationManualView,
   pageEntryManual: OperationManualView,
+  beanListCenterManual: OperationManualView,
   customerFulfillment: CustomerFulfillmentView,
   customerFulfillmentManual: OperationManualView,
   workspaceModeManual: OperationManualView,

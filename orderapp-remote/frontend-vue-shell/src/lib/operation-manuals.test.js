@@ -24,6 +24,7 @@ test('operation manual view keys map to deployed OP_MANUAL docs', () => {
       customerPortalManual: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md',
       customerFulfillmentManual: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md',
       wechatOfficialManual: 'OP_MANUAL_WECHAT_OFFICIAL.md',
+      beanListCenterManual: 'OP_MANUAL_BEAN_LIST_CENTER.md',
       pageEntryManual: 'OP_MANUAL_PAGE_ENTRIES.md',
       requirementsManual: 'OP_MANUAL_REQUIREMENTS.md',
     },

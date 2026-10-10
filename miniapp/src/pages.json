@@ -111,12 +111,28 @@
     },
     {
       "path": "pages/page-entry/page-entry",
-      "style": { "navigationBarTitleText": "棵凡咖啡", "enableShareAppMessage": true, "enableShareTimeline": true }
+      "style": {
+        "navigationBarTitleText": "棵凡咖啡",
+        "enableShareAppMessage": true,
+        "enableShareTimeline": true
+      }
     },
     {
       "path": "pages/price-list/price-list",
       "style": {
         "navigationBarTitleText": "商品价格表"
+      }
+    },
+    {
+      "path": "pages/bean-list-center/bean-list-center",
+      "style": {
+        "navigationBarTitleText": "豆单中心"
+      }
+    },
+    {
+      "path": "pages/customer-select/customer-select",
+      "style": {
+        "navigationBarTitleText": "选择客户"
       }
     }
   ],

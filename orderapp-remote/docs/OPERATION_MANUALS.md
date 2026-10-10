@@ -83,3 +83,5 @@ flowchart TD
 - [公众号菜单与订单查询](OP_MANUAL_WECHAT_OFFICIAL.md)：固定入口、客户绑定、菜单草稿与发布、接入配置及上线顺序。
 
 - [页面入口管理](OP_MANUAL_PAGE_ENTRIES.md)：手工页面、草稿与发布、图文图片权限、网页授权和客户登录、历史入口。
+
+- 小程序豆单中心与登记用户：OP_MANUAL_BEAN_LIST_CENTER.md（目录配置、微信登记、客户权限、停用及菜单上线）。

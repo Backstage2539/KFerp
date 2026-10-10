@@ -9,6 +9,7 @@ const data = ref(null),
   loading = ref(false),
   auth = ref(null),
   needsLogin = ref(false),
+ miniOnly=ref(false),
   loginName = ref(""),
   password = ref(""),
   customerId = ref(0),
@@ -24,7 +25,7 @@ async function load() {
   clear();
   error.value = "";
   loading.value = true;
-  needsLogin.value = false;
+  needsLogin.value = false;miniOnly.value=false;
   try {
     auth.value = await pageRequest("/api/page-auth/status");
     customerId.value = auth.value.customer?.current_customer_id || 0;
@@ -58,9 +59,10 @@ async function load() {
   } catch (e) {
     if (seq !== sequence) return;
     error.value = e.message;
-    needsLogin.value = [401, 403].includes(e.status);
+    miniOnly.value = /小程序|手机号和昵称登记/.test(e.message);
+ needsLogin.value = !miniOnly.value && [401, 403].includes(e.status);
     if (
-      e.status === 401 &&
+      !miniOnly.value && e.status === 401 &&
       auth.value?.oauth_ready &&
       /MicroMessenger/i.test(navigator.userAgent) &&
       !new URLSearchParams(location.search).has("auth")
@@ -159,7 +161,8 @@ onBeforeUnmount(() => {
     </div>
     <p v-if="loading" class="state">正在加载…</p>
     <p v-if="error" role="alert" class="state error">{{ error }}</p>
-    <form v-if="needsLogin && !auth?.authenticated" @submit.prevent="login">
+    <p v-if="miniOnly" class="state">请在微信搜索「棵凡咖啡供应链」小程序，进入“豆单”查看。首次只需授权手机号并填写昵称。</p>
+ <form v-if="needsLogin && !auth?.authenticated" @submit.prevent="login">
       <h1>客户登录</h1>
       <p>使用已有客户账号。登录后返回此页面。</p>
       <label

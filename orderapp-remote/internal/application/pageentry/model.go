@@ -23,6 +23,8 @@ type Block struct {
 	Caption string `json:"caption,omitempty"`
 }
 type Document struct {
+	BeanCenter    bool    `json:"bean_center"`
+	BeanSort      int     `json:"bean_sort"`
 	Name          string  `json:"name"`
 	Kind          string  `json:"kind"`
 	Visibility    string  `json:"visibility"`
@@ -64,6 +66,7 @@ type Function struct {
 
 var Functions = []Function{
 	{"home", "首页", "pages/index/index", true},
+	{"beans", "豆单中心", "pages/bean-list-center/bean-list-center", true},
 	{"customer", "客户中心", "pages/home/home", false},
 	{"orders", "全部订单", "pages/service/service?key=orders&source=official", false},
 	{"order", "商品下单", "pages/service/service?key=productOrder", false},
@@ -122,7 +125,13 @@ func Normalize(d Document) Document {
 	return d
 }
 func Validate(d Document, publish bool) error {
-	if strings.TrimSpace(d.Name) == "" || utf8.RuneCountInString(d.Name) > 100 || (d.Visibility != "public" && d.Visibility != "authenticated") {
+	if strings.TrimSpace(d.Name) == "" || utf8.RuneCountInString(d.Name) > 100 || (d.Visibility != "public" && d.Visibility != "authenticated" && d.Visibility != "registered") {
+		return ErrInvalid
+	}
+	if d.Kind != "price" && (d.Visibility == "registered" || d.BeanCenter) {
+		return ErrInvalid
+	}
+	if d.BeanSort < 0 || d.BeanSort > 99999 {
 		return ErrInvalid
 	}
 	switch d.Kind {

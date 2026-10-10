@@ -433,16 +433,16 @@ func TestWechatOfficialPostgres(t *testing.T) {
 		event := func(key string) string {
 			return "<xml><ToUserName>gh_test</ToUserName><FromUserName>oa-callback</FromUserName><CreateTime>13</CreateTime><MsgType>event</MsgType><Event>CLICK</Event><EventKey>" + key + "</EventKey></xml>"
 		}
-		if got := call(event("ORDERS_RECENT_1")); !strings.Contains(got, "ORDER-54") || strings.Contains(got, "ORDER-53") {
+		if got := call(event("ORDERS_RECENT_1")); !strings.Contains(got, "小程序") || strings.Contains(got, "ORDER-") {
 			t.Fatal("recent 1", got)
 		}
-		if got := call(event("ORDERS_RECENT_3")); !strings.Contains(got, "ORDER-52") || strings.Contains(got, "ORDER-51") {
+		if got := call(event("ORDERS_RECENT_3")); !strings.Contains(got, "小程序") || strings.Contains(got, "ORDER-") {
 			t.Fatal("recent 3", got)
 		}
 		if err = r.ChangeBinding(ctx, "app", "oa-callback", user, 0, false, "test"); err != nil {
 			t.Fatal(err)
 		}
-		if got := call(event("ORDERS_RECENT_3")); strings.Contains(got, "ORDER-") || !strings.Contains(got, "认证") {
+		if got := call(event("ORDERS_RECENT_3")); strings.Contains(got, "ORDER-") || !strings.Contains(got, "小程序") {
 			t.Fatal("duplicate callback leaked after revoke", got)
 		}
 	})

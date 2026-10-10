@@ -6,8 +6,10 @@ import {
   refreshMiniappShareMenu,
 } from '../../utils/miniappShare'
 import { ref } from 'vue'
+import { registerVisitor } from '../../api/registration'
+import { restoreRegistrationSession } from '../../utils/registrationSession'
 import { safeLoginReturn } from '../../utils/loginReturn'
-import { loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
+import { loginWithPassword, type LoginResponse } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
@@ -17,7 +19,8 @@ import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
 const returnTo=ref('')
-onLoad(query=>{try{returnTo.value=safeLoginReturn(decodeURIComponent(String(query?.return_to||'')))}catch{returnTo.value=''}})
+const nickname=ref('')
+onLoad(query=>{if(query?.mode==='password')loginMode.value='password';try{returnTo.value=safeLoginReturn(decodeURIComponent(String(query?.return_to||'')))}catch{returnTo.value=''}})
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -32,7 +35,7 @@ const loginForm = ref({ login: '', password: '' })
 const themeClass = miniappThemeClass()
 const themeMeta = miniappThemeMeta()
 
-function browseServices() { uni.reLaunch({ url: '/pages/index/index' }) }
+function browseServices() { uni.reLaunch({ url: '/pages/bean-list-center/bean-list-center' }) }
 
 function requestLoginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -56,15 +59,18 @@ function requestLoginCode(): Promise<string> {
 function completeLogin(response: LoginResponse) {
   session.setToken(response.token)
   session.applyContext(response)
-  uni.reLaunch({ url: returnTo.value || customerEntryRoute(response) })
+  const target=returnTo.value || customerEntryRoute(response)
+ if(response.bindings?.length>1 && !response.current_customer_id){uni.reLaunch({url:'/pages/customer-select/customer-select?return_to='+encodeURIComponent(target)});return}
+ uni.reLaunch({ url: target })
 }
 
 async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: string } }) {
   if (loading.value) return
+ if(!nickname.value.trim()){errorMessage.value='请先填写昵称';return}
 
   const phoneCode = String(event?.detail?.code || '').trim()
   if (!phoneCode) {
-    errorMessage.value = event?.detail?.errMsg || '未获得手机号授权'
+    errorMessage.value = '已取消手机号授权，可返回豆单目录继续浏览'
     return
   }
 
@@ -73,7 +79,7 @@ async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: stri
 
   try {
     const code = await requestLoginCode()
-    const response = await loginWithPhoneVerify(code, phoneCode)
+    const response = await registerVisitor(code, phoneCode,nickname.value)
     completeLogin(response)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败'
@@ -107,7 +113,7 @@ async function handlePasswordLogin() {
 
 onShareAppMessage(defaultMiniappShare)
 onShareTimeline(defaultMiniappTimelineShare)
-onShow(() => { void refreshMiniappShareMenu() })
+onShow(async () => { void refreshMiniappShareMenu();if(loginMode.value==='password')return;try{await restoreRegistrationSession(session);if(session.registrationComplete && session.token){completeLogin({token:session.token,mini_user_id:session.miniUserID,current_customer_id:session.currentCustomerID,bindings:session.bindings,capabilities:session.capabilities,registration_complete:true,registration:session.registration||undefined})}}catch(e){errorMessage.value=e instanceof Error?e.message:'登录状态恢复失败'} })
 </script>
 
 <template>
@@ -127,24 +133,26 @@ onShow(() => { void refreshMiniappShareMenu() })
     </view>
 
     <view class="browse-option">
-      <button class="browse-button" @tap="browseServices">先浏览服务</button>
-      <text>登录仅用于查询您的订单、价格表与库存。</text>
+      <button class="browse-button" @tap="browseServices">返回豆单目录</button>
+      <text>手机号用于验证身份与业务联系；登记后即可查看普通豆单。</text>
     </view>
     <view class="panel">
       <view class="mode-tabs">
-        <button class="mode-tab" :class="{ active: loginMode === 'quick' }" @tap="loginMode = 'quick'">手机号快捷登录</button>
+        <button class="mode-tab" :class="{ active: loginMode === 'quick' }" @tap="loginMode = 'quick'">手机号登记 / 登录</button>
         <button class="mode-tab" :class="{ active: loginMode === 'password' }" @tap="loginMode = 'password'">员工 / 客户账号</button>
       </view>
 
       <view v-if="loginMode === 'quick'" class="login-block">
+ <input v-model="nickname" type="nickname" maxlength="32" class="input" placeholder="请选择或填写昵称" />
+ <text>普通豆单无需客户审核；查看订单仍需有效客户账号。</text>
         <button
           class="login-button"
           open-type="getPhoneNumber"
           :loading="loading"
-          :disabled="loading"
+          :disabled="loading || !nickname.trim()"
           @getphonenumber="handlePhoneLogin"
         >
-          手机号快捷登录
+          手机号登记 / 登录
         </button>
       </view>
 

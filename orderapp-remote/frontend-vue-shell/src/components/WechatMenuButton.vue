@@ -47,10 +47,11 @@ const currentEntry = computed(() =>
       点击后
       <select :value="action" @change="setAction($event.target.value)">
         <option value="page" :disabled="!entries.length">选择页面入口</option>
-        <option value="recent1">回复最近一次订单</option>
-        <option value="recent3">回复最近三次订单</option>
+        <option value="beans">小程序豆单中心</option>
+ <option value="orders">小程序全部订单</option>
+ <option value="order">小程序商品下单</option>
         <option
-          v-if="!['page', 'recent1', 'recent3'].includes(action)"
+          v-if="!['page', 'beans', 'orders','order'].includes(action)"
           :value="action"
         >
           保留已导入的 {{ button.type }} 菜单
@@ -79,7 +80,7 @@ const currentEntry = computed(() =>
         @change="changeEntry(menuPageKey(button), $event.target.value)"
       >
         <option value="mini">小程序</option>
-        <option value="web">网页</option>
+        <option value="web" :disabled="currentEntry?.published.visibility==='registered'">网页</option>
       </select>
     </label>
     <label

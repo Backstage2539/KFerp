@@ -10,7 +10,8 @@ export function safeLoginReturn(raw: unknown): string {
   )
     return path
   if (path === '/pages/service/service?key=orders&source=official') return path
-  if (path === '/pages/profile/profile') return path
+  if (path === '/pages/bean-list-center/bean-list-center') return path
+ if (path === '/pages/profile/profile') return path
   return ''
 }
 export function loginRouteFor(destination: string): string {

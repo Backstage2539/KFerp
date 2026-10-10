@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import {restoreRegistrationSession} from '../../utils/registrationSession'
 import {
   onLoad,
   onShow,
@@ -31,7 +32,7 @@ const session = useSessionStore(),
   publication = ref<BeanListSummary | null>(null),
   loading = ref(false),
   error = ref(''),
-  needsLogin = ref(false)
+  needsLogin = ref(false), needsCustomerLogin=ref(false)
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -51,8 +52,10 @@ const defaultMiniappTimelineShare = () => ({
   title: document.value?.name || '棵凡咖啡',
   query: `entry=${encodeURIComponent(entry.value)}`,
 })
+function backToBeans(){uni.reLaunch({url:'/pages/bean-list-center/bean-list-center'})}
+function chooseCustomer(){uni.navigateTo({url:'/pages/customer-select/customer-select?return_to='+encodeURIComponent(destination())})}
 function login() {
-  uni.navigateTo({ url: loginRouteFor(destination()) })
+  uni.navigateTo({ url: loginRouteFor(destination())+(needsCustomerLogin.value?'&mode=password':'') })
 }
 async function load() {
   const request = ++sequence
@@ -60,21 +63,14 @@ async function load() {
   document.value = null
   images.value = {}
   error.value = ''
-  needsLogin.value = false
+  needsLogin.value = false;needsCustomerLogin.value=false
   if (!/^[a-f0-9]{32}$/.test(entry.value)) {
     error.value = '页面入口无效'
     return
   }
   loading.value = true
   try {
-    if (session.token) {
-      try {
-        session.applyContext(await fetchMe(session.token))
-      } catch (e) {
-        if (isAuthenticationExpiredRequestError(e)) session.clearSession()
-        else throw e
-      }
-    }
+    await restoreRegistrationSession(session)
     const data = await fetchPageEntry(entry.value, session.token)
     const local: Record<string,string> = {}
     for (const block of data.document.blocks || []) {
@@ -92,6 +88,7 @@ async function load() {
   } catch (e) {
     if (request !== sequence) return
     error.value = e instanceof Error ? e.message : '暂时无法加载页面'
+    needsCustomerLogin.value=e instanceof MiniRequestError && e.statusCode===403
     needsLogin.value = e instanceof MiniRequestError && (e.statusCode === 401 || e.statusCode === 403)
   } finally {
     if (request === sequence) loading.value = false
@@ -125,8 +122,10 @@ onShareTimeline(defaultMiniappTimelineShare)
     <text v-if="loading" class="state">正在加载页面…</text>
     <view v-if="error" class="state">
       <text>{{ error }}</text>
-      <button v-if="needsLogin" @tap="login">登录后查看</button>
-      <button v-else @tap="load">重新加载</button>
+      <button v-if="needsLogin" @tap="login">{{needsCustomerLogin?'使用客户账号登录':'登记或登录后查看'}}</button>
+ <button v-if="needsCustomerLogin && session.bindings.length>1" @tap="chooseCustomer">选择客户</button>
+ <button @tap="backToBeans">返回豆单中心</button>
+      <button v-if="!needsLogin" @tap="load">重新加载</button>
     </view>
     <view v-if="document?.kind === 'article'" class="sheet">
       <text class="title">{{ document.name }}</text>

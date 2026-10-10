@@ -84,6 +84,9 @@ ALTER TABLE %s.customer_portal_profiles
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
+	if err := ensureRegistrationSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureRecipientAddressSchema(ctx, pool, schema); err != nil {
 		return err
 	}

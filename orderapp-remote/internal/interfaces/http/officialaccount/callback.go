@@ -7,7 +7,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"io"
 	"net/http"
@@ -126,51 +125,21 @@ func (h *Handler) dispatch(ctx context.Context, msg incoming) string {
 			return "服务繁忙，请稍后重试"
 		}
 		if !fresh {
-			return "绑定请求已处理，请点击最近一次查询，或在小程序查看绑定状态。"
+			return "绑定请求已处理。请进入小程序查看订单。"
 		}
 		code := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(msg.Content), "绑定")))
 		if len(code) != 12 {
-			return "请在小程序登录后，从个人中心获取绑定码，并发送「绑定 绑定码」。"
+			return "无需公众号绑定码。请直接进入棵凡小程序查看豆单和订单。"
 		}
 		if err = h.Repo.ConsumeCode(ctx, h.Config.AppID, msg.From, code); err != nil {
 			return bindingErrorMessage(err)
 		}
-		return "绑定成功。现在可以点击「我的订单」查询最近订单。"
+		return "绑定成功。请进入小程序的「我的订单」查看全部订单。"
 	}
-	count := 0
-	if msg.MsgType == "event" && msg.Event == "CLICK" {
-		switch msg.Key {
-		case "ORDERS_RECENT_1":
-			count = 1
-		case "ORDERS_RECENT_3":
-			count = 3
-		}
+	if msg.MsgType == "event" && msg.Event == "CLICK" && (msg.Key == "ORDERS_RECENT_1" || msg.Key == "ORDERS_RECENT_3") {
+		return "请进入棵凡小程序的「我的订单」查看全部订单，最新订单排在前面。无需公众号绑定码。"
 	}
-	if count == 0 {
-		return ""
-	}
-	b, err := h.Repo.Binding(ctx, h.Config.AppID, msg.From)
-	if errors.Is(err, pgx.ErrNoRows) && h.Config.UnionIDEnabled {
-		union, e := h.Wechat.UnionID(ctx, msg.From)
-		if e == nil {
-			b, err = h.Repo.AutoBind(ctx, h.Config.AppID, msg.From, union)
-		}
-	}
-	if err != nil || !b.Active {
-		return "请先点击「我的订单 → 全部订单」登录小程序并完成客户认证。若仍未识别，请到个人中心获取公众号绑定码，在这里发送「绑定 绑定码」。"
-	}
-	current, err := h.Repo.Portal.OfficialAccountContext(ctx, b.MiniUserID, b.CustomerID, b.BoundAt)
-	if err != nil {
-		return app.ErrDenied.Error()
-	}
-	if current.CurrentCustomerID == 0 {
-		return "您关联了多个客户，请先到小程序个人中心选择公众号查询客户。"
-	}
-	orders, err := h.Repo.Portal.OfficialRecentOrders(ctx, current, count)
-	if err != nil {
-		return "当前无法查询订单，请在小程序检查客户权限或稍后重试。"
-	}
-	return app.OrderSummary(current.CurrentCustomerName, orders)
+	return ""
 }
 
 // Only fixed domain messages may cross the public callback boundary.
