@@ -230,10 +230,10 @@ onMounted(load)
         </dd>
         <dt>消息加密</dt>
         <dd>{{ status.encryption_configured ? '已配置' : '待配置' }}</dd>
-        <dt>历史跨平台身份识别</dt>
+        <dt>公众号网页身份识别</dt>
         <dd>
           {{
-            status.unionid_enabled ? '已开启（历史兼容）' : '未开启；豆单登记和订单使用小程序身份'
+            status.unionid_enabled ? '已开启 UnionID 匹配' : '未开启；网页可用账号密码登录，小程序登记不受影响'
           }}
         </dd>
         <dt>网页授权</dt><dd>{{ status.web_oauth_ready ? '已开启' : '未启用或配置未齐' }}</dd><dt>网页授权回调</dt><dd>{{ status.web_oauth_callback || '待配置授权域名' }}</dd>
