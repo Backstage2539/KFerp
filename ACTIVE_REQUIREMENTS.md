@@ -5666,9 +5666,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-688-miniapp-bean-center
 - Branch: codex/miniapp-bean-center-20261011
-- Status: implementing
+- Status: development delivered; Van acceptance pending
 - Scope: 微信验证手机号与昵称登记、手工豆单目录、登记权限隔离、公众号小程序导航。
 - Verifier: Go unit/API/PostgreSQL; Vue; miniapp; manuals; Van acceptance pending.
 - Deployment: development only; no menu or miniapp publication.
 
-- PR-688 verification: local Go/PostgreSQL/API, Vue 1348, miniapp 276/typecheck/build GREEN; docs/acceptance/2026-10-11-bean-center.md. Integration/development delivery in progress; real-phone and Van acceptance pending.
+- PR-688 verification: local Go/PostgreSQL/API, Vue 1348, miniapp 276/typecheck/build GREEN; docs/acceptance/2026-10-11-bean-center.md. PR #192 merged/deployed ce911c5bdbbe36e8d3edf92e60d666036f6c94fe; four registered-only cards configured; 22-page development package exported and simulator/UI verified. WeChat preview upload returns 41002 appid missing; real-phone and Van acceptance pending.

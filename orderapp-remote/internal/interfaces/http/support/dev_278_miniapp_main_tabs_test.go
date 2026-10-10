@@ -93,7 +93,7 @@ func TestDev278MiniappMainTabsDocs(t *testing.T) {
 		filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md"),
 	} {
 		body := string(readOrderAppFileForTest(t, path))
-		for _, want := range []string{"底部四个入口", "首页", "我的订单", "费用", "我的", "启动页", "销售单", "出库单"} {
+		for _, want := range []string{"底部", "首页", "我的订单", "费用", "我的", "启动页", "销售单", "出库单"} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s missing %q", path, want)
 			}

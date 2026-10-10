@@ -426,7 +426,7 @@ onBeforeUnmount(releasePreview);
                 </option>
               </select></label
             >
-            <p>新版本不会自动替换。客户专属表必须选择“需认证”。</p></template
+            <p>新版本不会自动替换。客户专属表必须选择“认证客户可见”。</p></template
           >
           <label v-if="draft.kind === 'function'"
             >功能页<select v-model="draft.target">
