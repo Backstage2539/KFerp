@@ -24,8 +24,9 @@ const labels = {
   price: '历史价格表入口',
   page: '页面入口',
   orders: '查看全部订单',
-  recent1: '回复最近一次订单',
-  recent3: '回复最近三次订单',
+  beans:'进入豆单中心',
+  recent1: '旧订单动作（引导小程序）',
+  recent3: '旧订单动作（引导小程序）',
   order: '进入下单',
   home: '小程序首页',
   view: '打开网页',
@@ -81,6 +82,9 @@ async function load() {
       groups.value = menuToEditor(history.value[0].menu)
   })
 }
+function miniNavigationDraft(){
+ groups.value=[['豆单获取','beans'],['我的订单','orders'],['下单','order']].map(([name,action])=>{const b={name};setMenuAction(b,action,status.value.mini_app_id);return b});changed();notice.value='已生成三项菜单草稿。确认正式小程序包含豆单中心后，再预览差异并发布。'
+}
 function addGroup() {
   if (groups.value.length < 3) {
     groups.value.push({ name: '新菜单', sub_button: [] })
@@ -91,7 +95,7 @@ function addChild(group) {
   if (!group.sub_button) group.sub_button = []
   if (group.sub_button.length >= 5) return
   const b = { name: '新子菜单' }
-  setMenuAction(b, 'recent1', status.value.mini_app_id)
+  setMenuAction(b, 'orders', status.value.mini_app_id)
   group.sub_button.push(b)
   delete group.type
   delete group.url
@@ -183,7 +187,7 @@ onMounted(load)
     <header>
       <div>
         <h2>公众号管理</h2>
-        <p>配置公众号菜单和认证后的订单查询。页面请在“页面入口管理”中维护。</p>
+        <p>公众号引导访问小程序；豆单、订单和下单均在小程序内使用。页面请在“页面入口管理”中维护。</p>
       </div>
       <div>
         <button type="button" @click="openManual">操作说明</button>
@@ -195,7 +199,7 @@ onMounted(load)
         v-for="[key, label] in [
           ['status', '接入状态'],
           ['menu', '公众号菜单'],
-          ['bindings', '客户绑定'],
+          ['bindings', '历史客户绑定'],
           ['history', '发布记录'],
         ]"
         :key="key"
@@ -247,7 +251,8 @@ onMounted(load)
         >
           读取公众号现有菜单
         </button>
-        <button type="button" :disabled="groups.length >= 3" @click="addGroup">
+        <button type="button" @click="miniNavigationDraft">生成小程序导航草稿</button>
+ <button type="button" :disabled="groups.length >= 3" @click="addGroup">
           添加一级菜单
         </button>
       </div>

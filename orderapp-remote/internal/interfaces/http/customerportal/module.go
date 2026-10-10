@@ -120,6 +120,7 @@ type RecipientAddressService interface {
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerRegistrationAPI(e, deps.CustomerPortal, deps.Authz)
 	renderer := deps.BeanListPDFRenderer
 	if renderer == nil {
 		renderer = pdfinfra.BeanListRenderer{}

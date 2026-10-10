@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {restoreRegistrationSession} from '../../utils/registrationSession'
 import { loginRouteFor } from "../../utils/loginReturn"
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import PaymentSummary from '../../components/PaymentSummary.vue'
@@ -232,14 +233,21 @@ async function changePriceTable(group: PriceTableGroup, event: { detail: { value
   }
 }
 
+function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`)+'&mode=password'})}
 async function loadPage(pageNumber=1) {
+ try{await restoreRegistrationSession(session)}catch(e){errorMessage.value=e instanceof Error?e.message:"登录状态恢复失败";return}
   orderPage.value=pageNumber
   if (selectedPriceTableCustomerID !== Number(session.currentCustomerID)) { selectedPriceTableIDs.value = []; selectedPriceTableCustomerID = Number(session.currentCustomerID) }
   if (!session.token) {
     uni.reLaunch({ url: loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`) })
     return
   }
-  if (isClosedLoopService.value) {
+  if(session.accountType!=='employee' && !session.currentCustomerID){
+ page.value=null;loading.value=false
+ if(session.bindings.length>1){uni.navigateTo({url:'/pages/customer-select/customer-select?return_to='+encodeURIComponent(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`)});return}
+ errorMessage.value='当前登记账号没有客户业务权限，请使用已有客户账号登录或联系工作人员。';return
+ }
+ if (isClosedLoopService.value) {
     loading.value = false
     page.value = null
     return
@@ -982,6 +990,7 @@ onShow(() => { void refreshMiniappShareMenu() })
     <view v-else>
       <view v-if="errorMessage" class="state error">
         <text>{{ errorMessage }}</text>
+ <button v-if="!session.currentCustomerID" @tap="openCustomerLogin">使用客户账号登录</button>
       </view>
 
       <CustomerDirectShipPanel

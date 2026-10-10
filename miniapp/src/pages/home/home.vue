@@ -105,6 +105,7 @@ async function loadContext() {
   try {
     const response = await fetchMe(session.token)
     session.applyContext(response)
+ if(response.account_type!=='employee'&&!response.current_customer_id){uni.reLaunch({url:'/pages/index/index'});return}
     await loadCustomerOverview()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
@@ -122,6 +123,7 @@ onShow(() => {
 onShareAppMessage(defaultMiniappShare)
 onShareTimeline(defaultMiniappTimelineShare)
 onShow(() => { void refreshMiniappShareMenu() })
+function openBeanCenter(){uni.navigateTo({url:'/pages/bean-list-center/bean-list-center'})}
 </script>
 
 <template>
@@ -133,7 +135,8 @@ onShow(() => { void refreshMiniappShareMenu() })
     @touchend="handlePullUpBrandTouchEnd"
     @touchcancel="handlePullUpBrandTouchCancel"
   >
-    <EnvironmentBadge />
+    <button v-if="session.accountType!=='employee'" class="bean-entry" @tap="openBeanCenter">豆单 · 查看咖啡价格表 →</button>
+ <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ customerName }}</text>
@@ -177,6 +180,8 @@ onShow(() => { void refreshMiniappShareMenu() })
 </template>
 
 <style scoped>
+.bean-entry{display:block;width:100%;padding:26rpx;margin:16rpx 0 28rpx;background:#25583f;color:white;font-size:30rpx;text-align:left;border-radius:16rpx}
+
 .page {
   min-height: 100vh;
   padding: 32rpx 32rpx 160rpx;

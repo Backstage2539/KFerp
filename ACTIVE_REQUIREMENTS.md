@@ -5663,3 +5663,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-10-08
 - Notes: default authenticated entry, manually selected published version, automatic UnionID plus binding code; Van acceptance pending.
 - Delivery receipt: docs/acceptance/2026-10-08-wechat-official-portal.md. DEV-737 through DEV-741 complete; post-release tracking/docs commit does not change the deployed application identity above.
+
+### PR-688-miniapp-bean-center
+- Branch: codex/miniapp-bean-center-20261011
+- Status: implementing
+- Scope: 微信验证手机号与昵称登记、手工豆单目录、登记权限隔离、公众号小程序导航。
+- Verifier: Go unit/API/PostgreSQL; Vue; miniapp; manuals; Van acceptance pending.
+- Deployment: development only; no menu or miniapp publication.
+
+- PR-688 verification: local Go/PostgreSQL/API, Vue 1348, miniapp 276/typecheck/build GREEN; docs/acceptance/2026-10-11-bean-center.md. Integration/development delivery in progress; real-phone and Van acceptance pending.

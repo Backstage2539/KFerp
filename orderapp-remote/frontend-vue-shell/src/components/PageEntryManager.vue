@@ -34,6 +34,7 @@ const rows = ref([]),
   dirty = ref(false);
 const tables = computed(() => groupPageTargets(targets.value));
 const tableScope = ref("");
+ watch(()=>draft.value.kind,kind=>{if(kind!=="price"){draft.value.bean_center=false;draft.value.bean_sort=0;if(draft.value.visibility==="registered")draft.value.visibility="authenticated"}});
 const versions = computed(
   () =>
     tables.value.find((t) => t.table_scope === tableScope.value)?.versions ||
@@ -212,11 +213,11 @@ function move(index, delta) {
   draft.value.blocks = movePageBlock(draft.value.blocks, index, delta);
   changed();
 }
-function help() {
+function help(manualKey="pageEntryManual") {
   window.dispatchEvent(
     new CustomEvent("kferp:navigate-view", {
       detail: {
-        key: "pageEntryManual",
+        key: manualKey,
         returnNavigation: {
           key: "uiSettings",
           params: {
@@ -260,7 +261,7 @@ onBeforeUnmount(releasePreview);
         <p>手工创建固定入口；保存草稿后预览，发布后对外生效。</p>
       </div>
       <div class="actions">
-        <button :disabled="busy || dirty" @click="help">操作说明</button
+        <button :disabled="busy || dirty" @click="help()">操作说明</button
         ><button :disabled="busy" @click="load">刷新</button
         ><button class="primary" :disabled="busy" @click="add">新增页面</button>
       </div>
@@ -328,8 +329,8 @@ onBeforeUnmount(releasePreview);
                     : functions.find((f) => f.key === e.draft.target)?.name
                 }}</small>
               </td>
-              <td data-label="可见范围">{{ e.draft.visibility === "public" ? "公开" : "需认证" }}</td>
-              <td data-label="发布状态">{{ pageState(e) }}</td>
+              <td data-label="可见范围">{{ e.draft.visibility === "public" ? "公开" : e.draft.visibility === "registered" ? "登记用户可见" : "认证客户可见" }}</td>
+              <td data-label="发布状态">{{ pageState(e) }}<small v-if="e.published?.bean_center"> · 豆单中心 #{{e.published.bean_sort||0}}</small></td>
               <td data-label="更新时间">{{ new Date(e.updated_at).toLocaleString() }}</td>
               <td data-label="操作" class="actions">
                 <button :disabled="busy" @click="edit(e)">编辑 / 预览</button
@@ -389,12 +390,16 @@ onBeforeUnmount(releasePreview);
             </select></label
           ><label
             >可见范围<select v-model="draft.visibility">
-              <option value="authenticated">需认证</option>
+              <option value="authenticated">认证客户可见</option>
+ <option v-if="draft.kind==='price'" value="registered">登记用户可见（仅官方公共表）</option>
               <option value="public">公开</option>
             </select></label
           >
-          <template v-if="draft.kind === 'price'"
-            ><label
+          <template v-if="draft.kind === 'price'">
+ <label><span><input v-model="draft.bean_center" type="checkbox"/> 展示在豆单中心</span><small>仅支持官方公共表，发布后生效。</small></label>
+ <button type="button" @click="help('beanListCenterManual')">豆单中心操作说明</button>
+ <label v-if="draft.bean_center">目录排序<input v-model.number="draft.bean_sort" type="number" min="0" max="99999"/><small>数字越小越靠前；更换版本需重新发布此入口。</small></label>
+ <label
               >价格表<select
                 v-model="tableScope"
                 @change="draft.publication_id = 0"

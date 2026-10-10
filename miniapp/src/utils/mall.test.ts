@@ -197,7 +197,7 @@ describe('mini mall helpers', () => {
   })
 
   it('keeps order history reachable from the bottom order entry', () => {
-    const tabBar = fs.readFileSync(path.join(currentDir, '..', 'components', 'MainTabBar.vue'), 'utf8')
+    const tabBar = fs.readFileSync(path.join(currentDir, '..', 'components', 'MainTabBar.vue'), 'utf8') + fs.readFileSync(path.join(currentDir, 'beanCenter.ts'), 'utf8')
     expect(tabBar).toContain('/pages/service/service?key=orders')
     expect(tabBar).toContain('订单')
     expect(tabBar).toContain('uni.reLaunch')

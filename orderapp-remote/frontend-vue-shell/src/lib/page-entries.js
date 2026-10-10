@@ -6,6 +6,8 @@ export const pageKinds = {
 export function newPageDraft() {
   return {
     name: "",
+ bean_center:false,
+ bean_sort:0,
     kind: "price",
     visibility: "authenticated",
     publication_id: 0,

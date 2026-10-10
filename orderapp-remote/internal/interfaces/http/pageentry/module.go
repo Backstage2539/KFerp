@@ -40,6 +40,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, p *portal.S
 	e.GET(b+"/:key/references", h.references)
 	e.POST(b+"/:key/images", h.upload)
 	e.GET(b+"/:key/images/:asset", h.adminImage)
+	e.GET("/api/mini/bean-center", h.beanCenter)
 	e.GET("/api/pages/:key", h.resolve)
 	e.GET("/api/pages/:key/images/:asset", h.image)
 	e.GET("/api/page-auth/status", h.authStatus)
@@ -176,7 +177,16 @@ func (h *Handler) published(c echo.Context) (app.Document, error) {
 	}
 	d := *e.Published
 	var cur *portal.CurrentContext
-	if d.Visibility != "public" {
+	if d.Visibility == "registered" {
+		if !strings.HasPrefix(c.Request().Header.Get("Authorization"), "Bearer ") {
+			return d, echo.NewHTTPError(401, map[string]string{"error": "请在棵凡小程序中完成手机号和昵称登记后查看", "code": "mini_registration_required"})
+		}
+		x, err := h.current(c)
+		if err != nil || !x.RegistrationComplete {
+			return d, echo.NewHTTPError(401, map[string]string{"error": "请先完成手机号和昵称登记", "code": "mini_registration_required"})
+		}
+		cur = &x
+	} else if d.Visibility != "public" {
 		x, err := h.current(c)
 		if err != nil {
 			return d, echo.NewHTTPError(401, map[string]string{"error": "请登录并完成客户认证"})
@@ -202,7 +212,11 @@ func (h *Handler) published(c echo.Context) (app.Document, error) {
 		if err != nil || deleted || status != "published" {
 			return d, echo.NewHTTPError(404, map[string]string{"error": app.ErrUnavailable.Error()})
 		}
-		if err = official.CheckEntry(official.Entry{Enabled: true, Status: status, OwnerType: owner, OwnerKey: key, Visibility: d.Visibility}, cur); err != nil {
+		if d.Visibility == "registered" {
+			if owner != "official" {
+				return d, echo.NewHTTPError(403, map[string]string{"error": app.ErrDenied.Error()})
+			}
+		} else if err = official.CheckEntry(official.Entry{Enabled: true, Status: status, OwnerType: owner, OwnerKey: key, Visibility: d.Visibility}, cur); err != nil {
 			return d, echo.NewHTTPError(403, map[string]string{"error": app.ErrDenied.Error()})
 		}
 	}

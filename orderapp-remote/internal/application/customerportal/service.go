@@ -119,10 +119,12 @@ type CreateLoginSessionCommand struct {
 }
 
 type CreatePhoneVerifiedLoginSessionCommand struct {
-	OpenID   string
-	UnionID  string
-	Phone    string
-	Nickname string
+	Registration   bool
+	CredentialHash string
+	OpenID         string
+	UnionID        string
+	Phone          string
+	Nickname       string
 }
 
 type CreatePasswordLoginSessionCommand struct {
@@ -131,18 +133,20 @@ type CreatePasswordLoginSessionCommand struct {
 }
 
 type LoginResult struct {
-	Token             string            `json:"token"`
-	MiniUserID        int64             `json:"mini_user_id"`
-	AccountType       string            `json:"account_type"`
-	EmployeeID        int64             `json:"employee_id,omitempty"`
-	EmployeeName      string            `json:"employee_name,omitempty"`
-	Roles             []string          `json:"roles"`
-	Permissions       []string          `json:"permissions"`
-	CurrentCustomerID int64             `json:"current_customer_id"`
-	ThemeKey          string            `json:"theme_key"`
-	MiniappEntryMode  string            `json:"miniapp_entry_mode"`
-	Bindings          []CustomerBinding `json:"bindings"`
-	Capabilities      []Capability      `json:"capabilities"`
+	RegistrationComplete bool                 `json:"registration_complete"`
+	Registration         *RegistrationProfile `json:"registration,omitempty"`
+	Token                string               `json:"token"`
+	MiniUserID           int64                `json:"mini_user_id"`
+	AccountType          string               `json:"account_type"`
+	EmployeeID           int64                `json:"employee_id,omitempty"`
+	EmployeeName         string               `json:"employee_name,omitempty"`
+	Roles                []string             `json:"roles"`
+	Permissions          []string             `json:"permissions"`
+	CurrentCustomerID    int64                `json:"current_customer_id"`
+	ThemeKey             string               `json:"theme_key"`
+	MiniappEntryMode     string               `json:"miniapp_entry_mode"`
+	Bindings             []CustomerBinding    `json:"bindings"`
+	Capabilities         []Capability         `json:"capabilities"`
 }
 
 type CustomerBinding struct {
@@ -159,23 +163,25 @@ type Capability struct {
 }
 
 type CurrentContext struct {
-	MiniUserID             int64             `json:"mini_user_id"`
-	AccountType            string            `json:"account_type"`
-	EmployeeID             int64             `json:"employee_id,omitempty"`
-	EmployeeName           string            `json:"employee_name,omitempty"`
-	Roles                  []string          `json:"roles"`
-	Permissions            []string          `json:"permissions"`
-	CurrentCustomerID      int64             `json:"current_customer_id"`
-	CurrentCustomerName    string            `json:"current_customer_name"`
-	CurrentCustomerContact string            `json:"current_customer_contact,omitempty"`
-	CurrentCustomerPhone   string            `json:"current_customer_phone,omitempty"`
-	CurrentCustomerAddress string            `json:"current_customer_address,omitempty"`
-	BusinessContactName    string            `json:"business_contact_name,omitempty"`
-	BusinessContactPhone   string            `json:"business_contact_phone,omitempty"`
-	ThemeKey               string            `json:"theme_key"`
-	MiniappEntryMode       string            `json:"miniapp_entry_mode"`
-	Bindings               []CustomerBinding `json:"bindings"`
-	Capabilities           []Capability      `json:"capabilities"`
+	RegistrationComplete   bool                 `json:"registration_complete"`
+	Registration           *RegistrationProfile `json:"registration,omitempty"`
+	MiniUserID             int64                `json:"mini_user_id"`
+	AccountType            string               `json:"account_type"`
+	EmployeeID             int64                `json:"employee_id,omitempty"`
+	EmployeeName           string               `json:"employee_name,omitempty"`
+	Roles                  []string             `json:"roles"`
+	Permissions            []string             `json:"permissions"`
+	CurrentCustomerID      int64                `json:"current_customer_id"`
+	CurrentCustomerName    string               `json:"current_customer_name"`
+	CurrentCustomerContact string               `json:"current_customer_contact,omitempty"`
+	CurrentCustomerPhone   string               `json:"current_customer_phone,omitempty"`
+	CurrentCustomerAddress string               `json:"current_customer_address,omitempty"`
+	BusinessContactName    string               `json:"business_contact_name,omitempty"`
+	BusinessContactPhone   string               `json:"business_contact_phone,omitempty"`
+	ThemeKey               string               `json:"theme_key"`
+	MiniappEntryMode       string               `json:"miniapp_entry_mode"`
+	Bindings               []CustomerBinding    `json:"bindings"`
+	Capabilities           []Capability         `json:"capabilities"`
 }
 
 type CustomerRecipientAddress struct {
@@ -1301,7 +1307,10 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 			Phone:    strings.TrimSpace(cmd.Phone),
 			Nickname: strings.TrimSpace(cmd.Nickname),
 		})
-	case "phone_verify":
+	case "phone_verify", "register":
+		if mode == "register" && !ValidRegistrationNickname(cmd.Nickname) {
+			return LoginResult{}, fmt.Errorf("请填写 1 至 32 字的昵称")
+		}
 		phoneResolver, ok := s.identity.(PhoneNumberResolver)
 		if !ok {
 			return LoginResult{}, fmt.Errorf("phone verification unavailable")
@@ -1310,7 +1319,8 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 		if phoneCode == "" {
 			return LoginResult{}, fmt.Errorf("phone_code required")
 		}
-		phoneNumber, err := phoneResolver.ResolvePhoneNumber(ctx, phoneCode)
+		var phoneNumber MiniPhoneNumber
+		phoneNumber, err = phoneResolver.ResolvePhoneNumber(ctx, phoneCode)
 		if err != nil {
 			return LoginResult{}, err
 		}
@@ -1322,6 +1332,7 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 			return LoginResult{}, fmt.Errorf("phone required")
 		}
 		result, err = s.repo.CreatePhoneVerifiedLoginSession(ctx, CreatePhoneVerifiedLoginSessionCommand{
+			Registration: mode == "register", CredentialHash: PhoneCredentialHash(phoneCode),
 			OpenID:   identity.OpenID,
 			UnionID:  strings.TrimSpace(identity.UnionID),
 			Phone:    phone,

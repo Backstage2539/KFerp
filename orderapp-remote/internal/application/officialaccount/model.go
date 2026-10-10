@@ -162,11 +162,11 @@ func validateButton(b Button, miniAppID string, maxName int) error {
 		q := u.Query()
 		ok := false
 		switch u.Path {
-		case "pages/price-list/price-list":
+		case "pages/price-list/price-list", "pages/page-entry/page-entry":
 			ok = len(q) == 1 && len(q["entry"]) == 1 && len(q.Get("entry")) == 32
 		case "pages/service/service":
 			ok = len(q["key"]) == 1 && (len(q) == 1 || (len(q) == 2 && q.Get("key") == "orders" && len(q["source"]) == 1 && q.Get("source") == "official")) && (q.Get("key") == "orders" || q.Get("key") == "productOrder" || q.Get("key") == "directShip")
-		case "pages/index/index":
+		case "pages/index/index", "pages/bean-list-center/bean-list-center", "pages/home/home", "pages/mall/mall", "pages/profile/profile":
 			ok = len(q) == 0
 		}
 		if !ok {

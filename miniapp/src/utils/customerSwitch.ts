@@ -21,7 +21,8 @@ export function selectedCustomerID(bindings: CustomerBinding[] = [], index: numb
   return bindings[index]?.customer_id || 0
 }
 
-export function customerEntryRoute(context: { miniapp_entry_mode?: string; capabilities?: Capability[] }): string {
+export function customerEntryRoute(context: { miniapp_entry_mode?: string; capabilities?: Capability[]; registration_complete?: boolean; current_customer_id?:number }): string {
   if ((context as { account_type?: string }).account_type === 'employee') return '/pages/home/home'
-  return '/pages/home/home'
+  if(context.registration_complete && !context.current_customer_id)return '/pages/index/index'
+ return '/pages/home/home'
 }

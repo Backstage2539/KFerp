@@ -104,7 +104,7 @@ func (r Repository) validateTarget(ctx context.Context, tx pgx.Tx, key string, d
 		if err != nil || status != "published" || deleted {
 			return app.ErrUnavailable
 		}
-		if owner != "official" && d.Visibility == "public" {
+		if owner != "official" && (d.Visibility == "public" || d.Visibility == "registered" || d.BeanCenter) {
 			return app.ErrDenied
 		}
 		if publish {

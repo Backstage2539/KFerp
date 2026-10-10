@@ -23,7 +23,7 @@ describe('guest browsing before login and deposit presets',()=>{
  expect(view.slice(view.indexOf('function resetAfterSubmit()'),view.indexOf('function returnToOrderDetail()'))).toContain('prepaymentRate.value = 0')
  })
  it('login page provides a way back to public browsing',()=>{
- const login=readFileSync(new URL('../pages/login/login.vue',import.meta.url),'utf8');expect(login).toContain('先浏览服务');expect(login).toContain('/pages/index/index')
+ const login=readFileSync(new URL('../pages/login/login.vue',import.meta.url),'utf8');expect(login).toContain('返回豆单目录');expect(login).toContain('/pages/bean-list-center/bean-list-center')
  })
 })
 
