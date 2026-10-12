@@ -5,15 +5,15 @@ import {
   onLoad,
   onShow,
   onHide,
+  onUnload,
   onShareAppMessage,
   onShareTimeline,
 } from '@dcloudio/uni-app'
 import { fetchPageEntry, type PageDocument } from '../../api/pageEntry'
 import { buildAPIURL } from '../../api/client'
-import { fetchMe, type BeanListSummary } from '../../api/customerPortal'
+import { type BeanListSummary } from '../../api/customerPortal'
 import {
   MiniRequestError,
-  isAuthenticationExpiredRequestError,
 } from '../../api/client'
 import { useSessionStore } from '../../stores/session'
 import { loginRouteFor } from '../../utils/loginReturn'
@@ -26,6 +26,8 @@ import {
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import BeanRegistrationSheet from '../../components/BeanRegistrationSheet.vue'
+import {useBeanRegistration} from '../../composables/useBeanRegistration'
 const document = ref<PageDocument | null>(null), images = ref<Record<string,string>>({})
 const session = useSessionStore(),
   entry = ref(''),
@@ -41,6 +43,8 @@ const {
   handlePullUpBrandTouchCancel,
 } = usePullUpBrandGesture()
 let sequence = 0
+const registration=useBeanRegistration(()=>{void load()})
+function cancelRegistration(){registration.close();backToBeans()}
 const destination = () => `/pages/page-entry/page-entry?entry=${entry.value}`
 const defaultMiniappShare = () => ({
   ...baseShare(),
@@ -87,6 +91,10 @@ async function load() {
     }
   } catch (e) {
     if (request !== sequence) return
+    if(e instanceof MiniRequestError && e.statusCode===401 && e.code==='mini_registration_required') {
+      registration.openRequired(entry.value)
+      return
+    }
     error.value = e instanceof Error ? e.message : '暂时无法加载页面'
     needsCustomerLogin.value=e instanceof MiniRequestError && e.statusCode===403
     needsLogin.value = e instanceof MiniRequestError && (e.statusCode === 401 || e.statusCode === 403)
@@ -98,7 +106,7 @@ onLoad((query) => {
   entry.value = String(query?.entry || '')
 })
 onShow(() => {
-  void load()
+  if(!registration.visible.value) void load()
   void refreshMiniappShareMenu()
 })
 onHide(() => {
@@ -107,6 +115,7 @@ onHide(() => {
   document.value = null
   images.value = {}
 })
+onUnload(()=>registration.close())
 onShareAppMessage(defaultMiniappShare)
 onShareTimeline(defaultMiniappTimelineShare)
 </script>
@@ -196,6 +205,7 @@ onShareTimeline(defaultMiniappTimelineShare)
     <view class="pull-up-brand-footer-anchor">
       <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
     </view>
+    <BeanRegistrationSheet :visible="registration.visible.value" :title="registration.title.value" :nickname="registration.nickname.value" :busy="registration.busy.value" :error="registration.error.value" @nickname="registration.nickname.value=$event" @authorize="registration.submit" @close="cancelRegistration"/>
   </view>
 </template>
 <style scoped>
