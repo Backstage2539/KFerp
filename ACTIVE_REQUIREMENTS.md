@@ -5671,14 +5671,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: Go unit/API/PostgreSQL; Vue; miniapp; manuals; Van acceptance pending.
 - Deployment: development only; no menu or miniapp publication.
 
+- PR-688 verification: local Go/PostgreSQL/API, Vue 1348, miniapp 276/typecheck/build GREEN; docs/acceptance/2026-10-11-bean-center.md. PR #192 merged/deployed ce911c5bdbbe36e8d3edf92e60d666036f6c94fe; four registered-only cards configured; 22-page development package exported and simulator/UI verified. WeChat preview upload returns 41002 appid missing; real-phone and Van acceptance pending.
+
 ### PR-689-bean-registration-sheet
 - Branch: codex/bean-registration-sheet-20261013
 - Owner: Codex; product acceptance: Van
-- Status: in progress
+- Status: implemented and development delivered; Van real-device acceptance pending
 - Scope: 价格表点击后原地底部登记面板；昵称及微信手机号授权；成功打开所选表，取消保留目录；直接链接使用同一面板，客户权限不变。
 - DEV: DEV-758-BEAN-REGISTRATION-SHEET; DEV-759-BEAN-SHEET-DELIVERY
 - Verifier: failed-first miniapp behavior/API tests; PostgreSQL HTTP permissions; miniapp typecheck/build; Vue build; DEV deployment and preview QR.
 - Manual: orderapp-remote/docs/OP_MANUAL_BEAN_LIST_CENTER.md
 - Delivery: development only; Van real-device acceptance pending.
 
-- PR-688 verification: local Go/PostgreSQL/API, Vue 1348, miniapp 276/typecheck/build GREEN; docs/acceptance/2026-10-11-bean-center.md. PR #192 merged/deployed ce911c5bdbbe36e8d3edf92e60d666036f6c94fe; four registered-only cards configured; 22-page development package exported and simulator/UI verified. WeChat preview upload returns 41002 appid missing; real-phone and Van acceptance pending.
+
+- PR-689 delivery: PR #195 merged; development 8418391726728dd65020a37bb6f931bace22d7a5 deployed with health/source/artifact checks. Backup /opt/stacks/erp/orderapp.backup.deploy-20261013014204-841839172672. Four cards, anonymous registration-required 401, admin auth 401, service-account identity/config preserved. 22 pages / 88 page files; preview upload succeeded and QR generated 2026-10-13. Receipt: orderapp-remote/docs/acceptance/2026-10-13-bean-registration-sheet.md. Van phone acceptance remains pending.
