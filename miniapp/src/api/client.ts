@@ -11,11 +11,13 @@ export type RequestOptions = {
 
 export class MiniRequestError extends Error {
   readonly statusCode: number
+  readonly code: string
 
-  constructor(message: string, statusCode: number) {
+  constructor(message: string, statusCode: number, code = '') {
     super(message)
     this.name = 'MiniRequestError'
     this.statusCode = statusCode
+    this.code = code
   }
 }
 
@@ -63,8 +65,8 @@ export function miniRequest<T>(path: string, options: RequestOptions = {}): Prom
           resolve(res.data as T)
           return
         }
-        const body = res.data as { error?: string }
-        reject(new MiniRequestError(body?.error || `request failed: ${res.statusCode}`, res.statusCode))
+        const body = res.data as { error?: string; code?: string }
+        reject(new MiniRequestError(body?.error || `request failed: ${res.statusCode}`, res.statusCode, body?.code))
       },
       fail: (err) => reject(new Error(err.errMsg || 'network error')),
     })

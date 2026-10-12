@@ -141,7 +141,9 @@ func TestBeanCenterRegistrationPostgres(t *testing.T) {
 	}
 	entry := entries[0]
 	path := "/api/pages/" + entry.Key
-	call("GET", path, "", "", 401)
+	if string(call("GET", path, "", "", 401)["code"]) != `"mini_registration_required"` {
+		t.Fatal("registered entry must explicitly request inline registration")
+	}
 	call("GET", path, "", token, 200)
 	private := publication("customer", "999", "private")
 	draft := entry.Draft
@@ -223,7 +225,9 @@ func TestBeanCenterRegistrationPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call("GET", "/api/pages/"+owned.Key, "", token, 403)
+	if string(call("GET", "/api/pages/"+owned.Key, "", token, 403)["code"]) == `"mini_registration_required"` {
+		t.Fatal("customer permissions must not fall back to ordinary registration")
+	}
 	call("GET", "/api/pages/"+owned.Key, "", customerToken, 403)
 	call("POST", "/api/mini/current-customer", fmt.Sprintf(`{"customer_id":%d}`, customerB), customerToken, 200)
 	call("GET", "/api/pages/"+owned.Key, "", customerToken, 200)
