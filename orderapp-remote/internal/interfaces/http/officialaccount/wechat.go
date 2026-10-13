@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	app "orderapp/internal/application/officialaccount"
 )
 
 type Config struct {
@@ -48,18 +50,21 @@ func (w *WechatClient) call(ctx context.Context, path string, query url.Values, 
 	var reader io.Reader
 	method := http.MethodGet
 	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
+		var data bytes.Buffer
+		encoder := json.NewEncoder(&data)
+		// WeChat rejects HTML-style JSON escapes (for example \u0026 in URLs).
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(body); err != nil {
 			return err
 		}
-		reader = bytes.NewReader(data)
+		reader = &data
 		method = http.MethodPost
 	}
 	req, err := http.NewRequestWithContext(ctx, method, base+path+"?"+query.Encode(), reader)
 	if err != nil {
 		return errors.New("微信接口地址无效")
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	client := w.Client
 	if client == nil {
 		client = &http.Client{Timeout: 3 * time.Second}
@@ -83,6 +88,9 @@ func (w *WechatClient) call(ctx context.Context, path string, query url.Values, 
 		return errors.New("微信接口返回格式异常")
 	}
 	if apiErr.Code != 0 {
+		if apiErr.Code == 40033 {
+			return errors.New("微信接口错误 40033：菜单内容编码异常，请联系管理员检查发布服务")
+		}
 		return fmt.Errorf("微信接口错误 %d，请检查服务号权限和服务器 IP 白名单", apiErr.Code)
 	}
 	return json.Unmarshal(raw, result)
@@ -138,10 +146,16 @@ func (w *WechatClient) Menu(ctx context.Context) (json.RawMessage, error) {
 	return out.Menu, err
 }
 func (w *WechatClient) Publish(ctx context.Context, menu json.RawMessage) error {
+	// Snapshots may already contain JSON escapes from storage or preview marshaling.
+	// Decode the menu before encoding the actual HTTP body without HTML escaping.
+	var decoded app.Menu
+	if err := json.Unmarshal(menu, &decoded); err != nil {
+		return errors.New("菜单格式无效")
+	}
 	t, err := w.accessToken(ctx)
 	if err != nil {
 		return err
 	}
 	var out map[string]any
-	return w.call(ctx, "/cgi-bin/menu/create", url.Values{"access_token": {t}}, menu, &out)
+	return w.call(ctx, "/cgi-bin/menu/create", url.Values{"access_token": {t}}, decoded, &out)
 }

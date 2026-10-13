@@ -1,3 +1,9 @@
+### PR-690-WECHAT-MENU-ENCODING
+- Branch: `codex/wechat-menu-encoding-20261013`; base `origin/develop@b954a388`.
+- Scope: preserve UTF-8 and literal URL separators in WeChat menu requests; correct error 40033 guidance; preserve the selected menu and preview protections.
+- TDD: literal and stored escaped menus failed before the fix and pass afterward; HTTP tests assert the exact outgoing menu semantics. Official-account Go application and adapter tests pass.
+- Records: DEV-760, UT-690, API-690, REV-690; Van phone acceptance pending. Production deployment and real menu readback tracked in `orderapp-remote/docs/acceptance/2026-10-13-wechat-menu-encoding.md`.
+
 ### PR-687-UNIFIED-PAGE-ENTRIES
 - Branch: `codex/unified-page-entries-20261009`; base `origin/develop@df9c83ba`.
 - Status: implementation, tests, PR #190 integration and development deployment complete; Van product acceptance and real WeChat OAuth remain pending.
