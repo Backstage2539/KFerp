@@ -5677,7 +5677,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-689-bean-registration-sheet
 - Branch: codex/bean-registration-sheet-20261013
 - Owner: Codex; product acceptance: Van
-- Status: accepted by Van on 2026-10-13; production release in progress
+- Status: accepted by Van on 2026-10-13; production release authorized
 - Scope: 价格表点击后原地底部登记面板；昵称及微信手机号授权；成功打开所选表，取消保留目录；直接链接使用同一面板，客户权限不变。
 - DEV: DEV-758-BEAN-REGISTRATION-SHEET; DEV-759-BEAN-SHEET-DELIVERY
 - Verifier: failed-first miniapp behavior/API tests; PostgreSQL HTTP permissions; miniapp typecheck/build; Vue build; DEV deployment and preview QR.
