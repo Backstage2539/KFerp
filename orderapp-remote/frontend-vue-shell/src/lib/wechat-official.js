@@ -20,7 +20,9 @@ export function menuFromEditor(groups) {
   }
 }
 export function menuAction(button) {
+  if (menuPageKey(button)) return 'page'
   if (button.type === 'miniprogram') {
+    if(button.pagepath==='pages/bean-list-center/bean-list-center')return 'beans'
     if (button.pagepath?.startsWith('pages/price-list/')) return 'price'
     if (
       [
@@ -61,6 +63,7 @@ export function setMenuAction(button, action, appid, entry = '') {
     return
   }
   const paths = {
+    beans:'pages/bean-list-center/bean-list-center',
     price: fixedPricePath({ key: entry }),
     orders: 'pages/service/service?key=orders&source=official',
     order: 'pages/service/service?key=productOrder',
@@ -72,4 +75,18 @@ export function setMenuAction(button, action, appid, entry = '') {
     pagepath: paths[action] || paths.home,
     url: oldURL || 'https://erp.qacoohee.com/app/',
   })
+}
+
+export function menuPageKey(button) {
+ try {
+  if (button.type === 'miniprogram' && button.pagepath?.startsWith('pages/page-entry/page-entry?')) return new URLSearchParams(button.pagepath.split('?')[1]).get('entry') || ''
+  if (button.type === 'view') return new URL(button.url).pathname.match(/^\/app\/p\/([a-f0-9]{32})$/)?.[1] || ''
+ } catch { /* Retain imported URLs verbatim. */ }
+ return ''
+}
+export function setMenuPage(button, entry, appid, mode = 'mini', origin = '') {
+ const name=button.name
+ for(const key of Object.keys(button)) delete button[key]
+ const web=`${origin}/app/p/${entry.key}`
+ Object.assign(button,mode==='web' && entry.published?.kind!=='function' ? {name,type:'view',url:web} : {name,type:'miniprogram',appid,pagepath:`pages/page-entry/page-entry?entry=${entry.key}`,url:entry.published?.kind==='function'?`${origin}/app/`:web})
 }

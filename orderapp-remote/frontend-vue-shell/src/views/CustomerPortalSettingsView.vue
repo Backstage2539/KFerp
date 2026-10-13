@@ -1,5 +1,6 @@
 <template>
   <div class="page">
+ <RegisteredVisitors />
     <section class="panel">
       <div class="panel-head">
         <h2>客户门户配置</h2>
@@ -223,6 +224,7 @@
 </template>
 
 <script setup>
+import RegisteredVisitors from '../components/RegisteredVisitors.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import {

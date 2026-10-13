@@ -1,3 +1,11 @@
+### PR-687-UNIFIED-PAGE-ENTRIES
+- Branch: `codex/unified-page-entries-20261009`; base `origin/develop@df9c83ba`.
+- Status: implementation, tests, PR #190 integration and development deployment complete; Van product acceptance and real WeChat OAuth remain pending.
+- Scope: manual page registry; price/function/article targets; draft/publish; miniapp and H5; WeChat OAuth/password; legacy compatibility.
+- DEV: DEV-749-PAGE-DATA; DEV-750-PAGE-ADMIN; DEV-751-PAGE-CLIENTS; DEV-752-PAGE-WEB-AUTH; DEV-753-PAGE-DELIVERY.
+- Verifier: full Go/Vue suite (1,346 tests), miniapp 268 tests/typecheck/development build; isolated PostgreSQL API race tests; desktop/mobile fixture UI and manual return check. Evidence: `orderapp-remote/docs/acceptance/2026-10-09-unified-page-entries.md`.
+- Deployment: `./deploy_orderapp.sh development` deployed `69a53e657df165611fdf14c9134b96e42972de30` on 2026-10-09. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20261009022737-69a53e657df1`; rollback image `kferp-orderapp-rollback:development-20261009022737-69a53e657df1`. Runtime, route/API boundaries and manual smoke passed. Manual entries 0; 46 historical entries have identical before/after hashes; automatic trigger count 0. Official-account, menu publish and web OAuth switches remain 0. Development miniapp exported to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`, not uploaded.
+
 ### PR-686-PRICE-TEMPLATE-EDITOR-TRIAL
 - Branch: `codex/price-template-editor-trial-20261008`; PR #188 merged into `develop` as `57c5b29970c1630f644010067bb6c30bb8276300`.
 - Owner/session: Codex / Van / 2026-10-08.
@@ -5656,3 +5664,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-10-08
 - Notes: default authenticated entry, manually selected published version, automatic UnionID plus binding code; Van acceptance pending.
 - Delivery receipt: docs/acceptance/2026-10-08-wechat-official-portal.md. DEV-737 through DEV-741 complete; post-release tracking/docs commit does not change the deployed application identity above.
+
+### PR-688-miniapp-bean-center
+- Branch: codex/miniapp-bean-center-20261011
+- Status: development delivered; Van acceptance pending
+- Scope: 微信验证手机号与昵称登记、手工豆单目录、登记权限隔离、公众号小程序导航。
+- Verifier: Go unit/API/PostgreSQL; Vue; miniapp; manuals; Van acceptance pending.
+- Deployment: development only; no menu or miniapp publication.
+
+- PR-688 verification: local Go/PostgreSQL/API, Vue 1348, miniapp 276/typecheck/build GREEN; docs/acceptance/2026-10-11-bean-center.md. PR #192 merged/deployed ce911c5bdbbe36e8d3edf92e60d666036f6c94fe; four registered-only cards configured; 22-page development package exported and simulator/UI verified. WeChat preview upload returns 41002 appid missing; real-phone and Van acceptance pending.
+
+### PR-689-bean-registration-sheet
+- Branch: codex/bean-registration-sheet-20261013
+- Owner: Codex; product acceptance: Van
+- Status: accepted by Van on 2026-10-13; production release in progress
+- Scope: 价格表点击后原地底部登记面板；昵称及微信手机号授权；成功打开所选表，取消保留目录；直接链接使用同一面板，客户权限不变。
+- DEV: DEV-758-BEAN-REGISTRATION-SHEET; DEV-759-BEAN-SHEET-DELIVERY
+- Verifier: failed-first miniapp behavior/API tests; PostgreSQL HTTP permissions; miniapp typecheck/build; Vue build; DEV deployment and preview QR.
+- Manual: orderapp-remote/docs/OP_MANUAL_BEAN_LIST_CENTER.md
+- Delivery: Van authorized merge into main, production backend deployment and a production miniapp upload package; upload/review/publication remains with Van.
+
+
+- PR-689 delivery: PR #195 merged; development 8418391726728dd65020a37bb6f931bace22d7a5 deployed with health/source/artifact checks. Backup /opt/stacks/erp/orderapp.backup.deploy-20261013014204-841839172672. Four cards, anonymous registration-required 401, admin auth 401, service-account identity/config preserved. 22 pages / 88 page files; preview upload succeeded and QR generated 2026-10-13. Receipt: orderapp-remote/docs/acceptance/2026-10-13-bean-registration-sheet.md. Van phone acceptance remains pending.
+
+- PR-689 production authorization (2026-10-13): Van confirmed “可以了，合并到main，并部署到生产环境，给我小程序包，我上传最新小程序”. Release branch codex/bean-sheet-production-20261013 combines origin/main 43ec7232 with verified origin/develop b954a388. PR/REV are done for the accepted registration experience. Production-config preflight and release evidence will be delivered with the upload package.

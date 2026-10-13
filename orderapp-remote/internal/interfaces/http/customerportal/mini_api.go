@@ -937,6 +937,12 @@ func publishMiniOrderCreated(c echo.Context, messages MessagePublisher, result c
 }
 
 func miniLoginError(c echo.Context, err error) error {
+	if errors.Is(err, customerportalapp.ErrMiniInvalidLogin) {
+		return c.JSON(401, map[string]string{"error": "手机号验证失败，请重新授权"})
+	}
+	if errors.Is(err, customerportalapp.ErrPhoneCredentialUsed) {
+		return c.JSON(400, map[string]string{"error": err.Error()})
+	}
 	if errors.Is(err, customerportalapp.ErrMiniLoginDisabled) {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "mini login disabled"})
 	}

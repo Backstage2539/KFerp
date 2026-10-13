@@ -1,13 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildAPIURL,
   isAuthenticationExpiredRequestError,
   isUnauthorizedRequestError,
   MiniRequestError,
   normalizeAPIBase,
+  miniRequest,
 } from './client'
 
 describe('miniapp API client URL helpers', () => {
+  it('preserves registration-required API codes for direct-link inline registration', async () => {
+    vi.stubEnv('VITE_KFERP_ENVIRONMENT','development')
+    vi.stubEnv('VITE_KFERP_API_BASE','https://dev.qacoohee.com/app')
+    vi.stubGlobal('uni',{request:({success}:any)=>success({statusCode:401,data:{error:'需要登记',code:'mini_registration_required'}})})
+    try {
+      await expect(miniRequest('/api/pages/entry')).rejects.toMatchObject({statusCode:401,code:'mini_registration_required'})
+    } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs() }
+  })
   it('normalizes configured API base by trimming whitespace and trailing slashes', () => {
     expect(normalizeAPIBase(' https://erp.example.com/app/// ')).toBe('https://erp.example.com/app')
   })

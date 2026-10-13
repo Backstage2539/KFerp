@@ -87,6 +87,8 @@ func isAPIPath(path string) bool {
 }
 
 func isPublicUnauthenticatedPath(path string) bool {
+ path = strings.TrimPrefix(path, "/app")
+ if strings.HasPrefix(path,"/api/pages/") || strings.HasPrefix(path,"/api/page-auth/") || strings.HasPrefix(path,"/p/") { return true }
 	return path == "/api/wechat/official-account/callback" || path == "/app/api/wechat/official-account/callback" || strings.HasPrefix(path, "/api/mini/") ||
 		strings.HasPrefix(path, "/public/bean-list/") ||
 		strings.HasPrefix(path, "/share/") ||

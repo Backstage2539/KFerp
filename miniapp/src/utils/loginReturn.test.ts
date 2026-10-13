@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { safeLoginReturn } from './loginReturn'
 describe('login return', () => {
+  it('preserves unified entries and rejects injected customers or return addresses', () => {
+    const path='/pages/page-entry/page-entry?entry=0123456789abcdef0123456789abcdef'
+    expect(safeLoginReturn(path)).toBe(path)
+    expect(safeLoginReturn(path+'&customer_id=9')).toBe('')
+    expect(safeLoginReturn(path+'&return_to=https://evil.test')).toBe('')
+  })
   it('preserves a fixed price entry and customer order destination', () => {
     expect(safeLoginReturn('/pages/price-list/price-list?entry=abc')).toBe(
       '/pages/price-list/price-list?entry=abc',

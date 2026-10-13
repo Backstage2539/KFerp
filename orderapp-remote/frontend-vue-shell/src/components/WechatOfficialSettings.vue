@@ -8,7 +8,7 @@ import {
   menuAction,
 } from '../lib/wechat-official'
 import WechatMenuButton from './WechatMenuButton.vue'
-import WechatPriceEntries from './WechatPriceEntries.vue'
+
 const status = ref({}),
   tab = ref('status'),
   error = ref(''),
@@ -21,10 +21,12 @@ const status = ref({}),
   preview = ref(null)
 const base = '/api/customer-portal/admin/wechat'
 const labels = {
-  price: '查看指定价格表',
+  price: '历史价格表入口',
+  page: '页面入口',
   orders: '查看全部订单',
-  recent1: '回复最近一次订单',
-  recent3: '回复最近三次订单',
+  beans:'进入豆单中心',
+  recent1: '旧订单动作（引导小程序）',
+  recent3: '旧订单动作（引导小程序）',
   order: '进入下单',
   home: '小程序首页',
   view: '打开网页',
@@ -55,8 +57,8 @@ async function run(fn) {
   }
 }
 async function loadMenuEntries() {
-  entries.value = ((await apiGet(base + '/entries')).rows || []).filter(
-    (entry) => entry.enabled && entry.publication_id > 0 && entry.status === 'published',
+  entries.value = ((await apiGet('/api/admin/page-entries')).rows || []).filter(
+    (entry) => entry.enabled && entry.published && !entry.deleted,
   )
 }
 async function selectTab(key) {
@@ -80,6 +82,9 @@ async function load() {
       groups.value = menuToEditor(history.value[0].menu)
   })
 }
+function miniNavigationDraft(){
+ groups.value=[['豆单获取','beans'],['我的订单','orders'],['下单','order']].map(([name,action])=>{const b={name};setMenuAction(b,action,status.value.mini_app_id);return b});changed();notice.value='已生成三项菜单草稿。确认正式小程序包含豆单中心后，再预览差异并发布。'
+}
 function addGroup() {
   if (groups.value.length < 3) {
     groups.value.push({ name: '新菜单', sub_button: [] })
@@ -90,7 +95,7 @@ function addChild(group) {
   if (!group.sub_button) group.sub_button = []
   if (group.sub_button.length >= 5) return
   const b = { name: '新子菜单' }
-  setMenuAction(b, 'home', status.value.mini_app_id)
+  setMenuAction(b, 'orders', status.value.mini_app_id)
   group.sub_button.push(b)
   delete group.type
   delete group.url
@@ -182,7 +187,7 @@ onMounted(load)
     <header>
       <div>
         <h2>公众号管理</h2>
-        <p>配置价格表入口、公众号菜单和认证后的订单查询。</p>
+        <p>公众号引导访问小程序；豆单、订单和下单均在小程序内使用。页面请在“页面入口管理”中维护。</p>
       </div>
       <div>
         <button type="button" @click="openManual">操作说明</button>
@@ -193,9 +198,8 @@ onMounted(load)
       <button
         v-for="[key, label] in [
           ['status', '接入状态'],
-          ['entries', '价格表入口'],
           ['menu', '公众号菜单'],
-          ['bindings', '客户绑定'],
+          ['bindings', '历史客户绑定'],
           ['history', '发布记录'],
         ]"
         :key="key"
@@ -211,7 +215,7 @@ onMounted(load)
     <div v-if="tab === 'status'" class="status">
       <h3>{{ status.enabled ? '公众号已启用' : '公众号尚未启用' }}</h3>
       <p>
-        正式菜单发布前，需完成服务号权限、开放平台绑定、第三方消息服务及小程序正式版本核对。
+        正式菜单发布前，需核对菜单接口权限、已关联小程序及小程序正式版本；消息推送另行核对第三方接管情况。
       </p>
       <dl>
         <dt>公众号标识</dt>
@@ -226,17 +230,18 @@ onMounted(load)
         </dd>
         <dt>消息加密</dt>
         <dd>{{ status.encryption_configured ? '已配置' : '待配置' }}</dd>
-        <dt>跨平台身份识别</dt>
+        <dt>公众号网页身份识别</dt>
         <dd>
           {{
-            status.unionid_enabled ? '已开启' : '待核对，绑定码可作为备用方式'
+            status.unionid_enabled ? '已开启 UnionID 匹配' : '未开启；网页可用账号密码登录，小程序登记不受影响'
           }}
         </dd>
+        <dt>网页授权</dt><dd>{{ status.web_oauth_ready ? '已开启' : '未启用或配置未齐' }}</dd><dt>网页授权回调</dt><dd>{{ status.web_oauth_callback || '待配置授权域名' }}</dd>
         <dt>菜单发布</dt>
         <dd>{{ status.menu_publish_enabled ? '已开启' : '等待正式上线' }}</dd>
       </dl>
     </div>
-    <WechatPriceEntries v-else-if="tab === 'entries'" />
+
     <div v-else-if="tab === 'menu'" class="menu">
       <div class="actions">
         <button
@@ -246,7 +251,8 @@ onMounted(load)
         >
           读取公众号现有菜单
         </button>
-        <button type="button" :disabled="groups.length >= 3" @click="addGroup">
+        <button type="button" @click="miniNavigationDraft">生成小程序导航草稿</button>
+ <button type="button" :disabled="groups.length >= 3" @click="addGroup">
           添加一级菜单
         </button>
       </div>
