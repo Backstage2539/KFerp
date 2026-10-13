@@ -11,6 +11,7 @@
       <button type="button" role="tab" :aria-selected="activeTab === 'base'" :class="{ active: activeTab === 'base' }" @click="selectTab('base')">系统基础设置</button>
       <button type="button" role="tab" :aria-selected="activeTab === 'notifications'" :class="{ active: activeTab === 'notifications' }" @click="selectTab('notifications')">通知设置</button>
       <button type="button" role="tab" :aria-selected="activeTab === 'wechat'" :class="{ active: activeTab === 'wechat' }" @click="selectTab('wechat')">公众号管理</button>
+      <button type="button" role="tab" :aria-selected="activeTab === 'pages'" :class="{ active: activeTab === 'pages' }" @click="selectTab('pages')">页面入口管理</button>
     </nav>
 
     <section v-if="activeTab === 'base'" class="page" role="tabpanel">
@@ -40,6 +41,7 @@
     </section>
 
     <NotificationSettingsView v-else-if="activeTab === 'notifications'" />
+    <PageEntryManager v-else-if="activeTab === 'pages'" :view-params="viewParams" />
     <WechatOfficialSettings v-else />
   </div>
 </template>
@@ -48,10 +50,11 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import { fetchUISettings, saveUISettings } from '../api/ui-settings'
 import NotificationSettingsView from './NotificationSettingsView.vue'
+import PageEntryManager from '../components/PageEntryManager.vue'
 import WechatOfficialSettings from '../components/WechatOfficialSettings.vue'
 
 const props = defineProps({ viewParams: { type: Object, default: () => ({}) } })
-const settingsTabs = ['base', 'notifications', 'wechat']
+const settingsTabs = ['base', 'notifications', 'wechat', 'pages']
 const normalizeTab = (value) => settingsTabs.includes(String(value || '')) ? String(value) : 'base'
 const activeTab = ref(normalizeTab(props.viewParams?.tab))
 const loading = ref(false)
@@ -111,7 +114,7 @@ watch(() => props.viewParams?.tab, (value) => { activeTab.value = normalizeTab(v
 .page-head h2, .panel h2 { margin: 0; font-size: 22px; }
 p { margin: 5px 0 0; color: #666; font-size: 13px; }
 .settings-tabs { display: flex; gap: 6px; padding: 12px 18px 0; background: #fff; border-bottom: 1px solid #e6e8eb; }
-.settings-tabs button { min-height: 42px; border: 0; border-bottom: 3px solid transparent; background: transparent; padding: 8px 14px; color: #555; cursor: pointer; }
+.settings-tabs button { white-space: nowrap; min-height: 42px; border: 0; border-bottom: 3px solid transparent; background: transparent; padding: 8px 14px; color: #555; cursor: pointer; }
 .settings-tabs button.active { border-bottom-color: #111827; color: #111827; font-weight: 700; }
 .page { padding: 18px; }
 .panel { border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; padding: 14px; max-width: 1080px; }
@@ -128,7 +131,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .error { color: #b91c1c; font-size: 13px; }
 @media (max-width: 760px) {
   .page-head, .page { padding-left: 12px; padding-right: 12px; }
-  .settings-tabs { overflow-x: auto; padding-left: 12px; padding-right: 12px; }
+  .settings-tabs { flex-wrap: wrap; overflow-x: auto; padding-left: 12px; padding-right: 12px; }
   .panel-head { flex-direction: column; }
 }
 </style>

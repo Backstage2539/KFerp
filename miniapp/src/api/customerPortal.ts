@@ -1,3 +1,4 @@
+import type { RegistrationProfile } from './registration'
 import type { PriceTableOption } from '../utils/priceTables'
 import { miniRequest } from './client'
 import type { Capability } from '../utils/capabilities'
@@ -16,6 +17,8 @@ export type CustomerBinding = {
 }
 
 export type LoginResponse = {
+ registration_complete?: boolean
+ registration?: RegistrationProfile
   token: string
   mini_user_id: number
   current_customer_id: number
@@ -31,6 +34,8 @@ export type LoginResponse = {
 }
 
 export type MeResponse = {
+ registration_complete?: boolean
+ registration?: RegistrationProfile
   mini_user_id: number
   current_customer_id: number
   current_customer_name: string

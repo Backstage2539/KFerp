@@ -8,7 +8,7 @@ import (
 
 func TestRetailMallCustomersCanReachOrderHistoryFromMiniapp(t *testing.T) {
 	capabilities := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "capabilities.ts")))
-	tabBar := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "components", "MainTabBar.vue")))
+	tabBar := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "components", "MainTabBar.vue"))) + string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "beanCenter.ts")))
 	service := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "customerportal", "service.go")))
 	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md")))
 

@@ -1,3 +1,4 @@
+import type { RegistrationProfile } from '../api/registration'
 import { defineStore } from 'pinia'
 import type { CustomerBinding, MiniappEntryMode } from '../api/customerPortal'
 import {
@@ -24,6 +25,9 @@ function storedMiniappToken(): string {
 export const useSessionStore = defineStore('session', {
   state: () => ({
     token: storedMiniappToken(),
+ registration: null as RegistrationProfile|null,
+ registrationComplete:false,
+ registrationKnown:!!uni.getStorageSync(miniappStorageKey('registered',configuredMiniappEnvironment())),
     miniUserID: 0,
     currentCustomerID: 0,
     currentCustomerName: '',
@@ -42,8 +46,14 @@ export const useSessionStore = defineStore('session', {
       this.token = token
       uni.setStorageSync(miniappTokenStorageKey(), token)
     },
-    clearSession() {
+    clearSession(preserveRegistrationHint = false) {
       this.token = ''
+      this.registration = null
+      this.registrationComplete = false
+      if (!preserveRegistrationHint) {
+        this.registrationKnown = false
+        uni.removeStorageSync(miniappStorageKey('registered', configuredMiniappEnvironment()))
+      }
       this.miniUserID = 0
       this.currentCustomerID = 0
       this.currentCustomerName = ''
@@ -59,6 +69,8 @@ export const useSessionStore = defineStore('session', {
       uni.removeStorageSync(miniappTokenStorageKey())
     },
     applyContext(context: {
+ registration_complete?:boolean
+ registration?:RegistrationProfile
       mini_user_id: number
       current_customer_id: number
       current_customer_name?: string
@@ -72,7 +84,8 @@ export const useSessionStore = defineStore('session', {
       roles?: string[]
       permissions?: string[]
     }) {
-      this.miniUserID = context.mini_user_id
+      if(context.registration_complete!==undefined){this.registrationComplete=context.registration_complete;this.registration=context.registration||null;this.registrationKnown=context.registration_complete;uni.setStorageSync(miniappStorageKey('registered',configuredMiniappEnvironment()),context.registration_complete)}
+ this.miniUserID = context.mini_user_id
       this.currentCustomerID = context.current_customer_id
       this.currentCustomerName = context.current_customer_name || ''
       this.bindings = context.bindings || []

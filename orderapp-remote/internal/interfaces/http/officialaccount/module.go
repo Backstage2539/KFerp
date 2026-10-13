@@ -10,9 +10,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"net/http"
+	"net/url"
 	portal "orderapp/internal/application/customerportal"
 	app "orderapp/internal/application/officialaccount"
 	repo "orderapp/internal/infrastructure/postgres/officialaccount"
+	pagepg "orderapp/internal/infrastructure/postgres/pageentry"
+	pageconfig "orderapp/internal/infrastructure/wechatweb"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
@@ -138,19 +141,10 @@ func (h *Handler) versions(c echo.Context) error {
 	return c.JSON(200, map[string]any{"rows": rows})
 }
 func (h *Handler) saveEntry(c echo.Context) error {
-	actor, err := h.admin(c, true)
-	if err != nil {
+	if _, err := h.admin(c, true); err != nil {
 		return err
 	}
-	var req app.Entry
-	if c.Bind(&req) != nil {
-		return fail(c, 400, "配置格式无效")
-	}
-	e, err := h.Repo.SaveEntry(c.Request().Context(), c.Param("key"), req, actor)
-	if err != nil {
-		return fail(c, 409, "保存失败：请检查版本、可见范围或刷新配置后重试")
-	}
-	return c.JSON(200, e)
+	return fail(c, 409, "历史入口只支持在页面入口管理中查看和停用；请手工新增页面以修改目标")
 }
 func (h *Handler) binding(c echo.Context) error {
 	cur, err := h.me(c)
@@ -211,7 +205,7 @@ func (h *Handler) adminStatus(c echo.Context) error {
 	if _, err := h.admin(c, false); err != nil {
 		return err
 	}
-	return c.JSON(200, map[string]any{"enabled": h.Config.Ready(), "app_id": h.Config.AppID, "mini_app_id": h.Config.MiniAppID, "secret_configured": h.Config.AppSecret != "", "token_configured": len(h.Config.Token) >= 16, "encryption_configured": len(h.Config.AESKey) == 43, "unionid_enabled": h.Config.UnionIDEnabled, "menu_publish_enabled": h.Config.Ready() && h.Config.MenuPublishEnabled, "callback_path": "/app/api/wechat/official-account/callback"})
+	return c.JSON(200, map[string]any{"enabled": h.Config.Ready(), "app_id": h.Config.AppID, "mini_app_id": h.Config.MiniAppID, "secret_configured": h.Config.AppSecret != "", "token_configured": len(h.Config.Token) >= 16, "encryption_configured": len(h.Config.AESKey) == 43, "unionid_enabled": h.Config.UnionIDEnabled, "menu_publish_enabled": h.Config.Ready() && h.Config.MenuPublishEnabled, "web_oauth_ready": pageconfig.ConfigFromEnv().Ready(), "web_oauth_callback": pageconfig.ConfigFromEnv().PublicOrigin + "/app/api/page-auth/callback", "callback_path": "/app/api/wechat/official-account/callback"})
 }
 func (h *Handler) adminBindings(c echo.Context) error {
 	if _, err := h.admin(c, false); err != nil {
@@ -277,6 +271,28 @@ func (h *Handler) validateMenu(c echo.Context, m app.Menu) error {
 			if len(b.SubButtons) > 0 {
 				if err := check(b.SubButtons); err != nil {
 					return err
+				}
+			}
+
+			pageKey := ""
+			if u, err := url.Parse(b.PagePath); err == nil && u.Path == "pages/page-entry/page-entry" {
+				pageKey = u.Query().Get("entry")
+			}
+			if u, err := url.Parse(b.URL); err == nil && b.Type == "view" && strings.HasPrefix(u.Path, "/app/p/") {
+				pageKey = strings.TrimPrefix(u.Path, "/app/p/")
+			}
+			if pageKey != "" {
+				page, err := pagepg.NewRepository(h.Repo.Pool, h.Repo.Schema).Entry(c.Request().Context(), pageKey)
+				if err != nil || page.Deleted || !page.Enabled || page.Published == nil {
+					return errors.New("菜单引用的页面未发布或已停用")
+				}
+				if b.Type == "view" && page.Published.Kind == "function" {
+					return errors.New("功能页面仅支持小程序打开")
+				}
+				if page.Published.Kind == "price" {
+					if _, err = h.Repo.Portal.LoadEntryPublication(c.Request().Context(), page.Published.PublicationID); err != nil {
+						return errors.New("页面引用的价格表已不可用")
+					}
 				}
 			}
 			if strings.HasPrefix(b.PagePath, "pages/price-list/price-list?entry=") {

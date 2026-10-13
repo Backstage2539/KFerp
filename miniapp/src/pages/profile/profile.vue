@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import OfficialAccountBinding from "../../components/OfficialAccountBinding.vue"
+import RegistrationProfile from "../../components/RegistrationProfile.vue"
+import {restoreRegistrationSession} from "../../utils/registrationSession"
+import {loginRouteFor} from "../../utils/loginReturn"
 import { computed, ref } from 'vue'
 import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import {
@@ -70,7 +72,7 @@ const canManageShareSettings = computed(() => (
   && session.roles.includes('admin')
   && session.permissions.includes('settings.write')
 ))
-const accountName = computed(() => isEmployee.value ? (session.employeeName || '员工') : (session.currentCustomerName || '客户中心'))
+const accountName = computed(() => isEmployee.value ? (session.employeeName || '员工') : (session.registration?.nickname || session.currentCustomerName || '我的'))
 const themeClass = computed(() => miniappThemeClass(session.themeKey))
 const themeMeta = computed(() => miniappThemeMeta(session.themeKey))
 const canSwitchCustomer = computed(() => shouldShowCustomerSwitcher(session.bindings))
@@ -88,7 +90,7 @@ const serviceDescriptions = computed(() => {
 
 function clearAndLogin() {
   session.clearSession()
-  uni.reLaunch({ url: '/pages/login/login' })
+  uni.reLaunch({ url: loginRouteFor('/pages/profile/profile') })
 }
 
 function redirectExpiredShareSettingsSession(error: unknown): boolean {
@@ -203,8 +205,9 @@ async function handleShareSettingChange(event: Event) {
 }
 
 async function loadContext() {
+ try{await restoreRegistrationSession(session)}catch(e){errorMessage.value=e instanceof Error?e.message:"状态恢复失败"}
   if (!session.token) {
-    uni.reLaunch({ url: '/pages/login/login' })
+    uni.reLaunch({ url: loginRouteFor('/pages/profile/profile') })
     return
   }
 
@@ -218,7 +221,7 @@ async function loadContext() {
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '账号信息加载失败'
     session.clearSession()
-    uni.reLaunch({ url: '/pages/login/login' })
+    uni.reLaunch({ url: loginRouteFor('/pages/profile/profile') })
   } finally {
     loading.value = false
   }
@@ -351,7 +354,7 @@ onShow(() => { void refreshMiniappShareMenu() })
     <view class="pull-up-brand-footer-anchor">
       <PullUpBrandFooter :with-fixed-tabbar="!isEmployee" :revealed="pullUpBrandRevealed" />
     </view>
-    <OfficialAccountBinding v-if="!isEmployee && session.currentCustomerID" />
+    <RegistrationProfile v-if="!isEmployee" />
     <MainTabBar v-if="!isEmployee" current="mine" />
   </view>
 </template>

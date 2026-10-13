@@ -90,10 +90,10 @@ export function apiURL(url) {
 }
 
 export async function apiFetch(url, options = {}) {
-  const { headers = {}, ...rest } = options
+  const { headers = {}, customerSession = false, ...rest } = options
   return fetch(apiURL(url), {
     ...rest,
-    headers: authHeaders(headers),
+    headers: customerSession ? headers : authHeaders(headers),
   })
 }
 
@@ -144,4 +144,10 @@ export async function apiSend(url, { method = 'POST', body, headers = {}, signal
     reportSlowRequest(method, key, startedAt, null, error)
     throw error
   }
+}
+
+// The standalone customer page must never borrow an ERP staff token.
+export async function pageRequest(path, { method = 'GET', body } = {}) {
+ const res = await apiFetch(path, { customerSession: true, method, credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+ return readJson(res)
 }
