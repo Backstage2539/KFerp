@@ -154,14 +154,33 @@ func TestPageEntryAccessPostgres(t *testing.T) {
 	}
 	t.Run("four actual price targets independent of versions and ownership", func(t *testing.T) {
 		pub := func(table, owner, key string) int64 {
-			return id(`INSERT INTO %s.bean_list_publications(list_type,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json) VALUES('commercial',$1,$1,'v1',$2,$3,'{"title":"价格表"}','{"groups":[{"category":"熟豆","items":[{"name":"咖啡","prices":[{"label":"227g","value":"50"}]}]}]}') RETURNING id`, table, owner, key)
+			return id(`INSERT INTO %s.bean_list_publications(list_type,publication_table_key,publication_table_name,version_no,owner_type,owner_key,config_json,content_json) VALUES('commercial',$1,$1,'v1',$2,$3,'{"title":"价格表"}','{"groups":[{"category":"熟豆","items":[{"name":"咖啡","productAttributes":[{"key":"roast","label":"烘焙度","value":"冻结浅烘","template_id":11,"position":1}],"prices":[{"label":"227g","value":"50"}]}]}]}') RETURNING id`, table, owner, key)
 		}
 		var price app.Entry
 		for i := 0; i < 4; i++ {
 			d := app.Document{Name: fmt.Sprintf("表%d", i), Kind: "price", Visibility: "public", PublicationID: pub(fmt.Sprint(i), "official", "")}
 			price = create(d)
 			price = change(price, "publish", app.Document{})
-			call("GET", "/api/pages/"+price.Key, "", nil, 200)
+			rec := call("GET", "/api/pages/"+price.Key, "", nil, 200)
+			var decoded struct {
+				Publication struct {
+					Groups []struct {
+						Items []struct {
+							Attributes []struct {
+								Value string `json:"value"`
+							} `json:"product_attributes"`
+							Lines []string `json:"attribute_lines"`
+						} `json:"items"`
+					} `json:"groups"`
+				} `json:"publication"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &decoded); err != nil {
+				t.Fatal(err)
+			}
+			product := decoded.Publication.Groups[0].Items[0]
+			if len(product.Attributes) != 1 || product.Attributes[0].Value != "冻结浅烘" || len(product.Lines) != 1 || product.Lines[0] != "烘焙度：冻结浅烘" {
+				t.Fatalf("price attributes missing from HTTP response: %s", rec.Body.String())
+			}
 		}
 		all, _ := r.List(ctx)
 		before := len(all)

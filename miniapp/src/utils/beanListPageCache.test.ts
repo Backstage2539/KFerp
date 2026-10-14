@@ -29,6 +29,7 @@ describe('bean list native page cache helpers', () => {
 
   it('keeps cached native content until the server cache key changes', () => {
     const cached: BeanListPageCacheRecord = {
+      schema_version: 2,
       publication_id: 1,
       list_type: 'commercial',
       version_no: 'V3.0.5',
@@ -40,8 +41,14 @@ describe('bean list native page cache helpers', () => {
     expect(beanListPageCacheChanged(cached, { ...beanList, id: 2, version_no: 'V3.0.6', cache_key: 'bean-list:2:V3.0.6' })).toBe(true)
   })
 
+  it('invalidates cached snapshots from before structured industry fields', () => {
+    const legacy = { ...nextBeanListPageCacheRecord(beanList), schema_version: undefined }
+    expect(beanListPageCacheChanged(legacy, beanList)).toBe(true)
+  })
+
   it('stores the full native page snapshot for instant rendering', () => {
     expect(nextBeanListPageCacheRecord(beanList, 1760000000000)).toEqual({
+      schema_version: 2,
       publication_id: 1,
       list_type: 'commercial',
       version_no: 'V3.0.5',

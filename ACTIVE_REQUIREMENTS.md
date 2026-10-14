@@ -1,3 +1,14 @@
+### PR-691-MINIAPP-PRICE-SEARCH
+- Branch: `codex/miniapp-price-search-20261014`; base `origin/develop@c38c8e3b`.
+- Owner/session: Codex / Van / 2026-10-14.
+- Status: implementation, RED/GREEN, Go/Vue/miniapp gates and 375px component UI verification complete; integration and deployment in progress; Van product acceptance pending.
+- Scope: current-table full-text search, dynamic multi-select industry/tag facets, frozen industry-field display, adjacent badges, shared miniapp surfaces and cache upgrade.
+- DEV: DEV-761-PRICE-SNAPSHOT; DEV-762-PRICE-FILTERS; DEV-763-PRICE-SURFACES; DEV-764-PRICE-DELIVERY.
+- Verifier: Go parser and PostgreSQL/HTTP access tests; miniapp search/cache tests, typecheck/build; Vue full suite/build; DevTools compilation and narrow-screen fixture.
+- Manual: OP_MANUAL_BEAN_LIST_CENTER.md, OP_MANUAL_COSTING.md, OP_MANUAL_PAGE_ENTRIES.md.
+- Deployment: authorized development then production via feature PR/develop and release PR/main; production miniapp artifact and DevTools import; Van uploads/reviews/publishes.
+- Notes: claim helper failed on macOS awk multiline argument; identifier inspected and reserved here without altering the helper.
+
 ### PR-690-WECHAT-MENU-ENCODING
 - Branch: `codex/wechat-menu-encoding-20261013`; base `origin/develop@b954a388`.
 - Scope: preserve UTF-8 and literal URL separators in WeChat menu requests; correct error 40033 guidance; preserve the selected menu and preview protections.
