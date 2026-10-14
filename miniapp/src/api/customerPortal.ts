@@ -133,7 +133,18 @@ export type BeanListGroupSummary = {
   items: BeanListProductSummary[]
 }
 
+export type BeanListProductAttribute = {
+ key: string
+ label: string
+ value: string
+ template_id?: number
+ template_position?: number
+ position?: number
+}
+
 export type BeanListProductSummary = {
+  product_attributes?: BeanListProductAttribute[]
+  attribute_lines?: string[]
   code?: string
   name: string
   badge?: string

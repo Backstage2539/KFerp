@@ -440,17 +440,28 @@ type BeanListGroupSummary struct {
 	Items        []BeanListProductSummary `json:"items"`
 }
 
+type BeanListProductAttribute struct {
+	Key              string `json:"key"`
+	Label            string `json:"label"`
+	Value            string `json:"value"`
+	TemplateID       int64  `json:"template_id,omitempty"`
+	TemplatePosition int64  `json:"template_position,omitempty"`
+	Position         int64  `json:"position,omitempty"`
+}
+
 type BeanListProductSummary struct {
-	Code            string                 `json:"code,omitempty"`
-	Name            string                 `json:"name"`
-	Badge           string                 `json:"badge,omitempty"`
-	BadgeLabel      string                 `json:"badge_label,omitempty"`
-	RecommendedUse  string                 `json:"recommended_use,omitempty"`
-	Flavor          string                 `json:"flavor,omitempty"`
-	Description     string                 `json:"description,omitempty"`
-	BeanListQuality BeanListQualitySummary `json:"bean_list_quality,omitempty"`
-	HighlightTerms  []string               `json:"highlight_terms,omitempty"`
-	Prices          []BeanListPriceSummary `json:"prices,omitempty"`
+	ProductAttributes []BeanListProductAttribute `json:"product_attributes,omitempty"`
+	AttributeLines    []string                   `json:"attribute_lines,omitempty"`
+	Code              string                     `json:"code,omitempty"`
+	Name              string                     `json:"name"`
+	Badge             string                     `json:"badge,omitempty"`
+	BadgeLabel        string                     `json:"badge_label,omitempty"`
+	RecommendedUse    string                     `json:"recommended_use,omitempty"`
+	Flavor            string                     `json:"flavor,omitempty"`
+	Description       string                     `json:"description,omitempty"`
+	BeanListQuality   BeanListQualitySummary     `json:"bean_list_quality,omitempty"`
+	HighlightTerms    []string                   `json:"highlight_terms,omitempty"`
+	Prices            []BeanListPriceSummary     `json:"prices,omitempty"`
 }
 
 type BeanListQualitySummary struct {
