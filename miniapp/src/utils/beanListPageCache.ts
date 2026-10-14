@@ -2,6 +2,7 @@ import type { BeanListSummary } from '../api/customerPortal'
 import { configuredMiniappEnvironment, type MiniappBuildEnvironment } from '../config/environment'
 
 export type BeanListPageCacheRecord = {
+  schema_version?: number
   publication_id: number
   list_type: string
   version_no: string
@@ -22,11 +23,13 @@ export function beanListPageCacheStorageKey(
 
 export function beanListPageCacheChanged(cached: BeanListPageCacheRecord | null | undefined, item: BeanListPageCacheable): boolean {
   if (!cached) return false
+  if (cached.schema_version !== 2) return true
   return cached.cache_key !== beanListPageCacheKey(item)
 }
 
 export function nextBeanListPageCacheRecord(item: BeanListSummary, now = Date.now()): BeanListPageCacheRecord {
   return {
+    schema_version: 2,
     publication_id: item.id,
     list_type: item.list_type || 'default',
     version_no: item.version_no || '',
