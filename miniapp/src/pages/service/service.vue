@@ -3,8 +3,8 @@ import {restoreRegistrationSession} from '../../utils/registrationSession'
 import { loginRouteFor } from "../../utils/loginReturn"
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import PaymentSummary from '../../components/PaymentSummary.vue'
-import { computed, ref } from 'vue'
-import { onLoad, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import { computed, ref, watch } from 'vue'
+import { onLoad, onShow, onHide, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import {
   defaultMiniappShare,
   defaultMiniappTimelineShare,
@@ -51,7 +51,9 @@ import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useProcessingPrefillStore } from '../../stores/processingPrefill'
 import { useSessionStore } from '../../stores/session'
-import { beanListCardRows, beanListDisplayStyle, beanListQualityLines, splitBeanListHighlight } from '../../utils/beanListDisplay'
+import PriceListContent from '../../components/PriceListContent.vue'
+import { priceListSearchScope } from '../../utils/priceListSearch'
+import { configuredMiniappEnvironment } from '../../config/environment'
 import {
   beanListPageCacheChanged,
   beanListPageCacheStorageKey,
@@ -234,7 +236,14 @@ async function changePriceTable(group: PriceTableGroup, event: { detail: { value
 }
 
 function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`)+'&mode=password'})}
+let beanListRequest = 0
+let beanListActive=true
+onShow(()=>{beanListActive=true})
+watch([()=>session.token,()=>session.currentCustomerID],()=>{if(serviceKey.value==='beanList'){beanListRequest++;page.value=null;cachedBeanList.value=null}})
+onHide(()=>{beanListActive=false;if(serviceKey.value==='beanList'){beanListRequest++;page.value=null;cachedBeanList.value=null}})
 async function loadPage(pageNumber=1) {
+  let request = 0
+  if(serviceKey.value==='beanList'){page.value=null;cachedBeanList.value=null}
  try{await restoreRegistrationSession(session)}catch(e){errorMessage.value=e instanceof Error?e.message:"登录状态恢复失败";return}
   orderPage.value=pageNumber
   if (selectedPriceTableCustomerID !== Number(session.currentCustomerID)) { selectedPriceTableIDs.value = []; selectedPriceTableCustomerID = Number(session.currentCustomerID) }
@@ -252,15 +261,18 @@ async function loadPage(pageNumber=1) {
     page.value = null
     return
   }
+  if(serviceKey.value==='beanList'&&!beanListActive)return
+  request=serviceKey.value==='beanList'?++beanListRequest:0
   loading.value = true
   errorMessage.value = ''
   try {
     if (officialOrders.value) session.applyContext(await fetchMe(session.token))
-    if (serviceKey.value === 'beanList') {
-      primeCachedBeanListPage()
-    }
+
     const filters = serviceKey.value === 'orders' ? {...buildOrderServiceFilters(orderSearch.value),page:orderPage.value,page_size:20} : { selected_price_table_ids: selectedPriceTableIDs.value }
-    page.value = await fetchServicePage(session.token, serviceKey.value, filters)
+    const token=session.token, customerID=session.currentCustomerID
+    const response = await fetchServicePage(token, serviceKey.value, filters)
+    if(request && (request!==beanListRequest || token!==session.token || customerID!==session.currentCustomerID)) return
+    page.value = response
     if (serviceKey.value === 'productOrder') selectedPriceTableIDs.value = page.value.selected_price_table_ids || []
     if (page.value.theme_key) {
       session.applyContext({
@@ -275,11 +287,14 @@ async function loadPage(pageNumber=1) {
     }
     if (serviceKey.value === 'beanList') {
       await loadCustomerProductsWorkspace()
+      if(request!==beanListRequest) return
       cacheBeanListPages(page.value.bean_lists || [])
       await loadResaleBeanListWorkspace()
     }
   } catch (error) {
+    if(request && request!==beanListRequest) return
     page.value = null
+    cachedBeanList.value = null
     if (isAuthenticationExpiredRequestError(error)) { session.clearSession(); uni.reLaunch({url:loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`)}); return }
     errorMessage.value = error instanceof Error ? error.message : '服务数据加载失败'
   } finally {
@@ -287,27 +302,15 @@ async function loadPage(pageNumber=1) {
   }
 }
 
-function primeCachedBeanListPage() {
-  const customerID = page.value?.current_customer_id || session.currentCustomerID
-  for (const listType of ['commercial', 'retail']) {
-    const cached = cachedBeanListPage({ id: 0, list_type: listType, version_no: '', status: '', published_at: '', changelog: '', cache_key: '' })
-    if (cached?.page) {
-      cachedBeanList.value = cached.page
-      beanListCacheStatus.value = `${cached.version_no || '本地版本'} 已缓存，本次打开先展示本地内容`
-      return
-    }
-  }
-  if (!customerID) beanListCacheStatus.value = ''
-}
-
 function cachedBeanListPage(item: BeanListSummary): BeanListPageCacheRecord | null {
   const value = uni.getStorageSync(beanListPageCacheStorageKey(page.value?.current_customer_id || session.currentCustomerID, item))
-  if (!value || typeof value !== 'object') return null
+  if (!value || typeof value !== 'object' || value.schema_version !== 2) return null
   return value as BeanListPageCacheRecord
 }
 
 function cacheBeanListPages(items: BeanListSummary[]) {
   if (!items.length) {
+    cachedBeanList.value=null
     if (!cachedBeanList.value) beanListCacheStatus.value = '暂无已发布商品价格表'
     return
   }
@@ -1200,110 +1203,12 @@ onShow(() => { void refreshMiniappShareMenu() })
       </view>
 
       <view v-if="serviceKey === 'beanList' && beanListsForDisplay.length" class="bean-list-native">
-        <view v-for="item in beanListsForDisplay" :key="`${item.id}-${item.cache_key || item.version_no}`" class="bean-list-surface" :style="beanListDisplayStyle(item)">
-          <view class="bean-list-cover">
-            <view class="bean-list-cover-main">
-              <image v-if="item.logo_image" class="bean-list-logo" :src="item.logo_image" mode="aspectFit" />
-              <text v-if="item.show_version !== false" class="bean-list-version">{{ item.version_no || '当前版本' }}</text>
-              <text class="bean-list-title">{{ item.title || '商品价格表' }}</text>
-              <text v-if="item.subtitle" class="bean-list-subtitle">{{ item.subtitle }}</text>
-              <text v-if="item.brand_intro" class="bean-list-brand-intro">{{ item.brand_intro }}</text>
-            </view>
-            <text class="bean-list-type">{{ item.list_type_label || item.list_type }}</text>
-          </view>
-          <text v-if="beanListCacheStatus" class="bean-list-cache-hint">{{ beanListCacheStatus }}</text>
-          <view v-if="item.requires_acknowledgement" class="bean-list-update">
-            <text class="bean-list-section-label">新版提示</text>
-            <text>{{ beanListDiffText(item) }}</text>
-          </view>
-
-          <view v-for="group in item.groups || []" :key="`${item.id}-${group.category}`" class="bean-list-group">
-            <text v-if="showBeanListCategory(item, group)" class="bean-list-category">{{ group.category }}</text>
-
-            <view v-if="item.layout_style === 'table'" class="bean-list-table">
-              <view v-for="bean in group.items" :key="`${item.id}-${group.category}-${bean.code || bean.name}`" class="bean-list-table-row">
-                <text class="bean-list-code-cell">{{ bean.code || '-' }}</text>
-                <view class="bean-list-table-main">
-                  <view class="bean-list-product-head">
-                    <text class="bean-list-name">
-                      <text v-for="(part, index) in splitBeanListHighlight(bean.name, bean.highlight_terms || [])" :key="`${bean.name}-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
-                    </text>
-                    <text v-if="bean.badge_label" :class="['bean-list-badge', bean.badge ? `badge-${bean.badge}` : '']">{{ bean.badge_label }}</text>
-                  </view>
-                  <text v-if="bean.recommended_use" class="bean-list-table-line">
-                    出品建议 <text v-for="(part, index) in splitBeanListHighlight(bean.recommended_use, bean.highlight_terms || [])" :key="`${bean.name}-use-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
-                  </text>
-                  <text v-if="bean.flavor" class="bean-list-table-line">
-                    风味 <text v-for="(part, index) in splitBeanListHighlight(bean.flavor, bean.highlight_terms || [])" :key="`${bean.name}-flavor-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
-                  </text>
-                  <text v-if="bean.description" class="bean-list-table-line">
-                    特点 <text v-for="(part, index) in splitBeanListHighlight(bean.description, bean.highlight_terms || [])" :key="`${bean.name}-desc-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
-                  </text>
-                  <text v-for="quality in beanListQualityLines(bean)" :key="`${bean.name}-quality-${quality.label}`" class="bean-list-table-line">
-                    {{ quality.label }} {{ quality.value }}
-                  </text>
-                </view>
-                <view class="bean-list-table-prices">
-                  <text v-for="price in bean.prices || []" :key="`${price.label}-${price.value}`" :class="['bean-list-table-price', { red: price.red }]">{{ price.label }} {{ price.value }}</text>
-                </view>
-              </view>
-            </view>
-
-            <view v-else class="bean-list-card-rows">
-              <view v-for="(row, rowIndex) in beanListCardRows(group.items, item.cards_per_row || 1)" :key="`${item.id}-${group.category}-row-${rowIndex}`" class="bean-list-card-row">
-                <view v-for="bean in row" :key="`${item.id}-${group.category}-${bean.code || bean.name}`" class="bean-list-product">
-                  <view class="bean-list-product-head">
-                    <text v-if="bean.code" class="bean-list-code">{{ bean.code }}</text>
-                    <text class="bean-list-name">
-                      <text v-for="(part, index) in splitBeanListHighlight(bean.name, bean.highlight_terms || [])" :key="`${bean.name}-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
-                    </text>
-                    <text v-if="bean.badge_label" :class="['bean-list-badge', bean.badge ? `badge-${bean.badge}` : '']">{{ bean.badge_label }}</text>
-                  </view>
-                  <view v-if="bean.recommended_use" class="bean-list-detail">
-                    <text class="bean-list-detail-label">出品建议</text>
-                    <text class="bean-list-detail-value">
-                      <text v-for="(part, index) in splitBeanListHighlight(bean.recommended_use, bean.highlight_terms || [])" :key="`${bean.name}-use-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
-                    </text>
-                  </view>
-                  <view v-if="bean.flavor" class="bean-list-detail">
-                    <text class="bean-list-detail-label">风味</text>
-                    <text class="bean-list-detail-value">
-                      <text v-for="(part, index) in splitBeanListHighlight(bean.flavor, bean.highlight_terms || [])" :key="`${bean.name}-flavor-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
-                    </text>
-                  </view>
-                  <view v-if="bean.description" class="bean-list-detail">
-                    <text class="bean-list-detail-label">特点</text>
-                    <text class="bean-list-detail-value">
-                      <text v-for="(part, index) in splitBeanListHighlight(bean.description, bean.highlight_terms || [])" :key="`${bean.name}-desc-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
-                    </text>
-                  </view>
-                  <view v-for="quality in beanListQualityLines(bean)" :key="`${bean.name}-quality-${quality.label}`" class="bean-list-detail">
-                    <text class="bean-list-detail-label">{{ quality.label }}</text>
-                    <text class="bean-list-detail-value">{{ quality.value }}</text>
-                  </view>
-                  <view v-if="bean.prices?.length" class="bean-list-price-block">
-                    <text class="bean-list-section-label">报价</text>
-                    <view class="bean-list-prices">
-                      <view v-for="price in bean.prices" :key="`${price.label}-${price.value}`" class="bean-list-price">
-                        <text :class="{ red: price.red }">{{ price.label }}</text>
-                        <text :class="['bean-list-price-value', { red: price.red }]">{{ price.value }}</text>
-                      </view>
-                    </view>
-                  </view>
-                </view>
-              </view>
-            </view>
-          </view>
-
-          <view v-if="item.show_changelog !== false && item.changelog" class="bean-list-changelog">
-            <text class="bean-list-section-label">更新</text>
-            <text>{{ item.changelog }}</text>
-          </view>
-          <view class="bean-list-footer">
-            <text>{{ item.brand_name || '棵凡咖啡' }}</text>
-            <text>{{ item.version_no }}</text>
-          </view>
-        </view>
+        <PriceListContent v-for="item in beanListsForDisplay" :key="`${item.id}-${item.cache_key || item.version_no}`" :publication="item" :search-scope="priceListSearchScope(configuredMiniappEnvironment().environment, (session.miniUserID || -session.employeeID), session.currentCustomerID, 'service:'+item.id)">
+          <template #notice>
+            <text v-if="beanListCacheStatus" class="bean-list-cache-hint">{{beanListCacheStatus}}</text>
+            <view v-if="item.requires_acknowledgement" class="bean-list-update"><text class="bean-list-section-label">新版提示</text><text>{{beanListDiffText(item)}}</text></view>
+          </template>
+        </PriceListContent>
       </view>
 
       <view v-if="serviceKey === 'orders'" class="panel filter-panel">

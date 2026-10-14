@@ -63,7 +63,7 @@ func TestCustomerPortalSettingsInlineListAndMiniappBeanListSource(t *testing.T) 
 		t.Fatalf("read miniapp service page: %v", err)
 	}
 	serviceSrc := string(servicePage)
-	for _, want := range []string{"bean-list-surface", "bean-list-product", "item.groups", "orders"} {
+	for _, want := range []string{"PriceListContent", ":publication=", "orders"} {
 		if !strings.Contains(serviceSrc, want) {
 			t.Fatalf("miniapp bean list/order UX source missing %q", want)
 		}

@@ -15,7 +15,9 @@ import {
 } from '../../api/client'
 import { useSessionStore } from '../../stores/session'
 import { loginRouteFor } from '../../utils/loginReturn'
-import { beanListDisplayStyle } from '../../utils/beanListDisplay'
+import PriceListContent from '../../components/PriceListContent.vue'
+import { priceListSearchScope } from '../../utils/priceListSearch'
+import { configuredMiniappEnvironment } from '../../config/environment'
 import {
   defaultMiniappShare as baseShare,
   defaultMiniappTimelineShare as baseTimeline,
@@ -110,173 +112,12 @@ onShareTimeline(defaultMiniappTimelineShare)
       <button v-if="needsLogin" @tap="login">登录后查看</button>
       <button v-else @tap="load">重新加载</button>
     </view>
-    <view
-      v-if="publication"
-      class="sheet"
-      :style="beanListDisplayStyle(publication)"
-    >
-      <image
-        v-if="publication.logo_image"
-        :src="publication.logo_image"
-        mode="aspectFit"
-        class="logo"
-      />
-      <text class="title">{{ publication.title || '商品价格表' }}</text>
-      <text v-if="publication.subtitle" class="subtitle">
-        {{ publication.subtitle }}
-      </text>
-      <text class="version">
-        {{ publication.version_no }} · {{ publication.published_at }}
-      </text>
-      <text v-if="publication.brand_intro" class="intro">
-        {{ publication.brand_intro }}
-      </text>
-      <view
-        v-for="(group, gi) in publication.groups || []"
-        :key="gi"
-        class="group"
-      >
-        <text class="category">{{ group.category }}</text>
-        <view v-for="(item, i) in group.items" :key="i" class="product">
-          <view class="product-head">
-            <text class="name">{{ item.name }}</text>
-            <text v-if="item.badge_label" class="badge">
-              {{ item.badge_label }}
-            </text>
-          </view>
-          <text v-if="item.code" class="muted">{{ item.code }}</text>
-          <text v-if="item.flavor" class="description">
-            风味：{{ item.flavor }}
-          </text>
-          <text v-if="item.recommended_use" class="description">
-            出品建议：{{ item.recommended_use }}
-          </text>
-          <text v-if="item.description" class="description">
-            {{ item.description }}
-          </text>
-          <view class="prices">
-            <view
-              v-for="(price, j) in item.prices || []"
-              :key="j"
-              class="price"
-            >
-              <text>{{ price.label }}</text>
-              <text :class="{ red: price.red }">{{ price.value }}</text>
-            </view>
-          </view>
-        </view>
-      </view>
-      <text class="footer">棵凡咖啡 · 价格以当前展示版本为准</text>
-    </view>
+    <PriceListContent v-if="publication" :publication="publication" :search-scope="priceListSearchScope(configuredMiniappEnvironment().environment, (session.miniUserID || -session.employeeID), session.currentCustomerID, entry)"/>
     <view class="pull-up-brand-footer-anchor">
       <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
     </view>
   </view>
 </template>
 <style scoped>
-.page {
-  min-height: 100vh;
-  background: #f5f2ec;
-  padding: 24rpx;
-  box-sizing: border-box;
-}
-.state {
-  display: flex;
-  flex-direction: column;
-  gap: 24rpx;
-  text-align: center;
-  padding: 80rpx 30rpx;
-}
-.sheet {
-  padding: 40rpx 28rpx;
-  border-radius: 24rpx;
-  background-size: cover;
-}
-.logo {
-  height: 120rpx;
-  width: 180rpx;
-  display: block;
-  margin: 0 auto 24rpx;
-}
-.title,
-.subtitle,
-.version,
-.intro,
-.category,
-.description,
-.muted,
-.footer {
-  display: block;
-}
-.title {
-  font-size: 42rpx;
-  font-weight: 800;
-  text-align: center;
-}
-.subtitle,
-.version {
-  font-size: 24rpx;
-  text-align: center;
-  margin-top: 14rpx;
-}
-.intro {
-  font-size: 25rpx;
-  line-height: 1.7;
-  margin-top: 28rpx;
-}
-.group {
-  margin-top: 42rpx;
-}
-.category {
-  font-size: 32rpx;
-  font-weight: 700;
-  margin-bottom: 20rpx;
-}
-.product {
-  background: #ffffffd9;
-  border-radius: 16rpx;
-  padding: 26rpx;
-  margin-bottom: 20rpx;
-  color: #242e28;
-}
-.product-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 16rpx;
-}
-.name {
-  font-size: 32rpx;
-  font-weight: 700;
-}
-.badge {
-  font-size: 22rpx;
-  color: #a3392b;
-}
-.description,
-.muted {
-  font-size: 24rpx;
-  line-height: 1.7;
-  margin-top: 12rpx;
-}
-.prices {
-  display: grid;
-  gap: 12rpx;
-  margin-top: 20rpx;
-  border-top: 1rpx solid #ddd;
-  padding-top: 18rpx;
-}
-.price {
-  display: flex;
-  justify-content: space-between;
-  gap: 20rpx;
-  font-size: 25rpx;
-}
-.red {
-  color: #ad3027;
-}
-.footer {
-  text-align: center;
-  margin-top: 38rpx;
-  font-size: 22rpx;
-}
+.page{min-height:100vh;background:#f5f2ec;padding:24rpx;box-sizing:border-box}.state{display:flex;flex-direction:column;gap:24rpx;text-align:center;padding:80rpx 30rpx}
 </style>

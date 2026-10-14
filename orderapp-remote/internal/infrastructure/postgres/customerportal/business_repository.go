@@ -1378,14 +1378,18 @@ func parseBeanListDisplaySummary(configJSON, contentJSON []byte, row *customerpo
 		}
 		for _, itemMap := range beanListMapsFromAny(groupMap["items"]) {
 			highlightTerms := beanListStringList(itemMap["highlightTerms"])
+			attributes := beanListFrozenAttributes(itemMap)
+			attributeLines := beanListFrozenAttributeLines(itemMap, attributes)
 			item := customerportalapp.BeanListProductSummary{
-				Code:           beanListMapString(itemMap, "code", ""),
-				Name:           beanListMapString(itemMap, "name", ""),
-				Badge:          beanListMapString(itemMap, "badge", ""),
-				BadgeLabel:     beanListMapString(itemMap, "badgeLabel", ""),
-				RecommendedUse: beanListMapString(itemMap, "recommendedUse", ""),
-				Flavor:         beanListMapString(itemMap, "flavor", ""),
-				Description:    beanListMapString(itemMap, "description", ""),
+				ProductAttributes: attributes,
+				AttributeLines:    attributeLines,
+				Code:              beanListMapString(itemMap, "code", ""),
+				Name:              beanListMapString(itemMap, "name", ""),
+				Badge:             beanListMapString(itemMap, "badge", ""),
+				BadgeLabel:        beanListMapString(itemMap, "badgeLabel", ""),
+				RecommendedUse:    beanListMapString(itemMap, "recommendedUse", ""),
+				Flavor:            beanListMapString(itemMap, "flavor", ""),
+				Description:       beanListMapString(itemMap, "description", ""),
 				BeanListQuality: beanListQualitySummaryFromMap(
 					beanListFirstMap(itemMap, "beanListQuality", "bean_list_quality"),
 				),
@@ -3217,4 +3221,53 @@ func portalNullInt(v int64) any {
 		return nil
 	}
 	return v
+}
+
+// These fields come exclusively from published content, never current catalog configuration.
+func beanListFrozenAttributes(item map[string]any) []customerportalapp.BeanListProductAttribute {
+	var source []map[string]any
+	for _, key := range []string{"productAttributes", "product_attributes", "special_attrs_snapshot"} {
+		source = beanListMapsFromAny(item[key])
+		if len(source) > 0 {
+			break
+		}
+	}
+	out := make([]customerportalapp.BeanListProductAttribute, 0, len(source))
+	for _, row := range source {
+		if visible, ok := row["show_in_price_list"].(bool); ok && !visible {
+			continue
+		}
+		key := beanListMapString(row, "key", "")
+		label := beanListMapString(row, "label", key)
+		value := beanListMapString(row, "value", "")
+		if key == "" || label == "" || value == "" {
+			continue
+		}
+		out = append(out, customerportalapp.BeanListProductAttribute{Key: key, Label: label, Value: value,
+			TemplateID:       int64(beanListMapNumber(row, "template_id", beanListMapNumber(row, "templateID", 0))),
+			TemplatePosition: int64(beanListMapNumber(row, "template_position", beanListMapNumber(row, "templatePosition", 0))),
+			Position:         int64(beanListMapNumber(row, "position", beanListMapNumber(row, "sort_order", 0)))})
+	}
+	return out
+}
+func beanListFrozenAttributeLines(item map[string]any, attributes []customerportalapp.BeanListProductAttribute) []string {
+	for _, key := range []string{"attributeLines", "attribute_lines"} {
+		if lines := beanListStringList(item[key]); len(lines) > 0 {
+			return lines
+		}
+	}
+	lines := []string{}
+	byTemplate := map[int64]int{}
+	for _, attr := range attributes {
+		value := attr.Label + "：" + attr.Value
+		if index, ok := byTemplate[attr.TemplateID]; attr.TemplateID > 0 && ok {
+			lines[index] += "；" + value
+			continue
+		}
+		if attr.TemplateID > 0 {
+			byTemplate[attr.TemplateID] = len(lines)
+		}
+		lines = append(lines, value)
+	}
+	return lines
 }
