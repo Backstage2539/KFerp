@@ -57,9 +57,17 @@ func (r Repository) OfficialAccountContext(ctx context.Context, userID, customer
 }
 
 func (r Repository) LoadEntryPublication(ctx context.Context, id int64) (app.BeanListSummary, error) {
+	return r.loadEntryPublication(ctx, r.pool, id)
+}
+
+// LoadEntryPublicationTx avoids a second pool lease while a submission holds locks.
+func (r Repository) LoadEntryPublicationTx(ctx context.Context, tx pgx.Tx, id int64) (app.BeanListSummary, error) {
+	return r.loadEntryPublication(ctx, tx, id)
+}
+func (r Repository) loadEntryPublication(ctx context.Context, q txQuerier, id int64) (app.BeanListSummary, error) {
 	var row app.BeanListSummary
 	var config, content []byte
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT id,list_type,version_no,status,to_char(published_at,'YYYY-MM-DD HH24:MI'),changelog,config_json,content_json FROM %s.bean_list_publications WHERE id=$1 AND status='published' AND deleted_at IS NULL`, r.schema), id).Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &config, &content)
+	err := q.QueryRow(ctx, fmt.Sprintf(`SELECT id,list_type,version_no,status,to_char(published_at,'YYYY-MM-DD HH24:MI'),changelog,config_json,content_json FROM %s.bean_list_publications WHERE id=$1 AND status='published' AND deleted_at IS NULL`, r.schema), id).Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &config, &content)
 	if err == pgx.ErrNoRows {
 		return row, app.ErrBeanListPublicationNotFound
 	}

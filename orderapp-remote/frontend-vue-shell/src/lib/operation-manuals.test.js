@@ -10,6 +10,8 @@ test('operation manual view keys map to deployed OP_MANUAL docs', () => {
   assert.deepEqual(
     Object.fromEntries(Object.entries(operationManualsByView).map(([key, item]) => [key, item.doc])),
     {
+      sampleRequestsManual: 'OP_MANUAL_SAMPLES.md',
+      miniappEmployeeManual: 'OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md',
       orderSalesManual: 'OP_MANUAL_ORDER_SALES.md',
       productionManual: 'OP_MANUAL_PRODUCTION.md',
       inventoryMaterialsManual: 'OP_MANUAL_INVENTORY_MATERIALS.md',

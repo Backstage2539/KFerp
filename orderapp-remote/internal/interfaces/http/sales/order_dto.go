@@ -51,6 +51,7 @@ type CreateOrderRequest struct {
 	PortalServiceCode               string  `form:"portal_service_code"`
 	OrdersScope                     string  `form:"orders_scope"`
 
+	ItemID                             []string `form:"item_id[]"`
 	ProductID                          []string `form:"product_id[]"`
 	ParentProductID                    []string `form:"parent_product_id[]"`
 	ItemParentProductID                []string `form:"item_parent_product_id[]"`

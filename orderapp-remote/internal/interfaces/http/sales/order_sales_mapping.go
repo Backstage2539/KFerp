@@ -76,7 +76,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, err
 	}
-	if err := validateCreateOrderManualPrices(req); err != nil {
+	if err := validateCreateOrderManualPrices(req, editID); err != nil {
 		return salesapp.SaveOrderCommand{}, err
 	}
 	return salesapp.SaveOrderCommand{
@@ -126,13 +126,17 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	}, nil
 }
 
-func validateCreateOrderManualPrices(req CreateOrderRequest) error {
+func validateCreateOrderManualPrices(req CreateOrderRequest, editID int64) error {
 	for i := 0; i < maxLen(req.TierID, req.UnitPrice); i++ {
 		if strings.TrimSpace(getStr(req.TierID, i)) != "manual" {
 			continue
 		}
 		price, err := strconv.ParseFloat(strings.TrimSpace(getStr(req.UnitPrice, i)), 64)
-		if err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		itemID, _ := strconv.ParseInt(getStr(req.ItemID, i), 10, 64)
+		// The repository checks persisted sample ownership and identity before
+		// accepting zero; parsing must preserve the original line for that check.
+		zeroCandidate := editID > 0 && itemID > 0 && price == 0
+		if err != nil || (price <= 0 && !zeroCandidate) || math.IsNaN(price) || math.IsInf(price, 0) {
 			return fmt.Errorf("手动单价必须大于0")
 		}
 	}
@@ -174,6 +178,9 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 			SelectedPriceRowKey:                strings.TrimSpace(getStr(req.SelectedPriceRowKey, i)),
 			ProductKind:                        strings.TrimSpace(getStr(req.ProductKind, i)),
 			SalesUnit:                          strings.TrimSpace(getStr(req.SalesUnit, i)),
+		}
+		if id, err := strconv.ParseInt(getStr(req.ItemID, i), 10, 64); err == nil && id > 0 {
+			it.ItemID = id
 		}
 		if pidStr != "" {
 			if pid, err := strconv.ParseInt(pidStr, 10, 64); err == nil && pid > 0 {

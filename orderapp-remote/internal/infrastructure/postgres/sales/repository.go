@@ -21,6 +21,8 @@ import (
 )
 
 type Repository struct {
+	orderTx                  pgx.Tx
+	allowZeroSamplePrice     bool
 	pool                     *pgxpool.Pool
 	schema                   string
 	assetDir                 string
@@ -1227,6 +1229,17 @@ func orderItemsInsertSQL(schema string) string {
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34::jsonb)`, schema)
 }
 
+// WithOrderTransaction joins a caller-owned business transaction. The caller commits.
+func (r Repository) WithOrderTransaction(tx pgx.Tx) Repository { r.orderTx = tx; return r }
+
+// WithSampleOrderTransaction permits free merchandise only in the sample workflow's
+// caller-owned transaction; ordinary order APIs cannot enable it through request JSON.
+func (r Repository) WithSampleOrderTransaction(tx pgx.Tx) Repository {
+	r.orderTx = tx
+	r.allowZeroSamplePrice = tx != nil
+	return r
+}
+
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	od := cmd.OrderDate
 	if od.IsZero() {
@@ -1253,6 +1266,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		legacyPricingSpecG                 int64
 		legacyPricingSalesUnit             string
 		canonicalBOMSpec                   bool
+		sampleSnapshot                     bool
 		canonicalDirectProduct             bool
 		customerProductAliasID             int64
 		customerProductReferenceID         int64
@@ -1399,17 +1413,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if !valid {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("at least one item required")
 	}
-	conn, err := r.pool.Acquire(ctx)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
+	tx := r.orderTx
+	var err error
+	if tx == nil {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer conn.Release()
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if cmd.CustomerRequestID != "" {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("customer-order:%d:%s", cmd.CustomerID, cmd.CustomerRequestID)); err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -1443,6 +1455,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 	editID := cmd.EditID
+	allowFreeSamplePrice := r.allowZeroSamplePrice && r.orderTx != nil
+	sampleEdit := false
+	usedSampleItemIDs := map[int64]bool{}
 	var orderID int64
 	orderNo := ""
 	beforeAuditSummary := ""
@@ -1496,6 +1511,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 		}
 		beforeAuditSummary, err = loadOrderSaveAuditSummaryTx(ctx, tx, r.schema, orderID)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
+	if editID > 0 {
+		sampleEdit, err = sampleOrderLinked(ctx, tx, r.schema, editID)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -1757,8 +1778,20 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		itemWeightG := orderItemWeightG(items[idx].productKind, items[idx].salesUnit, items[idx].unitBeanG, items[idx].unitBagCount, items[idx].specG, items[idx].units)
 		orderWeightG += itemWeightG
 
+		if sampleEdit && !usedSampleItemIDs[items[idx].itemID] && items[idx].manualPrice != nil && items[idx].canonicalBOMSpec && items[idx].productID != nil {
+			it := &items[idx]
+			it.sampleSnapshot, err = sampleOrderItemMatches(ctx, tx, r.schema, editID, it.itemID, *it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, it.itemBeanListPublicationID)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if it.sampleSnapshot {
+				usedSampleItemIDs[it.itemID] = true
+			}
+		}
 		if items[idx].manualPrice != nil && (*items[idx].manualPrice <= 0 || math.IsNaN(*items[idx].manualPrice) || math.IsInf(*items[idx].manualPrice, 0)) {
-			return salesapp.SaveOrderResult{}, fmt.Errorf("手动单价必须大于0")
+			if !((allowFreeSamplePrice || items[idx].sampleSnapshot) && items[idx].canonicalBOMSpec && *items[idx].manualPrice == 0) {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("手动单价必须大于0")
+			}
 		}
 		if items[idx].manualPrice != nil {
 			discountItem := orderDiscountItem{
@@ -2095,7 +2128,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	{
 		actualIDs := make([]int64, 0, len(items))
 		for _, it := range items {
-			actualIDs = append(actualIDs, it.itemBeanListPublicationID)
+			if !it.sampleSnapshot {
+				actualIDs = append(actualIDs, it.itemBeanListPublicationID)
+			}
 		}
 		tableMetadata, selectionErr := validateSelectedPriceTablesTx(ctx, tx, r.schema, cmd, actualIDs)
 		if selectionErr != nil {
@@ -2128,6 +2163,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if cmd.RequireCurrentDefaultPublications {
 		checked := make(map[string]bool)
 		for _, it := range items {
+			if it.sampleSnapshot {
+				continue
+			}
 			key := fmt.Sprintf("%d:%s", it.itemBeanListPublicationID, it.priceListType)
 			if checked[key] {
 				continue
@@ -2251,7 +2289,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		portalServiceCode = cmd.PortalServiceCode
 	}
 	publicationRefs := make([]orderHeaderPublicationRef, 0, len(items))
+	manualSamplesOnly := len(items) > 0
 	for _, it := range items {
+		manualSamplesOnly = manualSamplesOnly && (allowFreeSamplePrice || it.sampleSnapshot) && it.manualPrice != nil
 		publicationRefs = append(publicationRefs, orderHeaderPublicationRef{
 			publicationID: it.itemBeanListPublicationID,
 			listType:      it.priceListType,
@@ -2264,7 +2304,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	)
 	beanListPublicationID := int64(0)
 	beanListVersionNo := ""
-	if !ambiguousHeaderPublication {
+	if !ambiguousHeaderPublication && !(manualSamplesOnly && headerPublicationID == 0) {
 		beanListPublicationID, beanListVersionNo, err = r.resolveOrderBeanListPublicationTx(ctx, tx, cmd.CustomerID, headerPublicationID, orderbeans.ListTypeCommercial)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -2558,9 +2598,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if it.canonicalBOMSpec && it.legacyPricingProductID > 0 {
 			usageProductID = it.legacyPricingProductID
 		}
-		usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, usageProductID, itemListType, itemPublicationID)
-		if err != nil {
-			return salesapp.SaveOrderResult{}, err
+		usage := orderbeans.Usage{PublicationID: it.itemBeanListPublicationID, VersionNo: it.itemBeanListVersionNo}
+		if !(allowFreeSamplePrice || it.sampleSnapshot) || it.manualPrice == nil {
+			usage, err = orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, usageProductID, itemListType, itemPublicationID)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
 		}
 		if !it.priceOverride && productID > 0 && usage.PublicationID > 0 && strings.TrimSpace(it.priceSourceJSON) == "" {
 			priceSourceJSON = beanListPriceSourceJSON(itemListType, usage, productID)
@@ -2642,8 +2685,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return salesapp.SaveOrderResult{}, err
+	if r.orderTx == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 
 	confirmationStatus := "accepted"

@@ -25,6 +25,7 @@
     </div>
     <div v-if="ok" class="notice ok">订单已保存：{{ ok }}</div>
     <div v-if="copyMode" class="notice warn">复制订单会生成一张新订单，不会修改原订单。</div>
+    <div v-if="sampleOrderEditing" class="notice">正在编辑样品销售订单：已确认的零元手动价和样品规格会保留。生产及发货后的编辑限制继续生效。</div>
     <div v-if="stockBatchNotice" class="notice warn">{{ stockBatchNotice }}</div>
 
     <section class="panel order-fields">
@@ -321,7 +322,7 @@
                   :value="row.spec_mode"
                   disabled
                 >
-                  {{ row.spec_label || '历史规格' }}（历史规格，当前价格表不可用）
+                  {{ row.spec_label || '历史规格' }}{{ preservesSampleSpec(row, sampleOrderEditing) ? '（已存样品规格）' : '（历史规格，当前价格表不可用）' }}
                 </option>
                 <option v-for="option in specOptions(row)" :key="option.value" :value="option.value">
                   {{ option.label }}
@@ -650,6 +651,7 @@ import { orderDeliveryMode, isNonCourierShipMethod, requiresCourierLogistics } f
 import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { isSampleOrderEdit, validManualOrderPrice, storedSampleSpecKey, preservesSampleSpec, sampleStoredItemIdentity } from '../lib/sample-order-edit.js'
 import { resetCustomerContinuation } from '../lib/customer-workspace'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
@@ -746,6 +748,7 @@ const ORDER_ENTRY_DRAFT_SCOPE = FORM_DRAFT_SCOPES.orderEntry
 let orderEntryDraftDisabled = false
 
 const loading = ref(false)
+const sampleOrderEditing = ref(false)
 const saving = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -831,6 +834,7 @@ const form = reactive({
 function newRow() {
   return {
     key: `${Date.now()}-${Math.random()}`,
+    item_id: 0,
     product_query: '',
     product_open: false,
     product_kind_filter: '',
@@ -2005,6 +2009,7 @@ function syncRowsForType(options = {}) {
 }
 
 function syncPrice(row, options = {}) {
+  if (preservesSampleSpec(row, sampleOrderEditing.value) && row.manual_price && !options.force) return
   const product = productForRow(row)
   if (!product) {
     row.unit_price = ''
@@ -2105,6 +2110,7 @@ function applyResolvedWholesalePrice(row, price) {
 }
 
 function ensureRowBeanListVersion(row, price = {}) {
+  if (preservesSampleSpec(row, sampleOrderEditing.value) && !Number(row.bean_list_publication_id || 0) && !Number(price.beanListPublicationID || 0)) return
   const selected = selectedBeanListVersionOptionForProduct(row)
   const publicationID = Number(price.beanListPublicationID || row.bean_list_publication_id || selected?.id || 0)
   row.bean_list_publication_id = publicationID
@@ -2158,20 +2164,21 @@ function markManualPrice(row) {
   row.selected_price_row_key = ''
 }
 
-function hasPositiveManualPrice(row) {
-  return Boolean(row?.manual_price) && toNumber(row?.unit_price) > 0
+function hasValidManualPrice(row) {
+  return validManualOrderPrice(row, preservesSampleSpec(row, sampleOrderEditing.value) && row.sample_stored_manual === true)
 }
 
 function rowHasBlockingPrice(row) {
   if (Number(row?.product_id || row?.parent_product_id || 0) <= 0) return false
   if (row?.spec_invalid_message) return true
-  if (row?.manual_price) return !hasPositiveManualPrice(row)
+  if (row?.manual_price) return !hasValidManualPrice(row)
   return Boolean(row?.price_missing)
 }
 
 function rowPriceBlockingMessage(row) {
   if (row?.spec_invalid_message) return row.spec_invalid_message
-  if (row?.manual_price && !hasPositiveManualPrice(row)) {
+  if (row?.manual_price && !hasValidManualPrice(row)) {
+    if (preservesSampleSpec(row, sampleOrderEditing.value) && row.sample_stored_manual === true) return '样品手动价必须为有效非负金额，不能留空。'
     return '手动价必须大于0，不能保存；请输入有效手动价或恢复自动价。'
   }
   return '当前数量无已发布价格，不能保存；请调整数量、补齐价格表档位或输入手动价。'
@@ -2298,6 +2305,7 @@ function notifyWorkspaceCustomerChanged(customerID) {
 function applyEditData(data) {
   prepaymentRate.value = 0
   if (!data) return
+  sampleOrderEditing.value = isSampleOrderEdit(data, {copyMode:copyMode.value,customerPortal:props.customerPortal})
   const editItems = Array.isArray(data.items) ? data.items : []
   const itemPublicationIDByType = (listType) => {
     const item = editItems.find((row) => orderBeanListTypeForProductKind(row.product_kind) === listType && Number(row.bean_list_publication_id || 0) > 0)
@@ -2367,6 +2375,7 @@ function applyEditData(data) {
     const shouldUseCustomSpec = productKind !== 'drip_bag' && retailOrder.value && !retailSpecs.includes(toInt(spec))
     const hydrated = {
       ...newRow(),
+      item_id: copyMode.value ? 0 : Number(item.item_id || 0),
       bom_spec_id: Number(item.bom_spec_id || 0),
       bom_variant_id: Number(item.bom_variant_id || 0),
       migration_state: Number(item.bom_spec_id || 0) > 0 ? 'cutover' : 'legacy',
@@ -2393,13 +2402,13 @@ function applyEditData(data) {
       price_source_json: item.price_source_json || '',
       bean_list_publication_id: Number(item.bean_list_publication_id || 0),
       bean_list_version_no: item.bean_list_version_no || '',
-      unit_price: item.unit_price || '',
+      unit_price: item.unit_price ?? '',
       price_unit: '',
       price_unit_suffix: '',
       price_unit_g: 0,
       tier_price_label: '',
       tier_below_min: false,
-      manual_price: item.price_override === true || item.tier_id === 'manual',
+      manual_price: item.price_selection_mode === 'manual' || item.price_override === true || item.tier_id === 'manual',
       spec_mode: productKind === 'drip_bag' ? '' : (shouldUseCustomSpec ? CUSTOM_SPEC_VALUE : spec),
       custom_spec_g: shouldUseCustomSpec ? spec : '',
       sales_unit: productKind === 'drip_bag' ? salesUnit : '',
@@ -2415,7 +2424,8 @@ function applyEditData(data) {
       family || product || flatProduct || hydrated,
       item.bean_list_publication_id,
     )
-    const keepFrozenPublication = shouldKeepFrozenOrderPublication(
+    const keepSampleSpec = sampleOrderEditing.value && Number(item.bom_spec_id || 0) > 0
+    const keepFrozenPublication = keepSampleSpec || shouldKeepFrozenOrderPublication(
       beanListVersionGroups.value,
       item.bean_list_publication_id,
       copyMode.value,
@@ -2457,11 +2467,11 @@ function applyEditData(data) {
           tier_id: item.tier_id || 'auto',
           price_selection_mode: item.price_selection_mode || (item.price_override === true || item.tier_id === 'manual' ? 'manual' : 'auto'),
           selected_price_row_key: item.selected_price_row_key || '',
-          unit_price: item.unit_price || '',
+          unit_price: item.unit_price ?? '',
           price_source_json: item.price_source_json || '',
           bean_list_publication_id: publicationID,
           bean_list_version_no: item.bean_list_version_no || hydrated.bean_list_version_no,
-          manual_price: item.price_override === true || item.tier_id === 'manual',
+          manual_price: item.price_selection_mode === 'manual' || item.price_override === true || item.tier_id === 'manual',
           qty: Number(item.qty || 1),
           item_note: item.note || '',
           discount_type: item.discount_type || '',
@@ -2469,6 +2479,11 @@ function applyEditData(data) {
         },
         keepFrozenPublication,
       ))
+    }
+    if (keepSampleSpec) {
+      Object.assign(hydrated, sampleStoredItemIdentity(item))
+      hydrated.sample_stored_manual = item.price_override === true || item.price_selection_mode === 'manual' || item.tier_id === 'manual'
+      hydrated.sample_stored_spec_key = storedSampleSpecKey(hydrated)
     }
     return hydrated
   })
@@ -2559,6 +2574,7 @@ async function loadOrderProductCatalogTypes() {
 
 async function load() {
   loading.value = true
+  sampleOrderEditing.value = false
   error.value = ''
   ok.value = ''
   try {
@@ -2614,7 +2630,7 @@ async function load() {
       }
       form.edit_id = Number(editData.edit_id || 0)
       applyEditData(editData)
-      syncBeanListVersionForCustomer({ force: !!copyID })
+      if (!sampleOrderEditing.value) syncBeanListVersionForCustomer({ force: !!copyID })
       if (copyID) syncRowsForType({ priceListChanged: true })
     } else {
       applyCustomerContextToNewOrder()
@@ -2666,6 +2682,7 @@ async function save(options = {}) {
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
     payload.selected_price_table_ids = [...new Set(beanListVersionGroups.value.map(group => Number(selectedBeanListVersionOptionByGroup(group)?.id || 0)).filter(id => id > 0))]
+    if (sampleOrderEditing.value) payload.selected_price_table_ids = [...new Set(rows.value.map(row => Number(row.bean_list_publication_id || 0)).filter(id => id > 0))]
     if (!payload.customer_id) {
       raiseSaveError('请选择客户', 'customer_id')
       return

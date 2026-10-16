@@ -18,6 +18,9 @@ export const menuGroups = [
     items: [
       { key: 'order', label: '录单', title: '录单' },
       { key: 'orders', label: '订单列表', title: '订单列表' },
+      { key: 'sampleRequests', label: '样品申请与回访', title: '样品申请与回访' },
+      { key: 'sampleRequestsManual', label: '样品申请手册', title: '样品申请与回访手册' },
+      { key: 'miniappEmployeeManual', label: '员工小程序手册', title: '员工小程序 ERP 手册' },
       { key: 'contracts', label: '合同盖章', title: '合同盖章' },
       { key: 'orderSalesManual', label: '订单销售手册', title: '订单销售手册' },
     ],
@@ -154,7 +157,7 @@ export const hiddenViewTitles = {
   workspaceModeManual: '客户履约手册',
   customerPortalManual: '客户履约手册',
   wechatOfficialManual: '公众号操作手册',
-  beanListCenterManual: '豆单中心与登记用户手册',
+  beanListCenterManual: '价格表中心与登记用户手册',
   pageEntryManual: '页面入口管理手册',
 }
 

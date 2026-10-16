@@ -66,7 +66,7 @@ type Function struct {
 
 var Functions = []Function{
 	{"home", "首页", "pages/index/index", true},
-	{"beans", "豆单中心", "pages/bean-list-center/bean-list-center", true},
+	{"beans", "价格表中心", "pages/bean-list-center/bean-list-center", true},
 	{"customer", "客户中心", "pages/home/home", false},
 	{"orders", "全部订单", "pages/service/service?key=orders&source=official", false},
 	{"order", "商品下单", "pages/service/service?key=productOrder", false},

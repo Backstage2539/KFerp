@@ -47,7 +47,7 @@ const currentEntry = computed(() =>
       点击后
       <select :value="action" @change="setAction($event.target.value)">
         <option value="page" :disabled="!entries.length">选择页面入口</option>
-        <option value="beans">小程序豆单中心</option>
+        <option value="beans">小程序价格表中心</option>
  <option value="orders">小程序全部订单</option>
  <option value="order">小程序商品下单</option>
         <option

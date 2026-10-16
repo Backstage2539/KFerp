@@ -55,6 +55,7 @@ import {
   filterEmployeeOrderCustomers,
   hydrateEmployeeOrderEditItems,
   isEmployeeOrderNonNegativeMoney,
+  isEmployeeOrderUnitPriceValid,
   productSpecLabel,
   preserveEmployeeOrderDraftItemsForMissingCustomer,
   revalidateEmployeeOrderItems,
@@ -95,6 +96,7 @@ const editOrderID = ref(0)
 const copyOrderID = ref(0)
 const preservedOutsourceTotal = ref(0)
 const preservedRoundToInt = ref(false)
+const editingSampleOrder = ref(false)
 const isEditMode = computed(() => editOrderID.value > 0)
 const isCopyMode = computed(() => copyOrderID.value > 0 && !isEditMode.value)
 const canCreateCustomer = computed(() => session.permissions.includes('customers.read')
@@ -267,7 +269,7 @@ function quantityInputValue(item: EmployeeOrderDraftItem): number | string {
 
 function unitPriceInputValue(item: EmployeeOrderDraftItem): number | string {
   if (hasPendingQuantity(item)) return ''
-  return Number(item.unit_price) > 0 ? item.unit_price : ''
+  return Number(item.unit_price) > 0 || (editingSampleOrder.value && item.price_override && Number(item.unit_price) === 0) ? item.unit_price : ''
 }
 
 function clearPendingQuantity(item: EmployeeOrderDraftItem) {
@@ -351,7 +353,7 @@ async function changeNamedPriceTable(group: PriceTableGroup, event: { detail: { 
   form.value.selected_price_table_ids = replaceSelectedPriceTable(form.value.selected_price_table_ids || [], group, table.id)
   const loaded = await loadCustomerProductCatalog(Number(form.value.customer_id))
   if (!loaded) return
-  form.value.items = revalidateEmployeeOrderItems(form.value.items, formData.value?.product_families || [], Number(form.value.customer_id), { preserveUnavailable: true, clearPriceSelection: true })
+  form.value.items = revalidateEmployeeOrderItems(form.value.items, formData.value?.product_families || [], Number(form.value.customer_id), { preserveUnavailable: true, clearPriceSelection: true, preserveSampleManualPrice: editingSampleOrder.value })
   quantityInputs.value = {}
 }
 
@@ -392,7 +394,7 @@ async function refreshCurrentProductCatalog(): Promise<boolean> {
     form.value.items,
     formData.value?.product_families || [],
     customerID,
-    { preserveUnavailable: true, preserveManualPrice: true },
+    { preserveUnavailable: true, preserveManualPrice: true, preserveSampleManualPrice: editingSampleOrder.value },
   )
   return loaded
 }
@@ -533,7 +535,7 @@ function quantityChanged(item: EmployeeOrderDraftItem, event: unknown) {
   const rawQuantity = String(employeeOrderInputValue(event) ?? '')
   quantityInputs.value = { ...quantityInputs.value, [item.key]: rawQuantity }
   const family = familyForItem(item)
-  const result = applyEmployeeOrderQuantityChange(item, family, rawQuantity)
+  const result = applyEmployeeOrderQuantityChange(item, family, rawQuantity, editingSampleOrder.value)
   if (!result.accepted) return
   Object.assign(item, result.item)
   clearPendingQuantity(item)
@@ -542,7 +544,7 @@ function quantityChanged(item: EmployeeOrderDraftItem, event: unknown) {
 function quantityBlurred(item: EmployeeOrderDraftItem) {
   if (!hasPendingQuantity(item)) return
   const family = familyForItem(item)
-  const result = applyEmployeeOrderQuantityChange(item, family, quantityInputs.value[item.key])
+  const result = applyEmployeeOrderQuantityChange(item, family, quantityInputs.value[item.key], editingSampleOrder.value)
   clearPendingQuantity(item)
   if (!result.accepted) {
     uni.showToast({ title: result.error, icon: 'none' })
@@ -622,6 +624,7 @@ function applyDefaultOptions() {
 }
 
 async function loadForm() {
+  editingSampleOrder.value = false
   prepaymentRate.value = 0
   loading.value = true
   loadError.value = ''
@@ -663,6 +666,7 @@ async function loadForm() {
     applyDefaultOptions()
     if (detailResponse) {
       const detail = detailResponse.order
+      editingSampleOrder.value = isEditMode.value && detail.is_sample_order === true
       const customer = formData.value.customers.find((row) => Number(row.id) === targetCustomerID)
       const editOrderTypeName = String(formData.value.order_types.find(
         (row) => Number(row.id) === Number(detail.order_type_id || 0),
@@ -704,7 +708,7 @@ async function loadForm() {
             detail.order_discount_amount,
           ),
           notes: String(detail.notes || ''),
-          items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder),
+          items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder, editingSampleOrder.value),
         }
       }
       shippingBaseline.value = customer ? customerShippingDefaults(customer) : currentShippingSnapshot()
@@ -793,8 +797,8 @@ function validateOrder(): boolean {
       uni.showToast({ title: `第${index + 1}行数量不正确`, icon: 'none' })
       return false
     }
-    if (!Number.isFinite(Number(item.unit_price)) || Number(item.unit_price) <= 0) {
-      uni.showToast({ title: `第${index + 1}行销售单价必须大于 0`, icon: 'none' })
+    if (!isEmployeeOrderUnitPriceValid(item.unit_price, editingSampleOrder.value)) {
+      uni.showToast({ title: editingSampleOrder.value ? `第${index + 1}行样品单价必须大于或等于 0` : `第${index + 1}行销售单价必须大于 0`, icon: 'none' })
       return false
     }
     completeCount += 1

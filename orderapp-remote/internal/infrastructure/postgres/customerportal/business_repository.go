@@ -1370,17 +1370,29 @@ func parseBeanListDisplaySummary(configJSON, contentJSON []byte, row *customerpo
 	row.LogoImage = safeBeanListImageURL(beanListMapString(cfg, "logoImage", ""))
 
 	groups := make([]customerportalapp.BeanListGroupSummary, 0)
-	for _, groupMap := range beanListMapsFromAny(content["groups"]) {
+	for gi, groupMap := range beanListMapsFromAny(content["groups"]) {
 		group := customerportalapp.BeanListGroupSummary{
 			Category:     beanListMapString(groupMap, "category", ""),
 			ShowCategory: beanListMapBool(groupMap, "showCategory", true),
 			Items:        make([]customerportalapp.BeanListProductSummary, 0),
 		}
-		for _, itemMap := range beanListMapsFromAny(groupMap["items"]) {
+		for ii, itemMap := range beanListMapsFromAny(groupMap["items"]) {
 			highlightTerms := beanListStringList(itemMap["highlightTerms"])
 			attributes := beanListFrozenAttributes(itemMap)
 			attributeLines := beanListFrozenAttributeLines(itemMap, attributes)
+			productID := int64(0)
+			for _, key := range []string{"effective_parent_product_id", "parent_product_id", "product_id", "productId"} {
+				if id := int64(beanListMapNumber(itemMap, key, 0)); id > 0 {
+					productID = id
+					break
+				}
+			}
+			sampleKey := ""
+			if productID > 0 {
+				sampleKey = fmt.Sprintf("%d:%d:%d", row.ID, gi, ii)
+			}
 			item := customerportalapp.BeanListProductSummary{
+				ProductID: productID, SampleKey: sampleKey,
 				ProductAttributes: attributes,
 				AttributeLines:    attributeLines,
 				Code:              beanListMapString(itemMap, "code", ""),

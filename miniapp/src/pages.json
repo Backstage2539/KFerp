@@ -126,13 +126,25 @@
     {
       "path": "pages/bean-list-center/bean-list-center",
       "style": {
-        "navigationBarTitleText": "豆单中心"
+        "navigationBarTitleText": "价格表中心"
       }
     },
     {
       "path": "pages/customer-select/customer-select",
       "style": {
         "navigationBarTitleText": "选择客户"
+      }
+    },
+    {
+      "path": "pages/sample-requests/sample-requests",
+      "style": {
+        "navigationBarTitleText": "样品申请"
+      }
+    },
+    {
+      "path": "pages/employee-notifications/employee-notifications",
+      "style": {
+        "navigationBarTitleText": "员工通知"
       }
     }
   ],

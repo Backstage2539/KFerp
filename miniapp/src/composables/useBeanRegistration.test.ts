@@ -6,13 +6,13 @@ import { registerVisitor, wechatLoginCode } from '../api/registration'
 import { restoreRegistrationSession } from '../utils/registrationSession'
 import { useBeanRegistration } from './useBeanRegistration'
 
-const session = { registrationComplete: false, registration: null, setToken: vi.fn(), applyContext: vi.fn() }
+const session = { accountType: '', roles: [] as string[], registrationComplete: false, registration: null, setToken: vi.fn(), applyContext: vi.fn() }
 const card = { key: 'a'.repeat(32), name: '咖啡豆标准', visibility: 'registered', version: 'v1', updated_at: '' }
 const response = { token: 'verified', registration_complete: true, current_customer_id: 0, bindings: [{customer_id: 1}, {customer_id: 2}] }
 function deferred<T>() { let resolve!: (value:T)=>void; const promise = new Promise<T>(r => {resolve=r}); return {promise,resolve} }
 
 describe('price card inline registration', () => {
-  beforeEach(() => { vi.resetAllMocks(); session.registrationComplete = false; vi.mocked(wechatLoginCode).mockResolvedValue('wx-code'); vi.mocked(registerVisitor).mockResolvedValue(response as never) })
+  beforeEach(() => { vi.resetAllMocks(); session.registrationComplete = false; session.accountType='';session.roles=[]; vi.mocked(wechatLoginCode).mockResolvedValue('wx-code'); vi.mocked(registerVisitor).mockResolvedValue(response as never) })
   it('opens a sheet over the selected card without navigating to a login or permission page', async () => {
     const navigate = vi.fn(), form = useBeanRegistration(navigate)
     await form.openCard(card)
@@ -23,6 +23,8 @@ describe('price card inline registration', () => {
     expect(session.setToken).toHaveBeenCalledWith('verified'); expect(session.applyContext).toHaveBeenCalledWith(response)
     expect(navigate).toHaveBeenCalledTimes(1); expect(navigate).toHaveBeenCalledWith(card.key); expect(form.visible.value).toBe(false)
   })
+  it.each(['sales','admin'])('lets a %s employee open registered center cards without collecting phone',async role=>{session.accountType='employee';session.roles=[role];const navigate=vi.fn(),form=useBeanRegistration(navigate);await form.openCard(card);expect(navigate).toHaveBeenCalledWith(card.key);expect(form.visible.value).toBe(false);expect(registerVisitor).not.toHaveBeenCalled()})
+  it('keeps disabled identities blocked without a registration prompt',async()=>{vi.mocked(restoreRegistrationSession).mockRejectedValue(new Error('账号已停用'));const navigate=vi.fn(),form=useBeanRegistration(navigate);await expect(form.openCard(card)).rejects.toThrow('账号已停用');expect(form.visible.value).toBe(false);expect(navigate).not.toHaveBeenCalled()})
   it('awaits restored registration and opens directly without collecting details again', async () => {
     vi.mocked(restoreRegistrationSession).mockImplementation(async () => { session.registrationComplete = true })
     const navigate = vi.fn(), form = useBeanRegistration(navigate)

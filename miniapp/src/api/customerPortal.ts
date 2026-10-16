@@ -143,6 +143,8 @@ export type BeanListProductAttribute = {
 }
 
 export type BeanListProductSummary = {
+  product_id?: number
+  sample_key?: string
   product_attributes?: BeanListProductAttribute[]
   attribute_lines?: string[]
   code?: string
@@ -1431,6 +1433,7 @@ export type EmployeeOrderAsset = {
 }
 
 export type EmployeeOrderDetail = EmployeeOrder & {
+  is_sample_order?: boolean
   edit_revision?: string
   document_date?: string
   customer_id?: number
