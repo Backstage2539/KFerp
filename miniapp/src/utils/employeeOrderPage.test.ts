@@ -16,7 +16,7 @@ describe('employee mini order entry page contract', () => {
   })
 
   it('keeps spec weight derived from the selected spec instead of exposing an editable field', () => {
-    expect(pageSource).toContain(':disabled="productCatalogLoading || !familyForItem(item)"')
+    expect(pageSource).toContain(':disabled="productCatalogLoading || !familyForItem(item) || item.price_selection_mode === \'converted_tier\'"')
     expect(pageSource).toContain('employeeOrderItemForSpecSelection(target, family, spec)')
     expect(pageSource).not.toContain('v-model="item.spec_g"')
   })
@@ -204,7 +204,7 @@ describe('employee mini order entry page contract', () => {
     expect(pageSource).toContain('quantityInputValue(item)')
     expect(pageSource).toContain('@blur="quantityBlurred(item)"')
     expect(pageSource).toContain('unitPriceInputValue(item)')
-    expect(pageSource).toContain(':disabled="hasPendingQuantity(item) || Number(item.qty) <= 0"')
+    expect(pageSource).toContain(':disabled="item.price_selection_mode === \'converted_tier\' || hasPendingQuantity(item) || Number(item.qty) <= 0"')
     expect(pageSource).toContain('applyEmployeeOrderQuantityChange')
     expect(pageSource).toContain('isEmployeeOrderNonNegativeMoney')
     expect(pageSource).toContain('cause instanceof MiniRequestError && cause.statusCode === 409')

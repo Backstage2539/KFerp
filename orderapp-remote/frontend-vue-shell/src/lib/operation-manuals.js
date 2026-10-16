@@ -1,4 +1,5 @@
 export const operationManualsByView = {
+  specConversionManual: { doc: 'OP_MANUAL_SPEC_CONVERSION.md', title: '规格换算说明' },
   sampleRequestsManual: { doc: 'OP_MANUAL_SAMPLES.md', title: '样品申请与回访手册' },
   miniappEmployeeManual: { doc: 'OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md', title: '员工小程序 ERP 手册' },
   orderSalesManual: { doc: 'OP_MANUAL_ORDER_SALES.md', title: '订单销售手册' },

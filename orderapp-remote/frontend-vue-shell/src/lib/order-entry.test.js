@@ -689,7 +689,7 @@ test('OrderEntryView uses parent product families and concrete published SKU spe
   assert.match(source, /所选价格表不包含该商品当前规格，请重新选择规格/)
   assert.match(source, /row\.spec_source === 'legacy_price_list' && options\.priceListChanged/)
   assert.match(source, /syncBeanListVersionForCustomer\(\{ force: !!copyID \}\)/)
-  assert.match(source, /if \(copyID\) syncRowsForType\(\{ priceListChanged: true \}\)/)
+  assert.match(source, /await refreshCopiedConversions\(\)/)
   assert.match(source, /orderProductPublicationMode\(legacyProduct \|\| row, selectedPublicationID\)/)
   assert.match(source, /const publicationMode = orderProductPublicationMode\([\s\S]*?family \|\| product \|\| flatProduct \|\| hydrated,[\s\S]*?item\.bean_list_publication_id/)
   assert.match(source, /hydrated\.spec_source = publicationMode === 'legacy' \? 'legacy_price_list' : 'price_list_sku'/)

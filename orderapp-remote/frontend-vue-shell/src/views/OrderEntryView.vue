@@ -315,7 +315,8 @@
           <label>
             <span>{{ !isConcretePriceListRow(row) && isDripRow(row) ? '单位' : '规格' }}</span>
             <div class="spec-control">
-              <select v-if="isConcretePriceListRow(row)" v-model="row.spec_mode" @change="onSpecChange(row)">
+              <input v-if="row.price_selection_mode === 'converted_tier'" :value="row.spec_label" readonly aria-label="实际下单规格" />
+              <select v-else-if="isConcretePriceListRow(row)" v-model="row.spec_mode" @change="onSpecChange(row)">
                 <option value="">选择规格</option>
                 <option
                   v-if="row.historical_spec_readonly && !specOptions(row).some((option) => option.value === row.spec_mode)"
@@ -361,7 +362,7 @@
             <div class="price-control">
               <input
                 v-model.trim="row.unit_price"
-                :readonly="props.customerPortal"
+                :readonly="props.customerPortal || row.price_selection_mode === 'converted_tier'"
                 type="number"
                 min="0"
                 step="0.01"
@@ -422,7 +423,11 @@
             <input v-model.trim="row.item_note" placeholder="如贴标、磨粉、特殊包装" />
           </label>
 
-          <div v-if="!props.customerPortal && tierRows(row).length" class="tier-prices">
+          <div v-if="!props.customerPortal && row.product_id && row.bom_spec_id" class="conversion-line-actions">
+            <button class="secondary" type="button" @click="conversionRow = row">{{ row.price_selection_mode === 'converted_tier' ? '重新计价 / 换规格' : '临时换规格' }}</button>
+            <small v-if="row.price_selection_mode === 'converted_tier'">{{ conversionDescription(conversionSnapshot(row)) }}；数量变化沿用此单价。</small>
+          </div>
+          <div v-if="!props.customerPortal && row.price_selection_mode !== 'converted_tier' && tierRows(row).length" class="tier-prices">
             <small class="tier-choice-hint">手动选择价格档（不受数量门槛限制）</small>
             <button
               v-for="tier in tierRows(row)"
@@ -644,9 +649,29 @@
       </div>
     </div>
   </div>
+  <OrderSpecConversionDrawer v-if="conversionRow && !props.customerPortal" :row="conversionRow" :family="productFamilyForRow(conversionRow) || {}" :customer-id="Number(form.customer_id)" @close="conversionRow = null" @apply="applyConversion" />
 </template>
 
 <script setup>
+import OrderSpecConversionDrawer from '../components/OrderSpecConversionDrawer.vue'
+import { convertedOrderRow, conversionSnapshot, conversionDescription } from '../lib/spec-conversion.js'
+const conversionRow = ref(null)
+function applyConversion(quote) { if (conversionRow.value) Object.assign(conversionRow.value, convertedOrderRow(conversionRow.value, quote)); conversionRow.value = null; ensureTrailingBlankRow() }
+async function refreshCopiedConversions() {
+  for (const row of rows.value.filter(r => r.price_selection_mode === 'converted_tier')) {
+    row.item_id = 0; row.price_missing = true
+    try {
+      const catalog = await apiGet(`/api/order/spec-conversions?customer_id=${form.customer_id}&product_id=${row.product_id}&publication_id=${row.bean_list_publication_id}`)
+      const group = catalog.groups.find(g => g.id === row.spec_conversion?.group_id)
+      if (!group) throw new Error('换算组已失效，请重新选择')
+      const q = conversionSnapshot(row)
+      const target = catalog.specs.find(s => s.bom_spec_id === row.bom_spec_id)
+      if (!target) throw new Error('目标规格已失效，请重新选择')
+      const quote = await apiSend('/api/order/spec-conversions/quote', { body: { ...q, target_bom_variant_id: target.bom_variant_id, revision: group.revision, quantity: row.qty, customer_id: form.customer_id } })
+      Object.assign(row, convertedOrderRow(row, quote))
+    } catch (e) { row.spec_invalid_message = `复制订单需重新报价：${e.message}`; row.price_missing = true }
+  }
+}
 import { orderDeliveryMode, isNonCourierShipMethod, requiresCourierLogistics } from '../lib/order-shipping'
 import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -1782,6 +1807,7 @@ function assignProductFamilyHeader(row, family) {
 }
 
 function applyPriceListSpecToRow(row, family, spec, publicationID) {
+  row.spec_conversion = null
   const qty = row.qty
   const itemNote = row.item_note
   const discountType = row.discount_type
@@ -1830,6 +1856,8 @@ function invalidatePriceListSpecRow(row, message = '所选价格表不包含该�
 }
 
 function chooseProduct(row, product) {
+  conversionRow.value = null
+  row.spec_conversion = null
   row.price_selection_mode = 'auto'
   row.selected_price_row_key = ''
   row.manual_price = false
@@ -1946,7 +1974,10 @@ function onLegacySpecChange(row) {
 
 function syncRowsForType(options = {}) {
   rows.value.forEach((row) => {
+    if (row.price_selection_mode === 'converted_tier' && !options.priceListChanged) return
     if (options.priceListChanged) {
+      conversionRow.value = null
+      row.spec_conversion = null
       row.price_selection_mode = 'auto'
       row.selected_price_row_key = ''
       row.manual_price = false
@@ -2009,6 +2040,7 @@ function syncRowsForType(options = {}) {
 }
 
 function syncPrice(row, options = {}) {
+  if (row.price_selection_mode === 'converted_tier') return
   if (preservesSampleSpec(row, sampleOrderEditing.value) && row.manual_price && !options.force) return
   const product = productForRow(row)
   if (!product) {
@@ -2158,6 +2190,7 @@ function dripUnitOptionsForRow(row) {
 }
 
 function markManualPrice(row) {
+  if (row.price_selection_mode === 'converted_tier') return
   row.manual_price = true
   row.tier_id = 'manual'
   row.price_selection_mode = 'manual'
@@ -2185,6 +2218,13 @@ function rowPriceBlockingMessage(row) {
 }
 
 function resetAutoPrice(row) {
+  if (row.price_selection_mode === 'converted_tier') {
+    const family = productFamilyForRow(row)
+    row.spec_conversion = null
+    if (family) { chooseProduct(row, family); return }
+    row.price_selection_mode = 'auto'
+    invalidatePriceListSpecRow(row); return
+  }
   row.manual_price = false
   row.price_selection_mode = 'auto'
   row.selected_price_row_key = ''
@@ -2420,6 +2460,12 @@ function applyEditData(data) {
       discount_type: item.discount_type || '',
       discount_value: item.discount_value || '',
     }
+    const conversion = conversionSnapshot(item)
+    if (item.price_selection_mode === 'converted_tier' && conversion) {
+      const result = convertedOrderRow(hydrated, { ...conversion, unit_price: item.unit_price, price_source_json: item.price_source_json })
+      result.spec_conversion.reprice = copyMode.value
+      return result
+    }
     const publicationMode = orderProductPublicationMode(
       family || product || flatProduct || hydrated,
       item.bean_list_publication_id,
@@ -2505,6 +2551,7 @@ function applyEditData(data) {
 
 function repriceHydratedRows() {
   for (const row of rows.value) {
+    if (row.price_selection_mode === 'converted_tier') continue
     if (row.historical_spec_readonly) {
       ensureRowBeanListVersion(row)
       continue
@@ -2631,7 +2678,12 @@ async function load() {
       form.edit_id = Number(editData.edit_id || 0)
       applyEditData(editData)
       if (!sampleOrderEditing.value) syncBeanListVersionForCustomer({ force: !!copyID })
-      if (copyID) syncRowsForType({ priceListChanged: true })
+      if (copyID) {
+        const conversions = rows.value.filter(row => row.price_selection_mode === 'converted_tier').map(row => [row, { ...row }])
+        syncRowsForType({ priceListChanged: true })
+        for (const [row, saved] of conversions) Object.assign(row, saved)
+        await refreshCopiedConversions()
+      }
     } else {
       applyCustomerContextToNewOrder()
       syncBeanListVersionForCustomer({ force: true })
@@ -2681,7 +2733,7 @@ async function save(options = {}) {
   clearAllFieldErrors()
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
-    payload.selected_price_table_ids = [...new Set(beanListVersionGroups.value.map(group => Number(selectedBeanListVersionOptionByGroup(group)?.id || 0)).filter(id => id > 0))]
+    payload.selected_price_table_ids = [...new Set([...beanListVersionGroups.value.map(group => Number(selectedBeanListVersionOptionByGroup(group)?.id || 0)), ...rows.value.filter(row => row.price_selection_mode === 'converted_tier').map(row => Number(row.bean_list_publication_id))].filter(id => id > 0))]
     if (sampleOrderEditing.value) payload.selected_price_table_ids = [...new Set(rows.value.map(row => Number(row.bean_list_publication_id || 0)).filter(id => id > 0))]
     if (!payload.customer_id) {
       raiseSaveError('请选择客户', 'customer_id')
@@ -3060,4 +3112,8 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   .tier-price-chip { max-width: 100%; grid-template-columns: minmax(0, 1fr) auto; }
   .tier-price-chip span { overflow-wrap: anywhere; }
 }
+</style>
+
+<style scoped>
+.conversion-line-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:12px;align-items:center}.conversion-line-actions small{line-height:1.6;color:#496450;flex:1;min-width:200px}
 </style>

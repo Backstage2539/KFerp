@@ -1,6 +1,7 @@
 package sales
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	support "orderapp/internal/interfaces/http/support"
@@ -179,8 +180,14 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 			ProductKind:                        strings.TrimSpace(getStr(req.ProductKind, i)),
 			SalesUnit:                          strings.TrimSpace(getStr(req.SalesUnit, i)),
 		}
-		if id, err := strconv.ParseInt(getStr(req.ItemID, i), 10, 64); err == nil && id > 0 {
-			it.ItemID = id
+
+		it.ItemID, _ = strconv.ParseInt(getStr(req.ItemID, i), 10, 64)
+		if raw := strings.TrimSpace(getStr(req.SpecConversion, i)); raw != "" && raw != "null" {
+			var selection salesapp.SpecConversionSelection
+			if err := json.Unmarshal([]byte(raw), &selection); err != nil {
+				selection = salesapp.SpecConversionSelection{}
+			}
+			it.SpecConversion = &selection
 		}
 		if pidStr != "" {
 			if pid, err := strconv.ParseInt(pidStr, 10, 64); err == nil && pid > 0 {

@@ -1197,7 +1197,8 @@ export type EmployeeOrderDraftItem = {
   bean_list_publication_id?: number
   bean_list_version_no?: string
   price_override?: boolean
-  price_selection_mode?: 'auto' | 'tier' | 'manual'
+  price_selection_mode?: 'auto' | 'tier' | 'manual' | 'converted_tier'
+  spec_conversion?: SpecConversionSelection
   selected_price_row_key?: string
   price_source_json?: string
   discount_type?: string
@@ -1380,7 +1381,8 @@ export type EmployeeOrderDetailItem = {
   unit_price: string
   line_total: string
   price_override?: boolean
-  price_selection_mode?: 'auto' | 'tier' | 'manual'
+  price_selection_mode?: 'auto' | 'tier' | 'manual' | 'converted_tier'
+  spec_conversion?: SpecConversionSelection
   selected_price_row_key?: string
   bean_list_publication_id?: number
   bean_list_version_no?: string
@@ -2201,3 +2203,11 @@ export function publishResaleBeanList(token: string, payload: ResaleBeanListComm
     data: payload,
   })
 }
+
+export type SpecConversionSelection = { group_id:number;revision:number;source_bom_spec_id:number;source_bom_variant_id:number;reprice?:boolean }
+export type SpecConversionGroup = { id:number;name:string;base_unit:string;revision:number;active:boolean;members:Array<{bom_spec_id?:number;template_id?:number;template_key?:string;inventory_unit:string;base_quantity:string}> }
+export type SpecConversionCatalog = { source_tiers?: Array<{product_id:number;bom_spec_id:number;bom_variant_id:number;spec_name:string;inventory_unit:string;template_id:number;template_key:string;price_row_key:string;tier_label:string;unit_price:string}>;groups:SpecConversionGroup[];specs:Array<{product_id:number;bom_spec_id:number;bom_variant_id:number;spec_name:string;inventory_unit:string;template_id:number;template_key:string}> }
+export type SpecConversionQuoteRequest = SpecConversionSelection & { customer_id:number;product_id:number;publication_id:number;price_row_key:string;target_bom_spec_id:number;target_bom_variant_id:number;quantity:number }
+export type SpecConversionQuote = SpecConversionQuoteRequest & { group_name:string;base_unit:string;source_spec_name:string;target_spec_name:string;source_unit:string;target_unit:string;source_quantity:string;target_quantity:string;source_unit_price:string;unit_price:string;line_total:string;version_no:string;price_source_json:string }
+export function fetchEmployeeSpecConversions(token:string,customerID:number,productID:number,publicationID:number):Promise<SpecConversionCatalog> { return miniRequest(`/api/mini/employee/spec-conversions?customer_id=${customerID}&product_id=${productID}&publication_id=${publicationID}`,{token}) }
+export function quoteEmployeeSpecConversion(token:string,data:SpecConversionQuoteRequest):Promise<SpecConversionQuote> { return miniRequest('/api/mini/employee/spec-conversions/quote',{token,method:'POST',data}) }

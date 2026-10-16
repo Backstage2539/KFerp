@@ -75,51 +75,52 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
-	EditRevision                    string  `json:"edit_revision"`
-	RequestID                       string  `json:"request_id"`
-	BackfillMode                    bool    `json:"backfill_mode"`
-	SelectedPriceTableIDs           []int64 `json:"selected_price_table_ids"`
-	PrepaymentAmount                *string `json:"prepayment_amount" form:"prepayment_amount"`
-	EditID                          int64   `json:"edit_id"`
-	DocumentDate                    string  `json:"document_date"`
-	OrderDate                       string  `json:"order_date"`
-	CustomerID                      int64   `json:"customer_id"`
-	SourceID                        int64   `json:"source_id"`
-	OrderTypeID                     int64   `json:"order_type_id"`
-	PayStatusID                     int64   `json:"pay_status_id"`
-	PaymentMethod                   string  `json:"payment_method"`
-	ShipStatusID                    int64   `json:"ship_status_id"`
-	ShipMethod                      string  `json:"ship_method"`
-	ShipTrackingNo                  string  `json:"ship_tracking_no"`
-	LogisticsCompanyID              int64   `json:"logistics_company_id"`
-	LogisticsProductID              int64   `json:"logistics_product_id"`
-	PaymentGoodsAmount              string  `json:"payment_goods_amount"`
-	PaymentShippingAmount           string  `json:"payment_shipping_amount"`
-	PaymentVoucherAssetID           int64   `json:"payment_voucher_asset_id"`
-	ResponsibleType                 string  `json:"responsible_type"`
-	ResponsibleID                   int64   `json:"responsible_id"`
-	Notes                           string  `json:"notes"`
-	ShippingAmount                  string  `json:"shipping_amount"`
-	DiscountAmount                  string  `json:"discount_amount"`
-	RoundToInt                      string  `json:"round_to_int"`
-	ExpressFee                      string  `json:"express_fee"`
-	OutsourceMaterialFee            string  `json:"outsource_material_fee"`
-	OutsourceRoastFee               string  `json:"outsource_roast_fee"`
-	OutsourcePackagingFee           string  `json:"outsource_packaging_fee"`
-	OutsourceManualFee              string  `json:"outsource_manual_fee"`
-	OutsourceTaxFee                 string  `json:"outsource_tax_fee"`
-	OutsourceOtherFee               string  `json:"outsource_other_fee"`
-	StockBatchDecision              string  `json:"stock_batch_decision"`
-	BeanListPublicationID           int64   `json:"bean_list_publication_id"`
-	CommercialBeanListPublicationID int64   `json:"commercial_bean_list_publication_id"`
-	GreenBeanListPublicationID      int64   `json:"green_bean_list_publication_id"`
-	DripBeanListPublicationID       int64   `json:"drip_bean_list_publication_id"`
-	ReceiverName                    string  `json:"receiver_name"`
-	ReceiverPhone                   string  `json:"receiver_phone"`
-	ReceiverAddress                 string  `json:"receiver_address"`
-	ReceiverCompany                 string  `json:"receiver_company"`
-	PortalServiceCode               string  `json:"portal_service_code"`
-	OrdersScope                     string  `json:"orders_scope"`
+	SpecConversion                  []string `json:"spec_conversion"`
+	EditRevision                    string   `json:"edit_revision"`
+	RequestID                       string   `json:"request_id"`
+	BackfillMode                    bool     `json:"backfill_mode"`
+	SelectedPriceTableIDs           []int64  `json:"selected_price_table_ids"`
+	PrepaymentAmount                *string  `json:"prepayment_amount" form:"prepayment_amount"`
+	EditID                          int64    `json:"edit_id"`
+	DocumentDate                    string   `json:"document_date"`
+	OrderDate                       string   `json:"order_date"`
+	CustomerID                      int64    `json:"customer_id"`
+	SourceID                        int64    `json:"source_id"`
+	OrderTypeID                     int64    `json:"order_type_id"`
+	PayStatusID                     int64    `json:"pay_status_id"`
+	PaymentMethod                   string   `json:"payment_method"`
+	ShipStatusID                    int64    `json:"ship_status_id"`
+	ShipMethod                      string   `json:"ship_method"`
+	ShipTrackingNo                  string   `json:"ship_tracking_no"`
+	LogisticsCompanyID              int64    `json:"logistics_company_id"`
+	LogisticsProductID              int64    `json:"logistics_product_id"`
+	PaymentGoodsAmount              string   `json:"payment_goods_amount"`
+	PaymentShippingAmount           string   `json:"payment_shipping_amount"`
+	PaymentVoucherAssetID           int64    `json:"payment_voucher_asset_id"`
+	ResponsibleType                 string   `json:"responsible_type"`
+	ResponsibleID                   int64    `json:"responsible_id"`
+	Notes                           string   `json:"notes"`
+	ShippingAmount                  string   `json:"shipping_amount"`
+	DiscountAmount                  string   `json:"discount_amount"`
+	RoundToInt                      string   `json:"round_to_int"`
+	ExpressFee                      string   `json:"express_fee"`
+	OutsourceMaterialFee            string   `json:"outsource_material_fee"`
+	OutsourceRoastFee               string   `json:"outsource_roast_fee"`
+	OutsourcePackagingFee           string   `json:"outsource_packaging_fee"`
+	OutsourceManualFee              string   `json:"outsource_manual_fee"`
+	OutsourceTaxFee                 string   `json:"outsource_tax_fee"`
+	OutsourceOtherFee               string   `json:"outsource_other_fee"`
+	StockBatchDecision              string   `json:"stock_batch_decision"`
+	BeanListPublicationID           int64    `json:"bean_list_publication_id"`
+	CommercialBeanListPublicationID int64    `json:"commercial_bean_list_publication_id"`
+	GreenBeanListPublicationID      int64    `json:"green_bean_list_publication_id"`
+	DripBeanListPublicationID       int64    `json:"drip_bean_list_publication_id"`
+	ReceiverName                    string   `json:"receiver_name"`
+	ReceiverPhone                   string   `json:"receiver_phone"`
+	ReceiverAddress                 string   `json:"receiver_address"`
+	ReceiverCompany                 string   `json:"receiver_company"`
+	PortalServiceCode               string   `json:"portal_service_code"`
+	OrdersScope                     string   `json:"orders_scope"`
 
 	ItemID                             []string `json:"item_id"`
 	ProductID                          []string `json:"product_id"`
@@ -192,6 +193,10 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/orders/:id/void", h.void)
 	e.POST("/api/orders/void", h.voidMany)
 	e.GET("/api/order/form", h.form)
+	e.GET("/api/product-settings/spec-conversion-groups", h.conversionSettings)
+	e.POST("/api/product-settings/spec-conversion-groups", h.saveConversionGroup)
+	e.GET("/api/order/spec-conversions", h.orderConversions)
+	e.POST("/api/order/spec-conversions/quote", h.conversionQuote)
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
 	e.POST("/api/order/payment-vouchers", h.uploadPaymentVoucher)
 	e.POST("/api/order", h.save)
@@ -640,6 +645,7 @@ func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
+		SpecConversion:                     r.SpecConversion,
 		PrepaymentAmount:                   r.PrepaymentAmount,
 		DocumentDate:                       r.DocumentDate,
 		OrderDate:                          r.OrderDate,
@@ -1052,44 +1058,45 @@ func orderTraceBool(value any) bool {
 
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
-		ItemID                             int64  `json:"item_id"`
-		LineNo                             int    `json:"line_no"`
-		CustomerProductReferenceID         int64  `json:"customer_product_reference_id"`
-		ProductID                          int64  `json:"product_id"`
-		ParentProductID                    int64  `json:"parent_product_id,omitempty"`
-		BomSpecID                          int64  `json:"bom_spec_id,omitempty"`
-		BomVariantID                       int64  `json:"bom_variant_id,omitempty"`
-		BomSpecKey                         string `json:"bom_spec_key,omitempty"`
-		BomSpecName                        string `json:"bom_spec_name,omitempty"`
-		ProductName                        string `json:"product_name"`
-		CustomerProductAliasID             int64  `json:"customer_product_alias_id"`
-		CustomerProductDisplayNameSnapshot string `json:"customer_product_display_name_snapshot"`
-		CustomerItemCodeSnapshot           string `json:"customer_item_code_snapshot"`
-		BrandNameSnapshot                  string `json:"brand_name_snapshot"`
-		ProductCodeSnapshot                string `json:"product_code_snapshot"`
-		ProductNameSnapshot                string `json:"product_name_snapshot"`
-		Note                               string `json:"note"`
-		TierID                             string `json:"tier_id"`
-		PriceOverride                      bool   `json:"price_override"`
-		PriceSelectionMode                 string `json:"price_selection_mode"`
-		SelectedPriceRowKey                string `json:"selected_price_row_key"`
-		UnitPrice                          string `json:"unit_price"`
-		Qty                                string `json:"qty"`
-		LineTotal                          string `json:"line_total"`
-		Unit                               string `json:"unit"`
-		Spec                               string `json:"spec"`
-		BeanListPublicationID              int64  `json:"bean_list_publication_id"`
-		BeanListVersionNo                  string `json:"bean_list_version_no"`
-		DiscountType                       string `json:"discount_type"`
-		DiscountValue                      string `json:"discount_value"`
-		DiscountAmount                     string `json:"discount_amount"`
-		ProductKind                        string `json:"product_kind"`
-		SalesUnit                          string `json:"sales_unit"`
-		UnitBagCount                       int64  `json:"unit_bag_count"`
-		UnitBeanG                          string `json:"unit_bean_g"`
-		MatchedPriceQty                    string `json:"matched_price_qty"`
-		UnitConversionLabel                string `json:"unit_conversion_label"`
-		PriceSourceJSON                    string `json:"price_source_json"`
+		SpecConversion                     *salesapp.SpecConversionSelection `json:"spec_conversion,omitempty"`
+		ItemID                             int64                             `json:"item_id"`
+		LineNo                             int                               `json:"line_no"`
+		CustomerProductReferenceID         int64                             `json:"customer_product_reference_id"`
+		ProductID                          int64                             `json:"product_id"`
+		ParentProductID                    int64                             `json:"parent_product_id,omitempty"`
+		BomSpecID                          int64                             `json:"bom_spec_id,omitempty"`
+		BomVariantID                       int64                             `json:"bom_variant_id,omitempty"`
+		BomSpecKey                         string                            `json:"bom_spec_key,omitempty"`
+		BomSpecName                        string                            `json:"bom_spec_name,omitempty"`
+		ProductName                        string                            `json:"product_name"`
+		CustomerProductAliasID             int64                             `json:"customer_product_alias_id"`
+		CustomerProductDisplayNameSnapshot string                            `json:"customer_product_display_name_snapshot"`
+		CustomerItemCodeSnapshot           string                            `json:"customer_item_code_snapshot"`
+		BrandNameSnapshot                  string                            `json:"brand_name_snapshot"`
+		ProductCodeSnapshot                string                            `json:"product_code_snapshot"`
+		ProductNameSnapshot                string                            `json:"product_name_snapshot"`
+		Note                               string                            `json:"note"`
+		TierID                             string                            `json:"tier_id"`
+		PriceOverride                      bool                              `json:"price_override"`
+		PriceSelectionMode                 string                            `json:"price_selection_mode"`
+		SelectedPriceRowKey                string                            `json:"selected_price_row_key"`
+		UnitPrice                          string                            `json:"unit_price"`
+		Qty                                string                            `json:"qty"`
+		LineTotal                          string                            `json:"line_total"`
+		Unit                               string                            `json:"unit"`
+		Spec                               string                            `json:"spec"`
+		BeanListPublicationID              int64                             `json:"bean_list_publication_id"`
+		BeanListVersionNo                  string                            `json:"bean_list_version_no"`
+		DiscountType                       string                            `json:"discount_type"`
+		DiscountValue                      string                            `json:"discount_value"`
+		DiscountAmount                     string                            `json:"discount_amount"`
+		ProductKind                        string                            `json:"product_kind"`
+		SalesUnit                          string                            `json:"sales_unit"`
+		UnitBagCount                       int64                             `json:"unit_bag_count"`
+		UnitBeanG                          string                            `json:"unit_bean_g"`
+		MatchedPriceQty                    string                            `json:"matched_price_qty"`
+		UnitConversionLabel                string                            `json:"unit_conversion_label"`
+		PriceSourceJSON                    string                            `json:"price_source_json"`
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
@@ -1111,7 +1118,8 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
-			ItemID: it.ItemID, LineNo: it.LineNo, CustomerProductReferenceID: it.CustomerProductReferenceID,
+			SpecConversion: salesapp.SpecConversionFromSnapshot(it.PriceSourceJSON),
+			ItemID:         it.ItemID, LineNo: it.LineNo, CustomerProductReferenceID: it.CustomerProductReferenceID,
 			ProductID:                          it.ProductID,
 			ParentProductID:                    parentProductID,
 			BomSpecID:                          it.BomSpecID,

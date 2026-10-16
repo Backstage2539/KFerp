@@ -1,5 +1,6 @@
 <template>
   <div class="page">
+    <div v-if="conversionManagerOpen" class="spec-conversion-overlay"><SpecConversionManager @close="conversionManagerOpen = false" /></div>
     <div v-if="productReturnNavigation" class="product-return-banner">
       <button class="secondary product-return-button" type="button" @click="returnToPreviousView">{{ productReturnLabel }}</button>
       <span>完成商品档案配置后可回到来源操作界面。</span>
@@ -10,6 +11,7 @@
           <h2>{{ productSectionTitle }}</h2>
           <p>商品档案维护商品族信息、行业字段、客户引用和 BOM 使用摘要；商品规格、库存单位和配方统一由默认已发布 BOM 提供。</p>
         </div>
+        <button class="secondary" type="button" @click="conversionManagerOpen = true">规格换算</button>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading || productCategoryMoveActive">刷新</button>
       </div>
     </section>
@@ -1965,6 +1967,8 @@
 </template>
 
 <script setup>
+import SpecConversionManager from '../components/SpecConversionManager.vue'
+const conversionManagerOpen = ref(false)
 import { customerCatalogProjection, customerCatalogCopyPayload, customerCatalogCustomerID, customerCatalogProductRows } from '../lib/customer-catalog.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
@@ -9000,4 +9004,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .product-group-template-deleted-warnings { display: grid; gap: 8px; margin-bottom: 4px; }
 .warning-banner { padding: 8px 12px; border-radius: 6px; background: #fff4e6; border: 1px solid #ffcc80; color: #8a5a00; font-size: 13px; }
 .drawer-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid #eee8df; }
+</style>
+
+<style scoped>
+.spec-conversion-overlay{position:fixed;inset:0;background:#0005;z-index:1400;overflow:auto;padding:32px 16px}
 </style>

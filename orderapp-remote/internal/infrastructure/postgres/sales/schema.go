@@ -8,6 +8,9 @@ import (
 )
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := EnsureSpecConversionSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureOrderProcessStatuses(ctx, pool, schema); err != nil {
 		return err
 	}

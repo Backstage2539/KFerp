@@ -98,6 +98,9 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if !ok {
 			return miniInternalError(c)
 		}
+		if err := rejectCustomerSpecConversion(c); err != nil {
+			return err
+		}
 		var cmd customerfulfillmentapp.MiniDirectShipCommand
 		if err := c.Bind(&cmd); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -117,6 +120,9 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		productOrders, ok := fulfillment.(MiniProductOrderFulfillment)
 		if !ok {
 			return miniInternalError(c)
+		}
+		if err := rejectCustomerSpecConversion(c); err != nil {
+			return err
 		}
 		var cmd customerfulfillmentapp.MiniDirectShipCommand
 		if err := c.Bind(&cmd); err != nil {
@@ -157,6 +163,9 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if fulfillment == nil {
 			return miniInternalError(c)
 		}
+		if err := rejectCustomerSpecConversion(c); err != nil {
+			return err
+		}
 		var cmd customerfulfillmentapp.MiniDirectShipCommand
 		if err := c.Bind(&cmd); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -176,6 +185,9 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		}
 		if fulfillment == nil {
 			return miniInternalError(c)
+		}
+		if err := rejectCustomerSpecConversion(c); err != nil {
+			return err
 		}
 		var cmd customerfulfillmentapp.MiniDirectShipCommand
 		if err := c.Bind(&cmd); err != nil {
