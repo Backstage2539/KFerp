@@ -80,6 +80,7 @@ type SaveOrderCommand struct {
 }
 
 type OrderItemCommand struct {
+	SpecConversion                     *SpecConversionSelection
 	ItemID                             int64
 	ProductID                          *int64
 	ParentProductID                    int64

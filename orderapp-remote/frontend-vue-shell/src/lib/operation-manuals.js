@@ -1,4 +1,5 @@
 export const operationManualsByView = {
+  specConversionManual: { doc: 'OP_MANUAL_SPEC_CONVERSION.md', title: '规格换算说明' },
   orderSalesManual: { doc: 'OP_MANUAL_ORDER_SALES.md', title: '订单销售手册' },
   productionManual: { doc: 'OP_MANUAL_PRODUCTION.md', title: '生产手册' },
   inventoryMaterialsManual: { doc: 'OP_MANUAL_INVENTORY_MATERIALS.md', title: '库存物料手册' },

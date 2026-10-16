@@ -258,6 +258,9 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
 		}
+		if err := rejectCustomerSpecConversion(c); err != nil {
+			return err
+		}
 		var req mallOrderRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -678,6 +681,9 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
 		}
+		if err := rejectCustomerSpecConversion(c); err != nil {
+			return err
+		}
 		var req processingRequestPayload
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -706,6 +712,9 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		if err := rejectCustomerSpecConversion(c); err != nil {
+			return err
 		}
 		var req processingRequestPayload
 		if err := c.Bind(&req); err != nil {
@@ -762,6 +771,9 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		if err := rejectCustomerSpecConversion(c); err != nil {
+			return err
 		}
 		var req fulfillmentOrderRequest
 		if err := c.Bind(&req); err != nil {

@@ -304,6 +304,7 @@
                 <div>
                   <strong>{{ item.product_name || '-' }}</strong>
                   <span>{{ orderItemSpecLabel(item) }} × {{ item.qty }}{{ item.unit || '' }}</span>
+                  <small v-if="conversionSnapshot(item)">{{ conversionDescription(conversionSnapshot(item)) }}</small>
                 </div>
                 <div>
                   <span>{{ productKindLabel(item.product_kind) }}</span>
@@ -396,6 +397,7 @@
 </template>
 
 <script setup>
+import { conversionSnapshot, conversionDescription } from '../lib/spec-conversion.js'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
 import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'
@@ -691,6 +693,8 @@ async function loadOrderDetail(id) {
 }
 
 function orderItemSpecLabel(item = {}) {
+  const conversion = conversionSnapshot(item)
+  if (conversion) return conversion.target_spec_name
   if (item.product_kind === 'drip_bag') {
     return item.unit_conversion_label || (item.sales_unit === 'box' ? `${item.unit_bag_count || 10}袋/盒` : `${item.unit_bean_g || 10}g/袋`)
   }

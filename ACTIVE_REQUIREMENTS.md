@@ -5702,3 +5702,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 
 - PR-689 delivery: PR #195 merged; development 8418391726728dd65020a37bb6f931bace22d7a5 deployed with health/source/artifact checks. Backup /opt/stacks/erp/orderapp.backup.deploy-20261013014204-841839172672. Four cards, anonymous registration-required 401, admin auth 401, service-account identity/config preserved. 22 pages / 88 page files; preview upload succeeded and QR generated 2026-10-13. Receipt: orderapp-remote/docs/acceptance/2026-10-13-bean-registration-sheet.md. Van phone acceptance remains pending.
+
+### PR-693-SPEC-CONVERSION-ORDERS
+- Branch: `codex/spec-conversion-orders-20261015`; base `develop@25b377af`.
+- Owner/session: Codex / Van / 2026-10-15.
+- Status: implementation; Van business acceptance pending.
+- Scope: explicit reusable conversion groups, ERP and employee miniapp converted tier orders, immutable historical pricing.
+- DEV: DEV-771-CONVERSION-RULES; DEV-772-CONVERSION-ORDERS; DEV-773-CONVERSION-CLIENTS; DEV-774-CONVERSION-DELIVERY.
+- Verifier: domain unit, isolated PostgreSQL and HTTP tests; Vue/miniapp tests, typecheck and builds; changed/backend gates.
+- TDD: domain RED (missing Convert/Group); GREEN `go test ./internal/domain/specconversion`.
+- Manual: orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md and OP_MANUAL_SPEC_CONVERSION.md.
+- Deployment: development only after verified feature branch integration; miniapp DEV package; no production or WeChat upload.
+- Notes: reserve_req_id.sh returned PR-693; claim failed on macOS awk multiline string, reserved here manually.

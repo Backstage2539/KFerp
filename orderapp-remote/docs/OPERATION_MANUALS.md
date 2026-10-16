@@ -85,3 +85,5 @@ flowchart TD
 - [页面入口管理](OP_MANUAL_PAGE_ENTRIES.md)：手工页面、草稿与发布、图文图片权限、网页授权和客户登录、历史入口。
 
 - 小程序豆单中心与登记用户：OP_MANUAL_BEAN_LIST_CENTER.md（目录配置、微信登记、客户权限、停用及菜单上线）。
+
+- [规格换算与临时换规格下单](OP_MANUAL_SPEC_CONVERSION.md)：ERP 商品管理、员工双端录单、换算关系维护、历史冻结和复制重新报价。前端入口：商品管理 → 规格换算 → 规格换算说明。

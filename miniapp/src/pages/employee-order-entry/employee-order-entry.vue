@@ -1,4 +1,23 @@
 <script setup lang="ts">
+import EmployeeSpecConversionSheet from '../../components/EmployeeSpecConversionSheet.vue'
+import { applyConversionQuote, conversionSnapshot, conversionDescription } from '../../utils/specConversion'
+import { fetchEmployeeSpecConversions, quoteEmployeeSpecConversion, type SpecConversionQuote } from '../../api/customerPortal'
+const conversionItem = ref<EmployeeOrderDraftItem>()
+function applyConversion(quote:SpecConversionQuote) { if (conversionItem.value) Object.assign(conversionItem.value,applyConversionQuote(conversionItem.value,quote));conversionItem.value=undefined }
+function restoreOrdinaryPrice(item:EmployeeOrderDraftItem) { Object.assign(item,restoreEmployeeOrderAutomaticPrice(item,familyForItem(item))) }
+async function refreshCopiedConversions() {
+ for(const item of form.value.items.filter(row=>row.price_selection_mode==='converted_tier')) {
+  try {
+   const catalog=await fetchEmployeeSpecConversions(session.token,form.value.customer_id,item.product_id,Number(item.bean_list_publication_id))
+   const group=catalog.groups.find(g=>g.id===item.spec_conversion?.group_id), old=conversionSnapshot(item)
+   if(!group || !old) throw new Error('原换算组已失效，请重新选择')
+   const target=catalog.specs.find(s=>s.bom_spec_id===item.bom_spec_id)
+   if(!target) throw new Error('目标规格已失效，请重新选择')
+   const quote=await quoteEmployeeSpecConversion(session.token,{...old,target_bom_variant_id:target.bom_variant_id,revision:group.revision,quantity:item.qty,customer_id:form.value.customer_id})
+   Object.assign(item,applyConversionQuote(item,quote))
+  }catch(e){item.validation_error=e instanceof Error?e.message:'复制订单需重新报价'}
+ }
+}
 import { computed, ref, watch } from 'vue'
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import { prepaymentPresets, prepaymentByRate } from '../../utils/prepayment'
@@ -522,6 +541,7 @@ function applySpec(family: EmployeeOrderProductFamily, spec: EmployeeOrderProduc
 }
 
 function markPriceOverride(item: EmployeeOrderDraftItem, event: unknown) {
+  if (item.price_selection_mode === 'converted_tier') return
   item.unit_price = Number(employeeOrderInputValue(event) || 0)
   item.price_override = true
   item.price_selection_mode = 'manual'
@@ -711,6 +731,7 @@ async function loadForm() {
       applyDefaultOptions()
     }
     form.value.selected_price_table_ids = data.selected_price_table_ids || []
+    if (isCopyMode.value) await refreshCopiedConversions()
     if (!isEditMode.value && !isCopyMode.value) await loadDraft()
   } catch (cause) {
     authExpired.value = !session.token || isAuthenticationExpiredRequestError(cause)
@@ -842,7 +863,7 @@ async function submit() {
   saving.value = true
   try {
     const payload = {
-      selected_price_table_ids: form.value.selected_price_table_ids || [],
+      selected_price_table_ids: [...new Set([...(form.value.selected_price_table_ids || []),...form.value.items.filter(item=>item.price_selection_mode==='converted_tier').map(item=>Number(item.bean_list_publication_id))])],
       order_date: form.value.order_date,
       customer_id: form.value.customer_id,
       source_id: form.value.source_id,
@@ -1014,7 +1035,7 @@ onShow(() => { void refreshMiniappShareMenu() })
           mode="selector"
           :range="specLabelsForItem(item)"
           :value="selectedSpecIndexForItem(item)"
-          :disabled="productCatalogLoading || !familyForItem(item)"
+          :disabled="productCatalogLoading || !familyForItem(item) || item.price_selection_mode === 'converted_tier'"
           @change="chooseSpec(item, $event)"
         >
           <view class="field selector-field" :class="{ muted: !familyForItem(item) }">
@@ -1029,7 +1050,7 @@ onShow(() => { void refreshMiniappShareMenu() })
           <text class="unit-suffix">{{ displayedSalesUnit(item) }}</text>
         </view>
 
-        <view v-if="priceTierChoicesForItem(item).length" class="tier-choice-row">
+        <view v-if="item.price_selection_mode !== 'converted_tier' && priceTierChoicesForItem(item).length" class="tier-choice-row">
           <text class="label">计价档位</text>
           <picker mode="selector" :range="priceTierPickerLabels(item)" :value="selectedPriceTierIndex(item)" @change="choosePriceTier(item, $event)">
             <view class="field selector-field"><text>{{ priceTierPickerLabels(item)[selectedPriceTierIndex(item)] || '按数量自动匹配' }}</text><text class="chevron">›</text></view>
@@ -1037,10 +1058,12 @@ onShow(() => { void refreshMiniappShareMenu() })
         </view>
         <text class="label">销售单价（元/{{ displayedSalesUnit(item) }}）*</text>
         <view class="input-with-unit">
-          <input :value="unitPriceInputValue(item)" type="digit" class="field" :disabled="hasPendingQuantity(item) || Number(item.qty) <= 0" :placeholder="Number(item.qty) > 0 && !hasPendingQuantity(item) ? `填写每${displayedSalesUnit(item)}单价` : '先填写数量后自动匹配'" @input="markPriceOverride(item, $event)" />
+          <input :value="unitPriceInputValue(item)" type="digit" class="field" :disabled="item.price_selection_mode === 'converted_tier' || hasPendingQuantity(item) || Number(item.qty) <= 0" :placeholder="Number(item.qty) > 0 && !hasPendingQuantity(item) ? `填写每${displayedSalesUnit(item)}单价` : '先填写数量后自动匹配'" @input="markPriceOverride(item, $event)" />
           <text class="unit-suffix">元/{{ displayedSalesUnit(item) }}</text>
         </view>
-        <text class="price-mode-note">{{ item.price_selection_mode === 'tier' ? '手动选档；数量变化时仍使用所选档价' : item.price_selection_mode === 'manual' || item.price_override ? '手动输入单价' : '按数量自动匹配' }}</text>
+        <view v-if="item.bom_spec_id" class="conversion-actions"><button size="mini" @tap="conversionItem = item">{{ item.price_selection_mode === 'converted_tier' ? '重新计价 / 换规格' : '临时换规格' }}</button><button v-if="item.price_selection_mode === 'converted_tier'" size="mini" @tap="restoreOrdinaryPrice(item)">恢复普通计价</button></view>
+        <text v-if="item.price_selection_mode === 'converted_tier'" class="price-mode-note">{{ conversionDescription(conversionSnapshot(item)) }}；数量变化沿用此单价。</text>
+        <text v-else class="price-mode-note">{{ item.price_selection_mode === 'tier' ? '手动选档；数量变化时仍使用所选档价' : item.price_selection_mode === 'manual' || item.price_override ? '手动输入单价' : '按数量自动匹配' }}</text>
       </view>
 
       <button class="add-item add-item-after-list" @tap="addItem">新增商品</button>
@@ -1132,7 +1155,8 @@ onShow(() => { void refreshMiniappShareMenu() })
           {{ isEditMode ? '保存修改' : '提交订单' }}
         </button>
       </view>
-      </template>
+        <EmployeeSpecConversionSheet v-if="conversionItem" :item="conversionItem" :family="familyForItem(conversionItem)" :customer-id="form.customer_id" :token="session.token" @close="conversionItem = undefined" @apply="applyConversion" />
+</template>
     </view>
 
     <view class="pull-up-brand-footer-anchor">
@@ -1247,3 +1271,5 @@ onShow(() => { void refreshMiniappShareMenu() })
   .fee-editor-grid { grid-template-columns: 1fr; gap: 0; }
 }
 </style>
+
+<style scoped>.conversion-actions{display:flex;gap:16rpx;margin:20rpx 0;flex-wrap:wrap}.conversion-actions button{margin:0}</style>
