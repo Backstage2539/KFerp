@@ -5,7 +5,7 @@ import { conversionTargets, conversionDescription } from '../utils/specConversio
 const props = defineProps<{ item:EmployeeOrderDraftItem;family?:EmployeeOrderProductFamily;customerId:number;token:string }>()
 const emit = defineEmits<{ close:[];apply:[quote:SpecConversionQuote] }>()
 const catalog=ref<SpecConversionCatalog>({groups:[],specs:[]}), sourceID=ref(Number(props.item.spec_conversion?.source_bom_spec_id || props.item.bom_spec_id || 0)), rowKey=ref(props.item.selected_price_row_key || ''), groupID=ref(props.item.spec_conversion?.group_id || 0), targetID=ref(props.item.spec_conversion ? Number(props.item.bom_spec_id) : 0), quote=ref<SpecConversionQuote>(),error=ref(''),busy=ref(false)
-let sequence=0, timer:ReturnType<typeof setTimeout> | undefined
+let sequence=0, catalogSequence=0, timer:ReturnType<typeof setTimeout> | undefined
 const sources=computed(()=>[...new Map((catalog.value.source_tiers || []).map(s=>[s.bom_spec_id,s])).values()])
 const source=computed(()=>sources.value.find(s=>Number(s.bom_spec_id)===sourceID.value))
 const tiers=computed(()=> (catalog.value.source_tiers || []).filter(t=>t.bom_spec_id===sourceID.value))
@@ -20,7 +20,7 @@ function pickSource(event:{detail:{value:string|number}}) { sourceID.value=Numbe
 function pickTier(event:{detail:{value:string|number}}) { rowKey.value=tiers.value[Number(event.detail.value)]?.price_row_key || '' }
 function pickGroup(event:{detail:{value:string|number}}) { groupID.value=groups.value[Number(event.detail.value)]?.id || 0;targetID.value=0 }
 function pickTarget(event:{detail:{value:string|number}}) { targetID.value=targets.value[Number(event.detail.value)]?.bom_spec_id || 0 }
-async function load() { sequence++;quote.value=undefined; try { catalog.value=await fetchEmployeeSpecConversions(props.token,props.customerId,props.item.product_id,Number(props.item.bean_list_publication_id));error.value='';schedule() } catch(e) {error.value=e instanceof Error?e.message:'换算组加载失败'} }
+async function load() { const current=++catalogSequence;sequence++;clearTimeout(timer);quote.value=undefined;busy.value=false; try { const result=await fetchEmployeeSpecConversions(props.token,props.customerId,props.item.product_id,Number(props.item.bean_list_publication_id));if(current!==catalogSequence)return;catalog.value=result;error.value='';schedule() } catch(e) {if(current===catalogSequence)error.value=e instanceof Error?e.message:'换算组加载失败'} }
 function schedule() {
  clearTimeout(timer);const current=++sequence;quote.value=undefined;error.value='';busy.value=false
  const target=targets.value.find(s=>s.bom_spec_id===targetID.value)
@@ -29,7 +29,8 @@ function schedule() {
  busy.value=true;timer=setTimeout(async()=>{try{const result=await quoteEmployeeSpecConversion(props.token,body);if(current===sequence)quote.value=result}catch(e){if(current===sequence)error.value=e instanceof Error?e.message:'报价失败'}finally{if(current===sequence)busy.value=false}},250)
 }
 watch(()=>[sourceID.value,rowKey.value,groupID.value,targetID.value,props.item.qty,props.customerId,props.item.product_id,props.item.bean_list_publication_id],schedule)
-onMounted(load);onBeforeUnmount(()=>{sequence++;clearTimeout(timer)})
+watch(()=>[props.customerId,props.item.product_id,props.item.bean_list_publication_id],()=>{sourceID.value=0;rowKey.value='';groupID.value=0;targetID.value=0;catalog.value={groups:[],specs:[]};load()})
+onMounted(load);onBeforeUnmount(()=>{catalogSequence++;sequence++;clearTimeout(timer)})
 </script>
 <template>
  <view class="conversion-mask" @tap.self="emit('close')"><scroll-view scroll-y class="conversion-sheet">

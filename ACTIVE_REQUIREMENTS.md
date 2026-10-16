@@ -5717,11 +5717,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-693-SPEC-CONVERSION-ORDERS
 - Branch: `codex/spec-conversion-orders-20261015`; base `develop@25b377af`.
 - Owner/session: Codex / Van / 2026-10-15.
-- Status: implementation; Van business acceptance pending.
+- Status: implementation and automated gates complete; development integration/deployment in progress; Van business acceptance pending.
 - Scope: explicit reusable conversion groups, ERP and employee miniapp converted tier orders, immutable historical pricing.
 - DEV: DEV-771-CONVERSION-RULES; DEV-772-CONVERSION-ORDERS; DEV-773-CONVERSION-CLIENTS; DEV-774-CONVERSION-DELIVERY.
 - Verifier: domain unit, isolated PostgreSQL and HTTP tests; Vue/miniapp tests, typecheck and builds; changed/backend gates.
 - TDD: domain RED (missing Convert/Group); GREEN `go test ./internal/domain/specconversion`.
 - Manual: orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md and OP_MANUAL_SPEC_CONVERSION.md.
 - Deployment: development only after verified feature branch integration; miniapp DEV package; no production or WeChat upload.
-- Notes: reserve_req_id.sh returned PR-693; claim failed on macOS awk multiline string, reserved here manually.
+- Notes: initial PR-692 reservation collided with concurrently delivered samples; reassigned to PR-693 / DEV-771–774 before integration.
+
+- PR-693 integration: merged verified `origin/develop@b2f7d6fe` sample workflow into feature branch; preserved both sample manual-price edits and converted historical rows. Go/all, Vue 1365, miniapp 326/typecheck/DEV build, isolated conversion DB and sample DB regressions GREEN. Receipt: `orderapp-remote/docs/acceptance/2026-10-16-spec-conversion-orders.md`.
