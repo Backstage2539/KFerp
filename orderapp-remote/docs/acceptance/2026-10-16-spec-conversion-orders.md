@@ -1,6 +1,6 @@
 # PR-693 可复用规格换算组与临时换规格下单
 
-2026-10-16：实现和本地自动化验证完成；开发部署回执在交付后补记。Van 业务验收、真机验收、生产和微信上传／审核／发布不属于已完成项。
+2026-10-16：实现、自动化验证、开发分支集成、开发部署和小程序开发包交付均完成。Van 业务验收、真机验收、生产和微信上传／审核／发布不属于已完成项。
 
 ## 需求与实现
 
@@ -54,3 +54,17 @@
 ### 首次部署门禁修正
 
 首次服务器构建在切换服务前，需求记录回归测试发现批量更新进度时误改了其他 CONVERSION 名称的旧需求证据。已按完整需求 code 精确恢复其他记录，只保留 PR-693／DEV-771～774 的进度；重新执行全量检查后继续部署。首次尝试没有替换开发应用或修改业务数据。
+
+## 开发交付回执
+
+- 功能提交 `34a8c876` 经 PR #202 合入 develop；修正提交 `f7bdd239` 经 PR #203 合入。实际运行提交：`a7a0f910f25a087eab2f8306d151a15a5225198f`。
+- 部署命令：`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-spec-conversion-delivery-20261016/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development`，在独立、干净的 develop 集成目录执行。
+- 源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20261016122357-a7a0f910f25a`；回滚镜像：`kferp-orderapp-rollback:development-20261016122357-a7a0f910f25a`。
+- 第二次尝试因镜像仓库 502 在应用切换前停止；本机从 Docker 官方源获取同版本 linux/amd64 基础镜像，传入服务器并验证缓存构建后，原发布脚本完整重跑成功。未绕过测试或发布门禁。镜像为 golang:1.22-alpine（平台摘要 `sha256:6d405dfc5fdf3a45df1529cf060b920041f52ce523487e0f36f02765af294a51`）和 alpine:3.20（平台摘要 `sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e`）。
+- 服务器 Vue、小程序、Go 全包、镜像内 Go 测试和编译均通过。应用 running、0 次重启，PostgreSQL healthy；外部登录页 HTTPS 200。认证商品配置页、换算管理 API、独立手册均 200；未认证配置 API 和员工小程序接口均 401。根路径沿用 303 重定向。
+- 配置接口首次读取为 0 个换算组、47 个有效规格、6 个单位。未自动猜测或创建实际业务关系；首次使用在「商品管理 → 规格换算」人工配置，然后从员工录单行进入「临时换规格」。
+- 运行需求表：PR-693 review，DEV-771～774 done，Van 产品验收待进行。
+- 开发包：`/Users/yiiiple-work/KFerp-spec-conversion-delivery-20261016/KFerp-miniapp-mp-weixin-dev`。RELEASE_INFO 提交与运行版本一致，环境 development、API 为 `https://dev.qacoohee.com/app`；24 个页面、96 个清单文件验证通过，包含换规格组件。
+- 交付目录保存 deployment.log、两次未完成尝试日志、base-image-transfer.log、runtime-check.log、自动化测试日志和 quote-250g.png。本地组件截图只作示例，无共享业务数据操作。
+
+本回执为部署后的纯文档补记，不替换上面的实际运行提交。未执行真实客户录单／配置验收、真机验收、生产发布及微信上传／审核／发布。

@@ -5717,7 +5717,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-693-SPEC-CONVERSION-ORDERS
 - Branch: `codex/spec-conversion-orders-20261015`; base `develop@25b377af`.
 - Owner/session: Codex / Van / 2026-10-15.
-- Status: implementation and automated gates complete; development integration/deployment in progress; Van business acceptance pending.
+- Status: implementation, automated gates, develop integration/deployment and DEV miniapp artifact complete; Van business acceptance pending.
 - Scope: explicit reusable conversion groups, ERP and employee miniapp converted tier orders, immutable historical pricing.
 - DEV: DEV-771-CONVERSION-RULES; DEV-772-CONVERSION-ORDERS; DEV-773-CONVERSION-CLIENTS; DEV-774-CONVERSION-DELIVERY.
 - Verifier: domain unit, isolated PostgreSQL and HTTP tests; Vue/miniapp tests, typecheck and builds; changed/backend gates.
@@ -5727,3 +5727,5 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: initial PR-692 reservation collided with concurrently delivered samples; reassigned to PR-693 / DEV-771–774 before integration.
 
 - PR-693 integration: merged verified `origin/develop@b2f7d6fe` sample workflow into feature branch; preserved both sample manual-price edits and converted historical rows. Go/all, Vue 1365, miniapp 326/typecheck/DEV build, isolated conversion DB and sample DB regressions GREEN. Receipt: `orderapp-remote/docs/acceptance/2026-10-16-spec-conversion-orders.md`.
+
+- PR-693 delivery: PR #202/#203 merged; development runtime `a7a0f910f25a087eab2f8306d151a15a5225198f`; backup `/opt/stacks/erp/orderapp.backup.deploy-20261016122357-a7a0f910f25a`; application running, PostgreSQL healthy, authenticated configuration/manual 200 and anonymous employee/config API 401. DEV package at `/Users/yiiiple-work/KFerp-spec-conversion-delivery-20261016/KFerp-miniapp-mp-weixin-dev` (24 pages / 96 files). Requirement-evidence gate and registry 502 resolved before successful release. Receipt-only follow-up does not change runtime identity. No production, WeChat upload or business acceptance.
