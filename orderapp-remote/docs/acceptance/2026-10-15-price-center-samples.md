@@ -1,6 +1,6 @@
 # PR-692 价格表中心与样品申请闭环
 
-代码、自动化测试及本地布局核对已完成；正在进行开发集成。Van 产品验收待进行，生产发布、微信上传／审核／发布未执行。
+代码、自动化测试、本地布局核对、开发集成与开发部署均已完成（2026-10-16）。Van 产品验收待进行，生产发布、微信上传／审核／发布未执行。
 
 ## 范围与规则
 
@@ -61,4 +61,17 @@
 
 ## 交付记录
 
-开发环境部署提交、备份路径、健康检查和开发小程序产物将在实际完成后记录。生产和微信发布未纳入本次执行。
+- 功能分支：`codex/price-center-samples-20261015`，先推送功能提交，再将 `develop` 从 `25b377af` 干净快进至 `fa98f276`。
+- 实际运行／部署提交：`fa98f2762b0435662b06d7a77c296b4adecba5fe`。部署前再次 fetch 并确认 `origin/develop` 与本地一致。
+- 部署命令：`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-samples-delivery-20261015/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development`，在独立干净集成目录执行。
+- 首次源码上传 SSH 中断，构建／切换尚未开始，旧服务未重启；重试完整成功。
+- 备份：`/opt/stacks/erp/orderapp.backup.deploy-20261016103453-fa98f2762b04`。
+- 回滚镜像：`kferp-orderapp-rollback:development-20261016103453-fa98f2762b04`。
+- 开发地址：`https://dev.qacoohee.com/app/`。应用 running、数据库 healthy；认证样品列表 API 和 Vue 样品页面均 200；未认证样品 API 与小程序申请 API 均 401。根路径沿用原有 303 → orders → Vue 壳重定向，不以旧检查的根路径 401 预期判定故障。
+- 五表运行核验：PR-692 review；DEV-765～770、UT-692、API-692 done；REV-692 todo。产品审核仍由 Van 完成。
+- 服务器重跑 Vue、323 项小程序测试、类型检查、开发构建和全部 Go 测试，镜像内 Go 测试也通过。
+- 小程序产物：`/Users/yiiiple-work/KFerp-samples-delivery-20261015/KFerp-miniapp-mp-weixin-dev`。`RELEASE_INFO` 的提交与环境吻合，开发 API 为 `https://dev.qacoohee.com/app`；24 个页面和 96 个清单文件已验证。
+- 日志归档：`/Users/yiiiple-work/KFerp-samples-delivery-20261015/`，包含发布、运行检查、后端／Vue／小程序测试日志。
+- 本回执是部署后的纯文档补记，运行提交仍是上面的 `fa98f276`；不把文档补记提交冒充实际部署版本。
+
+生产发布、微信开发者工具上传／审核／正式发布、真机跨设备及真人业务验收未执行。线上生产登记用户的实际记录未做数据核验。
