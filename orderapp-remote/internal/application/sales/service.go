@@ -521,6 +521,7 @@ type OrderEditItem struct {
 }
 
 type OrderEditData struct {
+	IsSampleOrder         bool
 	PrepaymentAmount      string
 	ID                    int64
 	EditRevision          string

@@ -601,3 +601,11 @@ func TestCustomerAccountCannotUseInternalFinanceOrLegacyDocumentURLs(t *testing.
 		}
 	}
 }
+
+func TestSampleAPIPermission(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		if got := requiredPermissionForRequest(method, "/api/sample-requests/4/confirm"); got != "samples.read" {
+			t.Fatalf("sample permission=%s", got)
+		}
+	}
+}

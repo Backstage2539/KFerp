@@ -165,6 +165,13 @@ func (h *Handler) content(c echo.Context, d app.Document) error {
 			return respond(c, nil, app.ErrUnavailable)
 		}
 		out["publication"] = p
+		if d.BeanCenter {
+			var official bool
+			if err := h.Repo.Pool.QueryRow(c.Request().Context(), "SELECT EXISTS(SELECT 1 FROM "+h.Repo.Schema+".bean_list_publications WHERE id=$1 AND owner_type='official' AND status='published' AND deleted_at IS NULL)", d.PublicationID).Scan(&official); err != nil {
+				return respond(c, nil, err)
+			}
+			out["sample_enabled"] = official
+		}
 	}
 	return c.JSON(200, out)
 }
@@ -177,12 +184,35 @@ func (h *Handler) published(c echo.Context) (app.Document, error) {
 	}
 	d := *e.Published
 	var cur *portal.CurrentContext
+	// Employee access is deliberately scoped to selected official price entries.
+	if d.Kind == "price" && d.BeanCenter && strings.HasPrefix(c.Request().Header.Get("Authorization"), "Bearer ") {
+		employee, authErr := h.Portal.Me(c.Request().Context(), strings.TrimPrefix(c.Request().Header.Get("Authorization"), "Bearer "))
+		if authErr != nil {
+			return d, echo.NewHTTPError(401, map[string]string{"error": "登录状态无法确认，请重新登录后重试", "code": "mini_session_invalid"})
+		}
+		if employee.AccountType == "employee" && !portal.CanUsePriceCenter(employee) {
+			return d, echo.NewHTTPError(403, map[string]string{"error": "仅销售和管理员可使用价格表中心"})
+		}
+		if portal.CanUsePriceCenter(employee) {
+			var allowed bool
+			err := h.Repo.Pool.QueryRow(c.Request().Context(), "SELECT EXISTS(SELECT 1 FROM "+h.Repo.Schema+".bean_list_publications WHERE id=$1 AND owner_type='official' AND status='published' AND deleted_at IS NULL)", d.PublicationID).Scan(&allowed)
+			if err != nil {
+				return d, err
+			}
+			if allowed {
+				return d, nil
+			}
+		}
+	}
 	if d.Visibility == "registered" {
 		if !strings.HasPrefix(c.Request().Header.Get("Authorization"), "Bearer ") {
 			return d, echo.NewHTTPError(401, map[string]string{"error": "请在棵凡小程序中完成手机号和昵称登记后查看", "code": "mini_registration_required"})
 		}
 		x, err := h.current(c)
-		if err != nil || !x.RegistrationComplete {
+		if err != nil {
+			return d, echo.NewHTTPError(401, map[string]string{"error": "登录状态无法确认，请重新登录后重试", "code": "mini_session_invalid"})
+		}
+		if !x.RegistrationComplete {
 			return d, echo.NewHTTPError(401, map[string]string{"error": "请先完成手机号和昵称登记", "code": "mini_registration_required"})
 		}
 		cur = &x

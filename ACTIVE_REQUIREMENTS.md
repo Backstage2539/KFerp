@@ -1,3 +1,14 @@
+### PR-692-PRICE-CENTER-SAMPLES
+- Branch: `codex/price-center-samples-20261015`; base `origin/develop@25b377af`.
+- Status: implemented, verified and deployed to development on 2026-10-16; Van product acceptance pending.
+- Scope: price center employee access and server registration restore; sample application, assignment, atomic sales order, follow-up and shared notifications.
+- DEV: DEV-765-PRICE-ACCESS; DEV-766-SAMPLE-DATA; DEV-767-SAMPLE-ORDER; DEV-768-SAMPLE-CLIENTS; DEV-769-SAMPLE-REMINDERS; DEV-770-SAMPLE-DELIVERY.
+- Verifier: Go unit/HTTP/isolated PostgreSQL lifecycle and transaction tests; Vue helpers/build; miniapp tests/typecheck/development build.
+- Tracking: PR/DEV/UT/API/REV seeds maintained per this request; manual OP_MANUAL_SAMPLES.md.
+- Deployment: `fa98f2762b0435662b06d7a77c296b4adecba5fe` deployed via `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20261016103453-fa98f2762b04`. Runtime/API/five-table checks passed. No production or WeChat publication.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-15-price-center-samples.md`.
+- Notes: reservation helper failed on macOS awk; next ID inspected and reserved here.
+
 ### PR-691-MINIAPP-PRICE-SEARCH
 - Branch: `codex/miniapp-price-search-20261014`; base `origin/develop@c38c8e3b`.
 - Owner/session: Codex / Van / 2026-10-14.

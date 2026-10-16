@@ -545,10 +545,22 @@ export function restoreEmployeeOrderAutomaticPrice(
   }, family)
 }
 
+export function isEmployeeOrderUnitPriceValid(value: unknown, allowZero = false): boolean {
+  if (value == null || String(value).trim() === '') return false
+  const price = Number(value)
+  return Number.isFinite(price) && (allowZero ? price >= 0 : price > 0)
+}
+
+function isConfirmedSampleManualItem(item: EmployeeOrderDraftItem): boolean {
+  return Number(item.item_id || 0) > 0 && Number(item.bom_spec_id || 0) > 0
+    && item.price_override === true && isEmployeeOrderUnitPriceValid(item.unit_price, true)
+}
+
 export function applyEmployeeOrderQuantityChange(
   item: EmployeeOrderDraftItem,
   family: EmployeeOrderProductFamily | undefined,
   quantity: unknown,
+  preserveSampleManualPrice = false,
 ): { accepted: boolean; item: EmployeeOrderDraftItem; error: string } {
   const nextQuantity = Number(quantity)
   const quantityLabel = String(quantity ?? '').trim() || '空值'
@@ -558,6 +570,9 @@ export function applyEmployeeOrderQuantityChange(
       item: { ...item },
       error: `数量 ${quantityLabel} 不正确，原数量和单价已保留`,
     }
+  }
+  if (preserveSampleManualPrice && isConfirmedSampleManualItem(item)) {
+    return { accepted: true, item: withEmployeeOrderItemDiscount({ ...item, qty: nextQuantity, price_selection_mode: 'manual', validation_error: '' }), error: '' }
   }
   if (!family && item.price_selection_mode !== 'converted_tier') {
     return {
@@ -609,6 +624,7 @@ export function hydrateEmployeeOrderEditItems(
   families: EmployeeOrderProductFamily[] = [],
   customerID = 0,
   retailOrder = false,
+  sampleOrderEdit = false,
 ): EmployeeOrderDraftItem[] {
   if (!detailItems.length) return [createEmployeeOrderItem()]
   const available = customerProductFamilies(families, customerID)
@@ -679,6 +695,24 @@ export function hydrateEmployeeOrderEditItems(
       const sourceFamily = available.find(f => Number(f.parent_product_id) === productID && Number(f.customer_product_alias_id || 0) === aliasID)
       if (sourceFamily) converted.product_family_key = employeeOrderProductFamilyKey(sourceFamily)
       return withEmployeeOrderItemDiscount(converted)
+    }
+    if (sampleOrderEdit && Number(historical.item_id || 0) > 0 && bomSpecID > 0 && isEmployeeOrderUnitPriceValid(historical.unit_price, true)) {
+      // The order API validates the saved BOM identity; sample specifications need no retail price tier.
+      return withEmployeeOrderItemDiscount({
+        ...historical,
+        // Catalog metadata may point at a newer variant. Retain every persisted identity
+        // and reference for existing sample lines; use the family only for the picker.
+        product_family_key: family ? employeeOrderProductFamilyKey(family) : historical.product_family_key,
+        qty: historical.qty,
+        unit_price: historical.unit_price,
+        bean_list_publication_id: historical.bean_list_publication_id,
+        bean_list_version_no: historical.bean_list_version_no,
+        price_source_json: historical.price_source_json,
+        price_override: true,
+        price_selection_mode: 'manual',
+        selected_price_row_key: '',
+        validation_error: '',
+      })
     }
     if (!family || !spec) {
       return {
@@ -766,13 +800,16 @@ export function revalidateEmployeeOrderItems(
   items: EmployeeOrderDraftItem[],
   families: EmployeeOrderProductFamily[],
   customerID: number,
-  options: { preserveUnitPrice?: boolean; preserveManualPrice?: boolean; preserveUnavailable?: boolean; clearPriceSelection?: boolean } = {},
+  options: { preserveUnitPrice?: boolean; preserveManualPrice?: boolean; preserveUnavailable?: boolean; clearPriceSelection?: boolean; preserveSampleManualPrice?: boolean } = {},
 ): EmployeeOrderDraftItem[] {
   const available = customerProductFamilies(families, customerID)
   return items.map((item) => {
     if (Number(item.product_id || 0) <= 0) return { ...item }
     if (item.price_selection_mode === 'converted_tier' && !options.clearPriceSelection) return { ...item }
     if (item.price_selection_mode === 'converted_tier') item = restoreEmployeeOrderAutomaticPrice(item, available.find(f => employeeOrderProductFamilyKey(f) === item.product_family_key))
+    if (options.preserveSampleManualPrice && isConfirmedSampleManualItem(item)) {
+      return { ...item, price_selection_mode: 'manual', validation_error: '' }
+    }
     const exactFamily = item.product_family_key
       ? available.find((family) => employeeOrderProductFamilyKey(family) === item.product_family_key)
       : undefined

@@ -2801,3 +2801,13 @@
 - [ ] Go/Vue/小程序全量检查、开发及生产部署、正式包 AppID/API 和 DevTools 编译验证。
 - [ ] Van 真机检查正式新版后，确认产品验收；微信上传、审核及发布由 Van 执行。
 - 手册：OP_MANUAL_BEAN_LIST_CENTER.md、OP_MANUAL_COSTING.md、OP_MANUAL_PAGE_ENTRIES.md。证据：docs/acceptance/2026-10-14-miniapp-price-search.md。
+
+## PR-692 价格表中心与样品申请闭环
+- [x] 销售／管理员访问配置的官方价格表；昵称电话后台持久化和身份恢复，单弹层与专属权限保留。
+- [x] 选商品及收件地址申请；管理员分配唯一工单；员工选有效已发布 BOM 规格、确认费用并原子建档／下单。
+- [x] 客户本人／销售负责范围／管理员全量隔离，改派保留记录；全部业务写入审计。
+- [x] 七天提醒、有效跟进重算、改派不重算、终止停止；并发防重和重启只补当前提醒。
+- [x] 隔离 PostgreSQL race、全量 Go／Vue／小程序测试及构建；独立手册、Vue 帮助及五表。
+- [x] 开发分支推送、串行集成、开发部署与对应小程序产物核验；实际部署 `fa98f2762b0435662b06d7a77c296b4adecba5fe`。
+- [ ] Van 真机跨设备授权恢复、员工消息、完整样品业务验收。
+- 证据：`docs/acceptance/2026-10-15-price-center-samples.md`。生产和微信发布另行记录。

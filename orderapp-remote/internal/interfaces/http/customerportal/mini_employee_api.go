@@ -93,6 +93,7 @@ type miniEmployeeOrderDetailDTO struct {
 	OutsourceTotalFee               string                            `json:"outsource_total_fee"`
 	ProductKindSummary              string                            `json:"product_kind_summary"`
 	CreatedByEmployee               string                            `json:"created_by_employee"`
+	IsSampleOrder                   bool                              `json:"is_sample_order"`
 	IsVoid                          bool                              `json:"is_void"`
 	VoidedAt                        *string                           `json:"voided_at,omitempty"`
 	VoidReason                      *string                           `json:"void_reason,omitempty"`
@@ -715,6 +716,36 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	if !found {
 		return "客户不存在", nil
 	}
+	// Only server-loaded, unchanged manual sample lines can keep their stored
+	// specification without an ordinary price-list quote. SaveOrder still
+	// validates the effective BOM and the order's production/edit restrictions.
+	preserved := make([]bool, len(cmd.Items))
+	usedItemIDs := map[int64]bool{}
+	preservedCount := 0
+	for index := range cmd.Items {
+		item := &cmd.Items[index]
+		stored, ok := miniEmployeeStoredSampleCatalogItem(form, cmd, *item)
+		if !ok || usedItemIDs[stored.ItemID] {
+			continue
+		}
+		usedItemIDs[stored.ItemID] = true
+		preserved[index] = true
+		preservedCount++
+		item.BeanListPublicationID = stored.BeanListPublicationID
+		item.BeanListVersionNo = stored.BeanListVersionNo
+		item.PriceSourceJSON = stored.PriceSourceJSON
+		item.ProductKind = stored.ProductKind
+		item.ProductCodeSnapshot = stored.ProductCodeSnapshot
+		item.SpecG = 0
+		item.Unit = stored.Unit
+		item.SalesUnit = stored.SalesUnit
+		item.TierID = nil
+		item.SelectedPriceRowKey = ""
+	}
+	if preservedCount > 0 && preservedCount == len(cmd.Items) {
+		cmd.SelectedPriceTableIDs = []int64{}
+		return "", nil
+	}
 	// Only server-loaded original rows can preserve withdrawn historical tables.
 	frozenIDs := map[int64]bool{}
 	if cmd.EditID > 0 && form.EditData != nil && form.EditData.ID == cmd.EditID {
@@ -760,6 +791,9 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	cutoverProducts, cutoverOptionBySpec := miniEmployeeBOMSpecFilterProducts(form.Products, cutoverOptions)
 	cutoverProducts = salesapp.FilterOrderProductsForDefaultPublications(cutoverProducts, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
 	for index := range cmd.Items {
+		if preserved[index] {
+			continue
+		}
 		item := &cmd.Items[index]
 		if item.ProductID == nil || *item.ProductID <= 0 {
 			return "请选择该客户当前价格表中的商品规格", nil
@@ -818,6 +852,23 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 		item.ProductKind = product.ProductKind
 	}
 	return "", nil
+}
+
+func miniEmployeeStoredSampleCatalogItem(form salesapp.OrderFormData, cmd *salesapp.SaveOrderCommand, item salesapp.OrderItemCommand) (salesapp.OrderEditItem, bool) {
+	existing := form.EditData
+	if existing == nil || !existing.IsSampleOrder || cmd.EditID <= 0 || existing.ID != cmd.EditID || existing.CustomerID != cmd.CustomerID ||
+		item.ItemID <= 0 || item.ProductID == nil || item.BomSpecID <= 0 || item.BomVariantID <= 0 || item.ManualPrice == nil || item.PriceSelectionMode != "manual" {
+		return salesapp.OrderEditItem{}, false
+	}
+	for _, stored := range existing.Items {
+		if stored.ItemID == item.ItemID && stored.PriceOverride &&
+			stored.ProductID == *item.ProductID && item.ParentProductID == stored.ProductID &&
+			stored.BomSpecID == item.BomSpecID && stored.BomVariantID == item.BomVariantID &&
+			stored.CustomerProductAliasID == item.CustomerProductAliasID && stored.CustomerProductReferenceID == item.CustomerProductReferenceID {
+			return stored, true
+		}
+	}
+	return salesapp.OrderEditItem{}, false
 }
 
 func miniEmployeeCurrentBOMSpecCatalogProduct(products []salesapp.ProductOption, parentProductID, bomSpecID, bomVariantID, aliasID int64) (salesapp.ProductOption, bool) {
@@ -1468,7 +1519,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 	}
 	beanListPublicationID, beanListVersionNo, commercialPublicationID, greenPublicationID, dripPublicationID := miniEmployeeOrderPublicationFields(ed)
 	detail := miniEmployeeOrderDetailDTO{
-		ID: row.ID, EditRevision: ed.EditRevision, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
+		ID: row.ID, IsSampleOrder: ed.IsSampleOrder, EditRevision: ed.EditRevision, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
 		DocumentDate: firstMiniOrderValue(ed.DocumentDate, row.DocumentDate), OrderDate: firstMiniOrderValue(ed.OrderDate, row.OrderDate),
 		CustomerID: ed.CustomerID, Customer: row.Customer, SourceID: ed.SourceID, Source: miniEmployeeOptionName(form.Sources, ed.SourceID),
 		OrderTypeID: ed.OrderTypeID, OrderType: firstMiniOrderValue(row.OrderType, miniEmployeeOptionName(form.OrderTypes, ed.OrderTypeID)),

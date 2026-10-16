@@ -17,7 +17,7 @@ function openBeanCenter(){uni.navigateTo({url:'/pages/bean-list-center/bean-list
       <text class="subtitle">咖啡选品、加工与仓储服务</text>
       <text class="browse-hint">先浏览服务，需要查询个人业务时再登录。</text>
     </view>
-    <button class="bean-entry" @tap="openBeanCenter">豆单 · 查看咖啡价格表 →</button>
+    <button class="bean-entry" @tap="openBeanCenter">价格表中心 · 查看咖啡价格表 →</button>
  <view class="section-heading">了解我们的服务</view>
     <view class="service-list">
       <button v-for="service in guestServiceGuides" :key="service.id" class="service-card" @tap="selectedService = selectedService === service.id ? '' : service.id">

@@ -2363,6 +2363,10 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		}
 		return nil, err
 	}
+	d.IsSampleOrder, err = sampleOrderLinked(ctx, r.pool, r.schema, id)
+	if err != nil {
+		return nil, err
+	}
 	d.TotalAmount = fmt.Sprintf("%.2f", totalAmt)
 	d.ShippingAmount = fmt.Sprintf("%.2f", shipAmt)
 	d.DiscountAmount = fmt.Sprintf("%.2f", discAmt)

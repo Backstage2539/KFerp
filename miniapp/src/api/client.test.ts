@@ -17,6 +17,11 @@ describe('miniapp API client URL helpers', () => {
       await expect(miniRequest('/api/pages/entry')).rejects.toMatchObject({statusCode:401,code:'mini_registration_required'})
     } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs() }
   })
+  it('shows the server authorization reason from standard error bodies', async()=>{
+    vi.stubEnv('VITE_KFERP_ENVIRONMENT','development');vi.stubEnv('VITE_KFERP_API_BASE','https://dev.qacoohee.com/app')
+    vi.stubGlobal('uni',{request:({success}:any)=>success({statusCode:403,data:{message:'只有管理员可以分配'}})})
+    try{await expect(miniRequest('/api/mini/employee/sample-requests/1/assign')).rejects.toThrow('只有管理员可以分配')}finally{vi.unstubAllGlobals();vi.unstubAllEnvs()}
+  })
   it('normalizes configured API base by trimming whitespace and trailing slashes', () => {
     expect(normalizeAPIBase(' https://erp.example.com/app/// ')).toBe('https://erp.example.com/app')
   })

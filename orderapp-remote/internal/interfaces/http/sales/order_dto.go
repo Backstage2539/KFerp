@@ -10,7 +10,6 @@ type ProductOption = salesapp.ProductOption
 type PageData = salesapp.OrderFormData
 
 type CreateOrderRequest struct {
-	ItemID                          []string `form:"item_id[]"`
 	SpecConversion                  []string `form:"spec_conversion[]"`
 	PrepaymentAmount                *string  `json:"prepayment_amount" form:"prepayment_amount"`
 	DocumentDate                    string   `form:"document_date"`
@@ -53,6 +52,7 @@ type CreateOrderRequest struct {
 	PortalServiceCode               string   `form:"portal_service_code"`
 	OrdersScope                     string   `form:"orders_scope"`
 
+	ItemID                             []string `form:"item_id[]"`
 	ProductID                          []string `form:"product_id[]"`
 	ParentProductID                    []string `form:"parent_product_id[]"`
 	ItemParentProductID                []string `form:"item_parent_product_id[]"`

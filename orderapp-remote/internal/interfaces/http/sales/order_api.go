@@ -75,7 +75,6 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
-	ItemID                          []string `json:"item_id"`
 	SpecConversion                  []string `json:"spec_conversion"`
 	EditRevision                    string   `json:"edit_revision"`
 	RequestID                       string   `json:"request_id"`
@@ -123,6 +122,7 @@ type orderSaveAPIRequest struct {
 	PortalServiceCode               string   `json:"portal_service_code"`
 	OrdersScope                     string   `json:"orders_scope"`
 
+	ItemID                             []string `json:"item_id"`
 	ProductID                          []string `json:"product_id"`
 	ParentProductID                    []string `json:"parent_product_id"`
 	ItemParentProductID                []string `json:"item_parent_product_id"`
@@ -645,7 +645,7 @@ func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
-		ItemID: r.ItemID, SpecConversion: r.SpecConversion,
+		SpecConversion:                     r.SpecConversion,
 		PrepaymentAmount:                   r.PrepaymentAmount,
 		DocumentDate:                       r.DocumentDate,
 		OrderDate:                          r.OrderDate,
@@ -686,6 +686,7 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		ReceiverCompany:                    r.ReceiverCompany,
 		PortalServiceCode:                  r.PortalServiceCode,
 		OrdersScope:                        r.OrdersScope,
+		ItemID:                             r.ItemID,
 		ProductID:                          r.ProductID,
 		ParentProductID:                    r.ParentProductID,
 		ItemParentProductID:                r.ItemParentProductID,
@@ -1195,6 +1196,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 	dripPublicationID, _, _ := itemPublicationByType("drip")
 	return map[string]any{
 		"edit_revision":                       ed.EditRevision,
+		"is_sample_order":                     ed.IsSampleOrder,
 		"document_date":                       ed.DocumentDate,
 		"order_date":                          ed.OrderDate,
 		"customer_id":                         strconv.FormatInt(ed.CustomerID, 10),

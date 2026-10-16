@@ -4,12 +4,14 @@ import (
 	"context"
 	"log"
 	"net/http"
+	samplespg "orderapp/internal/infrastructure/postgres/samples"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func Main() {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	cfg, err := loadAppConfig()
 	if err != nil {
@@ -28,6 +30,7 @@ func Main() {
 
 	e := newHTTPServer(cfg, pool)
 	registerAppRoutes(e, pool, cfg)
+	go samplespg.NewRepository(pool, cfg.Schema).RunReminders(ctx)
 
 	log.Printf("orderapp listening on %s", cfg.ListenAddr)
 	if err := e.Start(cfg.ListenAddr); err != nil && err != http.ErrServerClosed {

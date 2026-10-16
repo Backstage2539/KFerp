@@ -65,8 +65,8 @@ export function miniRequest<T>(path: string, options: RequestOptions = {}): Prom
           resolve(res.data as T)
           return
         }
-        const body = res.data as { error?: string; code?: string }
-        reject(new MiniRequestError(body?.error || `request failed: ${res.statusCode}`, res.statusCode, body?.code))
+        const body = res.data as { error?: string; message?: string; code?: string }
+        reject(new MiniRequestError(body?.error || (typeof body?.message==='string'?body.message:'') || `请求失败（${res.statusCode}），请重试`, res.statusCode, body?.code))
       },
       fail: (err) => reject(new Error(err.errMsg || 'network error')),
     })

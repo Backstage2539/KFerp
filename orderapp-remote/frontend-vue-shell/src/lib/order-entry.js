@@ -2068,7 +2068,7 @@ export function buildOrderPayload({ form, rows }) {
     const specG = productKind === 'drip_bag' ? dripSpec.specG : normalizeSpecG(row)
     const qty = toInt(row.qty)
     if (productID <= 0 || (!isProductBomSpecCutover(row) && specG <= 0) || qty <= 0) continue
-    payload.item_id.push(String(toInt(row.item_id)))
+    payload.item_id.push(String(Number(form.edit_id || 0) > 0 ? toInt(row.item_id) : 0))
     payload.spec_conversion.push(row.price_selection_mode === "converted_tier" ? JSON.stringify(row.spec_conversion || {}) : "")
     payload.product_id.push(String(productID))
     payload.parent_product_id.push(String(isProductBomSpecCutover(row) ? productID : toInt(row.parent_product_id)))
@@ -2092,7 +2092,7 @@ export function buildOrderPayload({ form, rows }) {
     payload.price_selection_mode.push(selectionMode)
     payload.selected_price_row_key.push(['tier', 'converted_tier'].includes(selectionMode) ? String(row.selected_price_row_key || '') : '')
     payload.tier_id.push(selectionMode === 'manual' ? 'manual' : 'auto')
-    payload.unit_price.push(String(row.unit_price || ''))
+    payload.unit_price.push(String(row.unit_price ?? ''))
     payload.item_name.push(row.product_name || row.item_name || '')
     payload.item_note.push(String(row.item_note || '').trim())
     payload.qty.push(String(qty))

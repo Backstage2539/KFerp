@@ -70,7 +70,7 @@ async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: stri
 
   const phoneCode = String(event?.detail?.code || '').trim()
   if (!phoneCode) {
-    errorMessage.value = '已取消手机号授权，可返回豆单目录继续浏览'
+    errorMessage.value = '已取消手机号授权，可返回价格表中心继续浏览'
     return
   }
 
@@ -133,8 +133,8 @@ onShow(async () => { void refreshMiniappShareMenu();if(loginMode.value==='passwo
     </view>
 
     <view class="browse-option">
-      <button class="browse-button" @tap="browseServices">返回豆单目录</button>
-      <text>手机号用于验证身份与业务联系；登记后即可查看普通豆单。</text>
+      <button class="browse-button" @tap="browseServices">返回价格表中心</button>
+      <text>手机号用于验证身份与业务联系；登记后即可查看价格表。</text>
     </view>
     <view class="panel">
       <view class="mode-tabs">
@@ -144,7 +144,7 @@ onShow(async () => { void refreshMiniappShareMenu();if(loginMode.value==='passwo
 
       <view v-if="loginMode === 'quick'" class="login-block">
  <input v-model="nickname" type="nickname" maxlength="32" class="input" placeholder="请选择或填写昵称" />
- <text>普通豆单无需客户审核；查看订单仍需有效客户账号。</text>
+ <text>价格表无需客户审核；查看订单仍需有效客户账号。</text>
         <button
           class="login-button"
           open-type="getPhoneNumber"
