@@ -1368,11 +1368,14 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 		}
 
-		if it.priceSelectionMode != "converted_tier" && it.conversion != nil {
+		if it.priceSelectionMode != "converted_tier" && it.priceSelectionMode != "bom_tier" && it.conversion != nil {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("规格换算参数与计价方式不一致")
 		}
 		switch it.priceSelectionMode {
-		case "converted_tier":
+		case "converted_tier", "bom_tier":
+			if it.conversion != nil && ((it.priceSelectionMode == "bom_tier" && (it.conversion.PricingMethod != "bom_rule" || it.conversion.QuoteRevision == "")) || (it.priceSelectionMode == "converted_tier" && it.conversion.PricingMethod != "")) {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("请先按所选计价方式完成报价")
+			}
 			if cmd.CustomerSubmission || it.conversion == nil || it.selectedPriceRowKey == "" || it.manualPrice != nil || it.bomSpecID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("员工规格换算参数无效")
 			}
@@ -1569,14 +1572,24 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 		var identity orderBOMSpecIdentity
 		var identityErr error
-		if items[idx].priceSelectionMode == "converted_tier" {
+		if items[idx].priceSelectionMode == "converted_tier" || items[idx].priceSelectionMode == "bom_tier" {
 			request := salesapp.SpecConversionQuoteRequest{SpecConversionSelection: *items[idx].conversion, CustomerID: cmd.CustomerID, ProductID: *items[idx].productID, PublicationID: items[idx].itemBeanListPublicationID, PriceRowKey: items[idx].selectedPriceRowKey, TargetSpecID: items[idx].bomSpecID, TargetVariantID: items[idx].bomVariantID, Quantity: items[idx].units}
 			quote, frozen, quoteErr := frozenSpecConversionTx(ctx, tx, r.schema, editID, items[idx].itemID, request)
 			if quoteErr != nil {
 				return salesapp.SaveOrderResult{}, quoteErr
 			}
 			if !frozen {
-				quote, quoteErr = quoteSpecConversionTx(ctx, tx, r.schema, request)
+				if items[idx].priceSelectionMode == "bom_tier" {
+					if request.PricingMethod != "bom_rule" || request.QuoteRevision == "" {
+						return salesapp.SaveOrderResult{}, fmt.Errorf("请先选择档位并完成 BOM 报价")
+					}
+					quote, quoteErr = r.quoteBOMTierTx(ctx, tx, request)
+				} else {
+					if request.PricingMethod != "" {
+						return salesapp.SaveOrderResult{}, fmt.Errorf("计价方式与来源不一致")
+					}
+					quote, quoteErr = quoteSpecConversionTx(ctx, tx, r.schema, request)
+				}
 				if quoteErr != nil {
 					return salesapp.SaveOrderResult{}, quoteErr
 				}

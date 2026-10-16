@@ -23,6 +23,10 @@ func TestCustomerOrderPolicy(t *testing.T) {
 	for _, change := range []func(*SaveOrderCommand){
 		func(c *SaveOrderCommand) {
 			c.Items = append([]OrderItemCommand{}, c.Items...)
+			c.Items[0].PriceSelectionMode = "bom_tier"
+		},
+		func(c *SaveOrderCommand) {
+			c.Items = append([]OrderItemCommand{}, c.Items...)
 			c.Items[0].PriceSelectionMode = "converted_tier"
 		},
 		func(c *SaveOrderCommand) {

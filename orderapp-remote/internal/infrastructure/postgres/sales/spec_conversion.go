@@ -43,13 +43,14 @@ func conversionGroupsTx(ctx context.Context, tx pgx.Tx, schema string) ([]conver
 	return result, rows.Err()
 }
 func conversionSpecsTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) ([]salesapp.SpecConversionSpec, error) {
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT p.id,p.name,s.id,v.id,COALESCE(NULLIF(v.spec_name_snapshot,''),s.name),v.inventory_unit,COALESCE(s.source_spec_template_id,0),COALESCE(s.source_spec_template_key,'')
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT p.id,p.name,s.id,v.id,COALESCE(NULLIF(v.spec_name_snapshot,''),s.name),v.inventory_unit,COALESCE(s.source_spec_template_id,0),COALESCE(s.source_spec_template_key,''),v.is_default,v.sort_order
  FROM %[1]s.production_bom_output_bindings b JOIN %[1]s.products p ON p.id=b.output_id AND p.active
+ JOIN %[1]s.production_boms pb ON pb.id=b.bom_id AND COALESCE(NULLIF(pb.status,''),'active')='active'
  JOIN %[1]s.product_bom_spec_authorities a ON a.product_id=p.id AND a.configured AND a.state='cutover'
  JOIN %[1]s.production_bom_versions bv ON bv.id=b.bom_version_id AND bv.bom_id=b.bom_id AND bv.status='published'
  JOIN %[1]s.production_bom_version_variants v ON v.version_id=bv.id
  JOIN %[1]s.production_bom_specs s ON s.id=v.bom_spec_id AND s.bom_id=b.bom_id
- WHERE b.output_type='product' AND b.is_default AND ($1::bigint=0 OR p.id=$1) ORDER BY p.name,v.sort_order,s.id`, schema), productID)
+ WHERE b.output_type='product' AND b.is_default AND ($1::bigint=0 OR p.id=$1) ORDER BY p.name,v.is_default DESC,v.sort_order,s.id`, schema), productID)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +58,7 @@ func conversionSpecsTx(ctx context.Context, tx pgx.Tx, schema string, productID 
 	result := []salesapp.SpecConversionSpec{}
 	for rows.Next() {
 		var s salesapp.SpecConversionSpec
-		if err := rows.Scan(&s.ProductID, &s.ProductName, &s.SpecID, &s.VariantID, &s.Name, &s.InventoryUnit, &s.TemplateID, &s.TemplateKey); err != nil {
+		if err := rows.Scan(&s.ProductID, &s.ProductName, &s.SpecID, &s.VariantID, &s.Name, &s.InventoryUnit, &s.TemplateID, &s.TemplateKey, &s.IsDefault, &s.SortOrder); err != nil {
 			return nil, err
 		}
 		result = append(result, s)
@@ -346,6 +347,9 @@ func (r Repository) QuoteSpecConversion(ctx context.Context, c salesapp.SpecConv
 		return salesapp.SpecConversionQuote{}, err
 	}
 	defer tx.Rollback(ctx)
+	if c.PricingMethod == "bom_rule" {
+		return r.quoteBOMTierTx(ctx, tx, c)
+	}
 	return quoteSpecConversionTx(ctx, tx, r.schema, c)
 }
 func quoteSpecConversionTx(ctx context.Context, tx pgx.Tx, schema string, c salesapp.SpecConversionQuoteRequest) (salesapp.SpecConversionQuote, error) {
@@ -451,7 +455,7 @@ func frozenSpecConversionTx(ctx context.Context, tx pgx.Tx, schema string, order
 		Mode  string                        `json:"price_selection_mode"`
 		Quote *salesapp.SpecConversionQuote `json:"spec_conversion"`
 	}
-	if json.Unmarshal([]byte(raw), &snapshot) != nil || snapshot.Mode != "converted_tier" || snapshot.Quote == nil {
+	if json.Unmarshal([]byte(raw), &snapshot) != nil || (snapshot.Mode != "converted_tier" && snapshot.Mode != "bom_tier") || snapshot.Quote == nil {
 		return q, false, nil
 	}
 	q = *snapshot.Quote
@@ -468,5 +472,5 @@ func frozenSpecConversionTx(ctx context.Context, tx pgx.Tx, schema string, order
 	return q, true, nil
 }
 func sameSpecConversionSelection(old, next salesapp.SpecConversionQuoteRequest) bool {
-	return old.CustomerID == next.CustomerID && old.ProductID == next.ProductID && old.PublicationID == next.PublicationID && old.PriceRowKey == next.PriceRowKey && old.TargetSpecID == next.TargetSpecID && old.TargetVariantID == next.TargetVariantID && old.GroupID == next.GroupID && old.Revision == next.Revision && old.SourceSpecID == next.SourceSpecID && old.SourceVariantID == next.SourceVariantID
+	return old.PricingMethod == next.PricingMethod && old.QuoteRevision == next.QuoteRevision && old.CustomerID == next.CustomerID && old.ProductID == next.ProductID && old.PublicationID == next.PublicationID && old.PriceRowKey == next.PriceRowKey && old.TargetSpecID == next.TargetSpecID && old.TargetVariantID == next.TargetVariantID && old.GroupID == next.GroupID && old.Revision == next.Revision && old.SourceSpecID == next.SourceSpecID && old.SourceVariantID == next.SourceVariantID
 }

@@ -750,7 +750,7 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	frozenIDs := map[int64]bool{}
 	if cmd.EditID > 0 && form.EditData != nil && form.EditData.ID == cmd.EditID {
 		for _, item := range cmd.Items {
-			if item.PriceSelectionMode != "converted_tier" || item.SpecConversion == nil || item.SpecConversion.Reprice {
+			if (item.PriceSelectionMode != "converted_tier" && item.PriceSelectionMode != "bom_tier") || item.SpecConversion == nil || item.SpecConversion.Reprice {
 				continue
 			}
 			for _, old := range form.EditData.Items {
@@ -798,7 +798,7 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 		if item.ProductID == nil || *item.ProductID <= 0 {
 			return "请选择该客户当前价格表中的商品规格", nil
 		}
-		if item.PriceSelectionMode == "converted_tier" {
+		if item.PriceSelectionMode == "converted_tier" || item.PriceSelectionMode == "bom_tier" {
 			if item.SpecConversion == nil || item.BomSpecID <= 0 || item.BomVariantID <= 0 || item.SelectedPriceRowKey == "" || item.ManualPrice != nil {
 				return "规格换算参数无效", nil
 			}

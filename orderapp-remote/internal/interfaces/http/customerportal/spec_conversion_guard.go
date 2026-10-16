@@ -26,10 +26,10 @@ func rejectCustomerSpecConversion(c echo.Context) error {
 		}
 		switch value := row["price_selection_mode"].(type) {
 		case string:
-			return strings.EqualFold(strings.TrimSpace(value), "converted_tier")
+			return strings.EqualFold(strings.TrimSpace(value), "converted_tier") || strings.EqualFold(strings.TrimSpace(value), "bom_tier")
 		case []any:
 			for _, mode := range value {
-				if mode == "converted_tier" {
+				if mode == "converted_tier" || mode == "bom_tier" {
 					return true
 				}
 			}

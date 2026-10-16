@@ -5729,3 +5729,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - PR-693 integration: merged verified `origin/develop@b2f7d6fe` sample workflow into feature branch; preserved both sample manual-price edits and converted historical rows. Go/all, Vue 1365, miniapp 326/typecheck/DEV build, isolated conversion DB and sample DB regressions GREEN. Receipt: `orderapp-remote/docs/acceptance/2026-10-16-spec-conversion-orders.md`.
 
 - PR-693 delivery: PR #202/#203 merged; development runtime `a7a0f910f25a087eab2f8306d151a15a5225198f`; backup `/opt/stacks/erp/orderapp.backup.deploy-20261016122357-a7a0f910f25a`; application running, PostgreSQL healthy, authenticated configuration/manual 200 and anonymous employee/config API 401. DEV package at `/Users/yiiiple-work/KFerp-spec-conversion-delivery-20261016/KFerp-miniapp-mp-weixin-dev` (24 pages / 96 files). Requirement-evidence gate and registry 502 resolved before successful release. Receipt-only follow-up does not change runtime identity. No production, WeChat upload or business acceptance.
+
+### PR-694-BOM-SPEC-ORDER-PRICING
+- Branch: codex/bom-spec-order-pricing-20261016
+- Owner/session: Codex / Van
+- Status: verified / awaiting development integration; PR review (Van acceptance pending)
+- Scope: 员工录单全部有效 BOM 规格、默认规格优先、手动选档与目标 BOM 重算；保留换算组。
+- Verifier GREEN: scripts/verify_kferp.sh all (Go, Vue 1368 tests, build); PostgreSQL HTTP integration (BOM + conversion); miniapp 329 tests, typecheck, development build; local Vue desktop/narrow UI; docs/acceptance/2026-10-17-bom-order-pricing.md.
+- Deployment: pending development only; miniapp development package required.
+- Notes: reserve_req_id.sh reported PR-694 but macOS awk rejected multiline claim; recorded manually.

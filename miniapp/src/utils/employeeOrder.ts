@@ -61,6 +61,7 @@ export function createEmployeeOrderItem(key = ''): EmployeeOrderDraftItem {
     price_override: false,
     price_selection_mode: 'auto',
     spec_conversion: undefined,
+    bom_catalog: undefined,
     selected_price_row_key: '',
     price_source_json: '',
     discount_type: '',
@@ -436,6 +437,7 @@ export function employeeOrderItemFromSpec(
     price_override: false,
     price_selection_mode: 'auto',
     spec_conversion: undefined,
+    bom_catalog: undefined,
     selected_price_row_key: '',
     price_source_json: String(tier?.price_source_json || ''),
     validation_error: tier || Number(item.qty || 0) <= 0 ? '' : '当前数量没有匹配的价格档，请调整数量',
@@ -465,7 +467,7 @@ export function repriceEmployeeOrderItemForQuantity(
   item: EmployeeOrderDraftItem,
   family?: EmployeeOrderProductFamily,
 ): EmployeeOrderDraftItem {
-  if (item.price_selection_mode === 'converted_tier') return withEmployeeOrderItemDiscount({ ...item })
+  if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '')) return withEmployeeOrderItemDiscount({ ...item })
   if (!family) return withEmployeeOrderItemDiscount({ ...item })
   const spec = (family.specs || []).find(
     (candidate) => item.migration_state === 'cutover'
@@ -531,7 +533,7 @@ export function restoreEmployeeOrderAutomaticPrice(
   item: EmployeeOrderDraftItem,
   family?: EmployeeOrderProductFamily,
 ): EmployeeOrderDraftItem {
-  if (item.price_selection_mode === 'converted_tier') {
+  if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '')) {
     const spec = family?.specs.find(s => Number(s.bom_spec_id) === Number(item.spec_conversion?.source_bom_spec_id))
     if (family && spec) return employeeOrderItemFromSpec({ ...item, spec_conversion: undefined }, family, spec)
     return { ...item, spec_conversion: undefined, price_selection_mode: 'auto', selected_price_row_key: '', unit_price: 0, validation_error: '请重新选择当前价格表中的商品规格' }
@@ -540,6 +542,7 @@ export function restoreEmployeeOrderAutomaticPrice(
     ...item,
     price_selection_mode: 'auto',
     spec_conversion: undefined,
+    bom_catalog: undefined,
     selected_price_row_key: '',
     price_override: false,
   }, family)
@@ -574,7 +577,7 @@ export function applyEmployeeOrderQuantityChange(
   if (preserveSampleManualPrice && isConfirmedSampleManualItem(item)) {
     return { accepted: true, item: withEmployeeOrderItemDiscount({ ...item, qty: nextQuantity, price_selection_mode: 'manual', validation_error: '' }), error: '' }
   }
-  if (!family && item.price_selection_mode !== 'converted_tier') {
+  if (!family && !['converted_tier','bom_tier'].includes(item.price_selection_mode || '')) {
     return {
       accepted: false,
       item: { ...item },
@@ -689,7 +692,7 @@ export function hydrateEmployeeOrderEditItems(
     })
 
     const conversion = conversionSnapshot(detail)
-    if (savedEmployeeOrderPriceSelection(detail).mode === 'converted_tier' && conversion) {
+    if (['converted_tier','bom_tier'].includes(savedEmployeeOrderPriceSelection(detail).mode) && conversion) {
       const converted = applyConversionQuote(historical, { ...conversion, unit_price: String(detail.unit_price), price_source_json: detail.price_source_json || '' })
       converted.spec_conversion!.reprice = false
       const sourceFamily = available.find(f => Number(f.parent_product_id) === productID && Number(f.customer_product_alias_id || 0) === aliasID)
@@ -758,7 +761,7 @@ export function copyEmployeeOrderItems(
   const hydrated = hydrateEmployeeOrderEditItems(detailItems, families, customerID, retailOrder)
   return hydrated.map((item, index) => {
     const detail = detailItems[index]
-    if (item.price_selection_mode === 'converted_tier') return { ...item, item_id: 0, key: `copy-${Date.now()}-${index+1}`, spec_conversion: { ...item.spec_conversion!, reprice: true }, validation_error: '复制订单需按当前规则重新报价' }
+    if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '')) return { ...item, item_id: 0, key: `copy-${Date.now()}-${index+1}`, spec_conversion: { ...item.spec_conversion!, reprice: true }, validation_error: '复制订单需按当前规则重新报价' }
     const historicalPrice = Number(detail?.unit_price || item.unit_price || 0)
     return {
       ...item,
@@ -805,8 +808,8 @@ export function revalidateEmployeeOrderItems(
   const available = customerProductFamilies(families, customerID)
   return items.map((item) => {
     if (Number(item.product_id || 0) <= 0) return { ...item }
-    if (item.price_selection_mode === 'converted_tier' && !options.clearPriceSelection) return { ...item }
-    if (item.price_selection_mode === 'converted_tier') item = restoreEmployeeOrderAutomaticPrice(item, available.find(f => employeeOrderProductFamilyKey(f) === item.product_family_key))
+    if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '') && !options.clearPriceSelection) return { ...item }
+    if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '')) item = restoreEmployeeOrderAutomaticPrice(item, available.find(f => employeeOrderProductFamilyKey(f) === item.product_family_key))
     if (options.preserveSampleManualPrice && isConfirmedSampleManualItem(item)) {
       return { ...item, price_selection_mode: 'manual', validation_error: '' }
     }
@@ -882,8 +885,8 @@ export function buildEmployeeOrderItemsPayload(items: EmployeeOrderDraftItem[]) 
         bean_list_version_no: String(item.bean_list_version_no || ''),
         price_override: Boolean(item.price_override),
         price_selection_mode: item.price_override ? 'manual' : (item.price_selection_mode || 'auto'),
-        selected_price_row_key: ['tier', 'converted_tier'].includes(item.price_selection_mode || '') ? String(item.selected_price_row_key || '') : '',
-        spec_conversion: item.price_selection_mode === 'converted_tier' ? item.spec_conversion : undefined,
+        selected_price_row_key: ['tier', 'converted_tier', 'bom_tier'].includes(item.price_selection_mode || '') ? String(item.selected_price_row_key || '') : '',
+        spec_conversion: ['converted_tier','bom_tier'].includes(item.price_selection_mode || '') ? item.spec_conversion : undefined,
         price_source_json: String(item.price_source_json || ''),
       }
     })
