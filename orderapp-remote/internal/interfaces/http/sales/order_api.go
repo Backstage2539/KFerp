@@ -568,6 +568,9 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	}
 	res, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
+		if message, conflict := salesapp.OrderEditConflictMessage(err); conflict {
+			return c.JSON(http.StatusConflict, map[string]string{"error": message})
+		}
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 	if !res.Edited && !res.Replayed && res.ConfirmationStatus != "pending" {

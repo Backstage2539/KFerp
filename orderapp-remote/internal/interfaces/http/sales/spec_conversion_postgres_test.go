@@ -26,6 +26,8 @@ func TestConversionPostgresHTTPAndFrozenOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+ CREATE TABLE %[1]s.production_boms(id BIGINT PRIMARY KEY,status TEXT);
+ INSERT INTO %[1]s.production_boms VALUES(8001,'active');
  ALTER TABLE %[1]s.production_bom_specs ADD COLUMN source_spec_template_id BIGINT DEFAULT 0,ADD COLUMN source_spec_template_key TEXT DEFAULT '';
  ALTER TABLE %[1]s.stock_batches ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0, ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
  ALTER TABLE %[1]s.finished_inventory ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0, ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;

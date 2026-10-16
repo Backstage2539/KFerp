@@ -711,8 +711,8 @@ test('OrderEntryView manual explains parent products and published price-list sp
   const manual = source.slice(source.indexOf('<details class="manual">'), source.indexOf('</details>', source.indexOf('<details class="manual">')))
 
   assert.match(manual, /商品按父商品展示/)
-  assert.match(manual, /规格列和规格搜索只使用当前已选已发布价格表中有价的规格/)
-  assert.match(manual, /价格表没有的商品档案规格不会出现在新订单候选中/)
+  assert.match(manual, /当前默认已发布 BOM 的全部有效规格/)
+  assert.match(manual, /客户自行下单仍使用价格表规格范围/)
   assert.match(manual, /切换同版本内其他表/)
   assert.doesNotMatch(manual, /常用规格：36g/)
 })

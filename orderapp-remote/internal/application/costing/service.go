@@ -118,6 +118,8 @@ type PriceTierTemplateUnitRule struct {
 }
 
 type PricingRuleTrialCommand struct {
+	PublishedRuleSnapshot             *ProductPricingRule       `json:"-"`
+	PublishedOnly                     bool                      `json:"-"`
 	PricingRuleID                     int64                     `json:"pricing_rule_id"`
 	PricingRuleDraft                  *ProductPricingRule       `json:"pricing_rule_draft,omitempty"`
 	ProductID                         int64                     `json:"product_id"`
@@ -1028,12 +1030,17 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	if s.repo == nil {
 		return nil, fmt.Errorf("repository required")
 	}
-	cmd.allowDraftBom = true
+	cmd.allowDraftBom = !cmd.PublishedOnly
 	params, err := s.Parameters(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rule, err := s.repo.LoadProductPricingRule(ctx, cmd.PricingRuleID)
+	var rule ProductPricingRule
+	if cmd.PublishedRuleSnapshot != nil {
+		rule = *cmd.PublishedRuleSnapshot
+	} else {
+		rule, err = s.repo.LoadProductPricingRule(ctx, cmd.PricingRuleID)
+	}
 	if err != nil {
 		if errors.Is(err, ErrProductPricingRuleNotFound) {
 			return nil, ErrProductPricingRuleNotFound
@@ -1046,7 +1053,15 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 			return nil, err
 		}
 	}
-	inputs, err := s.pricingRuleTrialProductInputs(ctx, params, cmd.CustomerID)
+	var inputs []domain.ProductInput
+	orderRepo, canReadOrderInputs := s.repo.(interface {
+		LoadOrderBOMPricingInputs(context.Context, domain.Parameters, int64) ([]domain.ProductInput, error)
+	})
+	if cmd.PublishedOnly && canReadOrderInputs {
+		inputs, err = orderRepo.LoadOrderBOMPricingInputs(ctx, params, cmd.ProductID)
+	} else {
+		inputs, err = s.pricingRuleTrialProductInputsForProducts(ctx, params, cmd.CustomerID, []int64{cmd.ProductID})
+	}
 	if err != nil {
 		return nil, err
 	}

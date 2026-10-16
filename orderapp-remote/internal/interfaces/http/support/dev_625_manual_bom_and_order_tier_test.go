@@ -29,7 +29,7 @@ func TestDev625ManualBOMAndOrderTierDeliveryContracts(t *testing.T) {
 			"件数阶梯按接口返回的起止数量匹配",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"): {
-			"50 袋会匹配 48 袋以上档",
+			"价格档位（手动选择，数量变化不换档）",
 		},
 		filepath.Join("docs", "acceptance", "2026-09-03-manual-bom-and-order-tier-fix.md"): {
 			"# PR-625",

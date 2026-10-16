@@ -9,7 +9,7 @@ import (
 )
 
 func TestCustomerConversionGuardRejectsUnknownEmployeeInstructions(t *testing.T) {
-	for _, body := range []string{`{"price_selection_mode":"converted_tier"}`, `{"items":[{"spec_conversion":{"group_id":1}}]}`, `{"items":[{"price_selection_mode":"converted_tier"}]}`} {
+	for _, body := range []string{`{"price_selection_mode":"bom_tier"}`, `{"price_selection_mode":["bom_tier"]}`, `{"items":[{"price_selection_mode":"bom_tier"}]}`, `{"price_selection_mode":"converted_tier"}`, `{"items":[{"spec_conversion":{"group_id":1}}]}`, `{"items":[{"price_selection_mode":"converted_tier"}]}`} {
 		c := echo.New().NewContext(httptest.NewRequest("POST", "/", strings.NewReader(body)), httptest.NewRecorder())
 		if err := rejectCustomerSpecConversion(c); err == nil {
 			t.Fatal("accepted employee conversion", body)

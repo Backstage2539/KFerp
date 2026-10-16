@@ -2069,7 +2069,7 @@ export function buildOrderPayload({ form, rows }) {
     const qty = toInt(row.qty)
     if (productID <= 0 || (!isProductBomSpecCutover(row) && specG <= 0) || qty <= 0) continue
     payload.item_id.push(String(Number(form.edit_id || 0) > 0 ? toInt(row.item_id) : 0))
-    payload.spec_conversion.push(row.price_selection_mode === "converted_tier" ? JSON.stringify(row.spec_conversion || {}) : "")
+    payload.spec_conversion.push(["converted_tier", "bom_tier"].includes(row.price_selection_mode) ? JSON.stringify(row.spec_conversion || {}) : "")
     payload.product_id.push(String(productID))
     payload.parent_product_id.push(String(isProductBomSpecCutover(row) ? productID : toInt(row.parent_product_id)))
     payload.bom_spec_id.push(String(toInt(identity.bom_spec_id)))
@@ -2084,13 +2084,13 @@ export function buildOrderPayload({ form, rows }) {
     payload.item_bean_list_publication_id.push(String(toInt(row.bean_list_publication_id)))
     payload.item_bean_list_version_no.push(String(row.bean_list_version_no || '').trim())
     payload.price_source_json.push(String(row.price_source_json || '').trim())
-    const selectionMode = row.price_selection_mode === 'converted_tier' ? 'converted_tier' : row.price_selection_mode === 'tier'
+    const selectionMode = ['converted_tier', 'bom_tier'].includes(row.price_selection_mode) ? row.price_selection_mode : row.price_selection_mode === 'tier'
       ? 'tier'
       : row.price_selection_mode === 'manual' || row.manual_price || row.tier_id === 'manual'
         ? 'manual'
         : 'auto'
     payload.price_selection_mode.push(selectionMode)
-    payload.selected_price_row_key.push(['tier', 'converted_tier'].includes(selectionMode) ? String(row.selected_price_row_key || '') : '')
+    payload.selected_price_row_key.push(['tier', 'converted_tier', 'bom_tier'].includes(selectionMode) ? String(row.selected_price_row_key || '') : '')
     payload.tier_id.push(selectionMode === 'manual' ? 'manual' : 'auto')
     payload.unit_price.push(String(row.unit_price ?? ''))
     payload.item_name.push(row.product_name || row.item_name || '')

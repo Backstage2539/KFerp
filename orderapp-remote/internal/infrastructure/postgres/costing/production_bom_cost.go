@@ -562,7 +562,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 		versionMaterialLossExpr = "COALESCE(version.material_loss_rate,0)::float8"
 		versionMaterialLossGroup = ", version.material_loss_rate"
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		WITH root_bindings AS (
 			SELECT lower(COALESCE(NULLIF(binding.output_type,''),'product')) AS output_type,
 			       binding.output_id,
@@ -674,7 +674,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 		if hasRouteOperations {
 			routeCostExpr = fmt.Sprintf(`COALESCE((SELECT SUM(operation.planned_operation_cost) FROM %s.process_route_operations operation WHERE operation.route_id=variant.process_route_id),0)::float8`, r.schema)
 		}
-		variantRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		variantRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 			SELECT variant.id,
 			       variant.version_id,
 			       variant.bom_spec_id,
@@ -742,7 +742,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 	if variantAware {
 		variantSelect = "COALESCE(i.variant_id,0) AS variant_id, COALESCE(i.component_bom_spec_id,0) AS component_bom_spec_id,"
 	}
-	itemRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	itemRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
 			       SUM((CASE
@@ -912,13 +912,13 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 
 func (r Repository) costingRelationExists(ctx context.Context, relation string) (bool, error) {
 	var exists bool
-	err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.%s", r.schema, relation)).Scan(&exists)
+	err := r.readDB(ctx).QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.%s", r.schema, relation)).Scan(&exists)
 	return exists, err
 }
 
 func (r Repository) costingColumnExists(ctx context.Context, relation string, column string) (bool, error) {
 	var exists bool
-	err := r.pool.QueryRow(ctx, `
+	err := r.readDB(ctx).QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1
 			FROM information_schema.columns
