@@ -5733,8 +5733,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-694-BOM-SPEC-ORDER-PRICING
 - Branch: codex/bom-spec-order-pricing-20261016
 - Owner/session: Codex / Van
-- Status: verified / awaiting development integration; PR review (Van acceptance pending)
+- Status: development deployed; PR review (Van business acceptance pending)
 - Scope: 员工录单全部有效 BOM 规格、默认规格优先、手动选档与目标 BOM 重算；保留换算组。
 - Verifier GREEN: scripts/verify_kferp.sh all (Go, Vue 1368 tests, build); PostgreSQL HTTP integration (BOM + conversion); miniapp 329 tests, typecheck, development build; local Vue desktop/narrow UI; docs/acceptance/2026-10-17-bom-order-pricing.md.
-- Deployment: pending development only; miniapp development package required.
+- Deployment: PR #204 merged; running develop 3421b1b8c576c7e5c3a773887d70d3b02ce66362. Backup /opt/stacks/erp/orderapp.backup.deploy-20261017003932-3421b1b8c576. Application running / PostgreSQL healthy; auth docs and requirement API 200; anonymous quote 401. Development package /Users/yiiiple-work/KFerp-bom-pricing-delivery-20261017/KFerp-miniapp-mp-weixin-dev (24 pages / 96 manifest files). No production, WeChat upload or business acceptance. Receipt-only follow-up does not change runtime.
 - Notes: reserve_req_id.sh reported PR-694 but macOS awk rejected multiline claim; recorded manually.

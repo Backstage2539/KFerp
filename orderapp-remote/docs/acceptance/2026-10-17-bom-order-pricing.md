@@ -31,5 +31,19 @@
 
 ## 交付
 
-功能分支 codex/bom-spec-order-pricing-20261016，基于 origin/develop e5f409b0。集成和部署回执待本次交付完成后补充。
+功能分支 codex/bom-spec-order-pricing-20261016，基于 origin/develop e5f409b0。集成与部署已完成，见下方回执。
 构建的 chunk size/Browserslist 提示为现有非阻断提示。
+
+## 开发交付回执
+
+- GitHub PR #204：https://github.com/Backstage2539/KFerp/pull/204，已合并。
+- 功能分支：codex/bom-spec-order-pricing-20261016；已推送实现提交 51a18c1ca40b465a27ab8bbae4b42e80ca4e1420。
+- 已部署 develop 提交：3421b1b8c576c7e5c3a773887d70d3b02ce66362。
+- 部署命令：`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-bom-pricing-delivery-20261017/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development`，在最新且干净的 develop 检出执行，退出0。
+- 服务器再次通过 Vue 1368 tests、miniapp 329 tests/typecheck/build、完整 Go 测试和 Docker 镜像内测试；24个页面、PAGE_FILE_MANIFEST 96文件验证通过。
+- 开发环境：https://dev.qacoohee.com/app/ 。应用 running、PostgreSQL healthy；login 200；app 根路由303；已认证需求/新手册200；未登录报价接口401。需求 PR-694 状态 review，等待 Van 业务验收。
+- 回滚源码：`/opt/stacks/erp/orderapp.backup.deploy-20261017003932-3421b1b8c576`；回滚镜像：`kferp-orderapp-rollback:development-20261017003932-3421b1b8c576`。
+- 开发小程序目录：`/Users/yiiiple-work/KFerp-bom-pricing-delivery-20261017/KFerp-miniapp-mp-weixin-dev`；压缩包：`/Users/yiiiple-work/KFerp-bom-pricing-delivery-20261017/KFerp-miniapp-dev-3421b1b8.zip`。
+- RELEASE_INFO 确认 environment=development、api_base=https://dev.qacoohee.com/app、commit=3421b1b8；ZIP完整性通过，不含 project.private.config.json。
+- 日志与本地测试截图保存在 `/Users/yiiiple-work/KFerp-bom-pricing-delivery-20261017`。
+- 本回执为部署后的文档补录，不改变运行版本。未做生产部署、微信上传/审核/发布、真机或共享开发数据业务验收。
