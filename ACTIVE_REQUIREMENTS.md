@@ -1,10 +1,10 @@
 ### PR-695-DEFAULT-SPEC-AUTO-TIER
 - Branch: `codex/default-spec-auto-tier-20261017`; base `origin/develop@f9ec1da6`.
-- Status: implemented and automated/local UI verification complete; develop integration and development deployment pending; Van acceptance pending.
+- Status: implemented, verified and development deployed; Van acceptance pending.
 - Scope: 默认规格按数量自动匹配；非默认规格每次切换后手动选档；历史冻结和换算组保留。
 - DEV: DEV-778-BOM-TIER-RANGES; DEV-779-BOM-TIER-CLIENTS; DEV-780-BOM-TIER-DELIVERY.
 - Verifier: Go/isolated PostgreSQL HTTP; Vue and miniapp state transitions, stale quotes, history/copy; typecheck/build; local UI; development smoke/package.
-- Delivery: development only after verified branch integration; no production or WeChat upload.
+- Delivery: PR #206 merged, development runtime `3b5e8639ac0af3835112db3c46f7ce88d2e9359a`; Go/DB, Vue1375 and miniapp337/typecheck/build GREEN. Backup `orderapp.backup.deploy-20261017212055-3b5e8639ac0a`; app running/DB healthy; login200/docs+PR marker OK/anonymous quote401. 24-page/96-file DEV package in `/Users/yiiiple-work/KFerp-auto-tier-delivery-20261017`; receipt `docs/acceptance/2026-10-17-default-spec-auto-tier.md`. Old build-cache cleanup resolved full disk; about1GB remains. No production or WeChat upload.
 - Notes: reserve_req_id.sh identified PR-695 but macOS awk rejected claim; recorded here.
 
 ### PR-692-PRICE-CENTER-SAMPLES
