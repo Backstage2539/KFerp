@@ -1534,7 +1534,7 @@ test('OrderEntryView shows explicit missing published price and blocks save with
   assert.match(source, /missingPublishedPriceRowIndex/)
   assert.match(source, /repriceHydratedRows/)
   assert.match(source, /const draftRestored = restoreOrderEntryDraft\(\)/)
-  assert.match(source, /if \(draftRestored\) \{\s*syncBeanListVersionForCustomer\(\)\s*syncRowsForType\(\{ priceListChanged: true \}\)\s*\} else \{\s*repriceHydratedRows\(\)\s*\}/)
+  assert.match(source, /if \(draftRestored\) \{\s*syncBeanListVersionForCustomer\(\)\s*syncRowsForType\(\{ priceListChanged: true, restoreDraft: true \}\)\s*await refreshCopiedConversions\(\)\s*\} else \{\s*repriceHydratedRows\(\)\s*\}/)
   assert.match(source, /function selectTier[\s\S]*?isDripRow[\s\S]*?syncPrice\(row, \{ force: true \}\)/)
   assert.match(source, /const publishedPrice = resolveWholesaleTierPrice\(product, row\)/)
   assert.match(source, /publishedPrice\.quantityBasis === 'sales_spec_count'[\s\S]*?applyResolvedWholesalePrice\(row, publishedPrice\)/)

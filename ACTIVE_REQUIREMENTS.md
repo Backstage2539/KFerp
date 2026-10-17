@@ -1,3 +1,12 @@
+### PR-695-DEFAULT-SPEC-AUTO-TIER
+- Branch: `codex/default-spec-auto-tier-20261017`; base `origin/develop@f9ec1da6`.
+- Status: implemented and automated/local UI verification complete; develop integration and development deployment pending; Van acceptance pending.
+- Scope: 默认规格按数量自动匹配；非默认规格每次切换后手动选档；历史冻结和换算组保留。
+- DEV: DEV-778-BOM-TIER-RANGES; DEV-779-BOM-TIER-CLIENTS; DEV-780-BOM-TIER-DELIVERY.
+- Verifier: Go/isolated PostgreSQL HTTP; Vue and miniapp state transitions, stale quotes, history/copy; typecheck/build; local UI; development smoke/package.
+- Delivery: development only after verified branch integration; no production or WeChat upload.
+- Notes: reserve_req_id.sh identified PR-695 but macOS awk rejected claim; recorded here.
+
 ### PR-692-PRICE-CENTER-SAMPLES
 - Branch: `codex/price-center-samples-20261015`; base `origin/develop@25b377af`.
 - Status: implemented, verified and deployed to development on 2026-10-16; Van product acceptance pending.

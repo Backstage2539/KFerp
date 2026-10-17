@@ -38,6 +38,9 @@ type SpecConversionUnit struct {
 	Name string `json:"name"`
 }
 type SpecConversionSourceTier struct {
+	MinQty        *float64 `json:"min_qty"`
+	MaxQty        *float64 `json:"max_qty"`
+	QuantityBasis string   `json:"quantity_basis"`
 	SpecConversionSpec
 	PriceRowKey string `json:"price_row_key"`
 	TierLabel   string `json:"tier_label"`
