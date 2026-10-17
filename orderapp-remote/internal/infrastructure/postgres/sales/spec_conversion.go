@@ -264,13 +264,15 @@ func conversionPublicationTx(ctx context.Context, tx pgx.Tx, schema string, cust
 func conversionPublishedSourcesTx(ctx context.Context, tx pgx.Tx, schema string, raw []byte, listType string, productID, publicationID int64) ([]salesapp.SpecConversionSourceTier, error) {
 	var content struct {
 		Rows []struct {
-			ProductID int64       `json:"product_id"`
-			ParentID  int64       `json:"parent_product_id"`
-			SpecID    int64       `json:"bom_spec_id"`
-			VariantID int64       `json:"bom_variant_id"`
-			Price     json.Number `json:"final_unit_price"`
-			Label     string      `json:"tier_label"`
-			MinQty    json.Number `json:"min_qty"`
+			ProductID     int64       `json:"product_id"`
+			ParentID      int64       `json:"parent_product_id"`
+			SpecID        int64       `json:"bom_spec_id"`
+			VariantID     int64       `json:"bom_variant_id"`
+			Price         json.Number `json:"final_unit_price"`
+			Label         string      `json:"tier_label"`
+			MinQty        json.Number `json:"min_qty"`
+			MaxQty        json.Number `json:"max_qty"`
+			QuantityBasis string      `json:"quantity_basis"`
 		} `json:"price_rows"`
 	}
 	if err := json.Unmarshal(raw, &content); err != nil {
@@ -299,7 +301,15 @@ func conversionPublishedSourcesTx(ctx context.Context, tx pgx.Tx, schema string,
 		source.PriceRowKey = orderbeans.PublishedPriceRowKey(publicationID, listType, productID, row.SpecID, row.VariantID, "flat", index)
 		source.UnitPrice = string(row.Price)
 		source.TierLabel = row.Label
-		if source.TierLabel == "" {
+		source.QuantityBasis = row.QuantityBasis
+		if value, err := row.MinQty.Float64(); err == nil {
+			source.MinQty = &value
+		}
+		if value, err := row.MaxQty.Float64(); err == nil {
+			source.MaxQty = &value
+		}
+
+		if source.TierLabel == "" && row.MinQty != "" {
 			source.TierLabel = string(row.MinQty) + "+"
 		}
 		result = append(result, source)

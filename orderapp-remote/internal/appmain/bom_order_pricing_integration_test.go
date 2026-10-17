@@ -82,6 +82,7 @@ func TestBOMOrderPricingPostgresHTTP(t *testing.T) {
 		frozen.Name = fmt.Sprintf("档位%d", i+1)
 		rows = append(rows, map[string]any{"product_id": pid, "parent_product_id": pid, "sku_id": source, "bom_spec_id": source, "bom_variant_id": sourceV, "spec_name": "100g", "price_tier": fmt.Sprint(i), "effective_sales_spec": map[string]any{"bom_spec_id": source, "bom_variant_id": sourceV, "spec_name": "100g", "inventory_unit": "袋"}, "quantity_basis": "sales_spec_count", "min_qty": i * 48, "final_unit_price": 10.8 - float64(i)*.9, "price_unit": "袋", "inventory_unit": "袋", "tier_label": frozen.Name, "pricing_mode": "tier_template", "pricing_rule_id": frozen.ID, "tier_pricing_rule_id": frozen.ID, "pricing_rule_snapshot": frozen})
 	}
+	rows[0]["max_qty"] = 47
 	// Server publishing overwrites forged client rule snapshots and retains sale prices.
 	publishRows := []any{}
 	for _, row := range rows {
@@ -104,6 +105,27 @@ func TestBOMOrderPricingPostgresHTTP(t *testing.T) {
 	content, _ := json.Marshal(map[string]any{"price_rows": rows})
 	f.exec("UPDATE %s.bean_list_publications SET content_json=$1,config_json='{\"publication_batch\":{\"release_id\":\"bom-test\",\"table_key\":\"source\",\"table_name\":\"100g表\",\"is_default_table\":true}}' WHERE id=$2", content, f.publication)
 	key := orderbeans.PublishedPriceRowKey(f.publication, "commercial", pid, source, sourceV, "flat", 0)
+	for _, route := range []string{"/api/order/spec-conversions", "/api/mini/employee/spec-conversions"} {
+		token := "basic-admin"
+		if strings.Contains(route, "/mini/") {
+			token = f.salesToken
+		}
+		response := f.call("GET", fmt.Sprintf("%s?customer_id=%d&product_id=%d&publication_id=%d", route, customer, pid, f.publication), nil, token, 200)
+		encodedCatalog, _ := json.Marshal(response)
+		var catalog salesapp.SpecConversionCatalog
+		if err := json.Unmarshal(encodedCatalog, &catalog); err != nil {
+			t.Fatal(err)
+		}
+		if len(catalog.SourceTiers) != 2 {
+			t.Fatalf("source tiers: %s", response)
+		}
+		for i, tier := range catalog.SourceTiers {
+			if tier.MinQty == nil || *tier.MinQty != float64(i*48) || (i == 0 && (tier.MaxQty == nil || *tier.MaxQty != 47)) || (i == 1 && tier.MaxQty != nil) || tier.QuantityBasis != "sales_spec_count" {
+				t.Fatalf("missing published range: %+v", tier)
+			}
+		}
+	}
+
 	request := salesapp.SpecConversionQuoteRequest{SpecConversionSelection: salesapp.SpecConversionSelection{PricingMethod: "bom_rule", SourceSpecID: source, SourceVariantID: sourceV}, CustomerID: customer, ProductID: pid, PublicationID: f.publication, PriceRowKey: key, TargetSpecID: target, TargetVariantID: targetV, Quantity: 2}
 	q := func(req salesapp.SpecConversionQuoteRequest, mini bool, want int) salesapp.SpecConversionQuote {
 		path, token := "/api/order/spec-conversions/quote", "basic-admin"
