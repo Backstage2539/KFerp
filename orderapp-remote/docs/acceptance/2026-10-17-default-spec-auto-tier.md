@@ -32,4 +32,17 @@
 
 功能分支 `codex/default-spec-auto-tier-20261017`，基于 `origin/develop@f9ec1da6`。
 仅 development 部署及开发版包；生产、微信上传审核发布、真实业务验收分别处理。
-最终提交、部署备份、健康检查和开发包校验将在部署完成后补录。
+已完成开发交付，详见下方回执。
+
+## 开发交付回执
+
+- GitHub PR #206：https://github.com/Backstage2539/KFerp/pull/206，已合并。推送实现提交 `059d89cb1019dfcbc8d9e11e8dc4ca6e6729ff70`。
+- 已部署 `develop@3b5e8639ac0af3835112db3c46f7ce88d2e9359a`，部署命令：`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-auto-tier-delivery-20261017/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development`，退出0。
+- 服务器完整 Go、Vue 1375 tests/build、小程序337 tests/typecheck/build、镜像内Go测试均通过。
+- 运行：erp_orderapp running，PostgreSQL healthy；login200、app303、认证手册与PR-695标记正确、匿名报价401。PR-695为review，等待Van业务验收。
+- 回滚源码 `/opt/stacks/erp/orderapp.backup.deploy-20261017212055-3b5e8639ac0a`；回滚镜像 `kferp-orderapp-rollback:development-20261017212055-3b5e8639ac0a`。
+- 开发包：`/Users/yiiiple-work/KFerp-auto-tier-delivery-20261017/KFerp-miniapp-mp-weixin-dev`；ZIP `KFerp-miniapp-dev-3b5e8639.zip`。RELEASE_INFO确认本次提交、development及dev接口；24页面、96清单文件、ZIP完整性和无project.private.config.json通过。
+- ZIP SHA256：`f32b8d9ca33d56063870e6964ce436c7afa0fb7d8f2d51b589cfb53260aa2821`。
+- 发布中遇服务器磁盘100%导致应用启动失败；确认构建已结束后只清理24小时以前未使用的Docker构建缓存，释放约1.978GB；未删除业务数据、数据库卷、源码备份或回滚镜像。重启开发应用后正常启动，部署健康检查通过。检查时磁盘仍仅约1GB可用（99%），需另行安排容量治理。
+- 日志、截图、包及交付说明存放上述交付目录。仅本地模拟数据交互和开发只读健康检查；未做生产部署、微信上传/审核/发布、真实业务/真机验收。
+- 本回执为部署后文档补录，不改变运行版本。
