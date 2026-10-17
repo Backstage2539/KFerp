@@ -20,6 +20,9 @@ func (h orderAPIHandler) requireConversionEmployee(c echo.Context, permission st
 }
 func conversionResponse(c echo.Context, data any, err error) error {
 	if err != nil {
+		if confirmation, ok := salesapp.PricingRuleConfirmationDetails(err); ok {
+			return c.JSON(409, map[string]string{"error": err.Error(), "code": "pricing_rule_confirmation_required", "current_rule_revision": confirmation.Revision, "pricing_rule_name": confirmation.RuleName})
+		}
 		status := http.StatusBadRequest
 		if _, ok := salesapp.OrderEditConflictMessage(err); ok {
 			status = http.StatusConflict

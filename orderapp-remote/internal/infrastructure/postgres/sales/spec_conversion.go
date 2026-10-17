@@ -482,5 +482,5 @@ func frozenSpecConversionTx(ctx context.Context, tx pgx.Tx, schema string, order
 	return q, true, nil
 }
 func sameSpecConversionSelection(old, next salesapp.SpecConversionQuoteRequest) bool {
-	return old.PricingMethod == next.PricingMethod && old.QuoteRevision == next.QuoteRevision && old.CustomerID == next.CustomerID && old.ProductID == next.ProductID && old.PublicationID == next.PublicationID && old.PriceRowKey == next.PriceRowKey && old.TargetSpecID == next.TargetSpecID && old.TargetVariantID == next.TargetVariantID && old.GroupID == next.GroupID && old.Revision == next.Revision && old.SourceSpecID == next.SourceSpecID && old.SourceVariantID == next.SourceVariantID
+	return old.CurrentRuleRevision == next.CurrentRuleRevision && old.PricingMethod == next.PricingMethod && old.QuoteRevision == next.QuoteRevision && old.CustomerID == next.CustomerID && old.ProductID == next.ProductID && old.PublicationID == next.PublicationID && old.PriceRowKey == next.PriceRowKey && old.TargetSpecID == next.TargetSpecID && old.TargetVariantID == next.TargetVariantID && old.GroupID == next.GroupID && old.Revision == next.Revision && old.SourceSpecID == next.SourceSpecID && old.SourceVariantID == next.SourceVariantID
 }

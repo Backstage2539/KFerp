@@ -437,7 +437,8 @@
             </label>
             <small v-if="bomTierState(row).reason">{{ bomTierState(row).reason }}</small>
             <small>{{ row.spec_invalid_message || conversionDescription(conversionSnapshot(row)) }}</small>
-            <button v-if="row.selected_price_row_key" class="secondary" type="button" @click="repriceOrderBOMTier(row)">重新计价</button>
+            <button v-if="row.bom_current_rule_revision" class="secondary" type="button" @click="confirmCurrentBOMRule(row)">按当前模板重新报价</button>
+            <button v-else-if="row.selected_price_row_key" class="secondary" type="button" @click="repriceOrderBOMTier(row)">重新计价</button>
             <details v-if="conversionSnapshot(row)?.calculation"><summary>查看计算说明</summary><p v-for="line in conversionSnapshot(row).calculation.formula_expression_lines || []" :key="line">{{ line }}</p><p>{{ conversionSnapshot(row).calculation.formula_expression }}</p></details>
           </div>
           <div v-if="!props.customerPortal && !row.bom_catalog && row.price_selection_mode !== 'converted_tier' && row.price_selection_mode !== 'bom_tier' && tierRows(row).length" class="tier-prices">
@@ -700,12 +701,19 @@ function selectOrderBOMSpec(row, target, keepTier = false) {
 async function quoteOrderBOMTier(row) {
   if (!row.spec_conversion || !row.selected_price_row_key) return
   const context=bomContext(row), generation=(row.bom_generation || 0)+1
-  row.bom_generation=generation; row.price_missing=true;row.unit_price='';row.spec_invalid_message='正在计算目标规格价格…'
+  row.bom_generation=generation; row.bom_current_rule_revision='';row.bom_current_rule_context='';row.price_source_json='';row.price_missing=true;row.unit_price='';row.spec_invalid_message='正在计算目标规格价格…'
   try {
     const quote=await apiSend('/api/order/spec-conversions/quote',{body:{...row.spec_conversion,quote_revision:'',customer_id:Number(context.customer),product_id:Number(context.product),publication_id:Number(context.publication),price_row_key:context.key,target_bom_spec_id:Number(context.spec),target_bom_variant_id:Number(context.variant),quantity:Math.max(1,Number(row.qty)||1)}})
     if(generation!==row.bom_generation || !bomQuoteIsCurrent(context,bomContext(row)))return
     Object.assign(row,convertedOrderRow(row,quote));ensureTrailingBlankRow()
-  } catch(e) { if(generation===row.bom_generation && bomQuoteIsCurrent(context,bomContext(row))) { row.price_missing=true;row.spec_invalid_message=e.message } }
+  } catch(e) { if(generation===row.bom_generation && bomQuoteIsCurrent(context,bomContext(row))) { row.price_missing=true;row.spec_invalid_message=e.message
+    if(e.code === 'pricing_rule_confirmation_required') { row.bom_current_rule_revision=e.current_rule_revision;row.bom_current_rule_context=JSON.stringify(context) }
+  } }
+}
+function confirmCurrentBOMRule(row) {
+  if (!row.bom_current_rule_revision || !row.spec_conversion || row.bom_current_rule_context !== JSON.stringify(bomContext(row))) return
+  row.spec_conversion={...row.spec_conversion,current_rule_revision:row.bom_current_rule_revision,quote_revision:'',reprice:true}
+  quoteOrderBOMTier(row)
 }
 function bomTierState(row) {
   if (row.spec_conversion?.reprice === false) return { mode:'frozen', reason:'已存订单沿用冻结档位和单价；需要调整时点击重新计价' }

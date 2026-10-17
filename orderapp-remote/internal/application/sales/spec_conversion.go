@@ -3,18 +3,20 @@ package sales
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	conversion "orderapp/internal/domain/specconversion"
 )
 
 type SpecConversionSelection struct {
-	PricingMethod   string `json:"pricing_method,omitempty"`
-	QuoteRevision   string `json:"quote_revision,omitempty"`
-	GroupID         int64  `json:"group_id"`
-	Revision        int64  `json:"revision"`
-	SourceSpecID    int64  `json:"source_bom_spec_id"`
-	SourceVariantID int64  `json:"source_bom_variant_id"`
-	Reprice         bool   `json:"reprice,omitempty"`
+	CurrentRuleRevision string `json:"current_rule_revision,omitempty"`
+	PricingMethod       string `json:"pricing_method,omitempty"`
+	QuoteRevision       string `json:"quote_revision,omitempty"`
+	GroupID             int64  `json:"group_id"`
+	Revision            int64  `json:"revision"`
+	SourceSpecID        int64  `json:"source_bom_spec_id"`
+	SourceVariantID     int64  `json:"source_bom_variant_id"`
+	Reprice             bool   `json:"reprice,omitempty"`
 }
 type SpecConversionSpec struct {
 	IsDefault     bool   `json:"is_default"`
@@ -67,6 +69,8 @@ type SpecConversionQuoteRequest struct {
 	Quantity        int64  `json:"quantity"`
 }
 type SpecConversionQuote struct {
+	PricingRuleBasis     string `json:"pricing_rule_basis,omitempty"`
+	PricingRuleUpdatedAt string `json:"pricing_rule_updated_at,omitempty"`
 	SpecConversionQuoteRequest
 	PricingRuleName string          `json:"pricing_rule_name,omitempty"`
 	Calculation     json.RawMessage `json:"calculation,omitempty"`
@@ -141,4 +145,20 @@ func SpecConversionFromSnapshot(raw string) *SpecConversionSelection {
 	copy := s.Conversion.SpecConversionSelection
 	copy.Reprice = false
 	return &copy
+}
+
+// PricingRuleConfirmationError is returned only after resolving a server-owned
+// source row. Its revision binds consent to the current rule and quote context.
+type PricingRuleConfirmationError struct {
+	RuleName string
+	Revision string
+}
+
+func (e *PricingRuleConfirmationError) Error() string {
+	return "旧价格表关联的计算模板已变化或无法确认未变化（" + e.RuleName + "）。请确认按当前模板重新报价；保存后冻结本次价格依据"
+}
+func PricingRuleConfirmationDetails(err error) (*PricingRuleConfirmationError, bool) {
+	var e *PricingRuleConfirmationError
+	ok := errors.As(err, &e)
+	return e, ok
 }

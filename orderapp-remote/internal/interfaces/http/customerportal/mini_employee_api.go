@@ -596,6 +596,9 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 		cmd.RequireCurrentDefaultPublications = true
 		result, err := sales.SaveOrder(c.Request().Context(), cmd)
 		if err != nil {
+			if confirmation, ok := salesapp.PricingRuleConfirmationDetails(err); ok {
+				return c.JSON(http.StatusConflict, map[string]string{"error": err.Error(), "code": "pricing_rule_confirmation_required", "current_rule_revision": confirmation.Revision, "pricing_rule_name": confirmation.RuleName})
+			}
 			if message, conflict := salesapp.OrderEditConflictMessage(err); conflict {
 				return c.JSON(http.StatusConflict, map[string]string{"error": message})
 			}
@@ -1202,6 +1205,9 @@ func (h miniEmployeeOrderHandler) update(c echo.Context) error {
 	cmd.ExpectedEditRevision = strings.TrimSpace(req.EditRevision)
 	result, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
+		if confirmation, ok := salesapp.PricingRuleConfirmationDetails(err); ok {
+			return c.JSON(http.StatusConflict, map[string]string{"error": err.Error(), "code": "pricing_rule_confirmation_required", "current_rule_revision": confirmation.Revision, "pricing_rule_name": confirmation.RuleName})
+		}
 		if message, conflict := salesapp.OrderEditConflictMessage(err); conflict {
 			return c.JSON(http.StatusConflict, map[string]string{"error": message})
 		}

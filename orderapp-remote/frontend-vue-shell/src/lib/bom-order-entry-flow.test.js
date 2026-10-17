@@ -8,7 +8,7 @@ const specs=[{bom_spec_id:1,bom_variant_id:11,is_default:true,spec_name:'默认'
 const source_tiers=[{bom_spec_id:1,bom_variant_id:11,price_row_key:'low',min_qty:2,max_qty:13,quantity_basis:'sales_spec_count'},{bom_spec_id:1,bom_variant_id:11,price_row_key:'high',min_qty:14,max_qty:null,quantity_basis:'sales_spec_count'}]
 function fixture(){
  const pending=[]
- const ctx={orderedBOMSpecs,bomTierSelection,bomQuoteIsCurrent,resolveBOMTier,convertedOrderRow,props:{customerPortal:false},form:{customer_id:9},ensureTrailingBlankRow(){},apiGet:async()=>({specs,source_tiers,groups:[]}),apiSend:(path,{body})=>new Promise(resolve=>pending.push({body,resolve}))}
+ const ctx={orderedBOMSpecs,bomTierSelection,bomQuoteIsCurrent,resolveBOMTier,convertedOrderRow,props:{customerPortal:false},form:{customer_id:9},ensureTrailingBlankRow(){},apiGet:async()=>({specs,source_tiers,groups:[]}),apiSend:(path,{body})=>new Promise((resolve,reject)=>pending.push({body,resolve,reject}))}
  const source=readFileSync(new URL('../views/OrderEntryView.vue',import.meta.url),'utf8')
  vm.runInNewContext(source.slice(source.indexOf('function bomContext('),source.indexOf('import OperationManualView')),ctx)
  const row={product_id:7,bom_spec_id:1,bom_variant_id:11,bean_list_publication_id:8,qty:2,bom_catalog:{specs,source_tiers}}
@@ -40,4 +40,30 @@ test('ERP no-match preserves only manual fallback and changing quantity within a
  ctx.selectOrderBOMTier(row,{target:{value:'high'}});await finish();ctx.syncOrderBOMTier(row);assert.equal(row.selected_price_row_key,'high')
  row.qty=2;ctx.syncOrderBOMTier(row);row.qty=3;ctx.syncOrderBOMTier(row);await finish();assert.equal(row.selected_price_row_key,'low');assert.equal(row.price_missing,false)
  row.qty=1;ctx.syncOrderBOMTier(row);assert.equal(row.selected_price_row_key,'');assert.equal(row.price_missing,true)
+})
+
+test('ERP legacy changed template requires explicit confirmation; switching specs clears it and late errors stay isolated',async()=>{
+ const {ctx,row,pending,finish}=fixture()
+ ctx.selectOrderBOMSpec(row,specs[1]);ctx.selectOrderBOMTier(row,{target:{value:'low'}})
+ pending[0].reject(Object.assign(new Error('模板已变化'),{code:'pricing_rule_confirmation_required',current_rule_revision:'rule-v2'}))
+ await new Promise(r=>setImmediate(r))
+ assert.equal(row.bom_current_rule_revision,'rule-v2');assert.equal(row.price_missing,true)
+ ctx.confirmCurrentBOMRule(row);assert.equal(pending[1].body.current_rule_revision,'rule-v2')
+ await finish(1);assert.equal(row.spec_conversion.current_rule_revision,'rule-v2');assert.equal(row.price_missing,false)
+ ctx.selectOrderBOMSpec(row,specs[2]);assert.equal(row.bom_current_rule_revision,'');assert.equal(row.spec_conversion,null)
+ ctx.selectOrderBOMTier(row,{target:{value:'low'}})
+ ctx.selectOrderBOMSpec(row,specs[1])
+ pending[2].reject(Object.assign(new Error('old'),{code:'pricing_rule_confirmation_required',current_rule_revision:'stale'}))
+ await new Promise(r=>setImmediate(r));assert.equal(row.bom_current_rule_revision,'')
+})
+
+test('ERP copying or repricing retains tier but never reuses current-template consent',async()=>{
+ const {ctx,row,pending,finish}=fixture()
+ ctx.selectOrderBOMSpec(row,specs[1]);ctx.selectOrderBOMTier(row,{target:{value:'low'}});await finish()
+ row.spec_conversion.current_rule_revision='old-consent'
+ ctx.selectOrderBOMSpec(row,specs[1],true)
+ assert.equal(pending.at(-1).body.current_rule_revision,undefined)
+ await finish();row.spec_conversion.current_rule_revision='other-consent';row.spec_conversion.reprice=false
+ await ctx.repriceOrderBOMTier(row)
+ assert.equal(pending.at(-1).body.current_rule_revision,undefined)
 })

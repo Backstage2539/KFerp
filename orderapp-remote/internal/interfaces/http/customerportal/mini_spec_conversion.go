@@ -44,6 +44,9 @@ func registerMiniSpecConversions(e *echo.Echo, portal Service, sales EmployeeSal
 		}
 		data, err := svc.QuoteSpecConversion(c.Request().Context(), cmd)
 		if err != nil {
+			if confirmation, ok := salesapp.PricingRuleConfirmationDetails(err); ok {
+				return c.JSON(409, map[string]string{"error": err.Error(), "code": "pricing_rule_confirmation_required", "current_rule_revision": confirmation.Revision, "pricing_rule_name": confirmation.RuleName})
+			}
 			status := 400
 			if _, ok := salesapp.OrderEditConflictMessage(err); ok {
 				status = 409
