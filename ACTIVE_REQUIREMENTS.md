@@ -5789,3 +5789,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Evidence: orderapp-remote/docs/acceptance/2026-10-18-price-table-editor-restore.md
 - Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md
 - Deployment: explicitly not requested; merge develop only; no customer table writes
+
+### PR-700-ORDER-LIST-INLINE
+- Branch: codex/order-list-inline-details-20261018
+- Owner/session: Codex
+- Status: verified; PR review / REV todo
+- Scope: 全部商品分类、真实样品标签、单行展开只读订单明细。
+- Verifier: Go 单元/API/隔离 PostgreSQL；Vue helper/runtime/浏览器响应式；Vue 构建；小程序兼容回归。
+- Manual: orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md（Vue 帮助同步）
+- Review/acceptance: docs/acceptance/2026-10-18-order-list-inline.md；Van 真人验收待完成。
+- Deployment: ready for serialized integration/development deploy; production excluded
