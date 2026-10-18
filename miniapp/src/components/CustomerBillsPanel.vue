@@ -11,6 +11,7 @@ import {
   type CustomerAccountSettlement,
 } from '../api/customerPortal'
 import { openMiniappFileOutput } from '../utils/fileOutput'
+import { shanghaiToday } from '../utils/employeeOrder'
 
 const props = defineProps<{ token: string }>()
 type PickerChangeEvent = { detail?: { value?: string | number } }
@@ -30,7 +31,7 @@ const writing = ref(false)
 const errorMessage = ref('')
 const data = ref<CustomerAccountData>(emptyAccount())
 const period = ref<'week' | 'month'>('month')
-const anchor = ref(new Date().toISOString().slice(0, 10))
+const anchor = ref(shanghaiToday())
 const page = ref(1)
 const disputeSettlementID = ref(0)
 const disputeFeeItemID = ref(0)
