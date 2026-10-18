@@ -83,23 +83,25 @@ func TestPriceTableOnlyOrderScopePostgresHTTP(t *testing.T) {
 		rows = append(rows, map[string]any{"product_id": pid, "parent_product_id": pid, "sku_id": source, "bom_spec_id": source, "bom_variant_id": sourceV, "spec_name": "100g", "price_tier": fmt.Sprint(i), "effective_sales_spec": map[string]any{"bom_spec_id": source, "bom_variant_id": sourceV, "spec_name": "100g", "inventory_unit": "袋"}, "quantity_basis": "sales_spec_count", "min_qty": i * 48, "final_unit_price": 10.8 - float64(i)*.9, "price_unit": "袋", "inventory_unit": "袋", "tier_label": frozen.Name, "pricing_mode": "tier_template", "pricing_rule_id": frozen.ID, "tier_pricing_rule_id": frozen.ID, "pricing_rule_snapshot": frozen})
 	}
 	rows[0]["max_qty"] = 47
-	// Server publishing overwrites forged client rule snapshots and retains sale prices.
+	// Publishing priced rows must not require the retired cross-spec executable-template snapshot.
 	publishRows := []any{}
 	for _, row := range rows {
 		copy := map[string]any{}
 		for k, v := range row {
 			copy[k] = v
 		}
-		copy["pricing_rule_snapshot"] = map[string]any{"id": ruleID, "margin_rate": 99}
+		delete(copy, "pricing_rule_snapshot")
 		publishRows = append(publishRows, copy)
 	}
+	f.exec("UPDATE %s.product_pricing_rules SET active=false WHERE id=$1", ruleID)
 	published, err := costingpg.NewRepository(f.pool, f.schema).PublishBeanList(f.ctx, costingapp.PublishBeanListCommand{OwnerType: "official", ListType: "commercial", Version: "V-BOM-694", Actor: "test", Config: map[string]any{}, Content: map[string]any{"price_rows": publishRows}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, _ := json.Marshal(published.Content)
-	if strings.Contains(string(encoded), `"margin_rate":99`) {
-		t.Fatalf("client template snapshot trusted: %s", encoded)
+	f.exec("UPDATE %s.product_pricing_rules SET active=true WHERE id=$1", ruleID)
+	publishedRow := published.Content["price_rows"].([]any)[0].(map[string]any)
+	if publishedRow["final_unit_price"] != rows[0]["final_unit_price"] {
+		t.Fatal("published price changed")
 	}
 	f.exec("UPDATE %s.bean_list_publications SET status='withdrawn' WHERE id=$1", published.ID)
 	content, _ := json.Marshal(map[string]any{"price_rows": rows})
