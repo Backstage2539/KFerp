@@ -11,6 +11,7 @@ import (
 func TestCustomerStockConfigurationAndEmployeeDirectShipPermissions(t *testing.T) {
 	cases := []struct{ method, path, permission string }{
 		{"GET", "/api/customer-fulfillment/74/settings", "customers.read"},
+		{"GET", "/api/customer-fulfillment/74/overview", "stock.read"},
 		{"PUT", "/api/customer-fulfillment/74/settings", "customers.write"},
 		{"POST", "/api/customer-fulfillment/74/fees/preview", "customers.read"},
 		{"PUT", "/api/customer-fulfillment/74/orders/5/fees", "customers.write"},
