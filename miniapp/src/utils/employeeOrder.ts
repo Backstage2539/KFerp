@@ -534,9 +534,9 @@ export function restoreEmployeeOrderAutomaticPrice(
   family?: EmployeeOrderProductFamily,
 ): EmployeeOrderDraftItem {
   if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '')) {
-    const spec = family?.specs.find(s => Number(s.bom_spec_id) === Number(item.spec_conversion?.source_bom_spec_id))
+    const spec = family?.specs.find(s => Number(s.bom_spec_id) === Number(item.bom_spec_id))
     if (family && spec) return employeeOrderItemFromSpec({ ...item, spec_conversion: undefined }, family, spec)
-    return { ...item, spec_conversion: undefined, price_selection_mode: 'auto', selected_price_row_key: '', unit_price: 0, validation_error: '请重新选择当前价格表中的商品规格' }
+    return { ...item, spec_conversion: undefined, bom_catalog: undefined, price_source_json: '', price_override: false, price_selection_mode: 'auto', selected_price_row_key: '', unit_price: 0, validation_error: '请重新选择当前价格表中的商品规格' }
   }
   return repriceEmployeeOrderItemForQuantity({
     ...item,
@@ -761,7 +761,10 @@ export function copyEmployeeOrderItems(
   const hydrated = hydrateEmployeeOrderEditItems(detailItems, families, customerID, retailOrder)
   return hydrated.map((item, index) => {
     const detail = detailItems[index]
-    if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '')) return { ...item, item_id: 0, key: `copy-${Date.now()}-${index+1}`, spec_conversion: { ...item.spec_conversion!, reprice: true }, validation_error: '复制订单需按当前规则重新报价' }
+    if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '')) {
+      const family = customerProductFamilies(families, customerID).find(f => employeeOrderProductFamilyKey(f) === item.product_family_key)
+      return { ...restoreEmployeeOrderAutomaticPrice(item, family), item_id: 0, key: `copy-${Date.now()}-${index+1}` }
+    }
     const historicalPrice = Number(detail?.unit_price || item.unit_price || 0)
     return {
       ...item,
@@ -808,7 +811,7 @@ export function revalidateEmployeeOrderItems(
   const available = customerProductFamilies(families, customerID)
   return items.map((item) => {
     if (Number(item.product_id || 0) <= 0) return { ...item }
-    if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '') && !options.clearPriceSelection) return { ...item }
+    if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '') && Number(item.item_id) > 0 && item.spec_conversion?.reprice === false && !options.clearPriceSelection) return { ...item }
     if (['converted_tier','bom_tier'].includes(item.price_selection_mode || '')) item = restoreEmployeeOrderAutomaticPrice(item, available.find(f => employeeOrderProductFamilyKey(f) === item.product_family_key))
     if (options.preserveSampleManualPrice && isConfirmedSampleManualItem(item)) {
       return { ...item, price_selection_mode: 'manual', validation_error: '' }
