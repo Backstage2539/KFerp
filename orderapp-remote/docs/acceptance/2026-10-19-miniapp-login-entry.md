@@ -40,3 +40,19 @@
 - 聚焦迁移测试及四端订单复制数据库测试全部通过；生产合并后的 Go 全量通过，网页和小程序源码与已验证 develop 一致。
 - 补跑的历史大测试 `TestPR598MaterialOutputRepositoryAndCompatibilityMigrationPostgres` 在旧样例将产出物料标为外购时失败；试验修正后又遇到旧规格模式字段缺失。已撤回试验修改、保留原测试，新增独立迁移回归避免依赖这组过期全流程样例。该大测试不计入通过项；未声称全库数据库集成测试通过。
 - 生产数据库发布前备份：`/opt/stacks/erp-production/backups/before-login-order-copy-20261019.dump`，12 MiB；`pg_restore --list` 校验通过。SHA-256：`bcd443a5e301c86f1aefa504b1325b51877fe2017ab359860db229f1cccd4e2a`。备份仅在生产服务器保存。
+
+## 开发与生产交付回执
+
+- 修复分支 `codex/fix-miniapp-login-entry-20261019` 已推送，提交 `a061480e`；开发集成、部署版本 `ab573007a33c5ee373b7dd5402f0e7ba2795d9fd`。
+- 生产发布分支 `codex/release-login-order-copy-20261019` 已推送，提交 `0e4cef9a`；合入 main 后生产部署版本 `c815fb9905fb8d0a80912ec8933b0788de23dbdc`。
+- 两个环境分别执行 `./deploy_orderapp.sh development` / `./deploy_orderapp.sh production`，指定本次独立交付目录；服务器 Vue 1,404 项、小程序 338 项、类型检查、构建、Go 全量及镜像内 Go 测试全部通过。两次发布脚本均完成，外部登录页 HTTP 200。
+- 开发源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20261019002107-ab573007a33c`；回滚镜像 `kferp-orderapp-rollback:development-20261019002107-ab573007a33c`。
+- 生产源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261019003001-c815fb9905fb`；回滚镜像 `kferp-orderapp-rollback:production-20261019003001-c815fb9905fb`。
+- 运行镜像：development `sha256:7f460bc19f0f38bd1b50d1a34bb894ddb2ed626bf63120f11c969f02d02d752e`；production `sha256:6f32c31c18ef8433ad39f20aea01fcf3bd59dc620a088855219d8bab470f8261`。两边应用 running、数据库 healthy。
+- 两边只读检查通过：登录页及 Vue 订单入口 200；无效 ID 的 ERP 复制接口认证后 400；四个复制入口匿名均 401；员工手册含主动退出说明；PR-701/702 为 review，DEV-793 为 done。未读取真实订单做生产业务验收。
+- 生产首次认证冒烟误用 env 文件中的凭据，收到 401；改用容器实际运行凭据后通过，凭据未输出，未修改认证配置。检查脚本及前后日志保留在交付目录 evidence 中。
+- 开发包：`/Users/yiiiple-work/KFerp-login-fix-delivery-20261019/KFerp-miniapp-dev-ab573007.zip`；SHA-256 `dcc680cbcd9def148b8e2d9387574ad8d5b88b95c97415d9ccc2621fb9bdb10f`。
+- 生产包：`/Users/yiiiple-work/KFerp-login-fix-delivery-20261019/KFerp-miniapp-production-c815fb99.zip`；SHA-256 `b8b70959655ff6cba6bf7924550549ffbcba7712276005dd98c79760490cb27b`。
+- 两包均含 RELEASE_INFO、PAGE_FILE_MANIFEST，24 页面/96 个页面文件完整，ZIP CRC 通过；生产包仅含生产 API 地址。生产源目录为同交付目录下 `KFerp-miniapp-mp-weixin`，开发源目录为 `KFerp-miniapp-mp-weixin-dev`。
+- 未替换用户当前正在使用的 DevTools 项目，早前测试目录保留修复预览和旧包备份；正式后续预览/上传使用本次交付目录。微信上传、审核、发布及 Van 业务验收未执行。
+- 回执随后合入 develop/main，属于文档更新；运行代码和小程序包版本仍为上述提交，不为回执再次重启服务。
