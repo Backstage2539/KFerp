@@ -232,6 +232,9 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		hasNext = true
 		out = out[:query.Limit]
 	}
+	if err := populateOrderTypeSummaries(ctx, pool, schema, out); err != nil {
+		return nil, false, err
+	}
 	return out, hasNext, nil
 }
 
