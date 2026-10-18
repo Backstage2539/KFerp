@@ -65,6 +65,9 @@ type Dependencies struct {
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerFulfillmentSettingsRoutes(e, deps.CustomerFulfillment)
+	registerEmployeeDirectShipAPI(e, deps.CustomerFulfillment)
+	registerEmployeeDirectShipCancelAPI(e, deps.CustomerFulfillment)
 	api := api{svc: deps.CustomerFulfillment, customers: deps.Customers, messages: deps.MessageCenter, sales: deps.Sales, sharedProcessing: deps.SharedProcessing}
 	e.GET("/api/customer-fulfillment/customers", api.listCustomers)
 	e.GET("/api/customer-fulfillment/:customer_id/overview", api.overview)

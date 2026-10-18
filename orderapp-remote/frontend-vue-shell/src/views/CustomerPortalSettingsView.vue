@@ -105,6 +105,7 @@
           <button class="primary" type="button" @click="saveVisibility(row)" :disabled="!canSaveRow(row)">
             {{ row.saving ? '保存中' : '保存并应用模板' }}
           </button>
+		  <CustomerFulfillmentSettings :customer-id="Number(row.customer.id)" />
         </div>
 
         <div class="template-summary">
@@ -224,6 +225,7 @@
 </template>
 
 <script setup>
+import CustomerFulfillmentSettings from '../components/CustomerFulfillmentSettings.vue'
 import RegisteredVisitors from '../components/RegisteredVisitors.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'

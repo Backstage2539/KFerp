@@ -89,6 +89,7 @@
 
         <Teleport :to="props.recipientTarget || 'body'" :disabled="!props.recipientTarget" defer>
         <div v-if="props.fulfillmentMode || form.edit_id" class="fulfillment-recipient-section full-span">
+          <CustomerRecipientPicker v-if="!props.customerPortal" :customer-id="form.customer_id" :current-recipient="form" @select="applyAddressBookRecipient" />
           <label class="full-span"><span>粘贴收件信息</span><textarea v-model="fulfillmentRecipientPaste" rows="2" placeholder="姓名、电话、地址"></textarea><button type="button" @click="parseFulfillmentRecipient">解析收件信息</button></label>
           <label v-if="props.fulfillmentMode" class="readonly-field">
             <span>履约客户</span>
@@ -116,6 +117,13 @@
           </label>
         </div>
         </Teleport>
+
+        <div v-if="!props.customerPortal && !sampleOrderEditing" class="delivery-choice full-span">
+          <label><span>交付方式</span><select v-model="form.delivery_mode"><option value="ship">正常发货</option><option value="customer_stock">购货留厂（进入客户库存）</option></select></label>
+          <label v-if="form.delivery_mode === 'customer_stock'"><span>目标客户成品仓</span><select v-model="form.delivery_warehouse_code" :disabled="deliveryWarehousesLoading"><option value="">请选择客户仓库</option><option v-for="warehouse in deliveryWarehouseOptions" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
+          <p v-if="form.delivery_mode === 'customer_stock'" class="muted">货款按本次销售订单结算，形成待入库权益并按订单排产。实际入客户仓后才能发货；后续代发只收服务费和运费。</p>
+          <p v-if="deliveryWarehouseError" class="error">{{ deliveryWarehouseError }}</p>
+        </div>
 
         <label v-if="!props.customerPortal" class="readonly-field">
           <span>客户负责人</span>
@@ -741,6 +749,8 @@ import {
   wholesaleSpecOptions,
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
+import CustomerRecipientPicker from '../components/CustomerRecipientPicker.vue'
+import { customerStockWarehouses } from '../lib/customer-stock-entry'
 import { businessGroupFeatureSelectionIDs, businessGroupRowsForFeatureSelection } from '../lib/business-grouping'
 import { buildProductCatalogTemplatePriceListTypeOptions } from '../lib/product-price-list-types'
 import { customerTypeLabel, customerTypeOptions, normalizeCustomerType } from '../lib/customer-types'
@@ -760,6 +770,7 @@ const props = defineProps({
   customerPortal: { type: Boolean, default: false },
   portalService: { type: String, default: 'direct_ship' },
   recipientInfo: { type: Object, default: null },
+  deliveryPrefill: { type: Object, default: null },
 })
 
 const emit = defineEmits(['close', 'saved', 'editability'])
@@ -812,6 +823,22 @@ const customerForm = reactive(emptyCustomerForm())
 const fieldErrors = reactive({})
 const effectiveCopyID = ref(0)
 const backfillMode = ref(false)
+const deliveryWarehouses = ref([])
+const deliveryWarehousesLoading = ref(false)
+const deliveryWarehouseError = ref('')
+const deliveryWarehouseOptions = computed(() => customerStockWarehouses(deliveryWarehouses.value, form.customer_id))
+let deliveryWarehouseLoadVersion = 0
+function applyAddressBookRecipient(snapshot) { Object.assign(form, snapshot); saveOrderEntryDraft() }
+async function loadDeliveryWarehouses() {
+  const version = ++deliveryWarehouseLoadVersion
+  deliveryWarehouses.value = []
+  deliveryWarehouseError.value = ''
+  if (props.customerPortal || Number(form.customer_id) <= 0) return
+  deliveryWarehousesLoading.value = true
+  try { const data = await apiGet(`/api/stock/warehouses?customer_id=${Number(form.customer_id)}`); if (version === deliveryWarehouseLoadVersion) deliveryWarehouses.value = data.rows || [] }
+  catch (cause) { if (version === deliveryWarehouseLoadVersion) deliveryWarehouseError.value = cause.message || '客户仓库加载失败' }
+  finally { if (version === deliveryWarehouseLoadVersion) deliveryWarehousesLoading.value = false }
+}
 
 const form = reactive({
   edit_id: 0,
@@ -819,6 +846,8 @@ const form = reactive({
   document_date: '',
   order_date: '',
   customer_id: 0,
+  delivery_mode: 'ship',
+  delivery_warehouse_code: '',
   source_id: 0,
   order_type_id: 0,
   pay_status_id: 0,
@@ -1030,7 +1059,7 @@ const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
 const paymentShippingAmountSuggestion = computed(() => money(toNumber(form.shipping_amount)))
 const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptVisible.value && itemsTotal.value > 0)
 const showPaymentShippingAmountSuggestion = computed(() => paymentReceiptVisible.value)
-const logisticsRequired = computed(() => !props.customerPortal && requiresCourierLogistics(form.ship_method, selectedShipStatusName.value))
+const logisticsRequired = computed(() => form.delivery_mode !== 'customer_stock' && !props.customerPortal && requiresCourierLogistics(form.ship_method, selectedShipStatusName.value))
 const deliveryMode = computed({
   get: () => orderDeliveryMode(form.ship_method),
   set: (value) => {
@@ -2356,6 +2385,8 @@ function applyEditData(data) {
     document_date: data.document_date || data.order_date || form.document_date,
     order_date: data.order_date || form.order_date,
     customer_id: Number(data.customer_id || 0),
+    delivery_mode: data.delivery_mode === 'customer_stock' ? 'customer_stock' : 'ship',
+    delivery_warehouse_code: data.delivery_warehouse_code || '',
     source_id: Number(data.source_id || 0),
     order_type_id: Number(data.order_type_id || 0),
     pay_status_id: Number(data.pay_status_id || 0),
@@ -2692,6 +2723,10 @@ async function load() {
     } else {
       applyCustomerContextToNewOrder()
       syncBeanListVersionForCustomer({ force: true })
+      if (props.deliveryPrefill) {
+        applyEditData({ ...form, customer_id: Number(props.customerContextId || form.customer_id), delivery_mode: 'customer_stock', delivery_warehouse_code: props.deliveryPrefill.warehouse_code || '', items: props.deliveryPrefill.items || [] })
+        syncRowsForType({ priceListChanged: true })
+      }
     }
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -2743,6 +2778,9 @@ async function save(options = {}) {
     if (!payload.customer_id) {
       raiseSaveError('请选择客户', 'customer_id')
       return
+    }
+    if (payload.delivery_mode === 'customer_stock' && !deliveryWarehouseOptions.value.some(row => row.code === payload.delivery_warehouse_code)) {
+      error.value = '请选择属于当前客户的启用成品仓库'; return
     }
     const missingCustomerProfile = selectedCustomerMissingProfileLabels()
     if (missingCustomerProfile.length) {
@@ -2803,7 +2841,7 @@ async function save(options = {}) {
     }
     if (props.fulfillmentMode) { form.customer_request_id ||= crypto.randomUUID(); payload.request_id=form.customer_request_id; payload.portal_service_code=props.portalService; payload.orders_scope='fulfillment' }
     payload.edit_revision=form.edit_revision
-    const stockDecision = (props.customerPortal || props.fulfillmentMode) ? '' : await previewStockBatchesBeforeSave(payload)
+    const stockDecision = (props.customerPortal || props.fulfillmentMode || payload.delivery_mode === 'customer_stock') ? '' : await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
     const data = await apiSend(props.customerPortal ? '/api/customer-processing/portal/order' : props.fulfillmentMode ? '/api/fulfillment/order' : '/api/order', { body: payload })
     ok.value = data.confirmation_status === 'pending' ? `${data.order_no} 已保存，待确认` : data.order_no || '成功'
@@ -2920,6 +2958,8 @@ watch(
 
 watch(logisticsRequired, ensureLogisticsDefaults)
 watch(() => form.customer_id, () => clearFieldErrorIfValid('customer_id'))
+watch(() => form.customer_id, (next, previous) => { if (!loading.value && previous && Number(next) !== Number(previous)) form.delivery_warehouse_code = ''; loadDeliveryWarehouses() })
+watch(() => form.delivery_mode, (mode) => { if (mode !== 'customer_stock') form.delivery_warehouse_code = ''; else if (!deliveryWarehouses.value.length) loadDeliveryWarehouses() })
 watch(() => form.payment_method, () => clearFieldErrorIfValid('payment_method'))
 watch(() => form.logistics_company_id, () => {
   syncLogisticsProduct()
@@ -2967,6 +3007,9 @@ watch(
 .page * { box-sizing: border-box; }
 .page.embedded { min-height: auto; padding: 0; background: transparent; }
 .fulfillment-recipient-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.delivery-choice { display:flex;flex-wrap:wrap;gap:12px;padding:14px;border:1px solid #d8e7dc;border-radius:8px;background:#f7fbf8; }
+.delivery-choice label { flex:1;min-width:200px; }
+.delivery-choice p { flex-basis:100%;margin:0; }
 .fulfillment-recipient-section .full-span { grid-column: 1 / -1; }
 .order-hero, .panel { background: #fff; border: 1px solid #e7e9ee; border-radius: 8px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
 .order-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; }

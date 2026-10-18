@@ -133,14 +133,14 @@ func TestMiniDirectShipCatalogExcludesPublicOtherCustomerFrozenAndReservedStock(
 func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *testing.T) {
 	pool, schema := newMiniDirectShipTestDB(t)
 	ctx := context.Background()
-	seedMiniDirectShipStock(t, pool, schema)
+	seedMiniDirectShipCanonicalStock(t, pool, schema)
 	repo := NewRepository(pool, schema)
 
 	base := app.MiniDirectShipCommand{
 		CustomerID: 501, EmployeeID: 701, MiniUserID: 801, IdempotencyKey: "DEV-E2E-DS-1",
 		RecipientName: "张三", RecipientPhone: "13800138000", Province: "云南省", City: "普洱市",
 		District: "思茅区", DetailAddress: "咖啡路 8 号",
-		Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 3}},
+		Items: []app.MiniDirectShipItemCommand{{ProductID: 911, BomSpecID: 9111, BomVariantID: 9112, Qty: 3}},
 		Actor: "mini_user:801",
 	}
 	preview, err := repo.PreviewMiniDirectShip(ctx, base)
@@ -151,7 +151,7 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 		t.Fatalf("preview = %#v, want FIFO split across two customer warehouses", preview)
 	}
 	shortageCmd := base
-	shortageCmd.Items = []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 5}}
+	shortageCmd.Items = []app.MiniDirectShipItemCommand{{ProductID: 911, BomSpecID: 9111, BomVariantID: 9112, Qty: 5}}
 	shortage, err := repo.PreviewMiniDirectShip(ctx, shortageCmd)
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	if len(inventory) != 1 || inventory[0].TotalQty != 4 || inventory[0].ReservedQty != 3 || inventory[0].AvailableQty != 1 || len(inventory[0].Warehouses) != 2 {
 		t.Fatalf("reserved central inventory = %#v", inventory)
 	}
-	batches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 501, ProductID: 911, SpecG: 1000})
+	batches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 501, ProductID: 911, BomSpecID: 9111, BomVariantID: 9112})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,18 +241,18 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	}
 	var cancelledBatchG, cancelledAggregateG int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(SUM(remaining_g),0) FROM %s.stock_batches
+		SELECT COALESCE(SUM(remaining_units),0) FROM %s.stock_batches
 		WHERE item_type='finished_product' AND item_id=911 AND batch_code LIKE 'DEV-E2E-FP-A%%'
 	`, schema)).Scan(&cancelledBatchG); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(SUM(onhand_units*spec_g+onhand_loose_g),0) FROM %s.finished_inventory
-		WHERE product_id=911 AND spec_g=1000 AND warehouse IN ('DEV-E2E-A1','DEV-E2E-A2')
+		SELECT COALESCE(SUM(onhand_units),0) FROM %s.finished_inventory
+		WHERE product_id=911 AND bom_spec_id=9111 AND warehouse IN ('DEV-E2E-A1','DEV-E2E-A2')
 	`, schema)).Scan(&cancelledAggregateG); err != nil {
 		t.Fatal(err)
 	}
-	if cancelledBatchG != 4000 || cancelledAggregateG != 4000 {
+	if cancelledBatchG != 4 || cancelledAggregateG != 4 {
 		t.Fatalf("cancelled reservation changed physical stock: batches=%dg aggregate=%dg", cancelledBatchG, cancelledAggregateG)
 	}
 
@@ -296,7 +296,7 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 
 	shipCmd := base
 	shipCmd.IdempotencyKey = "DEV-E2E-SHIP"
-	shipCmd.Items = []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 4}}
+	shipCmd.Items = []app.MiniDirectShipItemCommand{{ProductID: 911, BomSpecID: 9111, BomVariantID: 9112, Qty: 4}}
 	shippedRequest, err := repo.SubmitMiniDirectShip(ctx, shipCmd)
 	if err != nil {
 		t.Fatal(err)
@@ -335,7 +335,7 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(SUM(onhand_units),0),COALESCE(SUM(onhand_loose_g),0)
-		FROM %s.finished_inventory WHERE product_id=911 AND spec_g=1000 AND warehouse IN ('DEV-E2E-A1','DEV-E2E-A2')
+		FROM %s.finished_inventory WHERE product_id=911 AND bom_spec_id=9111 AND warehouse IN ('DEV-E2E-A1','DEV-E2E-A2')
 	`, schema)).Scan(&aggregateUnits, &aggregateLooseG); err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +395,7 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	}
 	postShipmentPreview := shipCmd
 	postShipmentPreview.IdempotencyKey = ""
-	postShipmentPreview.Items = []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 2}}
+	postShipmentPreview.Items = []app.MiniDirectShipItemCommand{{ProductID: 911, BomSpecID: 9111, BomVariantID: 9112, Qty: 2}}
 	previewAfterShipment, err := repo.PreviewMiniDirectShip(ctx, postShipmentPreview)
 	if err != nil {
 		t.Fatal(err)
@@ -403,7 +403,7 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	if previewAfterShipment.CanSubmit || len(previewAfterShipment.Shortages) != 1 || previewAfterShipment.Shortages[0].AvailableQty != 0 {
 		t.Fatalf("post-shipment preview = %#v; shipped stock must not return", previewAfterShipment)
 	}
-	postShipmentBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 501, ProductID: 911, SpecG: 1000})
+	postShipmentBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 501, ProductID: 911, BomSpecID: 9111, BomVariantID: 9112})
 	if err != nil {
 		t.Fatal(err)
 	}

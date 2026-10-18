@@ -5819,3 +5819,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual: orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md（Vue 帮助同步）
 - Review/acceptance: docs/acceptance/2026-10-18-order-list-inline.md；Van 真人验收待完成。
 - Deployment: 2026-10-18 development d29e61bd3df906321ab539655090c7e2a63d3ee7 (feature PR #214); application running, database healthy, list API / Vue / manual / five requirement tables verified. Production and real business acceptance excluded. Receipt-only follow-up does not change the deployed commit.
+
+### PR-703-CUSTOMER-STOCK-DROPSHIP
+- Branch: codex/customer-stock-dropship-20261019
+- Owner/session: Codex / 2026-10-19
+- Status: implementation and local verification complete; development deployment pending; Van acceptance pending
+- Scope: customer address book, bound public price tables, sales-to-customer-stock entitlements, stock/on-demand direct shipping, fees and freight templates.
+- Verifier: targeted RED/GREEN unit/API/PostgreSQL tests; Vue tests/build; miniapp tests/typecheck/development build; full backend and changed verifier before integration.
+- Deployment: pending; production data/configuration unchanged.
+- Last update: 2026-10-19 Asia/Shanghai

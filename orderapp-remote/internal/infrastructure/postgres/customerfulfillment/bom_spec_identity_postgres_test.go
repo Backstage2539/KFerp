@@ -382,10 +382,10 @@ func TestCustomerInventoryBatchDetailUsesParentAndBOMSpecIdentityAcrossVariants(
 	`, schema), parentProductID).Scan(&bomID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_versions(bom_id,version_no,status,output_qty,output_unit) VALUES($1,'v1','archived',1,'袋') RETURNING id`, schema), bomID).Scan(&version1ID); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_versions(bom_id,version_no,status,output_qty,output_unit) VALUES($1,'v1','published',1,'袋') RETURNING id`, schema), bomID).Scan(&version1ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_versions(bom_id,version_no,status,output_qty,output_unit) VALUES($1,'v2','published',1,'袋') RETURNING id`, schema), bomID).Scan(&version2ID); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_versions(bom_id,version_no,status,output_qty,output_unit) VALUES($1,'v2','draft',1,'袋') RETURNING id`, schema), bomID).Scan(&version2ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_specs(bom_id,code,barcode,spec_key,name,inventory_unit) VALUES($1,'BSP-INVENTORY-BAG','','bag','袋装','袋') RETURNING id`, schema), bomID).Scan(&bagSpecID); err != nil {
@@ -403,14 +403,32 @@ func TestCustomerInventoryBatchDetailUsesParentAndBOMSpecIdentityAcrossVariants(
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order) VALUES($1,$2,'盒装','盒',false,2) RETURNING id`, schema), version2ID, boxSpecID).Scan(&boxVariantID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default)VALUES('product',$1,$2,$3,true)`, schema), parentProductID, bomID, version1ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := postgresproductspecmigration.EnsureAuthorityView(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed historical stock while V1 is current, then publish V2; fresh historical writes are correctly forbidden.
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+ INSERT INTO %[1]s.warehouses(code,name,kind,sort_order,active,customer_id)VALUES('PR600-INVENTORY-DETAIL-WH','PR600库存详情成品仓','finished',1,true,604);
+ INSERT INTO %[1]s.stock_batches(batch_code,item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,source_doc_type,source_doc_id,qty_units,remaining_units,quality_status)VALUES('PR600-INVENTORY-BAG-OLD','finished_product',%[2]d,'PR600库存详情父商品 袋装旧版',%[3]d,%[4]d,0,'production_work_order',6101,1,1,'passed');
+ INSERT INTO %[1]s.stock_ledger_entries(item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,warehouse,source_doc_type,source_doc_id,source_batch_code,qty_change_units,qty_after_units)VALUES('finished_product',%[2]d,'PR600库存详情父商品 袋装旧版',%[3]d,%[4]d,0,'PR600-INVENTORY-DETAIL-WH','production_work_order',6101,'PR600-INVENTORY-BAG-OLD',1,1);
+ UPDATE %[1]s.production_bom_versions SET status='archived' WHERE id=%[6]d;
+ UPDATE %[1]s.production_bom_versions SET status='published' WHERE id=%[5]d;
+ UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=%[5]d WHERE output_id=%[2]d;
+ `, schema, parentProductID, bagSpecID, oldBagVariantID, version2ID, version1ID)); err != nil {
+		t.Fatal(err)
+	}
+
 	for _, statement := range []struct {
 		sql  string
 		args []any
 	}{
-		{fmt.Sprintf(`INSERT INTO %s.warehouses(code,name,kind,sort_order,active,customer_id) VALUES('PR600-INVENTORY-DETAIL-WH','PR600库存详情成品仓','finished',1,true,604)`, schema), nil},
 		{fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g) VALUES ($1,$2,$3,0,'PR600-INVENTORY-DETAIL-WH',2,0),($1,$4,$5,0,'PR600-INVENTORY-DETAIL-WH',1,0)`, schema), []any{parentProductID, bagSpecID, currentBagVariantID, boxSpecID, boxVariantID}},
-		{fmt.Sprintf(`INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,source_doc_type,source_doc_id,qty_g,qty_units,remaining_g,remaining_units,quality_status) VALUES ('PR600-INVENTORY-BAG-OLD','finished_product',$1,'PR600库存详情父商品 袋装旧版',$2,$6,0,'production_work_order',6101,0,1,0,1,'passed'),('PR600-INVENTORY-BAG-CURRENT','finished_product',$1,'PR600库存详情父商品 袋装当前版',$2,$3,0,'production_work_order',6102,0,1,0,1,'passed'),('PR600-INVENTORY-BOX','finished_product',$1,'PR600库存详情父商品 盒装',$4,$5,0,'production_work_order',6103,0,1,0,1,'passed')`, schema), []any{parentProductID, bagSpecID, currentBagVariantID, boxSpecID, boxVariantID, oldBagVariantID}},
-		{fmt.Sprintf(`INSERT INTO %s.stock_ledger_entries(item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,warehouse,source_doc_type,source_doc_id,source_batch_code,qty_change_g,qty_after_g,qty_change_units,qty_after_units) VALUES ('finished_product',$1,'PR600库存详情父商品 袋装旧版',$2,$6,0,'PR600-INVENTORY-DETAIL-WH','production_work_order',6101,'PR600-INVENTORY-BAG-OLD',0,0,1,1),('finished_product',$1,'PR600库存详情父商品 袋装当前版',$2,$3,0,'PR600-INVENTORY-DETAIL-WH','production_work_order',6102,'PR600-INVENTORY-BAG-CURRENT',0,0,1,2),('finished_product',$1,'PR600库存详情父商品 盒装',$4,$5,0,'PR600-INVENTORY-DETAIL-WH','production_work_order',6103,'PR600-INVENTORY-BOX',0,0,1,1)`, schema), []any{parentProductID, bagSpecID, currentBagVariantID, boxSpecID, boxVariantID, oldBagVariantID}},
+		{fmt.Sprintf(`INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,source_doc_type,source_doc_id,qty_g,qty_units,remaining_g,remaining_units,quality_status) VALUES ('PR600-INVENTORY-BAG-CURRENT','finished_product',$1,'PR600库存详情父商品 袋装当前版',$2,$3,0,'production_work_order',6102,0,1,0,1,'passed'),('PR600-INVENTORY-BOX','finished_product',$1,'PR600库存详情父商品 盒装',$4,$5,0,'production_work_order',6103,0,1,0,1,'passed')`, schema), []any{parentProductID, bagSpecID, currentBagVariantID, boxSpecID, boxVariantID}},
+		{fmt.Sprintf(`INSERT INTO %s.stock_ledger_entries(item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,warehouse,source_doc_type,source_doc_id,source_batch_code,qty_change_g,qty_after_g,qty_change_units,qty_after_units) VALUES ('finished_product',$1,'PR600库存详情父商品 袋装当前版',$2,$3,0,'PR600-INVENTORY-DETAIL-WH','production_work_order',6102,'PR600-INVENTORY-BAG-CURRENT',0,0,1,2),('finished_product',$1,'PR600库存详情父商品 盒装',$4,$5,0,'PR600-INVENTORY-DETAIL-WH','production_work_order',6103,'PR600-INVENTORY-BOX',0,0,1,1)`, schema), []any{parentProductID, bagSpecID, currentBagVariantID, boxSpecID, boxVariantID}},
 	} {
 		if _, err := pool.Exec(ctx, statement.sql, statement.args...); err != nil {
 			t.Fatal(err)

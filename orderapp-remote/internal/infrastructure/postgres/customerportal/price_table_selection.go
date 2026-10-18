@@ -105,7 +105,7 @@ func (r Repository) freezePortalPriceTableTx(ctx context.Context, tx pgx.Tx, cmd
 				SELECT 1 FROM %s.customer_order_price_table_bindings x
 				JOIN %s.bean_list_publications b ON b.id=x.publication_id
 				WHERE x.customer_id=$1 AND x.usage_code=$2 AND x.publication_id=$3
-				  AND b.status='published' AND b.deleted_at IS NULL AND b.owner_type='customer' AND b.owner_key=($1::bigint)::text
+				  AND b.status='published' AND b.deleted_at IS NULL AND (b.owner_type='official' OR (b.owner_type='customer' AND b.owner_key=($1::bigint)::text))
 			)
 		`, r.schema, r.schema), cmd.CustomerID, serviceCode, usage.PublicationID).Scan(&bound); err != nil {
 			return "", err

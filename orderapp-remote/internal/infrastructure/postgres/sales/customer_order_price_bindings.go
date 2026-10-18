@@ -34,7 +34,7 @@ func validateCustomerOrderPriceBindingsTx(ctx context.Context, tx pgx.Tx, schema
 		FROM %s.customer_order_price_table_bindings x
 		JOIN %s.bean_list_publications b ON b.id=x.publication_id
 		WHERE x.customer_id=$1 AND x.usage_code=$2
-		  AND b.owner_type='customer' AND b.owner_key=($1::bigint)::text
+		  AND (b.owner_type='official' OR (b.owner_type='customer' AND b.owner_key=($1::bigint)::text))
 		  AND b.publication_purpose='factory_supply' AND b.status='published' AND b.deleted_at IS NULL
 		ORDER BY x.publication_id
 	`, schema, schema), cmd.CustomerID, usageCode)

@@ -50,7 +50,7 @@ func (r Repository) CustomerOrderPriceTableConfig(ctx context.Context, query app
 		       COALESCE(NULLIF(b.publication_table_name,''),NULLIF(b.config_json->'publication_batch'->>'table_name',''),b.version_no),
 		       b.version_no
 		FROM %s.bean_list_publications b
-		WHERE b.owner_type='customer' AND b.owner_key=($1::bigint)::text
+		WHERE (b.owner_type='official' OR (b.owner_type='customer' AND b.owner_key=($1::bigint)::text))
 		  AND b.publication_purpose='factory_supply'
 		  AND b.status='published' AND b.deleted_at IS NULL
 		ORDER BY b.product_type_name,b.published_at DESC NULLS LAST,b.id DESC
@@ -109,7 +109,7 @@ func (r Repository) SaveCustomerOrderPriceTableBinding(ctx context.Context, cmd 
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			SELECT %s
 			FROM %s.bean_list_publications b
-			WHERE b.id=$1 AND b.owner_type='customer' AND b.owner_key=($2::bigint)::text
+			WHERE b.id=$1 AND (b.owner_type='official' OR (b.owner_type='customer' AND b.owner_key=($2::bigint)::text))
 			  AND b.publication_purpose='factory_supply'
 			  AND b.status='published' AND b.deleted_at IS NULL
 			FOR SHARE

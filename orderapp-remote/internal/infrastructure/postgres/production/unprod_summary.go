@@ -224,8 +224,28 @@ func excludeReservedOrderFulfillment(ctx context.Context, pool productionDemandQ
 		}
 		rows.Close()
 	}
-	if len(covered) == 0 {
-		return demands, nil
+	hasRetained, e := productionDemandColumnExists(ctx, pool, schema, "customer_stock_supply_reservations", "order_item_id")
+	if e != nil {
+		return nil, e
+	}
+	if hasRetained {
+		rows, e := pool.Query(ctx, fmt.Sprintf("SELECT order_item_id,COALESCE(SUM(reserved_qty-converted_qty-released_qty),0)::float8 FROM %s.customer_stock_supply_reservations WHERE order_item_id=ANY($1) AND status IN('reserved','partially_converted') GROUP BY order_item_id", schema), orderItemIDs)
+		if e != nil {
+			return nil, e
+		}
+		for rows.Next() {
+			var id int64
+			var qty float64
+			if e = rows.Scan(&id, &qty); e != nil {
+				rows.Close()
+				return nil, e
+			}
+			covered[id] += qty
+		}
+		rows.Close()
+		if rows.Err() != nil {
+			return nil, rows.Err()
+		}
 	}
 	out := make([]productionDemand, 0, len(demands))
 	for _, source := range demands {
@@ -268,6 +288,14 @@ type productionQuantitySnapshot struct {
 }
 
 func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemandQueryer, schema, where string, args []any) ([]productionDemand, error) {
+	hasEntitlements, e := productionDemandColumnExists(ctx, pool, schema, "customer_stock_entitlements", "received_qty")
+	if e != nil {
+		return nil, e
+	}
+	if hasEntitlements {
+		where += " AND (COALESCE(to_jsonb(o)->>'delivery_mode','ship')<>'customer_stock' OR COALESCE(oi.qty,0)>COALESCE(retained.received_qty,0))"
+	}
+
 	// The former aggregate CTE exposed n.effective_operation_template_id; this
 	// line query keeps the same resolved alias and scans it into each demand.
 	q := fmt.Sprintf(`
@@ -345,6 +373,13 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 		%s
 		ORDER BY oi.product_id,o.order_no,oi.id
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, where)
+	q = strings.Replace(q, "'' AS target_warehouse", "CASE WHEN to_jsonb(o)->>'delivery_mode'='customer_stock' THEN COALESCE(to_jsonb(o)->>'delivery_warehouse_code','') ELSE '' END AS target_warehouse", 1)
+	if hasEntitlements {
+		q = strings.Replace(q, fmt.Sprintf("JOIN %s.orders o ON o.id=oi.order_id", schema), fmt.Sprintf("JOIN %s.orders o ON o.id=oi.order_id LEFT JOIN %s.customer_stock_entitlements retained ON retained.source_order_item_id=oi.id AND retained.status='active'", schema, schema), 1)
+		q = strings.Replace(q, "COALESCE(oi.qty,0)::float8", "(CASE WHEN to_jsonb(o)->>'delivery_mode'='customer_stock' THEN GREATEST(0,COALESCE(oi.qty,0)-COALESCE(retained.received_qty,0)) ELSE COALESCE(oi.qty,0) END)::float8", 1)
+		q = strings.Replace(q, "(COALESCE(osd.decision,'')='produce')", "(COALESCE(osd.decision,'')='produce' OR to_jsonb(o)->>'delivery_mode'='customer_stock')", 1)
+	}
+
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
