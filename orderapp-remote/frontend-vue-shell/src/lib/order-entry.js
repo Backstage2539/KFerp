@@ -2002,8 +2002,8 @@ export function buildOrderPayload({ form, rows }) {
     ship_tracking_no: form.ship_tracking_no || '',
     logistics_company_id: Number(form.logistics_company_id || 0),
     logistics_product_id: Number(form.logistics_product_id || 0),
-    payment_goods_amount: String(form.payment_goods_amount || ''),
-    payment_shipping_amount: String(form.payment_shipping_amount || ''),
+    payment_goods_amount: String(form.payment_goods_amount ?? ''),
+    payment_shipping_amount: String(form.payment_shipping_amount ?? ''),
     payment_voucher_asset_id: Number(form.payment_voucher_asset_id || 0),
     bean_list_publication_id: Number(form.bean_list_publication_id || 0),
     commercial_bean_list_publication_id: Number(form.commercial_bean_list_publication_id || 0),
@@ -2013,10 +2013,8 @@ export function buildOrderPayload({ form, rows }) {
     receiver_phone: String(form.receiver_phone || '').trim(),
     receiver_address: String(form.receiver_address || '').trim(),
     receiver_company: String(form.receiver_company || '').trim(),
-    portal_service_code: 'direct_ship',
-    orders_scope: 'fulfillment',
     notes: form.notes || '',
-    shipping_amount: String(form.shipping_amount || ''),
+    shipping_amount: String(form.shipping_amount ?? ''),
     discount_amount: String(form.discount_amount || ''),
     round_to_int: form.round_to_int ? 'on' : '',
     express_fee: String(form.express_fee || ''),
@@ -2026,6 +2024,8 @@ export function buildOrderPayload({ form, rows }) {
     outsource_manual_fee: String(form.outsource_manual_fee || ''),
     outsource_tax_fee: String(form.outsource_tax_fee || ''),
     outsource_other_fee: String(form.outsource_other_fee || ''),
+    item_id: [],
+    spec_conversion: [],
     product_id: [],
     parent_product_id: [],
     bom_spec_id: [],
@@ -2066,6 +2066,8 @@ export function buildOrderPayload({ form, rows }) {
     const specG = productKind === 'drip_bag' ? dripSpec.specG : normalizeSpecG(row)
     const qty = toInt(row.qty)
     if (productID <= 0 || (!isProductBomSpecCutover(row) && specG <= 0) || qty <= 0) continue
+    payload.item_id.push(String(Number(form.edit_id || 0) > 0 ? toInt(row.item_id) : 0))
+    payload.spec_conversion.push(["converted_tier", "bom_tier"].includes(row.price_selection_mode) ? JSON.stringify(row.spec_conversion || {}) : "")
     payload.product_id.push(String(productID))
     payload.parent_product_id.push(String(isProductBomSpecCutover(row) ? productID : toInt(row.parent_product_id)))
     payload.bom_spec_id.push(String(toInt(identity.bom_spec_id)))
@@ -2080,15 +2082,15 @@ export function buildOrderPayload({ form, rows }) {
     payload.item_bean_list_publication_id.push(String(toInt(row.bean_list_publication_id)))
     payload.item_bean_list_version_no.push(String(row.bean_list_version_no || '').trim())
     payload.price_source_json.push(String(row.price_source_json || '').trim())
-    const selectionMode = row.price_selection_mode === 'tier'
+    const selectionMode = ['converted_tier', 'bom_tier'].includes(row.price_selection_mode) ? row.price_selection_mode : row.price_selection_mode === 'tier'
       ? 'tier'
       : row.price_selection_mode === 'manual' || row.manual_price || row.tier_id === 'manual'
         ? 'manual'
         : 'auto'
     payload.price_selection_mode.push(selectionMode)
-    payload.selected_price_row_key.push(selectionMode === 'tier' ? String(row.selected_price_row_key || '') : '')
+    payload.selected_price_row_key.push(['tier', 'converted_tier', 'bom_tier'].includes(selectionMode) ? String(row.selected_price_row_key || '') : '')
     payload.tier_id.push(selectionMode === 'manual' ? 'manual' : 'auto')
-    payload.unit_price.push(String(row.unit_price || ''))
+    payload.unit_price.push(String(row.unit_price ?? ''))
     payload.item_name.push(row.product_name || row.item_name || '')
     payload.item_note.push(String(row.item_note || '').trim())
     payload.qty.push(String(qty))

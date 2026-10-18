@@ -177,3 +177,39 @@ func TestPrepaymentArtifacts(t *testing.T) {
 		}
 	}
 }
+
+func TestFreeSamplePaymentRows(t *testing.T) {
+	rows := salesOrderPaymentRows(salesdomain.SalesOrderSnapshot{SettlementReason: "free_sample", GrandTotal: "0.00", PaidAmount: "0.00", UnpaidAmount: "0.00"})
+	if len(rows) != 1 || rows[0].Label != "无需收款" {
+		t.Fatalf("free sample payment rows: %+v", rows)
+	}
+}
+
+func TestFreeSampleSalesDocumentRendering(t *testing.T) {
+	snapshot := salesdomain.SalesOrderSnapshot{OrderID: 697, OrderNo: "SAMPLE-697", OrderDate: "2026-10-18", CustomerName: "样品测试客户", CompanyName: "KFerp", SettlementReason: "free_sample", TotalAmount: "0.00", GrandTotal: "0.00", Shipping: "0.00", PaidAmount: "0.00", UnpaidAmount: "0.00", PaymentText: "无需收款（免费样品）", ReceiverName: "测试收件人", ReceiverPhone: "13800000000", ReceiverAddress: "测试寄样地址", Items: []salesdomain.SalesOrderSnapshotItem{{Name: "咖啡样品", Spec: "100g", Qty: "1", Unit: "袋", UnitPrice: "0.00", LineTotal: "0.00"}}}
+	renderer := SalesOrderRenderer{}
+	pdf, err := renderer.Render(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := renderer.RenderPNG(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(pdf, []byte("%PDF")) {
+		t.Fatal("invalid PDF")
+	}
+	if _, err = png.Decode(bytes.NewReader(img)); err != nil {
+		t.Fatal(err)
+	}
+	if dir := os.Getenv("PR697_ARTIFACT_DIR"); dir != "" {
+		if err = os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string][]byte{"free-sample.pdf": pdf, "free-sample.png": img} {
+			if err = os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}

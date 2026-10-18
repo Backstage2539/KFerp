@@ -1,4 +1,8 @@
 export const operationManualsByView = {
+  bomOrderPricingManual: { doc: "OP_MANUAL_BOM_ORDER_PRICING.md", title: "录单价格表规格范围" },
+  specConversionManual: { doc: 'OP_MANUAL_SPEC_CONVERSION.md', title: '规格换算说明' },
+  sampleRequestsManual: { doc: 'OP_MANUAL_SAMPLES.md', title: '样品申请与回访手册' },
+  miniappEmployeeManual: { doc: 'OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md', title: '员工小程序 ERP 手册' },
   orderSalesManual: { doc: 'OP_MANUAL_ORDER_SALES.md', title: '订单销售手册' },
   productionManual: { doc: 'OP_MANUAL_PRODUCTION.md', title: '生产手册' },
   inventoryMaterialsManual: { doc: 'OP_MANUAL_INVENTORY_MATERIALS.md', title: '库存物料手册' },
@@ -13,7 +17,7 @@ export const operationManualsByView = {
   customerPortalManual: { doc: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md', title: '客户履约手册' },
   customerFulfillmentManual: { doc: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md', title: '客户履约手册' },
   wechatOfficialManual: { doc: 'OP_MANUAL_WECHAT_OFFICIAL.md', title: '公众号操作手册' },
-  beanListCenterManual: { doc: 'OP_MANUAL_BEAN_LIST_CENTER.md', title: '豆单中心与登记用户手册' },
+  beanListCenterManual: { doc: 'OP_MANUAL_BEAN_LIST_CENTER.md', title: '价格表中心与登记用户手册' },
   pageEntryManual: { doc: 'OP_MANUAL_PAGE_ENTRIES.md', title: '页面入口管理手册' },
   requirementsManual: { doc: 'OP_MANUAL_REQUIREMENTS.md', title: '需求管理手册' },
 }

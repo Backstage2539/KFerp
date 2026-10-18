@@ -110,6 +110,7 @@ type NotificationQuery struct {
 	Channel    string
 	Status     string
 	AfterID    int64
+	BeforeID   int64
 	Limit      int
 }
 
@@ -383,4 +384,18 @@ func normalizeTone(tone string) string {
 	default:
 		return "info"
 	}
+}
+
+// UnreadCount does not truncate counts to the visible notification page.
+func (s *Service) UnreadCount(ctx context.Context, employeeID int64) (int, error) {
+	if s == nil || s.repo == nil || employeeID <= 0 {
+		return 0, nil
+	}
+	if counter, ok := s.repo.(interface {
+		UnreadCount(context.Context, int64) (int, error)
+	}); ok {
+		return counter.UnreadCount(ctx, employeeID)
+	}
+	rows, err := s.ListNotifications(ctx, NotificationQuery{EmployeeID: employeeID, Status: "unread", Limit: 100})
+	return len(rows), err
 }

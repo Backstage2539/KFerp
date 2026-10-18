@@ -1,3 +1,4 @@
+import { conversionSnapshot, conversionDescription } from './specConversion'
 import type {
   EmployeeOrderDetailItem,
   EmployeeOrderDocumentAsset,
@@ -63,6 +64,8 @@ export function employeeOrderItemDisplayName(item: Partial<EmployeeOrderDetailIt
 }
 
 export function employeeOrderItemSpecLabel(item: Partial<EmployeeOrderDetailItem> = {}): string {
+  const conversion=conversionSnapshot(item)
+  if(conversion) return conversion.target_spec_name
   if (item.product_kind === 'drip_bag') {
     if (String(item.unit_conversion_label || '').trim()) return String(item.unit_conversion_label).trim()
     if (item.sales_unit === 'box') return `${Number(item.unit_bag_count || 10)}袋/盒`
@@ -111,6 +114,8 @@ export function employeeOrderItemPriceTableVersion(item: Partial<EmployeeOrderDe
 }
 
 export function employeeOrderItemPriceSourceLabel(item: Partial<EmployeeOrderDetailItem> = {}): string {
+  const conversion=conversionSnapshot(item)
+  if(conversion) return conversionDescription(conversion)
   const snapshot = itemPriceSourceSnapshot(item)
   const source = String(snapshot.price_table_name || snapshot.source || snapshot.source_label || snapshot.template_name || '').trim()
   const version = employeeOrderItemPriceTableVersion(item)

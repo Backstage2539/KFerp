@@ -23,6 +23,7 @@ import (
 )
 
 type Repository struct {
+	upsertTx pgx.Tx
 	pool     *pgxpool.Pool
 	schema   string
 	assetDir string
@@ -61,8 +62,11 @@ func NewRepository(pool *pgxpool.Pool, schema, assetDir string) Repository {
 	return Repository{pool: pool, schema: schema, assetDir: assetDir}
 }
 
+// WithUpsertTransaction keeps customer creation atomic with its originating order.
+func (r Repository) WithUpsertTransaction(tx pgx.Tx) Repository { r.upsertTx = tx; return r }
+
 func (r Repository) Upsert(ctx context.Context, actor string, id *int64, cmd customerapp.UpsertCommand) (int64, error) {
-	return upsertCustomer(ctx, r.pool, r.schema, actor, id, upsertRequestFromCommand(cmd), nil)
+	return upsertCustomer(ctx, r.pool, r.schema, actor, id, upsertRequestFromCommand(cmd), nil, r.upsertTx)
 }
 
 func upsertRequestFromCommand(cmd customerapp.UpsertCommand) upsertRequest {
@@ -654,7 +658,7 @@ func fetchCustomerDashboard(ctx context.Context, pool *pgxpool.Pool, schema stri
 	return dashboard, nil
 }
 
-func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, actor string, id *int64, req upsertRequest, principal *customerapp.MaintenancePrincipal) (int64, error) {
+func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, actor string, id *int64, req upsertRequest, principal *customerapp.MaintenancePrincipal, supplied ...pgx.Tx) (int64, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return 0, customerapp.NewMaintenanceValidationError("请填写客户名称")
@@ -674,17 +678,20 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 		raw = name
 	}
 
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return 0, err
+	var tx pgx.Tx
+	if len(supplied) > 0 {
+		tx = supplied[0]
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return 0, err
+	ownTransaction := tx == nil
+	var err error
+	if ownTransaction {
+		tx, err = pool.Begin(ctx)
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if principal != nil {
+	if principal != nil || !ownTransaction {
 		if err := validateCustomerProfileOptionsTx(ctx, tx, schema, ds, dt); err != nil {
 			return 0, err
 		}
@@ -759,9 +766,12 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 	if err := ensureDefaultRetailPortalTx(ctx, tx, schema, newID, name, actor, customerType, active); err != nil {
 		return 0, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+	if ownTransaction {
+		if err := tx.Commit(ctx); err != nil {
+			return 0, err
+		}
 	}
+
 	return newID, nil
 }
 

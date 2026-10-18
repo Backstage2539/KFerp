@@ -63,3 +63,20 @@ func TestRosterAndWorkstationViewsReuseProductionPermissions(t *testing.T) {
 		}
 	}
 }
+
+func TestSampleViewsOnlyForSalesAndAdminByDefault(t *testing.T) {
+	for _, key := range []string{"sampleRequests", "sampleRequestsManual"} {
+		if defaultViewPermissions()[key] != "samples.read" {
+			t.Fatalf("sample view missing scoped permission: %s", key)
+		}
+	}
+	for _, role := range defaultRoles() {
+		found := false
+		for _, perm := range role.Permissions {
+			found = found || perm == "samples.read"
+		}
+		if found != (role.Code == "admin" || role.Code == "sales") {
+			t.Fatalf("sample permission for role %s = %v", role.Code, found)
+		}
+	}
+}

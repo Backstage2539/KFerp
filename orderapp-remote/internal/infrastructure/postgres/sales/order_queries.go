@@ -149,7 +149,8 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(to_char(o.outsource_other_fee, 'FM999999999.00'), '') AS outsource_other_fee,
 			COALESCE(to_char(o.outsource_total_fee, 'FM999999999.00'), '') AS outsource_total_fee,
 			COALESCE(ot.name, '') AS order_type,
-			COALESCE(ps.name, '') AS pay_status,
+			CASE WHEN COALESCE(to_jsonb(o)->>'settlement_reason','')='free_sample' THEN '无需收款' ELSE COALESCE(ps.name, '') END AS pay_status,
+ COALESCE(to_jsonb(o)->>'settlement_reason','') AS settlement_reason,
 			COALESCE(o.payment_method, '') AS payment_method,
 			COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0)::text AS prepayment_amount,
 			COALESCE(ss.name, '') AS ship_status,
@@ -213,7 +214,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey, &r.ConfirmationStatus, &r.ConfirmationRequired); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.SettlementReason, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey, &r.ConfirmationStatus, &r.ConfirmationRequired); err != nil {
 			return nil, false, err
 		}
 		prepayment, _ := strconv.ParseFloat(r.PrepaymentAmount, 64)
@@ -230,6 +231,9 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	if len(out) > query.Limit {
 		hasNext = true
 		out = out[:query.Limit]
+	}
+	if err := populateOrderTypeSummaries(ctx, pool, schema, out); err != nil {
+		return nil, false, err
 	}
 	return out, hasNext, nil
 }

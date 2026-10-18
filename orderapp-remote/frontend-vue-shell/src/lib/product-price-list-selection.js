@@ -227,7 +227,7 @@ export function defaultPriceListProductSpecSelections(families = []) {
 }
 
 export function normalizePriceListProductSpecSelections(selections = [], families = [], options = {}) {
-  void options
+  if (options.catalogReady === false) return (Array.isArray(selections) ? selections : []).map(row => ({ ...row }))
   const familyRows = Array.isArray(families) ? families : []
   const familyByParentID = new Map(familyRows.map((family) => [priceListParentProductID(family), family]))
   const familyBySkuID = new Map()
@@ -239,10 +239,17 @@ export function normalizePriceListProductSpecSelections(selections = [], familie
   const out = []
   const seen = new Set()
   ;(Array.isArray(selections) ? selections : []).forEach((selection) => {
-    const requestedSkuID = numberField(selection?.sku_id ?? selection?.skuID)
+    const requestedBomSpecID = numberField(selection?.bom_spec_id ?? selection?.bomSpecID)
+    const requestedSkuID = requestedBomSpecID || numberField(selection?.sku_id ?? selection?.skuID)
     const requestedParentID = numberField(selection?.parent_product_id ?? selection?.parentProductID)
-    const family = familyByParentID.get(requestedParentID) || familyBySkuID.get(requestedSkuID)
-    if (!family) return
+      || (requestedBomSpecID > 0 ? numberField(selection?.product_id) : 0)
+    const family = requestedBomSpecID > 0 && requestedParentID > 0
+      ? familyByParentID.get(requestedParentID)
+      : familyByParentID.get(requestedParentID) || familyBySkuID.get(requestedSkuID)
+    if (!family) {
+      if (options.preserveMissing) out.push({ ...selection, parent_product_id: requestedParentID, sku_id: requestedSkuID, selection_issue: 'invalid_spec' })
+      return
+    }
     const parentProductID = priceListParentProductID(family)
     const defaultSkuID = numberField(family.default_sku_id)
     const selectionSource = String(selection?.selection_source || selection?.selectionSource || '').trim() === 'product_default'
@@ -297,6 +304,13 @@ export function normalizePriceListProductSpecSelections(selections = [], familie
     } else if (selectionSource === 'product_default' && defaultSkuID > 0 && defaultSkuIDAtSelection !== defaultSkuID) {
       row.selection_issue = 'default_changed'
       row.current_default_sku_id = defaultSkuID
+    }
+    // Keep the saved identity until the user resolves the issue. Replacing it
+    // with today's BOM here would silently clear the warning on the next load.
+    if (row.selection_issue) {
+      for (const field of ['product_id', 'bom_id', 'bom_version_id', 'bom_spec_id', 'bom_variant_id', 'spec_identity_mode', 'bom_spec_authoritative', 'migration_state']) {
+        if (selection[field] !== undefined) row[field] = selection[field]
+      }
     }
     out.push(row)
   })

@@ -8,28 +8,35 @@ import (
 
 	app "orderapp/internal/application/messagecenter"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repository struct {
-	pool   *pgxpool.Pool
-	schema string
+	suppliedTx pgx.Tx
+	pool       *pgxpool.Pool
+	schema     string
 }
 
 func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
 }
 
+func (r Repository) WithTransaction(tx pgx.Tx) Repository { r.suppliedTx = tx; return r }
+
 func (r Repository) Publish(ctx context.Context, cmd app.PublishCommand) (int64, error) {
 	payload, err := json.Marshal(cmd.Payload)
 	if err != nil {
 		return 0, err
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return 0, err
+	tx := r.suppliedTx
+	if tx == nil {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	var eventID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -74,9 +81,12 @@ func (r Repository) Publish(ctx context.Context, cmd app.PublishCommand) (int64,
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+	if r.suppliedTx == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return 0, err
+		}
 	}
+
 	return eventID, nil
 }
 
@@ -87,6 +97,11 @@ func (r Repository) ListNotifications(ctx context.Context, query app.Notificatio
 	if query.AfterID > 0 {
 		where = append(where, fmt.Sprintf("e.id > $%d", argn))
 		args = append(args, query.AfterID)
+		argn++
+	}
+	if query.BeforeID > 0 {
+		where = append(where, fmt.Sprintf("e.id < $%d", argn))
+		args = append(args, query.BeforeID)
 		argn++
 	}
 	if query.Status == "unread" && query.EmployeeID > 0 {
@@ -106,55 +121,10 @@ func (r Repository) ListNotifications(ctx context.Context, query app.Notificatio
 		JOIN %[1]s.message_deliveries d ON d.event_id=e.id
 		LEFT JOIN %[1]s.message_reads r ON r.event_id=e.id AND r.employee_id=$%[2]d
 		WHERE %[3]s
-		  AND (
-		     d.target_type='broadcast'
-		     OR (
-		        d.target_type='permission'
-		        AND EXISTS (
-		            SELECT 1
-		            FROM %[1]s.employee_roles er
-		            LEFT JOIN %[1]s.auth_role_permissions rp ON rp.role_code=er.role_code
-		            WHERE er.employee_id=$%[2]d
-		              AND (er.role_code='admin' OR rp.permission_code=d.target_key)
-		        )
-		     )
-		     OR (
-		        d.target_type='role'
-		        AND EXISTS (
-		            SELECT 1
-		            FROM %[1]s.employee_roles er
-		            WHERE er.employee_id=$%[2]d
-		              AND (er.role_code='admin' OR er.role_code=d.target_key)
-		        )
-		     )
-		     OR (d.target_type='employee' AND d.target_employee_id=$%[2]d)
-		     OR (
-		        d.target_type='order_responsible'
-		        AND e.source_type='order'
-		        AND EXISTS (
-		            SELECT 1
-		            FROM %[1]s.orders o
-		            WHERE o.id=e.source_id
-		              AND o.responsible_party_type='employee'
-		              AND o.responsible_party_id=$%[2]d
-		        )
-		     )
-		     OR (
-		        d.target_type='order_customer'
-		        AND e.source_type='order'
-		        AND EXISTS (
-		            SELECT 1
-		            FROM %[1]s.orders o
-		            JOIN %[1]s.customer_erp_user_bindings b ON b.customer_id=o.customer_id
-		            WHERE o.id=e.source_id
-		              AND b.employee_id=$%[2]d
-		              AND b.status='active'
-		        )
-		     )
-		  )
+		  AND %[5]s
 		ORDER BY e.id DESC
 		LIMIT $%[4]d
-	`, r.schema, employeeArg, joinWhere(where), limitArg)
+	`, r.schema, employeeArg, joinWhere(where), limitArg, notificationAudience(r.schema, employeeArg))
 
 	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -312,15 +282,19 @@ func scanRule(scanner ruleScanner) (app.Rule, error) {
 	return rule, nil
 }
 
+func (r Repository) UnreadCount(ctx context.Context, employeeID int64) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(DISTINCT e.id) FROM %[1]s.message_events e JOIN %[1]s.message_deliveries d ON d.event_id=e.id LEFT JOIN %[1]s.message_reads r ON r.event_id=e.id AND r.employee_id=$1 WHERE d.channel=$2 AND d.status IN('ready','delivered') AND r.event_id IS NULL AND %[2]s`, r.schema, notificationAudience(r.schema, 1)), employeeID, app.ChannelERPPlatform).Scan(&count)
+	return count, err
+}
 func (r Repository) MarkRead(ctx context.Context, eventID, employeeID int64) error {
 	if eventID <= 0 || employeeID <= 0 {
 		return nil
 	}
-	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.message_reads(event_id, employee_id, read_at)
-		VALUES($1,$2,now())
-		ON CONFLICT(event_id, employee_id) DO UPDATE SET read_at=excluded.read_at
-	`, r.schema), eventID, employeeID)
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.message_reads(event_id,employee_id,read_at)
+ SELECT DISTINCT e.id,$2::bigint,now() FROM %[1]s.message_events e JOIN %[1]s.message_deliveries d ON d.event_id=e.id
+ WHERE e.id=$1 AND d.channel=$3 AND d.status IN('ready','delivered') AND %[2]s
+ ON CONFLICT(event_id,employee_id) DO UPDATE SET read_at=excluded.read_at`, r.schema, notificationAudience(r.schema, 2)), eventID, employeeID, app.ChannelERPPlatform)
 	return err
 }
 
@@ -333,4 +307,54 @@ func joinWhere(where []string) string {
 		out += item
 	}
 	return out
+}
+
+// notificationAudience is shared by listing, unread counts and read receipts.
+func notificationAudience(schema string, employeeArg int) string {
+	return fmt.Sprintf(`(
+		     d.target_type='broadcast'
+		     OR (
+		        d.target_type='permission'
+		        AND EXISTS (
+		            SELECT 1
+		            FROM %[1]s.employee_roles er
+		            LEFT JOIN %[1]s.auth_role_permissions rp ON rp.role_code=er.role_code
+		            WHERE er.employee_id=$%[2]d
+		              AND (er.role_code='admin' OR rp.permission_code=d.target_key)
+		        )
+		     )
+		     OR (
+		        d.target_type='role'
+		        AND EXISTS (
+		            SELECT 1
+		            FROM %[1]s.employee_roles er
+		            WHERE er.employee_id=$%[2]d
+		              AND (er.role_code='admin' OR er.role_code=d.target_key)
+		        )
+		     )
+		     OR (d.target_type='employee' AND d.target_employee_id=$%[2]d)
+		     OR (
+		        d.target_type='order_responsible'
+		        AND e.source_type='order'
+		        AND EXISTS (
+		            SELECT 1
+		            FROM %[1]s.orders o
+		            WHERE o.id=e.source_id
+		              AND o.responsible_party_type='employee'
+		              AND o.responsible_party_id=$%[2]d
+		        )
+		     )
+		     OR (
+		        d.target_type='order_customer'
+		        AND e.source_type='order'
+		        AND EXISTS (
+		            SELECT 1
+		            FROM %[1]s.orders o
+		            JOIN %[1]s.customer_erp_user_bindings b ON b.customer_id=o.customer_id
+		            WHERE o.id=e.source_id
+		              AND b.employee_id=$%[2]d
+		              AND b.status='active'
+		        )
+		     )
+		  )`, schema, employeeArg)
 }

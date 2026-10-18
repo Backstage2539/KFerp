@@ -24,7 +24,7 @@ const labels = {
   price: '历史价格表入口',
   page: '页面入口',
   orders: '查看全部订单',
-  beans:'进入豆单中心',
+  beans:'进入价格表中心',
   recent1: '旧订单动作（引导小程序）',
   recent3: '旧订单动作（引导小程序）',
   order: '进入下单',
@@ -83,7 +83,7 @@ async function load() {
   })
 }
 function miniNavigationDraft(){
- groups.value=[['豆单获取','beans'],['我的订单','orders'],['下单','order']].map(([name,action])=>{const b={name};setMenuAction(b,action,status.value.mini_app_id);return b});changed();notice.value='已生成三项菜单草稿。确认正式小程序包含豆单中心后，再预览差异并发布。'
+ groups.value=[['价格表','beans'],['我的订单','orders'],['下单','order']].map(([name,action])=>{const b={name};setMenuAction(b,action,status.value.mini_app_id);return b});changed();notice.value='已生成三项菜单草稿。确认正式小程序包含价格表中心后，再预览差异并发布。'
 }
 function addGroup() {
   if (groups.value.length < 3) {
@@ -187,7 +187,7 @@ onMounted(load)
     <header>
       <div>
         <h2>公众号管理</h2>
-        <p>公众号引导访问小程序；豆单、订单和下单均在小程序内使用。页面请在“页面入口管理”中维护。</p>
+        <p>公众号引导访问小程序；价格表、订单和下单均在小程序内使用。页面请在“页面入口管理”中维护。</p>
       </div>
       <div>
         <button type="button" @click="openManual">操作说明</button>

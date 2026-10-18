@@ -60,7 +60,7 @@ async function load() {
   error.value = ''
   needsLogin.value = false
   if (!/^[a-f0-9]{32}$/.test(entry.value)) {
-    error.value = '豆单入口无效'
+    error.value = '价格表入口无效'
     return
   }
   loading.value = true
@@ -77,7 +77,7 @@ async function load() {
     if (request === sequence) publication.value = data.publication
   } catch (e) {
     if (request !== sequence) return
-    error.value = e instanceof Error ? e.message : '暂时无法加载豆单'
+    error.value = e instanceof Error ? e.message : '暂时无法加载价格表'
     needsLogin.value = e instanceof MiniRequestError && e.statusCode === 401
   } finally {
     if (request === sequence) loading.value = false

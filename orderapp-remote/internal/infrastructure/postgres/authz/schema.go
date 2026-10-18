@@ -103,6 +103,7 @@ func defaultPermissions() []permissionSeed {
 	return []permissionSeed{
 		{Code: "auth.manage", Name: "用户角色管理"},
 		{Code: "orders.read", Name: "查看订单"},
+		{Code: "samples.read", Name: "样品申请与回访"},
 		{Code: "orders.write", Name: "录入和修改订单"},
 		{Code: "customers.read", Name: "查看客户"},
 		{Code: "customers.write", Name: "维护客户"},
@@ -141,7 +142,7 @@ func defaultRoles() []roleSeed {
 	sort.Strings(all)
 	return []roleSeed{
 		{Code: "admin", Name: "管理员", Description: "系统全权限", Permissions: all},
-		{Code: "sales", Name: "销售", Description: "录单、订单、客户与商品查询", Permissions: []string{"orders.read", "orders.write", "customers.read", "customers.write", "products.read"}},
+		{Code: "sales", Name: "销售", Description: "录单、订单、客户与商品查询", Permissions: []string{"orders.read", "orders.write", "samples.read", "customers.read", "customers.write", "products.read"}},
 		{Code: "production", Name: "生产", Description: "生产执行、库存/物料/BOM 查看", Permissions: []string{"production.read", "production.run", "stock.read", "materials.read", "bom.read"}},
 		{Code: "warehouse", Name: "仓库", Description: "库存、采购收货和物料维护", Permissions: []string{"stock.read", "stock.write", "purchase.read", "purchase.write", "materials.read", "materials.write", "products.read"}},
 		{Code: "finance", Name: "财务", Description: "订单、库存、采购、报价、成本核算和财务月结", Permissions: []string{"orders.read", "stock.read", "purchase.read", "products.read", "costing.read", "finance.read", "finance.write", "finance.close"}},
@@ -156,6 +157,9 @@ func defaultViewPermissions() map[string]string {
 	return map[string]string{
 		"order":                       "orders.write",
 		"orders":                      "orders.read",
+		"sampleRequests":              "samples.read",
+		"sampleRequestsManual":        "samples.read",
+		"miniappEmployeeManual":       "orders.read",
 		"orderSalesManual":            "orders.read",
 		"orderInvoice":                "orders.read",
 		"salesOrder":                  "orders.read",

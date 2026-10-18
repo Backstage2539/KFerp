@@ -450,6 +450,8 @@ type BeanListProductAttribute struct {
 }
 
 type BeanListProductSummary struct {
+	ProductID         int64                      `json:"product_id,omitempty"`
+	SampleKey         string                     `json:"sample_key,omitempty"`
 	ProductAttributes []BeanListProductAttribute `json:"product_attributes,omitempty"`
 	AttributeLines    []string                   `json:"attribute_lines,omitempty"`
 	Code              string                     `json:"code,omitempty"`

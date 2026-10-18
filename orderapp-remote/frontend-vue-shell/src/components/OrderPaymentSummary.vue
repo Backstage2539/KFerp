@@ -7,6 +7,7 @@ const unpaid = computed(() => Math.max(0, Number(props.order.grand_total || 0) -
 </script>
 <template>
   <div class="payment-summary">
+    <span v-if="order.settlement_reason === 'free_sample'" class="paid">无需收款</span>
     <span v-if="paid > 0" class="paid">{{ deposit > 0 && unpaid > 0 ? '已支付预付款' : '已支付' }} ¥{{ paid.toFixed(2) }}</span>
     <span v-if="unpaid > 0" class="unpaid">{{ deposit > 0 ? '未支付尾款' : '未支付' }} ¥{{ unpaid.toFixed(2) }}</span>
   </div>

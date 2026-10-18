@@ -24,7 +24,7 @@ function keyboardChange(event: {detail:{height:number}}) { keyboardHeight.value 
 <template>
   <view v-if="visible" class="registration-overlay" @tap="close" @touchmove.stop.prevent>
     <view class="registration-sheet" :class="{typing: keyboardHeight > 0}" :style="{bottom: keyboardHeight + 'px', maxHeight: `calc(100vh - ${keyboardHeight}px - 24px)`}" @tap.stop>
-      <view class="heading"><text class="title">登记后查看豆单</text><button class="close" aria-label="关闭登记" @tap="close">×</button></view>
+      <view class="heading"><text class="title">登记后查看价格表</text><button class="close" aria-label="关闭登记" @tap="close">×</button></view>
       <text class="target">{{ title }}</text>
       <text class="label">昵称</text>
       <input

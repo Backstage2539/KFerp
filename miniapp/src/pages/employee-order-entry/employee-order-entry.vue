@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { isFreeSampleOrder } from '../../utils/sampleSettlement'
+function isFrozenConversion(item: EmployeeOrderDraftItem) { return ['converted_tier','bom_tier'].includes(item.price_selection_mode || '') && item.spec_conversion?.reprice === false && isEditMode.value }
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import { prepaymentPresets, prepaymentByRate } from '../../utils/prepayment'
 import PaymentSummary from '../../components/PaymentSummary.vue'
@@ -55,6 +57,7 @@ import {
   filterEmployeeOrderCustomers,
   hydrateEmployeeOrderEditItems,
   isEmployeeOrderNonNegativeMoney,
+  isEmployeeOrderUnitPriceValid,
   productSpecLabel,
   preserveEmployeeOrderDraftItemsForMissingCustomer,
   revalidateEmployeeOrderItems,
@@ -95,6 +98,7 @@ const editOrderID = ref(0)
 const copyOrderID = ref(0)
 const preservedOutsourceTotal = ref(0)
 const preservedRoundToInt = ref(false)
+const editingSampleOrder = ref(false)
 const isEditMode = computed(() => editOrderID.value > 0)
 const isCopyMode = computed(() => copyOrderID.value > 0 && !isEditMode.value)
 const canCreateCustomer = computed(() => session.permissions.includes('customers.read')
@@ -116,7 +120,8 @@ function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
 const shippingBaseline = ref<EmployeeOrderShippingSnapshot>(emptyShippingSnapshot())
 
 const receiptMethods = ['微信支付', '支付宝', '银行转账', '对公银行', '现金', 'POS刷卡', '其他']
-const selectedPaymentStatus = computed(() => formData.value?.pay_statuses.find(s => s.id === form.value.pay_status_id)?.name || '')
+const freeSampleSettlement = computed(() => isFreeSampleOrder(editingSampleOrder.value,form.value.items.map(item=>Number(item.unit_price)),Number(form.value.shipping_amount || 0),preservedOutsourceTotal.value,orderGrandTotal.value))
+const selectedPaymentStatus = computed(() => freeSampleSettlement.value ? '无需收款' : formData.value?.pay_statuses.find(s => s.id === form.value.pay_status_id)?.name || '')
 function selectPaymentStatus(event: { detail: { value: string | number } }) {
   form.value.pay_status_id = formData.value?.pay_statuses[Number(event.detail.value)]?.id || 0
 }
@@ -182,6 +187,10 @@ const orderGrandTotal = computed(() => employeeOrderGrandTotal(
   preservedRoundToInt.value,
 ))
 watch(orderGrandTotal, () => { if (prepaymentRate.value) applyPrepaymentPreset(prepaymentRate.value) })
+watch(freeSampleSettlement,(free,previous)=>{
+ if(free) form.value.pay_status_id=formData.value?.pay_statuses.find(item=>['已收款','已付款'].includes(item.name))?.id || form.value.pay_status_id
+ else if(previous) form.value.pay_status_id=formData.value?.pay_statuses.find(item=>['未收款','未付款'].includes(item.name))?.id || form.value.pay_status_id
+})
 
 function currentShippingSnapshot(): EmployeeOrderShippingSnapshot {
   return {
@@ -267,7 +276,7 @@ function quantityInputValue(item: EmployeeOrderDraftItem): number | string {
 
 function unitPriceInputValue(item: EmployeeOrderDraftItem): number | string {
   if (hasPendingQuantity(item)) return ''
-  return Number(item.unit_price) > 0 ? item.unit_price : ''
+  return Number(item.unit_price) > 0 || (editingSampleOrder.value && item.price_override && Number(item.unit_price) === 0) ? item.unit_price : ''
 }
 
 function clearPendingQuantity(item: EmployeeOrderDraftItem) {
@@ -351,7 +360,7 @@ async function changeNamedPriceTable(group: PriceTableGroup, event: { detail: { 
   form.value.selected_price_table_ids = replaceSelectedPriceTable(form.value.selected_price_table_ids || [], group, table.id)
   const loaded = await loadCustomerProductCatalog(Number(form.value.customer_id))
   if (!loaded) return
-  form.value.items = revalidateEmployeeOrderItems(form.value.items, formData.value?.product_families || [], Number(form.value.customer_id), { preserveUnavailable: true, clearPriceSelection: true })
+  form.value.items = revalidateEmployeeOrderItems(form.value.items, formData.value?.product_families || [], Number(form.value.customer_id), { preserveUnavailable: true, clearPriceSelection: true, preserveSampleManualPrice: editingSampleOrder.value })
   quantityInputs.value = {}
 }
 
@@ -392,7 +401,7 @@ async function refreshCurrentProductCatalog(): Promise<boolean> {
     form.value.items,
     formData.value?.product_families || [],
     customerID,
-    { preserveUnavailable: true, preserveManualPrice: true },
+    { preserveUnavailable: true, preserveManualPrice: true, preserveSampleManualPrice: editingSampleOrder.value },
   )
   return loaded
 }
@@ -522,6 +531,7 @@ function applySpec(family: EmployeeOrderProductFamily, spec: EmployeeOrderProduc
 }
 
 function markPriceOverride(item: EmployeeOrderDraftItem, event: unknown) {
+  if (isFrozenConversion(item)) return
   item.unit_price = Number(employeeOrderInputValue(event) || 0)
   item.price_override = true
   item.price_selection_mode = 'manual'
@@ -533,7 +543,7 @@ function quantityChanged(item: EmployeeOrderDraftItem, event: unknown) {
   const rawQuantity = String(employeeOrderInputValue(event) ?? '')
   quantityInputs.value = { ...quantityInputs.value, [item.key]: rawQuantity }
   const family = familyForItem(item)
-  const result = applyEmployeeOrderQuantityChange(item, family, rawQuantity)
+  const result = applyEmployeeOrderQuantityChange(item, family, rawQuantity, editingSampleOrder.value)
   if (!result.accepted) return
   Object.assign(item, result.item)
   clearPendingQuantity(item)
@@ -542,7 +552,7 @@ function quantityChanged(item: EmployeeOrderDraftItem, event: unknown) {
 function quantityBlurred(item: EmployeeOrderDraftItem) {
   if (!hasPendingQuantity(item)) return
   const family = familyForItem(item)
-  const result = applyEmployeeOrderQuantityChange(item, family, quantityInputs.value[item.key])
+  const result = applyEmployeeOrderQuantityChange(item, family, quantityInputs.value[item.key], editingSampleOrder.value)
   clearPendingQuantity(item)
   if (!result.accepted) {
     uni.showToast({ title: result.error, icon: 'none' })
@@ -622,6 +632,7 @@ function applyDefaultOptions() {
 }
 
 async function loadForm() {
+  editingSampleOrder.value = false
   prepaymentRate.value = 0
   loading.value = true
   loadError.value = ''
@@ -663,6 +674,7 @@ async function loadForm() {
     applyDefaultOptions()
     if (detailResponse) {
       const detail = detailResponse.order
+      editingSampleOrder.value = isEditMode.value && detail.is_sample_order === true
       const customer = formData.value.customers.find((row) => Number(row.id) === targetCustomerID)
       const editOrderTypeName = String(formData.value.order_types.find(
         (row) => Number(row.id) === Number(detail.order_type_id || 0),
@@ -704,7 +716,7 @@ async function loadForm() {
             detail.order_discount_amount,
           ),
           notes: String(detail.notes || ''),
-          items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder),
+          items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder, editingSampleOrder.value),
         }
       }
       shippingBaseline.value = customer ? customerShippingDefaults(customer) : currentShippingSnapshot()
@@ -793,8 +805,8 @@ function validateOrder(): boolean {
       uni.showToast({ title: `第${index + 1}行数量不正确`, icon: 'none' })
       return false
     }
-    if (!Number.isFinite(Number(item.unit_price)) || Number(item.unit_price) <= 0) {
-      uni.showToast({ title: `第${index + 1}行销售单价必须大于 0`, icon: 'none' })
+    if (!isEmployeeOrderUnitPriceValid(item.unit_price, editingSampleOrder.value)) {
+      uni.showToast({ title: editingSampleOrder.value ? `第${index + 1}行样品单价必须大于或等于 0` : `第${index + 1}行销售单价必须大于 0`, icon: 'none' })
       return false
     }
     completeCount += 1
@@ -842,7 +854,7 @@ async function submit() {
   saving.value = true
   try {
     const payload = {
-      selected_price_table_ids: form.value.selected_price_table_ids || [],
+      selected_price_table_ids: [...new Set([...(form.value.selected_price_table_ids || []), ...form.value.items.filter(isFrozenConversion).map(item => Number(item.bean_list_publication_id))])],
       order_date: form.value.order_date,
       customer_id: form.value.customer_id,
       source_id: form.value.source_id,
@@ -1029,7 +1041,7 @@ onShow(() => { void refreshMiniappShareMenu() })
           <text class="unit-suffix">{{ displayedSalesUnit(item) }}</text>
         </view>
 
-        <view v-if="priceTierChoicesForItem(item).length" class="tier-choice-row">
+        <view v-if="!isFrozenConversion(item) && priceTierChoicesForItem(item).length" class="tier-choice-row">
           <text class="label">计价档位</text>
           <picker mode="selector" :range="priceTierPickerLabels(item)" :value="selectedPriceTierIndex(item)" @change="choosePriceTier(item, $event)">
             <view class="field selector-field"><text>{{ priceTierPickerLabels(item)[selectedPriceTierIndex(item)] || '按数量自动匹配' }}</text><text class="chevron">›</text></view>
@@ -1037,10 +1049,10 @@ onShow(() => { void refreshMiniappShareMenu() })
         </view>
         <text class="label">销售单价（元/{{ displayedSalesUnit(item) }}）*</text>
         <view class="input-with-unit">
-          <input :value="unitPriceInputValue(item)" type="digit" class="field" :disabled="hasPendingQuantity(item) || Number(item.qty) <= 0" :placeholder="Number(item.qty) > 0 && !hasPendingQuantity(item) ? `填写每${displayedSalesUnit(item)}单价` : '先填写数量后自动匹配'" @input="markPriceOverride(item, $event)" />
+          <input :value="unitPriceInputValue(item)" type="digit" class="field" :disabled="isFrozenConversion(item) || hasPendingQuantity(item) || Number(item.qty) <= 0" :placeholder="Number(item.qty) > 0 && !hasPendingQuantity(item) ? `填写每${displayedSalesUnit(item)}单价` : '先填写数量后自动匹配'" @input="markPriceOverride(item, $event)" />
           <text class="unit-suffix">元/{{ displayedSalesUnit(item) }}</text>
         </view>
-        <text class="price-mode-note">{{ item.price_selection_mode === 'tier' ? '手动选档；数量变化时仍使用所选档价' : item.price_selection_mode === 'manual' || item.price_override ? '手动输入单价' : '按数量自动匹配' }}</text>
+        <text class="price-mode-note">{{ isFrozenConversion(item) ? '历史订单冻结价格；换规格后只能使用当前价格表内的规格' : item.price_selection_mode === 'tier' ? '手动选档；数量变化时仍使用所选档价' : item.price_selection_mode === 'manual' || item.price_override ? '手动输入单价' : '按数量自动匹配' }}</text>
       </view>
 
       <button class="add-item add-item-after-list" @tap="addItem">新增商品</button>
@@ -1071,10 +1083,11 @@ onShow(() => { void refreshMiniappShareMenu() })
 
       <view class="section-title standalone">付款</view>
       <text class="label">付款状态</text>
-      <picker :range="formData?.pay_statuses || []" range-key="name" :value="Math.max(0, (formData?.pay_statuses || []).findIndex(s => s.id === form.pay_status_id))" @change="selectPaymentStatus">
+      <view v-if="freeSampleSettlement" class="field">无需收款 · 已结清</view>
+      <picker v-else :range="formData?.pay_statuses || []" range-key="name" :value="Math.max(0, (formData?.pay_statuses || []).findIndex(s => s.id === form.pay_status_id))" @change="selectPaymentStatus">
         <view class="field">{{ selectedPaymentStatus || '选择付款状态' }}</view>
       </picker>
-      <view class="prepayment-editor">
+      <view v-if="!freeSampleSettlement" class="prepayment-editor">
         <text class="label">已支付预付款（元）</text>
         <input v-model="form.prepayment_amount" class="field" type="digit" placeholder="填写实际已收金额" @input="onManualPrepayment" />
         <view class="prepayment-presets">

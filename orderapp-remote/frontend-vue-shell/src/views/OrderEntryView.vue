@@ -25,6 +25,7 @@
     </div>
     <div v-if="ok" class="notice ok">订单已保存：{{ ok }}</div>
     <div v-if="copyMode" class="notice warn">复制订单会生成一张新订单，不会修改原订单。</div>
+    <div v-if="sampleOrderEditing" class="notice">正在编辑样品销售订单：已确认的零元手动价和样品规格会保留。生产及发货后的编辑限制继续生效。</div>
     <div v-if="stockBatchNotice" class="notice warn">{{ stockBatchNotice }}</div>
 
     <section class="panel order-fields">
@@ -86,9 +87,10 @@
           </div>
         </label>
 
-        <div v-if="props.fulfillmentMode" class="fulfillment-recipient-section">
+        <Teleport :to="props.recipientTarget || 'body'" :disabled="!props.recipientTarget" defer>
+        <div v-if="props.fulfillmentMode || form.edit_id" class="fulfillment-recipient-section full-span">
           <label class="full-span"><span>粘贴收件信息</span><textarea v-model="fulfillmentRecipientPaste" rows="2" placeholder="姓名、电话、地址"></textarea><button type="button" @click="parseFulfillmentRecipient">解析收件信息</button></label>
-          <label class="readonly-field">
+          <label v-if="props.fulfillmentMode" class="readonly-field">
             <span>履约客户</span>
             <input :value="props.customerContextLabel || `客户 #${props.customerContextId}`" readonly />
           </label>
@@ -100,7 +102,8 @@
             <span>电话</span>
             <input v-model.trim="form.receiver_phone" />
           </label>
-          <label class="full-span">
+          <label><span>公司（选填）</span><input v-model.trim="form.receiver_company" /></label>
+          <label class="full-span" data-error-field="receiver_address" :class="{ 'field-invalid': hasFieldError('receiver_address') }">
             <span>地址</span>
             <input v-model.trim="form.receiver_address" />
           </label>
@@ -112,6 +115,7 @@
             </select>
           </label>
         </div>
+        </Teleport>
 
         <label v-if="!props.customerPortal" class="readonly-field">
           <span>客户负责人</span>
@@ -125,14 +129,17 @@
           </div>
         </div>
 
+        <Teleport :to="props.workflowTarget || 'body'" :disabled="!props.workflowTarget" defer>
+          <div :class="props.workflowTarget ? 'form-grid' : 'workflow-fields-inline'">
         <label v-if="!props.customerPortal">
           <span>付款状态</span>
-          <select v-model.number="form.pay_status_id">
+          <strong v-if="freeSampleSettlement" class="no-payment">无需收款 · 已结清</strong>
+          <select v-else v-model.number="form.pay_status_id">
             <option v-for="item in payStatuses" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
 
-        <div v-if="!props.customerPortal" class="prepayment-editor" data-prepayment-editor>
+        <div v-if="!props.customerPortal && !freeSampleSettlement" class="prepayment-editor" data-prepayment-editor>
           <label>
             <span>已支付预付款（元）</span>
             <input v-model="form.prepayment_amount" type="number" min="0" step="0.01" placeholder="填写实际已收金额" @input="onManualPrepayment" />
@@ -143,7 +150,7 @@
           <small>按应收合计 ¥{{ money(orderTotalPreviewValue.grandTotal) }} 计算（含运费）；可修改实际已收金额。</small>
         </div>
 
-        <label v-if="!props.customerPortal" :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
+        <label v-if="!props.customerPortal && !freeSampleSettlement" :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
           <span>收款方式</span>
           <select v-model.trim="form.payment_method" :disabled="!paymentMethodRequired">
             <option value="">选择收款方式</option>
@@ -235,6 +242,14 @@
             <small v-else-if="paymentVoucher && !paymentVoucherCollapsed">{{ paymentVoucher.filename || '已上传凭证' }}</small>
           </div>
         </div>
+          <p v-if="freeSampleSettlement" class="full-span no-payment">商品和运费均为零，无需填写收款方式或凭证。</p>
+          <p v-if="editBlockReason" class="full-span notice warn">{{ editBlockReason }}</p>
+          <div v-if="props.workflowTarget" class="full-span workflow-save">
+            <button class="primary" type="button" @click="save()" :disabled="saving || loading || !!editBlockReason || hasUnpricedPublishedRow">{{ saving ? '保存中…' : '保存订单' }}</button>
+            <small>保存当前订单的全部修改</small>
+          </div>
+          </div>
+        </Teleport>
       </div>
 
       <label class="notes">
@@ -321,7 +336,7 @@
                   :value="row.spec_mode"
                   disabled
                 >
-                  {{ row.spec_label || '历史规格' }}（历史规格，当前价格表不可用）
+                  {{ row.spec_label || '历史规格' }}{{ preservesSampleSpec(row, sampleOrderEditing) ? '（已存样品规格）' : '（历史规格，当前价格表不可用）' }}
                 </option>
                 <option v-for="option in specOptions(row)" :key="option.value" :value="option.value">
                   {{ option.label }}
@@ -360,14 +375,14 @@
             <div class="price-control">
               <input
                 v-model.trim="row.unit_price"
-                :readonly="props.customerPortal"
+                :readonly="props.customerPortal || isFrozenConversion(row)"
                 type="number"
                 min="0"
                 step="0.01"
                 placeholder="0.00"
                 @input="markManualPrice(row)"
               />
-              <button v-if="!props.customerPortal" class="icon-button" type="button" title="恢复自动价格" @click="resetAutoPrice(row)">↺</button>
+              <button v-if="!props.customerPortal && !isFrozenConversion(row)" class="icon-button" type="button" title="恢复自动价格" @click="resetAutoPrice(row)">↺</button>
             </div>
           </label>
 
@@ -421,7 +436,7 @@
             <input v-model.trim="row.item_note" placeholder="如贴标、磨粉、特殊包装" />
           </label>
 
-          <div v-if="!props.customerPortal && tierRows(row).length" class="tier-prices">
+          <div v-if="!props.customerPortal && !isFrozenConversion(row) && tierRows(row).length" class="tier-prices">
             <small class="tier-choice-hint">手动选择价格档（不受数量门槛限制）</small>
             <button
               v-for="tier in tierRows(row)"
@@ -474,7 +489,7 @@
             class="secondary"
             type="button"
             @click="save({ continueBackfill: false })"
-            :disabled="saving || hasUnpricedPublishedRow"
+            :disabled="saving || loading || !!editBlockReason || hasUnpricedPublishedRow"
           >
             保存并查看订单
           </button>
@@ -483,7 +498,7 @@
             class="primary"
             type="button"
             @click="save({ continueBackfill: true })"
-            :disabled="saving || hasUnpricedPublishedRow"
+            :disabled="saving || loading || !!editBlockReason || hasUnpricedPublishedRow"
           >
             {{ backfillMode ? '保存并继续补录' : '保存并继续' }}
           </button>
@@ -492,7 +507,7 @@
             class="primary"
             type="button"
             @click="save({ continueBackfill: false })"
-            :disabled="saving || hasUnpricedPublishedRow"
+            :disabled="saving || loading || !!editBlockReason || hasUnpricedPublishedRow"
           >
             保存订单
           </button>
@@ -501,6 +516,8 @@
       <details class="manual">
         <summary>录单手册</summary>
         <ul>
+          <li>已有订单在详情顶部核对收件信息及付款与交付，点击“保存订单”保存全部修改；独立新建录单页布局保持原样。订单地址是本单快照，修改客户档案不会覆盖。</li>
+          <li>整单免费样品自动显示“无需收款”，不用填写收款方式或凭证。仅收运费时货款填 0，按实际运费登记并上传凭证；免费改收费先保存费用，再登记实际收款。</li>
           <li>客户和商品输入框支持名称、拼音和首字母搜索。</li>
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
@@ -516,7 +533,7 @@
           <li v-else>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
           <li>按规格件数计价时，档位范围和单价单位使用所选 BOM 规格库存单位；例如 50 袋会匹配 48 袋以上档，不显示无意义的 0g。</li>
           <li>数量低于起订量、高于有限最高量或落在档位空隙时不猜测最低价；页面提示“当前数量无已发布价格，不能保存”，请调整数量、补齐已发布价格表档位或按授权流程输入手动价。</li>
-          <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
+          <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。表外 BOM 规格不能下单；历史换算订单仅保留原规格和冻结价格，复制时须重新选择当前价格表内的规格。</li>
           <li>每条商品明细可选择减免数额、单价优惠、折扣或免费，保存后会计入订单优惠。</li>
           <li>每条商品明细可填写“条目备注”，会随该商品带入销售单和出库单。</li>
           <li>库存充足时保存前会提示成品批次；历史库存没有 FP 批次时会提示库存余额，确认使用后进入库存待发货。</li>
@@ -646,10 +663,14 @@
 </template>
 
 <script setup>
+import { convertedOrderRow, conversionSnapshot } from '../lib/spec-conversion.js'
+function isFrozenConversion(row) { return ['converted_tier','bom_tier'].includes(row.price_selection_mode) && row.spec_conversion?.reprice === false && Number(form.edit_id) > 0 }
+
 import { orderDeliveryMode, isNonCourierShipMethod, requiresCourierLogistics } from '../lib/order-shipping'
 import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { isSampleOrderEdit, validManualOrderPrice, storedSampleSpecKey, preservesSampleSpec, sampleStoredItemIdentity, orderEditRecipientFields, isFreeSamplePreview, validSampleReceiptGoods } from '../lib/sample-order-edit.js'
 import { resetCustomerContinuation } from '../lib/customer-workspace'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
@@ -730,6 +751,8 @@ const props = defineProps({
   editId: { type: [Number, String], default: 0 },
   copyId: { type: [Number, String], default: 0 },
   embedded: { type: Boolean, default: false },
+  recipientTarget: { type: String, default: '' },
+  workflowTarget: { type: String, default: '' },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
@@ -739,13 +762,15 @@ const props = defineProps({
   recipientInfo: { type: Object, default: null },
 })
 
-const emit = defineEmits(['close', 'saved'])
+const emit = defineEmits(['close', 'saved', 'editability'])
 const fulfillmentRecipientPaste=ref('')
 function parseFulfillmentRecipient(){const result=parseRecipientText(fulfillmentRecipientPaste.value);if(result.recipient_name)form.receiver_name=result.recipient_name;if(result.phone)form.receiver_phone=result.phone;if(result.address)form.receiver_address=result.address}
 const ORDER_ENTRY_DRAFT_SCOPE = FORM_DRAFT_SCOPES.orderEntry
 let orderEntryDraftDisabled = false
 
 const loading = ref(false)
+const sampleOrderEditing = ref(false)
+const editBlockReason = ref('')
 const saving = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -826,11 +851,13 @@ const form = reactive({
   receiver_phone: '',
   receiver_address: '',
   receiver_company: '',
+  settlement_reason: '',
 })
 
 function newRow() {
   return {
     key: `${Date.now()}-${Math.random()}`,
+    item_id: 0,
     product_query: '',
     product_open: false,
     product_kind_filter: '',
@@ -970,7 +997,9 @@ const orderTotalPreviewValue = computed(() => orderTotalPreview({
 }))
 const orderTotalHintText = computed(() => `货款 ${money(orderTotalPreviewValue.value.goodsAmount)} · 物流 ${money(orderTotalPreviewValue.value.logisticsAmount)}`)
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
-const paymentMethodRequired = computed(() => !props.customerPortal && requiresOrderPaymentMethod(form, payStatuses.value))
+const freeSampleSettlement = computed(() => isFreeSamplePreview(sampleOrderEditing.value, rows.value, form, orderTotalPreviewValue.value.grandTotal))
+const zeroGoodsSample = computed(() => sampleOrderEditing.value && itemsTotal.value === 0)
+const paymentMethodRequired = computed(() => !freeSampleSettlement.value && !props.customerPortal && requiresOrderPaymentMethod(form, payStatuses.value))
 const prepaymentRate = ref(0)
 function selectPrepaymentStatus() {
   if (Number(form.prepayment_amount) <= 0) return
@@ -992,11 +1021,11 @@ watch(() => orderTotalPreviewValue.value.grandTotal, () => {
 const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))
 const selectedShipStatusName = computed(() => optionName(shipStatuses.value, form.ship_status_id))
 const paymentReceiptVisible = computed(() => {
-  if (props.customerPortal) return false
+  if (props.customerPortal || freeSampleSettlement.value) return false
   const name = selectedPayStatusName.value
   return name.includes('已收款') || name.includes('已付款') || name.includes('已支付')
 })
-const paymentReceiptRequired = computed(() => !props.customerPortal && requiresOrderPaymentReceipt(form, payStatuses.value))
+const paymentReceiptRequired = computed(() => !freeSampleSettlement.value && !props.customerPortal && requiresOrderPaymentReceipt(form, payStatuses.value))
 const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
 const paymentShippingAmountSuggestion = computed(() => money(toNumber(form.shipping_amount)))
 const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptVisible.value && itemsTotal.value > 0)
@@ -1184,7 +1213,7 @@ function ensureLogisticsDefaults() {
 
 function ensurePaymentDefaults() {
   if (!paymentReceiptRequired.value) return
-  if (String(form.payment_shipping_amount || '').trim() === '') {
+  if (String(form.payment_shipping_amount ?? '').trim() === '') {
     form.payment_shipping_amount = money(toNumber(form.shipping_amount))
   }
 }
@@ -1220,8 +1249,8 @@ function fieldIsValid(fieldKey) {
   if (fieldKey === 'payment_method') return !paymentMethodRequired.value || String(form.payment_method || '').trim() !== ''
   if (fieldKey === 'logistics_company_id') return !logisticsRequired.value || Number(form.logistics_company_id || 0) > 0
   if (fieldKey === 'logistics_product_id') return !logisticsRequired.value || Number(form.logistics_product_id || 0) > 0
-  if (fieldKey === 'payment_goods_amount') return !paymentReceiptRequired.value || toNumber(form.payment_goods_amount) > 0
-  if (fieldKey === 'payment_shipping_amount') return !paymentReceiptRequired.value || String(form.payment_shipping_amount || '').trim() !== ''
+  if (fieldKey === 'payment_goods_amount') return !paymentReceiptRequired.value || validSampleReceiptGoods(form.payment_goods_amount, zeroGoodsSample.value, form.payment_shipping_amount)
+  if (fieldKey === 'payment_shipping_amount') return !paymentReceiptRequired.value || String(form.payment_shipping_amount ?? '').trim() !== ''
   if (fieldKey === 'payment_voucher_asset_id') return !paymentReceiptRequired.value || Number(form.payment_voucher_asset_id || 0) > 0
   if (fieldKey === 'product_items') return hasValidProductLine() && !hasUnpricedPublishedRow.value
   return false
@@ -1722,6 +1751,9 @@ function productSpecCountForCurrentList(family) {
 }
 
 function clearProduct(row) {
+  row.spec_conversion = null
+  row.price_selection_mode = "auto"
+  row.selected_price_row_key = ""
   row.product_open = true
   row.parent_product_id = 0
   row.product_family_key = ''
@@ -1778,6 +1810,7 @@ function assignProductFamilyHeader(row, family) {
 }
 
 function applyPriceListSpecToRow(row, family, spec, publicationID) {
+  row.spec_conversion = null
   const qty = row.qty
   const itemNote = row.item_note
   const discountType = row.discount_type
@@ -1826,6 +1859,7 @@ function invalidatePriceListSpecRow(row, message = '所选价格表不包含该�
 }
 
 function chooseProduct(row, product) {
+  row.spec_conversion = null
   row.price_selection_mode = 'auto'
   row.selected_price_row_key = ''
   row.manual_price = false
@@ -2005,6 +2039,8 @@ function syncRowsForType(options = {}) {
 }
 
 function syncPrice(row, options = {}) {
+  if (isFrozenConversion(row)) return
+  if (preservesSampleSpec(row, sampleOrderEditing.value) && row.manual_price && !options.force) return
   const product = productForRow(row)
   if (!product) {
     row.unit_price = ''
@@ -2105,6 +2141,7 @@ function applyResolvedWholesalePrice(row, price) {
 }
 
 function ensureRowBeanListVersion(row, price = {}) {
+  if (preservesSampleSpec(row, sampleOrderEditing.value) && !Number(row.bean_list_publication_id || 0) && !Number(price.beanListPublicationID || 0)) return
   const selected = selectedBeanListVersionOptionForProduct(row)
   const publicationID = Number(price.beanListPublicationID || row.bean_list_publication_id || selected?.id || 0)
   row.bean_list_publication_id = publicationID
@@ -2152,32 +2189,36 @@ function dripUnitOptionsForRow(row) {
 }
 
 function markManualPrice(row) {
+  if (isFrozenConversion(row)) return
   row.manual_price = true
   row.tier_id = 'manual'
   row.price_selection_mode = 'manual'
   row.selected_price_row_key = ''
 }
 
-function hasPositiveManualPrice(row) {
-  return Boolean(row?.manual_price) && toNumber(row?.unit_price) > 0
+function hasValidManualPrice(row) {
+  return validManualOrderPrice(row, preservesSampleSpec(row, sampleOrderEditing.value) && row.sample_stored_manual === true)
 }
 
 function rowHasBlockingPrice(row) {
   if (Number(row?.product_id || row?.parent_product_id || 0) <= 0) return false
   if (row?.spec_invalid_message) return true
-  if (row?.manual_price) return !hasPositiveManualPrice(row)
+  if (row?.manual_price) return !hasValidManualPrice(row)
   return Boolean(row?.price_missing)
 }
 
 function rowPriceBlockingMessage(row) {
   if (row?.spec_invalid_message) return row.spec_invalid_message
-  if (row?.manual_price && !hasPositiveManualPrice(row)) {
+  if (row?.manual_price && !hasValidManualPrice(row)) {
+    if (preservesSampleSpec(row, sampleOrderEditing.value) && row.sample_stored_manual === true) return '样品手动价必须为有效非负金额，不能留空。'
     return '手动价必须大于0，不能保存；请输入有效手动价或恢复自动价。'
   }
   return '当前数量无已发布价格，不能保存；请调整数量、补齐价格表档位或输入手动价。'
 }
 
 function resetAutoPrice(row) {
+  if (isFrozenConversion(row)) return
+  row.spec_conversion = null
   row.manual_price = false
   row.price_selection_mode = 'auto'
   row.selected_price_row_key = ''
@@ -2206,6 +2247,7 @@ function isTierActive(row, tier) {
 }
 
 function autoPriceLabel(row) {
+  if (isFrozenConversion(row)) return "历史订单冻结价格"
   if (row?.price_selection_mode === 'tier') return `手动选档 ${row.tier_price_label || ''}`.trim()
   if (row?.price_selection_mode === 'manual' || row?.manual_price) return '手动输入单价'
   if (isDripRow(row)) return row.sales_unit === 'box' ? '挂耳盒价' : '挂耳袋价'
@@ -2298,12 +2340,17 @@ function notifyWorkspaceCustomerChanged(customerID) {
 function applyEditData(data) {
   prepaymentRate.value = 0
   if (!data) return
+  sampleOrderEditing.value = isSampleOrderEdit(data, {copyMode:copyMode.value,customerPortal:props.customerPortal})
   const editItems = Array.isArray(data.items) ? data.items : []
   const itemPublicationIDByType = (listType) => {
     const item = editItems.find((row) => orderBeanListTypeForProductKind(row.product_kind) === listType && Number(row.bean_list_publication_id || 0) > 0)
     return Number(item?.bean_list_publication_id || 0)
   }
+  editBlockReason.value = data.can_edit === false ? (data.edit_block_reason || '订单当前状态不能编辑') : ''
+  emit('editability', !editBlockReason.value)
   Object.assign(form, {
+    ...orderEditRecipientFields(data),
+    settlement_reason: data.settlement_reason || '',
     edit_id: Number(data.edit_id || form.edit_id || 0),
  edit_revision: data.edit_revision || "",
     document_date: data.document_date || data.order_date || form.document_date,
@@ -2319,15 +2366,15 @@ function applyEditData(data) {
     ship_tracking_no: data.ship_tracking_no || '',
     logistics_company_id: Number(data.logistics_company_id || 0),
     logistics_product_id: Number(data.logistics_product_id || 0),
-    payment_goods_amount: data.payment_goods_amount || '',
-    payment_shipping_amount: data.payment_shipping_amount || '',
+    payment_goods_amount: data.payment_goods_amount ?? '',
+    payment_shipping_amount: data.payment_shipping_amount ?? '',
     payment_voucher_asset_id: Number(data.payment_voucher_asset_id || 0),
     bean_list_publication_id: Number(data.bean_list_publication_id || 0),
     commercial_bean_list_publication_id: Number(data.commercial_bean_list_publication_id || data.bean_list_publication_id || itemPublicationIDByType('commercial') || 0),
     green_bean_list_publication_id: Number(data.green_bean_list_publication_id || itemPublicationIDByType('green') || 0),
     drip_bean_list_publication_id: Number(data.drip_bean_list_publication_id || itemPublicationIDByType('drip') || 0),
     notes: data.notes || '',
-    shipping_amount: data.shipping_amount || '',
+    shipping_amount: data.shipping_amount ?? '',
     discount_amount: data.discount_amount || '',
     round_to_int: !!data.round_to_int,
     express_fee: data.express_fee || '',
@@ -2367,6 +2414,7 @@ function applyEditData(data) {
     const shouldUseCustomSpec = productKind !== 'drip_bag' && retailOrder.value && !retailSpecs.includes(toInt(spec))
     const hydrated = {
       ...newRow(),
+      item_id: copyMode.value ? 0 : Number(item.item_id || 0),
       bom_spec_id: Number(item.bom_spec_id || 0),
       bom_variant_id: Number(item.bom_variant_id || 0),
       migration_state: Number(item.bom_spec_id || 0) > 0 ? 'cutover' : 'legacy',
@@ -2393,13 +2441,13 @@ function applyEditData(data) {
       price_source_json: item.price_source_json || '',
       bean_list_publication_id: Number(item.bean_list_publication_id || 0),
       bean_list_version_no: item.bean_list_version_no || '',
-      unit_price: item.unit_price || '',
+      unit_price: item.unit_price ?? '',
       price_unit: '',
       price_unit_suffix: '',
       price_unit_g: 0,
       tier_price_label: '',
       tier_below_min: false,
-      manual_price: item.price_override === true || item.tier_id === 'manual',
+      manual_price: item.price_selection_mode === 'manual' || item.price_override === true || item.tier_id === 'manual',
       spec_mode: productKind === 'drip_bag' ? '' : (shouldUseCustomSpec ? CUSTOM_SPEC_VALUE : spec),
       custom_spec_g: shouldUseCustomSpec ? spec : '',
       sales_unit: productKind === 'drip_bag' ? salesUnit : '',
@@ -2411,11 +2459,28 @@ function applyEditData(data) {
       discount_type: item.discount_type || '',
       discount_value: item.discount_value || '',
     }
+    const conversion = conversionSnapshot(item)
+    if (!copyMode.value && ['converted_tier','bom_tier'].includes(item.price_selection_mode) && conversion) {
+      const result = convertedOrderRow(hydrated, { ...conversion, unit_price: item.unit_price, price_source_json: item.price_source_json })
+      result.spec_conversion.reprice = false
+      result.historical_spec_readonly = true
+      return result
+    }
+    if (copyMode.value && ['converted_tier','bom_tier'].includes(item.price_selection_mode)) {
+      hydrated.spec_conversion = null
+      hydrated.price_selection_mode = 'auto'
+      hydrated.selected_price_row_key = ''
+      hydrated.manual_price = false
+      hydrated.unit_price = ''
+      hydrated.price_source_json = ''
+      hydrated.price_missing = true
+    }
     const publicationMode = orderProductPublicationMode(
       family || product || flatProduct || hydrated,
       item.bean_list_publication_id,
     )
-    const keepFrozenPublication = shouldKeepFrozenOrderPublication(
+    const keepSampleSpec = sampleOrderEditing.value && Number(item.bom_spec_id || 0) > 0
+    const keepFrozenPublication = keepSampleSpec || shouldKeepFrozenOrderPublication(
       beanListVersionGroups.value,
       item.bean_list_publication_id,
       copyMode.value,
@@ -2457,11 +2522,11 @@ function applyEditData(data) {
           tier_id: item.tier_id || 'auto',
           price_selection_mode: item.price_selection_mode || (item.price_override === true || item.tier_id === 'manual' ? 'manual' : 'auto'),
           selected_price_row_key: item.selected_price_row_key || '',
-          unit_price: item.unit_price || '',
+          unit_price: item.unit_price ?? '',
           price_source_json: item.price_source_json || '',
           bean_list_publication_id: publicationID,
           bean_list_version_no: item.bean_list_version_no || hydrated.bean_list_version_no,
-          manual_price: item.price_override === true || item.tier_id === 'manual',
+          manual_price: item.price_selection_mode === 'manual' || item.price_override === true || item.tier_id === 'manual',
           qty: Number(item.qty || 1),
           item_note: item.note || '',
           discount_type: item.discount_type || '',
@@ -2469,6 +2534,11 @@ function applyEditData(data) {
         },
         keepFrozenPublication,
       ))
+    }
+    if (keepSampleSpec) {
+      Object.assign(hydrated, sampleStoredItemIdentity(item))
+      hydrated.sample_stored_manual = item.price_override === true || item.price_selection_mode === 'manual' || item.tier_id === 'manual'
+      hydrated.sample_stored_spec_key = storedSampleSpecKey(hydrated)
     }
     return hydrated
   })
@@ -2559,6 +2629,9 @@ async function loadOrderProductCatalogTypes() {
 
 async function load() {
   loading.value = true
+  sampleOrderEditing.value = false
+  editBlockReason.value = ''
+  form.settlement_reason = ''
   error.value = ''
   ok.value = ''
   try {
@@ -2614,7 +2687,7 @@ async function load() {
       }
       form.edit_id = Number(editData.edit_id || 0)
       applyEditData(editData)
-      syncBeanListVersionForCustomer({ force: !!copyID })
+      if (!sampleOrderEditing.value) syncBeanListVersionForCustomer({ force: !!copyID })
       if (copyID) syncRowsForType({ priceListChanged: true })
     } else {
       applyCustomerContextToNewOrder()
@@ -2656,7 +2729,7 @@ function resetForBackfillContinuation() {
 }
 
 async function save(options = {}) {
-  if (saving.value) return
+  if (saving.value || loading.value || editBlockReason.value) return
   const continueBackfill = Boolean(options?.continueBackfill && canUseBackfillMode.value)
   saving.value = true
   error.value = ''
@@ -2665,7 +2738,8 @@ async function save(options = {}) {
   clearAllFieldErrors()
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
-    payload.selected_price_table_ids = [...new Set(beanListVersionGroups.value.map(group => Number(selectedBeanListVersionOptionByGroup(group)?.id || 0)).filter(id => id > 0))]
+    payload.selected_price_table_ids = [...new Set([...beanListVersionGroups.value.map(group => Number(selectedBeanListVersionOptionByGroup(group)?.id || 0)), ...rows.value.filter(isFrozenConversion).map(row => Number(row.bean_list_publication_id))].filter(id => id > 0))]
+    if (sampleOrderEditing.value) payload.selected_price_table_ids = [...new Set(rows.value.map(row => Number(row.bean_list_publication_id || 0)).filter(id => id > 0))]
     if (!payload.customer_id) {
       raiseSaveError('请选择客户', 'customer_id')
       return
@@ -2673,6 +2747,10 @@ async function save(options = {}) {
     const missingCustomerProfile = selectedCustomerMissingProfileLabels()
     if (missingCustomerProfile.length) {
       raiseSaveError(`请先在客户资料维护${missingCustomerProfile.join('、')}`, 'customer_id')
+      return
+    }
+    if ((sampleOrderEditing.value || props.fulfillmentMode) && (!payload.receiver_name || !payload.receiver_phone || !payload.receiver_address)) {
+      raiseSaveError('请在顶部收件信息补齐收件人、电话和地址', 'receiver_address')
       return
     }
     if (paymentMethodRequired.value && !payload.payment_method) {
@@ -2690,7 +2768,7 @@ async function save(options = {}) {
       }
     }
     if (paymentReceiptRequired.value) {
-      if (toNumber(payload.payment_goods_amount) <= 0) {
+      if (!validSampleReceiptGoods(payload.payment_goods_amount, zeroGoodsSample.value, payload.payment_shipping_amount)) {
         raiseSaveError('请输入货款金额', 'payment_goods_amount')
         return
       }
@@ -2723,7 +2801,7 @@ async function save(options = {}) {
       payload.discount_value=payload.discount_value?.map(()=> '')
       payload.discount_type=payload.discount_type?.map(()=> '')
     }
-    if (props.fulfillmentMode) { form.customer_request_id ||= crypto.randomUUID(); payload.request_id=form.customer_request_id }
+    if (props.fulfillmentMode) { form.customer_request_id ||= crypto.randomUUID(); payload.request_id=form.customer_request_id; payload.portal_service_code=props.portalService; payload.orders_scope='fulfillment' }
     payload.edit_revision=form.edit_revision
     const stockDecision = (props.customerPortal || props.fulfillmentMode) ? '' : await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
@@ -2823,6 +2901,15 @@ watch(canUseBackfillMode, (canUse) => {
   if (!canUse) backfillMode.value = false
 })
 
+watch(freeSampleSettlement, (free, previous) => {
+ if (free) {
+  form.pay_status_id = defaultStatusID(payStatuses.value, ['已收款','已付款']) || form.pay_status_id
+ } else if (previous || form.settlement_reason === 'free_sample') {
+  form.pay_status_id = defaultStatusID(payStatuses.value, ['未收款','未付款']) || form.pay_status_id
+  form.settlement_reason = ''
+ }
+})
+
 watch(
   paymentMethodRequired,
   (required) => {
@@ -2854,7 +2941,7 @@ watch(itemsTotal, () => {
   clearFieldErrorIfValid('payment_goods_amount')
 })
 watch(() => form.shipping_amount, () => {
-  if (paymentReceiptRequired.value && String(form.payment_shipping_amount || '').trim() === '') {
+  if (paymentReceiptRequired.value && String(form.payment_shipping_amount ?? '').trim() === '') {
     form.payment_shipping_amount = money(toNumber(form.shipping_amount))
   }
   clearFieldErrorIfValid('payment_shipping_amount')
@@ -2870,6 +2957,10 @@ watch(
 </script>
 
 <style scoped>
+.workflow-fields-inline { display: contents; }
+.workflow-save { display:flex;align-items:center;gap:12px; }
+.no-payment { color:#15803d; }
+
 .quote-source-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: #626d81; }
 .prepayment-editor{display:flex;flex-direction:column;gap:6px}.prepayment-presets{display:flex;gap:8px}.prepayment-presets button{padding:5px 16px;color:#2563eb;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px}.prepayment-presets button.selected{background:#2563eb;color:white}.prepayment-editor small{color:#64748b;line-height:1.5}
 .page { min-height: 100%; max-width: 100%; overflow-x: hidden; padding: 18px; display: grid; gap: 14px; background: #f6f7f9; color: #15171a; box-sizing: border-box; }

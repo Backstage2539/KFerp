@@ -25,6 +25,7 @@ func registerCustomerAccountRoutes(e *echo.Echo, h orderAPIHandler) {
 		e.GET(accountPrefix+"/"+name, h.customerAccount)
 	}
 	e.GET(accountPrefix+"/orders/:id/detail", h.customerAccount)
+	e.GET(accountPrefix+"/orders/:id/copy-details", h.customerCopyDetails)
 	e.GET(accountPrefix+"/settlements/:settlement", h.customerAccount)
 	for _, key := range []string{"sales-orders", "sales-order-preview", "sales-order-preview.pdf", "sales-order-images"} {
 		e.GET(accountPrefix+"/orders/:id/"+key, h.customerDocument)

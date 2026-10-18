@@ -93,6 +93,8 @@ type miniEmployeeOrderDetailDTO struct {
 	OutsourceTotalFee               string                            `json:"outsource_total_fee"`
 	ProductKindSummary              string                            `json:"product_kind_summary"`
 	CreatedByEmployee               string                            `json:"created_by_employee"`
+	SettlementReason                string                            `json:"settlement_reason"`
+	IsSampleOrder                   bool                              `json:"is_sample_order"`
 	IsVoid                          bool                              `json:"is_void"`
 	VoidedAt                        *string                           `json:"voided_at,omitempty"`
 	VoidReason                      *string                           `json:"void_reason,omitempty"`
@@ -119,44 +121,45 @@ type miniEmployeeOrderAssetDTO struct {
 }
 
 type miniEmployeeOrderItemDetailDTO struct {
-	ItemID                             int64  `json:"item_id"`
-	LineNo                             int    `json:"line_no"`
-	ProductID                          int64  `json:"product_id"`
-	ParentProductID                    int64  `json:"parent_product_id,omitempty"`
-	MigrationState                     string `json:"migration_state,omitempty"`
-	BomSpecID                          int64  `json:"bom_spec_id,omitempty"`
-	BomVariantID                       int64  `json:"bom_variant_id,omitempty"`
-	BomSpecKey                         string `json:"bom_spec_key,omitempty"`
-	BomSpecName                        string `json:"bom_spec_name,omitempty"`
-	ProductName                        string `json:"product_name"`
-	CustomerProductAliasID             int64  `json:"customer_product_alias_id"`
-	CustomerProductDisplayNameSnapshot string `json:"customer_product_display_name_snapshot"`
-	CustomerItemCodeSnapshot           string `json:"customer_item_code_snapshot"`
-	BrandNameSnapshot                  string `json:"brand_name_snapshot"`
-	ProductCodeSnapshot                string `json:"product_code_snapshot"`
-	ProductNameSnapshot                string `json:"product_name_snapshot"`
-	Note                               string `json:"note"`
-	TierID                             string `json:"tier_id"`
-	PriceOverride                      bool   `json:"price_override"`
-	PriceSelectionMode                 string `json:"price_selection_mode"`
-	SelectedPriceRowKey                string `json:"selected_price_row_key"`
-	UnitPrice                          string `json:"unit_price"`
-	Qty                                string `json:"qty"`
-	Unit                               string `json:"unit"`
-	Spec                               string `json:"spec"`
-	LineTotal                          string `json:"line_total"`
-	BeanListPublicationID              int64  `json:"bean_list_publication_id"`
-	BeanListVersionNo                  string `json:"bean_list_version_no"`
-	DiscountType                       string `json:"discount_type"`
-	DiscountValue                      string `json:"discount_value"`
-	DiscountAmount                     string `json:"discount_amount"`
-	ProductKind                        string `json:"product_kind"`
-	SalesUnit                          string `json:"sales_unit"`
-	UnitBagCount                       int64  `json:"unit_bag_count"`
-	UnitBeanG                          string `json:"unit_bean_g"`
-	MatchedPriceQty                    string `json:"matched_price_qty"`
-	UnitConversionLabel                string `json:"unit_conversion_label"`
-	PriceSourceJSON                    string `json:"price_source_json"`
+	SpecConversion                     *salesapp.SpecConversionSelection `json:"spec_conversion,omitempty"`
+	ItemID                             int64                             `json:"item_id"`
+	LineNo                             int                               `json:"line_no"`
+	ProductID                          int64                             `json:"product_id"`
+	ParentProductID                    int64                             `json:"parent_product_id,omitempty"`
+	MigrationState                     string                            `json:"migration_state,omitempty"`
+	BomSpecID                          int64                             `json:"bom_spec_id,omitempty"`
+	BomVariantID                       int64                             `json:"bom_variant_id,omitempty"`
+	BomSpecKey                         string                            `json:"bom_spec_key,omitempty"`
+	BomSpecName                        string                            `json:"bom_spec_name,omitempty"`
+	ProductName                        string                            `json:"product_name"`
+	CustomerProductAliasID             int64                             `json:"customer_product_alias_id"`
+	CustomerProductDisplayNameSnapshot string                            `json:"customer_product_display_name_snapshot"`
+	CustomerItemCodeSnapshot           string                            `json:"customer_item_code_snapshot"`
+	BrandNameSnapshot                  string                            `json:"brand_name_snapshot"`
+	ProductCodeSnapshot                string                            `json:"product_code_snapshot"`
+	ProductNameSnapshot                string                            `json:"product_name_snapshot"`
+	Note                               string                            `json:"note"`
+	TierID                             string                            `json:"tier_id"`
+	PriceOverride                      bool                              `json:"price_override"`
+	PriceSelectionMode                 string                            `json:"price_selection_mode"`
+	SelectedPriceRowKey                string                            `json:"selected_price_row_key"`
+	UnitPrice                          string                            `json:"unit_price"`
+	Qty                                string                            `json:"qty"`
+	Unit                               string                            `json:"unit"`
+	Spec                               string                            `json:"spec"`
+	LineTotal                          string                            `json:"line_total"`
+	BeanListPublicationID              int64                             `json:"bean_list_publication_id"`
+	BeanListVersionNo                  string                            `json:"bean_list_version_no"`
+	DiscountType                       string                            `json:"discount_type"`
+	DiscountValue                      string                            `json:"discount_value"`
+	DiscountAmount                     string                            `json:"discount_amount"`
+	ProductKind                        string                            `json:"product_kind"`
+	SalesUnit                          string                            `json:"sales_unit"`
+	UnitBagCount                       int64                             `json:"unit_bag_count"`
+	UnitBeanG                          string                            `json:"unit_bean_g"`
+	MatchedPriceQty                    string                            `json:"matched_price_qty"`
+	UnitConversionLabel                string                            `json:"unit_conversion_label"`
+	PriceSourceJSON                    string                            `json:"price_source_json"`
 }
 
 type miniEmployeeQuoteSourceTraceDTO struct {
@@ -221,27 +224,28 @@ type miniEmployeeDocumentMetadata struct {
 }
 
 type miniEmployeeOrderItemRequest struct {
-	ItemID                 int64   `json:"item_id"`
-	ProductID              int64   `json:"product_id"`
-	ParentProductID        int64   `json:"parent_product_id"`
-	BomSpecID              int64   `json:"bom_spec_id"`
-	BomVariantID           int64   `json:"bom_variant_id"`
-	CustomerProductAliasID int64   `json:"customer_product_alias_id"`
-	BeanListPublicationID  int64   `json:"bean_list_publication_id"`
-	BeanListVersionNo      string  `json:"bean_list_version_no"`
-	PriceSourceJSON        string  `json:"price_source_json"`
-	PriceSelectionMode     string  `json:"price_selection_mode"`
-	SelectedPriceRowKey    string  `json:"selected_price_row_key"`
-	PriceOverride          bool    `json:"price_override"`
-	Name                   string  `json:"name"`
-	Qty                    int64   `json:"qty"`
-	Unit                   string  `json:"unit"`
-	SpecG                  int64   `json:"spec_g"`
-	ProductKind            string  `json:"product_kind"`
-	SalesUnit              string  `json:"sales_unit"`
-	UnitBagCount           int64   `json:"unit_bag_count"`
-	UnitBeanG              float64 `json:"unit_bean_g"`
-	UnitPrice              float64 `json:"unit_price"`
+	SpecConversion         *salesapp.SpecConversionSelection `json:"spec_conversion,omitempty"`
+	ItemID                 int64                             `json:"item_id"`
+	ProductID              int64                             `json:"product_id"`
+	ParentProductID        int64                             `json:"parent_product_id"`
+	BomSpecID              int64                             `json:"bom_spec_id"`
+	BomVariantID           int64                             `json:"bom_variant_id"`
+	CustomerProductAliasID int64                             `json:"customer_product_alias_id"`
+	BeanListPublicationID  int64                             `json:"bean_list_publication_id"`
+	BeanListVersionNo      string                            `json:"bean_list_version_no"`
+	PriceSourceJSON        string                            `json:"price_source_json"`
+	PriceSelectionMode     string                            `json:"price_selection_mode"`
+	SelectedPriceRowKey    string                            `json:"selected_price_row_key"`
+	PriceOverride          bool                              `json:"price_override"`
+	Name                   string                            `json:"name"`
+	Qty                    int64                             `json:"qty"`
+	Unit                   string                            `json:"unit"`
+	SpecG                  int64                             `json:"spec_g"`
+	ProductKind            string                            `json:"product_kind"`
+	SalesUnit              string                            `json:"sales_unit"`
+	UnitBagCount           int64                             `json:"unit_bag_count"`
+	UnitBeanG              float64                           `json:"unit_bean_g"`
+	UnitPrice              float64                           `json:"unit_price"`
 }
 
 type miniEmployeeOrderRequest struct {
@@ -289,11 +293,13 @@ type miniEmployeeOrderDraftRequest struct {
 }
 
 func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, customerServices ...CustomerMaintenance) {
+	registerMiniSpecConversions(e, portal, sales)
 	var customers CustomerMaintenance
 	if len(customerServices) > 0 {
 		customers = customerServices[0]
 	}
 	orders := miniEmployeeOrderHandler{portal: portal, sales: sales}
+	e.GET("/api/mini/employee/orders/:id/copy-details", orders.copyDetails)
 	e.GET("/api/mini/employee/order-form", func(c echo.Context) error {
 		c.Response().Header().Set("Cache-Control", "no-store")
 		employee, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write")
@@ -592,6 +598,9 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 		cmd.RequireCurrentDefaultPublications = true
 		result, err := sales.SaveOrder(c.Request().Context(), cmd)
 		if err != nil {
+			if confirmation, ok := salesapp.PricingRuleConfirmationDetails(err); ok {
+				return c.JSON(http.StatusConflict, map[string]string{"error": err.Error(), "code": "pricing_rule_confirmation_required", "current_rule_revision": confirmation.Revision, "pricing_rule_name": confirmation.RuleName})
+			}
 			if message, conflict := salesapp.OrderEditConflictMessage(err); conflict {
 				return c.JSON(http.StatusConflict, map[string]string{"error": message})
 			}
@@ -624,8 +633,9 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 	for _, item := range req.Items {
 		productID := item.ProductID
 		command := salesapp.OrderItemCommand{
-			ItemID:    item.ItemID,
-			ProductID: &productID, ParentProductID: item.ParentProductID,
+			SpecConversion: item.SpecConversion,
+			ItemID:         item.ItemID,
+			ProductID:      &productID, ParentProductID: item.ParentProductID,
 			BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID,
 			CustomerProductAliasID: item.CustomerProductAliasID,
 			BeanListPublicationID:  item.BeanListPublicationID,
@@ -711,7 +721,58 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	if !found {
 		return "客户不存在", nil
 	}
-	selectedTables, selectionErr := salesapp.ResolveOrderPriceTableSelection(form.BeanListVersionOptions, cmd.CustomerID, cmd.SelectedPriceTableIDs, true)
+	// Only server-loaded, unchanged manual sample lines can keep their stored
+	// specification without an ordinary price-list quote. SaveOrder still
+	// validates the effective BOM and the order's production/edit restrictions.
+	preserved := make([]bool, len(cmd.Items))
+	usedItemIDs := map[int64]bool{}
+	preservedCount := 0
+	for index := range cmd.Items {
+		item := &cmd.Items[index]
+		stored, ok := miniEmployeeStoredSampleCatalogItem(form, cmd, *item)
+		if !ok || usedItemIDs[stored.ItemID] {
+			continue
+		}
+		usedItemIDs[stored.ItemID] = true
+		preserved[index] = true
+		preservedCount++
+		item.BeanListPublicationID = stored.BeanListPublicationID
+		item.BeanListVersionNo = stored.BeanListVersionNo
+		item.PriceSourceJSON = stored.PriceSourceJSON
+		item.ProductKind = stored.ProductKind
+		item.ProductCodeSnapshot = stored.ProductCodeSnapshot
+		item.SpecG = 0
+		item.Unit = stored.Unit
+		item.SalesUnit = stored.SalesUnit
+		item.TierID = nil
+		item.SelectedPriceRowKey = ""
+	}
+	if preservedCount > 0 && preservedCount == len(cmd.Items) {
+		cmd.SelectedPriceTableIDs = []int64{}
+		return "", nil
+	}
+	// Only server-loaded original rows can preserve withdrawn historical tables.
+	frozenIDs := map[int64]bool{}
+	if cmd.EditID > 0 && form.EditData != nil && form.EditData.ID == cmd.EditID {
+		for _, item := range cmd.Items {
+			if (item.PriceSelectionMode != "converted_tier" && item.PriceSelectionMode != "bom_tier") || item.SpecConversion == nil || item.SpecConversion.Reprice {
+				continue
+			}
+			for _, old := range form.EditData.Items {
+				selection := salesapp.SpecConversionFromSnapshot(old.PriceSourceJSON)
+				if old.ItemID == item.ItemID && miniEmployeeOrderItemIdentityMatches(item, old) && selection != nil && *selection == *item.SpecConversion {
+					frozenIDs[item.BeanListPublicationID] = true
+				}
+			}
+		}
+	}
+	currentIDs := []int64{}
+	for _, id := range cmd.SelectedPriceTableIDs {
+		if !frozenIDs[id] {
+			currentIDs = append(currentIDs, id)
+		}
+	}
+	selectedTables, selectionErr := salesapp.ResolveOrderPriceTableSelection(form.BeanListVersionOptions, cmd.CustomerID, currentIDs, true)
 	if selectionErr != nil {
 		return selectionErr.Error(), nil
 	}
@@ -720,6 +781,9 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	cmd.SelectedPriceTableIDs = []int64{}
 	for _, table := range selectedTables {
 		cmd.SelectedPriceTableIDs = append(cmd.SelectedPriceTableIDs, table.ID)
+	}
+	for id := range frozenIDs {
+		cmd.SelectedPriceTableIDs = append(cmd.SelectedPriceTableIDs, id)
 	}
 	retailOrder := miniEmployeeUsesRetailCatalog(form, customer, cmd.OrderTypeID)
 	products := salesapp.FilterOrderProductsForDefaultPublications(form.Products, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
@@ -732,9 +796,20 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	cutoverProducts, cutoverOptionBySpec := miniEmployeeBOMSpecFilterProducts(form.Products, cutoverOptions)
 	cutoverProducts = salesapp.FilterOrderProductsForDefaultPublications(cutoverProducts, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
 	for index := range cmd.Items {
+		if preserved[index] {
+			continue
+		}
 		item := &cmd.Items[index]
 		if item.ProductID == nil || *item.ProductID <= 0 {
 			return "请选择该客户当前价格表中的商品规格", nil
+		}
+		if item.PriceSelectionMode == "converted_tier" || item.PriceSelectionMode == "bom_tier" {
+			if item.SpecConversion == nil || item.BomSpecID <= 0 || item.BomVariantID <= 0 || item.SelectedPriceRowKey == "" || item.ManualPrice != nil {
+				return "规格换算参数无效", nil
+			}
+			// The common SaveOrder transaction validates source-table access,
+			// target BOM identity, group revision and any frozen database row.
+			continue
 		}
 		if item.BomSpecID > 0 || item.BomVariantID > 0 {
 			option, optionFound := cutoverOptionBySpec[item.BomSpecID]
@@ -782,6 +857,23 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 		item.ProductKind = product.ProductKind
 	}
 	return "", nil
+}
+
+func miniEmployeeStoredSampleCatalogItem(form salesapp.OrderFormData, cmd *salesapp.SaveOrderCommand, item salesapp.OrderItemCommand) (salesapp.OrderEditItem, bool) {
+	existing := form.EditData
+	if existing == nil || !existing.IsSampleOrder || cmd.EditID <= 0 || existing.ID != cmd.EditID || existing.CustomerID != cmd.CustomerID ||
+		item.ItemID <= 0 || item.ProductID == nil || item.BomSpecID <= 0 || item.BomVariantID <= 0 || item.ManualPrice == nil || item.PriceSelectionMode != "manual" {
+		return salesapp.OrderEditItem{}, false
+	}
+	for _, stored := range existing.Items {
+		if stored.ItemID == item.ItemID && stored.PriceOverride &&
+			stored.ProductID == *item.ProductID && item.ParentProductID == stored.ProductID &&
+			stored.BomSpecID == item.BomSpecID && stored.BomVariantID == item.BomVariantID &&
+			stored.CustomerProductAliasID == item.CustomerProductAliasID && stored.CustomerProductReferenceID == item.CustomerProductReferenceID {
+			return stored, true
+		}
+	}
+	return salesapp.OrderEditItem{}, false
 }
 
 func miniEmployeeCurrentBOMSpecCatalogProduct(products []salesapp.ProductOption, parentProductID, bomSpecID, bomVariantID, aliasID int64) (salesapp.ProductOption, bool) {
@@ -1115,6 +1207,9 @@ func (h miniEmployeeOrderHandler) update(c echo.Context) error {
 	cmd.ExpectedEditRevision = strings.TrimSpace(req.EditRevision)
 	result, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
+		if confirmation, ok := salesapp.PricingRuleConfirmationDetails(err); ok {
+			return c.JSON(http.StatusConflict, map[string]string{"error": err.Error(), "code": "pricing_rule_confirmation_required", "current_rule_revision": confirmation.Revision, "pricing_rule_name": confirmation.RuleName})
+		}
 		if message, conflict := salesapp.OrderEditConflictMessage(err); conflict {
 			return c.JSON(http.StatusConflict, map[string]string{"error": message})
 		}
@@ -1421,7 +1516,8 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 			CustomerProductAliasID: item.CustomerProductAliasID, CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot: item.CustomerItemCodeSnapshot, BrandNameSnapshot: item.BrandNameSnapshot,
 			ProductCodeSnapshot: item.ProductCodeSnapshot, ProductNameSnapshot: item.ProductNameSnapshot, Note: item.Note,
-			TierID: tierID, PriceOverride: item.PriceOverride, PriceSelectionMode: selectionMode, SelectedPriceRowKey: selectedRowKey, UnitPrice: item.UnitPrice, Qty: item.Qty, Unit: item.Unit,
+			SpecConversion: salesapp.SpecConversionFromSnapshot(item.PriceSourceJSON),
+			TierID:         tierID, PriceOverride: item.PriceOverride, PriceSelectionMode: selectionMode, SelectedPriceRowKey: selectedRowKey, UnitPrice: item.UnitPrice, Qty: item.Qty, Unit: item.Unit,
 			Spec: strings.TrimSuffix(strings.TrimSpace(strings.ToLower(item.Spec)), "g"), LineTotal: item.LineTotal,
 			BeanListPublicationID: item.BeanListPublicationID, BeanListVersionNo: item.BeanListVersionNo,
 			DiscountType: item.DiscountType, DiscountValue: item.DiscountValue, DiscountAmount: item.DiscountAmount,
@@ -1431,7 +1527,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 	}
 	beanListPublicationID, beanListVersionNo, commercialPublicationID, greenPublicationID, dripPublicationID := miniEmployeeOrderPublicationFields(ed)
 	detail := miniEmployeeOrderDetailDTO{
-		ID: row.ID, EditRevision: ed.EditRevision, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
+		ID: row.ID, IsSampleOrder: ed.IsSampleOrder, SettlementReason: ed.SettlementReason, EditRevision: ed.EditRevision, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
 		DocumentDate: firstMiniOrderValue(ed.DocumentDate, row.DocumentDate), OrderDate: firstMiniOrderValue(ed.OrderDate, row.OrderDate),
 		CustomerID: ed.CustomerID, Customer: row.Customer, SourceID: ed.SourceID, Source: miniEmployeeOptionName(form.Sources, ed.SourceID),
 		OrderTypeID: ed.OrderTypeID, OrderType: firstMiniOrderValue(row.OrderType, miniEmployeeOptionName(form.OrderTypes, ed.OrderTypeID)),
@@ -1955,6 +2051,12 @@ func containsMiniRole(values []string, target string) bool {
 }
 
 func miniOrderKnownBusinessErrorText(err error) (string, bool) {
+	if err != nil && err.Error() == salesapp.PriceTableOrderScopeMessage {
+		return err.Error(), true
+	}
+	if err != nil && (strings.Contains(err.Error(), "换算") || strings.Contains(err.Error(), "来源") || strings.Contains(err.Error(), "重新计价")) {
+		return err.Error(), true
+	}
 	if err != nil && (strings.HasPrefix(err.Error(), "预付款") || strings.HasPrefix(err.Error(), "已登记预付款")) {
 		return err.Error(), true
 	}

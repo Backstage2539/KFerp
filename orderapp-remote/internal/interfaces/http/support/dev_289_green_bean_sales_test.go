@@ -110,7 +110,7 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/OrdersView.vue",
-			want: []string{"product_kind_summary", "productKindLabel", "kind-green"},
+			want: []string{"orderTypeLabels", "productKindLabel"},
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/lib/bean-list-pdf.js",
