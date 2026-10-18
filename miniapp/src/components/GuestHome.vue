@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { guestServiceGuides, packagingEstimate } from '../utils/guest-entry'
+import { loginRouteFor } from '../utils/loginReturn'
 const selectedService = ref('')
 const selected = computed(() => guestServiceGuides.find(service => service.id === selectedService.value))
 const kilograms = ref('10')
 const grams = ref('227')
 const estimate = computed(() => packagingEstimate(Number(kilograms.value), Number(grams.value)))
-function openLogin() { uni.navigateTo({ url: '/pages/login/login' }) }
+function openLogin() { uni.navigateTo({ url: loginRouteFor('', 'password') }) }
 function openBeanCenter(){uni.navigateTo({url:'/pages/bean-list-center/bean-list-center'})}
 </script>
 <template>

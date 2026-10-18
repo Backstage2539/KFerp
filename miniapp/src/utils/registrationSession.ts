@@ -4,16 +4,17 @@ import { wechatLoginCode } from '../api/registration'
 import { useSessionStore } from '../stores/session'
 let restoring: Promise<void> | null = null
 export async function restoreRegistrationSession(session: ReturnType<typeof useSessionStore>) {
+  if (session.autoRestoreBlocked) return
   if (restoring) return restoring
   restoring = (async () => {
     if (session.token) {
       const expectedToken = session.token
       try {
         const context = await fetchMe(expectedToken)
-        if (session.token === expectedToken) session.applyContext(context)
+        if (!session.autoRestoreBlocked && session.token === expectedToken) session.applyContext(context)
         return
       } catch (cause) {
-        if (session.token !== expectedToken) return
+        if (session.autoRestoreBlocked || session.token !== expectedToken) return
         if (!isAuthenticationExpiredRequestError(cause)) throw cause
         session.clearSession(true)
       }
@@ -21,15 +22,15 @@ export async function restoreRegistrationSession(session: ReturnType<typeof useS
     const expectedToken = session.token
     try {
       const code = await wechatLoginCode()
-      if (session.token !== expectedToken) return
+      if (session.autoRestoreBlocked || session.token !== expectedToken) return
       const result = await loginWithCode(code)
-      if (session.token !== expectedToken) return
+      if (session.autoRestoreBlocked || session.token !== expectedToken) return
       if (result.registration_complete) {
         session.setToken(result.token)
         session.applyContext(result)
       }
     } catch (cause) {
-      if (session.token === expectedToken) throw cause
+      if (!session.autoRestoreBlocked && session.token === expectedToken) throw cause
     }
   })()
   try { await restoring } finally { restoring = null }
