@@ -79,4 +79,8 @@
 - 83 项相关前端回归及 Vue 构建通过；本次仅修改文案与布局，复用既有恢复回归，不新增文案镜像测试。手册同步标明提示的新位置。
 - 本地实际 Vue 页面验证：旧版本草稿显示新提示，位置在选品上方；两个选择按钮均可用，计价和选品暂时禁用。点击“继续本地草稿”后提示消失、编辑解锁，勾选和固定价 32.8 保留。测试服务拒绝全部非 GET 请求，没有客户业务写入。
 - 本地截图：`outputs/pr699-prompt-position.png`。
-- 分支 `codex/price-table-editor-prompt-20261018`，基线 `d29e61bd`；开发更新另记实际提交与运行检查。
+- 分支 `codex/price-table-editor-prompt-20261018`，基线 `d29e61bd`；[PR #216](https://github.com/Backstage2539/KFerp/pull/216) 已合并，开发实际部署提交 `909e31851f620d8aa215276df2bdc8068ab8325e`。
+- 延续用户开发部署授权，从干净 develop checkout 执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`。服务器通过 Vue 1400 项、小程序 330 项及类型/构建/24 页面校验、全量 Go 与镜像内检查，部署成功；外部登录入口 HTTP 200。
+- 备份 `/opt/stacks/erp/orderapp.backup.deploy-20261018225818-909e31851f62`；回滚镜像 `kferp-orderapp-rollback:development-20261018225818-909e31851f62`。
+- 开发应用和文档转换器 running，PostgreSQL healthy；匿名页面 303、匿名 API 401，认证 Vue 页面、手册、PR/DEV API 与实际 CostingView 资源均 200。实际资源包含简化提示且不含已删除说明。PR-699 为 review、DEV-788 为 done。
+- 生产应用容器未变；没有客户表保存、重新发布或微信端上传。本节为部署记录，无需再次重建应用。
