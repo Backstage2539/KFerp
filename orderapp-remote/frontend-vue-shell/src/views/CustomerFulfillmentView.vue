@@ -1,5 +1,6 @@
 <template>
   <div class="page customer-fulfillment">
+    <ProductionReturnLink :source="viewParams.return_navigation" />
     <section class="panel control-panel">
       <div class="panel-head">
         <div>
@@ -571,11 +572,13 @@ import {
 } from '../lib/customer-fulfillment'
 import { parseRecipientText } from '../lib/customer-recipient'
 import { customerStockDeliveryLabel } from '../lib/customer-stock-entry'
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { lineTotal, syncWholesaleTierPrice, toInt, toNumber, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },

@@ -54,7 +54,7 @@ func TestDevCustomerPortalWorkbenchShortcut(t *testing.T) {
 	cps := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerPortalSettingsView.vue"))
 	for _, want := range []string{
 		"打开客户履约工作台",
-		"key: 'customerProcessingPortal'",
+		"key: 'customerFulfillment'",
 	} {
 		if !strings.Contains(string(cps), want) {
 			t.Fatalf("CustomerPortalSettingsView.vue missing %q", want)

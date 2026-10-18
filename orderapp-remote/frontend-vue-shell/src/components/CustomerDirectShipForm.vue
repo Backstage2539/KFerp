@@ -7,7 +7,7 @@ import SearchableSelect from './SearchableSelect.vue'
 import CustomerRecipientPicker from './CustomerRecipientPicker.vue'
 import OrderEntryView from '../views/OrderEntryView.vue'
 
-const props = defineProps({ customerId: { type: [Number, String], required: true }, customerLabel: { type: String, default: '' } })
+const props = defineProps({ customerId: { type: [Number, String], required: true }, customerLabel: { type: String, default: '' }, customerPortal: { type: Boolean, default: false } })
 const emit = defineEmits(['saved'])
 const settings = ref(null)
 const catalog = ref({ product_families: [], price_tables: [] })
@@ -24,7 +24,9 @@ const requestID = ref(newRequestID())
 let version = 0
 let previewVersion = 0
 let loadCycle = 0
-const baseURL = computed(() => `/api/customer-fulfillment/${Number(props.customerId)}`)
+const baseURL = computed(() => props.customerPortal ? "/api/customer-processing/portal" : `/api/customer-fulfillment/${Number(props.customerId)}`)
+const settingsURL = computed(() => props.customerPortal ? `${baseURL.value}/direct-ship/settings` : `${baseURL.value}/settings`)
+const addressURL = computed(() => props.customerPortal ? `${baseURL.value}/recipient-addresses` : "")
 const modes = computed(() => enabledFulfillmentModes(settings.value))
 const activeMode = computed(() => modes.value.find(row => row.mode === mode.value))
 const families = computed(() => catalog.value.product_families || [])
@@ -61,7 +63,7 @@ async function load() {
   const cycle = ++loadCycle
   const customerID = Number(props.customerId)
   loading.value = true; error.value = ''; preview.value = null; topup.value = null
-  try { const value = await apiGet(`/api/customer-fulfillment/${customerID}/settings`); if (cycle !== loadCycle || customerID !== Number(props.customerId)) return; settings.value = value; const restoredMode = readFormDraft(`customer-direct-ship:${customerID}:selection`)?.mode; const chosen = mode.value || restoredMode; mode.value = modes.value.some(row => row.mode === chosen) ? chosen : modes.value.length === 1 ? modes.value[0].mode : ''; restoreDraft(); await loadCatalog() }
+  try { const value = await apiGet(settingsURL.value); if (cycle !== loadCycle || customerID !== Number(props.customerId)) return; settings.value = value; const restoredMode = readFormDraft(`customer-direct-ship:${customerID}:selection`)?.mode; const chosen = mode.value || restoredMode; mode.value = modes.value.some(row => row.mode === chosen) ? chosen : modes.value.length === 1 ? modes.value[0].mode : ''; restoreDraft(); await loadCatalog() }
   catch (cause) { if (cycle === loadCycle) error.value = cause.message || '履约设置加载失败' }
   finally { if (cycle === loadCycle) loading.value = false }
 }
@@ -107,14 +109,14 @@ watch(() => props.customerId, async (next, previous) => { saveDraft(previous); v
 
 <template>
   <div class="direct-ship-form">
-    <div v-if="topup" class="topup-panel"><div class="form-head"><h4>补购留厂订单</h4><button type="button" class="secondary" @click="topup = null">返回代发草稿</button></div><p>只带入超出已购权益的缺口，按正常销售价格表购买。保存后返回原代发草稿。</p><OrderEntryView :key="`${customerId}:topup`" embedded :customer-context-id="customerId" :customer-context-label="customerLabel" :delivery-prefill="topup" @saved="topupSaved" /></div>
+    <div v-if="topup" class="topup-panel"><div class="form-head"><h4>补购留厂订单</h4><button type="button" class="secondary" @click="topup = null">返回代发草稿</button></div><p>只带入超出已购权益的缺口，按正常销售价格表购买。保存后返回原代发草稿。</p><OrderEntryView :key="`${customerId}:topup`" embedded :customer-portal="customerPortal" :fulfillment-mode="customerPortal" portal-service="product_order" :customer-context-id="customerId" :customer-context-label="customerLabel" :delivery-prefill="topup" @saved="topupSaved" /></div>
     <template v-else>
       <div class="mode-choices"><button v-for="option in modes" :key="option.mode" type="button" :class="{ selected: mode === option.mode }" :disabled="loading || saving" @click="changeMode(option.mode)">{{ modeLabel(option.mode) }}</button><span v-if="!loading && !modes.length">请在门户客户配置的履约设置中启用库存代发或无库存代发。</span></div>
       <p v-if="mode === 'stock'" class="explanation">从绑定客户仓选择已购商品。实物优先，待入库权益可预订；超权益先补购。商品货款不重复收取。</p>
       <p v-if="mode === 'on_demand'" class="explanation">每个商品规格使用代发价格表中的唯一固定单价，任意正数量均可下单，另计代发服务费和运费。</p>
       <fieldset v-if="mode" class="entry-grid" :disabled="saving">
         <label>订单日期<input v-model="form.order_date" type="date" @change="invalidate" /></label><label v-if="mode === 'stock'">客户仓库<input :value="activeMode?.warehouse_code || '尚未绑定客户仓库'" readonly /></label>
-        <div class="wide"><CustomerRecipientPicker :customer-id="customerId" :current-recipient="form" @select="selectRecipient" /></div>
+        <div class="wide"><CustomerRecipientPicker :customer-id="customerId" :current-recipient="form" :api-base="addressURL" @select="selectRecipient" /></div>
         <label>收件人<input v-model.trim="form.receiver_name" @input="invalidate" /></label><label>电话<input v-model.trim="form.receiver_phone" @input="invalidate" /></label><label>门店 / 公司<input v-model.trim="form.receiver_company" @input="invalidate" /></label>
         <label>省<input v-model.trim="form.province" placeholder="运费匹配省份" @input="invalidate" /></label><label>市<input v-model.trim="form.city" @input="invalidate" /></label><label>区 / 县<input v-model.trim="form.district" @input="invalidate" /></label><label class="wide">详细地址<input v-model.trim="form.receiver_address" @input="invalidate" /></label>
         <div v-for="(line,index) in lines" :key="line.key" class="line wide"><label>商品<SearchableSelect v-model="line.family_key" :options="families" :option-label="familyLabel" :option-value="familyKey" placeholder="搜索商品" @select="selectFamily(line,$event)" /></label><label>规格<select v-model="line.spec_key" @change="invalidate"><option value="">请选择规格</option><option v-for="spec in familyFor(line)?.specs || []" :key="specKey(spec)" :value="specKey(spec)">{{ specLabel(spec) }}</option></select></label><label>数量<input v-model.number="line.qty" type="number" min="1" step="1" @input="invalidate" /></label><button type="button" class="secondary" :disabled="saving" @click="lines.splice(index,1); invalidate()">删除</button><div v-if="mode === 'stock' && specFor(line)" class="supply wide"><span>实物可用 {{ quantityFor(line).physical }}</span><span>待入库 {{ quantityFor(line).pending }}</span><span>待入库已预订 {{ quantityFor(line).reserved }}</span><span>本单待补购 {{ quantityFor(line).gap }}</span></div></div>

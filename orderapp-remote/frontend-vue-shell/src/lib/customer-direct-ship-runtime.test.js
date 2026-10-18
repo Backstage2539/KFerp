@@ -12,6 +12,16 @@ code = code.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g, (_, name) => `cons
 code = code.replace(/from (['"])([^'"]+)\1/g, (_, quote, path) => `from ${JSON.stringify(path.startsWith('.') ? new URL(/\.[a-z]+$/.test(path) ? path : `${path}.js`, filename).href : import.meta.resolve(path))}`)
 const { default: View } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 
+test('客户侧代发使用本人范围接口并复用新代发表单', async () => {
+  let editor
+  await renderToString(createSSRApp({ setup() { editor = View.setup({ customerId: 307, customerLabel: '喜沁咖啡', customerPortal: true }, { expose() {}, emit() {} }); return () => h('div') } }))
+  assert.equal(editor.baseURL.value, '/api/customer-processing/portal')
+  assert.equal(editor.settingsURL.value, '/api/customer-processing/portal/direct-ship/settings')
+  assert.equal(editor.addressURL.value, '/api/customer-processing/portal/recipient-addresses')
+  const portalSource = fs.readFileSync(new URL('../views/CustomerProcessingPortalView.vue', import.meta.url), 'utf8')
+  assert.match(portalSource, /<CustomerDirectShipForm[\s\S]*?:customer-portal="customerAccountActor"/)
+})
+
 test('ERP真实代发表单保留地址地区、库存场景和已录商品', async () => {
   let editor
   await renderToString(createSSRApp({ setup() { editor = View.setup({ customerId: 77, customerLabel: '喜沁咖啡' }, { expose() {}, emit() {} }); return () => h('div') } }))

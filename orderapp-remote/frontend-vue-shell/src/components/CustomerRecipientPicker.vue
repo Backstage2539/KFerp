@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { recipientAddressSnapshot } from '../lib/customer-stock-entry'
 
-const props = defineProps({ customerId: { type: [Number, String], required: true }, currentRecipient: { type: Object, default: null } })
+const props = defineProps({ customerId: { type: [Number, String], required: true }, currentRecipient: { type: Object, default: null }, apiBase: { type: String, default: "" } })
 const emit = defineEmits(['select'])
 const open = ref(false)
 const loading = ref(false)
@@ -15,7 +15,7 @@ const paste = ref('')
 const editing = ref(false)
 const form = reactive(emptyForm())
 let loadVersion = 0
-const baseURL = computed(() => `/api/customer-portal/admin/customers/${Number(props.customerId)}/recipient-addresses`)
+const baseURL = computed(() => props.apiBase || `/api/customer-portal/admin/customers/${Number(props.customerId)}/recipient-addresses`)
 const filteredRows = computed(() => {
   const search = query.value.trim().toLowerCase()
   return rows.value.filter(row => !search || [row.recipient_name, row.phone, row.company, row.province, row.city, row.district, row.detail_address].join(' ').toLowerCase().includes(search))

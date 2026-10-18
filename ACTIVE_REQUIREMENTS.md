@@ -5829,3 +5829,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development `349bbac1e6c6cf84f039c06ab1a23dd1326b0c64`; backup `/opt/stacks/erp/orderapp.backup.deploy-20261019011027-349bbac1e6c6`; app running with 0 restarts, database healthy, API/manual/PR-DEV checks passed. Production data/configuration unchanged.
 - Delivery: `/Users/yiiiple-work/KFerp-customer-stock-delivery-20261019/KFerp-miniapp-dev-349bbac1.zip` (24 pages / 96 manifest files); evidence `orderapp-remote/docs/acceptance/2026-10-19-customer-stock-dropship.md`. No WeChat upload/review/publication; receipt-only follow-up does not change runtime.
 - Last update: 2026-10-19 Asia/Shanghai
+
+### PR-703 live acceptance follow-up
+- Branch: codex/customer-stock-acceptance-20261019
+- Status: development business-flow acceptance in progress; repair any reproduced defects with targeted TDD and development redeployment.
+- Scope: 喜沁咖啡 development customer 307 (created from the named production customer's identity fields only), 24 bags of 曜石2.0 454g retained, two shipments of 12; web fulfillment and miniapp, inventory/production/fees/account ledger.
+- Evidence: /Users/yiiiple-work/KFerp-customer-stock-live-acceptance-20261019; production API is enforced read-only in the acceptance helper. No production business writes.
