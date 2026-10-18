@@ -5783,9 +5783,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-699-PRICE-TABLE-EDITOR-RESTORE
 - Branch: codex/price-table-editor-restore-20261018
-- Status: verified; frontend 1392 PASS, full Go and API contracts PASS, Vue build PASS; develop integration tracked by PR #213; no deployment
+- Status: development deployed at 5c0c53ce; service/API/manual/asset checks passed; Van business acceptance pending (PR review, DEV done).
 - Scope: published snapshot editor hydration, per-table draft baseline/conflict recovery, BOM identity and fixed prices
 - Verifier: price-table-editor-*.test.js; full frontend tests; full Go tests; publication editor detail API contract; Vue build
 - Evidence: orderapp-remote/docs/acceptance/2026-10-18-price-table-editor-restore.md
 - Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md
-- Deployment: explicitly not requested; merge develop only; no customer table writes
+- Deployment: user subsequently authorized development on 2026-10-18; deployed 5c0c53ce9030e78d17a9d376ac9a38d1029a5ff4. Initial startup failed on full disk; reclaimed regenerable build caches, recovered healthy PostgreSQL, and promoted the already-tested image. Backup /opt/stacks/erp/orderapp.backup.recovery-20261018223436-5c0c53ce9030; about 9.2 GB free. No production deployment or customer price-table writes.
