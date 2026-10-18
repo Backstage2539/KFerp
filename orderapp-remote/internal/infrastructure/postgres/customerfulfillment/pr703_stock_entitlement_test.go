@@ -639,3 +639,26 @@ func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *tes
 	assertMiniDirectShipCount(t, pool, schema, "customer_direct_ship_request_allocations", "request_id="+fmt.Sprint(request.ID), 0)
 	t.Logf("real app.Service->sales.SaveOrder %s: public fixed30 x12 =360, service9 + freight18, goods/pricing snapshots frozen, no stock entitlement consumption", request.OrderNo)
 }
+
+func TestPR703InternalOrderListIncludesRetainedSaleAndDropshipWithoutCustomerLogin(t *testing.T) {
+	pool, schema := seedPR703StockProduct(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+ INSERT INTO %[1]s.customer_portal_profiles(customer_id,enabled,capability_template_key)VALUES(501,true,'public_sku_direct_ship') ON CONFLICT(customer_id)DO UPDATE SET enabled=true;
+ INSERT INTO %[1]s.orders(id,customer_id,order_no,delivery_mode,delivery_warehouse_code,grand_total,total_amount)VALUES(703501,501,'PR703-RETAINED-LIST','customer_stock','DEV-E2E-A1',720,720);
+ INSERT INTO %[1]s.orders(id,customer_id,order_no,portal_service_code,fulfillment_mode,grand_total,shipping_amount)VALUES(703502,501,'PR703-DROPSHIP-LIST','direct_ship','stock',18,18);
+ `, schema)); err != nil {
+		t.Fatal(err)
+	}
+	result, err := postgressales.NewRepository(pool, schema).ListOrders(ctx, salesapp.OrderListQuery{Scope: "fulfillment", CustomerID: 501, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[int64]bool{}
+	for _, row := range result.Rows {
+		found[row.ID] = true
+	}
+	if !found[703501] || !found[703502] {
+		t.Fatalf("internal fulfillment hides retained sale/dropship without external login: %+v", found)
+	}
+}

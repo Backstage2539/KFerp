@@ -80,37 +80,26 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 
 	where, args, _ = orderListWhere("test_schema", salesapp.OrderListQuery{Scope: "fulfillment"})
 	joined = strings.Join(where, " AND ")
-	for _, want := range []string{
-		"portal_service_code IN ('direct_ship','processing_ship','product_order')",
-		"test_schema.customer_erp_user_bindings",
-		"test_schema.customer_portal_profiles",
-		"test_schema.customer_capability_templates",
-		"test_schema.company_employees",
-		"test_schema.employee_login_passwords",
-		"b.status='active'",
-		"e.account_type='channel_customer'",
-		"COALESCE(lp.login_disabled,false)=false",
-		"p.enabled=true",
-		"capability_template_key",
-		"active_template.active=true",
-		"inactive_template.active=false",
-		"processing_fulfillment",
-		"public_sku_direct_ship",
-		"channel_direct_ship",
-	} {
+	for _, want := range []string{"portal_service_code IN ('direct_ship','processing_ship','product_order')", "delivery_mode", "customer_stock", "test_schema.customer_portal_profiles", "p.enabled=true", "fulfillment_customer.active=true", "test_schema.customer_service_capabilities"} {
 		if !strings.Contains(joined, want) {
-			t.Fatalf("fulfillment scope missing %q in %q", want, joined)
+			t.Fatalf("internal fulfillment scope missing %q in %s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "customer_type") {
-		t.Fatalf("fulfillment scope should be capability-driven, not customer_type-driven: %q", joined)
+	if strings.Contains(joined, "customer_erp_user_bindings") || strings.Contains(joined, "employee_login_passwords") {
+		t.Fatal("internal operations must not require a customer login")
 	}
 	if len(args) != 0 {
-		t.Fatalf("fulfillment scope args = %#v, want none", args)
+		t.Fatalf("internal args=%+v", args)
 	}
 
 	where, args, _ = orderListWhere("test_schema", salesapp.OrderListQuery{Scope: "fulfillment", FulfillmentEmployeeID: 7})
 	joined = strings.Join(where, " AND ")
+	for _, want := range []string{"test_schema.customer_erp_user_bindings", "test_schema.employee_login_passwords", "b.status='active'", "e.account_type='channel_customer'", "COALESCE(lp.login_disabled,false)=false", "active_template.active=true", "inactive_template.active=false"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("customer scope lost login guard %q in %s", want, joined)
+		}
+	}
+
 	if !strings.Contains(joined, "b.employee_id=$1") {
 		t.Fatalf("customer workbench fulfillment scope must be limited to the bound employee, got %q", joined)
 	}
