@@ -8,6 +8,10 @@ import (
 )
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS settlement_reason TEXT NOT NULL DEFAULT ''`, schema)); err != nil {
+		return err
+	}
+
 	if err := EnsureSpecConversionSchema(ctx, pool, schema); err != nil {
 		return err
 	}

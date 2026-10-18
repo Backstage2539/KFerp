@@ -522,6 +522,8 @@ type OrderEditItem struct {
 
 type OrderEditData struct {
 	IsSampleOrder         bool
+	SettlementReason      string
+	EditBlockReason       string
 	PrepaymentAmount      string
 	ID                    int64
 	EditRevision          string
@@ -615,6 +617,7 @@ type OrderRow struct {
 	OutsourceTotalFee     string `json:"outsource_total_fee"`
 	OrderType             string `json:"order_type"`
 	PayStatus             string `json:"pay_status"`
+	SettlementReason      string `json:"settlement_reason"`
 	PaymentMethod         string `json:"payment_method"`
 	ShipStatus            string `json:"ship_status"`
 	ShipTrackingNo        string `json:"ship_tracking_no"`

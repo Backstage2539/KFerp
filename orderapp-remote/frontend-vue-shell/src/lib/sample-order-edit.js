@@ -27,3 +27,15 @@ export function sampleStoredItemIdentity(item) {
     customer_product_reference_id:Number(item?.customer_product_reference_id || 0),
   }
 }
+
+export function orderEditRecipientFields(data={}) {
+ return Object.fromEntries(['receiver_name','receiver_phone','receiver_address','receiver_company'].map(key=>[key,String(data[key] ?? '')]))
+}
+export function isFreeSamplePreview(sample,rows,form,total) {
+ return sample && rows.length>0 && rows.every(row=>String(row.unit_price ?? '').trim()!=='' && Number(row.unit_price)===0) && Number(total)===0 && ['shipping_amount','outsource_material_fee','outsource_roast_fee','outsource_packaging_fee','outsource_manual_fee','outsource_tax_fee','outsource_other_fee'].every(key=>Number(form[key] || 0)===0)
+}
+export function validSampleReceiptGoods(raw,zeroGoodsSample=false,shipping=0) {
+ if(raw===null || raw===undefined || String(raw).trim()==='')return false
+ const value=Number(raw)
+ return Number.isFinite(value) && (value>0 || value===0 && zeroGoodsSample && Number(shipping)>0)
+}

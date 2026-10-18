@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { isFreeSampleOrder } from '../../utils/sampleSettlement'
 function isFrozenConversion(item: EmployeeOrderDraftItem) { return ['converted_tier','bom_tier'].includes(item.price_selection_mode || '') && item.spec_conversion?.reprice === false && isEditMode.value }
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
 import { prepaymentPresets, prepaymentByRate } from '../../utils/prepayment'
@@ -119,7 +120,8 @@ function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
 const shippingBaseline = ref<EmployeeOrderShippingSnapshot>(emptyShippingSnapshot())
 
 const receiptMethods = ['微信支付', '支付宝', '银行转账', '对公银行', '现金', 'POS刷卡', '其他']
-const selectedPaymentStatus = computed(() => formData.value?.pay_statuses.find(s => s.id === form.value.pay_status_id)?.name || '')
+const freeSampleSettlement = computed(() => isFreeSampleOrder(editingSampleOrder.value,form.value.items.map(item=>Number(item.unit_price)),Number(form.value.shipping_amount || 0),preservedOutsourceTotal.value,orderGrandTotal.value))
+const selectedPaymentStatus = computed(() => freeSampleSettlement.value ? '无需收款' : formData.value?.pay_statuses.find(s => s.id === form.value.pay_status_id)?.name || '')
 function selectPaymentStatus(event: { detail: { value: string | number } }) {
   form.value.pay_status_id = formData.value?.pay_statuses[Number(event.detail.value)]?.id || 0
 }
@@ -185,6 +187,10 @@ const orderGrandTotal = computed(() => employeeOrderGrandTotal(
   preservedRoundToInt.value,
 ))
 watch(orderGrandTotal, () => { if (prepaymentRate.value) applyPrepaymentPreset(prepaymentRate.value) })
+watch(freeSampleSettlement,(free,previous)=>{
+ if(free) form.value.pay_status_id=formData.value?.pay_statuses.find(item=>['已收款','已付款'].includes(item.name))?.id || form.value.pay_status_id
+ else if(previous) form.value.pay_status_id=formData.value?.pay_statuses.find(item=>['未收款','未付款'].includes(item.name))?.id || form.value.pay_status_id
+})
 
 function currentShippingSnapshot(): EmployeeOrderShippingSnapshot {
   return {
@@ -1077,10 +1083,11 @@ onShow(() => { void refreshMiniappShareMenu() })
 
       <view class="section-title standalone">付款</view>
       <text class="label">付款状态</text>
-      <picker :range="formData?.pay_statuses || []" range-key="name" :value="Math.max(0, (formData?.pay_statuses || []).findIndex(s => s.id === form.pay_status_id))" @change="selectPaymentStatus">
+      <view v-if="freeSampleSettlement" class="field">无需收款 · 已结清</view>
+      <picker v-else :range="formData?.pay_statuses || []" range-key="name" :value="Math.max(0, (formData?.pay_statuses || []).findIndex(s => s.id === form.pay_status_id))" @change="selectPaymentStatus">
         <view class="field">{{ selectedPaymentStatus || '选择付款状态' }}</view>
       </picker>
-      <view class="prepayment-editor">
+      <view v-if="!freeSampleSettlement" class="prepayment-editor">
         <text class="label">已支付预付款（元）</text>
         <input v-model="form.prepayment_amount" class="field" type="digit" placeholder="填写实际已收金额" @input="onManualPrepayment" />
         <view class="prepayment-presets">

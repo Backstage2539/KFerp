@@ -49,3 +49,22 @@ test('sample stored identity restores every backend identity after catalogue hyd
  const key=storedSampleSpecKey(hydrated)
  for(const field of ['item_id','product_id','parent_product_id','bom_spec_id','bom_variant_id','customer_product_alias_id','customer_product_reference_id']) assert.notEqual(storedSampleSpecKey({...hydrated,[field]:Number(hydrated[field])+1}),key)
 })
+
+ test('ordinary edit payload keeps receiver snapshot and never invents fulfillment context',()=>{
+  const form={edit_id:12,receiver_name:'测试收件人',receiver_phone:'13800000000',receiver_address:'测试地址',receiver_company:'测试公司',payment_goods_amount:0,payment_shipping_amount:0,settlement_reason:'free_sample'}
+  const p=buildOrderPayload({form,rows:[]})
+  assert.equal(p.receiver_address,form.receiver_address)
+  assert.equal(p.payment_goods_amount,'0')
+  assert.equal(p.payment_shipping_amount,'0')
+  assert.equal(p.portal_service_code,undefined)
+  assert.equal(p.orders_scope,undefined)
+  assert.equal(p.settlement_reason,undefined)
+ })
+ test('recipient hydration replaces all four fields when switching orders, including blanks',async()=>{
+  const {orderEditRecipientFields}=await import('./sample-order-edit.js')
+  const form={receiver_name:'old',receiver_phone:'old',receiver_address:'old',receiver_company:'old'}
+  Object.assign(form,orderEditRecipientFields({receiver_name:'new',receiver_address:'new address'}))
+  assert.deepEqual(form,{receiver_name:'new',receiver_phone:'',receiver_address:'new address',receiver_company:''})
+  const payload=buildOrderPayload({form:{...form,edit_id:10},rows:[]})
+  assert.equal(payload.receiver_address,'new address')
+ })

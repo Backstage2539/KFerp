@@ -6,12 +6,13 @@ import (
 	"strings"
 )
 
-const SalesOrderRenderVersion = "sales-order-customer-recipient-v6"
+const SalesOrderRenderVersion = "sales-order-free-sample-v7"
 
 type SalesOrderSnapshot struct {
-	ReceiverName    string `json:"receiver_name,omitempty"`
-	ReceiverPhone   string `json:"receiver_phone,omitempty"`
-	ReceiverAddress string `json:"receiver_address,omitempty"`
+	SettlementReason string `json:"settlement_reason,omitempty"`
+	ReceiverName     string `json:"receiver_name,omitempty"`
+	ReceiverPhone    string `json:"receiver_phone,omitempty"`
+	ReceiverAddress  string `json:"receiver_address,omitempty"`
 
 	RenderVersion    string `json:"render_version,omitempty"`
 	PrepaymentAmount string `json:"prepayment_amount,omitempty"`

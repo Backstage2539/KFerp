@@ -384,8 +384,12 @@ func invalidateConfirmedOrderDocumentsTx(ctx context.Context, tx pgx.Tx, schema 
 // Legacy header/inline endpoints cannot silently bypass the full review flow.
 func requireOrdinaryOrderEditTx(ctx context.Context, tx pgx.Tx, schema string, id int64) error {
 	var managed bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false) FROM %s.orders o WHERE id=$1 FOR UPDATE", schema), id).Scan(&managed); err != nil {
+	var settlementReason string
+	if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false), COALESCE(to_jsonb(o)->>'settlement_reason','') FROM %s.orders o WHERE id=$1 FOR UPDATE", schema), id).Scan(&managed, &settlementReason); err != nil {
 		return err
+	}
+	if settlementReason == "free_sample" {
+		return fmt.Errorf("免费样品请从订单详情顶部保存，系统会核对费用和结清状态")
 	}
 	if managed {
 		return fmt.Errorf("履约订单请从订单详情修改并保存为待确认，状态由实际履约进度更新")

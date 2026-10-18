@@ -369,6 +369,10 @@ func validateOrderFulfillmentRequirementsTx(ctx context.Context, tx pgx.Tx, sche
 	if len(shipMethods) > 0 {
 		shipMethod = shipMethods[0]
 	}
+	return validateOrderFulfillmentWithPaymentPolicyTx(ctx, tx, schema, payStatusID, shipStatusID, logisticsCompanyID, logisticsProductID, paymentGoodsAmount, paymentShippingAmount, paymentVoucherAssetID, shipMethod, false, false)
+}
+
+func validateOrderFulfillmentWithPaymentPolicyTx(ctx context.Context, tx pgx.Tx, schema string, payStatusID, shipStatusID, logisticsCompanyID, logisticsProductID int64, paymentGoodsAmount, paymentShippingAmount float64, paymentVoucherAssetID int64, shipMethod string, freeSample, zeroGoodsSample bool) error {
 	shipStatusName, err := lookupStatusName(ctx, tx, schema, "ship_statuses", shipStatusID)
 	if err != nil {
 		return fmt.Errorf("invalid ship_status_id")
@@ -403,8 +407,8 @@ func validateOrderFulfillmentRequirementsTx(ctx context.Context, tx pgx.Tx, sche
 	if err != nil {
 		return fmt.Errorf("invalid pay_status_id")
 	}
-	if orderPaidStatusRequiresReceipt(payStatusName) {
-		if paymentGoodsAmount <= 0 {
+	if orderPaidStatusRequiresReceipt(payStatusName) && !freeSample {
+		if paymentGoodsAmount < 0 || paymentGoodsAmount == 0 && !(zeroGoodsSample && paymentShippingAmount > 0) {
 			return fmt.Errorf("payment_goods_amount required")
 		}
 		if paymentShippingAmount < 0 {
@@ -1536,6 +1540,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
+		if sampleEdit {
+			state, stateErr := loadOrderEditState(ctx, tx, r.schema, editID, false)
+			if stateErr != nil {
+				return salesapp.SaveOrderResult{}, stateErr
+			}
+			if editable := salesapp.EvaluateOrderEditability(state); !editable.CanEdit {
+				return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError(editable.BlockReason)
+			}
+		}
+
 	}
 	if cmd.RequireCurrentDefaultPublications {
 		if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.bean_list_publications IN SHARE MODE", r.schema)); err != nil {
@@ -2273,6 +2287,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 
+	if allowFreeSamplePrice || sampleEdit {
+		if strings.TrimSpace(cmd.ReceiverName) == "" || strings.TrimSpace(cmd.ReceiverPhone) == "" || strings.TrimSpace(cmd.ReceiverAddress) == "" {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("请在订单顶部收件信息中补齐收件人、电话和地址")
+		}
+	}
+
 	// Amount calculation (items + shipping - discount)
 	shippingAmt := cmd.ShippingAmount
 	discountAmt := cmd.DiscountAmount + itemDiscountAmt
@@ -2303,6 +2323,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if cmd.PrepaymentAmount != nil {
 		prepayment = *cmd.PrepaymentAmount
 	}
+	settlementReason, payStatusID, err := r.resolveSampleSettlementTx(ctx, tx, &cmd, allowFreeSamplePrice || sampleEdit, totalAmt, shippingAmt, outsourceTotal, grandTotal, payStatusID, prepayment)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 	paymentStatus, err := lookupStatusName(ctx, tx, r.schema, "pay_statuses", payStatusID)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
@@ -2310,9 +2334,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if err := salesdomain.ValidatePrepayment(paymentStatus, prepayment, grandTotal); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
-	paymentMethod, err := normalizeOrderPaymentMethodForStatusTx(ctx, tx, r.schema, payStatusID, cmd.PaymentMethod)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
+	paymentMethod := ""
+	if settlementReason != "free_sample" {
+		paymentMethod, err = normalizeOrderPaymentMethodForStatusTx(ctx, tx, r.schema, payStatusID, cmd.PaymentMethod)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 
 	// 默认发货状态：未选择时自动写入“未发货”。
@@ -2346,7 +2373,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		cmd.LogisticsCompanyID, cmd.LogisticsProductID = 0, 0
 		cmd.ShipTrackingNo = ""
 	}
-	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, r.schema, payStatusID, shipStatusID, cmd.LogisticsCompanyID, cmd.LogisticsProductID, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount, cmd.PaymentVoucherAssetID, cmd.ShipMethod); err != nil {
+	if err := validateOrderFulfillmentWithPaymentPolicyTx(ctx, tx, r.schema, payStatusID, shipStatusID, cmd.LogisticsCompanyID, cmd.LogisticsProductID, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount, cmd.PaymentVoucherAssetID, cmd.ShipMethod, settlementReason == "free_sample", (allowFreeSamplePrice || sampleEdit) && totalAmt == 0); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
 
@@ -2415,7 +2442,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	if editID > 0 {
 		if !cmd.PreserveFulfillmentSnapshot {
-			portalServiceCode, sourceWarehouse = resolveOrderFulfillmentMarkers(existingPortalServiceCode, existingSourceWarehouse, portalServiceCode, sourceWarehouse)
+			portalServiceCode, sourceWarehouse = existingPortalServiceCode, existingSourceWarehouse
 		}
 		uq := fmt.Sprintf(`
 				UPDATE %s.orders
@@ -2786,6 +2813,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET prepayment_amount=$2 WHERE id=$1`, r.schema), orderID, prepayment); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET settlement_reason=$2 WHERE id=$1", r.schema), orderID, settlementReason); err != nil {
+		return salesapp.SaveOrderResult{}, err
 	}
 	afterAuditSummary, err := loadOrderSaveAuditSummaryTx(ctx, tx, r.schema, orderID)
 	if err != nil {
@@ -3240,6 +3270,8 @@ func loadOrderSaveAuditSummaryTx(ctx context.Context, tx pgx.Tx, schema string, 
 			'receiver_company', COALESCE(o.receiver_company,''),
 			'prepayment_amount', COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0),
 			'pay_status_id', to_jsonb(o)->'pay_status_id',
+            'settlement_reason', to_jsonb(o)->'settlement_reason',
+            'portal_service_code', to_jsonb(o)->'portal_service_code',
             'order_type_id', to_jsonb(o)->'order_type_id',
             'ship_method', to_jsonb(o)->'ship_method',
             'ship_status_id', to_jsonb(o)->'ship_status_id',

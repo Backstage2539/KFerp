@@ -41,3 +41,19 @@ func sampleOrderItemMatches(ctx context.Context, q sampleOrderQuerier, schema st
 		orderID, itemID, productID, specID, variantID, aliasID, referenceID, publicationID).Scan(&matches)
 	return matches, err
 }
+
+func requireSampleShippingRecipientTx(ctx context.Context, tx pgx.Tx, schema string, id int64) error {
+	sample, err := sampleOrderLinked(ctx, tx, schema, id)
+	if err != nil || !sample {
+		return err
+	}
+	var complete bool
+	err = tx.QueryRow(ctx, fmt.Sprintf("SELECT btrim(coalesce(receiver_name,''))<>'' AND btrim(coalesce(receiver_phone,''))<>'' AND btrim(coalesce(receiver_address,''))<>'' FROM %s.orders WHERE id=$1", schema), id).Scan(&complete)
+	if err != nil {
+		return err
+	}
+	if !complete {
+		return fmt.Errorf("请先在订单顶部收件信息中补齐收件人、电话和地址，再发货")
+	}
+	return nil
+}
