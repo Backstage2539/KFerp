@@ -154,7 +154,7 @@ test('product price list waits for product-catalog feature selection before reso
   )
   assert.match(
     viewSource,
-    /async function loadPriceListProductBusinessGroups\(\) \{[\s\S]*priceListProductCatalogFeatureSelectionLoaded\.value = false[\s\S]*finally \{\s*if \(revision === customerPriceCatalogRevision\) priceListProductCatalogFeatureSelectionLoaded\.value = true\s*\}/,
+    /async function loadPriceListProductBusinessGroups\(required = false\) \{[\s\S]*priceListProductCatalogFeatureSelectionLoaded\.value = false[\s\S]*finally \{\s*if \(revision === customerPriceCatalogRevision\) priceListProductCatalogFeatureSelectionLoaded\.value = true\s*\}/,
   )
 })
 
@@ -524,7 +524,7 @@ test('product bean-list generate area uses inline price-list configuration inste
     'productPriceListTypeKey',
     'price-list-page-config',
     '<strong>计价规则</strong>',
-    '<button class="secondary named-price-table-config-button" type="button" :disabled="loading || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>',
+    '<button class="secondary named-price-table-config-button" type="button" :disabled="namedEditorBlocked || beanListPublishing" @click="openNamedTableConfig">价格表配置</button>',
     'aria-label="价格表配置"',
     "greenTierPriceRows",
     "green_bean_list",
@@ -924,7 +924,7 @@ test('price list restored product template overrides schedule pricing-rule trial
     'restored pricing-rule product overrides need an explicit post-render trial refresh scheduler',
   )
 
-  const restoreStart = viewSource.indexOf('function restorePriceListGenerationDraftForActiveType()')
+  const restoreStart = viewSource.indexOf('function restorePriceListGenerationDraftForActiveType(draftOverride = null)')
   const restoreEnd = viewSource.indexOf('function beanListPublicationTypeKey', restoreStart)
   assert.ok(restoreStart > -1 && restoreEnd > restoreStart, 'restorePriceListGenerationDraftForActiveType block not found')
   assert.ok(
@@ -1047,7 +1047,7 @@ test('price list product selection summaries expose category and shared parent-p
 })
 
 test('price list draft restoration promotes legacy SKU pricing and blocks conflicting configs until parent repricing', () => {
-  const restoreStart = viewSource.indexOf('function restorePriceListGenerationDraftForActiveType()')
+  const restoreStart = viewSource.indexOf('function restorePriceListGenerationDraftForActiveType(draftOverride = null)')
   const restoreEnd = viewSource.indexOf('function beanListPublicationTypeKey', restoreStart)
   assert.ok(restoreStart > -1 && restoreEnd > restoreStart, 'missing price-list draft restore block')
   const restoreSource = viewSource.slice(restoreStart, restoreEnd)
