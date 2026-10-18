@@ -1,6 +1,6 @@
 ### PR-697-RESTORE-PRICE-TABLE-SCOPE
 - Branch: codex/restore-price-table-order-scope-20261018; base origin/develop@43de729d.
-- Status: relevant tests, isolated DB/race, Vue1367, miniapp329/typecheck/build and local UI passed; merge/development delivery pending.
+- Status: PR #210 merged; development delivery in progress. Final publication-path rollback removes the retired executable-template publication guard; targeted PostgreSQL/race and samples RED/GREEN plus full Go passed; final integration/deployment pending.
 - Scope: 撤回 PR-694/695/696 录单扩展；ERP/员工小程序仅用当前价格表商品规格，临时换规格入口关闭。历史冻结、换算配置与 fa98f276 的价格表中心/样品流程保留。
 - DEV: DEV-784-SCOPE-ROLLBACK; DEV-785-SCOPE-HISTORY; DEV-786-SCOPE-DELIVERY.
 - RED: /tmp/kferp-scope-red-{api,vue,mini}.log; old API returned 3 BOM specs, both clients offered conversion, copy retained conversion selection.

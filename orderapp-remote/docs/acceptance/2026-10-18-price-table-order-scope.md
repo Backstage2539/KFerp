@@ -27,3 +27,7 @@
 手册：OP_MANUAL_ORDER_SALES.md、OP_MANUAL_COSTING.md、OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md、OP_MANUAL_BOM_ORDER_PRICING.md、OP_MANUAL_SPEC_CONVERSION.md 与总索引、前端帮助同步。
 
 功能分支 `codex/restore-price-table-order-scope-20261018`，基线 `43de729d`。合并及 development 部署记录待补；生产、微信上传和 Van 真实业务验收不在本次执行中。
+
+## 发布路径补充回退
+
+移除仅用于跨规格报价的发布时可执行模板冻结要求。已经生成的价格行按原规则发布，不因关联模板后来停用而被新增检查阻断；不会重新计算或改写价格。`TestPriceTableOnlyOrderScopePostgresHTTP` 增加停用关联模板后仍能发布已定价行、最终售价不变的 RED/GREEN；RED 为“价格档位的计算模板已停用”。
