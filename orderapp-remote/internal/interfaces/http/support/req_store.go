@@ -323,7 +323,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_product", code: "PR-701-ORDER-DETAILS-COPY", title: "网页与小程序复制订单详情文字", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-18-order-details-copy.md"},
 		{table: "req_dev", code: "DEV-790-ORDER-COPY-API", title: "PR-701 保存快照文字与四端只读权限接口", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-18-order-details-copy.md"},
 		{table: "req_dev", code: "DEV-791-ORDER-COPY-CLIENTS", title: "PR-701 列表详情复制入口、剪贴板和迟到响应隔离", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-18-order-details-copy.md"},
-		{table: "req_dev", code: "DEV-792-ORDER-COPY-DELIVERY", title: "PR-701 测试手册及开发环境小程序包交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-18-order-details-copy.md"},
+		{table: "req_dev", code: "DEV-792-ORDER-COPY-DELIVERY", title: "PR-701 测试手册及开发环境小程序包交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-18-order-details-copy.md"},
 		{table: "req_product", code: "PR-700-ORDER-LIST-INLINE", title: "订单列表完整类型与行内极简详情", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-18-order-list-inline.md"},
 		{table: "req_dev", code: "DEV-789-ORDER-LIST-INLINE", title: "PR-700 分类汇总、单行详情与交互隔离", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-18-order-list-inline.md"},
 		{table: "req_unit", code: "UT-700-ORDER-LIST-INLINE", title: "类型、金额、展开切换与迟到响应回归", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-18-order-list-inline.md"},

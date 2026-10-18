@@ -28,5 +28,17 @@
 ## 交付状态
 
 - 功能分支：`codex/order-details-copy-20261018`，起点 `origin/develop@491c4655`。
-- 实现及本地验证完成；开发环境集成、部署、技术冒烟及小程序导出进行中，完成后补充回执。
+- 实现、本地验证、开发集成、部署、技术冒烟及小程序导出已完成。
 - 生产环境、微信上传/审核/发布和 Van 业务验收不在本次执行范围。
+
+## 开发交付回执
+
+- 功能提交 `c8a8b16d`，含界面证据的已推送分支提交 `1c6f9e119a6aec270e9f10cbc190e1da490cc48b`；独立干净目录集成，部署时 `origin/develop` 为 `c223255bef6949f00ca91ae08e8fef1ca8417547`。
+- 命令：`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-order-copy-delivery-20261018/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development`。
+- 服务器再次通过 Vue 1,404 项、小程序 334 项、类型检查和构建、Go 全量与镜像内 Go 测试；发布脚本完成，外部登录页 HTTP 200。
+- 开发服务 `erp_orderapp` running，镜像 `sha256:39ef1b5fa99d78dd94228e2c3582334da3febe803ec8314e6c9b55360028953d`；`erp_postgres` running/healthy。
+- 只读技术检查：匿名根页面 303 跳登录；四个复制 API 匿名均 401；认证 Vue 订单入口 200；认证无效订单 ID 复制接口 400；销售手册含 PR-701，PR 处于 review，DEV-790/791/792 完成。仅更新交付跟踪状态并记录审计，没有读取或修改真实订单做业务验收。
+- 原源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20261018232849-c223255bef69`；回滚镜像：`kferp-orderapp-rollback:development-20261018232849-c223255bef69`。
+- 开发小程序目录：`/Users/yiiiple-work/KFerp-order-copy-delivery-20261018/KFerp-miniapp-mp-weixin-dev`，`RELEASE_INFO` commit=`c223255b`、environment=`development`、API=`https://dev.qacoohee.com/app`，24 页面/96 个页面清单文件校验通过。
+- 压缩包：`/Users/yiiiple-work/KFerp-order-copy-delivery-20261018/KFerp-miniapp-order-copy-dev-c223255b.zip`，CRC 通过；SHA-256：`d85753d347a8a4bf64f8ca216d311850ebcb2d26aa8b25adae1e945a0dcecb72`。
+- RED/GREEN、构建及部署日志保存在交付目录 `evidence/`。回执及进度状态作为后续提交合并，运行功能版本仍为上述 `c223255b`；后续回执不重复部署。
