@@ -5794,9 +5794,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-700-ORDER-LIST-INLINE
 - Branch: codex/order-list-inline-details-20261018
 - Owner/session: Codex
-- Status: verified; PR review / REV todo
+- Status: development deployed and read-only smoke passed; PR review / REV todo
 - Scope: 全部商品分类、真实样品标签、单行展开只读订单明细。
 - Verifier: Go 单元/API/隔离 PostgreSQL；Vue helper/runtime/浏览器响应式；Vue 构建；小程序兼容回归。
 - Manual: orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md（Vue 帮助同步）
 - Review/acceptance: docs/acceptance/2026-10-18-order-list-inline.md；Van 真人验收待完成。
-- Deployment: ready for serialized integration/development deploy; production excluded
+- Deployment: 2026-10-18 development d29e61bd3df906321ab539655090c7e2a63d3ee7 (feature PR #214); application running, database healthy, list API / Vue / manual / five requirement tables verified. Production and real business acceptance excluded. Receipt-only follow-up does not change the deployed commit.
