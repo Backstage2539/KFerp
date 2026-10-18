@@ -32,3 +32,11 @@
 - PR-702 / DEV-793 写入需求进度来源；业务验收保持待确认。
 - Van 于 2026-10-19 要求合入 develop、main 并部署生产。生产发布将包含 develop 已验证的订单详情文字复制等累计更新；微信上传、审核、发布仍独立处理。
 - 合并版本、部署备份、运行检查和正式小程序包将在交付后追加。
+
+## 生产集成检查
+
+- 发布分支从 `origin/main@34a311d1` 合入已验证的 `origin/develop@ab573007`；保留 main 专有的 BOM 物料产出历史回填保护。进度文档冲突保留两边交付记录。
+- 新增聚焦数据库测试 `TestProductionMaterialBackfillReleasePostgres`：移除生产已有保护时，在重复 schema 初始化时触发产出绑定约束错误（RED）；恢复原 main 保护后通过（GREEN）。此处不改变业务代码。
+- 聚焦迁移测试及四端订单复制数据库测试全部通过；生产合并后的 Go 全量通过，网页和小程序源码与已验证 develop 一致。
+- 补跑的历史大测试 `TestPR598MaterialOutputRepositoryAndCompatibilityMigrationPostgres` 在旧样例将产出物料标为外购时失败；试验修正后又遇到旧规格模式字段缺失。已撤回试验修改、保留原测试，新增独立迁移回归避免依赖这组过期全流程样例。该大测试不计入通过项；未声称全库数据库集成测试通过。
+- 生产数据库发布前备份：`/opt/stacks/erp-production/backups/before-login-order-copy-20261019.dump`，12 MiB；`pg_restore --list` 校验通过。SHA-256：`bcd443a5e301c86f1aefa504b1325b51877fe2017ab359860db229f1cccd4e2a`。备份仅在生产服务器保存。
