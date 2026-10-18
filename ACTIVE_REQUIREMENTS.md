@@ -1,15 +1,16 @@
 ### PR-702-MINIAPP-LOGIN-ENTRY
 - Branch: codex/fix-miniapp-login-entry-20261019; base origin/develop@65f915db.
-- Status: reproduced in WeChat DevTools, fixed and locally verified; develop/main integration and production delivery in progress.
+- Status: reproduced in WeChat DevTools, fixed, verified, merged into develop/main and deployed to both environments; WeChat upload and Van business acceptance pending.
 - Scope: homepage account login opens password form; explicit logout blocks silent WeChat identity restoration, including late responses and app restart. Normal token expiry recovery remains available.
 - DEV: DEV-793-MINIAPP-LOGIN-ENTRY.
 - Evidence: docs/acceptance/2026-10-19-miniapp-login-entry.md; targeted RED/GREEN, 338 miniapp tests, typecheck/build and actual DevTools form/logout checks.
 - Delivery authorization: Van requested develop then main integration and production deployment on 2026-10-19; WeChat upload/review/publication separate.
 - Production integration: codex/release-login-order-copy-20261019 combines origin/main@34a311d1 with verified origin/develop@ab573007; preserves production-only BOM material-output backfill protection and historical delivery receipts.
+- Delivery: development ab573007; production c815fb99. Vue1404, miniapp338/typecheck/build, Go/targeted DB, runtime/API/docs/progress and both 24-page artifacts passed. Packages and evidence: /Users/yiiiple-work/KFerp-login-fix-delivery-20261019. Backup and rollback details in the acceptance receipt; production-only BOM backfill protection preserved.
 
 ### PR-701-ORDER-DETAILS-COPY
 - Branch: codex/order-details-copy-20261018; base origin/develop@491c4655.
-- Status: implemented, verified, merged and deployed to development c223255b; Van business acceptance pending.
+- Status: implemented, verified and deployed; development updated to ab573007 and production c815fb99 on 2026-10-19 with the login fix. Van business acceptance and WeChat publication pending.
 - Scope: ERP/customer web and employee/customer miniapp list/detail copy saved order text; exclude customer shipping center.
 - DEV: DEV-790-ORDER-COPY-API; DEV-791-ORDER-COPY-CLIENTS; DEV-792-ORDER-COPY-DELIVERY.
 - Verifier: Go formatter/scoped HTTP/isolated PostgreSQL; Vue and miniapp async clipboard tests, full gates/typecheck/build.
