@@ -442,6 +442,7 @@ async function saveVisibility(row) {
       },
     })
     assignRowDetail(row, data)
+    refreshWorkspaceCustomers()
     ok.value = `已保存 ${row.customer.name} 的客户门户配置`
   } catch (err) {
     error.value = err.message || '保存配置失败'
@@ -545,8 +546,10 @@ function openCustomerProfile(row) {
   if (!customerID) return
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
-      key: 'customerProcessingPortal',
+      key: 'customerFulfillment',
       params: { customer_id: customerID },
+      customerContext: { customerID, customerName: row.customer.name },
+      returnNavigation: { key: 'customerPortalSettings', params: {}, label: '返回门户客户配置', viewContext: { type: 'factory' } },
     },
   }))
 }

@@ -326,6 +326,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-796-CUSTOMER-STOCK", title: "PR-703 销售留厂权益及生产入库转换", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-19-customer-stock-dropship.md"},
 		{table: "req_dev", code: "DEV-797-CUSTOMER-STOCK", title: "PR-703 库存代发预订与发货门禁", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-19-customer-stock-dropship.md"},
 		{table: "req_dev", code: "DEV-798-CUSTOMER-STOCK", title: "PR-703 ERP小程序录单与开发交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-19-customer-stock-dropship.md"},
+		{table: "req_dev", code: "DEV-799-CUSTOMER-STOCK-ACCEPTANCE", title: "PR-703 喜沁真实开发验收与网页版门户修复", status: "in_progress", assignee: "Codex", evidence: "docs/acceptance/2026-10-19-customer-stock-live-acceptance.md"},
 		{table: "req_product", code: "PR-702-MINIAPP-LOGIN-ENTRY", title: "小程序账号登录入口与主动退出修复", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-19-miniapp-login-entry.md"},
 		{table: "req_dev", code: "DEV-793-MINIAPP-LOGIN-ENTRY", title: "PR-702 登录跳转、退出后禁止自动恢复及迟到响应隔离", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-19-miniapp-login-entry.md"},
 		{table: "req_product", code: "PR-701-ORDER-DETAILS-COPY", title: "网页与小程序复制订单详情文字", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-18-order-details-copy.md"},

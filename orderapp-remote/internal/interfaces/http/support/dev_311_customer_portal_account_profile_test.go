@@ -28,7 +28,7 @@ func TestDev311CustomerPortalAccountProfile(t *testing.T) {
 
 	for _, want := range []string{
 		"打开客户履约工作台",
-		"key: 'customerProcessingPortal'",
+		"key: 'customerFulfillment'",
 		"refreshWorkspaceCustomers()",
 		"workspaceCustomersRefreshEvent",
 	} {
