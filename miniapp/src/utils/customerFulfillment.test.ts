@@ -3,6 +3,7 @@ import type { EmployeeOrderProductFamily } from '../api/customerPortal'
 import {
   canShowFactoryProductLinks,
   directShipAvailabilityBreakdown,
+  directShipAllocationSourceLabel,
   directShipPreviewSupplyRows,
   directShipStatusLabel,
   mergeProcessingTargetLines,
@@ -14,6 +15,11 @@ import {
   productionSubmissionBlockReason,
   scopedFulfillmentProductFamilies,
 } from './customerFulfillment'
+
+it('labels prepaid sale output without a nonexistent processing request number', () => {
+  expect(directShipAllocationSourceLabel({ processing_request_id: 0 })).toBe('购货留厂待入库')
+  expect(directShipAllocationSourceLabel({ processing_request_id: 27 })).toBe('生产申请 #27')
+})
 
 const families: EmployeeOrderProductFamily[] = [
   {
