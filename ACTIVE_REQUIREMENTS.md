@@ -5799,4 +5799,3 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual: orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md（Vue 帮助同步）
 - Review/acceptance: docs/acceptance/2026-10-18-order-list-inline.md；Van 真人验收待完成。
 - Deployment: ready for serialized integration/development deploy; production excluded
-
