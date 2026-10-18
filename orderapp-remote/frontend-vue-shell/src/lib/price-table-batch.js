@@ -6,7 +6,7 @@ function tableKey() {
 
 export function createPriceTableBatch(payload = {}, name = '价格表') {
   const key = tableKey()
-  return { version: payload.version || payload.config?.version || '', changelog: payload.changelog || '', default_table_key: key, active_table_key: key, tables: [{ key, name, direct_ship_enabled: false, payload: clonePriceTable(payload) }] }
+  return { version: payload.version || payload.config?.version || '', changelog: payload.changelog || '', default_table_key: key, active_table_key: key, tables: [{ key, name, is_new_table: true, direct_ship_enabled: false, payload: clonePriceTable(payload) }] }
 }
 
 export function addPriceTable(batch, copyKey = '') {
@@ -15,7 +15,7 @@ export function addPriceTable(batch, copyKey = '') {
   const key = tableKey()
   let index = 1; let name = ''
   do { name = source ? `${source.name}（副本${index++}）` : `价格表${index++}` } while (next.tables.some(table => table.name.trim() === name))
-  next.tables.push({ key, name, direct_ship_enabled: Boolean(source?.direct_ship_enabled), payload: clonePriceTable(source?.payload || {}) })
+  next.tables.push({ key, name, is_new_table: true, direct_ship_enabled: Boolean(source?.direct_ship_enabled), payload: clonePriceTable(source?.payload || {}) })
   next.active_table_key = key
   return next
 }
@@ -23,6 +23,7 @@ export function addPriceTable(batch, copyKey = '') {
 export function removePriceTable(batch, key) {
   if (batch.tables.length <= 1) throw new Error('至少保留一张价格表')
   const next = clonePriceTable(batch)
+  if (next.tables.some(table => table.key === key)) next.removed_table_keys = [...new Set([...(next.removed_table_keys || []), key])]
   next.tables = next.tables.filter(table => table.key !== key)
   if (next.default_table_key === key) next.default_table_key = next.tables[0].key
   if (next.active_table_key === key) next.active_table_key = next.tables[0].key

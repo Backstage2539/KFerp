@@ -5780,3 +5780,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development d3d9bb91c5f4702059f0834fa23e0155b2770941; backup /opt/stacks/erp/orderapp.backup.deploy-20261018203502-d3d9bb91c5f4. App/DB healthy, API/manual/auth checks passed. SO-20261016-0001 recipient restored from confirmed snapshot; free_sample, no payment required, still unshipped.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-18-sample-order-fixes.md; Vue1370, miniapp330/typecheck/build, Go and isolated PostgreSQL/race PASS. PR review; DEV/UT/API done; REV todo. No production or WeChat publication.
 - Last update: 2026-10-18
+
+### PR-699-PRICE-TABLE-EDITOR-RESTORE
+- Branch: codex/price-table-editor-restore-20261018
+- Status: verified; frontend 1392 PASS, full Go and API contracts PASS, Vue build PASS; develop integration tracked by PR #213; no deployment
+- Scope: published snapshot editor hydration, per-table draft baseline/conflict recovery, BOM identity and fixed prices
+- Verifier: price-table-editor-*.test.js; full frontend tests; full Go tests; publication editor detail API contract; Vue build
+- Evidence: orderapp-remote/docs/acceptance/2026-10-18-price-table-editor-restore.md
+- Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md
+- Deployment: explicitly not requested; merge develop only; no customer table writes

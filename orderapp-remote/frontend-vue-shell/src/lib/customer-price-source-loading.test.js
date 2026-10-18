@@ -21,6 +21,7 @@ function harness(t) {
   const draftKey = () => baseKey() + (tableKey.value ? `:table:${tableKey.value}` : '')
   const generated = ref([{ ...rows[0], customer_reference_snapshot: { customer_id: 302 }, final_unit_price: 999 }])
   const bindings = {
+    namedEditorReady: ref(true), namedEditorBlocked: ref(false), restoringNamedPriceTable: false,
     watch, generatedPriceListFlatRows: generated, customerPriceSources: ref([]), customerPriceSourcesReadyKey: ref(''),
     customerPriceCopyFrozen: copyFrozen,
     activeBeanListCustomerID: customerID, activePriceListTypeKey: ref('coffee'), customerPriceSeedRows: seeds,
