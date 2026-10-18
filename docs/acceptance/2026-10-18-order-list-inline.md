@@ -30,8 +30,19 @@
 
 更新单一源 orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md 的“订单列表类型与极简详情”章节，既有 Vue 订单销售手册入口读取该源；列表同时新增操作提示。
 
-PR-700-ORDER-LIST-INLINE / DEV-789-ORDER-LIST-INLINE / UT-700-ORDER-LIST-INLINE / API-700-ORDER-LIST-INLINE / REV-700-ORDER-LIST-INLINE。开发 UI 五表已登记，部署后种子同步为 PR review、DEV/UT/API done、REV todo。
+PR-700-ORDER-LIST-INLINE / DEV-789-ORDER-LIST-INLINE / UT-700-ORDER-LIST-INLINE / API-700-ORDER-LIST-INLINE / REV-700-ORDER-LIST-INLINE。开发 UI 五表已登记；部署后已通过只读 API 核实 PR review、DEV/UT/API done、REV todo。真人验收仍待 Van 完成。
 
 ## 开发交付
 
-基线 origin/develop 5c0c53ce；功能分支 codex/order-list-inline-details-20261018。测试通过，待推送、串行集成并部署 development，实际部署提交另行记录。生产发布、真人业务验收及小程序微信发布未执行。
+基线 origin/develop 5c0c53ce；功能分支 codex/order-list-inline-details-20261018。功能提交 8f73450df823a4a8ae804c17550d3405b4c9df48 已推送，经 [PR #214](https://github.com/Backstage2539/KFerp/pull/214) 合并为 96091e8e6d08c9326d63a597ce4e3d5cef44d218。
+
+首轮发布期间 develop 合入另一工作流的纯文档回执 d29e61bd，已在应用构建和切换前停止旧发布。功能分支同步最新 develop 后重新通过 Go、Vue 1400 测试及构建，再推送并串行发布。实际部署提交为 **d29e61bd3df906321ab539655090c7e2a63d3ee7**，包含本功能和该文档回执。
+
+- 开发环境：https://dev.qacoohee.com/app/；2026-10-18 发布完成，外网登录页 HTTP 200。
+- 服务端 Vue 1400 测试、Go 测试、容器构建、小程序 330 测试、类型检查和 development 构建均通过。
+- 发布后只读检查：应用 running、重启 0 次，数据库 healthy；订单列表 200 且新字段类型与兼容字段正确；匿名请求 401；Vue 订单入口和订单销售手册 200；五表状态与上述一致。
+- 服务端 RELEASE_INFO 核实 development 及完整部署提交；本地交付包下载在中断后单独补齐，不重复发布服务。
+- 回滚源：/opt/stacks/erp/orderapp.backup.deploy-20261018224214-d29e61bd3df9；回滚镜像：kferp-orderapp-rollback:development-20261018224214-d29e61bd3df9。
+- 发布日志：evidence/order-inline-deploy-final.log；发布后检查：evidence/order-inline-smoke.log。原取消尝试另存 deploy-attempt-canceled-before-release.log，不计为成功发布。
+
+本回执后续提交仅记录交付事实，不改变实际运行提交。生产发布、真人业务验收及小程序微信上传/发布未执行。
