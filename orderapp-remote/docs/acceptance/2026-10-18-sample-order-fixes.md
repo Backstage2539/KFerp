@@ -21,7 +21,7 @@
 | Vue 全量测试与构建 | 1,370 项通过，构建成功 | /tmp/kferp-samplefix-final-vue.log |
 | 小程序全量测试、类型检查、开发构建 | 330 项通过，类型/构建成功 | /tmp/kferp-samplefix-final-mini.log、final-mini-build.log |
 | 隔离 PostgreSQL + race | 样品生命周期、并发、权限、价格表录单兼容及本次修复通过 | /tmp/kferp-samplefix-final-db.log |
-| 本地页面 | 真实 OrdersView 打开测试订单；顶部收件回填、无需收款、物流和保存位置无重叠 | 本地合成数据页面观察，不修改业务数据 |
+| 本地页面 | 真实 OrdersView 打开测试订单；顶部收件回填、无需收款、物流和保存位置无重叠 | 本地合成数据页面观察；顶部改收件人、待发货及备注后保存，捕获原 /api/order 提交，确认三项修改、零金额及未注入来源；不修改业务数据 |
 | 销售资料 | 免费 PDF/PNG 生成并查看，无重叠、无需收款 | /tmp/kferp-samplefix-artifacts/free-sample.pdf、free-sample.png |
 
 重点测试：sample_settlement_integration_test.go 覆盖确认下单→ERP 读取→只改备注保存→地址/来源保留、旧修订拒绝、收费转换、零货款运费凭证、伪造免收标记、真实收款保护、缺地址发货阻断、补地址后库存发货；修复脚本模拟审计失败回滚及重复执行仅一条审计。order-entry-recipient-runtime.test.js 执行真实 Vue 编辑组件回填与切单，其他单元测试覆盖零/空/负数及普通订单不可免收。
@@ -34,6 +34,16 @@ PR-698-SAMPLE-ORDER-FIXES、DEV-787-SAMPLE-ORDER-FIXES、UT-698-SAMPLE-ORDER-FIX
 
 ## 开发交付
 
-功能分支 codex/sample-order-fixes-20261018；独立集成目录用于避免触碰共享 develop 中其他未提交工作。推送、集成、开发部署和 SO-20261016-0001 修复执行记录待回填。
+功能分支 codex/sample-order-fixes-20261018；独立集成目录用于避免触碰共享 develop 中其他未提交工作。功能代码推送提交 `f63a196ba63753f164b2c148baea9b8cf14452fc`；合并并实际部署 `d3d9bb91c5f4702059f0834fa23e0155b2770941`。部署前 fetch / log / rev-parse 验证 origin/develop 与预期一致。后续交付记录提交只更新文档，不作为新的应用部署。
+
+- 命令：`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-sample-order-delivery-20261018/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development`。
+- 原应用备份：`/opt/stacks/erp/orderapp.backup.deploy-20261018203502-d3d9bb91c5f4`；回滚镜像 `kferp-orderapp-rollback:development-20261018203502-d3d9bb91c5f4`。
+- 服务器串行锁下 Vue 测试/构建、小程序测试/类型/构建、Go 全量及镜像内 Go 全量检查通过；仅开发应用重启。应用运行、数据库健康；公开登录页 200，认证订单页及手册 200，匿名订单 API 401，根入口按现有规则 303 至 orders。
+- 小程序开发产物：`/Users/yiiiple-work/KFerp-sample-order-delivery-20261018/KFerp-miniapp-mp-weixin-dev`；24 页、96 个清单文件通过校验，RELEASE_INFO 环境、提交与开发地址匹配。
+- 数据修复前备份：服务器 `/opt/stacks/erp/ops-backups/SO-20261016-0001-before-PR698-20261018.json`，仅服务器受限访问。
+- 修复事务提交：收件人、电话、地址都恢复为员工确认快照；自动结清 `free_sample` / 兼容底层已收款。回查完整订单只变化 `receiver_name`、`receiver_phone`、`receiver_address`、`pay_status_id`、`settlement_reason` 五项，其他列与备份一致。订单审计 `sample_receipt_repair` 一条，通用审计同步保留。
+- 真实订单只读 API 核对：1621 可编辑、收件资料完整、已收货款/运费各 0.00；列表显示“无需收款”，总额 0，仍“未发货”。没有对该订单执行发货。
+- 五表最终记录：PR review；DEV/UT/API done；REV todo，保留 Van 真人验收。五个需求 API 均返回对应条目。
+- 完整交付日志与本地界面截图：`/Users/yiiiple-work/KFerp-sample-order-delivery-20261018/evidence/`、`order-top-local-test.png`。免费改收费已有真实收款保护的最后一次隔离数据库回归也通过（last-db.log）。
 
 真人发货验收、生产发布、小程序微信上传/审核/发布未执行。自动化发货仅使用隔离数据库的合成订单。

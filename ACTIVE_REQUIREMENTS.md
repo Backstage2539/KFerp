@@ -5773,9 +5773,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-698-SAMPLE-ORDER-FIXES
 - Branch: codex/sample-order-fixes-20261018
-- Status: implementation and automated gates complete; development deployment pending; human acceptance pending.
+- Status: implemented, tested, integrated and deployed to development; named order repaired and read back; human shipping acceptance pending.
 - Scope: 收件快照保存、订单详情顶部状态操作、免费样品自动结清，开发订单 SO-20261016-0001 修复。
 - Verifier: Go unit/API + isolated PostgreSQL + Vue tests/build + miniapp regression.
 - Manual: OP_MANUAL_ORDER_SALES.md, OP_MANUAL_SAMPLES.md
-- Deployment: development only; pending.
+- Deployment: development d3d9bb91c5f4702059f0834fa23e0155b2770941; backup /opt/stacks/erp/orderapp.backup.deploy-20261018203502-d3d9bb91c5f4. App/DB healthy, API/manual/auth checks passed. SO-20261016-0001 recipient restored from confirmed snapshot; free_sample, no payment required, still unshipped.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-18-sample-order-fixes.md; Vue1370, miniapp330/typecheck/build, Go and isolated PostgreSQL/race PASS. PR review; DEV/UT/API done; REV todo. No production or WeChat publication.
 - Last update: 2026-10-18
