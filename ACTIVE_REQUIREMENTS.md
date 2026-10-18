@@ -5770,9 +5770,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: PR #204 merged; running develop 3421b1b8c576c7e5c3a773887d70d3b02ce66362. Backup /opt/stacks/erp/orderapp.backup.deploy-20261017003932-3421b1b8c576. Application running / PostgreSQL healthy; auth docs and requirement API 200; anonymous quote 401. Development package /Users/yiiiple-work/KFerp-bom-pricing-delivery-20261017/KFerp-miniapp-mp-weixin-dev (24 pages / 96 manifest files). No production, WeChat upload or business acceptance. Receipt-only follow-up does not change runtime.
 - Notes: reserve_req_id.sh reported PR-694 but macOS awk rejected multiline claim; recorded manually.
 
-### PR-698-sample-order-shipping-payment
+### PR-698-SAMPLE-ORDER-FIXES
 - Branch: codex/sample-order-fixes-20261018
-- Status: developing
+- Status: implementation and automated gates complete; development deployment pending; human acceptance pending.
 - Scope: 收件快照保存、订单详情顶部状态操作、免费样品自动结清，开发订单 SO-20261016-0001 修复。
 - Verifier: Go unit/API + isolated PostgreSQL + Vue tests/build + miniapp regression.
 - Manual: OP_MANUAL_ORDER_SALES.md, OP_MANUAL_SAMPLES.md

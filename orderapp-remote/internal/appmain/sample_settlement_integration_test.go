@@ -46,6 +46,9 @@ func TestSampleFreeSettlementAPI(t *testing.T) {
 	if name != v.Receiver.Name || phone != v.Receiver.Phone || address != v.Receiver.Address {
 		t.Fatal("confirmation lost recipient")
 	}
+	if err := salespg.NewRepository(f.pool, f.schema).InlineUpdate(f.ctx, v.OrderID, "test", salesapp.InlineUpdateCommand{}); err == nil || !strings.Contains(err.Error(), "免费样品请从订单详情顶部保存") {
+		t.Fatalf("legacy edit bypassed free settlement: %v", err)
+	}
 	if dir := os.Getenv("PR697_ARTIFACT_DIR"); dir != "" {
 		os.MkdirAll(dir, 0755)
 		form := f.call("GET", fmt.Sprintf("/api/order/form?edit_id=%d", v.OrderID), nil, "basic-admin", 200)
