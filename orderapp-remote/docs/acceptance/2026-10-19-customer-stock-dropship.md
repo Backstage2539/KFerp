@@ -45,4 +45,17 @@
 
 ## 开发交付
 
-待最终集成与部署后补记准确运行提交、源码备份、服务检查和小程序包清单。PR 保留 review，DEV 完成代表技术交付，不代替 Van 验收。
+2026-10-19 开发交付完成。PR 保留 review，DEV-794～798 done；技术交付不代替 Van 业务及真机验收。
+
+- 实现提交 `74a8926f`，同步已验证的最新 `origin/develop@88dc1a7b` 后，功能分支推送为 `a17a0161`。开发集成及实际运行提交 `349bbac1e6c6cf84f039c06ab1a23dd1326b0c64`；分支 `codex/customer-stock-dropship-20261019`。
+- 在独立、干净的 develop 集成克隆执行：`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-customer-stock-delivery-20261019/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development`。脚本完整成功，外部开发登录页 HTTPS 200。
+- 源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20261019011027-349bbac1e6c6`；回滚镜像 `kferp-orderapp-rollback:development-20261019011027-349bbac1e6c6`。运行镜像 `sha256:09f0f71b9941fb63a856b67f57b5a569f16a07b48a47ba16274d02329a1e9d9d`。
+- 服务器 Vue 1419项、小程序344项、类型检查、两个构建、Go全包及镜像内Go测试通过。本地合入最新分支后 Go全包、针对库存与生产的真实 PostgreSQL（21.154s／5.438s）、其他六包数据库／API目标和 Vue构建通过。未声称全库旧数据库集成套件全部运行。
+- 开发应用 running、0次重启，数据库 healthy；匿名根入口沿用303跳转登录页，登录页200，匿名场景目录／运费模板API401；认证 Vue履约页、运费模板、原始手册、PR／DEV API均200；无效客户ID的场景目录400，证明新路由存在且无500。
+- 运行需求表读回 PR-703 review、DEV-794～798 done。完整操作手册已通过开发服务读回，包含待入库权益、配置和费用说明。只读检查未创建真实客户业务单据。
+- 发布前仅清理可重新生成的Go／Docker构建缓存，保留数据库、业务文件、镜像回滚标签和源码备份。公共Caddy配置与已发布约定SHA256一致，脚本只验证且未改写；生产应用、生产数据库、喜沁现有生产单据及配置未修改。
+- 开发小程序目录 `/Users/yiiiple-work/KFerp-customer-stock-delivery-20261019/KFerp-miniapp-mp-weixin-dev`；`RELEASE_INFO` 与运行提交一致，环境 development，API `https://dev.qacoohee.com/app`。24页面、96个页面清单文件校验通过，共225个包内文件；ZIP CRC通过，包内没有生产API地址。
+- ZIP `/Users/yiiiple-work/KFerp-customer-stock-delivery-20261019/KFerp-miniapp-dev-349bbac1.zip`；SHA256 `6f9e8140ecb508a7ab05c2d26df09ea5bf4cd7ce33a51af8f86224ce4a2f9777`。
+- 独立交付目录保存 `deployment.log`、`runtime-check.log`、`artifact-check.log`、`SHA256SUMS.txt`、本地测试原始日志和隔离页面截图。首次只读检查沿用旧规则期待根入口401，实际为现有登录303，修正检查预期后全项通过；未修改认证代码或配置。
+
+本回执为部署后的纯文档补记，不改变以上运行版本。未执行微信上传／审核／发布、生产发布或真实客户业务验收。

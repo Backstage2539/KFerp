@@ -5823,8 +5823,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-703-CUSTOMER-STOCK-DROPSHIP
 - Branch: codex/customer-stock-dropship-20261019
 - Owner/session: Codex / 2026-10-19
-- Status: implementation and local verification complete; development deployment pending; Van acceptance pending
+- Status: development deployed and read-only checks passed; PR review / DEV done; Van business and real-device acceptance pending
 - Scope: customer address book, bound public price tables, sales-to-customer-stock entitlements, stock/on-demand direct shipping, fees and freight templates.
 - Verifier: targeted RED/GREEN unit/API/PostgreSQL tests; Vue tests/build; miniapp tests/typecheck/development build; full backend and changed verifier before integration.
-- Deployment: pending; production data/configuration unchanged.
+- Deployment: development `349bbac1e6c6cf84f039c06ab1a23dd1326b0c64`; backup `/opt/stacks/erp/orderapp.backup.deploy-20261019011027-349bbac1e6c6`; app running with 0 restarts, database healthy, API/manual/PR-DEV checks passed. Production data/configuration unchanged.
+- Delivery: `/Users/yiiiple-work/KFerp-customer-stock-delivery-20261019/KFerp-miniapp-dev-349bbac1.zip` (24 pages / 96 manifest files); evidence `orderapp-remote/docs/acceptance/2026-10-19-customer-stock-dropship.md`. No WeChat upload/review/publication; receipt-only follow-up does not change runtime.
 - Last update: 2026-10-19 Asia/Shanghai
