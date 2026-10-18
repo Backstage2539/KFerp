@@ -5,7 +5,6 @@ import (
 	"net/http"
 	salesapp "orderapp/internal/application/sales"
 	support "orderapp/internal/interfaces/http/support"
-	"strconv"
 )
 
 func (h orderAPIHandler) requireConversionEmployee(c echo.Context, permission string) error {
@@ -54,20 +53,11 @@ func (h orderAPIHandler) orderConversions(c echo.Context) error {
 	if err := h.requireConversionEmployee(c, "orders.write"); err != nil || c.Response().Committed {
 		return err
 	}
-	customerID, _ := strconv.ParseInt(c.QueryParam("customer_id"), 10, 64)
-	productID, _ := strconv.ParseInt(c.QueryParam("product_id"), 10, 64)
-	publicationID, _ := strconv.ParseInt(c.QueryParam("publication_id"), 10, 64)
-	data, err := h.sales.OrderSpecConversions(c.Request().Context(), customerID, productID, publicationID)
-	return conversionResponse(c, data, err)
+	return c.JSON(http.StatusGone, map[string]string{"error": salesapp.PriceTableOrderScopeMessage})
 }
 func (h orderAPIHandler) conversionQuote(c echo.Context) error {
 	if err := h.requireConversionEmployee(c, "orders.write"); err != nil || c.Response().Committed {
 		return err
 	}
-	var cmd salesapp.SpecConversionQuoteRequest
-	if err := c.Bind(&cmd); err != nil {
-		return c.JSON(400, map[string]string{"error": "规格换算参数无效"})
-	}
-	data, err := h.sales.QuoteSpecConversion(c.Request().Context(), cmd)
-	return conversionResponse(c, data, err)
+	return c.JSON(http.StatusGone, map[string]string{"error": salesapp.PriceTableOrderScopeMessage})
 }

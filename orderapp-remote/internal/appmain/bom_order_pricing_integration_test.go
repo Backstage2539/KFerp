@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-func TestBOMOrderPricingPostgresHTTP(t *testing.T) {
+func TestPriceTableOnlyOrderScopePostgresHTTP(t *testing.T) {
 	f := newSampleFixture(t)
 	f.e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -64,7 +64,7 @@ func TestBOMOrderPricingPostgresHTTP(t *testing.T) {
 	}
 	source, sourceV := spec("100g")
 	target, targetV := spec("500g")
-	small, smallV := spec("250g")
+	_, _ = spec("250g")
 	customer := f.id("INSERT INTO %s.customers(name,customer_type) VALUES('BOM报价客户','wholesale') RETURNING id")
 	sourceID := f.id("INSERT INTO %s.sources(name) VALUES('BOM来源') RETURNING id")
 	orderTypeID := f.id("INSERT INTO %s.order_types(name) VALUES('BOM批发') RETURNING id")
@@ -105,295 +105,117 @@ func TestBOMOrderPricingPostgresHTTP(t *testing.T) {
 	content, _ := json.Marshal(map[string]any{"price_rows": rows})
 	f.exec("UPDATE %s.bean_list_publications SET content_json=$1,config_json='{\"publication_batch\":{\"release_id\":\"bom-test\",\"table_key\":\"source\",\"table_name\":\"100g表\",\"is_default_table\":true}}' WHERE id=$2", content, f.publication)
 	key := orderbeans.PublishedPriceRowKey(f.publication, "commercial", pid, source, sourceV, "flat", 0)
+
 	for _, route := range []string{"/api/order/spec-conversions", "/api/mini/employee/spec-conversions"} {
 		token := "basic-admin"
 		if strings.Contains(route, "/mini/") {
 			token = f.salesToken
 		}
-		response := f.call("GET", fmt.Sprintf("%s?customer_id=%d&product_id=%d&publication_id=%d", route, customer, pid, f.publication), nil, token, 200)
-		encodedCatalog, _ := json.Marshal(response)
-		var catalog salesapp.SpecConversionCatalog
-		if err := json.Unmarshal(encodedCatalog, &catalog); err != nil {
-			t.Fatal(err)
-		}
-		if len(catalog.SourceTiers) != 2 {
-			t.Fatalf("source tiers: %s", response)
-		}
-		for i, tier := range catalog.SourceTiers {
-			if tier.MinQty == nil || *tier.MinQty != float64(i*48) || (i == 0 && (tier.MaxQty == nil || *tier.MaxQty != 47)) || (i == 1 && tier.MaxQty != nil) || tier.QuantityBasis != "sales_spec_count" {
-				t.Fatalf("missing published range: %+v", tier)
-			}
-		}
+		f.call("GET", fmt.Sprintf("%s?customer_id=%d&product_id=%d&publication_id=%d", route, customer, pid, f.publication), nil, token, 410)
+		f.call("POST", route+"/quote", map[string]any{}, token, 410)
 	}
-
-	request := salesapp.SpecConversionQuoteRequest{SpecConversionSelection: salesapp.SpecConversionSelection{PricingMethod: "bom_rule", SourceSpecID: source, SourceVariantID: sourceV}, CustomerID: customer, ProductID: pid, PublicationID: f.publication, PriceRowKey: key, TargetSpecID: target, TargetVariantID: targetV, Quantity: 2}
-	q := func(req salesapp.SpecConversionQuoteRequest, mini bool, want int) salesapp.SpecConversionQuote {
-		path, token := "/api/order/spec-conversions/quote", "basic-admin"
-		if mini {
-			path, token = "/api/mini/employee/spec-conversions/quote", f.salesToken
-		}
-		out := f.call("POST", path, req, token, want)
-		b, _ := json.Marshal(out)
-		var quote salesapp.SpecConversionQuote
-		_ = json.Unmarshal(b, &quote)
-		return quote
+	if _, err := service.OrderForm(f.ctx, 0); err != nil {
+		t.Fatal("order form", err)
 	}
-	catalog := f.call("GET", fmt.Sprintf("/api/order/spec-conversions?customer_id=%d&product_id=%d&publication_id=%d", customer, pid, f.publication), nil, "basic-admin", 200)
-	var choices []salesapp.SpecConversionSpec
-	_ = json.Unmarshal(catalog["specs"], &choices)
-	if len(choices) != 3 || choices[0].SpecID != target || !choices[0].IsDefault {
-		t.Fatalf("default/all specs: %+v", choices)
+	// Both ordinary APIs must reject a real BOM spec absent from the selected table.
+	payload := map[string]any{"pay_status_id": f.id("SELECT id FROM %s.pay_statuses WHERE name='未付款' LIMIT 1"), "ship_status_id": f.id("SELECT id FROM %s.ship_statuses WHERE name='未发货' LIMIT 1"), "order_date": "2026-10-18", "customer_id": customer, "product_id": []string{fmt.Sprint(pid)}, "bom_spec_id": []string{fmt.Sprint(target)}, "bom_variant_id": []string{fmt.Sprint(targetV)}, "qty": []string{"2"}, "item_name": []string{"测试商品"}, "unit_price": []string{"0.01"}, "price_selection_mode": []string{"auto"}, "item_bean_list_publication_id": []string{fmt.Sprint(f.publication)}, "selected_price_table_ids": []int64{f.publication}}
+	miniItem := map[string]any{"product_id": pid, "bom_spec_id": target, "bom_variant_id": targetV, "qty": 2, "unit": "袋", "name": "测试商品", "unit_price": 0.01, "bean_list_publication_id": f.publication, "price_selection_mode": "auto"}
+	miniPayload := map[string]any{"order_date": "2026-10-18", "customer_id": customer, "pay_status_id": payload["pay_status_id"], "ship_status_id": payload["ship_status_id"], "selected_price_table_ids": []int64{f.publication}, "items": []any{miniItem}}
+	f.call("POST", "/api/order", payload, "basic-admin", 400)
+	f.call("POST", "/api/mini/employee/orders", miniPayload, f.salesToken, 400)
+	payload["price_selection_mode"] = []string{"manual"}
+	payload["manual_price"] = []string{"1"}
+	payload["unit_price"] = []string{"99"}
+	miniItem["price_selection_mode"] = "manual"
+	miniItem["price_override"] = true
+	miniItem["unit_price"] = 99
+	f.call("POST", "/api/order", payload, "basic-admin", 400)
+	f.call("POST", "/api/mini/employee/orders", miniPayload, f.salesToken, 400)
+	delete(payload, "manual_price")
+	payload["unit_price"] = []string{"0.01"}
+	miniItem["price_override"] = false
+	miniItem["unit_price"] = 0.01
+	// Internal legacy calculator is used solely to reconstruct a pre-rollback fixture.
+	req := salesapp.SpecConversionQuoteRequest{SpecConversionSelection: salesapp.SpecConversionSelection{PricingMethod: "bom_rule", SourceSpecID: source, SourceVariantID: sourceV}, CustomerID: customer, ProductID: pid, PublicationID: f.publication, PriceRowKey: key, TargetSpecID: target, TargetVariantID: targetV, Quantity: 2}
+	quote, err := salespg.NewRepository(f.pool, f.schema).QuoteSpecConversion(f.ctx, req)
+	if err != nil {
+		t.Fatal(err)
 	}
-	first := q(request, false, 200)
-	if first.UnitPrice != "51.60" || first.LineTotal != "103.20" {
-		t.Fatalf("actual target BOM: %+v", first)
-	}
-	if second := q(request, true, 200); second.UnitPrice != first.UnitPrice || second.QuoteRevision != first.QuoteRevision {
-		t.Fatal("ERP/mini differ")
-	}
-	next := request
-	next.PriceRowKey = orderbeans.PublishedPriceRowKey(f.publication, "commercial", pid, source, sourceV, "flat", 1)
-	if got := q(next, false, 200); got.UnitPrice != "47.30" {
-		t.Fatalf("selected template params: %+v", got)
-	}
-	next.TargetSpecID = small
-	next.TargetVariantID = smallV
-	if got := q(next, true, 200); got.UnitPrice != "23.10" {
-		t.Fatalf("small BOM: %+v", got)
-	}
-	next = request
-	next.TargetSpecID = source
-	next.TargetVariantID = sourceV
-	if got := q(next, false, 200); got.UnitPrice != "10.80" {
-		t.Fatal("published price changed")
-	}
-	f.call("POST", "/api/mini/employee/spec-conversions/quote", request, f.visitorToken, 403)
-	for _, change := range []func(*salesapp.SpecConversionQuoteRequest){func(q *salesapp.SpecConversionQuoteRequest) { q.PriceRowKey = "forged" }, func(q *salesapp.SpecConversionQuoteRequest) { q.ProductID = f.productIDs[1] }, func(q *salesapp.SpecConversionQuoteRequest) { q.TargetVariantID = sourceV }, func(q *salesapp.SpecConversionQuoteRequest) { q.Quantity = 0 }} {
-		bad := request
-		change(&bad)
-		q(bad, false, 400)
-	}
-	// Three order lines independently keep ordinary, first-tier and second-tier identities.
-	ordinary := map[string]any{"product_id": pid, "bom_spec_id": source, "bom_variant_id": sourceV, "qty": 1, "unit": "袋", "name": "测试商品", "bean_list_publication_id": f.publication, "price_selection_mode": "tier", "selected_price_row_key": key}
-	converted := func(req salesapp.SpecConversionQuoteRequest) map[string]any {
-		quote := q(req, true, 200)
-		return map[string]any{"product_id": pid, "bom_spec_id": req.TargetSpecID, "bom_variant_id": req.TargetVariantID, "qty": 2, "unit": "袋", "name": "测试商品", "unit_price": 0.01, "bean_list_publication_id": f.publication, "price_selection_mode": "bom_tier", "selected_price_row_key": req.PriceRowKey, "spec_conversion": quote.SpecConversionSelection}
-	}
-	mixedSmall := request
-	mixedSmall.TargetSpecID, mixedSmall.TargetVariantID = small, smallV
-	mixedSmall.PriceRowKey = orderbeans.PublishedPriceRowKey(f.publication, "commercial", pid, source, sourceV, "flat", 1)
-	mixed := f.call("POST", "/api/mini/employee/orders", map[string]any{"order_date": "2026-10-17", "customer_id": customer, "pay_status_id": f.id("SELECT id FROM %s.pay_statuses WHERE name='未付款' LIMIT 1"), "ship_status_id": f.id("SELECT id FROM %s.ship_statuses WHERE name='未发货' LIMIT 1"), "selected_price_table_ids": []int64{f.publication}, "items": []any{ordinary, converted(request), converted(mixedSmall)}}, f.salesToken, 201)
-	var mixedID int64
-	_ = json.Unmarshal(mixed["order_id"], &mixedID)
-	if n := f.id("SELECT count(*) FROM %s.order_items WHERE order_id=$1 AND ((bom_spec_id=$2 AND unit_price=10.8) OR (bom_spec_id=$3 AND unit_price=51.6) OR (bom_spec_id=$4 AND unit_price=23.1))", mixedID, source, target, small); n != 3 {
-		t.Fatal("mixed line price/spec identity changed")
-	}
-	f.exec("UPDATE %s.bean_list_publications SET owner_type='customer',owner_key='999999' WHERE id=$1", f.publication)
-	q(request, false, 400)
-	q(request, true, 400)
-	f.exec("UPDATE %s.bean_list_publications SET owner_type='official',owner_key='' WHERE id=$1", f.publication)
-	// Changing a global template does not alter the published rule snapshot.
-	f.exec("UPDATE %s.product_pricing_rules SET margin_rate=9 WHERE id=$1", ruleID)
-	if got := q(request, false, 200); got.UnitPrice != "51.60" {
-		t.Fatal("mutable template replaced published rule")
-	}
-	selected, _ := json.Marshal(first.SpecConversionSelection)
-	payload := map[string]any{"pay_status_id": f.id("SELECT id FROM %s.pay_statuses WHERE name='未付款' LIMIT 1"), "ship_status_id": f.id("SELECT id FROM %s.ship_statuses WHERE name='未发货' LIMIT 1"), "order_date": "2026-10-17", "customer_id": customer, "product_id": []string{fmt.Sprint(pid)}, "bom_spec_id": []string{fmt.Sprint(target)}, "bom_variant_id": []string{fmt.Sprint(targetV)}, "qty": []string{"2"}, "item_name": []string{"测试商品"}, "unit_price": []string{"0.01"}, "price_selection_mode": []string{"bom_tier"}, "selected_price_row_key": []string{key}, "spec_conversion": []string{string(selected)}, "item_bean_list_publication_id": []string{fmt.Sprint(f.publication)}, "selected_price_table_ids": []int64{f.publication}}
+	selection, _ := json.Marshal(quote.SpecConversionSelection)
+	payload["price_selection_mode"] = []string{"bom_tier"}
+	payload["selected_price_row_key"] = []string{key}
+	payload["spec_conversion"] = []string{string(selection)}
+	miniItem["price_selection_mode"] = "bom_tier"
+	miniItem["selected_price_row_key"] = key
+	miniItem["spec_conversion"] = quote.SpecConversionSelection
+	f.call("POST", "/api/order", payload, "basic-admin", 400)
+	f.call("POST", "/api/mini/employee/orders", miniPayload, f.salesToken, 400)
+	// A priced spec still creates an ordinary order, with server-side price verification.
+	payload["bom_spec_id"] = []string{fmt.Sprint(source)}
+	payload["bom_variant_id"] = []string{fmt.Sprint(sourceV)}
+	payload["price_selection_mode"] = []string{"auto"}
+	delete(payload, "selected_price_row_key")
+	delete(payload, "spec_conversion")
+	miniItem["bom_spec_id"] = source
+	miniItem["bom_variant_id"] = sourceV
+	miniItem["price_selection_mode"] = "auto"
+	delete(miniItem, "selected_price_row_key")
+	delete(miniItem, "spec_conversion")
 	saved := f.call("POST", "/api/order", payload, "basic-admin", 200)
 	var orderID int64
 	_ = json.Unmarshal(saved["order_id"], &orderID)
-	itemID := f.id("SELECT id FROM %s.order_items WHERE order_id=$1", orderID)
-	if n := f.id("SELECT count(*) FROM %s.order_items WHERE order_id=$1 AND bom_spec_id=$2 AND unit_price=51.60 AND line_total=103.20", orderID, target); n != 1 {
-		t.Fatal("save trusted client price or wrong target")
-	}
-	miniItem := map[string]any{"product_id": pid, "bom_spec_id": target, "bom_variant_id": targetV, "qty": 2, "unit": "袋", "name": "测试商品", "unit_price": 0.01, "bean_list_publication_id": f.publication, "price_selection_mode": "bom_tier", "selected_price_row_key": key, "spec_conversion": first.SpecConversionSelection}
-	miniPayload := map[string]any{"order_date": "2026-10-17", "customer_id": customer, "pay_status_id": payload["pay_status_id"], "ship_status_id": payload["ship_status_id"], "selected_price_table_ids": []int64{f.publication}, "items": []any{miniItem}}
 	miniSaved := f.call("POST", "/api/mini/employee/orders", miniPayload, f.salesToken, 201)
 	var miniID int64
 	_ = json.Unmarshal(miniSaved["order_id"], &miniID)
-	miniItemID := f.id("SELECT id FROM %s.order_items WHERE order_id=$1", miniID)
-	f.exec("UPDATE %s.materials SET purchase_price=100 WHERE id=$1", mat)
-	stale := request
-	stale.QuoteRevision = first.QuoteRevision
-	q(stale, false, 409)
-	detail := f.call("GET", fmt.Sprintf("/api/mini/employee/orders/%d", miniID), nil, f.salesToken, 200)
-	var miniDetail map[string]any
-	_ = json.Unmarshal(detail["order"], &miniDetail)
-	miniPayload["edit_revision"] = miniDetail["edit_revision"]
-	miniItem["item_id"] = miniItemID
-	miniItem["qty"] = 3
-	f.call("PUT", fmt.Sprintf("/api/mini/employee/orders/%d", miniID), miniPayload, f.salesToken, 200)
-	if n := f.id("SELECT count(*) FROM %s.order_items WHERE order_id=$1 AND unit_price=51.60 AND qty=3", miniID); n != 1 {
-		t.Fatal("mini historical price changed")
+	if n := f.id("SELECT count(*) FROM %s.order_items WHERE order_id IN ($1,$2) AND bom_spec_id=$3 AND unit_price=10.80", orderID, miniID, source); n != 2 {
+		t.Fatal("ordinary price changed")
 	}
-	f.call("POST", "/api/mini/employee/orders", miniPayload, f.salesToken, 409)
+	for _, id := range []int64{orderID, miniID} {
+		f.exec("UPDATE %s.order_items SET bom_spec_id=$1,bom_variant_id=$2,unit_price=51.60,line_total=103.20,price_source_json=$3 WHERE order_id=$4", target, targetV, quote.PriceSourceJSON, id)
+	}
+	// Editing a genuine saved conversion freezes its price. A copied/forged line cannot do so.
+	itemID := f.id("SELECT id FROM %s.order_items WHERE order_id=$1", orderID)
 	payload["edit_id"] = orderID
 	payload["item_id"] = []string{fmt.Sprint(itemID)}
+	payload["bom_spec_id"] = []string{fmt.Sprint(target)}
+	payload["bom_variant_id"] = []string{fmt.Sprint(targetV)}
+	payload["price_selection_mode"] = []string{"bom_tier"}
+	payload["selected_price_row_key"] = []string{key}
+	payload["spec_conversion"] = []string{string(selection)}
 	payload["qty"] = []string{"3"}
 	payload["price_source_json"] = []string{`{"spec_conversion":{"unit_price":"0.01"}}`}
 	f.call("POST", "/api/order", payload, "basic-admin", 200)
-	if n := f.id("SELECT count(*) FROM %s.order_items WHERE order_id=$1 AND unit_price=51.60 AND line_total=154.80", orderID); n != 1 {
-		t.Fatal("quantity did not retain trusted historical price")
+	miniDetail := f.call("GET", fmt.Sprintf("/api/mini/employee/orders/%d", miniID), nil, f.salesToken, 200)
+	var detail map[string]any
+	_ = json.Unmarshal(miniDetail["order"], &detail)
+	miniPayload["edit_revision"] = detail["edit_revision"]
+	miniItem["item_id"] = f.id("SELECT id FROM %s.order_items WHERE order_id=$1", miniID)
+	miniItem["bom_spec_id"] = target
+	miniItem["bom_variant_id"] = targetV
+	miniItem["price_selection_mode"] = "bom_tier"
+	miniItem["selected_price_row_key"] = key
+	miniItem["spec_conversion"] = quote.SpecConversionSelection
+	miniItem["qty"] = 3
+	f.call("PUT", fmt.Sprintf("/api/mini/employee/orders/%d", miniID), miniPayload, f.salesToken, 200)
+	if n := f.id("SELECT count(*) FROM %s.order_items WHERE order_id IN ($1,$2) AND bom_spec_id=$3 AND unit_price=51.60 AND line_total=154.80", orderID, miniID, target); n != 2 {
+		t.Fatal("historical target or price changed")
 	}
 	delete(payload, "edit_id")
-	delete(payload, "item_id")
-	f.call("POST", "/api/order", payload, "basic-admin", 409)
-	refreshed := q(request, true, 200)
-	if refreshed.UnitPrice != "63.60" {
-		t.Fatalf("current cost: %+v", refreshed)
-	}
-	refreshed.Reprice = true
-	selected, _ = json.Marshal(refreshed.SpecConversionSelection)
-	payload["spec_conversion"] = []string{string(selected)}
-	payload["edit_id"], payload["item_id"] = orderID, []string{fmt.Sprint(itemID)}
-	f.call("POST", "/api/order", payload, "basic-admin", 200)
-	if n := f.id("SELECT count(*) FROM %s.order_items WHERE order_id=$1 AND unit_price=63.60", orderID); n != 1 {
-		t.Fatal("explicit reprice did not use current cost")
-	}
-	delete(payload, "edit_id")
-	delete(payload, "item_id")
-	miniItem["spec_conversion"] = refreshed.SpecConversionSelection
-	delete(miniItem, "item_id")
-	f.call("POST", "/api/mini/employee/orders", miniPayload, f.salesToken, 201)
-	preview := f.call("POST", "/api/order/stock-batch-preview", payload, "basic-admin", 200)
-	previewJSON, _ := json.Marshal(preview)
-	if !strings.Contains(string(previewJSON), fmt.Sprintf(`"bom_spec_id":%d`, target)) {
-		t.Fatal("stock preview lost target spec", string(previewJSON))
-	}
-	f.call("POST", "/api/order", payload, "basic-admin", 200)
+	f.call("POST", "/api/order", payload, "basic-admin", 400)
+	f.call("POST", "/api/mini/employee/orders", miniPayload, f.salesToken, 400)
 	var after string
 	if err := f.pool.QueryRow(f.ctx, fmt.Sprintf("SELECT content_json::text FROM %s.bean_list_publications WHERE id=$1", f.schema), f.publication).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
-	var normalized any
-	_ = json.Unmarshal(content, &normalized)
-	want, _ := json.Marshal(normalized)
-	_ = json.Unmarshal([]byte(after), &normalized)
-	got, _ := json.Marshal(normalized)
-	if string(want) != string(got) {
-		t.Fatal("quotes mutated source price table")
+	var beforeJSON, afterJSON any
+	_ = json.Unmarshal(content, &beforeJSON)
+	_ = json.Unmarshal([]byte(after), &afterJSON)
+	a, _ := json.Marshal(beforeJSON)
+	b, _ := json.Marshal(afterJSON)
+	if string(a) != string(b) {
+		t.Fatal("price table mutated")
 	}
 	if n := f.id("SELECT count(*) FROM %s.audit_logs WHERE entity_type='order' AND entity_id=$1", orderID); n == 0 {
 		t.Fatal("missing order audit")
 	}
-	// Missing / manually adjusted source templates never silently fall back.
-	rows[0]["manual_adjusted"] = true
-	raw, _ := json.Marshal(map[string]any{"price_rows": rows})
-	f.exec("UPDATE %s.bean_list_publications SET content_json=$1 WHERE id=$2", raw, f.publication)
-	if msg := f.call("POST", "/api/order/spec-conversions/quote", request, "basic-admin", 400); !strings.Contains(string(msg["error"]), "手工") {
-		t.Fatal(msg)
-	}
-	rows[0]["manual_adjusted"] = false
-	delete(rows[0], "pricing_rule_snapshot")
-	raw, _ = json.Marshal(map[string]any{"price_rows": rows})
-	f.exec("UPDATE %s.bean_list_publications SET content_json=$1 WHERE id=$2", raw, f.publication)
-	// Legacy references use an unchanged authoritative template without publishing again.
-	f.exec("UPDATE %s.product_pricing_rules SET margin_rate=.2,updated_at=now()-interval '1 hour',created_at=now()-interval '2 hours' WHERE id=$1", ruleID)
-	f.exec("UPDATE %s.bean_list_publications SET published_at=now() WHERE id=$1", f.publication)
-
-	legacyRaw := append([]byte(nil), raw...)
-	publicationCount := f.id("SELECT count(*) FROM %s.bean_list_publications")
-	// Contradictory old metadata means timestamps alone cannot authorize recovery.
-	rows[0]["cost_source_snapshot"] = map[string]any{"pricing_rule_name": "old different name"}
-	raw, _ = json.Marshal(map[string]any{"price_rows": rows})
-	f.exec("UPDATE %s.bean_list_publications SET content_json=$1 WHERE id=$2", raw, f.publication)
-	q(request, false, 409)
-	delete(rows[0], "cost_source_snapshot")
-	f.exec("UPDATE %s.bean_list_publications SET content_json=$1 WHERE id=$2", legacyRaw, f.publication)
-	legacy := q(request, false, 200)
-	if legacy.UnitPrice != "63.60" || !strings.Contains(legacy.PriceSourceJSON, "verified_legacy_template") {
-		t.Fatalf("unchanged legacy template: %+v", legacy)
-	}
-	if got := q(request, true, 200); got.QuoteRevision != legacy.QuoteRevision {
-		t.Fatal("legacy clients differ")
-	}
-	f.exec("UPDATE %s.product_pricing_rules SET margin_rate=.3,updated_at=now()+interval '1 second' WHERE id=$1", ruleID)
-	var confirmation map[string]json.RawMessage
-	for _, client := range []struct{ path, token string }{{"/api/order/spec-conversions/quote", "basic-admin"}, {"/api/mini/employee/spec-conversions/quote", f.salesToken}} {
-		confirmation = f.call("POST", client.path, request, client.token, 409)
-		if string(confirmation["code"]) != "\"pricing_rule_confirmation_required\"" {
-			t.Fatal(confirmation)
-		}
-	}
-	b, _ := json.Marshal(request)
-	var confirmed map[string]any
-	_ = json.Unmarshal(b, &confirmed)
-	var revision string
-	_ = json.Unmarshal(confirmation["current_rule_revision"], &revision)
-	confirmed["current_rule_revision"] = revision
-	b, _ = json.Marshal(confirmed)
-	var currentRequest salesapp.SpecConversionQuoteRequest
-	_ = json.Unmarshal(b, &currentRequest)
-	wrongContext := currentRequest
-	wrongContext.TargetSpecID, wrongContext.TargetVariantID = small, smallV
-	q(wrongContext, false, 409)
-	current := q(currentRequest, true, 200)
-	if current.UnitPrice != "68.90" || !strings.Contains(current.PriceSourceJSON, "confirmed_current_template") || !strings.Contains(current.PriceSourceJSON, "\"margin_rate\":0.3") {
-		t.Fatalf("current: %+v", current)
-	}
-	delete(payload, "edit_id")
-	delete(payload, "item_id")
-	selected, _ = json.Marshal(current.SpecConversionSelection)
-	payload["spec_conversion"] = []string{string(selected)}
-	payload["qty"] = []string{"2"}
-	saved = f.call("POST", "/api/order", payload, "basic-admin", 200)
-	_ = json.Unmarshal(saved["order_id"], &orderID)
-	itemID = f.id("SELECT id FROM %s.order_items WHERE order_id=$1", orderID)
-	miniItem["spec_conversion"] = current.SpecConversionSelection
-	miniItem["qty"] = 2
-	delete(miniItem, "item_id")
-	miniSaved = f.call("POST", "/api/mini/employee/orders", miniPayload, f.salesToken, 201)
-	_ = json.Unmarshal(miniSaved["order_id"], &miniID)
-	miniItemID = f.id("SELECT id FROM %s.order_items WHERE order_id=$1", miniID)
-	f.exec("UPDATE %s.product_pricing_rules SET margin_rate=.4,updated_at=now()+interval '2 seconds' WHERE id=$1", ruleID)
-	q(currentRequest, false, 409)
-	q(currentRequest, true, 409)
-	payload["edit_id"], payload["item_id"], payload["qty"] = orderID, []string{fmt.Sprint(itemID)}, []string{"3"}
-	f.call("POST", "/api/order", payload, "basic-admin", 200)
-	detail = f.call("GET", fmt.Sprintf("/api/mini/employee/orders/%d", miniID), nil, f.salesToken, 200)
-	_ = json.Unmarshal(detail["order"], &miniDetail)
-	miniPayload["edit_revision"] = miniDetail["edit_revision"]
-	miniItem["item_id"], miniItem["qty"] = miniItemID, 3
-	f.call("PUT", fmt.Sprintf("/api/mini/employee/orders/%d", miniID), miniPayload, f.salesToken, 200)
-	if n := f.id("SELECT count(*) FROM %s.order_items WHERE order_id IN ($1,$2) AND unit_price=68.90 AND qty=3 AND price_source_json::jsonb->'pricing_rule_snapshot'->>'margin_rate'='0.3'", orderID, miniID); n != 2 {
-		t.Fatal("confirmed history was not frozen")
-	}
-	delete(payload, "edit_id")
-	delete(payload, "item_id")
-	f.call("POST", "/api/order", payload, "basic-admin", 409)
-	delete(miniItem, "item_id")
-	f.call("POST", "/api/mini/employee/orders", miniPayload, f.salesToken, 409)
-
-	var unchangedContent []byte
-	if err := f.pool.QueryRow(f.ctx, fmt.Sprintf("SELECT content_json FROM %s.bean_list_publications WHERE id=$1", f.schema), f.publication).Scan(&unchangedContent); err != nil {
-		t.Fatal(err)
-	}
-	var gotContent, wantContent any
-	_ = json.Unmarshal(unchangedContent, &gotContent)
-	_ = json.Unmarshal(legacyRaw, &wantContent)
-	if fmt.Sprint(gotContent) != fmt.Sprint(wantContent) || publicationCount != f.id("SELECT count(*) FROM %s.bean_list_publications") {
-		t.Fatal("legacy quotes or saves mutated publications")
-	}
-	if n := f.id("SELECT count(*) FROM %s.audit_logs WHERE entity_type='order' AND entity_id=$1", orderID); n == 0 {
-		t.Fatal("legacy order audit missing")
-	}
-	// Forged consent and a consent copied to a different target both fail closed.
-	confirmed["current_rule_revision"] = "forged"
-	b, _ = json.Marshal(confirmed)
-	_ = json.Unmarshal(b, &currentRequest)
-	q(currentRequest, false, 409)
-	f.exec("UPDATE %s.product_pricing_rules SET active=false WHERE id=$1", ruleID)
-	q(currentRequest, false, 400)
-	delete(rows[0], "pricing_rule_id")
-	delete(rows[0], "tier_pricing_rule_id")
-	raw, _ = json.Marshal(map[string]any{"price_rows": rows})
-	f.exec("UPDATE %s.bean_list_publications SET content_json=$1 WHERE id=$2", raw, f.publication)
-	q(request, false, 400)
-	f.exec("UPDATE %s.production_boms SET status='inactive' WHERE id=$1", bom.ID)
-	inactive := f.call("GET", fmt.Sprintf("/api/order/spec-conversions?customer_id=%d&product_id=%d&publication_id=%d", customer, pid, f.publication), nil, "basic-admin", 200)
-	_ = json.Unmarshal(inactive["specs"], &choices)
-	if len(choices) != 0 {
-		t.Fatal("inactive BOM exposed as orderable")
-	}
-
 }
