@@ -11,7 +11,7 @@ import {
 import {
   fetchCustomerAccount,
   fetchCustomerAssetInventory,
-  fetchDirectShipRequests,
+  fetchServicePage,
   fetchMe,
   fetchProcessingRequests,
 } from '../../api/customerPortal'
@@ -22,6 +22,7 @@ import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
+import { customerOrderNeedsHandling } from '../../utils/customerHome'
 
 const session = useSessionStore()
 const {
@@ -70,8 +71,8 @@ async function loadCustomerOverview() {
   overviewLoading.value = true
   const jobs: Array<Promise<{ key: string; label: string; value: string; hint: string; url: string }>> = []
   if (capabilityEnabled('direct_ship') || capabilityEnabled('processing')) jobs.push(
-    fetchDirectShipRequests(session.token, { page: 1, limit: 50 }).then((result) => {
-      const pending = (result.rows || []).filter((item) => !['shipped', 'delivered', 'cancelled'].includes(item.status)).length
+    fetchServicePage(session.token, 'orders', { page: 1, page_size: 50 }).then((result) => {
+      const pending = (result.orders || []).filter(customerOrderNeedsHandling).length
       return { key: 'orders', label: '待处理订单', value: String(pending), hint: '查看生产与发货', url: '/pages/service/service?key=orders' }
     }),
   )
