@@ -18,6 +18,11 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		ALTER TABLE %[1]s.customer_processing_production_demands
 			ADD COLUMN IF NOT EXISTS request_id BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE %[1]s.orders
+			ADD COLUMN IF NOT EXISTS total_amount NUMERIC NOT NULL DEFAULT 0,
+			ADD COLUMN IF NOT EXISTS shipping_amount NUMERIC NOT NULL DEFAULT 0,
+			ADD COLUMN IF NOT EXISTS discount_amount NUMERIC NOT NULL DEFAULT 0,
+			ADD COLUMN IF NOT EXISTS grand_total NUMERIC NOT NULL DEFAULT 0;
 	`, schema))
 	if err := postgrescustomerportal.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("customer portal EnsureSchema: %v", err)
@@ -72,6 +77,8 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 			60001,60011,'CP-PR600-SPEC',6001,1,16001,16101,
 			'PR600加工父商品','227g袋','袋',0,2,0,'PR600-CUSTOMER-FINISHED','planned'
 		);
+		UPDATE %[1]s.customer_processing_production_demands
+		SET created_at='2026-08-20 12:00:00+08' WHERE request_item_id=60011;
 	`, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 63_010, 10, "MB-PROCESS-ROASTED", "在制熟豆", 454)
 	seedProductionFlowWIPUnitBatch(t, ctx, pool, schema, 63_020, 20, "MB-PROCESS-BAG", "227g包装袋", 2)
@@ -83,7 +90,7 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 	}
 	for _, marker := range []string{
 		`"product_id":1`, `"bom_spec_id":16001`, `"bom_variant_id":16101`,
-		`"selection_key":"product:1:bom_spec:16001"`, `"inventory_unit":"袋"`,
+		`"selection_key":"product:1:bom_spec:16001::customer:6001::target:PR600-CUSTOMER-FINISHED"`, `"inventory_unit":"袋"`,
 		`"need_inventory_qty":2`, `"gap_inventory_qty":2`,
 	} {
 		if !strings.Contains(preview.Body.String(), marker) {
@@ -93,7 +100,7 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 
 	create := serveMultilevelProductionJSON(t, app, http.MethodPost, "/api/production-plans", map[string]any{
 		"from": "2026-08-01", "to": "2026-08-31",
-		"selected": []string{"product:1:bom_spec:16001"},
+		"selected": []string{"product:1:bom_spec:16001::customer:6001::target:PR600-CUSTOMER-FINISHED"},
 	})
 	if create.Code != http.StatusOK {
 		t.Fatalf("create customer processing BOM spec plan status=%d body=%s", create.Code, create.Body.String())
@@ -226,14 +233,14 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 		"source_doc_type='production_run' AND source_doc_id=%d AND item_id=1 AND bom_spec_id=16001 AND bom_variant_id=16101 AND qty_units=2 AND remaining_units=2", runningItemID,
 	), 1)
 	assertProductionFlowCount(t, pool, schema, "stock_ledger_entries", fmt.Sprintf(
-		"source_doc_type='production_run' AND source_doc_id=%d AND item_id=1 AND bom_spec_id=16001 AND bom_variant_id=16101 AND warehouse='PR600-CUSTOMER-FINISHED' AND qty_change_units=2", runningItemID,
-	), 1)
+		"source_doc_type='production_run' AND source_doc_id=%d AND item_id=1 AND bom_spec_id=16001 AND bom_variant_id=16101 AND warehouse='PR600-CUSTOMER-FINISHED' AND qty_change_units=1", runningItemID,
+	), 2)
 	assertProductionFlowCount(t, pool, schema, "material_consumption_logs", fmt.Sprintf(
-		"running_item_id=%d AND material_id=10 AND deduct_g=454", runningItemID,
-	), 1)
+		"running_item_id=%d AND material_id=10 AND deduct_g=227", runningItemID,
+	), 2)
 	assertProductionFlowCount(t, pool, schema, "material_consumption_logs", fmt.Sprintf(
-		"running_item_id=%d AND material_id=20 AND deduct_units=2", runningItemID,
-	), 1)
+		"running_item_id=%d AND material_id=20 AND deduct_units=1", runningItemID,
+	), 2)
 	assertProductionFlowCount(t, pool, schema, "customer_processing_production_demands",
 		"request_item_id=60011 AND status='done'", 1)
 	assertProductionFlowCount(t, pool, schema, "processing_job_request_items",
@@ -243,9 +250,9 @@ func TestCustomerProcessingBOMSpecDemandFreezesOneToOneIdentityIntoPlan(t *testi
 	assertProductionFlowCount(t, pool, schema, "customer_processing_output_conversions",
 		"output_reservation_id>0 AND processing_request_item_id=60011 AND order_id=70001 AND order_item_id=70011 AND converted_qty=2", 1)
 	assertProductionFlowCount(t, pool, schema, "order_stock_batch_allocations",
-		"order_id=70001 AND order_item_id=70011 AND product_id=1 AND bom_spec_id=16001 AND bom_variant_id=16101 AND allocated_units=2", 1)
+		"order_id=70001 AND order_item_id=70011 AND product_id=1 AND bom_spec_id=16001 AND bom_variant_id=16101 AND allocated_units=1", 2)
 	assertProductionFlowCount(t, pool, schema, "audit_logs",
-		"entity_type='customer_processing_output_reservation' AND action='processing_output_convert'", 1)
+		"entity_type='customer_processing_output_reservation' AND action='processing_output_convert'", 2)
 	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf(
 		"entity_type='work_order' AND entity_id=%d AND action='complete'", workOrderID,
 	), 1)
