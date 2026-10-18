@@ -2,10 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   fetchCustomerAssetInventory,
+  fetchCustomerInventory,
   type CustomerAssetInventory,
 } from '../api/customerPortal'
 import { useProcessingPrefillStore } from '../stores/processingPrefill'
 import { customerInventoryDetailPath } from '../utils/customerInventory'
+import { mergeCustomerStockAssets } from '../utils/directShipScenario'
 
 const props = defineProps<{ token: string; customerId: number }>()
 const processingPrefill = useProcessingPrefillStore()
@@ -31,7 +33,7 @@ const typeOptions = [
 const selectedItems = computed(() => Object.values(selectedByKey.value))
 
 function itemKey(item: CustomerAssetInventory): string {
-  return [item.inventory_type, item.item_id, item.bom_spec_id || 0, item.spec_g || 0].join(':')
+  return [item.inventory_type, item.item_id, item.bom_spec_id || 0, item.bom_variant_id || 0, item.spec_g || 0].join(':')
 }
 
 function typeLabel(value: string): string {
@@ -53,9 +55,12 @@ async function load() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const result = await fetchCustomerAssetInventory(props.token, activeType.value, query.value)
+    const [result, stock] = await Promise.all([
+      fetchCustomerAssetInventory(props.token, activeType.value, query.value),
+      loadCustomerStock(),
+    ])
     if (version !== loadVersion) return
-    rows.value = result.rows || []
+    rows.value = mergeCustomerStockAssets(result.rows || [], stock)
     const visible = new Set(rows.value.map(itemKey))
     selectedByKey.value = Object.fromEntries(Object.entries(selectedByKey.value).filter(([key]) => visible.has(key)))
   } catch (error) {
@@ -64,6 +69,17 @@ async function load() {
   } finally {
     if (version === loadVersion) loading.value = false
   }
+}
+
+async function loadCustomerStock() {
+  if (activeType.value && activeType.value !== 'finished_product') return []
+  const first = await fetchCustomerInventory(props.token, { q: query.value, limit: 200 })
+  const all = [...(first.rows || [])]
+  for (let page = 2; page <= Number(first.total_pages || 1); page += 1) {
+    const next = await fetchCustomerInventory(props.token, { q: query.value, limit: 200, page })
+    all.push(...(next.rows || []))
+  }
+  return all
 }
 
 async function selectType(key: string) {
@@ -207,6 +223,9 @@ onBeforeUnmount(() => {
               <text>总库存 {{ quantity(item.total_qty, item.unit) }}</text>
               <text>占用 {{ quantity(item.occupied_qty, item.unit) }}</text>
               <text>生产中 {{ quantity(item.in_production_qty, item.unit) }}</text>
+              <text v-if="item.physical_available_qty !== undefined">实物可用 {{ quantity(item.physical_available_qty, item.unit) }}</text>
+              <text v-if="item.pending_inbound_qty">购货待入库 {{ quantity(item.pending_inbound_qty, item.unit) }}</text>
+              <text v-if="item.pending_reserved_qty">待入库已预订 {{ quantity(item.pending_reserved_qty, item.unit) }}</text>
             </view>
             <text class="hint">{{ warehouseNames(item) }}</text>
             <text v-if="item.legacy" class="legacy">历史托管库存</text>

@@ -162,6 +162,10 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(o.receiver_company, '') AS receiver_company,
 			COALESCE(o.portal_service_code,'') AS portal_service_code,
 			COALESCE(o.source_warehouse,'') AS source_warehouse,
+			COALESCE(to_jsonb(o)->>'delivery_mode','ship'),
+			COALESCE(to_jsonb(o)->>'delivery_warehouse_code',''),
+			COALESCE(to_jsonb(o)->>'delivery_status',''),
+			COALESCE(to_jsonb(o)->>'fulfillment_mode',''),
 			COALESCE(NULLIF(ship_sender.sender_id,0), NULLIF(o.sender_id,0), 0) AS sender_id,
 			COALESCE(sender.sender_label, '') AS sender_label,
 			COALESCE(sender.sender_name, '') AS sender_name,
@@ -214,7 +218,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.SettlementReason, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey, &r.ConfirmationStatus, &r.ConfirmationRequired); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.SettlementReason, &r.PaymentMethod, &r.PrepaymentAmount, &r.ShipStatus, &r.ShipTrackingNo, &r.ShipMethod, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.DeliveryMode, &r.DeliveryWarehouseCode, &r.DeliveryStatus, &r.FulfillmentMode, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey, &r.ConfirmationStatus, &r.ConfirmationRequired); err != nil {
 			return nil, false, err
 		}
 		prepayment, _ := strconv.ParseFloat(r.PrepaymentAmount, 64)
@@ -412,9 +416,10 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 		where = append(where, "COALESCE(o.process_status_id,0) IN (0,1,2)")
 	}
 	if query.CompletedOnly {
-		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")
+		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND (COALESCE(o.ship_status_id,0) IN (3,4) OR (to_jsonb(o)->>'delivery_mode'='customer_stock' AND to_jsonb(o)->>'delivery_status'='received'))")
 	}
 	if query.ShipReadyOnly {
+		where = append(where, "COALESCE(to_jsonb(o)->>'delivery_mode','ship')<>'customer_stock'")
 		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成','无需生产','库存待发货'))", schema))
 		where = append(where, fmt.Sprintf("NOT EXISTS (SELECT 1 FROM %s.ship_statuses ss WHERE ss.id=o.ship_status_id AND ss.name LIKE '%%已发货%%')", schema))
 	}

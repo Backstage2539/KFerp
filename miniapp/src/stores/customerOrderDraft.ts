@@ -17,6 +17,10 @@ export type CustomerOrderRecipient = {
 }
 
 export type CustomerOrderDraft = {
+  fulfillment_mode?: 'stock' | 'on_demand'
+  delivery_mode?: 'ship' | 'customer_stock'
+  delivery_warehouse_code?: string
+  return_to_direct_ship?: boolean
   order_date: string
   recipient: CustomerOrderRecipient | null
   note: string

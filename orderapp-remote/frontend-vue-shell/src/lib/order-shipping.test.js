@@ -14,6 +14,7 @@ test('formatTrackingSummary makes multi tracking visible without hiding the firs
 })
 
 test('isOrderShipReady excludes voided and already shipped orders', () => {
+  assert.equal(isOrderShipReady({ delivery_mode: 'customer_stock', process_status: '生产完成', ship_status: '未发货' }), false)
   assert.equal(isOrderShipReady({ process_status: '生产完成', ship_status: '未发货' }), true)
   assert.equal(isOrderShipReady({ process_status: '无需生产', ship_status: '待发货' }), true)
   assert.equal(isOrderShipReady({ process_status: '库存待发货', ship_status: '未发货' }), true)

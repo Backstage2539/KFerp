@@ -69,10 +69,12 @@
         </div>
       </div>
     </section>
+	<ShippingFeeTemplates />
   </div>
 </template>
 
 <script setup>
+import ShippingFeeTemplates from '../components/ShippingFeeTemplates.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 

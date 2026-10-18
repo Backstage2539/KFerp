@@ -55,6 +55,7 @@ import { useSessionStore } from '../../stores/session'
 import PriceListContent from '../../components/PriceListContent.vue'
 import { priceListSearchScope } from '../../utils/priceListSearch'
 import { configuredMiniappEnvironment } from '../../config/environment'
+import { retainedStockStatus } from '../../utils/directShipScenario'
 import {
   beanListPageCacheChanged,
   beanListPageCacheStorageKey,
@@ -1273,6 +1274,8 @@ onShow(() => { void refreshMiniappShareMenu() })
           </text>
           <PaymentSummary :order="item" />
           <text class="row-sub">{{ item.order_date || '未填写日期' }} / {{ item.process_status || '生产待处理' }} / {{ item.pay_status || '未收款' }} / {{ item.ship_status || '待发货' }}</text>
+          <text v-if="item.delivery_mode === 'customer_stock'" class="row-sub">购货留厂 · {{ item.delivery_warehouse_code || '客户仓' }} · {{ retainedStockStatus(item.delivery_status) }} · 无需发货</text>
+          <text v-if="item.fulfillment_mode" class="row-sub">{{ item.fulfillment_mode === 'stock' ? '库存代发 · 已购商品货款不重复收取' : '无库存代发' }}</text>
           <view v-if="item.items?.length" class="order-items">
             <view v-for="line in item.items" :key="line.id" class="item-line">
               <text>{{ line.item_name }} {{ line.spec }}</text>

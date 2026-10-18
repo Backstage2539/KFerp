@@ -45,30 +45,35 @@ type MiniDirectShipItemCommand struct {
 }
 
 type MiniDirectShipCommand struct {
-	UsageCode        string                      `json:"-"`
-	CustomerID       int64                       `json:"-"`
-	EmployeeID       int64                       `json:"-"`
-	MiniUserID       int64                       `json:"-"`
-	IdempotencyKey   string                      `json:"idempotency_key"`
-	PriceQuoteToken  string                      `json:"price_quote_token,omitempty"`
-	OrderDate        string                      `json:"order_date,omitempty"`
-	RecipientName    string                      `json:"recipient_name"`
-	RecipientPhone   string                      `json:"recipient_phone"`
-	Province         string                      `json:"province,omitempty"`
-	City             string                      `json:"city,omitempty"`
-	District         string                      `json:"district,omitempty"`
-	DetailAddress    string                      `json:"detail_address"`
-	RecipientCompany string                      `json:"recipient_company,omitempty"`
-	Items            []MiniDirectShipItemCommand `json:"items"`
-	Note             string                      `json:"note,omitempty"`
-	Actor            string                      `json:"-"`
+	DeliveryMode          string                      `json:"delivery_mode,omitempty"`
+	DeliveryWarehouseCode string                      `json:"delivery_warehouse_code,omitempty"`
+	FeeQuoteToken         string                      `json:"fee_quote_token,omitempty"`
+	FulfillmentMode       string                      `json:"fulfillment_mode,omitempty"`
+	UsageCode             string                      `json:"-"`
+	CustomerID            int64                       `json:"-"`
+	EmployeeID            int64                       `json:"-"`
+	MiniUserID            int64                       `json:"-"`
+	IdempotencyKey        string                      `json:"idempotency_key"`
+	PriceQuoteToken       string                      `json:"price_quote_token,omitempty"`
+	OrderDate             string                      `json:"order_date,omitempty"`
+	RecipientName         string                      `json:"recipient_name"`
+	RecipientPhone        string                      `json:"recipient_phone"`
+	Province              string                      `json:"province,omitempty"`
+	City                  string                      `json:"city,omitempty"`
+	District              string                      `json:"district,omitempty"`
+	DetailAddress         string                      `json:"detail_address"`
+	RecipientCompany      string                      `json:"recipient_company,omitempty"`
+	Items                 []MiniDirectShipItemCommand `json:"items"`
+	Note                  string                      `json:"note,omitempty"`
+	Actor                 string                      `json:"-"`
 }
 
 type MiniDirectShipCatalogQuery struct {
-	CustomerID int64
-	Q          string
-	Category   string
-	UsageCode  string
+	FulfillmentMode string
+	CustomerID      int64
+	Q               string
+	Category        string
+	UsageCode       string
 }
 
 type MiniDirectShipCategory struct {
@@ -77,10 +82,13 @@ type MiniDirectShipCategory struct {
 }
 
 type MiniDirectShipCatalog struct {
-	CurrentCustomerID int64                      `json:"current_customer_id"`
-	Categories        []MiniDirectShipCategory   `json:"categories,omitempty"`
-	ProductFamilies   []map[string]any           `json:"product_families"`
-	PriceTables       []MiniDirectShipPriceTable `json:"price_tables"`
+	FulfillmentSettings *FulfillmentSettings       `json:"fulfillment_settings,omitempty"`
+	FulfillmentMode     string                     `json:"fulfillment_mode,omitempty"`
+	SourceWarehouse     string                     `json:"source_warehouse,omitempty"`
+	CurrentCustomerID   int64                      `json:"current_customer_id"`
+	Categories          []MiniDirectShipCategory   `json:"categories,omitempty"`
+	ProductFamilies     []map[string]any           `json:"product_families"`
+	PriceTables         []MiniDirectShipPriceTable `json:"price_tables"`
 }
 
 type MiniDirectShipPriceTable struct {
@@ -149,6 +157,10 @@ type MiniDirectShipProductionAllocation struct {
 }
 
 type MiniDirectShipPreview struct {
+	NeedsTopup            bool                                 `json:"needs_topup"`
+	PurchaseGapQty        int64                                `json:"purchase_gap_qty"`
+	Fees                  *FulfillmentFeeQuote                 `json:"fees,omitempty"`
+	FeeQuoteToken         string                               `json:"fee_quote_token,omitempty"`
 	CanSubmit             bool                                 `json:"can_submit"`
 	StockReady            bool                                 `json:"stock_ready"`
 	TotalAmount           float64                              `json:"total_amount"`
@@ -184,6 +196,7 @@ type MiniDirectShipTrackingEvent struct {
 }
 
 type MiniDirectShipRequest struct {
+	FulfillmentMode  string                      `json:"fulfillment_mode,omitempty"`
 	ID               int64                       `json:"id"`
 	RequestNo        string                      `json:"request_no"`
 	Status           string                      `json:"status"`
@@ -249,21 +262,24 @@ type MiniDirectShipListResult struct {
 }
 
 type CustomerInventorySummary struct {
-	ProductID       int64    `json:"product_id"`
-	BomSpecID       int64    `json:"bom_spec_id,omitempty"`
-	BomVariantID    int64    `json:"bom_variant_id,omitempty"`
-	BomSpecKey      string   `json:"bom_spec_key,omitempty"`
-	BomSpecName     string   `json:"bom_spec_name,omitempty"`
-	InventoryUnit   string   `json:"inventory_unit,omitempty"`
-	IsDefaultSpec   bool     `json:"is_default_spec,omitempty"`
-	ProductName     string   `json:"product_name"`
-	ParentProductID int64    `json:"parent_product_id,omitempty"`
-	SKUCode         string   `json:"sku_code,omitempty"`
-	SpecG           int64    `json:"spec_g"`
-	AvailableQty    int64    `json:"available_qty"`
-	ReservedQty     int64    `json:"reserved_qty"`
-	TotalQty        int64    `json:"total_qty"`
-	Warehouses      []string `json:"warehouses"`
+	PhysicalAvailableQty int64    `json:"physical_available_qty"`
+	PendingInboundQty    int64    `json:"pending_inbound_qty"`
+	PendingReservedQty   int64    `json:"pending_reserved_qty"`
+	ProductID            int64    `json:"product_id"`
+	BomSpecID            int64    `json:"bom_spec_id,omitempty"`
+	BomVariantID         int64    `json:"bom_variant_id,omitempty"`
+	BomSpecKey           string   `json:"bom_spec_key,omitempty"`
+	BomSpecName          string   `json:"bom_spec_name,omitempty"`
+	InventoryUnit        string   `json:"inventory_unit,omitempty"`
+	IsDefaultSpec        bool     `json:"is_default_spec,omitempty"`
+	ProductName          string   `json:"product_name"`
+	ParentProductID      int64    `json:"parent_product_id,omitempty"`
+	SKUCode              string   `json:"sku_code,omitempty"`
+	SpecG                int64    `json:"spec_g"`
+	AvailableQty         int64    `json:"available_qty"`
+	ReservedQty          int64    `json:"reserved_qty"`
+	TotalQty             int64    `json:"total_qty"`
+	Warehouses           []string `json:"warehouses"`
 }
 
 type CustomerInventoryListQuery struct {
@@ -348,6 +364,9 @@ type CustomerAssetInventoryBatch struct {
 }
 
 type CustomerAssetInventory struct {
+	PhysicalAvailableQty       float64                         `json:"physical_available_qty"`
+	PendingInboundQty          float64                         `json:"pending_inbound_qty"`
+	PendingReservedQty         float64                         `json:"pending_reserved_qty"`
 	InventoryType              string                          `json:"inventory_type"`
 	ItemID                     int64                           `json:"item_id"`
 	ProductID                  int64                           `json:"product_id,omitempty"`
@@ -443,6 +462,53 @@ func (s *Service) MiniDirectShipCatalog(ctx context.Context, query MiniDirectShi
 	if err != nil {
 		return MiniDirectShipCatalog{}, err
 	}
+	var settings *FulfillmentSettings
+	if configured, ok := s.repo.(interface {
+		LoadFulfillmentSettings(context.Context, int64) (FulfillmentSettings, error)
+	}); ok {
+		loaded, e := configured.LoadFulfillmentSettings(ctx, query.CustomerID)
+		if e != nil {
+			return MiniDirectShipCatalog{}, e
+		}
+		settings = &loaded
+		if query.UsageCode == "direct_ship" && query.FulfillmentMode != "" {
+			allowed := false
+			for _, m := range loaded.Modes {
+				if m.Mode == query.FulfillmentMode && m.Enabled {
+					allowed = true
+				}
+			}
+			if !allowed {
+				return MiniDirectShipCatalog{}, fmt.Errorf("该客户未启用所选代发场景")
+			}
+		}
+		if query.FulfillmentMode == "" && query.UsageCode == "direct_ship" {
+			enabled := []string{}
+			for _, mode := range loaded.Modes {
+				if mode.Enabled {
+					enabled = append(enabled, mode.Mode)
+				}
+			}
+			if len(enabled) == 1 {
+				query.FulfillmentMode = enabled[0]
+			} else if loaded.Revision > 0 {
+				return MiniDirectShipCatalog{CurrentCustomerID: query.CustomerID, FulfillmentSettings: settings, ProductFamilies: []map[string]any{}}, nil
+			}
+		}
+	}
+	if query.FulfillmentMode == "stock" {
+		catalog, e := repo.MiniDirectShipCatalog(ctx, query)
+		catalog.FulfillmentSettings = settings
+		catalog.FulfillmentMode = "stock"
+		if settings != nil {
+			for _, m := range settings.Modes {
+				if m.Mode == "stock" {
+					catalog.SourceWarehouse = m.WarehouseCode
+				}
+			}
+		}
+		return catalog, e
+	}
 	if bridge, ok := repo.(MiniDirectShipOrderRepository); ok && s.sales != nil {
 		tables, tableErr := bridge.DirectShipPriceTables(ctx, query.CustomerID)
 		if exactRepo, exactOK := repo.(MiniCustomerOrderPriceTableRepository); exactOK {
@@ -464,6 +530,8 @@ func (s *Service) MiniDirectShipCatalog(ctx context.Context, query MiniDirectShi
 			return MiniDirectShipCatalog{}, filterErr
 		}
 		catalog := miniDirectShipCatalogFromSales(query, tables, products, form.ProductBOMSpecOptions)
+		catalog.FulfillmentSettings = settings
+		catalog.FulfillmentMode = query.FulfillmentMode
 		if enricher, ok := repo.(MiniDirectShipCatalogEnricher); ok {
 			return enricher.EnrichMiniDirectShipCatalog(ctx, query, catalog)
 		}
@@ -536,6 +604,7 @@ func (s *Service) PreviewMiniDirectShip(ctx context.Context, cmd MiniDirectShipC
 		if prepareErr != nil {
 			return MiniDirectShipPreview{}, prepareErr
 		}
+		cmd.Items = prepared.Command.Items
 		preview.PriceTables = prepared.PriceTables
 		preview.Items, preview.TotalAmount, err = s.pricePreparedMiniDirectShipOrder(ctx, prepared)
 		if err != nil {
@@ -544,6 +613,18 @@ func (s *Service) PreviewMiniDirectShip(ctx context.Context, cmd MiniDirectShipC
 		preview.PriceQuoteToken, err = miniDirectShipPriceQuoteToken(prepared, preview.Items)
 		if err != nil {
 			return MiniDirectShipPreview{}, err
+		}
+	}
+	if cmd.FulfillmentMode != "" {
+		if billing, ok := s.repo.(interface {
+			QuoteFulfillmentFees(context.Context, FulfillmentFeeQuoteCommand) (FulfillmentFeeQuote, error)
+		}); ok {
+			fees, e := billing.QuoteFulfillmentFees(ctx, miniFulfillmentFeeCommand(cmd))
+			if e != nil {
+				return MiniDirectShipPreview{}, e
+			}
+			preview.Fees = &fees
+			preview.FeeQuoteToken = fees.FeeQuoteToken
 		}
 	}
 	return preview, nil
@@ -600,6 +681,8 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 			CustomerRequestID:   fmt.Sprintf("mini-%s:%d:%s", usageCode, prepared.Command.CustomerID, prepared.Command.IdempotencyKey),
 			CustomerRequestHash: prepared.RequestHash, SelectedPriceTableIDs: prepared.SelectedPriceTableIDs,
 			PortalServiceCode: usageCode,
+			FulfillmentMode:   prepared.Command.FulfillmentMode,
+			DeliveryMode:      prepared.Command.DeliveryMode, DeliveryWarehouseCode: prepared.Command.DeliveryWarehouseCode,
 		}
 		if atomic, ok := repo.(MiniDirectShipAtomicOrderRepository); ok {
 			return atomic.SubmitPreparedMiniDirectShipOrder(ctx, prepared, orderCommand)
@@ -619,6 +702,14 @@ func (s *Service) SubmitMiniProductOrder(ctx context.Context, cmd MiniDirectShip
 }
 
 func (s *Service) pricePreparedMiniDirectShipOrder(ctx context.Context, prepared PreparedMiniDirectShipOrder) ([]MiniDirectShipItemCommand, float64, error) {
+	if prepared.Command.FulfillmentMode == "stock" {
+		items := append([]MiniDirectShipItemCommand(nil), prepared.Command.Items...)
+		for i := range items {
+			items[i].UnitPrice = 0
+			items[i].LineAmount = 0
+		}
+		return items, 0, nil
+	}
 	form, err := s.sales.OrderForm(ctx, 0)
 	if err != nil {
 		return nil, 0, err
@@ -633,6 +724,11 @@ func (s *Service) pricePreparedMiniDirectShipOrder(ctx context.Context, prepared
 	)
 	if err != nil {
 		return nil, 0, err
+	}
+	if prepared.Command.FulfillmentMode == "on_demand" {
+		if err := ValidateDirectShipFixedPrices(prepared.Command.Items, products); err != nil {
+			return nil, 0, err
+		}
 	}
 	return priceMiniDirectShipItems(prepared.Command.Items, products)
 }
@@ -1200,6 +1296,13 @@ func normalizeMiniDirectShipCommand(cmd MiniDirectShipCommand, requireIdempotenc
 	if cmd.CustomerID <= 0 {
 		return MiniDirectShipCommand{}, fmt.Errorf("customer required")
 	}
+	cmd.FulfillmentMode = strings.TrimSpace(cmd.FulfillmentMode)
+	if cmd.FulfillmentMode != "" && cmd.FulfillmentMode != "stock" && cmd.FulfillmentMode != "on_demand" {
+		return MiniDirectShipCommand{}, fmt.Errorf("代发场景无效")
+	}
+	if cmd.DeliveryMode != "" && cmd.DeliveryMode != "ship" && cmd.DeliveryMode != "customer_stock" {
+		return MiniDirectShipCommand{}, fmt.Errorf("交付方式无效")
+	}
 	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
 	cmd.UsageCode = strings.TrimSpace(cmd.UsageCode)
 	if cmd.UsageCode == "" {
@@ -1207,6 +1310,12 @@ func normalizeMiniDirectShipCommand(cmd MiniDirectShipCommand, requireIdempotenc
 	}
 	if cmd.UsageCode != "direct_ship" && cmd.UsageCode != "product_order" {
 		return MiniDirectShipCommand{}, fmt.Errorf("invalid customer order usage")
+	}
+	if cmd.UsageCode == "product_order" && cmd.FulfillmentMode != "" {
+		return MiniDirectShipCommand{}, fmt.Errorf("商品下单不能使用代发场景")
+	}
+	if cmd.UsageCode == "direct_ship" && (cmd.DeliveryMode != "" || cmd.DeliveryWarehouseCode != "") {
+		return MiniDirectShipCommand{}, fmt.Errorf("代发不能设置销售留厂交付方式")
 	}
 	cmd.PriceQuoteToken = strings.TrimSpace(cmd.PriceQuoteToken)
 	orderDate, err := normalizeCustomerOrderDate(cmd.OrderDate, time.Now())
@@ -1300,4 +1409,15 @@ func normalizeMiniDirectShipItems(items []MiniDirectShipItemCommand) ([]MiniDire
 
 func compactMiniDirectShipText(value string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+func MiniFulfillmentFeeCommand(cmd MiniDirectShipCommand) FulfillmentFeeQuoteCommand {
+	return miniFulfillmentFeeCommand(cmd)
+}
+func miniFulfillmentFeeCommand(cmd MiniDirectShipCommand) FulfillmentFeeQuoteCommand {
+	out := FulfillmentFeeQuoteCommand{CustomerID: cmd.CustomerID, FulfillmentMode: cmd.FulfillmentMode, Province: cmd.Province, City: cmd.City, District: cmd.District}
+	for _, i := range cmd.Items {
+		out.Items = append(out.Items, FulfillmentFeeItem{ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, Qty: i.Qty})
+	}
+	return out
 }

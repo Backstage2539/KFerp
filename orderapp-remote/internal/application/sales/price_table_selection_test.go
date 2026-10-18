@@ -70,9 +70,7 @@ func TestExactCustomerOrderTablesDoNotBackfillUnspecifiedProductTypes(t *testing
 	if len(got) != 1 || got[0].ID != 10 || len(got[0].Tiers) != 1 || got[0].Tiers[0].PublicationID != 2 {
 		t.Fatalf("exact catalog leaked an unbound default table: %+v", got)
 	}
-	if _, err := FilterOrderProductsForExactCustomerPublications(products, 42, options, nil, []int64{4}, false); err == nil {
-		t.Fatal("public price table must not be accepted as a customer-bound publication")
-	}
+
 	if _, err := FilterOrderProductsForExactCustomerPublications(products, 42, options, nil, []int64{1, 2}, false); err == nil {
 		t.Fatal("two versions for one product type must not be accepted")
 	}
@@ -94,5 +92,42 @@ func TestCustomerDefaultAndExplicitPublicNamedTable(t *testing.T) {
 	}
 	if _, e = ResolveOrderPriceTableSelection(options, 42, []int64{13}, true); e == nil {
 		t.Fatal("other customer price table allowed")
+	}
+}
+
+func TestExactBoundPublicTableAllowedWithoutDefaultsOrOtherCustomers(t *testing.T) {
+	options := []BeanListVersionOption{
+		{ID: 91, CustomerID: 0, IsCustomerOwned: false, ClassificationTemplateID: 10},
+		{ID: 92, CustomerID: 43, IsCustomerOwned: true, ClassificationTemplateID: 10},
+		{ID: 93, CustomerID: 42, IsCustomerOwned: true, ClassificationTemplateID: 20, IsDefault: true},
+	}
+	rows, err := ResolveExactCustomerOrderPriceTableSelection(options, 42, []int64{91})
+	if err != nil || len(rows) != 1 || rows[0].ID != 91 || rows[0].CustomerID != 42 {
+		t.Fatalf("bound public=%+v error=%v", rows, err)
+	}
+	if _, err := ResolveExactCustomerOrderPriceTableSelection(options, 42, []int64{92}); err == nil {
+		t.Fatal("another customer's publication accepted")
+	}
+}
+
+func TestExactBoundPublicCatalogKeepsCustomerReferenceAndOnlyBoundSpecifications(t *testing.T) {
+	options := []BeanListVersionOption{{ID: 158, CustomerID: 0, ListType: "commercial", ClassificationTemplateID: 56}, {ID: 162, CustomerID: 74, IsCustomerOwned: true, ListType: "commercial", ClassificationTemplateID: 56}}
+	products := []ProductOption{
+		{ID: 58, Visibility: "public", ProductKind: "roasted_bean", Tiers: []ProductTierOption{{PublicationID: 158, ListType: "commercial", BomSpecID: 69, UnitPrice: 47}, {PublicationID: 159, ListType: "commercial", BomSpecID: 70, UnitPrice: 50}}},
+		{ID: 58, CustomerID: 74, Visibility: "customer_reference", ProductKind: "roasted_bean", Tiers: []ProductTierOption{{PublicationID: 162, ListType: "commercial", BomSpecID: 69, UnitPrice: 49}}},
+		{ID: 59, CustomerID: 75, Visibility: "customer_only", ProductKind: "roasted_bean", Tiers: []ProductTierOption{{PublicationID: 158, ListType: "commercial", BomSpecID: 71, UnitPrice: 50}}},
+	}
+	got, err := FilterOrderProductsForExactCustomerPublications(products, 74, options, []CustomerPublicUsageOption{{CustomerID: 74, UsePublicSKU: false}}, []int64{158}, false)
+	if err != nil || len(got) != 1 || got[0].ID != 58 || len(got[0].Tiers) != 1 || got[0].Tiers[0].PublicationID != 158 || got[0].Tiers[0].BomSpecID != 69 {
+		t.Fatalf("bound public reference catalog=%+v error=%v", got, err)
+	}
+}
+
+func TestExplicitPublicBindingGrantsOnlyPublishedPublicRows(t *testing.T) {
+	products := []ProductOption{{ID: 60, Visibility: "public", ProductKind: "roasted_bean", Tiers: []ProductTierOption{{PublicationID: 158, ListType: "commercial", BomSpecID: 69, UnitPrice: 47}, {PublicationID: 159, ListType: "commercial", BomSpecID: 70, UnitPrice: 48}}}}
+	options := []BeanListVersionOption{{ID: 158, CustomerID: 0, ListType: "commercial", ClassificationTemplateID: 56}}
+	rows, err := FilterOrderProductsForExactCustomerPublications(products, 74, options, []CustomerPublicUsageOption{{CustomerID: 74, UsePublicSKU: false}}, []int64{158}, false)
+	if err != nil || len(rows) != 1 || len(rows[0].Tiers) != 1 || rows[0].Tiers[0].PublicationID != 158 {
+		t.Fatalf("explicit public authorization=%+v error=%v", rows, err)
 	}
 }

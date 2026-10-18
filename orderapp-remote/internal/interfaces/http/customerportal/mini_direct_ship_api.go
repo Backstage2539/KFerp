@@ -145,9 +145,10 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 			return miniInternalError(c)
 		}
 		result, err := fulfillment.MiniDirectShipCatalog(c.Request().Context(), customerfulfillmentapp.MiniDirectShipCatalogQuery{
-			CustomerID: current.CurrentCustomerID,
-			Q:          c.QueryParam("q"),
-			Category:   c.QueryParam("category"),
+			CustomerID:      current.CurrentCustomerID,
+			FulfillmentMode: strings.TrimSpace(c.QueryParam("fulfillment_mode")),
+			Q:               c.QueryParam("q"),
+			Category:        c.QueryParam("category"),
 		})
 		if err != nil {
 			return miniCustomerFulfillmentError(c, err)
@@ -579,7 +580,7 @@ func miniCustomerFulfillmentError(c echo.Context, err error) error {
 	case strings.Contains(message, "shipment date range invalid"):
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "发货开始日期不能晚于结束日期"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipStockInsufficient):
-		return c.JSON(http.StatusConflict, map[string]string{"error": "代加工商品的成品库存与有效在制产出合计不足，整单未创建"})
+		return c.JSON(http.StatusConflict, map[string]string{"error": "客户可用库存及有效待入库权益不足，请先补购；本次代发未创建"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipIdempotency):
 		return c.JSON(http.StatusConflict, map[string]string{"error": "该发货请求已提交，不能使用同一请求编号修改内容"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipPriceChanged):
@@ -596,6 +597,8 @@ func miniCustomerFulfillmentError(c echo.Context, err error) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	case strings.Contains(message, "价格表") || strings.Contains(message, "当前有效数量档位"):
 		return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+	case strings.Contains(message, "代发费用") || strings.Contains(message, "留厂购货") || strings.Contains(message, "留厂目标仓") || strings.Contains(message, "代发场景") || strings.Contains(message, "代发服务费") || strings.Contains(message, "交付方式") || strings.Contains(message, "运费模板") || strings.Contains(message, "计算运费") || strings.Contains(message, "客户成品仓") || strings.Contains(message, "固定价"):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	case miniCustomerFulfillmentValidationError(err):
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "发货信息不完整，请检查收件信息和商品数量"})
 	default:
