@@ -1349,6 +1349,7 @@ export type EmployeeOrderProductFamily = {
 }
 
 export type EmployeeOrder = {
+  settlement_reason?: string
   prepayment_amount?: string
   paid_amount?: string
   unpaid_amount?: string

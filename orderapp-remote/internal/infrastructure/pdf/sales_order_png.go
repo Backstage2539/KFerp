@@ -318,7 +318,7 @@ func (c *salesOrderPNGCanvas) combinedItems(left, right, y int, snapshot salesdo
 		}
 		c.textRight(right-8, y+6, 19, color.RGBA{R: 0, G: 0, B: 0, A: 255}, "小计：商品 "+group.TotalAmount+"  优惠 "+group.Discount+"  运费 "+group.Shipping+"  应收 "+group.GrandTotal)
 		y += 42
-		for _, row := range salesOrderFinancialRows(salesdomain.SalesOrderSnapshot{PrepaymentAmount: group.PrepaymentAmount, PaidAmount: group.PaidAmount, UnpaidAmount: group.UnpaidAmount}) {
+		for _, row := range salesOrderFinancialRows(salesdomain.SalesOrderSnapshot{SettlementReason: group.SettlementReason, PrepaymentAmount: group.PrepaymentAmount, PaidAmount: group.PaidAmount, UnpaidAmount: group.UnpaidAmount}) {
 			if row.Tone == "" {
 				continue
 			}
@@ -352,7 +352,7 @@ func (c *salesOrderPNGCanvas) combinedItemsEndY(left, right, y int, snapshot sal
 			y += 8
 		}
 		y += 42
-		y += len(salesOrderPaymentRows(salesdomain.SalesOrderSnapshot{PrepaymentAmount: group.PrepaymentAmount, PaidAmount: group.PaidAmount, UnpaidAmount: group.UnpaidAmount})) * 34
+		y += len(salesOrderPaymentRows(salesdomain.SalesOrderSnapshot{SettlementReason: group.SettlementReason, PrepaymentAmount: group.PrepaymentAmount, PaidAmount: group.PaidAmount, UnpaidAmount: group.UnpaidAmount})) * 34
 		if note := combinedSalesOrderGroupNote(group); note != "" {
 			y += c.wrappedTextHeight(right-left-16, 18, 26, []string{note})
 			y += 8

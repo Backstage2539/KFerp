@@ -244,13 +244,18 @@
  <OrderConfirmationPanel v-if="activeOrderDetail.confirmation_required" :order-id="Number(activeOrderDetail.id)" :customer-id="Number(activeOrderDetail.customer_id)" @updated="refreshConfirmationOrder" />
           <section class="drawer-section">
             <h4>收件信息</h4>
-            <div class="drawer-status-grid">
+            <div v-if="activeOrderDetail.confirmation_required" class="drawer-status-grid">
               <span>收件人：{{ activeOrderDetail.receiver_name || '-' }}</span>
               <span>电话：{{ activeOrderDetail.receiver_phone || '-' }}</span>
               <span>公司：{{ activeOrderDetail.receiver_company || '-' }}</span>
               <span>来源：{{ activeOrderDetail.portal_service_code || '-' }}</span>
               <span class="wide-item">地址：{{ activeOrderDetail.receiver_address || '-' }}</span>
             </div>
+            <div v-if="!activeOrderDetail.confirmation_required" :id="`order-recipient-${activeOrderDetail.id}`"></div>
+          </section>
+          <section v-if="!activeOrderDetail.confirmation_required" class="drawer-section">
+            <h4>付款与交付</h4>
+            <div :id="`order-workflow-${activeOrderDetail.id}`"></div>
           </section>
           <section v-if="!isNonCourierShipMethod(activeOrderDetail.ship_method)" class="drawer-section">
             <h4>快递信息</h4>
@@ -267,7 +272,7 @@
                   </option>
                 </select>
               </label>
-              <label class="tracking-fill">
+              <label v-if="activeOrderDetail.confirmation_required || !orderEditorCanEdit" class="tracking-fill">
                 <span>快递单号（可多个）</span>
                 <div class="tracking-fill-row">
                   <textarea v-model.trim="drawerTrackingNo" rows="3" placeholder="多个单号可用换行、逗号或分号分隔" />
@@ -355,8 +360,11 @@
               :key="orderEntryPanelKey()"
               :edit-id="activeOrderEditID()"
               :copy-id="activeOrderCopyID()"
+              :recipient-target="`#order-recipient-${activeOrderDetail.id}`"
+              :workflow-target="`#order-workflow-${activeOrderDetail.id}`"
               embedded
               @close="closeOrderDetailDrawer"
+              @editability="orderEditorCanEdit = $event"
               @saved="handleOrderEditSaved"
             />
           </section>
@@ -450,6 +458,7 @@ const trackingExcelFile = ref(null)
 const trackingExcelLoading = ref(false)
 const orderDetailDrawerOpen = ref(false)
 const activeOrderDetail = ref(null)
+const orderEditorCanEdit = ref(false)
 const drawerTrackingNo = ref('')
 const drawerTrackingSaving = ref(false)
 const salesOrderDrawerOpen = ref(false)
@@ -643,6 +652,7 @@ function openOrderDetailDrawer(row) {
   activeOrderDetail.value = { ...row }
   copyingOrderID.value = row?.is_void ? id : 0
   drawerTrackingNo.value = row.ship_tracking_no || ''
+  orderEditorCanEdit.value = false
   orderDetailDrawerOpen.value = true
   if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
   loadOrderDetail(id)
@@ -945,6 +955,7 @@ function copyOrder(row) {
   activeOrderDetail.value = { ...row }
   copyingOrderID.value = id
   drawerTrackingNo.value = row.ship_tracking_no || ''
+  orderEditorCanEdit.value = false
   orderDetailDrawerOpen.value = true
 }
 

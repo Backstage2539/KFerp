@@ -1203,6 +1203,9 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 	return map[string]any{
 		"edit_revision":                       ed.EditRevision,
 		"is_sample_order":                     ed.IsSampleOrder,
+		"settlement_reason":                   ed.SettlementReason,
+		"can_edit":                            ed.EditBlockReason == "",
+		"edit_block_reason":                   ed.EditBlockReason,
 		"document_date":                       ed.DocumentDate,
 		"order_date":                          ed.OrderDate,
 		"customer_id":                         strconv.FormatInt(ed.CustomerID, 10),

@@ -93,6 +93,7 @@ type miniEmployeeOrderDetailDTO struct {
 	OutsourceTotalFee               string                            `json:"outsource_total_fee"`
 	ProductKindSummary              string                            `json:"product_kind_summary"`
 	CreatedByEmployee               string                            `json:"created_by_employee"`
+	SettlementReason                string                            `json:"settlement_reason"`
 	IsSampleOrder                   bool                              `json:"is_sample_order"`
 	IsVoid                          bool                              `json:"is_void"`
 	VoidedAt                        *string                           `json:"voided_at,omitempty"`
@@ -1525,7 +1526,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 	}
 	beanListPublicationID, beanListVersionNo, commercialPublicationID, greenPublicationID, dripPublicationID := miniEmployeeOrderPublicationFields(ed)
 	detail := miniEmployeeOrderDetailDTO{
-		ID: row.ID, IsSampleOrder: ed.IsSampleOrder, EditRevision: ed.EditRevision, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
+		ID: row.ID, IsSampleOrder: ed.IsSampleOrder, SettlementReason: ed.SettlementReason, EditRevision: ed.EditRevision, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
 		DocumentDate: firstMiniOrderValue(ed.DocumentDate, row.DocumentDate), OrderDate: firstMiniOrderValue(ed.OrderDate, row.OrderDate),
 		CustomerID: ed.CustomerID, Customer: row.Customer, SourceID: ed.SourceID, Source: miniEmployeeOptionName(form.Sources, ed.SourceID),
 		OrderTypeID: ed.OrderTypeID, OrderType: firstMiniOrderValue(row.OrderType, miniEmployeeOptionName(form.OrderTypes, ed.OrderTypeID)),

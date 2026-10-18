@@ -40,6 +40,7 @@ type CombinedSalesOrderGroup struct {
 	ReceiverPhone   string `json:"receiver_phone,omitempty"`
 	ReceiverAddress string `json:"receiver_address,omitempty"`
 
+	SettlementReason   string                        `json:"settlement_reason,omitempty"`
 	PrepaymentAmount   string                        `json:"prepayment_amount,omitempty"`
 	PaidAmount         string                        `json:"paid_amount,omitempty"`
 	UnpaidAmount       string                        `json:"unpaid_amount,omitempty"`
