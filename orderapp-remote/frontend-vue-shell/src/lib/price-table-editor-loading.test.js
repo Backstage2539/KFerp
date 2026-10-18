@@ -170,3 +170,16 @@ test('opening configuration after hydration never reloads a stale legacy selecti
   assert.equal(restore(), true)
   assert.equal(reads, 0)
 })
+
+test('generate-new-version entry preserves the hydrated customer table brand', () => {
+  const pdfOptions = ref({ listType: 'drip', brandName: '客户自定义抬头' })
+  const bindings = { pdfOptions, namedEditorReady: ref(true), downloadSourcePublication: ref(null),
+    selectedProductPriceListType: ref({ listType: 'drip' }), activeCostingScope: ref('customer'), activeProductTypeCategoryID: ref(163), pdfDrawerOpen: ref(false),
+    syncPublicationScopeFromPageContext: () => {}, normalizeBeanListType: v => v,
+    defaultBeanListVersionForScope: () => 'V3.0.15', initializePdfDefaultsForType: () => {},
+    restorePriceListGenerationDraftForActiveType: () => {}, loadActiveProductTypePublicationViews: () => {},
+  }
+  const open = new Function(...Object.keys(bindings), block('function openBeanListDrawer(', '\nfunction defaultBeanListVersionForScope') + '\nreturn openBeanListDrawer;')(...Object.values(bindings))
+  open()
+  assert.equal(pdfOptions.value.brandName, '客户自定义抬头')
+})

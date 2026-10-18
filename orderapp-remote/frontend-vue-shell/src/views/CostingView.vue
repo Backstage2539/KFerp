@@ -4383,7 +4383,7 @@ function openBeanListDrawer(listType = selectedProductPriceListType.value?.listT
     ...pdfOptions.value,
     listType: resolvedListType,
     version: defaultBeanListVersionForScope(resolvedListType, activeProductTypeCategoryID.value),
-    brandName: isCustomerScope ? '' : '棵凡咖啡',
+    brandName: namedEditorReady.value ? pdfOptions.value.brandName : (isCustomerScope ? '' : '棵凡咖啡'),
   }
   initializePdfDefaultsForType(resolvedListType, activeProductTypeCategoryID.value)
   restorePriceListGenerationDraftForActiveType()

@@ -30,12 +30,12 @@
 2. BOM 变更后应保留版本 `423`，实际被覆盖为 `424`。
 3. 目录尚未加载时应保留原选择，实际返回空数组。
 
-补充边界 RED：原单位/金额被生成行覆盖、本地删表被重新追加、旧浏览器表标识未触发来源冲突；另有配置抽屉重新读取旧缓存的回归。分别修复后 GREEN。
+补充边界 RED：原单位/金额被生成行覆盖、本地删表被重新追加、旧浏览器表标识未触发来源冲突；另有配置抽屉重新读取旧缓存、生成新版入口清空已恢复客户抬头的回归。分别修复后 GREEN。
 
 自动验证：
 
-- `node --test .../price-table-editor-*.test.js .../price-table-batch.test.js .../costing-bean-list-version-ui.test.js`：82 PASS。
-- `scripts/verify_kferp.sh frontend-tests`：1391 PASS，0 FAIL。
+- `node --test .../price-table-editor-*.test.js .../price-table-batch.test.js .../costing-bean-list-version-ui.test.js`：83 PASS。
+- `scripts/verify_kferp.sh frontend-tests`：1392 PASS，0 FAIL。
 - `scripts/verify_kferp.sh backend`：全部 Go 包通过；数据库集成测试仍遵循仓库的环境开关，本次未新启数据库实例。
 - 新增 `TestPublicationEditorDetailPreservesCanonicalConfigAndFinalPriceSnapshots`，与已有 summary/detail、批次 API 契约测试一起通过：客户及分类查询范围正确；公开 `config/content` 中完整 BOM 身份、同商品多规格金额和单位不被接口改变。
 - `scripts/verify_kferp.sh frontend-build`：通过；有既有的大体积 chunk 提示。
@@ -54,4 +54,4 @@
 - 单一手册：`docs/OP_MANUAL_COSTING.md` 的“重新打开价格表与本地草稿”。
 - Vue 页面帮助、加载失败重试、来源冲突操作和失效选择提示同步更新。
 - PR/DEV 种子：PR-699 为 review，DEV-788 为 done；未部署，所以运行中的需求 UI 尚未更新。
-- 分支：`codex/price-table-editor-restore-20261018`；集成基线 `5a724b789d1aa596761e42b8568d4fd00a33e253`。合并记录以 GitHub PR 和 Git 历史为准。
+- 分支：`codex/price-table-editor-restore-20261018`；集成基线 `5a724b789d1aa596761e42b8568d4fd00a33e253`。集成 PR：https://github.com/Backstage2539/KFerp/pull/213；合并提交以 PR 和 Git 历史为准。

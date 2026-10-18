@@ -5783,7 +5783,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-699-PRICE-TABLE-EDITOR-RESTORE
 - Branch: codex/price-table-editor-restore-20261018
-- Status: verified; frontend 1391 PASS, full Go and API contracts PASS, Vue build PASS; ready for develop integration, no deployment
+- Status: verified; frontend 1392 PASS, full Go and API contracts PASS, Vue build PASS; develop integration tracked by PR #213; no deployment
 - Scope: published snapshot editor hydration, per-table draft baseline/conflict recovery, BOM identity and fixed prices
 - Verifier: price-table-editor-*.test.js; full frontend tests; full Go tests; publication editor detail API contract; Vue build
 - Evidence: orderapp-remote/docs/acceptance/2026-10-18-price-table-editor-restore.md
