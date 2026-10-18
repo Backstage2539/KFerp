@@ -1,3 +1,11 @@
+### PR-702-MINIAPP-LOGIN-ENTRY
+- Branch: codex/fix-miniapp-login-entry-20261019; base origin/develop@65f915db.
+- Status: reproduced in WeChat DevTools, fixed and locally verified; develop/main integration and production delivery in progress.
+- Scope: homepage account login opens password form; explicit logout blocks silent WeChat identity restoration, including late responses and app restart. Normal token expiry recovery remains available.
+- DEV: DEV-793-MINIAPP-LOGIN-ENTRY.
+- Evidence: docs/acceptance/2026-10-19-miniapp-login-entry.md; targeted RED/GREEN, 338 miniapp tests, typecheck/build and actual DevTools form/logout checks.
+- Delivery authorization: Van requested develop then main integration and production deployment on 2026-10-19; WeChat upload/review/publication separate.
+
 ### PR-701-ORDER-DETAILS-COPY
 - Branch: codex/order-details-copy-20261018; base origin/develop@491c4655.
 - Status: implemented, verified, merged and deployed to development c223255b; Van business acceptance pending.

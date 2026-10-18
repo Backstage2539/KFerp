@@ -89,8 +89,8 @@ const serviceDescriptions = computed(() => {
 })
 
 function clearAndLogin() {
-  session.clearSession()
-  uni.reLaunch({ url: loginRouteFor('/pages/profile/profile') })
+  session.logout()
+  uni.reLaunch({ url: loginRouteFor('/pages/profile/profile', 'password') })
 }
 
 function redirectExpiredShareSettingsSession(error: unknown): boolean {
@@ -213,12 +213,15 @@ async function loadContext() {
 
   loading.value = true
   errorMessage.value = ''
+  const expectedToken = session.token
   try {
-    const response = await fetchMe(session.token)
+    const response = await fetchMe(expectedToken)
+    if (session.token !== expectedToken) return
     currentContext.value = response
     session.applyContext(response)
     if (canManageShareSettings.value) await loadShareSettings()
   } catch (error) {
+    if (session.token !== expectedToken) return
     errorMessage.value = error instanceof Error ? error.message : '账号信息加载失败'
     session.clearSession()
     uni.reLaunch({ url: loginRouteFor('/pages/profile/profile') })
