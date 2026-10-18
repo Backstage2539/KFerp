@@ -311,19 +311,6 @@
       </div>
     </section>
 
-    <div class="panel" aria-live="polite">
-      <p class="muted">打开时恢复最新发布的选品、规格和价格；同版本本地草稿继续保留。</p>
-      <p v-if="namedEditorLoading || loading">正在恢复价格表，请稍候…</p>
-      <p v-if="namedEditorError" role="alert">{{ namedEditorError }} <button type="button" class="secondary" @click="retryNamedPriceTableEditor()">重试恢复</button></p>
-      <div v-if="activeNamedTableConflict && !namedEditorLoading && !loading" role="alert">
-        <p>「{{ activeNamedPriceTable.name }}」的本地草稿基于旧版本或来源未知；最新发布版本为 {{ activePublishedEditorTable.source_publication.version }}。请选择本次编辑来源。</p>
-        <div class="actions">
-          <button type="button" class="secondary" @click="resolveNamedTableDraft('local')">继续本地草稿</button>
-          <button type="button" class="primary" @click="resolveNamedTableDraft('published')">载入最新发布版</button>
-        </div>
-        <p class="muted">载入前会备份当前表的本地草稿，其他表的修改保留。</p>
-      </div>
-    </div>
     <fieldset class="price-table-editor-fields" :disabled="namedEditorBlocked">
     <div v-if="unavailableEditorSelections.length" class="panel" role="alert">
       <p>有 {{ unavailableEditorSelections.length }} 个已选规格所属商品已不在当前范围内，已保留原选择。请处理后再发布。</p>
@@ -407,6 +394,24 @@
         </div>
       </div>
 
+    </section>
+    </fieldset>
+
+    <div v-if="namedEditorLoading || loading || namedEditorError || activeNamedTableConflict" class="panel price-table-editor-restore" aria-live="polite">
+      <p v-if="namedEditorLoading || loading">正在加载价格表…</p>
+      <p v-if="namedEditorError" role="alert">{{ namedEditorError }} <button type="button" class="secondary" @click="retryNamedPriceTableEditor()">重试恢复</button></p>
+      <div v-if="activeNamedTableConflict && !namedEditorLoading && !loading" role="alert">
+        <p>继续本地草稿，或载入最新发布版 {{ activePublishedEditorTable.source_publication.version }}。</p>
+        <div class="actions">
+          <button type="button" class="secondary" @click="resolveNamedTableDraft('local')">继续本地草稿</button>
+          <button type="button" class="primary" @click="resolveNamedTableDraft('published')">载入最新发布版</button>
+        </div>
+        <p class="muted">载入前会备份当前草稿，不影响其他表。</p>
+      </div>
+    </div>
+
+    <fieldset class="price-table-editor-fields" :disabled="namedEditorBlocked">
+    <section class="panel price-list-page-config">
       <div class="pdf-picker productSelection">
         <div class="picker-head">
           <strong>选择分类和产品</strong>
@@ -6276,6 +6281,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .price-table-editor-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.price-table-editor-restore p { margin: 0; }
+.price-table-editor-restore, .price-table-editor-restore > [role="alert"] { display: grid; gap: 10px; }
+.price-table-editor-restore .actions { justify-content: flex-start; }
 .named-price-table-toolbar { display:grid; gap:12px; min-width:0; }
 .named-price-table-tab-row { display:flex; align-items:center; gap:12px; min-width:0; }
 .named-price-table-tabs { display:flex; flex:1 1 auto; gap:6px; min-width:0; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:thin; }
