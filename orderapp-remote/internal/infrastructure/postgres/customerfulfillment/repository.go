@@ -5162,8 +5162,20 @@ func (r *Repository) CreateSettlement(ctx context.Context, cmd app.CreateSettlem
 }
 
 func (r *Repository) Overview(ctx context.Context, query app.OverviewQuery) (app.Overview, error) {
-	if err := r.requireActiveCustomerERPWorkbenchBinding(ctx, query.CustomerID); err != nil {
+	// Internal operators may fulfill enabled customers without creating a
+	// customer login. Customer-facing portal APIs still require their binding.
+	var enabled bool
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(
+ SELECT 1 FROM %[1]s.customers customer
+ JOIN %[1]s.customer_portal_profiles profile ON profile.customer_id=customer.id AND profile.enabled=true
+ WHERE customer.id=$1 AND customer.active=true AND EXISTS(
+ SELECT 1 FROM %[1]s.customer_service_capabilities capability WHERE capability.customer_id=customer.id
+ AND capability.enabled=true AND capability.capability_code IN ('direct_ship','processing','inventory_custody'))
+ )`, r.schema), query.CustomerID).Scan(&enabled); err != nil {
 		return app.Overview{}, err
+	}
+	if !enabled {
+		return app.Overview{}, fmt.Errorf("客户未启用履约服务或已停用")
 	}
 	var overview app.Overview
 	overview.CustomerID = query.CustomerID
