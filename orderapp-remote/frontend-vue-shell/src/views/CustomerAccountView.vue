@@ -93,6 +93,7 @@
       </div>
       <details class="help">
         <summary>查询与对账说明</summary>
+        <p v-if="isOrders">点击“复制订单详情”复制已保存的订单号、日期、付款状态、商品和收件信息，再到生产群粘贴发送。</p>
         <p>
           周账单按周一至周日、月账单按自然月，以北京时间和下单日期查询。金额显示订单目前已付和待付情况，不代表当期收款流水。预付款计入已付金额；作废订单不计入合计。
         </p>
@@ -187,6 +188,7 @@
                 }}<small>{{ orderConfirmationLabel(row.confirmation_status) }} · {{ row.process_status }}</small><small>{{ row.ship_status }}</small>
               </td>
               <td>
+                <OrderDetailsCopyButton v-if="isOrders" :order-id="row.id" customer-portal :customer-id="customerContextId" />
                 <button @click="openDetail(row.id)">
                   详情{{ isOrders ? " / 收件信息" : "" }}</button
                 ><button v-if="!row.is_void" @click="salesIDs = [row.id]">
@@ -324,6 +326,7 @@
       <aside class="drawer">
         <header>
           <h3>{{ detail.order_no }}</h3>
+          <OrderDetailsCopyButton v-if="isOrders" :order-id="detail.id" customer-portal :customer-id="customerContextId" />
           <button @click="detail = null">关闭</button>
         </header>
         <OrderConfirmationPanel v-if="isOrders" :order-id="Number(detail.id)" :customer-id="Number(customerContextId)" :customer-portal="customerAccountActor" :portal-service="detail.portal_service_code === 'product_order' ? 'product_order' : 'direct_ship'" @updated="refreshConfirmationOrder" />
@@ -393,6 +396,7 @@
   </div>
 </template>
 <script setup>
+import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
 import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'

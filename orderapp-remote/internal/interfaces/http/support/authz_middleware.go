@@ -116,6 +116,9 @@ func isFulfillmentOrderDetailRequest(method, path string) bool {
 	path = strings.TrimSpace(path)
 	path = strings.TrimPrefix(path, "/app")
 	suffix := "/detail"
+	if strings.HasSuffix(path, "/copy-details") {
+		suffix = "/copy-details"
+	}
 	if strings.HasSuffix(path, "/confirmation") {
 		suffix = "/confirmation"
 	}

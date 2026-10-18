@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { ref } from 'vue'
 import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
@@ -84,6 +85,7 @@ onShow(() => { void refreshMiniappShareMenu() })
           <text class="open-hint">查看完整订单 ›</text>
         </navigator>
         <PaymentSummary :order="row" />
+        <OrderDetailsCopyButton :order-id="row.id" employee />
         <button class="copy-order" @tap.stop="copyOrder(row.id)">复制订单</button>
         </view>
         <view v-else class="card card-disabled">

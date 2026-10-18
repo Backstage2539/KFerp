@@ -609,3 +609,42 @@ func TestSampleAPIPermission(t *testing.T) {
 		}
 	}
 }
+
+func TestOrderCopyDetailsReadPermission(t *testing.T) {
+	for _, path := range []string{"/api/orders/42/copy-details", "/app/api/orders/42/copy-details"} {
+		if !isFulfillmentOrderDetailRequest(http.MethodGet, path) {
+			t.Fatalf("copy must follow scoped detail permission: %s", path)
+		}
+		if isFulfillmentOrderDetailRequest(http.MethodPost, path) {
+			t.Fatal("copy is read only")
+		}
+	}
+}
+
+func TestOrderCopyDetailsAuthorizationMiddleware(t *testing.T) {
+	for _, tc := range []struct {
+		permissions []string
+		status      int
+		limited     bool
+	}{
+		{[]string{"orders.read"}, 200, false}, {[]string{"customer_processing.read"}, 200, true}, {[]string{"finance.read"}, 403, false},
+	} {
+		e := echo.New()
+		authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: tc.permissions}}
+		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error { c.Set("employee_id", int64(7)); return next(c) }
+		})
+		e.Use(AuthorizationMiddleware(authz))
+		e.GET("/api/orders/:id/copy-details", func(c echo.Context) error {
+			if CustomerFulfillmentOrderScopeLimited(c) != tc.limited {
+				t.Fatal("incorrect order scope")
+			}
+			return c.NoContent(200)
+		})
+		r := httptest.NewRecorder()
+		e.ServeHTTP(r, httptest.NewRequest("GET", "/api/orders/42/copy-details", nil))
+		if r.Code != tc.status {
+			t.Fatalf("permissions %v: %d", tc.permissions, r.Code)
+		}
+	}
+}

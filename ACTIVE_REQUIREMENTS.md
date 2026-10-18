@@ -1,3 +1,13 @@
+### PR-701-ORDER-DETAILS-COPY
+- Branch: codex/order-details-copy-20261018; base origin/develop@491c4655.
+- Status: implementation and verification complete; development integration/deployment in progress; Van business acceptance pending.
+- Scope: ERP/customer web and employee/customer miniapp list/detail copy saved order text; exclude customer shipping center.
+- DEV: DEV-790-ORDER-COPY-API; DEV-791-ORDER-COPY-CLIENTS; DEV-792-ORDER-COPY-DELIVERY.
+- Verifier: Go formatter/scoped HTTP/isolated PostgreSQL; Vue and miniapp async clipboard tests, full gates/typecheck/build.
+- Manual: existing sales/customer/employee miniapp manuals and help.
+- Deployment: development only after verified pushed branch and develop integration; export development miniapp.
+- Notes: reservation helper returned PR-701; macOS awk claim failed, reserved here.
+
 ### PR-697-RESTORE-PRICE-TABLE-SCOPE
 - Branch: codex/restore-price-table-order-scope-20261018; base origin/develop@43de729d.
 - Status: verified, PR #210/#211 merged and development deployed at 94dca9cf; Van business acceptance pending.
