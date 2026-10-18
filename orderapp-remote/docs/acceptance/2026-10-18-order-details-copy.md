@@ -42,3 +42,9 @@
 - 开发小程序目录：`/Users/yiiiple-work/KFerp-order-copy-delivery-20261018/KFerp-miniapp-mp-weixin-dev`，`RELEASE_INFO` commit=`c223255b`、environment=`development`、API=`https://dev.qacoohee.com/app`，24 页面/96 个页面清单文件校验通过。
 - 压缩包：`/Users/yiiiple-work/KFerp-order-copy-delivery-20261018/KFerp-miniapp-order-copy-dev-c223255b.zip`，CRC 通过；SHA-256：`d85753d347a8a4bf64f8ca216d311850ebcb2d26aa8b25adae1e945a0dcecb72`。
 - RED/GREEN、构建及部署日志保存在交付目录 `evidence/`。回执及进度状态作为后续提交合并，运行功能版本仍为上述 `c223255b`；后续回执不重复部署。
+
+## 后续生产交付（2026-10-19）
+
+- Van 在小程序登录修复后明确要求合入 develop、main 并部署生产；订单文字复制随本次完整 develop 提升一并上线。
+- 最新开发运行版本 `ab573007`，生产运行版本 `c815fb99`。四个复制接口匿名拒绝、认证无效 ID、文档和进度标识检查通过；生产应用和数据库健康。
+- 两环境正式小程序包、备份和完整检查记录见 `2026-10-19-miniapp-login-entry.md`；微信上传、审核、发布及业务验收仍单独处理。
