@@ -1596,7 +1596,9 @@ func (r *Repository) recordMiniDirectShipOrderTx(ctx context.Context, tx pgx.Tx,
 			return app.MiniDirectShipRequest{}, err
 		}
 	}
-	needsProduction := cmd.FulfillmentMode == "on_demand" || len(outputAllocations) > 0 || len(shortages) > 0
+	// Retained purchases create future customer stock; recording the portal
+	// request must keep the source sale eligible for production planning.
+	needsProduction := (usageCode == "product_order" && cmd.DeliveryMode == "customer_stock") || cmd.FulfillmentMode == "on_demand" || len(outputAllocations) > 0 || len(shortages) > 0
 	processName := "库存待发货"
 	if needsProduction {
 		processName = "待生产"

@@ -14,6 +14,10 @@ export type ProcessingTargetLine = {
   qty: number
 }
 
+export function directShipAllocationSourceLabel(allocation: { processing_request_id?: number }): string {
+  return Number(allocation.processing_request_id || 0) > 0 ? `生产申请 #${allocation.processing_request_id}` : '购货留厂待入库'
+}
+
 export type ProductionPreviewMaterial = {
   material_id: number
   required_g?: number

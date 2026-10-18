@@ -21,7 +21,7 @@ import {
 } from '../api/customerPortal'
 import { useCustomerOrderDraftStore, type CustomerOrderMode, type CustomerOrderRecipient } from '../stores/customerOrderDraft'
 import { employeeOrderProductFamilyKey, productSpecLabel, shanghaiToday } from '../utils/employeeOrder'
-import { directShipPreviewSupplyRows, directShipStatusLabel } from '../utils/customerFulfillment'
+import { directShipAllocationSourceLabel, directShipPreviewSupplyRows, directShipStatusLabel } from '../utils/customerFulfillment'
 import {
   buildDirectShipDraftItems,
   createDirectShipDraftLine,
@@ -499,7 +499,7 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
         <view v-for="item in previewSupplyRows" :key="`supply:${item.product_id}:${item.bom_spec_id || 0}:${item.spec_g}`" class="supply-row">
           <view class="supply-title"><text>{{ item.product_name || `商品 ${item.product_id}` }}</text><text>本次可下单 {{ item.orderableQty }}</text></view>
           <view class="supply-metrics"><text>现货可用 {{ item.stock_available_qty || 0 }}</text><text>工单可预订 {{ item.production_available_qty || 0 }}</text><text>本单拟占用现货 {{ item.stockQty }}</text><text>本单拟占用在制 {{ item.productionQty }}</text></view>
-          <text v-for="allocation in item.allocations" :key="`${allocation.processing_request_id}:${allocation.processing_request_item_id}`" class="allocation">生产申请 #{{ allocation.processing_request_id }} · 拟预订 {{ allocation.qty }} · 提交后剩余 {{ item.remainingProductionQty }}</text>
+          <text v-for="(allocation, allocationIndex) in item.allocations" :key="`${allocation.processing_request_id}:${allocation.processing_request_item_id}:${allocationIndex}`" class="allocation">{{ directShipAllocationSourceLabel(allocation) }} · 拟预订 {{ allocation.qty }} · 提交后剩余 {{ item.remainingProductionQty }}</text>
         </view>
         <text v-for="table in preview?.price_tables || []" :key="`preview-table:${table.id}`" class="price-source">价格来源：{{ priceTableLabel(table) }}</text>
       </view>
