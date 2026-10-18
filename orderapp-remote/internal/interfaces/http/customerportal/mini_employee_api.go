@@ -2050,6 +2050,9 @@ func containsMiniRole(values []string, target string) bool {
 }
 
 func miniOrderKnownBusinessErrorText(err error) (string, bool) {
+	if err != nil && err.Error() == salesapp.PriceTableOrderScopeMessage {
+		return err.Error(), true
+	}
 	if err != nil && (strings.Contains(err.Error(), "换算") || strings.Contains(err.Error(), "来源") || strings.Contains(err.Error(), "重新计价")) {
 		return err.Error(), true
 	}

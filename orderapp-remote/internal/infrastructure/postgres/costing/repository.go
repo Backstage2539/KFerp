@@ -3598,10 +3598,6 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 		return nil, err
 	}
 
-	if err := r.freezeBOMPricingRules(ctx, tx, cmd.Content); err != nil {
-		return nil, err
-	}
-
 	config, err := json.Marshal(cmd.Config)
 	if err != nil {
 		return nil, err

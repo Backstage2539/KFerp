@@ -1,4 +1,14 @@
+### PR-697-RESTORE-PRICE-TABLE-SCOPE
+- Branch: codex/restore-price-table-order-scope-20261018; base origin/develop@43de729d.
+- Status: PR #210 merged; development delivery in progress. Final publication-path rollback removes the retired executable-template publication guard; targeted PostgreSQL/race and samples RED/GREEN plus full Go passed; final integration/deployment pending.
+- Scope: 撤回 PR-694/695/696 录单扩展；ERP/员工小程序仅用当前价格表商品规格，临时换规格入口关闭。历史冻结、换算配置与 fa98f276 的价格表中心/样品流程保留。
+- DEV: DEV-784-SCOPE-ROLLBACK; DEV-785-SCOPE-HISTORY; DEV-786-SCOPE-DELIVERY.
+- RED: /tmp/kferp-scope-red-{api,vue,mini}.log; old API returned 3 BOM specs, both clients offered conversion, copy retained conversion selection.
+- Verifier: scoped PostgreSQL HTTP, sample lifecycle regression, full Go/Vue/miniapp tests and builds, local UI, development technical smoke/package.
+- ID: scripts/reserve_req_id.sh returned PR-697; recorded here.
+
 ### PR-696-LEGACY-BOM-TIER-TEMPLATE
+- Superseded: PR-697 withdraws this order-entry workflow; evidence below is historical.
 - Branch: codex/legacy-bom-tier-template-20261017; base origin/develop@a3fe77aa.
 - Status: verified, merged and development deployed; Van acceptance pending.
 - Scope: 旧表明确关联且未变化的模板直接计算；变化/无法确认时显式确认当前模板；订单冻结真实依据，ERP和员工小程序一致。
@@ -9,6 +19,7 @@
 - ID reservation helper identified PR-696; macOS awk claim failure recorded here.
 
 ### PR-695-DEFAULT-SPEC-AUTO-TIER
+- Superseded: PR-697 withdraws this order-entry workflow; evidence below is historical.
 - Branch: `codex/default-spec-auto-tier-20261017`; base `origin/develop@f9ec1da6`.
 - Status: implemented, verified and development deployed; Van acceptance pending.
 - Scope: 默认规格按数量自动匹配；非默认规格每次切换后手动选档；历史冻结和换算组保留。
@@ -5750,6 +5761,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - PR-693 delivery: PR #202/#203 merged; development runtime `a7a0f910f25a087eab2f8306d151a15a5225198f`; backup `/opt/stacks/erp/orderapp.backup.deploy-20261016122357-a7a0f910f25a`; application running, PostgreSQL healthy, authenticated configuration/manual 200 and anonymous employee/config API 401. DEV package at `/Users/yiiiple-work/KFerp-spec-conversion-delivery-20261016/KFerp-miniapp-mp-weixin-dev` (24 pages / 96 files). Requirement-evidence gate and registry 502 resolved before successful release. Receipt-only follow-up does not change runtime identity. No production, WeChat upload or business acceptance.
 
 ### PR-694-BOM-SPEC-ORDER-PRICING
+- Superseded: PR-697 withdraws this order-entry workflow; evidence below is historical.
 - Branch: codex/bom-spec-order-pricing-20261016
 - Owner/session: Codex / Van
 - Status: development deployed; PR review (Van business acceptance pending)

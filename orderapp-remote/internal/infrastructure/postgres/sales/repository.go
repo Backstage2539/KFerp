@@ -1593,20 +1593,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				return salesapp.SaveOrderResult{}, quoteErr
 			}
 			if !frozen {
-				if items[idx].priceSelectionMode == "bom_tier" {
-					if request.PricingMethod != "bom_rule" || request.QuoteRevision == "" {
-						return salesapp.SaveOrderResult{}, fmt.Errorf("请先选择档位并完成 BOM 报价")
-					}
-					quote, quoteErr = r.quoteBOMTierTx(ctx, tx, request)
-				} else {
-					if request.PricingMethod != "" {
-						return salesapp.SaveOrderResult{}, fmt.Errorf("计价方式与来源不一致")
-					}
-					quote, quoteErr = quoteSpecConversionTx(ctx, tx, r.schema, request)
-				}
-				if quoteErr != nil {
-					return salesapp.SaveOrderResult{}, quoteErr
-				}
+				return salesapp.SaveOrderResult{}, fmt.Errorf("%s", salesapp.PriceTableOrderScopeMessage)
 			}
 			items[idx].conversionQuote = &quote
 			items[idx].frozenConversion = frozen
@@ -2269,12 +2256,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				if it.productID != nil {
 					productID = *it.productID
 				}
-				// Conversion pricing already validates the exact source tier, irrespective
-				// of its quantity threshold; the target need not appear in this table.
-				if it.conversionQuote == nil {
-					if err := validateNamedOrderItemSnapshot(raw, table, productID, it.bomSpecID, it.bomVariantID, it.specG, it.units, it.salesUnit, it.unitBagCount); err != nil {
-						return salesapp.SaveOrderResult{}, fmt.Errorf("商品「%s」：%w", it.name, err)
-					}
+				// Only original frozen rows were skipped above; every new row must
+				// belong to the selected published table, including manual prices.
+				if err := validateNamedOrderItemSnapshot(raw, table, productID, it.bomSpecID, it.bomVariantID, it.specG, it.units, it.salesUnit, it.unitBagCount); err != nil {
+					return salesapp.SaveOrderResult{}, fmt.Errorf("商品「%s」：%w", it.name, err)
 				}
 			}
 			it.priceSourceJSON = withNamedPriceTableSnapshot(it.priceSourceJSON, table)

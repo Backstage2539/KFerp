@@ -1,3 +1,7 @@
+## PR-697 录单范围回退
+
+证据：[2026-10-18-price-table-order-scope.md](acceptance/2026-10-18-price-table-order-scope.md)。覆盖两端撤回入口、表外规格拒绝、历史冻结、复制重选及 fa98f276 样品回归；业务验收待 Van。
+
 # orderapp 验收清单与测试用例（截至 2026-02-13）
 
 ## PR-696 旧价格表模板兼容（Van 待验收）

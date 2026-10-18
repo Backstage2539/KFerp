@@ -26,11 +26,11 @@ func (f *miniConversionFake) QuoteSpecConversion(_ context.Context, q salesapp.S
 	f.quoteCalls++
 	return salesapp.SpecConversionQuote{SpecConversionQuoteRequest: q, UnitPrice: "52.86"}, f.quoteError
 }
-func TestMiniConversionQuotesRequireEmployeeAndForwardRevision(t *testing.T) {
+func TestRetiredMiniConversionQuotesKeepEmployeePermissionChecks(t *testing.T) {
 	for _, tc := range []struct {
 		portal fakeService
 		status int
-	}{{employeePortalService(), 200}, {fakeService{me: customerportalapp.CurrentContext{AccountType: "customer", CurrentCustomerID: 8}}, 403}, {fakeService{me: customerportalapp.CurrentContext{AccountType: "employee", EmployeeID: 7, Permissions: []string{"orders.read"}}}, 403}} {
+	}{{employeePortalService(), 410}, {fakeService{me: customerportalapp.CurrentContext{AccountType: "customer", CurrentCustomerID: 8}}, 403}, {fakeService{me: customerportalapp.CurrentContext{AccountType: "employee", EmployeeID: 7, Permissions: []string{"orders.read"}}}, 403}} {
 		e := echo.New()
 		svc := &miniConversionFake{}
 		registerMiniEmployeeAPI(e, tc.portal, svc)
@@ -42,12 +42,8 @@ func TestMiniConversionQuotesRequireEmployeeAndForwardRevision(t *testing.T) {
 		if rec.Code != tc.status {
 			t.Fatalf("%d %s", rec.Code, rec.Body.String())
 		}
-		if tc.status == 200 {
-			if svc.quote.Revision != 4 || svc.quote.SourceSpecID != 11 || svc.quote.TargetSpecID != 12 {
-				t.Fatal(svc.quote)
-			}
-		} else if svc.quoteCalls != 0 {
-			t.Fatal("unauthorized quote")
+		if svc.quoteCalls != 0 {
+			t.Fatal("retired quote was executed")
 		}
 	}
 }

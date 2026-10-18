@@ -8,6 +8,9 @@ import (
 	conversion "orderapp/internal/domain/specconversion"
 )
 
+// Retired quoting paths cannot expand the published price-table scope.
+const PriceTableOrderScopeMessage = "录单仅支持当前所选已发布价格表中的商品和规格，请重新选择价格表内的规格"
+
 type SpecConversionSelection struct {
 	CurrentRuleRevision string `json:"current_rule_revision,omitempty"`
 	PricingMethod       string `json:"pricing_method,omitempty"`
