@@ -5,7 +5,7 @@
         <h2>订单列表</h2>
         <button class="secondary" type="button" @click="load()" :disabled="loading">刷新</button>
       </div>
-      <p class="list-help">点击订单行展开商品和费用；点击订单号打开完整详情。类型包含订单属性及全部商品分类。</p>
+      <p class="list-help">点击订单行展开商品和费用；点击订单号打开完整详情。类型包含订单属性及全部商品分类。点击“复制订单详情”可复制已保存的文字并粘贴到生产群。</p>
       <div v-if="error" class="error">{{ error }}</div>
       <div class="scope-tabs" role="tablist" aria-label="订单范围">
         <button type="button" :class="{ active: filters.scope === 'all' }" @click="setScope('all')">全部订单</button>
@@ -204,6 +204,7 @@
                 </div>
               </td>
               <td class="actions-cell">
+                <OrderDetailsCopyButton :order-id="row.id" :customer-id="filters.customer_id" />
                 <a class="text-link" href="#" @click.prevent="openSalesOrderDrawer(row)">销售单</a>
                 <a v-if="isShipped(row)" class="text-link" href="#" @click.prevent="openDeliveryNoteDrawer(row)">出库单</a>
                 <span v-else class="muted inline-muted">出库单</span>
@@ -382,6 +383,7 @@
             <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderDetail)">销售单</button>
             <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderDetail)" :disabled="!isShipped(activeOrderDetail)">出库单</button>
             <button class="secondary" type="button" @click="openInvoiceDrawer(activeOrderDetail)">发票</button>
+            <OrderDetailsCopyButton :order-id="activeOrderDetail.id" :customer-id="filters.customer_id" />
             <button class="secondary" type="button" @click="copyOrder(activeOrderDetail)">复制订单</button>
             <button v-if="activeOrderDetail.is_void" class="voided-action-button" type="button" disabled>已失效</button>
             <button v-else class="secondary danger-text" type="button" @click="voidOrder(activeOrderDetail)" :disabled="voidingOrderID === Number(activeOrderDetail.id)">失效订单</button>
@@ -436,6 +438,7 @@
 </template>
 
 <script setup>
+import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
 import { conversionSnapshot, conversionDescription } from '../lib/spec-conversion.js'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'

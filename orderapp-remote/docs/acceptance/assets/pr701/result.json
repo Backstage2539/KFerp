@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "requests": 3,
+  "viewport": [
+    1280,
+    375
+  ],
+  "checks": [
+    "clipboard success",
+    "manual fallback exact text",
+    "fallback focus",
+    "narrow layout",
+    "customer switch drops pending response"
+  ],
+  "errors": []
+}
