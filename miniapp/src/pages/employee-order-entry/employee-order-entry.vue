@@ -17,12 +17,21 @@ async function loadBOMSpecs(item:EmployeeOrderDraftItem,preserve=false){
 }
 async function quoteBOMTier(item:EmployeeOrderDraftItem){
  if(!item.spec_conversion||!item.selected_price_row_key)return
- const context=bomContext(item),generation=(item.bom_generation||0)+1;item.bom_generation=generation;item.unit_price=0;item.validation_error='正在计算目标规格价格…'
+ const context=bomContext(item),generation=(item.bom_generation||0)+1;item.bom_generation=generation;item.bom_current_rule_revision='';item.bom_current_rule_context='';item.price_source_json='';item.unit_price=0;item.validation_error='正在计算目标规格价格…'
  try{
   const quote=await quoteEmployeeSpecConversion(session.token,{...item.spec_conversion,quote_revision:'',customer_id:form.value.customer_id,product_id:item.product_id,publication_id:Number(item.bean_list_publication_id),price_row_key:item.selected_price_row_key,target_bom_spec_id:Number(item.bom_spec_id),target_bom_variant_id:Number(item.bom_variant_id),quantity:Math.max(1,item.qty||1)})
   if(generation!==item.bom_generation||context!==bomContext(item))return
   Object.assign(item,applyConversionQuote(item,quote))
- }catch(e){if(generation===item.bom_generation&&context===bomContext(item))item.validation_error=e instanceof Error?e.message:'无法计算价格'}
+ }catch(e){if(generation===item.bom_generation&&context===bomContext(item)){
+  item.validation_error=e instanceof Error?e.message:'无法计算价格'
+  const failure=e as {code?:string;current_rule_revision?:string}
+  if(failure.code==='pricing_rule_confirmation_required'){item.bom_current_rule_revision=failure.current_rule_revision;item.bom_current_rule_context=context}
+ }}
+}
+function confirmCurrentBOMRule(item:EmployeeOrderDraftItem){
+ if(!item.bom_current_rule_revision||!item.spec_conversion||item.bom_current_rule_context!==bomContext(item))return
+ item.spec_conversion={...item.spec_conversion,current_rule_revision:item.bom_current_rule_revision,quote_revision:'',reprice:true}
+ quoteBOMTier(item)
 }
 function bomTierLabels(item:EmployeeOrderDraftItem){return ['请选择价格档位',...(item.bom_catalog?.source_tiers||[]).map(t=>`${t.spec_name} · ${t.tier_label}（来源档位）`)]}
 function bomTierIndex(item:EmployeeOrderDraftItem){return (item.bom_catalog?.source_tiers||[]).findIndex(t=>t.price_row_key===item.selected_price_row_key)+1}
@@ -41,7 +50,7 @@ function syncBOMTier(item:EmployeeOrderDraftItem) {
  item.bom_tier_origin=result.mode==='auto'?'auto':'manual'
  if(!key||key!==item.selected_price_row_key||item.validation_error){
   const tier=result.tier
-  item.bom_generation=(item.bom_generation||0)+1;item.selected_price_row_key=key;item.unit_price=0;item.price_source_json='';item.validation_error=result.reason||'请选择价格档位'
+  item.bom_current_rule_revision='';item.bom_current_rule_context='';item.bom_generation=(item.bom_generation||0)+1;item.selected_price_row_key=key;item.unit_price=0;item.price_source_json='';item.validation_error=result.reason||'请选择价格档位'
   item.spec_conversion=tier?{pricing_method:'bom_rule',group_id:0,revision:0,source_bom_spec_id:tier.bom_spec_id,source_bom_variant_id:tier.bom_variant_id,reprice:true}:undefined
   if(tier)quoteBOMTier(item)
  }
@@ -54,7 +63,7 @@ async function repriceBOMTier(item:EmployeeOrderDraftItem) {
 function chooseBOMTier(item:EmployeeOrderDraftItem,event:{detail?:{value?:number|string}}){
  if(['auto','frozen'].includes(bomTierState(item).mode))return
  const tier=item.bom_catalog?.source_tiers?.[Number(event.detail?.value||0)-1]
- item.bom_generation=(item.bom_generation||0)+1;item.bom_tier_origin='manual';item.selected_price_row_key=tier?.price_row_key||'';item.unit_price=0;item.price_source_json='';item.validation_error='请选择价格档位'
+ item.bom_current_rule_revision='';item.bom_current_rule_context='';item.bom_generation=(item.bom_generation||0)+1;item.bom_tier_origin='manual';item.selected_price_row_key=tier?.price_row_key||'';item.unit_price=0;item.price_source_json='';item.validation_error='请选择价格档位'
  item.spec_conversion=tier?{pricing_method:'bom_rule',group_id:0,revision:0,source_bom_spec_id:tier.bom_spec_id,source_bom_variant_id:tier.bom_variant_id,reprice:true}:undefined
  if(tier)quoteBOMTier(item)
 }
@@ -1138,7 +1147,8 @@ onShow(() => { void refreshMiniappShareMenu() })
           <picker :disabled="['auto','frozen'].includes(bomTierState(item).mode)" :range="bomTierLabels(item)" :value="bomTierIndex(item)" @tap="!item.bom_catalog && loadBOMSpecs(item, true)" @change="chooseBOMTier(item, $event)"><view class="field selector-field"><text>{{ item.bom_catalog ? bomTierLabels(item)[bomTierIndex(item)] : conversionSnapshot(item)?.tier_label || '请选择价格档位' }}</text><text>›</text></view></picker>
           <text v-if="bomTierState(item).reason" class="price-mode-note">{{ bomTierState(item).reason }}</text>
           <text class="price-mode-note">{{ item.validation_error || conversionDescription(conversionSnapshot(item)) }}</text>
-          <button v-if="item.selected_price_row_key" size="mini" @tap="repriceBOMTier(item)">重新计价</button>
+          <button v-if="item.bom_current_rule_revision" size="mini" @tap="confirmCurrentBOMRule(item)">按当前模板重新报价</button>
+          <button v-else-if="item.selected_price_row_key" size="mini" @tap="repriceBOMTier(item)">重新计价</button>
           <text v-if="conversionSnapshot(item)?.calculation" class="price-mode-note">{{ conversionSnapshot(item)?.calculation?.formula_expression }}</text>
         </view>
         <view v-if="!item.bom_catalog && item.price_selection_mode !== 'bom_tier' && item.price_selection_mode !== 'converted_tier' && priceTierChoicesForItem(item).length" class="tier-choice-row">

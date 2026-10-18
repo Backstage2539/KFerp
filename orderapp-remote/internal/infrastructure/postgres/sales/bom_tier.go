@@ -14,6 +14,7 @@ import (
 	"orderapp/internal/infrastructure/postgres/orderbeans"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type bomTierRow struct {
@@ -21,6 +22,8 @@ type bomTierRow struct {
 	ParentID       int64                          `json:"parent_product_id"`
 	SpecID         int64                          `json:"bom_spec_id"`
 	VariantID      int64                          `json:"bom_variant_id"`
+	PricingMode    string                         `json:"pricing_mode"`
+	CostSource     map[string]any                 `json:"cost_source_snapshot"`
 	RuleID         int64                          `json:"pricing_rule_id"`
 	TierRuleID     int64                          `json:"tier_pricing_rule_id"`
 	Rule           *costingapp.ProductPricingRule `json:"pricing_rule_snapshot"`
@@ -112,12 +115,20 @@ func (r Repository) quoteBOMTierTx(ctx context.Context, tx pgx.Tx, c salesapp.Sp
 	if c.TargetSpecID == c.SourceSpecID && c.TargetVariantID == c.SourceVariantID {
 		q.UnitPrice, err = conversion.Convert(string(row.Price), "1", "1")
 		q.PricingRuleName = "已发布价格"
+		q.PricingRuleBasis = "published_price"
+		q.CurrentRuleRevision = ""
 	} else {
 		if row.ManualAdjusted {
 			return q, fmt.Errorf("来源档位经过手工改价，请使用换算组按成交价换算，或选择未手工调整的模板档位")
 		}
+		q.PricingRuleBasis = "published_snapshot"
 		if row.Rule == nil {
-			return q, fmt.Errorf("来源档位缺少完整的已发布计算模板，请在价格表刷新计算并发布一次；固定价可使用原换算组")
+			row.Rule, q.PricingRuleBasis, q.PricingRuleUpdatedAt, err = r.legacyBOMRuleTx(ctx, tx, row, c)
+			if err != nil {
+				return q, err
+			}
+		} else {
+			q.CurrentRuleRevision = ""
 		}
 		if !row.Rule.Active {
 			return q, fmt.Errorf("来源档位未保存有效的计算模板")
@@ -144,11 +155,14 @@ func (r Repository) quoteBOMTierTx(ctx context.Context, tx pgx.Tx, c salesapp.Sp
 		return q, err
 	}
 	revisionData, _ := json.Marshal(struct {
-		Row         bomTierRow
-		Target      salesapp.SpecConversionSpec
-		Calculation json.RawMessage
-		Price       string
-	}{row, *target, q.Calculation, q.UnitPrice})
+		Row                 bomTierRow
+		Target              salesapp.SpecConversionSpec
+		Calculation         json.RawMessage
+		Price               string
+		Basis               string
+		UpdatedAt           string
+		CurrentRuleRevision string
+	}{row, *target, q.Calculation, q.UnitPrice, q.PricingRuleBasis, q.PricingRuleUpdatedAt, q.CurrentRuleRevision})
 	revision := fmt.Sprintf("%x", sha256.Sum256(revisionData))
 	if c.QuoteRevision != "" && c.QuoteRevision != revision {
 		return q, salesapp.NewOrderEditConflictError("BOM、成本或价格依据已变化，请刷新报价后提交")
@@ -163,4 +177,55 @@ func (r Repository) quoteBOMTierTx(ctx context.Context, tx pgx.Tx, c salesapp.Sp
 	data, _ := json.Marshal(snapshot)
 	q.PriceSourceJSON = withOrderBOMSpecPriceSourceJSON(string(data), orderBOMSpecIdentity{ProductID: c.ProductID, BomSpecID: target.SpecID, BomVariantID: target.VariantID, BomSpecName: target.Name, InventoryUnit: target.InventoryUnit})
 	return q, nil
+}
+
+// Recover only a positively identified legacy rule. Locks keep its parameters
+// stable between the timestamp check, trial calculation and order persistence.
+func (r Repository) legacyBOMRuleTx(ctx context.Context, tx pgx.Tx, row bomTierRow, c salesapp.SpecConversionQuoteRequest) (*costingapp.ProductPricingRule, string, string, error) {
+	id := row.RuleID
+	if row.TierRuleID > 0 {
+		id = row.TierRuleID
+	}
+	if id <= 0 || row.PricingMode == "fixed" || row.PricingMode == "fixed_price" {
+		return nil, "", "", fmt.Errorf("来源档位没有明确关联的计算模板；固定价请使用换算组，或选择有模板的档位")
+	}
+	var created, updated, published time.Time
+	err := tx.QueryRow(ctx, fmt.Sprintf("SELECT r.created_at,r.updated_at,p.published_at FROM %[1]s.product_pricing_rules r JOIN %[1]s.bean_list_publications p ON p.id=$2 WHERE r.id=$1 FOR SHARE OF r", r.schema), id, c.PublicationID).Scan(&created, &updated, &published)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("来源档位关联的计算模板不可用，请选择其他档位")
+	}
+	rule, err := costingpg.NewRepository(r.pool, r.schema).LoadProductPricingRule(postgresinfra.WithTransaction(ctx, tx), id)
+	if err != nil || !rule.Active {
+		return nil, "", "", fmt.Errorf("来源档位关联的计算模板已停用或不可用，请选择其他档位")
+	}
+	stamp := updated.UTC().Format(time.RFC3339Nano)
+	data, _ := json.Marshal(struct {
+		Rule                                                                   costingapp.ProductPricingRule
+		Updated                                                                string
+		Customer, Product, Publication, Source, Variant, Target, TargetVariant int64
+		Key                                                                    string
+	}{rule, stamp, c.CustomerID, c.ProductID, c.PublicationID, c.SourceSpecID, c.SourceVariantID, c.TargetSpecID, c.TargetVariantID, c.PriceRowKey})
+	revision := fmt.Sprintf("%x", sha256.Sum256(data))
+	if c.CurrentRuleRevision != "" {
+		if c.CurrentRuleRevision != revision {
+			return nil, "", "", &salesapp.PricingRuleConfirmationError{RuleName: rule.Name, Revision: revision}
+		}
+		return &rule, "confirmed_current_template", stamp, nil
+	}
+	unchanged := !created.IsZero() && !updated.IsZero() && !published.IsZero() && !updated.Before(created) && !updated.After(published) && !created.After(published)
+	// Existing partial published metadata must not contradict the live rule.
+	checks := map[string]any{"pricing_rule_id": rule.ID, "pricing_rule_name": rule.Name, "pricing_rule_code": rule.Code, "cost_source_mode": rule.CostSourceMode, "pricing_rule_formula_version": rule.FormulaVersion, "pricing_rule_calculation": rule.CalculationJSON}
+	for key, want := range checks {
+		if got, exists := row.CostSource[key]; exists {
+			a, _ := json.Marshal(got)
+			b, _ := json.Marshal(want)
+			if string(a) != string(b) {
+				unchanged = false
+			}
+		}
+	}
+	if !unchanged {
+		return nil, "", "", &salesapp.PricingRuleConfirmationError{RuleName: rule.Name, Revision: revision}
+	}
+	return &rule, "verified_legacy_template", stamp, nil
 }

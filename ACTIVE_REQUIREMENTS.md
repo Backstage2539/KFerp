@@ -1,3 +1,12 @@
+### PR-696-LEGACY-BOM-TIER-TEMPLATE
+- Branch: codex/legacy-bom-tier-template-20261017; base origin/develop@a3fe77aa.
+- Status: implemented and local verification passed; integration/development delivery next; Van acceptance pending.
+- Scope: 旧表明确关联且未变化的模板直接计算；变化/无法确认时显式确认当前模板；订单冻结真实依据，ERP和员工小程序一致。
+- DEV: DEV-781-LEGACY-TEMPLATE; DEV-782-TEMPLATE-CONFIRMATION; DEV-783-LEGACY-DELIVERY.
+- Verifier: Go/PostgreSQL HTTP legacy/changed/stale/frozen/copy/security; Vue and miniapp confirmation state/stale responses; full tests/typecheck/build; development smoke/package.
+- No migration or published price-table mutation. Keep conversion groups and customer scope unchanged.
+- ID reservation helper identified PR-696; macOS awk claim failure recorded here.
+
 ### PR-695-DEFAULT-SPEC-AUTO-TIER
 - Branch: `codex/default-spec-auto-tier-20261017`; base `origin/develop@f9ec1da6`.
 - Status: implemented, verified and development deployed; Van acceptance pending.

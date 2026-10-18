@@ -4,7 +4,7 @@ export function orderedBOMSpecs(specs:Spec[]=[]):Spec[]{return [...specs].sort((
 export function selectBOMSpec(item:EmployeeOrderDraftItem,target:Spec,keepTier=false):EmployeeOrderDraftItem{
  const result=resolveBOMTier(item.bom_catalog,target.bom_spec_id,item.qty,keepTier&&(!target.is_default||item.bom_tier_origin==='manual')?item.selected_price_row_key:'', 'manual')
  const tier=result.tier
- return {...item,bom_tier_origin:result.mode==='auto'?'auto':'manual',bom_spec_id:target.bom_spec_id,bom_variant_id:target.bom_variant_id,spec_label:target.spec_name,sales_unit:target.inventory_unit,spec_g:0,unit_bag_count:0,unit_bean_g:0,migration_state:'cutover',unit_price:0,price_override:false,price_source_json:'',price_selection_mode:'bom_tier',selected_price_row_key:tier?.price_row_key||'',spec_conversion:tier?{pricing_method:'bom_rule',group_id:0,revision:0,source_bom_spec_id:tier.bom_spec_id,source_bom_variant_id:tier.bom_variant_id,reprice:true}:undefined,validation_error:'请选择价格档位'}
+ return {...item,bom_current_rule_revision:'',bom_current_rule_context:'',bom_tier_origin:result.mode==='auto'?'auto':'manual',bom_spec_id:target.bom_spec_id,bom_variant_id:target.bom_variant_id,spec_label:target.spec_name,sales_unit:target.inventory_unit,spec_g:0,unit_bag_count:0,unit_bean_g:0,migration_state:'cutover',unit_price:0,price_override:false,price_source_json:'',price_selection_mode:'bom_tier',selected_price_row_key:tier?.price_row_key||'',spec_conversion:tier?{pricing_method:'bom_rule',group_id:0,revision:0,source_bom_spec_id:tier.bom_spec_id,source_bom_variant_id:tier.bom_variant_id,reprice:true}:undefined,validation_error:'请选择价格档位'}
 }
 
 // Published quantity metadata is authoritative; display labels never establish a range.

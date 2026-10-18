@@ -41,3 +41,10 @@ describe('miniapp API client URL helpers', () => {
     expect(isAuthenticationExpiredRequestError(new MiniRequestError('无权访问', 403))).toBe(false)
   })
 })
+
+it('retains the exact current-template revision for employee confirmation',async()=>{
+ vi.stubEnv('VITE_KFERP_ENVIRONMENT','development');vi.stubEnv('VITE_KFERP_API_BASE','https://dev.qacoohee.com/app')
+ vi.stubGlobal('uni',{request:({success}:any)=>success({statusCode:409,data:{error:'模板已变化',code:'pricing_rule_confirmation_required',current_rule_revision:'rule-v2'}})})
+ try {await expect(miniRequest('/api/mini/employee/spec-conversions/quote')).rejects.toMatchObject({statusCode:409,code:'pricing_rule_confirmation_required',current_rule_revision:'rule-v2'})}
+ finally {vi.unstubAllGlobals();vi.unstubAllEnvs()}
+})
