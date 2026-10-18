@@ -209,7 +209,7 @@
             <span v-if="!row.externalUsers.length && !row.externalUsersLoading" class="muted">暂无外部用户</span>
             <span v-if="row.externalUsersLoading" class="muted">加载账号中...</span>
           </div>
-          <p class="binding-hint">外部用户配置了手机号、密码并启用登录后，该客户会出现在客户履约运营台。</p>
+          <p class="binding-hint">外部用户配置了手机号、密码并启用登录后，可自行登录客户工作台；内部员工无需先创建客户账号即可操作履约。</p>
         </div>
 
         <div class="binding-list">

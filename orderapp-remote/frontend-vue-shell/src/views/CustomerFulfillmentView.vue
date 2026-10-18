@@ -30,7 +30,7 @@
         <button class="primary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">载入账户</button>
       </div>
 
-      <p class="muted account-hint">外部用户配置已移到“门户客户配置”；配置手机号、密码并启用登录后，该客户会出现在这里。</p>
+      <p class="muted account-hint">已开通门户与履约能力的客户可在此操作。外部用户配置已移到“门户客户配置”，用于客户自行登录。</p>
 
       <div v-if="workbenchSections.imports" class="import-row">
         <div class="segmented">
