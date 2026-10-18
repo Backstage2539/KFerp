@@ -49,6 +49,18 @@ func TestSampleFreeSettlementAPI(t *testing.T) {
 	if err := salespg.NewRepository(f.pool, f.schema).InlineUpdate(f.ctx, v.OrderID, "test", salesapp.InlineUpdateCommand{}); err == nil || !strings.Contains(err.Error(), "免费样品请从订单详情顶部保存") {
 		t.Fatalf("legacy edit bypassed free settlement: %v", err)
 	}
+	t.Run("inconsistent legacy receipt is never erased on fee change", func(t *testing.T) {
+		f.t = t
+		f.exec("UPDATE %s.orders SET payment_goods_amount=5 WHERE id=$1", v.OrderID)
+		payload := sampleERPBody(f, v.OrderID)
+		payload["payment_goods_amount"] = "0"
+		payload["shipping_amount"] = "8.50"
+		f.call("POST", "/api/order", payload, "basic-admin", 400)
+		if n := f.id("SELECT count(*) FROM %s.orders WHERE id=$1 AND payment_goods_amount=5 AND settlement_reason='free_sample' AND shipping_amount=0", v.OrderID); n != 1 {
+			t.Fatal("existing payment was erased")
+		}
+		f.exec("UPDATE %s.orders SET payment_goods_amount=0 WHERE id=$1", v.OrderID)
+	})
 	if dir := os.Getenv("PR697_ARTIFACT_DIR"); dir != "" {
 		os.MkdirAll(dir, 0755)
 		form := f.call("GET", fmt.Sprintf("/api/order/form?edit_id=%d", v.OrderID), nil, "basic-admin", 200)

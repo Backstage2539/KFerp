@@ -30,6 +30,9 @@ func (r Repository) resolveSampleSettlementTx(ctx context.Context, tx pgx.Tx, cm
 		return "free_sample", payID, nil
 	}
 	if previous == "free_sample" {
+		if receivedGoods > 0 || receivedShipping > 0 || storedPrepayment > 0 || voucher > 0 {
+			return "", payID, fmt.Errorf("样品已有真实收款记录，请先核对处理，不能自动撤销或清除")
+		}
 		if prepayment > 0 || cmd.PaymentGoodsAmount != 0 || cmd.PaymentShippingAmount != 0 || cmd.PaymentVoucherAssetID > 0 {
 			return "", payID, fmt.Errorf("免费样品改为收费，请先保存收费金额，再登记实际收款")
 		}
