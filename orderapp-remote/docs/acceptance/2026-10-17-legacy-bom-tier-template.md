@@ -26,3 +26,17 @@
 ## 交付边界
 
 仅开发环境与开发版小程序包。生产发布、微信上传审核发布、真实业务/真机验收未执行。
+
+## 开发交付回执（2026-10-18）
+
+- GitHub PR #208 已合并：https://github.com/Backstage2539/KFerp/pull/208。实现提交 8a54df883f43a23d6b99e99861c3ae780949e47e。
+- 已部署 develop@a892ab5e6b6d911a0f2d81d205b59875394c85a6。命令：KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-legacy-tier-delivery-20261017/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development，退出0。
+- 服务器 Vue 1378 tests/build、小程序340 tests/typecheck/build、完整Go和镜像内Go测试通过。
+- 运行：erp_orderapp running，erp_postgres healthy；login200、匿名quote401、认证手册包含旧表兼容/确认内容、PR-696为review。运行包RELEASE_INFO与提交/开发环境一致。
+- 源码回滚：/opt/stacks/erp/orderapp.backup.deploy-20261018153938-a892ab5e6b6d；回滚镜像：kferp-orderapp-rollback:development-20261018153938-a892ab5e6b6d。
+- 开发包：/Users/yiiiple-work/KFerp-legacy-tier-delivery-20261017/KFerp-miniapp-mp-weixin-dev；ZIP：KFerp-miniapp-dev-a892ab5e.zip。
+- 包校验：24页面、96页面文件，development API、当前模板确认控件及版本字段存在，无project.private.config.json，ZIP完整性通过。
+- SHA256：aea71725cfa5fecba0382d2453cb522eb405660aef5965ba16180b96565e38e6。
+- 部署前只清理可再生成的Go编译缓存；部署后约3.0GB可用。未删除业务数据、数据库卷、源码备份或回滚镜像。
+- 日志、截图、ZIP和PACKAGE_CHECK.txt存放上述交付目录。仅本地模拟数据界面检查与开发只读运行检查；生产部署、微信上传审核发布、真实业务/真机验收未执行。
+- 本回执为部署后文档补录，不改变运行版本。

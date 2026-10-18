@@ -1,10 +1,11 @@
 ### PR-696-LEGACY-BOM-TIER-TEMPLATE
 - Branch: codex/legacy-bom-tier-template-20261017; base origin/develop@a3fe77aa.
-- Status: implemented and local verification passed; integration/development delivery next; Van acceptance pending.
+- Status: verified, merged and development deployed; Van acceptance pending.
 - Scope: 旧表明确关联且未变化的模板直接计算；变化/无法确认时显式确认当前模板；订单冻结真实依据，ERP和员工小程序一致。
 - DEV: DEV-781-LEGACY-TEMPLATE; DEV-782-TEMPLATE-CONFIRMATION; DEV-783-LEGACY-DELIVERY.
 - Verifier: Go/PostgreSQL HTTP legacy/changed/stale/frozen/copy/security; Vue and miniapp confirmation state/stale responses; full tests/typecheck/build; development smoke/package.
 - No migration or published price-table mutation. Keep conversion groups and customer scope unchanged.
+- Delivery: PR #208 merged; runtime a892ab5e6b6d911a0f2d81d205b59875394c85a6; Go/isolated DB, Vue1378, miniapp340/typecheck/build passed. Healthy development app/DB, docs and PR marker; 24-page/96-file dev package at /Users/yiiiple-work/KFerp-legacy-tier-delivery-20261017. Receipt: docs/acceptance/2026-10-17-legacy-bom-tier-template.md. No production/WeChat upload/business acceptance.
 - ID reservation helper identified PR-696; macOS awk claim failure recorded here.
 
 ### PR-695-DEFAULT-SPEC-AUTO-TIER
