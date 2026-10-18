@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { canUseEmployeePriceCenter } from '../../utils/priceCenterAccess'
+import { fetchStaffNotifications } from '../../api/samples'
 import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import {
   defaultMiniappShare,
@@ -29,6 +31,7 @@ const {
   handlePullUpBrandTouchEnd,
   handlePullUpBrandTouchCancel,
 } = usePullUpBrandGesture()
+const staffUnread = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
 const overviewLoading = ref(false)
@@ -36,6 +39,9 @@ const overviewMetrics = ref<Array<{ key: string; label: string; value: string; h
 
 const entries = computed(() => visibleHomeEntries(session.capabilities))
 const employeeEntries = [
+  { key: 'priceCenter', label: '价格表中心', url: '/pages/bean-list-center/bean-list-center' },
+  { key: 'sampleRequests', label: '样品工单', url: '/pages/sample-requests/sample-requests' },
+  { key: 'staffNotifications', label: '员工通知', url: '/pages/employee-notifications/employee-notifications' },
   { key: 'employeeOrderEntry', label: '录单', url: '/pages/employee-order-entry/employee-order-entry' },
   { key: 'employeeOrders', label: '查看订单', url: '/pages/employee-orders/employee-orders' },
   { key: 'employeeCustomers', label: '客户维护', url: '/pages/employee-customers/employee-customers' },
@@ -45,7 +51,7 @@ const visibleEntries = computed(() => {
   if (session.accountType !== 'employee') return entries.value
   const canMaintainCustomers = session.permissions.includes('customers.read')
     && session.permissions.includes('customers.write')
-  return employeeEntries.filter((entry) => entry.key !== 'employeeCustomers' || canMaintainCustomers)
+  return employeeEntries.filter((entry) => (entry.key !== 'employeeCustomers' || canMaintainCustomers) && (!['priceCenter','sampleRequests','staffNotifications'].includes(entry.key) || canUseEmployeePriceCenter(session)))
 })
 const customerName = computed(() => session.accountType === 'employee' ? `${session.employeeName || '员工'} · 简易 ERP` : (session.currentCustomerName || '客户中心'))
 const themeClass = computed(() => miniappThemeClass(session.themeKey))
@@ -107,6 +113,7 @@ async function loadContext() {
     session.applyContext(response)
  if(response.account_type!=='employee'&&!response.current_customer_id){uni.reLaunch({url:'/pages/index/index'});return}
     await loadCustomerOverview()
+    if(canUseEmployeePriceCenter(session)){try{staffUnread.value=(await fetchStaffNotifications(session.token,true)).unread_count||0}catch{staffUnread.value=0}}
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
     session.clearSession()
@@ -135,7 +142,7 @@ function openBeanCenter(){uni.navigateTo({url:'/pages/bean-list-center/bean-list
     @touchend="handlePullUpBrandTouchEnd"
     @touchcancel="handlePullUpBrandTouchCancel"
   >
-    <button v-if="session.accountType!=='employee'" class="bean-entry" @tap="openBeanCenter">豆单 · 查看咖啡价格表 →</button>
+    <button v-if="session.accountType!=='employee'" class="bean-entry" @tap="openBeanCenter">价格表中心 · 查看咖啡价格表 →</button>
  <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
@@ -160,7 +167,7 @@ function openBeanCenter(){uni.navigateTo({url:'/pages/bean-list-center/bean-list
       <text v-else-if="overviewLoading" class="overview-loading">业务摘要加载中...</text>
       <view class="grid">
       <view v-for="entry in visibleEntries" :key="entry.key" class="entry" hover-class="entry-pressed" @tap="openEntry(entry.url)">
-        <text class="entry-label">{{ entry.label }}</text>
+        <text class="entry-label">{{ entry.label }}{{entry.key==='staffNotifications'&&staffUnread?' ('+staffUnread+')':''}}</text>
       </view>
       </view>
     </view>

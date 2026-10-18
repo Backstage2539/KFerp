@@ -47,6 +47,17 @@ func (r Repository) queryCostingReadRows(ctx context.Context, query string, args
 	if scan == nil {
 		return fmt.Errorf("row scanner required")
 	}
+	if tx, ok := postgresinfra.TransactionFromContext(ctx); ok {
+		rows, err := tx.Query(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		if err := scan(rows); err != nil {
+			return err
+		}
+		return rows.Err()
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return err
@@ -92,7 +103,7 @@ func (r Repository) LoadParameters(ctx context.Context) (domain.Parameters, erro
 	if r.pool == nil {
 		return params, nil
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT key, value::float8 FROM %s.cost_parameters`, r.schema))
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`SELECT key, value::float8 FROM %s.cost_parameters`, r.schema))
 	if err != nil {
 		return params, err
 	}
@@ -149,7 +160,7 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 	var specLabel string
 	var netContentQty float64
 	var netContentUnit string
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT CASE
 		         WHEN COALESCE(p.parent_product_id,0) > 0 THEN COALESCE(
 		           NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''),
@@ -400,7 +411,7 @@ func (r Repository) ResolveProductSpecIdentity(ctx context.Context, productID in
 		return appcosting.ProductSpecIdentity{}, appcosting.ErrProductSpecIdentityNotFound
 	}
 	identity := appcosting.ProductSpecIdentity{}
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT p.id,
 		       CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END AS effective_parent_product_id,
 		       COALESCE(NULLIF(CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent.name ELSE p.name END,''), p.name, '') AS parent_product_name,
@@ -467,7 +478,7 @@ func (r Repository) ResolveProductBOMSpecIdentity(ctx context.Context, parentPro
 		return appcosting.ProductBOMSpecIdentity{}, appcosting.ErrProductBOMSpecIdentityNotFound
 	}
 	identity := appcosting.ProductBOMSpecIdentity{}
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT parent.id,
 		       COALESCE(parent.name,''),
 		       binding.bom_id,
@@ -544,7 +555,7 @@ func (r Repository) ResolveProductDefaultSalesUnit(ctx context.Context, productI
 		return "", appcosting.ErrProductSalesUnitRuleNotFound
 	}
 	var unit string
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),'')
 		FROM %[1]s.product_bom_spec_authorities authority
 		JOIN %[1]s.products product ON product.id=authority.product_id AND product.active=true
@@ -581,7 +592,7 @@ func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, pro
 	var conversionJSON string
 	var autoDerived bool
 	var derivedSalesUnit string
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(
 		           NULLIF(alias_config.inventory_unit,''),
 		           NULLIF(pct.inventory_unit,''),
@@ -789,7 +800,7 @@ func (r Repository) ResolvePriceTierTemplateUnitRule(ctx context.Context, templa
 	if r.pool == nil || templateID <= 0 {
 		return appcosting.PriceTierTemplateUnitRule{}, appcosting.ErrPriceTierTemplateUnitRuleNotFound
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT template.id, template.name, tier.id, tier.quantity_unit
 		FROM %[1]s.price_tier_templates template
 		JOIN %[1]s.price_tier_template_tiers tier
@@ -917,7 +928,7 @@ func (r Repository) LoadProductPricingRule(ctx context.Context, id int64) (appco
 	}
 	var row appcosting.ProductPricingRule
 	var calculationJSON []byte
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, name, code, cost_source_mode, margin_rate::float8, tax_rate::float8, rounding_mode, calculation_json, formula_version, active, remark
 		FROM %s.product_pricing_rules
 		WHERE id=$1
@@ -949,7 +960,7 @@ func (r Repository) loadPricingRuleTrialDefaultTaxRate(ctx context.Context) (app
 	var taxpayerType string
 	var smallRate float64
 	var generalRate float64
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(taxpayer_type,''),'small_scale'),
 		       COALESCE(small_scale_vat_rate,0)::float8,
 		       COALESCE(general_output_vat_rate,0)::float8
@@ -977,7 +988,7 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 	if r.pool == nil || input.ProductID <= 0 {
 		return out, nil
 	}
-	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	bomRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		WITH pricing_rule_trial_selected_products AS (
 			SELECT p.id AS product_id, 0 AS source_priority
 			FROM %[1]s.products p
@@ -1090,7 +1101,7 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 			return out, err
 		}
 		if hasSpecs && hasVariants {
-			specRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+			specRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 				SELECT v.bom_id,
 				       v.id,
 				       spec.id,
@@ -1132,7 +1143,7 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 			break
 		}
 	}
-	routeRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	routeRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(name,''), '工艺路线 #' || id::text) AS name,
 		       id=$1 AS is_default
@@ -1156,7 +1167,7 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 		return out, err
 	}
 
-	opRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	opRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(name,''), '工序模板 #' || id::text) AS name,
 		       id=$1 AS is_default
@@ -1243,7 +1254,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 	finish := func() ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
 		return finishPricingRuleTrialBaseCostDetails(out, input, resolvedParentCost, issues)
 	}
-	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	bomRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
 			       SUM((CASE
@@ -1565,7 +1576,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		`, r.schema)
 		operationArgs = []any{input.BomVariantID, input.BomVersionID}
 	}
-	opRows, err := r.pool.Query(ctx, operationQuery, operationArgs...)
+	opRows, err := r.readDB(ctx).Query(ctx, operationQuery, operationArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -1639,7 +1650,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 	if input.OperationTemplateID <= 0 {
 		return out, nil
 	}
-	legacyOpRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	legacyOpRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(operation,''), NULLIF(workstation,''), '工序') AS name,
 		       COALESCE(NULLIF(cost_type,''),'fixed') AS cost_type,
@@ -1867,7 +1878,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 				WHERE active_parent.id=p.parent_product_id AND active_parent.active=true
 			  ))
 			  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
-			  AND (($1 <= 0 AND COALESCE(p.customer_id,0)=0) OR ($1 > 0 AND (cpa.id IS NOT NULL OR pcr.id IS NOT NULL)))
+			  AND (($1 < 0 AND $2::bigint[] IS NOT NULL AND p.id=ANY($2::bigint[])) OR ($1 <= 0 AND COALESCE(p.customer_id,0)=0) OR ($1 > 0 AND (cpa.id IS NOT NULL OR pcr.id IS NOT NULL)))
 		),
 		all_effective_bom_items AS (
 			SELECT p.id AS product_id,
@@ -2714,13 +2725,13 @@ func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productID
 		return result, nil
 	}
 	var exists bool
-	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.product_bom_spec_authorities", r.schema)).Scan(&exists); err != nil {
+	if err := r.readDB(ctx).QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.product_bom_spec_authorities", r.schema)).Scan(&exists); err != nil {
 		return nil, err
 	}
 	if !exists {
 		return result, nil
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT product_id,
 		       COALESCE(state,''),
 		       COALESCE((to_jsonb(product_bom_spec_authorities)->>'legacy_catalog_product')::boolean,true),
@@ -2777,14 +2788,14 @@ func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context, productIDs [
 		"production_bom_version_variants",
 	} {
 		var exists bool
-		if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.%s", r.schema, relation)).Scan(&exists); err != nil {
+		if err := r.readDB(ctx).QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.%s", r.schema, relation)).Scan(&exists); err != nil {
 			return nil, err
 		}
 		if !exists {
 			return []cutoverProductBOMSpec{}, nil
 		}
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT migration.product_id,
 		       binding.bom_id,
 		       version.id,
@@ -3041,7 +3052,7 @@ func (r Repository) loadGradientTemplatesByID(ctx context.Context, ids map[int64
 	for id := range ids {
 		idList = append(idList, id)
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT id, name, display_unit, active
 		FROM %s.pricing_gradient_templates
 		WHERE id = ANY($1)
@@ -3060,7 +3071,7 @@ func (r Repository) loadGradientTemplatesByID(ctx context.Context, ids map[int64
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	tierRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	tierRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT id, template_id, label, min_weight_g::float8, max_weight_g::float8, margin_rate::float8, position
 		FROM %s.pricing_gradient_template_tiers
 		WHERE active=true AND template_id = ANY($1)
@@ -3087,7 +3098,7 @@ func (r Repository) loadGradientTemplatesByID(ctx context.Context, ids map[int64
 }
 
 func (r Repository) ListParameterSettings(ctx context.Context) ([]appcosting.ParameterSetting, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT key, label, value::float8, unit, to_char(updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.cost_parameters
 		ORDER BY key
@@ -3155,7 +3166,7 @@ func (r Repository) UpdateParameterSetting(ctx context.Context, cmd appcosting.U
 }
 
 func (r Repository) ListDripPriceTemplates(ctx context.Context) ([]domain.DripPriceTemplate, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT id, name, active, bag_grams::float8, box_bag_count, include_packaging
 		FROM %s.drip_price_templates
 		ORDER BY active DESC, id
@@ -3184,7 +3195,7 @@ func (r Repository) ListDripPriceTemplates(ctx context.Context) ([]domain.DripPr
 	for _, row := range out {
 		ids = append(ids, row.ID)
 	}
-	tierRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	tierRows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT id, template_id, label, min_bags::float8, max_bags::float8, multiplier::float8, position, active
 		FROM %s.drip_price_template_tiers
 		WHERE template_id = ANY($1)
@@ -3353,7 +3364,7 @@ func (r Repository) ListBeanListPublications(ctx context.Context, query appcosti
 		orderClause = "ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, CASE WHEN COALESCE(product_type_category_id,0)=$2 THEN 0 ELSE 1 END, created_at DESC, id DESC"
 	}
 	whereClause += " AND status<>'deleted' AND deleted_at IS NULL"
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(publication_purpose,''),'factory_supply'),
 		       list_type,
@@ -3408,7 +3419,7 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
 		orderClause = "CASE WHEN COALESCE(product_type_category_id,0)=$2 THEN 0 ELSE 1 END, published_at DESC, COALESCE((config_json->'publication_batch'->>'is_default_table')::boolean,true) DESC, id DESC"
 	}
-	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
+	row, err := scanBeanListPublication(r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(publication_purpose,''),'factory_supply'),
 		       list_type,
@@ -3457,7 +3468,7 @@ func (r Repository) LoadBeanListPublication(ctx context.Context, query appcostin
 	}
 	publicationScopeWhereClause := whereClause
 	whereClause += " AND status<>'deleted' AND deleted_at IS NULL"
-	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
+	row, err := scanBeanListPublication(r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(publication_purpose,''),'factory_supply'),
 		       list_type,
@@ -3486,7 +3497,7 @@ func (r Repository) LoadBeanListPublication(ctx context.Context, query appcostin
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			var deleted bool
-			if checkErr := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.bean_list_publications WHERE %s AND status='deleted')`, r.schema, publicationScopeWhereClause), args...).Scan(&deleted); checkErr == nil && deleted {
+			if checkErr := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.bean_list_publications WHERE %s AND status='deleted')`, r.schema, publicationScopeWhereClause), args...).Scan(&deleted); checkErr == nil && deleted {
 				return nil, appcosting.ErrBeanListPublicationDeleted
 			}
 			return nil, appcosting.ErrBeanListPublicationNotFound
@@ -3502,7 +3513,7 @@ func (r Repository) LoadBeanListPublicationAsset(ctx context.Context, publicatio
 		assetType = "pdf"
 	}
 	var asset appcosting.BeanListPublicationAsset
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		SELECT publication_id, asset_type, content_type, cache_key, payload
 		FROM %s.bean_list_publication_assets
 		WHERE publication_id=$1 AND asset_type=$2
@@ -4624,4 +4635,9 @@ func commercialTiersForPublish(item domain.ProductResult) []domain.CommercialWho
 		return item.CommercialWholesaleTiers
 	}
 	return nil
+}
+
+// Only employee order pricing calls this after source/customer authorization.
+func (r Repository) LoadOrderBOMPricingInputs(ctx context.Context, params domain.Parameters, productID int64) ([]domain.ProductInput, error) {
+	return r.loadProductInputs(ctx, params, -1, []int64{productID}, true)
 }

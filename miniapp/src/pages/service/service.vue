@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import {restoreRegistrationSession} from '../../utils/registrationSession'
 import { loginRouteFor } from "../../utils/loginReturn"
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
@@ -1266,6 +1267,7 @@ onShow(() => { void refreshMiniappShareMenu() })
             <text class="row-main">{{ item.order_no || '未编号订单' }}</text>
             <text class="price">¥{{ item.grand_total || '0.00' }}</text>
           </view>
+          <OrderDetailsCopyButton v-if="!isProcessingCustomer || officialOrders" :order-id="item.id" />
           <text v-if="item.receiver_name || item.receiver_phone || item.receiver_address" class="row-sub">
             收件人：{{ item.receiver_name || '未填写' }} {{ item.receiver_phone || '' }} {{ item.receiver_address || '' }}
           </text>
@@ -1281,6 +1283,7 @@ onShow(() => { void refreshMiniappShareMenu() })
           <text class="row-sub">运费：¥{{ item.shipping_amount || '0.00' }}</text>
           <text class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }}</text>
           <view v-if="!isProcessingCustomer" class="document-actions">
+            <OrderDetailsCopyButton :order-id="item.id" />
             <button class="secondary compact" @tap="openOrderDocument(item.sales_order_url)">销售单</button>
             <button class="secondary compact" @tap="openOrderDocument(item.delivery_note_url)">出库单</button>
           </view>

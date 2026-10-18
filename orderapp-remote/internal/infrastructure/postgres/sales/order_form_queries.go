@@ -2363,6 +2363,24 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		}
 		return nil, err
 	}
+	if err = r.pool.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE(to_jsonb(o)->>'settlement_reason','') FROM %s.orders o WHERE id=$1", r.schema), id).Scan(&d.SettlementReason); err != nil {
+		return nil, err
+	}
+	d.IsSampleOrder, err = sampleOrderLinked(ctx, r.pool, r.schema, id)
+	if err != nil {
+		return nil, err
+	}
+	if d.IsSampleOrder {
+		state, stateErr := r.OrderEditability(ctx, id)
+		if stateErr != nil {
+			return nil, stateErr
+		}
+		d.EditBlockReason = state.BlockReason
+		if err = r.pool.QueryRow(ctx, fmt.Sprintf("SELECT coalesce(receiver_name,''),coalesce(receiver_phone,''),coalesce(receiver_address,''),coalesce(receiver_company,'') FROM %s.orders WHERE id=$1", r.schema), id).Scan(&d.ReceiverName, &d.ReceiverPhone, &d.ReceiverAddress, &d.ReceiverCompany); err != nil {
+			return nil, err
+		}
+	}
+
 	d.TotalAmount = fmt.Sprintf("%.2f", totalAmt)
 	d.ShippingAmount = fmt.Sprintf("%.2f", shipAmt)
 	d.DiscountAmount = fmt.Sprintf("%.2f", discAmt)

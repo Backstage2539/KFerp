@@ -25,6 +25,7 @@ function storedMiniappToken(): string {
 export const useSessionStore = defineStore('session', {
   state: () => ({
     token: storedMiniappToken(),
+    autoRestoreBlocked: !!uni.getStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment())),
  registration: null as RegistrationProfile|null,
  registrationComplete:false,
  registrationKnown:!!uni.getStorageSync(miniappStorageKey('registered',configuredMiniappEnvironment())),
@@ -44,7 +45,14 @@ export const useSessionStore = defineStore('session', {
   actions: {
     setToken(token: string) {
       this.token = token
+      this.autoRestoreBlocked = false
+      uni.removeStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment()))
       uni.setStorageSync(miniappTokenStorageKey(), token)
+    },
+    logout() {
+      this.autoRestoreBlocked = true
+      uni.setStorageSync(miniappStorageKey('signed-out', configuredMiniappEnvironment()), true)
+      this.clearSession(true)
     },
     clearSession(preserveRegistrationHint = false) {
       this.token = ''

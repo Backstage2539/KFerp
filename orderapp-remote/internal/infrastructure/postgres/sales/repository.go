@@ -21,6 +21,8 @@ import (
 )
 
 type Repository struct {
+	orderTx                  pgx.Tx
+	allowZeroSamplePrice     bool
 	pool                     *pgxpool.Pool
 	schema                   string
 	assetDir                 string
@@ -367,6 +369,10 @@ func validateOrderFulfillmentRequirementsTx(ctx context.Context, tx pgx.Tx, sche
 	if len(shipMethods) > 0 {
 		shipMethod = shipMethods[0]
 	}
+	return validateOrderFulfillmentWithPaymentPolicyTx(ctx, tx, schema, payStatusID, shipStatusID, logisticsCompanyID, logisticsProductID, paymentGoodsAmount, paymentShippingAmount, paymentVoucherAssetID, shipMethod, false, false)
+}
+
+func validateOrderFulfillmentWithPaymentPolicyTx(ctx context.Context, tx pgx.Tx, schema string, payStatusID, shipStatusID, logisticsCompanyID, logisticsProductID int64, paymentGoodsAmount, paymentShippingAmount float64, paymentVoucherAssetID int64, shipMethod string, freeSample, zeroGoodsSample bool) error {
 	shipStatusName, err := lookupStatusName(ctx, tx, schema, "ship_statuses", shipStatusID)
 	if err != nil {
 		return fmt.Errorf("invalid ship_status_id")
@@ -401,8 +407,8 @@ func validateOrderFulfillmentRequirementsTx(ctx context.Context, tx pgx.Tx, sche
 	if err != nil {
 		return fmt.Errorf("invalid pay_status_id")
 	}
-	if orderPaidStatusRequiresReceipt(payStatusName) {
-		if paymentGoodsAmount <= 0 {
+	if orderPaidStatusRequiresReceipt(payStatusName) && !freeSample {
+		if paymentGoodsAmount < 0 || paymentGoodsAmount == 0 && !(zeroGoodsSample && paymentShippingAmount > 0) {
 			return fmt.Errorf("payment_goods_amount required")
 		}
 		if paymentShippingAmount < 0 {
@@ -1227,6 +1233,17 @@ func orderItemsInsertSQL(schema string) string {
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34::jsonb)`, schema)
 }
 
+// WithOrderTransaction joins a caller-owned business transaction. The caller commits.
+func (r Repository) WithOrderTransaction(tx pgx.Tx) Repository { r.orderTx = tx; return r }
+
+// WithSampleOrderTransaction permits free merchandise only in the sample workflow's
+// caller-owned transaction; ordinary order APIs cannot enable it through request JSON.
+func (r Repository) WithSampleOrderTransaction(tx pgx.Tx) Repository {
+	r.orderTx = tx
+	r.allowZeroSamplePrice = tx != nil
+	return r
+}
+
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	od := cmd.OrderDate
 	if od.IsZero() {
@@ -1241,6 +1258,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	type item struct {
+		conversion                         *salesapp.SpecConversionSelection
+		conversionQuote                    *salesapp.SpecConversionQuote
+		frozenConversion                   bool
 		itemID                             int64
 		productID                          *int64
 		submittedParentProductID           int64
@@ -1253,6 +1273,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		legacyPricingSpecG                 int64
 		legacyPricingSalesUnit             string
 		canonicalBOMSpec                   bool
+		sampleSnapshot                     bool
 		canonicalDirectProduct             bool
 		customerProductAliasID             int64
 		customerProductReferenceID         int64
@@ -1296,6 +1317,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			continue
 		}
 		it := item{
+			conversion:                         src.SpecConversion,
 			itemID:                             src.ItemID,
 			productID:                          src.ProductID,
 			submittedParentProductID:           src.ParentProductID,
@@ -1349,7 +1371,19 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				it.priceSelectionMode = "auto"
 			}
 		}
+
+		if it.priceSelectionMode != "converted_tier" && it.priceSelectionMode != "bom_tier" && it.conversion != nil {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("规格换算参数与计价方式不一致")
+		}
 		switch it.priceSelectionMode {
+		case "converted_tier", "bom_tier":
+			if it.conversion != nil && ((it.priceSelectionMode == "bom_tier" && (it.conversion.PricingMethod != "bom_rule" || it.conversion.QuoteRevision == "")) || (it.priceSelectionMode == "converted_tier" && it.conversion.PricingMethod != "")) {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("请先按所选计价方式完成报价")
+			}
+			if cmd.CustomerSubmission || it.conversion == nil || it.selectedPriceRowKey == "" || it.manualPrice != nil || it.bomSpecID <= 0 {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("员工规格换算参数无效")
+			}
+
 		case "auto":
 			if it.selectedPriceRowKey != "" {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("自动计价不能携带手选档位，请重新选择计价方式")
@@ -1399,17 +1433,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if !valid {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("at least one item required")
 	}
-	conn, err := r.pool.Acquire(ctx)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
+	tx := r.orderTx
+	var err error
+	if tx == nil {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
 	}
-	defer conn.Release()
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if cmd.CustomerRequestID != "" {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("customer-order:%d:%s", cmd.CustomerID, cmd.CustomerRequestID)); err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -1443,6 +1475,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 	editID := cmd.EditID
+	allowFreeSamplePrice := r.allowZeroSamplePrice && r.orderTx != nil
+	sampleEdit := false
+	usedSampleItemIDs := map[int64]bool{}
 	var orderID int64
 	orderNo := ""
 	beforeAuditSummary := ""
@@ -1500,6 +1535,22 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
+	if editID > 0 {
+		sampleEdit, err = sampleOrderLinked(ctx, tx, r.schema, editID)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if sampleEdit {
+			state, stateErr := loadOrderEditState(ctx, tx, r.schema, editID, false)
+			if stateErr != nil {
+				return salesapp.SaveOrderResult{}, stateErr
+			}
+			if editable := salesapp.EvaluateOrderEditability(state); !editable.CanEdit {
+				return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError(editable.BlockReason)
+			}
+		}
+
+	}
 	if cmd.RequireCurrentDefaultPublications {
 		if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.bean_list_publications IN SHARE MODE", r.schema)); err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -1532,14 +1583,48 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if items[idx].productID == nil || *items[idx].productID <= 0 {
 			continue
 		}
-		identity, identityErr := resolveOrderBOMSpecIdentityTx(
-			ctx,
-			tx,
-			r.schema,
-			*items[idx].productID,
-			items[idx].bomSpecID,
-			items[idx].bomVariantID,
-		)
+
+		var identity orderBOMSpecIdentity
+		var identityErr error
+		if items[idx].priceSelectionMode == "converted_tier" || items[idx].priceSelectionMode == "bom_tier" {
+			request := salesapp.SpecConversionQuoteRequest{SpecConversionSelection: *items[idx].conversion, CustomerID: cmd.CustomerID, ProductID: *items[idx].productID, PublicationID: items[idx].itemBeanListPublicationID, PriceRowKey: items[idx].selectedPriceRowKey, TargetSpecID: items[idx].bomSpecID, TargetVariantID: items[idx].bomVariantID, Quantity: items[idx].units}
+			quote, frozen, quoteErr := frozenSpecConversionTx(ctx, tx, r.schema, editID, items[idx].itemID, request)
+			if quoteErr != nil {
+				return salesapp.SaveOrderResult{}, quoteErr
+			}
+			if !frozen {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("%s", salesapp.PriceTableOrderScopeMessage)
+			}
+			items[idx].conversionQuote = &quote
+			items[idx].frozenConversion = frozen
+			if frozen {
+				if len(cmd.SelectedPriceTableIDs) > 0 {
+					selected := false
+					for _, id := range cmd.SelectedPriceTableIDs {
+						if id == request.PublicationID {
+							selected = true
+						}
+					}
+					if !selected {
+						return salesapp.SaveOrderResult{}, fmt.Errorf("价格表选择已改变，请重新计价")
+					}
+				}
+				var snapshot struct {
+					SpecKey     string `json:"bom_spec_key"`
+					ProductName string `json:"product_name"`
+					ProductCode string `json:"product_code"`
+				}
+				_ = json.Unmarshal([]byte(quote.PriceSourceJSON), &snapshot)
+				var originalName, originalCode string
+				if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE(product_name_snapshot,''),COALESCE(product_code_snapshot,'') FROM %s.order_items WHERE order_id=$1 AND id=$2", r.schema), editID, items[idx].itemID).Scan(&originalName, &originalCode); err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+				identity = orderBOMSpecIdentity{ProductID: request.ProductID, BomSpecID: request.TargetSpecID, BomVariantID: request.TargetVariantID, BomSpecName: quote.TargetSpecName, BomSpecKey: snapshot.SpecKey, InventoryUnit: quote.TargetUnit, ProductName: originalName, ProductCode: originalCode}
+			}
+		}
+		if !items[idx].frozenConversion {
+			identity, identityErr = resolveOrderBOMSpecIdentityTx(ctx, tx, r.schema, *items[idx].productID, items[idx].bomSpecID, items[idx].bomVariantID)
+		}
 		if identityErr != nil {
 			return salesapp.SaveOrderResult{}, identityErr
 		}
@@ -1757,8 +1842,40 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		itemWeightG := orderItemWeightG(items[idx].productKind, items[idx].salesUnit, items[idx].unitBeanG, items[idx].unitBagCount, items[idx].specG, items[idx].units)
 		orderWeightG += itemWeightG
 
+		if items[idx].conversionQuote != nil {
+			quote := items[idx].conversionQuote
+			items[idx].unitPrice, _ = strconv.ParseFloat(quote.UnitPrice, 64)
+			items[idx].baseLineTotal, _ = strconv.ParseFloat(quote.LineTotal, 64)
+			items[idx].quantityBasis = "sales_spec_count"
+			items[idx].matchedPriceQty = float64(items[idx].units)
+			items[idx].itemBeanListVersionNo = quote.VersionNo
+			items[idx].priceSourceJSON = canonicalPriceSource(idx, quote.PriceSourceJSON)
+			var source struct {
+				ListType string `json:"list_type"`
+			}
+			_ = json.Unmarshal([]byte(quote.PriceSourceJSON), &source)
+			items[idx].priceListType = source.ListType
+			items[idx].tierID = nil
+			items[idx].priceOverride = false
+			applyItemDiscount(idx)
+			totalAmt += items[idx].baseLineTotal
+			itemDiscountAmt += items[idx].discountAmount
+			continue
+		}
+		if sampleEdit && !usedSampleItemIDs[items[idx].itemID] && items[idx].manualPrice != nil && items[idx].canonicalBOMSpec && items[idx].productID != nil {
+			it := &items[idx]
+			it.sampleSnapshot, err = sampleOrderItemMatches(ctx, tx, r.schema, editID, it.itemID, *it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, it.itemBeanListPublicationID)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if it.sampleSnapshot {
+				usedSampleItemIDs[it.itemID] = true
+			}
+		}
 		if items[idx].manualPrice != nil && (*items[idx].manualPrice <= 0 || math.IsNaN(*items[idx].manualPrice) || math.IsInf(*items[idx].manualPrice, 0)) {
-			return salesapp.SaveOrderResult{}, fmt.Errorf("手动单价必须大于0")
+			if !((allowFreeSamplePrice || items[idx].sampleSnapshot) && items[idx].canonicalBOMSpec && *items[idx].manualPrice == 0) {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("手动单价必须大于0")
+			}
 		}
 		if items[idx].manualPrice != nil {
 			discountItem := orderDiscountItem{
@@ -2094,16 +2211,38 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	{
 		actualIDs := make([]int64, 0, len(items))
+		frozenIDs := map[int64]bool{}
+		liveIDs := map[int64]bool{}
 		for _, it := range items {
+			if it.frozenConversion || it.sampleSnapshot {
+				frozenIDs[it.itemBeanListPublicationID] = true
+			} else {
+				liveIDs[it.itemBeanListPublicationID] = true
+			}
+		}
+		validationCmd := cmd
+		validationCmd.SelectedPriceTableIDs = nil
+		for _, id := range cmd.SelectedPriceTableIDs {
+			if !frozenIDs[id] || liveIDs[id] {
+				validationCmd.SelectedPriceTableIDs = append(validationCmd.SelectedPriceTableIDs, id)
+			}
+		}
+		for _, it := range items {
+			if it.frozenConversion || it.sampleSnapshot {
+				continue
+			}
 			actualIDs = append(actualIDs, it.itemBeanListPublicationID)
 		}
-		tableMetadata, selectionErr := validateSelectedPriceTablesTx(ctx, tx, r.schema, cmd, actualIDs)
+		tableMetadata, selectionErr := validateSelectedPriceTablesTx(ctx, tx, r.schema, validationCmd, actualIDs)
 		if selectionErr != nil {
 			return salesapp.SaveOrderResult{}, selectionErr
 		}
 		contents := map[int64][]byte{}
 		for i := range items {
 			it := &items[i]
+			if it.frozenConversion {
+				continue
+			}
 			table := tableMetadata[it.itemBeanListPublicationID]
 			if table.ReleaseID != "" {
 				raw, loaded := contents[table.ID]
@@ -2117,6 +2256,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				if it.productID != nil {
 					productID = *it.productID
 				}
+				// Only original frozen rows were skipped above; every new row must
+				// belong to the selected published table, including manual prices.
 				if err := validateNamedOrderItemSnapshot(raw, table, productID, it.bomSpecID, it.bomVariantID, it.specG, it.units, it.salesUnit, it.unitBagCount); err != nil {
 					return salesapp.SaveOrderResult{}, fmt.Errorf("商品「%s」：%w", it.name, err)
 				}
@@ -2128,6 +2269,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if cmd.RequireCurrentDefaultPublications {
 		checked := make(map[string]bool)
 		for _, it := range items {
+			if it.frozenConversion || it.sampleSnapshot {
+				continue
+			}
 			key := fmt.Sprintf("%d:%s", it.itemBeanListPublicationID, it.priceListType)
 			if checked[key] {
 				continue
@@ -2140,6 +2284,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if !current {
 				return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("价格表已更新，请重新选择商品规格后保存")
 			}
+		}
+	}
+
+	if allowFreeSamplePrice || sampleEdit {
+		if strings.TrimSpace(cmd.ReceiverName) == "" || strings.TrimSpace(cmd.ReceiverPhone) == "" || strings.TrimSpace(cmd.ReceiverAddress) == "" {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("请在订单顶部收件信息中补齐收件人、电话和地址")
 		}
 	}
 
@@ -2173,6 +2323,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if cmd.PrepaymentAmount != nil {
 		prepayment = *cmd.PrepaymentAmount
 	}
+	settlementReason, payStatusID, err := r.resolveSampleSettlementTx(ctx, tx, &cmd, allowFreeSamplePrice || sampleEdit, totalAmt, shippingAmt, outsourceTotal, grandTotal, payStatusID, prepayment)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 	paymentStatus, err := lookupStatusName(ctx, tx, r.schema, "pay_statuses", payStatusID)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
@@ -2180,9 +2334,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if err := salesdomain.ValidatePrepayment(paymentStatus, prepayment, grandTotal); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
-	paymentMethod, err := normalizeOrderPaymentMethodForStatusTx(ctx, tx, r.schema, payStatusID, cmd.PaymentMethod)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
+	paymentMethod := ""
+	if settlementReason != "free_sample" {
+		paymentMethod, err = normalizeOrderPaymentMethodForStatusTx(ctx, tx, r.schema, payStatusID, cmd.PaymentMethod)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 
 	// 默认发货状态：未选择时自动写入“未发货”。
@@ -2216,7 +2373,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		cmd.LogisticsCompanyID, cmd.LogisticsProductID = 0, 0
 		cmd.ShipTrackingNo = ""
 	}
-	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, r.schema, payStatusID, shipStatusID, cmd.LogisticsCompanyID, cmd.LogisticsProductID, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount, cmd.PaymentVoucherAssetID, cmd.ShipMethod); err != nil {
+	if err := validateOrderFulfillmentWithPaymentPolicyTx(ctx, tx, r.schema, payStatusID, shipStatusID, cmd.LogisticsCompanyID, cmd.LogisticsProductID, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount, cmd.PaymentVoucherAssetID, cmd.ShipMethod, settlementReason == "free_sample", (allowFreeSamplePrice || sampleEdit) && totalAmt == 0); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
 
@@ -2251,7 +2408,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		portalServiceCode = cmd.PortalServiceCode
 	}
 	publicationRefs := make([]orderHeaderPublicationRef, 0, len(items))
+	manualSamplesOnly := len(items) > 0
 	for _, it := range items {
+		manualSamplesOnly = manualSamplesOnly && (allowFreeSamplePrice || it.sampleSnapshot) && it.manualPrice != nil
 		publicationRefs = append(publicationRefs, orderHeaderPublicationRef{
 			publicationID: it.itemBeanListPublicationID,
 			listType:      it.priceListType,
@@ -2264,7 +2423,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	)
 	beanListPublicationID := int64(0)
 	beanListVersionNo := ""
-	if !ambiguousHeaderPublication {
+	frozenHeaderVersion := ""
+	for _, it := range items {
+		if it.frozenConversion && it.itemBeanListPublicationID == headerPublicationID {
+			frozenHeaderVersion = it.itemBeanListVersionNo
+		}
+	}
+	if !ambiguousHeaderPublication && frozenHeaderVersion != "" {
+		beanListPublicationID, beanListVersionNo = headerPublicationID, frozenHeaderVersion
+	} else if !ambiguousHeaderPublication && !(manualSamplesOnly && headerPublicationID == 0) {
 		beanListPublicationID, beanListVersionNo, err = r.resolveOrderBeanListPublicationTx(ctx, tx, cmd.CustomerID, headerPublicationID, orderbeans.ListTypeCommercial)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -2275,7 +2442,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	if editID > 0 {
 		if !cmd.PreserveFulfillmentSnapshot {
-			portalServiceCode, sourceWarehouse = resolveOrderFulfillmentMarkers(existingPortalServiceCode, existingSourceWarehouse, portalServiceCode, sourceWarehouse)
+			portalServiceCode, sourceWarehouse = existingPortalServiceCode, existingSourceWarehouse
 		}
 		uq := fmt.Sprintf(`
 				UPDATE %s.orders
@@ -2382,7 +2549,21 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				}
 			}
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.order_items WHERE order_id=$1", r.schema), orderID); err != nil {
+		// Preserve validated historical rows in place: the BOM identity guard allows
+		// unchanged archived variants on UPDATE, while INSERT correctly requires current identity.
+		frozenItemIDs := []int64{}
+		seenFrozenItems := map[int64]bool{}
+		for _, it := range items {
+			if !it.frozenConversion {
+				continue
+			}
+			if seenFrozenItems[it.itemID] {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("同一历史明细不能重复提交，请使用新增明细并重新报价")
+			}
+			seenFrozenItems[it.itemID] = true
+			frozenItemIDs = append(frozenItemIDs, it.itemID)
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.order_items WHERE order_id=$1 AND NOT(id=ANY($2::bigint[]))", r.schema), orderID, frozenItemIDs); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	} else {
@@ -2558,9 +2739,14 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if it.canonicalBOMSpec && it.legacyPricingProductID > 0 {
 			usageProductID = it.legacyPricingProductID
 		}
-		usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, usageProductID, itemListType, itemPublicationID)
-		if err != nil {
-			return salesapp.SaveOrderResult{}, err
+		usage := orderbeans.Usage{PublicationID: it.itemBeanListPublicationID, VersionNo: it.itemBeanListVersionNo}
+		if it.conversionQuote != nil {
+			usage = orderbeans.Usage{PublicationID: it.conversionQuote.PublicationID, VersionNo: it.conversionQuote.VersionNo}
+		} else if !(allowFreeSamplePrice || it.sampleSnapshot) || it.manualPrice == nil {
+			usage, err = orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, usageProductID, itemListType, itemPublicationID)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
 		}
 		if !it.priceOverride && productID > 0 && usage.PublicationID > 0 && strings.TrimSpace(it.priceSourceJSON) == "" {
 			priceSourceJSON = beanListPriceSourceJSON(itemListType, usage, productID)
@@ -2571,14 +2757,22 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if err := validateCustomerAliasPublishedPrice(it.customerProductAliasID, it.priceOverride, it.unitPrice); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
-		productionConfigJSON, err := loadProductProductionConfigSummaryForOrderItemTx(ctx, tx, r.schema, productID)
-		if err != nil {
-			return salesapp.SaveOrderResult{}, err
+		if !it.frozenConversion {
+			productionConfigJSON, err := loadProductProductionConfigSummaryForOrderItemTx(ctx, tx, r.schema, productID)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			priceSourceJSON = withProductProductionConfigPriceSourceJSON(priceSourceJSON, productionConfigJSON)
+			priceSourceJSON, err = orderPublicationTraceSnapshot(ctx, tx, r.schema, usage.PublicationID, priceSourceJSON, false)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
 		}
-		priceSourceJSON = withProductProductionConfigPriceSourceJSON(priceSourceJSON, productionConfigJSON)
-		priceSourceJSON, err = orderPublicationTraceSnapshot(ctx, tx, r.schema, usage.PublicationID, priceSourceJSON, false)
-		if err != nil {
-			return salesapp.SaveOrderResult{}, err
+		if it.frozenConversion {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_items SET line_no=$3,item_note=$4,qty=$5,line_total_before_discount=$6,discount_type=$7,discount_value=$8,discount_amount=$9,line_total=$10,matched_price_qty=$11 WHERE order_id=$1 AND id=$2`, r.schema), orderID, it.itemID, idx+1, it.note, qtyAny, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.matchedPriceQty); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			continue
 		}
 		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductReferenceID, nil, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -2620,6 +2814,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET settlement_reason=$2 WHERE id=$1", r.schema), orderID, settlementReason); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 	afterAuditSummary, err := loadOrderSaveAuditSummaryTx(ctx, tx, r.schema, orderID)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
@@ -2642,8 +2839,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return salesapp.SaveOrderResult{}, err
+	if r.orderTx == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 
 	confirmationStatus := "accepted"
@@ -3071,6 +3270,8 @@ func loadOrderSaveAuditSummaryTx(ctx context.Context, tx pgx.Tx, schema string, 
 			'receiver_company', COALESCE(o.receiver_company,''),
 			'prepayment_amount', COALESCE((to_jsonb(o)->>'prepayment_amount')::numeric,0),
 			'pay_status_id', to_jsonb(o)->'pay_status_id',
+            'settlement_reason', to_jsonb(o)->'settlement_reason',
+            'portal_service_code', to_jsonb(o)->'portal_service_code',
             'order_type_id', to_jsonb(o)->'order_type_id',
             'ship_method', to_jsonb(o)->'ship_method',
             'ship_status_id', to_jsonb(o)->'ship_status_id',
@@ -3102,7 +3303,10 @@ func loadOrderSaveAuditSummaryTx(ctx context.Context, tx pgx.Tx, schema string, 
 					'discount_value', COALESCE(oi.discount_value,0),
 					'discount_amount', COALESCE(oi.discount_amount,0),
 					'bean_list_publication_id', COALESCE(oi.bean_list_publication_id,0),
-					'bean_list_version_no', COALESCE(oi.bean_list_version_no,'')
+					'bean_list_version_no', COALESCE(oi.bean_list_version_no,''),
+                    'bom_spec_id', to_jsonb(oi)->'bom_spec_id',
+                    'bom_variant_id', to_jsonb(oi)->'bom_variant_id',
+                    'spec_conversion', to_jsonb(oi)->'price_source_json'->'spec_conversion'
 				) ORDER BY oi.line_no, oi.id)
 				FROM %[1]s.order_items oi
 				WHERE oi.order_id=o.id

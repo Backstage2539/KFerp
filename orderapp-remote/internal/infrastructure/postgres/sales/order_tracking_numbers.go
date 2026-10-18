@@ -19,6 +19,9 @@ func orderTrackingSummaryExpr(schema, orderAlias string) string {
 }
 
 func appendOrderTrackingNumbersTx(ctx context.Context, tx pgx.Tx, schema string, orderID int64, raw, source, actor string) (string, error) {
+	if err := requireSampleShippingRecipientTx(ctx, tx, schema, orderID); err != nil {
+		return "", err
+	}
 	if err := requireCourierOrderTx(ctx, tx, schema, orderID); err != nil {
 		return "", err
 	}

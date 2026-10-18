@@ -10,11 +10,11 @@ import (
 
 func (r Repository) LoadMaterialCostTrialOptions(ctx context.Context, materialID int64) (appcosting.MaterialCostTrialOptions, error) {
 	var mode string
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT CASE WHEN COALESCE(is_semi_finished,false) THEN 'manufacture' ELSE 'purchase' END FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), materialID).Scan(&mode); err != nil {
+	if err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT CASE WHEN COALESCE(is_semi_finished,false) THEN 'manufacture' ELSE 'purchase' END FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), materialID).Scan(&mode); err != nil {
 		return appcosting.MaterialCostTrialOptions{}, err
 	}
 	result := appcosting.MaterialCostTrialOptions{MaterialID: materialID, SupplyMode: mode, BomVersions: []appcosting.MaterialCostTrialOption{}}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT pb.id, COALESCE(NULLIF(pb.name,''),'制造 BOM'), v.id,
 		       COALESCE(NULLIF(v.version_no,''),v.id::text), v.status,
 		       COALESCE(ob.is_default,false)
@@ -41,7 +41,7 @@ func (r Repository) LoadMaterialCostTrialOptions(ctx context.Context, materialID
 func (r Repository) LoadMaterialCostTrial(ctx context.Context, cmd appcosting.MaterialCostTrialCommand) (appcosting.MaterialCostTrialResult, error) {
 	var result appcosting.MaterialCostTrialResult
 	var isSemi bool
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT id,code,name,COALESCE(is_semi_finished,false),COALESCE(unit,'kg') FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.MaterialID).
+	if err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`SELECT id,code,name,COALESCE(is_semi_finished,false),COALESCE(unit,'kg') FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.MaterialID).
 		Scan(&result.MaterialID, &result.MaterialCode, &result.MaterialName, &isSemi, &result.CostUnit); err != nil {
 		return result, err
 	}
@@ -51,7 +51,7 @@ func (r Repository) LoadMaterialCostTrial(ctx context.Context, cmd appcosting.Ma
 	}
 	result.SupplyMode = "purchase"
 	var weighted, purchase, estimate float64
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := r.readDB(ctx).QueryRow(ctx, fmt.Sprintf(`
 		WITH valuation AS (
 			SELECT SUM((CASE WHEN lower(COALESCE(NULLIF(m.unit,''),'kg')) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司') THEN l.qty_g::numeric ELSE l.qty_units::numeric END) * COALESCE(b.unit_cost,0)) /
 			NULLIF(SUM(CASE WHEN lower(COALESCE(NULLIF(m.unit,''),'kg')) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司') THEN l.qty_g::numeric ELSE l.qty_units::numeric END),0) AS weighted
@@ -223,7 +223,7 @@ func (r Repository) loadMaterialCostTrialOperationDetails(ctx context.Context, v
 	if versionID <= 0 {
 		return nil, nil
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	rows, err := r.readDB(ctx).Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(operation_name,''),'工序'),
 		       COALESCE(NULLIF(workstation_name,''),''),

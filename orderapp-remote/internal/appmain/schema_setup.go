@@ -4,6 +4,7 @@ import (
 	"context"
 	postgresofficialaccount "orderapp/internal/infrastructure/postgres/officialaccount"
 	postgrespageentry "orderapp/internal/infrastructure/postgres/pageentry"
+	postgressamples "orderapp/internal/infrastructure/postgres/samples"
 
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
@@ -59,6 +60,7 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		{Name: "production", Run: func(ctx context.Context) error { return postgresproduction.EnsureSchema(ctx, pool, schema) }},
 		{Name: "productcreator", Run: func(ctx context.Context) error { return postgresproductcreator.EnsureSchema(ctx, pool, schema) }},
 		{Name: "sales", Run: func(ctx context.Context) error { return postgressales.EnsureSchema(ctx, pool, schema) }},
+		{Name: "samples", Run: func(ctx context.Context) error { return postgressamples.EnsureSchema(ctx, pool, schema) }},
 		{Name: "contracts", Run: func(ctx context.Context) error { return postgrescontracts.EnsureSchema(ctx, pool, schema) }},
 		{Name: "product-bom-spec-authority-guards", Run: func(ctx context.Context) error {
 			return postgresproductspecmigration.EnsureAuthorityProjection(ctx, pool, schema)

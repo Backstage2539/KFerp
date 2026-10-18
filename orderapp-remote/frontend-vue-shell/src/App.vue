@@ -212,6 +212,7 @@ const CompanyStaffView = lazyView(() => import('./views/CompanyStaffView.vue'))
 const ContractsView = lazyView(() => import('./views/ContractsView.vue'))
 const CostingView = lazyView(() => import('./views/CostingView.vue'))
 const CustomerCapabilityTemplatesView = lazyView(() => import('./views/CustomerCapabilityTemplatesView.vue'))
+const SampleRequestsView = lazyView(() => import('./views/SampleRequestsView.vue'))
 const CustomersView = lazyView(() => import('./views/CustomersView.vue'))
 const CustomerFulfillmentView = lazyView(() => import('./views/CustomerFulfillmentView.vue'))
 const CustomerAccountView = lazyView(() => import('./views/CustomerAccountView.vue'))
@@ -270,6 +271,7 @@ const WorkOrdersView = lazyView(() => import('./views/WorkOrdersView.vue'))
 
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
 import { appURL } from './api/client.js'
+import { sampleNotificationNavigation, actorCanUseSamples } from './lib/samples.js'
 import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillment.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { fetchUISettings } from './api/ui-settings.js'
@@ -410,6 +412,9 @@ const UnknownView = {
 }
 
 const internalViews = {
+  sampleRequests: SampleRequestsView,
+  sampleRequestsManual: OperationManualView,
+  miniappEmployeeManual: OperationManualView,
   order: OrderEntryView,
   orders: OrdersView,
   contracts: ContractsView,
@@ -1021,6 +1026,13 @@ async function openNotification(item) {
     await dismissNotification(item)
     return
   }
+  const sampleNavigation = sampleNotificationNavigation(item)
+  if (sampleNavigation) {
+    const returnNavigation = { key: currentKey.value, params: { ...currentViewParams.value }, label: '返回来源操作' }
+    await dismissNotification(item)
+    window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { ...sampleNavigation, returnNavigation } }))
+    return
+  }
   const payload = item?.payload || {}
   const orderID = Number(payload.highlight_order_id || payload.order_id || item?.source_id || 0)
   await dismissNotification(item)
@@ -1188,7 +1200,8 @@ const allowedViewKeys = computed(() => {
   if (!currentActor.value) return []
   if (isCustomerAccountActor(currentActor.value)) return customerAccountActorMenuGroups.value.flatMap(group => group.items.map(item => item.key))
   if (actorHasFullViewAccess(currentActor.value)) return null
-  return Array.isArray(currentActor.value.allowed_views) ? currentActor.value.allowed_views : []
+  const views = Array.isArray(currentActor.value.allowed_views) ? currentActor.value.allowed_views : []
+  return actorCanUseSamples(currentActor.value) ? views : views.filter(key => !['sampleRequests', 'sampleRequestsManual'].includes(key))
 })
 const isCustomerActor = computed(() => isCustomerAccountActor(currentActor.value))
 const showWorkspaceSwitcher = computed(() => Boolean(currentActor.value) && !isCustomerActor.value)

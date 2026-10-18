@@ -16,8 +16,12 @@ func EnsureCustomerOrderSchema(ctx context.Context, pool *pgxpool.Pool, schema s
  ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS customer_request_id TEXT NOT NULL DEFAULT '', ADD COLUMN IF NOT EXISTS customer_request_hash TEXT NOT NULL DEFAULT '';
  CREATE UNIQUE INDEX IF NOT EXISTS orders_customer_request_unique ON %[1]s.orders(customer_id,customer_request_id) WHERE customer_request_id<>'';
  CREATE OR REPLACE FUNCTION %[1]s.require_fulfillment_recipient() RETURNS trigger LANGUAGE plpgsql AS $fn$
+ DECLARE sample_order boolean := false;
  BEGIN
- IF NEW.portal_service_code IN ('direct_ship','product_order','processing_ship')
+ IF to_regclass(format('%%I.sample_work_orders',TG_TABLE_SCHEMA)) IS NOT NULL THEN
+ EXECUTE format('SELECT EXISTS(SELECT 1 FROM %%I.sample_work_orders WHERE order_id=$1)',TG_TABLE_SCHEMA) INTO sample_order USING NEW.id;
+ END IF;
+ IF (sample_order OR NEW.portal_service_code IN ('direct_ship','product_order','processing_ship'))
  AND (btrim(coalesce(NEW.receiver_name,''))='' OR btrim(coalesce(NEW.receiver_phone,''))='' OR btrim(coalesce(NEW.receiver_address,''))='')
  AND EXISTS(SELECT 1 FROM %[1]s.ship_statuses WHERE id=NEW.ship_status_id AND name IN ('部分发货','已发货','已出库','已签收','已收货','已完成'))
  THEN RAISE EXCEPTION '待补收件信息：填写收件人、电话和地址后才能发货' USING ERRCODE='23514'; END IF;

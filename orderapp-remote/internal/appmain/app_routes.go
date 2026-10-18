@@ -20,6 +20,7 @@ import (
 	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	purchaseapp "orderapp/internal/application/purchase"
 	salesapp "orderapp/internal/application/sales"
+	samplesapp "orderapp/internal/application/samples"
 	stockapp "orderapp/internal/application/stock"
 	docconvert "orderapp/internal/infrastructure/docconvert"
 	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
@@ -41,6 +42,7 @@ import (
 	postgresproductspecmigration "orderapp/internal/infrastructure/postgres/productspecmigration"
 	postgrespurchase "orderapp/internal/infrastructure/postgres/purchase"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
+	samplespg "orderapp/internal/infrastructure/postgres/samples"
 	postgresstock "orderapp/internal/infrastructure/postgres/stock"
 	bomhttp "orderapp/internal/interfaces/http/bom"
 	cataloghttp "orderapp/internal/interfaces/http/catalog"
@@ -62,6 +64,7 @@ import (
 	productspecmigrationhttp "orderapp/internal/interfaces/http/productspecmigration"
 	purchasehttp "orderapp/internal/interfaces/http/purchase"
 	saleshttp "orderapp/internal/interfaces/http/sales"
+	sampleshttp "orderapp/internal/interfaces/http/samples"
 	stockhttp "orderapp/internal/interfaces/http/stock"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
@@ -107,6 +110,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	officialaccounthttp.RegisterRoutes(e, pool, schema, customerPortalSvc, authzSvc, officialaccounthttp.ConfigFromEnv(cfg.WechatMiniAppID))
 	pageentryhttp.RegisterRoutes(e, pool, schema, customerPortalSvc, authzSvc, pageentryhttp.ConfigFromEnv())
 	supporthttp.RegisterRoutes(e, pool, schema, supporthttp.Dependencies{Authz: authzSvc, ERPLoginEligibility: customerFulfillmentSvc})
+	sampleshttp.RegisterRoutes(e, sampleshttp.Dependencies{Service: samplesapp.NewService(samplespg.NewRepository(pool, schema)), Portal: customerPortalSvc, Authz: authzSvc, Messages: messageCenterSvc})
 	messagecenterhttp.RegisterRoutes(e, messagecenterhttp.Dependencies{MessageCenter: messageCenterSvc})
 	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, CustomerFulfillment: customerFulfillmentSvc, Authz: authzSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, EmployeeShareSettings: supporthttp.NewAppConfigStore(pool, schema), AssetDir: assetDir})
 	customerfulfillmenthttp.RegisterRoutes(e, customerfulfillmenthttp.Dependencies{CustomerFulfillment: customerFulfillmentSvc, Customers: customerSvc, MessageCenter: messageCenterSvc, Sales: salesSvc, SharedProcessing: customerPortalSvc})

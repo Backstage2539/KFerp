@@ -258,7 +258,7 @@ func (r SalesOrderRenderer) renderCombinedSalesOrderGroups(pdf *gofpdf.Fpdf, sna
 		}
 		pdf.SetFont("noto", "B", 10)
 		pdf.CellFormat(usableW, 8, fmt.Sprintf("小计：商品 %s  优惠 %s  运费 %s  应收 %s", group.TotalAmount, group.Discount, group.Shipping, group.GrandTotal), "B", 1, "R", false, 0, "")
-		for _, row := range salesOrderPaymentRows(salesdomain.SalesOrderSnapshot{PrepaymentAmount: group.PrepaymentAmount, PaidAmount: group.PaidAmount, UnpaidAmount: group.UnpaidAmount}) {
+		for _, row := range salesOrderPaymentRows(salesdomain.SalesOrderSnapshot{SettlementReason: group.SettlementReason, PrepaymentAmount: group.PrepaymentAmount, PaidAmount: group.PaidAmount, UnpaidAmount: group.UnpaidAmount}) {
 			if row.Tone == "paid" {
 				pdf.SetFillColor(220, 252, 231)
 				pdf.SetTextColor(22, 101, 52)
@@ -695,6 +695,9 @@ func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrd
 }
 
 func salesOrderPaymentRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrderFinancialRow {
+	if snapshot.SettlementReason == "free_sample" {
+		return []salesOrderFinancialRow{{Label: "无需收款", Value: "0.00", Tone: "paid", Bold: true}}
+	}
 	if salesOrderMoneyPositive(snapshot.PrepaymentAmount) {
 		rows := []salesOrderFinancialRow{{Label: "已支付预付款", Value: snapshot.PrepaymentAmount, Tone: "paid", Bold: true}}
 		if salesOrderMoneyPositive(snapshot.UnpaidAmount) {

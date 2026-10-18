@@ -330,7 +330,7 @@ onBeforeUnmount(releasePreview);
                 }}</small>
               </td>
               <td data-label="可见范围">{{ e.draft.visibility === "public" ? "公开" : e.draft.visibility === "registered" ? "登记用户可见" : "认证客户可见" }}</td>
-              <td data-label="发布状态">{{ pageState(e) }}<small v-if="e.published?.bean_center"> · 豆单中心 #{{e.published.bean_sort||0}}</small></td>
+              <td data-label="发布状态">{{ pageState(e) }}<small v-if="e.published?.bean_center"> · 价格表中心 #{{e.published.bean_sort||0}}</small></td>
               <td data-label="更新时间">{{ new Date(e.updated_at).toLocaleString() }}</td>
               <td data-label="操作" class="actions">
                 <button :disabled="busy" @click="edit(e)">编辑 / 预览</button
@@ -396,8 +396,8 @@ onBeforeUnmount(releasePreview);
             </select></label
           >
           <template v-if="draft.kind === 'price'">
- <label><span><input v-model="draft.bean_center" type="checkbox"/> 展示在豆单中心</span><small>仅支持官方公共表，发布后生效。</small></label>
- <button type="button" @click="help('beanListCenterManual')">豆单中心操作说明</button>
+ <label><span><input v-model="draft.bean_center" type="checkbox"/> 展示在价格表中心</span><small>仅支持官方公共表，发布后生效。</small></label>
+ <button type="button" @click="help('beanListCenterManual')">价格表中心操作说明</button>
  <label v-if="draft.bean_center">目录排序<input v-model.number="draft.bean_sort" type="number" min="0" max="99999"/><small>数字越小越靠前；更换版本需重新发布此入口。</small></label>
  <label
               >价格表<select

@@ -176,3 +176,10 @@ test('apiFetch sends Bearer token while returning the raw response for file and 
     globalThis.fetch = previousFetch
   }
 })
+
+test('quote confirmation errors retain the server revision', async()=>{
+ const previousFetch=globalThis.fetch
+ globalThis.fetch=async()=>new Response(JSON.stringify({error:'模板已变化',code:'pricing_rule_confirmation_required',current_rule_revision:'rule-v2'}),{status:409})
+ try { await assert.rejects(apiSend('/api/order/spec-conversions/quote',{body:{}}),e=>e.code==='pricing_rule_confirmation_required'&&e.current_rule_revision==='rule-v2') }
+ finally {globalThis.fetch=previousFetch}
+})

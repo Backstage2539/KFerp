@@ -395,6 +395,7 @@
               </td>
               <td>
                 <div class="actions-inline">
+                  <OrderDetailsCopyButton :order-id="row.id" :customer-id="customerId" />
                   <button class="link-button" type="button" @click="openSalesOrderDrawer(row)">销售单</button>
                   <button class="link-button" type="button" @click="openDeliveryNoteDrawer(row)" :disabled="!isShipped(row)">出库单</button>
                 </div>
@@ -474,6 +475,7 @@
 
           <section class="drawer-section">
             <div class="drawer-actions">
+              <OrderDetailsCopyButton :order-id="activeOrderSummary.id" :customer-id="customerId" />
               <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderSummary)">销售单</button>
               <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderSummary)" :disabled="!isShipped(activeOrderSummary)">出库单</button>
             </div>
@@ -520,6 +522,7 @@
 </template>
 
 <script setup>
+import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
 import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'

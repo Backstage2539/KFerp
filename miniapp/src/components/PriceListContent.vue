@@ -50,6 +50,7 @@ function resetDraft(){draft.value={query:state.value.query,attributes:{},badges:
       <text v-if="bean.flavor" class="detail">风味：<text v-for="(part,pi) in splitBeanListHighlight(bean.flavor,bean.highlight_terms||[])" :key="pi" :class="{red:part.red}">{{part.text}}</text></text>
       <text v-if="bean.description" class="detail"><text v-for="(part,pi) in splitBeanListHighlight(bean.description,bean.highlight_terms||[])" :key="pi" :class="{red:part.red}">{{part.text}}</text></text>
       <text v-for="quality in beanListQualityLines(bean)" :key="quality.label" class="detail">{{quality.label}}：{{quality.value}}</text>
+      <slot name="product-action" :item="bean"/>
      </view>
      <view class="prices"><view v-for="(price,pi) in bean.prices||[]" :key="pi" class="price"><text>{{price.label}}</text><text :class="['price-value',{red:price.red}]">{{price.value}}</text></view></view>
     </view>

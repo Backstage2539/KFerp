@@ -3,8 +3,9 @@
     <section class="panel">
       <div class="panel-head">
         <h2>订单列表</h2>
-        <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
+        <button class="secondary" type="button" @click="load()" :disabled="loading">刷新</button>
       </div>
+      <p class="list-help">点击订单行展开商品和费用；点击订单号打开完整详情。类型包含订单属性及全部商品分类。点击“复制订单详情”可复制已保存的文字并粘贴到生产群。</p>
       <div v-if="error" class="error">{{ error }}</div>
       <div class="scope-tabs" role="tablist" aria-label="订单范围">
         <button type="button" :class="{ active: filters.scope === 'all' }" @click="setScope('all')">全部订单</button>
@@ -146,7 +147,8 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in rows" :key="row.id" :class="orderRowClass(row)">
+            <template v-for="row in rows" :key="row.id">
+            <tr :class="[orderRowClass(row), 'expandable-order', { 'inline-open': inlineDetail.id === Number(row.id) }]" @click="handleInlineRowClick(row, $event)">
               <td class="select-col">
                 <input
                   type="checkbox"
@@ -156,7 +158,12 @@
                   @change="toggleOrderSelection(row, $event.target.checked)"
                 />
               </td>
-              <td><button class="order-link" type="button" @click.prevent="openOrderDetailDrawer(row)">{{ row.order_no }}</button></td>
+              <td>
+                <div class="order-number-cell">
+                  <button class="inline-toggle" type="button" :aria-expanded="inlineDetail.id === Number(row.id)" :aria-controls="`inline-order-${row.id}`" :aria-label="`${inlineDetail.id === Number(row.id) ? '收起' : '展开'}订单 ${row.order_no} 极简详情`" @click.stop="inlineOrders.toggle(row.id)">{{ inlineDetail.id === Number(row.id) ? '▾' : '▸' }}</button>
+                  <button class="order-link" type="button" @click.prevent="openOrderDetailDrawer(row)">{{ row.order_no }}</button>
+                </div>
+              </td>
               <td>
                 <div class="date-stack">
                   <span>单据：{{ row.document_date || row.order_date || '-' }}</span>
@@ -175,9 +182,8 @@
               </td>
               <td>
                 <div class="order-type-stack">
-                  <span>{{ row.order_type || '-' }}</span>
                   <span class="kind-badges">
-                    <span v-for="kind in productKindSummaryKinds(row)" :key="kind" class="kind-badge" :class="productKindBadgeClass(kind)">{{ productKindLabel(kind) }}</span>
+                    <span v-for="label in orderTypeLabels(row)" :key="label" class="kind-badge">{{ label }}</span>
                   </span>
                 </div>
               </td>
@@ -198,6 +204,7 @@
                 </div>
               </td>
               <td class="actions-cell">
+                <OrderDetailsCopyButton :order-id="row.id" :customer-id="filters.customer_id" />
                 <a class="text-link" href="#" @click.prevent="openSalesOrderDrawer(row)">销售单</a>
                 <a v-if="isShipped(row)" class="text-link" href="#" @click.prevent="openDeliveryNoteDrawer(row)">出库单</a>
                 <span v-else class="muted inline-muted">出库单</span>
@@ -214,8 +221,33 @@
                 >失效</button>
               </td>
             </tr>
+            <tr v-if="inlineDetail.id === Number(row.id)" class="inline-detail-row">
+              <td colspan="10">
+                <section :id="`inline-order-${row.id}`" class="inline-detail" :aria-label="`${row.order_no} 极简详情`" :aria-busy="inlineDetail.loading">
+                  <p v-if="inlineDetail.loading" role="status" class="muted">正在加载订单明细…</p>
+                  <div v-else-if="inlineDetail.error" role="alert" class="inline-detail-error">
+                    <span>{{ inlineDetail.error }}</span><button class="secondary" type="button" @click="inlineOrders.retry()">重试</button>
+                  </div>
+                  <template v-else-if="inlineDetail.detail">
+                    <table class="inline-items">
+                      <thead><tr><th>商品</th><th>规格</th><th>数量</th><th class="money-cell">单价</th><th class="money-cell">小计</th></tr></thead>
+                      <tbody>
+                        <tr v-for="item in inlineOrderItems(inlineDetail.detail)" :key="item.key">
+                          <td><strong>{{ item.name }}</strong><p v-if="item.note" class="inline-note">{{ item.note }}</p></td>
+                          <td>{{ item.spec }}</td><td data-label="数量">{{ item.quantity }}</td><td class="money-cell" data-label="单价">{{ item.price }}</td><td class="money-cell" data-label="小计">{{ item.subtotal }}</td>
+                        </tr>
+                        <tr v-if="!inlineDetail.detail.items?.length"><td colspan="5" class="muted">暂无商品明细</td></tr>
+                      </tbody>
+                    </table>
+                    <div class="inline-totals"><span v-for="line in inlineOrderTotals(inlineDetail.detail)" :key="line.label" :class="{ emphasized: line.emphasized }">{{ line.label }}：{{ line.value }}</span></div>
+                    <p class="inline-note order-note"><span>订单备注：</span>{{ inlineDetail.detail.notes || '—' }}</p>
+                  </template>
+                </section>
+              </td>
+            </tr>
+            </template>
             <tr v-if="!rows.length">
-              <td colspan="12" class="muted">暂无订单</td>
+              <td colspan="10" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -244,13 +276,18 @@
  <OrderConfirmationPanel v-if="activeOrderDetail.confirmation_required" :order-id="Number(activeOrderDetail.id)" :customer-id="Number(activeOrderDetail.customer_id)" @updated="refreshConfirmationOrder" />
           <section class="drawer-section">
             <h4>收件信息</h4>
-            <div class="drawer-status-grid">
+            <div v-if="activeOrderDetail.confirmation_required" class="drawer-status-grid">
               <span>收件人：{{ activeOrderDetail.receiver_name || '-' }}</span>
               <span>电话：{{ activeOrderDetail.receiver_phone || '-' }}</span>
               <span>公司：{{ activeOrderDetail.receiver_company || '-' }}</span>
               <span>来源：{{ activeOrderDetail.portal_service_code || '-' }}</span>
               <span class="wide-item">地址：{{ activeOrderDetail.receiver_address || '-' }}</span>
             </div>
+            <div v-if="!activeOrderDetail.confirmation_required" :id="`order-recipient-${activeOrderDetail.id}`"></div>
+          </section>
+          <section v-if="!activeOrderDetail.confirmation_required" class="drawer-section">
+            <h4>付款与交付</h4>
+            <div :id="`order-workflow-${activeOrderDetail.id}`"></div>
           </section>
           <section v-if="!isNonCourierShipMethod(activeOrderDetail.ship_method)" class="drawer-section">
             <h4>快递信息</h4>
@@ -267,7 +304,7 @@
                   </option>
                 </select>
               </label>
-              <label class="tracking-fill">
+              <label v-if="activeOrderDetail.confirmation_required || !orderEditorCanEdit" class="tracking-fill">
                 <span>快递单号（可多个）</span>
                 <div class="tracking-fill-row">
                   <textarea v-model.trim="drawerTrackingNo" rows="3" placeholder="多个单号可用换行、逗号或分号分隔" />
@@ -304,6 +341,7 @@
                 <div>
                   <strong>{{ item.product_name || '-' }}</strong>
                   <span>{{ orderItemSpecLabel(item) }} × {{ item.qty }}{{ item.unit || '' }}</span>
+                  <small v-if="conversionSnapshot(item)">{{ conversionDescription(conversionSnapshot(item)) }}</small>
                 </div>
                 <div>
                   <span>{{ productKindLabel(item.product_kind) }}</span>
@@ -345,6 +383,7 @@
             <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderDetail)">销售单</button>
             <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderDetail)" :disabled="!isShipped(activeOrderDetail)">出库单</button>
             <button class="secondary" type="button" @click="openInvoiceDrawer(activeOrderDetail)">发票</button>
+            <OrderDetailsCopyButton :order-id="activeOrderDetail.id" :customer-id="filters.customer_id" />
             <button class="secondary" type="button" @click="copyOrder(activeOrderDetail)">复制订单</button>
             <button v-if="activeOrderDetail.is_void" class="voided-action-button" type="button" disabled>已失效</button>
             <button v-else class="secondary danger-text" type="button" @click="voidOrder(activeOrderDetail)" :disabled="voidingOrderID === Number(activeOrderDetail.id)">失效订单</button>
@@ -354,8 +393,11 @@
               :key="orderEntryPanelKey()"
               :edit-id="activeOrderEditID()"
               :copy-id="activeOrderCopyID()"
+              :recipient-target="`#order-recipient-${activeOrderDetail.id}`"
+              :workflow-target="`#order-workflow-${activeOrderDetail.id}`"
               embedded
               @close="closeOrderDetailDrawer"
+              @editability="orderEditorCanEdit = $event"
               @saved="handleOrderEditSaved"
             />
           </section>
@@ -396,6 +438,8 @@
 </template>
 
 <script setup>
+import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
+import { conversionSnapshot, conversionDescription } from '../lib/spec-conversion.js'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
 import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'
@@ -407,9 +451,10 @@ import PaginationControls from '../components/PaginationControls.vue'
 import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
-import { productKindBadgeClass, productKindLabel, orderQuoteSourceSummary } from '../lib/order-entry'
+import { productKindLabel, orderQuoteSourceSummary } from '../lib/order-entry'
 import { orderListSelectionState, selectableOrderIDs, toggleOrderPageSelection } from '../lib/order-list-selection'
 import { formatTrackingSummary, isOrderShipReady, trackingInputSummary, isNonCourierShipMethod, orderDeliveryLabel } from '../lib/order-shipping'
+import { orderTypeLabels, inlineOrderItems, inlineOrderTotals, shouldToggleOrderRow, createOrderInlineDetails } from '../lib/order-list-inline'
 import { orderListScopeForRequest } from '../lib/order-scope'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -424,6 +469,13 @@ const props = defineProps({
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
 })
+
+const inlineDetail = reactive({})
+const inlineOrders = createOrderInlineDetails((id, generation) => apiGet(`/api/orders/${id}/detail?inline_generation=${generation}`), inlineDetail)
+function handleInlineRowClick(row, event) {
+  const selection = typeof window !== 'undefined' ? String(window.getSelection?.() || '') : ''
+  if (shouldToggleOrderRow(event, selection)) return inlineOrders.toggle(row.id)
+}
 
 const loading = ref(false)
 const error = ref('')
@@ -448,6 +500,7 @@ const trackingExcelFile = ref(null)
 const trackingExcelLoading = ref(false)
 const orderDetailDrawerOpen = ref(false)
 const activeOrderDetail = ref(null)
+const orderEditorCanEdit = ref(false)
 const drawerTrackingNo = ref('')
 const drawerTrackingSaving = ref(false)
 const salesOrderDrawerOpen = ref(false)
@@ -641,6 +694,7 @@ function openOrderDetailDrawer(row) {
   activeOrderDetail.value = { ...row }
   copyingOrderID.value = row?.is_void ? id : 0
   drawerTrackingNo.value = row.ship_tracking_no || ''
+  orderEditorCanEdit.value = false
   orderDetailDrawerOpen.value = true
   if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
   loadOrderDetail(id)
@@ -691,6 +745,8 @@ async function loadOrderDetail(id) {
 }
 
 function orderItemSpecLabel(item = {}) {
+  const conversion = conversionSnapshot(item)
+  if (conversion) return conversion.target_spec_name
   if (item.product_kind === 'drip_bag') {
     return item.unit_conversion_label || (item.sales_unit === 'box' ? `${item.unit_bag_count || 10}袋/盒` : `${item.unit_bean_g || 10}g/袋`)
   }
@@ -775,10 +831,6 @@ function isUnproduced(row) {
   return !(status.includes('生产完成') || status === '无需生产' || status === '库存待发货')
 }
 
-function productKindSummaryKinds(row) {
-  const kinds = String(row?.product_kind_summary || '').split(',').map((value) => value.trim()).filter(Boolean)
-  return kinds.length ? kinds : ['roasted']
-}
 
 function isHighlightedOrder(row) {
   return Number(row?.id || 0) > 0 && Number(row.id) === Number(filters.highlight_order_id || 0)
@@ -941,6 +993,7 @@ function copyOrder(row) {
   activeOrderDetail.value = { ...row }
   copyingOrderID.value = id
   drawerTrackingNo.value = row.ship_tracking_no || ''
+  orderEditorCanEdit.value = false
   orderDetailDrawerOpen.value = true
 }
 
@@ -1057,6 +1110,7 @@ async function loadSenderProfiles() {
 
 let loadSequence = 0
 async function load(silent = false) {
+  inlineOrders.reset()
   const token = ++loadSequence
   if (!silent) { loading.value = true; error.value = '' }
   try {
@@ -1122,11 +1176,47 @@ watch(() => props.viewParams, async () => {
 
 async function refreshConfirmationOrder() { const id=activeOrderDetail.value?.id; await load(); if(id) await loadOrderDetail(id) }
 let stopConfirmationRefresh
-onConfirmationMount(() => { stopConfirmationRefresh=visibleOrderRefresh(() => loading.value ? undefined : load(true)) })
-onConfirmationUnmount(() => stopConfirmationRefresh?.())
+onConfirmationMount(() => { stopConfirmationRefresh=visibleOrderRefresh(() => loading.value || inlineDetail.id ? undefined : load(true)) })
+onConfirmationUnmount(() => { inlineOrders.reset(); stopConfirmationRefresh?.() })
 </script>
 
 <style scoped>
+.list-help { color: #68716b; font-size: 13px; margin: 0 0 12px; }
+.expandable-order { cursor: pointer; }
+.table-wrap > table > thead th:nth-child(3) { min-width: 145px; }
+.table-wrap > table > thead th:nth-child(4) { min-width: 100px; }
+.table-wrap > table > thead th:nth-child(5) { min-width: 85px; }
+.table-wrap > table > thead th:nth-child(7) { min-width: 135px; }
+.expandable-order:hover { outline: 1px solid #c4d8cb; outline-offset: -1px; }
+.inline-open { box-shadow: inset 4px 0 #26734d; }
+.order-number-cell { min-width: 165px; display: flex; align-items: flex-start; gap: 5px; }
+button.inline-toggle { height: 26px; min-width: 26px; padding: 0; border: 1px solid #c8d6cc; background: #f5faf6; color: #286343; flex: none; }
+.inline-toggle:focus-visible { outline: 2px solid #26734d; outline-offset: 2px; }
+.inline-detail-row > td { padding: 0 8px 12px; background: #f6faf7; }
+.inline-detail { width: min(100%, calc(100vw - 100px)); position: sticky; left: 0; padding: 12px 16px; border-left: 3px solid #26734d; }
+table.inline-items { min-width: 0; width: 100%; table-layout: fixed; }
+.inline-items th { position: static; background: transparent; font-size: 12px; color: #6b736d; font-weight: 500; }
+.inline-items th:first-child { width: 38%; }
+.inline-items th:nth-child(2) { width: 23%; }
+.inline-items th:nth-child(3) { width: 13%; }
+.inline-items td { overflow-wrap: anywhere; font-size: 13px; }
+.inline-items .money-cell { text-align: right; white-space: nowrap; }
+.inline-note { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 0; color: #626b65; font-size: 12px; }
+.order-note { margin: 8px 8px 0; }
+.inline-totals { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px 22px; padding: 12px 8px 0; font-size: 13px; overflow-wrap: anywhere; }
+.inline-totals .emphasized { font-weight: 700; color: #205a3a; }
+.inline-detail-error { display: flex; gap: 12px; align-items: center; color: #9f3030; }
+@media (max-width: 700px) {
+  .inline-detail { padding: 8px; }
+  table.inline-items, .inline-items tbody { display: block; }
+  .inline-items thead { display: none; }
+  .inline-items tbody tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 8px 0; border-bottom: 1px solid #dde5df; }
+  .inline-items td { border: 0; padding: 3px 4px; }
+  .inline-items td:nth-child(-n+2) { grid-column: 1 / -1; }
+  .inline-items td[data-label]::before { content: attr(data-label); display: block; color: #68716b; font-size: 11px; margin-bottom: 2px; }
+  .inline-totals { justify-content: flex-start; gap: 6px 12px; }
+}
+
 .order-summary { display: grid; gap: 10px; }
 .order-summary-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; font-size: 13px; }
 .fee-breakdown { position: relative; }
@@ -1204,7 +1294,7 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .fee-line.emphasized strong { color: #0f5132; }
 .order-type-stack { display: grid; gap: 5px; min-width: 96px; }
 .kind-badges { display: flex; flex-wrap: wrap; gap: 4px; }
-.kind-badge { display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.kind-badge { background: #edf3ef; color: #365d43; overflow-wrap: anywhere; display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
 .kind-drip { color: #1f4b7a; background: #eaf3ff; border: 1px solid #9bc4ef; }

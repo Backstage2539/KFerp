@@ -1,3 +1,64 @@
+### PR-702-MINIAPP-LOGIN-ENTRY
+- Branch: codex/fix-miniapp-login-entry-20261019; base origin/develop@65f915db.
+- Status: reproduced in WeChat DevTools, fixed and locally verified; develop/main integration and production delivery in progress.
+- Scope: homepage account login opens password form; explicit logout blocks silent WeChat identity restoration, including late responses and app restart. Normal token expiry recovery remains available.
+- DEV: DEV-793-MINIAPP-LOGIN-ENTRY.
+- Evidence: docs/acceptance/2026-10-19-miniapp-login-entry.md; targeted RED/GREEN, 338 miniapp tests, typecheck/build and actual DevTools form/logout checks.
+- Delivery authorization: Van requested develop then main integration and production deployment on 2026-10-19; WeChat upload/review/publication separate.
+- Production integration: codex/release-login-order-copy-20261019 combines origin/main@34a311d1 with verified origin/develop@ab573007; preserves production-only BOM material-output backfill protection and historical delivery receipts.
+
+### PR-701-ORDER-DETAILS-COPY
+- Branch: codex/order-details-copy-20261018; base origin/develop@491c4655.
+- Status: implemented, verified, merged and deployed to development c223255b; Van business acceptance pending.
+- Scope: ERP/customer web and employee/customer miniapp list/detail copy saved order text; exclude customer shipping center.
+- DEV: DEV-790-ORDER-COPY-API; DEV-791-ORDER-COPY-CLIENTS; DEV-792-ORDER-COPY-DELIVERY.
+- Verifier: Go formatter/scoped HTTP/isolated PostgreSQL; Vue and miniapp async clipboard tests, full gates/typecheck/build.
+- Manual: existing sales/customer/employee miniapp manuals and help.
+- Delivery: pushed feature 1c6f9e11; development c223255bef6949f00ca91ae08e8fef1ca8417547. Service running, DB healthy, shell200, anonymous copy APIs401, invalid ID400. Backup orderapp.backup.deploy-20261018232849-c223255bef69. 24-page/96-file development miniapp exported to /Users/yiiiple-work/KFerp-order-copy-delivery-20261018. Receipt: orderapp-remote/docs/acceptance/2026-10-18-order-details-copy.md.
+- Notes: reservation helper returned PR-701; macOS awk claim failed, reserved here.
+
+### PR-697-RESTORE-PRICE-TABLE-SCOPE
+- Branch: codex/restore-price-table-order-scope-20261018; base origin/develop@43de729d.
+- Status: verified, PR #210/#211 merged and development deployed at 94dca9cf; Van business acceptance pending.
+- Scope: 撤回 PR-694/695/696 录单扩展；ERP/员工小程序仅用当前价格表商品规格，临时换规格入口关闭。历史冻结、换算配置与 fa98f276 的价格表中心/样品流程保留。
+- DEV: DEV-784-SCOPE-ROLLBACK; DEV-785-SCOPE-HISTORY; DEV-786-SCOPE-DELIVERY.
+- RED: /tmp/kferp-scope-red-{api,vue,mini}.log; old API returned 3 BOM specs, both clients offered conversion, copy retained conversion selection.
+- Verifier: scoped PostgreSQL HTTP, sample lifecycle regression, full Go/Vue/miniapp tests and builds, local UI, development technical smoke/package.
+- ID: scripts/reserve_req_id.sh returned PR-697; recorded here.
+- Delivery: development 94dca9cf; healthy app/DB, retired quote HTTP410, docs/PR marker, 24-page/96-file dev package. Backup orderapp.backup.deploy-20261018201622-94dca9cf4934. Receipt docs/acceptance/2026-10-18-price-table-order-scope.md; no production/WeChat upload.
+
+### PR-696-LEGACY-BOM-TIER-TEMPLATE
+- Superseded: PR-697 withdraws this order-entry workflow; evidence below is historical.
+- Branch: codex/legacy-bom-tier-template-20261017; base origin/develop@a3fe77aa.
+- Status: verified, merged and development deployed; Van acceptance pending.
+- Scope: 旧表明确关联且未变化的模板直接计算；变化/无法确认时显式确认当前模板；订单冻结真实依据，ERP和员工小程序一致。
+- DEV: DEV-781-LEGACY-TEMPLATE; DEV-782-TEMPLATE-CONFIRMATION; DEV-783-LEGACY-DELIVERY.
+- Verifier: Go/PostgreSQL HTTP legacy/changed/stale/frozen/copy/security; Vue and miniapp confirmation state/stale responses; full tests/typecheck/build; development smoke/package.
+- No migration or published price-table mutation. Keep conversion groups and customer scope unchanged.
+- Delivery: PR #208 merged; runtime a892ab5e6b6d911a0f2d81d205b59875394c85a6; Go/isolated DB, Vue1378, miniapp340/typecheck/build passed. Healthy development app/DB, docs and PR marker; 24-page/96-file dev package at /Users/yiiiple-work/KFerp-legacy-tier-delivery-20261017. Receipt: docs/acceptance/2026-10-17-legacy-bom-tier-template.md. No production/WeChat upload/business acceptance.
+- ID reservation helper identified PR-696; macOS awk claim failure recorded here.
+
+### PR-695-DEFAULT-SPEC-AUTO-TIER
+- Superseded: PR-697 withdraws this order-entry workflow; evidence below is historical.
+- Branch: `codex/default-spec-auto-tier-20261017`; base `origin/develop@f9ec1da6`.
+- Status: implemented, verified and development deployed; Van acceptance pending.
+- Scope: 默认规格按数量自动匹配；非默认规格每次切换后手动选档；历史冻结和换算组保留。
+- DEV: DEV-778-BOM-TIER-RANGES; DEV-779-BOM-TIER-CLIENTS; DEV-780-BOM-TIER-DELIVERY.
+- Verifier: Go/isolated PostgreSQL HTTP; Vue and miniapp state transitions, stale quotes, history/copy; typecheck/build; local UI; development smoke/package.
+- Delivery: PR #206 merged, development runtime `3b5e8639ac0af3835112db3c46f7ce88d2e9359a`; Go/DB, Vue1375 and miniapp337/typecheck/build GREEN. Backup `orderapp.backup.deploy-20261017212055-3b5e8639ac0a`; app running/DB healthy; login200/docs+PR marker OK/anonymous quote401. 24-page/96-file DEV package in `/Users/yiiiple-work/KFerp-auto-tier-delivery-20261017`; receipt `docs/acceptance/2026-10-17-default-spec-auto-tier.md`. Old build-cache cleanup resolved full disk; about1GB remains. No production or WeChat upload.
+- Notes: reserve_req_id.sh identified PR-695 but macOS awk rejected claim; recorded here.
+
+### PR-692-PRICE-CENTER-SAMPLES
+- Branch: `codex/price-center-samples-20261015`; base `origin/develop@25b377af`.
+- Status: implemented, verified and deployed to development on 2026-10-16; Van product acceptance pending.
+- Scope: price center employee access and server registration restore; sample application, assignment, atomic sales order, follow-up and shared notifications.
+- DEV: DEV-765-PRICE-ACCESS; DEV-766-SAMPLE-DATA; DEV-767-SAMPLE-ORDER; DEV-768-SAMPLE-CLIENTS; DEV-769-SAMPLE-REMINDERS; DEV-770-SAMPLE-DELIVERY.
+- Verifier: Go unit/HTTP/isolated PostgreSQL lifecycle and transaction tests; Vue helpers/build; miniapp tests/typecheck/development build.
+- Tracking: PR/DEV/UT/API/REV seeds maintained per this request; manual OP_MANUAL_SAMPLES.md.
+- Deployment: `fa98f2762b0435662b06d7a77c296b4adecba5fe` deployed via `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20261016103453-fa98f2762b04`. Runtime/API/five-table checks passed. No production or WeChat publication.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-15-price-center-samples.md`.
+- Notes: reservation helper failed on macOS awk; next ID inspected and reserved here.
+
 ### PR-691-MINIAPP-PRICE-SEARCH
 - Branch: `codex/miniapp-price-search-20261014`; base `origin/develop@c38c8e3b`.
 - Owner/session: Codex / Van / 2026-10-14.
@@ -5705,3 +5766,59 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - PR-689 delivery: PR #195 merged; development 8418391726728dd65020a37bb6f931bace22d7a5 deployed with health/source/artifact checks. Backup /opt/stacks/erp/orderapp.backup.deploy-20261013014204-841839172672. Four cards, anonymous registration-required 401, admin auth 401, service-account identity/config preserved. 22 pages / 88 page files; preview upload succeeded and QR generated 2026-10-13. Receipt: orderapp-remote/docs/acceptance/2026-10-13-bean-registration-sheet.md. Van phone acceptance remains pending.
 
 - PR-689 production authorization (2026-10-13): Van confirmed “可以了，合并到main，并部署到生产环境，给我小程序包，我上传最新小程序”. Release branch codex/bean-sheet-production-20261013 combines origin/main 43ec7232 with verified origin/develop b954a388. PR/REV are done for the accepted registration experience. Production-config preflight and release evidence will be delivered with the upload package.
+
+### PR-693-SPEC-CONVERSION-ORDERS
+- Branch: `codex/spec-conversion-orders-20261015`; base `develop@25b377af`.
+- Owner/session: Codex / Van / 2026-10-15.
+- Status: implementation, automated gates, develop integration/deployment and DEV miniapp artifact complete; Van business acceptance pending.
+- Scope: explicit reusable conversion groups, ERP and employee miniapp converted tier orders, immutable historical pricing.
+- DEV: DEV-771-CONVERSION-RULES; DEV-772-CONVERSION-ORDERS; DEV-773-CONVERSION-CLIENTS; DEV-774-CONVERSION-DELIVERY.
+- Verifier: domain unit, isolated PostgreSQL and HTTP tests; Vue/miniapp tests, typecheck and builds; changed/backend gates.
+- TDD: domain RED (missing Convert/Group); GREEN `go test ./internal/domain/specconversion`.
+- Manual: orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md and OP_MANUAL_SPEC_CONVERSION.md.
+- Deployment: development only after verified feature branch integration; miniapp DEV package; no production or WeChat upload.
+- Notes: initial PR-692 reservation collided with concurrently delivered samples; reassigned to PR-693 / DEV-771–774 before integration.
+
+- PR-693 integration: merged verified `origin/develop@b2f7d6fe` sample workflow into feature branch; preserved both sample manual-price edits and converted historical rows. Go/all, Vue 1365, miniapp 326/typecheck/DEV build, isolated conversion DB and sample DB regressions GREEN. Receipt: `orderapp-remote/docs/acceptance/2026-10-16-spec-conversion-orders.md`.
+
+- PR-693 delivery: PR #202/#203 merged; development runtime `a7a0f910f25a087eab2f8306d151a15a5225198f`; backup `/opt/stacks/erp/orderapp.backup.deploy-20261016122357-a7a0f910f25a`; application running, PostgreSQL healthy, authenticated configuration/manual 200 and anonymous employee/config API 401. DEV package at `/Users/yiiiple-work/KFerp-spec-conversion-delivery-20261016/KFerp-miniapp-mp-weixin-dev` (24 pages / 96 files). Requirement-evidence gate and registry 502 resolved before successful release. Receipt-only follow-up does not change runtime identity. No production, WeChat upload or business acceptance.
+
+### PR-694-BOM-SPEC-ORDER-PRICING
+- Superseded: PR-697 withdraws this order-entry workflow; evidence below is historical.
+- Branch: codex/bom-spec-order-pricing-20261016
+- Owner/session: Codex / Van
+- Status: development deployed; PR review (Van business acceptance pending)
+- Scope: 员工录单全部有效 BOM 规格、默认规格优先、手动选档与目标 BOM 重算；保留换算组。
+- Verifier GREEN: scripts/verify_kferp.sh all (Go, Vue 1368 tests, build); PostgreSQL HTTP integration (BOM + conversion); miniapp 329 tests, typecheck, development build; local Vue desktop/narrow UI; docs/acceptance/2026-10-17-bom-order-pricing.md.
+- Deployment: PR #204 merged; running develop 3421b1b8c576c7e5c3a773887d70d3b02ce66362. Backup /opt/stacks/erp/orderapp.backup.deploy-20261017003932-3421b1b8c576. Application running / PostgreSQL healthy; auth docs and requirement API 200; anonymous quote 401. Development package /Users/yiiiple-work/KFerp-bom-pricing-delivery-20261017/KFerp-miniapp-mp-weixin-dev (24 pages / 96 manifest files). No production, WeChat upload or business acceptance. Receipt-only follow-up does not change runtime.
+- Notes: reserve_req_id.sh reported PR-694 but macOS awk rejected multiline claim; recorded manually.
+
+### PR-698-SAMPLE-ORDER-FIXES
+- Branch: codex/sample-order-fixes-20261018
+- Status: implemented, tested, integrated and deployed to development; named order repaired and read back; human shipping acceptance pending.
+- Scope: 收件快照保存、订单详情顶部状态操作、免费样品自动结清，开发订单 SO-20261016-0001 修复。
+- Verifier: Go unit/API + isolated PostgreSQL + Vue tests/build + miniapp regression.
+- Manual: OP_MANUAL_ORDER_SALES.md, OP_MANUAL_SAMPLES.md
+- Deployment: development d3d9bb91c5f4702059f0834fa23e0155b2770941; backup /opt/stacks/erp/orderapp.backup.deploy-20261018203502-d3d9bb91c5f4. App/DB healthy, API/manual/auth checks passed. SO-20261016-0001 recipient restored from confirmed snapshot; free_sample, no payment required, still unshipped.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-18-sample-order-fixes.md; Vue1370, miniapp330/typecheck/build, Go and isolated PostgreSQL/race PASS. PR review; DEV/UT/API done; REV todo. No production or WeChat publication.
+- Last update: 2026-10-18
+
+### PR-699-PRICE-TABLE-EDITOR-RESTORE
+- Branch: codex/price-table-editor-restore-20261018
+- Status: development deployed at 5c0c53ce; service/API/manual/asset checks passed; Van business acceptance pending (PR review, DEV done).
+- Scope: published snapshot editor hydration, per-table draft baseline/conflict recovery, BOM identity and fixed prices
+- Verifier: price-table-editor-*.test.js; full frontend tests; full Go tests; publication editor detail API contract; Vue build
+- Evidence: orderapp-remote/docs/acceptance/2026-10-18-price-table-editor-restore.md
+- Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md
+- UI follow-up: codex/price-table-editor-prompt-20261018 removes the persistent explanation, shortens the draft choice, and places it immediately above product selection. PR #216 merged and development deployed at 909e3185; targeted 83 tests, server 1400 frontend tests, Vue build, local browser button/position checks, and served bundle/manual/auth checks passed. Backup: /opt/stacks/erp/orderapp.backup.deploy-20261018225818-909e31851f62.
+- Deployment: user subsequently authorized development on 2026-10-18; deployed 5c0c53ce9030e78d17a9d376ac9a38d1029a5ff4. Initial startup failed on full disk; reclaimed regenerable build caches, recovered healthy PostgreSQL, and promoted the already-tested image. Backup /opt/stacks/erp/orderapp.backup.recovery-20261018223436-5c0c53ce9030; about 9.2 GB free. No production deployment or customer price-table writes.
+
+### PR-700-ORDER-LIST-INLINE
+- Branch: codex/order-list-inline-details-20261018
+- Owner/session: Codex
+- Status: development deployed and read-only smoke passed; PR review / REV todo
+- Scope: 全部商品分类、真实样品标签、单行展开只读订单明细。
+- Verifier: Go 单元/API/隔离 PostgreSQL；Vue helper/runtime/浏览器响应式；Vue 构建；小程序兼容回归。
+- Manual: orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md（Vue 帮助同步）
+- Review/acceptance: docs/acceptance/2026-10-18-order-list-inline.md；Van 真人验收待完成。
+- Deployment: 2026-10-18 development d29e61bd3df906321ab539655090c7e2a63d3ee7 (feature PR #214); application running, database healthy, list API / Vue / manual / five requirement tables verified. Production and real business acceptance excluded. Receipt-only follow-up does not change the deployed commit.

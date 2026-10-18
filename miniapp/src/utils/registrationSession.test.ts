@@ -30,15 +30,39 @@ describe('registration session reuse',()=>{
  expect(s.token).toBe('restored');expect(s.registrationComplete).toBe(true)
  vi.unstubAllGlobals();vi.unstubAllEnvs()
  })
+ it('does not bypass disabled server identity by requesting a fresh login',async()=>{const s=session();vi.mocked(fetchMe).mockRejectedValue(new MiniRequestError('账号已停用',403));await expect(restoreRegistrationSession(s)).rejects.toThrow('账号已停用');expect(s.clearSession).not.toHaveBeenCalled();expect(wechatLoginCode).not.toHaveBeenCalled()})
+ it('does not overwrite a newer login when a previous restore returns late',async()=>{
+  const s=session();let resolve!:(v:any)=>void;vi.mocked(fetchMe).mockReturnValue(new Promise(r=>{resolve=r}));const restoring=restoreRegistrationSession(s);s.token='employee-login';resolve({registration_complete:true,account_type:'customer'});await restoring;expect(s.applyContext).not.toHaveBeenCalled();expect(s.token).toBe('employee-login')
+ })
  it('reuses a valid session and does not re-collect a profile',async()=>{
  const s=session();vi.mocked(fetchMe).mockResolvedValue({registration_complete:true} as never);await restoreRegistrationSession(s)
  expect(loginWithCode).not.toHaveBeenCalled();expect(wechatLoginCode).not.toHaveBeenCalled();expect(s.applyContext).toHaveBeenCalled()
  })
- it('does not silently restore after an explicit logout',async()=>{
- const s=session();s.token='';s.registrationKnown=false;await restoreRegistrationSession(s);expect(wechatLoginCode).not.toHaveBeenCalled()
+ it('checks server registration after cache loss or same-WeChat device change',async()=>{
+ const s=session();s.token='';s.registrationKnown=false;vi.mocked(wechatLoginCode).mockResolvedValue('same-wechat');vi.mocked(loginWithCode).mockResolvedValue({token:'restored',registration_complete:true} as never);await restoreRegistrationSession(s);expect(wechatLoginCode).toHaveBeenCalled();expect(s.setToken).toHaveBeenCalledWith('restored')
  })
  it('does not adopt an unregistered restored identity',async()=>{
  const s=session();s.token='';vi.mocked(wechatLoginCode).mockResolvedValue('wx');vi.mocked(loginWithCode).mockResolvedValue({token:'guest',registration_complete:false} as never)
  await restoreRegistrationSession(s);expect(s.setToken).not.toHaveBeenCalled()
+ })
+ it('does not silently sign in after an explicit logout', async () => {
+  const s = session();s.token='';s.autoRestoreBlocked=true
+  await restoreRegistrationSession(s)
+  expect(wechatLoginCode).not.toHaveBeenCalled()
+  expect(loginWithCode).not.toHaveBeenCalled()
+  expect(s.setToken).not.toHaveBeenCalled()
+ })
+ it('discards a pending WeChat restore when logout occurs with an already-empty token', async () => {
+  const s=session();s.token='';s.autoRestoreBlocked=false
+  vi.mocked(wechatLoginCode).mockResolvedValue('wx')
+  let finish!:(value:any)=>void
+  vi.mocked(loginWithCode).mockReturnValue(new Promise(resolve=>{finish=resolve}))
+  const pending=restoreRegistrationSession(s)
+  await vi.waitFor(()=>expect(loginWithCode).toHaveBeenCalledOnce())
+  s.autoRestoreBlocked=true
+  finish({token:'restored',registration_complete:true})
+  await pending
+  expect(s.setToken).not.toHaveBeenCalled()
+  expect(s.applyContext).not.toHaveBeenCalled()
  })
 })

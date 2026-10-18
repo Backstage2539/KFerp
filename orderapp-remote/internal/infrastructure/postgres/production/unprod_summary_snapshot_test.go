@@ -156,3 +156,23 @@ func TestSalesOrderProductionDemandExcludesReservedStockAndProcessingOutput(t *t
 		t.Fatalf("fully covered order demand must not be produced again: %+v", adjusted)
 	}
 }
+
+// Conversion pricing may reference 454g, but production consumes only the
+// canonical target BOM variant and its actual unit count.
+func TestConvertedTierProductionDemandUsesTargetIdentity(t *testing.T) {
+	source := `{"price_selection_mode":"converted_tier","spec_conversion":{"source_bom_spec_id":9002,"source_bom_variant_id":9102,"source_quantity":"0.454","target_quantity":"0.5"},"production_quantity_snapshot":{"bom_spec_id":9002,"spec_label":"454g","inventory_qty_per_sales_unit":0.454,"inventory_unit":"kg"}}`
+	target, raw, err := resolveProductionQuantitySnapshot(7, 7, 9001, 9101, source, "袋", "500g 袋装", 0, "", "袋")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.BomSpecID != 9001 || target.BomVariantID != 9101 || target.SpecLabel != "500g 袋装" || target.InventoryQtyPerSalesUnit != 1 || target.InventoryUnit != "袋" {
+		t.Fatalf("price source leaked into fulfillment: %+v (%s)", target, raw)
+	}
+	other, _, err := resolveProductionQuantitySnapshot(7, 7, 9003, 9103, source, "袋", "250g 袋装", 0, "", "袋")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if productionQuantitySnapshotGroupKey(target) == productionQuantitySnapshotGroupKey(other) {
+		t.Fatal("different target specifications merged into one production demand")
+	}
+}

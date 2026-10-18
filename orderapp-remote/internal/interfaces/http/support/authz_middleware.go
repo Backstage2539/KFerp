@@ -116,6 +116,9 @@ func isFulfillmentOrderDetailRequest(method, path string) bool {
 	path = strings.TrimSpace(path)
 	path = strings.TrimPrefix(path, "/app")
 	suffix := "/detail"
+	if strings.HasSuffix(path, "/copy-details") {
+		suffix = "/copy-details"
+	}
 	if strings.HasSuffix(path, "/confirmation") {
 		suffix = "/confirmation"
 	}
@@ -339,6 +342,9 @@ func requiredPermissionForRequest(method, path string) string {
 			return "stock.read"
 		}
 		return "stock.write"
+	}
+	if strings.HasPrefix(path, "/api/sample-requests") {
+		return "samples.read"
 	}
 	if strings.HasPrefix(path, "/api/message-center/rules") {
 		return "settings.write"

@@ -7,6 +7,7 @@ const deposit = computed(() => Number(props.order.prepayment_amount || 0) > 0)
 </script>
 <template>
   <view class="payment-summary">
+    <text v-if="order.pay_status === '无需收款'" class="paid">无需收款</text>
     <text v-if="Number(amounts.paid) > 0" class="paid">{{ deposit && Number(amounts.unpaid) > 0 ? '已支付预付款' : '已支付' }} ¥{{ amounts.paid }}</text>
     <text v-if="Number(amounts.unpaid) > 0" class="unpaid">{{ deposit ? '未支付尾款' : '未支付' }} ¥{{ amounts.unpaid }}</text>
   </view>

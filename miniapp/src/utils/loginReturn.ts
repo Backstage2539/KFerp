@@ -14,7 +14,8 @@ export function safeLoginReturn(raw: unknown): string {
  if (path === '/pages/profile/profile') return path
   return ''
 }
-export function loginRouteFor(destination: string): string {
+export function loginRouteFor(destination: string, mode?: 'password'): string {
   const safe = safeLoginReturn(destination)
-  return `/pages/login/login${safe ? `?return_to=${encodeURIComponent(safe)}` : ''}`
+  const query = [safe ? `return_to=${encodeURIComponent(safe)}` : '', mode ? `mode=${mode}` : ''].filter(Boolean).join('&')
+  return `/pages/login/login${query ? `?${query}` : ''}`
 }

@@ -117,7 +117,7 @@ describe('miniapp startup route and main tabs', () => {
       readSource('src/pages/profile/profile.vue'),
     ]
 
-    for (const label of ['首页', '豆单', '我的订单', '费用', '我的']) {
+    for (const label of ['首页', '价格表', '我的订单', '费用', '我的']) {
       expect(tabBar).toContain(label)
     }
     for (const url of [

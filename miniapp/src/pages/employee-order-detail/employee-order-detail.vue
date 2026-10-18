@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { computed, ref } from 'vue'
 import { onLoad, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
@@ -291,6 +292,7 @@ onShow(() => { void refreshMiniappShareMenu() })
           <text>订单日期：{{ order.order_date || '-' }}</text>
         </view>
         <view class="hero-actions">
+          <OrderDetailsCopyButton :order-id="order.id" employee />
           <button class="copy-order-button" @tap="openCopy">复制订单</button>
           <button v-if="canEdit" class="edit-order-button" @tap="openEditor">编辑订单</button>
         </view>
@@ -406,7 +408,7 @@ onShow(() => { void refreshMiniappShareMenu() })
 .amount { color: #28624a; font-size: 34rpx; font-weight: 850; }
 .customer { display: block; margin-top: 12rpx; font-size: 29rpx; font-weight: 700; }
 .date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10rpx; margin-top: 14rpx; color: #68766f; font-size: 23rpx; }
-.hero-actions { display: flex; gap: 14rpx; margin-top: 20rpx; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 14rpx; margin-top: 20rpx; }
 .hero-actions button { flex: 1; width: auto; margin: 0; font-size: 25rpx; }
 .edit-order-button, .copy-order-button { border: 1rpx solid #28624a; background: #fff; color: #28624a; }
 .edit-block-reason { display: block; margin-top: 18rpx; padding: 14rpx 16rpx; border-radius: 10rpx; background: #f5f1e8; color: #745b2d; font-size: 22rpx; line-height: 1.5; }

@@ -16,7 +16,7 @@ export const miniappThemeOptions: MiniappThemeOption[] = [
     className: 'theme-coffee-factory',
     label: '咖啡工厂专业风',
     eyebrow: 'QACOOHEE SERVICE',
-    subtitle: '豆单、订单、代发、库存和结算集中处理。',
+    subtitle: '价格表、订单、代发、库存和结算集中处理。',
   },
   {
     key: 'clean_ops',
@@ -30,7 +30,7 @@ export const miniappThemeOptions: MiniappThemeOption[] = [
     className: 'theme-premium-partner',
     label: '品牌会员高级风',
     eyebrow: 'ROASTERY PARTNER',
-    subtitle: '围绕豆单、定制服务和结算的合作伙伴入口。',
+    subtitle: '围绕价格表、定制服务和结算的合作伙伴入口。',
   },
 ]
 

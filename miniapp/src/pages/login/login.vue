@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onLoad, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
+import { onHide, onLoad, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import {
   defaultMiniappShare,
   defaultMiniappTimelineShare,
@@ -20,7 +20,6 @@ import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 const session = useSessionStore()
 const returnTo=ref('')
 const nickname=ref('')
-onLoad(query=>{if(query?.mode==='password')loginMode.value='password';try{returnTo.value=safeLoginReturn(decodeURIComponent(String(query?.return_to||'')))}catch{returnTo.value=''}})
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -30,10 +29,11 @@ const {
 } = usePullUpBrandGesture()
 const loading = ref(false)
 const errorMessage = ref('')
-const loginMode = ref<'quick' | 'password'>('quick')
+const loginMode = ref<'quick' | 'password'>(session.autoRestoreBlocked ? 'password' : 'quick')
 const loginForm = ref({ login: '', password: '' })
 const themeClass = miniappThemeClass()
 const themeMeta = miniappThemeMeta()
+onLoad(query=>{if(query?.mode==='password')loginMode.value='password';try{returnTo.value=safeLoginReturn(decodeURIComponent(String(query?.return_to||'')))}catch{returnTo.value=''}})
 
 function browseServices() { uni.reLaunch({ url: '/pages/bean-list-center/bean-list-center' }) }
 
@@ -70,7 +70,7 @@ async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: stri
 
   const phoneCode = String(event?.detail?.code || '').trim()
   if (!phoneCode) {
-    errorMessage.value = '已取消手机号授权，可返回豆单目录继续浏览'
+    errorMessage.value = '已取消手机号授权，可返回价格表中心继续浏览'
     return
   }
 
@@ -113,7 +113,22 @@ async function handlePasswordLogin() {
 
 onShareAppMessage(defaultMiniappShare)
 onShareTimeline(defaultMiniappTimelineShare)
-onShow(async () => { void refreshMiniappShareMenu();if(loginMode.value==='password')return;try{await restoreRegistrationSession(session);if(session.registrationComplete && session.token){completeLogin({token:session.token,mini_user_id:session.miniUserID,current_customer_id:session.currentCustomerID,bindings:session.bindings,capabilities:session.capabilities,registration_complete:true,registration:session.registration||undefined})}}catch(e){errorMessage.value=e instanceof Error?e.message:'登录状态恢复失败'} })
+let pageVisible = false
+const canRestoreRegistration = () => pageVisible && loginMode.value === 'quick' && !session.autoRestoreBlocked
+onHide(() => { pageVisible = false })
+onShow(async () => {
+  pageVisible = true
+  void refreshMiniappShareMenu()
+  if (!canRestoreRegistration()) return
+  try {
+    await restoreRegistrationSession(session)
+    if (canRestoreRegistration() && session.registrationComplete && session.token) {
+      completeLogin({ token: session.token, mini_user_id: session.miniUserID, current_customer_id: session.currentCustomerID, bindings: session.bindings, capabilities: session.capabilities, registration_complete: true, registration: session.registration || undefined })
+    }
+  } catch (error) {
+    if (canRestoreRegistration()) errorMessage.value = error instanceof Error ? error.message : '登录状态恢复失败'
+  }
+})
 </script>
 
 <template>
@@ -133,8 +148,8 @@ onShow(async () => { void refreshMiniappShareMenu();if(loginMode.value==='passwo
     </view>
 
     <view class="browse-option">
-      <button class="browse-button" @tap="browseServices">返回豆单目录</button>
-      <text>手机号用于验证身份与业务联系；登记后即可查看普通豆单。</text>
+      <button class="browse-button" @tap="browseServices">返回价格表中心</button>
+      <text>手机号用于验证身份与业务联系；登记后即可查看价格表。</text>
     </view>
     <view class="panel">
       <view class="mode-tabs">
@@ -144,7 +159,7 @@ onShow(async () => { void refreshMiniappShareMenu();if(loginMode.value==='passwo
 
       <view v-if="loginMode === 'quick'" class="login-block">
  <input v-model="nickname" type="nickname" maxlength="32" class="input" placeholder="请选择或填写昵称" />
- <text>普通豆单无需客户审核；查看订单仍需有效客户账号。</text>
+ <text>价格表无需客户审核；查看订单仍需有效客户账号。</text>
         <button
           class="login-button"
           open-type="getPhoneNumber"
@@ -157,6 +172,7 @@ onShow(async () => { void refreshMiniappShareMenu();if(loginMode.value==='passwo
       </view>
 
       <view v-else class="login-block">
+        <text>使用员工或客户账号登录；查看价格表可选择“手机号登记 / 登录”。</text>
         <input v-model="loginForm.login" class="input" placeholder="用户名或手机号" />
         <input v-model="loginForm.password" class="input" password placeholder="密码" />
         <button class="login-button" :loading="loading" :disabled="loading" @tap="handlePasswordLogin">

@@ -12,7 +12,7 @@ func TestPR563CostingRepositoryReadsFrozenPieceCostWithoutParsingSpecName(t *tes
 		t.Fatal(err)
 	}
 	src := string(data)
-	start := strings.Index(src, "opRows, err := r.pool.Query")
+	start := strings.Index(src, "opRows, err := r.readDB(ctx).Query")
 	if start < 0 {
 		t.Fatal("BOM operation snapshot query not found")
 	}

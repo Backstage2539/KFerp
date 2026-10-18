@@ -204,7 +204,7 @@ describe('employee mini order entry page contract', () => {
     expect(pageSource).toContain('quantityInputValue(item)')
     expect(pageSource).toContain('@blur="quantityBlurred(item)"')
     expect(pageSource).toContain('unitPriceInputValue(item)')
-    expect(pageSource).toContain(':disabled="hasPendingQuantity(item) || Number(item.qty) <= 0"')
+    expect(pageSource).toContain(':disabled="isFrozenConversion(item) || hasPendingQuantity(item) || Number(item.qty) <= 0"')
     expect(pageSource).toContain('applyEmployeeOrderQuantityChange')
     expect(pageSource).toContain('isEmployeeOrderNonNegativeMoney')
     expect(pageSource).toContain('cause instanceof MiniRequestError && cause.statusCode === 409')
