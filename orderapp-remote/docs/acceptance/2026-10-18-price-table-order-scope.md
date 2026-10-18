@@ -26,8 +26,22 @@
 
 手册：OP_MANUAL_ORDER_SALES.md、OP_MANUAL_COSTING.md、OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md、OP_MANUAL_BOM_ORDER_PRICING.md、OP_MANUAL_SPEC_CONVERSION.md 与总索引、前端帮助同步。
 
-功能分支 `codex/restore-price-table-order-scope-20261018`，基线 `43de729d`。合并及 development 部署记录待补；生产、微信上传和 Van 真实业务验收不在本次执行中。
+功能分支 `codex/restore-price-table-order-scope-20261018`，基线 `43de729d`。合并及 development 部署已完成，见下方记录；生产、微信上传和 Van 真实业务验收不在本次执行中。
 
 ## 发布路径补充回退
 
 移除仅用于跨规格报价的发布时可执行模板冻结要求。已经生成的价格行按原规则发布，不因关联模板后来停用而被新增检查阻断；不会重新计算或改写价格。`TestPriceTableOnlyOrderScopePostgresHTTP` 增加停用关联模板后仍能发布已定价行、最终售价不变的 RED/GREEN；RED 为“价格档位的计算模板已停用”。
+
+## 最终开发交付（2026-10-18）
+
+- 功能分支：`codex/restore-price-table-order-scope-20261018`。
+- 实现提交：`6d081a0de667f93133a97bf375e3d835e784f4b2`、`92c5c4b29dd1502de144494da9de1e2b943fa5ea`，均已推送；PR #210 / #211 已合并。
+- 开发运行版本：`94dca9cf49340e836c7985c660bb7a619489bcbb`。`fa98f276` 仍为祖先，价格表中心和样品模块源码未撤回，四项样品 PostgreSQL/race 回归通过。
+- 部署：干净 develop checkout 执行 `KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-price-table-scope-delivery-20261018/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development`，exit 0。
+- 上一版本源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20261018201622-94dca9cf4934`；镜像 `kferp-orderapp-rollback:development-20261018201622-94dca9cf4934`。
+- 本次任务前版本备份仍保留：`/opt/stacks/erp/orderapp.backup.deploy-20261018200620-e9041e645bbe`。
+- 运行检查：app running、PostgreSQL healthy、login HTTP 200、匿名旧报价接口 401、授权旧报价接口 410（仅支持所选价格表商品规格）、线上手册与 PR-697 标识存在。未执行真实业务写入或验收。
+- 部署结束后持有服务器部署锁清理可重建的闲置构建缓存，业务数据和回滚锚点保留；磁盘可用 2.3GB，app/DB 仍健康。
+- 开发包：`/Users/yiiiple-work/KFerp-price-table-scope-delivery-20261018/KFerp-miniapp-dev-94dca9cf.zip`；RELEASE_INFO 环境/API/commit 一致，24 页面/96 必需文件验证通过，不包含 project.private.config.json，zip CRC 正常。
+- SHA256：`e97579a62a8cab7ab9d4008867bc22b01585b9bba6dfb96a50f9d1a70b34aeaa`。
+- 生产发布、微信上传/审核/发布、Van 真实业务验收均未执行。开发 PR 保持待业务验收。

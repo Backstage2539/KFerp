@@ -1,11 +1,12 @@
 ### PR-697-RESTORE-PRICE-TABLE-SCOPE
 - Branch: codex/restore-price-table-order-scope-20261018; base origin/develop@43de729d.
-- Status: PR #210 merged; development delivery in progress. Final publication-path rollback removes the retired executable-template publication guard; targeted PostgreSQL/race and samples RED/GREEN plus full Go passed; final integration/deployment pending.
+- Status: verified, PR #210/#211 merged and development deployed at 94dca9cf; Van business acceptance pending.
 - Scope: 撤回 PR-694/695/696 录单扩展；ERP/员工小程序仅用当前价格表商品规格，临时换规格入口关闭。历史冻结、换算配置与 fa98f276 的价格表中心/样品流程保留。
 - DEV: DEV-784-SCOPE-ROLLBACK; DEV-785-SCOPE-HISTORY; DEV-786-SCOPE-DELIVERY.
 - RED: /tmp/kferp-scope-red-{api,vue,mini}.log; old API returned 3 BOM specs, both clients offered conversion, copy retained conversion selection.
 - Verifier: scoped PostgreSQL HTTP, sample lifecycle regression, full Go/Vue/miniapp tests and builds, local UI, development technical smoke/package.
 - ID: scripts/reserve_req_id.sh returned PR-697; recorded here.
+- Delivery: development 94dca9cf; healthy app/DB, retired quote HTTP410, docs/PR marker, 24-page/96-file dev package. Backup orderapp.backup.deploy-20261018201622-94dca9cf4934. Receipt docs/acceptance/2026-10-18-price-table-order-scope.md; no production/WeChat upload.
 
 ### PR-696-LEGACY-BOM-TIER-TEMPLATE
 - Superseded: PR-697 withdraws this order-entry workflow; evidence below is historical.
