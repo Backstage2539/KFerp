@@ -120,8 +120,10 @@ Van进一步明确小程序必须实际提交代发，因此新增独立标记PR
 
 ### 最终开发交付
 
-- 后台修复提交a2f4458b，合入并部署开发def3d66e3af3292f83cd98da39716f7f89750d2e；部署完整通过Vue1420项、小程序348项、Go和Docker测试及构建，HTTP就绪检查通过。最后首页统计变更仅在小程序开发包中，无后台接口变更；该包350项测试及类型/构建和客户实见均通过。
+- 后台修复提交a2f4458b、首页统计及完整验收提交2b36959c，最终统一合入并部署develop@a9975450d43822b8dc7db3831f7545986c13d6a8。Vue1420项、小程序350项、Go和Docker测试及构建、HTTP就绪检查均通过；留厂生产需求等真实PostgreSQL定向回归亦通过。
 - 命令：KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-customer-stock-live-acceptance-20261019/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development。
-- 源码备份/回滚：/opt/stacks/erp/orderapp.backup.deploy-20261019034149-def3d66e3af3；kferp-orderapp-rollback:development-20261019034149-def3d66e3af3。
-- 运行镜像sha256:5f8f366be8f1520ef4803134837d2edc090107afb3c016c80c94a6c0c11b9a3b，开发应用running/restarts0、PostgreSQL healthy，生产容器持续运行；磁盘剩余约3.6GB。DEV-799接口实读done，账单接口1548元/6单、生产缺口为空，客户档案仍301。
-- 最终小程序开发包：私有证据目录/KFerp-miniapp-dev-final.zip，配套目录KFerp-miniapp-mp-weixin-dev-final；RELEASE_INFO记录精确源提交、development、https://dev.qacoohee.com/app，包含最后首页统计修复。该独立客户端包与后台运行提交分别记录；未上传微信、未提审、未发布。生产配置和单据均未修改。
+- 源码备份/回滚：/opt/stacks/erp/orderapp.backup.deploy-20261019035444-a9975450d438；kferp-orderapp-rollback:development-20261019035444-a9975450d438。
+- 运行镜像sha256:4efd599b4d55d18e0bafeae636737e714dbad4953826c369ade7ca375c3acd4e，开发应用running/restarts0、PostgreSQL healthy，生产容器持续运行；磁盘剩余约2.5GB。登录页200、未认证订单接口401、已认证账单等接口200。DEV-799实读done，发布后mini-final-after-unified-checks.log再次PASS：账单1548元/6单、库存0、原单工单24、生产缺口为空，客户档案仍301。
+- 最终小程序开发包：私有证据目录/KFerp-miniapp-dev-final.zip，配套目录KFerp-miniapp-mp-weixin-dev；RELEASE_INFO与后台统一为a9975450、development、https://dev.qacoohee.com/app。24页/96页面文件验证通过，账单、代发、首页及首页统计模块与真实客户验收包逐字节一致。ZIP SHA256：1430ca7e9e89ac7d47764f0fc2b8bd1edbdcb0a8e78366b972720c90e3a1fa2e。
+- 最后一次服务发布[6/6]及外部200成功后，导出因初始指定的目录后缀-dev-final不符合脚本固定名称保护而退出1。原样复用sync_miniapp_artifact函数，改用规范目录KFerp-miniapp-mp-weixin-dev完成下载、版本/清单验证和原包备份；export-unified-final.log成功，未重复发布服务或跳过构建检查。
+- 小程序购货POST201一次、代发POST201两次及来源状态更正POST204均在操作日志；三笔客户请求均归mini_user151，见mini-cycle-operation-logs.log和只读数据库证据。未上传微信、未提审、未发布；生产配置和单据均未修改。
