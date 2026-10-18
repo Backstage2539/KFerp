@@ -5789,3 +5789,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Evidence: orderapp-remote/docs/acceptance/2026-10-18-price-table-editor-restore.md
 - Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md
 - Deployment: user subsequently authorized development on 2026-10-18; deployed 5c0c53ce9030e78d17a9d376ac9a38d1029a5ff4. Initial startup failed on full disk; reclaimed regenerable build caches, recovered healthy PostgreSQL, and promoted the already-tested image. Backup /opt/stacks/erp/orderapp.backup.recovery-20261018223436-5c0c53ce9030; about 9.2 GB free. No production deployment or customer price-table writes.
+
+### PR-700-ORDER-LIST-INLINE
+- Branch: codex/order-list-inline-details-20261018
+- Owner/session: Codex
+- Status: verified; PR review / REV todo
+- Scope: 全部商品分类、真实样品标签、单行展开只读订单明细。
+- Verifier: Go 单元/API/隔离 PostgreSQL；Vue helper/runtime/浏览器响应式；Vue 构建；小程序兼容回归。
+- Manual: orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md（Vue 帮助同步）
+- Review/acceptance: docs/acceptance/2026-10-18-order-list-inline.md；Van 真人验收待完成。
+- Deployment: ready for serialized integration/development deploy; production excluded
+

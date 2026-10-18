@@ -2933,6 +2933,7 @@ func TestOrderAPIListFulfillmentScopeSkipsLegacyNonWorkbenchBinding(t *testing.T
 		ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS customer_type TEXT NOT NULL DEFAULT 'retail';
 		CREATE TABLE %[1]s.customer_portal_profiles (
 			customer_id BIGINT PRIMARY KEY,
+			enabled BOOLEAN NOT NULL DEFAULT true,
 			capability_template_key TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE %[1]s.customer_capability_templates (
@@ -2956,7 +2957,7 @@ func TestOrderAPIListFulfillmentScopeSkipsLegacyNonWorkbenchBinding(t *testing.T
 		INSERT INTO %[1]s.customers(id,name,customer_type,active) VALUES
 			(31,'历史零售模板批发客户','wholesale',true),
 			(32,'有效代加工履约客户','wholesale',true);
-		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'渠道部',true);
+		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'渠道部',true) ON CONFLICT(id) DO NOTHING;
 		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active) VALUES
 			(501,'历史零售模板账号','13900000501',1,'channel_customer',true),
 			(502,'有效代加工账号','13900000502',1,'channel_customer',true);
@@ -2997,6 +2998,7 @@ func TestOrderAPIListFulfillmentScopeSkipsDisabledLoginBinding(t *testing.T) {
 		ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS customer_type TEXT NOT NULL DEFAULT 'retail';
 		CREATE TABLE %[1]s.customer_portal_profiles (
 			customer_id BIGINT PRIMARY KEY,
+			enabled BOOLEAN NOT NULL DEFAULT true,
 			capability_template_key TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE %[1]s.customer_capability_templates (
@@ -3020,7 +3022,7 @@ func TestOrderAPIListFulfillmentScopeSkipsDisabledLoginBinding(t *testing.T) {
 		INSERT INTO %[1]s.customers(id,name,customer_type,active) VALUES
 			(33,'禁用账号履约客户','wholesale',true),
 			(34,'启用账号履约客户','wholesale',true);
-		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'渠道部',true);
+		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'渠道部',true) ON CONFLICT(id) DO NOTHING;
 		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active) VALUES
 			(503,'禁用渠道账号','13900000503',1,'channel_customer',true),
 			(504,'启用渠道账号','13900000504',1,'channel_customer',true);
@@ -5990,6 +5992,7 @@ CREATE TABLE %s.customer_sku_public_usage (
 );
 CREATE TABLE %s.orders (
 	id BIGSERIAL PRIMARY KEY,
+	settlement_reason TEXT NOT NULL DEFAULT '',
 	document_date DATE,
 	order_date DATE,
 	customer_id BIGINT,

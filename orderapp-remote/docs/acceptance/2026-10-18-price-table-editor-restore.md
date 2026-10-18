@@ -53,7 +53,7 @@
 
 - 单一手册：`docs/OP_MANUAL_COSTING.md` 的“重新打开价格表与本地草稿”。
 - Vue 页面帮助、加载失败重试、来源冲突操作和失效选择提示同步更新。
-- PR/DEV 种子：PR-699 为 review，DEV-788 为 done；未部署，所以运行中的需求 UI 尚未更新。
+- PR/DEV 种子：PR-699 为 review，DEV-788 为 done；初次交付时未部署；后续开发环境已生效，见下方部署记录。
 - 分支：`codex/price-table-editor-restore-20261018`；集成基线 `5a724b789d1aa596761e42b8568d4fd00a33e253`。集成 PR：https://github.com/Backstage2539/KFerp/pull/213；合并提交以 PR 和 Git 历史为准。
 
 
