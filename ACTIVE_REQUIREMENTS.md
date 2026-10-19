@@ -1,10 +1,11 @@
 ### PR-704-MINIAPP-STOCK-ORDER-EXPERIENCE
 - Branch: codex/miniapp-stock-order-experience-20261019; base origin/develop@758a2f50.
-- Status: review; implemented and customer UI/API verified in development; Van product acceptance pending. Final delivery follow-up in progress.
+- Status: review; implemented and customer UI/API verified in development; Van product acceptance pending. Development delivery complete at be7338a1; subsequent receipt commit is documentation only.
 - DEV: DEV-800 stock purchase/return/draft flow; DEV-801 inventory overview and separate entries; DEV-802 price-session reuse and development delivery.
 - Verifier: targeted RED/GREEN (async refresh, drafts, stock aggregation, address normalization, price access), real isolated PostgreSQL/API, full miniapp tests/typecheck/build, Vue tests/build, Go checks, customer UI and development runtime checks.
 - Manual: customer portal and price center source manuals; acceptance docs/acceptance/2026-10-19-miniapp-stock-order-experience.md.
 - Evidence: miniapp364, Vue1420, Go and isolated PostgreSQL passed; real customer20→22(top-up2)→12 reservation shows10, fees/production and cleanup verified.
+- Delivery: development/runtime/package be7338a1, 24 pages/96 page files; 223 code files match the UI-tested project; button 商品下单 auto-saves drafts and stays enabled at zero inventory. Backup/command/runtime evidence in the acceptance receipt.
 - Boundary: development only; independent acceptance fixtures; preserve existing Xiqin orders/inventory/drafts; no production or WeChat publication.
 
 ### PR-702-MINIAPP-LOGIN-ENTRY

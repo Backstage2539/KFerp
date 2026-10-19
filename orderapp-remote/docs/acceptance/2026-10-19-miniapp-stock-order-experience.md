@@ -46,7 +46,13 @@
 ## 开发交付
 
 - 首次集成开发提交 d3ffebd373e746603191aee52cd220adce612e2b，部署成功，24页面/96清单文件导出通过。备份 /opt/stacks/erp/orderapp.backup.deploy-20261019110550-d3ffebd373e7。
-- 提交后库存刷新补修、最终集成部署与导出证明在交付完成后补记；开发包固定目录为私有证据目录下 KFerp-miniapp-mp-weixin-dev。
+- 最终行为版本及开发包：be7338a1646152bf2670ec4d846bc50068ca5e03，已推送功能分支、合入develop并部署development。开发包固定目录为私有证据目录下 KFerp-miniapp-mp-weixin-dev。
+- 发布命令：`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/Users/yiiiple-work/KFerp-miniapp-stock-order-experience-20261019/KFerp-miniapp-mp-weixin-dev ./deploy_orderapp.sh development`。
+- 最终备份：/opt/stacks/erp/orderapp.backup.deploy-20261019113916-be7338a16461；回滚镜像：kferp-orderapp-rollback:development-20261019113916-be7338a16461。
+- 最终24页面、96清单文件验证通过；导出包223个代码文件与实际DevTools验收项目逐字节一致。ZIP SHA256：6eb9854e14feae218ac923c70fbe8f681bb0ea3c0d850622e9db0a8ab97ccb11。
+- 运行检查：开发应用running、数据库healthy；匿名/app/返回303至orders，受保护API匿名401，认证Vue履约页200；PR-704 review、DEV-800/801/802 done。生产应用启动时间保持2026-10-18T16:37:45Z，未做生产发布。
+- 最终导出ZIP：私有证据目录下 KFerp-PR704-miniapp-development-20261019.zip；详细发布与健康信息在delivery-verification.json、runtime-health.json、runtime-final.log。
+- 本文交付证据在部署后作纯文档补记；运行代码与开发包均对应上述be7338a1版本，文档补记无需重复部署。
 
 ## 手册与数据隔离
 
@@ -58,3 +64,7 @@
 ## 验收期间追加调整
 
 - Van 要求库存概览按钮简化为“商品下单”；点击时自动保存原代发草稿，沿用仅预填缺口及补购返回流程。最小页面用例先RED（button-label-red.log），改文案后GREEN；手册同步。
+
+- 追加验证：库存为空且未选商品/无地址、已选商品剩余0两种状态，直接渲染实际库存概览模板，“商品下单”均可见且可用（verify-empty-stock-button.cjs、empty-stock-button-green.log）。实际DevTools点击改名按钮进入仅2袋的补购页，手动返回保留原22袋及地址；未提交该草稿，未增加现有客户订单。截图mini-product-order-auto-draft-return.jpg。
+- 网页复核：共用地址簿正常，曜石454g/12袋预览商品款0、服务费9元、运费18元，总计27元，未提交或占用现有库存。web-shared-address-book.jpg、web-stock12-fees.jpg。
+- 代码复核：请求失效/卸载后的回包隔离、提交失败保留原标识、成功后刷新占用库存、模式与客户草稿隔离、只放宽留厂收件校验、价格表专属/停用/撤回门禁均保留。没有待处理的实现问题；产品验收由Van确认。
