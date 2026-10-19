@@ -194,8 +194,9 @@ function useSpotStock() {
   orderDraft.saveDraft(session.currentCustomerID, 'direct_ship', {
     order_date: shanghaiToday(), recipient: null, note: '', lines: [line],
     idempotency_key: `inventory-direct-ship-${Date.now()}`,
+    fulfillment_mode: 'stock',
   })
-  uni.navigateTo({ url: '/pages/service/service?key=directShip' })
+  uni.navigateTo({ url: '/pages/service/service?key=directShip&fulfillment_mode=stock' })
 }
 
 function openProcessingRequest(id: number) {
@@ -251,11 +252,13 @@ onShow(() => { void refreshMiniappShareMenu() })
         <view class="summary-grid">
           <view><text class="label">库存总数</text><text>{{ summary?.total_qty || 0 }}</text></view>
           <view><text class="label">订单占用</text><text>{{ summary?.reserved_qty || 0 }}</text></view>
-          <view><text class="label">现货可用</text><text>{{ summary?.available_qty || 0 }}</text></view>
-          <view><text class="label">未入库可预订</text><text>{{ incompleteReservableQty }}</text></view>
+          <view><text class="label">实物可用</text><text>{{ summary?.physical_available_qty ?? summary?.available_qty ?? 0 }}</text></view>
+          <view><text class="label">购货待入库</text><text>{{ summary?.pending_inbound_qty || 0 }}</text></view>
+          <view><text class="label">待入库已预订</text><text>{{ summary?.pending_reserved_qty || 0 }}</text></view>
+          <view><text class="label">加工未入库可预订</text><text>{{ incompleteReservableQty }}</text></view>
           <view class="wide"><text class="label">所在仓库</text><text>{{ warehouses.join('、') || '暂无记录' }}</text></view>
         </view>
-        <view v-if="summary" class="action-row"><button class="primary" @tap="useSpotStock">使用现货下单</button><button class="secondary" :disabled="navigating" @tap="addProductionOrder">{{ navigating ? '打开中...' : '提交生产工单' }}</button></view>
+        <view v-if="summary" class="action-row"><button class="primary" @tap="useSpotStock">使用客户库存代发</button><button class="secondary" :disabled="navigating" @tap="addProductionOrder">{{ navigating ? '打开中...' : '提交生产工单' }}</button></view>
       </view>
 
       <view class="section">

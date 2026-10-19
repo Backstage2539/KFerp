@@ -1,3 +1,4 @@
+import type { CustomerFulfillmentSettings } from '../api/customerPortal'
 export type Capability = {
   code: string
   enabled: boolean
@@ -19,9 +20,12 @@ const entries: HomeEntry[] = [
   { key: 'inventory', label: '我的库存', capability: 'inventory_custody', url: '/pages/service/service?key=inventory' },
 ]
 
-export function visibleHomeEntries(capabilities: Capability[] = []): HomeEntry[] {
+export function visibleHomeEntries(capabilities: Capability[] = [], settings?: CustomerFulfillmentSettings): HomeEntry[] {
   const enabled = new Set(capabilities.filter((item) => item.enabled).map((item) => item.code))
-  return entries.filter((entry) => entryCapabilities(entry).some((code) => enabled.has(code)))
+  return entries.filter((entry) => entryCapabilities(entry).some((code) => enabled.has(code))).flatMap(entry => {
+    if (entry.key !== 'directShip' || !settings) return [entry]
+    return settings.modes.filter(mode => mode.enabled).map(mode => ({ ...entry, key: mode.mode === 'stock' ? 'directShip' : 'onDemandShip', label: mode.mode === 'stock' ? '一件代发' : '无库存代发', url: `${entry.url}&fulfillment_mode=${mode.mode}` }))
+  })
 }
 
 function entryCapabilities(entry: HomeEntry): string[] {

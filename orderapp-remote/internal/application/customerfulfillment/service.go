@@ -143,6 +143,9 @@ type SubmitCustomerProcessingWorkOrderCommand struct {
 }
 
 type SubmitCustomerDirectShipOrderCommand struct {
+	DeliveryMode          string
+	DeliveryWarehouseCode string
+	FulfillmentMode       string
 	EmployeeID            int64
 	CustomerID            int64
 	OrderDate             string
@@ -1079,6 +1082,7 @@ func (s *Service) submitSharedSalesOrder(ctx context.Context, cmd SubmitCustomer
 		Notes:                             cmd.Note,
 		RequireCurrentDefaultPublications: false,
 		OrdersScope:                       "fulfillment",
+		FulfillmentMode:                   cmd.FulfillmentMode,
 	}
 	for _, item := range cmd.Items {
 		if item.ProductID <= 0 {

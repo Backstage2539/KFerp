@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onHide } from '@dcloudio/uni-app'
 import {
   cancelDirectShipRequest,
   createDirectShipRequest,
@@ -17,10 +17,11 @@ import {
   type DirectShipRequest,
   type EmployeeOrderProductFamily,
   type EmployeeOrderProductSpec,
+  type FulfillmentMode,
 } from '../api/customerPortal'
 import { useCustomerOrderDraftStore, type CustomerOrderMode, type CustomerOrderRecipient } from '../stores/customerOrderDraft'
 import { employeeOrderProductFamilyKey, productSpecLabel, shanghaiToday } from '../utils/employeeOrder'
-import { directShipPreviewSupplyRows, directShipStatusLabel } from '../utils/customerFulfillment'
+import { directShipAllocationSourceLabel, directShipPreviewSupplyRows, directShipStatusLabel } from '../utils/customerFulfillment'
 import {
   buildDirectShipDraftItems,
   createDirectShipDraftLine,
@@ -37,15 +38,17 @@ import {
 } from '../utils/directShipFilters'
 import { filterRecipientAddresses, recipientAddressSummary, tierQuantityLabel } from '../utils/customerOrderEntry'
 import ProductFamilyPickerSheet from './ProductFamilyPickerSheet.vue'
+import { enabledDirectShipModes, initialDirectShipMode, purchaseDeliveryMode, stockItemKey, stockOverviewRows, stockTopupFromCatalog } from '../utils/directShipScenario'
+import { useCustomerOrderQuote } from '../composables/useCustomerOrderQuote'
 
-const props = withDefaults(defineProps<{ token: string; customerId: number; showCreate?: boolean; orderMode?: CustomerOrderMode }>(), { showCreate: true, orderMode: 'direct_ship' })
+const props = withDefaults(defineProps<{ token: string; customerId: number; showCreate?: boolean; orderMode?: CustomerOrderMode; entryMode?: FulfillmentMode; stockPurchase?: boolean }>(), { showCreate: true, orderMode: 'direct_ship', stockPurchase: false })
 type PickerChangeEvent = { detail?: { value?: string | number } }
-type RecipientEvent = { customerID?: number; orderMode?: CustomerOrderMode }
+type RecipientEvent = { customerID?: number; orderMode?: CustomerOrderMode; fulfillmentMode?: FulfillmentMode }
 
 const orderDraft = useCustomerOrderDraftStore()
 const loading = ref(false)
 const submitting = ref(false)
-const previewing = ref(false)
+const openingStockPurchase = ref(false)
 const errorMessage = ref('')
 const catalog = ref<DirectShipCatalog>({ current_customer_id: 0, product_families: [] })
 const requests = ref<DirectShipRequest[]>([])
@@ -55,6 +58,10 @@ const recipientSelectorOpen = ref(false)
 const recipientQuery = ref('')
 const orderDate = ref(shanghaiToday())
 const note = ref('')
+const fulfillmentMode = ref<FulfillmentMode | ''>('')
+const deliveryMode = ref<'ship' | 'customer_stock'>('ship')
+const deliveryWarehouseCode = ref('')
+const returnToDirectShip = ref(false)
 const lines = ref<DirectShipDraftLine[]>([createDirectShipDraftLine()])
 const preview = ref<DirectShipPreview | null>(null)
 const productSelectorOpen = ref(false)
@@ -73,16 +80,24 @@ const jumpPage = ref('1')
 const pageLimitOptions = [10, 20, 50]
 const pageLimitLabels = pageLimitOptions.map((value) => `每页 ${value} 条`)
 let loadVersion = 0
-let previewVersion = 0
-let previewTimer: ReturnType<typeof setTimeout> | undefined
+let initialized = false
+let restoredMode: FulfillmentMode | '' = ''
 
 const isProductOrder = computed(() => props.orderMode === 'product_order')
-const createTitle = computed(() => isProductOrder.value ? '新建现货订单' : '新建代发订单')
-const submitTitle = computed(() => isProductOrder.value ? '提交现货订单' : '提交代发订单')
+const retainedPurchase = computed(() => isProductOrder.value && deliveryMode.value === 'customer_stock')
+const createTitle = computed(() => isProductOrder.value ? retainedPurchase.value ? '下单库存' : '商品下单' : fulfillmentMode.value === 'on_demand' ? '无库存代发' : '一件代发')
+const submitTitle = computed(() => isProductOrder.value ? retainedPurchase.value ? '提交购货订单' : '提交订单' : '提交代发订单')
 const selectedSummary = computed(() => lines.value.filter((line) => Number(line.product_id || 0) > 0).map((line) => `${line.product_name} ${line.spec_label} × ${line.qty}`).join('；'))
 const filteredRecipients = computed(() => filterRecipientAddresses(recipientAddresses.value, recipientQuery.value))
 const selectedRecipientSummary = computed(() => recipientAddressSummary(selectedRecipient.value))
 const totalAmount = computed(() => preview.value?.total_amount ?? 0)
+const availableFulfillmentModes = computed(() => enabledDirectShipModes(catalog.value.fulfillment_settings))
+const activeFulfillmentSetting = computed(() => catalog.value.fulfillment_settings?.modes.find(row => row.mode === fulfillmentMode.value))
+const purchaseWarehouse = computed(() => deliveryWarehouseCode.value || catalog.value.fulfillment_settings?.modes.find(row => row.mode === 'stock' && row.enabled)?.warehouse_code || '')
+const stockScenario = computed(() => !isProductOrder.value && fulfillmentMode.value === 'stock')
+const serviceFee = computed(() => Number(preview.value?.fees?.service_fee_cents || 0) / 100)
+const shippingFee = computed(() => Number(preview.value?.fees?.shipping_fee_cents || 0) / 100)
+const payableAmount = computed(() => totalAmount.value + serviceFee.value + shippingFee.value)
 const processingAllocationQty = computed(() => (preview.value?.production_allocations || []).reduce((sum, item) => sum + Number(item.qty || 0), 0))
 const blockingShortages = computed(() => (preview.value?.shortages || []).filter((item) => item.blocking))
 const previewSupplyRows = computed(() => directShipPreviewSupplyRows({
@@ -90,18 +105,35 @@ const previewSupplyRows = computed(() => directShipPreviewSupplyRows({
   specs: catalog.value.product_families.flatMap((family) => family.specs || []),
   preview: preview.value,
 }))
+const stockOverview = computed(() => stockOverviewRows(catalog.value, lines.value))
+const stockHasGap = computed(() => stockOverview.value.some(row => row.gap > 0))
 const fulfillmentMessage = computed(() => {
+  if (stockScenario.value || retainedPurchase.value) return ''
   if (!preview.value || preview.value.stock_ready) return ''
   if (blockingShortages.value.length) return '代加工商品可履约数量不足，整单不能提交。请先提交代加工申请或减少数量。'
   if (processingAllocationQty.value > 0) return `成品库存优先占用，不足部分已从有效在制产出预订 ${processingAllocationQty.value} 件；全部入库后自动转为待发货库存。`
   return '成品库存优先占用；普通商品未覆盖数量仍可提交，ERP 只对实际缺口安排生产。'
 })
 
+const quoteFlow = useCustomerOrderQuote<DirectShipPreview>({
+  validate,
+  quote: () => isProductOrder.value ? previewProductOrder(props.token, payload()) : previewDirectShipRequest(props.token, payload()),
+  clear: () => { preview.value = null; errorMessage.value = '' },
+  apply: checked => {
+    preview.value = checked
+    errorMessage.value = checked.can_submit || (stockScenario.value && checked.needs_topup) ? '' : '当前可履约数量不足，请核对商品数量'
+  },
+  error: message => { errorMessage.value = message },
+})
+const previewing = quoteFlow.previewing
+const catalogReady = quoteFlow.ready
+
 function newIdempotencyKey(): string {
   return `mini-${props.orderMode === 'product_order' ? 'po' : 'ds'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function currentOrderMode(): CustomerOrderMode { return isProductOrder.value ? 'product_order' : 'direct_ship' }
+function currentOrderMode(): CustomerOrderMode { return isProductOrder.value ? props.stockPurchase ? 'stock_purchase' : 'product_order' : 'direct_ship' }
+function draftFulfillmentMode(): FulfillmentMode | undefined { return isProductOrder.value ? undefined : fulfillmentMode.value || props.entryMode || 'stock' }
 
 function saveDraft() {
   orderDraft.saveDraft(props.customerId, currentOrderMode(), {
@@ -110,43 +142,74 @@ function saveDraft() {
     note: note.value,
     lines: lines.value,
     idempotency_key: idempotencyKey.value,
-  })
+    fulfillment_mode: fulfillmentMode.value || undefined,
+    delivery_mode: deliveryMode.value,
+    delivery_warehouse_code: deliveryWarehouseCode.value,
+    return_to_direct_ship: returnToDirectShip.value,
+  }, draftFulfillmentMode())
 }
 
 function restoreDraft() {
-  const draft = orderDraft.restoreDraft(props.customerId, currentOrderMode())
+  const mode = draftFulfillmentMode()
+  restoredMode = mode || ''
+  const draft = orderDraft.restoreDraft(props.customerId, currentOrderMode(), mode)
   if (!draft) return
   orderDate.value = draft.order_date || shanghaiToday()
   selectedRecipient.value = draft.recipient
   note.value = draft.note || ''
   lines.value = draft.lines?.length ? draft.lines : [createDirectShipDraftLine()]
   idempotencyKey.value = draft.idempotency_key || newIdempotencyKey()
+  fulfillmentMode.value = props.entryMode || draft.fulfillment_mode || ''
+  deliveryMode.value = draft.delivery_mode || 'ship'
+  deliveryWarehouseCode.value = draft.delivery_warehouse_code || ''
+  returnToDirectShip.value = Boolean(draft.return_to_direct_ship)
 }
 
 function consumeReturnedRecipient(event?: RecipientEvent) {
   if (event && (Number(event.customerID || 0) !== props.customerId || event.orderMode !== currentOrderMode())) return
-  const recipient = orderDraft.consumeRecipient(props.customerId, currentOrderMode())
+  if (event?.fulfillmentMode !== undefined && event.fulfillmentMode !== draftFulfillmentMode()) return
+  const recipient = orderDraft.consumeRecipient(props.customerId, currentOrderMode(), draftFulfillmentMode())
   if (!recipient) return
   applyRecipientAddress(recipient)
   saveDraft()
 }
 
 async function load() {
+  if (props.showCreate) return quoteFlow.refresh(async current => {
+    loading.value = true
+    try {
+      let [value, addressData] = await Promise.all([
+        isProductOrder.value ? fetchProductOrderCatalog(props.token) : fetchDirectShipCatalog(props.token, props.entryMode || fulfillmentMode.value || undefined),
+        fetchRecipientAddresses(props.token),
+      ])
+      if (!current()) return
+      if (!isProductOrder.value) {
+        const selected = props.entryMode || initialDirectShipMode(value.fulfillment_settings)
+        if (selected && selected !== value.fulfillment_mode) value = await fetchDirectShipCatalog(props.token, selected)
+        if (!current()) return
+        fulfillmentMode.value = selected
+        if (restoredMode !== selected) {
+          lines.value = [createDirectShipDraftLine()]; note.value = ''; selectedRecipient.value = null; idempotencyKey.value = newIdempotencyKey()
+          restoreDraft()
+        }
+      }
+      catalog.value = value
+      if (isProductOrder.value) {
+        deliveryMode.value = props.stockPurchase ? 'customer_stock' : purchaseDeliveryMode(value.fulfillment_settings)
+        deliveryWarehouseCode.value = value.fulfillment_settings?.modes.find(row => row.mode === 'stock' && row.enabled)?.warehouse_code || ''
+        returnToDirectShip.value = props.stockPurchase
+      }
+      recipientAddresses.value = addressData.rows || []
+      const defaultAddress = recipientAddresses.value.find(row => row.is_default)
+      if (!retainedPurchase.value && defaultAddress && !selectedRecipient.value) selectedRecipient.value = { ...defaultAddress }
+    } finally {
+      if (current()) loading.value = false
+    }
+  })
   const version = ++loadVersion
   loading.value = true
   errorMessage.value = ''
   try {
-    if (props.showCreate) {
-      const [value, addressData] = await Promise.all([
-        isProductOrder.value ? fetchProductOrderCatalog(props.token) : fetchDirectShipCatalog(props.token),
-        fetchRecipientAddresses(props.token),
-      ])
-      if (version !== loadVersion) return
-      catalog.value = value
-      recipientAddresses.value = addressData.rows || []
-      const defaultAddress = recipientAddresses.value.find((row) => row.is_default)
-      if (defaultAddress && !selectedRecipient.value) applyRecipientAddress(defaultAddress, false)
-    } else {
       const value = await fetchDirectShipRequests(props.token, { q: shipmentQuery.value, shipped_from: shippedFrom.value, shipped_to: shippedTo.value, page: currentPage.value, limit: pageLimit.value })
       if (version !== loadVersion) return
       requests.value = value.rows || []
@@ -155,7 +218,6 @@ async function load() {
       totalPages.value = Math.max(1, Number(value.total_pages) || Math.ceil(totalRows.value / pageLimit.value) || 1)
       currentPage.value = Math.min(totalPages.value, Math.max(1, Number(value.page ?? currentPage.value) || 1))
       jumpPage.value = String(currentPage.value)
-    }
   } catch (error) {
     if (version !== loadVersion) return
     errorMessage.value = error instanceof Error ? error.message : '信息加载失败'
@@ -182,13 +244,34 @@ function openRecipientEditor(addressID = 0) {
   saveDraft()
   recipientSelectorOpen.value = false
   const id = Math.max(0, Number(addressID || 0))
-  uni.navigateTo({ url: `/pages/customer-addresses/customer-addresses?order_mode=${currentOrderMode()}${id ? `&address_id=${id}` : ''}` })
+  uni.navigateTo({ url: `/pages/customer-addresses/customer-addresses?order_mode=${currentOrderMode()}${draftFulfillmentMode() ? `&fulfillment_mode=${draftFulfillmentMode()}` : ''}${id ? `&address_id=${id}` : ''}` })
 }
 
 function openPriceTablePreview() {
   saveDraft()
-  uni.navigateTo({ url: `/pages/order-price-table-preview/order-price-table-preview?usage_code=${currentOrderMode()}` })
+  uni.navigateTo({ url: `/pages/order-price-table-preview/order-price-table-preview?usage_code=${isProductOrder.value ? 'product_order' : 'direct_ship'}` })
 }
+
+function fulfillmentModeLabel(value: string) { return value === 'stock' ? '库存代发' : '无库存代发' }
+function stockRow(line: DirectShipDraftLine) { return stockOverview.value.find(row => row.key === stockItemKey(line)) }
+function firstStockLine(line: DirectShipDraftLine) { return lines.value.find(row => stockItemKey(row) === stockItemKey(line))?.key === line.key }
+async function startTopup() {
+  if (submitting.value || openingStockPurchase.value) return
+  openingStockPurchase.value = true
+  saveDraft()
+  try {
+    if (!await load()) return
+    const topupLines = stockTopupFromCatalog(lines.value, catalog.value)
+    orderDraft.saveDraft(props.customerId, 'stock_purchase', {
+      order_date: orderDate.value, recipient: null, note: '库存代发补购', lines: topupLines,
+      idempotency_key: `mini-topup-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      delivery_mode: 'customer_stock', delivery_warehouse_code: activeFulfillmentSetting.value?.warehouse_code || '', return_to_direct_ship: true,
+    })
+    await new Promise<void>((resolve, reject) => uni.navigateTo({ url: '/pages/service/service?key=productOrder&stock_purchase=1', success: () => resolve(), fail: () => reject(new Error('页面打开失败，请重试')) }))
+  } catch (error) { errorMessage.value = error instanceof Error ? error.message : '页面打开失败，请重试' }
+  finally { openingStockPurchase.value = false }
+}
+function returnToDraft() { saveDraft(); uni.navigateBack() }
 
 function validateRecipient(): string {
   const row = selectedRecipient.value
@@ -196,15 +279,9 @@ function validateRecipient(): string {
 }
 
 function invalidatePreview(schedule = true) {
-  previewVersion += 1
-  preview.value = null
-  if (previewTimer) clearTimeout(previewTimer)
-  if (schedule) schedulePreview()
-}
-
-function schedulePreview() {
-  if (!props.showCreate || validate()) return
-  previewTimer = setTimeout(() => { void previewRequest(true) }, 350)
+  quoteFlow.invalidate()
+  if (schedule && props.showCreate) quoteFlow.schedule()
+  if (initialized) saveDraft()
 }
 
 function addLine() {
@@ -222,6 +299,9 @@ function removeLine(index: number) {
 
 function familyForLine(line: DirectShipDraftLine): EmployeeOrderProductFamily | undefined {
   return catalog.value.product_families.find((family) => employeeOrderProductFamilyKey(family) === line.product_family_key)
+    || catalog.value.product_families.find(family => family.specs.some(spec => Number(line.bom_spec_id || 0) > 0
+      ? Number(spec.bom_spec_id || 0) === Number(line.bom_spec_id) && Number(spec.bom_variant_id || 0) === Number(line.bom_variant_id || 0) && Number(spec.sku_id || spec.product_id || 0) === Number(line.product_id)
+      : Number(spec.sku_id || spec.product_id || 0) === Number(line.product_id)))
 }
 
 function selectedSpecForLine(line: DirectShipDraftLine): EmployeeOrderProductSpec | undefined {
@@ -273,8 +353,11 @@ function chooseInlineSpec(line: DirectShipDraftLine, spec: EmployeeOrderProductS
 function setOrderDate(event: PickerChangeEvent) { orderDate.value = String(event.detail?.value || shanghaiToday()); invalidatePreview() }
 
 function payload() {
-  const recipient = selectedRecipient.value
+  const recipient = retainedPurchase.value ? null : selectedRecipient.value
   return {
+    fulfillment_mode: isProductOrder.value ? undefined : fulfillmentMode.value || undefined,
+    delivery_mode: isProductOrder.value ? deliveryMode.value : undefined,
+    delivery_warehouse_code: isProductOrder.value && deliveryMode.value === 'customer_stock' ? purchaseWarehouse.value : undefined,
     idempotency_key: idempotencyKey.value,
     order_date: orderDate.value,
     recipient_name: recipient?.recipient_name?.trim() || '',
@@ -289,51 +372,42 @@ function payload() {
   }
 }
 
-function validate(): string { return validateRecipient() || directShipDraftValidation(lines.value) }
+function validate(): string {
+  if (props.stockPurchase && !availableFulfillmentModes.value.includes('stock')) return '当前客户未开通库存代发，无法下单库存'
+  if (!isProductOrder.value && catalog.value.fulfillment_settings && !fulfillmentMode.value) return availableFulfillmentModes.value.length ? '请选择库存代发或无库存代发场景' : '请联系工厂开通代发场景'
+  if (isProductOrder.value && deliveryMode.value === 'customer_stock' && !purchaseWarehouse.value) return '请先联系工厂绑定客户成品仓库'
+  return (retainedPurchase.value ? '' : validateRecipient()) || directShipDraftValidation(lines.value)
+}
 
 async function previewRequest(silent = false): Promise<DirectShipPreview | null> {
-  const validation = validate()
-  if (validation) { if (!silent) errorMessage.value = validation; return null }
-  const version = ++previewVersion
-  const command = payload()
-  previewing.value = true
-  try {
-    const checked = isProductOrder.value ? await previewProductOrder(props.token, command) : await previewDirectShipRequest(props.token, command)
-    if (version !== previewVersion) return null
-    preview.value = checked
-    errorMessage.value = checked.can_submit ? '' : '代加工商品可履约数量不足，整单不能提交'
-    return checked
-  } catch (error) {
-    if (version !== previewVersion) return null
-    errorMessage.value = error instanceof Error ? error.message : '自动核价失败'
-    return null
-  } finally {
-    if (version === previewVersion) previewing.value = false
-  }
+  return quoteFlow.preview(silent)
 }
 
 async function submitRequest() {
-  if (submitting.value) return
+  if (submitting.value || loading.value || !catalogReady.value || openingStockPurchase.value) return
   const validation = validate()
   if (validation) { errorMessage.value = validation; return }
-  const version = ++previewVersion
   const command = payload()
   submitting.value = true
   errorMessage.value = ''
   try {
-    const checked = isProductOrder.value ? await previewProductOrder(props.token, command) : await previewDirectShipRequest(props.token, command)
-    if (version !== previewVersion) throw new Error('订单内容已变更，请重新提交')
-    preview.value = checked
-    if (!checked.can_submit) throw new Error('代加工商品可履约数量不足，整单不能提交')
+    const checked = await previewRequest()
+    if (!checked) return
+    if (!checked.can_submit) { if (!stockScenario.value || !checked.needs_topup) errorMessage.value = '当前可履约数量不足，请核对商品数量'; return }
     if (!checked.price_quote_token) throw new Error('报价版本缺失，请重新提交')
-    if (isProductOrder.value) await createProductOrder(props.token, { ...command, price_quote_token: checked.price_quote_token })
-    else await createDirectShipRequest(props.token, { ...command, price_quote_token: checked.price_quote_token })
-    lines.value = [createDirectShipDraftLine()]
-    preview.value = null
-    note.value = ''
-    idempotencyKey.value = newIdempotencyKey()
-    orderDraft.clearDraft(props.customerId, currentOrderMode())
-    uni.showToast({ title: isProductOrder.value ? '现货订单已创建' : '代发订单已创建', icon: 'success' })
+    const quotedCommand = { ...command, price_quote_token: checked.price_quote_token, fee_quote_token: checked.fee_quote_token || checked.fees?.fee_quote_token }
+    await quoteFlow.completeSubmission(
+      () => isProductOrder.value ? createProductOrder(props.token, quotedCommand) : createDirectShipRequest(props.token, quotedCommand),
+      () => {
+        lines.value = [createDirectShipDraftLine()]
+        note.value = ''
+        idempotencyKey.value = newIdempotencyKey()
+        orderDraft.clearDraft(props.customerId, currentOrderMode(), draftFulfillmentMode())
+        submitting.value = false
+        uni.showToast({ title: isProductOrder.value ? retainedPurchase.value ? '购货订单已创建' : '订单已创建' : '代发订单已创建', icon: 'success' })
+      },
+      async () => { if (isProductOrder.value && returnToDirectShip.value) uni.navigateBack(); else await load() },
+    )
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '订单提交失败'
   } finally {
@@ -360,24 +434,38 @@ async function goToPage(value: number | string) { const target = Math.min(totalP
 async function changePageLimit(event: PickerChangeEvent) { const index = Math.max(0, Number(event.detail?.value || 0)); pageLimit.value = pageLimitOptions[index] || pageLimitOptions[0]; currentPage.value = 1; await load() }
 
 function recipientEventHandler(event: RecipientEvent) { consumeReturnedRecipient(event) }
-onMounted(() => { restoreDraft(); uni.$on('customer-order-recipient-selected', recipientEventHandler); void load() })
-onShow(() => { consumeReturnedRecipient() })
-onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('customer-order-recipient-selected', recipientEventHandler) })
+onMounted(() => { fulfillmentMode.value = props.entryMode || ''; restoreDraft(); initialized = true; uni.$on('customer-order-recipient-selected', recipientEventHandler); void load() })
+onShow(() => { if (!initialized) return; consumeReturnedRecipient(); if (props.showCreate) void load() })
+onHide(() => { if (initialized && props.showCreate) { if (lines.value.some(line => line.product_id) || note.value) saveDraft(); quoteFlow.suspend(); loading.value = false } })
+onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-order-recipient-selected', recipientEventHandler) })
 </script>
 
 <template>
   <view class="workspace">
     <view v-if="showCreate" class="order-panel">
       <text class="title">{{ createTitle }}</text>
+      <view v-if="stockScenario" class="stock-overview">
+        <view class="section-head"><text class="subtitle">库存概览</text><text class="muted">下单后剩余</text></view>
+        <text v-if="loading" class="muted">正在刷新库存…</text>
+        <text v-else-if="!stockOverview.length" class="muted">暂无可安排代发的库存，可先下单库存</text>
+        <view v-for="row in stockOverview" :key="row.key" class="stock-overview-row" :class="{ 'stock-selected': row.requested > 0 }">
+          <view class="stock-overview-copy"><text class="line-name">{{ row.name }}</text><text class="muted">{{ row.spec }}<template v-if="row.requested"> · 本单 {{ row.requested }}{{ row.unit }}</template></text></view>
+          <text class="stock-remaining">{{ row.remaining }}<text class="stock-unit">{{ row.unit }}</text></text>
+        </view>
+        <text class="muted">含现货和备货后可用数量，提交代发单后才占用。</text>
+        <button class="secondary" :loading="openingStockPurchase" :disabled="submitting || openingStockPurchase || loading" @tap="startTopup">商品下单</button>
+      </view>
+      <text v-if="retainedPurchase" class="purchase-hint">本次购买的商品留在工厂，备货入库后供你安排代发。</text>
+      <button v-if="returnToDirectShip" class="text-button" :disabled="submitting" @tap="returnToDraft">返回代发草稿</button>
       <view class="field-block">
         <text class="field-label">订单日期</text>
         <picker mode="date" :value="orderDate" @change="setOrderDate"><view class="selector-field"><text>{{ orderDate }}</text><text class="chevron">›</text></view></picker>
       </view>
-      <view class="field-block">
-        <view class="field-head"><text class="field-label">收件客户</text><text class="manage-link" @tap="openRecipientEditor(Number(selectedRecipient?.id || 0))">维护</text></view>
+      <view v-if="!retainedPurchase" class="field-block">
+        <view class="field-head"><text class="field-label">收件客户</text><text class="manage-link" @tap="openRecipientEditor(Number(selectedRecipient?.id || 0))">维护发货地址簿</text></view>
         <view class="selector-field recipient-field" @tap="openRecipientSelector"><text :class="{ muted: !selectedRecipientSummary }">{{ selectedRecipientSummary || '搜索并选择收件客户 *' }}</text><text class="chevron">›</text></view>
       </view>
-      <view class="price-table-card">
+      <view v-if="!stockScenario" class="price-table-card">
         <view class="price-table-copy"><text class="field-label">当前价格表</text><text v-for="table in catalog.price_tables || []" :key="table.id" class="muted">{{ priceTableLabel(table) }}</text><text v-if="!catalog.price_tables?.length" class="muted">ERP 尚未绑定可用价格表</text></view>
         <button class="text-button" @tap="openPriceTablePreview">查看价格表</button>
       </view>
@@ -404,27 +492,35 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
         <text v-else class="spec-empty">请先选择商品</text>
         <text class="field-label">数量（{{ line.sales_unit || line.inventory_unit || '件' }}）</text>
         <view class="quantity-field"><input v-model.number="line.qty" type="number" :disabled="submitting" placeholder="填写数量" @input="invalidatePreview()" /><text>{{ line.sales_unit || line.inventory_unit || '件' }}</text></view>
-        <text v-if="selectedSpecForLine(line)?.price_tiers?.length" class="tier-hint">数量报价：{{ selectedSpecForLine(line)?.price_tiers?.map(tier => `${tierQuantityLabel(tier)} ¥${money(tier.unit_price)}`).join('；') }}</text>
-        <view class="line-price"><text>销售单价（只读）</text><text>{{ lineUnitPrice(line) > 0 ? `¥${money(lineUnitPrice(line))}` : '自动核价' }}</text><text>小计 {{ lineAmount(line) > 0 ? `¥${money(lineAmount(line))}` : '--' }}</text></view>
+        <view v-if="stockScenario && stockRow(line) && firstStockLine(line)" class="stock-line-status">
+          <view class="supply-metrics"><text>仓库现货 {{ stockRow(line)!.physical }}{{ stockRow(line)!.unit }}</text><text>备货后可用 {{ stockRow(line)!.pendingAvailable }}{{ stockRow(line)!.unit }}</text><text v-if="stockRow(line)!.reserved">其他代发已占用 {{ stockRow(line)!.reserved }}{{ stockRow(line)!.unit }}</text></view>
+          <text v-if="stockRow(line)!.gap > 0" class="stock-gap">还能安排{{ stockRow(line)!.available }}{{ stockRow(line)!.unit }}，本单{{ stockRow(line)!.requested }}{{ stockRow(line)!.unit }}，还需购货{{ stockRow(line)!.gap }}{{ stockRow(line)!.unit }}。</text>
+          <text v-else-if="stockRow(line)!.requested > stockRow(line)!.physical" class="muted">本单还需等{{ stockRow(line)!.requested - stockRow(line)!.physical }}{{ stockRow(line)!.unit }}备货完成，入库齐全后发货。商品货款不重复收取。</text>
+        </view>
+        <text v-if="!stockScenario && fulfillmentMode !== 'on_demand' && selectedSpecForLine(line)?.price_tiers?.length" class="tier-hint">数量报价：{{ selectedSpecForLine(line)?.price_tiers?.map(tier => `${tierQuantityLabel(tier)} ¥${money(tier.unit_price)}`).join('；') }}</text>
+        <text v-if="!isProductOrder && fulfillmentMode === 'on_demand'" class="tier-hint">固定单价 · 任意正数量均可下单</text>
+        <view class="line-price"><text>{{ stockScenario ? '已购商品' : '销售单价（只读）' }}</text><text>{{ stockScenario ? '不重复计货款' : lineUnitPrice(line) > 0 ? `¥${money(lineUnitPrice(line))}` : '自动核价' }}</text><text>小计 {{ stockScenario ? '¥0.00' : lineAmount(line) > 0 ? `¥${money(lineAmount(line))}` : '--' }}</text></view>
       </view>
       <button class="add-line" :disabled="submitting" @tap="addLine">新增商品</button>
       <view class="total-card"><text>商品估算合计</text><text class="amount">{{ previewing ? '核价中…' : `¥${money(totalAmount)}` }}</text></view>
+      <view v-if="preview?.fees" class="fee-breakdown"><text>代发服务费 ¥{{ money(serviceFee) }}</text><text>运费 ¥{{ money(shippingFee) }}</text><text class="amount">本次应付 ¥{{ money(payableAmount) }}</text><text class="muted">按 {{ preview.fees.chargeable_weight_g }}g 计费，最终金额由服务端核算。</text></view>
       <textarea v-model="note" class="textarea" :disabled="submitting" placeholder="订单备注（可选）" @input="saveDraft" />
       <text v-if="selectedSummary" class="selected-summary">已选：{{ selectedSummary }}</text>
       <text v-if="fulfillmentMessage" class="shortage">{{ fulfillmentMessage }}</text>
-      <view v-if="previewSupplyRows.length" class="supply-board">
+      <view v-if="!stockScenario && !retainedPurchase && previewSupplyRows.length" class="supply-board">
         <view class="section-head"><text class="subtitle">履约来源预览</text><text class="muted">提交后才形成实际占用</text></view>
         <view v-for="item in previewSupplyRows" :key="`supply:${item.product_id}:${item.bom_spec_id || 0}:${item.spec_g}`" class="supply-row">
           <view class="supply-title"><text>{{ item.product_name || `商品 ${item.product_id}` }}</text><text>本次可下单 {{ item.orderableQty }}</text></view>
           <view class="supply-metrics"><text>现货可用 {{ item.stock_available_qty || 0 }}</text><text>工单可预订 {{ item.production_available_qty || 0 }}</text><text>本单拟占用现货 {{ item.stockQty }}</text><text>本单拟占用在制 {{ item.productionQty }}</text></view>
-          <text v-for="allocation in item.allocations" :key="`${allocation.processing_request_id}:${allocation.processing_request_item_id}`" class="allocation">生产申请 #{{ allocation.processing_request_id }} · 拟预订 {{ allocation.qty }} · 提交后剩余 {{ item.remainingProductionQty }}</text>
+          <text v-for="(allocation, allocationIndex) in item.allocations" :key="`${allocation.processing_request_id}:${allocation.processing_request_item_id}:${allocationIndex}`" class="allocation">{{ directShipAllocationSourceLabel(allocation) }} · 拟预订 {{ allocation.qty }} · 提交后剩余 {{ item.remainingProductionQty }}</text>
         </view>
         <text v-for="table in preview?.price_tables || []" :key="`preview-table:${table.id}`" class="price-source">价格来源：{{ priceTableLabel(table) }}</text>
       </view>
-      <view v-if="blockingShortages.length" class="shortage-detail">
+      <view v-if="!stockScenario && !retainedPurchase && blockingShortages.length" class="shortage-detail">
         <text v-for="item in blockingShortages" :key="`${item.product_id}:${item.bom_spec_id || 0}`">需求 {{ item.qty }}；成品库存 {{ item.stock_available_qty || 0 }}；在制产出 {{ item.production_available_qty || 0 }}；缺口 {{ Math.max(0, Number(item.qty || 0) - Number(item.available_qty || 0)) }}</text>
       </view>
-      <button class="primary submit" :disabled="submitting || Boolean(preview && !preview.can_submit)" @tap="submitRequest">{{ submitting ? '提交中...' : submitTitle }}</button>
+      <button v-if="!catalogReady && !loading" class="secondary" @tap="load">重新加载库存与商品</button>
+      <button class="primary submit" :disabled="submitting || loading || !catalogReady || openingStockPurchase || (stockScenario && stockHasGap) || Boolean(preview && !preview.can_submit)" @tap="submitRequest">{{ submitting ? '提交中...' : submitTitle }}</button>
     </view>
 
     <view v-if="!showCreate" class="list-panel">
@@ -439,6 +535,7 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
       <text v-if="loading" class="muted">加载中...</text>
       <view v-for="item in requests" :key="item.id" class="request">
         <view class="request-head"><text class="line-name">{{ directShipRequestTitle(item) }}</text><text class="status">{{ directShipStatusLabel(item.status) }}</text></view>
+        <text v-if="item.fulfillment_mode" class="muted">{{ fulfillmentModeLabel(item.fulfillment_mode) }}{{ item.fulfillment_mode === 'stock' ? ' · 已购商品不重复计货款' : '' }}</text>
         <text v-if="item.order_no" class="muted">系统订单：{{ item.order_no }} · 金额 ¥{{ money(item.total_amount) }}</text>
         <text v-for="table in item.price_tables || []" :key="`${item.id}:table:${table.id}`" class="muted">价格快照：{{ priceTableLabel(table) }}</text>
         <text v-if="item.recipient_company" class="muted">收件客户/公司：{{ item.recipient_company }}</text>
@@ -472,7 +569,9 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); uni.$off('
 </template>
 
 <style scoped>
+.stock-overview{display:flex;flex-direction:column;gap:18rpx;padding:24rpx;border:2rpx solid #b5cdbc;border-radius:16rpx;background:#f2f8f3}.stock-overview-row{display:flex;align-items:center;justify-content:space-between;gap:16rpx;padding:16rpx 0;border-top:1rpx solid #d8e5dc}.stock-selected{padding:18rpx 14rpx;border-radius:10rpx;background:#e3f0e6}.stock-overview-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:8rpx}.stock-remaining{font-size:42rpx;font-weight:850;color:#245c41;white-space:nowrap}.stock-unit{font-size:23rpx;margin-left:8rpx;font-weight:500}.stock-line-status{display:flex;flex-direction:column;gap:14rpx}.stock-gap{display:block;padding:16rpx;border-radius:10rpx;background:#fff1ee;color:#b42318;font-size:25rpx;line-height:1.6}.purchase-hint{display:block;padding:18rpx;border-radius:10rpx;background:#eff6f0;color:#42644e;line-height:1.7;font-size:24rpx}
 .workspace{display:flex;flex-direction:column;gap:18rpx}.order-panel,.list-panel{display:flex;flex-direction:column;gap:22rpx;padding:28rpx;border:1rpx solid #dce5df;border-radius:20rpx;background:#fff}.title{font-size:38rpx;font-weight:900;color:#173126}.subtitle{font-size:31rpx;font-weight:850;color:#173126}.field-block,.price-table-copy,.line-card,.filters,.request,.package,.event{display:flex;flex-direction:column;gap:12rpx}.field-head,.section-head,.line-head,.line-price,.total-card,.request-head,.sheet-head,.recipient-head,.recipient-row{display:flex;align-items:center;justify-content:space-between;gap:14rpx}.field-label,.line-name{font-weight:800;color:#29483a}.manage-link,.edit-link,.text-button{color:#28624a;font-weight:750}.selector-field,.quantity-field,.input,.textarea,.picker-field,.search-input{width:100%;min-height:86rpx;padding:0 22rpx;border:1rpx solid #d6e0da;border-radius:13rpx;box-sizing:border-box;background:#fafcfb}.selector-field,.quantity-field{display:flex;align-items:center;justify-content:space-between;gap:16rpx}.selector-field text:first-child{flex:1}.chevron{color:#718078;font-size:38rpx}.price-table-card{display:flex;align-items:center;justify-content:space-between;gap:18rpx;padding:22rpx;border:1rpx solid #dbe5df;border-radius:16rpx;background:#f7faf8}.text-button{min-width:150rpx;min-height:62rpx;margin:0;padding:0 12rpx;border:1rpx solid #b8cec1;border-radius:10rpx;background:#fff;font-size:23rpx}.text-button::after,.remove::after,.spec-choice::after{border:0}.line-card{padding:24rpx;border:1rpx solid #dbe5df;border-radius:18rpx;background:#fbfdfc}.remove{min-height:58rpx;margin:0;padding:0 18rpx;border:1rpx solid #e2c5c0;border-radius:10rpx;background:#fff;color:#9e3e35;font-size:23rpx}.spec-choice-list{display:flex;flex-wrap:wrap;gap:12rpx}.spec-choice{display:flex;align-items:center;gap:10rpx;min-height:64rpx;margin:0;padding:0 20rpx;border:1rpx solid #cddbd3;border-radius:12rpx;background:#fff;color:#29483a;font-size:24rpx}.spec-choice.selected{border-color:#28624a;background:#eaf4ee;color:#1f5d42;font-weight:800}.spec-check{color:#17603f}.spec-empty,.tier-hint,.selected-summary,.muted{color:#74827a;font-size:23rpx;line-height:1.55}.quantity-field input{flex:1}.line-price{padding-top:10rpx;color:#53675d;font-size:23rpx}.line-price text:nth-child(2),.amount{color:#17603f;font-weight:900}.add-line{min-height:76rpx;margin:0;border:1rpx dashed #7ea28e;border-radius:12rpx;background:#fff;color:#28624a;font-size:26rpx}.total-card{padding:24rpx;border-radius:16rpx;background:#eaf4ee;color:#244839;font-size:29rpx;font-weight:850}.amount{font-size:34rpx}.textarea{min-height:120rpx;padding-top:18rpx}.primary,.secondary{min-height:76rpx;margin:0;border-radius:12rpx;font-size:26rpx}.primary{background:#28624a;color:#fff}.secondary{border:1rpx solid #cbd8d1;background:#fff;color:#315844}.submit{margin-top:2rpx}.error,.shortage{padding:18rpx;border-radius:10rpx;color:#b42318;background:#fff4f1;font-size:24rpx}.ready{color:#28624a}.filters{padding:18rpx;background:#fafcfb;border-radius:12rpx}.date-presets,.date-range,.filter-actions,.page-actions,.page-jump{display:flex;gap:12rpx}.date-range picker,.filter-actions button,.page-actions button{flex:1}.chip{min-height:56rpx;margin:0;padding:0 14rpx;border:1rpx solid #d4ded8;border-radius:30rpx;background:#fff;font-size:22rpx}.chip.active{background:#e6f2eb;color:#28624a}.compact{min-height:60rpx}.request,.package{padding:20rpx;border:1rpx solid #e2e8e4;border-radius:12rpx}.package{background:#f8faf9}.status{color:#28624a;font-weight:800}.pagination{display:flex;flex-direction:column;gap:14rpx}.page-current{display:flex;align-items:center}.page-jump{align-items:center}.page-jump picker{flex:1}.jump-input{width:120rpx;min-height:60rpx;border:1rpx solid #d5ddd8;border-radius:8rpx;text-align:center}.overlay{position:fixed;inset:0;z-index:1110;display:flex;align-items:flex-end;background:rgba(16,28,22,.48)}.recipient-sheet{width:100%;max-height:82vh;padding:28rpx 28rpx calc(24rpx + env(safe-area-inset-bottom));border-radius:24rpx 24rpx 0 0;box-sizing:border-box;background:#fff}.sheet-title,.sheet-subtitle{display:block}.sheet-title{font-size:32rpx;font-weight:850;color:#173126}.sheet-subtitle{margin-top:6rpx;color:#7a8880;font-size:22rpx}.sheet-close{padding:12rpx;color:#607268}.search-input{margin:18rpx 0}.recipient-list{height:46vh}.recipient-row{padding:20rpx 8rpx;border-bottom:1rpx solid #edf1ee}.recipient-copy{display:flex;flex:1;flex-direction:column;gap:8rpx}.recipient-name{font-size:28rpx;font-weight:800;color:#213b2f}.recipient-address{color:#53655b;font-size:24rpx}.badge{padding:3rpx 10rpx;border-radius:999rpx;background:#e6f3eb;color:#28624a;font-size:20rpx}.empty{display:block;padding:70rpx 20rpx;color:#7d8982;text-align:center}
 .shortage-detail{display:flex;flex-direction:column;gap:8rpx;padding:18rpx;border-radius:10rpx;color:#b42318;background:#fff4f1;font-size:24rpx}
+.scenario-card,.fee-breakdown{display:flex;flex-direction:column;gap:14rpx;padding:22rpx;border:1rpx solid #cbded2;border-radius:14rpx;background:#f1f8f4}
 .supply-board{display:flex;flex-direction:column;gap:14rpx;padding:22rpx;border:1rpx solid #dac5ad;border-radius:16rpx;background:#fffaf3}.supply-row{display:flex;flex-direction:column;gap:10rpx;padding-top:14rpx;border-top:1rpx solid #eadfd1}.supply-title{display:flex;justify-content:space-between;gap:12rpx;font-weight:850}.supply-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8rpx;color:#665749;font-size:22rpx}.allocation,.price-source{color:#8a5d30;font-size:22rpx}
 </style>

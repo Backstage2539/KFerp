@@ -5,6 +5,20 @@ import { useCustomerOrderDraftStore } from './customerOrderDraft'
 describe('customer order draft handoff', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
+  it('isolates stock, on-demand and topup drafts without overwriting ordinary purchases', () => {
+    const store = useCustomerOrderDraftStore()
+    const draft = { order_date: '2026-10-19', recipient: null, note: 'original', lines: [], idempotency_key: 'original' }
+    store.saveDraft(9, 'direct_ship', { ...draft, fulfillment_mode: 'stock' })
+    store.saveDraft(9, 'product_order', draft)
+    store.saveDraft(9, 'direct_ship', { ...draft, fulfillment_mode: 'on_demand', note: 'demand' }, 'on_demand')
+    store.saveDraft(9, 'stock_purchase', { ...draft, return_to_direct_ship: true, note: 'topup' })
+    expect(store.restoreDraft(9, 'direct_ship', 'stock')?.note).toBe('original')
+    expect(store.restoreDraft(9, 'direct_ship', 'on_demand')?.note).toBe('demand')
+    expect(store.restoreDraft(9, 'product_order')?.note).toBe('original')
+    expect(store.restoreDraft(9, 'stock_purchase')?.note).toBe('topup')
+    expect(store.restoreDraft(10, 'stock_purchase')).toBeNull()
+  })
+
   it('keeps one customer and order mode isolated while a recipient page is open', () => {
     const store = useCustomerOrderDraftStore()
     store.saveDraft(9, 'direct_ship', {

@@ -212,7 +212,16 @@ func (h *Handler) published(c echo.Context) (app.Document, error) {
 		if err != nil {
 			return d, echo.NewHTTPError(401, map[string]string{"error": "登录状态无法确认，请重新登录后重试", "code": "mini_session_invalid"})
 		}
-		if !x.RegistrationComplete {
+		// Customer contexts historically use the empty account type; employees are explicit.
+		authenticatedCustomer := (x.AccountType == "" || x.AccountType == "customer" || x.AccountType == "channel_customer") && x.MiniUserID > 0
+		approved := false
+		for _, binding := range x.Bindings {
+			if binding.Status == "approved" {
+				approved = true
+				break
+			}
+		}
+		if !x.RegistrationComplete && !(authenticatedCustomer && approved) {
 			return d, echo.NewHTTPError(401, map[string]string{"error": "请先完成手机号和昵称登记", "code": "mini_registration_required"})
 		}
 		cur = &x
@@ -222,7 +231,7 @@ func (h *Handler) published(c echo.Context) (app.Document, error) {
 			return d, echo.NewHTTPError(401, map[string]string{"error": "请登录并完成客户认证"})
 		}
 		if x.CurrentCustomerID == 0 {
-			return d, echo.NewHTTPError(403, map[string]string{"error": "请先选择已认证客户"})
+			return d, echo.NewHTTPError(403, map[string]string{"error": "请先选择已认证客户", "code": "mini_customer_selection_required"})
 		}
 		approved := false
 		for _, b := range x.Bindings {
@@ -231,7 +240,7 @@ func (h *Handler) published(c echo.Context) (app.Document, error) {
 			}
 		}
 		if !approved {
-			return d, echo.NewHTTPError(403, map[string]string{"error": "请先完成客户认证"})
+			return d, echo.NewHTTPError(403, map[string]string{"error": "当前账号无权查看", "code": "mini_price_access_denied"})
 		}
 		cur = &x
 	}
@@ -244,10 +253,10 @@ func (h *Handler) published(c echo.Context) (app.Document, error) {
 		}
 		if d.Visibility == "registered" {
 			if owner != "official" {
-				return d, echo.NewHTTPError(403, map[string]string{"error": app.ErrDenied.Error()})
+				return d, echo.NewHTTPError(403, map[string]string{"error": "当前账号无权查看", "code": "mini_price_access_denied"})
 			}
 		} else if err = official.CheckEntry(official.Entry{Enabled: true, Status: status, OwnerType: owner, OwnerKey: key, Visibility: d.Visibility}, cur); err != nil {
-			return d, echo.NewHTTPError(403, map[string]string{"error": app.ErrDenied.Error()})
+			return d, echo.NewHTTPError(403, map[string]string{"error": "当前账号无权查看", "code": "mini_price_access_denied"})
 		}
 	}
 	return d, nil

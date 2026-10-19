@@ -8,6 +8,7 @@ import (
 	"time"
 
 	app "orderapp/internal/application/customerfulfillment"
+	customerstock "orderapp/internal/infrastructure/postgres/customerstock"
 )
 
 type customerAssetState struct {
@@ -151,6 +152,43 @@ func (r *Repository) customerFinishedAssetInventory(ctx context.Context, custome
 		}
 		state.row.Warehouses[idx].AvailableQty += float64(available)
 		state.row.Warehouses[idx].OccupiedQty += float64(inventory.ReservedQty)
+	}
+	for _, state := range states {
+		state.row.PhysicalAvailableQty = state.row.AvailableQty
+	}
+	supplies, e := customerstock.ListSupply(ctx, r.pool, r.schema, customerID, "", false)
+	if e != nil {
+		return nil, e
+	}
+	for _, s := range supplies {
+		key := miniStockKey(s.ProductID, s.BomSpecID, s.SpecG)
+		state := byKey[key]
+		if state == nil {
+			unit := s.InventoryUnit
+			if unit == "" {
+				unit = "件"
+			}
+			spec := s.BomSpecName
+			if spec == "" && s.SpecG > 0 {
+				spec = fmt.Sprintf("%dg", s.SpecG)
+			}
+			state = &customerAssetState{row: app.CustomerAssetInventory{InventoryType: "finished_product", ItemID: s.ProductID, ProductID: s.ProductID, BomSpecID: s.BomSpecID, BomVariantID: s.BomVariantID, SpecG: s.SpecG, ItemCode: s.SKUCode, ItemName: s.ProductName, Spec: spec, Unit: unit, QualityStatus: "pending_receipt", Warehouses: []app.CustomerAssetWarehouseBalance{}, Batches: []app.CustomerAssetInventoryBatch{}}, warehouses: map[string]int{}}
+			byKey[key] = state
+			states = append(states, state)
+		}
+		state.row.PendingInboundQty += float64(s.PendingQty)
+		state.row.PendingReservedQty += float64(s.ReservedQty)
+		state.row.TotalQty += float64(s.PendingQty)
+		state.row.AvailableQty += float64(s.AvailableQty)
+		state.row.OccupiedQty += float64(s.ReservedQty)
+		idx, ok := state.warehouses[s.Warehouse]
+		if !ok {
+			idx = len(state.row.Warehouses)
+			state.warehouses[s.Warehouse] = idx
+			state.row.Warehouses = append(state.row.Warehouses, app.CustomerAssetWarehouseBalance{WarehouseCode: s.Warehouse, WarehouseName: s.Warehouse})
+		}
+		state.row.Warehouses[idx].AvailableQty += float64(s.AvailableQty)
+		state.row.Warehouses[idx].OccupiedQty += float64(s.ReservedQty)
 	}
 	for _, batch := range snapshot.Batches {
 		key := miniStockKey(batch.ProductID, batch.BomSpecID, batch.SpecG)

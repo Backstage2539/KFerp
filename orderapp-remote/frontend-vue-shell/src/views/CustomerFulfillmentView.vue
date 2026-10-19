@@ -1,5 +1,6 @@
 <template>
   <div class="page customer-fulfillment">
+    <ProductionReturnLink :source="viewParams.return_navigation" />
     <section class="panel control-panel">
       <div class="panel-head">
         <div>
@@ -29,7 +30,7 @@
         <button class="primary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">载入账户</button>
       </div>
 
-      <p class="muted account-hint">外部用户配置已移到“门户客户配置”；配置手机号、密码并启用登录后，该客户会出现在这里。</p>
+      <p class="muted account-hint">已开通门户与履约能力的客户可在此操作。外部用户配置已移到“门户客户配置”，用于客户自行登录。</p>
 
       <div v-if="workbenchSections.imports" class="import-row">
         <div class="segmented">
@@ -116,14 +117,11 @@
           </div>
         </div>
 
-        <div v-if="workbenchSections.directShip" class="ops-panel">
+        <div v-if="workbenchSections.directShip" class="ops-panel direct-ship-panel">
           <h3>{{ submitCopy.formTitle }}</h3>
-          <OrderEntryView
-            :embedded="true"
-            :fulfillment-mode="true"
-            :customer-context-id="customerId"
-            :customer-context-label="selectedCustomerLabel"
-            :recipient-info="{ historyOptions: recipientOptionsForOrderEntry }"
+          <CustomerDirectShipForm
+            :customer-id="customerId"
+            :customer-label="selectedCustomerLabel"
             @saved="onFulfillmentOrderSaved" />
         </div>
 
@@ -391,6 +389,7 @@
                   <span>{{ orderConfirmationLabel(row.confirmation_status) }}</span>
                   <span>生产：{{ row.process_status || '-' }}</span>
                   <span>发票：{{ row.invoice_status || '-' }}</span>
+                  <DirectShipCancelButton v-if="row.fulfillment_mode && !row.is_void" :customer-id="Number(customerId)" :order-id="Number(row.id)" @cancelled="onDirectShipCancelled" />
                 </div>
               </td>
               <td>
@@ -449,6 +448,8 @@
               <span>发货：{{ activeOrderSummary.ship_status || '-' }}</span>
               <span>生产：{{ activeOrderSummary.process_status || '-' }}</span>
               <span>发票：{{ activeOrderSummary.invoice_status || '-' }}</span>
+              <span v-if="activeOrderDetail?.delivery_mode === 'customer_stock' || activeOrderSummary.delivery_mode === 'customer_stock'">交付：购货留厂 · {{ activeOrderDetail?.delivery_warehouse_code || activeOrderSummary.delivery_warehouse_code || '客户仓' }} · {{ customerStockDeliveryLabel(activeOrderDetail?.delivery_status || activeOrderSummary.delivery_status) }} · 无需发货</span>
+              <span v-if="activeOrderDetail?.fulfillment_mode || activeOrderSummary.fulfillment_mode">代发场景：{{ (activeOrderDetail?.fulfillment_mode || activeOrderSummary.fulfillment_mode) === 'stock' ? '库存代发（已购货款不重复收取）' : '无库存代发' }}</span>
             </div>
           </section>
 
@@ -460,6 +461,7 @@
               <span>优惠：{{ activeOrderDetail?.discount_amount || activeOrderSummary.discount_amount || '0.00' }}</span>
               <span>应收：{{ activeOrderDetail?.grand_total || activeOrderSummary.grand_total || '0.00' }}</span>
             </div>
+            <FulfillmentFeeAdjustment v-if="activeOrderSummary.portal_service_code === 'direct_ship'" :customer-id="Number(customerId)" :order-id="Number(activeOrderSummary.id)" @saved="refreshConfirmationOrder" />
           </section>
 
           <section class="drawer-section">
@@ -476,6 +478,7 @@
           <section class="drawer-section">
             <div class="drawer-actions">
               <OrderDetailsCopyButton :order-id="activeOrderSummary.id" :customer-id="customerId" />
+              <DirectShipCancelButton v-if="activeOrderSummary.fulfillment_mode && !activeOrderSummary.is_void" :customer-id="Number(customerId)" :order-id="Number(activeOrderSummary.id)" @cancelled="onDirectShipCancelled" />
               <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderSummary)">销售单</button>
               <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderSummary)" :disabled="!isShipped(activeOrderSummary)">出库单</button>
             </div>
@@ -533,7 +536,9 @@ import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import SalesOrderView from './SalesOrderView.vue'
-import OrderEntryView from './OrderEntryView.vue'
+import CustomerDirectShipForm from '../components/CustomerDirectShipForm.vue'
+import FulfillmentFeeAdjustment from '../components/FulfillmentFeeAdjustment.vue'
+import DirectShipCancelButton from '../components/DirectShipCancelButton.vue'
 import {
   applyCustomerFulfillmentImport,
   adjustCustomerFulfillmentCustodyInventory,
@@ -566,11 +571,14 @@ import {
   visibleCustomerFulfillmentImports,
 } from '../lib/customer-fulfillment'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { customerStockDeliveryLabel } from '../lib/customer-stock-entry'
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { lineTotal, syncWholesaleTierPrice, toInt, toNumber, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
@@ -1183,6 +1191,8 @@ function onFulfillmentOrderSaved(data) {
   loadAll()
 }
 
+async function onDirectShipCancelled() { closeOrderDetailDrawer(); ok.value = '代发已取消，预订与未结算费用已释放'; await loadAll() }
+
 function uniqueProductOptions(rows) {
   const out = []
   const seen = new Set()
@@ -1656,6 +1666,7 @@ button:disabled {
   padding: 12px;
   background: #f8fafc;
 }
+.direct-ship-panel { grid-column:1/-1;order:-1; }
 
 .ops-panel h3 {
   margin: 0 0 10px;

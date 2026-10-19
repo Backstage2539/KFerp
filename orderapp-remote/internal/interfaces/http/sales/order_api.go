@@ -75,6 +75,8 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
+	DeliveryMode                    string   `json:"delivery_mode"`
+	DeliveryWarehouseCode           string   `json:"delivery_warehouse_code"`
 	SpecConversion                  []string `json:"spec_conversion"`
 	EditRevision                    string   `json:"edit_revision"`
 	RequestID                       string   `json:"request_id"`
@@ -652,6 +654,8 @@ func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
+		DeliveryMode:                       r.DeliveryMode,
+		DeliveryWarehouseCode:              r.DeliveryWarehouseCode,
 		SpecConversion:                     r.SpecConversion,
 		PrepaymentAmount:                   r.PrepaymentAmount,
 		DocumentDate:                       r.DocumentDate,
@@ -1233,6 +1237,10 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"receiver_company":                    ed.ReceiverCompany,
 		"portal_service_code":                 ed.PortalServiceCode,
 		"source_warehouse":                    ed.SourceWarehouse,
+		"delivery_mode":                       ed.DeliveryMode,
+		"delivery_warehouse_code":             ed.DeliveryWarehouseCode,
+		"delivery_status":                     ed.DeliveryStatus,
+		"fulfillment_mode":                    ed.FulfillmentMode,
 		"bean_list_publication_id":            beanListPublicationID,
 		"commercial_bean_list_publication_id": commercialPublicationID,
 		"green_bean_list_publication_id":      greenPublicationID,

@@ -2005,7 +2005,11 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		       COALESCE(ss.name,''),
 		       COALESCE(o.ship_tracking_no,''),
 		       to_char(COALESCE(o.grand_total,0), 'FM999999990.00'),
-		       to_char(COALESCE(o.shipping_amount,0), 'FM999999990.00')
+		       to_char(COALESCE(o.shipping_amount,0), 'FM999999990.00'),
+		       COALESCE(to_jsonb(o)->>'delivery_mode','ship'),
+		       COALESCE(to_jsonb(o)->>'delivery_warehouse_code',''),
+		       COALESCE(to_jsonb(o)->>'delivery_status',''),
+		       COALESCE(to_jsonb(o)->>'fulfillment_mode','')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
@@ -2023,7 +2027,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	orderIDs := make([]int64, 0)
 	for rows.Next() {
 		var row customerportalapp.CustomerOrderSummary
-		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.PaymentMethod, &row.PrepaymentAmount, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount); err != nil {
+		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.PaymentMethod, &row.PrepaymentAmount, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount, &row.DeliveryMode, &row.DeliveryWarehouseCode, &row.DeliveryStatus, &row.FulfillmentMode); err != nil {
 			return nil, err
 		}
 		deposit, _ := strconv.ParseFloat(row.PrepaymentAmount, 64)

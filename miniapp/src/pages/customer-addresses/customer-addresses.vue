@@ -33,6 +33,7 @@ const rows = ref<CustomerRecipientAddress[]>([])
 const pastedRecipient = ref('')
 const editing = ref(false)
 const orderMode = ref<CustomerOrderMode | ''>('')
+const fulfillmentMode = ref<'stock' | 'on_demand'>()
 const requestedAddressID = ref(0)
 const orderEditorInitialized = ref(false)
 const form = reactive(emptyForm())
@@ -78,7 +79,7 @@ function initializeOrderEditor() {
   const existing = rows.value.find((row) => row.id === requestedAddressID.value)
   if (existing) fillForm(existing)
   else {
-    const draft = orderDraft.restoreDraft(Number(session.currentCustomerID), orderMode.value as CustomerOrderMode)
+    const draft = orderDraft.restoreDraft(Number(session.currentCustomerID), orderMode.value as CustomerOrderMode, fulfillmentMode.value)
     if (draft?.recipient) fillForm(draft.recipient)
     else startCreate()
   }
@@ -123,8 +124,8 @@ function formPayload(): CustomerRecipientAddressPayload | null {
 
 function stageForOrder(recipient: CustomerOrderRecipient) {
   if (!isOrderFlow.value) return
-  orderDraft.stageRecipient(Number(session.currentCustomerID), orderMode.value as CustomerOrderMode, recipient)
-  uni.$emit('customer-order-recipient-selected', { customerID: Number(session.currentCustomerID), orderMode: orderMode.value })
+  orderDraft.stageRecipient(Number(session.currentCustomerID), orderMode.value as CustomerOrderMode, recipient, fulfillmentMode.value)
+  uni.$emit('customer-order-recipient-selected', { customerID: Number(session.currentCustomerID), orderMode: orderMode.value, fulfillmentMode: fulfillmentMode.value })
   uni.navigateBack()
 }
 
@@ -177,6 +178,7 @@ function setDefault(event: Event) {
 onLoad((options) => {
   orderMode.value = options?.order_mode === 'product_order' ? 'product_order' : options?.order_mode === 'direct_ship' ? 'direct_ship' : ''
   requestedAddressID.value = Math.max(0, Number(options?.address_id || 0))
+  fulfillmentMode.value = options?.fulfillment_mode === 'stock' || options?.fulfillment_mode === 'on_demand' ? options.fulfillment_mode : undefined
 })
 onShow(() => { void load(); void refreshMiniappShareMenu() })
 onShareAppMessage(defaultMiniappShare)

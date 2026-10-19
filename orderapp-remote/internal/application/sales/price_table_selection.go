@@ -138,12 +138,26 @@ func FilterOrderProductsForSelectedPublications(products []ProductOption, custom
 
 // FilterOrderProductsForExactCustomerPublications is used by customer-facing
 // order entry points whose price-list access is explicitly configured. It does
-// not seed defaults or public tables, and it deliberately allows an older
+// not seed defaults or unbound public tables, and it deliberately allows an older
 // published version to remain usable while it is still bound.
 func FilterOrderProductsForExactCustomerPublications(products []ProductOption, customerID int64, options []BeanListVersionOption, usages []CustomerPublicUsageOption, ids []int64, retailOrder bool) ([]ProductOption, error) {
 	selected, err := ResolveExactCustomerOrderPriceTableSelection(options, customerID, ids)
 	if err != nil {
 		return nil, err
+	}
+	// Explicit public bindings authorize only their published product/spec rows.
+	// Retain customer aliases/references while borrowing the selected public quote.
+	visibilityOptions := append([]BeanListVersionOption(nil), selected...)
+	hasPublic := false
+	for i := range visibilityOptions {
+		if !visibilityOptions[i].IsCustomerOwned {
+			visibilityOptions[i].CustomerID = 0
+			hasPublic = true
+		}
+	}
+	if hasPublic {
+		products = FilterOrderProductsForCustomer(products, customerID, visibilityOptions)
+		usages = append([]CustomerPublicUsageOption{{CustomerID: customerID, UsePublicSKU: true}}, usages...)
 	}
 	return FilterOrderProductsForDefaultPublications(products, customerID, selected, usages, retailOrder), nil
 }
@@ -151,7 +165,8 @@ func FilterOrderProductsForExactCustomerPublications(products []ProductOption, c
 func ResolveExactCustomerOrderPriceTableSelection(options []BeanListVersionOption, customerID int64, ids []int64) ([]BeanListVersionOption, error) {
 	byID := map[int64]BeanListVersionOption{}
 	for _, row := range options {
-		if row.ID > 0 && row.CustomerID == customerID && row.IsCustomerOwned {
+		if row.ID > 0 && ((row.CustomerID == customerID && row.IsCustomerOwned) || (row.CustomerID == 0 && !row.IsCustomerOwned)) {
+			row.CustomerID = customerID
 			byID[row.ID] = row
 		}
 	}

@@ -1784,7 +1784,7 @@ func TestApplyDirectShipImportRejectsCustomerWithoutDirectShipCapability(t *test
 
 func TestOverviewIncludesCustomerPortalDirectShipOrders(t *testing.T) {
 	ctx := context.Background()
-	pool, schema := newCustomerFulfillmentTestDB(t)
+	pool, schema := newMiniDirectShipTestDB(t)
 	repo := NewRepository(pool, schema)
 
 	var customerID, employeeID, shipStatusID, orderID int64
@@ -2155,9 +2155,9 @@ func TestInternalCustomerFulfillmentSubmitRequiresCustomerCapability(t *testing.
 	assertCustomerFulfillmentCount(t, pool, schema, "orders", "customer_id=$1 AND portal_service_code='direct_ship'", customerID, 0)
 }
 
-func TestInternalCustomerFulfillmentOverviewRequiresActiveERPBinding(t *testing.T) {
+func TestInternalCustomerFulfillmentOverviewUsesEnabledCustomerWithoutExternalLogin(t *testing.T) {
 	ctx := context.Background()
-	pool, schema := newCustomerFulfillmentTestDB(t)
+	pool, schema := newMiniDirectShipTestDB(t)
 	repo := NewRepository(pool, schema)
 
 	var customerID int64
@@ -2167,8 +2167,8 @@ func TestInternalCustomerFulfillmentOverviewRequiresActiveERPBinding(t *testing.
 		t.Fatalf("insert customer: %v", err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %[1]s.customer_portal_profiles(customer_id, capability_template_key)
-		VALUES($1,'processing_fulfillment')
+		INSERT INTO %[1]s.customer_portal_profiles(customer_id, capability_template_key, enabled)
+		VALUES($1,'processing_fulfillment',true)
 	`, schema), customerID); err != nil {
 		t.Fatalf("insert capability profile: %v", err)
 	}
@@ -2183,10 +2183,18 @@ func TestInternalCustomerFulfillmentOverviewRequiresActiveERPBinding(t *testing.
 		t.Fatalf("insert capabilities: %v", err)
 	}
 
-	_, err := repo.Overview(ctx, app.OverviewQuery{CustomerID: customerID})
-	if !errors.Is(err, app.ErrCustomerERPBindingNotFound) {
-		t.Fatalf("Overview err=%v, want ErrCustomerERPBindingNotFound for unbound fulfillment customer", err)
+	overview, err := repo.Overview(ctx, app.OverviewQuery{CustomerID: customerID})
+	if err != nil || overview.CustomerID != customerID {
+		t.Fatalf("internal overview without external login: %+v, %v", overview, err)
 	}
+	assertCustomerFulfillmentCount(t, pool, schema, "customer_erp_user_bindings", "customer_id=$1", customerID, 0)
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customers SET active=false WHERE id=$1`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.Overview(ctx, app.OverviewQuery{CustomerID: customerID}); err == nil {
+		t.Fatal("inactive customer allowed")
+	}
+
 }
 
 func TestAdjustCustodyInventoryRequiresCustomerInventoryCapability(t *testing.T) {

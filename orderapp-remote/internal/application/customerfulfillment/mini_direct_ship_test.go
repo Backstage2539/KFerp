@@ -8,6 +8,45 @@ import (
 	"testing"
 )
 
+func TestRetainedMiniPurchaseWithoutRecipient(t *testing.T) {
+	base := MiniDirectShipCommand{CustomerID: 9, UsageCode: "product_order", DeliveryMode: "customer_stock", DeliveryWarehouseCode: "C9", IdempotencyKey: "retained-no-address", Items: []MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, Qty: 2}}}
+	for _, submit := range []bool{false, true} {
+		if _, err := normalizeMiniDirectShipCommand(base, submit); err != nil {
+			t.Fatalf("retained purchase must not require shipping recipient: %v", err)
+		}
+	}
+	for _, mode := range []string{"", "ship"} {
+		cmd := base
+		cmd.DeliveryMode = mode
+		cmd.DeliveryWarehouseCode = ""
+		if _, err := normalizeMiniDirectShipCommand(cmd, true); err == nil {
+			t.Fatalf("normal shipment without recipient accepted: %q", mode)
+		}
+	}
+	for _, mode := range []string{"stock", "on_demand"} {
+		cmd := base
+		cmd.UsageCode = "direct_ship"
+		cmd.DeliveryMode = ""
+		cmd.DeliveryWarehouseCode = ""
+		cmd.FulfillmentMode = mode
+		if _, err := normalizeMiniDirectShipCommand(cmd, true); err == nil {
+			t.Fatalf("dropship without recipient accepted: %q", mode)
+		}
+	}
+}
+
+func TestRetainedMiniPurchaseRetryQuotesSavedPurchase(t *testing.T) {
+	saved := MiniDirectShipRequest{TotalAmount: 60, Items: []MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, Qty: 2, UnitPrice: 30, LineAmount: 60}}}
+	items, total, err := NewService(nil).pricePreparedMiniDirectShipOrder(context.Background(), PreparedMiniDirectShipOrder{Command: MiniDirectShipCommand{UsageCode: "product_order"}, Existing: &saved})
+	if err != nil || total != 60 || len(items) != 1 || items[0].UnitPrice != 30 {
+		t.Fatalf("saved purchase quote: items=%+v total=%v err=%v", items, total, err)
+	}
+	items[0].UnitPrice = 99
+	if saved.Items[0].UnitPrice != 30 {
+		t.Fatal("quote mutated the saved purchase")
+	}
+}
+
 func TestPriceMiniDirectShipItemsUsesServerTierAndRejectsTableOutsideQuantity(t *testing.T) {
 	maxNine := float64(9)
 	products := []salesapp.ProductOption{{

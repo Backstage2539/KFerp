@@ -105,6 +105,7 @@
           <button class="primary" type="button" @click="saveVisibility(row)" :disabled="!canSaveRow(row)">
             {{ row.saving ? '保存中' : '保存并应用模板' }}
           </button>
+		  <CustomerFulfillmentSettings :customer-id="Number(row.customer.id)" />
         </div>
 
         <div class="template-summary">
@@ -208,7 +209,7 @@
             <span v-if="!row.externalUsers.length && !row.externalUsersLoading" class="muted">暂无外部用户</span>
             <span v-if="row.externalUsersLoading" class="muted">加载账号中...</span>
           </div>
-          <p class="binding-hint">外部用户配置了手机号、密码并启用登录后，该客户会出现在客户履约运营台。</p>
+          <p class="binding-hint">外部用户配置了手机号、密码并启用登录后，可自行登录客户工作台；内部员工无需先创建客户账号即可操作履约。</p>
         </div>
 
         <div class="binding-list">
@@ -224,6 +225,7 @@
 </template>
 
 <script setup>
+import CustomerFulfillmentSettings from '../components/CustomerFulfillmentSettings.vue'
 import RegisteredVisitors from '../components/RegisteredVisitors.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
@@ -440,6 +442,7 @@ async function saveVisibility(row) {
       },
     })
     assignRowDetail(row, data)
+    refreshWorkspaceCustomers()
     ok.value = `已保存 ${row.customer.name} 的客户门户配置`
   } catch (err) {
     error.value = err.message || '保存配置失败'
@@ -543,8 +546,10 @@ function openCustomerProfile(row) {
   if (!customerID) return
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
-      key: 'customerProcessingPortal',
+      key: 'customerFulfillment',
       params: { customer_id: customerID },
+      customerContext: { customerID, customerName: row.customer.name },
+      returnNavigation: { key: 'customerPortalSettings', params: {}, label: '返回门户客户配置', viewContext: { type: 'factory' } },
     },
   }))
 }

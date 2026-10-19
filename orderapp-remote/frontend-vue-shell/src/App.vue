@@ -822,6 +822,12 @@ function toggleMenu() {
 function handleNavigateView(event) {
   const key = event?.detail?.key
   const canonicalKey = normalizeViewKey(key)
+  if (!isCustomerActor.value && event?.detail?.viewContext) {
+    setCurrentViewContext(event.detail.viewContext, { reopen: false })
+  }
+  if (!isCustomerActor.value && canonicalKey === 'customerFulfillment' && Number(event?.detail?.customerContext?.customerID) > 0) {
+    setCurrentViewContext({ type: CUSTOMER_VIEW_CONTEXT, ...event.detail.customerContext }, { reopen: false })
+  }
   if (key && menuMap[canonicalKey] && isViewAllowed(canonicalKey, allowedViewKeys.value)) {
     open(key, event?.detail?.params || {}, { returnNavigation: event?.detail?.returnNavigation || event?.detail?.return_navigation || null })
   }

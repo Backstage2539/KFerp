@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { canUseEmployeePriceCenter } from '../utils/priceCenterAccess'
+import { canUseEmployeePriceCenter, hasAuthenticatedCustomerSession } from '../utils/priceCenterAccess'
 import { registerVisitor, wechatLoginCode, type BeanCard } from '../api/registration'
 import { useSessionStore } from '../stores/session'
 import { restoreRegistrationSession } from '../utils/registrationSession'
@@ -35,7 +35,7 @@ export function useBeanRegistration(openEntry: (key: string) => void) {
     try {
       await restoreRegistrationSession(session)
       if (request !== generation) return
-      if (session.registrationComplete || canUseEmployeePriceCenter(session)) openEntry(card.key)
+      if (session.registrationComplete || canUseEmployeePriceCenter(session) || hasAuthenticatedCustomerSession(session)) openEntry(card.key)
       else openRequired(card.key, card.name)
     } finally {
       // openRequired advances the generation, but still finishes this restore.

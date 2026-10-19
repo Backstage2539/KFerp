@@ -17,6 +17,9 @@ var (
 )
 
 type SaveOrderCommand struct {
+	DeliveryMode                      string
+	DeliveryWarehouseCode             string
+	FulfillmentMode                   string
 	RequireConfirmation               bool
 	CustomerSubmission                bool
 	BackfillMode                      bool
@@ -521,6 +524,10 @@ type OrderEditItem struct {
 }
 
 type OrderEditData struct {
+	DeliveryStatus        string
+	FulfillmentMode       string
+	DeliveryMode          string
+	DeliveryWarehouseCode string
 	IsSampleOrder         bool
 	SettlementReason      string
 	EditBlockReason       string
@@ -589,6 +596,10 @@ type OrdersSummary struct {
 }
 
 type OrderRow struct {
+	DeliveryMode          string   `json:"delivery_mode"`
+	DeliveryWarehouseCode string   `json:"delivery_warehouse_code"`
+	DeliveryStatus        string   `json:"delivery_status"`
+	FulfillmentMode       string   `json:"fulfillment_mode"`
 	ConfirmationStatus    string   `json:"confirmation_status"`
 	ConfirmationRequired  bool     `json:"confirmation_required"`
 	PrepaymentAmount      string   `json:"prepayment_amount"`

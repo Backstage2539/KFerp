@@ -278,9 +278,70 @@ func bomOutputBasisFactor(outputG int64, packedUnits int64, outputQty float64, o
 
 func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, error) {
 	if needs, ok, err := materialSnapshotNeedsTx(r, finished); ok || err != nil {
-		return needs, err
+		if err != nil || r.BomSpecID <= 0 {
+			return needs, err
+		}
+		// A BOM-spec run can receive several batches. Round the cumulative
+		// frozen recipe once, then deduct only this receipt's increment. Rounding
+		// each batch independently can exceed the originally reserved material.
+		var previous InvQty
+		var previousInputG, previousOutputG int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(finished_units),0)::bigint,
+			       COALESCE(SUM(finished_loose_g),0)::bigint,
+			       COALESCE(SUM(input_g),0)::bigint,
+			       COALESCE(SUM(finished_total_g),0)::bigint
+			FROM %s.production_logs WHERE running_item_id=$1
+		`, schema), r.ID).Scan(&previous.Units, &previous.LooseG, &previousInputG, &previousOutputG); err != nil {
+			return nil, err
+		}
+		if previous.Units == 0 && previous.LooseG == 0 {
+			return needs, nil
+		}
+		previousRun := r
+		previousRun.InputG, previousRun.NeedG = previousInputG, previousOutputG
+		previousNeeds, _, err := materialSnapshotNeedsTx(previousRun, previous)
+		if err != nil {
+			return nil, err
+		}
+		r.InputG += previousInputG
+		r.NeedG += previousOutputG
+		finished.Units += previous.Units
+		finished.LooseG += previous.LooseG
+		cumulativeNeeds, _, err := materialSnapshotNeedsTx(r, finished)
+		if err != nil {
+			return nil, err
+		}
+		return incrementalMaterialReceiptNeeds(cumulativeNeeds, previousNeeds), nil
 	}
 	return currentMaterialNeedsTx(ctx, tx, schema, r, finished)
+}
+
+func incrementalMaterialReceiptNeeds(cumulative, previous []materialConsumptionNeed) []materialConsumptionNeed {
+	key := func(n materialConsumptionNeed) string {
+		return fmt.Sprintf("%s:%d:%d:%d", normalizeBomComponentType(n.ComponentType), n.MaterialID, n.ComponentBomSpecID, n.ComponentSpecG)
+	}
+	byPrevious := map[string]materialConsumptionNeed{}
+	for _, n := range aggregateMaterialConsumptionNeeds(previous) {
+		byPrevious[key(n)] = n
+	}
+	out := make([]materialConsumptionNeed, 0, len(cumulative))
+	for _, n := range aggregateMaterialConsumptionNeeds(cumulative) {
+		old := byPrevious[key(n)]
+		n.DeductG -= old.DeductG
+		n.DeductUnits -= old.DeductUnits
+		if n.DeductG <= 0 && n.DeductUnits <= 0 {
+			continue
+		}
+		if factor := productionWeightUnitGrams(n.Unit); factor > 0 && n.DeductG > 0 {
+			n.QtyDecimal = float64(n.DeductG) / factor
+			n.Qty = int64(math.Ceil(n.QtyDecimal))
+		} else {
+			n.Qty, n.QtyDecimal = n.DeductUnits, float64(n.DeductUnits)
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, error) {

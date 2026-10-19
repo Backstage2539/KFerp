@@ -35,8 +35,14 @@
           </div>
         </section>
       </template>
+      <CustomerDirectShipForm
+        v-else-if="portalPage === 'customerDirectShip'"
+        :customer-id="data.customer_id"
+        :customer-label="data.customer_name"
+        :customer-portal="customerAccountActor"
+      />
       <OrderEntryView
-        v-else-if="['customerDirectShip', 'customerProductOrder'].includes(portalPage)"
+        v-else-if="portalPage === 'customerProductOrder'"
         :key="portalPage"
         :customer-portal="true"
         :fulfillment-mode="true"
@@ -394,6 +400,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import OrderEntryView from './OrderEntryView.vue'
+import CustomerDirectShipForm from '../components/CustomerDirectShipForm.vue'
 import SalesOrderView from './SalesOrderView.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import DeliveryNoteView from './DeliveryNoteView.vue'

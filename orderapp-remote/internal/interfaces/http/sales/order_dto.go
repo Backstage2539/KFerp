@@ -10,6 +10,8 @@ type ProductOption = salesapp.ProductOption
 type PageData = salesapp.OrderFormData
 
 type CreateOrderRequest struct {
+	DeliveryMode                    string   `form:"delivery_mode"`
+	DeliveryWarehouseCode           string   `form:"delivery_warehouse_code"`
 	SpecConversion                  []string `form:"spec_conversion[]"`
 	PrepaymentAmount                *string  `json:"prepayment_amount" form:"prepayment_amount"`
 	DocumentDate                    string   `form:"document_date"`

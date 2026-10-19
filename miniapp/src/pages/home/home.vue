@@ -11,9 +11,11 @@ import {
 import {
   fetchCustomerAccount,
   fetchCustomerAssetInventory,
-  fetchDirectShipRequests,
+  fetchServicePage,
   fetchMe,
   fetchProcessingRequests,
+  fetchDirectShipCatalog,
+  type CustomerFulfillmentSettings,
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
@@ -22,6 +24,7 @@ import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
+import { customerOrderNeedsHandling } from '../../utils/customerHome'
 
 const session = useSessionStore()
 const {
@@ -35,9 +38,10 @@ const staffUnread = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
 const overviewLoading = ref(false)
+const fulfillmentSettings = ref<CustomerFulfillmentSettings>()
 const overviewMetrics = ref<Array<{ key: string; label: string; value: string; hint: string; url: string }>>([])
 
-const entries = computed(() => visibleHomeEntries(session.capabilities))
+const entries = computed(() => visibleHomeEntries(session.capabilities, fulfillmentSettings.value))
 const employeeEntries = [
   { key: 'priceCenter', label: '价格表中心', url: '/pages/bean-list-center/bean-list-center' },
   { key: 'sampleRequests', label: '样品工单', url: '/pages/sample-requests/sample-requests' },
@@ -70,8 +74,8 @@ async function loadCustomerOverview() {
   overviewLoading.value = true
   const jobs: Array<Promise<{ key: string; label: string; value: string; hint: string; url: string }>> = []
   if (capabilityEnabled('direct_ship') || capabilityEnabled('processing')) jobs.push(
-    fetchDirectShipRequests(session.token, { page: 1, limit: 50 }).then((result) => {
-      const pending = (result.rows || []).filter((item) => !['shipped', 'delivered', 'cancelled'].includes(item.status)).length
+    fetchServicePage(session.token, 'orders', { page: 1, page_size: 50 }).then((result) => {
+      const pending = (result.orders || []).filter(customerOrderNeedsHandling).length
       return { key: 'orders', label: '待处理订单', value: String(pending), hint: '查看生产与发货', url: '/pages/service/service?key=orders' }
     }),
   )
@@ -112,6 +116,11 @@ async function loadContext() {
     const response = await fetchMe(session.token)
     session.applyContext(response)
  if(response.account_type!=='employee'&&!response.current_customer_id){uni.reLaunch({url:'/pages/index/index'});return}
+    fulfillmentSettings.value = undefined
+    if (response.account_type !== 'employee' && capabilityEnabled('direct_ship')) {
+      try { fulfillmentSettings.value = (await fetchDirectShipCatalog(session.token)).fulfillment_settings }
+      catch (error) { errorMessage.value = error instanceof Error ? error.message : '代发入口加载失败，请重试'; return }
+    }
     await loadCustomerOverview()
     if(canUseEmployeePriceCenter(session)){try{staffUnread.value=(await fetchStaffNotifications(session.token,true)).unread_count||0}catch{staffUnread.value=0}}
   } catch (error) {

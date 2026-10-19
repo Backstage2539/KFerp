@@ -68,9 +68,9 @@ func TestCustomerOrderPriceTableBindingPinsExactCustomerPublication(t *testing.T
 		t.Fatal(err)
 	}
 	v41 := insertCustomerOrderPublication(t, r, ctx, "customer", "450", "陈丹燕价一件代发格表", "V3.0.41")
-	public := insertCustomerOrderPublication(t, r, ctx, "official", "", "公共价格表", "V3.0.41")
+	_ = insertCustomerOrderPublication(t, r, ctx, "official", "", "公共价格表", "V3.0.41")
 	other := insertCustomerOrderPublication(t, r, ctx, "customer", "451", "其他客户价格表", "V3.0.41")
-	for _, publicationID := range []int64{public, other} {
+	for _, publicationID := range []int64{other} {
 		if _, err := r.SaveCustomerOrderPriceTableBinding(ctx, appcosting.SaveCustomerOrderPriceTableBindingCommand{
 			CustomerID: 450, UsageCode: appcosting.CustomerOrderPriceTableUsageDirectShip, PublicationID: publicationID, Actor: "tester",
 		}); err == nil {
@@ -83,7 +83,7 @@ func TestCustomerOrderPriceTableBindingPinsExactCustomerPublication(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(config.Candidates) != 1 || len(config.Bindings) != 1 || config.Bindings[0].PublicationID != v41 || config.Bindings[0].Version != "V3.0.41" {
+	if len(config.Candidates) != 2 || len(config.Bindings) != 1 || config.Bindings[0].PublicationID != v41 || config.Bindings[0].Version != "V3.0.41" {
 		t.Fatalf("initial config=%+v", config)
 	}
 	if _, err := r.SaveCustomerOrderPriceTableBinding(ctx, appcosting.SaveCustomerOrderPriceTableBindingCommand{
@@ -93,7 +93,7 @@ func TestCustomerOrderPriceTableBindingPinsExactCustomerPublication(t *testing.T
 	}
 	v42 := insertCustomerOrderPublication(t, r, ctx, "customer", "450", "陈丹燕价一件代发格表", "V3.0.42")
 	config, err = r.CustomerOrderPriceTableConfig(ctx, appcosting.CustomerOrderPriceTableQuery{CustomerID: 450})
-	if err != nil || len(config.Bindings) != 1 || config.Bindings[0].PublicationID != v41 || len(config.Candidates) != 2 {
+	if err != nil || len(config.Bindings) != 1 || config.Bindings[0].PublicationID != v41 || len(config.Candidates) != 3 {
 		t.Fatalf("new publication changed pinned binding: config=%+v err=%v", config, err)
 	}
 	config, err = r.SaveCustomerOrderPriceTableBinding(ctx, appcosting.SaveCustomerOrderPriceTableBindingCommand{
@@ -126,5 +126,33 @@ func TestCustomerOrderPriceTableBindingPinsExactCustomerPublication(t *testing.T
 	var audits int
 	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM `+r.schema+`.audit_logs WHERE action='save_customer_order_price_table_binding'`).Scan(&audits); err != nil || audits != 4 {
 		t.Fatalf("binding audits=%d err=%v", audits, err)
+	}
+}
+
+func TestCustomerOrderBindingAcceptsExplicitPublicAndKeepsVersionAndScope(t *testing.T) {
+	r, ctx := customerOrderBindingPostgres(t)
+	if _, err := r.pool.Exec(ctx, `INSERT INTO `+r.schema+`.customers(id) VALUES(74),(75)`); err != nil {
+		t.Fatal(err)
+	}
+	public := insertCustomerOrderPublication(t, r, ctx, "official", "", "公共固定价", "V1")
+	other := insertCustomerOrderPublication(t, r, ctx, "customer", "75", "其他客户", "V1")
+	config, err := r.SaveCustomerOrderPriceTableBinding(ctx, appcosting.SaveCustomerOrderPriceTableBindingCommand{CustomerID: 74, UsageCode: "direct_ship", PublicationID: public, Actor: "员工"})
+	if err != nil || len(config.Bindings) != 1 || config.Bindings[0].PublicationID != public {
+		t.Fatalf("public binding=%+v err=%v", config, err)
+	}
+	if _, err := r.SaveCustomerOrderPriceTableBinding(ctx, appcosting.SaveCustomerOrderPriceTableBindingCommand{CustomerID: 74, UsageCode: "direct_ship", PublicationID: other, ExpectedRevision: 1, Actor: "员工"}); err == nil {
+		t.Fatal("another customer's publication accepted")
+	}
+	_ = insertCustomerOrderPublication(t, r, ctx, "official", "", "公共固定价", "V2")
+	config, err = r.CustomerOrderPriceTableConfig(ctx, appcosting.CustomerOrderPriceTableQuery{CustomerID: 74})
+	if err != nil || len(config.Bindings) != 1 || config.Bindings[0].PublicationID != public {
+		t.Fatalf("publication replaced pinned binding: %+v err=%v", config, err)
+	}
+	if err := r.rejectBoundCustomerOrderPriceTablePublications(ctx, r.pool, []int64{public}); err == nil {
+		t.Fatal("bound public publication allowed to be removed")
+	}
+	config, err = r.SaveCustomerOrderPriceTableBinding(ctx, appcosting.SaveCustomerOrderPriceTableBindingCommand{CustomerID: 75, UsageCode: "direct_ship", PublicationID: public, Actor: "员工"})
+	if err != nil || len(config.Bindings) != 1 || config.Bindings[0].CustomerID != 75 {
+		t.Fatalf("second independent public binding=%+v err=%v", config, err)
 	}
 }
