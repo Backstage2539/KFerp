@@ -1,4 +1,4 @@
-import type { CustomerAssetInventory, CustomerFulfillmentSettings, CustomerInventorySummary, DirectShipPreview, EmployeeOrderProductSpec, FulfillmentMode } from '../api/customerPortal'
+import type { CustomerAssetInventory, CustomerFulfillmentSettings, CustomerInventorySummary, DirectShipCatalog, DirectShipPreview, EmployeeOrderProductSpec, FulfillmentMode } from '../api/customerPortal'
 import type { DirectShipDraftLine } from './directShipDraft'
 
 export function enabledDirectShipModes(settings?: CustomerFulfillmentSettings): FulfillmentMode[] {
@@ -7,7 +7,45 @@ export function enabledDirectShipModes(settings?: CustomerFulfillmentSettings): 
 
 export function initialDirectShipMode(settings?: CustomerFulfillmentSettings, preferred: FulfillmentMode | '' = ''): FulfillmentMode | '' {
   const enabled = enabledDirectShipModes(settings)
-  return preferred && enabled.includes(preferred) ? preferred : enabled.length === 1 ? enabled[0] : ''
+  return preferred && enabled.includes(preferred) ? preferred : enabled.includes('stock') ? 'stock' : enabled[0] || ''
+}
+
+export function purchaseDeliveryMode(settings?: CustomerFulfillmentSettings): 'ship' | 'customer_stock' {
+  return enabledDirectShipModes(settings).includes('stock') ? 'customer_stock' : 'ship'
+}
+
+export function stockItemKey(item: { product_id?: number; sku_id?: number; bom_spec_id?: number; bom_variant_id?: number; spec_g?: number }): string {
+  const product = Number(item.sku_id || item.product_id || 0)
+  return Number(item.bom_spec_id || 0) > 0 ? `${product}:bom:${item.bom_spec_id}:${item.bom_variant_id || 0}` : `${product}:g:${item.spec_g || 0}`
+}
+
+export function stockOverviewRows(catalog: DirectShipCatalog, lines: DirectShipDraftLine[]) {
+  const rows = new Map<string, { key: string; name: string; spec: string; unit: string; physical: number; pendingAvailable: number; reserved: number; available: number; requested: number; remaining: number; gap: number }>()
+  for (const family of catalog.product_families) for (const spec of family.specs) {
+    const key = stockItemKey(spec)
+    const metrics = stockScenarioMetrics(spec)
+    const pendingAvailable = Math.max(0, metrics.pending - metrics.reserved)
+    const available = metrics.physical + pendingAvailable
+    if (!rows.has(key)) rows.set(key, { key, name: family.customer_product_display_name || family.name || family.parent_product_name || '', spec: spec.spec_label || spec.sku_name || '', unit: spec.inventory_unit || spec.sales_unit || '件', physical: metrics.physical, pendingAvailable, reserved: metrics.reserved, available, requested: 0, remaining: available, gap: 0 })
+  }
+  for (const line of lines) {
+    if (!(Number(line.product_id) > 0)) continue
+    const key = stockItemKey(line)
+    if (!rows.has(key)) rows.set(key, { key, name: line.product_name, spec: line.spec_label || '', unit: line.inventory_unit || line.sales_unit || '件', physical: 0, pendingAvailable: 0, reserved: 0, available: 0, requested: 0, remaining: 0, gap: 0 })
+    const row = rows.get(key)!
+    const qty = Number(line.qty)
+    row.requested += Number.isFinite(qty) ? Math.max(0, qty) : 0
+    row.remaining = Math.max(0, row.available - row.requested)
+    row.gap = Math.max(0, row.requested - row.available)
+  }
+  return [...rows.values()].filter(row => row.available > 0 || row.requested > 0)
+}
+
+export function stockTopupFromCatalog(lines: DirectShipDraftLine[], catalog: DirectShipCatalog): DirectShipDraftLine[] {
+  return stockOverviewRows(catalog, lines).flatMap(row => {
+    const original = lines.find(line => stockItemKey(line) === row.key)
+    return original && row.gap > 0 ? [{ ...original, qty: row.gap }] : []
+  })
 }
 
 export function retainedStockStatus(status = ''): string {

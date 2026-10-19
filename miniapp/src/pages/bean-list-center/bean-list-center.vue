@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {ref,computed,nextTick} from 'vue'
-import {canUseEmployeePriceCenter} from '../../utils/priceCenterAccess'
+import {canUseEmployeePriceCenter,hasAuthenticatedCustomerSession} from '../../utils/priceCenterAccess'
 import {miniappStorageKey,configuredMiniappEnvironment} from '../../config/environment'
 const browseKey=miniappStorageKey('bean-center-browse',configuredMiniappEnvironment())
 import {onShow,onPageScroll,onShareAppMessage,onShareTimeline,onHide,onUnload} from '@dcloudio/uni-app'
@@ -15,6 +15,7 @@ import {useBeanRegistration} from '../../composables/useBeanRegistration'
 const saved=uni.getStorageSync(browseKey)||{}
 const session=useSessionStore(), rows=ref<BeanCard[]>([]),search=ref(String(saved.search||'')),busy=ref(false),error=ref('')
 const staff=computed(()=>canUseEmployeePriceCenter(session))
+const authenticatedCustomer=computed(()=>hasAuthenticatedCustomerSession(session))
 function samples(){uni.navigateTo({url:'/pages/sample-requests/sample-requests'})}
 function employeeHome(){uni.navigateTo({url:'/pages/home/home'})}
 const filtered=computed(()=>beanCards(rows.value,search.value))
@@ -38,7 +39,7 @@ const {pullUpBrandRevealed,handlePullUpBrandTouchStart,handlePullUpBrandTouchMov
 <template><view class="center pull-up-brand-page" @touchstart="handlePullUpBrandTouchStart" @touchmove="handlePullUpBrandTouchMove" @touchend="handlePullUpBrandTouchEnd" @touchcancel="handlePullUpBrandTouchCancel"><EnvironmentBadge/><view class="hero"><text class="eyebrow">QACOOHEE COFFEE</text><text class="title">价格表中心</text><text class="hint">选择一张价格表，查看商品、规格和价格。</text></view>
 <view class="actions"><button v-if="staff||session.registrationComplete" @tap="samples">{{staff?'样品工单':'我的样品申请'}}</button><button v-if="staff" @tap="employeeHome">员工首页</button></view>
 <input v-model="search" class="search" placeholder="搜索价格表名称或版本"/>
-<text v-if="session.accountType!=='employee'&&!session.registrationComplete" class="notice">首次查看价格表时，授权手机号并填写昵称即可。</text>
+<text v-if="session.accountType!=='employee'&&!session.registrationComplete&&!authenticatedCustomer" class="notice">首次查看价格表时，授权手机号并填写昵称即可。</text>
 <text v-if="busy" class="state">正在更新价格表…</text>
 <view v-if="error" class="state"><text>{{error}}</text><button @tap="load">重新加载</button></view>
 <view v-else-if="!busy&&!filtered.length" class="state">{{search?'没有找到相应价格表':'暂未发布价格表，请稍后查看'}}</view>

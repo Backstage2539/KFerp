@@ -702,6 +702,11 @@ func (s *Service) SubmitMiniProductOrder(ctx context.Context, cmd MiniDirectShip
 }
 
 func (s *Service) pricePreparedMiniDirectShipOrder(ctx context.Context, prepared PreparedMiniDirectShipOrder) ([]MiniDirectShipItemCommand, float64, error) {
+	// A purchase retry has no new sale to price. Use the already saved snapshot;
+	// Prepare intentionally skips today's tables when it finds the same request.
+	if prepared.Existing != nil && prepared.Command.UsageCode == "product_order" {
+		return append([]MiniDirectShipItemCommand(nil), prepared.Existing.Items...), prepared.Existing.TotalAmount, nil
+	}
 	if prepared.Command.FulfillmentMode == "stock" {
 		items := append([]MiniDirectShipItemCommand(nil), prepared.Command.Items...)
 		for i := range items {
@@ -1338,13 +1343,14 @@ func normalizeMiniDirectShipCommand(cmd MiniDirectShipCommand, requireIdempotenc
 	cmd.RecipientCompany = compactMiniDirectShipText(cmd.RecipientCompany)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	if cmd.RecipientName == "" {
+	retainedPurchase := cmd.UsageCode == "product_order" && cmd.DeliveryMode == "customer_stock"
+	if !retainedPurchase && cmd.RecipientName == "" {
 		return MiniDirectShipCommand{}, fmt.Errorf("recipient_name required")
 	}
-	if cmd.RecipientPhone == "" {
+	if !retainedPurchase && cmd.RecipientPhone == "" {
 		return MiniDirectShipCommand{}, fmt.Errorf("recipient_phone required")
 	}
-	if cmd.DetailAddress == "" {
+	if !retainedPurchase && cmd.DetailAddress == "" {
 		return MiniDirectShipCommand{}, fmt.Errorf("detail_address required")
 	}
 	items, err := normalizeMiniDirectShipItems(cmd.Items)

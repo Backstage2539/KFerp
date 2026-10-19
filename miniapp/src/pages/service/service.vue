@@ -133,8 +133,11 @@ const prefillInventoryUnit = ref('')
 const processingPrefillItems = ref<ProcessingPrefillItem[]>([])
 
 const officialOrders = ref(false)
+const directShipEntryMode = ref<'stock' | 'on_demand'>()
+const stockPurchase = ref(false)
 const isProcessingCustomer = computed(() => session.capabilities.some((item) => item.code === 'processing' && item.enabled))
 const title = computed(() => {
+  if (serviceKey.value === 'directShip' && directShipEntryMode.value === 'on_demand') return '无库存代发'
   if (serviceKey.value === 'orders' && isProcessingCustomer.value && !officialOrders.value) return '发货中心'
   return page.value?.title || serviceTitle(serviceKey.value)
 })
@@ -237,7 +240,8 @@ async function changePriceTable(group: PriceTableGroup, event: { detail: { value
   }
 }
 
-function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`)+'&mode=password'})}
+function serviceReturnURL() { return `/pages/service/service?key=${serviceKey.value}${officialOrders.value ? '&source=official' : ''}${directShipEntryMode.value ? `&fulfillment_mode=${directShipEntryMode.value}` : ''}${stockPurchase.value ? '&stock_purchase=1' : ''}` }
+function openCustomerLogin(){session.clearSession();uni.reLaunch({url:loginRouteFor(serviceReturnURL())+'&mode=password'})}
 let beanListRequest = 0
 let beanListActive=true
 onShow(()=>{beanListActive=true})
@@ -250,12 +254,12 @@ async function loadPage(pageNumber=1) {
   orderPage.value=pageNumber
   if (selectedPriceTableCustomerID !== Number(session.currentCustomerID)) { selectedPriceTableIDs.value = []; selectedPriceTableCustomerID = Number(session.currentCustomerID) }
   if (!session.token) {
-    uni.reLaunch({ url: loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`) })
+    uni.reLaunch({ url: loginRouteFor(serviceReturnURL()) })
     return
   }
   if(session.accountType!=='employee' && !session.currentCustomerID){
  page.value=null;loading.value=false
- if(session.bindings.length>1){uni.navigateTo({url:'/pages/customer-select/customer-select?return_to='+encodeURIComponent(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`)});return}
+ if(session.bindings.length>1){uni.navigateTo({url:'/pages/customer-select/customer-select?return_to='+encodeURIComponent(serviceReturnURL())});return}
  errorMessage.value='当前登记账号没有客户业务权限，请使用已有客户账号登录或联系工作人员。';return
  }
  if (isClosedLoopService.value) {
@@ -297,7 +301,7 @@ async function loadPage(pageNumber=1) {
     if(request && request!==beanListRequest) return
     page.value = null
     cachedBeanList.value = null
-    if (isAuthenticationExpiredRequestError(error)) { session.clearSession(); uni.reLaunch({url:loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`)}); return }
+    if (isAuthenticationExpiredRequestError(error)) { session.clearSession(); uni.reLaunch({url:loginRouteFor(serviceReturnURL())}); return }
     errorMessage.value = error instanceof Error ? error.message : '服务数据加载失败'
   } finally {
     loading.value = false
@@ -398,7 +402,7 @@ function openOrderDocument(path?: string) {
     return
   }
   if (!session.token) {
-    uni.reLaunch({ url: loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`) })
+    uni.reLaunch({ url: loginRouteFor(serviceReturnURL()) })
     return
   }
   uni.showLoading({ title: '打开中' })
@@ -751,7 +755,7 @@ async function submitResaleBeanList(status: 'draft' | 'published') {
 
 function openResaleOutput(item: BeanListSummary, kind: 'pdf' | 'png') {
   if (!session.token) {
-    uni.reLaunch({ url: loginRouteFor(`/pages/service/service?key=${serviceKey.value}${officialOrders.value?'&source=official':''}`) })
+    uni.reLaunch({ url: loginRouteFor(serviceReturnURL()) })
     return
   }
   const path = kind === 'pdf' ? buildResaleBeanListPDFPath(item.id) : buildResaleBeanListPNGPath(item.id)
@@ -947,6 +951,8 @@ async function confirmBeanListUpdateIfNeeded(): Promise<boolean> {
 
 onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
+  directShipEntryMode.value = query?.fulfillment_mode === 'stock' || query?.fulfillment_mode === 'on_demand' ? query.fulfillment_mode : undefined
+  stockPurchase.value = serviceKey.value === 'productOrder' && query?.stock_purchase === '1'
   officialOrders.value = serviceKey.value === 'orders' && query?.source === 'official'
   prefillProductID.value = Number(query?.product_id || 0)
   prefillSpecG.value = Number(query?.spec_g || 0)
@@ -1000,9 +1006,10 @@ onShow(() => { void refreshMiniappShareMenu() })
 
       <CustomerDirectShipPanel
         v-if="serviceKey === 'directShip'"
-        :key="`direct-ship-create:${session.currentCustomerID}`"
+        :key="`direct-ship-create:${session.currentCustomerID}:${directShipEntryMode || 'legacy'}`"
         :token="session.token"
         :customer-id="session.currentCustomerID"
+        :entry-mode="directShipEntryMode"
       />
       <CustomerDirectShipPanel
         v-else-if="serviceKey === 'productOrder'"
@@ -1010,6 +1017,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         :token="session.token"
         :customer-id="session.currentCustomerID"
         order-mode="product_order"
+        :stock-purchase="stockPurchase"
       />
       <CustomerDirectShipPanel
         v-else-if="serviceKey === 'orders' && isProcessingCustomer && !officialOrders"
@@ -1286,7 +1294,6 @@ onShow(() => { void refreshMiniappShareMenu() })
           <text class="row-sub">运费：¥{{ item.shipping_amount || '0.00' }}</text>
           <text class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }}</text>
           <view v-if="!isProcessingCustomer" class="document-actions">
-            <OrderDetailsCopyButton :order-id="item.id" />
             <button class="secondary compact" @tap="openOrderDocument(item.sales_order_url)">销售单</button>
             <button class="secondary compact" @tap="openOrderDocument(item.delivery_note_url)">出库单</button>
           </view>

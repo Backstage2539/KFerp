@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { visibleHomeEntries } from './capabilities'
 
 describe('visibleHomeEntries', () => {
+  it('separates the two enabled dropship entries and includes their explicit mode', () => {
+    const modes = { customer_id: 9, revision: 1, modes: [{ mode: 'stock' as const, enabled: true }, { mode: 'on_demand' as const, enabled: true }] }
+    const result = visibleHomeEntries([{ code: 'direct_ship', enabled: true }], modes as never)
+    expect(result.map(row => row.label)).toEqual(['一件代发', '无库存代发'])
+    expect(result.map(row => row.url)).toEqual(['/pages/service/service?key=directShip&fulfillment_mode=stock', '/pages/service/service?key=directShip&fulfillment_mode=on_demand'])
+    expect(visibleHomeEntries([{ code: 'direct_ship', enabled: true }], { ...modes, modes: [modes.modes[1]] } as never).map(row => row.label)).toEqual(['无库存代发'])
+  })
   it('shows no entries without customer capabilities', () => {
     expect(visibleHomeEntries()).toEqual([])
   })

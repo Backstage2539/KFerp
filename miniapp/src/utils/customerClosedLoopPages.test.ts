@@ -10,7 +10,8 @@ describe('customer closed-loop miniapp pages', () => {
   it('keeps direct ship in one employee-style order flow with independent recipient maintenance', () => {
     const page = source('src/components/CustomerDirectShipPanel.vue')
 
-    expect(page).toContain('新建代发订单')
+    expect(page).toContain('库存概览')
+    expect(page).toContain('保存草稿并下单库存')
     expect(page).toContain('useCustomerOrderDraftStore')
     expect(page).toContain('选择收件客户')
     expect(page).toContain('createDirectShipRequest')

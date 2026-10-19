@@ -14,6 +14,8 @@ import {
   fetchServicePage,
   fetchMe,
   fetchProcessingRequests,
+  fetchDirectShipCatalog,
+  type CustomerFulfillmentSettings,
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
@@ -36,9 +38,10 @@ const staffUnread = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
 const overviewLoading = ref(false)
+const fulfillmentSettings = ref<CustomerFulfillmentSettings>()
 const overviewMetrics = ref<Array<{ key: string; label: string; value: string; hint: string; url: string }>>([])
 
-const entries = computed(() => visibleHomeEntries(session.capabilities))
+const entries = computed(() => visibleHomeEntries(session.capabilities, fulfillmentSettings.value))
 const employeeEntries = [
   { key: 'priceCenter', label: '价格表中心', url: '/pages/bean-list-center/bean-list-center' },
   { key: 'sampleRequests', label: '样品工单', url: '/pages/sample-requests/sample-requests' },
@@ -113,6 +116,11 @@ async function loadContext() {
     const response = await fetchMe(session.token)
     session.applyContext(response)
  if(response.account_type!=='employee'&&!response.current_customer_id){uni.reLaunch({url:'/pages/index/index'});return}
+    fulfillmentSettings.value = undefined
+    if (response.account_type !== 'employee' && capabilityEnabled('direct_ship')) {
+      try { fulfillmentSettings.value = (await fetchDirectShipCatalog(session.token)).fulfillment_settings }
+      catch (error) { errorMessage.value = error instanceof Error ? error.message : '代发入口加载失败，请重试'; return }
+    }
     await loadCustomerOverview()
     if(canUseEmployeePriceCenter(session)){try{staffUnread.value=(await fetchStaffNotifications(session.token,true)).unread_count||0}catch{staffUnread.value=0}}
   } catch (error) {

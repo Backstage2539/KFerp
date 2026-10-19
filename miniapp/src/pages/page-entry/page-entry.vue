@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import SampleApplication from '../../components/SampleApplication.vue'
 import type { BeanListProductSummary } from '../../api/customerPortal'
-import {canOpenPageEntry} from '../../utils/priceCenterAccess'
+import {canOpenPageEntry,pageEntryAccessAction} from '../../utils/priceCenterAccess'
 import {restoreRegistrationSession} from '../../utils/registrationSession'
 import {
   onLoad,
@@ -39,7 +39,7 @@ const session = useSessionStore(),
   publication = ref<BeanListSummary | null>(null),
   loading = ref(false),
   error = ref(''),
-  needsLogin = ref(false), needsCustomerLogin=ref(false)
+  needsLogin = ref(false), needsCustomerLogin=ref(false), needsCustomerSelection=ref(false)
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -77,7 +77,7 @@ async function load() {
   document.value = null
   images.value = {}
   error.value = ''
-  needsLogin.value = false;needsCustomerLogin.value=false
+  needsLogin.value = false;needsCustomerLogin.value=false;needsCustomerSelection.value=false
   if (!/^[a-f0-9]{32}$/.test(entry.value)) {
     error.value = '页面入口无效'
     return
@@ -109,8 +109,11 @@ async function load() {
       return
     }
     error.value = e instanceof Error ? e.message : '暂时无法加载页面'
-    needsCustomerLogin.value=e instanceof MiniRequestError && e.statusCode===403
-    needsLogin.value = e instanceof MiniRequestError && (e.statusCode === 401 || e.statusCode === 403)
+    const action = pageEntryAccessAction(e)
+    needsCustomerLogin.value = action === 'login' && session.accountType === 'customer'
+    needsLogin.value = action === 'login'
+    needsCustomerSelection.value = action === 'choose_customer'
+    if (action === 'denied') error.value = '当前账号无权查看'
   } finally {
     if (request === sequence) loading.value = false
   }
@@ -143,7 +146,7 @@ onShareTimeline(defaultMiniappTimelineShare)
     <view v-if="error" class="state">
       <text>{{ error }}</text>
       <button v-if="needsLogin" @tap="login">{{needsCustomerLogin?'使用客户账号登录':'登记或登录后查看'}}</button>
- <button v-if="needsCustomerLogin && session.bindings.length>1" @tap="chooseCustomer">选择客户</button>
+ <button v-if="needsCustomerSelection" @tap="chooseCustomer">选择客户</button>
  <button @tap="backToBeans">返回价格表中心</button>
       <button v-if="!needsLogin" @tap="load">重新加载</button>
     </view>

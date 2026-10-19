@@ -1,3 +1,11 @@
+### PR-704-MINIAPP-STOCK-ORDER-EXPERIENCE
+- Branch: codex/miniapp-stock-order-experience-20261019; base origin/develop@758a2f50.
+- Status: in_progress; Van approved nine miniapp ordering and pricing improvements.
+- DEV: DEV-800 stock purchase/return/draft flow; DEV-801 inventory overview and separate entries; DEV-802 price-session reuse and development delivery.
+- Verifier: targeted RED/GREEN (async refresh, drafts, stock aggregation, address normalization, price access), real isolated PostgreSQL/API, full miniapp tests/typecheck/build, Vue tests/build, Go checks, customer UI and development runtime checks.
+- Manual: customer portal and price center source manuals; acceptance docs/acceptance/2026-10-19-miniapp-stock-order-experience.md.
+- Boundary: development only; independent acceptance fixtures; preserve existing Xiqin orders/inventory/drafts; no production or WeChat publication.
+
 ### PR-702-MINIAPP-LOGIN-ENTRY
 - Branch: codex/fix-miniapp-login-entry-20261019; base origin/develop@65f915db.
 - Status: reproduced in WeChat DevTools, fixed, verified, merged into develop/main and deployed to both environments; WeChat upload and Van business acceptance pending.

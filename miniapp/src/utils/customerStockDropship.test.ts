@@ -13,9 +13,9 @@ describe('代发场景目录请求', () => {
 })
 
 describe('库存权益与补购草稿', () => {
-  it('两种场景同时启用时要求明确选择，已有草稿保持原场景', () => {
+  it('旧入口双开时默认库存，独立入口保持明确场景', () => {
     const settings = { customer_id: 77, revision: 1, modes: [{ mode: 'stock' as const, enabled: true, fixed_fee_cents: 0, per_package_fee_cents: 0, fee_configured: true, shipping_template_id: 1 }, { mode: 'on_demand' as const, enabled: true, fixed_fee_cents: 0, per_package_fee_cents: 0, fee_configured: true, shipping_template_id: 1 }] }
-    expect(initialDirectShipMode(settings)).toBe('')
+    expect(initialDirectShipMode(settings)).toBe('stock')
     expect(initialDirectShipMode(settings, 'on_demand')).toBe('on_demand')
     expect(initialDirectShipMode({ ...settings, modes: [settings.modes[0]] })).toBe('stock')
   })

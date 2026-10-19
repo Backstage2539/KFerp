@@ -196,7 +196,7 @@ function useSpotStock() {
     idempotency_key: `inventory-direct-ship-${Date.now()}`,
     fulfillment_mode: 'stock',
   })
-  uni.navigateTo({ url: '/pages/service/service?key=directShip' })
+  uni.navigateTo({ url: '/pages/service/service?key=directShip&fulfillment_mode=stock' })
 }
 
 function openProcessingRequest(id: number) {

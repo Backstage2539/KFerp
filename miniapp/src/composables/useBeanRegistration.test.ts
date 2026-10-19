@@ -6,13 +6,21 @@ import { registerVisitor, wechatLoginCode } from '../api/registration'
 import { restoreRegistrationSession } from '../utils/registrationSession'
 import { useBeanRegistration } from './useBeanRegistration'
 
-const session = { accountType: '', roles: [] as string[], registrationComplete: false, registration: null, setToken: vi.fn(), applyContext: vi.fn() }
+const session = { token: '', miniUserID: 0, bindings: [] as Array<{customer_id:number;status:string}>, accountType: '', roles: [] as string[], registrationComplete: false, registration: null, setToken: vi.fn(), applyContext: vi.fn() }
 const card = { key: 'a'.repeat(32), name: '咖啡豆标准', visibility: 'registered', version: 'v1', updated_at: '' }
 const response = { token: 'verified', registration_complete: true, current_customer_id: 0, bindings: [{customer_id: 1}, {customer_id: 2}] }
 function deferred<T>() { let resolve!: (value:T)=>void; const promise = new Promise<T>(r => {resolve=r}); return {promise,resolve} }
 
 describe('price card inline registration', () => {
-  beforeEach(() => { vi.resetAllMocks(); session.registrationComplete = false; session.accountType='';session.roles=[]; vi.mocked(wechatLoginCode).mockResolvedValue('wx-code'); vi.mocked(registerVisitor).mockResolvedValue(response as never) })
+  it('已登录客户连续打开权限内价格表不重复登记', async () => {
+    Object.assign(session, { token: 'customer-session', miniUserID: 151, accountType: 'customer', bindings: [{ customer_id: 9, status: 'approved' }] })
+    const navigate = vi.fn(), form = useBeanRegistration(navigate)
+    await form.openCard(card); await form.openCard({ ...card, key: 'b'.repeat(32) })
+    expect(navigate).toHaveBeenCalledTimes(2)
+    expect(form.visible.value).toBe(false); expect(session.registrationComplete).toBe(false)
+    Object.assign(session, { token: '', miniUserID: 0, bindings: [] })
+  })
+  beforeEach(() => { vi.resetAllMocks(); Object.assign(session, {token:'',miniUserID:0,bindings:[]}); session.registrationComplete = false; session.accountType='';session.roles=[]; vi.mocked(wechatLoginCode).mockResolvedValue('wx-code'); vi.mocked(registerVisitor).mockResolvedValue(response as never) })
   it('opens a sheet over the selected card without navigating to a login or permission page', async () => {
     const navigate = vi.fn(), form = useBeanRegistration(navigate)
     await form.openCard(card)
