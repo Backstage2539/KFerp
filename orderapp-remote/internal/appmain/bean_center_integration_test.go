@@ -200,6 +200,20 @@ func TestBeanCenterRegistrationPostgres(t *testing.T) {
 	customerA := id(`INSERT INTO %s.customers(name) VALUES('甲') RETURNING id`)
 	customerB := id(`INSERT INTO %s.customers(name) VALUES('乙') RETURNING id`)
 	exec(`INSERT INTO %s.customer_portal_profiles(customer_id) VALUES($1),($2)`, customerA, customerB)
+	t.Run("authenticated customer opens registered prices without visitor registration", func(t *testing.T) {
+		plain := id(`INSERT INTO %s.mini_users(openid) VALUES('plain-customer-without-registration') RETURNING id`)
+		exec(`INSERT INTO %s.customer_portal_user_bindings(mini_user_id,customer_id,status,approved_by) VALUES($1,$2,'approved','admin')`, plain, customerA)
+		exec(`INSERT INTO %s.mini_sessions(token,mini_user_id,current_customer_id,expire_at) VALUES('plain-customer-price-session',$1,NULL,'infinity')`, plain)
+		for _, entry := range entries[2:] {
+			call("GET", "/api/pages/"+entry.Key, "", "plain-customer-price-session", 200)
+		}
+		me := call("GET", "/api/mini/me", "", "plain-customer-price-session", 200)
+		if string(me["registration_complete"]) != "false" {
+			t.Fatal("viewing prices must not manufacture registration", me)
+		}
+		exec(`UPDATE %s.mini_users SET active=false WHERE id=$1`, plain)
+		call("GET", "/api/pages/"+entries[2].Key, "", "plain-customer-price-session", 401)
+	})
 	employee := id(`INSERT INTO %[1]s.company_employees(name,phone,account_type,department_id) VALUES('豆单测试账号','13800000002','channel_customer',(SELECT id FROM %[1]s.company_departments WHERE name='销售' LIMIT 1)) RETURNING id`)
 	exec(`INSERT INTO %s.customer_erp_user_bindings(customer_id,employee_id,status) VALUES($1,$2,'active')`, customerA, employee)
 	multiUser := id(`INSERT INTO %s.mini_users(openid) VALUES('customer-user') RETURNING id`)

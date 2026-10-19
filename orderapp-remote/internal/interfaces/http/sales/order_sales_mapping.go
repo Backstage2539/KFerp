@@ -122,6 +122,8 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		ReceiverAddress:                 strings.TrimSpace(req.ReceiverAddress),
 		ReceiverCompany:                 strings.TrimSpace(req.ReceiverCompany),
 		PortalServiceCode:               strings.TrimSpace(req.PortalServiceCode),
+		DeliveryMode:                    strings.TrimSpace(req.DeliveryMode),
+		DeliveryWarehouseCode:           strings.TrimSpace(req.DeliveryWarehouseCode),
 		OrdersScope:                     strings.TrimSpace(req.OrdersScope),
 		Items:                           orderItemCommandsFromCreateRequest(req),
 	}, nil

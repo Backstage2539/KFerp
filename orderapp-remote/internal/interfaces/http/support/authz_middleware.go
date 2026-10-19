@@ -15,6 +15,15 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			path := strings.TrimPrefix(c.Request().URL.Path, "/app")
+			if isInternalCustomerStockRequest(path) {
+				actor, ok, err := CurrentActor(c, authz)
+				if err != nil || !ok {
+					return permissionJSONError(c, http.StatusUnauthorized, map[string]string{"error": "auth required"})
+				}
+				if actor.AccountType == AccountTypeChannelCustomer {
+					return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": "履约设置及内部录单仅供员工使用"})
+				}
+			}
 			if strings.HasPrefix(path, "/api/finance/") || strings.HasPrefix(path, "/orders/") || (strings.HasPrefix(path, "/api/orders/") && strings.Contains(path, "sales-order")) {
 				actor, ok, err := CurrentActor(c, authz)
 				if err != nil || (ok && actor.AccountType == AccountTypeChannelCustomer) {
@@ -337,6 +346,15 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "customers.write"
 	}
+	if strings.HasPrefix(path, "/api/customer-fulfillment/") && strings.Contains(path, "/direct-ship/") {
+		return "stock.write"
+	}
+	if strings.HasPrefix(path, "/api/customer-fulfillment/") && (strings.HasSuffix(path, "/settings") || strings.Contains(path, "/fees")) {
+		if method == http.MethodGet || strings.HasSuffix(path, "/fees/preview") {
+			return "customers.read"
+		}
+		return "customers.write"
+	}
 	if strings.HasPrefix(path, "/api/customer-fulfillment") {
 		if method == http.MethodGet {
 			return "stock.read"
@@ -534,4 +552,10 @@ func isBeanListPublicationPDFRequest(path string) bool {
 	}
 	id, err := strconv.ParseInt(idPart, 10, 64)
 	return err == nil && id > 0
+}
+
+func isInternalCustomerStockRequest(path string) bool {
+	path = strings.TrimPrefix(path, "/app")
+	return strings.HasPrefix(path, "/api/settings/logistics/shipping-templates") ||
+		strings.HasPrefix(path, "/api/customer-fulfillment/") && (strings.HasSuffix(path, "/overview") || strings.HasSuffix(path, "/settings") || strings.Contains(path, "/fees") || strings.Contains(path, "/direct-ship/"))
 }

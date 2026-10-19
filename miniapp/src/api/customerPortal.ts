@@ -337,6 +337,10 @@ export type ProductSummary = {
 }
 
 export type CustomerOrderSummary = {
+  delivery_status?: 'pending_receipt' | 'partially_received' | 'received' | string
+  delivery_mode?: 'ship' | 'customer_stock'
+  delivery_warehouse_code?: string
+  fulfillment_mode?: FulfillmentMode
   prepayment_amount?: string
   paid_amount?: string
   unpaid_amount?: string
@@ -603,6 +607,10 @@ export type ProcessingRequestPreview = {
 }
 
 export type DirectShipRequestPayload = {
+	delivery_mode?: 'ship' | 'customer_stock'
+	delivery_warehouse_code?: string
+	fulfillment_mode?: FulfillmentMode
+	fee_quote_token?: string
 	idempotency_key: string
 	price_quote_token?: string
 	order_date?: string
@@ -622,6 +630,27 @@ export type DirectShipCatalog = {
   categories?: Array<{ key: string; label: string }>
   product_families: EmployeeOrderProductFamily[]
   price_tables?: DirectShipPriceTable[]
+  fulfillment_settings?: CustomerFulfillmentSettings
+  fulfillment_mode?: FulfillmentMode
+}
+
+export type FulfillmentMode = 'stock' | 'on_demand'
+export type CustomerFulfillmentSettings = {
+  customer_id: number
+  revision: number
+  modes: Array<{ mode: FulfillmentMode; enabled: boolean; warehouse_code?: string; fixed_fee_cents: number; per_package_fee_cents: number; fee_configured: boolean; shipping_template_id: number }>
+}
+export type FulfillmentFeeQuote = {
+  fulfillment_mode: FulfillmentMode
+  settings_revision: number
+  shipping_template_id: number
+  shipping_template_revision: number
+  package_qty: number
+  net_weight_g: number
+  chargeable_weight_g: number
+  service_fee_cents: number
+  shipping_fee_cents: number
+  fee_quote_token: string
 }
 
 export type DirectShipPriceTable = {
@@ -678,6 +707,7 @@ export type DirectShipPackage = {
 }
 
 export type DirectShipRequest = {
+  fulfillment_mode?: FulfillmentMode
   id: number
   request_no: string
   status: string
@@ -716,6 +746,11 @@ export type DirectShipRequestListResponse = {
 }
 
 export type DirectShipPreview = {
+  fulfillment_mode?: FulfillmentMode
+  fees?: FulfillmentFeeQuote
+  fee_quote_token?: string
+  needs_topup?: boolean
+  purchase_gap_qty?: number
   can_submit: boolean
   stock_ready: boolean
   total_amount: number
@@ -742,6 +777,9 @@ export type DirectShipPreview = {
 }
 
 export type CustomerInventorySummary = {
+  physical_available_qty?: number
+  pending_inbound_qty?: number
+  pending_reserved_qty?: number
   product_id: number
   bom_spec_id?: number
   bom_variant_id?: number
@@ -824,6 +862,9 @@ export type CustomerAssetInventoryBatch = {
 }
 
 export type CustomerAssetInventory = {
+  physical_available_qty?: number
+  pending_inbound_qty?: number
+  pending_reserved_qty?: number
   inventory_type: 'finished_product' | 'green_bean' | 'packaging' | 'semi_finished'
   item_id: number
   product_id?: number
@@ -1269,6 +1310,11 @@ export type EmployeeOrderProductTier = {
 }
 
 export type EmployeeOrderProductSpec = {
+  physical_available_qty?: number
+  pending_inbound_qty?: number
+  pending_reserved_qty?: number
+  stock_available_qty?: number
+  available_qty?: number
   product_id: number
   migration_state?: string
   bom_spec_id?: number
@@ -1745,8 +1791,8 @@ export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilter
   return `/api/mini/services/${key}${suffix}`
 }
 
-export function buildDirectShipCatalogPath(): string {
-  return '/api/mini/direct-ship/catalog'
+export function buildDirectShipCatalogPath(mode?: FulfillmentMode): string {
+  return `/api/mini/direct-ship/catalog${mode ? `?fulfillment_mode=${mode}` : ''}`
 }
 
 export function buildProductOrderCatalogPath(): string {
@@ -2001,8 +2047,8 @@ export function fetchProcessingRequestDetail(token: string, requestID: number): 
   return miniRequest<{ request: ProcessingRequest }>(buildProcessingRequestDetailPath(requestID), { token })
 }
 
-export function fetchDirectShipCatalog(token: string): Promise<DirectShipCatalog> {
-  return miniRequest<DirectShipCatalog>(buildDirectShipCatalogPath(), { token })
+export function fetchDirectShipCatalog(token: string, mode?: FulfillmentMode): Promise<DirectShipCatalog> {
+  return miniRequest<DirectShipCatalog>(buildDirectShipCatalogPath(mode), { token })
 }
 
 export function fetchProductOrderCatalog(token: string): Promise<DirectShipCatalog> {

@@ -8,6 +8,7 @@ import (
 	"math"
 	productionapp "orderapp/internal/application/production"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	customerstock "orderapp/internal/infrastructure/postgres/customerstock"
 	"strings"
 	"time"
 
@@ -192,6 +193,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	outputQty := add.Units
 	if outputQty <= 0 && r.SpecG > 0 {
 		outputQty = finishedTotal / r.SpecG
+	}
+	if err := customerstock.ReceiveProductionTx(ctx, tx, schema, r.ID, r.ProductID, r.BomSpecID, r.BomVariantID, r.SpecG, outputQty, fmt.Sprintf("%d:%d:%d:%d:%d", r.ID, r.ProductID, r.BomSpecID, r.SpecG, completionNo), finishedProductionBatchCode(r.ID), warehouse, r.OrderNos, operator); err != nil {
+		return productionapp.FinishResult{}, err
 	}
 	if err := allocateCustomerProcessingOutputReservationsTx(
 		ctx, tx, schema, r.ID, r.ProductID, r.BomSpecID, r.BomVariantID, r.SpecG, outputQty,
@@ -441,6 +445,9 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 		outputQty := add.Units
 		if outputQty <= 0 && output.SpecG > 0 {
 			outputQty = finishedTotal / output.SpecG
+		}
+		if err := customerstock.ReceiveProductionTx(ctx, tx, schema, r.ID, output.ProductID, output.BomSpecID, output.BomVariantID, output.SpecG, outputQty, fmt.Sprintf("%d:%d:%d:%d:%d", r.ID, output.ProductID, output.BomSpecID, output.SpecG, completionNo), finishedProductionBatchCodeForSpec(r.ID, output.SpecG), warehouse, output.OrderNos, operator); err != nil {
+			return productionapp.FinishResult{}, err
 		}
 		if err := allocateCustomerProcessingOutputReservationsTx(
 			ctx, tx, schema, r.ID, output.ProductID, output.BomSpecID, output.BomVariantID, output.SpecG, outputQty,

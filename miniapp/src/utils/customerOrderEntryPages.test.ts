@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest'
 const source = (path: string) => readFileSync(resolve(path), 'utf8')
 
 describe('customer order entry pages', () => {
+  it('keeps one order copy action below the order number', () => {
+    const page = source('src/pages/service/service.vue')
+    expect(page.match(/<OrderDetailsCopyButton\b/g)).toHaveLength(1)
+  })
   it('uses compact employee-style order rows and dedicated recipient maintenance', () => {
     const panel = source('src/components/CustomerDirectShipPanel.vue')
     const addresses = source('src/pages/customer-addresses/customer-addresses.vue')

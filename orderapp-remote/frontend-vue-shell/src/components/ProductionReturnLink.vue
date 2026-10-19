@@ -4,7 +4,7 @@
 <script setup>
 function goBack() {
   const source = props.source
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: source.key, params: source.params || {} } }))
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: source.key, params: source.params || {}, viewContext: source.viewContext } }))
 }
 const props = defineProps({ source: { type: Object, default: null } })
 </script>

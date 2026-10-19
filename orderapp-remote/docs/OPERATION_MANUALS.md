@@ -35,6 +35,7 @@ PR-671：客户价格表完整复制到当前草稿、员工录单手动选档�
 - REV 证据必须包含 `orderapp-remote/docs/...` 手册路径或前端手册入口；部署时线上 `/app/docs` 直接来自 `orderapp-remote/docs`。
 
 ## 当前手册
+- [客户购货寄存与代发手册](OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md)：销售留厂权益、库存与无库存代发、地址簿、服务费和运费模板。
 - 手册入口必须直接放在对应大功能菜单内，不单独建立“手册”或“文档”菜单。
 - `OP_MANUAL_REQUIREMENTS.md`：需求管理 5 张表和证据闭环。
 - `OP_MANUAL_WORKSPACE_MODE.md`：顶部“当前视图”/视图上下文、客户视图、订单视图、保存视图和旧工作台 URL 兼容。

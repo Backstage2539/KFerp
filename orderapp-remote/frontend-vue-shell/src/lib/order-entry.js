@@ -1992,6 +1992,8 @@ export function buildOrderPayload({ form, rows }) {
     document_date: form.document_date || form.order_date || '',
     order_date: form.order_date || '',
     customer_id: Number(form.customer_id || 0),
+    delivery_mode: form.delivery_mode === 'customer_stock' ? 'customer_stock' : 'ship',
+    delivery_warehouse_code: form.delivery_mode === 'customer_stock' ? String(form.delivery_warehouse_code || '').trim() : '',
     source_id: Number(form.source_id || 0),
     order_type_id: Number(form.order_type_id || 0),
     pay_status_id: Number(form.pay_status_id || 0),

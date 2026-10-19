@@ -16,7 +16,9 @@ test('customer portal settings opens the scoped fulfillment workspace and refres
   for (const marker of [
     '打开客户履约工作台',
     'openCustomerProfile(row)',
-    "key: 'customerProcessingPortal'",
+    "key: 'customerFulfillment'",
+    'customerContext: { customerID, customerName: row.customer.name }',
+    "returnNavigation: { key: 'customerPortalSettings'",
     'params: { customer_id: customerID }',
     'workspaceCustomersRefreshEvent',
     'refreshWorkspaceCustomers()',

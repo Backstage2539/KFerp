@@ -505,7 +505,11 @@ CREATE INDEX IF NOT EXISTS customer_statement_disputes_customer_settlement_idx
 	if err != nil {
 		return err
 	}
+	if err := ensureFulfillmentSettingsSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_requests ADD COLUMN IF NOT EXISTS fulfillment_mode TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS product_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),

@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	customerstock "orderapp/internal/infrastructure/postgres/customerstock"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -82,6 +83,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		return err
 	}
 	if err := EnsureCustomerOrderSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := customerstock.EnsureSchema(ctx, pool, schema); err != nil {
 		return err
 	}
 	return ensureExternalShareResourceTables(ctx, pool, schema)

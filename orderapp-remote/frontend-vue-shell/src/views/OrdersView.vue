@@ -197,7 +197,9 @@
                 <div class="status-stack">
                   <OrderPaymentSummary :order="row" />
                   <span>收款：{{ row.pay_status || '-' }}{{ row.payment_method ? ' / ' + row.payment_method : '' }}</span>
-                  <span>发货：{{ row.ship_status || '-' }}</span>
+                  <span>发货：{{ row.delivery_mode === 'customer_stock' ? '无需发货' : row.ship_status || '-' }}</span>
+                  <span v-if="row.delivery_mode === 'customer_stock'">购货留厂 · {{ customerStockDeliveryLabel(row.delivery_status) }}</span>
+                  <span v-if="row.fulfillment_mode">{{ row.fulfillment_mode === 'stock' ? '库存代发' : '无库存代发' }}</span>
                   <span>{{ orderConfirmationLabel(row.confirmation_status) }}</span>
                   <span>生产：{{ row.process_status || '-' }}</span>
                   <span>发票：{{ invoiceStatusLabel(row.invoice_status) }}</span>
@@ -212,6 +214,7 @@
                 <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
                 <button class="text-button" type="button" @click.prevent="copyOrder(row)">复制</button>
                 <button v-if="row.is_void" class="voided-action-button" type="button" disabled>已失效</button>
+                <DirectShipCancelButton v-else-if="row.fulfillment_mode" :customer-id="Number(row.customer_id)" :order-id="Number(row.id)" @cancelled="onDirectShipCancelled" />
                 <button
                   v-else
                   class="text-button danger-text"
@@ -318,7 +321,8 @@
           <section class="drawer-section order-summary" aria-label="订单状态与费用明细">
             <div class="order-summary-row">
               <span>收款：{{ activeOrderDetail.pay_status || '-' }}{{ activeOrderDetail.payment_method ? ' / ' + activeOrderDetail.payment_method : '' }}</span>
-              <span>交付：{{ orderDeliveryLabel(activeOrderDetail.ship_method) }} / {{ activeOrderDetail.ship_status || '-' }}</span>
+              <span v-if="activeOrderDetail.delivery_mode === 'customer_stock'">交付：购货留厂 · {{ activeOrderDetail.delivery_warehouse_code || '客户仓' }} · {{ customerStockDeliveryLabel(activeOrderDetail.delivery_status) }} · 无需发货</span>
+              <span v-else>交付：{{ orderDeliveryLabel(activeOrderDetail.ship_method) }} / {{ activeOrderDetail.ship_status || '-' }}</span>
               <span>生产：{{ activeOrderDetail.process_status || '-' }}</span>
               <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
             </div>
@@ -386,6 +390,7 @@
             <OrderDetailsCopyButton :order-id="activeOrderDetail.id" :customer-id="filters.customer_id" />
             <button class="secondary" type="button" @click="copyOrder(activeOrderDetail)">复制订单</button>
             <button v-if="activeOrderDetail.is_void" class="voided-action-button" type="button" disabled>已失效</button>
+            <DirectShipCancelButton v-else-if="activeOrderDetail.fulfillment_mode" :customer-id="Number(activeOrderDetail.customer_id)" :order-id="Number(activeOrderDetail.id)" @cancelled="onDirectShipCancelled" />
             <button v-else class="secondary danger-text" type="button" @click="voidOrder(activeOrderDetail)" :disabled="voidingOrderID === Number(activeOrderDetail.id)">失效订单</button>
           </div>
           <section v-if="!activeOrderDetail.confirmation_required" class="drawer-section order-edit-panel">
@@ -450,6 +455,8 @@ import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
+import { customerStockDeliveryLabel, ordinaryOrderVoidable } from '../lib/customer-stock-entry'
+import DirectShipCancelButton from '../components/DirectShipCancelButton.vue'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { productKindLabel, orderQuoteSourceSummary } from '../lib/order-entry'
 import { orderListSelectionState, selectableOrderIDs, toggleOrderPageSelection } from '../lib/order-list-selection'
@@ -538,7 +545,7 @@ const selectedRows = computed(() => selectedOrderIDs.value
   .filter(Boolean))
 const pageSelectionState = computed(() => orderListSelectionState(rows.value, selectedOrderIDs.value))
 const selectedVoidableOrderIDs = computed(() => selectedRows.value
-  .filter((row) => !row?.is_void)
+  .filter(ordinaryOrderVoidable)
   .map((row) => Number(row.id))
   .filter(Boolean))
 const selectedShipReadyOrderIDs = computed(() => selectedRows.value
@@ -946,7 +953,7 @@ async function applyShipReadyPreset() {
 
 async function voidOrder(row) {
   const id = Number(row?.id || 0)
-  if (!id || row?.is_void) return
+  if (!id || !ordinaryOrderVoidable(row)) return
   const label = orderDisplayName(row)
   if (!window.confirm(`确认失效订单 ${label}？失效后不可恢复，ERP 默认列表、履约客户订单和小程序订单都不展示；如需重建，请从“已失效”订单复制。`)) return
   voidingOrderID.value = id
@@ -965,6 +972,8 @@ async function voidOrder(row) {
     voidingOrderID.value = 0
   }
 }
+
+async function onDirectShipCancelled(orderID) { if (Number(activeOrderDetail.value?.id) === Number(orderID)) closeOrderDetailDrawer(); shippingMessage.value = '代发已取消，预订与未结算费用已释放'; await load() }
 
 async function voidSelectedOrders() {
   const ids = selectedVoidableOrderIDs.value

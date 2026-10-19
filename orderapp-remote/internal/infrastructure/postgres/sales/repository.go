@@ -1493,6 +1493,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		`, r.schema), editID).Scan(&orderID, &orderNo, &lockedCustomerID, &existingPortalServiceCode, &existingSourceWarehouse); err != nil {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("invalid edit_id")
 		}
+		var storedMode string
+		if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE(to_jsonb(o)->>'fulfillment_mode','') FROM %s.orders o WHERE id=$1", r.schema), orderID).Scan(&storedMode); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if storedMode != "" {
+			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("代发场景订单不能通过普通录单重建商品；请取消未发货代发后重建，费用通过费用调整修改")
+		}
 		if lockedCustomerID != cmd.CustomerID {
 			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("订单客户已被其他操作修改，请重新打开后再编辑")
 		}
@@ -1630,6 +1637,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		if identity.BomSpecID <= 0 {
 			continue
+		}
+		if cmd.DeliveryMode == "customer_stock" {
+			requestedUnit := strings.TrimSpace(cmd.Items[idx].SalesUnit)
+			if requestedUnit == "" {
+				requestedUnit = strings.TrimSpace(cmd.Items[idx].Unit)
+			}
+			if requestedUnit != "" && normalizeOrderItemSalesUnit(requestedUnit) != normalizeOrderItemSalesUnit(identity.InventoryUnit) {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("留厂购货请按 BOM 库存单位 %s 填写数量，暂不支持销售包装单位换算", identity.InventoryUnit)
+			}
 		}
 		items[idx].canonicalBOMSpec = true
 		items[idx].submittedParentProductID = identity.ProductID
@@ -2798,7 +2814,20 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			NeedG:        needG,
 		})
 	}
+	mode := strings.TrimSpace(cmd.DeliveryMode)
+	if mode == "" {
+		mode = "ship"
+	}
+	if mode != "ship" && mode != "customer_stock" {
+		return salesapp.SaveOrderResult{}, fmt.Errorf("交付方式无效")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET delivery_mode=$2,delivery_warehouse_code=$3,delivery_status=CASE WHEN $2='customer_stock' THEN 'pending_receipt' ELSE '' END,fulfillment_mode=$4 WHERE id=$1", r.schema), orderID, mode, strings.TrimSpace(cmd.DeliveryWarehouseCode), strings.TrimSpace(cmd.FulfillmentMode)); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 	stockDecision := strings.TrimSpace(cmd.StockBatchDecision)
+	if mode == "customer_stock" {
+		stockDecision = "produce"
+	}
 	if !cmd.RequireConfirmation {
 		if err := r.applyOrderStockDecisionTx(ctx, tx, orderID, stockItems, stockDecision, cmd.Actor); err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -3230,6 +3259,14 @@ func (r Repository) Void(ctx context.Context, id int64, actor, reason string) er
 }
 
 func (r Repository) VoidMany(ctx context.Context, ids []int64, actor, reason string) (int, error) {
+	var explicit bool
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s.orders o WHERE id=ANY($1) AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'fulfillment_mode','') IN('stock','on_demand'))", r.schema), ids).Scan(&explicit); err != nil {
+		return 0, err
+	}
+	if explicit {
+		return 0, fmt.Errorf("场景代发订单请使用取消代发，以释放库存预订并冲回费用")
+	}
+
 	q := fmt.Sprintf("UPDATE %s.orders SET is_void=true, voided_at=now(), void_reason=$2 WHERE id = ANY($1) AND COALESCE(is_void,false)=false RETURNING id", r.schema)
 	rows, err := r.pool.Query(ctx, q, ids, notNullText(reason))
 	if err != nil {

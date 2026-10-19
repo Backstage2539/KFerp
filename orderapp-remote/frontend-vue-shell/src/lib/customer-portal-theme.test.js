@@ -132,11 +132,10 @@ test('customer workbench order forms do not expose discount or shipping inputs',
   assert.doesNotMatch(portalSource, /shipping_amount:\s*Number\(directShipForm\.shipping_amount\s*\|\|\s*0\)/)
 })
 
-test('erp customer fulfillment keeps discount and shipping controls', () => {
+test('erp customer fulfillment uses the shared stock and on-demand direct-ship form', () => {
   const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerFulfillmentView.vue'), 'utf8')
-  assert.match(source, /<OrderEntryView/)
-  assert.match(source, /:fulfillment-mode="true"/)
-  assert.match(source, /:customer-context-id="customerId"/)
+  assert.match(source, /<CustomerDirectShipForm/)
+  assert.match(source, /:customer-id="customerId"/)
   assert.match(source, /onFulfillmentOrderSaved/)
 })
 
