@@ -220,9 +220,9 @@
             </div>
           </label>
           <label :class="{ 'field-invalid': hasFieldError('payment_shipping_amount') }" data-error-field="payment_shipping_amount">
-            <span>运费金额</span>
+            <span>{{!form.edit_id?'运费待出账（本次不收）':'运费金额'}}</span>
             <div class="amount-suggestion-wrap">
-              <input v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
+              <input :disabled="!form.edit_id" v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
               <button
                 v-if="showPaymentShippingAmountSuggestion"
                 class="amount-suggestion-popover"
@@ -466,11 +466,12 @@
     </section>
 
     <section class="panel footer-panel">
+      <OrderFreightEstimate v-if="!form.edit_id && form.delivery_mode!=='customer_stock'" ref="freightEstimator" :customer-id="form.customer_id" :items="freightItems" :saved-destination="{province:form.shipping_province,city:form.shipping_city,district:form.shipping_district}" @destination-change="Object.assign(form,$event)" :address="form.receiver_address" :customer-portal="props.customerPortal" />
       <div v-if="!props.customerPortal" class="section-title">费用</div>
       <div v-if="!props.customerPortal" class="form-grid compact">
         <label>
-          <span>运费</span>
-          <input v-model.trim="form.shipping_amount" type="number" min="0" step="0.01" />
+          <span>{{!form.edit_id?'运费待出账（本次不收）':'原订单运费'}}</span>
+          <input :disabled="!form.edit_id" v-model.trim="form.shipping_amount" type="number" min="0" step="0.01" />
         </label>
         <label>
           <span>优惠</span>
@@ -749,6 +750,7 @@ import {
   wholesaleSpecOptions,
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
+import OrderFreightEstimate from '../components/OrderFreightEstimate.vue'
 import CustomerRecipientPicker from '../components/CustomerRecipientPicker.vue'
 import { customerStockWarehouses } from '../lib/customer-stock-entry'
 import { businessGroupFeatureSelectionIDs, businessGroupRowsForFeatureSelection } from '../lib/business-grouping'
@@ -804,6 +806,9 @@ const orderProductCatalogFeatureSelection = ref({ feature_key: 'product_catalog'
 const orderProductCatalogFeatureSelectionLoaded = ref(false)
 const selectedBeanListPublicationIDs = reactive({})
 const rows = ref([newRow()])
+const freightEstimator=ref(null)
+const freightItems=computed(()=>rows.value.filter(r=>Number(r.product_id)>0&&Number(r.qty)>0).map(r=>({product_id:Number(r.product_id),bom_spec_id:Number(r.bom_spec_id||0),bom_variant_id:Number(r.bom_variant_id||0),qty:Number(r.qty)})))
+
 const hasUnpricedPublishedRow = computed(() => rows.value.some(rowHasBlockingPrice))
 const paymentVoucher = ref(null)
 const paymentVoucherFile = ref(null)
@@ -2773,6 +2778,12 @@ async function save(options = {}) {
   clearAllFieldErrors()
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
+    if (!form.edit_id && form.delivery_mode!=='customer_stock') {
+      const q=await freightEstimator.value?.preview();if(!q){error.value='请完善收件地区及运费配置后重试';return}
+      Object.assign(payload,freightEstimator.value.payload())
+      if(q.carrier_id){payload.logistics_company_id=q.carrier_id;payload.logistics_product_id=q.logistics_product_id;form.logistics_company_id=q.carrier_id;form.logistics_product_id=q.logistics_product_id}
+    }
+
     payload.selected_price_table_ids = [...new Set([...beanListVersionGroups.value.map(group => Number(selectedBeanListVersionOptionByGroup(group)?.id || 0)), ...rows.value.filter(isFrozenConversion).map(row => Number(row.bean_list_publication_id))].filter(id => id > 0))]
     if (sampleOrderEditing.value) payload.selected_price_table_ids = [...new Set(rows.value.map(row => Number(row.bean_list_publication_id || 0)).filter(id => id > 0))]
     if (!payload.customer_id) {
@@ -2787,7 +2798,7 @@ async function save(options = {}) {
       raiseSaveError(`请先在客户资料维护${missingCustomerProfile.join('、')}`, 'customer_id')
       return
     }
-    if ((sampleOrderEditing.value || props.fulfillmentMode) && (!payload.receiver_name || !payload.receiver_phone || !payload.receiver_address)) {
+    if (payload.delivery_mode!=='customer_stock' && (sampleOrderEditing.value || props.fulfillmentMode) && (!payload.receiver_name || !payload.receiver_phone || !payload.receiver_address)) {
       raiseSaveError('请在顶部收件信息补齐收件人、电话和地址', 'receiver_address')
       return
     }

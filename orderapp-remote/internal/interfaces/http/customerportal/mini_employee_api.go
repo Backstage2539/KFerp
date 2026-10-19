@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	freightdomain "orderapp/internal/domain/freight"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,6 +31,7 @@ type miniEmployeeOrderDetailResponse struct {
 }
 
 type miniEmployeeOrderDetailDTO struct {
+	Freight                         *freightdomain.OrderView          `json:"freight,omitempty"`
 	ID                              int64                             `json:"id"`
 	EditRevision                    string                            `json:"edit_revision"`
 	OrderNo                         string                            `json:"order_no"`
@@ -249,6 +251,12 @@ type miniEmployeeOrderItemRequest struct {
 }
 
 type miniEmployeeOrderRequest struct {
+	FreightProtocol       string                         `json:"freight_protocol"`
+	FreightQuoteToken     string                         `json:"freight_quote_token"`
+	ShippingProvince      string                         `json:"shipping_province"`
+	ShippingCity          string                         `json:"shipping_city"`
+	ShippingDistrict      string                         `json:"shipping_district"`
+	FreightOverride       *freightdomain.Override        `json:"freight_override,omitempty"`
 	SelectedPriceTableIDs []int64                        `json:"selected_price_table_ids"`
 	PrepaymentAmount      *float64                       `json:"prepayment_amount"`
 	EditRevision          string                         `json:"edit_revision"`
@@ -668,6 +676,7 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 		PrepaymentAmount: req.PrepaymentAmount,
 		PayStatusID:      req.PayStatusID, PaymentMethod: strings.TrimSpace(req.PaymentMethod),
 		ShipStatusID: req.ShipStatusID, ShipMethod: strings.TrimSpace(req.ShipMethod), ShipTrackingNo: strings.TrimSpace(req.ShipTrackingNo),
+		FreightProtocol: req.FreightProtocol, FreightQuoteToken: req.FreightQuoteToken, ShippingProvince: req.ShippingProvince, ShippingCity: req.ShippingCity, ShippingDistrict: req.ShippingDistrict, FreightOverride: req.FreightOverride,
 		ShippingAmount: req.ShippingAmount, DiscountAmount: req.DiscountAmount,
 		ReceiverName: strings.TrimSpace(req.ReceiverName), ReceiverPhone: strings.TrimSpace(req.ReceiverPhone),
 		ReceiverAddress: strings.TrimSpace(req.ReceiverAddress), ReceiverCompany: strings.TrimSpace(req.ReceiverCompany),
@@ -1548,7 +1557,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 		BeanListPublicationID: beanListPublicationID, CommercialBeanListPublicationID: commercialPublicationID,
 		GreenBeanListPublicationID: greenPublicationID, DripBeanListPublicationID: dripPublicationID, BeanListVersionNo: beanListVersionNo,
 		Notes: firstMiniOrderValue(ed.Notes, row.Notes), TotalAmount: firstMiniOrderValue(ed.TotalAmount, row.TotalAmount),
-		ShippingAmount: firstMiniOrderValue(ed.ShippingAmount, row.ShippingAmount), DiscountAmount: firstMiniOrderValue(ed.DiscountAmount, row.DiscountAmount),
+		Freight: ed.Freight, ShippingAmount: firstMiniOrderValue(ed.ShippingAmount, row.ShippingAmount), DiscountAmount: firstMiniOrderValue(ed.DiscountAmount, row.DiscountAmount),
 		OrderDiscountAmount: miniEmployeeHeaderDiscountAmount(ed, row.DiscountAmount),
 		RoundToInt:          ed.RoundToInt, RoundingAmount: ed.RoundingAmount, GrandTotal: firstMiniOrderValue(ed.GrandTotal, row.GrandTotal),
 		ExpressFee: firstMiniOrderValue(ed.ExpressFee, row.ExpressFee), OutsourceMaterialFee: firstMiniOrderValue(ed.OutsourceMaterialFee, row.OutsourceMaterialFee),
@@ -2051,6 +2060,14 @@ func containsMiniRole(values []string, target string) bool {
 }
 
 func miniOrderKnownBusinessErrorText(err error) (string, bool) {
+	if err != nil {
+		for _, s := range []string{"运费", "净重", "收件地区", "请更新客户端"} {
+			if strings.Contains(err.Error(), s) {
+				return err.Error(), true
+			}
+		}
+	}
+
 	if err != nil && err.Error() == salesapp.PriceTableOrderScopeMessage {
 		return err.Error(), true
 	}

@@ -30,7 +30,7 @@ func TestMiniRetainedPurchaseKeepsOriginalProductionDemand(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	cmd := app.MiniDirectShipCommand{CustomerID: 501, UsageCode: "product_order", DeliveryMode: "customer_stock", DeliveryWarehouseCode: "DEV-E2E-A1", IdempotencyKey: "MINI-RETAINED24", Actor: "mini_user:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 24, InventoryUnit: "袋"}}}
+	cmd := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1", CustomerID: 501, UsageCode: "product_order", DeliveryMode: "customer_stock", DeliveryWarehouseCode: "DEV-E2E-A1", IdempotencyKey: "MINI-RETAINED24", Actor: "mini_user:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 24, InventoryUnit: "袋"}}}
 	request, err := NewRepository(pool, schema).recordMiniDirectShipOrderTx(ctx, tx, app.PreparedMiniDirectShipOrder{Command: cmd, RequestHash: "MINI-RETAINED24"}, app.DirectShipOrderSummary{OrderID: sale.OrderID, OrderNo: sale.OrderNo})
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestMiniRetainedTopupWithoutAddressRefreshesRightsAndCreatesOnlyGapDemand(t
 	svc.UseSalesOrderService(salesapp.NewService(postgressales.NewRepository(pool, schema)))
 	purchase := func(key string, qty int64) app.MiniDirectShipRequest {
 		t.Helper()
-		cmd := app.MiniDirectShipCommand{CustomerID: 501, DeliveryMode: "customer_stock", DeliveryWarehouseCode: "DEV-E2E-A1", IdempotencyKey: key, Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: qty, SalesUnit: "袋"}}}
+		cmd := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1", CustomerID: 501, DeliveryMode: "customer_stock", DeliveryWarehouseCode: "DEV-E2E-A1", IdempotencyKey: key, Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: qty, SalesUnit: "袋"}}}
 		quote, err := svc.PreviewMiniProductOrder(ctx, cmd)
 		if err != nil {
 			t.Fatal(err)
@@ -96,7 +96,7 @@ func TestMiniRetainedTopupWithoutAddressRefreshesRightsAndCreatesOnlyGapDemand(t
 		return request
 	}
 	purchase("PR704-ORIGINAL20", 20)
-	drop := app.MiniDirectShipCommand{CustomerID: 501, FulfillmentMode: "stock", IdempotencyKey: "PR704-SHIP22", Actor: "employee:703", RecipientName: "测试", RecipientPhone: "13800000000", Province: "云南省", DetailAddress: "测试路", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 22}}}
+	drop := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1", CustomerID: 501, FulfillmentMode: "stock", IdempotencyKey: "PR704-SHIP22", Actor: "employee:703", RecipientName: "测试", RecipientPhone: "13800000000", Province: "云南省", DetailAddress: "测试路", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 22}}}
 	before, err := svc.PreviewMiniDirectShip(ctx, drop)
 	if err != nil || before.CanSubmit || !before.NeedsTopup || before.PurchaseGapQty != 2 {
 		t.Fatalf("before topup: %+v %v", before, err)

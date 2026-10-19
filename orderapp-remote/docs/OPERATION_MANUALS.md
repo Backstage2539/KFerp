@@ -92,3 +92,5 @@ flowchart TD
 
 - [录单价格表规格范围](OP_MANUAL_BOM_ORDER_PRICING.md)：PR-697，表外 BOM 规格不能录单、历史订单冻结价与复制处理。
 - [规格换算配置与历史订单](OP_MANUAL_SPEC_CONVERSION.md)：配置保留，录单换规格入口已关闭。
+
+- [运费模板与实际运费出账](OP_MANUAL_FREIGHT.md)：三场景客户政策、地区分组、预估不收款、Excel实际运费与差额出账、包邮及来源撤销。

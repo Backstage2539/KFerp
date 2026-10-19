@@ -97,7 +97,7 @@ func (r *Repository) submitExplicitDirectShipOrderTx(ctx context.Context, tx pgx
 		if e != nil {
 			date = time.Now()
 		}
-		save := salesapp.SaveOrderCommand{CustomerID: cmd.CustomerID, DocumentDate: date, OrderDate: date, Actor: cmd.Actor, PortalServiceCode: cmd.PortalServiceCode, OrdersScope: "fulfillment", SelectedPriceTableIDs: cmd.SelectedPriceTableIDs, ReceiverName: cmd.ReceiverName, ReceiverPhone: cmd.ReceiverPhone, ReceiverAddress: cmd.ReceiverAddress, ReceiverCompany: cmd.ReceiverCompany, Notes: cmd.Note, DeliveryMode: cmd.DeliveryMode, DeliveryWarehouseCode: cmd.DeliveryWarehouseCode, FulfillmentMode: cmd.FulfillmentMode}
+		save := salesapp.SaveOrderCommand{FreightProtocol: cmd.FreightProtocol, FreightQuoteToken: cmd.FreightQuoteToken, ShippingProvince: cmd.ShippingProvince, ShippingCity: cmd.ShippingCity, ShippingDistrict: cmd.ShippingDistrict, CustomerID: cmd.CustomerID, DocumentDate: date, OrderDate: date, Actor: cmd.Actor, PortalServiceCode: cmd.PortalServiceCode, OrdersScope: "fulfillment", SelectedPriceTableIDs: cmd.SelectedPriceTableIDs, ReceiverName: cmd.ReceiverName, ReceiverPhone: cmd.ReceiverPhone, ReceiverAddress: cmd.ReceiverAddress, ReceiverCompany: cmd.ReceiverCompany, Notes: cmd.Note, DeliveryMode: cmd.DeliveryMode, DeliveryWarehouseCode: cmd.DeliveryWarehouseCode, FulfillmentMode: cmd.FulfillmentMode}
 		save.PayStatusID = customerFulfillmentStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
 		save.ShipStatusID = customerFulfillmentStatusID(ctx, tx, r.schema, "ship_statuses", "未发货", "待发货")
 		for _, it := range cmd.Items {

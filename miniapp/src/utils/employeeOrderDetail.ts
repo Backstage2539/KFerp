@@ -1,3 +1,5 @@
+import {freightLabel} from './freight'
+import type {FreightSnapshot} from '../api/customerPortal'
 import { conversionSnapshot, conversionDescription } from './specConversion'
 import type {
   EmployeeOrderDetailItem,
@@ -155,7 +157,7 @@ function hasMoney(value: unknown): boolean {
 export function employeeOrderFeeLines(order: Record<string, unknown> = {}): EmployeeOrderDetailLine[] {
   const lines: EmployeeOrderDetailLine[] = [
     { key: 'total_amount', label: '商品金额', value: money(order.total_amount) },
-    { key: 'shipping_amount', label: '运费', value: money(order.shipping_amount) },
+    { key: 'shipping_amount', label: order.freight?'运费状态':'运费', value: order.freight?freightLabel(order.freight as FreightSnapshot):money(order.shipping_amount) },
     { key: 'discount_amount', label: '优惠', value: money(order.discount_amount) },
     { key: 'grand_total', label: '应收', value: money(order.grand_total), emphasized: true },
   ]

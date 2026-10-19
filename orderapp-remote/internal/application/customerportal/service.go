@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	salesapp "orderapp/internal/application/sales"
+	freightdomain "orderapp/internal/domain/freight"
 	"regexp"
 	"sort"
 	"strconv"
@@ -163,6 +164,7 @@ type Capability struct {
 }
 
 type CurrentContext struct {
+	FulfillmentModes       []string             `json:"fulfillment_modes"`
 	RegistrationComplete   bool                 `json:"registration_complete"`
 	Registration           *RegistrationProfile `json:"registration,omitempty"`
 	MiniUserID             int64                `json:"mini_user_id"`
@@ -717,6 +719,7 @@ type CreateMallOrderCommand struct {
 }
 
 type CustomerOrderSummary struct {
+	Freight               *freightdomain.OrderView   `json:"freight,omitempty"`
 	DeliveryMode          string                     `json:"delivery_mode"`
 	DeliveryWarehouseCode string                     `json:"delivery_warehouse_code"`
 	DeliveryStatus        string                     `json:"delivery_status"`
@@ -1397,6 +1400,16 @@ func (s *Service) Me(ctx context.Context, token string) (CurrentContext, error) 
 	current, err := s.repo.CurrentContextByToken(ctx, token)
 	if err != nil {
 		return CurrentContext{}, err
+	}
+	if current.CurrentCustomerID > 0 && current.AccountType != "employee" {
+		if modes, ok := s.repo.(interface {
+			FulfillmentModes(context.Context, int64) ([]string, error)
+		}); ok {
+			current.FulfillmentModes, err = modes.FulfillmentModes(ctx, current.CurrentCustomerID)
+			if err != nil {
+				return CurrentContext{}, err
+			}
+		}
 	}
 	return normalizeCurrentContext(current), nil
 }

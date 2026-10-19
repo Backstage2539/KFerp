@@ -22,7 +22,8 @@ const entries: HomeEntry[] = [
 
 export function visibleHomeEntries(capabilities: Capability[] = [], settings?: CustomerFulfillmentSettings): HomeEntry[] {
   const enabled = new Set(capabilities.filter((item) => item.enabled).map((item) => item.code))
-  return entries.filter((entry) => entryCapabilities(entry).some((code) => enabled.has(code))).flatMap(entry => {
+  const dropship = enabled.has('direct_ship') && settings?.modes.some(mode => mode.enabled && ['stock','on_demand'].includes(mode.mode))
+  return entries.filter((entry) => !(dropship && entry.key==='productOrder') && entryCapabilities(entry).some((code) => enabled.has(code))).flatMap(entry => {
     if (entry.key !== 'directShip' || !settings) return [entry]
     return settings.modes.filter(mode => mode.enabled).map(mode => ({ ...entry, key: mode.mode === 'stock' ? 'directShip' : 'onDemandShip', label: mode.mode === 'stock' ? '一件代发' : '无库存代发', url: `${entry.url}&fulfillment_mode=${mode.mode}` }))
   })

@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	freightdomain "orderapp/internal/domain/freight"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
 	"strconv"
 	"strings"
 	"time"
@@ -2311,6 +2313,66 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	// Amount calculation (items + shipping - discount)
 	shippingAmt := cmd.ShippingAmount
+	var freightSnapshot *freightdomain.Snapshot
+	var freightAvailable bool
+	if err := tx.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", r.schema+".order_freight_snapshots").Scan(&freightAvailable); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+	if freightAvailable && cmd.EditID == 0 && cmd.FulfillmentMode == "" && cmd.DeliveryMode != "customer_stock" {
+		if cmd.FreightProtocol != freightdomain.Protocol {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("请更新客户端并确认运费待实际账单出账")
+		}
+		fr := freightpg.NewRepository(r.pool, r.schema)
+		p, e := fr.LoadPolicy(ctx, tx, cmd.CustomerID, "sale", true)
+		if e != nil {
+			return salesapp.SaveOrderResult{}, e
+		}
+		p, e = freightdomain.ApplyOverride(p, cmd.FreightOverride, !cmd.CustomerSubmission)
+		if e != nil {
+			return salesapp.SaveOrderResult{}, e
+		}
+		grams := int64(0)
+		for _, i := range items {
+			if i.productID == nil {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("商品未配置净重")
+			}
+			g, e := fr.ItemNetWeightG(ctx, tx, cmd.CustomerID, freightpg.WeightItem{ProductID: *i.productID, BomSpecID: i.bomSpecID, BomVariantID: i.bomVariantID})
+			if e != nil && !p.FreeShipping {
+				return salesapp.SaveOrderResult{}, e
+			}
+			if e != nil {
+				grams = -1000000001
+			} else if grams >= 0 {
+				grams += g * i.units
+			}
+		}
+		if grams < 0 {
+			grams = 0
+		}
+		q, e := fr.QuoteWithOverrideTx(ctx, tx, cmd.CustomerID, "sale", freightdomain.Destination{Province: cmd.ShippingProvince, City: cmd.ShippingCity, District: cmd.ShippingDistrict}, grams, cmd.FreightOverride, !cmd.CustomerSubmission)
+		if e != nil {
+			return salesapp.SaveOrderResult{}, e
+		}
+		if cmd.FreightQuoteToken == "" || q.Token != cmd.FreightQuoteToken {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("预估运费已变化，请重新核算后提交")
+		}
+		if cmd.ShippingAmount != 0 || cmd.PaymentShippingAmount != 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("预估运费不计入当前应付，请在实际账单确认后收取")
+		}
+		freightSnapshot = &q
+		if q.CarrierID > 0 {
+			cmd.LogisticsCompanyID = q.CarrierID
+			cmd.LogisticsProductID = q.ProductID
+		}
+		shippingAmt = 0
+	}
+	if cmd.DeliveryMode == "customer_stock" {
+		if shippingAmt != 0 || cmd.PaymentShippingAmount != 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("购货留厂不发生物流，不收运费")
+		}
+		shippingAmt = 0
+	}
+
 	discountAmt := cmd.DiscountAmount + itemDiscountAmt
 	roundToInt := cmd.RoundToInt
 	outsourceFees := [6]float64{
@@ -2845,6 +2907,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET settlement_reason=$2 WHERE id=$1", r.schema), orderID, settlementReason); err != nil {
 		return salesapp.SaveOrderResult{}, err
+	}
+	if freightSnapshot != nil {
+		if err := freightpg.NewRepository(r.pool, r.schema).SaveSnapshotTx(ctx, tx, orderID, *freightSnapshot, cmd.Actor); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 	afterAuditSummary, err := loadOrderSaveAuditSummaryTx(ctx, tx, r.schema, orderID)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	freightdomain "orderapp/internal/domain/freight"
 	"strconv"
 	"strings"
 
@@ -45,6 +46,42 @@ type MiniOrderPriceTablePreviewer interface {
 }
 
 func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment) {
+	e.GET("/api/mini/shipping-regions", func(c echo.Context) error {
+		_, err := portal.Me(c.Request().Context(), miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization)))
+		if err != nil {
+			return miniSessionError(c, err)
+		}
+		return c.JSON(200, map[string]any{"version": freightdomain.RegionVersion, "regions": freightdomain.Regions()})
+	})
+	e.POST("/api/mini/employee/freight-preview", func(c echo.Context) error {
+		_, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write")
+		if err != nil {
+			return miniEmployeeAuthError(c, err)
+		}
+		var req struct {
+			customerfulfillmentapp.FulfillmentFeeQuoteCommand
+			CustomerID int64 `json:"customer_id"`
+		}
+		if err = c.Bind(&req); err != nil {
+			return c.JSON(400, map[string]string{"error": "请求无效"})
+		}
+
+		q, ok := fulfillment.(interface {
+			QuoteFulfillmentFees(context.Context, customerfulfillmentapp.FulfillmentFeeQuoteCommand) (customerfulfillmentapp.FulfillmentFeeQuote, error)
+		})
+		if !ok {
+			return miniInternalError(c)
+		}
+		req.FulfillmentFeeQuoteCommand.CustomerID = req.CustomerID
+		req.FulfillmentMode = "sale"
+		req.EmployeeAdjustment = true
+		out, err := q.QuoteFulfillmentFees(c.Request().Context(), req.FulfillmentFeeQuoteCommand)
+		if err != nil {
+			return c.JSON(400, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(200, out.Freight)
+	})
+
 	e.GET("/api/mini/order-price-tables/preview", func(c echo.Context) error {
 		usageCode := strings.TrimSpace(c.QueryParam("usage_code"))
 		capability := ""
@@ -571,6 +608,10 @@ func miniCustomerFulfillmentActor(current customerportalapp.CurrentContext) stri
 func miniCustomerFulfillmentError(c echo.Context, err error) error {
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
+	case strings.Contains(message, "更新客户端"):
+		return c.JSON(http.StatusUpgradeRequired, map[string]string{"error": err.Error(), "code": "client_update_required"})
+	case strings.Contains(message, "运费") || strings.Contains(message, "净重") || strings.Contains(message, "收件地区"):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	case strings.Contains(message, "order_date invalid"):
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "订单日期格式不正确，请使用 YYYY-MM-DD"})
 	case strings.Contains(message, "shipped_from invalid"):

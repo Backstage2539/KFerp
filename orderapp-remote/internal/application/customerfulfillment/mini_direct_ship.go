@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	salesapp "orderapp/internal/application/sales"
+	freightdomain "orderapp/internal/domain/freight"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,8 +46,11 @@ type MiniDirectShipItemCommand struct {
 }
 
 type MiniDirectShipCommand struct {
+	FreightOverride       *freightdomain.Override     `json:"freight_override,omitempty"`
+	EmployeeAdjustment    bool                        `json:"-"`
 	DeliveryMode          string                      `json:"delivery_mode,omitempty"`
 	DeliveryWarehouseCode string                      `json:"delivery_warehouse_code,omitempty"`
+	FreightProtocol       string                      `json:"freight_protocol,omitempty"`
 	FeeQuoteToken         string                      `json:"fee_quote_token,omitempty"`
 	FulfillmentMode       string                      `json:"fulfillment_mode,omitempty"`
 	UsageCode             string                      `json:"-"`
@@ -196,6 +200,7 @@ type MiniDirectShipTrackingEvent struct {
 }
 
 type MiniDirectShipRequest struct {
+	Freight          *freightdomain.OrderView    `json:"freight,omitempty"`
 	FulfillmentMode  string                      `json:"fulfillment_mode,omitempty"`
 	ID               int64                       `json:"id"`
 	RequestNo        string                      `json:"request_no"`
@@ -615,7 +620,7 @@ func (s *Service) PreviewMiniDirectShip(ctx context.Context, cmd MiniDirectShipC
 			return MiniDirectShipPreview{}, err
 		}
 	}
-	if cmd.FulfillmentMode != "" {
+	if cmd.FulfillmentMode != "" || cmd.UsageCode == "product_order" && cmd.DeliveryMode != "customer_stock" {
 		if billing, ok := s.repo.(interface {
 			QuoteFulfillmentFees(context.Context, FulfillmentFeeQuoteCommand) (FulfillmentFeeQuote, error)
 		}); ok {
@@ -639,6 +644,11 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 	cmd, err := normalizeMiniDirectShipCommand(cmd, true)
 	if err != nil {
 		return MiniDirectShipRequest{}, err
+	}
+	if _, modern := s.repo.(FulfillmentSettingsRepository); modern && cmd.DeliveryMode != "customer_stock" {
+		if cmd.FreightProtocol != freightdomain.Protocol || cmd.UsageCode != "product_order" && cmd.FulfillmentMode == "" {
+			return MiniDirectShipRequest{}, fmt.Errorf("请更新客户端后确认运费待实际账单出账")
+		}
 	}
 	repo, err := s.miniDirectShipRepository()
 	if err != nil {
@@ -673,6 +683,7 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 			usageCode = "direct_ship"
 		}
 		orderCommand := SubmitCustomerDirectShipOrderCommand{
+			FreightProtocol: prepared.Command.FreightProtocol, ShippingProvince: prepared.Command.Province, ShippingCity: prepared.Command.City, ShippingDistrict: prepared.Command.District,
 			CustomerID: prepared.Command.CustomerID, ReceiverName: prepared.Command.RecipientName,
 			ReceiverPhone: prepared.Command.RecipientPhone, ReceiverAddress: fullAddress,
 			ReceiverCompany: prepared.Command.RecipientCompany, Items: items, Note: prepared.Command.Note,
@@ -1421,7 +1432,10 @@ func MiniFulfillmentFeeCommand(cmd MiniDirectShipCommand) FulfillmentFeeQuoteCom
 	return miniFulfillmentFeeCommand(cmd)
 }
 func miniFulfillmentFeeCommand(cmd MiniDirectShipCommand) FulfillmentFeeQuoteCommand {
-	out := FulfillmentFeeQuoteCommand{CustomerID: cmd.CustomerID, FulfillmentMode: cmd.FulfillmentMode, Province: cmd.Province, City: cmd.City, District: cmd.District}
+	out := FulfillmentFeeQuoteCommand{FreightOverride: cmd.FreightOverride, EmployeeAdjustment: cmd.EmployeeAdjustment, CustomerID: cmd.CustomerID, FulfillmentMode: cmd.FulfillmentMode, Province: cmd.Province, City: cmd.City, District: cmd.District}
+	if cmd.UsageCode == "product_order" && out.FulfillmentMode == "" {
+		out.FulfillmentMode = "sale"
+	}
 	for _, i := range cmd.Items {
 		out.Items = append(out.Items, FulfillmentFeeItem{ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, SpecG: i.SpecG, Qty: i.Qty})
 	}

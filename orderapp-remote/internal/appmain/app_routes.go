@@ -53,6 +53,7 @@ import (
 	customerfulfillmenthttp "orderapp/internal/interfaces/http/customerfulfillment"
 	customerportalhttp "orderapp/internal/interfaces/http/customerportal"
 	financehttp "orderapp/internal/interfaces/http/finance"
+	freighthttp "orderapp/internal/interfaces/http/freight"
 	inventoryhttp "orderapp/internal/interfaces/http/inventory"
 	manufacturinghttp "orderapp/internal/interfaces/http/manufacturing"
 	materialshttp "orderapp/internal/interfaces/http/materials"
@@ -113,6 +114,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	sampleshttp.RegisterRoutes(e, sampleshttp.Dependencies{Service: samplesapp.NewService(samplespg.NewRepository(pool, schema)), Portal: customerPortalSvc, Authz: authzSvc, Messages: messageCenterSvc})
 	messagecenterhttp.RegisterRoutes(e, messagecenterhttp.Dependencies{MessageCenter: messageCenterSvc})
 	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, CustomerFulfillment: customerFulfillmentSvc, Authz: authzSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, EmployeeShareSettings: supporthttp.NewAppConfigStore(pool, schema), AssetDir: assetDir})
+	freighthttp.RegisterRoutes(e, pool, schema, customerFulfillmentSvc)
 	customerfulfillmenthttp.RegisterRoutes(e, customerfulfillmenthttp.Dependencies{CustomerFulfillment: customerFulfillmentSvc, Customers: customerSvc, MessageCenter: messageCenterSvc, Sales: salesSvc, SharedProcessing: customerPortalSvc})
 	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{Catalog: catalogSvc})
 	materialshttp.RegisterRoutes(e, materialshttp.Dependencies{Materials: materialsSvc})
