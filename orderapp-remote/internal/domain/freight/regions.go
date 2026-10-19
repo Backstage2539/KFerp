@@ -56,17 +56,7 @@ func init() {
 			for _, s := range []string{"特别行政区", "维吾尔自治区", "壮族自治区", "回族自治区", "自治区", "省", "市"} {
 				r.Alias = strings.TrimSuffix(r.Alias, s)
 			}
-			a := pinyin.NewArgs()
-			a.Style = pinyin.Normal
-			py := pinyin.Pinyin(r.Name, a)
-			for _, sy := range py {
-				if len(sy) > 0 {
-					r.Pinyin += sy[0]
-					if len(sy[0]) > 0 {
-						r.Initials += sy[0][:1]
-					}
-				}
-			}
+			r.Pinyin, r.Initials = regionPronunciations(r.Name)
 			r.Path = r.Name
 			if parent, ok := regionIndex[r.ParentCode]; ok {
 				r.Path = parent.Path + " / " + r.Name
@@ -143,4 +133,36 @@ func ResolveDestination(d Destination) (Destination, error) {
 		return out, fmt.Errorf("请选择收件省市区")
 	}
 	return out, nil
+}
+
+// Multiple readings are search hints only. Region identity and billing always use the selected code.
+func regionPronunciations(name string) (string, string) {
+	a := pinyin.NewArgs()
+	a.Style = pinyin.Normal
+	a.Heteronym = true
+	variants := []string{""}
+	initials := []string{""}
+	for _, syllables := range pinyin.Pinyin(name, a) {
+		if len(syllables) == 0 {
+			continue
+		}
+		next, nextInitials := []string{}, []string{}
+		for i, prefix := range variants {
+			for _, s := range syllables {
+				if s == "" {
+					continue
+				}
+				next = append(next, prefix+s)
+				nextInitials = append(nextInitials, initials[i]+s[:1])
+				if len(next) >= 64 {
+					break
+				}
+			}
+			if len(next) >= 64 {
+				break
+			}
+		}
+		variants, initials = next, nextInitials
+	}
+	return strings.Join(variants, " "), strings.Join(initials, " ")
 }

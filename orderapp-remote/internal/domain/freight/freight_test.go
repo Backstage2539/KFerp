@@ -109,3 +109,17 @@ func TestDeferredFreightAndDelta(t *testing.T) {
 		t.Fatal("missing config zeroed")
 	}
 }
+
+func TestRegionSearchSupportsCommonPolyphonicPlaceNames(t *testing.T) {
+	for _, v := range []struct{ query, code string }{{"chongqing", "500000"}, {"cq", "500000"}, {"changsha", "430100"}, {"xiamen", "350200"}, {"liuan", "341500"}} {
+		found := false
+		for _, r := range SearchRegions(v.query) {
+			if r.Code == v.code {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s did not find %s", v.query, v.code)
+		}
+	}
+}
