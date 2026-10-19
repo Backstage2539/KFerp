@@ -59,5 +59,11 @@ export function useCustomerOrderQuote<T>(options: {
   }
   function suspend() { refreshVersion++; ready.value = false; invalidate() }
   function dispose() { disposed = true; suspend() }
-  return { ready, previewing, invalidate, preview, schedule, refresh, suspend, dispose }
+  async function completeSubmission(save: () => Promise<unknown>, reset: () => void, reload: () => Promise<unknown> | void) {
+    await save()
+    suspend()
+    reset()
+    await reload()
+  }
+  return { ready, previewing, invalidate, preview, schedule, refresh, suspend, dispose, completeSubmission }
 }

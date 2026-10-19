@@ -4,7 +4,7 @@
 - DEV-800：购货留厂默认、独立补购草稿、补购往返刷新及请求状态。
 - DEV-801：库存与无库存独立入口、全部库存概览、合并同规格数量及商品行提示。
 - DEV-802：价格表复用客户会话、唯一复制按钮、手册与开发交付。
-- 状态：自动验证进行中，随后开发部署及独立数据小程序交互验收；Van 产品验收待确认。生产、微信上传审核发布不在范围。
+- 状态：实现、自动验证、独立开发数据客户交互验收通过；PR review，DEV-800/801/802 done，Van 产品验收待确认。开发部署证据见下。生产、微信上传审核发布不在范围。
 
 ## RED 与修复
 
@@ -15,6 +15,7 @@
 - 重复复制按钮、未拆分的首页入口及草稿相互覆盖：mini-extra-red.log。现在按客户/模式和独立补购上下文隔离，订单号下保留一个复制按钮。
 - 原代码补购成功事件无人监听、onShow只刷新目录不重新报价；失效报价请求无法清理previewing。统一useCustomerOrderQuote管理刷新、取消、延迟报价及版本，异步Promise用例覆盖20变22、失败重试和晚到响应。
 - 扩展真实数据库流程发现：成功购货重试时Prepare已返回历史记录，预览却尝试读取未加载的当前价格表，报“商品不在指定价格表当前有效数量档位中”。购货重试改用已保存商品价格快照，提交继续返回原订单，不重复购货。
+- 实际小程序发现：提交代发22袋成功后，后台已占用，但空白新单仍显示22袋。保留 mini-red-after-submit-stale22.jpg 及 after-submit-red.log；提交成功后清理报价并重新获取目录。修复后22袋安排12袋，页面和API均立即显示10袋，mini-green-after-submit-stock10.jpg；提交失败继续保留原草稿及请求标识。
 
 ## 验收范围
 
@@ -25,11 +26,27 @@
 
 ## 自动验证
 
-- 小程序定向46项及全量362项通过，类型检查和development构建通过；后续修改完成后记录最终计数。
+- 小程序定向46项、提交后刷新6项及最终全量364项通过；类型检查、development构建通过。mini-full-final.log、mini-typecheck-final.log、mini-build-final.log。
 - Vue手册入口及全量1420项、生产构建通过；手册沿既有Vue入口读取唯一Markdown源文件。
 - 真实隔离PostgreSQL：TestRetainedMiniPurchaseWithoutRecipient、TestBeanCenterRegistrationPostgres、TestPageEntryAccessPostgres及PR703回归通过。
 - TestMiniRetainedTopupWithoutAddressRefreshesRightsAndCreatesOnlyGapDemand：原购20、需求22、无地址补购2、重试返回同订单、可预约22但实物0、生产需求仅22，断言通过。
-- 完整Go、最终构建、开发运行及实际小程序证据在交付后补齐。数据库验证使用本机独立schema，不使用生产数据库。
+- 完整Go通过：backend-final.log；数据库验证使用本机独立schema，不使用生产数据库。
+
+## 客户登录实际交互与账单
+
+- 微信开发者工具独立项目使用现有喜沁客户会话。空白代发可打开空白“下单库存”，无交付方式选择、无收件必填；手动返回正常刷新。原用户开发者工具项目及原草稿未修改。
+- 专用SKU1156/454g，原购20袋（1633），代发22袋只显示一条缺口提示；补购页仅2袋，商品款2元，无收件输入；客户提交成功生成1634后自动返回原草稿22袋，地址、备注保留，可用量变22，旧缺口消失。mini-topup-return-refreshed22.jpg。
+- 22袋代发1635：商品款0、服务费14元、运费28元。实物0时发货接口400，明确“客户库存尚未实际入库，不能发货”。取消后恢复22袋且服务费与运费冲回。
+- 重新代发12袋1636：商品款0、服务费9元、运费18元，计费重量5648g；提交后剩余10袋。货款只在20+2购货单记录22元。API生产需求22袋只关联来源1633/1634，两个代发单没有重复生成生产需求。
+- 每张订单号下只有一个“复制订单详情”，保留销售单、出库单。mini-one-copy-button.jpg。
+- 同一登录会话连续打开标准表和一件代发表，直接显示商品与价格，无再次登录/登记弹层。入口文案“可直接查看”；mini-price-session-table1.jpg、mini-price-session-table2.jpg、mini-price-center-authenticated.jpg。
+- 专用代发单均取消，专用来源购货单作废，独立价格绑定解除。原SKU1155可安排数量20袋、原咖啡豆绑定137/138和所有原账单行逐项一致，应付恢复2976元，专用SKU生产需求0、实物库存0；未消耗原手工验收库存。保留取消/作废操作日志及历史，不清除审计。
+- 证据：verify-ui-final.py、cleanup-independent-fixture.py、pr704-final-trace.private.json及相应API响应保存在私有证据目录；不包含账号密码进入仓库。
+
+## 开发交付
+
+- 首次集成开发提交 d3ffebd373e746603191aee52cd220adce612e2b，部署成功，24页面/96清单文件导出通过。备份 /opt/stacks/erp/orderapp.backup.deploy-20261019110550-d3ffebd373e7。
+- 提交后库存刷新补修、最终集成部署与导出证明在交付完成后补记；开发包固定目录为私有证据目录下 KFerp-miniapp-mp-weixin-dev。
 
 ## 手册与数据隔离
 

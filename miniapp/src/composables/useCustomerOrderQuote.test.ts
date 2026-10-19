@@ -9,6 +9,23 @@ function form() {
   return { state, flow, quote, setAvailable: (value: number) => { available = value } }
 }
 describe('补购返回重新获取目录并核价', () => {
+  it('代发提交成功后清草稿并刷新占用后的库存，刷新中不能沿用旧报价', async () => {
+    const f = form(); f.setAvailable(22); await f.flow.refresh(async () => {})
+    const reloading = deferred<void>(), cleared = vi.fn()
+    const saving = f.flow.completeSubmission(async () => { f.setAvailable(0) }, cleared, () => f.flow.refresh(async () => { await reloading.promise }))
+    await Promise.resolve(); await Promise.resolve()
+    expect(cleared).toHaveBeenCalledTimes(1)
+    expect(f.flow.ready.value).toBe(false); expect(f.state.preview).toBeNull()
+    reloading.resolve(); await saving
+    expect(f.state.preview?.available).toBe(0)
+  })
+  it('提交失败保留草稿和报价，不刷新或清理原请求', async () => {
+    const f = form(); await f.flow.refresh(async () => {})
+    const cleared = vi.fn(), reload = vi.fn()
+    await expect(f.flow.completeSubmission(async () => { throw new Error('网络失败') }, cleared, reload)).rejects.toThrow('网络失败')
+    expect(cleared).not.toHaveBeenCalled(); expect(reload).not.toHaveBeenCalled()
+    expect(f.state.preview?.available).toBe(20)
+  })
   it('可用20、原单22，补购2后返回采用22的新报价', async () => {
     const f = form()
     await f.flow.refresh(async () => {})

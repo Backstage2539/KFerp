@@ -396,16 +396,18 @@ async function submitRequest() {
     if (!checked.can_submit) { if (!stockScenario.value || !checked.needs_topup) errorMessage.value = '当前可履约数量不足，请核对商品数量'; return }
     if (!checked.price_quote_token) throw new Error('报价版本缺失，请重新提交')
     const quotedCommand = { ...command, price_quote_token: checked.price_quote_token, fee_quote_token: checked.fee_quote_token || checked.fees?.fee_quote_token }
-    if (isProductOrder.value) await createProductOrder(props.token, quotedCommand)
-    else await createDirectShipRequest(props.token, quotedCommand)
-    lines.value = [createDirectShipDraftLine()]
-    preview.value = null
-    note.value = ''
-    idempotencyKey.value = newIdempotencyKey()
-    orderDraft.clearDraft(props.customerId, currentOrderMode(), draftFulfillmentMode())
-    submitting.value = false
-    uni.showToast({ title: isProductOrder.value ? retainedPurchase.value ? '购货订单已创建' : '订单已创建' : '代发订单已创建', icon: 'success' })
-    if (isProductOrder.value && returnToDirectShip.value) uni.navigateBack()
+    await quoteFlow.completeSubmission(
+      () => isProductOrder.value ? createProductOrder(props.token, quotedCommand) : createDirectShipRequest(props.token, quotedCommand),
+      () => {
+        lines.value = [createDirectShipDraftLine()]
+        note.value = ''
+        idempotencyKey.value = newIdempotencyKey()
+        orderDraft.clearDraft(props.customerId, currentOrderMode(), draftFulfillmentMode())
+        submitting.value = false
+        uni.showToast({ title: isProductOrder.value ? retainedPurchase.value ? '购货订单已创建' : '订单已创建' : '代发订单已创建', icon: 'success' })
+      },
+      async () => { if (isProductOrder.value && returnToDirectShip.value) uni.navigateBack(); else await load() },
+    )
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '订单提交失败'
   } finally {
