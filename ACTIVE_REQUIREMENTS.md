@@ -8,6 +8,7 @@
 - Delivery: development/runtime/package be7338a1, 24 pages/96 page files; 223 code files match the UI-tested project; button 商品下单 auto-saves drafts and stays enabled at zero inventory. Backup/command/runtime evidence in the acceptance receipt.
 - Boundary: development only; independent acceptance fixtures; preserve existing Xiqin orders/inventory/drafts; no production or WeChat publication.
 - Acceptance correction (2026-10-19): PR-703 left customer307 bindings137/138; PR-704 had mistakenly treated them as pre-existing configuration. Cleared only these unchanged revision1 rows through audited save API (10147/10148). Bindings now empty; on-demand catalog/preview/submit reject missing configuration; current revision2 settings, stock and bill3126 unchanged. Customer mini page re-entry check remains unverified due DevTools input failure. Receipt: docs/acceptance/2026-10-19-xiqin-acceptance-price-bindings.md. Configuration/docs only; runtime/package remains be7338a1.
+- Production delivery subsequently authorized by Van: PR #220 merged verified develop into main; production runtime/package0a12b998. Vue1420/mini364/fullGo/isolated PostgreSQL and production API/runtime/artifact checks passed. SSH output timed out but server completed; recovery verified actual deployment and exported matching227-file production artifact. Source/image/DB backups retained, development unchanged; no WeChat upload or final business-acceptance claim. Receipt: docs/acceptance/2026-10-19-customer-stock-production-release.md.
 
 ### PR-702-MINIAPP-LOGIN-ENTRY
 - Branch: codex/fix-miniapp-login-entry-20261019; base origin/develop@65f915db.
@@ -5836,6 +5837,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: 2026-10-18 development d29e61bd3df906321ab539655090c7e2a63d3ee7 (feature PR #214); application running, database healthy, list API / Vue / manual / five requirement tables verified. Production and real business acceptance excluded. Receipt-only follow-up does not change the deployed commit.
 
 ### PR-703-CUSTOMER-STOCK-DROPSHIP
+- Production delivery (later explicit authorization): main/runtime/package0a12b998 via PR #220, technical checks and production export complete; existing production orders and price bindings unchanged. See docs/acceptance/2026-10-19-customer-stock-production-release.md. WeChat release and final product acceptance remain separate.
 - Branch: codex/customer-stock-dropship-20261019
 - Owner/session: Codex / 2026-10-19
 - Status: development deployed and read-only checks passed; PR review / DEV done; Van business and real-device acceptance pending
