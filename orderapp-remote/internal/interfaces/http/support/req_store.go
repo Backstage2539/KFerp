@@ -325,7 +325,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-803-FREIGHT-TEMPLATES", title: "PR-705 地区目录、分组与独立计费器", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-20-freight-estimate-settlement.md"},
 		{table: "req_dev", code: "DEV-804-FREIGHT-POLICIES", title: "PR-705 三场景客户政策与报价冻结", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-20-freight-estimate-settlement.md"},
 		{table: "req_dev", code: "DEV-805-FREIGHT-SETTLEMENT", title: "PR-705 Excel实际运费预览、幂等及差额出账", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-20-freight-estimate-settlement.md"},
-		{table: "req_dev", code: "DEV-806-FREIGHT-DELIVERY", title: "PR-705 ERP小程序、手册与开发交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-20-freight-estimate-settlement.md"},
+		{table: "req_dev", code: "DEV-806-FREIGHT-DELIVERY", title: "PR-705 ERP小程序、手册与开发交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-20-freight-estimate-settlement.md"},
 		{table: "req_product", code: "PR-704-MINIAPP-STOCK-ORDER-EXPERIENCE", title: "小程序代发补库存、库存概览与价格表会话优化", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-19-miniapp-stock-order-experience.md"},
 		{table: "req_dev", code: "DEV-800-MINIAPP-STOCK-RETURN", title: "PR-704 购货留厂默认、独立草稿及补购返回刷新", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-19-miniapp-stock-order-experience.md"},
 		{table: "req_dev", code: "DEV-801-MINIAPP-STOCK-OVERVIEW", title: "PR-704 分离代发入口及库存概览与简明提示", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-19-miniapp-stock-order-experience.md"},
