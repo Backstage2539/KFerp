@@ -127,3 +127,12 @@ Van进一步明确小程序必须实际提交代发，因此新增独立标记PR
 - 最终小程序开发包：私有证据目录/KFerp-miniapp-dev-final.zip，配套目录KFerp-miniapp-mp-weixin-dev；RELEASE_INFO与后台统一为a9975450、development、https://dev.qacoohee.com/app。24页/96页面文件验证通过，账单、代发、首页及首页统计模块与真实客户验收包逐字节一致。ZIP SHA256：1430ca7e9e89ac7d47764f0fc2b8bd1edbdcb0a8e78366b972720c90e3a1fa2e。
 - 最后一次服务发布[6/6]及外部200成功后，导出因初始指定的目录后缀-dev-final不符合脚本固定名称保护而退出1。原样复用sync_miniapp_artifact函数，改用规范目录KFerp-miniapp-mp-weixin-dev完成下载、版本/清单验证和原包备份；export-unified-final.log成功，未重复发布服务或跳过构建检查。
 - 小程序购货POST201一次、代发POST201两次及来源状态更正POST204均在操作日志；三笔客户请求均归mini_user151，见mini-cycle-operation-logs.log和只读数据库证据。未上传微信、未提审、未发布；生产配置和单据均未修改。
+
+## Van 手工验收前库存准备（2026-10-19 09:35 北京时间）
+
+- Van 反馈小程序一件代发选商品为空。实时开发目录 HTTP200，当前库存代发启用、无库存代发未启用；前两轮24+24包已全部代发，现货及有效待入库权益均为0，故目录为空。
+- 通过正常销售保存接口新增开发验收留厂单1628 / SO-20261019-1628，客户307、曜石2.0 454g 24包、30元/包、货款720元，目标 customer_307_finished。留给Van手工验收，未创建代发、未另行生产或发货。
+- 保存后真实目录断言通过：现货0、待入库24、预订0、可预约24。来源权益3关联订单明细1992754，promised24 / received0。操作日志 POST /api/order HTTP200，订单1628 create/update审计可查。
+- 账单由原六单1548元增加至七单2268元，只增加本笔商品货款720元；原服务费36元及运费72元保持不变。旧六单验收金额1548仍成立，但不再是新增测试单后的整账户金额。
+- 同一小程序客户登录，返回首页重新进入一件代发后，商品选择器实际出现“曜石2.0 · PR703开发验收 / 454g”。原商品下单及代发草稿未提交，选择器停留供Van操作。
+- 证据：user-stock-catalog-restored.jpg、user-acceptance-retained24-catalog.json、user-acceptance-new-bill.json、user-acceptance-stock-audit.private.json，位于既有私有证据目录。本次仅准备开发验收数据，无应用代码修改，无需重新打包或部署，生产数据配置未改。
