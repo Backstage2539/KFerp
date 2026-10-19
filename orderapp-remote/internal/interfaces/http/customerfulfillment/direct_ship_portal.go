@@ -3,6 +3,7 @@ package customerfulfillment
 import (
 	"context"
 	"net/http"
+	freightdomain "orderapp/internal/domain/freight"
 	"strconv"
 	"strings"
 
@@ -40,6 +41,52 @@ func registerPortalDirectShipAPI(e *echo.Echo, deps Dependencies) {
 		}
 		return 0, echo.NewHTTPError(http.StatusForbidden, "未开通一件代发")
 	}
+	freightCustomer := func(c echo.Context) (int64, error) {
+		employee := support.CurrentEmployeeID(c)
+		if employee <= 0 {
+			return 0, echo.NewHTTPError(401, "请先登录")
+		}
+		o, err := deps.CustomerFulfillment.CustomerPortalOverview(c.Request().Context(), employee)
+		if err != nil {
+			return 0, echo.NewHTTPError(403, "客户账号不可用")
+		}
+		for _, code := range o.Capabilities {
+			if code == "product_order" {
+				return o.CustomerID, nil
+			}
+		}
+		return 0, echo.NewHTTPError(403, "未开通商品下单")
+	}
+	e.GET("/api/customer-processing/portal/shipping-regions", func(c echo.Context) error {
+		if _, err := freightCustomer(c); err != nil {
+			return err
+		}
+		return c.JSON(200, map[string]any{"version": freightdomain.RegionVersion, "regions": freightdomain.Regions()})
+	})
+	e.POST("/api/customer-processing/portal/freight/preview", func(c echo.Context) error {
+		id, err := freightCustomer(c)
+		if err != nil {
+			return err
+		}
+		var cmd app.FulfillmentFeeQuoteCommand
+		if err = c.Bind(&cmd); err != nil {
+			return echo.NewHTTPError(400, "请求无效")
+		}
+		cmd.CustomerID = id
+		cmd.FulfillmentMode = "sale"
+		cmd.EmployeeAdjustment = false
+		svc, ok := deps.CustomerFulfillment.(interface {
+			QuoteFulfillmentFees(context.Context, app.FulfillmentFeeQuoteCommand) (app.FulfillmentFeeQuote, error)
+		})
+		if !ok {
+			return echo.NewHTTPError(503, "运费服务暂不可用")
+		}
+		q, err := svc.QuoteFulfillmentFees(c.Request().Context(), cmd)
+		if err != nil {
+			return customerPortalError(c, err)
+		}
+		return c.JSON(200, q.Freight)
+	})
 	e.GET("/api/customer-processing/portal/direct-ship/settings", func(c echo.Context) error {
 		id, err := resolve(c)
 		if err != nil {

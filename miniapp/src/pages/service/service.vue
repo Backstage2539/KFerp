@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {freightLabel} from '../../utils/freight'
 import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import {restoreRegistrationSession} from '../../utils/registrationSession'
 import { loginRouteFor } from "../../utils/loginReturn"
@@ -1291,7 +1292,7 @@ onShow(() => { void refreshMiniappShareMenu() })
               <text v-if="line.bean_list_version_no" class="line-meta">价格表版本：{{ line.bean_list_version_no }}</text>
             </view>
           </view>
-          <text class="row-sub">运费：¥{{ item.shipping_amount || '0.00' }}</text>
+          <text class="row-sub">{{item.freight?freightLabel(item.freight):`运费：¥${item.shipping_amount || '0.00'}`}}</text>
           <text class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }}</text>
           <view v-if="!isProcessingCustomer" class="document-actions">
             <button class="secondary compact" @tap="openOrderDocument(item.sales_order_url)">销售单</button>

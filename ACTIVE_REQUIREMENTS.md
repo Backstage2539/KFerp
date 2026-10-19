@@ -5860,3 +5860,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Final backend development deployment PASS def3d66e3af3292f83cd98da39716f7f89750d2e; backup orderapp.backup.deploy-20261019034149-def3d66e3af3, rollback kferp-orderapp-rollback:development-20261019034149-def3d66e3af3, runtime running/restarts0/PGhealthy. Last mini-only home summary fix replaces request status count with ERP orders, retained received is complete; targeted RED, full350/typecheck/dev build GREEN, actual customer home pending0/inventory0/due1548. Final client artifact KFerp-miniapp-dev-final.zip has exact source ref in RELEASE_INFO; backend runtime remainsdef3d66e, no backend change from home fix. Full actual mini cycle and web acceptance complete, DEV799 done, PR703 review. No production write or WeChat upload.
 - Unified final delivery COMPLETE: origin/develop app and mini artifact a9975450d43822b8dc7db3831f7545986c13d6a8, Vue1420/mini350/Go/Docker gates passed; running/restarts0, PGhealthy, login200/anonymousorders401, postdeploy actual mini checks PASS. Backup orderapp.backup.deploy-20261019035444-a9975450d438, rollback kferp-orderapp-rollback:development-20261019035444-a9975450d438. Package KFerp-miniapp-dev-final.zip,24pages96files, SHA2561430ca7e9e89ac7d47764f0fc2b8bd1edbdcb0a8e78366b972720c90e3a1fa2e. Export-only path guard failure recovered by original sync function with required canonical basename; server release was already successful. Remaining edits only record this final delivery evidence; no app change or further deployment required.
 - Van manual acceptance fixture (2026-10-19 09:35): empty stock catalog confirmed after both completed cycles consumed all48; normal DEV retained order1628 now leaves24 pending rights / physical0 / reserved0 for manual two12 reservations. Actual mini picker displays product1155/spec463. New fixture720 raises account1548 to2268; prior fees36/freight72 unchanged. Operation log and order audit verified. No code change/deployment or production writes.
+
+### PR-705-FREIGHT-ESTIMATE-SETTLEMENT
+- Branch: codex/freight-estimate-settlement-20261020
+- Owner/session: Codex / Van
+- Status: implementation and targeted RED/GREEN complete; final gates/integration/development UI acceptance pending
+- Scope: 三场景运费模板、地区目录、客户政策、预估不收款、Excel实际运费独立出账；代发客户首页隐藏商品下单。
+- DEV: DEV-803 模板/地区/计算器；DEV-804 政策及冻结报价；DEV-805 Excel实际运费与账单；DEV-806 ERP/小程序及开发交付。
+- Verifier: targeted Go unit/API/PostgreSQL, Vue and miniapp tests/typecheck/build, isolated development acceptance, deployment/package verification.
+- Deployment: development only; no production or WeChat upload/review/publication.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-20-freight-estimate-settlement.md

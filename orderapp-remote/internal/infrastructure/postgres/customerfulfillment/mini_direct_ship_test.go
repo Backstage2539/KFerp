@@ -33,7 +33,7 @@ func TestMiniDirectShipEffectiveShipmentTimeFallsBackWhenPendingShipmentHasNoTim
 }
 
 func TestMiniDirectShipIdempotencyUsesStableBOMSpecIdentityAcrossVersions(t *testing.T) {
-	base := app.MiniDirectShipCommand{
+	base := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		RecipientName: "张三", RecipientPhone: "13800138000", DetailAddress: "咖啡路 8 号",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, BomVariantID: 901, Qty: 2}},
 	}
@@ -60,7 +60,7 @@ func TestMiniDirectShipIdempotencyUsesStableBOMSpecIdentityAcrossVersions(t *tes
 }
 
 func TestMiniDirectShipIdempotencyIncludesOrderDate(t *testing.T) {
-	base := app.MiniDirectShipCommand{
+	base := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		OrderDate: "2026-09-15", RecipientName: "张三", RecipientPhone: "13800138000", DetailAddress: "咖啡路 8 号",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, Qty: 2}},
 	}
@@ -116,7 +116,7 @@ func TestMiniDirectShipCatalogExcludesPublicOtherCustomerFrozenAndReservedStock(
 	}
 	assertMiniCatalogAvailableQty(t, catalog, 911, 1000, 4)
 
-	if _, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	if _, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 501, EmployeeID: 701, MiniUserID: 801, IdempotencyKey: "DEV-E2E-CATALOG-RESERVED",
 		RecipientName: "目录隔离", RecipientPhone: "13800138000", DetailAddress: "咖啡路 8 号",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 1}}, Actor: "mini_user:801",
@@ -136,7 +136,7 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	seedMiniDirectShipCanonicalStock(t, pool, schema)
 	repo := NewRepository(pool, schema)
 
-	base := app.MiniDirectShipCommand{
+	base := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 501, EmployeeID: 701, MiniUserID: 801, IdempotencyKey: "DEV-E2E-DS-1",
 		RecipientName: "张三", RecipientPhone: "13800138000", Province: "云南省", City: "普洱市",
 		District: "思茅区", DetailAddress: "咖啡路 8 号",
@@ -433,7 +433,7 @@ func TestMiniDirectShipLegacyShipmentNormalizesLooseInventoryAndDeductsOnce(t *t
 	}
 
 	repo := NewRepository(pool, schema)
-	created, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	created, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 601, EmployeeID: 702, MiniUserID: 802, IdempotencyKey: "DEV-E2E-LEGACY-SHIP",
 		RecipientName: "李四", RecipientPhone: "13900139000", Province: "云南省", City: "昆明市",
 		District: "盘龙区", DetailAddress: "咖啡路 9 号",
@@ -508,7 +508,7 @@ func TestMiniDirectShipLegacyShipmentNormalizesLooseInventoryAndDeductsOnce(t *t
 		t.Fatal(err)
 	}
 	assertMiniCatalogAvailableQty(t, legacyCatalog, 921, 1000, 1)
-	legacyPreview, err := repo.PreviewMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	legacyPreview, err := repo.PreviewMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 601, RecipientName: "李四", RecipientPhone: "13900139000", DetailAddress: "咖啡路 9 号",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 921, SpecG: 1000, Qty: 1}},
 	})
@@ -569,7 +569,7 @@ func TestMiniDirectShipMixedTraceableAndLegacyStockSurvivesSyncedShipment(t *tes
 		t.Fatalf("mixed batches before shipment = %#v", beforeBatches)
 	}
 
-	created, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	created, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 602, EmployeeID: 703, MiniUserID: 803, IdempotencyKey: "DEV-E2E-MIXED-SHIP",
 		RecipientName: "王五", RecipientPhone: "13700137000", Province: "云南省", City: "昆明市",
 		District: "五华区", DetailAddress: "咖啡路 10 号",
@@ -614,7 +614,7 @@ func TestMiniDirectShipMixedTraceableAndLegacyStockSurvivesSyncedShipment(t *tes
 		t.Fatal(err)
 	}
 	assertMiniCatalogAvailableQty(t, catalog, 931, 1000, 2)
-	preview, err := repo.PreviewMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	preview, err := repo.PreviewMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 602, RecipientName: "王五", RecipientPhone: "13700137000", DetailAddress: "咖啡路 10 号",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 931, SpecG: 1000, Qty: 2}},
 	})
@@ -722,7 +722,7 @@ func TestMiniDirectShipHistoricalUnsyncedMixedStockAndCompatibleWarehouseKinds(t
 		t.Fatalf("historical mixed catalog = %#v", catalog)
 	}
 	assertMiniCatalogAvailableQty(t, catalog, 941, 1000, 2)
-	preview, err := repo.PreviewMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	preview, err := repo.PreviewMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 603, RecipientName: "历史收件人", RecipientPhone: "13600136000", DetailAddress: "昆明",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 941, SpecG: 1000, Qty: 2}},
 	})
@@ -732,7 +732,7 @@ func TestMiniDirectShipHistoricalUnsyncedMixedStockAndCompatibleWarehouseKinds(t
 	if !preview.CanSubmit || len(preview.Warehouses) != 1 || preview.Warehouses[0].Warehouse != "DEV-E2E-HIST-CUSTOMER" {
 		t.Fatalf("historical mixed preview = %#v", preview)
 	}
-	shortageCmd := app.MiniDirectShipCommand{
+	shortageCmd := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 603, RecipientName: "历史收件人", RecipientPhone: "13600136000", DetailAddress: "昆明",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 941, SpecG: 1000, Qty: 3}},
 	}
@@ -750,7 +750,7 @@ func TestMiniDirectShipHistoricalUnsyncedMixedStockAndCompatibleWarehouseKinds(t
 	if len(batches) != 2 || batches[0].BatchID != 1203 || batches[0].AvailableQty != 1 || batches[1].BatchID != 0 || batches[1].AvailableQty != 1 {
 		t.Fatalf("historical mixed batches = %#v", batches)
 	}
-	pureTracePreview, err := repo.PreviewMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	pureTracePreview, err := repo.PreviewMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 603, RecipientName: "历史收件人", RecipientPhone: "13600136000", DetailAddress: "昆明",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 942, SpecG: 1000, Qty: 1}},
 	})
@@ -877,7 +877,7 @@ func TestListMiniDirectShipRequestsFiltersRealShipmentTimePaginatesAndIsolatesCu
 	markMiniDirectShipRequestShipped(t, pool, schema, requests[1].ID, "LIST-SHIP-B", "2026-08-03 23:59:59.999999+08")
 	markMiniDirectShipRequestShipped(t, pool, schema, requests[2].ID, "LIST-SHIP-C", "2026-08-04 00:00:00+08")
 
-	otherCustomer, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	otherCustomer, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 502, IdempotencyKey: "LIST-FILTER-OTHER", RecipientName: "张三", RecipientPhone: "13800138001",
 		RecipientCompany: "咖啡甲店", Province: "云南省", City: "普洱市", District: "思茅区", DetailAddress: "咖啡路 1 号",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 1}}, Actor: "mini_user:802",
@@ -971,7 +971,7 @@ func TestListMiniDirectShipRequestsUsesConsistentEffectiveShipmentTimeAcrossPack
 	seedMiniDirectShipStock(t, pool, schema)
 	repo := NewRepository(pool, schema)
 
-	created, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	created, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 501, IdempotencyKey: "LIST-EFFECTIVE-SHIP-TIME", RecipientName: "多包裹收件人", RecipientPhone: "13800138999",
 		RecipientCompany: "多仓门店", Province: "云南省", City: "昆明市", District: "盘龙区", DetailAddress: "咖啡路 99 号",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 3}}, Actor: "mini_user:801",

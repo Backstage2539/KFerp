@@ -1161,3 +1161,28 @@ func erpPasswordHash(raw string) string {
 	sum := sha256.Sum256([]byte("orderapp-mobile-auth:" + raw))
 	return hex.EncodeToString(sum[:])
 }
+
+// FulfillmentModes loads capability configuration without touching prices or catalogs.
+func (r Repository) FulfillmentModes(ctx context.Context, id int64) ([]string, error) {
+	var exists bool
+	if e := r.pool.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", r.schema+".customer_fulfillment_settings").Scan(&exists); e != nil {
+		return nil, e
+	}
+	out := []string{}
+	if !exists {
+		return out, nil
+	}
+	rows, e := r.pool.Query(ctx, fmt.Sprintf(`SELECT m->>'mode' FROM %s.customer_fulfillment_settings s CROSS JOIN LATERAL jsonb_array_elements(s.modes_json) m WHERE customer_id=$1 AND m->>'enabled'='true' AND m->>'mode' IN ('stock','on_demand') ORDER BY m->>'mode' DESC`, r.schema), id)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var mode string
+		if e = rows.Scan(&mode); e != nil {
+			return nil, e
+		}
+		out = append(out, mode)
+	}
+	return out, rows.Err()
+}

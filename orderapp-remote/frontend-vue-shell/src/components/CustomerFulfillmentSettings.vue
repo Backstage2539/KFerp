@@ -6,6 +6,7 @@
     <div v-if="message" class="ok" role="status">{{ message }}</div>
     <span v-if="loading">正在加载履约设置…</span>
     <template v-else-if="loaded">
+      <CustomerShippingPolicies :customer-id="props.customerId" @saved="load" />
       <fieldset v-for="mode in form.modes" :key="mode.mode" :disabled="saving">
         <legend><label class="toggle"><input v-model="mode.enabled" type="checkbox" /> {{ mode.mode === 'stock' ? '库存代发' : '无库存代发' }}</label></legend>
         <template v-if="mode.enabled">
@@ -17,7 +18,7 @@
             <label>每单固定服务费（元）<input v-model="mode.fixed_fee" type="number" min="0" step="0.01" placeholder="免费填写 0" /></label>
             <label>每包装件服务费（元）<input v-model="mode.per_package_fee" type="number" min="0" step="0.01" placeholder="不用填写 0" /></label>
           </div>
-          <label>运费模板<select v-model.number="mode.shipping_template_id"><option :value="0">请选择运费模板</option><option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · V{{ template.revision }}</option></select></label>
+
           <p class="hint">服务费＝每单固定费＋每包装件费×包装件数。运费按商品净重×数量＋模板包装附加重计算。</p>
         </template>
       </fieldset>
@@ -28,6 +29,7 @@
 </template>
 <script setup>
 import { ref, watch } from 'vue'
+import CustomerShippingPolicies from './CustomerShippingPolicies.vue'
 import { apiGet, apiSend } from '../api/client'
 import { fulfillmentSettingsForm, fulfillmentSettingsPayload, customerFinishedWarehouses } from '../lib/fulfillment-settings'
 const props = defineProps({ customerId: { type: Number, required: true } })

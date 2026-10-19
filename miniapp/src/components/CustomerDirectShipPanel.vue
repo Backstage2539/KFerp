@@ -395,7 +395,7 @@ async function submitRequest() {
     if (!checked) return
     if (!checked.can_submit) { if (!stockScenario.value || !checked.needs_topup) errorMessage.value = '当前可履约数量不足，请核对商品数量'; return }
     if (!checked.price_quote_token) throw new Error('报价版本缺失，请重新提交')
-    const quotedCommand = { ...command, price_quote_token: checked.price_quote_token, fee_quote_token: checked.fee_quote_token || checked.fees?.fee_quote_token }
+    const quotedCommand = { ...command, freight_protocol: 'deferred_freight_v1', price_quote_token: checked.price_quote_token, fee_quote_token: checked.fee_quote_token || checked.fees?.fee_quote_token }
     await quoteFlow.completeSubmission(
       () => isProductOrder.value ? createProductOrder(props.token, quotedCommand) : createDirectShipRequest(props.token, quotedCommand),
       () => {
@@ -503,7 +503,7 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
       </view>
       <button class="add-line" :disabled="submitting" @tap="addLine">新增商品</button>
       <view class="total-card"><text>商品估算合计</text><text class="amount">{{ previewing ? '核价中…' : `¥${money(totalAmount)}` }}</text></view>
-      <view v-if="preview?.fees" class="fee-breakdown"><text>代发服务费 ¥{{ money(serviceFee) }}</text><text>运费 ¥{{ money(shippingFee) }}</text><text class="amount">本次应付 ¥{{ money(payableAmount) }}</text><text class="muted">按 {{ preview.fees.chargeable_weight_g }}g 计费，最终金额由服务端核算。</text></view>
+      <view v-if="preview?.fees" class="fee-breakdown"><text>代发服务费 ¥{{ money(serviceFee) }}</text><text v-if="preview.fees.freight">{{ preview.fees.freight.status === 'free' ? '包邮' : `预估运费 ¥${money(preview.fees.freight.estimated_total_cents / 100)} · 待出账` }}</text><text v-else>运费 ¥{{ money(shippingFee) }}</text><text class="amount">本次应付 ¥{{ money(payableAmount) }}</text><text class="muted">预估运费不计入当前应付，实际运费核对出账后另行收取。</text></view>
       <textarea v-model="note" class="textarea" :disabled="submitting" placeholder="订单备注（可选）" @input="saveDraft" />
       <text v-if="selectedSummary" class="selected-summary">已选：{{ selectedSummary }}</text>
       <text v-if="fulfillmentMessage" class="shortage">{{ fulfillmentMessage }}</text>

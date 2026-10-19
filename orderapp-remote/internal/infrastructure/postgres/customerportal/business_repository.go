@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
 	"sort"
 	"strconv"
 	"strings"
@@ -2038,6 +2039,13 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	views, e := freightpg.NewRepository(r.pool, r.schema).OrderViews(ctx, r.pool, orderIDs)
+	if e != nil {
+		return nil, e
+	}
+	for i := range out {
+		out[i].Freight = views[out[i].ID]
 	}
 	items := map[int64][]customerportalapp.CustomerOrderItemSummary{}
 	if includeItems {

@@ -44,7 +44,7 @@ func TestFulfillmentSettingsPersistValidateWarehouseQuoteAndBillOnce(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote.NetWeightG != 5448 || quote.ServiceFeeCents != 900 || quote.ShippingFeeCents != 1800 {
+	if quote.NetWeightG != 5448 || quote.ServiceFeeCents != 900 || quote.ShippingFeeCents != 0 || quote.Freight == nil || quote.Freight.EstimatedTotalCents != 1800 {
 		t.Fatalf("quote=%+v", quote)
 	}
 	if err = pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.orders(order_no,customer_id,total_amount,grand_total) VALUES('FEE-ONCE',$1,0,0) RETURNING id`, schema), customerID).Scan(&orderID); err != nil {
@@ -72,13 +72,13 @@ func TestFulfillmentSettingsPersistValidateWarehouseQuoteAndBillOnce(t *testing.
 	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT shipping_amount::float8,grand_total::float8 FROM %s.orders WHERE id=$1`, schema), orderID).Scan(&ship, &total); err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 || fee != 9 || ship != 18 || total != 18 {
+	if count != 1 || fee != 9 || ship != 0 || total != 0 {
 		t.Fatalf("count=%d fee=%v ship=%v total=%v", count, fee, ship, total)
 	}
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET shipping_amount=99 WHERE id=$1`, schema), orderID); err == nil {
 		t.Fatal("normal or inline edit bypassed the reason-required fee adjustment")
 	}
-	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET notes='正常备注编辑',shipping_amount=18 WHERE id=$1`, schema), orderID); err != nil {
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET notes='正常备注编辑',shipping_amount=0 WHERE id=$1`, schema), orderID); err != nil {
 		t.Fatalf("unchanged freight blocked: %v", err)
 	}
 	var legacyOrderID int64
@@ -91,11 +91,11 @@ func TestFulfillmentSettingsPersistValidateWarehouseQuoteAndBillOnce(t *testing.
 	if _, err = r.AdjustFulfillmentOrderFees(ctx, app.AdjustFulfillmentOrderFeesCommand{CustomerID: customerID, OrderID: orderID, ExpectedQuoteToken: quote.FeeQuoteToken, ServiceFeeCents: 1000, ShippingFeeCents: 2000, Actor: "tester"}); err == nil {
 		t.Fatal("no reason accepted")
 	}
-	adjusted, err := r.AdjustFulfillmentOrderFees(ctx, app.AdjustFulfillmentOrderFeesCommand{CustomerID: customerID, OrderID: orderID, ExpectedQuoteToken: quote.FeeQuoteToken, ServiceFeeCents: 1000, ShippingFeeCents: 2000, Actor: "tester", Reason: "实际包材和物流核对"})
+	adjusted, err := r.AdjustFulfillmentOrderFees(ctx, app.AdjustFulfillmentOrderFeesCommand{CustomerID: customerID, OrderID: orderID, ExpectedQuoteToken: quote.FeeQuoteToken, ServiceFeeCents: 1000, ShippingFeeCents: 0, Actor: "tester", Reason: "服务费核对，运费另行出账"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if adjusted.ServiceFeeCents != 1000 || adjusted.ShippingFeeCents != 2000 || adjusted.AdjustmentReason == "" {
+	if adjusted.ServiceFeeCents != 1000 || adjusted.ShippingFeeCents != 0 || adjusted.AdjustmentReason == "" {
 		t.Fatalf("adjusted=%+v", adjusted)
 	}
 	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fee_items SET settlement_batch_id=777 WHERE customer_id=$1 AND source_id=$2 AND source_type='order'`, schema), customerID, orderID); err != nil {

@@ -1,4 +1,5 @@
 export const operationManualsByView = {
+ freightManual: {doc:'OP_MANUAL_FREIGHT.md',title:'运费与实际出账手册'},
   bomOrderPricingManual: { doc: "OP_MANUAL_BOM_ORDER_PRICING.md", title: "录单价格表规格范围" },
   specConversionManual: { doc: 'OP_MANUAL_SPEC_CONVERSION.md', title: '规格换算说明' },
   sampleRequestsManual: { doc: 'OP_MANUAL_SAMPLES.md', title: '样品申请与回访手册' },

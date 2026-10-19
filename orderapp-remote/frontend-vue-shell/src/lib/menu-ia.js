@@ -85,6 +85,7 @@ export const menuGroups = [
       { key: 'businessSettings', label: '业务设置', title: '业务设置' },
       { key: 'industryFieldTemplates', label: '行业设置', title: '行业字段模板' },
       { key: 'notificationManual', label: '通知手册', title: '通知配置手册' },
+      {key:'freightManual',label:'运费与实际出账手册',title:'运费与实际出账手册'},
       { key: 'settingsAuditManual', label: '设置审计手册', title: '设置审计手册' },
     ],
   },

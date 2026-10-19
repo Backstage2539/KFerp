@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	freight "orderapp/internal/domain/freight"
 	"strings"
 )
 
@@ -22,6 +23,7 @@ type FulfillmentModeSettings struct {
 	FeeConfigured      bool   `json:"fee_configured"`
 	FixedFeeCents      int64  `json:"fixed_fee_cents"`
 	PerPackageFeeCents int64  `json:"per_package_fee_cents"`
+	ShippingFree       bool   `json:"shipping_free"`
 	ShippingTemplateID int64  `json:"shipping_template_id"`
 }
 type SaveFulfillmentSettingsCommand struct {
@@ -29,23 +31,8 @@ type SaveFulfillmentSettingsCommand struct {
 	ExpectedRevision int64
 	Actor            string
 }
-type ShippingFeeTemplate struct {
-	ID               int64                   `json:"id"`
-	Name             string                  `json:"name"`
-	Active           bool                    `json:"active"`
-	Revision         int64                   `json:"revision"`
-	PackagingWeightG int64                   `json:"packaging_weight_g"`
-	Rules            []ShippingFeeRegionRule `json:"rules"`
-}
-type ShippingFeeRegionRule struct {
-	Province           string `json:"province"`
-	City               string `json:"city"`
-	District           string `json:"district"`
-	FirstWeightG       int64  `json:"first_weight_g"`
-	FirstFeeCents      int64  `json:"first_fee_cents"`
-	AdditionalWeightG  int64  `json:"additional_weight_g"`
-	AdditionalFeeCents int64  `json:"additional_fee_cents"`
-}
+type ShippingFeeTemplate = freight.Template
+type ShippingFeeRegionRule = freight.LegacyRule
 type SaveShippingFeeTemplateCommand struct {
 	Template         ShippingFeeTemplate
 	ExpectedRevision int64
@@ -59,6 +46,7 @@ type FulfillmentFeeItem struct {
 	Qty          int64 `json:"qty"`
 }
 type FulfillmentFeeQuoteCommand struct {
+	FreightOverride       *freight.Override    `json:"freight_override,omitempty"`
 	CustomerID            int64                `json:"-"`
 	FulfillmentMode       string               `json:"fulfillment_mode"`
 	Province              string               `json:"province"`
@@ -71,6 +59,7 @@ type FulfillmentFeeQuoteCommand struct {
 	EmployeeAdjustment    bool                 `json:"-"`
 }
 type FulfillmentFeeQuote struct {
+	Freight                    *freight.Snapshot     `json:"freight,omitempty"`
 	CustomerID                 int64                 `json:"customer_id"`
 	FulfillmentMode            string                `json:"fulfillment_mode"`
 	SettingsRevision           int64                 `json:"settings_revision"`
@@ -195,7 +184,7 @@ func ValidateFulfillmentSettings(s FulfillmentSettings) error {
 			if !m.FeeConfigured {
 				return fmt.Errorf("请明确配置代发服务费，免费请填写 0")
 			}
-			if m.ShippingTemplateID <= 0 {
+			if m.ShippingTemplateID <= 0 && !m.ShippingFree {
 				return fmt.Errorf("请选择运费模板")
 			}
 			if m.Mode == "stock" && strings.TrimSpace(m.WarehouseCode) == "" {
@@ -205,26 +194,7 @@ func ValidateFulfillmentSettings(s FulfillmentSettings) error {
 	}
 	return nil
 }
-func ValidateShippingFeeTemplate(t ShippingFeeTemplate) error {
-	if strings.TrimSpace(t.Name) == "" || t.PackagingWeightG < 0 || t.PackagingWeightG > 1000000 || len(t.Rules) == 0 {
-		return fmt.Errorf("请填写运费模板名称、包装附加重和地区规则")
-	}
-	seen := map[string]bool{}
-	for _, r := range t.Rules {
-		if strings.TrimSpace(r.Province) == "" || r.FirstWeightG <= 0 || r.AdditionalWeightG <= 0 || r.FirstFeeCents < 0 || r.AdditionalFeeCents < 0 || r.FirstFeeCents > maxFulfillmentFeeCents || r.AdditionalFeeCents > maxFulfillmentFeeCents {
-			return fmt.Errorf("运费规则需填写地区、首重续重和有效金额")
-		}
-		key := strings.TrimSpace(r.Province) + "|" + strings.TrimSpace(r.City) + "|" + strings.TrimSpace(r.District)
-		if seen[key] {
-			return fmt.Errorf("运费模板地区规则重复")
-		}
-		seen[key] = true
-		if r.District != "" && r.City == "" {
-			return fmt.Errorf("区县规则必须填写城市")
-		}
-	}
-	return nil
-}
+func ValidateShippingFeeTemplate(t ShippingFeeTemplate) error { return freight.ValidateTemplate(t) }
 func CalculateFulfillmentFees(s FulfillmentSettings, t ShippingFeeTemplate, c FulfillmentFeeQuoteCommand, qty, netG int64) (FulfillmentFeeQuote, error) {
 	var q FulfillmentFeeQuote
 	var mode *FulfillmentModeSettings

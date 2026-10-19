@@ -226,6 +226,7 @@ func defaultViewPermissions() map[string]string {
 		"customerFulfillment":         "stock.write",
 		"customerFulfillmentManual":   "stock.read",
 		"customerProcessingPortal":    "customer_processing.read",
+		"freightManual":               "settings.write",
 		"settingsAuditManual":         "audit.read",
 		"departments":                 "company.manage",
 		"employees":                   "company.manage",

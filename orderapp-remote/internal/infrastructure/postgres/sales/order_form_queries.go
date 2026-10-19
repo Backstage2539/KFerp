@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
 	"orderapp/internal/infrastructure/postgres/orderconfirmation"
 	"os"
@@ -2444,6 +2445,11 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		}
 		d.Items[i].PriceSourceJSON = enriched
 	}
+	views, e := freightpg.NewRepository(r.pool, r.schema).OrderViews(ctx, r.pool, []int64{id})
+	if e != nil {
+		return nil, e
+	}
+	d.Freight = views[id]
 	return &d, nil
 }
 

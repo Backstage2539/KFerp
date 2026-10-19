@@ -3,6 +3,7 @@ package customerfulfillment
 import (
 	"context"
 	"fmt"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -506,6 +507,9 @@ CREATE INDEX IF NOT EXISTS customer_statement_disputes_customer_settlement_idx
 		return err
 	}
 	if err := ensureFulfillmentSettingsSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := freightpg.NewRepository(pool, schema).EnsureSchema(ctx); err != nil {
 		return err
 	}
 	for _, stmt := range []string{

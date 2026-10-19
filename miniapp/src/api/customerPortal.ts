@@ -34,6 +34,7 @@ export type LoginResponse = {
 }
 
 export type MeResponse = {
+ fulfillment_modes?: ('stock'|'on_demand')[]
  registration_complete?: boolean
  registration?: RegistrationProfile
   mini_user_id: number
@@ -337,6 +338,7 @@ export type ProductSummary = {
 }
 
 export type CustomerOrderSummary = {
+ freight?:FreightSnapshot
   delivery_status?: 'pending_receipt' | 'partially_received' | 'received' | string
   delivery_mode?: 'ship' | 'customer_stock'
   delivery_warehouse_code?: string
@@ -610,7 +612,8 @@ export type DirectShipRequestPayload = {
 	delivery_mode?: 'ship' | 'customer_stock'
 	delivery_warehouse_code?: string
 	fulfillment_mode?: FulfillmentMode
-	fee_quote_token?: string
+	freight_protocol?: string
+  fee_quote_token?: string
 	idempotency_key: string
 	price_quote_token?: string
 	order_date?: string
@@ -640,7 +643,9 @@ export type CustomerFulfillmentSettings = {
   revision: number
   modes: Array<{ mode: FulfillmentMode; enabled: boolean; warehouse_code?: string; fixed_fee_cents: number; per_package_fee_cents: number; fee_configured: boolean; shipping_template_id: number }>
 }
+export type FreightSnapshot = {service_fee_cents?:number;service_due_cents?:number;billing_status?:string;actual_cost_cents?:number|null;billed_cents?:number;protocol:string;status:string;estimate_known:boolean;estimated_total_cents:number;surcharge_cents:number;waiver_cents:number;current_receivable_cents:number;token:string;cost_pending_reason?:string;estimate:{base_cents:number;chargeable_weight_g:number};policy:{free_shipping:boolean}}
 export type FulfillmentFeeQuote = {
+ freight?:FreightSnapshot
   fulfillment_mode: FulfillmentMode
   settings_revision: number
   shipping_template_id: number
@@ -707,6 +712,7 @@ export type DirectShipPackage = {
 }
 
 export type DirectShipRequest = {
+ freight?:FreightSnapshot
   fulfillment_mode?: FulfillmentMode
   id: number
   request_no: string
@@ -748,6 +754,7 @@ export type DirectShipRequestListResponse = {
 export type DirectShipPreview = {
   fulfillment_mode?: FulfillmentMode
   fees?: FulfillmentFeeQuote
+  freight_protocol?: string
   fee_quote_token?: string
   needs_topup?: boolean
   purchase_gap_qty?: number
@@ -944,6 +951,7 @@ export type CustomerAccountSummary = {
 }
 
 export type CustomerAccountOrder = {
+ freight?:FreightSnapshot
   id: number
   order_no: string
   order_date: string
@@ -1255,6 +1263,14 @@ export type EmployeeOrderDraftItem = {
 }
 
 export type EmployeeOrderDraftPayload = {
+ freight_destination?:string[]
+ freight_protocol?:string
+ freight_quote_token?:string
+ shipping_province?:string
+ shipping_city?:string
+ shipping_district?:string
+ freight_override?:{surcharge_cents:number;free_shipping:boolean;reason:string}
+
   selected_price_table_ids?: number[]
   prepayment_amount?: number
   payment_method?: string
@@ -1492,6 +1508,7 @@ export type EmployeeOrderAsset = {
 }
 
 export type EmployeeOrderDetail = EmployeeOrder & {
+ freight?:FreightSnapshot
   is_sample_order?: boolean
   edit_revision?: string
   document_date?: string
@@ -2268,3 +2285,5 @@ export type SpecConversionQuoteRequest = SpecConversionSelection & { customer_id
 export type SpecConversionQuote = SpecConversionQuoteRequest & { tier_label?:string;pricing_rule_name?:string;pricing_rule_basis?:string;pricing_rule_updated_at?:string;calculation?:{formula_expression?:string;formula_expression_lines?:string[]}; group_name:string;base_unit:string;source_spec_name:string;target_spec_name:string;source_unit:string;target_unit:string;source_quantity:string;target_quantity:string;source_unit_price:string;unit_price:string;line_total:string;version_no:string;price_source_json:string }
 export function fetchEmployeeSpecConversions(token:string,customerID:number,productID:number,publicationID:number):Promise<SpecConversionCatalog> { return miniRequest(`/api/mini/employee/spec-conversions?customer_id=${customerID}&product_id=${productID}&publication_id=${publicationID}`,{token}) }
 export function quoteEmployeeSpecConversion(token:string,data:SpecConversionQuoteRequest):Promise<SpecConversionQuote> { return miniRequest('/api/mini/employee/spec-conversions/quote',{token,method:'POST',data}) }
+
+export function previewEmployeeFreight(token:string,payload:Record<string,unknown>):Promise<FreightSnapshot>{return miniRequest<FreightSnapshot>('/api/mini/employee/freight-preview',{token,method:'POST',data:payload})}

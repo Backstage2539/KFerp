@@ -179,7 +179,7 @@
                 ><small>{{ row.ship_tracking_no }}</small>
               </td>
               <td>{{ money(row.goods_cents) }}</td>
-              <td>{{ money(row.shipping_cents) }}</td>
+              <td>{{ row.freight?freightLabel(row.freight):money(row.shipping_cents) }}</td>
               <td>{{ money(row.discount_cents) }}</td>
               <td>{{ money(row.total_cents) }}</td>
               <td>{{ money(row.paid_cents) }} / {{ money(row.due_cents) }}</td>
@@ -396,6 +396,7 @@
   </div>
 </template>
 <script setup>
+import {freightLabel} from '../lib/freight'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'

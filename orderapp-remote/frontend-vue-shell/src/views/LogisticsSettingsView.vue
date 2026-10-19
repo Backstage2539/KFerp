@@ -2,7 +2,7 @@
   <div class="page">
     <section class="panel">
       <div class="panel-head">
-        <h2>物流设置</h2>
+        <h2>物流设置</h2><button class="secondary" type="button" @click="openFreightManual">运费与出账手册</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -69,15 +69,18 @@
         </div>
       </div>
     </section>
-	<ShippingFeeTemplates />
+	<ShippingFeeTemplates :companies="companies" />
+ <ActualFreightImport :companies="companies" />
   </div>
 </template>
 
 <script setup>
+import ActualFreightImport from '../components/ActualFreightImport.vue'
 import ShippingFeeTemplates from '../components/ShippingFeeTemplates.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 
+function openFreightManual(){window.dispatchEvent(new CustomEvent('kferp:navigate-view',{detail:{key:'freightManual',returnNavigation:{key:'logisticsSettings',label:'返回物流设置'}}}))}
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
