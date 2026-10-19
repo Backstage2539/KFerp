@@ -5875,10 +5875,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-706-PRODUCT-LOGISTICS-WEIGHT
 - Branch: codex/product-logistics-weight-20261020; base origin/develop@f9e10932.
-- Status: local verification complete; development integration/deployment pending; Van business acceptance pending.
+- Status: PR #226 merged; development technical delivery complete at d0b75f4f9447f6c587673a3aa00f16907c43bca2; PR review and Van business acceptance pending.
 - Scope: manual logistics weight per product BOM spec; current-layer material reference weight; frozen order line weights across all entries; remove on-demand supply preview.
 - DEV: DEV-807 BOM logistics weight; DEV-808 shared weights and order snapshots; DEV-809 clients/manuals/development delivery.
 - Verifier: targeted RED/GREEN unit/API/PostgreSQL, full Go/Vue/miniapp and builds; development runtime/artifact checks.
-- Deployment: development only, pending. Production and WeChat upload/review/publication excluded.
+- Deployment: development running at d0b75f4f9447f6c587673a3aa00f16907c43bca2; app restart=0, PostgreSQL healthy, authenticated requirements/manual HTTP 200 and protected API anonymous 401. Database backup /opt/stacks/erp/backups/pr706-pre-logistics-weight-20261019T173934Z.dump; source backup orderapp.backup.deploy-20261020015920-d0b75f4f9447; rollback image kferp-orderapp-rollback:development-20261020015920-d0b75f4f9447. Initial disk-full startup failure recovered by cache-only cleanup and complete locked redeployment; all data/rollback anchors retained. Production and WeChat upload/review/publication excluded.
 - GREEN: full Go; Vue1436; mini371/typecheck/development build; isolated PostgreSQL/API and restart preservation. See docs/acceptance/2026-10-20-product-logistics-weight.md.
+- Artifact: /Users/yiiiple-work/KFerp-logistics-weight-delivery-20261020/KFerp-miniapp-dev-d0b75f4f.zip; development API/commit confirmed, 24 pages/96 manifest entries, 237 ZIP files, SHA256 2ba3d869ceee0ba35ae96264c612f200e081772876dcd005d18668d794c3d504. Compiled UI and file integrity checks passed. Legacy published specifications require manually entered logistics weight in a new published version before automatic dropship freight can be calculated; no values guessed or backfilled.
 - Notes: reserve helper reported PR-706 but macOS awk claim failed; reserved here.
