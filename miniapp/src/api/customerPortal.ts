@@ -1,3 +1,4 @@
+import type { OrderWeightSnapshot } from '../utils/orderWeights'
 import type { RegistrationProfile } from './registration'
 import type { PriceTableOption } from '../utils/priceTables'
 import { miniRequest } from './client'
@@ -364,7 +365,7 @@ export type CustomerOrderSummary = {
   items?: CustomerOrderItemSummary[]
 }
 
-export type CustomerOrderItemSummary = {
+export type CustomerOrderItemSummary = OrderWeightSnapshot & {
   id: number
   item_name: string
   product_kind?: string
@@ -532,7 +533,7 @@ export type CreateDirectShipBatchPayload = {
   note?: string
 }
 
-export type ProcessingTargetItem = {
+export type ProcessingTargetItem = OrderWeightSnapshot & {
   product_id: number
   bom_spec_id?: number
   bom_variant_id?: number
@@ -1426,7 +1427,7 @@ export type EmployeeOrder = {
   responsible_name: string
 }
 
-export type EmployeeOrderDetailItem = {
+export type EmployeeOrderDetailItem = OrderWeightSnapshot & {
   id?: number
   item_id?: number
   line_no?: number

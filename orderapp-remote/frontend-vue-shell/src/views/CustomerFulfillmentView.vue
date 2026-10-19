@@ -495,7 +495,7 @@
                 </thead>
                 <tbody>
                   <tr v-for="(item, idx) in activeOrderDetail?.items || []" :key="`${activeOrderSummary.id}-${idx}`">
-                    <td>{{ item.product_name || '-' }}</td>
+                    <td>{{ item.product_name || '-' }}<OrderItemWeights :item="item" /></td>
                     <td>{{ item.spec || '-' }}</td>
                     <td>{{ item.qty || '-' }}{{ item.unit || '' }}</td>
                     <td>{{ item.unit_price || '-' }}</td>
@@ -527,6 +527,7 @@
 <script setup>
 import {freightLabel} from '../lib/freight'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
+import OrderItemWeights from '../components/OrderItemWeights.vue'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
 import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'

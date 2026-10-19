@@ -528,6 +528,11 @@ type OrderEditItem struct {
 	MatchedPriceQty                    string
 	UnitConversionLabel                string
 	PriceSourceJSON                    string
+	MaterialUnitWeightG                *string
+	MaterialItemWeightG                *string
+	LogisticsUnitWeightG               *string
+	LogisticsItemWeightG               *string
+	WeightSnapshotJSON                 string
 }
 
 type OrderEditData struct {

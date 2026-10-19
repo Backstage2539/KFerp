@@ -1116,6 +1116,11 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		MatchedPriceQty                    string                            `json:"matched_price_qty"`
 		UnitConversionLabel                string                            `json:"unit_conversion_label"`
 		PriceSourceJSON                    string                            `json:"price_source_json"`
+		MaterialUnitWeightG                *string                           `json:"material_unit_weight_g"`
+		MaterialItemWeightG                *string                           `json:"material_item_weight_g"`
+		LogisticsUnitWeightG               *string                           `json:"logistics_unit_weight_g"`
+		LogisticsItemWeightG               *string                           `json:"logistics_item_weight_g"`
+		WeightSnapshotJSON                 string                            `json:"weight_snapshot_json"`
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
@@ -1137,8 +1142,13 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
-			SpecConversion: salesapp.SpecConversionFromSnapshot(it.PriceSourceJSON),
-			ItemID:         it.ItemID, LineNo: it.LineNo, CustomerProductReferenceID: it.CustomerProductReferenceID,
+			MaterialUnitWeightG:  it.MaterialUnitWeightG,
+			MaterialItemWeightG:  it.MaterialItemWeightG,
+			LogisticsUnitWeightG: it.LogisticsUnitWeightG,
+			LogisticsItemWeightG: it.LogisticsItemWeightG,
+			WeightSnapshotJSON:   it.WeightSnapshotJSON,
+			SpecConversion:       salesapp.SpecConversionFromSnapshot(it.PriceSourceJSON),
+			ItemID:               it.ItemID, LineNo: it.LineNo, CustomerProductReferenceID: it.CustomerProductReferenceID,
 			ProductID:                          it.ProductID,
 			ParentProductID:                    parentProductID,
 			BomSpecID:                          it.BomSpecID,

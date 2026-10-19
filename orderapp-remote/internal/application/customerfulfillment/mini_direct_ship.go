@@ -43,6 +43,11 @@ type MiniDirectShipItemCommand struct {
 	ProductionReservedQty  int64   `json:"production_reserved_qty,omitempty"`
 	ProductionConvertedQty int64   `json:"production_converted_qty,omitempty"`
 	ProductionShortfallQty int64   `json:"production_shortfall_qty,omitempty"`
+	MaterialUnitWeightG    *string `json:"material_unit_weight_g"`
+	MaterialItemWeightG    *string `json:"material_item_weight_g"`
+	LogisticsUnitWeightG   *string `json:"logistics_unit_weight_g"`
+	LogisticsItemWeightG   *string `json:"logistics_item_weight_g"`
+	WeightSnapshotJSON     string  `json:"weight_snapshot_json"`
 }
 
 type MiniDirectShipCommand struct {
@@ -1398,6 +1403,11 @@ func normalizeMiniDirectShipItems(items []MiniDirectShipItemCommand) ([]MiniDire
 		}
 		// Names and codes are response snapshots, never trusted from the mini
 		// client when reserving stock.
+		item.MaterialUnitWeightG = nil
+		item.MaterialItemWeightG = nil
+		item.LogisticsUnitWeightG = nil
+		item.LogisticsItemWeightG = nil
+		item.WeightSnapshotJSON = ""
 		item.ProductName = ""
 		item.SKUCode = ""
 		item.SpecLabel = ""

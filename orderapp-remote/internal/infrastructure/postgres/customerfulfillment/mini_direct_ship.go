@@ -9,6 +9,7 @@ import (
 	"fmt"
 	freightdomain "orderapp/internal/domain/freight"
 	freightpg "orderapp/internal/infrastructure/postgres/freight"
+	"orderapp/internal/infrastructure/postgres/orderweight"
 	"sort"
 	"strconv"
 	"strings"
@@ -1146,6 +1147,11 @@ func (r *Repository) resolveMiniDirectShipItems(ctx context.Context, q miniDirec
 	out := append([]app.MiniDirectShipItemCommand(nil), items...)
 	for idx := range out {
 		item := &out[idx]
+		item.MaterialUnitWeightG = nil
+		item.MaterialItemWeightG = nil
+		item.LogisticsUnitWeightG = nil
+		item.LogisticsItemWeightG = nil
+		item.WeightSnapshotJSON = ""
 		variant := item.BomVariantID
 		// Owned inventory and pending rights keep stable spec identity across publication versions.
 		// Source entitlements and physical allocations separately retain their actual frozen variant.
@@ -1789,6 +1795,12 @@ func (r *Repository) SubmitMiniDirectShip(ctx context.Context, cmd app.MiniDirec
 		}
 	}
 
+	for _, orderID := range orderIDs {
+		if err := orderweight.FreezeOrder(ctx, tx, r.schema, orderID); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+	}
+
 	for _, allocation := range allocations {
 		requestItemID := requestItemIDs[miniStockKey(allocation.ProductID, allocation.BomSpecID, allocation.SpecG)]
 		requestOrderID := requestOrderIDs[allocation.Warehouse]
@@ -2131,6 +2143,11 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 		return app.MiniDirectShipRequest{}, err
 	}
 	itemRows.Close()
+	for idx := range out.Items {
+		if err := loadMiniRequestItemWeights(ctx, q, r.schema, requestID, &out.Items[idx]); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+	}
 
 	effectiveShipmentTime := miniDirectShipEffectiveShipmentTimeSQL(
 		r.schema,

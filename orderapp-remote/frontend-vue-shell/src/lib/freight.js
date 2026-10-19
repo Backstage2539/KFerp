@@ -9,4 +9,4 @@ export function freightTemplatePayload(f){
 }
 export function searchFreightRegions(rows,q){const terms=String(q||'').trim().toLowerCase().split(/\s+/).filter(Boolean);return rows.filter(r=>terms.every(t=>[r.name,r.alias,r.pinyin,r.initials,r.code,r.path].join(' ').toLowerCase().includes(t)))}
 export function remainingCoverage(rows,groups){const selected=new Set(groups.flatMap(g=>g.region_codes));return rows.filter(r=>r.level===1&&!selected.has(r.code))}
-export function freightLabel(f){if(!f)return '';if(f.status==='free')return f.estimate_known||f.actual_cost_cents!=null?'包邮':'包邮 · 快递成本待核';if(f.billing_status==='billed')return `实际运费已出账 ¥${money(f.billed_cents)}（另见账单）`;return `预估运费 ¥${money(f.estimated_total_cents)} · 待出账`}
+export function freightLabel(f){if(!f)return '';if(f.status==='free')return f.estimate_known||f.actual_cost_cents!=null?'包邮':'包邮 · 快递成本待核';if(f.billing_status==='billed')return `实际运费已出账 ¥${money(f.billed_cents)}（另见账单）`;if(f.estimate_known===false)return '预估运费未计算，待实际账单出账';return `预估运费 ¥${money(f.estimated_total_cents)} · 待出账`}

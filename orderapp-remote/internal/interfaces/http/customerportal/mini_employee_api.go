@@ -162,6 +162,11 @@ type miniEmployeeOrderItemDetailDTO struct {
 	MatchedPriceQty                    string                            `json:"matched_price_qty"`
 	UnitConversionLabel                string                            `json:"unit_conversion_label"`
 	PriceSourceJSON                    string                            `json:"price_source_json"`
+	MaterialUnitWeightG                *string                           `json:"material_unit_weight_g"`
+	MaterialItemWeightG                *string                           `json:"material_item_weight_g"`
+	LogisticsUnitWeightG               *string                           `json:"logistics_unit_weight_g"`
+	LogisticsItemWeightG               *string                           `json:"logistics_item_weight_g"`
+	WeightSnapshotJSON                 string                            `json:"weight_snapshot_json"`
 }
 
 type miniEmployeeQuoteSourceTraceDTO struct {
@@ -1519,7 +1524,12 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 			tierID = strconv.FormatInt(item.PriceTierID, 10)
 		}
 		items = append(items, miniEmployeeOrderItemDetailDTO{
-			ItemID: item.ItemID, LineNo: item.LineNo, ProductID: item.ProductID, ProductName: item.Product,
+			MaterialUnitWeightG:  item.MaterialUnitWeightG,
+			MaterialItemWeightG:  item.MaterialItemWeightG,
+			LogisticsUnitWeightG: item.LogisticsUnitWeightG,
+			LogisticsItemWeightG: item.LogisticsItemWeightG,
+			WeightSnapshotJSON:   item.WeightSnapshotJSON,
+			ItemID:               item.ItemID, LineNo: item.LineNo, ProductID: item.ProductID, ProductName: item.Product,
 			ParentProductID: item.ProductID, MigrationState: map[bool]string{true: "cutover", false: "legacy"}[item.BomSpecID > 0],
 			BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, BomSpecKey: item.BomSpecKey, BomSpecName: item.BomSpecName,
 			CustomerProductAliasID: item.CustomerProductAliasID, CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,

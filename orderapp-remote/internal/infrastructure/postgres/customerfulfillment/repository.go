@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"orderapp/internal/infrastructure/postgres/orderweight"
 	"strconv"
 	"strings"
 	"time"
@@ -1631,8 +1632,13 @@ func repairSubmittedDirectShipERPOrderDiscounts(ctx context.Context, pool *pgxpo
 		       ) AS current_request_order
 		FROM %s.customer_direct_ship_import_orders import_order
 		WHERE COALESCE(import_order.order_id,0)>0
+          AND NOT EXISTS (
+            SELECT 1 FROM %s.order_items frozen_item
+            WHERE frozen_item.order_id=import_order.order_id
+              AND COALESCE(frozen_item.weight_snapshot_json,'{}'::jsonb)<>'{}'::jsonb
+          )
 		ORDER BY import_order.id
-	`, schema, schema))
+	`, schema, schema, schema))
 	if err != nil {
 		return err
 	}
@@ -1755,6 +1761,9 @@ func (r *Repository) createSubmittedDirectShipERPOrderTx(ctx context.Context, tx
 		return 0, err
 	}
 	if err := r.refreshSubmittedDirectShipOrderAmountsTx(ctx, tx, importOrderID, orderID); err != nil {
+		return 0, err
+	}
+	if err := orderweight.FreezeOrder(ctx, tx, r.schema, orderID); err != nil {
 		return 0, err
 	}
 	return orderID, nil
@@ -4657,6 +4666,9 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 	if orderID <= 0 {
 		return 0, fmt.Errorf("direct ship order not applied")
 	}
+	if err := orderweight.MarkHistoricalUnknown(ctx, tx, r.schema, orderID); err != nil {
+		return 0, err
+	}
 	state.lineNoByOrder[orderNo]++
 	lineNo := state.lineNoByOrder[orderNo]
 	productTitle := payloadString(row.Payload, "product_title", "product_name")
@@ -4666,6 +4678,36 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 		productID = matchedProductID
 	} else if !errors.Is(productErr, pgx.ErrNoRows) {
 		return 0, productErr
+	}
+
+	rawSpec := payloadString(row.Payload, "spec")
+	var importItemID, previousProductID, previousSpecID, previousVariantID int64
+	var previousSpec string
+	lookupErr := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,product_id,bom_spec_id,bom_variant_id,spec FROM %s.customer_direct_ship_import_order_items WHERE import_order_id=$1 AND line_no=$2 ORDER BY id LIMIT 1 FOR UPDATE`, r.schema), importOrderID, lineNo).Scan(&importItemID, &previousProductID, &previousSpecID, &previousVariantID, &previousSpec)
+	existingImport := lookupErr == nil
+	if lookupErr != nil && !errors.Is(lookupErr, pgx.ErrNoRows) {
+		return 0, lookupErr
+	}
+	requestedSpecID, requestedVariantID := payloadInt64(row.Payload, "bom_spec_id"), payloadInt64(row.Payload, "bom_variant_id")
+	if requestedSpecID <= 0 && existingImport && previousProductID == matchedProductID && previousSpec == rawSpec {
+		requestedSpecID, requestedVariantID = previousSpecID, previousVariantID
+	}
+	identity, identityErr := r.resolveImportedWeightIdentity(ctx, tx, matchedProductID, requestedSpecID, requestedVariantID)
+	if identityErr != nil {
+		return 0, identityErr
+	}
+
+	// A persisted canonical line remains the source for a quantity-only reimport,
+	// including after its exact published variant has been archived.
+	if identity.BomSpecID <= 0 && existingImport && previousProductID == matchedProductID && previousSpecID > 0 && previousSpecID == requestedSpecID {
+		priorErr := tx.QueryRow(ctx, fmt.Sprintf(`SELECT product_id,bom_spec_id,bom_variant_id,unit,spec FROM %s.order_items WHERE order_id=$1 AND line_no=$2 AND product_id=$3 AND bom_spec_id=$4 ORDER BY id LIMIT 1 FOR UPDATE`, r.schema), orderID, lineNo, matchedProductID, previousSpecID).Scan(&identity.ProductID, &identity.BomSpecID, &identity.BomVariantID, &identity.InventoryUnit, &identity.BomSpecName)
+		if priorErr != nil && !errors.Is(priorErr, pgx.ErrNoRows) {
+			return 0, priorErr
+		}
+	}
+	bomSpecID, bomVariantID, orderUnit, orderSpec := int64(0), int64(0), "件", rawSpec
+	if identity.BomSpecID > 0 {
+		bomSpecID, bomVariantID, orderUnit, orderSpec = identity.BomSpecID, identity.BomVariantID, identity.InventoryUnit, identity.BomSpecName
 	}
 	currentSpec := orderbeans.PublishedProductSpec{}
 	if matchedProductID > 0 {
@@ -4685,15 +4727,7 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 		return 0, err
 	}
 	quantity := payloadInt64(row.Payload, "quantity_units")
-	var importItemID int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id
-		FROM %s.customer_direct_ship_import_order_items
-		WHERE import_order_id=$1 AND line_no=$2
-		ORDER BY id
-		LIMIT 1
-		FOR UPDATE
-	`, r.schema), importOrderID, lineNo).Scan(&importItemID); err == nil {
+	if existingImport {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE %s.customer_direct_ship_import_order_items
 			SET batch_id=$2,
@@ -4701,9 +4735,9 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 				product_title=$4,
 				spec=$5,
 				quantity_units=$6,
-				payload=$7::jsonb
+				payload=$7::jsonb,product_id=$8,bom_spec_id=$9,bom_variant_id=$10
 			WHERE id=$1
-		`, r.schema), importItemID, batchID, customerID, productTitle, payloadString(row.Payload, "spec"), quantity, mustPayloadJSON(row.Payload)); err != nil {
+		`, r.schema), importItemID, batchID, customerID, productTitle, payloadString(row.Payload, "spec"), quantity, mustPayloadJSON(row.Payload), matchedProductID, bomSpecID, bomVariantID); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -4712,12 +4746,12 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 		`, r.schema), importOrderID, lineNo, importItemID); err != nil {
 			return 0, err
 		}
-	} else if errors.Is(err, pgx.ErrNoRows) {
+	} else {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_direct_ship_import_order_items(
-				import_order_id, batch_id, customer_id, line_no, product_title, spec, quantity_units, payload
+				import_order_id, batch_id, customer_id, line_no, product_title, spec, quantity_units, payload,product_id,bom_spec_id,bom_variant_id
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)
 			RETURNING id
 		`, r.schema),
 			importOrderID,
@@ -4727,28 +4761,32 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 			productTitle,
 			payloadString(row.Payload, "spec"),
 			quantity,
-			mustPayloadJSON(row.Payload),
+			mustPayloadJSON(row.Payload), matchedProductID, bomSpecID, bomVariantID,
 		).Scan(&importItemID); err != nil {
 			return 0, err
 		}
-	} else {
-		return 0, err
 	}
 	var orderItemID int64
+	var previousWeightRaw []byte
+	var previousWeight orderweight.Snapshot
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id
+		SELECT id,weight_snapshot_json
 		FROM %s.order_items
 		WHERE order_id=$1 AND line_no=$2
 		ORDER BY id
 		LIMIT 1
 		FOR UPDATE
-	`, r.schema), orderID, lineNo).Scan(&orderItemID); err == nil {
+	`, r.schema), orderID, lineNo).Scan(&orderItemID, &previousWeightRaw); err == nil {
+		if err = json.Unmarshal(previousWeightRaw, &previousWeight); err != nil {
+			return 0, err
+		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE %s.order_items
 			SET product_id=$2,
 				item_name=$3,
 				qty=$4,
-				unit='件',
+				unit=$11,
+				bom_spec_id=$9,bom_variant_id=$10,
 				spec=$5,
 				unit_price=0,
 				line_total=0,
@@ -4756,7 +4794,7 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 				bean_list_version_no=$7,
 				price_source_json=$8::jsonb
 			WHERE id=$1
-		`, r.schema), orderItemID, productID, productTitle, quantity, payloadString(row.Payload, "spec"), int64(0), "", priceSourceSnapshot); err != nil {
+		`, r.schema), orderItemID, productID, productTitle, quantity, orderSpec, int64(0), "", priceSourceSnapshot, bomSpecID, bomVariantID, orderUnit); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -4767,9 +4805,9 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 		}
 	} else if errors.Is(err, pgx.ErrNoRows) {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total, bean_list_publication_id, bean_list_version_no, price_source_json)
-			VALUES($1,$2,$3,$4,$5,'件',$6,0,0,NULLIF($7,0),$8,$9::jsonb)
-		`, r.schema), orderID, lineNo, productID, productTitle, quantity, payloadString(row.Payload, "spec"), int64(0), "", priceSourceSnapshot); err != nil {
+			INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total, bean_list_publication_id, bean_list_version_no, price_source_json,bom_spec_id,bom_variant_id)
+			VALUES($1,$2,$3,$4,$5,$12,$6,0,0,NULLIF($7,0),$8,$9::jsonb,$10,$11)
+		`, r.schema), orderID, lineNo, productID, productTitle, quantity, orderSpec, int64(0), "", priceSourceSnapshot, bomSpecID, bomVariantID, orderUnit); err != nil {
 			return 0, err
 		}
 	} else {
@@ -4780,6 +4818,14 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 		if _, err := upsertCustomerFulfillmentOrderTrackingsTx(ctx, tx, r.schema, orderID, waybillNo, "customer_fulfillment_direct_ship_item"); err != nil {
 			return 0, err
 		}
+	}
+	if bomSpecID <= 0 {
+		if err := markUnresolvedImportWeightTx(ctx, tx, r.schema, orderID, lineNo, matchedProductID, orderSpec, orderUnit, previousWeight); err != nil {
+			return 0, err
+		}
+	}
+	if err := orderweight.FreezeOrder(ctx, tx, r.schema, orderID); err != nil {
+		return 0, err
 	}
 	return importItemID, nil
 }

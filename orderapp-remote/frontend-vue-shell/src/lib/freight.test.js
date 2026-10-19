@@ -9,3 +9,9 @@ test('searches names alias pinyin initials code and reports coverage',()=>{
  const rows=[{code:'530000',name:'云南省',alias:'云南',pinyin:'yunnansheng',initials:'yns',level:1},{code:'540000',name:'西藏自治区',level:1}];for(const q of ['云南','yunnan','yn','5300'])assert.equal(searchFreightRegions(rows,q)[0].code,'530000');assert.deepEqual(remainingCoverage(rows,[{region_codes:['530000']}]).map(x=>x.code),['540000']);assert.equal(freightLabel({status:'pending_actual',estimated_total_cents:2000}),'预估运费 ¥20.00 · 待出账');assert.equal(freightLabel({status:'free',estimate_known:false}),'包邮 · 快递成本待核')
 })
 test('free-shipping cost stops being pending after an actual bill, including zero actual cost',()=>{for(const actual_cost_cents of [0,1200])assert.equal(freightLabel({status:'free',estimate_known:false,actual_cost_cents}),'包邮')})
+
+test('missing logistics weight defers ordinary-order freight without presenting a zero estimate', () => {
+ const unknown={status:'pending_actual',estimate_known:false,estimated_total_cents:0,cost_pending_reason:'盒装缺少物流重量'}
+ assert.equal(freightLabel(unknown),'预估运费未计算，待实际账单出账')
+ assert.equal(freightLabel({...unknown,billing_status:'billed',billed_cents:1200}),'实际运费已出账 ¥12.00（另见账单）')
+})

@@ -123,6 +123,7 @@
                 <option value="">选择库存单位</option>
                 <option v-for="unit in activeUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
               </select>
+              <LogisticsWeightEditor v-model="variant.logistics_weight_g" :inventory-unit="variant.inventory_unit" @update:model-value="markBomWorkspaceDirty" />
               <label class="checkbox-row compact-checkbox"><input type="radio" name="create-bom-default-spec" :checked="variant.is_default === true" @change="makeCreateBomVariantDefault(variant)" />默认规格</label>
               <button class="text-button danger-text" type="button" :disabled="bomVariants.length <= 1" @click="removeCreateBomVariant(variant)">删除</button>
             </div>
@@ -210,6 +211,7 @@
                 <div class="spec-variant-grid">
                   <label><span>规格名称</span><input v-model.trim="variant.name" :disabled="selectedSpecTemplateVersion.status !== 'draft'" placeholder="227g 袋装" /></label>
                   <label><span>库存单位</span><select v-model="variant.inventory_unit" :disabled="selectedSpecTemplateVersion.status !== 'draft'"><option value="">请选择</option><option v-for="unit in activeUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
+                  <LogisticsWeightEditor v-model="variant.logistics_weight_g" :inventory-unit="variant.inventory_unit" :disabled="selectedSpecTemplateVersion.status !== 'draft'" />
                   <label><span>排序</span><input v-model.number="variant.sort_order" type="number" min="1" :disabled="selectedSpecTemplateVersion.status !== 'draft'" /></label>
                   <label class="checkbox-row compact-checkbox"><input v-model="variant.is_default" type="checkbox" :disabled="selectedSpecTemplateVersion.status !== 'draft'" @change="setTemplateDefaultVariant(variantIndex)" /><span>默认规格</span></label>
                   <label><span>工艺路线</span><select v-model.number="variant.process_route_id" :disabled="selectedSpecTemplateVersion.status !== 'draft'"><option :value="0">未配置</option><option v-for="route in processRoutes" :key="route.id" :value="route.id">{{ route.name }}</option></select></label>
@@ -598,6 +600,7 @@
                 </select>
                 <small>规格一经发布，库存单位不可修改；变更单位请新增规格。</small>
               </label>
+              <LogisticsWeightEditor :key="selectedBomVariant.bom_variant_id || selectedBomVariant.id || selectedBomVariant.local_key || selectedBomVariant.spec_key" v-model="selectedBomVariant.logistics_weight_g" :inventory-unit="selectedBomVariant.inventory_unit" :disabled="!canEditCurrentBomItems" @update:model-value="markBomWorkspaceDirty" />
               <label>
                 <span>排序</span>
                 <input v-model.number="selectedBomVariant.sort_order" type="number" min="0" step="1" :disabled="!canEditCurrentBomItems" @input="markBomWorkspaceDirty" />
@@ -773,6 +776,8 @@ import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import LogisticsWeightEditor from '../components/LogisticsWeightEditor.vue'
+import { logisticsWeightGrams, validateLogisticsWeights } from '../lib/logistics-weight.js'
 import { applyVersionMaterialLossRate, assignVariantSpecKeys, bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialLossAdjustedRatioPct, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomDraftItemKey, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomSpecTemplateReapplyStrategy, productionBomVersionWarning, removeProductionBomDraftItem } from '../lib/bom'
 import {
   businessGroupControlOptions,
@@ -1733,6 +1738,7 @@ function productionBomDraftVariantPayloadFromVariant(variant = {}, overrideItems
     spec_key: String(variant.spec_key || '').trim() || nextSpecKey(bomVariants.value.map((row) => String(row.spec_key || '').trim()).filter(Boolean)),
     name: String(variant.name || variant.spec_name || '').trim(),
     inventory_unit: String(variant.inventory_unit || '').trim(),
+    logistics_weight_g: logisticsWeightGrams(variant),
     is_default: variant.is_default === true,
     sort_order: Number(variant.sort_order || 0),
     material_loss_rate: lossRate,
@@ -1780,6 +1786,7 @@ function addProductionBomDraftVariant() {
     name: '',
     barcode: '',
     inventory_unit: inventoryUnit,
+    logistics_weight_g: null,
     is_default: bomVariants.value.length === 0,
     sort_order: bomVariants.value.length + 1,
     material_loss_rate: 0,
@@ -2565,6 +2572,7 @@ function templateVariantDraftFromAPI(variant = {}, index = 0) {
     spec_key: String(variant.spec_key || '').trim(),
     name: String(variant.name || variant.spec_name || '').trim(),
     inventory_unit: String(variant.inventory_unit || '').trim(),
+    logistics_weight_g: logisticsWeightGrams(variant),
     is_default: variant.is_default === true,
     sort_order: Number(variant.sort_order || index + 1),
     process_route_id: Number(variant.process_route_id || 0),
@@ -2618,6 +2626,7 @@ function templateVariantPayload(variant = {}) {
     spec_key: String(variant.spec_key || '').trim() || nextSpecKey(templateDraftVariants.value.map((row) => String(row.spec_key || '').trim()).filter(Boolean)),
     name: String(variant.name || '').trim(),
     inventory_unit: String(variant.inventory_unit || '').trim(),
+    logistics_weight_g: logisticsWeightGrams(variant),
     is_default: variant.is_default === true,
     sort_order: Number(variant.sort_order || 0),
     material_loss_rate: lossRate,
@@ -2730,7 +2739,7 @@ function removeTemplateVariantItem(variantIndex, itemIndex) {
   applyTemplateVariantRecipeMode(variant, mode)
 }
 
-function validatedTemplateVariantPayloads() {
+function validatedTemplateVariantPayloads(requireLogisticsWeight = false) {
   if (!templateDraftVariants.value.length) throw new Error('BOM 规格模板至少需要一个规格')
   assignVariantSpecKeys(templateDraftVariants.value)
   let defaultCount = 0
@@ -2741,6 +2750,7 @@ function validatedTemplateVariantPayloads() {
     return payload
   })
   if (defaultCount !== 1) throw new Error('BOM 规格模板必须且只能设置一个默认规格')
+  if (requireLogisticsWeight) validateLogisticsWeights(variants)
   return variants
 }
 
@@ -2759,7 +2769,7 @@ async function publishSpecTemplateVersion() {
   const versionID = Number(selectedSpecTemplateVersionID.value || 0)
   if (!versionID || selectedSpecTemplateVersion.value?.status !== 'draft') return
   await mutate(async () => {
-    await apiSend(`/api/production-bom-spec-template-versions/${versionID}/draft`, { method: 'PUT', body: { variants: validatedTemplateVariantPayloads() } })
+    await apiSend(`/api/production-bom-spec-template-versions/${versionID}/draft`, { method: 'PUT', body: { variants: validatedTemplateVariantPayloads(true) } })
     await apiSend(`/api/production-bom-spec-template-versions/${versionID}/publish`, { body: {} })
     productionBomSpecTemplates.value = await loadProductionBomSpecTemplates()
     await selectSpecTemplateVersion(versionID)
@@ -3221,6 +3231,7 @@ async function activateVersion(id) {
   await mutate(async () => {
     const bomID = currentProductionBomID.value
     if (currentProductionBomID.value) {
+      if (currentOutputIdentity.value.type === 'product' && Number(selectedProductionBomVersionID.value) === Number(id)) validateLogisticsWeights(bomVariants.value)
       await apiSend(`/api/production-bom-versions/${id}/publish`, { body: {} })
       ok.value = '已发布版本'
     } else {
@@ -3433,6 +3444,7 @@ tbody tr.active { background: #f3f7fb; }
 .spec-template-list-row.active { border-color: #1f4f82; background: #eef6ff; }
 .spec-template-detail { min-width: 0; }
 .version-row-list, .bom-variant-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
+.bom-create-spec-row { display: grid; grid-template-columns: minmax(130px, 1.3fr) minmax(120px, 1fr) minmax(90px, .7fr) minmax(220px, 1.6fr) auto auto; gap: 10px; align-items: start; margin: 10px 0; }
 .bom-spec-identity-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: start; margin: 10px 0 14px; padding: 12px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; }
 .bom-spec-identity-form label { min-width: 0; }
 .bom-spec-identity-form input, .bom-spec-identity-form select { width: 100%; min-width: 0; }
@@ -3465,7 +3477,7 @@ tbody tr.active { background: #f3f7fb; }
   .bom-record-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .spec-template-workspace { grid-template-columns: 1fr; }
   .spec-template-list { position: static; }
-  .spec-variant-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .spec-variant-grid, .bom-create-spec-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bom-spec-identity-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bom-spec-template-reapply-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bom-spec-template-reapply-form > button { justify-self: start; }
@@ -3476,7 +3488,7 @@ tbody tr.active { background: #f3f7fb; }
   .bom-record-form { grid-template-columns: 1fr; }
   .bom-record-form-action-spacer { display: none; }
   .bom-record-form-action > button { width: 100%; }
-  .spec-variant-grid, .spec-component-row, .bom-spec-identity-form, .bom-spec-template-reapply-form { grid-template-columns: 1fr; }
+  .spec-variant-grid, .spec-component-row, .bom-spec-identity-form, .bom-spec-template-reapply-form, .bom-create-spec-row { grid-template-columns: 1fr; }
   .bom-spec-template-reapply-form > button { width: 100%; justify-self: stretch; }
 }
 </style>

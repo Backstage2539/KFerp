@@ -23,6 +23,7 @@ func TestFreightThreeSceneAPIAndPolicyIsolation(t *testing.T) {
 	pool, schema := newMiniDirectShipTestDB(t)
 	ctx := context.Background()
 	seedMiniDirectShipStock(t, pool, schema)
+	seedManualFreightWeight(t, pool, schema, 911, 1000)
 	if _, e := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.logistics_companies(id,name,active)VALUES(705,'PR705独立物流',true);INSERT INTO %s.logistics_products(id,company_id,name,active)VALUES(705,705,'PR705物流产品',true)`, schema, schema)); e != nil {
 		t.Fatal(e)
 	}

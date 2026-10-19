@@ -285,3 +285,7 @@ export function canShowFactoryProductLinks(capabilities: Capability[] = []): boo
   const enabled = new Set(capabilities.filter((item) => item.enabled).map((item) => item.code))
   return enabled.has('product_order') && enabled.has('bean_list')
 }
+
+export function showDirectShipSupplyPreview(input: { fulfillmentMode?: string; isProductOrder?: boolean; retainedPurchase?: boolean } = {}): boolean {
+  return !input.retainedPurchase && (Boolean(input.isProductOrder) || (input.fulfillmentMode !== 'stock' && input.fulfillmentMode !== 'on_demand'))
+}

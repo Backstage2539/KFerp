@@ -5870,3 +5870,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: targeted Go unit/API/PostgreSQL, Vue and miniapp tests/typecheck/build, isolated development acceptance, deployment/package verification.
 - Deployment: development only; no production or WeChat upload/review/publication.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-20-freight-estimate-settlement.md
+
+### PR-706-PRODUCT-LOGISTICS-WEIGHT
+- Branch: codex/product-logistics-weight-20261020; base origin/develop@f9e10932.
+- Status: local verification complete; development integration/deployment pending; Van business acceptance pending.
+- Scope: manual logistics weight per product BOM spec; current-layer material reference weight; frozen order line weights across all entries; remove on-demand supply preview.
+- DEV: DEV-807 BOM logistics weight; DEV-808 shared weights and order snapshots; DEV-809 clients/manuals/development delivery.
+- Verifier: targeted RED/GREEN unit/API/PostgreSQL, full Go/Vue/miniapp and builds; development runtime/artifact checks.
+- Deployment: development only, pending. Production and WeChat upload/review/publication excluded.
+- GREEN: full Go; Vue1436; mini371/typecheck/development build; isolated PostgreSQL/API and restart preservation. See docs/acceptance/2026-10-20-product-logistics-weight.md.
+- Notes: reserve helper reported PR-706 but macOS awk claim failed; reserved here.

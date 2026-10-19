@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {freightLabel} from '../../utils/freight'
 import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
+import OrderItemWeights from '../../components/OrderItemWeights.vue'
 import {restoreRegistrationSession} from '../../utils/registrationSession'
 import { loginRouteFor } from "../../utils/loginReturn"
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
@@ -1289,6 +1290,7 @@ onShow(() => { void refreshMiniappShareMenu() })
             <view v-for="line in item.items" :key="line.id" class="item-line">
               <text>{{ line.item_name }} {{ line.spec }}</text>
               <text>{{ line.qty }}{{ line.unit }} x ¥{{ line.unit_price }} = ¥{{ line.line_total }}</text>
+              <OrderItemWeights :item="line" />
               <text v-if="line.bean_list_version_no" class="line-meta">价格表版本：{{ line.bean_list_version_no }}</text>
             </view>
           </view>

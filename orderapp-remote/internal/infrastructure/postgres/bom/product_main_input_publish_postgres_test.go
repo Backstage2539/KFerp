@@ -38,7 +38,7 @@ func TestProductMainInputTemplateBOMPublishPostgres(t *testing.T) {
 			templateVersionID := template.Versions[0].ID
 			if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
 				VersionID: templateVersionID, Actor: "main-input-test",
-				Variants: []bomapp.ProductionBomSpecTemplateVariant{{
+				Variants: []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 					SpecKey: "box", Name: "盒装", InventoryUnit: "盒", IsDefault: true,
 					Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{
 						IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 10},
@@ -128,8 +128,8 @@ func TestProductSpecTemplateBOMProcessRouteOverrideCopiesAllVariantsAndKeepsTemp
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
 		VersionID: templateVersionID, Actor: "route-override-test",
 		Variants: []bomapp.ProductionBomSpecTemplateVariant{
-			{SpecKey: "200g", Name: "200g", InventoryUnit: "袋", IsDefault: true, SortOrder: 1, ProcessRouteID: 31, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 200}}}},
-			{SpecKey: "500g", Name: "500g", InventoryUnit: "袋", SortOrder: 2, ProcessRouteID: 32, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 500}}}},
+			{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "200g", Name: "200g", InventoryUnit: "袋", IsDefault: true, SortOrder: 1, ProcessRouteID: 31, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 200}}}},
+			{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "500g", Name: "500g", InventoryUnit: "袋", SortOrder: 2, ProcessRouteID: 32, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 500}}}},
 		},
 	}); err != nil {
 		t.Fatal(err)

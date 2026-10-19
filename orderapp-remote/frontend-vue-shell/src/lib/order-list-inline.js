@@ -28,6 +28,7 @@ function specLabel(item) {
 export function inlineOrderItems(order = {}) {
   return (order.items || []).map((item, index) => ({
     key: item.item_id || index,
+    weightSnapshot: item,
     name: text(item.customer_product_display_name_snapshot) || text(item.product_name_snapshot) || text(item.product_name) || '—',
     spec: specLabel(item), quantity: [text(item.qty) || '—', text(item.unit)].filter(Boolean).join(' '),
     price: inlineMoney(item.unit_price), subtotal: inlineMoney(item.line_total), note: text(item.note),

@@ -44,8 +44,8 @@ func TestUpdateProductionBomToMaterialOutputClearsDraftSpecGroupPostgres(t *test
 	if _, err := repo.UpdateProductionBomVersionDraft(ctx, bomapp.UpdateProductionBomVersionDraftCommand{
 		VersionID: draftVersionID,
 		Variants: []bomapp.ProductionBomDraftVariant{
-			{SpecKey: "spec-1", Name: "227g", InventoryUnit: "袋", IsDefault: true, SortOrder: 1, Items: []bomapp.ProductionBomDraftItem{{ComponentType: "material", MaterialID: componentMaterialID, ConsumeUnit: "kg", QtyPerUnit: 0.227}}},
-			{SpecKey: "spec-2", Name: "454g", InventoryUnit: "袋", SortOrder: 2, Items: []bomapp.ProductionBomDraftItem{{ComponentType: "material", MaterialID: componentMaterialID, ConsumeUnit: "kg", QtyPerUnit: 0.454}}},
+			{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "spec-1", Name: "227g", InventoryUnit: "袋", IsDefault: true, SortOrder: 1, Items: []bomapp.ProductionBomDraftItem{{ComponentType: "material", MaterialID: componentMaterialID, ConsumeUnit: "kg", QtyPerUnit: 0.227}}},
+			{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "spec-2", Name: "454g", InventoryUnit: "袋", SortOrder: 2, Items: []bomapp.ProductionBomDraftItem{{ComponentType: "material", MaterialID: componentMaterialID, ConsumeUnit: "kg", QtyPerUnit: 0.454}}},
 		},
 		Actor: "pr603-owner",
 	}); err != nil {
@@ -126,7 +126,7 @@ func TestProductionBomDraftWorkspaceReplacesMaterialItemsIncludingEmptyListPostg
 	workspace([]bomapp.ProductionBomDraftItem{
 		{ComponentType: "material", MaterialID: firstComponentID, ConsumeUnit: "kg", QtyPerUnit: 0.4},
 		{ComponentType: "material", MaterialID: secondComponentID, ConsumeUnit: "kg", QtyPerUnit: 0.6},
-	}, []bomapp.ProductionBomDraftVariant{{SpecKey: "legacy-ignored", Name: "不应写入", InventoryUnit: "袋", IsDefault: true}})
+	}, []bomapp.ProductionBomDraftVariant{{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "legacy-ignored", Name: "不应写入", InventoryUnit: "袋", IsDefault: true}})
 	var itemCount int
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_bom_version_items WHERE version_id=$1 AND variant_id=0`, schema), created.LatestVersionID).Scan(&itemCount); err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestProductionBomDraftWorkspaceReplacesMaterialItemsIncludingEmptyListPostg
 	}
 
 	// An explicit empty JSON array is a real replacement, not an omitted field.
-	workspace([]bomapp.ProductionBomDraftItem{}, []bomapp.ProductionBomDraftVariant{{SpecKey: "legacy-ignored-again", Name: "不应写入", InventoryUnit: "袋", IsDefault: true}})
+	workspace([]bomapp.ProductionBomDraftItem{}, []bomapp.ProductionBomDraftVariant{{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "legacy-ignored-again", Name: "不应写入", InventoryUnit: "袋", IsDefault: true}})
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_bom_version_items WHERE version_id=$1`, schema), created.LatestVersionID).Scan(&itemCount); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestReplacementDraftCopiesSelectedSpecificationTemplatePostgres(t *testing.
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
 		VersionID: templateVersionID,
 		Variants: []bomapp.ProductionBomSpecTemplateVariant{
-			{SpecKey: "bag-10", Name: "10g 袋", InventoryUnit: "袋", IsDefault: true, SortOrder: 1, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.01}}}},
+			{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "bag-10", Name: "10g 袋", InventoryUnit: "袋", IsDefault: true, SortOrder: 1, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.01}}}},
 		},
 		Actor: "pr623-test",
 	}); err != nil {

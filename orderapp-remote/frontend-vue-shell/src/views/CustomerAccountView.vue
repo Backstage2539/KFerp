@@ -351,7 +351,7 @@
           <tbody>
             <tr v-for="(item, index) in detail.items" :key="index">
               <td>
-                {{ item.item_name }}<small>{{ item.spec }}</small>
+                {{ item.item_name }}<small>{{ item.spec }}</small><OrderItemWeights :item="item" />
               </td>
               <td>{{ item.qty }} {{ item.unit }}</td>
               <td>{{ item.unit_price }}</td>
@@ -398,6 +398,7 @@
 <script setup>
 import {freightLabel} from '../lib/freight'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
+import OrderItemWeights from '../components/OrderItemWeights.vue'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
 import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'

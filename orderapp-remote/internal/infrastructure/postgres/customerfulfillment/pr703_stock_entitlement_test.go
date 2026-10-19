@@ -583,6 +583,7 @@ func TestPR703ArchivedFutureRightsRemainOrderableByStableSpec(t *testing.T) {
 func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *testing.T) {
 	pool, schema := seedPR703StockProduct(t)
 	ctx := context.Background()
+	seedPR706FrozenWeightMaterials(t, pool, schema)
 	configurePR703StockFees(t, pool, schema, 7031)
 	repo := NewRepository(pool, schema)
 	settings, e := repo.LoadFulfillmentSettings(ctx, 501)
@@ -611,7 +612,7 @@ func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *tes
 	if e != nil {
 		t.Fatalf("real on-demand preview: %v", e)
 	}
-	if !preview.CanSubmit || preview.TotalAmount != 360 || len(preview.Items) != 1 || preview.Items[0].UnitPrice != 30 || preview.Fees == nil || preview.Fees.ServiceFeeCents != 900 || preview.Fees.ShippingFeeCents != 0 || preview.Fees.Freight == nil || preview.Fees.Freight.EstimatedTotalCents != 1800 {
+	if !preview.CanSubmit || preview.TotalAmount != 360 || len(preview.Items) != 1 || preview.Items[0].UnitPrice != 30 || preview.Fees == nil || preview.Fees.ServiceFeeCents != 900 || preview.Fees.ShippingFeeCents != 0 || preview.Fees.Freight == nil || preview.Fees.Freight.EstimatedTotalCents != 1400 {
 		t.Fatalf("real on-demand preview=%+v", preview)
 	}
 	cmd.PriceQuoteToken, cmd.FeeQuoteToken = preview.PriceQuoteToken, preview.FeeQuoteToken
@@ -619,6 +620,8 @@ func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *tes
 	if e != nil {
 		t.Fatalf("real on-demand submit: %v", e)
 	}
+	assertPR706FrozenWeights(t, pool, schema, request.OrderID, 12)
+	assertPR706RequestWeightDTO(t, request)
 	var goods, shipping, fee, grand float64
 	var modeName string
 	var qty int64
@@ -640,7 +643,7 @@ func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *tes
 	}
 	assertMiniDirectShipCount(t, pool, schema, "customer_stock_supply_reservations", "customer_id=501", 0)
 	assertMiniDirectShipCount(t, pool, schema, "customer_direct_ship_request_allocations", "request_id="+fmt.Sprint(request.ID), 0)
-	t.Logf("real app.Service->sales.SaveOrder %s: public fixed30 x12 =360, service9 + pending freight estimate18, goods/pricing snapshots frozen, no stock entitlement consumption", request.OrderNo)
+	t.Logf("real app.Service->sales.SaveOrder %s: public fixed30 x12 =360, service9 + pending freight estimate14, goods/pricing snapshots frozen, no stock entitlement consumption", request.OrderNo)
 }
 
 func TestPR703InternalOrderListIncludesRetainedSaleAndDropshipWithoutCustomerLogin(t *testing.T) {

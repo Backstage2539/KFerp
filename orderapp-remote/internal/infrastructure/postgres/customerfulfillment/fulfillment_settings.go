@@ -246,28 +246,20 @@ func (r *Repository) QuoteFulfillmentFeesTx(ctx context.Context, tx pgx.Tx, c ap
 	if e != nil {
 		return out, e
 	}
+	weightItems := make([]freightpg.WeightItem, 0, len(c.Items))
 	for _, item := range c.Items {
-		if item.ProductID <= 0 || item.Qty <= 0 || item.Qty > 1000000 {
-			return out, fmt.Errorf("商品数量无效")
-		}
-		g, e := r.fulfillmentItemNetWeightG(ctx, tx, c.CustomerID, item)
-		if e != nil && !policy.FreeShipping {
-			return out, e
-		}
-		if g <= 0 && policy.FreeShipping {
-			grams = -1000000001
-		} else if grams >= 0 {
-			grams += g * item.Qty
-		}
+		weightItems = append(weightItems, freightpg.WeightItem{ProductID: item.ProductID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, Qty: item.Qty})
 		qty += item.Qty
 	}
-	if grams < 0 {
-		grams = 0
+	grams, weightBasis, e := freightpg.NewRepository(r.pool, r.schema).WeightTotals(ctx, tx, c.CustomerID, weightItems, policy.FreeShipping || c.FulfillmentMode == "sale")
+	if e != nil {
+		return out, e
 	}
 	f, e := freightpg.NewRepository(r.pool, r.schema).QuoteWithOverrideTx(ctx, tx, c.CustomerID, c.FulfillmentMode, freightdomain.Destination{Province: c.Province, City: c.City, District: c.District}, grams, c.FreightOverride, c.EmployeeAdjustment)
 	if e != nil {
 		return out, e
 	}
+	f = freightpg.AttachWeightBasis(f, weightBasis)
 	if c.ServiceOverrideCents != nil || c.ShippingOverrideCents != nil {
 		if !c.EmployeeAdjustment || strings.TrimSpace(c.AdjustmentReason) == "" {
 			return out, fmt.Errorf("员工调整费用必须填写原因")

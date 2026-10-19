@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
+import OrderItemWeights from '../../components/OrderItemWeights.vue'
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { computed, ref } from 'vue'
 import { onLoad, onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
@@ -353,6 +354,7 @@ onShow(() => { void refreshMiniappShareMenu() })
             <text class="item-meta">单价：¥{{ item.unit_price || '0.00' }} / {{ item.unit || '-' }}</text>
             <text class="item-meta">价格表版本：{{ itemPriceVersion(item) }}</text>
             <text class="item-meta">价格来源：{{ employeeOrderItemPriceSourceLabel(item) }}</text>
+            <OrderItemWeights :item="item" />
             <text v-if="item.note" class="item-note">明细备注：{{ item.note }}</text>
           </view>
         </view>
