@@ -7,6 +7,7 @@
 - Evidence: miniapp364, Vue1420, Go and isolated PostgreSQL passed; real customer20→22(top-up2)→12 reservation shows10, fees/production and cleanup verified.
 - Delivery: development/runtime/package be7338a1, 24 pages/96 page files; 223 code files match the UI-tested project; button 商品下单 auto-saves drafts and stays enabled at zero inventory. Backup/command/runtime evidence in the acceptance receipt.
 - Boundary: development only; independent acceptance fixtures; preserve existing Xiqin orders/inventory/drafts; no production or WeChat publication.
+- Acceptance correction (2026-10-19): PR-703 left customer307 bindings137/138; PR-704 had mistakenly treated them as pre-existing configuration. Cleared only these unchanged revision1 rows through audited save API (10147/10148). Bindings now empty; on-demand catalog/preview/submit reject missing configuration; current revision2 settings, stock and bill3126 unchanged. Customer mini page re-entry check remains unverified due DevTools input failure. Receipt: docs/acceptance/2026-10-19-xiqin-acceptance-price-bindings.md. Configuration/docs only; runtime/package remains be7338a1.
 
 ### PR-702-MINIAPP-LOGIN-ENTRY
 - Branch: codex/fix-miniapp-login-entry-20261019; base origin/develop@65f915db.
