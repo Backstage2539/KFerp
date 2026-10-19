@@ -5864,12 +5864,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-705-FREIGHT-ESTIMATE-SETTLEMENT
 - Branch: codex/freight-estimate-settlement-20261020
 - Owner/session: Codex / Van
-- Status: implementation and targeted RED/GREEN complete; final gates/integration/development UI acceptance pending
+- Status: implemented, verified, merged and deployed to development f9e10932; isolated ERP/miniapp interactions and package verification passed; Van business acceptance pending
 - Scope: 三场景运费模板、地区目录、客户政策、预估不收款、Excel实际运费独立出账；代发客户首页隐藏商品下单。
 - DEV: DEV-803 模板/地区/计算器；DEV-804 政策及冻结报价；DEV-805 Excel实际运费与账单；DEV-806 ERP/小程序及开发交付。
 - Verifier: targeted Go unit/API/PostgreSQL, Vue and miniapp tests/typecheck/build, isolated development acceptance, deployment/package verification.
 - Deployment: development only; no production or WeChat upload/review/publication.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-20-freight-estimate-settlement.md
+
+- PR-705 final delivery: runtime/package f9e10932f550f2d14f19211e4e1135e5b5cee5a3; PR #223/#224 merged. DEV-803–806 done, PR review. Backup orderapp.backup.deploy-20261020011249-f9e10932f550. Vue1426/mini367/Go full gates passed; isolated development customer308/template3; see freight receipt. Development only.
 
 ### PR-706-PRODUCT-LOGISTICS-WEIGHT
 - Branch: codex/product-logistics-weight-20261020; base origin/develop@f9e10932.
