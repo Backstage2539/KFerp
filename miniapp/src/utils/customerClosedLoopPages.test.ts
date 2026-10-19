@@ -11,7 +11,7 @@ describe('customer closed-loop miniapp pages', () => {
     const page = source('src/components/CustomerDirectShipPanel.vue')
 
     expect(page).toContain('库存概览')
-    expect(page).toContain('保存草稿并下单库存')
+    expect(page).toContain('@tap="startTopup">商品下单</button>')
     expect(page).toContain('useCustomerOrderDraftStore')
     expect(page).toContain('选择收件客户')
     expect(page).toContain('createDirectShipRequest')

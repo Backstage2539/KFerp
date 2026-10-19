@@ -453,7 +453,7 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
           <text class="stock-remaining">{{ row.remaining }}<text class="stock-unit">{{ row.unit }}</text></text>
         </view>
         <text class="muted">含现货和备货后可用数量，提交代发单后才占用。</text>
-        <button class="secondary" :loading="openingStockPurchase" :disabled="submitting || openingStockPurchase || loading" @tap="startTopup">保存草稿并下单库存</button>
+        <button class="secondary" :loading="openingStockPurchase" :disabled="submitting || openingStockPurchase || loading" @tap="startTopup">商品下单</button>
       </view>
       <text v-if="retainedPurchase" class="purchase-hint">本次购买的商品留在工厂，备货入库后供你安排代发。</text>
       <button v-if="returnToDirectShip" class="text-button" :disabled="submitting" @tap="returnToDraft">返回代发草稿</button>
