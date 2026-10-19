@@ -329,3 +329,15 @@ func (r *miniDirectShipApplicationRepositoryStub) ListCustomerCentralInventoryBa
 	r.batchQuery = query
 	return []CustomerInventoryBatch{{ProductID: query.ProductID, BomSpecID: query.BomSpecID, BomVariantID: query.BomVariantID, SpecG: query.SpecG}}, nil
 }
+
+func TestPR706NormalizeMiniDirectShipItemsDiscardsClientWeightSnapshot(t *testing.T) {
+	value := "999"
+	items, err := normalizeMiniDirectShipItems([]MiniDirectShipItemCommand{{ProductID: 911, BomSpecID: 9111, Qty: 1, MaterialUnitWeightG: &value, MaterialItemWeightG: &value, LogisticsUnitWeightG: &value, LogisticsItemWeightG: &value, WeightSnapshotJSON: `{"rule_version":1,"logistics_unit_weight_g":999}`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := items[0]
+	if item.MaterialUnitWeightG != nil || item.MaterialItemWeightG != nil || item.LogisticsUnitWeightG != nil || item.LogisticsItemWeightG != nil || item.WeightSnapshotJSON != "" {
+		t.Fatalf("client forged authoritative weight: %+v", item)
+	}
+}

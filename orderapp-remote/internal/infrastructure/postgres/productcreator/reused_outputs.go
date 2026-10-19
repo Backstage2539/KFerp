@@ -69,7 +69,7 @@ func (e BusinessExecutor) inspectReusedOutputs(ctx context.Context, run app.Run)
 				fail("已有商品归属已变化或不匹配，请重新选择")
 				continue
 			}
-			err = q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(jsonb_agg(jsonb_build_array(s.id,v.id,x.id,x.inventory_unit) ORDER BY s.id,x.id),'[]'::jsonb)::text
+			err = q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(jsonb_agg(jsonb_build_array(s.id,v.id,x.id,x.inventory_unit,x.logistics_weight_g) ORDER BY s.id,x.id),'[]'::jsonb)::text
     FROM %[1]s.production_boms b JOIN %[1]s.production_bom_specs s ON s.bom_id=b.id
     JOIN LATERAL(SELECT id FROM %[1]s.production_bom_versions WHERE bom_id=b.id AND status='published' ORDER BY published_at DESC NULLS LAST,created_at DESC,id DESC LIMIT 1)v ON true
     JOIN %[1]s.production_bom_version_variants x ON x.version_id=v.id AND x.bom_spec_id=s.id

@@ -245,6 +245,9 @@ func TestFreightOrdinarySalesFreezeEstimateAndRetainedHasNoFreight(t *testing.T)
 	pool, schema := seedPR703StockProduct(t)
 	ctx := context.Background()
 	configurePR703StockFees(t, pool, schema, 7031)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_bom_version_variants SET logistics_weight_g=454 WHERE id=7032`, schema)); err != nil {
+		t.Fatal(err)
+	}
 	r := NewRepository(pool, schema)
 	fr := freightpg.NewRepository(pool, schema)
 	templates, e := r.ListShippingFeeTemplates(ctx)
@@ -278,6 +281,24 @@ func TestFreightOrdinarySalesFreezeEstimateAndRetainedHasNoFreight(t *testing.T)
 	var services int
 	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.customer_fee_items WHERE source_type='order' AND source_id=$1 AND fee_type='direct_ship_service'`, schema), result.OrderID).Scan(&services); e != nil || services != 0 {
 		t.Fatal("ordinary created dropship service", services, e)
+	}
+	// Legacy published specs can remain missing: ordinary orders record unknown
+	// estimates and never substitute the recipe/net-content weight.
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_bom_version_variants SET logistics_weight_g=NULL WHERE id=7032`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := r.QuoteFulfillmentFees(ctx, app.FulfillmentFeeQuoteCommand{CustomerID: 501, FulfillmentMode: "sale", Province: "云南省", Items: []app.FulfillmentFeeItem{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 2}}})
+	if err != nil || unknown.Freight.EstimateKnown || !strings.Contains(unknown.Freight.CostPendingReason, "物流重量") {
+		t.Fatalf("ordinary missing weight=%+v err=%v", unknown, err)
+	}
+	cmd.FreightQuoteToken = unknown.Freight.Token
+	missingResult, err := sales.SaveOrder(ctx, cmd)
+	if err != nil {
+		t.Fatalf("ordinary missing weight must save: %v", err)
+	}
+	var missing *float64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT logistics_item_weight_g FROM %s.order_items WHERE order_id=$1`, schema), missingResult.OrderID).Scan(&missing); err != nil || missing != nil {
+		t.Fatalf("unknown weight replaced: %v %v", missing, err)
 	}
 	p.FreeShipping = true
 	if _, e = fr.SavePolicy(ctx, p, p.Revision, "test"); e != nil {

@@ -52,12 +52,17 @@ type AccountOrder struct {
 	Items                []AccountOrderItem       `json:"items,omitempty"`
 }
 type AccountOrderItem struct {
-	Name      string `json:"item_name"`
-	Spec      string `json:"spec"`
-	Quantity  string `json:"qty"`
-	Unit      string `json:"unit"`
-	UnitPrice string `json:"unit_price"`
-	LineTotal string `json:"line_total"`
+	Name                 string  `json:"item_name"`
+	Spec                 string  `json:"spec"`
+	Quantity             string  `json:"qty"`
+	Unit                 string  `json:"unit"`
+	UnitPrice            string  `json:"unit_price"`
+	LineTotal            string  `json:"line_total"`
+	MaterialUnitWeightG  *string `json:"material_unit_weight_g"`
+	MaterialItemWeightG  *string `json:"material_item_weight_g"`
+	LogisticsUnitWeightG *string `json:"logistics_unit_weight_g"`
+	LogisticsItemWeightG *string `json:"logistics_item_weight_g"`
+	WeightSnapshotJSON   string  `json:"weight_snapshot_json"`
 }
 
 func (o *AccountOrder) SetPayment() {

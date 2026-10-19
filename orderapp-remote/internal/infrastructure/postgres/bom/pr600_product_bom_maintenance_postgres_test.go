@@ -54,7 +54,7 @@ func TestProductBOMCreationSupportsExplicitSingleAndSpecGroupModesPostgres(t *te
 	manualGroup, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "手工多规格商品 BOM", OutputType: "product", OutputID: 701,
 		OutputProductID: 701, OutputQty: 1, OutputUnit: "袋", SpecificationMode: "spec_group", Actor: "pr619-authority-test",
-		Variants: []bomapp.ProductionBomDraftVariant{{SpecKey: "manual-bag", Name: "手工袋装", InventoryUnit: "袋", IsDefault: true}},
+		Variants: []bomapp.ProductionBomDraftVariant{{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "manual-bag", Name: "手工袋装", InventoryUnit: "袋", IsDefault: true}},
 	})
 	if err != nil {
 		t.Fatalf("manual spec_group product BOM without template: %v", err)
@@ -125,8 +125,8 @@ func TestReapplyProductBOMSpecTemplateKeepsStableIDsAndAuditsWholeGroupPostgres(
 	}
 	templateV1 := createdTemplate.Versions[0].ID
 	variantsV1 := []bomapp.ProductionBomSpecTemplateVariant{
-		{SpecKey: "bag-227", Name: "227g 袋", InventoryUnit: "袋", IsDefault: true, SortOrder: 1, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.227}}}},
-		{SpecKey: "bag-454", Name: "454g 袋", InventoryUnit: "袋", SortOrder: 2, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.454}}}},
+		{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "bag-227", Name: "227g 袋", InventoryUnit: "袋", IsDefault: true, SortOrder: 1, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.227}}}},
+		{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "bag-454", Name: "454g 袋", InventoryUnit: "袋", SortOrder: 2, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.454}}}},
 	}
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{VersionID: templateV1, Variants: variantsV1, Actor: "template-owner"}); err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestReapplyProductBOMSpecTemplateKeepsStableIDsAndAuditsWholeGroupPostgres(
 	templateV2 := templateV2Row.ID
 	variantsV2 := []bomapp.ProductionBomSpecTemplateVariant{
 		variantsV1[0],
-		{SpecKey: "bag-100", Name: "100g 袋", InventoryUnit: "袋", SortOrder: 2, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.1}}}},
+		{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "bag-100", Name: "100g 袋", InventoryUnit: "袋", SortOrder: 2, Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.1}}}},
 	}
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{VersionID: templateV2, Variants: variantsV2, Actor: "template-owner"}); err != nil {
 		t.Fatal(err)
@@ -297,7 +297,7 @@ func TestProductBOMOutputRebindingAcceptsManualSpecGroupAndRejectsInvalidTemplat
 			Name: name, OutputType: "product", OutputID: 904, OutputProductID: 904,
 			OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
 			Actor: "rebind-auditor",
-			Variants: []bomapp.ProductionBomDraftVariant{{
+			Variants: []bomapp.ProductionBomDraftVariant{{LogisticsWeightG: logisticsTestWeight(227),
 				SpecKey: "self-built-bag", Name: "自建袋装", InventoryUnit: "袋", IsDefault: true,
 				Items: []bomapp.ProductionBomDraftItem{{MaterialID: inputMaterialID, ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 0.227}},
 			}},
@@ -362,7 +362,7 @@ func TestProductBOMOutputRebindingAcceptsManualSpecGroupAndRejectsInvalidTemplat
 	templateVersionID := template.Versions[0].ID
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
 		VersionID: templateVersionID, Actor: "rebind-auditor",
-		Variants: []bomapp.ProductionBomSpecTemplateVariant{{
+		Variants: []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 			SpecKey: "published-bag", Name: "模板袋装", InventoryUnit: "袋", IsDefault: true,
 			Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.227}}},
 		}},
@@ -426,7 +426,7 @@ func TestReapplyProductBOMSpecTemplatePreservesStableSpecBarcodePostgres(t *test
 		t.Fatal(err)
 	}
 	templateV1 := template.Versions[0].ID
-	variants := []bomapp.ProductionBomSpecTemplateVariant{{
+	variants := []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 		SpecKey: "stable-bag", Name: "稳定袋装 V1", InventoryUnit: "袋", IsDefault: true,
 		Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.227}}},
 	}}
@@ -538,7 +538,7 @@ func TestManualProductBOMSpecGroupWorksAcrossPublishAndBindingsPostgres(t *testi
 			Name: name, OutputType: "product", OutputID: productID, OutputProductID: productID,
 			OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
 			Actor: "late-governance-auditor",
-			Variants: []bomapp.ProductionBomDraftVariant{{
+			Variants: []bomapp.ProductionBomDraftVariant{{LogisticsWeightG: logisticsTestWeight(227),
 				SpecKey: "legacy-bag", Name: "旧规格袋装", InventoryUnit: "袋", IsDefault: true,
 				Items: []bomapp.ProductionBomDraftItem{{MaterialID: inputMaterialID, ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 0.227}},
 			}},
@@ -629,7 +629,7 @@ func TestArchivedPublishedTemplateProvenanceRemainsValidAcrossPublishAndBindings
 		t.Fatal(err)
 	}
 	templateV1 := template.Versions[0].ID
-	variants := []bomapp.ProductionBomSpecTemplateVariant{{
+	variants := []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 		SpecKey: "archived-source-bag", Name: "历史来源袋装", InventoryUnit: "袋", IsDefault: true,
 		Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.227}}},
 	}}
@@ -723,7 +723,7 @@ func TestConcurrentProductBOMDraftMutationAndPublishAvoidsDeadlockPostgres(t *te
 				t.Fatal(err)
 			}
 			templateVersionID := template.Versions[0].ID
-			variant := bomapp.ProductionBomSpecTemplateVariant{
+			variant := bomapp.ProductionBomSpecTemplateVariant{LogisticsWeightG: logisticsTestWeight(227),
 				SpecKey: "concurrent-bag", Name: "并发袋装", InventoryUnit: "袋", IsDefault: true,
 				Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 0.227}}},
 			}
@@ -773,7 +773,7 @@ func TestConcurrentProductBOMDraftMutationAndPublishAvoidsDeadlockPostgres(t *te
 				}
 				_, err := workerRepo.UpdateProductionBomVersionDraft(context.Background(), bomapp.UpdateProductionBomVersionDraftCommand{
 					VersionID: createdBOM.LatestVersionID, Actor: "concurrency-worker",
-					Variants: []bomapp.ProductionBomDraftVariant{{
+					Variants: []bomapp.ProductionBomDraftVariant{{LogisticsWeightG: logisticsTestWeight(227),
 						SpecKey: "concurrent-bag", Name: "并发袋装已保存", InventoryUnit: "袋", IsDefault: true,
 						Items: []bomapp.ProductionBomDraftItem{{MaterialID: mainInputMaterialID, ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 0.227}},
 					}},
@@ -844,7 +844,7 @@ func TestCreateProductionBomVersionPreservesSpecTemplateProvenancePostgres(t *te
 	templateVersionID := template.Versions[0].ID
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
 		VersionID: templateVersionID,
-		Variants: []bomapp.ProductionBomSpecTemplateVariant{{
+		Variants: []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 			SpecKey: "bag-227", Name: "227g 袋", InventoryUnit: "袋", IsDefault: true,
 			Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{
 				IsMainInput:            true,
@@ -893,7 +893,7 @@ func TestCreateProductionBomVersionPreservesSpecTemplateProvenancePostgres(t *te
 		Name: "历史兼容版本复制 BOM", OutputType: "product", OutputID: 952, OutputProductID: 952,
 		OutputQty: 1, OutputUnit: "袋", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
 		Actor: "version-provenance-auditor",
-		Variants: []bomapp.ProductionBomDraftVariant{{
+		Variants: []bomapp.ProductionBomDraftVariant{{LogisticsWeightG: logisticsTestWeight(227),
 			SpecKey: "legacy-bag", Name: "历史手工袋装", InventoryUnit: "袋", IsDefault: true,
 			Items: []bomapp.ProductionBomDraftItem{{MaterialID: mainInputMaterialID, ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 0.227}},
 		}},
@@ -1010,7 +1010,7 @@ func TestUpdateProductionBomUnchangedPublishedOutputSkipsDraftProvenancePostgres
 	templateVersionID := template.Versions[0].ID
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
 		VersionID: templateVersionID,
-		Variants: []bomapp.ProductionBomSpecTemplateVariant{{
+		Variants: []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 			SpecKey: "bag", Name: "袋装", InventoryUnit: "袋", IsDefault: true,
 			Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{
 				IsMainInput:            true,
@@ -1090,7 +1090,7 @@ func newPR600DefaultSwitchFixture(t *testing.T) pr600DefaultSwitchFixture {
 	templateVersionID := template.Versions[0].ID
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
 		VersionID: templateVersionID,
-		Variants: []bomapp.ProductionBomSpecTemplateVariant{{
+		Variants: []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 			SpecKey: "bag", Name: "袋装", InventoryUnit: "袋", IsDefault: true,
 			Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{
 				IsMainInput:            true,

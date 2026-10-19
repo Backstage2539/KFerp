@@ -108,14 +108,18 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 		d.Rows[i].Freight = views[d.Rows[i].ID]
 	}
 	if q.OrderID > 0 && len(d.Rows) > 0 {
-		items, err := tx.Query(ctx, currentQuery(fmt.Sprintf(`SELECT coalesce(item_name,''),coalesce(spec,''),coalesce(qty,0)::text,coalesce(unit,''),coalesce(unit_price,0)::text,coalesce(line_total,0)::text FROM %s.order_items current_item WHERE order_id=$1 ORDER BY id`, r.schema)), q.OrderID)
+		items, err := tx.Query(ctx, currentQuery(fmt.Sprintf(`SELECT coalesce(item_name,''),coalesce(spec,''),coalesce(qty,0)::text,coalesce(unit,''),coalesce(unit_price,0)::text,coalesce(line_total,0)::text,to_jsonb(current_item)->>'material_unit_weight_g',
+				to_jsonb(current_item)->>'material_item_weight_g',
+				to_jsonb(current_item)->>'logistics_unit_weight_g',
+				to_jsonb(current_item)->>'logistics_item_weight_g',
+				COALESCE(to_jsonb(current_item)->>'weight_snapshot_json','{}') FROM %s.order_items current_item WHERE order_id=$1 ORDER BY id`, r.schema)), q.OrderID)
 		if err != nil {
 			return d, err
 		}
 		d.Rows[0].Items = []app.AccountOrderItem{}
 		for items.Next() {
 			var i app.AccountOrderItem
-			if err = items.Scan(&i.Name, &i.Spec, &i.Quantity, &i.Unit, &i.UnitPrice, &i.LineTotal); err != nil {
+			if err = items.Scan(&i.Name, &i.Spec, &i.Quantity, &i.Unit, &i.UnitPrice, &i.LineTotal, &i.MaterialUnitWeightG, &i.MaterialItemWeightG, &i.LogisticsUnitWeightG, &i.LogisticsItemWeightG, &i.WeightSnapshotJSON); err != nil {
 				items.Close()
 				return d, err
 			}

@@ -36,11 +36,11 @@ func TestPublishProductionBomSpecTemplateVersionSerializesConcurrentDraftsPostgr
 			(11,1,'V002','draft',now()-interval '1 minute',NULL,'tester',''),
 			(12,1,'V003','draft',now()-interval '1 minute',NULL,'tester','');
 		INSERT INTO %s.production_bom_spec_template_variants(
-			id,version_id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate
+			id,version_id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate,logistics_weight_g
 		) VALUES
-			(100,10,'default','历史规格','kg',true,1,0),
-			(101,11,'default','候选规格 A','kg',true,1,0),
-			(102,12,'default','候选规格 B','kg',true,1,0);
+			(100,10,'default','历史规格','kg',true,1,0,1000),
+			(101,11,'default','候选规格 A','kg',true,1,0,1000),
+			(102,12,'default','候选规格 B','kg',true,1,0,1000);
 		INSERT INTO %s.production_bom_spec_template_variant_items(
 			variant_id,is_main_input,material_id,component_type,consume_unit,qty_per_unit,sort_order
 		) VALUES
@@ -164,14 +164,14 @@ func TestUpdateProductionBomSpecTemplateDraftAuditsWholeGroupDifferencePostgres(
 	}
 	versionID := template.Versions[0].ID
 	first := []bomapp.ProductionBomSpecTemplateVariant{
-		{SpecKey: "227g", Name: "227g 旧规格", InventoryUnit: "袋", IsDefault: true, SortOrder: 1},
-		{SpecKey: "454g", Name: "454g 规格", InventoryUnit: "袋", SortOrder: 2},
+		{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "227g", Name: "227g 旧规格", InventoryUnit: "袋", IsDefault: true, SortOrder: 1},
+		{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "454g", Name: "454g 规格", InventoryUnit: "袋", SortOrder: 2},
 	}
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{VersionID: versionID, Variants: first, Actor: "template-auditor"}); err != nil {
 		t.Fatal(err)
 	}
 	second := []bomapp.ProductionBomSpecTemplateVariant{
-		{SpecKey: "227g", Name: "227g 新规格", InventoryUnit: "袋", IsDefault: true, SortOrder: 1},
+		{LogisticsWeightG: logisticsTestWeight(227), SpecKey: "227g", Name: "227g 新规格", InventoryUnit: "袋", IsDefault: true, SortOrder: 1},
 	}
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{VersionID: versionID, Variants: second, Actor: "template-auditor"}); err != nil {
 		t.Fatal(err)

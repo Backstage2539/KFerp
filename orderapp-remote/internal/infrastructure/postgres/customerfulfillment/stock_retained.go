@@ -7,6 +7,7 @@ import (
 	app "orderapp/internal/application/customerfulfillment"
 	salesapp "orderapp/internal/application/sales"
 	customerstock "orderapp/internal/infrastructure/postgres/customerstock"
+	"orderapp/internal/infrastructure/postgres/orderweight"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	"strings"
 	"time"
@@ -139,6 +140,9 @@ func (r *Repository) submitExplicitDirectShipOrderTx(ctx context.Context, tx pgx
 		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,bom_spec_id,bom_variant_id,item_name,spec,qty,unit,sales_unit,unit_price,line_total,price_source_json)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,0,0,'{"source":"prepaid_customer_stock"}'::jsonb)`, r.schema), id, idx+1, it.ProductID, it.BomSpecID, it.BomVariantID, it.ProductName, spec, it.QuantityUnits, unit); err != nil {
 			return app.DirectShipOrderSummary{}, err
 		}
+	}
+	if err := orderweight.FreezeOrder(ctx, tx, r.schema, id); err != nil {
+		return app.DirectShipOrderSummary{}, err
 	}
 	return app.DirectShipOrderSummary{OrderID: id, OrderNo: no, OrderDate: date, ReceiverAddress: cmd.ReceiverAddress, Status: "submitted", ItemCount: len(cmd.Items)}, nil
 }

@@ -746,16 +746,21 @@ type CustomerOrderSummary struct {
 }
 
 type CustomerOrderItemSummary struct {
-	ID                    int64  `json:"id"`
-	ItemName              string `json:"item_name"`
-	ProductKind           string `json:"product_kind"`
-	Spec                  string `json:"spec"`
-	Qty                   string `json:"qty"`
-	Unit                  string `json:"unit"`
-	UnitPrice             string `json:"unit_price"`
-	LineTotal             string `json:"line_total"`
-	BeanListPublicationID int64  `json:"bean_list_publication_id"`
-	BeanListVersionNo     string `json:"bean_list_version_no"`
+	ID                    int64   `json:"id"`
+	ItemName              string  `json:"item_name"`
+	ProductKind           string  `json:"product_kind"`
+	Spec                  string  `json:"spec"`
+	Qty                   string  `json:"qty"`
+	Unit                  string  `json:"unit"`
+	UnitPrice             string  `json:"unit_price"`
+	LineTotal             string  `json:"line_total"`
+	BeanListPublicationID int64   `json:"bean_list_publication_id"`
+	BeanListVersionNo     string  `json:"bean_list_version_no"`
+	MaterialUnitWeightG   *string `json:"material_unit_weight_g"`
+	MaterialItemWeightG   *string `json:"material_item_weight_g"`
+	LogisticsUnitWeightG  *string `json:"logistics_unit_weight_g"`
+	LogisticsItemWeightG  *string `json:"logistics_item_weight_g"`
+	WeightSnapshotJSON    string  `json:"weight_snapshot_json"`
 }
 
 type DirectShipBatch struct {

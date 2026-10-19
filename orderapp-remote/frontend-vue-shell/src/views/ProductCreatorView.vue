@@ -261,6 +261,7 @@
                   <p class="pc-muted">当前工艺来源：{{ selectedBOMConnectedRoute ? `连线工艺 · ${selectedBOMConnectedRoute.name}` : '规格模板各规格默认工艺' }}。删除工艺连线后会恢复规格模板中的路线。</p>
                   <article v-for="variant in selectedSpecificationTemplateDetail.variants || []" :key="variant.spec_key">
                     <div class="pc-spec-template-variant-heading"><strong>{{ variant.name }}</strong><span>{{ variant.inventory_unit }}<b v-if="variant.is_default">默认规格</b></span></div>
+                    <div class="pc-logistics-weight">物流重量：1 {{ variant.inventory_unit }} = {{ formatWeightG(variant.logistics_weight_g) }}</div>
                     <div class="pc-spec-template-meta">主体用量 {{ mainInputItem(variant)?.qty_per_unit || 0 }} {{ mainInputItem(variant)?.consume_unit || '' }} · 实际工艺 {{ routeName(selectedBOMConnectedRoute?.id || variant.process_route_id) }} · {{ selectedBOMConnectedRoute ? '来自连线' : '来自规格模板' }} · 损耗 {{ (Number(variant.material_loss_rate || 0) * 100).toFixed(2) }}%</div>
                     <div v-for="item in (variant.items || []).filter((row) => !row.is_main_input)" :key="`${variant.spec_key}-${item.sort_order}-${item.component_bom_spec_id || item.material_id}`" class="pc-spec-template-item">
                       <span>{{ item.component_name || item.component_spec_name || '模板包材' }}<small v-if="item.component_spec_name && item.component_name"> · {{ item.component_spec_name }}</small></span>
@@ -395,6 +396,7 @@
 </template>
 
 <script setup>
+import { formatWeightG } from '../lib/logistics-weight.js'
 import { computed, markRaw, onMounted, ref, watch, nextTick } from 'vue'
 import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'

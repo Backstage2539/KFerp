@@ -67,7 +67,7 @@ func TestProductionBomSpecInventoryUnitLocksHistoricalAndBusinessReferencesPostg
 				_ = tx.Rollback(ctx)
 				t.Fatal(err)
 			}
-			err = saveProductionBomDraftVariantsTx(ctx, tx, schema, 1, 201, []bomapp.ProductionBomDraftVariant{{
+			err = saveProductionBomDraftVariantsTx(ctx, tx, schema, 1, 201, []bomapp.ProductionBomDraftVariant{{LogisticsWeightG: logisticsTestWeight(227),
 				BomSpecID:     11,
 				SpecKey:       "227g-bag",
 				Name:          "227g 袋装",
@@ -119,11 +119,11 @@ func TestProductionBomSpecChangesWriteFieldAuditsInSameTransactionPostgres(t *te
 		t.Fatal(err)
 	}
 	variants := []bomapp.ProductionBomDraftVariant{
-		{
+		{LogisticsWeightG: logisticsTestWeight(227),
 			BomSpecID: 11, SpecKey: "227g-bag", Name: "227g 新袋装", InventoryUnit: "盒", Barcode: "BAR-227", IsDefault: true,
 			Items: []bomapp.ProductionBomDraftItem{{MaterialID: 21, ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 0.227}},
 		},
-		{
+		{LogisticsWeightG: logisticsTestWeight(227),
 			SpecKey: "454g-bag", Name: "454g 袋装", InventoryUnit: "袋", Barcode: "BAR-454",
 			Items: []bomapp.ProductionBomDraftItem{{MaterialID: 21, ComponentType: "material", ConsumeUnit: "kg", QtyPerUnit: 0.454}},
 		},
@@ -234,7 +234,7 @@ func newProductionBomSpecUnitLockTestDB(t *testing.T) (context.Context, *pgxpool
 			id BIGSERIAL PRIMARY KEY,version_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,
 			spec_name_snapshot TEXT NOT NULL,inventory_unit TEXT NOT NULL,is_default BOOLEAN NOT NULL,
 			sort_order INT NOT NULL DEFAULT 0,material_loss_rate NUMERIC NOT NULL DEFAULT 0,
-			process_route_id BIGINT NOT NULL DEFAULT 0
+			process_route_id BIGINT NOT NULL DEFAULT 0,logistics_weight_g NUMERIC(20,6) NULL
 		);
 		CREATE TABLE %[1]s.production_bom_version_items(
 			id BIGSERIAL PRIMARY KEY,version_id BIGINT NOT NULL,variant_id BIGINT NOT NULL DEFAULT 0,

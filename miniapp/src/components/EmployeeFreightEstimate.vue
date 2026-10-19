@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {ref,watch,onBeforeUnmount} from 'vue'
+import {freightLabel} from '../utils/freight'
 import {previewEmployeeFreight,type FreightSnapshot} from '../api/customerPortal'
 const props=defineProps<{token:string;customerId:number;destination?:string[];items:{product_id:number;bom_spec_id?:number;bom_variant_id?:number;qty:number}[]}>()
 const emit=defineEmits<{(e:'update:destination',v:string[]):void}>()
@@ -19,7 +20,7 @@ defineExpose({preview,payload})
 <template>
  <view class="estimate-card"><text class="title">预估运费</text><picker mode="region" :value="destination" @change="selectRegion"><view class="field">{{destination.length?destination.join(' / '):'选择收件省市区'}} ›</view></picker><text class="hint">不计入当前应付，实际运费核对出账后另收。</text>
  <view class="switch"><text>本单调整运费政策</text><switch :checked="adjust" @change="toggleAdjustment" /></view><view v-if="adjust"><input v-model="surcharge" type="digit" class="field" placeholder="每票附加运费（元）" /><view class="switch"><text>本单包邮</text><switch :checked="free" @change="toggleFree" /></view><input v-model="reason" class="field" placeholder="填写调整原因" /></view>
- <text v-if="error" class="error">{{error}}</text><text v-else-if="busy" class="hint">正在核算…</text><text v-else-if="quote" class="amount">{{quote.status==='free'?'包邮':`预估 ¥${(quote.estimated_total_cents/100).toFixed(2)} · 待出账`}}{{quote.status==='free'&&!quote.estimate_known?' · 快递成本待核':''}}</text><button :disabled="busy" @tap="preview">核算预估运费</button></view>
+ <text v-if="error" class="error">{{error}}</text><text v-else-if="busy" class="hint">正在核算…</text><text v-else-if="quote" class="amount">{{freightLabel(quote)}}</text><text v-if="quote && !quote.estimate_known && quote.cost_pending_reason" class="hint">{{quote.cost_pending_reason}}</text><button :disabled="busy" @tap="preview">核算预估运费</button></view>
 </template>
 <style scoped>
 .estimate-card{padding:24rpx;background:#eff6f0;border:1px solid #d5e5d9;border-radius:14rpx;margin:24rpx 0}.title{font-size:30rpx;font-weight:700;color:#244c36}.field{margin-top:16rpx;padding:20rpx;background:white;border:1px solid #cbd9cf;border-radius:10rpx;font-size:28rpx}.hint,.error,.amount{display:block;font-size:25rpx;line-height:1.7;margin:12rpx 0}.hint{color:#718276}.error{color:#b13b2f}.amount{color:#286248;font-weight:600}.switch{display:flex;align-items:center;justify-content:space-between;font-size:26rpx;margin:10rpx 0}button{font-size:26rpx;color:#286248;background:white;border:1px solid #cbd9cf;margin-top:14rpx}

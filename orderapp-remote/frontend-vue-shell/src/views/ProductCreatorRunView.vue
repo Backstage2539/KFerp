@@ -164,6 +164,7 @@
                   <header><strong>{{ specificationTemplateForBOM(node.id).name }}</strong><span>已发布 {{ specificationTemplateForBOM(node.id).selected_version?.version_no || '' }} · {{ specificationTemplateForBOM(node.id).variants?.length || 0 }} 个规格</span></header>
                   <article v-for="variant in specificationTemplateForBOM(node.id).variants || []" :key="variant.spec_key">
                     <div class="pc-template-run-variant-heading"><strong>{{ variant.name }}</strong><span>{{ variant.inventory_unit }}<b v-if="variant.is_default">默认规格</b></span></div>
+                    <div class="pc-logistics-weight">物流重量：1 {{ variant.inventory_unit }} = {{ formatWeightG(variant.logistics_weight_g) }}</div>
                     <div class="pc-template-run-meta">主体用量 {{ mainTemplateInput(variant)?.qty_per_unit || 0 }} {{ templateMainInputUnit(node, variant) }} · 工艺 {{ routeLabel(effectiveTemplateVariantRouteID(node, variant)) }} · {{ processRouteSourceLabel(node) }} · 损耗 {{ (Number(variant.material_loss_rate || 0) * 100).toFixed(2) }}%</div>
                     <div v-for="item in (variant.items || []).filter((row) => !row.is_main_input)" :key="`${variant.spec_key}-${item.sort_order}-${item.component_bom_spec_id || item.material_id}`" class="pc-template-run-item">
                       <span>{{ item.component_name || item.component_spec_name || '规格模板包材' }}<small v-if="item.component_spec_name && item.component_name"> · {{ item.component_spec_name }}</small></span>
@@ -370,6 +371,7 @@
 </template>
 
 <script setup>
+import { formatWeightG } from '../lib/logistics-weight.js'
 import BusinessGroupClassificationPicker from '../components/BusinessGroupClassificationPicker.vue'
 import { productCreatorResultRows } from '../lib/product-creator-results.js'
 import { computed, markRaw, onMounted, ref, watch } from 'vue'

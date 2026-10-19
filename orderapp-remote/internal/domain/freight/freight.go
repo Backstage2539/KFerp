@@ -67,26 +67,37 @@ type Estimate struct {
 	GroupName  string `json:"group_name"`
 	RegionCode string `json:"region_code"`
 }
+type WeightBasis struct {
+	ProductID            int64    `json:"product_id"`
+	BomSpecID            int64    `json:"bom_spec_id"`
+	BomVariantID         int64    `json:"bom_variant_id"`
+	BomVersionID         int64    `json:"bom_version_id"`
+	Qty                  int64    `json:"qty"`
+	LogisticsUnitWeightG *float64 `json:"logistics_unit_weight_g"`
+	MissingReason        string   `json:"missing_reason,omitempty"`
+}
+
 type Snapshot struct {
-	Protocol               string      `json:"protocol"`
-	Policy                 Policy      `json:"policy"`
-	TemplateID             int64       `json:"template_id"`
-	TemplateRevision       int64       `json:"template_revision"`
-	CarrierID              int64       `json:"carrier_id"`
-	ProductID              int64       `json:"logistics_product_id"`
-	Destination            Destination `json:"destination"`
-	NetWeightG             int64       `json:"net_weight_g"`
-	PackagingWeightG       int64       `json:"packaging_weight_g"`
-	Estimate               Estimate    `json:"estimate"`
-	EstimateKnown          bool        `json:"estimate_known"`
-	CostPendingReason      string      `json:"cost_pending_reason,omitempty"`
-	SurchargeCents         int64       `json:"surcharge_cents"`
-	WaiverCents            int64       `json:"waiver_cents"`
-	EstimatedTotalCents    int64       `json:"estimated_total_cents"`
-	CurrentReceivableCents int64       `json:"current_receivable_cents"`
-	Status                 string      `json:"status"`
-	Token                  string      `json:"token"`
-	AdjustmentReason       string      `json:"adjustment_reason,omitempty"`
+	ItemWeights            []WeightBasis `json:"item_weights,omitempty"`
+	Protocol               string        `json:"protocol"`
+	Policy                 Policy        `json:"policy"`
+	TemplateID             int64         `json:"template_id"`
+	TemplateRevision       int64         `json:"template_revision"`
+	CarrierID              int64         `json:"carrier_id"`
+	ProductID              int64         `json:"logistics_product_id"`
+	Destination            Destination   `json:"destination"`
+	NetWeightG             int64         `json:"net_weight_g"`
+	PackagingWeightG       int64         `json:"packaging_weight_g"`
+	Estimate               Estimate      `json:"estimate"`
+	EstimateKnown          bool          `json:"estimate_known"`
+	CostPendingReason      string        `json:"cost_pending_reason,omitempty"`
+	SurchargeCents         int64         `json:"surcharge_cents"`
+	WaiverCents            int64         `json:"waiver_cents"`
+	EstimatedTotalCents    int64         `json:"estimated_total_cents"`
+	CurrentReceivableCents int64         `json:"current_receivable_cents"`
+	Status                 string        `json:"status"`
+	Token                  string        `json:"token"`
+	AdjustmentReason       string        `json:"adjustment_reason,omitempty"`
 }
 type SettlementDelta struct {
 	ActualCents    int64 `json:"actual_cents"`
@@ -241,7 +252,14 @@ func Quote(p Policy, t Template, d Destination, netG int64) (Snapshot, error) {
 	if p.TemplateID != t.ID {
 		err = fmt.Errorf("客户运费模板未配置")
 	}
-	if err != nil && !p.FreeShipping {
+	allowUnknownWeight := false
+	if p.Scene == "sale" && netG == 0 && p.TemplateID == t.ID && t.Active {
+		// Check every non-weight prerequisite independently; no placeholder estimate
+		// is returned or stored from this validation probe.
+		_, configurationErr := Calculate(t, d, 1)
+		allowUnknownWeight = configurationErr == nil
+	}
+	if err != nil && !p.FreeShipping && !allowUnknownWeight {
 		return Snapshot{}, err
 	}
 	q.Estimate = e
@@ -258,7 +276,9 @@ func Quote(p Policy, t Template, d Destination, netG int64) (Snapshot, error) {
 		if e.BaseCents > MaxCents-p.SurchargeCents {
 			return Snapshot{}, fmt.Errorf("运费超出可处理范围")
 		}
-		q.EstimatedTotalCents = e.BaseCents + p.SurchargeCents
+		if q.EstimateKnown {
+			q.EstimatedTotalCents = e.BaseCents + p.SurchargeCents
+		}
 	}
 	q.Token = Token(q)
 	return q, nil
