@@ -81,15 +81,59 @@ func TestOrderCopyDetailsPostgresSavedAddressAndSnapshots(t *testing.T) {
 		Text string `json:"text"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &body)
-	for _, want := range []string{"客户名称｜规格：454g｜数量：1.25 袋", "2. 挂耳｜规格：10袋/盒｜数量：3 盒", "收件地址：未填写", "收件人：未填写"} {
+	for _, want := range []string{"客户名称｜454g｜1.25 袋", "2. 挂耳｜10袋/盒｜3 盒", "收件地址：当前地址", "收件人：当前联系人", "电话：9999"} {
 		if !strings.Contains(body.Text, want) {
 			t.Fatalf("missing %s: %s", want, body.Text)
 		}
 	}
-	for _, bad := range []string{"当前地址", "当前联系人", "9999", "2026-10-17"} {
+	for _, bad := range []string{"旧名", "2026-10-17", "规格：", "数量："} {
 		if strings.Contains(body.Text, bad) {
 			t.Fatal(body.Text)
 		}
+	}
+}
+
+func TestOrderCopyDetailsPostgresRecipientSources(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.customers SET contact='客户联系人',phone='13800000000',address='客户默认地址' WHERE id=3`, schema))
+	e := newOrderAPITestEcho(pool, schema)
+	for index, tc := range []struct {
+		name, service, recipient, phone, address string
+		wantName, wantPhone, wantAddress         string
+	}{
+		{"legacy", "", "", "", "", "客户联系人", "13800000000", "客户默认地址"},
+		{"saved", "", "指定收件人", "13900000000", "指定地址", "指定收件人", "13900000000", "指定地址"},
+		{"partial legacy", "", "指定收件人", "", "", "指定收件人", "13800000000", "客户默认地址"},
+		{"direct ship missing", "direct_ship", "", "", "", "未填写", "未填写", "未填写"},
+		{"product order missing", "product_order", "", "", "", "未填写", "未填写", "未填写"},
+		{"processing ship missing", "processing_ship", "", "", "", "未填写", "未填写", "未填写"},
+		{"direct ship saved", "direct_ship", "指定收件人", "13900000000", "指定地址", "指定收件人", "13900000000", "指定地址"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := int64(9100 + index)
+			_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.orders(id,order_no,customer_id,order_date,pay_status_id,portal_service_code,receiver_name,receiver_phone,receiver_address) VALUES($1,$2,3,'2026-10-19',1,$3,$4,$5,$6)`, schema), id, fmt.Sprintf("SO-COPY-%d", id), tc.service, tc.recipient, tc.phone, tc.address)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, httptest.NewRequest("GET", fmt.Sprintf("/api/orders/%d/copy-details", id), nil))
+			if rec.Code != 200 {
+				t.Fatalf("%d %s", rec.Code, rec.Body.String())
+			}
+			var body struct {
+				Text string `json:"text"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"收件人：" + tc.wantName, "电话：" + tc.wantPhone, "收件地址：" + tc.wantAddress} {
+				if !strings.Contains(body.Text, want) {
+					t.Fatalf("missing %s: %s", want, body.Text)
+				}
+			}
+		})
 	}
 }
 

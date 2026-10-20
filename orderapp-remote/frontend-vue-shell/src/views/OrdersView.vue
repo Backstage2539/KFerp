@@ -5,7 +5,7 @@
         <h2>订单列表</h2>
         <button class="secondary" type="button" @click="load()" :disabled="loading">刷新</button>
       </div>
-      <p class="list-help">点击订单行展开商品和费用；点击订单号打开完整详情。类型包含订单属性及全部商品分类。点击“复制订单详情”可复制已保存的文字并粘贴到生产群。</p>
+      <p class="list-help">点击订单行展开商品和费用；点击订单号打开完整详情。类型包含订单属性及全部商品分类。点击“复制订单详情”可复制“商品｜规格｜数量 单位”和订单详情中的收件信息，并粘贴到生产群。</p>
       <div v-if="error" class="error">{{ error }}</div>
       <div class="scope-tabs" role="tablist" aria-label="订单范围">
         <button type="button" :class="{ active: filters.scope === 'all' }" @click="setScope('all')">全部订单</button>

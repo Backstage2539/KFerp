@@ -5883,3 +5883,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - GREEN: full Go; Vue1436; mini371/typecheck/development build; isolated PostgreSQL/API and restart preservation. See docs/acceptance/2026-10-20-product-logistics-weight.md.
 - Artifact: /Users/yiiiple-work/KFerp-logistics-weight-delivery-20261020/KFerp-miniapp-dev-d0b75f4f.zip; development API/commit confirmed, 24 pages/96 manifest entries, 237 ZIP files, SHA256 2ba3d869ceee0ba35ae96264c612f200e081772876dcd005d18668d794c3d504. Compiled UI and file integrity checks passed. Legacy published specifications require manually entered logistics weight in a new published version before automatic dropship freight can be calculated; no values guessed or backfilled.
 - Notes: reserve helper reported PR-706 but macOS awk claim failed; reserved here.
+
+
+### PR-701-ORDER-COPY-RECIPIENT-FOLLOWUP-20261020
+- Branch: codex/miniapp-order-copy-recipient-20261020; base origin/develop@861f54e0.
+- Status: local targeted verification and client builds complete; integration pending; production deployment blocked by sandbox SSH denial.
+- Scope: copied recipient matches ordinary order detail fallback; explicit portal destinations preserved; compact item text without specification/quantity labels.
+- Verifier: Go order-copy unit/HTTP GREEN; Vue1436; mini371/typecheck/production build; Vue build; diff check. PostgreSQL integration blocked by socket denial; full Go blocked only by httptest listener denial in two packages.
+- Manual/evidence: docs/acceptance/2026-10-20-order-copy-recipient.md; five PR-701 manuals and Vue order help synchronized.
+- Deployment: Van explicitly authorized develop -> main -> production; not deployed yet. DevTools UI transport unavailable.

@@ -2,10 +2,12 @@ package customerportal
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/labstack/echo/v4"
 	"net/http/httptest"
 	portalapp "orderapp/internal/application/customerportal"
 	salesapp "orderapp/internal/application/sales"
+	"strings"
 	"testing"
 )
 
@@ -13,11 +15,50 @@ type miniOrderCopySales struct {
 	miniEmployeeSalesFake
 	calls      int
 	customerID int64
+	snapshot   *salesapp.OrderCopySnapshot
 }
 
 func (s *miniOrderCopySales) CopyOrderDetails(_ context.Context, id int64) (salesapp.OrderDetailsText, error) {
 	s.calls++
+	if s.snapshot != nil {
+		return salesapp.OrderDetailsText{OrderID: id, CustomerID: s.customerID, Text: salesapp.BuildOrderDetailsText(*s.snapshot)}, nil
+	}
 	return salesapp.OrderDetailsText{OrderID: id, CustomerID: s.customerID, Text: "订单号：SO-42\n付款状态：无需收款"}, nil
+}
+
+func TestMiniOrderCopyDetailsRecipientAndCompactText(t *testing.T) {
+	for _, employee := range []bool{false, true} {
+		s := &miniOrderCopySales{customerID: 8, snapshot: &salesapp.OrderCopySnapshot{
+			PayStatus:        "未收款",
+			Order:            salesapp.OrderEditData{ID: 42, CustomerID: 8, OrderNo: "SO-20261019-0004", OrderDate: "2026-10-19", Items: []salesapp.OrderEditItem{{Product: "曲奇", Spec: "227g袋装", Qty: "1", Unit: "袋"}}},
+			DefaultRecipient: salesapp.OrderCopyRecipient{Name: "客户联系人", Phone: "13800000000", Address: "客户默认地址"},
+		}}
+		e := echo.New()
+		path := "/api/mini/orders/42/copy-details"
+		if employee {
+			s.listResult = &salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42}}}
+			registerMiniEmployeeAPI(e, employeePortalService(), s)
+			path = "/api/mini/employee/orders/42/copy-details"
+		} else {
+			registerMiniOrderCopyAPI(e, fakeService{me: portalapp.CurrentContext{CurrentCustomerID: 8, Capabilities: []portalapp.Capability{{Code: portalapp.CapabilityMall, Enabled: true}}}}, s)
+		}
+		r := httptest.NewRecorder()
+		q := httptest.NewRequest("GET", path, nil)
+		q.Header.Set("Authorization", "Bearer token")
+		e.ServeHTTP(r, q)
+		if r.Code != 200 || r.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%s: %d %s", path, r.Code, r.Body.String())
+		}
+		var body salesapp.OrderDetailsText
+		if err := json.Unmarshal(r.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"1. 曲奇｜227g袋装｜1 袋", "收件人：客户联系人", "电话：13800000000", "收件地址：客户默认地址"} {
+			if !strings.Contains(body.Text, want) {
+				t.Fatalf("%s missing %s: %s", path, want, body.Text)
+			}
+		}
+	}
 }
 func TestMiniOrderCopyDetailsEmployeeScope(t *testing.T) {
 	for _, allow := range []bool{true, false} {
