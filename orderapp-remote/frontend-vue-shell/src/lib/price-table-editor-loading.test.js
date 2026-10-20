@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { ref, computed, nextTick } from 'vue'
-import { publicationEditorPayload, loadPublishedEditorBatch, reconcileEditorBatch, editorTableConflict } from './price-table-editor-restore.js'
+import { publicationEditorPayload, loadPublishedEditorBatch, reconcileEditorBatch, editorTableConflict, resolveEditorTableConflict } from './price-table-editor-restore.js'
 import { clonePriceTable, createPriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft } from './price-table-batch.js'
 import { defaultPriceListProductSpecSelections } from './product-price-list-selection.js'
 import { buildPublicationSummaryURL } from './publication-summary-client.js'
@@ -13,6 +13,7 @@ const functions = [
   block('function persistNamedPriceTableBatch()', '\nasync function applyNamedPriceTablePayload'),
   block('async function applyNamedPriceTablePayload()', '\nasync function restoreNamedPriceTableBatch'),
   block('async function restoreNamedPriceTableBatch(', '\nasync function retryNamedPriceTableEditor'),
+  block('async function resolveNamedTableDraft(', '\nfunction removeUnavailableEditorSelections'),
   block('async function selectNamedPriceTable(', '\nfunction keepActiveNamedPriceTableTabVisible'),
 ].join('\n')
 
@@ -23,13 +24,14 @@ const publication = { id: 152, version: 'V3.0.14', status: 'published', release_
   content: { price_rows: [{ ...spec, pricing_mode: 'fixed_price', final_unit_price: 32.8, price_unit: '盒' }] },
 }
 
-function harness() {
+function harness({ resolveConflict = resolveEditorTableConflict } = {}) {
   const scope = ref('customer:471:drip'), state = ref({}), storageData = new Map(), writes = [], pending = []
   const storage = { getItem: k => storageData.get(k), setItem: (k,v) => { writes.push(k); storageData.set(k,v) } }
   const refs = {
     priceListCatalogReady: ref(true), loading: ref(false), priceListPublicationTypeOptionsReady: ref(true), namedPriceTableScope: ref(''),
     namedEditorReadyScope: ref(''), namedEditorLoading: ref(false), namedEditorError: ref(''),
     namedPriceTableBatch: ref(null), publishedEditorBatch: ref(null),
+    error: ref(''), message: ref(''),
     activePriceListTypeKey: ref('drip'), activeBeanListCustomerID: ref(471),
     publicationScope: ref('customer'), pdfOptions: ref({}), pdfTheme: ref({ listType: 'commercial' }), pdfCustomizers: ref({}),
     selectedProductPriceListType: ref({ listType: 'commercial' }), selectedProductPriceListLabel: ref('挂耳'),
@@ -40,12 +42,14 @@ function harness() {
     priceListTierFixedPrices: ref({}), productSpecSelectionsByType: ref({}), beanListPublishing: ref(false),
   }
   refs.activeNamedPriceTable = computed(() => refs.namedPriceTableBatch.value?.tables.find(t => t.key === refs.namedPriceTableBatch.value.active_table_key))
+  refs.activePublishedEditorTable = computed(() => refs.publishedEditorBatch.value?.tables.find(t => t.key === refs.activeNamedPriceTable.value?.key))
   refs.namedEditorReady = computed(() => refs.namedEditorReadyScope.value === scope.value && !refs.namedEditorLoading.value && !refs.namedEditorError.value)
   refs.activeNamedTableConflict = computed(() => editorTableConflict(refs.activeNamedPriceTable.value,
     refs.publishedEditorBatch.value?.tables.find(t => t.key === refs.activeNamedPriceTable.value?.key)))
   refs.namedEditorBlocked = computed(() => refs.loading.value || !refs.namedEditorReady.value || refs.activeNamedTableConflict.value)
   const bindings = { ...refs, nextTick, clonePriceTable, createPriceTableBatch, publicationEditorPayload,
     loadPublishedEditorBatch, reconcileEditorBatch, buildPublicationSummaryURL, defaultPriceListProductSpecSelections,
+    resolveEditorTableConflict: resolveConflict,
     priceListGenerationDraftBaseKey: () => scope.value, activePublicationProductTypeCategoryID: () => 0,
     activePublicationClassificationTemplateID: () => 163, FACTORY_SUPPLY_PUBLICATION_PURPOSE: 'factory_supply',
     publicationRequestOnce: url => new Promise((resolve,reject) => pending.push({ url, resolve, reject })),
@@ -59,7 +63,7 @@ function harness() {
     keepActiveNamedPriceTableTabVisible: () => {},
   }
   const setup = new Function(...Object.keys(bindings), 'let namedEditorRevision = 0, restoringNamedPriceTable = false;\n' + functions +
-    '\nreturn { restoreNamedPriceTableBatch, persistNamedPriceTableBatch, selectNamedPriceTable };')
+    '\nreturn { restoreNamedPriceTableBatch, persistNamedPriceTableBatch, selectNamedPriceTable, resolveNamedTableDraft };')
   return { ...refs, ...setup(...Object.values(bindings)), scope, state, pending, writes, storage, storageData }
 }
 
@@ -111,6 +115,53 @@ test('actual view switching tables preserves edited amount and an intentional em
   await h.selectNamedPriceTable('drip')
   assert.equal(h.state.value.productOverrides['sku:309'].fixed_unit_price, 40)
   assert.deepEqual(h.state.value.product_spec_selections, [])
+})
+
+test('actual view waits for backup, blocks repeat clicks and only then applies the publication', async () => {
+  let finishBackup, calls = 0
+  const backup = new Promise(resolve => { finishBackup = resolve })
+  const h = harness({ resolveConflict: () => { calls++; return backup } })
+  const load = h.restoreNamedPriceTableBatch()
+  h.pending[0].resolve({ current: publication, rows: [publication], total: 1 })
+  await load
+  const published = clonePriceTable(h.namedPriceTableBatch.value)
+  h.namedPriceTableBatch.value.tables[0].source_publication.id = 1
+  const old = h.namedPriceTableBatch.value
+  const resolving = h.resolveNamedTableDraft('published')
+  await h.resolveNamedTableDraft('published')
+  assert.equal(calls, 1)
+  assert.equal(h.namedPriceTableBatch.value, old)
+  assert.equal(h.namedEditorLoading.value, true)
+  finishBackup(published)
+  await resolving
+  assert.equal(h.namedPriceTableBatch.value.tables[0].source_publication.id, publication.id)
+  assert.equal(h.namedEditorLoading.value, false)
+  assert.match(h.message.value, /已载入最新发布版/)
+  assert.equal(h.error.value, '')
+})
+
+test('a late backup result cannot overwrite another customer or unlock its pending editor load', async () => {
+  let finishBackup
+  const backup = new Promise(resolve => { finishBackup = resolve })
+  const h = harness({ resolveConflict: () => backup })
+  const load = h.restoreNamedPriceTableBatch()
+  h.pending[0].resolve({ current: publication, rows: [publication], total: 1 })
+  await load
+  const published = clonePriceTable(h.namedPriceTableBatch.value)
+  h.namedPriceTableBatch.value.tables[0].source_publication.id = 1
+  const old = h.namedPriceTableBatch.value
+  const resolving = h.resolveNamedTableDraft('published')
+  h.scope.value = 'customer:472:drip'
+  const otherLoad = h.restoreNamedPriceTableBatch()
+  finishBackup(published)
+  await resolving
+  assert.equal(h.namedPriceTableBatch.value, old)
+  assert.equal(h.namedEditorLoading.value, true)
+  assert.equal(h.message.value, '')
+  h.pending[1].resolve({ current: null, rows: [], total: 0 })
+  await otherLoad
+  assert.equal(h.namedPriceTableScope.value, h.scope.value)
+  assert.equal(h.namedEditorLoading.value, false)
 })
 
 

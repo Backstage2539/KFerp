@@ -108,16 +108,102 @@ test('legacy and stale drafts require a per-table decision, backup precedes repl
   local.tables.push({ key: 'other', name: 'other', payload: { marker: 'keep' } })
   assert.equal(editorTableConflict(local.tables[0], published.tables[0]), true)
   const saved = new Map()
-  const next = resolveEditorTableConflict(local, published.tables[0], 'published', { scope: 'customer471', storage: { setItem: (k,v) => saved.set(k,v) } })
+  const next = await resolveEditorTableConflict(local, published.tables[0], 'published', { scope: 'customer471', storage: { setItem: (k,v) => saved.set(k,v) } })
   assert.equal(JSON.parse([...saved.values()][0]).payload.draft.marker, 'unsaved')
   assert.deepEqual(next.tables[1], local.tables[1])
-  const kept = resolveEditorTableConflict(local, published.tables[0], 'local')
+  const kept = await resolveEditorTableConflict(local, published.tables[0], 'local')
   assert.equal(kept.tables[0].payload.draft.marker, 'unsaved')
   assert.equal(editorTableConflict(kept.tables[0], published.tables[0]), false)
-  assert.throws(() => resolveEditorTableConflict(local, published.tables[0], 'published', {
+  await assert.rejects(resolveEditorTableConflict(local, published.tables[0], 'published', {
     storage: { setItem: () => { throw Error('storage full') } },
   }), /storage full/)
   assert.equal(local.tables[0].payload.draft.marker, 'unsaved')
+})
+
+function backupDatabase({ existing = false } = {}) {
+  const records = new Map()
+  const stores = new Set(existing ? ['backups'] : [])
+  let transaction
+  let closed = false
+  const database = {
+    objectStoreNames: { contains: name => stores.has(name) },
+    createObjectStore: name => { assert.equal(name, 'backups'); stores.add(name) },
+    transaction(store, mode) {
+      assert.equal(store, 'backups')
+      assert.equal(mode, 'readwrite')
+      assert.ok(stores.has(store))
+      transaction = { objectStore: () => ({ put: (value, key) => records.set(key, value) }) }
+      return transaction
+    },
+    close: () => { closed = true },
+  }
+  return {
+    records,
+    get transaction() { return transaction },
+    get closed() { return closed },
+    indexedDB: { open: () => {
+      const request = { result: database }
+      queueMicrotask(() => { if (!existing) request.onupgradeneeded(); request.onsuccess() })
+      return request
+    } },
+  }
+}
+
+test('full localStorage backs up the complete old table in IndexedDB before loading the publication', async () => {
+  const published = await publishedBatch()
+  const local = structuredClone(published)
+  local.tables[0].payload = { draft: { marker: 'unsaved', productOverrides: { 'sku:68': { fixed_unit_price: 88 } } } }
+  local.tables.push({ key: 'other', payload: { marker: 'keep' } })
+  const original = structuredClone(local)
+  const backup = backupDatabase({ existing: true })
+  let settled = false
+  const pending = Promise.resolve().then(() => resolveEditorTableConflict(local, published.tables[0], 'published', {
+    scope: 'factory:official:all:product-catalog:56',
+    storage: { setItem: () => { throw new DOMException('Setting the value exceeded the quota.', 'QuotaExceededError') } },
+    indexedDB: backup.indexedDB,
+  }))
+  pending.then(() => { settled = true }, () => { settled = true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(settled, false, 'must wait for a durable backup transaction')
+  const [key, value] = [...backup.records][0]
+  assert.ok(key.startsWith('kferp:price-table-backup:factory:official:all:product-catalog:56:'))
+  assert.deepEqual(JSON.parse(value), original.tables[0])
+  assert.deepEqual(local, original)
+  backup.transaction.oncomplete()
+  const next = await pending
+  assert.deepEqual(next.tables[0], published.tables[0])
+  assert.deepEqual(next.tables[1], original.tables[1])
+  assert.deepEqual(local, original)
+  assert.equal(backup.closed, true)
+})
+
+test('unavailable fallback storage stops replacement without exposing the native quota exception', async () => {
+  const published = await publishedBatch()
+  const local = structuredClone(published)
+  local.tables[0].payload = { draft: { marker: 'unsaved' } }
+  await assert.rejects(resolveEditorTableConflict(local, published.tables[0], 'published', {
+    storage: { setItem: () => { throw new DOMException('quota', 'QuotaExceededError') } }, indexedDB: null,
+  }), /草稿.*保留/)
+  assert.equal(local.tables[0].payload.draft.marker, 'unsaved')
+})
+
+test('failed fallback backup leaves the entire current draft intact and gives a readable error', async () => {
+  const published = await publishedBatch()
+  const local = structuredClone(published)
+  local.tables[0].payload = { draft: { marker: 'unsaved' } }
+  const original = structuredClone(local)
+  const backup = backupDatabase()
+  const pending = Promise.resolve().then(() => resolveEditorTableConflict(local, published.tables[0], 'published', {
+    storage: { setItem: () => { throw new DOMException('quota', 'QuotaExceededError') } },
+    indexedDB: backup.indexedDB,
+  }))
+  const rejected = assert.rejects(pending, /草稿.*保留/)
+  await new Promise(resolve => setImmediate(resolve))
+  backup.transaction.error = new DOMException('quota', 'QuotaExceededError')
+  backup.transaction.onabort()
+  await rejected
+  assert.deepEqual(local, original)
+  assert.equal(backup.closed, true)
 })
 
 test('published fixed prices retain exact amounts and units while new products use editable pricing', () => {

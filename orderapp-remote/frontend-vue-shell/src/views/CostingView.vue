@@ -6117,12 +6117,21 @@ async function retryNamedPriceTableEditor() {
 
 async function resolveNamedTableDraft(choice) {
   if (!activeNamedTableConflict.value || namedEditorLoading.value || loading.value) return
+  const revision = namedEditorRevision
+  const scope = namedPriceTableScope.value
+  const current = () => revision === namedEditorRevision && scope === priceListGenerationDraftBaseKey()
+  namedEditorLoading.value = true
   try {
-    namedPriceTableBatch.value = resolveEditorTableConflict(namedPriceTableBatch.value, activePublishedEditorTable.value, choice, { scope: namedPriceTableScope.value })
+    const batch = await resolveEditorTableConflict(namedPriceTableBatch.value, activePublishedEditorTable.value, choice, { scope })
+    if (!current()) return
+    namedPriceTableBatch.value = batch
     await applyNamedPriceTablePayload()
+    if (!current()) return
+    namedEditorLoading.value = false
     persistNamedPriceTableBatch()
     message.value = choice === 'published' ? '已载入最新发布版，原本地草稿已备份。' : '继续编辑本地草稿。'
-  } catch (err) { error.value = err.message || '恢复失败，本地草稿已保留' }
+  } catch (err) { if (current()) error.value = err.message || '恢复失败，本地草稿已保留' }
+  finally { if (current()) namedEditorLoading.value = false }
 }
 
 function removeUnavailableEditorSelections() {
