@@ -9,11 +9,15 @@ import (
 	"strings"
 )
 
-// OrderCopySnapshot contains only persisted order data, without customer-address
-// or current-catalogue defaults. All clients use the same formatter.
+// OrderCopySnapshot reads the current saved order and the same recipient defaults
+// as order detail. Product names and specifications remain frozen order data.
 type OrderCopySnapshot struct {
-	Order     OrderEditData
-	PayStatus string
+	Order            OrderEditData
+	PayStatus        string
+	DefaultRecipient OrderCopyRecipient
+}
+type OrderCopyRecipient struct {
+	Name, Phone, Address string
 }
 type OrderDetailsText struct {
 	OrderID    int64  `json:"order_id"`
@@ -111,11 +115,20 @@ func BuildOrderDetailsText(snapshot OrderCopySnapshot) string {
 	lines = append(lines, "订单号："+copyValue(o.OrderNo), "订单日期："+copyValue(o.OrderDate), "付款状态："+copyValue(snapshot.PayStatus), "", "订单详情：")
 	for i, item := range o.Items {
 		name := copyValue(copyFirst(item.CustomerProductDisplayNameSnapshot, item.ProductNameSnapshot, item.Product))
-		lines = append(lines, fmt.Sprintf("%d. %s｜规格：%s｜数量：%s %s", i+1, name, copySpec(item), copyQuantity(item.Qty), copyValue(item.Unit)))
+		lines = append(lines, fmt.Sprintf("%d. %s｜%s｜%s %s", i+1, name, copySpec(item), copyQuantity(item.Qty), copyValue(item.Unit)))
 	}
 	if len(o.Items) == 0 {
 		lines = append(lines, "未填写")
 	}
-	lines = append(lines, "", "收件人："+copyValue(o.ReceiverName), "电话："+copyValue(o.ReceiverPhone), "收件地址："+copyValue(o.ReceiverAddress))
+	recipient := OrderCopyRecipient{Name: o.ReceiverName, Phone: o.ReceiverPhone, Address: o.ReceiverAddress}
+	switch o.PortalServiceCode {
+	case "direct_ship", "product_order", "processing_ship":
+		// These orders must retain their explicitly saved destination.
+	default:
+		recipient.Name = copyFirst(recipient.Name, snapshot.DefaultRecipient.Name)
+		recipient.Phone = copyFirst(recipient.Phone, snapshot.DefaultRecipient.Phone)
+		recipient.Address = copyFirst(recipient.Address, snapshot.DefaultRecipient.Address)
+	}
+	lines = append(lines, "", "收件人："+copyValue(recipient.Name), "电话："+copyValue(recipient.Phone), "收件地址："+copyValue(recipient.Address))
 	return strings.Join(lines, "\n")
 }
