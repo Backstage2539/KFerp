@@ -25,11 +25,11 @@ func TestManualProductBOMSpecGroupPublishesWithoutTemplateProvenancePostgres(t *
 		Name: "商品-速溶-黑咖", OutputType: "product", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
 		OutputID: 1001, OutputProductID: 1001, OutputQty: 1, OutputUnit: "盒", Actor: "pr625-auditor",
 		Variants: []bomapp.ProductionBomDraftVariant{
-			{
+			{LogisticsWeightG: logisticsTestWeight(227),
 				SpecKey: "box", Name: "盒装", InventoryUnit: "盒", IsDefault: true, SortOrder: 1,
 				Items: []bomapp.ProductionBomDraftItem{{MaterialID: 1101, ComponentType: "material", ConsumeUnit: "条", QtyPerUnit: 10}},
 			},
-			{
+			{LogisticsWeightG: logisticsTestWeight(227),
 				SpecKey: "stick", Name: "条装", InventoryUnit: "条", SortOrder: 2,
 				Items: []bomapp.ProductionBomDraftItem{{MaterialID: 1101, ComponentType: "material", ConsumeUnit: "条", QtyPerUnit: 1}},
 			},
@@ -82,7 +82,7 @@ func TestProductBOMSpecGroupRejectsPartialTemplateProvenancePostgres(t *testing.
 	created, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
 		Name: "来源不完整 BOM", OutputType: "product", SpecificationMode: bomapp.ProductionBomSpecificationModeSpecGroup,
 		OutputID: 1002, OutputProductID: 1002, OutputQty: 1, OutputUnit: "条", Actor: "pr625-auditor",
-		Variants: []bomapp.ProductionBomDraftVariant{{
+		Variants: []bomapp.ProductionBomDraftVariant{{LogisticsWeightG: logisticsTestWeight(227),
 			SpecKey: "stick", Name: "条装", InventoryUnit: "条", IsDefault: true,
 			Items: []bomapp.ProductionBomDraftItem{{MaterialID: 1102, ComponentType: "material", ConsumeUnit: "条", QtyPerUnit: 1}},
 		}},

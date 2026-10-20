@@ -1,3 +1,5 @@
+PR-706：商品规格手填物流重量、订单本层净用料参考重与重量快照、无库存代发界面，参见[商品规格与录单](OP_MANUAL_BOM_ORDER_PRICING.md)、[订单销售](OP_MANUAL_ORDER_SALES.md)和[客户购货寄存与代发](OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md)。
+
 PR-679（2026-10-02）：商品作为 BOM 配方时应连接商品规格输出口；商品档案输出口不带具体规格身份，误连时给出修复指引。参见[商品创建器手册](OP_MANUAL_PRODUCT_CREATOR.md)。
 PR-678（2026-10-02）：创建器 V7 取消投入物料预设；节点顶部取得方式决定 BOM 输入口；命名采用「＋文本／＋变量」顺序追加。参见[商品创建器手册](OP_MANUAL_PRODUCT_CREATOR.md)。
 
@@ -92,3 +94,5 @@ flowchart TD
 
 - [录单价格表规格范围](OP_MANUAL_BOM_ORDER_PRICING.md)：PR-697，表外 BOM 规格不能录单、历史订单冻结价与复制处理。
 - [规格换算配置与历史订单](OP_MANUAL_SPEC_CONVERSION.md)：配置保留，录单换规格入口已关闭。
+
+- [运费模板与实际运费出账](OP_MANUAL_FREIGHT.md)：三场景客户政策、地区分组、预估不收款、Excel实际运费与差额出账、包邮及来源撤销。

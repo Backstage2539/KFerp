@@ -143,6 +143,11 @@ type SubmitCustomerProcessingWorkOrderCommand struct {
 }
 
 type SubmitCustomerDirectShipOrderCommand struct {
+	FreightProtocol       string
+	FreightQuoteToken     string
+	ShippingProvince      string
+	ShippingCity          string
+	ShippingDistrict      string
 	DeliveryMode          string
 	DeliveryWarehouseCode string
 	FulfillmentMode       string
@@ -633,6 +638,9 @@ func (s *Service) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd Sub
 }
 
 func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitCustomerDirectShipOrderCommand) (DirectShipOrderSummary, error) {
+	if _, modern := s.repo.(FulfillmentSettingsRepository); modern && cmd.DeliveryMode != "customer_stock" && cmd.FreightProtocol != "deferred_freight_v1" {
+		return DirectShipOrderSummary{}, fmt.Errorf("请使用新版代发录单入口，确认预估运费待实际账单出账")
+	}
 	if cmd.EmployeeID <= 0 && cmd.CustomerID <= 0 {
 		return DirectShipOrderSummary{}, fmt.Errorf("employee or customer required")
 	}

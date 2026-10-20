@@ -457,7 +457,7 @@
             <h4>订单费用</h4>
             <div class="detail-grid">
               <span>商品金额：{{ activeOrderDetail?.total_amount || activeOrderSummary.total_amount || '0.00' }}</span>
-              <span>运费：{{ activeOrderDetail?.shipping_amount || activeOrderSummary.shipping_amount || '0.00' }}</span>
+              <span>{{activeOrderDetail?.freight?freightLabel(activeOrderDetail.freight):`运费：${activeOrderDetail?.shipping_amount || activeOrderSummary.shipping_amount || '0.00'}`}}</span><span v-if="activeOrderDetail?.freight?.service_fee_cents">代发服务费：¥{{(activeOrderDetail.freight.service_fee_cents/100).toFixed(2)}}（另见账单）</span>
               <span>优惠：{{ activeOrderDetail?.discount_amount || activeOrderSummary.discount_amount || '0.00' }}</span>
               <span>应收：{{ activeOrderDetail?.grand_total || activeOrderSummary.grand_total || '0.00' }}</span>
             </div>
@@ -495,7 +495,7 @@
                 </thead>
                 <tbody>
                   <tr v-for="(item, idx) in activeOrderDetail?.items || []" :key="`${activeOrderSummary.id}-${idx}`">
-                    <td>{{ item.product_name || '-' }}</td>
+                    <td>{{ item.product_name || '-' }}<OrderItemWeights :item="item" /></td>
                     <td>{{ item.spec || '-' }}</td>
                     <td>{{ item.qty || '-' }}{{ item.unit || '' }}</td>
                     <td>{{ item.unit_price || '-' }}</td>
@@ -525,7 +525,9 @@
 </template>
 
 <script setup>
+import {freightLabel} from '../lib/freight'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
+import OrderItemWeights from '../components/OrderItemWeights.vue'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
 import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'

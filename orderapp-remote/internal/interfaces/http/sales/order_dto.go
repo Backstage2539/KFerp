@@ -1,6 +1,7 @@
 package sales
 
 import salesapp "orderapp/internal/application/sales"
+import freightdomain "orderapp/internal/domain/freight"
 
 type Option = salesapp.Option
 type CustomerOption = salesapp.CustomerOption
@@ -10,49 +11,55 @@ type ProductOption = salesapp.ProductOption
 type PageData = salesapp.OrderFormData
 
 type CreateOrderRequest struct {
-	DeliveryMode                    string   `form:"delivery_mode"`
-	DeliveryWarehouseCode           string   `form:"delivery_warehouse_code"`
-	SpecConversion                  []string `form:"spec_conversion[]"`
-	PrepaymentAmount                *string  `json:"prepayment_amount" form:"prepayment_amount"`
-	DocumentDate                    string   `form:"document_date"`
-	OrderDate                       string   `form:"order_date"`
-	CustomerID                      int64    `form:"customer_id"`
-	SourceID                        int64    `form:"source_id"`
-	OrderTypeID                     int64    `form:"order_type_id"`
-	PayStatusID                     int64    `form:"pay_status_id"`
-	PaymentMethod                   string   `form:"payment_method"`
-	ShipStatusID                    int64    `form:"ship_status_id"`
-	ShipMethod                      string   `form:"ship_method"`
-	ShipTrackingNo                  string   `form:"ship_tracking_no"`
-	LogisticsCompanyID              int64    `form:"logistics_company_id"`
-	LogisticsProductID              int64    `form:"logistics_product_id"`
-	PaymentGoodsAmount              string   `form:"payment_goods_amount"`
-	PaymentShippingAmount           string   `form:"payment_shipping_amount"`
-	PaymentVoucherAssetID           int64    `form:"payment_voucher_asset_id"`
-	ResponsibleType                 string   `form:"responsible_type"`
-	ResponsibleID                   int64    `form:"responsible_id"`
-	Notes                           string   `form:"notes"`
-	ShippingAmount                  string   `form:"shipping_amount"`
-	DiscountAmount                  string   `form:"discount_amount"`
-	RoundToInt                      string   `form:"round_to_int"`
-	ExpressFee                      string   `form:"express_fee"`
-	OutsourceMaterialFee            string   `form:"outsource_material_fee"`
-	OutsourceRoastFee               string   `form:"outsource_roast_fee"`
-	OutsourcePackagingFee           string   `form:"outsource_packaging_fee"`
-	OutsourceManualFee              string   `form:"outsource_manual_fee"`
-	OutsourceTaxFee                 string   `form:"outsource_tax_fee"`
-	OutsourceOtherFee               string   `form:"outsource_other_fee"`
-	StockBatchDecision              string   `form:"stock_batch_decision"`
-	BeanListPublicationID           int64    `form:"bean_list_publication_id"`
-	CommercialBeanListPublicationID int64    `form:"commercial_bean_list_publication_id"`
-	GreenBeanListPublicationID      int64    `form:"green_bean_list_publication_id"`
-	DripBeanListPublicationID       int64    `form:"drip_bean_list_publication_id"`
-	ReceiverName                    string   `form:"receiver_name"`
-	ReceiverPhone                   string   `form:"receiver_phone"`
-	ReceiverAddress                 string   `form:"receiver_address"`
-	ReceiverCompany                 string   `form:"receiver_company"`
-	PortalServiceCode               string   `form:"portal_service_code"`
-	OrdersScope                     string   `form:"orders_scope"`
+	FreightOverride                 *freightdomain.Override `form:"-"`
+	DeliveryMode                    string                  `form:"delivery_mode"`
+	DeliveryWarehouseCode           string                  `form:"delivery_warehouse_code"`
+	SpecConversion                  []string                `form:"spec_conversion[]"`
+	PrepaymentAmount                *string                 `json:"prepayment_amount" form:"prepayment_amount"`
+	DocumentDate                    string                  `form:"document_date"`
+	OrderDate                       string                  `form:"order_date"`
+	CustomerID                      int64                   `form:"customer_id"`
+	SourceID                        int64                   `form:"source_id"`
+	OrderTypeID                     int64                   `form:"order_type_id"`
+	PayStatusID                     int64                   `form:"pay_status_id"`
+	PaymentMethod                   string                  `form:"payment_method"`
+	ShipStatusID                    int64                   `form:"ship_status_id"`
+	ShipMethod                      string                  `form:"ship_method"`
+	ShipTrackingNo                  string                  `form:"ship_tracking_no"`
+	LogisticsCompanyID              int64                   `form:"logistics_company_id"`
+	LogisticsProductID              int64                   `form:"logistics_product_id"`
+	PaymentGoodsAmount              string                  `form:"payment_goods_amount"`
+	PaymentShippingAmount           string                  `form:"payment_shipping_amount"`
+	PaymentVoucherAssetID           int64                   `form:"payment_voucher_asset_id"`
+	ResponsibleType                 string                  `form:"responsible_type"`
+	ResponsibleID                   int64                   `form:"responsible_id"`
+	Notes                           string                  `form:"notes"`
+	FreightProtocol                 string                  `form:"freight_protocol"`
+	FreightQuoteToken               string                  `form:"freight_quote_token"`
+	ShippingProvince                string                  `form:"shipping_province"`
+	ShippingCity                    string                  `form:"shipping_city"`
+	ShippingDistrict                string                  `form:"shipping_district"`
+	ShippingAmount                  string                  `form:"shipping_amount"`
+	DiscountAmount                  string                  `form:"discount_amount"`
+	RoundToInt                      string                  `form:"round_to_int"`
+	ExpressFee                      string                  `form:"express_fee"`
+	OutsourceMaterialFee            string                  `form:"outsource_material_fee"`
+	OutsourceRoastFee               string                  `form:"outsource_roast_fee"`
+	OutsourcePackagingFee           string                  `form:"outsource_packaging_fee"`
+	OutsourceManualFee              string                  `form:"outsource_manual_fee"`
+	OutsourceTaxFee                 string                  `form:"outsource_tax_fee"`
+	OutsourceOtherFee               string                  `form:"outsource_other_fee"`
+	StockBatchDecision              string                  `form:"stock_batch_decision"`
+	BeanListPublicationID           int64                   `form:"bean_list_publication_id"`
+	CommercialBeanListPublicationID int64                   `form:"commercial_bean_list_publication_id"`
+	GreenBeanListPublicationID      int64                   `form:"green_bean_list_publication_id"`
+	DripBeanListPublicationID       int64                   `form:"drip_bean_list_publication_id"`
+	ReceiverName                    string                  `form:"receiver_name"`
+	ReceiverPhone                   string                  `form:"receiver_phone"`
+	ReceiverAddress                 string                  `form:"receiver_address"`
+	ReceiverCompany                 string                  `form:"receiver_company"`
+	PortalServiceCode               string                  `form:"portal_service_code"`
+	OrdersScope                     string                  `form:"orders_scope"`
 
 	ItemID                             []string `form:"item_id[]"`
 	ProductID                          []string `form:"product_id[]"`

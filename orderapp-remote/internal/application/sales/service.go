@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	freightdomain "orderapp/internal/domain/freight"
 	salesdomain "orderapp/internal/domain/sales"
 	"strings"
 	"time"
@@ -57,6 +58,12 @@ type SaveOrderCommand struct {
 	ResponsibleID                     int64
 	ResponsibleName                   string
 	Notes                             string
+	FreightOverride                   *freightdomain.Override
+	FreightProtocol                   string
+	FreightQuoteToken                 string
+	ShippingProvince                  string
+	ShippingCity                      string
+	ShippingDistrict                  string
 	ShippingAmount                    float64
 	DiscountAmount                    float64
 	RoundToInt                        bool
@@ -521,9 +528,15 @@ type OrderEditItem struct {
 	MatchedPriceQty                    string
 	UnitConversionLabel                string
 	PriceSourceJSON                    string
+	MaterialUnitWeightG                *string
+	MaterialItemWeightG                *string
+	LogisticsUnitWeightG               *string
+	LogisticsItemWeightG               *string
+	WeightSnapshotJSON                 string
 }
 
 type OrderEditData struct {
+	Freight               *freightdomain.OrderView
 	DeliveryStatus        string
 	FulfillmentMode       string
 	DeliveryMode          string

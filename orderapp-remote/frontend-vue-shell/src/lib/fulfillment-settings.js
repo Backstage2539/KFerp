@@ -10,14 +10,14 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
 export function fulfillmentSettingsForm(data = {}) {
   return { customer_id: Number(data.customer_id || 0), revision: Number(data.revision || 0), modes: ['stock', 'on_demand'].map(mode => {
     const row = (data.modes || []).find(r => r.mode === mode) || {}
-    return { mode, enabled: row.enabled === true, warehouse_code: row.warehouse_code || '', shipping_template_id: Number(row.shipping_template_id || 0), fixed_fee: row.fee_configured ? money(row.fixed_fee_cents) : '', per_package_fee: row.fee_configured ? money(row.per_package_fee_cents) : '' }
+    return { mode, enabled: row.enabled === true, warehouse_code: row.warehouse_code || '', shipping_free:row.shipping_free===true, shipping_template_id: Number(row.shipping_template_id || 0), fixed_fee: row.fee_configured ? money(row.fixed_fee_cents) : '', per_package_fee: row.fee_configured ? money(row.per_package_fee_cents) : '' }
   }) }
 }
 export function fulfillmentSettingsPayload(form) {
   return { customer_id: form.customer_id, expected_revision: form.revision, modes: form.modes.map(row => {
-    if (row.enabled && (!row.shipping_template_id || row.mode === 'stock' && !row.warehouse_code)) throw new Error('启用场景前请选择运费模板及库存代发仓库')
+    if (row.enabled && (!row.shipping_template_id && !row.shipping_free || row.mode === 'stock' && !row.warehouse_code)) throw new Error('启用场景前请选择运费模板及库存代发仓库')
     const configured = String(row.fixed_fee).trim() !== '' && String(row.per_package_fee).trim() !== ''
-    return { mode: row.mode, enabled: row.enabled, warehouse_code: row.mode === 'stock' ? row.warehouse_code : '', shipping_template_id: Number(row.shipping_template_id || 0), fee_configured: row.enabled || configured, fixed_fee_cents: row.enabled || configured ? explicitMoneyCents(row.fixed_fee) : 0, per_package_fee_cents: row.enabled || configured ? explicitMoneyCents(row.per_package_fee) : 0 }
+    return { mode: row.mode, enabled: row.enabled, warehouse_code: row.mode === 'stock' ? row.warehouse_code : '', shipping_free:row.shipping_free===true,shipping_template_id: Number(row.shipping_template_id || 0), fee_configured: row.enabled || configured, fixed_fee_cents: row.enabled || configured ? explicitMoneyCents(row.fixed_fee) : 0, per_package_fee_cents: row.enabled || configured ? explicitMoneyCents(row.per_package_fee) : 0 }
   }) }
 }
 export function customerFinishedWarehouses(rows, customerID) {

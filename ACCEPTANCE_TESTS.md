@@ -1467,3 +1467,7 @@
 ## PR-701-ORDER-DETAILS-COPY
 
 网页 ERP、客户工作台和客户订单页、员工小程序与普通客户订单页列表/详情复制单张已保存订单文字，包含订单号、订单日期、付款状态、全部商品/规格/数量单位及姓名/电话/完整收件地址。不包含金额、价格、备注，不改发货中心。四端沿用授权范围并刷新读取；商品规格优先冻结快照，空收件信息不回填当前客户地址；作废标识、剪贴板失败兜底、切换客户/退出的迟到响应隔离。TDD/接口/构建及开发部署证据见 docs/acceptance/2026-10-18-order-details-copy.md。Van 产品验收待进行。
+
+## PR-705 验收入口
+
+详见 orderapp-remote/docs/ACCEPTANCE_TESTS.md 及 orderapp-remote/docs/acceptance/2026-10-20-freight-estimate-settlement.md；Van业务验收待确认。

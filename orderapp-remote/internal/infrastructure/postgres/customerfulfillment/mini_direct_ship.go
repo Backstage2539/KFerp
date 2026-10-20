@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	freightdomain "orderapp/internal/domain/freight"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
+	"orderapp/internal/infrastructure/postgres/orderweight"
 	"sort"
 	"strconv"
 	"strings"
@@ -1103,21 +1106,22 @@ func miniDirectShipRequestHash(cmd app.MiniDirectShipCommand) (string, error) {
 		items = append(items, itemHash{ProductID: item.ProductID, BomSpecID: item.BomSpecID, SpecG: item.SpecG, Qty: item.Qty, SalesUnit: item.SalesUnit})
 	}
 	payload := struct {
-		FulfillmentMode       string     `json:"fulfillment_mode"`
-		DeliveryMode          string     `json:"delivery_mode"`
-		DeliveryWarehouseCode string     `json:"delivery_warehouse_code"`
-		UsageCode             string     `json:"usage_code"`
-		OrderDate             string     `json:"order_date"`
-		RecipientName         string     `json:"recipient_name"`
-		RecipientPhone        string     `json:"recipient_phone"`
-		Province              string     `json:"province"`
-		City                  string     `json:"city"`
-		District              string     `json:"district"`
-		DetailAddress         string     `json:"detail_address"`
-		RecipientCompany      string     `json:"recipient_company"`
-		Items                 []itemHash `json:"items"`
-		Note                  string     `json:"note"`
-	}{cmd.FulfillmentMode, cmd.DeliveryMode, cmd.DeliveryWarehouseCode, cmd.UsageCode, cmd.OrderDate, cmd.RecipientName, cmd.RecipientPhone, cmd.Province, cmd.City, cmd.District, cmd.DetailAddress, cmd.RecipientCompany, items, cmd.Note}
+		FreightOverride       *freightdomain.Override `json:"freight_override,omitempty"`
+		FulfillmentMode       string                  `json:"fulfillment_mode"`
+		DeliveryMode          string                  `json:"delivery_mode"`
+		DeliveryWarehouseCode string                  `json:"delivery_warehouse_code"`
+		UsageCode             string                  `json:"usage_code"`
+		OrderDate             string                  `json:"order_date"`
+		RecipientName         string                  `json:"recipient_name"`
+		RecipientPhone        string                  `json:"recipient_phone"`
+		Province              string                  `json:"province"`
+		City                  string                  `json:"city"`
+		District              string                  `json:"district"`
+		DetailAddress         string                  `json:"detail_address"`
+		RecipientCompany      string                  `json:"recipient_company"`
+		Items                 []itemHash              `json:"items"`
+		Note                  string                  `json:"note"`
+	}{cmd.FreightOverride, cmd.FulfillmentMode, cmd.DeliveryMode, cmd.DeliveryWarehouseCode, cmd.UsageCode, cmd.OrderDate, cmd.RecipientName, cmd.RecipientPhone, cmd.Province, cmd.City, cmd.District, cmd.DetailAddress, cmd.RecipientCompany, items, cmd.Note}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -1143,6 +1147,11 @@ func (r *Repository) resolveMiniDirectShipItems(ctx context.Context, q miniDirec
 	out := append([]app.MiniDirectShipItemCommand(nil), items...)
 	for idx := range out {
 		item := &out[idx]
+		item.MaterialUnitWeightG = nil
+		item.MaterialItemWeightG = nil
+		item.LogisticsUnitWeightG = nil
+		item.LogisticsItemWeightG = nil
+		item.WeightSnapshotJSON = ""
 		variant := item.BomVariantID
 		// Owned inventory and pending rights keep stable spec identity across publication versions.
 		// Source entitlements and physical allocations separately retain their actual frozen variant.
@@ -1332,7 +1341,10 @@ func (r *Repository) SubmitPreparedMiniDirectShipOrder(ctx context.Context, prep
 		return app.MiniDirectShipRequest{}, err
 	}
 	var fees *app.FulfillmentFeeQuote
-	if cmd.FulfillmentMode != "" {
+	if cmd.FulfillmentMode != "" || cmd.UsageCode == "product_order" && cmd.DeliveryMode != "customer_stock" {
+		if cmd.FreightProtocol != "deferred_freight_v1" {
+			return app.MiniDirectShipRequest{}, fmt.Errorf("请更新客户端后确认运费待出账")
+		}
 		q, e := r.QuoteFulfillmentFeesTx(ctx, tx, app.MiniFulfillmentFeeCommand(cmd))
 		if e != nil {
 			return app.MiniDirectShipRequest{}, e
@@ -1341,9 +1353,12 @@ func (r *Repository) SubmitPreparedMiniDirectShipOrder(ctx context.Context, prep
 			return app.MiniDirectShipRequest{}, fmt.Errorf("代发费用已变化，请重新预览后提交")
 		}
 		fees = &q
+		if q.Freight != nil {
+			orderCommand.FreightQuoteToken = q.Freight.Token
+		}
 	}
 	var order app.DirectShipOrderSummary
-	if cmd.FulfillmentMode != "" || cmd.DeliveryMode == "customer_stock" {
+	if cmd.FulfillmentMode != "" || cmd.DeliveryMode == "customer_stock" || cmd.UsageCode == "product_order" {
 		order, err = r.submitExplicitDirectShipOrderTx(ctx, tx, orderCommand)
 	} else {
 		items := normalizeSubmittedDirectShipItems(orderCommand)
@@ -1356,7 +1371,7 @@ func (r *Repository) SubmitPreparedMiniDirectShipOrder(ctx context.Context, prep
 	if err != nil {
 		return app.MiniDirectShipRequest{}, err
 	}
-	if fees != nil {
+	if fees != nil && cmd.FulfillmentMode != "" {
 		if err = r.SaveFulfillmentOrderFeesTx(ctx, tx, cmd.CustomerID, order.OrderID, result.ID, cmd.FulfillmentMode, *fees, cmd.Actor); err != nil {
 			return app.MiniDirectShipRequest{}, err
 		}
@@ -1780,6 +1795,12 @@ func (r *Repository) SubmitMiniDirectShip(ctx context.Context, cmd app.MiniDirec
 		}
 	}
 
+	for _, orderID := range orderIDs {
+		if err := orderweight.FreezeOrder(ctx, tx, r.schema, orderID); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+	}
+
 	for _, allocation := range allocations {
 		requestItemID := requestItemIDs[miniStockKey(allocation.ProductID, allocation.BomSpecID, allocation.SpecG)]
 		requestOrderID := requestOrderIDs[allocation.Warehouse]
@@ -2122,6 +2143,11 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 		return app.MiniDirectShipRequest{}, err
 	}
 	itemRows.Close()
+	for idx := range out.Items {
+		if err := loadMiniRequestItemWeights(ctx, q, r.schema, requestID, &out.Items[idx]); err != nil {
+			return app.MiniDirectShipRequest{}, err
+		}
+	}
 
 	effectiveShipmentTime := miniDirectShipEffectiveShipmentTimeSQL(
 		r.schema,
@@ -2241,6 +2267,11 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 			out.Status = "partially_shipped"
 		}
 	}
+	views, e := freightpg.NewRepository(r.pool, r.schema).OrderViews(ctx, q, []int64{out.OrderID})
+	if e != nil {
+		return out, e
+	}
+	out.Freight = views[out.OrderID]
 	return out, nil
 }
 

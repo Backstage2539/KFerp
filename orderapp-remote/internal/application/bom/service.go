@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -348,6 +349,7 @@ type ProductionBomSpecTemplateVersion struct {
 }
 
 type ProductionBomSpecTemplateVariant struct {
+	LogisticsWeightG   *float64                                    `json:"logistics_weight_g"`
 	ID                 int64                                       `json:"id"`
 	SpecKey            string                                      `json:"spec_key"`
 	Name               string                                      `json:"name"`
@@ -381,33 +383,36 @@ type ProductionBomSpec struct {
 }
 
 type ProductionBomVersionVariant struct {
-	ID               int64   `json:"bom_variant_id"`
-	BomSpecID        int64   `json:"bom_spec_id"`
-	Code             string  `json:"code"`
-	Barcode          string  `json:"barcode"`
-	SpecKey          string  `json:"spec_key"`
-	Name             string  `json:"name"`
-	InventoryUnit    string  `json:"inventory_unit"`
-	IsDefault        bool    `json:"is_default"`
-	SortOrder        int     `json:"sort_order"`
-	MaterialLossRate float64 `json:"material_loss_rate"`
-	ProcessRouteID   int64   `json:"process_route_id"`
-	Items            []Item  `json:"items"`
+	LogisticsWeightG *float64 `json:"logistics_weight_g"`
+	ID               int64    `json:"bom_variant_id"`
+	BomSpecID        int64    `json:"bom_spec_id"`
+	Code             string   `json:"code"`
+	Barcode          string   `json:"barcode"`
+	SpecKey          string   `json:"spec_key"`
+	Name             string   `json:"name"`
+	InventoryUnit    string   `json:"inventory_unit"`
+	IsDefault        bool     `json:"is_default"`
+	SortOrder        int      `json:"sort_order"`
+	MaterialLossRate float64  `json:"material_loss_rate"`
+	ProcessRouteID   int64    `json:"process_route_id"`
+	Items            []Item   `json:"items"`
 }
 
 type ProductionBomPublishedSpec struct {
-	BomID         int64  `json:"bom_id"`
-	BomName       string `json:"bom_name"`
-	VersionID     int64  `json:"version_id"`
-	BomSpecID     int64  `json:"bom_spec_id"`
-	BomVariantID  int64  `json:"bom_variant_id"`
-	SpecKey       string `json:"spec_key"`
-	Name          string `json:"name"`
-	InventoryUnit string `json:"inventory_unit"`
-	IsDefault     bool   `json:"is_default"`
+	LogisticsWeightG *float64 `json:"logistics_weight_g"`
+	BomID            int64    `json:"bom_id"`
+	BomName          string   `json:"bom_name"`
+	VersionID        int64    `json:"version_id"`
+	BomSpecID        int64    `json:"bom_spec_id"`
+	BomVariantID     int64    `json:"bom_variant_id"`
+	SpecKey          string   `json:"spec_key"`
+	Name             string   `json:"name"`
+	InventoryUnit    string   `json:"inventory_unit"`
+	IsDefault        bool     `json:"is_default"`
 }
 
 type ProductionBomDraftVariant struct {
+	LogisticsWeightG *float64                 `json:"logistics_weight_g"`
 	BomVariantID     int64                    `json:"bom_variant_id"`
 	BomSpecID        int64                    `json:"bom_spec_id"`
 	Barcode          string                   `json:"barcode"`
@@ -949,6 +954,9 @@ func normalizeProductionBomSpecTemplateVariants(variants []ProductionBomSpecTemp
 		variant.SpecKey = strings.TrimSpace(variant.SpecKey)
 		variant.Name = strings.TrimSpace(variant.Name)
 		variant.InventoryUnit = strings.TrimSpace(variant.InventoryUnit)
+		if err := ValidateLogisticsWeightG(variant.LogisticsWeightG, false); err != nil {
+			return fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+		}
 		if variant.SpecKey == "" || variant.Name == "" || variant.InventoryUnit == "" {
 			return fmt.Errorf("variant spec_key, name and inventory_unit are required")
 		}
@@ -1361,6 +1369,11 @@ func (s *Service) ListProductionBomUsageByProduct(ctx context.Context, productID
 }
 
 func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error) {
+	for _, variant := range cmd.Variants {
+		if err := ValidateLogisticsWeightG(variant.LogisticsWeightG, false); err != nil {
+			return ProductionBomSummary{}, fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+		}
+	}
 	cmd.Name = NormalizeProductionBomName(cmd.Name)
 	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
@@ -1685,6 +1698,9 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 			variant.Name = strings.TrimSpace(variant.Name)
 			variant.Barcode = strings.TrimSpace(variant.Barcode)
 			variant.InventoryUnit = strings.TrimSpace(variant.InventoryUnit)
+			if err := ValidateLogisticsWeightG(variant.LogisticsWeightG, false); err != nil {
+				return ProductionBomVersion{}, fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+			}
 			if len(variant.Barcode) > 128 {
 				return ProductionBomVersion{}, fmt.Errorf("variant %s: barcode is too long", variant.SpecKey)
 			}
@@ -2158,4 +2174,18 @@ type SetBomSourceCommand struct {
 	SourceType         string `json:"source_type"`
 	SourceBomVersionID int64  `json:"source_bom_version_id"`
 	Actor              string `json:"actor"`
+}
+
+// ValidateLogisticsWeightG accepts incomplete drafts, but published specifications require an explicit mass.
+func ValidateLogisticsWeightG(weight *float64, required bool) error {
+	if weight == nil {
+		if required {
+			return fmt.Errorf("logistics_weight_g required: 请填写规格物流重量（克）")
+		}
+		return nil
+	}
+	if *weight < 0.000001 || *weight > 1000000000 || math.IsNaN(*weight) || math.IsInf(*weight, 0) {
+		return fmt.Errorf("logistics_weight_g must be finite and between 0.000001 and 1000000000: 规格物流重量须为 0.000001 至 1000000000 克")
+	}
+	return nil
 }

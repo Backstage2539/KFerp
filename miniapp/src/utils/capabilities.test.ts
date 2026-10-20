@@ -74,3 +74,11 @@ describe('visibleHomeEntries', () => {
     expect(entries).toEqual([])
   })
 })
+
+it('hides product ordering only for customers with enabled dropship modes', () => {
+ const capabilities = [{ code:'product_order', enabled:true },{code:'direct_ship',enabled:true}]
+ const stock = {customer_id:9,revision:1,modes:[{mode:'stock',enabled:true}]} as never
+ expect(visibleHomeEntries(capabilities,stock).some(e=>e.key==='productOrder')).toBe(false)
+ expect(visibleHomeEntries(capabilities,{customer_id:9,modes:[]} as never).some(e=>e.key==='productOrder')).toBe(true)
+ expect(visibleHomeEntries([{code:'product_order',enabled:true}],stock).some(e=>e.key==='productOrder')).toBe(true)
+})

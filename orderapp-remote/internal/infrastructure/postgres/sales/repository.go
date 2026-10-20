@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	freightdomain "orderapp/internal/domain/freight"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
+	"orderapp/internal/infrastructure/postgres/orderweight"
 	"strconv"
 	"strings"
 	"time"
@@ -2311,6 +2314,60 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	// Amount calculation (items + shipping - discount)
 	shippingAmt := cmd.ShippingAmount
+	var freightSnapshot *freightdomain.Snapshot
+	var freightAvailable bool
+	if err := tx.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", r.schema+".order_freight_snapshots").Scan(&freightAvailable); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+	if freightAvailable && cmd.EditID == 0 && cmd.FulfillmentMode == "" && cmd.DeliveryMode != "customer_stock" {
+		if cmd.FreightProtocol != freightdomain.Protocol {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("请更新客户端并确认运费待实际账单出账")
+		}
+		fr := freightpg.NewRepository(r.pool, r.schema)
+		p, e := fr.LoadPolicy(ctx, tx, cmd.CustomerID, "sale", true)
+		if e != nil {
+			return salesapp.SaveOrderResult{}, e
+		}
+		p, e = freightdomain.ApplyOverride(p, cmd.FreightOverride, !cmd.CustomerSubmission)
+		if e != nil {
+			return salesapp.SaveOrderResult{}, e
+		}
+		weightItems := make([]freightpg.WeightItem, 0, len(items))
+		for _, i := range items {
+			if i.productID == nil {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("商品未配置物流重量")
+			}
+			weightItems = append(weightItems, freightpg.WeightItem{ProductID: *i.productID, BomSpecID: i.bomSpecID, BomVariantID: i.bomVariantID, Qty: i.units})
+		}
+		grams, weightBasis, e := fr.WeightTotals(ctx, tx, cmd.CustomerID, weightItems, true)
+		if e != nil {
+			return salesapp.SaveOrderResult{}, e
+		}
+		q, e := fr.QuoteWithOverrideTx(ctx, tx, cmd.CustomerID, "sale", freightdomain.Destination{Province: cmd.ShippingProvince, City: cmd.ShippingCity, District: cmd.ShippingDistrict}, grams, cmd.FreightOverride, !cmd.CustomerSubmission)
+		if e != nil {
+			return salesapp.SaveOrderResult{}, e
+		}
+		q = freightpg.AttachWeightBasis(q, weightBasis)
+		if cmd.FreightQuoteToken == "" || q.Token != cmd.FreightQuoteToken {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("预估运费已变化，请重新核算后提交")
+		}
+		if cmd.ShippingAmount != 0 || cmd.PaymentShippingAmount != 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("预估运费不计入当前应付，请在实际账单确认后收取")
+		}
+		freightSnapshot = &q
+		if q.CarrierID > 0 {
+			cmd.LogisticsCompanyID = q.CarrierID
+			cmd.LogisticsProductID = q.ProductID
+		}
+		shippingAmt = 0
+	}
+	if cmd.DeliveryMode == "customer_stock" {
+		if shippingAmt != 0 || cmd.PaymentShippingAmount != 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("购货留厂不发生物流，不收运费")
+		}
+		shippingAmt = 0
+	}
+
 	discountAmt := cmd.DiscountAmount + itemDiscountAmt
 	roundToInt := cmd.RoundToInt
 	outsourceFees := [6]float64{
@@ -2454,6 +2511,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 
+	var originalItemWeights map[int64]frozenOrderItemWeight
 	insertItemSQL := orderItemsInsertSQL(r.schema)
 
 	if editID > 0 {
@@ -2564,6 +2622,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					return salesapp.SaveOrderResult{}, err
 				}
 			}
+		}
+		originalItemWeights, err = captureOrderItemWeightsTx(ctx, tx, r.schema, orderID)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
 		}
 		// Preserve validated historical rows in place: the BOM identity guard allows
 		// unchanged archived variants on UPDATE, while INSERT correctly requires current identity.
@@ -2795,6 +2857,29 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 
+	for idx, it := range items {
+		original, ok := originalItemWeights[it.itemID]
+		productID := int64(0)
+		if it.productID != nil {
+			productID = *it.productID
+		}
+		spec, unit := "", ""
+		if it.spec != nil {
+			spec = *it.spec
+		}
+		if it.unit != nil {
+			unit = *it.unit
+		}
+		if ok && original.matches(productID, it.bomSpecID, it.bomVariantID, spec, unit) {
+			if err := restoreOrderItemWeightTx(ctx, tx, r.schema, orderID, idx+1, original); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
+	}
+	if err := orderweight.FreezeOrder(ctx, tx, r.schema, orderID); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+
 	stockItems := make([]orderStockItem, 0, len(items))
 	for _, it := range items {
 		if it.productID == nil || *it.productID <= 0 || it.units <= 0 {
@@ -2845,6 +2930,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET settlement_reason=$2 WHERE id=$1", r.schema), orderID, settlementReason); err != nil {
 		return salesapp.SaveOrderResult{}, err
+	}
+	if freightSnapshot != nil {
+		if err := freightpg.NewRepository(r.pool, r.schema).SaveSnapshotTx(ctx, tx, orderID, *freightSnapshot, cmd.Actor); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 	afterAuditSummary, err := loadOrderSaveAuditSummaryTx(ctx, tx, r.schema, orderID)
 	if err != nil {
@@ -3343,6 +3433,11 @@ func loadOrderSaveAuditSummaryTx(ctx context.Context, tx pgx.Tx, schema string, 
 					'bean_list_version_no', COALESCE(oi.bean_list_version_no,''),
                     'bom_spec_id', to_jsonb(oi)->'bom_spec_id',
                     'bom_variant_id', to_jsonb(oi)->'bom_variant_id',
+                    'material_unit_weight_g',to_jsonb(oi)->'material_unit_weight_g',
+                    'material_item_weight_g',to_jsonb(oi)->'material_item_weight_g',
+                    'logistics_unit_weight_g',to_jsonb(oi)->'logistics_unit_weight_g',
+                    'logistics_item_weight_g',to_jsonb(oi)->'logistics_item_weight_g',
+                    'weight_snapshot',to_jsonb(oi)->'weight_snapshot_json',
                     'spec_conversion', to_jsonb(oi)->'price_source_json'->'spec_conversion'
 				) ORDER BY oi.line_no, oi.id)
 				FROM %[1]s.order_items oi
@@ -3779,6 +3874,9 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		upMap[rid] = u
 	}
 
+	if err := orderweight.MarkHistoricalUnknown(ctx, tx, schema, id); err != nil {
+		return err
+	}
 	totalAmt := 0.0
 	for _, it := range old {
 		q := it.qty
@@ -3801,6 +3899,10 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.order_items SET qty=$2,unit_price=$3,line_total=$4,price_overridden=true WHERE id=$1", schema), it.id, q, u, line); err != nil {
 			return err
 		}
+	}
+
+	if err := orderweight.FreezeOrder(ctx, tx, schema, id); err != nil {
+		return err
 	}
 
 	outsourceTotal, outsourceFees, err := calcOutsourceTotal(req)

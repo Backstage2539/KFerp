@@ -5,7 +5,7 @@
         <h2>订单列表</h2>
         <button class="secondary" type="button" @click="load()" :disabled="loading">刷新</button>
       </div>
-      <p class="list-help">点击订单行展开商品和费用；点击订单号打开完整详情。类型包含订单属性及全部商品分类。点击“复制订单详情”可复制已保存的文字并粘贴到生产群。</p>
+      <p class="list-help">点击订单行展开商品和费用；点击订单号打开完整详情。类型包含订单属性及全部商品分类。点击“复制订单详情”可复制“商品｜规格｜数量 单位”和订单详情中的收件信息，并粘贴到生产群。</p>
       <div v-if="error" class="error">{{ error }}</div>
       <div class="scope-tabs" role="tablist" aria-label="订单范围">
         <button type="button" :class="{ active: filters.scope === 'all' }" @click="setScope('all')">全部订单</button>
@@ -236,7 +236,7 @@
                       <thead><tr><th>商品</th><th>规格</th><th>数量</th><th class="money-cell">单价</th><th class="money-cell">小计</th></tr></thead>
                       <tbody>
                         <tr v-for="item in inlineOrderItems(inlineDetail.detail)" :key="item.key">
-                          <td><strong>{{ item.name }}</strong><p v-if="item.note" class="inline-note">{{ item.note }}</p></td>
+                          <td><strong>{{ item.name }}</strong><OrderItemWeights :item="item.weightSnapshot" /><p v-if="item.note" class="inline-note">{{ item.note }}</p></td>
                           <td>{{ item.spec }}</td><td data-label="数量">{{ item.quantity }}</td><td class="money-cell" data-label="单价">{{ item.price }}</td><td class="money-cell" data-label="小计">{{ item.subtotal }}</td>
                         </tr>
                         <tr v-if="!inlineDetail.detail.items?.length"><td colspan="5" class="muted">暂无商品明细</td></tr>
@@ -345,6 +345,7 @@
                 <div>
                   <strong>{{ item.product_name || '-' }}</strong>
                   <span>{{ orderItemSpecLabel(item) }} × {{ item.qty }}{{ item.unit || '' }}</span>
+                  <OrderItemWeights :item="item" />
                   <small v-if="conversionSnapshot(item)">{{ conversionDescription(conversionSnapshot(item)) }}</small>
                 </div>
                 <div>
@@ -444,6 +445,7 @@
 
 <script setup>
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
+import OrderItemWeights from '../components/OrderItemWeights.vue'
 import { conversionSnapshot, conversionDescription } from '../lib/spec-conversion.js'
 import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'

@@ -825,6 +825,11 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 
 func ensureOrderItemUnitPricingColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	stmts := []string{
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS material_unit_weight_g NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS material_item_weight_g NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS logistics_unit_weight_g NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS logistics_item_weight_g NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS weight_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS product_kind TEXT NOT NULL DEFAULT 'roasted_bean'`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),

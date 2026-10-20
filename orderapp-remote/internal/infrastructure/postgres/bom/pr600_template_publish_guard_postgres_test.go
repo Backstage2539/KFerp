@@ -135,7 +135,7 @@ func TestPublishProductionBomSpecTemplateVersionValidatesEveryConcreteComponentP
 			_, err = repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
 				VersionID: versionID,
 				Actor:     "template-component-guard",
-				Variants: []bomapp.ProductionBomSpecTemplateVariant{{
+				Variants: []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 					SpecKey: "default", Name: "默认规格", InventoryUnit: "袋", IsDefault: true,
 					Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{mainInput, testCase.item},
 				}},
@@ -163,7 +163,7 @@ func TestPublishProductionBomSpecTemplateVersionValidatesEveryConcreteComponentP
 	if _, err := repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{
 		VersionID: validVersionID,
 		Actor:     "template-component-guard",
-		Variants: []bomapp.ProductionBomSpecTemplateVariant{{
+		Variants: []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 			SpecKey: "default", Name: "默认规格", InventoryUnit: "袋", IsDefault: true,
 			Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{
 				mainInput,
@@ -196,7 +196,7 @@ func TestRejectedProductionBomSpecTemplateVersionKeepsCurrentPublishedVersionPos
 		t.Fatal(err)
 	}
 	v1 := template.Versions[0].ID
-	validVariants := []bomapp.ProductionBomSpecTemplateVariant{{
+	validVariants := []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 		SpecKey: "default", Name: "默认规格", InventoryUnit: "袋", IsDefault: true,
 		Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{
 			IsMainInput: true,

@@ -1,3 +1,4 @@
+import {freightLabel} from './freight.js'
 const text = (value) => String(value ?? '').trim()
 const legacyTypes = { roasted: '熟豆', roasted_bean: '熟豆', green_bean: '生豆', drip_bag: '挂耳', instant: '速溶咖啡', instant_coffee: '速溶咖啡' }
 
@@ -27,6 +28,7 @@ function specLabel(item) {
 export function inlineOrderItems(order = {}) {
   return (order.items || []).map((item, index) => ({
     key: item.item_id || index,
+    weightSnapshot: item,
     name: text(item.customer_product_display_name_snapshot) || text(item.product_name_snapshot) || text(item.product_name) || '—',
     spec: specLabel(item), quantity: [text(item.qty) || '—', text(item.unit)].filter(Boolean).join(' '),
     price: inlineMoney(item.unit_price), subtotal: inlineMoney(item.line_total), note: text(item.note),
@@ -34,7 +36,7 @@ export function inlineOrderItems(order = {}) {
 }
 
 export function inlineOrderTotals(order = {}) {
-  const lines = [{ label: '运费', value: inlineMoney(order.shipping_amount) }]
+  const lines = [{ label: order.freight?'运费状态':'运费', value: order.freight?freightLabel(order.freight):inlineMoney(order.shipping_amount) }]
   if (Number(order.discount_amount)) lines.push({ label: '优惠', value: `−${inlineMoney(order.discount_amount)}` })
   if (Number(order.outsource_total_fee)) lines.push({ label: '委外费用', value: inlineMoney(order.outsource_total_fee) })
   // express_fee is a legacy note/cost field, not an additional customer receivable.

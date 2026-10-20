@@ -8,6 +8,7 @@ import (
 	"fmt"
 	app "orderapp/internal/application/customerfulfillment"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
 	"orderapp/internal/infrastructure/postgres/orderconfirmation"
 	"strings"
 	"time"
@@ -95,15 +96,30 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 	if err != nil {
 		return d, err
 	}
+	ids := []int64{}
+	for _, o := range d.Rows {
+		ids = append(ids, o.ID)
+	}
+	views, e := freightpg.NewRepository(r.pool, r.schema).OrderViews(ctx, tx, ids)
+	if e != nil {
+		return d, e
+	}
+	for i := range d.Rows {
+		d.Rows[i].Freight = views[d.Rows[i].ID]
+	}
 	if q.OrderID > 0 && len(d.Rows) > 0 {
-		items, err := tx.Query(ctx, currentQuery(fmt.Sprintf(`SELECT coalesce(item_name,''),coalesce(spec,''),coalesce(qty,0)::text,coalesce(unit,''),coalesce(unit_price,0)::text,coalesce(line_total,0)::text FROM %s.order_items current_item WHERE order_id=$1 ORDER BY id`, r.schema)), q.OrderID)
+		items, err := tx.Query(ctx, currentQuery(fmt.Sprintf(`SELECT coalesce(item_name,''),coalesce(spec,''),coalesce(qty,0)::text,coalesce(unit,''),coalesce(unit_price,0)::text,coalesce(line_total,0)::text,to_jsonb(current_item)->>'material_unit_weight_g',
+				to_jsonb(current_item)->>'material_item_weight_g',
+				to_jsonb(current_item)->>'logistics_unit_weight_g',
+				to_jsonb(current_item)->>'logistics_item_weight_g',
+				COALESCE(to_jsonb(current_item)->>'weight_snapshot_json','{}') FROM %s.order_items current_item WHERE order_id=$1 ORDER BY id`, r.schema)), q.OrderID)
 		if err != nil {
 			return d, err
 		}
 		d.Rows[0].Items = []app.AccountOrderItem{}
 		for items.Next() {
 			var i app.AccountOrderItem
-			if err = items.Scan(&i.Name, &i.Spec, &i.Quantity, &i.Unit, &i.UnitPrice, &i.LineTotal); err != nil {
+			if err = items.Scan(&i.Name, &i.Spec, &i.Quantity, &i.Unit, &i.UnitPrice, &i.LineTotal, &i.MaterialUnitWeightG, &i.MaterialItemWeightG, &i.LogisticsUnitWeightG, &i.LogisticsItemWeightG, &i.WeightSnapshotJSON); err != nil {
 				items.Close()
 				return d, err
 			}
@@ -115,11 +131,15 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 			return d, err
 		}
 	}
-	if q.OrderID > 0 {
-		return d, tx.Commit(ctx)
+
+	freightJoin := ""
+	orderJoin := "f.source_type='order' AND o.id=f.source_id"
+	if relationExists(ctx, tx, r.schema+".freight_actual_entries") {
+		freightJoin = fmt.Sprintf(" LEFT JOIN %s.freight_actual_entries fe ON f.source_type='freight_actual' AND fe.id=f.source_id LEFT JOIN %s.freight_actual_shipments fs ON fs.id=fe.shipment_id AND fs.customer_id=f.customer_id ", r.schema, r.schema)
+		orderJoin = "((f.source_type='order' AND o.id=f.source_id) OR (f.source_type='freight_actual' AND o.id=fs.order_id))"
 	}
 	// An order link is only valid when its source explicitly identifies an order of this customer.
-	fees, err := tx.Query(ctx, fmt.Sprintf(`SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),coalesce(o.id,0),coalesce(o.order_no,''),f.fee_type,coalesce(to_jsonb(f)->>'note',''),round(f.amount*100)::bigint,coalesce(nullif(f.currency,''),'CNY'),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),coalesce(s.id,0),coalesce(s.settlement_no,''),coalesce(s.status,''),coalesce(to_char(s.paid_at,'YYYY-MM-DD HH24:MI'),'') FROM %[1]s.customer_fee_items f LEFT JOIN %[1]s.orders o ON f.source_type='order' AND o.id=f.source_id AND o.customer_id=f.customer_id LEFT JOIN %[1]s.customer_settlement_batches s ON s.id=f.settlement_batch_id AND s.customer_id=f.customer_id WHERE f.customer_id=$1 ORDER BY f.occurred_at DESC,f.id DESC`, r.schema), q.CustomerID)
+	fees, err := tx.Query(ctx, fmt.Sprintf(`SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),coalesce(o.id,0),coalesce(o.order_no,''),f.fee_type,coalesce(to_jsonb(f)->>'note',''),round(f.amount*100)::bigint,coalesce(nullif(f.currency,''),'CNY'),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),coalesce(s.id,0),coalesce(s.settlement_no,''),coalesce(s.status,''),coalesce(to_char(s.paid_at,'YYYY-MM-DD HH24:MI'),'') FROM %[1]s.customer_fee_items f %[2]s LEFT JOIN %[1]s.orders o ON %[3]s AND o.customer_id=f.customer_id LEFT JOIN %[1]s.customer_settlement_batches s ON s.id=f.settlement_batch_id AND s.customer_id=f.customer_id WHERE f.customer_id=$1 ORDER BY f.occurred_at DESC,f.id DESC`, r.schema, freightJoin, orderJoin), q.CustomerID)
 	if err != nil {
 		return d, err
 	}
@@ -151,7 +171,7 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 			seenFeeSources[key] = true
 		}
 		linkedOrder := orderByID[f.OrderID]
-		f.IncludedInOrder = f.OrderID > 0 && (f.FeeType == "shipping" && linkedOrder.ShippingCents != 0 || f.FeeType == "product")
+		f.IncludedInOrder = f.OrderID > 0 && (f.SourceType == "order" && f.FeeType == "shipping" && linkedOrder.ShippingCents != 0 || f.FeeType == "product")
 		allFees = append(allFees, f)
 		date := f.OccurredAt
 		if len(date) > 10 {

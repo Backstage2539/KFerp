@@ -21,7 +21,8 @@ import {
 } from '../api/customerPortal'
 import { useCustomerOrderDraftStore, type CustomerOrderMode, type CustomerOrderRecipient } from '../stores/customerOrderDraft'
 import { employeeOrderProductFamilyKey, productSpecLabel, shanghaiToday } from '../utils/employeeOrder'
-import { directShipAllocationSourceLabel, directShipPreviewSupplyRows, directShipStatusLabel } from '../utils/customerFulfillment'
+import { directShipAllocationSourceLabel, directShipPreviewSupplyRows, directShipStatusLabel, showDirectShipSupplyPreview } from '../utils/customerFulfillment'
+import OrderItemWeights from './OrderItemWeights.vue'
 import {
   buildDirectShipDraftItems,
   createDirectShipDraftLine,
@@ -95,6 +96,7 @@ const availableFulfillmentModes = computed(() => enabledDirectShipModes(catalog.
 const activeFulfillmentSetting = computed(() => catalog.value.fulfillment_settings?.modes.find(row => row.mode === fulfillmentMode.value))
 const purchaseWarehouse = computed(() => deliveryWarehouseCode.value || catalog.value.fulfillment_settings?.modes.find(row => row.mode === 'stock' && row.enabled)?.warehouse_code || '')
 const stockScenario = computed(() => !isProductOrder.value && fulfillmentMode.value === 'stock')
+const showSupplyPreview = computed(() => showDirectShipSupplyPreview({ fulfillmentMode: fulfillmentMode.value, isProductOrder: isProductOrder.value, retainedPurchase: retainedPurchase.value }))
 const serviceFee = computed(() => Number(preview.value?.fees?.service_fee_cents || 0) / 100)
 const shippingFee = computed(() => Number(preview.value?.fees?.shipping_fee_cents || 0) / 100)
 const payableAmount = computed(() => totalAmount.value + serviceFee.value + shippingFee.value)
@@ -108,7 +110,7 @@ const previewSupplyRows = computed(() => directShipPreviewSupplyRows({
 const stockOverview = computed(() => stockOverviewRows(catalog.value, lines.value))
 const stockHasGap = computed(() => stockOverview.value.some(row => row.gap > 0))
 const fulfillmentMessage = computed(() => {
-  if (stockScenario.value || retainedPurchase.value) return ''
+  if (!showSupplyPreview.value) return ''
   if (!preview.value || preview.value.stock_ready) return ''
   if (blockingShortages.value.length) return '代加工商品可履约数量不足，整单不能提交。请先提交代加工申请或减少数量。'
   if (processingAllocationQty.value > 0) return `成品库存优先占用，不足部分已从有效在制产出预订 ${processingAllocationQty.value} 件；全部入库后自动转为待发货库存。`
@@ -395,7 +397,7 @@ async function submitRequest() {
     if (!checked) return
     if (!checked.can_submit) { if (!stockScenario.value || !checked.needs_topup) errorMessage.value = '当前可履约数量不足，请核对商品数量'; return }
     if (!checked.price_quote_token) throw new Error('报价版本缺失，请重新提交')
-    const quotedCommand = { ...command, price_quote_token: checked.price_quote_token, fee_quote_token: checked.fee_quote_token || checked.fees?.fee_quote_token }
+    const quotedCommand = { ...command, freight_protocol: 'deferred_freight_v1', price_quote_token: checked.price_quote_token, fee_quote_token: checked.fee_quote_token || checked.fees?.fee_quote_token }
     await quoteFlow.completeSubmission(
       () => isProductOrder.value ? createProductOrder(props.token, quotedCommand) : createDirectShipRequest(props.token, quotedCommand),
       () => {
@@ -499,15 +501,16 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
         </view>
         <text v-if="!stockScenario && fulfillmentMode !== 'on_demand' && selectedSpecForLine(line)?.price_tiers?.length" class="tier-hint">数量报价：{{ selectedSpecForLine(line)?.price_tiers?.map(tier => `${tierQuantityLabel(tier)} ¥${money(tier.unit_price)}`).join('；') }}</text>
         <text v-if="!isProductOrder && fulfillmentMode === 'on_demand'" class="tier-hint">固定单价 · 任意正数量均可下单</text>
+        <OrderItemWeights v-if="previewItemForLine(line)?.weight_snapshot_json" :item="previewItemForLine(line)" />
         <view class="line-price"><text>{{ stockScenario ? '已购商品' : '销售单价（只读）' }}</text><text>{{ stockScenario ? '不重复计货款' : lineUnitPrice(line) > 0 ? `¥${money(lineUnitPrice(line))}` : '自动核价' }}</text><text>小计 {{ stockScenario ? '¥0.00' : lineAmount(line) > 0 ? `¥${money(lineAmount(line))}` : '--' }}</text></view>
       </view>
       <button class="add-line" :disabled="submitting" @tap="addLine">新增商品</button>
       <view class="total-card"><text>商品估算合计</text><text class="amount">{{ previewing ? '核价中…' : `¥${money(totalAmount)}` }}</text></view>
-      <view v-if="preview?.fees" class="fee-breakdown"><text>代发服务费 ¥{{ money(serviceFee) }}</text><text>运费 ¥{{ money(shippingFee) }}</text><text class="amount">本次应付 ¥{{ money(payableAmount) }}</text><text class="muted">按 {{ preview.fees.chargeable_weight_g }}g 计费，最终金额由服务端核算。</text></view>
+      <view v-if="preview?.fees" class="fee-breakdown"><text>代发服务费 ¥{{ money(serviceFee) }}</text><text v-if="preview.fees.freight">{{ preview.fees.freight.status === 'free' ? '包邮' : `预估运费 ¥${money(preview.fees.freight.estimated_total_cents / 100)} · 待出账` }}</text><text v-else>运费 ¥{{ money(shippingFee) }}</text><text class="amount">本次应付 ¥{{ money(payableAmount) }}</text><text class="muted">预估运费不计入当前应付，实际运费核对出账后另行收取。</text></view>
       <textarea v-model="note" class="textarea" :disabled="submitting" placeholder="订单备注（可选）" @input="saveDraft" />
       <text v-if="selectedSummary" class="selected-summary">已选：{{ selectedSummary }}</text>
       <text v-if="fulfillmentMessage" class="shortage">{{ fulfillmentMessage }}</text>
-      <view v-if="!stockScenario && !retainedPurchase && previewSupplyRows.length" class="supply-board">
+      <view v-if="showSupplyPreview && previewSupplyRows.length" class="supply-board">
         <view class="section-head"><text class="subtitle">履约来源预览</text><text class="muted">提交后才形成实际占用</text></view>
         <view v-for="item in previewSupplyRows" :key="`supply:${item.product_id}:${item.bom_spec_id || 0}:${item.spec_g}`" class="supply-row">
           <view class="supply-title"><text>{{ item.product_name || `商品 ${item.product_id}` }}</text><text>本次可下单 {{ item.orderableQty }}</text></view>
@@ -516,7 +519,7 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
         </view>
         <text v-for="table in preview?.price_tables || []" :key="`preview-table:${table.id}`" class="price-source">价格来源：{{ priceTableLabel(table) }}</text>
       </view>
-      <view v-if="!stockScenario && !retainedPurchase && blockingShortages.length" class="shortage-detail">
+      <view v-if="showSupplyPreview && blockingShortages.length" class="shortage-detail">
         <text v-for="item in blockingShortages" :key="`${item.product_id}:${item.bom_spec_id || 0}`">需求 {{ item.qty }}；成品库存 {{ item.stock_available_qty || 0 }}；在制产出 {{ item.production_available_qty || 0 }}；缺口 {{ Math.max(0, Number(item.qty || 0) - Number(item.available_qty || 0)) }}</text>
       </view>
       <button v-if="!catalogReady && !loading" class="secondary" @tap="load">重新加载库存与商品</button>
@@ -542,6 +545,7 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
         <text class="muted">{{ item.recipient_phone }} · {{ item.province }}{{ item.city }}{{ item.district }}{{ item.detail_address }}</text>
         <view v-for="line in item.items || []" :key="`${line.product_id}:${line.bom_spec_id || 0}:${line.bom_variant_id || 0}:${line.spec_g}`">
           <text class="muted">{{ line.product_name || `商品 ${line.product_id}` }} · {{ directShipItemSpecLabel(line) }} · {{ directShipItemQtyLabel(line) }}</text>
+          <OrderItemWeights :item="line" />
           <text v-if="line.production_reserved_qty" class="muted">在制预订 {{ line.production_reserved_qty }} 件，已转成品 {{ line.production_converted_qty || 0 }} 件</text>
           <text v-if="line.production_shortfall_qty" class="shortage">实际入库减少，当前缺口 {{ line.production_shortfall_qty }} 件，请联系工厂处理</text>
         </view>

@@ -275,20 +275,21 @@ func (e BusinessExecutor) InspectConfigurationPreview(ctx context.Context, run c
 }
 
 type createdReference struct {
-	Type      string `json:"type"`
-	RowID     string `json:"row_id,omitempty"`
-	ID        int64  `json:"id"`
-	Name      string `json:"name,omitempty"`
-	Code      string `json:"code,omitempty"`
-	Unit      string `json:"unit,omitempty"`
-	OwnerID   int64  `json:"owner_customer_id,omitempty"`
-	ProductID int64  `json:"product_id,omitempty"`
-	BOMID     int64  `json:"bom_id,omitempty"`
-	VersionID int64  `json:"version_id,omitempty"`
-	SpecID    int64  `json:"bom_spec_id,omitempty"`
-	VariantID int64  `json:"bom_variant_id,omitempty"`
-	Published bool   `json:"published,omitempty"`
-	New       bool   `json:"new,omitempty"`
+	LogisticsWeightG *float64 `json:"logistics_weight_g"`
+	Type             string   `json:"type"`
+	RowID            string   `json:"row_id,omitempty"`
+	ID               int64    `json:"id"`
+	Name             string   `json:"name,omitempty"`
+	Code             string   `json:"code,omitempty"`
+	Unit             string   `json:"unit,omitempty"`
+	OwnerID          int64    `json:"owner_customer_id,omitempty"`
+	ProductID        int64    `json:"product_id,omitempty"`
+	BOMID            int64    `json:"bom_id,omitempty"`
+	VersionID        int64    `json:"version_id,omitempty"`
+	SpecID           int64    `json:"bom_spec_id,omitempty"`
+	VariantID        int64    `json:"bom_variant_id,omitempty"`
+	Published        bool     `json:"published,omitempty"`
+	New              bool     `json:"new,omitempty"`
 }
 
 func (e BusinessExecutor) ExecuteConfiguration(ctx context.Context, run creatorapp.Run, actor string) (map[string]any, error) {
@@ -578,7 +579,7 @@ func (e BusinessExecutor) executeBOMProductInput(ctx context.Context, node creat
 	}
 	specID := positiveNumber(values["bom_spec_id"])
 	rows, err := queryWithTransaction(ctx).Query(ctx, fmt.Sprintf(`
-		SELECT spec.id,spec.spec_key,COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),variant.inventory_unit,variant.id
+		SELECT spec.id,spec.spec_key,COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),variant.inventory_unit,variant.id,variant.logistics_weight_g::float8
 		FROM %s.production_bom_specs spec
 		JOIN LATERAL (
 			SELECT version.id
@@ -597,7 +598,7 @@ func (e BusinessExecutor) executeBOMProductInput(ctx context.Context, node creat
 	count := 0
 	for rows.Next() {
 		var ref createdReference
-		if err := rows.Scan(&ref.ID, &ref.RowID, &ref.Name, &ref.Unit, &ref.VariantID); err != nil {
+		if err := rows.Scan(&ref.ID, &ref.RowID, &ref.Name, &ref.Unit, &ref.VariantID, &ref.LogisticsWeightG); err != nil {
 			return nil, err
 		}
 		ref.Type, ref.SpecID, ref.ProductID, ref.OwnerID, ref.Published = "spec", ref.ID, id, ownerID, true
@@ -1275,7 +1276,7 @@ func (e BusinessExecutor) executeBOM(ctx context.Context, run creatorapp.Run, no
 	}
 	variants := make([]bomapp.ProductionBomDraftVariant, 0)
 	for i, row := range mapRows(values["variants"]) {
-		variant := bomapp.ProductionBomDraftVariant{SpecKey: stringValue(row["row_id"]), Name: stringValue(row["name"]), InventoryUnit: stringValue(row["unit"]), IsDefault: boolValue(row["is_default"]), SortOrder: i + 1}
+		variant := bomapp.ProductionBomDraftVariant{SpecKey: stringValue(row["row_id"]), Name: stringValue(row["name"]), InventoryUnit: stringValue(row["unit"]), LogisticsWeightG: optionalLogisticsWeight(row["logistics_weight_g"]), IsDefault: boolValue(row["is_default"]), SortOrder: i + 1}
 		for _, component := range components {
 			if component.variantRowID == "" || component.variantRowID == stringValue(row["row_id"]) {
 				variant.Items = append(variant.Items, component.item)
@@ -1491,7 +1492,7 @@ func (e BusinessExecutor) executePublish(ctx context.Context, run creatorapp.Run
 	refs[node.ID]["output"] = output
 	refs[node.ID]["published"] = bomRef
 	rows, err := queryWithTransaction(ctx).Query(ctx, fmt.Sprintf(`
-		SELECT spec.id,spec.spec_key,COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),variant.inventory_unit,variant.id
+		SELECT spec.id,spec.spec_key,COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),variant.inventory_unit,variant.id,variant.logistics_weight_g::float8
 		FROM %s.production_bom_version_variants variant
 		JOIN %s.production_bom_specs spec ON spec.id=variant.bom_spec_id
 		WHERE variant.version_id=$1 ORDER BY variant.sort_order,variant.id`, e.schema, e.schema), bomRef.VersionID)
@@ -1506,14 +1507,15 @@ func (e BusinessExecutor) executePublish(ctx context.Context, run creatorapp.Run
 	for rows.Next() {
 		var id, variantID int64
 		var specKey, name, unit string
-		if err := rows.Scan(&id, &specKey, &name, &unit, &variantID); err != nil {
+		var logisticsWeightG *float64
+		if err := rows.Scan(&id, &specKey, &name, &unit, &variantID, &logisticsWeightG); err != nil {
 			return nil, err
 		}
 		rowID := rowIDs[specKey]
 		if rowID == "" {
 			rowID = specKey
 		}
-		refs[node.ID][rowID] = createdReference{Type: "spec", RowID: rowID, ID: id, Name: name, Unit: unit, OwnerID: output.OwnerID, ProductID: output.ID, BOMID: bomRef.BOMID, VersionID: bomRef.VersionID, SpecID: id, VariantID: variantID, Published: true}
+		refs[node.ID][rowID] = createdReference{Type: "spec", RowID: rowID, ID: id, Name: name, Unit: unit, OwnerID: output.OwnerID, ProductID: output.ID, BOMID: bomRef.BOMID, VersionID: bomRef.VersionID, SpecID: id, VariantID: variantID, LogisticsWeightG: logisticsWeightG, Published: true}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1770,4 +1772,12 @@ func outputMaterialValues(run creatorapp.Run, node creatorapp.Node, values map[s
 		"industry_fields":         values["industry_fields"],
 		"classification_group_id": values["classification_group_id"], "classification_item_id": values["classification_item_id"],
 	}
+}
+
+func optionalLogisticsWeight(value any) *float64 {
+	if value == nil || strings.TrimSpace(fmt.Sprint(value)) == "" {
+		return nil
+	}
+	weight := numberValue(value)
+	return &weight
 }

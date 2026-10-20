@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
+	"orderapp/internal/infrastructure/postgres/orderweight"
 	"sort"
 	"strconv"
 	"strings"
@@ -2039,6 +2041,13 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	views, e := freightpg.NewRepository(r.pool, r.schema).OrderViews(ctx, r.pool, orderIDs)
+	if e != nil {
+		return nil, e
+	}
+	for i := range out {
+		out[i].Freight = views[out[i].ID]
+	}
 	items := map[int64][]customerportalapp.CustomerOrderItemSummary{}
 	if includeItems {
 		var err error
@@ -2094,7 +2103,12 @@ func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64
 		       to_char(COALESCE(oi.unit_price,0), 'FM999999990.00'),
 		       to_char(COALESCE(oi.line_total,0), 'FM999999990.00'),
 		       COALESCE(oi.bean_list_publication_id,0),
-		       COALESCE(oi.bean_list_version_no,'')
+		       COALESCE(oi.bean_list_version_no,''),
+				to_jsonb(oi)->>'material_unit_weight_g',
+				to_jsonb(oi)->>'material_item_weight_g',
+				to_jsonb(oi)->>'logistics_unit_weight_g',
+				to_jsonb(oi)->>'logistics_item_weight_g',
+				COALESCE(to_jsonb(oi)->>'weight_snapshot_json','{}')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
 		WHERE oi.order_id IN (`+strings.Join(placeholders, ",")+`)
@@ -2107,7 +2121,7 @@ func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64
 	for rows.Next() {
 		var orderID int64
 		var row customerportalapp.CustomerOrderItemSummary
-		if err := rows.Scan(&orderID, &row.ID, &row.ItemName, &row.ProductKind, &row.Spec, &row.Qty, &row.Unit, &row.UnitPrice, &row.LineTotal, &row.BeanListPublicationID, &row.BeanListVersionNo); err != nil {
+		if err := rows.Scan(&orderID, &row.ID, &row.ItemName, &row.ProductKind, &row.Spec, &row.Qty, &row.Unit, &row.UnitPrice, &row.LineTotal, &row.BeanListPublicationID, &row.BeanListVersionNo, &row.MaterialUnitWeightG, &row.MaterialItemWeightG, &row.LogisticsUnitWeightG, &row.LogisticsItemWeightG, &row.WeightSnapshotJSON); err != nil {
 			return nil, err
 		}
 		out[orderID] = append(out[orderID], row)
@@ -2557,6 +2571,9 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 	}); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
+	if err := orderweight.FreezeOrder(ctx, tx, r.schema, orderID); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
@@ -2795,6 +2812,9 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		}); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
+	}
+	if err := orderweight.FreezeOrder(ctx, tx, r.schema, orderID); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err

@@ -34,14 +34,14 @@ func TestV8ReusedOutputPostgresNoWritesAndFreshSnapshot(t *testing.T) {
  CREATE TABLE %[1]s.production_bom_versions(id bigint,bom_id bigint,status text,published_at timestamptz,created_at timestamptz);
  CREATE TABLE %[1]s.production_bom_output_bindings(output_type text,output_id bigint,bom_id bigint,bom_version_id bigint,is_default bool);
  CREATE TABLE %[1]s.production_bom_specs(id bigint,bom_id bigint,spec_key text,name text);
- CREATE TABLE %[1]s.production_bom_version_variants(id bigint,version_id bigint,bom_spec_id bigint,inventory_unit text,spec_name_snapshot text,sort_order int);
+ CREATE TABLE %[1]s.production_bom_version_variants(id bigint,version_id bigint,bom_spec_id bigint,inventory_unit text,spec_name_snapshot text,sort_order int,logistics_weight_g numeric);
  INSERT INTO %[1]s.materials VALUES(42,'已有烘焙半成品','kg',0,true,NULL);
  INSERT INTO %[1]s.products VALUES(52,'已有挂耳',0,true);
  INSERT INTO %[1]s.production_boms VALUES(1,'material',42,0,'active'),(3,'product',0,52,'active');
  INSERT INTO %[1]s.production_bom_versions VALUES(2,1,'published',now(),now()),(4,3,'published',now(),now());
  INSERT INTO %[1]s.production_bom_output_bindings VALUES('material',42,1,2,true),('product',52,3,4,true);
  INSERT INTO %[1]s.production_bom_specs VALUES(101,3,'s1','10g袋装');
- INSERT INTO %[1]s.production_bom_version_variants VALUES(102,4,101,'袋','10g袋装',0);`, schema))
+ INSERT INTO %[1]s.production_bom_version_variants VALUES(102,4,101,'袋','10g袋装',0,10);`, schema))
 	if err != nil {
 		t.Fatal(err)
 	}

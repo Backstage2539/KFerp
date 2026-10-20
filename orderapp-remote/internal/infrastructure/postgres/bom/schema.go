@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_spec_template_variants (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	UNIQUE(version_id, spec_key)
 );
+ALTER TABLE %[1]s.production_bom_spec_template_variants ADD COLUMN IF NOT EXISTS logistics_weight_g NUMERIC(20,6) NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_spec_template_variants_default_uq
 	ON %[1]s.production_bom_spec_template_variants(version_id) WHERE is_default=true;
 
@@ -194,6 +195,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_variants (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	UNIQUE(version_id, bom_spec_id)
 );
+ALTER TABLE %[1]s.production_bom_version_variants ADD COLUMN IF NOT EXISTS logistics_weight_g NUMERIC(20,6) NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_version_variants_default_uq
 	ON %[1]s.production_bom_version_variants(version_id) WHERE is_default=true;
 CREATE INDEX IF NOT EXISTS production_bom_version_variants_version_idx

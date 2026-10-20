@@ -3,6 +3,7 @@ package customerfulfillment
 import (
 	"context"
 	"fmt"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -508,6 +509,9 @@ CREATE INDEX IF NOT EXISTS customer_statement_disputes_customer_settlement_idx
 	if err := ensureFulfillmentSettingsSchema(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := freightpg.NewRepository(pool, schema).EnsureSchema(ctx); err != nil {
+		return err
+	}
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_requests ADD COLUMN IF NOT EXISTS fulfillment_mode TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS product_id BIGINT NOT NULL DEFAULT 0`, schema),
@@ -516,6 +520,11 @@ CREATE INDEX IF NOT EXISTS customer_statement_disputes_customer_settlement_idx
 		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_request_items DROP CONSTRAINT IF EXISTS customer_direct_ship_request_items_request_id_product_id_spec_g_key`, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS customer_direct_ship_request_items_legacy_identity_uq ON %s.customer_direct_ship_request_items(request_id,product_id,spec_g) WHERE bom_spec_id=0`, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS customer_direct_ship_request_items_bom_spec_identity_uq ON %s.customer_direct_ship_request_items(request_id,product_id,bom_spec_id) WHERE bom_spec_id>0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS material_unit_weight_g NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS material_item_weight_g NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS logistics_unit_weight_g NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS logistics_item_weight_g NUMERIC(20,6)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS weight_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS customer_product_alias_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),

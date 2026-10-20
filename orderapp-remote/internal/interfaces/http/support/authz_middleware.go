@@ -349,6 +349,12 @@ func requiredPermissionForRequest(method, path string) string {
 	if strings.HasPrefix(path, "/api/customer-fulfillment/") && strings.Contains(path, "/direct-ship/") {
 		return "stock.write"
 	}
+	if strings.HasPrefix(path, "/api/customer-fulfillment/") && (strings.Contains(path, "/shipping-policies") || strings.Contains(path, "/freight/")) {
+		if method == http.MethodGet || strings.HasSuffix(path, "/preview") {
+			return "customers.read"
+		}
+		return "customers.write"
+	}
 	if strings.HasPrefix(path, "/api/customer-fulfillment/") && (strings.HasSuffix(path, "/settings") || strings.Contains(path, "/fees")) {
 		if method == http.MethodGet || strings.HasSuffix(path, "/fees/preview") {
 			return "customers.read"
@@ -556,6 +562,6 @@ func isBeanListPublicationPDFRequest(path string) bool {
 
 func isInternalCustomerStockRequest(path string) bool {
 	path = strings.TrimPrefix(path, "/app")
-	return strings.HasPrefix(path, "/api/settings/logistics/shipping-templates") ||
-		strings.HasPrefix(path, "/api/customer-fulfillment/") && (strings.HasSuffix(path, "/overview") || strings.HasSuffix(path, "/settings") || strings.Contains(path, "/fees") || strings.Contains(path, "/direct-ship/"))
+	return strings.HasPrefix(path, "/api/settings/logistics/") ||
+		strings.HasPrefix(path, "/api/customer-fulfillment/") && (strings.Contains(path, "/shipping-policies") || strings.Contains(path, "/freight/preview") || strings.HasSuffix(path, "/overview") || strings.HasSuffix(path, "/settings") || strings.Contains(path, "/fees") || strings.Contains(path, "/direct-ship/"))
 }

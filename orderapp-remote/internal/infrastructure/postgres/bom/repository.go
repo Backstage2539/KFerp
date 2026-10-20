@@ -1622,7 +1622,7 @@ func (r Repository) ListProductionBomPublishedSpecs(ctx context.Context, product
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT pb.id, pb.name, version.id, variant.bom_spec_id, variant.id,
 		       spec.spec_key, COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
-		       variant.inventory_unit, variant.is_default
+		       variant.inventory_unit, variant.is_default,variant.logistics_weight_g::float8
 		FROM %[1]s.production_boms pb
 		JOIN %[1]s.products product ON product.id=pb.output_product_id AND COALESCE(product.active,true)=true
 		JOIN LATERAL (
@@ -1646,7 +1646,7 @@ func (r Repository) ListProductionBomPublishedSpecs(ctx context.Context, product
 	out := make([]bomapp.ProductionBomPublishedSpec, 0)
 	for rows.Next() {
 		var row bomapp.ProductionBomPublishedSpec
-		if err := rows.Scan(&row.BomID, &row.BomName, &row.VersionID, &row.BomSpecID, &row.BomVariantID, &row.SpecKey, &row.Name, &row.InventoryUnit, &row.IsDefault); err != nil {
+		if err := rows.Scan(&row.BomID, &row.BomName, &row.VersionID, &row.BomSpecID, &row.BomVariantID, &row.SpecKey, &row.Name, &row.InventoryUnit, &row.IsDefault, &row.LogisticsWeightG); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -2762,6 +2762,9 @@ func (r Repository) validateProductionBomVersionForPublish(ctx context.Context, 
 	hasVariants, err := validateProductionBomVersionVariantsForPublish(ctx, q, r.schema, cmd.VersionID, bomID)
 	if err != nil {
 		return err
+	}
+	if outputType == "product" && !hasVariants {
+		return fmt.Errorf("商品 BOM 发布前请配置默认规格及物流重量（logistics_weight_g）")
 	}
 	if hasVariants && outputType != "product" {
 		return fmt.Errorf("specification group requires product output")

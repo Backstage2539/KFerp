@@ -57,6 +57,7 @@ func registerEmployeeDirectShipAPI(e *echo.Echo, service Service) {
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 			}
 			cmd.CustomerID = id
+			cmd.EmployeeAdjustment = true
 			cmd.EmployeeID = support.CurrentEmployeeID(c)
 			cmd.MiniUserID = 0
 			cmd.Actor = currentCustomerFulfillmentActor(c)

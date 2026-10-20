@@ -3,6 +3,7 @@ package customerfulfillment
 import (
 	"context"
 	"fmt"
+	freightdomain "orderapp/internal/domain/freight"
 	salesdomain "orderapp/internal/domain/sales"
 	"strings"
 	"time"
@@ -24,38 +25,44 @@ type AccountQuery struct {
 	Limit          int
 }
 type AccountOrder struct {
-	ConfirmationStatus   string             `json:"confirmation_status"`
-	ConfirmationRequired bool               `json:"confirmation_required"`
-	AcceptedRevision     int64              `json:"accepted_revision"`
-	ProcessStatus        string             `json:"process_status"`
-	ID                   int64              `json:"id"`
-	OrderNo              string             `json:"order_no"`
-	OrderDate            string             `json:"order_date"`
-	ReceiverName         string             `json:"receiver_name"`
-	ReceiverPhone        string             `json:"receiver_phone"`
-	ReceiverAddress      string             `json:"receiver_address"`
-	ShipStatus           string             `json:"ship_status"`
-	TrackingNo           string             `json:"ship_tracking_no"`
-	PayStatus            string             `json:"pay_status"`
-	PaymentStatus        string             `json:"payment_status"`
-	Service              string             `json:"portal_service_code"`
-	IsVoid               bool               `json:"is_void"`
-	GoodsCents           int64              `json:"goods_cents"`
-	ShippingCents        int64              `json:"shipping_cents"`
-	DiscountCents        int64              `json:"discount_cents"`
-	TotalCents           int64              `json:"total_cents"`
-	PrepaymentCents      int64              `json:"prepayment_cents"`
-	PaidCents            int64              `json:"paid_cents"`
-	DueCents             int64              `json:"due_cents"`
-	Items                []AccountOrderItem `json:"items,omitempty"`
+	Freight              *freightdomain.OrderView `json:"freight,omitempty"`
+	ConfirmationStatus   string                   `json:"confirmation_status"`
+	ConfirmationRequired bool                     `json:"confirmation_required"`
+	AcceptedRevision     int64                    `json:"accepted_revision"`
+	ProcessStatus        string                   `json:"process_status"`
+	ID                   int64                    `json:"id"`
+	OrderNo              string                   `json:"order_no"`
+	OrderDate            string                   `json:"order_date"`
+	ReceiverName         string                   `json:"receiver_name"`
+	ReceiverPhone        string                   `json:"receiver_phone"`
+	ReceiverAddress      string                   `json:"receiver_address"`
+	ShipStatus           string                   `json:"ship_status"`
+	TrackingNo           string                   `json:"ship_tracking_no"`
+	PayStatus            string                   `json:"pay_status"`
+	PaymentStatus        string                   `json:"payment_status"`
+	Service              string                   `json:"portal_service_code"`
+	IsVoid               bool                     `json:"is_void"`
+	GoodsCents           int64                    `json:"goods_cents"`
+	ShippingCents        int64                    `json:"shipping_cents"`
+	DiscountCents        int64                    `json:"discount_cents"`
+	TotalCents           int64                    `json:"total_cents"`
+	PrepaymentCents      int64                    `json:"prepayment_cents"`
+	PaidCents            int64                    `json:"paid_cents"`
+	DueCents             int64                    `json:"due_cents"`
+	Items                []AccountOrderItem       `json:"items,omitempty"`
 }
 type AccountOrderItem struct {
-	Name      string `json:"item_name"`
-	Spec      string `json:"spec"`
-	Quantity  string `json:"qty"`
-	Unit      string `json:"unit"`
-	UnitPrice string `json:"unit_price"`
-	LineTotal string `json:"line_total"`
+	Name                 string  `json:"item_name"`
+	Spec                 string  `json:"spec"`
+	Quantity             string  `json:"qty"`
+	Unit                 string  `json:"unit"`
+	UnitPrice            string  `json:"unit_price"`
+	LineTotal            string  `json:"line_total"`
+	MaterialUnitWeightG  *string `json:"material_unit_weight_g"`
+	MaterialItemWeightG  *string `json:"material_item_weight_g"`
+	LogisticsUnitWeightG *string `json:"logistics_unit_weight_g"`
+	LogisticsItemWeightG *string `json:"logistics_item_weight_g"`
+	WeightSnapshotJSON   string  `json:"weight_snapshot_json"`
 }
 
 func (o *AccountOrder) SetPayment() {

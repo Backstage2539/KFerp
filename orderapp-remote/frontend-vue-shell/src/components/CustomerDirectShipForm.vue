@@ -1,4 +1,6 @@
 <script setup>
+import {explicitMoneyCents} from '../lib/fulfillment-settings'
+import {freightLabel} from '../lib/freight'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { readFormDraft, saveFormDraft, clearFormDraft } from '../lib/form-draft-cache'
@@ -18,6 +20,7 @@ const error = ref('')
 const notice = ref('')
 const preview = ref(null)
 const topup = ref(null)
+const override=reactive({enabled:false,surcharge:'0.00',free:false,reason:''})
 const form = reactive({ order_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }), receiver_name: '', receiver_phone: '', receiver_address: '', receiver_company: '', province: '', city: '', district: '', note: '' })
 const lines = ref([newLine()])
 const requestID = ref(newRequestID())
@@ -69,7 +72,7 @@ async function load() {
 }
 async function changeMode(next) { if (saving.value || mode.value === next) return; saveDraft(); mode.value = next; lines.value = [newLine()]; requestID.value = newRequestID(); preview.value = null; error.value = ''; restoreDraft(); await loadCatalog() }
 function buildItems() { return lines.value.map(line => { const spec = specFor(line); return { product_id: Number(spec?.sku_id || spec?.product_id || 0), bom_spec_id: Number(spec?.bom_spec_id || 0), bom_variant_id: Number(spec?.bom_variant_id || 0), inventory_unit: spec?.inventory_unit || '', sales_unit: spec?.sales_unit || '', spec_g: Number(spec?.bom_spec_id || 0) > 0 ? 0 : Number(spec?.spec_g || spec?.unit_bean_g || (spec?.net_content_unit === 'kg' ? Number(spec?.net_content_qty) * 1000 : spec?.net_content_qty) || 0), qty: Number(line.qty) } }) }
-function command() { return { fulfillment_mode: mode.value, idempotency_key: requestID.value, order_date: form.order_date, recipient_name: form.receiver_name.trim(), recipient_phone: form.receiver_phone.trim(), province: form.province.trim(), city: form.city.trim(), district: form.district.trim(), detail_address: form.receiver_address.trim(), recipient_company: form.receiver_company.trim(), items: buildItems(), note: form.note.trim() } }
+function command() { return { ...(override.enabled?{freight_override:{surcharge_cents:explicitMoneyCents(override.surcharge),free_shipping:override.free,reason:override.reason}}:{}), fulfillment_mode: mode.value, idempotency_key: requestID.value, order_date: form.order_date, recipient_name: form.receiver_name.trim(), recipient_phone: form.receiver_phone.trim(), province: form.province.trim(), city: form.city.trim(), district: form.district.trim(), detail_address: form.receiver_address.trim(), recipient_company: form.receiver_company.trim(), items: buildItems(), note: form.note.trim() } }
 function validation() { if (!activeMode.value) return modes.value.length ? '请选择库存代发或无库存代发场景' : '请先在履约设置中启用代发场景'; if (!form.receiver_name.trim() || !form.receiver_phone.trim() || !form.receiver_address.trim()) return '请填写完整收件信息'; if (!lines.value.length || buildItems().some(item => !item.product_id || !Number.isInteger(item.qty) || item.qty <= 0)) return '请完整选择商品规格，数量须为正整数'; return '' }
 async function check() {
   const problem = validation(); if (problem) { error.value = problem; return null }
@@ -86,7 +89,7 @@ async function submit() {
   saving.value = true
   const submittedCustomerID = Number(props.customerId)
   try {
-    const saved = await apiSend(`${baseURL.value}/direct-ship/requests`, { body: { ...command(), price_quote_token: checked.price_quote_token, fee_quote_token: checked.fee_quote_token || checked.fees?.fee_quote_token } })
+    const saved = await apiSend(`${baseURL.value}/direct-ship/requests`, { body: { ...command(), freight_protocol:'deferred_freight_v1', price_quote_token: checked.price_quote_token, fee_quote_token: checked.fee_quote_token || checked.fees?.fee_quote_token } })
     if (submittedCustomerID !== Number(props.customerId)) return
     notice.value = `代发订单已提交：${saved.order_no || saved.request_no || saved.id || ''}`
     clearFormDraft(draftKey()); lines.value = [newLine()]; form.note = ''; requestID.value = newRequestID(); preview.value = null; emit('saved', saved); await loadCatalog()
@@ -121,7 +124,8 @@ watch(() => props.customerId, async (next, previous) => { saveDraft(previous); v
         <label>省<input v-model.trim="form.province" placeholder="运费匹配省份" @input="invalidate" /></label><label>市<input v-model.trim="form.city" @input="invalidate" /></label><label>区 / 县<input v-model.trim="form.district" @input="invalidate" /></label><label class="wide">详细地址<input v-model.trim="form.receiver_address" @input="invalidate" /></label>
         <div v-for="(line,index) in lines" :key="line.key" class="line wide"><label>商品<SearchableSelect v-model="line.family_key" :options="families" :option-label="familyLabel" :option-value="familyKey" placeholder="搜索商品" @select="selectFamily(line,$event)" /></label><label>规格<select v-model="line.spec_key" @change="invalidate"><option value="">请选择规格</option><option v-for="spec in familyFor(line)?.specs || []" :key="specKey(spec)" :value="specKey(spec)">{{ specLabel(spec) }}</option></select></label><label>数量<input v-model.number="line.qty" type="number" min="1" step="1" @input="invalidate" /></label><button type="button" class="secondary" :disabled="saving" @click="lines.splice(index,1); invalidate()">删除</button><div v-if="mode === 'stock' && specFor(line)" class="supply wide"><span>实物可用 {{ quantityFor(line).physical }}</span><span>待入库 {{ quantityFor(line).pending }}</span><span>待入库已预订 {{ quantityFor(line).reserved }}</span><span>本单待补购 {{ quantityFor(line).gap }}</span></div></div>
         <button type="button" class="secondary" :disabled="saving" @click="lines.push(newLine()); invalidate()">新增商品</button><label class="wide">备注<textarea v-model.trim="form.note" rows="2" @input="invalidate" /></label>
-        <div v-if="preview" class="quote wide"><span>商品货款 ¥{{ money(goodsAmount) }}</span><span>代发服务费 ¥{{ money(serviceAmount) }}</span><span>运费 ¥{{ money(freightAmount) }}</span><strong>本次应付 ¥{{ money(totalAmount) }}</strong><span v-if="mode === 'stock' && !preview.stock_ready" class="wide">已购待入库商品将预订权益，实际入库后才能发货。</span></div>
+        <details v-if="!props.customerPortal" class="wide"><summary>本单运费调整</summary><label><input v-model="override.enabled" type="checkbox" @change="invalidate" />本单调整附加运费／包邮</label><template v-if="override.enabled"><label>附加运费（元）<input v-model="override.surcharge" type="number" min="0" step="0.01" @input="invalidate" /></label><label><input v-model="override.free" type="checkbox" @change="invalidate" />本单包邮</label><label>调整原因<input v-model.trim="override.reason" @input="invalidate" /></label></template></details>
+        <div v-if="preview" class="quote wide"><span>商品货款 ¥{{ money(goodsAmount) }}</span><span>代发服务费 ¥{{ money(serviceAmount) }}</span><span>{{preview.fees?.freight?freightLabel(preview.fees.freight):`运费 ¥${money(freightAmount)}`}}</span><span v-if="preview.fees?.freight">预估不计当前应付，实际运费出账后另收</span><strong>本次应付 ¥{{ money(totalAmount) }}</strong><span v-if="mode === 'stock' && !preview.stock_ready" class="wide">已购待入库商品将预订权益，实际入库后才能发货。</span></div>
         <div v-if="preview?.needs_topup" class="shortage wide">超出已购权益，待补购 {{ preview.purchase_gap_qty || 0 }} 件。<button type="button" class="secondary" @click="startTopup">保存草稿并补购</button></div>
         <div class="form-actions wide"><button type="button" class="secondary" :disabled="loading || saving" @click="check">核对库存与费用</button><button type="button" class="primary" :disabled="loading || saving || Boolean(preview && !preview.can_submit)" @click="submit">{{ saving ? '提交中…' : '提交代发订单' }}</button></div>
       </fieldset>

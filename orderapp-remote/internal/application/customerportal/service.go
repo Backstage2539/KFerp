@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	salesapp "orderapp/internal/application/sales"
+	freightdomain "orderapp/internal/domain/freight"
 	"regexp"
 	"sort"
 	"strconv"
@@ -163,6 +164,7 @@ type Capability struct {
 }
 
 type CurrentContext struct {
+	FulfillmentModes       []string             `json:"fulfillment_modes"`
 	RegistrationComplete   bool                 `json:"registration_complete"`
 	Registration           *RegistrationProfile `json:"registration,omitempty"`
 	MiniUserID             int64                `json:"mini_user_id"`
@@ -717,6 +719,7 @@ type CreateMallOrderCommand struct {
 }
 
 type CustomerOrderSummary struct {
+	Freight               *freightdomain.OrderView   `json:"freight,omitempty"`
 	DeliveryMode          string                     `json:"delivery_mode"`
 	DeliveryWarehouseCode string                     `json:"delivery_warehouse_code"`
 	DeliveryStatus        string                     `json:"delivery_status"`
@@ -743,16 +746,21 @@ type CustomerOrderSummary struct {
 }
 
 type CustomerOrderItemSummary struct {
-	ID                    int64  `json:"id"`
-	ItemName              string `json:"item_name"`
-	ProductKind           string `json:"product_kind"`
-	Spec                  string `json:"spec"`
-	Qty                   string `json:"qty"`
-	Unit                  string `json:"unit"`
-	UnitPrice             string `json:"unit_price"`
-	LineTotal             string `json:"line_total"`
-	BeanListPublicationID int64  `json:"bean_list_publication_id"`
-	BeanListVersionNo     string `json:"bean_list_version_no"`
+	ID                    int64   `json:"id"`
+	ItemName              string  `json:"item_name"`
+	ProductKind           string  `json:"product_kind"`
+	Spec                  string  `json:"spec"`
+	Qty                   string  `json:"qty"`
+	Unit                  string  `json:"unit"`
+	UnitPrice             string  `json:"unit_price"`
+	LineTotal             string  `json:"line_total"`
+	BeanListPublicationID int64   `json:"bean_list_publication_id"`
+	BeanListVersionNo     string  `json:"bean_list_version_no"`
+	MaterialUnitWeightG   *string `json:"material_unit_weight_g"`
+	MaterialItemWeightG   *string `json:"material_item_weight_g"`
+	LogisticsUnitWeightG  *string `json:"logistics_unit_weight_g"`
+	LogisticsItemWeightG  *string `json:"logistics_item_weight_g"`
+	WeightSnapshotJSON    string  `json:"weight_snapshot_json"`
 }
 
 type DirectShipBatch struct {
@@ -1397,6 +1405,16 @@ func (s *Service) Me(ctx context.Context, token string) (CurrentContext, error) 
 	current, err := s.repo.CurrentContextByToken(ctx, token)
 	if err != nil {
 		return CurrentContext{}, err
+	}
+	if current.CurrentCustomerID > 0 && current.AccountType != "employee" {
+		if modes, ok := s.repo.(interface {
+			FulfillmentModes(context.Context, int64) ([]string, error)
+		}); ok {
+			current.FulfillmentModes, err = modes.FulfillmentModes(ctx, current.CurrentCustomerID)
+			if err != nil {
+				return CurrentContext{}, err
+			}
+		}
 	}
 	return normalizeCurrentContext(current), nil
 }

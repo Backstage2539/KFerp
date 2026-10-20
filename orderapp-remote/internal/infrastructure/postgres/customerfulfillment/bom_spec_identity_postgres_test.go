@@ -256,7 +256,7 @@ func TestMiniDirectShipCutoverBOMSpecIdentityReservesOneToOneUnitsAndEchoesIdent
 	}
 	archivedVariantID := bomVariantID
 	repo := NewRepository(pool, schema)
-	historicalCmd := app.MiniDirectShipCommand{
+	historicalCmd := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 601, EmployeeID: 701, MiniUserID: 801, IdempotencyKey: "PR600-MINI-HISTORICAL",
 		RecipientName: "历史单据", RecipientPhone: "13800138000", DetailAddress: "咖啡路8号", Actor: "mini_user:801",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: parentProductID, BomSpecID: bomSpecID, InventoryUnit: "袋", Qty: 1}},
@@ -313,7 +313,7 @@ func TestMiniDirectShipCutoverBOMSpecIdentityReservesOneToOneUnitsAndEchoesIdent
 		t.Fatalf("canonical catalog spec missing: %#v", catalog.ProductFamilies)
 	}
 
-	created, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+	created, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 		CustomerID: 601, EmployeeID: 701, MiniUserID: 801, IdempotencyKey: "PR600-MINI-CANONICAL",
 		RecipientName: "张三", RecipientPhone: "13800138000", DetailAddress: "咖啡路8号", Actor: "mini_user:801",
 		Items: []app.MiniDirectShipItemCommand{{ProductID: parentProductID, BomSpecID: bomSpecID, InventoryUnit: "袋", Qty: 2}},
@@ -347,7 +347,7 @@ func TestMiniDirectShipCutoverBOMSpecIdentityReservesOneToOneUnitsAndEchoesIdent
 		"legacy child":  {ProductID: childProductID, SpecG: 227, Qty: 1},
 		"stale variant": {ProductID: parentProductID, BomSpecID: bomSpecID, BomVariantID: archivedVariantID, Qty: 1},
 	} {
-		_, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+		_, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1",
 			CustomerID: 601, EmployeeID: 701, MiniUserID: 801, IdempotencyKey: "PR600-MINI-REJECT-" + name,
 			RecipientName: "拒绝", RecipientPhone: "13800138000", DetailAddress: "咖啡路8号", Actor: "mini_user:801",
 			Items: []app.MiniDirectShipItemCommand{item},

@@ -181,7 +181,7 @@ func seedPR600ComponentSpecUnitAuthority(t *testing.T, ctx context.Context, pool
 }
 
 func pr600ComponentSpecUnitTemplateVariants(specID int64, consumeUnit string) []bomapp.ProductionBomSpecTemplateVariant {
-	return []bomapp.ProductionBomSpecTemplateVariant{{
+	return []bomapp.ProductionBomSpecTemplateVariant{{LogisticsWeightG: logisticsTestWeight(227),
 		SpecKey: "unit", Name: "单位规格", InventoryUnit: "个", IsDefault: true,
 		Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{
 			{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 1}},
@@ -194,8 +194,8 @@ func seedPR600InvalidTemplateUnitDraft(t *testing.T, ctx context.Context, pool *
 	t.Helper()
 	var variantID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_spec_template_variants(version_id,spec_key,name,inventory_unit,is_default)
-		VALUES($1,'unit','单位规格','个',true) RETURNING id
+		INSERT INTO %s.production_bom_spec_template_variants(version_id,spec_key,name,inventory_unit,is_default,logistics_weight_g)
+		VALUES($1,'unit','单位规格','个',true,227) RETURNING id
 	`, schema), versionID).Scan(&variantID); err != nil {
 		t.Fatal(err)
 	}

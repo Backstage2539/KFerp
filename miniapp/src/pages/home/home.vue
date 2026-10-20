@@ -14,7 +14,6 @@ import {
   fetchServicePage,
   fetchMe,
   fetchProcessingRequests,
-  fetchDirectShipCatalog,
   type CustomerFulfillmentSettings,
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
@@ -117,9 +116,8 @@ async function loadContext() {
     session.applyContext(response)
  if(response.account_type!=='employee'&&!response.current_customer_id){uni.reLaunch({url:'/pages/index/index'});return}
     fulfillmentSettings.value = undefined
-    if (response.account_type !== 'employee' && capabilityEnabled('direct_ship')) {
-      try { fulfillmentSettings.value = (await fetchDirectShipCatalog(session.token)).fulfillment_settings }
-      catch (error) { errorMessage.value = error instanceof Error ? error.message : '代发入口加载失败，请重试'; return }
+    if (response.account_type !== 'employee') {
+      fulfillmentSettings.value = {customer_id:response.current_customer_id,revision:0,modes:(response.fulfillment_modes||[]).map(mode=>({mode,enabled:true,warehouse_code:'',fee_configured:false,fixed_fee_cents:0,per_package_fee_cents:0,shipping_template_id:0}))}
     }
     await loadCustomerOverview()
     if(canUseEmployeePriceCenter(session)){try{staffUnread.value=(await fetchStaffNotifications(session.token,true)).unread_count||0}catch{staffUnread.value=0}}

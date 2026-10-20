@@ -3,6 +3,7 @@ package sales
 import (
 	"encoding/json"
 	"net/http"
+	freightdomain "orderapp/internal/domain/freight"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
@@ -75,54 +76,60 @@ type orderFormAPIResponse struct {
 }
 
 type orderSaveAPIRequest struct {
-	DeliveryMode                    string   `json:"delivery_mode"`
-	DeliveryWarehouseCode           string   `json:"delivery_warehouse_code"`
-	SpecConversion                  []string `json:"spec_conversion"`
-	EditRevision                    string   `json:"edit_revision"`
-	RequestID                       string   `json:"request_id"`
-	BackfillMode                    bool     `json:"backfill_mode"`
-	SelectedPriceTableIDs           []int64  `json:"selected_price_table_ids"`
-	PrepaymentAmount                *string  `json:"prepayment_amount" form:"prepayment_amount"`
-	EditID                          int64    `json:"edit_id"`
-	DocumentDate                    string   `json:"document_date"`
-	OrderDate                       string   `json:"order_date"`
-	CustomerID                      int64    `json:"customer_id"`
-	SourceID                        int64    `json:"source_id"`
-	OrderTypeID                     int64    `json:"order_type_id"`
-	PayStatusID                     int64    `json:"pay_status_id"`
-	PaymentMethod                   string   `json:"payment_method"`
-	ShipStatusID                    int64    `json:"ship_status_id"`
-	ShipMethod                      string   `json:"ship_method"`
-	ShipTrackingNo                  string   `json:"ship_tracking_no"`
-	LogisticsCompanyID              int64    `json:"logistics_company_id"`
-	LogisticsProductID              int64    `json:"logistics_product_id"`
-	PaymentGoodsAmount              string   `json:"payment_goods_amount"`
-	PaymentShippingAmount           string   `json:"payment_shipping_amount"`
-	PaymentVoucherAssetID           int64    `json:"payment_voucher_asset_id"`
-	ResponsibleType                 string   `json:"responsible_type"`
-	ResponsibleID                   int64    `json:"responsible_id"`
-	Notes                           string   `json:"notes"`
-	ShippingAmount                  string   `json:"shipping_amount"`
-	DiscountAmount                  string   `json:"discount_amount"`
-	RoundToInt                      string   `json:"round_to_int"`
-	ExpressFee                      string   `json:"express_fee"`
-	OutsourceMaterialFee            string   `json:"outsource_material_fee"`
-	OutsourceRoastFee               string   `json:"outsource_roast_fee"`
-	OutsourcePackagingFee           string   `json:"outsource_packaging_fee"`
-	OutsourceManualFee              string   `json:"outsource_manual_fee"`
-	OutsourceTaxFee                 string   `json:"outsource_tax_fee"`
-	OutsourceOtherFee               string   `json:"outsource_other_fee"`
-	StockBatchDecision              string   `json:"stock_batch_decision"`
-	BeanListPublicationID           int64    `json:"bean_list_publication_id"`
-	CommercialBeanListPublicationID int64    `json:"commercial_bean_list_publication_id"`
-	GreenBeanListPublicationID      int64    `json:"green_bean_list_publication_id"`
-	DripBeanListPublicationID       int64    `json:"drip_bean_list_publication_id"`
-	ReceiverName                    string   `json:"receiver_name"`
-	ReceiverPhone                   string   `json:"receiver_phone"`
-	ReceiverAddress                 string   `json:"receiver_address"`
-	ReceiverCompany                 string   `json:"receiver_company"`
-	PortalServiceCode               string   `json:"portal_service_code"`
-	OrdersScope                     string   `json:"orders_scope"`
+	FreightOverride                 *freightdomain.Override `json:"freight_override,omitempty"`
+	FreightProtocol                 string                  `json:"freight_protocol"`
+	FreightQuoteToken               string                  `json:"freight_quote_token"`
+	ShippingProvince                string                  `json:"shipping_province"`
+	ShippingCity                    string                  `json:"shipping_city"`
+	ShippingDistrict                string                  `json:"shipping_district"`
+	DeliveryMode                    string                  `json:"delivery_mode"`
+	DeliveryWarehouseCode           string                  `json:"delivery_warehouse_code"`
+	SpecConversion                  []string                `json:"spec_conversion"`
+	EditRevision                    string                  `json:"edit_revision"`
+	RequestID                       string                  `json:"request_id"`
+	BackfillMode                    bool                    `json:"backfill_mode"`
+	SelectedPriceTableIDs           []int64                 `json:"selected_price_table_ids"`
+	PrepaymentAmount                *string                 `json:"prepayment_amount" form:"prepayment_amount"`
+	EditID                          int64                   `json:"edit_id"`
+	DocumentDate                    string                  `json:"document_date"`
+	OrderDate                       string                  `json:"order_date"`
+	CustomerID                      int64                   `json:"customer_id"`
+	SourceID                        int64                   `json:"source_id"`
+	OrderTypeID                     int64                   `json:"order_type_id"`
+	PayStatusID                     int64                   `json:"pay_status_id"`
+	PaymentMethod                   string                  `json:"payment_method"`
+	ShipStatusID                    int64                   `json:"ship_status_id"`
+	ShipMethod                      string                  `json:"ship_method"`
+	ShipTrackingNo                  string                  `json:"ship_tracking_no"`
+	LogisticsCompanyID              int64                   `json:"logistics_company_id"`
+	LogisticsProductID              int64                   `json:"logistics_product_id"`
+	PaymentGoodsAmount              string                  `json:"payment_goods_amount"`
+	PaymentShippingAmount           string                  `json:"payment_shipping_amount"`
+	PaymentVoucherAssetID           int64                   `json:"payment_voucher_asset_id"`
+	ResponsibleType                 string                  `json:"responsible_type"`
+	ResponsibleID                   int64                   `json:"responsible_id"`
+	Notes                           string                  `json:"notes"`
+	ShippingAmount                  string                  `json:"shipping_amount"`
+	DiscountAmount                  string                  `json:"discount_amount"`
+	RoundToInt                      string                  `json:"round_to_int"`
+	ExpressFee                      string                  `json:"express_fee"`
+	OutsourceMaterialFee            string                  `json:"outsource_material_fee"`
+	OutsourceRoastFee               string                  `json:"outsource_roast_fee"`
+	OutsourcePackagingFee           string                  `json:"outsource_packaging_fee"`
+	OutsourceManualFee              string                  `json:"outsource_manual_fee"`
+	OutsourceTaxFee                 string                  `json:"outsource_tax_fee"`
+	OutsourceOtherFee               string                  `json:"outsource_other_fee"`
+	StockBatchDecision              string                  `json:"stock_batch_decision"`
+	BeanListPublicationID           int64                   `json:"bean_list_publication_id"`
+	CommercialBeanListPublicationID int64                   `json:"commercial_bean_list_publication_id"`
+	GreenBeanListPublicationID      int64                   `json:"green_bean_list_publication_id"`
+	DripBeanListPublicationID       int64                   `json:"drip_bean_list_publication_id"`
+	ReceiverName                    string                  `json:"receiver_name"`
+	ReceiverPhone                   string                  `json:"receiver_phone"`
+	ReceiverAddress                 string                  `json:"receiver_address"`
+	ReceiverCompany                 string                  `json:"receiver_company"`
+	PortalServiceCode               string                  `json:"portal_service_code"`
+	OrdersScope                     string                  `json:"orders_scope"`
 
 	ItemID                             []string `json:"item_id"`
 	ProductID                          []string `json:"product_id"`
@@ -654,29 +661,30 @@ func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
-		DeliveryMode:                       r.DeliveryMode,
-		DeliveryWarehouseCode:              r.DeliveryWarehouseCode,
-		SpecConversion:                     r.SpecConversion,
-		PrepaymentAmount:                   r.PrepaymentAmount,
-		DocumentDate:                       r.DocumentDate,
-		OrderDate:                          r.OrderDate,
-		CustomerID:                         r.CustomerID,
-		SourceID:                           r.SourceID,
-		OrderTypeID:                        r.OrderTypeID,
-		PayStatusID:                        r.PayStatusID,
-		PaymentMethod:                      r.PaymentMethod,
-		ShipStatusID:                       r.ShipStatusID,
-		ShipMethod:                         r.ShipMethod,
-		ShipTrackingNo:                     r.ShipTrackingNo,
-		LogisticsCompanyID:                 r.LogisticsCompanyID,
-		LogisticsProductID:                 r.LogisticsProductID,
-		PaymentGoodsAmount:                 r.PaymentGoodsAmount,
-		PaymentShippingAmount:              r.PaymentShippingAmount,
-		PaymentVoucherAssetID:              r.PaymentVoucherAssetID,
-		ResponsibleType:                    r.ResponsibleType,
-		ResponsibleID:                      r.ResponsibleID,
-		Notes:                              r.Notes,
-		ShippingAmount:                     r.ShippingAmount,
+		DeliveryMode:          r.DeliveryMode,
+		DeliveryWarehouseCode: r.DeliveryWarehouseCode,
+		SpecConversion:        r.SpecConversion,
+		PrepaymentAmount:      r.PrepaymentAmount,
+		DocumentDate:          r.DocumentDate,
+		OrderDate:             r.OrderDate,
+		CustomerID:            r.CustomerID,
+		SourceID:              r.SourceID,
+		OrderTypeID:           r.OrderTypeID,
+		PayStatusID:           r.PayStatusID,
+		PaymentMethod:         r.PaymentMethod,
+		ShipStatusID:          r.ShipStatusID,
+		ShipMethod:            r.ShipMethod,
+		ShipTrackingNo:        r.ShipTrackingNo,
+		LogisticsCompanyID:    r.LogisticsCompanyID,
+		LogisticsProductID:    r.LogisticsProductID,
+		PaymentGoodsAmount:    r.PaymentGoodsAmount,
+		PaymentShippingAmount: r.PaymentShippingAmount,
+		PaymentVoucherAssetID: r.PaymentVoucherAssetID,
+		ResponsibleType:       r.ResponsibleType,
+		ResponsibleID:         r.ResponsibleID,
+		Notes:                 r.Notes,
+		ShippingAmount:        r.ShippingAmount,
+		FreightOverride:       r.FreightOverride, FreightProtocol: r.FreightProtocol, FreightQuoteToken: r.FreightQuoteToken, ShippingProvince: r.ShippingProvince, ShippingCity: r.ShippingCity, ShippingDistrict: r.ShippingDistrict,
 		DiscountAmount:                     r.DiscountAmount,
 		RoundToInt:                         r.RoundToInt,
 		ExpressFee:                         r.ExpressFee,
@@ -1108,6 +1116,11 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		MatchedPriceQty                    string                            `json:"matched_price_qty"`
 		UnitConversionLabel                string                            `json:"unit_conversion_label"`
 		PriceSourceJSON                    string                            `json:"price_source_json"`
+		MaterialUnitWeightG                *string                           `json:"material_unit_weight_g"`
+		MaterialItemWeightG                *string                           `json:"material_item_weight_g"`
+		LogisticsUnitWeightG               *string                           `json:"logistics_unit_weight_g"`
+		LogisticsItemWeightG               *string                           `json:"logistics_item_weight_g"`
+		WeightSnapshotJSON                 string                            `json:"weight_snapshot_json"`
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
@@ -1129,8 +1142,13 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
-			SpecConversion: salesapp.SpecConversionFromSnapshot(it.PriceSourceJSON),
-			ItemID:         it.ItemID, LineNo: it.LineNo, CustomerProductReferenceID: it.CustomerProductReferenceID,
+			MaterialUnitWeightG:  it.MaterialUnitWeightG,
+			MaterialItemWeightG:  it.MaterialItemWeightG,
+			LogisticsUnitWeightG: it.LogisticsUnitWeightG,
+			LogisticsItemWeightG: it.LogisticsItemWeightG,
+			WeightSnapshotJSON:   it.WeightSnapshotJSON,
+			SpecConversion:       salesapp.SpecConversionFromSnapshot(it.PriceSourceJSON),
+			ItemID:               it.ItemID, LineNo: it.LineNo, CustomerProductReferenceID: it.CustomerProductReferenceID,
 			ProductID:                          it.ProductID,
 			ParentProductID:                    parentProductID,
 			BomSpecID:                          it.BomSpecID,
@@ -1248,6 +1266,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"bean_list_version_no":                beanListVersionNo,
 		"notes":                               ed.Notes,
 		"shipping_amount":                     ed.ShippingAmount,
+		"freight":                             ed.Freight,
 		"discount_amount":                     ed.DiscountAmount,
 		"round_to_int":                        ed.RoundToInt,
 		"express_fee":                         ed.ExpressFee,

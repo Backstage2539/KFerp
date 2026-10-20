@@ -5864,3 +5864,35 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Final backend development deployment PASS def3d66e3af3292f83cd98da39716f7f89750d2e; backup orderapp.backup.deploy-20261019034149-def3d66e3af3, rollback kferp-orderapp-rollback:development-20261019034149-def3d66e3af3, runtime running/restarts0/PGhealthy. Last mini-only home summary fix replaces request status count with ERP orders, retained received is complete; targeted RED, full350/typecheck/dev build GREEN, actual customer home pending0/inventory0/due1548. Final client artifact KFerp-miniapp-dev-final.zip has exact source ref in RELEASE_INFO; backend runtime remainsdef3d66e, no backend change from home fix. Full actual mini cycle and web acceptance complete, DEV799 done, PR703 review. No production write or WeChat upload.
 - Unified final delivery COMPLETE: origin/develop app and mini artifact a9975450d43822b8dc7db3831f7545986c13d6a8, Vue1420/mini350/Go/Docker gates passed; running/restarts0, PGhealthy, login200/anonymousorders401, postdeploy actual mini checks PASS. Backup orderapp.backup.deploy-20261019035444-a9975450d438, rollback kferp-orderapp-rollback:development-20261019035444-a9975450d438. Package KFerp-miniapp-dev-final.zip,24pages96files, SHA2561430ca7e9e89ac7d47764f0fc2b8bd1edbdcb0a8e78366b972720c90e3a1fa2e. Export-only path guard failure recovered by original sync function with required canonical basename; server release was already successful. Remaining edits only record this final delivery evidence; no app change or further deployment required.
 - Van manual acceptance fixture (2026-10-19 09:35): empty stock catalog confirmed after both completed cycles consumed all48; normal DEV retained order1628 now leaves24 pending rights / physical0 / reserved0 for manual two12 reservations. Actual mini picker displays product1155/spec463. New fixture720 raises account1548 to2268; prior fees36/freight72 unchanged. Operation log and order audit verified. No code change/deployment or production writes.
+
+### PR-705-FREIGHT-ESTIMATE-SETTLEMENT
+- Branch: codex/freight-estimate-settlement-20261020
+- Owner/session: Codex / Van
+- Status: implemented, verified, merged and deployed to development f9e10932; isolated ERP/miniapp interactions and package verification passed; Van business acceptance pending
+- Scope: 三场景运费模板、地区目录、客户政策、预估不收款、Excel实际运费独立出账；代发客户首页隐藏商品下单。
+- DEV: DEV-803 模板/地区/计算器；DEV-804 政策及冻结报价；DEV-805 Excel实际运费与账单；DEV-806 ERP/小程序及开发交付。
+- Verifier: targeted Go unit/API/PostgreSQL, Vue and miniapp tests/typecheck/build, isolated development acceptance, deployment/package verification.
+- Deployment: development only; no production or WeChat upload/review/publication.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-20-freight-estimate-settlement.md
+
+- PR-705 final delivery: runtime/package f9e10932f550f2d14f19211e4e1135e5b5cee5a3; PR #223/#224 merged. DEV-803–806 done, PR review. Backup orderapp.backup.deploy-20261020011249-f9e10932f550. Vue1426/mini367/Go full gates passed; isolated development customer308/template3; see freight receipt. Development only.
+
+### PR-706-PRODUCT-LOGISTICS-WEIGHT
+- Branch: codex/product-logistics-weight-20261020; base origin/develop@f9e10932.
+- Status: PR #226 merged; development technical delivery complete at d0b75f4f9447f6c587673a3aa00f16907c43bca2; PR review and Van business acceptance pending.
+- Scope: manual logistics weight per product BOM spec; current-layer material reference weight; frozen order line weights across all entries; remove on-demand supply preview.
+- DEV: DEV-807 BOM logistics weight; DEV-808 shared weights and order snapshots; DEV-809 clients/manuals/development delivery.
+- Verifier: targeted RED/GREEN unit/API/PostgreSQL, full Go/Vue/miniapp and builds; development runtime/artifact checks.
+- Deployment: development running at d0b75f4f9447f6c587673a3aa00f16907c43bca2; app restart=0, PostgreSQL healthy, authenticated requirements/manual HTTP 200 and protected API anonymous 401. Database backup /opt/stacks/erp/backups/pr706-pre-logistics-weight-20261019T173934Z.dump; source backup orderapp.backup.deploy-20261020015920-d0b75f4f9447; rollback image kferp-orderapp-rollback:development-20261020015920-d0b75f4f9447. Initial disk-full startup failure recovered by cache-only cleanup and complete locked redeployment; all data/rollback anchors retained. Production and WeChat upload/review/publication excluded.
+- GREEN: full Go; Vue1436; mini371/typecheck/development build; isolated PostgreSQL/API and restart preservation. See docs/acceptance/2026-10-20-product-logistics-weight.md.
+- Artifact: /Users/yiiiple-work/KFerp-logistics-weight-delivery-20261020/KFerp-miniapp-dev-d0b75f4f.zip; development API/commit confirmed, 24 pages/96 manifest entries, 237 ZIP files, SHA256 2ba3d869ceee0ba35ae96264c612f200e081772876dcd005d18668d794c3d504. Compiled UI and file integrity checks passed. Legacy published specifications require manually entered logistics weight in a new published version before automatic dropship freight can be calculated; no values guessed or backfilled.
+- Notes: reserve helper reported PR-706 but macOS awk claim failed; reserved here.
+
+
+### PR-701-ORDER-COPY-RECIPIENT-FOLLOWUP-20261020
+- Branch: codex/miniapp-order-copy-recipient-20261020; base origin/develop@861f54e0.
+- Status: local targeted verification and client builds complete; integration pending; production deployment blocked by sandbox SSH denial.
+- Scope: copied recipient matches ordinary order detail fallback; explicit portal destinations preserved; compact item text without specification/quantity labels.
+- Verifier: Go order-copy unit/HTTP GREEN; Vue1436; mini371/typecheck/production build; Vue build; diff check. PostgreSQL integration blocked by socket denial; full Go blocked only by httptest listener denial in two packages.
+- Manual/evidence: docs/acceptance/2026-10-20-order-copy-recipient.md; five PR-701 manuals and Vue order help synchronized.
+- Deployment: Van explicitly authorized develop -> main -> production; not deployed yet. DevTools UI transport unavailable.

@@ -128,12 +128,12 @@ func TestPR703RetainedSaleReservesConvertsAndBlocksShipment(t *testing.T) {
 	configurePR703StockFees(t, pool, schema, 7031)
 	svc := app.NewService(repo)
 	svc.UseSalesOrderService(salesapp.NewService(postgressales.NewRepository(pool, schema)))
-	cmd := app.MiniDirectShipCommand{CustomerID: 501, FulfillmentMode: "stock", IdempotencyKey: "PR703-RESERVE-12", RecipientName: "测试收件人", RecipientPhone: "13800000000", Province: "云南省", City: "大理市", DetailAddress: "测试路1号", Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 12}}}
+	cmd := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1", CustomerID: 501, FulfillmentMode: "stock", IdempotencyKey: "PR703-RESERVE-12", RecipientName: "测试收件人", RecipientPhone: "13800000000", Province: "云南省", City: "大理市", DetailAddress: "测试路1号", Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 12}}}
 	preview, e := svc.PreviewMiniDirectShip(ctx, cmd)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if !preview.CanSubmit || preview.StockReady || preview.TotalAmount != 0 || preview.Fees == nil || preview.Fees.NetWeightG != 5448 || preview.Fees.ServiceFeeCents != 900 || preview.Fees.ShippingFeeCents != 1800 || preview.PriceQuoteToken == "" || preview.FeeQuoteToken == "" {
+	if !preview.CanSubmit || preview.StockReady || preview.TotalAmount != 0 || preview.Fees == nil || preview.Fees.NetWeightG != 5448 || preview.Fees.ServiceFeeCents != 900 || preview.Fees.ShippingFeeCents != 0 || preview.Fees.Freight == nil || preview.Fees.Freight.EstimatedTotalCents != 1800 || preview.PriceQuoteToken == "" || preview.FeeQuoteToken == "" {
 		t.Fatalf("real service pending preview=%+v", preview)
 	}
 	cmd.PriceQuoteToken, cmd.FeeQuoteToken = preview.PriceQuoteToken, "tampered-fee-token"
@@ -363,7 +363,7 @@ func TestPR703ConfiguredModeCancellationAndSourceDependencyGuards(t *testing.T) 
 		t.Fatal(e)
 	}
 	repo := NewRepository(pool, schema)
-	cmd := app.MiniDirectShipCommand{CustomerID: 501, IdempotencyKey: "CANCEL-PROMISE", RecipientName: "收件人", RecipientPhone: "13800000000", DetailAddress: "大理市", Items: []app.MiniDirectShipItemCommand{{ProductID: 911, BomSpecID: 9111, BomVariantID: 9112, Qty: 12}}}
+	cmd := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1", CustomerID: 501, IdempotencyKey: "CANCEL-PROMISE", RecipientName: "收件人", RecipientPhone: "13800000000", DetailAddress: "大理市", Items: []app.MiniDirectShipItemCommand{{ProductID: 911, BomSpecID: 9111, BomVariantID: 9112, Qty: 12}}}
 	if _, e = repo.PreviewMiniDirectShip(ctx, cmd); e == nil {
 		t.Fatal("configured customer bypassed explicit mode")
 	}
@@ -480,7 +480,7 @@ func TestPR703FutureEntitlementConcurrentSubmitCannotOversubscribe(t *testing.T)
 	svc.UseSalesOrderService(salesapp.NewService(postgressales.NewRepository(pool, schema)))
 	cmds := make([]app.MiniDirectShipCommand, 2)
 	for i := range cmds {
-		cmds[i] = app.MiniDirectShipCommand{CustomerID: 501, FulfillmentMode: "stock", IdempotencyKey: fmt.Sprintf("CONCURRENT-FUTURE-%d", i), RecipientName: "测试收件人", RecipientPhone: "13800000000", Province: "云南省", DetailAddress: "测试路1号", Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 911, BomSpecID: 9111, BomVariantID: 9112, Qty: 8}}}
+		cmds[i] = app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1", CustomerID: 501, FulfillmentMode: "stock", IdempotencyKey: fmt.Sprintf("CONCURRENT-FUTURE-%d", i), RecipientName: "测试收件人", RecipientPhone: "13800000000", Province: "云南省", DetailAddress: "测试路1号", Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 911, BomSpecID: 9111, BomVariantID: 9112, Qty: 8}}}
 		preview, e := svc.PreviewMiniDirectShip(ctx, cmds[i])
 		if e != nil {
 			t.Fatal(e)
@@ -563,7 +563,7 @@ func TestPR703ArchivedFutureRightsRemainOrderableByStableSpec(t *testing.T) {
 	if e != nil || len(catalog.ProductFamilies) != 1 {
 		t.Fatalf("archived promise catalog=%+v err=%v", catalog, e)
 	}
-	cmd := app.MiniDirectShipCommand{CustomerID: 501, FulfillmentMode: "stock", IdempotencyKey: "ARCHIVED-PROMISE-12", RecipientName: "测试收件人", RecipientPhone: "13800000000", Province: "云南省", DetailAddress: "测试路1号", Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 12}}}
+	cmd := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1", CustomerID: 501, FulfillmentMode: "stock", IdempotencyKey: "ARCHIVED-PROMISE-12", RecipientName: "测试收件人", RecipientPhone: "13800000000", Province: "云南省", DetailAddress: "测试路1号", Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 12}}}
 	preview, e := svc.PreviewMiniDirectShip(ctx, cmd)
 	if e != nil || !preview.CanSubmit {
 		t.Fatalf("old promise cannot use stable spec after publication: preview=%+v err=%v", preview, e)
@@ -583,6 +583,7 @@ func TestPR703ArchivedFutureRightsRemainOrderableByStableSpec(t *testing.T) {
 func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *testing.T) {
 	pool, schema := seedPR703StockProduct(t)
 	ctx := context.Background()
+	seedPR706FrozenWeightMaterials(t, pool, schema)
 	configurePR703StockFees(t, pool, schema, 7031)
 	repo := NewRepository(pool, schema)
 	settings, e := repo.LoadFulfillmentSettings(ctx, 501)
@@ -606,12 +607,12 @@ func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *tes
 	}
 	svc := app.NewService(repo)
 	svc.UseSalesOrderService(salesapp.NewService(postgressales.NewRepository(pool, schema)))
-	cmd := app.MiniDirectShipCommand{CustomerID: 501, FulfillmentMode: "on_demand", IdempotencyKey: "REAL-ON-DEMAND", RecipientName: "测试收件人", RecipientPhone: "13800000000", Province: "云南省", City: "大理市", DetailAddress: "测试路1号", Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 12}}}
+	cmd := app.MiniDirectShipCommand{FreightProtocol: "deferred_freight_v1", CustomerID: 501, FulfillmentMode: "on_demand", IdempotencyKey: "REAL-ON-DEMAND", RecipientName: "测试收件人", RecipientPhone: "13800000000", Province: "云南省", City: "大理市", DetailAddress: "测试路1号", Actor: "employee:703", Items: []app.MiniDirectShipItemCommand{{ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: 12}}}
 	preview, e := svc.PreviewMiniDirectShip(ctx, cmd)
 	if e != nil {
 		t.Fatalf("real on-demand preview: %v", e)
 	}
-	if !preview.CanSubmit || preview.TotalAmount != 360 || len(preview.Items) != 1 || preview.Items[0].UnitPrice != 30 || preview.Fees == nil || preview.Fees.ServiceFeeCents != 900 || preview.Fees.ShippingFeeCents != 1800 {
+	if !preview.CanSubmit || preview.TotalAmount != 360 || len(preview.Items) != 1 || preview.Items[0].UnitPrice != 30 || preview.Fees == nil || preview.Fees.ServiceFeeCents != 900 || preview.Fees.ShippingFeeCents != 0 || preview.Fees.Freight == nil || preview.Fees.Freight.EstimatedTotalCents != 1400 {
 		t.Fatalf("real on-demand preview=%+v", preview)
 	}
 	cmd.PriceQuoteToken, cmd.FeeQuoteToken = preview.PriceQuoteToken, preview.FeeQuoteToken
@@ -619,6 +620,8 @@ func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *tes
 	if e != nil {
 		t.Fatalf("real on-demand submit: %v", e)
 	}
+	assertPR706FrozenWeights(t, pool, schema, request.OrderID, 12)
+	assertPR706RequestWeightDTO(t, request)
 	var goods, shipping, fee, grand float64
 	var modeName string
 	var qty int64
@@ -632,12 +635,15 @@ func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *tes
 	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT SUM(amount) FROM %s.customer_fee_items WHERE source_type='order' AND source_id=$1 AND fee_type='direct_ship_service'`, schema), request.OrderID).Scan(&fee); e != nil {
 		t.Fatal(e)
 	}
-	if goods != 360 || shipping != 18 || grand != 378 || fee != 9 || modeName != "on_demand" || qty != 12 || linePrice != 30 {
+	if request.Freight == nil || request.Freight.ServiceFeeCents != 900 || request.Freight.ServiceDueCents != 900 {
+		t.Fatalf("service payable %+v", request.Freight)
+	}
+	if goods != 360 || shipping != 0 || grand != 360 || fee != 9 || modeName != "on_demand" || qty != 12 || linePrice != 30 {
 		t.Fatalf("on-demand persisted goods=%v freight=%v grand=%v service=%v mode=%s qty%d price%v", goods, shipping, grand, fee, modeName, qty, linePrice)
 	}
 	assertMiniDirectShipCount(t, pool, schema, "customer_stock_supply_reservations", "customer_id=501", 0)
 	assertMiniDirectShipCount(t, pool, schema, "customer_direct_ship_request_allocations", "request_id="+fmt.Sprint(request.ID), 0)
-	t.Logf("real app.Service->sales.SaveOrder %s: public fixed30 x12 =360, service9 + freight18, goods/pricing snapshots frozen, no stock entitlement consumption", request.OrderNo)
+	t.Logf("real app.Service->sales.SaveOrder %s: public fixed30 x12 =360, service9 + pending freight estimate14, goods/pricing snapshots frozen, no stock entitlement consumption", request.OrderNo)
 }
 
 func TestPR703InternalOrderListIncludesRetainedSaleAndDropshipWithoutCustomerLogin(t *testing.T) {

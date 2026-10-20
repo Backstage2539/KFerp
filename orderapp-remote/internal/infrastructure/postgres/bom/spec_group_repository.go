@@ -139,7 +139,7 @@ func (r Repository) listProductionBomSpecTemplateVersions(ctx context.Context, t
 
 func (r Repository) listProductionBomSpecTemplateVariants(ctx context.Context, versionID int64) ([]bomapp.ProductionBomSpecTemplateVariant, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate::float8,process_route_id
+		SELECT id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate::float8,process_route_id,logistics_weight_g::float8
 		FROM %s.production_bom_spec_template_variants
 		WHERE version_id=$1 ORDER BY sort_order,id
 	`, r.schema), versionID)
@@ -149,7 +149,7 @@ func (r Repository) listProductionBomSpecTemplateVariants(ctx context.Context, v
 	out := make([]bomapp.ProductionBomSpecTemplateVariant, 0)
 	for rows.Next() {
 		var variant bomapp.ProductionBomSpecTemplateVariant
-		if err := rows.Scan(&variant.ID, &variant.SpecKey, &variant.Name, &variant.InventoryUnit, &variant.IsDefault, &variant.SortOrder, &variant.MaterialLossRate, &variant.ProcessRouteID); err != nil {
+		if err := rows.Scan(&variant.ID, &variant.SpecKey, &variant.Name, &variant.InventoryUnit, &variant.IsDefault, &variant.SortOrder, &variant.MaterialLossRate, &variant.ProcessRouteID, &variant.LogisticsWeightG); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -266,20 +266,21 @@ func (r Repository) CreateProductionBomSpecTemplateVersion(ctx context.Context, 
 
 func copyProductionBomSpecTemplateVariantsTx(ctx context.Context, tx pgx.Tx, schema string, sourceVersionID, targetVersionID int64) error {
 	type sourceVariant struct {
-		id, routeID     int64
-		key, name, unit string
-		isDefault       bool
-		sortOrder       int
-		loss            float64
+		logisticsWeightG *float64
+		id, routeID      int64
+		key, name, unit  string
+		isDefault        bool
+		sortOrder        int
+		loss             float64
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id FROM %s.production_bom_spec_template_variants WHERE version_id=$1 ORDER BY id`, schema), sourceVersionID)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id,logistics_weight_g::float8 FROM %s.production_bom_spec_template_variants WHERE version_id=$1 ORDER BY id`, schema), sourceVersionID)
 	if err != nil {
 		return err
 	}
 	variants := make([]sourceVariant, 0)
 	for rows.Next() {
 		var variant sourceVariant
-		if err := rows.Scan(&variant.id, &variant.key, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID); err != nil {
+		if err := rows.Scan(&variant.id, &variant.key, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID, &variant.logisticsWeightG); err != nil {
 			rows.Close()
 			return err
 		}
@@ -292,7 +293,7 @@ func copyProductionBomSpecTemplateVariantsTx(ctx context.Context, tx pgx.Tx, sch
 	rows.Close()
 	for _, variant := range variants {
 		var newID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_spec_template_variants(version_id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), targetVersionID, variant.key, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, variant.routeID).Scan(&newID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_spec_template_variants(version_id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id,logistics_weight_g) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, schema), targetVersionID, variant.key, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, variant.routeID, variant.logisticsWeightG).Scan(&newID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_spec_template_variant_items(variant_id,is_main_input,material_id,component_type,component_product_id,component_bom_spec_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,material_loss_rate,sort_order) SELECT $1,is_main_input,material_id,component_type,component_product_id,component_bom_spec_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,material_loss_rate,sort_order FROM %s.production_bom_spec_template_variant_items WHERE variant_id=$2 ORDER BY sort_order,id`, schema, schema), newID, variant.id); err != nil {
@@ -303,6 +304,11 @@ func copyProductionBomSpecTemplateVariantsTx(ctx context.Context, tx pgx.Tx, sch
 }
 
 func (r Repository) UpdateProductionBomSpecTemplateVersionDraft(ctx context.Context, cmd bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand) (bomapp.ProductionBomSpecTemplateVersion, error) {
+	for _, variant := range cmd.Variants {
+		if err := bomapp.ValidateLogisticsWeightG(variant.LogisticsWeightG, false); err != nil {
+			return bomapp.ProductionBomSpecTemplateVersion{}, fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+		}
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return bomapp.ProductionBomSpecTemplateVersion{}, err
@@ -333,7 +339,7 @@ func (r Repository) UpdateProductionBomSpecTemplateVersionDraft(ctx context.Cont
 	}
 	for _, variant := range cmd.Variants {
 		var variantID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_spec_template_variants(version_id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, r.schema), cmd.VersionID, variant.SpecKey, variant.Name, variant.InventoryUnit, variant.IsDefault, variant.SortOrder, variant.MaterialLossRate, variant.ProcessRouteID).Scan(&variantID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_spec_template_variants(version_id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id,logistics_weight_g) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, r.schema), cmd.VersionID, variant.SpecKey, variant.Name, variant.InventoryUnit, variant.IsDefault, variant.SortOrder, variant.MaterialLossRate, variant.ProcessRouteID, variant.LogisticsWeightG).Scan(&variantID); err != nil {
 			return bomapp.ProductionBomSpecTemplateVersion{}, err
 		}
 		for _, item := range variant.Items {
@@ -474,6 +480,9 @@ func (r Repository) PublishProductionBomSpecTemplateVersion(ctx context.Context,
 	}
 	defaultCount := 0
 	for _, variant := range variants {
+		if err := bomapp.ValidateLogisticsWeightG(variant.LogisticsWeightG, true); err != nil {
+			return fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+		}
 		if variant.IsDefault {
 			defaultCount++
 		}
@@ -693,14 +702,14 @@ func (r Repository) productionBomSpecTemplateVersionByID(ctx context.Context, id
 }
 
 func (r Repository) listProductionBomSpecTemplateVariantsTx(ctx context.Context, tx pgx.Tx, versionID int64) ([]bomapp.ProductionBomSpecTemplateVariant, error) {
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate::float8,process_route_id FROM %s.production_bom_spec_template_variants WHERE version_id=$1 ORDER BY sort_order,id`, r.schema), versionID)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate::float8,process_route_id,logistics_weight_g::float8 FROM %s.production_bom_spec_template_variants WHERE version_id=$1 ORDER BY sort_order,id`, r.schema), versionID)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]bomapp.ProductionBomSpecTemplateVariant, 0)
 	for rows.Next() {
 		var variant bomapp.ProductionBomSpecTemplateVariant
-		if err := rows.Scan(&variant.ID, &variant.SpecKey, &variant.Name, &variant.InventoryUnit, &variant.IsDefault, &variant.SortOrder, &variant.MaterialLossRate, &variant.ProcessRouteID); err != nil {
+		if err := rows.Scan(&variant.ID, &variant.SpecKey, &variant.Name, &variant.InventoryUnit, &variant.IsDefault, &variant.SortOrder, &variant.MaterialLossRate, &variant.ProcessRouteID, &variant.LogisticsWeightG); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -806,20 +815,21 @@ func copySpecTemplateToProductionBomWithComponentAndRouteTx(ctx context.Context,
 		}
 	}
 	type sourceVariant struct {
+		logisticsWeightG    *float64
 		id, routeID         int64
 		specKey, name, unit string
 		isDefault           bool
 		sortOrder           int
 		loss                float64
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate::float8,process_route_id FROM %s.production_bom_spec_template_variants WHERE version_id=$1 ORDER BY sort_order,id`, schema), templateVersionID)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,spec_key,name,inventory_unit,is_default,sort_order,material_loss_rate::float8,process_route_id,logistics_weight_g::float8 FROM %s.production_bom_spec_template_variants WHERE version_id=$1 ORDER BY sort_order,id`, schema), templateVersionID)
 	if err != nil {
 		return err
 	}
 	variants := make([]sourceVariant, 0)
 	for rows.Next() {
 		var variant sourceVariant
-		if err := rows.Scan(&variant.id, &variant.specKey, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID); err != nil {
+		if err := rows.Scan(&variant.id, &variant.specKey, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID, &variant.logisticsWeightG); err != nil {
 			rows.Close()
 			return err
 		}
@@ -843,7 +853,7 @@ func copySpecTemplateToProductionBomWithComponentAndRouteTx(ctx context.Context,
 		if processRouteOverrideID > 0 {
 			effectiveRouteID = processRouteOverrideID
 		}
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), versionID, bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, effectiveRouteID).Scan(&bomVariantID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id,logistics_weight_g) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, schema), versionID, bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, effectiveRouteID, variant.logisticsWeightG).Scan(&bomVariantID); err != nil {
 			return err
 		}
 		type sourceItem struct {
@@ -1004,7 +1014,7 @@ func (r Repository) ReapplyProductionBomSpecTemplateVersion(ctx context.Context,
 	variants := make([]bomapp.ProductionBomDraftVariant, 0, len(templateVariants))
 	for _, source := range templateVariants {
 		variant := bomapp.ProductionBomDraftVariant{
-			SpecKey: source.SpecKey, Name: source.Name, InventoryUnit: source.InventoryUnit,
+			SpecKey: source.SpecKey, Name: source.Name, InventoryUnit: source.InventoryUnit, LogisticsWeightG: source.LogisticsWeightG,
 			IsDefault: source.IsDefault, SortOrder: source.SortOrder,
 			MaterialLossRate: source.MaterialLossRate, ProcessRouteID: source.ProcessRouteID,
 		}
@@ -1098,6 +1108,7 @@ func productionBomVersionVariantGroupAuditJSONTx(ctx context.Context, tx pgx.Tx,
 				'spec_key',spec.spec_key,
 				'name',variant.spec_name_snapshot,
 				'inventory_unit',variant.inventory_unit,
+				'logistics_weight_g',variant.logistics_weight_g,
 				'is_default',variant.is_default,
 				'sort_order',variant.sort_order,
 				'material_loss_rate',variant.material_loss_rate,
@@ -1274,20 +1285,21 @@ func productionBomSpecReferencedByTableTx(ctx context.Context, tx pgx.Tx, schema
 
 func copyProductionBomVersionVariantsTx(ctx context.Context, tx pgx.Tx, schema string, sourceVersionID, targetVersionID int64) error {
 	type sourceVariant struct {
+		logisticsWeightG       *float64
 		id, bomSpecID, routeID int64
 		name, unit             string
 		isDefault              bool
 		sortOrder              int
 		loss                   float64
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id FROM %s.production_bom_version_variants WHERE version_id=$1 ORDER BY sort_order,id`, schema), sourceVersionID)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id,logistics_weight_g::float8 FROM %s.production_bom_version_variants WHERE version_id=$1 ORDER BY sort_order,id`, schema), sourceVersionID)
 	if err != nil {
 		return err
 	}
 	variants := make([]sourceVariant, 0)
 	for rows.Next() {
 		var variant sourceVariant
-		if err := rows.Scan(&variant.id, &variant.bomSpecID, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID); err != nil {
+		if err := rows.Scan(&variant.id, &variant.bomSpecID, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID, &variant.logisticsWeightG); err != nil {
 			rows.Close()
 			return err
 		}
@@ -1300,7 +1312,7 @@ func copyProductionBomVersionVariantsTx(ctx context.Context, tx pgx.Tx, schema s
 	rows.Close()
 	for _, variant := range variants {
 		var targetVariantID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), targetVersionID, variant.bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, variant.routeID).Scan(&targetVariantID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id,logistics_weight_g) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, schema), targetVersionID, variant.bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, variant.routeID, variant.logisticsWeightG).Scan(&targetVariantID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_items(version_id,variant_id,material_id,component_type,component_product_id,component_bom_spec_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,material_loss_rate,unit_cost_snapshot) SELECT $1,$2,material_id,component_type,component_product_id,component_bom_spec_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,material_loss_rate,unit_cost_snapshot FROM %s.production_bom_version_items WHERE version_id=$3 AND variant_id=$4 ORDER BY id`, schema, schema), targetVersionID, targetVariantID, sourceVersionID, variant.id); err != nil {
@@ -1312,6 +1324,7 @@ func copyProductionBomVersionVariantsTx(ctx context.Context, tx pgx.Tx, schema s
 
 func copyProductionBomVariantsToNewBomTx(ctx context.Context, tx pgx.Tx, schema string, sourceVersionID, targetBomID, targetVersionID int64, actor string) error {
 	type sourceVariant struct {
+		logisticsWeightG                 *float64
 		id, routeID, templateID          int64
 		specKey, name, unit, templateKey string
 		isDefault                        bool
@@ -1319,7 +1332,7 @@ func copyProductionBomVariantsToNewBomTx(ctx context.Context, tx pgx.Tx, schema 
 		loss                             float64
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT v.id,s.spec_key,v.spec_name_snapshot,v.inventory_unit,v.is_default,v.sort_order,v.material_loss_rate,v.process_route_id,COALESCE(NULLIF(s.source_spec_template_id,0),t.template_id,0),COALESCE(NULLIF(s.source_spec_template_key,''),s.spec_key)
+		SELECT v.id,s.spec_key,v.spec_name_snapshot,v.inventory_unit,v.is_default,v.sort_order,v.material_loss_rate,v.process_route_id,COALESCE(NULLIF(s.source_spec_template_id,0),t.template_id,0),COALESCE(NULLIF(s.source_spec_template_key,''),s.spec_key),v.logistics_weight_g::float8
 		FROM %s.production_bom_version_variants v
 		JOIN %s.production_bom_specs s ON s.id=v.bom_spec_id
 		JOIN %s.production_bom_versions source ON source.id=v.version_id
@@ -1332,7 +1345,7 @@ func copyProductionBomVariantsToNewBomTx(ctx context.Context, tx pgx.Tx, schema 
 	variants := make([]sourceVariant, 0)
 	for rows.Next() {
 		var variant sourceVariant
-		if err := rows.Scan(&variant.id, &variant.specKey, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID, &variant.templateID, &variant.templateKey); err != nil {
+		if err := rows.Scan(&variant.id, &variant.specKey, &variant.name, &variant.unit, &variant.isDefault, &variant.sortOrder, &variant.loss, &variant.routeID, &variant.templateID, &variant.templateKey, &variant.logisticsWeightG); err != nil {
 			rows.Close()
 			return err
 		}
@@ -1354,7 +1367,7 @@ func copyProductionBomVariantsToNewBomTx(ctx context.Context, tx pgx.Tx, schema 
 			}
 		}
 		var targetVariantID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), targetVersionID, bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, variant.routeID).Scan(&targetVariantID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id,logistics_weight_g) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, schema), targetVersionID, bomSpecID, variant.name, variant.unit, variant.isDefault, variant.sortOrder, variant.loss, variant.routeID, variant.logisticsWeightG).Scan(&targetVariantID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_items(version_id,variant_id,material_id,component_type,component_product_id,component_bom_spec_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,material_loss_rate,unit_cost_snapshot) SELECT $1,$2,material_id,component_type,component_product_id,component_bom_spec_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,material_loss_rate,unit_cost_snapshot FROM %s.production_bom_version_items WHERE version_id=$3 AND variant_id=$4 ORDER BY id`, schema, schema), targetVersionID, targetVariantID, sourceVersionID, variant.id); err != nil {
@@ -1366,11 +1379,12 @@ func copyProductionBomVariantsToNewBomTx(ctx context.Context, tx pgx.Tx, schema 
 
 func saveProductionBomDraftVariantsTx(ctx context.Context, tx pgx.Tx, schema string, bomID, versionID int64, variants []bomapp.ProductionBomDraftVariant, actor string) error {
 	type previousSpec struct {
+		logisticsWeightG    *float64
 		id                  int64
 		code, specKey, name string
 	}
 	previousRows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT DISTINCT spec.id,spec.code,spec.spec_key,spec.name
+		SELECT DISTINCT spec.id,spec.code,spec.spec_key,spec.name,variant.logistics_weight_g::float8
 		FROM %s.production_bom_version_variants variant
 		JOIN %s.production_bom_specs spec ON spec.id=variant.bom_spec_id
 		WHERE variant.version_id=$1
@@ -1382,7 +1396,7 @@ func saveProductionBomDraftVariantsTx(ctx context.Context, tx pgx.Tx, schema str
 	previousSpecs := make([]previousSpec, 0)
 	for previousRows.Next() {
 		var spec previousSpec
-		if err := previousRows.Scan(&spec.id, &spec.code, &spec.specKey, &spec.name); err != nil {
+		if err := previousRows.Scan(&spec.id, &spec.code, &spec.specKey, &spec.name, &spec.logisticsWeightG); err != nil {
 			previousRows.Close()
 			return err
 		}
@@ -1401,6 +1415,9 @@ func saveProductionBomDraftVariantsTx(ctx context.Context, tx pgx.Tx, schema str
 	}
 	retainedSpecIDs := make(map[int64]struct{}, len(variants))
 	for _, variant := range variants {
+		if err := bomapp.ValidateLogisticsWeightG(variant.LogisticsWeightG, false); err != nil {
+			return fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+		}
 		bomSpecID := variant.BomSpecID
 		if bomSpecID > 0 {
 			var belongs bool
@@ -1420,9 +1437,27 @@ func saveProductionBomDraftVariantsTx(ctx context.Context, tx pgx.Tx, schema str
 				return err
 			}
 		}
+		var previousWeight *float64
+		previouslyPresent := false
+		for _, previous := range previousSpecs {
+			if previous.id == bomSpecID {
+				previousWeight = previous.logisticsWeightG
+				previouslyPresent = true
+				break
+			}
+		}
+		if !sameLogisticsWeight(previousWeight, variant.LogisticsWeightG) {
+			action := "update"
+			if !previouslyPresent {
+				action = "create"
+			}
+			if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "production_bom_spec", &bomSpecID, action, postgresinfra.StrPtr("logistics_weight_g"), logisticsWeightAuditValue(previousWeight), logisticsWeightAuditValue(variant.LogisticsWeightG), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "spec_key": variant.SpecKey}); err != nil {
+				return err
+			}
+		}
 		retainedSpecIDs[bomSpecID] = struct{}{}
 		var bomVariantID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, schema), versionID, bomSpecID, variant.Name, variant.InventoryUnit, variant.IsDefault, variant.SortOrder, variant.MaterialLossRate, variant.ProcessRouteID).Scan(&bomVariantID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_variants(version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order,material_loss_rate,process_route_id,logistics_weight_g) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, schema), versionID, bomSpecID, variant.Name, variant.InventoryUnit, variant.IsDefault, variant.SortOrder, variant.MaterialLossRate, variant.ProcessRouteID, variant.LogisticsWeightG).Scan(&bomVariantID); err != nil {
 			return err
 		}
 		for _, item := range variant.Items {
@@ -1644,7 +1679,7 @@ func productBOMSpecTemplateProvenanceMode(templateVersionID int64, mainInput bom
 
 func (r Repository) listProductionBomVersionVariants(ctx context.Context, versionID int64) ([]bomapp.ProductionBomVersionVariant, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT v.id,v.bom_spec_id,s.code,s.barcode,s.spec_key,v.spec_name_snapshot,v.inventory_unit,v.is_default,v.sort_order,v.material_loss_rate::float8,v.process_route_id
+		SELECT v.id,v.bom_spec_id,s.code,s.barcode,s.spec_key,v.spec_name_snapshot,v.inventory_unit,v.is_default,v.sort_order,v.material_loss_rate::float8,v.process_route_id,v.logistics_weight_g::float8
 		FROM %s.production_bom_version_variants v
 		JOIN %s.production_bom_specs s ON s.id=v.bom_spec_id
 		WHERE v.version_id=$1 ORDER BY v.sort_order,v.id
@@ -1655,7 +1690,7 @@ func (r Repository) listProductionBomVersionVariants(ctx context.Context, versio
 	out := make([]bomapp.ProductionBomVersionVariant, 0)
 	for rows.Next() {
 		var variant bomapp.ProductionBomVersionVariant
-		if err := rows.Scan(&variant.ID, &variant.BomSpecID, &variant.Code, &variant.Barcode, &variant.SpecKey, &variant.Name, &variant.InventoryUnit, &variant.IsDefault, &variant.SortOrder, &variant.MaterialLossRate, &variant.ProcessRouteID); err != nil {
+		if err := rows.Scan(&variant.ID, &variant.BomSpecID, &variant.Code, &variant.Barcode, &variant.SpecKey, &variant.Name, &variant.InventoryUnit, &variant.IsDefault, &variant.SortOrder, &variant.MaterialLossRate, &variant.ProcessRouteID, &variant.LogisticsWeightG); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -1697,13 +1732,14 @@ func (r Repository) listProductionBomVersionVariants(ctx context.Context, versio
 
 func validateProductionBomVersionVariantsForPublish(ctx context.Context, q bomQueryer, schema string, versionID, bomID int64) (bool, error) {
 	type storedVariant struct {
-		id, specBomID int64
-		unit, specKey string
-		isDefault     bool
-		loss          float64
+		logisticsWeightG *float64
+		id, specBomID    int64
+		unit, specKey    string
+		isDefault        bool
+		loss             float64
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
-		SELECT v.id,v.inventory_unit,v.is_default,v.material_loss_rate::float8,s.spec_key,s.bom_id
+		SELECT v.id,v.inventory_unit,v.is_default,v.material_loss_rate::float8,s.spec_key,s.bom_id,v.logistics_weight_g::float8
 		FROM %s.production_bom_version_variants v
 		JOIN %s.production_bom_specs s ON s.id=v.bom_spec_id
 		WHERE v.version_id=$1 ORDER BY v.id
@@ -1714,7 +1750,7 @@ func validateProductionBomVersionVariantsForPublish(ctx context.Context, q bomQu
 	variants := make([]storedVariant, 0)
 	for rows.Next() {
 		var variant storedVariant
-		if err := rows.Scan(&variant.id, &variant.unit, &variant.isDefault, &variant.loss, &variant.specKey, &variant.specBomID); err != nil {
+		if err := rows.Scan(&variant.id, &variant.unit, &variant.isDefault, &variant.loss, &variant.specKey, &variant.specBomID, &variant.logisticsWeightG); err != nil {
 			rows.Close()
 			return false, err
 		}
@@ -1727,6 +1763,9 @@ func validateProductionBomVersionVariantsForPublish(ctx context.Context, q bomQu
 	rows.Close()
 	defaultCount := 0
 	for _, variant := range variants {
+		if err := bomapp.ValidateLogisticsWeightG(variant.logisticsWeightG, true); err != nil {
+			return false, fmt.Errorf("variant %s: %w", variant.specKey, err)
+		}
 		if variant.specBomID != bomID {
 			return false, fmt.Errorf("bom_spec_id does not belong to BOM")
 		}
@@ -1776,4 +1815,15 @@ func validateProductionBomVersionVariantsForPublish(ctx context.Context, q bomQu
 		return false, fmt.Errorf("exactly one default specification is required")
 	}
 	return len(variants) > 0, nil
+}
+
+func sameLogisticsWeight(left, right *float64) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
+}
+func logisticsWeightAuditValue(value *float64) *string {
+	if value == nil {
+		return nil
+	}
+	text := fmt.Sprint(*value)
+	return &text
 }
