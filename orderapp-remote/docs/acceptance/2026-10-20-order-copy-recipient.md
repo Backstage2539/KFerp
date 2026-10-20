@@ -22,3 +22,13 @@
 - 生产部署受限：本会话 SSH 连接 `root@1.12.242.58:22` 被沙箱拒绝；Git SSH DNS 也不可用。GitHub 连接器仍可访问，用于保存和合并已验证修复。
 - 已构建生产 API 小程序：`miniapp/dist/build/mp-weixin`，API `https://erp.qacoohee.com/app`。它需要修复后的生产后端上线后才能验收收件信息；并不代表微信线上版本已更新。
 - DevTools UI 控制连接已关闭，加载状态需另行确认；不上传、审核或发布微信版本。
+
+
+## 2026-10-20 续办：合并与生产项目加载
+
+- 功能提交 `13bd0d20` 已推送；复核并再次通过订单复制 Go 单元/HTTP 定向测试。
+- `develop` 合并并推送为 `82543a081aa2ceaad3cae802644f10c799e8a58d`；完整最新 develop 合入 main，生产代码提交 `00a1ff25596946deac0b51645d0b2700329bac30` 已推送。main 保留自身已有生产修复，无冲突。
+- 已执行 `KFERP_MINIAPP_EXPORT_DIR=/tmp/kferp-miniapp-production-20261020/KFerp-miniapp-mp-weixin ./deploy_orderapp.sh production`。脚本确认本地 HEAD 与 origin/main 一致后，在创建远端临时目录前被 `ssh: connect to host 1.12.242.58 port 22: Operation not permitted` 拒绝。未上传源码、构建镜像或重启生产服务；生产修复尚未上线。
+- main 的生产小程序已本地重建，`RELEASE_INFO` commit 为 `00a1ff25`、environment 为 production、API 为 `https://erp.qacoohee.com/app`；24 个注册页面校验通过。目录 `/tmp/kferp-miniapp-production-20261020/KFerp-miniapp-mp-weixin`。
+- DevTools CLI 因无法写入应用配置而受限，已通过原生 GUI 导入上述目录。项目名 `KFerp 生产环境 20261020`，AppID `wx6512f8684f584828`。已确认实际游客首页成功渲染，控制台没有错误，仅有原有页面配置/样式警告。未登录真实客户、未提交业务数据，也未上传、审核或发布微信版本。
+- 本节后续提交仅记录交付状态；构建包对应的生产代码为 `00a1ff25`。待恢复本会话 SSH 访问或在授权的正常终端执行部署命令后，才能验收生产订单收件信息修复。

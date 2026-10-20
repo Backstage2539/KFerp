@@ -5891,8 +5891,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-701-ORDER-COPY-RECIPIENT-FOLLOWUP-20261020
 - Branch: codex/miniapp-order-copy-recipient-20261020; base origin/develop@861f54e0.
-- Status: local targeted verification and client builds complete; integration pending; production deployment blocked by sandbox SSH denial.
+- Status: fix pushed and merged into develop@82543a08 and main@00a1ff25; production deployment blocked by sandbox SSH denial; DevTools production project loaded and rendered.
 - Scope: copied recipient matches ordinary order detail fallback; explicit portal destinations preserved; compact item text without specification/quantity labels.
 - Verifier: Go order-copy unit/HTTP GREEN; Vue1436; mini371/typecheck/production build; Vue build; diff check. PostgreSQL integration blocked by socket denial; full Go blocked only by httptest listener denial in two packages.
 - Manual/evidence: docs/acceptance/2026-10-20-order-copy-recipient.md; five PR-701 manuals and Vue order help synchronized.
-- Deployment: Van explicitly authorized develop -> main -> production; not deployed yet. DevTools UI transport unavailable.
+- Deployment: develop -> main complete. Production deployment script reached SSH and failed before remote writes (port 22: Operation not permitted). DevTools GUI loaded /tmp/kferp-miniapp-production-20261020/KFerp-miniapp-mp-weixin (production API; code 00a1ff25), with guest homepage rendered and no console errors. Production backend still requires deployment.
