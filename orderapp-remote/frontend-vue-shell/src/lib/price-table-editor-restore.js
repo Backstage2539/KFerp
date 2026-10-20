@@ -140,13 +140,47 @@ export function editorTableConflict(local, published) {
   return local.source_publication?.id !== expected.id && local.acknowledged_publication_id !== expected.id
 }
 
-export function resolveEditorTableConflict(batch, published, choice, { scope = '', storage = globalThis.window?.localStorage } = {}) {
+function backupInIndexedDB(indexedDB, key, value) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('kferp-price-table-backups', 1)
+    let blocked = false
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('backups')) request.result.createObjectStore('backups')
+    }
+    request.onerror = () => reject(request.error)
+    request.onblocked = () => { blocked = true; reject(new Error('备份存储被占用')) }
+    request.onsuccess = () => {
+      const db = request.result
+      if (blocked) { db.close(); return }
+      db.onversionchange = () => db.close()
+      try {
+        const transaction = db.transaction('backups', 'readwrite')
+        transaction.oncomplete = () => { db.close(); resolve() }
+        transaction.onabort = transaction.onerror = () => { db.close(); reject(transaction.error) }
+        transaction.objectStore('backups').put(value, key)
+      } catch (err) { db.close(); reject(err) }
+    }
+  })
+}
+
+export async function resolveEditorTableConflict(batch, published, choice, { scope = '', storage = globalThis.window?.localStorage, indexedDB = globalThis.indexedDB } = {}) {
   const next = clonePriceTable(batch)
   const index = next.tables.findIndex(table => table.key === published.key)
   if (index < 0) throw new Error('当前价格表已变化，请重试')
   if (choice === 'published') {
     if (!storage) throw new Error('无法备份本地草稿，请检查浏览器存储')
-    storage.setItem('kferp:price-table-backup:' + scope + ':' + published.key + ':' + Date.now(), JSON.stringify(next.tables[index]))
+    const key = 'kferp:price-table-backup:' + scope + ':' + published.key + ':' + Date.now()
+    const value = JSON.stringify(next.tables[index])
+    try { storage.setItem(key, value) } catch (err) {
+      if (!['QuotaExceededError', 'NS_ERROR_DOM_QUOTA_REACHED'].includes(err?.name) && ![22, 1014].includes(err?.code)) throw err
+      try {
+        if (!indexedDB) throw err
+        // Wait for the transaction to commit before replacing the only draft.
+        await backupInIndexedDB(indexedDB, key, value)
+      } catch (cause) {
+        throw new Error('无法备份本地草稿，未载入最新发布版；当前草稿已保留。请先保存草稿后重试。', { cause })
+      }
+    }
     next.tables[index] = clonePriceTable(published)
   } else if (choice === 'local') {
     next.tables[index].acknowledged_publication_id = published.source_publication.id
