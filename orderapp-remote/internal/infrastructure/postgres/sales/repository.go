@@ -2340,7 +2340,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if err := tx.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", r.schema+".order_freight_snapshots").Scan(&freightAvailable); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
-	if freightAvailable && cmd.FreightProtocol == freightdomain.OrderProtocol && cmd.FulfillmentMode == "" && cmd.DeliveryMode != "customer_stock" {
+	legacyEmployeeFreight := cmd.LegacyEmployeeFreight && cmd.DraftEmployeeID > 0 && !cmd.CustomerSubmission && cmd.EditID == 0 &&
+		cmd.FreightProtocol == "" && cmd.FreightQuoteToken == "" && cmd.ExpectedFreightToken == "" && cmd.FreightOverride == nil &&
+		cmd.ShippingProvince == "" && cmd.ShippingCity == "" && cmd.ShippingDistrict == ""
+	if freightAvailable && (cmd.FreightProtocol == freightdomain.OrderProtocol || legacyEmployeeFreight) && cmd.FulfillmentMode == "" && cmd.DeliveryMode != "customer_stock" {
 		if cmd.CustomerSubmission {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("客户不能调整本单运费")
 		}
@@ -2352,11 +2355,22 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 			weightItems = append(weightItems, freightpg.WeightItem{ProductID: *i.productID, BomSpecID: i.bomSpecID, BomVariantID: i.bomVariantID, Qty: i.units})
 		}
-		q, e := fr.QuoteOrderTx(ctx, tx, cmd.CustomerID, cmd.EditID, cmd.ExpectedFreightToken, freightdomain.Destination{Province: cmd.ShippingProvince, City: cmd.ShippingCity, District: cmd.ShippingDistrict}, weightItems, cmd.FreightOverride)
+		override := cmd.FreightOverride
+		if legacyEmployeeFreight {
+			// Old employee forms explicitly charge shipping now, including zero.
+			// Freeze that amount rather than inventing consent to deferred billing.
+			cents := math.Round(cmd.ShippingAmount * 100)
+			if math.IsNaN(cents) || math.IsInf(cents, 0) || cents < 0 || cents > float64(freightdomain.MaxCents) || math.Abs(cmd.ShippingAmount*100-cents) > 0.00001 {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("运费需为非负金额，最多两位小数")
+			}
+			amount, free := int64(cents), false
+			override = &freightdomain.Override{ManualAmountCents: &amount, FreeShipping: &free}
+		}
+		q, e := fr.QuoteOrderTx(ctx, tx, cmd.CustomerID, cmd.EditID, cmd.ExpectedFreightToken, freightdomain.Destination{Province: cmd.ShippingProvince, City: cmd.ShippingCity, District: cmd.ShippingDistrict}, weightItems, override)
 		if e != nil {
 			return salesapp.SaveOrderResult{}, e
 		}
-		if q.Token != cmd.FreightQuoteToken || cmd.FreightQuoteToken == "" {
+		if !legacyEmployeeFreight && (q.Token != cmd.FreightQuoteToken || cmd.FreightQuoteToken == "") {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("运费已变化，请重新核算")
 		}
 		if math.Abs(cmd.ShippingAmount-float64(q.CurrentReceivableCents)/100) > 0.00001 {
