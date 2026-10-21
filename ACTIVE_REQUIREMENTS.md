@@ -1,3 +1,18 @@
+### MINIAPP-LEGACY-ORDER-FREIGHT-PRODUCTION-20261021
+- Owner/session: Codex / 2026-10-21 Asia/Shanghai.
+- Status: production technical delivery complete; Van's original order retry/business acceptance pending.
+- Scope: old employee miniapp ordinary-order creation omitted the newer freight protocol and was rejected with `请更新客户端并确认运费待实际账单出账`. Preserve its fixed current freight (including zero) and real collections, with no deferred or duplicate courier-bill charge.
+- Branches/commits: feature codex/miniapp-order-freight-save-20261021 / b1783d3d; develop 5b838315; released main 2c3dd6eca58075555e58d1f53187787dd39d5a72. Main integration retained production-only safeguards and added exactly the five verified fix/test files.
+- Verifier: targeted handler and isolated PostgreSQL tests first reproduced the exact error (RED), then passed (GREEN). Rechecked on released main: legacy fixed charges 20/0/12.34, preserved collections/audit, no duplicate actual-bill receivable, missing configuration, quote/auth boundaries, existing V2 freight and deferred ordinary-order protection; complete customerportal handler package passed. Full server Vue1461/mini393/typecheck/build/fullGo and Docker-internal fullGo passed.
+- Manual impact: no user workflow, fields or controls changed; backend compatibility only.
+- Deploy command: `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production`.
+- Runtime proof: production app running/restarts0; image sha256:654b6367cd2ec6d210f4ec10d019499319e89126d0b677f0dfe1dfdc309224ec; released source hashes match all five files; built production RELEASE_INFO matches 2c3dd6ec; compiled LegacyEmployeeFreight marker present; PostgreSQL healthy.
+- Read-only smoke: public /app/login200; anonymous /app/api/mini/employee/orders401; authenticated Vue order shell200; authenticated invalid order copy id400. No production business order was submitted by this verification.
+- Rollback source: /opt/stacks/erp-production/orderapp.backup.deploy-20261021213708-2c3dd6eca580. Rollback image: kferp-orderapp-rollback:production-20261021213708-2c3dd6eca580.
+- Release logs: /tmp/kferp-miniapp-order-freight-production-retry-20261021.log; /tmp/kferp-miniapp-order-freight-production-smoke-20261021.json.
+- Resource recovery: stopped the first build before promotion when disk margin dropped below1GB; removed only regenerable caches, reran the same SHA with a temporary memory-backed host Go cache, and restored the original Go cache setting. Final disk free approximately1.2GB; data volumes, database backups, source backups and rollback images retained.
+- Client delivery: backend fix applies to existing employee miniapp; miniapp export/upload/review/publication was not required or performed for this compatibility release.
+
 ### PR-708-MINIAPP-ORDER-STATUS-TOP
 - Branch: codex/miniapp-order-status-top-20261021; base origin/develop e6d30fc0.
 - Owner/session: Codex / 2026-10-21.
