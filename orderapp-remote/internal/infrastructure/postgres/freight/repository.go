@@ -350,6 +350,15 @@ func (r *Repository) OrderViews(ctx context.Context, q Queryer, ids []int64) (ma
 	if e = rows.Err(); e != nil {
 		return out, e
 	}
+	return out, nil
+}
+
+// Editor previews may display pending contents. Accounting always uses OrderViews.
+func (r *Repository) OrderEditorViews(ctx context.Context, q Queryer, ids []int64) (map[int64]*domain.OrderView, error) {
+	out, e := r.OrderViews(ctx, q, ids)
+	if e != nil {
+		return out, e
+	}
 	pendingRows, e := q.Query(ctx, fmt.Sprintf(`SELECT id,to_jsonb(o)->'confirmation_pending'->'freight' FROM %s.orders o WHERE id=ANY($1) AND to_jsonb(o)->>'confirmation_status'='pending' AND to_jsonb(o)->'confirmation_pending'->'freight' IS NOT NULL AND to_jsonb(o)->'confirmation_pending'->'freight'<>'null'::jsonb`, r.schema), ids)
 	if e != nil {
 		return out, e
