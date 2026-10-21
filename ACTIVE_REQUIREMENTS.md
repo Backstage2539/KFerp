@@ -5962,3 +5962,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV-827-RETAINED-PURCHASE: product-order stock replenishment must preview/submit without shipping recipient and retain customer warehouse routing; cover real BOM specification identity with zero legacy gram field; preserve ordinary shipment validation and precise failure messages.
 
 - PR-711 follow-up GREEN: retained-stock submit rawcap regression reproduced on isolated production backup; shared effective authorization fixes no-address final submission. Five targeted app/HTTP/real-PG packages, mini403/type/build and independent review CLEAR; idempotent replay and strict new warehouse authorization preserved. New production backup20261022004018; final integration/deployment pending.
+
+### PR-711-MULTI-ITEM-RETAINED-PURCHASE-20261022
+- Branch: codex/miniapp-multi-item-retained-purchase-20261022; base origin/develop19fb15d3.
+- Status: root cause reproduced on local isolated production copy, TDD in progress; production5e65091c remains online.
+- DEV-828-MULTI-ITEM-PURCHASE: multiple canonical BOM specifications of the same product must submit atomically in one retained purchase; remove only obsolete legacy unique constraint regardless of PostgreSQL-generated name, keep modern canonical/legacy uniqueness.
+- Reproduction: customer488, 曜石2.0 454g x1 + 初晓227g x4 + 曜石2.0 227g x4; preview succeeds but submit23505 on legacy(request_id,product_id,spec_g), both canonical spec_g0. Production SELECT confirms actual truncated constraint name.
+- Verifier: schema migration RED/GREEN, actual API/real PG multi-line submit/idempotency/rollback/rights/audit, mini component multi-line payload and quote consistency, production read-only constraints/data/smoke/package. No production test orders.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-22-miniapp-multi-item-purchase.md. Production merge/deploy authorization continues in this thread.
+
+- DEV-828 GREEN: automatic legacy-name migration + actual three-line API/PG, amounts/rights/audit/idempotency/rollback, isolated production-copy exact326 purchase, mini404/type/build, fullGo; review/integration pending. Backup20261022010540 and16-table current business baselines captured; preserve actual customer single-line purchase.
