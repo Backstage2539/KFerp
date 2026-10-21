@@ -78,6 +78,10 @@ type WeightBasis struct {
 }
 
 type Snapshot struct {
+	ChargeMode             string        `json:"charge_mode,omitempty"`
+	ManualAmountCents      *int64        `json:"manual_amount_cents,omitempty"`
+	OrderID                int64         `json:"order_id,omitempty"`
+	PreviousToken          string        `json:"previous_token,omitempty"`
 	ItemWeights            []WeightBasis `json:"item_weights,omitempty"`
 	Protocol               string        `json:"protocol"`
 	Policy                 Policy        `json:"policy"`
@@ -291,11 +295,11 @@ func Token(q Snapshot) string {
 }
 func Settlement(q Snapshot, actual, already int64) (SettlementDelta, error) {
 	var a SettlementDelta
-	if !validMoney(actual) || already < 0 || already > MaxCents || q.Protocol != Protocol {
+	if !validMoney(actual) || already < 0 || already > MaxCents || (q.Protocol != Protocol && q.Protocol != OrderProtocol) {
 		return a, fmt.Errorf("实际运费或订单计费规则无效")
 	}
 	a.ActualCents = actual
-	if !q.Policy.FreeShipping {
+	if !q.Policy.FreeShipping && q.ChargeMode != "manual_current" && q.ChargeMode != "free" {
 		a.SurchargeCents = q.SurchargeCents
 		if actual > MaxCents-a.SurchargeCents {
 			return a, fmt.Errorf("实际运费超出范围")
@@ -308,8 +312,10 @@ func Settlement(q Snapshot, actual, already int64) (SettlementDelta, error) {
 
 // OrderView keeps the immutable quote alongside the current actual-billing state.
 type OrderView struct {
-	ServiceFeeCents int64 `json:"service_fee_cents"`
-	ServiceDueCents int64 `json:"service_due_cents"`
+	EditToken       string `json:"edit_token"`
+	EditLocked      bool   `json:"edit_locked"`
+	ServiceFeeCents int64  `json:"service_fee_cents"`
+	ServiceDueCents int64  `json:"service_due_cents"`
 	Snapshot
 	BillingStatus   string `json:"billing_status"`
 	ActualCostCents *int64 `json:"actual_cost_cents"`
@@ -317,15 +323,19 @@ type OrderView struct {
 }
 
 type Override struct {
-	TemplateID     *int64 `json:"template_id,omitempty"`
-	SurchargeCents *int64 `json:"surcharge_cents,omitempty"`
-	FreeShipping   *bool  `json:"free_shipping,omitempty"`
-	Reason         string `json:"reason"`
+	ManualAmountCents *int64 `json:"manual_amount_cents,omitempty"`
+	TemplateID        *int64 `json:"template_id,omitempty"`
+	SurchargeCents    *int64 `json:"surcharge_cents,omitempty"`
+	FreeShipping      *bool  `json:"free_shipping,omitempty"`
+	Reason            string `json:"reason"`
 }
 
 func ApplyOverride(p Policy, o *Override, employee bool) (Policy, error) {
 	if o == nil {
 		return p, nil
+	}
+	if o.ManualAmountCents != nil {
+		return p, fmt.Errorf("手填运费需要新版员工录单协议")
 	}
 	if !employee || strings.TrimSpace(o.Reason) == "" {
 		return p, fmt.Errorf("员工按单调整运费必须填写原因")

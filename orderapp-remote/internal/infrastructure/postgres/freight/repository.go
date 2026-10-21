@@ -38,12 +38,21 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
  CREATE TABLE IF NOT EXISTS %[1]s.freight_import_batches(id bigserial PRIMARY KEY,carrier_id bigint NOT NULL,file_hash text NOT NULL,filename text NOT NULL,rows_json jsonb NOT NULL,status text NOT NULL DEFAULT 'preview',created_at timestamptz NOT NULL DEFAULT now(),created_by text NOT NULL,UNIQUE(carrier_id,file_hash));
  CREATE TABLE IF NOT EXISTS %[1]s.freight_actual_shipments(id bigserial PRIMARY KEY,carrier_id bigint NOT NULL,tracking_no text NOT NULL,order_id bigint NOT NULL REFERENCES %[1]s.orders(id),customer_id bigint NOT NULL REFERENCES %[1]s.customers(id),actual_cents bigint NOT NULL DEFAULT 0,billed_cents bigint NOT NULL DEFAULT 0,revision bigint NOT NULL DEFAULT 0,legacy boolean NOT NULL DEFAULT false,UNIQUE(carrier_id,tracking_no));
  CREATE TABLE IF NOT EXISTS %[1]s.freight_actual_entries(id bigserial PRIMARY KEY,shipment_id bigint NOT NULL REFERENCES %[1]s.freight_actual_shipments(id),batch_id bigint REFERENCES %[1]s.freight_import_batches(id),request_key text NOT NULL UNIQUE,actual_cents bigint NOT NULL,target_cents bigint NOT NULL,delta_cents bigint NOT NULL,previous_actual_cents bigint NOT NULL,previous_billed_cents bigint NOT NULL,reason text NOT NULL,created_by text NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),reverses_id bigint REFERENCES %[1]s.freight_actual_entries(id));
- CREATE OR REPLACE FUNCTION %[1]s.guard_deferred_freight() RETURNS trigger LANGUAGE plpgsql AS $guard$
- BEGIN
- IF NEW.shipping_amount IS DISTINCT FROM OLD.shipping_amount AND EXISTS(SELECT 1 FROM %[1]s.order_freight_snapshots WHERE order_id=NEW.id) AND COALESCE(NEW.shipping_amount,0)<>0 THEN RAISE EXCEPTION '运费待实际账单独立出账，不能计入原订单' USING ERRCODE='23514'; END IF; RETURN NEW;
- END $guard$;
  DROP TRIGGER IF EXISTS guard_deferred_freight ON %[1]s.orders;
- CREATE TRIGGER guard_deferred_freight BEFORE UPDATE OF shipping_amount ON %[1]s.orders FOR EACH ROW EXECUTE FUNCTION %[1]s.guard_deferred_freight();
+ DROP TRIGGER IF EXISTS guard_order_freight_snapshot ON %[1]s.order_freight_snapshots;
+ CREATE OR REPLACE FUNCTION %[1]s.guard_deferred_freight() RETURNS trigger LANGUAGE plpgsql AS $guard$
+ DECLARE oid bigint; expected bigint; actual bigint; protocol text;
+ BEGIN
+ IF TG_TABLE_NAME='orders' THEN oid=NEW.id; ELSE oid=COALESCE(NEW.order_id,OLD.order_id); END IF;
+ SELECT COALESCE((snapshot_json->>'current_receivable_cents')::bigint,0),snapshot_json->>'protocol' INTO expected,protocol FROM %[1]s.order_freight_snapshots WHERE order_id=oid;
+ IF FOUND THEN
+ SELECT round(COALESCE(shipping_amount,0)*100)::bigint INTO actual FROM %[1]s.orders WHERE id=oid;
+ IF actual IS DISTINCT FROM expected OR protocol NOT IN ('deferred_freight_v1','order_freight_v2') OR (protocol='deferred_freight_v1' AND expected<>0) THEN RAISE EXCEPTION '订单运费与收费快照不一致' USING ERRCODE='23514'; END IF;
+ END IF; RETURN NULL;
+ END $guard$;
+ CREATE CONSTRAINT TRIGGER guard_deferred_freight AFTER UPDATE OF shipping_amount ON %[1]s.orders DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION %[1]s.guard_deferred_freight();
+ CREATE CONSTRAINT TRIGGER guard_order_freight_snapshot AFTER INSERT OR UPDATE OR DELETE ON %[1]s.order_freight_snapshots DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION %[1]s.guard_deferred_freight();
+
  `, r.schema))
 	return e
 }
@@ -161,7 +170,7 @@ func (r *Repository) QuoteTx(ctx context.Context, tx pgx.Tx, id int64, scene str
 	return domain.Quote(p, t, d, grams)
 }
 func (r *Repository) SaveSnapshotTx(ctx context.Context, tx pgx.Tx, id int64, q domain.Snapshot, actor string) error {
-	if q.Protocol != domain.Protocol || q.Token != domain.Token(q) || q.CurrentReceivableCents != 0 {
+	if (q.Protocol != domain.Protocol && q.Protocol != domain.OrderProtocol) || q.Token != domain.Token(q) || q.CurrentReceivableCents < 0 || (q.Protocol == domain.Protocol && q.CurrentReceivableCents != 0) {
 		return fmt.Errorf("运费报价无效，请刷新")
 	}
 	var cid int64
@@ -169,7 +178,7 @@ func (r *Repository) SaveSnapshotTx(ctx context.Context, tx pgx.Tx, id int64, q 
 	if e := tx.QueryRow(ctx, fmt.Sprintf(`SELECT customer_id,round(COALESCE(shipping_amount,0)*100)::bigint FROM %s.orders WHERE id=$1 FOR UPDATE`, r.schema), id).Scan(&cid, &shipping); e != nil {
 		return e
 	}
-	if cid != q.Policy.CustomerID || shipping != 0 {
+	if cid != q.Policy.CustomerID || shipping != q.CurrentReceivableCents {
 		return fmt.Errorf("运费快照客户或订单金额不一致")
 	}
 	if q.CarrierID > 0 {
@@ -193,7 +202,16 @@ func (r *Repository) SaveSnapshotTx(ctx context.Context, tx pgx.Tx, id int64, q 
 		if previous.Token == q.Token {
 			return nil
 		}
-		return fmt.Errorf("订单运费已冻结")
+		if q.Protocol != domain.OrderProtocol || q.OrderID != id || q.PreviousToken != previous.Token {
+			return fmt.Errorf("订单运费已冻结或版本过期")
+		}
+		if e = r.EditableTx(ctx, tx, id); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_freight_snapshots SET snapshot_json=$2,created_by=$3 WHERE order_id=$1`, r.schema), id, b, actor); e != nil {
+			return e
+		}
+		return r.Audit(ctx, tx, actor, "order_freight", id, "adjust", previous, q)
 	}
 	if !errors.Is(e, pgx.ErrNoRows) {
 		return e
@@ -206,7 +224,11 @@ func (r *Repository) SaveSnapshotTx(ctx context.Context, tx pgx.Tx, id int64, q 
 func (r *Repository) Audit(ctx context.Context, tx pgx.Tx, actor, entity string, id int64, action string, before, after any) error {
 	a, _ := json.Marshal(before)
 	b, _ := json.Marshal(after)
-	return infra.AuditInsertTx(ctx, tx, r.schema, actor, entity, &id, action, infra.StrPtr("freight"), infra.StrPtr(string(a)), infra.StrPtr(string(b)), infra.AuditMeta{"requirement": "PR-705"})
+	requirement := "PR-705"
+	if snapshot, ok := after.(domain.Snapshot); ok && snapshot.Protocol == domain.OrderProtocol {
+		requirement = "PR-709"
+	}
+	return infra.AuditInsertTx(ctx, tx, r.schema, actor, entity, &id, action, infra.StrPtr("freight"), infra.StrPtr(string(a)), infra.StrPtr(string(b)), infra.AuditMeta{"requirement": requirement})
 }
 func (r *Repository) Templates(ctx context.Context) ([]domain.Template, error) {
 	rows, e := r.pool.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.shipping_fee_templates ORDER BY active DESC,name,id`, r.schema))
@@ -317,12 +339,44 @@ func (r *Repository) OrderViews(ctx context.Context, q Queryer, ids []int64) (ma
 			return out, e
 		}
 		v.BillingStatus = v.Status
-		if rev > 0 && !v.Policy.FreeShipping {
+		v.EditToken = v.Token
+		v.EditLocked = rev > 0
+		if rev > 0 && !v.Policy.FreeShipping && v.ChargeMode != "manual_current" {
 			v.BillingStatus = "billed"
 		}
 		out[id] = v
 	}
-	return out, rows.Err()
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return out, e
+	}
+	pendingRows, e := q.Query(ctx, fmt.Sprintf(`SELECT id,to_jsonb(o)->'confirmation_pending'->'freight' FROM %s.orders o WHERE id=ANY($1) AND to_jsonb(o)->>'confirmation_status'='pending' AND to_jsonb(o)->'confirmation_pending'->'freight' IS NOT NULL AND to_jsonb(o)->'confirmation_pending'->'freight'<>'null'::jsonb`, r.schema), ids)
+	if e != nil {
+		return out, e
+	}
+	defer pendingRows.Close()
+	for pendingRows.Next() {
+		var id int64
+		var pending []byte
+		if e = pendingRows.Scan(&id, &pending); e != nil {
+			return out, e
+		}
+		var snapshot domain.Snapshot
+		if e = json.Unmarshal(pending, &snapshot); e != nil {
+			return out, e
+		}
+		view := out[id]
+		if view == nil {
+			view = &domain.OrderView{}
+		}
+		view.Snapshot = snapshot
+		view.BillingStatus = snapshot.Status
+		out[id] = view
+	}
+	if e = pendingRows.Err(); e != nil {
+		return out, e
+	}
+	return out, nil
 }
 func (r *Repository) QuoteWithOverrideTx(ctx context.Context, tx pgx.Tx, id int64, scene string, d domain.Destination, grams int64, o *domain.Override, employee bool) (domain.Snapshot, error) {
 	p, e := r.LoadPolicy(ctx, tx, id, scene, true)

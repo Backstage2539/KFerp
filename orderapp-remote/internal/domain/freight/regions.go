@@ -56,7 +56,15 @@ func init() {
 			for _, s := range []string{"特别行政区", "维吾尔自治区", "壮族自治区", "回族自治区", "自治区", "省", "市"} {
 				r.Alias = strings.TrimSuffix(r.Alias, s)
 			}
+			if r.Level == 3 {
+				r.Alias = countyAlias(r.Name)
+			}
 			r.Pinyin, r.Initials = regionPronunciations(r.Name)
+			if r.Alias != r.Name {
+				py, initials := regionPronunciations(r.Alias)
+				r.Pinyin += " " + py
+				r.Initials += " " + initials
+			}
 			r.Path = r.Name
 			if parent, ok := regionIndex[r.ParentCode]; ok {
 				r.Path = parent.Path + " / " + r.Name
@@ -71,7 +79,7 @@ func SearchRegions(s string) []Region {
 	s = strings.ToLower(strings.TrimSpace(s))
 	out := []Region{}
 	for _, r := range regions {
-		if s == "" || strings.Contains(strings.ToLower(r.Name+" "+r.Alias+" "+r.Pinyin+" "+r.Initials+" "+r.Code), s) {
+		if s == "" || strings.Contains(strings.ToLower(r.Name+" "+r.Alias+" "+r.Pinyin+" "+r.Initials+" "+r.Code+" "+r.Path), s) {
 			out = append(out, r)
 		}
 	}
