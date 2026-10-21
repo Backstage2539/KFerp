@@ -18,15 +18,17 @@ func TestNamedPriceTableOrderAPIUsesSelectedSnapshotAndBlocksBypass(t *testing.T
 	seedOrderAPITestData(t, ctx, pool, schema)
 	seedOrderAPIBOMSpecIdentity(t, ctx, pool, schema)
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`ALTER TABLE %[1]s.orders ADD COLUMN prepayment_amount NUMERIC(12,2) NOT NULL DEFAULT 0;
+	ALTER TABLE %[1]s.orders ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'ship', ADD COLUMN delivery_warehouse_code TEXT NOT NULL DEFAULT '', ADD COLUMN delivery_status TEXT NOT NULL DEFAULT '', ADD COLUMN fulfillment_mode TEXT NOT NULL DEFAULT '';
  ALTER TABLE %[1]s.order_items ADD COLUMN customer_product_reference_id BIGINT, ADD COLUMN material_source_mode TEXT;
  CREATE TABLE %[1]s.customer_order_production_demands(order_id BIGINT);
- UPDATE %[1]s.customers SET default_order_type_id=1 WHERE id=3;`, schema))
+ INSERT INTO %[1]s.customer_product_aliases(id,customer_id,product_id,display_name,active) VALUES(51,3,7,'测试豆',true);
+ UPDATE %[1]s.customers SET customer_type='retail',default_order_type_id=2 WHERE id=3;`, schema))
 	for _, table := range []struct {
 		id, customer int
 		name         string
 		price        int
 	}{{88, 3, "227g常规表", 30}, {89, 3, "227g会员表", 90}, {90, 4, "其他客户", 70}} {
-		content := fmt.Sprintf(`{"price_rows":[{"product_id":7,"bom_spec_id":9001,"bom_variant_id":9101,"min_qty":1,"final_unit_price":%d,"price_unit":"袋","inventory_unit":"袋","quantity_basis":"sales_spec_count"}]}`, table.price)
+		content := fmt.Sprintf(`{"price_rows":[{"product_id":7,"bom_spec_id":9001,"bom_variant_id":9101,"min_qty":1,"final_unit_price":%d,"price_unit":"袋","inventory_unit":"袋","quantity_basis":"sales_spec_count","effective_sales_spec":{"bom_spec_id":9001,"bom_variant_id":9101,"spec_name":"227g袋装","sales_unit":"袋"}}]}`, table.price)
 		config := fmt.Sprintf(`{"publication_batch":{"release_id":"batch-%d","table_key":"table-%d","table_name":"%s","is_default_table":%t}}`, table.customer, table.id, table.name, table.id == 88)
 		_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.bean_list_publications(id,list_type,version_no,status,owner_type,owner_key,config_json,content_json) VALUES($1,'commercial','V3.0.6','published','customer',$2,$3::jsonb,$4::jsonb)`, schema), table.id, fmt.Sprint(table.customer), config, content)
 		if err != nil {
@@ -38,6 +40,11 @@ func TestNamedPriceTableOrderAPIUsesSelectedSnapshotAndBlocksBypass(t *testing.T
 		t.Fatalf("fixture price=%+v err=%v", price, priceErr)
 	}
 	e := newOrderAPITestEcho(pool, schema)
+	catalog := httptest.NewRecorder()
+	e.ServeHTTP(catalog, httptest.NewRequest(http.MethodGet, "/api/order/catalog?customer_id=3&selected_price_table_ids=88", nil))
+	if catalog.Code != http.StatusOK || !strings.Contains(catalog.Body.String(), `"bom_spec_id":9001`) || strings.Contains(catalog.Body.String(), `"bom_spec_id":9002`) {
+		t.Fatalf("retail customer selected commercial catalog: %d %s", catalog.Code, catalog.Body.String())
+	}
 	for _, tc := range []struct {
 		selected, item, spec int
 		manual               string
@@ -56,7 +63,7 @@ func TestNamedPriceTableOrderAPIUsesSelectedSnapshotAndBlocksBypass(t *testing.T
 		if tc.spec == 9002 {
 			variant = 9102
 		}
-		payload := fmt.Sprintf(`{"order_date":"2026-09-07","customer_id":3,"order_type_id":1,"source_id":1,"pay_status_id":1,"ship_status_id":1,"selected_price_table_ids":[%d],"bean_list_publication_id":%d,"item_bean_list_publication_id":["%d"],"product_id":["7"],"bom_spec_id":["%d"],"bom_variant_id":["%d"],"item_name":["测试豆"],"tier_id":["%s"],"unit_price":["%s"],"qty":["2"],"unit":["袋"],"spec":["227"]}`, tc.selected, tc.item, tc.item, tc.spec, variant, tier, tc.manual)
+		payload := fmt.Sprintf(`{"order_date":"2026-09-07","customer_id":3,"order_type_id":2,"source_id":1,"pay_status_id":1,"ship_status_id":1,"selected_price_table_ids":[%d],"bean_list_publication_id":%d,"item_bean_list_publication_id":["%d"],"product_id":["7"],"bom_spec_id":["%d"],"bom_variant_id":["%d"],"item_name":["测试豆"],"tier_id":["%s"],"unit_price":["%s"],"qty":["2"],"unit":["袋"],"spec":["227"]}`, tc.selected, tc.item, tc.item, tc.spec, variant, tier, tc.manual)
 		req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		rec := httptest.NewRecorder()

@@ -1,3 +1,14 @@
+### PR-707-PUBLISHED-ORDER-CATALOG-CONSISTENCY
+- Branch: codex/published-order-catalog-consistency-20261021; base origin/develop c591b765.
+- Owner/session: Codex / 2026-10-21.
+- Status: verified implementation; integration/development/production delivery in progress; Van acceptance pending.
+- Scope: diagnose production read-only, unify authoritative selected-publication catalog semantics for ERP/employee miniapp and save validation; preserve exact table/spec/customer boundaries. Prevent recurring publish-to-order visibility regressions through service/API/cross-client fixtures.
+- DEV: DEV-810-PUBLICATION-CATALOG-AUTHORITY; DEV-811-CLIENT-CATALOG-CONSISTENCY; DEV-812-PUBLISH-ORDER-REGRESSION-DELIVERY.
+- Verifier: targeted RED/GREEN service and HTTP tests, real isolated PostgreSQL publish/order catalog cases, Vue/miniapp tests and builds, full Go and deployment gates; source manuals and acceptance receipt.
+- Deployment: integrate verified feature into develop, then main while preserving production safeguards; this thread owns the user-requested production deployment and miniapp package. WeChat upload/review/publication remains separate.
+- Evidence: Huangyan (customer487) read-only replay restores43 families/46 specs from5 green-only families; Vue1444/mini372, typecheck/builds/fullGo, isolated PostgreSQL lifecycle and API save guards passed. Acceptance: docs/acceptance/2026-10-21-published-order-catalog-consistency.md.
+- Notes: scripts/reserve_req_id.sh reports PR-707; --claim hit known macOS awk multiline-string failure, reserved manually here. Production runtime currently main 973d5481.
+
 ### PR-704-MINIAPP-STOCK-ORDER-EXPERIENCE
 - Branch: codex/miniapp-stock-order-experience-20261019; base origin/develop@758a2f50.
 - Status: review; implemented and customer UI/API verified in development; Van product acceptance pending. Development delivery complete at be7338a1; subsequent receipt commit is documentation only.

@@ -382,7 +382,7 @@ func requiredPermissionForRequest(method, path string) string {
 	if path == "/api/fulfillment/order" {
 		return "orders.write"
 	}
-	if strings.HasPrefix(path, "/api/order/form") {
+	if strings.HasPrefix(path, "/api/order/form") || path == "/api/order/catalog" {
 		return "orders.write"
 	}
 	if path == "/api/share-resources" {
