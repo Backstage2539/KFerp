@@ -5,8 +5,8 @@
 - Fix: durable async named-batch storage, legacy draft read compatibility, ordered snapshots and current-scope checks; avoid duplicate standalone cache writes after named hydration.
 - Verification: targeted RED/GREEN, full Vue suite/build and existing publication-batch handler checks; production deployment requested by reported environment.
 - Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md, served by existing costingManual Vue entry.
-- Status: targeted54/fullVue1454, Vue build and publication-batch HTTP handler GREEN; native browser real-quota/save/reload GREEN. Production integration pending; no production business publications performed.
-- Delivery: origin/develop advanced independently to7634f2f8 (PR-707); keep production hotfix isolated from this unrelated development change. Evidence: docs/acceptance/2026-10-21-price-table-draft-quota.md.
+- Status: delivered to production b6efdd71 on 2026-10-21; runtime asset, manual and authenticated read-only HTTP checks passed. Targeted54/fullVue1454, mini371/typecheck/build, fullGo on host+image all GREEN; native browser real-quota/save/reload GREEN. No production business publications performed.
+- Delivery: feature2b946de6; develop4d03e0cd (Vue1457/build verified after separate integration); main/runtime b6efdd71. Production command KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production. Rollback source orderapp.backup.deploy-20261021112612-b6efdd71d202; rollback image retained. Production excludes the independent PR-707 change. Evidence: docs/acceptance/2026-10-21-price-table-draft-quota.md.
 
 ### PR-707-PUBLISHED-ORDER-CATALOG-CONSISTENCY
 - Branch: codex/published-order-catalog-consistency-20261021; base origin/develop c591b765.
