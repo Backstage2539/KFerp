@@ -35,4 +35,11 @@
 
 ## 开发交付
 
-集成、部署、回滚锚点及只读运行核对待部署后记录。未进行 development 业务验收或生产业务写入，未上传/审核/发布微信版本。
+- 功能分支 `codex/miniapp-order-status-top-20261021` 已推送，功能提交 `b47b1aac`；合入并推送 `develop` 后，运行及小程序包提交为 `a8fe07ba618f2b9c0510fa587d0e2129d3b4ff46`。
+- 命令：`./deploy_orderapp.sh development`。服务器完整 Vue1459、mini389/typecheck/build、Go 及镜像内 Go 检查通过；应用已启动且数据库 healthy。
+- 源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20261021131604-a8fe07ba618f`；回滚镜像 `kferp-orderapp-rollback:development-20261021131604-a8fe07ba618f`。
+- 只读运行核对：匿名业务 API401，匿名状态保存/凭证上传401；登录页/静态 Vue shell200，带认证手册与需求API200；PR-708、DEV-813/814/815 可读取；手册包含顶部编辑入口。当前 Vue shell 按既有设计公开加载静态前端，业务 API 仍需认证；旧“匿名 /app 必须401”检查已按当前源码和实际请求链修正。未更改认证行为。
+- 运行镜像 `sha256:15034693c8683fb347f5e56a950fc71e73db44f567f5295455c2e9e5a0c867ca`，RELEASE_INFO 与交付提交一致。`runtime-smoke.json` 全部通过。
+- 开发包同步固定目录 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧包备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20261021132604-a8fe07ba618f`。24页面/96页面文件/238总文件，订单状态卡片位于分享卡片前；仅包含 development API，ZIP CRC通过。SHA-256 `470e37e9d36687777f5861f12c6943abd669f66e95d5e53b0eb3dc0bb6518f46`。
+- ZIP交付 `/Users/yiiiple-work/Documents/Codex/2026-10-21/xia/outputs/KFerp-miniapp-dev-a8fe07ba.zip`；本地界面截图同 outputs 目录。微信开发者工具需关闭旧项目后重新导入开发包。
+- 最终回执修改仅为文档，运行及包版本仍为上述提交。未进行 development 业务验收或生产业务写入，未上传/审核/发布微信版本；Van 产品验收待确认。
