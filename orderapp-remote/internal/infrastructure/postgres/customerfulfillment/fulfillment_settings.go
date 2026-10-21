@@ -49,6 +49,25 @@ CREATE TRIGGER guard_fulfillment_shipping_fee_snapshot BEFORE UPDATE OF shipping
 func defaultFulfillmentSettings(id int64) app.FulfillmentSettings {
 	return app.FulfillmentSettings{CustomerID: id, Modes: []app.FulfillmentModeSettings{{Mode: "stock"}, {Mode: "on_demand"}}}
 }
+
+func fulfillmentPolicyProjection(p freightdomain.Policy) *app.FulfillmentShippingPolicy {
+	return &app.FulfillmentShippingPolicy{TemplateID: p.TemplateID, SurchargeCents: p.SurchargeCents, FreeShipping: p.FreeShipping, Revision: p.Revision}
+}
+
+// Keep a stable lock/order and retain modes omitted by older single-mode editors.
+func completeFulfillmentModes(modes []app.FulfillmentModeSettings) []app.FulfillmentModeSettings {
+	out := defaultFulfillmentSettings(0).Modes
+	for i := range out {
+		for _, mode := range modes {
+			if mode.Mode == out[i].Mode {
+				out[i] = mode
+				break
+			}
+		}
+	}
+	return out
+}
+
 func (r *Repository) loadFulfillmentSettings(ctx context.Context, q miniDirectShipQuerier, id int64, lock bool) (app.FulfillmentSettings, error) {
 	s := defaultFulfillmentSettings(id)
 	if id <= 0 {
@@ -67,6 +86,7 @@ func (r *Repository) loadFulfillmentSettings(ctx context.Context, q miniDirectSh
 	} else if err = json.Unmarshal(raw, &s.Modes); err != nil {
 		return s, err
 	}
+	s.Modes = completeFulfillmentModes(s.Modes)
 	for i := range s.Modes {
 		p, e := freightpg.NewRepository(r.pool, r.schema).LoadPolicy(ctx, q, id, s.Modes[i].Mode, lock)
 		if e != nil {
@@ -75,7 +95,11 @@ func (r *Repository) loadFulfillmentSettings(ctx context.Context, q miniDirectSh
 		if p.Revision > 0 {
 			s.Modes[i].ShippingTemplateID = p.TemplateID
 			s.Modes[i].ShippingFree = p.FreeShipping
+		} else {
+			p.TemplateID = s.Modes[i].ShippingTemplateID
+			p.FreeShipping = s.Modes[i].ShippingFree
 		}
+		s.Modes[i].ShippingPolicy = fulfillmentPolicyProjection(p)
 	}
 	return s, nil
 }
@@ -106,15 +130,14 @@ func (r *Repository) ValidateCustomerFulfillmentModeTx(ctx context.Context, tx p
 	return "", fmt.Errorf("该客户未启用所选代发场景")
 }
 func (r *Repository) validateFulfillmentWarehouse(ctx context.Context, q miniDirectShipQuerier, id int64, code string) error {
-	var ok bool
-	err := q.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.warehouses WHERE code=$1 AND customer_id=$2 AND active=true AND kind IN ('finished','customer_finished','customer_processing','customer'))`, r.schema), strings.TrimSpace(code), id).Scan(&ok)
-	if err != nil {
-		return err
-	}
-	if !ok {
+	var found string
+	// Hold the validated binding until commit, serializing against virtual
+	// warehouse deletion/reassignment and their business-reference guards.
+	err := q.QueryRow(ctx, fmt.Sprintf(`SELECT code FROM %s.warehouses WHERE code=$1 AND customer_id=$2 AND active=true AND kind IN ('finished','customer_finished','customer_processing','customer') FOR SHARE`, r.schema), strings.TrimSpace(code), id).Scan(&found)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("库存代发必须绑定该客户启用的成品仓")
 	}
-	return nil
+	return err
 }
 func (r *Repository) SaveFulfillmentSettings(ctx context.Context, c app.SaveFulfillmentSettingsCommand) (app.FulfillmentSettings, error) {
 	if err := app.ValidateFulfillmentSettings(c.Settings); err != nil {
@@ -148,37 +171,75 @@ func (r *Repository) SaveFulfillmentSettings(ctx context.Context, c app.SaveFulf
 	if old.Revision != c.ExpectedRevision {
 		return old, fmt.Errorf("履约设置已变化，请刷新后重试")
 	}
-	for _, m := range c.Settings.Modes {
-		if !m.Enabled {
-			continue
-		}
-		if m.Mode == "stock" {
-			if err = r.validateFulfillmentWarehouse(ctx, tx, c.Settings.CustomerID, m.WarehouseCode); err != nil {
-				return old, err
+	requested := c.Settings.Modes
+	c.Settings.Modes = append([]app.FulfillmentModeSettings(nil), old.Modes...)
+	freightRepository := freightpg.NewRepository(r.pool, r.schema)
+	for i, existing := range old.Modes {
+		var incoming *app.FulfillmentModeSettings
+		for j := range requested {
+			if requested[j].Mode == existing.Mode {
+				incoming = &requested[j]
+				break
 			}
 		}
-		policy, e := freightpg.NewRepository(r.pool, r.schema).LoadPolicy(ctx, tx, c.Settings.CustomerID, m.Mode, true)
-		if e != nil {
-			return old, e
-		}
-		if m.ShippingTemplateID == 0 && policy.FreeShipping {
+		if incoming == nil {
 			continue
 		}
-		tm, e := r.loadShippingFeeTemplate(ctx, tx, m.ShippingTemplateID, true)
-		if e != nil || !tm.Active {
-			return old, fmt.Errorf("运费模板未配置或已停用")
+		if !incoming.Enabled {
+			// Disabled controls are not configuration edits, even if stale draft
+			// values are still present in an older client's request.
+			c.Settings.Modes[i].Enabled = false
+			continue
 		}
-	}
-	for _, m := range c.Settings.Modes {
-		if m.ShippingTemplateID > 0 {
-			_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_shipping_policies(customer_id,scene,template_id,updated_by)VALUES($1,$2,$3,$4) ON CONFLICT(customer_id,scene) DO UPDATE SET template_id=EXCLUDED.template_id,revision=customer_shipping_policies.revision+1,updated_by=EXCLUDED.updated_by,updated_at=now()`, r.schema), c.Settings.CustomerID, m.Mode, m.ShippingTemplateID, c.Actor)
+		mode := *incoming
+		if mode.Mode == "stock" {
+			mode.WarehouseCode = strings.TrimSpace(mode.WarehouseCode)
+			if err = r.validateFulfillmentWarehouse(ctx, tx, c.Settings.CustomerID, mode.WarehouseCode); err != nil {
+				return old, err
+			}
+		} else {
+			mode.WarehouseCode = ""
+		}
+		policy := freightdomain.Policy{CustomerID: c.Settings.CustomerID, Scene: mode.Mode, TemplateID: mode.ShippingTemplateID, FreeShipping: mode.ShippingFree}
+		expected := existing.ShippingPolicy.Revision
+		if nested := mode.ShippingPolicy; nested != nil {
+			policy.TemplateID, policy.SurchargeCents, policy.FreeShipping = nested.TemplateID, nested.SurchargeCents, nested.FreeShipping
+			expected = *nested.ExpectedRevision // checked by application validation
+		} else {
+			// Old editors can select a template, but do not own the policy's
+			// surcharge/free-shipping controls. Preserve those authoritative values.
+			policy.SurchargeCents = existing.ShippingPolicy.SurchargeCents
+			policy.FreeShipping = policy.FreeShipping || existing.ShippingPolicy.FreeShipping
+		}
+		if expected != existing.ShippingPolicy.Revision {
+			return old, fmt.Errorf("运费政策已变化，请刷新")
+		}
+		policy.Revision = existing.ShippingPolicy.Revision
+		if policy.Revision == 0 || policy.TemplateID != existing.ShippingPolicy.TemplateID || policy.SurchargeCents != existing.ShippingPolicy.SurchargeCents || policy.FreeShipping != existing.ShippingPolicy.FreeShipping {
+			policy, err = freightRepository.SavePolicyTx(ctx, tx, policy, expected, c.Actor)
 			if err != nil {
 				return old, err
 			}
+		} else if policy.TemplateID > 0 {
+			// Re-enabling or editing service fees still requires an active template.
+			template, e := r.loadShippingFeeTemplate(ctx, tx, policy.TemplateID, true)
+			if e != nil || !template.Active {
+				return old, fmt.Errorf("运费模板未配置或已停用")
+			}
 		}
+		mode.ShippingTemplateID, mode.ShippingFree = policy.TemplateID, policy.FreeShipping
+		mode.ShippingPolicy = fulfillmentPolicyProjection(policy)
+		c.Settings.Modes[i] = mode
 	}
 	c.Settings.Revision = old.Revision + 1
-	raw, _ := json.Marshal(c.Settings.Modes)
+	storedModes := append([]app.FulfillmentModeSettings(nil), c.Settings.Modes...)
+	for i := range storedModes {
+		storedModes[i].ShippingPolicy = nil // policy table remains the single source
+	}
+	raw, err := json.Marshal(storedModes)
+	if err != nil {
+		return old, err
+	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fulfillment_settings(customer_id,revision,modes_json,updated_by) VALUES($1,$2,$3,$4) ON CONFLICT(customer_id) DO UPDATE SET revision=EXCLUDED.revision,modes_json=EXCLUDED.modes_json,updated_by=EXCLUDED.updated_by,updated_at=now()`, r.schema), c.Settings.CustomerID, c.Settings.Revision, raw, c.Actor)
 	if err != nil {
 		return old, err
@@ -203,7 +264,11 @@ func (r *Repository) SaveShippingFeeTemplate(ctx context.Context, c app.SaveShip
 func (r *Repository) auditFulfillmentConfig(ctx context.Context, tx pgx.Tx, actor, entity string, id int64, action string, old, new any) error {
 	before, _ := json.Marshal(old)
 	after, _ := json.Marshal(new)
-	return postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, entity, &id, action, postgresinfra.StrPtr("configuration"), postgresinfra.StrPtr(string(before)), postgresinfra.StrPtr(string(after)), postgresinfra.AuditMeta{"requirement": "PR-703"})
+	requirement := "PR-703"
+	if entity == "customer_fulfillment_settings" {
+		requirement = "PR-710"
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, entity, &id, action, postgresinfra.StrPtr("configuration"), postgresinfra.StrPtr(string(before)), postgresinfra.StrPtr(string(after)), postgresinfra.AuditMeta{"requirement": requirement})
 }
 
 func (r *Repository) QuoteFulfillmentFees(ctx context.Context, c app.FulfillmentFeeQuoteCommand) (app.FulfillmentFeeQuote, error) {

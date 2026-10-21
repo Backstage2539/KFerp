@@ -106,18 +106,38 @@ func (r *Repository) LoadPolicy(ctx context.Context, q Queryer, id int64, scene 
 	return p, e
 }
 func (r *Repository) SavePolicy(ctx context.Context, p domain.Policy, expected int64, actor string) (domain.Policy, error) {
+	tx, e := r.pool.Begin(ctx)
+	if e != nil {
+		return p, e
+	}
+	defer tx.Rollback(ctx)
+	p, e = r.SavePolicyTx(ctx, tx, p, expected, actor)
+	if e != nil {
+		return p, e
+	}
+	// Ordinary sale policies have their own quote token and are independent of
+	// dropshipping configuration. Only scenario edits invalidate its editor.
+	if p.Scene != "sale" {
+		if _, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fulfillment_settings SET revision=revision+1 WHERE customer_id=$1`, r.schema), p.CustomerID); e != nil {
+			return p, e
+		}
+	}
+	return p, tx.Commit(ctx)
+}
+
+// SavePolicyTx participates in the caller's transaction and audits the policy.
+// It deliberately leaves the fulfillment revision and transaction commit to the
+// caller, allowing multiple policies and service/warehouse settings to commit once.
+func (r *Repository) SavePolicyTx(ctx context.Context, tx pgx.Tx, p domain.Policy, expected int64, actor string) (domain.Policy, error) {
 	if e := domain.ValidatePolicy(p); e != nil {
 		return p, e
 	}
 	if p.CustomerID <= 0 || strings.TrimSpace(actor) == "" {
 		return p, fmt.Errorf("客户及操作人必填")
 	}
-	tx, e := r.pool.Begin(ctx)
+	// This lock is reentrant when the atomic fulfillment editor already owns it.
+	_, e := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, fmt.Sprintf("fulfillment-settings:%d", p.CustomerID))
 	if e != nil {
-		return p, e
-	}
-	defer tx.Rollback(ctx)
-	if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, fmt.Sprintf("fulfillment-settings:%d", p.CustomerID)); e != nil {
 		return p, e
 	}
 	// Writers lock settings before policies, matching quote readers and avoiding a settings/policy lock inversion.
@@ -149,14 +169,10 @@ func (r *Repository) SavePolicy(ctx context.Context, p domain.Policy, expected i
 	if e != nil {
 		return p, e
 	}
-	// Compatibility settings project this authoritative policy; bump their version to invalidate editors/quotes.
-	if _, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fulfillment_settings SET revision=revision+1 WHERE customer_id=$1`, r.schema), p.CustomerID); e != nil {
-		return p, e
-	}
 	if e = r.Audit(ctx, tx, actor, "shipping_policy", p.CustomerID, "save", old, p); e != nil {
 		return p, e
 	}
-	return p, tx.Commit(ctx)
+	return p, nil
 }
 func (r *Repository) QuoteTx(ctx context.Context, tx pgx.Tx, id int64, scene string, d domain.Destination, grams int64) (domain.Snapshot, error) {
 	p, e := r.LoadPolicy(ctx, tx, id, scene, true)

@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-710-FULFILLMENT-VIRTUAL-WAREHOUSES", title: "客户代发配置统一保存与虚拟仓库管理", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-21-fulfillment-virtual-warehouses.md"},
+		{table: "req_dev", code: "DEV-819-ATOMIC-FULFILLMENT", title: "PR-710 两种代发运费、仓库和服务费事务统一保存", status: "done", assignee: "Codex", evidence: "customerfulfillment/fulfillment_atomic_settings_test.go"},
+		{table: "req_dev", code: "DEV-820-VIRTUAL-WAREHOUSES", title: "PR-710 客户虚拟子仓归类、增改删、版本及库存引用保护", status: "done", assignee: "Codex", evidence: "stock/virtual_warehouses_test.go"},
+		{table: "req_dev", code: "DEV-821-FULFILLMENT-UI", title: "PR-710 代发配置分区、仓库右抽屉及普通发货政策搬迁", status: "done", assignee: "Codex", evidence: "CustomerFulfillmentSettings.vue; VirtualWarehouseDrawer.vue"},
+		{table: "req_dev", code: "DEV-822-FULFILLMENT-DELIVERY", title: "PR-710 回归、操作手册、审核及开发环境交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-21-fulfillment-virtual-warehouses.md"},
 		{table: "req_product", code: "PR-709-ORDER-FREIGHT-V2", title: "员工录单自动运费、手填随单收费、包邮与地区搜索", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-21-order-freight-v2.md"},
 		{table: "req_dev", code: "DEV-816-FREIGHT-ACCOUNTING", title: "PR-709 新运费协议、编辑保护、确认及成本独立核对", status: "done", assignee: "Codex", evidence: "domain/freight/order_test.go; customerfulfillment/order_freight_v2_test.go"},
 		{table: "req_dev", code: "DEV-817-FREIGHT-CLIENTS", title: "PR-709 地址识别搜索及ERP员工小程序录单", status: "done", assignee: "Codex", evidence: "OrderFreightEstimate.vue; EmployeeFreightEstimate.vue"},

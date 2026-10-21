@@ -65,3 +65,21 @@ func TestSchemaSetupCreatesBOMAuthorityBeforeDependentModulesAndReinstallsGuards
 		t.Fatal("schema setup must create only the authority view before dependent module setup and install guards once after it")
 	}
 }
+
+func TestSchemaSetupInstallsVirtualWarehouseGuardsAfterBusinessSchemas(t *testing.T) {
+	body, err := os.ReadFile("internal/appmain/schema_setup.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	guards := strings.Index(src, `Name: "virtual-warehouse-reference-guards"`)
+	for _, module := range []string{"stock", "customerportal", "customerfulfillment", "purchase", "production", "sales", "contracts"} {
+		index := strings.Index(src, `Name: "`+module+`"`)
+		if index < 0 || guards <= index {
+			t.Fatalf("virtual warehouse reference guards run before %s schema", module)
+		}
+	}
+	if !strings.Contains(src, "postgresstock.EnsureVirtualWarehouseReferenceGuards") {
+		t.Fatal("virtual warehouse guard hookup missing")
+	}
+}

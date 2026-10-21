@@ -701,7 +701,7 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 		FROM %s.finished_inventory fi
 		JOIN %s.warehouses w ON w.code=fi.warehouse AND w.active=true
 		  AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
-		  AND (w.customer_id=$1 OR (w.customer_id=0 AND fi.owner_customer_id=$1))
+		  AND (w.customer_id=$1 OR (w.customer_id=0 AND NOT w.is_virtual AND fi.owner_customer_id=$1))
 		LEFT JOIN %s.products p ON p.id=fi.product_id
 		LEFT JOIN %s.production_bom_specs spec ON spec.id=fi.bom_spec_id
 		LEFT JOIN %s.production_bom_version_variants variant ON variant.id=fi.bom_variant_id AND variant.bom_spec_id=fi.bom_spec_id
@@ -882,7 +882,7 @@ func (r *Repository) loadMiniHistoricalUnsyncedTraceableDeductions(ctx context.C
 			JOIN %s.orders o ON o.id=d.order_id AND o.customer_id=$1
 			JOIN %s.warehouses w ON w.code=COALESCE(NULLIF(o.source_warehouse,''),'finished_goods')
 			  AND w.active=true AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
-			  AND (w.customer_id=$1 OR (w.customer_id=0 AND o.customer_id=$1))
+			  AND (w.customer_id=$1 OR (w.customer_id=0 AND NOT w.is_virtual AND o.customer_id=$1))
 			WHERE d.batch_id>0 AND d.deducted_g>0
 			  AND COALESCE(d.source_doc_type,'')<>$2
 			GROUP BY d.product_id,COALESCE(d.bom_spec_id,0),d.spec_g,COALESCE(NULLIF(o.source_warehouse,''),'finished_goods')
@@ -930,7 +930,7 @@ func (r *Repository) loadMiniHistoricalUnsyncedTraceableDeductions(ctx context.C
 		JOIN %s.orders o ON o.id=l.source_doc_id AND o.customer_id=$1
 		JOIN %s.warehouses w ON w.code=l.warehouse AND w.active=true
 		  AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
-		  AND (w.customer_id=$1 OR (w.customer_id=0 AND o.customer_id=$1))
+		  AND (w.customer_id=$1 OR (w.customer_id=0 AND NOT w.is_virtual AND o.customer_id=$1))
 		WHERE l.source_doc_type=$2 AND l.item_type='finished_product' AND l.qty_change_g<0
 		%s
 		GROUP BY l.item_id,COALESCE(l.bom_spec_id,0),l.spec_g,l.warehouse
@@ -972,7 +972,7 @@ func (r *Repository) loadMiniStockReservations(ctx context.Context, q miniDirect
 		JOIN %s.orders o ON o.id=a.order_id AND o.customer_id=$1
 		JOIN %s.warehouses w ON w.code=COALESCE(NULLIF(a.warehouse,''), NULLIF(o.source_warehouse,''), 'finished_goods')
 		  AND w.active=true AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
-		  AND (w.customer_id=$1 OR (w.customer_id=0 AND o.customer_id=$1))
+		  AND (w.customer_id=$1 OR (w.customer_id=0 AND NOT w.is_virtual AND o.customer_id=$1))
 		%s
 		GROUP BY a.product_id,COALESCE(a.bom_spec_id,0),a.spec_g,
 		         COALESCE(NULLIF(a.warehouse,''), NULLIF(o.source_warehouse,''), 'finished_goods'),
@@ -1031,7 +1031,7 @@ func (r *Repository) loadMiniFinishedBatches(ctx context.Context, q miniDirectSh
 		) latest ON true
 		JOIN %s.warehouses w ON w.code=latest.warehouse AND w.active=true
 		  AND w.kind IN ('finished','customer_processing','customer_finished','customer','shared_finished')
-		  AND (w.customer_id=$1 OR (w.customer_id=0 AND b.owner_customer_id=$1))
+		  AND (w.customer_id=$1 OR (w.customer_id=0 AND NOT w.is_virtual AND b.owner_customer_id=$1))
 		LEFT JOIN %s.products p ON p.id=b.item_id
 		LEFT JOIN %s.production_bom_specs spec ON spec.id=b.bom_spec_id
 		LEFT JOIN %s.production_bom_version_variants variant ON variant.id=b.bom_variant_id AND variant.bom_spec_id=b.bom_spec_id

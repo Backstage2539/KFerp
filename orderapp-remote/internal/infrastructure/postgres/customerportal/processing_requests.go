@@ -479,7 +479,7 @@ func (r Repository) processingAvailabilityTx(ctx context.Context, tx pgx.Tx, cus
 			)
 			SELECT batches.warehouse,COALESCE(w.kind,''),COALESCE(w.customer_id,0),batches.qty_g,batches.qty_units
 			FROM batches JOIN %s.warehouses w ON w.code=batches.warehouse AND w.active=true
-			WHERE w.customer_id=$3 OR (w.customer_id=0 AND w.kind IN ('raw','wip','packaging','finished','customer'))
+			WHERE w.customer_id=$3 OR (w.customer_id=0 AND NOT w.is_virtual AND w.kind IN ('raw','wip','packaging','finished','customer'))
 		`, r.schema, r.schema, r.schema), materialID, componentSpecG, customerID)
 	} else {
 		rows, err = tx.Query(ctx, fmt.Sprintf(`
@@ -492,7 +492,7 @@ func (r Repository) processingAvailabilityTx(ctx context.Context, tx pgx.Tx, cus
 			  AND (l.qty_g>0 OR l.qty_units>0)
 			  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-			  AND (w.customer_id=$2 OR (w.customer_id=0 AND w.kind IN ('raw','wip','packaging','customer')))
+			  AND (w.customer_id=$2 OR (w.customer_id=0 AND NOT w.is_virtual AND w.kind IN ('raw','wip','packaging','customer')))
 			GROUP BY l.warehouse,w.kind,w.customer_id
 		`, r.schema, r.schema, r.schema), materialID, customerID)
 	}
@@ -626,7 +626,7 @@ func (r Repository) lockProcessingStockRowsTx(ctx context.Context, tx pgx.Tx, cu
 			WHERE l.material_id=$1 AND (l.qty_g>0 OR l.qty_units>0)
 			  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-			  AND (w.customer_id=$2 OR (w.customer_id=0 AND w.kind IN ('raw','wip','packaging','customer')))
+			  AND (w.customer_id=$2 OR (w.customer_id=0 AND NOT w.is_virtual AND w.kind IN ('raw','wip','packaging','customer')))
 			ORDER BY b.id,l.warehouse
 			FOR UPDATE OF b,l
 		`, r.schema, r.schema, r.schema), materialID, customerID)

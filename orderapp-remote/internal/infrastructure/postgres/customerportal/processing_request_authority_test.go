@@ -163,7 +163,8 @@ func TestProcessingAvailabilityExcludesFinishedBatchAlreadyIssuedToAnotherWorkOr
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 CREATE TABLE %[1]s.warehouses(
-	code TEXT PRIMARY KEY,kind TEXT NOT NULL,customer_id BIGINT NOT NULL DEFAULT 0,active BOOLEAN NOT NULL DEFAULT true
+	code TEXT PRIMARY KEY,kind TEXT NOT NULL,customer_id BIGINT NOT NULL DEFAULT 0,active BOOLEAN NOT NULL DEFAULT true,
+	is_virtual BOOLEAN NOT NULL DEFAULT false
 );
 CREATE TABLE %[1]s.stock_batches(
 	id BIGSERIAL PRIMARY KEY,batch_code TEXT NOT NULL UNIQUE,item_type TEXT NOT NULL,item_id BIGINT NOT NULL,
