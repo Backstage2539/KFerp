@@ -85,12 +85,8 @@ func (r *Repository) submitExplicitDirectShipOrderTx(ctx context.Context, tx pgx
 		if cmd.PortalServiceCode != "product_order" {
 			return app.DirectShipOrderSummary{}, fmt.Errorf("留厂补购必须从商品下单提交")
 		}
-		warehouse, e := r.modeWarehouse(ctx, tx, cmd.CustomerID, "stock", true)
-		if e != nil {
-			return app.DirectShipOrderSummary{}, e
-		}
-		if warehouse != strings.TrimSpace(cmd.DeliveryWarehouseCode) {
-			return app.DirectShipOrderSummary{}, fmt.Errorf("留厂目标仓必须为当前客户绑定的库存代发仓")
+		if err := r.validateRetainedPurchaseWarehouse(ctx, tx, cmd.CustomerID, cmd.DeliveryWarehouseCode, true); err != nil {
+			return app.DirectShipOrderSummary{}, err
 		}
 	}
 	if cmd.FulfillmentMode != "stock" {
@@ -147,10 +143,40 @@ func (r *Repository) submitExplicitDirectShipOrderTx(ctx context.Context, tx pgx
 	return app.DirectShipOrderSummary{OrderID: id, OrderNo: no, OrderDate: date, ReceiverAddress: cmd.ReceiverAddress, Status: "submitted", ItemCount: len(cmd.Items)}, nil
 }
 
+func (r *Repository) validateRetainedPurchaseWarehouse(ctx context.Context, q miniDirectShipQuerier, customerID int64, target string, lock bool) error {
+	settings, err := r.loadFulfillmentSettings(ctx, q, customerID, lock)
+	if err != nil {
+		return err
+	}
+	for _, mode := range settings.Modes {
+		if mode.Mode != "stock" || !mode.Enabled {
+			continue
+		}
+		target = strings.TrimSpace(target)
+		if target == "" || target != strings.TrimSpace(mode.WarehouseCode) {
+			return fmt.Errorf("留厂目标仓必须为当前客户绑定的库存代发仓")
+		}
+		clause := ""
+		if lock {
+			clause = " FOR SHARE"
+		}
+		var code string
+		err = q.QueryRow(ctx, fmt.Sprintf(`SELECT code FROM %s.warehouses WHERE code=$1 AND customer_id=$2 AND is_virtual=true AND active=true AND kind IN ('finished','customer_finished','customer_processing','customer')%s`, r.schema, clause), target, customerID).Scan(&code)
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("留厂目标仓必须为当前客户绑定且启用的虚拟成品仓")
+		}
+		return err
+	}
+	return fmt.Errorf("该客户未启用所选代发场景")
+}
+
 func (r *Repository) requireExplicitConfiguredMode(ctx context.Context, q miniDirectShipQuerier, cmd app.MiniDirectShipCommand) error {
 	if cmd.UsageCode == "product_order" {
 		if cmd.FulfillmentMode != "" {
 			return fmt.Errorf("商品下单不能使用代发场景")
+		}
+		if cmd.DeliveryMode == "customer_stock" {
+			return r.validateRetainedPurchaseWarehouse(ctx, q, cmd.CustomerID, cmd.DeliveryWarehouseCode, false)
 		}
 		return nil
 	}

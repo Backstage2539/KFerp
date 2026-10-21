@@ -51,3 +51,48 @@ func TestMeDerivesRequiredProductOrderingFromEitherDropshipMode(t *testing.T) {
 		})
 	}
 }
+
+func TestPortalAdminDetailDerivesRequiredProductOrderingAfterLiveTemplate(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		modes                []string
+		configured, required bool
+	}{
+		{"stock", []string{"stock"}, false, true},
+		{"on_demand", []string{"on_demand"}, false, true},
+		{"both", []string{"stock", "on_demand"}, false, true},
+		{"all_disabled", nil, false, false},
+		{"ordinary_enabled", nil, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			template, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+			for i := range template.Capabilities {
+				if template.Capabilities[i].Code == CapabilityProductOrder {
+					template.Capabilities[i].Enabled = tc.configured
+				}
+			}
+			repo := &fulfillmentDependentCapabilitiesRepository{
+				fakeRepository: &fakeRepository{
+					templates:    []CapabilityTemplate{template},
+					portalDetail: PortalAdminDetail{Customer: PortalAdminCustomer{CapabilityTemplateKey: template.Key}},
+				},
+				modes: tc.modes,
+			}
+			detail, err := NewService(repo, nil).PortalAdminDetail(context.Background(), 74)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, capability := range detail.Capabilities {
+				if capability.Code != CapabilityProductOrder {
+					continue
+				}
+				if capability.Enabled != (tc.configured || tc.required) || (capability.Config["required_by_fulfillment"] == true) != tc.required {
+					t.Fatalf("admin service lost fulfillment dependency after template read: %+v", capability)
+				}
+				if capability.Config["public_sku_aliases"] != true {
+					t.Fatalf("admin service lost template configuration: %+v", capability)
+				}
+			}
+		})
+	}
+}

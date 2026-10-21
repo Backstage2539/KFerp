@@ -1252,9 +1252,6 @@ func (r *Repository) DirectShipPriceTables(ctx context.Context, customerID int64
 }
 
 func (r *Repository) PrepareMiniDirectShipOrder(ctx context.Context, cmd app.MiniDirectShipCommand) (app.PreparedMiniDirectShipOrder, error) {
-	if e := r.requireExplicitConfiguredMode(ctx, r.pool, cmd); e != nil {
-		return app.PreparedMiniDirectShipOrder{}, e
-	}
 	requestHash, err := miniDirectShipRequestHash(cmd)
 	if err != nil {
 		return app.PreparedMiniDirectShipOrder{}, err
@@ -1277,6 +1274,11 @@ func (r *Repository) PrepareMiniDirectShipOrder(ctx context.Context, cmd app.Min
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return app.PreparedMiniDirectShipOrder{}, err
+	}
+	// A retry returns its customer-scoped saved snapshot even when today's
+	// warehouse/settings have changed; only new purchases need revalidation.
+	if e := r.requireExplicitConfiguredMode(ctx, r.pool, cmd); e != nil {
+		return app.PreparedMiniDirectShipOrder{}, e
 	}
 	items, err := r.resolveMiniDirectShipItems(ctx, r.pool, cmd.Items, cmd.FulfillmentMode)
 	if err != nil {

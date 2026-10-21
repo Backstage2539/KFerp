@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -93,6 +94,34 @@ func TestFulfillmentModesRequireProductOrderAcrossLegacyTemplateAdminAndMiniAPI(
 				if !found {
 					t.Fatal("admin omitted product order capability")
 				}
+				// Exercise the application and HTTP layers too: the live template
+				// projection must not replace this customer's derived capability.
+				adminReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/customer-portal/admin/customers/%d", id), nil)
+				adminRec := httptest.NewRecorder()
+				e.ServeHTTP(adminRec, adminReq)
+				if adminRec.Code != http.StatusOK {
+					t.Fatalf("admin detail API status=%d body=%s", adminRec.Code, adminRec.Body.String())
+				}
+				var adminDetail app.PortalAdminDetail
+				if err := json.Unmarshal(adminRec.Body.Bytes(), &adminDetail); err != nil {
+					t.Fatal(err)
+				}
+				meReq := httptest.NewRequest(http.MethodGet, "/api/mini/me", nil)
+				meReq.Header.Set(echo.HeaderAuthorization, fmt.Sprintf("Bearer PR711-token-%d", id))
+				meRec := httptest.NewRecorder()
+				e.ServeHTTP(meRec, meReq)
+				if meRec.Code != http.StatusOK {
+					t.Fatalf("mini me API status=%d body=%s", meRec.Code, meRec.Body.String())
+				}
+				var me app.CurrentContext
+				if err := json.Unmarshal(meRec.Body.Bytes(), &me); err != nil {
+					t.Fatal(err)
+				}
+				for _, c := range adminDetail.Capabilities {
+					if c.Code == app.CapabilityProductOrder && (c.Enabled != want || (c.Config["required_by_fulfillment"] == true) != required || c.Enabled != me.HasCapability(c.Code)) {
+						t.Fatalf("admin HTTP capability contradicts Mini Me: admin=%+v mini=%+v want=%v required=%v", c, me.Capabilities, want, required)
+					}
+				}
 				req := httptest.NewRequest(http.MethodGet, "/api/mini/product-orders/catalog?customer_id=999", nil)
 				req.Header.Set(echo.HeaderAuthorization, fmt.Sprintf("Bearer PR711-token-%d", id))
 				rec := httptest.NewRecorder()
@@ -132,6 +161,22 @@ func TestFulfillmentModesRequireProductOrderAcrossLegacyTemplateAdminAndMiniAPI(
 			for _, c := range detail.Capabilities {
 				if c.Code == app.CapabilityProductOrder && (!c.Enabled || c.Config["required_by_fulfillment"] != true) {
 					t.Fatalf("close request bypassed dependency: %+v", c)
+				}
+			}
+			visibilityReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/customer-portal/admin/customers/%d/visibility", id), strings.NewReader(fmt.Sprintf(`{"enabled":true,"capability_template_key":%q,"capabilities":[{"code":"product_order","enabled":false}]}`, template)))
+			visibilityReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			visibilityRec := httptest.NewRecorder()
+			e.ServeHTTP(visibilityRec, visibilityReq)
+			if visibilityRec.Code != http.StatusOK {
+				t.Fatalf("visibility API status=%d body=%s", visibilityRec.Code, visibilityRec.Body.String())
+			}
+			var savedDetail app.PortalAdminDetail
+			if err := json.Unmarshal(visibilityRec.Body.Bytes(), &savedDetail); err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range savedDetail.Capabilities {
+				if c.Code == app.CapabilityProductOrder && (!c.Enabled || c.Config["required_by_fulfillment"] != true) {
+					t.Fatalf("visibility HTTP save lost effective dependency: %+v", c)
 				}
 			}
 			check(true, true)

@@ -252,6 +252,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_dev", code: "DEV-827-RETAINED-PURCHASE", title: "PR-711 代发补库存免收件信息及真实BOM规格校验回归", status: "done", assignee: "Codex", evidence: "retained purchase API/component RED-GREEN"},
 		{table: "req_dev", code: "DEV-826-DROPSHIP-PRODUCT-ORDER", title: "PR-711 任一代发场景开启时商品下单自动开启且不可单独关闭", status: "done", assignee: "Codex", evidence: "effective capabilities; fulfillment settings UI; API RED/GREEN"},
 		{table: "req_product", code: "PR-711-MINIAPP-CUSTOMER-CATALOG-INVENTORY", title: "客户小程序价格表识别与授权库存范围", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-21-miniapp-customer-catalog-inventory.md"},
 		{table: "req_dev", code: "DEV-823-MINI-CATALOG", title: "PR-711 已绑定代发及录单价格表识别修复", status: "done", assignee: "Codex", evidence: "customer miniapp catalog RED/GREEN"},
