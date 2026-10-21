@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
+import { storedSampleSpecKey } from './sample-order-edit.js'
 
 const filename = new URL('../views/OrderEntryView.vue', import.meta.url)
 const { descriptor } = parse(fs.readFileSync(filename, 'utf8'), { filename: filename.pathname })
@@ -48,3 +49,58 @@ test('real Vue order editor uses selected published tables for a retail customer
     assert.equal(requests.length, 2)
   } finally { delete globalThis.catalogRuntimeAPI }
 })
+
+for (const mode of ['frozen conversion', 'stored sample']) {
+  test(`catalog refresh preserves ${mode} lines while validating ordinary lines`, async () => {
+    let editor
+    await renderToString(createSSRApp({ setup() {
+      editor = View.setup({ embedded: true, editId: 1, copyId: 0, customerPortal: false, fulfillmentMode: false, viewParams: {} }, { expose() {}, emit() {} })
+      return () => h('div')
+    } }))
+    editor.loading.value = true
+    editor.form.customer_id = 487
+    editor.form.edit_id = 1
+    editor.sampleOrderEditing.value = mode === 'stored sample'
+    const row = editor.rows.value[0]
+    Object.assign(row, {
+      item_id: 1, product_id: 100, parent_product_id: 100, bom_spec_id: 901, bom_variant_id: 1901,
+      bean_list_publication_id: 10, unit_price: mode === 'stored sample' ? '0' : '38', qty: 2,
+      price_source_json: '{"publication_id":10,"frozen":true}', spec_source: 'price_list_sku',
+      historical_spec_readonly: false, spec_invalid_message: '', price_missing: false,
+      price_selection_mode: mode === 'stored sample' ? 'manual' : 'bom_tier',
+      spec_conversion: mode === 'stored sample' ? null : { reprice: false },
+      manual_price: mode === 'stored sample', sample_stored_manual: true,
+    })
+    if (mode === 'stored sample') row.sample_stored_spec_key = storedSampleSpecKey(row)
+    const snapshot = JSON.stringify(row)
+    editor.selectedBeanListPublicationIDs['classification:88'] = 10
+    const requests = []
+    let updated = true
+    globalThis.catalogRuntimeAPI = async url => {
+      requests.push(url)
+      const id = url.includes('selected_price_table_ids=13') ? 13 : 12
+      return { customer_id: 487, catalog_updated: updated, selected_price_table_ids: [id], product_families: [], price_table_options: [
+        { id: 12, list_type: 'commercial', classification_template_id: 88, is_default: true },
+        { id: 13, list_type: 'commercial', classification_template_id: 88 },
+      ] }
+    }
+    try {
+      assert.equal(await editor.refreshStaffOrderCatalog(), true)
+      assert.doesNotMatch(requests[0], /selected_price_table_ids=10(?:&|$)/, 'historical-only publication must not block reading the current catalog')
+      assert.equal(JSON.stringify(row), snapshot)
+      assert.equal(editor.rowHasBlockingPrice(row), false)
+      updated = false
+      editor.setBeanListVersion('classification:88', 13)
+      await editor.refreshStaffOrderCatalog()
+      assert.equal(JSON.stringify(row), snapshot, 'manual table switches must preserve frozen lines')
+      const ordinary = { ...row, key: 'ordinary', item_id: 2, price_selection_mode: 'auto', spec_conversion: null, manual_price: false, historical_spec_readonly: false, sample_stored_spec_key: '' }
+      editor.rows.value.push(ordinary)
+      editor.selectedBeanListPublicationIDs['classification:88'] = 10
+      updated = true
+      await editor.refreshStaffOrderCatalog()
+      assert.match(requests.at(-1), /selected_price_table_ids=10(?:&|$)/, 'ordinary lines must still check their old publication')
+      assert.equal(editor.rowHasBlockingPrice(row), false)
+      assert.equal(editor.rowHasBlockingPrice(ordinary), true)
+    } finally { delete globalThis.catalogRuntimeAPI }
+  })
+}
