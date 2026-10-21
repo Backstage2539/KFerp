@@ -1,6 +1,6 @@
 # PR-708 员工小程序订单详情顶部状态
 
-日期：2026-10-21。产品验收人：Van，待验收。交付范围：develop 与 development，小程序正式上传/审核/发布另行处理。
+日期：2026-10-21。产品验收人：Van，待验收。交付范围：develop/development 与 main/production 均已技术交付，小程序微信上传/审核/发布另行处理。
 
 ## 问题与实现
 
@@ -49,3 +49,12 @@
 Van 于2026-10-21追加授权合并 main、部署 production 并交付正式小程序包。当前 main 基线2efe9bf3、develop5bd6a43c；合并保留生产专有 BOM 物料回填保护、独立迁移回归、既有 PR-709 运费及实收保护。冲突仅为需求文档和需求种子，保留 PR-708 与 PR-709 两组记录。生产部署、运行和正式包证据在发布完成后补录；微信上传/审核/发布仍单独执行。
 
 合并树验证：小程序67文件/393测试、typecheck、production构建通过，Vue1461测试和构建通过；全Go测试通过；状态HTTP/真实事务与3项生产BOM保护均在隔离PostgreSQL实际PASS、无SKIP。生产数据库预备份 `/opt/stacks/erp-production/backups/pr708-before-status-20261021152313.dump`，13,254,434字节，pg_restore目录校验通过，SHA-256 `2e53b341dff410a930928e09a7b72d2c64a86cbfbb5242fd90e8427a11f9e861`。
+
+## 生产交付完成（2026-10-21）
+
+- 已将已验证 develop 合并至 main 并推送，发布提交 `dce7b37cd6e69f1968864a1110a8fe0efcaa1588`；生产分支 `codex/miniapp-order-status-production-20261021`。
+- 命令 `./deploy_orderapp.sh production` 完整成功，服务器 Vue1461/mini393/typecheck/build/Go 与镜像内Go检查通过。生产专有BOM回填保护及PR709运费/真实收款修复保留。
+- 数据库备份 `/opt/stacks/erp-production/backups/pr708-before-status-20261021152313.dump`；源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261021152828-dce7b37cd6e6`；回滚镜像 `kferp-orderapp-rollback:production-20261021152828-dce7b37cd6e6`。
+- 生产应用运行、数据库healthy；登录/静态shell/带认证手册和PR/DEV读取200，匿名业务API及状态保存/凭证上传401。运行镜像 `sha256:3d89a1b3ad7b0f8146ddf12fa1399f4a9b734fab049a71758cf8ce099d82a7a3`，RELEASE_INFO提交一致。未写入生产业务订单。
+- 正式包固定目录 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`；交付 `/Users/yiiiple-work/Documents/Codex/2026-10-21/xia/outputs/KFerp-miniapp-production-dce7b37c.zip`，24页面/96页面文件/239总文件，ZIP CRC通过。仅包含production API，顶部状态面板在分享卡片之前。SHA-256 `ff69527c6f4409e27f5eb77d800e07a8103e1d0564ab5e1fb151a612481e3166`。
+- 最终回执为文档更新，运行与正式包版本仍为上述发布提交。Van业务验收待确认；微信上传、审核、发布未执行。

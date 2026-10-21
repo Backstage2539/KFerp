@@ -1,13 +1,14 @@
 ### PR-708-MINIAPP-ORDER-STATUS-TOP
 - Branch: codex/miniapp-order-status-top-20261021; base origin/develop e6d30fc0.
 - Owner/session: Codex / 2026-10-21.
-- Status: delivered to development a8fe07ba on 2026-10-21; automated/local UI/runtime/artifact checks passed; Van product acceptance pending.
+- Status: delivered to development a8fe07ba and production dce7b37c on 2026-10-21; automated/local UI/runtime/artifact checks passed; Van product acceptance pending.
 - Scope: employee miniapp order detail starts with order/payment/shipping status and a dedicated status editor. Payment after production/shipping must not require editing the whole order or recalculating its frozen lines.
 - DEV: DEV-813-STATUS-API; DEV-814-STATUS-TOP; DEV-815-STATUS-DELIVERY.
 - Verifier: targeted RED/GREEN miniapp interaction/client and Go service/HTTP tests, isolated database transactions and audit checks, miniapp type/build, full remote deployment gates; employee and sales manuals.
 - Deployment: development delivered; Van authorized main integration, production deployment and the formal miniapp package on 2026-10-21. Production branch codex/miniapp-order-status-production-20261021 starts at current main 2efe9bf3 and merges verified develop 5bd6a43c, retaining main-only BOM migration protections. WeChat upload/review/publication remains separate.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-21-miniapp-order-status-top.md (technical delivery complete; Van acceptance pending).
 - Delivery: feature b47b1aac, runtime/package a8fe07ba618f2b9c0510fa587d0e2129d3b4ff46; source backup /opt/stacks/erp/orderapp.backup.deploy-20261021131604-a8fe07ba618f; rollback image retained. Go/Vue1459/mini389/type/build, isolated PostgreSQL, app running/DB healthy, protected APIs401, manuals/PR+DEV200, 24 pages/96 page files/238 total files and ZIP CRC passed. Final receipt update is documentation-only.
+- Production delivery: main/runtime/formal package dce7b37cd6e69f1968864a1110a8fe0efcaa1588; Vue1461/mini393/fullGo/isolated production BOM guards and status API passed. DB backup /opt/stacks/erp-production/backups/pr708-before-status-20261021152313.dump; source backup /opt/stacks/erp-production/orderapp.backup.deploy-20261021152828-dce7b37cd6e6; rollback kferp-orderapp-rollback:production-20261021152828-dce7b37cd6e6; production app running/DB healthy, docs+PR/DEV200 and protected APIs401, 24 pages/96 page files/239 files and ZIP CRC passed. WeChat upload/review/publication pending.
 - Notes: reserve_req_id.sh returned PR-708; reserved manually to avoid the known macOS awk multiline-string claim failure.
 
 ### PRICE-TABLE-DRAFT-QUOTA-20261021
