@@ -655,6 +655,8 @@ func miniCustomerFulfillmentError(c echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "未找到该发货申请"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipUnavailable):
 		return miniInternalError(c)
+	case strings.HasPrefix(message, "customer capability ") && strings.HasSuffix(message, " unavailable"):
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "当前客户尚未开通该服务"})
 	case strings.Contains(message, "账单内容已更新") || strings.Contains(message, "未处理异议"):
 		return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
 	case strings.Contains(message, "账单") || strings.Contains(message, "异议") || strings.Contains(message, "费用项"):
@@ -663,11 +665,22 @@ func miniCustomerFulfillmentError(c echo.Context, err error) error {
 		return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
 	case strings.Contains(message, "代发费用") || strings.Contains(message, "留厂购货") || strings.Contains(message, "留厂目标仓") || strings.Contains(message, "代发场景") || strings.Contains(message, "代发服务费") || strings.Contains(message, "交付方式") || strings.Contains(message, "运费模板") || strings.Contains(message, "计算运费") || strings.Contains(message, "客户成品仓") || strings.Contains(message, "固定价"):
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	case miniCustomerOrderItemValidationError(message):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "商品规格或数量不完整，请重新选择商品与规格"})
 	case miniCustomerFulfillmentValidationError(err):
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "发货信息不完整，请检查收件信息和商品数量"})
 	default:
 		return miniInternalError(c)
 	}
+}
+
+func miniCustomerOrderItemValidationError(message string) bool {
+	for _, prefix := range []string{"product required", "items required", "spec required", "quantity required", "bom_spec_id required", "bom_variant_id mismatch", "canonical bom spec must not use spec_g"} {
+		if strings.HasPrefix(message, prefix) {
+			return true
+		}
+	}
+	return message == "product_bom_spec_not_configured" || message == "bom spec is not published for product" || strings.HasPrefix(message, "product ") && strings.HasSuffix(message, " unavailable")
 }
 
 func miniCustomerFulfillmentValidationError(err error) bool {

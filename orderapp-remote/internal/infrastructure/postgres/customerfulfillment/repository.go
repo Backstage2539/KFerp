@@ -3321,14 +3321,14 @@ func (r *Repository) listCustomerCapabilityCodes(ctx context.Context, customerID
 				out = append(out, strings.TrimSpace(capability.Code))
 			}
 		}
-		return out, nil
+		return r.effectiveCustomerCapabilityCodes(ctx, customerID, out)
 	}
 	var hasTable bool
 	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_service_capabilities", r.schema)).Scan(&hasTable); err != nil {
 		return nil, err
 	}
 	if !hasTable {
-		return []string{}, nil
+		return r.effectiveCustomerCapabilityCodes(ctx, customerID, nil)
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT capability_code
@@ -3351,7 +3351,29 @@ func (r *Repository) listCustomerCapabilityCodes(ctx context.Context, customerID
 			out = append(out, code)
 		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	return r.effectiveCustomerCapabilityCodes(ctx, customerID, out)
+}
+
+func (r *Repository) effectiveCustomerCapabilityCodes(ctx context.Context, customerID int64, codes []string) ([]string, error) {
+	configured := make([]customerportalapp.Capability, 0, len(codes))
+	for _, code := range codes {
+		configured = append(configured, customerportalapp.Capability{Code: code, Enabled: true})
+	}
+	effective, err := postgresinfra.EffectiveFulfillmentCapabilities(ctx, r.pool, r.schema, customerID, configured)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(effective))
+	for _, capability := range effective {
+		if capability.Enabled {
+			out = append(out, capability.Code)
+		}
+	}
+	return out, nil
 }
 
 func (r *Repository) customerAllowsPublicSKUOptions(ctx context.Context, customerID int64) (bool, error) {
