@@ -2362,6 +2362,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if math.Abs(cmd.ShippingAmount-float64(q.CurrentReceivableCents)/100) > 0.00001 {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("本单运费与报价不一致")
 		}
+		if cmd.PaymentShippingAmount > float64(q.CurrentReceivableCents)/100+0.00001 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("实收运费超过本单运费，请核对收款分配")
+		}
 		if q.ChargeMode != "manual_current" && cmd.PaymentShippingAmount != 0 {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("自动预估或包邮不计入本次运费实收")
 		}
