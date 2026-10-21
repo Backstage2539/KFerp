@@ -69,3 +69,19 @@
 日志：frozen-catalog-green.log及frozen-catalog-vue-all.log。后端已有的可信原行/冻结快照守卫不变，无业务数据修复。
 
 中间生产版本be6f46bc实际只读核对：黄艳43商品/46规格，发布分类为烘焙咖啡豆27、咖啡挂耳3、速溶咖啡5、咖啡生豆5、好玩的产品3；所有阶梯均在所选发布ID内、价格大于0。完整生产健康和HTTP证据在production-runtime-be6f46bc.json。最终交付将包含上述历史兼容补充，最终运行与包提交以发布回执为准。
+
+## 最终生产交付已验证
+
+- PR-707；DEV-810/DEV-811/DEV-812。技术交付完成，Van业务验收待确认。
+- develop集成：`e6d30fc0784119bf0e5cdeca4e6c8b2d29183f59`；main运行及包：`3bfca7ffcf87a67d12cca2dab00c73fd84b510d3`。PR #228/#229（核心）及 #230/#231（冻结兼容）均已合入。
+- 干净且已推送main执行 `KFERP_SKIP_MINIAPP_EXPORT=0 ./deploy_orderapp.sh production`；网页1459、小程序372、类型检查、构建、24页检查及宿主/镜像内两次Go门禁通过。定向隔离PostgreSQL发布生命周期与实际订单API回归通过，旧全量数据库夹具限制见前文。
+- 运行镜像：`sha256:55c08426d758f1f451c1ae1e235496106fa49a22699c157154bdf06380b19b37`；启动：2026-10-21 12:07:28 +08:00。应用运行、数据库healthy；登录200，未认证应用/小程序401。
+- 生产只读目录200、no-store：黄艳43商品/46规格，五个实际发布分类均可见。所有阶梯都在所选发布ID内且价格大于0；未创建订单或发布价格表进行验收。
+- 回滚源码：`/opt/stacks/erp-production/orderapp.backup.deploy-20261021115805-3bfca7ffcf87`；回滚镜像：`kferp-orderapp-rollback:production-20261021115805-3bfca7ffcf87`。仅清理可重建构建缓存，源码备份、回滚镜像及持久数据均保留。
+- 包目录：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。RELEASE_INFO为production、上述提交及生产API；24页/96页文件、全部237文件与ZIP逐文件一致校验及解压CRC通过。
+- ZIP：`/Users/yiiiple-work/.codex/worktrees/ccd2/KFerp/outputs/pr707-catalog-consistency/KFerp-miniapp-production-PR707-3bfca7ff.zip`；293212字节，SHA256：`31f42d73e9848718d9991e85b6005884d480d66475b4e25a0936d9e2f9176298`。
+- 旧包备份：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20261021120747-3bfca7ffcf87`。开发者工具已打开旧目录时须关闭并重新导入新包。
+- 本轮开发构建在服务切换前中断，开发环境仅代码合入，运行版本未更新；按指定生产目标完成生产交付。并行草稿持久化修复保留在最终main。
+- 微信上传/审核/正式发布和Van业务验收未代替执行。本回执提交仅更新交付元数据，已部署实现不变。
+
+完整证据：`outputs/pr707-catalog-consistency/production-deploy-3bfca7ff.log`、`production-runtime.json`、`final-container-health.txt`、`package-verification.json`、`final-RELEASE_INFO.txt`。手册和RED/GREEN证据见上文。

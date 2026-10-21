@@ -11,13 +11,14 @@
 ### PR-707-PUBLISHED-ORDER-CATALOG-CONSISTENCY
 - Branch: codex/published-order-catalog-consistency-20261021; base origin/develop c591b765.
 - Owner/session: Codex / 2026-10-21.
-- Status: core production delivery be6f46bc verified (43 families/46 specs); historical frozen/sample compatibility follow-up passed targeted RED/GREEN, final integration/release in progress; Van acceptance pending.
+- Status: production technical delivery complete at main3bfca7ff; Huangyan43 families/46 specs and five published categories. Frozen/sample compatibility verified. Van business acceptance and WeChat publication pending.
 - Scope: diagnose production read-only, unify authoritative selected-publication catalog semantics for ERP/employee miniapp and save validation; preserve exact table/spec/customer boundaries. Prevent recurring publish-to-order visibility regressions through service/API/cross-client fixtures.
 - DEV: DEV-810-PUBLICATION-CATALOG-AUTHORITY; DEV-811-CLIENT-CATALOG-CONSISTENCY; DEV-812-PUBLISH-ORDER-REGRESSION-DELIVERY.
 - Verifier: targeted RED/GREEN service and HTTP tests, real isolated PostgreSQL publish/order catalog cases, Vue/miniapp tests and builds, full Go and deployment gates; source manuals and acceptance receipt.
 - Deployment: integrate verified feature into develop, then main while preserving production safeguards; this thread owns the user-requested production deployment and miniapp package. WeChat upload/review/publication remains separate.
 - Evidence: Huangyan (customer487) read-only replay restores43 families/46 specs from5 green-only families; Vue1444/mini372, typecheck/builds/fullGo, isolated PostgreSQL lifecycle and API save guards passed. Acceptance: docs/acceptance/2026-10-21-published-order-catalog-consistency.md.
-- Notes: scripts/reserve_req_id.sh reports PR-707; --claim hit known macOS awk multiline-string failure, reserved manually here. Production runtime currently main 973d5481.
+- Final delivery: develope6d30fc0/main3bfca7ff; PRs #228/#229/#230/#231 merged. Vue1459/mini372/Go/targetedPostgres and production readonly/package checks passed; 24 pages/96 page files/237 total files. ZIP and rollback anchors in acceptance receipt. Development runtime unchanged. Receipt-only follow-up is documentation; no implementation/deployment remains.
+- Notes: scripts/reserve_req_id.sh reports PR-707; --claim hit known macOS awk multiline-string failure, reserved manually here. Production baseline was main973d5481; final runtime is main3bfca7ff.
 
 ### PR-704-MINIAPP-STOCK-ORDER-EXPERIENCE
 - Branch: codex/miniapp-stock-order-experience-20261019; base origin/develop@758a2f50.
