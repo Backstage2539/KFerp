@@ -5965,7 +5965,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-711-MINIAPP-CUSTOMER-CATALOG-INVENTORY
 - Branch: codex/miniapp-customer-catalog-inventory-20261021; baseline origin/develop 7277f43e.
 - Owner/session: Codex / 2026-10-21.
-- Status: implementation/automated verification/independent review complete; production integration pending; business acceptance separate.
+- Status: delivered to production runtime5e65091c; automated/API/isolated production-copy submit/read-only runtime/DevTools package checks passed; business acceptance separate.
 - Scope: resolve bound current price tables in customer dropship/product ordering and restrict my-inventory categories/warehouses to current customer authorization, including empty virtual warehouses.
 - DEV: DEV-823-MINI-CATALOG; DEV-824-MINI-INVENTORY-SCOPE; DEV-825-MINI-SCOPE-DELIVERY; DEV-826-DROPSHIP-PRODUCT-ORDER.
 - Verifier: targeted unit/API/isolated PostgreSQL RED-GREEN; miniapp tests/type/build; observed production DevTools and read-only production checks; manuals.
@@ -5980,3 +5980,5 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV-827-RETAINED-PURCHASE: product-order stock replenishment must preview/submit without shipping recipient and retain customer warehouse routing; cover real BOM specification identity with zero legacy gram field; preserve ordinary shipment validation and precise failure messages.
 
 - PR-711 follow-up GREEN: retained-stock submit rawcap regression reproduced on isolated production backup; shared effective authorization fixes no-address final submission. Five targeted app/HTTP/real-PG packages, mini403/type/build and independent review CLEAR; idempotent replay and strict new warehouse authorization preserved. New production backup20261022004018; final integration/deployment pending.
+
+- PR-711 FINAL: feature3f1b0a56 pushed -> develop19fb15d3 -> main runtime5e65091c, ./deploy_orderapp.sh production succeeded. Vue1478/mini403/type/build/fullGo/real-PG/API/BOM guards passed; final independent main audit CLEAR. Production Me/admin/final repository effective cap on, no-address retained preview200, exact bound179 V3.0.68, only own finished virtual warehouse, all7 business-table hashes unchanged and development unchanged. CurrentDevTools matching package swapped with backup/private config preserved, reopened as吴国宏 and observed only吴国宏仓库/全部/成品; ordinary compile restored. No real production test order or WeChat publication. Rollback source /opt/stacks/erp-production/orderapp.backup.deploy-20261022004411-5e65091c8d97 and tagged rollback retained. Acceptance doc and permanent validation directory contain receipt.

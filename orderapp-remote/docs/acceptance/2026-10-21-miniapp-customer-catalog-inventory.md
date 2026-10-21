@@ -1,6 +1,6 @@
 # PR-711 客户小程序价格表识别与授权库存
 
-- 状态：首轮生产已交付；补库存与管理端摘要追补验证和独立复审完成，待最终生产更新；业务验收独立。
+- 状态：全部修复已合并并部署生产，自动化、运行核对及DevTools匹配包验证完成；真实业务下单验收和微信上传/审核/发布独立。
 - 分支：codex/miniapp-customer-catalog-inventory-20261021，基线develop7277f43e。
 - 用户澄清：任一库存/无库存代发开启，商品下单自动开启且不能单独关闭；全部代发关闭后恢复普通商品下单配置。
 
@@ -29,7 +29,7 @@
 
 ## 验收边界
 
-生产诊断仅GET/SELECT。自动依赖通过服务端有效能力派生，不修改共享模板或价格绑定；如需实际下单、库存或结算验收另行记录。服务器部署、DevTools包更新与微信上传/审核/发布分别验证。
+生产诊断使用GET/SELECT与不落单的报价预览。自动依赖通过服务端有效能力派生，不修改共享模板或价格绑定；如需实际下单、库存或结算验收另行记录。服务器部署、DevTools包更新与微信上传/审核/发布分别验证。
 
 ## 发布前锚点
 
@@ -65,3 +65,14 @@
 - 管理员Service+HTTP模板投影补回归RED/GREEN /tmp/kferp-pr711-admin-effective-{red,green}.log，普通cap配置及模板原值保留。
 - 真实小程序组件新增无地址补购及普通ship保护；7项定向、403项全量、typecheck和正式构建GREEN /tmp/kferp-pr712-retained-mini-{green,full,typecheck,build}.log。前端原请求字段正确，未为伪造RED修改正确业务逻辑。
 - 独立追补审查CLEAR，覆盖最终能力链、仓授权、幂等、错误映射、历史金额与事务。新数据库备份 /opt/stacks/erp-production/backups/pr711-retained-before-production-20261022004018.sql.gz，12MB、600、gzip校验通过；七表发布前指纹仍与首次发布前完全一致。
+
+## 最终生产交付回执（2026-10-22）
+
+- 功能78f185d5、整合最新develop后的功能分支3f1b0a56已推送；develop19fb15d3，生产main运行提交5e65091c8d97624743a398fb3df35777d0f60757。最终main独立审计CLEAR，相关实现与feature一致，4个BOM保护文件及17个本次未触及的生产独有文件完整保留。
+- main全Go及真实PostgreSQL/API/BOM保护GREEN，日志 /tmp/kferp-pr711-retained-main-{go,pg}.log。标准 ./deploy_orderapp.sh production 成功，服务器Vue1478、mini403、typecheck/build、24页96文件、host/image Go与HTTP readiness均通过。发布日志 /tmp/kferp-pr711-retained-production-deploy.log。
+- 源备份 /opt/stacks/erp-production/orderapp.backup.deploy-20261022004411-5e65091c8d97；回滚镜像 kferp-orderapp-rollback:production-20261022004411-5e65091c8d97；新镜像 sha256:cf18c200463be73ee798c2a26b020156acf566822418af8237e11f5e34325c01，启动2026-10-21T16:53:55.994513045Z、重启0。
+- 生产只读核对全通过：Me、实际admin HTTP及最终提交仓库层overview均允许有效product_order；stock/on_demand/product_order绑定179 V3.0.68；无地址留厂购货7/20/559 qty1预览200、can_submit=true、71元且无运费。匿名接口401，设置页面和手册200，开发镜像及启动时间不变。日志 /tmp/kferp-pr711-retained-production-{runtime,preview}.log。
+- 七张业务表完整行指纹发布前后完全一致（仓库11、成品库存3、价格绑定12、履约设置2、门户27、能力56、订单96），未替用户创建真实生产测试单。真实最终提交在生产备份的本地隔离副本验证成功。
+- 匹配生产包同步当前DevTools目录，24页96文件、全树hash及正式API核对通过，保留private配置；旧目录 /Users/yiiiple-work/Documents/Codex/2026-10-21/xia/outputs/KFerp-miniapp-production.backup-pr711-20261021T165436Z-b933f827。重新打开项目后仍登录吴国宏，实际库存页仅显示吴国宏仓库及全部/成品，无其他库存分类，已恢复普通编译。未上传或发布微信版本。
+- 持久证据 /Users/yiiiple-work/Documents/Codex/2026-10-22/miniapp-customer-catalog-inventory/validation，包括最终部署/运行/前后指纹/包核对日志及 devtools-wu-authorized-inventory-5e65091c.png。构建结束且运行核对通过后，持部署锁仅清可重建Docker缓存1.178GB；保留业务数据、源备份和带标签的回滚镜像。
+- 本回执为发布后文档记录，生产运行与RELEASE_INFO仍是5e65091c，不因文档提交再次重启服务。
