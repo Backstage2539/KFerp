@@ -16,6 +16,8 @@ import (
 )
 
 type miniCustomerFulfillmentFake struct {
+	assetRows         []customerfulfillmentapp.CustomerAssetInventory
+	scopeCustomerID   int64
 	calls             int
 	catalogQuery      customerfulfillmentapp.MiniDirectShipCatalogQuery
 	previewCmd        customerfulfillmentapp.MiniDirectShipCommand
@@ -36,6 +38,7 @@ type miniCustomerFulfillmentFake struct {
 	batchBomSpecID    int64
 	batchBomVariantID int64
 	batchSpecG        int64
+	batchVirtualOnly  bool
 	accountQuery      customerfulfillmentapp.AccountQuery
 	confirmCmd        customerfulfillmentapp.ConfirmCustomerStatementCommand
 	disputeCmd        customerfulfillmentapp.CreateCustomerStatementDisputeCommand
@@ -139,11 +142,19 @@ func (f *miniCustomerFulfillmentFake) ListCustomerCentralInventoryBatches(_ cont
 	f.calls++
 	f.batchCustomerID, f.batchProductID = query.CustomerID, query.ProductID
 	f.batchBomSpecID, f.batchBomVariantID, f.batchSpecG = query.BomSpecID, query.BomVariantID, query.SpecG
+	f.batchVirtualOnly = query.BoundVirtualOnly
 	return []customerfulfillmentapp.CustomerInventoryBatch{{BatchID: 9, ProductID: query.ProductID, BomSpecID: query.BomSpecID, BomVariantID: query.BomVariantID, SpecG: query.SpecG}}, nil
 }
 
+func (f *miniCustomerFulfillmentFake) CustomerAssetInventoryScope(_ context.Context, id int64) (customerfulfillmentapp.CustomerInventoryScope, error) {
+	f.scopeCustomerID = id
+	return customerfulfillmentapp.CustomerInventoryScope{InventoryTypes: []string{"finished_product"}, Warehouses: []customerfulfillmentapp.CustomerInventoryWarehouse{{WarehouseCode: "bound_9", WarehouseName: "客户成品仓", Kind: "finished"}}}, nil
+}
 func (f *miniCustomerFulfillmentFake) ListCustomerAssetInventory(_ context.Context, query customerfulfillmentapp.CustomerAssetInventoryQuery) ([]customerfulfillmentapp.CustomerAssetInventory, error) {
 	f.calls++
+	if f.assetRows != nil {
+		return f.assetRows, nil
+	}
 	return []customerfulfillmentapp.CustomerAssetInventory{{InventoryType: "green_bean", ItemID: 31, ItemName: "客户生豆", Unit: "kg", AvailableQty: 12.5}}, nil
 }
 
@@ -445,6 +456,9 @@ func TestMiniCustomerInventoryBindsTokenCustomerFiltersPaginationAndLegacyMode(t
 	if fulfillment.inventoryQuery.CustomerID != 9 || fulfillment.inventoryQuery.Q != "乌拉嘎" || fulfillment.inventoryQuery.Page != 2 || fulfillment.inventoryQuery.Limit != 1 || fulfillment.inventoryQuery.LegacyAll {
 		t.Fatalf("inventory query = %#v", fulfillment.inventoryQuery)
 	}
+	if !fulfillment.inventoryQuery.BoundVirtualOnly {
+		t.Fatal("mini inventory summary omitted authoritative virtual warehouse scope")
+	}
 	var body customerfulfillmentapp.CustomerInventoryListResult
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Total != 2 || body.TotalPages != 2 || body.Page != 2 || body.Limit != 1 || len(body.Rows) != 1 {
 		t.Fatalf("body=%s err=%v", rec.Body.String(), err)
@@ -487,6 +501,9 @@ func TestMiniCustomerInventoryBatchesPassesCanonicalBOMSpecIdentity(t *testing.T
 	}
 	if fulfillment.batchCustomerID != 9 || fulfillment.batchProductID != 550 || fulfillment.batchBomSpecID != 91 || fulfillment.batchBomVariantID != 191 || fulfillment.batchSpecG != 0 {
 		t.Fatalf("canonical batch identity customer/product/spec/variant/spec_g = %d/%d/%d/%d/%d", fulfillment.batchCustomerID, fulfillment.batchProductID, fulfillment.batchBomSpecID, fulfillment.batchBomVariantID, fulfillment.batchSpecG)
+	}
+	if !fulfillment.batchVirtualOnly {
+		t.Fatal("mini inventory detail omitted authoritative virtual warehouse scope")
 	}
 }
 

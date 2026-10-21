@@ -105,7 +105,7 @@
           <button class="primary" type="button" @click="saveVisibility(row)" :disabled="!canSaveRow(row)">
             {{ row.saving ? '保存中' : '保存并应用模板' }}
           </button>
-		  <CustomerFulfillmentSettings :customer-id="Number(row.customer.id)" @warehouses-changed="updateRowWarehouses(row, $event)" />
+		  <CustomerFulfillmentSettings :customer-id="Number(row.customer.id)" @warehouses-changed="updateRowWarehouses(row, $event)" @settings-changed="refreshRowCapabilities(row)" />
         </div>
 
         <div class="template-summary">
@@ -127,7 +127,7 @@
             <div class="summary-block">
               <b>能力</b>
               <div class="chips">
-                <i v-for="capability in enabledTemplateCapabilities(row)" :key="`${row.customer.id}-${capability.code}`">{{ capability.label || capabilityLabels[capability.code] || capability.code }}</i>
+                <i v-for="capability in enabledTemplateCapabilities(row)" :key="`${row.customer.id}-${capability.code}`">{{ capability.label || capabilityLabels[capability.code] || capability.code }}{{ capability.config?.required_by_fulfillment ? '（代发自动开启）' : '' }}</i>
                 <span v-if="!enabledTemplateCapabilities(row).length" class="muted">未开启能力</span>
               </div>
             </div>
@@ -235,7 +235,7 @@ import {
   resetCustomerFulfillmentExternalUserPassword,
   setCustomerFulfillmentExternalUserLoginEnabled,
 } from '../api/customer-fulfillment'
-import { customerDossierNavigationDetail } from '../lib/customer-portal-settings'
+import { customerDossierNavigationDetail, effectiveCustomerCapabilities } from '../lib/customer-portal-settings'
 import { workspaceCustomersRefreshEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -251,6 +251,8 @@ const capabilityTemplates = ref([])
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
+const capabilityRefreshRequests = new WeakMap()
+let capabilityRefreshSequence = 0
 const capabilityLabels = {
   bean_list: '我的豆单',
   mall: '商城下单',
@@ -477,7 +479,20 @@ function inactiveTemplateKey(row) {
 }
 
 function enabledTemplateCapabilities(row) {
-  return (selectedTemplate(row)?.capabilities || []).filter((capability) => capability.enabled)
+  return effectiveCustomerCapabilities(row, selectedTemplate(row) || {}).filter((capability) => capability.enabled)
+}
+
+async function refreshRowCapabilities(row) {
+  if (!row?.customer?.id) return
+  const request = ++capabilityRefreshSequence
+  capabilityRefreshRequests.set(row, request)
+  try {
+    const data = await apiGet(`/api/customer-portal/admin/customers/${row.customer.id}?capability_refresh=${request}`)
+    if (capabilityRefreshRequests.get(row) !== request) return
+    row.capabilities = data.capabilities || []
+  } catch {
+    // The fulfillment save succeeded; retain the portal draft and allow a later refresh.
+  }
 }
 
 function templateRuleLabels(row) {

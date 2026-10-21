@@ -5943,3 +5943,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Evidence: orderapp-remote/docs/acceptance/2026-10-21-fulfillment-virtual-warehouses.md.
 - Deployment: development runtime 2059307c38968c88bc1da8936d42a3a979543d63; feature342758cd pushed and verified before integration. Source backup /opt/stacks/erp/orderapp.backup.deploy-20261021224657-2059307c3896; rollback image retained. Vue1472/mini393/type/build/fullGo/isolated PostgreSQL and read-only runtime checks passed. Warehouses20/finished_inventory34 hashes unchanged;14 customer warehouses classified virtual;30 reference guards. Production image/start unchanged; Van business acceptance remains separate.
 - Notes: scripts/reserve_req_id.sh identified PR-710; reserved here before implementation. Existing customer warehouses retain codes, balances and historical links; virtual parent is display-only.
+
+### PR-711-MINIAPP-CUSTOMER-CATALOG-INVENTORY
+- Branch: codex/miniapp-customer-catalog-inventory-20261021; baseline origin/develop 7277f43e.
+- Owner/session: Codex / 2026-10-21.
+- Status: implementation/automated verification/independent review complete; production integration pending; business acceptance separate.
+- Scope: resolve bound current price tables in customer dropship/product ordering and restrict my-inventory categories/warehouses to current customer authorization, including empty virtual warehouses.
+- DEV: DEV-823-MINI-CATALOG; DEV-824-MINI-INVENTORY-SCOPE; DEV-825-MINI-SCOPE-DELIVERY; DEV-826-DROPSHIP-PRODUCT-ORDER.
+- Verifier: targeted unit/API/isolated PostgreSQL RED-GREEN; miniapp tests/type/build; observed production DevTools and read-only production checks; manuals.
+- Deployment: this thread owns production delivery; production business data remains read-only during diagnosis.
+- Evidence: docs/acceptance/2026-10-21-miniapp-customer-catalog-inventory.md.
+
+- PR-711 clarified rule: Van requires automatic, non-disableable product_order while either stock/on_demand mode enabled; all modes off restore ordinary configured capability. No per-customer production permission patch or shared template change.
+
+- PR-711 GREEN: fullGo without DB; real PostgreSQL catalog/capability/scope/API; two independent backend reviews; Vue1478/build and mini401/typecheck/production build. Summary refresh race repaired with actual component RED/GREEN; portal draft preserved.

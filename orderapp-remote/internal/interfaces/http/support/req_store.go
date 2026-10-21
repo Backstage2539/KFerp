@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_dev", code: "DEV-826-DROPSHIP-PRODUCT-ORDER", title: "PR-711 任一代发场景开启时商品下单自动开启且不可单独关闭", status: "done", assignee: "Codex", evidence: "effective capabilities; fulfillment settings UI; API RED/GREEN"},
+		{table: "req_product", code: "PR-711-MINIAPP-CUSTOMER-CATALOG-INVENTORY", title: "客户小程序价格表识别与授权库存范围", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-21-miniapp-customer-catalog-inventory.md"},
+		{table: "req_dev", code: "DEV-823-MINI-CATALOG", title: "PR-711 已绑定代发及录单价格表识别修复", status: "done", assignee: "Codex", evidence: "customer miniapp catalog RED/GREEN"},
+		{table: "req_dev", code: "DEV-824-MINI-INVENTORY-SCOPE", title: "PR-711 我的库存仅展示客户授权仓库及分类", status: "done", assignee: "Codex", evidence: "customer inventory scope RED/GREEN"},
+		{table: "req_dev", code: "DEV-825-MINI-SCOPE-DELIVERY", title: "PR-711 手册、回归与生产小程序交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-21-miniapp-customer-catalog-inventory.md"},
 		{table: "req_product", code: "PR-710-FULFILLMENT-VIRTUAL-WAREHOUSES", title: "客户代发配置统一保存与虚拟仓库管理", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-21-fulfillment-virtual-warehouses.md"},
 		{table: "req_dev", code: "DEV-819-ATOMIC-FULFILLMENT", title: "PR-710 两种代发运费、仓库和服务费事务统一保存", status: "done", assignee: "Codex", evidence: "customerfulfillment/fulfillment_atomic_settings_test.go"},
 		{table: "req_dev", code: "DEV-820-VIRTUAL-WAREHOUSES", title: "PR-710 客户虚拟子仓归类、增改删、版本及库存引用保护", status: "done", assignee: "Codex", evidence: "stock/virtual_warehouses_test.go"},

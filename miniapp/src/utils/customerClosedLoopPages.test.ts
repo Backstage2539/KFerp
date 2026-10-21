@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { customerInventoryTypeOptions } from './customerInventory'
 
 function source(path: string): string {
   return readFileSync(resolve(path), 'utf8')
@@ -100,10 +101,8 @@ describe('customer closed-loop miniapp pages', () => {
     expect(list).toContain('fetchCustomerAssetInventory')
     expect(list).toContain('customerInventoryDetailPath')
     expect(detail).toContain('fetchCustomerInventoryBatches')
-    expect(list).toContain("key: 'finished_product'")
-    expect(list).toContain("key: 'green_bean'")
-    expect(list).toContain("key: 'packaging'")
-    expect(list).toContain("key: 'semi_finished'")
+    expect(list).toContain('customerInventoryTypeOptions')
+    expect(customerInventoryTypeOptions(['finished_product', 'green_bean', 'packaging', 'semi_finished']).map(row => row.key)).toEqual(['', 'finished_product', 'green_bean', 'packaging', 'semi_finished'])
     expect(list).toContain('可用')
     expect(list).toContain('占用')
     expect(list).toContain('生产中')

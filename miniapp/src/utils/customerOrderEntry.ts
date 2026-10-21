@@ -4,6 +4,18 @@ function normalized(value: unknown): string {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, '')
 }
 
+export function customerOrderCatalogError(error: unknown, productOrder = false): string {
+  const message = error instanceof Error ? error.message : String(error || '')
+  if (/capability not enabled|capability .* unavailable/i.test(message)) return `当前客户尚未开通${productOrder ? '商品下单' : '所选代发服务'}，请联系工厂开通`
+  return message || '商品与价格表加载失败，请重试'
+}
+
+export function customerPriceTableEmptyMessage(state: { loaded: boolean; loading: boolean; failed: boolean; error?: string; stock?: boolean }): string {
+  if (state.loading || !state.loaded && !state.failed) return '价格表加载中…'
+  if (state.failed) return /capability not enabled|尚未开通/i.test(state.error || '') ? '当前下单服务尚未开通，无法加载价格表' : '价格表暂时无法加载，请重试'
+  return state.stock ? '库存代发使用已购库存，不重复收取商品货款' : 'ERP 尚未绑定可用价格表'
+}
+
 export function filterRecipientAddresses(rows: CustomerRecipientAddress[] = [], query = ''): CustomerRecipientAddress[] {
   const keyword = normalized(query)
   if (!keyword) return rows

@@ -1,7 +1,21 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { customerDossierNavigationDetail } from './customer-portal-settings.js'
+import * as settings from './customer-portal-settings.js'
+const { customerDossierNavigationDetail } = settings
+
+test('customer capability summary uses effective customer capability instead of raw template switch', () => {
+  const template = { key: 'dropship', capabilities: [{ code: 'product_order', enabled: false }, { code: 'direct_ship', enabled: true }] }
+  const row = { customer: { capability_template_key: 'dropship' }, form: { capability_template_key: 'dropship' }, capabilities: [{ code: 'product_order', enabled: true, config: { required_by_fulfillment: true } }, { code: 'direct_ship', enabled: true }] }
+  const result = settings.effectiveCustomerCapabilities(row, template)
+  assert.equal(result.find(item => item.code === 'product_order').enabled, true)
+  assert.equal(result.find(item => item.code === 'product_order').config.required_by_fulfillment, true)
+  assert.equal(template.capabilities[0].enabled, false)
+  row.form.capability_template_key = 'ordinary'
+  assert.equal(settings.effectiveCustomerCapabilities(row, { key: 'ordinary', capabilities: [{ code: 'product_order', enabled: false }] })[0].enabled, true)
+  row.capabilities[0].config = {}
+  assert.equal(settings.effectiveCustomerCapabilities(row, { key: 'ordinary', capabilities: [{ code: 'product_order', enabled: false }] })[0].enabled, false)
+})
 
 test('customer portal settings opens the customer dossier drawer for the current row', () => {
   assert.deepEqual(

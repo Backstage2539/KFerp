@@ -1092,31 +1092,19 @@ func (r Repository) portalAdminBindings(ctx context.Context, customerID int64) (
 }
 
 func (r Repository) portalAdminCapabilities(ctx context.Context, customerID int64) ([]customerportalapp.CapabilityOption, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT capability_code, enabled, config_json
-		FROM %s.customer_service_capabilities
-		WHERE customer_id=$1
-		ORDER BY capability_code
-	`, r.schema), customerID)
+	capabilities, err := r.capabilitiesForCustomerTx(ctx, r.pool, customerID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]customerportalapp.CapabilityOption, 0)
-	for rows.Next() {
-		var row customerportalapp.CapabilityOption
-		var raw []byte
-		if err := rows.Scan(&row.Code, &row.Enabled, &raw); err != nil {
-			return nil, err
-		}
-		row.Config = map[string]any{}
-		if len(raw) > 0 {
-			_ = json.Unmarshal(raw, &row.Config)
-			if row.Config == nil {
-				row.Config = map[string]any{}
-			}
-		}
-		out = append(out, row)
+	labels := map[string]customerportalapp.CapabilityOption{}
+	for _, option := range customerportalapp.DefaultCapabilityOptions() {
+		labels[option.Code] = option
 	}
-	return out, rows.Err()
+	out := make([]customerportalapp.CapabilityOption, 0, len(capabilities))
+	for _, capability := range capabilities {
+		option := labels[capability.Code]
+		option.Code, option.Enabled, option.Config = capability.Code, capability.Enabled, capability.Config
+		out = append(out, option)
+	}
+	return out, nil
 }

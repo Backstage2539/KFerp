@@ -992,7 +992,7 @@ func (r Repository) capabilitiesForCustomerTx(ctx context.Context, q txQuerier, 
 	if template, ok, err := r.capabilityTemplateForCustomerTx(ctx, q, customerID); err != nil {
 		return nil, err
 	} else if ok {
-		return capabilityOptionsToCapabilities(template.Capabilities), nil
+		return r.effectiveFulfillmentCapabilitiesTx(ctx, q, customerID, capabilityOptionsToCapabilities(template.Capabilities))
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT capability_code, enabled, config_json
@@ -1020,7 +1020,11 @@ func (r Repository) capabilitiesForCustomerTx(ctx context.Context, q txQuerier, 
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	return r.effectiveFulfillmentCapabilitiesTx(ctx, q, customerID, out)
 }
 
 func (r Repository) themeForCustomerTx(ctx context.Context, q txQuerier, customerID int64) (string, error) {
