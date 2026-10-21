@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createPriceTableBatch, addPriceTable, removePriceTable, validatePriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, publicationBatchGroups } from './price-table-batch.js'
 
-test('named table drafts isolate all configuration and survive scope-specific restoration', () => {
+test('named table drafts isolate all configuration and survive scope-specific restoration', async () => {
   const source = { config: { selectedProductIDs: ['12'], version: 'V1' }, content: { price_rows: [{ final_unit_price: 38 }] }, draft: { defaults: { pricing_mode: 'fixed_price' } } }
   let batch = createPriceTableBatch(source, '227g价格表')
   batch.tables[0].direct_ship_enabled = true
@@ -16,9 +16,9 @@ test('named table drafts isolate all configuration and survive scope-specific re
   assert.equal(batch.tables[1].direct_ship_enabled, true)
   assert.equal(validatePriceTableBatch(batch), '')
   const values = new Map(); const storage = { setItem: (k,v) => values.set(k,v), getItem:k=>values.get(k) }
-  savePriceTableBatchDraft('customer:42:coffee', batch, storage)
-  assert.equal(readPriceTableBatchDraft('customer:42:coffee', storage).tables.length, 3)
-  assert.equal(readPriceTableBatchDraft('customer:43:coffee', storage), null)
+  await savePriceTableBatchDraft('customer:42:coffee', batch, storage)
+  assert.equal((await readPriceTableBatchDraft('customer:42:coffee', storage)).tables.length, 3)
+  assert.equal(await readPriceTableBatchDraft('customer:43:coffee', storage), null)
 })
 
 test('batch validates names and exactly one default without a two-table limit', () => {

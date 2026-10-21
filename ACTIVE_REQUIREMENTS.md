@@ -1,3 +1,13 @@
+### PRICE-TABLE-DRAFT-QUOTA-20261021
+- Branch: codex/price-table-draft-quota-20261021; production baseline origin/main@973d5481.
+- Scope: local bounded regression, user reports production latest-publication load and publish blocked by named batch localStorage quota. No schema, business write or price semantics change.
+- Root cause: prior c591b765 protects the old-table backup only; subsequent named batch write still throws outside publish request handling.
+- Fix: durable async named-batch storage, legacy draft read compatibility, ordered snapshots and current-scope checks; avoid duplicate standalone cache writes after named hydration.
+- Verification: targeted RED/GREEN, full Vue suite/build and existing publication-batch handler checks; production deployment requested by reported environment.
+- Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md, served by existing costingManual Vue entry.
+- Status: targeted54/fullVue1454, Vue build and publication-batch HTTP handler GREEN; native browser real-quota/save/reload GREEN. Production integration pending; no production business publications performed.
+- Delivery: origin/develop advanced independently to7634f2f8 (PR-707); keep production hotfix isolated from this unrelated development change. Evidence: docs/acceptance/2026-10-21-price-table-draft-quota.md.
+
 ### PR-707-PUBLISHED-ORDER-CATALOG-CONSISTENCY
 - Branch: codex/published-order-catalog-consistency-20261021; base origin/develop c591b765.
 - Owner/session: Codex / 2026-10-21.
