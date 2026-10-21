@@ -60,6 +60,7 @@ type SaveOrderCommand struct {
 	Notes                             string
 	FreightOverride                   *freightdomain.Override
 	FreightProtocol                   string
+	LegacyEmployeeFreight             bool `json:"-"`
 	ExpectedFreightToken              string
 	FreightQuoteToken                 string
 	ShippingProvince                  string
