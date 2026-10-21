@@ -74,3 +74,29 @@ export function miniRequest<T>(path: string, options: RequestOptions = {}): Prom
     })
   })
 }
+
+export function miniUpload<T>(path: string, filePath: string, token: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let url = ''
+    try { url = buildAPIURL(path) } catch (cause) {
+      reject(cause instanceof Error ? cause : new Error('小程序环境配置错误'))
+      return
+    }
+    uni.uploadFile({
+      url, filePath, name: 'file', header: { Authorization: `Bearer ${token}` },
+      success: response => {
+        let body: { error?: string; message?: string; code?: string }
+        try { body = JSON.parse(response.data) } catch {
+          reject(new Error('上传响应无效，请重试'))
+          return
+        }
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          resolve(body as T)
+          return
+        }
+        reject(new MiniRequestError(body?.error || body?.message || '凭证上传失败，请重试', response.statusCode, body?.code))
+      },
+      fail: cause => reject(new Error(cause.errMsg || '凭证上传失败，请重试')),
+    })
+  })
+}

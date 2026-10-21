@@ -1,3 +1,25 @@
+### PR-708-MINIAPP-ORDER-STATUS-TOP
+- Branch: codex/miniapp-order-status-top-20261021; base origin/develop e6d30fc0.
+- Owner/session: Codex / 2026-10-21.
+- Status: delivered to development a8fe07ba on 2026-10-21; automated/local UI/runtime/artifact checks passed; Van product acceptance pending.
+- Scope: employee miniapp order detail starts with order/payment/shipping status and a dedicated status editor. Payment after production/shipping must not require editing the whole order or recalculating its frozen lines.
+- DEV: DEV-813-STATUS-API; DEV-814-STATUS-TOP; DEV-815-STATUS-DELIVERY.
+- Verifier: targeted RED/GREEN miniapp interaction/client and Go service/HTTP tests, isolated database transactions and audit checks, miniapp type/build, full remote deployment gates; employee and sales manuals.
+- Deployment: development delivered; Van authorized main integration, production deployment and the formal miniapp package on 2026-10-21. Production branch codex/miniapp-order-status-production-20261021 starts at current main 2efe9bf3 and merges verified develop 5bd6a43c, retaining main-only BOM migration protections. WeChat upload/review/publication remains separate.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-21-miniapp-order-status-top.md (technical delivery complete; Van acceptance pending).
+- Delivery: feature b47b1aac, runtime/package a8fe07ba618f2b9c0510fa587d0e2129d3b4ff46; source backup /opt/stacks/erp/orderapp.backup.deploy-20261021131604-a8fe07ba618f; rollback image retained. Go/Vue1459/mini389/type/build, isolated PostgreSQL, app running/DB healthy, protected APIs401, manuals/PR+DEV200, 24 pages/96 page files/238 total files and ZIP CRC passed. Final receipt update is documentation-only.
+- Notes: reserve_req_id.sh returned PR-708; reserved manually to avoid the known macOS awk multiline-string claim failure.
+
+### PRICE-TABLE-DRAFT-QUOTA-20261021
+- Branch: codex/price-table-draft-quota-20261021; production baseline origin/main@973d5481.
+- Scope: local bounded regression, user reports production latest-publication load and publish blocked by named batch localStorage quota. No schema, business write or price semantics change.
+- Root cause: prior c591b765 protects the old-table backup only; subsequent named batch write still throws outside publish request handling.
+- Fix: durable async named-batch storage, legacy draft read compatibility, ordered snapshots and current-scope checks; avoid duplicate standalone cache writes after named hydration.
+- Verification: targeted RED/GREEN, full Vue suite/build and existing publication-batch handler checks; production deployment requested by reported environment.
+- Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md, served by existing costingManual Vue entry.
+- Status: delivered to production b6efdd71 on 2026-10-21; runtime asset, manual and authenticated read-only HTTP checks passed. Targeted54/fullVue1454, mini371/typecheck/build, fullGo on host+image all GREEN; native browser real-quota/save/reload GREEN. No production business publications performed.
+- Delivery: feature2b946de6; develop4d03e0cd (Vue1457/build verified after separate integration); main/runtime b6efdd71. Production command KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production. Rollback source orderapp.backup.deploy-20261021112612-b6efdd71d202; rollback image retained. Production excludes the independent PR-707 change. Evidence: docs/acceptance/2026-10-21-price-table-draft-quota.md.
+
 ### PR-707-PUBLISHED-ORDER-CATALOG-CONSISTENCY
 - Branch: codex/published-order-catalog-consistency-20261021; base origin/develop c591b765.
 - Owner/session: Codex / 2026-10-21.

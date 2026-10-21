@@ -24,10 +24,15 @@ import (
 )
 
 type miniEmployeeOrderDetailResponse struct {
-	CanEdit         bool                          `json:"can_edit"`
-	EditBlockReason string                        `json:"edit_block_reason"`
-	Order           miniEmployeeOrderDetailDTO    `json:"order"`
-	Documents       miniEmployeeOrderDocumentsDTO `json:"documents"`
+	CanUpdateStatus             bool                           `json:"can_update_status"`
+	StatusUpdateBlockReason     string                         `json:"status_update_block_reason"`
+	CanUpdateShipStatus         bool                           `json:"can_update_ship_status"`
+	ShipStatusUpdateBlockReason string                         `json:"ship_status_update_block_reason"`
+	StatusOptions               miniEmployeeOrderStatusOptions `json:"status_options"`
+	CanEdit                     bool                           `json:"can_edit"`
+	EditBlockReason             string                         `json:"edit_block_reason"`
+	Order                       miniEmployeeOrderDetailDTO     `json:"order"`
+	Documents                   miniEmployeeOrderDocumentsDTO  `json:"documents"`
 }
 
 type miniEmployeeOrderDetailDTO struct {
@@ -579,6 +584,7 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 	e.POST("/api/mini/employee/orders/:id/documents/delivery-note.pdf", orders.generateDeliveryNotePDF)
 	e.POST("/api/mini/employee/orders/:id/documents/delivery-note.png", orders.generateDeliveryNotePNG)
 	e.PUT("/api/mini/employee/orders/:id", orders.update)
+	e.PUT("/api/mini/employee/orders/:id/status", orders.updateStatus)
 
 	e.POST("/api/mini/employee/orders", func(c echo.Context) error {
 		employee, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write")
@@ -1235,8 +1241,19 @@ func (h miniEmployeeOrderHandler) detail(c echo.Context) error {
 	if err != nil {
 		return miniInternalError(c)
 	}
+	statusReason := miniEmployeeStatusBlockReason(access, form.EditData)
+	if _, ok := h.sales.(miniEmployeeOrderStatusUpdater); !ok {
+		statusReason = "当前服务暂不支持修改状态"
+	}
+	shipReason := statusReason
+	if shipReason == "" && access.row.ConfirmationRequired {
+		shipReason = "发货状态由实际履约进度更新，请通过发货操作处理"
+	}
 	return c.JSON(http.StatusOK, miniEmployeeOrderDetailResponse{
-		CanEdit: editability.CanEdit, EditBlockReason: editability.BlockReason,
+		CanUpdateStatus: statusReason == "", StatusUpdateBlockReason: statusReason,
+		CanUpdateShipStatus: shipReason == "", ShipStatusUpdateBlockReason: shipReason,
+		StatusOptions: miniEmployeeStatusOptions(form, access.row),
+		CanEdit:       editability.CanEdit, EditBlockReason: editability.BlockReason,
 		Order: miniEmployeeOrderDetail(access.row, form), Documents: documents,
 	})
 }
