@@ -40,6 +40,7 @@ func registerStockPages(e *echo.Echo) {
 }
 
 func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
+	registerVirtualWarehouseAPI(e, stockSvc)
 	e.GET("/api/stock/ledger", func(c echo.Context) error {
 		limit := stockLimit(c)
 		offset := stockOffsetForLimit(c, limit)

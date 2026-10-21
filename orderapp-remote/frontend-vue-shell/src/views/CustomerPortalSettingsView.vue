@@ -105,7 +105,7 @@
           <button class="primary" type="button" @click="saveVisibility(row)" :disabled="!canSaveRow(row)">
             {{ row.saving ? '保存中' : '保存并应用模板' }}
           </button>
-		  <CustomerFulfillmentSettings :customer-id="Number(row.customer.id)" />
+		  <CustomerFulfillmentSettings :customer-id="Number(row.customer.id)" @warehouses-changed="updateRowWarehouses(row, $event)" />
         </div>
 
         <div class="template-summary">
@@ -539,6 +539,11 @@ async function ensureCustomerWarehouse(row, kind) {
   } finally {
     row.saving = false
   }
+}
+
+function updateRowWarehouses(row, data) {
+  if (Number(data.customerId) !== Number(row.customer.id)) return
+  row.customer.warehouses = (data.warehouses || []).filter(warehouse => warehouse.active !== false && Number(warehouse.customer_id) === Number(row.customer.id))
 }
 
 function openCustomerProfile(row) {

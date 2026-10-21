@@ -17,14 +17,25 @@ type FulfillmentSettings struct {
 	Modes      []FulfillmentModeSettings `json:"modes"`
 }
 type FulfillmentModeSettings struct {
-	Mode               string `json:"mode"`
-	Enabled            bool   `json:"enabled"`
-	WarehouseCode      string `json:"warehouse_code"`
-	FeeConfigured      bool   `json:"fee_configured"`
-	FixedFeeCents      int64  `json:"fixed_fee_cents"`
-	PerPackageFeeCents int64  `json:"per_package_fee_cents"`
-	ShippingFree       bool   `json:"shipping_free"`
-	ShippingTemplateID int64  `json:"shipping_template_id"`
+	Mode               string                     `json:"mode"`
+	Enabled            bool                       `json:"enabled"`
+	WarehouseCode      string                     `json:"warehouse_code"`
+	FeeConfigured      bool                       `json:"fee_configured"`
+	FixedFeeCents      int64                      `json:"fixed_fee_cents"`
+	PerPackageFeeCents int64                      `json:"per_package_fee_cents"`
+	ShippingFree       bool                       `json:"shipping_free"`
+	ShippingTemplateID int64                      `json:"shipping_template_id"`
+	ShippingPolicy     *FulfillmentShippingPolicy `json:"shipping_policy,omitempty"`
+}
+
+// FulfillmentShippingPolicy projects the authoritative scenario policy. The
+// expected version is supplied only by editors using the atomic settings API.
+type FulfillmentShippingPolicy struct {
+	TemplateID       int64  `json:"template_id"`
+	SurchargeCents   int64  `json:"surcharge_cents"`
+	FreeShipping     bool   `json:"free_shipping"`
+	Revision         int64  `json:"revision"`
+	ExpectedRevision *int64 `json:"expected_revision,omitempty"`
 }
 type SaveFulfillmentSettingsCommand struct {
 	Settings         FulfillmentSettings
@@ -180,6 +191,9 @@ func ValidateFulfillmentSettings(s FulfillmentSettings) error {
 			return fmt.Errorf("履约场景无效或重复")
 		}
 		seen[m.Mode] = true
+		if !m.Enabled {
+			continue
+		}
 		if m.FixedFeeCents < 0 || m.PerPackageFeeCents < 0 || m.FixedFeeCents > maxFulfillmentFeeCents || m.PerPackageFeeCents > maxFulfillmentFeeCents {
 			return fmt.Errorf("代发服务费金额无效")
 		}
@@ -187,7 +201,20 @@ func ValidateFulfillmentSettings(s FulfillmentSettings) error {
 			if !m.FeeConfigured {
 				return fmt.Errorf("请明确配置代发服务费，免费请填写 0")
 			}
-			if m.ShippingTemplateID <= 0 && !m.ShippingFree {
+			templateID, freeShipping := m.ShippingTemplateID, m.ShippingFree
+			if policy := m.ShippingPolicy; policy != nil {
+				if policy.ExpectedRevision == nil || *policy.ExpectedRevision < 0 {
+					return fmt.Errorf("请提供当前场景运费政策版本")
+				}
+				if policy.TemplateID < 0 {
+					return fmt.Errorf("运费模板无效")
+				}
+				if err := freight.ValidatePolicy(freight.Policy{CustomerID: s.CustomerID, Scene: m.Mode, TemplateID: policy.TemplateID, SurchargeCents: policy.SurchargeCents, FreeShipping: policy.FreeShipping}); err != nil {
+					return err
+				}
+				templateID, freeShipping = policy.TemplateID, policy.FreeShipping
+			}
+			if templateID <= 0 && !freeShipping {
 				return fmt.Errorf("请选择运费模板")
 			}
 			if m.Mode == "stock" && strings.TrimSpace(m.WarehouseCode) == "" {

@@ -26,3 +26,29 @@ test('shipping templates retain revision and validate monetary precision', () =>
 test('warehouse picker only exposes active customer finished warehouses', () => {
   assert.deepEqual(customerFinishedWarehouses([{ code: 'a', customer_id: 147, kind: 'finished', active: true }, { code: 'b', customer_id: 148, kind: 'finished' }, { code: 'c', customer_id: 147, kind: 'raw' }, { code: 'd', customer_id: 147, kind: 'customer_finished', active: false }], 147).map(r => r.code), ['a'])
 })
+
+test('unified save carries each enabled mode policy revision without ordinary sale policy', () => {
+  const form = fulfillmentSettingsForm({ customer_id: 147, revision: 7, modes: [
+    { mode: 'stock', enabled: true, warehouse_code: 'own', fee_configured: true, fixed_fee_cents: 0, per_package_fee_cents: 50, shipping_policy: { template_id: 8, surcharge_cents: 125, free_shipping: false, revision: 4 } },
+    { mode: 'on_demand', enabled: true, fee_configured: true, fixed_fee_cents: 0, per_package_fee_cents: 0, shipping_policy: { template_id: 0, surcharge_cents: 0, free_shipping: true, revision: 2 } },
+  ] })
+  assert.equal(form.modes[0].surcharge, '1.25')
+  const payload = fulfillmentSettingsPayload(form)
+  assert.deepEqual(payload.modes[0].shipping_policy, { template_id: 8, surcharge_cents: 125, free_shipping: false, expected_revision: 4 })
+  assert.equal(payload.modes[1].shipping_policy.free_shipping, true)
+  assert.equal(payload.modes[1].warehouse_code, '')
+  assert.deepEqual(payload.modes.map(row => row.mode), ['stock', 'on_demand'])
+})
+
+test('disabled mode does not validate or submit its hidden configuration', () => {
+  const form = fulfillmentSettingsForm({ customer_id: 147 })
+  form.modes[0].fixed_fee = '-1'
+  form.modes[0].per_package_fee = 'bad'
+  form.modes[0].surcharge = 'bad'
+  assert.deepEqual(fulfillmentSettingsPayload(form).modes[0], { mode: 'stock', enabled: false })
+})
+
+test('unbound virtual warehouse never enters customer finished warehouse candidates', () => {
+  assert.deepEqual(customerFinishedWarehouses([{ code: 'unbound', kind: 'finished', is_virtual: true, customer_id: 0 }, { code: 'own', kind: 'finished', is_virtual: true, customer_id: 147 }], 147).map(row => row.code), ['own'])
+  assert.deepEqual(customerFinishedWarehouses([{ code: 'unbound', kind: 'finished', is_virtual: true, customer_id: 0 }], 0), [])
+})

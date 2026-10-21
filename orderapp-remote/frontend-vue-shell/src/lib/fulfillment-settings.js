@@ -10,17 +10,20 @@ const money = cents => (Number(cents || 0) / 100).toFixed(2)
 export function fulfillmentSettingsForm(data = {}) {
   return { customer_id: Number(data.customer_id || 0), revision: Number(data.revision || 0), modes: ['stock', 'on_demand'].map(mode => {
     const row = (data.modes || []).find(r => r.mode === mode) || {}
-    return { mode, enabled: row.enabled === true, warehouse_code: row.warehouse_code || '', shipping_free:row.shipping_free===true, shipping_template_id: Number(row.shipping_template_id || 0), fixed_fee: row.fee_configured ? money(row.fixed_fee_cents) : '', per_package_fee: row.fee_configured ? money(row.per_package_fee_cents) : '' }
+    const policy = row.shipping_policy
+    return { mode, enabled: row.enabled === true, warehouse_code: row.warehouse_code || '', shipping_free: policy ? policy.free_shipping === true : row.shipping_free === true, shipping_template_id: Number(policy ? policy.template_id || 0 : row.shipping_template_id || 0), shipping_policy_revision: Number(policy?.revision || 0), surcharge: money(policy?.surcharge_cents), fixed_fee: row.fee_configured ? money(row.fixed_fee_cents) : '', per_package_fee: row.fee_configured ? money(row.per_package_fee_cents) : '' }
   }) }
 }
 export function fulfillmentSettingsPayload(form) {
   return { customer_id: form.customer_id, expected_revision: form.revision, modes: form.modes.map(row => {
-    if (row.enabled && (!row.shipping_template_id && !row.shipping_free || row.mode === 'stock' && !row.warehouse_code)) throw new Error('启用场景前请选择运费模板及库存代发仓库')
-    const configured = String(row.fixed_fee).trim() !== '' && String(row.per_package_fee).trim() !== ''
-    return { mode: row.mode, enabled: row.enabled, warehouse_code: row.mode === 'stock' ? row.warehouse_code : '', shipping_free:row.shipping_free===true,shipping_template_id: Number(row.shipping_template_id || 0), fee_configured: row.enabled || configured, fixed_fee_cents: row.enabled || configured ? explicitMoneyCents(row.fixed_fee) : 0, per_package_fee_cents: row.enabled || configured ? explicitMoneyCents(row.per_package_fee) : 0 }
+    if (!row.enabled) return { mode: row.mode, enabled: false }
+    if (!row.shipping_template_id && !row.shipping_free) throw new Error('请为已开启的代发场景选择运费模板，或明确选择包邮')
+    if (row.mode === 'stock' && !row.warehouse_code) throw new Error('库存代发必须绑定此客户的成品仓')
+    return { mode: row.mode, enabled: true, warehouse_code: row.mode === 'stock' ? row.warehouse_code : '', shipping_free: row.shipping_free === true, shipping_template_id: Number(row.shipping_template_id || 0), fee_configured: true, fixed_fee_cents: explicitMoneyCents(row.fixed_fee), per_package_fee_cents: explicitMoneyCents(row.per_package_fee), shipping_policy: { template_id: Number(row.shipping_template_id || 0), surcharge_cents: explicitMoneyCents(row.surcharge), free_shipping: row.shipping_free === true, expected_revision: Number(row.shipping_policy_revision || 0) } }
   }) }
 }
 export function customerFinishedWarehouses(rows, customerID) {
+  if (Number(customerID || 0) <= 0) return []
   return (rows || []).filter(r => r.active !== false && Number(r.customer_id) === Number(customerID) && ['finished', 'customer_finished', 'customer_processing', 'customer'].includes(r.kind))
 }
 export function shippingTemplateForm(data = {}) {

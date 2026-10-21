@@ -70,6 +70,7 @@
       </div>
     </section>
 	<ShippingFeeTemplates :companies="companies" />
+ <CustomerShippingPolicies />
  <ActualFreightImport :companies="companies" />
   </div>
 </template>
@@ -77,6 +78,7 @@
 <script setup>
 import ActualFreightImport from '../components/ActualFreightImport.vue'
 import ShippingFeeTemplates from '../components/ShippingFeeTemplates.vue'
+import CustomerShippingPolicies from '../components/CustomerShippingPolicies.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 
