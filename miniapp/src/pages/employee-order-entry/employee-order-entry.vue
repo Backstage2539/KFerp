@@ -333,6 +333,7 @@ async function loadCustomerProductCatalog(targetCustomerID: number): Promise<boo
     if (sequence !== productCatalogLoadSequence || Number(form.value.customer_id) !== targetCustomerID) return false
     if (!formData.value) return false
     form.value.selected_price_table_ids = data.selected_price_table_ids || []
+    if (data.catalog_updated) uni.showToast({ title: '价格表已更新，请核对商品和价格', icon: 'none' })
     formData.value = {
       ...formData.value,
       ...data,

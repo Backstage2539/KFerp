@@ -203,6 +203,7 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/orders/:id/void", h.void)
 	e.POST("/api/orders/void", h.voidMany)
 	e.GET("/api/order/form", h.form)
+	e.GET("/api/order/catalog", h.catalog)
 	e.GET("/api/product-settings/spec-conversion-groups", h.conversionSettings)
 	e.POST("/api/product-settings/spec-conversion-groups", h.saveConversionGroup)
 	e.GET("/api/order/spec-conversions", h.orderConversions)

@@ -52,7 +52,7 @@ func TestDev566MiniappOrderEntryClosureContracts(t *testing.T) {
 		`"products": catalog.Products`,
 		`"product_families": catalog.Families`,
 		`"product_bom_spec_options": catalog.BOMSpecOptions`,
-		"FilterOrderProductsForDefaultPublications",
+		"salesapp.ResolveOrderCatalog",
 		"requireMiniEmployee",
 		"miniEmployeeAuthError",
 	} {

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { EmployeeOrderProductFamily } from '../api/customerPortal'
 import {
   employeeOrderProductCategories,
+  employeeOrderProductCategoriesForFamilies,
   employeeOrderProductCategory,
   employeeOrderProductFamilyKey,
   filterEmployeeOrderProductFamilies,
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 
 const query = ref('')
 const category = ref<EmployeeOrderProductCategory>('all')
+const categories = computed(() => employeeOrderProductCategoriesForFamilies(props.families, props.customerId))
 const filteredFamilies = computed(() => filterEmployeeOrderProductFamilies(
   props.families,
   props.customerId,
@@ -38,7 +40,12 @@ watch(() => props.visible, (visible) => {
   category.value = 'all'
 })
 
+watch(categories, (options) => {
+  if (!options.some(option => option.key === category.value)) category.value = 'all'
+})
+
 function categoryLabel(family: EmployeeOrderProductFamily): string {
+  if (family.price_table_categories?.length) return family.price_table_categories.map(row => row.label).join(' / ')
   const key = employeeOrderProductCategory(family)
   return employeeOrderProductCategories.find((row) => row.key === key)?.label || '未分类'
 }
@@ -66,7 +73,7 @@ function displayName(family: EmployeeOrderProductFamily): string {
       <scroll-view scroll-x class="category-scroll" :show-scrollbar="false">
         <view class="category-row">
           <button
-            v-for="item in employeeOrderProductCategories"
+            v-for="item in categories"
             :key="item.key"
             class="category-button"
             :class="{ active: category === item.key }"

@@ -593,7 +593,7 @@ func dripOrderBeanListCandidates(cmd salesapp.SaveOrderCommand, itemPublicationI
 	}
 	if itemPublicationID > 0 {
 		switch sourceListType {
-		case primaryListType, orderbeans.ListTypeDrip:
+		case orderbeans.ListTypeCommercial, orderbeans.ListTypeRetail, orderbeans.ListTypeGreen, orderbeans.ListTypeDrip:
 			return []orderBeanListCandidate{{ListType: sourceListType, RequestedPublicationID: itemPublicationID}}
 		default:
 			return []orderBeanListCandidate{
@@ -1674,6 +1674,22 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		items[idx].productCodeSnapshot = identity.ProductCode
 		if items[idx].name == "" {
 			items[idx].name = identity.ProductName + " " + identity.BomSpecName
+		}
+	}
+
+	publicationIDs := []int64{}
+	for _, item := range items {
+		if item.itemBeanListPublicationID > 0 {
+			publicationIDs = append(publicationIDs, item.itemBeanListPublicationID)
+		}
+	}
+	publicationTypes, err := orderPublicationListTypesTx(ctx, tx, r.schema, publicationIDs)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+	for idx := range items {
+		if listType := publicationTypes[items[idx].itemBeanListPublicationID]; listType != "" {
+			items[idx].priceListType = listType
 		}
 	}
 
