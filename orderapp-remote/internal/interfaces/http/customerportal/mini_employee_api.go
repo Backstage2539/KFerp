@@ -327,17 +327,15 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 			return miniInternalError(c)
 		}
 		customerID := int64(0)
-		retailOrder := false
 		if rawCustomerID := strings.TrimSpace(c.QueryParam("customer_id")); rawCustomerID != "" {
 			customerID, err = strconv.ParseInt(rawCustomerID, 10, 64)
 			if err != nil || customerID <= 0 {
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": "客户编号不正确"})
 			}
-			customer, found := miniEmployeeOrderCustomer(form, customerID)
+			_, found := miniEmployeeOrderCustomer(form, customerID)
 			if !found {
 				return c.JSON(http.StatusNotFound, map[string]string{"error": "客户不存在"})
 			}
-			retailOrder = miniEmployeeUsesRetailCatalog(form, customer, 0)
 		}
 		customers := make([]map[string]any, 0, len(form.Customers))
 		for _, customer := range form.Customers {
@@ -357,29 +355,25 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 				"can_maintain":              canMaintain,
 			})
 		}
+		catalogUpdated := false
 		priceTableOptions := salesapp.CurrentOrderPriceTableOptions(form.BeanListVersionOptions, customerID)
 		selectedIDs, parseErr := miniSelectedPriceTableIDs(c.QueryParam("selected_price_table_ids"))
 		if parseErr != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": parseErr.Error()})
 		}
+		catalog := salesapp.OrderCatalog{Products: []salesapp.ProductOption{}, Families: []map[string]any{}, BOMSpecOptions: []salesapp.ProductBOMSpecOption{}}
 		if customerID > 0 {
-			selected, selectionErr := salesapp.ResolveOrderPriceTableSelection(form.BeanListVersionOptions, customerID, selectedIDs, true)
+			resolved, selectionErr := salesapp.ResolveOrderCatalog(form, customerID, selectedIDs, true)
 			if selectionErr != nil {
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": selectionErr.Error()})
 			}
-			form.BeanListVersionOptions = selected
-			form = miniEmployeeCatalogWithSelectedPublicPrices(form, customerID)
-			selectedIDs = []int64{}
-			for _, table := range selected {
-				selectedIDs = append(selectedIDs, table.ID)
-			}
-		}
-		catalog := miniEmployeeOrderCatalogResult{Products: []salesapp.ProductOption{}, Families: []map[string]any{}, BOMSpecOptions: []salesapp.ProductBOMSpecOption{}}
-		if customerID > 0 {
-			catalog = miniEmployeeOrderCatalog(form, customerID, retailOrder)
+			catalog = resolved.Catalog
+			catalogUpdated = resolved.Updated
+			selectedIDs = resolved.SelectedPriceTableIDs
+			priceTableOptions = resolved.PriceTableOptions
 		}
 		return c.JSON(http.StatusOK, map[string]any{
-			"today": form.Today, "customers": customers, "sources": form.Sources,
+			"today": form.Today, "customers": customers, "catalog_updated": catalogUpdated, "sources": form.Sources,
 			"order_types": form.OrderTypes, "pay_statuses": form.PayStatuses,
 			"ship_statuses": form.ShipStatuses, "products": catalog.Products, "product_families": catalog.Families,
 			"product_bom_spec_options": catalog.BOMSpecOptions,
@@ -707,21 +701,6 @@ func miniEmployeeOrderCustomer(form salesapp.OrderFormData, customerID int64) (s
 	return salesapp.CustomerOption{}, false
 }
 
-func miniEmployeeUsesRetailCatalog(form salesapp.OrderFormData, customer salesapp.CustomerOption, fallbackOrderTypeID int64) bool {
-	orderTypeID := customer.DefaultOrderTypeID
-	if orderTypeID <= 0 {
-		orderTypeID = fallbackOrderTypeID
-	}
-	for _, orderType := range form.OrderTypes {
-		if orderType.ID != orderTypeID {
-			continue
-		}
-		name := strings.ToLower(strings.TrimSpace(orderType.Name))
-		return strings.Contains(name, "零售") || strings.Contains(name, "retail")
-	}
-	return false
-}
-
 func miniEmployeePrepareCurrentCatalog(ctx context.Context, sales EmployeeSales, cmd *salesapp.SaveOrderCommand) (string, error) {
 	form, err := sales.OrderForm(ctx, 0)
 	if err != nil {
@@ -731,7 +710,7 @@ func miniEmployeePrepareCurrentCatalog(ctx context.Context, sales EmployeeSales,
 }
 
 func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd *salesapp.SaveOrderCommand) (string, error) {
-	customer, found := miniEmployeeOrderCustomer(form, cmd.CustomerID)
+	_, found := miniEmployeeOrderCustomer(form, cmd.CustomerID)
 	if !found {
 		return "客户不存在", nil
 	}
@@ -799,16 +778,13 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	for id := range frozenIDs {
 		cmd.SelectedPriceTableIDs = append(cmd.SelectedPriceTableIDs, id)
 	}
-	retailOrder := miniEmployeeUsesRetailCatalog(form, customer, cmd.OrderTypeID)
-	products := salesapp.FilterOrderProductsForDefaultPublications(form.Products, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
-	cutoverOptions := make([]salesapp.ProductBOMSpecOption, 0)
-	for _, option := range form.ProductBOMSpecOptions {
-		if option.MigrationState == "cutover" && option.Published && option.ParentProductID > 0 && option.BomSpecID > 0 && option.BomVariantID > 0 {
-			cutoverOptions = append(cutoverOptions, option)
-		}
+	catalog := salesapp.BuildOrderCatalog(form, cmd.CustomerID)
+	products := catalog.Products
+	cutoverProducts := catalog.BOMProducts
+	cutoverOptionBySpec := map[int64]salesapp.ProductBOMSpecOption{}
+	for _, option := range catalog.BOMSpecOptions {
+		cutoverOptionBySpec[option.BomSpecID] = option
 	}
-	cutoverProducts, cutoverOptionBySpec := miniEmployeeBOMSpecFilterProducts(form.Products, cutoverOptions)
-	cutoverProducts = salesapp.FilterOrderProductsForDefaultPublications(cutoverProducts, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
 	for index := range cmd.Items {
 		if preserved[index] {
 			continue
