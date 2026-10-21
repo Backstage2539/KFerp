@@ -327,11 +327,12 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		limit, _ := strconv.Atoi(rawLimit)
 		queryText := c.QueryParam("q")
 		result, err := fulfillment.ListCustomerCentralInventory(c.Request().Context(), customerfulfillmentapp.CustomerInventoryListQuery{
-			CustomerID: current.CurrentCustomerID,
-			Q:          queryText,
-			Page:       page,
-			Limit:      limit,
-			LegacyAll:  strings.TrimSpace(queryText) == "" && rawPage == "" && rawLimit == "",
+			CustomerID:       current.CurrentCustomerID,
+			BoundVirtualOnly: true,
+			Q:                queryText,
+			Page:             page,
+			Limit:            limit,
+			LegacyAll:        strings.TrimSpace(queryText) == "" && rawPage == "" && rawLimit == "",
 		})
 		if err != nil {
 			return miniCustomerFulfillmentError(c, err)
@@ -367,7 +368,7 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 			return miniInternalError(c)
 		}
 		rows, err := fulfillment.ListCustomerCentralInventoryBatches(c.Request().Context(), customerfulfillmentapp.CustomerInventoryBatchQuery{
-			CustomerID: current.CurrentCustomerID, ProductID: productID,
+			CustomerID: current.CurrentCustomerID, ProductID: productID, BoundVirtualOnly: true,
 			BomSpecID: bomSpecID, BomVariantID: bomVariantID, SpecG: specG,
 		})
 		if err != nil {
@@ -384,13 +385,23 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if fulfillment == nil {
 			return miniInternalError(c)
 		}
+		provider, ok := fulfillment.(interface {
+			CustomerAssetInventoryScope(context.Context, int64) (customerfulfillmentapp.CustomerInventoryScope, error)
+		})
+		if !ok {
+			return miniInternalError(c)
+		}
+		scope, err := provider.CustomerAssetInventoryScope(c.Request().Context(), current.CurrentCustomerID)
+		if err != nil {
+			return miniCustomerFulfillmentError(c, err)
+		}
 		rows, err := fulfillment.ListCustomerAssetInventory(c.Request().Context(), customerfulfillmentapp.CustomerAssetInventoryQuery{
 			CustomerID: current.CurrentCustomerID, InventoryType: c.QueryParam("type"), Q: c.QueryParam("q"),
 		})
 		if err != nil {
 			return miniCustomerFulfillmentError(c, err)
 		}
-		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows, "inventory_types": scope.InventoryTypes, "warehouses": scope.Warehouses})
 	})
 
 	e.GET("/api/mini/customer-inventory/assets/:inventory_type/:item_id/ledger", func(c echo.Context) error {

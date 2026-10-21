@@ -11,10 +11,9 @@ describe('customer inventory miniapp pages', () => {
     const panel = source('src/components/CustomerInventoryPanel.vue')
 
     expect(panel).toContain('fetchCustomerAssetInventory(props.token, activeType.value, query.value)')
-    expect(panel).toContain("{ key: 'finished_product', label: '成品' }")
-    expect(panel).toContain("{ key: 'green_bean', label: '生豆' }")
-    expect(panel).toContain("{ key: 'packaging', label: '包材' }")
-    expect(panel).toContain("{ key: 'semi_finished', label: '半成品' }")
+    expect(panel).toContain('customerInventoryTypeOptions(authorizedTypes.value, rows.value)')
+    expect(panel).toContain('result.inventory_types')
+    expect(panel).toContain('result.warehouses')
     expect(panel).toContain('搜索名称、编码或规格')
     expect(panel).toContain('@tap.stop="toggleSelection(item)"')
     expect(panel).toContain('带入生产工单')

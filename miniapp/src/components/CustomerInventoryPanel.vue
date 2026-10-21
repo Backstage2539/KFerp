@@ -4,9 +4,10 @@ import {
   fetchCustomerAssetInventory,
   fetchCustomerInventory,
   type CustomerAssetInventory,
+  type CustomerAssetInventoryScopeWarehouse,
 } from '../api/customerPortal'
 import { useProcessingPrefillStore } from '../stores/processingPrefill'
-import { customerInventoryDetailPath } from '../utils/customerInventory'
+import { customerInventoryDetailPath, customerInventoryTypeOptions } from '../utils/customerInventory'
 import { mergeCustomerStockAssets } from '../utils/directShipScenario'
 
 const props = defineProps<{ token: string; customerId: number }>()
@@ -14,6 +15,8 @@ const processingPrefill = useProcessingPrefillStore()
 const loading = ref(false)
 const errorMessage = ref('')
 const rows = ref<CustomerAssetInventory[]>([])
+const authorizedTypes = ref<string[] | undefined>()
+const authorizedWarehouses = ref<CustomerAssetInventoryScopeWarehouse[]>([])
 const queryInput = ref('')
 const query = ref('')
 const activeType = ref('')
@@ -22,13 +25,8 @@ const navigating = ref(false)
 let navigationUnlockTimer: ReturnType<typeof setTimeout> | null = null
 let loadVersion = 0
 
-const typeOptions = [
-  { key: '', label: '全部' },
-  { key: 'finished_product', label: '成品' },
-  { key: 'green_bean', label: '生豆' },
-  { key: 'packaging', label: '包材' },
-  { key: 'semi_finished', label: '半成品' },
-]
+const typeOptions = computed(() => customerInventoryTypeOptions(authorizedTypes.value, rows.value))
+const authorizedWarehouseNames = computed(() => authorizedWarehouses.value.map(row => row.warehouse_name || row.warehouse_code).filter(Boolean).join('、'))
 
 const selectedItems = computed(() => Object.values(selectedByKey.value))
 
@@ -54,17 +52,26 @@ async function load() {
   const version = ++loadVersion
   loading.value = true
   errorMessage.value = ''
+  rows.value = []
   try {
     const [result, stock] = await Promise.all([
       fetchCustomerAssetInventory(props.token, activeType.value, query.value),
       loadCustomerStock(),
     ])
     if (version !== loadVersion) return
-    rows.value = mergeCustomerStockAssets(result.rows || [], stock)
+    authorizedTypes.value = result.inventory_types
+    authorizedWarehouses.value = result.warehouses || []
+    const merged = mergeCustomerStockAssets(result.rows || [], stock)
+    if (activeType.value && !customerInventoryTypeOptions(authorizedTypes.value, merged).some(option => option.key === activeType.value)) {
+      activeType.value = ''; selectedByKey.value = {}; await load(); return
+    }
+    rows.value = authorizedTypes.value === undefined ? merged : merged.filter(row => authorizedTypes.value!.includes(row.inventory_type))
     const visible = new Set(rows.value.map(itemKey))
     selectedByKey.value = Object.fromEntries(Object.entries(selectedByKey.value).filter(([key]) => visible.has(key)))
   } catch (error) {
     if (version !== loadVersion) return
+    selectedByKey.value = {}
+    authorizedTypes.value = []; authorizedWarehouses.value = []
     errorMessage.value = error instanceof Error ? error.message : '客户库存加载失败'
   } finally {
     if (version === loadVersion) loading.value = false
@@ -175,7 +182,9 @@ onBeforeUnmount(() => {
   <view class="workspace">
     <view class="panel">
       <text class="title">我的库存</text>
-      <text class="hint">库存按当前客户货权展示。成品、生豆、包材和半成品分别使用各自单位，生产中数量不计入可用库存。</text>
+      <text class="hint">仅展示当前客户获权仓库及对应库存类别，生产中数量不计入可用库存。</text>
+      <text v-if="authorizedWarehouseNames" class="hint">客户仓库：{{ authorizedWarehouseNames }}</text>
+      <text v-else-if="!loading && !errorMessage && authorizedTypes !== undefined" class="hint">当前客户尚无获权仓库，请联系工厂配置。</text>
 
       <scroll-view class="type-tabs" scroll-x>
         <view class="type-tab-row">

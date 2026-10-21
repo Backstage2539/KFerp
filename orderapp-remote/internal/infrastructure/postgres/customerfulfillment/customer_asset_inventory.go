@@ -2,7 +2,9 @@ package customerfulfillment
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"sort"
 	"strings"
 	"time"
@@ -17,29 +19,36 @@ type customerAssetState struct {
 }
 
 func (r *Repository) ListCustomerAssetInventory(ctx context.Context, query app.CustomerAssetInventoryQuery) ([]app.CustomerAssetInventory, error) {
+	scope, err := r.CustomerAssetInventoryScope(ctx, query.CustomerID)
+	if err != nil {
+		return nil, err
+	}
+	if len(scope.Warehouses) == 0 || query.InventoryType != "" && !customerInventoryScopeAllowsType(scope, query.InventoryType) {
+		return []app.CustomerAssetInventory{}, nil
+	}
+	codes := customerInventoryWarehouseCodes(scope)
 	states := make([]*customerAssetState, 0)
 	if query.InventoryType == "" || query.InventoryType == "finished_product" {
-		finished, err := r.customerFinishedAssetInventory(ctx, query.CustomerID)
+		finished, err := r.customerFinishedAssetInventory(ctx, query.CustomerID, codes)
 		if err != nil {
 			return nil, err
 		}
 		states = append(states, finished...)
 	}
 	if query.InventoryType == "" || query.InventoryType == "green_bean" || query.InventoryType == "packaging" || query.InventoryType == "semi_finished" {
-		materials, err := r.customerMaterialAssetInventory(ctx, query.CustomerID, query.InventoryType)
+		materials, err := r.customerMaterialAssetInventory(ctx, query.CustomerID, query.InventoryType, codes)
 		if err != nil {
 			return nil, err
 		}
 		states = append(states, materials...)
-		legacy, err := r.customerLegacyCustodyAssetInventory(ctx, query.CustomerID, query.InventoryType, states)
-		if err != nil {
-			return nil, err
-		}
-		states = append(states, legacy...)
+
 	}
 	needle := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(query.Q)), ""))
 	out := make([]app.CustomerAssetInventory, 0, len(states))
 	for _, state := range states {
+		if !customerInventoryScopeAllowsType(scope, state.row.InventoryType) {
+			continue
+		}
 		if needle != "" {
 			search := strings.ToLower(strings.Join(strings.Fields(state.row.ItemName+state.row.ItemCode+state.row.Spec), ""))
 			if !strings.Contains(search, needle) {
@@ -66,8 +75,8 @@ func (r *Repository) ListCustomerAssetInventory(ctx context.Context, query app.C
 	return out, nil
 }
 
-func (r *Repository) customerFinishedAssetInventory(ctx context.Context, customerID int64) ([]*customerAssetState, error) {
-	snapshot, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, customerID, false)
+func (r *Repository) customerFinishedAssetInventory(ctx context.Context, customerID int64, codes []string) ([]*customerAssetState, error) {
+	snapshot, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, customerID, false, customerInventoryWarehouseSet(codes))
 	if err != nil {
 		return nil, err
 	}
@@ -92,9 +101,9 @@ func (r *Repository) customerFinishedAssetInventory(ctx context.Context, custome
 			WHERE request.customer_id=$1
 			  AND request.status NOT IN ('completed','cancelled','rejected')
 			  AND i.status NOT IN ('completed','cancelled')
-			  AND i.linked_work_order_id>0
+			  AND i.linked_work_order_id>0 AND i.target_warehouse=ANY($2::text[])
 			GROUP BY i.product_id,COALESCE(i.bom_spec_id,0),i.spec_g
-		`, r.schema, r.schema, r.schema, r.schema), customerID)
+		`, r.schema, r.schema, r.schema, r.schema), customerID, codes)
 		if err != nil {
 			return nil, err
 		}
@@ -160,7 +169,11 @@ func (r *Repository) customerFinishedAssetInventory(ctx context.Context, custome
 	if e != nil {
 		return nil, e
 	}
+	allowed := customerInventoryWarehouseSet(codes)
 	for _, s := range supplies {
+		if !allowed[s.Warehouse] {
+			continue
+		}
 		key := miniStockKey(s.ProductID, s.BomSpecID, s.SpecG)
 		state := byKey[key]
 		if state == nil {
@@ -250,7 +263,7 @@ func (r *Repository) customerFinishedAssetInventory(ctx context.Context, custome
 	return states, nil
 }
 
-func (r *Repository) customerMaterialAssetInventory(ctx context.Context, customerID int64, inventoryType string) ([]*customerAssetState, error) {
+func (r *Repository) customerMaterialAssetInventory(ctx context.Context, customerID int64, inventoryType string, codes []string) ([]*customerAssetState, error) {
 	if !relationExists(ctx, r.pool, fmt.Sprintf("%s.material_batches", r.schema)) || !relationExists(ctx, r.pool, fmt.Sprintf("%s.material_batch_locations", r.schema)) {
 		return []*customerAssetState{}, nil
 	}
@@ -261,9 +274,9 @@ func (r *Repository) customerMaterialAssetInventory(ctx context.Context, custome
 			       SUM(GREATEST(reserved_g-consumed_g-returned_g,0))::bigint,
 			       SUM(GREATEST(reserved_units-consumed_units-returned_units,0))::bigint
 			FROM %s.customer_processing_material_reservations
-			WHERE source_customer_id=$1 AND status='reserved' AND component_type='material'
+			WHERE source_customer_id=$1 AND status='reserved' AND component_type='material' AND source_warehouse_code=ANY($2::text[])
 			GROUP BY material_id
-		`, r.schema), customerID)
+		`, r.schema), customerID, codes)
 		if err != nil {
 			return nil, err
 		}
@@ -289,10 +302,10 @@ func (r *Repository) customerMaterialAssetInventory(ctx context.Context, custome
 		FROM %s.material_batches b
 		JOIN %s.materials m ON m.id=b.material_id AND m.deprecated_at IS NULL
 		JOIN %s.material_batch_locations l ON l.material_batch_id=b.id AND (l.qty_g>0 OR l.qty_units>0)
-		LEFT JOIN %s.warehouses w ON w.code=l.warehouse
+		JOIN %s.warehouses w ON w.code=l.warehouse AND w.customer_id=$1 AND w.is_virtual AND w.active AND w.code=ANY($2::text[])
 		WHERE COALESCE(NULLIF(b.owner_customer_id,0),m.owner_customer_id)=$1
 		ORDER BY m.name,b.received_at DESC,b.id DESC,l.warehouse
-	`, r.schema, r.schema, r.schema, r.schema), customerID)
+	`, r.schema, r.schema, r.schema, r.schema), customerID, codes)
 	if err != nil {
 		return nil, err
 	}
@@ -443,37 +456,50 @@ func (r *Repository) customerLegacyCustodyAssetInventory(ctx context.Context, cu
 }
 
 func (r *Repository) ListCustomerAssetInventoryLedger(ctx context.Context, query app.CustomerAssetInventoryLedgerQuery) ([]app.CustomerAssetInventoryLedgerEntry, error) {
-	if query.InventoryType == "finished_product" {
-		return r.customerFinishedAssetLedger(ctx, query)
+	scope, err := r.CustomerAssetInventoryScope(ctx, query.CustomerID)
+	if err != nil {
+		return nil, err
 	}
-	return r.customerMaterialAssetLedger(ctx, query)
+	if !customerInventoryScopeAllowsType(scope, query.InventoryType) {
+		return []app.CustomerAssetInventoryLedgerEntry{}, nil
+	}
+	codes := customerInventoryWarehouseCodes(scope)
+	if query.InventoryType == "finished_product" {
+		return r.customerFinishedAssetLedger(ctx, query, codes)
+	}
+	return r.customerMaterialAssetLedger(ctx, query, codes)
 }
 
-func (r *Repository) customerMaterialAssetLedger(ctx context.Context, query app.CustomerAssetInventoryLedgerQuery) ([]app.CustomerAssetInventoryLedgerEntry, error) {
+func (r *Repository) customerMaterialAssetLedger(ctx context.Context, query app.CustomerAssetInventoryLedgerQuery, codes []string) ([]app.CustomerAssetInventoryLedgerEntry, error) {
 	unit := "kg"
+	var kind string
+	var semi bool
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(m.unit,''),'kg') FROM %s.materials m
+		SELECT COALESCE(NULLIF(m.unit,''),'kg'),COALESCE(m.kind,''),COALESCE(m.is_semi_finished,false) FROM %s.materials m
 		WHERE m.id=$1 AND (
 		  m.owner_customer_id=$2 OR EXISTS(
 		    SELECT 1 FROM %s.material_batches b WHERE b.material_id=m.id AND b.owner_customer_id=$2
 		  )
 		)
-	`, r.schema, r.schema), query.ItemID, query.CustomerID).Scan(&unit); err != nil {
-		if legacy, legacyErr := r.customerLegacyCustodyLedger(ctx, query); legacyErr == nil && len(legacy) > 0 {
-			return legacy, nil
+	`, r.schema, r.schema), query.ItemID, query.CustomerID).Scan(&unit, &kind, &semi); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []app.CustomerAssetInventoryLedgerEntry{}, nil
 		}
 		return nil, err
+	}
+	if customerMaterialAssetType(kind, semi) != query.InventoryType {
+		return []app.CustomerAssetInventoryLedgerEntry{}, nil
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT l.id,to_char(l.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),
 		       COALESCE(l.source_doc_type,''),COALESCE(l.source_doc_type,''),COALESCE(l.source_doc_id,0),
 		       COALESCE(l.source_batch_code,''),COALESCE(l.warehouse,''),COALESCE(w.name,''),
-		       COALESCE(l.qty_change_g,0),COALESCE(l.qty_change_units,0),COALESCE(l.note,'')
+		       COALESCE(l.qty_change_g,0),COALESCE(l.qty_change_units,0),COALESCE(to_jsonb(l)->>'note','')
 		FROM %s.stock_ledger_entries l
-		LEFT JOIN %s.warehouses w ON w.code=l.warehouse
-		WHERE l.item_type='material' AND l.item_id=$1 AND l.owner_customer_id=$2
+		JOIN %s.warehouses w ON w.code=l.warehouse AND w.customer_id=$2 AND w.is_virtual AND w.active AND w.code=ANY($4::text[])
+		WHERE l.item_type='material' AND l.item_id=$1 AND l.owner_customer_id IN (0,$2)
 		ORDER BY l.created_at DESC,l.id DESC LIMIT $3
-	`, r.schema, r.schema), query.ItemID, query.CustomerID, query.Limit)
+	`, r.schema, r.schema), query.ItemID, query.CustomerID, query.Limit, codes)
 	if err != nil {
 		return nil, err
 	}
@@ -528,19 +554,19 @@ func (r *Repository) customerLegacyCustodyLedger(ctx context.Context, query app.
 	return out, rows.Err()
 }
 
-func (r *Repository) customerFinishedAssetLedger(ctx context.Context, query app.CustomerAssetInventoryLedgerQuery) ([]app.CustomerAssetInventoryLedgerEntry, error) {
+func (r *Repository) customerFinishedAssetLedger(ctx context.Context, query app.CustomerAssetInventoryLedgerQuery, codes []string) ([]app.CustomerAssetInventoryLedgerEntry, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT l.id,to_char(l.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),
 		       COALESCE(l.source_doc_type,''),COALESCE(l.source_doc_type,''),COALESCE(l.source_doc_id,0),
 		       COALESCE(l.source_batch_code,''),COALESCE(l.warehouse,''),COALESCE(w.name,''),
-		       COALESCE(l.qty_change_g,0),COALESCE(l.qty_change_units,0),COALESCE(l.note,'')
+		       COALESCE(l.qty_change_g,0),COALESCE(l.qty_change_units,0),COALESCE(to_jsonb(l)->>'note','')
 		FROM %s.stock_ledger_entries l
-		LEFT JOIN %s.warehouses w ON w.code=l.warehouse
-		WHERE l.item_type='finished_product' AND l.item_id=$1 AND l.owner_customer_id=$2
+		JOIN %s.warehouses w ON w.code=l.warehouse AND w.customer_id=$2 AND w.is_virtual AND w.active AND w.code=ANY($6::text[])
+		WHERE l.item_type='finished_product' AND l.item_id=$1 AND l.owner_customer_id IN (0,$2)
 		  AND ($3::bigint=0 OR l.bom_spec_id=$3)
 		  AND ($4::bigint=0 OR l.spec_g=$4)
 		ORDER BY l.created_at DESC,l.id DESC LIMIT $5
-	`, r.schema, r.schema), query.ItemID, query.CustomerID, query.BomSpecID, query.SpecG, query.Limit)
+	`, r.schema, r.schema), query.ItemID, query.CustomerID, query.BomSpecID, query.SpecG, query.Limit, codes)
 	if err != nil {
 		return nil, err
 	}

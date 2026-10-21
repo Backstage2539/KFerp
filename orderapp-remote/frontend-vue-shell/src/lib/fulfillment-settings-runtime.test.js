@@ -25,6 +25,39 @@ async function editor(name, props = {}, emit = () => {}) {
 }
 const response = value => ({ ok: true, status: 200, json: async () => value })
 
+test('either enabled dropship scene locks automatic product ordering on', async () => {
+  for (const mode of ['stock', 'on_demand', null]) {
+    const View = await view('CustomerFulfillmentSettings')
+    const setup = View.setup
+    View.setup = (props, ctx) => {
+      const vm = setup(props, ctx)
+      vm.loaded.value = true
+      for (const row of vm.form.value.modes) row.enabled = row.mode === mode
+      return vm
+    }
+    const html = await renderToString(createSSRApp(View, { customerId: 147 }))
+    if (mode) {
+      assert.match(html, /商品下单已自动开启/)
+      assert.match(html, /<input[^>]*type="checkbox"[^>]*checked[^>]*disabled/)
+      assert.match(html, /不能单独关闭/)
+    } else assert.doesNotMatch(html, /商品下单已自动开启/)
+  }
+})
+
+test('successful fulfillment save notifies capability summary without resetting outer portal draft', async () => {
+  const original = globalThis.fetch
+  const events = []
+  globalThis.fetch = async () => response({ customer_id: 147, revision: 2, modes: [{ mode: 'on_demand', enabled: true, fee_configured: true, fixed_fee_cents: 0, per_package_fee_cents: 0, shipping_free: true }] })
+  try {
+    const vm = await editor('CustomerFulfillmentSettings', { customerId: 147 }, (...args) => events.push(args))
+    Object.assign(vm.form.value.modes[1], { enabled: true, shipping_free: true, fixed_fee: '0', per_package_fee: '0', surcharge: '0' })
+    await vm.save()
+    assert.equal(events[0]?.[0], 'settings-changed')
+    assert.equal(events[0][1].customerId, 147)
+    assert.equal(events[0][1].modes.find(row => row.mode === 'on_demand').enabled, true)
+  } finally { globalThis.fetch = original }
+})
+
 test('enabled dropship card alone renders freight, warehouse and fees without ordinary shipping editor', async () => {
   const View = await view('CustomerFulfillmentSettings')
   const setup = View.setup

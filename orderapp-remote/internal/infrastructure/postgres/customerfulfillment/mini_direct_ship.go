@@ -679,7 +679,11 @@ func miniDirectShipFulfillmentPreview(stockAllocations []miniPlannedAllocation, 
 	return preview
 }
 
-func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDirectShipQuerier, customerID int64, lock bool) (miniStockSnapshot, error) {
+func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDirectShipQuerier, customerID int64, lock bool, warehouseScope ...map[string]bool) (miniStockSnapshot, error) {
+	var allowed map[string]bool
+	if len(warehouseScope) > 0 {
+		allowed = warehouseScope[0]
+	}
 	if !relationExists(ctx, q, fmt.Sprintf("%s.warehouses", r.schema)) || !relationExists(ctx, q, fmt.Sprintf("%s.finished_inventory", r.schema)) {
 		return miniStockSnapshot{Inventory: []miniFinishedInventoryRow{}, Batches: []miniFinishedBatchRow{}, Candidates: []miniStockCandidate{}}, nil
 	}
@@ -719,6 +723,9 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 		if err := rows.Scan(&row.ProductID, &row.BomSpecID, &row.BomVariantID, &row.ProductName, &row.ParentProductID, &row.SKUCode, &row.BomSpecKey, &row.BomSpecName, &row.InventoryUnit, &row.IsDefaultSpec, &row.SpecG, &row.Warehouse, &row.WarehouseName, &units, &looseG, &row.UpdatedAt); err != nil {
 			rows.Close()
 			return miniStockSnapshot{}, err
+		}
+		if allowed != nil && !allowed[row.Warehouse] {
+			continue
 		}
 		row.TotalQty = units
 		if row.BomSpecID <= 0 && row.SpecG > 0 {
@@ -768,6 +775,15 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 	batches, err := r.loadMiniFinishedBatches(ctx, q, customerID, batchReservations, lock)
 	if err != nil {
 		return miniStockSnapshot{}, err
+	}
+	if allowed != nil {
+		kept := batches[:0]
+		for _, batch := range batches {
+			if allowed[batch.Warehouse] {
+				kept = append(kept, batch)
+			}
+		}
+		batches = kept
 	}
 	remainingByWarehouse := map[string]int64{}
 	for _, batch := range batches {
@@ -1179,6 +1195,20 @@ func (r *Repository) resolveMiniDirectShipItems(ctx context.Context, q miniDirec
 }
 
 func (r *Repository) CustomerOrderPriceTables(ctx context.Context, customerID int64, usageCode string) ([]app.MiniDirectShipPriceTable, error) {
+	out, err := r.BoundCustomerOrderPriceTables(ctx, customerID, usageCode)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		if strings.TrimSpace(usageCode) == "direct_ship" {
+			return nil, fmt.Errorf("一件代发尚未在商品价格表中指定价格表")
+		}
+		return nil, fmt.Errorf("商品下单尚未在商品价格表中指定价格表")
+	}
+	return out, nil
+}
+
+func (r *Repository) BoundCustomerOrderPriceTables(ctx context.Context, customerID int64, usageCode string) ([]app.MiniDirectShipPriceTable, error) {
 	if customerID <= 0 {
 		return nil, fmt.Errorf("customer required")
 	}
@@ -1213,12 +1243,6 @@ func (r *Repository) CustomerOrderPriceTables(ctx context.Context, customerID in
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-	if len(out) == 0 {
-		if usageCode == "direct_ship" {
-			return nil, fmt.Errorf("一件代发尚未在商品价格表中指定价格表")
-		}
-		return nil, fmt.Errorf("商品下单尚未在商品价格表中指定价格表")
 	}
 	return out, nil
 }
@@ -2483,7 +2507,10 @@ func (r *Repository) ListCustomerCentralInventory(ctx context.Context, customerI
 	return r.listCustomerCentralInventory(ctx, customerID, "")
 }
 func (r *Repository) listCustomerCentralInventory(ctx context.Context, customerID int64, warehouse string) ([]app.CustomerInventorySummary, error) {
-	snapshot, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, customerID, false)
+	return r.listCustomerCentralInventoryScoped(ctx, customerID, warehouse, nil)
+}
+func (r *Repository) listCustomerCentralInventoryScoped(ctx context.Context, customerID int64, warehouse string, allowed map[string]bool) ([]app.CustomerInventorySummary, error) {
+	snapshot, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, customerID, false, allowed)
 	if err != nil {
 		return nil, err
 	}
@@ -2534,6 +2561,9 @@ func (r *Repository) listCustomerCentralInventory(ctx context.Context, customerI
 		return nil, e
 	}
 	for _, supply := range supplies {
+		if allowed != nil && !allowed[supply.Warehouse] {
+			continue
+		}
 		key := miniStockKey(supply.ProductID, supply.BomSpecID, supply.SpecG)
 		current := byKey[key]
 		if current == nil {
@@ -2569,7 +2599,18 @@ func (r *Repository) listCustomerCentralInventory(ctx context.Context, customerI
 }
 
 func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, query app.CustomerInventoryBatchQuery) ([]app.CustomerInventoryBatch, error) {
-	snapshot, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, query.CustomerID, false)
+	var allowed map[string]bool
+	if query.BoundVirtualOnly {
+		scope, err := r.CustomerAssetInventoryScope(ctx, query.CustomerID)
+		if err != nil {
+			return nil, err
+		}
+		if !customerInventoryScopeAllowsType(scope, "finished_product") {
+			return []app.CustomerInventoryBatch{}, nil
+		}
+		allowed = customerInventoryWarehouseSet(customerInventoryWarehouseCodes(scope))
+	}
+	snapshot, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, query.CustomerID, false, allowed)
 	if err != nil {
 		return nil, err
 	}

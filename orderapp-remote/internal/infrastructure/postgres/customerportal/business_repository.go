@@ -2154,12 +2154,13 @@ func (r Repository) listDirectShipBatches(ctx context.Context, customerID int64,
 
 func (r Repository) listInventory(ctx context.Context, customerID int64, limit int) ([]customerportalapp.InventoryItem, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, item_type, item_id, item_name, spec_g, warehouse, qty_g, qty_units, status, note, to_char(updated_at,'YYYY-MM-DD HH24:MI')
-		FROM %s.customer_inventory_items
-		WHERE customer_id=$1
-		ORDER BY item_type, item_name, warehouse, id
+		SELECT i.id, i.item_type, i.item_id, i.item_name, i.spec_g, i.warehouse, i.qty_g, i.qty_units, i.status, i.note, to_char(i.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.customer_inventory_items i
+		JOIN %s.warehouses w ON w.code=i.warehouse AND w.customer_id=$1 AND w.is_virtual AND w.active
+		WHERE i.customer_id=$1
+		ORDER BY i.item_type, i.item_name, i.warehouse, i.id
 		LIMIT $2
-	`, r.schema), customerID, limit)
+	`, r.schema, r.schema), customerID, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -89,6 +89,7 @@
 
         <div class="rule-group capability-group">
           <div class="group-title">客户能力开关</div>
+          <p>客户开启库存代发或无库存代发后，商品下单会自动开启，不能通过模板单独关闭。</p>
           <div class="capability-grid">
             <label v-for="item in capabilityDefinitions" :key="`${editor.form.key}-${item.code}`" class="capability-row">
               <input v-model="capabilityOf(editor, item.code).enabled" type="checkbox" />
