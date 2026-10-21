@@ -5951,7 +5951,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-710-FULFILLMENT-VIRTUAL-WAREHOUSES
 - Branch: codex/fulfillment-virtual-warehouses-20261021; base origin/develop 5b838315.
 - Owner/session: Codex / 2026-10-21.
-- Status: delivered to development 2059307c; automated/local UI/runtime/migration checks passed; Van business acceptance pending.
+- Status: delivered to development 2059307c and production main 867fe68c; automated/local UI/runtime/migration checks passed; Van business acceptance pending.
 - Scope: independent dropship scene cards, atomic shipping/warehouse/service-fee save, ordinary sale policy in business logistics settings, customer-bound virtual warehouse management drawer and guarded CRUD.
 - DEV: DEV-819-ATOMIC-FULFILLMENT; DEV-820-VIRTUAL-WAREHOUSES; DEV-821-FULFILLMENT-UI; DEV-822-FULFILLMENT-DELIVERY.
 - Verifier: TDD RED/GREEN application/HTTP/isolated PostgreSQL tests; Vue behavior/runtime and build; local desktop/mobile drawer checks; source manuals and development technical smoke.
@@ -5959,3 +5959,5 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development runtime 2059307c38968c88bc1da8936d42a3a979543d63; feature342758cd pushed and verified before integration. Source backup /opt/stacks/erp/orderapp.backup.deploy-20261021224657-2059307c3896; rollback image retained. Vue1472/mini393/type/build/fullGo/isolated PostgreSQL and read-only runtime checks passed. Warehouses20/finished_inventory34 hashes unchanged;14 customer warehouses classified virtual;30 reference guards. Production image/start unchanged; Van business acceptance remains separate.
 - Notes: scripts/reserve_req_id.sh identified PR-710; reserved here before implementation. Existing customer warehouses retain codes, balances and historical links; virtual parent is display-only.
 - Production authorization: Van requested main integration and production deployment on 2026-10-21; merged release gates/backup and read-only migration checks apply. Production business acceptance and WeChat upload/publication remain separate.
+
+- PR-710 production receipt (2026-10-21): main 867fe68c6266d56a668848281960fd4379571222 pushed and deployed via locked production flow. Vue1472/mini393/type/build/24pages/host+image Go passed; authenticated new API reads, permissions, manuals and health passed. Production warehouses10 and finished_inventory3 baseline hashes unchanged;1 historical customer warehouse classified virtual;30 reference guards. Source/image rollback deploy-20261021230954-867fe68c6266 and verified DB backup pr710-before-production-20261021230607.sql.gz retained. Development image/start unchanged. No real customer business writes or WeChat upload/publication. Final receipt is documentation-only.
