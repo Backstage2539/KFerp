@@ -644,7 +644,7 @@ export type CustomerFulfillmentSettings = {
   revision: number
   modes: Array<{ mode: FulfillmentMode; enabled: boolean; warehouse_code?: string; fixed_fee_cents: number; per_package_fee_cents: number; fee_configured: boolean; shipping_template_id: number }>
 }
-export type FreightSnapshot = {service_fee_cents?:number;service_due_cents?:number;billing_status?:string;actual_cost_cents?:number|null;billed_cents?:number;protocol:string;status:string;estimate_known:boolean;estimated_total_cents:number;surcharge_cents:number;waiver_cents:number;current_receivable_cents:number;token:string;cost_pending_reason?:string;estimate:{base_cents:number;chargeable_weight_g:number};policy:{free_shipping:boolean}}
+export type FreightSnapshot = {edit_token?:string;charge_mode?:string;manual_amount_cents?:number|null;edit_locked?:boolean;destination?:import("../utils/orderFreight").FreightDestination;carrier_id?:number;logistics_product_id?:number;service_fee_cents?:number;service_due_cents?:number;billing_status?:string;actual_cost_cents?:number|null;billed_cents?:number;protocol:string;status:string;estimate_known:boolean;estimated_total_cents:number;surcharge_cents:number;waiver_cents:number;current_receivable_cents:number;token:string;cost_pending_reason?:string;estimate:{base_cents:number;chargeable_weight_g:number};policy:{free_shipping:boolean}}
 export type FulfillmentFeeQuote = {
  freight?:FreightSnapshot
   fulfillment_mode: FulfillmentMode
@@ -1265,13 +1265,15 @@ export type EmployeeOrderDraftItem = {
 }
 
 export type EmployeeOrderDraftPayload = {
+ freight_state?:import("../utils/orderFreight").FreightState
+ expected_freight_token?:string
  freight_destination?:string[]
  freight_protocol?:string
  freight_quote_token?:string
  shipping_province?:string
  shipping_city?:string
  shipping_district?:string
- freight_override?:{surcharge_cents:number;free_shipping:boolean;reason:string}
+ freight_override?:{manual_amount_cents?:number;surcharge_cents?:number;free_shipping?:boolean;reason?:string}
 
   selected_price_table_ids?: number[]
   prepayment_amount?: number
@@ -2323,3 +2325,6 @@ export function fetchEmployeeSpecConversions(token:string,customerID:number,prod
 export function quoteEmployeeSpecConversion(token:string,data:SpecConversionQuoteRequest):Promise<SpecConversionQuote> { return miniRequest('/api/mini/employee/spec-conversions/quote',{token,method:'POST',data}) }
 
 export function previewEmployeeFreight(token:string,payload:Record<string,unknown>):Promise<FreightSnapshot>{return miniRequest<FreightSnapshot>('/api/mini/employee/freight-preview',{token,method:'POST',data:payload})}
+
+export function resolveEmployeeShippingDestination(token:string,address:string){return miniRequest<{status:string;destination:import('../utils/orderFreight').FreightDestination;candidates:import('../utils/orderFreight').FreightDestination[]}>('/api/mini/employee/shipping-destination/resolve',{token,method:'POST',data:{address}})}
+export function fetchEmployeeFreightRegions(token:string){return miniRequest<{regions:import('../utils/orderFreight').FreightRegion[]}>('/api/mini/shipping-regions',{token})}

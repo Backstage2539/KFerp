@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import EmployeeFreightEstimate from '../../components/EmployeeFreightEstimate.vue'
+import {emptyFreightState,freightStateFromOrder} from '../../utils/orderFreight'
+import type {FreightSnapshot} from '../../api/customerPortal'
 import { isFreeSampleOrder } from '../../utils/sampleSettlement'
 function isFrozenConversion(item: EmployeeOrderDraftItem) { return ['converted_tier','bom_tier'].includes(item.price_selection_mode || '') && item.spec_conversion?.reprice === false && isEditMode.value }
 import { priceTableGroups, priceTableLabel, replaceSelectedPriceTable, type PriceTableGroup } from '../../utils/priceTables'
@@ -142,6 +144,7 @@ function createOrderForm(): EmployeeOrderDraftPayload {
     receiver_phone: '',
     receiver_address: '',
     receiver_company: '',
+    freight_state:emptyFreightState(),
     shipping_amount: 0,
     discount_amount: 0,
     notes: '',
@@ -150,6 +153,7 @@ function createOrderForm(): EmployeeOrderDraftPayload {
 }
 
 const form = ref<EmployeeOrderDraftPayload>(createOrderForm())
+const orderFreight=ref<FreightSnapshot|undefined>()
 const freightEstimator=ref<InstanceType<typeof EmployeeFreightEstimate>|null>(null)
 const freightItems=computed(()=>form.value.items.filter(i=>Number(i.product_id)>0&&Number(i.qty)>0).map(i=>({product_id:Number(i.product_id),bom_spec_id:Number(i.bom_spec_id||0),bom_variant_id:Number(i.bom_variant_id||0),qty:Number(i.qty)})))
 
@@ -724,6 +728,8 @@ async function loadForm() {
           items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder, editingSampleOrder.value),
         }
       }
+      orderFreight.value=isCopyMode.value?undefined:detail.freight
+      form.value.freight_state=freightStateFromOrder(detail)
       shippingBaseline.value = customer ? customerShippingDefaults(customer) : currentShippingSnapshot()
       applyDefaultOptions()
     }
@@ -877,7 +883,7 @@ async function submit() {
       notes: form.value.notes,
       items: buildEmployeeOrderItemsPayload(form.value.items),
     }
-    if (!isEditMode.value) {const q=await freightEstimator.value?.preview();if(!q)throw new Error('请完善收件地区和运费配置后重试');Object.assign(payload,freightEstimator.value?.payload())}
+    if (!orderFreight.value?.edit_locked) {const q=await freightEstimator.value?.preview();if(!q)throw new Error('请完善收件地区和运费配置后重试');Object.assign(payload,freightEstimator.value?.payload())}
     if (isEditMode.value) {
       await updateEmployeeOrder(session.token, editOrderID.value, {
         ...payload,
@@ -1068,12 +1074,8 @@ onShow(() => { void refreshMiniappShareMenu() })
         <text class="order-total-value">¥{{ orderItemsTotal.toFixed(2) }}</text>
       </view>
 
-      <EmployeeFreightEstimate v-model:destination="form.freight_destination" v-if="!isEditMode" ref="freightEstimator" :token="session.token" :customer-id="form.customer_id" :items="freightItems" />
+      <EmployeeFreightEstimate v-model="form.freight_state" ref="freightEstimator" :token="session.token" :customer-id="form.customer_id" :items="freightItems" :address="form.receiver_address" :order-id="isEditMode?editOrderID:0" :expected-token="orderFreight?.edit_token??orderFreight?.token??''" :locked="!!orderFreight?.edit_locked" :stored-quote="orderFreight" @amount-change="form.shipping_amount=$event" />
       <view class="fee-editor-grid">
-        <view>
-          <text class="label">{{isEditMode?'原订单运费（元）':'运费待出账（本次不收）'}}</text>
-          <input :disabled="!isEditMode" v-model="form.shipping_amount" type="digit" class="field" placeholder="0.00" />
-        </view>
         <view>
           <text class="label">优惠（元）</text>
           <input v-model="form.discount_amount" type="digit" class="field" placeholder="0.00" />

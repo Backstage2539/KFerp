@@ -1445,6 +1445,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 	}
+	if cmd.EditID > 0 {
+		if err = freightpg.LockOrderFreight(ctx, tx); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
 	if cmd.CustomerRequestID != "" {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("customer-order:%d:%s", cmd.CustomerID, cmd.CustomerRequestID)); err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -2335,7 +2340,50 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if err := tx.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", r.schema+".order_freight_snapshots").Scan(&freightAvailable); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
-	if freightAvailable && cmd.EditID == 0 && cmd.FulfillmentMode == "" && cmd.DeliveryMode != "customer_stock" {
+	if freightAvailable && cmd.FreightProtocol == freightdomain.OrderProtocol && cmd.FulfillmentMode == "" && cmd.DeliveryMode != "customer_stock" {
+		if cmd.CustomerSubmission {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("客户不能调整本单运费")
+		}
+		fr := freightpg.NewRepository(r.pool, r.schema)
+		weightItems := make([]freightpg.WeightItem, 0, len(items))
+		for _, i := range items {
+			if i.productID == nil {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("商品无效")
+			}
+			weightItems = append(weightItems, freightpg.WeightItem{ProductID: *i.productID, BomSpecID: i.bomSpecID, BomVariantID: i.bomVariantID, Qty: i.units})
+		}
+		q, e := fr.QuoteOrderTx(ctx, tx, cmd.CustomerID, cmd.EditID, cmd.ExpectedFreightToken, freightdomain.Destination{Province: cmd.ShippingProvince, City: cmd.ShippingCity, District: cmd.ShippingDistrict}, weightItems, cmd.FreightOverride)
+		if e != nil {
+			return salesapp.SaveOrderResult{}, e
+		}
+		if q.Token != cmd.FreightQuoteToken || cmd.FreightQuoteToken == "" {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("运费已变化，请重新核算")
+		}
+		if math.Abs(cmd.ShippingAmount-float64(q.CurrentReceivableCents)/100) > 0.00001 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("本单运费与报价不一致")
+		}
+		if cmd.PaymentShippingAmount > float64(q.CurrentReceivableCents)/100+0.00001 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("实收运费超过本单运费，请核对收款分配")
+		}
+		if q.ChargeMode != "manual_current" && cmd.PaymentShippingAmount != 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("自动预估或包邮不计入本次运费实收")
+		}
+		if cmd.EditID > 0 {
+			old, e := fr.SnapshotTx(ctx, tx, cmd.EditID)
+			if e != nil {
+				return salesapp.SaveOrderResult{}, e
+			}
+			if old != nil && freightdomain.EquivalentOrderQuote(*old, q) {
+				q = *old
+			}
+		}
+		freightSnapshot = &q
+		shippingAmt = float64(q.CurrentReceivableCents) / 100
+		if q.CarrierID > 0 {
+			cmd.LogisticsCompanyID = q.CarrierID
+			cmd.LogisticsProductID = q.ProductID
+		}
+	} else if freightAvailable && cmd.EditID == 0 && cmd.FulfillmentMode == "" && cmd.DeliveryMode != "customer_stock" {
 		if cmd.FreightProtocol != freightdomain.Protocol {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("请更新客户端并确认运费待实际账单出账")
 		}
@@ -2398,6 +2446,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
 	grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
+	if cmd.EditID > 0 && freightSnapshot != nil {
+		if e := protectFreightReceiptsTx(ctx, tx, r.schema, cmd.EditID, &cmd, shippingAmt, grandTotal); e != nil {
+			return salesapp.SaveOrderResult{}, e
+		}
+	}
 	// 默认付款状态：未选择时自动写入“已付款”（兼容“已收款”命名）。
 	payStatusID := cmd.PayStatusID
 	if payStatusID == 0 {

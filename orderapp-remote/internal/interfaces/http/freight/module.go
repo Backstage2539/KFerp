@@ -27,6 +27,36 @@ type Quoter interface {
 
 func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, quoter Quoter) {
 	r := repo.NewRepository(pool, schema)
+	e.GET("/api/order/freight/regions", func(c echo.Context) error {
+		return c.JSON(200, map[string]any{"version": domain.RegionVersion, "regions": domain.Regions()})
+	})
+	e.POST("/api/order/shipping-destination/resolve", func(c echo.Context) error {
+		var req struct {
+			Address string `json:"address"`
+		}
+		if e := c.Bind(&req); e != nil || len(req.Address) > 16384 {
+			return c.JSON(400, map[string]string{"error": "地址格式无效"})
+		}
+		return c.JSON(200, domain.ResolveAddress(req.Address))
+	})
+	e.POST("/api/order/freight/preview", func(c echo.Context) error {
+		var req struct {
+			app.FulfillmentFeeQuoteCommand
+			CustomerID int64 `json:"customer_id"`
+		}
+		if e := c.Bind(&req); e != nil {
+			return c.JSON(400, map[string]string{"error": "请求格式无效"})
+		}
+		req.FulfillmentFeeQuoteCommand.CustomerID = req.CustomerID
+		req.FulfillmentMode = "sale"
+		req.EmployeeAdjustment = true
+		out, e := quoter.QuoteFulfillmentFees(c.Request().Context(), req.FulfillmentFeeQuoteCommand)
+		if e != nil {
+			return c.JSON(400, map[string]string{"error": e.Error()})
+		}
+		return c.JSON(200, out.Freight)
+	})
+
 	fail := func(c echo.Context, err error) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}

@@ -35,6 +35,7 @@ type CreateOrderRequest struct {
 	ResponsibleID                   int64                   `form:"responsible_id"`
 	Notes                           string                  `form:"notes"`
 	FreightProtocol                 string                  `form:"freight_protocol"`
+	ExpectedFreightToken            string                  `form:"expected_freight_token"`
 	FreightQuoteToken               string                  `form:"freight_quote_token"`
 	ShippingProvince                string                  `form:"shipping_province"`
 	ShippingCity                    string                  `form:"shipping_city"`
