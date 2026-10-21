@@ -103,7 +103,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		ResponsibleID:         req.ResponsibleID,
 		Notes:                 req.Notes,
 		ShippingAmount:        shippingAmount,
-		FreightOverride:       req.FreightOverride, FreightProtocol: req.FreightProtocol, FreightQuoteToken: req.FreightQuoteToken, ShippingProvince: req.ShippingProvince, ShippingCity: req.ShippingCity, ShippingDistrict: req.ShippingDistrict,
+		ExpectedFreightToken:  req.ExpectedFreightToken, FreightOverride: req.FreightOverride, FreightProtocol: req.FreightProtocol, FreightQuoteToken: req.FreightQuoteToken, ShippingProvince: req.ShippingProvince, ShippingCity: req.ShippingCity, ShippingDistrict: req.ShippingDistrict,
 		DiscountAmount:                  discountAmount,
 		RoundToInt:                      strings.TrimSpace(req.RoundToInt) != "",
 		ExpressFee:                      req.ExpressFee,

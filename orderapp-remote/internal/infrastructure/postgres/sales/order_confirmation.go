@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	salesapp "orderapp/internal/application/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	freightpg "orderapp/internal/infrastructure/postgres/freight"
 	"strings"
 )
 
@@ -73,8 +74,9 @@ func ensureOrderConfirmationSchema(ctx context.Context, pool *pgxpool.Pool, sche
 }
 
 type orderContentSnapshot struct {
-	Order json.RawMessage `json:"order"`
-	Items json.RawMessage `json:"items"`
+	Freight json.RawMessage `json:"freight,omitempty"`
+	Order   json.RawMessage `json:"order"`
+	Items   json.RawMessage `json:"items"`
 }
 
 func orderConfirmationRequestQuery(schema string) string {
@@ -101,12 +103,30 @@ func preserveCustomerOrderFinance(cmd *salesapp.SaveOrderCommand, raw json.RawMe
 func orderContentSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (orderContentSnapshot, error) {
 	var s orderContentSnapshot
 	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT jsonb_object_agg(key,value) FROM jsonb_each(to_jsonb(o)) WHERE key NOT LIKE 'confirmation_%%'), COALESCE((SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM %[1]s.order_items i WHERE i.order_id=o.id),'[]') FROM %[1]s.orders o WHERE o.id=$1`, schema), id).Scan(&s.Order, &s.Items)
+	if err == nil {
+		var exists bool
+		err = tx.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", schema+".order_freight_snapshots").Scan(&exists)
+		if err == nil && exists {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT snapshot_json FROM %s.order_freight_snapshots WHERE order_id=$1),'null'::jsonb)`, schema), id).Scan(&s.Freight)
+		}
+	}
 	return s, err
 }
 
 // Apply only business fields from a server-created snapshot. Identity, lifecycle
 // and confirmation metadata stay on the same locked order.
 func applyOrderContentSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, id int64, s orderContentSnapshot) error {
+	if len(s.Freight) > 0 {
+		if string(s.Freight) == "null" {
+			if _, e := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.order_freight_snapshots WHERE order_id=$1`, schema), id); e != nil {
+				return e
+			}
+		} else {
+			if _, e := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_freight_snapshots(order_id,customer_id,snapshot_json,created_by) VALUES($1,($2::jsonb->'policy'->>'customer_id')::bigint,$2,'confirmation_restore') ON CONFLICT(order_id) DO UPDATE SET snapshot_json=EXCLUDED.snapshot_json,customer_id=EXCLUDED.customer_id`, schema), id, s.Freight); e != nil {
+				return e
+			}
+		}
+	}
 	var fields []string
 	rows, err := tx.Query(ctx, `SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name='orders' AND column_name NOT LIKE 'confirmation_%' AND column_name NOT IN ('id','order_no','created_at','updated_at','is_void','voided_at','void_reason','customer_request_id','customer_request_hash') ORDER BY ordinal_position`, schema)
 	if err != nil {
@@ -178,7 +198,7 @@ func (r Repository) stageOrderConfirmationTx(ctx context.Context, tx pgx.Tx, id 
 		base["grand_total"] = float64(0)
 		base["total_amount"] = float64(0)
 		rawBase, _ := json.Marshal(base)
-		if err = applyOrderContentSnapshotTx(ctx, tx, r.schema, id, orderContentSnapshot{Order: rawBase, Items: json.RawMessage(`[]`)}); err != nil {
+		if err = applyOrderContentSnapshotTx(ctx, tx, r.schema, id, orderContentSnapshot{Order: rawBase, Items: json.RawMessage(`[]`), Freight: json.RawMessage(`null`)}); err != nil {
 			return err
 		}
 	}
@@ -228,6 +248,10 @@ func (r Repository) ReviewOrder(ctx context.Context, cmd salesapp.ReviewOrderCom
 		return salesapp.OrderConfirmation{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err = freightpg.LockOrderFreight(ctx, tx); err != nil {
+		return salesapp.OrderConfirmation{}, err
+	}
+
 	var pending []byte
 	var status string
 	var revision, accepted, owner int64
@@ -256,6 +280,21 @@ func (r Repository) ReviewOrder(ctx context.Context, cmd salesapp.ReviewOrderCom
 		var content orderContentSnapshot
 		if err = json.Unmarshal(pending, &content); err != nil {
 			return salesapp.OrderConfirmation{}, err
+		}
+		if len(content.Freight) > 0 {
+			current, e := freightpg.NewRepository(r.pool, r.schema).SnapshotTx(ctx, tx, cmd.OrderID)
+			if e != nil {
+				return salesapp.OrderConfirmation{}, e
+			}
+			var pendingFreight struct {
+				Token string `json:"token"`
+			}
+			_ = json.Unmarshal(content.Freight, &pendingFreight)
+			if current == nil && pendingFreight.Token != "" || current != nil && current.Token != pendingFreight.Token {
+				if e = freightpg.NewRepository(r.pool, r.schema).EditableTx(ctx, tx, cmd.OrderID); e != nil {
+					return salesapp.OrderConfirmation{}, e
+				}
+			}
 		}
 		if err = r.validateConfirmationContentTx(ctx, tx, content); err != nil {
 			return salesapp.OrderConfirmation{}, err

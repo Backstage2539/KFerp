@@ -204,6 +204,10 @@ func authorizeCustomerFinanceRead(c echo.Context, authz AuthzService) error {
 }
 
 func requiredPermissionForRequest(method, path string) string {
+	if strings.HasPrefix(path, "/api/order/freight/") || path == "/api/order/shipping-destination/resolve" {
+		return "orders.write"
+	}
+
 	path = strings.TrimSpace(path)
 	if !strings.HasPrefix(path, "/api/") {
 		return ""

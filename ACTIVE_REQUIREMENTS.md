@@ -5917,3 +5917,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: Go order-copy unit/HTTP GREEN; Vue1436; mini371/typecheck/production build; Vue build; diff check. PostgreSQL integration blocked by socket denial; full Go blocked only by httptest listener denial in two packages.
 - Manual/evidence: docs/acceptance/2026-10-20-order-copy-recipient.md; five PR-701 manuals and Vue order help synchronized.
 - Deployment: develop -> main complete. Production deployment script reached SSH and failed before remote writes (port 22: Operation not permitted). DevTools GUI loaded /tmp/kferp-miniapp-production-20261020/KFerp-miniapp-mp-weixin (production API; code 00a1ff25), with guest homepage rendered and no console errors. Production backend still requires deployment.
+
+### PR-709-ORDER-FREIGHT-V2
+- Branch: codex/order-freight-v2-20261021
+- Status: TDD implementation in progress; production and package explicitly authorized.
+- Scope: employee ERP/miniapp auto address freight, direct fixed freight/free switch, editable unbilled orders and cost-only import.
+- DEV: DEV-816 quote/accounting; DEV-817 address and two clients; DEV-818 regression/manual/release.
+- Verifier: domain/API/real PostgreSQL RED-GREEN; Vue/miniapp runtime tests, typecheck/build, browser interaction, production read-only smoke/package hashes.
+- Deployment: pending; no WeChat upload/publication.

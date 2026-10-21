@@ -257,6 +257,7 @@ type miniEmployeeOrderItemRequest struct {
 
 type miniEmployeeOrderRequest struct {
 	FreightProtocol       string                         `json:"freight_protocol"`
+	ExpectedFreightToken  string                         `json:"expected_freight_token"`
 	FreightQuoteToken     string                         `json:"freight_quote_token"`
 	ShippingProvince      string                         `json:"shipping_province"`
 	ShippingCity          string                         `json:"shipping_city"`
@@ -675,7 +676,7 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 		PrepaymentAmount: req.PrepaymentAmount,
 		PayStatusID:      req.PayStatusID, PaymentMethod: strings.TrimSpace(req.PaymentMethod),
 		ShipStatusID: req.ShipStatusID, ShipMethod: strings.TrimSpace(req.ShipMethod), ShipTrackingNo: strings.TrimSpace(req.ShipTrackingNo),
-		FreightProtocol: req.FreightProtocol, FreightQuoteToken: req.FreightQuoteToken, ShippingProvince: req.ShippingProvince, ShippingCity: req.ShippingCity, ShippingDistrict: req.ShippingDistrict, FreightOverride: req.FreightOverride,
+		ExpectedFreightToken: req.ExpectedFreightToken, FreightProtocol: req.FreightProtocol, FreightQuoteToken: req.FreightQuoteToken, ShippingProvince: req.ShippingProvince, ShippingCity: req.ShippingCity, ShippingDistrict: req.ShippingDistrict, FreightOverride: req.FreightOverride,
 		ShippingAmount: req.ShippingAmount, DiscountAmount: req.DiscountAmount,
 		ReceiverName: strings.TrimSpace(req.ReceiverName), ReceiverPhone: strings.TrimSpace(req.ReceiverPhone),
 		ReceiverAddress: strings.TrimSpace(req.ReceiverAddress), ReceiverCompany: strings.TrimSpace(req.ReceiverCompany),

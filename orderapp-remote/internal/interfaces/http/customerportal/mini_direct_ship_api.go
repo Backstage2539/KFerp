@@ -46,6 +46,18 @@ type MiniOrderPriceTablePreviewer interface {
 }
 
 func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment) {
+	e.POST("/api/mini/employee/shipping-destination/resolve", func(c echo.Context) error {
+		if _, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write"); err != nil {
+			return miniEmployeeAuthError(c, err)
+		}
+		var req struct {
+			Address string `json:"address"`
+		}
+		if err := c.Bind(&req); err != nil || len(req.Address) > 16384 {
+			return c.JSON(400, map[string]string{"error": "地址格式无效"})
+		}
+		return c.JSON(200, freightdomain.ResolveAddress(req.Address))
+	})
 	e.GET("/api/mini/shipping-regions", func(c echo.Context) error {
 		_, err := portal.Me(c.Request().Context(), miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization)))
 		if err != nil {
