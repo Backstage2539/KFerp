@@ -19,7 +19,7 @@ export function priceTableGroups(options: PriceTableOption[] = []): PriceTableGr
   const groups = new Map<string, PriceTableGroup>()
   for (const row of options) {
     const id = Number(row.classification_template_id || row.product_type_category_id || 0)
-    const key = id ? `classification:${id}` : `legacy:${row.list_type}`
+    const key = id ? `classification:${id}` : `legacy:${row.list_type === 'retail' ? 'commercial' : row.list_type}`
     if (!groups.has(key)) groups.set(key, { key, label: row.classification_template_name || row.product_type_name || (row.list_type === 'green' ? '生豆' : '商品'), options: [] })
     groups.get(key)!.options.push(row)
   }

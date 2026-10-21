@@ -98,92 +98,39 @@ func FilterOrderProductsForCustomer(products []ProductOption, customerID int64, 
 	return out
 }
 
-// FilterOrderProductsForDefaultPublications is the authoritative mini-program
-// catalog. It keeps only current default, published price-list versions,
-// removes historical tiers, and excludes products/specifications with no
-// current sellable price.
-func FilterOrderProductsForDefaultPublications(products []ProductOption, customerID int64, versionOptions []BeanListVersionOption, publicUsages []CustomerPublicUsageOption, retailOrders ...bool) []ProductOption {
-	retailOrder := len(retailOrders) > 0 && retailOrders[0]
-	defaults := make([]BeanListVersionOption, 0, len(versionOptions))
-	defaultByID := make(map[int64]BeanListVersionOption, len(versionOptions))
-	for _, option := range versionOptions {
-		if option.CustomerID == customerID && option.ID > 0 && option.IsDefault {
-			defaults = append(defaults, option)
-			defaultByID[option.ID] = option
+// FilterOrderProductsForDefaultPublications trims the shared staff catalog to
+// publications marked selected by the resolver. Customer/order types do not
+// reroute it. The optional boolean remains only for old callers.
+func FilterOrderProductsForDefaultPublications(products []ProductOption, customerID int64, versionOptions []BeanListVersionOption, publicUsages []CustomerPublicUsageOption, _ ...bool) []ProductOption {
+	selected := map[int64]BeanListVersionOption{}
+	for _, table := range versionOptions {
+		if table.CustomerID == customerID && table.ID > 0 && table.IsDefault {
+			selected[table.ID] = table
 		}
 	}
-	allowedByType := orderStrictPublicationIDsByListType(customerID, defaults, false)
-	ownedByType := orderStrictPublicationIDsByListType(customerID, defaults, true)
-	allowsPublicProducts := orderCustomerAllowsPublicProducts(customerID, publicUsages)
-	// Customer visibility is shared with ERP, while the strict publication
-	// trimming below is order-type aware (retail orders use retail prices for
-	// ordinary products).
 	visible := FilterOrderProductsForCustomer(products, customerID, nil)
+	allowsPublic := orderCustomerAllowsPublicProducts(customerID, publicUsages)
 	out := make([]ProductOption, 0, len(visible))
 	for _, product := range visible {
-		listType := ""
-		tiers := []ProductTierOption(nil)
-		for _, candidateListType := range orderStrictProductListTypesForOrder(product.ProductKind, retailOrder) {
-			allowed := allowedByType[candidateListType]
-			if len(allowed) == 0 {
+		tiers := []ProductTierOption{}
+		for _, tier := range product.Tiers {
+			id, _ := orderTierPublicationIdentity(tier)
+			table, ok := selected[id]
+			if !ok {
 				continue
 			}
-			candidateTiers := make([]ProductTierOption, 0, len(product.Tiers))
-			for _, tier := range product.Tiers {
-				publicationID, tierListType := orderTierPublicationIdentity(tier)
-				if publicationID <= 0 || !allowed[publicationID] {
-					continue
-				}
-				if tierListType != "" && orderNormalizeStrictListType(tierListType) != candidateListType {
-					continue
-				}
-				candidateTiers = append(candidateTiers, orderCanonicalTierPublicationMetadata(tier, publicationID, candidateListType, defaultByID[publicationID]))
+			if product.Visibility == "public" && !allowsPublic && !table.IsCustomerOwned {
+				continue
 			}
-			if len(candidateTiers) > 0 {
-				listType = candidateListType
-				tiers = candidateTiers
-				break
-			}
+			tiers = append(tiers, orderCanonicalTierPublicationMetadata(tier, id, table.ListType, table))
 		}
 		if len(tiers) == 0 {
 			continue
-		}
-		if product.Visibility == "public" && customerID > 0 && !allowsPublicProducts {
-			owned := ownedByType[listType]
-			hasOwnedTier := false
-			for _, tier := range tiers {
-				publicationID, _ := orderTierPublicationIdentity(tier)
-				if owned[publicationID] {
-					hasOwnedTier = true
-					break
-				}
-			}
-			if !hasOwnedTier {
-				continue
-			}
 		}
 		product.Tiers = tiers
 		out = append(out, product)
 	}
 	return out
-}
-
-func orderStrictProductListTypesForOrder(productKind string, retailOrder bool) []string {
-	switch strings.TrimSpace(productKind) {
-	case "green_bean":
-		return []string{"green"}
-	case "drip_bag":
-		primary := "commercial"
-		if retailOrder {
-			primary = "retail"
-		}
-		return []string{primary, "drip"}
-	default:
-		if retailOrder {
-			return []string{"retail"}
-		}
-		return []string{"commercial"}
-	}
 }
 
 func orderCanonicalTierPublicationMetadata(tier ProductTierOption, publicationID int64, listType string, option BeanListVersionOption) ProductTierOption {

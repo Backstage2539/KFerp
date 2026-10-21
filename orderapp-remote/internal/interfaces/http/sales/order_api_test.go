@@ -6075,6 +6075,11 @@ CREATE TABLE %s.order_items (
 	unit_bean_g NUMERIC(12,3) NOT NULL DEFAULT 0,
 	matched_price_qty NUMERIC(14,3) NOT NULL DEFAULT 0,
 	price_source_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	material_unit_weight_g NUMERIC(20,6),
+	material_item_weight_g NUMERIC(20,6),
+	logistics_unit_weight_g NUMERIC(20,6),
+	logistics_item_weight_g NUMERIC(20,6),
+	weight_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	line_total NUMERIC NOT NULL DEFAULT 0
 );
 CREATE TABLE %s.order_stock_decisions (

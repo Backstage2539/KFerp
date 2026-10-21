@@ -2,6 +2,26 @@ package sales
 
 import "testing"
 
+func TestSameCategoryOffersCommercialAndRetailTablesWithoutCustomerTypeRouting(t *testing.T) {
+	options := []BeanListVersionOption{
+		{ID: 10, CustomerID: 0, ClassificationTemplateID: 56, ListType: "commercial", ReleaseID: "wholesale", TableKey: "bag", IsDefault: true, IsDefaultTable: true},
+		{ID: 11, CustomerID: 0, ClassificationTemplateID: 56, ListType: "commercial", ReleaseID: "wholesale", TableKey: "box"},
+		{ID: 12, CustomerID: 0, ClassificationTemplateID: 56, ListType: "retail", ReleaseID: "retail", TableKey: "retail", IsDefault: true, IsDefaultTable: true},
+	}
+	choices := CurrentOrderPriceTableOptions(options, 487)
+	if len(choices) != 3 {
+		t.Fatalf("manual retail/wholesale choices lost: %+v", choices)
+	}
+	defaults, err := ResolveOrderPriceTableSelection(options, 487, nil, true)
+	if err != nil || len(defaults) != 1 || defaults[0].ID != 10 {
+		t.Fatalf("neutral default=%+v err=%v", defaults, err)
+	}
+	selected, err := ResolveOrderPriceTableSelection(options, 487, []int64{12}, true)
+	if err != nil || len(selected) != 1 || selected[0].ID != 12 {
+		t.Fatalf("manual retail selection=%+v err=%v", selected, err)
+	}
+}
+
 func namedOrderTableOptions() []BeanListVersionOption {
 	return []BeanListVersionOption{
 		{ID: 1, CustomerID: 42, ListType: "commercial", ClassificationTemplateID: 10, ReleaseID: "old", TableKey: "a", TableName: "227g", IsDefaultTable: true},

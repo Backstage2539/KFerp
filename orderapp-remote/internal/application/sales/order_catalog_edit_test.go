@@ -24,7 +24,7 @@ func TestFilterOrderProductsForDefaultPublicationsIsStrictAndTrimsHistoricalTier
 	}
 }
 
-func TestFilterOrderProductsForDefaultPublicationsUsesRetailPriceTableForRetailOrders(t *testing.T) {
+func TestFilterOrderProductsForDefaultPublicationsUsesManuallySelectedRetailTable(t *testing.T) {
 	products := []ProductOption{{
 		ID: 551, Visibility: "public", ProductKind: "roasted_bean",
 		Tiers: []ProductTierOption{
@@ -33,7 +33,7 @@ func TestFilterOrderProductsForDefaultPublicationsUsesRetailPriceTableForRetailO
 		},
 	}}
 	options := []BeanListVersionOption{
-		{CustomerID: 8, ListType: "commercial", ID: 901, IsDefault: true},
+		{CustomerID: 8, ListType: "commercial", ID: 901, IsDefault: false},
 		{CustomerID: 8, ListType: "retail", ID: 902, IsDefault: true},
 	}
 	got := FilterOrderProductsForDefaultPublications(products, 8, options, nil, true)
@@ -42,27 +42,16 @@ func TestFilterOrderProductsForDefaultPublicationsUsesRetailPriceTableForRetailO
 	}
 }
 
-func TestFilterOrderProductsForDefaultPublicationsPrefersGeneralDripSKUPriceTables(t *testing.T) {
-	products := []ProductOption{{
-		ID: 711, Visibility: "public", ProductKind: "drip_bag",
-		Tiers: []ProductTierOption{
-			{ID: 11, PublicationID: 901, ListType: "commercial", UnitPrice: 3.2, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`},
-			{ID: 12, PublicationID: 902, ListType: "retail", UnitPrice: 3.8, PriceSourceJSON: `{"publication_id":902,"list_type":"retail"}`},
-			{ID: 13, PublicationID: 903, ListType: "drip", UnitPrice: 2.9, PriceSourceJSON: `{"publication_id":903,"list_type":"drip"}`},
-		},
-	}}
-	options := []BeanListVersionOption{
-		{CustomerID: 8, ListType: "commercial", ID: 901, IsDefault: true},
-		{CustomerID: 8, ListType: "retail", ID: 902, IsDefault: true},
-		{CustomerID: 8, ListType: "drip", ID: 903, IsDefault: true},
-	}
-	commercial := FilterOrderProductsForDefaultPublications(products, 8, options, nil)
-	if len(commercial) != 1 || len(commercial[0].Tiers) != 1 || commercial[0].Tiers[0].PublicationID != 901 || commercial[0].Tiers[0].ListType != "commercial" {
-		t.Fatalf("commercial drip SKU catalog=%+v", commercial)
-	}
-	retail := FilterOrderProductsForDefaultPublications(products, 8, options, nil, true)
-	if len(retail) != 1 || len(retail[0].Tiers) != 1 || retail[0].Tiers[0].PublicationID != 902 || retail[0].Tiers[0].ListType != "retail" {
-		t.Fatalf("retail drip SKU catalog=%+v", retail)
+func TestFilterOrderProductsForDefaultPublicationsUsesOnlyTheManuallyChosenDripTable(t *testing.T) {
+	products := []ProductOption{{ID: 711, Visibility: "public", ProductKind: "drip_bag", Tiers: []ProductTierOption{{PublicationID: 901, ListType: "commercial", UnitPrice: 3.2}, {PublicationID: 902, ListType: "retail", UnitPrice: 3.8}, {PublicationID: 903, ListType: "drip", UnitPrice: 2.9}}}}
+	for _, id := range []int64{901, 902, 903} {
+		options := []BeanListVersionOption{{CustomerID: 8, ID: id, IsDefault: true}}
+		for _, retail := range []bool{false, true} {
+			got := FilterOrderProductsForDefaultPublications(products, 8, options, nil, retail)
+			if len(got) != 1 || len(got[0].Tiers) != 1 || got[0].Tiers[0].PublicationID != id {
+				t.Fatalf("id=%d retail=%t catalog=%+v", id, retail, got)
+			}
+		}
 	}
 }
 

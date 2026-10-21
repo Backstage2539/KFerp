@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-707-PUBLISHED-ORDER-CATALOG-CONSISTENCY", title: "已发布价格表到录单目录的跨端一致性", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-21-published-order-catalog-consistency.md"},
+		{table: "req_dev", code: "DEV-810-PUBLICATION-CATALOG-AUTHORITY", title: "PR-707 所选发布表驱动统一目录与规格报价", status: "done", assignee: "Codex", evidence: "sales/order_catalog.go; order_catalog_consistency_test.go"},
+		{table: "req_dev", code: "DEV-811-CLIENT-CATALOG-CONSISTENCY", title: "PR-707 ERP/员工小程序共享目录与发布分类", status: "done", assignee: "Codex", evidence: "mini_employee_catalog_consistency_test.go; order_catalog_api_test.go"},
+		{table: "req_dev", code: "DEV-812-PUBLISH-ORDER-REGRESSION-DELIVERY", title: "PR-707 发布录单回归、手册与开发交付", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-21-published-order-catalog-consistency.md"},
 		{table: "req_product", code: "PR-668-PR667-COMPLETE-UI-FLOW", title: "补齐客户代加工八界面与生产预订入库发货完整流程", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-09-16-pr667-complete-ui-flow.md"},
 		{table: "req_dev", code: "DEV-694-SHARED-PROCESSING-DETAIL", title: "统一生产申请时间线状态数量及订单入库批次追溯", status: "done", assignee: "Codex", evidence: "processing_request_status_test.go; customer-processing-trace.test.js"},
 		{table: "req_dev", code: "DEV-695-ERP-CUSTOMER-PROCESSING-UI", title: "商品完整配置与客户申请待计划需求界面", status: "done", assignee: "Codex", evidence: "ProductSettingsView.vue; CustomerProcessingPortalView.vue; ProducePlanView.vue"},
