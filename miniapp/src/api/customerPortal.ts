@@ -1,7 +1,7 @@
 import type { OrderWeightSnapshot } from '../utils/orderWeights'
 import type { RegistrationProfile } from './registration'
 import type { PriceTableOption } from '../utils/priceTables'
-import { miniRequest } from './client'
+import { miniRequest, miniUpload } from './client'
 import type { Capability } from '../utils/capabilities'
 import type { MallOrderPayload, MallProduct } from '../utils/mall'
 import type { ServiceKey } from '../utils/servicePage'
@@ -1609,6 +1609,27 @@ export type EmployeeOrderDetailResponse = {
   documents?: EmployeeOrderDocuments
   can_edit?: boolean
   edit_block_reason?: string
+  can_update_status?: boolean
+  status_update_block_reason?: string
+  can_update_ship_status?: boolean
+  ship_status_update_block_reason?: string
+  status_options?: EmployeeOrderStatusOptions
+}
+
+export type EmployeeOrderStatusOptions = {
+  pay_statuses: Array<{ id: number; name: string }>
+  ship_statuses: Array<{ id: number; name: string }>
+}
+
+export type EmployeeOrderStatusPayload = {
+  edit_revision: string
+  pay_status_id: number
+  ship_status_id: number
+  payment_method: string
+  prepayment_amount?: number
+  payment_goods_amount?: number
+  payment_shipping_amount?: number
+  payment_voucher_asset_id?: number
 }
 
 export type EmployeeOrderDocumentGenerateResponse = EmployeeOrderDocumentAsset & {
@@ -1704,6 +1725,18 @@ export function updateEmployeeOrder(
   data: Record<string, unknown>,
 ): Promise<{ order_id: number; order_no: string }> {
   return miniRequest(buildEmployeeOrderUpdatePath(orderID), { method: 'PUT', token, data })
+}
+
+export function updateEmployeeOrderStatus(
+  token: string,
+  orderID: number,
+  data: EmployeeOrderStatusPayload,
+): Promise<{ order_id: number; order_no: string }> {
+  return miniRequest(`${buildEmployeeOrderDetailPath(orderID)}/status`, { method: 'PUT', token, data })
+}
+
+export function uploadEmployeeOrderPaymentVoucher(token: string, orderID: number, filePath: string): Promise<{ asset: EmployeeOrderAsset }> {
+  return miniUpload(`${buildEmployeeOrderDetailPath(orderID)}/payment-voucher`, filePath, token)
 }
 
 export function fetchEmployeeCustomers(token: string, query: EmployeeCustomerListQuery = {}): Promise<EmployeeCustomersResponse> {

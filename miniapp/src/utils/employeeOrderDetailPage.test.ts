@@ -60,6 +60,20 @@ describe('employee order detail miniapp page contract', () => {
     expect(detailSource.match(/class="section document-section"/g)).toHaveLength(1)
   })
 
+  it('places editable order status first and keeps status permission independent of whole-order editing', () => {
+    const statusSection = detailSource.indexOf('<view class="section status-section">')
+    const documentSection = detailSource.indexOf('<view class="section document-section">')
+    expect(statusSection).toBeGreaterThan(-1)
+    expect(statusSection).toBeLessThan(documentSection)
+    expect(detailSource.match(/>订单状态<\/text>/g)).toHaveLength(1)
+    expect(detailSource).toContain('response.can_update_status')
+    expect(detailSource).toContain('response.can_update_ship_status')
+    expect(detailSource).toContain('v-if="canUpdateStatus && !statusEditing"')
+    expect(detailSource).toContain('@tap="startStatusEdit"')
+    expect(detailSource).toContain(':disabled="statusSaving"')
+    expect(detailSource).toContain('updateEmployeeOrderStatus(session.token, orderID.value, payload)')
+  })
+
   it('refreshes on show and exposes a valid edit action only when the backend allows it', () => {
     expect(detailSource).toMatch(/import \{[^}]*onLoad[^}]*onShow[^}]*\} from '@dcloudio\/uni-app'/)
     expect(detailSource).toContain('onShow(() => void loadDetail())')
