@@ -1158,6 +1158,10 @@ func seedMiniDirectShipStock(t *testing.T, pool *pgxpool.Pool, schema string) {
 	if _, err := pool.Exec(ctx, q); err != nil {
 		t.Fatalf("seed direct ship stock: %v", err)
 	}
+	// Production startup migrates all customer-bound warehouses into the virtual classification.
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.warehouses SET is_virtual=true WHERE customer_id>0`, schema)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertMiniDirectShipCount(t *testing.T, pool *pgxpool.Pool, schema, table, where string, want int64) {

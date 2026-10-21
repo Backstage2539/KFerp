@@ -31,6 +31,18 @@ export type CustomerInventorySelection = Record<string, CustomerInventorySummary
 
 type CustomerInventoryIdentity = Pick<CustomerInventorySummary, 'product_id' | 'spec_g' | 'bom_spec_id' | 'bom_variant_id' | 'inventory_unit'>
 
+const inventoryTypeOptions = [
+  { key: 'finished_product', label: '成品' },
+  { key: 'green_bean', label: '生豆' },
+  { key: 'packaging', label: '包材' },
+  { key: 'semi_finished', label: '半成品' },
+]
+
+export function customerInventoryTypeOptions(types: readonly string[] | undefined, rows: Array<{ inventory_type: string }> = []): Array<{ key: string; label: string }> {
+  const available = new Set(types === undefined ? rows.map(row => row.inventory_type) : types)
+  return [{ key: '', label: '全部' }, ...inventoryTypeOptions.filter(option => available.has(option.key))]
+}
+
 export function customerInventoryItemKey(item: CustomerInventoryIdentity): string {
   const bomSpecID = Number(item.bom_spec_id || 0)
   if (bomSpecID > 0) {

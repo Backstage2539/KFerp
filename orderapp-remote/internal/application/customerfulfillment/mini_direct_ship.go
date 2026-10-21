@@ -253,6 +253,12 @@ type MiniCustomerOrderPriceTableRepository interface {
 	CustomerOrderPriceTables(context.Context, int64, string) ([]MiniDirectShipPriceTable, error)
 }
 
+// Inventory-backed shipments do not require a sale price, but their catalog
+// should still report any explicitly bound, valid price-list metadata.
+type MiniCustomerOrderPriceTableCatalogRepository interface {
+	BoundCustomerOrderPriceTables(context.Context, int64, string) ([]MiniDirectShipPriceTable, error)
+}
+
 type MiniDirectShipListQuery struct {
 	CustomerID  int64
 	Q           string
@@ -293,11 +299,12 @@ type CustomerInventorySummary struct {
 }
 
 type CustomerInventoryListQuery struct {
-	CustomerID int64
-	Q          string
-	Page       int
-	Limit      int
-	LegacyAll  bool
+	BoundVirtualOnly bool
+	CustomerID       int64
+	Q                string
+	Page             int
+	Limit            int
+	LegacyAll        bool
 }
 
 type CustomerInventoryListResult struct {
@@ -345,11 +352,12 @@ type CustomerInventoryRelatedOrder struct {
 }
 
 type CustomerInventoryBatchQuery struct {
-	CustomerID   int64
-	ProductID    int64
-	BomSpecID    int64
-	BomVariantID int64
-	SpecG        int64
+	BoundVirtualOnly bool
+	CustomerID       int64
+	ProductID        int64
+	BomSpecID        int64
+	BomVariantID     int64
+	SpecG            int64
 }
 
 type CustomerAssetWarehouseBalance struct {
@@ -508,6 +516,16 @@ func (s *Service) MiniDirectShipCatalog(ctx context.Context, query MiniDirectShi
 	}
 	if query.FulfillmentMode == "stock" {
 		catalog, e := repo.MiniDirectShipCatalog(ctx, query)
+		if e != nil {
+			return MiniDirectShipCatalog{}, e
+		}
+		catalog.PriceTables = []MiniDirectShipPriceTable{}
+		if bindings, ok := repo.(MiniCustomerOrderPriceTableCatalogRepository); ok {
+			catalog.PriceTables, e = bindings.BoundCustomerOrderPriceTables(ctx, query.CustomerID, "direct_ship")
+			if e != nil {
+				return MiniDirectShipCatalog{}, e
+			}
+		}
 		catalog.FulfillmentSettings = settings
 		catalog.FulfillmentMode = "stock"
 		if settings != nil {
@@ -1168,7 +1186,16 @@ func (s *Service) ListCustomerCentralInventory(ctx context.Context, query Custom
 	if err != nil {
 		return CustomerInventoryListResult{}, err
 	}
-	rows, err := repo.ListCustomerCentralInventory(ctx, query.CustomerID)
+	var rows []CustomerInventorySummary
+	if query.BoundVirtualOnly {
+		bound, ok := repo.(CustomerBoundInventoryRepository)
+		if !ok {
+			return CustomerInventoryListResult{}, fmt.Errorf("customer inventory scope unavailable")
+		}
+		rows, err = bound.ListCustomerBoundVirtualInventory(ctx, query.CustomerID)
+	} else {
+		rows, err = repo.ListCustomerCentralInventory(ctx, query.CustomerID)
+	}
 	if err != nil {
 		return CustomerInventoryListResult{}, err
 	}

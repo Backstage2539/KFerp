@@ -856,6 +856,18 @@ export type CustomerAssetWarehouseBalance = {
   in_production_qty: number
 }
 
+export type CustomerAssetInventoryScopeWarehouse = {
+  warehouse_code: string
+  warehouse_name: string
+  kind: string
+}
+
+export type CustomerAssetInventoryResponse = {
+  rows: CustomerAssetInventory[]
+  inventory_types?: Array<CustomerAssetInventory['inventory_type']>
+  warehouses?: CustomerAssetInventoryScopeWarehouse[]
+}
+
 export type CustomerAssetInventoryBatch = {
   batch_id: number
   batch_no: string
@@ -2187,8 +2199,8 @@ export function fetchCustomerInventoryBatches(
   return miniRequest<{ rows: CustomerInventoryBatch[] }>(buildCustomerInventoryBatchesPath(productID, identity), { token })
 }
 
-export function fetchCustomerAssetInventory(token: string, inventoryType = '', q = ''): Promise<{ rows: CustomerAssetInventory[] }> {
-  return miniRequest<{ rows: CustomerAssetInventory[] }>(buildCustomerAssetInventoryPath(inventoryType, q), { token })
+export function fetchCustomerAssetInventory(token: string, inventoryType = '', q = ''): Promise<CustomerAssetInventoryResponse> {
+  return miniRequest<CustomerAssetInventoryResponse>(buildCustomerAssetInventoryPath(inventoryType, q), { token })
 }
 
 export function fetchCustomerAssetInventoryLedger(token: string, item: CustomerAssetInventory): Promise<{ rows: CustomerAssetInventoryLedgerEntry[] }> {

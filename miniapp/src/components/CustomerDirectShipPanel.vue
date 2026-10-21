@@ -37,7 +37,7 @@ import {
   normalizeDirectShipDateRange,
   type DirectShipDatePreset,
 } from '../utils/directShipFilters'
-import { filterRecipientAddresses, recipientAddressSummary, tierQuantityLabel } from '../utils/customerOrderEntry'
+import { customerOrderCatalogError, customerPriceTableEmptyMessage, filterRecipientAddresses, recipientAddressSummary, tierQuantityLabel } from '../utils/customerOrderEntry'
 import ProductFamilyPickerSheet from './ProductFamilyPickerSheet.vue'
 import { enabledDirectShipModes, initialDirectShipMode, purchaseDeliveryMode, stockItemKey, stockOverviewRows, stockTopupFromCatalog } from '../utils/directShipScenario'
 import { useCustomerOrderQuote } from '../composables/useCustomerOrderQuote'
@@ -52,6 +52,8 @@ const submitting = ref(false)
 const openingStockPurchase = ref(false)
 const errorMessage = ref('')
 const catalog = ref<DirectShipCatalog>({ current_customer_id: 0, product_families: [] })
+const catalogLoaded = ref(false)
+const catalogLoadError = ref('')
 const requests = ref<DirectShipRequest[]>([])
 const recipientAddresses = ref<CustomerRecipientAddress[]>([])
 const selectedRecipient = ref<CustomerOrderRecipient | null>(null)
@@ -96,6 +98,7 @@ const availableFulfillmentModes = computed(() => enabledDirectShipModes(catalog.
 const activeFulfillmentSetting = computed(() => catalog.value.fulfillment_settings?.modes.find(row => row.mode === fulfillmentMode.value))
 const purchaseWarehouse = computed(() => deliveryWarehouseCode.value || catalog.value.fulfillment_settings?.modes.find(row => row.mode === 'stock' && row.enabled)?.warehouse_code || '')
 const stockScenario = computed(() => !isProductOrder.value && fulfillmentMode.value === 'stock')
+const priceTableEmptyMessage = computed(() => customerPriceTableEmptyMessage({ loaded: catalogLoaded.value, loading: loading.value, failed: Boolean(catalogLoadError.value), error: catalogLoadError.value, stock: stockScenario.value }))
 const showSupplyPreview = computed(() => showDirectShipSupplyPreview({ fulfillmentMode: fulfillmentMode.value, isProductOrder: isProductOrder.value, retainedPurchase: retainedPurchase.value }))
 const serviceFee = computed(() => Number(preview.value?.fees?.service_fee_cents || 0) / 100)
 const shippingFee = computed(() => Number(preview.value?.fees?.shipping_fee_cents || 0) / 100)
@@ -179,6 +182,7 @@ function consumeReturnedRecipient(event?: RecipientEvent) {
 async function load() {
   if (props.showCreate) return quoteFlow.refresh(async current => {
     loading.value = true
+    catalogLoaded.value = false; catalogLoadError.value = ''
     try {
       let [value, addressData] = await Promise.all([
         isProductOrder.value ? fetchProductOrderCatalog(props.token) : fetchDirectShipCatalog(props.token, props.entryMode || fulfillmentMode.value || undefined),
@@ -196,6 +200,7 @@ async function load() {
         }
       }
       catalog.value = value
+      catalogLoaded.value = true
       if (isProductOrder.value) {
         deliveryMode.value = props.stockPurchase ? 'customer_stock' : purchaseDeliveryMode(value.fulfillment_settings)
         deliveryWarehouseCode.value = value.fulfillment_settings?.modes.find(row => row.mode === 'stock' && row.enabled)?.warehouse_code || ''
@@ -204,6 +209,9 @@ async function load() {
       recipientAddresses.value = addressData.rows || []
       const defaultAddress = recipientAddresses.value.find(row => row.is_default)
       if (!retainedPurchase.value && defaultAddress && !selectedRecipient.value) selectedRecipient.value = { ...defaultAddress }
+    } catch (error) {
+      if (current()) catalogLoadError.value = customerOrderCatalogError(error, isProductOrder.value)
+      throw new Error(customerOrderCatalogError(error, isProductOrder.value))
     } finally {
       if (current()) loading.value = false
     }
@@ -467,9 +475,9 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
         <view class="field-head"><text class="field-label">收件客户</text><text class="manage-link" @tap="openRecipientEditor(Number(selectedRecipient?.id || 0))">维护发货地址簿</text></view>
         <view class="selector-field recipient-field" @tap="openRecipientSelector"><text :class="{ muted: !selectedRecipientSummary }">{{ selectedRecipientSummary || '搜索并选择收件客户 *' }}</text><text class="chevron">›</text></view>
       </view>
-      <view v-if="!stockScenario" class="price-table-card">
-        <view class="price-table-copy"><text class="field-label">当前价格表</text><text v-for="table in catalog.price_tables || []" :key="table.id" class="muted">{{ priceTableLabel(table) }}</text><text v-if="!catalog.price_tables?.length" class="muted">ERP 尚未绑定可用价格表</text></view>
-        <button class="text-button" @tap="openPriceTablePreview">查看价格表</button>
+      <view v-if="!stockScenario || (catalogLoaded && catalog.price_tables?.length)" class="price-table-card">
+        <view class="price-table-copy"><text class="field-label">当前价格表</text><template v-if="catalogLoaded"><text v-for="table in catalog.price_tables || []" :key="table.id" class="muted">{{ priceTableLabel(table) }}</text></template><text v-if="!catalogLoaded || !catalog.price_tables?.length" class="muted">{{ priceTableEmptyMessage }}</text><text v-if="stockScenario" class="muted">库存代发不重复收取商品货款</text></view>
+        <button class="text-button" :disabled="loading || !catalogLoaded || !catalog.price_tables?.length" @tap="openPriceTablePreview">查看价格表</button>
       </view>
 
       <view class="section-head"><text class="subtitle">商品明细</text><text class="muted">价格由 ERP 自动计算</text></view>

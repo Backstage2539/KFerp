@@ -6,6 +6,10 @@
     <div v-if="message" class="ok" role="status">{{ message }}</div>
     <span v-if="loading">正在加载履约设置…</span>
     <template v-else-if="loaded">
+      <div v-if="form.modes.some(row => row.enabled)" class="automatic-ordering">
+        <label class="toggle"><input type="checkbox" checked disabled />商品下单已自动开启</label>
+        <p class="hint">库存代发或无库存代发开启期间，商品下单不能单独关闭；价格仍按客户已绑定的商品下单价格表核对。</p>
+      </div>
       <fieldset v-for="mode in form.modes" :key="mode.mode" :disabled="saving">
         <legend><label class="toggle"><input v-model="mode.enabled" type="checkbox" /> {{ mode.mode === 'stock' ? '库存代发' : '无库存代发' }}</label></legend>
         <template v-if="mode.enabled">
@@ -40,7 +44,7 @@ import VirtualWarehouseDrawer from './VirtualWarehouseDrawer.vue'
 import { apiGet, apiSend } from '../api/client'
 import { fulfillmentSettingsForm, fulfillmentSettingsPayload, customerFinishedWarehouses } from '../lib/fulfillment-settings'
 const props = defineProps({ customerId: { type: Number, required: true } })
-const emit = defineEmits(['warehouses-changed'])
+const emit = defineEmits(['warehouses-changed', 'settings-changed'])
 const form = ref(fulfillmentSettingsForm()), warehouses = ref([]), templates = ref([]), error = ref(''), message = ref(''), loading = ref(false), saving = ref(false), loaded = ref(false), warehouseDrawerOpen = ref(false)
 let sequence = 0
 watch(() => props.customerId, () => { sequence++; loaded.value = false; warehouseDrawerOpen.value = false; error.value = ''; message.value = ''; form.value = fulfillmentSettingsForm(); warehouses.value = [] })
@@ -52,6 +56,7 @@ async function load() {
     const results = await Promise.all([apiGet(`/api/customer-fulfillment/${customerID}/settings`), apiGet(`/api/stock/warehouses?customer_id=${customerID}`)])
     if (request !== sequence || customerID !== props.customerId) return
     form.value = fulfillmentSettingsForm(results[0]); warehouses.value = customerFinishedWarehouses(results[1].rows, customerID); templates.value = results[0].shipping_templates || []; loaded.value = true
+    emit('settings-changed', { customerId: customerID, modes: results[0].modes || [] })
   } catch (err) { if (request === sequence) error.value = err.message || '履约设置加载失败' }
   finally { if (request === sequence) loading.value = false }
 }
@@ -75,6 +80,7 @@ async function save() {
     const data = await apiSend(`/api/customer-fulfillment/${customerID}/settings`, { method: 'PUT', body: fulfillmentSettingsPayload(form.value) })
     if (request !== sequence || customerID !== props.customerId) return
     form.value = fulfillmentSettingsForm(data); message.value = '此客户全部履约设置已保存'
+    emit('settings-changed', { customerId: customerID, modes: data.modes || [] })
   } catch (err) { if (request === sequence && customerID === props.customerId) error.value = err.message || '履约设置保存失败' }
   finally { saving.value = false }
 }

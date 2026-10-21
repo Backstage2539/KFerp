@@ -1415,6 +1415,7 @@ func (s *Service) Me(ctx context.Context, token string) (CurrentContext, error) 
 				return CurrentContext{}, err
 			}
 		}
+		current.Capabilities = ApplyFulfillmentCapabilityDependencies(current.Capabilities, current.FulfillmentModes)
 	}
 	return normalizeCurrentContext(current), nil
 }

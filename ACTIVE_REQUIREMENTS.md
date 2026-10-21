@@ -5961,3 +5961,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Production authorization: Van requested main integration and production deployment on 2026-10-21; merged release gates/backup and read-only migration checks apply. Production business acceptance and WeChat upload/publication remain separate.
 
 - PR-710 production receipt (2026-10-21): main 867fe68c6266d56a668848281960fd4379571222 pushed and deployed via locked production flow. Vue1472/mini393/type/build/24pages/host+image Go passed; authenticated new API reads, permissions, manuals and health passed. Production warehouses10 and finished_inventory3 baseline hashes unchanged;1 historical customer warehouse classified virtual;30 reference guards. Source/image rollback deploy-20261021230954-867fe68c6266 and verified DB backup pr710-before-production-20261021230607.sql.gz retained. Development image/start unchanged. No real customer business writes or WeChat upload/publication. Final receipt is documentation-only.
+
+### PR-711-MINIAPP-CUSTOMER-CATALOG-INVENTORY
+- Branch: codex/miniapp-customer-catalog-inventory-20261021; baseline origin/develop 7277f43e.
+- Owner/session: Codex / 2026-10-21.
+- Status: implementation/automated verification/independent review complete; production integration pending; business acceptance separate.
+- Scope: resolve bound current price tables in customer dropship/product ordering and restrict my-inventory categories/warehouses to current customer authorization, including empty virtual warehouses.
+- DEV: DEV-823-MINI-CATALOG; DEV-824-MINI-INVENTORY-SCOPE; DEV-825-MINI-SCOPE-DELIVERY; DEV-826-DROPSHIP-PRODUCT-ORDER.
+- Verifier: targeted unit/API/isolated PostgreSQL RED-GREEN; miniapp tests/type/build; observed production DevTools and read-only production checks; manuals.
+- Deployment: this thread owns production delivery; production business data remains read-only during diagnosis.
+- Evidence: docs/acceptance/2026-10-21-miniapp-customer-catalog-inventory.md.
+
+- PR-711 clarified rule: Van requires automatic, non-disableable product_order while either stock/on_demand mode enabled; all modes off restore ordinary configured capability. No per-customer production permission patch or shared template change.
+
+- PR-711 GREEN: fullGo without DB; real PostgreSQL catalog/capability/scope/API; two independent backend reviews; Vue1478/build and mini401/typecheck/production build. Summary refresh race repaired with actual component RED/GREEN; portal draft preserved.
