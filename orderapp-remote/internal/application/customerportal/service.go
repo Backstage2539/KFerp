@@ -2530,6 +2530,24 @@ func (s *Service) PortalAdminDetail(ctx context.Context, customerID int64) (Port
 		detail.Capabilities = cloneCapabilityOptions(template.Capabilities)
 	}
 	detail.Capabilities = completeCapabilityOptions(detail.Capabilities)
+	if reader, ok := s.repo.(interface {
+		FulfillmentModes(context.Context, int64) ([]string, error)
+	}); ok {
+		modes, err := reader.FulfillmentModes(ctx, customerID)
+		if err != nil {
+			return PortalAdminDetail{}, err
+		}
+		// The live template supplies ordinary configuration; customer-specific
+		// fulfillment dependencies must be applied after that projection.
+		for i, option := range detail.Capabilities {
+			if option.Code != CapabilityProductOrder {
+				continue
+			}
+			effective := ApplyFulfillmentCapabilityDependencies([]Capability{{Code: option.Code, Enabled: option.Enabled, Config: option.Config}}, modes)[0]
+			detail.Capabilities[i].Enabled = effective.Enabled
+			detail.Capabilities[i].Config = effective.Config
+		}
+	}
 	return detail, nil
 }
 

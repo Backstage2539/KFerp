@@ -1,6 +1,6 @@
 # PR-711 客户小程序价格表识别与授权库存
 
-- 状态：实现、自动化验证与独立复审完成；生产交付和业务验收待完成。
+- 状态：首轮生产已交付；补库存与管理端摘要追补验证和独立复审完成，待最终生产更新；业务验收独立。
 - 分支：codex/miniapp-customer-catalog-inventory-20261021，基线develop7277f43e。
 - 用户澄清：任一库存/无库存代发开启，商品下单自动开启且不能单独关闭；全部代发关闭后恢复普通商品下单配置。
 
@@ -38,3 +38,23 @@
 - 发布前7张业务表完整行计数/指纹已保留 /tmp/kferp-pr711-production-before-data.log，部署后逐项比较；包括仓库11、成品库存3、价格表绑定12、履约设置2、门户配置27、能力配置56、订单96。
 
 - 独立价格表/权限复审CLEAR，4包相关真实数据库回归再次通过 /tmp/kferp-pr711-independent-price-review.log。未改共享模板、客户价格表或真实库存。
+
+## 首次生产交付与追补回归
+
+- 生产首次部署main3e3aaf15，源备份 /opt/stacks/erp-production/orderapp.backup.deploy-20261022001017-3e3aaf15f2a7，回滚镜像同production时间/提交标签。命令 ./deploy_orderapp.sh production。
+- 第一轮因root清npm缓存与下一阶段依赖安装重叠中止，未切换生产；确认进程退出并清缓存后，以相同提交完整重跑全部闸门成功。后续仅在所有npm阶段结束后清理临时依赖与缓存，不再与安装并行。
+- Vue1478、小程序401、typecheck/production build/24页/96文件、host/image Go均通过；生产登录HTTP200，matching包导出到 /Users/yiiiple-work/KFerp-miniapp-mp-weixin，旧目录保留备份。
+- 当前DevTools项目同步到matching3e3aaf15，完整树哈希与原export一致、私有project配置保留，旧包rename保留；日志 /tmp/kferp-pr711-devtools-package.log。Van重新登录吴国宏；UI已观察商品下单识别V3.0.68。
+- 七张业务表前后完整行指纹一致：仓库11、成品库存3、价格表绑定12、履约设置2、门户配置27、能力配置56、订单96。新Me自动启用商品下单；stock/on_demand/product_order目录均publication179 V3.0.68，两个价格预览各4规格；资产meta仅吴国宏虚拟成品仓、finished_product分类，无库存行。
+- 首次完整冒烟暴露admin HTTP服务层再次套用模板原值，导致与Me不一致；已保留真实RED /tmp/kferp-pr711-admin-read.log，继续修复及补Service+HTTP回归，不把repo单测当作全链路验证。
+- 用户随后在实际DevTools测试补库存提交，报告通用“发货信息不完整”错误。实际DevTools400提交参数为customer_stock、当前客户仓、商品7/BOM20/variant559/spec_g0/数量1，收件字段为空；生产只读预览200、can_submit=true、价格71。部署前生产备份恢复到本地独立数据库后复现submit原始错误 customer capability product_order unavailable：customerfulfillment仓库层仍按原始能力拒绝，而Me/preview按代发派生权限放行。该错误被统一提示覆盖，导致误以为缺发货信息。继续统一最终提交的有效能力校验，不改真实客户配置。未替用户创建真实生产订单。
+
+## 补库存最终提交修复（2026-10-22）
+
+- 根因RED：/tmp/kferp-pr712-retained-submit-dependency-red.log；隔离生产副本真实失败 /tmp/kferp-pr712-isolated-submit-raw.log。共用EffectiveFulfillmentCapabilities后，原客户/规格无地址提交成功 /tmp/kferp-pr712-isolated-submit-green.log，仅写本地隔离副本，生产订单未增加。
+- 共享模板和客户原始能力不改；Me、管理端详情、履约仓库层最终提交使用同一规则。stock/on_demand任一开启派生product_order，全部关闭恢复普通配置。
+- 新购货预览及事务提交均验证当前客户启用的虚拟成品仓；普通ship收件信息必填。成功请求幂等重试优先返回已保存结果，不因后续停仓或关闭stock重新建单或改价；新请求仍拒绝。
+- 新API→真实PostgreSQL覆盖BOM规格spec_g0、免地址预览/提交/幂等、原始product_order=false、客户仓隔离与停用、场景关闭、只生待入库权益且实物0及单次操作日志。权限撤销403、商品规格缺项400、地址缺项400分开提示。仓授权及错误提示RED /tmp/kferp-pr712-retained-{api,error,retry}-red.log，五包GREEN /tmp/kferp-pr712-retained-final-green.log。
+- 管理员Service+HTTP模板投影补回归RED/GREEN /tmp/kferp-pr711-admin-effective-{red,green}.log，普通cap配置及模板原值保留。
+- 真实小程序组件新增无地址补购及普通ship保护；7项定向、403项全量、typecheck和正式构建GREEN /tmp/kferp-pr712-retained-mini-{green,full,typecheck,build}.log。前端原请求字段正确，未为伪造RED修改正确业务逻辑。
+- 独立追补审查CLEAR，覆盖最终能力链、仓授权、幂等、错误映射、历史金额与事务。新数据库备份 /opt/stacks/erp-production/backups/pr711-retained-before-production-20261022004018.sql.gz，12MB、600、gzip校验通过；七表发布前指纹仍与首次发布前完全一致。
