@@ -171,3 +171,80 @@ it('real ordinary shipping still refuses preview and submit when the recipient i
     expect(api.createProductOrder).not.toHaveBeenCalled()
   } finally { app.unmount() }
 })
+
+it('real three-line retained purchase keeps both BOM specs of the same product and submits the latest quote', async () => {
+  const obsidian = {
+    parent_product_id: 8001, name: '曜石2.0', migration_state: 'cutover', default_bom_spec_id: 120,
+    specs: [
+      { product_id: 8001, sku_id: 8001, bom_spec_id: 120, bom_variant_id: 1120, spec_g: 0, spec_name: '454g袋装', spec_label: '454g袋装', inventory_unit: '袋', sales_unit: '袋', migration_state: 'cutover' },
+      { product_id: 8001, sku_id: 8001, bom_spec_id: 119, bom_variant_id: 1119, spec_g: 0, spec_name: '227g袋装', spec_label: '227g袋装', inventory_unit: '袋', sales_unit: '袋', migration_state: 'cutover' },
+    ],
+  }
+  const dawn = {
+    parent_product_id: 7, name: '初晓', migration_state: 'cutover', default_bom_spec_id: 19,
+    specs: [{ product_id: 7, sku_id: 7, bom_spec_id: 19, bom_variant_id: 558, spec_g: 0, spec_name: '227g袋装', spec_label: '227g袋装', inventory_unit: '袋', sales_unit: '袋', migration_state: 'cutover' }],
+  }
+  const expectedItems = [
+    { product_id: 8001, bom_spec_id: 120, bom_variant_id: 1120, spec_g: 0, inventory_unit: '袋', sales_unit: '袋', qty: 1 },
+    { product_id: 7, bom_spec_id: 19, bom_variant_id: 558, spec_g: 0, inventory_unit: '袋', sales_unit: '袋', qty: 4 },
+    { product_id: 8001, bom_spec_id: 119, bom_variant_id: 1119, spec_g: 0, inventory_unit: '袋', sales_unit: '袋', qty: 4 },
+  ]
+  api.productCatalog.mockResolvedValue({ current_customer_id: 901, product_families: [obsidian, dawn], price_tables: [{ id: 71, table_name: '测试价格表' }], fulfillment_settings: purchaseSettings })
+  let quoteNumber = 0
+  api.previewProductOrder.mockImplementation(async (_token, command) => ({
+    can_submit: true, total_amount: 90, price_quote_token: `three-line-quote-${++quoteNumber}`,
+    items: command.items.map((item: Record<string, unknown>) => ({ ...item, unit_price: 10 })),
+  }))
+  api.createProductOrder.mockResolvedValue({ id: 90102 })
+  vi.useFakeTimers()
+  const { app, root } = mount(DirectShip, { orderMode: 'product_order', stockPurchase: true })
+  const cards = () => find(root, node => node.type === 'view' && String(node.props.class || '').includes('line-card'))
+  async function chooseLine(index: number, name: string, spec: string, quantity: number) {
+    const selector = find(cards()[index], node => node.type === 'view' && String(node.props.class || '').includes('selector-field'))[0]
+    await selector.props.onTap()
+    await settle()
+    const product = find(root, node => node.type === 'view' && String(node.props.class || '').includes('product-row') && find(node, child => child.type === 'text' && child.props.class === 'option-name').some(child => text(child) === name))[0]
+    await product.props.onTap()
+    await settle()
+    const specification = find(cards()[index], node => node.type === 'button' && String(node.props.class || '').includes('spec-choice') && text(node).includes(spec))[0]
+    await specification.props.onTap()
+    await settle()
+    const input = find(cards()[index], node => node.type === 'input' && node.props.type === 'number')[0]
+    input.props['onUpdate:modelValue'](quantity)
+    input.props.onInput()
+    await settle()
+  }
+  async function addLine() {
+    await find(root, node => node.type === 'button' && node.props.class === 'add-line')[0].props.onTap()
+    await settle()
+  }
+  try {
+    await settle()
+    await chooseLine(0, '曜石2.0', '454g袋装', 1)
+    await addLine()
+    await chooseLine(1, '初晓', '227g袋装', 4)
+    await addLine()
+    await chooseLine(2, '曜石2.0', '227g袋装', 4)
+    await vi.advanceTimersByTimeAsync(350)
+    await settle()
+    expect(cards()).toHaveLength(3)
+    expect(api.previewProductOrder).toHaveBeenCalledTimes(1)
+    expect(api.previewProductOrder.mock.calls[0][1].items).toEqual(expectedItems)
+
+    const submit = find(root, node => node.type === 'button' && String(node.props.class || '').includes('submit'))[0]
+    expect(submit.props.disabled).toBe(false)
+    await submit.props.onTap()
+    await settle()
+    expect(api.previewProductOrder).toHaveBeenCalledTimes(2)
+    expect(api.createProductOrder).toHaveBeenCalledTimes(1)
+    const latestPreview = api.previewProductOrder.mock.calls[1][1]
+    const command = api.createProductOrder.mock.calls[0][1]
+    expect(latestPreview.items).toEqual(expectedItems)
+    expect(command.items).toEqual(latestPreview.items)
+    expect(command).toMatchObject({ delivery_mode: 'customer_stock', delivery_warehouse_code: 'CUSTOMER-901-FINISHED', recipient_name: '', recipient_phone: '', detail_address: '', price_quote_token: 'three-line-quote-2', idempotency_key: latestPreview.idempotency_key })
+    expect(command.price_quote_token).not.toBe('three-line-quote-1')
+    expect(command.fulfillment_mode).toBeUndefined()
+    expect(api.previewDirectShip).not.toHaveBeenCalled()
+    expect(uni.navigateBack).toHaveBeenCalledOnce()
+  } finally { app.unmount(); vi.useRealTimers() }
+})
