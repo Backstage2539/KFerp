@@ -5985,10 +5985,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-711-MULTI-ITEM-RETAINED-PURCHASE-20261022
 - Branch: codex/miniapp-multi-item-retained-purchase-20261022; base origin/develop19fb15d3.
-- Status: root cause reproduced on local isolated production copy, TDD in progress; production5e65091c remains online.
+- Status: delivered to production runtimec6a1d8b8; migration/API/PG/mini404/type/build/fullGo/review/read-only runtime verified; current three-line draft retained.
 - DEV-828-MULTI-ITEM-PURCHASE: multiple canonical BOM specifications of the same product must submit atomically in one retained purchase; remove only obsolete legacy unique constraint regardless of PostgreSQL-generated name, keep modern canonical/legacy uniqueness.
 - Reproduction: customer488, 曜石2.0 454g x1 + 初晓227g x4 + 曜石2.0 227g x4; preview succeeds but submit23505 on legacy(request_id,product_id,spec_g), both canonical spec_g0. Production SELECT confirms actual truncated constraint name.
 - Verifier: schema migration RED/GREEN, actual API/real PG multi-line submit/idempotency/rollback/rights/audit, mini component multi-line payload and quote consistency, production read-only constraints/data/smoke/package. No production test orders.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-22-miniapp-multi-item-purchase.md. Production merge/deploy authorization continues in this thread.
 
 - DEV-828 GREEN: automatic legacy-name migration + actual three-line API/PG, amounts/rights/audit/idempotency/rollback, isolated production-copy exact326 purchase, mini404/type/build, fullGo; review/integration pending. Backup20261022010540 and16-table current business baselines captured; preserve actual customer single-line purchase.
+
+- DEV-828 FINAL: feature6471a639 -> develop7684c047 -> main runtimec6a1d8b8, ./deploy_orderapp.sh production successful. Old exact legacy constraint removed in production, PK/FK/line/canonical+legacy identities retained;16 business-table hashes unchanged including actual one-bag customer purchase. Same3-line no-address preview326/can_submit true, exact table179 V3.0.68, effective permission/own stock scope/anonymous401/manual200 checked; dev unchanged. Matching24page96file package has identical runtime payload to currentDevTools, so only release marker updated with backup; current Wu login and3line draft1/4/4 preserved. No production test order or WeChat publication. Source/image rollback retained at20261022011104-c6a1d8b86ad1; acceptance and persistent evidence complete.
