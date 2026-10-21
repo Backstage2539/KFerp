@@ -330,7 +330,7 @@
                 <small v-if="productSpecCountForCurrentList(product)">{{ productSpecCountForCurrentList(product) }} 个可售规格</small>
                 <small v-else-if="!product.__order_concrete_price_family && product.tiers?.length">{{ product.tiers.length }} 个价格梯度</small>
               </button>
-              <div v-if="!productOptions(row).length" class="combo-empty">没有匹配商品</div>
+              <div v-if="!productOptions(row).length" class="combo-empty">{{ !props.customerPortal && staffCatalog.loading ? '商品目录加载中…' : (!props.customerPortal && staffCatalog.error ? staffCatalog.error : '没有匹配商品') }}</div>
             </div>
           </label>
 
@@ -537,6 +537,7 @@
           <li>同一价格表类型已有按商品分类发布的价格表时，新订单只自动启用当前分类价格表；旧全局价格表默认不参与商品候选，需要时可手工启用。仅有旧全局价格表时仍按历史规则自动使用。</li>
           <li>商品按父商品展示，商品名不再拼接规格；规格列和规格搜索只使用当前已选已发布价格表中有价的规格，价格表没有的商品档案规格不会出现在新订单候选中。</li>
           <li>每个商品类型默认带入当前版本的默认价格表，可以切换同版本内其他表。切表后保留仍可用的规格并重新匹配价格；不在新表中的规格必须重选后提交。</li>
+          <li>零售客户也由录单人手动选择对应价格表。客户类型和订单类型不改变商品范围或自动切换报价；发布新版后重新打开商品选择器会刷新同名表，并提示核对已有明细。</li>
           <li>新版挂耳商品同样从当前价格表选择袋或盒规格；历史挂耳数据仍保留旧单位选择兼容。</li>
           <li v-if="props.customerPortal">商品与规格来自所选价格表，单价随数量匹配阶梯。补录可以暂缺收件信息，补齐后才能发货。</li>
           <li v-else>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
@@ -678,6 +679,7 @@ function isFrozenConversion(row) { return ['converted_tier','bom_tier'].includes
 import { orderDeliveryMode, isNonCourierShipMethod, requiresCourierLogistics } from '../lib/order-shipping'
 import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { createOrderCatalogSession, orderCatalogKey, staffPriceTableGroups } from '../lib/order-catalog.js'
 import { apiGet, apiSend } from '../api/client'
 import { isSampleOrderEdit, validManualOrderPrice, storedSampleSpecKey, preservesSampleSpec, sampleStoredItemIdentity, orderEditRecipientFields, isFreeSamplePreview, validSampleReceiptGoods } from '../lib/sample-order-edit.js'
 import { resetCustomerContinuation } from '../lib/customer-workspace'
@@ -805,6 +807,39 @@ const orderProductCatalogAssignments = ref([])
 const orderProductCatalogFeatureSelection = ref({ feature_key: 'product_catalog', group_template_ids: [] })
 const orderProductCatalogFeatureSelectionLoaded = ref(false)
 const selectedBeanListPublicationIDs = reactive({})
+const staffCatalog = reactive({})
+const staffCatalogSession = createOrderCatalogSession({ state: staffCatalog, load: (customerID, ids) => apiGet(`/api/order/catalog?customer_id=${customerID}&selected_price_table_ids=${ids.join(',')}`) })
+function selectedStaffTableIDs() { return [...new Set(Object.values(selectedBeanListPublicationIDs).map(Number).filter(id => id > 0))] }
+async function refreshStaffOrderCatalog() {
+  if (props.customerPortal) return true
+  const customerID = Number(form.customer_id || 0)
+  const previousKey = staffCatalog.key
+  const data = await staffCatalogSession.refresh(customerID, selectedStaffTableIDs())
+  if (!data) { if (staffCatalog.error) error.value = staffCatalog.error; return false }
+  for (const key of Object.keys(selectedBeanListPublicationIDs)) delete selectedBeanListPublicationIDs[key]
+  for (const group of staffPriceTableGroups(data.price_table_options || [], data.selected_price_table_ids || [])) {
+    const selected = group.options.find(row => data.selected_price_table_ids?.includes(Number(row.id)))
+    if (selected) selectedBeanListPublicationIDs[group.key] = Number(selected.id)
+  }
+  syncBeanListVersionForCustomer()
+  if (!data.catalog_updated) {
+    if (previousKey && previousKey !== staffCatalog.key) syncRowsForType({ priceListChanged: true })
+    else repriceHydratedRows()
+  }
+  if (data.catalog_updated) {
+    ok.value = '价格表已更新，请重新选择规格并核对原有商品价格。'
+    for (const row of rows.value) if (Number(row.product_id) > 0) { row.spec_invalid_message = '价格表已更新，请重新选择规格并核对价格'; row.price_missing = true }
+  }
+  return true
+}
+function staffCatalogFamilies() { return normalizeOrderProductFamilies(staffCatalog.families || []) }
+function currentOrderProductFamilies() {
+  if (props.customerPortal || Number(staffCatalog.customerID) !== Number(form.customer_id)) return productFamilies.value
+  const current = staffCatalogFamilies()
+  const keys = new Set(current.map(orderProductFamilyIdentity))
+  return [...current, ...productFamilies.value.filter(row => !keys.has(orderProductFamilyIdentity(row)))]
+}
+
 const rows = ref([newRow()])
 const freightEstimator=ref(null)
 const freightItems=computed(()=>rows.value.filter(r=>Number(r.product_id)>0&&Number(r.qty)>0).map(r=>({product_id:Number(r.product_id),bom_spec_id:Number(r.bom_spec_id||0),bom_variant_id:Number(r.bom_variant_id||0),qty:Number(r.qty)})))
@@ -1076,7 +1111,7 @@ const deliveryMode = computed({
     }
   },
 })
-const quoteSourceSummary = computed(() => orderQuoteSourceSummary(rows.value, beanListVersionOptions.value))
+const quoteSourceSummary = computed(() => orderQuoteSourceSummary(rows.value.filter(row => Number(row.product_id) > 0), beanListVersionOptions.value))
 const selectedLogisticsProducts = computed(() => {
   const company = logisticsCompanies.value.find((item) => Number(item.id || 0) === Number(form.logistics_company_id || 0))
   return (company?.products || []).filter((item) => item.active !== false)
@@ -1123,15 +1158,13 @@ const orderCurrentProductPriceListTypes = computed(() => {
   })
 })
 const customerBeanListVersionOptions = computed(() => {
+  if (!props.customerPortal && Number(staffCatalog.customerID) === Number(form.customer_id) && staffCatalog.key) return staffCatalog.options
   const rows = beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
-  const scoped = filterBeanListVersionOptionsToCurrentTypes(rows, orderCurrentProductPriceListTypes.value)
-  return scoped.filter((item) => {
-    const listType = String(item?.list_type || 'commercial').trim()
-    if (retailOrder.value) return listType === 'retail' || listType === 'drip'
-    return listType !== 'retail'
-  })
+  return filterBeanListVersionOptionsToCurrentTypes(rows, orderCurrentProductPriceListTypes.value)
 })
-const beanListVersionGroups = computed(() => beanListVersionOptionGroups(customerBeanListVersionOptions.value))
+const beanListVersionGroups = computed(() => props.customerPortal
+  ? beanListVersionOptionGroups(customerBeanListVersionOptions.value)
+  : staffPriceTableGroups(customerBeanListVersionOptions.value, selectedStaffTableIDs()))
 const canOpenBeanListDrawer = computed(() => {
   return Number(form.customer_id || 0) > 0 || customerBeanListVersionOptions.value.length > 0
 })
@@ -1160,7 +1193,7 @@ function preferredProductFamily(candidates, reference = {}) {
 function productFamilyBySKU(id, reference = {}) {
   const productID = Number(id || 0)
   if (productID <= 0) return null
-  const candidates = productFamilies.value.filter((family) => (family.specs || [])
+  const candidates = currentOrderProductFamilies().filter((family) => (family.specs || [])
     .some((spec) => Number(spec.sku_id || 0) === productID))
   return preferredProductFamily(candidates, reference)
 }
@@ -1178,7 +1211,7 @@ function productByID(id, reference = {}) {
 function productFamilyByParentID(id, reference = {}) {
   const parentID = Number(id || 0)
   if (parentID <= 0) return null
-  const candidates = productFamilies.value.filter((item) => Number(item.parent_product_id || item.id || 0) === parentID)
+  const candidates = currentOrderProductFamilies().filter((item) => Number(item.parent_product_id || item.id || 0) === parentID)
   return preferredProductFamily(candidates, reference)
 }
 
@@ -1408,13 +1441,13 @@ function orderBeanListTypeForProductKind(productKind) {
 
 function currentOrderBeanListTypeForProductKind(productKind) {
   if (String(productKind || '').trim() === 'drip_bag') return 'drip'
-  if (retailOrder.value) return 'retail'
+  if (props.customerPortal && retailOrder.value) return 'retail'
   return orderBeanListTypeForProductKind(productKind)
 }
 
 function currentPriceListTypeForProduct(productOrRow) {
   if (productOrRow?.__order_concrete_price_family || isConcretePriceListRow(productOrRow)) {
-    if (retailOrder.value && productBeanListType(productOrRow) === 'commercial') return 'retail'
+    if (props.customerPortal && retailOrder.value && productBeanListType(productOrRow) === 'commercial') return 'retail'
     return productBeanListType(productOrRow)
   }
   return currentOrderBeanListTypeForProductKind(productOrRow?.product_kind)
@@ -1535,7 +1568,7 @@ function setBeanListVersion(groupKey, value) {
     if (legacyKey) form[field] = selectedID
     form.bean_list_publication_id = selectedID
   }
-  syncRowsForType({ priceListChanged: true })
+  if (props.customerPortal) syncRowsForType({ priceListChanged: true })
 }
 
 function openBeanListDrawer() {
@@ -1559,30 +1592,24 @@ function beanListDrawerHint(group) {
 }
 
 function syncBeanListVersionForCustomer(options = {}) {
+  const previousIDs = selectedStaffTableIDs()
   const validGroups = new Set(beanListVersionGroups.value.map(group => group.key))
   for (const key of Object.keys(selectedBeanListPublicationIDs)) if (!validGroups.has(key)) delete selectedBeanListPublicationIDs[key]
-  const activeTypes = retailOrder.value
-    ? [{ type: 'retail', label: '零售价格表' }, { type: 'drip', label: '挂耳豆单' }]
-    : orderBeanListTypes
-  for (const item of activeTypes) {
-    const rows = customerBeanListVersionOptionsByType(item.type)
-    const field = beanListVersionField(item.type)
-    if (!rows.length) {
-      form[field] = 0
-      if (item.type === 'commercial' || item.type === 'retail') form.bean_list_publication_id = 0
-      continue
-    }
-    const currentID = Number(form[field] || 0)
-    if (!options.force && rows.some((row) => Number(row.id) === currentID)) continue
-    const selected = rows.find((row) => row.is_default) || rows[0]
-    form[field] = Number(selected?.id || 0)
-    if (item.type === 'commercial' || item.type === 'retail') form.bean_list_publication_id = form[field]
-  }
   for (const group of beanListVersionGroups.value) {
     const currentID = Number(selectedBeanListPublicationIDs[group.key] || 0)
-    if (!options.force && group.options.some((row) => Number(row.id) === currentID)) continue
-    const selected = beanListVersionOptionForGroup(group, 0)
+    if (!options.force && group.options.some(row => Number(row.id) === currentID)) continue
+    const previous = !options.force && group.options.find(row => previousIDs.includes(Number(row.id)))
+    const selected = previous || beanListVersionOptionForGroup(group, 0)
     selectedBeanListPublicationIDs[group.key] = Number(selected?.id || 0)
+  }
+  for (const type of ['commercial', 'green', 'drip']) form[beanListVersionField(type)] = 0
+  form.bean_list_publication_id = 0
+  for (const group of beanListVersionGroups.value) {
+    const selected = selectedBeanListVersionOptionByGroup(group)
+    if (!selected) continue
+    const type = String(selected.list_type || 'commercial')
+    form[beanListVersionField(type)] = Number(selected.id)
+    if (type === 'commercial' || type === 'retail') form.bean_list_publication_id = Number(selected.id)
   }
 }
 
@@ -1708,6 +1735,10 @@ async function saveCustomerFromDrawer() {
 }
 
 function scopedOrderProductOptions() {
+  if (!props.customerPortal) {
+    if (staffCatalog.loading || staffCatalog.error || Number(staffCatalog.customerID) !== Number(form.customer_id)) return []
+    return staffCatalogFamilies()
+  }
   return filterProductsForCustomer(
     productFamilies.value,
     form.customer_id,
@@ -1768,6 +1799,7 @@ function handleOrderProductPointerDown(event) {
 }
 
 function openProductDropdown(row) {
+  if (!props.customerPortal && !staffCatalog.loading) void refreshStaffOrderCatalog()
   closeOrderProductDropdowns(rows.value, row?.key)
   if (row) row.product_open = true
 }
@@ -2285,7 +2317,7 @@ function autoPriceLabel(row) {
   if (row?.price_selection_mode === 'tier') return `手动选档 ${row.tier_price_label || ''}`.trim()
   if (row?.price_selection_mode === 'manual' || row?.manual_price) return '手动输入单价'
   if (isDripRow(row)) return row.sales_unit === 'box' ? '挂耳盒价' : '挂耳袋价'
-  if (retailOrder.value) return '零售价'
+  if (props.customerPortal && retailOrder.value) return '零售价'
   if (row.tier_price_label) return `梯度 ${row.tier_price_label}`
   if (row.tier_id && row.tier_id !== 'auto' && row.tier_id !== 'manual') return `梯度 ${row.tier_id}`
   return '自动价'
@@ -2770,6 +2802,7 @@ function resetForBackfillContinuation() {
 
 async function save(options = {}) {
   if (saving.value || loading.value || editBlockReason.value) return
+  if (!props.customerPortal && (staffCatalog.loading || staffCatalog.error)) { error.value = staffCatalog.error || '商品目录加载中，请稍后重试'; return }
   const continueBackfill = Boolean(options?.continueBackfill && canUseBackfillMode.value)
   saving.value = true
   error.value = ''
@@ -2913,6 +2946,7 @@ onMounted(async () => {
   } else {
     repriceHydratedRows()
   }
+  await refreshStaffOrderCatalog()
 })
 
 onBeforeUnmount(saveOrderEntryDraft)
@@ -2968,6 +3002,10 @@ watch(
 )
 
 watch(logisticsRequired, ensureLogisticsDefaults)
+
+watch(() => orderCatalogKey(form.customer_id, selectedStaffTableIDs()), key => {
+  if (!props.customerPortal && !loading.value && key !== staffCatalog.key) void refreshStaffOrderCatalog()
+})
 watch(() => form.customer_id, () => clearFieldErrorIfValid('customer_id'))
 watch(() => form.customer_id, (next, previous) => { if (!loading.value && previous && Number(next) !== Number(previous)) form.delivery_warehouse_code = ''; loadDeliveryWarehouses() })
 watch(() => form.delivery_mode, (mode) => { if (mode !== 'customer_stock') form.delivery_warehouse_code = ''; else if (!deliveryWarehouses.value.length) loadDeliveryWarehouses() })

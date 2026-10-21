@@ -1,10 +1,13 @@
 package sales
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 )
+
+var ErrOrderPriceTableUpdated = errors.New("价格表已更新，请选择当前版本中的价格表")
 
 func OrderPriceTableTypeKey(option BeanListVersionOption) string {
 	id := option.ClassificationTemplateID
@@ -14,11 +17,15 @@ func OrderPriceTableTypeKey(option BeanListVersionOption) string {
 	if id > 0 {
 		return fmt.Sprintf("classification:%d", id)
 	}
-	return "legacy:" + strings.TrimSpace(option.ListType)
+	listType := strings.TrimSpace(option.ListType)
+	if listType == "retail" {
+		listType = "commercial"
+	}
+	return "legacy:" + listType
 }
 
 func orderPriceTableCustomerKey(option BeanListVersionOption) string {
-	return fmt.Sprintf("%d:%s", option.CustomerID, OrderPriceTableTypeKey(option))
+	return fmt.Sprintf("%d:%s:%s", option.CustomerID, OrderPriceTableTypeKey(option), option.ListType)
 }
 
 // SQL determines the current release; its explicit default flag picks the table.
@@ -54,7 +61,23 @@ func orderCustomerAndPublicTables(options []BeanListVersionOption, customerID in
 	return out
 }
 func orderPriceTableOwnerTypeKey(row BeanListVersionOption) string {
-	return fmt.Sprintf("%t:%s", row.IsCustomerOwned, OrderPriceTableTypeKey(row))
+	return fmt.Sprintf("%t:%s:%s", row.IsCustomerOwned, OrderPriceTableTypeKey(row), row.ListType)
+}
+
+func preferOrderDefaultTable(row, previous BeanListVersionOption) bool {
+	if row.IsCustomerOwned != previous.IsCustomerOwned {
+		return row.IsCustomerOwned
+	}
+	if row.ListType == "commercial" && previous.ListType == "retail" {
+		return true
+	}
+	if row.ListType == "retail" && previous.ListType == "commercial" {
+		return false
+	}
+	if row.PublishedAt != previous.PublishedAt {
+		return row.PublishedAt > previous.PublishedAt
+	}
+	return row.ID > previous.ID
 }
 func ResolveOrderPriceTableSelection(options []BeanListVersionOption, customerID int64, ids []int64, currentOnly bool) ([]BeanListVersionOption, error) {
 	byID := map[int64]BeanListVersionOption{}
@@ -66,7 +89,7 @@ func ResolveOrderPriceTableSelection(options []BeanListVersionOption, customerID
 			key := OrderPriceTableTypeKey(row)
 			current[orderPriceTableOwnerTypeKey(row)] = row
 			previous, ok := selected[key]
-			if !ok || row.IsCustomerOwned || !previous.IsCustomerOwned {
+			if !ok || preferOrderDefaultTable(row, previous) {
 				selected[key] = row
 			}
 		}
@@ -85,7 +108,7 @@ func ResolveOrderPriceTableSelection(options []BeanListVersionOption, customerID
 		if currentOnly {
 			latest, ok := current[orderPriceTableOwnerTypeKey(row)]
 			if !ok || !(row.ID == latest.ID || row.ReleaseID != "" && row.ReleaseID == latest.ReleaseID) {
-				return nil, fmt.Errorf("价格表已更新，请选择当前版本中的价格表")
+				return nil, ErrOrderPriceTableUpdated
 			}
 		}
 		selected[key] = row
@@ -116,9 +139,15 @@ func CurrentOrderPriceTableOptions(options []BeanListVersionOption, customerID i
 		}
 	}
 	result := []BeanListVersionOption{}
+	selectedDefaults, _ := ResolveOrderPriceTableSelection(options, customerID, nil, true)
+	defaultIDs := map[int64]bool{}
+	for _, table := range selectedDefaults {
+		defaultIDs[table.ID] = true
+	}
 	for _, row := range choices {
 		latest, ok := current[orderPriceTableOwnerTypeKey(row)]
 		if ok && (row.ID == latest.ID || row.ReleaseID != "" && row.ReleaseID == latest.ReleaseID) {
+			row.IsDefault = defaultIDs[row.ID]
 			if !row.IsCustomerOwned && owned[OrderPriceTableTypeKey(row)] {
 				row.IsDefault = false
 			}

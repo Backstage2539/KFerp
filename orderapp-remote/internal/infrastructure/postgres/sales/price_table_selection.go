@@ -137,6 +137,30 @@ func validateSelectedPriceTablesTx(ctx context.Context, tx pgx.Tx, schema string
 	return meta, nil
 }
 
+// Price routing for an explicit publication comes from its persisted metadata.
+// Ownership, selected-table membership, current release and snapshot checks still
+// run in the same SaveOrder transaction; a customer/order type cannot change it.
+func orderPublicationListTypesTx(ctx context.Context, tx pgx.Tx, schema string, ids []int64) (map[int64]string, error) {
+	result := map[int64]string{}
+	if len(ids) == 0 {
+		return result, nil
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,list_type FROM %s.bean_list_publications WHERE id=ANY($1) FOR SHARE`, schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var listType string
+		if err := rows.Scan(&id, &listType); err != nil {
+			return nil, err
+		}
+		result[id] = listType
+	}
+	return result, rows.Err()
+}
+
 func withNamedPriceTableSnapshot(raw string, table salesapp.BeanListVersionOption) string {
 	if table.TableName == "" {
 		return raw

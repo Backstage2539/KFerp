@@ -1129,6 +1129,7 @@ export function fetchMe(token: string): Promise<MeResponse> {
 }
 
 export type EmployeeOrderForm = {
+  catalog_updated?: boolean
   price_table_options?: PriceTableOption[]
   selected_price_table_ids?: number[]
   today: string
@@ -1388,6 +1389,7 @@ export type EmployeeOrderBOMSpecOption = {
 }
 
 export type EmployeeOrderProductFamily = {
+  price_table_categories?: Array<{ key: string; label: string; publication_id: number }>
   parent_product_id: number
   migration_state?: string
   bom_spec_migration_state?: string

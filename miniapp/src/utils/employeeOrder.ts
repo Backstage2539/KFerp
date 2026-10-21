@@ -14,15 +14,34 @@ import {
   visibleMiniappProductFamilies,
 } from './productSpecIdentity'
 
-export type EmployeeOrderProductCategory = 'all' | 'roasted' | 'drip_bag' | 'green_bean' | 'instant_coffee'
+type LegacyEmployeeOrderProductCategory = 'all' | 'roasted' | 'drip_bag' | 'green_bean' | 'instant_coffee'
+export type EmployeeOrderProductCategory = LegacyEmployeeOrderProductCategory | `classification:${string}` | `legacy:${string}` | `type:${string}`
 
-export const employeeOrderProductCategories: Array<{ key: EmployeeOrderProductCategory; label: string }> = [
+export const employeeOrderProductCategories: Array<{ key: LegacyEmployeeOrderProductCategory; label: string }> = [
   { key: 'all', label: '全部' },
   { key: 'roasted', label: '熟豆' },
   { key: 'drip_bag', label: '挂耳' },
   { key: 'green_bean', label: '生豆' },
   { key: 'instant_coffee', label: '速溶咖啡' },
 ]
+
+export function employeeOrderProductCategoriesForFamilies(families: EmployeeOrderProductFamily[] = [], customerID = 0): Array<{ key: EmployeeOrderProductCategory; label: string }> {
+  const result = new Map<EmployeeOrderProductCategory, { key: EmployeeOrderProductCategory; label: string }>()
+  result.set('all', { key: 'all', label: '全部' })
+  for (const family of customerProductFamilies(families, customerID)) {
+    if (family.price_table_categories?.length) {
+      for (const row of family.price_table_categories) {
+        const key = row.key as EmployeeOrderProductCategory
+        result.set(key, { key, label: row.label })
+      }
+    } else {
+      const legacy = employeeOrderProductCategory(family)
+      const key = legacy || `type:${family.product_type_name || 'other'}` as EmployeeOrderProductCategory
+      result.set(key, { key, label: family.product_type_name || employeeOrderProductCategories.find(row => row.key === legacy)?.label || '其他商品' })
+    }
+  }
+  return [...result.values()]
+}
 
 const CUSTOMER_RESULT_LIMIT = 20
 const PRODUCT_RESULT_LIMIT = 30
@@ -153,7 +172,7 @@ export function employeeOrderProductFamilyKey(family: EmployeeOrderProductFamily
 
 export function employeeOrderProductCategory(
   family?: EmployeeOrderProductFamily,
-): Exclude<EmployeeOrderProductCategory, 'all'> | '' {
+): Exclude<LegacyEmployeeOrderProductCategory, 'all'> | '' {
   const kind = normalizedSearchValue(family?.product_kind || family?.specs?.[0]?.product_kind)
   const typeName = normalizedSearchValue(family?.product_type_name)
   const combined = `${kind}|${typeName}`
@@ -213,7 +232,7 @@ export function filterEmployeeOrderProductFamilies(
   }
 
   return Array.from(uniqueFamilies.values())
-    .filter((family) => category === 'all' || employeeOrderProductCategory(family) === category)
+    .filter((family) => category === 'all' || family.price_table_categories?.some(row => row.key === category) || employeeOrderProductCategory(family) === category || category === `type:${family.product_type_name || 'other'}`)
     .filter((family) => includesEmployeeOrderSearch(normalizedQuery, employeeOrderProductSearchValues(family)))
     .slice(0, PRODUCT_RESULT_LIMIT)
 }
