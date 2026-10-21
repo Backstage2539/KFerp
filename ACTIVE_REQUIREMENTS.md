@@ -11,7 +11,7 @@
 ### PR-707-PUBLISHED-ORDER-CATALOG-CONSISTENCY
 - Branch: codex/published-order-catalog-consistency-20261021; base origin/develop c591b765.
 - Owner/session: Codex / 2026-10-21.
-- Status: verified implementation; integration/development/production delivery in progress; Van acceptance pending.
+- Status: core production delivery be6f46bc verified (43 families/46 specs); historical frozen/sample compatibility follow-up passed targeted RED/GREEN, final integration/release in progress; Van acceptance pending.
 - Scope: diagnose production read-only, unify authoritative selected-publication catalog semantics for ERP/employee miniapp and save validation; preserve exact table/spec/customer boundaries. Prevent recurring publish-to-order visibility regressions through service/API/cross-client fixtures.
 - DEV: DEV-810-PUBLICATION-CATALOG-AUTHORITY; DEV-811-CLIENT-CATALOG-CONSISTENCY; DEV-812-PUBLISH-ORDER-REGRESSION-DELIVERY.
 - Verifier: targeted RED/GREEN service and HTTP tests, real isolated PostgreSQL publish/order catalog cases, Vue/miniapp tests and builds, full Go and deployment gates; source manuals and acceptance receipt.
