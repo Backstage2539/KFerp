@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { miniRequest } from './client'
+import { miniRequest, miniUpload } from './client'
 import {
   buildMallOrderPath,
   buildMallPagePath,
@@ -31,6 +31,8 @@ import {
   saveEmployeeShareSettings,
   saveEmployeeShareScope,
   updateEmployeeOrder,
+  updateEmployeeOrderStatus,
+  uploadEmployeeOrderPaymentVoucher,
 } from './customerPortal'
 import type {
   CreateFulfillmentOrderPayload,
@@ -40,10 +42,11 @@ import type {
   ProductSummary,
 } from './customerPortal'
 
-vi.mock('./client', () => ({ miniRequest: vi.fn() }))
+vi.mock('./client', () => ({ miniRequest: vi.fn(), miniUpload: vi.fn() }))
 
 beforeEach(() => {
   vi.mocked(miniRequest).mockReset()
+  vi.mocked(miniUpload).mockReset()
 })
 
 describe('customer portal API helpers', () => {
@@ -130,6 +133,21 @@ describe('customer portal API helpers', () => {
       token: 'employee-token',
       data: payload,
     })
+  })
+
+  it('updates payment and shipment status without submitting order products or prices', async () => {
+    const payload = { edit_revision: 'rev-42', pay_status_id: 2, ship_status_id: 3, payment_method: '微信支付', prepayment_amount: 0 }
+    vi.mocked(miniRequest).mockResolvedValue({ order_id: 42, order_no: 'SO-42' })
+    await updateEmployeeOrderStatus('employee-token', 42, payload)
+    expect(miniRequest).toHaveBeenCalledWith('/api/mini/employee/orders/42/status', {
+      method: 'PUT', token: 'employee-token', data: payload,
+    })
+  })
+
+  it('uploads a receipt to the scoped employee order endpoint', async () => {
+    vi.mocked(miniUpload).mockResolvedValue({ asset: { id: 77 } })
+    await uploadEmployeeOrderPaymentVoucher('employee-token', 42, '/tmp/receipt.jpg')
+    expect(miniUpload).toHaveBeenCalledWith('/api/mini/employee/orders/42/payment-voucher', '/tmp/receipt.jpg', 'employee-token')
   })
 
   it('requests the product catalog scoped to the selected customer', async () => {

@@ -6,9 +6,33 @@ import {
   MiniRequestError,
   normalizeAPIBase,
   miniRequest,
+  miniUpload,
 } from './client'
 
 describe('miniapp API client URL helpers', () => {
+  it('uploads files with the miniapp bearer token and parses the JSON asset response', async () => {
+    vi.stubEnv('VITE_KFERP_ENVIRONMENT', 'development')
+    vi.stubEnv('VITE_KFERP_API_BASE', 'https://dev.qacoohee.com/app')
+    const uploadFile = vi.fn((options: any) => options.success({ statusCode: 200, data: JSON.stringify({ asset: { id: 8 } }) }))
+    vi.stubGlobal('uni', { uploadFile })
+    try {
+      await expect(miniUpload('/api/mini/employee/orders/42/payment-voucher', '/tmp/receipt.png', 'employee-token')).resolves.toEqual({ asset: { id: 8 } })
+      expect(uploadFile).toHaveBeenCalledWith(expect.objectContaining({
+        url: 'https://dev.qacoohee.com/app/api/mini/employee/orders/42/payment-voucher', filePath: '/tmp/receipt.png', name: 'file', header: { Authorization: 'Bearer employee-token' },
+      }))
+    } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs() }
+  })
+
+  it('keeps upload authorization failures distinguishable from invalid responses', async () => {
+    vi.stubEnv('VITE_KFERP_ENVIRONMENT', 'development')
+    vi.stubEnv('VITE_KFERP_API_BASE', 'https://dev.qacoohee.com/app')
+    vi.stubGlobal('uni', { uploadFile: (options: any) => options.success({ statusCode: 401, data: '{"error":"登录已失效"}' }) })
+    try {
+      await expect(miniUpload('/api/upload', '/tmp/receipt.png', 'expired')).rejects.toMatchObject({ statusCode: 401, message: '登录已失效' })
+      vi.stubGlobal('uni', { uploadFile: (options: any) => options.success({ statusCode: 200, data: 'invalid' }) })
+      await expect(miniUpload('/api/upload', '/tmp/receipt.png', 'token')).rejects.toThrow('上传响应')
+    } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs() }
+  })
   it('preserves registration-required API codes for direct-link inline registration', async () => {
     vi.stubEnv('VITE_KFERP_ENVIRONMENT','development')
     vi.stubEnv('VITE_KFERP_API_BASE','https://dev.qacoohee.com/app')

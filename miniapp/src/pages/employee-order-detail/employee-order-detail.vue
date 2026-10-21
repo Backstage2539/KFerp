@@ -14,7 +14,11 @@ import {
   fetchEmployeeOrderDetail,
   fetchEmployeeShareSettings,
   generateEmployeeOrderDocument,
+  updateEmployeeOrderStatus,
+  uploadEmployeeOrderPaymentVoucher,
   type EmployeeOrderDetail,
+  type EmployeeOrderDetailResponse,
+  type EmployeeOrderStatusOptions,
   type EmployeeOrderDetailItem,
   type EmployeeOrderDocumentAsset,
   type EmployeeOrderDocumentFormat,
@@ -40,6 +44,7 @@ import {
   employeeOrderTraceSourceLines,
 } from '../../utils/employeeOrderDetail'
 import { shareMiniappFileOutput } from '../../utils/fileOutput'
+import { employeeReceiptMethods, useEmployeeOrderStatus } from '../../composables/useEmployeeOrderStatus'
 
 const session = useSessionStore()
 const {
@@ -58,6 +63,88 @@ const authExpired = ref(false)
 const sharingKey = ref('')
 const canEdit = ref(false)
 const editBlockReason = ref('')
+const canUpdateStatus = ref(false)
+const statusBlockReason = ref('')
+const canUpdateShipStatus = ref(false)
+const shipStatusBlockReason = ref('')
+const statusOptions = ref<EmployeeOrderStatusOptions>({ pay_statuses: [], ship_statuses: [] })
+const voucherUploading = ref(false)
+const voucherFilename = ref('')
+const {
+  editing: statusEditing, saving: statusSaving, error: statusError, draft: statusDraft,
+  start: beginStatusEdit, cancel: cancelStatusEdit, save: submitStatus,
+} = useEmployeeOrderStatus({
+  order: () => order.value,
+  canUpdate: () => canUpdateStatus.value,
+  options: () => statusOptions.value,
+  request: payload => updateEmployeeOrderStatus(session.token, orderID.value, payload),
+  refresh: () => fetchEmployeeOrderDetail(session.token, orderID.value),
+  onSaved: response => {
+    applyDetail(response)
+    uni.showToast({ title: '状态已保存', icon: 'success' })
+  },
+  onError: cause => {
+    if (isAuthenticationExpiredRequestError(cause)) {
+      session.clearSession()
+      authExpired.value = true
+      errorMessage.value = '登录已失效，请重新登录'
+    }
+  },
+})
+const selectedPaymentStatus = computed(() => statusOptions.value.pay_statuses.find(status => status.id === statusDraft.value.pay_status_id)?.name || '')
+const noPaymentRequired = computed(() => order.value?.pay_status === '无需收款')
+const statusNeedsMethod = computed(() => !noPaymentRequired.value && /预付款|已付|已收|已支付/.test(selectedPaymentStatus.value))
+const statusNeedsReceipt = computed(() => !noPaymentRequired.value && selectedPaymentStatus.value.includes('已收款'))
+
+function startStatusEdit() {
+  voucherFilename.value = order.value?.payment_voucher?.filename || (order.value?.payment_voucher_asset_id ? '已保存收款凭证' : '')
+  beginStatusEdit()
+}
+
+function saveStatus() {
+  if (!voucherUploading.value) void submitStatus()
+}
+
+function choosePaymentVoucher() {
+  if (voucherUploading.value || statusSaving.value) return
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    success: async result => {
+      const filePath = result.tempFilePaths[0]
+      if (!filePath) return
+      voucherUploading.value = true
+      statusError.value = ''
+      try {
+        const uploaded = await uploadEmployeeOrderPaymentVoucher(session.token, orderID.value, filePath)
+        if (!uploaded.asset?.id) throw new Error('凭证上传未完成，请重试')
+        statusDraft.value.payment_voucher_asset_id = uploaded.asset.id
+        voucherFilename.value = uploaded.asset.filename || '收款凭证已上传'
+      } catch (cause) {
+        statusError.value = cause instanceof Error ? cause.message : '凭证上传失败，请重试'
+        if (isAuthenticationExpiredRequestError(cause)) {
+          session.clearSession()
+          authExpired.value = true
+          errorMessage.value = '登录已失效，请重新登录'
+        }
+      } finally {
+        voucherUploading.value = false
+      }
+    },
+  })
+}
+
+function applyDetail(response: EmployeeOrderDetailResponse) {
+  order.value = response.order
+  documents.value = response.documents || {}
+  canEdit.value = Boolean(response.can_edit ?? response.order.can_edit)
+  editBlockReason.value = String(response.edit_block_reason || response.order.edit_block_reason || '')
+  canUpdateStatus.value = Boolean(response.can_update_status) && !response.order.is_void
+  statusBlockReason.value = response.status_update_block_reason || ''
+  canUpdateShipStatus.value = Boolean(response.can_update_ship_status)
+  shipStatusBlockReason.value = response.ship_status_update_block_reason || ''
+  statusOptions.value = response.status_options || { pay_statuses: [], ship_statuses: [] }
+}
 
 const fees = computed(() => employeeOrderFeeLines(
   (order.value || {}) as unknown as Record<string, unknown>,
@@ -110,10 +197,8 @@ async function loadDetail() {
   authExpired.value = false
   try {
     const response = await fetchEmployeeOrderDetail(session.token, orderID.value)
-    order.value = response.order
-    documents.value = response.documents || {}
-    canEdit.value = Boolean(response.can_edit ?? response.order.can_edit)
-    editBlockReason.value = String(response.edit_block_reason || response.order.edit_block_reason || '')
+    applyDetail(response)
+    if (!statusEditing.value) statusError.value = ''
     if (order.value?.order_no) uni.setNavigationBarTitle({ title: order.value.order_no })
   } catch (cause) {
     authExpired.value = isAuthenticationExpiredRequestError(cause)
@@ -178,10 +263,7 @@ async function shareDocument(kind: EmployeeOrderDocumentKind, format: EmployeeOr
       setDocumentAsset(kind, format, normalizedDocumentAsset(generated))
       try {
         const refreshed = await fetchEmployeeOrderDetail(session.token, orderID.value)
-        order.value = refreshed.order
-        documents.value = refreshed.documents || documents.value
-        canEdit.value = Boolean(refreshed.can_edit ?? refreshed.order.can_edit)
-        editBlockReason.value = String(refreshed.edit_block_reason || refreshed.order.edit_block_reason || '')
+        applyDetail({ ...refreshed, documents: refreshed.documents || documents.value })
       } catch {
         // The generated path remains usable even if the metadata refresh is interrupted.
       }
@@ -269,6 +351,62 @@ onShow(() => { void refreshMiniappShareMenu() })
     </view>
 
     <template v-else-if="order">
+      <view class="section status-section">
+        <view class="status-heading">
+          <text class="section-title">订单状态</text>
+          <button v-if="canUpdateStatus && !statusEditing" class="status-edit-button" @tap="startStatusEdit">编辑付款与发货状态</button>
+        </view>
+        <text v-if="order.is_void" class="void-status">已作废</text>
+        <PaymentSummary :order="order" />
+        <view v-if="!statusEditing" class="status-grid">
+          <view><text>收款</text><text class="status-value">{{ order.pay_status || '-' }}{{ order.payment_method ? ` / ${order.payment_method}` : '' }}</text></view>
+          <view><text>发货</text><text class="status-value">{{ order.ship_status || '-' }}</text></view>
+          <view><text>生产</text><text class="status-value">{{ order.process_status || '-' }}</text></view>
+          <view><text>开票</text><text class="status-value">{{ employeeOrderInvoiceStatusLabel(order.invoice_status) }}</text></view>
+        </view>
+        <view v-else class="status-editor">
+          <text class="label">付款状态</text>
+          <view v-if="noPaymentRequired" class="status-field">无需收款 · 已结清</view>
+          <picker v-else :disabled="statusSaving" :range="statusOptions.pay_statuses" range-key="name" :value="Math.max(0, statusOptions.pay_statuses.findIndex(status => status.id === statusDraft.pay_status_id))" @change="statusDraft.pay_status_id = statusOptions.pay_statuses[Number($event.detail.value)]?.id || 0">
+            <view class="status-field">{{ selectedPaymentStatus || order.pay_status || '请选择付款状态' }}<text>⌄</text></view>
+          </picker>
+          <template v-if="!noPaymentRequired">
+            <template v-if="selectedPaymentStatus.includes('预付款') || Number(statusDraft.prepayment_amount) > 0">
+              <text class="label">已支付预付款（元）</text>
+              <input v-model="statusDraft.prepayment_amount" :disabled="statusSaving" class="status-field" type="digit" placeholder="填写实际已收预付款" />
+            </template>
+            <template v-if="statusNeedsMethod">
+              <text class="label">收款方式</text>
+              <picker :disabled="statusSaving" :range="employeeReceiptMethods" :value="Math.max(0, employeeReceiptMethods.indexOf(statusDraft.payment_method))" @change="statusDraft.payment_method = employeeReceiptMethods[Number($event.detail.value)] || ''">
+                <view class="status-field">{{ statusDraft.payment_method || '请选择收款方式' }}<text>⌄</text></view>
+              </picker>
+            </template>
+            <template v-if="statusNeedsReceipt">
+              <text class="label">实收货款（元）</text>
+              <input v-model="statusDraft.payment_goods_amount" :disabled="statusSaving" class="status-field" type="digit" placeholder="填写实际收到的货款" />
+              <text class="label">实收运费（元）</text>
+              <input v-model="statusDraft.payment_shipping_amount" :disabled="statusSaving" class="status-field" type="digit" placeholder="无运费请填 0" />
+              <text class="label">收款凭证</text>
+              <text v-if="voucherFilename" class="voucher-filename">{{ voucherFilename }}</text>
+              <button :loading="voucherUploading" :disabled="statusSaving || voucherUploading" class="voucher-upload-button" @tap="choosePaymentVoucher">{{ statusDraft.payment_voucher_asset_id ? '更换收款凭证' : '上传收款截图' }}</button>
+            </template>
+          </template>
+          <text class="label">发货状态</text>
+          <picker v-if="canUpdateShipStatus" :disabled="statusSaving" :range="statusOptions.ship_statuses" range-key="name" :value="Math.max(0, statusOptions.ship_statuses.findIndex(status => status.id === statusDraft.ship_status_id))" @change="statusDraft.ship_status_id = statusOptions.ship_statuses[Number($event.detail.value)]?.id || 0">
+            <view class="status-field">{{ statusOptions.ship_statuses.find(status => status.id === statusDraft.ship_status_id)?.name || order.ship_status || '请选择发货状态' }}<text>⌄</text></view>
+          </picker>
+          <view v-else class="status-field status-field-readonly">{{ order.ship_status || '-' }}</view>
+          <text v-if="!canUpdateShipStatus && shipStatusBlockReason" class="section-hint status-hint">{{ shipStatusBlockReason }}</text>
+          <view class="status-actions">
+            <button :disabled="statusSaving || voucherUploading" class="status-cancel-button" @tap="cancelStatusEdit">取消</button>
+            <button :loading="statusSaving" :disabled="statusSaving || voucherUploading" class="status-save-button" @tap="saveStatus">保存状态</button>
+          </view>
+        </view>
+        <text v-if="!canUpdateStatus && statusBlockReason" class="edit-block-reason">{{ statusBlockReason }}</text>
+        <text v-if="statusError" class="status-error">{{ statusError }}</text>
+        <button v-if="statusError && !statusEditing" class="status-refresh-button" @tap="loadDetail">刷新详情</button>
+      </view>
+
       <view class="section document-section">
         <text class="section-title">导出并微信分享</text>
         <text class="section-hint">没有历史版本时会先按网页同一模板生成，再打开微信分享；低版本微信会回退到预览菜单。</text>
@@ -318,17 +456,6 @@ onShow(() => { void refreshMiniappShareMenu() })
           <view><text class="label">来源仓库</text><text>{{ order.source_warehouse || '-' }}</text></view>
           <view class="wide"><text class="label">物流单号</text><text selectable>{{ order.ship_tracking_no || '-' }}</text></view>
           <view><text class="label">业务来源</text><text>{{ order.portal_service_code || '-' }}</text></view>
-        </view>
-      </view>
-
-      <view class="section">
-        <text class="section-title">订单状态</text>
-        <view class="status-grid">
-          <PaymentSummary :order="order" />
-          <view><text>收款</text><text class="status-value">{{ order.pay_status || '-' }}{{ order.payment_method ? ` / ${order.payment_method}` : '' }}</text></view>
-          <view><text>发货</text><text class="status-value">{{ order.ship_status || '-' }}</text></view>
-          <view><text>生产</text><text class="status-value">{{ order.process_status || '-' }}</text></view>
-          <view><text>开票</text><text class="status-value">{{ employeeOrderInvoiceStatusLabel(order.invoice_status) }}</text></view>
         </view>
       </view>
 
@@ -422,6 +549,24 @@ onShow(() => { void refreshMiniappShareMenu() })
 .info-grid .wide { grid-column: 1 / -1; }
 .label { display: block; margin-bottom: 5rpx; color: #748078; font-size: 22rpx; }
 .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14rpx; }
+.status-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12rpx; margin-bottom: 8rpx; }
+.status-heading .section-title { margin: 0; }
+.status-edit-button { width: auto; margin: 0; padding: 0 16rpx; border: 1rpx solid #28624a; background: #fff; color: #28624a; font-size: 23rpx; }
+.status-section .status-grid { margin-top: 18rpx; }
+.status-editor { margin-top: 22rpx; }
+.status-editor .label { margin-top: 20rpx; }
+.status-field { display: flex; align-items: center; justify-content: space-between; min-height: 78rpx; width: 100%; padding: 18rpx 20rpx; box-sizing: border-box; border: 1rpx solid #ceddd3; border-radius: 12rpx; background: #fff; font-size: 26rpx; }
+input.status-field { height: 82rpx; }
+.status-field-readonly { background: #f1f5f2; color: #62766b; }
+.status-hint { margin: 12rpx 0; }
+.status-actions { display: flex; gap: 16rpx; margin-top: 24rpx; }
+.status-actions button { flex: 1; margin: 0; font-size: 26rpx; }
+.status-cancel-button { border: 1rpx solid #d4dfd8; background: #fff; color: #526158; }
+.status-save-button { background: #28624a; color: #fff; }
+.status-error, .void-status { display: block; margin-top: 16rpx; color: #a7352a; font-size: 24rpx; line-height: 1.6; }
+.status-refresh-button { margin-top: 14rpx; background: #fff; color: #28624a; font-size: 24rpx; }
+.voucher-filename { display: block; margin: 10rpx 0; color: #526158; font-size: 23rpx; overflow-wrap: anywhere; }
+.voucher-upload-button { margin: 0; border: 1rpx solid #28624a; background: #fff; color: #28624a; font-size: 25rpx; }
 .status-grid view { padding: 18rpx; border-radius: 12rpx; background: #eef5f1; }
 .status-grid text { display: block; }
 .status-grid text { color: #6b7971; font-size: 22rpx; }

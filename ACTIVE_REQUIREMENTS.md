@@ -1,3 +1,14 @@
+### PR-708-MINIAPP-ORDER-STATUS-TOP
+- Branch: codex/miniapp-order-status-top-20261021; base origin/develop e6d30fc0.
+- Owner/session: Codex / 2026-10-21.
+- Status: implementation and local gates passed; development integration/deployment in progress; Van product acceptance pending.
+- Scope: employee miniapp order detail starts with order/payment/shipping status and a dedicated status editor. Payment after production/shipping must not require editing the whole order or recalculating its frozen lines.
+- DEV: DEV-813-STATUS-API; DEV-814-STATUS-TOP; DEV-815-STATUS-DELIVERY.
+- Verifier: targeted RED/GREEN miniapp interaction/client and Go service/HTTP tests, isolated database transactions and audit checks, miniapp type/build, full remote deployment gates; employee and sales manuals.
+- Deployment: development only after verified feature push and develop integration. Production and WeChat upload/review/publication are outside this request.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-21-miniapp-order-status-top.md (in progress).
+- Notes: reserve_req_id.sh returned PR-708; reserved manually to avoid the known macOS awk multiline-string claim failure.
+
 ### PRICE-TABLE-DRAFT-QUOTA-20261021
 - Branch: codex/price-table-draft-quota-20261021; production baseline origin/main@973d5481.
 - Scope: local bounded regression, user reports production latest-publication load and publish blocked by named batch localStorage quota. No schema, business write or price semantics change.
