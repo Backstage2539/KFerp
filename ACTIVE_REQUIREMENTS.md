@@ -9,6 +9,16 @@
 - Evidence: Huangyan (customer487) read-only replay restores43 families/46 specs from5 green-only families; Vue1444/mini372, typecheck/builds/fullGo, isolated PostgreSQL lifecycle and API save guards passed. Acceptance: docs/acceptance/2026-10-21-published-order-catalog-consistency.md.
 - Notes: scripts/reserve_req_id.sh reports PR-707; --claim hit known macOS awk multiline-string failure, reserved manually here. Production runtime currently main 973d5481.
 
+### PRICE-TABLE-DRAFT-QUOTA-20261021
+- Branch: codex/price-table-draft-quota-20261021; production baseline origin/main@973d5481.
+- Scope: local bounded regression, user reports production latest-publication load and publish blocked by named batch localStorage quota. No schema, business write or price semantics change.
+- Root cause: prior c591b765 protects the old-table backup only; subsequent named batch write still throws outside publish request handling.
+- Fix: durable async named-batch storage, legacy draft read compatibility, ordered snapshots and current-scope checks; avoid duplicate standalone cache writes after named hydration.
+- Verification: targeted RED/GREEN, full Vue suite/build and existing publication-batch handler checks; production deployment requested by reported environment.
+- Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md, served by existing costingManual Vue entry.
+- Status: targeted54/fullVue1454, Vue build and publication-batch HTTP handler GREEN; native browser real-quota/save/reload GREEN. Production integration pending; no production business publications performed.
+- Delivery: origin/develop advanced independently to7634f2f8 (PR-707); keep production hotfix isolated from this unrelated development change. Evidence: docs/acceptance/2026-10-21-price-table-draft-quota.md.
+
 ### PR-704-MINIAPP-STOCK-ORDER-EXPERIENCE
 - Branch: codex/miniapp-stock-order-experience-20261019; base origin/develop@758a2f50.
 - Status: review; implemented and customer UI/API verified in development; Van product acceptance pending. Development delivery complete at be7338a1; subsequent receipt commit is documentation only.

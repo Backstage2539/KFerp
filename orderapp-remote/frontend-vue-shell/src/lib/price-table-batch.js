@@ -44,12 +44,69 @@ export function validatePriceTableBatch(batch) {
 }
 
 const storageOrDefault = storage => storage || (typeof window !== 'undefined' ? window.localStorage : null)
-export function savePriceTableBatchDraft(scope, batch, storage) {
-  storageOrDefault(storage)?.setItem(`kferp:named-price-tables:${scope}`, JSON.stringify(batch))
+const pendingDraftWrites = new WeakMap()
+
+function draftStore(indexedDB, mode, key, value) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('kferp-price-table-drafts', 1)
+    let blocked = false
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('drafts')) request.result.createObjectStore('drafts')
+    }
+    request.onerror = () => reject(request.error)
+    request.onblocked = () => { blocked = true; reject(new Error('草稿存储被占用')) }
+    request.onsuccess = () => {
+      const db = request.result
+      if (blocked) { db.close(); return }
+      db.onversionchange = () => db.close()
+      try {
+        const transaction = db.transaction('drafts', mode)
+        const store = transaction.objectStore('drafts')
+        const operation = mode === 'readwrite' ? store.put(value, key) : store.get(key)
+        transaction.oncomplete = () => { db.close(); resolve(operation.result) }
+        transaction.onabort = transaction.onerror = () => { db.close(); reject(transaction.error) }
+      } catch (err) { db.close(); reject(err) }
+    }
+  })
 }
-export function readPriceTableBatchDraft(scope, storage) {
+
+export async function savePriceTableBatchDraft(scope, batch, storage, indexedDB = globalThis.indexedDB) {
   try {
-    const raw = storageOrDefault(storage)?.getItem(`kferp:named-price-tables:${scope}`)
+    // Snapshot reactive data now, before a queued write can observe later edits.
+    const value = JSON.stringify(batch)
+    const key = `kferp:named-price-tables:${scope}`
+    if (!indexedDB) {
+      const target = storageOrDefault(storage)
+      if (!target) throw new Error('浏览器存储不可用')
+      target.setItem(key, value)
+      return
+    }
+    let writes = pendingDraftWrites.get(indexedDB)
+    if (!writes) { writes = new Map(); pendingDraftWrites.set(indexedDB, writes) }
+    const previous = writes.get(key) || Promise.resolve()
+    const write = previous.catch(() => {}).then(() => draftStore(indexedDB, 'readwrite', key, value))
+    writes.set(key, write)
+    try { await write } finally { if (writes.get(key) === write) writes.delete(key) }
+  } catch (cause) {
+    throw new Error('本地草稿保存失败，当前编辑内容仍保留在页面中；请勿刷新，可重试保存或发布到服务器。', { cause })
+  }
+}
+
+export async function readPriceTableBatchDraft(scope, storage, indexedDB = globalThis.indexedDB) {
+  const key = `kferp:named-price-tables:${scope}`
+  let raw
+  if (indexedDB) {
+    try {
+      await pendingDraftWrites.get(indexedDB)?.get(key)
+      raw = await draftStore(indexedDB, 'readonly', key)
+    } catch (cause) {
+      // An inaccessible draft must not be mistaken for a missing draft.
+      throw new Error('本地草稿读取失败，未替换当前内容，请重试或检查浏览器存储。', { cause })
+    }
+  }
+  try {
+    // Existing localStorage drafts remain a migration source, never a second writer.
+    if (raw === undefined || raw === null) raw = storageOrDefault(storage)?.getItem(key)
     const batch = raw ? JSON.parse(raw) : null
     return Array.isArray(batch?.tables) && batch.tables.length ? batch : null
   } catch { return null }

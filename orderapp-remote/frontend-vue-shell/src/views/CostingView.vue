@@ -2342,6 +2342,7 @@ function normalizePriceListFlatRowOverrides(rows = {}) {
 
 function savePriceListGenerationDraftForActiveType() {
   if (namedEditorBlocked.value || restoringNamedPriceTable) return
+  if (namedEditorReady.value) return persistNamedPriceTableBatch()
   savePriceListGenerationDraft(priceListGenerationDraftStorageKey(), {
     defaults: priceListTemplateDefaults.value,
     parentSelections: priceListParentTemplateSelections.value,
@@ -4819,7 +4820,6 @@ async function restoreCopiedPriceTable(row, result) {
   selectedPriceSourcePublicationID.value = ''
   downloadSourcePublication.value = null
   await nextTick()
-  savePriceListGenerationDraft(priceListGenerationDraftStorageKey(), generationDraft)
 
   const activeTable = activeNamedPriceTable.value
   if (activeTable) {
@@ -4834,8 +4834,7 @@ async function restoreCopiedPriceTable(row, result) {
   }
   if (result.draft?.version) namedPriceTableBatch.value.version = result.draft.version
   namedPriceTableBatch.value.changelog = pdfOptions.value.changelog || ''
-  persistNamedPriceTableBatch()
-  savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
+  await persistNamedPriceTableBatch()
 }
 
 async function confirmPublicationCopy() {
@@ -5290,7 +5289,7 @@ async function refreshPriceListData(kind) {
     if (!current()) return
     priceListRefresh.value.busy = false
     savePriceListGenerationDraftForActiveType()
-    persistNamedPriceTableBatch()
+    await persistNamedPriceTableBatch()
     const invalid = kind === 'prices' ? priceListFlatRows.value.filter(row => priceListFlatRowVisibleErrors(row).length).length : 0
     if (invalid) {
       priceListRefresh.value.error = `已读取最新配置，但有 ${invalid} 行价格未完成，请按行内提示处理后重试。`
@@ -5335,7 +5334,7 @@ async function loadBeanList() {
     namedEditorError.value = err.message || '商品目录加载失败，请重试；本地草稿已保留'
     error.value = namedEditorError.value
   } finally {
-    if (revision === beanListLoadRevision) { loading.value = false; persistNamedPriceTableBatch() }
+    if (revision === beanListLoadRevision) { loading.value = false; await persistNamedPriceTableBatch() }
   }
 }
 
@@ -6031,13 +6030,21 @@ function captureNamedPriceTablePayload() {
   })
 }
 
-function persistNamedPriceTableBatch() {
+async function persistNamedPriceTableBatch() {
   if (namedEditorBlocked.value) return
   if (restoringNamedPriceTable || loading.value || namedPriceTableScope.value !== priceListGenerationDraftBaseKey() || !activeNamedPriceTable.value) return
   activeNamedPriceTable.value.payload = captureNamedPriceTablePayload()
   namedPriceTableBatch.value.version = pdfOptions.value.version
   namedPriceTableBatch.value.changelog = pdfOptions.value.changelog
-  savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
+  const scope = namedPriceTableScope.value
+  const revision = namedEditorRevision
+  try {
+    await savePriceTableBatchDraft(scope, namedPriceTableBatch.value)
+    return true
+  } catch (err) {
+    if (revision === namedEditorRevision && scope === namedPriceTableScope.value && scope === priceListGenerationDraftBaseKey()) error.value = err.message
+    return false
+  }
 }
 
 async function applyNamedPriceTablePayload() {
@@ -6083,7 +6090,8 @@ async function restoreNamedPriceTableBatch(force = false) {
     publicationPurpose: FACTORY_SUPPLY_PUBLICATION_PURPOSE, pageSize: 100,
   }
   try {
-    const local = readPriceTableBatchDraft(scope)
+    const local = await readPriceTableBatchDraft(scope)
+    if (!current()) return
     const published = await loadPublishedEditorBatch({
       loadSummary: page => publicationRequestOnce(buildPublicationSummaryURL({ ...summaryOptions, page })),
       loadDetail: loadBeanListPublicationDetail, isCurrent: current,
@@ -6106,7 +6114,7 @@ async function restoreNamedPriceTableBatch(force = false) {
   } catch (err) {
     if (current()) namedEditorError.value = err.message || '价格表恢复失败，请重试；本地草稿已保留'
   } finally {
-    if (current()) { namedEditorLoading.value = false; persistNamedPriceTableBatch() }
+    if (current()) { namedEditorLoading.value = false; await persistNamedPriceTableBatch() }
   }
 }
 
@@ -6128,7 +6136,8 @@ async function resolveNamedTableDraft(choice) {
     await applyNamedPriceTablePayload()
     if (!current()) return
     namedEditorLoading.value = false
-    persistNamedPriceTableBatch()
+    await persistNamedPriceTableBatch()
+    if (!current()) return
     message.value = choice === 'published' ? '已载入最新发布版，原本地草稿已备份。' : '继续编辑本地草稿。'
   } catch (err) { if (current()) error.value = err.message || '恢复失败，本地草稿已保留' }
   finally { if (current()) namedEditorLoading.value = false }
@@ -6143,11 +6152,18 @@ function removeUnavailableEditorSelections() {
 
 async function selectNamedPriceTable(key) {
   if (beanListPublishing.value || !namedEditorReady.value || key === namedPriceTableBatch.value?.active_table_key) return
-  persistNamedPriceTableBatch()
+  const revision = namedEditorRevision
+  const scope = namedPriceTableScope.value
+  const current = () => revision === namedEditorRevision && scope === namedPriceTableScope.value && scope === priceListGenerationDraftBaseKey()
+  await persistNamedPriceTableBatch()
+  if (!current() || !namedPriceTableBatch.value?.tables.some(table => table.key === key)) return
   namedPriceTableBatch.value.active_table_key = key
   await applyNamedPriceTablePayload()
-  savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
+  if (!current()) return
+  await persistNamedPriceTableBatch()
+  if (!current()) return
   await nextTick()
+  if (!current()) return
   keepActiveNamedPriceTableTabVisible()
 }
 
@@ -6181,61 +6197,87 @@ async function openNamedTableConfig() {
 }
 
 async function addNamedPriceTable(copy, key = namedPriceTableBatch.value?.active_table_key) {
-  persistNamedPriceTableBatch()
+  if (beanListPublishing.value || namedEditorBlocked.value) return
+  const revision = namedEditorRevision
+  const scope = namedPriceTableScope.value
+  const current = () => revision === namedEditorRevision && scope === namedPriceTableScope.value && scope === priceListGenerationDraftBaseKey()
+  await persistNamedPriceTableBatch()
+  if (!current()) return
   namedPriceTableBatch.value = addPriceTable(namedPriceTableBatch.value, copy ? key : '')
   await applyNamedPriceTablePayload()
-  persistNamedPriceTableBatch()
+  if (!current()) return
+  await persistNamedPriceTableBatch()
 }
 
 async function deleteNamedPriceTable(key) {
+  if (beanListPublishing.value || namedEditorBlocked.value) return
   const table = namedPriceTableBatch.value?.tables.find(row => row.key === key)
   if (!table || !window.confirm(`删除草稿价格表「${table.name}」？已发布版本保留。`)) return
-  persistNamedPriceTableBatch()
+  const revision = namedEditorRevision
+  const scope = namedPriceTableScope.value
+  const current = () => revision === namedEditorRevision && scope === namedPriceTableScope.value && scope === priceListGenerationDraftBaseKey()
+  await persistNamedPriceTableBatch()
+  if (!current() || !namedPriceTableBatch.value?.tables.some(row => row.key === key)) return
   namedPriceTableBatch.value = removePriceTable(namedPriceTableBatch.value, key)
   await applyNamedPriceTablePayload()
-  persistNamedPriceTableBatch()
+  if (!current()) return
+  await persistNamedPriceTableBatch()
 }
 
 async function saveNamedPriceTableBatch(publish) {
+  if (beanListPublishing.value) return
   if (namedEditorBlocked.value) { error.value = '请先完成价格表加载或选择草稿处理方式'; return }
   if (priceListRefresh.value.busy) { error.value = '正在刷新，请等待刷新完成后保存或发布。'; return }
-  await restoreNamedPriceTableBatch()
-  await nextTick()
-  persistNamedPriceTableBatch()
-  const unresolved = namedPriceTableBatch.value?.tables.find(table => editorTableConflict(table, publishedEditorBatch.value?.tables.find(row => row.key === table.key)))
-  if (unresolved) { error.value = `请先处理价格表「${unresolved.name}」的草稿版本冲突`; return }
-  const invalid = validatePriceTableBatch(namedPriceTableBatch.value)
-  if (invalid) { error.value = invalid; return }
-  if (publish) {
-    const activeKey = namedPriceTableBatch.value.active_table_key
-    beanListPublishing.value = true
-    try {
-      for (const table of namedPriceTableBatch.value.tables) {
-        namedPriceTableBatch.value.active_table_key = table.key
-        if (activeNamedTableConflict.value) { error.value = `请先处理价格表「${table.name}」的草稿版本冲突`; return }
-        await applyNamedPriceTablePayload()
-        await loadPriceListPricingRuleTrials(currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
-        await Promise.allSettled([...priceListPricingRuleTasks])
-        await nextTick()
-        table.payload = captureNamedPriceTablePayload()
-        if (table.payload.blocked_reason || !table.payload.content?.groups?.length) {
-          error.value = `价格表「${table.name}」：${table.payload.blocked_reason || '请选择商品和规格'}`
-          return
-        }
-      }
-      namedPriceTableBatch.value.active_table_key = activeKey
-      await applyNamedPriceTablePayload()
-    } catch (cause) { error.value = cause.message || '价格计算失败'; return }
-    finally { beanListPublishing.value = false; persistNamedPriceTableBatch() }
-  }
-  const batch = clonePriceTable(namedPriceTableBatch.value)
-  const common = beanListPublicationPayload()
-  const payload = { ...common, version: batch.version, changelog: batch.changelog, default_table_key: batch.default_table_key,
-    tables: batch.tables.map(table => ({ key: table.key, name: table.name.trim(), direct_ship_enabled: Boolean(table.direct_ship_enabled), config: table.payload?.config || {}, content: table.payload?.content || {},
-      price_source_publication_id: table.payload?.price_source_publication_id || 0, style_source_publication_id: table.payload?.style_source_publication_id || 0, source_version: table.payload?.source_version || '' })) }
-  beanListPublishing.value = true; error.value = ''; message.value = ''
+  const revision = namedEditorRevision
+  const scope = namedPriceTableScope.value
+  const current = () => revision === namedEditorRevision && scope === namedPriceTableScope.value && scope === priceListGenerationDraftBaseKey()
+  beanListPublishing.value = true
+  error.value = ''; message.value = ''
   try {
+    await restoreNamedPriceTableBatch()
+    if (!current()) return
+    await nextTick()
+    if (!current()) return
+    await persistNamedPriceTableBatch()
+    if (!current()) return
+    const unresolved = namedPriceTableBatch.value?.tables.find(table => editorTableConflict(table, publishedEditorBatch.value?.tables.find(row => row.key === table.key)))
+    if (unresolved) { error.value = `请先处理价格表「${unresolved.name}」的草稿版本冲突`; return }
+    const invalid = validatePriceTableBatch(namedPriceTableBatch.value)
+    if (invalid) { error.value = invalid; return }
+    if (publish) {
+      const activeKey = namedPriceTableBatch.value.active_table_key
+      try {
+        for (const table of namedPriceTableBatch.value.tables) {
+          if (!current()) return
+          namedPriceTableBatch.value.active_table_key = table.key
+          if (activeNamedTableConflict.value) { error.value = `请先处理价格表「${table.name}」的草稿版本冲突`; return }
+          await applyNamedPriceTablePayload()
+          if (!current()) return
+          await loadPriceListPricingRuleTrials(currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
+          if (!current()) return
+          await Promise.allSettled([...priceListPricingRuleTasks])
+          await nextTick()
+          if (!current()) return
+          table.payload = captureNamedPriceTablePayload()
+          if (table.payload.blocked_reason || !table.payload.content?.groups?.length) {
+            error.value = `价格表「${table.name}」：${table.payload.blocked_reason || '请选择商品和规格'}`
+            return
+          }
+        }
+        namedPriceTableBatch.value.active_table_key = activeKey
+        await applyNamedPriceTablePayload()
+        if (!current()) return
+      } catch (cause) { if (current()) error.value = cause.message || '价格计算失败'; return }
+      await persistNamedPriceTableBatch()
+      if (!current()) return
+    }
+    const batch = clonePriceTable(namedPriceTableBatch.value)
+    const common = beanListPublicationPayload()
+    const payload = { ...common, version: batch.version, changelog: batch.changelog, default_table_key: batch.default_table_key,
+      tables: batch.tables.map(table => ({ key: table.key, name: table.name.trim(), direct_ship_enabled: Boolean(table.direct_ship_enabled), config: table.payload?.config || {}, content: table.payload?.content || {},
+        price_source_publication_id: table.payload?.price_source_publication_id || 0, style_source_publication_id: table.payload?.style_source_publication_id || 0, source_version: table.payload?.source_version || '' })) }
     const result = await apiSend(publish ? '/api/costing/bean-list/publication-batches' : '/api/costing/bean-list/draft-batches', { body: payload })
+    if (!current()) return
     if (publish) {
       for (const row of result.tables || []) {
         const meta = publicationTableMetadata(row)
@@ -6247,13 +6289,17 @@ async function saveNamedPriceTableBatch(publish) {
     const pdfFailures = Object.keys(result.pdf_errors || {}).length
     message.value = `${publish ? '已发布' : '已保存草稿'} ${result.tables.length} 张价格表，统一版本 ${result.version}${pdfFailures ? `；${pdfFailures} 张 PDF 暂未生成，可在版本列表重新下载，无需再次发布` : ''}`
     await loadBeanListPublications(pdfTheme.value.listType, publicationScope.value, activeProductTypeCategoryID.value, 'factory_supply')
+    if (!current()) return
     if (publish) pdfOptions.value.version = defaultBeanListVersionForScope(pdfTheme.value.listType, activeProductTypeCategoryID.value)
   } catch (err) {
+    if (!current()) return
     error.value = err.message || '保存价格表失败'
     const bad = namedPriceTableBatch.value.tables.find(table => error.value.includes(`「${table.name.trim()}」`))
     if (bad) { namedPriceTableBatch.value.active_table_key = bad.key; await applyNamedPriceTablePayload() }
+  } finally {
+    if (current()) await persistNamedPriceTableBatch()
+    beanListPublishing.value = false
   }
-  finally { beanListPublishing.value = false; persistNamedPriceTableBatch() }
 }
 
 watch([activePriceListTypeKey, activeBeanListCustomerID, publicationScope, loading], async () => {
@@ -6261,9 +6307,7 @@ watch([activePriceListTypeKey, activeBeanListCustomerID, publicationScope, loadi
 }, { flush: 'post' })
 watch([priceListDisplayOrder, pdfOptions, pdfCustomizers, priceListTemplateDefaults, priceListParentTemplateSelections, priceListGroupTemplateSelections,
   priceListProductTemplateOverrides, priceListFlatRowOverrides, priceListTierFixedPrices, customerPriceConfiguredSources, pdfProductSpecSelections, pdfGroups], persistNamedPriceTableBatch, { deep: true, flush: 'post' })
-watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name, table.direct_ship_enabled])]), () => {
-  if (!namedEditorBlocked.value && !restoringNamedPriceTable && namedPriceTableBatch.value) savePriceTableBatchDraft(namedPriceTableScope.value, namedPriceTableBatch.value)
-})
+watch(() => JSON.stringify([namedPriceTableBatch.value?.default_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name, table.direct_ship_enabled])]), persistNamedPriceTableBatch)
 watch(() => JSON.stringify([namedPriceTableBatch.value?.active_table_key, namedPriceTableBatch.value?.tables.map(table => [table.key, table.name])]), async () => {
   await nextTick()
   keepActiveNamedPriceTableTabVisible()
