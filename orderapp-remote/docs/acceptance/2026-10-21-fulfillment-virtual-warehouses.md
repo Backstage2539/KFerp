@@ -1,6 +1,6 @@
 # PR-710 客户代发配置与虚拟仓库管理
 
-- 状态：实现、本地回归与独立复审通过；开发环境交付进行中，Van 业务验收待确认。
+- 状态：开发环境交付完成，自动化、本地界面和只读运行核对通过；Van 业务验收待确认。
 - 开发分支：`codex/fulfillment-virtual-warehouses-20261021`，基线 `5b838315`。
 - DEV-819：代发场景运费、仓库、服务费与审计整体保存，兼容旧客户端。
 - DEV-820：虚拟子仓归类、分页、增改删、客户隔离及业务引用保护。
@@ -36,4 +36,14 @@
 
 ## 开发交付
 
-待验证、分支推送、develop 集成和 development 部署后填写实际提交、备份和运行检查。
+- 实现提交 `342758cd664e29b6669136e1259668ad242b25fc` 已推送功能分支；在独立干净 checkout 合并当前 origin/develop，合并树与已验证功能树一致。
+- 开发运行版本 `2059307c38968c88bc1da8936d42a3a979543d63`。命令：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`。部署日志 `/tmp/kferp-pr710-deploy.log`。
+- 服务器闸门：Vue1472项、小程序393项、类型检查、开发小程序构建和24页产物检查、宿主及镜像内Go全包测试通过。小程序产物仅在服务器校验，未下载或上传微信平台。
+- 回滚锚点：源备份 `/opt/stacks/erp/orderapp.backup.deploy-20261021224657-2059307c3896`；镜像 `kferp-orderapp-rollback:development-20261021224657-2059307c3896`。
+- 开发应用运行、PostgreSQL健康；外部登录页HTTP200；客户门户与业务设置页面、3份手册HTTP200；匿名新仓库API和履约设置API均401。
+- 产品进度API包含 PR-710 review，DEV-819～822 done。编译后静态资源包含虚拟仓库抽屉，服务器产物 RELEASE_INFO 对应本次开发提交。
+- 部署前后仓库20条、成品库存34条的完整校验值一致；客户仓归类14条，已绑定客户但未归类为0条，跨模块引用保护30个。仅归类、无余额或历史单据修改。
+- 正式应用镜像及启动时间与部署前相同。未执行真实客户配置保存、订单、库存或账单业务验收。
+- 构建期间仅清理可再生成的npm/Go/临时依赖与Docker构建缓存，保留数据库、源备份和带标签的回滚镜像。
+- 完整日志及本地模拟数据截图归档：`/Users/yiiiple-work/Documents/Codex/2026-10-21/fulfillment-virtual-warehouses/`，只读运行证据为 `validation/kferp-pr710-runtime-smoke.log`。
+- 最终回执仅更新进度与验收文档，后续文档合并不改变上述已部署运行版本。
