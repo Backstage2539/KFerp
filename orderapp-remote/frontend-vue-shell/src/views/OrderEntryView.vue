@@ -810,11 +810,26 @@ const selectedBeanListPublicationIDs = reactive({})
 const staffCatalog = reactive({})
 const staffCatalogSession = createOrderCatalogSession({ state: staffCatalog, load: (customerID, ids) => apiGet(`/api/order/catalog?customer_id=${customerID}&selected_price_table_ids=${ids.join(',')}`) })
 function selectedStaffTableIDs() { return [...new Set(Object.values(selectedBeanListPublicationIDs).map(Number).filter(id => id > 0))] }
+function preservesStoredOrderPrice(row) {
+  return isFrozenConversion(row) || preservesSampleSpec(row, sampleOrderEditing.value)
+}
+function staffCatalogRequestTableIDs() {
+  const historicalIDs = new Set()
+  const liveIDs = new Set()
+  for (const row of rows.value) {
+    if (Number(row.product_id || row.parent_product_id || 0) <= 0) continue
+    const target = preservesStoredOrderPrice(row) ? historicalIDs : liveIDs
+    target.add(Number(row.bean_list_publication_id || 0))
+  }
+  const currentIDs = new Set(Number(staffCatalog.customerID) === Number(form.customer_id) && staffCatalog.key
+    ? (staffCatalog.options || []).map(table => Number(table.id)) : [])
+  return selectedStaffTableIDs().filter(id => !historicalIDs.has(id) || liveIDs.has(id) || currentIDs.has(id))
+}
 async function refreshStaffOrderCatalog() {
   if (props.customerPortal) return true
   const customerID = Number(form.customer_id || 0)
   const previousKey = staffCatalog.key
-  const data = await staffCatalogSession.refresh(customerID, selectedStaffTableIDs())
+  const data = await staffCatalogSession.refresh(customerID, staffCatalogRequestTableIDs())
   if (!data) { if (staffCatalog.error) error.value = staffCatalog.error; return false }
   for (const key of Object.keys(selectedBeanListPublicationIDs)) delete selectedBeanListPublicationIDs[key]
   for (const group of staffPriceTableGroups(data.price_table_options || [], data.selected_price_table_ids || [])) {
@@ -828,7 +843,7 @@ async function refreshStaffOrderCatalog() {
   }
   if (data.catalog_updated) {
     ok.value = '价格表已更新，请重新选择规格并核对原有商品价格。'
-    for (const row of rows.value) if (Number(row.product_id) > 0) { row.spec_invalid_message = '价格表已更新，请重新选择规格并核对价格'; row.price_missing = true }
+    for (const row of rows.value) if (Number(row.product_id) > 0 && !preservesStoredOrderPrice(row)) { row.spec_invalid_message = '价格表已更新，请重新选择规格并核对价格'; row.price_missing = true }
   }
   return true
 }
@@ -2042,6 +2057,7 @@ function onLegacySpecChange(row) {
 
 function syncRowsForType(options = {}) {
   rows.value.forEach((row) => {
+    if (preservesStoredOrderPrice(row)) return
     if (options.priceListChanged) {
       row.price_selection_mode = 'auto'
       row.selected_price_row_key = ''
@@ -2628,6 +2644,7 @@ function applyEditData(data) {
 
 function repriceHydratedRows() {
   for (const row of rows.value) {
+    if (preservesStoredOrderPrice(row)) continue
     if (row.historical_spec_readonly) {
       ensureRowBeanListVersion(row)
       continue
