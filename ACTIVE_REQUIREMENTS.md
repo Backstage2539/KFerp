@@ -1,12 +1,13 @@
 ### PR-708-MINIAPP-ORDER-STATUS-TOP
 - Branch: codex/miniapp-order-status-top-20261021; base origin/develop e6d30fc0.
 - Owner/session: Codex / 2026-10-21.
-- Status: implementation and local gates passed; development integration/deployment in progress; Van product acceptance pending.
+- Status: delivered to development a8fe07ba on 2026-10-21; automated/local UI/runtime/artifact checks passed; Van product acceptance pending.
 - Scope: employee miniapp order detail starts with order/payment/shipping status and a dedicated status editor. Payment after production/shipping must not require editing the whole order or recalculating its frozen lines.
 - DEV: DEV-813-STATUS-API; DEV-814-STATUS-TOP; DEV-815-STATUS-DELIVERY.
 - Verifier: targeted RED/GREEN miniapp interaction/client and Go service/HTTP tests, isolated database transactions and audit checks, miniapp type/build, full remote deployment gates; employee and sales manuals.
 - Deployment: development only after verified feature push and develop integration. Production and WeChat upload/review/publication are outside this request.
-- Evidence: orderapp-remote/docs/acceptance/2026-10-21-miniapp-order-status-top.md (in progress).
+- Evidence: orderapp-remote/docs/acceptance/2026-10-21-miniapp-order-status-top.md (technical delivery complete; Van acceptance pending).
+- Delivery: feature b47b1aac, runtime/package a8fe07ba618f2b9c0510fa587d0e2129d3b4ff46; source backup /opt/stacks/erp/orderapp.backup.deploy-20261021131604-a8fe07ba618f; rollback image retained. Go/Vue1459/mini389/type/build, isolated PostgreSQL, app running/DB healthy, protected APIs401, manuals/PR+DEV200, 24 pages/96 page files/238 total files and ZIP CRC passed. Final receipt update is documentation-only.
 - Notes: reserve_req_id.sh returned PR-708; reserved manually to avoid the known macOS awk multiline-string claim failure.
 
 ### PRICE-TABLE-DRAFT-QUOTA-20261021
