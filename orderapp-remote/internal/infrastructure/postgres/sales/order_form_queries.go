@@ -2450,7 +2450,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		}
 		d.Items[i].PriceSourceJSON = enriched
 	}
-	views, e := freightpg.NewRepository(r.pool, r.schema).OrderViews(ctx, r.pool, []int64{id})
+	views, e := freightpg.NewRepository(r.pool, r.schema).OrderEditorViews(ctx, r.pool, []int64{id})
 	if e != nil {
 		return nil, e
 	}

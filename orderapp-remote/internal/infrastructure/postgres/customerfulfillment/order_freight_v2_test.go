@@ -133,7 +133,11 @@ func TestOrderFreightV2PendingConfirmation(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	views, e := freightpg.NewRepository(pool, schema).OrderViews(ctx, pool, []int64{result.OrderID})
+	acceptedViews, e := freightpg.NewRepository(pool, schema).OrderViews(ctx, pool, []int64{result.OrderID})
+	if e != nil || acceptedViews[result.OrderID] != nil {
+		t.Fatalf("pending freight leaked into accepted accounting view: %+v %v", acceptedViews, e)
+	}
+	views, e := freightpg.NewRepository(pool, schema).OrderEditorViews(ctx, pool, []int64{result.OrderID})
 	if e != nil || views[result.OrderID] == nil || views[result.OrderID].CurrentReceivableCents != 2000 || views[result.OrderID].EditToken != "" {
 		t.Fatalf("pending editor: %+v %v", views, e)
 	}
