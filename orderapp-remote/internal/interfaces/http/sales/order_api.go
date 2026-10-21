@@ -78,6 +78,7 @@ type orderFormAPIResponse struct {
 type orderSaveAPIRequest struct {
 	FreightOverride                 *freightdomain.Override `json:"freight_override,omitempty"`
 	FreightProtocol                 string                  `json:"freight_protocol"`
+	ExpectedFreightToken            string                  `json:"expected_freight_token"`
 	FreightQuoteToken               string                  `json:"freight_quote_token"`
 	ShippingProvince                string                  `json:"shipping_province"`
 	ShippingCity                    string                  `json:"shipping_city"`
@@ -685,7 +686,7 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		ResponsibleID:         r.ResponsibleID,
 		Notes:                 r.Notes,
 		ShippingAmount:        r.ShippingAmount,
-		FreightOverride:       r.FreightOverride, FreightProtocol: r.FreightProtocol, FreightQuoteToken: r.FreightQuoteToken, ShippingProvince: r.ShippingProvince, ShippingCity: r.ShippingCity, ShippingDistrict: r.ShippingDistrict,
+		ExpectedFreightToken:  r.ExpectedFreightToken, FreightOverride: r.FreightOverride, FreightProtocol: r.FreightProtocol, FreightQuoteToken: r.FreightQuoteToken, ShippingProvince: r.ShippingProvince, ShippingCity: r.ShippingCity, ShippingDistrict: r.ShippingDistrict,
 		DiscountAmount:                     r.DiscountAmount,
 		RoundToInt:                         r.RoundToInt,
 		ExpressFee:                         r.ExpressFee,

@@ -8,14 +8,14 @@ async function loadView(name,props){const file=new URL(`../components/${name}.vu
 test('shipping quote discards late responses and submits only acknowledged current quote',async()=>{
  const original=globalThis.fetch;const pending=[];globalThis.fetch=async(url,opts)=>new Promise(resolve=>pending.push({url,body:JSON.parse(opts.body),resolve}));try{
   const vm=await loadView('OrderFreightEstimate',{customerId:77,items:[{product_id:10,qty:2}],savedDestination:{},customerPortal:false})
-  vm.destination.province='云南省';const first=vm.preview();vm.destination.province='四川省';const second=vm.preview();assert.equal(pending.length,2)
+  vm.update({destination:{province:'云南省',city:'',district:''}});const first=vm.preview();await Promise.resolve();vm.update({destination:{province:'四川省',city:'',district:''}});const second=vm.preview();await Promise.resolve();assert.equal(pending.length,2)
   pending[1].resolve({ok:true,status:200,json:async()=>({token:'new',estimated_total_cents:2000,status:'pending_actual'})});await second
   pending[0].resolve({ok:true,status:200,json:async()=>({token:'old',estimated_total_cents:500,status:'pending_actual'})});await first
-  assert.equal(vm.quote.value.token,'new');assert.equal(vm.busy.value,false);const p=vm.payload();assert.equal(p.shipping_amount,'0');assert.equal(p.freight_protocol,'deferred_freight_v1');assert.equal(p.freight_quote_token,'new');assert.equal(p.shipping_province,'四川省')
+  assert.equal(vm.quote.value.token,'new');assert.equal(vm.busy.value,false);const p=vm.payload();assert.equal(p.shipping_amount,'0');assert.equal(p.freight_protocol,'order_freight_v2');assert.equal(p.freight_quote_token,'new');assert.equal(p.shipping_province,'四川省')
  }finally{globalThis.fetch=original}
 })
 test('region controls use string names as selection values and template copy is independent',async()=>{
- const source=fs.readFileSync(new URL('../components/OrderFreightEstimate.vue',import.meta.url),'utf8');assert.equal((source.match(/option-value="value"/g)||[]).length,3)
+ const selection=await loadView('OrderFreightEstimate',{customerId:0,items:[],modelValue:{manual:'20',free:false,destination:{province:'云南省',city:'',district:''}}});assert.equal(selection.payload().shipping_amount,'20');selection.update({free:true});assert.equal(selection.payload().shipping_amount,'0');selection.update({free:false});assert.equal(selection.payload().shipping_amount,'20')
  const vm=await loadView('ShippingFeeTemplates',{companies:[]});const sourceTemplate={id:9,revision:4,name:'原表',carrier_id:1,logistics_product_id:2,groups:[{name:'一区',region_codes:['530000'],tiers:[{upper_weight_g:1000,fee_cents:510}],additional_weight_g:1000,additional_fee_cents:200}]};vm.edit(sourceTemplate);vm.copyTemplate();assert.equal(vm.form.value.id,0);vm.form.value.groups[0].region_codes.push('510000');assert.deepEqual(sourceTemplate.groups[0].region_codes,['530000']);assert.equal(vm.form.value.revision,0)
 })
 

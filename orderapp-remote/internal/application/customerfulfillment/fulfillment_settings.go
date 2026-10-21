@@ -46,6 +46,9 @@ type FulfillmentFeeItem struct {
 	Qty          int64 `json:"qty"`
 }
 type FulfillmentFeeQuoteCommand struct {
+	FreightProtocol       string               `json:"freight_protocol,omitempty"`
+	OrderID               int64                `json:"order_id,omitempty"`
+	ExpectedFreightToken  string               `json:"expected_freight_token,omitempty"`
 	FreightOverride       *freight.Override    `json:"freight_override,omitempty"`
 	CustomerID            int64                `json:"-"`
 	FulfillmentMode       string               `json:"fulfillment_mode"`

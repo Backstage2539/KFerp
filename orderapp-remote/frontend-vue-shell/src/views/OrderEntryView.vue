@@ -220,9 +220,9 @@
             </div>
           </label>
           <label :class="{ 'field-invalid': hasFieldError('payment_shipping_amount') }" data-error-field="payment_shipping_amount">
-            <span>{{!form.edit_id?'运费待出账（本次不收）':'运费金额'}}</span>
+            <span>实收运费（元）</span>
             <div class="amount-suggestion-wrap">
-              <input :disabled="!form.edit_id" v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
+              <input :disabled="!form.edit_id && (!form.freight_state?.manual || form.freight_state?.free)" v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
               <button
                 v-if="showPaymentShippingAmountSuggestion"
                 class="amount-suggestion-popover"
@@ -466,13 +466,9 @@
     </section>
 
     <section class="panel footer-panel">
-      <OrderFreightEstimate v-if="!form.edit_id && form.delivery_mode!=='customer_stock'" ref="freightEstimator" :customer-id="form.customer_id" :items="freightItems" :saved-destination="{province:form.shipping_province,city:form.shipping_city,district:form.shipping_district}" @destination-change="Object.assign(form,$event)" :address="form.receiver_address" :customer-portal="props.customerPortal" />
+      <OrderFreightEstimate v-model="form.freight_state" :order-id="Number(form.edit_id||0)" :expected-token="orderFreight?.edit_token??orderFreight?.token??''" :locked="!!orderFreight?.edit_locked" :stored-quote="orderFreight" @amount-change="form.shipping_amount=String($event)" v-if="form.delivery_mode!=='customer_stock' && (!form.edit_id || !props.customerPortal)" ref="freightEstimator" :customer-id="form.customer_id" :items="freightItems" :saved-destination="{province:form.shipping_province,city:form.shipping_city,district:form.shipping_district}" @destination-change="Object.assign(form,$event)" :address="form.receiver_address || selectedCustomer?.address || selectedCustomer?.company_address || ''" :customer-portal="props.customerPortal" />
       <div v-if="!props.customerPortal" class="section-title">费用</div>
       <div v-if="!props.customerPortal" class="form-grid compact">
-        <label>
-          <span>{{!form.edit_id?'运费待出账（本次不收）':'原订单运费'}}</span>
-          <input :disabled="!form.edit_id" v-model.trim="form.shipping_amount" type="number" min="0" step="0.01" />
-        </label>
         <label>
           <span>优惠</span>
           <input v-model.trim="form.discount_amount" type="number" min="0" step="0.01" />
@@ -753,6 +749,7 @@ import {
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
 import OrderFreightEstimate from '../components/OrderFreightEstimate.vue'
+import {emptyFreightState,freightStateFromOrder,freightAmount} from '../lib/order-freight'
 import CustomerRecipientPicker from '../components/CustomerRecipientPicker.vue'
 import { customerStockWarehouses } from '../lib/customer-stock-entry'
 import { businessGroupFeatureSelectionIDs, businessGroupRowsForFeatureSelection } from '../lib/business-grouping'
@@ -856,6 +853,7 @@ function currentOrderProductFamilies() {
 }
 
 const rows = ref([newRow()])
+const orderFreight=ref(null)
 const freightEstimator=ref(null)
 const freightItems=computed(()=>rows.value.filter(r=>Number(r.product_id)>0&&Number(r.qty)>0).map(r=>({product_id:Number(r.product_id),bom_spec_id:Number(r.bom_spec_id||0),bom_variant_id:Number(r.bom_variant_id||0),qty:Number(r.qty)})))
 
@@ -921,6 +919,7 @@ const form = reactive({
   green_bean_list_publication_id: 0,
   drip_bean_list_publication_id: 0,
   notes: '',
+  freight_state: emptyFreightState(),
   shipping_amount: '',
   discount_amount: '',
   round_to_int: false,
@@ -2422,6 +2421,8 @@ function notifyWorkspaceCustomerChanged(customerID) {
 function applyEditData(data) {
   prepaymentRate.value = 0
   if (!data) return
+  orderFreight.value=copyMode.value?null:(data.freight||null)
+  form.freight_state=freightStateFromOrder(data)
   sampleOrderEditing.value = isSampleOrderEdit(data, {copyMode:copyMode.value,customerPortal:props.customerPortal})
   const editItems = Array.isArray(data.items) ? data.items : []
   const itemPublicationIDByType = (listType) => {
@@ -2792,6 +2793,9 @@ async function load() {
 function resetForBackfillContinuation() {
   if (props.fulfillmentMode) {resetCustomerContinuation(form);form.customer_request_id='';fulfillmentRecipientPaste.value=''}
   prepaymentRate.value = 0
+  orderFreight.value=null
+  form.freight_state=emptyFreightState()
+  form.shipping_amount='0'
   form.edit_id = 0
   form.ship_tracking_no = ''
   form.prepayment_amount = '0'
@@ -2828,7 +2832,7 @@ async function save(options = {}) {
   clearAllFieldErrors()
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
-    if (!form.edit_id && form.delivery_mode!=='customer_stock') {
+    if (form.delivery_mode!=='customer_stock' && !orderFreight.value?.edit_locked && (!form.edit_id || !props.customerPortal)) {
       const q=await freightEstimator.value?.preview();if(!q){error.value='请完善收件地区及运费配置后重试';return}
       Object.assign(payload,freightEstimator.value.payload())
       if(q.carrier_id){payload.logistics_company_id=q.carrier_id;payload.logistics_product_id=q.logistics_product_id;form.logistics_company_id=q.carrier_id;form.logistics_product_id=q.logistics_product_id}
@@ -3046,8 +3050,9 @@ watch(() => form.payment_voucher_asset_id, () => clearFieldErrorIfValid('payment
 watch(itemsTotal, () => {
   clearFieldErrorIfValid('payment_goods_amount')
 })
-watch(() => form.shipping_amount, () => {
-  if (paymentReceiptRequired.value && String(form.payment_shipping_amount ?? '').trim() === '') {
+watch(()=>form.delivery_mode,mode=>{if(mode==='customer_stock'){form.shipping_amount='0'}else{try{form.shipping_amount=String(freightAmount(form.freight_state))}catch{}}})
+watch(() => form.shipping_amount, (next, previous) => {
+  if (paymentReceiptRequired.value && (String(form.payment_shipping_amount ?? '').trim() === '' || !form.edit_id && Number(form.payment_shipping_amount)===Number(previous||0))) {
     form.payment_shipping_amount = money(toNumber(form.shipping_amount))
   }
   clearFieldErrorIfValid('payment_shipping_amount')

@@ -1,3 +1,7 @@
+## PR-709 验收口径
+
+地址自动识别及孟连县搜索；留空自动、0元／20元手填、包邮及取消；草稿复制；旧单无关编辑不迁移、显式调整、出账锁定；真实收款保护；确认版本同步；商品60＋运费20应付80且实际账单不重复收费。自动化证据见 docs/acceptance/2026-10-21-order-freight-v2.md，Van 业务验收待完成。
+
 ## PR-697 录单范围回退
 
 证据：[2026-10-18-price-table-order-scope.md](orderapp-remote/docs/acceptance/2026-10-18-price-table-order-scope.md)。覆盖两端撤回入口、表外规格拒绝、历史冻结、复制重选及 fa98f276 样品回归；业务验收待 Van。

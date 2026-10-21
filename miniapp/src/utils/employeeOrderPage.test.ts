@@ -185,7 +185,7 @@ describe('employee mini order entry page contract', () => {
     expect(pageSource).toContain('{{ isEditMode ? \'保存修改\' : \'提交订单\' }}')
     expect(pageSource).toContain('if (!isEditMode.value && !isCopyMode.value) await loadDraft()')
     expect(pageSource).toContain('if (isEditMode.value) return')
-    expect(pageSource).toContain('运费待出账（本次不收）')
+    expect(pageSource).toContain('v-model="form.freight_state"')
     expect(pageSource).toContain('<EmployeeFreightEstimate')
     expect(pageSource).toContain('<text class="label">优惠（元）</text>')
     expect(pageSource).toContain('orderGrandTotal')

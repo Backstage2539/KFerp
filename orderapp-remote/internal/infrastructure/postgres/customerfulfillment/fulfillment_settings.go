@@ -221,6 +221,24 @@ func (r *Repository) QuoteFulfillmentFees(ctx context.Context, c app.Fulfillment
 }
 func (r *Repository) QuoteFulfillmentFeesTx(ctx context.Context, tx pgx.Tx, c app.FulfillmentFeeQuoteCommand) (app.FulfillmentFeeQuote, error) {
 	var out app.FulfillmentFeeQuote
+	if c.FreightProtocol == freightdomain.OrderProtocol {
+		if !c.EmployeeAdjustment || c.FulfillmentMode != "sale" {
+			return out, fmt.Errorf("仅员工普通录单可调整运费")
+		}
+		if len(c.Items) == 0 {
+			return out, fmt.Errorf("添加商品后自动计算")
+		}
+		if _, e := r.ValidateCustomerFulfillmentModeTx(ctx, tx, c.CustomerID, ""); e != nil {
+			return out, e
+		}
+		weightItems := make([]freightpg.WeightItem, 0, len(c.Items))
+		for _, i := range c.Items {
+			weightItems = append(weightItems, freightpg.WeightItem{ProductID: i.ProductID, BomSpecID: i.BomSpecID, BomVariantID: i.BomVariantID, Qty: i.Qty})
+		}
+		f, e := freightpg.NewRepository(r.pool, r.schema).QuoteOrderTx(ctx, tx, c.CustomerID, c.OrderID, c.ExpectedFreightToken, freightdomain.Destination{Province: c.Province, City: c.City, District: c.District}, weightItems, c.FreightOverride)
+		out.Freight = &f
+		return out, e
+	}
 	if _, e := r.ValidateCustomerFulfillmentModeTx(ctx, tx, c.CustomerID, strings.TrimSuffix(c.FulfillmentMode, "sale")); e != nil {
 		return out, e
 	}
