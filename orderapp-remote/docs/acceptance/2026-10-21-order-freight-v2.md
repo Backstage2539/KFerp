@@ -23,7 +23,7 @@
 
 ## 发布
 
-待最终门禁与双分支集成。生产、开发运行版本、备份、健康检查及小程序manifest／哈希在发布后补充。
+已通过最终门禁并集成 develop/main。生产运行版本与包一致为 2efe9bf3e1c0825058cc291f5592fa5515a682ea；开发最后收款保护同步发布记录见下方交付补充。
 
 ## 确认版本读取隔离补充
 
@@ -32,3 +32,16 @@
 ## 旧已付款状态保护补充
 
 真实 PostgreSQL RED 覆盖“已付款／无凭证字段”的旧单，原已付80不能因运费20改15而静默变成已付75。复用销售领域 IsFullyPaid，将原单已付总额纳入保护；增费形成部分收款80与未收余额10。定向与Go回归通过后重新发布。发现时生产仍在构建阶段，已中止该次构建，未提升该版本生产应用。
+
+## 生产交付补充（2026-10-21）
+
+- GitHub PR #232/#234/#236/#238 集成 develop；PR #233/#235/#237 选择性集成 main，避免携带其他开发需求。功能分支 codex/order-freight-v2-20261021 已推送 a03a7268286b53ea7f402f4183bf00b7995f7159；本记录后续提交仅补证据，不改变运行产物。
+- `./deploy_orderapp.sh production` 成功，main／生产／小程序均为 2efe9bf3e1c0825058cc291f5592fa5515a682ea。生产容器运行、重启0，PostgreSQL healthy；公开登录200、受保护入口匿名401。镜像 sha256:a719b0678774ab0abc9bae2e34dad6108d087cd3d84f89522cc7f28546a234d8，启动 2026-10-21T06:49:02.785635942Z。
+- 数据备份 `/opt/stacks/erp-production/backups/pr709-before-freight-v2-20261021T0556Z.dump`；源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261021144041-2efe9bf3e1c0`；回滚镜像 `kferp-orderapp-rollback:production-20261021144041-2efe9bf3e1c0`。空间不足风险通过清理可再生缓存缓解，未清理业务数据或回滚锚点。
+- 生产只读核验：孟连县搜索／规范地址解析、PR709记录、黄艳当前目录、手填20和包邮报价、该客户保存地址自动识别均通过；业务订单写入0。普通销售政策未绑定模板，自动模式返回配置提示；现有模板1个，不擅自选择收费模板或填入费率。手填与包邮不受该缺口影响。
+- Go全套通过；真实隔离 PostgreSQL 定向用例通过，包括待确认财务隔离、旧已付款状态、同运费但商品应付变化的已收保护。网页1461；生产分支小程序376／66文件，开发分支393／67文件；两端构建、小程序类型检查通过。小程序差异来自开发分支另有已验证需求。
+- 包 `/Users/yiiiple-work/.codex/worktrees/ccd2/KFerp/outputs/pr709-freight-v2/KFerp-miniapp-production-PR709-2efe9bf3.zip`；24页面、96清单文件、238 ZIP文件、283741字节，CRC／逐文件字节一致性通过；SHA256 `6afa2de1fc52743ea6c1b0a0c90a208642b36d066c59fa21ea359defe081a810`。固定导入目录 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，需关闭旧DevTools项目后重新导入。
+- 本地真实组件交互截图 `outputs/pr709-freight-v2/final-freight-ui.png`，仅合成数据。未将隔离测试或接口报价计为生产业务验收；Van业务验收及微信上传／审核／发布仍待单独执行。
+- 生产包另外核对编译后325处相对模块引用，无缺失文件；实际环境配置中生产API地址正确。
+- `./deploy_orderapp.sh development` 最终成功，develop／开发运行版本 5bd6a43c5c0e44cf3367628c6b344824a1cff2ac；运行／重启0／PGhealthy／登录200；最终只读报价、地区解析及需求API通过，业务订单写入0。开发隔离客户没有地址，未将该项记作开发客户地址验收；生产客户地址识别已实测通过。
+- 开发源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20261021145100-5bd6a43c5c0e`；回滚镜像 `kferp-orderapp-rollback:development-20261021145100-5bd6a43c5c0e`；镜像 sha256:35f4d18818f8e1931a390ce95525c52af647d40acb19c0bd7908fca287f162d8，启动 2026-10-21T07:00:46.517731477Z。开发导入目录 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` 版本相同，生产包不受其影响。

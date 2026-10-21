@@ -5928,8 +5928,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-709-ORDER-FREIGHT-V2
 - Branch: codex/order-freight-v2-20261021
-- Status: TDD implementation in progress; production and package explicitly authorized.
+- Status: implemented and verified; merged develop/main; production delivered at 2efe9bf3 and development at 5bd6a43c. PR/DEV-818 review and Van business acceptance pending.
 - Scope: employee ERP/miniapp auto address freight, direct fixed freight/free switch, editable unbilled orders and cost-only import.
 - DEV: DEV-816 quote/accounting; DEV-817 address and two clients; DEV-818 regression/manual/release.
 - Verifier: domain/API/real PostgreSQL RED-GREEN; Vue/miniapp runtime tests, typecheck/build, browser interaction, production read-only smoke/package hashes.
-- Deployment: pending; no WeChat upload/publication.
+- Deployment: production 2efe9bf3e1c0825058cc291f5592fa5515a682ea, running/restarts0/PGhealthy/login200/anonymous401; matching production ZIP verified (24 pages, 238 files). Development deployed 5bd6a43c5c0e44cf3367628c6b344824a1cff2ac, running/restarts0/PGhealthy/login200; final read-only quote/region smoke passed. No WeChat upload/publication.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-21-order-freight-v2.md; outputs/pr709-freight-v2. Production customer saved address resolves, manual/free quote pass; automatic preview needs an explicitly bound sales freight template. No production business order writes.
