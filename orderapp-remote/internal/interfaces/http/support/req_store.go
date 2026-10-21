@@ -252,17 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-<<<<<<< HEAD
-=======
 		{table: "req_product", code: "PR-709-ORDER-FREIGHT-V2", title: "员工录单自动运费、手填随单收费、包邮与地区搜索", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-21-order-freight-v2.md"},
 		{table: "req_dev", code: "DEV-816-FREIGHT-ACCOUNTING", title: "PR-709 新运费协议、编辑保护、确认及成本独立核对", status: "done", assignee: "Codex", evidence: "domain/freight/order_test.go; customerfulfillment/order_freight_v2_test.go"},
 		{table: "req_dev", code: "DEV-817-FREIGHT-CLIENTS", title: "PR-709 地址识别搜索及ERP员工小程序录单", status: "done", assignee: "Codex", evidence: "OrderFreightEstimate.vue; EmployeeFreightEstimate.vue"},
 		{table: "req_dev", code: "DEV-818-FREIGHT-DELIVERY", title: "PR-709 回归、手册和生产小程序包", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-21-order-freight-v2.md"},
-		{table: "req_product", code: "PR-708-MINIAPP-ORDER-STATUS-TOP", title: "员工小程序订单详情顶部状态与收款发货维护", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-21-miniapp-order-status-top.md"},
-		{table: "req_dev", code: "DEV-813-STATUS-API", title: "PR-708 员工订单独立状态事务、权限校验及操作日志", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-21-miniapp-order-status-top.md"},
-		{table: "req_dev", code: "DEV-814-STATUS-TOP", title: "PR-708 小程序详情顶部状态与独立编辑反馈", status: "done", assignee: "Codex", evidence: "miniapp/src/pages/employee-order-detail/employee-order-detail.vue"},
-		{table: "req_dev", code: "DEV-815-STATUS-DELIVERY", title: "PR-708 状态回归、操作手册与开发交付", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-21-miniapp-order-status-top.md"},
->>>>>>> 62b48129 (feat: automate order freight and collect explicit fees without duplicate billing)
 		{table: "req_product", code: "PR-707-PUBLISHED-ORDER-CATALOG-CONSISTENCY", title: "已发布价格表到录单目录的跨端一致性", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-21-published-order-catalog-consistency.md"},
 		{table: "req_dev", code: "DEV-810-PUBLICATION-CATALOG-AUTHORITY", title: "PR-707 所选发布表驱动统一目录与规格报价", status: "done", assignee: "Codex", evidence: "sales/order_catalog.go; order_catalog_consistency_test.go"},
 		{table: "req_dev", code: "DEV-811-CLIENT-CATALOG-CONSISTENCY", title: "PR-707 ERP/员工小程序共享目录与发布分类", status: "done", assignee: "Codex", evidence: "mini_employee_catalog_consistency_test.go; order_catalog_api_test.go"},
