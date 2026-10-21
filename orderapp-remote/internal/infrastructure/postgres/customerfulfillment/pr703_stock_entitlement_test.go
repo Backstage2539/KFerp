@@ -590,10 +590,15 @@ func TestPR703OnDemandRealServiceUsesPublicFixedPriceAndCreatesSalesOrder(t *tes
 	if e != nil {
 		t.Fatal(e)
 	}
+	// This fixture exercises the pre-atomic client contract. Its editor owns
+	// legacy template fields, while shipping-policy versions remain server-owned.
+	for i := range settings.Modes {
+		settings.Modes[i].ShippingPolicy = nil
+	}
 	mode := settings.Modes[0]
 	mode.Mode = "on_demand"
 	mode.WarehouseCode = ""
-	settings.Modes = append(settings.Modes, mode)
+	settings.Modes = []app.FulfillmentModeSettings{settings.Modes[0], mode}
 	if _, e = repo.SaveFulfillmentSettings(ctx, app.SaveFulfillmentSettingsCommand{Settings: settings, ExpectedRevision: settings.Revision, Actor: "employee:703"}); e != nil {
 		t.Fatal(e)
 	}

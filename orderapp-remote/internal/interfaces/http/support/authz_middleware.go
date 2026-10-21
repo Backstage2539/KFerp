@@ -566,6 +566,7 @@ func isBeanListPublicationPDFRequest(path string) bool {
 
 func isInternalCustomerStockRequest(path string) bool {
 	path = strings.TrimPrefix(path, "/app")
-	return strings.HasPrefix(path, "/api/settings/logistics/") ||
+	return strings.HasPrefix(path, "/api/stock/virtual-warehouses") ||
+		strings.HasPrefix(path, "/api/settings/logistics/") ||
 		strings.HasPrefix(path, "/api/customer-fulfillment/") && (strings.Contains(path, "/shipping-policies") || strings.Contains(path, "/freight/preview") || strings.HasSuffix(path, "/overview") || strings.HasSuffix(path, "/settings") || strings.Contains(path, "/fees") || strings.Contains(path, "/direct-ship/"))
 }

@@ -35,7 +35,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureUnifiedStockDocumentTables(ctx, pool, schema); err != nil {
 		return err
 	}
-	return ensureStockAdjustmentTables(ctx, pool, schema)
+	if err := ensureStockAdjustmentTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	return EnsureVirtualWarehouseReferenceGuards(ctx, pool, schema)
 }
 
 func ensureUnifiedStockDocumentTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -418,6 +421,9 @@ CREATE TABLE IF NOT EXISTS %s.warehouses (
 	for _, stmt := range []string{
 		`ALTER TABLE %[1]s.warehouses ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.warehouses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
+		`ALTER TABLE %[1]s.warehouses ADD COLUMN IF NOT EXISTS is_virtual BOOLEAN NOT NULL DEFAULT false`,
+		`ALTER TABLE %[1]s.warehouses ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 1`,
+		`UPDATE %[1]s.warehouses SET is_virtual=true WHERE customer_id>0 AND NOT is_virtual`,
 	} {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
 			return err

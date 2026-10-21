@@ -5933,3 +5933,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-816 quote/accounting; DEV-817 address and two clients; DEV-818 regression/manual/release.
 - Verifier: domain/API/real PostgreSQL RED-GREEN; Vue/miniapp runtime tests, typecheck/build, browser interaction, production read-only smoke/package hashes.
 - Deployment: pending; no WeChat upload/publication.
+### PR-710-FULFILLMENT-VIRTUAL-WAREHOUSES
+- Branch: codex/fulfillment-virtual-warehouses-20261021; base origin/develop 5b838315.
+- Owner/session: Codex / 2026-10-21.
+- Status: implemented and locally verified; development integration/deployment in progress; Van business acceptance pending.
+- Scope: independent dropship scene cards, atomic shipping/warehouse/service-fee save, ordinary sale policy in business logistics settings, customer-bound virtual warehouse management drawer and guarded CRUD.
+- DEV: DEV-819-ATOMIC-FULFILLMENT; DEV-820-VIRTUAL-WAREHOUSES; DEV-821-FULFILLMENT-UI; DEV-822-FULFILLMENT-DELIVERY.
+- Verifier: TDD RED/GREEN application/HTTP/isolated PostgreSQL tests; Vue behavior/runtime and build; local desktop/mobile drawer checks; source manuals and development technical smoke.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-21-fulfillment-virtual-warehouses.md.
+- Deployment: development only after pushed feature and verified develop integration; production and Van business acceptance remain separate.
+- Notes: scripts/reserve_req_id.sh identified PR-710; reserved here before implementation. Existing customer warehouses retain codes, balances and historical links; virtual parent is display-only.

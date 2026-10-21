@@ -139,6 +139,8 @@ type WarehouseRow struct {
 	SortOrder     int    `json:"sort_order"`
 	IsDefault     bool   `json:"is_default"`
 	Active        bool   `json:"active"`
+	IsVirtual     bool   `json:"is_virtual"`
+	Revision      int64  `json:"revision"`
 	Description   string `json:"description"`
 	CustomerID    int64  `json:"customer_id"`
 	CustomerName  string `json:"customer_name"`

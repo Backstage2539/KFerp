@@ -2,6 +2,7 @@ package stock
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -240,7 +241,8 @@ func (r Repository) ListWarehouses(ctx context.Context, query stockapp.Warehouse
 		       COALESCE(w.customer_id,0), COALESCE(c.name,''),
 		       COALESCE(bga.group_id,0), COALESCE(bg.name,''),
 		       COALESCE(bga.group_item_id,0), COALESCE(item.name,''),
-		       CASE WHEN bga.id IS NULL THEN '' ELSE 'warehouse_inventory' END
+		       CASE WHEN bga.id IS NULL THEN '' ELSE 'warehouse_inventory' END,
+		       w.is_virtual, w.revision
 		FROM %s.warehouses w
 		LEFT JOIN %s.customers c ON c.id=w.customer_id
 		LEFT JOIN %s.business_group_assignments bga ON bga.object_ref=w.code AND bga.object_id=0 AND lower(bga.usage_key)='warehouse_inventory' AND lower(bga.object_key)='warehouse'
@@ -248,6 +250,7 @@ func (r Repository) ListWarehouses(ctx context.Context, query stockapp.Warehouse
 		LEFT JOIN %s.business_group_items item ON item.id=bga.group_item_id
 		WHERE w.active=true
 		  AND ($1::bigint=0 OR COALESCE(w.customer_id,0) IN (0, $1::bigint))
+		  AND ($1::bigint=0 OR COALESCE(w.customer_id,0)<>0 OR NOT w.is_virtual)
 		ORDER BY w.sort_order, w.code
 	`, r.schema, r.schema, r.schema, r.schema, r.schema), query.CustomerID)
 	if err != nil {
@@ -257,7 +260,7 @@ func (r Repository) ListWarehouses(ctx context.Context, query stockapp.Warehouse
 	out := make([]stockapp.WarehouseRow, 0)
 	for rows.Next() {
 		var row stockapp.WarehouseRow
-		if err := rows.Scan(&row.Code, &row.Name, &row.Kind, &row.ParentCode, &row.SortOrder, &row.IsDefault, &row.Active, &row.Description, &row.CustomerID, &row.CustomerName, &row.GroupID, &row.GroupName, &row.GroupItemID, &row.GroupItemName, &row.GroupSource); err != nil {
+		if err := rows.Scan(&row.Code, &row.Name, &row.Kind, &row.ParentCode, &row.SortOrder, &row.IsDefault, &row.Active, &row.Description, &row.CustomerID, &row.CustomerName, &row.GroupID, &row.GroupName, &row.GroupItemID, &row.GroupItemName, &row.GroupSource, &row.IsVirtual, &row.Revision); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -270,76 +273,97 @@ func (r Repository) BindWarehouseCustomer(ctx context.Context, cmd stockapp.Bind
 	if err != nil {
 		return stockapp.WarehouseRow{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	var oldCustomerID int64
-	var warehouseName string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(customer_id,0), COALESCE(name,'')
-		FROM %s.warehouses
-		WHERE code=$1 AND active=true
-	`, r.schema), cmd.WarehouseCode).Scan(&oldCustomerID, &warehouseName); err != nil {
-		if err == pgx.ErrNoRows {
-			return stockapp.WarehouseRow{}, fmt.Errorf("warehouse not found")
-		}
-		return stockapp.WarehouseRow{}, err
-	}
-	if cmd.CustomerID > 0 {
-		var exists bool
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&exists); err != nil {
-			return stockapp.WarehouseRow{}, err
-		}
-		if !exists {
-			return stockapp.WarehouseRow{}, fmt.Errorf("customer not found")
-		}
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.warehouses
-		SET customer_id=$2, updated_at=now()
-		WHERE code=$1
-	`, r.schema), cmd.WarehouseCode, cmd.CustomerID); err != nil {
-		return stockapp.WarehouseRow{}, err
-	}
-	if oldCustomerID != cmd.CustomerID {
-		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "warehouse", nil, "update", postgresinfra.StrPtr("customer_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", oldCustomerID)), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.CustomerID)), postgresinfra.AuditMeta{"warehouse": cmd.WarehouseCode, "warehouse_name": warehouseName}); err != nil {
-			return stockapp.WarehouseRow{}, err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return stockapp.WarehouseRow{}, err
-	}
-	rows, err := r.ListWarehouses(ctx, stockapp.WarehouseListQuery{})
+	defer tx.Rollback(ctx)
+	old, err := scanVirtualWarehouse(tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM %s.warehouses w LEFT JOIN %s.customers c ON c.id=w.customer_id WHERE w.code=$1 AND w.active FOR UPDATE OF w`, virtualWarehouseColumns, r.schema, r.schema), cmd.WarehouseCode))
 	if err != nil {
+		return old, err
+	}
+	if err := r.validateVirtualWarehouseCustomerTx(ctx, tx, cmd.CustomerID); err != nil {
 		return stockapp.WarehouseRow{}, err
 	}
-	for _, row := range rows {
-		if row.Code == cmd.WarehouseCode {
-			return row, nil
+	if old.CustomerID == cmd.CustomerID {
+		return old, tx.Commit(ctx)
+	}
+	if old.IsVirtual || cmd.CustomerID > 0 {
+		if err := r.guardVirtualWarehouseHistoryTx(ctx, tx, old.Code); err != nil {
+			return stockapp.WarehouseRow{}, err
 		}
 	}
-	return stockapp.WarehouseRow{}, fmt.Errorf("warehouse not found")
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.warehouses SET customer_id=$2,is_virtual=is_virtual OR $2>0,revision=revision+1,updated_at=now() WHERE code=$1`, r.schema), old.Code, cmd.CustomerID); err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	row, err := scanVirtualWarehouse(tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM %s.warehouses w LEFT JOIN %s.customers c ON c.id=w.customer_id WHERE w.code=$1`, virtualWarehouseColumns, r.schema, r.schema), old.Code))
+	if err != nil {
+		return row, err
+	}
+	if err := r.auditVirtualWarehouseTx(ctx, tx, cmd.Actor, "update", old, row); err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	return row, tx.Commit(ctx)
 }
 
 func (r Repository) EnsureCustomerWarehouse(ctx context.Context, cmd stockapp.EnsureCustomerWarehouseCommand) (stockapp.WarehouseRow, error) {
-	name := map[string]string{"raw": "原料仓", "packaging": "包材仓", "finished": "成品仓"}[cmd.Kind]
-	code := fmt.Sprintf("customer_%d_%s", cmd.CustomerID, cmd.Kind)
-	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.warehouses(code,name,kind,parent_code,sort_order,is_default,active,description,customer_id,created_at,updated_at)
-		VALUES($1,$2,$3,'',100,false,true,$4,$5,now(),now())
-		ON CONFLICT(code) DO UPDATE SET active=true, customer_id=excluded.customer_id, kind=excluded.kind, name=excluded.name, updated_at=now()
-	`, r.schema), code, fmt.Sprintf("客户%s", name), cmd.Kind, "客户专属仓（与物理仓共享管理）", cmd.CustomerID); err != nil {
-		return stockapp.WarehouseRow{}, err
-	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "warehouse", nil, "ensure_customer_warehouse", postgresinfra.StrPtr("customer_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.CustomerID)), postgresinfra.AuditMeta{"warehouse": code, "kind": cmd.Kind})
-	rows, err := r.ListWarehouses(ctx, stockapp.WarehouseListQuery{})
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return stockapp.WarehouseRow{}, err
 	}
-	for _, row := range rows {
-		if row.Code == code {
-			return row, nil
+	defer tx.Rollback(ctx)
+	if err := r.validateVirtualWarehouseCustomerTx(ctx, tx, cmd.CustomerID); err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	canonical := fmt.Sprintf("customer_%d_%s", cmd.CustomerID, cmd.Kind)
+	// Serialize the legacy opening shortcut so it cannot create duplicate defaults.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, r.schema+":"+canonical); err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	row, err := scanVirtualWarehouse(tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM %s.warehouses w LEFT JOIN %s.customers c ON c.id=w.customer_id WHERE w.customer_id=$1 AND w.kind=$2 AND w.is_virtual AND w.active ORDER BY (w.code=$3) DESC,w.sort_order,w.code LIMIT 1 FOR UPDATE OF w`, virtualWarehouseColumns, r.schema, r.schema), cmd.CustomerID, cmd.Kind, canonical))
+	if err == nil {
+		return row, tx.Commit(ctx)
+	}
+	if !errors.Is(err, stockapp.ErrVirtualWarehouseNotFound) {
+		return row, err
+	}
+	old, err := r.loadVirtualWarehouseTx(ctx, tx, canonical, true)
+	if err == nil && old.CustomerID == cmd.CustomerID && old.Kind == cmd.Kind {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.warehouses SET active=true,revision=revision+1,updated_at=now() WHERE code=$1`, r.schema), canonical); err != nil {
+			return stockapp.WarehouseRow{}, err
+		}
+		row, err = r.loadVirtualWarehouseTx(ctx, tx, canonical, false)
+		if err != nil {
+			return row, err
+		}
+		if err := r.auditVirtualWarehouseTx(ctx, tx, cmd.Actor, "ensure_customer_warehouse", old, row); err != nil {
+			return stockapp.WarehouseRow{}, err
+		}
+		return row, tx.Commit(ctx)
+	}
+	if err != nil && !errors.Is(err, stockapp.ErrVirtualWarehouseNotFound) {
+		return stockapp.WarehouseRow{}, err
+	}
+	// A previously rebound canonical code must never be reassigned by this shortcut.
+	var occupied bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.warehouses WHERE code=$1)`, r.schema), canonical).Scan(&occupied); err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	code := canonical
+	if occupied {
+		code, err = virtualWarehouseCode()
+		if err != nil {
+			return stockapp.WarehouseRow{}, err
 		}
 	}
-	return stockapp.WarehouseRow{}, fmt.Errorf("warehouse not found")
+	name := map[string]string{"raw": "原料仓", "packaging": "包材仓", "finished": "成品仓"}[cmd.Kind]
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.warehouses(code,name,kind,description,customer_id,is_virtual,revision,sort_order)VALUES($1,$2,$3,'客户专属虚拟仓', $4,true,1,100)`, r.schema), code, "客户"+name, cmd.Kind, cmd.CustomerID); err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	row, err = r.loadVirtualWarehouseTx(ctx, tx, code, false)
+	if err != nil {
+		return row, err
+	}
+	if err := r.auditVirtualWarehouseTx(ctx, tx, cmd.Actor, "ensure_customer_warehouse", stockapp.WarehouseRow{}, row); err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	return row, tx.Commit(ctx)
 }
 
 func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stockapp.MaterialBatchLocationQuery) (stockapp.MaterialBatchLocationResult, error) {
