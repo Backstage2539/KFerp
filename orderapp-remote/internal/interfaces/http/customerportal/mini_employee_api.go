@@ -608,6 +608,11 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
 		}
 		cmd.DraftEmployeeID = employee.EmployeeID
+		// Old employee clients submit a fixed current-order charge without quote fields.
+		// Keep that meaning instead of treating their missing protocol as deferred consent.
+		cmd.LegacyEmployeeFreight = employee.EmployeeID > 0 &&
+			req.FreightProtocol == "" && req.FreightQuoteToken == "" && req.ExpectedFreightToken == "" &&
+			req.FreightOverride == nil && req.ShippingProvince == "" && req.ShippingCity == "" && req.ShippingDistrict == ""
 		miniEmployeeAllowResponsibleFallback(&cmd, employee)
 		cmd.RequireCurrentDefaultPublications = true
 		result, err := sales.SaveOrder(c.Request().Context(), cmd)
