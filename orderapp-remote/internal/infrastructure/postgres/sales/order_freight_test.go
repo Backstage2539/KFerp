@@ -59,6 +59,14 @@ func TestFreightEditProtectsLegacyFullyPaidStatus(t *testing.T) {
 	if e = protectFreightReceiptsTx(ctx, tx, schema, 1, &cmd, 15, 75); e == nil {
 		t.Fatal("legacy paid freight reduction silently changed settled payment")
 	}
+	sameFee := salesapp.SaveOrderCommand{PayStatusID: 1}
+	if e = protectFreightReceiptsTx(ctx, tx, schema, 1, &sameFee, 20, 90); e != nil || sameFee.PayStatusID != 2 || sameFee.PrepaymentAmount == nil || *sameFee.PrepaymentAmount != 80 {
+		t.Fatalf("basis change invented a payment: %+v %v", sameFee, e)
+	}
+	cleared := salesapp.SaveOrderCommand{PayStatusID: 2}
+	if e = protectFreightReceiptsTx(ctx, tx, schema, 1, &cleared, 15, 80); e != nil || cleared.PayStatusID != 1 || cleared.PrepaymentAmount == nil || *cleared.PrepaymentAmount != 80 {
+		t.Fatalf("paid state cleared: %+v %v", cleared, e)
+	}
 	if e = protectFreightReceiptsTx(ctx, tx, schema, 1, &cmd, 30, 90); e != nil || cmd.PayStatusID != 2 || cmd.PrepaymentAmount == nil || *cmd.PrepaymentAmount != 80 {
 		t.Fatal(cmd, e)
 	}

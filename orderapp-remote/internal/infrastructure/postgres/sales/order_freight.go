@@ -17,7 +17,8 @@ func protectFreightReceiptsTx(ctx context.Context, tx pgx.Tx, schema string, id 
 	if e != nil {
 		return e
 	}
-	if math.Abs(shipping-oldShipping) < 0.00001 {
+	samePrepayment := c.PrepaymentAmount == nil || math.Abs(*c.PrepaymentAmount-prepay) < 0.00001
+	if math.Abs(shipping-oldShipping) < 0.00001 && math.Abs(total-oldTotal) < 0.00001 && c.PayStatusID == status && samePrepayment && c.PaymentVoucherAssetID == voucher && math.Abs(c.PaymentGoodsAmount-goods) < 0.00001 && math.Abs(c.PaymentShippingAmount-freight) < 0.00001 {
 		return nil
 	}
 	paid = prepay
@@ -36,16 +37,23 @@ func protectFreightReceiptsTx(ctx context.Context, tx pgx.Tx, schema string, id 
 		if c.PaymentVoucherAssetID != voucher || math.Abs(c.PaymentGoodsAmount-goods) > 0.00001 || math.Abs(c.PaymentShippingAmount-freight) > 0.00001 {
 			return fmt.Errorf("已有真实收款及凭证不能随运费调整改写，请先核对原收款")
 		}
-		if total > paid+0.00001 && salesdomain.IsFullyPaid(statusName) {
+		// Freight edits preserve the recorded collection; new money is recorded separately.
+		c.PrepaymentAmount = &paid
+		if total > paid+0.00001 {
 			var partial int64
 			e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name ILIKE '%%预付款%%' ORDER BY id LIMIT 1`, schema)).Scan(&partial)
 			if e != nil {
 				return fmt.Errorf("新增运费尚未收取，请先维护部分收款状态")
 			}
 			c.PayStatusID = partial
-			c.PrepaymentAmount = &paid
-		} else if prepay > 0 {
-			c.PrepaymentAmount = &prepay
+		} else if salesdomain.IsFullyPaid(statusName) {
+			c.PayStatusID = status
+		} else {
+			full := lookupDefaultStatusID(ctx, tx, schema, "pay_statuses", "已付款", "已收款", "已支付")
+			if full <= 0 {
+				return fmt.Errorf("原已收款已覆盖新应付，请先维护已付款状态")
+			}
+			c.PayStatusID = full
 		}
 	}
 	return nil
