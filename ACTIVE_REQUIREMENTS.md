@@ -6060,7 +6060,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-715-spec-template-rollout
 - Branch: codex/spec-template-rollout-20261022
-- Status: verified on feature branch; integration/development deployment pending; Van business acceptance pending
+- Status: delivered to development 624341aa via PR #246; tests and runtime checks passed; Van business acceptance pending
 - Scope: 模板差异下发并原子发布 BOM；稳定规格报价与执行版本解耦
 - Verifier: Go unit / isolated PostgreSQL / API / Vue runtime / build
-- Deployment: development only after verification
+- Deployment: development via ./deploy_orderapp.sh development; runtime 624341aa53e34b486043409e47f4e131e38691fd; rollback /opt/stacks/erp/orderapp.backup.deploy-20261022213755-624341aa53e3; evidence orderapp-remote/docs/acceptance/2026-10-22-spec-template-rollout.md; production unchanged
