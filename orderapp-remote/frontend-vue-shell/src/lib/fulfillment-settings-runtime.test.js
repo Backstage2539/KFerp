@@ -135,8 +135,7 @@ test('ordinary shipping editor only saves sale policy for selected ordinary cust
     return response({ templates: [] })
   }
   try {
-    const vm = await editor('CustomerShippingPolicies')
-    vm.customerID.value = 501
+    const vm = await editor('CustomerShippingPolicies', { customerId: 501 })
     await vm.load()
     assert.equal(vm.policy.value.scene, 'sale')
     await vm.save()
@@ -155,18 +154,18 @@ test('ordinary shipping customer switch rejects a late response from the previou
     return new Promise(resolve => pending.set(Number(url.match(/fulfillment\/(\d+)/)[1]), resolve))
   }
   try {
-    const vm = await editor('CustomerShippingPolicies')
-    vm.customerID.value = 501
+    const props = { customerId: 501 }
+    const vm = await editor('CustomerShippingPolicies', props)
     const first = vm.load()
     await Promise.resolve()
-    vm.customerID.value = 502
+    props.customerId = 502
     const second = vm.load()
     await Promise.resolve()
     pending.get(502)(response({ policies: [{ scene: 'sale', template_id: 22, surcharge_cents: 100, revision: 2 }] }))
     await second
     pending.get(501)(response({ policies: [{ scene: 'sale', template_id: 11, surcharge_cents: 0, revision: 1 }] }))
     await first
-    assert.equal(vm.customerID.value, 502)
+    assert.equal(props.customerId, 502)
     assert.equal(vm.policy.value.template_id, 22)
   } finally { globalThis.fetch = original }
 })
@@ -219,4 +218,24 @@ test('protected warehouse delete keeps the row and reports the reason; success u
     assert.equal(events[0][1].action, 'delete')
     assert.equal(vm.rows.value.length, 0)
   } finally { globalThis.fetch = original }
+})
+
+
+test('system default editor loads and saves without choosing any customer', async () => {
+ const original = globalThis.fetch, calls = []
+ globalThis.fetch = async (url, options) => {
+  calls.push({url, method:options.method || 'GET', body:options.body && JSON.parse(options.body)})
+  return response(url.includes('shipping-templates') ? {templates:[]} : {scene:'sale',template_id:8,revision:2,surcharge_cents:0,free_shipping:false})
+ }
+ try {
+  const vm = await editor('CustomerShippingPolicies')
+  await vm.load(); await vm.save()
+  const writes = calls.filter(c=>c.method==='PUT')
+  assert.equal(writes.length,1)
+  assert.match(writes[0].url,/settings\/logistics\/default-shipping-policy$/)
+  const View = await view('CustomerShippingPolicies')
+  const html = await renderToString(createSSRApp(View))
+  assert.match(html,/所有录单的默认/)
+  assert.doesNotMatch(html,/搜索客户|请先选择/)
+ } finally { globalThis.fetch = original }
 })

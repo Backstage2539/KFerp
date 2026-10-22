@@ -78,7 +78,7 @@ func (r *Repository) QuoteOrderTx(ctx context.Context, tx pgx.Tx, customerID, or
 			return out, e
 		}
 	}
-	p, e := r.LoadPolicy(ctx, tx, customerID, "sale", true)
+	p, e := r.ResolvePolicy(ctx, tx, customerID, "sale", true)
 	if e != nil {
 		return out, e
 	}

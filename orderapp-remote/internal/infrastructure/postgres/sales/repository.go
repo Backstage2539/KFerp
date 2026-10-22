@@ -2421,7 +2421,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, fmt.Errorf("请更新客户端并确认运费待实际账单出账")
 		}
 		fr := freightpg.NewRepository(r.pool, r.schema)
-		p, e := fr.LoadPolicy(ctx, tx, cmd.CustomerID, "sale", true)
+		p, e := fr.ResolvePolicy(ctx, tx, cmd.CustomerID, "sale", true)
 		if e != nil {
 			return salesapp.SaveOrderResult{}, e
 		}

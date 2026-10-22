@@ -6064,3 +6064,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 模板差异下发并原子发布 BOM；稳定规格报价与执行版本解耦
 - Verifier: Go unit / isolated PostgreSQL / API / Vue runtime / build
 - Deployment: development via ./deploy_orderapp.sh development; runtime 624341aa53e34b486043409e47f4e131e38691fd; rollback /opt/stacks/erp/orderapp.backup.deploy-20261022213755-624341aa53e3; evidence orderapp-remote/docs/acceptance/2026-10-22-spec-template-rollout.md; production ./deploy_orderapp.sh production completed at b2d6e1be65b787679f73409a4d46bfcf0f689707; rollback /opt/stacks/erp-production/orderapp.backup.deploy-20261022222528-b2d6e1be65b7; preserve main-only material backfill safeguards; production miniapp exported, no WeChat upload/publication
+
+### PR-716-freight-template-priority
+- Branch: codex/freight-template-priority-20261022
+- Status: verified; Van acceptance pending
+- Scope: global default, separate customer sale policy, scene > customer > system resolution
+- DEV: DEV-843 policy/API; DEV-844 Vue/manual/delivery
+- Verifier: TestFreightTemplatePriorityAPI; freight/domain and fulfillment tests; Vue runtime; frontend build; backend gate
+- Deployment: development e3d588b8 deployed; runtime/API/manual read-only checks passed; production untouched
+
+- PR-716 evidence: isolated PostgreSQL regression passed; all Go packages passed; 1508 Vue tests and build passed; local browser preview checked, no live business writes.
+
+## 开发环境交付结果（2026-10-22）
+- 实现分支：`codex/freight-template-priority-20261022`，已推送 `1da77322`。
+- 已合并并推送 develop：`e3d588b856609e9e6d7cea8252fa78b318fccd5d`；合并树与验证分支完全一致。
+- 执行：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`，服务器 6/6 成功；前端1508项测试、小程序测试/类型检查/24页面产物、全部Go测试和镜像内复检通过。
+- 旧源码：`/opt/stacks/erp/orderapp.backup.deploy-20261022223720-e3d588b85660`。回滚镜像：`kferp-orderapp-rollback:development-20261022223720-e3d588b85660`。
+- 运行镜像：`sha256:c23405551d742cfb145fcec3d533d3f3c91641f4a3d7a8f250e1b3257a736287`；容器 running，22:46:27 +08 重启。
+- 只读核对：物流页面200；默认配置GET200（revision=0，尚未配置）；PR-716接口200且记录存在；运费手册raw=1返回200且含三层优先级；未登录入口303跳登录，配置API401。
+- 未创建真实业务订单、未更改客户/运费业务配置；未发布生产或上传微信。系统默认模板需由业务人员选择并保存。业务验收待Van。
+- 发布前后只清理可再生成构建缓存，保留数据库、业务文件及回滚版本；结束可用空间2.1GB。

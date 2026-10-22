@@ -123,3 +123,22 @@ func TestRegionSearchSupportsCommonPolyphonicPlaceNames(t *testing.T) {
 		}
 	}
 }
+
+func TestStoredPolicyInheritanceDoesNotAllowUnpricedQuote(t *testing.T) {
+	p := Policy{CustomerID: 5, Scene: "stock"}
+	if err := ValidatePolicyOverride(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePolicy(p); err == nil {
+		t.Fatal("unresolved inherited policy cannot quote")
+	}
+	p.SurchargeCents = 100
+	if err := ValidatePolicyOverride(p); err == nil {
+		t.Fatal("inheritance cannot silently discard surcharge")
+	}
+	p.SurchargeCents = 0
+	p.TemplateID = -1
+	if err := ValidatePolicyOverride(p); err == nil {
+		t.Fatal("negative template accepted")
+	}
+}

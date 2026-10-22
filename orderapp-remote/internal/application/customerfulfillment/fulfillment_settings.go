@@ -201,7 +201,7 @@ func ValidateFulfillmentSettings(s FulfillmentSettings) error {
 			if !m.FeeConfigured {
 				return fmt.Errorf("请明确配置代发服务费，免费请填写 0")
 			}
-			templateID, freeShipping := m.ShippingTemplateID, m.ShippingFree
+			templateID := m.ShippingTemplateID
 			if policy := m.ShippingPolicy; policy != nil {
 				if policy.ExpectedRevision == nil || *policy.ExpectedRevision < 0 {
 					return fmt.Errorf("请提供当前场景运费政策版本")
@@ -209,12 +209,12 @@ func ValidateFulfillmentSettings(s FulfillmentSettings) error {
 				if policy.TemplateID < 0 {
 					return fmt.Errorf("运费模板无效")
 				}
-				if err := freight.ValidatePolicy(freight.Policy{CustomerID: s.CustomerID, Scene: m.Mode, TemplateID: policy.TemplateID, SurchargeCents: policy.SurchargeCents, FreeShipping: policy.FreeShipping}); err != nil {
+				if err := freight.ValidatePolicyOverride(freight.Policy{CustomerID: s.CustomerID, Scene: m.Mode, TemplateID: policy.TemplateID, SurchargeCents: policy.SurchargeCents, FreeShipping: policy.FreeShipping}); err != nil {
 					return err
 				}
-				templateID, freeShipping = policy.TemplateID, policy.FreeShipping
+				templateID = policy.TemplateID
 			}
-			if templateID <= 0 && !freeShipping {
+			if templateID < 0 {
 				return fmt.Errorf("请选择运费模板")
 			}
 			if m.Mode == "stock" && strings.TrimSpace(m.WarehouseCode) == "" {

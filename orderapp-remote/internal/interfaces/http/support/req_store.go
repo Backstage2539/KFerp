@@ -252,6 +252,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-716-FREIGHT-PRIORITY", title: "系统默认、客户档案及代发运费优先级", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-freight-priority.md"},
+		{table: "req_dev", code: "DEV-843-FREIGHT-PRIORITY", title: "PR-716 全局配置、逐层回退及审计API", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-844-FREIGHT-SETTINGS", title: "PR-716 物流默认与客户档案入口、手册及开发交付", status: "review", assignee: "Codex"},
 		{table: "req_product", code: "PR-715-SPEC-TEMPLATE-ROLLOUT", title: "规格模板差异下发与报价、BOM 版本解耦", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-spec-template-rollout.md"},
 		{table: "req_dev", code: "DEV-839-TEMPLATE-ROLLOUT", title: "PR-715 三方差异、逐 BOM 原子发布、并发保护与日志", status: "done", assignee: "Codex", evidence: "isolated PostgreSQL merge/rollback/concurrency tests"},
 		{table: "req_dev", code: "DEV-840-STABLE-SPEC-QUOTE", title: "PR-715 稳定规格原报价与当前生产版本、物流重量", status: "done", assignee: "Codex", evidence: "isolated PostgreSQL order API and snapshot tests"},
