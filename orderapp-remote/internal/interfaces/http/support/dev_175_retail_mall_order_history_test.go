@@ -8,7 +8,8 @@ import (
 
 func TestRetailMallCustomersCanReachOrderHistoryFromMiniapp(t *testing.T) {
 	capabilities := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "capabilities.ts")))
-	tabBar := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "components", "MainTabBar.vue"))) + string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "beanCenter.ts")))
+	destinations := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "customerNavigation.ts")))
+	tabBar := destinations + string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "components", "MainTabBar.vue"))) + string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "beanCenter.ts")))
 	service := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "customerportal", "service.go")))
 	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md")))
 
@@ -16,7 +17,7 @@ func TestRetailMallCustomersCanReachOrderHistoryFromMiniapp(t *testing.T) {
 		"key: 'mall'",
 		"url: '/pages/mall/mall'",
 	} {
-		if !strings.Contains(capabilities, want) {
+		if !strings.Contains(capabilities+destinations, want) {
 			t.Fatalf("miniapp capabilities missing retail mall order history marker %q", want)
 		}
 	}

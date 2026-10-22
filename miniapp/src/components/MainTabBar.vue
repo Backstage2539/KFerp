@@ -3,18 +3,17 @@ import { computed } from 'vue'
 import { useSessionStore } from '../stores/session'
 
 import { customerMainTabs, type CustomerTabKey as MainTabKey } from '../utils/beanCenter'
-const props = defineProps<{current:MainTabKey}>()
+defineProps<{current:MainTabKey}>()
 const session = useSessionStore()
-const tabs = computed(()=>customerMainTabs(session.currentCustomerID>0))
+const tabs = computed(()=>customerMainTabs(session.currentCustomerID>0, session.capabilities, session.accountType))
 
 function openTab(tab: { key: MainTabKey; url: string }) {
-  if (tab.key === props.current) return
   uni.reLaunch({ url: tab.url })
 }
 </script>
 
 <template>
-  <view class="main-tabbar">
+  <view v-if="tabs.length" class="main-tabbar">
     <view
       v-for="tab in tabs"
       :key="tab.key"
