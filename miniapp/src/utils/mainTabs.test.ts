@@ -61,7 +61,7 @@ describe('miniapp startup route and main tabs', () => {
     expect(profile).toContain('当前员工')
     expect(profile).toContain('v-if="!isEmployee"')
     expect(profile).toContain('<MainTabBar v-if="!isEmployee" current="mine" />')
-    expect(profile).toContain('切换用户')
+    expect(profile).not.toContain('切换用户')
     expect(profile).toContain('退出登录')
   })
 
@@ -109,7 +109,7 @@ describe('miniapp startup route and main tabs', () => {
   })
 
   it('renders customer business tabs plus the bean centre', () => {
-    const tabBar = readSource('src/components/MainTabBar.vue') + readSource('src/utils/beanCenter.ts')
+    const tabBar = readSource('src/components/MainTabBar.vue') + readSource('src/utils/beanCenter.ts') + readSource('src/utils/customerNavigation.ts')
     const pages = [
       readSource('src/pages/home/home.vue'),
       readSource('src/pages/mall/mall.vue'),

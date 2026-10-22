@@ -50,6 +50,7 @@ import CustomerDirectShipPanel from '../../components/CustomerDirectShipPanel.vu
 import CustomerInventoryPanel from '../../components/CustomerInventoryPanel.vue'
 import CustomerProcessingPanel from '../../components/CustomerProcessingPanel.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import { customerDestinations, customerDestinationURL } from '../../utils/customerNavigation'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useProcessingPrefillStore } from '../../stores/processingPrefill'
@@ -140,7 +141,9 @@ const stockPurchase = ref(false)
 const isProcessingCustomer = computed(() => session.capabilities.some((item) => item.code === 'processing' && item.enabled))
 const title = computed(() => {
   if (serviceKey.value === 'directShip' && directShipEntryMode.value === 'on_demand') return '无库存代发'
-  if (serviceKey.value === 'orders' && isProcessingCustomer.value && !officialOrders.value) return '发货中心'
+  if (serviceKey.value === 'orders') return isProcessingCustomer.value && !officialOrders.value
+    ? customerDestinations.processingShipments.label
+    : customerDestinations.orders.label
   return page.value?.title || serviceTitle(serviceKey.value)
 })
 const isClosedLoopService = computed(() => (
@@ -387,7 +390,11 @@ async function clearOrderFilters() {
 function openOrderFromBill(orderNo?: string) {
   const keyword = String(orderNo || '').trim()
   if (!keyword) return
-  uni.navigateTo({ url: `/pages/service/service?key=orders&q=${encodeURIComponent(keyword)}` })
+  uni.navigateTo({ url: customerDestinationURL('orders', { q: keyword }) })
+}
+
+function openProcessingShipments() {
+  uni.navigateTo({ url: customerDestinationURL('processingShipments') })
 }
 
 function paymentMethodText(payStatus?: string, paymentMethod?: string): string {
@@ -994,6 +1001,10 @@ onShow(() => { void refreshMiniappShareMenu() })
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ title }}</text>
       <text class="subtitle">{{ page?.current_customer_name || session.currentCustomerName || '客户中心' }}</text>
+    </view>
+
+    <view v-if="serviceKey === 'orders' && officialOrders && isProcessingCustomer" class="panel">
+      <button class="secondary" @tap="openProcessingShipments">{{ customerDestinations.processingShipments.label }}</button>
     </view>
 
     <view v-if="loading" class="state">

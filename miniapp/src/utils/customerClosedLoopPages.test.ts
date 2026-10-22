@@ -135,7 +135,7 @@ describe('customer closed-loop miniapp pages', () => {
     expect(service).toContain('CustomerInventoryPanel')
     expect(service).toContain('CustomerBillsPanel')
     expect(service).toContain('isProcessingCustomer')
-    expect(service).toContain("return '发货中心'")
+    expect(service).toContain('customerDestinations.processingShipments.label')
     expect(service).toContain('inventory:${session.currentCustomerID}')
     expect(service).not.toContain('closedLoopRefreshKey')
     expect(service).toContain('v-if="!isProcessingCustomer"')
