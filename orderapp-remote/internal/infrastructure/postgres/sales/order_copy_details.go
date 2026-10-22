@@ -27,7 +27,7 @@ func (r Repository) LoadOrderCopySnapshot(ctx context.Context, id int64) (*sales
 	if err != nil {
 		return nil, err
 	}
-	query = fmt.Sprintf(`SELECT COALESCE(oi.customer_product_display_name_snapshot,''),COALESCE(oi.product_name_snapshot,''),COALESCE(oi.item_name,''),COALESCE(oi.spec,''),COALESCE(oi.qty::text,''),COALESCE(oi.unit,''),COALESCE(oi.product_kind,''),COALESCE(oi.sales_unit,''),COALESCE(oi.unit_bag_count,0),COALESCE(oi.unit_bean_g::text,''),COALESCE(oi.price_source_json,'{}'::jsonb)::text FROM %s.order_items oi WHERE oi.order_id=$1 ORDER BY oi.line_no,oi.id`, r.schema)
+	query = fmt.Sprintf(`SELECT COALESCE(oi.customer_product_display_name_snapshot,''),COALESCE(oi.product_name_snapshot,''),COALESCE(oi.item_name,''),COALESCE(oi.spec,''),COALESCE(oi.qty::text,''),COALESCE(oi.unit,''),COALESCE(oi.product_kind,''),COALESCE(oi.sales_unit,''),COALESCE(oi.unit_bag_count,0),COALESCE(oi.unit_bean_g::text,''),COALESCE(oi.price_source_json,'{}'::jsonb)::text FROM %s.order_items oi WHERE oi.order_id=$1 AND oi.qty>0 ORDER BY oi.line_no,oi.id`, r.schema)
 	rows, err := tx.Query(ctx, orderconfirmation.CurrentRead(query, r.schema), id)
 	if err != nil {
 		return nil, err

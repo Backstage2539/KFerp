@@ -15,11 +15,12 @@ import (
 )
 
 type orderAPIHandler struct {
-	authz         support.AuthzService
-	sales         *salesapp.Service
-	messages      MessagePublisher
-	assetDir      string
-	customerScope CustomerScopeResolver
+	authz             support.AuthzService
+	sales             *salesapp.Service
+	messages          MessagePublisher
+	assetDir          string
+	customerScope     CustomerScopeResolver
+	fulfillmentEditor FulfillmentEditor
 }
 
 type apiOption struct {
@@ -179,7 +180,11 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	assetDir := "/app/data/assets"
 	var customerScope CustomerScopeResolver
 	var authz support.AuthzService
+	var fulfillmentEditor FulfillmentEditor
 	for _, value := range assetDirs {
+		if editor, ok := value.(FulfillmentEditor); ok {
+			fulfillmentEditor = editor
+		}
 		switch item := value.(type) {
 		case string:
 			if strings.TrimSpace(item) != "" {
@@ -192,15 +197,19 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 		}
 	}
 	h := orderAPIHandler{
-		sales:         salesSvc,
-		authz:         authz,
-		messages:      messages,
-		assetDir:      assetDir,
-		customerScope: customerScope,
+		sales:             salesSvc,
+		authz:             authz,
+		messages:          messages,
+		assetDir:          assetDir,
+		customerScope:     customerScope,
+		fulfillmentEditor: fulfillmentEditor,
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/orders/:id/detail", h.detail)
 	e.PATCH("/api/orders/:id/recipient", h.staffRecipient)
+	e.GET("/api/orders/:id/fulfillment", h.fulfillmentEdit)
+	e.POST("/api/orders/:id/fulfillment/preview", func(c echo.Context) error { return h.fulfillmentEditCommand(c, false) })
+	e.PATCH("/api/orders/:id/fulfillment", func(c echo.Context) error { return h.fulfillmentEditCommand(c, true) })
 	e.GET("/api/orders/:id/copy-details", h.copyDetails)
 	e.POST("/api/orders/:id/void", h.void)
 	e.POST("/api/orders/void", h.voidMany)

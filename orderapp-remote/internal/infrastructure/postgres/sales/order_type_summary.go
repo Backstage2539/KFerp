@@ -42,7 +42,7 @@ func populateOrderTypeSummaries(ctx context.Context, pool *pgxpool.Pool, schema 
      LEFT JOIN %[1]s.products parent ON parent.id=COALESCE((to_jsonb(p)->>'parent_product_id')::bigint,0)
      LEFT JOIN %[1]s.product_categories cat ON cat.id=COALESCE(NULLIF((to_jsonb(p)->>'product_category_id')::bigint,0),(to_jsonb(parent)->>'product_category_id')::bigint)
      LEFT JOIN %[1]s.product_categories root ON root.id=cat.parent_id
-     WHERE i.order_id=o.id
+     WHERE i.order_id=o.id AND i.qty>0
      GROUP BY label
    ) types ORDER BY position,label
  ), %[2]s FROM %[1]s.orders o WHERE o.id=ANY($1)`, schema, sampleExpr)

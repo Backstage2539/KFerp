@@ -62,7 +62,7 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 	if q.Query != "" {
 		args = append(args, "%"+q.Query+"%")
 		n := len(args)
-		where = append(where, fmt.Sprintf(`(o.order_no ILIKE $%[1]d OR o.receiver_name ILIKE $%[1]d OR o.receiver_phone ILIKE $%[1]d OR EXISTS(SELECT 1 FROM %[2]s.order_items i WHERE i.order_id=o.id AND i.item_name ILIKE $%[1]d))`, n, r.schema))
+		where = append(where, fmt.Sprintf(`(o.order_no ILIKE $%[1]d OR o.receiver_name ILIKE $%[1]d OR o.receiver_phone ILIKE $%[1]d OR EXISTS(SELECT 1 FROM %[2]s.order_items i WHERE i.order_id=o.id AND i.qty>0 AND i.item_name ILIKE $%[1]d))`, n, r.schema))
 	}
 	rows, err := tx.Query(ctx, currentQuery(fmt.Sprintf(`SELECT o.id,coalesce(o.order_no,''),coalesce(to_char(o.order_date,'YYYY-MM-DD'),''),coalesce(o.receiver_name,''),coalesce(o.receiver_phone,''),coalesce(o.receiver_address,''),coalesce(ss.name,''),coalesce(o.ship_tracking_no,''),coalesce(ps.name,''),coalesce(o.portal_service_code,''),coalesce(o.is_void,false),round(coalesce(o.grand_total,0)*100)::bigint,round(coalesce(o.shipping_amount,0)*100)::bigint,round(coalesce(o.discount_amount,0)*100)::bigint,round(coalesce((to_jsonb(o)->>'prepayment_amount')::numeric,0)*100)::bigint,COALESCE(to_jsonb(o)->>'confirmation_status','accepted'),COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false),COALESCE((to_jsonb(o)->>'confirmation_accepted_revision')::bigint,0),COALESCE(ops.name,'') FROM %[1]s.orders o LEFT JOIN %[1]s.ship_statuses ss ON ss.id=o.ship_status_id LEFT JOIN %[1]s.pay_statuses ps ON ps.id=o.pay_status_id LEFT JOIN %[1]s.order_process_statuses ops ON ops.id=o.process_status_id WHERE %[2]s ORDER BY o.order_date DESC NULLS LAST,o.id DESC`, r.schema, strings.Join(where, " AND "))), args...)
 	if err != nil {
@@ -112,7 +112,7 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 				to_jsonb(current_item)->>'material_item_weight_g',
 				to_jsonb(current_item)->>'logistics_unit_weight_g',
 				to_jsonb(current_item)->>'logistics_item_weight_g',
-				COALESCE(to_jsonb(current_item)->>'weight_snapshot_json','{}') FROM %s.order_items current_item WHERE order_id=$1 ORDER BY id`, r.schema)), q.OrderID)
+				COALESCE(to_jsonb(current_item)->>'weight_snapshot_json','{}') FROM %s.order_items current_item WHERE order_id=$1 AND qty>0 ORDER BY id`, r.schema)), q.OrderID)
 		if err != nil {
 			return d, err
 		}

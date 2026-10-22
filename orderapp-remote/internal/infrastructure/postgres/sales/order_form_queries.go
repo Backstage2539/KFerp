@@ -298,7 +298,7 @@ func orderEditItemsQuery(schema string) string {
 				COALESCE(to_jsonb(oi)->>'weight_snapshot_json','{}')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
-		WHERE oi.order_id=$1
+		WHERE oi.order_id=$1 AND oi.qty>0
 		ORDER BY oi.line_no, oi.id
 	`, schema, schema)
 }
@@ -636,6 +636,7 @@ func (r Repository) fetchOrderCustomerProductUsages(ctx context.Context) ([]sale
 			WHERE COALESCE(o.is_void,false)=false
 			  AND COALESCE(o.customer_id,0)>0
 			  AND COALESCE(oi.product_id,0)>0
+			  AND oi.qty>0
 			GROUP BY o.customer_id, oi.product_id
 		),
 		ranked_usage AS (
@@ -661,6 +662,7 @@ func (r Repository) fetchOrderCustomerProductUsages(ctx context.Context) ([]sale
 			WHERE COALESCE(o.is_void,false)=false
 			  AND COALESCE(o.customer_id,0)>0
 			  AND COALESCE(oi.product_id,0)>0
+			  AND oi.qty>0
 			ORDER BY o.customer_id, oi.product_id, o.order_date DESC, o.id DESC, oi.line_no
 		)
 		SELECT

@@ -6005,3 +6005,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Evidence: orderapp-remote/docs/acceptance/2026-10-22-miniapp-multi-item-purchase.md. Production merge/deploy authorization continues in this thread.
 
 - DEV-828 GREEN: automatic legacy-name migration + actual three-line API/PG, amounts/rights/audit/idempotency/rollback, isolated production-copy exact326 purchase, mini404/type/build, fullGo; review/integration pending. Backup20261022010540 and16-table current business baselines captured; preserve actual customer single-line purchase.
+
+### PR-714-FULFILLMENT-FULL-EDIT
+- Branch: codex/fulfillment-full-edit-20261022
+- Owner/session: Codex / Van
+- Status: implemented; final integrated gates and production delivery in progress
+- Scope: 完整代发订单编辑、首次弹窗渲染、库存权益差量、原版本运费与独立费用
+- Verifier: 真实 Vue 父子挂载测试、隔离 PostgreSQL API/事务/并发验证、相关全量测试及构建、生产只读核验
+- Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md; OP_MANUAL_ORDER_SALES.md
+- Deployment: production after gates; real orders 115/117 read-only
+- Last update: 2026-10-22

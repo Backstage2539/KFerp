@@ -70,7 +70,7 @@ func seedPR703StockProduct(t *testing.T) (*pgxpool.Pool, string) {
  INSERT INTO %[1]s.production_boms(id,code,name,output_type,output_product_id,status)VALUES(7030,'PR703-BOM','寄存咖啡BOM','product',910,'active');
  INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,output_qty,output_unit)VALUES(7030,7030,'V1','published',1,'袋');
  INSERT INTO %[1]s.production_bom_specs(id,bom_id,code,spec_key,name,inventory_unit)VALUES(7031,7030,'PR703-454','454g','454g袋','袋');
- INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default)VALUES(7032,7030,7031,'454g袋','袋',true);
+ INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,logistics_weight_g)VALUES(7032,7030,7031,'454g袋','袋',true,454);
  INSERT INTO %[1]s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default)VALUES('product',910,7030,7030,true);
  INSERT INTO %[1]s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,owner_customer_id,onhand_units)VALUES(910,7031,7032,0,'DEV-E2E-A1',501,0);
  UPDATE %[1]s.products SET unit_rule_override_json='{"default_sales_unit":"bag","inventory_unit":"bag","unit_conversion_json":{"bag":{"bag":1}}}' WHERE id=910;
@@ -317,6 +317,8 @@ func configurePR703StockFees(t *testing.T, pool *pgxpool.Pool, schema string, bo
 	if e != nil {
 		t.Fatal(e)
 	}
+	// Net-content conversion is not freight authority. Each fixture publication
+	// above supplies its own explicit BOM-variant logistics weight.
 	if _, e = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.spec_conversion_groups(name,base_unit,members_json)VALUES('留厂测试净重','kg',$1::jsonb)`, schema), fmt.Sprintf(`[{"bom_spec_id":%d,"inventory_unit":"袋","base_quantity":"0.454"}]`, bomSpecID)); e != nil {
 		t.Fatal(e)
 	}
@@ -333,7 +335,7 @@ func seedMiniDirectShipCanonicalStock(t *testing.T, pool *pgxpool.Pool, schema s
  INSERT INTO %[1]s.production_boms(id,code,name,output_type,output_product_id,status)VALUES(9110,'FIFO-BOM','FIFO BOM','product',911,'active');
  INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,output_qty,output_unit)VALUES(9110,9110,'V1','published',1,'袋');
  INSERT INTO %[1]s.production_bom_specs(id,bom_id,code,spec_key,name,inventory_unit)VALUES(9111,9110,'DEV-E2E-911','1kg','1kg','袋');
- INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default)VALUES(9112,9110,9111,'1kg','袋',true);
+ INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,logistics_weight_g)VALUES(9112,9110,9111,'1kg','袋',true,1000);
  INSERT INTO %[1]s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default)VALUES('product',911,9110,9110,true);
  UPDATE %[1]s.finished_inventory SET onhand_units=onhand_units+onhand_loose_g/1000,onhand_loose_g=0,spec_g=0,bom_spec_id=9111,bom_variant_id=9112 WHERE product_id=911;
  UPDATE %[1]s.stock_batches SET spec_g=0,bom_spec_id=9111,bom_variant_id=9112,qty_g=0,remaining_g=0 WHERE item_id=911 AND item_type='finished_product';
@@ -550,7 +552,7 @@ func TestPR703ArchivedFutureRightsRemainOrderableByStableSpec(t *testing.T) {
  INSERT INTO %[1]s.order_items(order_id,product_id,bom_spec_id,bom_variant_id,item_name,spec,qty,unit,unit_price,line_total)VALUES(70371,910,7031,7032,'原版未来库存','454g',12,'袋',30,360);
  UPDATE %[1]s.production_bom_versions SET status='archived' WHERE id=7030;
  INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,output_qty,output_unit)VALUES(7033,7030,'V2','published',1,'袋');
- INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default)VALUES(7034,7033,7031,'454g袋','袋',true);
+ INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,logistics_weight_g)VALUES(7034,7033,7031,'454g袋','袋',true,454);
  UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=7033 WHERE output_id=910;
  `, schema)); e != nil {
 		t.Fatal(e)

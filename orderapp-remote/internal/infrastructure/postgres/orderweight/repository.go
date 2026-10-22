@@ -198,7 +198,7 @@ func MarkHistoricalUnknown(ctx context.Context, tx pgx.Tx, schema string, orderI
 // entry point while leaving unrelated historical orders untouched.
 func FreezeOrder(ctx context.Context, tx pgx.Tx, schema string, orderID int64) error {
 	db := pgx.Identifier{schema}.Sanitize()
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,COALESCE(product_id,0),COALESCE((to_jsonb(i)->>'bom_spec_id')::bigint,0),COALESCE((to_jsonb(i)->>'bom_variant_id')::bigint,0),COALESCE((to_jsonb(i)->>'spec_g')::bigint,0),qty::float8,COALESCE(unit,''),COALESCE(spec,''),material_unit_weight_g,logistics_unit_weight_g,weight_snapshot_json FROM %s.order_items i WHERE order_id=$1 ORDER BY id FOR UPDATE`, db), orderID)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,COALESCE(product_id,0),COALESCE((to_jsonb(i)->>'bom_spec_id')::bigint,0),COALESCE((to_jsonb(i)->>'bom_variant_id')::bigint,0),COALESCE((to_jsonb(i)->>'spec_g')::bigint,0),qty::float8,COALESCE(unit,''),COALESCE(spec,''),material_unit_weight_g,logistics_unit_weight_g,weight_snapshot_json FROM %s.order_items i WHERE order_id=$1 AND qty<>0 ORDER BY id FOR UPDATE`, db), orderID)
 	if err != nil {
 		return err
 	}

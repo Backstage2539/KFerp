@@ -45,11 +45,11 @@ test('stock and on-demand address edits preserve stored lines without consulting
     assert.equal(row.unit_price, '0.00')
     assert.equal(row.price_source_json, order.items[0].price_source_json)
     assert.equal(row.spec_invalid_message || '', '')
-    assert.equal(editor.fulfillmentRecipientEditing.value, true)
+    assert.equal(editor.fulfillmentOrderEditing.value, true)
     assert.equal(await editor.refreshStaffOrderCatalog(), true)
   }
   editor.applyEditData({ ...storedOrder(), edit_id: 0, fulfillment_mode: '' })
-  assert.equal(editor.fulfillmentRecipientEditing.value, false, 'new ordinary orders still require published prices')
+  assert.equal(editor.fulfillmentOrderEditing.value, false, 'new ordinary orders still require published prices')
   await nextTick()
 })
 
@@ -99,7 +99,7 @@ test('refresh keeps the fulfillment recipient editor visible until the new order
   const loading = editor.load()
   try {
     assert.equal(editor.loading.value, true)
-    assert.equal(editor.fulfillmentRecipientEditing.value, true, 'refresh must not expose ordinary sales editing')
+    assert.equal(editor.fulfillmentOrderEditing.value, true, 'refresh must not expose ordinary sales editing')
     assert.equal(editor.rows.value[0].bom_spec_id, 19)
   } finally {
     finish({ ok: true, status: 200, json: async () => ({ edit_mode: true, edit_id: 117, edit_data: storedOrder(), customers: [], products: [], product_families: [], product_bom_spec_options: [] }) })

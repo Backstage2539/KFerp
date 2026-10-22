@@ -64,7 +64,7 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 			COALESCE(oi.line_total::text,'0')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
-		WHERE oi.order_id=$1
+		WHERE oi.order_id=$1 AND oi.qty>0
 		ORDER BY oi.line_no, oi.id
 	`, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, itemsQ, orderID)

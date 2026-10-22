@@ -92,6 +92,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		return productionapp.FinishResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := customerstock.LockRunningFulfillmentCustomersTx(ctx, tx, schema, id); err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	replayID, replay, err := requestProductionKeyTx(ctx, tx, schema, "product_receipt", operator, cmd.RequestID, cmd)
 	if err != nil {
 		return productionapp.FinishResult{}, err

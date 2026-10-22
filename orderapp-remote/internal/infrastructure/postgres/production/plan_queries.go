@@ -848,7 +848,7 @@ func mergeDripPlanRows(rows []productionapp.UnprodNeedRow, dripRows []production
 
 func (r Repository) fetchDripPlanNeeds(ctx context.Context, from, to string, customerID int64) ([]productionapp.UnprodNeedRow, error) {
 	where := fmt.Sprintf(`WHERE o.is_void=false AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted' AND %s
-	AND COALESCE(oi.product_id,0) > 0
+	AND COALESCE(oi.product_id,0) > 0 AND oi.qty>0
 	AND COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean') = 'drip_bag'
 	AND NOT EXISTS (
 		SELECT 1 FROM %s.ship_statuses ss

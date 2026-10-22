@@ -1,15 +1,10 @@
 <template>
   <div class="page" :class="{ embedded: props.embedded }">
-    <div v-if="fulfillmentRecipientEditing && ok" class="notice ok" role="status">{{ ok }}</div>
-    <div v-if="fulfillmentRecipientEditing && error" class="notice error" role="alert">{{ error }} <button type="button" class="secondary" @click="load" :disabled="loading">重新加载</button></div>
-    <FulfillmentRecipientEditor
-      v-if="fulfillmentRecipientEditing"
-      :key="form.edit_id"
-      :order="fulfillmentEditData"
-      :recipient-target="props.recipientTarget"
-      :disabled-reason="loading ? '正在读取最新订单，请稍候' : editBlockReason"
-      @saved="handleFulfillmentRecipientSaved"
-    />
+    <section v-if="editorSnapshotPending" class="panel" aria-label="加载订单编辑">
+      <div class="section-row"><h2>编辑订单</h2><button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button></div>
+      <p v-if="loading || !error" role="status">正在读取订单及商品、费用信息…</p>
+      <p v-else class="notice error" role="alert">{{ error }} <button class="secondary" type="button" @click="load" :disabled="loading">重新加载</button></p>
+    </section>
     <template v-else>
     <section class="order-hero">
       <div>
@@ -54,7 +49,7 @@
         </div>
         <label>
           <span>单据日期</span>
-          <input v-model.trim="form.document_date" type="date" />
+          <input v-model.trim="form.document_date" type="date" :disabled="fulfillmentOrderEditing" />
         </label>
 
         <label>
@@ -62,7 +57,7 @@
           <input v-model.trim="form.order_date" type="date" />
         </label>
 
-        <label v-if="!props.fulfillmentMode" class="customer-combobox combobox" :class="{ open: customerOpen }">
+        <label v-if="!props.fulfillmentMode && !fulfillmentOrderEditing" class="customer-combobox combobox" :class="{ open: customerOpen }">
           <div class="label-row">
             <span>客户</span>
             <span class="label-actions">
@@ -130,12 +125,13 @@
         </Teleport>
 
         <div v-if="!props.customerPortal && !sampleOrderEditing" class="delivery-choice full-span">
-          <label><span>交付方式</span><select v-model="form.delivery_mode"><option value="ship">正常发货</option><option value="customer_stock">购货留厂（进入客户库存）</option></select></label>
+          <label><span>交付方式</span><select v-model="form.delivery_mode" :disabled="fulfillmentOrderEditing"><option value="ship">正常发货</option><option value="customer_stock">购货留厂（进入客户库存）</option></select></label>
           <label v-if="form.delivery_mode === 'customer_stock'"><span>目标客户成品仓</span><select v-model="form.delivery_warehouse_code" :disabled="deliveryWarehousesLoading"><option value="">请选择客户仓库</option><option v-for="warehouse in deliveryWarehouseOptions" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
           <p v-if="form.delivery_mode === 'customer_stock'" class="muted">货款按本次销售订单结算，形成待入库权益并按订单排产。实际入客户仓后才能发货；后续代发只收服务费和运费。</p>
           <p v-if="deliveryWarehouseError" class="error">{{ deliveryWarehouseError }}</p>
         </div>
 
+        <label v-if="fulfillmentOrderEditing" class="readonly-field"><span>客户</span><input :value="selectedCustomer?.name || props.customerContextLabel || `客户 #${form.customer_id}`" readonly /></label>
         <label v-if="!props.customerPortal" class="readonly-field">
           <span>客户负责人</span>
           <input :value="selectedCustomerResponsibleLabel" placeholder="先在客户资料指定负责人" readonly />
@@ -150,6 +146,7 @@
 
         <Teleport :to="props.workflowTarget || 'body'" :disabled="!props.workflowTarget" defer>
           <div :class="props.workflowTarget ? 'form-grid' : 'workflow-fields-inline'">
+          <template v-if="!fulfillmentOrderEditing">
         <label v-if="!props.customerPortal">
           <span>付款状态</span>
           <strong v-if="freeSampleSettlement" class="no-payment">无需收款 · 已结清</strong>
@@ -262,6 +259,8 @@
           </div>
         </div>
           <p v-if="freeSampleSettlement" class="full-span no-payment">商品和运费均为零，无需填写收款方式或凭证。</p>
+          </template>
+          <p v-else class="full-span fulfillment-explanation">{{ fulfillmentEditContext?.fulfillment_mode === 'stock' ? '库存一件代发：从本客户全部已购库存及待入库权益选择商品；货款在原购货单结算，本代发单不重复收取货款。' : '无库存一件代发：原单商品沿用确认价格，新增或更换规格按当前授权代发固定价，另计服务费和运费。' }}</p>
           <p v-if="editBlockReason" class="full-span notice warn">{{ editBlockReason }}</p>
           <div v-if="props.workflowTarget" class="full-span workflow-save">
             <button class="primary" type="button" @click="save()" :disabled="saving || loading || !!editBlockReason || hasUnpricedPublishedRow">{{ saving ? '保存中…' : '保存订单' }}</button>
@@ -281,8 +280,8 @@
       <div class="section-row">
         <div class="section-title">商品明细</div>
         <div class="section-actions">
-          <button class="secondary" type="button" @click="openBeanListDrawer" :disabled="!canOpenBeanListDrawer">选择价格表</button>
-          <div class="bean-list-summary-list">
+          <button v-if="!fulfillmentOrderEditing" class="secondary" type="button" @click="openBeanListDrawer" :disabled="!canOpenBeanListDrawer">选择价格表</button>
+          <div v-if="!fulfillmentOrderEditing" class="bean-list-summary-list">
             <small v-for="item in selectedBeanListSummaryItems" :key="item.type" class="bean-list-summary">
               <span class="bean-list-summary-label">{{ item.label }}：</span>
               <span class="bean-list-summary-value">{{ item.versionLabel }}</span>
@@ -290,7 +289,8 @@
           </div>
         </div>
       </div>
-      <p v-if="quoteSourceSummary.length" class="quote-source-summary">报价来源：
+      <p v-if="fulfillmentOrderEditing && fulfillmentEditContext?.fulfillment_mode === 'stock'" class="quote-source-summary">商品来源：原购货库存/权益</p>
+      <p v-else-if="quoteSourceSummary.length" class="quote-source-summary">报价来源：
         <span v-for="source in quoteSourceSummary" :key="source.key">{{ source.label }}</span>
       </p>
       <div class="line-list">
@@ -394,18 +394,18 @@
             <div class="price-control">
               <input
                 v-model.trim="row.unit_price"
-                :readonly="props.customerPortal || isFrozenConversion(row)"
+                :readonly="fulfillmentOrderEditing || props.customerPortal || isFrozenConversion(row)"
                 type="number"
                 min="0"
                 step="0.01"
                 placeholder="0.00"
                 @input="markManualPrice(row)"
               />
-              <button v-if="!props.customerPortal && !isFrozenConversion(row)" class="icon-button" type="button" title="恢复自动价格" @click="resetAutoPrice(row)">↺</button>
+              <button v-if="!fulfillmentOrderEditing && !props.customerPortal && !isFrozenConversion(row)" class="icon-button" type="button" title="恢复自动价格" @click="resetAutoPrice(row)">↺</button>
             </div>
           </label>
 
-          <label v-if="!props.customerPortal" class="discount-control">
+          <label v-if="!fulfillmentOrderEditing && !props.customerPortal" class="discount-control">
             <span>优惠</span>
             <div class="discount-inputs">
               <select v-model="row.discount_type" @change="onRowDiscountTypeChange(row)">
@@ -429,6 +429,8 @@
             <span>小计</span>
             <strong>{{ money(rowTotal(row)) }}</strong>
             <small>{{ row.manual_price ? '手动价' : autoPriceLabel(row) }}</small>
+            <small v-if="fulfillmentOrderEditing && fulfillmentLineState(row).requiresDiscountReview" class="price-missing-warning">该商品包含历史行折扣，修改数量前请先通过财务流程核对折扣</small>
+            <small v-else-if="fulfillmentOrderEditing && fulfillmentLineState(row).discountAmount">原单行优惠 ¥{{ money(fulfillmentLineState(row).discountAmount) }}，已计入小计</small>
             <small v-if="rowHasBlockingPrice(row)" class="price-missing-warning">{{ rowPriceBlockingMessage(row) }}</small>
             <small
               v-if="row.product_id && row.bean_list_version_no"
@@ -450,12 +452,13 @@
 
           <button class="secondary danger" type="button" @click="removeRow(idx)" :disabled="rows.length === 1">删除</button>
 
-          <label class="line-note">
+          <p v-if="fulfillmentOrderEditing && fulfillmentEditContext?.fulfillment_mode === 'stock'" class="line-note fulfillment-supply">{{ fulfillmentSupplyLabel(row) }}</p>
+          <label v-if="!fulfillmentOrderEditing" class="line-note">
             <span>条目备注</span>
             <input v-model.trim="row.item_note" placeholder="如贴标、磨粉、特殊包装" />
           </label>
 
-          <div v-if="!props.customerPortal && !isFrozenConversion(row) && tierRows(row).length" class="tier-prices">
+          <div v-if="!fulfillmentOrderEditing && !props.customerPortal && !isFrozenConversion(row) && tierRows(row).length" class="tier-prices">
             <small class="tier-choice-hint">手动选择价格档（不受数量门槛限制）</small>
             <button
               v-for="tier in tierRows(row)"
@@ -477,9 +480,20 @@
     </section>
 
     <section class="panel footer-panel">
-      <OrderFreightEstimate v-model="form.freight_state" :order-id="Number(form.edit_id||0)" :expected-token="orderFreight?.edit_token??orderFreight?.token??''" :locked="!!orderFreight?.edit_locked" :stored-quote="orderFreight" @amount-change="form.shipping_amount=String($event)" v-if="form.delivery_mode!=='customer_stock' && (!form.edit_id || !props.customerPortal)" ref="freightEstimator" :customer-id="form.customer_id" :items="freightItems" :saved-destination="{province:form.shipping_province,city:form.shipping_city,district:form.shipping_district}" @destination-change="Object.assign(form,$event)" :address="form.receiver_address || selectedCustomer?.address || selectedCustomer?.company_address || ''" :customer-portal="props.customerPortal" />
-      <div v-if="!props.customerPortal" class="section-title">费用</div>
-      <div v-if="!props.customerPortal" class="form-grid compact">
+      <template v-if="fulfillmentOrderEditing">
+        <div class="section-title">代发费用</div>
+        <FulfillmentOrderFees :fees="fulfillmentCurrentFees" :freight-view="orderFreight || {}" :goods-cents="fulfillmentGoodsCents" :mode="fulfillmentEditContext?.fulfillment_mode" />
+        <OrderPaymentSummary :order="fulfillmentEditData || {}" />
+        <div class="form-grid compact fulfillment-regions">
+          <label><span>收件省份</span><input v-model.trim="form.shipping_province" @input="fulfillmentManualDestination = true" /></label><label><span>收件城市</span><input v-model.trim="form.shipping_city" @input="fulfillmentManualDestination = true" /></label><label><span>收件区县</span><input v-model.trim="form.shipping_district" @input="fulfillmentManualDestination = true" /></label>
+        </div>
+        <details class="fulfillment-adjustment"><summary>本单服务费调整</summary><label class="checkline"><input v-model="fulfillmentServiceAdjustment.enabled" type="checkbox" />人工调整本单服务费</label><template v-if="fulfillmentServiceAdjustment.enabled"><label><span>服务费（元）</span><input v-model="fulfillmentServiceAdjustment.amount" type="number" min="0" step="0.01" /></label><label><span>费用调整原因</span><textarea v-model.trim="fulfillmentServiceAdjustment.reason" rows="2" /></label></template></details>
+        <button class="secondary" type="button" :disabled="saving || fulfillmentPreviewLoading || !!editBlockReason" @click="previewFulfillmentEdit">{{ fulfillmentPreviewLoading ? '核算中…' : '重新核算代发费用' }}</button>
+        <p v-if="fulfillmentPreview" class="muted">已按本次商品和收件地区核算；保存时会再次核对。</p>
+      </template>
+      <OrderFreightEstimate v-model="form.freight_state" :order-id="Number(form.edit_id||0)" :expected-token="orderFreight?.edit_token??orderFreight?.token??''" :locked="!!orderFreight?.edit_locked" :stored-quote="orderFreight" @amount-change="form.shipping_amount=String($event)" v-if="!fulfillmentOrderEditing && form.delivery_mode!=='customer_stock' && (!form.edit_id || !props.customerPortal)" ref="freightEstimator" :customer-id="form.customer_id" :items="freightItems" :saved-destination="{province:form.shipping_province,city:form.shipping_city,district:form.shipping_district}" @destination-change="Object.assign(form,$event)" :address="form.receiver_address || selectedCustomer?.address || selectedCustomer?.company_address || ''" :customer-portal="props.customerPortal" />
+      <div v-if="!fulfillmentOrderEditing && !props.customerPortal" class="section-title">费用</div>
+      <div v-if="!fulfillmentOrderEditing && !props.customerPortal" class="form-grid compact">
         <label>
           <span>优惠</span>
           <input v-model.trim="form.discount_amount" type="number" min="0" step="0.01" />
@@ -689,7 +703,10 @@ import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.j
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { createOrderCatalogSession, orderCatalogKey, staffPriceTableGroups } from '../lib/order-catalog.js'
 import { apiGet, apiSend } from '../api/client'
-import FulfillmentRecipientEditor from '../components/FulfillmentRecipientEditor.vue'
+import FulfillmentOrderFees from '../components/FulfillmentOrderFees.vue'
+import OrderPaymentSummary from '../components/OrderPaymentSummary.vue'
+import { fulfillmentEditFamilies, fulfillmentSpecForRow, fulfillmentSpecRowPatch, fulfillmentEditCommand, fulfillmentFeeSummary, fulfillmentLinePreview, fulfillmentDraftGoodsCents } from '../lib/fulfillment-order-edit'
+import { stockSupplySummary } from '../lib/customer-stock-entry'
 import { isSampleOrderEdit, validManualOrderPrice, storedSampleSpecKey, preservesSampleSpec, sampleStoredItemIdentity, orderEditRecipientFields, isFreeSamplePreview, validSampleReceiptGoods } from '../lib/sample-order-edit.js'
 import { resetCustomerContinuation } from '../lib/customer-workspace'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
@@ -796,9 +813,25 @@ let orderEntryDraftDisabled = false
 const loading = ref(false)
 const sampleOrderEditing = ref(false)
 const fulfillmentEditData = ref(null)
-const fulfillmentRecipientEditing = computed(() => !props.customerPortal && !copyMode.value
+const effectiveCopyID = ref(0)
+const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
+const fulfillmentOrderEditing = computed(() => !props.customerPortal && !copyMode.value
   && Number(form.edit_id) > 0 && fulfillmentEditData.value?.portal_service_code === 'direct_ship'
   && ['stock', 'on_demand'].includes(fulfillmentEditData.value?.fulfillment_mode))
+const fulfillmentEditContext = ref(null)
+const fulfillmentPreview = ref(null)
+const fulfillmentPreviewLoading = ref(false)
+const fulfillmentServiceAdjustment = reactive({ enabled: false, amount: '0.00', reason: '' })
+const fulfillmentManualDestination = ref(false)
+let fulfillmentPreviewVersion = 0
+const fulfillmentFamilies = computed(() => fulfillmentEditFamilies(fulfillmentEditContext.value?.catalog, fulfillmentEditContext.value?.fulfillment_mode))
+const fulfillmentCurrentFees = computed(() => fulfillmentPreview.value?.fees || fulfillmentEditContext.value?.fees || {})
+const fulfillmentGoodsCents = computed(() => fulfillmentDraftGoodsCents(fulfillmentEditContext.value || {}, rows.value))
+const loadedEditorOrderID = ref(0)
+const requestedEditorOrderID = computed(() => Number(props.copyId || props.editId || (typeof window === 'undefined' ? 0 : new URL(window.location.href).searchParams.get('copy_id') || new URL(window.location.href).searchParams.get('edit_id')) || 0))
+const editorSnapshotPending = computed(() => requestedEditorOrderID.value > 0 && loadedEditorOrderID.value !== requestedEditorOrderID.value)
+let editorLoadVersion = 0
+let editorAlive = true
 const editBlockReason = ref('')
 const saving = ref(false)
 const error = ref('')
@@ -840,7 +873,7 @@ function staffCatalogRequestTableIDs() {
   return selectedStaffTableIDs().filter(id => !historicalIDs.has(id) || liveIDs.has(id) || currentIDs.has(id))
 }
 async function refreshStaffOrderCatalog() {
-  if (props.customerPortal || fulfillmentRecipientEditing.value) return true
+  if (props.customerPortal || fulfillmentOrderEditing.value) return true
   const customerID = Number(form.customer_id || 0)
   const previousKey = staffCatalog.key
   const data = await staffCatalogSession.refresh(customerID, staffCatalogRequestTableIDs())
@@ -863,6 +896,7 @@ async function refreshStaffOrderCatalog() {
 }
 function staffCatalogFamilies() { return normalizeOrderProductFamilies(staffCatalog.families || []) }
 function currentOrderProductFamilies() {
+  if (fulfillmentOrderEditing.value) return fulfillmentFamilies.value
   if (props.customerPortal || Number(staffCatalog.customerID) !== Number(form.customer_id)) return productFamilies.value
   const current = staffCatalogFamilies()
   const keys = new Set(current.map(orderProductFamilyIdentity))
@@ -891,7 +925,6 @@ const customerNotice = ref('')
 const customerPaste = ref('')
 const customerForm = reactive(emptyCustomerForm())
 const fieldErrors = reactive({})
-const effectiveCopyID = ref(0)
 const backfillMode = ref(false)
 const deliveryWarehouses = ref([])
 const deliveryWarehousesLoading = ref(false)
@@ -1090,12 +1123,12 @@ const retailOrder = computed(() => {
 
 const itemsTotal = computed(() => rows.value.reduce((sum, row) => sum + rowTotal(row), 0))
 const orderTotalPreviewValue = computed(() => orderTotalPreview({
-  itemsTotal: itemsTotal.value,
-  shippingAmount: form.shipping_amount,
-  discountAmount: form.discount_amount,
-  roundToInt: form.round_to_int,
+  itemsTotal: fulfillmentOrderEditing.value ? fulfillmentGoodsCents.value / 100 : itemsTotal.value,
+  shippingAmount: fulfillmentOrderEditing.value ? (fulfillmentFeeSummary(fulfillmentCurrentFees.value).service + fulfillmentFeeSummary(fulfillmentCurrentFees.value).shipping) / 100 : form.shipping_amount,
+  discountAmount: fulfillmentOrderEditing.value ? 0 : form.discount_amount,
+  roundToInt: fulfillmentOrderEditing.value ? false : form.round_to_int,
 }))
-const orderTotalHintText = computed(() => `货款 ${money(orderTotalPreviewValue.value.goodsAmount)} · 物流 ${money(orderTotalPreviewValue.value.logisticsAmount)}`)
+const orderTotalHintText = computed(() => fulfillmentOrderEditing.value ? '商品货款＋代发服务费＋本次运费应收，预估运费单独展示' : `货款 ${money(orderTotalPreviewValue.value.goodsAmount)} · 物流 ${money(orderTotalPreviewValue.value.logisticsAmount)}`)
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
 const freeSampleSettlement = computed(() => isFreeSamplePreview(sampleOrderEditing.value, rows.value, form, orderTotalPreviewValue.value.grandTotal))
 const zeroGoodsSample = computed(() => sampleOrderEditing.value && itemsTotal.value === 0)
@@ -1147,7 +1180,6 @@ const selectedLogisticsProducts = computed(() => {
   const company = logisticsCompanies.value.find((item) => Number(item.id || 0) === Number(form.logistics_company_id || 0))
   return (company?.products || []).filter((item) => item.active !== false)
 })
-const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
 const canUseBackfillMode = computed(() => (!props.embedded || props.customerPortal) && !form.edit_id && !copyMode.value)
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
 const selectedCustomer = computed(() => customers.value.find((item) => Number(item.id || 0) === Number(form.customer_id || 0)) || null)
@@ -1261,6 +1293,10 @@ function isConcretePriceListRow(row) {
 }
 
 function productForRow(row) {
+  if (fulfillmentOrderEditing.value) {
+    const { family, spec } = fulfillmentSpecForRow(fulfillmentFamilies.value, row)
+    return spec ? { ...family, ...spec, tiers: [] } : null
+  }
   if (row?.__order_legacy_price_product || row?.spec_source === 'legacy_price_list') {
     return products.value.find((item) => Number(item.id || 0) === Number(row?.product_id || 0)) || null
   }
@@ -1766,6 +1802,7 @@ async function saveCustomerFromDrawer() {
 }
 
 function scopedOrderProductOptions() {
+  if (fulfillmentOrderEditing.value) return fulfillmentFamilies.value
   if (!props.customerPortal) {
     if (staffCatalog.loading || staffCatalog.error || Number(staffCatalog.customerID) !== Number(form.customer_id)) return []
     return staffCatalogFamilies()
@@ -1841,6 +1878,7 @@ function productOptionKey(product) {
 }
 
 function productSpecCountForCurrentList(family) {
+  if (fulfillmentOrderEditing.value) return family?.specs?.length || 0
   if (!isOrderProductFamily(family)) return 0
   const selected = selectedBeanListVersionOptionForProduct(family)
   if (Number(selected?.id || 0) <= 0) return 0
@@ -1955,7 +1993,18 @@ function invalidatePriceListSpecRow(row, message = '所选价格表不包含该�
   row.price_missing = true
 }
 
+function fulfillmentOriginalItem(row) {
+  return fulfillmentEditContext.value?.items?.find(item => Number(item.item_id) > 0 && Number(item.item_id) === Number(row.item_id)) || null
+}
+
 function chooseProduct(row, product) {
+  if (fulfillmentOrderEditing.value) {
+    const spec = product.specs?.find(entry => entry.is_default || entry.is_default_sku) || product.specs?.[0]
+    if (!spec) return
+    Object.assign(row, fulfillmentSpecRowPatch(product, spec, fulfillmentEditContext.value.fulfillment_mode, fulfillmentOriginalItem(row)), { product_open: false })
+    ensureTrailingBlankRow()
+    return
+  }
   row.spec_conversion = null
   row.price_selection_mode = 'auto'
   row.selected_price_row_key = ''
@@ -2036,6 +2085,10 @@ function chooseProduct(row, product) {
 }
 
 function specOptions(row) {
+  if (fulfillmentOrderEditing.value) {
+    const { family } = fulfillmentSpecForRow(fulfillmentFamilies.value, row)
+    return (family?.specs || []).map(spec => ({ value: String(spec.bom_spec_id || spec.sku_id || spec.product_id), label: spec.spec_label || spec.spec_name }))
+  }
   const family = productFamilyForRow(row)
   if (isOrderProductFamily(family) || row?.spec_source === 'price_list_sku') {
     const selected = selectedBeanListVersionOptionForProduct(family || row)
@@ -2048,6 +2101,13 @@ function specOptions(row) {
 }
 
 function onSpecChange(row) {
+  if (fulfillmentOrderEditing.value) {
+    const { family } = fulfillmentSpecForRow(fulfillmentFamilies.value, row)
+    const spec = family?.specs?.find(spec => String(spec.bom_spec_id || spec.sku_id || spec.product_id) === String(row.spec_mode))
+    if (spec) Object.assign(row, fulfillmentSpecRowPatch(family, spec, fulfillmentEditContext.value.fulfillment_mode, fulfillmentOriginalItem(row)))
+    else Object.assign(row, { bom_spec_id: 0, bom_variant_id: 0, spec_label: '', unit_price: '', price_missing: true, historical_spec_readonly: false, spec_invalid_message: '请重新选择商品规格' })
+    return
+  }
   const family = productFamilyForRow(row)
   if (!family) return
   const selected = selectedBeanListVersionOptionForProduct(family)
@@ -2072,7 +2132,7 @@ function onLegacySpecChange(row) {
 }
 
 function syncRowsForType(options = {}) {
-  if (fulfillmentRecipientEditing.value) return
+  if (fulfillmentOrderEditing.value) return
   rows.value.forEach((row) => {
     if (preservesStoredOrderPrice(row)) return
     if (options.priceListChanged) {
@@ -2138,6 +2198,7 @@ function syncRowsForType(options = {}) {
 }
 
 function syncPrice(row, options = {}) {
+  if (fulfillmentOrderEditing.value) return
   if (isFrozenConversion(row)) return
   if (preservesSampleSpec(row, sampleOrderEditing.value) && row.manual_price && !options.force) return
   const product = productForRow(row)
@@ -2346,6 +2407,7 @@ function isTierActive(row, tier) {
 }
 
 function autoPriceLabel(row) {
+  if (fulfillmentOrderEditing.value) return fulfillmentEditContext.value?.fulfillment_mode === 'stock' ? '已购库存，货款不重复收取' : '授权代发价格表固定价'
   if (isFrozenConversion(row)) return "历史订单冻结价格"
   if (row?.price_selection_mode === 'tier') return `手动选档 ${row.tier_price_label || ''}`.trim()
   if (row?.price_selection_mode === 'manual' || row?.manual_price) return '手动输入单价'
@@ -2357,6 +2419,7 @@ function autoPriceLabel(row) {
 }
 
 function priceUnitLabel(row) {
+  if (fulfillmentOrderEditing.value) return `元/${row.unit || '件'}`
   if (isDripRow(row)) return row.sales_unit === 'box' ? '元/盒' : '元/袋'
   return orderRowPriceUnit(row).label
 }
@@ -2366,8 +2429,20 @@ function quantityLabel(row) {
   return unit ? `数量（${unit}）` : '数量'
 }
 
+function fulfillmentLineState(row) {
+  return fulfillmentLinePreview(row, fulfillmentOriginalItem(row), fulfillmentEditContext.value?.fulfillment_mode)
+}
+
 function rowTotal(row) {
+  if (fulfillmentOrderEditing.value) return fulfillmentLineState(row).amount
   return lineTotal(productForRow(row), row, retailOrder.value)
+}
+
+function fulfillmentSupplyLabel(row) {
+  const { spec } = fulfillmentSpecForRow(fulfillmentFamilies.value, row)
+  if (!spec) return '原单商品快照；请重新读取当前客户权益后核对'
+  const supply = stockSupplySummary(spec, row.qty)
+  return `实物可用 ${supply.physical} · 待入库 ${supply.pending} · 待入库已预订 ${supply.reserved} · 本单原占用 ${Number(spec.own_reserved_qty || 0)} · 本单待补购 ${supply.gap}；可用量已计入本单原占用，待入库权益可等待入库`
 }
 
 function onRowDiscountTypeChange(row) {
@@ -2489,8 +2564,18 @@ function applyEditData(data) {
     outsource_tax_fee: data.outsource_tax_fee || '',
     outsource_other_fee: data.outsource_other_fee || '',
   })
-  if (fulfillmentRecipientEditing.value) {
-    rows.value = editItems.map(item => ({ ...item, spec_label: item.bom_spec_name || item.spec || '', historical_spec_readonly: true, spec_invalid_message: '', price_missing: false }))
+  if (fulfillmentOrderEditing.value) {
+    rows.value = editItems.map(item => {
+      const { family } = fulfillmentSpecForRow(fulfillmentFamilies.value, item)
+      return { ...newRow(), ...item, parent_product_id: Number(item.parent_product_id || item.product_id),
+        product_query: family?.name || item.product_name || '', product_name: family?.name || item.product_name || '',
+        spec_source: 'price_list_sku', spec_mode: String(item.bom_spec_id || item.product_id || ''),
+        spec_label: item.spec_name || item.spec_label || item.bom_spec_name || item.spec || '',
+        unit: item.inventory_unit || item.unit || item.sales_unit || '件',
+        unit_price: data.fulfillment_mode === 'stock' ? '0.00' : item.unit_price,
+        bean_list_publication_id: Number(item.publication_id || item.bean_list_publication_id || 0),
+        historical_spec_readonly: true, spec_invalid_message: '', price_missing: false }
+    })
     return
   }
   syncOrderHeaderFromCustomer(selectedCustomer.value, { syncRows: false })
@@ -2667,7 +2752,7 @@ function applyEditData(data) {
 }
 
 function repriceHydratedRows() {
-  if (fulfillmentRecipientEditing.value) return
+  if (fulfillmentOrderEditing.value) return
   for (const row of rows.value) {
     if (preservesStoredOrderPrice(row)) continue
     if (row.historical_spec_readonly) {
@@ -2738,6 +2823,7 @@ async function loadOrderProductCatalogTypes() {
 }
 
 async function load() {
+  const requestVersion = ++editorLoadVersion
   loading.value = true
   sampleOrderEditing.value = false
   editBlockReason.value = ''
@@ -2758,6 +2844,7 @@ async function load() {
     const editID = copyID || (propEditID > 0 ? String(propEditID) : urlEditID)
     if (editID) url.searchParams.set('edit_id', editID)
     const data = await apiGet(url)
+    if (requestVersion !== editorLoadVersion) return
     customers.value = data.customers || []
     sources.value = data.sources || []
     shipStatuses.value = data.ship_statuses || []
@@ -2775,6 +2862,7 @@ async function load() {
     customerPublicUsages.value = data.customer_public_usages || []
     customerProductUsages.value = data.customer_product_usages || []
     await loadOrderProductCatalogTypes()
+    if (requestVersion !== editorLoadVersion) return
     applyDefaultSelections(data)
     if (data.edit_mode) {
       const editData = { ...data.edit_data, edit_id: copyID ? 0 : data.edit_id }
@@ -2797,10 +2885,18 @@ async function load() {
       }
       form.edit_id = Number(editData.edit_id || 0)
       applyEditData(editData)
-      if (!sampleOrderEditing.value && !fulfillmentRecipientEditing.value) syncBeanListVersionForCustomer({ force: !!copyID })
+      if (fulfillmentOrderEditing.value) {
+        const context = await apiGet(`/api/orders/${Number(editID)}/fulfillment`)
+        if (requestVersion !== editorLoadVersion) return
+        applyFulfillmentEditContext(context)
+      } else {
+        fulfillmentEditContext.value = null
+      }
+      if (!sampleOrderEditing.value && !fulfillmentOrderEditing.value) syncBeanListVersionForCustomer({ force: !!copyID })
       if (copyID) syncRowsForType({ priceListChanged: true })
     } else {
       fulfillmentEditData.value = null
+      fulfillmentEditContext.value = null
       applyCustomerContextToNewOrder()
       syncBeanListVersionForCustomer({ force: true })
       if (props.deliveryPrefill) {
@@ -2808,17 +2904,73 @@ async function load() {
         syncRowsForType({ priceListChanged: true })
       }
     }
+    loadedEditorOrderID.value = Number(editID || 0)
   } catch (err) {
-    error.value = err.message || '加载失败'
+    if (requestVersion === editorLoadVersion) error.value = err.message || '加载失败'
   } finally {
-    loading.value = false
+    if (requestVersion === editorLoadVersion) loading.value = false
   }
 }
 
-async function handleFulfillmentRecipientSaved(data) {
-  await load()
-  ok.value = '收件信息已保存'
-  emit('saved', data)
+function applyFulfillmentEditContext(context) {
+  fulfillmentEditContext.value = context
+  const combined = { ...fulfillmentEditData.value, ...context, edit_id: Number(context.order_id || form.edit_id), portal_service_code: 'direct_ship' }
+  applyEditData(combined)
+  const destination = context.fees?.freight?.destination || context.fees || {}
+  form.shipping_province = context.province || destination.province || ''
+  form.shipping_city = context.city || destination.city || ''
+  form.shipping_district = context.district || destination.district || ''
+  fulfillmentManualDestination.value = false
+  Object.assign(fulfillmentServiceAdjustment, { enabled: false, amount: (Number(context.fees?.service_fee_cents || 0) / 100).toFixed(2), reason: '' })
+  fulfillmentPreview.value = null
+}
+
+async function previewFulfillmentEdit() {
+  if (!fulfillmentEditContext.value || editBlockReason.value) return null
+  let version = ++fulfillmentPreviewVersion
+  fulfillmentPreviewLoading.value = true
+  error.value = ''
+  try {
+    if (form.receiver_address !== fulfillmentEditContext.value.receiver_address && !fulfillmentManualDestination.value) {
+      const address = form.receiver_address
+      const resolved = await apiSend('/api/order/shipping-destination/resolve', { body: { address } })
+      if (address !== form.receiver_address) return null
+      if (resolved?.status !== 'resolved') throw new Error('无法唯一识别收件地区，请填写省、市、区县后重新核算')
+      form.shipping_province = resolved.destination.province
+      form.shipping_city = resolved.destination.city
+      form.shipping_district = resolved.destination.district
+      await nextTick()
+      version = ++fulfillmentPreviewVersion
+      fulfillmentPreviewLoading.value = true
+    }
+    const command = fulfillmentEditCommand(fulfillmentEditContext.value, form, rows.value, fulfillmentServiceAdjustment)
+    const preview = await apiSend(`/api/orders/${Number(form.edit_id)}/fulfillment/preview`, { body: command })
+    if (version !== fulfillmentPreviewVersion) return null
+    fulfillmentPreview.value = preview
+    return { preview, command }
+  } catch (err) {
+    if (version === fulfillmentPreviewVersion) error.value = err.message || '代发费用核算失败'
+    return null
+  } finally {
+    if (version === fulfillmentPreviewVersion) fulfillmentPreviewLoading.value = false
+  }
+}
+
+async function saveFulfillmentEdit() {
+  saving.value = true
+  ok.value = ''
+  try {
+    const checked = await previewFulfillmentEdit()
+    if (!checked) return
+    const data = await apiSend(`/api/orders/${Number(form.edit_id)}/fulfillment`, { method: 'PATCH', body: { ...checked.command, preview_token: checked.preview.preview_token } })
+    await load()
+    ok.value = '代发订单已保存'
+    emit('saved', data)
+  } catch (err) {
+    error.value = err.message || '代发订单保存失败'
+  } finally {
+    saving.value = false
+  }
 }
 
 function resetForBackfillContinuation() {
@@ -2854,6 +3006,7 @@ function resetForBackfillContinuation() {
 
 async function save(options = {}) {
   if (saving.value || loading.value || editBlockReason.value) return
+  if (fulfillmentOrderEditing.value) return saveFulfillmentEdit()
   if (!props.customerPortal && (staffCatalog.loading || staffCatalog.error)) { error.value = staffCatalog.error || '商品目录加载中，请稍后重试'; return }
   const continueBackfill = Boolean(options?.continueBackfill && canUseBackfillMode.value)
   saving.value = true
@@ -2991,6 +3144,7 @@ function stockBatchConfirmText(preview) {
 onMounted(async () => {
   document.addEventListener('pointerdown', handleOrderProductPointerDown)
   await load()
+  if (!editorAlive) return
   const draftRestored = restoreOrderEntryDraft()
   if (draftRestored) {
     syncBeanListVersionForCustomer()
@@ -3002,6 +3156,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(saveOrderEntryDraft)
+onBeforeUnmount(() => { editorAlive = false; editorLoadVersion++; fulfillmentPreviewVersion++ })
 onBeforeUnmount(() => document.removeEventListener('pointerdown', handleOrderProductPointerDown))
 
 watch(
@@ -3078,6 +3233,22 @@ watch(paymentReceiptRequired, (required) => {
 watch(() => form.payment_goods_amount, () => clearFieldErrorIfValid('payment_goods_amount'))
 watch(() => form.payment_shipping_amount, () => clearFieldErrorIfValid('payment_shipping_amount'))
 watch(() => form.payment_voucher_asset_id, () => clearFieldErrorIfValid('payment_voucher_asset_id'))
+watch(() => form.receiver_address, address => {
+  if (!fulfillmentOrderEditing.value || !fulfillmentEditContext.value) return
+  fulfillmentManualDestination.value = false
+  const original = address === fulfillmentEditContext.value.receiver_address ? fulfillmentEditContext.value : {}
+  const destination = original.fees?.freight?.destination || original.fees || {}
+  form.shipping_province = original.province || destination.province || ''
+  form.shipping_city = original.city || destination.city || ''
+  form.shipping_district = original.district || destination.district || ''
+})
+watch(() => [form.receiver_address, form.shipping_province, form.shipping_city, form.shipping_district, form.notes, form.order_date,
+  rows.value.map(row => [row.product_id, row.bom_spec_id, row.bom_variant_id, row.qty]), { ...fulfillmentServiceAdjustment }], () => {
+  if (!fulfillmentOrderEditing.value) return
+  fulfillmentPreviewVersion++
+  fulfillmentPreview.value = null
+  fulfillmentPreviewLoading.value = false
+}, { deep: true })
 watch(itemsTotal, () => {
   clearFieldErrorIfValid('payment_goods_amount')
 })

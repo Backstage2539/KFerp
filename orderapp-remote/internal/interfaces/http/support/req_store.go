@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-714-FULFILLMENT-FULL-EDIT", title: "生产ERP完整代发编辑、库存权益及原版本运费", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-fulfillment-full-edit.md"},
+		{table: "req_dev", code: "DEV-835-FULFILLMENT-EDITOR", title: "PR-714 统一订单表单与首次弹窗渲染、保存关闭及真实DOM回归", status: "done", assignee: "Codex", evidence: "Vue actual parent-child DOM RED-GREEN"},
+		{table: "req_dev", code: "DEV-836-FULFILLMENT-TRANSACTION", title: "PR-714 原订单商品编辑、库存权益差量及并发原子事务", status: "done", assignee: "Codex", evidence: "isolated PostgreSQL transaction/API RED-GREEN"},
+		{table: "req_dev", code: "DEV-837-FULFILLMENT-FEES", title: "PR-714 原模板版本核价、服务费及历史付款保护", status: "done", assignee: "Codex", evidence: "frozen freight and fee accounting RED-GREEN"},
+		{table: "req_dev", code: "DEV-838-FULFILLMENT-DELIVERY", title: "PR-714 手册、生产交付及真实订单只读核验", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-22-fulfillment-full-edit.md"},
 		{table: "req_product", code: "PR-713-FULFILLMENT-RECIPIENT-EDIT", title: "代发订单地址独立编辑及客户报价规格版本兼容", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-fulfillment-recipient-edit.md"},
 		{table: "req_dev", code: "DEV-832-RECIPIENT-TRANSACTION", title: "PR-713 收件信息专用事务、权限、版本冲突与操作日志", status: "done", assignee: "Codex", evidence: "isolated PostgreSQL HTTP/audit/concurrency RED-GREEN"},
 		{table: "req_dev", code: "DEV-833-RECIPIENT-EDITOR", title: "PR-713 代发订单收件信息独立编辑，原商品计价与库存保持", status: "done", assignee: "Codex", evidence: "Vue editor and recipient PATCH runtime RED-GREEN"},

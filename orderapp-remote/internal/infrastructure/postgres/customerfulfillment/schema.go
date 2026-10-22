@@ -532,8 +532,8 @@ BEGIN
   EXECUTE format('ALTER TABLE %%I.%%I DROP CONSTRAINT %%I','%[1]s','customer_direct_ship_request_items',obsolete.conname);
  END LOOP;
 END $legacy_item_identity$`, schema),
-		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS customer_direct_ship_request_items_legacy_identity_uq ON %s.customer_direct_ship_request_items(request_id,product_id,spec_g) WHERE bom_spec_id=0`, schema),
-		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS customer_direct_ship_request_items_bom_spec_identity_uq ON %s.customer_direct_ship_request_items(request_id,product_id,bom_spec_id) WHERE bom_spec_id>0`, schema),
+		fulfillmentActiveItemIdentityIndexSQL(schema, "customer_direct_ship_request_items_legacy_identity_uq", "request_id,product_id,spec_g", "bom_spec_id=0"),
+		fulfillmentActiveItemIdentityIndexSQL(schema, "customer_direct_ship_request_items_bom_spec_identity_uq", "request_id,product_id,bom_spec_id", "bom_spec_id>0"),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS material_unit_weight_g NUMERIC(20,6)`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS material_item_weight_g NUMERIC(20,6)`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS logistics_unit_weight_g NUMERIC(20,6)`, schema),

@@ -1965,7 +1965,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 				OR LOWER(COALESCE(c.address,'')) LIKE %[1]s
 			OR LOWER(COALESCE(c.company_address,'')) LIKE %[1]s
 			OR EXISTS (SELECT 1 FROM %s.order_items oi2
-				WHERE oi2.order_id=o.id
+				WHERE oi2.order_id=o.id AND oi2.qty>0
 				  AND (LOWER(COALESCE(oi2.item_name,'')) LIKE %[1]s OR LOWER(COALESCE(oi2.spec,'')) LIKE %[1]s))
 		)`, placeholder, r.schema))
 	}
@@ -2111,7 +2111,7 @@ func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64
 				COALESCE(to_jsonb(oi)->>'weight_snapshot_json','{}')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
-		WHERE oi.order_id IN (`+strings.Join(placeholders, ",")+`)
+		WHERE oi.order_id IN (`+strings.Join(placeholders, ",")+`) AND oi.qty>0
 		ORDER BY oi.order_id, oi.line_no, oi.id
 	`, r.schema, r.schema), args...)
 	if err != nil {

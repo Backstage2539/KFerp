@@ -4,31 +4,21 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strconv"
 
-	salesapp "orderapp/internal/application/sales"
+	fulfillmentapp "orderapp/internal/application/customerfulfillment"
 	support "orderapp/internal/interfaces/http/support"
 
 	"github.com/labstack/echo/v4"
 )
 
-// Staff fulfillment edits change only the recipient. Stock-backed lines have
-// already been paid for and must never pass through ordinary order repricing.
+// The compatibility endpoint uses the full fulfillment transaction so a changed
+// destination cannot leave the saved freight quote attached to the old address.
 func (h orderAPIHandler) staffRecipient(c echo.Context) error {
-	actor, authenticated, err := support.CurrentActor(c, h.authz)
-	if err != nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()})
+	id, ok, err := h.staffFulfillmentAccess(c)
+	if !ok {
+		return err
 	}
-	if !authenticated {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "auth required"})
-	}
-	if support.CustomerFulfillmentOrderScopeLimited(c) || actor.AccountType == support.AccountTypeChannelCustomer || !actor.Can("orders.write") {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "请使用有订单编辑权限的内部账号修改收件信息"})
-	}
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid order id"})
-	}
+
 	var req struct {
 		CustomerID      int64   `json:"customer_id"`
 		EditRevision    string  `json:"edit_revision"`
@@ -45,24 +35,15 @@ func (h orderAPIHandler) staffRecipient(c echo.Context) error {
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "无效收件信息"})
 	}
-	order, err := h.sales.OrderConfirmation(c.Request().Context(), id)
-	if err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "订单不存在"})
-	}
-	if req.CustomerID != 0 && req.CustomerID != order.CustomerID {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "订单不属于所选客户"})
-	}
-	cmd := salesapp.CustomerRecipientCommand{
-		OrderID: id, CustomerID: order.CustomerID, Actor: support.ActorOf(c),
+	cmd := fulfillmentapp.FulfillmentOrderEditCommand{
+		OrderID: id, CustomerID: req.CustomerID, Actor: support.ActorOf(c), RecipientOnly: true,
 		ReceiverName: req.ReceiverName, ReceiverPhone: req.ReceiverPhone,
 		ReceiverAddress: req.ReceiverAddress, ReceiverCompany: req.ReceiverCompany,
-		ExpectedEditRevision: req.EditRevision, StaffFulfillmentEdit: true,
+		ExpectedEditRevision: req.EditRevision,
 	}
-	if err := h.sales.UpdateCustomerRecipient(c.Request().Context(), cmd); err != nil {
-		if message, conflict := salesapp.OrderEditConflictMessage(err); conflict {
-			return c.JSON(http.StatusConflict, map[string]string{"error": message})
-		}
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	result, err := h.fulfillmentEditor.UpdateFulfillmentOrder(c.Request().Context(), cmd)
+	if err != nil {
+		return fulfillmentEditError(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"ok": true, "order_id": id})
+	return c.JSON(http.StatusOK, result)
 }

@@ -14,12 +14,13 @@ type CustomerScopeResolver interface {
 }
 
 type Dependencies struct {
-	Authz         support.AuthzService
-	Sales         *salesapp.Service
-	MessageCenter MessagePublisher
-	AssetDir      string
-	CustomerScope CustomerScopeResolver
-	CustomerMall  CustomerMallService
+	Authz             support.AuthzService
+	Sales             *salesapp.Service
+	MessageCenter     MessagePublisher
+	AssetDir          string
+	CustomerScope     CustomerScopeResolver
+	CustomerMall      CustomerMallService
+	FulfillmentEditor FulfillmentEditor
 }
 
 type MessagePublisher interface {
@@ -32,7 +33,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerOutsourceSettingsRoutes(e, deps.Sales)
 	registerSenderSettingsPage(e, deps.Sales)
 	registerOrderRoutes(e, deps.Sales)
-	registerOrderAPI(e, deps.Sales, deps.MessageCenter, deps.AssetDir, deps.CustomerScope, deps.Authz)
+	registerOrderAPI(e, deps.Sales, deps.MessageCenter, deps.AssetDir, deps.CustomerScope, deps.Authz, deps.FulfillmentEditor)
 	registerOrderShippingExcelRoutes(e, deps.Sales, deps.MessageCenter)
 	registerLogisticsSettingsRoutes(e, deps.Sales)
 	registerSalesOrderSettingsRoutes(e, deps.Sales, deps.AssetDir)
