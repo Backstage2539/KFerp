@@ -1,11 +1,11 @@
 ### PR-713-FULFILLMENT-RECIPIENT-EDIT
 - Branch: codex/order-address-spec-validation-20261022; production baseline origin/main@6ce86299.
 - Owner/session: Codex / 2026-10-22.
-- Status: implementation and independent review passed; 1481 Vue tests/build, full Go and isolated recipient/API/confirmation regressions GREEN; canonical automatic/manual-tier API writes and stale-variant rejection GREEN; integration pending.
+- Status: technical delivery complete; feature/develop e33675e1 pushed; production runtime db427e4d deployed and verified on 2026-10-22. Vue1482/client425/full Go on server and image, isolated PostgreSQL recipient/canonical pricing API and independent review passed. Van business acceptance pending.
 - Scope: stock/on-demand direct-ship recipient-only editing preserves original merchandise, pricing, fulfillment, inventory reservations and fees; stable BOM-spec customer quote matching survives manufacturing revision changes without admitting unlisted specifications.
 - DEV: DEV-832-RECIPIENT-TRANSACTION; DEV-833-RECIPIENT-EDITOR; DEV-834-QUOTE-SPEC-IDENTITY.
 - Verifier: actual Vue setup and API calls, isolated PostgreSQL HTTP/audit/concurrency assertions, scoped/full Vue/Go checks and Vue production build; source manual and acceptance evidence.
-- Deployment: pending verification; user-reported target production. No actual order write or address inferred from the user's draft.
+- Deployment: KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production passed; source backup orderapp.backup.deploy-20261022130428-db427e4d0c68 and rollback image production-20261022130428-db427e4d0c68 retained. App running/restarts0, DB healthy, protected recipient PATCH401, source/container/public bundle identical. Production order117 data and freight template1/V2 unchanged. Live UI shows dedicated recipient save with original 2x4 bag lines; actual address remains for Van to save.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-22-fulfillment-recipient-edit.md; local outputs/order-address-spec-validation-20261022 (raw production reads excluded from commits).
 - Notes: reserve_req_id.sh returned PR-713; reserved here to avoid known macOS awk claim failure. Van business acceptance remains pending.
 
