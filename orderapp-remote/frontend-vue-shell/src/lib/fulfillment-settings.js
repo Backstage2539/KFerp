@@ -17,7 +17,7 @@ export function fulfillmentSettingsForm(data = {}) {
 export function fulfillmentSettingsPayload(form) {
   return { customer_id: form.customer_id, expected_revision: form.revision, modes: form.modes.map(row => {
     if (!row.enabled) return { mode: row.mode, enabled: false }
-    if (!row.shipping_template_id && !row.shipping_free) throw new Error('请为已开启的代发场景选择运费模板，或明确选择包邮')
+    if (!row.shipping_template_id && !row.shipping_free && explicitMoneyCents(row.surcharge) !== 0) throw new Error('继承运费配置时不能单独设置附加运费；请选模板后设置')
     if (row.mode === 'stock' && !row.warehouse_code) throw new Error('库存代发必须绑定此客户的成品仓')
     return { mode: row.mode, enabled: true, warehouse_code: row.mode === 'stock' ? row.warehouse_code : '', shipping_free: row.shipping_free === true, shipping_template_id: Number(row.shipping_template_id || 0), fee_configured: true, fixed_fee_cents: explicitMoneyCents(row.fixed_fee), per_package_fee_cents: explicitMoneyCents(row.per_package_fee), shipping_policy: { template_id: Number(row.shipping_template_id || 0), surcharge_cents: explicitMoneyCents(row.surcharge), free_shipping: row.shipping_free === true, expected_revision: Number(row.shipping_policy_revision || 0) } }
   }) }

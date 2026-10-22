@@ -112,6 +112,14 @@ type SettlementDelta struct {
 
 func validMoney(v int64) bool  { return v >= 0 && v <= MaxCents }
 func ValidScene(s string) bool { return s == "sale" || s == "stock" || s == "on_demand" }
+
+// An empty stored override explicitly inherits the next policy level.
+func ValidatePolicyOverride(p Policy) error {
+	if ValidScene(p.Scene) && p.CustomerID > 0 && p.TemplateID == 0 && !p.FreeShipping && p.SurchargeCents == 0 {
+		return nil
+	}
+	return ValidatePolicy(p)
+}
 func ValidatePolicy(p Policy) error {
 	if !ValidScene(p.Scene) || !validMoney(p.SurchargeCents) || p.CustomerID < 0 || (!p.FreeShipping && p.TemplateID <= 0) {
 		return fmt.Errorf("请配置有效场景、运费模板及附加运费")

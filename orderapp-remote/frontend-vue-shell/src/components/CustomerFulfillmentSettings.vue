@@ -21,7 +21,7 @@
           </div>
           <p v-if="mode.mode === 'stock' && !warehouses.length" class="hint">尚无可用客户成品仓，可点击“打开仓库”新增或绑定虚拟子仓。</p>
           <div class="fees-grid">
-            <label>默认运费模板<select v-model.number="mode.shipping_template_id"><option :value="0">请选择运费模板</option><option v-if="mode.shipping_template_id && !templates.some(row => Number(row.id) === Number(mode.shipping_template_id))" :value="mode.shipping_template_id" disabled>原模板不可用，请重新选择</option><option v-for="template in templates" :key="template.id" :value="template.id" :disabled="!template.active">{{ template.name }} · V{{ template.revision }}{{ template.active ? '' : '（停用）' }}</option></select></label>
+            <p class="muted">运费优先使用本场景配置，未指定时继承客户档案，再继承系统默认。附加运费及包邮随所选层级生效。</p><label>默认运费模板<select v-model.number="mode.shipping_template_id"><option :value="0">继承客户档案／系统默认</option><option v-if="mode.shipping_template_id && !templates.some(row => Number(row.id) === Number(mode.shipping_template_id))" :value="mode.shipping_template_id" disabled>原模板不可用，请重新选择</option><option v-for="template in templates" :key="template.id" :value="template.id" :disabled="!template.active">{{ template.name }} · V{{ template.revision }}{{ template.active ? '' : '（停用）' }}</option></select></label>
             <label>每票固定附加运费（元）<input v-model="mode.surcharge" type="number" min="0" step="0.01" /></label>
           </div>
           <label class="toggle shipping-free"><input v-model="mode.shipping_free" type="checkbox" />客户包邮（免基础运费及附加运费）</label>

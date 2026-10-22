@@ -52,3 +52,10 @@ test('unbound virtual warehouse never enters customer finished warehouse candida
   assert.deepEqual(customerFinishedWarehouses([{ code: 'unbound', kind: 'finished', is_virtual: true, customer_id: 0 }, { code: 'own', kind: 'finished', is_virtual: true, customer_id: 147 }], 147).map(row => row.code), ['own'])
   assert.deepEqual(customerFinishedWarehouses([{ code: 'unbound', kind: 'finished', is_virtual: true, customer_id: 0 }], 0), [])
 })
+
+test('dropship modes can inherit customer or system freight while retaining explicit service fees', () => {
+ const form = fulfillmentSettingsForm({customer_id:147,modes:[{mode:'on_demand',enabled:true,fee_configured:true,fixed_fee_cents:300,per_package_fee_cents:0}]})
+ const mode = fulfillmentSettingsPayload(form).modes[1]
+ assert.equal(mode.shipping_policy.template_id,0)
+ assert.equal(mode.fixed_fee_cents,300)
+})
