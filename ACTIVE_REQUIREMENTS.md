@@ -6033,3 +6033,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md; OP_MANUAL_ORDER_SALES.md
 - Deployment: production5086dfe6; Vue1496/mini425/fullGo/PG/review passed; real orders115/117 revisions/items and all templates unchanged; full list drawer open/refresh/close/reopen verified; writes tested only in isolation
 - Last update: 2026-10-22
+
+### PR-715-spec-template-rollout
+- Branch: codex/spec-template-rollout-20261022
+- Status: verified on feature branch; integration/development deployment pending; Van business acceptance pending
+- Scope: 模板差异下发并原子发布 BOM；稳定规格报价与执行版本解耦
+- Verifier: Go unit / isolated PostgreSQL / API / Vue runtime / build
+- Deployment: development only after verification

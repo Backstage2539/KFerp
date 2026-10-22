@@ -1528,3 +1528,7 @@
 - [ ] Van业务验收。
 
 证据：orderapp-remote/docs/acceptance/2026-10-22-fulfillment-full-edit.md。
+
+## PR-715 规格模板下发与报价版本解耦
+
+详见 `orderapp-remote/docs/acceptance/2026-10-22-spec-template-rollout.md`。验证覆盖三方合并、逐项事务/并发/重试、原报价+当前重量订单保存、Vue和员工小程序；开发环境交付，正式发布与业务验收另记。
