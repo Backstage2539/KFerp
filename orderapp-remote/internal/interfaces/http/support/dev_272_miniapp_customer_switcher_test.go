@@ -56,7 +56,7 @@ func TestMiniappCustomerSwitcherSourceWiring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read profile.vue: %v", err)
 	}
-	for _, want := range []string{"switchCurrentCustomer", "customerPickerLabels", "handleCustomerSwitch", "切换用户", "退出登录"} {
+	for _, want := range []string{"switchCurrentCustomer", "customerPickerLabels", "handleCustomerSwitch", "退出登录"} {
 		if !strings.Contains(string(profile), want) {
 			t.Fatalf("profile.vue missing customer switcher marker %q", want)
 		}
@@ -83,7 +83,7 @@ func TestMiniappCustomerSwitcherDocsExist(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		text := string(body)
-		for _, want := range []string{"我的", "切换用户", "13800138075"} {
+		for _, want := range []string{"我的", "退出登录", "13800138075"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing customer switcher manual marker %q", path, want)
 			}

@@ -21,7 +21,7 @@ func TestMiniappERPPasswordLoginRequirementRecords(t *testing.T) {
 	}
 
 	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md")))
-	for _, want := range []string{"ERP 渠道客户账号", "用户名/手机号", "个人中心", "切换用户", "不再展示微信一键登录"} {
+	for _, want := range []string{"ERP 渠道客户账号", "用户名/手机号", "个人中心", "退出登录", "不再展示微信一键登录"} {
 		if !strings.Contains(manual, want) {
 			t.Fatalf("OP_MANUAL_CUSTOMER_PORTAL.md missing %q", want)
 		}

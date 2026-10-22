@@ -1,3 +1,14 @@
+### PR-712-MINIAPP-NAVIGATION-DEDUP
+- Branch: codex/miniapp-navigation-dedup-20261022; base origin/develop@7684c047.
+- Owner/session: Codex / 2026-10-22.
+- Status: implementing; Van approved complete navigation cleanup plan and continued main/production delivery.
+- Scope: remove duplicate home summaries and price banner, keep one logout; retain processing shipping inside My Orders; fix contextual order links, bottom-tab navigation and effective visibility.
+- DEV: DEV-829-HOME-DEDUP; DEV-830-NAVIGATION; DEV-831-NAVIGATION-DELIVERY.
+- Verifier: actual Vue rendering/click RED-GREEN, capability/role/theme matrix, existing scoped API authorization tests, full miniapp tests/type/build, Vue manual build, server release gates and DevTools verification.
+- Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md and OP_MANUAL_CUSTOMER_FULFILLMENT.md; served by customerPortalManual/customerFulfillmentManual.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-22-miniapp-navigation-dedup.md.
+- Boundary: no schema or business-data changes; WeChat upload/review/publication and Van business acceptance are separate.
+
 ### PR-708-MINIAPP-ORDER-STATUS-TOP
 - Branch: codex/miniapp-order-status-top-20261021; base origin/develop e6d30fc0.
 - Owner/session: Codex / 2026-10-21.

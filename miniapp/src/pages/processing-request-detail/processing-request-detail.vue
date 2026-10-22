@@ -11,6 +11,7 @@ import { createDirectShipDraftLine } from '../../utils/directShipDraft'
 import { shanghaiToday } from '../../utils/employeeOrder'
 import { processingRequestProgress, processingRequestTimeline, productionStatusLabel } from '../../utils/customerFulfillment'
 import { defaultMiniappShare, defaultMiniappTimelineShare, refreshMiniappShareMenu } from '../../utils/miniappShare'
+import { customerDestinationURL } from '../../utils/customerNavigation'
 
 const session = useSessionStore()
 const orderDraft = useCustomerOrderDraftStore()
@@ -45,7 +46,7 @@ async function load() {
   catch (error) { errorMessage.value = error instanceof Error ? error.message : '生产工单详情加载失败' }
   finally { loading.value = false }
 }
-function openOrder(orderNo: string) { uni.navigateTo({ url: `/pages/service/service?key=orders&q=${encodeURIComponent(orderNo)}` }) }
+function openOrder(orderNo: string) { uni.navigateTo({ url: customerDestinationURL('orders', { q: orderNo }) }) }
 function continueOrder() {
   const item = request.value?.items?.[0]
   if (!item) return
