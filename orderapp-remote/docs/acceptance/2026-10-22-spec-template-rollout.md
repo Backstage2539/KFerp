@@ -16,9 +16,9 @@ RED：稳定规格69发布价来自旧执行版本1167，当前1206时两处目�
 GREEN：
 
 - Go 应用、仓储和 HTTP 回归；完整后端测试。
-- 本机 PostgreSQL 的独立临时 schema（不读取/写入正式业务）：同规格物流重量更新、并行重复下发只升一版、多个旧模板来源、部分成功、草稿/局部冲突/过期 BOM/过期模板阻塞、发布失败完整回滚、本地名称和自建规格保留、新规格加入、改单位生成新身份、审计记录。
+- 本机 PostgreSQL 的独立临时 schema（不读取/写入正式业务）：同规格物流重量更新、并行重复下发只升一版、多个旧模板来源、部分成功、草稿/局部冲突/过期 BOM/过期模板阻塞、发布失败完整回滚、本地名称和自建规格保留、新规格加入、删除规格/删除本地修改冲突/库存阻止删除、改单位生成新身份、审计记录。
 - 真实订单 HTTP：旧发布价的自动档与手选档使用当前 BOM，保留原有效规格快照，新订单保存260g物流重量；客户/规格/表选择越权阻断；历史重量快照已有回归保持通过。
-- Vue 1499 项测试及生产构建通过；下发组件实际 setup/API 的默认勾选、取消个别项、部分失败重试回归。
+- Vue 1506 项测试（合并最新 develop 订单付款修复后）及生产构建通过；下发组件实际 setup/API 的默认勾选、取消个别项、部分失败重试回归。
 - 员工小程序录单36项测试和类型检查通过，包含更新执行版本时保留数量、原价档及客户身份。
 
 完整复跑命令：`scripts/verify_kferp.sh backend`、`scripts/verify_kferp.sh frontend`；数据库定向套件 `TestSpecTemplateRollout*`、`TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWithoutLegacyMapping`、`TestNamedPriceTableOrderAPIUsesSelectedSnapshotAndBlocksBypass`、`TestOrderAPIQuantityEditPreservesFrozenWeightAndHistoryUnknown`，通过 `ORDERAPP_TEST_DATABASE_URL` 指向隔离测试数据库。日志在任务工作区 outputs/pr715。
