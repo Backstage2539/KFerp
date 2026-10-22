@@ -24,6 +24,7 @@ CREATE TABLE %[1]s.order_audit_logs(order_id BIGINT,actor TEXT,field TEXT,old_va
 CREATE TABLE %[1]s.audit_logs(actor TEXT,entity_type TEXT,entity_id BIGINT,action TEXT,field TEXT,old_value TEXT,new_value TEXT,meta JSONB);
 CREATE TABLE %[1]s.sales_order_assets(id BIGINT,kind TEXT,created_by TEXT); INSERT INTO %[1]s.sales_order_assets VALUES(12,'payment_voucher','mini-employee:7:test'),(13,'payment_voucher','another-employee');
 CREATE TABLE %[1]s.sales_order_documents(order_id BIGINT,is_latest BOOLEAN); INSERT INTO %[1]s.sales_order_documents VALUES(42,true),(99,true),(42,false);
+CREATE TABLE %[1]s.order_freight_snapshots(order_id BIGINT,snapshot_json JSONB); INSERT INTO %[1]s.order_freight_snapshots VALUES(42,'{"protocol":"order_freight_v2","current_receivable_cents":0}');
 `, schema))
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +84,7 @@ CREATE TABLE %[1]s.sales_order_documents(order_id BIGINT,is_latest BOOLEAN); INS
 	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT ship_status_id FROM %s.orders WHERE id=42`, schema)).Scan(&updatedShip); err != nil || updatedShip != 2 {
 		t.Fatalf("ship=%v err=%v", updatedShip, err)
 	}
-	deposit := 20.0
+	deposit := 30.0
 	cmd.PayStatusID = 3
 	cmd.PrepaymentAmount = &deposit
 	cmd.ExpectedEditRevision = revision()
@@ -92,6 +93,18 @@ CREATE TABLE %[1]s.sales_order_documents(order_id BIGINT,is_latest BOOLEAN); INS
 	}
 	cmd.PayStatusID = 2
 	cmd.PrepaymentAmount = nil
+	cmd.ExpectedEditRevision = revision()
+	if err = repo.UpdateOrderStatus(ctx, cmd); err != nil {
+		t.Fatal(err)
+	}
+	var settledStatus, settledVoucher int64
+	var settledDeposit, settledGoods, settledFreight float64
+	if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT pay_status_id,prepayment_amount::float8,payment_goods_amount::float8,payment_shipping_amount::float8,payment_voucher_asset_id FROM %s.orders WHERE id=42`, schema)).Scan(&settledStatus, &settledDeposit, &settledGoods, &settledFreight, &settledVoucher); err != nil {
+		t.Fatal(err)
+	}
+	if settledStatus != 2 || settledDeposit != 30 || settledGoods != 0 || settledFreight != 0 || settledVoucher != 0 {
+		t.Fatalf("dedicated status endpoint must settle without changing deposit/receipts: %d/%v/%v/%v/%d", settledStatus, settledDeposit, settledGoods, settledFreight, settledVoucher)
+	}
 	for _, mode := range []string{"void", "managed_shipping", "pending", "receipt", "method", "prepayment", "logistics", "free_sample"} {
 		t.Run(mode, func(t *testing.T) {
 			_, e := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET is_void=false,confirmation_required=false,confirmation_status='accepted',settlement_reason='',ship_method='pickup',pay_status_id=2,ship_status_id=2,payment_method='现金',prepayment_amount=0 WHERE id=42`, schema))

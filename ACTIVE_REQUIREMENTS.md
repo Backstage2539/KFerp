@@ -1,3 +1,13 @@
+### ORDER-PAYMENT-FREIGHT-REGRESSION-20261022
+- Branch: codex/order-payment-freight-regression; fetched origin/develop 7684c047ea245c033750ce8b764deecd03ff73c7.
+- Scope: regression fix for SaveOrder freight receipt protection, historical zero grand totals, explicit settlement and deposit preservation. Van subsequently authorized commit/push/integration of this fix into develop and main (Sentinel_10a4690679888191a07f9aa08221f504); deployment and production data access remain excluded.
+- Root causes: missing historical total fallback; payment-only edits treated as receivable changes; unconditional replacement of the original deposit.
+- Verification: isolated local PostgreSQL RED/GREEN at repository and HTTP levels, independent UpdateOrderStatus and freight-v2/legacy CREATE regressions, payment presentation tests, repository changed/backend checks. Full backend check and pristine develop comparison both have the same 200 failing tests in 15 packages; no new failure names.
+- Manuals: orderapp-remote/docs/OP_MANUAL_FREIGHT.md and OP_MANUAL_ORDER_SALES.md, available through existing Vue manual routes.
+- Status: finalized locally after business confirmation; final targeted suite15/subtests42, freight integration5, payment presentation3, manual mapping3 and changed checks passed. Split-save guidance and rollback verified by HTTP test. Full backend remains baseline RED from the prior identical-failure comparison; not rerun for message/docs-only finalization. Local commit/integration preparation now authorized; remote delivery pending automatic-deployment verification. No deployment or production writes. Evidence: orderapp-remote/docs/acceptance/2026-10-22-order-payment-freight-regression.md.
+- Business rules confirmed by Van (2026-10-22, Sentinel_9206b4bb65708191a520edd75e869389): “1、累计收款；2、分开保存”. Voucher amounts are cumulative collection; mixed receivable/payment changes require separate saves. Explicit legacy 已付款 still acknowledges receipt of the balance. This business confirmation applies only to this task; the later integration authorization is recorded above and still excludes deployment/production access.
+
+
 ### PR-713-FULFILLMENT-RECIPIENT-EDIT
 - Branch: codex/order-address-spec-validation-20261022; production baseline origin/main@6ce86299.
 - Owner/session: Codex / 2026-10-22.
