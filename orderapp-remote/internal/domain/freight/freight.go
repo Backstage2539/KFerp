@@ -320,10 +320,14 @@ func Settlement(q Snapshot, actual, already int64) (SettlementDelta, error) {
 
 // OrderView keeps the immutable quote alongside the current actual-billing state.
 type OrderView struct {
-	EditToken       string `json:"edit_token"`
-	EditLocked      bool   `json:"edit_locked"`
-	ServiceFeeCents int64  `json:"service_fee_cents"`
-	ServiceDueCents int64  `json:"service_due_cents"`
+	FinalReceivableCents     *int64 `json:"final_receivable_cents,omitempty"`
+	ReceivedFreightCents     int64  `json:"received_freight_cents"`
+	DueFreightCents          int64  `json:"due_freight_cents"`
+	ActualConfirmationReason string `json:"actual_confirmation_reason,omitempty"`
+	EditToken                string `json:"edit_token"`
+	EditLocked               bool   `json:"edit_locked"`
+	ServiceFeeCents          int64  `json:"service_fee_cents"`
+	ServiceDueCents          int64  `json:"service_due_cents"`
 	Snapshot
 	BillingStatus   string `json:"billing_status"`
 	ActualCostCents *int64 `json:"actual_cost_cents"`

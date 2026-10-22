@@ -506,6 +506,7 @@ const internalViews = {
   uiSettings: UISettingsView,
   settingsAuditManual: OperationManualView,
   freightManual: OperationManualView,
+  shippingReturnManual: OperationManualView,
   audit: AuditView,
   reqProduct: RequirementsView,
   reqDev: RequirementsView,

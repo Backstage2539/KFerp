@@ -41,7 +41,7 @@ export function inlineOrderTotals(order = {}) {
   if (Number(order.outsource_total_fee)) lines.push({ label: '委外费用', value: inlineMoney(order.outsource_total_fee) })
   // express_fee is a legacy note/cost field, not an additional customer receivable.
   if (text(order.express_fee) && text(order.express_fee) !== '0' && Number(order.express_fee) !== 0) lines.push({ label: '快递费备注', value: text(order.express_fee) })
-  lines.push({ label: '总价', value: inlineMoney(order.grand_total), emphasized: true })
+  lines.push({ label: '总价', value: inlineMoney(order.freight?.final_receivable_cents==null?order.grand_total:Number(order.grand_total||0)-Number(order.shipping_amount||0)+order.freight.final_receivable_cents/100), emphasized: true })
   return lines
 }
 

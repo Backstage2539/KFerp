@@ -24,6 +24,7 @@ test('operation manual view keys map to deployed OP_MANUAL docs', () => {
       financeManual: 'OP_MANUAL_FINANCE.md',
       settingsAuditManual: 'OP_MANUAL_SETTINGS_AUDIT.md',
       freightManual:'OP_MANUAL_FREIGHT.md',
+      shippingReturnManual:'OP_MANUAL_SHIPPING_RETURN.md',
       notificationManual: 'OP_MANUAL_NOTIFICATIONS.md',
       workspaceModeManual: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md',
       customerPortalManual: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md',

@@ -146,6 +146,15 @@ export function customerFulfillmentCustomerOptionMeta(customer) {
 }
 
 export function customerFulfillmentOrderFees(row = {}) {
+  const f=row.freight
+  if(f?.final_receivable_cents!=null) return [
+    {label:'商品',value:orderMoneyValue(row.total_amount)},
+    {label:'最终运费',value:orderMoneyValue(f.final_receivable_cents/100)},
+    {label:'物流成本',value:orderMoneyValue(f.actual_cost_cents/100)},
+    {label:'运费已收 / 待收',value:`${orderMoneyValue(f.received_freight_cents/100)} / ${orderMoneyValue(f.due_freight_cents/100)}`},
+    {label:'优惠',value:orderMoneyValue(row.discount_amount)},
+    {label:'应收',value:orderMoneyValue(Number(row.grand_total||0)-Number(row.shipping_amount||0)+f.final_receivable_cents/100),emphasized:true},
+  ]
   return [
     { label: '商品', value: orderMoneyValue(row?.total_amount) },
     { label: '运费', value: orderMoneyValue(row?.shipping_amount) },

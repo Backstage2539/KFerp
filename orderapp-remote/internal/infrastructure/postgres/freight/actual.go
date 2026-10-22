@@ -11,22 +11,24 @@ import (
 )
 
 type ImportRow struct {
-	RowNo          int    `json:"row_no"`
-	TrackingNo     string `json:"tracking_no"`
-	ActualCents    int64  `json:"actual_cents"`
-	OrderID        int64  `json:"order_id"`
-	OrderNo        string `json:"order_no"`
-	CustomerID     int64  `json:"customer_id"`
-	CustomerName   string `json:"customer_name"`
-	SurchargeCents int64  `json:"surcharge_cents"`
-	TargetCents    int64  `json:"target_cents"`
-	DeltaCents     int64  `json:"delta_cents"`
-	FreeShipping   bool   `json:"free_shipping"`
-	Legacy         bool   `json:"legacy"`
-	Revision       int64  `json:"revision"`
-	SnapshotToken  string `json:"snapshot_token"`
-	Error          string `json:"error"`
-	EntryID        int64  `json:"entry_id"`
+	FinalReceivableCents int64  `json:"final_receivable_cents"`
+	ConfirmationReason   string `json:"confirmation_reason"`
+	RowNo                int    `json:"row_no"`
+	TrackingNo           string `json:"tracking_no"`
+	ActualCents          int64  `json:"actual_cents"`
+	OrderID              int64  `json:"order_id"`
+	OrderNo              string `json:"order_no"`
+	CustomerID           int64  `json:"customer_id"`
+	CustomerName         string `json:"customer_name"`
+	SurchargeCents       int64  `json:"surcharge_cents"`
+	TargetCents          int64  `json:"target_cents"`
+	DeltaCents           int64  `json:"delta_cents"`
+	FreeShipping         bool   `json:"free_shipping"`
+	Legacy               bool   `json:"legacy"`
+	Revision             int64  `json:"revision"`
+	SnapshotToken        string `json:"snapshot_token"`
+	Error                string `json:"error"`
+	EntryID              int64  `json:"entry_id"`
 }
 type ImportBatch struct {
 	ID        int64       `json:"id"`
@@ -214,41 +216,33 @@ func (r *Repository) resolveRow(ctx context.Context, tx pgx.Tx, carrier int64, v
 			v.Error = "运单已出账关联其他订单或客户，禁止重新归属"
 			return v, nil
 		}
-		if lock {
-			if err := r.lockShipmentFees(ctx, tx, shipmentID); err != nil {
-				return v, err
-			}
-		}
-		var settled bool
-		e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.customer_fee_items f JOIN %[1]s.freight_actual_entries e ON f.source_type='freight_actual' AND f.source_id=e.id WHERE e.shipment_id=$1 AND (COALESCE(f.settlement_batch_id,0)>0 OR COALESCE(f.status,'unsettled')<>'unsettled'))`, r.schema), shipmentID).Scan(&settled)
-		if e != nil {
-			return v, e
-		}
-		if settled && actual != v.ActualCents {
-			v.Error = "已有结算或关账，需先处理原结算后调整"
-			return v, nil
-		}
-	}
-	if v.Legacy {
-		v.SnapshotToken = "legacy-cost-only"
-		v.TargetCents = 0
-		v.DeltaCents = 0
-		return v, nil
 	}
 	if q.CarrierID > 0 && q.CarrierID != carrier {
 		v.Error = "承运商与下单冻结模板不一致"
 		return v, nil
 	}
-	a, e := domain.Settlement(q, v.ActualCents, billed)
+	if lock {
+		if e = r.lockOrderReceivable(ctx, tx, v.OrderID); e != nil {
+			return v, e
+		}
+	}
+	state, e := r.ReceivableState(ctx, tx, v.OrderID)
+	if e != nil {
+		return v, e
+	}
+	decision, e := domain.ConfirmActualReceivable(domain.ActualReceivableInput{Actual: v.ActualCents, Surcharge: state.Surcharge, Current: state.Current, Paid: state.Paid, Free: state.Free, UnknownPayment: state.Unknown})
 	if e != nil {
 		v.Error = e.Error()
 		return v, nil
 	}
-	v.SnapshotToken = q.Token
-	v.FreeShipping = q.Policy.FreeShipping
-	v.SurchargeCents = a.SurchargeCents
-	v.TargetCents = a.TargetCents
-	v.DeltaCents = a.DeltaCents
+	v.SnapshotToken = domain.Token(q)
+	v.FreeShipping = state.Free
+	v.SurchargeCents = state.Surcharge
+	v.DeltaCents = decision.TargetCents - state.Current
+	v.TargetCents = billed + v.DeltaCents
+	v.FinalReceivableCents = decision.TargetCents
+	v.ConfirmationReason = decision.Reason
+
 	return v, nil
 }
 func (r *Repository) ConfirmImport(ctx context.Context, id int64, actor string) (ImportBatch, error) {
@@ -286,24 +280,14 @@ func (r *Repository) ConfirmImport(ctx context.Context, id int64, actor string) 
 		if v.OrderID != old.OrderID || v.Revision != old.Revision || v.SnapshotToken != old.SnapshotToken || v.TargetCents != old.TargetCents || v.DeltaCents != old.DeltaCents {
 			return b, fmt.Errorf("第%d行报价或账单已变化，请重新解析预览", v.RowNo)
 		}
-		var sid, prevActual, prevBilled int64
-		e = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.freight_actual_shipments(carrier_id,tracking_no,order_id,customer_id,legacy)VALUES($1,$2,$3,$4,$5) ON CONFLICT(carrier_id,tracking_no) DO UPDATE SET tracking_no=EXCLUDED.tracking_no RETURNING id,actual_cents,billed_cents`, r.schema), b.CarrierID, v.TrackingNo, v.OrderID, v.CustomerID, v.Legacy).Scan(&sid, &prevActual, &prevBilled)
-		if e != nil {
-			return b, e
-		}
 		key := fmt.Sprintf("import:%d:%s", b.ID, v.TrackingNo)
-		e = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.freight_actual_entries(shipment_id,batch_id,request_key,actual_cents,target_cents,delta_cents,previous_actual_cents,previous_billed_cents,reason,created_by)VALUES($1,$2,$3,$4,$5,$6,$7,$8,'账单确认',$9)RETURNING id`, r.schema), sid, b.ID, key, v.ActualCents, v.TargetCents, v.DeltaCents, prevActual, prevBilled, actor).Scan(&v.EntryID)
-		if e != nil {
+		if _, e = r.ConfirmActualCostTx(ctx, tx, v.OrderID, b.CarrierID, v.TrackingNo, v.ActualCents, key, actor); e != nil {
 			return b, e
 		}
-		if v.DeltaCents != 0 {
-			if _, e = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,note)VALUES($1,'freight_actual',$2,'shipping',$3,$4)`, r.schema), v.CustomerID, v.EntryID, float64(v.DeltaCents)/100, "实际运费 · "+v.OrderNo+" · "+v.TrackingNo); e != nil {
-				return b, e
-			}
-		}
-		if _, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.freight_actual_shipments SET actual_cents=$2,billed_cents=$3,revision=revision+1 WHERE id=$1`, r.schema), sid, v.ActualCents, v.TargetCents); e != nil {
+		if e = tx.QueryRow(ctx, fmt.Sprintf(`UPDATE %s.freight_actual_entries SET batch_id=$2 WHERE request_key=$1 RETURNING id`, r.schema), key, b.ID).Scan(&v.EntryID); e != nil {
 			return b, e
 		}
+
 		b.Rows[i] = v
 		posted++
 	}

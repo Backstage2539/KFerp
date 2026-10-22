@@ -212,15 +212,18 @@ func TestFreightImportFreeLegacyConflictsReversalAndStalePreview(t *testing.T) {
 		t.Fatal(e)
 	}
 	var cents int64
-	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT round(sum(amount)*100)::bigint FROM %s.customer_fee_items WHERE customer_id=$1`, schema), cid).Scan(&cents); e != nil || cents != 2200 {
+	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT round(sum(amount)*100)::bigint FROM %s.customer_fee_items WHERE customer_id=$1`, schema), cid).Scan(&cents); e != nil || cents != 2400 {
 		t.Fatalf("net bills %d %v", cents, e)
 	}
 	if _, e = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fee_items SET status='settled' WHERE customer_id=$1`, schema), cid); e != nil {
 		t.Fatal(e)
 	}
 	locked := preview("settled", 1500)
-	if locked.Rows[0].Error == "" {
-		t.Fatal("settled edit accepted")
+	if locked.Rows[0].Error != "" || locked.Rows[0].DeltaCents != 0 {
+		t.Fatalf("unknown settled receipt must allow cost only: %+v", locked)
+	}
+	if _, e = r.ConfirmImport(ctx, locked.ID, "test"); e != nil {
+		t.Fatal(e)
 	}
 	voidOrder := seed("FREIGHT-VOID", "VOID001", false, false)
 	if _, e = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET is_void=true WHERE id=$1`, schema), voidOrder); e != nil {

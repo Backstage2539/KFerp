@@ -63,6 +63,7 @@ type orderShippingExcelRow struct {
 const maxShippingTrackingExcelUploadBytes = 20 << 20
 
 func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher) {
+	registerShippingReturnRoutes(e, salesSvc, messages)
 	e.GET("/ship/order_exports/:filename", func(c echo.Context) error {
 		filename := filepath.Base(strings.TrimSpace(c.Param("filename")))
 		if filename == "." || filename == "" || filename != strings.TrimSpace(c.Param("filename")) {
@@ -177,6 +178,9 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 		data, err := readShipmentTrackingExcelUpload(src)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		if c.FormValue("template_id") != "" {
+			return importShippingReturn(c, salesSvc, messages, data, file.Filename)
 		}
 		items, err := parseShipmentTrackingExcel(bytes.NewReader(data))
 		if err != nil {

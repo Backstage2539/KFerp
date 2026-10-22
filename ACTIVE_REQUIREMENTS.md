@@ -6084,3 +6084,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - 只读核对：物流页面200；默认配置GET200（revision=0，尚未配置）；PR-716接口200且记录存在；运费手册raw=1返回200且含三层优先级；未登录入口303跳登录，配置API401。
 - 未创建真实业务订单、未更改客户/运费业务配置；未发布生产或上传微信。系统默认模板需由业务人员选择并保存。业务验收待Van。
 - 发布前后只清理可再生成构建缓存，保留数据库、业务文件及回滚版本；结束可用空间2.1GB。
+
+### PR-717-shipping-return-import
+- Branch: codex/shipping-return-import-20261023
+- Status: delivered to development; Van business acceptance pending (PR review)
+- Scope: 可配置寄件回传、隐藏收件信息匹配、持久候选选择、统一实际运费确认
+- Verifier: Go domain/API/PostgreSQL GREEN; all Go packages; 1512 Vue tests and production build GREEN; local mock UI checked
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-shipping-return.md
+- Deployment: development dccaa17a46964e6d148c6ad14b8c0d2aca3b2e0a via KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh development; read-only shell/template/manual/PR checks 200, anonymous API 401; backup /opt/stacks/erp/orderapp.backup.deploy-20261023010512-dccaa17a4696; no production deployment or real workbook import
+
+- Production release authorized by Van on 2026-10-23. Integration branch: codex/shipping-return-production-20261023; preserve current main fixes, merge verified develop, rerun relevant gates, then deploy production ERP. Real workbook import and Van business acceptance remain pending.

@@ -98,3 +98,5 @@ flowchart TD
 - [规格换算配置与历史订单](OP_MANUAL_SPEC_CONVERSION.md)：配置保留，录单换规格入口已关闭。
 
 - [运费模板与实际运费出账](OP_MANUAL_FREIGHT.md)：三场景客户政策、地区分组、预估不收款、Excel实际运费与差额出账、包邮及来源撤销。
+
+- [寄件列表回传与实际运费确认](OP_MANUAL_SHIPPING_RETURN.md)：订单上传、模板配置、候选选择及运费收款处理。
