@@ -23,7 +23,7 @@
 - orderapp-remote/docs/OP_MANUAL_SAMPLES.md
 - Vue OrderEntryView 内录单手册；前端订单销售手册入口沿用 operationManualsByView。
 - DEV-ORDER-DRAWER-CLEANUP 归属 PR-714，产品状态保持 review 待 Van 验收。
-- 本任务默认集成 develop 并发布 development；不包含 main/production 发布或真实订单业务验收。
+- 首次交付集成 develop 并发布 development；2026-10-22 Van 随后明确要求将这三处修复合入 main 并部署 production。生产订单仍只读，业务验收另记。
 
 ## 开发发布回执
 
