@@ -148,6 +148,7 @@
       </aside>
     </div>
 
+    <SpecTemplateRollout v-if="rolloutVersionID" :version-id="rolloutVersionID" @close="rolloutVersionID = 0" @updated="refreshAfterTemplateRollout" />
     <div v-if="specTemplateDrawerOpen" class="drawer-mask" @click.self="closeSpecTemplateDrawer">
       <aside class="drawer spec-template-drawer" aria-label="BOM 规格模板管理">
         <div class="drawer-head">
@@ -202,6 +203,7 @@
                   <p class="muted left">每个规格固定产出 1 × 该规格库存单位；规格用量和包材均在本规格内维护。</p>
                 </div>
                 <div class="inline-actions">
+                  <button v-if="selectedSpecTemplateVersion.status === 'published'" class="primary" type="button" @click="rolloutVersionID = Number(selectedSpecTemplateVersion.id)">下发更新</button>
                   <button v-if="selectedSpecTemplateVersion.status === 'draft'" class="secondary" type="button" @click="addTemplateVariant">添加规格</button>
                   <button v-if="selectedSpecTemplateVersion.status === 'draft'" class="primary" type="button" :disabled="loading" @click="saveSpecTemplateDraft">保存整组草稿</button>
                   <button v-if="selectedSpecTemplateVersion.status === 'draft'" class="secondary" type="button" :disabled="loading" @click="publishSpecTemplateVersion">整组发布</button>
@@ -522,6 +524,10 @@
                 <button class="text-button danger-text" type="button" :disabled="loading || bomVariants.length <= 1 || !selectedBomVariant" @click="removeProductionBomDraftVariant">删除该规格</button>
               </div>
             </div>
+            <p v-if="selectedProductionBomVersion?.source_spec_template_id" class="muted left">
+              来源模板 {{ selectedProductionBomVersion.source_spec_template_version_no }}
+              <button v-if="selectedProductionBomVersion.latest_spec_template_version_id && selectedProductionBomVersion.latest_spec_template_version_id !== selectedProductionBomVersion.source_spec_template_version_id" type="button" class="secondary" @click="rolloutVersionID = Number(selectedProductionBomVersion.latest_spec_template_version_id)">模板有更新 · 查看下发清单</button>
+            </p>
             <div v-if="canEditCurrentBomItems" class="inline-form bom-spec-template-reapply-form">
               <label>
                 <span>重新套用已发布模板</span>
@@ -777,6 +783,7 @@ import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorks
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import LogisticsWeightEditor from '../components/LogisticsWeightEditor.vue'
+import SpecTemplateRollout from '../components/SpecTemplateRollout.vue'
 import { logisticsWeightGrams, validateLogisticsWeights } from '../lib/logistics-weight.js'
 import { applyVersionMaterialLossRate, assignVariantSpecKeys, bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialLossAdjustedRatioPct, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomDraftItemKey, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomSpecTemplateReapplyStrategy, productionBomVersionWarning, removeProductionBomDraftItem } from '../lib/bom'
 import {
@@ -824,6 +831,7 @@ const productionBomSpecTemplates = ref([])
 const componentBomSpecOptions = ref([])
 const mainInputProductBomSpecOptions = ref([])
 const reapplyMainInputProductBomSpecOptions = ref([])
+const rolloutVersionID = ref(0)
 const specTemplateDrawerOpen = ref(false)
 const specTemplateNewName = ref('')
 const selectedSpecTemplateID = ref(0)
@@ -2299,6 +2307,14 @@ function openReferencedProductConfig(product) {
 async function loadProductUnitDefinitions() {
   const rows = await apiGet('/api/product-settings/units')
   return Array.isArray(rows) ? rows : []
+}
+
+async function refreshAfterTemplateRollout() {
+  productionBomSpecTemplates.value = await loadProductionBomSpecTemplates()
+  productionBoms.value = await apiGet('/api/production-boms')
+  if (currentProductionBomID.value && !bomWorkspaceDirty.value && selectedProductionBomVersion.value?.status !== 'draft') {
+    await loadProductionBomDetailForVersion(currentProductionBomID.value)
+  }
 }
 
 async function loadProductionBomSpecTemplates() {

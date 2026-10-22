@@ -207,12 +207,7 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 			tier.ParentProductID = options[idx].ParentProductID
 			tier.BomSpecID = options[idx].BomSpecID
 			tier.BomVariantID = options[idx].BomVariantID
-			if tier.EffectiveSalesSpec == nil {
-				tier.EffectiveSalesSpec = map[string]any{}
-			}
-			tier.EffectiveSalesSpec["parent_product_id"] = options[idx].ParentProductID
-			tier.EffectiveSalesSpec["bom_spec_id"] = options[idx].BomSpecID
-			tier.EffectiveSalesSpec["bom_variant_id"] = options[idx].BomVariantID
+
 			if options[idx].MigrationState == "cutover" {
 				tier.PriceSourceJSON = withOrderBOMSpecPriceSourceJSON(tier.PriceSourceJSON, orderBOMSpecIdentity{
 					ProductID:              options[idx].ParentProductID,
@@ -242,12 +237,7 @@ func orderBOMSpecPublicationTiers(option salesapp.ProductBOMSpecOption, tiers []
 	}
 	out := make([]salesapp.ProductTierOption, 0, len(tiers))
 	for _, tier := range tiers {
-		tierSpecID := orderFamilyTierMapInt64(tier.EffectiveSalesSpec, "bom_spec_id")
-		if tierSpecID <= 0 || tierSpecID != option.BomSpecID {
-			continue
-		}
-		tierVariantID := orderFamilyTierMapInt64(tier.EffectiveSalesSpec, "bom_variant_id")
-		if option.BomVariantID > 0 && tierVariantID != option.BomVariantID {
+		if !salesapp.OrderTierMatchesBOMSpec(tier, option) {
 			continue
 		}
 		out = append(out, tier)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import EmployeeFreightEstimate from '../../components/EmployeeFreightEstimate.vue'
 import {emptyFreightState,freightStateFromOrder} from '../../utils/orderFreight'
 import type {FreightSnapshot} from '../../api/customerPortal'
@@ -907,6 +907,14 @@ async function submit() {
       authExpired.value = true
       loadError.value = '登录已失效，请重新登录'
       session.clearSession()
+      return
+    }
+    if (cause instanceof Error && cause.message.includes('bom_configuration_updated')) {
+      if (await refreshCurrentProductCatalog()) {
+        await nextTick()
+        await freightEstimator.value?.preview()
+        uni.showModal({ title: '生产配置已更新', content: '已刷新规格及运费，商品、数量和报价选择已保留。请核对后重新保存。', showCancel: false })
+      }
       return
     }
     if (isPriceCatalogInvalidationError(cause)) {

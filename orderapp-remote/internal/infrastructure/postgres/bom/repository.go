@@ -2224,11 +2224,15 @@ func saveBusinessGroupAssignmentForProductionBomTx(ctx context.Context, tx pgx.T
 }
 
 func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.CreateProductionBomVersionCommand) (bomapp.ProductionBomVersion, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return bomapp.ProductionBomVersion{}, err
+	tx, inheritedTx := postgresinfra.TransactionFromContext(ctx)
+	var err error
+	if !inheritedTx {
+		tx, err = r.pool.Begin(ctx)
+		if err != nil {
+			return bomapp.ProductionBomVersion{}, err
+		}
+		defer tx.Rollback(ctx)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	var sourceVersionID int64
 	yieldRate := 1.0
 	var outputQty float64
@@ -2295,8 +2299,10 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 	if err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return bomapp.ProductionBomVersion{}, err
+	if !inheritedTx {
+		if err := tx.Commit(ctx); err != nil {
+			return bomapp.ProductionBomVersion{}, err
+		}
 	}
 	return row, nil
 }
@@ -3897,7 +3903,7 @@ func (r Repository) listProductionBomVersions(ctx context.Context, bomID int64) 
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		WITH latest AS (
 			SELECT id
-			FROM %s.production_bom_versions
+			FROM %[1]s.production_bom_versions
 			WHERE bom_id=$1 AND status='published'
 			ORDER BY published_at DESC NULLS LAST, id DESC
 			LIMIT 1
@@ -3906,7 +3912,7 @@ func (r Repository) listProductionBomVersions(ctx context.Context, bomID int64) 
 		       COALESCE(v.output_qty,1)::float8,
 		       COALESCE(NULLIF(v.output_unit,''),'unit'),
 		       COALESCE(v.material_loss_rate,0)::float8,
-		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items i WHERE i.version_id=v.id),0),
+		       COALESCE((SELECT COUNT(*) FROM %[1]s.production_bom_version_items i WHERE i.version_id=v.id),0),
 		       COALESCE(v.note,''),
 		       COALESCE(v.special_attrs_schema_json::text,'[]'),
 		       COALESCE(v.special_attrs_json::text,'{}'),
@@ -3918,13 +3924,17 @@ func (r Repository) listProductionBomVersions(ctx context.Context, bomID int64) 
 		       COALESCE(v.main_input_material_id,0),
 		       COALESCE(v.main_input_product_id,0),
 		       COALESCE(v.main_input_bom_spec_id,0),
+		       COALESCE(source_template.template_id,0), COALESCE(v.source_spec_template_version_id,0), COALESCE(source_template.version_no,''),
+		       COALESCE(latest_template.id,0), COALESCE(latest_template.version_no,''),
 		       v.id=COALESCE((SELECT id FROM latest),0),
 		       v.status='published' AND v.id=COALESCE((SELECT id FROM latest),0)
-		FROM %s.production_bom_versions v
-		LEFT JOIN %s.process_routes route ON route.id=v.process_route_id
+		FROM %[1]s.production_bom_versions v
+		LEFT JOIN %[1]s.process_routes route ON route.id=v.process_route_id
+		LEFT JOIN %[1]s.production_bom_spec_template_versions source_template ON source_template.id=v.source_spec_template_version_id
+		LEFT JOIN LATERAL (SELECT id,version_no FROM %[1]s.production_bom_spec_template_versions WHERE template_id=source_template.template_id AND status='published' ORDER BY id DESC LIMIT 1) latest_template ON true
 		WHERE v.bom_id=$1
 		ORDER BY v.created_at DESC, v.id DESC
-	`, r.schema, r.schema, r.schema, r.schema), bomID)
+	`, r.schema), bomID)
 	if err != nil {
 		return nil, err
 	}
@@ -4198,7 +4208,7 @@ func (r Repository) productionBomVersionByIDWith(ctx context.Context, q bomQuery
 		       COALESCE(v.output_qty,1)::float8,
 		       COALESCE(NULLIF(v.output_unit,''),'unit'),
 		       COALESCE(v.material_loss_rate,0)::float8,
-		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items i WHERE i.version_id=v.id),0),
+		       COALESCE((SELECT COUNT(*) FROM %[1]s.production_bom_version_items i WHERE i.version_id=v.id),0),
 		       COALESCE(v.note,''),
 		       COALESCE(v.special_attrs_schema_json::text,'[]'),
 		       COALESCE(v.special_attrs_json::text,'{}'),
@@ -4210,24 +4220,28 @@ func (r Repository) productionBomVersionByIDWith(ctx context.Context, q bomQuery
 		       COALESCE(v.main_input_material_id,0),
 		       COALESCE(v.main_input_product_id,0),
 		       COALESCE(v.main_input_bom_spec_id,0),
+		       COALESCE(source_template.template_id,0), COALESCE(v.source_spec_template_version_id,0), COALESCE(source_template.version_no,''),
+		       COALESCE(latest_template.id,0), COALESCE(latest_template.version_no,''),
 		       v.id=COALESCE((
 		           SELECT latest.id
-		           FROM %s.production_bom_versions latest
+		           FROM %[1]s.production_bom_versions latest
 		           WHERE latest.bom_id=v.bom_id AND latest.status='published'
 		           ORDER BY latest.published_at DESC NULLS LAST, latest.id DESC
 		           LIMIT 1
 		       ),0),
 		       v.status='published' AND v.id=COALESCE((
 		           SELECT latest.id
-		           FROM %s.production_bom_versions latest
+		           FROM %[1]s.production_bom_versions latest
 		           WHERE latest.bom_id=v.bom_id AND latest.status='published'
 		           ORDER BY latest.published_at DESC NULLS LAST, latest.id DESC
 		           LIMIT 1
 		       ),0)
-		FROM %s.production_bom_versions v
-		LEFT JOIN %s.process_routes route ON route.id=v.process_route_id
+		FROM %[1]s.production_bom_versions v
+		LEFT JOIN %[1]s.process_routes route ON route.id=v.process_route_id
+		LEFT JOIN %[1]s.production_bom_spec_template_versions source_template ON source_template.id=v.source_spec_template_version_id
+		LEFT JOIN LATERAL (SELECT id,version_no FROM %[1]s.production_bom_spec_template_versions WHERE template_id=source_template.template_id AND status='published' ORDER BY id DESC LIMIT 1) latest_template ON true
 		WHERE v.id=$1
-	`, r.schema, r.schema, r.schema, r.schema, r.schema), id)
+	`, r.schema), id)
 	if err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
@@ -4462,5 +4476,5 @@ ON CONFLICT DO NOTHING;
 }
 
 func scanProductionBomVersion(source pgx.Row, row *bomapp.ProductionBomVersion) error {
-	return source.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.MaterialLossRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.ProcessRouteID, &row.ProcessRouteName, &row.CreatedAt, &row.PublishedAt, &row.MainInputComponent.ComponentType, &row.MainInputComponent.MaterialID, &row.MainInputComponent.ComponentProductID, &row.MainInputComponent.ComponentBomSpecID, &row.IsLatest, &row.IsLatestUsable)
+	return source.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.MaterialLossRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.ProcessRouteID, &row.ProcessRouteName, &row.CreatedAt, &row.PublishedAt, &row.MainInputComponent.ComponentType, &row.MainInputComponent.MaterialID, &row.MainInputComponent.ComponentProductID, &row.MainInputComponent.ComponentBomSpecID, &row.SourceSpecTemplateID, &row.SourceSpecTemplateVersionID, &row.SourceSpecTemplateVersionNo, &row.LatestSpecTemplateVersionID, &row.LatestSpecTemplateVersionNo, &row.IsLatest, &row.IsLatestUsable)
 }

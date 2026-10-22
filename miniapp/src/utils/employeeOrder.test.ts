@@ -1042,3 +1042,11 @@ describe('employee mini order entry', () => {
     expect(employeeOrderShippingChanged({ ...defaults, receiver_phone: '13900000000' }, defaults)).toBe(true)
   })
 })
+
+it('refreshes the execution variant while retaining selected published tier, quantity and customer identity', () => {
+  const key = 'pub-172-spec-69-variant-1167-row-1'
+  const item = Object.assign(createEmployeeOrderItem('obsidian'), { product_family_key: '0:58:0', product_family_id: 58, product_id: 58, bom_spec_id: 69, bom_variant_id: 1167, migration_state: 'cutover', qty: 50, unit_price: 47, price_selection_mode: 'tier' as const, selected_price_row_key: key, bean_list_publication_id: 172 })
+  const families = [{ customer_id: 0, parent_product_id: 58, name: '曜石', specs: [{ product_id: 58, bom_spec_id: 69, bom_variant_id: 1206, migration_state: 'cutover', inventory_unit: '袋', sales_unit: '袋', spec_label: '454g袋', tiers: [{ id: 1, price_row_key: key, publication_id: 172, min_qty: 1, unit_price: 47 }] }] }]
+  const [updated] = revalidateEmployeeOrderItems([item], families, 3, { preserveUnavailable: true, preserveManualPrice: true })
+  expect(updated).toMatchObject({ product_id: 58, bom_spec_id: 69, bom_variant_id: 1206, qty: 50, unit_price: 47, price_selection_mode: 'tier', selected_price_row_key: key, validation_error: '' })
+})
