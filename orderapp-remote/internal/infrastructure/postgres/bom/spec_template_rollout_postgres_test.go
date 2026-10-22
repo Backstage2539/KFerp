@@ -15,6 +15,9 @@ func newRolloutFixture(t *testing.T) (pr600DefaultSwitchFixture, int64) {
 	if err := repo.ValidateAndPublishProductionBomVersion(ctx, bomapp.PublishProductionBomVersionCommand{VersionID: f.first.LatestVersionID, Actor: "test"}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := repo.BindProductionBomOutput(ctx, bomapp.BindProductionBomOutputCommand{OutputType: "product", OutputID: f.productID, BomID: f.first.ID, Actor: "test"}); err != nil {
+		t.Fatal(err)
+	}
 	var source, tid int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT v.source_spec_template_version_id,t.template_id FROM %s.production_bom_versions v JOIN %s.production_bom_spec_template_versions t ON t.id=v.source_spec_template_version_id WHERE v.id=$1`, schema, schema), f.first.LatestVersionID).Scan(&source, &tid); err != nil {
 		t.Fatal(err)
@@ -227,5 +230,94 @@ func TestSpecTemplateRolloutMultipleOldVersionsAndPartialSuccessPostgres(t *test
 	result, err := svc.ApplySpecTemplateRollout(ctx, bomapp.TemplateRolloutCommand{VersionID: v3.ID, Targets: []bomapp.TemplateRolloutTarget{{BomID: f.first.ID, ExpectedVersionID: first.Rows[0].NewVersionID}, {BomID: f.second.ID, ExpectedVersionID: f.second.LatestVersionID}}, Actor: "test"})
 	if err != nil || result.Rows[0].Status != "updated" || result.Rows[1].Status != "blocked" {
 		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestSpecTemplateRolloutRemovalChecksPostgres(t *testing.T) {
+	for _, mode := range []string{"remove", "local-edit", "stock"} {
+		t.Run(mode, func(t *testing.T) {
+			f, v2 := newRolloutFixture(t)
+			ctx, repo, pool, schema := f.ctx, f.repo, f.pool, f.schema
+			svc := bomapp.NewService(repo)
+			exec := func(q string, args ...any) {
+				t.Helper()
+				if _, err := pool.Exec(ctx, fmt.Sprintf(q, schema), args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			exec(`INSERT INTO %s.production_bom_spec_template_variants(version_id,spec_key,name,inventory_unit,is_default,sort_order,logistics_weight_g) VALUES($1,'extra','附加规格','袋',false,3,500)`, v2)
+			exec(`INSERT INTO %[1]s.production_bom_spec_template_variant_items(variant_id,is_main_input,component_type,consume_unit,qty_per_unit) SELECT id,true,'material','main_input_unit',1 FROM %[1]s.production_bom_spec_template_variants WHERE version_id=$1 AND spec_key='extra'`, v2)
+			first, err := svc.ApplySpecTemplateRollout(ctx, bomapp.TemplateRolloutCommand{VersionID: v2, Targets: []bomapp.TemplateRolloutTarget{{BomID: f.first.ID, ExpectedVersionID: f.first.LatestVersionID}}, Actor: "test"})
+			if err != nil || first.Rows[0].Status != "updated" {
+				t.Fatalf("%+v %v", first, err)
+			}
+			current := first.Rows[0].NewVersionID
+			var tid, extra int64
+			if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT template_id FROM %s.production_bom_spec_template_versions WHERE id=$1`, schema), v2).Scan(&tid); err != nil {
+				t.Fatal(err)
+			}
+			if err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT bom_spec_id FROM %[1]s.production_bom_version_variants v JOIN %[1]s.production_bom_specs s ON s.id=v.bom_spec_id WHERE v.version_id=$1 AND s.source_spec_template_key='extra'`, schema), current).Scan(&extra); err != nil {
+				t.Fatal(err)
+			}
+			v3, err := repo.CreateProductionBomSpecTemplateVersion(ctx, bomapp.CreateProductionBomSpecTemplateVersionCommand{TemplateID: tid, Actor: "test"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tpl, err := repo.GetProductionBomSpecTemplate(ctx, tid, v3.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			keep := []bomapp.ProductionBomSpecTemplateVariant{}
+			for _, v := range tpl.Variants {
+				if v.SpecKey != "extra" {
+					keep = append(keep, v)
+				}
+			}
+			if _, err = repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, bomapp.UpdateProductionBomSpecTemplateVersionDraftCommand{VersionID: v3.ID, Variants: keep, Actor: "test"}); err != nil {
+				t.Fatal(err)
+			}
+			if err = repo.PublishProductionBomSpecTemplateVersion(ctx, bomapp.PublishProductionBomSpecTemplateVersionCommand{VersionID: v3.ID, Actor: "test"}); err != nil {
+				t.Fatal(err)
+			}
+			want := "updated"
+			if mode == "local-edit" {
+				exec(`UPDATE %s.production_bom_version_variants SET logistics_weight_g=501 WHERE version_id=$1 AND bom_spec_id=$2`, current, extra)
+				want = "blocked"
+			}
+			if mode == "stock" {
+				exec(`CREATE TABLE %s.finished_inventory(product_id bigint,bom_spec_id bigint,onhand_units bigint,onhand_loose_g bigint)`)
+				exec(`INSERT INTO %s.finished_inventory VALUES($1,$2,1,0)`, f.productID, extra)
+				want = "failed"
+			}
+			result, err := svc.ApplySpecTemplateRollout(ctx, bomapp.TemplateRolloutCommand{VersionID: v3.ID, Targets: []bomapp.TemplateRolloutTarget{{BomID: f.first.ID, ExpectedVersionID: current}}, Actor: "test"})
+			if err != nil || result.Rows[0].Status != want {
+				t.Fatalf("%+v %v", result, err)
+			}
+			var versions, oldSpecs int
+			pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.production_bom_versions WHERE bom_id=$1`, schema), f.first.ID).Scan(&versions)
+			expected := 2
+			if mode == "remove" {
+				expected = 3
+			}
+			if versions != expected {
+				t.Fatalf("versions=%d", versions)
+			}
+			pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.production_bom_version_variants WHERE version_id=$1`, schema), current).Scan(&oldSpecs)
+			if oldSpecs != 2 {
+				t.Fatal("historical variants modified")
+			}
+		})
+	}
+}
+
+func TestSpecTemplateRolloutExpandsProductMainInput(t *testing.T) {
+	template := []bomapp.ProductionBomSpecTemplateVariant{{SpecKey: "bag", Name: "bag", InventoryUnit: "袋", LogisticsWeightG: logisticsTestWeight(250), Items: []bomapp.ProductionBomSpecTemplateVariantDraftItem{{IsMainInput: true, ProductionBomDraftItem: bomapp.ProductionBomDraftItem{ComponentType: "material", ConsumeUnit: "main_input_unit", QtyPerUnit: 2}}}}}
+	main := bomapp.ProductionBomMainInputComponent{ComponentType: "product", ComponentProductID: 22, ComponentBomSpecID: 33}
+	old := expandRolloutTemplate(template, main, "袋")
+	current := expandRolloutTemplate(template, main, "袋")
+	template[0].LogisticsWeightG = logisticsTestWeight(270)
+	result := bomapp.MergeTemplateRollout(old, expandRolloutTemplate(template, main, "袋"), current)
+	if len(result.Conflicts) > 0 || len(result.Changes) != 1 || result.Specs[0].Variant.Items[0].ComponentBomSpecID != 33 {
+		t.Fatalf("main product produced false conflict: %+v", result)
 	}
 }

@@ -396,6 +396,15 @@ func TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWitho
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "bom_configuration_updated") {
 		t.Fatalf("stale explicit variant status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// Removing the live specification also invalidates the open editor.
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`DELETE FROM %s.production_bom_version_variants WHERE id=9201`, schema))
+	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "bom_configuration_updated") {
+		t.Fatalf("deleted spec accepted: %d %s", rec.Code, rec.Body.String())
+	}
 	var saved int
 	if err := pool.QueryRow(ctx, fmt.Sprintf("SELECT count(*) FROM %s.orders", schema)).Scan(&saved); err != nil || saved != 2 {
 		t.Fatalf("stale variant wrote an order: count=%d err=%v", saved, err)

@@ -1140,11 +1140,9 @@ func resolveOrderBOMSpecIdentityTx(ctx context.Context, tx pgx.Tx, schema string
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if bomVariantID > 0 {
-			if _, currentErr := resolveOrderBOMSpecIdentityTx(ctx, tx, schema, productID, bomSpecID, 0); currentErr == nil {
-				return orderBOMSpecIdentity{}, fmt.Errorf("bom_configuration_updated: 商品生产配置已更新，请刷新规格及运费，核对后重新保存")
-			} else if !strings.Contains(currentErr.Error(), "BOM spec is not published") {
-				return orderBOMSpecIdentity{}, currentErr
-			}
+			// Both a superseded variant and a removed specification require a
+			// fresh catalog. Never silently substitute an execution version.
+			return orderBOMSpecIdentity{}, fmt.Errorf("bom_configuration_updated: 商品生产配置已更新或规格不可用，请刷新规格及运费，核对后重新保存")
 		}
 		return orderBOMSpecIdentity{}, fmt.Errorf("BOM spec is not published for product")
 	}
