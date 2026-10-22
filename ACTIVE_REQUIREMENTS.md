@@ -380,6 +380,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### ORDER-DRAWER-CLEANUP-20261022
+- Production follow-up: Van explicitly requested main integration and production release on 2026-10-22; release branch codex/order-drawer-production-20261022 based on origin/main 9cfc97c0, carrying only the verified drawer fixes and their docs/tests. Production orders stay read-only; no local miniapp export/WeChat upload requested. Merge checks and release preparation in progress.
+- Branch: codex/order-drawer-cleanup-20261022; base origin/develop b28d91c7.
+- Scope: refresh-safe sender display, one bottom save button, one fulfillment fee summary in area A including recalculation. PR-714 follow-up; DEV-ORDER-DRAWER-CLEANUP.
+- Status: PR #242 merged and development deployed 05692ae0da240383f1f9fe6cd45d6fca8b1fdbdd at 2026-10-22 20:35 Asia/Shanghai. DOM 8/8, frontend 1498/1498, full Go and HTTP passed; server frontend/miniapp 1498/425, typecheck/build and image Go gates passed. Local browser checked; runtime smoke passed. Production excluded; Van business acceptance pending.
+- Verifiers: node --test src/lib/fulfillment-full-edit-dom.test.js; frontend suite/build; existing fulfillment HTTP tests; local browser fixture.
+- Evidence: outputs/order-drawer-cleanup-20261022/. Production release authorized in this follow-up; production business orders stay read-only.
+- Delivery: KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development; image sha256:a9606dd940cb8e60651cf640e8167d29b0ee8fb71cd04229d2dbe6553faaf013. Public main/Orders/OrderEntry bundles match container, docs/API200 and anonymous protected API401, DEV-ORDER-DRAWER-CLEANUP visible. Source backup /opt/stacks/erp/orderapp.backup.deploy-20261022202604-05692ae0da24; rollback image kferp-orderapp-rollback:development-20261022202604-05692ae0da24. Production app start/image unchanged, both databases healthy; no local miniapp export or WeChat upload.
+
 ### PR-681-PRODUCT-CREATOR-CATEGORY-ROOT-OPTIONS
 - Branch: `codex/product-creator-category-root-options-20261002`; base `origin/develop@780d5a1c`
 - Owner/session: Codex / Van / 2026-10-03

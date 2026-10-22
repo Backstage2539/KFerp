@@ -51,6 +51,92 @@ const response = (data, status = 200) => ({ ok: status < 400, status, json: asyn
 async function flush() { for (let i = 0; i < 5; i++) { await nextTick(); await new Promise(resolve => setImmediate(resolve)) } }
 function button(text, root = document) { return [...root.querySelectorAll('button')].find(node => node.textContent.trim() === text) }
 
+test('drawer sender always displays the batch default and preserves an explicit choice across refresh and reopen', async () => {
+  const { component: Orders } = await loadComponent('../views/OrdersView.vue')
+  const originalFetch = globalThis.fetch
+  let resolveProfiles
+  globalThis.fetch = async (url) => {
+    const path = new URL(String(url), window.location.origin).pathname
+    if (path === '/api/settings/sender') return new Promise(resolve => { resolveProfiles = () => resolve(response({ profiles: [{ sender_id: 5, sender_label: '营业部', is_default: true }, { sender_id: 9, sender_label: '发货人' }] })) })
+    if (path === '/api/orders') return response({ rows: [order], summary: {}, page: 1, limit: 20 })
+    if (path === '/api/orders/117/detail' || path === '/api/order/form') return response(formData)
+    if (path === '/api/orders/117/fulfillment') return response(context)
+    return response({ rows: [], profiles: [], groups: [], assignments: [], regions: [] })
+  }
+  const app = createApp(Orders)
+  app.config.warnHandler = () => {}
+  try {
+    app.mount(document.querySelector('#app'))
+    await flush()
+    document.querySelector('.order-link').click()
+    await flush()
+    const sender = () => document.querySelector('[aria-label="选择寄件人"]')
+    assert.equal(sender().value, '0', 'unset per-order choice displays follow-default even while profiles load')
+    assert.match(sender().selectedOptions[0].textContent, /默认寄件人/)
+    resolveProfiles()
+    await flush()
+    button('刷新').click()
+    await flush()
+    assert.equal(sender().value, '0', 'list refresh cannot clear the visible sender selection')
+    assert.match(sender().selectedOptions[0].textContent, /营业部/)
+    sender().value = '9'
+    sender().dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+    button('刷新').click()
+    await flush()
+    assert.equal(sender().value, '9', 'list refresh preserves the open order sender choice')
+    button('关闭', document.querySelector('.drawer-head')).click()
+    await flush()
+    document.querySelector('.order-link').click()
+    await flush()
+    assert.equal(sender().value, '9', 'reopening preserves an explicit sender')
+    sender().value = '0'
+    sender().dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+    assert.match(sender().selectedOptions[0].textContent, /营业部/)
+  } finally {
+    app.unmount()
+    globalThis.fetch = originalFetch
+    document.body.innerHTML = '<div id="app"></div>'
+  }
+})
+
+test('area A alone shows recalculated draft fees and restores saved fees when the editor is reopened', async () => {
+  const { component: Orders } = await loadComponent('../views/OrdersView.vue')
+  const originalFetch = globalThis.fetch
+  const previewFees = { ...fees, service_fee_cents: 1600, calculated_service_fee_cents: 1600 }
+  globalThis.fetch = async (url) => {
+    const path = new URL(String(url), window.location.origin).pathname
+    if (path === '/api/orders') return response({ rows: [order], summary: {}, page: 1, limit: 20 })
+    if (path === '/api/orders/117/detail' || path === '/api/order/form') return response(formData)
+    if (path === '/api/orders/117/fulfillment') return response(context)
+    if (path === '/api/orders/117/fulfillment/preview') return response({ items, goods_total_cents: 0, fees: previewFees, preview_token: 'fees-preview', edit_revision: 'revision-1' })
+    return response({ rows: [], profiles: [], groups: [], assignments: [], regions: [] })
+  }
+  const app = createApp(Orders)
+  app.config.warnHandler = () => {}
+  try {
+    app.mount(document.querySelector('#app'))
+    await flush()
+    document.querySelector('.order-link').click()
+    await flush()
+    assert.match(document.querySelector('.order-summary .fulfillment-fees').textContent, /代发服务费¥14.00/)
+    button('重新核算代发费用').click()
+    await flush()
+    assert.match(document.querySelector('.order-summary .fulfillment-fees').textContent, /代发服务费¥16.00/, 'recalculation updates the retained summary, not a hidden duplicate')
+    assert.equal(document.querySelectorAll('.order-detail-drawer .fulfillment-fees').length, 1)
+    button('关闭', document.querySelector('.drawer-head')).click()
+    await flush()
+    document.querySelector('.order-link').click()
+    await flush()
+    assert.match(document.querySelector('.order-summary .fulfillment-fees').textContent, /代发服务费¥14.00/, 'unsaved preview cannot leak into a reopened order')
+  } finally {
+    app.unmount()
+    globalThis.fetch = originalFetch
+    document.body.innerHTML = '<div id="app"></div>'
+  }
+})
+
 test('real OrdersView and OrderEntry templates load a fulfillment edit without null Teleport targets and expose full editing', async () => {
   const { component: Orders } = await loadComponent('../views/OrdersView.vue')
   const originalFetch = globalThis.fetch
@@ -87,6 +173,9 @@ test('real OrdersView and OrderEntry templates load a fulfillment edit without n
     assert.match(document.querySelector('.quote-source-summary').textContent, /原购货库存\/权益/)
     assert.ok(button('新增明细'), 'the same product editor supports adding items')
     assert.ok(button('保存订单'), 'full-order save is available')
+    assert.equal([...document.querySelectorAll('.order-detail-drawer button')].filter(node => node.textContent.trim() === '保存订单').length, 1, 'the drawer has one save action at the bottom')
+    assert.equal(document.querySelector('#order-workflow-117 button'), null, 'payment and delivery do not contain an extra save action')
+    assert.equal(document.querySelectorAll('.order-detail-drawer .fulfillment-fees').length, 1, 'fees appear only in summary area A')
     assert.match(document.body.textContent, /已购商品/)
     assert.match(document.querySelector('.fulfillment-supply').textContent, /本单原占用 4/)
     assert.match(document.querySelector('.fulfillment-supply').textContent, /可用量已计入本单原占用/)
@@ -387,7 +476,7 @@ test('historical discounted amounts, net order totals and rich item snapshots su
     assert.match(detail.textContent, /物流重量：单件 270g · 本项 1080g/)
     assert.match(document.querySelector('.order-summary-row .fulfillment-fees').textContent, /商品货款¥104.80/)
     assert.equal(document.querySelector('.line-total strong').textContent, '115.00')
-    assert.match(document.querySelector('.footer-panel .fulfillment-fees').textContent, /商品货款¥104.80/)
+    assert.equal(document.querySelector('.footer-panel .fulfillment-fees'), null, 'the editor does not repeat area A')
     assert.equal(document.querySelector('.total-pill strong').textContent, '118.80', 'historical global discount and rounding remain in the net goods total')
     assert.equal(document.querySelector('.line-item .discount-control'), null, 'historical discount is read-only')
     const spec = document.querySelector('.line-item .spec-control select')

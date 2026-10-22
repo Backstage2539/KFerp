@@ -2933,3 +2933,12 @@
 - [ ] Van业务验收。
 
 证据：orderapp-remote/docs/acceptance/2026-10-22-fulfillment-full-edit.md。
+
+
+### PR-714 详情布局修正（DEV-ORDER-DRAWER-CLEANUP）
+- [x] 真实组件回归：延迟加载寄件人、刷新、手动选择、关闭重开均有可见选中项。
+- [x] 详情只有一个底部保存入口，付款与交付区没有重复按钮。
+- [x] 代发费用只在 A 区域展示；重新核算同步更新，关闭重开恢复已存快照。
+- [x] 原商品、净货款、地址、保存失败保留及重试回归通过。
+- [ ] Van 业务验收（当前生产页面需独立发布后确认）。
+- 证据：`docs/acceptance/2026-10-22-order-drawer-cleanup.md`。
