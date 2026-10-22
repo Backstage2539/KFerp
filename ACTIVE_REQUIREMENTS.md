@@ -6009,9 +6009,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-714-FULFILLMENT-FULL-EDIT
 - Branch: codex/fulfillment-full-edit-20261022
 - Owner/session: Codex / Van
-- Status: implemented; final integrated gates and production delivery in progress
+- Status: production5086dfe6 delivered and read-only verified; Van business acceptance pending
 - Scope: 完整代发订单编辑、首次弹窗渲染、库存权益差量、原版本运费与独立费用
 - Verifier: 真实 Vue 父子挂载测试、隔离 PostgreSQL API/事务/并发验证、相关全量测试及构建、生产只读核验
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md; OP_MANUAL_ORDER_SALES.md
-- Deployment: production after gates; real orders 115/117 read-only
+- Deployment: production5086dfe6; Vue1496/mini425/fullGo/PG/review passed; real orders115/117 revisions/items and all templates unchanged; full list drawer open/refresh/close/reopen verified; writes tested only in isolation
 - Last update: 2026-10-22
