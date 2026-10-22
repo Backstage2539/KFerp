@@ -104,7 +104,7 @@ go test ./internal/domain/sales ./internal/infrastructure/pdf \
 - 已显式 fetch 两个分支：develop `11139d4b32960b20085ff7a4a154ad81e3639645`，main `e64779b86eb5eb3508dc731bebf8092cf4d1328b`。
 - 这两个基线中的付款保护源文件、既有相关测试及修改的手册一致；main 有其他独有提交。采用 develop 基线上独立修复提交，再将该修复单独 cherry-pick 到 main 基线，保留 main 其他内容，不把 develop 的无关差异整体合入。
 - 两个远端分支 API 均显示未启用保护、无 required status checks。两个树中没有 Actions 工作流；仓库 Actions 运行记录为0。`deploy_orderapp.sh` 为手动部署入口，本任务未调用。
-- `gh api` 读取 `/repos/Backstage2539/KFerp/hooks` 返回 `Forbidden`，一次获准的只读沙箱提升后仍相同；没有绕过或继续重试。无法据此排除外部自动部署，已请求确认，确认前不推送。
+- `gh api` 读取 `/repos/Backstage2539/KFerp/hooks` 返回 `Forbidden`，一次获准的只读沙箱提升后仍相同；没有绕过或继续重试。用户随后要求查看主目录部署文档：本环境没有 `deploy.md`，已定位并读取根目录 `DEPLOYMENT.md`、`deploy_orderapp.sh` 和 `.agents/skills/kferp-deploy-dev/SKILL.md`。文档明确把 push/merge 与手动执行部署脚本分成独立步骤；据此继续已授权的代码集成。外部 webhook 配置仍未独立核实，不宣称已读取；未再重试。
 - 原始基线的200个历史失败不代表最新分支已验证；集成后的测试结果单独记录。
 
 ## Mac 本地验收交接
@@ -141,3 +141,26 @@ go run .
 6. 费用不能降至累计实收以下或低于已收运费；实际运费已确认的冻结限制仍有效；新小程序独立状态端点仍可单独结清，不误入整单运费保护路径。
 
 具体合成数据及 HTTP 断言见 `internal/interfaces/http/sales/order_freight_payment_test.go`；历史存储形态只能在本地测试 schema 构造。
+
+
+## 集成候选与差异审阅
+
+- develop 修复提交：`eedae7cf3dd8063d57d1d23fb0bc0605bcf480eb`（父提交 `11139d4b32960b20085ff7a4a154ad81e3639645`）。
+- main 独立修复提交：`efe489dc7521cc14ddd94b1dee4571793d6bc7f6`（父提交 `e64779b86eb5eb3508dc731bebf8092cf4d1328b`）。
+- 两提交 stable patch-id 相同，为 `0773f02326e4039ec28e2242fce5dc1e9d8a900a`；均仅涉及本任务8个文件。除根任务追踪文件原有内容不同外，本任务7个源代码／测试／文档文件逐字相同。
+- develop rebase 仅在 `ACTIVE_REQUIREMENTS.md` 的新增任务区块发生冲突，已保留本任务和远端 PR-712/713 的全部记录；生产实现无冲突。main cherry-pick 无冲突，保留其独有内容。
+- 两个集成候选的付款定向套件均为15个顶层测试、42个子用例通过，0失败、0跳过；运费v2和旧小程序 CREATE 兼容均为5个顶层测试、14个子用例通过；付款/PDF展示均为3个顶层测试、2个子用例通过；手册测试均3项通过，changed检查通过。
+- 日志位于 `/workspace/.kferp-task-evidence/{develop,main}-integrated-*.log`。测试始终仅使用本机隔离数据库。服务器远程构建预检、部署脚本和部署烟测均未执行；本次只交付代码集成，Mac 浏览器业务验收另行进行。
+
+
+## 集成后全量检查结果
+
+两个候选分别运行 `ORDERAPP_TEST_DATABASE_URL=本机隔离测试库 DATABASE_URL='' GOFLAGS=-p=2 bash scripts/verify_kferp.sh backend`，均已结束，退出码均为1。结果均为 **199个顶层测试失败、15个包失败**，develop/main 的失败测试及包集合完全相同。
+
+- 对比原始 `7684c047` 的200个失败，没有新增失败；少掉的 `TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWithoutLegacyMapping` 来自当前基线已包含的其他修复，不归功于本补丁。
+- 另外用 overlay 将最新 develop 的3个既有销售 Go 文件还原并排除新增 HTTP 测试，重跑两个销售包全套：原始实现的失败数为 repository17、HTTP70，集合与两个集成候选完全相同。main/develop 的销售域、应用、仓储、HTTP 源文件在基线中相同。
+- 初始全量基线已经跑过；本轮没有另跑最新基线的所有无关包，仅复核最新受影响销售包。因此不宣称“最新基线全量重新运行”，也不宣称“全量通过”。
+- 完整对照：`/workspace/.kferp-task-evidence/integrated-backend-comparison.json`，原始日志 `develop-integrated-backend.log`、`main-integrated-backend.log`、`latest-baseline-sales.log`。
+- 生产代码在重跑期间未改变；之后仅补充本验收记录和任务状态。最终 whitespace/冲突标记检查继续执行。浏览器验收、Vue/小程序全量构建、显式可选集成开关、远程发布预检及部署烟测均未运行。
+
+本记录保存代码集成前的验证依据。最终远端 develop/main SHA、包含修复的检查和 CI 状态由本任务交付报告记录；部署不在本次交付范围。
