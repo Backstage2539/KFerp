@@ -2347,6 +2347,20 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if err := tx.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", r.schema+".order_freight_snapshots").Scan(&freightAvailable); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
+	var storedFreight *freightdomain.Snapshot
+	if freightAvailable && cmd.EditID > 0 {
+		fr := freightpg.NewRepository(r.pool, r.schema)
+		// A full-form editor cannot bypass the same actual-freight lock by
+		// omitting the quote protocol. Collection after locking uses the
+		// independent status endpoint, which preserves the order's fee basis.
+		if err := fr.EditableTx(ctx, tx, cmd.EditID); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		storedFreight, err = fr.SnapshotTx(ctx, tx, cmd.EditID)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
 	legacyEmployeeFreight := cmd.LegacyEmployeeFreight && cmd.DraftEmployeeID > 0 && !cmd.CustomerSubmission && cmd.EditID == 0 &&
 		cmd.FreightProtocol == "" && cmd.FreightQuoteToken == "" && cmd.ExpectedFreightToken == "" && cmd.FreightOverride == nil &&
 		cmd.ShippingProvince == "" && cmd.ShippingCity == "" && cmd.ShippingDistrict == ""
@@ -2467,7 +2481,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
 	grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
-	if cmd.EditID > 0 && freightSnapshot != nil {
+	if cmd.EditID > 0 && (freightSnapshot != nil || storedFreight != nil) {
 		if e := protectFreightReceiptsTx(ctx, tx, r.schema, cmd.EditID, &cmd, shippingAmt, grandTotal); e != nil {
 			return salesapp.SaveOrderResult{}, e
 		}

@@ -228,7 +228,49 @@ INSERT INTO %[1]s.pay_statuses(id,name) VALUES(71001,'预付款（付款未完�
 					t.Fatalf("explicit settlement %d/%v/%v/%d err=%v", status, prepay, goods, voucher, err)
 				}
 				// Once actual freight is confirmed, full-form editing is still frozen.
+				storedBusinessState := func() string {
+					t.Helper()
+					var raw string
+					if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT jsonb_build_object('order',to_jsonb(o),'items',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM %[1]s.order_items i WHERE i.order_id=o.id),'freight',(SELECT snapshot_json FROM %[1]s.order_freight_snapshots WHERE order_id=o.id),'audits',(SELECT count(*) FROM %[1]s.audit_logs WHERE entity_type='order' AND entity_id=o.id))::text FROM %[1]s.orders o WHERE o.id=$1`, schema), result.ID).Scan(&raw); err != nil {
+						t.Fatal(err)
+					}
+					return raw
+				}
+				withoutProtocol := func() map[string]any {
+					p := make(map[string]any, len(payload))
+					for key, value := range payload {
+						p[key] = value
+					}
+					for _, key := range []string{"freight_protocol", "freight_quote_token", "expected_freight_token", "freight_override"} {
+						delete(p, key)
+					}
+					return p
+				}
+				t.Run("omitting_protocol_cannot_reduce_receivable_below_collection", func(t *testing.T) {
+					before := storedBusinessState()
+					p := withoutProtocol()
+					p["discount_amount"] = "1"
+					rec := request(t, p)
+					if rec.Code == http.StatusOK || !strings.Contains(rec.Body.String(), "超出应收") {
+						t.Errorf("protocol-less reduction: %d %s", rec.Code, rec.Body.String())
+					}
+					if before != storedBusinessState() {
+						t.Error("rejected reduction changed order, items, freight or audit")
+					}
+				})
 				mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.freight_actual_shipments(carrier_id,tracking_no,order_id,customer_id,revision) VALUES(1,'PAYMENT-TEST',%d,3,1)`, schema, result.ID))
+				t.Run("locked_web_form_omits_protocol", func(t *testing.T) {
+					before := storedBusinessState()
+					p := withoutProtocol()
+					p["discount_amount"] = "1"
+					rec := request(t, p)
+					if rec.Code == http.StatusOK || !strings.Contains(rec.Body.String(), "已确认实际费用") {
+						t.Errorf("frozen web save: %d %s", rec.Code, rec.Body.String())
+					}
+					if before != storedBusinessState() {
+						t.Error("frozen save changed order, items, freight or audit")
+					}
+				})
 				payload["expected_freight_token"] = q.Token
 				rec = request(t, payload)
 				if rec.Code == http.StatusOK || !strings.Contains(rec.Body.String(), "已确认实际费用") {
