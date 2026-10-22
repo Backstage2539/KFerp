@@ -364,7 +364,7 @@ func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.item_note,''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8, COALESCE(oi.unit,'')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
-		WHERE oi.order_id=$1
+		WHERE oi.order_id=$1 AND oi.qty>0
 		ORDER BY oi.line_no, oi.id`, r.schema, r.schema), orderID)
 	if err != nil {
 		return salesdomain.DeliveryNoteSnapshot{}, err

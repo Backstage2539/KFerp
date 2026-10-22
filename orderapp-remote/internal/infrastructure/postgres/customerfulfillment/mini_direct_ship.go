@@ -680,6 +680,10 @@ func miniDirectShipFulfillmentPreview(stockAllocations []miniPlannedAllocation, 
 }
 
 func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDirectShipQuerier, customerID int64, lock bool, warehouseScope ...map[string]bool) (miniStockSnapshot, error) {
+	return r.loadMiniCustomerFinishedStockForOrder(ctx, q, customerID, lock, 0, warehouseScope...)
+}
+
+func (r *Repository) loadMiniCustomerFinishedStockForOrder(ctx context.Context, q miniDirectShipQuerier, customerID int64, lock bool, excludeOrder int64, warehouseScope ...map[string]bool) (miniStockSnapshot, error) {
 	var allowed map[string]bool
 	if len(warehouseScope) > 0 {
 		allowed = warehouseScope[0]
@@ -764,7 +768,7 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 		return miniStockSnapshot{Inventory: []miniFinishedInventoryRow{}, Batches: []miniFinishedBatchRow{}, Candidates: []miniStockCandidate{}}, nil
 	}
 
-	allReservations, legacyReservations, batchReservations, err := r.loadMiniStockReservations(ctx, q, customerID)
+	allReservations, legacyReservations, batchReservations, err := r.loadMiniStockReservations(ctx, q, customerID, excludeOrder)
 	if err != nil {
 		return miniStockSnapshot{}, err
 	}
@@ -966,7 +970,7 @@ func (r *Repository) loadMiniHistoricalUnsyncedTraceableDeductions(ctx context.C
 	return out, rows.Err()
 }
 
-func (r *Repository) loadMiniStockReservations(ctx context.Context, q miniDirectShipQuerier, customerID int64) (map[string]int64, map[string]int64, map[int64]int64, error) {
+func (r *Repository) loadMiniStockReservations(ctx context.Context, q miniDirectShipQuerier, customerID int64, excludeOrder ...int64) (map[string]int64, map[string]int64, map[int64]int64, error) {
 	all := map[string]int64{}
 	legacy := map[string]int64{}
 	byBatch := map[int64]int64{}
@@ -974,7 +978,11 @@ func (r *Repository) loadMiniStockReservations(ctx context.Context, q miniDirect
 		return all, legacy, byBatch, nil
 	}
 	hasDeductions := relationExists(ctx, q, fmt.Sprintf("%s.order_stock_deductions", r.schema))
-	deductionPredicate := "WHERE COALESCE(o.is_void,false)=false"
+	excluded := int64(0)
+	if len(excludeOrder) > 0 {
+		excluded = excludeOrder[0]
+	}
+	deductionPredicate := "WHERE COALESCE(o.is_void,false)=false AND o.id<>$2"
 	if hasDeductions {
 		deductionPredicate += fmt.Sprintf(" AND NOT EXISTS (SELECT 1 FROM %s.order_stock_deductions d WHERE d.order_id=a.order_id)", r.schema)
 	}
@@ -993,7 +1001,7 @@ func (r *Repository) loadMiniStockReservations(ctx context.Context, q miniDirect
 		GROUP BY a.product_id,COALESCE(a.bom_spec_id,0),a.spec_g,
 		         COALESCE(NULLIF(a.warehouse,''), NULLIF(o.source_warehouse,''), 'finished_goods'),
 		         a.batch_id
-	`, r.schema, r.schema, r.schema, deductionPredicate), customerID)
+	`, r.schema, r.schema, r.schema, deductionPredicate), customerID, excluded)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -2147,7 +2155,7 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
  %s) r
  WHERE r.request_item_id=i.id AND r.status<>'released'
  ) output ON true
-		WHERE i.request_id=$1 ORDER BY i.line_no,i.id
+		WHERE i.request_id=$1 AND i.qty>0 ORDER BY i.line_no,i.id
 	`, r.schema, r.schema, r.schema, retainedUnion), requestID)
 	if err != nil {
 		return app.MiniDirectShipRequest{}, err

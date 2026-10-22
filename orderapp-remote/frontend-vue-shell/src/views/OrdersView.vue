@@ -288,7 +288,7 @@
             </div>
             <div v-if="!activeOrderDetail.confirmation_required" :id="`order-recipient-${activeOrderDetail.id}`"></div>
           </section>
-          <section v-if="!activeOrderDetail.confirmation_required && !activeOrderDetail.fulfillment_mode" class="drawer-section">
+          <section v-if="!activeOrderDetail.confirmation_required" class="drawer-section">
             <h4>付款与交付</h4>
             <div :id="`order-workflow-${activeOrderDetail.id}`"></div>
           </section>
@@ -327,23 +327,27 @@
               <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
             </div>
             <div class="order-summary-row">
+              <template v-if="activeOrderDetail.fulfillment_mode"><FulfillmentOrderFees v-if="activeOrderDetail.fulfillment_fees" :fees="activeOrderDetail.fulfillment_fees" :freight-view="activeOrderDetail.freight || {}" :goods-cents="fulfillmentSavedGoodsCents(activeOrderDetail)" :mode="activeOrderDetail.fulfillment_mode" /><p v-else role="status">正在读取代发费用…</p></template>
+              <template v-else>
               <span v-for="line in orderFeeLines(activeOrderDetail)" :key="line.label">{{ line.label }}：{{ line.value }}</span>
-              <OrderPaymentSummary :order="activeOrderDetail" />
               <details v-if="orderOutsourceFeeLines(activeOrderDetail).length" class="fee-breakdown">
                 <summary>费用分项</summary>
                 <div><span v-for="line in orderOutsourceFeeLines(activeOrderDetail)" :key="line.key">{{ line.label }}：{{ line.value }}</span></div>
               </details>
+              </template>
+              <OrderPaymentSummary :order="activeOrderDetail" />
             </div>
           </section>
           <section v-if="activeOrderDetail.items?.length" class="drawer-section">
             <h4>商品明细</h4>
-            <p class="quote-source-summary" v-if="orderQuoteSourceSummary(activeOrderDetail.items || []).length">报价来源：
+            <p class="quote-source-summary" v-if="activeOrderDetail.fulfillment_mode === 'stock'">商品来源：原购货库存/权益</p>
+            <p class="quote-source-summary" v-else-if="orderQuoteSourceSummary(activeOrderDetail.items || []).length">报价来源：
               <span v-for="source in orderQuoteSourceSummary(activeOrderDetail.items || [])" :key="source.key">{{ source.label }}</span>
             </p>
             <div class="detail-items">
               <div v-for="item in activeOrderDetail.items" :key="`${item.product_id}-${item.tier_id}-${item.qty}-${item.spec}`" class="detail-item">
                 <div>
-                  <strong>{{ item.product_name || '-' }}</strong>
+                  <strong>{{ fulfillmentItemProductName(item) || '-' }}</strong>
                   <span>{{ orderItemSpecLabel(item) }} × {{ item.qty }}{{ item.unit || '' }}</span>
                   <OrderItemWeights :item="item" />
                   <small v-if="conversionSnapshot(item)">{{ conversionDescription(conversionSnapshot(item)) }}</small>
@@ -356,8 +360,9 @@
             </div>
           </section>
           <details :key="`quote-${activeOrderDetail.id}`" class="drawer-section trace-section">
-            <summary>报价来源</summary>
-            <div v-if="activeOrderDetail.quote_source_trace?.length" class="trace-list">
+            <summary>{{ activeOrderDetail.fulfillment_mode === 'stock' ? '库存来源' : '报价来源' }}</summary>
+            <p v-if="activeOrderDetail.fulfillment_mode === 'stock'" class="muted">原购货库存/权益，货款在原购货单结算，本代发单不重复收取货款。</p>
+            <div v-else-if="activeOrderDetail.quote_source_trace?.length" class="trace-list">
               <article v-for="row in activeOrderDetail.quote_source_trace" :key="`quote-${row.product_id}-${row.price_list_publication_id}-${row.tier_label}`" class="trace-row">
                 <strong>{{ orderTraceLineLabel(row) }}</strong>
                 <span v-for="line in orderTraceSourceLines(row, 'quote')" :key="`quote-line-${row.product_id}-${line}`">{{ line }}</span>
@@ -469,6 +474,8 @@ import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import OrderEntryView from './OrderEntryView.vue'
+import FulfillmentOrderFees from '../components/FulfillmentOrderFees.vue'
+import { fulfillmentItemProductName, fulfillmentListFeeLines, fulfillmentSavedGoodsCents, mergeFulfillmentDetailItems } from '../lib/fulfillment-order-edit'
 import OrderInvoiceView from './OrderInvoiceView.vue'
 import SalesOrderView from './SalesOrderView.vue'
 
@@ -748,6 +755,11 @@ async function loadOrderDetail(id) {
       ship_status: activeOrderDetail.value?.ship_status || editData.ship_status,
       process_status: activeOrderDetail.value?.process_status || editData.process_status,
     }
+    if (editData.fulfillment_mode) {
+      const context = await apiGet(`/api/orders/${id}/fulfillment`)
+      if (Number(activeOrderDetail.value?.id || 0) !== Number(id)) return
+      activeOrderDetail.value = { ...activeOrderDetail.value, freight: context.freight || activeOrderDetail.value.freight, fulfillment_fees: context.fees || {}, fulfillment_goods_total_cents: context.goods_total_cents, items: context.items ? mergeFulfillmentDetailItems(editData.items || [], context.items) : editData.items }
+    }
   } catch (err) {
     shippingError.value = err.message || '加载订单详情失败'
   }
@@ -856,6 +868,7 @@ function orderRowClass(row) {
 }
 
 function orderFeeLines(row = {}) {
+  if (row.fulfillment_mode) return fulfillmentListFeeLines(row)
   const lines = customerFulfillmentOrderFees(row)
   if (String(row.express_fee || '').trim()) lines.push({ label: '快递费', value: row.express_fee })
   if (hasMoney(row.outsource_total_fee)) lines.push({ label: '委外合计', value: moneyLabel(row.outsource_total_fee) })

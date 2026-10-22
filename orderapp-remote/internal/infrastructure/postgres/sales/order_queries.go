@@ -174,7 +174,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 				SELECT string_agg(DISTINCT COALESCE(NULLIF(oi_kind.product_kind,''), NULLIF(p_kind.product_kind,''), 'roasted'), ',' ORDER BY COALESCE(NULLIF(oi_kind.product_kind,''), NULLIF(p_kind.product_kind,''), 'roasted'))
 				FROM %s.order_items oi_kind
 				LEFT JOIN %s.products p_kind ON p_kind.id=oi_kind.product_id
-				WHERE oi_kind.order_id=o.id
+				WHERE oi_kind.order_id=o.id AND oi_kind.qty>0
 			), '') AS product_kind_summary,
 			COALESCE((SELECT al.actor FROM %s.order_audit_logs al WHERE al.order_id=o.id ORDER BY al.id ASC LIMIT 1), '未知') AS created_by_employee,
 			COALESCE(o.order_type_id,0) AS order_type_id,
@@ -248,7 +248,7 @@ func orderProcessStatusExpr(schema string) string {
 			SELECT 1
 			FROM %[1]s.order_items oi_status
 			LEFT JOIN %[1]s.products p_status ON p_status.id=oi_status.product_id
-			WHERE oi_status.order_id=o.id
+			WHERE oi_status.order_id=o.id AND oi_status.qty>0
 			  AND COALESCE(oi_status.product_id,0) > 0
 			  AND COALESCE(NULLIF(oi_status.product_kind,''), NULLIF(p_status.product_kind,''), 'roasted_bean') IN ('roasted_bean','roasted','drip_bag','instant_coffee')
 		)

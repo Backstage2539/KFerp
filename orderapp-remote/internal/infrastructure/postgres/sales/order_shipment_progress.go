@@ -15,7 +15,7 @@ func ensureOrderShipmentProgressSchema(ctx context.Context, pool *pgxpool.Pool, 
  BEGIN
    IF NOT EXISTS(SELECT 1 FROM %[1]s.orders WHERE id=target AND confirmation_required AND confirmation_status='accepted') THEN RETURN NULL; END IF;
    WITH need AS (
-     SELECT product_id,bom_spec_id,SUM(qty) AS units FROM %[1]s.order_items WHERE order_id=target GROUP BY product_id,bom_spec_id
+     SELECT product_id,bom_spec_id,SUM(qty) AS units FROM %[1]s.order_items WHERE order_id=target AND qty>0 GROUP BY product_id,bom_spec_id
    ), issued AS (
      SELECT product_id,bom_spec_id,SUM(deducted_units) AS units FROM %[1]s.order_stock_deductions WHERE order_id=target GROUP BY product_id,bom_spec_id
    ) SELECT BOOL_OR(COALESCE(i.units,0)>0),BOOL_AND(n.bom_spec_id>0 AND COALESCE(i.units,0)>=n.units)

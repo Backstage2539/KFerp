@@ -611,7 +611,7 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 			COALESCE(oi.unit_price,0)::float8, COALESCE(oi.discount_amount,0)::float8, COALESCE(oi.line_total,0)::float8
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
-		WHERE oi.order_id=$1
+		WHERE oi.order_id=$1 AND oi.qty>0
 		ORDER BY oi.line_no, oi.id`, r.schema, r.schema), orderID)
 	if err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
@@ -647,7 +647,7 @@ func (r Repository) loadSalesOrderDiscountBreakdownsTx(ctx context.Context, tx p
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT COALESCE(discount_type,''), COALESCE(SUM(discount_amount),0)::float8
 		FROM %s.order_items
-		WHERE order_id=$1 AND COALESCE(discount_amount,0) > 0
+		WHERE order_id=$1 AND qty>0 AND COALESCE(discount_amount,0) > 0
 		GROUP BY COALESCE(discount_type,'')
 		ORDER BY MIN(line_no), MIN(id)
 	`, r.schema), orderID)

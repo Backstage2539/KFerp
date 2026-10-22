@@ -88,7 +88,7 @@ func (r Repository) ListSFSmallShippingRows(ctx context.Context, query salesapp.
 			),0) AS total_g
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
-		LEFT JOIN %s.order_items oi ON oi.order_id=o.id
+		LEFT JOIN %s.order_items oi ON oi.order_id=o.id AND oi.qty>0
 		%s
 		GROUP BY o.id, o.order_no, o.customer_id, recv_name, recv_phone, recv_addr, recv_company, tracking_no
 		ORDER BY o.id DESC

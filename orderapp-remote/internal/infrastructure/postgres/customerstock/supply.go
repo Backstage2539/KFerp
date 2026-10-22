@@ -75,6 +75,9 @@ func ReceiveProductionTx(ctx context.Context, tx pgx.Tx, schema string, runningI
 	if !exists || qty <= 0 {
 		return nil
 	}
+	if err := LockFulfillmentCustomersTx(ctx, tx, schema, orderNos); err != nil {
+		return err
+	}
 	var prior int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(quantity),0) FROM %s.customer_stock_entitlement_receipts WHERE receipt_key=$1`, schema), receiptKey).Scan(&prior); err != nil {
 		return err

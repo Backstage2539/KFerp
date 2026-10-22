@@ -428,7 +428,7 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 		       SUM(COALESCE(oi.qty,0))::bigint AS units
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
-		WHERE oi.order_id=$1
+		WHERE oi.order_id=$1 AND oi.qty>0
 		GROUP BY oi.product_id, oi.bom_spec_id, oi.item_name, p.name,
 		         CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN 0
 		              ELSE COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint
