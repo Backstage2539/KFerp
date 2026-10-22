@@ -8,18 +8,18 @@ export function explicitMoneyCents(value) {
 }
 const money = cents => (Number(cents || 0) / 100).toFixed(2)
 export function fulfillmentSettingsForm(data = {}) {
-  return { customer_id: Number(data.customer_id || 0), revision: Number(data.revision || 0), modes: ['stock', 'on_demand'].map(mode => {
+  return { defaults: data.defaults || { modes: [] }, defaults_revision: Number(data.defaults_revision || 0), customer_id: Number(data.customer_id || 0), revision: Number(data.revision || 0), modes: ['stock', 'on_demand'].map(mode => {
     const row = (data.modes || []).find(r => r.mode === mode) || {}
     const policy = row.shipping_policy
-    return { mode, enabled: row.enabled === true, warehouse_code: row.warehouse_code || '', shipping_free: policy ? policy.free_shipping === true : row.shipping_free === true, shipping_template_id: Number(policy ? policy.template_id || 0 : row.shipping_template_id || 0), shipping_policy_revision: Number(policy?.revision || 0), surcharge: money(policy?.surcharge_cents), fixed_fee: row.fee_configured ? money(row.fixed_fee_cents) : '', per_package_fee: row.fee_configured ? money(row.per_package_fee_cents) : '' }
+    return { inherited_fields: Array.isArray(row.inherited_fields) ? [...row.inherited_fields] : [], mode, enabled: row.enabled === true, warehouse_code: row.warehouse_code || '', shipping_free: policy ? policy.free_shipping === true : row.shipping_free === true, shipping_template_id: Number(policy ? policy.template_id || 0 : row.shipping_template_id || 0), shipping_policy_revision: Number(policy?.revision || 0), surcharge: money(policy?.surcharge_cents), fixed_fee: row.fee_configured ? money(row.fixed_fee_cents) : '', per_package_fee: row.fee_configured ? money(row.per_package_fee_cents) : '' }
   }) }
 }
 export function fulfillmentSettingsPayload(form) {
-  return { customer_id: form.customer_id, expected_revision: form.revision, modes: form.modes.map(row => {
+  return { defaults_revision: Number(form.defaults_revision || 0), customer_id: form.customer_id, expected_revision: form.revision, modes: form.modes.map(row => {
     if (!row.enabled) return { mode: row.mode, enabled: false }
     if (!row.shipping_template_id && !row.shipping_free && explicitMoneyCents(row.surcharge) !== 0) throw new Error('继承运费配置时不能单独设置附加运费；请选模板后设置')
     if (row.mode === 'stock' && !row.warehouse_code) throw new Error('库存代发必须绑定此客户的成品仓')
-    return { mode: row.mode, enabled: true, warehouse_code: row.mode === 'stock' ? row.warehouse_code : '', shipping_free: row.shipping_free === true, shipping_template_id: Number(row.shipping_template_id || 0), fee_configured: true, fixed_fee_cents: explicitMoneyCents(row.fixed_fee), per_package_fee_cents: explicitMoneyCents(row.per_package_fee), shipping_policy: { template_id: Number(row.shipping_template_id || 0), surcharge_cents: explicitMoneyCents(row.surcharge), free_shipping: row.shipping_free === true, expected_revision: Number(row.shipping_policy_revision || 0) } }
+    return { inherited_fields: [...(row.inherited_fields || [])], mode: row.mode, enabled: true, warehouse_code: row.mode === 'stock' ? row.warehouse_code : '', shipping_free: row.shipping_free === true, shipping_template_id: Number(row.shipping_template_id || 0), fee_configured: true, fixed_fee_cents: explicitMoneyCents(row.fixed_fee), per_package_fee_cents: explicitMoneyCents(row.per_package_fee), shipping_policy: { template_id: Number(row.shipping_template_id || 0), surcharge_cents: explicitMoneyCents(row.surcharge), free_shipping: row.shipping_free === true, expected_revision: Number(row.shipping_policy_revision || 0) } }
   }) }
 }
 export function customerFinishedWarehouses(rows, customerID) {
@@ -41,4 +41,21 @@ export function shippingTemplatePayload(form) {
     seen.add(key)
     return { province, city, district, first_weight_g: Number(r.first_weight_g), additional_weight_g: Number(r.additional_weight_g), first_fee_cents: explicitMoneyCents(r.first_fee), additional_fee_cents: explicitMoneyCents(r.additional_fee) }
   }) }
+}
+
+export const fulfillmentDefaultFields = ['fixed_fee_cents', 'per_package_fee_cents', 'shipping_template_id', 'shipping_surcharge_cents', 'shipping_free']
+export const fulfillmentFieldIsDefault = (mode, field) => (mode.inherited_fields || []).includes(field)
+export function setFulfillmentFieldDefault(mode, field, inherit, defaults = {}) {
+ const fields = new Set(mode.inherited_fields || [])
+ if (!inherit) { fields.delete(field); mode.inherited_fields = [...fields]; return }
+ fields.add(field); mode.inherited_fields = [...fields]
+ const d = (defaults.modes || []).find(r => r.mode === mode.mode) || {}
+ if (field === 'fixed_fee_cents') mode.fixed_fee = d.fee_configured ? money(d.fixed_fee_cents) : ''
+ if (field === 'per_package_fee_cents') mode.per_package_fee = d.fee_configured ? money(d.per_package_fee_cents) : ''
+ if (field === 'shipping_template_id') mode.shipping_template_id = Number(d.shipping_template_id || 0)
+ if (field === 'shipping_surcharge_cents') mode.surcharge = money(d.shipping_policy?.surcharge_cents)
+ if (field === 'shipping_free') mode.shipping_free = d.shipping_free === true
+}
+export function restoreFulfillmentDefaults(mode, defaults) {
+ for (const field of fulfillmentDefaultFields) setFulfillmentFieldDefault(mode, field, true, defaults)
 }

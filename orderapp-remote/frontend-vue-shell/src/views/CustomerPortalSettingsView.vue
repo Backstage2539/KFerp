@@ -1,5 +1,6 @@
 <template>
   <div class="page">
+    <ProductionReturnLink :source="viewParams.return_navigation" />
  <RegisteredVisitors />
     <section class="panel">
       <div class="panel-head">
@@ -225,6 +226,7 @@
 </template>
 
 <script setup>
+import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import CustomerFulfillmentSettings from '../components/CustomerFulfillmentSettings.vue'
 import RegisteredVisitors from '../components/RegisteredVisitors.vue'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -239,6 +241,7 @@ import { customerDossierNavigationDetail, effectiveCustomerCapabilities } from '
 import { workspaceCustomersRefreshEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
+  viewParams: {type:Object, default:()=>({})},
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },

@@ -12,11 +12,17 @@ import (
 
 // Fulfillment settings are customer-owned configuration, independent of portal templates.
 type FulfillmentSettings struct {
+	DefaultsRevision int64                `json:"defaults_revision"`
+	Defaults         *FulfillmentDefaults `json:"defaults,omitempty"`
+
 	CustomerID int64                     `json:"customer_id"`
 	Revision   int64                     `json:"revision"`
 	Modes      []FulfillmentModeSettings `json:"modes"`
 }
 type FulfillmentModeSettings struct {
+	InheritedFields []string          `json:"inherited_fields"`
+	FieldSources    map[string]string `json:"field_sources,omitempty"`
+
 	Mode               string                     `json:"mode"`
 	Enabled            bool                       `json:"enabled"`
 	WarehouseCode      string                     `json:"warehouse_code"`
@@ -73,6 +79,8 @@ type FulfillmentFeeQuoteCommand struct {
 	EmployeeAdjustment    bool                 `json:"-"`
 }
 type FulfillmentFeeQuote struct {
+	DefaultsRevision int64 `json:"defaults_revision,omitempty"`
+
 	Freight                    *freight.Snapshot     `json:"freight,omitempty"`
 	CustomerID                 int64                 `json:"customer_id"`
 	FulfillmentMode            string                `json:"fulfillment_mode"`
@@ -191,6 +199,9 @@ func ValidateFulfillmentSettings(s FulfillmentSettings) error {
 			return fmt.Errorf("履约场景无效或重复")
 		}
 		seen[m.Mode] = true
+		if err := ValidateFulfillmentInheritedFields(m.InheritedFields); err != nil {
+			return err
+		}
 		if !m.Enabled {
 			continue
 		}

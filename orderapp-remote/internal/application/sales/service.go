@@ -277,6 +277,7 @@ type InlineUpdateCommand struct {
 }
 
 type OrderListQuery struct {
+	FulfillmentQueue      string
 	OrderID               int64
 	Q                     string
 	From                  string

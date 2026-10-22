@@ -1,3 +1,12 @@
+### PR-718-FULFILLMENT-OPERATIONS
+- Branch: codex/fulfillment-operations-redesign; base origin/develop 0ebb0a0a.
+- Scope: customer todo home, five stable modules, Product Creator styling, internal historical read access, shared mode defaults with explicit per-field customer overrides and safe legacy preservation.
+- DEV: DEV-718-01 defaults/resolver/audit; DEV-718-02 server workbench/history; DEV-718-03 Vue operations/settings; DEV-718-04 verification/manual/development delivery.
+- Status: technical checks passed; development integration/release in progress; Van business acceptance pending.
+- Verifier: Go resolver + isolated PostgreSQL/API authorization/concurrency; Vue helpers and actual component interaction; frontend build; changed gates; visual layout; development runtime smoke.
+- Deployment: development after verified branch push/integration; no production release.
+- Notes: reserve_req_id.sh selected PR-718; --claim failed on macOS awk newline handling, reservation written here manually.
+
 ### ORDER-PAYMENT-ACCEPTANCE-FOLLOWUP-20261022
 - Branch: codex/order-payment-acceptance-followup; base origin/main@9cfc97c0006f90c96ff5d4aabf54fe44d7a237b6, preserving PR714 complete fulfillment editing. Initial acceptance base was 1ab751876.
 - Authorization: Van initially requested “继续修复” within the isolated local branch and test database. Van subsequently explicitly authorized “合入develop/main，不做部署了” (Sentinel_3c74d2ed4f9c8191ac6cd7ed884c6c9b), then “继续” (Sentinel_4fbad8a6172081918ed69508f6198e4d). Scope now includes normal push/integration of this patch into both remote branches; deployment, production writes and existing workspace/draft changes remain excluded.

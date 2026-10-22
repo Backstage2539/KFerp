@@ -54,12 +54,13 @@ type Destination struct {
 	DistrictCode string `json:"district_code"`
 }
 type Policy struct {
-	CustomerID     int64  `json:"customer_id"`
-	Scene          string `json:"scene"`
-	Revision       int64  `json:"revision"`
-	TemplateID     int64  `json:"template_id"`
-	SurchargeCents int64  `json:"surcharge_cents"`
-	FreeShipping   bool   `json:"free_shipping"`
+	FulfillmentDefaultsRevision int64  `json:"fulfillment_defaults_revision,omitempty"`
+	CustomerID                  int64  `json:"customer_id"`
+	Scene                       string `json:"scene"`
+	Revision                    int64  `json:"revision"`
+	TemplateID                  int64  `json:"template_id"`
+	SurchargeCents              int64  `json:"surcharge_cents"`
+	FreeShipping                bool   `json:"free_shipping"`
 }
 type Estimate struct {
 	BaseCents  int64  `json:"base_cents"`

@@ -364,16 +364,10 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 	case "fulfillment":
 		where = append(where, "(o.portal_service_code IN ('direct_ship','processing_ship','product_order') OR COALESCE(to_jsonb(o)->>'delivery_mode','')='customer_stock')")
 		if query.FulfillmentEmployeeID <= 0 {
-			// Authenticated internal staff can operate enabled fulfillment customers
-			// before a separate customer login has been created.
-			where = append(where, fmt.Sprintf(`EXISTS (
-    SELECT 1 FROM %[1]s.customer_portal_profiles p
-    JOIN %[1]s.customers fulfillment_customer ON fulfillment_customer.id=p.customer_id AND fulfillment_customer.active=true
-    WHERE p.customer_id=o.customer_id AND p.enabled=true AND EXISTS (
-     SELECT 1 FROM %[1]s.customer_service_capabilities capability
-     WHERE capability.customer_id=p.customer_id AND capability.enabled=true
-     AND capability.capability_code IN ('direct_ship','processing','product_order','inventory_custody'))
-   )`, schema))
+			// Internal historical reads keep the customer identity boundary but do not
+			// depend on currently enabled customer capabilities. External bindings below
+			// retain their original capability and login checks.
+			where = append(where, "c.active=true")
 			break
 		}
 		employeeBindingClause := ""
@@ -409,6 +403,9 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 				      )
 				  )
 			)`, schema, employeeBindingClause))
+	}
+	if query.FulfillmentQueue != "" {
+		where = append(where, FulfillmentQueuePredicate(schema, query.FulfillmentQueue))
 	}
 	if query.PayStatusID > 0 {
 		where = append(where, fmt.Sprintf("COALESCE(o.pay_status_id,0) = $%d", argn))

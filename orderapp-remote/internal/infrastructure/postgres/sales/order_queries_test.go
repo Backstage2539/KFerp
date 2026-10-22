@@ -80,12 +80,12 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 
 	where, args, _ = orderListWhere("test_schema", salesapp.OrderListQuery{Scope: "fulfillment"})
 	joined = strings.Join(where, " AND ")
-	for _, want := range []string{"portal_service_code IN ('direct_ship','processing_ship','product_order')", "delivery_mode", "customer_stock", "test_schema.customer_portal_profiles", "p.enabled=true", "fulfillment_customer.active=true", "test_schema.customer_service_capabilities"} {
+	for _, want := range []string{"portal_service_code IN ('direct_ship','processing_ship','product_order')", "delivery_mode", "customer_stock", "c.active=true"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("internal fulfillment scope missing %q in %s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "customer_erp_user_bindings") || strings.Contains(joined, "employee_login_passwords") {
+	if strings.Contains(joined, "customer_service_capabilities") || strings.Contains(joined, "customer_erp_user_bindings") || strings.Contains(joined, "employee_login_passwords") {
 		t.Fatal("internal operations must not require a customer login")
 	}
 	if len(args) != 0 {
