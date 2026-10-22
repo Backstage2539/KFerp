@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import {parse,compileScript} from '@vue/compiler-sfc'
 import {createSSRApp,h} from 'vue'
 import {renderToString} from '@vue/server-renderer'
-const file=new URL('./SpecTemplateRollout.vue',import.meta.url)
+const file=new URL('../components/SpecTemplateRollout.vue',import.meta.url)
 const {descriptor}=parse(fs.readFileSync(file,'utf8'),{filename:file.pathname})
 let code=compileScript(descriptor,{id:'template-rollout'}).content
 code=code.replace(/from (['"])([^'"]+)\1/g,(_,q,p)=>`from ${JSON.stringify(p.startsWith('.')?new URL(p,file).href:import.meta.resolve(p))}`)
