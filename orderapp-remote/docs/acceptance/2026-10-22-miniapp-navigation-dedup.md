@@ -24,7 +24,7 @@
 
 ## 交付与边界
 
-- 开发环境已交付并通过运行检查，生产主线发布准备就绪。微信上传/审核/发布与Van业务验收单独记录。
+- 开发和生产环境已分别交付并通过运行检查，最终小程序包已同步DevTools并完成一致性校验。微信上传/审核/发布与Van业务验收单独记录。
 
 ## 发布前观察
 
@@ -39,7 +39,7 @@
 - 底部我的订单进入正式订单，标题为我的订单；普通客户没有代加工发货按钮。
 - 个人中心只显示一个退出登录按钮；未执行退出、下单、发货或账单写操作。
 - 用户切换孟也咖啡后已完成实际界面复验：首页只显示生产工单/我的库存，正式我的订单内显示代加工发货按钮；进入原发货查询页后，再点击底栏我的订单成功回到正式订单。现有记录为空，未创建记录或触发取消/发货写入；完整取消/包裹/轨迹组件保留，自动回归已覆盖接线。
-- DevTools重新编译刷新模拟器事件状态后导航正常，会话保持有效；最终交付还会用服务器导出的匹配包替换候选包。
+- DevTools重新编译刷新模拟器事件状态后导航正常，会话保持有效；最终交付已使用服务器导出的匹配包，详见下方最终产物记录。
 
 ## 磁盘恢复完成
 
@@ -54,3 +54,22 @@
 - 备份：/opt/stacks/erp/orderapp.backup.deploy-20261022114218-aca709f6b631；回滚镜像 kferp-orderapp-rollback:development-20261022114218-aca709f6b631。
 - 运行检查：app running/restarts0、DBhealthy；login200；匿名需求/mini身份/库存401；认证三份手册、PR-712及DEV829-831可见；服务器小程序SHA/API匹配，共享导航与无摘要产物检查通过。
 - 日志：/tmp/pr712-development-deploy.log、/tmp/pr712-development-smoke.log；开发包固定目录 /Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev，24页/96页面文件。
+
+
+## 生产交付与最终产物
+
+- GitHub PR #240 合并main，服务器及正式小程序包 b080846f1f2dc29adef269adfc3cd62ac2f06847；命令 ./deploy_orderapp.sh production 于2026-10-22 12:07完成。本次收据更新仅文档，不重新部署。
+- 全部生产门禁：Vue1478、小程序71文件425项、类型检查、生产Vue/小程序构建、完整Go及Docker内部Go全部通过；未新增迁移或业务数据修复。
+- 源码备份 /opt/stacks/erp-production/orderapp.backup.deploy-20261022115811-b080846f1f2d；回滚镜像 kferp-orderapp-rollback:production-20261022115811-b080846f1f2d。
+- 运行镜像 sha256:e48d8364b3a54b578ab77af0473460a7676a03a76a708e3c3128bf3162ee9559 与部署tag一致；app running/restarts0、DBhealthy、login200、匿名受保护接口401；认证三份手册及PR-712/DEV829-831可见。容器内首页静态入口及客户门户手册hash与实际部署源码一致。
+- 只读生产mini API：吴国宏488有效上下文及代发所需商品下单权限；库存仅含其唯一授权成品仓，正常返回4行；伪造其他客户及包材查询不扩大仓库或类别权限。未提交、取消、发货或改客户配置。
+- 正式导出 /Users/yiiiple-work/KFerp-miniapp-mp-weixin；当前DevTools项目 /Users/yiiiple-work/Documents/Codex/2026-10-21/xia/outputs/KFerp-miniapp-production。候选与正式包除RELEASE_INFO外全部运行文件相同；原子更新最终版本元信息，私有配置/登录会话保留。
+- 交付ZIP /Users/yiiiple-work/KFerp-navigation-dedup-delivery-20261022/KFerp-miniapp-production-b080846f.zip；SHA256 599a4585ae507b00363b3d953e715a1587663a7ceb8194139c83841af17fb605。24页/96页面文件/239运行文件；导出、DevTools、ZIP逐文件一致，CRC、生产API/appid及分享hooks校验通过，无private config进入ZIP。
+- 最终包重新编译后，孟也咖啡会话保持：首页仅生产工单/我的库存；我的订单显示代加工发货，打开原发货中心，再点击同栏高亮我的订单返回正式列表。无发货记录，未触发业务写入。
+- 日志 /tmp/pr712-production-deploy.log、/tmp/pr712-production-smoke.log、/tmp/pr712-production-runtime-identity.log；最终包校验 /tmp/pr712-final-delivery-verification.json、/tmp/pr712-devtools-final-package.json。完整副本保留于上述交付目录evidence/。
+
+## 验收口径
+
+- 已完成技术交付、自动回归、只读接口和实际导航复验。取消/真实包裹轨迹保留既有组件与权限，本轮无记录可现场验收；草稿安全依据即时保存逻辑、现有store/quote测试和源码复核，未声称在最终包现场编辑恢复过草稿。
+- processing-only客户的正式订单仍按原权限返回200空页，代加工发货入口独立显示，原发货列表接口允许processing；本轮没有扩大正式业务数据权限。
+- 微信上传、审核、正式发布均未执行；Van业务验收待确认。PR保持review，DEV829-831技术工作done。
