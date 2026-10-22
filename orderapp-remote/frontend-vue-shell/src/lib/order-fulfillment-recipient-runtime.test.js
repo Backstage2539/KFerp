@@ -85,3 +85,26 @@ test('recipient save submits only recipient fields and revision, retains input o
     assert.equal(editor.error.value, '')
   } finally { globalThis.fetch = previousFetch; globalThis.window = previousWindow }
 })
+
+test('refresh keeps the fulfillment recipient editor visible until the new order snapshot arrives', async () => {
+  const editor = await setupView('../views/OrderEntryView.vue', { embedded: true, editId: 117, copyId: 0, customerPortal: false, fulfillmentMode: false, viewParams: {} })
+  editor.applyEditData(storedOrder())
+  const previousFetch = globalThis.fetch
+  const previousWindow = globalThis.window
+  let finish
+  globalThis.window = { location: { origin: 'http://localhost', href: 'http://localhost/vue-shell?edit_id=117', pathname: '/vue-shell' }, localStorage: { getItem() { return '' } } }
+  globalThis.fetch = url => String(url).includes('/api/order/form')
+    ? new Promise(resolve => { finish = resolve })
+    : Promise.resolve({ ok: true, status: 200, json: async () => ({ rows: [], groups: [], assignments: [] }) })
+  const loading = editor.load()
+  try {
+    assert.equal(editor.loading.value, true)
+    assert.equal(editor.fulfillmentRecipientEditing.value, true, 'refresh must not expose ordinary sales editing')
+    assert.equal(editor.rows.value[0].bom_spec_id, 19)
+  } finally {
+    finish({ ok: true, status: 200, json: async () => ({ edit_mode: true, edit_id: 117, edit_data: storedOrder(), customers: [], products: [], product_families: [], product_bom_spec_options: [] }) })
+    await loading
+    globalThis.fetch = previousFetch
+    globalThis.window = previousWindow
+  }
+})

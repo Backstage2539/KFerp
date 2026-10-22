@@ -1,12 +1,13 @@
 <template>
   <div class="page" :class="{ embedded: props.embedded }">
     <div v-if="fulfillmentRecipientEditing && ok" class="notice ok" role="status">{{ ok }}</div>
+    <div v-if="fulfillmentRecipientEditing && error" class="notice error" role="alert">{{ error }} <button type="button" class="secondary" @click="load" :disabled="loading">重新加载</button></div>
     <FulfillmentRecipientEditor
       v-if="fulfillmentRecipientEditing"
       :key="form.edit_id"
       :order="fulfillmentEditData"
       :recipient-target="props.recipientTarget"
-      :disabled-reason="editBlockReason"
+      :disabled-reason="loading ? '正在读取最新订单，请稍候' : editBlockReason"
       @saved="handleFulfillmentRecipientSaved"
     />
     <template v-else>
@@ -2739,7 +2740,6 @@ async function loadOrderProductCatalogTypes() {
 async function load() {
   loading.value = true
   sampleOrderEditing.value = false
-  fulfillmentEditData.value = null
   editBlockReason.value = ''
   form.settlement_reason = ''
   error.value = ''
@@ -2800,6 +2800,7 @@ async function load() {
       if (!sampleOrderEditing.value && !fulfillmentRecipientEditing.value) syncBeanListVersionForCustomer({ force: !!copyID })
       if (copyID) syncRowsForType({ priceListChanged: true })
     } else {
+      fulfillmentEditData.value = null
       applyCustomerContextToNewOrder()
       syncBeanListVersionForCustomer({ force: true })
       if (props.deliveryPrefill) {
