@@ -517,7 +517,21 @@ CREATE INDEX IF NOT EXISTS customer_statement_disputes_customer_settlement_idx
 		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS product_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
-		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_request_items DROP CONSTRAINT IF EXISTS customer_direct_ship_request_items_request_id_product_id_spec_g_key`, schema),
+		// PostgreSQL-generated names can truncate the table portion in the middle.
+		// Identify only the obsolete three-column unique constraint by its columns.
+		fmt.Sprintf(`DO $legacy_item_identity$
+DECLARE obsolete RECORD;
+BEGIN
+ FOR obsolete IN
+  SELECT c.conname FROM pg_constraint c
+  WHERE c.conrelid='%[1]s.customer_direct_ship_request_items'::regclass AND c.contype='u'
+    AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
+         FROM pg_attribute a WHERE a.attrelid=c.conrelid AND a.attnum=ANY(c.conkey))
+        =ARRAY['product_id','request_id','spec_g']::text[]
+ LOOP
+  EXECUTE format('ALTER TABLE %%I.%%I DROP CONSTRAINT %%I','%[1]s','customer_direct_ship_request_items',obsolete.conname);
+ END LOOP;
+END $legacy_item_identity$`, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS customer_direct_ship_request_items_legacy_identity_uq ON %s.customer_direct_ship_request_items(request_id,product_id,spec_g) WHERE bom_spec_id=0`, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS customer_direct_ship_request_items_bom_spec_identity_uq ON %s.customer_direct_ship_request_items(request_id,product_id,bom_spec_id) WHERE bom_spec_id>0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS material_unit_weight_g NUMERIC(20,6)`, schema),
