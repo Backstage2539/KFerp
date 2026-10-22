@@ -103,6 +103,7 @@ func TestShippingReturnAtomicCandidatesAndReceipts(t *testing.T) {
 		{name: "FREE", actual: 1200, want: 0},
 		{name: "BELOW-PAID", shipping: 2000, paid: 500, actual: 100, want: 2000},
 		{name: "UNKNOWN", shipping: 2000, actual: 1200, want: 2000, unknown: true},
+		{name: "MIXED-UNKNOWN", shipping: 2000, actual: 1200, want: 2000, goods: true, unknown: true},
 	} {
 		id := seed("RETURN-"+c.name, c.shipping, c.paid)
 		if c.goods || c.unknown {
@@ -112,6 +113,16 @@ func TestShippingReturnAtomicCandidatesAndReceipts(t *testing.T) {
 			}
 			if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET prepayment_amount=100,payment_goods_amount=$2 WHERE id=$1`, schema), id, goods); err != nil {
 				t.Fatal(err)
+			}
+			if c.goods && c.unknown {
+				if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET prepayment_amount=110 WHERE id=$1`, schema), id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.goods {
+				if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.orders SET pay_status_id=(SELECT id FROM %[1]s.pay_statuses WHERE name='已付款' LIMIT 1) WHERE id=$1`, schema), id); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 		item := row("SF-" + c.name)

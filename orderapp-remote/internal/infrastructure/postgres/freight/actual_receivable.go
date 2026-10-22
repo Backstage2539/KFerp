@@ -42,10 +42,10 @@ func (r *Repository) ReceivableState(ctx context.Context, tx interface {
 		}
 	}
 	// A legacy full payment covers the freight already included in that order, never deferred charges.
-	if salesdomain.IsFullyPaid(status) && base > 0 && s.Paid == 0 {
+	if salesdomain.IsFullyPaid(status) && base > 0 && goods == 0 && s.Paid == 0 {
 		s.Paid = base
 	}
-	s.Unknown = prepay > 0 && goods == 0 && s.Paid == 0
+	s.Unknown = prepay > goods+s.Paid
 	rows, e := tx.Query(ctx, fmt.Sprintf(`SELECT f.source_type,f.source_id,round(f.amount*100)::bigint,coalesce(b.status,''),b.paid_at IS NOT NULL,coalesce(f.status,'unsettled') FROM %[1]s.customer_fee_items f LEFT JOIN %[1]s.freight_actual_entries e ON f.source_type='freight_actual' AND e.id=f.source_id LEFT JOIN %[1]s.freight_actual_shipments a ON a.id=e.shipment_id LEFT JOIN %[1]s.customer_settlement_batches b ON b.id=f.settlement_batch_id AND b.customer_id=f.customer_id WHERE f.customer_id=(SELECT customer_id FROM %[1]s.orders WHERE id=$1) AND f.fee_type='shipping' AND ((f.source_type='order' AND f.source_id=$1) OR a.order_id=$1) ORDER BY f.id`, r.schema), oid)
 	if e != nil {
 		return s, e
