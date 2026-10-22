@@ -31,3 +31,13 @@ func TestOrderFreightUsesOrderWritePermission(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemFreightDefaultRequiresSettingsPermission(t *testing.T) {
+	path := "/api/settings/logistics/default-shipping-policy"
+	if !isInternalCustomerStockRequest(path) {
+		t.Fatal("customer portal must not access system defaults")
+	}
+	if requiredPermissionForRequest(http.MethodPut, path) != "settings.write" {
+		t.Fatal("system default must require settings.write")
+	}
+}

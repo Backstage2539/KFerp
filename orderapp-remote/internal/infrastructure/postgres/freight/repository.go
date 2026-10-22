@@ -31,6 +31,7 @@ func (r *Repository) EnsureSchema(ctx context.Context) error {
  ALTER TABLE %[1]s.shipping_fee_templates ADD COLUMN IF NOT EXISTS config_json jsonb NOT NULL DEFAULT '{}';
  CREATE TABLE IF NOT EXISTS %[1]s.shipping_fee_template_versions(template_id bigint NOT NULL,revision bigint NOT NULL,snapshot_json jsonb NOT NULL,created_by text NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(template_id,revision));
  INSERT INTO %[1]s.shipping_fee_template_versions(template_id,revision,snapshot_json,created_by) SELECT id,revision,config_json||jsonb_build_object('id',id,'name',name,'active',active,'revision',revision,'packaging_weight_g',packaging_weight_g,'rules',rules_json),'legacy_migration' FROM %[1]s.shipping_fee_templates ON CONFLICT DO NOTHING;
+ CREATE TABLE IF NOT EXISTS %[1]s.system_shipping_policy(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),revision bigint NOT NULL,template_id bigint NOT NULL DEFAULT 0,surcharge_cents bigint NOT NULL DEFAULT 0 CHECK(surcharge_cents>=0),free_shipping boolean NOT NULL DEFAULT false,updated_at timestamptz NOT NULL DEFAULT now(),updated_by text NOT NULL);
  CREATE TABLE IF NOT EXISTS %[1]s.customer_shipping_policies(customer_id bigint NOT NULL REFERENCES %[1]s.customers(id),scene text NOT NULL CHECK(scene IN ('sale','stock','on_demand')),revision bigint NOT NULL DEFAULT 1,template_id bigint NOT NULL DEFAULT 0,surcharge_cents bigint NOT NULL DEFAULT 0 CHECK(surcharge_cents>=0),free_shipping boolean NOT NULL DEFAULT false,updated_at timestamptz NOT NULL DEFAULT now(),updated_by text NOT NULL,PRIMARY KEY(customer_id,scene));
  INSERT INTO %[1]s.customer_shipping_policies(customer_id,scene,template_id,updated_by)
  SELECT customer_id,m->>'mode',(m->>'shipping_template_id')::bigint,'legacy_migration' FROM %[1]s.customer_fulfillment_settings s CROSS JOIN LATERAL jsonb_array_elements(s.modes_json) m WHERE m->>'mode' IN ('stock','on_demand') AND COALESCE((m->>'shipping_template_id')::bigint,0)>0 ON CONFLICT DO NOTHING;
@@ -129,7 +130,7 @@ func (r *Repository) SavePolicy(ctx context.Context, p domain.Policy, expected i
 // It deliberately leaves the fulfillment revision and transaction commit to the
 // caller, allowing multiple policies and service/warehouse settings to commit once.
 func (r *Repository) SavePolicyTx(ctx context.Context, tx pgx.Tx, p domain.Policy, expected int64, actor string) (domain.Policy, error) {
-	if e := domain.ValidatePolicy(p); e != nil {
+	if e := domain.ValidatePolicyOverride(p); e != nil {
 		return p, e
 	}
 	if p.CustomerID <= 0 || strings.TrimSpace(actor) == "" {
@@ -175,13 +176,13 @@ func (r *Repository) SavePolicyTx(ctx context.Context, tx pgx.Tx, p domain.Polic
 	return p, nil
 }
 func (r *Repository) QuoteTx(ctx context.Context, tx pgx.Tx, id int64, scene string, d domain.Destination, grams int64) (domain.Snapshot, error) {
-	p, e := r.LoadPolicy(ctx, tx, id, scene, true)
+	p, e := r.ResolvePolicy(ctx, tx, id, scene, true)
 	if e != nil {
 		return domain.Snapshot{}, e
 	}
 	t, e := r.LoadTemplate(ctx, tx, p.TemplateID, true)
 	if e != nil && !p.FreeShipping {
-		return domain.Snapshot{}, fmt.Errorf("请配置该客户当前场景的运费模板")
+		return domain.Snapshot{}, fmt.Errorf("请配置代发、客户档案或系统默认运费模板")
 	}
 	return domain.Quote(p, t, d, grams)
 }
@@ -241,6 +242,9 @@ func (r *Repository) Audit(ctx context.Context, tx pgx.Tx, actor, entity string,
 	a, _ := json.Marshal(before)
 	b, _ := json.Marshal(after)
 	requirement := "PR-705"
+	if entity == "system_shipping_policy" {
+		requirement = "PR-716"
+	}
 	if snapshot, ok := after.(domain.Snapshot); ok && snapshot.Protocol == domain.OrderProtocol {
 		requirement = "PR-709"
 	}
@@ -404,7 +408,7 @@ func (r *Repository) OrderEditorViews(ctx context.Context, q Queryer, ids []int6
 	return out, nil
 }
 func (r *Repository) QuoteWithOverrideTx(ctx context.Context, tx pgx.Tx, id int64, scene string, d domain.Destination, grams int64, o *domain.Override, employee bool) (domain.Snapshot, error) {
-	p, e := r.LoadPolicy(ctx, tx, id, scene, true)
+	p, e := r.ResolvePolicy(ctx, tx, id, scene, true)
 	if e != nil {
 		return domain.Snapshot{}, e
 	}
@@ -414,7 +418,7 @@ func (r *Repository) QuoteWithOverrideTx(ctx context.Context, tx pgx.Tx, id int6
 	}
 	t, e := r.LoadTemplate(ctx, tx, p.TemplateID, true)
 	if e != nil && !p.FreeShipping {
-		return domain.Snapshot{}, fmt.Errorf("请配置该客户当前场景的运费模板")
+		return domain.Snapshot{}, fmt.Errorf("请配置代发、客户档案或系统默认运费模板")
 	}
 	q, e := domain.Quote(p, t, d, grams)
 	if e != nil {

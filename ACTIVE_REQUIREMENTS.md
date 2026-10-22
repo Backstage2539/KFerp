@@ -6040,3 +6040,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 模板差异下发并原子发布 BOM；稳定规格报价与执行版本解耦
 - Verifier: Go unit / isolated PostgreSQL / API / Vue runtime / build
 - Deployment: development via ./deploy_orderapp.sh development; runtime 624341aa53e34b486043409e47f4e131e38691fd; rollback /opt/stacks/erp/orderapp.backup.deploy-20261022213755-624341aa53e3; evidence orderapp-remote/docs/acceptance/2026-10-22-spec-template-rollout.md; production unchanged
+
+### PR-716-freight-template-priority
+- Branch: codex/freight-template-priority-20261022
+- Status: verified; Van acceptance pending
+- Scope: global default, separate customer sale policy, scene > customer > system resolution
+- DEV: DEV-843 policy/API; DEV-844 Vue/manual/delivery
+- Verifier: TestFreightTemplatePriorityAPI; freight/domain and fulfillment tests; Vue runtime; frontend build; backend gate
+- Deployment: development after verification
+
+- PR-716 evidence: isolated PostgreSQL regression passed; all Go packages passed; 1508 Vue tests and build passed; local browser preview checked, no live business writes.

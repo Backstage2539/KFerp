@@ -113,6 +113,7 @@
       </form>
 
       <div v-if="editingId" class="customer-extra">
+        <CustomerShippingPolicies :key="editingId" :customer-id="Number(editingId)" />
         <section class="recipient-address-book">
           <div class="section-head">
             <div><h4>收件地址</h4><p class="muted">同一客户的多个小程序账号共用。订单保存收件快照，后续修改地址簿不会改历史订单。</p></div>
@@ -252,6 +253,7 @@
 </template>
 
 <script setup>
+import CustomerShippingPolicies from '../components/CustomerShippingPolicies.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'

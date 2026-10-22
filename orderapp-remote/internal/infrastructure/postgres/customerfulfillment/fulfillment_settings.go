@@ -321,7 +321,7 @@ func (r *Repository) QuoteFulfillmentFeesTx(ctx context.Context, tx pgx.Tx, c ap
 		return out, fmt.Errorf("请配置当前场景的代发服务费")
 	}
 	qty, grams := int64(0), int64(0)
-	policy, e := freightpg.NewRepository(r.pool, r.schema).LoadPolicy(ctx, tx, c.CustomerID, c.FulfillmentMode, true)
+	policy, e := freightpg.NewRepository(r.pool, r.schema).ResolvePolicy(ctx, tx, c.CustomerID, c.FulfillmentMode, true)
 	if e != nil {
 		return out, e
 	}

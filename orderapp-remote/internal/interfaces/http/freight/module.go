@@ -98,6 +98,28 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, quoter Quot
 	e.GET("/api/settings/logistics/regions", func(c echo.Context) error {
 		return c.JSON(200, map[string]any{"version": domain.RegionVersion, "regions": domain.SearchRegions(c.QueryParam("q"))})
 	})
+
+	e.GET("/api/settings/logistics/default-shipping-policy", func(c echo.Context) error {
+		out, err := r.DefaultPolicy(c.Request().Context())
+		if err != nil {
+			return fail(c, err)
+		}
+		return c.JSON(200, out)
+	})
+	e.PUT("/api/settings/logistics/default-shipping-policy", func(c echo.Context) error {
+		var req struct {
+			domain.Policy
+			ExpectedRevision int64 `json:"expected_revision"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return fail(c, err)
+		}
+		out, err := r.SaveDefaultPolicy(c.Request().Context(), req.Policy, req.ExpectedRevision, actor(c))
+		if err != nil {
+			return fail(c, err)
+		}
+		return c.JSON(200, out)
+	})
 	e.GET("/api/customer-fulfillment/:customer_id/shipping-policies", func(c echo.Context) error {
 		cid, err := id(c, "customer_id")
 		if err != nil {
