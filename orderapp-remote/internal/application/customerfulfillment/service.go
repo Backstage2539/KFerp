@@ -407,7 +407,24 @@ type SettlementResult struct {
 	TotalAmountCents int64  `json:"total_amount_cents"`
 }
 
+type FulfillmentOperations struct {
+	PendingShipment          int   `json:"pending_shipment"`
+	StockWaiting             int   `json:"stock_waiting"`
+	MissingRecipient         int   `json:"missing_recipient"`
+	PendingPayment           int   `json:"pending_payment"`
+	PendingConfirmation      int   `json:"pending_confirmation"`
+	PendingOrderCents        int64 `json:"pending_order_cents"`
+	UnsettledFeeCents        int64 `json:"unsettled_fee_cents"`
+	UnsettledFeeCount        int   `json:"unsettled_fee_count"`
+	DraftSettlementCents     int64 `json:"draft_settlement_cents"`
+	ConfirmedSettlementCents int64 `json:"confirmed_settlement_cents"`
+	PaidSettlementCents      int64 `json:"paid_settlement_cents"`
+}
+
 type Overview struct {
+	Operations FulfillmentOperations    `json:"operations"`
+	Assets     []CustomerAssetInventory `json:"assets"`
+
 	CustomerID       int64                    `json:"customer_id"`
 	CustomerName     string                   `json:"customer_name"`
 	Capabilities     []string                 `json:"capabilities,omitempty"`
@@ -457,6 +474,12 @@ type DirectShipOrderSummary struct {
 }
 
 type FeeItemSummary struct {
+	ID                int64  `json:"id"`
+	SourceID          int64  `json:"source_id"`
+	Status            string `json:"status"`
+	SettlementBatchID int64  `json:"settlement_batch_id"`
+	OccurredAt        string `json:"occurred_at"`
+
 	FeeType     string `json:"fee_type"`
 	FeeName     string `json:"fee_name"`
 	AmountCents int64  `json:"amount_cents"`

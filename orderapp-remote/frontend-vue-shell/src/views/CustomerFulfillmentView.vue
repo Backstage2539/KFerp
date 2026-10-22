@@ -1,38 +1,33 @@
 <template>
   <div class="page customer-fulfillment">
     <ProductionReturnLink :source="viewParams.return_navigation" />
-    <section class="panel control-panel">
-      <div class="panel-head">
-        <div>
-          <h2>客户履约运营台</h2>
-          <p>内部运营 · {{ overview.customer_name || selectedCustomerLabel || '未选择客户' }}</p>
-        </div>
-        <div class="head-actions">
-          <button class="secondary" type="button" @click="openManual">客户履约手册</button>
-          <button class="secondary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">刷新</button>
-        </div>
+    <section class="workspace-header">
+      <div class="workspace-heading"><div><p class="eyebrow">客户管理 / 履约运营</p><h2>客户履约运营台</h2><p class="workspace-subtitle">{{ overview.customer_name || selectedCustomerLabel || '选择客户，开始处理履约业务' }}</p></div>
+        <div class="head-actions"><button class="secondary icon-button" type="button" @click="openManual"><IconBook :size="16" />使用手册</button><button class="secondary icon-button" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId"><IconRefresh :size="16" />刷新</button><button class="secondary icon-button" type="button" @click="settingsDrawerOpen = true" :disabled="!normalizedCustomerId"><IconSettings :size="16" />客户设置</button></div>
       </div>
-
-      <div class="toolbar">
-        <label class="customer-picker-field">
-          <span>选择客户</span>
-          <SearchableSelect
-            v-model="customerId"
-            :options="customerOptions"
-            :option-label="customerFulfillmentCustomerOptionLabel"
-            :option-meta="customerFulfillmentCustomerOptionMeta"
-            :option-value="optionNumericValue"
-            placeholder="搜索客户名/公司/联系人/电话"
-            empty-text="没有匹配客户"
-            :disabled="loading"
-            @select="selectCustomer" />
-        </label>
-        <button class="primary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">载入账户</button>
+      <div class="customer-context"><label class="customer-picker-field"><span>当前客户</span><SearchableSelect v-model="customerId" :options="customerOptions" :option-label="customerFulfillmentCustomerOptionLabel" :option-meta="customerFulfillmentCustomerOptionMeta" :option-value="optionNumericValue" placeholder="搜索并切换客户" empty-text="没有匹配客户" :disabled="loading" @select="selectCustomer" /></label>
+        <div class="customer-service-tags"><span v-for="mode in effectiveSettings?.modes?.filter(row => row.enabled) || []" :key="mode.mode" class="service-tag">{{ businessLabel(mode.mode) }}</span><span class="configuration-caption">{{ configurationCaption }}</span></div>
       </div>
-
-      <p class="muted account-hint">已开通门户与履约能力的客户可在此操作。外部用户配置已移到“门户客户配置”，用于客户自行登录。</p>
-
-      <div v-if="workbenchSections.imports" class="import-row">
+    </section>
+    <nav class="module-tabs" role="tablist" aria-label="客户履约模块"><button v-for="tab in moduleTabs" :key="tab.key" type="button" role="tab" :aria-selected="activeTab === tab.key" :class="{ active: activeTab === tab.key }" @click="changeTab(tab.key)">{{ tab.label }}</button></nav>
+    <div v-if="error" class="error workspace-message" role="alert">{{ error }}</div><div v-if="ok" class="ok workspace-message" role="status">{{ ok }}</div>
+    <div v-if="!normalizedCustomerId" class="workspace-empty"><IconUsers :size="36" /><h3>先选择一个履约客户</h3><p>查看客户待办、库存、订单和费用。</p></div>
+    <template v-else>
+      <div v-if="loading && !overview.customer_id" class="workspace-empty" role="status">正在加载客户工作台…</div>
+      <FulfillmentOperationsOverview v-else-if="activeTab === 'overview'" :totals="overview.operations || {}" @navigate="openTodo" />
+      <div v-if="activeTab !== 'overview'" class="module-toolbar"><div><h3>{{ activeModule.label }}管理</h3><p>{{ activeModule.description }}</p></div><div class="head-actions">
+        <button v-if="activeTab === 'inventory'" class="secondary" type="button" @click="activeAction = activeAction === 'inventory' ? '' : 'inventory'" :disabled="!workbenchSections.inventory" :title="!workbenchSections.inventory ? '未开通库存托管，仍可查看历史库存' : ''">调整库存</button>
+        <button v-if="activeTab === 'orders'" class="secondary" type="button" @click="activeAction = activeAction === 'processing' ? '' : 'processing'" :disabled="!workbenchSections.processing">提交加工工单</button>
+        <button v-if="activeTab === 'dispatch'" class="primary icon-button" type="button" @click="activeAction = activeAction === 'directShip' ? '' : 'directShip'" :disabled="!workbenchSections.directShip"><IconPlus :size="17" />新建代发</button>
+        <button v-if="activeTab === 'fees'" class="primary" type="button" @click="activeAction = activeAction === 'settlement' ? '' : 'settlement'" :disabled="!workbenchSections.settlement">生成月结</button>
+        <button class="secondary" type="button" @click="activeAction = activeAction === 'import' ? '' : 'import'" :disabled="!workbenchSections.imports">导入数据</button>
+      </div></div>
+      <p v-if="activeTab !== 'overview' && !moduleCanCreate" class="readonly-notice">此客户未开通当前业务，历史数据仍可查看；如需新建，请先调整客户能力与履约设置。</p>
+      <FulfillmentInventory v-if="activeTab === 'inventory'" :key="normalizedCustomerId" :rows="overview.assets || []" />
+      <div v-if="activeTab === 'fees'" class="fee-summary-grid"><div v-for="metric in feeMetrics" :key="metric.label"><span>{{ metric.label }}</span><strong>¥ {{ moneyFromCents(metric.value) }}</strong><small>{{ metric.hint }}</small></div></div>
+    </template>
+    <section v-if="activeAction" class="panel control-panel action-panel"><div class="panel-head"><h3>{{ actionTitles[activeAction] }}</h3><button class="secondary" @click="activeAction = ''">收起</button></div>
+      <div v-if="activeAction === 'import' && workbenchSections.imports" class="import-row">
         <div class="segmented">
           <button
             v-for="option in visibleImportTypes"
@@ -53,7 +48,7 @@
         <span v-if="!normalizedCustomerId" class="muted import-hint">先选择客户再上传 Excel</span>
       </div>
 
-      <div v-if="workbenchSections.settlement" class="settlement-row">
+      <div v-if="activeAction === 'settlement' && workbenchSections.settlement" class="settlement-row">
         <label>
           <span>结算开始</span>
           <input v-model="settlement.period_from" type="date" />
@@ -66,7 +61,7 @@
       </div>
 
       <div class="ops-grid">
-        <div v-if="workbenchSections.processing" class="ops-panel">
+        <div v-if="activeAction === 'processing' && workbenchSections.processing" class="ops-panel">
           <h3>提交加工工单</h3>
           <div class="ops-form">
             <label>
@@ -125,7 +120,7 @@
             @saved="onFulfillmentOrderSaved" />
         </div>
 
-        <div v-if="workbenchSections.inventory" class="ops-panel">
+        <div v-if="activeAction === 'inventory' && workbenchSections.inventory" class="ops-panel">
           <h3>库存手动调整</h3>
           <div class="ops-form">
             <label>
@@ -172,11 +167,10 @@
 
       </div>
 
-      <div v-if="error" class="error">{{ error }}</div>
-      <div v-if="ok" class="ok">{{ ok }}</div>
+
     </section>
 
-    <section v-if="selectedParsedBatch" class="panel apply-panel">
+    <section v-if="activeAction === 'import' && selectedParsedBatch" class="panel apply-panel">
       <div class="panel-head">
         <div>
           <h3>当前可应用批次</h3>
@@ -200,14 +194,14 @@
       <div v-if="applyPreview?.warning" class="muted">{{ applyPreview.warning }}</div>
     </section>
 
-    <section ref="resultAnchor" v-if="summaryCards.length" class="metric-grid">
+    <section ref="resultAnchor" v-if="activeAction === 'import' && summaryCards.length" class="metric-grid">
       <div v-for="card in summaryCards" :key="card.label" class="metric">
         <span>{{ card.label }}</span>
         <strong>{{ card.value }}</strong>
       </div>
     </section>
 
-    <section v-if="invalidRows.length || latestInvalidCount" class="panel">
+    <section v-if="activeAction === 'import' && (invalidRows.length || latestInvalidCount)" class="panel">
       <div class="panel-head">
         <h3>错误行</h3>
       </div>
@@ -234,7 +228,7 @@
     </section>
 
     <section class="grid-2">
-      <DataPanel v-if="workbenchSections.imports" title="导入批次" :rows="visibleImports" empty="暂无导入批次">
+      <DataPanel v-if="activeAction === 'import'" title="导入批次（最近 20 批）" :rows="visibleImports" empty="暂无导入批次">
         <table>
           <thead>
             <tr><th>ID</th><th>类型</th><th>文件</th><th>状态</th><th>有效/错误</th><th>操作</th></tr>
@@ -254,24 +248,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel v-if="workbenchSections.inventory" title="托管库存" :rows="overview.custody_balances" empty="暂无托管库存">
-        <table>
-          <thead>
-            <tr><th>类型</th><th>名称</th><th>规格</th><th>克重</th><th>件数</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in overview.custody_balances || []" :key="`${row.item_type}-${row.item_name}-${row.spec}`">
-              <td>{{ custodyTypeLabel(row.item_type) }}</td>
-              <td>{{ row.item_name }}</td>
-              <td>{{ row.spec || '-' }}</td>
-              <td>{{ row.quantity_g || 0 }}</td>
-              <td>{{ row.quantity_units || 0 }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </DataPanel>
-
-      <DataPanel v-if="workbenchSections.processing" title="加工工单" :rows="overview.processing_orders" empty="暂无加工工单">
+      <DataPanel v-if="activeTab === 'orders'" title="加工工单（最近 100 单）" :rows="overview.processing_orders" empty="暂无加工工单">
         <table>
           <thead>
             <tr><th>工单号</th><th>产品</th><th>状态</th><th>投豆</th><th>产量</th></tr>
@@ -280,7 +257,7 @@
             <tr v-for="row in overview.processing_orders || []" :key="row.work_order_no">
               <td>{{ row.work_order_no }}</td>
               <td>{{ row.product_name }}</td>
-              <td>{{ row.status || '-' }}</td>
+              <td>{{ businessLabel(row.status) }}</td>
               <td>{{ row.quantity_g || 0 }}</td>
               <td>{{ row.units || 0 }}</td>
             </tr>
@@ -288,23 +265,23 @@
         </table>
       </DataPanel>
 
-      <DataPanel v-if="workbenchSections.settlement" title="费用明细" :rows="overview.fees" empty="暂无费用">
+      <DataPanel v-if="activeTab === 'fees'" title="费用明细（最近 100 笔）" :rows="overview.fees" empty="暂无费用">
         <table>
           <thead>
-            <tr><th>类型</th><th>名称</th><th>金额</th><th>来源</th></tr>
+            <tr><th>类型 / 日期</th><th>说明</th><th>金额</th><th>状态</th><th>来源</th></tr>
           </thead>
           <tbody>
             <tr v-for="row in overview.fees || []" :key="`${row.fee_type}-${row.fee_name}-${row.amount_cents}`">
-              <td>{{ row.fee_type }}</td>
+              <td>{{ businessLabel(row.fee_type) }}<small>{{ row.occurred_at }}</small></td>
               <td>{{ row.fee_name }}</td>
-              <td>{{ moneyFromCents(row.amount_cents) }}</td>
-              <td>{{ row.source || '-' }}</td>
+              <td>{{ moneyFromCents(row.amount_cents) }}</td><td>{{ row.settlement_batch_id ? businessLabel((overview.settlements || []).find(s => s.batch_id === row.settlement_batch_id)?.status || 'settled') : businessLabel(row.status) }}</td>
+              <td>{{ businessLabel(row.source) }}<small v-if="row.source_id"> #{{ row.source_id }}</small></td>
             </tr>
           </tbody>
         </table>
       </DataPanel>
 
-      <DataPanel v-if="workbenchSections.settlement" title="结算批次" :rows="overview.settlements" empty="暂无结算">
+      <DataPanel v-if="activeTab === 'fees'" title="结算批次（最近 100 批）" :rows="overview.settlements" empty="暂无结算">
         <table>
           <thead>
             <tr><th>ID</th><th>期间</th><th>状态</th><th>金额</th></tr>
@@ -313,7 +290,7 @@
             <tr v-for="row in overview.settlements || []" :key="row.batch_id">
               <td>{{ row.batch_id }}</td>
               <td>{{ row.period_from }} 至 {{ row.period_to }}</td>
-              <td>{{ row.status }}</td>
+              <td>{{ businessLabel(row.status) }}</td>
               <td>{{ moneyFromCents(row.total_amount_cents) }}</td>
             </tr>
           </tbody>
@@ -321,11 +298,11 @@
       </DataPanel>
     </section>
 
-    <section v-if="workbenchSections.orders" class="panel fulfillment-orders-panel">
+    <section v-if="normalizedCustomerId && ['orders', 'dispatch'].includes(activeTab)" class="panel fulfillment-orders-panel">
       <div class="panel-head">
         <div>
-          <h3>履约客户订单</h3>
-          <p>按当前履约客户读取 ERP 订单列表，订单费用、销售单和出库单都在这里核对。</p>
+          <h3>{{ activeTab === 'dispatch' ? '代发工作队列' : '履约客户订单' }}</h3>
+          <p>{{ activeTab === 'dispatch' ? '与订单共用同一份数据，点击订单查看收件信息、费用和发货进度。' : '商品下单、留厂补购与代发订单统一查看。' }}</p>
         </div>
         <div class="head-actions">
           <span class="muted">共 {{ fulfillmentOrdersSummary.orders || 0 }} 单</span>
@@ -335,74 +312,20 @@
         </div>
       </div>
 
+      <div class="order-filters"><div class="queue-tabs"><button v-for="filter in orderFilters" :key="filter.key" :class="{active: orderQueue === filter.key}" @click="setOrderQueue(filter.key)">{{ filter.label }}</button></div><form class="order-search" @submit.prevent="loadFulfillmentOrders(1)"><input v-model="orderSearch" placeholder="订单号、客户或运单" aria-label="搜索履约订单" /><button class="secondary" type="submit">搜索</button></form></div>
       <div class="table-wrap">
         <table class="fulfillment-orders-table">
-          <thead>
-            <tr>
-              <th>订单号</th>
-              <th>日期</th>
-              <th>客户 / 类型</th>
-              <th>收件信息</th>
-              <th>订单费用</th>
-              <th>快递信息</th>
-              <th>订单状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
+          <thead><tr><th>订单</th><th>收件与物流</th><th class="amount-column">应收金额</th><th>收款</th><th>履约进度</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="row in fulfillmentOrders" :key="row.id">
-              <td>
-                <button class="order-link" type="button" @click="openFulfillmentOrderDetail(row)">{{ row.order_no }}</button>
-                <div class="cell-meta">{{ row.portal_service_code || row.order_type || '-' }}</div>
-              </td>
-              <td>{{ row.order_date || '-' }}</td>
-              <td>
-                <div class="stacked-text">
-                  <strong>{{ row.customer || '-' }}</strong>
-                  <span>{{ row.order_type || '-' }}</span>
-                </div>
-              </td>
-              <td>
-                <div class="stacked-text receiver-cell">
-                  <strong>{{ row.receiver_name || '-' }} {{ row.receiver_phone || '' }}</strong>
-                  <span>{{ row.receiver_address || '-' }}</span>
-                </div>
-              </td>
-              <td>
-                <div class="fee-stack">
-                  <div v-for="fee in orderFeeLines(row)" :key="`${row.id}-${fee.label}`" class="fee-line" :class="{ emphasized: fee.emphasized }">
-                    <span>{{ fee.label }}</span>
-                    <strong>{{ fee.value }}</strong>
-                  </div>
-                </div>
-              </td>
-              <td>
-                <div class="stacked-text">
-                  <strong>{{ row.sender_label || row.sender_name || '-' }}</strong>
-                  <span>{{ row.ship_tracking_no || '-' }}</span>
-                </div>
-              </td>
-              <td>
-                <div class="status-stack">
-                  <span>收款：{{ row.pay_status || '-' }}</span>
-                  <span>发货：{{ row.ship_status || '-' }}</span>
-                  <span>{{ orderConfirmationLabel(row.confirmation_status) }}</span>
-                  <span>生产：{{ row.process_status || '-' }}</span>
-                  <span>发票：{{ row.invoice_status || '-' }}</span>
-                  <DirectShipCancelButton v-if="row.fulfillment_mode && !row.is_void" :customer-id="Number(customerId)" :order-id="Number(row.id)" @cancelled="onDirectShipCancelled" />
-                </div>
-              </td>
-              <td>
-                <div class="actions-inline">
-                  <OrderDetailsCopyButton :order-id="row.id" :customer-id="customerId" />
-                  <button class="link-button" type="button" @click="openSalesOrderDrawer(row)">销售单</button>
-                  <button class="link-button" type="button" @click="openDeliveryNoteDrawer(row)" :disabled="!isShipped(row)">出库单</button>
-                </div>
-              </td>
+              <td><button class="order-link" type="button" @click="openFulfillmentOrderDetail(row)">{{ row.order_no }}</button><div class="cell-meta">{{ businessLabel(row.fulfillment_mode || (row.delivery_mode === 'customer_stock' ? row.delivery_mode : row.portal_service_code) || row.order_type) }} · {{ row.order_date || '-' }}</div></td>
+              <td><div class="stacked-text receiver-cell"><strong>{{ row.receiver_name || '待补收件人' }} <span>{{ row.receiver_phone || '' }}</span></strong><span class="receiver-address" :title="row.receiver_address">{{ row.ship_tracking_no || row.receiver_address || '待补收件信息' }}</span></div></td>
+              <td class="amount-column"><strong>¥ {{ row.grand_total || '0.00' }}</strong></td>
+              <td><span class="order-status-label">{{ row.pay_status || '待核对' }}</span></td>
+              <td><span class="order-status-label" :class="{'status-complete': isShipped(row)}">{{ row.ship_status || '-' }}</span><div class="cell-meta">{{ row.confirmation_status && row.confirmation_status !== 'accepted' ? orderConfirmationLabel(row.confirmation_status) : (row.process_status || '-') }}</div></td>
+              <td><div class="actions-inline compact-order-actions"><button class="link-button" type="button" @click="openFulfillmentOrderDetail(row)">详情</button><button class="link-button" type="button" @click="openSalesOrderDrawer(row)">销售单</button><button class="link-button" type="button" @click="openDeliveryNoteDrawer(row)" :disabled="!isShipped(row)">出库单</button></div></td>
             </tr>
-            <tr v-if="!fulfillmentOrders.length">
-              <td colspan="8" class="muted empty-row">{{ fulfillmentOrdersLoading ? '加载中...' : '暂无履约订单' }}</td>
-            </tr>
+            <tr v-if="!fulfillmentOrders.length"><td colspan="6" class="muted empty-row">{{ fulfillmentOrdersLoading ? '加载中...' : '暂无履约订单' }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -415,6 +338,8 @@
         @change="handleFulfillmentOrdersPagination"
       />
     </section>
+
+    <div v-if="settingsDrawerOpen" class="fulfillment-settings-mask" @click.self="settingsDrawerOpen = false" @keydown.esc="settingsDrawerOpen = false"><aside ref="settingsDrawerElement" tabindex="-1" class="fulfillment-settings-drawer" role="dialog" aria-modal="true" aria-label="客户履约设置"><div class="drawer-head"><div><p>{{ overview.customer_name || selectedCustomerLabel }}</p><h3>履约设置</h3></div><button class="secondary" @click="settingsDrawerOpen = false" aria-label="关闭履约设置"><IconX :size="18" /></button></div><p class="settings-intro">多数客户跟随默认，特殊约定只修改例外项。仓库和商品授权按客户单独管理。</p><div class="settings-switch"><button :class="{active: !editingDefaults}" @click="editingDefaults = false">此客户配置</button><button :class="{active: editingDefaults}" @click="editingDefaults = true">共享默认配置</button></div><CustomerFulfillmentSettings v-if="!editingDefaults" :key="normalizedCustomerId" :customer-id="normalizedCustomerId" embedded @settings-changed="handleSettingsChanged" /><FulfillmentDefaultsEditor v-else @saved="handleDefaultsSaved" /><button class="text-link" @click="openCapabilitySettings">前往客户能力与价格授权</button></aside></div>
 
     <div v-if="orderDetailDrawerOpen" class="order-detail-drawer-mask" @click.self="closeOrderDetailDrawer">
       <aside class="order-detail-drawer" aria-label="履约订单详情">
@@ -468,7 +393,7 @@
             <h4>订单信息</h4>
             <div class="detail-grid">
               <span>类型：{{ activeOrderSummary.order_type || '-' }}</span>
-              <span>来源：{{ activeOrderSummary.portal_service_code || '-' }}</span>
+              <span>来源：{{ businessLabel(activeOrderSummary.portal_service_code) }}</span>
               <span>负责人：{{ activeOrderSummary.responsible_name || '-' }}</span>
               <span>录入：{{ activeOrderSummary.created_by_employee || '-' }}</span>
               <span class="wide-item">备注：{{ activeOrderDetail?.notes || activeOrderSummary.notes || '-' }}</span>
@@ -525,6 +450,14 @@
 </template>
 
 <script setup>
+import { IconBook, IconRefresh, IconSettings, IconUsers, IconPlus, IconX } from '@tabler/icons-vue'
+import FulfillmentOperationsOverview from '../components/FulfillmentOperationsOverview.vue'
+import FulfillmentInventory from '../components/FulfillmentInventory.vue'
+import CustomerFulfillmentSettings from '../components/CustomerFulfillmentSettings.vue'
+import FulfillmentDefaultsEditor from '../components/FulfillmentDefaultsEditor.vue'
+import { useDialogFocus } from '../lib/dialog-focus.js'
+import { apiGet } from '../api/client'
+import { fulfillmentModuleTabs, fulfillmentBusinessLabel as businessLabel } from '../lib/fulfillment-operations.js'
 import {freightLabel} from '../lib/freight'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
 import OrderItemWeights from '../components/OrderItemWeights.vue'
@@ -586,6 +519,35 @@ const props = defineProps({
   customerContextLabel: { type: String, default: '' },
 })
 
+const moduleTabs = fulfillmentModuleTabs()
+const activeTab = ref('overview'), activeAction = ref(''), orderQueue = ref(''), orderSearch = ref('')
+const settingsDrawerOpen = ref(false), editingDefaults = ref(false), effectiveSettings = ref(null)
+const settingsDrawerElement=ref(null)
+useDialogFocus(settingsDrawerOpen,settingsDrawerElement,()=>{settingsDrawerOpen.value=false})
+const activeModule = computed(() => moduleTabs.find(tab => tab.key === activeTab.value) || moduleTabs[0])
+const actionTitles = { inventory: '调整托管库存', processing: '提交加工工单', directShip: '新建代发', settlement: '生成月结', import: '导入数据' }
+const moduleCanCreate = computed(() => ({inventory: workbenchSections.value.inventory, orders: workbenchSections.value.orders, dispatch: workbenchSections.value.directShip, fees: workbenchSections.value.settlement})[activeTab.value])
+const configurationCaption = computed(() => {
+ if (!effectiveSettings.value) return '配置摘要未加载'
+ const modes = (effectiveSettings.value.modes || []).filter(row => row.enabled)
+ if (!modes.length) return '尚未开启代发场景'
+ const count = modes.reduce((n, mode) => n + 5 - (mode.inherited_fields || []).length, 0)
+ return count ? `自定义 ${count} 项 · 其余跟随默认` : '使用默认配置'
+})
+const feeMetrics = computed(() => { const t=overview.value.operations || {}; return [
+ {label:'待结算',value:t.unsettled_fee_cents,hint:'未归入结算单的费用'},
+ {label:'待确认',value:t.draft_settlement_cents,hint:'草稿结算单'},
+ {label:'已确认待收',value:t.confirmed_settlement_cents,hint:'已确认的结算单'},
+ {label:'已结清',value:t.paid_settlement_cents,hint:'已收款的结算单'},
+]})
+const orderFilters = computed(() => activeTab.value === 'dispatch' ? [{key:'dispatch',label:'全部代发'},{key:'stock_waiting',label:'待备货'},{key:'pending_shipment',label:'待发货'},{key:'missing_recipient',label:'待补信息'}] : [{key:'',label:'全部订单'},{key:'pending_confirmation',label:'待确认'},{key:'pending_payment',label:'待收款'}])
+let customerLoadSequence = 0, orderLoadSequence = 0, orderDetailSequence = 0
+function changeTab(key) { activeTab.value=key; activeAction.value=''; if (['orders','dispatch'].includes(key)) {orderQueue.value=key === 'dispatch' ? 'dispatch' : ''; loadFulfillmentOrders(1)} }
+function openTodo(item) { activeTab.value=item.tab; activeAction.value=''; orderQueue.value=item.queue || ''; if(['orders','dispatch'].includes(item.tab)) loadFulfillmentOrders(1) }
+function setOrderQueue(queue) { orderQueue.value=queue; loadFulfillmentOrders(1) }
+function handleSettingsChanged(data) { if (Number(data.customerId) !== normalizedCustomerId.value) return; effectiveSettings.value = {...effectiveSettings.value, modes: data.modes}; if(data.saved) loadAll() }
+function handleDefaultsSaved() { loadAll() }
+function openCapabilitySettings() { window.dispatchEvent(new CustomEvent('kferp:navigate-view',{detail:{key:'customerPortalSettings',params:{customer_id:normalizedCustomerId.value},customerContext:{customerID:normalizedCustomerId.value,customerName:overview.value.customer_name || selectedCustomerLabel.value},returnNavigation:{key:'customerFulfillment',label:'返回履约运营台',params:{customer_id:normalizedCustomerId.value}}}})) }
 const customerId = ref(0)
 const customerOptions = ref([])
 const selectedImportType = ref('processing_workbook')
@@ -662,10 +624,10 @@ const invalidRowGroups = computed(() => groupInvalidImportRows(invalidRows.value
 const enabledCapabilities = computed(() => Array.isArray(overview.value?.capabilities) ? overview.value.capabilities : [])
 const workbenchSections = computed(() => customerFulfillmentWorkbenchSections(enabledCapabilities.value))
 const visibleImportTypes = computed(() => importTypeOptions(enabledCapabilities.value))
-const visibleImports = computed(() => visibleCustomerFulfillmentImports(imports.value, enabledCapabilities.value))
+const visibleImports = computed(() => imports.value)
 const submitCopy = computed(() => customerFulfillmentSubmitCopy(enabledCapabilities.value))
 const selectedParsedBatch = computed(() => latestParsedBatchForType(visibleImports.value, latestBatch.value, selectedImportType.value))
-const selectedParsedBatchId = computed(() => Number(selectedParsedBatch.value?.id || selectedParsedBatch.value?.batch_id || 0))
+const selectedParsedBatchId = computed(() => visibleImportTypes.value.some(o => o.value === selectedParsedBatch.value?.import_type) ? Number(selectedParsedBatch.value?.id || selectedParsedBatch.value?.batch_id || 0) : 0)
 const selectedParsedBatchLabel = computed(() => {
   const batch = selectedParsedBatch.value
   if (!batch) return ''
@@ -713,7 +675,7 @@ watch(selectedParsedBatchId, async () => {
 onMounted(async () => {
   await loadCustomerOptions()
   const params = new URL(window.location.href).searchParams
-  customerId.value = Number(props.customerContextId || params.get('customer_id') || 0)
+  customerId.value = Number(props.customerContextId || props.viewParams.customer_id || params.get('customer_id') || 0)
   if (customerId.value) await loadAll()
 })
 
@@ -733,6 +695,7 @@ async function loadCustomerOptions(query = '') {
 async function selectCustomer(customer) {
   customerId.value = Number(customer?.id || 0)
   fulfillmentOrdersPage.value = 1
+  resetCustomerWorkspace()
   closeOrderDetailDrawer()
   notifyWorkspaceCustomerChanged(customerId.value)
   if (customerId.value) await loadAll()
@@ -743,6 +706,7 @@ async function applyWorkspaceCustomerContext() {
   if (nextCustomerID <= 0 || nextCustomerID === Number(customerId.value || 0)) return
   customerId.value = nextCustomerID
   fulfillmentOrdersPage.value = 1
+  resetCustomerWorkspace()
   closeOrderDetailDrawer()
   await loadAll()
 }
@@ -757,30 +721,25 @@ watch(() => props.customerContextId, () => {
   applyWorkspaceCustomerContext()
 })
 
+function resetCustomerWorkspace() {
+ customerLoadSequence++; orderLoadSequence++; overview.value={}; imports.value=[]; fulfillmentOptions.value={}; fulfillmentOrders.value=[]; fulfillmentOrdersSummary.value={}; effectiveSettings.value=null
+ processingProductValue.value='';processingRawBeanValue.value='';Object.assign(processingForm,{product_id:0,product_name:'',raw_bean_item_id:0,raw_bean_name:'',input_quantity_g:'',planned_output_units:'',expected_date:'',note:''});adjustmentItemValue.value='';Object.assign(adjustment,{item_type:'raw_bean',item_name:'',spec:'',quantity_g_delta:0,quantity_units_delta:0,note:''})
+ activeTab.value='overview';activeAction.value='';orderQueue.value='';orderSearch.value='';settingsDrawerOpen.value=false;editingDefaults.value=false;latestBatch.value=null;latestSummary.value=null;selectedFile.value=null;invalidRows.value=[]
+}
 async function loadAll() {
-  if (!normalizedCustomerId.value) return
-  loading.value = true
-  fulfillmentOrdersLoading.value = true
-  error.value = ''
-  ok.value = ''
+  const id=normalizedCustomerId.value, sequence=++customerLoadSequence
+  if (!id) return
+  loading.value = true; error.value = ''; ok.value = ''
   try {
-    const [overviewData, importData, optionsData, orderData] = await Promise.all([
-      fetchCustomerFulfillmentOverview(normalizedCustomerId.value),
-      fetchCustomerFulfillmentImports(normalizedCustomerId.value),
-      fetchCustomerFulfillmentOptions(normalizedCustomerId.value),
-      loadFulfillmentOrdersData(normalizedCustomerId.value, fulfillmentOrdersPage.value),
+    const [overviewData, importData, optionsData, settingsData] = await Promise.all([
+      fetchCustomerFulfillmentOverview(id), fetchCustomerFulfillmentImports(id), fetchCustomerFulfillmentOptions(id), apiGet(`/api/customer-fulfillment/${id}/settings`).catch(() => null),
     ])
-    overview.value = overviewData || {}
-    fulfillmentOptions.value = optionsData || {}
-    rememberOverviewCustomer(overviewData)
-    imports.value = importData?.imports || overviewData?.imports || []
-    assignFulfillmentOrders(orderData)
-  } catch (err) {
-    error.value = err.message || '加载客户履约账户失败'
-  } finally {
-    loading.value = false
-    fulfillmentOrdersLoading.value = false
-  }
+    if (sequence!==customerLoadSequence || id!==normalizedCustomerId.value) return
+    overview.value=overviewData || {};fulfillmentOptions.value=optionsData || {};effectiveSettings.value=settingsData
+    rememberOverviewCustomer(overviewData);imports.value=importData?.imports || overviewData?.imports || []
+    if (['orders','dispatch'].includes(activeTab.value)) await loadFulfillmentOrders(fulfillmentOrdersPage.value)
+  } catch (err) { if(sequence===customerLoadSequence) error.value=err.message || '加载客户履约账户失败' }
+  finally { if(sequence===customerLoadSequence) loading.value=false }
 }
 
 async function parseImport() {
@@ -967,21 +926,17 @@ async function loadApplyPreview() {
   }
 }
 
-async function loadFulfillmentOrders(page = fulfillmentOrdersPage.value) {
-  if (!normalizedCustomerId.value) return
-  fulfillmentOrdersLoading.value = true
-  try {
-    const data = await loadFulfillmentOrdersData(normalizedCustomerId.value, page)
-    assignFulfillmentOrders(data)
-  } catch (err) {
-    error.value = err.message || '加载履约客户订单失败'
-  } finally {
-    fulfillmentOrdersLoading.value = false
-  }
+async function loadFulfillmentOrders(page=1) {
+ const id=normalizedCustomerId.value, sequence=++orderLoadSequence
+ if(!id)return
+ fulfillmentOrdersLoading.value=true;error.value=''
+ try { const data=await loadFulfillmentOrdersData(id,page);if(sequence===orderLoadSequence && id===normalizedCustomerId.value)assignFulfillmentOrders(data) }
+ catch(err){if(sequence===orderLoadSequence)error.value=err.message || '加载履约客户订单失败'}
+ finally{if(sequence===orderLoadSequence)fulfillmentOrdersLoading.value=false}
 }
 
 function loadFulfillmentOrdersData(customerId, page = 1) {
-  return fetchCustomerFulfillmentOrders(customerId, { page, limit: fulfillmentOrdersLimit.value })
+  return fetchCustomerFulfillmentOrders(customerId, { page, limit: fulfillmentOrdersLimit.value, q: orderSearch.value, queue: orderQueue.value })
 }
 
 function handleFulfillmentOrdersPagination({ page, pageSize }) {
@@ -1004,7 +959,7 @@ function assignFulfillmentOrders(data = {}) {
 }
 
 async function openFulfillmentOrderDetail(row) {
-  const orderId = Number(row?.id || 0)
+  const orderId = Number(row?.id || 0), customerID=normalizedCustomerId.value, sequence=++orderDetailSequence
   if (!orderId) return
   activeOrderSummary.value = { ...row }
   activeOrderDetail.value = null
@@ -1013,15 +968,17 @@ async function openFulfillmentOrderDetail(row) {
   orderDetailLoading.value = true
   try {
     const data = await fetchCustomerFulfillmentOrderDetail(orderId)
+    if(sequence!==orderDetailSequence || customerID!==normalizedCustomerId.value)return
     activeOrderDetail.value = data?.edit_data || null
   } catch (err) {
-    orderDetailError.value = err.message || '加载订单明细失败'
+    if(sequence===orderDetailSequence)orderDetailError.value = err.message || '加载订单明细失败'
   } finally {
-    orderDetailLoading.value = false
+    if(sequence===orderDetailSequence)orderDetailLoading.value = false
   }
 }
 
 function closeOrderDetailDrawer() {
+  orderDetailSequence++
   orderDetailDrawerOpen.value = false
   activeOrderSummary.value = null
   activeOrderDetail.value = null
@@ -1346,7 +1303,12 @@ function openManual() {
 
 async function refreshConfirmationOrder() { const id=activeOrderSummary.value?.id; await loadFulfillmentOrders(fulfillmentOrdersPage.value); if(id){ const row=fulfillmentOrders.value.find(row=>Number(row.id)===Number(id)); if(row) await openFulfillmentOrderDetail(row) } }
 let stopConfirmationRefresh
-onConfirmationMount(() => { stopConfirmationRefresh=visibleOrderRefresh(() => customerId.value ? loadFulfillmentOrders(fulfillmentOrdersPage.value) : undefined) })
+onConfirmationMount(() => { stopConfirmationRefresh=visibleOrderRefresh(async () => {
+ if(!normalizedCustomerId.value || loading.value)return
+ if(['orders','dispatch'].includes(activeTab.value))return loadFulfillmentOrders(fulfillmentOrdersPage.value)
+ const id=normalizedCustomerId.value,sequence=customerLoadSequence
+ try {const data=await fetchCustomerFulfillmentOverview(id);if(id===normalizedCustomerId.value && sequence===customerLoadSequence)overview.value=data || {}} catch { /* keep the last successful view; manual refresh exposes an error */ }
+}) })
 onConfirmationUnmount(() => stopConfirmationRefresh?.())
 </script>
 
@@ -2059,4 +2021,7 @@ td {
     align-items: stretch;
   }
 }
+/* Product Creator workspace surface: quiet hierarchy, stable modules, tables first. */
+.customer-fulfillment{padding:24px;background:#f7f9fb;color:#142033;gap:0;min-height:calc(100vh - 120px);box-sizing:border-box}.workspace-header{padding:4px 0 22px}.workspace-heading{display:flex;justify-content:space-between;gap:20px;align-items:center}.eyebrow{font-size:12px;color:#718097;margin:0 0 10px}.workspace-heading h2{font-size:27px;letter-spacing:-.7px;line-height:1.25;margin:0;color:#142033}.workspace-subtitle{font-size:14px;color:#718097;margin:10px 0 0}.head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.icon-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:12px}.customer-context{display:flex;align-items:end;gap:20px;margin-top:24px;flex-wrap:wrap}.customer-picker-field{width:300px;min-width:240px}.customer-picker-field>span{font-size:11px;color:#718097;margin-bottom:3px}.customer-service-tags{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:36px}.service-tag{border-radius:5px;padding:5px 8px;background:#e8f6ed;color:#278456;font-size:11px}.configuration-caption{font-size:11px;color:#718097;margin-left:5px}.module-tabs{display:flex;gap:26px;border-bottom:1px solid #e1e7ee;margin:0 0 4px}.module-tabs button{border:0;border-bottom:2px solid transparent;background:none;border-radius:0;color:#718097;padding:12px 4px;font-size:14px;min-width:50px}.module-tabs button.active{border-bottom-color:#278456;color:#278456;font-weight:650}.module-toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:24px 0 18px}.module-toolbar h3{font-size:20px;margin:0 0 7px}.module-toolbar p{font-size:12px;color:#718097;margin:0}.workspace-empty{display:flex;align-items:center;flex-direction:column;padding:100px 20px;color:#718097;text-align:center}.workspace-empty h3{font-size:18px;color:#142033;font-weight:600}.workspace-empty p{font-size:13px}.workspace-message{margin-top:16px}.readonly-notice{font-size:12px;color:#718097;background:#eef1f5;border-radius:7px;padding:12px;margin:0 0 16px}.panel{border-color:#e1e7ee;padding:20px;border-radius:10px}.primary{background:#278456;border-color:#278456}.secondary{color:#526174;border-color:#e1e7ee}.action-panel{margin:18px 0}.ops-grid{grid-template-columns:1fr}.ops-panel{background:#fff;border:0;padding:0}.ops-panel>h3{display:none}.grid-2{margin:18px 0 0;gap:16px}.grid-2:empty{display:none}.fulfillment-orders-panel{margin-top:18px;order:0}.fulfillment-orders-table th{background:#f7f9fb;font-weight:500;color:#718097}.fulfillment-orders-table td{border-color:#edf0f4;padding-top:16px;padding-bottom:16px}.order-link,.link-button,.text-link{color:#278456}.order-filters{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0;flex-wrap:wrap}.queue-tabs{display:flex;gap:4px;flex-wrap:wrap}.queue-tabs button{background:transparent;border:0;color:#718097;font-size:12px}.queue-tabs button.active{background:#e8f6ed;color:#278456}.order-search{display:flex;gap:6px}.order-search input{min-width:160px;font-size:12px}.fee-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.fee-summary-grid>div{background:#fff;border:1px solid #e1e7ee;border-radius:9px;padding:18px}.fee-summary-grid span{font-size:12px;color:#718097}.fee-summary-grid strong{display:block;font-size:23px;margin:14px 0;font-weight:600}.fee-summary-grid small{font-size:11px;color:#718097}td>small{display:block;color:#718097;font-size:11px;margin-top:5px}.fulfillment-settings-mask{position:fixed;inset:0;z-index:1000;background:#14203340;display:flex;justify-content:flex-end}.fulfillment-settings-drawer{width:min(660px,96vw);height:100%;background:white;padding:28px;box-sizing:border-box;overflow-y:auto;box-shadow:-8px 0 40px #14203312}.fulfillment-settings-drawer h3{margin:4px 0;font-size:23px}.fulfillment-settings-drawer .drawer-head{padding:0 0 18px;border-bottom:1px solid #e1e7ee}.fulfillment-settings-drawer .drawer-head p{margin:0;font-size:12px;color:#718097}.settings-intro{font-size:12px;color:#718097;line-height:1.8;margin:20px 0}.settings-switch{display:flex;background:#f7f9fb;border-radius:7px;padding:4px;gap:4px;margin-bottom:20px}.settings-switch button{flex:1;border:0;background:none;color:#718097;font-size:12px}.settings-switch .active{background:white;color:#278456;box-shadow:0 1px 3px #14203312}.text-link{background:none;border:0;margin-top:20px;padding:0;font-size:12px}button:focus-visible,input:focus-visible{outline:2px solid #278456;outline-offset:3px}@media(max-width:1000px){.workspace-heading,.module-toolbar{align-items:flex-start;flex-direction:column}.fee-summary-grid{grid-template-columns:repeat(2,1fr)}.grid-2{grid-template-columns:1fr}}@media(max-width:650px){.customer-fulfillment{padding:16px}.module-tabs{gap:12px}.customer-picker-field{width:100%}.workspace-heading h2{font-size:24px}.fulfillment-settings-drawer{padding:20px}}
+.fulfillment-orders-table{min-width:860px}.fulfillment-orders-table .amount-column{text-align:right;white-space:nowrap}.fulfillment-orders-table td{vertical-align:middle;padding-top:14px;padding-bottom:14px}.fulfillment-orders-table .receiver-cell{max-width:270px}.receiver-address{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:270px}.receiver-cell strong>span{font-weight:400;color:#718097;margin-left:6px}.order-status-label{display:inline-block;background:#f1f4f7;color:#526174;border-radius:4px;padding:4px 7px;font-size:11px;white-space:nowrap}.order-status-label.status-complete{color:#278456;background:#e8f6ed}.compact-order-actions{flex-wrap:nowrap;gap:12px}.cell-meta{margin-top:7px;font-size:11px;color:#718097}.fulfillment-orders-panel>.panel-head p{font-size:12px}.fulfillment-orders-panel>.panel-head h3{font-size:17px}.fulfillment-orders-panel{margin-top:10px}
 </style>

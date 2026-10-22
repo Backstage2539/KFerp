@@ -5230,21 +5230,12 @@ func (r *Repository) CreateSettlement(ctx context.Context, cmd app.CreateSettlem
 }
 
 func (r *Repository) Overview(ctx context.Context, query app.OverviewQuery) (app.Overview, error) {
-	// Internal operators may fulfill enabled customers without creating a
-	// customer login. Customer-facing portal APIs still require their binding.
-	var enabled bool
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(
- SELECT 1 FROM %[1]s.customers customer
- JOIN %[1]s.customer_portal_profiles profile ON profile.customer_id=customer.id AND profile.enabled=true
- WHERE customer.id=$1 AND customer.active=true AND EXISTS(
- SELECT 1 FROM %[1]s.customer_service_capabilities capability WHERE capability.customer_id=customer.id
- AND capability.enabled=true AND capability.capability_code IN ('direct_ship','processing','inventory_custody'))
- )`, r.schema), query.CustomerID).Scan(&enabled); err != nil {
+	// Internal reads remain available after a customer's capability is disabled.
+	// The HTTP employee guard and customer-id predicates still isolate data.
+	if _, err := r.resolveCustomerName(ctx, query.CustomerID); err != nil {
 		return app.Overview{}, err
 	}
-	if !enabled {
-		return app.Overview{}, fmt.Errorf("客户未启用履约服务或已停用")
-	}
+
 	var overview app.Overview
 	overview.CustomerID = query.CustomerID
 	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, r.schema), query.CustomerID).Scan(&overview.CustomerName)
@@ -5276,6 +5267,12 @@ func (r *Repository) Overview(ctx context.Context, query app.OverviewQuery) (app
 		return app.Overview{}, err
 	}
 	if overview.PriceLists, err = r.listCustomerPriceLists(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
+	if overview.Operations, err = r.fulfillmentOperations(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
+	if overview.Assets, err = r.ListCustomerAssetInventory(ctx, app.CustomerAssetInventoryQuery{CustomerID: query.CustomerID}); err != nil {
 		return app.Overview{}, err
 	}
 	return overview, nil
@@ -5480,7 +5477,7 @@ func (r *Repository) listDirectShipOrders(ctx context.Context, customerID int64)
 
 func (r *Repository) listFeeItems(ctx context.Context, customerID int64) ([]app.FeeItemSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT fee_type, note, ROUND(amount * 100)::bigint, source_type
+		SELECT fee_type, note, ROUND(amount * 100)::bigint, source_type, id, source_id, status, settlement_batch_id, to_char(occurred_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.customer_fee_items
 		WHERE customer_id=$1
 		ORDER BY occurred_at DESC, id DESC
@@ -5493,7 +5490,7 @@ func (r *Repository) listFeeItems(ctx context.Context, customerID int64) ([]app.
 	out := make([]app.FeeItemSummary, 0)
 	for rows.Next() {
 		var row app.FeeItemSummary
-		if err := rows.Scan(&row.FeeType, &row.FeeName, &row.AmountCents, &row.Source); err != nil {
+		if err := rows.Scan(&row.FeeType, &row.FeeName, &row.AmountCents, &row.Source, &row.ID, &row.SourceID, &row.Status, &row.SettlementBatchID, &row.OccurredAt); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
