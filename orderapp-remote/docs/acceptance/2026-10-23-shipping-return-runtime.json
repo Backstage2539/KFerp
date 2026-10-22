@@ -1,0 +1,19 @@
+{
+  "unauthenticated_app": 303,
+  "unauthenticated_redirect": "https://dev.qacoohee.com/app/orders",
+  "unauthenticated_return_api": 401,
+  "authenticated_orders_shell": 200,
+  "requirement_api": 200,
+  "PR_717_visible": true,
+  "manual": 200,
+  "manual_marker": true,
+  "template_endpoint": 200,
+  "template_count": 1,
+  "default_tracking_column": "C",
+  "default_amount_column": "S",
+  "source_release_commit": "dccaa17a46964e6d148c6ad14b8c0d2aca3b2e0a",
+  "container_running": true,
+  "container_image": "sha256:ae849276f77c4cd699c383203f7f5cb2c219e88480a2f62f009a2fd2a21e9850",
+  "container_started_at": "2026-10-22T17:15:05.555848055Z",
+  "orders_bundle": "/app/frontend-vue-shell/dist/assets/OrdersView-WsiRjY2i.js"
+}

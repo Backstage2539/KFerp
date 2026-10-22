@@ -41,5 +41,22 @@
 
 - `docs/OP_MANUAL_SHIPPING_RETURN.md`；订单手册及总索引已更新。
 - PR-717-SHIPPING-RETURN：review；DEV-717-01/02/03：done。
-- 开发环境部署和运行版本：待部署后补录。
+- 开发环境已部署并完成只读检查，版本与回滚位置见下方。
 - 正式环境与真实业务验收不在本次自动执行范围内。
+
+## 开发环境部署证据
+
+- 功能分支：`codex/shipping-return-import-20261023`，功能及收款边界修正均已推送；本记录为部署后的证据补充。
+- 已合并并推送的 `origin/develop` / 部署代码版本：`dccaa17a46964e6d148c6ad14b8c0d2aca3b2e0a`。
+- 在独立干净 develop checkout 中执行：`KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh development`。
+- 部署时间：2026-10-23 北京时间；仅更新开发应用。服务器端 Vue 1,512 项测试、构建、Go 全包测试、镜像构建及内外部就绪检查通过。
+- 开发入口：`https://dev.qacoohee.com/app/vue-shell/?view=orders`。
+- 原源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20261023010512-dccaa17a4696`。
+- 回滚镜像：`kferp-orderapp-rollback:development-20261023010512-dccaa17a4696`。
+- 运行容器镜像：`sha256:ae849276f77c4cd699c383203f7f5cb2c219e88480a2f62f009a2fd2a21e9850`，与本次构建产物一致。
+- 运行界面文件：`OrdersView-WsiRjY2i.js` 含 `shipping-return-selection`；同批构建的 RELEASE_INFO 标识上述代码版本。
+- 无认证 `/app/` 返回 303 到 `/app/orders`（当前入口路由行为）；无认证回传模板 API 返回 401。
+- 认证后的订单 Vue 页面、模板 API、手册、产品需求 API 均 200；PR-717 可见；预置模板确认为 C 单号 / S 金额。
+- 原始检查摘要见同目录 `2026-10-23-shipping-return-runtime.json`。
+- 清理的内容仅为可重新生成的 Go/Docker 构建缓存及无标签闲置镜像；数据库、业务文件、原源码及回滚镜像保留。部署后可用空间约 3.1GB。
+- 未导入用户真实 Excel、未进行真实订单发货验收、未部署正式环境。PR 继续 review，待 Van 验收。

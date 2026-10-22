@@ -6053,8 +6053,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-717-shipping-return-import
 - Branch: codex/shipping-return-import-20261023
-- Status: verified; development deployment pending; Van business acceptance pending
+- Status: delivered to development; Van business acceptance pending (PR review)
 - Scope: 可配置寄件回传、隐藏收件信息匹配、持久候选选择、统一实际运费确认
 - Verifier: Go domain/API/PostgreSQL GREEN; all Go packages; 1512 Vue tests and production build GREEN; local mock UI checked
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-shipping-return.md
-- Deployment: development pending
+- Deployment: development dccaa17a46964e6d148c6ad14b8c0d2aca3b2e0a via KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh development; read-only shell/template/manual/PR checks 200, anonymous API 401; backup /opt/stacks/erp/orderapp.backup.deploy-20261023010512-dccaa17a4696; no production deployment or real workbook import
