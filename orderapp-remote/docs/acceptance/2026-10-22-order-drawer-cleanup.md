@@ -1,6 +1,6 @@
 # PR-714 订单详情布局修正
 
-状态：实现、开发集成与开发环境发布核验通过；Van 业务验收待完成。生产尚未发布。
+状态：实现、开发集成、开发及正式环境发布核验通过；Van 业务验收待完成。
 
 ## 范围与结果
 
@@ -35,3 +35,16 @@
 - 回滚源码：/opt/stacks/erp/orderapp.backup.deploy-20261022202604-05692ae0da24；回滚镜像：kferp-orderapp-rollback:development-20261022202604-05692ae0da24。
 - 生产应用启动时间/镜像与发布前相同；入口配置原已一致，未修改。两套数据库健康；未保存真实业务订单。只尝试清理24小时前可重建Docker构建缓存，回收0B，未删除镜像/卷/数据。
 - 原始日志：outputs/order-drawer-cleanup-20261022/deploy.log、runtime-smoke.json、production-before.txt。未导出本地小程序包，未上传微信。本文发布后回执为文档提交，运行代码身份以05692ae0为准。
+
+## 正式发布回执
+
+- Van 明确授权将三处修复合入 main 并部署正式环境；发布分支以 main9cfc97c0 为基线，仅带入对应修复、测试和手册，main 既有 BOM/业务保护保留。
+- PR #244：https://github.com/Backstage2539/KFerp/pull/244；main/正式运行提交08a352704fcc9f3704345cdc0d312e0e18d638e9。
+- KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production，退出0。合并前本机前端1498项、构建和全量Go通过；服务器Vue1498、miniapp425、typecheck、24页产物、全量Go和镜像内Go全部通过。
+- 2026-10-22 20:58:46 Asia/Shanghai 正式应用启动，restart_count0；镜像sha256:ec163a32f6f47111ff334bbb17ecc237ac9ee573753067105fccae1864e71a01。
+- 正式登录/订单shell/已认证需求API和两份手册HTTP200，未认证保护API401。DEV-ORDER-DRAWER-CLEANUP可见；公开main、OrdersView和OrderEntryView JS与容器字节一致，费用去重标记存在、workflow-save标记消失。
+- 正式ERP新标签页只读查看原订单117：寄件人为“跟随本次寄件人：营业部”，A区域仅一份费用明细，服务费3元、预估10.10元，底部唯一“保存订单”。未点击保存、核算、取消、增删或更换商品；原115/117的收件信息、明细、费用与版本摘要哈希在部署前后相同。
+- 开发应用启动时间未变，两套数据库健康。服务器仅在发布锁内清理可重建Docker构建缓存，释放2.986GB，未删除业务数据、镜像或卷。
+- 回滚源码：/opt/stacks/erp-production/orderapp.backup.deploy-20261022205007-08a352704fcc；回滚镜像：kferp-orderapp-rollback:production-20261022205007-08a352704fcc。
+- 证据：production-deploy.log、production-runtime-smoke.json、production-orders-before.json、production-orders-after.json、production-bottom-save.png，均在outputs/order-drawer-cleanup-20261022/。截图和原始运行证据保留本机，不提交业务数据。
+- 未导出本地小程序包、未上传/发布微信。本文发布后回执为文档提交，正式运行代码身份以08a35270为准。Van业务验收另记。
