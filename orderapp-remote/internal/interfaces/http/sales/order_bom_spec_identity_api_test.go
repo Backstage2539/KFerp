@@ -262,13 +262,15 @@ func TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWitho
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
 		ALTER TABLE %[1]s.order_items ADD COLUMN customer_product_reference_id BIGINT, ADD COLUMN material_source_mode TEXT;
 		ALTER TABLE %[1]s.orders ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'ship', ADD COLUMN delivery_warehouse_code TEXT NOT NULL DEFAULT '', ADD COLUMN delivery_status TEXT NOT NULL DEFAULT '', ADD COLUMN fulfillment_mode TEXT NOT NULL DEFAULT '';
-		DELETE FROM %[1]s.legacy_child_sku_bom_spec_mappings WHERE parent_product_id=7;
+        ALTER TABLE %[1]s.production_bom_version_variants ADD COLUMN logistics_weight_g NUMERIC(20,6);
+        UPDATE %[1]s.production_bom_version_variants SET logistics_weight_g=227;
+        DELETE FROM %[1]s.legacy_child_sku_bom_spec_mappings WHERE parent_product_id=7;
 		UPDATE %[1]s.customers SET default_order_type_id=1 WHERE id=3;
 		INSERT INTO %[1]s.bean_list_publications(
 			id,list_type,publication_purpose,version_no,status,owner_type,owner_key,
 			config_json,content_json,changelog,actor,published_at
 		) VALUES (9301,'commercial','factory_supply','SPEC-PRICE-V1','published','official','','{}'::jsonb,
-			'{"price_rows":[{"product_id":7,"parent_product_id":7,"bom_spec_id":9001,"bom_variant_id":9101,"tier_label":"1袋+","min_qty":1,"final_unit_price":79,"price_unit":"袋","inventory_unit":"袋","quantity_basis":"sales_spec_count"}]}'::jsonb,
+			'{"price_rows":[{"product_id":7,"parent_product_id":7,"bom_spec_id":9001,"bom_variant_id":9101,"tier_label":"1袋+","min_qty":1,"final_unit_price":79,"price_unit":"袋","inventory_unit":"袋","quantity_basis":"sales_spec_count","effective_sales_spec":{"bom_spec_id":9001,"bom_variant_id":9101,"inventory_unit":"袋","spec_name":"原版227g袋装"}}]}'::jsonb,
 			'新BOM规格发布价','测试员','2026-08-17 09:00:00+08');
 		UPDATE %[1]s.production_bom_versions SET status='archived' WHERE id=8101;
 		INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status) VALUES (8102,8001,'V002','published');
@@ -276,11 +278,12 @@ func TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWitho
 			id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order
 		) VALUES (9201,8102,9001,'227g 袋装','袋',true,1),
 		         (9202,8102,9002,'454g 袋装','袋',false,2);
+		UPDATE %[1]s.production_bom_version_variants SET logistics_weight_g=260 WHERE id IN (9201,9202);
 		UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=8102 WHERE output_type='product' AND output_id=7 AND is_default=true;
 	`, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
-	formReq := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
+	formReq := httptest.NewRequest(http.MethodGet, "/api/order/catalog?customer_id=3&selected_price_table_ids=9301", nil)
 	formRec := httptest.NewRecorder()
 	e.ServeHTTP(formRec, formReq)
 	if formRec.Code != http.StatusOK {
@@ -332,6 +335,18 @@ func TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWitho
 			t.Fatalf("canonical published price source missing %s: %s", want, priceSource)
 		}
 	}
+	var frozen map[string]any
+	if err := json.Unmarshal([]byte(priceSource), &frozen); err != nil {
+		t.Fatal(err)
+	}
+	effective, ok := frozen["effective_sales_spec"].(map[string]any)
+	if !ok || effective["bom_variant_id"] != float64(9101) {
+		t.Fatalf("published snapshot rewritten: %s", priceSource)
+	}
+	var logistics float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT logistics_unit_weight_g::float8 FROM %s.order_items ORDER BY id DESC LIMIT 1`, schema)).Scan(&logistics); err != nil || logistics != 260 {
+		t.Fatalf("new order weight=%v err=%v", logistics, err)
+	}
 	// A manual tier selects a row in the immutable price publication, whose
 	// historical variant stays in the row key. The submitted manufacturing
 	// variant must independently be the current published BOM variant.
@@ -361,13 +376,24 @@ func TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWitho
 	if productID != 7 || bomSpecID != 9001 || bomVariantID != 9201 || unitPrice != 79 || lineTotal != 158 || selectedSource["price_selection_mode"] != "tier" || selectedSource["selected_price_row_key"] != publishedRowKey {
 		t.Fatalf("manual tier lost canonical identity or published key: %d/%d/%d %.2f %.2f %s", productID, bomSpecID, bomVariantID, unitPrice, lineTotal, priceSource)
 	}
+	// A row key rewritten to the current variant is not a published quote.
+	payload["selected_price_row_key"] = []string{orderbeans.PublishedPriceRowKey(9301, "commercial", 7, 9001, 9201, "flat", 0)}
+	body, _ = json.Marshal(payload)
+	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("forged row key accepted: %d %s", rec.Code, rec.Body.String())
+	}
+	payload["selected_price_row_key"] = []string{publishedRowKey}
 	payload["bom_variant_id"] = []string{"9101"}
 	body, _ = json.Marshal(payload)
 	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "BOM spec") {
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "bom_configuration_updated") {
 		t.Fatalf("stale explicit variant status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var saved int

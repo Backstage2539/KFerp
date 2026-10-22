@@ -23,7 +23,7 @@ func TestFilterOrderBeanListVersionOptionsToCurrentProductCatalogTypes(t *testin
 	}
 }
 
-func TestCutoverBOMSpecPublicationTiersUseParentAndExactSpecIdentity(t *testing.T) {
+func TestCutoverBOMSpecPublicationTiersUseParentAndStableSpecIdentity(t *testing.T) {
 	option := salesapp.ProductBOMSpecOption{
 		ParentProductID: 1063,
 		BomSpecID:       7,
@@ -40,8 +40,8 @@ func TestCutoverBOMSpecPublicationTiersUseParentAndExactSpecIdentity(t *testing.
 		{ID: 4, EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(7)}},
 	}
 	got := orderBOMSpecPublicationTiers(option, tiers)
-	if len(got) != 1 || got[0].ID != 2 {
-		t.Fatalf("cutover BOM spec tiers = %+v, want exact spec 7 / variant 422 only", got)
+	if len(got) != 2 || got[0].ID != 2 || got[1].ID != 4 {
+		t.Fatalf("cutover BOM spec tiers = %+v, want stable spec 7 only", got)
 	}
 }
 
@@ -1217,5 +1217,17 @@ func TestOrderBeanListPublicationResolverRejectsCustomerResalePurpose(t *testing
 	}
 	if count := strings.Count(text[start:end], "publication_purpose='factory_supply'"); count < 4 {
 		t.Fatalf("order bean-list resolver must require factory_supply for explicit, fixed, customer and official publication selection; filter count=%d", count)
+	}
+}
+
+func TestBOMSpecPublicationSurvivesManufacturingVersionChange(t *testing.T) {
+	option := salesapp.ProductBOMSpecOption{ParentProductID: 58, BomSpecID: 69, BomVariantID: 1206, MigrationState: "cutover", InventoryUnit: "袋"}
+	tiers := []salesapp.ProductTierOption{{ID: 1, PublicationID: 172, UnitPrice: 63, EffectiveSalesSpec: map[string]any{"product_id": float64(58), "bom_spec_id": float64(69), "bom_variant_id": float64(1167), "inventory_unit": "袋"}}, {ID: 2, PublicationID: 172, UnitPrice: 51, EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(68), "bom_variant_id": float64(1166)}}}
+	got := orderBOMSpecPublicationTiers(option, tiers)
+	if len(got) != 1 || got[0].ID != 1 {
+		t.Fatalf("stable published spec lost after BOM update: %+v", got)
+	}
+	if got[0].EffectiveSalesSpec["bom_variant_id"] != float64(1167) {
+		t.Fatal("published snapshot rewritten")
 	}
 }

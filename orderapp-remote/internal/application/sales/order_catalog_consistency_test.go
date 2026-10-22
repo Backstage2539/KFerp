@@ -51,3 +51,15 @@ func TestOrderCatalogReadDoesNotReplaceRemovedNamedTableWithAnotherTable(t *test
 		t.Fatal("removed named table must require a manual choice, not silently load another table")
 	}
 }
+
+func TestPublishedCatalogKeepsStableSpecAcrossBOMVersions(t *testing.T) {
+	option := ProductBOMSpecOption{ParentProductID: 58, BomSpecID: 69, BomVariantID: 1206, InventoryUnit: "袋"}
+	tier := ProductTierOption{BomSpecID: 69, BomVariantID: 1167, EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(69), "bom_variant_id": float64(1167), "inventory_unit": "袋"}}
+	if !OrderTierMatchesBOMSpec(tier, option) {
+		t.Fatal("published price must follow stable spec, not manufacturing variant")
+	}
+	tier.EffectiveSalesSpec["inventory_unit"] = "盒"
+	if OrderTierMatchesBOMSpec(tier, option) {
+		t.Fatal("incompatible unit inherited price")
+	}
+}

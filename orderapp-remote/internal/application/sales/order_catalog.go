@@ -158,14 +158,17 @@ func OrderTierMatchesBOMSpec(tier ProductTierOption, option ProductBOMSpecOption
 			spec = source.EffectiveSalesSpec
 		}
 	}
-	specID, variantID := tier.BomSpecID, tier.BomVariantID
+	specID := tier.BomSpecID
 	if specID <= 0 {
 		specID = orderFamilyAnyInt64(spec["bom_spec_id"])
 	}
-	if variantID <= 0 {
-		variantID = orderFamilyAnyInt64(spec["bom_variant_id"])
+	// Price identity survives manufacturing revisions. The current variant is
+	// validated separately when saving; the published snapshot stays immutable.
+	unit, _ := spec["inventory_unit"].(string)
+	if unit == "" {
+		unit, _ = spec["sales_unit"].(string)
 	}
-	return specID == option.BomSpecID && (variantID <= 0 || option.BomVariantID <= 0 || variantID == option.BomVariantID)
+	return specID == option.BomSpecID && (unit == "" || option.InventoryUnit == "" || strings.EqualFold(unit, option.InventoryUnit))
 }
 
 type orderBOMSpecFamilyState struct {

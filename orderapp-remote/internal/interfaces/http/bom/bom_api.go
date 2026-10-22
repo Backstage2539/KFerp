@@ -324,6 +324,34 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		return c.JSON(http.StatusOK, row)
 	})
 
+	e.GET("/api/production-bom-spec-template-versions/:id/rollout-preview", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid spec_template_version_id"})
+		}
+		result, err := bomSvc.PreviewSpecTemplateRollout(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+	e.POST("/api/production-bom-spec-template-versions/:id/rollout", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid spec_template_version_id"})
+		}
+		var req bomapp.TemplateRolloutCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		req.VersionID, req.Actor = id, support.ActorOf(c)
+		result, err := bomSvc.ApplySpecTemplateRollout(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.POST("/api/production-bom-spec-template-versions/:id/publish", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {

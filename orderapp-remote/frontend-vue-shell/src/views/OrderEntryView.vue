@@ -544,6 +544,7 @@
       </div>
       <details class="manual">
         <summary>录单手册</summary>
+        <p>售价和数量档位沿用所选已发布价格表；生产配置、物流重量使用当前 BOM。更新配方、成本或重量不需要重新发布价格表。新增规格或改变库存单位需单独发布报价，删除规格不可新下单。若保存时配置已更新，系统刷新规格及运费，请核对后再次保存。</p>
         <ul>
           <li>已有订单在详情顶部核对收件信息及付款与交付，在最底部点击“保存订单”保存全部修改。代发费用统一在上方“订单状态与费用明细”查看，重新核算后同步更新。订单地址是本单快照，修改客户档案不会覆盖。</li>
           <li>整单免费样品自动显示“无需收款”，不用填写收款方式或凭证。仅收运费时货款填 0，按实际运费登记并上传凭证；免费改收费先保存费用，再登记实际收款。</li>
@@ -3112,7 +3113,11 @@ async function save(options = {}) {
     if (props.customerPortal) {form.customer_request_id='';emit('saved',data);return}
     if (!props.embedded && data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {
-    raiseSaveError(err.message || '保存失败')
+    if (!props.customerPortal && String(err.message || '').includes('bom_configuration_updated')) {
+      const refreshed = await refreshStaffOrderCatalog()
+      if (refreshed) { await nextTick(); await freightEstimator.value?.preview() }
+      raiseSaveError(refreshed ? '商品生产配置已更新，已刷新规格及运费。商品、数量和报价选择已保留，请核对后重新保存。' : '商品生产配置已更新，目录刷新失败，请刷新后核对规格及运费再保存。')
+    } else raiseSaveError(err.message || '保存失败')
   } finally {
     saving.value = false
   }

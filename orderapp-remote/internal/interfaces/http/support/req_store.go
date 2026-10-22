@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-715-SPEC-TEMPLATE-ROLLOUT", title: "规格模板差异下发与报价、BOM 版本解耦", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-spec-template-rollout.md"},
+		{table: "req_dev", code: "DEV-839-TEMPLATE-ROLLOUT", title: "PR-715 三方差异、逐 BOM 原子发布、并发保护与日志", status: "done", assignee: "Codex", evidence: "isolated PostgreSQL merge/rollback/concurrency tests"},
+		{table: "req_dev", code: "DEV-840-STABLE-SPEC-QUOTE", title: "PR-715 稳定规格原报价与当前生产版本、物流重量", status: "done", assignee: "Codex", evidence: "isolated PostgreSQL order API and snapshot tests"},
+		{table: "req_dev", code: "DEV-841-ROLLOUT-UI", title: "PR-715 下发清单、部分成功重试与录单刷新提示", status: "done", assignee: "Codex", evidence: "Vue runtime and employee miniapp tests"},
+		{table: "req_dev", code: "DEV-842-ROLLOUT-DELIVERY", title: "PR-715 手册、开发环境部署与运行核验", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-22-spec-template-rollout.md"},
 		{table: "req_dev", code: "DEV-ORDER-DRAWER-CLEANUP", title: "PR-714 寄件人刷新显示、底部统一保存及费用摘要去重", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-22-order-drawer-cleanup.md"},
 		{table: "req_product", code: "PR-714-FULFILLMENT-FULL-EDIT", title: "生产ERP完整代发编辑、库存权益及原版本运费", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-fulfillment-full-edit.md"},
 		{table: "req_dev", code: "DEV-835-FULFILLMENT-EDITOR", title: "PR-714 统一订单表单与首次弹窗渲染、保存关闭及真实DOM回归", status: "done", assignee: "Codex", evidence: "Vue actual parent-child DOM RED-GREEN"},
