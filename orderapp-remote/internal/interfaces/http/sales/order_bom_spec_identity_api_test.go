@@ -258,7 +258,10 @@ func TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWitho
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
 	seedOrderAPIBOMSpecIdentity(t, ctx, pool, schema)
+	seedConfirmationExecutionFixtures(t, ctx, pool, schema)
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %[1]s.order_items ADD COLUMN customer_product_reference_id BIGINT, ADD COLUMN material_source_mode TEXT;
+		ALTER TABLE %[1]s.orders ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'ship', ADD COLUMN delivery_warehouse_code TEXT NOT NULL DEFAULT '', ADD COLUMN delivery_status TEXT NOT NULL DEFAULT '', ADD COLUMN fulfillment_mode TEXT NOT NULL DEFAULT '';
 		DELETE FROM %[1]s.legacy_child_sku_bom_spec_mappings WHERE parent_product_id=7;
 		UPDATE %[1]s.customers SET default_order_type_id=1 WHERE id=3;
 		INSERT INTO %[1]s.bean_list_publications(
@@ -329,6 +332,35 @@ func TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWitho
 			t.Fatalf("canonical published price source missing %s: %s", want, priceSource)
 		}
 	}
+	// A manual tier selects a row in the immutable price publication, whose
+	// historical variant stays in the row key. The submitted manufacturing
+	// variant must independently be the current published BOM variant.
+	publishedRowKey := orderbeans.PublishedPriceRowKey(9301, "commercial", 7, 9001, 9101, "flat", 0)
+	payload["bom_variant_id"] = []string{"9201"}
+	payload["price_selection_mode"] = []string{"tier"}
+	payload["selected_price_row_key"] = []string{publishedRowKey}
+	payload["item_bean_list_publication_id"] = []string{"9301"}
+	body, _ = json.Marshal(payload)
+	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("manual published tier with current variant status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT product_id,bom_spec_id,bom_variant_id,unit_price::float8,line_total::float8,price_source_json::text
+		FROM %s.order_items ORDER BY id DESC LIMIT 1
+	`, schema)).Scan(&productID, &bomSpecID, &bomVariantID, &unitPrice, &lineTotal, &priceSource); err != nil {
+		t.Fatal(err)
+	}
+	var selectedSource map[string]any
+	if err := json.Unmarshal([]byte(priceSource), &selectedSource); err != nil {
+		t.Fatal(err)
+	}
+	if productID != 7 || bomSpecID != 9001 || bomVariantID != 9201 || unitPrice != 79 || lineTotal != 158 || selectedSource["price_selection_mode"] != "tier" || selectedSource["selected_price_row_key"] != publishedRowKey {
+		t.Fatalf("manual tier lost canonical identity or published key: %d/%d/%d %.2f %.2f %s", productID, bomSpecID, bomVariantID, unitPrice, lineTotal, priceSource)
+	}
 	payload["bom_variant_id"] = []string{"9101"}
 	body, _ = json.Marshal(payload)
 	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
@@ -337,6 +369,10 @@ func TestOrderAPICutoverProductUsesCanonicalPublishedPriceAcrossBOMVersionsWitho
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "BOM spec") {
 		t.Fatalf("stale explicit variant status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var saved int
+	if err := pool.QueryRow(ctx, fmt.Sprintf("SELECT count(*) FROM %s.orders", schema)).Scan(&saved); err != nil || saved != 2 {
+		t.Fatalf("stale variant wrote an order: count=%d err=%v", saved, err)
 	}
 }
 

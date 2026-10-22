@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-713-FULFILLMENT-RECIPIENT-EDIT", title: "代发订单地址独立编辑及客户报价规格版本兼容", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-fulfillment-recipient-edit.md"},
+		{table: "req_dev", code: "DEV-832-RECIPIENT-TRANSACTION", title: "PR-713 收件信息专用事务、权限、版本冲突与操作日志", status: "done", assignee: "Codex", evidence: "isolated PostgreSQL HTTP/audit/concurrency RED-GREEN"},
+		{table: "req_dev", code: "DEV-833-RECIPIENT-EDITOR", title: "PR-713 代发订单收件信息独立编辑，原商品计价与库存保持", status: "done", assignee: "Codex", evidence: "Vue editor and recipient PATCH runtime RED-GREEN"},
+		{table: "req_dev", code: "DEV-834-QUOTE-SPEC-IDENTITY", title: "PR-713 同一BOM规格制造版本更新保留授权客户报价", status: "done", assignee: "Codex", evidence: "customer quote variant RED-GREEN; product/customer/spec isolation"},
 		{table: "req_product", code: "PR-712-MINIAPP-NAVIGATION-DEDUP", title: "客户小程序入口去重与导航整改", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-miniapp-navigation-dedup.md"},
 		{table: "req_dev", code: "DEV-829-HOME-DEDUP", title: "PR-712 首页摘要价格表及个人中心重复操作去重", status: "done", assignee: "Codex", evidence: "miniapp actual home rendering RED/GREEN"},
 		{table: "req_dev", code: "DEV-830-NAVIGATION", title: "PR-712 代加工发货入口、关联订单及底栏权限导航修复", status: "done", assignee: "Codex", evidence: "miniapp navigation runtime RED/GREEN"},

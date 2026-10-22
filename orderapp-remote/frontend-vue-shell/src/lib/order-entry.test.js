@@ -28,6 +28,61 @@ test('customer references retain their own published BOM spec quotes when combin
     assert.equal(selected[0].specs.find(s => s.bom_spec_id === 7).tiers.length, 0)
   }
 })
+
+test('customer quotes survive BOM manufacturing revisions without borrowing other customer, product, or specification prices', () => {
+  const parentID = 7100
+  const specID = 7101
+  const previousVariantID = 8101
+  const currentVariantID = 9101
+  const family = (customerID, publicationID, price) => ({
+    parent_product_id: parentID,
+    customer_id: customerID,
+    name: `客户 ${customerID} 商品`,
+    visibility: 'customer_reference',
+    specs: [{
+      sku_id: parentID,
+      tiers: [{
+        publication_id: publicationID,
+        quantity_basis: 'sales_spec_count',
+        unit_price: price,
+        effective_sales_spec: {
+          parent_product_id: parentID,
+          product_id: parentID,
+          bom_spec_id: specID,
+          bom_variant_id: previousVariantID,
+          spec_name: '227g袋装',
+          inventory_unit: '袋',
+        },
+      }],
+    }],
+  })
+  const sourceFamilies = [family(300, 501, 31), family(301, 502, 41)]
+  const publicTier = { publication_id: 500, quantity_basis: 'sales_spec_count', unit_price: 21 }
+  const currentOptions = [
+    { parent_product_id: parentID, bom_spec_id: specID, bom_variant_id: currentVariantID, spec_name: '227g袋装' },
+    { parent_product_id: parentID, bom_spec_id: specID + 1, bom_variant_id: currentVariantID + 1, spec_name: '454g袋装' },
+    { parent_product_id: parentID + 100, bom_spec_id: specID + 100, bom_variant_id: currentVariantID + 100, spec_name: '其他商品规格' },
+  ].map(option => ({ ...option, owner_customer_id: 0, migration_state: 'cutover', inventory_unit: '袋', tiers: [publicTier] }))
+  const families = normalizeOrderProductFamilies(sourceFamilies, [], currentOptions)
+
+  for (const [customerID, publicationID, price] of [[300, 501, 31], [301, 502, 41]]) {
+    const selected = filterProductsForCustomer(families, customerID, { commercial: publicationID })
+    assert.equal(selected.length, 1)
+    const family = selected[0]
+    const spec = orderFamilySpecForStoredItem(family, { product_id: parentID, bom_spec_id: specID }, publicationID)
+    assert.ok(spec, 'the published specification remains priced after its manufacturing variant changes')
+    assert.equal(spec.bom_variant_id, currentVariantID)
+    assert.deepEqual(spec.tiers.map(tier => [tier.publication_id, tier.unit_price]), [[publicationID, price]])
+    assert.equal(spec.tiers[0].effective_sales_spec.bom_variant_id, previousVariantID, 'retain the frozen published price source')
+    assert.deepEqual(orderFamilySpecOptions(family, publicationID).map(option => option.value), [String(specID)])
+    assert.equal(orderFamilySpecForStoredItem(family, { bom_spec_id: specID + 1 }, publicationID), null)
+    assert.equal(family.specs.find(spec => spec.bom_spec_id === specID + 1).tiers.length, 0)
+    assert.equal(family.specs.some(spec => spec.bom_spec_id === specID + 100), false)
+    assert.equal(orderFamilySpecsForPublication(family, customerID === 300 ? 502 : 501).length, 0)
+    assert.equal(orderFamilySpecsForPublication(family, 500).length, 0)
+  }
+  assert.equal(sourceFamilies[0].specs[0].tiers[0].effective_sales_spec.bom_variant_id, previousVariantID)
+})
 import { buildProductCatalogTemplatePriceListTypeOptions } from './product-price-list-types.js'
 import {
   activeBeanListPublicationIDsByType,

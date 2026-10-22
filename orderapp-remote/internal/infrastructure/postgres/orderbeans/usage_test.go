@@ -1008,3 +1008,57 @@ func TestPublishedSnapshotTierPricingAllowsEmployeeCrossThresholdButKeepsRowIden
 		t.Fatal("row key from another specification must not be accepted")
 	}
 }
+
+func TestPublishedSnapshotTierPricingMatchesStableBOMSpecAcrossManufacturingVersions(t *testing.T) {
+	const publicationID, productID, specID, publishedVariantID, currentVariantID = int64(91), int64(10), int64(20), int64(30), int64(130)
+	for _, tc := range []struct {
+		name string
+		raw  string
+		key  string
+	}{
+		{
+			name: "flat",
+			raw:  `{"price_rows":[{"product_id":10,"bom_spec_id":20,"bom_variant_id":30,"template_tier_id":44,"tier_label":"C","min_qty":10,"final_unit_price":57.25,"price_unit":"袋","inventory_unit":"袋","quantity_basis":"sales_spec_count"}]}`,
+			key:  PublishedPriceRowKey(publicationID, ListTypeCommercial, productID, specID, publishedVariantID, "flat", 0),
+		},
+		{
+			name: "group",
+			raw:  `{"groups":[{"items":[{"product_id":10,"bom_spec_id":20,"bom_variant_id":30,"commercial_wholesale_tiers":[{"template_tier_id":44,"tier_label":"C","min_qty":10,"final_unit_price":57.25,"price_unit":"袋","inventory_unit":"袋","quantity_basis":"sales_spec_count"}]}]}]}`,
+			key:  PublishedPriceRowKey(publicationID, ListTypeCommercial, productID, specID, publishedVariantID, "group", 0, 0, 0),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pricing, ok := PublishedSnapshotTierPricing([]byte(tc.raw), publicationID, productID, specID, currentVariantID, 0, ListTypeCommercial, "袋", 1, tc.key)
+			if !ok || pricing.UnitPrice != 57.25 || pricing.TemplateTierID != 44 || pricing.QuantityBasis != "sales_spec_count" {
+				t.Fatalf("current canonical variant must retain its stable specification's published tier: %+v, %v", pricing, ok)
+			}
+			for _, invalid := range []struct {
+				name        string
+				publication int64
+				product     int64
+				spec        int64
+				listType    string
+				key         string
+			}{
+				{"other publication", publicationID + 1, productID, specID, ListTypeCommercial, tc.key},
+				{"other product", publicationID, productID + 1, specID, ListTypeCommercial, tc.key},
+				{"other specification", publicationID, productID, specID + 1, ListTypeCommercial, tc.key},
+				{"other list type", publicationID, productID, specID, ListTypeRetail, tc.key},
+				{"rewritten row key variant", publicationID, productID, specID, ListTypeCommercial, strings.Replace(tc.key, ":20:30:", ":20:130:", 1)},
+				{"other row key", publicationID, productID, specID, ListTypeCommercial, tc.key + ":1"},
+			} {
+				if _, ok := PublishedSnapshotTierPricing([]byte(tc.raw), invalid.publication, invalid.product, invalid.spec, currentVariantID, 0, invalid.listType, "袋", 1, invalid.key); ok {
+					t.Errorf("%s must not reuse the published tier", invalid.name)
+				}
+			}
+		})
+	}
+}
+
+func TestPublishedSnapshotTierPricingWithoutStableBOMSpecKeepsVariantIdentity(t *testing.T) {
+	raw := []byte(`{"price_rows":[{"product_id":10,"bom_variant_id":30,"final_unit_price":57.25}]}`)
+	key := PublishedPriceRowKey(91, ListTypeCommercial, 10, 0, 30, "flat", 0)
+	if _, ok := PublishedSnapshotTierPricing(raw, 91, 10, 0, 130, 0, ListTypeCommercial, "袋", 1, key); ok {
+		t.Fatal("variant mismatch without a stable BOM spec must still be rejected")
+	}
+}

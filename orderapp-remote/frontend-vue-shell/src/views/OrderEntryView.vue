@@ -1,5 +1,15 @@
 <template>
   <div class="page" :class="{ embedded: props.embedded }">
+    <div v-if="fulfillmentRecipientEditing && ok" class="notice ok" role="status">{{ ok }}</div>
+    <FulfillmentRecipientEditor
+      v-if="fulfillmentRecipientEditing"
+      :key="form.edit_id"
+      :order="fulfillmentEditData"
+      :recipient-target="props.recipientTarget"
+      :disabled-reason="editBlockReason"
+      @saved="handleFulfillmentRecipientSaved"
+    />
+    <template v-else>
     <section class="order-hero">
       <div>
         <p class="eyebrow">订单销售</p>
@@ -665,6 +675,7 @@
         <p v-else class="empty">暂无凭证预览</p>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -677,6 +688,7 @@ import { prepaymentPresets, prepaymentByRate } from '../lib/prepayment-presets.j
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { createOrderCatalogSession, orderCatalogKey, staffPriceTableGroups } from '../lib/order-catalog.js'
 import { apiGet, apiSend } from '../api/client'
+import FulfillmentRecipientEditor from '../components/FulfillmentRecipientEditor.vue'
 import { isSampleOrderEdit, validManualOrderPrice, storedSampleSpecKey, preservesSampleSpec, sampleStoredItemIdentity, orderEditRecipientFields, isFreeSamplePreview, validSampleReceiptGoods } from '../lib/sample-order-edit.js'
 import { resetCustomerContinuation } from '../lib/customer-workspace'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
@@ -782,6 +794,10 @@ let orderEntryDraftDisabled = false
 
 const loading = ref(false)
 const sampleOrderEditing = ref(false)
+const fulfillmentEditData = ref(null)
+const fulfillmentRecipientEditing = computed(() => !props.customerPortal && !copyMode.value
+  && Number(form.edit_id) > 0 && fulfillmentEditData.value?.portal_service_code === 'direct_ship'
+  && ['stock', 'on_demand'].includes(fulfillmentEditData.value?.fulfillment_mode))
 const editBlockReason = ref('')
 const saving = ref(false)
 const error = ref('')
@@ -823,7 +839,7 @@ function staffCatalogRequestTableIDs() {
   return selectedStaffTableIDs().filter(id => !historicalIDs.has(id) || liveIDs.has(id) || currentIDs.has(id))
 }
 async function refreshStaffOrderCatalog() {
-  if (props.customerPortal) return true
+  if (props.customerPortal || fulfillmentRecipientEditing.value) return true
   const customerID = Number(form.customer_id || 0)
   const previousKey = staffCatalog.key
   const data = await staffCatalogSession.refresh(customerID, staffCatalogRequestTableIDs())
@@ -2055,6 +2071,7 @@ function onLegacySpecChange(row) {
 }
 
 function syncRowsForType(options = {}) {
+  if (fulfillmentRecipientEditing.value) return
   rows.value.forEach((row) => {
     if (preservesStoredOrderPrice(row)) return
     if (options.priceListChanged) {
@@ -2421,6 +2438,7 @@ function notifyWorkspaceCustomerChanged(customerID) {
 function applyEditData(data) {
   prepaymentRate.value = 0
   if (!data) return
+  fulfillmentEditData.value = data
   orderFreight.value=copyMode.value?null:(data.freight||null)
   form.freight_state=freightStateFromOrder(data)
   sampleOrderEditing.value = isSampleOrderEdit(data, {copyMode:copyMode.value,customerPortal:props.customerPortal})
@@ -2470,6 +2488,10 @@ function applyEditData(data) {
     outsource_tax_fee: data.outsource_tax_fee || '',
     outsource_other_fee: data.outsource_other_fee || '',
   })
+  if (fulfillmentRecipientEditing.value) {
+    rows.value = editItems.map(item => ({ ...item, spec_label: item.bom_spec_name || item.spec || '', historical_spec_readonly: true, spec_invalid_message: '', price_missing: false }))
+    return
+  }
   syncOrderHeaderFromCustomer(selectedCustomer.value, { syncRows: false })
   paymentVoucher.value = data.payment_voucher || null
   paymentVoucherCollapsed.value = Boolean(paymentVoucher.value)
@@ -2644,6 +2666,7 @@ function applyEditData(data) {
 }
 
 function repriceHydratedRows() {
+  if (fulfillmentRecipientEditing.value) return
   for (const row of rows.value) {
     if (preservesStoredOrderPrice(row)) continue
     if (row.historical_spec_readonly) {
@@ -2716,6 +2739,7 @@ async function loadOrderProductCatalogTypes() {
 async function load() {
   loading.value = true
   sampleOrderEditing.value = false
+  fulfillmentEditData.value = null
   editBlockReason.value = ''
   form.settlement_reason = ''
   error.value = ''
@@ -2773,7 +2797,7 @@ async function load() {
       }
       form.edit_id = Number(editData.edit_id || 0)
       applyEditData(editData)
-      if (!sampleOrderEditing.value) syncBeanListVersionForCustomer({ force: !!copyID })
+      if (!sampleOrderEditing.value && !fulfillmentRecipientEditing.value) syncBeanListVersionForCustomer({ force: !!copyID })
       if (copyID) syncRowsForType({ priceListChanged: true })
     } else {
       applyCustomerContextToNewOrder()
@@ -2788,6 +2812,12 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function handleFulfillmentRecipientSaved(data) {
+  await load()
+  ok.value = '收件信息已保存'
+  emit('saved', data)
 }
 
 function resetForBackfillContinuation() {

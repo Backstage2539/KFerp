@@ -1,3 +1,14 @@
+### PR-713-FULFILLMENT-RECIPIENT-EDIT
+- Branch: codex/order-address-spec-validation-20261022; production baseline origin/main@6ce86299.
+- Owner/session: Codex / 2026-10-22.
+- Status: implementation and independent review passed; 1481 Vue tests/build, full Go and isolated recipient/API/confirmation regressions GREEN; canonical automatic/manual-tier API writes and stale-variant rejection GREEN; integration pending.
+- Scope: stock/on-demand direct-ship recipient-only editing preserves original merchandise, pricing, fulfillment, inventory reservations and fees; stable BOM-spec customer quote matching survives manufacturing revision changes without admitting unlisted specifications.
+- DEV: DEV-832-RECIPIENT-TRANSACTION; DEV-833-RECIPIENT-EDITOR; DEV-834-QUOTE-SPEC-IDENTITY.
+- Verifier: actual Vue setup and API calls, isolated PostgreSQL HTTP/audit/concurrency assertions, scoped/full Vue/Go checks and Vue production build; source manual and acceptance evidence.
+- Deployment: pending verification; user-reported target production. No actual order write or address inferred from the user's draft.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-22-fulfillment-recipient-edit.md; local outputs/order-address-spec-validation-20261022 (raw production reads excluded from commits).
+- Notes: reserve_req_id.sh returned PR-713; reserved here to avoid known macOS awk claim failure. Van business acceptance remains pending.
+
 ### PR-712-MINIAPP-NAVIGATION-DEDUP
 - Branch: codex/miniapp-navigation-dedup-20261022; base origin/develop@7684c047.
 - Owner/session: Codex / 2026-10-22.

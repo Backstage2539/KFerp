@@ -31,12 +31,15 @@ func CompleteOrderRecipient(name, phone, address string) bool {
 }
 
 type CustomerRecipientCommand struct {
-	CustomerID      int64
-	OrderID         int64
-	Actor           string
-	ReceiverName    string `json:"receiver_name"`
-	ReceiverPhone   string `json:"receiver_phone"`
-	ReceiverAddress string `json:"receiver_address"`
+	CustomerID           int64
+	OrderID              int64
+	Actor                string
+	ReceiverName         string  `json:"receiver_name"`
+	ReceiverPhone        string  `json:"receiver_phone"`
+	ReceiverAddress      string  `json:"receiver_address"`
+	ReceiverCompany      *string `json:"receiver_company"`
+	ExpectedEditRevision string  `json:"-"`
+	StaffFulfillmentEdit bool    `json:"-"`
 }
 type customerRecipientRepository interface {
 	UpdateCustomerRecipient(context.Context, CustomerRecipientCommand) error
@@ -45,6 +48,9 @@ type customerRecipientRepository interface {
 func (s *Service) UpdateCustomerRecipient(ctx context.Context, c CustomerRecipientCommand) error {
 	if c.CustomerID <= 0 || c.OrderID <= 0 || !CompleteOrderRecipient(c.ReceiverName, c.ReceiverPhone, c.ReceiverAddress) {
 		return fmt.Errorf("请填写完整收件信息")
+	}
+	if c.StaffFulfillmentEdit && strings.TrimSpace(c.ExpectedEditRevision) == "" {
+		return NewOrderEditConflictError("订单数据版本缺失，请重新打开订单后再保存收件信息")
 	}
 	repo, ok := s.repo.(customerRecipientRepository)
 	if !ok {
