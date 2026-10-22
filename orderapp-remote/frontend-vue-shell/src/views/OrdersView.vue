@@ -327,7 +327,7 @@
               <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
             </div>
             <div class="order-summary-row">
-              <template v-if="activeOrderDetail.fulfillment_mode"><FulfillmentOrderFees v-if="activeOrderDetail.fulfillment_fees" :fees="activeOrderDetail.fulfillment_fees" :freight-view="activeOrderDetail.freight || {}" :goods-cents="fulfillmentSavedGoodsCents(activeOrderDetail)" :mode="activeOrderDetail.fulfillment_mode" /><p v-else role="status">正在读取代发费用…</p></template>
+              <template v-if="activeOrderDetail.fulfillment_mode"><FulfillmentOrderFees v-if="editorFeeSummary || activeOrderDetail.fulfillment_fees" :fees="editorFeeSummary?.fees || activeOrderDetail.fulfillment_fees" :freight-view="editorFeeSummary?.freight || activeOrderDetail.freight || {}" :goods-cents="editorFeeSummary?.goods_cents ?? fulfillmentSavedGoodsCents(activeOrderDetail)" :mode="activeOrderDetail.fulfillment_mode" /><p v-else role="status">正在读取代发费用…</p></template>
               <template v-else>
               <span v-for="line in orderFeeLines(activeOrderDetail)" :key="line.label">{{ line.label }}：{{ line.value }}</span>
               <details v-if="orderOutsourceFeeLines(activeOrderDetail).length" class="fee-breakdown">
@@ -406,9 +406,11 @@
               :copy-id="activeOrderCopyID()"
               :recipient-target="`#order-recipient-${activeOrderDetail.id}`"
               :workflow-target="`#order-workflow-${activeOrderDetail.id}`"
+              fees-in-summary
               embedded
               @close="closeOrderDetailDrawer"
               @editability="orderEditorCanEdit = $event"
+              @fee-summary="updateEditorFeeSummary"
               @saved="handleOrderEditSaved"
             />
           </section>
@@ -516,6 +518,7 @@ const trackingExcelFile = ref(null)
 const trackingExcelLoading = ref(false)
 const orderDetailDrawerOpen = ref(false)
 const activeOrderDetail = ref(null)
+const editorFeeSummary = ref(null)
 const orderEditorCanEdit = ref(false)
 const drawerTrackingNo = ref('')
 const drawerTrackingSaving = ref(false)
@@ -708,6 +711,7 @@ function openOrderDetailDrawer(row) {
   const id = Number(row?.id || 0)
   if (!id) return
   activeOrderDetail.value = { ...row }
+  editorFeeSummary.value = null
   copyingOrderID.value = row?.is_void ? id : 0
   drawerTrackingNo.value = row.ship_tracking_no || ''
   orderEditorCanEdit.value = false
@@ -719,8 +723,13 @@ function openOrderDetailDrawer(row) {
 function closeOrderDetailDrawer() {
   orderDetailDrawerOpen.value = false
   activeOrderDetail.value = null
+  editorFeeSummary.value = null
   copyingOrderID.value = 0
   drawerTrackingNo.value = ''
+}
+
+function updateEditorFeeSummary(summary) {
+  if (Number(summary.order_id) === Number(activeOrderDetail.value?.id)) editorFeeSummary.value = summary
 }
 
 function orderDisplayName(row = {}) {
@@ -1153,6 +1162,7 @@ async function load(silent = false) {
     selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
     for (const key of Object.keys(orderSenderIDs)) {
       const id = Number(key)
+      if (orderDetailDrawerOpen.value && id === currentDetailID) continue
       const selectedRow = rows.value.find((row) => Number(row.id) === id && selectedOrderIDs.value.includes(id))
       if (!selectedRow || !isShipReady(selectedRow)) delete orderSenderIDs[key]
     }

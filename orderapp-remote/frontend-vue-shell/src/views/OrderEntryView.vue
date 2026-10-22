@@ -262,10 +262,6 @@
           </template>
           <p v-else class="full-span fulfillment-explanation">{{ fulfillmentEditContext?.fulfillment_mode === 'stock' ? '库存一件代发：从本客户全部已购库存及待入库权益选择商品；货款在原购货单结算，本代发单不重复收取货款。' : '无库存一件代发：原单商品沿用确认价格，新增或更换规格按当前授权代发固定价，另计服务费和运费。' }}</p>
           <p v-if="editBlockReason" class="full-span notice warn">{{ editBlockReason }}</p>
-          <div v-if="props.workflowTarget" class="full-span workflow-save">
-            <button class="primary" type="button" @click="save()" :disabled="saving || loading || !!editBlockReason || hasUnpricedPublishedRow">{{ saving ? '保存中…' : '保存订单' }}</button>
-            <small>保存当前订单的全部修改</small>
-          </div>
           </div>
         </Teleport>
       </div>
@@ -482,8 +478,11 @@
     <section class="panel footer-panel">
       <template v-if="fulfillmentOrderEditing">
         <div class="section-title">代发费用</div>
-        <FulfillmentOrderFees :fees="fulfillmentCurrentFees" :freight-view="orderFreight || {}" :goods-cents="fulfillmentGoodsCents" :mode="fulfillmentEditContext?.fulfillment_mode" />
-        <OrderPaymentSummary :order="fulfillmentEditData || {}" />
+        <template v-if="!props.feesInSummary">
+          <FulfillmentOrderFees :fees="fulfillmentCurrentFees" :freight-view="orderFreight || {}" :goods-cents="fulfillmentGoodsCents" :mode="fulfillmentEditContext?.fulfillment_mode" />
+          <OrderPaymentSummary :order="fulfillmentEditData || {}" />
+        </template>
+        <p v-else class="muted">费用明细统一显示在上方“订单状态与费用明细”；重新核算后同步更新。</p>
         <div class="form-grid compact fulfillment-regions">
           <label><span>收件省份</span><input v-model.trim="form.shipping_province" @input="fulfillmentManualDestination = true" /></label><label><span>收件城市</span><input v-model.trim="form.shipping_city" @input="fulfillmentManualDestination = true" /></label><label><span>收件区县</span><input v-model.trim="form.shipping_district" @input="fulfillmentManualDestination = true" /></label>
         </div>
@@ -546,7 +545,7 @@
       <details class="manual">
         <summary>录单手册</summary>
         <ul>
-          <li>已有订单在详情顶部核对收件信息及付款与交付，点击“保存订单”保存全部修改；独立新建录单页布局保持原样。订单地址是本单快照，修改客户档案不会覆盖。</li>
+          <li>已有订单在详情顶部核对收件信息及付款与交付，在最底部点击“保存订单”保存全部修改。代发费用统一在上方“订单状态与费用明细”查看，重新核算后同步更新。订单地址是本单快照，修改客户档案不会覆盖。</li>
           <li>整单免费样品自动显示“无需收款”，不用填写收款方式或凭证。仅收运费时货款填 0，按实际运费登记并上传凭证；免费改收费先保存费用，再登记实际收款。</li>
           <li>客户和商品输入框支持名称、拼音和首字母搜索。</li>
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
@@ -794,6 +793,7 @@ const props = defineProps({
   embedded: { type: Boolean, default: false },
   recipientTarget: { type: String, default: '' },
   workflowTarget: { type: String, default: '' },
+  feesInSummary: { type: Boolean, default: false },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
@@ -804,7 +804,7 @@ const props = defineProps({
   deliveryPrefill: { type: Object, default: null },
 })
 
-const emit = defineEmits(['close', 'saved', 'editability'])
+const emit = defineEmits(['close', 'saved', 'editability', 'fee-summary'])
 const fulfillmentRecipientPaste=ref('')
 function parseFulfillmentRecipient(){const result=parseRecipientText(fulfillmentRecipientPaste.value);if(result.recipient_name)form.receiver_name=result.recipient_name;if(result.phone)form.receiver_phone=result.phone;if(result.address)form.receiver_address=result.address}
 const ORDER_ENTRY_DRAFT_SCOPE = FORM_DRAFT_SCOPES.orderEntry
@@ -3249,6 +3249,10 @@ watch(() => [form.receiver_address, form.shipping_province, form.shipping_city, 
   fulfillmentPreview.value = null
   fulfillmentPreviewLoading.value = false
 }, { deep: true })
+watch(() => [fulfillmentCurrentFees.value, fulfillmentGoodsCents.value, orderFreight.value], () => {
+  if (!fulfillmentOrderEditing.value || !fulfillmentEditContext.value) return
+  emit('fee-summary', { order_id: Number(form.edit_id), fees: fulfillmentCurrentFees.value, goods_cents: fulfillmentGoodsCents.value, freight: orderFreight.value || {} })
+}, { immediate: true })
 watch(itemsTotal, () => {
   clearFieldErrorIfValid('payment_goods_amount')
 })
@@ -3271,7 +3275,6 @@ watch(
 
 <style scoped>
 .workflow-fields-inline { display: contents; }
-.workflow-save { display:flex;align-items:center;gap:12px; }
 .no-payment { color:#15803d; }
 
 .quote-source-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: #626d81; }

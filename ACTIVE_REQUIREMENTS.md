@@ -380,6 +380,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### ORDER-DRAWER-CLEANUP-20261022
+- Branch: codex/order-drawer-cleanup-20261022; base origin/develop b28d91c7.
+- Scope: refresh-safe sender display, one bottom save button, one fulfillment fee summary in area A including recalculation. PR-714 follow-up; DEV-ORDER-DRAWER-CLEANUP.
+- Status: real-component DOM RED -> GREEN 8/8; frontend 1498/1498, build, existing fulfillment HTTP and full Go passed; isolated browser layout verified. Ready for develop integration and development release, production excluded.
+- Verifiers: node --test src/lib/fulfillment-full-edit-dom.test.js; frontend suite/build; existing fulfillment HTTP tests; local browser fixture.
+- Evidence: outputs/order-drawer-cleanup-20261022/. No production/business-data writes authorized by this task.
+
 ### PR-681-PRODUCT-CREATOR-CATEGORY-ROOT-OPTIONS
 - Branch: `codex/product-creator-category-root-options-20261002`; base `origin/develop@780d5a1c`
 - Owner/session: Codex / Van / 2026-10-03

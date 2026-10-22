@@ -252,6 +252,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_dev", code: "DEV-ORDER-DRAWER-CLEANUP", title: "PR-714 寄件人刷新显示、底部统一保存及费用摘要去重", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-22-order-drawer-cleanup.md"},
 		{table: "req_product", code: "PR-714-FULFILLMENT-FULL-EDIT", title: "生产ERP完整代发编辑、库存权益及原版本运费", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-fulfillment-full-edit.md"},
 		{table: "req_dev", code: "DEV-835-FULFILLMENT-EDITOR", title: "PR-714 统一订单表单与首次弹窗渲染、保存关闭及真实DOM回归", status: "done", assignee: "Codex", evidence: "Vue actual parent-child DOM RED-GREEN"},
 		{table: "req_dev", code: "DEV-836-FULFILLMENT-TRANSACTION", title: "PR-714 原订单商品编辑、库存权益差量及并发原子事务", status: "done", assignee: "Codex", evidence: "isolated PostgreSQL transaction/API RED-GREEN"},
