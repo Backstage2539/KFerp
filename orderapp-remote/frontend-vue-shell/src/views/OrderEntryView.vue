@@ -2524,6 +2524,9 @@ function applyEditData(data) {
     return Number(item?.bean_list_publication_id || 0)
   }
   editBlockReason.value = data.can_edit === false ? (data.edit_block_reason || '订单当前状态不能编辑') : ''
+  if (!editBlockReason.value && !fulfillmentOrderEditing.value && orderFreight.value?.edit_locked) {
+    editBlockReason.value = '运费已出账或已确认实际费用，整单编辑已锁定；登记收款请使用员工小程序订单详情顶部“编辑付款与发货状态”。'
+  }
   emit('editability', !editBlockReason.value)
   Object.assign(form, {
     ...orderEditRecipientFields(data),
@@ -3014,6 +3017,7 @@ async function save(options = {}) {
   ok.value = ''
   stockBatchNotice.value = ''
   clearAllFieldErrors()
+  const saveVersion = editorLoadVersion
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (form.delivery_mode!=='customer_stock' && !orderFreight.value?.edit_locked && (!form.edit_id || !props.customerPortal)) {
@@ -3108,13 +3112,43 @@ async function save(options = {}) {
     }
     orderEntryDraftDisabled = true
     clearFormDraft(orderEntryDraftKey())
-    if (props.embedded && !props.customerPortal) { form.customer_request_id=''; emit('saved', data) }
+    if (props.embedded && !props.customerPortal) {
+      form.customer_request_id = ''
+      if (!copyMode.value && editorAlive && saveVersion === editorLoadVersion) {
+        await refreshSavedOrder(Number(data.order_id))
+      }
+      if (editorAlive) emit('saved', data)
+    }
     if (props.customerPortal) {form.customer_request_id='';emit('saved',data);return}
     if (!props.embedded && data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {
     raiseSaveError(err.message || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function refreshSavedOrder(orderID) {
+  const version = ++editorLoadVersion
+  loading.value = true
+  try {
+    // Do not share an in-flight pre-save GET: the server may have changed
+    // payment status/deposit and both the order and freight revisions.
+    const data = await apiGet(`/api/order/form?edit_id=${orderID}&saved=${Date.now()}-${version}`)
+    if (!editorAlive || version !== editorLoadVersion) return
+    if (!data.edit_mode || Number(data.edit_id) !== orderID || !data.edit_data?.edit_revision) throw new Error('缺少最新订单版本')
+    applyEditData({ ...data.edit_data, edit_id: orderID })
+    loadedEditorOrderID.value = orderID
+    paymentVoucherFile.value = null
+    await nextTick()
+  } catch (err) {
+    if (!editorAlive || version !== editorLoadVersion) return
+    // The write already committed. Do not call it a failed save or allow the
+    // old form to submit again when only the read-back failed.
+    editBlockReason.value = '订单已保存，但最新数据读取失败，请关闭后重新打开订单再编辑。'
+    error.value = editBlockReason.value
+  } finally {
+    if (version === editorLoadVersion) loading.value = false
   }
 }
 
