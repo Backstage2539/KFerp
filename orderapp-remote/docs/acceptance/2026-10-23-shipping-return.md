@@ -59,7 +59,7 @@
 - 认证后的订单 Vue 页面、模板 API、手册、产品需求 API 均 200；PR-717 可见；预置模板确认为 C 单号 / S 金额。
 - 原始检查摘要见同目录 `2026-10-23-shipping-return-runtime.json`。
 - 清理的内容仅为可重新生成的 Go/Docker 构建缓存及无标签闲置镜像；数据库、业务文件、原源码及回滚镜像保留。部署后可用空间约 3.1GB。
-- 未导入用户真实 Excel、未进行真实订单发货验收、未部署正式环境。PR 继续 review，待 Van 验收。
+- 开发交付阶段未导入用户真实 Excel、未进行真实订单发货验收；后续正式发布证据见下方。PR 继续 review，待 Van 验收。
 
 ## 正式发布准备
 
@@ -67,3 +67,19 @@
 - 在最新 `origin/main` 上合并已验证并推送的 `origin/develop`（含开发交付证据）。仅 ACTIVE_REQUIREMENTS 交付记录冲突，保留双方记录；生产独有 BOM 修复和原有需求状态完整保留。
 - 合并后复检全部通过：后端全包、独立 PostgreSQL 的寄件回传/运费/发货回归、Vue 1,512 项测试与生产构建；部署脚本仍执行服务器端完整门禁。
 - 本次仅发布 ERP 服务，真实寄件文件尚未导入，业务验收状态继续 review。
+
+## 正式环境部署证据
+
+- 已合并并推送 `main`：`d5edc4188094bd50d934b029e4e342dc9dd859c7`。生产集成分支 `codex/shipping-return-production-20261023` 已推送，保留最新 main 原有修复；develop 包含功能及开发交付记录 `0ebb0a0a7bb88dbbeeda6a9a7d19cafff0b14210`。
+- 在独立干净 main checkout 执行 `KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh production`；服务器发布门禁 6/6 成功，包括 Vue 1,512 项测试、426 项小程序兼容性测试、类型检查/构建、Go 全包及镜像内复检、服务就绪和公网登录检查。
+- 生产应用启动：2026-10-23 01:41:12 北京时间。运行代码版本与 main 一致，容器 running，restart count=0；PostgreSQL healthy。
+- 原源码备份：`/opt/stacks/erp-production/orderapp.backup.deploy-20261023013113-d5edc4188094`。
+- 回滚镜像：`kferp-orderapp-rollback:production-20261023013113-d5edc4188094`。
+- 新容器镜像：`sha256:abbbb5b5d97455e7b47482f777d05e0b3385e8540e567a6437c5da45afb30b57`，与发布构建日志一致。
+- 未认证生产入口及回传 API 返回 401。使用实际生产运行配置认证后，订单页面、回传模板 API、手册及需求 API 均返回 200；PR-717 可见，默认模板 C/S 映射正确。检查凭据仅在服务器内读取及使用，未记录到证据。
+- 公网页面文件 `OrdersView-WsiRjY2i.js` 含回传选择组件；服务器公网入口、本机公网请求与容器内文件 SHA-256 均为 `2b41bc9e484d8e71506cd290c7a74db4ed264c10d5031451e37ad7fdba46bb0f`。
+- 生产入口：`https://erp.qacoohee.com/app/vue-shell/?view=orders`。默认位置「顺丰发货 → 回传 Excel」；列映射在「设置 → 业务设置 → 物流设置 → 物流回传模板」。
+- 原始检查摘要：`2026-10-23-shipping-return-production-runtime.json`。生产与开发认证配置不同，生产检查以实际运行配置为准。
+- 发布后仅清理可再生成构建缓存，保留数据库、业务文件、源码备份与回滚镜像；可用空间约 2.8GB。
+- 本节为部署后文档补充，仅推送到生产集成分支；main 和生产运行版本仍为上述已验证 SHA。
+- 用户真实寄件文件尚未导入；未执行真实订单发货验收或微信发布。PR 保持 review，待 Van 业务验收。

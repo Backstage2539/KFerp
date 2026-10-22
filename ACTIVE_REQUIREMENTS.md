@@ -6087,10 +6087,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-717-shipping-return-import
 - Branch: codex/shipping-return-import-20261023
-- Status: delivered to development; Van business acceptance pending (PR review)
+- Status: delivered to development and production; Van business acceptance pending (PR review)
 - Scope: 可配置寄件回传、隐藏收件信息匹配、持久候选选择、统一实际运费确认
 - Verifier: Go domain/API/PostgreSQL GREEN; all Go packages; 1512 Vue tests and production build GREEN; local mock UI checked
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-shipping-return.md
-- Deployment: development dccaa17a46964e6d148c6ad14b8c0d2aca3b2e0a via KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh development; read-only shell/template/manual/PR checks 200, anonymous API 401; backup /opt/stacks/erp/orderapp.backup.deploy-20261023010512-dccaa17a4696; no production deployment or real workbook import
+- Deployment: development dccaa17a46964e6d148c6ad14b8c0d2aca3b2e0a via KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh development; read-only shell/template/manual/PR checks 200, anonymous API 401; backup /opt/stacks/erp/orderapp.backup.deploy-20261023010512-dccaa17a4696; no real workbook import
 
 - Production release authorized by Van on 2026-10-23. Integration branch: codex/shipping-return-production-20261023; preserve current main fixes, merge verified develop, rerun relevant gates, then deploy production ERP. Real workbook import and Van business acceptance remain pending.
+
+- Production delivered: main d5edc4188094bd50d934b029e4e342dc9dd859c7, KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh production; all release gates and read-only runtime/API/manual/bundle checks passed. Backup: /opt/stacks/erp-production/orderapp.backup.deploy-20261023013113-d5edc4188094. Rollback: kferp-orderapp-rollback:production-20261023013113-d5edc4188094. Runtime evidence: orderapp-remote/docs/acceptance/2026-10-23-shipping-return-production-runtime.json. This post-deploy documentation is on codex/shipping-return-production-20261023; production main/runtime remains the recorded release SHA. Real Excel import and Van business acceptance pending.
