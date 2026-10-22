@@ -24,7 +24,7 @@
 
 ## 交付与边界
 
-- 实施中，未部署此需求。微信上传/审核/发布与Van业务验收单独记录。
+- 开发环境已交付并通过运行检查，生产主线发布准备就绪。微信上传/审核/发布与Van业务验收单独记录。
 
 ## 发布前观察
 
@@ -46,3 +46,11 @@
 - 2026-10-22 11:41:56，161份8/9月旧源码备份（dev85/prod76）经gzip、目录集合、tar逐内容/元数据及SHA256校验后完整保留为tar.gz；原占用8,297,906,176B，归档占用3,214,168,064B。
 - 连同闲置Go缓存清理，共释放约4.990GiB；持锁最终空闲6,449,160,192B（6.006GiB）后自动停止并释放部署锁。当前源码、全部10月备份、近期回滚锚点、数据库、业务数据及镜像未改变。
 - 清单和恢复说明：/opt/stacks/source-backup-archives-20261022.tsv、/opt/stacks/source-backup-archives-20261022-RESTORE.md；本地交付evidence目录留完整副本。
+
+## 开发环境交付
+
+- GitHub PR #239 已合并；origin/develop、运行与小程序包均为 aca709f6b6312f4d3e9e7cf8ac3d70c0be6b1d50。
+- ./deploy_orderapp.sh development 完成全部服务端Vue1478、小程序425/类型/构建、完整Go及Docker内部Go门禁。
+- 备份：/opt/stacks/erp/orderapp.backup.deploy-20261022114218-aca709f6b631；回滚镜像 kferp-orderapp-rollback:development-20261022114218-aca709f6b631。
+- 运行检查：app running/restarts0、DBhealthy；login200；匿名需求/mini身份/库存401；认证三份手册、PR-712及DEV829-831可见；服务器小程序SHA/API匹配，共享导航与无摘要产物检查通过。
+- 日志：/tmp/pr712-development-deploy.log、/tmp/pr712-development-smoke.log；开发包固定目录 /Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev，24页/96页面文件。
