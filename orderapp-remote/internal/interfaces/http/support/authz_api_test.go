@@ -272,6 +272,8 @@ func TestProductionConfigurationAPIPermissionsSeparateReadAndWrite(t *testing.T)
 		{http.MethodPost, "/api/production-bom-spec-templates", "bom.write"},
 		{http.MethodPut, "/api/production-bom-spec-template-versions/103/draft", "bom.write"},
 		{http.MethodPost, "/api/production-bom-spec-template-versions/103/publish", "bom.write"},
+		{http.MethodGet, "/api/production-bom-spec-template-versions/103/rollout-preview", "bom.read"},
+		{http.MethodPost, "/api/production-bom-spec-template-versions/103/rollout", "bom.write"},
 		{http.MethodPut, "/api/products/7/default-production-bom", "bom.write"},
 		{http.MethodGet, "/api/products/7/production-bom-binding", "bom.read"},
 		{http.MethodGet, "/api/products/7/bom-spec-migration", "products.read"},

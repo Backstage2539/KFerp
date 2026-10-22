@@ -236,27 +236,32 @@ type ProductionBomUsedByBom struct {
 }
 
 type ProductionBomVersion struct {
-	ID                     int64                           `json:"id"`
-	BomID                  int64                           `json:"bom_id"`
-	VersionNo              string                          `json:"version_no"`
-	Status                 string                          `json:"status"`
-	YieldRate              float64                         `json:"yield_rate"`
-	ExpectedYieldRate      float64                         `json:"expected_yield_rate"`
-	ExpectedLossRate       float64                         `json:"expected_loss_rate"`
-	MaterialLossRate       float64                         `json:"material_loss_rate"`
-	OutputQty              float64                         `json:"output_qty"`
-	OutputUnit             string                          `json:"output_unit"`
-	ItemCount              int                             `json:"item_count"`
-	Note                   string                          `json:"note"`
-	SpecialAttrsSchemaJSON string                          `json:"special_attrs_schema_json"`
-	SpecialAttrsJSON       string                          `json:"special_attrs_json"`
-	ProcessRouteID         int64                           `json:"process_route_id"`
-	ProcessRouteName       string                          `json:"process_route_name"`
-	CreatedAt              string                          `json:"created_at"`
-	PublishedAt            string                          `json:"published_at"`
-	IsLatest               bool                            `json:"is_latest"`
-	IsLatestUsable         bool                            `json:"is_latest_usable"`
-	MainInputComponent     ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
+	SourceSpecTemplateID        int64                           `json:"source_spec_template_id"`
+	SourceSpecTemplateVersionID int64                           `json:"source_spec_template_version_id"`
+	SourceSpecTemplateVersionNo string                          `json:"source_spec_template_version_no"`
+	LatestSpecTemplateVersionID int64                           `json:"latest_spec_template_version_id"`
+	LatestSpecTemplateVersionNo string                          `json:"latest_spec_template_version_no"`
+	ID                          int64                           `json:"id"`
+	BomID                       int64                           `json:"bom_id"`
+	VersionNo                   string                          `json:"version_no"`
+	Status                      string                          `json:"status"`
+	YieldRate                   float64                         `json:"yield_rate"`
+	ExpectedYieldRate           float64                         `json:"expected_yield_rate"`
+	ExpectedLossRate            float64                         `json:"expected_loss_rate"`
+	MaterialLossRate            float64                         `json:"material_loss_rate"`
+	OutputQty                   float64                         `json:"output_qty"`
+	OutputUnit                  string                          `json:"output_unit"`
+	ItemCount                   int                             `json:"item_count"`
+	Note                        string                          `json:"note"`
+	SpecialAttrsSchemaJSON      string                          `json:"special_attrs_schema_json"`
+	SpecialAttrsJSON            string                          `json:"special_attrs_json"`
+	ProcessRouteID              int64                           `json:"process_route_id"`
+	ProcessRouteName            string                          `json:"process_route_name"`
+	CreatedAt                   string                          `json:"created_at"`
+	PublishedAt                 string                          `json:"published_at"`
+	IsLatest                    bool                            `json:"is_latest"`
+	IsLatestUsable              bool                            `json:"is_latest_usable"`
+	MainInputComponent          ProductionBomMainInputComponent `json:"main_input_component,omitempty"`
 }
 
 // ProductionBomMainInputComponent identifies the component that replaces the

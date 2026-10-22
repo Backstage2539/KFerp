@@ -6057,3 +6057,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md; OP_MANUAL_ORDER_SALES.md
 - Deployment: production5086dfe6; Vue1496/mini425/fullGo/PG/review passed; real orders115/117 revisions/items and all templates unchanged; full list drawer open/refresh/close/reopen verified; writes tested only in isolation
 - Last update: 2026-10-22
+
+### PR-715-spec-template-rollout
+- Branch: codex/spec-template-rollout-production-20261022 (production integration from origin/main 6dea2af0; verified feature commits only)
+- Status: development delivered at624341aa; Van explicitly authorized main integration and production deployment on2026-10-22; production verification in progress; business acceptance pending
+- Scope: 模板差异下发并原子发布 BOM；稳定规格报价与执行版本解耦
+- Verifier: Go unit / isolated PostgreSQL / API / Vue runtime / build
+- Deployment: development via ./deploy_orderapp.sh development; runtime 624341aa53e34b486043409e47f4e131e38691fd; rollback /opt/stacks/erp/orderapp.backup.deploy-20261022213755-624341aa53e3; evidence orderapp-remote/docs/acceptance/2026-10-22-spec-template-rollout.md; production now authorized via ./deploy_orderapp.sh production; preserve main-only material backfill safeguards
