@@ -288,7 +288,7 @@
             </div>
             <div v-if="!activeOrderDetail.confirmation_required" :id="`order-recipient-${activeOrderDetail.id}`"></div>
           </section>
-          <section v-if="!activeOrderDetail.confirmation_required" class="drawer-section">
+          <section v-if="!activeOrderDetail.confirmation_required && !activeOrderDetail.fulfillment_mode" class="drawer-section">
             <h4>付款与交付</h4>
             <div :id="`order-workflow-${activeOrderDetail.id}`"></div>
           </section>

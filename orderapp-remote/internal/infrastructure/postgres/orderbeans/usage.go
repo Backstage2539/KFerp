@@ -192,8 +192,9 @@ func ResolveSelectedPublishedTier(ctx context.Context, q rowQuerier, schema stri
 }
 
 // PublishedSnapshotTierPricing finds a row key in a publication snapshot while
-// validating its exact product/spec identity. The order option mapper uses the
-// same key constructor and source-array indexes.
+// validating its exact product and stable BOM-spec identity. The current
+// manufacturing variant is validated by the order-write authority; the row key
+// keeps the published snapshot variant and source-array indexes unchanged.
 func PublishedSnapshotTierPricing(raw []byte, publicationID, productID, bomSpecID, bomVariantID, specG int64, listType, salesUnit string, unitBagCount int64, priceRowKey string) (PublishedPricing, bool) {
 	var root map[string]json.RawMessage
 	if len(raw) == 0 || json.Unmarshal(raw, &root) != nil {
@@ -209,7 +210,7 @@ func PublishedSnapshotTierPricing(raw []byte, publicationID, productID, bomSpecI
 		rowSpecID := publishedJSONInt64Field(fields, "bom_spec_id")
 		rowVariantID := publishedJSONInt64Field(fields, "bom_variant_id")
 		rowSpecG := publishedJSONInt64Field(fields, "spec_g")
-		if rowSpecID != bomSpecID || (bomVariantID > 0 && rowVariantID > 0 && rowVariantID != bomVariantID) || (specG > 0 && rowSpecID == 0 && rowSpecG > 0 && rowSpecG != specG) {
+		if rowSpecID != bomSpecID || (bomSpecID <= 0 && bomVariantID > 0 && rowVariantID > 0 && rowVariantID != bomVariantID) || (specG > 0 && rowSpecID == 0 && rowSpecG > 0 && rowSpecG != specG) {
 			continue
 		}
 		if PublishedPriceRowKey(publicationID, listType, productID, rowSpecID, rowVariantID, "flat", index) != priceRowKey {
@@ -237,7 +238,7 @@ func PublishedSnapshotTierPricing(raw []byte, publicationID, productID, bomSpecI
 			}
 			itemSpecID := publishedJSONInt64Field(fields, "bom_spec_id")
 			itemVariantID := publishedJSONInt64Field(fields, "bom_variant_id")
-			if itemSpecID != bomSpecID || (bomVariantID > 0 && itemVariantID > 0 && itemVariantID != bomVariantID) {
+			if itemSpecID != bomSpecID || (bomSpecID <= 0 && bomVariantID > 0 && itemVariantID > 0 && itemVariantID != bomVariantID) {
 				continue
 			}
 			tiers := publishedItemTiers(itemRaw, listType)

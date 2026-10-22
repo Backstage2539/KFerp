@@ -41,12 +41,34 @@ func (r Repository) UpdateCustomerRecipient(ctx context.Context, c salesapp.Cust
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var name, phone, address, status string
-	var void bool
+	var name, phone, address, company, status, service, mode, confirmation string
+	var void, confirmationRequired bool
 	var shipStatusID int64
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT coalesce(o.receiver_name,''),coalesce(o.receiver_phone,''),coalesce(o.receiver_address,''),coalesce(o.ship_status_id,0),coalesce(o.is_void,false) FROM %[1]s.orders o WHERE o.id=$1 AND o.customer_id=$2 FOR UPDATE OF o`, r.schema), c.OrderID, c.CustomerID).Scan(&name, &phone, &address, &shipStatusID, &void)
+	var pending []byte
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT coalesce(o.receiver_name,''),coalesce(o.receiver_phone,''),coalesce(o.receiver_address,''),coalesce(o.receiver_company,''),coalesce(o.ship_status_id,0),coalesce(o.is_void,false),coalesce(o.portal_service_code,''),coalesce(to_jsonb(o)->>'fulfillment_mode',''),coalesce(o.confirmation_status,'accepted'),coalesce(o.confirmation_required,false),o.confirmation_pending FROM %[1]s.orders o WHERE o.id=$1 AND o.customer_id=$2 FOR UPDATE OF o`, r.schema), c.OrderID, c.CustomerID).Scan(&name, &phone, &address, &company, &shipStatusID, &void, &service, &mode, &confirmation, &confirmationRequired, &pending)
 	if err != nil {
 		return fmt.Errorf("订单不存在或不属于当前客户")
+	}
+	if c.StaffFulfillmentEdit {
+		if strings.TrimSpace(c.ExpectedEditRevision) == "" {
+			return salesapp.NewOrderEditConflictError("订单数据版本缺失，请重新打开订单后再保存收件信息")
+		}
+		current, err := currentOrderEditRevisionTx(ctx, tx, r.schema, c.OrderID)
+		if err != nil {
+			return err
+		}
+		if current != strings.TrimSpace(c.ExpectedEditRevision) {
+			return salesapp.NewOrderEditConflictError("订单已被其他操作修改，请重新打开订单后再保存收件信息")
+		}
+		if service != "direct_ship" || (mode != "stock" && mode != "on_demand") {
+			return fmt.Errorf("此入口仅支持一件代发和无库存代发订单的收件信息")
+		}
+		if confirmationRequired {
+			return salesapp.NewOrderEditConflictError("需确认的履约订单请通过客户履约确认流程修改收件信息")
+		}
+		if confirmation == "pending" || (len(pending) > 0 && string(pending) != "null") {
+			return salesapp.NewOrderEditConflictError("订单有待确认的修改，请先处理确认后再修改收件信息")
+		}
 	}
 	// Read the status after acquiring the order lock. A joined status row from
 	// the pre-lock snapshot can be stale when a concurrent shipment commits.
@@ -56,6 +78,9 @@ func (r Repository) UpdateCustomerRecipient(ctx context.Context, c salesapp.Cust
 		}
 	}
 	if void || customerRecipientLockedStatus(status) {
+		if c.StaffFulfillmentEdit {
+			return salesapp.NewOrderEditConflictError("已发货或作废的订单不能修改收件信息")
+		}
 		return fmt.Errorf("已发货或作废的订单不能修改收件信息")
 	}
 	state, err := loadOrderEditState(ctx, tx, r.schema, c.OrderID, false)
@@ -65,34 +90,50 @@ func (r Repository) UpdateCustomerRecipient(ctx context.Context, c salesapp.Cust
 	if edit := salesapp.EvaluateOrderEditability(state); !edit.CanEdit {
 		return salesapp.NewOrderEditConflictError(edit.BlockReason)
 	}
-	before, err := orderContentSnapshotTx(ctx, tx, r.schema, c.OrderID)
-	if err != nil {
-		return err
-	}
-	var pending []byte
-	if err = tx.QueryRow(ctx, fmt.Sprintf("SELECT confirmation_pending FROM %s.orders WHERE id=$1", r.schema), c.OrderID).Scan(&pending); err != nil {
-		return err
-	}
-	if len(pending) > 0 {
-		var current orderContentSnapshot
-		if err = json.Unmarshal(pending, &current); err != nil {
+	var before orderContentSnapshot
+	if !c.StaffFulfillmentEdit {
+		before, err = orderContentSnapshotTx(ctx, tx, r.schema, c.OrderID)
+		if err != nil {
 			return err
 		}
-		if err = applyOrderContentSnapshotTx(ctx, tx, r.schema, c.OrderID, current); err != nil {
-			return err
+		if len(pending) > 0 {
+			var current orderContentSnapshot
+			if err = json.Unmarshal(pending, &current); err != nil {
+				return err
+			}
+			if err = applyOrderContentSnapshotTx(ctx, tx, r.schema, c.OrderID, current); err != nil {
+				return err
+			}
 		}
 	}
 
-	_, err = tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET receiver_name=$2,receiver_phone=$3,receiver_address=$4 WHERE id=$1", r.schema), c.OrderID, c.ReceiverName, c.ReceiverPhone, c.ReceiverAddress)
+	nextCompany := company
+	if c.ReceiverCompany != nil {
+		nextCompany = *c.ReceiverCompany
+		_, err = tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET receiver_name=$2,receiver_phone=$3,receiver_address=$4,receiver_company=$5 WHERE id=$1", r.schema), c.OrderID, c.ReceiverName, c.ReceiverPhone, c.ReceiverAddress, nextCompany)
+	} else {
+		// A portal pending snapshot may have supplied its own company above.
+		// Omission must preserve that current value, just as the old endpoint did.
+		_, err = tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET receiver_name=$2,receiver_phone=$3,receiver_address=$4 WHERE id=$1", r.schema), c.OrderID, c.ReceiverName, c.ReceiverPhone, c.ReceiverAddress)
+		if err == nil {
+			err = tx.QueryRow(ctx, fmt.Sprintf("SELECT coalesce(receiver_company,'') FROM %s.orders WHERE id=$1", r.schema), c.OrderID).Scan(&nextCompany)
+		}
+	}
 	if err != nil {
 		return err
 	}
-	err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, c.Actor, "order", &c.OrderID, "update", postgresinfra.StrPtr("recipient"), postgresinfra.StrPtr(name+" "+phone+" "+address), postgresinfra.StrPtr(c.ReceiverName+" "+c.ReceiverPhone+" "+c.ReceiverAddress), postgresinfra.AuditMeta{"customer_id": c.CustomerID, "reason": "补全收件信息"})
+	err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, c.Actor, "order", &c.OrderID, "update", postgresinfra.StrPtr("recipient"), postgresinfra.StrPtr(name+" "+phone+" "+address+" "+company), postgresinfra.StrPtr(c.ReceiverName+" "+c.ReceiverPhone+" "+c.ReceiverAddress+" "+nextCompany), postgresinfra.AuditMeta{"customer_id": c.CustomerID, "reason": "补全收件信息"})
 	if err != nil {
 		return err
 	}
-	if err = r.stageOrderConfirmationTx(ctx, tx, c.OrderID, &before, c.Actor); err != nil {
-		return err
+	if c.StaffFulfillmentEdit {
+		if err = invalidateConfirmedOrderDocumentsTx(ctx, tx, r.schema, c.OrderID); err != nil {
+			return err
+		}
+	} else {
+		if err = r.stageOrderConfirmationTx(ctx, tx, c.OrderID, &before, c.Actor); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

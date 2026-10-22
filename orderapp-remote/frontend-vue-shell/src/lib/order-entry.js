@@ -393,8 +393,9 @@ function orderFamiliesWithBomSpecOptions(productFamilies = [], bomSpecOptions = 
           : customerTiers.filter(tier => {
             const effective = tier.effective_sales_spec || tierPriceSource(tier)?.effective_sales_spec || {}
             const specID = orderFamilyID(tier.bom_spec_id, effective.bom_spec_id)
-            const variantID = orderFamilyID(tier.bom_variant_id, effective.bom_variant_id)
-            return specID === bomSpecID && (!variantID || !row.bom_variant_id || variantID === Number(row.bom_variant_id))
+            // Manufacturing revisions replace variant IDs, while the published
+            // customer quote continues to belong to the same BOM specification.
+            return specID === bomSpecID
           }),
       }
     })
