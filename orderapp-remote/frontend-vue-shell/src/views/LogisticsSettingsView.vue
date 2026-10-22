@@ -71,11 +71,13 @@
     </section>
 	<ShippingFeeTemplates :companies="companies" />
  <CustomerShippingPolicies />
+ <ShippingReturnSettings :companies="companies" />
  <ActualFreightImport :companies="companies" />
   </div>
 </template>
 
 <script setup>
+import ShippingReturnSettings from '../components/ShippingReturnSettings.vue'
 import ActualFreightImport from '../components/ActualFreightImport.vue'
 import ShippingFeeTemplates from '../components/ShippingFeeTemplates.vue'
 import CustomerShippingPolicies from '../components/CustomerShippingPolicies.vue'

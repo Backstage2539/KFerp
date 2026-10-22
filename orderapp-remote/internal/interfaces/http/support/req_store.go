@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-717-SHIPPING-RETURN", title: "寄件列表按隐藏收件信息匹配回填与统一实际运费确认", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-shipping-return.md"},
+		{table: "req_dev", code: "DEV-717-01", title: "回传模板、隐藏收件信息匹配及持久候选选择", status: "done", assignee: "Codex", evidence: "shipping_return.go; shippingreturn/return_test.go"},
+		{table: "req_dev", code: "DEV-717-02", title: "实际成本、实收保护与应收差额统一确认，事务发货及库存日志", status: "done", assignee: "Codex", evidence: "TestShippingReturnAtomicCandidatesAndReceipts; TestFreightActualDeferredIdempotentAndDelta"},
+		{table: "req_dev", code: "DEV-717-03", title: "订单回传与选择界面、物流模板设置及操作手册", status: "done", assignee: "Codex", evidence: "shipping-return-runtime.test.js; OP_MANUAL_SHIPPING_RETURN.md"},
 		{table: "req_product", code: "PR-716-FREIGHT-PRIORITY", title: "系统默认、客户档案及代发运费优先级", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-22-freight-priority.md"},
 		{table: "req_dev", code: "DEV-843-FREIGHT-PRIORITY", title: "PR-716 全局配置、逐层回退及审计API", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-844-FREIGHT-SETTINGS", title: "PR-716 物流默认与客户档案入口、手册及开发交付", status: "review", assignee: "Codex"},

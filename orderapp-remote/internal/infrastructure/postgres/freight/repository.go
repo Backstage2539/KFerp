@@ -242,6 +242,9 @@ func (r *Repository) Audit(ctx context.Context, tx pgx.Tx, actor, entity string,
 	a, _ := json.Marshal(before)
 	b, _ := json.Marshal(after)
 	requirement := "PR-705"
+	if strings.HasPrefix(entity, "shipping_return") {
+		requirement = "PR-717"
+	}
 	if entity == "system_shipping_policy" {
 		requirement = "PR-716"
 	}
@@ -369,6 +372,45 @@ func (r *Repository) OrderViews(ctx context.Context, q Queryer, ids []int64) (ma
 	rows.Close()
 	if e = rows.Err(); e != nil {
 		return out, e
+	}
+
+	actualRows, e := q.Query(ctx, fmt.Sprintf(`SELECT a.order_id,sum(a.actual_cents)::bigint,coalesce((SELECT e.reason FROM %[1]s.freight_actual_entries e JOIN %[1]s.freight_actual_shipments x ON x.id=e.shipment_id WHERE x.order_id=a.order_id ORDER BY e.id DESC LIMIT 1),'') FROM %[1]s.freight_actual_shipments a WHERE a.order_id=ANY($1) GROUP BY a.order_id`, r.schema), ids)
+	if e != nil {
+		return out, e
+	}
+	actualIDs := []int64{}
+	for actualRows.Next() {
+		var id, cost int64
+		var reason string
+		if e = actualRows.Scan(&id, &cost, &reason); e != nil {
+			actualRows.Close()
+			return out, e
+		}
+		v := out[id]
+		if v == nil {
+			v = &domain.OrderView{}
+			out[id] = v
+		}
+		v.ActualCostCents = &cost
+		v.EditLocked = true
+		v.ActualConfirmationReason = reason
+		actualIDs = append(actualIDs, id)
+	}
+	e = actualRows.Err()
+	actualRows.Close()
+	if e != nil {
+		return out, e
+	}
+	for _, id := range actualIDs {
+		state, err := r.ReceivableState(ctx, q, id)
+		if err != nil {
+			return out, err
+		}
+		v := out[id]
+		total := state.Current
+		v.FinalReceivableCents = &total
+		v.ReceivedFreightCents = state.Paid
+		v.DueFreightCents = max(0, state.Current-state.Paid)
 	}
 	return out, nil
 }

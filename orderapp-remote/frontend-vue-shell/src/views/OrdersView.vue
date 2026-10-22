@@ -67,7 +67,8 @@
       <div class="shipping-bar">
         <div>
           <h3>顺丰发货</h3>
-          <p>订单生产完成、标记“无需生产”或进入“库存待发货”后，用订单列表选择框勾选并生成顺丰发货 Excel；单号在订单抽屉内回填。</p>
+          <p>订单生产完成、标记“无需生产”或进入“库存待发货”后，用订单列表选择框勾选并生成顺丰发货 Excel；也可上传寄件列表回填单号及运费。</p>
+          <button class="secondary" type="button" @click="openShippingReturnManual">回传使用说明</button>
         </div>
         <div class="shipping-actions">
           <label class="sender-picker">
@@ -86,6 +87,10 @@
           </button>
           <label class="tracking-upload">
             <span>回传 Excel</span>
+            <select v-model="returnTemplateID" aria-label="回传模板">
+              <option value="">旧格式：备注订单号</option>
+              <option v-for="t in returnTemplates.filter(t => t.active)" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
             <input type="file" accept=".xlsx,.xls" @change="handleTrackingExcelFile" />
           </label>
           <button class="secondary" type="button" @click="uploadTrackingExcel" :disabled="trackingExcelLoading || !trackingExcelFile">
@@ -97,6 +102,7 @@
         <span>{{ shippingMessage }}</span>
         <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载 Excel</a>
       </div>
+      <details v-if="returnReport.length"><summary>本次回传明细（{{returnReport.length}}）</summary><p v-for="r in returnReport" :key="r.row_no">第 {{r.row_no}} 行 · {{r.tracking_no||'无单号'}} · {{r.status==='applied'?'已回填':r.status==='pending'?'待选择':'已跳过'}} {{r.error}}</p></details>
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="bulk-order-bar">
         <span>批量失效已选 {{ selectedVoidableOrderIDs.length }} 个</span>
@@ -190,6 +196,7 @@
               <td>
                 <div class="shipping-summary">
                   <span>{{ senderDisplay(row) }}</span>
+                  <ShippingReturnPicker :rows="returnCandidates.filter(x=>Number(x.order_id)===Number(row.id))" :order-id="Number(row.id)" :order-no="row.order_no" @saved="load" />
                   <strong :title="row.ship_tracking_no || ''">{{ formatTrackingSummary(row.ship_tracking_no) }}</strong>
                 </div>
               </td>
@@ -451,6 +458,7 @@
 </template>
 
 <script setup>
+import ShippingReturnPicker from '../components/ShippingReturnPicker.vue'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
 import OrderItemWeights from '../components/OrderItemWeights.vue'
 import { conversionSnapshot, conversionDescription } from '../lib/spec-conversion.js'
@@ -1108,6 +1116,14 @@ function handleTrackingExcelFile(event) {
   shippingError.value = ''
 }
 
+const returnTemplates = ref([])
+const returnTemplateID = ref('sf-recipient')
+const returnCandidates = ref([])
+const returnReport = ref([])
+function openShippingReturnManual() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'shippingReturnManual', returnNavigation: { key: 'orders', label: '返回订单列表' } } }))
+}
+
 async function uploadTrackingExcel() {
   if (!trackingExcelFile.value) {
     shippingError.value = '请选择回传 Excel'
@@ -1119,8 +1135,10 @@ async function uploadTrackingExcel() {
   try {
     const body = new FormData()
     body.append('file', trackingExcelFile.value)
+    if (returnTemplateID.value) body.append('template_id', returnTemplateID.value)
     const data = await apiSend('/api/orders/shipping-tracking-excel', { body })
-    shippingMessage.value = `已从 Excel 回填 ${Number(data.updated || 0)}/${Number(data.total || 0)} 个订单的快递单号`
+    returnReport.value = data.rows || []
+    shippingMessage.value = `已回填 ${Number(data.updated||0)} 条；待选择 ${Number(data.pending||0)} 条；跳过 ${Number(data.skipped||0)} 条`
     trackingExcelFile.value = null
     await load()
   } catch (err) {
@@ -1147,11 +1165,21 @@ async function load(silent = false) {
   const token = ++loadSequence
   if (!silent) { loading.value = true; error.value = '' }
   try {
-    const data = await apiGet(buildUrl(page.value))
+    const readReturnData = url => apiGet(url).catch(err => {
+      if (err.status === 403) return {}
+      throw err
+    })
+    const [data, templates, candidates] = await Promise.all([
+      apiGet(buildUrl(page.value)),
+      readReturnData('/api/orders/shipping-return-templates'),
+      readReturnData('/api/orders/shipping-return-candidates'),
+    ])
     if (token !== loadSequence) return
     const currentDetailID = Number(activeOrderDetail.value?.id || 0)
     const previousDrawerTrackingNo = activeOrderDetail.value?.ship_tracking_no || ''
     rows.value = data.rows || []
+    returnTemplates.value = templates.templates || []
+    returnCandidates.value = candidates.rows || []
     if (currentDetailID) {
       const refreshed = rows.value.find((row) => Number(row.id) === currentDetailID)
       if (refreshed) {

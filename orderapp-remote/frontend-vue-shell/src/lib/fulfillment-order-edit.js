@@ -122,7 +122,7 @@ export function fulfillmentFeeSummary(fees = {}, goodsCents = 0, freightView = {
   const freight = fees.freight || {}
   const known = freight.estimate_known !== false
   const estimated = freight.estimated_total_cents ?? freight.estimate?.base_cents ?? fees.calculated_shipping_fee_cents
-  const shipping = freight.current_receivable_cents ?? fees.shipping_fee_cents ?? 0
+  const shipping = freightView.final_receivable_cents ?? freight.current_receivable_cents ?? fees.shipping_fee_cents ?? 0
   const settledService = freightView?.service_fee_cents == null ? null : Math.max(0, number(freightView.service_fee_cents) - number(freightView.service_due_cents))
   const serviceDue = freightView?.service_due_cents == null ? null : settledService == null ? number(freightView.service_due_cents) : Math.max(0, number(fees.service_fee_cents) - settledService)
   return {
@@ -150,6 +150,6 @@ export function fulfillmentListFeeLines(order = {}) {
     ...(view.service_due_cents == null ? [] : [{ label: '服务费结算', value: number(view.service_due_cents) > 0 ? `待收 ${money(view.service_due_cents)}` : '已结清' }]),
     { label: '预估运费', value: view.estimate_known === false || view.estimated_total_cents == null ? '待核算' : money(view.estimated_total_cents) },
     { label: '实际运费', value: view.actual_cost_cents == null ? '待快递账单' : money(view.actual_cost_cents) },
-    ...(view.actual_cost_cents == null || view.billed_cents == null ? [] : [{ label: '运费已出账', value: money(view.billed_cents) }]),
+    ...(view.final_receivable_cents != null ? [{label:'最终运费',value:money(view.final_receivable_cents)},{label:'运费已收 / 待收',value:`${money(view.received_freight_cents)} / ${money(view.due_freight_cents)}`}] : view.actual_cost_cents == null || view.billed_cents == null ? [] : [{label:'运费已出账',value:money(view.billed_cents)}]),
   ]
 }

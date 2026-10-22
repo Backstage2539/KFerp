@@ -74,7 +74,11 @@ func TestOrderFreightV2SalesAndActual(t *testing.T) {
 	var entry int64
 	for index, cost := range []int64{1200, 1300} {
 		b, e := fr.PreviewImport(ctx, 1, fmt.Sprintf("manual%d", index), "manual.xlsx", []freightpg.ImportRow{{RowNo: 2, TrackingNo: "MANUAL709", ActualCents: cost}}, "test")
-		if e != nil || b.Rows[0].DeltaCents != 0 || b.Rows[0].TargetCents != 0 {
+		wantDelta := int64(-300)
+		if index > 0 {
+			wantDelta = 100
+		}
+		if e != nil || b.Rows[0].DeltaCents != wantDelta || b.Rows[0].FinalReceivableCents != cost {
 			t.Fatal(b, e)
 		}
 		b, e = fr.ConfirmImport(ctx, b.ID, "test")
@@ -87,8 +91,9 @@ func TestOrderFreightV2SalesAndActual(t *testing.T) {
 		t.Fatal(e)
 	}
 	var fees int
-	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.customer_fee_items WHERE source_type='freight_actual'`, schema)).Scan(&fees); e != nil || fees != 0 {
-		t.Fatal("duplicate receivable", fees, e)
+	var net int64
+	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*),round(sum(amount)*100)::bigint FROM %s.customer_fee_items WHERE source_type='freight_actual'`, schema)).Scan(&fees, &net); e != nil || fees != 3 || net != -300 {
+		t.Fatal("adjustment and reversal", fees, net, e)
 	}
 	check(15)
 	qc.ExpectedFreightToken = quote.Freight.Token

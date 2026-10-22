@@ -6050,3 +6050,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development after verification
 
 - PR-716 evidence: isolated PostgreSQL regression passed; all Go packages passed; 1508 Vue tests and build passed; local browser preview checked, no live business writes.
+
+### PR-717-shipping-return-import
+- Branch: codex/shipping-return-import-20261023
+- Status: verified; development deployment pending; Van business acceptance pending
+- Scope: 可配置寄件回传、隐藏收件信息匹配、持久候选选择、统一实际运费确认
+- Verifier: Go domain/API/PostgreSQL GREEN; all Go packages; 1512 Vue tests and production build GREEN; local mock UI checked
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-shipping-return.md
+- Deployment: development pending
