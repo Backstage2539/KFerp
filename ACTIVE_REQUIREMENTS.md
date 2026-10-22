@@ -2,9 +2,10 @@
 - Branch: codex/fulfillment-operations-redesign; base origin/develop 0ebb0a0a.
 - Scope: customer todo home, five stable modules, Product Creator styling, internal historical read access, shared mode defaults with explicit per-field customer overrides and safe legacy preservation.
 - DEV: DEV-718-01 defaults/resolver/audit; DEV-718-02 server workbench/history; DEV-718-03 Vue operations/settings; DEV-718-04 verification/manual/development delivery.
-- Status: technical checks passed; development integration/release in progress; Van business acceptance pending.
+- Status: technical verification and development delivery complete at 13a185db1af16a881f53697fc57e7d2832a14ba7 via GitHub PR #250; Van business acceptance pending.
 - Verifier: Go resolver + isolated PostgreSQL/API authorization/concurrency; Vue helpers and actual component interaction; frontend build; changed gates; visual layout; development runtime smoke.
-- Deployment: development after verified branch push/integration; no production release.
+- Deployment: KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development passed; backup /opt/stacks/erp/orderapp.backup.deploy-20261023023741-13a185db1af1. App running/restarts0, DB healthy, protected API401, authenticated shell/defaults/manual200, public/source/container bundle hash identical. No production release.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-fulfillment-operations.md; sibling evidence/fulfillment-operations. Server Vue1517/mini426/fullGo twice/types/builds passed. Receipt-only follow-up does not change deployed binary.
 - Notes: reserve_req_id.sh selected PR-718; --claim failed on macOS awk newline handling, reservation written here manually.
 
 ### ORDER-PAYMENT-ACCEPTANCE-FOLLOWUP-20261022

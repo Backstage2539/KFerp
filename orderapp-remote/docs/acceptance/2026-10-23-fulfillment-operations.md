@@ -1,6 +1,6 @@
 # PR-718 客户履约运营台重构
 
-状态：技术验证通过，开发环境交付进行中；Van 业务验收待确认。分支 `codex/fulfillment-operations-redesign`，基线 `origin/develop@0ebb0a0a`，仅开发环境交付。
+状态：技术验证及开发环境交付完成；Van 业务验收待确认。分支 `codex/fulfillment-operations-redesign`，基线 `origin/develop@0ebb0a0a`，仅开发环境交付。
 
 ## 交付范围
 
@@ -29,4 +29,17 @@
 
 ## 发布与验收
 
-开发环境部署待完成。生产发布、生产数据修改、小程序微信上传与业务验收不在本次交付范围。
+2026-10-23 开发环境交付完成，业务验收待 Van 确认。
+
+- 功能分支 `codex/fulfillment-operations-redesign`，已推送功能提交 `730631b33d4c93a55219749c77ddc801d8a43ca3`；GitHub PR #250 合入 develop，部署提交 `13a185db1af16a881f53697fc57e7d2832a14ba7`。
+- 使用独立 `deploy-checkout` 从最新 origin/develop 发布，保留原共享 develop 工作目录的其他未提交修改。命令：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`，退出0。
+- 服务器顺序完成 Vue1517、miniapp426、类型检查、Vue/小程序构建、24页面验证、主机与镜像内全量 Go 测试。未导出/上传微信开发包。
+- 仅重启 `erp_orderapp`；运行中、重启计数0，`erp_postgres` healthy；镜像 `sha256:81c21498c35c995dd829bf39c141d6b5e98fec1a01ab743cf7c2e9cdf55041b6`。
+- 公网开发登录页200；匿名根路径303、受保护默认配置API401；认证工作台、默认配置GET、手册均200。PR-718与DEV-718-01至04均已进入review，未代替Van验收。
+- 首次默认读取为V0、两个场景，实际商业费率尚待管理员维护；本次不修改任何客户收费配置。
+- 服务器源文件、运行容器与公网资源 `CustomerFulfillmentView-Dn2Mov5X.js` 的 SHA256 相同：`7802917e4c9400dc07d13376f0564e8795b0e90f6b248e1bb03514921574520e`；运行包RELEASE_INFO指向上述部署提交。
+- 源码回滚点 `/opt/stacks/erp/orderapp.backup.deploy-20261023023741-13a185db1af1`；回滚镜像 `kferp-orderapp-rollback:development-20261023023741-13a185db1af1`。
+- 发布前磁盘余量2.8G，编译后清理可重新生成的主机Go缓存及未使用构建缓存；未清理数据库、业务文件、源备份或带标签的回滚镜像。
+- 原始交付日志：`deploy-development.log`、`runtime-smoke.log`、`runtime-container.log`，见工作树同级evidence目录。
+
+入口：https://dev.qacoohee.com/app/vue-shell?view=customerFulfillment 。生产发布、生产业务数据修改、小程序微信上传与Van业务验收均未执行。本次后续收据提交仅更新交付记录，开发环境应用仍运行上述部署提交。
