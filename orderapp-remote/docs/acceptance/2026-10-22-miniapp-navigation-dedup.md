@@ -1,0 +1,32 @@
+# PR-712 客户小程序入口去重与导航整改
+
+## 范围与根因
+
+首页动作、摘要和底栏分别硬编码；底栏去重后摘要重新添加同业务入口，且订单的 source=official 参数未同步。源码片段测试没有组合检查实际整页导航，手册留下互相矛盾的历史描述。
+
+- DEV-829：去掉四类摘要、客户及访客价格表横幅、重复切换用户操作；删除摘要查询。
+- DEV-830：共享目的地、权限、子页底栏；正式订单保留筛选及代加工发货入口。
+- DEV-831：手册、回归、dev/main/生产与匹配小程序包交付。
+
+## TDD 与自动验证
+
+- 首页实际组合 RED：/tmp/pr712-home-red.log，11项中8失败，分别命中三个主题的重复摘要、摘要请求、客户/访客价格横幅及重复账号操作；修复后相关18项GREEN，/tmp/pr712-home-green.log。
+- 导航 RED：/tmp/pr712-nav-red.log，8项实际断言失败，另新共享目的地尚未实现；修复后7文件59项GREEN，/tmp/pr712-nav-green.log。
+- 合并最新 origin/develop@7684c047 后：完整小程序71文件425项通过，/tmp/pr712-integrated-mini.log；类型检查及生产mp-weixin构建通过。
+- Vue1478项与手册解析3项、生产Vue构建通过；customerportal/support两个Go接口与契约包通过，/tmp/pr712-api-integrated.log。
+- 独立代码复审：费用权限、员工隔离、processing库存入口、official关联订单及草稿保存均无阻塞。客户/场景草稿存储与onHide保存未改，未新增业务写入。
+- API 沿用后端现有权限和客户隔离，无业务写入或数据库迁移。
+
+## 手册
+
+- docs/OP_MANUAL_CUSTOMER_PORTAL.md
+- docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md，Vue/Vite customerPortalManual/customerFulfillmentManual 直接读取此单一来源。
+
+## 交付与边界
+
+- 实施中，未部署此需求。微信上传/审核/发布与Van业务验收单独记录。
+
+## 发布前观察
+
+- WeChat DevTools 当前项目 KFerp客户中心，吴国宏已登录；只读复现旧首页价格横幅及待处理订单、客户库存、待对账三张卡片。
+- 服务器初始空闲约1.1GiB，构建尚未启动。仅清理两个闲置Go缓存后约1.3GiB；为保留完整回滚能力，对2026年8/9月历史源码备份逐份完整压缩，验证gzip、tar目录与逐内容比较、SHA256后保留归档，当前及10月source/DB/镜像不动。服务器归档清单 /opt/stacks/source-backup-archives-20261022.tsv，本地证据 /tmp/pr712-cache-cleanup.log。

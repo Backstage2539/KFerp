@@ -12,6 +12,10 @@ describe('visibleHomeEntries', () => {
   it('shows no entries without customer capabilities', () => {
     expect(visibleHomeEntries()).toEqual([])
   })
+  it('keeps inventory available for processing-only customers as permitted by the inventory API', () => {
+    expect(visibleHomeEntries([{ code: 'processing', enabled: true }]).filter(entry => entry.key === 'inventory')).toHaveLength(1)
+    expect(visibleHomeEntries([{ code: 'processing', enabled: false }]).some(entry => entry.key === 'inventory')).toBe(false)
+  })
 
   it('shows only entries enabled by customer capabilities', () => {
     const entries = visibleHomeEntries([

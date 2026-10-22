@@ -29,7 +29,8 @@ func TestDev278MiniappMainTabsSource(t *testing.T) {
 		t.Fatalf("pages/index/index must be the first miniapp route before login")
 	}
 
-	tabBar := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "components", "MainTabBar.vue"))) + string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "beanCenter.ts")))
+	destinations := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "customerNavigation.ts")))
+	tabBar := destinations + string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "components", "MainTabBar.vue"))) + string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "beanCenter.ts")))
 	for _, want := range []string{
 		"首页",
 		"我的订单",

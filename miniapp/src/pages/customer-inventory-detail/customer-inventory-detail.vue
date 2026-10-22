@@ -21,6 +21,7 @@ import { useProcessingPrefillStore } from '../../stores/processingPrefill'
 import { useCustomerOrderDraftStore } from '../../stores/customerOrderDraft'
 import { useSessionStore } from '../../stores/session'
 import { matchesCustomerInventoryIdentity } from '../../utils/customerInventory'
+import { customerDestinationURL } from '../../utils/customerNavigation'
 import { createDirectShipDraftLine } from '../../utils/directShipDraft'
 import { shanghaiToday } from '../../utils/employeeOrder'
 import { processingRequestProgress, productionStatusLabel } from '../../utils/customerFulfillment'
@@ -204,7 +205,7 @@ function openProcessingRequest(id: number) {
 }
 
 function openRelatedOrder(orderNo: string) {
-  uni.navigateTo({ url: `/pages/service/service?key=orders&q=${encodeURIComponent(orderNo)}` })
+  uni.navigateTo({ url: customerDestinationURL('orders', { q: orderNo }) })
 }
 
 onLoad((query) => {

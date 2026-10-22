@@ -50,7 +50,7 @@ describe('miniapp customer switching', () => {
     expect(profile).toContain('switchCurrentCustomer')
     expect(profile).toContain('customerPickerLabels')
     expect(profile).toContain('handleCustomerSwitch')
-    expect(profile).toContain('切换用户')
+    expect(profile).not.toContain('切换用户')
     expect(profile).toContain('退出登录')
 
     expect(home).toContain("{ key: 'employeeProfile', label: '个人中心', url: '/pages/profile/profile' }")

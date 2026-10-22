@@ -1,4 +1,5 @@
 import type { CustomerFulfillmentSettings } from '../api/customerPortal'
+import { customerDestinations, customerDestinationURL } from './customerNavigation'
 export type Capability = {
   code: string
   enabled: boolean
@@ -13,11 +14,11 @@ export type HomeEntry = {
 }
 
 const entries: HomeEntry[] = [
-  { key: 'mall', label: '商城下单', capability: 'mall', url: '/pages/mall/mall' },
-  { key: 'productOrder', label: '商品下单', capability: 'product_order', url: '/pages/service/service?key=productOrder' },
-  { key: 'directShip', label: '一件代发', capability: 'direct_ship', url: '/pages/service/service?key=directShip' },
-  { key: 'processing', label: '生产工单', capability: 'processing', url: '/pages/service/service?key=processing' },
-  { key: 'inventory', label: '我的库存', capability: 'inventory_custody', url: '/pages/service/service?key=inventory' },
+  { key: 'mall', ...customerDestinations.mall, capability: 'mall' },
+  { key: 'productOrder', ...customerDestinations.productOrder, capability: 'product_order' },
+  { key: 'directShip', ...customerDestinations.directShip, capability: 'direct_ship' },
+  { key: 'processing', ...customerDestinations.processing, capability: 'processing' },
+  { key: 'inventory', ...customerDestinations.inventory, capabilities: ['inventory_custody', 'processing'] },
 ]
 
 export function visibleHomeEntries(capabilities: Capability[] = [], settings?: CustomerFulfillmentSettings): HomeEntry[] {
@@ -25,7 +26,7 @@ export function visibleHomeEntries(capabilities: Capability[] = [], settings?: C
   const dropship = enabled.has('direct_ship') && settings?.modes.some(mode => mode.enabled && ['stock','on_demand'].includes(mode.mode))
   return entries.filter((entry) => !(dropship && entry.key==='productOrder') && entryCapabilities(entry).some((code) => enabled.has(code))).flatMap(entry => {
     if (entry.key !== 'directShip' || !settings) return [entry]
-    return settings.modes.filter(mode => mode.enabled).map(mode => ({ ...entry, key: mode.mode === 'stock' ? 'directShip' : 'onDemandShip', label: mode.mode === 'stock' ? '一件代发' : '无库存代发', url: `${entry.url}&fulfillment_mode=${mode.mode}` }))
+    return settings.modes.filter(mode => mode.enabled && ['stock', 'on_demand'].includes(mode.mode)).map(mode => ({ ...entry, key: mode.mode === 'stock' ? 'directShip' : 'onDemandShip', label: mode.mode === 'stock' ? customerDestinations.directShip.label : '无库存代发', url: customerDestinationURL('directShip', { fulfillment_mode: mode.mode }) }))
   })
 }
 
