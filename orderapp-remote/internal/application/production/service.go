@@ -1153,15 +1153,18 @@ type ProductionWorkstationLoad struct {
 }
 
 type ProductionTask struct {
-	ProductionPlanID     int64  `json:"production_plan_id"`
-	ProductionPlanItemID int64  `json:"production_plan_item_id"`
-	OperationID          int64  `json:"operation_id"`
-	WorkstationID        int64  `json:"workstation_id"`
-	RosterEmployeeID     int64  `json:"roster_employee_id"`
-	RosterEmployeeName   string `json:"roster_employee_name"`
-	RosterSource         string `json:"roster_source"`
-	RosterStatus         string `json:"roster_status"`
-	PendingHandover      bool   `json:"pending_handover"`
+	HasPredecessor       bool    `json:"has_predecessor"`
+	PredecessorCompleted bool    `json:"predecessor_completed"`
+	PredecessorOutputQty float64 `json:"predecessor_output_qty"`
+	ProductionPlanID     int64   `json:"production_plan_id"`
+	ProductionPlanItemID int64   `json:"production_plan_item_id"`
+	OperationID          int64   `json:"operation_id"`
+	WorkstationID        int64   `json:"workstation_id"`
+	RosterEmployeeID     int64   `json:"roster_employee_id"`
+	RosterEmployeeName   string  `json:"roster_employee_name"`
+	RosterSource         string  `json:"roster_source"`
+	RosterStatus         string  `json:"roster_status"`
+	PendingHandover      bool    `json:"pending_handover"`
 
 	AssignedEmployeeID      int64              `json:"assigned_employee_id"`
 	CollaboratorEmployeeIDs []int64            `json:"collaborator_employee_ids"`
@@ -3664,6 +3667,7 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 		}
 		applyTaskBatchAndMaterialReadiness(tasks, jobCards, coverageByWorkOrder)
 	}
+	applyTaskOperationHandoff(tasks, jobCards)
 	if frozenRepo, ok := s.repo.(workOrderFrozenSourceDocumentRepository); ok {
 		issueActionByOrder := map[int64]bool{}
 		checked := map[int64]bool{}
@@ -4042,14 +4046,17 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 	cardSlices := map[int64]batchSlice{}
 	minSequence := map[int64]int{}
 	for _, card := range cards {
-		if card.ID <= 0 || card.WorkOrderID <= 0 || normalizeProductionTaskStatus(card.Status) == "cancelled" {
+		if card.ID <= 0 || card.WorkOrderID <= 0 {
+			continue
+		}
+		if current, ok := minSequence[card.WorkOrderID]; !ok || card.SequenceNo < current {
+			minSequence[card.WorkOrderID] = card.SequenceNo
+		}
+		if normalizeProductionTaskStatus(card.Status) == "cancelled" {
 			continue
 		}
 		key := operationKey{workOrderID: card.WorkOrderID, sequenceNo: card.SequenceNo}
 		cardGroups[key] = append(cardGroups[key], card)
-		if current, ok := minSequence[card.WorkOrderID]; !ok || card.SequenceNo < current {
-			minSequence[card.WorkOrderID] = card.SequenceNo
-		}
 	}
 	for _, task := range tasks {
 		if task.JobCardID <= 0 {

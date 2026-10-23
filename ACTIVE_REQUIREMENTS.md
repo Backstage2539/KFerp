@@ -6118,3 +6118,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-bulk-wip-picking-return.md
 - Delivery: develop PR #273 and main PR #274 merged; production b07c4234 deployed and verified. Minimum safe rollback 01013bde / kferp-orderapp-rollback:pr722-minsafe-01013bde. Receipt branch codex/bulk-wip-picking-receipt-20261023 records final runtime evidence without another deployment.
 - Notes: production entry 37 and work orders remain read-only; preserve original ccd2 dirty checkout. Request-id script's BSD awk multiline error prevented auto-claim; PR-722 manually reserved after highest PR-721 verification.
+
+
+### PR-723-OPERATION-SEQUENCE-HANDOFF
+- Branch: codex/operation-sequence-handoff-20261023 (origin/develop a82da57e)
+- Owner/session: Codex / 2026-10-23
+- Status: implementation and RED/GREEN complete; API/UI/backend/frontend/build checks passed; integrating develop/main for production; Van acceptance pending
+- Scope: predecessor completion gates operation order; no planned/minimum handoff quantity gate. Show actual predecessor output; every prior active operation must be completed before advancing. Preserve frozen plans and real production records.
+- DEV: DEV-855 sequence guard and API; DEV-856 workstation readiness/actual handoff; DEV-857 manuals, regression and production delivery.
+- Verifier: real PostgreSQL HTTP tests for low/zero kg/g/count output, unfinished earlier steps, resume/complete bypass, audit atomicity and readiness; frontend quantity/default tests; backend/frontend/build; isolated UI and production read-only checks.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-operation-sequence-handoff.md
+- Notes: reserve script reports PR-723 but BSD awk claim fails before mutation; manually reserve this number. Original ccd2 dirty checkout remains untouched.

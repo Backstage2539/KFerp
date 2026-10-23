@@ -67,6 +67,10 @@ function quantityText(value) {
 }
 
 export function taskQuantityLines(task = {}) {
+  if (task.has_predecessor) {
+    if (!task.predecessor_completed) return ['前序工序未完成，完成后交接']
+    return [`前序实际产出 ${quantityText(task.predecessor_output_qty)} ${task.inventory_unit || ''}`.trim(), '本工序按实际交接量处理']
+  }
   const lines = []
   const operation = String(task.operation || '')
   const unit = String(task.inventory_unit || '').trim()
@@ -84,6 +88,17 @@ export function taskQuantityLines(task = {}) {
   if (batchOutput > 0 && unit) lines.push(`目标产出 ${quantityText(batchOutput)} ${unit}`)
   if (!lines.length) lines.push('本批数量待核对')
   return lines
+}
+
+// A multi-batch operation records each task's actual input; never prefill the
+// whole preceding operation's output into every batch.
+export function taskDefaultActualInput(task = {}) {
+  if (Number(task.actual_input_qty || 0) > 0) return Number(task.actual_input_qty)
+  if (task.has_predecessor) {
+    return task.predecessor_completed && Number(task.batch_count || 0) === 1
+      ? Number(task.predecessor_output_qty || 0) : 0
+  }
+  return Number(task.planned_input_inventory_qty || 0)
 }
 
 export function materialReadinessState(task = {}) {
