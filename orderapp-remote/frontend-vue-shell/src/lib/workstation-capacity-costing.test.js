@@ -55,7 +55,7 @@ test('piece costing uses one generic sales-spec item instead of ambiguous packag
 })
 
 test('workstation capacity editor exposes time and piece cost methods without editing inherited hourly rate', () => {
-  const source = fs.readFileSync(new URL('../views/ManufacturingWorkstationsView.vue', import.meta.url), 'utf8')
+  const source = fs.readFileSync(new URL('../components/ManufacturingWorkstationEditor.vue', import.meta.url), 'utf8')
 
   for (const marker of [
     '成本方式',

@@ -43,7 +43,7 @@ func TestDev487ProductionPlanCapacitySplitContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ManufacturingOperationsView.vue"): {
 			"工序不决定工时",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "ManufacturingWorkstationsView.vue"): {
+		filepath.Join("frontend-vue-shell", "src", "components", "ManufacturingWorkstationEditor.vue"): {
 			"工位产能",
 			"机器成本/小时",
 			"人工成本/小时",

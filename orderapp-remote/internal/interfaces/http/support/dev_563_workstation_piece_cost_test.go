@@ -11,7 +11,7 @@ func TestDev563WorkstationPieceCostContracts(t *testing.T) {
 		"reqStore":         filepath.Join("internal", "interfaces", "http", "support", "req_store.go"),
 		"manufacturing":    filepath.Join("internal", "application", "manufacturing", "service.go"),
 		"production":       filepath.Join("internal", "infrastructure", "postgres", "production", "production_plan.go"),
-		"workstations":     filepath.Join("frontend-vue-shell", "src", "views", "ManufacturingWorkstationsView.vue"),
+		"workstations":     filepath.Join("frontend-vue-shell", "src", "components", "ManufacturingWorkstationEditor.vue"),
 		"requirements":     filepath.Join("docs", "REQUIREMENTS.md"),
 		"acceptance":       filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 		"productionManual": filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"),
