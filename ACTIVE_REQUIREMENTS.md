@@ -6088,11 +6088,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: production requested; not deployed.
 - Last update: 2026-10-23
 ### PR-720-EMPLOYEE-ORDER-AUTO-FREIGHT
-- Branch: codex/employee-order-auto-freight-20261023; base origin/develop@9d4bc996.
+- Branch: codex/employee-order-auto-freight-20261023; merged by GitHub PR #261.
 - Owner/session: Codex / 2026-10-23.
-- Status: implementation verified; integration and development deployment pending.
+- Status: implementation verified and merged; development deployed; Van business acceptance pending.
 - Scope: ordinary employee web and miniapp order freight auto-current calculation, per-order active template choice, manual freight, free shipping, explicit gross parcel weight when BOM logistics weight is missing; diagnose/fix miniapp update 500.
 - DEV: DEV-845 quote API/domain/snapshot; DEV-846 Vue entry flow; DEV-847 miniapp save and sanitized diagnostics; DEV-848 docs/verification/development delivery.
 - Verifier: all Go packages (single worker, DB integration tests skipped); targeted domain/API/PostgreSQL tests; Vue runtime/API tests and build; miniapp 432 tests, typecheck and development build.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-employee-order-auto-freight.md.
-- Deployment: development after clean integration; no production order writes or WeChat upload/publication.
+- Deployment: `bash ./deploy_orderapp.sh development`; deployed `origin/develop@2eb937868cbcbff3af9ee8b7616168756290c464`. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261023121954-2eb937868cbc`; rollback image: `kferp-orderapp-rollback:development-20261023121954-2eb937868cbc`. All three development containers running; `/app/login` HTTP 200, `/app/` redirects HTTP 303, unauthenticated requirement API HTTP 401. Authenticated requirement API shows PR-720 `review` and DEV-845..848 `done`.
+- No production order writes, production deployment, WeChat upload, review, or publication.
