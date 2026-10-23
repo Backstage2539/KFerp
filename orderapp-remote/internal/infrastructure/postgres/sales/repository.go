@@ -3008,7 +3008,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if mode != "ship" && mode != "customer_stock" {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("交付方式无效")
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET delivery_mode=$2,delivery_warehouse_code=$3,delivery_status=CASE WHEN $2='customer_stock' THEN 'pending_receipt' ELSE '' END,fulfillment_mode=$4 WHERE id=$1", r.schema), orderID, mode, strings.TrimSpace(cmd.DeliveryWarehouseCode), strings.TrimSpace(cmd.FulfillmentMode)); err != nil {
+	// Existing retained sales keep their actual receipt progress. Only entering
+	// customer stock initializes pending receipt; old values are read before UPDATE.
+	if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.orders SET delivery_mode=$2,delivery_warehouse_code=$3,delivery_status=CASE WHEN $2='customer_stock' THEN CASE WHEN delivery_mode='customer_stock' THEN delivery_status ELSE 'pending_receipt' END ELSE '' END,fulfillment_mode=$4 WHERE id=$1", r.schema), orderID, mode, strings.TrimSpace(cmd.DeliveryWarehouseCode), strings.TrimSpace(cmd.FulfillmentMode)); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
 	stockDecision := strings.TrimSpace(cmd.StockBatchDecision)

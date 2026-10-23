@@ -26,4 +26,15 @@ export function customerStockDeliveryLabel(status = '') {
   return ({ pending_receipt: '待入客户仓', partially_received: '部分入客户仓', received: '已入客户仓' })[status] || '待入客户仓'
 }
 
+export function isCustomerStockOrder(order = {}) {
+  return order?.delivery_mode === 'customer_stock'
+}
+
+export function customerStockProgressLabel(order = {}) {
+  if (['received', 'partially_received'].includes(order.delivery_status)) return customerStockDeliveryLabel(order.delivery_status)
+  const production = String(order.process_status || '').trim()
+  if (['生产完成', '已生产完成', '已生产', '无需生产', '库存待发货'].includes(production)) return '待入客户仓'
+  return production || '待生产'
+}
+
 export function ordinaryOrderVoidable(row = {}) { return !row.is_void && !['stock', 'on_demand'].includes(row.fulfillment_mode) }
