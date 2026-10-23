@@ -69,6 +69,35 @@ type workOrderAPIRepo struct {
 	qualityRows          []productionapp.QualityInspectionRow
 }
 
+func TestFinishedReceiptAPIExposesOutputAndWarehouseGroupingIdentity(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		rows: []productionapp.WorkOrderRow{{
+			ID: 501, WorkOrderNo: "WO-501", RunningItemID: 801, Status: "running",
+			OutputType: "product", OutputProductID: 41, ProductID: 40, OutputName: "雪松拼配",
+			BomSpecID: 91, BomVariantID: 92, SpecG: 454, OutputUnit: "袋",
+			CustomerID: 77, TargetWarehouse: "virtual-77-finished",
+		}},
+		jobCards: []productionapp.JobCardRow{{ID: 601, WorkOrderID: 501, SequenceNo: 1, Status: "completed", ActualOutputQty: 12}},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Production: productionapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/finished-receipts?status=all", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET finished receipts status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"output_product_id":41`, `"product_id":40`, `"bom_spec_id":91`,
+		`"bom_variant_id":92`, `"customer_id":77`, `"target_warehouse":"virtual-77-finished"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("finished receipt response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
 type stockDocumentAPIRepo struct {
 	stockapp.Repository
 	detail      stockapp.StockDocumentDetail

@@ -1703,20 +1703,26 @@ type StockEntryRow struct {
 }
 
 type FinishedReceiptTask struct {
-	WorkOrderID     int64   `json:"work_order_id"`
-	WorkOrderNo     string  `json:"work_order_no"`
-	OutputType      string  `json:"output_type"`
-	OutputName      string  `json:"output_name"`
-	SpecG           int64   `json:"spec_g"`
-	OutputUnit      string  `json:"output_unit"`
-	TargetWarehouse string  `json:"target_warehouse"`
-	ReportedQty     float64 `json:"reported_qty"`
-	ReceivedQty     float64 `json:"received_qty"`
-	AvailableQty    float64 `json:"available_qty"`
-	ReceiptStatus   string  `json:"receipt_status"`
-	QualityStatus   string  `json:"quality_status"`
-	QualityBlocked  bool    `json:"quality_blocked"`
-	LastReportedAt  string  `json:"last_reported_at"`
+	WorkOrderID      int64   `json:"work_order_id"`
+	WorkOrderNo      string  `json:"work_order_no"`
+	OutputType       string  `json:"output_type"`
+	OutputProductID  int64   `json:"output_product_id,omitempty"`
+	ProductID        int64   `json:"product_id,omitempty"`
+	OutputMaterialID int64   `json:"output_material_id,omitempty"`
+	BomSpecID        int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID     int64   `json:"bom_variant_id,omitempty"`
+	CustomerID       int64   `json:"customer_id,omitempty"`
+	OutputName       string  `json:"output_name"`
+	SpecG            int64   `json:"spec_g"`
+	OutputUnit       string  `json:"output_unit"`
+	TargetWarehouse  string  `json:"target_warehouse"`
+	ReportedQty      float64 `json:"reported_qty"`
+	ReceivedQty      float64 `json:"received_qty"`
+	AvailableQty     float64 `json:"available_qty"`
+	ReceiptStatus    string  `json:"receipt_status"`
+	QualityStatus    string  `json:"quality_status"`
+	QualityBlocked   bool    `json:"quality_blocked"`
+	LastReportedAt   string  `json:"last_reported_at"`
 }
 
 type StockEntryItemRow struct {
@@ -3436,6 +3442,8 @@ func (s *Service) ListFinishedReceiptTasks(ctx context.Context, status string) (
 		quality := buildProductionQualityStatus(workOrder, qualityRowsForWorkOrder(workOrder, qualityRows))
 		out = append(out, FinishedReceiptTask{
 			WorkOrderID: workOrder.ID, WorkOrderNo: workOrder.WorkOrderNo, OutputType: workOrder.OutputType,
+			OutputProductID: workOrder.OutputProductID, ProductID: workOrder.ProductID, OutputMaterialID: workOrder.OutputMaterialID,
+			BomSpecID: workOrder.BomSpecID, BomVariantID: workOrder.BomVariantID, CustomerID: workOrder.CustomerID,
 			OutputName: firstNonEmpty(workOrder.OutputName, workOrder.ProductName), SpecG: workOrder.SpecG,
 			OutputUnit: firstNonEmpty(workOrder.OutputUnit, workOrder.InventoryUnit), TargetWarehouse: workOrder.TargetWarehouse,
 			ReportedQty: reported, ReceivedQty: received, AvailableQty: available, ReceiptStatus: receiptStatus,
