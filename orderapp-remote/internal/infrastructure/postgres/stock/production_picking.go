@@ -55,7 +55,7 @@ func validateAutomaticPickingTx(ctx context.Context, tx pgx.Tx, schema string, d
 		if item.BatchCode == "" || item.FromWarehouse == "" {
 			return fmt.Errorf("领料须保留冻结的来源仓、货主和批次")
 		}
-		if (!detail.IsReturn && item.ToWarehouse != "wip") || (detail.IsReturn && item.FromWarehouse != "wip") {
+		if (!detail.IsReturn && (item.ToWarehouse != "wip" || item.FromWarehouse == "wip")) || (detail.IsReturn && item.FromWarehouse != "wip") {
 			return fmt.Errorf("生产领料必须转入 WIP，退料必须从 WIP 转出")
 		}
 		if detail.IsReturn {
@@ -82,21 +82,24 @@ func validateAutomaticPickingTx(ctx context.Context, tx pgx.Tx, schema string, d
 			g += b.G
 			n += b.N
 		}
-		key := fmt.Sprintf("%s:%d:%d:%d:%d:%s:%s:%d", item.ItemType, item.MaterialID, item.ProductID, item.BomSpecID, item.SpecG, item.BatchCode, item.FromWarehouse, item.OwnerCustomerID)
+		key := fmt.Sprintf("%s:%d:%d:%d:%d:%d:%s:%s:%d", item.ItemType, item.MaterialID, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.BatchCode, item.FromWarehouse, item.OwnerCustomerID)
 		q := used[key]
 		ig, in := pickingTransferQuantities(item)
 		q[0] += ig
 		q[1] += in
 		used[key] = q
-		if len(bindings) == 0 || q[0] > g || q[1] > n {
-			return fmt.Errorf("%s / %s 的待领预留已变化，请刷新领料建议", item.ItemName, item.BatchCode)
+		if len(bindings) == 0 {
+			return fmt.Errorf("%s / %s 不属于本工单冻结的来源仓、货主和批次，请刷新领料建议", item.ItemName, item.BatchCode)
+		}
+		if detail.IsReturn && (q[0] > g || q[1] > n) {
+			return fmt.Errorf("%s / %s 的可退预留不足或已耗用，请刷新退料建议", item.ItemName, item.BatchCode)
 		}
 	}
 	return nil
 }
 
-// Move only the posted quantity. Consumed/returned history stays on its original
-// binding, while unconsumed reservations follow the physical stock into WIP.
+// Move at most the outstanding reservation into WIP. Any excess is physical
+// free stock; consumed history and the work order's frozen demand stay unchanged.
 func movePickingReservationTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, item app.StockDocumentItemRow, direction int64) error {
 	if direction < 0 {
 		if snapshot, err := loadPickingReservationSnapshotTx(ctx, tx, schema, item.ID); err != nil {
@@ -155,7 +158,7 @@ func movePickingReservationTx(ctx context.Context, tx pgx.Tx, schema string, wor
 		g -= takeG
 		n -= takeN
 	}
-	if g > 0 || n > 0 {
+	if (g > 0 || n > 0) && !(direction > 0 && item.ToWarehouse == "wip" && item.FromWarehouse != "wip") {
 		return fmt.Errorf("本次领料对应的预留不足或已耗用，不能重复领料或撤销")
 	}
 	if direction > 0 {
@@ -187,6 +190,20 @@ func (r Repository) postPickingProductTransferTx(ctx context.Context, tx pgx.Tx,
   WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3 AND b.batch_code=$4 AND b.owner_customer_id=$5 AND b.remaining_g>=$6 AND b.remaining_units>=$7 AND b.quality_status NOT IN('hold','reject') AND COALESCE(l.warehouse,'finished_goods')=$8 FOR UPDATE OF b`, r.schema), item.ProductID, item.BomSpecID, item.SpecG, item.BatchCode, item.OwnerCustomerID, totalG, units, item.FromWarehouse).Scan(&sourceID, &sourceCode, &cost, &quality)
 		if err != nil {
 			return fmt.Errorf("商品组件批次已变化或数量不足，请刷新领料建议：%w", err)
+		}
+		if !detail.IsReturn {
+			var availableG, availableN int64
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT b.remaining_g-COALESCE(r.g,0),b.remaining_units-COALESCE(r.n,0)
+ FROM %[1]s.stock_batches b LEFT JOIN LATERAL(
+ SELECT SUM(GREATEST(0,rb.reserved_g-rb.consumed_g-rb.returned_g)) g,SUM(GREATEST(0,rb.reserved_units-rb.consumed_units-rb.returned_units)) n
+ FROM %[1]s.work_order_material_reservation_batches rb JOIN %[1]s.work_order_material_reservations r ON r.id=rb.reservation_id
+ WHERE rb.stock_batch_id=b.id AND rb.warehouse=$2 AND rb.owner_customer_id=$3 AND rb.work_order_id<>$4 AND rb.status='reserved' AND r.status='reserved') r ON true
+ WHERE b.id=$1`, r.schema), sourceID, item.FromWarehouse, item.OwnerCustomerID, detail.WorkOrderID).Scan(&availableG, &availableN); err != nil {
+				return err
+			}
+			if totalG > availableG || units > availableN {
+				return fmt.Errorf("商品组件来源库存不足，部分库存已被其他工单预留")
+			}
 		}
 		var moveID int64
 		if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.stock_entry_finished_batch_moves(stock_entry_id,stock_entry_item_id,source_batch_id,source_batch_code,bom_spec_id,bom_variant_id,spec_g,qty_g,qty_units) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, r.schema), detail.ID, item.ID, sourceID, sourceCode, item.BomSpecID, item.BomVariantID, item.SpecG, totalG, units).Scan(&moveID); err != nil {
