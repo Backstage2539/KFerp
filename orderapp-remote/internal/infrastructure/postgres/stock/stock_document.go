@@ -2570,8 +2570,8 @@ func (r Repository) reverseStockDocumentItemTx(ctx context.Context, tx pgx.Tx, d
 			return err
 		}
 		for _, ledger := range []ledgerEntry{
-			{ItemType: itemTypeMaterial, ItemID: item.MaterialID, ItemName: item.ItemName, Warehouse: item.ToWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: alloc.BatchCode, SourceBatchID: detail.EntryNo, BeforeG: beforeToG, ChangeG: -alloc.QtyG, AfterG: beforeToG - alloc.QtyG, BeforeUnits: beforeToUnits, ChangeUnits: -alloc.QtyUnits, AfterUnits: beforeToUnits - alloc.QtyUnits, Operator: actor},
-			{ItemType: itemTypeMaterial, ItemID: item.MaterialID, ItemName: item.ItemName, Warehouse: item.FromWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: alloc.BatchCode, SourceBatchID: detail.EntryNo, BeforeG: beforeFromG, ChangeG: alloc.QtyG, AfterG: beforeFromG + alloc.QtyG, BeforeUnits: beforeFromUnits, ChangeUnits: alloc.QtyUnits, AfterUnits: beforeFromUnits + alloc.QtyUnits, Operator: actor},
+			{ItemType: itemTypeMaterial, ItemID: item.MaterialID, ItemName: item.ItemName, OwnerCustomerID: item.OwnerCustomerID, Warehouse: item.ToWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: alloc.BatchCode, SourceBatchID: detail.EntryNo, BeforeG: beforeToG, ChangeG: -alloc.QtyG, AfterG: beforeToG - alloc.QtyG, BeforeUnits: beforeToUnits, ChangeUnits: -alloc.QtyUnits, AfterUnits: beforeToUnits - alloc.QtyUnits, Operator: actor},
+			{ItemType: itemTypeMaterial, ItemID: item.MaterialID, ItemName: item.ItemName, OwnerCustomerID: item.OwnerCustomerID, Warehouse: item.FromWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: alloc.BatchCode, SourceBatchID: detail.EntryNo, BeforeG: beforeFromG, ChangeG: alloc.QtyG, AfterG: beforeFromG + alloc.QtyG, BeforeUnits: beforeFromUnits, ChangeUnits: alloc.QtyUnits, AfterUnits: beforeFromUnits + alloc.QtyUnits, Operator: actor},
 		} {
 			if err := insertLedgerTx(ctx, tx, r.schema, ledger); err != nil {
 				return err
