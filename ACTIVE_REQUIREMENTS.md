@@ -6111,10 +6111,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-722-BULK-WIP-PICKING-RETURN
 - Branch: codex/bulk-wip-picking-return-20261023 (origin/develop 8091b262)
 - Owner/session: Codex / 2026-10-23
-- Status: implementation verified; compatibility rollback hardening and production delivery in progress; Van business acceptance pending
+- Status: completed and deployed to production b07c4234 (2026-10-23 19:04 CST); final API/UI read-only checks passed; Van business acceptance pending
 - Scope: free positive issue quantities bounded by genuine source availability; exact reservation-transfer snapshots and cancellation; return to original workstation with unsaved-input guard.
 - DEV: DEV-851 snapshot/cancel compatibility; DEV-852 bulk issue/API/availability; DEV-853 workstation return and Vue; DEV-854 manuals, verification and coordinated production release.
 - Verifier: targeted repository and real PostgreSQL API RED/GREEN; real Vue runtime RED/GREEN; backend/frontend checks and build; isolated browser flows; production entry 37 read-only before/after.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-bulk-wip-picking-return.md
-- Delivery: compatibility snapshot/cancel commit and production-baseline image before quantity relaxation; retain this as minimum safe rollback image. Integrate verified feature through develop and main; formal production release.
+- Delivery: develop PR #273 and main PR #274 merged; production b07c4234 deployed and verified. Minimum safe rollback 01013bde / kferp-orderapp-rollback:pr722-minsafe-01013bde. Receipt branch codex/bulk-wip-picking-receipt-20261023 records final runtime evidence without another deployment.
 - Notes: production entry 37 and work orders remain read-only; preserve original ccd2 dirty checkout. Request-id script's BSD awk multiline error prevented auto-claim; PR-722 manually reserved after highest PR-721 verification.

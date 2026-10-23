@@ -252,11 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-722-BULK-WIP-PICKING-RETURN", title: "整袋领料到 WIP、精确撤销与返回工位", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-23-bulk-wip-picking-return.md"},
-		{table: "req_dev", code: "DEV-851-PICKING-SNAPSHOT", title: "PR-722 预留移动快照与兼容撤销", status: "doing", assignee: "Codex", evidence: "先 RED/GREEN，保留兼容回滚镜像"},
+		{table: "req_product", code: "PR-722-BULK-WIP-PICKING-RETURN", title: "整袋领料到 WIP、精确撤销与返回工位", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-bulk-wip-picking-return.md"},
+		{table: "req_dev", code: "DEV-851-PICKING-SNAPSHOT", title: "PR-722 预留移动快照与兼容撤销", status: "done", assignee: "Codex", evidence: "先 RED/GREEN，保留兼容回滚镜像"},
 		{table: "req_dev", code: "DEV-852-BULK-WIP-ISSUE", title: "PR-722 自由领料数量、库存保护与 API 回归", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-bulk-wip-picking-return.md"},
 		{table: "req_dev", code: "DEV-853-PICKING-RETURN", title: "PR-722 返回工位与未保存输入保护", status: "done", assignee: "Codex", evidence: "Vue runtime RED/GREEN"},
-		{table: "req_dev", code: "DEV-854-PICKING-DELIVERY", title: "PR-722 手册、验收及生产交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-bulk-wip-picking-return.md"},
+		{table: "req_dev", code: "DEV-854-PICKING-DELIVERY", title: "PR-722 手册、验收及生产交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-bulk-wip-picking-return.md"},
 		{table: "req_product", code: "PR-721-WORK-ORDER-ROSTER-STATUS", title: "已排班工单不再误报任务待分配", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-work-order-roster-status.md"},
 		{table: "req_dev", code: "DEV-849-WORK-ORDER-ROSTER", title: "PR-721 工单待办跟随当天排班及错误处理", status: "done", assignee: "Codex", evidence: "8 Vue runtime RED/GREEN; frontend build and isolated roster API GREEN"},
 		{table: "req_dev", code: "DEV-850-ROSTER-STATUS-DELIVERY", title: "PR-721 手册、回归和生产修复交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-work-order-roster-status.md"},
