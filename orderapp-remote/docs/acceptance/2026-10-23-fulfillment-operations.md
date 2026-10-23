@@ -1,6 +1,6 @@
 # PR-718 客户履约运营台重构
 
-状态：技术验证及开发环境交付完成；Van 业务验收待确认。分支 `codex/fulfillment-operations-redesign`，基线 `origin/develop@0ebb0a0a`；后续生产授权及交付记录见文末。
+状态：技术验证、开发环境及生产交付完成；Van 业务验收待确认。分支 `codex/fulfillment-operations-redesign`，基线 `origin/develop@0ebb0a0a`；后续生产授权及交付记录见文末。
 
 ## 交付范围
 
@@ -50,3 +50,19 @@
 2026-10-23 Van 明确要求“合入main，部署生产环境”。发布分支 `codex/fulfillment-operations-production` 从 `main@d5edc418` 合入已验证的 `develop@470018f9`；main 独有的历史数据保护及生产交付记录保留。合并无冲突，业务改动限定于上述46文件。合并后重新运行相关隔离数据库/API及Vue回归，并由生产发布脚本重跑全量门禁。当前为发布前记录，实际部署版本与回滚点将在完成后补录。
 
 生产候选合并后验证：隔离 PostgreSQL/API 三项通过（6.4秒，无跳过）；生产 BOM 启动保护测试通过；相关 Go 应用/接口/订单/支持包通过；Vue 交互与样式22项通过；changed及合并暂存区检查通过。日志为 `production-integration-{db,go,vue}.log` 和 `production-bom-guard.log`。
+
+
+## 生产交付结果（2026-10-23）
+
+- 发布候选 `54020ecf334f345ef9472e0f63ac7b6bc45c9bfe` 已推送；GitHub PR #252 合入 main，运行提交 `5f218156324b183e2e3ba315608304ebcb79dc84`。独立 deploy-checkout 的 main 与 origin/main 完全一致后发布。
+- `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production` 退出0。服务器 Vue1517、miniapp426、类型检查、两端构建、24页面验证、主机及镜像全量 Go 门禁全部通过。GitHub connector 的候选 PR workflow 查询返回空列表；不把该结果作为 CI 通过证据。
+- 仅生产应用切换；`erp_prod_orderapp` running/restarts0，`erp_prod_postgres` healthy。镜像 `sha256:8e941ffe70ba47997ff41651a23d3fba72d94b49d4817cf20815a9226ff74b36`。
+- 公网登录页200，匿名根路径与默认配置API均401；当前运行凭据认证后工作台、共享默认、PR/DEV、手册均200。首次检查脚本沿用静态.env认证返回401，改为运行容器的当前认证信息后通过；未修改认证配置。凭据未写入输出或交付文件。
+- 只读核对用户指定客户：概览正常，待备货、待发货、待确认、待收款、缺收件信息五类服务端统计均与对应订单列表总数一致。检查仅发GET，未提交客户设置、订单、库存或费用写入；原始响应中的业务数据未保存在交付日志。
+- 全局默认为revision0、两场景；本次未指定商业费率。存量客户配置与历史费用按原规则保留。PR-718与四个DEV均为review，Van业务验收待确认。
+- 运行包 RELEASE_INFO 指向 `5f218156324b183e2e3ba315608304ebcb79dc84`。服务器源、容器、公网 `CustomerFulfillmentView-Dn2Mov5X.js` 的 SHA256 一致：`7802917e4c9400dc07d13376f0564e8795b0e90f6b248e1bb03514921574520e`。
+- 源码回滚点 `/opt/stacks/erp-production/orderapp.backup.deploy-20261023095037-5f218156324b`；回滚镜像 `kferp-orderapp-rollback:production-20261023095037-5f218156324b`（旧镜像 `sha256:abbbb5b5d97455e7b47482f777d05e0b3385e8540e567a6437c5da45afb30b57`）。均已核对存在。
+- 发布前及完成后仅清理可重新生成的Docker构建、npm、Go、dnf缓存；最终磁盘余量约2.4GB。生产/开发应用均running/restarts0，数据库、业务文件、源码备份及回滚镜像保留。
+- 原始证据：同级 `evidence/fulfillment-operations/deploy-production.log`、`production-integration-{db,go,vue}.log`、`production-bom-guard.log`、`runtime-production-smoke.log`、`runtime-production-container.log`、`production-cache-cleanup.log`。
+
+生产入口：https://erp.qacoohee.com/app/vue-shell?view=customerFulfillment 。本次没有微信上传/审核/发布；技术发布与Van业务验收分开记录。发布后的收据提交仅更新本文件与ACTIVE_REQUIREMENTS，不改变上述运行版本。
