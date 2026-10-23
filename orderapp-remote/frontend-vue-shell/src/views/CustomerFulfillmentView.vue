@@ -315,15 +315,15 @@
       <div class="order-filters"><div class="queue-tabs"><button v-for="filter in orderFilters" :key="filter.key" :class="{active: orderQueue === filter.key}" @click="setOrderQueue(filter.key)">{{ filter.label }}</button></div><form class="order-search" @submit.prevent="loadFulfillmentOrders(1)"><input v-model="orderSearch" placeholder="订单号、客户或运单" aria-label="搜索履约订单" /><button class="secondary" type="submit">搜索</button></form></div>
       <div class="table-wrap">
         <table class="fulfillment-orders-table">
-          <thead><tr><th>订单</th><th>收件与物流</th><th class="amount-column">应收金额</th><th>收款</th><th>履约进度</th><th>操作</th></tr></thead>
+          <thead><tr><th>订单</th><th>交付信息</th><th class="amount-column">应收金额</th><th>收款</th><th>履约进度</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="row in fulfillmentOrders" :key="row.id">
               <td><button class="order-link" type="button" @click="openFulfillmentOrderDetail(row)">{{ row.order_no }}</button><div class="cell-meta">{{ businessLabel(row.fulfillment_mode || (row.delivery_mode === 'customer_stock' ? row.delivery_mode : row.portal_service_code) || row.order_type) }} · {{ row.order_date || '-' }}</div></td>
-              <td><div class="stacked-text receiver-cell"><strong>{{ row.receiver_name || '待补收件人' }} <span>{{ row.receiver_phone || '' }}</span></strong><span class="receiver-address" :title="row.receiver_address">{{ row.ship_tracking_no || row.receiver_address || '待补收件信息' }}</span></div></td>
+              <td><div v-if="isCustomerStockOrder(row)" class="cell-meta">留厂库存 · 无需发货</div><div v-else class="stacked-text receiver-cell"><strong>{{ row.receiver_name || '待补收件人' }} <span>{{ row.receiver_phone || '' }}</span></strong><span class="receiver-address" :title="row.receiver_address">{{ row.ship_tracking_no || row.receiver_address || '待补收件信息' }}</span></div></td>
               <td class="amount-column"><strong>¥ {{ row.grand_total || '0.00' }}</strong></td>
               <td><span class="order-status-label">{{ row.pay_status || '待核对' }}</span></td>
-              <td><span class="order-status-label" :class="{'status-complete': isShipped(row)}">{{ row.ship_status || '-' }}</span><div class="cell-meta">{{ row.confirmation_status && row.confirmation_status !== 'accepted' ? orderConfirmationLabel(row.confirmation_status) : (row.process_status || '-') }}</div></td>
-              <td><div class="actions-inline compact-order-actions"><button class="link-button" type="button" @click="openFulfillmentOrderDetail(row)">详情</button><button class="link-button" type="button" @click="openSalesOrderDrawer(row)">销售单</button><button class="link-button" type="button" @click="openDeliveryNoteDrawer(row)" :disabled="!isShipped(row)">出库单</button></div></td>
+              <td><span class="order-status-label" :class="{'status-complete': isCustomerStockOrder(row) ? row.delivery_status === 'received' : isShipped(row)}">{{ isCustomerStockOrder(row) ? customerStockProgressLabel(row) : row.ship_status || '-' }}</span><div class="cell-meta">{{ row.confirmation_status && row.confirmation_status !== 'accepted' ? orderConfirmationLabel(row.confirmation_status) : (isCustomerStockOrder(row) ? '' : row.process_status || '-') }}</div></td>
+              <td><div class="actions-inline compact-order-actions"><button class="link-button" type="button" @click="openFulfillmentOrderDetail(row)">详情</button><button class="link-button" type="button" @click="openSalesOrderDrawer(row)">销售单</button><button v-if="!isCustomerStockOrder(row)" class="link-button" type="button" @click="openDeliveryNoteDrawer(row)" :disabled="!isShipped(row)">出库单</button></div></td>
             </tr>
             <tr v-if="!fulfillmentOrders.length"><td colspan="6" class="muted empty-row">{{ fulfillmentOrdersLoading ? '加载中...' : '暂无履约订单' }}</td></tr>
           </tbody>
@@ -355,7 +355,7 @@
 
         <div v-if="activeOrderSummary" class="drawer-body">
  <OrderConfirmationPanel :order-id="Number(activeOrderSummary.id)" :customer-id="Number(customerId)" @updated="refreshConfirmationOrder" />
-          <section class="drawer-section">
+          <section v-if="!isCustomerStockOrder(activeOrderDetail || activeOrderSummary)" class="drawer-section">
             <h4>收件与快递</h4>
             <div class="detail-grid">
               <span>收件人：{{ activeOrderSummary.receiver_name || '-' }}</span>
@@ -370,10 +370,10 @@
             <h4>订单状态</h4>
             <div class="detail-grid">
               <span>收款：{{ activeOrderSummary.pay_status || '-' }}</span>
-              <span>发货：{{ activeOrderSummary.ship_status || '-' }}</span>
+              <span v-if="!isCustomerStockOrder(activeOrderDetail || activeOrderSummary)">发货：{{ activeOrderSummary.ship_status || '-' }}</span>
               <span>生产：{{ activeOrderSummary.process_status || '-' }}</span>
               <span>发票：{{ activeOrderSummary.invoice_status || '-' }}</span>
-              <span v-if="activeOrderDetail?.delivery_mode === 'customer_stock' || activeOrderSummary.delivery_mode === 'customer_stock'">交付：购货留厂 · {{ activeOrderDetail?.delivery_warehouse_code || activeOrderSummary.delivery_warehouse_code || '客户仓' }} · {{ customerStockDeliveryLabel(activeOrderDetail?.delivery_status || activeOrderSummary.delivery_status) }} · 无需发货</span>
+              <span v-if="activeOrderDetail?.delivery_mode === 'customer_stock' || activeOrderSummary.delivery_mode === 'customer_stock'">交付：购货留厂 · {{ activeOrderDetail?.delivery_warehouse_code || activeOrderSummary.delivery_warehouse_code || '客户仓' }} · {{ customerStockProgressLabel({ ...activeOrderSummary, ...activeOrderDetail }) }} · 无需发货</span>
               <span v-if="activeOrderDetail?.fulfillment_mode || activeOrderSummary.fulfillment_mode">代发场景：{{ (activeOrderDetail?.fulfillment_mode || activeOrderSummary.fulfillment_mode) === 'stock' ? '库存代发（已购货款不重复收取）' : '无库存代发' }}</span>
             </div>
           </section>
@@ -405,7 +405,7 @@
               <OrderDetailsCopyButton :order-id="activeOrderSummary.id" :customer-id="customerId" />
               <DirectShipCancelButton v-if="activeOrderSummary.fulfillment_mode && !activeOrderSummary.is_void" :customer-id="Number(customerId)" :order-id="Number(activeOrderSummary.id)" @cancelled="onDirectShipCancelled" />
               <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderSummary)">销售单</button>
-              <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderSummary)" :disabled="!isShipped(activeOrderSummary)">出库单</button>
+              <button v-if="!isCustomerStockOrder(activeOrderDetail || activeOrderSummary)" class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderSummary)" :disabled="!isShipped(activeOrderSummary)">出库单</button>
             </div>
           </section>
 
@@ -506,7 +506,7 @@ import {
   visibleCustomerFulfillmentImports,
 } from '../lib/customer-fulfillment'
 import { parseRecipientText } from '../lib/customer-recipient'
-import { customerStockDeliveryLabel } from '../lib/customer-stock-entry'
+import { isCustomerStockOrder, customerStockProgressLabel } from '../lib/customer-stock-entry'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { lineTotal, syncWholesaleTierPrice, toInt, toNumber, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'

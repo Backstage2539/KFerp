@@ -55,4 +55,27 @@ func TestOperationsWorkbenchHistoricalReadsAndUnpaginatedTodos(t *testing.T) {
 			}
 		}
 	}
+
+	// Retained sources keep financial/confirmation work but never enter shipping queues.
+	_, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.orders(order_no,customer_id,portal_service_code,total_amount,grand_total,delivery_mode,delivery_status,confirmation_status) VALUES('PR718-RETAINED',501,'product_order',120,120,'customer_stock','pending_receipt','pending')`, schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for queue, want := range map[string]int{"pending_shipment": 130, "missing_recipient": 1, "dispatch": 130, "pending_payment": 131, "pending_confirmation": 1, "stock_waiting": 0} {
+		list, err := salespg.NewRepository(pool, schema).ListOrders(ctx, salesapp.OrderListQuery{Scope: "fulfillment", CustomerID: 501, FulfillmentQueue: queue, Limit: 200})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The list excludes void orders in all queues.
+		if list.Summary.Orders != want {
+			t.Fatalf("retained changed queue %s: got %d want %d", queue, list.Summary.Orders, want)
+		}
+	}
+	overview, err = r.Overview(ctx, app.OverviewQuery{CustomerID: 501})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Operations.PendingShipment != 130 || overview.Operations.MissingRecipient != 1 || overview.Operations.PendingPayment != 131 || overview.Operations.PendingConfirmation != 1 {
+		t.Fatalf("retained counters=%+v", overview.Operations)
+	}
 }

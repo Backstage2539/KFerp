@@ -51,6 +51,36 @@ const response = (data, status = 200) => ({ ok: status < 400, status, json: asyn
 async function flush() { for (let i = 0; i < 5; i++) { await nextTick(); await new Promise(resolve => setImmediate(resolve)) } }
 function button(text, root = document) { return [...root.querySelectorAll('button')].find(node => node.textContent.trim() === text) }
 
+test('留厂编辑隐藏寄递字段，切换交付方式与重新打开时稳定同步父子区域', async () => {
+  const { component: Orders } = await loadComponent('../views/OrdersView.vue')
+  const oldFetch=globalThis.fetch, errors=[]
+  const retained={...order,id:115,order_no:'SO-RETAINED',portal_service_code:'product_order',fulfillment_mode:'',delivery_mode:'customer_stock',delivery_status:'pending_receipt',process_status:'待生产',ship_status:'待发货'}
+  const data={...formData,edit_id:115,edit_data:{...editData,...retained,edit_id:115,delivery_warehouse_code:'customer-warehouse',items:[]},pay_statuses:[{id:1,name:'未付款'}]}
+  globalThis.fetch=async url=>{const path=new URL(String(url),window.location.origin).pathname;if(path==='/api/orders')return response({rows:[retained],summary:{orders:1}});if(path.endsWith('/detail')||path==='/api/order/form')return response(data);return response({rows:[],profiles:[],groups:[],assignments:[],warehouses:[]})}
+  const app=createApp(Orders);app.config.errorHandler=e=>errors.push(String(e));app.config.warnHandler=()=>{}
+  const section=title=>[...document.querySelectorAll('.order-detail-drawer .drawer-section')].find(el=>el.querySelector('h4')?.textContent===title)
+  const visible=el=>!!el&&!el.closest('[style*="display: none"]')
+  try{app.mount(document.querySelector('#app'));await flush();document.querySelector('.order-link').click();await flush()
+    const mode=()=>document.querySelector('.delivery-choice select')
+    assert.equal(mode().value,'customer_stock')
+    assert.equal(visible(section('收件信息')),false);assert.equal(visible(section('快递信息')),false)
+    assert.equal(document.querySelector('.fulfillment-recipient-section'),null)
+    assert.doesNotMatch(document.querySelector('.order-detail-drawer').textContent,/快递费备注/)
+    assert.equal(button('出库单',document.querySelector('.drawer-actions')),undefined)
+    assert.ok(section('付款信息'));assert.ok(document.querySelector('[data-prepayment-editor] input'))
+    assert.doesNotMatch(document.querySelector('#order-workflow-115').textContent,/配送方式|交付状态|快递单号/)
+    assert.ok(document.querySelector('#order-recipient-115'),'Teleport target stays mounted')
+    mode().value='ship';mode().dispatchEvent(new Event('change',{bubbles:true}));await flush()
+    assert.equal(visible(section('收件信息')),true);assert.equal(visible(section('快递信息')),true)
+    assert.match(document.querySelector('#order-workflow-115').textContent,/配送方式/)
+    assert.equal(document.querySelector('.fulfillment-recipient-section input').value,'张测试','hidden history stays intact')
+    button('关闭',document.querySelector('.drawer-head')).click();await flush()
+    document.querySelector('.order-link').click();await flush()
+    assert.equal(mode().value,'customer_stock');assert.equal(visible(section('收件信息')),false)
+    assert.deepEqual(errors,[])
+  }finally{app.unmount();globalThis.fetch=oldFetch;document.body.innerHTML='<div id="app"></div>'}
+})
+
 test('drawer sender always displays the batch default and preserves an explicit choice across refresh and reopen', async () => {
   const { component: Orders } = await loadComponent('../views/OrdersView.vue')
   const originalFetch = globalThis.fetch
