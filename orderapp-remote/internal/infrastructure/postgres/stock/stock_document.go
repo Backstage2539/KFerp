@@ -186,6 +186,17 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 			return stockapp.StockDocumentDetail{}, err
 		}
 	}
+	if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && detail.WorkOrderID > 0 {
+		modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
+		if err != nil {
+			return stockapp.StockDocumentDetail{}, err
+		}
+		if modern {
+			if err := validatePickingSnapshotCancellationTx(ctx, tx, r.schema, detail); err != nil {
+				return stockapp.StockDocumentDetail{}, err
+			}
+		}
+	}
 	for i := len(detail.Items) - 1; i >= 0; i-- {
 		if err := r.reverseStockDocumentItemTx(ctx, tx, detail, detail.Items[i], actor); err != nil {
 			return stockapp.StockDocumentDetail{}, err
