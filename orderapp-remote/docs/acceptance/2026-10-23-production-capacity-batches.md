@@ -55,4 +55,22 @@ bash scripts/verify_kferp.sh frontend
 
 ## 发布
 
-待记录整合版本、部署完成、运行/静态资源检查和回滚依据。生产计划 11 只读核对，不做真实保存或提交验收。Vue 手册页直接加载 OP_MANUAL_PRODUCTION.md 单一来源，工作区内说明同步更新。
+已发布生产环境。功能合入 [PR #256](https://github.com/Backstage2539/KFerp/pull/256)，develop 合并版本 `3edf408a9424ad45ab4cf03deb3749a7a2f446ba`；保留 main 上已有修复后，经 [PR #259](https://github.com/Backstage2539/KFerp/pull/259) 合入 main。
+
+- 部署版本：`9b37113659d080c30ce026bf11af694457e54964`。从干净 main 执行 `KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh production`，完整六阶段结束，退出码 0。
+- 生产服务启动：2026-10-23 12:00:23 Asia/Shanghai。`erp_prod_orderapp` running，检查时重启次数 0；`erp_prod_postgres` healthy，文档转换服务 running。应用镜像 `sha256:f5081dedb9f3c60fa955a5eb08ea889304beaf794d4118bc5728064899fbe6d4`。
+- 运行检查：登录页 200，未认证计划 API 401，认证页面/计划/工位/产能 API 200。认证来自运行容器配置，凭据未输出或入库。公网、服务器文件、运行容器的页面入口及两份相关 JS 逐字节一致，包含新交互文案。
+- 生产计划 11：仅 GET 只读；部署前后均为 draft、14 项任务、0 条已保存拆分，持久内容完全一致，响应 SHA-256 均为 `36dad440d88185ad14902a56b6d1b034a680370547a16cb66cc9f7c80c8bf5ac`。没有生产保存、确认安排或提交操作。
+- 线上生产手册 200，已包含 PR-719；PR UI 为 review，DEV-719-01/02/03 为 done。Vue 手册页读取单一来源 OP_MANUAL_PRODUCTION.md。
+- 生产发布同时完成小程序兼容测试/构建、24 页产物检查，RELEASE_INFO 版本一致。没有导出到本地交付目录，也没有微信上传、提审或发布。
+- 详细只读证据：[运行与静态文件校验](production-capacity-runtime-proof.json)。
+
+发布前按共享部署锁等待其他任务完成，未覆盖其正在发布的版本。服务器空间不足时仅清理可重建缓存，并将 67 个旧开发源码备份压缩归档；逐个内容比对后移除未压缩副本，压缩包权限 0600。数据库、数据目录、全部生产源码备份及回滚镜像保留。归档校验、SHA-256 和恢复命令记录在服务器 `/opt/stacks/erp/source-backup-archives-20261023.jsonl`；本次部署前可用约 4 GiB，部署后 2.07 GiB。
+
+回滚依据（已核实存在）：
+
+- 上一版源码：`/opt/stacks/erp-production/orderapp.backup.deploy-20261023114958-9b37113659d0`。
+- 回滚镜像：`kferp-orderapp-rollback:production-20261023114958-9b37113659d0`。
+- 回滚镜像 ID：`sha256:b5e2f7984f267558c778c902a2e09740c95abb845da03152a78c5b1278237dd9`，与切换前运行镜像一致。没有执行回滚。
+
+发布后的回执仅更新文档，不再次部署。线上运行版本仍以上述 9b371136 为准；Van 业务验收待完成。
