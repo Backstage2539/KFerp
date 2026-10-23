@@ -41,8 +41,16 @@ bash scripts/verify_kferp.sh frontend
 
 ## 发布记录
 
-该功能已随生产 `main` 提交 `6b3e67af6bda35572d91f95d4178887eb73be033` 部署（PR #266 已验证并进入当前 main；该 main 发布由 PR #264 的生产集成完成）。生产应用运行、重启计数 0，PostgreSQL 健康；生产登录页 200、匿名受保护 API 401、认证需求 API 200。工单 18/19（显示尾号 62/63）及排班的生产只读业务核对仍待 Van 验收；本次发布没有进行开工、领料、重新分配或其他生产业务写入。
+- 实现提交 `ac1c6c62f866b48079f91345ad02e5f62d1216ed`；PR #265 合入 develop `8091b2623cd2f0af568f685606699a655c993470`。生产适配 PR #266 合入 main `bedaeeb935a3636b7ac3cb3c64eff531a32bd02c`。
+- 生产基线独立验证：前端 1,541 项和构建、两项隔离 PostgreSQL API 测试通过。后续共享生产发布包含已验证的 PR #264 和本修复，预检与正式发布均通过；从干净 main `6b3e67af6bda35572d91f95d4178887eb73be033` 执行 `bash ./deploy_orderapp.sh production`，脚本退出 0。本任务复用该协调发布并独立复核，没有再次重启服务。
+- 应用容器于 2026-10-23 13:46:31 CST 启动，镜像 `sha256:f3fe78e2bb3745827e480bbfa35af5fe3adec80872c80d3478dec7e1af8ed4ba`，运行正常、重启计数 0，生产 PostgreSQL healthy。
+- 只读 API：工单 18/19 的 3 项任务对应工位 1/4，均匹配当天版本 1 的有效排班；匿名排班 API 为 401。PR-721 为 review，DEV-849/850 为 done；生产手册返回 200。
+- 实际生产浏览器刷新后，两个工单都显示“等待工位处理”“今日负责人：刘祎泊”和“进入工位”，不再显示“任务待分配”。下游包装工单仍正确显示“等待上游供给”。窄屏实际页面同时核对通过；未执行开工、领料、重新分配等业务写入。
+- 发布前后工单、工序卡和排班的完整只读快照哈希相同：`a5363a720ab681bf7c3a1b97dc514b88274024a135281040391c253b73bb3e39`。
+- 公网、宿主机与容器内 shell 和工单资源内容一致：`WorkOrdersView-BuqQrmjn.js`，SHA256 `145a9b3cc1af6425f1baf8e366781bf6dab69038d5713a35a16506b2d2f4e0dd`。包含新的排班请求/负责人/失败提示，移除旧的逐任务指定执行人提示。
+- 旧版本 `9b37113659d080c30ce026bf11af694457e54964` 的源码备份：`/opt/stacks/erp-production/orderapp.backup.deploy-20261023133639-6b3e67af6bda`；回滚镜像：`kferp-orderapp-rollback:production-20261023133639-6b3e67af6bda`（`sha256:f5081dedb9f3c60fa955a5eb08ea889304beaf794d4118bc5728064899fbe6d4`），均已核实存在。
+- 发布遇到磁盘压力，清理可重建缓存，并将 45 份 2026-10-23 以前的开发源码备份转成压缩归档。每份经 tar 对比校验、SHA256 和恢复命令落盘后才移除未压缩重复副本。清单 `/opt/stacks/erp/source-backup-archives-pr721-20261023.jsonl`；生产源码备份、数据库、数据卷和回滚镜像保留。发布锁释放后再次清理可重建 Go / Docker 构建缓存，可用空间恢复至约 3.4 GiB，生产与开发数据库均 healthy。
 
-- 生产源码备份：`/opt/stacks/erp-production/orderapp.backup.deploy-20261023133639-6b3e67af6bda`。
-- 回滚镜像：`kferp-orderapp-rollback:production-20261023133639-6b3e67af6bda`。
-- 生产小程序包 `RELEASE_INFO` 对应同一 main 提交，24 页清单 96 个文件已验证；没有上传微信、提审或发布。
+技术交付与只读页面核验完成；真实生产操作和 Van 业务验收保持独立。原始核验 JSON 与生产截图保留于本地任务输出（不把生产业务截图提交到代码仓库）。
+
+共享发布的小程序产物证据见同日员工运费验收记录：对应相同 main、24 页 / 96 文件。未进行微信上传、提审或发布。
