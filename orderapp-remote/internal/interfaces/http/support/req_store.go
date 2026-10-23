@@ -261,7 +261,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-858-COMPLETION-GROUPING", title: "PR-725 同商品规格货主目标仓归组与仓库名称映射", status: "done", assignee: "Codex", evidence: "production-acceptance.test.js; finished receipt API identity test"},
 		{table: "req_dev", code: "DEV-859-COMPLETION-BATCH-POSTING", title: "PR-725 一次操作按工单过账并反馈部分失败", status: "done", assignee: "Codex", evidence: "production-acceptance.test.js; CompleteWorkOrder API"},
 		{table: "req_dev", code: "DEV-860-COMPLETION-WAREHOUSE-LABEL", title: "PR-725 完工入库显示人类可读目标仓名称", status: "done", assignee: "Codex", evidence: "ProductionAcceptanceView.vue; stock warehouses API"},
-		{table: "req_dev", code: "DEV-861-COMPLETION-DELIVERY", title: "PR-725 手册、验收、验证及开发环境交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-completion-merged-inbound.md"},
+		{table: "req_dev", code: "DEV-861-COMPLETION-DELIVERY", title: "PR-725 手册、验收、验证及开发环境交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-completion-merged-inbound.md"},
 
 		{table: "req_product", code: "PR-723-OPERATION-SEQUENCE-HANDOFF", title: "工序按顺序交接实际产出，不设计划数量开工门槛", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-operation-sequence-handoff.md"},
 		{table: "req_dev", code: "DEV-855-SEQUENCE-GUARD", title: "PR-723 工序顺序校验与真实 API 回归", status: "done", assignee: "Codex", evidence: "TDD RED/GREEN"},
