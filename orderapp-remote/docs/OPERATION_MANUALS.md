@@ -1,5 +1,7 @@
 PR-715：规格模板差异下发并直接发布 BOM，原价格表继续按稳定规格报价；参见[商品规格与录单](OP_MANUAL_BOM_ORDER_PRICING.md)。
 
+PR-720：普通员工网页及小程序录单自动计入本单应收的运费、模板切换、手填、包邮及含包装总重；参见[订单与销售资料](OP_MANUAL_ORDER_SALES.md#普通录单自动运费与小程序编辑pr-720)。
+
 PR-706：商品规格手填物流重量、订单本层净用料参考重与重量快照、无库存代发界面，参见[商品规格与录单](OP_MANUAL_BOM_ORDER_PRICING.md)、[订单销售](OP_MANUAL_ORDER_SALES.md)和[客户购货寄存与代发](OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md)。
 
 PR-679（2026-10-02）：商品作为 BOM 配方时应连接商品规格输出口；商品档案输出口不带具体规格身份，误连时给出修复指引。参见[商品创建器手册](OP_MANUAL_PRODUCT_CREATOR.md)。

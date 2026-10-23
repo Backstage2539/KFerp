@@ -68,3 +68,43 @@ func TestDestinationSearchAndResolve(t *testing.T) {
 		t.Fatalf("municipality %+v", r)
 	}
 }
+
+func TestOrderFreightAutoCurrentUsesTemplateAndParcelWeightOnce(t *testing.T) {
+	p := Policy{CustomerID: 1, Scene: "sale", TemplateID: 8, SurchargeCents: 200}
+	tm := Template{ID: 8, Name: "测试模板", Active: true, Revision: 3, PackagingWeightG: 100, Rules: []LegacyRule{{Province: "*", FirstWeightG: 3000, FirstFeeCents: 500, AdditionalWeightG: 1000, AdditionalFeeCents: 100}}}
+	parcel := int64(2300)
+	mode := "auto_current"
+	q, err := QuoteOrder(p, tm, Destination{Province: "云南省"}, 0, &Override{ChargeMode: mode, ParcelWeightG: &parcel}, true)
+	if err != nil || q.ChargeMode != mode || q.CurrentReceivableCents != 700 || q.Estimate.WeightG != 2300 || q.ParcelWeightG != parcel || q.WeightSource != "order_override" {
+		t.Fatalf("auto parcel quote: %+v %v", q, err)
+	}
+	changed := parcel + 1
+	q2, err := QuoteOrder(p, tm, Destination{Province: "云南省"}, 0, &Override{ChargeMode: mode, ParcelWeightG: &changed}, true)
+	if err != nil || q.Token == q2.Token {
+		t.Fatalf("parcel weight must be part of quote token: %+v %+v %v", q, q2, err)
+	}
+}
+
+func TestOrderFreightAutoCurrentCalculatesAndLegacyDefaultsStayDeferred(t *testing.T) {
+	p := Policy{CustomerID: 1, Scene: "sale", TemplateID: 8, SurchargeCents: 200}
+	tm := Template{ID: 8, Name: "测试模板", Active: true, PackagingWeightG: 100, Rules: []LegacyRule{{Province: "*", FirstWeightG: 3000, FirstFeeCents: 500, AdditionalWeightG: 1000, AdditionalFeeCents: 100}}}
+	mode := "auto_current"
+	q, err := QuoteOrder(p, tm, Destination{Province: "云南省"}, 2300, &Override{ChargeMode: mode}, true)
+	if err != nil || !q.EstimateKnown || q.EstimatedTotalCents != 700 || q.CurrentReceivableCents != 700 {
+		t.Fatalf("known estimate should be receivable: %+v %v", q, err)
+	}
+	legacy, err := QuoteOrder(p, tm, Destination{Province: "云南省"}, 2300, nil, true)
+	if err != nil || legacy.ChargeMode != "deferred" || legacy.CurrentReceivableCents != 0 || legacy.WeightSource != "" {
+		t.Fatalf("legacy clients must remain deferred: %+v %v", legacy, err)
+	}
+}
+
+func TestOrderFreightCurrentModeRecordsItemWeightSource(t *testing.T) {
+	p := Policy{CustomerID: 1, Scene: "sale", TemplateID: 8}
+	tm := Template{ID: 8, Name: "测试模板", Active: true, Rules: []LegacyRule{{Province: "*", FirstWeightG: 3000, FirstFeeCents: 500, AdditionalWeightG: 1000, AdditionalFeeCents: 100}}}
+	mode := "auto_current"
+	q, err := QuoteOrder(p, tm, Destination{Province: "云南省"}, 2300, &Override{ChargeMode: mode}, true)
+	if err != nil || q.WeightSource != "item_logistics_weights" {
+		t.Fatalf("current quote must record its item weight source: %+v %v", q, err)
+	}
+}

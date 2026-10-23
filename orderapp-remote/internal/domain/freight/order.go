@@ -17,8 +17,14 @@ func QuoteOrder(p Policy, t Template, d Destination, grams int64, o *Override, e
 		if o.ManualAmountCents != nil && !validMoney(*o.ManualAmountCents) {
 			return Snapshot{}, fmt.Errorf("运费需为非负金额，最多两位小数")
 		}
-		if o.TemplateID != nil || o.SurchargeCents != nil {
-			return Snapshot{}, fmt.Errorf("新版录单请直接填写本单运费")
+		if o.SurchargeCents != nil {
+			return Snapshot{}, fmt.Errorf("本单不能修改模板附加运费")
+		}
+		if o.ChargeMode != "" && o.ChargeMode != "auto_current" && o.ChargeMode != "manual_current" {
+			return Snapshot{}, fmt.Errorf("本单运费计费方式无效")
+		}
+		if o.ParcelWeightG != nil && (*o.ParcelWeightG <= 0 || *o.ParcelWeightG > 1000000000) {
+			return Snapshot{}, fmt.Errorf("本单包裹总重量需为1至1000000000克")
 		}
 		if o.FreeShipping != nil {
 			p.FreeShipping = *o.FreeShipping
@@ -28,9 +34,24 @@ func QuoteOrder(p Policy, t Template, d Destination, grams int64, o *Override, e
 		d = normalized
 	}
 	manual := o != nil && o.ManualAmountCents != nil
+	if manual && o.ParcelWeightG != nil {
+		return Snapshot{}, fmt.Errorf("手填运费时不能同时填写本单包裹重量")
+	}
+	if o != nil && o.TemplateID != nil {
+		if *o.TemplateID <= 0 || *o.TemplateID != t.ID || !t.Active {
+			return Snapshot{}, fmt.Errorf("所选运费模板已停用或不可用")
+		}
+		p.TemplateID = t.ID
+	}
 	probe := p
 	if manual {
 		probe.FreeShipping = true
+	}
+	if o != nil && o.ParcelWeightG != nil {
+		if *o.ParcelWeightG < t.PackagingWeightG {
+			return Snapshot{}, fmt.Errorf("本单包裹总重量不能小于模板包装重量")
+		}
+		grams = *o.ParcelWeightG - t.PackagingWeightG
 	}
 	q, e := Quote(probe, t, d, grams)
 	if e != nil {
@@ -39,6 +60,12 @@ func QuoteOrder(p Policy, t Template, d Destination, grams int64, o *Override, e
 	q.Policy = p
 	q.Protocol = OrderProtocol
 	q.ChargeMode = "deferred"
+	if o != nil && o.ParcelWeightG != nil {
+		q.ParcelWeightG = *o.ParcelWeightG
+		q.WeightSource = "order_override"
+	} else if o != nil && (o.ChargeMode == "auto_current" || o.ChargeMode == "manual_current") {
+		q.WeightSource = "item_logistics_weights"
+	}
 	if manual {
 		value := *o.ManualAmountCents
 		q.ManualAmountCents = &value
@@ -47,6 +74,12 @@ func QuoteOrder(p Policy, t Template, d Destination, grams int64, o *Override, e
 		q.CurrentReceivableCents = value
 		q.EstimatedTotalCents = value
 		q.WaiverCents = 0
+	} else if o != nil && (o.ChargeMode == "auto_current" || o.ChargeMode == "manual_current") {
+		q.ChargeMode = "auto_current"
+		if q.EstimateKnown {
+			q.Status = "auto_current"
+			q.CurrentReceivableCents = q.EstimatedTotalCents
+		}
 	}
 	if p.FreeShipping {
 		q.ChargeMode = "free"

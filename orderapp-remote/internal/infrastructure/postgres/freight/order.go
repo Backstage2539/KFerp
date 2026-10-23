@@ -102,6 +102,16 @@ func (r *Repository) QuoteOrderTx(ctx context.Context, tx pgx.Tx, customerID, or
 			t = domain.Template{}
 		}
 	}
+	if o != nil && o.TemplateID != nil {
+		if *o.TemplateID <= 0 {
+			return out, fmt.Errorf("所选运费模板无效")
+		}
+		t, e = r.LoadTemplate(ctx, tx, *o.TemplateID, true)
+		if e != nil || !t.Active {
+			return out, fmt.Errorf("所选运费模板已停用或不可用")
+		}
+		p.TemplateID = t.ID
+	}
 	grams, basis, e := r.orderWeights(ctx, tx, customerID, items, previous)
 	if e != nil {
 		return out, e

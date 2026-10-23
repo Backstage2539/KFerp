@@ -644,7 +644,7 @@ export type CustomerFulfillmentSettings = {
   revision: number
   modes: Array<{ mode: FulfillmentMode; enabled: boolean; warehouse_code?: string; fixed_fee_cents: number; per_package_fee_cents: number; fee_configured: boolean; shipping_template_id: number }>
 }
-export type FreightSnapshot = {edit_token?:string;charge_mode?:string;manual_amount_cents?:number|null;edit_locked?:boolean;destination?:import("../utils/orderFreight").FreightDestination;carrier_id?:number;logistics_product_id?:number;service_fee_cents?:number;service_due_cents?:number;billing_status?:string;actual_cost_cents?:number|null;billed_cents?:number;protocol:string;status:string;estimate_known:boolean;estimated_total_cents:number;surcharge_cents:number;waiver_cents:number;current_receivable_cents:number;token:string;cost_pending_reason?:string;estimate:{base_cents:number;chargeable_weight_g:number};policy:{free_shipping:boolean}}
+export type FreightSnapshot = {edit_token?:string;charge_mode?:string;manual_amount_cents?:number|null;parcel_weight_g?:number;weight_source?:string;template_id?:number;edit_locked?:boolean;item_weights?:{product_id:number;bom_spec_id:number;bom_variant_id:number;qty:number;logistics_unit_weight_g:number|null;missing_reason?:string}[];destination?:import("../utils/orderFreight").FreightDestination;carrier_id?:number;logistics_product_id?:number;service_fee_cents?:number;service_due_cents?:number;billing_status?:string;actual_cost_cents?:number|null;billed_cents?:number;protocol:string;status:string;estimate_known:boolean;estimated_total_cents:number;surcharge_cents:number;waiver_cents:number;current_receivable_cents:number;token:string;cost_pending_reason?:string;estimate:{base_cents:number;chargeable_weight_g:number};policy:{free_shipping:boolean;template_id?:number}}
 export type FulfillmentFeeQuote = {
  freight?:FreightSnapshot
   fulfillment_mode: FulfillmentMode
@@ -2340,3 +2340,4 @@ export function previewEmployeeFreight(token:string,payload:Record<string,unknow
 
 export function resolveEmployeeShippingDestination(token:string,address:string){return miniRequest<{status:string;destination:import('../utils/orderFreight').FreightDestination;candidates:import('../utils/orderFreight').FreightDestination[]}>('/api/mini/employee/shipping-destination/resolve',{token,method:'POST',data:{address}})}
 export function fetchEmployeeFreightRegions(token:string){return miniRequest<{regions:import('../utils/orderFreight').FreightRegion[]}>('/api/mini/shipping-regions',{token})}
+export function fetchEmployeeFreightTemplates(token:string){return miniRequest<{templates:{id:number;name:string;active:boolean;revision:number;packaging_weight_g:number}[]}>('/api/mini/employee/freight-templates',{token})}

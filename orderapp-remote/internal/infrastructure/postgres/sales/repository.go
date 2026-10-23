@@ -1269,6 +1269,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		conversion                         *salesapp.SpecConversionSelection
 		conversionQuote                    *salesapp.SpecConversionQuote
 		frozenConversion                   bool
+		preserveExistingSnapshot           bool
 		itemID                             int64
 		productID                          *int64
 		submittedParentProductID           int64
@@ -1326,6 +1327,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		it := item{
 			conversion:                         src.SpecConversion,
+			preserveExistingSnapshot:           src.PreserveExistingSnapshot,
 			itemID:                             src.ItemID,
 			productID:                          src.ProductID,
 			submittedParentProductID:           src.ParentProductID,
@@ -1599,7 +1601,92 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
+	preservedItemIDs := map[int64]bool{}
 	for idx := range items {
+		if !items[idx].preserveExistingSnapshot {
+			continue
+		}
+		if editID <= 0 || items[idx].itemID <= 0 || items[idx].productID == nil || preservedItemIDs[items[idx].itemID] {
+			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("原商品明细已变化，请重新打开订单后再编辑")
+		}
+		var stored struct {
+			productID, bomSpecID, bomVariantID, aliasID, referenceID int64
+			publicationID, tierID                                    int64
+			version, name, note, unit, spec, productKind, salesUnit  string
+			customerDisplay, customerCode, brand, productCode        string
+			productName, discountType, priceSource                   string
+			qty, unitBagCount                                        int64
+			unitPrice, baseLineTotal, discountValue, discountAmount  float64
+			lineTotal, unitBeanG, matchedPriceQty                    float64
+			priceOverride                                            bool
+		}
+		query := fmt.Sprintf(`SELECT COALESCE(product_id,0),COALESCE(bom_spec_id,0),COALESCE(bom_variant_id,0),COALESCE(customer_product_alias_id,0),COALESCE(customer_product_reference_id,0),COALESCE(bean_list_publication_id,0),COALESCE(price_tier_id,0),COALESCE(bean_list_version_no,''),COALESCE(item_name,''),COALESCE(item_note,''),COALESCE(qty,0)::bigint,COALESCE(unit,''),COALESCE(spec,''),COALESCE(unit_price,0)::float8,COALESCE(line_total_before_discount,0)::float8,COALESCE(discount_type,''),COALESCE(discount_value,0)::float8,COALESCE(discount_amount,0)::float8,COALESCE(line_total,0)::float8,COALESCE(price_overridden,false),COALESCE(product_kind,'roasted'),COALESCE(sales_unit,''),COALESCE(unit_bag_count,0),COALESCE(unit_bean_g,0)::float8,COALESCE(matched_price_qty,0)::float8,COALESCE(price_source_json,'{}'::jsonb)::text,COALESCE(customer_product_display_name_snapshot,''),COALESCE(customer_item_code_snapshot,''),COALESCE(brand_name_snapshot,''),COALESCE(product_code_snapshot,''),COALESCE(product_name_snapshot,'') FROM %s.order_items WHERE order_id=$1 AND id=$2 FOR UPDATE`, r.schema)
+		err := tx.QueryRow(ctx, query, orderID, items[idx].itemID).Scan(
+			&stored.productID, &stored.bomSpecID, &stored.bomVariantID, &stored.aliasID, &stored.referenceID, &stored.publicationID, &stored.tierID,
+			&stored.version, &stored.name, &stored.note, &stored.qty, &stored.unit, &stored.spec, &stored.unitPrice, &stored.baseLineTotal,
+			&stored.discountType, &stored.discountValue, &stored.discountAmount, &stored.lineTotal, &stored.priceOverride, &stored.productKind,
+			&stored.salesUnit, &stored.unitBagCount, &stored.unitBeanG, &stored.matchedPriceQty, &stored.priceSource, &stored.customerDisplay,
+			&stored.customerCode, &stored.brand, &stored.productCode, &stored.productName,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("原商品明细已变化，请重新打开订单后再编辑")
+		}
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		requestedUnit := ""
+		if items[idx].unit != nil {
+			requestedUnit = strings.TrimSpace(*items[idx].unit)
+		}
+		storedSalesUnit := stored.salesUnit
+		if strings.TrimSpace(storedSalesUnit) == "" {
+			storedSalesUnit = stored.unit
+		}
+		if stored.productID != *items[idx].productID || stored.bomSpecID != items[idx].bomSpecID || stored.bomVariantID != items[idx].bomVariantID ||
+			stored.qty != items[idx].units || stored.unit != requestedUnit || storedSalesUnit != items[idx].salesUnit || stored.aliasID != items[idx].customerProductAliasID ||
+			stored.publicationID != items[idx].itemBeanListPublicationID || strings.TrimSpace(stored.version) != strings.TrimSpace(items[idx].itemBeanListVersionNo) ||
+			strings.TrimSpace(stored.priceSource) != strings.TrimSpace(items[idx].priceSourceJSON) || stored.priceOverride != items[idx].priceOverride ||
+			(stored.priceOverride && (items[idx].manualPrice == nil || math.Abs(stored.unitPrice-*items[idx].manualPrice) > 0.0001)) {
+			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("原商品明细已变化，请重新打开订单后再编辑")
+		}
+		preservedItemIDs[items[idx].itemID] = true
+		it := &items[idx]
+		productID := stored.productID
+		it.productID = &productID
+		it.submittedParentProductID = stored.productID
+		it.bomSpecID, it.bomVariantID = stored.bomSpecID, stored.bomVariantID
+		it.canonicalBOMSpec = stored.bomSpecID > 0
+		it.customerProductAliasID, it.customerProductReferenceID = stored.aliasID, stored.referenceID
+		it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot = stored.customerDisplay, stored.customerCode
+		it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot = stored.brand, stored.productCode, stored.productName
+		it.itemBeanListPublicationID, it.itemBeanListVersionNo = stored.publicationID, stored.version
+		if stored.tierID > 0 {
+			tierID := stored.tierID
+			it.tierID = &tierID
+		} else {
+			it.tierID = nil
+		}
+		it.name, it.note, it.units = stored.name, stored.note, stored.qty
+		it.unit, it.spec = &stored.unit, &stored.spec
+		it.unitPrice, it.baseLineTotal, it.lineTotal = stored.unitPrice, stored.baseLineTotal, stored.lineTotal
+		it.discountType, it.discountValue, it.discountAmount = stored.discountType, stored.discountValue, stored.discountAmount
+		it.priceOverride, it.productKind, it.salesUnit = stored.priceOverride, stored.productKind, storedSalesUnit
+		it.unitBagCount, it.unitBeanG, it.matchedPriceQty = stored.unitBagCount, stored.unitBeanG, stored.matchedPriceQty
+		it.priceSourceJSON = stored.priceSource
+		it.priceListType = orderBeanListTypeFromPriceSource(stored.priceSource)
+		it.quantityBasis = orderQuantityBasisFromPriceSource(stored.priceSource)
+		if stored.priceOverride {
+			price := stored.unitPrice
+			it.manualPrice = &price
+		}
+		if stored.bomSpecID > 0 {
+			it.specG = 0
+		}
+	}
+	for idx := range items {
+		if items[idx].preserveExistingSnapshot {
+			continue
+		}
 		if items[idx].productID == nil || *items[idx].productID <= 0 {
 			continue
 		}
@@ -1734,6 +1821,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		})
 	}
 	for idx := range items {
+		if items[idx].preserveExistingSnapshot {
+			continue
+		}
 		items[idx].productKind = "roasted"
 		if items[idx].productID != nil && *items[idx].productID > 0 {
 			items[idx].productKind = productKindForOrderItem(ctx, tx, r.schema, *items[idx].productID)
@@ -1759,6 +1849,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return usage, pricing, true, nil
 	}
 	for idx := range items {
+		if items[idx].preserveExistingSnapshot {
+			orderWeightG += orderItemWeightG(items[idx].productKind, items[idx].salesUnit, items[idx].unitBeanG, items[idx].unitBagCount, items[idx].specG, items[idx].units)
+			totalAmt += items[idx].baseLineTotal
+			itemDiscountAmt += items[idx].discountAmount
+			continue
+		}
 		if items[idx].productID != nil && !items[idx].canonicalBOMSpec {
 			productKind, unitBeanG, unitBagCount := loadOrderProductUnitDefaultsTx(ctx, tx, r.schema, *items[idx].productID)
 			if items[idx].productKind == "" && productKind != "" {
@@ -2259,7 +2355,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		frozenIDs := map[int64]bool{}
 		liveIDs := map[int64]bool{}
 		for _, it := range items {
-			if it.frozenConversion || it.sampleSnapshot {
+			if it.frozenConversion || it.sampleSnapshot || it.preserveExistingSnapshot {
 				frozenIDs[it.itemBeanListPublicationID] = true
 			} else {
 				liveIDs[it.itemBeanListPublicationID] = true
@@ -2273,7 +2369,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 		}
 		for _, it := range items {
-			if it.frozenConversion || it.sampleSnapshot {
+			if it.frozenConversion || it.sampleSnapshot || it.preserveExistingSnapshot {
 				continue
 			}
 			actualIDs = append(actualIDs, it.itemBeanListPublicationID)
@@ -2285,7 +2381,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		contents := map[int64][]byte{}
 		for i := range items {
 			it := &items[i]
-			if it.frozenConversion {
+			if it.frozenConversion || it.preserveExistingSnapshot {
 				continue
 			}
 			table := tableMetadata[it.itemBeanListPublicationID]
@@ -2314,7 +2410,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if cmd.RequireCurrentDefaultPublications {
 		checked := make(map[string]bool)
 		for _, it := range items {
-			if it.frozenConversion || it.sampleSnapshot {
+			if it.frozenConversion || it.sampleSnapshot || it.preserveExistingSnapshot {
 				continue
 			}
 			key := fmt.Sprintf("%d:%s", it.itemBeanListPublicationID, it.priceListType)
@@ -2389,6 +2485,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if e != nil {
 			return salesapp.SaveOrderResult{}, e
 		}
+		if q.ChargeMode == "auto_current" && !q.EstimateKnown && !q.Policy.FreeShipping {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("商品缺少物流重量，请填写本单包裹总重量或手动填写运费")
+		}
 		if !legacyEmployeeFreight && (q.Token != cmd.FreightQuoteToken || cmd.FreightQuoteToken == "") {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("运费已变化，请重新核算")
 		}
@@ -2398,7 +2497,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if cmd.PaymentShippingAmount > float64(q.CurrentReceivableCents)/100+0.00001 {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("实收运费超过本单运费，请核对收款分配")
 		}
-		if q.ChargeMode != "manual_current" && cmd.PaymentShippingAmount != 0 {
+		if q.ChargeMode != "manual_current" && q.ChargeMode != "auto_current" && cmd.PaymentShippingAmount != 0 {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("自动预估或包邮不计入本次运费实收")
 		}
 		if cmd.EditID > 0 {
@@ -2600,7 +2699,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	beanListVersionNo := ""
 	frozenHeaderVersion := ""
 	for _, it := range items {
-		if it.frozenConversion && it.itemBeanListPublicationID == headerPublicationID {
+		if (it.frozenConversion || it.preserveExistingSnapshot) && it.itemBeanListPublicationID == headerPublicationID {
 			frozenHeaderVersion = it.itemBeanListVersionNo
 		}
 	}
@@ -2734,7 +2833,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		frozenItemIDs := []int64{}
 		seenFrozenItems := map[int64]bool{}
 		for _, it := range items {
-			if !it.frozenConversion {
+			if !it.frozenConversion && !it.preserveExistingSnapshot {
 				continue
 			}
 			if seenFrozenItems[it.itemID] {
@@ -2845,6 +2944,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	for idx, it := range items {
+		if it.preserveExistingSnapshot {
+			continue
+		}
 		qtyAny := any(nil)
 		if it.units > 0 {
 			qtyAny = it.units
