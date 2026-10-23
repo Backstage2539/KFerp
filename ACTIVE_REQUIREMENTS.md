@@ -6120,8 +6120,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-719-PRODUCTION-CAPACITY-BATCHES
 - Branch: codex/production-capacity-batches-20261023
 - Owner: Codex
-- Status: verified; integration/release pending; Van acceptance pending
+- Status: delivered to production; PR review / Van business acceptance pending
 - Scope: collapsible review, shared workstation editor drawer, integer batches and take-all, legacy partial preservation.
-- Verifier: targeted frontend/runtime, Go unit/API with isolated PostgreSQL, frontend build, production read-only smoke.
-- Deployment: production requested; not deployed.
+- Verifier: 1,533 frontend tests, Vue build, all Go packages, five isolated PostgreSQL/API tests, local UI fixtures; authenticated production read-only smoke and public/host/container asset identity passed. Two broader database fixture failures reproduce on the original baseline; recorded separately.
+- Integration: PR #256 merged to develop (3edf408a); PR #259 merged to main (9b37113659d080c30ce026bf11af694457e54964).
+- Deployment: production 9b37113659d080c30ce026bf11af694457e54964; formal release completed 2026-10-23, orderapp started 12:00:23 Asia/Shanghai, zero restarts at verification. Plan 11 unchanged (draft, 14 items, zero persisted splits).
+- Rollback: /opt/stacks/erp-production/orderapp.backup.deploy-20261023114958-9b37113659d0; kferp-orderapp-rollback:production-20261023114958-9b37113659d0.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-production-capacity-batches.md; production-capacity-runtime-proof.json.
 - Last update: 2026-10-23
