@@ -32,6 +32,16 @@
 ## 开发环境交付
 
 - 分支：`codex/employee-order-auto-freight-20261023`。
-- PR / DEV：PR-720、DEV-845 至 DEV-848；开发环境部署证据待补。
+- PR / DEV：PR-720、DEV-845 至 DEV-848；开发环境代码已部署到 `2eb937868cbcbff3af9ee8b7616168756290c464`。
 - 小程序开发包：`miniapp/dist/build/mp-weixin`，构建目标 `https://dev.qacoohee.com/app`。当前本地构建为 237 个文件、约 1.3 MB；`app.json` SHA-256 `4885c70ba9db557bd8b7acfcbfba3de98c5914a6561bf66817b1146a8aeb3e37`；员工录单页 SHA-256 `4a159cda82ad12b91a7537c9b3f490e8e5ec2b0d5fa086ab3d75207b5ce799e1`。
 - 小程序仅生成并验证开发包；未上传微信、未提审、未发布。业务验收由 Van 另行确认。
+
+## 生产交付与运行核对
+
+- PR #264 已合入 `main`，生产提交 `6b3e67af6bda35572d91f95d4178887eb73be033`。该发布基于当时最新 `main`，也包含已验证的 PR #266 工单排班状态修复；没有带入仅存在于 `develop` 的其他提交。
+- `bash ./deploy_orderapp.sh --preflight production` 对最终生产候选通过：Vue/Vite 全量测试和构建、小程序 71 个测试文件/432 项测试、类型检查、24 页生产构建、服务端 Go 全量测试、镜像内 Go 全量测试及生产镜像构建均通过。
+- `bash ./deploy_orderapp.sh production` 完成，最终对外部署提交与 `origin/main` 一致。仅重建并重启 `erp_prod_orderapp`；运行状态为 `running`、重启计数 0，PostgreSQL 健康。未改写任何业务订单。
+- 生产源码备份：`/opt/stacks/erp-production/orderapp.backup.deploy-20261023133639-6b3e67af6bda`；回滚镜像：`kferp-orderapp-rollback:production-20261023133639-6b3e67af6bda`。
+- 运行烟测：`/app/login` 返回 200；未认证 `/app/` 和需求 API 返回 401；使用运行容器认证配置的只读需求 API 返回 200，产品需求可见 PR-720，开发需求可见 DEV-845 至 DEV-848。没有执行生产订单写入或批量回算。
+- 小程序生产包位于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。`RELEASE_INFO` 指向上述生产提交和 `https://erp.qacoohee.com/app`；`PAGE_FILE_MANIFEST` 共 96 个文件且已通过部署脚本校验，清单 SHA-256 为 `d52b9af4b3640a76c0396343e593aacd330ddc021ff1003c6fadc240f968e5bb`。此前本地包保存在 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20261023134649-6b3e67af6bda`。
+- 小程序包仅在本机生成并校验；没有上传微信、提审或发布。现有订单 `SO-20261023-0001` 未被自动改价；如需使用新报价，应由员工打开订单、补填含包装包裹重量并主动恢复自动运费后保存。
