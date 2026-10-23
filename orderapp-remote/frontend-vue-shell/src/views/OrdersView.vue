@@ -194,7 +194,8 @@
                 </div>
               </td>
               <td>
-                <div class="shipping-summary">
+                <div v-if="isCustomerStockOrder(row)" class="shipping-summary">留厂库存 · 无需发货</div>
+                <div v-else class="shipping-summary">
                   <span>{{ senderDisplay(row) }}</span>
                   <ShippingReturnPicker :rows="returnCandidates.filter(x=>Number(x.order_id)===Number(row.id))" :order-id="Number(row.id)" :order-no="row.order_no" @saved="load" />
                   <strong :title="row.ship_tracking_no || ''">{{ formatTrackingSummary(row.ship_tracking_no) }}</strong>
@@ -204,8 +205,8 @@
                 <div class="status-stack">
                   <OrderPaymentSummary :order="row" />
                   <span>收款：{{ row.pay_status || '-' }}{{ row.payment_method ? ' / ' + row.payment_method : '' }}</span>
-                  <span>发货：{{ row.delivery_mode === 'customer_stock' ? '无需发货' : row.ship_status || '-' }}</span>
-                  <span v-if="row.delivery_mode === 'customer_stock'">购货留厂 · {{ customerStockDeliveryLabel(row.delivery_status) }}</span>
+                  <span v-if="isCustomerStockOrder(row)">履约：{{ customerStockProgressLabel(row) }}</span>
+                  <span v-else>发货：{{ row.ship_status || '-' }}</span>
                   <span v-if="row.fulfillment_mode">{{ row.fulfillment_mode === 'stock' ? '库存代发' : '无库存代发' }}</span>
                   <span>{{ orderConfirmationLabel(row.confirmation_status) }}</span>
                   <span>生产：{{ row.process_status || '-' }}</span>
@@ -215,8 +216,8 @@
               <td class="actions-cell">
                 <OrderDetailsCopyButton :order-id="row.id" :customer-id="filters.customer_id" />
                 <a class="text-link" href="#" @click.prevent="openSalesOrderDrawer(row)">销售单</a>
-                <a v-if="isShipped(row)" class="text-link" href="#" @click.prevent="openDeliveryNoteDrawer(row)">出库单</a>
-                <span v-else class="muted inline-muted">出库单</span>
+                <template v-if="!isCustomerStockOrder(row)"><a v-if="isShipped(row)" class="text-link" href="#" @click.prevent="openDeliveryNoteDrawer(row)">出库单</a>
+                <span v-else class="muted inline-muted">出库单</span></template>
                 <a class="text-link" href="#" @click.prevent="openInvoiceDrawer(row)">发票</a>
                 <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
                 <button class="text-button" type="button" @click.prevent="copyOrder(row)">复制</button>
@@ -284,7 +285,7 @@
         <div v-if="shippingMessage" class="notice ok">{{ shippingMessage }}</div>
         <div v-if="activeOrderDetail" class="drawer-body">
  <OrderConfirmationPanel v-if="activeOrderDetail.confirmation_required" :order-id="Number(activeOrderDetail.id)" :customer-id="Number(activeOrderDetail.customer_id)" @updated="refreshConfirmationOrder" />
-          <section class="drawer-section">
+          <section v-show="!drawerRetained" class="drawer-section">
             <h4>收件信息</h4>
             <div v-if="activeOrderDetail.confirmation_required" class="drawer-status-grid">
               <span>收件人：{{ activeOrderDetail.receiver_name || '-' }}</span>
@@ -296,10 +297,10 @@
             <div v-if="!activeOrderDetail.confirmation_required" :id="`order-recipient-${activeOrderDetail.id}`"></div>
           </section>
           <section v-if="!activeOrderDetail.confirmation_required" class="drawer-section">
-            <h4>付款与交付</h4>
+            <h4>{{ drawerRetained ? '付款信息' : '付款与交付' }}</h4>
             <div :id="`order-workflow-${activeOrderDetail.id}`"></div>
           </section>
-          <section v-if="!isNonCourierShipMethod(activeOrderDetail.ship_method)" class="drawer-section">
+          <section v-if="!drawerRetained && !isNonCourierShipMethod(activeOrderDetail.ship_method)" class="drawer-section">
             <h4>快递信息</h4>
             <div class="drawer-grid">
               <label>
@@ -328,7 +329,7 @@
           <section class="drawer-section order-summary" aria-label="订单状态与费用明细">
             <div class="order-summary-row">
               <span>收款：{{ activeOrderDetail.pay_status || '-' }}{{ activeOrderDetail.payment_method ? ' / ' + activeOrderDetail.payment_method : '' }}</span>
-              <span v-if="activeOrderDetail.delivery_mode === 'customer_stock'">交付：购货留厂 · {{ activeOrderDetail.delivery_warehouse_code || '客户仓' }} · {{ customerStockDeliveryLabel(activeOrderDetail.delivery_status) }} · 无需发货</span>
+              <span v-if="activeOrderDetail.delivery_mode === 'customer_stock'">交付：购货留厂 · {{ activeOrderDetail.delivery_warehouse_code || '客户仓' }} · {{ customerStockProgressLabel(activeOrderDetail) }} · 无需发货</span>
               <span v-else>交付：{{ orderDeliveryLabel(activeOrderDetail.ship_method) }} / {{ activeOrderDetail.ship_status || '-' }}</span>
               <span>生产：{{ activeOrderDetail.process_status || '-' }}</span>
               <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
@@ -398,7 +399,7 @@
           </section>
           <div class="drawer-actions">
             <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderDetail)">销售单</button>
-            <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderDetail)" :disabled="!isShipped(activeOrderDetail)">出库单</button>
+            <button v-if="!drawerRetained" class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderDetail)" :disabled="!isShipped(activeOrderDetail)">出库单</button>
             <button class="secondary" type="button" @click="openInvoiceDrawer(activeOrderDetail)">发票</button>
             <OrderDetailsCopyButton :order-id="activeOrderDetail.id" :customer-id="filters.customer_id" />
             <button class="secondary" type="button" @click="copyOrder(activeOrderDetail)">复制订单</button>
@@ -418,6 +419,7 @@
               @close="closeOrderDetailDrawer"
               @editability="orderEditorCanEdit = $event"
               @fee-summary="updateEditorFeeSummary"
+              @delivery-mode-change="updateEditorDeliveryMode"
               @saved="handleOrderEditSaved"
             />
           </section>
@@ -472,7 +474,7 @@ import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
-import { customerStockDeliveryLabel, ordinaryOrderVoidable } from '../lib/customer-stock-entry'
+import { ordinaryOrderVoidable, isCustomerStockOrder, customerStockProgressLabel } from '../lib/customer-stock-entry'
 import DirectShipCancelButton from '../components/DirectShipCancelButton.vue'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { productKindLabel, orderQuoteSourceSummary } from '../lib/order-entry'
@@ -527,6 +529,8 @@ const trackingExcelLoading = ref(false)
 const orderDetailDrawerOpen = ref(false)
 const activeOrderDetail = ref(null)
 const editorFeeSummary = ref(null)
+const editorDeliveryMode = ref(null)
+const drawerRetained = computed(() => isCustomerStockOrder({ delivery_mode: editorDeliveryMode.value ?? activeOrderDetail.value?.delivery_mode }))
 const orderEditorCanEdit = ref(false)
 const drawerTrackingNo = ref('')
 const drawerTrackingSaving = ref(false)
@@ -720,6 +724,7 @@ function openOrderDetailDrawer(row) {
   if (!id) return
   activeOrderDetail.value = { ...row }
   editorFeeSummary.value = null
+  editorDeliveryMode.value = null
   copyingOrderID.value = row?.is_void ? id : 0
   drawerTrackingNo.value = row.ship_tracking_no || ''
   orderEditorCanEdit.value = false
@@ -732,8 +737,13 @@ function closeOrderDetailDrawer() {
   orderDetailDrawerOpen.value = false
   activeOrderDetail.value = null
   editorFeeSummary.value = null
+  editorDeliveryMode.value = null
   copyingOrderID.value = 0
   drawerTrackingNo.value = ''
+}
+
+function updateEditorDeliveryMode(state) {
+  if (Number(state.order_id) === Number(activeOrderDetail.value?.id)) editorDeliveryMode.value = state.delivery_mode
 }
 
 function updateEditorFeeSummary(summary) {
@@ -1033,6 +1043,8 @@ function copyOrder(row) {
   if (!id) return
   activeOrderDetail.value = { ...row }
   copyingOrderID.value = id
+  editorDeliveryMode.value = null
+  editorFeeSummary.value = null
   drawerTrackingNo.value = row.ship_tracking_no || ''
   orderEditorCanEdit.value = false
   orderDetailDrawerOpen.value = true
