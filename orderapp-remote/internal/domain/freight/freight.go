@@ -80,6 +80,8 @@ type WeightBasis struct {
 
 type Snapshot struct {
 	ChargeMode             string        `json:"charge_mode,omitempty"`
+	ParcelWeightG          int64         `json:"parcel_weight_g,omitempty"`
+	WeightSource           string        `json:"weight_source,omitempty"`
 	ManualAmountCents      *int64        `json:"manual_amount_cents,omitempty"`
 	OrderID                int64         `json:"order_id,omitempty"`
 	PreviousToken          string        `json:"previous_token,omitempty"`
@@ -336,6 +338,8 @@ type OrderView struct {
 }
 
 type Override struct {
+	ChargeMode        string `json:"charge_mode,omitempty"`
+	ParcelWeightG     *int64 `json:"parcel_weight_g,omitempty"`
 	ManualAmountCents *int64 `json:"manual_amount_cents,omitempty"`
 	TemplateID        *int64 `json:"template_id,omitempty"`
 	SurchargeCents    *int64 `json:"surcharge_cents,omitempty"`

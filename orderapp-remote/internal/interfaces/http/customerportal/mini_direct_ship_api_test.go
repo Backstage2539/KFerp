@@ -44,6 +44,13 @@ type miniCustomerFulfillmentFake struct {
 	disputeCmd        customerfulfillmentapp.CreateCustomerStatementDisputeCommand
 	replyCmd          customerfulfillmentapp.ReplyCustomerStatementDisputeCommand
 	pricePreviewQuery customerfulfillmentapp.MiniOrderPriceTablePreviewQuery
+	shippingTemplates []customerfulfillmentapp.ShippingFeeTemplate
+	templateCalls     int
+}
+
+func (f *miniCustomerFulfillmentFake) ListShippingFeeTemplates(context.Context) ([]customerfulfillmentapp.ShippingFeeTemplate, error) {
+	f.templateCalls++
+	return f.shippingTemplates, nil
 }
 
 func (f *miniCustomerFulfillmentFake) MiniOrderPriceTablePreview(_ context.Context, query customerfulfillmentapp.MiniOrderPriceTablePreviewQuery) (customerfulfillmentapp.MiniOrderPriceTablePreview, error) {
@@ -551,6 +558,32 @@ func TestMiniCustomerFulfillmentRoutesWithoutTokenStopBeforeFulfillment(t *testi
 				t.Fatalf("unauthenticated request reached fulfillment %d time(s)", fulfillment.calls)
 			}
 		})
+	}
+}
+
+func TestMiniEmployeeFreightTemplateOptionsRequireWriteAndFilterInactive(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{shippingTemplates: []customerfulfillmentapp.ShippingFeeTemplate{
+		{ID: 1, Name: "启用模板", Active: true},
+		{ID: 2, Name: "停用模板", Active: false},
+	}}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: employeePortalService(), CustomerFulfillment: fulfillment})
+	request := httptest.NewRequest(http.MethodGet, "/api/mini/employee/freight-templates", nil)
+	request.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	recorder := httptest.NewRecorder()
+	e.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"id":1`) || strings.Contains(recorder.Body.String(), `"id":2`) || fulfillment.templateCalls != 1 {
+		t.Fatalf("status=%d calls=%d body=%s", recorder.Code, fulfillment.templateCalls, recorder.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/mini/employee/freight-templates", nil)
+	request.Header.Set(echo.HeaderAuthorization, "Bearer no-write")
+	portal := fakeService{me: customerportalapp.CurrentContext{AccountType: "employee", EmployeeID: 7, Permissions: []string{"orders.read"}}}
+	e = echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: portal, CustomerFulfillment: fulfillment})
+	recorder = httptest.NewRecorder()
+	e.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || fulfillment.templateCalls != 1 {
+		t.Fatalf("read-only employee should be denied: status=%d calls=%d body=%s", recorder.Code, fulfillment.templateCalls, recorder.Body.String())
 	}
 }
 

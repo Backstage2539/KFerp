@@ -14,6 +14,18 @@ test('shipping quote discards late responses and submits only acknowledged curre
   assert.equal(vm.quote.value.token,'new');assert.equal(vm.busy.value,false);const p=vm.payload();assert.equal(p.shipping_amount,'0');assert.equal(p.freight_protocol,'order_freight_v2');assert.equal(p.freight_quote_token,'new');assert.equal(p.shipping_province,'四川省')
  }finally{globalThis.fetch=original}
 })
+test('editing an existing order keeps its saved freight until an explicit repricing choice',async()=>{
+ const original=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;throw new Error('unexpected quote')};try{
+  const vm=await loadView('OrderFreightEstimate',{customerId:77,orderId:42,expectedToken:'old-token',items:[{product_id:10,qty:2}],modelValue:{manual:'',free:false,chargeMode:'deferred',preserveExisting:true,preservedAmount:10,templateId:0,templateOverride:false,parcelWeightG:'',autoAmountCents:null,destination:{province:'',city:'',district:''}},storedQuote:null,customerPortal:false})
+  await vm.preview();assert.equal(calls,0);assert.equal(vm.payload().shipping_amount,'10');assert.equal(vm.payload().freight_protocol,'');assert.equal(vm.payload().freight_quote_token,'')
+  vm.changeManual({target:{value:'12'}});assert.equal(vm.state.value.preserveExisting,false)
+ }finally{globalThis.fetch=original}
+})
+test('unknown quote identifies product rows that need a gross parcel weight',async()=>{
+ const vm=await loadView('OrderFreightEstimate',{customerId:77,items:[{product_id:10,bom_spec_id:11,qty:1,name:'测试生豆'}],customerPortal:false})
+ vm.quote.value={estimate_known:false,item_weights:[{product_id:10,bom_spec_id:11,qty:1,logistics_unit_weight_g:null}]}
+ assert.deepEqual(vm.missingWeightItems.value,['测试生豆'])
+})
 test('region controls use string names as selection values and template copy is independent',async()=>{
  const selection=await loadView('OrderFreightEstimate',{customerId:0,items:[],modelValue:{manual:'20',free:false,destination:{province:'云南省',city:'',district:''}}});assert.equal(selection.payload().shipping_amount,'20');selection.update({free:true});assert.equal(selection.payload().shipping_amount,'0');selection.update({free:false});assert.equal(selection.payload().shipping_amount,'20')
  const vm=await loadView('ShippingFeeTemplates',{companies:[]});const sourceTemplate={id:9,revision:4,name:'原表',carrier_id:1,logistics_product_id:2,groups:[{name:'一区',region_codes:['530000'],tiers:[{upper_weight_g:1000,fee_cents:510}],additional_weight_g:1000,additional_fee_cents:200}]};vm.edit(sourceTemplate);vm.copyTemplate();assert.equal(vm.form.value.id,0);vm.form.value.groups[0].region_codes.push('510000');assert.deepEqual(sourceTemplate.groups[0].region_codes,['530000']);assert.equal(vm.form.value.revision,0)

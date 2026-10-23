@@ -46,6 +46,28 @@ type MiniOrderPriceTablePreviewer interface {
 }
 
 func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment) {
+	e.GET("/api/mini/employee/freight-templates", func(c echo.Context) error {
+		if _, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write"); err != nil {
+			return miniEmployeeAuthError(c, err)
+		}
+		lister, ok := fulfillment.(interface {
+			ListShippingFeeTemplates(context.Context) ([]customerfulfillmentapp.ShippingFeeTemplate, error)
+		})
+		if !ok {
+			return miniInternalError(c)
+		}
+		rows, err := lister.ListShippingFeeTemplates(c.Request().Context())
+		if err != nil {
+			return miniInternalError(c)
+		}
+		active := make([]customerfulfillmentapp.ShippingFeeTemplate, 0, len(rows))
+		for _, row := range rows {
+			if row.Active {
+				active = append(active, row)
+			}
+		}
+		return c.JSON(http.StatusOK, map[string]any{"templates": active})
+	})
 	e.POST("/api/mini/employee/shipping-destination/resolve", func(c echo.Context) error {
 		if _, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write"); err != nil {
 			return miniEmployeeAuthError(c, err)

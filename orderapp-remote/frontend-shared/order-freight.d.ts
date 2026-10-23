@@ -1,11 +1,12 @@
 export type FreightDestination={province:string;city:string;district:string;province_code:string;city_code:string;district_code:string}
-export type FreightState={manual:string;free:boolean|null;destination:FreightDestination;address:string;source:string}
+export type FreightState={manual:string;free:boolean|null;chargeMode:string;templateId:number;templateOverride:boolean;parcelWeightG:string;autoAmountCents:number|null;preserveExisting:boolean;preservedAmount:number|null;destination:FreightDestination;address:string;source:string}
 export type FreightRegion={code:string;name:string;parent_code:string;level:number;alias?:string;path?:string;pinyin?:string;initials?:string}
 export const EMPTY_DESTINATION:FreightDestination
 export function emptyFreightState():FreightState
 export function manualFreightCents(value:unknown):number|null
 export function freightAmount(state?:Partial<FreightState>):number
-export function freightOverride(state?:Partial<FreightState>):{manual_amount_cents?:number;free_shipping?:boolean}
-export function freightStateFromOrder(order?:{shipping_amount?:string|number;receiver_address?:string;freight?:{destination?:Partial<FreightDestination>;manual_amount_cents?:number|null;policy?:{free_shipping:boolean}}}):FreightState
+export function freightOverride(state?:Partial<FreightState>):{charge_mode?:string;manual_amount_cents?:number;free_shipping?:boolean;template_id?:number;parcel_weight_g?:number}
+export function freightStateFromOrder(order?:{id?:number;edit_id?:number;shipping_amount?:string|number;receiver_address?:string;freight?:{destination?:Partial<FreightDestination>;manual_amount_cents?:number|null;template_id?:number;parcel_weight_g?:number;current_receivable_cents?:number;charge_mode?:string;policy?:{free_shipping:boolean;template_id?:number}}}):FreightState
+export function missingWeightItemNames(items:Array<{product_id:number|string;bom_spec_id?:number|string;name?:string}>,quote?:{estimate_known?:boolean;item_weights?:Array<{product_id:number;bom_spec_id?:number;logistics_unit_weight_g?:number|null}>}|null):string[]
 export function searchOrderRegions(rows:FreightRegion[],query:string):FreightRegion[]
 export function regionDestination(rows:FreightRegion[],code:string):FreightDestination

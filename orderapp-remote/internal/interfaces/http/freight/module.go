@@ -56,6 +56,19 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, quoter Quot
 		}
 		return c.JSON(200, out.Freight)
 	})
+	e.GET("/api/order/freight/templates", func(c echo.Context) error {
+		rows, err := r.Templates(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "运费模板读取失败"})
+		}
+		active := make([]domain.Template, 0, len(rows))
+		for _, row := range rows {
+			if row.Active {
+				active = append(active, row)
+			}
+		}
+		return c.JSON(http.StatusOK, map[string]any{"templates": active})
+	})
 
 	fail := func(c echo.Context, err error) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
