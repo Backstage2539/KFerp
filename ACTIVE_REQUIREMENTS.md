@@ -6180,3 +6180,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development de55849d1aea and production main 5b787153bb54 deployed; runtime/bundle/read-only preview verified. GitHub PR #279/#280 develop, #281 production. Production rollback source /opt/stacks/erp-production/orderapp.backup.deploy-20261023221335-5b787153bb54 and image kferp-orderapp-rollback:production-20261023221335-5b787153bb54 retained.
 - Production acceptance: 16 packaging tasks, 15 selected, 5 material groups and 3 available; 4 tasks require quantity confirmation. API/UI previews and local quantity edits only; all default quantities restored. Before/after inventory/document/reservation snapshots identical. Final evidence: orderapp-remote/docs/acceptance/2026-10-23-workstation-batch-material-issue.md.
 - Notes: Existing worktrees untouched; PR id reserved manually after reserve_req_id.sh macOS awk error. Targeted race/API PostgreSQL 10 scenarios GREEN locally and on isolated development schemas; full Go and frontend 1,564 tests GREEN; Vue build passed. Production real business records remain read-only.
+
+### PR-725-COMPLETION-MERGED-INBOUND
+- Branch: codex/completion-merged-inbound-20261023; GitHub PR #283 merged to develop; production main candidate based on `adeea8db`
+- Owner/session: Codex / 2026-10-23
+- Status: implementation and development deployment verified; integrating into main for requested production release; Van business acceptance pending
+- Scope: 完工入库按相同商品、规格、目标仓合并操作；展示目标仓名称；保留每张工单的库存与审计追溯。
+- DEV: DEV-858-GROUPING, DEV-859-BATCH-POSTING, DEV-860-WAREHOUSE-LABEL, DEV-861-DELIVERY
+- Verifier:
+  - RED: `/tmp/pr725-go-red.log`, `/tmp/pr725-vue-red.log`
+  - GREEN: Go backend packages, finished-receipt service/API tests, Vue helper tests (5/5), Vue suite (1,569/1,569), production build, changed-file checks
+  - Browser: isolated local fixture checked grouping, warehouse label, aggregate quantity, source note, one successful Stock Entry and one work-order quantity rejection
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`; no real inventory writes
+- Development: deployed at `3a2169997fba68e9ab6322adf447d7aa66ac8b64`; runtime and authenticated feature route verified. DEV-858 through DEV-861 are done; PR-725 remains review for Van acceptance.
+- Production: requested by Van; clean-main integration and release gates in progress. No real production inventory writes. Development release evidence: `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`.
+- Last update: 2026-10-23
+- Notes: reserve_req_id.sh identified PR-725; auto-claim failed on the existing macOS awk multiline argument, so this entry was reserved manually.
