@@ -33,6 +33,6 @@
 
 - 分支：`codex/employee-order-auto-freight-20261023`。
 - GitHub PR #261 已合入；内部需求 PR-720 为待业务验收，DEV-845 至 DEV-848 均已完成。
-- 开发环境已部署：`bash ./deploy_orderapp.sh development`，`origin/develop` SHA `2eb937868cbcbff3af9ee8b7616168756290c464`。服务端备份 `/opt/stacks/erp/orderapp.backup.deploy-20261023121954-2eb937868cbc`，回滚镜像 `kferp-orderapp-rollback:development-20261023121954-2eb937868cbc`。`erp_orderapp`、`erp_caddy`、`erp_postgres` 均运行且 PostgreSQL healthy；`/app/login` HTTP 200，`/app/` 重定向 HTTP 303，未认证需求 API HTTP 401；认证后需求 API 返回 PR-720 `review` 和 DEV-845..848 `done`。
+- 开发环境已部署：`bash ./deploy_orderapp.sh development`，`origin/develop` SHA `2eb937868cbcbff3af9ee8b7616168756290c464`。服务端备份 `/opt/stacks/erp/orderapp.backup.deploy-20261023121954-2eb937868cbc`，回滚镜像 `kferp-orderapp-rollback:development-20261023121954-2eb937868cbc`。`erp_orderapp`、`erp_docconvert` 正在运行，`erp_postgres` healthy；`/app/login` HTTP 200，`/app/` 重定向 HTTP 303，未认证需求 API HTTP 401；认证后需求 API 返回 PR-720 `review` 和 DEV-845..848 `done`。
 - 小程序开发包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，`RELEASE_INFO` 指向提交 `2eb937868cbcbff3af9ee8b7616168756290c464` 和 `https://dev.qacoohee.com/app`。共 239 个文件；`PAGE_FILE_MANIFEST` 中声明的 96 个文件校验通过。`app.json` SHA-256 `4885c70ba9db557bd8b7acfcbfba3de98c5914a6561bf66817b1146a8aeb3e37`；员工录单页 `pages/employee-order-entry/employee-order-entry.js` SHA-256 `4a159cda82ad12b91a7537c9b3f490e8e5ec2b0d5fa086ab3d75207b5ce799e1`。
 - 小程序仅生成并验证开发包；未上传微信、未提审、未发布。业务验收由 Van 另行确认。
