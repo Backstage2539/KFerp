@@ -41,4 +41,8 @@ bash scripts/verify_kferp.sh frontend
 
 ## 发布记录
 
-待补充生产版本、运行核对及回滚依据。生产工单 18/19（显示尾号 62/63）和排班只读验证，不进行开工、领料、重新分配等业务写入。
+该功能已随生产 `main` 提交 `6b3e67af6bda35572d91f95d4178887eb73be033` 部署（PR #266 已验证并进入当前 main；该 main 发布由 PR #264 的生产集成完成）。生产应用运行、重启计数 0，PostgreSQL 健康；生产登录页 200、匿名受保护 API 401、认证需求 API 200。工单 18/19（显示尾号 62/63）及排班的生产只读业务核对仍待 Van 验收；本次发布没有进行开工、领料、重新分配或其他生产业务写入。
+
+- 生产源码备份：`/opt/stacks/erp-production/orderapp.backup.deploy-20261023133639-6b3e67af6bda`。
+- 回滚镜像：`kferp-orderapp-rollback:production-20261023133639-6b3e67af6bda`。
+- 生产小程序包 `RELEASE_INFO` 对应同一 main 提交，24 页清单 96 个文件已验证；没有上传微信、提审或发布。

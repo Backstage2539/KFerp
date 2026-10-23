@@ -6129,20 +6129,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-720-EMPLOYEE-ORDER-AUTO-FREIGHT
 - Branch: codex/employee-order-auto-freight-main-20261023; rebased by merge onto origin/main@bedaeeb935a3636b7ac3cb3c64eff531a32bd02c.
 - Owner/session: Codex / 2026-10-23.
-- Status: implementation verified and deployed to development; GitHub PR #264 open to main; production deployment pending.
+- Status: implementation verified; GitHub PR #264 merged to main and deployed to production at `6b3e67af6bda35572d91f95d4178887eb73be033`; Van business acceptance pending.
 - Scope: ordinary employee web and miniapp order freight auto-current calculation, per-order active template choice, manual freight, free shipping, explicit gross parcel weight when BOM logistics weight is missing; diagnose/fix miniapp update 500.
 - DEV: DEV-845 quote API/domain/snapshot; DEV-846 Vue entry flow; DEV-847 miniapp save and sanitized diagnostics; DEV-848 docs/verification/development delivery.
 - Verifier: all Go packages (single worker, DB integration tests skipped); targeted domain/API/PostgreSQL tests; Vue runtime/API tests and build; miniapp 432 tests, typecheck and development build.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-employee-order-auto-freight.md.
 - Integration: PR #264 applies only the verified employee-order freight feature to the current main baseline. Current main's already-merged PR #266 roster fix is verified and included in the production-target preflight; unrelated develop-only changes remain excluded.
-- Deployment: development code deployed at 2eb937868cbcbff3af9ee8b7616168756290c464; production pending. No production order writes or WeChat upload/publication.
+- Deployment: development code deployed at `2eb937868cbcbff3af9ee8b7616168756290c464`; PR #264 merged to `main` and production deployed at `6b3e67af6bda35572d91f95d4178887eb73be033`. Production source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20261023133639-6b3e67af6bda`; rollback image `kferp-orderapp-rollback:production-20261023133639-6b3e67af6bda`. App running/restarts 0, PostgreSQL healthy; `/app/login` 200, anonymous app/API 401, authenticated PR/DEV requirements API 200. Production package has 24 pages / 96 verified files, `PAGE_FILE_MANIFEST` SHA-256 `d52b9af4b3640a76c0396343e593aacd330ddc021ff1003c6fadc240f968e5bb`. No production order writes or WeChat upload/publication.
 
 ### PR-721-WORK-ORDER-ROSTER-STATUS
 - Branch: codex/work-order-roster-status-20261023
 - Owner: Codex
-- Status: verified; production integration pending; Van business acceptance pending
+- Status: verified; production integrated with main `6b3e67af6bda35572d91f95d4178887eb73be033` (PR #266), read-only work-order-specific smoke and Van business acceptance pending
 - Scope: work-order todo/action follows saved daily workstation roster; no business writes.
 - Verifier: 8 runtime regressions RED/GREEN; 1,545 frontend tests/build; Go all packages; 2 isolated PostgreSQL roster API tests; fixture browser navigation/status.
-- Evidence: orderapp-remote/docs/acceptance/2026-10-23-work-order-roster-status.md
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-work-order-roster-status.md; production technical release and rollback evidence in that record.
 - Target: production, continuing the current production repair. Preserve existing roster and work orders 18/19.
 - Last update: 2026-10-23
