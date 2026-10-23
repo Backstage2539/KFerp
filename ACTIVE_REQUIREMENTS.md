@@ -6140,9 +6140,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: Existing worktrees untouched; PR id reserved manually after reserve_req_id.sh macOS awk error. Targeted race/API PostgreSQL 10 scenarios GREEN; full Go and frontend 1,563 tests GREEN; Vue build passed.
 
 ### PR-725-COMPLETION-MERGED-INBOUND
-- Branch: codex/completion-merged-inbound-20261023 (origin/develop de55849d)
+- Branch: codex/completion-merged-inbound-20261023; GitHub PR #283; merged to develop as `3a2169997fba68e9ab6322adf447d7aa66ac8b64`
 - Owner/session: Codex / 2026-10-23
-- Status: implementation and automated/browser verification complete; feature-branch integration and development delivery pending; Van acceptance pending
+- Status: implementation, automated/browser verification, develop integration, and development deployment complete; Van business acceptance pending
 - Scope: 完工入库按相同商品、规格、目标仓合并操作；展示目标仓名称；保留每张工单的库存与审计追溯。
 - DEV: DEV-858-GROUPING, DEV-859-BATCH-POSTING, DEV-860-WAREHOUSE-LABEL, DEV-861-DELIVERY
 - Verifier:
@@ -6151,6 +6151,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Browser: isolated local fixture checked grouping, warehouse label, aggregate quantity, source note, one successful Stock Entry and one work-order quantity rejection
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`; no real inventory writes
-- Deployment: development delivery pending; production not requested
+- Development deployment: `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` from clean `develop@3a2169997fba68e9ab6322adf447d7aa66ac8b64`; preflight passed. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261023232357-3a2169997fba`; rollback image: `kferp-orderapp-rollback:development-20261023232357-3a2169997fba`.
+- Runtime: `erp_orderapp` running, `erp_postgres` healthy; authenticated `/app/vue-shell?view=productionAcceptance` and `/app/login` returned 200; anonymous `/app/` redirects 303 and `/app/orders` redirects 302 to login. PR-725 remains `review`; authenticated requirements API shows DEV-858 through DEV-861 as `done`; manual and built JS contain the warehouse-label update. No production deployment, real inventory writes, or WeChat upload/review/publication.
+- Deployment source: `/private/tmp/kferp-pr725-deploy-20261023`, clean clone at the exact merged develop commit; release evidence in `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`.
 - Last update: 2026-10-23
 - Notes: reserve_req_id.sh identified PR-725; auto-claim failed on the existing macOS awk multiline argument, so this entry was reserved manually.
