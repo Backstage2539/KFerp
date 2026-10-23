@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-723-OPERATION-SEQUENCE-HANDOFF", title: "工序按顺序交接实际产出，不设计划数量开工门槛", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-operation-sequence-handoff.md"},
+		{table: "req_dev", code: "DEV-855-SEQUENCE-GUARD", title: "PR-723 工序顺序校验与真实 API 回归", status: "done", assignee: "Codex", evidence: "TDD RED/GREEN"},
+		{table: "req_dev", code: "DEV-856-ACTUAL-HANDOFF-UI", title: "PR-723 工位前序状态和实际交接显示", status: "done", assignee: "Codex", evidence: "Vue helper tests and browser"},
+		{table: "req_dev", code: "DEV-857-HANDOFF-DELIVERY", title: "PR-723 手册验证与生产交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-operation-sequence-handoff.md"},
 		{table: "req_product", code: "PR-722-BULK-WIP-PICKING-RETURN", title: "整袋领料到 WIP、精确撤销与返回工位", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-bulk-wip-picking-return.md"},
 		{table: "req_dev", code: "DEV-851-PICKING-SNAPSHOT", title: "PR-722 预留移动快照与兼容撤销", status: "done", assignee: "Codex", evidence: "先 RED/GREEN，保留兼容回滚镜像"},
 		{table: "req_dev", code: "DEV-852-BULK-WIP-ISSUE", title: "PR-722 自由领料数量、库存保护与 API 回归", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-bulk-wip-picking-return.md"},
