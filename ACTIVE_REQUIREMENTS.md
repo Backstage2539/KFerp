@@ -6097,3 +6097,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-employee-order-auto-freight.md.
 - Deployment: `bash ./deploy_orderapp.sh development`; deployed `origin/develop@2eb937868cbcbff3af9ee8b7616168756290c464`. Backup: `/opt/stacks/erp/orderapp.backup.deploy-20261023121954-2eb937868cbc`; rollback image: `kferp-orderapp-rollback:development-20261023121954-2eb937868cbc`. `erp_orderapp` and `erp_docconvert` running; `erp_postgres` healthy. `/app/login` HTTP 200, `/app/` redirects HTTP 303, unauthenticated requirement API HTTP 401. Authenticated requirement API shows PR-720 `review` and DEV-845..848 `done`.
 - No production order writes, production deployment, WeChat upload, review, or publication.
+
+### PR-721-WORK-ORDER-ROSTER-STATUS
+- Branch: codex/work-order-roster-status-20261023
+- Owner: Codex
+- Status: verified; production integration pending; Van business acceptance pending
+- Scope: work-order todo/action follows saved daily workstation roster; no business writes.
+- Verifier: 8 runtime regressions RED/GREEN; 1,545 frontend tests/build; Go all packages; 2 isolated PostgreSQL roster API tests; fixture browser navigation/status.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-work-order-roster-status.md
+- Target: production, continuing the current production repair. Preserve existing roster and work orders 18/19.
+- Last update: 2026-10-23

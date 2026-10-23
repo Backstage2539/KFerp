@@ -98,6 +98,23 @@ func TestPR657ProductionRosterPostgresLifecycle(t *testing.T) {
 	if todayRec.Code != http.StatusOK || !strings.Contains(todayRec.Body.String(), `"workstation":"PR657隔离工位"`) {
 		t.Fatalf("today %d %s", todayRec.Code, todayRec.Body.String())
 	}
+	// Work-order status reads the same all-station roster, without assigning jobs.
+	allRec := httptest.NewRecorder()
+	e.ServeHTTP(allRec, httptest.NewRequest(http.MethodGet, "/api/production-roster/today?scope=all", nil))
+	var all productionapp.ProductionTodayRoster
+	if allRec.Code != http.StatusOK || json.Unmarshal(allRec.Body.Bytes(), &all) != nil || all.EmployeeID != 0 || all.RosterVersion != 1 {
+		t.Fatalf("all-station roster %d %s", allRec.Code, allRec.Body.String())
+	}
+	foundOwner := false
+	for _, assignment := range all.Assignments {
+		if assignment.WorkstationID == station.ID && assignment.EmployeeID == 6572 && !assignment.Unattended {
+			foundOwner = true
+		}
+	}
+	var storedOwner int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(assigned_employee_id,0) FROM %s.job_cards WHERE id=65702`, schema)).Scan(&storedOwner); err != nil || storedOwner != 0 || !foundOwner {
+		t.Fatalf("roster must resolve pending job owner without storing assignment: owner=%v storedOwner=%d err=%v", foundOwner, storedOwner, err)
+	}
 	overviewReq := httptest.NewRequest(http.MethodGet, "/api/production/workstation-overview?scope=mine", nil)
 	overviewRec := httptest.NewRecorder()
 	e.ServeHTTP(overviewRec, overviewReq)

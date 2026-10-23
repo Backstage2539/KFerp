@@ -12,6 +12,7 @@
         <button class="secondary" @click="load" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
+      <p class="muted">人员安排跟随当天工位排班；已排班后进入工位处理，无需逐任务分配。</p>
       <div class="filters">
         <label>
           <span>搜索</span>
@@ -52,7 +53,7 @@
             <td data-label="工序进度"><strong>{{ operationProgressText(row) }}</strong><small>{{ operationCurrentText(row) }}</small></td>
             <td class="todo-cell" data-label="当前待办"><strong>{{ workOrderTodo(row).title }}</strong><small>{{ workOrderTodo(row).detail }}</small></td>
             <td class="row-actions" data-label="快捷操作">
-              <button class="primary compact" type="button" @click="openPrimaryAction(row)">{{ primaryActionLabel(row) }}</button>
+              <button class="primary compact" type="button" :disabled="loading" @click="openPrimaryAction(row)">{{ primaryActionLabel(row) }}</button>
               <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">查看工单</button>
               <details class="more-menu">
                 <summary>更多</summary>
@@ -231,6 +232,9 @@ const status = ref('active')
 const query = ref('')
 const loading = ref(false)
 const error = ref('')
+const todayRoster = ref(null)
+const rosterError = ref('')
+let loadRequestID = 0
 const printRow = ref(null)
 const workOrderSplitRow = ref(null)
 const workOrderSplitRows = ref([])
@@ -396,35 +400,54 @@ function operationCurrentText(row) {
 }
 
 function workOrderTodo(row) {
+  if (['completed', 'cancelled'].includes(row.status)) return { title: workOrderStatusLabel(row.status), detail: '工单已结束', action: 'summary' }
   if (workOrderHasUpstreamBlocker(row)) return { title: '等待上游供给', detail: workOrderUpstreamBlockerLabel(row) }
   const items = operationSummaryRows(row)
-  const unassigned = items.filter((item) => !String(item.assigned_to || '').trim()).length
-  if (unassigned > 0) return { title: `待分配 ${unassigned} 项任务`, detail: '为工序任务指定执行人' }
+  if (!items.length) return { title: '等待生成工序任务', detail: '请查看工单的工序配置', action: 'summary' }
   const incomplete = items.filter((item) => !['completed', 'cancelled'].includes(String(item.status || '').trim()))
-  if (!incomplete.length && String(row.status || '') !== 'completed') return { title: '待完工入库', detail: '核对本次产出并过账' }
-  if (incomplete.some((item) => String(item.status || '') === 'running')) return { title: '生产执行中', detail: operationCurrentText(row) }
-  return { title: '等待工位处理', detail: operationCurrentText(row) }
+  if (!incomplete.length) return { title: '待完工入库', detail: '核对本次产出并过账', action: 'receipt' }
+  const assignments = todayRoster.value?.assignments || []
+  const assignmentFor = item => assignments.find(assignment => Number(item.workstation_id || 0) > 0
+    ? Number(assignment.workstation_id) === Number(item.workstation_id)
+    : String(item.workstation || '').trim() && String(assignment.workstation || '').trim() === String(item.workstation).trim())
+  if (incomplete.some(item => ['running', 'paused'].includes(item.status) && (assignmentFor(item)?.handover_task_ids || []).some(id => Number(id) === Number(item.id || item.job_card_id)))) {
+    return { title: '待工位交接', detail: '当天负责人已变化，请到工位确认接手', action: 'workstation' }
+  }
+  if (incomplete.some(item => item.status === 'running')) return { title: '生产执行中', detail: operationCurrentText(row), action: 'workstation' }
+  if (incomplete.some(item => item.status === 'paused')) return { title: '工序已暂停', detail: operationCurrentText(row), action: 'workstation' }
+  if (loading.value) return { title: '正在核对排班', detail: '读取当天工位负责人', action: 'summary' }
+  if (rosterError.value || !todayRoster.value) return { title: '排班状态待核对', detail: rosterError.value || '当天排班尚未读取，请刷新重试', action: 'retry' }
+  if (!Number(todayRoster.value.roster_version || 0)) return { title: '本周排班尚未保存', detail: '先保存生产排班，任务再跟随当天工位负责人', action: 'roster' }
+  const missingStations = new Map()
+  for (const item of incomplete) {
+    const assignment = assignmentFor(item)
+    if (!assignment || assignment.unattended || assignment.override_invalid || !Number(assignment.employee_id || 0)) {
+      const name = item.workstation || '未指定工位'
+      const key = Number(item.workstation_id || 0) || name
+      missingStations.set(key, `${name}：${assignment?.reason || (assignment?.override_invalid ? '临时调整已失效' : '当天无人值班')}`)
+    }
+  }
+  if (missingStations.size) return { title: `待安排 ${missingStations.size} 个工位`, detail: [...missingStations.values()].join('；'), action: 'roster' }
+  const owners = [...new Set(incomplete.map(item => assignmentFor(item)?.employee_name).filter(Boolean))]
+  return { title: '等待工位处理', detail: `今日负责人：${owners.join('、')} · ${operationCurrentText(row)}`, action: 'workstation' }
 }
 
 function primaryActionLabel(row) {
-  const todo = workOrderTodo(row).title
-  if (todo.includes('入库')) return '去完工入库'
-  if (todo.includes('执行中') || todo.includes('工位')) return '进入工位'
-  if (todo.includes('分配')) return '分配任务'
-  return '查看状态'
+  return { receipt: '去完工入库', workstation: '进入工位', roster: '查看排班', retry: '重试' }[workOrderTodo(row).action] || '查看状态'
 }
 
 function openPrimaryAction(row) {
-  const label = primaryActionLabel(row)
-  if (label === '进入工位') {
-    window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'workstationView', params: { work_order_id: row.id } } }))
+  const action = workOrderTodo(row).action
+  if (action === 'retry') return load()
+  const key = { workstation: 'workstationView', roster: 'productionSchedule', receipt: 'productionAcceptance' }[action]
+  if (key) {
+    window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: {
+      key, params: { work_order_id: row.id },
+      returnNavigation: { key: 'workOrders', label: '返回生产工单', params: { ...props.viewParams, work_order_id: row.id } },
+    } }))
     return
   }
-  if (label === '去完工入库') {
-    window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productionAcceptance', params: { work_order_id: row.id } } }))
-    return
-  }
-  openExecutionHub(row, label === '分配任务' ? 'assignment' : 'summary')
+  openExecutionHub(row, 'summary')
 }
 
 function operationSummaryText(row) {
@@ -469,24 +492,34 @@ function statusBadgeClass(statusValue) {
 }
 
 async function load() {
+  const requestID = ++loadRequestID
   loading.value = true
   error.value = ''
   try {
     const url = new URL('/api/produce/work-orders', window.location.origin)
     if (status.value && status.value !== 'active') url.searchParams.set('status', status.value)
-    const [data, capacityData] = await Promise.all([
+    const [data, capacityData, rosterResult] = await Promise.all([
       Number(props.viewParams?.production_plan_id || 0) > 0
         ? loadProductionPlanWorkOrders(apiGet, props.viewParams.production_plan_id, status.value === 'active' ? '' : status.value)
         : apiGet(url),
       apiGet('/api/manufacturing-workstation-capacities'),
+      apiGet('/api/production-roster/today?scope=all')
+        .then(data => ({ data, error: '' }))
+        .catch(err => ({ data: null, error: err.message || '当天排班读取失败，请刷新重试' })),
     ])
+    if (requestID !== loadRequestID) return
     rows.value = data.rows || []
     sourcePlanNo.value = data.plan_no || ''
     workstationCapacities.value = capacityData.rows || []
+    todayRoster.value = rosterResult.data
+    rosterError.value = rosterResult.error
   } catch (err) {
+    if (requestID !== loadRequestID) return
     error.value = err.message || '加载失败'
+    todayRoster.value = null
+    rosterError.value = '当天排班读取失败，请刷新重试'
   } finally {
-    loading.value = false
+    if (requestID === loadRequestID) loading.value = false
   }
 }
 
