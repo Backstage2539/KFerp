@@ -8,6 +8,7 @@
 - GREEN：隔离 PostgreSQL API 覆盖合并、超领、相同工单不同任务、并发同请求、改变请求内容、旧草稿、过时预览、部分库存不足、部分组失败、单组回滚和多批次、件数包材/客户货主隔离；10 个数据库场景在 race 检查下通过。
 - 单测：需求优先于额外 WIP、数量精度/输入校验；权限必须同时满足生产与库存。
 - 前端 helper 与真实 SFC 测试：三态选择、实际数量、结果渲染、正确单据入口、网络未知结果保留请求重试。
+- 跨来源仓汇总补充 RED/GREEN：同一物料仅展示一行；实际数量按任务优先级分配，再拆回各来源仓保留独立版本提交；不同货主不合并。
 
 ## Verifier
 - `ORDERAPP_TEST_DATABASE_URL=... go test ./internal/interfaces/http/production -run TestBatchMaterialIssue -count=1 -v`
