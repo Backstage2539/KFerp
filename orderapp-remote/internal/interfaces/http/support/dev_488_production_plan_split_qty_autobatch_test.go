@@ -14,7 +14,7 @@ func TestDev488ProductionPlanSplitQtyAutoBatchContracts(t *testing.T) {
 			"DEV-488-AUTOBATCH-FREEZE",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.js"): {
-			"Math.ceil(plannedQty / batchSizeQty)",
+			"Math.ceil(plannedQty / batchSizeQty - 1e-9)",
 			"planned_qty: plannedCapacitySplitMetrics(row).planned_qty",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
@@ -30,7 +30,7 @@ func TestDev488ProductionPlanSplitQtyAutoBatchContracts(t *testing.T) {
 			"planned_qty required",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "production", "production_plan.go"): {
-			"math.Ceil(split.PlannedQty / split.BatchSizeQty)",
+			"math.Ceil(split.PlannedQty/split.BatchSizeQty - 1e-9)",
 			"roundProductionPlanQuantity",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
@@ -58,7 +58,7 @@ func TestDev488ProductionPlanSplitQtyAutoBatchContracts(t *testing.T) {
 	}
 
 	viewSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "components", "ProductionPlanCapacityWorkspace.vue")))
-	if strings.Contains(viewSource, `v-model.number="split.planned_batch_count"`) {
-		t.Fatal("production plan split UI must not expose manual planned_batch_count input")
+	if !strings.Contains(viewSource, `@input="changeBatchCount(split, $event)"`) || strings.Contains(viewSource, `@input="changeQuantity(split, $event)"`) {
+		t.Fatal("PR-719 requires editable batches and read-only planned quantity")
 	}
 }

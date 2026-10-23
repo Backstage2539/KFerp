@@ -2282,6 +2282,9 @@ func (s *Service) SaveProductionPlanDraft(ctx context.Context, cmd SaveProductio
 		split := &cmd.OperationSplits[i]
 		split.ProductionPlanID = cmd.ID
 		split.Operation = strings.TrimSpace(split.Operation)
+		if err := validatePlanCapacityInput(*split); err != nil {
+			return ProductionPlanDetail{}, err
+		}
 	}
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	repo, ok := s.repo.(productionPlanDraftRepository)
@@ -2334,6 +2337,21 @@ func (s *Service) UpdateProductionPlanItemComponentSources(ctx context.Context, 
 	return repo.UpdateProductionPlanItemComponentSources(ctx, cmd)
 }
 
+// validatePlanCapacityInput accepts legacy quantities and batch-only requests.
+// Positive quantities retain precedence for existing clients and partial batches.
+func validatePlanCapacityInput(item ProductionPlanOperationSplit) error {
+	if item.ProductionPlanItemID <= 0 || item.WorkstationCapacityID <= 0 {
+		return fmt.Errorf("production plan item and workstation capacity required")
+	}
+	if math.IsNaN(item.PlannedQty) || math.IsInf(item.PlannedQty, 0) || item.PlannedQty < 0 || item.PlannedBatchCount < 0 {
+		return fmt.Errorf("产量不能为负，批次数必须是正整数")
+	}
+	if item.PlannedQty <= 0 && item.PlannedBatchCount <= 0 {
+		return fmt.Errorf("planned_qty or positive planned_batch_count required")
+	}
+	return nil
+}
+
 func (s *Service) SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error) {
 	if cmd.ID <= 0 {
 		return nil, fmt.Errorf("production_plan_id required")
@@ -2353,8 +2371,8 @@ func (s *Service) SaveProductionPlanOperationSplits(ctx context.Context, cmd Sav
 		if item.WorkstationCapacityID <= 0 {
 			return nil, fmt.Errorf("workstation_capacity_id required")
 		}
-		if item.PlannedQty <= 0 {
-			return nil, fmt.Errorf("planned_qty required")
+		if err := validatePlanCapacityInput(*item); err != nil {
+			return nil, err
 		}
 		if item.OperationSeq < 0 {
 			return nil, fmt.Errorf("operation_seq must be >= 0")
@@ -2390,8 +2408,8 @@ func (s *Service) PreviewProductionPlanOperationSplits(ctx context.Context, cmd 
 		if item.WorkstationCapacityID <= 0 {
 			return ProductionPlanOperationSplitPreview{}, fmt.Errorf("workstation_capacity_id required")
 		}
-		if item.PlannedQty <= 0 {
-			return ProductionPlanOperationSplitPreview{}, fmt.Errorf("planned_qty required")
+		if err := validatePlanCapacityInput(*item); err != nil {
+			return ProductionPlanOperationSplitPreview{}, err
 		}
 		if item.OperationSeq < 0 {
 			return ProductionPlanOperationSplitPreview{}, fmt.Errorf("operation_seq must be >= 0")

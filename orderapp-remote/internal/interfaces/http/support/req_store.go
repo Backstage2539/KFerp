@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-719-PRODUCTION-CAPACITY-BATCHES", title: "生产计划整数批次拆分、工位编辑抽屉与核对折叠", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-production-capacity-batches.md"},
+		{table: "req_dev", code: "DEV-719-01", title: "PR-719 整数批次、承担全部与旧尾批兼容", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-production-capacity-batches.md"},
+		{table: "req_dev", code: "DEV-719-02", title: "PR-719 共享工位编辑、核对折叠与交互验证", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-production-capacity-batches.md"},
+		{table: "req_dev", code: "DEV-719-03", title: "PR-719 API、手册及生产交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-production-capacity-batches.md"},
 		{table: "req_product", code: "PR-718-FULFILLMENT-OPERATIONS", title: "客户履约待办、分模块工作台与默认配置继承", status: "review", assignee: "Van"},
 		{table: "req_dev", code: "DEV-718-01", title: "PR-718 共享默认配置、继承解析与操作日志", status: "review", assignee: "Codex", evidence: "Go、隔离 PostgreSQL/API、Vue1517、构建及本地布局核验通过；开发交付记录见 docs/acceptance/2026-10-23-fulfillment-operations.md"},
 		{table: "req_dev", code: "DEV-718-02", title: "PR-718 客户待办统计与历史查看", status: "review", assignee: "Codex", evidence: "Go、隔离 PostgreSQL/API、Vue1517、构建及本地布局核验通过；开发交付记录见 docs/acceptance/2026-10-23-fulfillment-operations.md"},

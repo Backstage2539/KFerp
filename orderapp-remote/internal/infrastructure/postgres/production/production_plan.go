@@ -1500,6 +1500,39 @@ func prepareOperationSplitForSaveTx(ctx context.Context, tx pgx.Tx, schema strin
 	item.CostMethod = snapshot.CostMethod
 	item.PieceRate = snapshot.PieceRate
 	item.PlannedOperationCost = 0
+	if item.BatchSizeQty <= 0 {
+		return productionapp.ProductionPlanOperationSplit{}, fmt.Errorf("产能每批数量必须大于零")
+	}
+	if item.PlannedQty < 0 || item.PlannedBatchCount < 0 || (item.PlannedQty <= 0 && item.PlannedBatchCount <= 0) {
+		return productionapp.ProductionPlanOperationSplit{}, fmt.Errorf("产量或正整数批次数必填")
+	}
+	if item.PlannedQty <= 0 && item.PlannedBatchCount > 0 {
+		// Resolve the operation from the frozen task before validating current workstation applicability.
+		operationID, operationName := item.OperationID, strings.TrimSpace(item.Operation)
+		if productionPlanItemID > 0 {
+			var raw string
+			if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT process_route_snapshot_json::text FROM %s.production_plan_items WHERE id=$1", schema), productionPlanItemID).Scan(&raw); err != nil {
+				return productionapp.ProductionPlanOperationSplit{}, err
+			}
+			for _, op := range operationsFromProcessSnapshot(raw) {
+				if (item.OperationSeq > 0 && op.Seq == item.OperationSeq) || (item.OperationSeq == 0 && operationID > 0 && op.OperationID == operationID) || (item.OperationSeq == 0 && operationID == 0 && op.Operation == operationName) {
+					operationID, operationName = op.OperationID, op.Operation
+					break
+				}
+			}
+		}
+		var applicable bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(
+            SELECT 1 FROM %s.manufacturing_workstation_operations wo JOIN %s.manufacturing_operations o ON o.id=wo.operation_id
+            WHERE wo.workstation_id=$1 AND (($2::bigint>0 AND o.id=$2) OR ($2::bigint=0 AND o.name=$3)))`, schema, schema), item.WorkstationID, operationID, operationName).Scan(&applicable); err != nil {
+			return productionapp.ProductionPlanOperationSplit{}, err
+		}
+		if !applicable {
+			return productionapp.ProductionPlanOperationSplit{}, fmt.Errorf("工位已不适用于当前工序，请重新选择")
+		}
+		// Never trust client-provided capacity/quantity projections in batch mode.
+		item.PlannedQtyG = 0
+	}
 	return plannedCapacitySplitMetricsWithBasis(item, specG, salesSpecCount, outputTargetG), nil
 }
 
@@ -1540,7 +1573,7 @@ func loadWorkstationCapacitySnapshotForSplitTx(ctx context.Context, tx pgx.Tx, s
 		       COALESCE(NULLIF(c.cost_method,''),'time'),COALESCE(c.piece_rate,0)::float8
 		FROM %s.manufacturing_workstation_capacities c
 		LEFT JOIN %s.manufacturing_workstations w ON w.id=c.workstation_id
-		WHERE c.id=$1 AND c.status='active'
+		WHERE c.id=$1 AND c.status='active' AND w.status='active'
 	`, schema, schema), id).Scan(&row.WorkstationID, &row.Workstation, &row.WorkstationCapacityName, &row.BatchSizeQty, &row.BatchSizeUnit, &row.StandardMinutes, &row.HourlyRate, &row.CostMethod, &row.PieceRate)
 	if err == pgx.ErrNoRows {
 		return productionPlanCapacitySnapshot{}, fmt.Errorf("workstation capacity not found or inactive")
@@ -1565,7 +1598,7 @@ func plannedCapacitySplitMetricsWithBasis(split productionapp.ProductionPlanOper
 		split.PlannedQtyG = plannedCapacitySplitQtyProjection(split.PlannedQty, split.BatchSizeUnit, itemSpecG, salesSpecCount, targetG)
 	}
 	if split.PlannedQty > 0 && split.BatchSizeQty > 0 {
-		split.PlannedBatchCount = int(math.Ceil(split.PlannedQty / split.BatchSizeQty))
+		split.PlannedBatchCount = int(math.Ceil(split.PlannedQty/split.BatchSizeQty - 1e-9))
 	}
 	if split.PlannedBatchCount > 0 && split.StandardMinutes > 0 {
 		split.PlannedMinutes = split.PlannedBatchCount * split.StandardMinutes
