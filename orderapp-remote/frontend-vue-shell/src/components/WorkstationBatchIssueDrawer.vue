@@ -27,7 +27,7 @@
         <article v-for="group in preview.groups" :key="group.key" class="material-group" :class="{ unavailable: !group.available }">
           <div class="group-title">
             <label><input v-model="selected" type="checkbox" :value="group.key" :disabled="locked || !group.available" :aria-label="`选择 ${group.name}`" /><strong>{{ group.name }}</strong></label>
-            <small>{{ group.owner_name }} · {{ warehouse(group.from_warehouse) }} → WIP<template v-if="group.bom_spec_id"> · 规格 #{{ group.bom_spec_id }}</template></small>
+            <small>{{ group.owner_name }} · {{ (group.source_warehouses || [group.from_warehouse]).map(warehouse).join('、') }} → WIP<template v-if="group.bom_spec_id"> · 规格 #{{ group.bom_spec_id }}</template></small>
           </div>
           <dl class="quantities">
             <div><dt>需求</dt><dd>{{ format(group, group.required) }}</dd></div>
@@ -43,7 +43,7 @@
           <p v-if="group.reason" class="warning">{{ group.reason }}；未领部分继续保留待办。</p>
           <details><summary>查看 {{ group.allocations.length }} 条工单及批次分配</summary>
             <div v-for="(row, index) in batchIssueAllocations(group, quantities[group.key])" :key="`${row.job_card_id}:${row.binding_id}:${index}`" class="allocation">
-              <span>{{ row.work_order_no }} · 任务 #{{ row.job_card_id }}</span><span>批次 {{ row.batch_code || '待前道产出' }}</span>
+              <span>{{ row.work_order_no }} · 任务 #{{ row.job_card_id }}</span><span>{{ warehouse(row.from_warehouse || group.from_warehouse) }} · 批次 {{ row.batch_code || '待前道产出' }}</span>
               <span>本次 {{ format(group, selected.includes(group.key) ? row.actual : 0) }}<template v-if="row.extra && selected.includes(group.key)">（额外 WIP {{ format(group, row.extra) }}）</template></span>
             </div>
           </details>
@@ -64,7 +64,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { apiSend } from '../api/client.js'
-import { batchIssueAllocations, batchIssueFactor, batchIssuePayload, batchIssueQuantity, batchIssueValidation } from '../lib/workstation-batch-issue.js'
+import { batchIssueAllocations, batchIssueFactor, batchIssuePayload, batchIssueQuantity, batchIssueValidation, mergeBatchIssueGroups } from '../lib/workstation-batch-issue.js'
 const props = defineProps({ taskIds: { type: Array, required: true }, workstation: String, returnParams: Object })
 const emit = defineEmits(['close', 'posted'])
 const loading = ref(false), saving = ref(false), error = ref(''), preview = ref(null), result = ref(null)
@@ -82,6 +82,7 @@ async function refresh() {
   loading.value = true; error.value = ''; result.value = null; retryPayload = null
   try {
     preview.value = await apiSend('/api/production/workstation/material-issue/preview', { body: { job_card_ids: props.taskIds } })
+    preview.value.groups = mergeBatchIssueGroups(preview.value.groups)
     selected.value = preview.value.groups.filter(group => group.available > 0).map(group => group.key)
     quantities.value = Object.fromEntries(preview.value.groups.map(group => [group.key, batchIssueQuantity(group, group.available)]))
   } catch (err) { preview.value = null; error.value = err.message || '领料建议加载失败' }
