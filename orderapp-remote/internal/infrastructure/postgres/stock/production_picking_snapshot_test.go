@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 
 	stockapp "orderapp/internal/application/stock"
@@ -17,7 +16,7 @@ func setupPickingSnapshotTest(t *testing.T) (*pgxpool.Pool, string, *stockapp.Se
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()
 	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
-ALTER TABLE %[1]s.work_orders ADD COLUMN target_warehouse TEXT NOT NULL DEFAULT 'wip';
+UPDATE %[1]s.work_orders SET target_warehouse='wip';
 ALTER TABLE %[1]s.work_orders ADD COLUMN production_plan_id BIGINT NOT NULL DEFAULT 1;
 CREATE TABLE %[1]s.production_plans(id BIGINT PRIMARY KEY,picking_version INT NOT NULL);
 INSERT INTO %[1]s.production_plans VALUES(1,1);
@@ -61,7 +60,7 @@ func snapshotIssue(t *testing.T, svc *stockapp.Service, batch string, qty int64)
 	return doc
 }
 
-func TestPickingSnapshotRecordsMovesAndKeepsCompatibilityCap(t *testing.T) {
+func TestPickingSnapshotRecordsMovesAndCancelsOutOfOrder(t *testing.T) {
 	pool, schema, svc, batch := setupPickingSnapshotTest(t)
 	ctx := context.Background()
 	if err := ensureUnifiedStockDocumentTables(ctx, pool, schema); err != nil {
@@ -83,11 +82,12 @@ func TestPickingSnapshotRecordsMovesAndKeepsCompatibilityCap(t *testing.T) {
 	if err := json.Unmarshal(raw, &snap); err != nil || snap.Version != 1 || len(snap.Moves) != 1 || snap.Moves[0].G != 4000 || snap.Moves[0].From == snap.Moves[0].To {
 		t.Fatalf("unexpected reservation movement %s, err=%v", raw, err)
 	}
-	_, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 88, Operator: "snapshot-test", Items: []stockapp.StockDocumentItemCommand{{ItemType: "material", MaterialID: 1, InventoryUnit: "g", QtyG: 60000, FromWarehouse: "raw_materials", ToWarehouse: "wip", BatchCode: batch}}})
-	if err == nil || !strings.Contains(err.Error(), "待领预留") {
-		t.Fatalf("compatibility phase must retain the existing issue cap: %v", err)
+	bulk := snapshotIssue(t, svc, batch, 60000)
+	if _, err := svc.CancelStockDocument(ctx, doc.ID, "snapshot-test"); err != nil {
+		t.Fatal(err)
 	}
-	if _, err = svc.CancelStockDocument(ctx, doc.ID, "snapshot-test"); err != nil {
+	assertPickingSnapshotBalance(t, pool, schema, 60000, 60000, 4000, 11570)
+	if _, err := svc.CancelStockDocument(ctx, bulk.ID, "snapshot-test"); err != nil {
 		t.Fatal(err)
 	}
 	assertPickingSnapshotBalance(t, pool, schema, 120000, 0, 15570, 0)
