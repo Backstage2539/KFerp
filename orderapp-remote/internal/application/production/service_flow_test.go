@@ -1126,6 +1126,30 @@ func TestFinishedReceiptDisplayQuantityUsesOutputUnit(t *testing.T) {
 	}
 }
 
+func TestFinishedReceiptTasksExposeFrozenOutputAndWarehouseIdentity(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{{
+			ID: 501, WorkOrderNo: "WO-501", RunningItemID: 801, Status: "running",
+			OutputType: "product", OutputProductID: 41, ProductID: 40, OutputName: "雪松拼配",
+			BomSpecID: 91, BomVariantID: 92, SpecG: 454, OutputUnit: "袋",
+			CustomerID: 77, TargetWarehouse: "virtual-77-finished", PlannedUnits: 9,
+		}},
+		jobCards: []JobCardRow{{ID: 601, WorkOrderID: 501, SequenceNo: 1, Status: "completed", ActualOutputQty: 12}},
+	}
+
+	rows, err := NewService(repo).ListFinishedReceiptTasks(context.Background(), "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("finished receipt tasks=%+v, want one row", rows)
+	}
+	got := rows[0]
+	if got.OutputProductID != 41 || got.ProductID != 40 || got.BomSpecID != 91 || got.BomVariantID != 92 || got.CustomerID != 77 || got.TargetWarehouse != "virtual-77-finished" {
+		t.Fatalf("finished receipt identity lost: %+v", got)
+	}
+}
+
 func TestTaskStockDocumentScalingUsesFrozenBatchShare(t *testing.T) {
 	reservations := []WIPReservationRow{{ID: 7, RequiredG: 21000, AvailableG: 15000, ShortageG: 6000, RequiredQty: 21, AvailableQty: 15, ShortageQty: 6}}
 	got := scaleWIPReservationRowsForTask(reservations, 0, 2, 3)
