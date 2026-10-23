@@ -280,7 +280,7 @@ func (r *Repository) Audit(ctx context.Context, tx pgx.Tx, actor, entity string,
 		requirement = "PR-716"
 	}
 	if snapshot, ok := after.(domain.Snapshot); ok && snapshot.Protocol == domain.OrderProtocol {
-		requirement = "PR-709"
+		requirement = "PR-720"
 	}
 	return infra.AuditInsertTx(ctx, tx, r.schema, actor, entity, &id, action, infra.StrPtr("freight"), infra.StrPtr(string(a)), infra.StrPtr(string(b)), infra.AuditMeta{"requirement": requirement})
 }

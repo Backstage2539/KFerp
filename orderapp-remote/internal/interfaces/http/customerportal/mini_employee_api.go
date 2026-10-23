@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"math"
 	"mime"
 	"net/http"
 	freightdomain "orderapp/internal/domain/freight"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -726,6 +729,19 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	if !found {
 		return "客户不存在", nil
 	}
+	if cmd.EditID > 0 && form.EditData != nil && form.EditData.ID == cmd.EditID && len(cmd.Items) == len(form.EditData.Items) {
+		allUnchanged := len(cmd.Items) > 0
+		for _, item := range cmd.Items {
+			if !item.PreserveExistingSnapshot {
+				allUnchanged = false
+				break
+			}
+		}
+		if allUnchanged {
+			cmd.SelectedPriceTableIDs = nil
+			return "", nil
+		}
+	}
 	// Only server-loaded, unchanged manual sample lines can keep their stored
 	// specification without an ordinary price-list quote. SaveOrder still
 	// validates the effective BOM and the order's production/edit restrictions.
@@ -1146,6 +1162,77 @@ func miniEmployeePreserveHiddenOrderItemFields(requestItems []miniEmployeeOrderI
 	return nil
 }
 
+func miniEmployeeMarkUnchangedOrderItems(requestItems []miniEmployeeOrderItemRequest, commandItems []salesapp.OrderItemCommand, existingItems []salesapp.OrderEditItem) bool {
+	if len(requestItems) == 0 || len(requestItems) != len(commandItems) || len(commandItems) != len(existingItems) {
+		return false
+	}
+	for index := range commandItems {
+		request, stored := requestItems[index], existingItems[index]
+		qty, qtyErr := strconv.ParseInt(strings.TrimSpace(stored.Qty), 10, 64)
+		unitPrice, priceErr := strconv.ParseFloat(strings.TrimSpace(stored.UnitPrice), 64)
+		storedUnitBeanG, unitBeanErr := strconv.ParseFloat(strings.TrimSpace(stored.UnitBeanG), 64)
+		if qtyErr != nil || priceErr != nil || unitBeanErr != nil {
+			return false
+		}
+		selectionMode := "auto"
+		selectedPriceRowKey := ""
+		if stored.PriceOverride {
+			selectionMode = "manual"
+		} else {
+			source := miniEmployeeTraceSnapshot(stored.PriceSourceJSON)
+			selectionMode = miniEmployeeTraceString(source["price_selection_mode"])
+			if selectionMode == "" {
+				selectionMode = "auto"
+			}
+			selectedPriceRowKey = miniEmployeeTraceString(source["selected_price_row_key"])
+		}
+		salesUnit := stored.SalesUnit
+		if strings.TrimSpace(salesUnit) == "" {
+			salesUnit = stored.Unit
+		}
+		if request.ItemID != stored.ItemID || request.ProductID != stored.ProductID || request.BomSpecID != stored.BomSpecID || request.BomVariantID != stored.BomVariantID ||
+			request.CustomerProductAliasID != stored.CustomerProductAliasID || request.Qty != qty || (request.Unit != stored.Unit && request.Unit != salesUnit) || request.SalesUnit != salesUnit ||
+			request.UnitBagCount != stored.UnitBagCount || request.PriceOverride != stored.PriceOverride || request.BeanListPublicationID != stored.BeanListPublicationID ||
+			strings.TrimSpace(request.BeanListVersionNo) != strings.TrimSpace(stored.BeanListVersionNo) || strings.TrimSpace(request.PriceSourceJSON) != strings.TrimSpace(stored.PriceSourceJSON) ||
+			request.PriceSelectionMode != selectionMode || request.SelectedPriceRowKey != selectedPriceRowKey || math.Abs(request.UnitPrice-unitPrice) > 0.0001 || math.Abs(request.UnitBeanG-storedUnitBeanG) > 0.0001 ||
+			strings.TrimSpace(request.ProductKind) != strings.TrimSpace(stored.ProductKind) {
+			return false
+		}
+		if stored.BomSpecID > 0 {
+			if request.ParentProductID != stored.ProductID {
+				return false
+			}
+		} else if request.SpecG != miniEmployeeOrderSpecWeightG(stored.Spec) {
+			return false
+		}
+		if mode := request.PriceSelectionMode; mode == "converted_tier" || mode == "bom_tier" {
+			storedConversion := salesapp.SpecConversionFromSnapshot(stored.PriceSourceJSON)
+			if storedConversion == nil || request.SpecConversion == nil || *storedConversion != *request.SpecConversion {
+				return false
+			}
+		}
+	}
+	for index := range commandItems {
+		commandItems[index].PreserveExistingSnapshot = true
+		commandItems[index].Unit = existingItems[index].Unit
+	}
+	return true
+}
+
+var miniEmployeeSpecWeightPattern = regexp.MustCompile(`[0-9]+(?:\.[0-9]+)?`)
+
+func miniEmployeeOrderSpecWeightG(spec string) int64 {
+	match := miniEmployeeSpecWeightPattern.FindString(strings.TrimSpace(spec))
+	if match == "" {
+		return 0
+	}
+	value, err := strconv.ParseFloat(match, 64)
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return int64(math.Round(value))
+}
+
 func miniEmployeeOrderItemIdentityMatches(command salesapp.OrderItemCommand, existing salesapp.OrderEditItem) bool {
 	if command.ProductID == nil || *command.ProductID <= 0 || *command.ProductID != existing.ProductID {
 		return false
@@ -1180,7 +1267,7 @@ func (h miniEmployeeOrderHandler) update(c echo.Context) error {
 	}
 	form, err := h.sales.OrderForm(c.Request().Context(), access.orderID)
 	if err != nil {
-		return miniInternalError(c)
+		return miniEmployeeOrderUpdateInternalError(c, "load_order_form", err)
 	}
 	if form.EditData == nil || form.EditData.ID != access.orderID || form.EditData.CustomerID != access.row.CustomerID {
 		return miniEmployeeOrderNotFound(c)
@@ -1193,15 +1280,16 @@ func (h miniEmployeeOrderHandler) update(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "订单日期不正确"})
 	}
 	if err := miniEmployeePreserveHiddenOrderFields(&cmd, form.EditData); err != nil {
-		return miniInternalError(c)
-	}
-	if message, err := miniEmployeePrepareCurrentCatalogFromForm(form, &cmd); err != nil {
-		return miniInternalError(c)
-	} else if message != "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
+		return miniEmployeeOrderUpdateInternalError(c, "preserve_order_fields", err)
 	}
 	if err := miniEmployeePreserveHiddenOrderItemFields(req.Items, cmd.Items, form.EditData.Items); err != nil {
-		return miniInternalError(c)
+		return miniEmployeeOrderUpdateInternalError(c, "preserve_order_items", err)
+	}
+	miniEmployeeMarkUnchangedOrderItems(req.Items, cmd.Items, form.EditData.Items)
+	if message, err := miniEmployeePrepareCurrentCatalogFromForm(form, &cmd); err != nil {
+		return miniEmployeeOrderUpdateInternalError(c, "prepare_catalog", err)
+	} else if message != "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
 	}
 	cmd.RequirePreProductionEdit = true
 	miniEmployeeAllowResponsibleFallback(&cmd, access.employee)
@@ -1218,9 +1306,19 @@ func (h miniEmployeeOrderHandler) update(c echo.Context) error {
 		if message, known := miniOrderKnownBusinessErrorText(err); known {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
 		}
-		return miniInternalError(c)
+		return miniEmployeeOrderUpdateInternalError(c, "save_order", err)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"order_id": result.OrderID, "order_no": result.OrderNo})
+}
+
+func miniEmployeeOrderUpdateInternalError(c echo.Context, stage string, err error) error {
+	state := ""
+	var sqlState interface{ SQLState() string }
+	if errors.As(err, &sqlState) {
+		state = sqlState.SQLState()
+	}
+	log.Printf("mini employee order update failed route=%s order_id=%s stage=%s error_type=%T sqlstate=%s", c.Path(), c.Param("id"), stage, err, state)
+	return miniInternalError(c)
 }
 
 func (h miniEmployeeOrderHandler) detail(c echo.Context) error {
@@ -2069,6 +2167,9 @@ func containsMiniRole(values []string, target string) bool {
 }
 
 func miniOrderKnownBusinessErrorText(err error) (string, bool) {
+	if err != nil && strings.Contains(err.Error(), "bom_configuration_updated:") {
+		return "商品生产配置已更新，请刷新订单商品规格后再保存", true
+	}
 	if err != nil {
 		for _, s := range []string{"运费", "净重", "收件地区", "请更新客户端"} {
 			if strings.Contains(err.Error(), s) {
@@ -2079,6 +2180,13 @@ func miniOrderKnownBusinessErrorText(err error) (string, bool) {
 
 	if err != nil && err.Error() == salesapp.PriceTableOrderScopeMessage {
 		return err.Error(), true
+	}
+	if err != nil {
+		lower := strings.ToLower(strings.TrimSpace(err.Error()))
+		if strings.Contains(lower, "price tier") && (strings.Contains(lower, "stale") || strings.Contains(lower, "invalid") || strings.Contains(lower, "not found")) ||
+			strings.Contains(lower, "no compatible published price") || strings.Contains(lower, "bom spec has no compatible") {
+			return "订单商品的价格或规格已更新，请刷新订单后重新核对", true
+		}
 	}
 	if err != nil && (strings.Contains(err.Error(), "换算") || strings.Contains(err.Error(), "来源") || strings.Contains(err.Error(), "重新计价")) {
 		return err.Error(), true

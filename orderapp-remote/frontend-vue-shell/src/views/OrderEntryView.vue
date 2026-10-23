@@ -230,7 +230,7 @@
           <label :class="{ 'field-invalid': hasFieldError('payment_shipping_amount') }" data-error-field="payment_shipping_amount">
             <span>实收运费（元）</span>
             <div class="amount-suggestion-wrap">
-              <input :disabled="!form.edit_id && (!form.freight_state?.manual || form.freight_state?.free)" v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
+              <input :disabled="!form.edit_id && (!!form.freight_state?.free || (!form.freight_state?.manual && (form.freight_state?.chargeMode==='deferred' || form.freight_state?.autoAmountCents==null)))" v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
               <button
                 v-if="showPaymentShippingAmountSuggestion"
                 class="amount-suggestion-popover"
@@ -567,6 +567,7 @@
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。表外 BOM 规格不能下单；历史换算订单仅保留原规格和冻结价格，复制时须重新选择当前价格表内的规格。</li>
           <li>每条商品明细可选择减免数额、单价优惠、折扣或免费，保存后会计入订单优惠。</li>
           <li>每条商品明细可填写“条目备注”，会随该商品带入销售单和出库单。</li>
+          <li>普通录单会按收件地区、商品物流重量及启用模板自动核算运费并计入本单应收；可以切换本单模板、手填运费、选择包邮，或点击“恢复自动计算”。缺商品物流重量时按缺失商品提示，可填本单含包装总重量继续报价；商品、规格或数量变化后需重新确认重量。编辑已有订单会先保留原运费，只有明确选择新模板、恢复自动或修改运费才重新报价；保存失败会保留当前输入。</li>
           <li>库存充足时保存前会提示成品批次；历史库存没有 FP 批次时会提示库存余额，确认使用后进入库存待发货。</li>
         </ul>
       </details>
@@ -907,7 +908,7 @@ function currentOrderProductFamilies() {
 const rows = ref([newRow()])
 const orderFreight=ref(null)
 const freightEstimator=ref(null)
-const freightItems=computed(()=>rows.value.filter(r=>Number(r.product_id)>0&&Number(r.qty)>0).map(r=>({product_id:Number(r.product_id),bom_spec_id:Number(r.bom_spec_id||0),bom_variant_id:Number(r.bom_variant_id||0),qty:Number(r.qty)})))
+const freightItems=computed(()=>rows.value.filter(r=>Number(r.product_id)>0&&Number(r.qty)>0).map(r=>({product_id:Number(r.product_id),bom_spec_id:Number(r.bom_spec_id||0),bom_variant_id:Number(r.bom_variant_id||0),qty:Number(r.qty),name:String(r.product_name||r.name||'')})))
 
 const hasUnpricedPublishedRow = computed(() => rows.value.some(rowHasBlockingPrice))
 const paymentVoucher = ref(null)
@@ -3022,7 +3023,7 @@ async function save(options = {}) {
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (form.delivery_mode!=='customer_stock' && !orderFreight.value?.edit_locked && (!form.edit_id || !props.customerPortal)) {
-      const q=await freightEstimator.value?.preview();if(!q){error.value='请完善收件地区及运费配置后重试';return}
+      const q=await freightEstimator.value?.preview();if(!q&&!form.freight_state?.preserveExisting){error.value='请完善收件地区及运费配置后重试';return}
       Object.assign(payload,freightEstimator.value.payload())
       if(q.carrier_id){payload.logistics_company_id=q.carrier_id;payload.logistics_product_id=q.logistics_product_id;form.logistics_company_id=q.carrier_id;form.logistics_product_id=q.logistics_product_id}
     }

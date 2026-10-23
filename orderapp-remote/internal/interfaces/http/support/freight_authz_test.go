@@ -25,7 +25,7 @@ func TestFreightAuthorizationSeparatesPortalAndInternalPolicies(t *testing.T) {
 }
 
 func TestOrderFreightUsesOrderWritePermission(t *testing.T) {
-	for _, path := range []string{"/api/order/freight/preview", "/api/order/freight/regions", "/api/order/shipping-destination/resolve"} {
+	for _, path := range []string{"/api/order/freight/preview", "/api/order/freight/regions", "/api/order/freight/templates", "/api/order/shipping-destination/resolve"} {
 		if requiredPermissionForRequest(http.MethodPost, path) != "orders.write" {
 			t.Fatal(path)
 		}

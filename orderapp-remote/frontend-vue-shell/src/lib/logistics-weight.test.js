@@ -56,7 +56,9 @@ test('ERP, customer web, fulfillment detail and inline rows show the same read-o
   assert.doesNotMatch(component, /v-model|apiSend|fetch\(/)
 })
 
-test('ordinary-order freight explains missing logistics weight without showing a zero estimate', () => {
+test('ordinary-order freight explains missing logistics weight and asks for gross parcel weight', () => {
  const component = source('../components/OrderFreightEstimate.vue')
- assert.ok(component.includes('!quote.estimate_known && quote.cost_pending_reason'))
+ assert.ok(component.includes('以下商品缺少物流重量：'))
+ assert.ok(component.includes('请填写本单含包装的包裹总重量后核算'))
+ assert.ok(component.includes('本单包裹总重量（克，含包装）'))
 })
