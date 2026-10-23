@@ -6128,3 +6128,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Rollback: /opt/stacks/erp-production/orderapp.backup.deploy-20261023114958-9b37113659d0; kferp-orderapp-rollback:production-20261023114958-9b37113659d0.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-production-capacity-batches.md; production-capacity-runtime-proof.json.
 - Last update: 2026-10-23
+
+### PR-721-WORK-ORDER-ROSTER-STATUS
+- Branch: codex/work-order-roster-status-20261023
+- Owner: Codex
+- Status: verified; production integration pending; Van business acceptance pending
+- Scope: work-order todo/action follows saved daily workstation roster; no business writes.
+- Verifier: 8 runtime regressions RED/GREEN; 1,545 frontend tests/build; Go all packages; 2 isolated PostgreSQL roster API tests; fixture browser navigation/status.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-work-order-roster-status.md
+- Target: production, continuing the current production repair. Preserve existing roster and work orders 18/19.
+- Last update: 2026-10-23
+
