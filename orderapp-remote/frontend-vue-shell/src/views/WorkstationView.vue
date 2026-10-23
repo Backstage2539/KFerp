@@ -56,9 +56,14 @@
         <div v-if="!section.tasks.length" class="no-task">{{ scope === 'mine' ? '今日负责此工位，暂无任务' : '今日工位暂无任务' }}</div>
         <button v-else-if="!selectedWorkstation" class="enter-station primary" type="button" @click="selectedWorkstation = section.workstation">进入本工位</button>
 
+        <div v-if="selectedWorkstation" class="batch-issue-toolbar">
+          <span>已选 {{ issueSelectionState(section.tasks, selectedIssueTasks).count }} 个任务</span>
+          <button type="button" class="primary" :disabled="!issueSelectionState(section.tasks, selectedIssueTasks).count || loading" @click="openBatchIssue(section)">合并领料</button>
+          <small>多选任务后，同料汇总、一次领到 WIP</small>
+        </div>
         <div v-if="selectedWorkstation" class="task-table">
           <div class="task-row header">
-            <span>任务</span>
+            <span><input type="checkbox" aria-label="全选当前工位可领料任务" :checked="issueSelectionState(section.tasks, selectedIssueTasks).checked" :indeterminate="issueSelectionState(section.tasks, selectedIssueTasks).indeterminate" :disabled="!issueSelectionState(section.tasks, selectedIssueTasks).total" @change="selectedIssueTasks = toggleIssueSelection(section.tasks, selectedIssueTasks)" /> 任务</span>
             <span>状态</span>
             <span>执行人</span>
             <span>动作</span>
@@ -69,7 +74,7 @@
             :class="{ focused: isRequestedTask(task) }"
             :data-task-key="taskKey(task)">
             <div class="task-title">
-              <strong>{{ taskTitle(task) }}</strong>
+              <strong><input v-model="selectedIssueTasks" type="checkbox" :value="Number(task.job_card_id)" :disabled="!workstationCanOpenIssue(task)" :aria-label="`选择任务 ${task.work_order_no} ${task.job_card_id}`" />{{ taskTitle(task) }}</strong>
               <small>{{ taskBatchLabel(task) }} · {{ task.work_order_no || '-' }} · P{{ task.priority || 0 }}</small>
               <small v-for="line in taskQuantityLines(task)" :key="line" class="task-quantity">{{ line }}</small>
               <small>工序要求：{{ task.process_requirement || '按冻结工艺路线执行' }}</small>
@@ -151,6 +156,7 @@
         <span>{{ emptyState.hint }}</span>
       </div>
     </section>
+    <WorkstationBatchIssueDrawer v-if="batchIssue.open" :task-ids="batchIssue.ids" :workstation="selectedWorkstation" :return-params="{scope}" @close="batchIssue.open = false" @posted="load" />
     <ProductionExecutionHubDrawer
       :open="executionHub.open"
       :work-order-id="executionHub.workOrderId"
@@ -162,8 +168,10 @@
 </template>
 
 <script setup>
+import WorkstationBatchIssueDrawer from '../components/WorkstationBatchIssueDrawer.vue'
+import { issueSelectionState, toggleIssueSelection } from '../lib/workstation-batch-issue.js'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { fetchProductionWorkstationOverview, runProductionTaskAction } from '../api/production.js'
 import { apiGet, apiSend } from '../api/client'
 import { actorHasFullViewAccess } from '../lib/menu-permissions.js'
@@ -187,6 +195,9 @@ const props = defineProps({
   actor: { type: Object, default: null },
 })
 
+const selectedIssueTasks = ref([])
+const batchIssue = reactive({open: false, ids: []})
+function openBatchIssue(section) { batchIssue.ids = section.tasks.filter(task => selectedIssueTasks.value.includes(Number(task.job_card_id)) && workstationCanOpenIssue(task)).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }
 const loading = ref(false)
 const busyKey = ref('')
 const error = ref('')
@@ -217,6 +228,8 @@ const finishPanel = reactive({
 })
 
 const tasks = computed(() => overview.value.tasks || [])
+watch(selectedWorkstation, () => { selectedIssueTasks.value = []; batchIssue.open = false })
+watch(tasks, rows => { const available = new Set(rows.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id))); selectedIssueTasks.value = selectedIssueTasks.value.filter(id => available.has(id)) })
 const sections = computed(() => {
   const taskSections = workstationTaskSections(tasks.value)
   const byName = new Map(taskSections.map(section => [section.workstation, section]))
@@ -569,6 +582,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.batch-issue-toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:18px 0 12px}.batch-issue-toolbar small{color:#6c786f}.task-table input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin:0 8px 0 0;accent-color:#315740}
+
 .page { padding: 20px; color: #252525; }
 .toolbar, .panel, .station-panel {
   border: 1px solid #e2ded7;

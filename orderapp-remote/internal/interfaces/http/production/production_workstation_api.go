@@ -17,6 +17,34 @@ type workstationTaskIssueRequest struct {
 }
 
 func registerProductionWorkstationAPI(e *echo.Echo, productionSvc *productionapp.Service) {
+	e.POST("/api/production/workstation/material-issue/preview", func(c echo.Context) error {
+		var cmd productionapp.BatchMaterialIssueCommand
+		if err := c.Bind(&cmd); err != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		cmd.Operator = support.ActorOf(c)
+		result, err := productionSvc.PreviewBatchMaterialIssue(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	e.POST("/api/production/workstation/material-issue/submit", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		var cmd productionapp.BatchMaterialIssueCommand
+		if err := c.Bind(&cmd); err != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		cmd.Operator = support.ActorOf(c)
+		result, err := productionSvc.SubmitBatchMaterialIssue(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+
 	e.GET("/production-overview", func(c echo.Context) error {
 		target := "/vue-shell?view=workstationView"
 		if raw := c.QueryString(); raw != "" {

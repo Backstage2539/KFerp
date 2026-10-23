@@ -415,6 +415,8 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "库存管理 / 仓库库存", "调整成品库存"
 	case "stock_adjustment":
 		return "库存管理 / 库存作业", "提交库存调整"
+	case "workstation_material_issue":
+		return "生产管理 / 工位视图", "合并领料并过账"
 	case "stock_entry":
 		switch action {
 		case "create_draft":
@@ -905,6 +907,8 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstNonEmpty(productID, specG)
 	case "stock_adjustment":
 		return firstMetaText(meta, "batch_code", "material_batch_id", "item_name", "item_id")
+	case "workstation_material_issue":
+		return firstMetaText(meta, "request_id")
 	case "stock_entry":
 		return firstMetaText(meta, "entry_no", "work_order_id", "purpose")
 	case "cost_parameter":
@@ -1188,6 +1192,8 @@ func labelEntityType(t string) string {
 		return "成品库存"
 	case "stock_adjustment":
 		return "库存调整单"
+	case "workstation_material_issue":
+		return "工位合并领料"
 	case "stock_entry":
 		return "库存单据"
 	case "cost_parameter":
