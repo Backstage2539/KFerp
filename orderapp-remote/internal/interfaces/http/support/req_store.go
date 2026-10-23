@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-724-WORKSTATION-BATCH-MATERIAL-ISSUE", title: "工位多选任务、同料汇总与一键领料过账", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-workstation-batch-material-issue.md；现场业务验收待 Van"},
+		{table: "req_dev", code: "DEV-724-PREVIEW", title: "PR-724 冻结需求与可领库存批量汇总", status: "done", assignee: "Codex", evidence: "batch_material_issue tests"},
+		{table: "req_dev", code: "DEV-724-POSTING", title: "PR-724 分组事务、幂等过账与操作日志", status: "done", assignee: "Codex", evidence: "batch_material_issue API tests"},
+		{table: "req_dev", code: "DEV-724-UI", title: "PR-724 任务多选与领料抽屉", status: "done", assignee: "Codex", evidence: "workstation-batch-issue.test.js"},
+		{table: "req_dev", code: "DEV-724-DELIVERY", title: "PR-724 手册、技术交付与现场验收", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-workstation-batch-material-issue.md；真实领料由现场操作，业务验收待 Van"},
+
 		{table: "req_product", code: "PR-723-OPERATION-SEQUENCE-HANDOFF", title: "工序按顺序交接实际产出，不设计划数量开工门槛", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-operation-sequence-handoff.md"},
 		{table: "req_dev", code: "DEV-855-SEQUENCE-GUARD", title: "PR-723 工序顺序校验与真实 API 回归", status: "done", assignee: "Codex", evidence: "TDD RED/GREEN"},
 		{table: "req_dev", code: "DEV-856-ACTUAL-HANDOFF-UI", title: "PR-723 工位前序状态和实际交接显示", status: "done", assignee: "Codex", evidence: "Vue helper tests and browser"},

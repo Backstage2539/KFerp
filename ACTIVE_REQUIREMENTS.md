@@ -6170,3 +6170,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: real PostgreSQL HTTP tests for low/zero kg/g/count output, unfinished earlier steps, resume/complete bypass, audit atomicity and readiness; frontend quantity/default tests; backend/frontend/build; isolated UI and production read-only checks.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-operation-sequence-handoff.md
 - Notes: reserve script reports PR-723 but BSD awk claim fails before mutation; manually reserve this number. Original ccd2 dirty checkout remains untouched.
+
+### PR-724-WORKSTATION-BATCH-MATERIAL-ISSUE
+- Branch: codex/workstation-batch-material-issue-20261023; production: codex/workstation-batch-material-issue-main-20261023
+- Status: implementation/API/UI verified; production candidate review; Van business acceptance pending
+- Scope: 工位多选任务、同料合并、实际数量修改、部分可领、一键过账；生产交付。
+- DEV: DEV-724-PREVIEW, DEV-724-POSTING, DEV-724-UI, DEV-724-DELIVERY
+- Verifier: targeted Go unit/API/PostgreSQL + frontend node tests + build; read-only production preview.
+- Deployment: final development de55849d1aea deployed and runtime/bundle/read-only preview verified; clean-main production candidate verified and ready to release.
+- Notes: Existing worktrees untouched; PR id reserved manually after reserve_req_id.sh macOS awk error. Targeted race/API PostgreSQL 10 scenarios GREEN locally and on isolated development schemas; full Go and frontend 1,564 tests GREEN; Vue build passed. Production real business records remain read-only.

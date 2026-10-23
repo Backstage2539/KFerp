@@ -39,6 +39,7 @@
               <option value="finished_inventory">成品库存</option>
               <option value="stock_adjustment">库存调整单</option>
               <option value="stock_entry">库存单据</option>
+              <option value="workstation_material_issue">工位合并领料</option>
             </optgroup>
             <optgroup label="商品与配方">
               <option value="product">产品</option>
