@@ -6,7 +6,8 @@
 - Verifier: actual Vue DOM and save runtime, isolated PostgreSQL/HTTP receipt paths and queue exclusion, full frontend/backend/build, local layout and release gates.
 - RED: retained list/editor UI exposed shipping; received frozen-order save reset delivery_status to pending_receipt.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-retained-stock-display.md; sibling evidence/retained-stock-display.
-- Status: implementation and targeted tests complete; broad verification and delivery in progress.
+- Status: technical delivery complete; PR #254/#255 merged develop/main, development runtime11ef3744 and production runtime81f60248. All gates and readonly order snapshot comparison PASS; Van acceptance pending.
+- Production rollback: /opt/stacks/erp-production/orderapp.backup.deploy-20261023111846-81f602482493; kferp-orderapp-rollback:production-20261023111846-81f602482493. Receipt-only commits do not change runtime.
 
 ### PR-718-FULFILLMENT-OPERATIONS
 - Production authorization: Van requested “合入main，部署生产环境” on 2026-10-23. Release branch codex/fulfillment-operations-production merges verified develop@470018f9 into main@d5edc418, preserving production-only safeguards. Production delivered at main/runtime 5f218156324b183e2e3ba315608304ebcb79dc84 via GitHub PR #252; no customer business-setting writes or WeChat publication.
