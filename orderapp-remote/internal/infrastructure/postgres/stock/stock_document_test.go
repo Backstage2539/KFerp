@@ -227,6 +227,7 @@ CREATE TABLE %s.audit_logs (
 );
 CREATE TABLE %s.work_orders (
 	id BIGINT PRIMARY KEY,work_order_no TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'running',
+	target_warehouse TEXT NOT NULL DEFAULT '',
 	running_item_id BIGINT NOT NULL DEFAULT 0,
 	product_id BIGINT NOT NULL DEFAULT 0,spec_g BIGINT NOT NULL DEFAULT 0,
 	planned_g BIGINT NOT NULL DEFAULT 0,planned_output_g BIGINT NOT NULL DEFAULT 0,
@@ -1377,7 +1378,7 @@ func TestTypedProductManufactureDraftFreezesOutputIdentityAndTargetWarehouse(t *
 		ALTER TABLE %s.work_orders ADD COLUMN output_name TEXT NOT NULL DEFAULT '';
 		ALTER TABLE %s.work_orders ADD COLUMN output_qty NUMERIC(18,9) NOT NULL DEFAULT 0;
 		ALTER TABLE %s.work_orders ADD COLUMN output_unit TEXT NOT NULL DEFAULT '';
-		ALTER TABLE %s.work_orders ADD COLUMN target_warehouse TEXT NOT NULL DEFAULT '';
+		ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS target_warehouse TEXT NOT NULL DEFAULT '';
 		INSERT INTO %s.products(id,name) VALUES(10,'错误商品');
 		UPDATE %s.work_orders
 		SET output_type='product',output_product_id=9,output_name='测试熟豆',output_qty=5,output_unit='件',target_warehouse='finished_shop'
@@ -1422,7 +1423,7 @@ func TestTypedManufactureLegacySubmitAndCancelFailClosed(t *testing.T) {
 		ALTER TABLE %[1]s.work_orders ADD COLUMN output_name TEXT NOT NULL DEFAULT '';
 		ALTER TABLE %[1]s.work_orders ADD COLUMN output_qty NUMERIC(18,9) NOT NULL DEFAULT 0;
 		ALTER TABLE %[1]s.work_orders ADD COLUMN output_unit TEXT NOT NULL DEFAULT '';
-		ALTER TABLE %[1]s.work_orders ADD COLUMN target_warehouse TEXT NOT NULL DEFAULT '';
+		ALTER TABLE %[1]s.work_orders ADD COLUMN IF NOT EXISTS target_warehouse TEXT NOT NULL DEFAULT '';
 		UPDATE %[1]s.work_orders
 		SET output_type='product',output_product_id=9,output_name='测试熟豆',output_qty=5,output_unit='件',target_warehouse='finished_goods'
 		WHERE id=88;
