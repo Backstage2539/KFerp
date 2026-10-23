@@ -71,6 +71,18 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 					c.Set("portal_internal_allowed", true)
 				}
 			}
+			if strings.HasPrefix(strings.TrimPrefix(c.Request().URL.Path, "/app"), "/api/production/workstation/material-issue/") {
+				permissions := []string{"production.read", "stock.read"}
+				if strings.HasSuffix(c.Request().URL.Path, "/submit") {
+					permissions = []string{"production.run", "stock.write"}
+				}
+				for _, permission := range permissions {
+					if err := requireCurrentPermission(c, authz, permission); err != nil {
+						return err
+					}
+				}
+				return next(c)
+			}
 			permission := requiredPermissionForRequest(c.Request().Method, c.Request().URL.Path)
 			if permission == "" {
 				return next(c)
