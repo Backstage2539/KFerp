@@ -20,3 +20,14 @@
 - 浏览器使用真实 WorkstationView + 本地内存 API：低于计划的 11.2kg 可开始；完成面板默认实际投入 11.2kg，按 10.9kg 实际产出提交后刷新成功；前序未完成时无开始按钮；390px 窄屏同流程成功、字段无横向溢出。生产业务按钮未点击。
 - 人工代码复核：工单行锁内统一 start/resume/complete 顺序保护；无计划数量比较；同工单全部更早有效任务完成；实际汇总仅相邻前序且按库存单位；多批不重复预填；原冻结计划与审计流程不改写。
 
+
+## 生产发布回执（2026-10-23 20:15 CST）
+- develop PR #277 → `80945b5e2eb5eb569e57cae3771aadf94430a3e6`；独立 main PR #278 → `45faf9642eb7ff8148ab2b9b4832d62eb86961f5`。
+- 干净 main 执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production`，共享服务器发布锁保护，退出 0。服务器前端 1559、miniapp 432、类型检查/24页构建、Go 全量、镜像内 Go 测试全部通过；本次未上传或发布微信小程序。
+- 运行版本 `45faf9642eb7ff8148ab2b9b4832d62eb86961f5`；镜像 `sha256:d39ee684a80be76dae659d574a928b6f79edc4e3f20b25c3847373b4e747e1b4`；应用 running，数据库 healthy，启动无异常。未登录401，认证 shell/API/生产手册200。
+- 工位资源 `WorkstationView-cgMH9yTG.js` 公网/服务器/容器 SHA256 一致：`fa9361529d8abdb0dccdb00179cd55553d45fe8622ca96acfe622f43d1f60f65`。
+- 生产只读 API 与实际浏览器一致：任务7小菠萝前序合计11.2kg、任务22初晓前序6.5kg，均 predecessor_completed/can_start=true、is_blocked=false；页面显示对应实际产出与开始入口，没有旧数量不足提示。
+- 工单5/19及其任务 before/after 摘要与哈希完全一致。生产不执行开始/完成/领料/过账。DEV-855/856/857已完成，PR-723保持review待Van；发布完成状态通过单行进度回写并写入操作日志，后续种子同步完成态。
+- 回滚镜像：`kferp-orderapp-rollback:production-20261023200627-45faf9642eb7`，指向上一版 b07c4234 的 `sha256:a10f9a853a922b9cdaeaeb6de2c2692bc2c5fc23e7c06b3cc7c3496099baa17e`；源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261023200627-45faf9642eb7`。保持PR722最低安全回滚01013bde，禁止退回不支持精确预留撤销的更旧版本。
+- 本地证据 `outputs/pr723-production/`：`deploy.log`、`before.json`、`after.json`、`checks.json`、`runtime.txt`、`progress-receipt.txt`、`production-actual-handoff.png`，以及RED/GREEN与隔离页面截图。
+- 本回执仅更新文档及进度种子，不再次重启生产；当前运行版本仍为45faf964。原ccd2目录已有改动保留。Van业务验收未代签。

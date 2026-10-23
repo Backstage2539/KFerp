@@ -6123,9 +6123,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-723-OPERATION-SEQUENCE-HANDOFF
 - Branch: codex/operation-sequence-handoff-20261023 (origin/develop a82da57e)
 - Owner/session: Codex / 2026-10-23
-- Status: implementation and RED/GREEN complete; API/UI/backend/frontend/build checks passed; integrating develop/main for production; Van acceptance pending
+- Status: production 45faf964 deployed and read-only API/UI verified at 2026-10-23 20:15 CST; DEV-855/856/857 done; PR review / Van acceptance pending
 - Scope: predecessor completion gates operation order; no planned/minimum handoff quantity gate. Show actual predecessor output; every prior active operation must be completed before advancing. Preserve frozen plans and real production records.
 - DEV: DEV-855 sequence guard and API; DEV-856 workstation readiness/actual handoff; DEV-857 manuals, regression and production delivery.
 - Verifier: real PostgreSQL HTTP tests for low/zero kg/g/count output, unfinished earlier steps, resume/complete bypass, audit atomicity and readiness; frontend quantity/default tests; backend/frontend/build; isolated UI and production read-only checks.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-operation-sequence-handoff.md
 - Notes: reserve script reports PR-723 but BSD awk claim fails before mutation; manually reserve this number. Original ccd2 dirty checkout remains untouched.
+
+- PR-723 delivery: develop #277 / main #278 merged; runtime 45faf964, rollback b07c4234 image retained under production-20261023200627-45faf9642eb7. Source and public Vue bundle verified; real work orders 5/19 unchanged. Receipt branch codex/operation-sequence-handoff-receipt-20261023 is documentation/progress only.
