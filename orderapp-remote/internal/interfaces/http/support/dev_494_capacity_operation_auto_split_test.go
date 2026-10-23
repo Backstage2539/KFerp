@@ -17,7 +17,7 @@ func TestDev494CapacityOperationAutoSplitContracts(t *testing.T) {
 		"producePlanLib":      filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.js"),
 		"producePlanView":     filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"),
 		"workOrdersView":      filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"),
-		"workstationsView":    filepath.Join("frontend-vue-shell", "src", "views", "ManufacturingWorkstationsView.vue"),
+		"workstationsView":    filepath.Join("frontend-vue-shell", "src", "components", "ManufacturingWorkstationEditor.vue"),
 		"requirements":        filepath.Join("docs", "REQUIREMENTS.md"),
 		"acceptance":          filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 		"manual":              filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"),

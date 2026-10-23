@@ -102,7 +102,7 @@ test('process route standard cost summary supports time and piece capacity metho
 
 test('operation and workstation master data are maintained on separate pages', () => {
   const operationSource = fs.readFileSync(new URL('../views/ManufacturingOperationsView.vue', import.meta.url), 'utf8')
-  const workstationSource = fs.readFileSync(new URL('../views/ManufacturingWorkstationsView.vue', import.meta.url), 'utf8')
+  const workstationSource = fs.readFileSync(new URL('../components/ManufacturingWorkstationEditor.vue', import.meta.url), 'utf8')
   const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 
   assert.match(operationSource, /<h2>工序<\/h2>/)
@@ -111,7 +111,7 @@ test('operation and workstation master data are maintained on separate pages', (
   assert.doesNotMatch(operationSource, /v-model\.number="form\.standard_operation_cost"/)
   assert.doesNotMatch(operationSource, /元\/库存单位/)
   assert.doesNotMatch(operationSource, /\/api\/manufacturing-workstations/)
-  assert.match(workstationSource, /<h2>工位\/设备<\/h2>/)
+  assert.match(workstationSource, /工位\/设备/)
   assert.match(workstationSource, /\/api\/manufacturing-workstations/)
   assert.match(workstationSource, /\/api\/manufacturing-workstation-capacities/)
   assert.match(workstationSource, /\/api\/manufacturing-operations/)
@@ -126,7 +126,7 @@ test('operation and workstation master data are maintained on separate pages', (
 
 test('operation and workstation master data no longer expose default minutes as authoritative fields', () => {
   const operationSource = fs.readFileSync(new URL('../views/ManufacturingOperationsView.vue', import.meta.url), 'utf8')
-  const workstationSource = fs.readFileSync(new URL('../views/ManufacturingWorkstationsView.vue', import.meta.url), 'utf8')
+  const workstationSource = fs.readFileSync(new URL('../components/ManufacturingWorkstationEditor.vue', import.meta.url), 'utf8')
 
   assert.doesNotMatch(operationSource, /默认工时\(分钟\)|默认分钟/)
   assert.doesNotMatch(workstationSource, /默认工时\(分钟\)|默认分钟/)
@@ -142,7 +142,7 @@ test('operation and workstation master data no longer expose default minutes as 
 
 test('operation and workstation pages use left list and right detail layout', () => {
   const operationSource = fs.readFileSync(new URL('../views/ManufacturingOperationsView.vue', import.meta.url), 'utf8')
-  const workstationSource = fs.readFileSync(new URL('../views/ManufacturingWorkstationsView.vue', import.meta.url), 'utf8')
+  const workstationSource = fs.readFileSync(new URL('../components/ManufacturingWorkstationEditor.vue', import.meta.url), 'utf8')
 
   for (const source of [operationSource, workstationSource]) {
     assert.match(source, /class="grid master-data-layout"/)

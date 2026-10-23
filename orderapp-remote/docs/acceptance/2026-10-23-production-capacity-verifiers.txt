@@ -1,0 +1,111 @@
+frontend-red
+not ok 1 - integer batches drive quantities, time, cost and count-only wire payload
+  code: 'ERR_TEST_FAILURE'
+not ok 2 - invalid batch input stays invalid and is never silently rounded or removed
+  code: 'ERR_TEST_FAILURE'
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+not ok 3 - take all rounds up in weight/count units and replaces only the same task and operation
+  code: 'ERR_TEST_FAILURE'
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+not ok 4 - automatic integer splitting uses whole smallest capacity for the remainder
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+not ok 5 - legacy partial rows stay unchanged until edited; capacity changes preserve batch count
+  code: 'ERR_TEST_FAILURE'
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+# tests 5
+# pass 0
+# fail 5
+
+backend-red
+--- FAIL: TestCapacityBatchInputAllPlanPaths (0.00s)
+    --- FAIL: TestCapacityBatchInputAllPlanPaths/preview (0.00s)
+    --- FAIL: TestCapacityBatchInputAllPlanPaths/splits (0.00s)
+    --- FAIL: TestCapacityBatchInputAllPlanPaths/draft (0.00s)
+FAIL
+FAIL	orderapp/internal/application/production	0.291s
+FAIL
+
+api-red
+--- FAIL: TestCapacityBatchAPIReadWriteCompatibility (2.48s)
+FAIL
+FAIL	orderapp/internal/interfaces/http/production	2.989s
+FAIL
+
+permission-red
+--- FAIL: TestCapacityBatchEndpointsKeepProductionAndMasterDataPermissions (0.00s)
+    capacity_batches_authz_test.go:42: GET /api/production-plans/11 allowed=false: status=200 handler=true
+    capacity_batches_authz_test.go:42: POST /api/production-plans/11/operation-splits/preview allowed=false: status=200 handler=true
+    capacity_batches_authz_test.go:42: POST /api/production-plans/11/operation-splits allowed=false: status=200 handler=true
+    capacity_batches_authz_test.go:42: PATCH /api/production-plans/11/draft allowed=false: status=200 handler=true
+FAIL
+FAIL	orderapp/internal/interfaces/http/support	0.503s
+FAIL
+
+reload-red
+not ok 8 - saved rows without operation id validate against the frozen task sequence
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+# tests 8
+# pass 7
+# fail 1
+
+current-capacity-red
+not ok 7 - explicit edits use current capacity even when an old draft carries a frozen size
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+# tests 7
+# pass 6
+# fail 1
+
+merged-api
+ok  	orderapp/internal/interfaces/http/production	10.139s
+
+merged-go
+ok  	orderapp/internal/infrastructure/postgres/manufacturing	(cached)
+ok  	orderapp/internal/infrastructure/postgres/materials	(cached)
+ok  	orderapp/internal/infrastructure/postgres/orderbeans	(cached)
+ok  	orderapp/internal/infrastructure/postgres/orderweight	(cached)
+ok  	orderapp/internal/infrastructure/postgres/productcreator	(cached)
+ok  	orderapp/internal/infrastructure/postgres/production	(cached)
+ok  	orderapp/internal/infrastructure/postgres/productspecmigration	(cached)
+ok  	orderapp/internal/infrastructure/postgres/purchase	(cached)
+ok  	orderapp/internal/infrastructure/postgres/sales	0.949s
+ok  	orderapp/internal/infrastructure/postgres/stock	(cached)
+ok  	orderapp/internal/infrastructure/wechatweb	(cached)
+ok  	orderapp/internal/interfaces/http/bom	(cached)
+ok  	orderapp/internal/interfaces/http/catalog	(cached)
+ok  	orderapp/internal/interfaces/http/company	(cached)
+ok  	orderapp/internal/interfaces/http/contracts	(cached)
+ok  	orderapp/internal/interfaces/http/costing	(cached)
+ok  	orderapp/internal/interfaces/http/customer	(cached)
+ok  	orderapp/internal/interfaces/http/customerfulfillment	(cached)
+ok  	orderapp/internal/interfaces/http/customerportal	(cached)
+ok  	orderapp/internal/interfaces/http/finance	(cached)
+ok  	orderapp/internal/interfaces/http/freight	(cached)
+ok  	orderapp/internal/interfaces/http/inventory	(cached)
+ok  	orderapp/internal/interfaces/http/manufacturing	(cached)
+ok  	orderapp/internal/interfaces/http/materials	1.655s
+ok  	orderapp/internal/interfaces/http/messagecenter	(cached)
+ok  	orderapp/internal/interfaces/http/officialaccount	(cached)
+ok  	orderapp/internal/interfaces/http/productcreator	(cached)
+ok  	orderapp/internal/interfaces/http/production	2.188s
+ok  	orderapp/internal/interfaces/http/productspecmigration	(cached)
+ok  	orderapp/internal/interfaces/http/purchase	(cached)
+ok  	orderapp/internal/interfaces/http/sales	1.050s
+ok  	orderapp/internal/interfaces/http/samples	(cached)
+ok  	orderapp/internal/interfaces/http/stock	(cached)
+ok  	orderapp/internal/interfaces/http/support	5.258s
+ok  	orderapp/internal/migration/orderliststaging	(cached)
+
+merged-frontend
+# Subtest: order list scope preserves invalid route values so the API can fail closed
+ok 716 - order list scope preserves invalid route values so the API can fail closed
+# Subtest: template maintenance and finance billing permissions fail independently
+ok 829 - template maintenance and finance billing permissions fail independently
+# tests 1533
+# pass 1533
+# fail 0
+✓ built in 1.66s
