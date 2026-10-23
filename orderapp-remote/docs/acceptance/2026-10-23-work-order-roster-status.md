@@ -49,7 +49,7 @@ bash scripts/verify_kferp.sh frontend
 - 发布前后工单、工序卡和排班的完整只读快照哈希相同：`a5363a720ab681bf7c3a1b97dc514b88274024a135281040391c253b73bb3e39`。
 - 公网、宿主机与容器内 shell 和工单资源内容一致：`WorkOrdersView-BuqQrmjn.js`，SHA256 `145a9b3cc1af6425f1baf8e366781bf6dab69038d5713a35a16506b2d2f4e0dd`。包含新的排班请求/负责人/失败提示，移除旧的逐任务指定执行人提示。
 - 旧版本 `9b37113659d080c30ce026bf11af694457e54964` 的源码备份：`/opt/stacks/erp-production/orderapp.backup.deploy-20261023133639-6b3e67af6bda`；回滚镜像：`kferp-orderapp-rollback:production-20261023133639-6b3e67af6bda`（`sha256:f5081dedb9f3c60fa955a5eb08ea889304beaf794d4118bc5728064899fbe6d4`），均已核实存在。
-- 发布遇到磁盘压力，清理可重建缓存，并将 45 份 2026-10-23 以前的开发源码备份转成压缩归档。每份经 tar 对比校验、SHA256 和恢复命令落盘后才移除未压缩重复副本。清单 `/opt/stacks/erp/source-backup-archives-pr721-20261023.jsonl`；生产源码备份、数据库、数据卷和回滚镜像保留。
+- 发布遇到磁盘压力，清理可重建缓存，并将 45 份 2026-10-23 以前的开发源码备份转成压缩归档。每份经 tar 对比校验、SHA256 和恢复命令落盘后才移除未压缩重复副本。清单 `/opt/stacks/erp/source-backup-archives-pr721-20261023.jsonl`；生产源码备份、数据库、数据卷和回滚镜像保留。发布锁释放后再次清理可重建 Go / Docker 构建缓存，可用空间恢复至约 3.4 GiB，生产与开发数据库均 healthy。
 
 技术交付与只读页面核验完成；真实生产操作和 Van 业务验收保持独立。原始核验 JSON 与生产截图保留于本地任务输出（不把生产业务截图提交到代码仓库）。
 
