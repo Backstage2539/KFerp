@@ -252,6 +252,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-721-WORK-ORDER-ROSTER-STATUS", title: "已排班工单不再误报任务待分配", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-work-order-roster-status.md"},
+		{table: "req_dev", code: "DEV-849-WORK-ORDER-ROSTER", title: "PR-721 工单待办跟随当天排班及错误处理", status: "done", assignee: "Codex", evidence: "8 Vue runtime RED/GREEN; frontend build and isolated roster API GREEN"},
+		{table: "req_dev", code: "DEV-850-ROSTER-STATUS-DELIVERY", title: "PR-721 手册、回归和生产修复交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-work-order-roster-status.md"},
 		{table: "req_product", code: "PR-719-PRODUCTION-CAPACITY-BATCHES", title: "生产计划整数批次拆分、工位编辑抽屉与核对折叠", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-production-capacity-batches.md"},
 		{table: "req_dev", code: "DEV-719-01", title: "PR-719 整数批次、承担全部与旧尾批兼容", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-production-capacity-batches.md"},
 		{table: "req_dev", code: "DEV-719-02", title: "PR-719 共享工位编辑、核对折叠与交互验证", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-23-production-capacity-batches.md"},
