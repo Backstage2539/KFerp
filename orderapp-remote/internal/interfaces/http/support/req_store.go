@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-718-FULFILLMENT-OPERATIONS", title: "客户履约待办、分模块工作台与默认配置继承", status: "review", assignee: "Van"},
+		{table: "req_dev", code: "DEV-718-01", title: "PR-718 共享默认配置、继承解析与操作日志", status: "review", assignee: "Codex", evidence: "Go、隔离 PostgreSQL/API、Vue1517、构建及本地布局核验通过；开发交付记录见 docs/acceptance/2026-10-23-fulfillment-operations.md"},
+		{table: "req_dev", code: "DEV-718-02", title: "PR-718 客户待办统计与历史查看", status: "review", assignee: "Codex", evidence: "Go、隔离 PostgreSQL/API、Vue1517、构建及本地布局核验通过；开发交付记录见 docs/acceptance/2026-10-23-fulfillment-operations.md"},
+		{table: "req_dev", code: "DEV-718-03", title: "PR-718 履约五模块和设置抽屉", status: "review", assignee: "Codex", evidence: "Go、隔离 PostgreSQL/API、Vue1517、构建及本地布局核验通过；开发交付记录见 docs/acceptance/2026-10-23-fulfillment-operations.md"},
+		{table: "req_dev", code: "DEV-718-04", title: "PR-718 手册、验证与开发交付", status: "review", assignee: "Codex", evidence: "Go、隔离 PostgreSQL/API、Vue1517、构建及本地布局核验通过；开发交付记录见 docs/acceptance/2026-10-23-fulfillment-operations.md"},
 		{table: "req_product", code: "PR-717-SHIPPING-RETURN", title: "寄件列表按隐藏收件信息匹配回填与统一实际运费确认", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-shipping-return.md"},
 		{table: "req_dev", code: "DEV-717-01", title: "回传模板、隐藏收件信息匹配及持久候选选择", status: "done", assignee: "Codex", evidence: "shipping_return.go; shippingreturn/return_test.go"},
 		{table: "req_dev", code: "DEV-717-02", title: "实际成本、实收保护与应收差额统一确认，事务发货及库存日志", status: "done", assignee: "Codex", evidence: "TestShippingReturnAtomicCandidatesAndReceipts; TestFreightActualDeferredIdempotentAndDelta"},

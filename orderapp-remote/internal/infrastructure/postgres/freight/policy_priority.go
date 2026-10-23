@@ -12,10 +12,11 @@ import (
 // ResolvePolicy is only for quoting; editors always load the stored override.
 // A configured template that is inactive or lacks a rate must fail at quote time.
 func (r *Repository) ResolvePolicy(ctx context.Context, q Queryer, id int64, scene string, lock bool) (domain.Policy, error) {
-	p, err := r.LoadPolicy(ctx, q, id, scene, lock)
+	p, err := r.loadFulfillmentPolicy(ctx, q, id, scene, lock)
 	if err != nil || p.TemplateID > 0 || p.FreeShipping {
 		return p, err
 	}
+	defaultsRevision := p.FulfillmentDefaultsRevision
 	if scene != "sale" {
 		p, err = r.LoadPolicy(ctx, q, id, "sale", lock)
 		if err != nil {
@@ -25,6 +26,7 @@ func (r *Repository) ResolvePolicy(ctx context.Context, q Queryer, id int64, sce
 	if p.TemplateID == 0 && !p.FreeShipping {
 		p, err = r.LoadDefaultPolicy(ctx, q, lock)
 	}
+	p.FulfillmentDefaultsRevision = defaultsRevision
 	p.CustomerID = id
 	p.Scene = scene
 	return p, err

@@ -18,6 +18,7 @@ type fulfillmentSettingsService interface {
 }
 
 func registerFulfillmentSettingsRoutes(e *echo.Echo, base Service) {
+	registerFulfillmentDefaultsRoutes(e, base)
 	s, ok := base.(fulfillmentSettingsService)
 	if !ok {
 		return
@@ -35,7 +36,7 @@ func registerFulfillmentSettingsRoutes(e *echo.Echo, base Service) {
 		if err != nil {
 			return customerFulfillmentError(c, 400, err)
 		}
-		return c.JSON(200, map[string]any{"customer_id": out.CustomerID, "revision": out.Revision, "modes": out.Modes, "shipping_templates": templates})
+		return c.JSON(200, map[string]any{"customer_id": out.CustomerID, "revision": out.Revision, "modes": out.Modes, "shipping_templates": templates, "defaults": out.Defaults, "defaults_revision": out.DefaultsRevision})
 	})
 	e.PUT("/api/customer-fulfillment/:customer_id/settings", func(c echo.Context) error {
 		id, err := parseID(c.Param("customer_id"), "customer")

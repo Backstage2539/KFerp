@@ -32,7 +32,7 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 	}
 	for _, want := range []string{
 		"openManual",
-		"客户履约手册",
+		"使用手册",
 		"kferp:navigate-view",
 		"customerFulfillmentManual",
 		"提交加工工单",

@@ -101,6 +101,7 @@ export function submitCustomerFulfillmentDirectShipOrder(customerId, payload) {
 export function fetchCustomerFulfillmentOrders(customerId, options = {}) {
   const params = new URLSearchParams()
   params.set('scope', 'fulfillment')
+  if (options.queue) params.set('fulfillment_queue', options.queue)
   params.set('customer_id', String(Number(customerId) || 0))
   const page = Number(options.page || 0)
   if (page > 0) params.set('page', String(page))

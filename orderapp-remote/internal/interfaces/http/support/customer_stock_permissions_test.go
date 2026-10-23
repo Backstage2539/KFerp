@@ -16,6 +16,8 @@ func TestCustomerStockConfigurationAndEmployeeDirectShipPermissions(t *testing.T
 		{"POST", "/api/customer-fulfillment/74/fees/preview", "customers.read"},
 		{"PUT", "/api/customer-fulfillment/74/orders/5/fees", "customers.write"},
 		{"GET", "/api/settings/logistics/shipping-templates", "settings.write"},
+		{"GET", "/api/settings/logistics/fulfillment-defaults", "settings.write"},
+		{"PUT", "/api/settings/logistics/fulfillment-defaults", "settings.write"},
 		{"POST", "/api/settings/logistics/shipping-templates", "settings.write"},
 		{"GET", "/api/customer-fulfillment/74/direct-ship/catalog", "stock.write"},
 		{"POST", "/api/customer-fulfillment/74/direct-ship/preview", "stock.write"},

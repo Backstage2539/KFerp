@@ -83,7 +83,7 @@ func (r *Repository) LoadTemplate(ctx context.Context, q Queryer, id int64, lock
 func (r *Repository) Policies(ctx context.Context, id int64) ([]domain.Policy, error) {
 	out := []domain.Policy{}
 	for _, scene := range []string{"sale", "stock", "on_demand"} {
-		p, e := r.LoadPolicy(ctx, r.pool, id, scene, false)
+		p, e := r.loadFulfillmentPolicy(ctx, r.pool, id, scene, false)
 		if e != nil {
 			return nil, e
 		}
@@ -112,6 +112,37 @@ func (r *Repository) SavePolicy(ctx context.Context, p domain.Policy, expected i
 		return p, e
 	}
 	defer tx.Rollback(ctx)
+	// Legacy policy editors cannot silently replace fields owned by shared defaults.
+	// The unified fulfillment editor uses SavePolicyTx after explicitly choosing inheritance.
+	if p.Scene == "stock" || p.Scene == "on_demand" {
+		if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, fmt.Sprintf("fulfillment-settings:%d", p.CustomerID)); e != nil {
+			return p, e
+		}
+		var raw []byte
+		e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT modes_json FROM %s.customer_fulfillment_settings WHERE customer_id=$1 FOR UPDATE`, r.schema), p.CustomerID).Scan(&raw)
+		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+			return p, e
+		}
+		if e == nil {
+			var modes []struct {
+				Mode            string   `json:"mode"`
+				InheritedFields []string `json:"inherited_fields"`
+			}
+			if e = json.Unmarshal(raw, &modes); e != nil {
+				return p, e
+			}
+			for _, mode := range modes {
+				if mode.Mode != p.Scene {
+					continue
+				}
+				for _, field := range mode.InheritedFields {
+					if field == "shipping_template_id" || field == "shipping_surcharge_cents" || field == "shipping_free" {
+						return p, fmt.Errorf("此场景运费正在使用履约默认配置，请到客户履约设置中自定义后保存")
+					}
+				}
+			}
+		}
+	}
 	p, e = r.SavePolicyTx(ctx, tx, p, expected, actor)
 	if e != nil {
 		return p, e
