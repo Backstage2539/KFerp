@@ -6173,9 +6173,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-724-WORKSTATION-BATCH-MATERIAL-ISSUE
 - Branch: codex/workstation-batch-material-issue-20261023; production: codex/workstation-batch-material-issue-main-20261023
-- Status: implementation/API/UI verified; production candidate review; Van business acceptance pending
+- Status: development and production technical delivery complete; review; Van business acceptance pending
 - Scope: 工位多选任务、同料合并、实际数量修改、部分可领、一键过账；生产交付。
 - DEV: DEV-724-PREVIEW, DEV-724-POSTING, DEV-724-UI, DEV-724-DELIVERY
 - Verifier: targeted Go unit/API/PostgreSQL + frontend node tests + build; read-only production preview.
-- Deployment: final development de55849d1aea deployed and runtime/bundle/read-only preview verified; clean-main production candidate verified and ready to release.
+- Deployment: development de55849d1aea and production main 5b787153bb54 deployed; runtime/bundle/read-only preview verified. GitHub PR #279/#280 develop, #281 production. Production rollback source /opt/stacks/erp-production/orderapp.backup.deploy-20261023221335-5b787153bb54 and image kferp-orderapp-rollback:production-20261023221335-5b787153bb54 retained.
+- Production acceptance: 16 packaging tasks, 15 selected, 5 material groups and 3 available; 4 tasks require quantity confirmation. API/UI previews and local quantity edits only; all default quantities restored. Before/after inventory/document/reservation snapshots identical. Final evidence: orderapp-remote/docs/acceptance/2026-10-23-workstation-batch-material-issue.md.
 - Notes: Existing worktrees untouched; PR id reserved manually after reserve_req_id.sh macOS awk error. Targeted race/API PostgreSQL 10 scenarios GREEN locally and on isolated development schemas; full Go and frontend 1,564 tests GREEN; Vue build passed. Production real business records remain read-only.
