@@ -2,6 +2,7 @@ package stock
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	app "orderapp/internal/application/stock"
@@ -97,6 +98,13 @@ func validateAutomaticPickingTx(ctx context.Context, tx pgx.Tx, schema string, d
 // Move only the posted quantity. Consumed/returned history stays on its original
 // binding, while unconsumed reservations follow the physical stock into WIP.
 func movePickingReservationTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, item app.StockDocumentItemRow, direction int64) error {
+	if direction < 0 {
+		if snapshot, err := loadPickingReservationSnapshotTx(ctx, tx, schema, item.ID); err != nil {
+			return err
+		} else if snapshot != nil {
+			return reversePickingReservationSnapshotTx(ctx, tx, schema, workOrderID, item, *snapshot)
+		}
+	}
 	from, to := item.FromWarehouse, item.ToWarehouse
 	if direction < 0 {
 		from, to = to, from
@@ -124,6 +132,7 @@ func movePickingReservationTx(ctx context.Context, tx pgx.Tx, schema string, wor
 		return err
 	}
 	g, n := pickingTransferQuantities(item)
+	snapshot := pickingReservationSnapshot{Version: 1, Moves: []pickingReservationMove{}}
 	for _, b := range bindings {
 		takeG, takeN := minInt64(g, b.G), minInt64(n, b.N)
 		if takeG == 0 && takeN == 0 {
@@ -136,16 +145,26 @@ func movePickingReservationTx(ctx context.Context, tx pgx.Tx, schema string, wor
 			b.StockBatchID = targetBatchID
 			b.BatchCode = targetBatchCode
 		}
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.work_order_material_reservation_batches(reservation_id,work_order_id,material_id,component_type,component_id,component_bom_spec_id,component_bom_variant_id,component_spec_g,material_batch_id,stock_batch_id,batch_code,warehouse,owner_customer_id,reserved_g,reserved_units,status)
+		var targetBindingID int64
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.work_order_material_reservation_batches(reservation_id,work_order_id,material_id,component_type,component_id,component_bom_spec_id,component_bom_variant_id,component_spec_g,material_batch_id,stock_batch_id,batch_code,warehouse,owner_customer_id,reserved_g,reserved_units,status)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'reserved')
- ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id,warehouse) DO UPDATE SET reserved_g=work_order_material_reservation_batches.reserved_g+excluded.reserved_g,reserved_units=work_order_material_reservation_batches.reserved_units+excluded.reserved_units,status='reserved',updated_at=now()`, schema), b.ReservationID, workOrderID, b.MaterialID, b.ComponentType, b.ComponentID, b.SpecID, b.VariantID, b.SpecG, b.MaterialBatchID, b.StockBatchID, b.BatchCode, to, b.Owner, takeG, takeN); err != nil {
+ ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id,warehouse) DO UPDATE SET reserved_g=work_order_material_reservation_batches.reserved_g+excluded.reserved_g,reserved_units=work_order_material_reservation_batches.reserved_units+excluded.reserved_units,status='reserved',updated_at=now() RETURNING id`, schema), b.ReservationID, workOrderID, b.MaterialID, b.ComponentType, b.ComponentID, b.SpecID, b.VariantID, b.SpecG, b.MaterialBatchID, b.StockBatchID, b.BatchCode, to, b.Owner, takeG, takeN).Scan(&targetBindingID); err != nil {
 			return err
 		}
+		snapshot.Moves = append(snapshot.Moves, pickingReservationMove{FromBindingID: b.ID, ToBindingID: targetBindingID, QtyG: takeG, QtyUnits: takeN})
 		g -= takeG
 		n -= takeN
 	}
 	if g > 0 || n > 0 {
 		return fmt.Errorf("本次领料对应的预留不足或已耗用，不能重复领料或撤销")
+	}
+	if direction > 0 {
+		raw, err := json.Marshal(snapshot)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_entry_items SET picking_reservation_snapshot=$2 WHERE id=$1`, schema), item.ID, raw)
+		return err
 	}
 	return nil
 }

@@ -125,6 +125,7 @@ CREATE INDEX IF NOT EXISTS stock_entry_batch_allocations_item_idx
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS crop_season TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS producer_flavor_description TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS picking_reservation_snapshot JSONB`, schema),
 		fmt.Sprintf(`UPDATE %s.stock_entries SET purpose=CASE entry_type WHEN 'material_issue_to_wip' THEN 'material_transfer_for_manufacture' WHEN 'wip_return' THEN 'material_transfer_for_manufacture' WHEN 'material_consume' THEN 'material_consumption_for_manufacture' WHEN 'finished_receipt' THEN 'manufacture' WHEN 'finished_transfer' THEN 'material_transfer' ELSE entry_type END, is_return=(entry_type='wip_return'), legacy=true, submitted_at=COALESCE(submitted_at,created_at), updated_at=COALESCE(updated_at,created_at) WHERE purpose=''`, schema),
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
