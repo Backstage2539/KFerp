@@ -1,3 +1,13 @@
+### PR-718-RETAINED-STOCK-FOLLOWUP
+- Branch: codex/retained-stock-order-display; base origin/develop@470018f9.
+- Scope: web retained production/receipt status, conditional recipient/courier UI, stable Teleport draft mode synchronization, whole-order receipt status preservation. No migration, API expansion, miniapp change or production data repair.
+- DEV: DEV-718-05 UI/status; DEV-718-06 persistence/API guards. PR review and Van acceptance pending.
+- Authorization: implement approved plan, integrate develop/main, deploy production and read-only verify SO-20261022-0002/0001.
+- Verifier: actual Vue DOM and save runtime, isolated PostgreSQL/HTTP receipt paths and queue exclusion, full frontend/backend/build, local layout and release gates.
+- RED: retained list/editor UI exposed shipping; received frozen-order save reset delivery_status to pending_receipt.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-retained-stock-display.md; sibling evidence/retained-stock-display.
+- Status: implementation and targeted tests complete; broad verification and delivery in progress.
+
 ### PR-718-FULFILLMENT-OPERATIONS
 - Branch: codex/fulfillment-operations-redesign; base origin/develop 0ebb0a0a.
 - Scope: customer todo home, five stable modules, Product Creator styling, internal historical read access, shared mode defaults with explicit per-field customer overrides and safe legacy preservation.

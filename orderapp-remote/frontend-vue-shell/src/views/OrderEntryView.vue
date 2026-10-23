@@ -94,7 +94,7 @@
         </label>
 
         <Teleport :to="props.recipientTarget || 'body'" :disabled="!props.recipientTarget" defer>
-        <div v-if="props.fulfillmentMode || form.edit_id" class="fulfillment-recipient-section full-span">
+        <div v-if="!isCustomerStockOrder(form) && (props.fulfillmentMode || form.edit_id)" class="fulfillment-recipient-section full-span">
           <CustomerRecipientPicker v-if="!props.customerPortal" :customer-id="form.customer_id" :current-recipient="form" @select="applyAddressBookRecipient" />
           <label class="full-span"><span>粘贴收件信息</span><textarea v-model="fulfillmentRecipientPaste" rows="2" placeholder="姓名、电话、地址"></textarea><button type="button" @click="parseFulfillmentRecipient">解析收件信息</button></label>
           <label v-if="props.fulfillmentMode" class="readonly-field">
@@ -163,7 +163,7 @@
           <div class="prepayment-presets" aria-label="预付款比例">
             <button v-for="rate in prepaymentPresets" :key="rate" type="button" :class="{ selected: prepaymentRate === rate }" @click="applyPrepaymentPreset(rate)">{{ rate }}%</button>
           </div>
-          <small>按应收合计 ¥{{ money(orderTotalPreviewValue.grandTotal) }} 计算（含运费）；可修改实际已收金额。</small>
+          <small>按应收合计 ¥{{ money(orderTotalPreviewValue.grandTotal) }} 计算{{ isCustomerStockOrder(form) ? '' : '（含运费）' }}；可修改实际已收金额。</small>
         </div>
 
         <label v-if="!props.customerPortal && !freeSampleSettlement" :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
@@ -174,7 +174,7 @@
           </select>
         </label>
 
-        <label v-if="!props.customerPortal">
+        <label v-if="!props.customerPortal && !isCustomerStockOrder(form)">
           <span>配送方式</span>
           <select v-model="deliveryMode">
             <option value="express">快递</option>
@@ -182,14 +182,14 @@
             <option value="local_delivery">本地送货</option>
           </select>
         </label>
-        <label v-if="!props.customerPortal && !props.fulfillmentMode">
+        <label v-if="!props.customerPortal && !props.fulfillmentMode && !isCustomerStockOrder(form)">
           <span>交付状态</span>
           <select v-model.number="form.ship_status_id">
             <option v-for="item in shipStatuses" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
 
-        <label v-if="!props.customerPortal && !props.fulfillmentMode && !isNonCourierShipMethod(form.ship_method)">
+        <label v-if="!props.customerPortal && !props.fulfillmentMode && !isCustomerStockOrder(form) && !isNonCourierShipMethod(form.ship_method)">
           <span>快递单号（可多个）</span>
           <textarea v-model.trim="form.ship_tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔"></textarea>
         </label>
@@ -497,7 +497,7 @@
           <span>优惠</span>
           <input v-model.trim="form.discount_amount" type="number" min="0" step="0.01" />
         </label>
-        <label>
+        <label v-if="!isCustomerStockOrder(form)">
           <span>快递费备注</span>
           <input v-model.trim="form.express_fee" />
         </label>
@@ -781,7 +781,7 @@ import { parseRecipientText } from '../lib/customer-recipient'
 import OrderFreightEstimate from '../components/OrderFreightEstimate.vue'
 import {emptyFreightState,freightStateFromOrder,freightAmount} from '../lib/order-freight'
 import CustomerRecipientPicker from '../components/CustomerRecipientPicker.vue'
-import { customerStockWarehouses } from '../lib/customer-stock-entry'
+import { customerStockWarehouses, isCustomerStockOrder } from '../lib/customer-stock-entry'
 import { businessGroupFeatureSelectionIDs, businessGroupRowsForFeatureSelection } from '../lib/business-grouping'
 import { buildProductCatalogTemplatePriceListTypeOptions } from '../lib/product-price-list-types'
 import { customerTypeLabel, customerTypeOptions, normalizeCustomerType } from '../lib/customer-types'
@@ -805,7 +805,7 @@ const props = defineProps({
   deliveryPrefill: { type: Object, default: null },
 })
 
-const emit = defineEmits(['close', 'saved', 'editability', 'fee-summary'])
+const emit = defineEmits(['close', 'saved', 'editability', 'fee-summary', 'delivery-mode-change'])
 const fulfillmentRecipientPaste=ref('')
 function parseFulfillmentRecipient(){const result=parseRecipientText(fulfillmentRecipientPaste.value);if(result.recipient_name)form.receiver_name=result.recipient_name;if(result.phone)form.receiver_phone=result.phone;if(result.address)form.receiver_address=result.address}
 const ORDER_ENTRY_DRAFT_SCOPE = FORM_DRAFT_SCOPES.orderEntry
@@ -3294,6 +3294,10 @@ watch(() => [fulfillmentCurrentFees.value, fulfillmentGoodsCents.value, orderFre
 }, { immediate: true })
 watch(itemsTotal, () => {
   clearFieldErrorIfValid('payment_goods_amount')
+})
+watch(() => [form.delivery_mode, form.edit_id, loadedEditorOrderID.value], () => {
+  if (editorSnapshotPending.value) return
+  emit('delivery-mode-change', { order_id: Number(props.copyId || form.edit_id || 0), delivery_mode: form.delivery_mode })
 })
 watch(()=>form.delivery_mode,mode=>{if(mode==='customer_stock'){form.shipping_amount='0'}else{try{form.shipping_amount=String(freightAmount(form.freight_state))}catch{}}})
 watch(() => form.shipping_amount, (next, previous) => {
