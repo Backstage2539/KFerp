@@ -1,12 +1,15 @@
 package customerportal
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	freightdomain "orderapp/internal/domain/freight"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +44,15 @@ func TestMiniOrderKnownBusinessErrorTextExplainsMissingCustomerResponsibleEmploy
 	message, ok := miniOrderKnownBusinessErrorText(errors.New("customer responsible employee required"))
 	if !ok || message != "客户尚未配置有效负责人，请先维护客户负责人" {
 		t.Fatalf("message=%q ok=%v", message, ok)
+	}
+}
+
+func TestMiniOrderKnownBusinessErrorTextExplainsStalePublishedPriceTier(t *testing.T) {
+	for _, raw := range []string{"price tier stale: not found", "BOM spec has no compatible published price identity"} {
+		message, ok := miniOrderKnownBusinessErrorText(errors.New(raw))
+		if !ok || message != "订单商品的价格或规格已更新，请刷新订单后重新核对" {
+			t.Fatalf("%q => %q ok=%v", raw, message, ok)
+		}
 	}
 }
 
@@ -1534,6 +1546,66 @@ func TestMiniEmployeeOrderUpdateMapsFullPreProductionCommand(t *testing.T) {
 	}
 }
 
+func TestMiniEmployeeOrderUpdateMapsManualFreightTenYuan(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	form := salesapp.OrderFormData{
+		Customers:              []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products:               []salesapp.ProductOption{{ID: 551, SKUID: 551, ParentProductID: 550, ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}}}},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+	}
+	sales := &miniEmployeeSalesFake{listResult: &result, orderFormResult: &form}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	body := `{"order_date":"2026-08-02","customer_id":8,"shipping_amount":10,"freight_protocol":"order_freight_v2","freight_quote_token":"quote-10","expected_freight_token":"old-quote","shipping_province":"云南省","freight_override":{"charge_mode":"manual_current","manual_amount_cents":1000,"free_shipping":false},"items":[{"product_id":551,"parent_product_id":550,"qty":1,"unit":"袋","spec_g":227,"sales_unit":"bag","unit_price":68,"price_override":true,"bean_list_publication_id":901,"bean_list_version_no":"V9.1"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(body))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || sales.saveCalls != 1 {
+		t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+	}
+	if sales.save.ShippingAmount != 10 || sales.save.FreightProtocol != freightdomain.OrderProtocol || sales.save.FreightQuoteToken != "quote-10" || sales.save.ExpectedFreightToken != "old-quote" || sales.save.FreightOverride == nil || sales.save.FreightOverride.ManualAmountCents == nil || *sales.save.FreightOverride.ManualAmountCents != 1000 {
+		t.Fatalf("manual freight was not carried to SaveOrder: %+v", sales.save)
+	}
+}
+
+func TestMiniEmployeeOrderUpdateMapsPublishedPriceIdentityErrorToBusinessResponse(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	form := salesapp.OrderFormData{Customers: []salesapp.CustomerOption{{ID: 8, Name: "客户A"}}}
+	sales := &miniEmployeeSalesFake{listResult: &result, orderFormResult: &form, saveError: errors.New("BOM spec has no compatible published price identity")}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(`{"order_date":"2026-08-02","customer_id":8,"items":[]}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "订单商品的价格或规格已更新") || strings.Contains(rec.Body.String(), "BOM spec") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderUpdateInternalErrorLogsOnlySanitizedContext(t *testing.T) {
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetPath("/api/mini/employee/orders/:id")
+	c.SetParamNames("id")
+	c.SetParamValues("42")
+	if err := miniEmployeeOrderUpdateInternalError(c, "save_order", errors.New("secret receiver 13900000000 and database credential")); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "internal error") || strings.Contains(output.String(), "13900000000") || strings.Contains(output.String(), "database credential") || !strings.Contains(output.String(), "stage=save_order") || !strings.Contains(output.String(), "order_id=42") {
+		t.Fatalf("status=%d response=%s log=%s", rec.Code, rec.Body.String(), output.String())
+	}
+}
+
 func TestMiniEmployeeOrderUpdatePreservesEveryHiddenHeaderAndItemField(t *testing.T) {
 	e := echo.New()
 	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
@@ -1649,6 +1721,71 @@ func TestMiniEmployeeOrderUpdatePreservesHiddenLineFieldsByItemIDAfterDeleteAndP
 	}
 	if commands[0].Note != "应保留行备注" || commands[0].DiscountType != "percent" || commands[0].DiscountValue != 8 {
 		t.Fatalf("hidden line fields matched the wrong original item: %+v", commands[0])
+	}
+}
+
+func TestMiniEmployeeMarksOnlyCompletelyUnchangedOrderLinesForSnapshotPreservation(t *testing.T) {
+	productID := int64(910)
+	existing := []salesapp.OrderEditItem{{
+		ItemID: 42, ProductID: productID, BomSpecID: 7031, BomVariantID: 7032,
+		Qty: "2", Unit: "袋", UnitPrice: "30.00", BeanListPublicationID: 901, BeanListVersionNo: "V9.1",
+		PriceOverride: true, ProductKind: "roasted_bean", SalesUnit: "bag", UnitBeanG: "0", PriceSourceJSON: `{"source":"manual","bom_spec_id":7031,"bom_variant_id":7032}`,
+	}}
+	request := miniEmployeeOrderItemRequest{
+		ItemID: 42, ProductID: productID, ParentProductID: productID, BomSpecID: 7031, BomVariantID: 7032,
+		Qty: 2, Unit: "bag", SalesUnit: "bag", UnitPrice: 30, PriceOverride: true, PriceSelectionMode: "manual",
+		ProductKind: "roasted_bean", BeanListPublicationID: 901, BeanListVersionNo: "V9.1", PriceSourceJSON: existing[0].PriceSourceJSON,
+	}
+	command := salesapp.OrderItemCommand{ItemID: 42, ProductID: &productID, ParentProductID: productID, BomSpecID: 7031, BomVariantID: 7032, Units: 2, Unit: "bag", SalesUnit: "bag", ManualPrice: floatPointer(30), PriceSelectionMode: "manual", BeanListPublicationID: 901, BeanListVersionNo: "V9.1", PriceSourceJSON: existing[0].PriceSourceJSON}
+	commands := []salesapp.OrderItemCommand{command}
+	if !miniEmployeeMarkUnchangedOrderItems([]miniEmployeeOrderItemRequest{request}, commands, existing) {
+		t.Fatal("unchanged item set was not preserved")
+	}
+	if commands[0].Unit != existing[0].Unit {
+		t.Fatalf("miniapp unit was not restored to the stored unit: %q", commands[0].Unit)
+	}
+	commands[0].PreserveExistingSnapshot = false
+	request.UnitPrice = 31
+	commands[0].ManualPrice = floatPointer(31)
+	if miniEmployeeMarkUnchangedOrderItems([]miniEmployeeOrderItemRequest{request}, commands, existing) {
+		t.Fatal("changed item price was treated as an unchanged snapshot")
+	}
+}
+
+func floatPointer(value float64) *float64 { return &value }
+
+func TestMiniEmployeeOrderUpdateMarksFreightOnlyEditAsSnapshotPreserving(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	stored := salesapp.OrderEditItem{
+		ItemID: 42, ProductID: 910, BomSpecID: 7031, BomVariantID: 7032, Qty: "2", Unit: "袋", UnitPrice: "30.00",
+		PriceOverride: true, BeanListPublicationID: 901, BeanListVersionNo: "V9.1", ProductKind: "roasted_bean", SalesUnit: "袋", UnitBeanG: "0",
+		PriceSourceJSON: `{"source":"manual","bom_spec_id":7031,"bom_variant_id":7032}`,
+	}
+	form := salesapp.OrderFormData{
+		Customers: []salesapp.CustomerOption{{ID: 8}},
+		EditData:  &salesapp.OrderEditData{ID: 42, CustomerID: 8, Items: []salesapp.OrderEditItem{stored}},
+	}
+	sales := &miniEmployeeSalesFake{listResult: &result, orderFormResult: &form}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	body, err := json.Marshal(miniEmployeeOrderRequest{
+		OrderDate: "2026-08-02", CustomerID: 8, ShippingAmount: 10,
+		Items: []miniEmployeeOrderItemRequest{{
+			ItemID: stored.ItemID, ProductID: stored.ProductID, ParentProductID: stored.ProductID, BomSpecID: stored.BomSpecID, BomVariantID: stored.BomVariantID,
+			Qty: 2, Unit: stored.Unit, SalesUnit: stored.SalesUnit, UnitPrice: 30, PriceOverride: true, PriceSelectionMode: "manual",
+			ProductKind: stored.ProductKind, BeanListPublicationID: stored.BeanListPublicationID, BeanListVersionNo: stored.BeanListVersionNo, PriceSourceJSON: stored.PriceSourceJSON,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || len(sales.save.Items) != 1 || !sales.save.Items[0].PreserveExistingSnapshot {
+		t.Fatalf("status=%d item=%+v body=%s", rec.Code, sales.save.Items, rec.Body.String())
 	}
 }
 

@@ -6114,9 +6114,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: Go domain/API/PostgreSQL GREEN; all Go packages; 1512 Vue tests and production build GREEN; local mock UI checked
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-shipping-return.md
 - Deployment: development dccaa17a46964e6d148c6ad14b8c0d2aca3b2e0a via KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh development; read-only shell/template/manual/PR checks 200, anonymous API 401; backup /opt/stacks/erp/orderapp.backup.deploy-20261023010512-dccaa17a4696; no production deployment or real workbook import
-
 - Production release authorized by Van on 2026-10-23. Integration branch: codex/shipping-return-production-20261023; preserve current main fixes, merge verified develop, rerun relevant gates, then deploy production ERP. Real workbook import and Van business acceptance remain pending.
-
 ### PR-719-PRODUCTION-CAPACITY-BATCHES
 - Branch: codex/production-capacity-batches-20261023
 - Owner: Codex
@@ -6128,3 +6126,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Rollback: /opt/stacks/erp-production/orderapp.backup.deploy-20261023114958-9b37113659d0; kferp-orderapp-rollback:production-20261023114958-9b37113659d0.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-production-capacity-batches.md; production-capacity-runtime-proof.json.
 - Last update: 2026-10-23
+### PR-720-EMPLOYEE-ORDER-AUTO-FREIGHT
+- Branch: codex/employee-order-auto-freight-main-20261023; clean main base origin/main@9440ac32542bf6433110206b7cf05538d8d3b1ed.
+- Owner/session: Codex / 2026-10-23.
+- Status: implementation verified and deployed to development; main integration and production deployment pending.
+- Scope: ordinary employee web and miniapp order freight auto-current calculation, per-order active template choice, manual freight, free shipping, explicit gross parcel weight when BOM logistics weight is missing; diagnose/fix miniapp update 500.
+- DEV: DEV-845 quote API/domain/snapshot; DEV-846 Vue entry flow; DEV-847 miniapp save and sanitized diagnostics; DEV-848 docs/verification/development delivery.
+- Verifier: all Go packages (single worker, DB integration tests skipped); targeted domain/API/PostgreSQL tests; Vue runtime/API tests and build; miniapp 432 tests, typecheck and development build.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-employee-order-auto-freight.md.
+- Integration: cherry-pick only the verified employee-order freight feature onto the current main baseline; keep unrelated develop-only changes out.
+- Deployment: development code deployed at 2eb937868cbcbff3af9ee8b7616168756290c464; production pending. No production order writes or WeChat upload/publication.

@@ -155,7 +155,7 @@ function createOrderForm(): EmployeeOrderDraftPayload {
 const form = ref<EmployeeOrderDraftPayload>(createOrderForm())
 const orderFreight=ref<FreightSnapshot|undefined>()
 const freightEstimator=ref<InstanceType<typeof EmployeeFreightEstimate>|null>(null)
-const freightItems=computed(()=>form.value.items.filter(i=>Number(i.product_id)>0&&Number(i.qty)>0).map(i=>({product_id:Number(i.product_id),bom_spec_id:Number(i.bom_spec_id||0),bom_variant_id:Number(i.bom_variant_id||0),qty:Number(i.qty)})))
+const freightItems=computed(()=>form.value.items.filter(i=>Number(i.product_id)>0&&Number(i.qty)>0).map(i=>({product_id:Number(i.product_id),bom_spec_id:Number(i.bom_spec_id||0),bom_variant_id:Number(i.bom_variant_id||0),qty:Number(i.qty),name:String(i.product_name||'')})))
 
 
 const namedPriceTableGroups = computed(() => priceTableGroups(formData.value?.price_table_options || []))
@@ -883,7 +883,7 @@ async function submit() {
       notes: form.value.notes,
       items: buildEmployeeOrderItemsPayload(form.value.items),
     }
-    if (!orderFreight.value?.edit_locked) {const q=await freightEstimator.value?.preview();if(!q)throw new Error('请完善收件地区和运费配置后重试');Object.assign(payload,freightEstimator.value?.payload())}
+    if (!orderFreight.value?.edit_locked) {const q=await freightEstimator.value?.preview();if(!q&&!form.value.freight_state?.preserveExisting)throw new Error('请完善收件地区和运费配置后重试');Object.assign(payload,freightEstimator.value?.payload())}
     if (isEditMode.value) {
       await updateEmployeeOrder(session.token, editOrderID.value, {
         ...payload,

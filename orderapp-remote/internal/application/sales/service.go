@@ -93,6 +93,7 @@ type SaveOrderCommand struct {
 
 type OrderItemCommand struct {
 	SpecConversion                     *SpecConversionSelection
+	PreserveExistingSnapshot           bool `json:"-"`
 	ItemID                             int64
 	ProductID                          *int64
 	ParentProductID                    int64
