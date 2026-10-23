@@ -26,6 +26,102 @@ type pickingReservationMove struct {
 	QtyUnits      int64 `json:"qty_units"`
 }
 
+// Acquire material rows before ownership validation's FOR SHARE lock. Without
+// this, two stock documents can both take a shared lock and deadlock when the
+// physical movement upgrades it. Batch locks also serialize plan reservations.
+func lockStockDocumentWorkOrderMaterialsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, materials []int64) error {
+	if workOrderID <= 0 {
+		return nil
+	}
+	var id int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE id=$1 FOR UPDATE`, schema), workOrderID).Scan(&id); err != nil {
+		return err
+	}
+	if len(materials) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE id=ANY($1::bigint[]) ORDER BY id FOR UPDATE`, schema), materials)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+	}
+	err = rows.Err()
+	rows.Close()
+	return err
+}
+
+func lockStockDocumentPostingTx(ctx context.Context, tx pgx.Tx, schema string, detail stockapp.StockDocumentDetail) error {
+	materials, products := []int64{}, []int64{}
+	for _, item := range detail.Items {
+		if item.ItemType == itemTypeFinishedProduct {
+			products = append(products, item.ProductID)
+		} else {
+			materials = append(materials, item.MaterialID)
+		}
+	}
+	if err := lockStockDocumentWorkOrderMaterialsTx(ctx, tx, schema, detail.WorkOrderID, materials); err != nil {
+		return err
+	}
+	if detail.WorkOrderID <= 0 || detail.Purpose != stockapp.PurposeMaterialTransferForManufacture {
+		return nil
+	}
+	modern, err := automaticPickingWorkOrderTx(ctx, tx, schema, detail.WorkOrderID)
+	if err != nil || !modern {
+		return err
+	}
+	for _, q := range []struct {
+		sql string
+		ids []int64
+	}{
+		{`SELECT id FROM %s.material_batches WHERE material_id=ANY($1::bigint[]) ORDER BY id FOR UPDATE`, materials},
+		{`SELECT id FROM %s.stock_batches WHERE item_type='finished_product' AND item_id=ANY($1::bigint[]) ORDER BY id FOR UPDATE`, products},
+	} {
+		if len(q.ids) == 0 {
+			continue
+		}
+		rows, err := tx.Query(ctx, fmt.Sprintf(q.sql, schema), q.ids)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func pickingAuditQuantitiesTx(ctx context.Context, tx pgx.Tx, schema string, detail stockapp.StockDocumentDetail) (map[string]any, error) {
+	if detail.WorkOrderID <= 0 || detail.Purpose != stockapp.PurposeMaterialTransferForManufacture {
+		return nil, nil
+	}
+	modern, err := automaticPickingWorkOrderTx(ctx, tx, schema, detail.WorkOrderID)
+	if err != nil || !modern {
+		return nil, err
+	}
+	var actualG, actualN, movedG, movedN int64
+	for _, item := range detail.Items {
+		snapshot, err := loadPickingReservationSnapshotTx(ctx, tx, schema, item.ID)
+		if err != nil {
+			return nil, err
+		}
+		g, n := pickingTransferQuantities(item)
+		actualG, actualN = actualG+g, actualN+n
+		if snapshot == nil {
+			movedG, movedN = movedG+g, movedN+n
+			continue
+		}
+		for _, move := range snapshot.Moves {
+			movedG, movedN = movedG+move.QtyG, movedN+move.QtyUnits
+		}
+	}
+	return map[string]any{"actual_qty_g": actualG, "actual_qty_units": actualN, "reservation_moved_g": movedG, "reservation_moved_units": movedN, "free_wip_g": actualG - movedG, "free_wip_units": actualN - movedN}, nil
+}
+
 func loadPickingReservationSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, itemID int64) (*pickingReservationSnapshot, error) {
 	var raw []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT picking_reservation_snapshot FROM %s.stock_entry_items WHERE id=$1`, schema), itemID).Scan(&raw); err != nil {

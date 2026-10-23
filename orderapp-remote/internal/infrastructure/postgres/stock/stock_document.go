@@ -177,6 +177,15 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	materialIDs := make([]int64, 0, len(detail.Items))
+	for _, item := range detail.Items {
+		if item.ItemType == itemTypeMaterial {
+			materialIDs = append(materialIDs, item.MaterialID)
+		}
+	}
+	if err := lockStockDocumentWorkOrderMaterialsTx(ctx, tx, r.schema, detail.WorkOrderID, materialIDs); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	if detail.Purpose == stockapp.PurposeManufacture && detail.WorkOrderID > 0 {
 		output, hasTypedOutput, err := r.loadTypedStockManufactureOutputTx(ctx, tx, detail.WorkOrderID)
 		if err != nil {
@@ -210,7 +219,15 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 	`, r.schema), id, actor); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "stock_entry", &id, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("submitted"), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"entry_no": detail.EntryNo, "purpose": detail.Purpose, "work_order_id": detail.WorkOrderID}); err != nil {
+	auditMeta := postgresinfra.AuditMeta{"entry_no": detail.EntryNo, "purpose": detail.Purpose, "work_order_id": detail.WorkOrderID}
+	quantities, err := pickingAuditQuantitiesTx(ctx, tx, r.schema, detail)
+	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	for key, value := range quantities {
+		auditMeta[key] = value
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "stock_entry", &id, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("submitted"), postgresinfra.StrPtr("cancelled"), auditMeta); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	result, err := r.loadStockDocumentDetailTx(ctx, tx, id)
@@ -397,6 +414,15 @@ func (r Repository) resolveStockDocumentWorkOrderContextTx(ctx context.Context, 
 	case stockapp.PurposeMaterialTransferForManufacture, stockapp.PurposeMaterialConsumption, stockapp.PurposeManufacture, stockapp.PurposeMaterialIssue:
 	default:
 		return fmt.Errorf("stock document purpose cannot be linked to work order")
+	}
+	materialIDs := make([]int64, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		if item.ItemType == itemTypeMaterial {
+			materialIDs = append(materialIDs, item.MaterialID)
+		}
+	}
+	if err := lockStockDocumentWorkOrderMaterialsTx(ctx, tx, r.schema, cmd.WorkOrderID, materialIDs); err != nil {
+		return err
 	}
 	var runningItemID, targetOwnerCustomerID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -676,6 +702,9 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	if err := lockStockDocumentPostingTx(ctx, tx, r.schema, detail); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	if err := r.resolveOrdinaryFinishedStockDocumentDetailTx(ctx, tx, &detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
@@ -702,6 +731,13 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 		return stockapp.StockDocumentDetail{}, err
 	}
 	auditMeta := postgresinfra.AuditMeta{"entry_no": detail.EntryNo, "purpose": detail.Purpose, "is_return": detail.IsReturn, "work_order_id": detail.WorkOrderID}
+	quantities, err := pickingAuditQuantitiesTx(ctx, tx, r.schema, detail)
+	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	for key, value := range quantities {
+		auditMeta[key] = value
+	}
 	if len(detail.Items) == 1 && detail.Items[0].ItemType == itemTypeFinishedProduct && detail.Items[0].BomSpecID > 0 {
 		auditMeta["product_id"] = detail.Items[0].ProductID
 		auditMeta["bom_spec_id"] = detail.Items[0].BomSpecID
@@ -1983,6 +2019,19 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 	// second query to cap each batch by what the same work order actually
 	// received, so close the FIFO cursor before calculating those caps.
 	rows.Close()
+	if modern && detail.WorkOrderID > 0 && detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn {
+		for index := range out {
+			var reservedG, reservedUnits int64
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g)),0)::bigint,
+ COALESCE(SUM(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units)),0)::bigint
+ FROM %[1]s.work_order_material_reservation_batches b JOIN %[1]s.work_order_material_reservations r ON r.id=b.reservation_id
+ WHERE b.material_batch_id=$1 AND b.warehouse=$2 AND b.owner_customer_id=$3 AND b.work_order_id<>$4 AND b.status='reserved' AND r.status='reserved'`, r.schema), out[index].BatchID, item.FromWarehouse, item.OwnerCustomerID, detail.WorkOrderID).Scan(&reservedG, &reservedUnits); err != nil {
+				return nil, 0, 0, err
+			}
+			out[index].AvailableG = nonnegativeStockQty(out[index].AvailableG - reservedG)
+			out[index].AvailableQty = nonnegativeStockQty(out[index].AvailableQty - reservedUnits)
+		}
+	}
 	if detail.WorkOrderID > 0 && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
 		capToWorkOrderBalance := func(row *materialMoveAvailability) error {
 			var allowedG, allowedUnits int64
@@ -2570,8 +2619,8 @@ func (r Repository) reverseStockDocumentItemTx(ctx context.Context, tx pgx.Tx, d
 			return err
 		}
 		for _, ledger := range []ledgerEntry{
-			{ItemType: itemTypeMaterial, ItemID: item.MaterialID, ItemName: item.ItemName, Warehouse: item.ToWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: alloc.BatchCode, SourceBatchID: detail.EntryNo, BeforeG: beforeToG, ChangeG: -alloc.QtyG, AfterG: beforeToG - alloc.QtyG, BeforeUnits: beforeToUnits, ChangeUnits: -alloc.QtyUnits, AfterUnits: beforeToUnits - alloc.QtyUnits, Operator: actor},
-			{ItemType: itemTypeMaterial, ItemID: item.MaterialID, ItemName: item.ItemName, Warehouse: item.FromWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: alloc.BatchCode, SourceBatchID: detail.EntryNo, BeforeG: beforeFromG, ChangeG: alloc.QtyG, AfterG: beforeFromG + alloc.QtyG, BeforeUnits: beforeFromUnits, ChangeUnits: alloc.QtyUnits, AfterUnits: beforeFromUnits + alloc.QtyUnits, Operator: actor},
+			{ItemType: itemTypeMaterial, ItemID: item.MaterialID, ItemName: item.ItemName, OwnerCustomerID: item.OwnerCustomerID, Warehouse: item.ToWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: alloc.BatchCode, SourceBatchID: detail.EntryNo, BeforeG: beforeToG, ChangeG: -alloc.QtyG, AfterG: beforeToG - alloc.QtyG, BeforeUnits: beforeToUnits, ChangeUnits: -alloc.QtyUnits, AfterUnits: beforeToUnits - alloc.QtyUnits, Operator: actor},
+			{ItemType: itemTypeMaterial, ItemID: item.MaterialID, ItemName: item.ItemName, OwnerCustomerID: item.OwnerCustomerID, Warehouse: item.FromWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: alloc.BatchCode, SourceBatchID: detail.EntryNo, BeforeG: beforeFromG, ChangeG: alloc.QtyG, AfterG: beforeFromG + alloc.QtyG, BeforeUnits: beforeFromUnits, ChangeUnits: alloc.QtyUnits, AfterUnits: beforeFromUnits + alloc.QtyUnits, Operator: actor},
 		} {
 			if err := insertLedgerTx(ctx, tx, r.schema, ledger); err != nil {
 				return err
