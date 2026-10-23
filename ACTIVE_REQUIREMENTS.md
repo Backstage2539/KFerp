@@ -1,3 +1,13 @@
+### PR-718-RETAINED-STOCK-FOLLOWUP
+- Branch: codex/retained-stock-order-display; base origin/develop@470018f9.
+- Scope: web retained production/receipt status, conditional recipient/courier UI, stable Teleport draft mode synchronization, whole-order receipt status preservation. No migration, API expansion, miniapp change or production data repair.
+- DEV: DEV-718-05 UI/status; DEV-718-06 persistence/API guards. PR review and Van acceptance pending.
+- Authorization: implement approved plan, integrate develop/main, deploy production and read-only verify SO-20261022-0002/0001.
+- Verifier: actual Vue DOM and save runtime, isolated PostgreSQL/HTTP receipt paths and queue exclusion, full frontend/backend/build, local layout and release gates.
+- RED: retained list/editor UI exposed shipping; received frozen-order save reset delivery_status to pending_receipt.
+- Evidence: orderapp-remote/docs/acceptance/2026-10-23-retained-stock-display.md; sibling evidence/retained-stock-display.
+- Status: implementation and targeted tests complete; broad verification and delivery in progress.
+
 ### PR-718-FULFILLMENT-OPERATIONS
 - Production authorization: Van requested “合入main，部署生产环境” on 2026-10-23. Release branch codex/fulfillment-operations-production merges verified develop@470018f9 into main@d5edc418, preserving production-only safeguards. Production delivered at main/runtime 5f218156324b183e2e3ba315608304ebcb79dc84 via GitHub PR #252; no customer business-setting writes or WeChat publication.
 - Branch: codex/fulfillment-operations-redesign; base origin/develop 0ebb0a0a.

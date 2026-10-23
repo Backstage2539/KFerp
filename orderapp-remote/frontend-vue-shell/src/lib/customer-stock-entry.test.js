@@ -2,6 +2,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildOrderPayload } from './order-entry.js'
 import { customerStockWarehouses, recipientAddressSnapshot, stockSupplySummary } from './customer-stock-entry.js'
+import * as retained from './customer-stock-entry.js'
+
+test('留厂主进度由实际生产及入仓决定，库存代发仍按发货展示', () => {
+  for (const [process_status, delivery_status, label] of [
+    ['待生产', 'pending_receipt', '待生产'], ['生产中', 'pending_receipt', '生产中'],
+    ['生产完成', 'pending_receipt', '待入客户仓'], ['已生产完成', 'pending_receipt', '待入客户仓'], ['', 'pending_receipt', '待生产'],
+    ['生产中', 'partially_received', '部分入客户仓'], ['生产完成', 'received', '已入客户仓'],
+  ]) {
+    const row = { delivery_mode: 'customer_stock', process_status, delivery_status, ship_status: '待发货' }
+    assert.equal(retained.isCustomerStockOrder(row), true)
+    assert.equal(retained.customerStockProgressLabel(row), label)
+  }
+  assert.equal(retained.isCustomerStockOrder({ delivery_mode: 'ship', fulfillment_mode: 'stock' }), false)
+  assert.equal(retained.isCustomerStockOrder({ receiver_name: '' }), false)
+})
 
 test('留厂购货把交付方式与目标客户仓提交到销售接口', () => {
   const payload = buildOrderPayload({ form: { customer_id: 77, delivery_mode: 'customer_stock', delivery_warehouse_code: 'XI-QIN' }, rows: [] })

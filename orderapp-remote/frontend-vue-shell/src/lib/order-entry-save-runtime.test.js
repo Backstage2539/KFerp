@@ -125,3 +125,28 @@ test('read-back replaces cumulative receipt and voucher display with the persist
   assert.equal(editor.form.payment_voucher_asset_id, 71)
   assert.equal(editor.paymentVoucher.value.filename, 'synthetic.png')
 })
+
+
+test('retained payment save requires its customer warehouse but no recipient or freight, and preserves hidden history', async t => {
+  for (const historical of [false, true]) {
+    const { editor, writes, saved } = await fixture(t)
+    const retained = { ...saved, delivery_mode: 'customer_stock', delivery_warehouse_code: 'CUSTOMER-8',
+      shipping_amount: '0', pay_status_id: 3, payment_method: '现金', prepayment_amount: '30',
+      receiver_name: historical ? '历史收件人' : '', receiver_phone: historical ? '13800000000' : '',
+      receiver_address: historical ? '历史地址' : '', ship_tracking_no: historical ? 'OLD-TRACKING' : '', ship_status_id: 1 }
+    Object.assign(saved, retained)
+    editor.applyEditData(retained)
+    editor.freightEstimator.value = { preview: () => { throw new Error('retained order must not quote freight') } }
+    await editor.save()
+    assert.match(editor.error.value, /当前客户的启用成品仓库/)
+    assert.equal(writes.length, 0)
+    editor.deliveryWarehouses.value = [{ code: 'CUSTOMER-8', customer_id: 8, kind: 'finished', active: true }]
+    await editor.save()
+    assert.equal(editor.error.value, '')
+    assert.equal(writes.length, 1)
+    for (const key of ['receiver_name', 'receiver_phone', 'receiver_address', 'ship_tracking_no', 'ship_status_id']) assert.equal(writes[0][key], retained[key], key)
+    assert.equal(Number(writes[0].shipping_amount), 0)
+    assert.equal(writes[0].prepayment_amount, '30')
+    assert.equal(writes[0].payment_method, '现金')
+  }
+})
