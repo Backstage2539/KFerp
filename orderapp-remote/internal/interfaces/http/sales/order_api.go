@@ -256,6 +256,7 @@ func (h orderAPIHandler) list(c echo.Context) error {
 		UnproducedOnly:        query.UnproducedOnly,
 		CompletedOnly:         query.CompletedOnly,
 		ShipReadyOnly:         query.ShipReadyOnly,
+		FulfillmentQueue:      query.FulfillmentQueue,
 		Limit:                 query.Limit,
 		Offset:                query.Offset,
 	})
@@ -477,6 +478,7 @@ type ordersAPIQuery struct {
 	ProcessStatusID       int64
 	UnproducedOnly        bool
 	CompletedOnly         bool
+	FulfillmentQueue      string
 	ShipReadyOnly         bool
 	Limit                 int
 	Offset                int
@@ -522,6 +524,7 @@ func ordersQueryFromContext(c echo.Context) (ordersAPIQuery, bool) {
 	q.UnproducedOnly = strings.TrimSpace(c.QueryParam("preset")) == "unprod"
 	q.CompletedOnly = strings.TrimSpace(c.QueryParam("completed")) == "1"
 	q.ShipReadyOnly = strings.TrimSpace(c.QueryParam("ship_ready")) == "1"
+	q.FulfillmentQueue = strings.TrimSpace(c.QueryParam("fulfillment_queue"))
 	if q.Scope == "fulfillment" && support.CustomerFulfillmentOrderScopeLimited(c) {
 		q.FulfillmentEmployeeID = q.EmployeeID
 	}

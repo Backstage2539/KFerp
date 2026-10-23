@@ -84,7 +84,7 @@ test('customer portal settings keeps inactive external-user bindings read only',
 
 test('customer fulfillment view no longer hosts external user management', () => {
   const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerFulfillmentView.vue'), 'utf8')
-  assert.match(source, /外部用户配置已移到“门户客户配置”/)
+  assert.match(source, /前往客户能力与价格授权/)
   assert.doesNotMatch(source, /刷新账号/)
   assert.doesNotMatch(source, /createCustomerFulfillmentExternalUser/)
 })
