@@ -344,13 +344,14 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	var currentStatus string
 	var currentCostMethod string
 	var workstationID int64
+	var sequenceNo int
 	var workstation string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT status,COALESCE(NULLIF(cost_method,''),'time'),COALESCE(workstation_id,0),COALESCE(NULLIF(workstation,''),NULLIF(work_center,''),'')
+		SELECT status,COALESCE(NULLIF(cost_method,''),'time'),COALESCE(workstation_id,0),COALESCE(NULLIF(workstation,''),NULLIF(work_center,''),''),sequence_no
 		FROM %s.job_cards
 		WHERE id=$1 AND work_order_id=$2
 		FOR UPDATE
-	`, r.schema), cmd.ID, workOrderID).Scan(&currentStatus, &currentCostMethod, &workstationID, &workstation); err != nil {
+	`, r.schema), cmd.ID, workOrderID).Scan(&currentStatus, &currentCostMethod, &workstationID, &workstation, &sequenceNo); err != nil {
 		if err == pgx.ErrNoRows {
 			return productionapp.JobCardActionResult{}, fmt.Errorf("job card not found")
 		}
@@ -387,6 +388,11 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 			}
 			workOrderStatus = started.WorkOrder.Status
 			runningItemID = started.RunningItemID
+		}
+	}
+	if cmd.Action == "resume" || cmd.Action == "complete" {
+		if err := ensureJobCardPredecessorCompletedTx(ctx, tx, r.schema, workOrderID, sequenceNo); err != nil {
+			return productionapp.JobCardActionResult{}, err
 		}
 	}
 	actualPieceQty := actualPieceQuantity(cmd.MetricsJSON, cmd.ActualOutputQty, inventoryQtyPerSalesUnit)
@@ -574,7 +580,7 @@ func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, wor
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT jc.sequence_no,COALESCE(jc.assigned_to,''),COALESCE(jc.workstation,''),COALESCE(jc.work_center,''),
 		       COALESCE(jc.planned_input_qty,0)::float8,
-		       COALESCE((SELECT MIN(sequence_no) FROM %s.job_cards WHERE work_order_id=jc.work_order_id AND status<>'cancelled'),jc.sequence_no),
+		       COALESCE((SELECT MIN(sequence_no) FROM %s.job_cards WHERE work_order_id=jc.work_order_id),jc.sequence_no),
 		       COALESCE((SELECT SUM(planned_input_qty) FROM %s.job_cards WHERE work_order_id=jc.work_order_id AND sequence_no=jc.sequence_no AND status<>'cancelled'),0)::float8
 		FROM %s.job_cards jc WHERE jc.id=$1 AND jc.work_order_id=$2 FOR UPDATE
 	`, schema, schema, schema), jobCardID, workOrderID).Scan(&sequenceNo, &assignedTo, &workstation, &workCenter, &plannedInput, &minSequence, &sequenceInput); err != nil {
@@ -602,7 +608,7 @@ func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, wor
 		return fmt.Errorf("本任务仍被质检冻结，请先处理质检")
 	}
 	if sequenceNo > minSequence {
-		return ensureJobCardPredecessorOutputTx(ctx, tx, schema, workOrderID, jobCardID, sequenceNo, plannedInput)
+		return ensureJobCardPredecessorCompletedTx(ctx, tx, schema, workOrderID, sequenceNo)
 	}
 	if plannedInput <= 0 || sequenceInput <= 0 {
 		return fmt.Errorf("本任务缺少冻结批次数量，请先确认工序拆分")
@@ -742,20 +748,19 @@ func taskReservationWIPAvailableTx(ctx context.Context, tx pgx.Tx, schema string
 	return availableG, availableUnits, err
 }
 
-func ensureJobCardPredecessorOutputTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, jobCardID int64, sequenceNo int, plannedInput float64) error {
-	var previousSequence int
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(MAX(sequence_no),0) FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no<$2 AND status<>'cancelled'`, schema), workOrderID, sequenceNo).Scan(&previousSequence); err != nil {
+// The work-order row is already locked by TransitionJobCard, serializing all
+// operation transitions. Plans and reported quantities never gate handoff:
+// each earlier active operation must have been completed, even on legacy routes.
+func ensureJobCardPredecessorCompletedTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, sequenceNo int) error {
+	var incomplete int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s.job_cards
+		WHERE work_order_id=$1 AND sequence_no<$2 AND status NOT IN ('completed','cancelled')
+	`, schema), workOrderID, sequenceNo).Scan(&incomplete); err != nil {
 		return err
 	}
-	var produced, committed float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(actual_output_qty),0)::float8 FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no=$2 AND status='completed'`, schema), workOrderID, previousSequence).Scan(&produced); err != nil {
-		return err
-	}
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(planned_input_qty),0)::float8 FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no=$2 AND id<>$3 AND status IN ('running','paused','completed')`, schema), workOrderID, sequenceNo, jobCardID).Scan(&committed); err != nil {
-		return err
-	}
-	if produced+0.000001 < committed+plannedInput {
-		return fmt.Errorf("前序可交接数量不足：本任务需要 %.3f，当前可用 %.3f", plannedInput, math.Max(0, produced-committed))
+	if incomplete > 0 {
+		return fmt.Errorf("前序工序未完成：仍有 %d 项任务，请先完成前序工序", incomplete)
 	}
 	return nil
 }

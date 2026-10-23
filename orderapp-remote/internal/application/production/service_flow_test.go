@@ -1083,7 +1083,7 @@ func TestTaskBatchMaterialReadinessKeepsOriginalBatchIdentityAfterEarlierComplet
 	}
 	coverage := map[int64]ProductionWIPStatus{99: {
 		DataComplete: true,
-		Materials: []WIPReservationRow{{ID: 601, MaterialID: 30, RequiredG: 1749, AvailableG: 874}},
+		Materials:    []WIPReservationRow{{ID: 601, MaterialID: 30, RequiredG: 1749, AvailableG: 874}},
 	}}
 
 	applyTaskBatchAndMaterialReadiness(tasks, cards, coverage)
@@ -1140,9 +1140,9 @@ func TestTaskStockDocumentScalingUsesFrozenBatchShare(t *testing.T) {
 
 func TestFrozenSourcePreviewReturnsReadyStateInsteadOfOpeningEmptyIssue(t *testing.T) {
 	repo := &fakeFlowRepo{
-		workOrders: []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-READY", Status: "released"}},
-		jobCards: []JobCardRow{{ID: 91, WorkOrderID: 88, SequenceNo: 1, PlannedInputQty: 1000, Status: "pending"}},
-		reservationRows: []WIPReservationRow{{ID: 1, WorkOrderID: 88, MaterialID: 10, MaterialName: "生豆", RequiredG: 1000, AvailableG: 1000, ShortageG: 0, InventoryUnit: "g", QuantityBasis: "weight", RequiredQty: 1000, AvailableQty: 1000}},
+		workOrders:        []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-READY", Status: "released"}},
+		jobCards:          []JobCardRow{{ID: 91, WorkOrderID: 88, SequenceNo: 1, PlannedInputQty: 1000, Status: "pending"}},
+		reservationRows:   []WIPReservationRow{{ID: 1, WorkOrderID: 88, MaterialID: 10, MaterialName: "生豆", RequiredG: 1000, AvailableG: 1000, ShortageG: 0, InventoryUnit: "g", QuantityBasis: "weight", RequiredQty: 1000, AvailableQty: 1000}},
 		usesFrozenSources: true,
 	}
 
@@ -1882,13 +1882,13 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	if overview.TotalTasks != 3 {
 		t.Fatalf("TotalTasks=%d tasks=%+v", overview.TotalTasks, overview.Tasks)
 	}
-	if overview.TodaySummary.PlannedTasks != 3 || overview.TodaySummary.PendingTasks != 1 || overview.TodaySummary.RunningTasks != 1 || overview.TodaySummary.BlockedTasks != 1 {
+	if overview.TodaySummary.PlannedTasks != 3 || overview.TodaySummary.PendingTasks != 1 || overview.TodaySummary.RunningTasks != 1 || overview.TodaySummary.BlockedTasks != 2 {
 		t.Fatalf("today summary = %+v", overview.TodaySummary)
 	}
-	if overview.NavBadges["productionOverview"].Pending != 1 || overview.NavBadges["productionOverview"].Blocked != 1 || overview.NavBadges["productionOverview"].Running != 1 {
+	if overview.NavBadges["productionOverview"].Pending != 1 || overview.NavBadges["productionOverview"].Blocked != 2 || overview.NavBadges["productionOverview"].Running != 1 {
 		t.Fatalf("production overview nav badge = %+v", overview.NavBadges["productionOverview"])
 	}
-	if overview.NavBadges["workstationView"].Pending != 1 || overview.NavBadges["workstationView"].Blocked != 1 || overview.NavBadges["workstationView"].Running != 1 {
+	if overview.NavBadges["workstationView"].Pending != 1 || overview.NavBadges["workstationView"].Blocked != 2 || overview.NavBadges["workstationView"].Running != 1 {
 		t.Fatalf("workstation nav badge = %+v", overview.NavBadges["workstationView"])
 	}
 	if overview.NavBadges["produceRunning"].Running != 1 {
@@ -1908,7 +1908,7 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	if packLoad.Workstation != "包装线" || packLoad.RunningTasks != 1 || packLoad.PendingTasks != 1 || packLoad.LoadMinutes != 60 {
 		t.Fatalf("包装线 load = %+v", packLoad)
 	}
-	if packLoad.QueueCount != 2 || packLoad.BlockedCount != 0 || packLoad.EstimatedMinutes != 60 || packLoad.LoadStatus != "normal" {
+	if packLoad.QueueCount != 2 || packLoad.BlockedCount != 1 || packLoad.EstimatedMinutes != 60 || packLoad.LoadStatus != "blocked" {
 		t.Fatalf("包装线 enhanced load = %+v", packLoad)
 	}
 	if packLoad.CurrentTask != "包装 / 桂花乌龙" || packLoad.NextTask != "贴标 / 桂花乌龙" {
@@ -1936,6 +1936,10 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	}
 	if stringSliceContains(running.AvailableActions, "partial_finish") {
 		t.Fatalf("running task actions must not expose partial_finish: %+v", running.AvailableActions)
+	}
+	waiting := findProductionTask(overview.Tasks, 92)
+	if !waiting.IsBlocked || waiting.ReadinessDetail.CanStart || !strings.Contains(waiting.BlockingReason, "前序工序未完成") {
+		t.Fatalf("later operation must wait for packaging: %+v", waiting)
 	}
 	blocked := findProductionTask(overview.Tasks, 93)
 	if !blocked.IsBlocked || blocked.Readiness != "blocked" || blocked.ReadinessLabel != "不能做" || blocked.BlockingReason != "缺少生豆领料" || blocked.NextHandler != "现场主管" {

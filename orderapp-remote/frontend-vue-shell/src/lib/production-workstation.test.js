@@ -250,7 +250,7 @@ test('workstation is the only job-card execution surface and completes with actu
   assert.match(source, /actual_minutes: Number\(finishPanel\.actual_minutes/)
   assert.match(source, /actual_input_qty: Number\(finishPanel\.actual_input_qty/)
   assert.match(source, /actual_output_qty: actualOutputQty/)
-  assert.match(source, /task\.planned_input_inventory_qty/)
+  assert.match(source, /taskDefaultActualInput\(task\)/)
   assert.match(source, /inventory_qty_per_sales_unit/)
   assert.match(source, /finishPanel\.inventory_unit/)
   assert.match(source, /loss_reason: finishPanel\.loss_reason/)

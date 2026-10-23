@@ -78,7 +78,7 @@
                 <div class="material-row material-head"><span>物料名称</span><span>需求</span><span>WIP 可用</span><span>缺口</span></div>
                 <div v-for="material in task.material_readiness" :key="material.reservation_id || material.material_id" class="material-row"><strong>{{ material.material_name }}</strong><span>{{ materialQuantity(material, 'required') }}</span><span>{{ materialQuantity(material, 'wip') }}</span><span :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span></div>
               </details>
-              <div v-else-if="materialReadinessState(task) === 'unknown'" class="material-readiness material-state-unknown">用料待核对</div>
+              <div v-else-if="!task.has_predecessor && materialReadinessState(task) === 'unknown'" class="material-readiness material-state-unknown">用料待核对</div>
             </div>
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
             <span class="task-staff">{{ task.assigned_to || task.roster_employee_name || '无人值班' }}<small v-if="task.pending_handover">排班已换人，待接手工位</small><small v-else-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
@@ -128,6 +128,7 @@
                 </div>
                 <button class="secondary" type="button" @click="closeFinishPanel">关闭</button>
               </div>
+              <p v-if="finishPanel.task?.has_predecessor" class="muted">前序实际产出按库存单位交接，不要求达到计划数量。分多批处理时，请填写本批实际投入，避免重复记录。</p>
               <div class="form-grid">
                 <label><span>实际分钟</span><input v-model.number="finishPanel.actual_minutes" type="number" min="0" /></label>
                 <label><span>实际投入（{{ finishPanel.inventory_unit || '-' }}）</span><input v-model.number="finishPanel.actual_input_qty" type="number" min="0" step="any" /></label>
@@ -175,6 +176,7 @@ import {
   materialReadinessState,
   taskTitle,
   taskQuantityLines,
+  taskDefaultActualInput,
   workstationCanOpenIssue,
   workstationVisibleActions,
   workstationTaskSections,
@@ -401,7 +403,7 @@ function openFinishPanel(task) {
   finishPanel.title = `${taskTitle(task)} · ${task.work_order_no || ''}`
   finishPanel.inventory_unit = String(task.inventory_unit || '').trim()
   finishPanel.actual_minutes = Number(task.actual_minutes || 0)
-  finishPanel.actual_input_qty = Number(task.actual_input_qty || task.planned_input_inventory_qty || 0)
+  finishPanel.actual_input_qty = taskDefaultActualInput(task)
   finishPanel.actual_output_qty = Number(task.actual_output_qty || 0)
   finishPanel.finished_units = Number(task.actual_finished_units || 0)
   finishPanel.leftover_qty = Number(task.leftover_qty || 0)
