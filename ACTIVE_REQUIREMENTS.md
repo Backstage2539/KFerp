@@ -6140,9 +6140,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-721-WORK-ORDER-ROSTER-STATUS
 - Branch: codex/work-order-roster-status-20261023
 - Owner: Codex
-- Status: verified; production integration pending; Van business acceptance pending
+- Status: deployed to production at 6b3e67af6bda35572d91f95d4178887eb73be033; independent runtime/API/live UI verification passed; Van business acceptance pending
 - Scope: work-order todo/action follows saved daily workstation roster; no business writes.
 - Verifier: 8 runtime regressions RED/GREEN; 1,545 frontend tests/build; Go all packages; 2 isolated PostgreSQL roster API tests; fixture browser navigation/status.
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-work-order-roster-status.md
-- Target: production, continuing the current production repair. Preserve existing roster and work orders 18/19.
+- Integration: feature ac1c6c62, PR #265 -> develop 8091b262; production PR #266 -> main bedaeeb9. Shared verified main release 6b3e67af includes this fix; deployed once through the coordinated production release.
+- Runtime: 2026-10-23 13:46 CST, work orders 18/19 show waiting for workstation processing and today's owner; work orders/job cards/roster snapshot unchanged; public/host/container assets identical; production database healthy.
+- Rollback: /opt/stacks/erp-production/orderapp.backup.deploy-20261023133639-6b3e67af6bda; kferp-orderapp-rollback:production-20261023133639-6b3e67af6bda (previous runtime 9b371136).
 - Last update: 2026-10-23
