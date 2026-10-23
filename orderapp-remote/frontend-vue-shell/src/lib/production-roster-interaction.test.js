@@ -13,7 +13,7 @@ function harness(
   apiGet = async () => ({}),
 ) {
   const source = readFileSync(
-    new URL(`../views/${name}.vue`, import.meta.url),
+    new URL(name === "ManufacturingWorkstationsView" ? "../components/ManufacturingWorkstationEditor.vue" : `../views/${name}.vue`, import.meta.url),
     "utf8",
   );
   const script = source
@@ -28,6 +28,9 @@ function harness(
     ...capacity,
     formatLocalDateInput,
     defineProps: () => ({ viewParams: {} }),
+    defineEmits: () => () => {},
+    defineExpose: () => {},
+    actorHasFullViewAccess: () => true,
     onMounted: () => {},
     onBeforeUnmount: () => {},
     apiGet,

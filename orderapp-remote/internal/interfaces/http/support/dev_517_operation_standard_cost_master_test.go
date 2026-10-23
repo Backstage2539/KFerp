@@ -27,7 +27,7 @@ func TestDev517OperationStandardCostMasterContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ManufacturingOperationsView.vue"): {
 			"standard_operation_cost",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "ManufacturingWorkstationsView.vue"): {
+		filepath.Join("frontend-vue-shell", "src", "components", "ManufacturingWorkstationEditor.vue"): {
 			"form.applicable_operation_ids",
 			"适用工序",
 		},

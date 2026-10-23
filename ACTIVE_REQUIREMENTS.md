@@ -6078,3 +6078,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: Go domain/API/PostgreSQL GREEN; all Go packages; 1512 Vue tests and production build GREEN; local mock UI checked
 - Evidence: orderapp-remote/docs/acceptance/2026-10-23-shipping-return.md
 - Deployment: development dccaa17a46964e6d148c6ad14b8c0d2aca3b2e0a via KFERP_SKIP_MINIAPP_EXPORT=1 bash deploy_orderapp.sh development; read-only shell/template/manual/PR checks 200, anonymous API 401; backup /opt/stacks/erp/orderapp.backup.deploy-20261023010512-dccaa17a4696; no production deployment or real workbook import
+
+### PR-719-PRODUCTION-CAPACITY-BATCHES
+- Branch: codex/production-capacity-batches-20261023
+- Owner: Codex
+- Status: verified; integration/release pending; Van acceptance pending
+- Scope: collapsible review, shared workstation editor drawer, integer batches and take-all, legacy partial preservation.
+- Verifier: targeted frontend/runtime, Go unit/API with isolated PostgreSQL, frontend build, production read-only smoke.
+- Deployment: production requested; not deployed.
+- Last update: 2026-10-23

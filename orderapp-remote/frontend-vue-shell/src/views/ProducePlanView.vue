@@ -28,7 +28,7 @@
       <ProductionPlanCapacityWorkspace
         :detail="productionPlanSplitDrawer"
         :rows="productionPlanSplitRows"
-        :capacities="activeWorkstationCapacities"
+        :capacities="workstationCapacities"
         :preview="productionPlanSplitPreview"
         :loading="productionPlanSplitDrawerLoading"
         :preview-loading="productionPlanSplitPreviewLoading"
@@ -44,7 +44,9 @@
         @add="addProductionPlanDrawerSplit"
         @remove="removeProductionPlanDrawerSplit"
         @capacity-change="changeProductionPlanDrawerSplitCapacity"
-        @quantity-change="changeProductionPlanDrawerSplitQuantity"
+        @batch-change="changeProductionPlanDrawerSplitBatchCount"
+        @take-all="takeAllProductionPlanDrawerBatches"
+        @workstations-updated="refreshSplitWorkstations"
       />
     </div>
 
@@ -744,6 +746,11 @@ import {
   buildProductionDemandSelection,
   buildProductionDemandSummaryQuery,
   capacityDefaultPlannedQty,
+  withCapacityBatchCount,
+  applyCapacityBatchSnapshot,
+  takeAllCapacityBatches,
+  capacitySplitAvailabilityError,
+  capacitySplitMatchesOperation,
   defaultProductionDemandStatusFilter,
   demandGroupSourceLabel,
   demandSourceKey,
@@ -1666,12 +1673,7 @@ function operationIdentity(operation) {
   }
 }
 
-function splitMatchesOperation(split, operation) {
-  const identity = operationIdentity(operation)
-  if (identity.seq > 0 && Number(split?.operation_seq || 0) === identity.seq) return true
-  if (identity.id > 0 && Number(split?.operation_id || 0) === identity.id) return true
-  return !identity.seq && identity.name && String(split?.operation || '').trim() === identity.name
-}
+function splitMatchesOperation(split, operation) { return capacitySplitMatchesOperation(split, operation) }
 
 function splitRowsForOperationFrom(rows, item, operation) {
   const itemID = Number(item?.id || 0)
@@ -1686,6 +1688,10 @@ function productionPlanSplitFingerprint(rows = []) {
     operation: String(row.operation || '').trim(),
     workstation_capacity_id: Number(row.workstation_capacity_id || 0),
     planned_qty: Number(row.planned_qty || 0),
+    batch_input: !!row.batch_input, planned_batch_count: row.planned_batch_count,
+    batch_size_qty: row.batch_size_qty, batch_size_unit: row.batch_size_unit,
+    workstation: row.workstation, workstation_capacity_name: row.workstation_capacity_name,
+    hourly_rate: row.hourly_rate, standard_minutes: row.standard_minutes, cost_method: row.cost_method, piece_rate: row.piece_rate,
   })))
 }
 
@@ -1733,7 +1739,8 @@ function normalizeOperationSplit(row = {}) {
     hourly_rate: Number(row.hourly_rate || 0),
     cost_method: normalizeCapacityCostMethod(row),
     piece_rate: Number(row.piece_rate || 0),
-    planned_batch_count: Number(row.planned_batch_count || 0),
+    batch_input: !!row.batch_input || (!Number(row.planned_qty || 0) && Number(row.planned_batch_count || 0) > 0),
+    planned_batch_count: row.planned_batch_count ?? 0,
     spec_g: Number(row.spec_g || row.item_spec_g || planItem?.spec_g || 0),
     sales_spec_count: Number(row.sales_spec_count || row.item_sales_spec_count || planItem?.sales_spec_count || 0),
     item_target_g: Number(row.item_target_g || productionPlanItemOutputTargetG(planItem || {})),
@@ -1769,11 +1776,31 @@ function applyProductionPlanDrawerSplitCapacity(split) {
 
 function changeProductionPlanDrawerSplitCapacity(split, capacityID) {
   split.workstation_capacity_id = Number(capacityID || 0)
-  if (split.workstation_capacity_id > 0) applyProductionPlanDrawerSplitCapacity(split)
+  const capacity = workstationCapacities.value.find(row => Number(row.id) === split.workstation_capacity_id)
+  if (capacity) Object.assign(split, applyCapacityBatchSnapshot(split, capacity))
+  else Object.assign(split, { workstation_id: 0, workstation: '', planned_qty: 0, planned_qty_g: 0 })
 }
 
-function changeProductionPlanDrawerSplitQuantity(split, quantity) {
-  split.planned_qty = Math.max(0, Number(quantity || 0))
+function changeProductionPlanDrawerSplitBatchCount(split, count) {
+  Object.assign(split, withCapacityBatchCount(split, count, workstationCapacities.value.find(row => Number(row.id) === Number(split.workstation_capacity_id))))
+}
+
+function takeAllProductionPlanDrawerBatches(split, item) {
+  try { productionPlanSplitRows.value = takeAllCapacityBatches(productionPlanSplitRows.value, split, item, workstationCapacities.value.find(row => Number(row.id) === Number(split.workstation_capacity_id))) }
+  catch (err) { productionPlanSplitDrawerError.value = err.message }
+}
+
+function refreshSplitWorkstations(data) {
+  workstationCapacities.value = data.capacities || []
+  productionPlanSplitRows.value = productionPlanSplitRows.value.map(split => {
+    const capacity = workstationCapacities.value.find(row => Number(row.id) === Number(split.workstation_capacity_id))
+    return capacity ? applyCapacityBatchSnapshot(split, capacity, true) : split
+  })
+}
+
+function splitRowError(split) {
+  const item = currentPlanItemForSplit(split, productionPlanSplitDrawer.value) || {}
+  return capacitySplitAvailabilityError(split, item, { ...split, seq: split.operation_seq }, workstationCapacities.value)
 }
 
 async function loadProductionPlanSplitPreview() {
@@ -1782,6 +1809,8 @@ async function loadProductionPlanSplitPreview() {
   const requestID = ++productionPlanSplitPreviewRequestSeq
   productionPlanSplitPreviewLoading.value = true
   productionPlanSplitPreviewError.value = ''
+  const invalid = productionPlanSplitRows.value.map(splitRowError).find(Boolean)
+  if (invalid) { productionPlanSplitPreview.value = null; productionPlanSplitPreviewError.value = invalid; productionPlanSplitPreviewLoading.value = false; return }
   try {
     const data = await apiSend(endpoint, { body: buildProductionPlanOperationSplitPayload(productionPlanSplitRows.value) })
     if (requestID !== productionPlanSplitPreviewRequestSeq) return
@@ -1797,6 +1826,8 @@ async function loadProductionPlanSplitPreview() {
 
 function scheduleProductionPlanSplitPreview() {
   if (!productionPlanSplitDrawer.value) return
+  productionPlanSplitPreviewRequestSeq += 1
+  productionPlanSplitPreviewLoading.value = true
   if (productionPlanSplitPreviewTimer) clearTimeout(productionPlanSplitPreviewTimer)
   productionPlanSplitPreviewTimer = setTimeout(() => {
     productionPlanSplitPreviewTimer = 0
@@ -1805,7 +1836,7 @@ function scheduleProductionPlanSplitPreview() {
 }
 
 function autoRowsForOperation(item, operation) {
-  return buildOperationCapacityAutoSplits(item, operation, activeWorkstationCapacities.value).map(normalizeOperationSplit)
+  return buildOperationCapacityAutoSplits(item, operation, activeWorkstationCapacities.value, { wholeBatches: true }).map(normalizeOperationSplit)
 }
 
 function replaceOperationSplits(rows, item, operation, nextRows) {
@@ -1846,8 +1877,8 @@ function withAutoOperationSplits(rows, plan) {
 }
 
 async function loadWorkstationCapacities() {
-  const data = await apiGet('/api/manufacturing-workstation-capacities')
-  workstationCapacities.value = data.rows || []
+  const [data, stations] = await Promise.all([apiGet('/api/manufacturing-workstation-capacities'), apiGet('/api/manufacturing-workstations')])
+  workstationCapacities.value = (data.rows || []).map(capacity => ({ ...capacity, workstation_status: (stations.rows || []).find(w => Number(w.id) === Number(capacity.workstation_id))?.status || 'inactive' }))
 }
 
 async function ensureWorkstationCapacities() {
@@ -2126,9 +2157,9 @@ function removeProductionPlanDrawerSplit(split) {
 
 async function saveProductionPlanSplitDrawer(closeAfterSave = false) {
   if (!productionPlanOperationSplitsEndpoint(productionPlanSplitDrawer.value) || !productionPlanSplitDrawerDraft.value) return false
-  const invalidRows = productionPlanSplitRows.value.filter((row) => Number(row.workstation_capacity_id || 0) <= 0 || Number(row.planned_qty || 0) <= 0)
+  const invalidRows = productionPlanSplitRows.value.filter(row => splitRowError(row) || Number(row.planned_qty || 0) <= 0)
   if (invalidRows.length) {
-    productionPlanSplitDrawerError.value = `还有 ${invalidRows.length} 条工位安排未选择产能或承担产量，请完善后再保存。`
+    productionPlanSplitDrawerError.value = `还有 ${invalidRows.length} 条工位安排的产能或批次数无效，请完善后再保存。`
     return false
   }
   productionPlanSplitDrawerSaving.value = true

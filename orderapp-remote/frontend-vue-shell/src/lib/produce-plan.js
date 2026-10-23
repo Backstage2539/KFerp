@@ -743,6 +743,52 @@ export function qtyFromGForCapacityUnit(qtyG, unit, specG = 0) {
   return 0
 }
 
+export function capacitySplitInputError(split = {}) {
+  if (split.batch_input && (!Number.isSafeInteger(Number(split.planned_batch_count)) || Number(split.planned_batch_count) <= 0)) return '批次数必须是正整数'
+  return ''
+}
+
+export function withCapacityBatchCount(split, value, capacity = null) {
+  const current = capacity ? applyCapacityBatchSnapshot(split, capacity) : split
+  const next = { ...current, batch_input: true, planned_batch_count: value, planned_qty_g: 0 }
+  next.planned_qty = capacitySplitInputError(next) ? 0 : roundedSplitQty(Number(value) * Number(next.batch_size_qty || 0))
+  return next
+}
+
+export function isLegacyPartialCapacitySplit(split = {}) {
+  return !split.batch_input && Number(split.planned_qty) > 0 && Number(split.batch_size_qty) > 0 &&
+    Math.abs(Number(split.planned_qty) - Number(split.batch_size_qty) * Number(split.planned_batch_count || Math.ceil(Number(split.planned_qty) / Number(split.batch_size_qty) - 1e-9))) > 0.000001
+}
+
+export function applyCapacityBatchSnapshot(split = {}, capacity = {}, preserveLegacy = false) {
+  const count = split.batch_input ? split.planned_batch_count : plannedCapacitySplitMetrics(split).planned_batch_count || 1
+  const keepQuantity = preserveLegacy && isLegacyPartialCapacitySplit(split) && Number(split.batch_size_qty) === Number(capacity.batch_size_qty) && String(split.batch_size_unit) === String(capacity.batch_size_unit)
+  const next = { ...split, workstation_capacity_id: Number(capacity.id), workstation_id: Number(capacity.workstation_id || 0), workstation: capacity.workstation || '', workstation_capacity_name: capacity.name || '',
+    batch_size_qty: Number(capacity.batch_size_qty || 0), batch_size_unit: capacity.batch_size_unit || '', standard_minutes: Number(capacity.standard_minutes || 0), hourly_rate: Number(capacity.hourly_rate || 0), cost_method: normalizeCapacityCostMethod(capacity), piece_rate: Number(capacity.piece_rate || 0) }
+  return keepQuantity ? next : withCapacityBatchCount(next, count)
+}
+
+export function capacitySplitAvailabilityError(split, item, operation, capacities = []) {
+  const inputError = capacitySplitInputError(split)
+  if (inputError) return inputError
+  const capacity = capacities.find(row => Number(row.id) === Number(split.workstation_capacity_id))
+  if (!capacity) return '请选择有效产能'
+  if (capacity.status !== 'active' || capacity.workstation_status === 'inactive') return '工位或产能已停用，请重新选择'
+  const frozenOperation = productionPlanItemOperations(item).find(op => capacitySplitMatchesOperation(split, op)) || operation
+  if (!capacityAppliesToOperation(capacity, frozenOperation)) return '工位已不适用于当前工序，请重新选择'
+  const basis = capacityBaseQty(capacity, item)
+  if (!(basis.batchBaseQty > 0 && basis.targetBaseQty > 0)) return '当前产能单位无法换算本任务数量'
+  return ''
+}
+
+export function takeAllCapacityBatches(rows, split, item, capacity = null) {
+  const current = capacity ? applyCapacityBatchSnapshot(split, capacity) : split
+  const basis = capacityBaseQty(current, item)
+  if (!(basis.batchBaseQty > 0 && basis.targetBaseQty > 0)) throw new Error('当前产能单位无法换算本任务数量')
+  const next = withCapacityBatchCount(current, Math.ceil(basis.targetBaseQty / basis.batchBaseQty - 1e-9))
+  return rows.flatMap(row => row === split ? [next] : splitRowsSameOperation(row, split) ? [] : [row])
+}
+
 export function plannedCapacitySplitMetrics(split = {}) {
   const batchSizeQty = Math.max(0, Number(split.batch_size_qty || 0))
   const standardMinutes = Math.max(0, Math.round(Number(split.standard_minutes || 0)))
@@ -751,16 +797,16 @@ export function plannedCapacitySplitMetrics(split = {}) {
   const specG = Number(split.spec_g || split.item_spec_g || 0)
   const salesSpecCount = Number(split.sales_spec_count || split.item_sales_spec_count || 0)
   const itemTargetG = Number(split.item_target_g || split.planned_item_g || 0)
-  let plannedQty = Math.max(0, Number(split.planned_qty || 0))
-  if (plannedQty <= 0 && legacyBatchCount > 0 && batchSizeQty > 0) {
+  let plannedQty = split.batch_input ? (capacitySplitInputError(split) ? 0 : Number(split.planned_batch_count) * batchSizeQty) : Math.max(0, Number(split.planned_qty || 0))
+  if (!split.batch_input && plannedQty <= 0 && legacyBatchCount > 0 && batchSizeQty > 0) {
     plannedQty = legacyBatchCount * batchSizeQty
   }
   plannedQty = Number(plannedQty.toFixed(3))
   const plannedBatchCount = plannedQty > 0 && batchSizeQty > 0
-    ? Math.ceil(plannedQty / batchSizeQty)
-    : legacyBatchCount
+    ? Math.ceil(plannedQty / batchSizeQty - 1e-9)
+    : split.batch_input ? 0 : legacyBatchCount
   let plannedQtyG = plannedCapacitySplitQtyG(plannedQty, split.batch_size_unit, specG, salesSpecCount, itemTargetG)
-  if (plannedQtyG <= 0 && Number(split.planned_qty_g || 0) > 0) {
+  if (!split.batch_input && plannedQtyG <= 0 && Number(split.planned_qty_g || 0) > 0) {
     plannedQtyG = Math.round(Number(split.planned_qty_g || 0))
   }
   const plannedMinutes = plannedBatchCount * standardMinutes
@@ -852,6 +898,7 @@ export function capacityAppliesToOperation(capacity = {}, operation = {}) {
 export function applicableOperationCapacities(operation = {}, capacities = []) {
   return (capacities || [])
     .filter((capacity) => String(capacity?.status || 'active').trim() === 'active')
+    .filter((capacity) => capacity?.workstation_status !== 'inactive')
     .filter((capacity) => Number(capacity?.batch_size_qty || 0) > 0)
     .filter((capacity) => capacityAppliesToOperation(capacity, operation))
 }
@@ -891,6 +938,16 @@ function qtyFromBaseForCapacity(baseQty, unit, specG = 0) {
   return roundedSplitQty(baseQty)
 }
 
+export function capacitySplitMatchesOperation(split = {}, operation = {}) {
+  const leftSeq = Number(split.operation_seq || split.seq || 0)
+  const rightSeq = Number(operation.operation_seq || operation.seq || operation.sequence_no || 0)
+  if (leftSeq > 0 && rightSeq > 0) return leftSeq === rightSeq
+  const leftID = Number(split.operation_id || 0)
+  const rightID = Number(operation.operation_id || operation.id || 0)
+  if (leftID > 0 && rightID > 0) return leftID === rightID
+  return String(split.operation || '').trim() === String(operation.operation || operation.name || '').trim()
+}
+
 function splitRowsSameOperation(row, split) {
   if (Number(row?.production_plan_item_id || 0) !== Number(split?.production_plan_item_id || 0)) return false
   const leftSeq = Math.max(0, Math.round(Number(row?.operation_seq || 0)))
@@ -928,7 +985,7 @@ export function maxAssignableQtyForCapacitySplit(split = {}, rows = [], target =
   return qtyFromGForCapacityUnit(remainingG, split.batch_size_unit, specG)
 }
 
-export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capacities = []) {
+export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capacities = [], { wholeBatches = false } = {}) {
   const inputTargetG = productionPlanItemTargetG(item)
   const outputTargetG = productionPlanItemOutputTargetG(item)
   if (inputTargetG <= 0 && Number(item.sales_spec_count || 0) <= 0) return []
@@ -957,7 +1014,7 @@ export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capa
     const full = selected.find((row) => row.batchBaseQty <= remaining + 0.000001)
     const row = full || [...selected].sort((a, b) => a.batchBaseQty - b.batchBaseQty)[0]
     if (!row) break
-    const amount = full ? row.batchBaseQty : remaining
+    const amount = full || wholeBatches ? row.batchBaseQty : remaining
     assigned.set(row.capacity.id, {
       row,
       amount: (assigned.get(row.capacity.id)?.amount || 0) + amount,
@@ -986,12 +1043,17 @@ export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capa
       sales_spec_count: Number(item.sales_spec_count || 0),
       item_target_g: outputTargetG,
       planned_qty: qtyFromBaseForCapacity(amount, capacity.batch_size_unit, item.spec_g || 0),
+      ...(wholeBatches ? { batch_input: true, planned_batch_count: Math.ceil(amount / row.batchBaseQty - 1e-9) } : {}),
       note: '',
     }
   })
 }
 
 export function buildProductionPlanOperationSplitPayload(rows = []) {
+  for (const row of rows) {
+    const error = capacitySplitInputError(row)
+    if (error) throw new Error(error)
+  }
   const items = (rows || [])
     .map((row) => {
       return {
@@ -999,10 +1061,10 @@ export function buildProductionPlanOperationSplitPayload(rows = []) {
         operation_seq: Math.max(0, Math.round(Number(row.operation_seq || 0))),
         operation: String(row.operation || '').trim(),
         workstation_capacity_id: Number(row.workstation_capacity_id || 0),
-        planned_qty: plannedCapacitySplitMetrics(row).planned_qty,
+        ...(row.batch_input ? { planned_batch_count: Number(row.planned_batch_count) } : { planned_qty: plannedCapacitySplitMetrics(row).planned_qty }),
       }
     })
-    .filter((row) => row.production_plan_item_id > 0 && row.workstation_capacity_id > 0 && row.planned_qty > 0)
+    .filter((row) => row.production_plan_item_id > 0 && row.workstation_capacity_id > 0 && (row.planned_qty > 0 || row.planned_batch_count > 0))
   return { items }
 }
 
