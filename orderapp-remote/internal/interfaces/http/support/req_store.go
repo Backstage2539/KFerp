@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-728-PRODUCTION-AUTO-COMPLETION", title: "生产自动用料、工序交接与完成即入库", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-24-production-auto-completion.md"},
+		{table: "req_dev", code: "DEV-869-EXECUTION-RULES", title: "PR-728 路线及BOM冻结执行配置", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-24-production-auto-completion.md"},
+		{table: "req_dev", code: "DEV-870-COMPLETION-LEDGER", title: "PR-728 自动耗料、工序批次与原子完工入库", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-24-production-auto-completion.md"},
+		{table: "req_dev", code: "DEV-871-CORRECTION", title: "PR-728 差额更正与旧数据核对", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-24-production-auto-completion.md"},
+		{table: "req_dev", code: "DEV-872-WORKSTATION", title: "PR-728 工位单次完成与生产记录", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-24-production-auto-completion.md"},
+		{table: "req_dev", code: "DEV-873-DELIVERY", title: "PR-728 隔离验证、手册及生产发布", status: "review", assignee: "Codex", evidence: "docs/acceptance/2026-10-24-production-auto-completion.md"},
 		{table: "req_product", code: "PR-727-DEFAULT-SPEC-INITIAL-ONLY", title: "默认规格仅用于首次选品和标识，有效规格换版无需确认", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-24-default-spec-initial-only.md"},
 		{table: "req_dev", code: "DEV-866-SPEC-SELECTION", title: "PR-727 规格选择、旧草稿恢复和沿用报价", status: "done", assignee: "Codex", evidence: "product-price-list-selection; price-list-refresh; customer-price-draft tests"},
 		{table: "req_dev", code: "DEV-867-SPEC-VALIDATION", title: "PR-727 默认历史信息不拦截，实际规格及价格身份继续校验", status: "done", assignee: "Codex", evidence: "default_spec_initial unit and API tests"},

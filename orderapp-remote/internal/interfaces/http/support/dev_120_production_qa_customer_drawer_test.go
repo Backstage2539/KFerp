@@ -35,7 +35,7 @@ func TestProductionQACustomerDrawerRequirementSeeds(t *testing.T) {
 func TestProductionQACustomerDrawerVueWiring(t *testing.T) {
 	root := filepath.Join("frontend-vue-shell", "src")
 	app := readDev120File(t, filepath.Join(root, "App.vue"))
-	acceptance := readDev120File(t, filepath.Join(root, "views", "ProductionAcceptanceView.vue"))
+	acceptance := readDev120File(t, filepath.Join(root, "views", "ProductionRecordsView.vue"))
 	warehouse := readDev120File(t, filepath.Join(root, "views", "WarehouseInventoryView.vue"))
 	order := readDev120File(t, filepath.Join(root, "views", "OrderEntryView.vue"))
 	parser := readDev120File(t, filepath.Join(root, "lib", "customer-recipient.js"))

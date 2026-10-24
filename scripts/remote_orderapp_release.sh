@@ -289,8 +289,13 @@ EOF
 echo "[3/6] Running Go tests with one build worker on the server..."
 (
   cd "$RELEASE_DIR"
+  # Keep the host test cache scoped to this release, then discard it before
+  # Docker builds its own cache. This avoids keeping two Go caches on root.
+  export GOCACHE="$BUILD_ROOT/go-test-cache"
   nice -n 10 go test -p 1 ./...
 )
+
+case "$BUILD_ROOT/go-test-cache" in /tmp/kferp-orderapp-release-*/go-test-cache ) rm -rf "$BUILD_ROOT/go-test-cache" ;; esac
 
 # Copy only the built miniapp tree into the app release context. Dependencies
 # stay in the temporary build tree and are removed before Docker sees it.

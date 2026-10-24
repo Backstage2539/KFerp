@@ -2,6 +2,7 @@ package manufacturing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -1043,7 +1044,7 @@ func (r Repository) attachProcessRouteOperations(ctx context.Context, routes []m
 		       COALESCE(sc.batch_size_qty,0)::float8,
 		       COALESCE(sc.batch_size_unit,''),
 		       COALESCE(sc.standard_minutes,0)::float8,
-		       COALESCE(NULLIF(sw.hourly_rate,0), sc.hourly_rate, 0)::float8
+		       COALESCE(NULLIF(sw.hourly_rate,0), sc.hourly_rate, 0)::float8,pro.execution_json::text
 		FROM %s.process_route_operations pro
 		LEFT JOIN %s.manufacturing_workstation_capacities sc ON sc.id=pro.standard_cost_capacity_id
 		LEFT JOIN %s.manufacturing_workstations sw ON sw.id=sc.workstation_id
@@ -1066,7 +1067,7 @@ func (r Repository) attachProcessRouteOperations(ctx context.Context, routes []m
 			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.CostMethod, &op.PieceRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
 			&op.RecordsLoss, &op.QualityChecklistJSON,
 			&op.StandardCostCapacityID, &op.StandardCostCapacityName, &op.StandardCostWorkstation,
-			&standardOutputQty, &standardOutputUnit, &standardMinutes, &hourlyRate,
+			&standardOutputQty, &standardOutputUnit, &standardMinutes, &hourlyRate, &op.ExecutionJSON,
 		); err != nil {
 			return err
 		}
@@ -1124,6 +1125,10 @@ func (r Repository) SaveProcessRoute(ctx context.Context, cmd manufacturingapp.S
 		}
 	}
 	oldStandardCostCapacityIDs := "{}"
+	oldExecution := "[]"
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(jsonb_agg(execution_json ORDER BY seq),'[]'::jsonb)::text FROM %s.process_route_operations WHERE route_id=$1`, r.schema), id).Scan(&oldExecution); err != nil {
+		return manufacturingapp.ProcessRoute{}, err
+	}
 	if cmd.ID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			SELECT COALESCE(jsonb_object_agg(seq, standard_cost_capacity_id ORDER BY seq), '{}'::jsonb)::text
@@ -1135,6 +1140,22 @@ func (r Repository) SaveProcessRoute(ctx context.Context, cmd manufacturingapp.S
 	}
 	newStandardCostCapacityIDs := map[string]int64{}
 	for _, op := range cmd.Operations {
+		var execution manufacturingapp.RouteExecution
+		if err = json.Unmarshal([]byte(op.ExecutionJSON), &execution); err != nil {
+			return manufacturingapp.ProcessRoute{}, err
+		}
+		for _, warehouse := range []string{execution.SourceWarehouse, execution.ReceiptWarehouse} {
+			if warehouse == "" {
+				continue
+			}
+			var active bool
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.warehouses WHERE code=$1 AND active)`, r.schema), warehouse).Scan(&active); err != nil {
+				return manufacturingapp.ProcessRoute{}, err
+			}
+			if !active {
+				return manufacturingapp.ProcessRoute{}, fmt.Errorf("仓库不存在或已停用：%s", warehouse)
+			}
+		}
 		newStandardCostCapacityIDs[fmt.Sprintf("%d", op.Seq)] = op.StandardCostCapacityID
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.process_route_operations WHERE route_id=$1`, r.schema), id); err != nil {
@@ -1146,13 +1167,13 @@ func (r Repository) SaveProcessRoute(ctx context.Context, cmd manufacturingapp.S
 				route_id,seq,operation_id,workstation_id,workstation_capacity_id,standard_cost_capacity_id,operation,workstation,workstation_capacity_name,
 				default_equipment,default_minutes,batch_size_qty,batch_size_unit,standard_minutes,hourly_rate,cost_method,piece_rate,
 				planned_batch_count,planned_minutes,planned_operation_cost,records_loss,
-				quality_checklist_json,created_at,updated_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,now(),now())
-		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.WorkstationCapacityID, op.StandardCostCapacityID, op.Operation, op.Workstation, op.WorkstationCapacityName, op.DefaultEquipment, op.DefaultMinutes, op.BatchSizeQty, op.BatchSizeUnit, op.StandardMinutes, op.HourlyRate, op.CostMethod, op.PieceRate, op.PlannedBatchCount, op.PlannedMinutes, op.PlannedOperationCost, op.RecordsLoss, op.QualityChecklistJSON); err != nil {
+				quality_checklist_json,execution_json,created_at,updated_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23::jsonb,now(),now())
+		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.WorkstationCapacityID, op.StandardCostCapacityID, op.Operation, op.Workstation, op.WorkstationCapacityName, op.DefaultEquipment, op.DefaultMinutes, op.BatchSizeQty, op.BatchSizeUnit, op.StandardMinutes, op.HourlyRate, op.CostMethod, op.PieceRate, op.PlannedBatchCount, op.PlannedMinutes, op.PlannedOperationCost, op.RecordsLoss, op.QualityChecklistJSON, defaultExecutionJSON(op.ExecutionJSON)); err != nil {
 			return manufacturingapp.ProcessRoute{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "process_route", &id, action, postgresinfra.StrPtr("route"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"status": cmd.Status, "operation_count": len(cmd.Operations), "old_standard_cost_capacity_ids": oldStandardCostCapacityIDs, "new_standard_cost_capacity_ids": newStandardCostCapacityIDs}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "process_route", &id, action, postgresinfra.StrPtr("route"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"status": cmd.Status, "operation_count": len(cmd.Operations), "old_standard_cost_capacity_ids": oldStandardCostCapacityIDs, "new_standard_cost_capacity_ids": newStandardCostCapacityIDs, "old_execution": oldExecution, "new_operations": cmd.Operations}); err != nil {
 		return manufacturingapp.ProcessRoute{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1209,4 +1230,11 @@ func (r Repository) DeactivateProcessRoute(ctx context.Context, cmd manufacturin
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func defaultExecutionJSON(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return "{}"
+	}
+	return raw
 }

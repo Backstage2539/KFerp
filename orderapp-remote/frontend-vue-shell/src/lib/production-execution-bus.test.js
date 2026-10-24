@@ -63,16 +63,16 @@ test('quality is task first, explicit, and uses ordinary metric fields', () => {
   assert.doesNotMatch(source, /form\.result[^\n]*['"]pass['"]/)
 })
 
-test('production flow exposes operation records and finished receipts', () => {
+test('production flow exposes records and explicit legacy reconciliation', () => {
   const source = read('../views/ProductionFlowView.vue')
   assert.match(source, /工序记录/)
-  assert.match(source, /完工入库/)
+  assert.match(source, /生产记录与核对/)
   assert.doesNotMatch(source, /生产验收/)
 
-  const receipt = read('../views/ProductionAcceptanceView.vue')
-  assert.match(receipt, /完工入库/)
-  assert.match(receipt, /待入库/)
-  assert.match(receipt, /部分入库/)
+  const receipt = read('../views/ProductionRecordsView.vue')
+  assert.match(receipt, /生产记录与核对/)
+  assert.match(receipt, /旧单核对/)
+  assert.match(receipt, /核对并补齐记录/)
   assert.match(receipt, /已入库/)
   assert.doesNotMatch(receipt, /acceptance-smoke/)
 

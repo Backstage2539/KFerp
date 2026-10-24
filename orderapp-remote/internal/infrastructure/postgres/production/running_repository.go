@@ -104,6 +104,13 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		if err := lockReceiptWorkOrderTx(ctx, tx, schema, receiptWorkOrderID); err != nil {
 			return productionapp.FinishResult{}, err
 		}
+		var automatic bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.work_orders w CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w.process_snapshot_json->'operations','[]'::jsonb)) op WHERE w.id=$1 AND NULLIF(op->>'execution_json','')::jsonb->>'version'='1')`, schema), receiptWorkOrderID).Scan(&automatic); err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		if automatic {
+			return productionapp.FinishResult{}, fmt.Errorf("本工单在完成工序时自动入库，请到工位完成或生产记录更正")
+		}
 	}
 
 	replayID, replay, err := requestProductionKeyTx(ctx, tx, schema, "product_receipt", operator, cmd.RequestID, cmd)
