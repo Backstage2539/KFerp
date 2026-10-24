@@ -6160,8 +6160,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-726-FINISHED-RECEIPT-CORRECTION
 - Branch: codex/finished-receipt-correction-20261024
 - Owner/session: Codex / current receipt correction
-- Status: GREEN; preparing development integration
+- Status: delivered to development and production; Van business acceptance pending
 - Scope: 入库页可审计报工更正；冻结规格与仓名；按库存货主合组；部分入库与重试保护。
 - Verifier: targeted Go API/database concurrency+inventory tests GREEN; Go all GREEN; Vue 1,573 GREEN and production build; isolated browser verified. Full DB API 17 pre-existing failures reproduced on origin/develop.
-- Deployment: development then clean main production after gates; live checks read-only.
+- Deployment: PR #287 / develop 7615ce4e and PR #288 / main f4303055 deployed by formal scripts; runtime, static bundles, manuals and read-only receipt list verified. Rollback: kferp-orderapp-rollback:production-20261024103714-f4303055f4c2. Evidence: orderapp-remote/docs/acceptance/2026-10-24-finished-receipt-correction.md.
 - Acceptance: Van; real quantities entered by site staff, no automatic production data repair.
