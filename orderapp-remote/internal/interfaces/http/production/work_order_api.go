@@ -27,15 +27,16 @@ type jobCardActualsRequest struct {
 }
 
 type workOrderCompleteRequest struct {
-	CompletionMode   string `json:"completion_mode"`
-	RequestID        string `json:"request_id"`
-	FinishedUnits    int64  `json:"finished_units"`
-	FinishedLooseG   int64  `json:"finished_loose_g"`
-	FinishedQtyG     int64  `json:"finished_qty_g"`
-	FinishedQtyUnits int64  `json:"finished_qty_units"`
-	ConsumedInputG   int64  `json:"consumed_input_g"`
-	Warehouse        string `json:"warehouse"`
-	Note             string `json:"note"`
+	ExpectedReceiptVersion string `json:"expected_receipt_version"`
+	CompletionMode         string `json:"completion_mode"`
+	RequestID              string `json:"request_id"`
+	FinishedUnits          int64  `json:"finished_units"`
+	FinishedLooseG         int64  `json:"finished_loose_g"`
+	FinishedQtyG           int64  `json:"finished_qty_g"`
+	FinishedQtyUnits       int64  `json:"finished_qty_units"`
+	ConsumedInputG         int64  `json:"consumed_input_g"`
+	Warehouse              string `json:"warehouse"`
+	Note                   string `json:"note"`
 }
 
 type workOrderIssueMaterialsRequest struct {
@@ -88,6 +89,28 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+	e.POST("/api/produce/job-cards/:id/correct-output", func(c echo.Context) error {
+		if support.CurrentEmployeeID(c) <= 0 {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: "请先绑定员工后更正报工"})
+		}
+		var req struct {
+			productionapp.CorrectJobCardOutputCommand
+			ActualOutputQty *float64 `json:"actual_output_qty"`
+		}
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 || c.Bind(&req) != nil || req.ActualOutputQty == nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid correction"})
+		}
+		cmd := req.CorrectJobCardOutputCommand
+		cmd.ActualOutputQty = *req.ActualOutputQty
+		cmd.ID = id
+		cmd.Operator = support.ActorOf(c)
+		result, err := productionSvc.CorrectJobCardOutput(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
 	})
 	e.GET("/api/produce/finished-receipts", func(c echo.Context) error {
 		rows, err := productionSvc.ListFinishedReceiptTasks(c.Request().Context(), c.QueryParam("status"))
@@ -178,7 +201,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			FinishedQtyG:     req.FinishedQtyG,
 			FinishedQtyUnits: req.FinishedQtyUnits,
 			ConsumedInputG:   req.ConsumedInputG,
-			CompletionMode:   req.CompletionMode, RequestID: req.RequestID,
+			CompletionMode:   req.CompletionMode, RequestID: req.RequestID, ExpectedReceiptVersion: req.ExpectedReceiptVersion,
 			Warehouse: req.Warehouse,
 			Operator:  support.ActorOf(c),
 			Note:      req.Note,

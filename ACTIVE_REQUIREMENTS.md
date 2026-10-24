@@ -6156,3 +6156,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment source: `/private/tmp/kferp-pr725-deploy-20261023`, clean clone at the exact merged develop commit; release evidence in `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`.
 - Last update: 2026-10-23
 - Notes: reserve_req_id.sh identified PR-725; auto-claim failed on the existing macOS awk multiline argument, so this entry was reserved manually.
+
+### PR-726-FINISHED-RECEIPT-CORRECTION
+- Branch: codex/finished-receipt-correction-20261024
+- Owner/session: Codex / current receipt correction
+- Status: GREEN; preparing development integration
+- Scope: 入库页可审计报工更正；冻结规格与仓名；按库存货主合组；部分入库与重试保护。
+- Verifier: targeted Go API/database concurrency+inventory tests GREEN; Go all GREEN; Vue 1,573 GREEN and production build; isolated browser verified. Full DB API 17 pre-existing failures reproduced on origin/develop.
+- Deployment: development then clean main production after gates; live checks read-only.
+- Acceptance: Van; real quantities entered by site staff, no automatic production data repair.

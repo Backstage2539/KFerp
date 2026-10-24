@@ -382,6 +382,7 @@ func TestProductionExecutionAPIPermissionsSeparateReadAndRun(t *testing.T) {
 		{http.MethodPost, "/api/production/workstation/tasks/91/exception", "production.run"},
 		{http.MethodGet, "/api/job-cards/91", "production.read"},
 		{http.MethodPost, "/api/job-cards/91/start", "production.run"},
+		{http.MethodPost, "/api/produce/job-cards/91/correct-output", "production.run"},
 		{http.MethodPatch, "/api/job-cards/91", "production.run"},
 		{http.MethodGet, "/api/work-orders/88", "production.read"},
 		{http.MethodPost, "/api/work-orders/88/start", "production.run"},
