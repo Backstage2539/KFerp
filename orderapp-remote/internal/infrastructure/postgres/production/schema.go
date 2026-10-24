@@ -54,7 +54,8 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureQualityInspectionTables(ctx, pool, schema); err != nil {
 		return err
 	}
-	return backfillQualityStatusesFromInspections(ctx, pool, schema)
+	if err := ensureOperationCompletionSchema(ctx,pool,schema); err != nil { return err };
+ return backfillQualityStatusesFromInspections(ctx, pool, schema)
 }
 
 func ensureProductCompatibilityColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {

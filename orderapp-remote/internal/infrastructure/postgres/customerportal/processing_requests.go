@@ -840,13 +840,13 @@ func (r Repository) listProcessingRequestItemsForRequests(ctx context.Context, c
 			WHERE jc.work_order_id=i.linked_work_order_id
 		) progress ON true
 		LEFT JOIN LATERAL (
-			SELECT SUM(CASE WHEN si.qty_units>0 THEN si.qty_units::numeric
+			SELECT SUM(CASE WHEN si.qty_units<>0 THEN si.qty_units::numeric
 			                    WHEN si.spec_g>0 THEN si.qty_g::numeric/si.spec_g ELSE 0 END) AS actual_inbound_qty,
 			       MAX(COALESCE(se.submitted_at,se.created_at)) AS completed_at
 			FROM %s.stock_entries se
 			JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id
 			WHERE se.work_order_id=i.linked_work_order_id AND se.status='submitted'
-			  AND (se.purpose='manufacture' OR (se.entry_type='finished_receipt' AND se.source_type='work_order_complete'))
+			  AND (se.purpose='manufacture' OR (se.entry_type='finished_receipt' AND se.source_type='work_order_complete') OR (se.entry_type='finished_receipt' AND se.source_type IN('operation_completion','operation_correction')))
 			  AND COALESCE(se.is_return,false)=false
 			  AND si.item_type='finished_product'
 			  AND si.product_id=i.product_id AND si.owner_customer_id=r.customer_id

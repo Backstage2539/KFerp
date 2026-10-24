@@ -6216,3 +6216,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier: targeted Go API/database concurrency+inventory tests GREEN; Go all GREEN; Vue 1,573 GREEN and production build; isolated browser verified. Full DB API 17 pre-existing failures reproduced on origin/develop.
 - Deployment: PR #287 / develop 7615ce4e and PR #288 / main f4303055 deployed by formal scripts; runtime, static bundles, manuals and read-only receipt list verified. Rollback: kferp-orderapp-rollback:production-20261024103714-f4303055f4c2. Evidence: orderapp-remote/docs/acceptance/2026-10-24-finished-receipt-correction.md.
 - Acceptance: Van; real quantities entered by site staff, no automatic production data repair.
+
+### PR-728-PRODUCTION-AUTO-COMPLETION
+- Branch: codex/production-auto-completion
+- Status: verified locally; integration and release in progress
+- Scope: 自动用料、工序交接、完成即入库；无半成品分类；实际超产/少产；差额更正与历史核对。
+- DEV: DEV-869-EXECUTION-RULES, DEV-870-COMPLETION-LEDGER, DEV-871-CORRECTION, DEV-872-WORKSTATION, DEV-873-DELIVERY
+- Verifier: full Go PASS; Vue 1,587 PASS + build; isolated completion/conversion/reconciliation API PASS including concurrency, rollback, stock/cost/audit. Broader DB failures match base. See acceptance evidence.
+- Deployment: not integrated or deployed.

@@ -304,6 +304,13 @@ func loadStockEntryDetailTx(ctx context.Context, tx pgx.Tx, schema string, id in
 }
 
 func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
+	var automatic bool
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.job_cards j JOIN %[1]s.work_orders w ON w.id=j.work_order_id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w.process_snapshot_json->'operations','[]'::jsonb)) op WHERE j.id=$1 AND (op->>'seq')::int=j.sequence_no AND NULLIF(op->>'execution_json','')::jsonb->>'version'='1')`, r.schema), cmd.ID).Scan(&automatic); err != nil {
+		return productionapp.JobCardActionResult{}, err
+	}
+	if cmd.Action == "complete" && (automatic || cmd.ExpectedVersion != "") {
+		return r.completeOperation(ctx, cmd)
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return productionapp.JobCardActionResult{}, err
@@ -378,8 +385,10 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 			cmd.EmployeeID = owner.EmployeeID
 			cmd.AssignedEmployeeName = owner.EmployeeName
 		}
-		if err := ensureJobCardTaskReadyTx(ctx, tx, r.schema, workOrderID, cmd.ID, cmd.AssignedEmployeeName); err != nil {
-			return productionapp.JobCardActionResult{}, err
+		if !automatic {
+			if err := ensureJobCardTaskReadyTx(ctx, tx, r.schema, workOrderID, cmd.ID, cmd.AssignedEmployeeName); err != nil {
+				return productionapp.JobCardActionResult{}, err
+			}
 		}
 		if workOrderStatus == "released" && runningItemID <= 0 {
 			started, err := r.startWorkOrderTx(ctx, tx, productionapp.WorkOrderStartCommand{ID: workOrderID, Operator: cmd.Operator}, false)
@@ -390,7 +399,7 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 			runningItemID = started.RunningItemID
 		}
 	}
-	if cmd.Action == "resume" || cmd.Action == "complete" {
+	if !automatic && (cmd.Action == "resume" || cmd.Action == "complete") {
 		if err := ensureJobCardPredecessorCompletedTx(ctx, tx, r.schema, workOrderID, sequenceNo); err != nil {
 			return productionapp.JobCardActionResult{}, err
 		}
@@ -404,6 +413,12 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	case "start":
 		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status=$2,started_at=now(),operator=$3,assigned_employee_id=CASE WHEN $4>0 THEN $4 ELSE assigned_employee_id END,assigned_to=CASE WHEN $4>0 THEN $5 ELSE assigned_to END WHERE id=$1`, r.schema), cmd.ID, nextStatus, cmd.Operator, cmd.EmployeeID, cmd.AssignedEmployeeName)
 	case "pause":
+		if automatic {
+			_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET metrics_json=metrics_json||jsonb_build_object('timer_elapsed_seconds',COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now())))) WHERE id=$1`, r.schema), cmd.ID)
+			if err != nil {
+				return productionapp.JobCardActionResult{}, err
+			}
+		}
 		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status=$2,paused_at=now(),operator=$3 WHERE id=$1`, r.schema), cmd.ID, nextStatus, cmd.Operator)
 	case "resume":
 		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status=$2,resumed_at=now(),operator=$3 WHERE id=$1`, r.schema), cmd.ID, nextStatus, cmd.Operator)

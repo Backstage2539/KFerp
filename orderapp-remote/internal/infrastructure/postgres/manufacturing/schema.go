@@ -262,6 +262,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS process_route_operations_route_seq_uq
 	ON %[1]s.process_route_operations(route_id, seq);
 CREATE INDEX IF NOT EXISTS process_route_operations_route_idx
 	ON %[1]s.process_route_operations(route_id, seq, id);
+DO $operation_execution$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='%[1]s' AND table_name='process_route_operations' AND column_name='execution_json') THEN
+  ALTER TABLE %[1]s.process_route_operations ADD COLUMN execution_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+  UPDATE %[1]s.process_route_operations op SET execution_json=jsonb_build_object('version',1,'node_key','route-'||op.route_id||'-step-'||op.seq,'receipt_enabled',op.seq=(SELECT MAX(x.seq) FROM %[1]s.process_route_operations x WHERE x.route_id=op.route_id),'source_warehouse','wip','receipt_warehouse','','output_unit',CASE WHEN op.seq=(SELECT MAX(x.seq) FROM %[1]s.process_route_operations x WHERE x.route_id=op.route_id) THEN '' ELSE 'g' END);
+ END IF;
+END $operation_execution$;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS operation_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_capacity_id BIGINT NOT NULL DEFAULT 0;

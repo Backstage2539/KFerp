@@ -29,6 +29,7 @@
       </div>
     </section>
 
+    <OperationBalances v-if="!isCustomerInventoryContext" :warehouse="selectedWarehouse" />
     <div class="workspace">
       <aside class="panel warehouse-panel">
         <div class="panel-title">仓库</div>
@@ -399,6 +400,7 @@
 </template>
 
 <script setup>
+import OperationBalances from '../components/OperationBalances.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'

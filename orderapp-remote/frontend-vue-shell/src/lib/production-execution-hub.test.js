@@ -39,7 +39,7 @@ test('work order detail actions carry production context to assignment, workstat
   assert.deepEqual(actions, [
     ['assignTask', '分配任务', 'navigate', '', 'workstationView', { work_order_id: 88, job_card_id: 91, running_item_id: 99, focus: 'assignment', batch_id: 'BATCH-WO-88' }],
     ['openWorkstation', '进入工位', 'navigate', '', 'workstationView', { work_order_id: 88, job_card_id: 91, running_item_id: 99, focus: 'workstation_task', batch_id: 'BATCH-WO-88' }],
-    ['finishedReceipt', '完工入库', 'navigate', '', 'productionAcceptance', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['finishedReceipt', '生产记录与核对', 'navigate', '', 'productionAcceptance', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
     ['openOperationRecords', '工序记录', 'navigate', '', 'jobCards', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
     ['openQuality', '查看质检', 'navigate', '', 'qualityInspections', { work_order_id: 88, job_card_id: 91, running_item_id: 99, reference_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
     ['openCost', '成本', 'navigate', '', 'productionCosts', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],

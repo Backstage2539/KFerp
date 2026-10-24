@@ -16,14 +16,20 @@ import (
 )
 
 type jobCardActualsRequest struct {
-	PlannedInputQty float64         `json:"planned_input_qty"`
-	ActualInputQty  float64         `json:"actual_input_qty"`
-	ActualOutputQty float64         `json:"actual_output_qty"`
-	ActualLossQty   float64         `json:"actual_loss_qty"`
-	ActualMinutes   int             `json:"actual_minutes"`
-	LossReason      string          `json:"loss_reason"`
-	ExceptionReason string          `json:"exception_reason"`
-	MetricsJSON     json.RawMessage `json:"metrics_json"`
+	RequestID        string                               `json:"request_id"`
+	ExpectedVersion  string                               `json:"expected_version"`
+	InputUnit        string                               `json:"input_unit"`
+	OutputUnit       string                               `json:"output_unit"`
+	DifferenceReason string                               `json:"difference_reason"`
+	Materials        []productionapp.OperationMaterialUse `json:"materials"`
+	PlannedInputQty  float64                              `json:"planned_input_qty"`
+	ActualInputQty   float64                              `json:"actual_input_qty"`
+	ActualOutputQty  float64                              `json:"actual_output_qty"`
+	ActualLossQty    float64                              `json:"actual_loss_qty"`
+	ActualMinutes    int                                  `json:"actual_minutes"`
+	LossReason       string                               `json:"loss_reason"`
+	ExceptionReason  string                               `json:"exception_reason"`
+	MetricsJSON      json.RawMessage                      `json:"metrics_json"`
 }
 
 type workOrderCompleteRequest struct {
@@ -118,6 +124,82 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.GET("/api/production/work-orders/:id/conversion-preview", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid work order"})
+		}
+		p, err := productionSvc.PreviewOperationConversion(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, p)
+	})
+	e.POST("/api/production/operation-conversion", func(c echo.Context) error {
+		if support.CurrentEmployeeID(c) <= 0 {
+			return c.JSON(403, ErrorResponse{Error: "请先绑定员工"})
+		}
+		var cmd productionapp.OperationConversionCommand
+		if c.Bind(&cmd) != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		cmd.Operator = support.ActorOf(c)
+		cmd.EmployeeID = support.CurrentEmployeeID(c)
+		rows, err := productionSvc.SubmitOperationConversion(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, map[string]any{"rows": rows})
+	})
+	e.GET("/api/production/records", func(c echo.Context) error {
+		workID, _ := strconv.ParseInt(c.QueryParam("work_order_id"), 10, 64)
+		rows, err := productionSvc.ListOperationRecords(c.Request().Context(), workID)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, map[string]any{"rows": rows})
+	})
+	e.POST("/api/production/legacy-review/preview", func(c echo.Context) error {
+		var req struct {
+			IDs []int64 `json:"work_order_ids"`
+		}
+		if c.Bind(&req) != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		rows, err := productionSvc.PreviewLegacyReview(c.Request().Context(), req.IDs)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, map[string]any{"rows": rows})
+	})
+	e.POST("/api/production/legacy-review/submit", func(c echo.Context) error {
+		if support.CurrentEmployeeID(c) <= 0 {
+			return c.JSON(403, ErrorResponse{Error: "请先绑定员工"})
+		}
+		var req struct {
+			Items []productionapp.LegacyReviewItem `json:"items"`
+		}
+		if c.Bind(&req) != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		for i := range req.Items {
+			req.Items[i].Operator = support.ActorOf(c)
+			req.Items[i].EmployeeID = support.CurrentEmployeeID(c)
+		}
+		rows, err := productionSvc.SubmitLegacyReview(c.Request().Context(), req.Items)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, map[string]any{"rows": rows})
+	})
+	e.GET("/api/production/process-balances", func(c echo.Context) error {
+		rows, err := productionSvc.ListOperationBalances(c.Request().Context())
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, map[string]any{"rows": rows})
 	})
 	workOrderID := func(c echo.Context) (int64, error) {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -343,6 +425,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid metrics_json"})
 		}
 		cmd := productionapp.JobCardActionCommand{
+			RequestID: req.RequestID, ExpectedVersion: req.ExpectedVersion, InputUnit: req.InputUnit, OutputUnit: req.OutputUnit, DifferenceReason: req.DifferenceReason, Materials: req.Materials,
 			ID:              id,
 			EmployeeID:      support.CurrentEmployeeID(c),
 			Operator:        support.ActorOf(c),
@@ -364,6 +447,12 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			res, err = productionSvc.ResumeJobCard(c.Request().Context(), cmd)
 		case "complete":
 			res, err = productionSvc.CompleteJobCard(c.Request().Context(), cmd)
+		case "progress":
+			preview, saveErr := productionSvc.SaveOperationProgress(c.Request().Context(), cmd)
+			if saveErr != nil {
+				return c.JSON(400, ErrorResponse{Error: saveErr.Error()})
+			}
+			return c.JSON(200, preview)
 		default:
 			err = fmt.Errorf("invalid job card action")
 		}
@@ -372,7 +461,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			log.Printf("production job card action failed code=%s action=%s job_card_id=%d actor=%s err=%v", failureCode, action, id, cmd.Operator, err)
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error(), Code: failureCode})
 		}
-		return c.JSON(http.StatusOK, map[string]any{"ok": true, "job_card": res.JobCard, "work_order": res.WorkOrder})
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "job_card": res.JobCard, "work_order": res.WorkOrder, "completion": res.Completion})
 	}
 	e.POST("/api/produce/job-cards/:id/actuals", func(c echo.Context) error {
 		return updateJobCard(c, false)
@@ -391,6 +480,47 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 	})
 	e.POST("/api/job-cards/:id/complete", func(c echo.Context) error {
 		return runJobCardAction(c, "complete")
+	})
+	e.POST("/api/job-cards/:id/progress", func(c echo.Context) error { return runJobCardAction(c, "progress") })
+	e.GET("/api/job-cards/:id/completion-preview", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid job card"})
+		}
+		result, err := productionSvc.PreviewOperationCompletion(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	e.GET("/api/production-bom-versions/:id/operation-materials", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid BOM version"})
+		}
+		variant, _ := strconv.ParseInt(c.QueryParam("variant_id"), 10, 64)
+		result, err := productionSvc.GetOperationMaterialConfig(c.Request().Context(), id, variant)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
+	})
+	e.PUT("/api/production-bom-versions/:id/operation-materials", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(400, ErrorResponse{Error: "invalid BOM version"})
+		}
+		var cmd productionapp.SaveOperationMaterialConfig
+		if err = c.Bind(&cmd); err != nil {
+			return c.JSON(400, ErrorResponse{Error: "invalid request"})
+		}
+		cmd.VersionID = id
+		cmd.Actor = support.ActorOf(c)
+		result, err := productionSvc.SaveOperationMaterialConfig(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(400, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(200, result)
 	})
 	e.GET("/api/produce/costs", func(c echo.Context) error {
 		rows, err := productionSvc.ListBatchCosts(c.Request().Context(), productionapp.BatchCostQuery{Limit: support.IntParam(c, "limit", 200)})

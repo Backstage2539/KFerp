@@ -50,7 +50,7 @@ func TestProductionAcceptanceWIPVueWiring(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"完工入库",
+		"生产记录与核对",
 		"productionAcceptance",
 	} {
 		if !strings.Contains(string(menu), want) {

@@ -1,0 +1,101 @@
+package production
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	app "orderapp/internal/application/production"
+	stockapp "orderapp/internal/application/stock"
+	stockrepo "orderapp/internal/infrastructure/postgres/stock"
+	"testing"
+)
+
+func TestLegacyReviewAPIRequiresActualQuantityAndPostsOnce(t *testing.T) {
+	testLegacyReview(t, false, false)
+}
+func TestLegacyReviewAPICreditsExistingConsumption(t *testing.T) { testLegacyReview(t, true, false) }
+func TestLegacyReviewAPICreditsLegacyLogsCost(t *testing.T)      { testLegacyReview(t, true, true) }
+func testLegacyReview(t *testing.T, credit, logsOnly bool) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, runID := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72891)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.work_orders SET output_qty=1,output_unit='袋',inventory_unit='袋',planned_inventory_qty=1 WHERE id=%[2]d;UPDATE %[1]s.job_cards SET actual_output_qty=14,metrics_json='{"quantity_basis":"inventory_unit","inventory_unit":"袋"}' WHERE work_order_id=%[2]d`, schema, woID))
+	if credit {
+		_, err := stockrepo.NewRepository(pool, schema).CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: woID, Operator: "历史现场", Items: []stockapp.StockDocumentItemCommand{{ItemType: "material", MaterialID: 10, FromWarehouse: "wip", QtyG: 227}, {ItemType: "material", MaterialID: 20, FromWarehouse: "wip", QtyUnits: 1}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var creditedCost float64
+	if logsOnly {
+		mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.material_batches SET unit_cost=100 WHERE material_id=10`, schema))
+		mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %[1]s.material_consumption_logs(running_item_id,batch_id,product_id,product_name,spec_g,material_id,material_name,unit,deduct_g,deduct_units,before_g,after_g,before_units,after_units,operator,material_batch_id,material_batch_code) SELECT %[2]d,0,0,'测试',227,l.item_id,l.item_name,'g',-l.qty_change_g,-l.qty_change_units,l.qty_before_g,l.qty_after_g,l.qty_before_units,l.qty_after_units,'历史',b.id,b.batch_code FROM %[1]s.stock_ledger_entries l JOIN %[1]s.material_batches b ON b.batch_code=l.source_batch_code AND b.material_id=l.item_id WHERE l.qty_change_g<0 OR l.qty_change_units<0`, schema, runID))
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT SUM(CASE WHEN l.deduct_g>0 THEN l.deduct_g*b.unit_cost/1000 ELSE l.deduct_units*b.unit_cost END)::float8 FROM %s.material_consumption_logs l JOIN %s.material_batches b ON b.id=l.material_batch_id WHERE l.running_item_id=$1`, schema, schema), runID).Scan(&creditedCost); err != nil {
+			t.Fatal(err)
+		}
+		mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.stock_entries SET status='draft' WHERE work_order_id=%[2]d;DELETE FROM %[1]s.production_batch_costs WHERE running_item_id=%[3]d`, schema, woID, runID))
+	}
+	res := serveMultilevelProductionJSON(t, e, "POST", "/api/production/legacy-review/preview", map[string]any{"work_order_ids": []int64{woID}})
+	if res.Code != 200 {
+		t.Fatalf("preview %d %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Rows []app.LegacyReview `json:"rows"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Rows) != 1 || body.Rows[0].ReportedQty != 14 {
+		t.Fatal(res.Body.String())
+	}
+	row := body.Rows[0]
+	materials := []app.OperationMaterialUse{}
+	for _, m := range row.Materials {
+		use := m.OperationMaterialUse
+		if use.MaterialID == 10 {
+			use.Qty = .227
+		} else {
+			use.Qty = 1
+		}
+		materials = append(materials, use)
+	}
+	payload := map[string]any{"work_order_id": woID, "actual_input_g": 227, "materials": materials, "reason": "现场核实实际1袋，旧14袋误填", "request_id": "legacy-728", "expected_version": row.Version}
+	rejected := serveMultilevelProductionJSON(t, e, "POST", "/api/production/legacy-review/submit", map[string]any{"items": []any{payload}})
+	if rejected.Code != 200 {
+		t.Fatal(rejected.Body.String())
+	}
+	var rejectedBody struct {
+		Rows []app.LegacyReviewResult `json:"rows"`
+	}
+	_ = json.Unmarshal(rejected.Body.Bytes(), &rejectedBody)
+	if len(rejectedBody.Rows) != 1 || rejectedBody.Rows[0].Succeeded {
+		t.Fatal("missing quantity must not infer plan")
+	}
+	payload["actual_output_qty"] = 1
+	for i := 0; i < 2; i++ {
+		res = serveMultilevelProductionJSON(t, e, "POST", "/api/production/legacy-review/submit", map[string]any{"items": []any{payload}})
+		var result struct {
+			Rows []app.LegacyReviewResult `json:"rows"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &result); err != nil || len(result.Rows) != 1 || !result.Rows[0].Succeeded {
+			t.Fatalf("submit/replay %s %v", res.Body.String(), err)
+		}
+	}
+	state := loadProductCompletionAtomicityState(t, ctx, pool, schema, woID, runID)
+	if state.FinishedInventoryUnits != 1 || state.ReservationConsumedG != 227 || state.ReservationConsumedUnits != 1 {
+		t.Fatalf("legacy reconciliation %+v", state)
+	}
+	assertProductionFlowCount(t, pool, schema, "stock_entries", "entry_type='finished_receipt'", 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", "action='legacy_reconcile'", 1)
+	if logsOnly {
+		var actualCost float64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT material_cost::float8 FROM %s.production_operation_events WHERE work_order_id=$1`, schema), woID).Scan(&actualCost); err != nil {
+			t.Fatal(err)
+		}
+		if creditedCost <= 0 || actualCost != creditedCost {
+			t.Fatalf("legacy cost lost: got %g want %g", actualCost, creditedCost)
+		}
+		return
+	}
+	assertProductionFlowCount(t, pool, schema, "stock_entries", "purpose='material_consumption_for_manufacture' AND status='submitted'", 1)
+}

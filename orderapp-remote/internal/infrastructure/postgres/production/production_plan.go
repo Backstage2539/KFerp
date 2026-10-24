@@ -2312,6 +2312,11 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 			return productionapp.ProductionPlanSubmitResult{}, err
 		}
 	}
+	for _, wo := range workOrders {
+		if err := validateFrozenOperationBindingsTx(ctx, tx, r.schema, wo.ID); err != nil {
+			return productionapp.ProductionPlanSubmitResult{}, err
+		}
+	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ID, "submit", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("draft"), postgresinfra.StrPtr("submitted"), postgresinfra.AuditMeta{"work_order_count": len(workOrders)}); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
@@ -2718,6 +2723,9 @@ func createReleasedWorkOrderForPlanItemTx(ctx context.Context, tx pgx.Tx, schema
 	if err != nil {
 		return productionapp.WorkOrderRow{}, nil, err
 	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.work_orders SET operation_material_bindings=COALESCE((SELECT bindings FROM %[1]s.production_bom_operation_bindings WHERE bom_version_id=$2 AND bom_variant_id=$3),'{}'::jsonb) WHERE id=$1`, schema), id, item.BomVersionID, item.BomVariantID); err != nil {
+		return productionapp.WorkOrderRow{}, nil, err
+	}
 	wo := productionapp.WorkOrderRow{
 		ID:                       id,
 		WorkOrderNo:              releasedWorkOrderNo(item.PlanID, item.ID),
@@ -3059,8 +3067,19 @@ func (r Repository) startWorkOrderTx(ctx context.Context, tx pgx.Tx, cmd product
 			return productionapp.WorkOrderStartResult{}, err
 		}
 	}
+	automatic := false
+	var route processTemplateSnapshot
+	if json.Unmarshal([]byte(wo.ProcessSnapshotJSON), &route) == nil {
+		for _, op := range route.Operations {
+			var config productionapp.OperationExecution
+			if json.Unmarshal([]byte(op.ExecutionJSON), &config) == nil && config.Version == 1 {
+				automatic = true
+				break
+			}
+		}
+	}
 	issuedProcessingReservations := int64(0)
-	if wo.ProcessingRequestItemID > 0 {
+	if wo.ProcessingRequestItemID > 0 && !automatic {
 		issuedProcessingReservations, err = issueCustomerProcessingReservationsToWIPTx(ctx, tx, r.schema, wo.ID, cmd.Operator)
 		if err != nil {
 			return productionapp.WorkOrderStartResult{}, err

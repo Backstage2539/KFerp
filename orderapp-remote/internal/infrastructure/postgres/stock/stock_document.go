@@ -177,6 +177,9 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	if detail.SourceType == "operation_completion" || detail.SourceType == "operation_correction" {
+		return stockapp.StockDocumentDetail{}, fmt.Errorf("此单据属于工序完成记录，请从生产记录统一更正")
+	}
 	materialIDs := make([]int64, 0, len(detail.Items))
 	for _, item := range detail.Items {
 		if item.ItemType == itemTypeMaterial {
@@ -620,6 +623,10 @@ func (r Repository) insertStockDocumentItemsTx(ctx context.Context, tx pgx.Tx, s
 }
 
 func (r Repository) resolveOrdinaryFinishedStockDocumentCommandTx(ctx context.Context, tx pgx.Tx, cmd *stockapp.StockDocumentCommand) error {
+	if cmd != nil && isOperationConsumption(ctx, cmd.WorkOrderID) {
+		return nil
+	}
+
 	if cmd == nil || cmd.Purpose == stockapp.PurposeManufacture {
 		return nil
 	}
@@ -650,6 +657,10 @@ func (r Repository) resolveOrdinaryFinishedStockDocumentCommandTx(ctx context.Co
 }
 
 func (r Repository) resolveOrdinaryFinishedStockDocumentDetailTx(ctx context.Context, tx pgx.Tx, detail *stockapp.StockDocumentDetail) error {
+	if detail != nil && isOperationConsumption(ctx, detail.WorkOrderID) {
+		return nil
+	}
+
 	if detail == nil || detail.Purpose == stockapp.PurposeManufacture {
 		return nil
 	}
@@ -956,6 +967,21 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 	if !requiresWorkOrder && detail.Purpose != stockapp.PurposeMaterialIssue {
 		return fmt.Errorf("stock document purpose cannot be linked to work order")
 	}
+	if !isOperationConsumption(ctx, detail.WorkOrderID) && (detail.Purpose == stockapp.PurposeMaterialConsumption || detail.Purpose == stockapp.PurposeManufacture) {
+		has, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "work_orders", "operation_material_bindings")
+		if err != nil {
+			return err
+		}
+		if has {
+			var automatic bool
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.work_orders w CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w.process_snapshot_json->'operations','[]'::jsonb)) o WHERE w.id=$1 AND COALESCE(NULLIF(o->>'execution_json',''),'{}')::jsonb->>'version'='1')`, r.schema), detail.WorkOrderID).Scan(&automatic); err != nil {
+				return err
+			}
+			if automatic {
+				return fmt.Errorf("本单已启用完成自动记账，请在工位完成或生产记录中更正")
+			}
+		}
+	}
 	expectedItemType := itemTypeMaterial
 	var manufactureOutput typedStockManufactureOutput
 	hasTypedManufactureOutput := false
@@ -1014,6 +1040,9 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 		return err
 	}
 	for index, item := range detail.Items {
+		if isOperationConsumption(ctx, detail.WorkOrderID) && detail.Purpose == stockapp.PurposeMaterialConsumption && (item.ItemType == itemTypeMaterial || item.ItemType == itemTypeFinishedProduct) {
+			continue
+		}
 		if modernPicking && detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && (item.ItemType == itemTypeMaterial || item.ItemType == itemTypeFinishedProduct) {
 			continue
 		}
@@ -1046,7 +1075,7 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 	if status == "cancelled" || status == "completed" {
 		return fmt.Errorf("work order is not open")
 	}
-	if modernPicking && detail.Purpose == stockapp.PurposeMaterialConsumption {
+	if modernPicking && detail.Purpose == stockapp.PurposeMaterialConsumption && !isOperationConsumption(ctx, detail.WorkOrderID) {
 		for _, item := range detail.Items {
 			if item.FromWarehouse != "wip" {
 				return fmt.Errorf("生产耗用必须来自 WIP，先按领料建议转入现场")
@@ -1141,7 +1170,7 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 		validated.currentUnit += item.QtyUnits
 		validatedRequirements[item.MaterialID] = validated
 	}
-	if detail.Purpose == stockapp.PurposeMaterialConsumption {
+	if detail.Purpose == stockapp.PurposeMaterialConsumption && !isOperationConsumption(ctx, detail.WorkOrderID) {
 		consumptionErrors := make([]string, 0)
 		for _, materialID := range validatedMaterialIDs {
 			validated := validatedRequirements[materialID]
@@ -1903,6 +1932,11 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 				return err
 			}
 		}
+		if isConsumption && isOperationConsumption(ctx, detail.WorkOrderID) {
+			if err := consumeOperationProcessingReservationTx(ctx, tx, r.schema, detail.WorkOrderID, alloc.MaterialBatchID, item.MaterialID, item.OwnerCustomerID, item.FromWarehouse, alloc.QtyG, alloc.QtyUnits, false); err != nil {
+				return err
+			}
+		}
 		if isConsumption {
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
 				UPDATE %s.material_batches
@@ -1924,7 +1958,7 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 		}
 		weightedCost += stockItemTotalCost(alloc.QtyG, alloc.QtyUnits, alloc.UnitCost)
 	}
-	if isConsumption {
+	if isConsumption && (!isOperationConsumption(ctx, detail.WorkOrderID) || item.OwnerCustomerID == 0) {
 		if onhandG < item.QtyG || onhandUnits < item.QtyUnits {
 			return fmt.Errorf("material onhand insufficient")
 		}
@@ -1962,7 +1996,7 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 		batchFilter += fmt.Sprintf(" AND b.batch_code=$%d", len(args))
 	}
 	workFilter := ""
-	if detail.WorkOrderID > 0 && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
+	if detail.WorkOrderID > 0 && !isOperationConsumption(ctx, detail.WorkOrderID) && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
 		args = append(args, detail.WorkOrderID)
 		workFilter = fmt.Sprintf(`
 			AND l.material_batch_id IN (
@@ -1981,7 +2015,7 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 			)
 		`, r.schema, r.schema, r.schema, len(args))
 	}
-	if modern && detail.WorkOrderID > 0 && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
+	if modern && detail.WorkOrderID > 0 && !isOperationConsumption(ctx, detail.WorkOrderID) && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
 		workFilter = fmt.Sprintf(`AND EXISTS(SELECT 1 FROM %s.work_order_material_reservation_batches rb WHERE rb.work_order_id=$%d AND rb.material_batch_id=b.id AND rb.warehouse=l.warehouse AND rb.owner_customer_id=b.owner_customer_id AND rb.status='reserved')`, r.schema, len(args))
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
@@ -2019,7 +2053,7 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 	// second query to cap each batch by what the same work order actually
 	// received, so close the FIFO cursor before calculating those caps.
 	rows.Close()
-	if modern && detail.WorkOrderID > 0 && detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn {
+	if (modern && detail.WorkOrderID > 0 && detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn) || isOperationConsumption(ctx, detail.WorkOrderID) {
 		for index := range out {
 			var reservedG, reservedUnits int64
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g)),0)::bigint,
@@ -2028,11 +2062,19 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
  WHERE b.material_batch_id=$1 AND b.warehouse=$2 AND b.owner_customer_id=$3 AND b.work_order_id<>$4 AND b.status='reserved' AND r.status='reserved'`, r.schema), out[index].BatchID, item.FromWarehouse, item.OwnerCustomerID, detail.WorkOrderID).Scan(&reservedG, &reservedUnits); err != nil {
 				return nil, 0, 0, err
 			}
+			if isOperationConsumption(ctx, detail.WorkOrderID) {
+				cpG, cpN, e := operationOtherProcessingReservedTx(ctx, tx, r.schema, detail.WorkOrderID, out[index].BatchID, item.MaterialID, item.OwnerCustomerID, item.FromWarehouse, false)
+				if e != nil {
+					return nil, 0, 0, e
+				}
+				reservedG += cpG
+				reservedUnits += cpN
+			}
 			out[index].AvailableG = nonnegativeStockQty(out[index].AvailableG - reservedG)
 			out[index].AvailableQty = nonnegativeStockQty(out[index].AvailableQty - reservedUnits)
 		}
 	}
-	if detail.WorkOrderID > 0 && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
+	if detail.WorkOrderID > 0 && !isOperationConsumption(ctx, detail.WorkOrderID) && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
 		capToWorkOrderBalance := func(row *materialMoveAvailability) error {
 			var allowedG, allowedUnits int64
 			if modern {
@@ -2074,6 +2116,27 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 		}
 	}
 	var blockedG, blockedUnits int64
+	if isOperationConsumption(ctx, detail.WorkOrderID) {
+		reserved, free := []materialMoveAvailability{}, []materialMoveAvailability{}
+		for _, row := range out {
+			var ownG, ownN int64
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint,COALESCE(SUM(GREATEST(0,reserved_units-consumed_units-returned_units)),0)::bigint FROM %s.work_order_material_reservation_batches WHERE work_order_id=$1 AND material_batch_id=$2 AND warehouse=$3 AND owner_customer_id=$4 AND status='reserved'`, r.schema), detail.WorkOrderID, row.BatchID, item.FromWarehouse, item.OwnerCustomerID).Scan(&ownG, &ownN); err != nil {
+				return nil, 0, 0, err
+			}
+			first := row
+			first.AvailableG = minInt64(ownG, row.AvailableG)
+			first.AvailableQty = minInt64(ownN, row.AvailableQty)
+			if first.AvailableG > 0 || first.AvailableQty > 0 {
+				reserved = append(reserved, first)
+			}
+			row.AvailableG -= first.AvailableG
+			row.AvailableQty -= first.AvailableQty
+			if row.AvailableG > 0 || row.AvailableQty > 0 {
+				free = append(free, row)
+			}
+		}
+		out = append(reserved, free...)
+	}
 	for _, row := range blockedRows {
 		blockedG += row.AvailableG
 		blockedUnits += row.AvailableQty
@@ -2082,6 +2145,9 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 }
 
 func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item *stockapp.StockDocumentItemRow, actor string) error {
+	if isOperationConsumption(ctx, detail.WorkOrderID) && detail.Purpose == stockapp.PurposeMaterialConsumption {
+		return r.consumeOperationProductTx(ctx, tx, detail, item, actor)
+	}
 	if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture {
 		modern, err := automaticPickingWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID)
 		if err != nil {
@@ -2506,7 +2572,7 @@ func (r Repository) updateWorkOrderStockStatsTx(ctx context.Context, tx pgx.Tx, 
 		if err != nil {
 			return err
 		}
-		if modern {
+		if modern || isOperationConsumption(ctx, detail.WorkOrderID) {
 			if err := recordPickingConsumptionTx(ctx, tx, r.schema, detail, direction); err != nil {
 				return err
 			}
@@ -2530,7 +2596,12 @@ func (r Repository) updateWorkOrderStockStatsTx(ctx context.Context, tx pgx.Tx, 
 			SET %s_g=GREATEST(0,%s_g+$3),%s_units=GREATEST(0,%s_units+$4),updated_at=now()
 			WHERE work_order_id=$1 AND material_id=$2
 		`, r.schema, column, column, column, column)
-		if _, err := tx.Exec(ctx, query, detail.WorkOrderID, item.MaterialID, direction*item.QtyG, direction*item.QtyUnits); err != nil {
+		args := []any{detail.WorkOrderID, item.MaterialID, direction * item.QtyG, direction * item.QtyUnits}
+		if isOperationConsumption(ctx, detail.WorkOrderID) {
+			query += " AND source_owner_customer_id=$5"
+			args = append(args, item.OwnerCustomerID)
+		}
+		if _, err := tx.Exec(ctx, query, args...); err != nil {
 			return err
 		}
 	}

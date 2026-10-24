@@ -2,6 +2,7 @@
   <div class="page workstation-view">
 
     <ProductionReturnLink :source="viewParams.return_navigation" />
+    <section v-if="lastAutomaticResult" class="panel"><strong>{{ lastAutomaticResult.message }} · {{ lastAutomaticResult.output_qty }} {{ lastAutomaticResult.output_unit }}</strong><p>关联单据：{{ lastAutomaticResult.stock_entry_ids?.join('、') || '工序交接记录' }}</p><button class="primary" @click="continueNextOperation(lastAutomaticResult.task)">继续处理下一工序</button><button class="secondary" @click="lastAutomaticResult=null">收起</button></section>
     <section class="toolbar">
       <div>
         <h2>{{ scope === 'mine' ? '我的今日工位' : '全厂工位视图' }}</h2>
@@ -88,11 +89,12 @@
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
             <span class="task-staff">{{ task.assigned_to || task.roster_employee_name || '无人值班' }}<small v-if="task.pending_handover">排班已换人，待接手工位</small><small v-else-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
             <div class="actions">
+              <button v-if="!task.automatic_completion" class="secondary" @click="openFinishPanel(task)">核对旧单并继续</button>
               <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
               <button v-if="['pending','ready'].includes(task.status) && task.production_plan_id && task.production_plan_item_id" type="button" class="secondary" @click="openProductionReplan(task)">撤回并重新安排</button>
               <button v-if="workstationCanOpenIssue(task)" type="button" class="primary" @click="openPicking(task)">领料</button>
               <button v-if="task.readiness_label === '待质检'" type="button" class="secondary" @click="openQuality(task)">查看质检</button>
-              <details v-if="isFirstOperationTask(task) && (workstationCanOpenIssue(task) || task.status === 'running')" class="material-actions"><summary>物料操作</summary><button v-if="workstationCanOpenIssue(task)" type="button" @click="openStockAction(task, 'issue')">领料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'consume')">耗料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'return')">退料</button></details>
+              <details v-if="!task.automatic_completion && isFirstOperationTask(task) && (workstationCanOpenIssue(task) || task.status === 'running')" class="material-actions"><summary>物料操作</summary><button v-if="workstationCanOpenIssue(task)" type="button" @click="openStockAction(task, 'issue')">领料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'consume')">耗料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'return')">退料</button></details>
               <button
                 v-for="action in workstationVisibleActions(task)"
                 :key="action"
@@ -125,29 +127,8 @@
               <button class="primary" type="button" @click="submitIssue" :disabled="busyKey !== ''">提交</button>
             </div>
 
-            <div v-if="isFinishPanelForTask(task)" class="task-action-panel">
-              <div class="section-title-row">
-                <div>
-                  <div class="section-title">完成本工序</div>
-                  <p class="muted">{{ finishPanel.title }}</p>
-                </div>
-                <button class="secondary" type="button" @click="closeFinishPanel">关闭</button>
-              </div>
-              <p v-if="finishPanel.task?.has_predecessor" class="muted">前序实际产出按库存单位交接，不要求达到计划数量。分多批处理时，请填写本批实际投入，避免重复记录。</p>
-              <div class="form-grid">
-                <label><span>实际分钟</span><input v-model.number="finishPanel.actual_minutes" type="number" min="0" /></label>
-                <label><span>实际投入（{{ finishPanel.inventory_unit || '-' }}）</span><input v-model.number="finishPanel.actual_input_qty" type="number" min="0" step="any" /></label>
-                <label><span>实际产出（{{ finishPanel.inventory_unit || '-' }}）</span><input v-model.number="finishPanel.actual_output_qty" type="number" min="0" step="any" :disabled="Number(finishPanel.finished_units || 0) > 0" /></label>
-                <label><span>成品件数（件）</span><input v-model.number="finishPanel.finished_units" type="number" min="0" step="1" :disabled="Number(finishPanel.actual_output_qty || 0) > 0" /><small>实际产出或成品件数二选一</small></label>
-                <label><span>余料（{{ finishPanel.inventory_unit || '-' }}）</span><input v-model.number="finishPanel.leftover_qty" type="number" min="0" step="any" /></label>
-                <label><span>损耗原因</span><input v-model.trim="finishPanel.loss_reason" /></label>
-                <label><span>异常原因</span><input v-model.trim="finishPanel.exception_reason" /></label>
-                <label class="span-2"><span>备注</span><input v-model.trim="finishPanel.note" /></label>
-                <button class="primary" type="button" @click="submitFinishPanel" :disabled="busyKey !== ''">
-                  完成本工序
-                </button>
-              </div>
-            </div>
+            <OperationCompletionForm v-if="isFinishPanelForTask(task) && task.automatic_completion" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" @close="closeFinishPanel" @posted="automaticPosted" @next="continueNextOperation(task)" />
+            <OperationConversionForm v-if="isFinishPanelForTask(task) && !task.automatic_completion" :work-order-id="Number(task.work_order_id)" @close="closeFinishPanel" @converted="convertedOldOrder" />
           </div>
         </div>
       </article>
@@ -168,6 +149,8 @@
 </template>
 
 <script setup>
+import OperationConversionForm from '../components/OperationConversionForm.vue'
+import OperationCompletionForm from '../components/OperationCompletionForm.vue'
 import WorkstationBatchIssueDrawer from '../components/WorkstationBatchIssueDrawer.vue'
 import { issueSelectionState, toggleIssueSelection } from '../lib/workstation-batch-issue.js'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
@@ -177,14 +160,11 @@ import { apiGet, apiSend } from '../api/client'
 import { actorHasFullViewAccess } from '../lib/menu-permissions.js'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import {
-  productionCompletionMetrics,
-  productionCompletionOutputQty,
   productionTaskActionEndpoint,
   productionTaskActionErrorMessage,
   materialReadinessState,
   taskTitle,
   taskQuantityLines,
-  taskDefaultActualInput,
   workstationCanOpenIssue,
   workstationVisibleActions,
   workstationTaskSections,
@@ -212,22 +192,13 @@ const issue = reactive({ open: false, mode: '', title: '', task: null, note: '' 
 const executionHub = reactive({ open: false, workOrderId: 0, jobCardId: 0, focus: '' })
 const requestedJobCardID = computed(() => Number(props.viewParams?.job_card_id || 0))
 const taskFeedback = reactive({ taskKey: '', message: '', error: '' })
-const finishPanel = reactive({
-  open: false,
-  title: '',
-  task: null,
-  inventory_unit: '',
-  actual_minutes: 0,
-  actual_input_qty: 0,
-  actual_output_qty: 0,
-  finished_units: 0,
-  leftover_qty: 0,
-  loss_reason: '',
-  exception_reason: '',
-  note: '',
-})
+const finishPanel = reactive({open:false,task:null})
 
 const tasks = computed(() => overview.value.tasks || [])
+async function convertedOldOrder(){closeFinishPanel();message.value='核对已保存，后续工序可直接完成';await load()}
+const lastAutomaticResult=ref(null)
+async function automaticPosted(data){message.value=data.completion?.message || '完成记录已保存';lastAutomaticResult.value={...data.completion,task:finishPanel.task};finishPanel.open=false;await load()}
+async function continueNextOperation(task){const orderID=Number(task.work_order_id);closeFinishPanel();await load();const next=tasks.value.filter(row=>Number(row.work_order_id)===orderID&&row.automatic_completion).sort((a,b)=>Number(a.sequence_no)-Number(b.sequence_no)||Number(a.job_card_id)-Number(b.job_card_id))[0];if(next){selectedWorkstation.value=next.workstation;openFinishPanel(next)}}
 watch(selectedWorkstation, () => { selectedIssueTasks.value = []; batchIssue.open = false })
 watch(tasks, rows => { const available = new Set(rows.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id))); selectedIssueTasks.value = selectedIssueTasks.value.filter(id => available.has(id)) })
 const sections = computed(() => {
@@ -413,16 +384,7 @@ function openFinishPanel(task) {
   issue.task = null
   finishPanel.open = true
   finishPanel.task = task
-  finishPanel.title = `${taskTitle(task)} · ${task.work_order_no || ''}`
-  finishPanel.inventory_unit = String(task.inventory_unit || '').trim()
-  finishPanel.actual_minutes = Number(task.actual_minutes || 0)
-  finishPanel.actual_input_qty = taskDefaultActualInput(task)
-  finishPanel.actual_output_qty = Number(task.actual_output_qty || 0)
-  finishPanel.finished_units = Number(task.actual_finished_units || 0)
-  finishPanel.leftover_qty = Number(task.leftover_qty || 0)
-  finishPanel.loss_reason = task.loss_reason || ''
-  finishPanel.exception_reason = task.exception_reason || ''
-  finishPanel.note = task.note || ''
+
 }
 
 function openExecutionHub(task, focus = 'job_card') {
@@ -494,53 +456,6 @@ async function submitIssue() {
     updateTaskFeedback(task, { message: `${submittedMessage}成功，状态已刷新` })
   } catch (err) {
     const explanation = productionTaskActionErrorMessage(err, mode)
-    error.value = explanation
-    updateTaskFeedback(task, { error: explanation })
-  } finally {
-    busyKey.value = ''
-  }
-}
-
-async function submitFinishPanel() {
-  const task = finishPanel.task
-  if (!task) return
-  busyKey.value = `${task.job_card_id}:complete`
-  error.value = ''
-  message.value = ''
-  updateTaskFeedback(task)
-  try {
-    const finishedUnits = Number(finishPanel.finished_units || 0)
-    const actualOutputQty = productionCompletionOutputQty({
-      actualOutputQty: finishPanel.actual_output_qty,
-      finishedUnits,
-      inventoryQtyPerSalesUnit: task.inventory_qty_per_sales_unit,
-    })
-    const endpoint = productionTaskActionEndpoint(task, 'complete')
-    await runProductionTaskAction(endpoint, {
-      actual_minutes: Number(finishPanel.actual_minutes || 0),
-      actual_input_qty: Number(finishPanel.actual_input_qty || 0),
-      actual_output_qty: actualOutputQty,
-      loss_reason: finishPanel.loss_reason || '',
-      exception_reason: finishPanel.exception_reason || '',
-      metrics_json: productionCompletionMetrics({
-        inventoryUnit: finishPanel.inventory_unit,
-        leftoverQty: finishPanel.leftover_qty,
-        note: finishPanel.note,
-        finishedUnits,
-      }),
-    })
-    closeFinishPanel()
-    const refreshed = await load()
-    if (!refreshed) {
-      const explanation = '完成本工序已提交，但状态刷新失败，请手动刷新'
-      error.value = explanation
-      updateTaskFeedback(task, { error: explanation })
-      return
-    }
-    message.value = '完成本工序成功'
-    updateTaskFeedback(task, { message: message.value })
-  } catch (err) {
-    const explanation = productionTaskActionErrorMessage(err, 'complete')
     error.value = explanation
     updateTaskFeedback(task, { error: explanation })
   } finally {
