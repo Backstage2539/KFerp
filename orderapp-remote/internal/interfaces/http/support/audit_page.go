@@ -816,6 +816,8 @@ func auditSummary(r *AuditLogRow, rawEntityType, rawAction, rawField string) str
 		return fmt.Sprintf("%s 在%s移动了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "finish":
 		return fmt.Sprintf("%s 在%s完成了%s", actor, menuName, auditTargetName(r, rawEntityType))
+	case "correct_output":
+		return fmt.Sprintf("%s 更正了%s的报工产出：%s → %s", actor, auditTargetName(r, rawEntityType), ptrText(r.OldValue), ptrText(r.NewValue))
 	case "partial_finish":
 		return fmt.Sprintf("%s 在%s部分完成了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "cancel":
@@ -1267,6 +1269,8 @@ func labelAction(a string) string {
 		return "上传"
 	case "finish":
 		return "完成"
+	case "correct_output":
+		return "更正报工"
 	case "partial_finish":
 		return "部分完成"
 	case "cancel":

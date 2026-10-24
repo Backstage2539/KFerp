@@ -1179,7 +1179,7 @@ func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema st
 		    actual_loss_qty=$4,
 		    actual_loss_rate=$5,
 		    operator=COALESCE(NULLIF(operator,''),$6)
-		WHERE id = COALESCE(
+		WHERE status <> 'completed' AND id = COALESCE(
 			(SELECT id FROM %s.job_cards WHERE work_order_id=$1 AND records_loss=true ORDER BY sequence_no DESC, id DESC LIMIT 1),
 			(SELECT id FROM %s.job_cards WHERE work_order_id=$1 ORDER BY sequence_no DESC, id DESC LIMIT 1)
 		)
@@ -1968,6 +1968,35 @@ func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	var guardWorkOrderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT work_order_id FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&guardWorkOrderID); err != nil {
+		return err
+	}
+	if err := lockReceiptWorkOrderTx(ctx, tx, r.schema, guardWorkOrderID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE id=$1 FOR UPDATE`, r.schema), guardWorkOrderID); err != nil {
+		return err
+	}
+	var guardStatus, guardMetrics string
+	var guardOutput float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status,actual_output_qty::float8,metrics_json::text FROM %s.job_cards WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&guardStatus, &guardOutput, &guardMetrics); err != nil {
+		return err
+	}
+	if guardStatus == "completed" {
+		var oldMetrics, newMetrics map[string]any
+		_ = json.Unmarshal([]byte(guardMetrics), &oldMetrics)
+		_ = json.Unmarshal([]byte(cmd.MetricsJSON), &newMetrics)
+		changed := guardOutput != cmd.ActualOutputQty
+		for _, key := range []string{"finished_units", "inventory_unit", "quantity_basis"} {
+			if fmt.Sprint(oldMetrics[key]) != fmt.Sprint(newMetrics[key]) {
+				changed = true
+			}
+		}
+		if changed {
+			return fmt.Errorf("已完成工序的产出请从完工入库页更正，填写核实数量和原因")
+		}
+	}
 	var workOrderID int64
 	var inventoryQtyPerSalesUnit float64
 	err = tx.QueryRow(ctx, fmt.Sprintf(`

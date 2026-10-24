@@ -95,6 +95,17 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := customerstock.LockRunningFulfillmentCustomersTx(ctx, tx, schema, id); err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	// Resolve the owner work order even for legacy /finish callers.
+	var receiptWorkOrderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT id FROM %s.work_orders WHERE running_item_id=$1 LIMIT 1),0)`, schema), id).Scan(&receiptWorkOrderID); err != nil {
+		return productionapp.FinishResult{}, err
+	}
+	if receiptWorkOrderID > 0 {
+		if err := lockReceiptWorkOrderTx(ctx, tx, schema, receiptWorkOrderID); err != nil {
+			return productionapp.FinishResult{}, err
+		}
+	}
+
 	replayID, replay, err := requestProductionKeyTx(ctx, tx, schema, "product_receipt", operator, cmd.RequestID, cmd)
 	if err != nil {
 		return productionapp.FinishResult{}, err
@@ -109,6 +120,32 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,bom_spec_id,bom_variant_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.BomSpecID, &r.BomVariantID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	if receiptWorkOrderID > 0 {
+		// Legacy gram reports remain compatible; inventory-unit reports always use the new guard.
+		var hasUnitReport bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.job_cards WHERE work_order_id=$1 AND status='completed' AND metrics_json->>'quantity_basis'='inventory_unit')`, schema), receiptWorkOrderID).Scan(&hasUnitReport); err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		if cmd.ExpectedReceiptVersion != "" || hasUnitReport {
+			var outputUnit string
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(output_unit,''),inventory_unit) FROM %s.work_orders WHERE id=$1`, schema), receiptWorkOrderID).Scan(&outputUnit); err != nil {
+				return productionapp.FinishResult{}, err
+			}
+			qty := float64(cmd.FinishedUnits)
+			if isCountReceipt(outputUnit) {
+				if cmd.FinishedLooseG > 0 {
+					return productionapp.FinishResult{}, fmt.Errorf("按袋/件入库不能附加散装余量")
+				}
+			} else {
+				qty = receiptWeightQuantity(float64(r.SpecG)*float64(cmd.FinishedUnits)+float64(cmd.FinishedLooseG), outputUnit)
+			}
+
+			if err := validateReceiptQuantityTx(ctx, tx, schema, receiptWorkOrderID, cmd.ExpectedReceiptVersion, qty); err != nil {
+				return productionapp.FinishResult{}, err
+			}
+		}
+	}
+
 	r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
 	if r.InputG <= 0 {
 		r.InputG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
