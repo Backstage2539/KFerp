@@ -6219,8 +6219,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-728-PRODUCTION-AUTO-COMPLETION
 - Branch: codex/production-auto-completion
-- Status: verified locally; integration and release in progress
+- Status: develop deployed; runtime and server isolated API verified; production release in progress
 - Scope: 自动用料、工序交接、完成即入库；无半成品分类；实际超产/少产；差额更正与历史核对。
 - DEV: DEV-869-EXECUTION-RULES, DEV-870-COMPLETION-LEDGER, DEV-871-CORRECTION, DEV-872-WORKSTATION, DEV-873-DELIVERY
 - Verifier: full Go PASS; Vue 1,587 PASS + build; isolated completion/conversion/reconciliation API PASS including concurrency, rollback, stock/cost/audit. Broader DB failures match base. See acceptance evidence.
-- Deployment: not integrated or deployed.
+- Deployment: PR #295 / develop d3c72ce4 deployed; runtime/static asset/readonly data snapshots verified. Clean main integration PR #296; production pending. Evidence: orderapp-remote/docs/acceptance/2026-10-24-production-auto-completion.md.
