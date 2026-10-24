@@ -261,7 +261,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-862-RECEIPT-QUANTITY-CONTEXT", title: "PR-726 列表和提交共用冻结数量、规格、仓库及货主", status: "done", assignee: "Codex", evidence: "finished_receipt.go; finished_receipt_correction_api_test.go"},
 		{table: "req_dev", code: "DEV-863-RECEIPT-REPORT-CORRECTION", title: "PR-726 入库页报工更正、审计、并发和旧入口门禁", status: "done", assignee: "Codex", evidence: "finished_receipt_correction_api_test.go"},
 		{table: "req_dev", code: "DEV-864-RECEIPT-GROUP-RETRY", title: "PR-726 同货主归组、部分入库、报工保留和幂等重试", status: "done", assignee: "Codex", evidence: "production-acceptance.test.js; finished_receipt_correction_api_test.go"},
-		{table: "req_dev", code: "DEV-865-RECEIPT-RELEASE", title: "PR-726 手册、隔离验收与开发生产发布", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-24-finished-receipt-correction.md"},
+		{table: "req_dev", code: "DEV-865-RECEIPT-RELEASE", title: "PR-726 手册、隔离验收与开发生产发布", status: "done", assignee: "Codex", evidence: "develop 7615ce4e; production f4303055; docs/acceptance/2026-10-24-finished-receipt-correction.md"},
 		{table: "req_product", code: "PR-725-COMPLETION-MERGED-INBOUND", title: "完工入库按商品规格和目标仓合并并显示仓库名称", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-completion-merged-inbound.md"},
 		{table: "req_dev", code: "DEV-858-COMPLETION-GROUPING", title: "PR-725 同商品规格货主目标仓归组与仓库名称映射", status: "done", assignee: "Codex", evidence: "production-acceptance.test.js; finished receipt API identity test"},
 		{table: "req_dev", code: "DEV-859-COMPLETION-BATCH-POSTING", title: "PR-725 一次操作按工单过账并反馈部分失败", status: "done", assignee: "Codex", evidence: "production-acceptance.test.js; CompleteWorkOrder API"},
