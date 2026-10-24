@@ -2,9 +2,9 @@
 - Branch: codex/default-spec-initial-only; base origin/develop c0c8da28.
 - Scope: default specification is initial selection and badge only; refresh valid BOM identities without confirmation, preserve quotes, retain actual selection validation.
 - DEV: DEV-866 selection and restore; DEV-867 publication validation; DEV-868 manuals and development delivery.
-- Status: implementation verified; Vue1578/all Go/build/changed and isolated DOM/browser checks pass; Van acceptance pending.
+- Status: development delivery complete; PR #291 merged; PR-727 review, DEV-866/867/868 done; Vue1578/all Go/build/changed and isolated DOM/browser checks pass; Van acceptance pending.
 - Verifier: selection/refresh/editor regressions, costing service and HTTP tests, Vue tests/build, backend gates, isolated UI verification.
-- Deployment: development integration pending; production excluded. Evidence: orderapp-remote/docs/acceptance/2026-10-24-default-spec-initial-only.md; ../evidence/default-spec.
+- Deployment: feature face99a8 -> develop/runtime e7ae6c61b4d43be327016d219d12d3521542931d; KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development from clean release clone. Source backup /opt/stacks/erp/orderapp.backup.deploy-20261024114208-e7ae6c61b4d4; rollback kferp-orderapp-rollback:development-20261024114208-e7ae6c61b4d4. Containers/API/manual/static identity readonly smoke PASS. Receipt-only follow-up updates evidence and requirement state; no business implementation change. Production excluded. Evidence: orderapp-remote/docs/acceptance/2026-10-24-default-spec-initial-only.md; ../evidence/default-spec.
 - Notes: reservation script --claim fails on macOS awk newline handling; PR-727 reserved here.
 
 ### PR-718-RETAINED-STOCK-FOLLOWUP
