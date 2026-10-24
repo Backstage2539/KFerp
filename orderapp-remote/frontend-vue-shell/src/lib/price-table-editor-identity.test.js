@@ -15,14 +15,17 @@ test('published BOM identity without private sku_id restores its exact picker sp
   assert.equal(restored.bom_variant_id, 607)
 })
 
-test('a changed BOM retains the original identity and issue after repeated restoration', () => {
-  const changed = [{ ...families[0], sku_options: [{ ...families[0].sku_options[0], bom_version_id: 424 }] }]
-  const [first] = normalizePriceListProductSpecSelections([{ ...original, sku_id: 309 }], changed)
-  assert.equal(first.bom_version_id, 423)
-  assert.equal(first.selection_issue, 'default_bom_changed')
+test('the same specification follows current BOM identity without confirming or changing selection', () => {
+  const changed = [{ ...families[0], default_sku_id: 310, sku_options: [{ ...families[0].sku_options[0], bom_id: 18278, bom_version_id: 424, bom_variant_id: 608 }, { sku_id: 310, bom_spec_id: 310 }] }]
+  const [first] = normalizePriceListProductSpecSelections([{ ...original, sku_id: 309, selection_issue: 'default_bom_changed' }], changed)
+  assert.equal(first.sku_id, 309)
+  assert.equal(first.bom_id, 18278)
+  assert.equal(first.bom_version_id, 424)
+  assert.equal(first.bom_variant_id, 608)
+  assert.equal(first.selection_issue, undefined)
   const [second] = normalizePriceListProductSpecSelections([first], changed)
-  assert.equal(second.bom_version_id, 423)
-  assert.equal(second.selection_issue, 'default_bom_changed')
+  assert.deepEqual(second, first)
+  assert.equal(original.bom_version_id, 423)
 })
 
 test('catalogue not ready preserves selections instead of treating loading as removal', () => {

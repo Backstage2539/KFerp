@@ -3,6 +3,26 @@ import assert from 'node:assert/strict'
 import {seedCustomerPriceRows,applyCustomerPriceRows} from './customer-price-draft.js'
 const row=(spec,price,min=0,max=null)=>({parent_product_id:1,product_id:1,sku_id:1,bom_spec_id:spec,price_unit:'袋',final_unit_price:price,min_qty:min,max_qty:max,row_key:`${spec}:${min}`,product_name:'工厂名',group_snapshot:{group_item_name:'工厂分类'}})
 const generated=[{...row(10,999),product_name:'客户名',group_snapshot:{group_item_name:'客户分类'},customer_reference_snapshot:{customer_id:42}}]
+test('BOM version changes retain exact product/spec quotes with current write identity and original cost provenance',()=>{
+ const old={...row(10,65,24),bom_id:90,bom_version_id:901,bom_variant_id:101, bom_spec_snapshot:{bom_spec_id:10,bom_variant_id:101},cost_source_snapshot:{bom_version_id:901}}
+ const current={...generated[0],bom_id:91,bom_version_id:902,bom_variant_id:102,bom_spec_snapshot:{bom_spec_id:10,bom_variant_id:102}}
+ const pub={id:20,status:'published',owner_type:'customer',owner_key:'42',content:{price_rows:[old,{...old,parent_product_id:2,product_id:2,final_unit_price:1}]}}
+ const saved=structuredClone(pub)
+ const seeds=seedCustomerPriceRows([],[current],[pub],42)
+ assert.equal(seeds.length,1)
+ const [result]=applyCustomerPriceRows([current],seeds,{'10:24':66},42)
+ assert.equal(result.final_unit_price,66)
+ assert.equal(result.original_final_unit_price,65)
+ assert.equal(result.min_qty,24)
+ assert.equal(result.bom_version_id,902)
+ assert.equal(result.bom_variant_id,102)
+ assert.equal(result.bom_spec_snapshot.bom_variant_id,102)
+ assert.equal(result.cost_source_snapshot.bom_version_id,901)
+ assert.equal(result.cost_source_snapshot.customer_price_source.publication_id,20)
+ assert.deepEqual(pub,saved)
+ const withoutSnapshot={...current};delete withoutSnapshot.bom_spec_snapshot
+ assert.equal(applyCustomerPriceRows([withoutSnapshot],seeds,{},42)[0].bom_spec_snapshot,undefined)
+})
 test('seed exact product/spec published tiers, retain customer prices and never seed from another customer',()=>{
  const pub={id:1,status:'published',owner_type:'official',content:{price_rows:[row(10,80,0,24),row(10,70,24),row(11,40)]}}
  const own={id:2,status:'published',owner_type:'customer',owner_key:'42',content:{price_rows:[row(10,65,0,24),row(10,60,24)]}}

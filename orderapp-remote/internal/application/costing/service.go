@@ -4687,8 +4687,8 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			parentProductNamesBySKU[selection.BomSpecID] = strings.TrimSpace(identity.ParentProductName)
 			continue
 		}
-		if selection.ParentProductID <= 0 || selection.SKUID <= 0 || selection.DefaultSKUIDAtSelection <= 0 {
-			return fmt.Errorf("商品规格选择无效：第%d项缺少父商品、具体 SKU 或选择时默认规格", idx+1)
+		if selection.ParentProductID <= 0 || selection.SKUID <= 0 {
+			return fmt.Errorf("商品规格选择无效：第%d项缺少父商品或具体 SKU", idx+1)
 		}
 		parent, err := resolveIdentity(selection.ParentProductID)
 		if err != nil {
@@ -4713,13 +4713,8 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 		if !sku.SpecValid {
 			return fmt.Errorf("商品规格选择无效：第%d项 SKU %d 规格已失效", idx+1, selection.SKUID)
 		}
-		defaultSKU, err := resolveIdentity(selection.DefaultSKUIDAtSelection)
-		if err != nil {
-			return fmt.Errorf("商品规格选择无效：第%d项选择时默认规格校验失败：%w", idx+1, err)
-		}
-		if defaultSKU.EffectiveParentProductID != selection.ParentProductID {
-			return fmt.Errorf("商品规格选择无效：第%d项选择时默认规格不属于父商品 %d", idx+1, selection.ParentProductID)
-		}
+		// Historical default metadata is informational. Validate the actual
+		// selected SKU above, independently of later default changes/removal.
 		key := beanListProductSpecSelectionKey(selection.ParentProductID, selection.SKUID)
 		if _, duplicate := selections[key]; duplicate {
 			return fmt.Errorf("商品规格选择无效：第%d项重复选择 SKU %d", idx+1, selection.SKUID)
