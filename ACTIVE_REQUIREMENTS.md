@@ -6182,9 +6182,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: Existing worktrees untouched; PR id reserved manually after reserve_req_id.sh macOS awk error. Targeted race/API PostgreSQL 10 scenarios GREEN locally and on isolated development schemas; full Go and frontend 1,564 tests GREEN; Vue build passed. Production real business records remain read-only.
 
 ### PR-725-COMPLETION-MERGED-INBOUND
-- Branch: codex/completion-merged-inbound-20261023; GitHub PR #283 merged to develop; production main candidate based on `adeea8db`
+- Branch: codex/completion-merged-inbound-20261023; GitHub PR #283 merged to develop; PR #285 merged to main at `7883f1aa3beb0f5ab76646758f8b88075484d168`
 - Owner/session: Codex / 2026-10-23
-- Status: implementation and development deployment verified; integrating into main for requested production release; Van business acceptance pending
+- Status: implementation, development and production deployment verified; Van business acceptance pending
 - Scope: 完工入库按相同商品、规格、目标仓合并操作；展示目标仓名称；保留每张工单的库存与审计追溯。
 - DEV: DEV-858-GROUPING, DEV-859-BATCH-POSTING, DEV-860-WAREHOUSE-LABEL, DEV-861-DELIVERY
 - Verifier:
@@ -6194,6 +6194,6 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OPERATION_MANUALS.md`
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`; no real inventory writes
 - Development: deployed at `3a2169997fba68e9ab6322adf447d7aa66ac8b64`; runtime and authenticated feature route verified. DEV-858 through DEV-861 are done; PR-725 remains review for Van acceptance.
-- Production: requested by Van; clean-main integration and release gates in progress. No real production inventory writes. Development release evidence: `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`.
-- Last update: 2026-10-23
+- Production: deployed `7883f1aa3beb0f5ab76646758f8b88075484d168` on 2026-10-24 after cache and archived journal cleanup. Full release gates and authenticated feature/API checks passed; 10 task quantity projections and finished-receipt database aggregates unchanged. Rollback image: `kferp-orderapp-rollback:production-20261024084152-7883f1aa3beb`. Evidence: `orderapp-remote/docs/acceptance/2026-10-23-completion-merged-inbound.md`.
+- Last update: 2026-10-24
 - Notes: reserve_req_id.sh identified PR-725; auto-claim failed on the existing macOS awk multiline argument, so this entry was reserved manually.
