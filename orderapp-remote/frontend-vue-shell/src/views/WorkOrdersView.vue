@@ -405,7 +405,7 @@ function workOrderTodo(row) {
   const items = operationSummaryRows(row)
   if (!items.length) return { title: '等待生成工序任务', detail: '请查看工单的工序配置', action: 'summary' }
   const incomplete = items.filter((item) => !['completed', 'cancelled'].includes(String(item.status || '').trim()))
-  if (!incomplete.length) return { title: '待完工入库', detail: '核对本次产出并过账', action: 'receipt' }
+  if (!incomplete.length) return { title: '查看完成记录', detail: '历史数据可在生产记录中核对', action: 'receipt' }
   const assignments = todayRoster.value?.assignments || []
   const assignmentFor = item => assignments.find(assignment => Number(item.workstation_id || 0) > 0
     ? Number(assignment.workstation_id) === Number(item.workstation_id)
@@ -433,7 +433,7 @@ function workOrderTodo(row) {
 }
 
 function primaryActionLabel(row) {
-  return { receipt: '去完工入库', workstation: '进入工位', roster: '查看排班', retry: '重试' }[workOrderTodo(row).action] || '查看状态'
+  return { receipt: '生产记录与核对', workstation: '进入工位', roster: '查看排班', retry: '重试' }[workOrderTodo(row).action] || '查看状态'
 }
 
 function openPrimaryAction(row) {

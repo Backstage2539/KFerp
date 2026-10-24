@@ -279,6 +279,9 @@ func pickingTransferQuantities(item app.StockDocumentItemRow) (int64, int64) {
 
 func recordPickingConsumptionTx(ctx context.Context, tx pgx.Tx, schema string, detail app.StockDocumentDetail, direction int64) error {
 	for _, item := range detail.Items {
+		if isOperationConsumption(ctx, detail.WorkOrderID) && item.ItemType == itemTypeFinishedProduct {
+			continue
+		}
 		rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT a.material_batch_id,a.qty_g,a.qty_units FROM %s.stock_entry_batch_allocations a WHERE a.stock_entry_item_id=$1 ORDER BY a.id`, schema), item.ID)
 		if err != nil {
 			return err
@@ -299,7 +302,7 @@ func recordPickingConsumptionTx(ctx context.Context, tx pgx.Tx, schema string, d
 			return err
 		}
 		for _, a := range allocations {
-			rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,CASE WHEN $5>0 THEN GREATEST(0,reserved_g-consumed_g-returned_g) ELSE consumed_g END,CASE WHEN $5>0 THEN GREATEST(0,reserved_units-consumed_units-returned_units) ELSE consumed_units END FROM %s.work_order_material_reservation_batches WHERE work_order_id=$1 AND material_batch_id=$2 AND warehouse='wip' AND owner_customer_id=$3 AND component_id=$4 AND status IN('reserved','consumed') ORDER BY id FOR UPDATE`, schema), detail.WorkOrderID, a.id, item.OwnerCustomerID, item.MaterialID, direction)
+			rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,CASE WHEN $5>0 THEN GREATEST(0,reserved_g-consumed_g-returned_g) ELSE consumed_g END,CASE WHEN $5>0 THEN GREATEST(0,reserved_units-consumed_units-returned_units) ELSE consumed_units END FROM %s.work_order_material_reservation_batches WHERE work_order_id=$1 AND material_batch_id=$2 AND warehouse=$6 AND owner_customer_id=$3 AND component_id=$4 AND status IN('reserved','consumed') ORDER BY id FOR UPDATE`, schema), detail.WorkOrderID, a.id, item.OwnerCustomerID, item.MaterialID, direction, item.FromWarehouse)
 			if err != nil {
 				return err
 			}
@@ -326,9 +329,16 @@ func recordPickingConsumptionTx(ctx context.Context, tx pgx.Tx, schema string, d
 				g -= takeG
 				n -= takeN
 			}
-			if g > 0 || n > 0 {
-				return fmt.Errorf("WIP 冻结批次的可耗用数量已变化")
+			if (g > 0 || n > 0) && direction > 0 && isOperationConsumption(ctx, detail.WorkOrderID) {
+				if err := recordOperationFreeConsumptionTx(ctx, tx, schema, detail, item, a.id, g, n); err != nil {
+					return err
+				}
+				g, n = 0, 0
 			}
+			if g > 0 || n > 0 {
+				return fmt.Errorf("来源批次可耗用数量已变化")
+			}
+
 		}
 	}
 	return nil

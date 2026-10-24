@@ -252,6 +252,13 @@ func validateReceiptQuantityTx(ctx context.Context, tx pgx.Tx, schema string, id
 
 func (r Repository) CorrectJobCardOutput(ctx context.Context, cmd app.CorrectJobCardOutputCommand) (app.FinishedReceiptTask, error) {
 	var empty app.FinishedReceiptTask
+	var automatic bool
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted')`, r.schema), cmd.ID).Scan(&automatic); err != nil {
+		return empty, err
+	}
+	if automatic {
+		return r.correctOperationOutput(ctx, cmd)
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return empty, err

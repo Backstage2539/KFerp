@@ -84,6 +84,11 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 				return next(c)
 			}
 			permission := requiredPermissionForRequest(c.Request().Method, c.Request().URL.Path)
+			if stockPermission := operationCompletionStockPermission(c.Request().Method, c.Request().URL.Path); stockPermission != "" {
+				if err := requireCurrentPermission(c, authz, stockPermission); err != nil {
+					return err
+				}
+			}
 			if permission == "" {
 				return next(c)
 			}
@@ -93,6 +98,20 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+func operationCompletionStockPermission(method, path string) string {
+	path = strings.TrimPrefix(path, "/app")
+	if method == http.MethodGet && (strings.HasSuffix(path, "/completion-preview") || strings.HasSuffix(path, "/conversion-preview") || path == "/api/production/process-balances" || path == "/api/production/records") {
+		return "stock.read"
+	}
+	if method == http.MethodPost && ((strings.HasPrefix(path, "/api/job-cards/") && strings.HasSuffix(path, "/complete")) || (strings.HasPrefix(path, "/api/produce/job-cards/") && strings.HasSuffix(path, "/correct-output")) || path == "/api/production/legacy-review/submit" || path == "/api/production/operation-conversion") {
+		return "stock.write"
+	}
+	if strings.HasPrefix(path, "/api/production/legacy-review") {
+		return "stock.read"
+	}
+	return ""
 }
 
 func isProductCatalogFeatureSelectionReadRequest(method, path string) bool {

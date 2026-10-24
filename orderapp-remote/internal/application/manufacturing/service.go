@@ -2,6 +2,7 @@ package manufacturing
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -145,6 +146,7 @@ type ProcessTemplate struct {
 }
 
 type ProcessRouteOperation struct {
+	ExecutionJSON            string  `json:"execution_json"`
 	ID                       int64   `json:"id"`
 	RouteID                  int64   `json:"route_id"`
 	Seq                      int     `json:"seq"`
@@ -607,11 +609,42 @@ func (s *Service) SaveProcessRoute(ctx context.Context, cmd SaveProcessRouteComm
 	if len(cmd.Operations) == 0 {
 		return ProcessRoute{}, fmt.Errorf("operations required")
 	}
+	maxSeq := 0
 	for i := range cmd.Operations {
+		if cmd.Operations[i].Seq <= 0 {
+			cmd.Operations[i].Seq = i + 1
+		}
+		if cmd.Operations[i].Seq > maxSeq {
+			maxSeq = cmd.Operations[i].Seq
+		}
+	}
+	seenSeq := map[int]bool{}
+	seenNode := map[string]bool{}
+	for i := range cmd.Operations {
+		if seenSeq[cmd.Operations[i].Seq] {
+			return ProcessRoute{}, fmt.Errorf("工序顺序不能重复")
+		}
+		seenSeq[cmd.Operations[i].Seq] = true
 		op, err := normalizeProcessRouteOperation(cmd.Operations[i], i+1)
 		if err != nil {
 			return ProcessRoute{}, err
 		}
+		var key [16]byte
+		if _, err = rand.Read(key[:]); err != nil {
+			return ProcessRoute{}, err
+		}
+		op.ExecutionJSON, err = NormalizeRouteExecution(op.ExecutionJSON, op.Seq == maxSeq, fmt.Sprintf("step-%x", key))
+		if err != nil {
+			return ProcessRoute{}, err
+		}
+		var execution RouteExecution
+		if err = json.Unmarshal([]byte(op.ExecutionJSON), &execution); err != nil {
+			return ProcessRoute{}, err
+		}
+		if seenNode[execution.NodeKey] {
+			return ProcessRoute{}, fmt.Errorf("工序身份重复，请重新添加工序")
+		}
+		seenNode[execution.NodeKey] = true
 		op, err = s.applyStandardCostCapacitySnapshot(ctx, op)
 		if err != nil {
 			return ProcessRoute{}, err

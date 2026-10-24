@@ -1155,6 +1155,7 @@ type ProductionWorkstationLoad struct {
 }
 
 type ProductionTask struct {
+	AutomaticCompletion  bool    `json:"automatic_completion"`
 	HasPredecessor       bool    `json:"has_predecessor"`
 	PredecessorCompleted bool    `json:"predecessor_completed"`
 	PredecessorOutputQty float64 `json:"predecessor_output_qty"`
@@ -1806,6 +1807,13 @@ type WorkOrderDetail struct {
 }
 
 type JobCardActionCommand struct {
+	RequestID        string                 `json:"request_id"`
+	ExpectedVersion  string                 `json:"expected_version"`
+	InputUnit        string                 `json:"input_unit"`
+	OutputUnit       string                 `json:"output_unit"`
+	DifferenceReason string                 `json:"difference_reason"`
+	Materials        []OperationMaterialUse `json:"materials"`
+
 	ID                   int64
 	EmployeeID           int64
 	AssignedEmployeeName string
@@ -1822,8 +1830,9 @@ type JobCardActionCommand struct {
 }
 
 type JobCardActionResult struct {
-	JobCard   JobCardRow   `json:"job_card"`
-	WorkOrder WorkOrderRow `json:"work_order"`
+	Completion *OperationCompletionReceipt `json:"completion,omitempty"`
+	JobCard    JobCardRow                  `json:"job_card"`
+	WorkOrder  WorkOrderRow                `json:"work_order"`
 }
 
 type MaterialPlanQuery struct {
@@ -3553,7 +3562,7 @@ func (s *Service) transitionJobCard(ctx context.Context, cmd JobCardActionComman
 	if cmd.ActualMinutes < 0 {
 		return JobCardActionResult{}, fmt.Errorf("actual_minutes must be >= 0")
 	}
-	if cmd.ActualInputQty > 0 {
+	if cmd.ActualInputQty > 0 && (cmd.InputUnit == "" || cmd.InputUnit == cmd.OutputUnit) {
 		lossQty, lossRate, err := productiondomain.ActualLossMetrics(cmd.ActualInputQty, cmd.ActualOutputQty)
 		if err != nil {
 			return JobCardActionResult{}, err
@@ -3711,6 +3720,58 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 			}
 		}
 	}
+	for i := range tasks {
+		task := &tasks[i]
+		wo := workOrderByID[task.WorkOrderID]
+		var frozen struct {
+			Operations []struct {
+				Seq           int    `json:"seq"`
+				ExecutionJSON string `json:"execution_json"`
+			} `json:"operations"`
+		}
+		_ = json.Unmarshal([]byte(wo.ProcessSnapshotJSON), &frozen)
+		for _, op := range frozen.Operations {
+			if op.Seq != task.SequenceNo {
+				continue
+			}
+			var config OperationExecution
+			if json.Unmarshal([]byte(op.ExecutionJSON), &config) == nil && config.Version == 1 {
+				task.AutomaticCompletion = true
+				task.StockAction = ""
+				task.MaterialReadiness = nil
+				task.MaterialReadinessState = "ready"
+				task.MaterialDataComplete = true
+				task.AvailableActions = []string{"complete", "report_exception"}
+				if task.Status == "running" {
+					task.AvailableActions = append(task.AvailableActions, "pause")
+				} else if task.Status == "paused" {
+					task.AvailableActions = append(task.AvailableActions, "resume")
+				} else {
+					task.AvailableActions = append(task.AvailableActions, "start")
+				}
+				task.CanComplete = true
+				task.CanStart = true
+				task.BlockingReason = ""
+				qualityReasons := []ProductionBlockingReason{}
+				for _, reason := range task.BlockingReasons {
+					if strings.Contains(reason.Code, "quality") {
+						qualityReasons = append(qualityReasons, reason)
+					}
+				}
+				task.BlockingReasons = qualityReasons
+				task.IsBlocked = len(qualityReasons) > 0
+				if task.IsBlocked {
+					task.CanComplete = false
+					task.CanStart = false
+					task.BlockingReason = qualityReasons[0].Label
+					task.AvailableActions = []string{"report_exception"}
+				}
+				task.ReadinessLabel = "完成时自动用料"
+				task.Readiness = "ready"
+			}
+			break
+		}
+	}
 	if _, ok := s.repo.(productionRosterRepository); ok {
 		filtered := make([]ProductionTask, 0, len(tasks))
 		for i := range tasks {
@@ -3737,6 +3798,8 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 						task.IsBlocked = true
 						task.CanStart = false
 						task.AvailableActions = removeProductionAction(task.AvailableActions, "start")
+						task.AvailableActions = removeProductionAction(task.AvailableActions, "complete")
+						task.CanComplete = false
 						task.BlockingReasons = append(task.BlockingReasons, ProductionBlockingReason{Code: "roster_unattended", Label: "今日该工位无人值班，请先完成排班", Severity: "blocking", NextHandler: "生产排班"})
 						if task.BlockingReason == "" || task.BlockingReason == "未分配处理人" {
 							task.BlockingReason = "今日该工位无人值班"

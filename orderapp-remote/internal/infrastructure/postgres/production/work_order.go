@@ -20,6 +20,7 @@ func workOrderNo(runningItemID int64) string {
 }
 
 type processSnapshotOperation struct {
+	ExecutionJSON           string  `json:"execution_json,omitempty"`
 	Seq                     int     `json:"seq"`
 	OperationID             int64   `json:"operation_id"`
 	WorkstationID           int64   `json:"workstation_id"`
@@ -888,7 +889,7 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 		       0::float8,
 		       pro.records_loss,
 		       COALESCE(mo.note,''),
-		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
+		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text,COALESCE(pro.execution_json,'{}'::jsonb)::text
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
 		WHERE pro.route_id=$1
@@ -904,7 +905,7 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
 			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
 			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
-			&op.RecordsLoss, &op.ProcessRequirement, &op.QualityChecklistJSON,
+			&op.RecordsLoss, &op.ProcessRequirement, &op.QualityChecklistJSON, &op.ExecutionJSON,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -1086,6 +1087,9 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 				return 0, err
 			}
 		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.work_orders w SET operation_material_bindings=COALESCE((SELECT bindings FROM %[1]s.production_bom_operation_bindings WHERE bom_version_id=w.bom_version_id AND bom_variant_id=w.bom_variant_id),'{}'::jsonb) WHERE w.id=$1`, schema), workOrderID); err != nil {
+		return 0, err
 	}
 	if _, err := assignDefaultLeadsToPendingJobCardsTx(ctx, tx, schema, workOrderID); err != nil {
 		return 0, err
@@ -1308,7 +1312,7 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 		       0::float8,
 		       pro.records_loss,
 		       COALESCE(mo.note,''),
-		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
+		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text,COALESCE(pro.execution_json,'{}'::jsonb)::text
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
 		WHERE pro.route_id=$1
@@ -1327,7 +1331,7 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
 			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
 			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
-			&op.RecordsLoss, &op.ProcessRequirement, &op.QualityChecklistJSON,
+			&op.RecordsLoss, &op.ProcessRequirement, &op.QualityChecklistJSON, &op.ExecutionJSON,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -1986,6 +1990,9 @@ func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.
 	if guardStatus == "completed" {
 		var oldMetrics, newMetrics map[string]any
 		_ = json.Unmarshal([]byte(guardMetrics), &oldMetrics)
+		if oldMetrics["completion_event_id"] != nil {
+			return fmt.Errorf("已过账工序请从生产记录统一更正数量、库存与成本")
+		}
 		_ = json.Unmarshal([]byte(cmd.MetricsJSON), &newMetrics)
 		changed := guardOutput != cmd.ActualOutputQty
 		for _, key := range []string{"finished_units", "inventory_unit", "quantity_basis"} {

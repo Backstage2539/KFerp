@@ -116,7 +116,7 @@ export function buildExecutionHubActions(hub = {}) {
   const actions = [
     { key: 'assignTask', label: '分配任务', action_type: 'navigate', view: 'workstationView', params: actionParams(hub, { focus: 'assignment' }) },
     { key: 'openWorkstation', label: '进入工位', action_type: 'navigate', view: 'workstationView', params: actionParams(hub, { focus: 'workstation_task' }) },
-    { key: 'finishedReceipt', label: '完工入库', action_type: 'navigate', view: 'productionAcceptance', params: actionParams(hub) },
+    { key: 'finishedReceipt', label: '生产记录与核对', action_type: 'navigate', view: 'productionAcceptance', params: actionParams(hub) },
     { key: 'openOperationRecords', label: '工序记录', action_type: 'navigate', view: 'jobCards', params: actionParams(hub) },
     { key: 'openQuality', label: '查看质检', action_type: 'navigate', view: 'qualityInspections', params: actionParams(hub, { reference_no: wo.work_order_no }) },
     { key: 'openCost', label: '成本', action_type: 'navigate', view: 'productionCosts', params: actionParams(hub) },

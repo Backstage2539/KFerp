@@ -650,6 +650,7 @@
                 </label>
               </div>
             </div>
+            <OperationMaterialConfig v-if="selectedProductionBomVersion?.id" :key="`${selectedProductionBomVersion.id}:${selectedBomVariant?.bom_variant_id || selectedBomVariant?.id || 0}`" :version-id="Number(selectedProductionBomVersion.id)" :variant-id="Number(selectedBomVariant?.bom_variant_id || selectedBomVariant?.id || 0)" />
             <p :class="['recipe-mode-hint', { warn: recipeConsumeMode === 'mixed_legacy' }]">
               配方模式：{{ recipeConsumeModeLabel }}。新配方使用固定用量；历史比例配方保持只读兼容。
             </p>
@@ -777,6 +778,7 @@
 </template>
 
 <script setup>
+import OperationMaterialConfig from '../components/OperationMaterialConfig.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
