@@ -262,7 +262,7 @@ test('price-list spec selection normalization preserves an invalid draft row for
   ])
 })
 
-test('price-list default changes require an explicit keep-or-switch decision while explicit selections remain frozen', () => {
+test('price-list default changes preserve selections without confirmation', () => {
   const families = buildPriceListProductFamilies(multiSpecProducts).map((family) => (
     family.parent_product_id === 1 ? { ...family, default_sku_id: 2 } : family
   ))
@@ -271,15 +271,13 @@ test('price-list default changes require an explicit keep-or-switch decision whi
     { parent_product_id: 1, sku_id: 3, selection_source: 'product_default', default_sku_id_at_selection: 3 },
   ], families)
   assert.equal(staleDefault[0].sku_id, 3)
-  assert.equal(staleDefault[0].selection_issue, 'default_changed')
-  assert.equal(staleDefault[0].current_default_sku_id, 2)
-  assert.equal(priceListProductSpecSelectionIssue(families[0], staleDefault)?.type, 'default_changed')
-  assert.deepEqual(resolvePriceListProductSpecSelectionIssue(staleDefault, families[0], 'keep'), [
-    { parent_product_id: 1, sku_id: 3, selection_source: 'explicit', default_sku_id_at_selection: 2 },
-  ])
-  assert.deepEqual(resolvePriceListProductSpecSelectionIssue(staleDefault, families[0], 'switch'), [
-    { parent_product_id: 1, sku_id: 2, selection_source: 'product_default', default_sku_id_at_selection: 2 },
-  ])
+  assert.equal(staleDefault[0].selection_issue, undefined)
+  assert.equal(priceListProductSpecSelectionIssue(families[0], staleDefault), null)
+  for (const selection_issue of ['default_changed', 'default_bom_changed']) {
+    const old = [{ ...staleDefault[0], selection_issue }]
+    assert.equal(priceListProductSpecSelectionIssue(families[0], old), null)
+    assert.deepEqual(normalizePriceListProductSpecSelections(old, families), staleDefault)
+  }
   assert.deepEqual(normalizePriceListProductSpecSelections([
     { parent_product_id: 1, sku_id: 3, selection_source: 'explicit', default_sku_id_at_selection: 3 },
   ], families), [

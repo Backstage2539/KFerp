@@ -182,14 +182,16 @@ test('an explicitly entered price stays fixed after refresh even when it equaled
   assert.equal(row.original_final_unit_price, 66)
 })
 
-test('repeated refresh cannot silently confirm an unresolved BOM version change', async () => {
+test('repeated refresh updates valid BOM identities and never resurrects obsolete warnings or changes manual prices', async () => {
   const { state, run, stop } = setup()
-  state.productSpecSelectionsByType.value.beans = [{ parent_product_id: 1, sku_id: 11, bom_spec_id: 11, bom_version_id: 1 }]
+  state.productSpecSelectionsByType.value.beans = [{ parent_product_id: 1, sku_id: 11, bom_spec_id: 11, bom_version_id: 1, selection_issue: 'default_bom_changed' }]
   state.pdfAvailableItems.value = [{ parent_product_id: 1, default_sku_id: 11, sku_options: [{ sku_id: 11, bom_spec_id: 11, bom_version_id: 2 }] }]
   await run('products')
-  assert.equal(state.productSpecSelectionsByType.value.beans[0].selection_issue, 'default_bom_changed')
+  assert.equal(state.productSpecSelectionsByType.value.beans[0].selection_issue, undefined)
+  assert.equal(state.productSpecSelectionsByType.value.beans[0].bom_version_id, 2)
   await run('products')
-  assert.equal(state.productSpecSelectionsByType.value.beans[0].selection_issue, 'default_bom_changed')
+  assert.equal(state.productSpecSelectionsByType.value.beans[0].selection_issue, undefined)
+  assert.deepEqual(plain(state.priceListFlatRowOverrides.value), { manual: 99 })
   stop()
 })
 

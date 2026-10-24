@@ -1,3 +1,12 @@
+### PR-727-DEFAULT-SPEC-INITIAL-ONLY
+- Branch: codex/default-spec-initial-only; base origin/develop c0c8da28.
+- Scope: default specification is initial selection and badge only; refresh valid BOM identities without confirmation, preserve quotes, retain actual selection validation.
+- DEV: DEV-866 selection and restore; DEV-867 publication validation; DEV-868 manuals and development delivery.
+- Status: implementation verified; Vue1578/all Go/build/changed and isolated DOM/browser checks pass; Van acceptance pending.
+- Verifier: selection/refresh/editor regressions, costing service and HTTP tests, Vue tests/build, backend gates, isolated UI verification.
+- Deployment: development integration pending; production excluded. Evidence: orderapp-remote/docs/acceptance/2026-10-24-default-spec-initial-only.md; ../evidence/default-spec.
+- Notes: reservation script --claim fails on macOS awk newline handling; PR-727 reserved here.
+
 ### PR-718-RETAINED-STOCK-FOLLOWUP
 - Branch: codex/retained-stock-order-display; base origin/develop@470018f9.
 - Scope: web retained production/receipt status, conditional recipient/courier UI, stable Teleport draft mode synchronization, whole-order receipt status preservation. No migration, API expansion, miniapp change or production data repair.
