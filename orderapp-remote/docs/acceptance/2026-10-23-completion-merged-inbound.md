@@ -23,4 +23,25 @@
 
 超工单剩余数量仍由原完工接口拒绝，合并入口不会绕过该保护。单工单失败会保留失败原因并显示已完成部分；现场如遇该提示，应打开对应工单核对计划剩余量和末道报工数。
 
-本记录证明代码、自动测试与隔离浏览器交互。开发环境部署和运行态核验另行记录；生产部署、真实工单入库及 Van 业务验收不在本次交付范围。
+本记录证明代码、自动测试、隔离浏览器交互及下列环境发布核验。真实工单入库及 Van 业务验收仍待现场完成。
+
+## 环境发布与只读核验（2026-10-24）
+
+- 开发环境：PR #283 合入 develop，部署版本 `3a2169997fba68e9ab6322adf447d7aa66ac8b64`，运行状态和认证页面检查通过。
+- 生产环境：PR #285 从最新 main 基线集成，发布提交 `7883f1aa3beb0f5ab76646758f8b88075484d168`；候选预检与正式发布均通过。正式命令为 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production`。
+- 正式门禁：Vue 1,569/1,569、Vue 生产构建、小程序 432 项测试/类型检查/生产编译与 24 页清单、服务器 Go 全包测试、镜像内 Go 全包测试和应用编译均通过。`pdfjs-dist` 在 Node 20 下有引擎警告，未阻断测试或构建。
+- 发布前发现根盘满、PostgreSQL 恢复因无空间失败。按 Van 授权清理 Docker/Go/npm/系统软件包缓存及七天以前的归档系统日志；保留数据库、业务数据、操作日志、源码备份及回滚镜像。数据库恢复 healthy，完工列表 API 恢复 HTTP 200。正式发布前可用空间约 6.0 GB，发布后再清理构建缓存，最终约 5.8 GB 可用。
+- 运行态：`erp_prod_orderapp` running、重启计数 0；`erp_prod_postgres` healthy。外网 `/app/login` 返回 200，匿名 `/app/` 返回 401，认证完工页面及列表/仓库/PR/DEV API 返回 200。
+- 生产运行镜像：`sha256:cc4e9622ae2f4490d974660783df17504a221111beb5593c3398d040d961542f`。
+- 实际 HTTP 提供的 `ProductionAcceptanceView-jlh6KW8o.js` 与运行容器文件 SHA-256 相同：`43549e991e496e3c94e01248875e529395c5cd40690a247401a2e9dec048d197`；包含合并核对、自动来源备注等文案。运行容器生产手册包含合并入库说明。
+- 生产只读列表共 10 张任务，按页面状态和身份分组为 10 组，仓库名称全部解析成功。当前生产数据没有多工单同组样本，因此生产核验未执行真实合并提交；多工单合组及部分失败继续由前述隔离 fixture 和自动测试覆盖。
+- 发布前后按工单排序的 `work_order_id / reported_qty / received_qty / available_qty / receipt_status / target_warehouse` 投影完全一致，SHA-256 为 `26933b427df9bafc8402494e1a63c0bdffc2736277f876533871cd028e9be304`。
+- READ ONLY 数据库快照一致：完工入库单 2 张、最大 ID 50；明细 2 条、`qty_g` 合计 99,500、`qty_units` 合计 0；完工 POST 操作日志 10 条、成功 2 条、最大 ID 240633。GET 访问日志可能正常增加，不作为业务写入判断依据。
+- 进度 API：PR-725 为 review；DEV-858 至 DEV-861 均为 done，保留 Van 业务验收状态。
+- 原始部署日志和只读快照留在执行机 `/private/tmp/pr725-production-evidence-20261024/`；本文件保留可持久复核的摘要。
+
+### 回滚锚点
+
+- 旧源码：`/opt/stacks/erp-production/orderapp.backup.deploy-20261024084152-7883f1aa3beb`。
+- 回滚镜像：`kferp-orderapp-rollback:production-20261024084152-7883f1aa3beb`，已验证仍指向原运行镜像 `sha256:d06374e799f84e54c7659660adbb783ece87a65cc08ebed3ab351b80a9be4142`。
+- 本次未上传、审核或发布微信小程序，也未执行真实完工入库。
