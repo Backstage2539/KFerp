@@ -1,0 +1,253 @@
+{
+  "production_commit": "f2a5e242a36d4ad9fc84e5b5e63e9401fddd9596",
+  "develop_commit": "d3c72ce4ab17dda52cab342202554769e4ef4bf0",
+  "production_release_snapshots_equal": true,
+  "production_checks": [
+    {
+      "path": "/",
+      "status": 401,
+      "bytes": 0
+    },
+    {
+      "path": "/api/production/records",
+      "status": 401,
+      "bytes": 26
+    },
+    {
+      "path": "/",
+      "status": 303,
+      "bytes": 0,
+      "location": "orders"
+    },
+    {
+      "path": "/vue-shell?view=workstationView",
+      "status": 200,
+      "bytes": 830
+    },
+    {
+      "path": "/vue-shell?view=productionAcceptance",
+      "status": 200,
+      "bytes": 830
+    },
+    {
+      "path": "/api/production/records",
+      "status": 200,
+      "bytes": 1602,
+      "shape": [
+        "rows"
+      ],
+      "rows": 3
+    },
+    {
+      "path": "/api/production/process-balances",
+      "status": 200,
+      "bytes": 12,
+      "shape": [
+        "rows"
+      ],
+      "rows": 0
+    },
+    {
+      "path": "/api/production/workstation-overview?limit=500",
+      "status": 200,
+      "bytes": 48994,
+      "shape": [
+        "date",
+        "total_tasks",
+        "today_summary",
+        "nav_badges",
+        "status_summary",
+        "blocked_summary",
+        "priority_summary",
+        "workstation_load",
+        "tasks"
+      ],
+      "automatic_marker": true
+    },
+    {
+      "path": "/api/req/product?limit=1000",
+      "status": 200,
+      "bytes": 190549,
+      "shape": [
+        "has_next",
+        "has_prev",
+        "limit",
+        "page",
+        "rows",
+        "table",
+        "title",
+        "total",
+        "total_pages",
+        "type"
+      ],
+      "rows": 500,
+      "pr728_present": true
+    },
+    {
+      "path": "/vue-shell/assets/ProductionAcceptanceView-DN54vUBJ.js",
+      "status": 200,
+      "bytes": 12804
+    },
+    {
+      "asset": "ProductionAcceptanceView-DN54vUBJ.js",
+      "sha256": "55b375afde767994d5d60b76353c0fbc2cf6ac7b56c29539d72d5b8f1db39a6b",
+      "source_runtime_public_match": true
+    },
+    {
+      "path": "/vue-shell/assets/WorkstationView-DLAjM7CU.js",
+      "status": 200,
+      "bytes": 42136
+    },
+    {
+      "asset": "WorkstationView-DLAjM7CU.js",
+      "sha256": "43c60a267fd50a470dd4691f4822f546356971e363fad40e61f6fb960ba3fcce",
+      "source_runtime_public_match": true
+    },
+    {
+      "environment": "production",
+      "image": "sha256:d1c2d2b153753b3b2aff31a15f72cad3a0ae6d171c59f98c75743315d3d5f665",
+      "running": true,
+      "restart_count": 0,
+      "readonly_snapshots_unchanged": true,
+      "snapshots": {
+        "work_orders": "19:c96e9020951b3a709956dfc37aa23c60",
+        "job_cards": "22:87c480ad0e027da2ae279e0f77c42dbc",
+        "stock_entries": "51:be0013a937cb56c1556b7eed5658395d",
+        "stock_ledger_entries": "106:43c178bcdd674a34491282023126ce91",
+        "production_operation_events": "0:",
+        "audit_logs": "8329:176cbf97e201ff085b29e14fcc0d8a85"
+      }
+    },
+    {
+      "work_orders": "19:c46ffaf9614d32ee700f4b72c47ba21f",
+      "job_cards": "22:6d9199ffb397ae9ec30c3ccd9c9571dc",
+      "stock_entries": "51:0bf0f2f5fd564c7312287269d6a6fcb0",
+      "stock_ledger_entries": "106:109b462f702d88d7a8df32ac34138ea7",
+      "audit_logs": "8329:b3478fd8359c1f33e74096747c928b4e"
+    }
+  ],
+  "development_checks": [
+    {
+      "path": "/",
+      "status": 303,
+      "bytes": 0,
+      "location": "orders"
+    },
+    {
+      "path": "/api/production/records",
+      "status": 401,
+      "bytes": 26
+    },
+    {
+      "path": "/",
+      "status": 303,
+      "bytes": 0,
+      "location": "orders"
+    },
+    {
+      "path": "/vue-shell?view=workstationView",
+      "status": 200,
+      "bytes": 830
+    },
+    {
+      "path": "/vue-shell?view=productionAcceptance",
+      "status": 200,
+      "bytes": 830
+    },
+    {
+      "path": "/api/production/records",
+      "status": 200,
+      "bytes": 7774,
+      "shape": [
+        "rows"
+      ],
+      "rows": 13
+    },
+    {
+      "path": "/api/production/process-balances",
+      "status": 200,
+      "bytes": 12,
+      "shape": [
+        "rows"
+      ],
+      "rows": 0
+    },
+    {
+      "path": "/api/production/workstation-overview?limit=500",
+      "status": 200,
+      "bytes": 97934,
+      "shape": [
+        "date",
+        "total_tasks",
+        "today_summary",
+        "nav_badges",
+        "status_summary",
+        "blocked_summary",
+        "priority_summary",
+        "workstation_load",
+        "tasks"
+      ],
+      "automatic_marker": true
+    },
+    {
+      "path": "/api/req/product?limit=1000",
+      "status": 200,
+      "bytes": 197448,
+      "shape": [
+        "has_next",
+        "has_prev",
+        "limit",
+        "page",
+        "rows",
+        "table",
+        "title",
+        "total",
+        "total_pages",
+        "type"
+      ],
+      "rows": 500,
+      "pr728_present": true
+    },
+    {
+      "path": "/vue-shell/assets/ProductionAcceptanceView-DN54vUBJ.js",
+      "status": 200,
+      "bytes": 12804
+    },
+    {
+      "asset": "ProductionAcceptanceView-DN54vUBJ.js",
+      "sha256": "55b375afde767994d5d60b76353c0fbc2cf6ac7b56c29539d72d5b8f1db39a6b",
+      "source_runtime_public_match": true
+    },
+    {
+      "path": "/vue-shell/assets/WorkstationView-DLAjM7CU.js",
+      "status": 200,
+      "bytes": 42136
+    },
+    {
+      "asset": "WorkstationView-DLAjM7CU.js",
+      "sha256": "43c60a267fd50a470dd4691f4822f546356971e363fad40e61f6fb960ba3fcce",
+      "source_runtime_public_match": true
+    },
+    {
+      "environment": "development",
+      "image": "sha256:ac6f00ea32461119de737df97463f11138ffcba4ea94c6008ddafd875f21a818",
+      "running": true,
+      "restart_count": 0,
+      "readonly_snapshots_unchanged": true,
+      "snapshots": {
+        "work_orders": "61:4972966190b0e71fbd2df3ec347af288",
+        "job_cards": "90:790d61d4a8e71c5f33576014d7e2300f",
+        "stock_entries": "40:14459cdd3387b27cf4a6d65b0686c533",
+        "stock_ledger_entries": "252:977552706d45aa9fe85392d135508e69",
+        "production_operation_events": "0:",
+        "audit_logs": "9820:272db547665e54dae182c9bdbc94e6ec"
+      }
+    }
+  ],
+  "development_isolated_suite": "PASS",
+  "frontend_tests": 1587,
+  "full_go": "PASS",
+  "existing_database_regression_failure_lines": 25,
+  "existing_database_regression_matches_baseline": true,
+  "business_acceptance": "pending Van and onsite real quantity review"
+}
