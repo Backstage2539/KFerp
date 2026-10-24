@@ -14,7 +14,8 @@ export function finishedReceiptGroupingKey(row = {}) {
     Number(row.bom_spec_id || 0),
     Number(row.spec_g || 0),
     String(row.output_unit || '').trim().toLowerCase(),
-    Number(row.customer_id || 0),
+    Number(row.inventory_owner_customer_id ?? row.customer_id ?? 0),
+    String(row.package_spec_label || '').trim(),
     String(row.target_warehouse || '').trim(),
   ])
 }
@@ -37,7 +38,7 @@ export function groupFinishedReceiptTasks(rows = [], warehouses = []) {
         available_qty: 0,
         processable_qty: 0,
         blocked_count: 0,
-        warehouse_name: warehouse?.name || (warehouseCode ? '仓库名称未加载' : '按工单冻结仓库'),
+        warehouse_name: row.target_warehouse_name || warehouse?.name || (warehouseCode ? '仓库名称未加载' : '按工单冻结仓库'),
       }
       grouped.set(key, group)
     }
@@ -45,7 +46,7 @@ export function groupFinishedReceiptTasks(rows = [], warehouses = []) {
     group.reported_qty += amount(row.reported_qty)
     group.received_qty += amount(row.received_qty)
     group.available_qty += amount(row.available_qty)
-    if (row.quality_blocked) group.blocked_count += 1
+    if (row.quality_blocked || row.blocked_reason) group.blocked_count += 1
     else group.processable_qty += amount(row.available_qty)
   }
   return [...grouped.values()]
@@ -59,7 +60,7 @@ export function finishedReceiptBatchPlan(group = {}, requestedQuantity = group.p
   let remaining = amount(requestedQuantity)
   const plan = []
   for (const row of group.rows || []) {
-    if (row.quality_blocked || remaining <= 0) continue
+    if (row.quality_blocked || row.blocked_reason || remaining <= 0) continue
     const quantity = Math.min(amount(row.available_qty), remaining)
     if (quantity <= 0) continue
     plan.push({ work_order_id: Number(row.work_order_id), work_order_no: String(row.work_order_no || ''), quantity })
@@ -86,4 +87,28 @@ export async function executeFinishedReceiptBatch(group, requestedQuantity, subm
     }
   }
   return { succeeded, failed }
+}
+
+export function receiptCompletionMode(row, quantity) {
+  return Number(quantity) < Number(row.remaining_plan_qty ?? row.available_qty) ? 'partial' : 'final'
+}
+
+export function receiptSpecLabel(row) {
+  return row.package_spec_label || (Number(row.spec_g) > 0 ? `${row.spec_g}g/${row.output_unit || '袋'}` : (row.output_type === 'material' ? row.output_unit : '规格未确认'))
+}
+
+// Retain the original request body after an uncertain response; successful rows are never resent.
+export function createReceiptAttempt(group, quantity, payload) {
+  return { unit: group.output_unit, items: finishedReceiptBatchPlan(group, quantity).map(item => {
+    const row = group.rows.find(source => Number(source.work_order_id) === item.work_order_id)
+    return { ...item, row: { ...row }, payload: payload(row, item), succeeded: false, reason: '', result: null }
+  }) }
+}
+export async function runReceiptAttempt(attempt, submit) {
+  for (const item of attempt.items) {
+    if (item.succeeded) continue
+    try { item.result = await submit(item.row, item.payload); item.succeeded = true; item.reason = '' }
+    catch (error) { item.reason = error?.message || '入库结果未确认，请重试原请求' }
+  }
+  return attempt
 }

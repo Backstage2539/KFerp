@@ -175,19 +175,20 @@ type StartExecutionCommand struct {
 }
 
 type FinishCommand struct {
-	ID               int64
-	WorkOrderID      int64
-	StockDocumentID  int64
-	RequestID        string
-	FinishedUnits    int64
-	FinishedLooseG   int64
-	HasFinishedInput bool
-	Warehouse        string
-	Partial          bool
-	ConsumedInputG   int64
-	Operator         string
-	Note             string
-	Outputs          []FinishOutputCommand
+	ExpectedReceiptVersion string `json:",omitempty"`
+	ID                     int64
+	WorkOrderID            int64
+	StockDocumentID        int64
+	RequestID              string
+	FinishedUnits          int64
+	FinishedLooseG         int64
+	HasFinishedInput       bool
+	Warehouse              string
+	Partial                bool
+	ConsumedInputG         int64
+	Operator               string
+	Note                   string
+	Outputs                []FinishOutputCommand
 }
 
 type FinishedOrder struct {
@@ -846,18 +847,19 @@ type WorkOrderStartResult struct {
 }
 
 type WorkOrderCompleteCommand struct {
-	CompletionMode   string
-	RequestID        string
-	ID               int64
-	StockDocumentID  int64
-	FinishedUnits    int64
-	FinishedLooseG   int64
-	FinishedQtyG     int64
-	FinishedQtyUnits int64
-	ConsumedInputG   int64
-	Warehouse        string
-	Operator         string
-	Note             string
+	ExpectedReceiptVersion string `json:",omitempty"`
+	CompletionMode         string
+	RequestID              string
+	ID                     int64
+	StockDocumentID        int64
+	FinishedUnits          int64
+	FinishedLooseG         int64
+	FinishedQtyG           int64
+	FinishedQtyUnits       int64
+	ConsumedInputG         int64
+	Warehouse              string
+	Operator               string
+	Note                   string
 }
 
 type WorkOrderCompleteResult struct {
@@ -1703,6 +1705,7 @@ type StockEntryRow struct {
 }
 
 type FinishedReceiptTask struct {
+	ReceiptQuantityContext
 	WorkOrderID      int64   `json:"work_order_id"`
 	WorkOrderNo      string  `json:"work_order_no"`
 	OutputType       string  `json:"output_type"`
@@ -3440,7 +3443,7 @@ func (s *Service) ListFinishedReceiptTasks(ctx context.Context, status string) (
 			continue
 		}
 		quality := buildProductionQualityStatus(workOrder, qualityRowsForWorkOrder(workOrder, qualityRows))
-		out = append(out, FinishedReceiptTask{
+		task := FinishedReceiptTask{
 			WorkOrderID: workOrder.ID, WorkOrderNo: workOrder.WorkOrderNo, OutputType: workOrder.OutputType,
 			OutputProductID: workOrder.OutputProductID, ProductID: workOrder.ProductID, OutputMaterialID: workOrder.OutputMaterialID,
 			BomSpecID: workOrder.BomSpecID, BomVariantID: workOrder.BomVariantID, CustomerID: workOrder.CustomerID,
@@ -3448,7 +3451,16 @@ func (s *Service) ListFinishedReceiptTasks(ctx context.Context, status string) (
 			OutputUnit: firstNonEmpty(workOrder.OutputUnit, workOrder.InventoryUnit), TargetWarehouse: workOrder.TargetWarehouse,
 			ReportedQty: reported, ReceivedQty: received, AvailableQty: available, ReceiptStatus: receiptStatus,
 			QualityStatus: quality.Status, QualityBlocked: quality.Status == "blocked", LastReportedAt: lastReportedAt,
-		})
+		}
+		if enricher, ok := s.repo.(interface {
+			EnrichFinishedReceiptTask(context.Context, FinishedReceiptTask) (FinishedReceiptTask, error)
+		}); ok {
+			task, err = enricher.EnrichFinishedReceiptTask(ctx, task)
+			if err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, task)
 	}
 	return out, nil
 }

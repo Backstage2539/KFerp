@@ -478,7 +478,7 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 	if incomplete > 0 && !partial {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("work order has unfinished job cards")
 	}
-	if wo.Status == "completed" {
+	if wo.Status == "completed" && cmd.RequestID == "" {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("work order already completed")
 	}
 	if wo.OutputType == "material" {
@@ -491,7 +491,7 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 	finished, err := r.Finish(ctx, productionapp.FinishCommand{
 		ID: wo.RunningItemID, WorkOrderID: wo.ID, StockDocumentID: cmd.StockDocumentID,
 		FinishedUnits: cmd.FinishedUnits, FinishedLooseG: cmd.FinishedLooseG, HasFinishedInput: true,
-		Warehouse: completionWarehouse, Partial: partial, RequestID: cmd.RequestID,
+		Warehouse: completionWarehouse, Partial: partial, RequestID: cmd.RequestID, ExpectedReceiptVersion: cmd.ExpectedReceiptVersion,
 		ConsumedInputG: cmd.ConsumedInputG, Operator: cmd.Operator, Note: cmd.Note,
 	})
 	if err != nil {

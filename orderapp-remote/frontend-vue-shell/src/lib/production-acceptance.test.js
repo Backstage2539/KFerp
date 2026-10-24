@@ -94,3 +94,40 @@ test('merged completion continues after a work order fails and keeps per-order r
   assert.deepEqual(result.succeeded.map((item) => item.result.entry_no), ['SE-1', 'SE-3'])
   assert.deepEqual(result.failed.map((item) => [item.work_order_no, item.reason]), [['WO-002', '工单剩余件数不足']])
 })
+
+test('receipt groups use inventory owner instead of sales customer and show frozen spec', () => {
+  const group = groupFinishedReceiptTasks([
+    row({ customer_id: 471, inventory_owner_customer_id: 0, package_spec_label: '227g袋装', target_warehouse_name: '成品仓' }),
+    row({ work_order_id: 2, customer_id: 486, inventory_owner_customer_id: 0, package_spec_label: '227g袋装', target_warehouse_name: '成品仓' }),
+  ])
+  assert.equal(group.length, 1)
+  assert.equal(group[0].warehouse_name, '成品仓')
+  assert.equal(group[0].package_spec_label, '227g袋装')
+})
+
+test('receipt quantity anomaly excludes only the affected source', () => {
+  const group = groupFinishedReceiptTasks([
+    row({ blocked_reason: '报工14袋，计划1袋，需更正', available_qty: 14 }),
+    row({ work_order_id: 2, work_order_no: 'WO-002', available_qty: 3 }),
+  ])[0]
+  assert.equal(group.processable_qty, 3)
+  assert.deepEqual(finishedReceiptBatchPlan(group, 3).map(item => item.work_order_id), [2])
+})
+
+test('partial posting depends on remaining plan, not just unreceived report', async () => {
+  const { receiptCompletionMode } = await import('./production-acceptance.js')
+  assert.equal(receiptCompletionMode(row({ remaining_plan_qty: 10, available_qty: 3 }), 3), 'partial')
+  assert.equal(receiptCompletionMode(row({ remaining_plan_qty: 3 }), 3), 'final')
+})
+
+test('failed receipt retries reuse payload and do not repeat successful sources', async () => {
+  const { createReceiptAttempt, runReceiptAttempt } = await import('./production-acceptance.js')
+  const group = groupFinishedReceiptTasks([row({ available_qty: 1 }), row({ work_order_id: 2, work_order_no: 'WO-002', available_qty: 1 })])[0]
+  let nextID = 0
+  const attempt = createReceiptAttempt(group, 2, (source, item) => ({ request_id: `key-${++nextID}`, finished_units: item.quantity }))
+  const seen = []
+  await runReceiptAttempt(attempt, async (source, payload) => { seen.push(payload.request_id); if (source.work_order_id === 2) throw Error('响应丢失'); return {} })
+  await runReceiptAttempt(attempt, async (source, payload) => { seen.push(payload.request_id); return {} })
+  assert.deepEqual(seen, ['key-1', 'key-2', 'key-2'])
+  assert.equal(attempt.items.filter(item => item.succeeded).length, 2)
+})
