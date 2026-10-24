@@ -32,6 +32,23 @@ const drips = publication(152, 'V3.0.14', [
 const families = p => p.config.product_spec_selections.map(s => ({ parent_product_id: s.parent_product_id,
   default_sku_id: s.bom_spec_id, sku_options: [{ ...s, sku_id: s.bom_spec_id }] }))
 
+test('published tables restore valid specs at current BOM versions without changing fixed or inherited quotes', () => {
+  for (const p of [beans, drips]) {
+    const saved = structuredClone(p)
+    const current = families(p).map(f => ({ ...f, default_sku_id: 999,
+      sku_options: [...f.sku_options.map(s => ({ ...s, bom_version_id: s.bom_version_id + 1, bom_variant_id: s.bom_variant_id + 1 })), { sku_id: 999, bom_spec_id: 999 }] }))
+    const result = publicationEditorPayload(p, current)
+    assert.ok(result.draft.product_spec_selections.every(s => !s.selection_issue && s.sku_id !== 999))
+    for (const old of p.content.price_rows) {
+      const selected = result.draft.product_spec_selections.find(s => s.bom_spec_id === old.bom_spec_id)
+      assert.equal(selected.bom_version_id, old.bom_version_id + 1)
+      assert.equal(result.draft.productOverrides['sku:' + old.bom_spec_id].fixed_unit_price, old.final_unit_price)
+    }
+    assert.deepEqual(result.draft.customerPriceSeedRows.map(r => r.final_unit_price), p.content.price_rows.map(r => r.final_unit_price))
+    assert.deepEqual(p, saved)
+  }
+})
+
 for (const [p, count] of [[beans, 6], [drips, 5]]) test(p.version + ' restores every selected specification and fixed amount from public snapshot', () => {
   const source = structuredClone(p)
   const result = publicationEditorPayload(p, families(p))

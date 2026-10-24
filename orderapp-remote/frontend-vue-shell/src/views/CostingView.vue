@@ -575,13 +575,6 @@
               <div v-if="productSpecSelectionIssueForFamily(row)" class="product-spec-selection-warning">
                 <strong>{{ productSpecSelectionIssueForFamily(row).message }}</strong>
                 <div class="product-spec-selection-warning-actions">
-                  <button
-                    v-if="productSpecSelectionIssueForFamily(row).type === 'default_changed'"
-                    class="secondary compact"
-                    type="button"
-                    @click.stop="resolveProductSpecSelectionIssue(row, 'keep')">
-                    保留原规格
-                  </button>
                   <button class="secondary compact" type="button" @click.stop="resolveProductSpecSelectionIssue(row, 'switch')">切换当前默认规格</button>
                 </div>
               </div>
@@ -5266,11 +5259,7 @@ async function refreshPriceListData(kind) {
     priceListProductCatalogFeatureSelectionLoaded.value = true
     // Preserve current edits, including edits made while the request was pending.
     const selections = productSpecSelectionsByType.value[typeKey] || []
-    const refreshed = normalizePriceListProductSpecSelections(selections, pdfAvailableItems.value).map(row => {
-      const previous = selections.find(item => item.parent_product_id === row.parent_product_id && item.sku_id === row.sku_id)
-      // Only the explicit spec-resolution action can acknowledge a BOM change.
-      return previous?.selection_issue && !row.selection_issue ? { ...previous, ...row, selection_issue: previous.selection_issue } : row
-    })
+    const refreshed = normalizePriceListProductSpecSelections(selections, pdfAvailableItems.value)
     const removedCount = selections.length - refreshed.length
     productSpecSelectionsByType.value = {
       ...productSpecSelectionsByType.value,
@@ -6244,7 +6233,9 @@ async function saveNamedPriceTableBatch(publish) {
     if (unresolved) { error.value = `请先处理价格表「${unresolved.name}」的草稿版本冲突`; return }
     const invalid = validatePriceTableBatch(namedPriceTableBatch.value)
     if (invalid) { error.value = invalid; return }
-    if (publish) {
+    // Both draft and publication batches need current identities for every table,
+    // including tables the user has not opened since the catalogue changed.
+    {
       const activeKey = namedPriceTableBatch.value.active_table_key
       try {
         for (const table of namedPriceTableBatch.value.tables) {
@@ -6253,13 +6244,15 @@ async function saveNamedPriceTableBatch(publish) {
           if (activeNamedTableConflict.value) { error.value = `请先处理价格表「${table.name}」的草稿版本冲突`; return }
           await applyNamedPriceTablePayload()
           if (!current()) return
-          await loadPriceListPricingRuleTrials(currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
-          if (!current()) return
-          await Promise.allSettled([...priceListPricingRuleTasks])
+          if (publish) {
+            await loadPriceListPricingRuleTrials(currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
+            if (!current()) return
+            await Promise.allSettled([...priceListPricingRuleTasks])
+          }
           await nextTick()
           if (!current()) return
           table.payload = captureNamedPriceTablePayload()
-          if (table.payload.blocked_reason || !table.payload.content?.groups?.length) {
+          if (publish && (table.payload.blocked_reason || !table.payload.content?.groups?.length)) {
             error.value = `价格表「${table.name}」：${table.payload.blocked_reason || '请选择商品和规格'}`
             return
           }

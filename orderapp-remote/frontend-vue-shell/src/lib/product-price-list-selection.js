@@ -281,32 +281,13 @@ export function normalizePriceListProductSpecSelections(selections = [], familie
         row.bom_spec_authoritative = true
       }
     }
-    const selectedBomSpecID = numberField(selectedSpec?.bom_spec_id ?? selectedSpec?.bomSpecID)
-    const selectedBomVersionID = numberField(selectedSpec?.bom_version_id ?? selectedSpec?.bomVersionID)
-    const selectedBomID = numberField(selectedSpec?.bom_id ?? selectedSpec?.bomID)
-    const selectedBomVariantID = numberField(selectedSpec?.bom_variant_id ?? selectedSpec?.bomVariantID)
-    const identityChanged = selectedBomSpecID > 0 && (
-      (numberField(selection?.bom_id ?? selection?.bomID) > 0 && numberField(selection?.bom_id ?? selection?.bomID) !== selectedBomID)
-      || (numberField(selection?.bom_version_id ?? selection?.bomVersionID) > 0 && numberField(selection?.bom_version_id ?? selection?.bomVersionID) !== selectedBomVersionID)
-      || (numberField(selection?.bom_spec_id ?? selection?.bomSpecID) > 0 && numberField(selection?.bom_spec_id ?? selection?.bomSpecID) !== selectedBomSpecID)
-      || (numberField(selection?.bom_variant_id ?? selection?.bomVariantID) > 0 && numberField(selection?.bom_variant_id ?? selection?.bomVariantID) !== selectedBomVariantID)
-    )
+    // A default is an initial choice, not a subscription. The same product/spec
+    // keeps its selection and uses its current published BOM identity.
     if (!validSkuIDs.has(skuID)) {
       row.selection_issue = 'invalid_spec'
       row.current_default_sku_id = defaultSkuID
-    } else if (identityChanged) {
-      row.selection_issue = 'default_bom_changed'
-      row.current_default_sku_id = defaultSkuID
-      row.current_default_bom_id = selectedBomID
-      row.current_default_bom_version_id = selectedBomVersionID
-      row.current_default_bom_spec_id = selectedBomSpecID
-      row.current_default_bom_variant_id = selectedBomVariantID
-    } else if (selectionSource === 'product_default' && defaultSkuID > 0 && defaultSkuIDAtSelection !== defaultSkuID) {
-      row.selection_issue = 'default_changed'
-      row.current_default_sku_id = defaultSkuID
     }
-    // Keep the saved identity until the user resolves the issue. Replacing it
-    // with today's BOM here would silently clear the warning on the next load.
+    // Unavailable selections retain their identity so they can be corrected.
     if (row.selection_issue) {
       for (const field of ['product_id', 'bom_id', 'bom_version_id', 'bom_spec_id', 'bom_variant_id', 'spec_identity_mode', 'bom_spec_authoritative', 'migration_state']) {
         if (selection[field] !== undefined) row[field] = selection[field]
@@ -321,23 +302,20 @@ export function priceListProductSpecSelectionIssue(family = {}, selections = [])
   const parentProductID = priceListParentProductID(family)
   const selection = (Array.isArray(selections) ? selections : []).find((row) => (
     numberField(row?.parent_product_id ?? row?.parentProductID) === parentProductID
-    && String(row?.selection_issue || '').trim()
+    && String(row?.selection_issue || '').trim() === 'invalid_spec'
   ))
   if (!selection) return null
   const type = String(selection.selection_issue || '').trim()
   const currentDefaultSkuID = numberField(selection.current_default_sku_id ?? family?.default_sku_id)
-  const currentDefaultSpec = (family.sku_options || []).find((spec) => priceListSkuID(spec) === currentDefaultSkuID)
   return {
     type,
     selection,
     current_default_sku_id: currentDefaultSkuID,
-    message: type === 'default_changed' || type === 'default_bom_changed'
-      ? `商品默认规格已变更为“${priceListProductSpecLabel(currentDefaultSpec || {})}”，请选择保留原规格或切换默认规格。`
-      : '草稿中的商品 BOM 规格已停用、被移除或不属于当前商品，请切换到当前默认规格。',
+    message: '草稿中的商品 BOM 规格已停用、被移除或不属于当前商品，请重新选择有效规格。',
   }
 }
 
-export function resolvePriceListProductSpecSelectionIssue(selections = [], family = {}, action = 'switch') {
+export function resolvePriceListProductSpecSelectionIssue(selections = [], family = {}) {
   const parentProductID = priceListParentProductID(family)
   const issue = priceListProductSpecSelectionIssue(family, selections)
   if (!issue) return Array.isArray(selections) ? selections.slice() : []
@@ -355,15 +333,6 @@ export function resolvePriceListProductSpecSelectionIssue(selections = [], famil
     ...(numberField(currentDefaultSpec?.bom_spec_id ?? currentDefaultSpec?.bomSpecID) > 0 ? { bom_spec_id: numberField(currentDefaultSpec?.bom_spec_id ?? currentDefaultSpec?.bomSpecID) } : {}),
     ...(numberField(currentDefaultSpec?.bom_variant_id ?? currentDefaultSpec?.bomVariantID) > 0 ? { bom_variant_id: numberField(currentDefaultSpec?.bom_variant_id ?? currentDefaultSpec?.bomVariantID) } : {}),
   } : {}
-  if (action === 'keep' && (issue.type === 'default_changed' || issue.type === 'default_bom_changed')) {
-    return source.map((row, index) => index === issueIndex ? {
-      parent_product_id: parentProductID,
-      sku_id: issueSkuID,
-      selection_source: 'explicit',
-      default_sku_id_at_selection: currentDefaultSkuID,
-      ...currentIdentity,
-    } : row)
-  }
   const defaultAlreadySelected = source.some((row, index) => index !== issueIndex && (
     numberField(row?.parent_product_id ?? row?.parentProductID) === parentProductID
     && numberField(row?.sku_id ?? row?.skuID) === currentDefaultSkuID

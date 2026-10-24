@@ -1,7 +1,7 @@
 function identity(row = {}) {
   const product = Number(row.parent_product_id || row.product_id || row.sku_id || 0)
   const spec = Number(row.bom_spec_id || row.sku_snapshot?.bom_spec_id || row.effective_sales_spec?.bom_spec_id || 0)
-  return spec > 0 ? `${product}:bom:${spec}:${Number(row.bom_variant_id || 0)}` : `${product}:sku:${Number(row.sku_id || row.product_id || 0)}:${row.spec_label || row.sku_snapshot?.spec_label || ''}`
+  return spec > 0 ? `${product}:bom:${spec}` : `${product}:sku:${Number(row.sku_id || row.product_id || 0)}:${row.spec_label || row.sku_snapshot?.spec_label || ''}`
 }
 function clone(value) { return JSON.parse(JSON.stringify(value)) }
 function latest(rows) { return rows.slice().sort((a,b) => String(b.published_at || b.created_at || '').localeCompare(String(a.published_at || a.created_at || '')) || Number(b.id)-Number(a.id))[0] }
@@ -66,7 +66,13 @@ export function applyCustomerPriceRows(generated = [], seeds = [], overrides = {
       const rowKey=source.row_key||current.row_key
       const edited=Number(overrides[rowKey])
       const amount=Number.isFinite(edited)&&edited>0?edited:Number(source.final_unit_price||0)
-      out.push({ ...current,...clone(source),row_key:rowKey,
+      // Quotes belong to the stable product/spec. Use current execution identity
+      // while keeping the quoted amount, tiers and original cost provenance.
+      const currentIdentity = Object.fromEntries([
+        'product_id', 'parent_product_id', 'sku_id', 'bom_id', 'bom_version_id', 'bom_spec_id', 'bom_variant_id',
+        'sku_snapshot', 'bom_spec_snapshot', 'effective_sales_spec', 'migration_state', 'spec_identity_mode', 'bom_spec_authoritative',
+      ].map(key => [key, current[key] === undefined ? undefined : clone(current[key])]))
+      out.push({ ...current,...clone(source),...currentIdentity,row_key:rowKey,
         product_name:current.customer_reference_snapshot?.customer_display_name || current.product_name,group_snapshot:current.group_snapshot,group_source:'product_catalog',
         customer_reference_snapshot:current.customer_reference_snapshot,customer_product_alias_id:current.customer_product_alias_id,
         tier_template_id:0,pricing_rule_id:0,pricing_rule_version:'',tier_unit_compatible:sources.length?true:current.tier_unit_compatible,
