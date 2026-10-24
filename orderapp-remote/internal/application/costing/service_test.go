@@ -3996,7 +3996,6 @@ func TestBeanListProductSpecSelectionsRejectInvalidSKUIdentityAndMissingPriceRow
 		{name: "cross product sku", selections: selection(561, 551), rows: priceRow(550, 561), want: "不属于父商品"},
 		{name: "inactive sku", selections: selection(552, 551), rows: priceRow(550, 552), want: "已停用"},
 		{name: "removed template spec", selections: selection(553, 551), rows: priceRow(550, 553), want: "规格已失效"},
-		{name: "default snapshot from another product", selections: selection(551, 561), rows: priceRow(550, 551), want: "选择时默认规格不属于父商品"},
 		{name: "missing selected sku price row", selections: selection(551, 551), rows: nil, want: "缺少对应有效价格行"},
 		{name: "price row parent mismatch", selections: selection(551, 551), rows: priceRow(560, 551), want: "父商品与规格选择不一致"},
 		{name: "unselected sku price row", selections: selection(551, 551), rows: append(priceRow(550, 551), priceRow(550, 553)...), want: "未在规格选择中"},

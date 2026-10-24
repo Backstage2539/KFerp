@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { ref, computed, nextTick } from 'vue'
 import { publicationEditorPayload, loadPublishedEditorBatch, reconcileEditorBatch, editorTableConflict, resolveEditorTableConflict } from './price-table-editor-restore.js'
 import { clonePriceTable, createPriceTableBatch, savePriceTableBatchDraft, readPriceTableBatchDraft, validatePriceTableBatch, publicationTableMetadata } from './price-table-batch.js'
-import { defaultPriceListProductSpecSelections } from './product-price-list-selection.js'
+import { defaultPriceListProductSpecSelections, normalizePriceListProductSpecSelections, priceListProductSpecSelectionIssue } from './product-price-list-selection.js'
 import { buildPublicationSummaryURL } from './publication-summary-client.js'
 
 const source = readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
@@ -30,7 +30,7 @@ const publication = { id: 152, version: 'V3.0.14', status: 'published', release_
   content: { price_rows: [{ ...spec, pricing_mode: 'fixed_price', final_unit_price: 32.8, price_unit: '盒' }] },
 }
 
-function harness({ resolveConflict = resolveEditorTableConflict, saveDraft, readDraft } = {}) {
+function harness({ resolveConflict = resolveEditorTableConflict, saveDraft, readDraft, normalizeSpecs = false } = {}) {
   const scope = ref('customer:471:drip'), state = ref({}), storageData = new Map(), writes = [], pending = []
   const storage = { getItem: k => storageData.get(k), setItem: (k,v) => { writes.push(k); storageData.set(k,v) } }
   const refs = {
@@ -65,9 +65,14 @@ function harness({ resolveConflict = resolveEditorTableConflict, saveDraft, read
     readPriceListGenerationDraft: () => null,
     readPriceTableBatchDraft: key => readDraft ? readDraft(key) : readPriceTableBatchDraft(key, storage),
     savePriceTableBatchDraft: (key,batch) => saveDraft ? saveDraft(key,batch) : savePriceTableBatchDraft(key,batch,storage),
-    captureNamedPriceTablePayload: () => ({ draft: clonePriceTable(state.value), content: { groups: [{ name: '商品' }] } }),
+    captureNamedPriceTablePayload: () => ({ draft: clonePriceTable(state.value), content: { groups: [{ name: '商品' }] },
+      ...(normalizeSpecs ? { config: { product_spec_selections: clonePriceTable(state.value.product_spec_selections || []) },
+        blocked_reason: priceListProductSpecSelectionIssue(refs.pdfAvailableItems.value[0], state.value.product_spec_selections)?.message || '' } : {}) }),
     buildProductPriceListTitle: () => '新表', defaultPriceListTemplateSelection: value => value,
-    restorePriceListGenerationDraftForActiveType: draft => { state.value = clonePriceTable(draft) },
+    restorePriceListGenerationDraftForActiveType: draft => {
+      state.value = clonePriceTable(draft)
+      if (normalizeSpecs) state.value.product_spec_selections = normalizePriceListProductSpecSelections(draft.product_spec_selections, refs.pdfAvailableItems.value, { preserveMissing: true })
+    },
     keepActiveNamedPriceTableTabVisible: () => {},
     editorTableConflict,
     loadPriceListPricingRuleTrials: async () => {}, currentPriceListPricingRuleTrialRequests: () => [],
@@ -276,6 +281,36 @@ test('actual view rejects late customer responses and preserves cache on failed 
   assert.equal(h.namedEditorError.value, 'offline')
   assert.equal(h.namedEditorBlocked.value, true)
   assert.equal(h.writes.length, 0)
+})
+
+for (const publish of [false, true]) test(`actual view ${publish ? 'publishes' : 'saves'} all named tables with current spec identities and no obsolete default warnings`, async () => {
+  const h = harness({ normalizeSpecs: true })
+  const second = { ...publication, id: 153, table_key: 'second', table_name: '另一张挂耳表', is_default_table: false }
+  const load = h.restoreNamedPriceTableBatch()
+  await nextTick()
+  h.pending[0].resolve({ current: publication, rows: [publication, second], total: 1 })
+  await load
+  const nextSpec = { ...spec, sku_id: 309, bom_version_id: 424, bom_variant_id: 608 }
+  h.pdfAvailableItems.value = [{ parent_product_id: 940, default_sku_id: 310, sku_options: [nextSpec, { sku_id: 310, bom_spec_id: 310 }] }]
+  for (const table of h.namedPriceTableBatch.value.tables) {
+    table.payload.draft = { product_spec_selections: [{ ...spec, sku_id: 309, selection_issue: 'default_bom_changed' }], productOverrides: { 'sku:309': { fixed_unit_price: table.key === 'drip' ? 40 : 32.8 } } }
+    table.payload.config = { product_spec_selections: [{ ...spec, selection_issue: 'default_changed' }] }
+  }
+  h.state.value = clonePriceTable(h.namedPriceTableBatch.value.tables[0].payload.draft)
+  await h.saveNamedPriceTableBatch(publish)
+  assert.equal(h.error.value, '')
+  assert.equal(h.requests.length, 1)
+  const tables = h.requests[0].body.tables
+  assert.equal(tables.length, 2)
+  for (const table of tables) {
+    const selected = table.config.product_spec_selections[0]
+    assert.equal(selected.bom_spec_id, 309)
+    assert.equal(selected.bom_version_id, 424)
+    assert.equal(selected.bom_variant_id, 608)
+    assert.equal(selected.selection_issue, undefined)
+  }
+  assert.equal(h.namedPriceTableBatch.value.active_table_key, 'drip')
+  assert.equal(h.state.value.productOverrides['sku:309'].fixed_unit_price, 40)
 })
 
 test('actual view switching tables preserves edited amount and an intentional empty selection', async () => {
