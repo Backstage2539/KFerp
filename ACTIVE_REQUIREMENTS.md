@@ -6,6 +6,7 @@
 - Verifier: selection/refresh/editor regressions, costing service and HTTP tests, Vue tests/build, backend gates, isolated UI verification.
 - Deployment: feature face99a8 -> develop/runtime e7ae6c61b4d43be327016d219d12d3521542931d; KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development from clean release clone. Source backup /opt/stacks/erp/orderapp.backup.deploy-20261024114208-e7ae6c61b4d4; rollback kferp-orderapp-rollback:development-20261024114208-e7ae6c61b4d4. Containers/API/manual/static identity readonly smoke PASS. Receipt-only follow-up updates evidence and requirement state; no business implementation change. Production excluded. Evidence: orderapp-remote/docs/acceptance/2026-10-24-default-spec-initial-only.md; ../evidence/default-spec.
 - Notes: reservation script --claim fails on macOS awk newline handling; PR-727 reserved here.
+- Production: Van authorized main integration and production deployment on 2026-10-24; release branch codex/default-spec-production starts from origin/main 20d886f2 and integrates only verified PR-727 changes, preserving production-specific fixes. Release gates and runtime evidence pending.
 
 ### PR-718-RETAINED-STOCK-FOLLOWUP
 - Branch: codex/retained-stock-order-display; base origin/develop@470018f9.

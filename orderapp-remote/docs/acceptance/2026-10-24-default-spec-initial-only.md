@@ -34,3 +34,10 @@
 - 开发环境PR-727保持 `review`，DEV-866/867/868均为 `done`；DEV-868交付状态变更写入 `audit_logs` 与 `operation_logs`。最终回执只更新文档及需求种子状态，不改业务实现，运行应用仍为上述部署提交。
 - 日志：工作区旁 `../evidence/default-spec/development-deploy.log`、`development-smoke.log`、`delivery-status.log`，以及RED/GREEN日志和隔离预览截图。
 - 未执行真实价格表保存/发布、生产部署或微信上传/发布；Van业务验收待确认。原工作区已有改动保留。
+
+
+## 生产发布范围（2026-10-24 追加授权）
+
+- Van 后续明确要求合并到 main 并部署生产环境。生产集成分支 `codex/default-spec-production` 从 `origin/main@20d886f2` 创建，只合入 PR-727 功能及交付记录，保留 main 上生产专属修复和其他需求的验收状态。
+- 本次生产技术验证使用只读页面、GET/API、手册及静态资源身份；不保存、重新计算或发布真实价格表，不修改历史订单。
+- 生产版本、完整验证结果和回滚点在发布完成后追加。
