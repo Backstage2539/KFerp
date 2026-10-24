@@ -21,4 +21,16 @@
 - 手册：`docs/OP_MANUAL_COSTING.md` 的刷新流程和规格选择说明，现有 Vue `costingManual` 入口读取同一源文件。
 - PR-727；DEV-866（选择/报价）、DEV-867（校验）、DEV-868（交付）。PR保留 review，业务验收由Van完成。
 - 目标环境：development。生产环境及真实价格表发布不在本次范围。
-- 开发集成、部署版本、回滚点和只读运行验证在部署后补充。
+
+## 开发环境交付凭据
+
+- 功能分支：`codex/default-spec-initial-only`；已推送功能提交 `face99a8eee2bbc86497129ec31975e33ef6f075`。
+- GitHub PR：[#291](https://github.com/Backstage2539/KFerp/pull/291)，合并到 `develop`；应用部署提交 `e7ae6c61b4d43be327016d219d12d3521542931d`。
+- 从独立干净副本 `/private/tmp/kferp-pr727-dev-release` 执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`。服务器 Vue 1,578项、小程序432项、类型检查、构建、Go全包及镜像内Go检查通过；部署退出码0。
+- 源码回滚点：`/opt/stacks/erp/orderapp.backup.deploy-20261024114208-e7ae6c61b4d4`。
+- 镜像回滚点：`kferp-orderapp-rollback:development-20261024114208-e7ae6c61b4d4`。
+- `erp_orderapp` running / restarts0；`erp_postgres` healthy。登录页200，匿名 `/app/`303且受保护需求API401；运行容器认证后的成本页、需求API和源手册均200，手册含更新说明。
+- `CostingView-Dpw18Pii.js` 的服务器构建、运行容器及公网响应内容一致，SHA256 `1c56d4ed21ef1cfd7fc5790b3a6fbed2ba410d4f7200ec700b92b6bd41f53578`；已无默认变更提醒文案，保留默认规格标签。
+- 开发环境PR-727保持 `review`，DEV-866/867/868均为 `done`；DEV-868交付状态变更写入 `audit_logs` 与 `operation_logs`。最终回执只更新文档及需求种子状态，不改业务实现，运行应用仍为上述部署提交。
+- 日志：工作区旁 `../evidence/default-spec/development-deploy.log`、`development-smoke.log`、`delivery-status.log`，以及RED/GREEN日志和隔离预览截图。
+- 未执行真实价格表保存/发布、生产部署或微信上传/发布；Van业务验收待确认。原工作区已有改动保留。

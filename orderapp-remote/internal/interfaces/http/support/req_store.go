@@ -255,7 +255,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_product", code: "PR-727-DEFAULT-SPEC-INITIAL-ONLY", title: "默认规格仅用于首次选品和标识，有效规格换版无需确认", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-24-default-spec-initial-only.md"},
 		{table: "req_dev", code: "DEV-866-SPEC-SELECTION", title: "PR-727 规格选择、旧草稿恢复和沿用报价", status: "done", assignee: "Codex", evidence: "product-price-list-selection; price-list-refresh; customer-price-draft tests"},
 		{table: "req_dev", code: "DEV-867-SPEC-VALIDATION", title: "PR-727 默认历史信息不拦截，实际规格及价格身份继续校验", status: "done", assignee: "Codex", evidence: "default_spec_initial unit and API tests"},
-		{table: "req_dev", code: "DEV-868-SPEC-DELIVERY", title: "PR-727 手册、隔离验证与开发交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-24-default-spec-initial-only.md"},
+		{table: "req_dev", code: "DEV-868-SPEC-DELIVERY", title: "PR-727 手册、隔离验证与开发交付", status: "done", assignee: "Codex", evidence: "development e7ae6c61; PR #291; Vue1578/Go/build and readonly smoke PASS; docs/acceptance/2026-10-24-default-spec-initial-only.md"},
 		{table: "req_product", code: "PR-724-WORKSTATION-BATCH-MATERIAL-ISSUE", title: "工位多选任务、同料汇总与一键领料过账", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-23-workstation-batch-material-issue.md；现场业务验收待 Van"},
 		{table: "req_dev", code: "DEV-724-PREVIEW", title: "PR-724 冻结需求与可领库存批量汇总", status: "done", assignee: "Codex", evidence: "batch_material_issue tests"},
 		{table: "req_dev", code: "DEV-724-POSTING", title: "PR-724 分组事务、幂等过账与操作日志", status: "done", assignee: "Codex", evidence: "batch_material_issue API tests"},
