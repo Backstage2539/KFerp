@@ -21,6 +21,10 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockReceiptWorkOrderTx(ctx, tx, r.schema, known.ID); err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
+
 	replayID, replay, err := requestProductionKeyTx(ctx, tx, r.schema, "material_receipt", cmd.Operator, cmd.RequestID, cmd)
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
@@ -30,6 +34,16 @@ func (r Repository) completeMaterialOutputWorkOrder(ctx context.Context, known p
 		err = json.Unmarshal(replay, &result)
 		return result, err
 	}
+	if cmd.ExpectedReceiptVersion != "" {
+		quantity := float64(cmd.FinishedQtyUnits)
+		if !isCountReceipt(known.OutputUnit) {
+			quantity = receiptWeightQuantity(float64(cmd.FinishedQtyG), known.OutputUnit)
+		}
+		if err := validateReceiptQuantityTx(ctx, tx, r.schema, known.ID, cmd.ExpectedReceiptVersion, quantity); err != nil {
+			return productionapp.WorkOrderCompleteResult{}, err
+		}
+	}
+
 	partial := cmd.CompletionMode == "partial"
 
 	var wo productionapp.WorkOrderRow
