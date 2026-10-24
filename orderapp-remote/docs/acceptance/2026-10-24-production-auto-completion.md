@@ -1,6 +1,6 @@
 # PR-728 生产简化验收证据
 
-状态：本地实现与验证完成，待合并、部署开发及发布生产；现场真实数量核实与 Van 业务验收未进行。
+状态：开发与生产已发布，运行、静态资源及只读数据核验通过；现场真实数量核实与 Van 业务验收未进行。
 
 ## 范围
 
@@ -39,8 +39,33 @@ node --test src/lib/operation-completion.test.js src/lib/production-records.test
 
 ## 发布待办与边界
 
-待完成开发部署和服务器隔离验证、干净 main 集成、生产版本/容器/静态资源/只读列表检查。现场数量核对及 Van 业务验收尚未进行。
+开发部署和服务器隔离验证、干净 main 集成、生产版本/容器/静态资源/只读列表检查已完成。现场数量核对及 Van 业务验收尚未进行。
 
 已获授权清理服务器可重建 Docker 构建缓存 1.789 GB，根盘可用 4.7 GB。数据库、镜像、源备份、回滚版本未清理。正式构建采用本次发布目录中的 Go 测试缓存，完成测试后清理该缓存再构建镜像，降低磁盘峰值。
 
 手册：`docs/OP_MANUAL_PRODUCTION.md`、`docs/OP_MANUAL_STOCK.md`，页面帮助共用这些源文档。PR 保持 review 待 Van 验收。
+
+## 开发发布与 main 集成
+
+- PR #295 合并 develop：`d3c72ce4ab17dda52cab342202554769e4ef4bf0`。干净独立发布目录执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` 成功，服务未发生重启循环。
+- 开发回滚：`kferp-orderapp-rollback:development-20261024142412-d3c72ce4ab17`；源备份 `/opt/stacks/erp/orderapp.backup.deploy-20261024142412-d3c72ce4ab17`。
+- 未认证 `/app/` 为既有 303 跳转，受保护生产记录 API 为 401；使用运行容器凭据，工位/记录页面、记录/工序余额/工位总览/需求 API 返回 200。PR-728 可见。
+- 公开资源与容器及发布目录逐字节一致：`WorkstationView-DLAjM7CU.js`（SHA-256 `43c60a267fd50a470dd4691f4822f546356971e363fad40e61f6fb960ba3fcce`）；`ProductionAcceptanceView-DN54vUBJ.js`（`55b375afde767994d5d60b76353c0fbc2cf6ac7b56c29539d72d5b8f1db39a6b`）。
+- 只读检查前后工单、工序卡、库存单据/流水、新完成记录、操作日志摘要一致。
+- main 集成从 `dfab3d49` 建独立分支，只引入 PR #295 功能提交，保留 main 已有 BOM 修复和历史证据。集成分支全套 Go、新增隔离数据库 API、Vue 1,587 项测试与构建通过；PR #296。
+- 开发构建后再次清理授权范围的可重建缓存 1.217 GB，可用磁盘 4.3 GB。旧镜像、数据库、回滚源备份均保留。
+- 服务器独立 schema API 验证：全部 PASS（完成/旧单核对/转换测试）；仅写随机测试 schema，结束自动清理。生产已发布，业务验收待 Van。
+
+## 生产发布完成
+
+- PR #296 合并 main，正式发布提交 `f2a5e242a36d4ad9fc84e5b5e63e9401fddd9596`。从匹配 origin/main 的干净独立目录执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production` 成功。
+- 回滚镜像：`kferp-orderapp-rollback:production-20261024144032-f2a5e242a36d`，镜像 ID `sha256:c38aded0bafc7368fceebd554f6a780ea0e8fbb64cadce0c18c235c8211953df`。源备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20261024144032-f2a5e242a36d` 已确认存在。
+- 新容器镜像 `sha256:d1c2d2b153753b3b2aff31a15f72cad3a0ae6d171c59f98c75743315d3d5f665`；应用 running、重启计数 0，PostgreSQL healthy。
+- 未认证 `/app/` 与记录 API 均 401；容器运行凭据鉴权后，工位页、记录页、记录 API、工序余额、工位总览和需求入口检查通过。记录列表包含 3 条既有记录，新完成事件 0。
+- 生产实际页面资源与发布目录、运行容器 SHA-256 一致；资源名称和摘要与开发验证相同。
+- 发布前后：19 张工单、22 张工序卡、51 张库存单据、106 条库存流水、8,329 条操作日志内容摘要一致（排除新增空配置列）。只读检查前后摘要也一致。没有启动、完成、更正、领料或入库生产业务记录。
+- 发布后按授权再清理 1.217 GB 可重建缓存，根盘可用 3.8 GB；数据库、回滚镜像和源备份均保留。
+- 正式脚本构建了小程序产物；未上传、审核或发布微信版本。本次业务变更交付为 ERP 生产系统。
+- 发布摘要：`production-auto-completion-runtime.json`。后续提交仅补充证据，不再次重建已核验的应用。
+
+现场后续：一次性核对路线入库位置与 BOM 组件使用工序；既有执行中工单经核对转换，已完成未入库的旧单在生产记录中填写真实数量后补账。计划量或旧误报量不会替现场决定。Van 确认业务验收后关闭 PR-728。
