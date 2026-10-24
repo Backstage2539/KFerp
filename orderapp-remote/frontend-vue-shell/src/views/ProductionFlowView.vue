@@ -3,7 +3,7 @@
     <header class="page-head">
       <div>
         <h2>生产流程</h2>
-        <p>按生产计划、生产工单、工位执行、生产质检和完工入库推进制造流程。</p>
+        <p>填写实际完成数量后，系统自动用料、交接或入库。历史数量在生产记录中核对更正。</p>
       </div>
     </header>
 
@@ -29,7 +29,7 @@
 </template>
 
 <script setup>
-import { computed, markRaw, ref } from 'vue'
+import { computed, markRaw, ref, watch } from 'vue'
 import JobCardsView from './JobCardsView.vue'
 import ProducePlanView from './ProducePlanView.vue'
 import ProductionAcceptanceView from './ProductionAcceptanceView.vue'
@@ -45,10 +45,11 @@ const tabs = [
   { key: 'orders', label: '生产工单', component: markRaw(WorkOrdersView) },
   { key: 'cards', label: '工序记录', component: markRaw(JobCardsView) },
   { key: 'quality', label: '生产质检', component: markRaw(QualityInspectionsView) },
-  { key: 'acceptance', label: '完工入库', component: markRaw(ProductionAcceptanceView) },
+  { key: 'acceptance', label: '生产记录与核对', component: markRaw(ProductionAcceptanceView) },
 ]
 
-const activeTab = ref(tabs[0].key)
+const activeTab = ref(props.viewParams.tab === 'acceptance' ? 'acceptance' : tabs[0].key)
+watch(()=>props.viewParams.tab,value=>{if(tabs.some(t=>t.key===value))activeTab.value=value})
 const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || tabs[0].component)
 function selectTab(key) {
   if (key === activeTab.value) return

@@ -27,12 +27,13 @@ type ReceiptCorrectionCard struct {
 }
 
 type CorrectJobCardOutputCommand struct {
-	ID              int64   `json:"job_card_id"`
-	ActualOutputQty float64 `json:"actual_output_qty"`
-	Reason          string  `json:"reason"`
-	ExpectedVersion string  `json:"expected_version"`
-	RequestID       string  `json:"request_id"`
-	Operator        string  `json:"-"`
+	CardQuantities  map[int64]float64 `json:"card_quantities,omitempty"`
+	ID              int64             `json:"job_card_id"`
+	ActualOutputQty float64           `json:"actual_output_qty"`
+	Reason          string            `json:"reason"`
+	ExpectedVersion string            `json:"expected_version"`
+	RequestID       string            `json:"request_id"`
+	Operator        string            `json:"-"`
 }
 
 func (s *Service) CorrectJobCardOutput(ctx context.Context, cmd CorrectJobCardOutputCommand) (FinishedReceiptTask, error) {

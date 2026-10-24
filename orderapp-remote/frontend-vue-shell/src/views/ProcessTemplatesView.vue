@@ -116,6 +116,13 @@
               </label>
             </div>
             <p class="standard-capacity-summary">{{ standardCostCapacitySummary(op) }}</p>
+            <div class="form-grid">
+              <label class="checkbox"><input v-model="op.execution.receipt_enabled" type="checkbox" :disabled="Number(op.seq) === Math.max(...form.operations.map(row=>Number(row.seq)||0))" /><span>完成后入库</span></label>
+              <label v-if="op.execution.receipt_enabled"><span>完成后入库位置</span><select v-model="op.execution.receipt_warehouse"><option value="">{{ Number(op.seq) === Math.max(...form.operations.map(row=>Number(row.seq)||0)) ? '沿用工单目标仓' : '请选择仓库' }}</option><option v-for="w in warehouses" :key="w.code" :value="w.code">{{ w.name }}</option></select></label>
+              <label><span>本工序新增物料默认来源仓</span><select v-model="op.execution.source_warehouse"><option v-for="w in warehouses" :key="w.code" :value="w.code">{{ w.name }}</option></select></label>
+              <label><span>产出数量单位</span><input v-model.trim="op.execution.output_unit" :placeholder="Number(op.seq) === Math.max(...form.operations.map(row=>Number(row.seq)||0)) ? '沿用工单库存单位' : '例如 g、kg、袋'" /></label>
+            </div>
+            <p class="muted">未入库的中间产出直接交下一工序，保留原位置。前序物料不再重复领用。</p>
             <div class="operation-quality">
               <label>
                 <span>质检项</span>
@@ -137,6 +144,7 @@
 </template>
 
 <script setup>
+import { routeExecution } from '../lib/operation-completion.js'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
@@ -150,6 +158,7 @@ const error = ref('')
 const ok = ref('')
 const routes = ref([])
 const operations = ref([])
+const warehouses = ref([])
 const workstationCapacities = ref([])
 const filters = reactive({ status: '' })
 const form = reactive(blankRoute())
@@ -171,6 +180,7 @@ function blankRoute() {
 
 function blankOperation(seq) {
   return {
+    execution: routeExecution({}, true),
     seq,
     operation_id: 0,
     operation: '',
@@ -269,7 +279,7 @@ function routePayload() {
     status: form.status || 'draft',
     default_equipment: '',
     default_minutes: 0,
-    operations: (form.operations || []).map((op) => {
+    operations: (form.operations || []).map((op,index) => {
       const { quality_checklist_text: qualityChecklistText, ...rest } = op
       return {
         seq: Number(rest.seq || 0),
@@ -277,6 +287,7 @@ function routePayload() {
         operation: rest.operation || '',
         standard_cost_capacity_id: Number(rest.standard_cost_capacity_id || 0),
         records_loss: !!rest.records_loss,
+        execution_json: JSON.stringify({...op.execution,receipt_enabled:Number(op.seq)===Math.max(...form.operations.map(row=>Number(row.seq)||0)) ? true : op.execution.receipt_enabled}),
         quality_checklist_json: qualityChecklistJSONFromText(qualityChecklistText),
       }
     }),
@@ -297,6 +308,7 @@ function normalizeRoute(row) {
     operations: (row.operations || []).length ? row.operations.map((op, index) => ({
       ...blankOperation(index + 1),
       ...op,
+      execution: routeExecution(op,index===row.operations.length-1,`route-${row.id}-step-${op.seq || index+1}`),
       seq: Number(op.seq || index + 1),
       operation_id: Number(op.operation_id || 0),
       operation: op.operation || '',
@@ -330,11 +342,13 @@ async function loadAll() {
 }
 
 async function loadManufacturingMasterData() {
-  const [operationData, capacityData] = await Promise.all([
+  const [operationData, capacityData, warehouseData] = await Promise.all([
     apiGet('/api/manufacturing-operations'),
     apiGet('/api/manufacturing-workstation-capacities?status=active'),
+    apiGet('/api/warehouses'),
   ])
   operations.value = operationData?.rows || []
+  warehouses.value = (warehouseData?.rows || warehouseData || []).filter(w=>w.active!==false)
   workstationCapacities.value = capacityData?.rows || []
 }
 
@@ -358,6 +372,7 @@ function editRoute(row) {
 }
 
 function addOperation() {
+  const previous=form.operations.at(-1);if(previous?.execution && !previous.execution.receipt_warehouse){previous.execution.receipt_enabled=false;if(!previous.execution.output_unit)previous.execution.output_unit='g'}
   form.operations.push(blankOperation(form.operations.length + 1))
 }
 

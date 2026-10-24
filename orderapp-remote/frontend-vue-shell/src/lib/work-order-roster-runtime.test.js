@@ -92,7 +92,7 @@ test('closed tasks need no new staff and an empty order is not ready for receipt
   const { state } = await setup()
   assert.equal(state.workOrderTodo(order(1, ops, 'completed')).title, '已完成')
   assert.equal(state.workOrderTodo(order(1, ops, 'cancelled')).title, '已取消')
-  assert.equal(state.workOrderTodo(order(1, ops.map(row => ({ ...row, status: 'completed' })))).title, '待完工入库')
+  assert.equal(state.workOrderTodo(order(1, ops.map(row => ({ ...row, status: 'completed' })))).title, '查看完成记录')
   assert.equal(state.workOrderTodo(order(1, [])).title, '等待生成工序任务')
 })
 

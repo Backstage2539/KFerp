@@ -222,7 +222,7 @@ test('workstation view lets wide task rows scroll and single-station filters fil
 test('workstation action buttons reveal their forms inside the clicked task row', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /<div v-for="task in section\.tasks"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\)"/)
+  assert.match(source, /<div v-for="task in section\.tasks"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\) && task\.automatic_completion"/)
   assert.match(source, /class="task-action-panel"/)
   assert.match(source, /function isIssuePanelForTask\(task\)/)
   assert.match(source, /function isFinishPanelForTask\(task\)/)
@@ -232,35 +232,14 @@ test('workstation action buttons reveal their forms inside the clicked task row'
   assert.doesNotMatch(source, /<section v-if="finishPanel\.open" class="panel action-panel">/)
 })
 
-test('workstation is the only job-card execution surface and completes with actual records in one submission', () => {
-  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
-
-  assert.match(source, /:disabled="Boolean\(busyKey\) \|\| loading"/)
-  assert.match(source, /工序要求：\{\{ task\.process_requirement \|\| '按冻结工艺路线执行' \}\}/)
-  for (const field of [
-    'finishPanel.actual_minutes',
-    'finishPanel.actual_input_qty',
-    'finishPanel.actual_output_qty',
-    'finishPanel.leftover_qty',
-    'finishPanel.loss_reason',
-    'finishPanel.exception_reason',
-  ]) {
-    assert.match(source, new RegExp(field.replace('.', '\\.')))
-  }
-  assert.match(source, /actual_minutes: Number\(finishPanel\.actual_minutes/)
-  assert.match(source, /actual_input_qty: Number\(finishPanel\.actual_input_qty/)
-  assert.match(source, /actual_output_qty: actualOutputQty/)
-  assert.match(source, /taskDefaultActualInput\(task\)/)
-  assert.match(source, /inventory_qty_per_sales_unit/)
-  assert.match(source, /finishPanel\.inventory_unit/)
-  assert.match(source, /loss_reason: finishPanel\.loss_reason/)
-  assert.match(source, /exception_reason: finishPanel\.exception_reason/)
-  assert.match(source, /productionCompletionMetrics/)
-  assert.match(source, /实际投入（\{\{ finishPanel\.inventory_unit \|\| '-' \}\}）/)
-  assert.match(source, /实际产出（\{\{ finishPanel\.inventory_unit \|\| '-' \}\}）/)
-  assert.doesNotMatch(source, /Number\(finishPanel\.finished_loose_g \|\| 0\)[\s\S]*actualOutputG/)
-  assert.doesNotMatch(source, /finishRunningProduction/)
-  assert.doesNotMatch(source, /partial_finish/)
+test('workstation completion is inline and old tasks open explicit reconciliation', () => {
+ const source=readFileSync(new URL('../views/WorkstationView.vue',import.meta.url),'utf8')
+ const form=readFileSync(new URL('../components/OperationCompletionForm.vue',import.meta.url),'utf8')
+ assert.match(source, /OperationCompletionForm v-if="isFinishPanelForTask/)
+ assert.match(source, /OperationConversionForm v-if="isFinishPanelForTask/)
+ assert.doesNotMatch(source, /submitFinishPanel|finishRunningProduction|partial_finish/)
+ for(const label of ['保存进度','本工序新增用料','实际投入','前序批次与实际位置'])assert.ok(form.includes(label))
+ assert.match(form,/expected_version|completionPayload/)
 })
 
 test('workstation renders quantity, ready material state and one responsible employee only', () => {
