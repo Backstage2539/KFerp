@@ -87,11 +87,12 @@ test('buildJobCardActionPayload includes actual quantities and loss reason witho
   })
 })
 
-test('execution Vue pages keep work-order and operation lists read-only while retaining stock documents', () => {
+test('execution Vue pages expose explicit work-order actions and retain stock documents', () => {
   const workOrders = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
-  for (const want of ['产品 / 工单', '目标数量', '工序进度', '当前待办', '查看工单', '更多']) {
+  for (const want of ['产品 / 工单', '目标数量', '工序进度', '当前待办', '查看工单', '编辑拆分', '取消工单']) {
     assert.ok(workOrders.includes(want), `WorkOrdersView.vue missing ${want}`)
   }
+  for (const obsolete of ['更多', '打印', 'printWorkOrder']) assert.ok(!workOrders.includes(obsolete), `WorkOrdersView.vue retains ${obsolete}`)
   assert.ok(!workOrders.includes("openStockDocument(row, 'finish')"), 'WorkOrdersView.vue must not finish directly from the list')
   assert.ok(!workOrders.includes('startWorkOrder(row)'), 'WorkOrdersView.vue must not start directly from the list')
 

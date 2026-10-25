@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_operation_events (
  payload JSONB NOT NULL, result JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
  CHECK(input_qty>=0 AND output_qty>=0)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS production_operation_events_completion_uq ON %[1]s.production_operation_events(job_card_id) WHERE kind='complete';
+DROP INDEX IF EXISTS %[1]s.production_operation_events_completion_uq;
+CREATE INDEX IF NOT EXISTS production_operation_events_completion_idx ON %[1]s.production_operation_events(job_card_id,id) WHERE kind='complete';
 CREATE INDEX IF NOT EXISTS production_operation_events_work_idx ON %[1]s.production_operation_events(work_order_id,id);
 CREATE TABLE IF NOT EXISTS %[1]s.production_operation_balances (
  id BIGSERIAL PRIMARY KEY, event_id BIGINT NOT NULL UNIQUE REFERENCES %[1]s.production_operation_events(id),

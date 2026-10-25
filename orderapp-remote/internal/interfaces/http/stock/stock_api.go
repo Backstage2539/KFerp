@@ -182,6 +182,35 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		result.Offset = offset
 		return c.JSON(http.StatusOK, result)
 	})
+	e.POST("/api/stock/material-batch-locations/repair-preview", func(c echo.Context) error {
+		var req struct {
+			MaterialBatchID int64 `json:"material_batch_id"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: "请选择物料批次"})
+		}
+		result, err := stockSvc.PreviewMaterialBatchLocationRepair(c.Request().Context(), req.MaterialBatchID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+	e.POST("/api/stock/material-batch-locations/repair", func(c echo.Context) error {
+		var req stockapp.MaterialBatchLocationRepairCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: "库位修复参数无效"})
+		}
+		req.Actor = support.ActorOf(c)
+		result, err := stockSvc.RepairMaterialBatchLocations(c.Request().Context(), req)
+		if err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(err.Error(), "已变化，请刷新") {
+				status = http.StatusConflict
+			}
+			return c.JSON(status, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
 
 	e.GET("/api/stock/warehouse-inventory", func(c echo.Context) error {
 		limit := stockLimit(c)

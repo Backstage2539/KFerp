@@ -141,6 +141,7 @@ CREATE TABLE %s.material_batches (
 	id BIGINT PRIMARY KEY,batch_code TEXT NOT NULL UNIQUE,material_id BIGINT NOT NULL,
 	remaining_g BIGINT NOT NULL DEFAULT 0,remaining_units BIGINT NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'active',quality_status TEXT NOT NULL DEFAULT 'unchecked',
+	owner_customer_id BIGINT NOT NULL DEFAULT 0,
 	received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE %s.material_batch_locations (

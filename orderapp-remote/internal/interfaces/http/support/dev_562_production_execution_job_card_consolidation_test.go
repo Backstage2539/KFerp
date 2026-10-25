@@ -37,9 +37,14 @@ func TestDev562ProductionExecutionJobCardConsolidationContracts(t *testing.T) {
 	}
 
 	workOrderTemplate := beforeScript(contents["workOrders"])
-	for _, marker := range []string{"查看工单", "编辑拆分", "打印", `@updated="load"`} {
+	for _, marker := range []string{"查看工单", "编辑拆分", "取消工单", `@updated="load"`} {
 		if !strings.Contains(contents["workOrders"], marker) {
 			t.Fatalf("WorkOrdersView missing %s", marker)
+		}
+	}
+	for _, obsolete := range []string{"更多", "打印", "printWorkOrder", "window.print"} {
+		if strings.Contains(workOrderTemplate, obsolete) {
+			t.Fatalf("WorkOrdersView must remove %s", obsolete)
 		}
 	}
 	for _, forbidden := range []string{"startWorkOrder(row)", `openStockDocument(row, 'finish')`} {

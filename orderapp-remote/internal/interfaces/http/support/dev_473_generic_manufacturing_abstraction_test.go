@@ -22,10 +22,10 @@ func TestDev473GenericManufacturingAbstractionContracts(t *testing.T) {
 			"apiSend('/api/production-plans'",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"): {
-			"BOM/工艺路线",
-			"工序摘要",
-			"工艺参数",
-			"商品生产配置快照",
+			"冻结规格：",
+			"来源销售订单：",
+			"目标仓库：",
+			"工序进度",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.js"): {
 			"source_type: 'erp_order'",

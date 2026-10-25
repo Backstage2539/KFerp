@@ -19,13 +19,14 @@ test('production menu consolidates five workflow pages and keeps the manual last
   assert.equal(keys.at(-1), 'productionManual')
 })
 
-test('production flow page groups the five workflow tabs', () => {
+test('production flow page keeps work-order records embedded instead of an independent reconciliation tab', () => {
   const source = readFileSync(new URL('../views/ProductionFlowView.vue', import.meta.url), 'utf8')
 
-  for (const label of ['生产计划', '生产工单', '工序记录', '生产质检', '生产记录与核对']) {
+  for (const label of ['生产计划', '生产工单', '工序记录', '生产质检']) {
     assert.match(source, new RegExp(label))
   }
-  for (const component of ['ProducePlanView', 'WorkOrdersView', 'JobCardsView', 'QualityInspectionsView', 'ProductionAcceptanceView']) {
+  assert.doesNotMatch(source, /生产记录与核对|ProductionAcceptanceView/)
+  for (const component of ['ProducePlanView', 'WorkOrdersView', 'JobCardsView', 'QualityInspectionsView']) {
     assert.match(source, new RegExp(component))
   }
 })
@@ -61,5 +62,5 @@ test('vue shell registers production flow and keeps legacy workflow mappings', (
   assert.match(source, /workOrders:\s*WorkOrdersView/)
   assert.match(source, /jobCards:\s*JobCardsView/)
   assert.match(source, /qualityInspections:\s*QualityInspectionsView/)
-  assert.match(source, /productionAcceptance:\s*ProductionAcceptanceView/)
+  assert.match(source, /productionAcceptance:\s*WorkOrdersView/)
 })

@@ -2472,6 +2472,11 @@ watch(() => [props.viewParams?.customer_id, props.customerContextId], async () =
   await load(false)
 })
 
+watch(() => Number(props.viewParams?.production_plan_id || 0), async (planID) => {
+  if (planID <= 0 || Number(productionPlanDetail.value?.id || 0) === planID) return
+  await openProductionPlanDetail({ id: planID }, { history: 'replace' })
+})
+
 watch(selectedSignature, () => {
   if (productionPlanDetail.value || restoringPlanningLocation) return
   resetCurrentPlanForSelection()

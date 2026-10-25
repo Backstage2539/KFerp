@@ -51,7 +51,7 @@ func TestDev472ManufacturingProductionPlanLifecycleContracts(t *testing.T) {
 			"workOrderStatusOptions",
 			"查看工单",
 			"编辑拆分",
-			"打印",
+			"取消工单",
 			"@updated=\"load\"",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "work-orders.js"): {

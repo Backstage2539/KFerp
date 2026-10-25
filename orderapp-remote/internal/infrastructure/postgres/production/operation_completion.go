@@ -94,7 +94,7 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	if err = app.ValidateOperationQuantity(cmd.ActualInputQty, cmd.InputUnit); err != nil {
 		return out, err
 	}
-	plan, err := app.PlanOperationCompletion(app.OperationCompletionInput{PlannedQty: p.PlannedQty, ActualQty: cmd.ActualOutputQty, Unit: p.OutputUnit, TargetWarehouse: p.Warehouse, CurrentWarehouse: p.Warehouse, DifferenceReason: cmd.DifferenceReason, Final: p.Final, ReceiptEnabled: p.Execution.ReceiptEnabled})
+	plan, err := app.PlanOperationCompletion(app.OperationCompletionInput{PlannedQty: p.PlannedQty, ActualQty: cmd.ActualOutputQty, Unit: p.OutputUnit, TargetWarehouse: p.Warehouse, CurrentWarehouse: p.Warehouse, DifferenceReason: cmd.DifferenceReason, Final: p.Final, ReceiptEnabled: p.Execution.ReceiptEnabled, FinishOperation: cmd.FinishOperation})
 	if err != nil {
 		return out, err
 	}
@@ -116,29 +116,51 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 		runID = started.RunningItemID
 		wo = started.WorkOrder
 	}
-	materials, err := resolveOperationMaterialUses(p.Materials, cmd.Materials, cmd.ActualOutputQty, p.PlannedQty)
+	materials, err := resolveOperationMaterialUses(p.Materials, cmd.Materials, cmd.ActualOutputQty, p.PlannedQty, p.TotalPlannedQty, p.CompletedOutputQty)
 	if err != nil {
 		return out, err
 	}
+	// Persist the material quantities actually applied by this completion event.
+	// The next partial completion preview uses these event rows to avoid
+	// suggesting the already-consumed portion again.
+	cmd.Materials = materials
 	var timerMinutes int
 	var timed bool
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT started_at IS NOT NULL,CEIL((COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now()))) ELSE 0 END)/60)::int FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&timed, &timerMinutes); err != nil {
 		return out, err
 	}
+	var priorEventMinutes int
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(COALESCE(NULLIF(payload->>'actual_minutes','')::int,0)),0) FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, r.schema), cmd.ID).Scan(&priorEventMinutes); err != nil {
+		return out, err
+	}
 	actualMinutes := cmd.ActualMinutes
 	if actualMinutes == 0 && timed {
-		actualMinutes = timerMinutes
+		actualMinutes = timerMinutes - priorEventMinutes
+		if actualMinutes < 0 {
+			actualMinutes = 0
+		}
 	}
 	estimated := actualMinutes == 0 && !timed && costMethod != "piece"
 	opCost := float64(actualMinutes) * rate / 60
 	if costMethod == "piece" {
 		opCost = cmd.ActualOutputQty * pieceRate
 	} else if estimated {
-		opCost = plannedCost
-		if opCost == 0 {
-			opCost = float64(plannedMinutes) * rate / 60
+		totalPlanned := p.TotalPlannedQty
+		if totalPlanned <= 0 {
+			totalPlanned = p.PlannedQty
+		}
+		if totalPlanned > 0 {
+			opCost = plannedCost * cmd.ActualOutputQty / totalPlanned
+		} else {
+			opCost = 0
+			if plannedCost > 0 {
+				opCost = plannedCost
+			} else if plannedMinutes > 0 {
+				opCost = float64(plannedMinutes) * rate / 60
+			}
 		}
 	}
+	cmd.ActualMinutes = actualMinutes
 	payload, _ := json.Marshal(cmd)
 	receipt := app.OperationCompletionReceipt{OutputWeightG: app.OperationOutputWeight(cmd.ActualOutputQty, cmd.OutputUnit, wo.SpecG, wo.PlannedOutputG, operationPlannedTotal(wo)), OutputQty: cmd.ActualOutputQty, OutputUnit: cmd.OutputUnit, Warehouse: plan.Warehouse, WarehouseName: p.WarehouseName, StockEntryIDs: []int64{}, Handoffs: handoffs, EstimatedCost: estimated}
 	err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_operation_events(work_order_id,job_card_id,request_id,expected_version,operator,input_qty,input_unit,output_qty,output_unit,planned_qty,difference_reason,warehouse,receipt_enabled,final_output,operation_cost,estimated_cost,payload)
@@ -235,7 +257,18 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	if cmd.InputUnit == cmd.OutputUnit {
 		loss = math.Max(0, cmd.ActualInputQty-cmd.ActualOutputQty)
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status='completed',completed_at=now(),operator=$2,actual_input_qty=$3,actual_output_qty=$4,actual_loss_qty=$5,actual_minutes=$6,actual_operation_cost=$7,exception_reason=$8,metrics_json=metrics_json||$9::jsonb,completion_draft='{}'::jsonb WHERE id=$1`, r.schema), cmd.ID, cmd.Operator, cmd.ActualInputQty, cmd.ActualOutputQty, loss, actualMinutes, opCost, cmd.DifferenceReason, string(metricsRaw)); err != nil {
+	nextStatus := status
+	if plan.CloseOperation {
+		nextStatus = "completed"
+	} else if status == "pending" || status == "ready" {
+		nextStatus = "running"
+	}
+	var priorInput, priorOutput, priorLoss, priorCost float64
+	var priorMinutes int
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT actual_input_qty::float8,actual_output_qty::float8,actual_loss_qty::float8,actual_minutes,actual_operation_cost::float8 FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&priorInput, &priorOutput, &priorLoss, &priorMinutes, &priorCost); err != nil {
+		return out, err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status=$10,completed_at=CASE WHEN $10='completed' THEN now() ELSE NULL END,operator=$2,actual_input_qty=$3,actual_output_qty=$4,actual_loss_qty=$5,actual_minutes=$6,actual_operation_cost=$7,exception_reason=$8,metrics_json=metrics_json||$9::jsonb,completion_draft=CASE WHEN $10='completed' THEN '{}'::jsonb ELSE completion_draft END WHERE id=$1`, r.schema), cmd.ID, cmd.Operator, priorInput+cmd.ActualInputQty, priorOutput+cmd.ActualOutputQty, priorLoss+loss, priorMinutes+actualMinutes, priorCost+opCost, cmd.DifferenceReason, string(metricsRaw), nextStatus); err != nil {
 		return out, err
 	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_operation_events SET material_cost=$2 WHERE id=$1`, r.schema), receipt.EventID, materialCost); err != nil {
@@ -249,14 +282,39 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 		receipt.StockEntryIDs = append(receipt.StockEntryIDs, entryID)
 	}
 	receipt.Message = "已交下一工序"
+	if !plan.CloseOperation {
+		receipt.Message = "本批已完成，剩余数量保留待办"
+	}
 	if p.Execution.ReceiptEnabled {
 		receipt.Message = "已入" + p.WarehouseName
+		if !plan.CloseOperation {
+			receipt.Message += "，本批完成，剩余数量保留待办"
+		}
 		if cmd.ActualOutputQty == 0 {
-			receipt.Message = "已完成，本次无产出"
+			receipt.Message = "本次无产出"
+			if plan.CloseOperation {
+				receipt.Message = "工序已结束，本次无产出"
+			} else {
+				receipt.Message += "，工序保留待办"
+			}
 		}
 	}
-	if err = r.finishOperationWorkOrderTx(ctx, tx, wo, cmd.Operator); err != nil {
-		return out, err
+	if plan.CloseOperation {
+		if err = r.finishOperationWorkOrderTx(ctx, tx, wo, cmd.Operator); err != nil {
+			return out, err
+		}
+	} else {
+		summary, e := operationSummaryJSONForWorkOrderTx(ctx, tx, r.schema, wo.ID)
+		if e != nil {
+			return out, e
+		}
+		var currentCost float64
+		if e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(material_cost+operation_cost),0)::float8 FROM %s.production_operation_events WHERE work_order_id=$1 AND kind='complete' AND status IN('posting','posted')`, r.schema), wo.ID).Scan(&currentCost); e != nil {
+			return out, e
+		}
+		if _, e = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET status='partially_completed',actual_cost=$2,operation_summary_json=$3::jsonb WHERE id=$1`, r.schema), wo.ID, currentCost, summary); e != nil {
+			return out, e
+		}
 	}
 	if err = infra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, "complete", infra.StrPtr("status"), infra.StrPtr(status), infra.StrPtr("completed"), infra.AuditMeta{"event_id": receipt.EventID, "request_id": cmd.RequestID, "actual_input_qty": cmd.ActualInputQty, "input_unit": cmd.InputUnit, "actual_output_qty": cmd.ActualOutputQty, "output_unit": cmd.OutputUnit, "difference_reason": cmd.DifferenceReason, "materials": materials, "handoffs": handoffs, "stock_entry_ids": receipt.StockEntryIDs, "warehouse": plan.Warehouse, "cost_estimated": estimated}); err != nil {
 		return out, err
@@ -280,17 +338,26 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	return out, tx.Commit(ctx)
 }
 
-func resolveOperationMaterialUses(expected, submitted []app.OperationMaterialUse, actual, planned float64) ([]app.OperationMaterialUse, error) {
+func resolveOperationMaterialUses(expected, submitted []app.OperationMaterialUse, actual, planned, totalPlanned, completed float64) ([]app.OperationMaterialUse, error) {
 	out := append([]app.OperationMaterialUse(nil), expected...)
 	if submitted == nil {
-		factor := 1.0
-		if planned > 0 {
-			factor = actual / planned
-		}
 		for i := range out {
-			out[i].Qty *= factor
-			if app.OperationUnitFactor(out[i].Unit) == 0 {
-				out[i].Qty = math.Ceil(out[i].Qty)
+			if out[i].TotalQty > 0 && totalPlanned > 0 {
+				cumulative := math.Min(totalPlanned, completed+actual)
+				target := out[i].TotalQty * cumulative / totalPlanned
+				if app.OperationUnitFactor(out[i].Unit) == 0 {
+					target = math.Ceil(target - 1e-9)
+				}
+				out[i].Qty = math.Max(0, target-out[i].ConsumedQty)
+			} else {
+				factor := 1.0
+				if planned > 0 {
+					factor = actual / planned
+				}
+				out[i].Qty *= factor
+				if app.OperationUnitFactor(out[i].Unit) == 0 {
+					out[i].Qty = math.Ceil(out[i].Qty)
+				}
 			}
 		}
 		return out, nil

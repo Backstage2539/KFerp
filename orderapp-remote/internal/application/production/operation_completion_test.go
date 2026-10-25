@@ -27,6 +27,22 @@ func TestOperationCompletionRejectsFractionalBagsAndUnexplainedDifference(t *tes
 	}
 }
 
+func TestOperationCompletionCanPostPartialBatchWithoutClosingOperation(t *testing.T) {
+	finish := false
+	got, err := PlanOperationCompletion(OperationCompletionInput{PlannedQty: 12, ActualQty: 1, Unit: "袋", Final: true, ReceiptEnabled: true, TargetWarehouse: "finished_goods", FinishOperation: &finish})
+	if err != nil || got.CloseOperation || !got.Saleable || got.OutputQty != 1 {
+		t.Fatalf("partial batch must post output while leaving operation open: %+v %v", got, err)
+	}
+	finish = true
+	if _, err = PlanOperationCompletion(OperationCompletionInput{PlannedQty: 12, ActualQty: 1, Unit: "袋", Final: true, ReceiptEnabled: true, TargetWarehouse: "finished_goods", FinishOperation: &finish}); err == nil {
+		t.Fatal("closing below plan must require a difference reason")
+	}
+	got, err = PlanOperationCompletion(OperationCompletionInput{PlannedQty: 12, ActualQty: 1, Unit: "袋", Final: true, ReceiptEnabled: true, TargetWarehouse: "finished_goods", DifferenceReason: "现场决定只完成1袋", FinishOperation: &finish})
+	if err != nil || !got.CloseOperation {
+		t.Fatalf("explicit finish must close the operation: %+v %v", got, err)
+	}
+}
+
 func TestOperationHandoffAllocatesOnlyAvailableFinishedBatches(t *testing.T) {
 	rows := []OperationBatchBalance{{ID: 1, Remaining: 8.6, Unit: "kg", Warehouse: "roast"}, {ID: 2, Remaining: 2.6, Unit: "kg", Warehouse: "packing"}}
 	got, err := AllocateOperationHandoff(rows, 10000, "g")

@@ -32,6 +32,7 @@ type OperationCompletionInput struct {
 	PlannedQty, ActualQty                                     float64
 	Unit, TargetWarehouse, CurrentWarehouse, DifferenceReason string
 	Final, ReceiptEnabled                                     bool
+	FinishOperation                                           *bool
 }
 
 type OperationCompletionPlan struct {
@@ -67,7 +68,8 @@ func PlanOperationCompletion(in OperationCompletionInput) (OperationCompletionPl
 	if err := ValidateOperationQuantity(in.ActualQty, in.Unit); err != nil {
 		return out, err
 	}
-	if math.Abs(in.ActualQty-in.PlannedQty) > 1e-8 && strings.TrimSpace(in.DifferenceReason) == "" {
+	closeOperation := in.FinishOperation == nil || *in.FinishOperation
+	if (in.ActualQty > in.PlannedQty+1e-8 || (closeOperation && math.Abs(in.ActualQty-in.PlannedQty) > 1e-8)) && strings.TrimSpace(in.DifferenceReason) == "" {
 		return out, fmt.Errorf("请记录实际数量与计划不同的原因")
 	}
 	warehouse := strings.TrimSpace(in.CurrentWarehouse)
@@ -80,7 +82,7 @@ func PlanOperationCompletion(in OperationCompletionInput) (OperationCompletionPl
 			return out, fmt.Errorf("请配置完成后的入库位置")
 		}
 	}
-	return OperationCompletionPlan{OutputQty: in.ActualQty, Difference: in.ActualQty - in.PlannedQty, Warehouse: warehouse, CloseOperation: true, Saleable: in.Final && in.ReceiptEnabled}, nil
+	return OperationCompletionPlan{OutputQty: in.ActualQty, Difference: in.ActualQty - in.PlannedQty, Warehouse: warehouse, CloseOperation: closeOperation, Saleable: in.Final && in.ReceiptEnabled}, nil
 }
 
 type OperationBatchBalance struct {
@@ -151,6 +153,10 @@ type OperationMaterialUse struct {
 	Name            string  `json:"name"`
 	Unit            string  `json:"unit"`
 	Qty             float64 `json:"qty"`
+	TotalQty        float64 `json:"total_qty,omitempty"`
+	ConsumedQty     float64 `json:"consumed_qty,omitempty"`
+	AvailableQty    float64 `json:"available_qty,omitempty"`
+	ShortageQty     float64 `json:"shortage_qty,omitempty"`
 	Warehouse       string  `json:"warehouse"`
 	WarehouseName   string  `json:"warehouse_name"`
 	OwnerCustomerID int64   `json:"owner_customer_id"`
@@ -159,6 +165,8 @@ type OperationMaterialUse struct {
 
 type OperationCompletionPreview struct {
 	ActualMinutes       int                     `json:"actual_minutes"`
+	CompletedOutputQty  float64                 `json:"completed_output_qty"`
+	MaxOutputQty        float64                 `json:"max_output_qty"`
 	Draft               json.RawMessage         `json:"draft"`
 	JobCardID           int64                   `json:"job_card_id"`
 	WorkOrderID         int64                   `json:"work_order_id"`
@@ -170,8 +178,10 @@ type OperationCompletionPreview struct {
 	OutputUnit          string                  `json:"output_unit"`
 	InputUnit           string                  `json:"input_unit"`
 	PlannedQty          float64                 `json:"planned_qty"`
+	TotalPlannedQty     float64                 `json:"total_planned_qty"`
 	InputQty            float64                 `json:"input_qty"`
 	ProductName         string                  `json:"product_name"`
+	OutputSpecG         int64                   `json:"output_spec_g"`
 	PackageSpecLabel    string                  `json:"package_spec_label"`
 	Warehouse           string                  `json:"warehouse"`
 	WarehouseName       string                  `json:"warehouse_name"`
