@@ -376,7 +376,7 @@
 - [x] 点击右侧来源或任务阻断项会展开所属规格组及任务明细并滚动定位。桌面与窄屏下任务、汇总列和底部操作栏可读。
 - [x] 隔离 API 验证生豆 → 自制熟豆 → 包装成品详情中的组件来源分别指向正确任务；生产 PP-0000000017 未写入或刷新。
 - [x] 最新 `origin/develop` `d9b6db27f` 已集成；合并后 Vue shell 全量测试/构建、`scripts/verify_kferp.sh backend`、`scripts/verify_kferp.sh changed` 和定向隔离 PostgreSQL API 用例通过。
-- [ ] development 部署与运行版本/基础健康检查进行中；Van 已明确授权当前 develop 含 PR-731 一并发布。
+- [x] Van 明确授权当前 `develop`（含 PR-731 尚待隔离数据/浏览器验收的内容）发布至 development；`fd9c0abfd55578988efb81a4394677fee483d0a7` 已部署，容器、登录页、手册、构建标记及需求 API 核验通过。运行证据见 `docs/acceptance/2026-10-25-production-plan-grouped-preparation.md`。
 - [ ] Van 在 development 验收并确认 PR-732 产品需求完成。
 
 ## PR-649 生产计划三步工作台与草稿重算

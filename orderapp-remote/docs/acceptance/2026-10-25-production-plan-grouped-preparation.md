@@ -2,7 +2,7 @@
 
 ## 状态
 
-实现与本地验证完成；Van 业务验收待办。最新 `origin/develop` `d9b6db27f5ae64fe14f0173490533ebd92b1cf32` 已合入功能分支，合并后前端全量测试/构建、后端全量验证、changed 和目标隔离 API 检查通过。Van 已明确授权当前 develop（包含 PR-731 尚待隔离数据/浏览器验收的变更）部署到 development。
+实现与本地验证、development 部署完成；Van 业务验收待办。最新 `origin/develop` `d9b6db27f5ae64fe14f0173490533ebd92b1cf32` 已合入功能分支，并在 `fd9c0abfd55578988efb81a4394677fee483d0a7` 合入 `develop`。Van 已明确授权当前 develop（包含 PR-731 尚待隔离数据/浏览器验收的变更）部署到 development。
 
 生产计划 PP-0000000017 只作为用户提供的展示参考。页面验证使用与示例数量一致的隔离/本地演示数据，不保存、刷新供应、提交或操作任何生产工单。
 
@@ -28,7 +28,11 @@
 
 另运行 `ORDERAPP_TEST_DATABASE_URL=… go test ./internal/interfaces/http/production ./internal/application/production ./internal/infrastructure/postgres/production -count=1`。目标 API 测试通过；完整 Go 包回归未全绿，其他既有用例报告：测试 schema 缺 `product_bom_spec_authorities`、父 BOM 来源缺 505g、PR-655 工位人员 fixture 使用旧配置、客户加工预留缺 600g 物料批次。没有为本次展示改动调整这些独立行为。
 
-## 后续
+## Development 部署与运行核验
 
-- 按 Van 授权将当前 develop 发布至 development，核对运行版本与健康状态；PR-731 的隔离数据/浏览器验收仍由其流程继续跟进。
-- Van 在开发环境验收后更新 PR-732 产品需求状态；生产 PP-0000000017 保持只读。
+- 部署命令：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`；部署完成版本 `fd9c0abfd55578988efb81a4394677fee483d0a7`。
+- 回滚锚点：旧源码 `/opt/stacks/erp/orderapp.backup.deploy-20261026020546-fd9c0abfd555`；镜像 `kferp-orderapp-rollback:development-20261026020546-fd9c0abfd555`。
+- 容器：`erp_orderapp` 运行中，镜像 ID `sha256:f09725aba267279adc2984998fbd24a81f9f133df5a365942cd7dc7518604baa`；`erp_postgres` healthy，`erp_docconvert` running。
+- Smoke：部署脚本外部 `/app/login` 返回 200；`/app/login`、`/app/vue-shell` 返回 200；`/app/` 返回 303 并跳转 `orders`。匿名 requirement API 返回 401，BasicAuth 请求返回 200；PR-732 requirement row、手册 marker 与前端 JS 分组 marker 可读。
+- 此次发布包含 PR-731 内容，依据 Van 的明确授权；PR-731 的隔离数据/浏览器验收仍未完成，继续由其流程跟进。development 产品验收待 Van 完成。
+- 本次未发布微信小程序，未部署 production，也未写入或刷新生产计划 PP-0000000017。

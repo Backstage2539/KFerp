@@ -422,16 +422,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-732-PRODUCTION-PLAN-GROUPED-PREPARATION
 - Branch: `codex/production-plan-material-groups`; initial base `origin/develop` 7f77b824c.
-- GitHub PR: #305, draft; targets `develop`; latest current develop integrated, merge/development release in progress under Van's explicit authorization.
+- GitHub PR: #305, merged into `develop` at `fd9c0abfd55578988efb81a4394677fee483d0a7`.
 - Owner/session: Codex / 2026-10-25.
-- Status: implementation complete; latest `origin/develop` d9b6db27f is integrated into this feature branch. On the merged tree, full Vue shell tests/build, `scripts/verify_kferp.sh changed`, full backend verifier, and the targeted isolated PostgreSQL API test pass; local desktop/narrow preview also passes. Van explicitly authorized deploying current develop while PR-731's isolated-data/browser acceptance remains pending; development deployment is in progress.
+- Status: implementation and development deployment complete; Van's product acceptance remains pending. Van explicitly authorized publishing current develop including PR-731 while its isolated-data/browser acceptance remains pending. PR-731 acceptance remains an independent follow-up.
 - Scope: group production tasks only when stage, typed output identity, frozen spec/conversion, BOM/process/config snapshot, and target warehouse match; aggregate each linked preparation source once; retain each task's orders, allocations, owners, warehouses, batches, and edits.
 - DEV: DEV-PR732-01 grouping/sums; DEV-PR732-02 nested detail and issue focus; DEV-PR732-03 isolated detail API association; DEV-PR732-04 manual/evidence/development delivery.
 - Verifier: `scripts/verify_kferp.sh frontend`; `scripts/verify_kferp.sh changed`; isolated PostgreSQL `TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownstreamWIP`; desktop 1440x1100 and narrow 390x844 component preview with no horizontal overflow and actual source-focus expansion.
 - Broad Go regression: `go test ./internal/interfaces/http/production ./internal/application/production ./internal/infrastructure/postgres/production -count=1` reports unrelated production fixture/schema, schedule-staff, and customer-processing material-reservation failures; the changed isolated plan-detail API test passes.
 - Production boundary: PP-0000000017 is only the read-only reference; no production save, refresh, submit, or work-order action.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-25-production-plan-grouped-preparation.md`.
-- Latest integration: `origin/develop` d9b6db27f5ae64fe14f0173490533ebd92b1cf32; post-merge frontend/backend/API gates passed. Van authorized development deployment including PR-731.
+- Latest integration and deployed `origin/develop`: `fd9c0abfd55578988efb81a4394677fee483d0a7`; full frontend/backend gates, changed check, isolated API case, and desktop/narrow preview passed.
+- Development deployment: `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`; backup source `/opt/stacks/erp/orderapp.backup.deploy-20261026020546-fd9c0abfd555`; rollback image `kferp-orderapp-rollback:development-20261026020546-fd9c0abfd555`.
+- Runtime smoke: `erp_orderapp` running image `sha256:f09725aba267279adc2984998fbd24a81f9f133df5a365942cd7dc7518604baa`, PostgreSQL healthy, docconvert running; `/app/login` and `/app/vue-shell` 200, `/app/` 303 to `orders`, anonymous requirement API 401 and authenticated API 200. PR-732 requirement row and manual/frontend bundle markers present. `/app/` redirects in this deployment; protected API authentication behaved as expected.
+- No production deployment or production-plan writes; WeChat upload/publication not performed.
 - Last update: 2026-10-26.
 
 ### PR-730-PACKAGING-GROUPED-EXECUTION

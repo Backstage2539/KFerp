@@ -256,7 +256,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_dev", code: "DEV-PR732-01", title: "PR-732 同阶段兼容生产任务合组及备料数量汇总", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/lib/produce-plan.test.js"},
 		{table: "req_dev", code: "DEV-PR732-02", title: "PR-732 生产安排内嵌备料明细及任务问题定位", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/components/ProductionPlanDetailWorkspace.vue"},
 		{table: "req_dev", code: "DEV-PR732-03", title: "PR-732 隔离生产计划详情 API 来源关联验证", status: "done", assignee: "Codex", evidence: "internal/interfaces/http/production/multilevel_material_output_api_test.go"},
-		{table: "req_dev", code: "DEV-PR732-04", title: "PR-732 生产手册、验收证据和开发环境交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-25-production-plan-grouped-preparation.md"},
+		{table: "req_dev", code: "DEV-PR732-04", title: "PR-732 生产手册、验收证据和开发环境交付", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-25-production-plan-grouped-preparation.md"},
 		{table: "req_product", code: "PR-730-WORKSTATION-PACKAGING-GROUP", title: "包装台同商品规格工单合组、汇总补料并一次完成入库", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-25-packaging-grouped-execution.md"},
 		{table: "req_dev", code: "DEV-PR730-01", title: "PR-730 兼容包装任务分组合计与旧零批次数量解析", status: "done", assignee: "Codex", evidence: "TestPackagingGroupKeysAcceptEquivalentLegacyZeroSplitCards; TestPackagingGroupKeysSeparateDifferentFrozenMaterialSpec; production-workstation tests"},
 		{table: "req_dev", code: "DEV-PR730-02", title: "PR-730 工位合并补料预览与原子分单完成入库", status: "done", assignee: "Codex", evidence: "TestWorkstationCompletionGroupPreviewAndSubmitAPI; operation completion group tests"},
