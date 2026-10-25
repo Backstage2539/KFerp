@@ -575,3 +575,35 @@ func (r Repository) recordOrderStockDeductionTx(ctx context.Context, tx pgx.Tx, 
 	)
 	return err
 }
+
+// Saving a newly shipped status is an inventory action, just like tracking fill.
+// Unchanged historical shipping states never trigger retroactive deductions.
+func (r Repository) applySavedOrderShipmentTx(ctx context.Context, tx pgx.Tx, orderID, previousStatusID, nextStatusID int64, actor string) error {
+	if nextStatusID <= 0 || previousStatusID == nextStatusID {
+		return nil
+	}
+	next, err := lookupStatusName(ctx, tx, r.schema, "ship_statuses", nextStatusID)
+	if err != nil {
+		return err
+	}
+	isShipped := func(s string) bool {
+		switch strings.TrimSpace(s) {
+		case "已发货", "已出库", "已签收", "已收货", "已完成":
+			return true
+		}
+		return false
+	}
+	if !isShipped(next) {
+		return nil
+	}
+	if previousStatusID > 0 {
+		previous, err := lookupStatusName(ctx, tx, r.schema, "ship_statuses", previousStatusID)
+		if err != nil {
+			return err
+		}
+		if isShipped(previous) {
+			return nil
+		}
+	}
+	return r.deductOrderAllocatedStockTx(ctx, tx, orderID, actor)
+}

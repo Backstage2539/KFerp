@@ -7,7 +7,7 @@ const read = path => fs.readFileSync(new URL(path, import.meta.url), 'utf8')
 test('all production warehouse pickers use the registered stock warehouse endpoint', () => {
   const sources = [
     '../views/ProcessTemplatesView.vue',
-    '../views/ProductionRecordsView.vue',
+    '../components/WorkOrderReceiptForm.vue',
     '../components/OperationConversionForm.vue',
     '../components/OperationMaterialConfig.vue',
   ].map(read)

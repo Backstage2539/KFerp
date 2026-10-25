@@ -1156,7 +1156,8 @@ test('order entry exposes continuous backfill mode and save flow', () => {
   assert.match(source, /resetForBackfillContinuation/)
   assert.match(saveSource, /continueBackfill/)
   assert.match(saveSource, /resetForBackfillContinuation\(\)/)
-  assert.match(saveSource, /if \(!props\.embedded && data\.redirect_url\) window\.location\.href = data\.redirect_url/)
+  assert.match(saveSource, /key: 'orders', params: \{ order_id: Number\(data\.order_id\)/)
+  assert.doesNotMatch(saveSource, /window\.location\.href = data\.redirect_url/)
 
   for (const want of [
     "form.ship_tracking_no = ''",
@@ -2988,4 +2989,11 @@ test('PR636 customer default retains an explicit public price choice',()=>{
 test('PR636 explicit public quote can replace customer quote for a referenced public product',()=>{
  const products=[{id:1,customer_id:0,visibility:'public',tiers:[{publication_id:12,list_type:'commercial'}]},{id:1,customer_id:42,visibility:'customer_reference',tiers:[{publication_id:11,list_type:'commercial'}]}, {id:9,customer_id:43,visibility:'customer_only',tiers:[{publication_id:12,list_type:'commercial'}]}]
  assert.deepEqual(filterProductsForCustomer(products,42,{commercial:[12]},[{customer_id:42,use_public_sku:false}],{},true).map(p=>p.customer_id),[0])
+})
+
+
+test('shipment batch confirmation displays count quantities instead of zero grams', () => {
+  assert.equal(orderEntry.stockBatchQuantity({ bom_spec_id: 3, need_units: 24, need_g: 0 }), '24件')
+  assert.equal(orderEntry.stockBatchQuantity({ bom_spec_id: 3 }, { allocated_units: 23, allocated_g: 0 }), '23件')
+  assert.equal(orderEntry.stockBatchQuantity({ need_g: 227 }, { allocated_g: 227 }), '227g')
 })

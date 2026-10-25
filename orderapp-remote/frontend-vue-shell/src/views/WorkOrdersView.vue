@@ -9,24 +9,25 @@
     <section class="panel no-print">
       <div class="panel-head">
         <h2>生产工单</h2>
-        <button class="secondary" @click="load" :disabled="loading">刷新</button>
+        <button class="secondary" @click="load" :disabled="loading || receiptLocked">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
+      <p v-if="receiptMessage" class="receipt-success" role="status">{{ receiptMessage }}</p>
       <div v-if="warehouseLoadError" class="error" role="alert">仓库名称暂不可用：{{ warehouseLoadError }}。工单仍可查看。</div>
       <p class="muted">人员安排跟随当天工位排班；已排班后进入工位处理，无需逐任务分配。</p>
       <div class="filters">
         <label>
           <span>搜索</span>
-          <input v-model.trim="query" placeholder="产品或工单号" />
+          <input :disabled="receiptLocked" v-model.trim="query" placeholder="产品或工单号" />
         </label>
         <label>
           <span>状态</span>
-          <select v-model="status">
+          <select :disabled="receiptLocked" v-model="status">
             <option value="active">未结束</option>
             <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
-        <button class="primary" @click="load">查询</button>
+        <button class="primary" :disabled="receiptLocked" @click="load">查询</button>
       </div>
     </section>
 
@@ -43,7 +44,8 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in visibleRows" :key="row.id">
+          <template v-for="row in visibleRows" :key="row.id">
+          <tr>
             <td class="product-cell" data-label="产品 / 工单">
               <strong>{{ row.output_name || row.product_name || '-' }}</strong>
               <button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'summary')">{{ row.work_order_no }}</button>
@@ -56,7 +58,7 @@
             <td data-label="工序进度"><strong>{{ operationProgressText(row) }}</strong><small>{{ operationCurrentText(row) }}</small></td>
             <td class="todo-cell" data-label="当前待办"><strong>{{ workOrderTodo(row).title }}</strong><small>{{ workOrderTodo(row).detail }}</small></td>
             <td class="row-actions" data-label="快捷操作">
-              <button class="primary compact" type="button" :disabled="loading" @click="openPrimaryAction(row)">{{ primaryActionLabel(row) }}</button>
+              <button class="primary compact" type="button" :disabled="loading || receiptLocked" @click="openPrimaryAction(row)">{{ primaryActionLabel(row) }}</button>
               <button
                 v-for="source in workOrderLinkedReplenishmentSources(row)"
                 :key="`replenish-${row.id}-${source.source_work_order_id}-${source.material_id}`"
@@ -70,6 +72,8 @@
               <button v-if="canCancelWorkOrder(row)" class="secondary compact danger-text" type="button" @click="cancelWorkOrder(row)">取消工单</button>
             </td>
           </tr>
+          <tr v-if="receiptWorkOrderID === Number(row.id)"><td colspan="6"><WorkOrderReceiptForm :work-order-id="Number(row.id)" :work-order-no="row.work_order_no" @close="receiptWorkOrderID = 0" @locked="receiptLocked = $event" @posted="onReceiptPosted(row, $event)" /></td></tr>
+          </template>
           <tr v-if="!visibleRows.length"><td colspan="6" class="muted">暂无符合条件的生产工单</td></tr>
         </tbody>
       </table>
@@ -204,6 +208,7 @@ import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
+import WorkOrderReceiptForm from '../components/WorkOrderReceiptForm.vue'
 import { formatPercent } from '../lib/manufacturing-loss'
 import { workOrderStatusLabel } from '../lib/manufacturing-execution'
 import { loadProductionPlanWorkOrders } from '../lib/production-plan-work-orders'
@@ -262,6 +267,9 @@ const workOrderSplitRows = ref([])
 const workOrderSplitSaving = ref(false)
 const workOrderSplitError = ref('')
 const statusOptions = workOrderStatusOptions()
+const receiptWorkOrderID = ref(0)
+const receiptLocked = ref(false)
+const receiptMessage = ref('')
 const executionHub = ref({ open: false, workOrderId: 0, focus: '' })
 const linkedReplenishment = ref({ open: false, source: null, consumerWorkOrderIDs: [], preview: null, loading: false, submitting: false, error: '', requestID: '' })
 const visibleRows = computed(() => {
@@ -430,7 +438,7 @@ function workOrderTodo(row) {
   const items = operationSummaryRows(row)
   if (!items.length) return { title: '等待生成工序任务', detail: '请查看工单的工序配置', action: 'summary' }
   const incomplete = items.filter((item) => !['completed', 'cancelled'].includes(String(item.status || '').trim()))
-  if (!incomplete.length) return { title: '确认数量并入库', detail: '在工单内查看记录并核对实际入库数量', action: 'receipt' }
+  if (!incomplete.length) return { title: '确认数量并入库', detail: '在本行填写实际数量并直接入库', action: 'receipt' }
   const assignments = todayRoster.value?.assignments || []
   const assignmentFor = item => assignments.find(assignment => Number(item.workstation_id || 0) > 0
     ? Number(assignment.workstation_id) === Number(item.workstation_id)
@@ -475,7 +483,7 @@ function openPrimaryAction(row) {
   const todo = workOrderTodo(row)
   const action = todo.action
   if (action === 'retry') return load()
-  if (action === 'receipt') return openExecutionHub(row, 'receipt')
+  if (action === 'receipt') { receiptWorkOrderID.value = Number(row.id); receiptMessage.value = ''; return }
   if (action === 'records') return openExecutionHub(row, 'summary')
   if (action === 'workstation') {
     const card = operationSummaryRows(row).find(item => !['completed','cancelled'].includes(String(item.status || '').trim()))
@@ -496,6 +504,14 @@ function openPrimaryAction(row) {
     return
   }
   openExecutionHub(row, 'summary')
+}
+
+async function onReceiptPosted(row, result) {
+  const completion = result.completion || {}
+  receiptMessage.value = `${row.work_order_no}：${completion.message || '入库成功'} · ${completion.output_qty ?? ''} ${completion.output_unit || ''} · 单据 ${(completion.stock_entry_ids || []).join('、')}`
+  receiptWorkOrderID.value = 0
+  receiptLocked.value = false
+  await load()
 }
 
 function linkedReplenishmentQuantity(grams, units, unit) {
@@ -886,6 +902,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.receipt-success{padding:12px;color:#21824b;background:#edf7f0;border-radius:8px}
 .page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.danger-text{color:#b91c1c}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:700}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.text-left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:40;display:flex;justify-content:flex-end}.work-order-split-drawer{width:min(900px,92vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 28px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #e5e7eb;padding-bottom:12px}.drawer-head p{margin:6px 0 0;color:#666}.split-operation-block{border-top:1px solid #e5e7eb;padding-top:14px;display:grid;gap:10px}.split-operation-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.split-operation-head span{color:#666}.split-row{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(130px,.6fr) repeat(3,minmax(92px,.4fr)) auto;gap:10px;align-items:end;border:1px solid #eef2f7;border-radius:8px;padding:10px}.split-metric{border:1px solid #e5e7eb;border-radius:6px;padding:7px 9px;background:#fbfbfb}.split-metric span{display:block;font-size:12px;color:#666}.split-metric strong{font-size:14px}.split-batch-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.split-batch-card{border:1px solid #dbeafe;border-radius:6px;background:#eff6ff;padding:8px;display:grid;gap:3px}.split-batch-card small,.split-batch-card span{color:#374151}.split-batch-card.underfilled{border-color:#fed7aa;background:#fff7ed}.split-batch-card em{color:#c2410c;font-style:normal;font-size:12px}.section-hint{padding:8px 0}.drawer-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
 
 .page{background:#f7f8fafa}.panel{border-radius:10px;padding:14px}.filters{grid-template-columns:minmax(220px,1fr) 160px 90px}.work-order-list-card table{min-width:900px}.work-order-list-card th,.work-order-list-card td{padding:13px 10px;border-color:#edf0f2}.work-order-list-card th{background:#f6f8f9;color:#56616b}.product-cell{display:grid;gap:4px}.todo-cell strong{color:#a85a08}.primary{border-color:#2f8f5b;background:#2f8f5b}.link-button{color:#24704a;text-decoration:none}.row-actions{align-items:flex-start}

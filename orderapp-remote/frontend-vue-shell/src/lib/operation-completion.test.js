@@ -45,3 +45,15 @@ test('completion defaults to the quantity supported by reserved good stock and l
  assert.equal(draft.materials[0].qty,227)
  assert.equal(completionPayload(p,draft,'partial').actual_output_qty,1)
 })
+
+test('weight suggestions follow integer gram ledger across partial completions',()=>{
+ const p={planned_qty:4,total_planned_qty:4,completed_output_qty:0}
+ assert.equal(suggestedMaterialQty(p,{unit:'kg',total_qty:3.385},3),2.539)
+ assert.equal(suggestedMaterialQty({...p,planned_qty:1,completed_output_qty:3},{unit:'kg',total_qty:3.385,consumed_qty:2.539},1),.846)
+ assert.equal(suggestedMaterialQty(p,{unit:'g',total_qty:3385},3),2539)
+})
+
+test('partial input follows frozen input output ratio when specification grams are not a legacy field',()=>{
+ const p={planned_qty:24,max_output_qty:18,input_qty:5448,input_unit:'g',output_unit:'袋',output_spec_g:0,materials:[]}
+ assert.equal(completionDraft(p).actual_input_qty,4086)
+})
