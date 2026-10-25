@@ -422,16 +422,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-732-PRODUCTION-PLAN-GROUPED-PREPARATION
 - Branch: `codex/production-plan-material-groups`; initial base `origin/develop` 7f77b824c.
-- GitHub PR: #305, draft; targets `develop` and is waiting on PR-731 development/browser acceptance before merge and deployment.
+- GitHub PR: #305, draft; targets `develop`; latest current develop integrated, merge/development release in progress under Van's explicit authorization.
 - Owner/session: Codex / 2026-10-25.
-- Status: implementation complete; latest `origin/develop` 6b4a17bc9 is integrated into this feature branch. On the merged tree, Vue shell tests/build (1617/1617), `scripts/verify_kferp.sh changed`, and the targeted isolated PostgreSQL API test pass; local desktop/narrow preview also passes. Hold development deployment while PR-731's isolated-data/browser acceptance is pending, per shared deployment coordination rules.
+- Status: implementation complete; latest `origin/develop` d9b6db27f is integrated into this feature branch. On the merged tree, full Vue shell tests/build, `scripts/verify_kferp.sh changed`, full backend verifier, and the targeted isolated PostgreSQL API test pass; local desktop/narrow preview also passes. Van explicitly authorized deploying current develop while PR-731's isolated-data/browser acceptance remains pending; development deployment is in progress.
 - Scope: group production tasks only when stage, typed output identity, frozen spec/conversion, BOM/process/config snapshot, and target warehouse match; aggregate each linked preparation source once; retain each task's orders, allocations, owners, warehouses, batches, and edits.
 - DEV: DEV-PR732-01 grouping/sums; DEV-PR732-02 nested detail and issue focus; DEV-PR732-03 isolated detail API association; DEV-PR732-04 manual/evidence/development delivery.
 - Verifier: `scripts/verify_kferp.sh frontend`; `scripts/verify_kferp.sh changed`; isolated PostgreSQL `TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownstreamWIP`; desktop 1440x1100 and narrow 390x844 component preview with no horizontal overflow and actual source-focus expansion.
 - Broad Go regression: `go test ./internal/interfaces/http/production ./internal/application/production ./internal/infrastructure/postgres/production -count=1` reports unrelated production fixture/schema, schedule-staff, and customer-processing material-reservation failures; the changed isolated plan-detail API test passes.
 - Production boundary: PP-0000000017 is only the read-only reference; no production save, refresh, submit, or work-order action.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-25-production-plan-grouped-preparation.md`.
-- Latest integration: `origin/develop` 6b4a17bc9946f1132d8f788b55f083a07a96aa06; post-merge frontend/API gates passed. Development deployment remains pending PR-731 browser acceptance.
+- Latest integration: `origin/develop` d9b6db27f5ae64fe14f0173490533ebd92b1cf32; post-merge frontend/backend/API gates passed. Van authorized development deployment including PR-731.
 - Last update: 2026-10-26.
 
 ### PR-730-PACKAGING-GROUPED-EXECUTION

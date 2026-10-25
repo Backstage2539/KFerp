@@ -375,8 +375,8 @@
 - [x] 旧计划保留已保存来源与上游依赖；无法关联来源和无任务归属旧版材料汇总明确显示“未关联备料”，不猜测归属、不自动刷新。
 - [x] 点击右侧来源或任务阻断项会展开所属规格组及任务明细并滚动定位。桌面与窄屏下任务、汇总列和底部操作栏可读。
 - [x] 隔离 API 验证生豆 → 自制熟豆 → 包装成品详情中的组件来源分别指向正确任务；生产 PP-0000000017 未写入或刷新。
-- [x] 最新 `origin/develop` `6b4a17bc9` 已集成；合并后 Vue shell 1617/1617、构建、`scripts/verify_kferp.sh changed` 和定向隔离 PostgreSQL API 用例通过。
-- [ ] development 部署与运行版本/基础健康检查完成。当前被 PR-731 工序完成工作待隔离数据/浏览器验收的协调状态阻挡。
+- [x] 最新 `origin/develop` `d9b6db27f` 已集成；合并后 Vue shell 全量测试/构建、`scripts/verify_kferp.sh backend`、`scripts/verify_kferp.sh changed` 和定向隔离 PostgreSQL API 用例通过。
+- [ ] development 部署与运行版本/基础健康检查进行中；Van 已明确授权当前 develop 含 PR-731 一并发布。
 - [ ] Van 在 development 验收并确认 PR-732 产品需求完成。
 
 ## PR-649 生产计划三步工作台与草稿重算
