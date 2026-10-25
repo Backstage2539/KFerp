@@ -85,6 +85,44 @@ func PlanOperationCompletion(in OperationCompletionInput) (OperationCompletionPl
 	return OperationCompletionPlan{OutputQty: in.ActualQty, Difference: in.ActualQty - in.PlannedQty, Warehouse: warehouse, CloseOperation: closeOperation, Saleable: in.Final && in.ReceiptEnabled}, nil
 }
 
+func IncompleteRoastingBOMReason(totalRatioPct float64) string {
+	if math.Abs(totalRatioPct-100) <= 0.001 {
+		return ""
+	}
+	return fmt.Sprintf("BOM 配料比例合计 %g%%，请在 BOM 中补齐后继续", totalRatioPct)
+}
+
+// Roasting consumes the frozen recipe against actual green-bean input. Output
+// yield is informational and must never scale the ingredient deductions.
+func ResolveRoastingMaterialUses(expected []OperationMaterialUse, actualInputQty float64, inputUnit string) ([]OperationMaterialUse, error) {
+	factor := OperationUnitFactor(inputUnit)
+	if factor <= 0 || math.IsNaN(actualInputQty) || math.IsInf(actualInputQty, 0) || actualInputQty < 0 {
+		return nil, fmt.Errorf("烘焙本批投料数量无效")
+	}
+	totalRatio := 0.0
+	for _, material := range expected {
+		totalRatio += material.RatioPct
+	}
+	if reason := IncompleteRoastingBOMReason(totalRatio); reason != "" {
+		return nil, fmt.Errorf("%s", reason)
+	}
+	out := append([]OperationMaterialUse(nil), expected...)
+	inputG := actualInputQty * factor
+	for i := range out {
+		unitFactor := OperationUnitFactor(out[i].Unit)
+		if out[i].RatioPct <= 0 || unitFactor <= 0 {
+			return nil, fmt.Errorf("烘焙 BOM 物料%s缺少有效配料比例或重量单位", out[i].Name)
+		}
+		out[i].Qty = roundRoastingMaterialQty(math.Max(0, inputG*out[i].RatioPct/100/unitFactor-out[i].ConsumedQty), unitFactor)
+		out[i].TotalQty = roundRoastingMaterialQty(inputG*out[i].RatioPct/100/unitFactor, unitFactor)
+	}
+	return out, nil
+}
+
+func roundRoastingMaterialQty(qty, unitFactor float64) float64 {
+	return math.Round(qty*unitFactor) / unitFactor
+}
+
 type OperationBatchBalance struct {
 	ID              int64   `json:"id"`
 	WorkOrderID     int64   `json:"work_order_id"`
@@ -162,9 +200,11 @@ type OperationMaterialUse struct {
 	WarehouseName   string  `json:"warehouse_name"`
 	OwnerCustomerID int64   `json:"owner_customer_id"`
 	NodeKey         string  `json:"node_key"`
+	RatioPct        float64 `json:"ratio_pct,omitempty"`
 }
 
 type OperationCompletionPreview struct {
+	LegacyExecution     bool                    `json:"legacy_execution,omitempty"`
 	LegacyPackaging     bool                    `json:"legacy_packaging,omitempty"`
 	ActualMinutes       int                     `json:"actual_minutes"`
 	CompletedOutputQty  float64                 `json:"completed_output_qty"`
@@ -172,6 +212,10 @@ type OperationCompletionPreview struct {
 	Draft               json.RawMessage         `json:"draft"`
 	JobCardID           int64                   `json:"job_card_id"`
 	WorkOrderID         int64                   `json:"work_order_id"`
+	BomID               int64                   `json:"bom_id,omitempty"`
+	BomVersionID        int64                   `json:"bom_version_id,omitempty"`
+	OperationName       string                  `json:"operation_name,omitempty"`
+	RecipeRatioPct      float64                 `json:"recipe_ratio_pct,omitempty"`
 	Version             string                  `json:"version"`
 	Enabled             bool                    `json:"enabled"`
 	Final               bool                    `json:"final"`

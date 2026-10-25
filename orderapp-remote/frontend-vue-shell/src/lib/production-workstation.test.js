@@ -322,7 +322,7 @@ test('workstation view lets wide task rows scroll and single-station filters fil
 test('workstation action buttons reveal their forms inside the clicked task row', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /<div v-for="task in ungroupedTasks\(section\)"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\) && task\.automatic_completion"/)
+  assert.match(source, /<div v-for="task in ungroupedTasks\(section\)"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\) && isSimplifiedTask\(task\)"/)
   assert.match(source, /class="task-action-panel"/)
   assert.match(source, /function isIssuePanelForTask\(task\)/)
   assert.match(source, /function isFinishPanelForTask\(task\)/)
@@ -332,13 +332,15 @@ test('workstation action buttons reveal their forms inside the clicked task row'
   assert.doesNotMatch(source, /<section v-if="finishPanel\.open" class="panel action-panel">/)
 })
 
-test('workstation completion is inline and old tasks open explicit reconciliation', () => {
+test('roasting task completion is inline and requires only output quantity', () => {
  const source=readFileSync(new URL('../views/WorkstationView.vue',import.meta.url),'utf8')
  const form=readFileSync(new URL('../components/OperationCompletionForm.vue',import.meta.url),'utf8')
- assert.match(source, /OperationCompletionForm v-if="isFinishPanelForTask/)
- assert.match(source, /OperationConversionForm v-if="isFinishPanelForTask/)
+ assert.match(source, /OperationCompletionForm v-if="isFinishPanelForTask\(task\) && isSimplifiedTask\(task\)"/)
+ assert.match(source, /function isSimplifiedTask\(task\).*烘焙.*除石/)
  assert.doesNotMatch(source, /submitFinishPanel|finishRunningProduction|partial_finish/)
- for(const label of ['保存进度','本工序新增用料','实际投入','前序批次与实际位置'])assert.ok(form.includes(label))
+ assert.match(form,/completionQuantityLabel\(preview\.output_unit\)/)
+ assert.ok(form.includes('冻结的本批投料和 BOM 自动计算用料'))
+ for(const forbidden of ['本单用料','实际投入','实际工时','保存进度','呼叫补料','报异常','核对旧单'])assert.doesNotMatch(form,new RegExp(forbidden))
  assert.match(form,/expected_version|completionPayload/)
 })
 

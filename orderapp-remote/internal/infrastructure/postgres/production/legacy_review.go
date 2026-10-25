@@ -140,7 +140,7 @@ func (r Repository) SubmitLegacyReview(ctx context.Context, c app.LegacyReviewIt
 
 func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyReviewItem) (app.LegacyReviewResult, error) {
 	out := app.LegacyReviewResult{WorkOrderID: c.WorkOrderID}
-	if c.EmployeeID <= 0 || c.ActualOutputQty == nil || strings.TrimSpace(c.Reason) == "" || c.RequestID == "" || c.ExpectedVersion == "" {
+	if c.EmployeeID <= 0 || c.RequestID == "" || c.ExpectedVersion == "" || (!c.RecordedOutputOnly && (c.ActualOutputQty == nil || strings.TrimSpace(c.Reason) == "")) {
 		return out, fmt.Errorf("请由已绑定员工填写现场核实的数量、用料和原因")
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -174,6 +174,70 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 	}
 	if review.Version != c.ExpectedVersion {
 		return out, fmt.Errorf("旧单或库存已变化，请刷新核对")
+	}
+	if c.RecordedOutputOnly {
+		if review.ReportedQty <= 0 || len(review.CorrectionCards) == 0 {
+			return out, fmt.Errorf("本单没有可直接入库的已完成数量")
+		}
+		quantity := review.ReportedQty
+		c.ActualOutputQty = &quantity
+		c.Reason = "按已记录的完工数量直接入库"
+		c.CardQuantities = make(map[int64]float64, len(review.CorrectionCards))
+		for _, card := range review.CorrectionCards {
+			c.CardQuantities[card.ID] = card.ActualOutputQty
+		}
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(CASE WHEN lower(trim(COALESCE(NULLIF(metrics_json->>'input_unit',''),NULLIF(batch_size_unit,''),'g'))) IN('kg','千克','公斤') THEN actual_input_qty*1000 ELSE actual_input_qty END),0)::float8 FROM %s.job_cards WHERE work_order_id=$1 AND status='completed'`, r.schema), wo.ID).Scan(&c.ActualInputG); err != nil {
+			return out, err
+		}
+		if c.ActualInputG <= 0 {
+			return out, fmt.Errorf("已完成工序没有记录实际投料，不能自动补齐耗料")
+		}
+		c.Materials = make([]app.OperationMaterialUse, 0, len(review.Materials))
+		for _, row := range review.Materials {
+			c.Materials = append(c.Materials, row.OperationMaterialUse)
+		}
+		var route processTemplateSnapshot
+		if err = json.Unmarshal([]byte(wo.ProcessSnapshotJSON), &route); err != nil {
+			return out, fmt.Errorf("冻结工艺路线无法读取，不能自动补齐耗料")
+		}
+		roasting := len(route.Operations) == 1 && isRoastingOperationName(route.Operations[0].Operation)
+		if roasting {
+			var raw []byte
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(material_snapshot,'[]'::jsonb) FROM %s.work_orders WHERE id=$1`, r.schema), wo.ID).Scan(&raw); err != nil {
+				return out, err
+			}
+			var frozen []materialSnapshotRow
+			if err = json.Unmarshal(raw, &frozen); err != nil {
+				return out, err
+			}
+			for i := range c.Materials {
+				for _, material := range frozen {
+					component := material.MaterialID
+					if strings.EqualFold(material.ComponentType, "product") {
+						component = material.ComponentProductID
+					}
+					want := c.Materials[i].MaterialID
+					if c.Materials[i].ProductID > 0 {
+						want = c.Materials[i].ProductID
+					}
+					if component == want && material.ComponentBomSpecID == c.Materials[i].BomSpecID && material.ComponentBomVariantID == c.Materials[i].BomVariantID && material.ComponentSpecG == c.Materials[i].SpecG {
+						c.Materials[i].RatioPct = material.RatioPct
+						break
+					}
+				}
+			}
+			resolved, e := app.ResolveRoastingMaterialUses(c.Materials, c.ActualInputG, "g")
+			if e != nil {
+				return out, e
+			}
+			for i := range c.Materials {
+				c.Materials[i].Qty = resolved[i].TotalQty
+			}
+		} else {
+			for i := range c.Materials {
+				c.Materials[i].Qty = review.Materials[i].Qty
+			}
+		}
 	}
 	if review.ReviewBlockedReason != "" {
 		return out, fmt.Errorf("%s", review.ReviewBlockedReason)
@@ -295,10 +359,12 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 	if priorMaterialCost+operationCost+1e-6 < receivedCost {
 		return out, fmt.Errorf("已有入库成本超过已核实生产成本，需核对原成本记录")
 	}
-	for _, card := range review.CorrectionCards {
-		q := quantities[card.ID]
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET actual_output_qty=$2,metrics_json=metrics_json||jsonb_build_object('quantity_basis','inventory_unit','inventory_unit',$3::text,'completion_event_id',$4::bigint) WHERE id=$1`, r.schema), card.ID, q, review.OutputUnit, eventID); err != nil {
-			return out, err
+	if !c.RecordedOutputOnly {
+		for _, card := range review.CorrectionCards {
+			q := quantities[card.ID]
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET actual_output_qty=$2,metrics_json=metrics_json||jsonb_build_object('quantity_basis','inventory_unit','inventory_unit',$3::text,'completion_event_id',$4::bigint) WHERE id=$1`, r.schema), card.ID, q, review.OutputUnit, eventID); err != nil {
+				return out, err
+			}
 		}
 	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_operation_events SET material_cost=$2 WHERE id=$1`, r.schema), eventID, priorMaterialCost); err != nil {

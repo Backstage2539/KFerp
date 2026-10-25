@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	app "orderapp/internal/application/production"
 	stockapp "orderapp/internal/application/stock"
 	stockrepo "orderapp/internal/infrastructure/postgres/stock"
@@ -13,6 +14,44 @@ import (
 func TestLegacyReviewAPIRequiresActualQuantityAndPostsOnce(t *testing.T) {
 	testLegacyReview(t, false, false)
 }
+
+func TestRecordedOutputReceiptUsesSavedQuantityAndReplaysAfterItLeavesPendingList(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, runID := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72890)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.work_orders SET output_qty=1,output_unit='袋',inventory_unit='袋',planned_inventory_qty=1 WHERE id=%[2]d;UPDATE %[1]s.job_cards SET actual_output_qty=14,metrics_json='{"quantity_basis":"inventory_unit","inventory_unit":"袋"}' WHERE work_order_id=%[2]d`, schema, woID))
+	preview := serveMultilevelProductionJSON(t, e, "POST", "/api/production/legacy-review/preview", map[string]any{"work_order_ids": []int64{woID}})
+	if preview.Code != http.StatusOK {
+		t.Fatalf("preview %d %s", preview.Code, preview.Body.String())
+	}
+	var body struct {
+		Rows []app.LegacyReview `json:"rows"`
+	}
+	if err := json.Unmarshal(preview.Body.Bytes(), &body); err != nil || len(body.Rows) != 1 || body.Rows[0].ReportedQty != 14 {
+		t.Fatalf("recorded output preview %s (%v)", preview.Body.String(), err)
+	}
+	payload := map[string]any{"expected_version": body.Rows[0].Version, "request_id": "recorded-output-direct-72890"}
+	for i := 0; i < 2; i++ {
+		result := serveMultilevelProductionJSON(t, e, "POST", fmt.Sprintf("/api/produce/work-orders/%d/receive-completed-output", woID), payload)
+		if result.Code != http.StatusOK {
+			t.Fatalf("direct receipt/replay %d: %s", result.Code, result.Body.String())
+		}
+	}
+	var actual float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT actual_output_qty FROM %s.job_cards WHERE work_order_id=$1`, schema), woID).Scan(&actual); err != nil {
+		t.Fatal(err)
+	}
+	if actual != 14 {
+		t.Fatalf("recorded output was overwritten: got %g want 14", actual)
+	}
+	state := loadProductCompletionAtomicityState(t, ctx, pool, schema, woID, runID)
+	if state.FinishedInventoryUnits != 14 || state.FinishedReceiptCount != 1 || state.ReservationConsumedG != 22_700 || state.ReservationConsumedUnits != 100 {
+		t.Fatalf("direct receipt state %+v", state)
+	}
+	assertProductionFlowCount(t, pool, schema, "production_operation_events", "status='posted'", 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", "action='legacy_reconcile'", 1)
+}
+
 func TestLegacyReviewAPICreditsExistingConsumption(t *testing.T) { testLegacyReview(t, true, false) }
 func TestLegacyReviewAPICreditsLegacyLogsCost(t *testing.T)      { testLegacyReview(t, true, true) }
 func testLegacyReview(t *testing.T, credit, logsOnly bool) {

@@ -97,13 +97,34 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	if qualityBlocked {
 		return out, fmt.Errorf("本任务被质检冻结，请先处理质检记录")
 	}
+	if strings.TrimSpace(cmd.InputUnit) == "" {
+		cmd.InputUnit = p.InputUnit
+	}
+	if strings.TrimSpace(cmd.OutputUnit) == "" {
+		cmd.OutputUnit = p.OutputUnit
+	}
 	if cmd.InputUnit != p.InputUnit || cmd.OutputUnit != p.OutputUnit {
 		return out, fmt.Errorf("完成数量单位与冻结工序不一致")
 	}
-	if p.LegacyPackaging {
-		if err = r.freezeLegacyPackagingConfigTx(ctx, tx, wo, seq, p, cmd.Operator); err != nil {
+	if p.LegacyExecution {
+		if err = r.freezeLegacyExecutionConfigTx(ctx, tx, wo, seq, p, cmd.Operator); err != nil {
 			return out, err
 		}
+	}
+	if !p.PredecessorRequired && cmd.ActualInputQty <= 0 && p.InputQty > 0 {
+		cmd.ActualInputQty = p.InputQty
+	}
+	if p.PredecessorRequired && cmd.ActualOutputQty > 0 && cmd.ActualInputQty <= 0 {
+		if app.OperationUnitFactor(p.OutputUnit) > 0 && app.OperationUnitFactor(p.InputUnit) > 0 {
+			cmd.ActualInputQty = cmd.ActualOutputQty * app.OperationUnitFactor(p.OutputUnit) / app.OperationUnitFactor(p.InputUnit)
+		} else if p.OutputSpecG > 0 && app.OperationUnitFactor(p.InputUnit) > 0 {
+			cmd.ActualInputQty = cmd.ActualOutputQty * float64(p.OutputSpecG) / app.OperationUnitFactor(p.InputUnit)
+		} else if p.InputUnit == p.OutputUnit {
+			cmd.ActualInputQty = cmd.ActualOutputQty
+		}
+	}
+	if strings.TrimSpace(cmd.DifferenceReason) == "" && (cmd.ActualOutputQty > p.PlannedQty+1e-8 || (cmd.FinishOperation == nil || *cmd.FinishOperation) && math.Abs(cmd.ActualOutputQty-p.PlannedQty) > 1e-8) {
+		cmd.DifferenceReason = "现场按实际产出数量完成"
 	}
 	if err = app.ValidateOperationQuantity(cmd.ActualInputQty, cmd.InputUnit); err != nil {
 		return out, err
@@ -115,7 +136,7 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	handoffs := []app.OperationHandoffAllocation{}
 	if p.PredecessorRequired {
 		if cmd.ActualOutputQty > 0 && cmd.ActualInputQty <= 0 {
-			return out, fmt.Errorf("请填写实际使用的前序产出数量")
+			return out, fmt.Errorf("无法按冻结单位换算本批前序用量，请核对工艺路线")
 		}
 		handoffs, err = app.AllocateOperationHandoff(p.PredecessorBatches, cmd.ActualInputQty, cmd.InputUnit)
 		if err != nil {
@@ -130,7 +151,12 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 		runID = started.RunningItemID
 		wo = started.WorkOrder
 	}
-	materials, err := resolveOperationMaterialUses(p.Materials, cmd.Materials, cmd.ActualOutputQty, p.PlannedQty, p.TotalPlannedQty, p.CompletedOutputQty)
+	var materials []app.OperationMaterialUse
+	if isRoastingOperationName(p.OperationName) {
+		materials, err = app.ResolveRoastingMaterialUses(p.Materials, cmd.ActualInputQty, cmd.InputUnit)
+	} else {
+		materials, err = resolveOperationMaterialUses(p.Materials, nil, cmd.ActualOutputQty, p.PlannedQty, p.TotalPlannedQty, p.CompletedOutputQty)
+	}
 	if err != nil {
 		return out, err
 	}
@@ -352,25 +378,25 @@ func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cm
 	return out, nil
 }
 
-func (r Repository) freezeLegacyPackagingConfigTx(ctx context.Context, tx pgx.Tx, wo app.WorkOrderRow, sequence int, preview app.OperationCompletionPreview, actor string) error {
+func (r Repository) freezeLegacyExecutionConfigTx(ctx context.Context, tx pgx.Tx, wo app.WorkOrderRow, sequence int, preview app.OperationCompletionPreview, actor string) error {
 	var beforeSnapshot, beforeBindings []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT process_snapshot_json::text,operation_material_bindings::text FROM %s.work_orders WHERE id=$1 FOR UPDATE`, r.schema), wo.ID).Scan(&beforeSnapshot, &beforeBindings); err != nil {
 		return err
 	}
 	var snapshot map[string]any
 	if err := json.Unmarshal(beforeSnapshot, &snapshot); err != nil {
-		return fmt.Errorf("旧包装工艺快照格式异常，不能自动接入")
+		return fmt.Errorf("旧工艺快照格式异常，不能自动接入")
 	}
 	operations, ok := snapshot["operations"].([]any)
 	if !ok || len(operations) != 1 {
-		return fmt.Errorf("旧包装工艺路线已变化，请刷新核对")
+		return fmt.Errorf("旧工艺路线已变化，请刷新核对")
 	}
 	cfgRaw, _ := json.Marshal(preview.Execution)
 	matched := false
 	for _, raw := range operations {
 		operation, ok := raw.(map[string]any)
 		operationSeq, _ := strconv.Atoi(fmt.Sprint(operation["seq"]))
-		if !ok || operationSeq != sequence || !isPackagingOperationName(fmt.Sprint(operation["operation"])) {
+		if !ok || operationSeq != sequence || strings.TrimSpace(fmt.Sprint(operation["operation"])) != strings.TrimSpace(preview.OperationName) {
 			continue
 		}
 		if strings.TrimSpace(fmt.Sprint(operation["execution_json"])) != "" && strings.TrimSpace(fmt.Sprint(operation["execution_json"])) != "<nil>" {
@@ -380,7 +406,7 @@ func (r Repository) freezeLegacyPackagingConfigTx(ctx context.Context, tx pgx.Tx
 		matched = true
 	}
 	if !matched {
-		return fmt.Errorf("旧包装工艺路线已变化，请刷新核对")
+		return fmt.Errorf("旧工艺路线已变化，请刷新核对")
 	}
 	bindings := map[string]app.OperationMaterialBinding{}
 	if len(beforeBindings) > 0 {
@@ -395,7 +421,7 @@ func (r Repository) freezeLegacyPackagingConfigTx(ctx context.Context, tx pgx.Tx
 		return err
 	}
 	oldSnapshot, newSnapshot := string(beforeSnapshot), string(snapshotRaw)
-	return infra.AuditInsertTx(ctx, tx, r.schema, actor, "work_order", &wo.ID, "freeze_legacy_packaging_execution", infra.StrPtr("process_snapshot_json"), &oldSnapshot, &newSnapshot, infra.AuditMeta{"job_card_id": preview.JobCardID, "source_warehouse": "wip", "target_warehouse": preview.Warehouse, "reason": "单卡冻结资料完整的旧包装工单首次自动入库"})
+	return infra.AuditInsertTx(ctx, tx, r.schema, actor, "work_order", &wo.ID, "freeze_legacy_operation_execution", infra.StrPtr("process_snapshot_json"), &oldSnapshot, &newSnapshot, infra.AuditMeta{"job_card_id": preview.JobCardID, "source_warehouse": "wip", "target_warehouse": preview.Warehouse, "reason": "冻结资料完整的旧工序工单首次自动记账"})
 }
 
 // Material stock is posted in whole grams. Keep previews, event payloads and costs

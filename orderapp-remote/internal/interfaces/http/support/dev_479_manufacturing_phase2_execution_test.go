@@ -59,8 +59,8 @@ func TestDev479ManufacturingPhase2ExecutionContracts(t *testing.T) {
 			"进入工位",
 			"查看工单",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "WorkstationView.vue"):              {"workstationVisibleActions", "OperationCompletionForm", "OperationConversionForm"},
-		filepath.Join("frontend-vue-shell", "src", "components", "OperationCompletionForm.vue"): {"完成本工序", "actual_minutes", "actual_input_qty", "actual_output_qty", "difference_reason", "保存进度"},
+		filepath.Join("frontend-vue-shell", "src", "views", "WorkstationView.vue"):              {"workstationVisibleActions", "OperationCompletionForm", "isSimplifiedTask"},
+		filepath.Join("frontend-vue-shell", "src", "components", "OperationCompletionForm.vue"): {"完成本工序", "actual_output_qty", "冻结的本批投料和 BOM 自动计算用料"},
 		filepath.Join("frontend-vue-shell", "src", "components", "ProductionExecutionHubDrawer.vue"): {
 			"工单详情",
 			"分配任务",
@@ -111,6 +111,12 @@ func TestDev479ManufacturingPhase2ExecutionContracts(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-479 marker %q", rel, want)
 			}
+		}
+	}
+	completionForm := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "components", "OperationCompletionForm.vue")))
+	for _, forbidden := range []string{"actual_minutes", "actual_input_qty", "本单用料", "保存进度", "difference_reason"} {
+		if strings.Contains(completionForm, forbidden) {
+			t.Fatalf("OperationCompletionForm must omit simplified input %q", forbidden)
 		}
 	}
 

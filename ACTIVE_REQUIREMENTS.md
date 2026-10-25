@@ -422,14 +422,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-732-PRODUCTION-PLAN-GROUPED-PREPARATION
 - Branch: `codex/production-plan-material-groups`; initial base `origin/develop` 7f77b824c.
 - Owner/session: Codex / 2026-10-25.
-- Status: implementation complete; full Vue shell tests/build, targeted isolated PostgreSQL API test, and local desktop/narrow preview pass. Latest `origin/develop` advanced to 6b4a17bc9 and contains PR-731 production-completion work whose own tracking still says development integration/browser acceptance pending; integrate that commit into this branch and rerun gates, but hold deployment until its workflow is verified or Van directs otherwise.
+- Status: implementation complete; latest `origin/develop` 6b4a17bc9 is integrated into this feature branch. On the merged tree, Vue shell tests/build (1617/1617), `scripts/verify_kferp.sh changed`, and the targeted isolated PostgreSQL API test pass; local desktop/narrow preview also passes. Hold development deployment while PR-731's isolated-data/browser acceptance is pending, per shared deployment coordination rules.
 - Scope: group production tasks only when stage, typed output identity, frozen spec/conversion, BOM/process/config snapshot, and target warehouse match; aggregate each linked preparation source once; retain each task's orders, allocations, owners, warehouses, batches, and edits.
 - DEV: DEV-PR732-01 grouping/sums; DEV-PR732-02 nested detail and issue focus; DEV-PR732-03 isolated detail API association; DEV-PR732-04 manual/evidence/development delivery.
 - Verifier: `scripts/verify_kferp.sh frontend`; `scripts/verify_kferp.sh changed`; isolated PostgreSQL `TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownstreamWIP`; desktop 1440x1100 and narrow 390x844 component preview with no horizontal overflow and actual source-focus expansion.
 - Broad Go regression: `go test ./internal/interfaces/http/production ./internal/application/production ./internal/infrastructure/postgres/production -count=1` reports unrelated production fixture/schema, schedule-staff, and customer-processing material-reservation failures; the changed isolated plan-detail API test passes.
 - Production boundary: PP-0000000017 is only the read-only reference; no production save, refresh, submit, or work-order action.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-25-production-plan-grouped-preparation.md`.
-- Last update: 2026-10-25.
+- Latest integration: `origin/develop` 6b4a17bc9946f1132d8f788b55f083a07a96aa06; post-merge frontend/API gates passed. Development deployment remains pending PR-731 browser acceptance.
+- Last update: 2026-10-26.
 
 ### PR-730-PACKAGING-GROUPED-EXECUTION
 - Branch: `codex/packaging-grouped-execution-20261025`; base `origin/develop` 4457e1e536c23a36596869594707428eab7b6c82.
@@ -6216,3 +6217,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-869-EXECUTION-RULES, DEV-870-COMPLETION-LEDGER, DEV-871-CORRECTION, DEV-872-WORKSTATION, DEV-873-DELIVERY
 - Verifier: full Go PASS; Vue 1,587 PASS + build; isolated completion/conversion/reconciliation API PASS including concurrency, rollback, stock/cost/audit. Broader DB failures match base. See acceptance evidence.
 - Deployment: PR #295 / develop d3c72ce4 and PR #296 / main f2a5e242 deployed. Server isolated API PASS; production runtime/static resources/readonly snapshots verified. Rollback production-20261024144032-f2a5e242a36d. Evidence: orderapp-remote/docs/acceptance/2026-10-24-production-auto-completion.md.
+### PR-731-PRODUCTION-COMPLETION-SIMPLE
+- Branch: `codex/production-completion-simple-20261025`, based on latest `origin/develop` at `7f77b824c`.
+- Scope: direct receipt from recorded completed output; simplified roasting completion to output-only form; auto-use from actual frozen batch input/BOM; explicit incomplete-BOM block; plan preparation shortage/replenishment entry; preserve grouped packaging.
+- Status: implementation and local verification complete. Targeted Vue 41/41, full Vue 1612/1612, full Go `go test ./...`, Vite production build, and changed-file checks are green. Development integration, isolated-data browser acceptance, and requested flow regression remain pending; main/production are gated on browser acceptance.
+- Development precheck: root disk 22 GB available (62% used), deployment lock free, development app and PostgreSQL containers running. No cache cleanup needed.
+- Production boundary: no business writes. Production checks remain read-only.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-25-production-completion-simple.md`.
