@@ -9,6 +9,7 @@
         <p>{{ preview.blocked_reason }}</p>
         <button v-if="preview.bom_id" type="button" @click="openBom">去 BOM 补齐配料</button>
       </div>
+      <p v-if="preview.bom_refresh_pending" class="hint" role="status">本工单尚无实际耗料，将在首次完成时接入已发布的完整配方（V{{ preview.effective_bom_version_id }}；原冻结 V{{ preview.original_bom_version_id }}）。</p>
       <fieldset :disabled="busy || retry.uncertain || !!success || !!preview.blocked_reason">
         <label>{{ completionQuantityLabel(preview.output_unit) }}
           <input v-model="draft.actual_output_qty" type="number" min="0" :step="weightUnit(preview.output_unit) ? 'any' : '1'" />
@@ -26,12 +27,12 @@
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { completionDraft, completionPayload, completionQuantityLabel, completionRetry, weightUnit } from '../lib/operation-completion.js'
-const props=defineProps({jobCardId:{type:Number,required:true}})
+const props=defineProps({jobCardId:{type:Number,required:true},returnParams:{type:Object,default:()=>({})}})
 const emit=defineEmits(['close','posted'])
 const preview=ref(null),draft=reactive({}),busy=ref(false),error=ref(''),success=ref(''),result=ref(null)
 const retry=reactive(completionRetry())
 async function refresh(){busy.value=true;error.value='';try{const p=await apiGet(`/api/job-cards/${props.jobCardId}/completion-preview`);preview.value=p;Object.assign(draft,completionDraft(p));retry.clear()}catch(e){error.value=e.message}finally{busy.value=false}}
-function openBom(){window.dispatchEvent(new CustomEvent('kferp:navigate-view',{detail:{key:'productionConfig',params:{tab:'bom',production_bom_id:Number(preview.value?.bom_id||0)}}}))}
+function openBom(){window.dispatchEvent(new CustomEvent('kferp:navigate-view',{detail:{key:'productionConfig',params:{tab:'bom',production_bom_id:Number(preview.value?.bom_id||0)},returnNavigation:{key:'workstationView',label:'返回工位任务',params:{...props.returnParams}}}}))}
 async function complete(){busy.value=true;error.value='';try{const payload=retry.begin(completionPayload(preview.value,draft,''),()=>crypto.randomUUID());const data=await apiSend(`/api/job-cards/${props.jobCardId}/complete`,{body:payload});result.value=data.completion;success.value=data.completion?.message||'工序完成';retry.clear();emit('posted',data)}catch(e){retry.fail(e);error.value=retry.uncertain?'尚未收到完成结果，请重试原次操作，系统不会重复扣料。':e.message}finally{busy.value=false}}
 onMounted(refresh)
 </script>

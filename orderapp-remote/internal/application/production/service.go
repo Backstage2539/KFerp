@@ -3756,9 +3756,6 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 			if json.Unmarshal([]byte(op.ExecutionJSON), &config) == nil && config.Version == 1 {
 				task.AutomaticCompletion = true
 				task.StockAction = ""
-				task.MaterialReadiness = nil
-				task.MaterialReadinessState = "ready"
-				task.MaterialDataComplete = true
 				task.AvailableActions = []string{"complete", "report_exception"}
 				if task.Status == "running" {
 					task.AvailableActions = append(task.AvailableActions, "pause")
@@ -3767,9 +3764,8 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 				} else {
 					task.AvailableActions = append(task.AvailableActions, "start")
 				}
-				task.CanComplete = true
-				task.CanStart = true
-				task.BlockingReason = ""
+				task.CanComplete = !task.IsBlocked
+				task.CanStart = !task.IsBlocked
 				qualityReasons := []ProductionBlockingReason{}
 				for _, reason := range task.BlockingReasons {
 					if strings.Contains(reason.Code, "quality") {
@@ -3777,15 +3773,17 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 					}
 				}
 				task.BlockingReasons = qualityReasons
-				task.IsBlocked = len(qualityReasons) > 0
-				if task.IsBlocked {
+				if len(qualityReasons) > 0 {
+					task.IsBlocked = true
 					task.CanComplete = false
 					task.CanStart = false
 					task.BlockingReason = qualityReasons[0].Label
 					task.AvailableActions = []string{"report_exception"}
 				}
-				task.ReadinessLabel = "完成时自动用料"
-				task.Readiness = "ready"
+				if task.MaterialReadinessState == "ready" {
+					task.ReadinessLabel = "完成时自动用料"
+					task.Readiness = "ready"
+				}
 			}
 			break
 		}

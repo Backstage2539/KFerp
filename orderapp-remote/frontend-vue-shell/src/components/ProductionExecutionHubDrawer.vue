@@ -51,7 +51,8 @@
                   </details>
                   <div class="operation-actions">
                     <span v-if="workOrderClosed" class="muted">{{ statusLabel(header.status) }}，任务只读</span>
-                    <template v-else><button v-if="!['completed','cancelled'].includes(row.status)" class="secondary" type="button" @click="openRoster">查看排班</button><button class="secondary" type="button" @click="enterWorkstation(row)">进入工位</button></template>
+                    <span v-else-if="['completed','cancelled'].includes(row.status)" class="muted">已完成，查看工序记录</span>
+                    <template v-else><button class="secondary" type="button" @click="openRoster">查看排班</button><button class="secondary" type="button" @click="enterWorkstation(row)">进入工位</button></template>
                   </div>
                 </div>
               </article>
@@ -134,9 +135,9 @@ function materialQty(row, kind) { const g = Number(row?.[`${kind}_g`] || 0); if 
 function customerProcessingStatusLabel(value) { return ({ awaiting_schedule: '待接单', planned: '待接单', released: '已接单', running: '开始生产', paused: '开始生产（暂停）', partially_completed: '开始生产（部分入库）', completed: '生产完成', cancelled: '已取消' }[String(value || '')] || value || '待接单') }
 function todoActionLabel(code) { return ({ wip_shortage: '去领料', quality_freeze: '查看质检', prior_operation_incomplete: '进入前序工位', job_cards_incomplete: '进入工位', schedule_risk: '调整排程' }[code] || '查看处理') }
 function requestClose() { emit('close') }
-function navigate(key, params = {}) { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params: { work_order_id: header.value.work_order_id, ...params }, returnNavigation: { key: 'workOrders', label: '返回工单详情', params: { work_order_id: header.value.work_order_id } } } })); emit('close') }
-function enterWorkstation(row) { navigate('workstationView', { job_card_id: row.job_card_id, focus: 'workstation_task' }) }
-function enterFirstWorkstation() { const row = operations.value.find((item) => !['completed', 'cancelled'].includes(item.status)) || operations.value[0]; if (row) enterWorkstation(row) }
+function navigate(key, params = {}) { const workOrderId = Number(params.work_order_id || header.value.work_order_id || props.workOrderId || 0); window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params: { work_order_id: workOrderId, ...params }, returnNavigation: { key: 'workOrders', label: '返回工单详情', params: { work_order_id: workOrderId } } } })); emit('close') }
+function enterWorkstation(row) { navigate('workstationView', { work_order_id: Number(row.work_order_id || props.workOrderId || 0), job_card_id: row.job_card_id, workstation: row.workstation || '', workstation_id: Number(row.workstation_id || 0), station_id: Number(row.workstation_id || 0), focus: 'workstation_task' }) }
+function enterFirstWorkstation() { const row = operations.value.find((item) => !['completed', 'cancelled'].includes(item.status)); if (row) enterWorkstation(row) }
 function openRoster() { navigate('productionSchedule') }
 function openCustomerRequest() { navigate('customerProcessing', { customer_id: header.value.customer_id, processing_request_id: customerProcessingRequest.value?.id }) }
 function openRelatedOrder(order) { navigate('customerOrders', { customer_id: header.value.customer_id, q: order.order_no, order_id: order.order_id }) }

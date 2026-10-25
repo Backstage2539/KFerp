@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-733-BOM-REFRESH-WORKSTATION-FOCUS", title: "BOM 补齐后旧烘焙工单继续生产，并准确直达工位任务", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md"},
+		{table: "req_dev", code: "DEV-PR733-01", title: "PR-733 首次实际耗料前接入同 BOM 最新完整发布配方并同步预留", status: "done", assignee: "Codex", evidence: "internal/infrastructure/postgres/production/roasting_bom_refresh_test.go; roasting_bom_refresh_api_test.go"},
+		{table: "req_dev", code: "DEV-PR733-02", title: "PR-733 工单任务直达、全厂回退及无人排班提示", status: "doing", assignee: "Codex", evidence: "frontend-vue-shell/src/lib/production-workstation.test.js; docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md"},
+		{table: "req_dev", code: "DEV-PR733-03", title: "PR-733 前端、Go、隔离 API、手册及开发浏览器验收", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md"},
+		{table: "req_unit", code: "UT-PR733-BOM-REFRESH", prCode: "PR-733-BOM-REFRESH-WORKSTATION-FOCUS", title: "70% 旧配方接入、当前批次预留、有效组件与唯一工序绑定", status: "done", assignee: "Codex", evidence: "roasting_bom_refresh_test.go; production-workstation.test.js"},
+		{table: "req_api", code: "API-PR733-FIRST-ROASTING-POST", title: "预览只读、100% 新版接入、3kg 实际投料、预留迁移及幂等重放", status: "done", assignee: "Codex", evidence: "roasting_bom_refresh_api_test.go; docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md"},
+		{table: "req_review", code: "REV-PR733-BOM-REFRESH-WORKSTATION-FOCUS", prCode: "PR-733-BOM-REFRESH-WORKSTATION-FOCUS", title: "开发浏览器验收 BOM 补齐接续生产与未排班工位直达", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md"},
 		{table: "req_product", code: "PR-732-PRODUCTION-PLAN-GROUPED-PREPARATION", title: "生产计划按规格合组并在生产安排下展示对应备料", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-25-production-plan-grouped-preparation.md"},
 		{table: "req_dev", code: "DEV-PR732-01", title: "PR-732 同阶段兼容生产任务合组及备料数量汇总", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/lib/produce-plan.test.js"},
 		{table: "req_dev", code: "DEV-PR732-02", title: "PR-732 生产安排内嵌备料明细及任务问题定位", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/components/ProductionPlanDetailWorkspace.vue"},

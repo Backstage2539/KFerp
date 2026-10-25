@@ -25,6 +25,12 @@
 
     <div v-if="message" class="notice">{{ message }}</div>
     <div v-if="error" class="error">{{ error }}</div>
+    <section v-if="requestedTaskNotice" class="requested-task-notice" role="status">
+      <strong>{{ requestedTaskNotice.operation }} · {{ requestedTaskNotice.work_order_no }} · {{ requestedTaskNotice.status_label }}</strong>
+      <p>{{ requestedTaskNotice.message }}</p>
+      <button v-if="requestedTaskNotice.disposition === 'unattended'" type="button" class="secondary" @click="openScheduling">去安排今日工位</button>
+      <button v-if="requestedTaskNotice.work_order_id" type="button" class="secondary" @click="openExecutionHub(requestedTaskNotice, 'job_card')">查看工单</button>
+    </section>
 
     <section class="station-grid" :class="{ 'single-station-grid': singleStationLayout }">
       <article v-for="section in visibleSections" :key="section.workstation" class="station-panel">
@@ -99,7 +105,8 @@
             <span class="task-staff">{{ task.assigned_to || task.roster_employee_name || '无人值班' }}<small v-if="task.pending_handover">排班已换人，待接手工位</small><small v-else-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
             <div class="actions">
               <template v-if="isSimplifiedTask(task)">
-                <button type="button" class="primary" :disabled="Boolean(busyKey) || loading" @click="openFinishPanel(task)">工序完成</button>
+                <button type="button" class="primary" :disabled="Boolean(busyKey) || loading || isTaskUnattended(task)" @click="openFinishPanel(task)">工序完成</button>
+                <small v-if="isTaskUnattended(task)" class="schedule-required">今日无人值班，请先完成排班</small>
                 <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
               </template>
               <template v-else>
@@ -140,8 +147,8 @@
               <button class="primary" type="button" @click="submitIssue" :disabled="busyKey !== ''">提交</button>
             </div>
 
-            <OperationCompletionForm v-if="isFinishPanelForTask(task) && isSimplifiedTask(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" @close="closeFinishPanel" @posted="automaticPosted" />
-            <OperationCompletionForm v-if="isFinishPanelForTask(task) && !isSimplifiedTask(task) && task.automatic_completion" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" @close="closeFinishPanel" @posted="automaticPosted" />
+            <OperationCompletionForm v-if="isFinishPanelForTask(task) && isSimplifiedTask(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" />
+            <OperationCompletionForm v-if="isFinishPanelForTask(task) && !isSimplifiedTask(task) && task.automatic_completion" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" />
           </div>
         </div>
       </article>
@@ -183,6 +190,8 @@ import {
   workstationTaskSections,
   workstationPackagingGroups,
   workstationPackagingMaterialIdentity,
+  workstationFocusDisposition,
+  workstationTaskRequiresSchedule,
 } from '../lib/production-workstation.js'
 
 const props = defineProps({
@@ -257,6 +266,8 @@ const executionHub = reactive({ open: false, workOrderId: 0, jobCardId: 0, focus
 const requestedJobCardID = computed(() => Number(props.viewParams?.job_card_id || 0))
 const taskFeedback = reactive({ taskKey: '', message: '', error: '' })
 const finishPanel = reactive({open:false,task:null})
+const requestedTaskNotice = ref(null)
+let overviewLoadRevision = 0
 
 const tasks = computed(() => overview.value.tasks || [])
 async function convertedOldOrder(){closeFinishPanel();message.value='核对已保存，后续工序可直接完成';await load()}
@@ -305,26 +316,79 @@ function isRequestedTask(task) {
   return requestedJobCardID.value > 0 && Number(task?.job_card_id || 0) === requestedJobCardID.value
 }
 
-function focusRequestedTask() {
+const taskStatusLabels = { pending: '待执行', ready: '可开始', released: '待执行', running: '执行中', paused: '已暂停', blocked: '待处理', completed: '已完成', cancelled: '已取消' }
+async function focusRequestedTask(options = {}) {
   const focus = String(props.viewParams?.focus || '')
+  requestedTaskNotice.value = null
   if (focus !== 'workstation_task' || requestedJobCardID.value <= 0) return false
   const matchedTask = tasks.value.find((task) => Number(task?.job_card_id || 0) === requestedJobCardID.value)
-  if (!matchedTask) {
-    error.value = '该任务已结束或已移出待执行队列，已为你打开工单查看结束状态'
-    const workOrderID = Number(props.viewParams?.work_order_id || 0)
-    if (workOrderID > 0) {
+  if (matchedTask) {
+    selectedWorkstation.value = matchedTask.workstation
+    const rosterStatus = isTaskUnattended(matchedTask) ? 'unattended' : matchedTask.roster_status
+    const disposition = workstationFocusDisposition({ task: matchedTask, rosterStatus, canViewAll: canViewAll.value })
+    const workOrderNo = matchedTask.work_order_no || `工单 #${matchedTask.work_order_id || props.viewParams?.work_order_id || ''}`
+    const base = { ...matchedTask, work_order_no: workOrderNo, status_label: matchedTask.status_label || taskStatusLabels[matchedTask.status] || matchedTask.status || '状态未知', disposition }
+    if (disposition === 'record') {
+      openExecutionHub(matchedTask, 'job_card')
+      requestedTaskNotice.value = { ...base, message: '该工序已结束，已打开工单记录。' }
+    } else if (disposition === 'unattended') {
+      requestedTaskNotice.value = { ...base, message: `今日该工位无人值班，请先完成排班。目标工序当前状态：${base.status_label}。` }
+    } else if (options.scopeRetry === true) {
+      message.value = '已从全厂视图加载目标任务'
+      requestedTaskNotice.value = { ...base, message: `目标工序当前状态：${base.status_label}。` }
+    }
+    window.requestAnimationFrame(() => {
+      document.querySelector(`[data-task-key="${taskKey(matchedTask)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    })
+    return true
+  }
+  if (canViewAll.value && scope.value === 'mine' && options.scopeRetry !== true) {
+    scope.value = 'all'
+    await load({ focusRequested: true, scopeRetry: true })
+    return false
+  }
+  const workOrderID = Number(props.viewParams?.work_order_id || 0)
+  if (workOrderID <= 0) {
+    error.value = '缺少工单编号，无法确认目标工序状态'
+    return false
+  }
+  try {
+    const detail = await apiGet(`/api/produce/work-orders/${workOrderID}`)
+    if (options.loadRevision !== overviewLoadRevision || requestedJobCardID.value !== Number(props.viewParams?.job_card_id || 0)) return false
+    const operations = detail?.execution_hub?.operation_progress || []
+    const operation = operations.find(row => Number(row.job_card_id || 0) === requestedJobCardID.value)
+    if (!operation) {
+      error.value = '工单中没有找到这个工序卡，请核对工单链接'
+      return false
+    }
+    const rosterStatus = isTaskUnattended(operation) ? 'unattended' : operation.roster_status
+    const disposition = workstationFocusDisposition({ task: operation, rosterStatus, canViewAll: canViewAll.value })
+    const workOrderNo = detail?.execution_hub?.header?.work_order_no || `工单 #${workOrderID}`
+    const base = { ...operation, work_order_id: workOrderID, work_order_no: workOrderNo, status_label: taskStatusLabels[operation.status] || operation.status || '状态未知', disposition }
+    if (disposition === 'record') {
       executionHub.workOrderId = workOrderID
       executionHub.jobCardId = requestedJobCardID.value
       executionHub.focus = 'job_card'
       executionHub.open = true
+      requestedTaskNotice.value = { ...base, message: '该工序已结束，已打开只读工单记录。' }
+    } else if (disposition === 'unattended') {
+      requestedTaskNotice.value = { ...base, message: '今日该工位无人值班，请先完成排班；排班完成后刷新即可继续。' }
+    } else if (disposition === 'outside_scope') {
+      requestedTaskNotice.value = { ...base, message: '工序仍未结束，但当前账号无权查看该工位任务。请联系排班负责人或使用有查看权限的账号。' }
+    } else if (disposition === 'all_scope') {
+      selectedWorkstation.value = String(operation.workstation || selectedWorkstation.value || '')
+      requestedTaskNotice.value = { ...base, message: `目标工序当前状态：${base.status_label}。已尝试全厂视图，但待执行列表未返回该卡，请刷新工单状态。` }
+    } else {
+      requestedTaskNotice.value = { ...base, message: `目标工序当前状态：${base.status_label}。请刷新后核对。` }
     }
     return false
+  } catch (err) {
+    const message = String(err?.message || '')
+    if (/403|permission|forbidden|权限/i.test(message)) error.value = '当前账号无权查看该工单状态，请联系管理员或排班负责人'
+    else if (/404|not found|不存在/i.test(message)) error.value = '工单不存在或已删除，请检查工单链接'
+    else error.value = message || '读取工单状态失败，请刷新后重试'
+    return false
   }
-  selectedWorkstation.value = matchedTask.workstation
-  window.requestAnimationFrame(() => {
-    document.querySelector(`[data-task-key="${taskKey(matchedTask)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  })
-  return true
 }
 
 function updateTaskFeedback(task, { message: nextMessage = '', error: nextError = '' } = {}) {
@@ -391,7 +455,24 @@ function actionLabel(action) {
 
 function openScheduling() { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productionSchedule', params: { work_center: selectedWorkstation.value }, returnNavigation: { key: 'workstationView', params: { ...props.viewParams }, label: '返回工位视图' } } })) }
 
+function completionReturnParams(task) {
+  return {
+    ...props.viewParams,
+    scope: scope.value,
+    workstation: task.workstation,
+    workstation_id: Number(task.workstation_id || 0),
+    station_id: Number(task.workstation_id || 0),
+    work_order_id: Number(task.work_order_id || 0),
+    job_card_id: Number(task.job_card_id || 0),
+    focus: 'workstation_task',
+  }
+}
+
 function assignmentForSection(section) { const task = section.tasks[0]; return task ? { workstation_id: task.workstation_id, workstation: section.workstation, employee_id: task.roster_employee_id, employee_name: task.roster_employee_name, source: task.roster_source, unattended: task.roster_status === 'unattended', override_invalid: task.roster_status === 'invalid_override', handover_count: section.tasks.filter(row => row.pending_handover).length } : null }
+function rosterAssignmentForTask(task) { return (todayRoster.value.assignments || []).find(row => (Number(task?.workstation_id || 0) > 0 && Number(row.workstation_id || 0) === Number(task.workstation_id)) || (task?.workstation && row.workstation === task.workstation)) || null }
+function isTaskUnattended(task) {
+  return workstationTaskRequiresSchedule(task, rosterAssignmentForTask(task))
+}
 function rosterSourceLabel(row) { if (!row) return '尚未排班'; if (row.override_invalid) return '临时调整已失效'; if (row.unattended) return row.reason || '请先排班'; return ({ override: '临时调整', primary: '主负责人', backup: '替补接班' })[row.source] || '自动安排' }
 async function switchScope(next) { scope.value = next; selectedWorkstation.value = ''; await load() }
 async function handoverStation(section) { if (!section.assignment?.employee_id) return; busyKey.value = `handover:${section.assignment.workstation_id}`; error.value = ''; try { const result = await apiSend('/api/production-roster/handover', { body: { workstation_id: Number(section.assignment.workstation_id), work_date: todayRoster.value.date, employee_id: Number(section.assignment.employee_id), expected_version: Number(todayRoster.value.roster_version || 0), request_id: crypto.randomUUID() } }); message.value = `已接手 ${section.workstation}，共 ${result.job_card_ids?.length || 0} 项执行中任务`; await load() } catch (err) { error.value = err.message || '工位交接失败' } finally { busyKey.value = '' } }
@@ -446,6 +527,10 @@ function openIssue(task, mode) {
 }
 
 function openFinishPanel(task) {
+  if (isTaskUnattended(task)) {
+    message.value = '今日该工位无人值班，请先完成排班'
+    return
+  }
   issue.open = false
   issue.task = null
   finishPanel.open = true
@@ -530,28 +615,44 @@ async function submitIssue() {
 }
 
 async function load(options = {}) {
+  const revision = ++overviewLoadRevision
   loading.value = true
-  error.value = ''
+  if (options?.focusRequested === true) error.value = ''
   try {
     const [overviewData, rosterData] = await Promise.all([fetchProductionWorkstationOverview({ limit: 500, scope: scope.value }), apiGet(`/api/production-roster/today?scope=${scope.value}`)])
+    if (revision !== overviewLoadRevision) return false
     overview.value = overviewData
     todayRoster.value = rosterData
     void loadPackagingSourceAvailability(overviewData.tasks || [])
     if (selectedWorkstation.value && !sections.value.some((section) => section.workstation === selectedWorkstation.value)) {
       selectedWorkstation.value = ''
     }
-    if (options?.focusRequested === true) focusRequestedTask()
+    if (options?.focusRequested === true || String(props.viewParams?.focus || '') === 'workstation_task') await focusRequestedTask({ ...options, loadRevision: revision })
     return true
   } catch (err) {
-    error.value = err.message || '加载失败'
+    if (revision === overviewLoadRevision) error.value = err.message || '加载失败'
     return false
   } finally {
-    loading.value = false
+    if (revision === overviewLoadRevision) loading.value = false
   }
 }
 
+watch(() => [props.viewParams?.focus, props.viewParams?.work_order_id, props.viewParams?.job_card_id, props.viewParams?.workstation, props.viewParams?.workstation_id, props.viewParams?.station_id, props.viewParams?.scope], async () => {
+  const requestedScope = String(props.viewParams?.scope || '')
+  if (requestedScope === 'mine' || (requestedScope === 'all' && canViewAll.value)) scope.value = requestedScope
+  selectedWorkstation.value = String(props.viewParams?.workstation || tasks.value.find(row => Number(row.workstation_id || 0) === Number(props.viewParams?.workstation_id || props.viewParams?.station_id || 0))?.workstation || '')
+  finishPanel.open = false
+  finishPanel.task = null
+  executionHub.open = false
+  executionHub.workOrderId = 0
+  executionHub.jobCardId = 0
+  requestedTaskNotice.value = null
+  if (String(props.viewParams?.focus || '') === 'workstation_task') await load({ focusRequested: true })
+}, { flush: 'post' })
+
 onMounted(async () => {
   void loadWarehouseNames()
+  selectedWorkstation.value = String(props.viewParams?.workstation || '')
   await load({ focusRequested: true })
   const focus = String(props.viewParams?.focus || '')
   if (focus === 'workstation_task') return

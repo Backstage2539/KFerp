@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	productionapp "orderapp/internal/application/production"
@@ -34,16 +35,18 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 	}
 
 	var wo productionapp.WorkOrderRow
-	var materialSnapshot string
+	var materialSnapshot, processSnapshot string
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,work_order_no,running_item_id,product_id,product_name,spec_g,
 		       planned_g,COALESCE(NULLIF(planned_output_g,0),planned_g),COALESCE(sales_spec_count,0)::float8,COALESCE(order_nos,''),
-		       status,COALESCE(operation_template_id,0),COALESCE(material_snapshot,'[]'::jsonb)::text
+		       status,COALESCE(operation_template_id,0),COALESCE(material_snapshot,'[]'::jsonb)::text,
+		       COALESCE(bom_version_id,0),COALESCE(bom_variant_id,0),COALESCE(process_snapshot_json,'{}'::jsonb)::text
 		FROM %s.work_orders
 		WHERE id=$1
 	`, r.schema), workOrderID).Scan(
 		&wo.ID, &wo.WorkOrderNo, &wo.RunningItemID, &wo.ProductID, &wo.ProductName, &wo.SpecG,
 		&wo.PlannedG, &wo.PlannedOutputG, &wo.SalesSpecCount, &wo.OrderNos, &wo.Status, &wo.OperationTemplateID, &materialSnapshot,
+		&wo.BomVersionID, &wo.BomVariantID, &processSnapshot,
 	)
 	if err == pgx.ErrNoRows {
 		return productionapp.ProductionWIPStatus{}, fmt.Errorf("work order not found")
@@ -63,6 +66,38 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 		SpecG: wo.SpecG, NeedG: wo.PlannedOutputG, InputG: wo.PlannedG,
 		PlanUnits: plan.Units, PlanLooseG: plan.LooseG, OrderNos: wo.OrderNos,
 		OperationTemplateID: wo.OperationTemplateID, MaterialSnapshot: defaultJSONArray(materialSnapshot),
+	}
+	var route processTemplateSnapshot
+	if err = json.Unmarshal([]byte(processSnapshot), &route); err != nil {
+		return productionapp.ProductionWIPStatus{}, err
+	}
+	roastingRoute := false
+	for _, operation := range route.Operations {
+		if isRoastingOperationName(operation.Operation) {
+			roastingRoute = true
+			break
+		}
+	}
+	if roastingRoute && wo.BomVersionID > 0 {
+		var frozen []materialSnapshotRow
+		if err = json.Unmarshal([]byte(materialSnapshot), &frozen); err != nil {
+			return productionapp.ProductionWIPStatus{}, err
+		}
+		if recipeRatioTotal(frozen) < 99.999 {
+			resolved, _, refresh, resolveErr := r.effectiveRoastingMaterialSnapshotTx(ctx, tx, wo, frozen)
+			if resolveErr != nil {
+				return productionapp.ProductionWIPStatus{}, resolveErr
+			}
+			if refresh {
+				raw, marshalErr := json.Marshal(resolved)
+				if marshalErr != nil {
+					return productionapp.ProductionWIPStatus{}, marshalErr
+				}
+				run.MaterialSnapshot = string(raw)
+			} else {
+				return productionapp.ProductionWIPStatus{DataComplete: false, Status: "blocked", BlockingReason: productionapp.IncompleteRoastingBOMReason(recipeRatioTotal(frozen)), Materials: []productionapp.WIPReservationRow{}}, nil
+			}
+		}
 	}
 	needs, ok, err := materialSnapshotNeedsTx(run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
 	if err != nil {

@@ -19,6 +19,8 @@ import {
   workstationTaskSections,
   workstationPackagingGroups,
   workstationPackagingMaterialIdentity,
+  workstationFocusDisposition,
+  workstationTaskRequiresSchedule,
 } from './production-workstation.js'
 
 test('production top nav lists high-frequency views before legacy production pages', () => {
@@ -373,7 +375,19 @@ test('stock entry preview keeps production identity and renders no-action state 
   assert.match(source, /return_navigation/)
 })
 
-test('workstation entry focuses an active task and opens the work order when an ended task left the queue', () => {
+test('a task missing from the selected queue is resolved from its real status and roster state', () => {
+  assert.equal(workstationFocusDisposition({ status: 'pending', canViewAll: true }), 'all_scope')
+  assert.equal(workstationFocusDisposition({ status: 'pending', rosterStatus: 'unattended', canViewAll: true }), 'unattended')
+  assert.equal(workstationFocusDisposition({ status: 'running', canViewAll: false }), 'outside_scope')
+  assert.equal(workstationFocusDisposition({ status: 'completed' }), 'record')
+  assert.equal(workstationFocusDisposition({ status: 'cancelled' }), 'record')
+  assert.equal(workstationFocusDisposition({}), 'unknown')
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending', roster_status: 'unattended' }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending' }, { employee_id: 0 }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending' }, { employee_id: 6 }), false)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'running' }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'running' }, { employee_id: 6 }), false)
+
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /focus === 'workstation_task'/)
@@ -381,10 +395,42 @@ test('workstation entry focuses an active task and opens the work order when an 
   assert.match(source, /selectedWorkstation\.value = matchedTask\.workstation/)
   assert.match(source, /:class="\{ focused: isRequestedTask\(task\) \}"/)
   assert.match(source, /load\(\{ focusRequested: true \}\)/)
-  assert.match(source, /if \(options\?\.focusRequested === true\) focusRequestedTask\(\)/)
-  assert.match(source, /该任务已结束或已移出待执行队列/)
-  assert.match(source, /executionHub\.open = true/)
+  assert.match(source, /options\?\.focusRequested === true \|\| String\(props\.viewParams\?\.focus \|\| ''\) === 'workstation_task'/)
+  assert.match(source, /workstationFocusDisposition/)
+  assert.match(source, /已从全厂视图加载目标任务/)
+  assert.doesNotMatch(source, /该任务已结束或已移出待执行队列/)
+  assert.match(source, /目标工序当前状态/)
+  assert.match(source, /今日该工位无人值班，请先完成排班/)
+  assert.match(source, /:disabled="Boolean\(busyKey\) \|\| loading \|\| isTaskUnattended\(task\)"/)
+  assert.match(source, /function isTaskUnattended\(task\)/)
+  assert.match(source, /workstationTaskRequiresSchedule\(task, rosterAssignmentForTask\(task\)\)/)
+  assert.match(source, /function completionReturnParams\(task\)/)
   assert.doesNotMatch(source, /^\s*focusRequestedTask\(\)\s*$/m)
+})
+
+test('roasting completion shows the refreshed published BOM version and returns to the focused workstation', () => {
+  const source = readFileSync(new URL('../components/OperationCompletionForm.vue', import.meta.url), 'utf8')
+  assert.match(source, /preview\.bom_refresh_pending/)
+  assert.match(source, /preview\.effective_bom_version_id/)
+  assert.match(source, /preview\.original_bom_version_id/)
+  assert.match(source, /returnNavigation:\{key:'workstationView'/)
+  assert.match(source, /params:\{\.\.\.props\.returnParams\}/)
+})
+
+test('active workstation tasks require a real employee assignment before completion', () => {
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending', roster_status: 'unattended' }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending' }, { employee_id: 0 }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending' }, { employee_id: 6 }), false)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'running' }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'running' }, { employee_id: 6 }), false)
+})
+
+test('work-order drawer never routes into a completed operation card', () => {
+  const source = readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
+  assert.match(source, /enterFirstWorkstation\(\)[\s\S]*find\(\(item\) => !\['completed', 'cancelled'\]\.includes\(item\.status\)\)/)
+  assert.match(source, /已完成，查看工序记录/)
+  assert.match(source, /work_order_id: Number\(row\.work_order_id \|\| props\.workOrderId \|\| 0\)/)
+  assert.match(source, /station_id: Number\(row\.workstation_id \|\| 0\)/)
 })
 
 test('completed or cancelled work orders are read-only in the shared detail drawer', () => {

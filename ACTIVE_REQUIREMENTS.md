@@ -420,6 +420,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-733-BOM-REFRESH-WORKSTATION-FOCUS
+- Branch: `codex/bom-refresh-workstation-task-resolution`; rebased onto latest `origin/develop@1fef1b577`.
+- Owner/session: Codex / 2026-10-26.
+- Status: implementation, full Go tests, full Vue tests/build, and isolated PostgreSQL/API verification pass. Development deployment and isolated browser acceptance remain pending; production is gated on Dev acceptance and will remain read-only.
+- Scope: eligible old roasting work orders adopt the latest complete published version of the same BOM at first actual posting; reserve and consume only the current batch while retaining full future demand; direct work-order task navigation reads real card status and schedule state.
+- DEV: DEV-PR733-01 published BOM refresh and reservation; DEV-PR733-02 work-order/task focus and roster gating; DEV-PR733-03 tests, manual and acceptance evidence.
+- Verifier: Go application/PostgreSQL production tests; Vue workstation and operation-form tests; full `scripts/verify_kferp.sh frontend`, `scripts/verify_kferp.sh changed`, backend verifier; isolated transaction/API tests; browser path with isolated work orders.
+- Deployment: update branch from latest develop, push, integrate and deploy development after gates; only clean-main production release after isolated browser acceptance. Production business checks stay read-only.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md`.
+- Last update: 2026-10-26.
+
 ### PR-732-PRODUCTION-PLAN-GROUPED-PREPARATION
 - Branch: `codex/production-plan-material-groups`; initial base `origin/develop` 7f77b824c.
 - GitHub PR: #305, merged into `develop` at `fd9c0abfd55578988efb81a4394677fee483d0a7`.

@@ -60,6 +60,27 @@ export function workstationTaskSections(tasks = []) {
   })
 }
 
+// A task missing from the current queue is not evidence that it ended. The
+// queue may be scoped to today's roster, so callers must inspect the work
+// order/card state before deciding what to show.
+export function workstationFocusDisposition({ task, status, rosterStatus, canViewAll = false } = {}) {
+  const currentStatus = String(task?.status || status || '').toLowerCase()
+  if (['completed', 'cancelled'].includes(currentStatus)) return 'record'
+  if (['pending', 'ready', 'released', 'running', 'paused', 'blocked'].includes(currentStatus)) {
+    if (rosterStatus === 'unattended') return 'unattended'
+    return canViewAll ? 'all_scope' : 'outside_scope'
+  }
+  return 'unknown'
+}
+
+export function workstationTaskRequiresSchedule(task = {}, assignment = null) {
+  const status = String(task?.status || '').toLowerCase()
+  if (['completed', 'cancelled'].includes(status)) return false
+  if (!['pending', 'ready', 'released', 'blocked', 'running', 'paused'].includes(status)) return false
+  if (task?.roster_status === 'unattended' || assignment?.unattended === true) return true
+  return !Number(assignment?.employee_id || task?.roster_employee_id || 0)
+}
+
 // Combine packaging cards only when the backend has asserted that their
 // frozen production identity is compatible. Sales customer and BOM variant
 // are intentionally not grouping keys; actual material identity and owner
