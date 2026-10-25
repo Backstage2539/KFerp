@@ -16,14 +16,14 @@ async function harness() {
   globalThis.window = { dispatchEvent: event => navigation.push(event.detail) }
   globalThis.CustomEvent = class { constructor(type, options) { this.type = type; this.detail = options.detail } }
   const group = { key: 'g', version: 'gv', name: '测试包装袋', owner_name: '工厂自有', unit: '个', quantity_basis: 'count', from_warehouse: 'raw_materials', required: 20, wip: 5, remaining: 15, available: 15, max_quantity: 100, allocations: [{ job_card_id: 1, work_order_no: 'WO-1', batch_code: 'B-1', remaining: 15, available: 15, extra_available: 85 }] }
-  const mocks = { fail: false, apiSend: async (url, options) => {
+  const mocks = { fail: false, apiGet: async () => ({ rows: [{ code: 'packaging', name: '包材仓' }] }), apiSend: async (url, options) => {
     writes.push({ url, body: JSON.parse(JSON.stringify(options.body)) })
     if (url.endsWith('/preview')) return { job_card_ids: [1], version: 'v', groups: [group], blocked: [] }
     if (mocks.fail) throw new Error('网络暂时中断')
     return { success_count: 1, failed_count: 0, groups: [{ key: 'g', name: group.name, unit: '个', quantity_basis: 'count', status: 'submitted', quantity: 30, extra: 15, remaining: 0, documents: [{ id: 9, entry_no: 'SE-9' }] }] }
   } }
   globalThis[id] = mocks
-  let code = script.content.replace(/import \{ apiSend \} from ['"][^'"]+['"]/, `const { apiSend } = globalThis[${JSON.stringify(id)}]`)
+  let code = script.content.replace(/import \{ apiGet, apiSend \} from ['"][^'"]+['"]/, `const { apiGet, apiSend } = globalThis[${JSON.stringify(id)}]`)
   code = code.replace('export default', 'const component =') + '\n' + template.code.replace('export function render', 'function render') + '\ncomponent.render = render; export default component;'
   code = code.replace(/from (['"])([^'"]+)\1/g, (_, quote, path) => `from ${JSON.stringify(path.startsWith('.') ? new URL(path, file).href : import.meta.resolve(path))}`)
   const View = (await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)).default

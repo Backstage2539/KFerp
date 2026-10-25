@@ -419,6 +419,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-730-PACKAGING-GROUPED-EXECUTION
+- Branch: `codex/packaging-grouped-execution-20261025`; base `origin/develop` 4457e1e536c23a36596869594707428eab7b6c82.
+- Owner/session: Codex / 2026-10-25.
+- Status: implementation and targeted unit/API/Vue gates pass; isolated browser acceptance, development delivery, clean-main production release, and authorized location repairs remain pending. Production verification stays read-only except the two explicitly authorized location corrections; no live completion/receipt.
+- Scope: group equivalent packaging tasks, show unique WIP/source availability, fix old singleton task quantity resolution and duplicate issue controls, atomic grouped completion, remove workstation replan action, repair confirmed batch locations and reservation warehouses.
+- DEV: DEV-PR730-01 grouping/readiness and old task quantity; DEV-PR730-02 grouped issue/completion; DEV-PR730-03 audited location correction and reservation migration; DEV-PR730-04 browser, manuals, release evidence.
+- Verifier: baseline RED captured at `/tmp/kferp-pr730-red`; Go application and PostgreSQL production package tests pass; targeted real-PostgreSQL HTTP completion/replay tests pass; Vue 1,611/1,611 and Vite production build pass; `git diff --check` pass. Still required: isolated old-shape four-work-order browser click flow, inventory/cost/audit reconciliation for authorized repairs, develop and clean-main release, and read-only production smoke.
+- Deployment: authorized to integrate/deploy develop and main after gates; production real work-order completion remains for site staff.
+- Last update: 2026-10-25
+
 ### ORDER-DRAWER-CLEANUP-20261022
 - Branch: codex/order-drawer-cleanup-20261022; base origin/develop b28d91c7.
 - Scope: refresh-safe sender display, one bottom save button, one fulfillment fee summary in area A including recalculation. PR-714 follow-up; DEV-ORDER-DRAWER-CLEANUP.

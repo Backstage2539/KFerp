@@ -60,6 +60,106 @@ export function workstationTaskSections(tasks = []) {
   })
 }
 
+// Combine packaging cards only when the backend has asserted that their
+// frozen production identity is compatible. Sales customer and BOM variant
+// are intentionally not grouping keys; actual material identity and owner
+// have already been accounted for by packaging_group_key.
+export function workstationPackagingGroups(tasks = []) {
+  const groups = new Map()
+  for (const task of tasks || []) {
+    const key = String(task?.packaging_group_key || '').trim()
+    if (!key || !/包装|分装|装盒|装袋/.test(String(task?.operation || ''))) continue
+    if (['completed', 'cancelled'].includes(String(task?.status || '').toLowerCase())) continue
+    if (['completed', 'cancelled'].includes(String(task.work_order_status || '').toLowerCase())) continue
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(task)
+  }
+  return Array.from(groups.entries()).filter(([, rows]) => rows.length > 1).map(([key, rows]) => {
+    const sorted = [...rows].sort(compareProductionTasks)
+    const materialMap = new Map()
+    for (const task of sorted) {
+      for (const material of task.material_readiness || []) {
+        const identity = workstationPackagingMaterialIdentity(material)
+        let aggregate = materialMap.get(identity)
+        if (!aggregate) {
+          aggregate = { ...material, identity, required_g: 0, wip_available_g: 0, shortage_g: 0, required_units: 0, wip_available_units: 0, shortage_units: 0, source_available_g: 0, source_available_units: 0 }
+          materialMap.set(identity, aggregate)
+        }
+        for (const field of ['required_g', 'wip_available_g', 'shortage_g', 'required_units', 'wip_available_units', 'shortage_units']) {
+          aggregate[field] += Number(material[field] || 0)
+        }
+      }
+    }
+    return {
+      key,
+      tasks: sorted,
+      planned_output_qty: sorted.reduce((sum, task) => sum + Number(task.planned_output_inventory_qty || 0), 0),
+      completed_output_qty: sorted.reduce((sum, task) => sum + Number(task.actual_output_qty || 0), 0),
+      remaining_output_qty: sorted.reduce((sum, task) => sum + Math.max(0, Number(task.planned_output_inventory_qty || 0) - Number(task.actual_output_qty || 0)), 0),
+      product_name: sorted[0]?.product_name || '',
+      spec_g: Number(sorted[0]?.spec_g || 0),
+      inventory_unit: sorted[0]?.inventory_unit || '',
+      target_warehouse_name: sorted[0]?.target_warehouse_name || sorted[0]?.target_warehouse || '',
+      materials: Array.from(materialMap.values()),
+    }
+  }).sort((a, b) => compareProductionTasks(a.tasks[0], b.tasks[0]))
+}
+
+export function workstationPackagingMaterialIdentity(material = {}) {
+  return [material.item_type || 'material', material.item_id || material.material_id || 0, material.bom_spec_id || 0, material.owner_customer_id || 0, material.unit || '', material.spec_g || 0].join(':')
+}
+
+export function workstationGroupOutputAllocations(items = [], actualQty = 0) {
+  let left = Math.max(0, Number(actualQty || 0))
+  const allocations = (items || []).map(item => {
+    const qty = Math.min(Math.max(0, Number(item.remaining_qty || 0)), left)
+    left -= qty
+    return { ...item, qty }
+  })
+  if (left > 0 && allocations.length) {
+    const last = allocations.length - 1
+    allocations[last] = { ...allocations[last], qty: allocations[last].qty + left }
+  }
+  return allocations
+}
+
+export function workstationGroupMaterialSuggestions(preview = {}, actualOutputQty = 0) {
+  const allocations = new Map(workstationGroupOutputAllocations(preview.items, actualOutputQty).map(item => [Number(item.job_card_id), item.qty]))
+  const items = new Map((preview.items || []).map(item => [Number(item.job_card_id), item]))
+  const factor = (unit) => ({ g: 1, 克: 1, kg: 1000, 千克: 1000, 公斤: 1000, mg: 0.001, 毫克: 0.001 })[String(unit || '').toLowerCase()] || 0
+  return (preview.materials || []).map(material => {
+    let qty = 0
+    for (const source of material.sources || []) {
+      const cardID = Number(source.job_card_id || 0)
+      const remaining = Number(items.get(cardID)?.remaining_qty || 0)
+      if (remaining <= 0) continue
+      const sourceQty = Number(source.qty || 0) * Number(allocations.get(cardID) || 0) / remaining
+      const unitFactor = factor(source.unit)
+      qty += unitFactor > 0 ? Math.round(sourceQty * unitFactor) / unitFactor : Math.ceil(sourceQty - 1e-9)
+    }
+    return { key: material.key, qty }
+  })
+}
+
+export function workstationGroupCompletionValidation({ outputQty, maxOutputQty, remainingQty, outputUnit = '袋', finishGroup = false, differenceReason = '', materials = [] } = {}) {
+  const output = Number(outputQty)
+  const maxOutput = Number(maxOutputQty ?? remainingQty ?? 0)
+  if (!Number.isFinite(output) || output <= 0 || (operationUnitFactor(outputUnit) === 0 && !Number.isInteger(output))) return '本次完成数量必须为正数；袋、盒等计数单位须填整数'
+  if (output > maxOutput + 1e-8) return `当前物料最多支持完成 ${quantityText(maxOutput)} ${outputUnit}`
+  for (const material of materials || []) {
+    const quantity = Number(material?.qty)
+    const available = Number(material?.available_qty)
+    if (!Number.isFinite(quantity) || quantity < 0 || (operationUnitFactor(material?.unit) === 0 && !Number.isInteger(quantity))) return `${material?.name || '物料'}数量无效，请检查单位和数量`
+    if (Number.isFinite(available) && quantity > available + 1e-8) return `${material?.name || '物料'}用量超过可用库存 ${quantityText(available)} ${material?.unit || ''}`.trim()
+  }
+  if ((finishGroup || output > Number(remainingQty || 0)) && !String(differenceReason || '').trim()) return '请填写数量差异原因'
+  return ''
+}
+
+function operationUnitFactor(unit) {
+  return ({ g: 1, 克: 1, kg: 1000, 千克: 1000, 公斤: 1000, mg: 0.001, 毫克: 0.001 })[String(unit || '').toLowerCase()] || 0
+}
+
 function quantityText(value) {
   const quantity = Number(value || 0)
   if (!Number.isFinite(quantity)) return '0'

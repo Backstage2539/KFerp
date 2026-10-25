@@ -12,6 +12,10 @@ import (
 	"strings"
 )
 
+func isPackagingOperationName(value string) bool {
+	return strings.Contains(value, "包装") || strings.Contains(value, "分装") || strings.Contains(value, "装袋") || strings.Contains(value, "装盒")
+}
+
 func (r Repository) PreviewOperationCompletion(ctx context.Context, id int64) (app.OperationCompletionPreview, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly, IsoLevel: pgx.RepeatableRead})
 	if err != nil {
@@ -74,6 +78,19 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	p.Final = seq == last
 	if !p.Enabled {
 		p.BlockedReason = "旧工单需先核对用料归属与完成数量，再启用自动记账"
+		legacyRoute := len(route.Operations) == 1 && isPackagingOperationName(route.Operations[0].Operation)
+		var cardCount, eventCount int
+		if legacyRoute && seq == first && seq == last && input <= 0 && totalInput <= 0 && wo.PlannedInventoryQty > 0 && (status == "pending" || status == "ready" || status == "released") {
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT COUNT(*) FROM %s.job_cards WHERE work_order_id=$1 AND status<>'cancelled'),(SELECT COUNT(*) FROM %s.production_operation_events WHERE work_order_id=$1 AND status IN('posting','posted'))`, r.schema, r.schema), wo.ID).Scan(&cardCount, &eventCount); err != nil {
+				return p, wo, err
+			}
+		}
+		if legacyRoute && cardCount == 1 && eventCount == 0 {
+			p.Execution = app.OperationExecution{Version: 1, NodeKey: fmt.Sprintf("legacy-packaging-%d", wo.ID), ReceiptEnabled: true, ReceiptWarehouse: firstNonEmpty(wo.TargetWarehouse, "finished_goods"), SourceWarehouse: "wip", OutputUnit: unit}
+			p.Enabled = true
+			p.LegacyPackaging = true
+			p.BlockedReason = ""
+		}
 	}
 	p.ProductName = firstNonEmpty(wo.OutputName, wo.ProductName)
 	p.OutputSpecG = wo.SpecG
@@ -169,6 +186,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			rows.Close()
 			return p, wo, err
 		}
+		m.JobCardID = id
 		if kind == "finished_product" {
 			kind = "product"
 		}
@@ -219,6 +237,11 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	rows.Close()
 	if err != nil {
 		return p, wo, err
+	}
+	if p.LegacyPackaging && len(p.Materials) == 0 {
+		p.Enabled = false
+		p.LegacyPackaging = false
+		p.BlockedReason = "旧包装工单缺少完整冻结用料，不能自动接入"
 	}
 	for i := range p.Materials {
 		p.Materials[i].AvailableQty, err = operationMaterialAvailableTx(ctx, tx, r.schema, p.Materials[i].ReservationID, p.Materials[i].Warehouse, p.Materials[i].OwnerCustomerID, p.Materials[i].Unit)
@@ -386,6 +409,85 @@ func operationMaterialAvailableTx(ctx context.Context, tx pgx.Tx, schema string,
 		return float64(grams) / factor, nil
 	}
 	return float64(units), nil
+}
+
+// operationMaterialAvailabilityPartsTx separates stock already reserved for
+// one order from unreserved stock. Group previews sum their own reservations
+// and count shared free inventory only once.
+func operationMaterialAvailabilityPartsTx(ctx context.Context, tx pgx.Tx, schema string, reservationID int64, warehouse string, ownerCustomerID int64, unit string) (float64, float64, error) {
+	var componentType string
+	var workOrderID, materialID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT component_type,work_order_id,material_id FROM %s.work_order_material_reservations WHERE id=$1`, schema), reservationID).Scan(&componentType, &workOrderID, &materialID); err != nil {
+		return 0, 0, err
+	}
+	if componentType == "product" {
+		own, err := operationReservedProductAvailableTx(ctx, tx, schema, reservationID, warehouse, ownerCustomerID, unit)
+		return own, 0, err
+	}
+	type batchAvailability struct {
+		id, physicalG, physicalUnits, ownG, ownUnits, reservedG, reservedUnits int64
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT mb.id,l.qty_g,l.qty_units,
+		       COALESCE(own.g,0)::bigint,COALESCE(own.units,0)::bigint,
+		       COALESCE(all_reserved.g,0)::bigint,COALESCE(all_reserved.units,0)::bigint
+		FROM %[1]s.work_order_material_reservations target
+		JOIN %[1]s.material_batches mb ON mb.material_id=target.material_id
+		  AND mb.status='active' AND mb.quality_status NOT IN('hold','reject')
+		  AND COALESCE(mb.owner_customer_id,0)=$3
+		JOIN %[1]s.material_batch_locations l ON l.material_batch_id=mb.id AND l.warehouse=$2
+		LEFT JOIN LATERAL (
+			SELECT SUM(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g)) g,
+			       SUM(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units)) units
+			FROM %[1]s.work_order_material_reservation_batches b
+			JOIN %[1]s.work_order_material_reservations r ON r.id=b.reservation_id AND r.status='reserved'
+			WHERE b.reservation_id=$1 AND b.material_batch_id=mb.id AND b.warehouse=$2
+			  AND b.owner_customer_id=$3 AND b.status='reserved'
+		) own ON true
+		LEFT JOIN LATERAL (
+			SELECT SUM(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g)) g,
+			       SUM(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units)) units
+			FROM %[1]s.work_order_material_reservation_batches b
+			JOIN %[1]s.work_order_material_reservations r ON r.id=b.reservation_id AND r.status='reserved'
+			WHERE b.material_batch_id=mb.id AND b.warehouse=$2 AND b.owner_customer_id=$3 AND b.status='reserved'
+		) all_reserved ON true
+		WHERE target.id=$1 AND target.status IN('reserved','consumed')
+		  AND target.source_owner_customer_id=$3 AND (l.qty_g>0 OR l.qty_units>0)
+		ORDER BY mb.received_at,mb.id`, schema), reservationID, warehouse, ownerCustomerID)
+	if err != nil {
+		return 0, 0, err
+	}
+	batches := []batchAvailability{}
+	for rows.Next() {
+		var row batchAvailability
+		if err = rows.Scan(&row.id, &row.physicalG, &row.physicalUnits, &row.ownG, &row.ownUnits, &row.reservedG, &row.reservedUnits); err != nil {
+			rows.Close()
+			return 0, 0, err
+		}
+		batches = append(batches, row)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, 0, err
+	}
+	var ownG, ownUnits, freeG, freeUnits int64
+	for _, batch := range batches {
+		processingG, processingUnits, e := stockrepo.OperationOtherProcessingReservedTx(ctx, tx, schema, workOrderID, batch.id, materialID, ownerCustomerID, warehouse, false)
+		if e != nil {
+			return 0, 0, e
+		}
+		otherReservedG := maxInt64(0, batch.reservedG-batch.ownG)
+		otherReservedUnits := maxInt64(0, batch.reservedUnits-batch.ownUnits)
+		ownG += minInt64(batch.ownG, maxInt64(0, batch.physicalG-otherReservedG-processingG))
+		ownUnits += minInt64(batch.ownUnits, maxInt64(0, batch.physicalUnits-otherReservedUnits-processingUnits))
+		freeG += maxInt64(0, batch.physicalG-batch.reservedG-processingG)
+		freeUnits += maxInt64(0, batch.physicalUnits-batch.reservedUnits-processingUnits)
+	}
+	if factor := app.OperationUnitFactor(unit); factor > 0 {
+		return float64(ownG) / factor, float64(freeG) / factor, nil
+	}
+	return float64(ownUnits), float64(freeUnits), nil
 }
 
 func operationReservedProductAvailableTx(ctx context.Context, tx pgx.Tx, schema string, reservationID int64, warehouse string, ownerCustomerID int64, unit string) (float64, error) {

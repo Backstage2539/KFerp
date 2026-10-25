@@ -2,6 +2,7 @@
   <div class="page workstation-view">
 
     <ProductionReturnLink :source="viewParams.return_navigation" />
+    <section v-if="lastGroupResult" class="panel group-result"><strong>合并入库完成：{{ lastGroupResult.completed_qty }} {{ lastGroupResult.output_unit }}</strong><p v-for="item in lastGroupResult.items" :key="item.job_card.id">{{ item.work_order.work_order_no }} · 入库 {{ item.completion?.output_qty || 0 }} {{ item.completion?.output_unit }} · 单据 {{ item.completion?.stock_entry_ids?.join('、') || '无' }}</p><p>{{ lastGroupResult.remaining_qty > 0 ? `剩余 ${lastGroupResult.remaining_qty} 袋继续待办` : '本组任务已完成' }}</p><button class="secondary" @click="lastGroupResult=null">收起</button></section>
     <section v-if="lastAutomaticResult" class="panel"><strong>{{ lastAutomaticResult.message }} · {{ lastAutomaticResult.output_qty }} {{ lastAutomaticResult.output_unit }}</strong><p>关联单据：{{ lastAutomaticResult.stock_entry_ids?.join('、') || '工序交接记录' }}</p><button class="primary" @click="continueNextOperation(lastAutomaticResult.task)">继续处理下一工序</button><button class="secondary" @click="lastAutomaticResult=null">收起</button></section>
     <section class="toolbar">
       <div>
@@ -57,19 +58,27 @@
         <div v-if="!section.tasks.length" class="no-task">{{ scope === 'mine' ? '今日负责此工位，暂无任务' : '今日工位暂无任务' }}</div>
         <button v-else-if="!selectedWorkstation" class="enter-station primary" type="button" @click="selectedWorkstation = section.workstation">进入本工位</button>
 
-        <div v-if="selectedWorkstation" class="batch-issue-toolbar">
-          <span>已选 {{ issueSelectionState(section.tasks, selectedIssueTasks).count }} 个任务</span>
-          <button type="button" class="primary" :disabled="!issueSelectionState(section.tasks, selectedIssueTasks).count || loading" @click="openBatchIssue(section)">合并领料</button>
+        <div v-if="selectedWorkstation && ungroupedTasks(section).length" class="batch-issue-toolbar">
+          <span>已选 {{ issueSelectionState(ungroupedTasks(section), selectedIssueTasks).count }} 个任务</span>
+          <button type="button" class="primary" :disabled="!issueSelectionState(ungroupedTasks(section), selectedIssueTasks).count || loading" @click="openBatchIssue(section)">合并领料</button>
           <small>多选任务后，同料汇总、一次领到 WIP</small>
         </div>
-        <div v-if="selectedWorkstation" class="task-table">
+        <div v-if="selectedWorkstation && packagingGroups(section).length" class="packaging-groups">
+          <article v-for="group in packagingGroups(section)" :key="group.key" class="packaging-group-card">
+            <div class="packaging-group-head"><div><h4>{{ group.product_name }} · {{ group.spec_g }}g袋装 · {{ quantityText(group.remaining_output_qty) }} {{ group.inventory_unit }} · {{ group.tasks.length }}张工单</h4><p>目标仓：{{ warehouseLabel(group.target_warehouse_name || group.tasks[0]?.target_warehouse) }} · 已完成 {{ quantityText(group.completed_output_qty) }} / {{ quantityText(group.planned_output_qty) }} {{ group.inventory_unit }}</p></div><div class="packaging-group-actions"><button type="button" class="secondary" :disabled="loading || busyKey !== '' || !groupHasShortage(group)" @click="openBatchIssueForTasks(group.tasks)">补齐物料</button><button type="button" class="primary" :disabled="loading || busyKey !== ''" @click="openGroupCompletion(group)">完成并入库</button></div></div>
+            <div class="group-material-table"><div class="material-row material-head"><span>物料</span><span>需求</span><span>WIP本组可用</span><span>待补</span><span>来源仓可补</span></div><div v-for="material in group.materials" :key="material.identity" class="material-row"><strong>{{ material.material_name }}</strong><span>{{ materialQuantity(material, 'required') }}</span><span>{{ materialQuantity(material, 'wip') }}</span><span :class="{ shortage: materialHasShortage(material) }">{{ materialQuantity(material, 'shortage') }}</span><span>{{ sourceAvailabilityLabel(group, material) }}</span></div></div>
+            <details class="group-source-orders"><summary>查看 {{ group.tasks.length }} 张来源工单</summary><div v-for="task in group.tasks" :key="taskKey(task)">{{ task.work_order_no }} · {{ task.customer_name || '客户未指定' }} · {{ quantityText(task.planned_output_inventory_qty) }} {{ task.inventory_unit }} <button type="button" class="text-button" @click="openExecutionHub(task, 'job_card')">查看工单</button></div></details>
+            <WorkstationPackagingCompletionForm v-if="completionGroup.open && completionGroup.key === group.key" :key="completionGroup.key" :task-ids="completionGroup.ids" @close="completionGroup.open = false" @posted="groupCompleted" />
+          </article>
+        </div>
+        <div v-if="selectedWorkstation && ungroupedTasks(section).length" class="task-table">
           <div class="task-row header">
-            <span><input type="checkbox" aria-label="全选当前工位可领料任务" :checked="issueSelectionState(section.tasks, selectedIssueTasks).checked" :indeterminate="issueSelectionState(section.tasks, selectedIssueTasks).indeterminate" :disabled="!issueSelectionState(section.tasks, selectedIssueTasks).total" @change="selectedIssueTasks = toggleIssueSelection(section.tasks, selectedIssueTasks)" /> 任务</span>
+            <span><input type="checkbox" aria-label="全选当前工位可领料任务" :checked="issueSelectionState(ungroupedTasks(section), selectedIssueTasks).checked" :indeterminate="issueSelectionState(ungroupedTasks(section), selectedIssueTasks).indeterminate" :disabled="!issueSelectionState(ungroupedTasks(section), selectedIssueTasks).total" @change="selectedIssueTasks = toggleIssueSelection(ungroupedTasks(section), selectedIssueTasks)" /> 任务</span>
             <span>状态</span>
             <span>执行人</span>
             <span>动作</span>
           </div>
-          <div v-for="task in section.tasks"
+          <div v-for="task in ungroupedTasks(section)"
             :key="taskKey(task)"
             class="task-row"
             :class="{ focused: isRequestedTask(task) }"
@@ -91,10 +100,9 @@
             <div class="actions">
               <button v-if="!task.automatic_completion" class="secondary" @click="openFinishPanel(task)">核对旧单并继续</button>
               <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
-              <button v-if="['pending','ready'].includes(task.status) && task.production_plan_id && task.production_plan_item_id" type="button" class="secondary" @click="openProductionReplan(task)">撤回并重新安排</button>
               <button v-if="workstationCanOpenIssue(task)" type="button" class="primary" @click="openPicking(task)">领料</button>
               <button v-if="task.readiness_label === '待质检'" type="button" class="secondary" @click="openQuality(task)">查看质检</button>
-              <details v-if="!task.automatic_completion && isFirstOperationTask(task) && (workstationCanOpenIssue(task) || task.status === 'running')" class="material-actions"><summary>物料操作</summary><button v-if="workstationCanOpenIssue(task)" type="button" @click="openStockAction(task, 'issue')">领料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'consume')">耗料</button><button v-if="task.status === 'running'" type="button" @click="openStockAction(task, 'return')">退料</button></details>
+              <details v-if="!task.automatic_completion && isFirstOperationTask(task) && task.status === 'running'" class="material-actions"><summary>物料操作</summary><button type="button" @click="openStockAction(task, 'consume')">耗料</button><button type="button" @click="openStockAction(task, 'return')">退料</button></details>
               <button
                 v-for="action in workstationVisibleActions(task)"
                 :key="action"
@@ -152,6 +160,7 @@
 import OperationConversionForm from '../components/OperationConversionForm.vue'
 import OperationCompletionForm from '../components/OperationCompletionForm.vue'
 import WorkstationBatchIssueDrawer from '../components/WorkstationBatchIssueDrawer.vue'
+import WorkstationPackagingCompletionForm from '../components/WorkstationPackagingCompletionForm.vue'
 import { issueSelectionState, toggleIssueSelection } from '../lib/workstation-batch-issue.js'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -168,6 +177,8 @@ import {
   workstationCanOpenIssue,
   workstationVisibleActions,
   workstationTaskSections,
+  workstationPackagingGroups,
+  workstationPackagingMaterialIdentity,
 } from '../lib/production-workstation.js'
 
 const props = defineProps({
@@ -177,7 +188,53 @@ const props = defineProps({
 
 const selectedIssueTasks = ref([])
 const batchIssue = reactive({open: false, ids: []})
-function openBatchIssue(section) { batchIssue.ids = section.tasks.filter(task => selectedIssueTasks.value.includes(Number(task.job_card_id)) && workstationCanOpenIssue(task)).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }
+const completionGroup = reactive({ open: false, key: '', ids: [] })
+const lastGroupResult = ref(null)
+const packagingSourceAvailability = ref(new Map())
+let packagingSourceAvailabilityRevision = 0
+function groupedTasks(section) { return workstationPackagingGroups(section.tasks).flatMap(group => group.tasks) }
+function ungroupedTasks(section) { const ids = new Set(groupedTasks(section).map(task => Number(task.job_card_id))); return section.tasks.filter(task => !ids.has(Number(task.job_card_id))) }
+function packagingGroups(section) { return workstationPackagingGroups(section.tasks) }
+function openBatchIssueForTasks(tasks) { batchIssue.ids = tasks.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }
+function openBatchIssue(section) { openBatchIssueForTasks(ungroupedTasks(section).filter(task => selectedIssueTasks.value.includes(Number(task.job_card_id)))) }
+function openGroupCompletion(group) { completionGroup.key = group.key; completionGroup.ids = group.tasks.map(task => Number(task.job_card_id)); completionGroup.open = true; batchIssue.open = false }
+async function groupCompleted(result) { lastGroupResult.value = result; completionGroup.open = false; message.value = `已完成并入库 ${result.completed_qty} ${result.output_unit}`; await load() }
+function quantityText(value) { return Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 }) }
+function sourceAvailabilityKey(groupKey, materialIdentity) { return `${groupKey}:${materialIdentity}` }
+function sourceAvailabilityLabel(group, material) {
+  const row = packagingSourceAvailability.value.get(sourceAvailabilityKey(group.key, material.identity))
+  if (!row) return '正在查询…'
+  if (row.error) return '暂不可查询'
+  if (row.g > 0) return `${quantityText(row.g)}g`
+  return `${quantityText(row.units)}${material.unit || '件'}`
+}
+function warehouseLabel(code) { const key = String(code || ''); return warehouseNames.value.get(key) || ({ finished_goods: '成品仓', packaging: '包材仓', raw_materials: '原料仓', wip: 'WIP在制仓' })[key] || (key ? `仓库名待加载（${key}）` : '待确认') }
+async function loadWarehouseNames() { try { const data = await apiGet('/api/stock/warehouses'); const rows = Array.isArray(data) ? data : (data.rows || data.warehouses || []); warehouseNames.value = new Map(rows.filter(row => row?.code).map(row => [String(row.code), String(row.name || row.code)])) } catch { warehouseNames.value = new Map() } }
+async function loadPackagingSourceAvailability(tasks) {
+  const revision = ++packagingSourceAvailabilityRevision
+  const groups = workstationPackagingGroups(tasks)
+  const values = new Map()
+  for (const group of groups) for (const material of group.materials) values.set(sourceAvailabilityKey(group.key, material.identity), { g: 0, units: 0 })
+  packagingSourceAvailability.value = values
+  await Promise.all(groups.map(async group => {
+    try {
+      const data = await apiSend('/api/production/workstation/material-issue/preview', { body: { job_card_ids: group.tasks.map(task => Number(task.job_card_id)) } })
+      for (const row of data.groups || []) {
+        const identity = workstationPackagingMaterialIdentity({ item_type: row.item_type, item_id: row.item_id, material_id: row.item_id, bom_spec_id: row.bom_spec_id, owner_customer_id: row.owner_customer_id, unit: row.unit, spec_g: row.spec_g })
+        const material = group.materials.find(item => item.identity === identity)
+        if (!material) continue
+        const key = sourceAvailabilityKey(group.key, identity)
+        const availability = values.get(key) || { g: 0, units: 0 }
+        if (row.quantity_basis === 'weight') availability.g += Number(row.available || 0)
+        else availability.units += Number(row.available || 0)
+        values.set(key, availability)
+      }
+    } catch {
+      for (const material of group.materials) values.set(sourceAvailabilityKey(group.key, material.identity), { error: true })
+    }
+  }))
+  if (revision === packagingSourceAvailabilityRevision) packagingSourceAvailability.value = new Map(values)
+}
 const loading = ref(false)
 const busyKey = ref('')
 const error = ref('')
@@ -186,6 +243,7 @@ const selectedWorkstationValue = ref('')
 const selectedWorkstation = computed({ get: () => selectedWorkstationValue.value, set: value => { selectedWorkstationValue.value = value } })
 const overview = ref({ tasks: [] })
 const todayRoster = ref({ assignments: [] })
+const warehouseNames = ref(new Map())
 const canViewAll = computed(() => actorHasFullViewAccess(props.actor))
 const scope = ref(String(props.viewParams?.scope || 'mine') === 'all' && canViewAll.value ? 'all' : 'mine')
 const issue = reactive({ open: false, mode: '', title: '', task: null, note: '' })
@@ -283,6 +341,10 @@ function materialHasShortage(material) {
   return Number(material?.shortage_g || 0) > 0 || Number(material?.shortage_units || 0) > 0
 }
 
+function groupHasShortage(group) {
+  return (group?.materials || []).some(materialHasShortage)
+}
+
 function materialSummary(task) {
   if (materialReadinessState(task) === 'unknown') return '用料待核对'
   const rows = task?.material_readiness || []
@@ -323,7 +385,6 @@ function actionLabel(action) {
 }
 
 function openScheduling() { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'productionSchedule', params: { work_center: selectedWorkstation.value }, returnNavigation: { key: 'workstationView', params: { ...props.viewParams }, label: '返回工位视图' } } })) }
-function openProductionReplan(task) { window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'producePlan', params: { production_plan_id: task.production_plan_id, replan_plan_id: task.production_plan_id, replan_item_id: task.production_plan_item_id }, returnNavigation: { key: 'workstationView', params: { workstation: selectedWorkstation.value, work_order_id: task.work_order_id, job_card_id: task.job_card_id, focus: 'workstation_task' }, label: '返回工位视图' } } })) }
 
 function assignmentForSection(section) { const task = section.tasks[0]; return task ? { workstation_id: task.workstation_id, workstation: section.workstation, employee_id: task.roster_employee_id, employee_name: task.roster_employee_name, source: task.roster_source, unattended: task.roster_status === 'unattended', override_invalid: task.roster_status === 'invalid_override', handover_count: section.tasks.filter(row => row.pending_handover).length } : null }
 function rosterSourceLabel(row) { if (!row) return '尚未排班'; if (row.override_invalid) return '临时调整已失效'; if (row.unattended) return row.reason || '请先排班'; return ({ override: '临时调整', primary: '主负责人', backup: '替补接班' })[row.source] || '自动安排' }
@@ -470,6 +531,7 @@ async function load(options = {}) {
     const [overviewData, rosterData] = await Promise.all([fetchProductionWorkstationOverview({ limit: 500, scope: scope.value }), apiGet(`/api/production-roster/today?scope=${scope.value}`)])
     overview.value = overviewData
     todayRoster.value = rosterData
+    void loadPackagingSourceAvailability(overviewData.tasks || [])
     if (selectedWorkstation.value && !sections.value.some((section) => section.workstation === selectedWorkstation.value)) {
       selectedWorkstation.value = ''
     }
@@ -484,6 +546,7 @@ async function load(options = {}) {
 }
 
 onMounted(async () => {
+  void loadWarehouseNames()
   await load({ focusRequested: true })
   const focus = String(props.viewParams?.focus || '')
   if (focus === 'workstation_task') return
@@ -497,6 +560,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.packaging-groups{display:grid;gap:16px;margin:18px 0}.packaging-group-card{border:1px solid #d7e2da;border-radius:12px;padding:18px;background:#fff}.packaging-group-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}.packaging-group-head h4{margin:0 0 6px;font-size:18px;color:#203b2c}.packaging-group-head p,.group-source-orders{color:#69776f}.packaging-group-actions{display:flex;gap:8px;flex-wrap:wrap}.group-material-table{margin-top:14px}.group-material-table .material-row{grid-template-columns:minmax(130px,1fr) repeat(4,minmax(74px,.55fr))}.group-source-orders{margin-top:12px}.group-source-orders summary{cursor:pointer}.group-source-orders>div{padding:7px 0}.text-button{border:0;background:none;color:#267349;text-decoration:underline;cursor:pointer}.group-result{padding:16px}.group-result p{margin:.3rem 0}
 .batch-issue-toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:18px 0 12px}.batch-issue-toolbar small{color:#6c786f}.task-table input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin:0 8px 0 0;accent-color:#315740}
 
 .page { padding: 20px; color: #252525; }

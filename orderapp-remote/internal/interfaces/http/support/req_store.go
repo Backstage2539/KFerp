@@ -252,6 +252,14 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-730-WORKSTATION-PACKAGING-GROUP", title: "包装台同商品规格工单合组、汇总补料并一次完成入库", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-25-packaging-grouped-execution.md"},
+		{table: "req_dev", code: "DEV-PR730-01", title: "PR-730 兼容包装任务分组合计与旧零批次数量解析", status: "done", assignee: "Codex", evidence: "TestPackagingGroupKeysAcceptEquivalentLegacyZeroSplitCards; TestPackagingGroupKeysSeparateDifferentFrozenMaterialSpec; production-workstation tests"},
+		{table: "req_dev", code: "DEV-PR730-02", title: "PR-730 工位合并补料预览与原子分单完成入库", status: "done", assignee: "Codex", evidence: "TestWorkstationCompletionGroupPreviewAndSubmitAPI; operation completion group tests"},
+		{table: "req_dev", code: "DEV-PR730-03", title: "PR-730 包装卡移除重复领料和撤回入口并展示来源仓数量", status: "done", assignee: "Codex", evidence: "workstation exposes one material action and one completion form; source availability preview; Vue build"},
+		{table: "req_dev", code: "DEV-PR730-04", title: "PR-730 库位修复、旧工单浏览器验收、手册及环境交付", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-25-packaging-grouped-execution.md"},
+		{table: "req_unit", code: "UT-PR730-GROUPING", prCode: "PR-730-WORKSTATION-PACKAGING-GROUP", title: "四单跨客户/BOM合组、规格货主隔离、数量分摊及库存上限", status: "done", assignee: "Codex", evidence: "Go application tests; frontend packaging grouping and completion tests"},
+		{table: "req_api", code: "API-PR730-GROUP-COMPLETION", title: "合并完成预览/提交、原子回滚、幂等重放与任务版本校验", status: "done", assignee: "Codex", evidence: "TestWorkstationCompletionGroupPreviewAndSubmitAPI; OperationCompletionAPI atomic/partial/retry API tests"},
+		{table: "req_review", code: "REV-PR730-PACKAGING-GROUP", prCode: "PR-730-WORKSTATION-PACKAGING-GROUP", title: "验收四张小菠萝包装任务合组补料、分单完成入库及环境发布", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-25-packaging-grouped-execution.md"},
 		{table: "req_product", code: "PR-729-PRODUCTION-RECOVERY", title: "生产整改：修正批次库位、完成现有包装工单并入库", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-25-production-recovery.md"},
 		{table: "req_dev", code: "DEV-874-BATCH-LOCATION-REPAIR", title: "PR-729 阻止重复库位回填并提供可审计修复", status: "done", assignee: "Codex", evidence: "TestEnsureMaterialBatchTablesDoesNotDuplicateExistingWarehouseBalance; TestRepairMaterialBatchLocations; production-flow-repair.test.js"},
 		{table: "req_dev", code: "DEV-875-PARTIAL-COMPLETION", title: "PR-729 分批完成、增量入库和原子耗料成本", status: "done", assignee: "Codex", evidence: "TestOperationCompletionAPIPartialOutputCanContinueAndFinish; TestOperationCompletionAPIIsolationAndFailureRetry"},

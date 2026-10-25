@@ -12,8 +12,13 @@ import {
   stockOperationContextParams,
   taskQuantityLines,
   workstationCanOpenIssue,
+  workstationGroupMaterialSuggestions,
+  workstationGroupOutputAllocations,
+  workstationGroupCompletionValidation,
   workstationVisibleActions,
   workstationTaskSections,
+  workstationPackagingGroups,
+  workstationPackagingMaterialIdentity,
 } from './production-workstation.js'
 
 test('production top nav lists high-frequency views before legacy production pages', () => {
@@ -24,6 +29,101 @@ test('production top nav lists high-frequency views before legacy production pag
     'produceLogs',
   ])
   assert.equal(productionTopNavItems[0].label, '工位视图')
+})
+
+test('same frozen packaging work is grouped across customers and BOM variants with once-counted materials', () => {
+  const tasks = [10, 6, 4, 1].map((qty, index) => ({
+    packaging_group_key: 'pack-454-owner0-finished',
+    job_card_id: index + 1,
+    work_order_id: index + 1,
+    work_order_no: `WO-${index + 1}`,
+    product_name: '小菠萝', operation: '包装', workstation: '包装台',
+    planned_output_inventory_qty: qty,
+    customer_id: [454, 14, 73, 464][index],
+    bom_variant_id: [491, 48, 48, 48][index],
+    material_readiness: [
+      { material_id: 127, material_name: '小菠萝-半成品', unit: 'g', required_g: qty * 454, wip_available_g: qty * 454, shortage_g: 0 },
+      { material_id: 100, material_name: '454g袋', unit: 'pic', required_units: qty, wip_available_units: 0, shortage_units: qty },
+    ],
+  }))
+  const groups = workstationPackagingGroups(tasks)
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0].tasks.map(row => row.job_card_id), [1, 2, 3, 4])
+  assert.equal(groups[0].planned_output_qty, 21)
+  assert.deepEqual(groups[0].materials.map(row => [row.material_id, row.required_g, row.wip_available_g, row.shortage_g, row.required_units, row.wip_available_units, row.shortage_units]), [
+    [127, 9534, 9534, 0, 0, 0, 0],
+    [100, 0, 0, 0, 21, 0, 21],
+  ])
+})
+
+test('singleton packaging cards stay on their existing individual workflow', () => {
+  const groups = workstationPackagingGroups([
+    { packaging_group_key: 'one', job_card_id: 1, operation: '包装', status: 'pending', work_order_status: 'released' },
+    { packaging_group_key: 'one', job_card_id: 2, operation: '包装', status: 'completed', work_order_status: 'partially_completed' },
+  ])
+  assert.equal(groups.length, 0)
+})
+
+test('completed cards are excluded from a still-open packaging group', () => {
+  const groups = workstationPackagingGroups([
+    { packaging_group_key: 'same', job_card_id: 1, operation: '包装', status: 'pending', work_order_status: 'released' },
+    { packaging_group_key: 'same', job_card_id: 2, operation: '包装', status: 'completed', work_order_status: 'partially_completed' },
+    { packaging_group_key: 'same', job_card_id: 3, operation: '包装', status: 'pending', work_order_status: 'released' },
+  ])
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0].tasks.map(row => row.job_card_id), [1, 3])
+})
+
+test('packaging material summary preserves frozen component specification identity', () => {
+  const groups = workstationPackagingGroups([
+    { packaging_group_key: 'same-key', job_card_id: 1, operation: '包装', status: 'pending', work_order_status: 'released', planned_output_inventory_qty: 1, material_readiness: [{ material_id: 100, bom_spec_id: 227, spec_g: 227, unit: 'pic', required_units: 1 }] },
+    { packaging_group_key: 'same-key', job_card_id: 2, operation: '包装', status: 'pending', work_order_status: 'released', planned_output_inventory_qty: 1, material_readiness: [{ material_id: 100, bom_spec_id: 454, spec_g: 454, unit: 'pic', required_units: 1 }] },
+  ])
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].materials.length, 2)
+  assert.notEqual(groups[0].materials[0].identity, groups[0].materials[1].identity)
+  assert.equal(workstationPackagingMaterialIdentity({ material_id: 100, bom_spec_id: 227, unit: 'pic' }), 'material:100:227:0:pic:0')
+})
+
+test('group completion suggestions follow partial output quantity and work-order allocation', () => {
+  const items = [10, 6, 4, 1].map((remaining_qty, index) => ({ job_card_id: index + 1, remaining_qty, work_order_no: `WO-${index + 1}`, unit: '袋' }))
+  const preview = {
+    items,
+    materials: [
+      { key: 'bean', unit: 'g', sources: items.map((item, index) => ({ job_card_id: item.job_card_id, unit: 'g', qty: [4540, 2724, 1816, 454][index] })) },
+      { key: 'bag', unit: 'pic', sources: items.map((item, index) => ({ job_card_id: item.job_card_id, unit: 'pic', qty: [10, 6, 4, 1][index] })) },
+    ],
+  }
+  assert.deepEqual(workstationGroupOutputAllocations(items, 6).map(row => row.qty), [6, 0, 0, 0])
+  assert.deepEqual(workstationGroupMaterialSuggestions(preview, 6), [{ key: 'bean', qty: 2724 }, { key: 'bag', qty: 6 }])
+  assert.deepEqual(workstationGroupMaterialSuggestions(preview, 21), [{ key: 'bean', qty: 9534 }, { key: 'bag', qty: 21 }])
+})
+
+test('group completion blocks output beyond available stock and material edits beyond availability', () => {
+  const materials = [{ key: 'bags', unit: 'pic', qty: 21, available_qty: 15 }]
+  assert.match(workstationGroupCompletionValidation({ outputQty: 16, maxOutputQty: 15, remainingQty: 21, materials }), /最多支持完成 15/)
+  assert.match(workstationGroupCompletionValidation({ outputQty: 15, maxOutputQty: 15, remainingQty: 21, materials }), /超过可用库存/)
+  assert.equal(workstationGroupCompletionValidation({ outputQty: 15, maxOutputQty: 15, remainingQty: 21, materials: [{ ...materials[0], qty: 15 }] }), '')
+})
+
+test('workstation exposes one material action and one completion form per compatible packaging group', () => {
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+  const form = readFileSync(new URL('../components/WorkstationPackagingCompletionForm.vue', import.meta.url), 'utf8')
+  assert.match(source, /workstationPackagingGroups\(section\.tasks\)/)
+  assert.match(source, /@click="openBatchIssueForTasks\(group\.tasks\)"\>补齐物料/)
+  assert.match(source, /!groupHasShortage\(group\)/)
+  assert.match(source, /@click="openGroupCompletion\(group\)"\>完成并入库/)
+  assert.match(source, /来源仓可补/)
+  assert.match(source, /apiSend\('\/api\/production\/workstation\/material-issue\/preview'/)
+  assert.match(source, /WorkstationPackagingCompletionForm[\s\S]*:task-ids="completionGroup\.ids"/)
+  assert.doesNotMatch(source, /撤回并重新安排/)
+  assert.doesNotMatch(source, /@click="openStockAction\(task, 'issue'\)"/)
+  assert.match(form, /\/api\/production\/workstation\/completion\/preview/)
+  assert.match(form, /\/api\/production\/workstation\/completion\/submit/)
+  assert.match(form, /本次实际完成袋数/)
+  assert.match(form, /来源工单数量分配预览/)
+  assert.match(form, /workstationGroupMaterialSuggestions/)
+  assert.match(form, /@input="touchMaterial\(index\)"/)
 })
 
 test('workstation task sections answer current task, next task, and blocked reason', () => {
@@ -222,7 +322,7 @@ test('workstation view lets wide task rows scroll and single-station filters fil
 test('workstation action buttons reveal their forms inside the clicked task row', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /<div v-for="task in section\.tasks"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\) && task\.automatic_completion"/)
+  assert.match(source, /<div v-for="task in ungroupedTasks\(section\)"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\) && task\.automatic_completion"/)
   assert.match(source, /class="task-action-panel"/)
   assert.match(source, /function isIssuePanelForTask\(task\)/)
   assert.match(source, /function isFinishPanelForTask\(task\)/)
