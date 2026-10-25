@@ -21,13 +21,13 @@ func TestPR654ProductionExecutionBusDeliveryContract(t *testing.T) {
 			"REV-654-PRODUCTION-EXECUTION-BUS",
 		},
 		filepath.Join(repoRoot, "docs", "OP_MANUAL_PRODUCTION.md"): {
-			"按任务执行与完工入库（PR-654）",
-			"开始本任务",
-			"第 N 批/共 N 批",
+			"当前工单与工序操作（PR-729）",
+			"开始、暂停用于计时",
+			"生产记录留在工单详情内",
 		},
 		filepath.Join(repoRoot, "docs", "OP_MANUAL_STOCK.md"): {
-			"工位任务领料、耗料与完工入库（PR-654）",
-			"任务的预留不能被另一个批次重复使用",
+			"当前生产库存动作（PR-729）",
+			"不会跨仓寻找库存，也不会挪用其他工单预留",
 		},
 	}
 	for path, markers := range checks {

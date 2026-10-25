@@ -243,7 +243,6 @@ const OutsourceSettingsView = lazyView(() => import('./views/OutsourceSettingsVi
 const NotificationSettingsView = lazyView(() => import('./views/NotificationSettingsView.vue'))
 const ProducePlanView = lazyView(() => import('./views/ProducePlanView.vue'))
 const ProduceRunningView = lazyView(() => import('./views/ProduceRunningView.vue'))
-const ProductionAcceptanceView = lazyView(() => import('./views/ProductionAcceptanceView.vue'))
 const ProductionCostsView = lazyView(() => import('./views/ProductionCostsView.vue'))
 const ProductionFlowView = lazyView(() => import('./views/ProductionFlowView.vue'))
 const ProductionLogsView = lazyView(() => import('./views/ProductionLogsView.vue'))
@@ -463,7 +462,8 @@ const internalViews = {
   producePlan: ProducePlanView,
   productionFlow: ProductionFlowView,
   workstationView: WorkstationView,
-  productionAcceptance: ProductionAcceptanceView,
+  // Compatibility for stale links; records now live in the work-order detail.
+  productionAcceptance: WorkOrdersView,
   productionSystemCheck: ProductionSystemCheckView,
   productionConfig: ProductionSettingsView,
   produceRunning: ProduceRunningView,

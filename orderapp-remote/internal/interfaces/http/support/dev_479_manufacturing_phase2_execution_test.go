@@ -48,7 +48,8 @@ func TestDev479ManufacturingPhase2ExecutionContracts(t *testing.T) {
 			"当前待办",
 			"工序进度",
 			"查看工单",
-			"更多",
+			"编辑拆分",
+			"取消工单",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue"): {
 			"工序要求",

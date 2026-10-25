@@ -188,6 +188,67 @@ type MaterialBatchLocationResult struct {
 	TotalPages int                        `json:"total_pages"`
 }
 
+type MaterialBatchLocationRepairTarget struct {
+	Warehouse string `json:"warehouse"`
+	QtyG      int64  `json:"qty_g"`
+	QtyUnits  int64  `json:"qty_units"`
+}
+
+type MaterialBatchReservationMove struct {
+	ReservationBatchID int64  `json:"reservation_batch_id"`
+	Warehouse          string `json:"warehouse"`
+}
+
+type MaterialBatchReservationBinding struct {
+	ReservationBatchID int64  `json:"reservation_batch_id"`
+	WorkOrderID        int64  `json:"work_order_id"`
+	WorkOrderNo        string `json:"work_order_no"`
+	MaterialName       string `json:"material_name"`
+	Warehouse          string `json:"warehouse"`
+	ReservedG          int64  `json:"reserved_g"`
+	ReservedUnits      int64  `json:"reserved_units"`
+	ConsumedG          int64  `json:"consumed_g"`
+	ConsumedUnits      int64  `json:"consumed_units"`
+	ReturnedG          int64  `json:"returned_g"`
+	ReturnedUnits      int64  `json:"returned_units"`
+}
+
+type MaterialBatchLocationRepairPreview struct {
+	MaterialBatchID int64                               `json:"material_batch_id"`
+	BatchCode       string                              `json:"batch_code"`
+	MaterialID      int64                               `json:"material_id"`
+	MaterialName    string                              `json:"material_name"`
+	OwnerCustomerID int64                               `json:"owner_customer_id"`
+	RemainingG      int64                               `json:"remaining_g"`
+	RemainingUnits  int64                               `json:"remaining_units"`
+	Version         string                              `json:"version"`
+	Locations       []MaterialBatchLocationRepairTarget `json:"locations"`
+	Reservations    []MaterialBatchReservationBinding   `json:"reservations"`
+}
+
+type MaterialBatchLocationRepairCommand struct {
+	MaterialBatchID  int64                               `json:"material_batch_id"`
+	ExpectedVersion  string                              `json:"expected_version"`
+	RequestID        string                              `json:"request_id"`
+	Reason           string                              `json:"reason"`
+	Locations        []MaterialBatchLocationRepairTarget `json:"locations"`
+	ReservationMoves []MaterialBatchReservationMove      `json:"reservation_moves"`
+	Actor            string                              `json:"-"`
+}
+
+type MaterialBatchLocationRepairResult struct {
+	MaterialBatchID   int64                               `json:"material_batch_id"`
+	BatchCode         string                              `json:"batch_code"`
+	Locations         []MaterialBatchLocationRepairTarget `json:"locations"`
+	MovedReservations int                                 `json:"moved_reservations"`
+	RequestID         string                              `json:"request_id"`
+}
+
+type MaterialBatchLocationRepairRepository interface {
+	PreviewMaterialBatchLocationRepair(context.Context, int64) (MaterialBatchLocationRepairPreview, error)
+	RepairMaterialBatchLocations(context.Context, MaterialBatchLocationRepairCommand) (MaterialBatchLocationRepairResult, error)
+}
+
 type MaterialBalanceQuery struct {
 	Warehouse   string
 	MaterialIDs []int64
@@ -971,6 +1032,50 @@ func (s *Service) ListMaterialBatchLocations(ctx context.Context, query Material
 	query.Warehouse = normalizeWarehouse(query.Warehouse)
 	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset, 100, 500)
 	return s.repo.ListMaterialBatchLocations(ctx, query)
+}
+
+func (s *Service) PreviewMaterialBatchLocationRepair(ctx context.Context, batchID int64) (MaterialBatchLocationRepairPreview, error) {
+	if batchID <= 0 {
+		return MaterialBatchLocationRepairPreview{}, fmt.Errorf("请选择有效物料批次")
+	}
+	repo, ok := s.repo.(MaterialBatchLocationRepairRepository)
+	if !ok {
+		return MaterialBatchLocationRepairPreview{}, fmt.Errorf("批次库位核对暂不可用")
+	}
+	return repo.PreviewMaterialBatchLocationRepair(ctx, batchID)
+}
+
+func (s *Service) RepairMaterialBatchLocations(ctx context.Context, cmd MaterialBatchLocationRepairCommand) (MaterialBatchLocationRepairResult, error) {
+	cmd.RequestID = strings.TrimSpace(cmd.RequestID)
+	cmd.ExpectedVersion = strings.TrimSpace(cmd.ExpectedVersion)
+	cmd.Reason = strings.TrimSpace(cmd.Reason)
+	if cmd.MaterialBatchID <= 0 || cmd.RequestID == "" || cmd.ExpectedVersion == "" || cmd.Reason == "" || strings.TrimSpace(cmd.Actor) == "" || len(cmd.Locations) == 0 {
+		return MaterialBatchLocationRepairResult{}, fmt.Errorf("批次、数据版本、请求标识、修复原因、目标库位和操作人均为必填")
+	}
+	if len(cmd.Reason) > 500 || len(cmd.RequestID) > 128 {
+		return MaterialBatchLocationRepairResult{}, fmt.Errorf("修复原因或请求标识过长")
+	}
+	seenWarehouse := map[string]bool{}
+	for i := range cmd.Locations {
+		cmd.Locations[i].Warehouse = normalizeWarehouse(cmd.Locations[i].Warehouse)
+		if cmd.Locations[i].Warehouse == "" || seenWarehouse[cmd.Locations[i].Warehouse] || cmd.Locations[i].QtyG < 0 || cmd.Locations[i].QtyUnits < 0 {
+			return MaterialBatchLocationRepairResult{}, fmt.Errorf("目标库位重复或数量无效")
+		}
+		seenWarehouse[cmd.Locations[i].Warehouse] = true
+	}
+	seenBinding := map[int64]bool{}
+	for i := range cmd.ReservationMoves {
+		cmd.ReservationMoves[i].Warehouse = normalizeWarehouse(cmd.ReservationMoves[i].Warehouse)
+		if cmd.ReservationMoves[i].ReservationBatchID <= 0 || cmd.ReservationMoves[i].Warehouse == "" || seenBinding[cmd.ReservationMoves[i].ReservationBatchID] {
+			return MaterialBatchLocationRepairResult{}, fmt.Errorf("预留库位调整行重复或无效")
+		}
+		seenBinding[cmd.ReservationMoves[i].ReservationBatchID] = true
+	}
+	repo, ok := s.repo.(MaterialBatchLocationRepairRepository)
+	if !ok {
+		return MaterialBatchLocationRepairResult{}, fmt.Errorf("批次库位核对暂不可用")
+	}
+	return repo.RepairMaterialBatchLocations(ctx, cmd)
 }
 
 func (s *Service) ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error) {

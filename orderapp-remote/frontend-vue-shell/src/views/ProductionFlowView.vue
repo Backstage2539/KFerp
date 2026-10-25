@@ -32,7 +32,6 @@
 import { computed, markRaw, ref, watch } from 'vue'
 import JobCardsView from './JobCardsView.vue'
 import ProducePlanView from './ProducePlanView.vue'
-import ProductionAcceptanceView from './ProductionAcceptanceView.vue'
 import QualityInspectionsView from './QualityInspectionsView.vue'
 import WorkOrdersView from './WorkOrdersView.vue'
 
@@ -45,11 +44,10 @@ const tabs = [
   { key: 'orders', label: '生产工单', component: markRaw(WorkOrdersView) },
   { key: 'cards', label: '工序记录', component: markRaw(JobCardsView) },
   { key: 'quality', label: '生产质检', component: markRaw(QualityInspectionsView) },
-  { key: 'acceptance', label: '生产记录与核对', component: markRaw(ProductionAcceptanceView) },
 ]
 
-const activeTab = ref(props.viewParams.tab === 'acceptance' ? 'acceptance' : tabs[0].key)
-watch(()=>props.viewParams.tab,value=>{if(tabs.some(t=>t.key===value))activeTab.value=value})
+const activeTab = ref(props.viewParams.tab === 'acceptance' ? 'orders' : tabs[0].key)
+watch(()=>props.viewParams.tab,value=>{if(value==='acceptance'){activeTab.value='orders';return}if(tabs.some(t=>t.key===value))activeTab.value=value})
 const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || tabs[0].component)
 function selectTab(key) {
   if (key === activeTab.value) return

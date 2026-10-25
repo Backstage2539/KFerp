@@ -76,6 +76,10 @@
             <div class="quality-summary"><span>质检</span><strong>{{ qualityLabel }}</strong><small>{{ qualityStatus.note || '按工序或批次记录检查结果' }}</small></div>
           </aside>
         </div>
+        <details v-if="showReceiptRecords" open class="receipt-records">
+          <summary>完工入库与历史核对记录</summary>
+          <ProductionRecordsView :embedded="true" :view-params="{ work_order_id: Number(header.work_order_id || workOrderId) }" />
+        </details>
       </template>
     </aside>
   </div>
@@ -86,6 +90,7 @@ import { computed, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { executionHubOutputLabel } from '../lib/production-execution-hub'
 import { customerProcessingProgress, customerProcessingTimeline } from '../lib/customer-processing-trace'
+import ProductionRecordsView from '../views/ProductionRecordsView.vue'
 
 const props = defineProps({ open: { type: Boolean, default: false }, workOrderId: { type: Number, default: 0 }, focus: { type: String, default: '' }, viewParams: { type: Object, default: () => ({}) } })
 const emit = defineEmits(['close', 'updated'])
@@ -94,6 +99,7 @@ const error = ref('')
 const message = ref('')
 const detail = ref({})
 const customerProcessingRequest = ref(null)
+const showReceiptRecords = ref(false)
 
 const hub = computed(() => detail.value.execution_hub || {})
 const header = computed(() => hub.value.header || detail.value.work_order || {})
@@ -143,7 +149,7 @@ function openCustomerRequest() { navigate('customerProcessing', { customer_id: h
 function openRelatedOrder(order) { navigate('customerOrders', { customer_id: header.value.customer_id, q: order.order_no, order_id: order.order_id }) }
 
 function runTodo(todo) {
-  if (todo.key === 'receipt') { navigate('productionAcceptance'); return }
+  if (todo.key === 'receipt') { showReceiptRecords.value = true; return }
   const link = todo.reason?.related_links?.[0]
   if (link?.view) { navigate(link.view, link.params || {}); return }
   enterFirstWorkstation()
@@ -153,6 +159,7 @@ async function load() {
   loading.value = true; error.value = ''
   try {
     detail.value = await apiGet(`/api/produce/work-orders/${props.workOrderId}`)
+    if (props.focus === 'receipt') showReceiptRecords.value = true
     customerProcessingRequest.value = null
     if (Number(header.value.customer_id || 0) > 0 && Number(header.value.processing_request_item_id || 0) > 0) {
       const requestData = await apiGet(`/api/customer-processing/internal/${header.value.customer_id}/processing-requests?limit=100`)

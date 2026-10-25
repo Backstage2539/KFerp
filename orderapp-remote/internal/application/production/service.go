@@ -1812,6 +1812,7 @@ type JobCardActionCommand struct {
 	InputUnit        string                 `json:"input_unit"`
 	OutputUnit       string                 `json:"output_unit"`
 	DifferenceReason string                 `json:"difference_reason"`
+	FinishOperation  *bool                  `json:"finish_operation"`
 	Materials        []OperationMaterialUse `json:"materials"`
 
 	ID                   int64
