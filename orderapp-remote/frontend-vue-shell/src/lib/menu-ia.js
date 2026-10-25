@@ -120,7 +120,7 @@ export const hiddenViewTitles = {
   workOrders: '生产工单',
   jobCards: '工序记录',
   qualityInspections: '生产质检',
-  productionAcceptance: '生产记录与核对',
+  productionAcceptance: '生产工单',
   processTemplates: '工艺路线',
   manufacturingOperations: '工序',
   manufacturingWorkstations: '工位/设备',

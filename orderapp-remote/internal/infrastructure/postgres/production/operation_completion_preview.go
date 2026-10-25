@@ -53,7 +53,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return p, wo, err
 	}
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT completion_draft,GREATEST(0,GREATEST(actual_minutes,CEIL((COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now()))) ELSE 0 END)/60)::int-COALESCE((SELECT SUM(COALESCE(NULLIF(e.payload->>'actual_minutes','')::int,0)) FROM %s.production_operation_events e WHERE e.job_card_id=$1 AND e.kind='complete' AND e.status='posted'),0))) FROM %s.job_cards WHERE id=$1`, r.schema, r.schema), id).Scan(&p.Draft, &p.ActualMinutes); err != nil {
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT completion_draft,GREATEST(0,GREATEST(actual_minutes,CEIL((COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now()))) ELSE 0 END)/60)::int)-COALESCE((SELECT SUM(COALESCE(NULLIF(e.payload->>'actual_minutes','')::int,NULLIF(e.payload->>'ActualMinutes','')::int,0)) FROM %s.production_operation_events e WHERE e.job_card_id=$1 AND e.kind='complete' AND e.status='posted'),0)) FROM %s.job_cards WHERE id=$1`, r.schema, r.schema), id).Scan(&p.Draft, &p.ActualMinutes); err != nil {
 		return p, wo, err
 	}
 	var route processTemplateSnapshot
@@ -148,7 +148,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			return p, wo, err
 		}
 		for _, material := range used {
-			consumedByReservation[material.ReservationID] += material.Qty
+			consumedByReservation[material.ReservationID] += operationLedgerQuantity(material.Qty, material.Unit)
 		}
 	}
 	if err = priorEvents.Err(); err != nil {
@@ -200,6 +200,9 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 				return p, wo, fmt.Errorf("物料%s缺少重量单位", m.Name)
 			}
 			m.Qty = float64(g) * share / factor
+			if totalInput > 0 {
+				m.Qty = float64(taskQuantitySlice(g, beforeInput, input, totalInput)) / factor
+			}
 		} else {
 			if totalInput > 0 {
 				m.Qty = float64(taskQuantitySlice(n, beforeInput, input, totalInput))
@@ -209,7 +212,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		}
 		m.TotalQty = m.Qty
 		m.ConsumedQty = consumedByReservation[m.ReservationID]
-		m.Qty = math.Max(0, m.TotalQty-m.ConsumedQty)
+		m.Qty = operationLedgerQuantity(math.Max(0, m.TotalQty-m.ConsumedQty), m.Unit)
 		p.Materials = append(p.Materials, m)
 	}
 	err = rows.Err()

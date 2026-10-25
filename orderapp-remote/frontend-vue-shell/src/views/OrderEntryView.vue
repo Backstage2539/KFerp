@@ -777,6 +777,7 @@ import {
   toNumber,
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
+  stockBatchQuantity,
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
 import OrderFreightEstimate from '../components/OrderFreightEstimate.vue'
@@ -3122,7 +3123,7 @@ async function save(options = {}) {
       if (editorAlive) emit('saved', data)
     }
     if (props.customerPortal) {form.customer_request_id='';emit('saved',data);return}
-    if (!props.embedded && data.redirect_url) window.location.href = data.redirect_url
+    if (!props.embedded) window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'orders', params: { order_id: Number(data.order_id), highlight_order_id: Number(data.order_id) } } }))
   } catch (err) {
     if (!props.customerPortal && String(err.message || '').includes('bom_configuration_updated')) {
       const refreshed = await refreshStaffOrderCatalog()
@@ -3169,9 +3170,9 @@ async function previewStockBatchesBeforeSave(payload) {
 function stockBatchConfirmText(preview) {
   const lines = (preview.lines || []).map((line) => {
     const batches = (line.allocations || [])
-      .map((batch) => `${batch.created_at === '库存余额' ? '库存余额 ' : ''}${batch.batch_code} 使用${batch.allocated_g}g`)
+      .map((batch) => `${batch.created_at === '库存余额' ? '库存余额 ' : ''}${batch.batch_code} 使用${stockBatchQuantity(line, batch)}`)
       .join('，')
-    return `${line.product_name || '商品'} ${line.spec_g}g x ${line.need_units}件：${batches}`
+    return `${line.product_name || '商品'} ${stockBatchQuantity(line)}：${batches}`
   })
   return [
     '库存充足，可直接使用以下成品批次或库存余额发货。',

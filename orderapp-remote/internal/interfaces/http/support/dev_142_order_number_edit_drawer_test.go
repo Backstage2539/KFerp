@@ -58,7 +58,7 @@ func TestOrderEntryViewSupportsEmbeddedEditWithoutRedirect(t *testing.T) {
 		"defineEmits",
 		"emit('saved'",
 		"props.editId",
-		"!props.embedded && data.redirect_url",
+		"if (!props.embedded) window.dispatchEvent",
 		"watch(",
 		"emit('close')",
 	} {
