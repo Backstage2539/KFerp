@@ -47,8 +47,8 @@ func TestProductionMenuClickMatrixViewsExposeActions(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"): {
 			"/api/produce/work-orders",
 			"status.value",
-			"printWorkOrder",
-			"window.print",
+			"编辑拆分",
+			"取消工单",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue"): {
 			"/api/produce/job-cards",
@@ -78,6 +78,11 @@ func TestProductionMenuClickMatrixViewsExposeActions(t *testing.T) {
 		for _, want := range wants {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing production click matrix marker %q", rel, want)
+			}
+		}
+		if rel == filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue") {
+			if strings.Contains(src, "printWorkOrder") || strings.Contains(src, "window.print") {
+				t.Fatal("WorkOrdersView.vue must not expose work-order printing")
 			}
 		}
 	}

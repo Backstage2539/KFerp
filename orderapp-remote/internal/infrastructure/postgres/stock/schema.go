@@ -17,6 +17,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureMaterialBatchTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureMaterialLocationRepairTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureWarehouseTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -39,6 +42,19 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		return err
 	}
 	return EnsureVirtualWarehouseReferenceGuards(ctx, pool, schema)
+}
+
+func ensureMaterialLocationRepairTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.stock_material_location_repairs (
+	request_id TEXT PRIMARY KEY,
+	request_hash TEXT NOT NULL,
+	result JSONB,
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`, schema))
+	return err
 }
 
 func ensureUnifiedStockDocumentTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -392,9 +408,14 @@ CREATE INDEX IF NOT EXISTS material_batch_locations_lookup_idx
 INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,qty_units,updated_at)
 SELECT id,batch_code,material_id,'raw_materials',remaining_g,remaining_units,now()
 FROM %s.material_batches
-WHERE remaining_g > 0 OR remaining_units > 0
+WHERE (remaining_g > 0 OR remaining_units > 0)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM %s.material_batch_locations existing
+      WHERE existing.material_batch_id = material_batches.id
+  )
 ON CONFLICT (material_batch_id, warehouse) DO NOTHING
-`, schema, schema, schema, schema, schema)); err != nil {
+`, schema, schema, schema, schema, schema, schema)); err != nil {
 		return err
 	}
 	return nil

@@ -118,7 +118,6 @@ const todoItems = computed(() => {
     if (reason.code === 'workstation_unassigned') continue
     rows.push({ key: reason.code, label: reason.label, detail: `待协同岗位：${reason.next_handler || '现场主管'}`, actionLabel: todoActionLabel(reason.code), tone: reason.severity === 'blocked' ? 'warning' : 'neutral', reason })
   }
-  if (receiptStatus.value === '待入库' || receiptStatus.value === '部分入库') rows.push({ key: 'receipt', label: receiptStatus.value, detail: '核对已报工产出、质检状态和本次入库数量。', actionLabel: '去完工入库', tone: 'ready' })
   return rows
 })
 const firstTodoLabel = computed(() => todoItems.value[0]?.label || '可进入工位继续执行')
@@ -143,7 +142,6 @@ function openCustomerRequest() { navigate('customerProcessing', { customer_id: h
 function openRelatedOrder(order) { navigate('customerOrders', { customer_id: header.value.customer_id, q: order.order_no, order_id: order.order_id }) }
 
 function runTodo(todo) {
-  if (todo.key === 'receipt') { navigate('productionAcceptance'); return }
   const link = todo.reason?.related_links?.[0]
   if (link?.view) { navigate(link.view, link.params || {}); return }
   enterFirstWorkstation()

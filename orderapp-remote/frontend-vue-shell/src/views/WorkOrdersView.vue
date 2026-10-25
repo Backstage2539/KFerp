@@ -9,23 +9,25 @@
     <section class="panel no-print">
       <div class="panel-head">
         <h2>生产工单</h2>
-        <button class="secondary" @click="load" :disabled="loading">刷新</button>
+        <button class="secondary" @click="load" :disabled="loading || receiptLocked">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
+      <p v-if="receiptMessage" class="receipt-success" role="status">{{ receiptMessage }}</p>
+      <div v-if="warehouseLoadError" class="error" role="alert">仓库名称暂不可用：{{ warehouseLoadError }}。工单仍可查看。</div>
       <p class="muted">人员安排跟随当天工位排班；已排班后进入工位处理，无需逐任务分配。</p>
       <div class="filters">
         <label>
           <span>搜索</span>
-          <input v-model.trim="query" placeholder="产品或工单号" />
+          <input :disabled="receiptLocked" v-model.trim="query" placeholder="产品或工单号" />
         </label>
         <label>
           <span>状态</span>
-          <select v-model="status">
+          <select :disabled="receiptLocked" v-model="status">
             <option value="active">未结束</option>
             <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
-        <button class="primary" @click="load">查询</button>
+        <button class="primary" :disabled="receiptLocked" @click="load">查询</button>
       </div>
     </section>
 
@@ -42,27 +44,36 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in visibleRows" :key="row.id">
+          <template v-for="row in visibleRows" :key="row.id">
+          <tr>
             <td class="product-cell" data-label="产品 / 工单">
               <strong>{{ row.output_name || row.product_name || '-' }}</strong>
               <button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'summary')">{{ row.work_order_no }}</button>
               <small>{{ formatWorkOrderTypedOutput(row) }}</small>
+              <small v-if="Number(row.spec_g || 0) > 0">冻结规格：{{ Number(row.spec_g).toLocaleString('zh-CN') }}g/袋</small>
+              <small>{{ row.order_nos ? `来源销售订单：${row.order_nos}` : `生产计划 #${row.production_plan_id || '-'}` }}</small>
             </td>
-            <td data-label="目标数量"><strong>{{ formatWorkOrderPlannedOutput(row) }}</strong><small>{{ row.target_warehouse ? `入库至 ${row.target_warehouse}` : '' }}</small></td>
+            <td data-label="目标数量"><strong>{{ formatWorkOrderPlannedOutput(row) }}</strong><small>目标仓库：{{ warehouseLabel(row.target_warehouse) }}</small></td>
             <td data-label="当前状态"><span class="status" :class="statusBadgeClass(row.status)">{{ workOrderStatusLabel(row.status) }}</span><small>{{ row.batch_id || '尚未建立运行批次' }}</small></td>
             <td data-label="工序进度"><strong>{{ operationProgressText(row) }}</strong><small>{{ operationCurrentText(row) }}</small></td>
             <td class="todo-cell" data-label="当前待办"><strong>{{ workOrderTodo(row).title }}</strong><small>{{ workOrderTodo(row).detail }}</small></td>
             <td class="row-actions" data-label="快捷操作">
-              <button class="primary compact" type="button" :disabled="loading" @click="openPrimaryAction(row)">{{ primaryActionLabel(row) }}</button>
+              <button class="primary compact" type="button" :disabled="loading || receiptLocked" @click="openPrimaryAction(row)">{{ primaryActionLabel(row) }}</button>
+              <button
+                v-for="source in workOrderLinkedReplenishmentSources(row)"
+                :key="`replenish-${row.id}-${source.source_work_order_id}-${source.material_id}`"
+                class="secondary compact"
+                type="button"
+                :disabled="loading || linkedReplenishment.loading"
+                @click="openLinkedReplenishment(row, source)"
+              >关联补产</button>
               <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">查看工单</button>
-              <details class="more-menu">
-                <summary>更多</summary>
-                <button v-if="canEditWorkOrderSplits(row)" @click="openWorkOrderSplitDrawer(row)">编辑拆分</button>
-                <button @click="printWorkOrder(row)">打印</button>
-                <button v-if="canCancelWorkOrder(row)" class="danger-text" type="button" @click="cancelWorkOrder(row)">取消工单</button>
-              </details>
+              <button v-if="canEditWorkOrderSplits(row)" class="secondary compact" type="button" @click="openWorkOrderSplitDrawer(row)">编辑拆分</button>
+              <button v-if="canCancelWorkOrder(row)" class="secondary compact danger-text" type="button" @click="cancelWorkOrder(row)">取消工单</button>
             </td>
           </tr>
+          <tr v-if="receiptWorkOrderID === Number(row.id)"><td colspan="6"><WorkOrderReceiptForm :work-order-id="Number(row.id)" :work-order-no="row.work_order_no" @close="receiptWorkOrderID = 0" @locked="receiptLocked = $event" @posted="onReceiptPosted(row, $event)" /></td></tr>
+          </template>
           <tr v-if="!visibleRows.length"><td colspan="6" class="muted">暂无符合条件的生产工单</td></tr>
         </tbody>
       </table>
@@ -137,6 +148,50 @@
       </aside>
     </div>
 
+    <div v-if="linkedReplenishment.open" class="drawer-backdrop no-print" @click.self="closeLinkedReplenishment">
+      <aside class="work-order-split-drawer linked-replenishment-drawer" aria-label="关联补产核对">
+        <div class="drawer-head">
+          <div>
+            <div class="muted text-left">关联补产 · {{ linkedReplenishment.source?.source_work_order_no || '-' }}</div>
+            <h2>{{ linkedReplenishment.source?.material_name || '上游物料' }}</h2>
+            <p>沿用上游工单冻结配方和工艺路线，按当前库存、其他工单占用和在途补产重算缺口。</p>
+          </div>
+          <button class="secondary compact" type="button" @click="closeLinkedReplenishment">关闭</button>
+        </div>
+        <div v-if="linkedReplenishment.error" class="error" role="alert">
+          {{ linkedReplenishment.error }}
+          <button v-if="linkedReplenishment.error.includes('已变化') || linkedReplenishment.error.includes('已过期')" class="secondary compact" type="button" @click="refreshLinkedReplenishmentPreview" :disabled="linkedReplenishment.loading || linkedReplenishment.submitting">刷新缺口</button>
+        </div>
+        <div v-if="linkedReplenishment.loading" class="muted drawer-loading">正在核对可用库存和包装工单缺口…</div>
+        <template v-else-if="linkedReplenishment.preview">
+          <div class="linked-replenishment-summary">
+            <div><span>原上游工单</span><strong>{{ linkedReplenishment.preview.source_work_order_no }}</strong></div>
+            <div><span>来源仓</span><strong>{{ warehouseLabel(linkedReplenishment.preview.warehouse) }}</strong></div>
+            <div><span>当前可用</span><strong>{{ linkedReplenishmentQuantity(linkedReplenishment.preview.available_g, linkedReplenishment.preview.available_units, linkedReplenishment.preview.unit) }}</strong></div>
+            <div><span>建议补产</span><strong>{{ linkedReplenishmentQuantity(linkedReplenishment.preview.replenish_g, linkedReplenishment.preview.replenish_units, linkedReplenishment.preview.unit) }}</strong></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>包装工单</th><th>本次可由现有供给满足</th><th>补产缺口</th></tr></thead>
+              <tbody>
+                <tr v-for="consumer in linkedReplenishment.preview.consumers || []" :key="consumer.work_order_id">
+                  <td>{{ consumer.work_order_no }}</td>
+                  <td>{{ linkedReplenishmentQuantity(consumer.required_g - consumer.replenish_g, consumer.required_units - consumer.replenish_units, linkedReplenishment.preview.unit) }}</td>
+                  <td>{{ linkedReplenishmentQuantity(consumer.replenish_g, consumer.replenish_units, linkedReplenishment.preview.unit) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="linkedReplenishment.preview.output_qty > 0" class="info-banner">将创建 {{ Number(linkedReplenishment.preview.output_qty).toLocaleString('zh-CN', { maximumFractionDigits: 3 }) }} {{ linkedReplenishment.preview.unit }} 的备料生产草稿；提交计划后，产出按包装工单缺口分配。</div>
+          <div v-else class="muted section-hint">当前可用库存及已有供给已覆盖所选工单，无需补产。</div>
+        </template>
+        <div class="drawer-actions">
+          <button class="primary" type="button" @click="createLinkedReplenishment" :disabled="linkedReplenishment.loading || linkedReplenishment.submitting || !linkedReplenishment.preview || !(linkedReplenishment.preview.output_qty > 0)">{{ linkedReplenishment.submitting ? '正在创建…' : '创建关联补产草稿' }}</button>
+          <button class="secondary" type="button" @click="closeLinkedReplenishment" :disabled="linkedReplenishment.submitting">返回</button>
+        </div>
+      </aside>
+    </div>
+
     <ProductionExecutionHubDrawer
       :open="executionHub.open"
       :work-order-id="executionHub.workOrderId"
@@ -145,48 +200,15 @@
       @close="executionHub.open = false"
       @updated="load" />
 
-    <section v-if="printRow" class="print-sheet">
-      <header class="print-head">
-        <div>
-          <h1>生产工单</h1>
-          <p>{{ printRow.work_order_no }}</p>
-        </div>
-        <div class="print-status">{{ printRow.status }}</div>
-      </header>
-
-      <div class="print-grid">
-        <div><span>生产批次</span><strong>{{ printRow.batch_id }}</strong></div>
-        <div><span>商品</span><strong>{{ printRow.product_name }}</strong></div>
-        <div><span>规格</span><strong>{{ printRow.spec_g }}g</strong></div>
-        <div><span>订单</span><strong>{{ printRow.order_nos || '-' }}</strong></div>
-        <div><span>计划投料</span><strong>{{ formatG(printRow.planned_g) }}</strong></div>
-        <div><span>BOM/工艺路线</span><strong>{{ bomProcessSummary(printRow) }}</strong></div>
-        <div><span>WIP剩余占用</span><strong>{{ formatG(printRow.remaining_reserved_g) }}</strong></div>
-        <div><span>预计产出</span><strong>{{ formatWorkOrderPlannedOutput(printRow) }}</strong></div>
-        <div><span>实际损耗</span><strong>{{ formatQty(operationActualSummary(printRow).actual_loss_qty) }}</strong></div>
-        <div><span>创建时间</span><strong>{{ printRow.created_at }}</strong></div>
-        <div><span>完成时间</span><strong>{{ printRow.completed_at || '-' }}</strong></div>
-      </div>
-
-      <h2>工艺路线与参数</h2>
-      <table class="print-table">
-        <tbody>
-          <tr><th>工艺参数</th><td>{{ productionParamsText(printRow) }}</td></tr>
-          <tr><th>商品生产配置快照</th><td>{{ productConfigSnapshotText(printRow) }}</td></tr>
-          <tr><th>工序摘要</th><td>{{ operationSummaryText(printRow) }}</td></tr>
-          <tr><th>工序计划</th><td>{{ operationPlanText(printRow) }}</td></tr>
-          <tr><th>原料参考</th><td>{{ printRow.material_summary || '-' }}</td></tr>
-        </tbody>
-      </table>
-    </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
+import WorkOrderReceiptForm from '../components/WorkOrderReceiptForm.vue'
 import { formatPercent } from '../lib/manufacturing-loss'
 import { workOrderStatusLabel } from '../lib/manufacturing-execution'
 import { loadProductionPlanWorkOrders } from '../lib/production-plan-work-orders'
@@ -209,11 +231,14 @@ import {
   canEditWorkOrderSplits,
   formatWorkOrderTypedOutput,
   formatWorkOrderPlannedOutput,
+  workOrderHasLinkedReplenishmentSource,
+  workOrderLinkedReplenishmentSources,
   workOrderHasUpstreamBlocker,
   workOrderOperationSplitsEndpoint,
   workOrderCancelEndpoint,
   workOrderStatusOptions,
   workOrderUpstreamBlockerLabel,
+  workOrderUpstreamSupplyText,
 } from '../lib/work-orders'
 
 const props = defineProps({
@@ -223,6 +248,8 @@ const props = defineProps({
 
 const rows = ref([])
 const sourcePlanNo = ref('')
+const warehouseNames = ref({})
+const warehouseLoadError = ref('')
 function returnToSource() {
   const source = props.viewParams?.return_navigation
   if (source?.key) window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: source.key, params: source.params || {} } }))
@@ -235,13 +262,16 @@ const error = ref('')
 const todayRoster = ref(null)
 const rosterError = ref('')
 let loadRequestID = 0
-const printRow = ref(null)
 const workOrderSplitRow = ref(null)
 const workOrderSplitRows = ref([])
 const workOrderSplitSaving = ref(false)
 const workOrderSplitError = ref('')
 const statusOptions = workOrderStatusOptions()
+const receiptWorkOrderID = ref(0)
+const receiptLocked = ref(false)
+const receiptMessage = ref('')
 const executionHub = ref({ open: false, workOrderId: 0, focus: '' })
+const linkedReplenishment = ref({ open: false, source: null, consumerWorkOrderIDs: [], preview: null, loading: false, submitting: false, error: '', requestID: '' })
 const visibleRows = computed(() => {
   const q = query.value.toLowerCase()
   return rows.value.filter((row) => {
@@ -395,17 +425,20 @@ function operationProgressText(row) {
 function operationCurrentText(row) {
   const items = operationSummaryRows(row)
   const current = items.find((item) => !['completed', 'cancelled'].includes(String(item.status || '').trim()))
-  if (!current) return items.length ? '全部工序已报工' : '等待生成工序任务'
-  return `${current.operation || '工序'} · ${current.workstation || current.work_center || '待分配工位'}`
+  if (!current) return items.length ? '全部工序已完成' : '等待生成工序任务'
+  const state = ({pending:'未开工',ready:'未开工',running:'进行中',paused:'已暂停'})[String(current.status || '').trim()] || '待执行'
+  const output = Number(current.actual_output_qty || 0)
+  return `${current.operation || '工序'} · ${state}${output > 0 ? ` · 已完成 ${formatWorkOrderQuantity(output, current.output_unit)}` : ''} · ${current.workstation || current.work_center || '待分配工位'}`
 }
 
 function workOrderTodo(row) {
-  if (['completed', 'cancelled'].includes(row.status)) return { title: workOrderStatusLabel(row.status), detail: '工单已结束', action: 'summary' }
+  if (row.status === 'completed') return { title: '查看记录', detail: '工单已完成，查看工序、耗料和入库记录', action: 'records' }
+  if (row.status === 'cancelled') return { title: '已取消', detail: '工单已结束', action: 'summary' }
   if (workOrderHasUpstreamBlocker(row)) return { title: '等待上游供给', detail: workOrderUpstreamBlockerLabel(row) }
   const items = operationSummaryRows(row)
   if (!items.length) return { title: '等待生成工序任务', detail: '请查看工单的工序配置', action: 'summary' }
   const incomplete = items.filter((item) => !['completed', 'cancelled'].includes(String(item.status || '').trim()))
-  if (!incomplete.length) return { title: '查看完成记录', detail: '历史数据可在生产记录中核对', action: 'receipt' }
+  if (!incomplete.length) return { title: '确认数量并入库', detail: '在本行填写实际数量并直接入库', action: 'receipt' }
   const assignments = todayRoster.value?.assignments || []
   const assignmentFor = item => assignments.find(assignment => Number(item.workstation_id || 0) > 0
     ? Number(assignment.workstation_id) === Number(item.workstation_id)
@@ -413,11 +446,8 @@ function workOrderTodo(row) {
   if (incomplete.some(item => ['running', 'paused'].includes(item.status) && (assignmentFor(item)?.handover_task_ids || []).some(id => Number(id) === Number(item.id || item.job_card_id)))) {
     return { title: '待工位交接', detail: '当天负责人已变化，请到工位确认接手', action: 'workstation' }
   }
-  if (incomplete.some(item => item.status === 'running')) return { title: '生产执行中', detail: operationCurrentText(row), action: 'workstation' }
-  if (incomplete.some(item => item.status === 'paused')) return { title: '工序已暂停', detail: operationCurrentText(row), action: 'workstation' }
-  if (loading.value) return { title: '正在核对排班', detail: '读取当天工位负责人', action: 'summary' }
-  if (rosterError.value || !todayRoster.value) return { title: '排班状态待核对', detail: rosterError.value || '当天排班尚未读取，请刷新重试', action: 'retry' }
-  if (!Number(todayRoster.value.roster_version || 0)) return { title: '本周排班尚未保存', detail: '先保存生产排班，任务再跟随当天工位负责人', action: 'roster' }
+  if (incomplete.some(item => item.status === 'running')) return { title: `继续${incomplete.find(item => item.status === 'running')?.operation || '当前工序'}`, detail: operationCurrentText(row), action: 'workstation' }
+  if (incomplete.some(item => item.status === 'paused')) return { title: `继续${incomplete.find(item => item.status === 'paused')?.operation || '已暂停工序'}`, detail: operationCurrentText(row), action: 'workstation' }
   const missingStations = new Map()
   for (const item of incomplete) {
     const assignment = assignmentFor(item)
@@ -427,19 +457,45 @@ function workOrderTodo(row) {
       missingStations.set(key, `${name}：${assignment?.reason || (assignment?.override_invalid ? '临时调整已失效' : '当天无人值班')}`)
     }
   }
-  if (missingStations.size) return { title: `待安排 ${missingStations.size} 个工位`, detail: [...missingStations.values()].join('；'), action: 'roster' }
   const owners = [...new Set(incomplete.map(item => assignmentFor(item)?.employee_name).filter(Boolean))]
-  return { title: '等待工位处理', detail: `今日负责人：${owners.join('、')} · ${operationCurrentText(row)}`, action: 'workstation' }
+  const first = incomplete[0]
+  const title = ['pending','ready','released'].includes(String(first.status || '')) ? `去${first.operation || '对应工序'}` : '继续对应工序'
+  const supply = workOrderUpstreamSupplyText(row)
+  const rosterNotice = loading.value
+    ? '正在核对当天工位排班'
+    : rosterError.value
+      ? `排班暂不可用：${rosterError.value}`
+      : !todayRoster.value
+        ? '当天排班尚未读取'
+        : !Number(todayRoster.value.roster_version || 0)
+          ? '本周排班尚未保存，进入工序后仍需先安排负责人'
+          : missingStations.size
+            ? `待安排工位：${[...missingStations.values()].join('；')}`
+            : ''
+  return { title, detail: [rosterNotice, owners.length ? `今日负责人：${owners.join('、')}` : '', operationCurrentText(row), supply].filter(Boolean).join(' · '), action: 'workstation' }
 }
 
 function primaryActionLabel(row) {
-  return { receipt: '生产记录与核对', workstation: '进入工位', roster: '查看排班', retry: '重试' }[workOrderTodo(row).action] || '查看状态'
+  return { receipt: '确认数量并入库', workstation: workOrderTodo(row).title, records: '查看记录' }[workOrderTodo(row).action] || '查看工单'
 }
 
 function openPrimaryAction(row) {
-  const action = workOrderTodo(row).action
+  const todo = workOrderTodo(row)
+  const action = todo.action
   if (action === 'retry') return load()
-  const key = { workstation: 'workstationView', roster: 'productionSchedule', receipt: 'productionAcceptance' }[action]
+  if (action === 'receipt') { receiptWorkOrderID.value = Number(row.id); receiptMessage.value = ''; return }
+  if (action === 'records') return openExecutionHub(row, 'summary')
+  if (action === 'workstation') {
+    const card = operationSummaryRows(row).find(item => !['completed','cancelled'].includes(String(item.status || '').trim()))
+    if (!card) return openExecutionHub(row, 'summary')
+    window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: {
+      key: 'workstationView',
+      params: { work_order_id: row.id, job_card_id: Number(card.id || card.job_card_id || 0), workstation_id: Number(card.workstation_id || 0), station_id: Number(card.workstation_id || 0), focus: 'workstation_task' },
+      returnNavigation: { key: 'workOrders', label: '返回生产工单', params: { ...props.viewParams, work_order_id: row.id } },
+    } }))
+    return
+  }
+  const key = { roster: 'productionSchedule' }[action]
   if (key) {
     window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: {
       key, params: { work_order_id: row.id },
@@ -448,6 +504,110 @@ function openPrimaryAction(row) {
     return
   }
   openExecutionHub(row, 'summary')
+}
+
+async function onReceiptPosted(row, result) {
+  const completion = result.completion || {}
+  receiptMessage.value = `${row.work_order_no}：${completion.message || '入库成功'} · ${completion.output_qty ?? ''} ${completion.output_unit || ''} · 单据 ${(completion.stock_entry_ids || []).join('、')}`
+  receiptWorkOrderID.value = 0
+  receiptLocked.value = false
+  await load()
+}
+
+function linkedReplenishmentQuantity(grams, units, unit) {
+  if (Number(grams || 0) > 0) {
+    const value = Number(grams)
+    return value >= 1000 ? `${(value / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 3 })} kg` : `${value.toLocaleString('zh-CN')} g`
+  }
+  return `${Number(units || 0).toLocaleString('zh-CN')} ${unit || '件'}`.trim()
+}
+
+function linkedReplenishmentConsumerRows(sourceID) {
+  return visibleRows.value.filter((candidate) => workOrderHasLinkedReplenishmentSource(candidate, sourceID))
+}
+
+async function openLinkedReplenishment(row, source) {
+  const consumers = linkedReplenishmentConsumerRows(source.source_work_order_id)
+  const consumerWorkOrderIDs = [...new Set(consumers.map((candidate) => Number(candidate.id || 0)).filter((id) => id > 0))]
+  linkedReplenishment.value = {
+    open: true,
+    source,
+    consumerWorkOrderIDs,
+    preview: null,
+    loading: true,
+    submitting: false,
+    error: '',
+    requestID: '',
+  }
+  if (!consumerWorkOrderIDs.includes(Number(row.id))) consumerWorkOrderIDs.push(Number(row.id))
+  try {
+    linkedReplenishment.value.preview = await apiSend('/api/production/work-orders/replenishment/preview', {
+      body: { source_work_order_id: source.source_work_order_id, consumer_work_order_ids: consumerWorkOrderIDs },
+    })
+  } catch (err) {
+    linkedReplenishment.value.error = err.message || '关联补产预览失败，请刷新工单后重试'
+  } finally {
+    linkedReplenishment.value.loading = false
+  }
+}
+
+function closeLinkedReplenishment() {
+  if (linkedReplenishment.value.submitting) return
+  linkedReplenishment.value.open = false
+}
+
+async function refreshLinkedReplenishmentPreview() {
+  const state = linkedReplenishment.value
+  if (!state.open || state.loading || state.submitting || !state.source) return
+  state.loading = true
+  state.error = ''
+  state.preview = null
+  state.requestID = ''
+  try {
+    state.preview = await apiSend('/api/production/work-orders/replenishment/preview', {
+      body: { source_work_order_id: state.source.source_work_order_id, consumer_work_order_ids: state.consumerWorkOrderIDs },
+    })
+  } catch (err) {
+    state.error = err.message || '刷新缺口失败，请稍后重试'
+  } finally {
+    state.loading = false
+  }
+}
+
+async function createLinkedReplenishment() {
+  const state = linkedReplenishment.value
+  if (!state.preview || !(Number(state.preview.output_qty) > 0) || state.submitting) return
+  state.submitting = true
+  state.error = ''
+  if (!state.requestID) state.requestID = globalThis.crypto?.randomUUID?.() || `linked-replenishment-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  try {
+    const plan = await apiSend('/api/production/work-orders/replenishment', {
+      body: {
+        source_work_order_id: state.source.source_work_order_id,
+        consumer_work_order_ids: state.consumerWorkOrderIDs,
+        expected_version: state.preview.version,
+        request_id: state.requestID,
+      },
+    })
+    state.open = false
+    await load()
+    window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: {
+      key: 'producePlan',
+      params: { production_plan_id: Number(plan.id || 0) },
+      returnNavigation: { key: 'workOrders', label: '返回生产工单', params: { ...props.viewParams } },
+    } }))
+  } catch (err) {
+    state.error = err.message || '关联补产草稿创建失败，请刷新预览后重试'
+  } finally {
+    state.submitting = false
+  }
+}
+
+function formatWorkOrderQuantity(qty, unit) { return `${Number(qty || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 })} ${unit || ''}`.trim() }
+function warehouseLabel(code) {
+  const key = String(code || '').trim()
+  if (!key) return '未设置'
+  return warehouseNames.value[key] || (key.startsWith('virtual_') ? '仓库名称待加载' : key)
 }
 
 function operationSummaryText(row) {
@@ -498,7 +658,7 @@ async function load() {
   try {
     const url = new URL('/api/produce/work-orders', window.location.origin)
     if (status.value && status.value !== 'active') url.searchParams.set('status', status.value)
-    const [data, capacityData, rosterResult] = await Promise.all([
+    const [data, capacityData, rosterResult, warehouseResult] = await Promise.all([
       Number(props.viewParams?.production_plan_id || 0) > 0
         ? loadProductionPlanWorkOrders(apiGet, props.viewParams.production_plan_id, status.value === 'active' ? '' : status.value)
         : apiGet(url),
@@ -506,9 +666,14 @@ async function load() {
       apiGet('/api/production-roster/today?scope=all')
         .then(data => ({ data, error: '' }))
         .catch(err => ({ data: null, error: err.message || '当天排班读取失败，请刷新重试' })),
+      apiGet('/api/stock/warehouses')
+        .then(data => ({ rows: data.rows || data || [], error: '' }))
+        .catch(err => ({ rows: [], error: err.message || '仓库加载失败' })),
     ])
     if (requestID !== loadRequestID) return
     rows.value = data.rows || []
+    warehouseNames.value = Object.fromEntries(warehouseResult.rows.filter(w=>w.active!==false).map(w=>[String(w.code),String(w.name || w.code)]))
+    warehouseLoadError.value = warehouseResult.error
     sourcePlanNo.value = data.plan_no || ''
     workstationCapacities.value = capacityData.rows || []
     todayRoster.value = rosterResult.data
@@ -726,42 +891,24 @@ async function saveWorkOrderOperationSplits() {
   }
 }
 
-function clearPrintMode() {
-  document.body.classList.remove('work-order-printing')
-}
-
-function printWorkOrder(row) {
-  printRow.value = { ...row }
-  document.body.classList.add('work-order-printing')
-  window.setTimeout(() => window.print(), 50)
-}
 
 onMounted(() => {
   load()
   if (Number(props.viewParams?.work_order_id || 0) > 0) {
     openExecutionHub({ id: Number(props.viewParams.work_order_id) }, props.viewParams?.focus || 'summary')
   }
-  window.addEventListener('afterprint', clearPrintMode)
 })
 
-onBeforeUnmount(() => {
-  window.removeEventListener('afterprint', clearPrintMode)
-  clearPrintMode()
-})
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.danger-text{color:#b91c1c}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:700}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.text-left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:40;display:flex;justify-content:flex-end}.work-order-split-drawer{width:min(900px,92vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 28px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #e5e7eb;padding-bottom:12px}.drawer-head p{margin:6px 0 0;color:#666}.split-operation-block{border-top:1px solid #e5e7eb;padding-top:14px;display:grid;gap:10px}.split-operation-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.split-operation-head span{color:#666}.split-row{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(130px,.6fr) repeat(3,minmax(92px,.4fr)) auto;gap:10px;align-items:end;border:1px solid #eef2f7;border-radius:8px;padding:10px}.split-metric{border:1px solid #e5e7eb;border-radius:6px;padding:7px 9px;background:#fbfbfb}.split-metric span{display:block;font-size:12px;color:#666}.split-metric strong{font-size:14px}.split-batch-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.split-batch-card{border:1px solid #dbeafe;border-radius:6px;background:#eff6ff;padding:8px;display:grid;gap:3px}.split-batch-card small,.split-batch-card span{color:#374151}.split-batch-card.underfilled{border-color:#fed7aa;background:#fff7ed}.split-batch-card em{color:#c2410c;font-style:normal;font-size:12px}.section-hint{padding:8px 0}.drawer-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
+.receipt-success{padding:12px;color:#21824b;background:#edf7f0;border-radius:8px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.danger-text{color:#b91c1c}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:700}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.text-left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:40;display:flex;justify-content:flex-end}.work-order-split-drawer{width:min(900px,92vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 28px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #e5e7eb;padding-bottom:12px}.drawer-head p{margin:6px 0 0;color:#666}.split-operation-block{border-top:1px solid #e5e7eb;padding-top:14px;display:grid;gap:10px}.split-operation-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.split-operation-head span{color:#666}.split-row{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(130px,.6fr) repeat(3,minmax(92px,.4fr)) auto;gap:10px;align-items:end;border:1px solid #eef2f7;border-radius:8px;padding:10px}.split-metric{border:1px solid #e5e7eb;border-radius:6px;padding:7px 9px;background:#fbfbfb}.split-metric span{display:block;font-size:12px;color:#666}.split-metric strong{font-size:14px}.split-batch-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.split-batch-card{border:1px solid #dbeafe;border-radius:6px;background:#eff6ff;padding:8px;display:grid;gap:3px}.split-batch-card small,.split-batch-card span{color:#374151}.split-batch-card.underfilled{border-color:#fed7aa;background:#fff7ed}.split-batch-card em{color:#c2410c;font-style:normal;font-size:12px}.section-hint{padding:8px 0}.drawer-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
 
-.page{background:#f7f8fafa}.panel{border-radius:10px;padding:14px}.filters{grid-template-columns:minmax(220px,1fr) 160px 90px}.work-order-list-card table{min-width:900px}.work-order-list-card th,.work-order-list-card td{padding:13px 10px;border-color:#edf0f2}.work-order-list-card th{background:#f6f8f9;color:#56616b}.product-cell{display:grid;gap:4px}.todo-cell strong{color:#a85a08}.primary{border-color:#2f8f5b;background:#2f8f5b}.link-button{color:#24704a;text-decoration:none}.row-actions{align-items:flex-start}.more-menu summary{list-style:none;border:1px solid #b9c0c7;border-radius:7px;padding:6px 10px;cursor:pointer}.more-menu button{display:block;width:100%;margin-top:4px;background:#fff;border:1px solid #e0e4e7;white-space:nowrap}
+.page{background:#f7f8fafa}.panel{border-radius:10px;padding:14px}.filters{grid-template-columns:minmax(220px,1fr) 160px 90px}.work-order-list-card table{min-width:900px}.work-order-list-card th,.work-order-list-card td{padding:13px 10px;border-color:#edf0f2}.work-order-list-card th{background:#f6f8f9;color:#56616b}.product-cell{display:grid;gap:4px}.todo-cell strong{color:#a85a08}.primary{border-color:#2f8f5b;background:#2f8f5b}.link-button{color:#24704a;text-decoration:none}.row-actions{align-items:flex-start}
 
 @media (max-width:900px){.filters{grid-template-columns:1fr}.work-order-list-card{overflow:visible}.work-order-list-card table,.work-order-list-card tbody,.work-order-list-card td{display:block;min-width:0}.work-order-list-card thead{display:none}.work-order-list-card tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px}.work-order-list-card td{border:0;padding:5px 0}.work-order-list-card td::before{content:attr(data-label);display:block;margin-bottom:4px;color:#7a8580;font-size:11px;font-weight:700}.work-order-list-card .product-cell,.work-order-list-card .row-actions{grid-column:1/-1}.work-order-list-card .product-cell::before{display:none}.work-order-list-card .row-actions{display:flex;flex-wrap:wrap;margin-top:2px}.work-order-list-card .row-actions::before{flex-basis:100%;margin-bottom:0}}
 @media (max-width:600px){.work-order-list-card tr{grid-template-columns:1fr}.work-order-list-card .product-cell,.work-order-list-card .row-actions{grid-column:auto}}
 
-@media print{
-  :global(body.work-order-printing .sidebar),:global(body.work-order-printing .top){display:none!important}
-  :global(body.work-order-printing .content){width:100%!important;margin:0!important;padding:0!important}
-  .page{display:block;padding:0}.no-print{display:none!important}.print-sheet{display:block;color:#111;padding:18mm;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}.print-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:16px}.print-head h1{font-size:24px;margin:0 0 6px}.print-head p{margin:0;color:#444}.print-status{border:1px solid #111;border-radius:4px;padding:6px 12px}.print-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}.print-grid div{border:1px solid #ddd;border-radius:6px;padding:8px}.print-grid span{display:block;color:#555;font-size:11px;margin-bottom:4px}.print-grid strong{font-size:13px}.print-sheet h2{font-size:16px;margin:18px 0 8px}.print-table{min-width:0;width:100%;border:1px solid #ddd}.print-table th,.print-table td{border:1px solid #ddd;padding:8px}.print-table th{width:120px;background:#f7f7f7}
-}
-.page{background:#f7f8fa}
+.page{background:#f7f8fa}.linked-replenishment-drawer{width:min(760px,92vw)}.linked-replenishment-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.linked-replenishment-summary>div{display:grid;gap:4px;border:1px solid #e5e7eb;border-radius:8px;padding:10px}.linked-replenishment-summary span{font-size:12px;color:#6b7280}.linked-replenishment-drawer .info-banner{border-radius:8px;background:#eff6ff;color:#1e40af;padding:12px}.linked-replenishment-drawer .table-wrap table{min-width:520px}
 </style>

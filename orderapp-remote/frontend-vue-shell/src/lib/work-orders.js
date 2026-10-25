@@ -69,13 +69,78 @@ export function formatWorkOrderTypedOutput(row = {}) {
 
 export function workOrderUpstreamBlockers(row = {}) {
   const rows = row.upstream_blockers || row.upstream_dependencies || row.blocked_by_work_orders || []
-  if (Array.isArray(rows) && rows.length) return rows.filter((dependency) => dependency.supply_ready !== true && !(dependency.supply_ready == null && dependency.completed === true))
+  if (Array.isArray(rows) && rows.length) return rows.filter((dependency) => {
+    const delivered = Number(dependency.delivered_g || 0) > 0 || Number(dependency.delivered_units || 0) > 0
+    const upstreamDone = dependency.completed === true || String(dependency.status || '').toLowerCase() === 'completed'
+    return dependency.supply_ready !== true && !upstreamDone && !delivered
+  })
   const ids = row.upstream_work_order_ids || []
   return Array.isArray(ids) ? ids.map((id) => ({ work_order_id: Number(id || 0) })) : []
 }
 
 export function workOrderHasUpstreamBlocker(row = {}) {
+  const dependencies = row.upstream_blockers || row.upstream_dependencies || row.blocked_by_work_orders || []
+  if (Array.isArray(dependencies) && dependencies.length) return workOrderUpstreamBlockers(row).length > 0
   return Boolean(row.upstream_blocked || row.has_unfinished_dependencies || workOrderUpstreamBlockers(row).length)
+}
+
+function formatDependencyQuantity(grams, units, unit) {
+  if (Number(grams || 0) > 0) {
+    const value = Number(grams)
+    return value >= 1000 ? `${(value / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 3 })}kg` : `${value.toLocaleString('zh-CN')}g`
+  }
+  return `${Number(units || 0).toLocaleString('zh-CN')} ${unit || '件'}`.trim()
+}
+
+export function workOrderUpstreamSupplyText(row = {}) {
+  const dependencies = row.upstream_dependencies || row.upstream_blockers || []
+  if (!Array.isArray(dependencies)) return ''
+  return dependencies.filter((dependency) => {
+    const done = dependency.completed === true || String(dependency.status || '').toLowerCase() === 'completed'
+    return done || Number(dependency.delivered_g || 0) > 0 || Number(dependency.delivered_units || 0) > 0
+  }).map((dependency) => {
+    const no = String(dependency.depends_on_work_order_no || '').trim() || `上游工单 #${Number(dependency.depends_on_work_order_id || dependency.work_order_id || 0)}`
+    const required = formatDependencyQuantity(dependency.required_g, dependency.required_units, dependency.output_unit)
+    const delivered = formatDependencyQuantity(dependency.delivered_g, dependency.delivered_units, dependency.output_unit)
+    const shortageG = Math.max(0, Number(dependency.required_g || 0) - Number(dependency.delivered_g || 0))
+    const shortageUnits = Math.max(0, Number(dependency.required_units || 0) - Number(dependency.delivered_units || 0))
+    const shortage = formatDependencyQuantity(shortageG, shortageUnits, dependency.output_unit)
+    return `${no}：已分配 ${delivered} / ${required}${shortageG || shortageUnits ? `，尚缺 ${shortage}` : ''}`
+  }).join('；')
+}
+
+export function workOrderLinkedReplenishmentSources(row = {}) {
+  const dependencies = row.upstream_dependencies || row.upstream_blockers || []
+  if (!Array.isArray(dependencies)) return []
+  const seen = new Set()
+  return dependencies.filter((dependency) => {
+    const sourceID = Number(dependency.depends_on_work_order_id || 0)
+    const materialID = Number(dependency.output_material_id || dependency.material_id || 0)
+    const isMaterial = String(dependency.output_type || '').trim().toLowerCase() === 'material'
+    const done = dependency.completed === true || String(dependency.status || '').toLowerCase() === 'completed'
+    const shortG = Math.max(0, Number(dependency.required_g || 0) - Number(dependency.delivered_g || 0))
+    const shortUnits = Math.max(0, Number(dependency.required_units || 0) - Number(dependency.delivered_units || 0))
+    const key = `${sourceID}:${materialID}`
+    if (!done || !isMaterial || sourceID <= 0 || materialID <= 0 || (!shortG && !shortUnits) || seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).map((dependency) => ({
+    source_work_order_id: Number(dependency.depends_on_work_order_id || 0),
+    source_work_order_no: String(dependency.depends_on_work_order_no || '').trim(),
+    material_id: Number(dependency.output_material_id || dependency.material_id || 0),
+    material_name: String(dependency.output_name || dependency.material_name || '').trim(),
+    unit: String(dependency.output_unit || '').trim(),
+    required_g: Number(dependency.required_g || 0),
+    required_units: Number(dependency.required_units || 0),
+    delivered_g: Number(dependency.delivered_g || 0),
+    delivered_units: Number(dependency.delivered_units || 0),
+  }))
+}
+
+export function workOrderHasLinkedReplenishmentSource(row, sourceID) {
+  const id = Number(sourceID || 0)
+  if (id <= 0) return false
+  return workOrderLinkedReplenishmentSources(row).some((source) => source.source_work_order_id === id)
 }
 
 export function workOrderUpstreamBlockerLabel(row = {}) {

@@ -2242,6 +2242,9 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	if status != "draft" {
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("production plan must be draft to submit")
 	}
+	if err := validateLinkedReplenishmentAtSubmitTx(ctx, tx, r.schema, cmd.ID); err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
 	items, err := loadProductionPlanItemsTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
@@ -2305,6 +2308,9 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	}
 	dependencyCount, err := createWorkOrderDependenciesForProductionPlanTx(ctx, tx, r.schema, cmd.ID, workOrderByPlanItem)
 	if err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	if err := createLinkedReplenishmentWorkOrderDependenciesTx(ctx, tx, r.schema, cmd.ID, workOrderByPlanItem); err != nil {
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
 	if dependencyCount > 0 || usesTypedOutputBindings || preflight.PickingVersion > 0 {

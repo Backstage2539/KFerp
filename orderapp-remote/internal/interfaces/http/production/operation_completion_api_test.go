@@ -134,6 +134,7 @@ func TestOperationCompletionAPIAtomicReceiptAndReplay(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 	e, woID, runID := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72801)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.order_process_statuses(name,sort,active) VALUES('生产完成',30,true) ON CONFLICT(name) DO NOTHING`, schema))
 	snapshot := `{"operations":[{"seq":1,"execution_json":"{\"version\":1,\"node_key\":\"pack\",\"receipt_enabled\":true,\"output_unit\":\"袋\"}"}]}`
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET process_snapshot_json=$2::jsonb,output_qty=100,output_unit='袋',inventory_unit='袋',planned_inventory_qty=100,sales_spec_snapshot_json='{"spec_label":"227g袋装"}' WHERE id=$1`, schema), woID, snapshot); err != nil {
 		t.Fatal(err)
@@ -168,6 +169,7 @@ func TestOperationCompletionAPIAtomicReceiptAndReplay(t *testing.T) {
 	assertProductionFlowCount(t, pool, schema, "production_operation_events", "status='posted'", 1)
 	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("id=%d AND status='completed'", woID), 1)
 	assertProductionFlowCount(t, pool, schema, "audit_logs", "entity_type='job_card' AND action='complete'", 1)
+	assertProductionFlowCount(t, pool, schema, "orders", fmt.Sprintf("order_no='SO-ML-227' AND process_status_id=(SELECT id FROM %s.order_process_statuses WHERE name='生产完成')", schema), 1)
 	payload["actual_output_qty"] = 99
 	if res = serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/complete", card), payload); res.Code != 400 {
 		t.Fatalf("changed retry %d %s", res.Code, res.Body.String())
@@ -226,6 +228,92 @@ func TestOperationCompletionAPIAtomicReceiptAndReplay(t *testing.T) {
 		t.Fatalf("correction stock and production history differ: %d", reported)
 	}
 
+}
+
+func TestOperationCompletionAPIPartialOutputCanContinueAndFinish(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, runID := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72809)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.order_process_statuses(name,sort,active) VALUES('生产完成',30,true) ON CONFLICT(name) DO NOTHING`, schema))
+	snapshot := `{"operations":[{"seq":1,"execution_json":"{\"version\":1,\"node_key\":\"pack\",\"receipt_enabled\":true,\"output_unit\":\"袋\"}"}]}`
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET process_snapshot_json=$2::jsonb,output_qty=12,output_unit='袋',inventory_unit='袋',planned_inventory_qty=12,sales_spec_snapshot_json='{"spec_label":"227g袋装"}' WHERE id=$1`, schema), woID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.job_cards SET status='pending',started_at=NULL,resumed_at=NULL,actual_minutes=0,completion_draft='{"actual_output_qty":1,"actual_minutes":1}',assigned_employee_id=999,assigned_to='旧排班',sequence_no=1,planned_input_qty=2724,actual_input_qty=0,actual_output_qty=0,completed_at=NULL WHERE work_order_id=%d;
+		UPDATE %s.work_order_material_reservations SET required_g=CASE WHEN material_id=10 THEN 2724 ELSE required_g END,reserved_g=CASE WHEN material_id=10 THEN 227 ELSE reserved_g END,required_units=CASE WHEN material_id=20 THEN 12 ELSE required_units END,reserved_units=CASE WHEN material_id=20 THEN 1 ELSE reserved_units END WHERE work_order_id=%d;
+		UPDATE %s.work_order_material_reservation_batches SET reserved_g=CASE WHEN material_id=10 THEN 227 ELSE reserved_g END,reserved_units=CASE WHEN material_id=20 THEN 1 ELSE reserved_units END WHERE work_order_id=%d`, schema, woID, schema, woID, schema, woID))
+	var card int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 LIMIT 1`, schema), woID).Scan(&card); err != nil {
+		t.Fatal(err)
+	}
+	read := func() productionapp.OperationCompletionPreview {
+		t.Helper()
+		res := serveMultilevelProductionJSON(t, e, http.MethodGet, fmt.Sprintf("/api/job-cards/%d/completion-preview", card), nil)
+		if res.Code != http.StatusOK {
+			t.Fatalf("preview status=%d body=%s", res.Code, res.Body.String())
+		}
+		var p productionapp.OperationCompletionPreview
+		if err := json.Unmarshal(res.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	first := read()
+	if first.PlannedQty != 12 || first.CompletedOutputQty != 0 || first.MaxOutputQty != 12 {
+		t.Fatalf("initial remaining/max output = %g/%g completed=%g", first.PlannedQty, first.MaxOutputQty, first.CompletedOutputQty)
+	}
+	for _, material := range first.Materials {
+		if material.AvailableQty < material.Qty {
+			t.Fatalf("same-owner free stock in the configured warehouse should cover the previewed material: %+v", material)
+		}
+	}
+	partial := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/complete", card), map[string]any{
+		"actual_input_qty": 227, "actual_output_qty": 1, "input_unit": first.InputUnit, "output_unit": first.OutputUnit,
+		"expected_version": first.Version, "request_id": "partial-one-of-twelve", "finish_operation": false, "actual_minutes": 1,
+	})
+	if partial.Code != http.StatusOK {
+		t.Fatalf("partial completion status=%d body=%s", partial.Code, partial.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND status='running' AND actual_output_qty=1", card), 1)
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND assigned_employee_id=1 AND assigned_to<>'旧排班'", card), 1)
+	assertProductionFlowCount(t, pool, schema, "production_operation_events", "kind='complete' AND status='posted' AND output_qty=1", 1)
+	state := loadProductCompletionAtomicityState(t, ctx, pool, schema, woID, runID)
+	if state.FinishedInventoryUnits != 1 || state.ReservationConsumedG != 227 || state.ReservationConsumedUnits != 1 || state.WorkOrderStatus != "partially_completed" {
+		t.Fatalf("partial completion must receive and consume only one bag: %+v", state)
+	}
+	second := read()
+	if second.ActualMinutes != 0 {
+		t.Fatalf("next batch must not suggest already posted minutes: %d", second.ActualMinutes)
+	}
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND completion_draft='{}'::jsonb", card), 1)
+	if second.CompletedOutputQty != 1 || second.PlannedQty != 11 {
+		t.Fatalf("next completion preview must retain 11 bags: planned=%g completed=%g", second.PlannedQty, second.CompletedOutputQty)
+	}
+	var suggestedG, suggestedUnits float64
+	for _, material := range second.Materials {
+		if factor := productionapp.OperationUnitFactor(material.Unit); factor > 0 {
+			suggestedG += material.Qty * factor
+		} else {
+			suggestedUnits += material.Qty
+		}
+	}
+	if suggestedG < 2497-1e-6 || suggestedG > 2497+1e-6 || suggestedUnits != 11 {
+		t.Fatalf("next batch suggestion repeated or lost consumption: g=%g units=%g materials=%+v", suggestedG, suggestedUnits, second.Materials)
+	}
+	final := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/complete", card), map[string]any{
+		"actual_input_qty": 2497, "actual_output_qty": 11, "input_unit": second.InputUnit, "output_unit": second.OutputUnit,
+		"expected_version": second.Version, "request_id": "finish-remaining-eleven", "finish_operation": true,
+	})
+	if final.Code != http.StatusOK {
+		t.Fatalf("final completion status=%d body=%s", final.Code, final.Body.String())
+	}
+	state = loadProductCompletionAtomicityState(t, ctx, pool, schema, woID, runID)
+	if state.FinishedInventoryUnits != 12 || state.ReservationConsumedG != 2724 || state.ReservationConsumedUnits != 12 || state.WorkOrderStatus != "completed" {
+		t.Fatalf("final cumulative output and inventory = %+v", state)
+	}
+	assertProductionFlowCount(t, pool, schema, "production_operation_events", "kind='complete' AND status='posted'", 2)
+	assertProductionFlowCount(t, pool, schema, "orders", fmt.Sprintf("order_no='SO-ML-227' AND process_status_id=(SELECT id FROM %s.order_process_statuses WHERE name='生产完成')", schema), 0)
 }
 
 func TestOperationCompletionAPIVariancesDraftAndRollback(t *testing.T) {
@@ -408,6 +496,9 @@ func TestOperationCompletionAPIIsolationAndFailureRetry(t *testing.T) {
 			}
 			var p productionapp.OperationCompletionPreview
 			json.Unmarshal(res.Body.Bytes(), &p)
+			if scenario == "other-reservation" && p.MaxOutputQty != 0 {
+				t.Fatalf("preview must not claim another work order's reserved inventory: max output=%g materials=%+v", p.MaxOutputQty, p.Materials)
+			}
 			if scenario == "stale" {
 				mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.material_batches SET unit_cost=unit_cost+1 WHERE material_id=10`, schema))
 			}
@@ -432,4 +523,58 @@ func TestOperationCompletionAPIIsolationAndFailureRetry(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOperationCompletionAPIWeightSlicesUseLedgerGrams(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, _ := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72981)
+	snapshot := `{"operations":[{"seq":1,"execution_json":"{\"version\":1,\"node_key\":\"pack\",\"receipt_enabled\":true,\"output_unit\":\"袋\"}"}]}`
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET process_snapshot_json=$2::jsonb,operation_material_bindings='{"material:10:0:0":{"node_key":"pack"},"material:20:0:0":{"node_key":"pack"}}',output_qty=100,output_unit='袋',inventory_unit='袋',planned_inventory_qty=100 WHERE id=$1`, schema), woID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+ UPDATE %[1]s.job_cards SET status='pending',sequence_no=1,planned_input_qty=3,actual_input_qty=0,actual_output_qty=0,completed_at=NULL WHERE work_order_id=%[2]d;
+ INSERT INTO %[1]s.job_cards(work_order_id,sequence_no,operation,status,planned_input_qty) VALUES(%[2]d,1,'包装','pending',1);
+ UPDATE %[1]s.work_order_material_reservations SET unit='kg',required_g=3385,reserved_g=3385 WHERE work_order_id=%[2]d AND material_id=10;
+ UPDATE %[1]s.work_order_material_reservation_batches SET reserved_g=3385 WHERE work_order_id=%[2]d AND material_id=10;
+ UPDATE %[1]s.material_batches SET remaining_g=3385 WHERE material_id=10;
+ UPDATE %[1]s.material_batch_locations SET qty_g=3385 WHERE material_id=10 AND warehouse='wip';`, schema, woID))
+	rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 ORDER BY id`, schema), woID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cards []int64
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		cards = append(cards, id)
+	}
+	rows.Close()
+	for i, id := range cards {
+		res := serveMultilevelProductionJSON(t, e, "GET", fmt.Sprintf("/api/job-cards/%d/completion-preview", id), nil)
+		if res.Code != 200 {
+			t.Fatal(res.Body.String())
+		}
+		var p productionapp.OperationCompletionPreview
+		if err = json.Unmarshal(res.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		expected := []float64{2.539, .846}[i]
+		for _, m := range p.Materials {
+			if m.MaterialID == 10 && (m.Qty != expected || m.ShortageQty != 0) {
+				t.Fatalf("batch %d must use ledger grams without phantom shortage: %+v expected %g kg", i+1, m, expected)
+			}
+		}
+		if p.MaxOutputQty != p.PlannedQty {
+			t.Fatalf("batch %d incorrectly reduced output: %+v", i+1, p)
+		}
+		res = serveMultilevelProductionJSON(t, e, "POST", fmt.Sprintf("/api/job-cards/%d/complete", id), map[string]any{"actual_input_qty": p.InputQty, "actual_output_qty": p.PlannedQty, "input_unit": p.InputUnit, "output_unit": p.OutputUnit, "expected_version": p.Version, "request_id": fmt.Sprintf("gram-slice-%d", i), "materials": p.Materials, "finish_operation": true})
+		if res.Code != 200 {
+			t.Fatal(res.Body.String())
+		}
+	}
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf("work_order_id=%d AND material_id=10 AND consumed_g=3385", woID), 1)
 }

@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-729-PRODUCTION-RECOVERY", title: "生产整改：修正批次库位、完成现有包装工单并入库", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-25-production-recovery.md"},
+		{table: "req_dev", code: "DEV-874-BATCH-LOCATION-REPAIR", title: "PR-729 阻止重复库位回填并提供可审计修复", status: "done", assignee: "Codex", evidence: "TestEnsureMaterialBatchTablesDoesNotDuplicateExistingWarehouseBalance; TestRepairMaterialBatchLocations; production-flow-repair.test.js"},
+		{table: "req_dev", code: "DEV-875-PARTIAL-COMPLETION", title: "PR-729 分批完成、增量入库和原子耗料成本", status: "done", assignee: "Codex", evidence: "TestOperationCompletionAPIPartialOutputCanContinueAndFinish; TestOperationCompletionAPIIsolationAndFailureRetry"},
+		{table: "req_dev", code: "DEV-876-WORKORDER-RECOVERY-UI", title: "PR-729 工单来源进度直达、仓库接口和当前行直接入库", status: "done", assignee: "Codex", evidence: "work-orders.test.js; production-flow-repair.test.js; production-execution-bus.test.js"},
+		{table: "req_dev", code: "DEV-877-LINKED-REPLENISHMENT", title: "PR-729 按原冻结配方关联补产并分配给包装工单", status: "done", assignee: "Codex", evidence: "TestLinkedReplenishmentPreviewCreateIdempotencyAndWorkOrderAllocation; TestLinkedReplenishmentRejectsStalePreviewVersion; work-orders.test.js; docs/acceptance/2026-10-25-production-recovery.md"},
+		{table: "req_dev", code: "DEV-878-ACCEPTANCE-DELIVERY", title: "PR-729 全量验收、开发验证和干净 main 生产发布", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-25-production-recovery.md"},
 		{table: "req_product", code: "PR-728-PRODUCTION-AUTO-COMPLETION", title: "生产自动用料、工序交接与完成即入库", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-24-production-auto-completion.md"},
 		{table: "req_dev", code: "DEV-869-EXECUTION-RULES", title: "PR-728 路线及BOM冻结执行配置", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-24-production-auto-completion.md"},
 		{table: "req_dev", code: "DEV-870-COMPLETION-LEDGER", title: "PR-728 自动耗料、工序批次与原子完工入库", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-24-production-auto-completion.md"},

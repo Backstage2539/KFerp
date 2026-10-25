@@ -148,6 +148,10 @@ func createFinishedStockBatchTx(ctx context.Context, tx pgx.Tx, schema string, r
 }
 
 func createFinishedStockBatchWithCodeTx(ctx context.Context, tx pgx.Tx, schema string, batchCode string, r ProduceRunRow, add InvQty, finishedTotalG int64, operator string) (string, error) {
+	return createFinishedStockBatchWithCodeSourceTx(ctx, tx, schema, batchCode, r, add, finishedTotalG, stockSourceProductionRun, r.ID, operator)
+}
+
+func createFinishedStockBatchWithCodeSourceTx(ctx context.Context, tx pgx.Tx, schema string, batchCode string, r ProduceRunRow, add InvQty, finishedTotalG int64, sourceType string, sourceID int64, operator string) (string, error) {
 	hasBomSpec, err := schemaColumnExistsTx(ctx, tx, schema, "stock_batches", "bom_spec_id")
 	if err != nil {
 		return "", err
@@ -172,7 +176,7 @@ func createFinishedStockBatchWithCodeTx(ctx context.Context, tx pgx.Tx, schema s
 				remaining_units=stock_batches.remaining_units+excluded.remaining_units,
 				operator=excluded.operator
 		`, schema), batchCode, stockItemTypeFinishedProduct, r.ProductID, r.Product, r.SpecG,
-			stockSourceProductionRun, r.ID, r.BatchID, finishedTotalG, add.Units, operator)
+			sourceType, sourceID, r.BatchID, finishedTotalG, add.Units, operator)
 		if err != nil {
 			return "", err
 		}
@@ -204,7 +208,7 @@ func createFinishedStockBatchWithCodeTx(ctx context.Context, tx pgx.Tx, schema s
 			operator=excluded.operator
 	`, schema),
 		batchCode, stockItemTypeFinishedProduct, r.ProductID, r.Product, r.BomSpecID, r.BomVariantID, r.SpecG,
-		stockSourceProductionRun, r.ID, r.BatchID,
+		sourceType, sourceID, r.BatchID,
 		finishedTotalG, add.Units, operator,
 	)
 	if err != nil {
@@ -349,5 +353,20 @@ func recordFinishedProductStockMovementWithBatchCodeTx(ctx context.Context, tx p
 		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.BomSpecID, r.BomVariantID, r.OwnerCustomerID, r.SpecG, warehouse,
 		stockSourceProductionRun, r.ID, batchCode, r.BatchID,
 		qty, operator,
+	)
+}
+
+func recordFinishedProductOperationMovementTx(ctx context.Context, tx pgx.Tx, schema string, eventID int64, batchCode string, r ProduceRunRow, before, add, after InvQty, finishedTotalG int64, warehouse, operator string) error {
+	const sourceType = "production_operation_event"
+	if _, err := createFinishedStockBatchWithCodeSourceTx(ctx, tx, schema, batchCode, r, add, finishedTotalG, sourceType, eventID, operator); err != nil {
+		return err
+	}
+	qty, err := finishedInventoryLedgerQty(r.SpecG, before, add, after)
+	if err != nil {
+		return err
+	}
+	return insertStockLedgerEntryWithBomSpecOwnedTx(ctx, tx, schema,
+		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.BomSpecID, r.BomVariantID, r.OwnerCustomerID, r.SpecG, warehouse,
+		sourceType, eventID, batchCode, r.BatchID, qty, operator,
 	)
 }

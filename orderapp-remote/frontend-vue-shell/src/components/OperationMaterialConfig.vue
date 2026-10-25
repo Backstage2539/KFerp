@@ -2,18 +2,18 @@
   <details class="operation-material-config" @toggle="opened">
     <summary>物料使用工序与来源仓</summary>
     <p>每个组件只在所选工序扣一次；默认从工序来源仓使用。此处调整只影响新工单。</p>
-    <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
+    <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="warehouseError" role="alert" class="error">仓库未加载：{{ warehouseError }}。刷新成功前不能保存仓库配置。</p><p v-if="message" role="status">{{ message }}</p>
     <div v-for="row in config.rows" :key="row.key" class="row"><strong>{{ row.name }}</strong><label>使用工序<select v-model="row.binding.node_key"><option value="">请选择工序</option><option v-for="node in config.nodes" :key="node.key" :value="node.key">{{ node.sequence }} · {{ node.name }}</option></select></label><label>来源仓<select v-model="row.binding.source_warehouse"><option value="">沿用工序默认仓</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label></div>
-    <div class="actions"><button type="button" :disabled="busy || !config.rows.length" @click="save">保存用料归属</button><button type="button" :disabled="busy" @click="load">刷新</button></div>
+    <div class="actions"><button type="button" :disabled="busy || !config.rows.length || !!warehouseError" @click="save">保存用料归属</button><button type="button" :disabled="busy" @click="load">刷新</button></div>
   </details>
 </template>
 <script setup>
 import { reactive,ref,watch } from 'vue'
 import { apiGet,apiSend } from '../api/client'
 const props=defineProps({versionId:{type:Number,required:true},variantId:{type:Number,default:0}})
-const config=reactive({rows:[],nodes:[],version:''}),warehouses=ref([]),busy=ref(false),loaded=ref(false),error=ref(''),message=ref('')
+const config=reactive({rows:[],nodes:[],version:''}),warehouses=ref([]),busy=ref(false),loaded=ref(false),error=ref(''),warehouseError=ref(''),message=ref('')
 async function opened(event){if(event.target.open&&!loaded.value)await load()}
-async function load(){if(!props.versionId)return;busy.value=true;error.value='';message.value='';try{const [result,stock]=await Promise.all([apiGet(`/api/production-bom-versions/${props.versionId}/operation-materials?variant_id=${props.variantId}`),apiGet('/api/warehouses')]);Object.assign(config,result);warehouses.value=(stock.rows||stock||[]).filter(row=>row.active!==false);loaded.value=true}catch(e){error.value=e.message}finally{busy.value=false}}
+async function load(){if(!props.versionId)return;busy.value=true;error.value='';warehouseError.value='';message.value='';try{const result=await apiGet(`/api/production-bom-versions/${props.versionId}/operation-materials?variant_id=${props.variantId}`);Object.assign(config,result);loaded.value=true}catch(e){error.value=e.message}try{const stock=await apiGet('/api/stock/warehouses');warehouses.value=(stock.rows||stock||[]).filter(row=>row.active!==false)}catch(e){warehouses.value=[];warehouseError.value=e.message||'仓库加载失败'}finally{busy.value=false}}
 async function save(){busy.value=true;error.value='';message.value='';try{Object.assign(config,await apiSend(`/api/production-bom-versions/${props.versionId}/operation-materials`,{method:'PUT',body:{variant_id:props.variantId,expected_version:config.version,bindings:Object.fromEntries(config.rows.map(row=>[row.key,row.binding]))}}));message.value='用料归属已保存，新工单按此冻结。'}catch(e){error.value=e.message}finally{busy.value=false}}
 watch(()=>[props.versionId,props.variantId],()=>{loaded.value=false;config.rows=[];load()})
 </script>

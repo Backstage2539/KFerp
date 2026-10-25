@@ -21,6 +21,7 @@ type jobCardActualsRequest struct {
 	InputUnit        string                               `json:"input_unit"`
 	OutputUnit       string                               `json:"output_unit"`
 	DifferenceReason string                               `json:"difference_reason"`
+	FinishOperation  *bool                                `json:"finish_operation"`
 	Materials        []productionapp.OperationMaterialUse `json:"materials"`
 	PlannedInputQty  float64                              `json:"planned_input_qty"`
 	ActualInputQty   float64                              `json:"actual_input_qty"`
@@ -425,7 +426,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid metrics_json"})
 		}
 		cmd := productionapp.JobCardActionCommand{
-			RequestID: req.RequestID, ExpectedVersion: req.ExpectedVersion, InputUnit: req.InputUnit, OutputUnit: req.OutputUnit, DifferenceReason: req.DifferenceReason, Materials: req.Materials,
+			RequestID: req.RequestID, ExpectedVersion: req.ExpectedVersion, InputUnit: req.InputUnit, OutputUnit: req.OutputUnit, DifferenceReason: req.DifferenceReason, FinishOperation: req.FinishOperation, Materials: req.Materials,
 			ID:              id,
 			EmployeeID:      support.CurrentEmployeeID(c),
 			Operator:        support.ActorOf(c),

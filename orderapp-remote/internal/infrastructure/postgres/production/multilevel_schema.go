@@ -181,6 +181,24 @@ CREATE INDEX IF NOT EXISTS work_order_dependencies_work_order_idx
 CREATE INDEX IF NOT EXISTS work_order_dependencies_upstream_idx
 	ON %[1]s.work_order_dependencies(depends_on_work_order_id, work_order_id);
 
+CREATE TABLE IF NOT EXISTS %[1]s.production_replenishment_plan_links (
+	production_plan_id BIGINT NOT NULL,
+	production_plan_item_id BIGINT NOT NULL,
+	source_work_order_id BIGINT NOT NULL,
+	consumer_work_order_id BIGINT NOT NULL,
+	material_id BIGINT NOT NULL,
+	required_g BIGINT NOT NULL DEFAULT 0,
+	required_units BIGINT NOT NULL DEFAULT 0,
+	warehouse TEXT NOT NULL DEFAULT 'wip',
+	owner_customer_id BIGINT NOT NULL DEFAULT 0,
+	expected_version TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(production_plan_id,consumer_work_order_id,material_id)
+);
+CREATE INDEX IF NOT EXISTS production_replenishment_plan_links_consumer_idx
+	ON %[1]s.production_replenishment_plan_links(consumer_work_order_id,material_id);
+
 CREATE TABLE IF NOT EXISTS %[1]s.work_order_material_reservation_batches (
 	id BIGSERIAL PRIMARY KEY,
 	reservation_id BIGINT NOT NULL,

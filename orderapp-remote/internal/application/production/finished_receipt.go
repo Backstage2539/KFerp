@@ -28,6 +28,7 @@ type ReceiptCorrectionCard struct {
 
 type CorrectJobCardOutputCommand struct {
 	CardQuantities  map[int64]float64 `json:"card_quantities,omitempty"`
+	EventID         int64             `json:"event_id"`
 	ID              int64             `json:"job_card_id"`
 	ActualOutputQty float64           `json:"actual_output_qty"`
 	Reason          string            `json:"reason"`

@@ -45,7 +45,7 @@ func (r Repository) receiveOperationOutputTx(ctx context.Context, tx pgx.Tx, wo 
 		return 0, err
 	}
 	batch := fmt.Sprintf("FP-OP-%010d", receipt.EventID)
-	if err = recordFinishedProductStockMovementWithBatchCodeTx(ctx, tx, r.schema, batch, run, before, add, after, grams, receipt.Warehouse, actor); err != nil {
+	if err = recordFinishedProductOperationMovementTx(ctx, tx, r.schema, receipt.EventID, batch, run, before, add, after, grams, receipt.Warehouse, actor); err != nil {
 		return 0, err
 	}
 	unitCost := cost / receipt.OutputQty

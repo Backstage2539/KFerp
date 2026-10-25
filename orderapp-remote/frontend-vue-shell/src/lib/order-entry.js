@@ -2109,3 +2109,12 @@ export function buildOrderPayload({ form, rows }) {
 
   return payload
 }
+
+
+export function stockBatchQuantity(line, allocation) {
+  const countBased = Number(line.bom_spec_id || 0) > 0
+  const quantity = allocation
+    ? Number(countBased ? allocation.allocated_units : allocation.allocated_g)
+    : Number(countBased ? line.need_units : line.need_g)
+  return `${quantity || 0}${countBased ? '件' : 'g'}`
+}
