@@ -28,3 +28,5 @@ For the nine unfinished packaging work orders, use the work-order list's direct 
 ## Release state
 
 Development deployment, clean-main integration, production deployment, runtime/static-asset verification and rollback anchors are pending. The release-equivalent Go suite, frontend suite/build, change checks, and targeted isolated database/API tests pass. Development verification must still use isolated data; production smoke remains read-only. Van's business acceptance is pending.
+
+The shared development/production host was checked read-only before preflight: its system disk is 60 GB with 3.8 GB free (94% used), below the agreed 6 GB minimum. Docker BuildKit cache is empty (0 B); 2.221 GB of reclaimable Docker images were left intact to preserve rollback images. The deploy lock was available, both app containers were running, and both PostgreSQL containers were healthy. No remote build or deployment was started. The volume must be expanded to at least 70 GB and the guest filesystem must show at least 6 GB free before resuming.
