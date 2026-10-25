@@ -120,6 +120,13 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	if err != nil {
 		return out, err
 	}
+	if p.BomRefreshPending {
+		materials, err = r.refreshRoastingBOMBeforeFirstConsumptionTx(ctx, tx, wo, p, materials, cmd.Operator, cmd.RequestID)
+		if err != nil {
+			return out, err
+		}
+		wo.BomVersionID = p.EffectiveBomVersionID
+	}
 	// Persist the material quantities actually applied by this completion event.
 	// The next partial completion preview uses these event rows to avoid
 	// suggesting the already-consumed portion again.
@@ -336,6 +343,168 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 		return out, err
 	}
 	return out, tx.Commit(ctx)
+}
+
+func (r Repository) refreshRoastingBOMBeforeFirstConsumptionTx(ctx context.Context, tx pgx.Tx, wo app.WorkOrderRow, preview app.OperationCompletionPreview, materials []app.OperationMaterialUse, actor, requestID string) ([]app.OperationMaterialUse, error) {
+	if preview.EffectiveBomVersionID <= wo.BomVersionID || len(preview.EffectiveMaterialSnapshot) == 0 {
+		return materials, fmt.Errorf("BOM版本已变化，请刷新完成建议")
+	}
+	eligible, err := r.workOrderBOMRefreshEligibleTx(ctx, tx, wo)
+	if err != nil {
+		return materials, err
+	}
+	if !eligible {
+		return materials, fmt.Errorf("工单已有耗料或产出记录，保留原冻结配方；请刷新后核对")
+	}
+	var beforeSnapshot, beforeBindings, beforeRoute []byte
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT material_snapshot::text,operation_material_bindings::text,process_snapshot_json::text FROM %s.work_orders WHERE id=$1 FOR UPDATE`, r.schema), wo.ID).Scan(&beforeSnapshot, &beforeBindings, &beforeRoute); err != nil {
+		return materials, err
+	}
+	var frozenCurrent []materialSnapshotRow
+	if err = json.Unmarshal(beforeSnapshot, &frozenCurrent); err != nil {
+		return materials, fmt.Errorf("工单冻结 BOM 快照异常，未扣料")
+	}
+	// Re-resolve under the completion transaction using the same rule as the
+	// read-only preview: the newest complete published version of this BOM.
+	// A newer incomplete published version must not invalidate an otherwise
+	// still-current complete version selected by the preview.
+	frozen, resolvedVersionID, refresh, resolveErr := r.effectiveRoastingMaterialSnapshotTx(ctx, tx, wo, frozenCurrent)
+	if resolveErr != nil {
+		return materials, resolveErr
+	}
+	if !refresh || resolvedVersionID != preview.EffectiveBomVersionID {
+		return materials, fmt.Errorf("已发布 BOM 版本已变化，请刷新完成建议后重试")
+	}
+	if recipeRatioTotal(frozen) < 99.999 {
+		return materials, fmt.Errorf("%s", incompleteRoastingBOMReason(recipeRatioTotal(frozen)))
+	}
+	var plannedInputG float64
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(planned_input_qty),0)::float8 FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no=(SELECT sequence_no FROM %s.job_cards WHERE id=$2) AND status<>'cancelled'`, r.schema, r.schema), wo.ID, preview.JobCardID).Scan(&plannedInputG); err != nil {
+		return materials, err
+	}
+	bindings := map[string]app.OperationMaterialBinding{}
+	if len(beforeBindings) > 0 {
+		if err = json.Unmarshal(beforeBindings, &bindings); err != nil {
+			return materials, err
+		}
+	}
+	var route processTemplateSnapshot
+	if err = json.Unmarshal(beforeRoute, &route); err != nil {
+		return materials, err
+	}
+	changes := make([]map[string]any, 0, len(materials))
+	usedReservationIDs := map[int64]bool{}
+	for index := range materials {
+		material := &materials[index]
+		if material.Qty <= 0 {
+			continue
+		}
+		if material.MaterialID <= 0 || material.ProductID > 0 {
+			return materials, fmt.Errorf("新增烘焙配料%s暂不支持自动预留，未扣料", material.Name)
+		}
+		factor := app.OperationUnitFactor(material.Unit)
+		if factor <= 0 {
+			return materials, fmt.Errorf("烘焙配料%s缺少重量单位，未扣料", material.Name)
+		}
+		needG := int64(math.Round(material.Qty * factor))
+		reservationID := material.ReservationID
+		var requiredBeforeG, reservedG, consumedG, returnedG int64
+		if reservationID > 0 {
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT required_g,reserved_g,consumed_g,returned_g FROM %s.work_order_material_reservations WHERE id=$1 AND work_order_id=$2 FOR UPDATE`, r.schema), reservationID, wo.ID).Scan(&requiredBeforeG, &reservedG, &consumedG, &returnedG); err != nil {
+				return materials, err
+			}
+		} else {
+			if strings.TrimSpace(material.Warehouse) == "" {
+				material.Warehouse = "wip"
+			}
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.work_order_material_reservations(work_order_id,running_item_id,material_id,material_name,unit,component_type,component_id,component_bom_spec_id,component_bom_variant_id,component_spec_g,required_g,reserved_g,source_warehouse,source_owner_customer_id,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'material',$3,$6,$7,$8,0,0,$9,$10,'reserved',now(),now()) RETURNING id`, r.schema), wo.ID, wo.RunningItemID, material.MaterialID, material.Name, material.Unit, material.BomSpecID, material.BomVariantID, material.SpecG, material.Warehouse, material.OwnerCustomerID).Scan(&reservationID); err != nil {
+				return materials, err
+			}
+			material.ReservationID = reservationID
+		}
+		usedReservationIDs[reservationID] = true
+		plannedNeedG := int64(math.Round(plannedInputG * material.RatioPct / 100))
+		requiredG, wantedReserved := roastingReservationTargets(plannedNeedG, reservedG, consumedG, needG)
+		additional := maxInt64(0, wantedReserved-reservedG)
+		available, availabilityErr := operationMaterialAvailableTx(ctx, tx, r.schema, reservationID, material.Warehouse, material.OwnerCustomerID, material.Unit)
+		if availabilityErr != nil {
+			return materials, availabilityErr
+		}
+		currentNeed := float64(needG) / factor
+		if available+1e-8 < currentNeed {
+			shortage := math.Max(0, currentNeed-available)
+			return materials, fmt.Errorf("%s库存不足：%s，需领用%s%s，可用%s%s，缺口%s%s", material.WarehouseName, material.Name,
+				formatOperationQuantity(currentNeed), material.Unit, formatOperationQuantity(available), material.Unit, formatOperationQuantity(shortage), material.Unit)
+		}
+		if additional > 0 {
+			if err = bindMaterialReservationBatchesModeTx(ctx, tx, r.schema, reservationID, wo.ID, material.MaterialID, material.Warehouse, material.OwnerCustomerID, additional, 0, true); err != nil {
+				return materials, fmt.Errorf("%s库存不足：%s，本批需要%s%s；请刷新库存后重试", material.WarehouseName, material.Name, formatOperationQuantity(float64(needG)/factor), material.Unit)
+			}
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_order_material_reservations SET material_name=$2,unit=$3,component_type='material',component_id=$4,component_bom_spec_id=$5,component_bom_variant_id=$6,component_spec_g=$7,required_g=GREATEST(required_g,$8),reserved_g=GREATEST(reserved_g,$9),source_warehouse=$10,source_owner_customer_id=$11,status='reserved',updated_at=now() WHERE id=$1`, r.schema), reservationID, material.Name, material.Unit, material.MaterialID, material.BomSpecID, material.BomVariantID, material.SpecG, requiredG, wantedReserved, material.Warehouse, material.OwnerCustomerID); err != nil {
+			return materials, err
+		}
+		bindings[material.Key] = app.OperationMaterialBinding{NodeKey: preview.Execution.NodeKey, SourceWarehouse: material.Warehouse}
+		changes = append(changes, map[string]any{"reservation_id": reservationID, "material_id": material.MaterialID, "material": material.Name, "warehouse": material.Warehouse, "previous_required_g": requiredBeforeG, "new_required_g": maxInt64(requiredBeforeG, requiredG), "previous_reserved_g": reservedG, "new_reserved_g": maxInt64(reservedG, wantedReserved), "current_batch_g": needG})
+	}
+	effectiveKeys := effectiveRoastingMaterialKeys(frozen)
+	staleRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id,component_type,CASE WHEN component_id>0 THEN component_id ELSE material_id END,component_bom_spec_id,component_bom_variant_id,component_spec_g,material_name,unit FROM %s.work_order_material_reservations WHERE work_order_id=$1 AND status='reserved' AND consumed_g=0 AND consumed_units=0 ORDER BY id FOR UPDATE`, r.schema), wo.ID)
+	if err != nil {
+		return materials, err
+	}
+	type staleReservation struct {
+		id, component, spec, variant, specG int64
+		kind, name, unit                    string
+	}
+	stale := []staleReservation{}
+	for staleRows.Next() {
+		var row staleReservation
+		if err = staleRows.Scan(&row.id, &row.kind, &row.component, &row.spec, &row.variant, &row.specG, &row.name, &row.unit); err != nil {
+			staleRows.Close()
+			return materials, err
+		}
+		stale = append(stale, row)
+	}
+	if err = staleRows.Err(); err != nil {
+		staleRows.Close()
+		return materials, err
+	}
+	staleRows.Close()
+	for _, row := range stale {
+		if usedReservationIDs[row.id] {
+			continue
+		}
+		kind := row.kind
+		if kind == "finished_product" {
+			kind = "product"
+		}
+		if kind == "" {
+			kind = "material"
+		}
+		key := operationMaterialKey(kind, row.component, row.spec, row.specG)
+		binding := roastingRecipeBinding(key, bindings, route)
+		if !shouldReleaseStaleRoastingReservation(key, binding.NodeKey, preview.Execution.NodeKey, effectiveKeys) {
+			continue
+		}
+		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_order_material_reservations SET status='released',returned_g=GREATEST(returned_g,reserved_g-consumed_g),returned_units=GREATEST(returned_units,reserved_units-consumed_units),updated_at=now() WHERE id=$1 AND work_order_id=$2 AND status='reserved' AND consumed_g=0 AND consumed_units=0`, r.schema), row.id, wo.ID); err != nil {
+			return materials, err
+		}
+		changes = append(changes, map[string]any{"reservation_id": row.id, "material_id": row.component, "material": row.name, "action": "release_stale_roasting_reservation", "reason": "component_not_in_effective_published_bom"})
+	}
+	snapshotJSON, _ := json.Marshal(frozen)
+	bindingsJSON, _ := json.Marshal(bindings)
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET bom_version_id=$2,material_snapshot=$3::jsonb,operation_material_bindings=$4::jsonb WHERE id=$1`, r.schema), wo.ID, preview.EffectiveBomVersionID, string(snapshotJSON), string(bindingsJSON)); err != nil {
+		return materials, err
+	}
+	oldSnapshot, newSnapshot := string(beforeSnapshot), string(snapshotJSON)
+	if err = infra.AuditInsertTx(ctx, tx, r.schema, actor, "work_order", &wo.ID, "refresh_roasting_bom_before_consumption", infra.StrPtr("bom_version_id"), infra.StrPtr(fmt.Sprint(wo.BomVersionID)), infra.StrPtr(fmt.Sprint(preview.EffectiveBomVersionID)), infra.AuditMeta{"job_card_id": preview.JobCardID, "request_id": requestID, "original_bom_version_id": wo.BomVersionID, "effective_bom_version_id": preview.EffectiveBomVersionID, "previous_material_snapshot": oldSnapshot, "new_material_snapshot": newSnapshot, "reservation_changes": changes}); err != nil {
+		return materials, err
+	}
+	return materials, nil
+}
+
+func formatOperationQuantity(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
 // Material stock is posted in whole grams. Keep previews, event payloads and costs

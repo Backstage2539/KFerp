@@ -12,8 +12,15 @@ import {
   stockOperationContextParams,
   taskQuantityLines,
   workstationCanOpenIssue,
+  workstationGroupMaterialSuggestions,
+  workstationGroupOutputAllocations,
+  workstationGroupCompletionValidation,
   workstationVisibleActions,
   workstationTaskSections,
+  workstationPackagingGroups,
+  workstationPackagingMaterialIdentity,
+  workstationFocusDisposition,
+  workstationTaskRequiresSchedule,
 } from './production-workstation.js'
 
 test('production top nav lists high-frequency views before legacy production pages', () => {
@@ -24,6 +31,101 @@ test('production top nav lists high-frequency views before legacy production pag
     'produceLogs',
   ])
   assert.equal(productionTopNavItems[0].label, '工位视图')
+})
+
+test('same frozen packaging work is grouped across customers and BOM variants with once-counted materials', () => {
+  const tasks = [10, 6, 4, 1].map((qty, index) => ({
+    packaging_group_key: 'pack-454-owner0-finished',
+    job_card_id: index + 1,
+    work_order_id: index + 1,
+    work_order_no: `WO-${index + 1}`,
+    product_name: '小菠萝', operation: '包装', workstation: '包装台',
+    planned_output_inventory_qty: qty,
+    customer_id: [454, 14, 73, 464][index],
+    bom_variant_id: [491, 48, 48, 48][index],
+    material_readiness: [
+      { material_id: 127, material_name: '小菠萝-半成品', unit: 'g', required_g: qty * 454, wip_available_g: qty * 454, shortage_g: 0 },
+      { material_id: 100, material_name: '454g袋', unit: 'pic', required_units: qty, wip_available_units: 0, shortage_units: qty },
+    ],
+  }))
+  const groups = workstationPackagingGroups(tasks)
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0].tasks.map(row => row.job_card_id), [1, 2, 3, 4])
+  assert.equal(groups[0].planned_output_qty, 21)
+  assert.deepEqual(groups[0].materials.map(row => [row.material_id, row.required_g, row.wip_available_g, row.shortage_g, row.required_units, row.wip_available_units, row.shortage_units]), [
+    [127, 9534, 9534, 0, 0, 0, 0],
+    [100, 0, 0, 0, 21, 0, 21],
+  ])
+})
+
+test('singleton packaging cards stay on their existing individual workflow', () => {
+  const groups = workstationPackagingGroups([
+    { packaging_group_key: 'one', job_card_id: 1, operation: '包装', status: 'pending', work_order_status: 'released' },
+    { packaging_group_key: 'one', job_card_id: 2, operation: '包装', status: 'completed', work_order_status: 'partially_completed' },
+  ])
+  assert.equal(groups.length, 0)
+})
+
+test('completed cards are excluded from a still-open packaging group', () => {
+  const groups = workstationPackagingGroups([
+    { packaging_group_key: 'same', job_card_id: 1, operation: '包装', status: 'pending', work_order_status: 'released' },
+    { packaging_group_key: 'same', job_card_id: 2, operation: '包装', status: 'completed', work_order_status: 'partially_completed' },
+    { packaging_group_key: 'same', job_card_id: 3, operation: '包装', status: 'pending', work_order_status: 'released' },
+  ])
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0].tasks.map(row => row.job_card_id), [1, 3])
+})
+
+test('packaging material summary preserves frozen component specification identity', () => {
+  const groups = workstationPackagingGroups([
+    { packaging_group_key: 'same-key', job_card_id: 1, operation: '包装', status: 'pending', work_order_status: 'released', planned_output_inventory_qty: 1, material_readiness: [{ material_id: 100, bom_spec_id: 227, spec_g: 227, unit: 'pic', required_units: 1 }] },
+    { packaging_group_key: 'same-key', job_card_id: 2, operation: '包装', status: 'pending', work_order_status: 'released', planned_output_inventory_qty: 1, material_readiness: [{ material_id: 100, bom_spec_id: 454, spec_g: 454, unit: 'pic', required_units: 1 }] },
+  ])
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].materials.length, 2)
+  assert.notEqual(groups[0].materials[0].identity, groups[0].materials[1].identity)
+  assert.equal(workstationPackagingMaterialIdentity({ material_id: 100, bom_spec_id: 227, unit: 'pic' }), 'material:100:227:0:pic:0')
+})
+
+test('group completion suggestions follow partial output quantity and work-order allocation', () => {
+  const items = [10, 6, 4, 1].map((remaining_qty, index) => ({ job_card_id: index + 1, remaining_qty, work_order_no: `WO-${index + 1}`, unit: '袋' }))
+  const preview = {
+    items,
+    materials: [
+      { key: 'bean', unit: 'g', sources: items.map((item, index) => ({ job_card_id: item.job_card_id, unit: 'g', qty: [4540, 2724, 1816, 454][index] })) },
+      { key: 'bag', unit: 'pic', sources: items.map((item, index) => ({ job_card_id: item.job_card_id, unit: 'pic', qty: [10, 6, 4, 1][index] })) },
+    ],
+  }
+  assert.deepEqual(workstationGroupOutputAllocations(items, 6).map(row => row.qty), [6, 0, 0, 0])
+  assert.deepEqual(workstationGroupMaterialSuggestions(preview, 6), [{ key: 'bean', qty: 2724 }, { key: 'bag', qty: 6 }])
+  assert.deepEqual(workstationGroupMaterialSuggestions(preview, 21), [{ key: 'bean', qty: 9534 }, { key: 'bag', qty: 21 }])
+})
+
+test('group completion blocks output beyond available stock and material edits beyond availability', () => {
+  const materials = [{ key: 'bags', unit: 'pic', qty: 21, available_qty: 15 }]
+  assert.match(workstationGroupCompletionValidation({ outputQty: 16, maxOutputQty: 15, remainingQty: 21, materials }), /最多支持完成 15/)
+  assert.match(workstationGroupCompletionValidation({ outputQty: 15, maxOutputQty: 15, remainingQty: 21, materials }), /超过可用库存/)
+  assert.equal(workstationGroupCompletionValidation({ outputQty: 15, maxOutputQty: 15, remainingQty: 21, materials: [{ ...materials[0], qty: 15 }] }), '')
+})
+
+test('workstation exposes one material action and one completion form per compatible packaging group', () => {
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+  const form = readFileSync(new URL('../components/WorkstationPackagingCompletionForm.vue', import.meta.url), 'utf8')
+  assert.match(source, /workstationPackagingGroups\(section\.tasks\)/)
+  assert.match(source, /@click="openBatchIssueForTasks\(group\.tasks\)"\>补齐物料/)
+  assert.match(source, /!groupHasShortage\(group\)/)
+  assert.match(source, /@click="openGroupCompletion\(group\)"\>完成并入库/)
+  assert.match(source, /来源仓可补/)
+  assert.match(source, /apiSend\('\/api\/production\/workstation\/material-issue\/preview'/)
+  assert.match(source, /WorkstationPackagingCompletionForm[\s\S]*:task-ids="completionGroup\.ids"/)
+  assert.doesNotMatch(source, /撤回并重新安排/)
+  assert.doesNotMatch(source, /@click="openStockAction\(task, 'issue'\)"/)
+  assert.match(form, /\/api\/production\/workstation\/completion\/preview/)
+  assert.match(form, /\/api\/production\/workstation\/completion\/submit/)
+  assert.match(form, /本次实际完成袋数/)
+  assert.match(form, /来源工单数量分配预览/)
+  assert.match(form, /workstationGroupMaterialSuggestions/)
+  assert.match(form, /@input="touchMaterial\(index\)"/)
 })
 
 test('workstation task sections answer current task, next task, and blocked reason', () => {
@@ -222,7 +324,7 @@ test('workstation view lets wide task rows scroll and single-station filters fil
 test('workstation action buttons reveal their forms inside the clicked task row', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /<div v-for="task in section\.tasks"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\) && task\.automatic_completion"/)
+  assert.match(source, /<div v-for="task in ungroupedTasks\(section\)"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\) && isSimplifiedTask\(task\)"/)
   assert.match(source, /class="task-action-panel"/)
   assert.match(source, /function isIssuePanelForTask\(task\)/)
   assert.match(source, /function isFinishPanelForTask\(task\)/)
@@ -232,13 +334,15 @@ test('workstation action buttons reveal their forms inside the clicked task row'
   assert.doesNotMatch(source, /<section v-if="finishPanel\.open" class="panel action-panel">/)
 })
 
-test('workstation completion is inline and old tasks open explicit reconciliation', () => {
+test('roasting task completion is inline and requires only output quantity', () => {
  const source=readFileSync(new URL('../views/WorkstationView.vue',import.meta.url),'utf8')
  const form=readFileSync(new URL('../components/OperationCompletionForm.vue',import.meta.url),'utf8')
- assert.match(source, /OperationCompletionForm v-if="isFinishPanelForTask/)
- assert.match(source, /OperationConversionForm v-if="isFinishPanelForTask/)
+ assert.match(source, /OperationCompletionForm v-if="isFinishPanelForTask\(task\) && isSimplifiedTask\(task\)"/)
+ assert.match(source, /function isSimplifiedTask\(task\).*烘焙.*除石/)
  assert.doesNotMatch(source, /submitFinishPanel|finishRunningProduction|partial_finish/)
- for(const label of ['保存进度','本工序新增用料','实际投入','前序批次与实际位置'])assert.ok(form.includes(label))
+ assert.match(form,/completionQuantityLabel\(preview\.output_unit\)/)
+ assert.ok(form.includes('冻结的本批投料和 BOM 自动计算用料'))
+ for(const forbidden of ['本单用料','实际投入','实际工时','保存进度','呼叫补料','报异常','核对旧单'])assert.doesNotMatch(form,new RegExp(forbidden))
  assert.match(form,/expected_version|completionPayload/)
 })
 
@@ -271,7 +375,19 @@ test('stock entry preview keeps production identity and renders no-action state 
   assert.match(source, /return_navigation/)
 })
 
-test('workstation entry focuses an active task and opens the work order when an ended task left the queue', () => {
+test('a task missing from the selected queue is resolved from its real status and roster state', () => {
+  assert.equal(workstationFocusDisposition({ status: 'pending', canViewAll: true }), 'all_scope')
+  assert.equal(workstationFocusDisposition({ status: 'pending', rosterStatus: 'unattended', canViewAll: true }), 'unattended')
+  assert.equal(workstationFocusDisposition({ status: 'running', canViewAll: false }), 'outside_scope')
+  assert.equal(workstationFocusDisposition({ status: 'completed' }), 'record')
+  assert.equal(workstationFocusDisposition({ status: 'cancelled' }), 'record')
+  assert.equal(workstationFocusDisposition({}), 'unknown')
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending', roster_status: 'unattended' }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending' }, { employee_id: 0 }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending' }, { employee_id: 6 }), false)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'running' }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'running' }, { employee_id: 6 }), false)
+
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /focus === 'workstation_task'/)
@@ -279,10 +395,42 @@ test('workstation entry focuses an active task and opens the work order when an 
   assert.match(source, /selectedWorkstation\.value = matchedTask\.workstation/)
   assert.match(source, /:class="\{ focused: isRequestedTask\(task\) \}"/)
   assert.match(source, /load\(\{ focusRequested: true \}\)/)
-  assert.match(source, /if \(options\?\.focusRequested === true\) focusRequestedTask\(\)/)
-  assert.match(source, /该任务已结束或已移出待执行队列/)
-  assert.match(source, /executionHub\.open = true/)
+  assert.match(source, /options\?\.focusRequested === true \|\| String\(props\.viewParams\?\.focus \|\| ''\) === 'workstation_task'/)
+  assert.match(source, /workstationFocusDisposition/)
+  assert.match(source, /已从全厂视图加载目标任务/)
+  assert.doesNotMatch(source, /该任务已结束或已移出待执行队列/)
+  assert.match(source, /目标工序当前状态/)
+  assert.match(source, /今日该工位无人值班，请先完成排班/)
+  assert.match(source, /:disabled="Boolean\(busyKey\) \|\| loading \|\| isTaskUnattended\(task\)"/)
+  assert.match(source, /function isTaskUnattended\(task\)/)
+  assert.match(source, /workstationTaskRequiresSchedule\(task, rosterAssignmentForTask\(task\)\)/)
+  assert.match(source, /function completionReturnParams\(task\)/)
   assert.doesNotMatch(source, /^\s*focusRequestedTask\(\)\s*$/m)
+})
+
+test('roasting completion shows the refreshed published BOM version and returns to the focused workstation', () => {
+  const source = readFileSync(new URL('../components/OperationCompletionForm.vue', import.meta.url), 'utf8')
+  assert.match(source, /preview\.bom_refresh_pending/)
+  assert.match(source, /preview\.effective_bom_version_id/)
+  assert.match(source, /preview\.original_bom_version_id/)
+  assert.match(source, /returnNavigation:\{key:'workstationView'/)
+  assert.match(source, /params:\{\.\.\.props\.returnParams\}/)
+})
+
+test('active workstation tasks require a real employee assignment before completion', () => {
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending', roster_status: 'unattended' }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending' }, { employee_id: 0 }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'pending' }, { employee_id: 6 }), false)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'running' }), true)
+  assert.equal(workstationTaskRequiresSchedule({ status: 'running' }, { employee_id: 6 }), false)
+})
+
+test('work-order drawer never routes into a completed operation card', () => {
+  const source = readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
+  assert.match(source, /enterFirstWorkstation\(\)[\s\S]*find\(\(item\) => !\['completed', 'cancelled'\]\.includes\(item\.status\)\)/)
+  assert.match(source, /已完成，查看工序记录/)
+  assert.match(source, /work_order_id: Number\(row\.work_order_id \|\| props\.workOrderId \|\| 0\)/)
+  assert.match(source, /station_id: Number\(row\.workstation_id \|\| 0\)/)
 })
 
 test('completed or cancelled work orders are read-only in the shared detail drawer', () => {

@@ -85,6 +85,44 @@ func PlanOperationCompletion(in OperationCompletionInput) (OperationCompletionPl
 	return OperationCompletionPlan{OutputQty: in.ActualQty, Difference: in.ActualQty - in.PlannedQty, Warehouse: warehouse, CloseOperation: closeOperation, Saleable: in.Final && in.ReceiptEnabled}, nil
 }
 
+func IncompleteRoastingBOMReason(totalRatioPct float64) string {
+	if math.Abs(totalRatioPct-100) <= 0.001 {
+		return ""
+	}
+	return fmt.Sprintf("BOM 配料比例合计 %g%%，请在 BOM 中补齐后继续", totalRatioPct)
+}
+
+// Roasting consumes the frozen recipe against actual green-bean input. Output
+// yield is informational and must never scale the ingredient deductions.
+func ResolveRoastingMaterialUses(expected []OperationMaterialUse, actualInputQty float64, inputUnit string) ([]OperationMaterialUse, error) {
+	factor := OperationUnitFactor(inputUnit)
+	if factor <= 0 || math.IsNaN(actualInputQty) || math.IsInf(actualInputQty, 0) || actualInputQty < 0 {
+		return nil, fmt.Errorf("烘焙本批投料数量无效")
+	}
+	totalRatio := 0.0
+	for _, material := range expected {
+		totalRatio += material.RatioPct
+	}
+	if reason := IncompleteRoastingBOMReason(totalRatio); reason != "" {
+		return nil, fmt.Errorf("%s", reason)
+	}
+	out := append([]OperationMaterialUse(nil), expected...)
+	inputG := actualInputQty * factor
+	for i := range out {
+		unitFactor := OperationUnitFactor(out[i].Unit)
+		if out[i].RatioPct <= 0 || unitFactor <= 0 {
+			return nil, fmt.Errorf("烘焙 BOM 物料%s缺少有效配料比例或重量单位", out[i].Name)
+		}
+		out[i].Qty = roundRoastingMaterialQty(math.Max(0, inputG*out[i].RatioPct/100/unitFactor-out[i].ConsumedQty), unitFactor)
+		out[i].TotalQty = roundRoastingMaterialQty(inputG*out[i].RatioPct/100/unitFactor, unitFactor)
+	}
+	return out, nil
+}
+
+func roundRoastingMaterialQty(qty, unitFactor float64) float64 {
+	return math.Round(qty*unitFactor) / unitFactor
+}
+
 type OperationBatchBalance struct {
 	ID              int64   `json:"id"`
 	WorkOrderID     int64   `json:"work_order_id"`
@@ -143,6 +181,7 @@ func AllocateOperationHandoff(rows []OperationBatchBalance, qty float64, unit st
 }
 
 type OperationMaterialUse struct {
+	JobCardID       int64   `json:"job_card_id,omitempty"`
 	Key             string  `json:"key"`
 	ReservationID   int64   `json:"reservation_id"`
 	MaterialID      int64   `json:"material_id"`
@@ -161,33 +200,45 @@ type OperationMaterialUse struct {
 	WarehouseName   string  `json:"warehouse_name"`
 	OwnerCustomerID int64   `json:"owner_customer_id"`
 	NodeKey         string  `json:"node_key"`
+	RatioPct        float64 `json:"ratio_pct,omitempty"`
 }
 
 type OperationCompletionPreview struct {
-	ActualMinutes       int                     `json:"actual_minutes"`
-	CompletedOutputQty  float64                 `json:"completed_output_qty"`
-	MaxOutputQty        float64                 `json:"max_output_qty"`
-	Draft               json.RawMessage         `json:"draft"`
-	JobCardID           int64                   `json:"job_card_id"`
-	WorkOrderID         int64                   `json:"work_order_id"`
-	Version             string                  `json:"version"`
-	Enabled             bool                    `json:"enabled"`
-	Final               bool                    `json:"final"`
-	PredecessorRequired bool                    `json:"predecessor_required"`
-	Execution           OperationExecution      `json:"execution"`
-	OutputUnit          string                  `json:"output_unit"`
-	InputUnit           string                  `json:"input_unit"`
-	PlannedQty          float64                 `json:"planned_qty"`
-	TotalPlannedQty     float64                 `json:"total_planned_qty"`
-	InputQty            float64                 `json:"input_qty"`
-	ProductName         string                  `json:"product_name"`
-	OutputSpecG         int64                   `json:"output_spec_g"`
-	PackageSpecLabel    string                  `json:"package_spec_label"`
-	Warehouse           string                  `json:"warehouse"`
-	WarehouseName       string                  `json:"warehouse_name"`
-	Materials           []OperationMaterialUse  `json:"materials"`
-	PredecessorBatches  []OperationBatchBalance `json:"predecessor_batches"`
-	BlockedReason       string                  `json:"blocked_reason"`
+	LegacyExecution           bool                    `json:"legacy_execution,omitempty"`
+	LegacyPackaging           bool                    `json:"legacy_packaging,omitempty"`
+	OriginalBomVersionID      int64                   `json:"original_bom_version_id,omitempty"`
+	EffectiveBomVersionID     int64                   `json:"effective_bom_version_id,omitempty"`
+	BomRefreshPending         bool                    `json:"bom_refresh_pending,omitempty"`
+	BomRefreshReason          string                  `json:"bom_refresh_reason,omitempty"`
+	EffectiveMaterialSnapshot json.RawMessage         `json:"-"`
+	ActualMinutes             int                     `json:"actual_minutes"`
+	CompletedOutputQty        float64                 `json:"completed_output_qty"`
+	MaxOutputQty              float64                 `json:"max_output_qty"`
+	Draft                     json.RawMessage         `json:"draft"`
+	JobCardID                 int64                   `json:"job_card_id"`
+	WorkOrderID               int64                   `json:"work_order_id"`
+	BomID                     int64                   `json:"bom_id,omitempty"`
+	BomVersionID              int64                   `json:"bom_version_id,omitempty"`
+	OperationName             string                  `json:"operation_name,omitempty"`
+	RecipeRatioPct            float64                 `json:"recipe_ratio_pct,omitempty"`
+	Version                   string                  `json:"version"`
+	Enabled                   bool                    `json:"enabled"`
+	Final                     bool                    `json:"final"`
+	PredecessorRequired       bool                    `json:"predecessor_required"`
+	Execution                 OperationExecution      `json:"execution"`
+	OutputUnit                string                  `json:"output_unit"`
+	InputUnit                 string                  `json:"input_unit"`
+	PlannedQty                float64                 `json:"planned_qty"`
+	TotalPlannedQty           float64                 `json:"total_planned_qty"`
+	InputQty                  float64                 `json:"input_qty"`
+	ProductName               string                  `json:"product_name"`
+	OutputSpecG               int64                   `json:"output_spec_g"`
+	PackageSpecLabel          string                  `json:"package_spec_label"`
+	Warehouse                 string                  `json:"warehouse"`
+	WarehouseName             string                  `json:"warehouse_name"`
+	Materials                 []OperationMaterialUse  `json:"materials"`
+	PredecessorBatches        []OperationBatchBalance `json:"predecessor_batches"`
+	BlockedReason             string                  `json:"blocked_reason"`
 }
 
 func (s *Service) SaveOperationProgress(ctx context.Context, cmd JobCardActionCommand) (OperationCompletionPreview, error) {
@@ -200,16 +251,17 @@ func (s *Service) SaveOperationProgress(ctx context.Context, cmd JobCardActionCo
 }
 
 type OperationCompletionReceipt struct {
-	OutputWeightG float64                      `json:"output_weight_g"`
-	EventID       int64                        `json:"event_id"`
-	OutputQty     float64                      `json:"output_qty"`
-	OutputUnit    string                       `json:"output_unit"`
-	Warehouse     string                       `json:"warehouse"`
-	WarehouseName string                       `json:"warehouse_name"`
-	StockEntryIDs []int64                      `json:"stock_entry_ids"`
-	Handoffs      []OperationHandoffAllocation `json:"handoffs"`
-	Message       string                       `json:"message"`
-	EstimatedCost bool                         `json:"estimated_cost"`
+	OutputWeightG    float64                      `json:"output_weight_g"`
+	EventID          int64                        `json:"event_id"`
+	OutputQty        float64                      `json:"output_qty"`
+	OutputUnit       string                       `json:"output_unit"`
+	Warehouse        string                       `json:"warehouse"`
+	WarehouseName    string                       `json:"warehouse_name"`
+	StockEntryIDs    []int64                      `json:"stock_entry_ids"`
+	Handoffs         []OperationHandoffAllocation `json:"handoffs"`
+	Message          string                       `json:"message"`
+	InventoryWarning string                       `json:"inventory_warning,omitempty"`
+	EstimatedCost    bool                         `json:"estimated_cost"`
 }
 
 // Frozen weights are numeric snapshots. Display labels are never parsed.
