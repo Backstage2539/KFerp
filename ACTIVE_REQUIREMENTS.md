@@ -444,6 +444,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-730-PACKAGING-GROUPED-EXECUTION
+- Branch: `codex/packaging-grouped-execution-20261025`; base `origin/develop` 4457e1e536c23a36596869594707428eab7b6c82.
+- Owner/session: Codex / 2026-10-25.
+- Status: implementation and targeted unit/API/Vue gates pass; isolated browser acceptance, development delivery, clean-main production release, and authorized location repairs remain pending. Production verification stays read-only except the two explicitly authorized location corrections; no live completion/receipt.
+- Scope: group equivalent packaging tasks, show unique WIP/source availability, fix old singleton task quantity resolution and duplicate issue controls, atomic grouped completion, remove workstation replan action, repair confirmed batch locations and reservation warehouses.
+- DEV: DEV-PR730-01 grouping/readiness and old task quantity; DEV-PR730-02 grouped issue/completion; DEV-PR730-03 audited location correction and reservation migration; DEV-PR730-04 browser, manuals, release evidence.
+- Verifier: baseline RED captured at `/tmp/kferp-pr730-red`; Go application and PostgreSQL production package tests pass; targeted real-PostgreSQL HTTP completion/replay tests pass; Vue 1,611/1,611 and Vite production build pass; `git diff --check` pass. Still required: isolated old-shape four-work-order browser click flow, inventory/cost/audit reconciliation for authorized repairs, develop and clean-main release, and read-only production smoke.
+- Deployment: authorized to integrate/deploy develop and main after gates; production real work-order completion remains for site staff.
+- Last update: 2026-10-25
+
 ### ORDER-DRAWER-CLEANUP-20261022
 - Production follow-up: PR #244 merged, main/runtime 08a352704fcc9f3704345cdc0d312e0e18d638e9 deployed 2026-10-22 20:58 Asia/Shanghai via KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh production, exit0. Full server Vue1498/mini425/typecheck/build/Go/image-Go gates passed. Image sha256:ec163a32f6f47111ff334bbb17ecc237ac9ee573753067105fccae1864e71a01, restart_count0. Public bundles and manuals match container; protected anonymous API401, authenticated shell/requirements/docs200; DEV row visible. Real order117 read-only UI confirms sender, one A fee card and one bottom save. Orders115/117 snapshot hashes unchanged; development app start unchanged, both databases healthy. Backup /opt/stacks/erp-production/orderapp.backup.deploy-20261022205007-08a352704fcc; rollback image kferp-orderapp-rollback:production-20261022205007-08a352704fcc. No local miniapp export or WeChat upload; Van business acceptance pending. Release logs/production-runtime-smoke.json/production-bottom-save.png in evidence directory.
 - Branch: codex/order-drawer-cleanup-20261022; base origin/develop b28d91c7.

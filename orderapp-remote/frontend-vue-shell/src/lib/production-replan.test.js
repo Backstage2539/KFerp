@@ -22,9 +22,7 @@ test('unstarted demand replan is reviewed then opens one new draft', () => {
   assert.match(workspace, /原安排在最终确认前保持有效/)
 })
 
-test('workstation exposes replan only for pending tasks with plan identity', () => {
+test('workstation does not expose the replan action', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
-  assert.match(source, /\['pending','ready'\]\.includes\(task\.status\)/)
-  assert.match(source, /replan_plan_id/)
-  assert.match(source, /replan_item_id/)
+  assert.doesNotMatch(source, /openProductionReplan|replan_plan_id|replan_item_id|撤回并重新安排/)
 })

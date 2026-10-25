@@ -17,6 +17,36 @@ type workstationTaskIssueRequest struct {
 }
 
 func registerProductionWorkstationAPI(e *echo.Echo, productionSvc *productionapp.Service) {
+	e.POST("/api/production/workstation/completion/preview", func(c echo.Context) error {
+		var req struct {
+			JobCardIDs []int64 `json:"job_card_ids"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		result, err := productionSvc.PreviewOperationCompletionGroup(c.Request().Context(), req.JobCardIDs)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+	e.POST("/api/production/workstation/completion/submit", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		var cmd productionapp.OperationCompletionGroupCommand
+		if err := c.Bind(&cmd); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		cmd.EmployeeID = support.CurrentEmployeeID(c)
+		cmd.Operator = support.ActorOf(c)
+		cmd.AssignedEmployeeName = cmd.Operator
+		result, err := productionSvc.CompleteOperationGroup(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
 	e.POST("/api/production/workstation/material-issue/preview", func(c echo.Context) error {
 		var cmd productionapp.BatchMaterialIssueCommand
 		if err := c.Bind(&cmd); err != nil {
