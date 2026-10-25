@@ -25,12 +25,35 @@ Before correcting the three material and three packaging-batch location discrepa
 
 For the nine unfinished packaging work orders, use the work-order list's direct operation action. Where a completed upstream material work order leaves a shortage, use “关联补产” to preview same-owner free stock, other work-order reservations and in-flight/draft supply before creating the linked plan. Complete the supplement through the ordinary plan workflow, then continue the packaging operation. Actual output and warehouse placement remain site-entered actions.
 
+## Browser end-to-end follow-up
+
+The final browser acceptance uses a separately restored development database, `pr729_final`, on the internal-only Docker network `pr729-browser-isolated`, reached through a local SSH tunnel. No notification or logistics provider can be reached. The test employee and recipient are isolated fixtures. Business writes were performed by clicking the Vue pages, not by API scripts or SQL updates. SQL is used only for fixture setup and final read-only reconciliation.
+
+Browser order `SO-20261025-0001` (isolated ID 1638) contains 24 bags of 初晓, frozen 227g specification. The browser created and submitted plan `PP-0000000118`, then ran material work order `WO-PP-0000000118-0000000121` and packaging work order `WO-PP-0000000118-0000000120`:
+
+1. Create the order; save returns to the Vue order list.
+2. Create the plan, review material sources, set the roster and start the work orders. Transfer the missing 3,385g raw ingredient and 24 bags into WIP using normal stock-entry controls.
+3. Finish roast batch 1: 4.086kg, 30 minutes; automatically consume ingredients and receive into WIP (SE50/51).
+4. Finish packaging 1 bag, 227g actual input, 1 minute; automatically receive 1 finished bag (SE52/53), keep the operation active, and open Continue without taking over another employee's task.
+5. Finish roast batch 2: 1.362kg, 12 minutes; 846g remaining ingredient is accepted exactly (SE54/55).
+6. Continue packaging the remaining 23 bags, 5,221g input, 20 minutes, and finish the operation (SE56/57). Both work orders are completed and the order becomes production complete.
+7. Enter synthetic recipient/tracking `PR729-QA-20261025-0001` in the order, select shipped and save. The batch confirmation lists 1 + 23 units, without misleading 0g quantities.
+8. Read-only reconciliation confirms finished warehouse balance 0, both finished batches remaining 0, shipment deductions 1 + 23, and two `sales_order_shipment` ledger rows totaling -24 units. Packaging consumed 5,448g roast and 24 bags exactly once. Packaging labor totals 21 minutes and 12 currency units; roast labor totals 42 minutes and 71.4. Source documents and operation/order audits exist.
+
+The first shipping attempt exposed a real bug: status changed to shipped while all 24 bags remained. That screenshot is retained as RED, not passed acceptance. After fixing the ordinary order-save transaction, the isolated order was reset to unshipped through the browser and shipped again. The final read-only ledger reconciliation is GREEN. Inventory shortage rolls back the saved status, and repeated saved shipping state does not deduct twice.
+
+The requested inline receipt was separately clicked through on the cloned `WO-PP-0000000114-0000000116`: explicitly entered test quantity 4.54kg, split 3.4 + 1.14kg, and test reason; the current row reported receipt into WIP with SE58/59 and refreshed without navigating. The live work order was untouched. Actual quantity remains blank until a person supplies it. The dead drawer buttons and independent production-record/reconciliation module are removed; historical links return to work orders.
+
+Additional RED/GREEN cases found during browser acceptance cover split-gram rounding, small-batch suggested input, direct partial completion employee ownership, order production readiness, and clearing previous batch time/draft. Time subtraction handles both historical `ActualMinutes` and `actual_minutes` event payload keys. The API asserts the second batch suggests zero already-posted minutes.
+
+Final gates: all 1,604 Vue tests and Vite build pass; all Go packages pass without DB configuration; targeted `TestOperationCompletion*`/`TestLegacyProduction*` PostgreSQL API tests pass; `TestPR729OrderSaveShipmentDeductsActualFinishedStock` passes with actual batch, warehouse, insufficient-stock rollback and repeated-save checks. The broad historical DB-suite limitation above remains unchanged.
+
+Local evidence: `/private/tmp/pr729-browser-evidence/` contains screenshots `final-01-order.png`, `final-02-roast-first.png`, `final-03-partial-continue.png`, `final-04-all-received.png`, `final-06-shipment-posted.png`, `06-inline-receipt-complete.png`, and `final-reconcile-after-shipment.log`. Targeted RED/GREEN and full gate logs are `/private/tmp/pr729-*.log`. These are operational evidence locations, not application data.
+
 ## Release state
 
-Development deployment, clean-main integration, production deployment, runtime/static-asset verification and rollback anchors are pending. The release-equivalent Go suite, frontend suite/build, change checks, and targeted isolated database/API tests pass. Development verification must still use isolated data; production smoke remains read-only. Van's business acceptance is pending.
+PR #299 is merged into develop at `b6a226a1735f2e0c25e307e12490d721dec2393f` and the original development deployment passed. The inline receipt/browser fixes are being integrated as a follow-up before the clean-main PR #300 is released. Final deployed commits, backups and read-only smoke are recorded after release.
 
-The shared development/production host was checked read-only before preflight: its system disk is 60 GB with 3.8 GB free (94% used), below the agreed 6 GB minimum. Docker BuildKit cache is empty (0 B); 2.221 GB of reclaimable Docker images were left intact to preserve rollback images. The deploy lock was available, both app containers were running, and both PostgreSQL containers were healthy. No remote build or deployment was started. The initial capacity block was resolved under the user's subsequent cleanup authorization: 202 old rollback image tags from before 2026-10-23 were removed without force and only when their image was unused by every container. All newer rollback images, all source backups and database volumes were retained. Available space rose from 3.8 GB to 28 GB. Cleanup audit: `/root/pr729-image-cleanup-20261025172850.json`.
+The earlier disk gate was cleared under the user's cleanup authorization: unused old rollback images were removed while retaining running images, recent rollback anchors, database/volumes and source backups. The host has about 27GB free. Production pre-release backup `/opt/stacks/erp-production/backups/pr729-pre-release-20261025174556.dump` was validated. Production business checks remain read-only; site counts, actual batch positions and Van's business acceptance remain pending.
 
-## Integration continuation
-
-PR #299 merged to `develop` at `b6a226a1735f2e0c25e307e12490d721dec2393f`. Development deployment is running from a clean clone at that exact commit. The clean-main integration starts at `a4e838522ddd9540a188f59a35bafa715ca089c8` and cherry-picks only this change, retaining main-specific BOM fixes and prior acceptance evidence. On the integration tree, all Go tests without the optional test-database environment, all frontend tests/build, and isolated PostgreSQL completion/reconciliation/replenishment/location-repair tests passed. Production business data snapshots were recorded before release; no production business writes were performed.
+Clean-main integration starts at `a4e838522ddd9540a188f59a35bafa715ca089c8` and cherry-picks only PR-729 and the inline/browser follow-up, retaining main-specific BOM fixes and prior acceptance evidence. Cleanup audit: `/root/pr729-image-cleanup-20261025172850.json`.

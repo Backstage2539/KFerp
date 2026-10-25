@@ -1498,14 +1498,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	beforeAuditSummary := ""
 	var confirmationBefore *orderContentSnapshot
 	existingPortalServiceCode, existingSourceWarehouse := "", ""
+	var existingShipStatusID int64
 	if editID > 0 {
 		var lockedCustomerID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT id, order_no, COALESCE(customer_id,0), COALESCE(portal_service_code,''), COALESCE(source_warehouse,'')
+			SELECT id, order_no, COALESCE(customer_id,0), COALESCE(portal_service_code,''), COALESCE(source_warehouse,''), COALESCE(ship_status_id,0)
 			FROM %s.orders
 			WHERE id=$1
 			FOR UPDATE
-		`, r.schema), editID).Scan(&orderID, &orderNo, &lockedCustomerID, &existingPortalServiceCode, &existingSourceWarehouse); err != nil {
+		`, r.schema), editID).Scan(&orderID, &orderNo, &lockedCustomerID, &existingPortalServiceCode, &existingSourceWarehouse, &existingShipStatusID); err != nil {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("invalid edit_id")
 		}
 		var storedMode string
@@ -3121,6 +3122,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	if !cmd.RequireConfirmation {
 		if err := r.applyOrderStockDecisionTx(ctx, tx, orderID, stockItems, stockDecision, cmd.Actor); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
+	if !cmd.RequireConfirmation && mode == "ship" {
+		if err := r.applySavedOrderShipmentTx(ctx, tx, orderID, existingShipStatusID, shipStatusID, cmd.Actor); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}

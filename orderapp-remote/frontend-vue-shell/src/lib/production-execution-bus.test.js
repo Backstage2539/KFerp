@@ -70,13 +70,12 @@ test('production flow embeds work order records without a standalone reconciliat
   assert.doesNotMatch(source, /生产记录与核对/)
   assert.doesNotMatch(source, /生产验收/)
 
-  const receipt = read('../views/ProductionRecordsView.vue')
-  assert.match(receipt, /完成工序即自动用料、交接或入库/)
-  assert.match(receipt, /旧单核对/)
-  assert.match(receipt, /核对并补齐记录/)
+  const receipt = read('../components/WorkOrderReceiptForm.vue')
+  assert.match(receipt, /确认数量并入库/)
   assert.match(receipt, /已入库/)
-  assert.match(read('../components/ProductionExecutionHubDrawer.vue'), /ProductionRecordsView/)
-  assert.doesNotMatch(receipt, /acceptance-smoke/)
+  assert.match(receipt, /legacy-review\/submit/)
+  assert.doesNotMatch(read('../components/ProductionExecutionHubDrawer.vue'), /ProductionRecordsView|去完工入库|showReceiptRecords/)
+  assert.doesNotMatch(receipt.slice(0, receipt.indexOf('<script setup>')), /完成记录|旧单核对|acceptance-smoke/)
 
   const operationRecords = read('../views/JobCardsView.vue')
   const menu = read('./menu-ia.js')

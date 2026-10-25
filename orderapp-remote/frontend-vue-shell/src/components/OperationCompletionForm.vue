@@ -10,7 +10,7 @@
       <fieldset :disabled="busy || retry.uncertain || !!success">
         <div class="fields">
           <label>{{ completionQuantityLabel(preview.output_unit) }}<input v-model="draft.actual_output_qty" type="number" min="0" :step="weightUnit(preview.output_unit) ? 'any' : '1'" @input="outputChanged" /><small>本工序剩余参考 {{ preview.planned_qty }} {{ preview.output_unit }} · 当前可完成 {{ preview.max_output_qty ?? preview.planned_qty }} {{ preview.output_unit }} · 已完成 {{ preview.completed_output_qty || 0 }} {{ preview.output_unit }}</small></label>
-          <label>实际投入（{{ preview.input_unit }}）<input v-model="draft.actual_input_qty" type="number" min="0" :step="weightUnit(preview.input_unit) ? 'any' : '1'" /></label>
+          <label>实际投入（{{ preview.input_unit }}）<input v-model="draft.actual_input_qty" type="number" min="0" :step="weightUnit(preview.input_unit) ? 'any' : '1'" @input="inputEdited = true" /></label>
           <label>实际工时（分钟，可选）<input v-model="draft.actual_minutes" type="number" min="0" step="1" /><small>未填写时，标准工时成本暂估</small></label>
           <label>产量差异原因<input v-model="draft.difference_reason" placeholder="超产、少产或无产出的实际原因" /></label>
         </div>
@@ -28,15 +28,15 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import { completionDraft, completionPayload, progressPayload, completionQuantityLabel, completionRetry, suggestedMaterialQty, weightUnit } from '../lib/operation-completion.js'
+import { completionDraft, completionPayload, progressPayload, completionQuantityLabel, completionRetry, suggestedMaterialQty, suggestedInputQty, weightUnit } from '../lib/operation-completion.js'
 const props=defineProps({jobCardId:{type:Number,required:true}})
 const emit=defineEmits(['close','posted','next'])
-const saved=ref('')
+const saved=ref(''),inputEdited=ref(false)
 const preview=ref(null),draft=reactive({materials:[]}),busy=ref(false),error=ref(''),success=ref(''),result=ref(null)
 const retry=reactive(completionRetry())
 async function refresh(){busy.value=true;error.value='';try{const p=await apiGet(`/api/job-cards/${props.jobCardId}/completion-preview`);const previous=preview.value;preview.value=p;if(!previous)Object.assign(draft,completionDraft(p));else{draft.materials=p.materials.map(row=>{const entered=draft.materials.find(m=>m.reservation_id===row.reservation_id);return {...row,...(entered?{qty:entered.qty,edited:true}:{})}})}retry.clear()}catch(e){error.value=e.message}finally{busy.value=false}}
 function suggestUsage(){if(!preview.value?.planned_qty)return;for(const row of draft.materials){if(row.edited)continue;const original=preview.value.materials.find(x=>x.reservation_id===row.reservation_id);if(original)row.qty=suggestedMaterialQty(preview.value,original,Number(draft.actual_output_qty))}}
-function outputChanged(){const qty=Number(draft.actual_output_qty);draft.finish_operation=qty>=Number(preview.value?.planned_qty||0);suggestUsage()}
+function outputChanged(){const qty=Number(draft.actual_output_qty);if(!inputEdited.value)draft.actual_input_qty=suggestedInputQty(preview.value,qty);draft.finish_operation=qty>=Number(preview.value?.planned_qty||0);suggestUsage()}
 async function saveProgress(){busy.value=true;error.value='';try{const payload=progressPayload(preview.value,draft);const p=await apiSend(`/api/job-cards/${props.jobCardId}/progress`,{body:payload});preview.value=p;error.value='';saved.value='进度已保存，库存未改变';success.value='';}catch(e){error.value=e.message}finally{busy.value=false}}
 async function complete(){busy.value=true;error.value='';try{const payload=retry.begin(completionPayload(preview.value,draft,''),()=>crypto.randomUUID());const data=await apiSend(`/api/job-cards/${props.jobCardId}/complete`,{body:payload});result.value=data.completion;success.value=data.completion?.message || '完成记录已保存';retry.clear();emit('posted',data)}catch(e){retry.fail(e);error.value=retry.uncertain?'尚未收到完成结果。输入已保留，请重试原次完成，系统不会重复扣料。':e.message}finally{busy.value=false}}
 onMounted(refresh)

@@ -4,19 +4,23 @@ export function routeExecution(op = {}, last = false, fallbackKey = '') {
   return { version: 1, node_key: fallbackKey, receipt_enabled: last, receipt_warehouse: '', source_warehouse: 'wip', output_unit: last ? '' : 'g', ...saved }
 }
 export function completionQuantityLabel(unit) { return unit === '袋' ? '本次完成袋数' : `本次完成数量（${unit || '-'}）` }
+function ledgerWeight(qty,unit) {
+  const factor={g:1,'克':1,kg:1000,'千克':1000,'公斤':1000,mg:.001,'毫克':.001}[String(unit).toLowerCase()]
+  return factor ? Math.round(qty*factor)/factor : qty
+}
 export function suggestedMaterialQty(preview, material, batchOutputQty = preview?.planned_qty || 0) {
   const total = Number(material?.total_qty || 0)
   const planned = Number(preview?.total_planned_qty || 0)
   if (total > 0 && planned > 0) {
     const cumulative = Number(preview?.completed_output_qty || 0) + Number(batchOutputQty || 0)
     const target = weightUnit(material.unit)
-      ? Math.round(total * Math.min(1, cumulative / planned) * 1e6) / 1e6
+      ? ledgerWeight(total * Math.min(1, cumulative / planned),material.unit)
       : Math.ceil(total * Math.min(1, cumulative / planned) - 1e-9)
-    return Math.max(0, target - Number(material.consumed_qty || 0))
+    return ledgerWeight(Math.max(0, target - Number(material.consumed_qty || 0)),material.unit)
   }
   const ratio = Number(preview?.planned_qty || 0) > 0 ? Number(batchOutputQty || 0) / Number(preview.planned_qty) : 0
   const required = Number(material?.qty || 0) * Math.max(0, ratio)
-  return weightUnit(material.unit) ? Math.round(required * 1e6) / 1e6 : Math.ceil(required - 1e-9)
+  return weightUnit(material.unit) ? ledgerWeight(required,material.unit) : Math.ceil(required - 1e-9)
 }
 export function suggestedInputQty(preview, batchOutputQty = preview?.max_output_qty ?? preview?.planned_qty ?? 0) {
   const input = Number(preview?.input_qty || 0)
@@ -31,7 +35,7 @@ export function suggestedInputQty(preview, batchOutputQty = preview?.max_output_
   if (inputFactor && !outputFactor && Number(preview?.output_spec_g || 0) > 0) {
     return Math.round(output * Number(preview.output_spec_g) / inputFactor * 1e6) / 1e6
   }
-  return input
+  return Math.round(input * output / planned * 1e6) / 1e6
 }
 export function completionDraft(preview) {
   const maxOutput = Number.isFinite(Number(preview.max_output_qty)) ? Math.min(Number(preview.planned_qty || 0), Number(preview.max_output_qty)) : Number(preview.planned_qty || 0)

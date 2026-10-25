@@ -130,7 +130,7 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 		return out, err
 	}
 	var priorEventMinutes int
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(COALESCE(NULLIF(payload->>'actual_minutes','')::int,0)),0) FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, r.schema), cmd.ID).Scan(&priorEventMinutes); err != nil {
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(COALESCE(NULLIF(payload->>'actual_minutes','')::int,NULLIF(payload->>'ActualMinutes','')::int,0)),0) FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, r.schema), cmd.ID).Scan(&priorEventMinutes); err != nil {
 		return out, err
 	}
 	actualMinutes := cmd.ActualMinutes
@@ -268,7 +268,7 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT actual_input_qty::float8,actual_output_qty::float8,actual_loss_qty::float8,actual_minutes,actual_operation_cost::float8 FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&priorInput, &priorOutput, &priorLoss, &priorMinutes, &priorCost); err != nil {
 		return out, err
 	}
-	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status=$10,completed_at=CASE WHEN $10='completed' THEN now() ELSE NULL END,operator=$2,actual_input_qty=$3,actual_output_qty=$4,actual_loss_qty=$5,actual_minutes=$6,actual_operation_cost=$7,exception_reason=$8,metrics_json=metrics_json||$9::jsonb,completion_draft=CASE WHEN $10='completed' THEN '{}'::jsonb ELSE completion_draft END WHERE id=$1`, r.schema), cmd.ID, cmd.Operator, priorInput+cmd.ActualInputQty, priorOutput+cmd.ActualOutputQty, priorLoss+loss, priorMinutes+actualMinutes, priorCost+opCost, cmd.DifferenceReason, string(metricsRaw), nextStatus); err != nil {
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET assigned_employee_id=CASE WHEN status IN ('pending','ready') THEN $11 ELSE assigned_employee_id END,assigned_to=CASE WHEN status IN ('pending','ready') THEN $12 ELSE assigned_to END,assigned_employee_name=CASE WHEN status IN ('pending','ready') THEN $12 ELSE assigned_employee_name END,status=$10,completed_at=CASE WHEN $10='completed' THEN now() ELSE NULL END,operator=$2,actual_input_qty=$3,actual_output_qty=$4,actual_loss_qty=$5,actual_minutes=$6,actual_operation_cost=$7,exception_reason=$8,metrics_json=metrics_json||$9::jsonb,completion_draft='{}'::jsonb WHERE id=$1`, r.schema), cmd.ID, cmd.Operator, priorInput+cmd.ActualInputQty, priorOutput+cmd.ActualOutputQty, priorLoss+loss, priorMinutes+actualMinutes, priorCost+opCost, cmd.DifferenceReason, string(metricsRaw), nextStatus, cmd.EmployeeID, firstNonEmpty(cmd.AssignedEmployeeName, cmd.Operator)); err != nil {
 		return out, err
 	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_operation_events SET material_cost=$2 WHERE id=$1`, r.schema), receipt.EventID, materialCost); err != nil {
@@ -338,6 +338,15 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	return out, tx.Commit(ctx)
 }
 
+// Material stock is posted in whole grams. Keep previews, event payloads and costs
+// at the same precision as the ledger, including user-adjusted quantities.
+func operationLedgerQuantity(qty float64, unit string) float64 {
+	if factor := app.OperationUnitFactor(unit); factor > 0 {
+		return math.Round(qty*factor) / factor
+	}
+	return qty
+}
+
 func resolveOperationMaterialUses(expected, submitted []app.OperationMaterialUse, actual, planned, totalPlanned, completed float64) ([]app.OperationMaterialUse, error) {
 	out := append([]app.OperationMaterialUse(nil), expected...)
 	if submitted == nil {
@@ -348,7 +357,7 @@ func resolveOperationMaterialUses(expected, submitted []app.OperationMaterialUse
 				if app.OperationUnitFactor(out[i].Unit) == 0 {
 					target = math.Ceil(target - 1e-9)
 				}
-				out[i].Qty = math.Max(0, target-out[i].ConsumedQty)
+				out[i].Qty = math.Max(0, operationLedgerQuantity(target, out[i].Unit)-out[i].ConsumedQty)
 			} else {
 				factor := 1.0
 				if planned > 0 {
@@ -359,6 +368,7 @@ func resolveOperationMaterialUses(expected, submitted []app.OperationMaterialUse
 					out[i].Qty = math.Ceil(out[i].Qty)
 				}
 			}
+			out[i].Qty = operationLedgerQuantity(out[i].Qty, out[i].Unit)
 		}
 		return out, nil
 	}
@@ -380,7 +390,7 @@ func resolveOperationMaterialUses(expected, submitted []app.OperationMaterialUse
 				if err := app.ValidateOperationQuantity(given.Qty, row.Unit); err != nil {
 					return nil, err
 				}
-				out[i].Qty = given.Qty
+				out[i].Qty = operationLedgerQuantity(given.Qty, row.Unit)
 				found = true
 				break
 			}
@@ -445,6 +455,17 @@ func (r Repository) finishOperationWorkOrderTx(ctx context.Context, tx pgx.Tx, w
 		}
 		if err = completeProductionPlanIfAllWorkOrdersDoneTx(ctx, tx, r.schema, wo.ProductionPlanID, actor); err != nil {
 			return err
+		}
+		for _, orderNo := range splitOrderNos(wo.OrderNos) {
+			order, changed, e := completeOrderIfAllRunningDone(ctx, tx, r.schema, orderNo)
+			if e != nil {
+				return e
+			}
+			if changed {
+				if e = infra.AuditInsertTx(ctx, tx, r.schema, actor, "order", &order.OrderID, "production_complete", infra.StrPtr("process_status"), nil, infra.StrPtr("生产完成"), infra.AuditMeta{"work_order_id": wo.ID, "order_no": order.OrderNo}); e != nil {
+					return e
+				}
+			}
 		}
 	}
 	return nil

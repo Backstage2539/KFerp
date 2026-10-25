@@ -15,7 +15,7 @@ func TestDev533ProductionFlowPageContracts(t *testing.T) {
 			"生产流程", "生产计划", "生产工单", "工序记录", "生产质检",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"): {
-			"key: 'productionFlow', label: '生产流程'", "productionAcceptance: '生产记录与核对'", "key: 'productionManual', label: '生产手册'",
+			"key: 'productionFlow', label: '生产流程'", "productionAcceptance: '生产工单'", "key: 'productionManual', label: '生产手册'",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"):                                  {"PR-533-PRODUCTION-FLOW-PAGE"},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                              {"PR-533-PRODUCTION-FLOW-PAGE"},

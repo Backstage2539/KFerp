@@ -98,6 +98,15 @@ test('closed tasks need no new staff and an empty order is not ready for receipt
   assert.equal(state.workOrderTodo(order(1, [])).title, '等待生成工序任务')
 })
 
+test('receipt starts inline on its work-order row without opening the detail drawer or navigating', async () => {
+  const { state, events } = await setup()
+  const row = order(64, ops.map(item => ({ ...item, status: 'completed' })), 'partially_completed')
+  state.openPrimaryAction(row)
+  assert.equal(state.executionHub.value.open, false)
+  assert.equal(state.receiptWorkOrderID.value, 64)
+  assert.equal(events.length, 0)
+})
+
 test('running tasks retain execution state and handover matches only this task', async () => {
   const data = roster(); data.assignments[0].handover_task_ids = [99]
   const { state } = await setup(async () => data)
