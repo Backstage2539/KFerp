@@ -19,4 +19,13 @@
 
 ## 验收边界
 
-开发环境浏览器验收、合并和部署状态待补充。生产工单没有被写入；真实补料、数据修复及业务验收留给现场人员与 Van。
+## 开发环境交付证据
+
+- 代码已合入 `develop`：`ca71a75b797ee097c62944b9324690444e595715`；`origin/develop` 指向同一提交。
+- 部署命令：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`，脚本预检和部署成功。
+- 回滚锚点：源目录 `/opt/stacks/erp/orderapp.backup.deploy-20261026011914-ca71a75b797e`；镜像 `kferp-orderapp-rollback:development-20261026011914-ca71a75b797e`。
+- 运行状态：`erp_orderapp` running、`erp_postgres` healthy；根盘可用约 18 GB，未清理缓存。
+- HTTP：`/app/login` 200、`/app/` 303、`/app/vue-shell?view=productionFlow` 200。部署静态资源为 `ProductionFlowView-7GvqZEy3.js`，包含直接入库的新帮助说明；生产操作手册已同步到开发服务器。
+- 浏览器只读查看开发环境工单列表，确认目标工单展示“确认数量并入库”及更新后的帮助文字。没有点击写入按钮：此工单不是隔离测试数据，避免改动实际库存。API 隔离数据库测试已验证 5.6 kg 只生成成品入库、没有再次扣原料。
+
+生产工单没有被写入，也没有部署生产。独立浏览器隔离数据的按钮点击验收仍待完成；生产发布继续以该验收为门槛。真实补料、数据修复及业务验收留给现场人员与 Van。

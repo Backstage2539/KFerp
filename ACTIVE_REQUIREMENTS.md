@@ -6208,7 +6208,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-731-PRODUCTION-COMPLETION-SIMPLE
 - Branch: `codex/production-completion-simple-20261025`, based on latest `origin/develop` at `7f77b824c`.
 - Scope: direct receipt from recorded completed output; simplified roasting completion to output-only form; auto-use from actual frozen batch input/BOM; explicit incomplete-BOM block; plan preparation shortage/replenishment entry; preserve grouped packaging.
-- Status: implementation and local verification complete. Targeted Vue 41/41, full Vue 1612/1612, full Go `go test ./...`, Vite production build, and changed-file checks are green. Development integration, isolated-data browser acceptance, and requested flow regression remain pending; main/production are gated on browser acceptance.
+- Receipt fix branch: `codex/legacy-completed-output-receipt-only`.
+- Status: receipt-only fix verified and integrated to `develop` at `ca71a75b797ee097c62944b9324690444e595715`; development deployment complete. Read-only browser confirms the target work-order action/help text. The real work order was not submitted; isolated-data browser click-through and broader requested flow regression remain pending. Main/production are gated on browser acceptance.
 - Development precheck: root disk 22 GB available (62% used), deployment lock free, development app and PostgreSQL containers running. No cache cleanup needed.
 - Production boundary: no business writes. Production checks remain read-only.
-- Evidence: `orderapp-remote/docs/acceptance/2026-10-25-production-completion-simple.md`.
+- Development deployment: `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`; app running, PostgreSQL healthy, `/app/login` 200, `/app/` 303, Vue shell route 200. Bundle `ProductionFlowView-7GvqZEy3.js` and production manual present. Rollback source `/opt/stacks/erp/orderapp.backup.deploy-20261026011914-ca71a75b797e`; image `kferp-orderapp-rollback:development-20261026011914-ca71a75b797e`; root free space about 18 GB, no cache cleanup.
+- Browser/API boundary: browser inspection was read-only. Isolated PostgreSQL/API test verified direct receipt of recorded output without additional material consumption; no click-through on the non-isolated target work order.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-25-production-completion-simple.md`; `orderapp-remote/docs/acceptance/2026-10-26-legacy-output-receipt-only.md`.
