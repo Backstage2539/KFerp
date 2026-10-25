@@ -30,8 +30,8 @@ async function setup(getRoster = async () => roster()) {
     },
     apiSend: async (path, options = {}) => {
       sends.push({ path, body: structuredClone(options.body || {}) })
-      if (path === '/api/production/legacy-review/preview') return { rows: [{ work_order_id: 64, version: 'v64' }] }
-      if (path === '/api/produce/work-orders/64/receive-completed-output') return { completion: { message: '已直接入库', output_qty: 5.6, output_unit: 'kg', stock_entry_ids: [640] } }
+      if (path === '/api/production/legacy-review/preview') return { rows: [{ work_order_id: 64, version: 'v64', review_blocked_reason: '历史耗料流水不完整', receipt_blocked_reason: '' }] }
+      if (path === '/api/produce/work-orders/64/receive-completed-output') return { completion: { message: '已直接入库', output_qty: 5.6, output_unit: 'kg', stock_entry_ids: [640], inventory_warning: '本次没有再次扣料' } }
       throw new Error(`Unexpected business write: ${path}`)
     },
   }
@@ -112,6 +112,7 @@ test('receipt button posts saved output directly without opening another form or
   assert.equal(sends[1].path, '/api/produce/work-orders/64/receive-completed-output')
   assert.deepEqual(Object.keys(sends[1].body).sort(), ['expected_version', 'request_id'])
   assert.match(state.receiptMessage.value, /5\.6 kg/)
+  assert.match(state.receiptMessage.value, /没有再次扣料/)
   assert.equal(events.length, 0)
 })
 

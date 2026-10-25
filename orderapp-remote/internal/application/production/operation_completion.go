@@ -246,16 +246,17 @@ func (s *Service) SaveOperationProgress(ctx context.Context, cmd JobCardActionCo
 }
 
 type OperationCompletionReceipt struct {
-	OutputWeightG float64                      `json:"output_weight_g"`
-	EventID       int64                        `json:"event_id"`
-	OutputQty     float64                      `json:"output_qty"`
-	OutputUnit    string                       `json:"output_unit"`
-	Warehouse     string                       `json:"warehouse"`
-	WarehouseName string                       `json:"warehouse_name"`
-	StockEntryIDs []int64                      `json:"stock_entry_ids"`
-	Handoffs      []OperationHandoffAllocation `json:"handoffs"`
-	Message       string                       `json:"message"`
-	EstimatedCost bool                         `json:"estimated_cost"`
+	OutputWeightG    float64                      `json:"output_weight_g"`
+	EventID          int64                        `json:"event_id"`
+	OutputQty        float64                      `json:"output_qty"`
+	OutputUnit       string                       `json:"output_unit"`
+	Warehouse        string                       `json:"warehouse"`
+	WarehouseName    string                       `json:"warehouse_name"`
+	StockEntryIDs    []int64                      `json:"stock_entry_ids"`
+	Handoffs         []OperationHandoffAllocation `json:"handoffs"`
+	Message          string                       `json:"message"`
+	InventoryWarning string                       `json:"inventory_warning,omitempty"`
+	EstimatedCost    bool                         `json:"estimated_cost"`
 }
 
 // Frozen weights are numeric snapshots. Display labels are never parsed.
