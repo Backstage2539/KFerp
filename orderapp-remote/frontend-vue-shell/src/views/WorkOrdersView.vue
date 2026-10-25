@@ -516,14 +516,14 @@ async function receiveRecordedOutput(row) {
       const preview=await apiSend('/api/production/legacy-review/preview',{body:{work_order_ids:[id]}})
       const review=(preview.rows||[]).find(item=>Number(item.work_order_id)===id)
       if(!review)throw new Error('本单没有待入库的已完成数量，请刷新工单列表')
-      if(review.review_blocked_reason)throw new Error(review.review_blocked_reason)
+      if(review.receipt_blocked_reason)throw new Error(review.receipt_blocked_reason)
       attempt=recordedOutputReceiptPayload(review.version,crypto.randomUUID())
       receiptAttempts.set(attemptKey,attempt)
       saveRecordedOutputReceiptAttempt(window.sessionStorage,id,attempt)
     }
     const result=await apiSend(`/api/produce/work-orders/${id}/receive-completed-output`,{body:attempt})
     const completion=result.completion||{}
-    receiptMessage.value=`${row.work_order_no}：${completion.message||'入库成功'} · ${completion.output_qty??''} ${completion.output_unit||''} · 单据 ${(completion.stock_entry_ids||[]).join('、')}`
+    receiptMessage.value=`${row.work_order_no}：${completion.message||'入库成功'} · ${completion.output_qty??''} ${completion.output_unit||''} · 单据 ${(completion.stock_entry_ids||[]).join('、')}${completion.inventory_warning?` · ${completion.inventory_warning}`:''}`
     receiptAttempts.delete(attemptKey)
     clearRecordedOutputReceiptAttempt(window.sessionStorage,id)
     await load()

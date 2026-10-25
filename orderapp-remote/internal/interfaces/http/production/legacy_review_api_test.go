@@ -8,6 +8,7 @@ import (
 	app "orderapp/internal/application/production"
 	stockapp "orderapp/internal/application/stock"
 	stockrepo "orderapp/internal/infrastructure/postgres/stock"
+	"strings"
 	"testing"
 )
 
@@ -45,11 +46,55 @@ func TestRecordedOutputReceiptUsesSavedQuantityAndReplaysAfterItLeavesPendingLis
 		t.Fatalf("recorded output was overwritten: got %g want 14", actual)
 	}
 	state := loadProductCompletionAtomicityState(t, ctx, pool, schema, woID, runID)
-	if state.FinishedInventoryUnits != 14 || state.FinishedReceiptCount != 1 || state.ReservationConsumedG != 22_700 || state.ReservationConsumedUnits != 100 {
+	if state.FinishedInventoryUnits != 14 || state.FinishedReceiptCount != 1 || state.ReservationConsumedG != 0 || state.ReservationConsumedUnits != 0 {
 		t.Fatalf("direct receipt state %+v", state)
 	}
 	assertProductionFlowCount(t, pool, schema, "production_operation_events", "status='posted'", 1)
-	assertProductionFlowCount(t, pool, schema, "audit_logs", "action='legacy_reconcile'", 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", "action='recorded_output_receipt'", 1)
+}
+
+func TestRecordedOutputReceiptDoesNotReconsumeMaterialsWhenWIPIsShort(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, runID := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72892)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %[1]s.work_orders SET output_qty=5.6,output_unit='kg',inventory_unit='kg',planned_inventory_qty=5.6 WHERE id=%[2]d;
+UPDATE %[1]s.job_cards SET actual_output_qty=5.6,metrics_json='{"quantity_basis":"inventory_unit","inventory_unit":"kg"}' WHERE work_order_id=%[2]d;
+UPDATE %[1]s.material_batch_locations SET qty_g=22520 WHERE material_id=10 AND warehouse='wip';
+UPDATE %[1]s.materials SET onhand_g=22520 WHERE id=10`, schema, woID))
+	before := loadProductCompletionAtomicityState(t, ctx, pool, schema, woID, runID)
+	preview := serveMultilevelProductionJSON(t, e, http.MethodPost, "/api/production/legacy-review/preview", map[string]any{"work_order_ids": []int64{woID}})
+	if preview.Code != http.StatusOK {
+		t.Fatalf("preview %d %s", preview.Code, preview.Body.String())
+	}
+	var body struct {
+		Rows []app.LegacyReview `json:"rows"`
+	}
+	if err := json.Unmarshal(preview.Body.Bytes(), &body); err != nil || len(body.Rows) != 1 {
+		t.Fatalf("recorded output preview %s (%v)", preview.Body.String(), err)
+	}
+	payload := map[string]any{"expected_version": body.Rows[0].Version, "request_id": "recorded-output-short-wip-72892"}
+	result := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/receive-completed-output", woID), payload)
+	if result.Code != http.StatusOK {
+		t.Fatalf("direct receipt must not require raw WIP stock after the job card is complete: %s", result.Body.String())
+	}
+	var receiptBody struct {
+		Completion app.OperationCompletionReceipt `json:"completion"`
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &receiptBody); err != nil {
+		t.Fatalf("decode direct receipt: %s (%v)", result.Body.String(), err)
+	}
+	if receiptBody.Completion.OutputQty != 5.6 || receiptBody.Completion.OutputUnit != "kg" || !strings.Contains(receiptBody.Completion.InventoryWarning, "没有再次扣料") {
+		t.Fatalf("receipt must return saved output and historical material warning: %+v", receiptBody.Completion)
+	}
+	after := loadProductCompletionAtomicityState(t, ctx, pool, schema, woID, runID)
+	if after.FinishedInventoryG-before.FinishedInventoryG != 5600 || after.FinishedReceiptCount-before.FinishedReceiptCount != 1 {
+		t.Fatalf("saved completed output was not received exactly once: before=%+v after=%+v", before, after)
+	}
+	if after.MaterialLocationG != before.MaterialLocationG || after.ReservationConsumedG != before.ReservationConsumedG || after.ReservationConsumedUnits != before.ReservationConsumedUnits {
+		t.Fatalf("receipt must not reconsume or rewrite WIP materials: before=%+v after=%+v", before, after)
+	}
+	assertProductionFlowCount(t, pool, schema, "stock_entries", "purpose='material_consumption_for_manufacture' AND status='submitted'", 0)
+	assertProductionFlowCount(t, pool, schema, "stock_entries", "entry_type='finished_receipt' AND status='submitted'", 1)
 }
 
 func TestLegacyReviewAPICreditsExistingConsumption(t *testing.T) { testLegacyReview(t, true, false) }

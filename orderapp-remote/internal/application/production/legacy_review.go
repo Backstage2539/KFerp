@@ -11,9 +11,10 @@ type LegacyReviewMaterial struct {
 }
 type LegacyReview struct {
 	FinishedReceiptTask
-	Materials           []LegacyReviewMaterial `json:"materials"`
-	Version             string                 `json:"version"`
-	ReviewBlockedReason string                 `json:"review_blocked_reason"`
+	Materials            []LegacyReviewMaterial `json:"materials"`
+	Version              string                 `json:"version"`
+	ReviewBlockedReason  string                 `json:"review_blocked_reason"`
+	ReceiptBlockedReason string                 `json:"receipt_blocked_reason"`
 }
 type LegacyReviewItem struct {
 	WorkOrderID        int64                  `json:"work_order_id"`
