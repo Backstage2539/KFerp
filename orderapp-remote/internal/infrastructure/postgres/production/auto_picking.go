@@ -431,7 +431,7 @@ func restorePickingAdjustmentsTx(ctx context.Context, tx pgx.Tx, schema string, 
 // frozen WIP quantity. Stock reserved elsewhere cannot make a work order ready.
 func automaticWorkOrderWIPStatusTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (app.ProductionWIPStatus, error) {
 	out := app.ProductionWIPStatus{DataComplete: true, Status: "ok", Materials: []app.WIPReservationRow{}}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT r.id,r.material_id,r.material_name,r.unit,r.required_g,r.required_units,r.consumed_g,r.consumed_units,r.reserved_g,r.reserved_units,COALESCE(q.g,0)::bigint,COALESCE(q.n,0)::bigint
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT r.id,r.material_id,COALESCE(NULLIF(r.component_type,''),'material'),COALESCE(NULLIF(r.component_id,0),r.material_id),r.component_bom_spec_id,r.component_bom_variant_id,r.component_spec_g,r.material_name,r.unit,r.required_g,r.required_units,r.consumed_g,r.consumed_units,r.reserved_g,r.reserved_units,COALESCE(q.g,0)::bigint,COALESCE(q.n,0)::bigint,COALESCE(r.source_owner_customer_id,0),COALESCE(NULLIF(r.source_warehouse,''),'wip')
  FROM %[1]s.work_order_material_reservations r
  LEFT JOIN LATERAL(
   SELECT SUM(LEAST(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g),GREATEST(0,CASE WHEN b.component_type='product' THEN sb.remaining_g ELSE l.qty_g END))) g,
@@ -449,7 +449,7 @@ func automaticWorkOrderWIPStatusTx(ctx context.Context, tx pgx.Tx, schema string
 	defer rows.Close()
 	for rows.Next() {
 		var row app.WIPReservationRow
-		if err = rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.Unit, &row.RequiredG, &row.RequiredUnits, &row.ConsumedG, &row.ConsumedUnits, &row.ReservedG, &row.ReservedUnits, &row.AvailableG, &row.AvailableUnits); err != nil {
+		if err = rows.Scan(&row.ID, &row.MaterialID, &row.ItemType, &row.ItemID, &row.BomSpecID, &row.BomVariantID, &row.SpecG, &row.MaterialName, &row.Unit, &row.RequiredG, &row.RequiredUnits, &row.ConsumedG, &row.ConsumedUnits, &row.ReservedG, &row.ReservedUnits, &row.AvailableG, &row.AvailableUnits, &row.OwnerCustomerID, &row.SourceWarehouse); err != nil {
 			return out, err
 		}
 		row.WorkOrderID = id

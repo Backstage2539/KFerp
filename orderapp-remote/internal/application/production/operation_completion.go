@@ -143,6 +143,7 @@ func AllocateOperationHandoff(rows []OperationBatchBalance, qty float64, unit st
 }
 
 type OperationMaterialUse struct {
+	JobCardID       int64   `json:"job_card_id,omitempty"`
 	Key             string  `json:"key"`
 	ReservationID   int64   `json:"reservation_id"`
 	MaterialID      int64   `json:"material_id"`
@@ -164,6 +165,7 @@ type OperationMaterialUse struct {
 }
 
 type OperationCompletionPreview struct {
+	LegacyPackaging     bool                    `json:"legacy_packaging,omitempty"`
 	ActualMinutes       int                     `json:"actual_minutes"`
 	CompletedOutputQty  float64                 `json:"completed_output_qty"`
 	MaxOutputQty        float64                 `json:"max_output_qty"`

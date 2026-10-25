@@ -63,12 +63,13 @@
 </template>
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { apiSend } from '../api/client.js'
+import { apiGet, apiSend } from '../api/client.js'
 import { batchIssueAllocations, batchIssueFactor, batchIssuePayload, batchIssueQuantity, batchIssueValidation, mergeBatchIssueGroups } from '../lib/workstation-batch-issue.js'
 const props = defineProps({ taskIds: { type: Array, required: true }, workstation: String, returnParams: Object })
 const emit = defineEmits(['close', 'posted'])
 const loading = ref(false), saving = ref(false), error = ref(''), preview = ref(null), result = ref(null)
 const selected = ref([]), quantities = ref({}), uncertain = ref(false)
+const warehouseNames = ref(new Map())
 let retryPayload = null
 const locked = computed(() => saving.value || uncertain.value || !!result.value)
 const eligibleGroups = computed(() => (preview.value?.groups || []).filter(group => group.available > 0))
@@ -76,7 +77,8 @@ const allGroupsSelected = computed(() => eligibleGroups.value.length > 0 && elig
 const someGroupsSelected = computed(() => selected.value.length > 0 && !allGroupsSelected.value)
 const invalid = computed(() => (preview.value?.groups || []).some(group => selected.value.includes(group.key) && batchIssueValidation(group, quantities.value[group.key])))
 const format = (group, qty) => `${batchIssueQuantity(group, qty).toLocaleString('zh-CN', { maximumFractionDigits: 6 })} ${group.unit || ''}`
-const warehouse = value => ({ raw_materials: '原料仓', packaging: '包材仓', wip: 'WIP', finished_goods: '成品仓' })[value] || value || '待确认来源'
+const warehouse = value => { const code = String(value || ''); return warehouseNames.value.get(code) || ({ raw_materials: '原料仓', packaging: '包材仓', wip: 'WIP在制仓', finished_goods: '成品仓' })[code] || (code ? `仓库名待加载（${code}）` : '待确认来源') }
+async function loadWarehouseNames() { try { const data = await apiGet('/api/stock/warehouses'); const rows = Array.isArray(data) ? data : (data.rows || data.warehouses || []); warehouseNames.value = new Map(rows.filter(row => row?.code).map(row => [String(row.code), String(row.name || row.code)])) } catch { warehouseNames.value = new Map() } }
 function toggleGroups() { selected.value = allGroupsSelected.value ? [] : eligibleGroups.value.map(group => group.key) }
 async function refresh() {
   loading.value = true; error.value = ''; result.value = null; retryPayload = null
@@ -104,7 +106,7 @@ async function submit() {
 function openDocument(doc) {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'stockOperations', params: { tab: 'stockEntries', stock_entry_id: doc.id }, returnNavigation: { key: 'workstationView', params: { ...props.returnParams, workstation: props.workstation }, label: '返回工位' } } }))
 }
-onMounted(refresh)
+onMounted(() => { void loadWarehouseNames(); void refresh() })
 </script>
 <style scoped>
 .batch-issue-backdrop{position:fixed;inset:0;z-index:1100;background:#0006;display:flex;justify-content:flex-end}.batch-issue-drawer{width:min(100%,980px);height:100%;overflow:auto;background:#fff;padding:24px;box-sizing:border-box;color:#27332b}.batch-issue-drawer header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.batch-issue-drawer h2{margin:0;font-size:23px}.batch-issue-drawer p{line-height:1.55}.batch-issue-drawer header p,.intro,small,dt{color:#67736c}.batch-issue-drawer button{border:1px solid #ccd5ce;border-radius:7px;padding:8px 12px;background:#fff;cursor:pointer}.batch-issue-drawer button:disabled{opacity:.5;cursor:not-allowed}.batch-issue-drawer .primary{background:#243d30;color:white;border-color:#243d30;font-weight:650}.batch-issue-drawer input[type=checkbox]{width:17px;height:17px;vertical-align:middle;margin-right:8px;accent-color:#315740}.selection-bar{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:20px 0}.selection-bar button{margin-left:auto}.material-group{border:1px solid #dce3dd;border-radius:10px;padding:18px;margin:12px 0}.material-group.unavailable{background:#f8f9f7}.group-title{display:flex;flex-direction:column;gap:7px}.group-title strong{font-size:16px}.quantities{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0}dt{font-size:12px}dd{margin:7px 0 0;font-weight:650}.actual-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.actual-row input{width:125px;padding:8px;border:1px solid #b7c5bc;border-radius:6px;font:inherit}.actual-row input:disabled{background:#f4f5f3}.warning{color:#9b640d;font-size:13px}.error{color:#a6382b;font-size:13px}.material-group details{margin-top:16px;font-size:13px}.material-group summary{cursor:pointer;color:#456451}.allocation{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #edf0eb}.result{background:#f2f7f3;padding:16px;border-radius:10px;margin:15px 0}.result-row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.result-row strong{width:100%}.document-link{color:#275139}.blocked{border:1px solid #ead8ad;padding:16px;margin:16px 0;border-radius:8px}.blocked>div{display:flex;justify-content:space-between;gap:12px;margin:10px 0}.blocked h3{font-size:16px;margin:0}.batch-issue-drawer footer{position:sticky;bottom:-24px;background:#fff;box-shadow:0 -8px 16px #ffffffd9;border-top:1px solid #dce3dd;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 0;margin-top:20px;font-size:13px}.empty{padding:35px;text-align:center;color:#67736c}@media(max-width:650px){.batch-issue-drawer{padding:16px}.quantities{grid-template-columns:repeat(2,1fr)}.batch-issue-drawer footer{bottom:-16px;align-items:stretch;flex-direction:column}.blocked>div{flex-direction:column}}

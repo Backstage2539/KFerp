@@ -11,6 +11,7 @@ import (
 	infra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/customerstock"
 	stockrepo "orderapp/internal/infrastructure/postgres/stock"
+	"strconv"
 	"strings"
 )
 
@@ -51,6 +52,14 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 		err = json.Unmarshal(replay, &out)
 		return out, err
 	}
+	out, err = r.completeOperationLockedTx(ctx, tx, cmd, workID, runID)
+	if err != nil {
+		return out, err
+	}
+	return out, tx.Commit(ctx)
+}
+func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cmd app.JobCardActionCommand, workID, runID int64) (app.JobCardActionResult, error) {
+	var out app.JobCardActionResult
 	p, wo, err := r.operationCompletionContextTx(ctx, tx, cmd.ID, true)
 	if err != nil {
 		return out, err
@@ -90,6 +99,11 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	}
 	if cmd.InputUnit != p.InputUnit || cmd.OutputUnit != p.OutputUnit {
 		return out, fmt.Errorf("完成数量单位与冻结工序不一致")
+	}
+	if p.LegacyPackaging {
+		if err = r.freezeLegacyPackagingConfigTx(ctx, tx, wo, seq, p, cmd.Operator); err != nil {
+			return out, err
+		}
 	}
 	if err = app.ValidateOperationQuantity(cmd.ActualInputQty, cmd.InputUnit); err != nil {
 		return out, err
@@ -335,7 +349,53 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	if err = finishProductionKeyTx(ctx, tx, r.schema, "operation_complete", cmd.Operator, cmd.RequestID, receipt.EventID, out); err != nil {
 		return out, err
 	}
-	return out, tx.Commit(ctx)
+	return out, nil
+}
+
+func (r Repository) freezeLegacyPackagingConfigTx(ctx context.Context, tx pgx.Tx, wo app.WorkOrderRow, sequence int, preview app.OperationCompletionPreview, actor string) error {
+	var beforeSnapshot, beforeBindings []byte
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT process_snapshot_json::text,operation_material_bindings::text FROM %s.work_orders WHERE id=$1 FOR UPDATE`, r.schema), wo.ID).Scan(&beforeSnapshot, &beforeBindings); err != nil {
+		return err
+	}
+	var snapshot map[string]any
+	if err := json.Unmarshal(beforeSnapshot, &snapshot); err != nil {
+		return fmt.Errorf("旧包装工艺快照格式异常，不能自动接入")
+	}
+	operations, ok := snapshot["operations"].([]any)
+	if !ok || len(operations) != 1 {
+		return fmt.Errorf("旧包装工艺路线已变化，请刷新核对")
+	}
+	cfgRaw, _ := json.Marshal(preview.Execution)
+	matched := false
+	for _, raw := range operations {
+		operation, ok := raw.(map[string]any)
+		operationSeq, _ := strconv.Atoi(fmt.Sprint(operation["seq"]))
+		if !ok || operationSeq != sequence || !isPackagingOperationName(fmt.Sprint(operation["operation"])) {
+			continue
+		}
+		if strings.TrimSpace(fmt.Sprint(operation["execution_json"])) != "" && strings.TrimSpace(fmt.Sprint(operation["execution_json"])) != "<nil>" {
+			return fmt.Errorf("工艺路线配置已变化，请刷新核对")
+		}
+		operation["execution_json"] = string(cfgRaw)
+		matched = true
+	}
+	if !matched {
+		return fmt.Errorf("旧包装工艺路线已变化，请刷新核对")
+	}
+	bindings := map[string]app.OperationMaterialBinding{}
+	if len(beforeBindings) > 0 {
+		_ = json.Unmarshal(beforeBindings, &bindings)
+	}
+	for _, material := range preview.Materials {
+		bindings[material.Key] = app.OperationMaterialBinding{NodeKey: preview.Execution.NodeKey, SourceWarehouse: material.Warehouse}
+	}
+	snapshotRaw, _ := json.Marshal(snapshot)
+	bindingsRaw, _ := json.Marshal(bindings)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET process_snapshot_json=$2::jsonb,operation_material_bindings=$3::jsonb,updated_at=now() WHERE id=$1`, r.schema), wo.ID, string(snapshotRaw), string(bindingsRaw)); err != nil {
+		return err
+	}
+	oldSnapshot, newSnapshot := string(beforeSnapshot), string(snapshotRaw)
+	return infra.AuditInsertTx(ctx, tx, r.schema, actor, "work_order", &wo.ID, "freeze_legacy_packaging_execution", infra.StrPtr("process_snapshot_json"), &oldSnapshot, &newSnapshot, infra.AuditMeta{"job_card_id": preview.JobCardID, "source_warehouse": "wip", "target_warehouse": preview.Warehouse, "reason": "单卡冻结资料完整的旧包装工单首次自动入库"})
 }
 
 // Material stock is posted in whole grams. Keep previews, event payloads and costs
@@ -352,7 +412,9 @@ func resolveOperationMaterialUses(expected, submitted []app.OperationMaterialUse
 	if submitted == nil {
 		for i := range out {
 			if out[i].TotalQty > 0 && totalPlanned > 0 {
-				cumulative := math.Min(totalPlanned, completed+actual)
+				// A confirmed completion may exceed plan. Planned quantities are a
+				// comparison baseline; consumption follows actual cumulative output.
+				cumulative := math.Max(0, completed+actual)
 				target := out[i].TotalQty * cumulative / totalPlanned
 				if app.OperationUnitFactor(out[i].Unit) == 0 {
 					target = math.Ceil(target - 1e-9)

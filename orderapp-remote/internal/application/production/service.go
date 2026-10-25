@@ -1175,6 +1175,9 @@ type ProductionTask struct {
 	ScheduleVersion         int64              `json:"schedule_version"`
 
 	JobCardID                 int64                             `json:"job_card_id"`
+	PackagingGroupKey         string                            `json:"packaging_group_key,omitempty"`
+	TargetWarehouse           string                            `json:"target_warehouse,omitempty"`
+	TargetWarehouseName       string                            `json:"target_warehouse_name,omitempty"`
 	SequenceNo                int                               `json:"sequence_no"`
 	BatchIndex                int                               `json:"batch_index"`
 	BatchCount                int                               `json:"batch_count"`
@@ -1239,7 +1242,13 @@ type ProductionTask struct {
 type ProductionTaskMaterialReadiness struct {
 	ReservationID     int64  `json:"reservation_id"`
 	MaterialID        int64  `json:"material_id"`
+	ItemType          string `json:"item_type,omitempty"`
+	ItemID            int64  `json:"item_id,omitempty"`
+	BomSpecID         int64  `json:"bom_spec_id,omitempty"`
+	SpecG             int64  `json:"spec_g,omitempty"`
 	MaterialName      string `json:"material_name"`
+	OwnerCustomerID   int64  `json:"owner_customer_id,omitempty"`
+	SourceWarehouse   string `json:"source_warehouse,omitempty"`
 	Unit              string `json:"unit"`
 	RequiredG         int64  `json:"required_g"`
 	WIPAvailableG     int64  `json:"wip_available_g"`
@@ -1922,7 +1931,14 @@ type WIPReservationRow struct {
 	RunningItemID      int64   `json:"running_item_id"`
 	ProductName        string  `json:"product_name"`
 	MaterialID         int64   `json:"material_id"`
+	ItemType           string  `json:"item_type,omitempty"`
+	ItemID             int64   `json:"item_id,omitempty"`
+	BomSpecID          int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID       int64   `json:"bom_variant_id,omitempty"`
+	SpecG              int64   `json:"spec_g,omitempty"`
 	MaterialName       string  `json:"material_name"`
+	OwnerCustomerID    int64   `json:"owner_customer_id,omitempty"`
+	SourceWarehouse    string  `json:"source_warehouse,omitempty"`
 	Unit               string  `json:"unit"`
 	RequiredG          int64   `json:"required_g"`
 	RequiredUnits      int64   `json:"required_units"`
@@ -3724,6 +3740,7 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 	for i := range tasks {
 		task := &tasks[i]
 		wo := workOrderByID[task.WorkOrderID]
+		task.TargetWarehouse = strings.TrimSpace(wo.TargetWarehouse)
 		var frozen struct {
 			Operations []struct {
 				Seq           int    `json:"seq"`
@@ -3773,6 +3790,7 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 			break
 		}
 	}
+	applyPackagingGroupKeys(tasks, workOrderByID, jobCards)
 	if _, ok := s.repo.(productionRosterRepository); ok {
 		filtered := make([]ProductionTask, 0, len(tasks))
 		for i := range tasks {
@@ -4244,7 +4262,9 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 				availableG[material.ID] -= wipG
 				availableUnits[material.ID] -= wipUnits
 				row := ProductionTaskMaterialReadiness{
-					ReservationID: material.ID, MaterialID: material.MaterialID, MaterialName: material.MaterialName, Unit: material.Unit,
+					ReservationID: material.ID, MaterialID: material.MaterialID, ItemType: material.ItemType, ItemID: material.ItemID,
+					BomSpecID: material.BomSpecID, SpecG: material.SpecG, MaterialName: material.MaterialName, Unit: material.Unit,
+					OwnerCustomerID: material.OwnerCustomerID, SourceWarehouse: firstNonEmpty(material.SourceWarehouse, "wip"),
 					RequiredG: requiredG, WIPAvailableG: wipG, ShortageG: maxInt64Service(0, requiredG-wipG),
 					RequiredUnits: requiredUnits, WIPAvailableUnits: wipUnits, ShortageUnits: maxInt64Service(0, requiredUnits-wipUnits),
 				}
@@ -4274,6 +4294,60 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 			}
 		}
 	}
+}
+
+func applyPackagingGroupKeys(tasks []ProductionTask, workOrders map[int64]WorkOrderRow, cards []JobCardRow) {
+	cardCounts := map[int64]int{}
+	taskCardCounts := map[[2]int64]int{}
+	for _, card := range cards {
+		if normalizeProductionTaskStatus(card.Status) != "cancelled" {
+			cardCounts[card.WorkOrderID]++
+			taskCardCounts[[2]int64{card.WorkOrderID, int64(card.SequenceNo)}]++
+		}
+	}
+	for i := range tasks {
+		task := &tasks[i]
+		task.PackagingGroupKey = ""
+		if !isPackagingOperation(task.Operation) || task.JobCardID <= 0 || task.WorkOrderID <= 0 || task.PlannedOutputInventoryQty <= 0 || len(task.MaterialReadiness) == 0 || !task.MaterialDataComplete {
+			continue
+		}
+		wo := workOrders[task.WorkOrderID]
+		if (wo.OutputProductID <= 0 && wo.ProductID <= 0) || task.TargetWarehouse == "" {
+			continue
+		}
+		lines := make([]string, 0, len(task.MaterialReadiness))
+		for _, material := range task.MaterialReadiness {
+			perUnitG := float64(material.RequiredG) / task.PlannedOutputInventoryQty
+			perUnitCount := float64(material.RequiredUnits) / task.PlannedOutputInventoryQty
+			itemID := firstNonZeroInt64(material.ItemID, material.MaterialID)
+			lines = append(lines, fmt.Sprintf("%s:%d:%d:%d:%d:%s:%s:%.8f:%.8f", material.ItemType, itemID, material.BomSpecID, material.SpecG, material.OwnerCustomerID, firstNonEmpty(material.SourceWarehouse, "wip"), material.Unit, perUnitG, perUnitCount))
+		}
+		sort.Strings(lines)
+		productID := firstNonZeroInt64(wo.OutputProductID, wo.ProductID)
+		task.PackagingGroupKey = fmt.Sprintf("pack:%d:%d:%s:%s:%d:%s:%s:%s", productID, task.SpecG, task.InventoryUnit, task.TargetWarehouse, task.SequenceNo, strings.TrimSpace(task.Operation), strings.TrimSpace(task.Workstation), strings.Join(lines, ";"))
+		var frozen struct {
+			Operations []struct {
+				Seq           int    `json:"seq"`
+				Operation     string `json:"operation"`
+				ExecutionJSON string `json:"execution_json"`
+			} `json:"operations"`
+		}
+		if json.Unmarshal([]byte(wo.ProcessSnapshotJSON), &frozen) == nil && len(frozen.Operations) == 1 && frozen.Operations[0].Seq == task.SequenceNo && isPackagingOperation(frozen.Operations[0].Operation) && strings.TrimSpace(frozen.Operations[0].ExecutionJSON) == "" {
+			// Clear only the legacy auto-fallback flag. A current, explicitly
+			// frozen execution route was enabled earlier in the overview path.
+			task.AutomaticCompletion = false
+			if cardCounts[task.WorkOrderID] == 1 && (task.Status == "pending" || task.Status == "ready" || task.Status == "released") && task.PlannedInputQty <= 0 && task.ActualInputQty == 0 && task.ActualOutputQty == 0 {
+				task.AutomaticCompletion = true
+			}
+		}
+		if taskCardCounts[[2]int64{task.WorkOrderID, int64(task.SequenceNo)}] != 1 {
+			task.PackagingGroupKey = ""
+		}
+	}
+}
+
+func isPackagingOperation(operation string) bool {
+	return strings.Contains(operation, "包装") || strings.Contains(operation, "分装") || strings.Contains(operation, "装袋") || strings.Contains(operation, "装盒")
 }
 
 func markTaskWaitingForMaterials(task *ProductionTask, rows []ProductionTaskMaterialReadiness, label string) {
