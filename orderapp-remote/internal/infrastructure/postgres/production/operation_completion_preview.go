@@ -16,6 +16,18 @@ func isPackagingOperationName(value string) bool {
 	return strings.Contains(value, "包装") || strings.Contains(value, "分装") || strings.Contains(value, "装袋") || strings.Contains(value, "装盒")
 }
 
+func isRoastingOperationName(value string) bool {
+	return strings.Contains(value, "烘焙") || strings.Contains(value, "烘烤") || strings.Contains(value, "除石")
+}
+
+func incompleteRoastingBOMReason(totalRatioPct float64) string {
+	return app.IncompleteRoastingBOMReason(totalRatioPct)
+}
+
+func resolveRoastingMaterialUses(expected []app.OperationMaterialUse, actualInputQty float64, inputUnit string) ([]app.OperationMaterialUse, error) {
+	return app.ResolveRoastingMaterialUses(expected, actualInputQty, inputUnit)
+}
+
 func (r Repository) PreviewOperationCompletion(ctx context.Context, id int64) (app.OperationCompletionPreview, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly, IsoLevel: pgx.RepeatableRead})
 	if err != nil {
@@ -37,7 +49,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	p := app.OperationCompletionPreview{JobCardID: id, Materials: []app.OperationMaterialUse{}, PredecessorBatches: []app.OperationBatchBalance{}}
 	var seq, first, last int
 	var input, totalInput, beforeInput float64
-	var snapshot, bindings, version, status, unit, salesSpec string
+	var snapshot, materialSnapshot, bindings, version, status, unit, salesSpec string
 	suffix := ""
 	if lock {
 		suffix = " FOR UPDATE OF w,j"
@@ -47,9 +59,9 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
  (SELECT MAX(sequence_no) FROM %[1]s.job_cards WHERE work_order_id=w.id AND status<>'cancelled'),
  (SELECT COALESCE(SUM(planned_input_qty),0)::float8 FROM %[1]s.job_cards WHERE work_order_id=w.id AND sequence_no=j.sequence_no AND status<>'cancelled'),
  (SELECT COALESCE(SUM(planned_input_qty),0)::float8 FROM %[1]s.job_cards WHERE work_order_id=w.id AND sequence_no=j.sequence_no AND id<j.id AND status<>'cancelled'),
- w.process_snapshot_json::text,w.operation_material_bindings::text,w.xmin::text||':'||j.xmin::text,
+ w.process_snapshot_json::text,COALESCE(w.material_snapshot,'[]'::jsonb)::text,w.operation_material_bindings::text,w.xmin::text||':'||j.xmin::text,
  COALESCE(NULLIF(w.output_unit,''),NULLIF(w.inventory_unit,''),'袋'),w.sales_spec_snapshot_json::text
- FROM %[1]s.job_cards j JOIN %[1]s.work_orders w ON w.id=j.work_order_id WHERE j.id=$1`+suffix, r.schema), id).Scan(&p.WorkOrderID, &seq, &status, &input, &first, &last, &totalInput, &beforeInput, &snapshot, &bindings, &version, &unit, &salesSpec)
+ FROM %[1]s.job_cards j JOIN %[1]s.work_orders w ON w.id=j.work_order_id WHERE j.id=$1`+suffix, r.schema), id).Scan(&p.WorkOrderID, &seq, &status, &input, &first, &last, &totalInput, &beforeInput, &snapshot, &materialSnapshot, &bindings, &version, &unit, &salesSpec)
 	if err != nil {
 		return p, app.WorkOrderRow{}, err
 	}
@@ -64,8 +76,10 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err = json.Unmarshal([]byte(snapshot), &route); err != nil {
 		return p, wo, err
 	}
+	var routeOperation string
 	for _, op := range route.Operations {
 		if op.Seq == seq {
+			routeOperation = op.Operation
 			if op.ExecutionJSON != "" {
 				if err = json.Unmarshal([]byte(op.ExecutionJSON), &p.Execution); err != nil {
 					return p, wo, err
@@ -74,21 +88,23 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			break
 		}
 	}
+	p.OperationName = routeOperation
 	p.Enabled = p.Execution.Version == 1
 	p.Final = seq == last
 	if !p.Enabled {
-		p.BlockedReason = "旧工单需先核对用料归属与完成数量，再启用自动记账"
-		legacyRoute := len(route.Operations) == 1 && isPackagingOperationName(route.Operations[0].Operation)
-		var cardCount, eventCount int
-		if legacyRoute && seq == first && seq == last && input <= 0 && totalInput <= 0 && wo.PlannedInventoryQty > 0 && (status == "pending" || status == "ready" || status == "released") {
-			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT COUNT(*) FROM %s.job_cards WHERE work_order_id=$1 AND status<>'cancelled'),(SELECT COUNT(*) FROM %s.production_operation_events WHERE work_order_id=$1 AND status IN('posting','posted'))`, r.schema, r.schema), wo.ID).Scan(&cardCount, &eventCount); err != nil {
+		p.BlockedReason = "旧工单暂不可自动完成，请核对冻结 BOM 与工艺路线"
+		legacyRoute := len(route.Operations) == 1 && (isPackagingOperationName(route.Operations[0].Operation) || isRoastingOperationName(route.Operations[0].Operation))
+		var cardCount, inputCardCount, eventCount int
+		if legacyRoute && seq == first && seq == last && wo.PlannedInventoryQty > 0 && (status == "pending" || status == "ready" || status == "released" || status == "running" || status == "paused") {
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*),COUNT(*) FILTER(WHERE planned_input_qty>0),(SELECT COUNT(*) FROM %s.production_operation_events WHERE work_order_id=$1 AND status IN('posting','posted')) FROM %s.job_cards WHERE work_order_id=$1 AND status<>'cancelled'`, r.schema, r.schema), wo.ID).Scan(&cardCount, &inputCardCount, &eventCount); err != nil {
 				return p, wo, err
 			}
 		}
-		if legacyRoute && cardCount == 1 && eventCount == 0 {
-			p.Execution = app.OperationExecution{Version: 1, NodeKey: fmt.Sprintf("legacy-packaging-%d", wo.ID), ReceiptEnabled: true, ReceiptWarehouse: firstNonEmpty(wo.TargetWarehouse, "finished_goods"), SourceWarehouse: "wip", OutputUnit: unit}
+		if legacyRoute && cardCount > 0 && inputCardCount == cardCount && eventCount == 0 && strings.TrimSpace(materialSnapshot) != "" && strings.TrimSpace(materialSnapshot) != "[]" {
+			p.Execution = app.OperationExecution{Version: 1, NodeKey: fmt.Sprintf("legacy-execution-%d", wo.ID), ReceiptEnabled: true, ReceiptWarehouse: firstNonEmpty(wo.TargetWarehouse, "wip"), SourceWarehouse: "wip", OutputUnit: unit}
 			p.Enabled = true
-			p.LegacyPackaging = true
+			p.LegacyExecution = true
+			p.LegacyPackaging = isPackagingOperationName(routeOperation)
 			p.BlockedReason = ""
 		}
 	}
@@ -101,6 +117,12 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	p.PackageSpecLabel = spec.Label
 	if p.PackageSpecLabel == "" && wo.SpecG > 0 {
 		p.PackageSpecLabel = fmt.Sprintf("%dg/%s", wo.SpecG, unit)
+	}
+	if wo.BomVersionID > 0 {
+		p.BomVersionID = wo.BomVersionID
+		if e := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_id FROM %s.production_bom_versions WHERE id=$1`, r.schema), wo.BomVersionID).Scan(&p.BomID); e != nil && e != pgx.ErrNoRows {
+			return p, wo, e
+		}
 	}
 	p.OutputUnit = firstNonEmpty(p.Execution.OutputUnit, unit)
 	p.InputUnit = p.OutputUnit
@@ -131,9 +153,35 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	}
 	p.PlannedQty = math.Max(0, p.TotalPlannedQty-p.CompletedOutputQty)
 	p.InputQty = input
-	if factor := app.OperationUnitFactor(p.OutputUnit); factor > 0 {
-		p.InputQty = input / factor
+	inputUnitFactor := app.OperationUnitFactor(p.InputUnit)
+	if inputUnitFactor > 0 {
+		p.InputQty = input / inputUnitFactor
 	}
+	inputEvents, err := tx.Query(ctx, fmt.Sprintf(`SELECT input_qty::float8,input_unit FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, r.schema), id)
+	if err != nil {
+		return p, wo, err
+	}
+	var alreadyInput float64
+	for inputEvents.Next() {
+		var qty float64
+		var eventUnit string
+		if err = inputEvents.Scan(&qty, &eventUnit); err != nil {
+			inputEvents.Close()
+			return p, wo, err
+		}
+		factor := app.OperationUnitFactor(eventUnit)
+		if factor > 0 && inputUnitFactor > 0 {
+			alreadyInput += qty * factor / inputUnitFactor
+		} else if strings.EqualFold(eventUnit, p.InputUnit) {
+			alreadyInput += qty
+		}
+	}
+	if err = inputEvents.Err(); err != nil {
+		inputEvents.Close()
+		return p, wo, err
+	}
+	inputEvents.Close()
+	p.InputQty = math.Max(0, p.InputQty-alreadyInput)
 	p.Warehouse = firstNonEmpty(p.Execution.ReceiptWarehouse, wo.TargetWarehouse, "finished_goods")
 	if !p.Execution.ReceiptEnabled {
 		p.Warehouse = "wip"
@@ -146,6 +194,10 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	}
 	var mapped map[string]app.OperationMaterialBinding
 	if err = json.Unmarshal([]byte(bindings), &mapped); err != nil {
+		return p, wo, err
+	}
+	var frozenMaterials []materialSnapshotRow
+	if err = json.Unmarshal([]byte(materialSnapshot), &frozenMaterials); err != nil {
 		return p, wo, err
 	}
 	consumedByReservation := map[int64]float64{}
@@ -194,6 +246,16 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			kind = "material"
 		}
 		m.Key = operationMaterialKey(kind, component, m.BomSpecID, m.SpecG)
+		for _, frozen := range frozenMaterials {
+			frozenComponent := frozen.MaterialID
+			if strings.EqualFold(frozen.ComponentType, "product") {
+				frozenComponent = frozen.ComponentProductID
+			}
+			if frozenComponent == component && frozen.ComponentBomSpecID == m.BomSpecID && frozen.ComponentBomVariantID == m.BomVariantID && frozen.ComponentSpecG == m.SpecG {
+				m.RatioPct = frozen.RatioPct
+				break
+			}
+		}
 		m.NodeKey = mapped[m.Key].NodeKey
 		if kind == "product" {
 			m.ProductID = component
@@ -238,6 +300,21 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return p, wo, err
 	}
+	if isRoastingOperationName(p.OperationName) {
+		for _, material := range p.Materials {
+			p.RecipeRatioPct += material.RatioPct
+		}
+		if reason := app.IncompleteRoastingBOMReason(p.RecipeRatioPct); reason != "" {
+			p.BlockedReason = reason
+		} else {
+			resolved, e := app.ResolveRoastingMaterialUses(p.Materials, p.InputQty, p.InputUnit)
+			if e != nil {
+				p.BlockedReason = e.Error()
+			} else {
+				p.Materials = resolved
+			}
+		}
+	}
 	if p.LegacyPackaging && len(p.Materials) == 0 {
 		p.Enabled = false
 		p.LegacyPackaging = false
@@ -251,16 +328,6 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		p.Materials[i].ShortageQty = math.Max(0, p.Materials[i].Qty-p.Materials[i].AvailableQty)
 		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.warehouses WHERE code=$1 AND active=true`, r.schema), p.Materials[i].Warehouse).Scan(&p.Materials[i].WarehouseName); err != nil {
 			return p, wo, fmt.Errorf("来源仓不存在或已停用")
-		}
-	}
-	if seq == first {
-		var grams float64
-		for _, m := range p.Materials {
-			grams += m.Qty * app.OperationUnitFactor(m.Unit)
-		}
-		if grams > 0 {
-			p.InputUnit = "g"
-			p.InputQty = grams
 		}
 	}
 	if seq > first {

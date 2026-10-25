@@ -3962,6 +3962,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-DOCS-003", title: "单元测试覆盖 Mermaid 流程图解析、所有大功能手册包含流程图、手册副本同步和需求种子", status: "done", assignee: "Codex", evidence: "operation-manuals.test.js; dev_operation_manuals_test.go"},
 		{table: "req_api", code: "API-DOCS-003", title: "API 级验证 docs raw route 可读取含流程图的 OP_MANUAL 文件，线上手册路由可展示图示化手册", status: "done", assignee: "Codex", evidence: "TestDocsRawRouteServesOperationManual; curl /app/docs/OP_MANUAL_ORDER_SALES.md?raw=1"},
 		{table: "req_review", code: "REV-DOCS-003", prCode: "PR-DOCS-003", title: "验收：每个大功能操作手册在 ERP 界面中能看到流程图，文字步骤仍保留", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-731-PRODUCTION-COMPLETION-SIMPLE", title: "简化工序完成并直接补齐旧工单入库", status: "doing", assignee: "Codex", evidence: "旧单入库与自动烘焙用料定向 API/DB 和前端测试通过；等待计划备料、开发浏览器验收后再发布"},
+		{table: "req_dev", code: "DEV-731-RECORDED-OUTPUT-RECEIPT", title: "直接使用旧工单累计完工数量入库且支持幂等重试", status: "done", assignee: "Codex", evidence: "TestRecordedOutputReceiptUsesSavedQuantityAndReplaysAfterItLeavesPendingList; preserves job-card quantity and posts receipt/consumption once"},
+		{table: "req_dev", code: "DEV-731-ROASTING-OUTPUT-ONLY", title: "烘焙工位仅填本批产出并按本批投料和冻结 BOM 自动扣料", status: "done", assignee: "Codex", evidence: "Roasting ratio API helper; incomplete-BOM error; Workstation/OperationCompletion Vue contract tests"},
+		{table: "req_dev", code: "DEV-731-PREPARATION-AND-DELIVERY", title: "计划备料补料入口、操作手册和开发浏览器验收", status: "doing", assignee: "Codex", evidence: "read-only legacy preparation projection and linked stock-operation route; full isolated development/browser proof pending"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

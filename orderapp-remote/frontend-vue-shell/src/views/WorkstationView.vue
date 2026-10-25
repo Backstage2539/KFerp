@@ -3,7 +3,7 @@
 
     <ProductionReturnLink :source="viewParams.return_navigation" />
     <section v-if="lastGroupResult" class="panel group-result"><strong>合并入库完成：{{ lastGroupResult.completed_qty }} {{ lastGroupResult.output_unit }}</strong><p v-for="item in lastGroupResult.items" :key="item.job_card.id">{{ item.work_order.work_order_no }} · 入库 {{ item.completion?.output_qty || 0 }} {{ item.completion?.output_unit }} · 单据 {{ item.completion?.stock_entry_ids?.join('、') || '无' }}</p><p>{{ lastGroupResult.remaining_qty > 0 ? `剩余 ${lastGroupResult.remaining_qty} 袋继续待办` : '本组任务已完成' }}</p><button class="secondary" @click="lastGroupResult=null">收起</button></section>
-    <section v-if="lastAutomaticResult" class="panel"><strong>{{ lastAutomaticResult.message }} · {{ lastAutomaticResult.output_qty }} {{ lastAutomaticResult.output_unit }}</strong><p>关联单据：{{ lastAutomaticResult.stock_entry_ids?.join('、') || '工序交接记录' }}</p><button class="primary" @click="continueNextOperation(lastAutomaticResult.task)">继续处理下一工序</button><button class="secondary" @click="lastAutomaticResult=null">收起</button></section>
+    <section v-if="lastAutomaticResult" class="panel"><strong>{{ lastAutomaticResult.message }} · {{ lastAutomaticResult.output_qty }} {{ lastAutomaticResult.output_unit }}</strong><p>关联单据：{{ lastAutomaticResult.stock_entry_ids?.join('、') || '工序交接记录' }}</p><button class="secondary" @click="lastAutomaticResult=null">收起</button></section>
     <section class="toolbar">
       <div>
         <h2>{{ scope === 'mine' ? '我的今日工位' : '全厂工位视图' }}</h2>
@@ -58,10 +58,10 @@
         <div v-if="!section.tasks.length" class="no-task">{{ scope === 'mine' ? '今日负责此工位，暂无任务' : '今日工位暂无任务' }}</div>
         <button v-else-if="!selectedWorkstation" class="enter-station primary" type="button" @click="selectedWorkstation = section.workstation">进入本工位</button>
 
-        <div v-if="selectedWorkstation && ungroupedTasks(section).length" class="batch-issue-toolbar">
-          <span>已选 {{ issueSelectionState(ungroupedTasks(section), selectedIssueTasks).count }} 个任务</span>
-          <button type="button" class="primary" :disabled="!issueSelectionState(ungroupedTasks(section), selectedIssueTasks).count || loading" @click="openBatchIssue(section)">合并领料</button>
-          <small>多选任务后，同料汇总、一次领到 WIP</small>
+        <div v-if="selectedWorkstation && issueTasks(section).length" class="batch-issue-toolbar">
+          <span>已选 {{ issueSelectionState(issueTasks(section), selectedIssueTasks).count }} 个任务</span>
+          <button type="button" class="primary" :disabled="!issueSelectionState(issueTasks(section), selectedIssueTasks).count || loading" @click="openBatchIssue(section)">合并领料</button>
+          <small>多选可领任务后，同料汇总、一次领到 WIP</small>
         </div>
         <div v-if="selectedWorkstation && packagingGroups(section).length" class="packaging-groups">
           <article v-for="group in packagingGroups(section)" :key="group.key" class="packaging-group-card">
@@ -73,7 +73,7 @@
         </div>
         <div v-if="selectedWorkstation && ungroupedTasks(section).length" class="task-table">
           <div class="task-row header">
-            <span><input type="checkbox" aria-label="全选当前工位可领料任务" :checked="issueSelectionState(ungroupedTasks(section), selectedIssueTasks).checked" :indeterminate="issueSelectionState(ungroupedTasks(section), selectedIssueTasks).indeterminate" :disabled="!issueSelectionState(ungroupedTasks(section), selectedIssueTasks).total" @change="selectedIssueTasks = toggleIssueSelection(ungroupedTasks(section), selectedIssueTasks)" /> 任务</span>
+            <span><input type="checkbox" aria-label="全选当前工位可领料任务" :checked="issueSelectionState(issueTasks(section), selectedIssueTasks).checked" :indeterminate="issueSelectionState(issueTasks(section), selectedIssueTasks).indeterminate" :disabled="!issueSelectionState(issueTasks(section), selectedIssueTasks).total" @change="selectedIssueTasks = toggleIssueSelection(issueTasks(section), selectedIssueTasks)" /> 任务</span>
             <span>状态</span>
             <span>执行人</span>
             <span>动作</span>
@@ -84,7 +84,7 @@
             :class="{ focused: isRequestedTask(task) }"
             :data-task-key="taskKey(task)">
             <div class="task-title">
-              <strong><input v-model="selectedIssueTasks" type="checkbox" :value="Number(task.job_card_id)" :disabled="!workstationCanOpenIssue(task)" :aria-label="`选择任务 ${task.work_order_no} ${task.job_card_id}`" />{{ taskTitle(task) }}</strong>
+              <strong><input v-if="!isSimplifiedTask(task)" v-model="selectedIssueTasks" type="checkbox" :value="Number(task.job_card_id)" :disabled="!workstationCanOpenIssue(task)" :aria-label="`选择任务 ${task.work_order_no} ${task.job_card_id}`" />{{ taskTitle(task) }}</strong>
               <small>{{ taskBatchLabel(task) }} · {{ task.work_order_no || '-' }} · P{{ task.priority || 0 }}</small>
               <small v-for="line in taskQuantityLines(task)" :key="line" class="task-quantity">{{ line }}</small>
               <small>工序要求：{{ task.process_requirement || '按冻结工艺路线执行' }}</small>
@@ -98,11 +98,15 @@
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
             <span class="task-staff">{{ task.assigned_to || task.roster_employee_name || '无人值班' }}<small v-if="task.pending_handover">排班已换人，待接手工位</small><small v-else-if="task.blocking_reason">待协同岗位：{{ task.next_handler || '-' }}</small></span>
             <div class="actions">
-              <button v-if="!task.automatic_completion" class="secondary" @click="openFinishPanel(task)">核对旧单并继续</button>
+              <template v-if="isSimplifiedTask(task)">
+                <button type="button" class="primary" :disabled="Boolean(busyKey) || loading" @click="openFinishPanel(task)">工序完成</button>
+                <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
+              </template>
+              <template v-else>
               <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">查看工单</button>
               <button v-if="workstationCanOpenIssue(task)" type="button" class="primary" @click="openPicking(task)">领料</button>
               <button v-if="task.readiness_label === '待质检'" type="button" class="secondary" @click="openQuality(task)">查看质检</button>
-              <details v-if="!task.automatic_completion && isFirstOperationTask(task) && task.status === 'running'" class="material-actions"><summary>物料操作</summary><button type="button" @click="openStockAction(task, 'consume')">耗料</button><button type="button" @click="openStockAction(task, 'return')">退料</button></details>
+              <details v-if="isFirstOperationTask(task) && task.status === 'running'" class="material-actions"><summary>物料操作</summary><button type="button" @click="openStockAction(task, 'consume')">耗料</button><button type="button" @click="openStockAction(task, 'return')">退料</button></details>
               <button
                 v-for="action in workstationVisibleActions(task)"
                 :key="action"
@@ -113,6 +117,7 @@
               >
                 {{ actionLabel(action) }}
               </button>
+              </template>
             </div>
             <div
               v-if="taskFeedback.taskKey === taskKey(task) && (taskFeedback.message || taskFeedback.error)"
@@ -135,8 +140,8 @@
               <button class="primary" type="button" @click="submitIssue" :disabled="busyKey !== ''">提交</button>
             </div>
 
-            <OperationCompletionForm v-if="isFinishPanelForTask(task) && task.automatic_completion" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" @close="closeFinishPanel" @posted="automaticPosted" @next="continueNextOperation(task)" />
-            <OperationConversionForm v-if="isFinishPanelForTask(task) && !task.automatic_completion" :work-order-id="Number(task.work_order_id)" @close="closeFinishPanel" @converted="convertedOldOrder" />
+            <OperationCompletionForm v-if="isFinishPanelForTask(task) && isSimplifiedTask(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" @close="closeFinishPanel" @posted="automaticPosted" />
+            <OperationCompletionForm v-if="isFinishPanelForTask(task) && !isSimplifiedTask(task) && task.automatic_completion" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" @close="closeFinishPanel" @posted="automaticPosted" />
           </div>
         </div>
       </article>
@@ -157,7 +162,6 @@
 </template>
 
 <script setup>
-import OperationConversionForm from '../components/OperationConversionForm.vue'
 import OperationCompletionForm from '../components/OperationCompletionForm.vue'
 import WorkstationBatchIssueDrawer from '../components/WorkstationBatchIssueDrawer.vue'
 import WorkstationPackagingCompletionForm from '../components/WorkstationPackagingCompletionForm.vue'
@@ -194,9 +198,11 @@ const packagingSourceAvailability = ref(new Map())
 let packagingSourceAvailabilityRevision = 0
 function groupedTasks(section) { return workstationPackagingGroups(section.tasks).flatMap(group => group.tasks) }
 function ungroupedTasks(section) { const ids = new Set(groupedTasks(section).map(task => Number(task.job_card_id))); return section.tasks.filter(task => !ids.has(Number(task.job_card_id))) }
+function isSimplifiedTask(task) { return Boolean(task?.automatic_completion) || /烘焙|烘烤|除石/.test(String(task?.operation || task?.operation_name || task?.task_name || '')) }
+function issueTasks(section) { return ungroupedTasks(section).filter(task => !isSimplifiedTask(task)) }
 function packagingGroups(section) { return workstationPackagingGroups(section.tasks) }
 function openBatchIssueForTasks(tasks) { batchIssue.ids = tasks.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id)); batchIssue.open = batchIssue.ids.length > 0 }
-function openBatchIssue(section) { openBatchIssueForTasks(ungroupedTasks(section).filter(task => selectedIssueTasks.value.includes(Number(task.job_card_id)))) }
+function openBatchIssue(section) { openBatchIssueForTasks(issueTasks(section).filter(task => selectedIssueTasks.value.includes(Number(task.job_card_id)))) }
 function openGroupCompletion(group) { completionGroup.key = group.key; completionGroup.ids = group.tasks.map(task => Number(task.job_card_id)); completionGroup.open = true; batchIssue.open = false }
 async function groupCompleted(result) { lastGroupResult.value = result; completionGroup.open = false; message.value = `已完成并入库 ${result.completed_qty} ${result.output_unit}`; await load() }
 function quantityText(value) { return Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 }) }
@@ -255,8 +261,7 @@ const finishPanel = reactive({open:false,task:null})
 const tasks = computed(() => overview.value.tasks || [])
 async function convertedOldOrder(){closeFinishPanel();message.value='核对已保存，后续工序可直接完成';await load()}
 const lastAutomaticResult=ref(null)
-async function automaticPosted(data){message.value=data.completion?.message || '完成记录已保存';lastAutomaticResult.value={...data.completion,task:finishPanel.task};finishPanel.open=false;await load()}
-async function continueNextOperation(task){const orderID=Number(task.work_order_id);closeFinishPanel();await load();const next=tasks.value.filter(row=>Number(row.work_order_id)===orderID&&row.automatic_completion).sort((a,b)=>Number(a.sequence_no)-Number(b.sequence_no)||Number(a.job_card_id)-Number(b.job_card_id))[0];if(next){selectedWorkstation.value=next.workstation;openFinishPanel(next)}}
+async function automaticPosted(data){message.value=data.completion?.message || '完成记录已保存';lastAutomaticResult.value={...data.completion};finishPanel.open=false;await load()}
 watch(selectedWorkstation, () => { selectedIssueTasks.value = []; batchIssue.open = false })
 watch(tasks, rows => { const available = new Set(rows.filter(workstationCanOpenIssue).map(task => Number(task.job_card_id))); selectedIssueTasks.value = selectedIssueTasks.value.filter(id => available.has(id)) })
 const sections = computed(() => {

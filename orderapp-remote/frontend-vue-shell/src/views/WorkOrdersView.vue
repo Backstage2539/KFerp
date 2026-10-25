@@ -9,7 +9,7 @@
     <section class="panel no-print">
       <div class="panel-head">
         <h2>生产工单</h2>
-        <button class="secondary" @click="load" :disabled="loading || receiptLocked">刷新</button>
+        <button class="secondary" @click="load" :disabled="loading || receiptBusy">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <p v-if="receiptMessage" class="receipt-success" role="status">{{ receiptMessage }}</p>
@@ -18,16 +18,16 @@
       <div class="filters">
         <label>
           <span>搜索</span>
-          <input :disabled="receiptLocked" v-model.trim="query" placeholder="产品或工单号" />
+          <input :disabled="receiptBusy" v-model.trim="query" placeholder="产品或工单号" />
         </label>
         <label>
           <span>状态</span>
-          <select :disabled="receiptLocked" v-model="status">
+          <select :disabled="receiptBusy" v-model="status">
             <option value="active">未结束</option>
             <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
-        <button class="primary" :disabled="receiptLocked" @click="load">查询</button>
+        <button class="primary" :disabled="receiptBusy" @click="load">查询</button>
       </div>
     </section>
 
@@ -58,7 +58,7 @@
             <td data-label="工序进度"><strong>{{ operationProgressText(row) }}</strong><small>{{ operationCurrentText(row) }}</small></td>
             <td class="todo-cell" data-label="当前待办"><strong>{{ workOrderTodo(row).title }}</strong><small>{{ workOrderTodo(row).detail }}</small></td>
             <td class="row-actions" data-label="快捷操作">
-              <button class="primary compact" type="button" :disabled="loading || receiptLocked" @click="openPrimaryAction(row)">{{ primaryActionLabel(row) }}</button>
+              <button class="primary compact" type="button" :disabled="loading || receiptBusy" @click="openPrimaryAction(row)">{{ receiptBusy && receivingWorkOrderID === Number(row.id) ? '正在入库…' : primaryActionLabel(row) }}</button>
               <button
                 v-for="source in workOrderLinkedReplenishmentSources(row)"
                 :key="`replenish-${row.id}-${source.source_work_order_id}-${source.material_id}`"
@@ -72,7 +72,6 @@
               <button v-if="canCancelWorkOrder(row)" class="secondary compact danger-text" type="button" @click="cancelWorkOrder(row)">取消工单</button>
             </td>
           </tr>
-          <tr v-if="receiptWorkOrderID === Number(row.id)"><td colspan="6"><WorkOrderReceiptForm :work-order-id="Number(row.id)" :work-order-no="row.work_order_no" @close="receiptWorkOrderID = 0" @locked="receiptLocked = $event" @posted="onReceiptPosted(row, $event)" /></td></tr>
           </template>
           <tr v-if="!visibleRows.length"><td colspan="6" class="muted">暂无符合条件的生产工单</td></tr>
         </tbody>
@@ -208,9 +207,9 @@ import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
-import WorkOrderReceiptForm from '../components/WorkOrderReceiptForm.vue'
 import { formatPercent } from '../lib/manufacturing-loss'
 import { workOrderStatusLabel } from '../lib/manufacturing-execution'
+import { clearRecordedOutputReceiptAttempt, readRecordedOutputReceiptAttempt, recordedOutputReceiptPayload, saveRecordedOutputReceiptAttempt } from '../lib/recorded-output-receipt.js'
 import { loadProductionPlanWorkOrders } from '../lib/production-plan-work-orders'
 import {
   applicableOperationCapacities,
@@ -267,8 +266,9 @@ const workOrderSplitRows = ref([])
 const workOrderSplitSaving = ref(false)
 const workOrderSplitError = ref('')
 const statusOptions = workOrderStatusOptions()
-const receiptWorkOrderID = ref(0)
-const receiptLocked = ref(false)
+const receiptBusy = ref(false)
+const receivingWorkOrderID = ref(0)
+const receiptAttempts = new Map()
 const receiptMessage = ref('')
 const executionHub = ref({ open: false, workOrderId: 0, focus: '' })
 const linkedReplenishment = ref({ open: false, source: null, consumerWorkOrderIDs: [], preview: null, loading: false, submitting: false, error: '', requestID: '' })
@@ -479,11 +479,11 @@ function primaryActionLabel(row) {
   return { receipt: '确认数量并入库', workstation: workOrderTodo(row).title, records: '查看记录' }[workOrderTodo(row).action] || '查看工单'
 }
 
-function openPrimaryAction(row) {
+async function openPrimaryAction(row) {
   const todo = workOrderTodo(row)
   const action = todo.action
   if (action === 'retry') return load()
-  if (action === 'receipt') { receiptWorkOrderID.value = Number(row.id); receiptMessage.value = ''; return }
+  if (action === 'receipt') { await receiveRecordedOutput(row); return }
   if (action === 'records') return openExecutionHub(row, 'summary')
   if (action === 'workstation') {
     const card = operationSummaryRows(row).find(item => !['completed','cancelled'].includes(String(item.status || '').trim()))
@@ -506,12 +506,31 @@ function openPrimaryAction(row) {
   openExecutionHub(row, 'summary')
 }
 
-async function onReceiptPosted(row, result) {
-  const completion = result.completion || {}
-  receiptMessage.value = `${row.work_order_no}：${completion.message || '入库成功'} · ${completion.output_qty ?? ''} ${completion.output_unit || ''} · 单据 ${(completion.stock_entry_ids || []).join('、')}`
-  receiptWorkOrderID.value = 0
-  receiptLocked.value = false
-  await load()
+async function receiveRecordedOutput(row) {
+  if (receiptBusy.value) return
+  const id=Number(row.id),attemptKey=String(id)
+  receiptBusy.value=true;receivingWorkOrderID.value=id;error.value='';receiptMessage.value=''
+  try {
+    let attempt=receiptAttempts.get(attemptKey)||readRecordedOutputReceiptAttempt(window.sessionStorage,id)
+    if(!attempt){
+      const preview=await apiSend('/api/production/legacy-review/preview',{body:{work_order_ids:[id]}})
+      const review=(preview.rows||[]).find(item=>Number(item.work_order_id)===id)
+      if(!review)throw new Error('本单没有待入库的已完成数量，请刷新工单列表')
+      if(review.review_blocked_reason)throw new Error(review.review_blocked_reason)
+      attempt=recordedOutputReceiptPayload(review.version,crypto.randomUUID())
+      receiptAttempts.set(attemptKey,attempt)
+      saveRecordedOutputReceiptAttempt(window.sessionStorage,id,attempt)
+    }
+    const result=await apiSend(`/api/produce/work-orders/${id}/receive-completed-output`,{body:attempt})
+    const completion=result.completion||{}
+    receiptMessage.value=`${row.work_order_no}：${completion.message||'入库成功'} · ${completion.output_qty??''} ${completion.output_unit||''} · 单据 ${(completion.stock_entry_ids||[]).join('、')}`
+    receiptAttempts.delete(attemptKey)
+    clearRecordedOutputReceiptAttempt(window.sessionStorage,id)
+    await load()
+  } catch(err) {
+    if(err.status&&err.status<500){receiptAttempts.delete(attemptKey);clearRecordedOutputReceiptAttempt(window.sessionStorage,id)}
+    error.value=(!err.status||err.status>=500)?'尚未收到入库结果；再次点击会以原请求重试，不会重复入库。':(err.message||'入库失败')
+  } finally { receiptBusy.value=false;receivingWorkOrderID.value=0 }
 }
 
 function linkedReplenishmentQuantity(grams, units, unit) {

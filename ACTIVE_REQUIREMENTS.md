@@ -6204,3 +6204,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV: DEV-869-EXECUTION-RULES, DEV-870-COMPLETION-LEDGER, DEV-871-CORRECTION, DEV-872-WORKSTATION, DEV-873-DELIVERY
 - Verifier: full Go PASS; Vue 1,587 PASS + build; isolated completion/conversion/reconciliation API PASS including concurrency, rollback, stock/cost/audit. Broader DB failures match base. See acceptance evidence.
 - Deployment: PR #295 / develop d3c72ce4 and PR #296 / main f2a5e242 deployed. Server isolated API PASS; production runtime/static resources/readonly snapshots verified. Rollback production-20261024144032-f2a5e242a36d. Evidence: orderapp-remote/docs/acceptance/2026-10-24-production-auto-completion.md.
+### PR-731-PRODUCTION-COMPLETION-SIMPLE
+- Branch: `codex/production-completion-simple-20261025`, based on latest `origin/develop` at `7f77b824c`.
+- Scope: direct receipt from recorded completed output; simplified roasting completion to output-only form; auto-use from actual frozen batch input/BOM; explicit incomplete-BOM block; plan preparation shortage/replenishment entry; preserve grouped packaging.
+- Status: implementation and local verification complete. Targeted Vue 41/41, full Vue 1612/1612, full Go `go test ./...`, Vite production build, and changed-file checks are green. Development integration, isolated-data browser acceptance, and requested flow regression remain pending; main/production are gated on browser acceptance.
+- Development precheck: root disk 22 GB available (62% used), deployment lock free, development app and PostgreSQL containers running. No cache cleanup needed.
+- Production boundary: no business writes. Production checks remain read-only.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-25-production-completion-simple.md`.

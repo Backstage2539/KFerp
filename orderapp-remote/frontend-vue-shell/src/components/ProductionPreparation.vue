@@ -36,7 +36,7 @@
         </form>
       </div>
     </details>
-    <div v-if="!editable && issueOrders.length" class="issue-orders"><strong>按工单领料</strong><button v-for="order in issueOrders" :key="order.id" type="button" @click="$emit('issue', order)">去领料 · {{ order.work_order_no }}</button></div>
+    <div v-if="!editable && issueOrders.length" class="issue-orders"><strong>待补入 WIP</strong><button v-for="order in issueOrders" :key="order.id" type="button" @click="$emit('issue', order)">去库存作业补料 · {{ order.work_order_no }}</button></div>
   </div>
 </template>
 <script setup>

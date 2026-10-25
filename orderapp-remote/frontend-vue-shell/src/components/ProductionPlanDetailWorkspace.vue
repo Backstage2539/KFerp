@@ -104,7 +104,7 @@
             </div>
             <button class="text-button" type="button" @click="$emit('navigate', 'productionManual')">备料说明</button>
           </div>
-          <ProductionPreparation v-if="detail.picking_version" :sources="detail.component_sources || []" :items="detail.items || []" :supply-allocations="detail.supply_allocations || []" :work-orders="detail.related_work_orders || []" :editable="isDraft" :saving="saving" @adjust="(source, allocations) => $emit('adjust-source', source, allocations)" @issue="issueWorkOrder" />
+          <ProductionPreparation v-if="detail.picking_version || detail.component_sources?.length" :sources="detail.component_sources || []" :items="detail.items || []" :supply-allocations="detail.supply_allocations || []" :work-orders="detail.related_work_orders || []" :editable="isDraft" :saving="saving" @adjust="(source, allocations) => $emit('adjust-source', source, allocations)" @issue="issueWorkOrder" />
           <template v-else>
           <p v-if="isDraft" class="muted">此草稿沿用旧领料方式，点击“刷新供应”即可生成自动建议。</p>
           <div class="material-summary">
@@ -244,7 +244,7 @@ const readinessText = computed(() => props.detail?.readiness?.can_submit ? '可�
 const footerTitle = computed(() => isDraft.value ? (props.dirty ? '有未保存修改' : props.detail?.readiness?.can_submit ? '已具备提交条件' : '草稿已保存，有待处理项') : `${statusLabel.value} · 单据内容只读`)
 const footerHint = computed(() => isDraft.value ? (props.dirty ? '先保存本页修改，系统会重新核对数量、来源和工序。' : '提交后将冻结本页配置并生成生产工单。') : `工单 ${props.detail?.related_work_orders?.length || 0} 张 · 工序卡 ${props.detail?.job_card_count || 0} 张`)
 
-function issueWorkOrder(order) { emit('navigate', 'stockOperations', {tab:'stockEntries',action:'issue',return_source:'work_order',work_order_id:order.id}) }
+function issueWorkOrder(order) { emit('navigate', 'stockOperations', {tab:'stockEntries',action:'supplement',return_source:'work_order',work_order_id:order.id,production_plan_id:props.detail?.id}) }
 function quantity(value, unit = '') { const number = Number(value || 0); return `${Number.isInteger(number) ? number : Number(number.toFixed(6))} ${unit || ''}`.trim() }
 function quantitySummary(item) { return item.output_type === 'material' ? '按物料单位' : productionPlanItemQuantitySummary(item) }
 function bomSourceLabel(item) { return productionPlanItemBomSourceLabel(item) }

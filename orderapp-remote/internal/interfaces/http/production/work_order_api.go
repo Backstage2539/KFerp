@@ -339,6 +339,27 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 	e.POST("/api/produce/work-orders/:id/issue-materials", issueMaterials)
 	e.POST("/api/work-orders/:id/complete", completeWorkOrder)
 	e.POST("/api/produce/work-orders/:id/complete", completeWorkOrder)
+	e.POST("/api/produce/work-orders/:id/receive-completed-output", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid work_order_id"})
+		}
+		if support.CurrentEmployeeID(c) <= 0 {
+			return c.JSON(http.StatusForbidden, ErrorResponse{Error: "请先绑定员工"})
+		}
+		var req productionapp.RecordedOutputReceiptCommand
+		if err = c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		req.WorkOrderID = id
+		req.Operator = support.ActorOf(c)
+		req.EmployeeID = support.CurrentEmployeeID(c)
+		result, err := productionSvc.ReceiveCompletedOutput(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
 	e.POST("/api/produce/work-orders/:id/cancel", cancelWorkOrder)
 	e.POST("/api/produce/work-orders/:id/stock-document-preview", previewStockDocument)
 	e.POST("/api/work-orders/:id/operation-splits", func(c echo.Context) error {

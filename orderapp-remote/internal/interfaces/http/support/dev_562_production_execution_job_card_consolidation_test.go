@@ -65,7 +65,7 @@ func TestDev562ProductionExecutionJobCardConsolidationContracts(t *testing.T) {
 		}
 	}
 
-	for _, marker := range []string{"workstationVisibleActions", "OperationCompletionForm", "OperationConversionForm", "automaticPosted"} {
+	for _, marker := range []string{"workstationVisibleActions", "OperationCompletionForm", "isSimplifiedTask", "automaticPosted"} {
 		if !strings.Contains(contents["workstation"], marker) {
 			t.Fatalf("WorkstationView missing %s", marker)
 		}

@@ -15,8 +15,8 @@ const roster = () => ({ date: '2026-10-23', roster_version: 1, assignments: [
 ] })
 let sequence = 0
 async function setup(getRoster = async () => roster()) {
-  const calls = [], events = [], rows = [order(19), order(18, [ops[0]])]
-  globalThis.window = { location: { origin: 'https://example.test' }, dispatchEvent: event => events.push(event.detail) }
+  const calls = [], sends = [], events = [], rows = [order(19), order(18, [ops[0]])], storage = new Map()
+  globalThis.window = { location: { origin: 'https://example.test' }, dispatchEvent: event => events.push(event.detail), sessionStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) } }
   globalThis.CustomEvent = class { constructor(type, options) { this.type = type; this.detail = options.detail } }
   const key = `workOrderRosterTest${++sequence}`
   globalThis[key] = {
@@ -28,7 +28,12 @@ async function setup(getRoster = async () => roster()) {
       if (path === '/api/manufacturing-workstation-capacities') return { rows: [] }
       throw new Error(`Unexpected read: ${value}`)
     },
-    apiSend: async () => { throw new Error('Roster status must not write business data') },
+    apiSend: async (path, options = {}) => {
+      sends.push({ path, body: structuredClone(options.body || {}) })
+      if (path === '/api/production/legacy-review/preview') return { rows: [{ work_order_id: 64, version: 'v64' }] }
+      if (path === '/api/produce/work-orders/64/receive-completed-output') return { completion: { message: '已直接入库', output_qty: 5.6, output_unit: 'kg', stock_entry_ids: [640] } }
+      throw new Error(`Unexpected business write: ${path}`)
+    },
   }
   const file = new URL('../views/WorkOrdersView.vue', import.meta.url)
   const { descriptor } = parse(readFileSync(file, 'utf8'))
@@ -41,7 +46,7 @@ async function setup(getRoster = async () => roster()) {
   let state
   await renderToString(createSSRApp({ setup() { state = Component.setup(reactive({ embedded: true, viewParams: {} }), { expose() {} }); return () => h('div') } }))
   await state.load()
-  return { state, calls, events, rows }
+  return { state, calls, sends, events, rows }
 }
 
 test('saved workstation roster resolves both reported orders without task assignment fields', async () => {
@@ -98,12 +103,15 @@ test('closed tasks need no new staff and an empty order is not ready for receipt
   assert.equal(state.workOrderTodo(order(1, [])).title, '等待生成工序任务')
 })
 
-test('receipt starts inline on its work-order row without opening the detail drawer or navigating', async () => {
-  const { state, events } = await setup()
+test('receipt button posts saved output directly without opening another form or navigating', async () => {
+  const { state, sends, events } = await setup()
   const row = order(64, ops.map(item => ({ ...item, status: 'completed' })), 'partially_completed')
-  state.openPrimaryAction(row)
+  await state.openPrimaryAction(row)
   assert.equal(state.executionHub.value.open, false)
-  assert.equal(state.receiptWorkOrderID.value, 64)
+  assert.equal(sends[0].path, '/api/production/legacy-review/preview')
+  assert.equal(sends[1].path, '/api/produce/work-orders/64/receive-completed-output')
+  assert.deepEqual(Object.keys(sends[1].body).sort(), ['expected_version', 'request_id'])
+  assert.match(state.receiptMessage.value, /5\.6 kg/)
   assert.equal(events.length, 0)
 })
 
