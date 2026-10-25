@@ -421,6 +421,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-732-PRODUCTION-PLAN-GROUPED-PREPARATION
 - Branch: `codex/production-plan-material-groups`; initial base `origin/develop` 7f77b824c.
+- GitHub PR: #305, draft; targets `develop` and is waiting on PR-731 development/browser acceptance before merge and deployment.
 - Owner/session: Codex / 2026-10-25.
 - Status: implementation complete; latest `origin/develop` 6b4a17bc9 is integrated into this feature branch. On the merged tree, Vue shell tests/build (1617/1617), `scripts/verify_kferp.sh changed`, and the targeted isolated PostgreSQL API test pass; local desktop/narrow preview also passes. Hold development deployment while PR-731's isolated-data/browser acceptance is pending, per shared deployment coordination rules.
 - Scope: group production tasks only when stage, typed output identity, frozen spec/conversion, BOM/process/config snapshot, and target warehouse match; aggregate each linked preparation source once; retain each task's orders, allocations, owners, warehouses, batches, and edits.
