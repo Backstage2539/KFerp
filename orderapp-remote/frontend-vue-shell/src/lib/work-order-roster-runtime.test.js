@@ -48,9 +48,9 @@ test('saved workstation roster resolves both reported orders without task assign
   const { state, calls, rows, events } = await setup()
   assert.ok(calls.includes('/api/production-roster/today?scope=all'))
   for (const row of rows) {
-    assert.equal(state.workOrderTodo(row).title, '等待工位处理')
+    assert.equal(state.workOrderTodo(row).title, '去烘焙')
     assert.match(state.workOrderTodo(row).detail, /测试负责人/)
-    assert.equal(state.primaryActionLabel(row), '进入工位')
+    assert.equal(state.primaryActionLabel(row), '去烘焙')
   }
   state.openPrimaryAction(rows[0])
   assert.equal(events.at(-1).key, 'workstationView')
@@ -58,41 +58,43 @@ test('saved workstation roster resolves both reported orders without task assign
   assert.equal(events.at(-1).returnNavigation.key, 'workOrders')
 })
 
-test('unattended or invalid overrides require roster changes, never per-task assignment', async () => {
+test('unattended or invalid overrides still open the required operation and explain roster setup', async () => {
   const data = roster(); data.assignments[0] = { ...data.assignments[0], employee_id: 0, unattended: true, reason: '主负责人休息，无替补' }
   data.assignments[1].override_invalid = true
   const { state, rows, events } = await setup(async () => data)
-  assert.equal(state.workOrderTodo(rows[0]).title, '待安排 2 个工位')
+  assert.equal(state.workOrderTodo(rows[0]).title, '去烘焙')
   assert.match(state.workOrderTodo(rows[0]).detail, /主负责人休息/)
-  assert.equal(state.primaryActionLabel(rows[0]), '查看排班')
+  assert.equal(state.primaryActionLabel(rows[0]), '去烘焙')
   state.openPrimaryAction(rows[0])
-  assert.equal(events.at(-1).key, 'productionSchedule')
+  assert.equal(events.at(-1).key, 'workstationView')
   assert.equal(events.at(-1).returnNavigation.params.work_order_id, 19)
 })
 
 test('unsaved week cannot use old assignment names as proof of current duty', async () => {
   const { state } = await setup(async () => ({ ...roster(), roster_version: 0 }))
   const row = order(1, [{ ...ops[0], assigned_to: '旧负责人' }])
-  assert.equal(state.workOrderTodo(row).title, '本周排班尚未保存')
-  assert.equal(state.primaryActionLabel(row), '查看排班')
+  assert.equal(state.workOrderTodo(row).title, '去烘焙')
+  assert.match(state.workOrderTodo(row).detail, /本周排班尚未保存/)
+  assert.equal(state.primaryActionLabel(row), '去烘焙')
 })
 
 test('roster failure keeps orders visible and retry refreshes the actual roster', async () => {
   let fail = true
   const { state, rows } = await setup(async () => { if (fail) throw new Error('没有读取排班权限'); return roster() })
   assert.equal(state.rows.value.length, 2)
-  assert.equal(state.workOrderTodo(rows[0]).title, '排班状态待核对')
+  assert.equal(state.workOrderTodo(rows[0]).title, '去烘焙')
   assert.match(state.workOrderTodo(rows[0]).detail, /没有读取排班权限/)
-  assert.equal(state.primaryActionLabel(rows[0]), '重试')
-  fail = false; await state.openPrimaryAction(rows[0])
-  assert.equal(state.workOrderTodo(rows[0]).title, '等待工位处理')
+  assert.equal(state.primaryActionLabel(rows[0]), '去烘焙')
+  state.openPrimaryAction(rows[0])
+  assert.equal(state.workOrderTodo(rows[0]).title, '去烘焙')
+  fail = false; await state.load()
 })
 
 test('closed tasks need no new staff and an empty order is not ready for receipt', async () => {
   const { state } = await setup()
-  assert.equal(state.workOrderTodo(order(1, ops, 'completed')).title, '已完成')
+  assert.equal(state.workOrderTodo(order(1, ops, 'completed')).title, '查看记录')
   assert.equal(state.workOrderTodo(order(1, ops, 'cancelled')).title, '已取消')
-  assert.equal(state.workOrderTodo(order(1, ops.map(row => ({ ...row, status: 'completed' })))).title, '查看完成记录')
+  assert.equal(state.workOrderTodo(order(1, ops.map(row => ({ ...row, status: 'completed' })))).title, '确认数量并入库')
   assert.equal(state.workOrderTodo(order(1, [])).title, '等待生成工序任务')
 })
 
@@ -100,20 +102,20 @@ test('running tasks retain execution state and handover matches only this task',
   const data = roster(); data.assignments[0].handover_task_ids = [99]
   const { state } = await setup(async () => data)
   const running = order(1, [{ ...ops[0], status: 'running' }], 'running')
-  assert.equal(state.workOrderTodo(running).title, '生产执行中')
-  assert.equal(state.workOrderTodo(order(1, [{ ...ops[0], status: 'paused' }])).title, '工序已暂停')
+  assert.equal(state.workOrderTodo(running).title, '继续烘焙')
+  assert.equal(state.workOrderTodo(order(1, [{ ...ops[0], status: 'paused' }])).title, '继续烘焙')
   data.assignments[0].handover_task_ids = [21]; await state.load()
   assert.equal(state.workOrderTodo(running).title, '待工位交接')
-  assert.equal(state.primaryActionLabel(running), '进入工位')
+  assert.equal(state.primaryActionLabel(running), '待工位交接')
 })
 
 test('legacy station names resolve only without ID; duplicate tasks count one station', async () => {
   const { state } = await setup()
-  assert.equal(state.workOrderTodo(order(1, [{ ...ops[0], workstation_id: 0 }])).title, '等待工位处理')
-  assert.equal(state.workOrderTodo(order(1, [{ ...ops[0], workstation_id: 999 }])).title, '待安排 1 个工位')
+  assert.equal(state.workOrderTodo(order(1, [{ ...ops[0], workstation_id: 0 }])).title, '去烘焙')
+  assert.equal(state.workOrderTodo(order(1, [{ ...ops[0], workstation_id: 999 }])).title, '去烘焙')
   const data = roster(); data.assignments[0].employee_id = 0; data.assignments[0].unattended = true
   const other = await setup(async () => data)
-  assert.equal(other.state.workOrderTodo(order(1, [ops[0], { ...ops[0], id: 23 }])).title, '待安排 1 个工位')
+  assert.equal(other.state.workOrderTodo(order(1, [ops[0], { ...ops[0], id: 23 }])).title, '去烘焙')
 })
 
 test('an older load cannot overwrite a newly saved roster', async () => {
@@ -125,5 +127,5 @@ test('an older load cannot overwrite a newly saved roster', async () => {
   })
   const oldLoad = state.load(); await state.load()
   resolveOld({ ...roster(), roster_version: 0 }); await oldLoad
-  assert.equal(state.workOrderTodo(rows[0]).title, '等待工位处理')
+  assert.equal(state.workOrderTodo(rows[0]).title, '去烘焙')
 })

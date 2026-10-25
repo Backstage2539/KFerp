@@ -15,6 +15,44 @@ type StockProductionTarget struct {
 	TargetWarehouse  string  `json:"target_warehouse"`
 }
 
+type LinkedReplenishmentCommand struct {
+	SourceWorkOrderID    int64   `json:"source_work_order_id"`
+	ConsumerWorkOrderIDs []int64 `json:"consumer_work_order_ids"`
+	ExpectedVersion      string  `json:"expected_version"`
+	RequestID            string  `json:"request_id"`
+	Operator             string  `json:"-"`
+}
+
+type LinkedReplenishmentConsumer struct {
+	WorkOrderID    int64  `json:"work_order_id"`
+	WorkOrderNo    string `json:"work_order_no"`
+	RequiredG      int64  `json:"required_g"`
+	RequiredUnits  int64  `json:"required_units"`
+	ReservedG      int64  `json:"reserved_g"`
+	ReservedUnits  int64  `json:"reserved_units"`
+	InflightG      int64  `json:"inflight_g"`
+	InflightUnits  int64  `json:"inflight_units"`
+	ReplenishG     int64  `json:"replenish_g"`
+	ReplenishUnits int64  `json:"replenish_units"`
+}
+
+type LinkedReplenishmentPreview struct {
+	Version           string                        `json:"version"`
+	SourceWorkOrderID int64                         `json:"source_work_order_id"`
+	SourceWorkOrderNo string                        `json:"source_work_order_no"`
+	MaterialID        int64                         `json:"material_id"`
+	MaterialName      string                        `json:"material_name"`
+	Unit              string                        `json:"unit"`
+	Warehouse         string                        `json:"warehouse"`
+	OwnerCustomerID   int64                         `json:"owner_customer_id"`
+	AvailableG        int64                         `json:"available_g"`
+	AvailableUnits    int64                         `json:"available_units"`
+	ReplenishG        int64                         `json:"replenish_g"`
+	ReplenishUnits    int64                         `json:"replenish_units"`
+	OutputQty         float64                       `json:"output_qty"`
+	Consumers         []LinkedReplenishmentConsumer `json:"consumers"`
+}
+
 type ProductionSupplyAllocation struct {
 	ID                  int64  `json:"id"`
 	PlanItemID          int64  `json:"production_plan_item_id"`
@@ -73,6 +111,42 @@ func (s *Service) PreviewProductionPlan(ctx context.Context, cmd CreateProductio
 		return ProductionPlanPreview{}, fmt.Errorf("production planning preview unavailable")
 	}
 	return repo.PreviewProductionPlan(ctx, cmd)
+}
+
+type linkedReplenishmentRepository interface {
+	PreviewLinkedReplenishment(context.Context, LinkedReplenishmentCommand) (LinkedReplenishmentPreview, error)
+	CreateLinkedReplenishment(context.Context, LinkedReplenishmentCommand) (ProductionPlanDetail, error)
+}
+
+func (s *Service) PreviewLinkedReplenishment(ctx context.Context, cmd LinkedReplenishmentCommand) (LinkedReplenishmentPreview, error) {
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	if cmd.SourceWorkOrderID <= 0 || len(cmd.ConsumerWorkOrderIDs) == 0 || cmd.Operator == "" {
+		return LinkedReplenishmentPreview{}, fmt.Errorf("source work order, consumers and operator are required")
+	}
+	if len(cmd.ConsumerWorkOrderIDs) > 100 {
+		return LinkedReplenishmentPreview{}, fmt.Errorf("a linked replenishment can include at most 100 work orders")
+	}
+	if _, ok := s.repo.(linkedReplenishmentRepository); !ok {
+		return LinkedReplenishmentPreview{}, fmt.Errorf("linked replenishment is unavailable")
+	}
+	return s.repo.(linkedReplenishmentRepository).PreviewLinkedReplenishment(ctx, cmd)
+}
+
+func (s *Service) CreateLinkedReplenishment(ctx context.Context, cmd LinkedReplenishmentCommand) (ProductionPlanDetail, error) {
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.RequestID = strings.TrimSpace(cmd.RequestID)
+	cmd.ExpectedVersion = strings.TrimSpace(cmd.ExpectedVersion)
+	if cmd.SourceWorkOrderID <= 0 || len(cmd.ConsumerWorkOrderIDs) == 0 || cmd.Operator == "" || cmd.RequestID == "" || cmd.ExpectedVersion == "" {
+		return ProductionPlanDetail{}, fmt.Errorf("source, consumers, preview version, request id and operator are required")
+	}
+	if len(cmd.ConsumerWorkOrderIDs) > 100 {
+		return ProductionPlanDetail{}, fmt.Errorf("a linked replenishment can include at most 100 work orders")
+	}
+	repo, ok := s.repo.(linkedReplenishmentRepository)
+	if !ok {
+		return ProductionPlanDetail{}, fmt.Errorf("linked replenishment is unavailable")
+	}
+	return repo.CreateLinkedReplenishment(ctx, cmd)
 }
 
 type ProductionDemandOrder struct {

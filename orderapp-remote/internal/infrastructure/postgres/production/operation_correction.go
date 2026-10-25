@@ -47,9 +47,19 @@ func (r Repository) correctOperationOutputOnce(ctx context.Context, c app.Correc
 	var unit, inputUnit, warehouse, method string
 	var final, receiptEnabled, estimated bool
 	var seq int
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT e.id,j.actual_output_qty::float8,e.planned_qty::float8,e.input_qty::float8,e.output_unit,e.input_unit,e.warehouse,e.final_output,e.receipt_enabled,e.estimated_cost,e.material_cost::float8+e.operation_cost::float8+COALESCE((SELECT SUM(cost)::float8 FROM %[1]s.production_operation_movements WHERE event_id=e.id),0)+COALESCE((SELECT SUM(operation_cost)::float8 FROM %[1]s.production_operation_events WHERE reversal_of=e.id),0),j.cost_method,j.piece_rate::float8,j.sequence_no FROM %[1]s.production_operation_events e JOIN %[1]s.job_cards j ON j.id=e.job_card_id WHERE e.job_card_id=$1 AND e.kind='complete' AND e.status='posted' FOR UPDATE OF e,j`, r.schema), c.ID).Scan(&original, &previous, &planned, &input, &unit, &inputUnit, &warehouse, &final, &receiptEnabled, &estimated, &totalCost, &method, &pieceRate, &seq); err != nil {
+	if c.EventID <= 0 {
+		var eventCount int
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, r.schema), c.ID).Scan(&eventCount); err != nil {
+			return out, err
+		}
+		if eventCount != 1 {
+			return out, fmt.Errorf("本工序有多批完成记录，请从生产记录中选择具体批次更正")
+		}
+	}
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT e.id,e.output_qty::float8,e.planned_qty::float8,e.input_qty::float8,e.output_unit,e.input_unit,e.warehouse,e.final_output,e.receipt_enabled,e.estimated_cost,e.material_cost::float8+e.operation_cost::float8+COALESCE((SELECT SUM(cost)::float8 FROM %[1]s.production_operation_movements WHERE event_id=e.id),0)+COALESCE((SELECT SUM(operation_cost)::float8 FROM %[1]s.production_operation_events WHERE reversal_of=e.id),0),j.cost_method,j.piece_rate::float8,j.sequence_no FROM %[1]s.production_operation_events e JOIN %[1]s.job_cards j ON j.id=e.job_card_id WHERE e.job_card_id=$1 AND ($2::bigint=0 OR e.id=$2) AND e.kind='complete' AND e.status='posted' FOR UPDATE OF e,j`, r.schema), c.ID, c.EventID).Scan(&original, &previous, &planned, &input, &unit, &inputUnit, &warehouse, &final, &receiptEnabled, &estimated, &totalCost, &method, &pieceRate, &seq); err != nil {
 		return out, err
 	}
+	c.EventID = original
 	var legacy bool
 	var receivedBefore, receivedCost float64
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(payload->>'legacy','false')::boolean,COALESCE((payload->>'previous_received_qty')::numeric,0)::float8,COALESCE((payload->>'previous_received_cost')::numeric,0)::float8 FROM %s.production_operation_events WHERE id=$1`, r.schema), original).Scan(&legacy, &receivedBefore, &receivedCost); err != nil {
@@ -136,8 +146,12 @@ func (r Repository) correctOperationOutputOnce(ctx context.Context, c app.Correc
 	cardCostDeltas := map[int64]float64{}
 	for id, q := range cardQuantities {
 		var delta float64
-		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT CASE WHEN cost_method='piece' THEN ($2-actual_output_qty)*piece_rate ELSE 0 END::float8 FROM %s.job_cards WHERE id=$1`, r.schema), id, q).Scan(&delta); err != nil {
-			return out, err
+		if !legacy && id == c.ID {
+			delta = (q - previous) * pieceRate
+		} else {
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT CASE WHEN cost_method='piece' THEN ($2-actual_output_qty)*piece_rate ELSE 0 END::float8 FROM %s.job_cards WHERE id=$1`, r.schema), id, q).Scan(&delta); err != nil {
+				return out, err
+			}
 		}
 		cardCostDeltas[id] = delta
 		opDelta += delta
@@ -182,7 +196,11 @@ func (r Repository) correctOperationOutputOnce(ctx context.Context, c app.Correc
 		}
 	}
 	for id, q := range cardQuantities {
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET actual_output_qty=$2,actual_operation_cost=actual_operation_cost+$3,actual_loss_qty=CASE WHEN $4::text=$5::text THEN GREATEST(0,actual_input_qty-$2) ELSE 0 END WHERE id=$1`, r.schema), id, q, cardCostDeltas[id], inputUnit, unit); err != nil {
+		if !legacy && id == c.ID {
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET actual_output_qty=actual_output_qty+$2,actual_operation_cost=actual_operation_cost+$3,actual_loss_qty=CASE WHEN $4::text=$5::text THEN GREATEST(0,actual_input_qty-(actual_output_qty+$2)) ELSE 0 END WHERE id=$1`, r.schema), id, q-previous, cardCostDeltas[id], inputUnit, unit); err != nil {
+				return out, err
+			}
+		} else if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET actual_output_qty=$2,actual_operation_cost=actual_operation_cost+$3,actual_loss_qty=CASE WHEN $4::text=$5::text THEN GREATEST(0,actual_input_qty-$2) ELSE 0 END WHERE id=$1`, r.schema), id, q, cardCostDeltas[id], inputUnit, unit); err != nil {
 			return out, err
 		}
 	}

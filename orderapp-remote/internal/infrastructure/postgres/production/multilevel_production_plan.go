@@ -25,21 +25,22 @@ type multilevelRootShortage struct {
 }
 
 type manufacturingOutputBOMPlanBasis struct {
-	BOMID            int64
-	VersionID        int64
-	VersionNo        string
-	OutputType       string
-	OutputID         int64
-	BomSpecID        int64
-	BomVariantID     int64
-	OutputName       string
-	InventoryUnit    string
-	OutputSpecG      int64
-	OutputQty        float64
-	OutputUnit       string
-	ProcessRouteID   int64
-	ProcessRouteName string
-	Snapshot         string
+	BOMID                      int64
+	VersionID                  int64
+	VersionNo                  string
+	OutputType                 string
+	OutputID                   int64
+	BomSpecID                  int64
+	BomVariantID               int64
+	OutputName                 string
+	InventoryUnit              string
+	OutputSpecG                int64
+	OutputQty                  float64
+	OutputUnit                 string
+	ProcessRouteID             int64
+	ProcessRouteName           string
+	FrozenProcessRouteSnapshot string
+	Snapshot                   string
 }
 
 func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, roots []productionapp.ProductionPlanItem) error {
@@ -497,23 +498,31 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 	if basis.OutputType == "product" {
 		productID = basis.OutputID
 	}
-	processSnapshot, processJSON, err := loadProcessRouteSnapshotByIDTx(ctx, tx, schema, basis.ProcessRouteID, productID)
-	if err != nil {
-		return productionapp.ProductionPlanItem{}, err
-	}
-	if processSnapshot == nil {
-		return productionapp.ProductionPlanItem{}, fmt.Errorf("BOM version has no active process route: %s", basis.OutputName)
-	}
-	processSnapshot.ProductID = productID
-	processSnapshot.ProductName = basis.OutputName
-	processSnapshot.BomVersionID = basis.VersionID
-	processSnapshot.BomVersionNo = basis.VersionNo
-	processSnapshot.YieldRate = 1
-	processSnapshot.RouteID = basis.ProcessRouteID
-	processSnapshot.RouteName = basis.ProcessRouteName
-	processJSON, err = json.Marshal(processSnapshot)
-	if err != nil {
-		return productionapp.ProductionPlanItem{}, err
+	var processJSON []byte
+	if strings.TrimSpace(basis.FrozenProcessRouteSnapshot) != "" {
+		if !json.Valid([]byte(basis.FrozenProcessRouteSnapshot)) {
+			return productionapp.ProductionPlanItem{}, fmt.Errorf("frozen process route snapshot is invalid: %s", basis.OutputName)
+		}
+		processJSON = []byte(basis.FrozenProcessRouteSnapshot)
+	} else {
+		processSnapshot, _, loadErr := loadProcessRouteSnapshotByIDTx(ctx, tx, schema, basis.ProcessRouteID, productID)
+		if loadErr != nil {
+			return productionapp.ProductionPlanItem{}, loadErr
+		}
+		if processSnapshot == nil {
+			return productionapp.ProductionPlanItem{}, fmt.Errorf("BOM version has no active process route: %s", basis.OutputName)
+		}
+		processSnapshot.ProductID = productID
+		processSnapshot.ProductName = basis.OutputName
+		processSnapshot.BomVersionID = basis.VersionID
+		processSnapshot.BomVersionNo = basis.VersionNo
+		processSnapshot.YieldRate = 1
+		processSnapshot.RouteID = basis.ProcessRouteID
+		processSnapshot.RouteName = basis.ProcessRouteName
+		processJSON, err = json.Marshal(processSnapshot)
+		if err != nil {
+			return productionapp.ProductionPlanItem{}, err
+		}
 	}
 	orderSet := map[string]bool{}
 	for _, root := range roots {

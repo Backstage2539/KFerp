@@ -42,17 +42,14 @@ func TestProductionAcceptanceWIPVueWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"ProductionAcceptanceView",
+		"productionAcceptance: WorkOrdersView",
 		"productionAcceptance",
 	} {
 		if !strings.Contains(string(app), want) {
 			t.Fatalf("App.vue missing %q", want)
 		}
 	}
-	for _, want := range []string{
-		"生产记录与核对",
-		"productionAcceptance",
-	} {
+	for _, want := range []string{"productionAcceptance", "productionFlow"} {
 		if !strings.Contains(string(menu), want) {
 			t.Fatalf("menu-ia.js missing %q", want)
 		}
@@ -72,7 +69,7 @@ func TestProductionAcceptanceWIPVueWiring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"WIP剩余占用", "remaining_reserved_g"} {
+	for _, want := range []string{"returnableWipG", "remaining_reserved_g"} {
 		if !strings.Contains(string(orders), want) {
 			t.Fatalf("WorkOrdersView.vue missing %q", want)
 		}

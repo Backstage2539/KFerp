@@ -1,3 +1,14 @@
+### PR-729-PRODUCTION-RECOVERY-AND-WORK-ORDER-CLOSEOUT
+- Branch: codex/production-flow-repair; base origin/develop f25458c4.
+- Owner/session: Codex / production recovery and packaging closeout.
+- Scope: fix warehouse API 404s; prevent startup ghost warehouse balances; auditable duplicate-location repair; expose work-order source, route progress, direct next-step actions and old-record closeout; support partial completion events; prepare shortage-linked replenishment without duplicate demand; preserve per-work-order inventory, cost and audit history.
+- Authorization: implement the supplied remediation plan. Production verification is read-only. No guessed actual bag counts or warehouse positions; site staff must supply them before any real data correction or receipt.
+- DEV: DEV-PR729-01 WIP and warehouse location integrity; DEV-PR729-02 old packed orders and partial completion; DEV-PR729-03 work-order navigation and records; DEV-PR729-04 shortage-linked replenishment; DEV-PR729-05 verification, manuals and release.
+- Verifier: RED/GREEN Go, PostgreSQL and Vue tests; isolated fixture stock ledger, linked shortage allocation and idempotency; front-end production build; development runtime with isolated data; clean-main integration and read-only production runtime/static asset proof.
+- Status: implementation gates pass; integration and environment delivery pending. Docker-equivalent `env -u ORDERAPP_TEST_DATABASE_URL go test ./...` passes, frontend 1,596/1,596 and Vite production build pass, and targeted PostgreSQL/API tests for partial completion, linked replenishment and batch-location repair pass serially. Production business data remains untouched pending site confirmation.
+- RED evidence: operation completion, location backfill, warehouse UI and linked replenishment tests. First linked API run found aggregate NULL scanning and missing optional customer-processing reservation table handling; both are fixed and covered by serial tests. A broad DB-enabled full-suite run reports legacy fixture/schema failures in unrelated packages and was stopped while the full production package continued; targeted production DB/API checks are green.
+- Last update: 2026-10-25
+
 ### PR-727-DEFAULT-SPEC-INITIAL-ONLY
 - Branch: codex/default-spec-initial-only; base origin/develop c0c8da28.
 - Scope: default specification is initial selection and badge only; refresh valid BOM identities without confirmation, preserve quotes, retain actual selection validation.

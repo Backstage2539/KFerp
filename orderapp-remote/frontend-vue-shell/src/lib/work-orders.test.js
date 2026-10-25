@@ -25,19 +25,51 @@ test('work orders display frozen route operations from process snapshot when no 
   assert.match(source, /item\.workstation\s*\|\|\s*item\.workstation_name/)
 })
 
-test('work order list keeps query actions only and delegates lifecycle commands to the execution hub', () => {
+test('work order list exposes the next action, split editing and cancellation without print or more menus', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
   const template = source.slice(0, source.indexOf('<script setup>'))
   const rowActionsStart = template.indexOf('<td class="row-actions"')
   const rowActions = template.slice(rowActionsStart, template.indexOf('</td>', rowActionsStart) + 5)
 
-  for (const marker of ['查看工单', '更多']) assert.match(rowActions, new RegExp(marker))
-  for (const marker of ['编辑拆分', '打印']) assert.match(template, new RegExp(marker))
+  for (const marker of ['查看工单', '编辑拆分', '取消工单']) assert.match(rowActions, new RegExp(marker))
+  for (const marker of ['更多', '打印', 'printWorkOrder', 'print-sheet']) assert.doesNotMatch(template, new RegExp(marker))
   for (const forbidden of ['开始生产', '完工入库', 'startWorkOrder(row)', "openStockDocument(row, 'finish')"]) {
     assert.doesNotMatch(rowActions, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.match(source, /@updated="load"/)
   assert.doesNotMatch(source, /async function startWorkOrder/)
+})
+
+test('completed or partly supplied upstream work is actionable and shows the remaining shortage', () => {
+  const partiallySupplied = {
+    upstream_blocked: true,
+    upstream_dependencies: [{ status: 'completed', supply_ready: false, depends_on_work_order_no: 'WO-062', required_g: 103794, delivered_g: 84500 }],
+  }
+  assert.equal(workOrders.workOrderHasUpstreamBlocker(partiallySupplied), false)
+  assert.match(workOrders.workOrderUpstreamSupplyText(partiallySupplied), /尚缺 19\.294kg/)
+  assert.equal(workOrders.workOrderHasUpstreamBlocker({ upstream_dependencies: [{ status: 'running', supply_ready: false, required_g: 1000, delivered_g: 0 }] }), true)
+})
+
+test('completed upstream material shortages expose a linked replenishment source but ignore finished or non-material supply', () => {
+  const row = { upstream_dependencies: [
+    { depends_on_work_order_id: 62, depends_on_work_order_no: 'WO-062', status: 'completed', output_type: 'material', output_material_id: 10, output_name: '曜石2.0-半成品', output_unit: 'g', required_g: 103794, delivered_g: 84500 },
+    { depends_on_work_order_id: 63, status: 'completed', output_type: 'material', output_material_id: 11, required_g: 1000, delivered_g: 1000 },
+    { depends_on_work_order_id: 64, status: 'completed', output_type: 'product', output_material_id: 12, required_g: 1000, delivered_g: 0 },
+    { depends_on_work_order_id: 65, status: 'running', output_type: 'material', output_material_id: 13, required_g: 500, delivered_g: 0 },
+  ] }
+  assert.deepEqual(workOrders.workOrderLinkedReplenishmentSources(row), [{
+    source_work_order_id: 62,
+    source_work_order_no: 'WO-062',
+    material_id: 10,
+    material_name: '曜石2.0-半成品',
+    unit: 'g',
+    required_g: 103794,
+    required_units: 0,
+    delivered_g: 84500,
+    delivered_units: 0,
+  }])
+  assert.equal(workOrders.workOrderHasLinkedReplenishmentSource(row, 62), true)
+  assert.equal(workOrders.workOrderHasLinkedReplenishmentSource(row, 63), false)
 })
 
 test('work orders and job cards surface frozen workstation capacity time and operation cost', () => {
@@ -131,14 +163,15 @@ test('job cards show product and BOM recipe context with execution navigation', 
   assert.doesNotMatch(source, /job-card-work-order-drawer/)
 })
 
-test('work order main table uses generic manufacturing columns instead of roasting advice', () => {
+test('work order list shows its source, target warehouse and current operation instead of print details', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
+  const template = source.slice(0, source.indexOf('<script setup>'))
 
-  for (const want of ['BOM/工艺路线', '工序摘要', '工艺参数', '商品生产配置快照']) {
-    assert.match(source, new RegExp(want))
+  for (const want of ['来源销售订单', '生产计划 #', '目标仓库：', '工序进度', '当前待办']) {
+    assert.match(template, new RegExp(want))
   }
-  for (const forbidden of ['工艺建议', '建议设备', '建议锅次', 'suggested_machine', 'suggested_batch_plan', 'suggested_batch_count']) {
-    assert.doesNotMatch(source, new RegExp(forbidden))
+  for (const forbidden of ['打印', 'printWorkOrder', 'print-sheet', '更多']) {
+    assert.doesNotMatch(template, new RegExp(forbidden))
   }
 })
 

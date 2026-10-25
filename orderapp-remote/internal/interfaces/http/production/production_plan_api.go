@@ -21,6 +21,13 @@ type productionPlanCreateRequest struct {
 	InputByKey map[string]int64                      `json:"input_by_key"`
 }
 
+type linkedReplenishmentRequest struct {
+	SourceWorkOrderID    int64   `json:"source_work_order_id"`
+	ConsumerWorkOrderIDs []int64 `json:"consumer_work_order_ids"`
+	ExpectedVersion      string  `json:"expected_version"`
+	RequestID            string  `json:"request_id"`
+}
+
 type productionPlanUpdateRequest struct {
 	productionPlanCreateRequest
 	Revision int64 `json:"revision"`
@@ -65,6 +72,32 @@ type productionPlanDraftRequest struct {
 }
 
 func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Service) {
+	e.POST("/api/production/work-orders/replenishment/preview", func(c echo.Context) error {
+		var req linkedReplenishmentRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		preview, err := productionSvc.PreviewLinkedReplenishment(c.Request().Context(), productionapp.LinkedReplenishmentCommand{SourceWorkOrderID: req.SourceWorkOrderID, ConsumerWorkOrderIDs: req.ConsumerWorkOrderIDs, Operator: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, preview)
+	})
+	e.POST("/api/production/work-orders/replenishment", func(c echo.Context) error {
+		var req linkedReplenishmentRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		plan, err := productionSvc.CreateLinkedReplenishment(c.Request().Context(), productionapp.LinkedReplenishmentCommand{SourceWorkOrderID: req.SourceWorkOrderID, ConsumerWorkOrderIDs: req.ConsumerWorkOrderIDs, ExpectedVersion: req.ExpectedVersion, RequestID: req.RequestID, Operator: support.ActorOf(c)})
+		if err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(err.Error(), "版本已过期") || strings.Contains(err.Error(), "已变化") {
+				status = http.StatusConflict
+			}
+			return c.JSON(status, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, plan)
+	})
 	e.POST("/api/production-plans/:id/refresh-supply", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil {

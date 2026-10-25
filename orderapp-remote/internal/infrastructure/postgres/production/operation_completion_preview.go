@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"math"
 	app "orderapp/internal/application/production"
+	stockrepo "orderapp/internal/infrastructure/postgres/stock"
 	"strings"
 )
 
@@ -52,7 +53,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return p, wo, err
 	}
-	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT completion_draft,GREATEST(actual_minutes,CEIL((COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now()))) ELSE 0 END)/60)::int) FROM %s.job_cards WHERE id=$1`, r.schema), id).Scan(&p.Draft, &p.ActualMinutes); err != nil {
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT completion_draft,GREATEST(0,GREATEST(actual_minutes,CEIL((COALESCE((metrics_json->>'timer_elapsed_seconds')::numeric,0)+CASE WHEN status='running' THEN GREATEST(0,EXTRACT(EPOCH FROM now()-COALESCE(resumed_at,started_at,now()))) ELSE 0 END)/60)::int-COALESCE((SELECT SUM(COALESCE(NULLIF(e.payload->>'actual_minutes','')::int,0)) FROM %s.production_operation_events e WHERE e.job_card_id=$1 AND e.kind='complete' AND e.status='posted'),0))) FROM %s.job_cards WHERE id=$1`, r.schema, r.schema), id).Scan(&p.Draft, &p.ActualMinutes); err != nil {
 		return p, wo, err
 	}
 	var route processTemplateSnapshot
@@ -75,6 +76,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		p.BlockedReason = "旧工单需先核对用料归属与完成数量，再启用自动记账"
 	}
 	p.ProductName = firstNonEmpty(wo.OutputName, wo.ProductName)
+	p.OutputSpecG = wo.SpecG
 	var spec struct {
 		Label string `json:"spec_label"`
 	}
@@ -106,6 +108,11 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			p.PlannedQty = math.Round(p.PlannedQty)
 		}
 	}
+	p.TotalPlannedQty = p.PlannedQty
+	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(output_qty),0)::float8 FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted'`, r.schema), id).Scan(&p.CompletedOutputQty); err != nil {
+		return p, wo, err
+	}
+	p.PlannedQty = math.Max(0, p.TotalPlannedQty-p.CompletedOutputQty)
 	p.InputQty = input
 	if factor := app.OperationUnitFactor(p.OutputUnit); factor > 0 {
 		p.InputQty = input / factor
@@ -124,6 +131,31 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err = json.Unmarshal([]byte(bindings), &mapped); err != nil {
 		return p, wo, err
 	}
+	consumedByReservation := map[int64]float64{}
+	priorEvents, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(payload->'materials','[]'::jsonb) FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted' ORDER BY id`, r.schema), id)
+	if err != nil {
+		return p, wo, err
+	}
+	for priorEvents.Next() {
+		var raw []byte
+		if err = priorEvents.Scan(&raw); err != nil {
+			priorEvents.Close()
+			return p, wo, err
+		}
+		var used []app.OperationMaterialUse
+		if err = json.Unmarshal(raw, &used); err != nil {
+			priorEvents.Close()
+			return p, wo, err
+		}
+		for _, material := range used {
+			consumedByReservation[material.ReservationID] += material.Qty
+		}
+	}
+	if err = priorEvents.Err(); err != nil {
+		priorEvents.Close()
+		return p, wo, err
+	}
+	priorEvents.Close()
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT r.id,r.component_type,CASE WHEN r.component_id>0 THEN r.component_id ELSE r.material_id END,r.component_bom_spec_id,r.component_bom_variant_id,r.component_spec_g,r.material_name,r.unit,r.source_owner_customer_id,r.required_g,r.required_units
  FROM %s.work_order_material_reservations r WHERE r.work_order_id=$1 AND r.status IN('reserved','consumed') ORDER BY r.id`, r.schema), p.WorkOrderID)
 	if err != nil {
@@ -175,6 +207,9 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 				m.Qty = math.Ceil(m.Qty)
 			}
 		}
+		m.TotalQty = m.Qty
+		m.ConsumedQty = consumedByReservation[m.ReservationID]
+		m.Qty = math.Max(0, m.TotalQty-m.ConsumedQty)
 		p.Materials = append(p.Materials, m)
 	}
 	err = rows.Err()
@@ -183,6 +218,11 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		return p, wo, err
 	}
 	for i := range p.Materials {
+		p.Materials[i].AvailableQty, err = operationMaterialAvailableTx(ctx, tx, r.schema, p.Materials[i].ReservationID, p.Materials[i].Warehouse, p.Materials[i].OwnerCustomerID, p.Materials[i].Unit)
+		if err != nil {
+			return p, wo, err
+		}
+		p.Materials[i].ShortageQty = math.Max(0, p.Materials[i].Qty-p.Materials[i].AvailableQty)
 		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.warehouses WHERE code=$1 AND active=true`, r.schema), p.Materials[i].Warehouse).Scan(&p.Materials[i].WarehouseName); err != nil {
 			return p, wo, fmt.Errorf("来源仓不存在或已停用")
 		}
@@ -244,6 +284,17 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			}
 		}
 	}
+	p.MaxOutputQty = p.PlannedQty
+	for _, material := range p.Materials {
+		if material.Qty <= 0 || material.AvailableQty >= material.Qty {
+			continue
+		}
+		possible := p.PlannedQty * material.AvailableQty / material.Qty
+		if app.OperationUnitFactor(p.OutputUnit) == 0 {
+			possible = math.Floor(possible + 1e-9)
+		}
+		p.MaxOutputQty = math.Min(p.MaxOutputQty, math.Max(0, possible))
+	}
 	stockVersion, err := r.operationInventoryVersionTx(ctx, tx, p.WorkOrderID)
 	if err != nil {
 		return p, wo, err
@@ -257,6 +308,102 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		p.BlockedReason = "任务已取消"
 	}
 	return p, wo, nil
+}
+
+func operationMaterialAvailableTx(ctx context.Context, tx pgx.Tx, schema string, reservationID int64, warehouse string, ownerCustomerID int64, unit string) (float64, error) {
+	var componentType string
+	var workOrderID, materialID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT component_type,work_order_id,material_id FROM %s.work_order_material_reservations WHERE id=$1`, schema), reservationID).Scan(&componentType, &workOrderID, &materialID); err != nil {
+		return 0, err
+	}
+	if componentType == "product" {
+		return operationReservedProductAvailableTx(ctx, tx, schema, reservationID, warehouse, ownerCustomerID, unit)
+	}
+	type batchAvailability struct {
+		id, physicalG, physicalUnits, ownG, ownUnits, reservedG, reservedUnits int64
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT mb.id,l.qty_g,l.qty_units,
+		       COALESCE(own.g,0)::bigint,COALESCE(own.units,0)::bigint,
+		       COALESCE(all_reserved.g,0)::bigint,COALESCE(all_reserved.units,0)::bigint
+		FROM %[1]s.work_order_material_reservations target
+		JOIN %[1]s.material_batches mb ON mb.material_id=target.material_id
+		  AND mb.status='active' AND mb.quality_status NOT IN('hold','reject')
+		  AND COALESCE(mb.owner_customer_id,0)=$3
+		JOIN %[1]s.material_batch_locations l ON l.material_batch_id=mb.id AND l.warehouse=$2
+		LEFT JOIN LATERAL (
+			SELECT SUM(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g)) g,
+			       SUM(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units)) units
+			FROM %[1]s.work_order_material_reservation_batches b
+			JOIN %[1]s.work_order_material_reservations r ON r.id=b.reservation_id AND r.status='reserved'
+			WHERE b.reservation_id=$1 AND b.material_batch_id=mb.id AND b.warehouse=$2
+			  AND b.owner_customer_id=$3 AND b.status='reserved'
+		) own ON true
+		LEFT JOIN LATERAL (
+			SELECT SUM(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g)) g,
+			       SUM(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units)) units
+			FROM %[1]s.work_order_material_reservation_batches b
+			JOIN %[1]s.work_order_material_reservations r ON r.id=b.reservation_id AND r.status='reserved'
+			WHERE b.material_batch_id=mb.id AND b.warehouse=$2 AND b.owner_customer_id=$3 AND b.status='reserved'
+		) all_reserved ON true
+		WHERE target.id=$1 AND target.status IN('reserved','consumed')
+		  AND target.source_owner_customer_id=$3 AND (l.qty_g>0 OR l.qty_units>0)
+		ORDER BY mb.received_at,mb.id`, schema), reservationID, warehouse, ownerCustomerID)
+	if err != nil {
+		return 0, err
+	}
+	batches := []batchAvailability{}
+	for rows.Next() {
+		var row batchAvailability
+		if err = rows.Scan(&row.id, &row.physicalG, &row.physicalUnits, &row.ownG, &row.ownUnits, &row.reservedG, &row.reservedUnits); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		batches = append(batches, row)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, err
+	}
+	var grams, units int64
+	for _, batch := range batches {
+		processingG, processingUnits, e := stockrepo.OperationOtherProcessingReservedTx(ctx, tx, schema, workOrderID, batch.id, materialID, ownerCustomerID, warehouse, false)
+		if e != nil {
+			return 0, e
+		}
+		otherReservedG := maxInt64(0, batch.reservedG-batch.ownG)
+		otherReservedUnits := maxInt64(0, batch.reservedUnits-batch.ownUnits)
+		ownAvailableG := minInt64(batch.ownG, maxInt64(0, batch.physicalG-otherReservedG-processingG))
+		ownAvailableUnits := minInt64(batch.ownUnits, maxInt64(0, batch.physicalUnits-otherReservedUnits-processingUnits))
+		grams += ownAvailableG + maxInt64(0, batch.physicalG-batch.reservedG-processingG)
+		units += ownAvailableUnits + maxInt64(0, batch.physicalUnits-batch.reservedUnits-processingUnits)
+	}
+	if factor := app.OperationUnitFactor(unit); factor > 0 {
+		return float64(grams) / factor, nil
+	}
+	return float64(units), nil
+}
+
+func operationReservedProductAvailableTx(ctx context.Context, tx pgx.Tx, schema string, reservationID int64, warehouse string, ownerCustomerID int64, unit string) (float64, error) {
+	var grams, units int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(available_g),0)::bigint,COALESCE(SUM(available_units),0)::bigint
+		FROM (
+			SELECT LEAST(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g),GREATEST(0,sb.remaining_g)) AS available_g,
+			       LEAST(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units),GREATEST(0,sb.remaining_units)) AS available_units
+			FROM %[1]s.work_order_material_reservation_batches b
+			JOIN %[1]s.stock_batches sb ON sb.id=b.stock_batch_id AND sb.quality_status NOT IN('hold','reject')
+			WHERE b.reservation_id=$1 AND b.status='reserved' AND b.warehouse=$2 AND b.owner_customer_id=$3
+			  AND COALESCE(sb.owner_customer_id,0)=$3
+		) bound`, schema), reservationID, warehouse, ownerCustomerID).Scan(&grams, &units)
+	if err != nil {
+		return 0, err
+	}
+	if factor := app.OperationUnitFactor(unit); factor > 0 {
+		return float64(grams) / factor, nil
+	}
+	return float64(units), nil
 }
 
 func operationPlannedTotal(wo app.WorkOrderRow) float64 {

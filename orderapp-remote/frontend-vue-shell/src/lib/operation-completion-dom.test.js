@@ -20,7 +20,7 @@ async function mount(file,props,api){
 async function settle(){await new Promise(resolve=>setImmediate(resolve));await nextTick()}
 async function input(el,value){el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));await nextTick()}
 const preview={enabled:true,job_card_id:1,version:'v1',execution:{receipt_enabled:true},product_name:'验收咖啡',package_spec_label:'227g袋装',output_unit:'袋',input_unit:'g',input_qty:4540,planned_qty:20,warehouse_name:'成品仓',materials:[{reservation_id:7,key:'bean',name:'熟豆',unit:'g',qty:4540,warehouse:'wip',warehouse_name:'在制仓',owner_customer_id:0}],draft:{}}
-const button=(el,label)=>[...el.querySelectorAll('button')].find(b=>b.textContent.trim()===label)
+const button=(el,label)=>[...el.querySelectorAll('button')].find(b=>b.textContent.trim()===label||b.textContent.trim().includes(label))
 test('completion DOM validates integer, saves draft without movement, retries original lost response',async()=>{
  const calls=[];let lost=true;let p=structuredClone(preview)
  const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>structuredClone(p),apiSend:async(path,{body})=>{calls.push({path,body:structuredClone(body)});if(path.endsWith('/progress')){p={...p,version:'v2',draft:body};return structuredClone(p)};if(lost){lost=false;throw new Error('response lost')};return {completion:{message:'已入成品仓',output_qty:28,output_unit:'袋',stock_entry_ids:[8]}}}})

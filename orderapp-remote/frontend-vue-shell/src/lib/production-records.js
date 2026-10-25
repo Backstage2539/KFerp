@@ -24,5 +24,5 @@ export function correctionPayload(record, draft, requestID) {
   if (!draft.reason?.trim()) throw new Error('请填写更正原因')
   const cards={}
   if((record.correction_cards||[]).length>1){for(const card of record.correction_cards)cards[card.id]=actual(draft.card_quantities?.[card.id],record.unit);if(Math.abs(Object.values(cards).reduce((a,b)=>a+b,0)-output)>1e-8)throw new Error('来源工序数量合计不一致')}
-  return { actual_output_qty: output, card_quantities:cards, reason: draft.reason.trim(), expected_version: record.version, request_id: requestID }
+  return { event_id: Number(record.id || 0), actual_output_qty: output, card_quantities:cards, reason: draft.reason.trim(), expected_version: record.version, request_id: requestID }
 }

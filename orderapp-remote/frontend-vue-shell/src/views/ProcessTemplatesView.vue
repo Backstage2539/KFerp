@@ -9,6 +9,7 @@
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
+      <div v-if="warehouseError" class="error" role="alert">仓库未加载：{{ warehouseError }}。仓库相关配置已禁用，请刷新后重试。</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
       <div class="filters">
         <label>
@@ -134,9 +135,9 @@
         </div>
 
         <div class="footer-actions">
-          <button class="primary" type="button" @click="saveRoute" :disabled="loading">保存草稿</button>
-          <button class="secondary" type="button" @click="publishRoute" :disabled="!form.id || loading">发布</button>
-          <button class="secondary danger-outline" type="button" @click="deactivateRoute" :disabled="!form.id || loading">停用</button>
+          <button class="primary" type="button" @click="saveRoute" :disabled="loading || !!warehouseError">保存草稿</button>
+          <button class="secondary" type="button" @click="publishRoute" :disabled="!form.id || loading || !!warehouseError">发布</button>
+          <button class="secondary danger-outline" type="button" @click="deactivateRoute" :disabled="!form.id || loading || !!warehouseError">停用</button>
         </div>
       </section>
     </div>
@@ -159,6 +160,7 @@ const ok = ref('')
 const routes = ref([])
 const operations = ref([])
 const warehouses = ref([])
+const warehouseError = ref('')
 const workstationCapacities = ref([])
 const filters = reactive({ status: '' })
 const form = reactive(blankRoute())
@@ -342,14 +344,20 @@ async function loadAll() {
 }
 
 async function loadManufacturingMasterData() {
-  const [operationData, capacityData, warehouseData] = await Promise.all([
+  const [operationData, capacityData] = await Promise.all([
     apiGet('/api/manufacturing-operations'),
     apiGet('/api/manufacturing-workstation-capacities?status=active'),
-    apiGet('/api/warehouses'),
   ])
   operations.value = operationData?.rows || []
-  warehouses.value = (warehouseData?.rows || warehouseData || []).filter(w=>w.active!==false)
   workstationCapacities.value = capacityData?.rows || []
+  try {
+    const warehouseData = await apiGet('/api/stock/warehouses')
+    warehouses.value = (warehouseData?.rows || warehouseData || []).filter(w=>w.active!==false)
+    warehouseError.value = ''
+  } catch (err) {
+    warehouses.value = []
+    warehouseError.value = err.message || '仓库加载失败'
+  }
 }
 
 async function loadRoutes() {

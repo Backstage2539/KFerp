@@ -22,6 +22,14 @@ func operationOtherProcessingReservedTx(ctx context.Context, tx pgx.Tx, schema s
  SELECT COALESCE(SUM(GREATEST(0,p.g-COALESCE(b.g,0))),0)::bigint,COALESCE(SUM(GREATEST(0,p.n-COALESCE(b.n,0))),0)::bigint FROM processing p LEFT JOIN LATERAL(SELECT SUM(GREATEST(0,rb.reserved_g-rb.consumed_g-rb.returned_g)) g,SUM(GREATEST(0,rb.reserved_units-rb.consumed_units-rb.returned_units)) n FROM %[1]s.work_order_material_reservation_batches rb JOIN %[1]s.work_order_material_reservations r ON r.id=rb.reservation_id WHERE rb.work_order_id=p.work_order_id AND p.work_order_id>0 AND rb.%[4]s=$1 AND rb.warehouse=$4 AND rb.owner_customer_id=$5 AND rb.status='reserved' AND r.status='reserved') b ON true`, schema, batchColumn, itemColumn, genericBatch), batchID, itemID, workID, warehouse, owner).Scan(&g, &n)
 	return g, n, err
 }
+
+// OperationOtherProcessingReservedTx exposes the reservation-aware availability
+// calculation to production previews so they use the same customer-processing
+// protection as the stock posting path.
+func OperationOtherProcessingReservedTx(ctx context.Context, tx pgx.Tx, schema string, workID, batchID, itemID, owner int64, warehouse string, product bool) (int64, int64, error) {
+	return operationOtherProcessingReservedTx(ctx, tx, schema, workID, batchID, itemID, owner, warehouse, product)
+}
+
 func consumeOperationProcessingReservationTx(ctx context.Context, tx pgx.Tx, schema string, workID, batchID, itemID, owner int64, warehouse string, g, n int64, product bool) error {
 	has, err := stockSchemaColumnExistsTx(ctx, tx, schema, "customer_processing_material_reservations", "id")
 	if err != nil || !has {

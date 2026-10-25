@@ -23,6 +23,21 @@ type fakeStockRepo struct {
 	warehouseBind    stockapp.BindWarehouseCustomerCommand
 }
 
+type repairableFakeStockRepo struct {
+	*fakeStockRepo
+	preview stockapp.MaterialBatchLocationRepairPreview
+	repair  stockapp.MaterialBatchLocationRepairCommand
+}
+
+func (f *repairableFakeStockRepo) PreviewMaterialBatchLocationRepair(_ context.Context, id int64) (stockapp.MaterialBatchLocationRepairPreview, error) {
+	f.preview.MaterialBatchID = id
+	return f.preview, nil
+}
+func (f *repairableFakeStockRepo) RepairMaterialBatchLocations(_ context.Context, cmd stockapp.MaterialBatchLocationRepairCommand) (stockapp.MaterialBatchLocationRepairResult, error) {
+	f.repair = cmd
+	return stockapp.MaterialBatchLocationRepairResult{MaterialBatchID: cmd.MaterialBatchID, RequestID: cmd.RequestID}, nil
+}
+
 func (f *fakeStockRepo) ListLedger(ctx context.Context, query stockapp.LedgerQuery) (stockapp.LedgerResult, error) {
 	return stockapp.LedgerResult{Rows: []stockapp.LedgerRow{{ID: 1, ItemType: "material", ItemName: "水洗豆", QtyChangeG: 1200}}}, nil
 }
@@ -258,6 +273,37 @@ func TestStockAPIRoutes(t *testing.T) {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("material trace response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestMaterialBatchLocationRepairRoutesPreserveVersionAndActor(t *testing.T) {
+	repo := &repairableFakeStockRepo{
+		fakeStockRepo: &fakeStockRepo{},
+		preview:       stockapp.MaterialBatchLocationRepairPreview{MaterialBatchID: 7, BatchCode: "MP-7", Version: "snapshot-v1"},
+	}
+	e := echo.New()
+	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "现场操作员")
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stock/material-batch-locations/repair-preview", bytes.NewBufferString(`{"material_batch_id":7}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"version":"snapshot-v1"`)) || repo.preview.MaterialBatchID != 7 {
+		t.Fatalf("repair preview status=%d body=%s preview=%+v", rec.Code, rec.Body.String(), repo.preview)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-batch-locations/repair", bytes.NewBufferString(`{"material_batch_id":7,"expected_version":"snapshot-v1","request_id":"repair-7","reason":"现场核实","locations":[{"warehouse":"wip","qty_g":1000}],"reservation_moves":[]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.repair.Actor != "现场操作员" || repo.repair.ExpectedVersion != "snapshot-v1" || repo.repair.RequestID != "repair-7" {
+		t.Fatalf("repair submit status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.repair)
 	}
 }
 
