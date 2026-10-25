@@ -31,3 +31,10 @@ test('empty preparation state remains readable', async () => {
  const html=await renderToString(Vue.createSSRApp(component(),{sources:[]}))
  assert.match(html,/暂无备料项/)
 })
+test('embedded preparation can hide its standalone guidance note', async () => {
+ const Component=component()
+ const standalone=await renderToString(Vue.createSSRApp(Component,{sources:[source]}))
+ const embedded=await renderToString(Vue.createSSRApp(Component,{sources:[source],showNote:false}))
+ assert.match(standalone,/先用 WIP 现场库存/)
+ assert.doesNotMatch(embedded,/先用 WIP 现场库存/)
+})

@@ -475,6 +475,7 @@ export function buildProductionPlanStages(detail = {}) {
   const stageMap = new Map()
   for (const item of items) {
     const level = levels.get(Number(item.id || 0)) || 0
+    item._source_stage_level = level
     if (!stageMap.has(level)) stageMap.set(level, [])
     stageMap.get(level).push({
       id: Number(item.id || 0), item,
@@ -491,6 +492,199 @@ export function buildProductionPlanStages(detail = {}) {
     title: productionPlanStageTitle(tasks, level),
     tasks: tasks.sort((a, b) => a.item._source_index - b.item._source_index),
   }))
+}
+
+function stableSnapshotValue(value) {
+  if (Array.isArray(value)) return value.map(stableSnapshotValue)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableSnapshotValue(value[key])]))
+}
+
+function stableSnapshot(raw) {
+  const parsed = parsedProductionPlanSnapshot(raw)
+  return JSON.stringify(stableSnapshotValue(parsed))
+}
+
+function productionPlanGroupSpecification(item = {}) {
+  const snapshot = parsedProductionPlanSnapshot(item.sales_spec_snapshot_json)
+  return {
+    bom_spec_id: Number(item.bom_spec_id || 0),
+    bom_variant_id: Number(item.bom_variant_id || 0),
+    spec_g: Number(item.spec_g || 0),
+    spec_label: String(snapshot.spec_label || item.spec_label || '').trim(),
+    sales_unit: String(snapshot.sales_unit || item.sales_unit || '').trim(),
+    inventory_unit: String(snapshot.inventory_unit || item.inventory_unit || '').trim(),
+    inventory_qty_per_sales_unit: Number(snapshot.inventory_qty_per_sales_unit || item.inventory_qty_per_sales_unit || 0),
+  }
+}
+
+function productionPlanTaskGroupIdentity(item = {}) {
+  const outputType = String(item.output_type || 'product').trim()
+  const outputID = outputType === 'material'
+    ? Number(item.output_material_id || 0)
+    : Number(item.output_product_id || item.product_id || item.parent_product_id || 0)
+  return JSON.stringify({
+    output_type: outputType,
+    output_id: outputID,
+    output_unit: String(item.output_unit || '').trim(),
+    specification: productionPlanGroupSpecification(item),
+    bom_version_id: Number(item.bom_version_id || 0),
+    bom_source_product_id: Number(item.bom_source_product_id || 0),
+    bom_source: String(item.bom_source || '').trim(),
+    bom_inherited: Boolean(item.bom_inherited),
+    operation_template_id: Number(item.operation_template_id || 0),
+    process_route_id: Number(item.process_route_id || 0),
+    target_warehouse: String(item.target_warehouse || '').trim(),
+    material_snapshot: stableSnapshot(item.material_snapshot),
+    process_snapshot: stableSnapshot(item.process_snapshot_json),
+    production_config_snapshot: stableSnapshot(item.production_config_snapshot_json),
+  })
+}
+
+function productionPlanTaskQuantity(item = {}) {
+  if (String(item.output_type || '').trim() === 'material') {
+    return { value: Number(item.output_qty || 0), unit: String(item.output_unit || '').trim() }
+  }
+  if (Number(item.sales_spec_count || 0) > 0) {
+    return { value: Number(item.sales_spec_count), unit: productionPlanSalesUnit(item) }
+  }
+  if (Number(item.planned_inventory_qty || 0) > 0 && String(item.inventory_unit || '').trim()) {
+    return { value: Number(item.planned_inventory_qty), unit: String(item.inventory_unit).trim() }
+  }
+  if (Number(item.planned_output_g || item.gap_g || 0) > 0) {
+    return { value: Number(item.planned_output_g || item.gap_g) / 1000, unit: 'kg' }
+  }
+  return { value: 0, unit: productionPlanSalesUnit(item) }
+}
+
+function productionPlanPreparationValue(source = {}, key) {
+  const gramField = `${key}_g`
+  const unitField = `${key}_units`
+  const grams = Number(source[gramField] || 0)
+  const units = Number(source[unitField] || 0)
+  if (grams > 0) return { field: gramField, value: grams }
+  if (units > 0) return { field: unitField, value: units }
+  if (key === 'demand') {
+    const requiredG = Number(source.required_g || 0)
+    const requiredUnits = Number(source.required_units || 0)
+    if (requiredG > 0) return { field: 'demand_g', value: requiredG }
+    if (requiredUnits > 0) return { field: 'demand_units', value: requiredUnits }
+  }
+  const unit = String(source.unit || '').trim().toLowerCase()
+  return { field: ['g', 'kg', '克', '千克', '公斤'].includes(unit) ? gramField : unitField, value: 0 }
+}
+
+function productionPlanPreparationIdentity(source = {}) {
+  if (!Number(source.component_id || 0)) return JSON.stringify(['source', Number(source.id || 0)])
+  const unit = String(source.unit || '').trim().toLowerCase()
+  const normalizedUnit = ['g', 'kg', '克', '千克', '公斤'].includes(unit) ? 'weight_g' : unit
+  return JSON.stringify([
+    String(source.component_type || ''),
+    Number(source.component_id || 0),
+    Number(source.component_bom_spec_id || 0),
+    Number(source.component_bom_variant_id || 0),
+    Number(source.component_spec_g || 0),
+    normalizedUnit,
+  ])
+}
+
+function productionPlanPreparationStatus(summary) {
+  if (summary.shortage_g > 0 || summary.shortage_units > 0) return { key: 'shortage', label: '缺料' }
+  if (summary.upstream_g > 0 || summary.upstream_units > 0) {
+    if (summary.transfer_g > 0 || summary.transfer_units > 0) return { key: 'awaiting_supply', label: '待生产入库及领料' }
+    return { key: 'awaiting_production', label: '待生产入库' }
+  }
+  if (summary.transfer_g > 0 || summary.transfer_units > 0) return { key: 'awaiting_transfer', label: '供给已落实' }
+  return { key: 'ready', label: '现场已齐套' }
+}
+
+export function buildProductionPlanTaskGroups(stage = {}, detail = {}) {
+  const groups = new Map()
+  const sources = Array.isArray(detail?.component_sources) ? detail.component_sources : []
+  for (const task of stage?.tasks || []) {
+    const identity = productionPlanTaskGroupIdentity(task.item)
+    if (!groups.has(identity)) {
+      const spec = productionPlanGroupSpecification(task.item)
+      groups.set(identity, {
+        key: `plan-group-${stage.key}-${identity}`,
+        spec_label: spec.spec_label || (spec.spec_g > 0 ? `${spec.spec_g}g` : task.quantity_label),
+        tasks: [],
+        orders: [],
+        quantity_label: '',
+        preparations: [],
+      })
+    }
+    const group = groups.get(identity)
+    group.tasks.push({
+      ...task,
+      component_sources: sources.filter((source) => Number(source.production_plan_item_id || 0) === Number(task.id)),
+    })
+    for (const orderNo of task.order_nos || []) {
+      if (!group.orders.includes(orderNo)) group.orders.push(orderNo)
+    }
+  }
+
+  for (const group of groups.values()) {
+    const quantities = group.tasks.map((task) => productionPlanTaskQuantity(task.item))
+    const units = new Set(quantities.map((row) => row.unit))
+    group.quantity_label = units.size === 1
+      ? productionDemandQuantity(quantities.reduce((total, row) => total + row.value, 0), quantities[0]?.unit || '')
+      : group.tasks.map((task) => task.quantity_label).join(' + ')
+
+    const preparations = new Map()
+    for (const task of group.tasks) {
+      for (const source of task.component_sources) {
+        const identity = productionPlanPreparationIdentity(source)
+        if (!preparations.has(identity)) {
+          preparations.set(identity, {
+            key: `preparation-${identity}`,
+            component_type: source.component_type,
+            component_id: Number(source.component_id || 0),
+            component_name: source.component_name,
+            component_bom_spec_id: Number(source.component_bom_spec_id || 0),
+            component_bom_variant_id: Number(source.component_bom_variant_id || 0),
+            component_spec_g: Number(source.component_spec_g || 0),
+            unit: source.unit,
+            demand_g: 0, demand_units: 0,
+            wip_covered_g: 0, wip_covered_units: 0,
+            transfer_g: 0, transfer_units: 0,
+            upstream_g: 0, upstream_units: 0,
+            shortage_g: 0, shortage_units: 0,
+            members: [],
+          })
+        }
+        const summary = preparations.get(identity)
+        for (const key of ['demand', 'wip_covered', 'transfer', 'upstream', 'shortage']) {
+          const value = productionPlanPreparationValue(source, key)
+          summary[value.field] += value.value
+        }
+        summary.members.push({ id: source.id, task_id: task.id, task, source })
+      }
+    }
+    group.preparations = [...preparations.values()].map((summary) => {
+      const status = productionPlanPreparationStatus(summary)
+      return { ...summary, ...status, state_label: status.label }
+    })
+  }
+  return [...groups.values()]
+}
+
+export function findUnlinkedProductionPlanComponentSources(detail = {}) {
+  const itemIDs = new Set((detail?.items || []).map((item) => Number(item.id || 0)))
+  return (detail?.component_sources || []).filter((source) => !itemIDs.has(Number(source.production_plan_item_id || 0)))
+}
+
+export function productionPlanIssueTargetId(issue = {}) {
+  if (issue.component_source_id) return `component-source-${issue.component_source_id}`
+  if (issue.production_plan_item_id) return `plan-item-${issue.production_plan_item_id}`
+  return 'plan-stages'
+}
+
+export function expandProductionPlanIssueTarget(node) {
+  for (let parent = node; parent; parent = parent.parentElement) {
+    if (String(parent.tagName || '').toLowerCase() === 'details') parent.open = true
+  }
+  return node
 }
 
 export function productionPlanOperationSplitsEndpoint(plan) {

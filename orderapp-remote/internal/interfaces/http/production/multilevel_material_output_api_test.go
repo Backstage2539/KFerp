@@ -58,6 +58,18 @@ func TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownst
 		t.Fatalf("load manufacturing graph status=%d body=%s", graphDetail.Code, graphDetail.Body.String())
 	}
 	var graphPayload struct {
+		Items []struct {
+			ID               int64  `json:"id"`
+			OutputType       string `json:"output_type"`
+			OutputProductID  int64  `json:"output_product_id"`
+			OutputMaterialID int64  `json:"output_material_id"`
+		} `json:"items"`
+		ComponentSources []struct {
+			ID                   int64  `json:"id"`
+			ProductionPlanItemID int64  `json:"production_plan_item_id"`
+			ComponentType        string `json:"component_type"`
+			ComponentID          int64  `json:"component_id"`
+		} `json:"component_sources"`
 		ManufacturingPlan struct {
 			Blocking bool `json:"blocking"`
 			Nodes    []struct {
@@ -78,6 +90,39 @@ func TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownst
 	}
 	if err := json.Unmarshal(graphDetail.Body.Bytes(), &graphPayload); err != nil {
 		t.Fatalf("decode manufacturing graph: %v body=%s", err, graphDetail.Body.String())
+	}
+	planItemByType := map[string]int64{}
+	for _, item := range graphPayload.Items {
+		if item.OutputType == "product" && item.OutputProductID == 1 {
+			planItemByType["product"] = item.ID
+		}
+		if item.OutputType == "material" && item.OutputMaterialID == 10 {
+			planItemByType["roasted-material"] = item.ID
+		}
+	}
+	if planItemByType["product"] == 0 || planItemByType["roasted-material"] == 0 {
+		t.Fatalf("plan detail items=%+v, want product and self-manufactured coffee items", graphPayload.Items)
+	}
+	linked := map[string]bool{}
+	seenSourceIDs := map[int64]bool{}
+	for _, source := range graphPayload.ComponentSources {
+		if source.ID <= 0 || seenSourceIDs[source.ID] {
+			t.Fatalf("plan component source has invalid/repeated identity: %+v", source)
+		}
+		seenSourceIDs[source.ID] = true
+		switch {
+		case source.ProductionPlanItemID == planItemByType["roasted-material"] && source.ComponentType == "material" && source.ComponentID == 30:
+			linked["green-bean-to-roast"] = true
+		case source.ProductionPlanItemID == planItemByType["product"] && source.ComponentType == "material" && source.ComponentID == 10:
+			linked["roast-to-packaging"] = true
+		case source.ProductionPlanItemID == planItemByType["product"] && source.ComponentType == "material" && source.ComponentID == 20:
+			linked["bag-to-packaging"] = true
+		}
+	}
+	for _, want := range []string{"green-bean-to-roast", "roast-to-packaging", "bag-to-packaging"} {
+		if !linked[want] {
+			t.Fatalf("production plan GET detail sources=%+v; missing source-to-task association %q", graphPayload.ComponentSources, want)
+		}
 	}
 	foundRoastedCoverage := false
 	for _, node := range graphPayload.ManufacturingPlan.Nodes {

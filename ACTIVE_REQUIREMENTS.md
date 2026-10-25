@@ -419,6 +419,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-732-PRODUCTION-PLAN-GROUPED-PREPARATION
+- Branch: `codex/production-plan-material-groups`; initial base `origin/develop` 7f77b824c.
+- Owner/session: Codex / 2026-10-25.
+- Status: implementation complete; full Vue shell tests/build, targeted isolated PostgreSQL API test, and local desktop/narrow preview pass. Latest `origin/develop` advanced to 6b4a17bc9 and contains PR-731 production-completion work whose own tracking still says development integration/browser acceptance pending; integrate that commit into this branch and rerun gates, but hold deployment until its workflow is verified or Van directs otherwise.
+- Scope: group production tasks only when stage, typed output identity, frozen spec/conversion, BOM/process/config snapshot, and target warehouse match; aggregate each linked preparation source once; retain each task's orders, allocations, owners, warehouses, batches, and edits.
+- DEV: DEV-PR732-01 grouping/sums; DEV-PR732-02 nested detail and issue focus; DEV-PR732-03 isolated detail API association; DEV-PR732-04 manual/evidence/development delivery.
+- Verifier: `scripts/verify_kferp.sh frontend`; `scripts/verify_kferp.sh changed`; isolated PostgreSQL `TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownstreamWIP`; desktop 1440x1100 and narrow 390x844 component preview with no horizontal overflow and actual source-focus expansion.
+- Broad Go regression: `go test ./internal/interfaces/http/production ./internal/application/production ./internal/infrastructure/postgres/production -count=1` reports unrelated production fixture/schema, schedule-staff, and customer-processing material-reservation failures; the changed isolated plan-detail API test passes.
+- Production boundary: PP-0000000017 is only the read-only reference; no production save, refresh, submit, or work-order action.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-25-production-plan-grouped-preparation.md`.
+- Last update: 2026-10-25.
+
 ### PR-730-PACKAGING-GROUPED-EXECUTION
 - Branch: `codex/packaging-grouped-execution-20261025`; base `origin/develop` 4457e1e536c23a36596869594707428eab7b6c82.
 - Owner/session: Codex / 2026-10-25.
