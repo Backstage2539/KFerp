@@ -113,7 +113,10 @@ func ResolveRoastingMaterialUses(expected []OperationMaterialUse, actualInputQty
 		if out[i].RatioPct <= 0 || unitFactor <= 0 {
 			return nil, fmt.Errorf("烘焙 BOM 物料%s缺少有效配料比例或重量单位", out[i].Name)
 		}
-		out[i].Qty = roundRoastingMaterialQty(math.Max(0, inputG*out[i].RatioPct/100/unitFactor-out[i].ConsumedQty), unitFactor)
+		// actualInputQty is this completion's input, including when the preview
+		// supplies the remaining input after an earlier partial completion.
+		// Historical consumption must not be subtracted from that increment.
+		out[i].Qty = roundRoastingMaterialQty(inputG*out[i].RatioPct/100/unitFactor, unitFactor)
 		out[i].TotalQty = roundRoastingMaterialQty(inputG*out[i].RatioPct/100/unitFactor, unitFactor)
 	}
 	return out, nil
