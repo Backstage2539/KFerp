@@ -897,14 +897,38 @@ INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g)
 		t.Fatalf("EnsureSchema: %v", err)
 	}
 	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		CREATE TABLE %s.production_bom_versions(id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,status TEXT NOT NULL);
+		CREATE TABLE %s.production_bom_output_bindings(output_type TEXT NOT NULL,output_id BIGINT NOT NULL,bom_id BIGINT NOT NULL,bom_version_id BIGINT NOT NULL,is_default BOOLEAN NOT NULL DEFAULT true);
+		CREATE TABLE %s.production_bom_specs(id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,spec_key TEXT NOT NULL,name TEXT NOT NULL,inventory_unit TEXT NOT NULL);
+		CREATE TABLE %s.production_bom_version_variants(id BIGINT PRIMARY KEY,version_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,spec_name_snapshot TEXT NOT NULL,inventory_unit TEXT NOT NULL,is_default BOOLEAN NOT NULL,sort_order INTEGER NOT NULL);
+		INSERT INTO %s.production_bom_versions(id,bom_id,status) VALUES(553,883,'published');
+		INSERT INTO %s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default) VALUES('product',9,883,553,true);
+		INSERT INTO %s.production_bom_specs(id,bom_id,spec_key,name,inventory_unit) VALUES(20,883,'spec-6','454g袋装','袋');
+		INSERT INTO %s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order) VALUES(1186,553,20,'454g袋装','袋',true,6);
+		DELETE FROM %s.finished_inventory WHERE product_id=9 AND spec_g=454 AND warehouse='finished_goods';
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(9,20,1186,0,'finished_goods',1,0);
+		INSERT INTO %s.stock_batches(
+			batch_code,item_type,item_id,item_name,spec_g,bom_spec_id,bom_variant_id,
+			source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,operator
+		) VALUES('LEGACY-OPENING-9-454','finished_product',9,'橘皮乌龙',0,20,1186,
+			'legacy_finished_inventory_opening',9001,'LEGACY-OPENING-9-454',0,1,0,1,'migration');
+		INSERT INTO %s.stock_ledger_entries(
+			item_type,item_id,item_name,spec_g,bom_spec_id,bom_variant_id,warehouse,
+			source_doc_type,source_doc_id,source_batch_code,source_batch_id,
+			qty_before_g,qty_change_g,qty_after_g,qty_before_units,qty_change_units,qty_after_units,operator
+		) VALUES('finished_product',9,'橘皮乌龙',0,20,1186,'finished_goods',
+			'legacy_finished_inventory_opening',9001,'LEGACY-OPENING-9-454','LEGACY-OPENING-9-454',0,0,0,0,1,1,'migration');
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
 		INSERT INTO %s.warehouses(code,name,kind,sort_order,is_default,active,description)
 		VALUES('finished_shop','门店成品仓','finished',45,false,true,'门店/临时销售成品仓')
 		ON CONFLICT (code) DO UPDATE SET active=true;
 	`, schema))
 
 	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
-		VALUES (9,454,'finished_shop',0,0)
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES (9,20,1186,0,'finished_shop',0,0)
 		ON CONFLICT (product_id,bom_spec_id,spec_g,warehouse) DO NOTHING;
 	`, schema))
 
@@ -912,10 +936,10 @@ INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g)
 	adjustment, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
 		ItemType:    "finished_product",
 		ItemID:      9,
-		SpecG:       454,
+		BomSpecID:   20,
+		UnitCode:    "袋",
 		Warehouse:   "finished_goods",
 		TargetUnits: 3,
-		TargetG:     20,
 		Reason:      "期初成品盘点",
 		Operator:    "jj",
 	})
@@ -927,11 +951,12 @@ INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g)
 	}
 	transfer, err := repo.TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
 		ProductID:      9,
-		SpecG:          454,
+		BomSpecID:      20,
+		BomVariantID:   1186,
+		UnitCode:       "袋",
 		FromWarehouse:  "finished_goods",
 		ToWarehouse:    "finished_shop",
 		QtyUnits:       1,
-		QtyLooseG:      20,
 		Note:           "门店备货",
 		Operator:       "jj",
 		IdempotencyKey: "finished-transfer-1",
@@ -944,21 +969,21 @@ INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g)
 	}
 
 	var finishedGoodsUnits, finishedGoodsLoose, shopUnits, shopLoose int64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=9 AND spec_g=454 AND warehouse='finished_goods'`, schema)).Scan(&finishedGoodsUnits, &finishedGoodsLoose); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=9 AND bom_spec_id=20 AND spec_g=0 AND warehouse='finished_goods'`, schema)).Scan(&finishedGoodsUnits, &finishedGoodsLoose); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=9 AND spec_g=454 AND warehouse='finished_shop'`, schema)).Scan(&shopUnits, &shopLoose); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=9 AND bom_spec_id=20 AND spec_g=0 AND warehouse='finished_shop'`, schema)).Scan(&shopUnits, &shopLoose); err != nil {
 		t.Fatal(err)
 	}
-	if finishedGoodsUnits != 2 || finishedGoodsLoose != 0 || shopUnits != 1 || shopLoose != 20 {
-		t.Fatalf("finished warehouses = finished_goods %d/%d, shop %d/%d; want 2/0 and 1/20", finishedGoodsUnits, finishedGoodsLoose, shopUnits, shopLoose)
+	if finishedGoodsUnits != 2 || finishedGoodsLoose != 0 || shopUnits != 1 || shopLoose != 0 {
+		t.Fatalf("finished warehouses = finished_goods %d/%d, shop %d/%d; want 2/0 and 1/0", finishedGoodsUnits, finishedGoodsLoose, shopUnits, shopLoose)
 	}
 
 	var outCount, inCount int
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='finished_product_transfer' AND source_doc_id=$1 AND warehouse='finished_goods' AND qty_change_g=-474`, schema), transfer.TransferID).Scan(&outCount); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='finished_product_transfer' AND source_doc_id=$1 AND warehouse='finished_goods' AND qty_change_g=0 AND qty_change_units=-1`, schema), transfer.TransferID).Scan(&outCount); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='finished_product_transfer' AND source_doc_id=$1 AND warehouse='finished_shop' AND qty_change_g=474`, schema), transfer.TransferID).Scan(&inCount); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='finished_product_transfer' AND source_doc_id=$1 AND warehouse='finished_shop' AND qty_change_g=0 AND qty_change_units=1`, schema), transfer.TransferID).Scan(&inCount); err != nil {
 		t.Fatal(err)
 	}
 	if outCount != 1 || inCount != 1 {
@@ -1982,6 +2007,42 @@ func TestFinishedAdjustmentRejectsLegacyQuantityOnlyManualBatch(t *testing.T) {
 	}
 	if summaryUnits != 10 || adjustmentCount != 0 || ledgerCount != 0 {
 		t.Fatalf("summary/adjustment/ledger = %d/%d/%d, want 10/0/0", summaryUnits, adjustmentCount, ledgerCount)
+	}
+}
+
+func TestFinishedAdjustmentRejectsSummaryOnlyFinishedInventory(t *testing.T) {
+	ctx := context.Background()
+	pool, schema, repo := newFinishedAdjustmentTestRepo(t)
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(7,0,0,454,'customer_wh',1,20)
+	`, schema))
+
+	_, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "finished_product", ItemID: 7, SpecG: 454, Warehouse: "customer_wh",
+		TargetUnits: 3, TargetG: 20, Reason: "汇总库存无批次检测", Operator: "qa",
+	})
+	if err == nil || !strings.Contains(err.Error(), "finished inventory summary requires batch reconciliation") {
+		t.Fatalf("CreateAdjustment summary-only error = %v, want batch reconciliation error", err)
+	}
+	var summaryUnits, summaryLoose, adjustmentCount, ledgerCount, batchCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=7 AND bom_spec_id=0 AND spec_g=454 AND warehouse='customer_wh'
+	`, schema)).Scan(&summaryUnits, &summaryLoose); err != nil {
+		t.Fatal(err)
+	}
+	for query, dest := range map[string]*int64{
+		fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_adjustments`, schema):                                                             &adjustmentCount,
+		fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='stock_adjustment'`, schema):                 &ledgerCount,
+		fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_batches WHERE item_type='finished_product' AND item_id=7 AND spec_g=454`, schema): &batchCount,
+	} {
+		if err := pool.QueryRow(ctx, query).Scan(dest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if summaryUnits != 1 || summaryLoose != 20 || adjustmentCount != 0 || ledgerCount != 0 || batchCount != 0 {
+		t.Fatalf("summary/counts = %d+%dg/%d/%d/%d, want 1+20g/0/0/0", summaryUnits, summaryLoose, adjustmentCount, ledgerCount, batchCount)
 	}
 }
 

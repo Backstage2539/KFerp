@@ -1714,6 +1714,16 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 	if err != nil {
 		return "", 0, 0, 0, 0, nil, err
 	}
+	hasAvailableBatchBalance := false
+	for _, batch := range batches {
+		if batch.remainingG > 0 || batch.remainingUnits > 0 {
+			hasAvailableBatchBalance = true
+			break
+		}
+	}
+	if !hasAvailableBatchBalance && (beforeUnits != 0 || beforeLoose != 0) {
+		return "", 0, 0, 0, 0, nil, fmt.Errorf("finished inventory summary requires batch reconciliation")
+	}
 	beforeG := beforeUnits*cmd.SpecG + beforeLoose
 	if len(batches) > 0 {
 		beforeUnits, beforeG = 0, 0

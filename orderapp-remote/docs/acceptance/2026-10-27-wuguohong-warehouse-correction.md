@@ -25,17 +25,18 @@
 - PostgreSQL API 测试原先无法按有效 BOM 规格身份对生产批次盘点，返回 `product_bom_spec_not_configured`。
 - PR 审查补充用例先确认 RED：旧手工入库批次 `qty_units=10`、`remaining_units=0` 时仍被当成零库存，盘点会把汇总误加到 9；批次锁等待期间汇总行已被锁住；手工调整新批次仍未写入可用余额。
 - 最新 PR 审查补充用例再确认 RED：重复调用旧人工库存调整入口会因来源唯一键都为 `manual_adjustment/0` 失败；与旧入口并发时，新盘点未等待人工增加批次提交，存在按旧批次快照覆盖汇总的风险。
+- 汇总仅有 1 袋 + 20g、没有任何可用批次时，目标调整为 3 袋的用例先确认 RED：接口错误地成功并只建立差额批次。
 
 修复后验证 GREEN：
 
 - `ORDERAPP_TEST_DATABASE_URL=postgres://yiiiple-work@127.0.0.1:5432/postgres?sslmode=disable go test ./internal/infrastructure/postgres/stock ./internal/interfaces/http/stock -run 'Test(FinishedProductAdjustment(ReconcilesBatchesSummaryAndAudit|BatchAdjustmentRollsBackWhenAuditFails|LegacyZeroSpecRequiresExistingBalance)|StandardFinishedBatchAdjustmentAPIReconcilesWarehouseInventory|CanonicalBOMBatchAdjustmentAPIUsesActualProductSpecifications|BOMSpecFinishedTransferAndAdjustmentResolveCurrentVariantPostgresAPI|BOMSpecFinishedInventoryAdjustmentAndTransferKeepCanonicalIdentity)' -count=1`：通过。
-- `ORDERAPP_TEST_DATABASE_URL=postgres://yiiiple-work@127.0.0.1:5432/postgres?sslmode=disable go test ./internal/infrastructure/postgres/stock ./internal/interfaces/http/stock -run 'Test(ManualFinishedInventoryAdjustmentsCreateUsableStockBatches|ManualFinishedInventoryIncreaseSerializesWithBatchAdjustment|FinishedAdjustmentRejectsUnallocatedManualReductionBatch|FinishedAdjustmentRejectsLegacyQuantityOnlyManualBatch|FinishedAdjustmentLocksBatchBeforeInventorySummary|FinishedProductAdjustment(ReconcilesBatchesSummaryAndAudit|BatchAdjustmentRollsBackWhenAuditFails|LegacyZeroSpecRequiresExistingBalance)|StandardFinishedBatchAdjustmentAPIReconcilesWarehouseInventory|CanonicalBOMBatchAdjustmentAPIUsesActualProductSpecifications|BOMSpecFinishedTransferAndAdjustmentResolveCurrentVariantPostgresAPI|BOMSpecFinishedInventoryAdjustmentAndTransferKeepCanonicalIdentity)' -count=1`：全部通过。
+- `ORDERAPP_TEST_DATABASE_URL=postgres://yiiiple-work@127.0.0.1:5432/postgres?sslmode=disable go test ./internal/infrastructure/postgres/stock ./internal/interfaces/http/stock -run 'Test(ManualFinishedInventoryAdjustmentsCreateUsableStockBatches|ManualFinishedInventoryIncreaseSerializesWithBatchAdjustment|FinishedAdjustmentRejectsSummaryOnlyFinishedInventory|FinishedAdjustmentRejectsUnallocatedManualReductionBatch|FinishedAdjustmentRejectsLegacyQuantityOnlyManualBatch|FinishedAdjustmentLocksBatchBeforeInventorySummary|FinishedInventorySupportsWarehousesAndFinishedTransfers|FinishedProductAdjustment(ReconcilesBatchesSummaryAndAudit|BatchAdjustmentRollsBackWhenAuditFails|LegacyZeroSpecRequiresExistingBalance)|StandardFinishedBatchAdjustmentAPIReconcilesWarehouseInventory|CanonicalBOMBatchAdjustmentAPIUsesActualProductSpecifications|BOMSpecFinishedTransferAndAdjustmentResolveCurrentVariantPostgresAPI|BOMSpecFinishedInventoryAdjustmentAndTransferKeepCanonicalIdentity)' -count=1`：全部通过。
 - `env -u ORDERAPP_TEST_DATABASE_URL -u DATABASE_URL go test ./...`：全部通过。
 - `node --test src/lib/operation-manuals.test.js`：3 项通过。
 - `./scripts/verify_kferp.sh changed`：通过。
 - `git diff --check`：通过。
 
-测试覆盖批次 FIFO 扣减、增加时创建调整批次、规格 0 只允许将已有余额清零、同事务回滚、调整单/批次分配/库存流水/操作日志一致、拒绝未修复的历史数量批次和未分配的人工减库存批次、重复人工库存调整可创建多个批次、人工入库与批次盘点以商品规格身份锁串行化，以及调整与出库一致的“先批次、后汇总”锁顺序；正式 HTTP API 使用当前 BOM 规格身份。生产预检上一提交已因新增审查问题中止；最终预检待本轮补丁提交后执行。
+测试覆盖批次 FIFO 扣减、增加时创建调整批次、规格 0 只允许将已有余额清零、同事务回滚、调整单/批次分配/库存流水/操作日志一致、拒绝未修复的历史数量批次、未分配人工减库存批次和只有汇总没有可用批次的库存、重复人工库存调整可创建多个批次、人工入库与批次盘点以商品规格身份锁串行化，以及调整与出库一致的“先批次、后汇总”锁顺序；正式 HTTP API 使用当前 BOM 规格身份。前两次完整生产预检均在后续审查发现需修复的边界问题时中止；最终预检待本轮补丁提交后执行。
 
 ## 生产基线（只读核对）
 
