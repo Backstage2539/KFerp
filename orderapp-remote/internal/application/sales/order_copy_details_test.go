@@ -6,7 +6,7 @@ import (
 )
 
 func TestOrderCopyDetailsTextSavedFields(t *testing.T) {
-	source := OrderCopySnapshot{PayStatus: "预付款（付款未完成）", Order: OrderEditData{
+	source := OrderCopySnapshot{CustomerName: "棵凡咖啡", PayStatus: "预付款（付款未完成）", PaymentMethod: "银行转账", Order: OrderEditData{
 		ID: 42, OrderNo: "SO-42", OrderDate: "2026-10-18", DocumentDate: "2026-10-19", ReceiverName: "张先生", ReceiverPhone: "13800000000", ReceiverAddress: "上海市测试路1号", Notes: "不要复制备注", GrandTotal: "999.99",
 		Items: []OrderEditItem{
 			{Product: "已改名商品", ProductNameSnapshot: "下单品名", CustomerProductDisplayNameSnapshot: "客户拼配", Spec: "454", Qty: "10.500", Unit: "袋", UnitPrice: "99.99"},
@@ -15,7 +15,7 @@ func TestOrderCopyDetailsTextSavedFields(t *testing.T) {
 			{Product: "历史换算", BomSpecName: "旧来源", Spec: "454", PriceSourceJSON: `{"spec_conversion":{"target_spec_name":"250g 袋装","target_unit":"袋"}}`, Qty: "2", Unit: "袋"},
 		}}}
 	got := BuildOrderDetailsText(source)
-	want := "订单号：SO-42\n订单日期：2026-10-18\n付款状态：预付款（付款未完成）\n\n订单详情：\n1. 客户拼配｜454g｜10.5 袋\n2. 挂耳｜10袋/盒｜5 盒\n3. 曲奇｜2Kg袋装｜1 袋\n4. 历史换算｜250g 袋装｜2 袋\n\n收件人：张先生\n电话：13800000000\n收件地址：上海市测试路1号"
+	want := "订单号：SO-42\n客户名称：棵凡咖啡\n订单日期：2026-10-18\n付款状态：预付款（付款未完成）\n付款方式：银行转账\n\n订单详情：\n1. 客户拼配｜454g｜10.5 袋\n2. 挂耳｜10袋/盒｜5 盒\n3. 曲奇｜2Kg袋装｜1 袋\n4. 历史换算｜250g 袋装｜2 袋\n\n收件人：张先生\n电话：13800000000\n收件地址：上海市测试路1号"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
@@ -28,7 +28,7 @@ func TestOrderCopyDetailsTextSavedFields(t *testing.T) {
 func TestOrderCopyDetailsTextMissingAndVoid(t *testing.T) {
 	source := OrderCopySnapshot{PayStatus: "无需收款", Order: OrderEditData{IsVoid: true, Items: []OrderEditItem{{Product: "挂耳", ProductKind: "drip_bag", SalesUnit: "bag", UnitBeanG: "10", Qty: "0", Unit: "袋"}, {Product: "杯", Spec: "大杯", Qty: "1.125", Unit: "个"}}}}
 	got := BuildOrderDetailsText(source)
-	for _, s := range []string{"【已作废订单】\n", "付款状态：无需收款", "收件人：未填写", "电话：未填写", "收件地址：未填写", "10g/袋｜0 袋", "大杯｜1.125 个"} {
+	for _, s := range []string{"【已作废订单】\n", "客户名称：未填写", "付款状态：无需收款", "付款方式：未填写", "收件人：未填写", "电话：未填写", "收件地址：未填写", "10g/袋｜0 袋", "大杯｜1.125 个"} {
 		if !strings.Contains(got, s) {
 			t.Fatalf("missing %s in %s", s, got)
 		}
