@@ -447,7 +447,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-736-FROZEN-RECEIPT-ALLOCATION
 - Branch: `codex/production-followup-live-blockers`; base `origin/develop@dd603e05`.
 - Scope: user-reported recorded-output receipt and legacy packaging completion blocked at retained-stock allocation; single-card legacy buttons still shown.
-- Status: targeted PostgreSQL/API and Vue rendered RED/GREEN complete; final release gates and production follow-up pending.
+- Status: PostgreSQL/API and Vue rendered RED/GREEN, final server gates, production deployment and readonly runtime checks complete; Van business acceptance pending.
+- Integration: feature/develop `1acd4452`; production main/runtime `fc96f6720f67a474e2ba6893e0f27ab5163534dd`, verified 2026-10-26 21:58 CST. Development environment was not deployed.
+- Deployment: database allocation guard installed; actual packaging buttons verified; 34 business/audit table snapshots unchanged and 69 GET logs added. App restart count0, PostgreSQL healthy; source/rollback anchor `deploy-20261026214738-fc96f6720f67`.
 - Verification: `TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish`, current variant guard, adjacent legacy receipt tests, `workstation-legacy-packaging-runtime.test.js`; no production business writes.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-frozen-receipt-allocation.md`.
 - Last update: 2026-10-26.
@@ -456,7 +458,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: `codex/production-followup-20261026`; base `origin/main@001c65b0`; source remainder `origin/develop@692f09b8`.
 - Owner/session: this production follow-up release; only this workflow owns its integration and deployment.
 - Authorization: implement approved plan, fix incremental roasting, integrate remaining three features, complete isolated acceptance, merge main and deploy production. Production business records remain read-only.
-- Status: released production ac663d9a with readonly runtime proof; follow-up user blockers tracked in PR-736. PR-734 already existed on develop; PR-735 reserved manually.
+- Status: released production ac663d9a with readonly runtime proof; user blockers fixed and released in PR-736 at fc96f672. PR-734 already existed on develop; PR-735 reserved manually. Van business acceptance remains pending.
 - DEV: DEV-PR735-01 incremental roasting and accounting; DEV-PR735-02 remaining feature integration; DEV-PR735-03 isolated acceptance and release; DEV-PR735-04 bulk weight receipt ledger consistency.
 - Verifier: unit/API RED then GREEN; dedicated local PostgreSQL database; Vue tests/build; BOM refresh and multi-source packaging browser acceptance; final server release gates and readonly runtime evidence.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-production-followup-release.md`.

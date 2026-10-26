@@ -16,8 +16,20 @@
 - [x] 错订单、订单行、批次、批次编号、规格克数及货主共12种分配负例，在两条 API 场景均拒绝；入库成本为非零并落在对应成本表与库存单。
 - [x] 页面实际 Vue 渲染测试 RED/GREEN，现行数据库规格保护及相邻入库回归通过。
 - [x] 完整 Go（默认模式）、Vue 1,630/1,630、Vite 和 changed 检查通过；显式 PostgreSQL 相邻入库、现行规格保护及留厂预订转实物库存回归通过。
-- [ ] 正式服务器构建、生产部署与只读运行证据待补。
+- [x] 正式服务器 Vue 1,630、小程序432、类型检查/24页构建、Go及镜像内Go验证通过；生产部署退出0，运行核验通过。
 - [ ] Van 现场业务验收。
+
+## 正式发布证据
+
+- 功能提交 `1acd44526dba9b6f0dae4f95813a821d9daec67f` 已推送并合入 develop；保留 main 既有保护后合入 `fc96f6720f67a474e2ba6893e0f27ab5163534dd`。2026-10-26 21:58 生产运行核验确认此版本，后续仅补发布文档，不再部署应用。
+- 运行镜像 `sha256:a4190fab62059f5bf52e9dd22bfa347f3ed40a609a492bcad11d505468846cdc`；重启计数0，PostgreSQL健康且未重启，磁盘余8.9GB。
+- 数据库函数已包含两类批次分配的精确冻结身份及货主保护；函数哈希 `94f4cd814b6925abcfa7d6bc02074e49463ebb106d089ac2b4fe1187dd27def8`。四个关键源文件与最终候选哈希一致；工位、计划及订单脚本的服务器/容器/公网哈希一致。
+- 未登录页面/API返回401，登录页200；认证后工位/计划页面及API、生产/销售手册200，订单复制包含客户名称和付款方式。生产包装台只读页面确认末尾54、58、61三张旧任务均显示“工序完成 / 查看工单”，不再显示物料操作、报异常或呼叫补料；截图 `production-packaging-after-live-fix.png`。
+- 21:47:01至21:59:12的35表快照，除访问日志增加69条GET外，其他34表行数和内容哈希一致；该区间无POST或其他写入操作日志。PR-735/736均为review，关联开发项为done；Van验收不自动标记完成。
+- 回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261026214738-fc96f6720f67`；回滚镜像 `kferp-orderapp-rollback:production-20261026214738-fc96f6720f67`，身份为前一版 `sha256:63199fe1d0487a3038e89b4e1e7d63361616d2d6b02360de7f19ccadf7a7676e`，已确认存在。
+- 本轮未部署开发环境，未覆盖本地微信构建目录，也未上传、审核或发布微信小程序。两张真实工单尚未由本会话提交完成/入库；隔离API成功和生产规则生效不替代现场业务确认。
+
+运行证据：`production-live-followup-deploy.log`、`production-live-followup-smoke.json`、`production-live-followup-guard.json`、`production-live-followup-snapshot-comparison.json`、`production-live-followup-operation-interval.json`、`production-live-followup-rollback.txt`。
 
 证据目录：`/Users/yiiiple-work/.codex/worktrees/production-followup-release/evidence/`，包括 `production-followup-issues-readonly.json`、两个 `production-*-error-context.txt`、`live-packaging-ui-{red,green}.log`、`live-frozen-receipt-{red,green,regression}.log`、`live-identity-guard-regression.log`。
 

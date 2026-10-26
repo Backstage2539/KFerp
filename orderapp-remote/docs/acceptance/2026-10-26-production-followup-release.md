@@ -45,7 +45,7 @@
 - [x] 发布前21:03至发布后21:20的35表快照：除访问日志增加42条GET外，其他34表行数与内容哈希一致。应用重启0，数据库健康且未重启，磁盘余10GB。
 - [x] 回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261026210439-ac663d9a505a`；镜像 `kferp-orderapp-rollback:production-20261026210439-ac663d9a505a`，镜像身份与上一运行版本一致。
 - 运行镜像 `sha256:63199fe1d0487a3038e89b4e1e7d63361616d2d6b02360de7f19ccadf7a7676e`。随后仅将 PR-735 更新为 review、DEV-PR735-03 更新为 done，并记录两条审计及一条维护操作日志；未改工单、订单、库存。
-- 发布后用户指出单张旧包装按钮及留厂入库转代发分配阻断，另由 [PR-736 补充修复](2026-10-26-frozen-receipt-allocation.md) 跟踪；本次技术发布不等同于现场业务全部验收。
+- 发布后用户指出单张旧包装按钮及留厂入库转代发分配阻断，已由 [PR-736 补充修复](2026-10-26-frozen-receipt-allocation.md) 完成隔离回归并部署生产 `fc96f672`，21:58只读核对规则及实际按钮。此前功能均包含在新运行版本中；本次技术发布不等同于现场业务全部验收。
 
 证据保存在工作树同级 `/Users/yiiiple-work/.codex/worktrees/production-followup-release/evidence/`：
 
