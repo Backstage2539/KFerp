@@ -249,8 +249,10 @@ func componentSourceOptionsTx(ctx context.Context, tx pgx.Tx, schema string, sou
 			rows.Close()
 			return nil, err
 		}
-        if row.kind=="loss"||row.code=="loss" {continue}
-        if row.customerID > 0 && row.customerID != planCustomerID {
+		if row.kind == "loss" || row.code == "loss" {
+			continue
+		}
+		if row.customerID > 0 && row.customerID != planCustomerID {
 			continue
 		}
 		warehouses = append(warehouses, row)
@@ -363,6 +365,11 @@ func loadProductionPlanComponentSourcesTx(ctx context.Context, tx pgx.Tx, schema
 		if err := preparePickingSourcesTx(ctx, tx, schema, planID, out, status); err != nil {
 			return nil, err
 		}
+	} else if len(out) > 0 {
+		// Legacy plans have no persisted picking version. Show a live, read-only
+		// preparation projection so operators can see WIP coverage and shortages
+		// before starting work; do not create reservations or move stock here.
+		calculatePickingSources(out)
 	}
 	return out, nil
 }

@@ -21,23 +21,23 @@ async function settle(){await new Promise(resolve=>setImmediate(resolve));await 
 async function input(el,value){el.value=String(value);el.dispatchEvent(new Event('input',{bubbles:true}));await nextTick()}
 const preview={enabled:true,job_card_id:1,version:'v1',execution:{receipt_enabled:true},product_name:'验收咖啡',package_spec_label:'227g袋装',output_unit:'袋',input_unit:'g',input_qty:4540,planned_qty:20,warehouse_name:'成品仓',materials:[{reservation_id:7,key:'bean',name:'熟豆',unit:'g',qty:4540,warehouse:'wip',warehouse_name:'在制仓',owner_customer_id:0}],draft:{}}
 const button=(el,label)=>[...el.querySelectorAll('button')].find(b=>b.textContent.trim()===label||b.textContent.trim().includes(label))
-test('completion DOM validates integer, saves draft without movement, retries original lost response',async()=>{
- const calls=[];let lost=true;let p=structuredClone(preview)
- const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>structuredClone(p),apiSend:async(path,{body})=>{calls.push({path,body:structuredClone(body)});if(path.endsWith('/progress')){p={...p,version:'v2',draft:body};return structuredClone(p)};if(lost){lost=false;throw new Error('response lost')};return {completion:{message:'已入成品仓',output_qty:28,output_unit:'袋',stock_entry_ids:[8]}}}})
+test('completion form only asks for output, validates integer quantities, and retries the identical request after a lost response',async()=>{
+ const calls=[];let lost=true
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>structuredClone(preview),apiSend:async(path,{body})=>{calls.push({path,body:structuredClone(body)});if(lost){lost=false;throw new Error('response lost')};return {completion:{message:'已入成品仓',output_qty:18,output_unit:'袋',stock_entry_ids:[8]}}}})
  try{
   assert.match(view.el.textContent,/227g袋装/);assert.match(view.el.textContent,/成品仓/)
-  const fields=view.el.querySelectorAll('.fields input')
-  await input(fields[0],1.5);button(view.el,'完成').click();await settle();assert.match(view.el.textContent,/整数/);assert.equal(calls.length,0)
-  await input(fields[0],18);button(view.el,'保存进度').click();await settle();assert.equal(calls.length,1);assert.ok(calls[0].path.endsWith('/progress'));assert.match(view.el.textContent,/库存未改变/)
-  await input(fields[0],28);await input(fields[3],'现场实际多装8袋');button(view.el,'完成').click();await settle();assert.match(view.el.textContent,/尚未收到完成结果/)
+  const fields=view.el.querySelectorAll('.completion-form input')
+  assert.equal(fields.length,1)
+  assert.doesNotMatch(view.el.textContent,/本单用料|实际投入|实际工时|保存进度|差异原因/)
+  await input(fields[0],1.5);button(view.el,'确认工序完成').click();await settle();assert.match(view.el.textContent,/整数/);assert.equal(calls.length,0)
+  await input(fields[0],18);button(view.el,'确认工序完成').click();await settle();assert.equal(calls.length,1);assert.ok(calls[0].path.endsWith('/complete'));assert.match(view.el.textContent,/尚未收到完成结果/)
   assert.equal(view.el.querySelector('fieldset').disabled,true)
-  button(view.el,'重试原次完成').click();await settle();assert.deepEqual(calls[1].body,calls[2].body);assert.equal(calls[2].body.expected_version,'v2');assert.match(view.el.textContent,/已入成品仓/)
+  button(view.el,'重试本次完成').click();await settle();assert.deepEqual(calls[0].body,calls[1].body);assert.equal(calls[1].body.expected_version,'v1');assert.equal(calls[1].body.actual_output_qty,18);assert.equal('materials' in calls[1].body,false);assert.equal('actual_input_qty' in calls[1].body,false);assert.match(view.el.textContent,/已入成品仓/)
  }finally{view.close()}
 })
-test('refresh preserves entered actual quantities and reason',async()=>{
- let revision='v1'
- const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),version:revision}),apiSend:async()=>{throw new Error('unexpected write')}})
- try{const fields=view.el.querySelectorAll('.fields input');await input(fields[0],18);await input(fields[3],'现场已做完');revision='v2';button(view.el,'刷新建议').click();await settle();assert.equal(fields[0].value,'18');assert.equal(fields[3].value,'现场已做完')}finally{view.close()}
+test('completion quantity defaults to the server-provided remaining batch output',async()=>{
+ const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),planned_qty:2.497,output_unit:'kg'}),apiSend:async()=>{throw new Error('unexpected write')}})
+ try{const fields=view.el.querySelectorAll('.completion-form input');assert.equal(fields.length,1);assert.equal(fields[0].value,'2.497');assert.match(view.el.textContent,/本次完成数量（kg）/)}finally{view.close()}
 })
 test('only a genuinely incomplete BOM links to BOM repair; execution blockers explain themselves in place',async()=>{
  const legacy=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),enabled:false,bom_id:88,blocked_code:'legacy_execution_unresolved',blocked_reason:'旧工单缺少可自动接入的执行配置'}),apiSend:async()=>{throw new Error('blocked task must not submit')}})

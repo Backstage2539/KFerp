@@ -68,15 +68,19 @@ func (r Repository) legacyReviewContextTx(ctx context.Context, tx pgx.Tx, id int
 	}
 	if unfinished {
 		out.ReviewBlockedReason = "本单仍有未完成工序，请先核对执行中的工序"
+		out.ReceiptBlockedReason = out.ReviewBlockedReason
 	}
 	if posted {
 		out.ReviewBlockedReason = "本单已有自动记账记录，请从生产记录更正"
+		out.ReceiptBlockedReason = out.ReviewBlockedReason
 	}
 	if wo.Status == "cancelled" {
 		out.ReviewBlockedReason = "工单已取消"
+		out.ReceiptBlockedReason = out.ReviewBlockedReason
 	}
 	if task.QualityBlocked {
 		out.ReviewBlockedReason = "本单处于质量冻结"
+		out.ReceiptBlockedReason = out.ReviewBlockedReason
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT r.id,r.component_type,CASE WHEN r.component_id>0 THEN r.component_id ELSE r.material_id END,r.component_bom_spec_id,r.component_bom_variant_id,r.component_spec_g,r.material_name,r.unit,r.source_owner_customer_id,r.required_g,r.required_units,
  GREATEST(r.consumed_g,COALESCE((SELECT SUM(i.qty_g) FROM %[1]s.stock_entry_items i JOIN %[1]s.stock_entries d ON d.id=i.stock_entry_id WHERE d.work_order_id=r.work_order_id AND d.purpose='material_consumption_for_manufacture' AND d.status='submitted' AND i.material_id=r.material_id AND i.product_id=CASE WHEN r.component_type='product' THEN r.component_id ELSE 0 END AND i.owner_customer_id=r.source_owner_customer_id AND (r.component_type<>'product' OR (i.bom_spec_id=r.component_bom_spec_id AND i.spec_g=r.component_spec_g))),0),COALESCE((SELECT SUM(l.deduct_g) FROM %[1]s.material_consumption_logs l WHERE l.running_item_id=$2 AND r.component_type<>'product' AND l.material_id=r.material_id),0))::bigint,
@@ -140,7 +144,7 @@ func (r Repository) SubmitLegacyReview(ctx context.Context, c app.LegacyReviewIt
 
 func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyReviewItem) (app.LegacyReviewResult, error) {
 	out := app.LegacyReviewResult{WorkOrderID: c.WorkOrderID}
-	if c.EmployeeID <= 0 || c.ActualOutputQty == nil || strings.TrimSpace(c.Reason) == "" || c.RequestID == "" || c.ExpectedVersion == "" {
+	if c.EmployeeID <= 0 || c.RequestID == "" || c.ExpectedVersion == "" || (!c.RecordedOutputOnly && (c.ActualOutputQty == nil || strings.TrimSpace(c.Reason) == "")) {
 		return out, fmt.Errorf("请由已绑定员工填写现场核实的数量、用料和原因")
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -175,15 +179,36 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 	if review.Version != c.ExpectedVersion {
 		return out, fmt.Errorf("旧单或库存已变化，请刷新核对")
 	}
-	if review.ReviewBlockedReason != "" {
+	if c.RecordedOutputOnly {
+		if review.ReportedQty <= 0 || len(review.CorrectionCards) == 0 {
+			return out, fmt.Errorf("本单没有可直接入库的已完成数量")
+		}
+		quantity := review.ReportedQty
+		c.ActualOutputQty = &quantity
+		c.Reason = "按已记录的完工数量直接入库"
+		c.CardQuantities = make(map[int64]float64, len(review.CorrectionCards))
+		for _, card := range review.CorrectionCards {
+			c.CardQuantities[card.ID] = card.ActualOutputQty
+		}
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(CASE WHEN lower(trim(COALESCE(NULLIF(metrics_json->>'input_unit',''),NULLIF(batch_size_unit,''),'g'))) IN('kg','千克','公斤') THEN actual_input_qty*1000 ELSE actual_input_qty END),0)::float8 FROM %s.job_cards WHERE work_order_id=$1 AND status='completed'`, r.schema), wo.ID).Scan(&c.ActualInputG); err != nil {
+			return out, err
+		}
+	}
+	if c.RecordedOutputOnly {
+		if review.ReceiptBlockedReason != "" {
+			return out, fmt.Errorf("%s", review.ReceiptBlockedReason)
+		}
+	} else if review.ReviewBlockedReason != "" {
 		return out, fmt.Errorf("%s", review.ReviewBlockedReason)
 	}
 	quantity := *c.ActualOutputQty
 	if err = app.ValidateOperationQuantity(quantity, review.OutputUnit); err != nil {
 		return out, err
 	}
-	if err = app.ValidateOperationQuantity(c.ActualInputG, "g"); err != nil {
-		return out, err
+	if !c.RecordedOutputOnly {
+		if err = app.ValidateOperationQuantity(c.ActualInputG, "g"); err != nil {
+			return out, err
+		}
 	}
 	if quantity < review.ReceivedQty {
 		return out, fmt.Errorf("核实数量 %g 小于已入库 %g %s，请先处理关联入库流水", quantity, review.ReceivedQty, review.OutputUnit)
@@ -210,37 +235,39 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 			return out, fmt.Errorf("来源工序卡数量合计与核实总量不一致")
 		}
 	}
-	if len(c.Materials) != len(review.Materials) {
+	if !c.RecordedOutputOnly && len(c.Materials) != len(review.Materials) {
 		return out, fmt.Errorf("请逐项核实本单累计实际用料")
 	}
-	desired := map[int64]app.OperationMaterialUse{}
-	for _, m := range c.Materials {
-		if _, exists := desired[m.ReservationID]; exists {
-			return out, fmt.Errorf("用料行重复")
-		}
-		desired[m.ReservationID] = m
-	}
 	deltaMaterials := []app.OperationMaterialUse{}
-	for _, row := range review.Materials {
-		m, ok := desired[row.ReservationID]
-		if !ok || m.Key != row.Key || m.OwnerCustomerID != row.OwnerCustomerID || m.Unit != row.Unit {
-			return out, fmt.Errorf("冻结物料身份已变化")
+	if !c.RecordedOutputOnly {
+		desired := map[int64]app.OperationMaterialUse{}
+		for _, m := range c.Materials {
+			if _, exists := desired[m.ReservationID]; exists {
+				return out, fmt.Errorf("用料行重复")
+			}
+			desired[m.ReservationID] = m
 		}
-		if err = app.ValidateOperationQuantity(m.Qty, row.Unit); err != nil {
+		for _, row := range review.Materials {
+			m, ok := desired[row.ReservationID]
+			if !ok || m.Key != row.Key || m.OwnerCustomerID != row.OwnerCustomerID || m.Unit != row.Unit {
+				return out, fmt.Errorf("冻结物料身份已变化")
+			}
+			if err = app.ValidateOperationQuantity(m.Qty, row.Unit); err != nil {
+				return out, err
+			}
+			if m.Qty < row.ConsumedQty {
+				return out, fmt.Errorf("%s 核实用量小于已有耗料 %g %s，请核对关联耗料流水", row.Name, row.ConsumedQty, row.Unit)
+			}
+			use := row.OperationMaterialUse
+			use.Qty = m.Qty - row.ConsumedQty
+			use.Warehouse = firstNonEmpty(m.Warehouse, "wip")
+			if use.Qty > 0 {
+				deltaMaterials = append(deltaMaterials, use)
+			}
+		}
+		if err = r.creditLegacyConsumptionTx(ctx, tx, review.Materials); err != nil {
 			return out, err
 		}
-		if m.Qty < row.ConsumedQty {
-			return out, fmt.Errorf("%s 核实用量小于已有耗料 %g %s，请核对关联耗料流水", row.Name, row.ConsumedQty, row.Unit)
-		}
-		use := row.OperationMaterialUse
-		use.Qty = m.Qty - row.ConsumedQty
-		use.Warehouse = firstNonEmpty(m.Warehouse, "wip")
-		if use.Qty > 0 {
-			deltaMaterials = append(deltaMaterials, use)
-		}
-	}
-	if err = r.creditLegacyConsumptionTx(ctx, tx, review.Materials); err != nil {
-		return out, err
 	}
 	if wo.RunningItemID <= 0 {
 		started, e := r.startWorkOrderTx(ctx, tx, app.WorkOrderStartCommand{ID: wo.ID, Operator: c.Operator}, false)
@@ -252,9 +279,11 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET status='running' WHERE id=$1`, r.schema), wo.ID); err != nil {
 		return out, err
 	}
-	for id, q := range quantities {
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET actual_operation_cost=CASE WHEN cost_method='piece' THEN piece_rate*$2 ELSE actual_operation_cost END WHERE id=$1`, r.schema), id, q); err != nil {
-			return out, err
+	if !c.RecordedOutputOnly {
+		for id, q := range quantities {
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET actual_operation_cost=CASE WHEN cost_method='piece' THEN piece_rate*$2 ELSE actual_operation_cost END WHERE id=$1`, r.schema), id, q); err != nil {
+				return out, err
+			}
 		}
 	}
 	var priorMaterialCost, operationCost, receivedCost float64
@@ -268,6 +297,18 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 		return out, err
 	}
 	receipt := app.OperationCompletionReceipt{OutputWeightG: app.OperationOutputWeight(quantity-review.ReceivedQty, review.OutputUnit, wo.SpecG, wo.PlannedOutputG, operationPlannedTotal(wo)), EventID: eventID, OutputQty: quantity - review.ReceivedQty, OutputUnit: review.OutputUnit, Warehouse: review.TargetWarehouse, WarehouseName: review.TargetWarehouseName, StockEntryIDs: []int64{}, Message: "核对完成，已入" + review.TargetWarehouseName}
+	if c.RecordedOutputOnly {
+		receipt.Message = "已按已记录的完工数量直接入" + review.TargetWarehouseName
+		needsMaterialReview := len(review.Materials) == 0 || review.ReviewBlockedReason != ""
+		for _, material := range review.Materials {
+			if material.ConsumedQty+1e-8 < material.Qty {
+				needsMaterialReview = true
+			}
+		}
+		if needsMaterialReview {
+			receipt.InventoryWarning = "旧工序的耗料流水未完整匹配；本次只入库已记录产出，没有再次扣料，请后续核对历史用料。"
+		}
+	}
 	stockCmd := stockapp.StockDocumentCommand{Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: wo.ID, JobCardID: jobID, RunningItemID: wo.RunningItemID, SourceType: "operation_completion", SourceID: eventID, Operator: c.Operator, IdempotencyKey: fmt.Sprintf("legacy:%d:consume", eventID), Note: "旧单核对补齐耗料；" + wo.WorkOrderNo}
 	for _, m := range deltaMaterials {
 		item := stockapp.StockDocumentItemCommand{ItemType: "material", MaterialID: m.MaterialID, ProductID: m.ProductID, BomSpecID: m.BomSpecID, BomVariantID: m.BomVariantID, SpecG: m.SpecG, ItemName: m.Name, InventoryUnit: m.Unit, OwnerCustomerID: m.OwnerCustomerID, FromWarehouse: m.Warehouse}
@@ -281,7 +322,7 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 		}
 		stockCmd.Items = append(stockCmd.Items, item)
 	}
-	if len(stockCmd.Items) > 0 {
+	if !c.RecordedOutputOnly && len(stockCmd.Items) > 0 {
 		doc, e := stockrepo.NewRepository(r.pool, r.schema).ConsumeOperationMaterialsTx(ctx, tx, stockCmd)
 		if e != nil {
 			return out, e
@@ -295,10 +336,12 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 	if priorMaterialCost+operationCost+1e-6 < receivedCost {
 		return out, fmt.Errorf("已有入库成本超过已核实生产成本，需核对原成本记录")
 	}
-	for _, card := range review.CorrectionCards {
-		q := quantities[card.ID]
-		if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET actual_output_qty=$2,metrics_json=metrics_json||jsonb_build_object('quantity_basis','inventory_unit','inventory_unit',$3::text,'completion_event_id',$4::bigint) WHERE id=$1`, r.schema), card.ID, q, review.OutputUnit, eventID); err != nil {
-			return out, err
+	if !c.RecordedOutputOnly {
+		for _, card := range review.CorrectionCards {
+			q := quantities[card.ID]
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET actual_output_qty=$2,metrics_json=metrics_json||jsonb_build_object('quantity_basis','inventory_unit','inventory_unit',$3::text,'completion_event_id',$4::bigint) WHERE id=$1`, r.schema), card.ID, q, review.OutputUnit, eventID); err != nil {
+				return out, err
+			}
 		}
 	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_operation_events SET material_cost=$2 WHERE id=$1`, r.schema), eventID, priorMaterialCost); err != nil {
@@ -314,7 +357,11 @@ func (r Repository) SubmitLegacyReviewOnce(ctx context.Context, c app.LegacyRevi
 	if err = r.finishOperationWorkOrderTx(ctx, tx, wo, c.Operator); err != nil {
 		return out, err
 	}
-	if err = infra.AuditInsertTx(ctx, tx, r.schema, c.Operator, "work_order", &wo.ID, "legacy_reconcile", infra.StrPtr("actual_output_qty"), infra.StrPtr(fmt.Sprint(review.ReportedQty)), infra.StrPtr(fmt.Sprint(quantity)), infra.AuditMeta{"original": review, "confirmed": c, "event_id": eventID, "stock_entry_ids": receipt.StockEntryIDs, "material_cost": priorMaterialCost, "operation_cost": operationCost, "existing_receipt_cost": receivedCost}); err != nil {
+	auditAction := "legacy_reconcile"
+	if c.RecordedOutputOnly {
+		auditAction = "recorded_output_receipt"
+	}
+	if err = infra.AuditInsertTx(ctx, tx, r.schema, c.Operator, "work_order", &wo.ID, auditAction, infra.StrPtr("actual_output_qty"), infra.StrPtr(fmt.Sprint(review.ReportedQty)), infra.StrPtr(fmt.Sprint(quantity)), infra.AuditMeta{"original": review, "confirmed": c, "recorded_output_only": c.RecordedOutputOnly, "event_id": eventID, "stock_entry_ids": receipt.StockEntryIDs, "material_cost": priorMaterialCost, "operation_cost": operationCost, "existing_receipt_cost": receivedCost}); err != nil {
 		return out, err
 	}
 	raw, _ := json.Marshal(receipt)

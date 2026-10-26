@@ -120,6 +120,51 @@ func TestAutoPickingCombinesWarehousesWithoutMovingOrReservingDraftStock(t *test
 
 }
 
+func TestLegacyPlanDetailProjectsWIPCoverageAndShortageWithoutReservingStock(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedMultilevelMaterialOutputFlow(t, ctx, pool, schema)
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 1130, 30, "LEGACY-PREP", "生产生豆", 21_000)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %[1]s.materials SET is_semi_finished=true,purchase_price=0 WHERE id=10;
+		UPDATE %[1]s.material_batch_locations SET qty_g=6_000 WHERE material_batch_id=1130;
+		INSERT INTO %[1]s.material_batch_locations(material_batch_id,material_id,warehouse,qty_g) VALUES(1130,30,'raw_materials',5_000);
+	`, schema))
+	app := newProductionFlowTestEcho(pool, schema)
+	created := serveMultilevelProductionJSON(t, app, http.MethodPost, "/api/production-plans", map[string]any{
+		"source_type": "stock",
+		"items":       []map[string]any{{"output_type": "material", "output_material_id": 10, "output_qty": 16.8, "target_warehouse": "wip"}},
+	})
+	if created.Code != http.StatusOK {
+		t.Fatalf("create legacy plan: %d %s", created.Code, created.Body.String())
+	}
+	var saved productionapp.ProductionPlanDetail
+	if err := json.Unmarshal(created.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.production_plans SET picking_version=0 WHERE id=%d`, schema, saved.ID))
+	detail := serveMultilevelProductionJSON(t, app, http.MethodGet, fmt.Sprintf("/api/production-plans/%d", saved.ID), nil)
+	if detail.Code != http.StatusOK {
+		t.Fatalf("legacy plan detail: %d %s", detail.Code, detail.Body.String())
+	}
+	if err := json.Unmarshal(detail.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.ComponentSources) != 1 {
+		t.Fatalf("legacy projected component sources: %+v", saved.ComponentSources)
+	}
+	source := saved.ComponentSources[0]
+	if source.RequiredG != 21_000 || source.WIPCoveredG != 6_000 || source.TransferG != 5_000 || source.ShortageG != 10_000 {
+		t.Fatalf("legacy plan must show WIP 6kg, source warehouse 5kg and 10kg shortage: %+v", source)
+	}
+	if len(source.Allocations) != 2 || source.Allocations[0].Warehouse != "wip" || source.Allocations[0].QtyG != 6_000 || source.Allocations[1].Warehouse != "raw_materials" || source.Allocations[1].QtyG != 5_000 {
+		t.Fatalf("legacy source allocations: %+v", source.Allocations)
+	}
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "true", 0)
+	assertProductionFlowCount(t, pool, schema, "material_batch_locations", "material_batch_id=1130 AND warehouse='wip' AND qty_g=6000", 1)
+	assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND picking_version=0 AND status='draft'", saved.ID), 1)
+}
+
 func pickAllProductionComponents(t *testing.T, pool *pgxpool.Pool, schema string, app *echo.Echo, workOrderID int64) {
 	t.Helper()
 	preview := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/stock-document-preview", workOrderID), map[string]any{"action": "issue"})

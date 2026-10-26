@@ -11,6 +11,7 @@ import (
 	infra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/customerstock"
 	stockrepo "orderapp/internal/infrastructure/postgres/stock"
+	"strconv"
 	"strings"
 )
 
@@ -51,6 +52,14 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 		err = json.Unmarshal(replay, &out)
 		return out, err
 	}
+	out, err = r.completeOperationLockedTx(ctx, tx, cmd, workID, runID)
+	if err != nil {
+		return out, err
+	}
+	return out, tx.Commit(ctx)
+}
+func (r Repository) completeOperationLockedTx(ctx context.Context, tx pgx.Tx, cmd app.JobCardActionCommand, workID, runID int64) (app.JobCardActionResult, error) {
+	var out app.JobCardActionResult
 	p, wo, err := r.operationCompletionContextTx(ctx, tx, cmd.ID, true)
 	if err != nil {
 		return out, err
@@ -88,8 +97,34 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	if qualityBlocked {
 		return out, fmt.Errorf("本任务被质检冻结，请先处理质检记录")
 	}
+	if strings.TrimSpace(cmd.InputUnit) == "" {
+		cmd.InputUnit = p.InputUnit
+	}
+	if strings.TrimSpace(cmd.OutputUnit) == "" {
+		cmd.OutputUnit = p.OutputUnit
+	}
 	if cmd.InputUnit != p.InputUnit || cmd.OutputUnit != p.OutputUnit {
 		return out, fmt.Errorf("完成数量单位与冻结工序不一致")
+	}
+	if p.LegacyExecution {
+		if err = r.freezeLegacyExecutionConfigTx(ctx, tx, wo, seq, p, cmd.Operator); err != nil {
+			return out, err
+		}
+	}
+	if !p.PredecessorRequired && cmd.ActualInputQty <= 0 && p.InputQty > 0 {
+		cmd.ActualInputQty = p.InputQty
+	}
+	if p.PredecessorRequired && cmd.ActualOutputQty > 0 && cmd.ActualInputQty <= 0 {
+		if app.OperationUnitFactor(p.OutputUnit) > 0 && app.OperationUnitFactor(p.InputUnit) > 0 {
+			cmd.ActualInputQty = cmd.ActualOutputQty * app.OperationUnitFactor(p.OutputUnit) / app.OperationUnitFactor(p.InputUnit)
+		} else if p.OutputSpecG > 0 && app.OperationUnitFactor(p.InputUnit) > 0 {
+			cmd.ActualInputQty = cmd.ActualOutputQty * float64(p.OutputSpecG) / app.OperationUnitFactor(p.InputUnit)
+		} else if p.InputUnit == p.OutputUnit {
+			cmd.ActualInputQty = cmd.ActualOutputQty
+		}
+	}
+	if strings.TrimSpace(cmd.DifferenceReason) == "" && (cmd.ActualOutputQty > p.PlannedQty+1e-8 || (cmd.FinishOperation == nil || *cmd.FinishOperation) && math.Abs(cmd.ActualOutputQty-p.PlannedQty) > 1e-8) {
+		cmd.DifferenceReason = "现场按实际产出数量完成"
 	}
 	if err = app.ValidateOperationQuantity(cmd.ActualInputQty, cmd.InputUnit); err != nil {
 		return out, err
@@ -101,7 +136,7 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 	handoffs := []app.OperationHandoffAllocation{}
 	if p.PredecessorRequired {
 		if cmd.ActualOutputQty > 0 && cmd.ActualInputQty <= 0 {
-			return out, fmt.Errorf("请填写实际使用的前序产出数量")
+			return out, fmt.Errorf("无法按冻结单位换算本批前序用量，请核对工艺路线")
 		}
 		handoffs, err = app.AllocateOperationHandoff(p.PredecessorBatches, cmd.ActualInputQty, cmd.InputUnit)
 		if err != nil {
@@ -116,7 +151,12 @@ func (r Repository) completeOperationOnce(ctx context.Context, cmd app.JobCardAc
 		runID = started.RunningItemID
 		wo = started.WorkOrder
 	}
-	materials, err := resolveOperationMaterialUses(p.Materials, cmd.Materials, cmd.ActualOutputQty, p.PlannedQty, p.TotalPlannedQty, p.CompletedOutputQty)
+	var materials []app.OperationMaterialUse
+	if isRoastingOperationName(p.OperationName) {
+		materials, err = app.ResolveRoastingMaterialUses(p.Materials, cmd.ActualInputQty, cmd.InputUnit)
+	} else {
+		materials, err = resolveOperationMaterialUses(p.Materials, nil, cmd.ActualOutputQty, p.PlannedQty, p.TotalPlannedQty, p.CompletedOutputQty)
+	}
 	if err != nil {
 		return out, err
 	}
@@ -679,7 +719,9 @@ func resolveOperationMaterialUses(expected, submitted []app.OperationMaterialUse
 	if submitted == nil {
 		for i := range out {
 			if out[i].TotalQty > 0 && totalPlanned > 0 {
-				cumulative := math.Min(totalPlanned, completed+actual)
+				// A confirmed completion may exceed plan. Planned quantities are a
+				// comparison baseline; consumption follows actual cumulative output.
+				cumulative := math.Max(0, completed+actual)
 				target := out[i].TotalQty * cumulative / totalPlanned
 				if app.OperationUnitFactor(out[i].Unit) == 0 {
 					target = math.Ceil(target - 1e-9)

@@ -3763,6 +3763,7 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 	for i := range tasks {
 		task := &tasks[i]
 		wo := workOrderByID[task.WorkOrderID]
+		task.TargetWarehouse = strings.TrimSpace(wo.TargetWarehouse)
 		var frozen struct {
 			Operations []struct {
 				Seq           int    `json:"seq"`
@@ -3810,6 +3811,7 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 			break
 		}
 	}
+	applyPackagingGroupKeys(tasks, workOrderByID, jobCards)
 	if _, ok := s.repo.(productionRosterRepository); ok {
 		filtered := make([]ProductionTask, 0, len(tasks))
 		for i := range tasks {

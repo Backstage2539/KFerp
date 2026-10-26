@@ -17,6 +17,33 @@ func TestDefaultMaterialUseScalesWithActualOverproduction(t *testing.T) {
 	}
 }
 
+func TestRoastingMaterialUseFollowsActualBatchInputAndFrozenBOMRatios(t *testing.T) {
+	uses, err := resolveRoastingMaterialUses([]app.OperationMaterialUse{
+		{ReservationID: 1, Name: "孟连水洗5T批次", Unit: "kg", RatioPct: 15},
+		{ReservationID: 2, Name: "孟连水洗A", Unit: "kg", RatioPct: 50},
+		{ReservationID: 3, Name: "巴布亚之光", Unit: "kg", RatioPct: 15},
+		{ReservationID: 4, Name: "耶加雪菲G2", Unit: "kg", RatioPct: 20},
+	}, 6, "kg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []float64{.9, 3, .9, 1.2}
+	for i := range want {
+		if math.Abs(uses[i].Qty-want[i]) > 1e-8 {
+			t.Fatalf("material %s: got %v, want %v", uses[i].Name, uses[i].Qty, want[i])
+		}
+	}
+}
+
+func TestIncompleteRoastingBOMBlocksWithBOMRepairMessage(t *testing.T) {
+	if got := incompleteRoastingBOMReason(70); got != "BOM 配料比例合计 70%，请在 BOM 中补齐后继续" {
+		t.Fatalf("unexpected incomplete BOM message: %q", got)
+	}
+	if got := incompleteRoastingBOMReason(100); got != "" {
+		t.Fatalf("complete BOM must not block: %q", got)
+	}
+}
+
 func TestCompletionGroupIdentityKeepsProductionIdentityAcrossCustomerAndBOMVariants(t *testing.T) {
 	base := completionGroupSource{
 		cardID: 1, workID: 1, no: "WO-1", seq: 1, operation: "包装", station: "包装台",
