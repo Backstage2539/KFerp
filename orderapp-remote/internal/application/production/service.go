@@ -1032,9 +1032,11 @@ type WorkOrderRow struct {
 }
 
 type JobCardQuery struct {
-	WorkOrderID int64
-	Status      string
-	Limit       int
+	WorkOrderID  int64
+	WorkOrderIDs []int64
+	Status       string
+	ActiveOnly   bool
+	Limit        int
 }
 
 type JobCardRow struct {
@@ -3645,9 +3647,24 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 	if err != nil {
 		return ProductionWorkstationOverview{}, err
 	}
-	jobCards, err := s.ListJobCards(ctx, JobCardQuery{Limit: limit})
+	jobCards, err := s.ListJobCards(ctx, JobCardQuery{Limit: limit, ActiveOnly: true})
 	if err != nil {
 		return ProductionWorkstationOverview{}, err
+	}
+	activeWorkOrderIDs := make([]int64, 0, len(workOrders))
+	for _, workOrder := range workOrders {
+		if isActiveProductionTaskStatus(workOrder.Status) {
+			activeWorkOrderIDs = append(activeWorkOrderIDs, workOrder.ID)
+		}
+	}
+	if len(activeWorkOrderIDs) > 0 {
+		for _, status := range []string{"completed", "cancelled"} {
+			history, historyErr := s.ListJobCards(ctx, JobCardQuery{WorkOrderIDs: activeWorkOrderIDs, Status: status, Limit: limit})
+			if historyErr != nil {
+				return ProductionWorkstationOverview{}, historyErr
+			}
+			jobCards = appendJobCardsByID(jobCards, history)
+		}
 	}
 
 	date := time.Now().In(productionLocation()).Format("2006-01-02")
@@ -3671,10 +3688,15 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 	}
 
 	activeWorkOrders := map[int64]bool{}
+	workOrdersWithJobCards := map[int64]bool{}
 	tasks := make([]ProductionTask, 0, len(jobCards)+len(workOrders))
 	for _, card := range jobCards {
 		workOrder, found := workOrderByID[card.WorkOrderID]
-		if !found || !isActiveProductionTaskStatus(workOrder.Status) || !isActiveProductionTaskStatus(card.Status) {
+		if !found {
+			continue
+		}
+		workOrdersWithJobCards[card.WorkOrderID] = true
+		if !isActiveProductionTaskStatus(workOrder.Status) || !isActiveProductionTaskStatus(card.Status) {
 			continue
 		}
 		activeWorkOrders[card.WorkOrderID] = true
@@ -3694,7 +3716,7 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 		tasks = append(tasks, productionTaskFromJobCard(card, workOrder))
 	}
 	for _, workOrder := range workOrders {
-		if activeWorkOrders[workOrder.ID] || !isActiveProductionTaskStatus(workOrder.Status) {
+		if activeWorkOrders[workOrder.ID] || workOrdersWithJobCards[workOrder.ID] || !isActiveProductionTaskStatus(workOrder.Status) {
 			continue
 		}
 		tasks = append(tasks, productionTaskFromWorkOrder(workOrder))
@@ -3879,6 +3901,11 @@ func (s *Service) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]W
 func (s *Service) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error) {
 	if query.WorkOrderID < 0 {
 		return nil, fmt.Errorf("work_order_id must be >= 0")
+	}
+	for _, id := range query.WorkOrderIDs {
+		if id <= 0 {
+			return nil, fmt.Errorf("work_order_ids must contain positive ids")
+		}
 	}
 	query.Status = strings.TrimSpace(query.Status)
 	if query.Limit <= 0 || query.Limit > 500 {
@@ -4113,6 +4140,21 @@ func productionTaskFromWorkOrder(workOrder WorkOrderRow) ProductionTask {
 	task.AvailableActions = productionAvailableActions(task)
 	applyProductionTaskReadinessDetail(&task)
 	return task
+}
+
+func appendJobCardsByID(rows []JobCardRow, additions []JobCardRow) []JobCardRow {
+	seen := make(map[int64]struct{}, len(rows)+len(additions))
+	for _, row := range rows {
+		seen[row.ID] = struct{}{}
+	}
+	for _, row := range additions {
+		if _, exists := seen[row.ID]; exists {
+			continue
+		}
+		seen[row.ID] = struct{}{}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 func plannedInputInventoryQuantity(rawPlannedQty float64, workOrder WorkOrderRow) float64 {

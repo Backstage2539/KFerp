@@ -7,6 +7,7 @@ import {
   productionCompletionOutputQty,
   productionTaskActionEndpoint,
   productionTaskActionErrorMessage,
+  productionTaskActionNeedsRefresh,
   materialReadinessState,
   productionTopNavItems,
   stockOperationContextParams,
@@ -273,6 +274,15 @@ test('production task action failures are explained in Chinese without changing 
   )
 })
 
+test('stale task status conflicts refresh the workstation queue after showing the server reason', () => {
+  assert.equal(productionTaskActionNeedsRefresh(new Error('invalid job card action start from running')), true)
+  assert.equal(productionTaskActionNeedsRefresh(new Error('invalid job card status transition: running -> resume')), true)
+  assert.equal(productionTaskActionNeedsRefresh(new Error('permission denied')), false)
+
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+  assert.match(source, /productionTaskActionNeedsRefresh\(err\)[\s\S]*await load\(\)/)
+})
+
 test('production top nav renders count badges for high-frequency production views', () => {
   const items = navItemsWithProductionBadges(productionTopNavItems, {
     productionOverview: { pending: 2, blocked: 1, running: 3 },
@@ -324,7 +334,7 @@ test('workstation view lets wide task rows scroll and single-station filters fil
 test('workstation action buttons reveal their forms inside the clicked task row', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /<div v-for="task in ungroupedTasks\(section\)"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\) && isSimplifiedTask\(task\)"/)
+  assert.match(source, /<OperationCompletionForm v-if="isFinishPanelForTask\(task\)"/)
   assert.match(source, /class="task-action-panel"/)
   assert.match(source, /function isIssuePanelForTask\(task\)/)
   assert.match(source, /function isFinishPanelForTask\(task\)/)
@@ -332,12 +342,13 @@ test('workstation action buttons reveal their forms inside the clicked task row'
   assert.match(source, /function openFinishPanel\(task\) \{[\s\S]*issue\.open = false/)
   assert.doesNotMatch(source, /<section v-if="issue\.open" class="panel action-panel">/)
   assert.doesNotMatch(source, /<section v-if="finishPanel\.open" class="panel action-panel">/)
+  assert.doesNotMatch(source, /isFinishPanelForTask\(task\) &&[^\n]*automatic_completion/)
 })
 
 test('roasting task completion is inline and requires only output quantity', () => {
  const source=readFileSync(new URL('../views/WorkstationView.vue',import.meta.url),'utf8')
  const form=readFileSync(new URL('../components/OperationCompletionForm.vue',import.meta.url),'utf8')
- assert.match(source, /OperationCompletionForm v-if="isFinishPanelForTask\(task\) && isSimplifiedTask\(task\)"/)
+ assert.match(source, /OperationCompletionForm v-if="isFinishPanelForTask\(task\)"/)
  assert.match(source, /function isSimplifiedTask\(task\).*烘焙.*除石/)
  assert.doesNotMatch(source, /submitFinishPanel|finishRunningProduction|partial_finish/)
  assert.match(form,/completionQuantityLabel\(preview\.output_unit\)/)

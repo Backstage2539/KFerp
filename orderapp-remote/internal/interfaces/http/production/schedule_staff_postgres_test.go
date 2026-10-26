@@ -15,6 +15,32 @@ import (
 	"testing"
 )
 
+func TestWorkstationOverviewFindsActiveCardsBeyondRecentCompletedHistory(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, fmt.Sprintf(sql, schema), args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO %s.work_orders(id,work_order_no,status,product_name,inventory_unit,planned_inventory_qty,planned_g,planned_output_g,sales_spec_count,order_nos) VALUES(950,'WO-ACTIVE-BEHIND-HISTORY','released','测试商品','kg',1,1000,1000,1,'SO-ACTIVE-HISTORY')`)
+	exec(`INSERT INTO %s.job_cards(id,work_order_id,sequence_no,operation,workstation,status,actual_output_qty)
+	 SELECT 1000+seq,950,1,'已完成历史工序','布勒','completed',1 FROM generate_series(1,500) seq`)
+	exec(`INSERT INTO %s.job_cards(id,work_order_id,sequence_no,operation,workstation,status,planned_input_qty) VALUES(2000,950,2,'待执行包装','包装台','pending',1000)`)
+
+	overview, err := app.NewService(productionPG.NewRepository(pool, schema)).ProductionWorkstationOverview(ctx, app.ProductionWorkstationOverviewQuery{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Tasks) != 1 || overview.Tasks[0].JobCardID != 2000 || overview.Tasks[0].Operation != "待执行包装" {
+		t.Fatalf("active operation was hidden by completed history: %+v", overview.Tasks)
+	}
+	if !overview.Tasks[0].HasPredecessor || !overview.Tasks[0].PredecessorCompleted {
+		t.Fatalf("completed history should still provide handoff context: %+v", overview.Tasks[0])
+	}
+}
+
 func TestPR655ScheduleStaffPostgresLifecycle(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()

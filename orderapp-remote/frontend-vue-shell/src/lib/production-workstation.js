@@ -395,6 +395,18 @@ export function productionTaskActionErrorMessage(error, action = '') {
   return `${actionLabel}失败（错误编号：${code}），请稍后重试；如持续失败请联系管理员`
 }
 
+export function productionTaskActionNeedsRefresh(error) {
+  const message = String(error?.message || '').toLowerCase()
+  return [
+    'invalid job card status transition',
+    'invalid job card action',
+    'work order must be running',
+    'work order is not running',
+    'job card not found',
+    'work order not found',
+  ].some((marker) => message.includes(marker))
+}
+
 export function taskTitle(task) {
   if (!task) return '-'
   const op = task.operation || ''

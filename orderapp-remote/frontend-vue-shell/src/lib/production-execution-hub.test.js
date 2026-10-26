@@ -263,6 +263,13 @@ test('execution hub exposes typed output and upstream blocker contracts', () => 
   assert.match(drawerSource, /配方、成本与订单追溯/)
 })
 
+test('execution hub does not offer a no-op workstation action after every operation ended', () => {
+  const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
+  assert.match(drawerSource, /workOrderHasNoPendingOperations/)
+  assert.match(drawerSource, /v-else-if="workOrderHasNoPendingOperations"[\s\S]*工序已结束，待入库[\s\S]*v-else-if="!todoItems\.length"/)
+  assert.match(drawerSource, /firstTodoLabel = computed\(\(\) =>[\s\S]*workOrderHasNoPendingOperations/)
+})
+
 test('work order detail never exposes work-order-level start despite stale readiness', () => {
   const actions = buildExecutionHubActions({
     header: {

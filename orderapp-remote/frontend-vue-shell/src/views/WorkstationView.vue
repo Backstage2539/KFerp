@@ -147,8 +147,7 @@
               <button class="primary" type="button" @click="submitIssue" :disabled="busyKey !== ''">提交</button>
             </div>
 
-            <OperationCompletionForm v-if="isFinishPanelForTask(task) && isSimplifiedTask(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" />
-            <OperationCompletionForm v-if="isFinishPanelForTask(task) && !isSimplifiedTask(task) && task.automatic_completion" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" />
+            <OperationCompletionForm v-if="isFinishPanelForTask(task)" :key="task.job_card_id" :job-card-id="Number(task.job_card_id)" :return-params="completionReturnParams(task)" @close="closeFinishPanel" @posted="automaticPosted" />
           </div>
         </div>
       </article>
@@ -182,6 +181,7 @@ import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDr
 import {
   productionTaskActionEndpoint,
   productionTaskActionErrorMessage,
+  productionTaskActionNeedsRefresh,
   materialReadinessState,
   taskTitle,
   taskQuantityLines,
@@ -577,6 +577,7 @@ async function handleTaskAction(task, action) {
     const explanation = productionTaskActionErrorMessage(err, action)
     error.value = explanation
     updateTaskFeedback(task, { error: explanation })
+    if (productionTaskActionNeedsRefresh(err)) await load()
   } finally {
     busyKey.value = ''
   }
