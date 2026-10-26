@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	productionapp "orderapp/internal/application/production"
+	postgresproductspecmigration "orderapp/internal/infrastructure/postgres/productspecmigration"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,73 @@ func TestOperationCompletionAPIEarlyHandoffAndConcurrentReplay(t *testing.T) {
 func TestOperationCompletionAPICompetingDownstreamBatches(t *testing.T) {
 	testOperationHandoffConcurrency(t, true)
 }
+
+func TestOperationCompletionUsesFrozenParentWhenLegacyOutputSKUWasRetired(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, runID := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72800)
+	snapshot := `{"operations":[{"seq":1,"execution_json":"{\"version\":1,\"node_key\":\"roast\",\"receipt_enabled\":true,\"receipt_warehouse\":\"wip\",\"output_unit\":\"kg\"}"}]}`
+
+	// Model an old production order whose output points at a retired child SKU,
+	// while the frozen parent product and BOM specification remain valid.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.production_bom_specs(id,bom_id,code,spec_key,name,inventory_unit)
+		VALUES(900,100,'SPEC-227','227g','227g袋装','袋');
+		INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default)
+		VALUES(901,100,900,'227g袋装','袋',true);
+		UPDATE %[1]s.order_items SET bom_spec_id=900,bom_variant_id=901 WHERE order_id=1 AND product_id=1;
+		UPDATE %[1]s.production_plan_items SET bom_spec_id=900,bom_variant_id=901 WHERE product_id=1;
+		UPDATE %[1]s.work_orders SET output_product_id=765,product_id=1,bom_spec_id=900,bom_variant_id=901,spec_g=227,
+			output_qty=22.7,output_unit='kg',inventory_unit='kg',planned_inventory_qty=22.7,planned_output_g=22700,
+			target_warehouse='wip',sales_spec_snapshot_json='{"spec_label":"227g袋装"}'
+		WHERE id=%[3]d;
+		UPDATE %[1]s.produce_running_items SET product_id=1,bom_spec_id=900,bom_variant_id=901,spec_g=227 WHERE id=%[2]d;
+		UPDATE %[1]s.job_cards SET status='pending',sequence_no=1,actual_input_qty=0,actual_output_qty=0,completed_at=NULL WHERE work_order_id=%[3]d;
+	`, schema, runID, woID))
+	if err := postgresproductspecmigration.EnsureAuthorityProjection(ctx, pool, schema); err != nil {
+		t.Fatalf("install product identity guards: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET process_snapshot_json=$2::jsonb WHERE id=$1`, schema), woID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	var cardID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1 ORDER BY id LIMIT 1`, schema), woID).Scan(&cardID); err != nil {
+		t.Fatal(err)
+	}
+	previewResponse := serveMultilevelProductionJSON(t, e, http.MethodGet, fmt.Sprintf("/api/job-cards/%d/completion-preview", cardID), nil)
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("completion preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
+	}
+	var preview productionapp.OperationCompletionPreview
+	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if !preview.Enabled || preview.BlockedReason != "" {
+		t.Fatalf("valid frozen parent identity must keep completion enabled: %+v", preview)
+	}
+	request := map[string]any{
+		"actual_input_qty": preview.InputQty, "actual_output_qty": 22.7,
+		"input_unit": preview.InputUnit, "output_unit": preview.OutputUnit,
+		"expected_version": preview.Version, "request_id": "retired-output-sku-completion",
+		"materials": preview.Materials,
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		response := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/job-cards/%d/complete", cardID), request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("completion attempt %d status=%d body=%s", attempt+1, response.Code, response.Body.String())
+		}
+	}
+	assertProductionFlowCount(t, pool, schema, "production_operation_events", "status='posted'", 1)
+	assertProductionFlowCount(t, pool, schema, "stock_entries", "entry_type='finished_receipt' AND status='submitted'", 1)
+	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=1 AND bom_spec_id=900 AND bom_variant_id=901 AND spec_g=227 AND warehouse='wip' AND onhand_units=0 AND onhand_loose_g=22700", 1)
+	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=765", 0)
+	assertProductionFlowCount(t, pool, schema, "stock_entry_items", "product_id=1 AND bom_spec_id=900 AND bom_variant_id=901 AND qty_g=22700", 1)
+	assertProductionFlowCount(t, pool, schema, "production_logs", "product_id=1 AND bom_spec_id=900 AND bom_variant_id=901 AND finished_loose_g=22700", 1)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf("work_order_id=%d AND consumed_g=22700", woID), 1)
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("id=%d AND status='completed'", woID), 1)
+}
+
 func testOperationHandoffConcurrency(t *testing.T, competing bool) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()

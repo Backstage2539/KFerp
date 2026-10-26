@@ -3,8 +3,10 @@ package production
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"math"
+
+	"github.com/jackc/pgx/v5"
+
 	app "orderapp/internal/application/production"
 	"orderapp/internal/infrastructure/postgres/customerstock"
 )
@@ -15,11 +17,11 @@ func (r Repository) receiveOperationOutputTx(ctx context.Context, tx pgx.Tx, wo 
 	if wo.OutputType == "material" {
 		return r.receiveOperationMaterialTx(ctx, tx, wo, receipt, cost, actor)
 	}
-	run := ProduceRunRow{ID: wo.RunningItemID, BatchID: wo.BatchID, ProductID: wo.ProductID, Product: wo.ProductName, BomSpecID: wo.BomSpecID, BomVariantID: wo.BomVariantID, SpecG: wo.SpecG, OrderNos: wo.OrderNos}
-	if wo.OutputProductID > 0 {
-		run.ProductID = wo.OutputProductID
+	productID, bomSpecID, bomVariantID, err := resolveOperationOutputProductIdentityTx(ctx, tx, r.schema, wo)
+	if err != nil {
+		return 0, err
 	}
-	var err error
+	run := ProduceRunRow{ID: wo.RunningItemID, BatchID: wo.BatchID, ProductID: productID, Product: wo.ProductName, BomSpecID: bomSpecID, BomVariantID: bomVariantID, SpecG: wo.SpecG, OrderNos: wo.OrderNos}
 	var jobID int64
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT job_card_id FROM %s.production_operation_events WHERE id=$1`, r.schema), receipt.EventID).Scan(&jobID); err != nil {
 		return 0, err
@@ -75,6 +77,104 @@ func (r Repository) receiveOperationOutputTx(ctx context.Context, tx pgx.Tx, wo 
 	_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.production_logs(running_item_id,completion_no,batch_id,product_id,bom_spec_id,bom_variant_id,product_name,spec_g,order_nos,planned_need_g,input_g,bom_yield_rate,finished_units,finished_loose_g,finished_total_g,actual_yield_rate,started_by,started_at,finished_by,finished_at,inventory_units_before,inventory_loose_g_before,inventory_units_after,inventory_loose_g_after,material_summary,created_at)
  SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CASE WHEN e.input_unit='kg' THEN ROUND(e.input_qty*1000) WHEN e.input_unit='g' THEN ROUND(e.input_qty) ELSE 0 END,1,$11,$12,$13,1,run.started_by,run.started_at,$14,now(),$15,$16,$17,$18,'[]'::jsonb,now() FROM %[1]s.produce_running_items run JOIN %[1]s.production_operation_events e ON e.id=$19 WHERE run.id=$1`, r.schema), run.ID, no, run.BatchID, run.ProductID, run.BomSpecID, run.BomVariantID, run.Product, run.SpecG, run.OrderNos, wo.PlannedOutputG, add.Units, add.LooseG, grams, actor, before.Units, before.LooseG, after.Units, after.LooseG, receipt.EventID)
 	return entry.ID, err
+}
+
+// Legacy work orders can retain an output_product_id that pointed to a retired
+// child SKU. Use that ID only while it is still a valid active identity. When
+// it is gone, fall back to the frozen parent product only if the exact frozen
+// spec and variant are still present in that product's published BOM.
+func resolveOperationOutputProductIdentityTx(ctx context.Context, tx pgx.Tx, schema string, wo app.WorkOrderRow) (int64, int64, int64, error) {
+	candidateID := wo.OutputProductID
+	if candidateID <= 0 {
+		candidateID = wo.ProductID
+	}
+	if candidateID <= 0 {
+		return 0, 0, 0, fmt.Errorf("工单没有有效的成品商品身份")
+	}
+	var authorityViewExists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+`.product_bom_spec_authorities`).Scan(&authorityViewExists); err != nil {
+		return 0, 0, 0, err
+	}
+	if !authorityViewExists {
+		// Older isolated fixtures predate the spec-authority projection. Preserve
+		// their direct-product path only when the frozen order carries no spec.
+		var active bool
+		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.products WHERE id=$1`, schema), candidateID).Scan(&active)
+		if err == nil && active && wo.BomSpecID == 0 && wo.BomVariantID == 0 {
+			return candidateID, 0, 0, nil
+		}
+		if err != nil && err != pgx.ErrNoRows {
+			return 0, 0, 0, err
+		}
+		return 0, 0, 0, fmt.Errorf("工单缺少可校验的商品规格身份资料")
+	}
+
+	var candidateExists, candidateActive, candidateConfigured bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT true,product.active,COALESCE(authority.configured,false)
+		FROM %s.products product
+		LEFT JOIN %s.product_bom_spec_authorities authority ON authority.product_id=product.id
+		WHERE product.id=$1
+	`, schema, schema), candidateID).Scan(&candidateExists, &candidateActive, &candidateConfigured)
+	if err != nil && err != pgx.ErrNoRows {
+		return 0, 0, 0, err
+	}
+	if candidateExists && candidateActive {
+		if candidateConfigured {
+			valid, validateErr := operationOutputSpecIdentityValidTx(ctx, tx, schema, candidateID, wo.BomSpecID, wo.BomVariantID)
+			if validateErr != nil {
+				return 0, 0, 0, validateErr
+			}
+			if valid {
+				return candidateID, wo.BomSpecID, wo.BomVariantID, nil
+			}
+		} else if wo.BomSpecID == 0 && wo.BomVariantID == 0 {
+			return candidateID, 0, 0, nil
+		}
+	}
+
+	// A different output ID can be a retired legacy child. The work order's
+	// frozen parent identity is authoritative only when its full variant still
+	// resolves against the current published BOM, so never infer or drop a spec.
+	if wo.ProductID > 0 && wo.ProductID != candidateID {
+		valid, validateErr := operationOutputSpecIdentityValidTx(ctx, tx, schema, wo.ProductID, wo.BomSpecID, wo.BomVariantID)
+		if validateErr != nil {
+			return 0, 0, 0, validateErr
+		}
+		if valid {
+			return wo.ProductID, wo.BomSpecID, wo.BomVariantID, nil
+		}
+	}
+	if wo.ProductID == candidateID && candidateExists && candidateActive && !candidateConfigured && wo.BomSpecID != 0 {
+		return 0, 0, 0, fmt.Errorf("工单冻结了规格，但目标商品未配置规格身份；请核对商品与工单冻结资料")
+	}
+	if !candidateExists {
+		return 0, 0, 0, fmt.Errorf("工单目标商品 %d 已不存在，且冻结商品规格无法匹配当前已发布配方", candidateID)
+	}
+	return 0, 0, 0, fmt.Errorf("工单目标商品与冻结规格不匹配，请核对工单资料")
+}
+
+func operationOutputSpecIdentityValidTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, bomVariantID int64) (bool, error) {
+	if productID <= 0 || bomSpecID <= 0 || bomVariantID <= 0 {
+		return false, nil
+	}
+	var valid bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM %s.product_bom_spec_authorities authority
+			JOIN %s.products product ON product.id=authority.product_id AND product.active=true
+			JOIN %s.production_bom_output_bindings binding
+			  ON binding.output_type='product' AND binding.output_id=product.id AND binding.is_default=true
+			JOIN %s.production_bom_versions version
+			  ON version.id=binding.bom_version_id AND version.bom_id=binding.bom_id AND version.status='published'
+			JOIN %s.production_bom_specs spec ON spec.id=$2 AND spec.bom_id=binding.bom_id
+			JOIN %s.production_bom_version_variants variant
+			  ON variant.id=$3 AND variant.version_id=version.id AND variant.bom_spec_id=spec.id
+			WHERE authority.product_id=$1 AND authority.configured=true
+		)
+	`, schema, schema, schema, schema, schema, schema), productID, bomSpecID, bomVariantID).Scan(&valid)
+	return valid, err
 }
 
 func (r Repository) receiveOperationMaterialTx(ctx context.Context, tx pgx.Tx, wo app.WorkOrderRow, receipt app.OperationCompletionReceipt, cost float64, actor string) (int64, error) {
