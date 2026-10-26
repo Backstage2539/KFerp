@@ -425,13 +425,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-734-ORDER-COPY-CUSTOMER-PAYMENT
 - Branch: `codex/order-copy-details-fields`, based on `origin/develop@8f9b5b74061784741354736033c10f54278b7cb6`.
 - Owner/session: Codex / 2026-10-26.
-- Status: verification passed and latest `origin/develop@0ebc4c4ba` is merged into the feature branch; feature push and clean `develop` integration in progress. Development deployment is held until PR-733 follow-up browser acceptance is complete; Van acceptance pending.
+- Status: verified and merged to `origin/develop@58b32cff5`; development deployment is held until PR-733 follow-up browser acceptance is complete; Van acceptance pending.
 - Scope: order-detail copy text includes the saved customer name and payment method for ERP, customer portal, and mini-program users; empty fields display `未填写`.
 - DEV: DEV-879-ORDER-COPY-CUSTOMER-PAYMENT.
 - Verifier: RED/GREEN application unit test; copy-details API and isolated PostgreSQL tests; copy-button component tests; Vue production build. Browser and runtime checks pending deployment.
 - Manual: `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`, `OP_MANUAL_CUSTOMER_ACCOUNT.md`, `OP_MANUAL_CUSTOMER_FULFILLMENT.md`, `OP_MANUAL_CUSTOMER_PORTAL.md`, `OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`.
 - Review/acceptance: `orderapp-remote/docs/acceptance/2026-10-26-order-details-copy-fields.md`.
-- Deployment: user requested merge to `develop`; development deployment remains gated by the pending PR-733 follow-up browser acceptance.
+- Delivery: feature branch pushed and fast-forward integrated into `develop` at `58b32cff5` after verifying the latest remote base. Development deployment remains gated by the pending PR-733 follow-up browser acceptance.
 - Last update: 2026-10-26.
 - Notes: PR/DEV source rows were added manually after the macOS `awk` multi-line claim error. The incoming `origin/develop@0ebc4c4ba` includes PR-733 follow-up work whose isolated browser action acceptance is pending; do not deploy it until that workflow's gate is cleared.
 
