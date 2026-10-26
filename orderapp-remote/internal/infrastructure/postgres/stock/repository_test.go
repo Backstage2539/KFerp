@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	inventoryapp "orderapp/internal/application/inventory"
 	stockapp "orderapp/internal/application/stock"
+	inventorypg "orderapp/internal/infrastructure/postgres/inventory"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -1938,6 +1940,179 @@ func TestFinishedProductLegacyZeroSpecRequiresExistingBalance(t *testing.T) {
 	}
 	if adjustmentCount != 0 || ledgerCount != 0 || auditCount != 0 {
 		t.Fatalf("empty legacy adjustment wrote adjustment/ledger/audit = %d/%d/%d", adjustmentCount, ledgerCount, auditCount)
+	}
+}
+
+func TestFinishedAdjustmentRejectsLegacyQuantityOnlyManualBatch(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(9,0,0,454,'finished_goods',10,0)
+		ON CONFLICT(product_id,bom_spec_id,spec_g,warehouse) DO UPDATE
+		SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g;
+		INSERT INTO %s.stock_batches(
+			batch_code,item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,
+			source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,operator
+		) VALUES('MANUAL-LEGACY-001','finished_product',9,'测试熟豆',0,0,454,'',0,'',4540,10,0,0,'stock');
+		INSERT INTO %s.stock_ledger_entries(
+			item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,warehouse,
+			source_doc_type,source_doc_id,source_batch_code,source_batch_id,
+			qty_before_g,qty_change_g,qty_after_g,qty_before_units,qty_change_units,qty_after_units,operator
+		) VALUES('finished_product',9,'测试熟豆',0,0,454,'finished_goods','manual_adjustment',0,
+			'MANUAL-LEGACY-001','',0,4540,4540,0,10,10,'stock');
+	`, schema, schema, schema))
+
+	_, err := NewRepository(pool, schema).CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "finished_product", ItemID: 9, SpecG: 454, Warehouse: "finished_goods",
+		TargetUnits: 9, Reason: "修复前历史盘点批次检测", Operator: "counter",
+	})
+	if err == nil || !strings.Contains(err.Error(), "legacy finished inventory batch requires reconciliation") {
+		t.Fatalf("CreateAdjustment error = %v, want legacy batch reconciliation error", err)
+	}
+	var summaryUnits, adjustmentCount, ledgerCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=9 AND spec_g=454 AND warehouse='finished_goods'`, schema)).Scan(&summaryUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_adjustments WHERE item_id=9`, schema)).Scan(&adjustmentCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='stock_adjustment' AND item_id=9`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if summaryUnits != 10 || adjustmentCount != 0 || ledgerCount != 0 {
+		t.Fatalf("summary/adjustment/ledger = %d/%d/%d, want 10/0/0", summaryUnits, adjustmentCount, ledgerCount)
+	}
+}
+
+func TestFinishedAdjustmentLocksBatchBeforeInventorySummary(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(9,0,0,454,'finished_goods',10,0)
+		ON CONFLICT(product_id,bom_spec_id,spec_g,warehouse) DO UPDATE
+		SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g;
+		INSERT INTO %s.stock_batches(
+			batch_code,item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,
+			source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,operator
+		) VALUES('LOCK-ORDER-001','finished_product',9,'测试熟豆',0,0,454,'production_operation_event',1,'LOCK-ORDER-001',4540,10,4540,10,'production');
+		INSERT INTO %s.stock_ledger_entries(
+			item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,warehouse,
+			source_doc_type,source_doc_id,source_batch_code,source_batch_id,
+			qty_before_g,qty_change_g,qty_after_g,qty_before_units,qty_change_units,qty_after_units,operator
+		) VALUES('finished_product',9,'测试熟豆',0,0,454,'finished_goods','production_operation_event',1,
+			'LOCK-ORDER-001',1,0,4540,4540,0,10,10,'production');
+	`, schema, schema, schema))
+
+	batchHolder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = batchHolder.Rollback(ctx) }()
+	if _, err := batchHolder.Exec(ctx, fmt.Sprintf(`SELECT id FROM %s.stock_batches WHERE batch_code='LOCK-ORDER-001' FOR UPDATE`, schema)); err != nil {
+		t.Fatal(err)
+	}
+
+	adjustmentCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := NewRepository(pool, schema).CreateAdjustment(adjustmentCtx, stockapp.StockAdjustmentCommand{
+			ItemType: "finished_product", ItemID: 9, SpecG: 454, Warehouse: "finished_goods",
+			TargetUnits: 9, Reason: "并发锁顺序验证", Operator: "counter",
+		})
+		done <- err
+	}()
+
+	waitDeadline := time.Now().Add(5 * time.Second)
+	waitingForBatch := false
+	for time.Now().Before(waitDeadline) {
+		var waiting bool
+		if err := pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_stat_activity
+				WHERE datname=current_database() AND state='active' AND wait_event_type='Lock'
+				  AND query LIKE $1
+			)
+		`, "%"+schema+".stock_batches b%FOR UPDATE OF b%").Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			waitingForBatch = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !waitingForBatch {
+		t.Fatal("adjustment did not block while acquiring the source batch lock")
+	}
+
+	summaryProbe, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := summaryProbe.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=454 AND warehouse='finished_goods'
+		FOR UPDATE NOWAIT
+	`, schema)).Scan(new(int64)); err != nil {
+		_ = summaryProbe.Rollback(ctx)
+		t.Fatalf("summary row was locked before the batch: %v", err)
+	}
+	if err := summaryProbe.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := batchHolder.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("CreateAdjustment: %v", err)
+	}
+}
+
+func TestManualFinishedInventoryAdjustmentsCreateUsableStockBatches(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		CREATE TABLE %s.production_bom_versions(id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,status TEXT NOT NULL);
+		CREATE TABLE %s.production_bom_output_bindings(output_type TEXT NOT NULL,output_id BIGINT NOT NULL,bom_id BIGINT NOT NULL,bom_version_id BIGINT NOT NULL,is_default BOOLEAN NOT NULL DEFAULT true);
+		CREATE TABLE %s.production_bom_specs(id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,spec_key TEXT NOT NULL,name TEXT NOT NULL,inventory_unit TEXT NOT NULL);
+		CREATE TABLE %s.production_bom_version_variants(id BIGINT PRIMARY KEY,version_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,spec_name_snapshot TEXT NOT NULL,inventory_unit TEXT NOT NULL,is_default BOOLEAN NOT NULL,sort_order INTEGER NOT NULL);
+		INSERT INTO %s.production_bom_versions(id,bom_id,status) VALUES(553,883,'published');
+		INSERT INTO %s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default) VALUES('product',9,883,553,true);
+		INSERT INTO %s.production_bom_specs(id,bom_id,spec_key,name,inventory_unit) VALUES(20,883,'spec-6','454g袋装','袋');
+		INSERT INTO %s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order) VALUES(1186,553,20,'454g袋装','袋',true,6);
+	`, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	if err := inventorypg.NewRepository(pool, schema).AdjustFinished(ctx, inventoryapp.AdjustFinishedInventoryCommand{
+		ProductID: 9, BomSpecID: 20, UnitCode: "袋", Warehouse: "finished_goods", Units: 4, Operator: "counter",
+	}); err != nil {
+		t.Fatalf("AdjustFinished: %v", err)
+	}
+	var qtyUnits, remainingUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT qty_units,remaining_units FROM %s.stock_batches WHERE source_doc_type='manual_adjustment' AND item_id=9 AND bom_spec_id=20
+	`, schema)).Scan(&qtyUnits, &remainingUnits); err != nil {
+		t.Fatal(err)
+	}
+	if qtyUnits != 4 || remainingUnits != 4 {
+		t.Fatalf("manual adjustment batch qty/remaining units=%d/%d, want 4/4", qtyUnits, remainingUnits)
+	}
+	if _, err := NewRepository(pool, schema).CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "finished_product", ItemID: 9, BomSpecID: 20, UnitCode: "袋", Warehouse: "finished_goods",
+		TargetUnits: 2, Reason: "手工入库批次后续盘点", Operator: "counter",
+	}); err != nil {
+		t.Fatalf("adjust against manual batch: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT remaining_units FROM %s.stock_batches
+		WHERE source_doc_type='manual_adjustment' AND item_id=9 AND bom_spec_id=20
+	`, schema)).Scan(&remainingUnits); err != nil {
+		t.Fatal(err)
+	}
+	if remainingUnits != 2 {
+		t.Fatalf("manual adjustment batch remaining after count=%d, want 2", remainingUnits)
 	}
 }
 

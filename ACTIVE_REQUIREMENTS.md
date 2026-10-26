@@ -438,9 +438,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-737-WAREHOUSE-BATCH-STOCK-ADJUSTMENT
 - Branch: `codex/warehouse-batch-stock-adjustment`, based on `origin/develop@78560416d` in managed worktree `/Users/yiiiple-work/.codex/worktrees/warehouse-batch-stock-adjustment/KFerp`.
 - Scope: 按吴国宏仓真实成品批次余额修正初晓、曜石2.0的 454g/227g 库存；保留生产历史、同步汇总和操作日志；规格 0 遗留库存仅可清零。
-- Status: service/API/database RED/GREEN complete; focused PostgreSQL tests pass. Manual and acceptance evidence in progress. Production business writes remain pending code integration, deployment, and authenticated baseline recheck.
+- Status: service/API/database RED/GREEN complete; PR review findings for legacy quantity-only batches and shipment lock ordering are covered by regression tests. Local tests pass; production preflight for the follow-up commit remains before main merge/deploy. Production business writes remain pending release and authenticated baseline recheck.
 - DEV: DEV-880-FINISHED-BATCH-ADJUSTMENT; DEV-881-WAREHOUSE-CORRECTION-DELIVERY.
-- Verifier: `go test ./internal/application/stock ./internal/interfaces/http/stock`; with local PostgreSQL `ORDERAPP_TEST_DATABASE_URL=… go test ./internal/infrastructure/postgres/stock -run 'TestFinishedProductAdjustment(ReconcilesBatchesSummaryAndAudit|BatchAdjustmentRollsBackWhenAuditFails|LegacyZeroSpecRequiresExistingBalance)'`; `scripts/verify_kferp.sh changed`.
+- Verifier: `env -u ORDERAPP_TEST_DATABASE_URL -u DATABASE_URL go test ./...`; with local PostgreSQL, focused repository/API tests including `TestFinishedAdjustmentRejectsLegacyQuantityOnlyManualBatch`, `TestFinishedAdjustmentLocksBatchBeforeInventorySummary`, and `TestManualFinishedInventoryAdjustmentsCreateUsableStockBatches`; `node --test src/lib/operation-manuals.test.js`; `./scripts/verify_kferp.sh changed`.
 - Manual: `orderapp-remote/docs/OP_MANUAL_STOCK.md`; frontend manual entry `stockManual` maps to that document in `orderapp-remote/frontend-vue-shell/src/lib/operation-manuals.js`.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-27-wuguohong-warehouse-correction.md`.
 - Deployment: production was requested by Van; do not write business stock before the code is merged/deployed and the rotated credential passes a no-secret auth check.

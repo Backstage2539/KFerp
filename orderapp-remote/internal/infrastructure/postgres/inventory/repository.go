@@ -517,6 +517,13 @@ func inventoryRelationExistsTx(ctx context.Context, tx pgx.Tx, schema, table str
 }
 
 func (r Repository) insertFinishedAdjustmentBatchTx(ctx context.Context, tx pgx.Tx, batchCode, productName string, cmd inventoryapp.AdjustFinishedInventoryCommand, changeG, changeUnits int64) error {
+	remainingG, remainingUnits := changeG, changeUnits
+	if remainingG < 0 {
+		remainingG = 0
+	}
+	if remainingUnits < 0 {
+		remainingUnits = 0
+	}
 	hasBomSpec, err := inventoryColumnExistsTx(ctx, tx, r.schema, "stock_batches", "bom_spec_id")
 	if err != nil {
 		return err
@@ -525,10 +532,10 @@ func (r Repository) insertFinishedAdjustmentBatchTx(ctx context.Context, tx pgx.
 		_, err = tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.stock_batches(
 				batch_code,item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,
-				source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,operator,created_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,'',0,'',$8,$9,$10,now())
+				source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,operator,created_at
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,0,'',$9,$10,$11,$12,$13,now())
 		`, r.schema), batchCode, stockItemTypeFinishedProduct, cmd.ProductID, productName,
-			cmd.BomSpecID, cmd.BomVariantID, cmd.SpecG, changeG, changeUnits, cmd.Operator)
+			cmd.BomSpecID, cmd.BomVariantID, cmd.SpecG, stockSourceManualAdjustment, changeG, changeUnits, remainingG, remainingUnits, cmd.Operator)
 		return err
 	}
 	if cmd.BomSpecID > 0 {
@@ -537,9 +544,9 @@ func (r Repository) insertFinishedAdjustmentBatchTx(ctx context.Context, tx pgx.
 	_, err = tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_batches(
 			batch_code,item_type,item_id,item_name,spec_g,
-			source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,operator,created_at
-		) VALUES($1,$2,$3,$4,$5,'',0,'',$6,$7,$8,now())
-	`, r.schema), batchCode, stockItemTypeFinishedProduct, cmd.ProductID, productName, cmd.SpecG, changeG, changeUnits, cmd.Operator)
+			source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,operator,created_at
+		) VALUES($1,$2,$3,$4,$5,$6,0,'',$7,$8,$9,$10,$11,now())
+	`, r.schema), batchCode, stockItemTypeFinishedProduct, cmd.ProductID, productName, cmd.SpecG, stockSourceManualAdjustment, changeG, changeUnits, remainingG, remainingUnits, cmd.Operator)
 	return err
 }
 
