@@ -64,7 +64,7 @@ test('renders grouped preparation directly under its stage and leaves multi-orde
       { id: 11, production_plan_item_id: 1, picking_version: 1, component_type: 'material', component_id: 41, component_name: '咖啡豆袋', unit: '条', demand_units: 10, wip_covered_units: 0, transfer_units: 10, shortage_units: 0 },
       { id: 12, production_plan_item_id: 2, picking_version: 1, component_type: 'material', component_id: 41, component_name: '咖啡豆袋', unit: '条', demand_units: 20, wip_covered_units: 0, transfer_units: 20, shortage_units: 0 },
       { id: 13, production_plan_item_id: 1, picking_version: 1, component_type: 'material', component_id: 70, component_name: '卡蒂姆5T中深烘', unit: 'kg', demand_g: 9000, upstream_g: 9000, wip_covered_g: 0, transfer_g: 0, shortage_g: 0 },
-      { id: 14, production_plan_item_id: 3, picking_version: 1, component_type: 'material', component_id: 30, component_name: '生豆-孟连水洗5T批次', unit: 'kg', demand_g: 12000, wip_covered_g: 0, transfer_g: 12000, shortage_g: 0 },
+      { id: 14, production_plan_item_id: 3, picking_version: 1, component_type: 'material', component_id: 30, component_name: '生豆-孟连水洗5T批次', unit: 'kg', demand_g: 12000, wip_covered_g: 0, transfer_g: 11000, shortage_g: 1000 },
       { id: 15, production_plan_item_id: 999, picking_version: 1, component_type: 'material', component_id: 51, component_name: '无法关联的备料', unit: 'kg', demand_g: 1000 },
     ],
     manufacturing_plan: { edges: [
@@ -83,6 +83,8 @@ test('renders grouped preparation directly under its stage and leaves multi-orde
   assert.match(html, /data-source-id="12"/)
   assert.match(html, /来自阶段 1 · 卡蒂姆5T中深烘 9 kg/)
   assert.match(html, /生豆-孟连水洗5T批次/)
+  assert.match(html, /class="group-preparation-row shortage"/)
+  assert.match(html, /class="group-preparation-state shortage">缺料<\/span>/)
   assert.match(html, /未关联备料/)
   assert.match(html, /无法关联的备料/)
   assert.doesNotMatch(html, /id="material-sources"/)

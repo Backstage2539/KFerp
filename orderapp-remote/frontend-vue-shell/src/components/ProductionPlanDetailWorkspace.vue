@@ -77,7 +77,7 @@
                     <section class="group-preparation" :aria-label="`${group.spec_label}本组备料`">
                       <div class="group-preparation-heading"><strong>本组备料</strong><span v-if="group.preparations.length">总需求按任务来源汇总</span></div>
                       <div v-if="group.preparations.length" class="group-preparation-list">
-                        <article v-for="preparation in group.preparations" :key="preparation.key" :class="['group-preparation-row', { shortage: preparation.key === 'shortage' }]">
+                        <article v-for="preparation in group.preparations" :key="preparation.key" :class="['group-preparation-row', { shortage: preparation.status_key === 'shortage' }]">
                           <div class="group-preparation-name"><span>{{ materialTypeLabel(preparation) }}</span><strong>{{ preparation.component_name || `物料 #${preparation.component_id}` }}</strong><small v-if="preparationSpecLabel(preparation)">{{ preparationSpecLabel(preparation) }}</small></div>
                           <dl>
                             <div><dt>需求</dt><dd>{{ preparationAmount(preparation, 'demand') }}</dd></div>
@@ -86,7 +86,7 @@
                             <div><dt>上游供给</dt><dd>{{ preparationAmount(preparation, 'upstream') }}</dd></div>
                             <div><dt>真实缺口</dt><dd :class="{ missing: preparation.shortage_g || preparation.shortage_units }">{{ preparationAmount(preparation, 'shortage') }}</dd></div>
                           </dl>
-                          <span :class="['group-preparation-state', { shortage: preparation.key === 'shortage' }]">{{ preparation.state_label }}</span>
+                          <span :class="['group-preparation-state', { shortage: preparation.status_key === 'shortage' }]">{{ preparation.state_label }}</span>
                           <small v-if="preparationOrigins(preparation).length" class="group-preparation-origin">{{ preparationOrigins(preparation).join('；') }}</small>
                         </article>
                       </div>

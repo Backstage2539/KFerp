@@ -485,6 +485,24 @@ test('production plan detail groups compatible same-spec tasks and sums their ex
   assert.deepEqual(producePlan.findUnlinkedProductionPlanComponentSources(detail).map((source) => source.id), [15])
 })
 
+test('grouped preparation keeps distinct stable material keys when readiness changes', () => {
+  const item = { id: 1, output_type: 'product', output_product_id: 10, output_unit: '袋' }
+  const stage = { key: 'stage-0', tasks: [{ id: 1, item, order_nos: [] }] }
+  const detail = { component_sources: [
+    { id: 11, production_plan_item_id: 1, component_type: 'material', component_id: 41, unit: '条', demand_units: 10, wip_covered_units: 10 },
+    { id: 12, production_plan_item_id: 1, component_type: 'material', component_id: 42, unit: '条', demand_units: 10, wip_covered_units: 10 },
+  ] }
+  const before = producePlan.buildProductionPlanTaskGroups(stage, detail)[0].preparations
+  assert.equal(new Set(before.map((row) => row.key)).size, 2, 'same readiness must not collapse distinct material keys')
+  assert.deepEqual(before.map((row) => row.status_key), ['ready', 'ready'])
+
+  detail.component_sources[0].wip_covered_units = 7
+  detail.component_sources[0].shortage_units = 3
+  const after = producePlan.buildProductionPlanTaskGroups(stage, detail)[0].preparations
+  assert.deepEqual(after.map((row) => row.key), before.map((row) => row.key), 'readiness changes must retain each material row identity')
+  assert.deepEqual(after.map((row) => row.status_key), ['shortage', 'ready'])
+})
+
 test('production plan issue focus targets the source or task and expands collapsed disclosure ancestors', () => {
   assert.equal(producePlan.productionPlanIssueTargetId({ component_source_id: 61, production_plan_item_id: 51 }), 'component-source-61')
   assert.equal(producePlan.productionPlanIssueTargetId({ production_plan_item_id: 51 }), 'plan-item-51')

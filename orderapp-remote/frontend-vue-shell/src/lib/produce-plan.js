@@ -663,7 +663,7 @@ export function buildProductionPlanTaskGroups(stage = {}, detail = {}) {
     }
     group.preparations = [...preparations.values()].map((summary) => {
       const status = productionPlanPreparationStatus(summary)
-      return { ...summary, ...status, state_label: status.label }
+      return { ...summary, status_key: status.key, state_label: status.label }
     })
   }
   return [...groups.values()]
