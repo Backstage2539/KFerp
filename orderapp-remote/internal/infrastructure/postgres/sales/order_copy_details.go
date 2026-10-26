@@ -19,8 +19,8 @@ func (r Repository) LoadOrderCopySnapshot(ctx context.Context, id int64) (*sales
 	defer tx.Rollback(ctx)
 	snapshot := &salesapp.OrderCopySnapshot{}
 	o := &snapshot.Order
-	query := fmt.Sprintf(`SELECT o.id,COALESCE(o.customer_id,0),COALESCE(o.order_no,''),COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),COALESCE(ps.name,''),COALESCE(o.is_void,false),COALESCE(o.receiver_name,''),COALESCE(o.receiver_phone,''),COALESCE(o.receiver_address,''),COALESCE(o.portal_service_code,''),COALESCE(NULLIF(c.contact,''),c.name,''),COALESCE(c.phone,''),COALESCE(c.address,'') FROM %[1]s.orders o LEFT JOIN %[1]s.pay_statuses ps ON ps.id=o.pay_status_id LEFT JOIN %[1]s.customers c ON c.id=o.customer_id WHERE o.id=$1`, r.schema)
-	err = tx.QueryRow(ctx, orderconfirmation.CurrentRead(query, r.schema), id).Scan(&o.ID, &o.CustomerID, &o.OrderNo, &o.OrderDate, &snapshot.PayStatus, &o.IsVoid, &o.ReceiverName, &o.ReceiverPhone, &o.ReceiverAddress, &o.PortalServiceCode, &snapshot.DefaultRecipient.Name, &snapshot.DefaultRecipient.Phone, &snapshot.DefaultRecipient.Address)
+	query := fmt.Sprintf(`SELECT o.id,COALESCE(o.customer_id,0),COALESCE(c.name,''),COALESCE(o.payment_method,''),COALESCE(o.order_no,''),COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),COALESCE(ps.name,''),COALESCE(o.is_void,false),COALESCE(o.receiver_name,''),COALESCE(o.receiver_phone,''),COALESCE(o.receiver_address,''),COALESCE(o.portal_service_code,''),COALESCE(NULLIF(c.contact,''),c.name,''),COALESCE(c.phone,''),COALESCE(c.address,'') FROM %[1]s.orders o LEFT JOIN %[1]s.pay_statuses ps ON ps.id=o.pay_status_id LEFT JOIN %[1]s.customers c ON c.id=o.customer_id WHERE o.id=$1`, r.schema)
+	err = tx.QueryRow(ctx, orderconfirmation.CurrentRead(query, r.schema), id).Scan(&o.ID, &o.CustomerID, &snapshot.CustomerName, &snapshot.PaymentMethod, &o.OrderNo, &o.OrderDate, &snapshot.PayStatus, &o.IsVoid, &o.ReceiverName, &o.ReceiverPhone, &o.ReceiverAddress, &o.PortalServiceCode, &snapshot.DefaultRecipient.Name, &snapshot.DefaultRecipient.Phone, &snapshot.DefaultRecipient.Address)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

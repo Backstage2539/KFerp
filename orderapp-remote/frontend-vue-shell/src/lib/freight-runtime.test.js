@@ -14,6 +14,28 @@ test('shipping quote discards late responses and submits only acknowledged curre
   assert.equal(vm.quote.value.token,'new');assert.equal(vm.busy.value,false);const p=vm.payload();assert.equal(p.shipping_amount,'0');assert.equal(p.freight_protocol,'order_freight_v2');assert.equal(p.freight_quote_token,'new');assert.equal(p.shipping_province,'四川省')
  }finally{globalThis.fetch=original}
 })
+test('order save uses the just-returned quote even if reactive state invalidates it',async()=>{
+ const vm=await loadView('OrderFreightEstimate',{customerId:77,items:[{product_id:10,qty:1}],savedDestination:{},customerPortal:false})
+ vm.quote.value=null
+ const payload=vm.payload({token:'fresh-preview-token'})
+ assert.equal(payload.freight_quote_token,'fresh-preview-token')
+ assert.equal(payload.freight_protocol,'order_freight_v2')
+})
+test('confirmed quote payload keeps the exact destination and override that produced its token',async()=>{
+ const original=globalThis.fetch
+ globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({token:'confirmed',current_receivable_cents:800,estimate_known:true,policy:{}})})
+ try{
+  const vm=await loadView('OrderFreightEstimate',{customerId:77,items:[{product_id:10,qty:1}],savedDestination:{},customerPortal:false})
+  vm.update({destination:{province:'云南省',city:'普洱市',district:'思茅区'},parcelWeightG:'600',manual:'',free:false})
+  const quote=await vm.preview()
+  vm.update({destination:{province:'浙江省',city:'湖州市',district:'吴兴区'},parcelWeightG:'999',manual:'9',free:false})
+  const payload=vm.payload(quote)
+  assert.equal(payload.freight_quote_token,'confirmed')
+  assert.equal(payload.shipping_province,'云南省')
+  assert.equal(payload.freight_override.parcel_weight_g,600)
+  assert.equal(payload.shipping_amount,'8')
+ }finally{globalThis.fetch=original}
+})
 test('editing an existing order keeps its saved freight until an explicit repricing choice',async()=>{
  const original=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;throw new Error('unexpected quote')};try{
   const vm=await loadView('OrderFreightEstimate',{customerId:77,orderId:42,expectedToken:'old-token',items:[{product_id:10,qty:2}],modelValue:{manual:'',free:false,chargeMode:'deferred',preserveExisting:true,preservedAmount:10,templateId:0,templateOverride:false,parcelWeightG:'',autoAmountCents:null,destination:{province:'',city:'',district:''}},storedQuote:null,customerPortal:false})

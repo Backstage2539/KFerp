@@ -60,83 +60,96 @@
             <button v-if="isDraft" class="text-button" type="button" @click="$emit('edit-splits')">编辑工位与批次</button>
           </div>
 
-          <div v-if="stages.length" class="stage-list">
+          <p class="preparation-guidance">每个规格组紧接展示本组备料总量；展开订单任务可查看各自订单、来源仓、货主和批次。</p>
+          <div v-if="stages.length" id="plan-stages" class="stage-list">
             <article v-for="(stage, stageIndex) in stages" :key="stage.key" class="stage-card">
               <div class="stage-rail"><span>{{ stageIndex + 1 }}</span><i v-if="stageIndex < stages.length - 1" /></div>
               <div class="stage-content">
-                <div class="stage-head"><span>阶段 {{ stageIndex + 1 }}</span><h3>{{ stage.title }}</h3><small>{{ stage.tasks.length }} 项任务</small></div>
-                <div class="task-grid">
-                  <article v-for="task in stage.tasks" :id="`plan-item-${task.id}`" :key="task.id" class="task-card">
-                    <div class="task-top">
-                      <div><span class="task-kind">{{ task.kind_label }}</span><h4>{{ task.item.output_name || task.item.product_name || '-' }}</h4></div>
-                      <strong>{{ task.quantity_label }}</strong>
-                    </div>
-                    <div class="task-meta">
-                      <span>{{ task.item.spec_label || quantitySummary(task.item) }}</span>
-                      <span>{{ bomSourceLabel(task.item) }}</span>
-                    </div>
-                    <label class="warehouse-field">
-                      <span>完工入库</span>
-                      <select v-if="isDraft" :value="task.item.target_warehouse" @change="$emit('warehouse-change', task.id, $event.target.value)">
-                        <option value="">请选择目标仓库</option>
-                        <option v-for="warehouse in availableWarehouses(task.item)" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}（{{ warehouse.code }}）</option>
-                      </select>
-                      <strong v-else>{{ warehouseLabel(task.item.target_warehouse) }}</strong>
-                    </label>
-                    <div v-if="task.order_nos.length" class="trace-row"><span>订单</span><div><b v-for="orderNo in task.order_nos" :key="orderNo">{{ orderNo }}</b></div></div>
-                    <div v-if="task.dependencies.length" class="dependency-row"><span>等待</span><div v-for="link in task.dependencies" :key="link.item.id">{{ link.item.output_name || link.item.product_name }} {{ link.quantity_label }}</div></div>
-                    <div v-if="task.supplies.length" class="dependency-row supplies"><span>供应</span><div v-for="link in task.supplies" :key="link.item.id">{{ link.item.output_name || link.item.product_name }} {{ link.quantity_label }}</div></div>
-                    <div v-if="!isDraft && task.item.replan_status === 'withdrawn'" class="replan-state"><span>已撤回重排</span><button v-if="task.item.replaced_by_plan_id" type="button" @click="$emit('navigate', 'producePlan', { production_plan_id: task.item.replaced_by_plan_id })">查看新计划</button></div>
-                    <button v-else-if="!isDraft && task.item.output_type !== 'material'" class="replan-button" type="button" @click="$emit('replan', task.item)">撤回并重新安排</button>
+                <div class="stage-head"><span>阶段 {{ stageIndex + 1 }}</span><h3>{{ stage.title }}</h3><small>{{ stage.groups.length }} 个规格组 · {{ stage.tasks.length }} 项任务</small></div>
+                <div class="plan-groups">
+                  <article v-for="(group, groupIndex) in stage.groups" :id="group.anchor_id" :key="group.key" class="plan-task-group">
+                    <header class="plan-group-heading">
+                      <div><span>同规格生产组 · {{ group.tasks[0]?.kind_label }} · {{ group.spec_label }}</span><h4>{{ group.tasks[0]?.item.output_name || group.tasks[0]?.item.product_name || '-' }}</h4></div>
+                      <strong>{{ group.quantity_label }}</strong>
+                      <small>{{ group.tasks.length }} 项任务 · {{ group.orders.length }} 张订单</small>
+                    </header>
+
+                    <section class="group-preparation" :aria-label="`${group.spec_label}本组备料`">
+                      <div class="group-preparation-heading"><strong>本组备料</strong><span v-if="group.preparations.length">总需求按任务来源汇总</span></div>
+                      <div v-if="group.preparations.length" class="group-preparation-list">
+                        <article v-for="preparation in group.preparations" :key="preparation.key" :class="['group-preparation-row', { shortage: preparation.status_key === 'shortage' }]">
+                          <div class="group-preparation-name"><span>{{ materialTypeLabel(preparation) }}</span><strong>{{ preparation.component_name || `物料 #${preparation.component_id}` }}</strong><small v-if="preparationSpecLabel(preparation)">{{ preparationSpecLabel(preparation) }}</small></div>
+                          <dl>
+                            <div><dt>需求</dt><dd>{{ preparationAmount(preparation, 'demand') }}</dd></div>
+                            <div><dt>WIP 已有</dt><dd>{{ preparationAmount(preparation, 'wip_covered') }}</dd></div>
+                            <div><dt>待领</dt><dd>{{ preparationAmount(preparation, 'transfer') }}</dd></div>
+                            <div><dt>上游供给</dt><dd>{{ preparationAmount(preparation, 'upstream') }}</dd></div>
+                            <div><dt>真实缺口</dt><dd :class="{ missing: preparation.shortage_g || preparation.shortage_units }">{{ preparationAmount(preparation, 'shortage') }}</dd></div>
+                          </dl>
+                          <span :class="['group-preparation-state', { shortage: preparation.status_key === 'shortage' }]">{{ preparation.state_label }}</span>
+                          <small v-if="preparationOrigins(preparation).length" class="group-preparation-origin">{{ preparationOrigins(preparation).join('；') }}</small>
+                        </article>
+                      </div>
+                      <p v-else-if="group.tasks.some((task) => task.dependencies.length)" class="muted">旧版计划保留在订单任务中的上游供给关系；未生成的备料来源不会按名称猜测。</p>
+                      <p v-else-if="!detail.picking_version && detail.material_summary?.length" class="muted">旧版备料汇总没有任务归属，暂列为未关联备料。</p>
+                      <p v-else class="muted">本组暂无备料来源。</p>
+                    </section>
+
+                    <details class="group-task-details" :open="group.tasks.length === 1">
+                      <summary>{{ group.tasks.length === 1 ? '生产任务明细' : `展开 ${group.tasks.length} 项订单任务` }}<span v-if="group.orders.length"> · {{ group.orders.join('、') }}</span></summary>
+                      <div class="task-grid">
+                        <article v-for="task in group.tasks" :id="`plan-item-${task.id}`" :key="task.id" class="task-card">
+                          <div class="task-top">
+                            <div><span class="task-kind">{{ task.kind_label }}</span><h4>{{ task.item.output_name || task.item.product_name || '-' }}</h4></div>
+                            <strong>{{ task.quantity_label }}</strong>
+                          </div>
+                          <div class="task-meta">
+                            <span>{{ task.item.spec_label || quantitySummary(task.item) }}</span>
+                            <span>{{ bomSourceLabel(task.item) }}</span>
+                          </div>
+                          <label class="warehouse-field">
+                            <span>完工入库</span>
+                            <select v-if="isDraft" :value="task.item.target_warehouse" @change="$emit('warehouse-change', task.id, $event.target.value)">
+                              <option value="">请选择目标仓库</option>
+                              <option v-for="warehouse in availableWarehouses(task.item)" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}（{{ warehouse.code }}）</option>
+                            </select>
+                            <strong v-else>{{ warehouseLabel(task.item.target_warehouse) }}</strong>
+                          </label>
+                          <div v-if="task.order_nos.length" class="trace-row"><span>订单</span><div><b v-for="orderNo in task.order_nos" :key="orderNo">{{ orderNo }}</b></div></div>
+                          <div v-if="task.dependencies.length" class="dependency-row"><span>等待</span><div v-for="link in task.dependencies" :key="link.item.id">{{ link.item.output_name || link.item.product_name }} {{ link.quantity_label }}</div></div>
+                          <div v-if="task.supplies.length" class="dependency-row supplies"><span>供应</span><div v-for="link in task.supplies" :key="link.item.id">{{ link.item.output_name || link.item.product_name }} {{ link.quantity_label }}</div></div>
+                          <ProductionPreparation v-if="detail.picking_version && task.component_sources.length" :sources="task.component_sources" :items="detail.items || []" :supply-allocations="detail.supply_allocations || []" :work-orders="detail.related_work_orders || []" :editable="isDraft" :saving="saving" :show-note="false" @adjust="(source, allocations) => $emit('adjust-source', source, allocations)" @issue="issueWorkOrder" />
+                          <div v-else-if="task.component_sources.length" class="legacy-source-list">
+                            <article v-for="source in task.component_sources" :id="`component-source-${source.id}`" :key="sourceIdentity(source)" class="legacy-source-row">
+                              <div><strong>{{ source.component_name }}</strong><small>本项需求 {{ sourceRequired(source) }} · {{ source.source_warehouse || '待选择来源' }} · {{ source.source_owner_customer_id ? `客户 #${source.source_owner_customer_id}` : '工厂' }}</small></div>
+                              <select v-if="isDraft" :value="sourceOptionKey(source)" @change="$emit('source-change', source, $event.target.value)"><option value="">请选择来源</option><option v-for="option in source.options || []" :key="optionKey(option)" :value="optionKey(option)">{{ optionLabel(option, source) }}</option></select>
+                              <strong v-else>{{ selectedSourceLabel(source) }}</strong>
+                            </article>
+                          </div>
+                          <p v-else-if="task.dependencies.length" class="muted">上游供给按阶段依赖显示；旧版计划没有对应库存领料行。</p>
+                          <p v-else class="muted">本任务暂无可追溯的备料来源。</p>
+                          <div v-if="!isDraft && task.item.replan_status === 'withdrawn'" class="replan-state"><span>已撤回重排</span><button v-if="task.item.replaced_by_plan_id" type="button" @click="$emit('navigate', 'producePlan', { production_plan_id: task.item.replaced_by_plan_id })">查看新计划</button></div>
+                          <button v-else-if="!isDraft && task.item.output_type !== 'material'" class="replan-button" type="button" @click="$emit('replan', task.item)">撤回并重新安排</button>
+                        </article>
+                      </div>
+                    </details>
                   </article>
                 </div>
               </div>
             </article>
           </div>
           <div v-else class="empty-card">暂无生产任务</div>
-        </section>
 
-        <section id="material-sources" class="content-section materials-section">
-          <div class="section-heading">
-            <div>
-              <span class="section-index">02</span>
-              <div><h2>备料情况</h2><p>查看现场库存、待领数量和缺料，按需调整建议。</p></div>
-            </div>
-            <button class="text-button" type="button" @click="$emit('navigate', 'productionManual')">备料说明</button>
-          </div>
-          <ProductionPreparation v-if="detail.picking_version" :sources="detail.component_sources || []" :items="detail.items || []" :supply-allocations="detail.supply_allocations || []" :work-orders="detail.related_work_orders || []" :editable="isDraft" :saving="saving" @adjust="(source, allocations) => $emit('adjust-source', source, allocations)" @issue="issueWorkOrder" />
-          <template v-else>
-          <p v-if="isDraft" class="muted">此草稿沿用旧领料方式，点击“刷新供应”即可生成自动建议。</p>
-          <div class="material-summary">
-            <article v-for="material in detail.material_summary || []" :key="`${material.name}-${material.unit}-${material.component_type}`">
-              <span>{{ materialTypeLabel(material) }}</span>
-              <strong>{{ material.name }}</strong>
-              <b>{{ quantity(material.qty, material.unit) }}</b>
+          <section v-if="unlinkedSources.length || (!detail.picking_version && detail.material_summary?.length)" class="unlinked-preparation">
+            <h3>未关联备料</h3>
+            <p>这些旧版汇总或来源没有可核对的任务编号，暂不分摊到生产安排；请重新加载详情核对。</p>
+            <article v-for="source in unlinkedSources" :id="`component-source-${source.id}`" :key="`unlinked-${source.id}`" class="unlinked-source-row">
+              <strong>{{ source.component_name || `物料 #${source.component_id}` }}</strong><span>需求 {{ sourceRequired(source) }}</span><span>来源 {{ source.source_warehouse || '待落实' }}</span><span>{{ source.source_owner_customer_id ? `客户 #${source.source_owner_customer_id}` : '货主以来源分配明细为准' }}</span>
             </article>
-          </div>
-          <div v-if="detail.component_sources?.length" class="source-list">
-            <article v-for="source in detail.component_sources" :id="`component-source-${source.id}`" :key="sourceIdentity(source)" :class="['source-card', { invalid: !source.selected || sourceShort(source) }]">
-              <div class="source-identity">
-                <span>{{ source.component_type === 'packaging' ? '包材' : source.component_type === 'product' ? '半成品' : '库存用料' }}</span>
-                <div><h3>{{ source.component_name }}</h3><p>{{ planItemName(source.production_plan_item_id) }}</p></div>
-              </div>
-              <div class="source-need"><span>本项需求</span><strong>{{ sourceRequired(source) }}</strong></div>
-              <label>
-                <span>来源仓库与货主</span>
-                <select v-if="isDraft" :value="sourceOptionKey(source)" @change="$emit('source-change', source, $event.target.value)">
-                  <option value="">请选择来源</option>
-                  <option v-for="option in source.options || []" :key="optionKey(option)" :value="optionKey(option)">{{ optionLabel(option, source) }}</option>
-                </select>
-                <strong v-else>{{ selectedSourceLabel(source) }}</strong>
-              </label>
-              <div :class="['source-state', { short: sourceShort(source) }]">
-                <span>{{ source.selected ? '可用量' : '状态' }}</span>
-                <strong>{{ source.selected ? sourceAvailable(source) : '待选择' }}</strong>
-              </div>
+            <article v-if="!detail.picking_version" v-for="material in detail.material_summary || []" :key="`legacy-summary-${material.name}-${material.unit}-${material.component_type}`" class="unlinked-source-row">
+              <strong>{{ material.name }}</strong><span>{{ materialTypeLabel(material) }}</span><span>{{ quantity(material.qty, material.unit) }}</span><span>旧版汇总，无任务归属</span>
             </article>
-          </div>
-          <div v-else class="empty-card">本计划没有需要从库存领用的组件</div>
-          </template>
+          </section>
         </section>
 
         <section class="content-section detail-section">
@@ -210,13 +223,17 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, nextTick } from 'vue'
 import ProductionPreparation from './ProductionPreparation.vue'
 import { IconChevronDown } from '@tabler/icons-vue'
 import {
   buildProductionPlanStages,
+  buildProductionPlanTaskGroups,
+  findUnlinkedProductionPlanComponentSources,
+  expandProductionPlanIssueTarget,
   productionPlanItemBomSourceLabel,
   productionPlanItemQuantitySummary,
+  productionPlanIssueTargetId,
   productionPlanStatusLabel,
   productionPlanStatusTone,
 } from '../lib/produce-plan'
@@ -232,7 +249,14 @@ const props = defineProps({
 })
 const emit = defineEmits(['back', 'reload', 'save', 'submit', 'edit-splits', 'refresh', 'cancel', 'replan', 'navigate', 'source-change', 'warehouse-change', 'adjust-source'])
 
-const stages = computed(() => buildProductionPlanStages(props.detail))
+const stages = computed(() => buildProductionPlanStages(props.detail).map((stage) => ({
+  ...stage,
+  groups: buildProductionPlanTaskGroups(stage, props.detail).map((group, index) => ({
+    ...group,
+    anchor_id: `plan-group-${stage.level}-${index}`,
+  })),
+})))
+const unlinkedSources = computed(() => findUnlinkedProductionPlanComponentSources(props.detail))
 const isDraft = computed(() => String(props.detail?.status || '') === 'draft')
 const statusLabel = computed(() => productionPlanStatusLabel(props.detail?.status))
 const statusTone = computed(() => productionPlanStatusTone(props.detail?.status))
@@ -244,11 +268,49 @@ const readinessText = computed(() => props.detail?.readiness?.can_submit ? '可�
 const footerTitle = computed(() => isDraft.value ? (props.dirty ? '有未保存修改' : props.detail?.readiness?.can_submit ? '已具备提交条件' : '草稿已保存，有待处理项') : `${statusLabel.value} · 单据内容只读`)
 const footerHint = computed(() => isDraft.value ? (props.dirty ? '先保存本页修改，系统会重新核对数量、来源和工序。' : '提交后将冻结本页配置并生成生产工单。') : `工单 ${props.detail?.related_work_orders?.length || 0} 张 · 工序卡 ${props.detail?.job_card_count || 0} 张`)
 
-function issueWorkOrder(order) { emit('navigate', 'stockOperations', {tab:'stockEntries',action:'issue',return_source:'work_order',work_order_id:order.id}) }
+function issueWorkOrder(order) { emit('navigate', 'stockOperations', {tab:'stockEntries',action:'supplement',return_source:'work_order',work_order_id:order.id,production_plan_id:props.detail?.id}) }
 function quantity(value, unit = '') { const number = Number(value || 0); return `${Number.isInteger(number) ? number : Number(number.toFixed(6))} ${unit || ''}`.trim() }
 function quantitySummary(item) { return item.output_type === 'material' ? '按物料单位' : productionPlanItemQuantitySummary(item) }
 function bomSourceLabel(item) { return productionPlanItemBomSourceLabel(item) }
 function materialTypeLabel(item) { const type = String(item.component_type || ''); return type === 'packaging' ? '包材' : type === 'product' || type === 'finished_product' ? '半成品' : '生产用料' }
+function preparationSpecLabel(preparation) {
+  const specG = Number(preparation.component_spec_g || 0)
+  if (specG > 0) return `规格 ${specG}g`
+  const bomSpecID = Number(preparation.component_bom_spec_id || 0)
+  if (bomSpecID > 0) return `BOM规格 #${bomSpecID}`
+  const variantID = Number(preparation.component_bom_variant_id || 0)
+  return variantID > 0 ? `配方变体 #${variantID}` : ''
+}
+function preparationAmount(preparation, key) {
+  const grams = Number(preparation[`${key}_g`] || 0)
+  const units = Number(preparation[`${key}_units`] || 0)
+  if (grams > 0 || ['g', 'kg', '克', '千克', '公斤'].includes(String(preparation.unit || '').toLowerCase())) {
+    const unit = ['kg', '千克', '公斤'].includes(String(preparation.unit || '').toLowerCase()) ? 'kg' : 'g'
+    return quantity(unit === 'kg' ? grams / 1000 : grams, unit)
+  }
+  return quantity(units, preparation.unit || '件')
+}
+function preparationOrigins(preparation) {
+  const labels = []
+  for (const member of preparation.members || []) {
+    const source = member.source || {}
+    const componentType = String(source.component_type || '')
+    const outputType = ['product', 'finished_product'].includes(componentType) ? 'product' : componentType
+    if (!['product', 'material'].includes(outputType)) continue
+    const supplier = (member.task.dependencies || []).find((link) => {
+      const item = link.item || {}
+      const supplierType = String(item.output_type || 'product')
+      const supplierID = supplierType === 'material'
+        ? Number(item.output_material_id || 0)
+        : Number(item.output_product_id || item.product_id || 0)
+      return supplierType === outputType && supplierID === Number(source.component_id || 0)
+    })
+    if (!supplier) continue
+    const level = Number(supplier.item._source_stage_level || 0) + 1
+    labels.push(`来自阶段 ${level} · ${supplier.item.output_name || supplier.item.product_name} ${supplier.quantity_label}`)
+  }
+  return [...new Set(labels)]
+}
 function availableWarehouses(item) { return props.warehouses.filter((row) => !Number(row.customer_id || 0) || Number(row.customer_id) === Number(item.customer_id || 0)) }
 function warehouseLabel(code) { const row = props.warehouses.find((item) => String(item.code) === String(code)); return row ? `${row.name}（${row.code}）` : code || '-' }
 function planItemName(id) { const item = (props.detail.items || []).find((row) => Number(row.id) === Number(id)); return item?.output_name || item?.product_name || `任务 #${id}` }
@@ -264,11 +326,12 @@ function processRouteLabel(item) { try { const raw = item.process_snapshot_json;
 function edgeRequired(edge) { return Number(edge.required_g || 0) > 0 ? `${Number((Number(edge.required_g) / 1000).toFixed(6))} kg` : quantity(edge.required_units || edge.required_qty, edge.required_units ? '件' : '') }
 function workOrderStatus(status) { return ({ draft: '草稿', released: '待开工', running: '生产中', completed: '已完成', cancelled: '已取消' })[status] || status || '-' }
 function issueTitle(category) { return ({ quantity: '数量需要核对', source: '备料供给需要补齐', supply: '供应存在缺口', operation: '工序拆分需要完善' })[category] || '计划需要完善' }
-function focusIssue(issue) {
+async function focusIssue(issue) {
   if (issue.action === '刷新供应') { emit('refresh'); return }
   if (issue.category === 'operation') { emit('edit-splits'); return }
-  const id = issue.component_source_id ? `component-source-${issue.component_source_id}` : issue.production_plan_item_id ? `plan-item-${issue.production_plan_item_id}` : 'material-sources'
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const node = expandProductionPlanIssueTarget(document.getElementById(productionPlanIssueTargetId(issue)))
+  await nextTick()
+  node?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 </script>
 
@@ -291,7 +354,7 @@ function focusIssue(issue) {
 .task-meta span{background:#f3f5f7}
 .issue-list article{background:#fff;border-color:var(--line);border-radius:7px}
 .text-button,.back-button,.issue-list button{color:#2563a5}
-.workspace-footer{box-shadow:0 -3px 16px #14263408;margin-top:auto}
+.workspace-footer{position:static;bottom:auto;box-shadow:0 -3px 16px #14263408;margin-top:auto}
 .header-main p.draft-edit-label{color:var(--green);margin:6px 0;font-weight:650}
 .workspace-notice{margin:16px 28px 0;padding:11px 14px;border:1px solid #c7e3d2;background:#f0faf4;color:#23734d;border-radius:7px;font-size:13px}
 .workspace-error{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:16px 28px;text-align:left}
@@ -305,4 +368,64 @@ function focusIssue(issue) {
 .more-menu button.danger-link{color:#ad3f30}
 @media(max-width:1100px){.readiness-panel{order:0;border-left:0;border-top:1px solid var(--line);padding:18px 0 0}.workspace-header{position:relative}}
 @media(max-width:720px){.workspace-notice{margin-left:16px;margin-right:16px}.header-main{flex-direction:row;gap:10px}.title-row h1{font-size:21px}.title-row{flex-wrap:wrap}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.header-main p.draft-edit-label{font-size:12px}.section-heading{flex-direction:column;gap:10px}.section-heading>.text-button{align-self:flex-start;white-space:nowrap}}
+</style>
+
+<style scoped>
+.preparation-guidance{margin:-6px 0 18px;color:#657771;font-size:13px;line-height:1.55}
+.plan-groups{display:grid;gap:12px}
+.plan-task-group{border:1px solid #dfe7e3;border-radius:9px;background:#fff;overflow:hidden}
+.plan-group-heading{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:16px;align-items:center;padding:14px 16px;background:#f7faf8;border-bottom:1px solid #e7eeea}
+.plan-group-heading>div>span,.plan-group-heading>small{font-size:12px;color:#657771}
+.plan-group-heading h4{margin:4px 0 0;font-size:16px}
+.plan-group-heading>strong{font-size:18px;color:#1e6a50;white-space:nowrap}
+.group-preparation{padding:12px 16px 14px}
+.group-preparation-heading{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.group-preparation-heading>strong{font-size:13px}
+.group-preparation-heading>span{font-size:11px;color:#657771}
+.group-preparation-list{display:grid;gap:7px}
+.group-preparation-row{display:grid;grid-template-columns:minmax(130px,1fr) minmax(300px,2fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid #e4ebe7;border-radius:7px;background:#fcfdfc}
+.group-preparation-row.shortage{border-color:#e8b88d;background:#fffaf5}
+.group-preparation-name{display:grid;gap:4px}
+.group-preparation-name>span{font-size:11px;color:#657771}
+.group-preparation-name>strong{font-size:13px;overflow-wrap:anywhere}
+.group-preparation-name>small{font-size:11px;color:#657771}
+.group-preparation-row dl{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0}
+.group-preparation-row dt{font-size:10px;color:#657771}
+.group-preparation-row dd{margin:4px 0 0;font-size:12px;font-weight:700;white-space:nowrap}
+.group-preparation-row dd.missing{color:#a34a1a}
+.group-preparation-state{padding:5px 8px;border-radius:16px;background:#eaf5ef;color:#196145;font-size:11px;white-space:nowrap}
+.group-preparation-state.shortage{background:#fff1e2;color:#9e501a}
+.group-preparation-origin{grid-column:1/-1;color:#657771;font-size:11px}
+.group-task-details{border-top:1px solid #e8eeeb;background:#fff}
+.group-task-details>summary{padding:10px 16px;color:#2563a5;font-size:12px;font-weight:700;cursor:pointer;overflow-wrap:anywhere}
+.group-task-details>.task-grid{padding:0 14px 14px}
+.group-task-details .task-card{min-width:0}
+.group-task-details .preparation{margin-top:12px;border-top:1px solid #eef1ef;padding-top:10px}
+.legacy-source-list{display:grid;gap:7px;margin-top:12px}
+.legacy-source-row,.unlinked-source-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(200px,1fr);gap:10px;align-items:center;padding:10px;border:1px solid #e4ebe7;border-radius:7px;background:#fafcfb}
+.legacy-source-row>div{display:grid;gap:4px}
+.legacy-source-row small{color:#657771;font-size:11px}
+.unlinked-preparation{margin-top:16px;padding:14px;border:1px solid #e9cfaa;border-radius:8px;background:#fffaf3}
+.unlinked-preparation h3{margin:0 0 5px;font-size:14px}
+.unlinked-preparation>p{margin:0 0 10px;color:#785c34;font-size:12px;line-height:1.5}
+.unlinked-preparation .unlinked-source-row{margin-top:6px;background:#fff;border-color:#efe2d0;grid-template-columns:repeat(4,minmax(0,1fr));font-size:12px}
+@media(max-width:850px){
+  .plan-group-heading{grid-template-columns:1fr auto;gap:6px 12px}
+  .plan-group-heading>small{grid-column:1/-1}
+  .group-preparation-row{grid-template-columns:minmax(0,1fr) auto}
+  .group-preparation-row dl{grid-column:1/-1;grid-row:2;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .group-preparation-state{grid-column:2;grid-row:1}
+  .group-preparation-origin{grid-column:1/-1}
+  .unlinked-preparation .unlinked-source-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:520px){
+  .plan-group-heading{padding:12px}
+  .plan-group-heading>strong{font-size:16px}
+  .group-preparation{padding:11px 12px}
+  .group-preparation-row dl{gap:6px;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .group-preparation-row dd{white-space:nowrap}
+  .group-preparation-state{font-size:10px;white-space:normal;text-align:center}
+  .group-task-details>.task-grid{padding:0 10px 10px}
+  .legacy-source-row,.unlinked-preparation .unlinked-source-row{grid-template-columns:1fr}
+}
 </style>

@@ -444,6 +444,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-735-PRODUCTION-FOLLOWUP
+- Branch: `codex/production-followup-20261026`; base `origin/main@001c65b0`; source remainder `origin/develop@692f09b8`.
+- Owner/session: this production follow-up release; only this workflow owns its integration and deployment.
+- Authorization: implement approved plan, fix incremental roasting, integrate remaining three features, complete isolated acceptance, merge main and deploy production. Production business records remain read-only.
+- Status: implementation and isolated acceptance complete; final production build/deploy gates pending. PR-734 already existed on develop; PR-735 reserved manually.
+- DEV: DEV-PR735-01 incremental roasting and accounting; DEV-PR735-02 remaining feature integration; DEV-PR735-03 isolated acceptance and release; DEV-PR735-04 bulk weight receipt ledger consistency.
+- Verifier: unit/API RED then GREEN; dedicated local PostgreSQL database; Vue tests/build; BOM refresh and multi-source packaging browser acceptance; final server release gates and readonly runtime evidence.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-26-production-followup-release.md`.
+- Development integration: PR #306/#307/#308; origin/develop dd603e05083cecbcaab76d506cf983b9fb9c6525; no development deployment.
+- Deployment: production pending; preserve main BOM output backfill protections and all accepted production requirement states.
+- Last update: 2026-10-26.
+
+
 ### PR-730-PACKAGING-GROUPED-EXECUTION
 - Branch: `codex/packaging-grouped-execution-20261025`; base `origin/develop` 4457e1e536c23a36596869594707428eab7b6c82.
 - Owner/session: Codex / 2026-10-25.

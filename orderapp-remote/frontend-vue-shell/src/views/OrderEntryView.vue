@@ -3025,7 +3025,7 @@ async function save(options = {}) {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (form.delivery_mode!=='customer_stock' && !orderFreight.value?.edit_locked && (!form.edit_id || !props.customerPortal)) {
       const q=await freightEstimator.value?.preview();if(!q&&!form.freight_state?.preserveExisting){error.value='请完善收件地区及运费配置后重试';return}
-      Object.assign(payload,freightEstimator.value.payload())
+      Object.assign(payload,freightEstimator.value.payload(q))
       if(q.carrier_id){payload.logistics_company_id=q.carrier_id;payload.logistics_product_id=q.logistics_product_id;form.logistics_company_id=q.carrier_id;form.logistics_product_id=q.logistics_product_id}
     }
 

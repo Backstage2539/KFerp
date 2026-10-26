@@ -1,6 +1,6 @@
 <template>
   <div class="preparation" aria-label="备料情况">
-    <p class="preparation-note">先用 WIP 现场库存，其余生成领料建议。供给落实后可提交，领料齐套后才能开工。</p>
+    <p v-if="showNote" class="preparation-note">先用 WIP 现场库存，其余生成领料建议。供给落实后可提交，领料齐套后才能开工。</p>
     <div v-if="!sources.length" class="empty">暂无备料项</div>
     <details v-for="source in sources" :id="`component-source-${source.id}`" :key="source.id" class="preparation-row" :class="{shortage: source.preparation_status === 'shortage'}">
       <summary>
@@ -36,12 +36,12 @@
         </form>
       </div>
     </details>
-    <div v-if="!editable && issueOrders.length" class="issue-orders"><strong>按工单领料</strong><button v-for="order in issueOrders" :key="order.id" type="button" @click="$emit('issue', order)">去领料 · {{ order.work_order_no }}</button></div>
+    <div v-if="!editable && issueOrders.length" class="issue-orders"><strong>待补入 WIP</strong><button v-for="order in issueOrders" :key="order.id" type="button" @click="$emit('issue', order)">去库存作业补料 · {{ order.work_order_no }}</button></div>
   </div>
 </template>
 <script setup>
 import { computed, ref } from 'vue'
-const props = defineProps({sources:{type:Array,default:()=>[]},items:{type:Array,default:()=>[]},supplyAllocations:{type:Array,default:()=>[]},workOrders:{type:Array,default:()=>[]},editable:{type:Boolean,default:false},saving:{type:Boolean,default:false}})
+const props = defineProps({sources:{type:Array,default:()=>[]},items:{type:Array,default:()=>[]},supplyAllocations:{type:Array,default:()=>[]},workOrders:{type:Array,default:()=>[]},editable:{type:Boolean,default:false},saving:{type:Boolean,default:false},showNote:{type:Boolean,default:true}})
 const emit=defineEmits(['adjust','issue'])
 const editing=ref(null), edits=ref([]), editError=ref('')
 const isWeight=(s)=>Number(s.demand_g || s.required_g || 0)>0
@@ -62,5 +62,5 @@ function applyAdjustment(source){
 </script>
 <style scoped>
 .preparation{font-size:14px;color:#18352e;min-width:0}.preparation-note{color:#657771;font-size:13px;margin:0 0 16px;line-height:1.6}.preparation-row{border:1px solid #dfe7e3;border-radius:10px;margin:9px 0;background:#fff;scroll-margin-top:220px}.preparation-row.shortage{border-color:#eab88c}.preparation-row summary{cursor:pointer;display:grid;grid-template-columns:minmax(120px,1fr) minmax(240px,2fr) auto;gap:14px;padding:15px;align-items:center;list-style:none}.preparation-row summary::-webkit-details-marker{display:none}.material{display:grid;gap:5px;overflow-wrap:anywhere}.material small,dt,.expand-label{font-size:12px;color:#657771}.preparation-row dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0}.preparation-row dd{margin:5px 0 0;font-weight:700;white-space:nowrap}.state{font-size:12px;color:#196145;background:#eaf5ef;border-radius:20px;padding:5px 9px;white-space:nowrap}.shortage .state{background:#fff1e2;color:#9e501a}.expand-label{grid-column:1/-1;text-align:right;line-height:1}.preparation-row[open] .expand-label{display:none}.preparation-detail{padding:0 15px 16px;border-top:1px solid #eef1ef}.allocations{list-style:none;margin:0;padding:0}.allocations li{display:grid;grid-template-columns:1fr auto;gap:8px;padding:12px 0;border-bottom:1px solid #eef1ef}.allocations small{display:block;color:#657771;margin-top:4px}.batches{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;color:#657771;font-size:12px}.batches span{padding:4px 8px;border-radius:4px;background:#f5f8f6}.missing,.warning{color:#a34a1a}.upstream{padding:10px;background:#f4f7f5}.adjust-actions,.issue-orders{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.preparation button{padding:8px 12px;background:#fff;border:1px solid #c5d8ce;border-radius:6px;color:#1e6a50;cursor:pointer}.preparation button:disabled{opacity:.5;cursor:wait}.adjustment{background:#f5f8f6;margin-top:12px;padding:12px;border-radius:8px}.adjustment p{font-size:12px;color:#657771}.adjustment label{display:grid;grid-template-columns:1fr 90px 28px;align-items:center;gap:8px;margin:10px 0}.adjustment label small{display:block;color:#657771}.adjustment input{width:100%;min-width:0;box-sizing:border-box;padding:8px;border:1px solid #c5d8ce;border-radius:5px}.empty{color:#657771;padding:12px}.issue-orders{align-items:center}.preparation button:focus-visible,.preparation summary:focus-visible{outline:2px solid #1e6a50;outline-offset:3px}
-@media(max-width:850px){.preparation-row summary{grid-template-columns:1fr auto}.preparation-row dl{grid-column:1/-1;grid-row:2}.state{grid-column:2;grid-row:1}.preparation-row dd{white-space:normal}.preparation-detail{padding:0 12px 12px}}
+@media(max-width:850px){.preparation-row summary{grid-template-columns:1fr auto}.preparation-row dl{grid-column:1/-1;grid-row:2;grid-template-columns:repeat(2,minmax(0,1fr))}.state{grid-column:2;grid-row:1}.preparation-row dd{white-space:nowrap}.preparation-detail{padding:0 12px 12px}}
 </style>

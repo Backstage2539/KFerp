@@ -13,6 +13,8 @@ import (
 // as order detail. Product names and specifications remain frozen order data.
 type OrderCopySnapshot struct {
 	Order            OrderEditData
+	CustomerName     string
+	PaymentMethod    string
 	PayStatus        string
 	DefaultRecipient OrderCopyRecipient
 }
@@ -112,7 +114,15 @@ func BuildOrderDetailsText(snapshot OrderCopySnapshot) string {
 	if o.IsVoid {
 		lines = append(lines, "【已作废订单】")
 	}
-	lines = append(lines, "订单号："+copyValue(o.OrderNo), "订单日期："+copyValue(o.OrderDate), "付款状态："+copyValue(snapshot.PayStatus), "", "订单详情：")
+	lines = append(lines,
+		"订单号："+copyValue(o.OrderNo),
+		"客户名称："+copyValue(snapshot.CustomerName),
+		"订单日期："+copyValue(o.OrderDate),
+		"付款状态："+copyValue(snapshot.PayStatus),
+		"付款方式："+copyValue(snapshot.PaymentMethod),
+		"",
+		"订单详情：",
+	)
 	for i, item := range o.Items {
 		name := copyValue(copyFirst(item.CustomerProductDisplayNameSnapshot, item.ProductNameSnapshot, item.Product))
 		lines = append(lines, fmt.Sprintf("%d. %s｜%s｜%s %s", i+1, name, copySpec(item), copyQuantity(item.Qty), copyValue(item.Unit)))

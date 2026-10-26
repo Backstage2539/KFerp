@@ -402,11 +402,155 @@ test('production plan stages keep task identity while connecting a shared upstre
   assert.equal(stages[1].tasks[0].quantity_label, '10 袋')
 })
 
+test('production plan detail groups compatible same-spec tasks and sums their existing preparation without merging ownership', () => {
+  const makeItem = (id, options = {}) => ({
+    id,
+    output_type: 'product',
+    output_product_id: options.productID || 10,
+    product_id: options.productID || 10,
+    output_name: options.name || '金色山脉',
+    bom_version_id: options.bomVersion || 402,
+    bom_spec_id: options.bomSpec || 402,
+    bom_variant_id: options.variant || 0,
+    spec_g: options.specG || 454,
+    sales_spec_count: options.count || 1,
+    inventory_unit: 'kg',
+    inventory_qty_per_sales_unit: options.conversion || 0.454,
+    sales_spec_snapshot_json: JSON.stringify({
+      spec_label: options.label || '454g', sales_unit: '袋', inventory_unit: 'kg',
+      inventory_qty_per_sales_unit: options.conversion || 0.454,
+      customer_id: options.customerID || 1,
+    }),
+    material_snapshot: JSON.stringify([{ material_id: 41, ratio_pct: 100, source: 'packaging' }]),
+    process_snapshot_json: JSON.stringify(options.process || { operations: [{ seq: 1, operation: '包装' }] }),
+    target_warehouse: options.warehouse || 'finished_goods',
+    customer_id: options.customerID || 1,
+    order_nos: options.order || `SO-${id}`,
+    ...options.overrides,
+  })
+  const detail = {
+    items: [
+      makeItem(1, { count: 10, order: 'SO-A1', customerID: 1 }),
+      makeItem(2, { count: 20, order: 'SO-A2', customerID: 2, process: { operations: [{ operation: '包装', seq: 1 }] } }),
+      makeItem(3, { specG: 227, label: '227g', count: 4, order: 'SO-A3' }),
+      makeItem(4, { bomVersion: 577, bomSpec: 577, order: 'SO-A4' }),
+      makeItem(5, { process: { operations: [{ seq: 1, operation: '烘焙' }] }, order: 'SO-A5' }),
+      makeItem(6, { productID: 20, name: '另一商品', order: 'SO-B1' }),
+      makeItem(7, { conversion: 0.5, order: 'SO-A6' }),
+      makeItem(8, { warehouse: 'finished_shop', order: 'SO-A7' }),
+    ],
+    component_sources: [
+      { id: 11, production_plan_item_id: 1, component_type: 'material', component_id: 41, component_name: '咖啡袋', unit: '条', demand_units: 10, wip_covered_units: 2, transfer_units: 8, shortage_units: 0, allocations: [{ warehouse: 'raw-a', owner_customer_id: 1, qty_units: 8 }] },
+      { id: 12, production_plan_item_id: 2, component_type: 'material', component_id: 41, component_name: '咖啡袋', unit: '条', demand_units: 20, wip_covered_units: 3, transfer_units: 17, shortage_units: 0, allocations: [{ warehouse: 'raw-b', owner_customer_id: 2, qty_units: 17 }] },
+      { id: 13, production_plan_item_id: 1, component_type: 'material', component_id: 50, component_name: '生豆', unit: 'kg', demand_g: 12000, wip_covered_g: 4000, transfer_g: 5000, upstream_g: 3000, shortage_g: 0 },
+      { id: 14, production_plan_item_id: 2, component_type: 'product', component_id: 70, component_name: '阶段1熟豆', unit: 'kg', required_g: 0, demand_g: 9000, wip_covered_g: 0, transfer_g: 0, upstream_g: 9000, shortage_g: 0, preparation_status: 'awaiting_production' },
+      { id: 15, production_plan_item_id: 999, component_type: 'material', component_id: 51, component_name: '未关联物料', unit: 'kg', demand_g: 1000 },
+      { id: 16, production_plan_item_id: 2, component_type: 'material', component_id: 60, component_name: '独立包装袋', unit: '袋', demand_g: 0, demand_units: 6, wip_covered_g: 0, wip_covered_units: 2, transfer_g: 0, transfer_units: 4, shortage_g: 0, shortage_units: 0 },
+      { id: 17, production_plan_item_id: 1, component_type: 'material', component_id: 41, component_bom_spec_id: 901, component_bom_variant_id: 3, component_spec_g: 227, component_name: '227g咖啡袋', unit: '条', demand_units: 99, transfer_units: 99 },
+      { id: 18, production_plan_item_id: 2, component_type: 'material', component_id: 52, component_name: '短缺用料', unit: 'kg', demand_g: 5000, wip_covered_g: 0, transfer_g: 3000, upstream_g: 0, shortage_g: 2000 },
+      { id: 19, production_plan_item_id: 2, component_type: 'material', component_id: 50, component_name: '生豆', unit: 'g', demand_g: 1000, wip_covered_g: 0, transfer_g: 1000, shortage_g: 0 },
+    ],
+  }
+  const stages = producePlan.buildProductionPlanStages(detail)
+  const groups = producePlan.buildProductionPlanTaskGroups(stages[0], detail)
+
+  assert.equal(groups.length, 7)
+  const sameSpec = groups.find((group) => group.tasks.length === 2)
+  assert.deepEqual(sameSpec.tasks.map((task) => task.id), [1, 2])
+  assert.deepEqual(sameSpec.orders, ['SO-A1', 'SO-A2'])
+  assert.equal(sameSpec.quantity_label, '30 袋')
+  const bags = sameSpec.preparations.find((row) => row.component_id === 41)
+  assert.equal(bags.demand_units, 30)
+  assert.equal(bags.wip_covered_units, 5)
+  assert.equal(bags.transfer_units, 25)
+  assert.deepEqual(bags.members.map((member) => member.source.allocations[0].owner_customer_id), [1, 2])
+  assert.equal(sameSpec.preparations.find((row) => row.component_id === 41 && row.component_bom_spec_id === 901).demand_units, 99)
+  const upstream = sameSpec.preparations.find((row) => row.component_id === 70)
+  assert.equal(upstream.members[0].source.required_g, 0)
+  assert.equal(upstream.demand_g, 9000)
+  assert.equal(upstream.upstream_g, 9000)
+  assert.equal(upstream.state_label, '待生产入库')
+  const unitOnly = sameSpec.preparations.find((row) => row.component_id === 60)
+  assert.equal(unitOnly.demand_g, 0)
+  assert.equal(unitOnly.demand_units, 6)
+  assert.equal(unitOnly.wip_covered_units, 2)
+  assert.equal(unitOnly.transfer_units, 4)
+  const short = sameSpec.preparations.find((row) => row.component_id === 52)
+  assert.equal(short.shortage_g, 2000)
+  assert.equal(short.state_label, '缺料')
+  const sameBean = sameSpec.preparations.filter((row) => row.component_id === 50)
+  assert.equal(sameBean.length, 1, 'grams and kilograms use the backend canonical gram totals')
+  assert.equal(sameBean[0].demand_g, 13000)
+
+  assert.deepEqual(producePlan.findUnlinkedProductionPlanComponentSources(detail).map((source) => source.id), [15])
+})
+
+test('grouped preparation keeps distinct stable material keys when readiness changes', () => {
+  const item = { id: 1, output_type: 'product', output_product_id: 10, output_unit: '袋' }
+  const stage = { key: 'stage-0', tasks: [{ id: 1, item, order_nos: [] }] }
+  const detail = { component_sources: [
+    { id: 11, production_plan_item_id: 1, component_type: 'material', component_id: 41, unit: '条', demand_units: 10, wip_covered_units: 10 },
+    { id: 12, production_plan_item_id: 1, component_type: 'material', component_id: 42, unit: '条', demand_units: 10, wip_covered_units: 10 },
+  ] }
+  const before = producePlan.buildProductionPlanTaskGroups(stage, detail)[0].preparations
+  assert.equal(new Set(before.map((row) => row.key)).size, 2, 'same readiness must not collapse distinct material keys')
+  assert.deepEqual(before.map((row) => row.status_key), ['ready', 'ready'])
+
+  detail.component_sources[0].wip_covered_units = 7
+  detail.component_sources[0].shortage_units = 3
+  const after = producePlan.buildProductionPlanTaskGroups(stage, detail)[0].preparations
+  assert.deepEqual(after.map((row) => row.key), before.map((row) => row.key), 'readiness changes must retain each material row identity')
+  assert.deepEqual(after.map((row) => row.status_key), ['shortage', 'ready'])
+})
+
+test('grouped preparation preserves server readiness when member quantities are missing or zero', () => {
+  const item = { id: 1, output_type: 'product', output_product_id: 10, output_unit: '袋' }
+  const stage = { key: 'stage-0', tasks: [{ id: 1, item, order_nos: [] }] }
+  const cases = [
+    { name: 'zero-quantity upstream wait', sources: [{ preparation_status: 'awaiting_production', upstream_g: 0 }], key: 'awaiting_production', label: '待生产入库' },
+    { name: 'zero-quantity transfer wait', sources: [{ preparation_status: 'awaiting_transfer', transfer_g: 0 }], key: 'awaiting_transfer', label: '供给已落实' },
+    { name: 'zero-quantity shortage', sources: [{ preparation_status: 'shortage', shortage_g: 0 }], key: 'shortage', label: '缺料' },
+    { name: 'ready member cannot hide pending production', sources: [{ preparation_status: 'ready' }, { preparation_status: 'awaiting_production' }], key: 'awaiting_production', label: '待生产入库' },
+    { name: 'production and transfer waits are both retained', sources: [{ preparation_status: 'awaiting_transfer' }, { preparation_status: 'awaiting_production' }], key: 'awaiting_supply', label: '待生产入库及领料' },
+    { name: 'shortage dominates both pending supply types', sources: [{ preparation_status: 'awaiting_transfer' }, { preparation_status: 'shortage' }, { preparation_status: 'awaiting_production' }], key: 'shortage', label: '缺料' },
+    { name: 'actual shortage overrides ready status', sources: [{ preparation_status: 'ready', shortage_g: 1000 }], key: 'shortage', label: '缺料' },
+    { name: 'server ready is retained without obsolete quantities', sources: [{ preparation_status: 'ready' }], key: 'ready', label: '现场已齐套' },
+    { name: 'quantities can prove readiness without a server status', sources: [{ demand_g: 1000, wip_covered_g: 1000 }], key: 'ready', label: '现场已齐套' },
+    { name: 'missing status and quantities cannot prove readiness', sources: [{}], key: 'unknown', label: '待核对备料' },
+    { name: 'known ready member cannot cover an unreported member', sources: [{ preparation_status: 'ready' }, {}], key: 'unknown', label: '待核对备料' },
+  ]
+  for (const scenario of cases) {
+    const component_sources = scenario.sources.map((source, index) => ({
+      id: index + 1, production_plan_item_id: 1, component_type: 'material', component_id: 70, unit: 'kg', ...source,
+    }))
+    const preparation = producePlan.buildProductionPlanTaskGroups(stage, { component_sources })[0].preparations[0]
+    assert.equal(preparation.status_key, scenario.key, scenario.name)
+    assert.equal(preparation.state_label, scenario.label, scenario.name)
+    assert.equal(preparation.members.length, scenario.sources.length, scenario.name)
+  }
+})
+
+test('production plan issue focus targets the source or task and expands collapsed disclosure ancestors', () => {
+  assert.equal(producePlan.productionPlanIssueTargetId({ component_source_id: 61, production_plan_item_id: 51 }), 'component-source-61')
+  assert.equal(producePlan.productionPlanIssueTargetId({ production_plan_item_id: 51 }), 'plan-item-51')
+  assert.equal(producePlan.productionPlanIssueTargetId({}), 'plan-stages')
+
+  const section = { tagName: 'SECTION', parentElement: null }
+  const outer = { tagName: 'DETAILS', open: false, parentElement: section }
+  const inner = { tagName: 'details', open: false, parentElement: outer }
+  const target = { tagName: 'ARTICLE', parentElement: inner }
+  assert.equal(producePlan.expandProductionPlanIssueTarget(target), target)
+  assert.equal(inner.open, true)
+  assert.equal(outer.open, true)
+  assert.equal(section.open, undefined)
+})
+
 test('production plan detail uses a full workspace with fixed header and footer', () => {
   const source = fs.readFileSync(new URL('../components/ProductionPlanDetailWorkspace.vue', import.meta.url), 'utf8')
   assert.match(source, /生产计划详情工作区/)
   assert.match(source, /本次生产安排/)
-  assert.match(source, /备料情况/)
+  assert.match(source, /本组备料/)
+  assert.doesNotMatch(source, /id="material-sources"/)
   assert.match(source, /提交前核对/)
   assert.match(source, /保存草稿/)
   assert.match(source, /提交生成工单/)
