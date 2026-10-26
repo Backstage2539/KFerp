@@ -15,4 +15,5 @@
 - GREEN：`go test ./internal/application/sales -run '^TestOrderCopyDetailsText' -count=1` 通过。
 - API/PostgreSQL：`ORDERAPP_TEST_DATABASE_URL='postgres:///postgres?host=/tmp' go test ./internal/interfaces/http/sales -run '^TestOrderCopyDetails' -count=1` 通过，覆盖复制内容、保存快照与客户隔离。
 - 前端：`node --test src/lib/order-details-copy.test.js src/lib/order-details-copy-runtime.test.js` 通过 4/4；`npm run build` 通过，含既有 chunk size 警告。
-- 浏览器与开发运行验收待合入部署后执行；Van 业务验收待完成。
+- 合并最新 `origin/develop@0ebc4c4ba` 后，`scripts/verify_kferp.sh changed`、`backend`、`frontend` 均通过；定向 API/PostgreSQL 用例再次通过。
+- 浏览器与开发运行验收待部署后执行；Van 业务验收待完成。开发部署暂缓，因该 develop 基线包含 PR-733 后续工作，其隔离浏览器操作验收仍待完成。
