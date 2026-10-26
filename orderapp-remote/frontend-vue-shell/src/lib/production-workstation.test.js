@@ -357,6 +357,15 @@ test('roasting task completion is inline and requires only output quantity', () 
  assert.match(form,/expected_version|completionPayload/)
 })
 
+test('ordinary grinding cards use the simplified completion and work-order actions', () => {
+ const source=readFileSync(new URL('../views/WorkstationView.vue',import.meta.url),'utf8')
+ assert.match(source,/function isSimplifiedTask\(task\).*研磨.*磨粉/)
+ const actions=source.slice(source.indexOf('<template v-if="isSimplifiedTask(task)">'),source.indexOf('<template v-else>',source.indexOf('<template v-if="isSimplifiedTask(task)">')))
+ assert.match(actions,/工序完成/)
+ assert.match(actions,/查看工单/)
+ for(const forbidden of ['物料操作','呼叫补料','报异常','暂停','继续'])assert.doesNotMatch(actions,new RegExp(forbidden))
+})
+
 test('workstation renders quantity, ready material state and one responsible employee only', () => {
   const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
   assert.match(source, /taskQuantityLines\(task\)/)

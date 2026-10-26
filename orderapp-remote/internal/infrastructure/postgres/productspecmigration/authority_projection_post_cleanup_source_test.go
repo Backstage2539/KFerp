@@ -21,6 +21,9 @@ func TestBusinessIdentityGuardUsesTableFreeAuthorityAfterLegacyCleanup(t *testin
 	if !strings.Contains(guard, "product_bom_spec_authorities") {
 		t.Fatal("business identity guard must derive current identity from the table-free authority view")
 	}
+	if !strings.Contains(guard, "work_orders work_order") || !strings.Contains(guard, "stock_entry.work_order_id") {
+		t.Fatal("finished stock entries must retain a historical variant only when it exactly matches their source frozen work order")
+	}
 	for _, retired := range []string{"product_bom_spec_migrations", "legacy_child_sku_bom_spec_mappings"} {
 		if strings.Contains(guard, retired) {
 			t.Fatalf("business identity guard still references retired relation %q", retired)

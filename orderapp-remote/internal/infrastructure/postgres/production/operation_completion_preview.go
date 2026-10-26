@@ -264,9 +264,14 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if !p.Enabled {
 		p.BlockedReason = "旧工单暂不可自动完成，请核对冻结 BOM 与工艺路线"
 		p.BlockedCode = "legacy_execution_unresolved"
-		legacyRoute := len(route.Operations) == 1 && (isPackagingOperationName(route.Operations[0].Operation) || isRoastingOperationName(route.Operations[0].Operation))
+		legacyRoute := len(route.Operations) == 1
 		var cardCount, inputCardCount, eventCount int
-		if legacyRoute && seq == first && seq == last && wo.PlannedInventoryQty > 0 && strings.TrimSpace(wo.InventoryUnit) != "" && (status == "pending" || status == "ready" || status == "released" || status == "running" || status == "paused") {
+		legacyPlannedQty := wo.PlannedInventoryQty
+		if legacyPlannedQty <= 0 {
+			legacyPlannedQty = wo.OutputQty
+		}
+		legacyOutputUnit := firstNonEmpty(wo.InventoryUnit, unit)
+		if legacyRoute && seq == first && seq == last && legacyPlannedQty > 0 && strings.TrimSpace(legacyOutputUnit) != "" && (status == "pending" || status == "ready" || status == "released" || status == "running" || status == "paused") {
 			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*),COUNT(*) FILTER(WHERE planned_input_qty>0),(SELECT COUNT(*) FROM %s.production_operation_events WHERE work_order_id=$1 AND status IN('posting','posted')) FROM %s.job_cards WHERE work_order_id=$1 AND status<>'cancelled'`, r.schema, r.schema), wo.ID).Scan(&cardCount, &inputCardCount, &eventCount); err != nil {
 				return p, wo, err
 			}

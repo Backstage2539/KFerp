@@ -78,6 +78,45 @@ func TestLegacyPackagingCompletionUsesFrozenBagQuantityWithoutInputQuantity(t *t
 	}
 }
 
+func TestLegacySingleOperationGrindingCompletionDoesNotRequireManualExecutionSetup(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	app, _, workOrderID := createSubmittedFullStockTypedPlan(t, ctx, pool, schema, 87316)
+
+	// Old single-operation work orders carry a complete frozen material snapshot
+	// and a concrete batch input quantity, but predate execution_json.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %[1]s.work_orders
+		SET status='released',output_type='material',output_product_id=0,output_material_id=10,
+		    output_name='初晓-咖啡粉',output_qty=0.1,output_unit='kg',inventory_unit='kg',
+		    planned_inventory_qty=0.1,planned_g=100,planned_output_g=100,target_warehouse='wip',
+		    process_snapshot_json='{"operations":[{"seq":1,"operation":"咖啡研磨"}]}'::jsonb
+		WHERE id=%[2]d;
+		UPDATE %[1]s.job_cards
+		SET operation='咖啡研磨',sequence_no=1,status='pending',planned_input_qty=100,
+		    actual_input_qty=0,actual_output_qty=0,completed_at=NULL
+		WHERE work_order_id=%[2]d;
+	`, schema, workOrderID))
+	var cardID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.job_cards WHERE work_order_id=$1`, schema), workOrderID).Scan(&cardID); err != nil {
+		t.Fatal(err)
+	}
+	response := serveMultilevelProductionJSON(t, app, http.MethodGet, fmt.Sprintf("/api/job-cards/%d/completion-preview", cardID), nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("grinding completion preview status=%d body=%s", response.Code, response.Body.String())
+	}
+	var preview productionapp.OperationCompletionPreview
+	if err := json.Unmarshal(response.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if !preview.Enabled || !preview.LegacyExecution || preview.BlockedCode != "" || preview.BlockedReason != "" {
+		t.Fatalf("complete single-operation legacy grinding order should be executable without manual setup: enabled=%v legacy=%v blocked=%q code=%q", preview.Enabled, preview.LegacyExecution, preview.BlockedReason, preview.BlockedCode)
+	}
+	if preview.InputQty != 0.1 || preview.InputUnit != "kg" || preview.PlannedQty != 0.1 || preview.OutputUnit != "kg" || len(preview.Materials) == 0 {
+		t.Fatalf("grinding preview should use frozen 100g batch and materials: input=%v/%q planned=%v/%q output=%q materials=%+v", preview.InputQty, preview.InputUnit, preview.PlannedQty, preview.OutputUnit, preview.OutputUnit, preview.Materials)
+	}
+}
+
 func TestLegacyPackagingCompletionGroupPreviewUsesFrozenBagQuantities(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -142,7 +181,7 @@ func TestLegacyPackagingCompletionGroupPreviewUsesFrozenBagQuantities(t *testing
 	// reservation and frozen work-order quantity to the first 10-bag source;
 	// the other two reservations above represent 8 and 2 bags.
 	for _, statement := range []string{
-		fmt.Sprintf(`UPDATE %s.work_orders SET status='released',output_qty=10,output_unit='袋',inventory_unit='袋',planned_inventory_qty=10,target_warehouse='finished_goods' WHERE id=$1`, schema),
+		fmt.Sprintf(`UPDATE %s.work_orders SET status='released',output_qty=10,output_unit='袋',inventory_unit='',planned_inventory_qty=0,target_warehouse='finished_goods' WHERE id=$1`, schema),
 		fmt.Sprintf(`UPDATE %s.job_cards SET planned_input_qty=0,actual_input_qty=0,actual_output_qty=0,status='pending' WHERE work_order_id=$1`, schema),
 		fmt.Sprintf(`UPDATE %s.work_order_material_reservations SET required_g=round(required_g*0.1)::bigint,required_units=round(required_units*0.1)::bigint,reserved_g=round(reserved_g*0.1)::bigint,reserved_units=round(reserved_units*0.1)::bigint WHERE work_order_id=$1 AND status='reserved'`, schema),
 		fmt.Sprintf(`UPDATE %s.work_order_material_reservation_batches SET reserved_g=round(reserved_g*0.1)::bigint,reserved_units=round(reserved_units*0.1)::bigint WHERE work_order_id=$1 AND status='reserved'`, schema),
@@ -152,7 +191,7 @@ func TestLegacyPackagingCompletionGroupPreviewUsesFrozenBagQuantities(t *testing
 		}
 	}
 	for i, qty := range []float64{8, 2} {
-		if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET output_qty=$2,planned_inventory_qty=$2,target_warehouse='finished_goods' WHERE id=$1`, schema), workOrderIDs[i+1], qty); err != nil {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET output_qty=$2,inventory_unit='',planned_inventory_qty=0,target_warehouse='finished_goods' WHERE id=$1`, schema), workOrderIDs[i+1], qty); err != nil {
 			t.Fatalf("set cloned packaging quantity: %v", err)
 		}
 	}
