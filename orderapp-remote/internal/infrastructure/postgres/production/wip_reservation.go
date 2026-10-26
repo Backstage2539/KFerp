@@ -54,14 +54,17 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 	var materialSnapshot, materialBindingsJSON string
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,work_order_no,running_item_id,product_id,product_name,spec_g,
-		       planned_g,COALESCE(NULLIF(planned_output_g,0),planned_g),COALESCE(sales_spec_count,0)::float8,COALESCE(order_nos,''),
+		       planned_g,COALESCE(NULLIF(planned_output_g,0),planned_g),COALESCE(sales_spec_count,0)::float8,
+	       COALESCE(inventory_qty_per_sales_unit,0)::float8,COALESCE(inventory_unit,''),COALESCE(planned_inventory_qty,0)::float8,
+	       COALESCE(order_nos,''),
 		       status,COALESCE(operation_template_id,0),COALESCE(material_snapshot,'[]'::jsonb)::text,
 		       COALESCE(bom_version_id,0),COALESCE(bom_variant_id,0),COALESCE(operation_material_bindings,'{}'::jsonb)::text
 		FROM %s.work_orders
 		WHERE id=$1
 	`, r.schema), workOrderID).Scan(
 		&wo.ID, &wo.WorkOrderNo, &wo.RunningItemID, &wo.ProductID, &wo.ProductName, &wo.SpecG,
-		&wo.PlannedG, &wo.PlannedOutputG, &wo.SalesSpecCount, &wo.OrderNos, &wo.Status, &wo.OperationTemplateID, &materialSnapshot,
+		&wo.PlannedG, &wo.PlannedOutputG, &wo.SalesSpecCount, &wo.InventoryQtyPerSalesUnit, &wo.InventoryUnit, &wo.PlannedInventoryQty,
+		&wo.OrderNos, &wo.Status, &wo.OperationTemplateID, &materialSnapshot,
 		&wo.BomVersionID, &wo.BomVariantID, &materialBindingsJSON,
 	)
 	if err == pgx.ErrNoRows {
@@ -71,8 +74,21 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 		return productionapp.ProductionWIPStatus{}, err
 	}
 	plan := runningInventoryPlan(wo.SpecG, wo.PlannedOutputG, wo.PlannedG, 1)
-	if wo.SalesSpecCount > 0 {
-		plan.Units = int64(math.Ceil(wo.SalesSpecCount))
+	if !isWeightMaterialUnit(wo.InventoryUnit) && wo.PlannedInventoryQty > 0 {
+		// planned_inventory_qty is the frozen output quantity in the stock unit.
+		// Legacy sales_spec_count can describe cartons/sales specs while each
+		// produced inventory item contains multiple packages (for example one
+		// hangbag job producing ten filter bags).
+		plan.Units = int64(math.Ceil(wo.PlannedInventoryQty - 1e-9))
+		if wo.SpecG > 0 {
+			plan.LooseG = nonnegativeQuantity(wo.PlannedOutputG - plan.Units*wo.SpecG)
+		}
+	} else if wo.SalesSpecCount > 0 {
+		unitsPerSalesUnit := wo.InventoryQtyPerSalesUnit
+		if unitsPerSalesUnit <= 0 {
+			unitsPerSalesUnit = 1
+		}
+		plan.Units = int64(math.Ceil(wo.SalesSpecCount*unitsPerSalesUnit - 1e-9))
 		if wo.SpecG > 0 {
 			plan.LooseG = nonnegativeQuantity(wo.PlannedOutputG - plan.Units*wo.SpecG)
 		}

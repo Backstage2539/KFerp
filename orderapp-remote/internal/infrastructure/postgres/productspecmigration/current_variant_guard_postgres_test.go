@@ -80,6 +80,19 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 			warehouse TEXT NOT NULL DEFAULT '',owner_customer_id BIGINT NOT NULL DEFAULT 0,
 			onhand_units BIGINT NOT NULL DEFAULT 0,onhand_loose_g BIGINT NOT NULL DEFAULT 0
 		);
+		CREATE TABLE %[1]s.stock_batches(
+			id BIGINT PRIMARY KEY,item_type TEXT NOT NULL,item_id BIGINT NOT NULL,
+			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0,
+			source_doc_type TEXT NOT NULL DEFAULT '',source_doc_id BIGINT NOT NULL DEFAULT 0
+		);
+		CREATE TABLE %[1]s.stock_ledger_entries(
+			id BIGINT PRIMARY KEY,item_type TEXT NOT NULL,item_id BIGINT NOT NULL,
+			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0,
+			source_doc_type TEXT NOT NULL DEFAULT '',source_doc_id BIGINT NOT NULL DEFAULT 0
+		);
+		CREATE TABLE %[1]s.production_operation_events(
+			id BIGINT PRIMARY KEY,work_order_id BIGINT NOT NULL
+		);
 		CREATE TABLE %[1]s.produce_running_items(
 			id BIGINT PRIMARY KEY,batch_id TEXT NOT NULL DEFAULT '',product_id BIGINT NOT NULL,
 			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0
@@ -259,6 +272,39 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 	}
 	if err = finishTx.Commit(ctx); err != nil {
 		t.Fatal(err)
+	}
+
+	// Operation-completion receipts are sourced by the operation event rather
+	// than by a running item. They must retain the exact historical identity of
+	// their frozen work order across finished batch and ledger writes.
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_operation_events(id,work_order_id) VALUES(80,20)`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_batches(id,item_type,item_id,bom_spec_id,bom_variant_id,source_doc_type,source_doc_id)
+		VALUES(80,'finished_product',42,100,110,'production_operation_event',80)
+	`, schema)); err != nil {
+		t.Fatalf("finished batch derived from exact operation work-order identity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_ledger_entries(id,item_type,item_id,bom_spec_id,bom_variant_id,source_doc_type,source_doc_id)
+		VALUES(80,'finished_product',42,100,110,'production_operation_event',80)
+	`, schema)); err != nil {
+		t.Fatalf("finished ledger derived from exact operation work-order identity: %v", err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_batches(id,item_type,item_id,bom_spec_id,bom_variant_id,source_doc_type,source_doc_id)
+		VALUES(81,'finished_product',42,100,110,'production_operation_event',999)
+	`, schema))
+	if err == nil || !strings.Contains(err.Error(), "bom_variant_not_current") {
+		t.Fatalf("finished batch without matching operation work order error=%v, want bom_variant_not_current", err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_ledger_entries(id,item_type,item_id,bom_spec_id,bom_variant_id,source_doc_type,source_doc_id)
+		VALUES(81,'finished_product',42,100,110,'production_operation_event',999)
+	`, schema))
+	if err == nil || !strings.Contains(err.Error(), "bom_variant_not_current") {
+		t.Fatalf("finished ledger without matching operation work order error=%v, want bom_variant_not_current", err)
 	}
 
 	wrongFinishTx, err := pool.Begin(ctx)

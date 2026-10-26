@@ -67,6 +67,9 @@
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-development-workstation-clickthrough.md`。
 - RED/GREEN: 两个定向隔离 PostgreSQL 回归用例均先失败后通过；`production`、`productspecmigration` Go 包通过；`go build ./...`、`git diff --check` 通过。全量 Go 测试有 7 个 appmain 既有 fixture 错误（缺 `logistics_weight_g`），运行因本机空间不足中止，不记全绿。
 - Status: 实施与定向验证完成；等待分支推送、合入最新 `develop`、开发部署及部署后逐卡点验。未触及生产。
+- 本轮补充修复：历史包装完工库存身份由精确来源工序事件关联至冻结工单变体；挂耳旧单 WIP 需求按冻结 `planned_inventory_qty`/库存单位计算；开工时为缺少批次关联的本单预留锁定实物库存并留操作日志。三处均有先失败后通过的隔离 PostgreSQL 回归。
+- 验证更新：隔离 `production`、`productspecmigration` 与完成 API 定向测试通过；最新 `scripts/verify_kferp.sh backend` 全部 Go 包通过；前端无代码变更，基线 Vue 1626 项和 Vite 构建已通过。开发部署后按钮验收仍待执行；真实未分配工位卡57的13.327kg WIP缺口、工位/排班信息须现场处理。
+- 当前分支尚未集成或部署，生产环境仍只读；最终状态以部署后逐卡单据及库存/操作日志只读核对为准。
 
 
 ### PR-713-FULFILLMENT-RECIPIENT-EDIT

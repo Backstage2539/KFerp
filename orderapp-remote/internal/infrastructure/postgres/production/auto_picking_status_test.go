@@ -90,6 +90,8 @@ CREATE TABLE %s.work_orders(
 	running_item_id BIGINT NOT NULL DEFAULT 0,product_id BIGINT NOT NULL DEFAULT 0,product_name TEXT NOT NULL DEFAULT '',
 	spec_g BIGINT NOT NULL DEFAULT 0,planned_g BIGINT NOT NULL DEFAULT 0,planned_output_g BIGINT NOT NULL DEFAULT 0,
 	sales_spec_count NUMERIC(18,6) NOT NULL DEFAULT 0,order_nos TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'released',
+		inventory_qty_per_sales_unit NUMERIC(18,9) NOT NULL DEFAULT 0,
+		inventory_unit TEXT NOT NULL DEFAULT '',planned_inventory_qty NUMERIC(18,9) NOT NULL DEFAULT 0,
 	operation_template_id BIGINT NOT NULL DEFAULT 0,bom_version_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	operation_material_bindings JSONB NOT NULL DEFAULT '{}'::jsonb
@@ -125,9 +127,9 @@ CREATE TABLE %s.work_order_material_reservation_batches(
 );
 INSERT INTO %s.production_plans VALUES(1,1);
 INSERT INTO %s.work_orders(
-	id,production_plan_id,work_order_no,product_name,spec_g,planned_output_g,sales_spec_count,status,
+	id,production_plan_id,work_order_no,product_name,spec_g,planned_g,planned_output_g,sales_spec_count,inventory_unit,planned_inventory_qty,status,
 	material_snapshot,process_snapshot_json
-) VALUES(66,1,'WO-TEST-0066','挂耳包装',454,4540,10,'released',
+) VALUES(66,1,'WO-TEST-0066','挂耳包装',0,100,0,0,'袋',10,'released',
 	'[{"material_id":701,"material_name":"挂耳滤袋","unit":"个","source":"packaging","qty_per_unit":1},
 	  {"material_id":702,"material_name":"挂耳内膜","unit":"个","source":"packaging","qty_per_unit":1}]'::jsonb,
 	'{"operations":[{"seq":1,"operation":"包装","workstation":"包装台"}]}'::jsonb);

@@ -372,6 +372,23 @@ BEGIN
 					  AND running_item.bom_spec_id=business_bom_spec_id
 					  AND running_item.bom_variant_id=business_bom_variant_id
 				) INTO frozen_production_identity_derived;
+			ELSIF production_source_text='production_operation_event' THEN
+				-- Operation receipts use the completion event as their inventory
+				-- source. Follow that event to its work order and accept only the
+				-- exact frozen product/spec/variant/version identity.
+				SELECT EXISTS (
+					SELECT 1
+					FROM %[1]s.production_operation_events operation_event
+					JOIN %[1]s.work_orders work_order ON work_order.id=operation_event.work_order_id
+					JOIN %[1]s.production_bom_version_variants frozen_variant
+					  ON frozen_variant.id=work_order.bom_variant_id
+					 AND frozen_variant.bom_spec_id=work_order.bom_spec_id
+					 AND frozen_variant.version_id=work_order.bom_version_id
+					WHERE operation_event.id=production_source_id
+					  AND work_order.product_id=business_product_id
+					  AND work_order.bom_spec_id=business_bom_spec_id
+					  AND work_order.bom_variant_id=business_bom_variant_id
+				) INTO frozen_production_identity_derived;
 			ELSIF TG_TABLE_NAME='stock_ledger_entries' AND production_source_text='stock_entry' THEN
 				SELECT EXISTS (
 					SELECT 1
