@@ -2992,7 +2992,7 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 	return result, nil
 }
 
-func (r Repository) startWorkOrderTx(ctx context.Context, tx pgx.Tx, cmd productionapp.WorkOrderStartCommand, requireWholeOrderReady bool) (productionapp.WorkOrderStartResult, error) {
+func (r Repository) startWorkOrderTx(ctx context.Context, tx pgx.Tx, cmd productionapp.WorkOrderStartCommand, requireWholeOrderReady bool, deferMaterialReservations ...bool) (productionapp.WorkOrderStartResult, error) {
 	wo, materialSnapshot, err := loadReleasedWorkOrderForStartTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
 		return productionapp.WorkOrderStartResult{}, err
@@ -3064,9 +3064,13 @@ func (r Repository) startWorkOrderTx(ctx context.Context, tx pgx.Tx, cmd product
 		OperationTemplateID: wo.OperationTemplateID,
 		MaterialSnapshot:    string(materialSnapshot),
 	}
-	needs, err := runningItemWorkOrderMaterialNeedsTx(ctx, tx, r.schema, wo.ID, run, materialSnapshot)
-	if err != nil {
-		return productionapp.WorkOrderStartResult{}, err
+	deferReservations := len(deferMaterialReservations) > 0 && deferMaterialReservations[0]
+	var needs []materialConsumptionNeed
+	if !deferReservations {
+		needs, err = runningItemWorkOrderMaterialNeedsTx(ctx, tx, r.schema, wo.ID, run, materialSnapshot)
+		if err != nil {
+			return productionapp.WorkOrderStartResult{}, err
+		}
 	}
 	if requireWholeOrderReady {
 		if err := ensureWorkOrderDependenciesCompletedTx(ctx, tx, r.schema, wo.ID); err != nil {
@@ -3128,11 +3132,13 @@ func (r Repository) startWorkOrderTx(ctx context.Context, tx pgx.Tx, cmd product
 	`, r.schema), wo.ID, runningItemID, batchID); err != nil {
 		return productionapp.WorkOrderStartResult{}, err
 	}
-	if err := createMaterialReservationsForRunningItemTx(ctx, tx, r.schema, wo.ID, runningItemID, needs); err != nil {
-		return productionapp.WorkOrderStartResult{}, err
-	}
-	if err := attachTypedProductReservationsToRunningItemTx(ctx, tx, r.schema, wo.ID, runningItemID); err != nil {
-		return productionapp.WorkOrderStartResult{}, err
+	if !deferReservations {
+		if err := createMaterialReservationsForRunningItemTx(ctx, tx, r.schema, wo.ID, runningItemID, needs); err != nil {
+			return productionapp.WorkOrderStartResult{}, err
+		}
+		if err := attachTypedProductReservationsToRunningItemTx(ctx, tx, r.schema, wo.ID, runningItemID); err != nil {
+			return productionapp.WorkOrderStartResult{}, err
+		}
 	}
 	if err := markProcessingWorkOrderRunningTx(ctx, tx, r.schema, wo, batchID, runningItemID); err != nil {
 		return productionapp.WorkOrderStartResult{}, err

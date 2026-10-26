@@ -120,6 +120,7 @@ func (r Repository) workOrderBOMRefreshEligibleTx(ctx context.Context, tx pgx.Tx
 		OR EXISTS(SELECT 1 FROM %[1]s.production_operation_events WHERE work_order_id=$1 AND status IN('posting','posted'))
 		OR EXISTS(SELECT 1 FROM %[1]s.production_operation_balances WHERE work_order_id=$1)
 		OR EXISTS(SELECT 1 FROM %[1]s.production_material_receipts WHERE work_order_id=$1)
+		OR EXISTS(SELECT 1 FROM %[1]s.stock_entries WHERE work_order_id=$1 AND status='submitted' AND purpose='material_consumption_for_manufacture')
 		OR EXISTS(SELECT 1 FROM %[1]s.stock_entries WHERE work_order_id=$1 AND status='submitted' AND entry_type='finished_receipt')
 		OR EXISTS(SELECT 1 FROM %[1]s.work_order_material_reservations WHERE work_order_id=$1 AND (consumed_g>0 OR consumed_units>0))
 		OR EXISTS(SELECT 1 FROM %[1]s.work_order_material_reservation_batches WHERE work_order_id=$1 AND (consumed_g>0 OR consumed_units>0))
@@ -262,19 +263,27 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	p.Final = seq == last
 	if !p.Enabled {
 		p.BlockedReason = "旧工单暂不可自动完成，请核对冻结 BOM 与工艺路线"
+		p.BlockedCode = "legacy_execution_unresolved"
 		legacyRoute := len(route.Operations) == 1 && (isPackagingOperationName(route.Operations[0].Operation) || isRoastingOperationName(route.Operations[0].Operation))
 		var cardCount, inputCardCount, eventCount int
-		if legacyRoute && seq == first && seq == last && wo.PlannedInventoryQty > 0 && (status == "pending" || status == "ready" || status == "released" || status == "running" || status == "paused") {
+		if legacyRoute && seq == first && seq == last && wo.PlannedInventoryQty > 0 && strings.TrimSpace(wo.InventoryUnit) != "" && (status == "pending" || status == "ready" || status == "released" || status == "running" || status == "paused") {
 			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*),COUNT(*) FILTER(WHERE planned_input_qty>0),(SELECT COUNT(*) FROM %s.production_operation_events WHERE work_order_id=$1 AND status IN('posting','posted')) FROM %s.job_cards WHERE work_order_id=$1 AND status<>'cancelled'`, r.schema, r.schema), wo.ID).Scan(&cardCount, &inputCardCount, &eventCount); err != nil {
 				return p, wo, err
 			}
 		}
 		if legacyRoute && cardCount > 0 && inputCardCount == cardCount && eventCount == 0 && strings.TrimSpace(materialSnapshot) != "" && strings.TrimSpace(materialSnapshot) != "[]" {
-			p.Execution = app.OperationExecution{Version: 1, NodeKey: fmt.Sprintf("legacy-execution-%d", wo.ID), ReceiptEnabled: true, ReceiptWarehouse: firstNonEmpty(wo.TargetWarehouse, "wip"), SourceWarehouse: "wip", OutputUnit: unit}
-			p.Enabled = true
-			p.LegacyExecution = true
-			p.LegacyPackaging = isPackagingOperationName(routeOperation)
-			p.BlockedReason = ""
+			legacyClean, cleanErr := r.workOrderBOMRefreshEligibleTx(ctx, tx, wo)
+			if cleanErr != nil {
+				return p, wo, cleanErr
+			}
+			if legacyClean {
+				p.Execution = app.OperationExecution{Version: 1, NodeKey: fmt.Sprintf("legacy-execution-%d", wo.ID), ReceiptEnabled: true, ReceiptWarehouse: firstNonEmpty(wo.TargetWarehouse, "wip"), SourceWarehouse: "wip", OutputUnit: unit}
+				p.Enabled = true
+				p.LegacyExecution = true
+				p.LegacyPackaging = isPackagingOperationName(routeOperation)
+				p.BlockedReason = ""
+				p.BlockedCode = ""
+			}
 		}
 	}
 	p.ProductName = firstNonEmpty(wo.OutputName, wo.ProductName)
@@ -291,14 +300,16 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		p.BomVersionID = wo.BomVersionID
 		p.OriginalBomVersionID = wo.BomVersionID
 		p.EffectiveBomVersionID = wo.BomVersionID
-		if e := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_id FROM %s.production_bom_versions WHERE id=$1`, r.schema), wo.BomVersionID).Scan(&p.BomID); e != nil && e != pgx.ErrNoRows {
+		if e := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_id,version_no FROM %s.production_bom_versions WHERE id=$1`, r.schema), wo.BomVersionID).Scan(&p.BomID, &p.OriginalBomVersionNo); e != nil && e != pgx.ErrNoRows {
 			return p, wo, e
 		}
+		p.EffectiveBomVersionNo = p.OriginalBomVersionNo
 	}
 	p.OutputUnit = firstNonEmpty(p.Execution.OutputUnit, unit)
 	p.InputUnit = p.OutputUnit
 	if p.Enabled && p.Final && p.OutputUnit != unit {
 		p.BlockedReason = "末道产出单位与冻结商品单位不一致，请核对工单配置"
+		p.BlockedCode = "output_unit_mismatch"
 	}
 	share := 1.0
 	if totalInput > 0 {
@@ -309,7 +320,8 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		p.PlannedQty = wo.PlannedInventoryQty * share
 	}
 	if app.OperationUnitFactor(p.OutputUnit) > 0 {
-		p.PlannedQty = float64(wo.PlannedOutputG) * share / app.OperationUnitFactor(p.OutputUnit)
+		factor := app.OperationUnitFactor(p.OutputUnit)
+		p.PlannedQty = float64(roundedOperationWeightSlice(wo.PlannedOutputG, beforeInput, input, totalInput)) / factor
 	}
 	if app.OperationUnitFactor(p.OutputUnit) == 0 {
 		if totalInput > 0 {
@@ -359,6 +371,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	}
 	if p.Final && !p.Execution.ReceiptEnabled && p.Enabled {
 		p.BlockedReason = "最终产出工序请配置完成后入库"
+		p.BlockedCode = "receipt_configuration"
 	}
 	if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.warehouses WHERE code=$1 AND active=true`, r.schema), p.Warehouse).Scan(&p.WarehouseName); err != nil {
 		return p, wo, fmt.Errorf("入库仓不存在或已停用：%s", p.Warehouse)
@@ -379,6 +392,9 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		if refresh {
 			frozenMaterials = resolved
 			p.EffectiveBomVersionID = versionID
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT version_no FROM %s.production_bom_versions WHERE id=$1`, r.schema), versionID).Scan(&p.EffectiveBomVersionNo); err != nil {
+				return p, wo, err
+			}
 			p.BomRefreshPending = true
 			p.BomRefreshReason = "仅在首次实际耗料前接入同一 BOM 最新已发布完整版本"
 			raw, marshalErr := json.Marshal(resolved)
@@ -394,7 +410,8 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	p.EffectiveMaterialSnapshot = json.RawMessage(materialSnapshot)
 	consumedByReservation := map[int64]float64{}
 	effectiveRecipeKeys := map[string]struct{}{}
-	if p.BomRefreshPending {
+	isRoasting := isRoastingOperationName(p.OperationName)
+	if isRoasting {
 		effectiveRecipeKeys = effectiveRoastingMaterialKeys(frozenMaterials)
 	}
 	priorEvents, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(payload->'materials','[]'::jsonb) FROM %s.production_operation_events WHERE job_card_id=$1 AND kind='complete' AND status='posted' ORDER BY id`, r.schema), id)
@@ -442,7 +459,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			kind = "material"
 		}
 		m.Key = operationMaterialKey(kind, component, m.BomSpecID, m.SpecG)
-		if p.BomRefreshPending {
+		if isRoasting {
 			if _, isCurrentRecipeMaterial := effectiveRecipeKeys[m.Key]; !isCurrentRecipeMaterial {
 				continue
 			}
@@ -458,7 +475,10 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			}
 		}
 		binding := mapped[m.Key]
-		if p.BomRefreshPending {
+		if p.LegacyExecution {
+			binding.NodeKey = p.Execution.NodeKey
+			binding.SourceWarehouse = firstNonEmpty(binding.SourceWarehouse, "wip")
+		} else if p.BomRefreshPending {
 			binding = roastingRecipeBinding(m.Key, mapped, route)
 		}
 		m.NodeKey = binding.NodeKey
@@ -472,6 +492,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		}
 		if m.NodeKey == "" && p.Enabled {
 			p.BlockedReason = "请核对BOM组件使用工序：" + m.Name
+			p.BlockedCode = "material_binding_missing"
 		}
 		if m.NodeKey != p.Execution.NodeKey {
 			continue
@@ -505,7 +526,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return p, wo, err
 	}
-	if p.BomRefreshPending {
+	if isRoasting {
 		seen := map[string]bool{}
 		for _, material := range p.Materials {
 			seen[material.Key] = true
@@ -534,12 +555,17 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 				}
 			}
 			binding := roastingRecipeBinding(key, mapped, route)
+			if p.LegacyExecution {
+				binding.NodeKey = p.Execution.NodeKey
+				binding.SourceWarehouse = firstNonEmpty(binding.SourceWarehouse, "wip")
+			}
 			m.NodeKey = binding.NodeKey
 			if m.NodeKey == "" && first == last {
 				m.NodeKey = p.Execution.NodeKey
 			}
 			if m.NodeKey == "" && p.Enabled {
 				p.BlockedReason = "请核对BOM组件使用工序：" + m.Name
+				p.BlockedCode = "material_binding_missing"
 				continue
 			}
 			if m.NodeKey != p.Execution.NodeKey {
@@ -564,10 +590,12 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		}
 		if reason := app.IncompleteRoastingBOMReason(p.RecipeRatioPct); reason != "" {
 			p.BlockedReason = reason
+			p.BlockedCode = "bom_incomplete"
 		} else {
 			resolved, e := app.ResolveRoastingMaterialUses(p.Materials, p.InputQty, p.InputUnit)
 			if e != nil {
 				p.BlockedReason = e.Error()
+				p.BlockedCode = "bom_incomplete"
 			} else {
 				p.Materials = resolved
 			}
@@ -577,6 +605,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		p.Enabled = false
 		p.LegacyPackaging = false
 		p.BlockedReason = "旧包装工单缺少完整冻结用料，不能自动接入"
+		p.BlockedCode = "legacy_materials_missing"
 	}
 	for i := range p.Materials {
 		if p.Materials[i].ReservationID > 0 {
@@ -636,6 +665,7 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 			}
 			if unfinished {
 				p.BlockedReason = "前序尚无可用的完成批次"
+				p.BlockedCode = "predecessor_output_missing"
 			}
 		}
 	}
@@ -664,9 +694,11 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 	p.Version = fmt.Sprintf("%x", sha256.Sum256(raw))
 	if strings.TrimSpace(status) == "completed" {
 		p.BlockedReason = "本工序已完成，请从生产记录查看或更正"
+		p.BlockedCode = "job_card_completed"
 	}
 	if strings.TrimSpace(status) == "cancelled" {
 		p.BlockedReason = "任务已取消"
+		p.BlockedCode = "job_card_cancelled"
 	}
 	return p, wo, nil
 }
@@ -921,4 +953,19 @@ func operationPlannedTotal(wo app.WorkOrderRow) float64 {
 		return wo.OutputQty
 	}
 	return wo.PlannedInventoryQty
+}
+
+func roundedOperationWeightSlice(totalG int64, before, current, denominator float64) int64 {
+	if totalG <= 0 {
+		return 0
+	}
+	if denominator <= 0 || current <= 0 {
+		return totalG
+	}
+	start := int64(math.Round(float64(totalG) * math.Max(0, before) / denominator))
+	end := totalG
+	if before+current < denominator-1e-9 {
+		end = int64(math.Round(float64(totalG) * math.Min(denominator, math.Max(0, before)+current) / denominator))
+	}
+	return nonnegativeQuantity(end - start)
 }

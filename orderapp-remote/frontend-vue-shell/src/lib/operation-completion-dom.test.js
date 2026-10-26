@@ -39,3 +39,9 @@ test('completion quantity defaults to the server-provided remaining batch output
  const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),planned_qty:2.497,output_unit:'kg'}),apiSend:async()=>{throw new Error('unexpected write')}})
  try{const fields=view.el.querySelectorAll('.completion-form input');assert.equal(fields.length,1);assert.equal(fields[0].value,'2.497');assert.match(view.el.textContent,/本次完成数量（kg）/)}finally{view.close()}
 })
+test('only a genuinely incomplete BOM links to BOM repair; execution blockers explain themselves in place',async()=>{
+ const legacy=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),enabled:false,bom_id:88,blocked_code:'legacy_execution_unresolved',blocked_reason:'旧工单缺少可自动接入的执行配置'}),apiSend:async()=>{throw new Error('blocked task must not submit')}})
+ try{assert.match(legacy.el.textContent,/旧工单缺少可自动接入的执行配置/);assert.equal(button(legacy.el,'去 BOM 补齐配料'),undefined);assert.equal(button(legacy.el,'确认工序完成').disabled,true)}finally{legacy.close()}
+ const incomplete=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),enabled:false,bom_id:88,blocked_code:'bom_incomplete',blocked_reason:'BOM 配料比例合计 70%，请在 BOM 中补齐后继续'}),apiSend:async()=>{throw new Error('blocked task must not submit')}})
+ try{assert.match(incomplete.el.textContent,/BOM 配料比例合计 70%/);assert.ok(button(incomplete.el,'去 BOM 补齐配料'));let target;window.addEventListener('kferp:navigate-view',event=>{target=event.detail},{once:true});button(incomplete.el,'去 BOM 补齐配料').click();assert.equal(target.params.production_bom_id,88)}finally{incomplete.close()}
+})

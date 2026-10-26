@@ -1245,6 +1245,7 @@ type ProductionTaskMaterialReadiness struct {
 	ItemType          string `json:"item_type,omitempty"`
 	ItemID            int64  `json:"item_id,omitempty"`
 	BomSpecID         int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID      int64  `json:"bom_variant_id,omitempty"`
 	SpecG             int64  `json:"spec_g,omitempty"`
 	MaterialName      string `json:"material_name"`
 	OwnerCustomerID   int64  `json:"owner_customer_id,omitempty"`
@@ -4231,11 +4232,22 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 			}
 			continue
 		}
-		availableG := map[int64]int64{}
-		availableUnits := map[int64]int64{}
+		materialIdentity := func(material WIPReservationRow) string {
+			itemType := strings.ToLower(strings.TrimSpace(material.ItemType))
+			if itemType == "" {
+				itemType = "material"
+			}
+			itemID := firstNonZeroInt64(material.ItemID, material.MaterialID)
+			warehouse := strings.ToLower(strings.TrimSpace(firstNonEmpty(material.SourceWarehouse, "wip")))
+			unit := strings.ToLower(strings.TrimSpace(material.Unit))
+			return fmt.Sprintf("%s:%d:%d:%d:%d:%d:%s:%s", itemType, itemID, material.BomSpecID, material.BomVariantID, material.SpecG, material.OwnerCustomerID, warehouse, unit)
+		}
+		availableG := map[string]int64{}
+		availableUnits := map[string]int64{}
 		for _, material := range coverage.Materials {
-			availableG[material.ID] = material.AvailableG
-			availableUnits[material.ID] = material.AvailableUnits
+			key := materialIdentity(material)
+			availableG[key] += material.AvailableG
+			availableUnits[key] += material.AvailableUnits
 		}
 		type materialAllocation struct {
 			rows          []ProductionTaskMaterialReadiness
@@ -4253,15 +4265,16 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 			rows := make([]ProductionTaskMaterialReadiness, 0, len(coverage.Materials))
 			shortageCount := 0
 			for _, material := range coverage.Materials {
+				identity := materialIdentity(material)
 				requiredG := scaleTaskIntegerSlice(material.RequiredG, slice.before, slice.input, slice.total)
 				requiredUnits := scaleTaskIntegerSlice(material.RequiredUnits, slice.before, slice.input, slice.total)
-				wipG := minInt64Service(requiredG, availableG[material.ID])
-				wipUnits := minInt64Service(requiredUnits, availableUnits[material.ID])
-				availableG[material.ID] -= wipG
-				availableUnits[material.ID] -= wipUnits
+				wipG := minInt64Service(requiredG, availableG[identity])
+				wipUnits := minInt64Service(requiredUnits, availableUnits[identity])
+				availableG[identity] -= wipG
+				availableUnits[identity] -= wipUnits
 				row := ProductionTaskMaterialReadiness{
 					ReservationID: material.ID, MaterialID: material.MaterialID, ItemType: material.ItemType, ItemID: material.ItemID,
-					BomSpecID: material.BomSpecID, SpecG: material.SpecG, MaterialName: material.MaterialName, Unit: material.Unit,
+					BomSpecID: material.BomSpecID, BomVariantID: material.BomVariantID, SpecG: material.SpecG, MaterialName: material.MaterialName, Unit: material.Unit,
 					OwnerCustomerID: material.OwnerCustomerID, SourceWarehouse: firstNonEmpty(material.SourceWarehouse, "wip"),
 					RequiredG: requiredG, WIPAvailableG: wipG, ShortageG: maxInt64Service(0, requiredG-wipG),
 					RequiredUnits: requiredUnits, WIPAvailableUnits: wipUnits, ShortageUnits: maxInt64Service(0, requiredUnits-wipUnits),
@@ -4318,7 +4331,7 @@ func applyPackagingGroupKeys(tasks []ProductionTask, workOrders map[int64]WorkOr
 			perUnitG := float64(material.RequiredG) / task.PlannedOutputInventoryQty
 			perUnitCount := float64(material.RequiredUnits) / task.PlannedOutputInventoryQty
 			itemID := firstNonZeroInt64(material.ItemID, material.MaterialID)
-			lines = append(lines, fmt.Sprintf("%s:%d:%d:%d:%d:%s:%s:%.8f:%.8f", material.ItemType, itemID, material.BomSpecID, material.SpecG, material.OwnerCustomerID, firstNonEmpty(material.SourceWarehouse, "wip"), material.Unit, perUnitG, perUnitCount))
+			lines = append(lines, fmt.Sprintf("%s:%d:%d:%d:%d:%d:%s:%s:%.8f:%.8f", material.ItemType, itemID, material.BomSpecID, material.BomVariantID, material.SpecG, material.OwnerCustomerID, firstNonEmpty(material.SourceWarehouse, "wip"), material.Unit, perUnitG, perUnitCount))
 		}
 		sort.Strings(lines)
 		productID := firstNonZeroInt64(wo.OutputProductID, wo.ProductID)

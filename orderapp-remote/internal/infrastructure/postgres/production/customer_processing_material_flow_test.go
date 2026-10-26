@@ -182,9 +182,9 @@ CREATE TABLE %s.customer_processing_material_reservations (
 	status TEXT NOT NULL DEFAULT 'reserved',created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 INSERT INTO %s.materials VALUES(7,'测试生豆');
-INSERT INTO %s.material_batches(id,batch_code,material_id,remaining_g,status,quality_status,received_at) VALUES
-	(1,'CUSTOMER-BATCH',7,600,'active','pass',now()-interval '2 days'),
-	(2,'FACTORY-BATCH',7,600,'active','pass',now()-interval '1 day');
+INSERT INTO %s.material_batches(id,batch_code,material_id,remaining_g,status,quality_status,owner_customer_id,received_at) VALUES
+	(1,'CUSTOMER-BATCH',7,600,'active','pass',77,now()-interval '2 days'),
+	(2,'FACTORY-BATCH',7,600,'active','pass',0,now()-interval '1 day');
 INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g) VALUES
 	(1,'CUSTOMER-BATCH',7,'CUSTOMER-77-RAW',600),
 	(2,'FACTORY-BATCH',7,'raw_materials',600);
@@ -297,8 +297,8 @@ INSERT INTO %s.customer_processing_material_reservations(
 	}
 
 	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.material_batches(id,batch_code,material_id,remaining_g,status,quality_status,received_at)
-		VALUES(3,'CANCEL-BATCH',7,500,'active','pass',now());
+		INSERT INTO %s.material_batches(id,batch_code,material_id,remaining_g,status,quality_status,owner_customer_id,received_at)
+		VALUES(3,'CANCEL-BATCH',7,500,'active','pass',77,now());
 		INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g)
 		VALUES(3,'CANCEL-BATCH',7,'CUSTOMER-77-RAW',500);
 		INSERT INTO %s.stock_batches(batch_code,remaining_g) VALUES('CANCEL-BATCH',500);

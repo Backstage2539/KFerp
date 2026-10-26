@@ -421,13 +421,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-733-BOM-REFRESH-WORKSTATION-FOCUS
-- Branch: `codex/bom-refresh-workstation-task-resolution`; rebased onto latest `origin/develop@1fef1b577`.
+- Branch: `codex/legacy-roasting-completion`; based on current `origin/develop@a9c7ba534`.
 - Owner/session: Codex / 2026-10-26.
-- Status: implementation, full Go tests, full Vue tests/build, isolated PostgreSQL/API verification, and development deployment pass. Read-only browser smoke confirms the effective BOM appears as three WIP-kitted materials for WO `…0115`, and direct focus shows WO `…0124` is pending with today's roster missing; isolated browser action acceptance remains pending. Production is gated on that acceptance and will remain read-only.
+- Status: follow-up implementation passes the full Go suite, all 1,622 Vue tests, Vite production build, and isolated PostgreSQL/API regression for both legacy roasting shapes. Isolated browser action acceptance for this follow-up is pending; production remains gated and read-only.
 - Scope: eligible old roasting work orders adopt the latest complete published version of the same BOM at first actual posting; reserve and consume only the current batch while retaining full future demand; direct work-order task navigation reads real card status and schedule state.
-- DEV: DEV-PR733-01 published BOM refresh and reservation; DEV-PR733-02 work-order/task focus and roster gating; DEV-PR733-03 tests, manual and acceptance evidence.
-- Verifier: Go application/PostgreSQL production tests; Vue workstation and operation-form tests; full `scripts/verify_kferp.sh frontend`, `scripts/verify_kferp.sh changed`, backend verifier; isolated transaction/API tests; browser path with isolated work orders.
-- Deployment: `develop@8eb775b3d2ada601f72725ee0d7a2684d2188c45` deployed to development on 2026-10-26; source backup `/opt/stacks/erp/orderapp.backup.deploy-20261026033220-8eb775b3d2ad`, rollback image `kferp-orderapp-rollback:development-20261026033220-8eb775b3d2ad`; service started and external login smoke returned HTTP 200. Production remains gated on isolated browser action acceptance and stays read-only.
+- DEV: DEV-PR733-01 published BOM refresh and reservation; DEV-PR733-02 work-order/task focus and roster gating; DEV-PR733-03 tests, manual and acceptance evidence; DEV-PR733-04 no-reservation BOM demand, real material identity allocation, and accurate completion blockers.
+- Verifier: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend`, `scripts/verify_kferp.sh frontend`; isolated PostgreSQL/API regression for legacy refresh and frozen BOM without reservations; browser path with isolated work orders.
+- Deployment: prior base `develop@8eb775b3d2ada601f72725ee0d7a2684d2188c45` was deployed to development on 2026-10-26; this follow-up is not yet deployed. Production remains gated on isolated browser action acceptance and stays read-only.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md`.
 - Last update: 2026-10-26.
 

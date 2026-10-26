@@ -527,6 +527,7 @@ CREATE TABLE %s.material_batches (
 	remaining_g BIGINT NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'active',
 	quality_status TEXT NOT NULL DEFAULT 'unchecked',
+		owner_customer_id BIGINT NOT NULL DEFAULT 0,
 	received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE %s.material_batch_locations (
@@ -544,6 +545,8 @@ CREATE TABLE %s.work_order_material_reservations (
 	reserved_g BIGINT NOT NULL DEFAULT 0,
 	consumed_g BIGINT NOT NULL DEFAULT 0,
 	returned_g BIGINT NOT NULL DEFAULT 0,
+	source_warehouse TEXT NOT NULL DEFAULT 'wip',
+	source_owner_customer_id BIGINT NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'reserved'
 );
 INSERT INTO %s.material_batches(id,batch_code,material_id,qty_g,remaining_g)
@@ -592,7 +595,7 @@ func TestWorkOrderWIPCoverageSupportsWeightCountAndOtherReservations(t *testing.
 CREATE TABLE %s.material_batches (
 	id BIGINT PRIMARY KEY,batch_code TEXT NOT NULL,material_id BIGINT NOT NULL,
 	remaining_g BIGINT NOT NULL DEFAULT 0,remaining_units BIGINT NOT NULL DEFAULT 0,
-	status TEXT NOT NULL DEFAULT 'active',quality_status TEXT NOT NULL DEFAULT 'unchecked'
+	status TEXT NOT NULL DEFAULT 'active',quality_status TEXT NOT NULL DEFAULT 'unchecked',owner_customer_id BIGINT NOT NULL DEFAULT 0
 );
 CREATE TABLE %s.material_batch_locations (
 	material_batch_id BIGINT NOT NULL,material_id BIGINT NOT NULL,warehouse TEXT NOT NULL,
@@ -603,7 +606,9 @@ CREATE TABLE %s.work_order_material_reservations (
 	reserved_g BIGINT NOT NULL DEFAULT 0,reserved_units BIGINT NOT NULL DEFAULT 0,
 	consumed_g BIGINT NOT NULL DEFAULT 0,consumed_units BIGINT NOT NULL DEFAULT 0,
 	returned_g BIGINT NOT NULL DEFAULT 0,returned_units BIGINT NOT NULL DEFAULT 0,
-	status TEXT NOT NULL DEFAULT 'reserved'
+	status TEXT NOT NULL DEFAULT 'reserved',source_warehouse TEXT NOT NULL DEFAULT 'wip',source_owner_customer_id BIGINT NOT NULL DEFAULT 0,
+	component_type TEXT NOT NULL DEFAULT 'material',component_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_spec_id BIGINT NOT NULL DEFAULT 0,component_bom_variant_id BIGINT NOT NULL DEFAULT 0,component_spec_g BIGINT NOT NULL DEFAULT 0
 );
 INSERT INTO %s.material_batches VALUES
 	(1,'WEIGHT',11,1000,0,'active','pass'),
@@ -639,6 +644,61 @@ INSERT INTO %s.work_order_material_reservations VALUES
 	}
 }
 
+func TestWorkOrderWIPCoverageAllocatesSharedStockOnceAcrossBOMIdentities(t *testing.T) {
+	pool, schema := newProductionTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.material_batches (
+	id BIGINT PRIMARY KEY,batch_code TEXT NOT NULL,material_id BIGINT NOT NULL,
+	remaining_g BIGINT NOT NULL DEFAULT 0,remaining_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'active',quality_status TEXT NOT NULL DEFAULT 'pass',owner_customer_id BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.material_batch_locations (
+	material_batch_id BIGINT NOT NULL,material_id BIGINT NOT NULL,warehouse TEXT NOT NULL,
+	qty_g BIGINT NOT NULL DEFAULT 0,qty_units BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.work_order_material_reservations (
+	id BIGINT PRIMARY KEY,work_order_id BIGINT NOT NULL,material_id BIGINT NOT NULL,
+	reserved_g BIGINT NOT NULL DEFAULT 0,reserved_units BIGINT NOT NULL DEFAULT 0,
+	consumed_g BIGINT NOT NULL DEFAULT 0,consumed_units BIGINT NOT NULL DEFAULT 0,
+	returned_g BIGINT NOT NULL DEFAULT 0,returned_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved',source_warehouse TEXT NOT NULL DEFAULT 'wip',source_owner_customer_id BIGINT NOT NULL DEFAULT 0,
+	component_type TEXT NOT NULL DEFAULT 'material',component_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_spec_id BIGINT NOT NULL DEFAULT 0,component_bom_variant_id BIGINT NOT NULL DEFAULT 0,component_spec_g BIGINT NOT NULL DEFAULT 0
+);
+INSERT INTO %s.material_batches(id,batch_code,material_id,remaining_g,remaining_units,status,quality_status,owner_customer_id)
+	VALUES(1,'SHARED-RAW',11,1000,0,'active','pass',0);
+INSERT INTO %s.material_batch_locations(material_batch_id,material_id,warehouse,qty_g,qty_units) VALUES(1,11,'wip',1000,0);
+INSERT INTO %s.work_order_material_reservations(id,work_order_id,material_id,reserved_g,source_warehouse,status)
+	VALUES(1,99,11,200,'wip','reserved');
+`, schema, schema, schema, schema, schema, schema))
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, 88, []materialConsumptionNeed{
+		{MaterialID: 11, MaterialName: "共用原料", Unit: "g", Warehouse: "wip", ComponentType: "material", ComponentBomSpecID: 1, DeductG: 500},
+		{MaterialID: 11, MaterialName: "共用原料", Unit: "g", Warehouse: "wip", ComponentType: "material", ComponentBomSpecID: 2, DeductG: 500},
+	})
+	_ = tx.Rollback(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("coverage rows=%+v, want two frozen component identities", rows)
+	}
+	if rows[0].AvailableG != 500 || rows[1].AvailableG != 300 || rows[1].ShortageG != 200 {
+		t.Fatalf("shared inventory allocation=%+v, want 500g then 300g available and 200g shortage", rows)
+	}
+	if rows[0].AvailableG+rows[1].AvailableG != 800 {
+		t.Fatalf("shared WIP was counted more than once: %+v", rows)
+	}
+}
+
 func TestHistoricalWorkOrderWIPCoverageFallsBackToReservationRequirementsAndIgnoresClosedOrders(t *testing.T) {
 	pool, schema := newProductionTestDB(t)
 	ctx := context.Background()
@@ -653,12 +713,14 @@ CREATE TABLE %s.work_orders (
 	planned_g BIGINT NOT NULL DEFAULT 0,planned_output_g BIGINT NOT NULL DEFAULT 0,
 	sales_spec_count NUMERIC(18,6) NOT NULL DEFAULT 0,order_nos TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'released',operation_template_id BIGINT NOT NULL DEFAULT 0,
-	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb
+	bom_version_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0,
+	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
+	process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,operation_material_bindings JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE TABLE %s.material_batches (
 	id BIGINT PRIMARY KEY,batch_code TEXT NOT NULL,material_id BIGINT NOT NULL,
 	remaining_g BIGINT NOT NULL DEFAULT 0,remaining_units BIGINT NOT NULL DEFAULT 0,
-	status TEXT NOT NULL DEFAULT 'active',quality_status TEXT NOT NULL DEFAULT 'unchecked'
+	status TEXT NOT NULL DEFAULT 'active',quality_status TEXT NOT NULL DEFAULT 'unchecked',owner_customer_id BIGINT NOT NULL DEFAULT 0
 );
 CREATE TABLE %s.material_batch_locations (
 	material_batch_id BIGINT NOT NULL,material_id BIGINT NOT NULL,warehouse TEXT NOT NULL,
@@ -671,7 +733,9 @@ CREATE TABLE %s.work_order_material_reservations (
 	reserved_g BIGINT NOT NULL DEFAULT 0,reserved_units BIGINT NOT NULL DEFAULT 0,
 	consumed_g BIGINT NOT NULL DEFAULT 0,consumed_units BIGINT NOT NULL DEFAULT 0,
 	returned_g BIGINT NOT NULL DEFAULT 0,returned_units BIGINT NOT NULL DEFAULT 0,
-	status TEXT NOT NULL DEFAULT 'reserved'
+	status TEXT NOT NULL DEFAULT 'reserved',source_warehouse TEXT NOT NULL DEFAULT 'wip',source_owner_customer_id BIGINT NOT NULL DEFAULT 0,
+	component_type TEXT NOT NULL DEFAULT 'material',component_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_spec_id BIGINT NOT NULL DEFAULT 0,component_bom_variant_id BIGINT NOT NULL DEFAULT 0,component_spec_g BIGINT NOT NULL DEFAULT 0
 );
 INSERT INTO %s.work_orders(id,work_order_no,product_name,status) VALUES
 	(88,'WO-HIST-0088','历史工单','released'),

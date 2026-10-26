@@ -206,8 +206,11 @@ type OperationMaterialUse struct {
 type OperationCompletionPreview struct {
 	LegacyExecution           bool                    `json:"legacy_execution,omitempty"`
 	LegacyPackaging           bool                    `json:"legacy_packaging,omitempty"`
+	BlockedCode               string                  `json:"blocked_code,omitempty"`
 	OriginalBomVersionID      int64                   `json:"original_bom_version_id,omitempty"`
 	EffectiveBomVersionID     int64                   `json:"effective_bom_version_id,omitempty"`
+	OriginalBomVersionNo      string                  `json:"original_bom_version_no,omitempty"`
+	EffectiveBomVersionNo     string                  `json:"effective_bom_version_no,omitempty"`
 	BomRefreshPending         bool                    `json:"bom_refresh_pending,omitempty"`
 	BomRefreshReason          string                  `json:"bom_refresh_reason,omitempty"`
 	EffectiveMaterialSnapshot json.RawMessage         `json:"-"`

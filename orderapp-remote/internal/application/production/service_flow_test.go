@@ -1046,6 +1046,36 @@ func TestTaskBatchMaterialReadinessConsumesWIPOnceAcrossBatches(t *testing.T) {
 	}
 }
 
+func TestTaskBatchMaterialReadinessSeparatesUnreservedMaterialIdentities(t *testing.T) {
+	tasks := []ProductionTask{{
+		JobCardID: 301, WorkOrderID: 100, SequenceNo: 1, PlannedInputQty: 1,
+		Status: "pending", AssignedTo: "甲", Workstation: "智烘",
+	}}
+	coverage := map[int64]ProductionWIPStatus{100: {
+		DataComplete: true,
+		Materials: []WIPReservationRow{
+			{ID: 0, MaterialID: 31, ItemType: "material", ItemID: 31, MaterialName: "孟连水洗A", Unit: "g", RequiredG: 100, AvailableG: 60, SourceWarehouse: "wip"},
+			{ID: 0, MaterialID: 32, ItemType: "material", ItemID: 32, MaterialName: "孟连水洗5T", Unit: "g", RequiredG: 100, AvailableG: 20, SourceWarehouse: "wip"},
+		},
+	}}
+
+	applyTaskBatchAndMaterialReadiness(tasks, nil, coverage)
+
+	if len(tasks[0].MaterialReadiness) != 2 {
+		t.Fatalf("material readiness rows=%+v, want two distinct materials", tasks[0].MaterialReadiness)
+	}
+	byID := map[int64]ProductionTaskMaterialReadiness{}
+	for _, row := range tasks[0].MaterialReadiness {
+		byID[row.MaterialID] = row
+	}
+	if byID[31].WIPAvailableG != 60 || byID[31].ShortageG != 40 {
+		t.Fatalf("first material readiness=%+v, want 60g available and 40g shortage", byID[31])
+	}
+	if byID[32].WIPAvailableG != 20 || byID[32].ShortageG != 80 {
+		t.Fatalf("second material readiness=%+v, want 20g available and 80g shortage", byID[32])
+	}
+}
+
 func TestTaskBatchMaterialReadinessConservesRoundedTotalsAcrossFullBatchSet(t *testing.T) {
 	tasks := []ProductionTask{
 		{JobCardID: 201, WorkOrderID: 99, SequenceNo: 1, PlannedInputQty: 3000, Status: "pending", AssignedTo: "甲", Workstation: "智烘"},
