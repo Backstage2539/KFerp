@@ -39,8 +39,13 @@
 
 - [x] 最终 Vite 生产构建通过；保留构建日志。
 - [x] 已取得生产只读发布前快照 `production-before.json`，含应用、PostgreSQL 和 35 张表的核对信息。
-- [ ] 小程序及正式 Docker 构建门禁尚未在本记录中确认完成。
-- [ ] 本轮 main 合并、production 部署、运行版本身份、只读核验和回滚锚点仍 pending；不得将 develop PR 合并记作生产发布。
+- [x] 服务器预检及正式 Docker 构建通过；Vue 1,629、小程序432、类型检查和24页构建通过。设置 `KFERP_SKIP_MINIAPP_EXPORT=1`，未导出覆盖本地微信目录。
+- [x] [PR #309](https://github.com/Backstage2539/KFerp/pull/309) 已合并；候选树与已验证 f21c41e6 一致。生产于21:14部署 `ac663d9a505a67095f36945e8eda9001c87269d7`，合并包含已验证 develop `dd603e05`。
+- [x] 21:19只读核验：未登录页面/API401、登录页200；认证后工位/计划页面、API、生产/销售手册200；订单复制响应包含客户名称和付款方式。三个前端脚本的服务器/容器/公网哈希一致，两个修复后端文件与部署源码哈希一致。
+- [x] 发布前21:03至发布后21:20的35表快照：除访问日志增加42条GET外，其他34表行数与内容哈希一致。应用重启0，数据库健康且未重启，磁盘余10GB。
+- [x] 回滚源码 `/opt/stacks/erp-production/orderapp.backup.deploy-20261026210439-ac663d9a505a`；镜像 `kferp-orderapp-rollback:production-20261026210439-ac663d9a505a`，镜像身份与上一运行版本一致。
+- 运行镜像 `sha256:63199fe1d0487a3038e89b4e1e7d63361616d2d6b02360de7f19ccadf7a7676e`。随后仅将 PR-735 更新为 review、DEV-PR735-03 更新为 done，并记录两条审计及一条维护操作日志；未改工单、订单、库存。
+- 发布后用户指出单张旧包装按钮及留厂入库转代发分配阻断，另由 [PR-736 补充修复](2026-10-26-frozen-receipt-allocation.md) 跟踪；本次技术发布不等同于现场业务全部验收。
 
 证据保存在工作树同级 `/Users/yiiiple-work/.codex/worktrees/production-followup-release/evidence/`：
 
@@ -49,10 +54,10 @@
 - `logs/kferp-followup-{backend-all,frontend-all,vue-red,vue-green}.log`：本轮 Go/Vue 验证；`logs/kferp-followup-frontend-final.log` 与 `logs/kferp-followup-vite-final.log` 为最终前端全量与 Vite 构建结果。
 - `logs/kferp-followup-{current-identity-contract,spec-migration-explicit-integration,spec-migration-fixture-integration,production-repository-tests}.log`：身份验证通过及失败边界。
 - `logs/http-production-full-observed-partial.jsonl`：正在运行的 HTTP 整包日志快照，不是最终结果。
-- `production-before.json`：发布前生产只读快照，35 张表；后续发布后对比仍待完成。
+- `production-before-deploy.json`、`production-after.json`、`production-snapshot-comparison.json`：正式发布前后35表快照；`production-operation-interval.json`证明该区间新增42条GET。
 - `roasting-browser-ledger.json` 及烘焙/BOM 截图：首轮浏览器结果和已记录限制。
 - `packaging-six-preview.png`、`packaging-six-complete.png`、`packaging-fifteen-preview.png`、`packaging-all-complete.png`：包装 6+15 浏览器证据；`packaging-isolated-api.log`、`packaging-four-source-cost-audit.log`：隔离 API 证据。
 
 ## 数据边界
 
-所有写入验收使用本地独立测试数据库。生产只读取运行状态和业务快照，不领料、不完工、不入库、不修正库存。微信上传、审核与发布不属于本次自动发布。
+所有业务写入验收使用本地独立测试数据库。生产业务检查只读取运行状态和业务快照，不领料、不完工、不入库、不修正库存。发布后管理性写入仅同步上述两条需求进度并记录审计。微信上传、审核与发布不属于本次自动发布。

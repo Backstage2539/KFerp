@@ -252,11 +252,14 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-735-PRODUCTION-FOLLOWUP", title: "烘焙分次耗料修复及生产补充发布", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-26-production-followup-release.md"},
+		{table: "req_product", code: "PR-736-FROZEN-RECEIPT-ALLOCATION", title: "旧冻结规格入库转待发分配及单张包装简化操作", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-26-frozen-receipt-allocation.md"},
+		{table: "req_dev", code: "DEV-PR736-01-ALLOCATION", title: "冻结订单和实际批次共同校验旧规格分配，失败整笔回滚", status: "done", assignee: "Codex", evidence: "frozen_receipt_allocation_api_test.go; API RED/GREEN, replay, late rollback, mismatched source/owner rejection"},
+		{table: "req_dev", code: "DEV-PR736-02-PACKAGING-UI", title: "单张旧包装卡统一工序完成入口", status: "done", assignee: "Codex", evidence: "workstation-legacy-packaging-runtime.test.js; rendered Vue RED/GREEN; OP_MANUAL_PRODUCTION.md"},
+		{table: "req_product", code: "PR-735-PRODUCTION-FOLLOWUP", title: "烘焙分次耗料修复及生产补充发布", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-26-production-followup-release.md"},
 		{table: "req_dev", code: "DEV-PR735-01-INCREMENTAL-ROASTING", title: "本次增量投料只扣一次并核对库存成本幂等", status: "done", assignee: "Codex", evidence: "roasting_partial_completion_api_test.go; 1+5/3+3/history remainder, inventory/cost/idempotency/rollback RED-GREEN; develop PR #306"},
 		{table: "req_dev", code: "DEV-PR735-02-REMAINING-FEATURES", title: "整合生产计划备料分组、确认运费及订单复制字段", status: "done", assignee: "Codex", evidence: "PR-732/PR-734, confirmed freight context, unique preparation keys; Vue 1629/1629 and Vite pass; production BOM guards retained"},
 		{table: "req_dev", code: "DEV-PR735-04-BULK-RECEIPT", title: "散装重量入库单、批次、成本与库存一致", status: "done", assignee: "Codex", evidence: "legacy_review_api_test.go; kg/g 5600g ledger consistency, cost 560, replay and no duplicate consumption; commit bbdaa134"},
-		{table: "req_dev", code: "DEV-PR735-03-RELEASE", title: "隔离验收、完整门禁及双分支生产发布", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-26-production-followup-release.md"},
+		{table: "req_dev", code: "DEV-PR735-03-RELEASE", title: "隔离验收、完整门禁及双分支生产发布", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-26-production-followup-release.md"},
 		{table: "req_product", code: "PR-734-ORDER-COPY-CUSTOMER-PAYMENT", title: "订单详情复制文字增加客户名称和付款方式", status: "review", assignee: "VA", evidence: "codex/order-copy-details-fields; docs/acceptance/2026-10-26-order-details-copy-fields.md"},
 		{table: "req_dev", code: "DEV-879-ORDER-COPY-CUSTOMER-PAYMENT", title: "PR-734 复制文本读取客户名称与付款方式并同步手册", status: "done", assignee: "Codex", evidence: "docs/acceptance/2026-10-26-order-details-copy-fields.md; targeted Go/PostgreSQL and Vue checks pass"},
 		{table: "req_product", code: "PR-733-BOM-REFRESH-WORKSTATION-FOCUS", title: "BOM 补齐后旧烘焙工单继续生产，并准确直达工位任务", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md"},

@@ -444,16 +444,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-736-FROZEN-RECEIPT-ALLOCATION
+- Branch: `codex/production-followup-live-blockers`; base `origin/develop@dd603e05`.
+- Scope: user-reported recorded-output receipt and legacy packaging completion blocked at retained-stock allocation; single-card legacy buttons still shown.
+- Status: targeted PostgreSQL/API and Vue rendered RED/GREEN complete; final release gates and production follow-up pending.
+- Verification: `TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish`, current variant guard, adjacent legacy receipt tests, `workstation-legacy-packaging-runtime.test.js`; no production business writes.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-26-frozen-receipt-allocation.md`.
+- Last update: 2026-10-26.
+
 ### PR-735-PRODUCTION-FOLLOWUP
 - Branch: `codex/production-followup-20261026`; base `origin/main@001c65b0`; source remainder `origin/develop@692f09b8`.
 - Owner/session: this production follow-up release; only this workflow owns its integration and deployment.
 - Authorization: implement approved plan, fix incremental roasting, integrate remaining three features, complete isolated acceptance, merge main and deploy production. Production business records remain read-only.
-- Status: implementation and isolated acceptance complete; final production build/deploy gates pending. PR-734 already existed on develop; PR-735 reserved manually.
+- Status: released production ac663d9a with readonly runtime proof; follow-up user blockers tracked in PR-736. PR-734 already existed on develop; PR-735 reserved manually.
 - DEV: DEV-PR735-01 incremental roasting and accounting; DEV-PR735-02 remaining feature integration; DEV-PR735-03 isolated acceptance and release; DEV-PR735-04 bulk weight receipt ledger consistency.
 - Verifier: unit/API RED then GREEN; dedicated local PostgreSQL database; Vue tests/build; BOM refresh and multi-source packaging browser acceptance; final server release gates and readonly runtime evidence.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-production-followup-release.md`.
 - Development integration: PR #306/#307/#308; origin/develop dd603e05083cecbcaab76d506cf983b9fb9c6525; no development deployment.
-- Deployment: production pending; preserve main BOM output backfill protections and all accepted production requirement states.
+- Deployment: production ac663d9a on 2026-10-26 21:14 CST; backup/rollback deploy-20261026210439-ac663d9a505a. Main BOM output backfill protections and accepted requirement states preserved.
 - Last update: 2026-10-26.
 
 
