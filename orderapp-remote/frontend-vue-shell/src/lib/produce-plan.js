@@ -589,13 +589,25 @@ function productionPlanPreparationIdentity(source = {}) {
 }
 
 function productionPlanPreparationStatus(summary) {
-  if (summary.shortage_g > 0 || summary.shortage_units > 0) return { key: 'shortage', label: '缺料' }
-  if (summary.upstream_g > 0 || summary.upstream_units > 0) {
-    if (summary.transfer_g > 0 || summary.transfer_units > 0) return { key: 'awaiting_supply', label: '待生产入库及领料' }
+  const sources = summary.members.map((member) => member.source)
+  const states = new Set(sources.map((source) => source.preparation_status))
+  if (states.has('shortage') || summary.shortage_g > 0 || summary.shortage_units > 0) return { key: 'shortage', label: '缺料' }
+  const awaitingProduction = states.has('awaiting_production') || summary.upstream_g > 0 || summary.upstream_units > 0
+  const awaitingTransfer = states.has('awaiting_transfer') || summary.transfer_g > 0 || summary.transfer_units > 0
+  if (awaitingProduction) {
+    if (awaitingTransfer) return { key: 'awaiting_supply', label: '待生产入库及领料' }
     return { key: 'awaiting_production', label: '待生产入库' }
   }
-  if (summary.transfer_g > 0 || summary.transfer_units > 0) return { key: 'awaiting_transfer', label: '供给已落实' }
-  return { key: 'ready', label: '现场已齐套' }
+  if (awaitingTransfer) return { key: 'awaiting_transfer', label: '供给已落实' }
+  const ready = sources.every((source) => {
+    if (source.preparation_status === 'ready') return true
+    const demandG = Number(source.demand_g || source.required_g || 0)
+    const demandUnits = Number(source.demand_units || source.required_units || 0)
+    return (demandG > 0 || demandUnits > 0)
+      && Number(source.wip_covered_g || 0) >= demandG
+      && Number(source.wip_covered_units || 0) >= demandUnits
+  })
+  return ready ? { key: 'ready', label: '现场已齐套' } : { key: 'unknown', label: '待核对备料' }
 }
 
 export function buildProductionPlanTaskGroups(stage = {}, detail = {}) {

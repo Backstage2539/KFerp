@@ -503,6 +503,33 @@ test('grouped preparation keeps distinct stable material keys when readiness cha
   assert.deepEqual(after.map((row) => row.status_key), ['shortage', 'ready'])
 })
 
+test('grouped preparation preserves server readiness when member quantities are missing or zero', () => {
+  const item = { id: 1, output_type: 'product', output_product_id: 10, output_unit: '袋' }
+  const stage = { key: 'stage-0', tasks: [{ id: 1, item, order_nos: [] }] }
+  const cases = [
+    { name: 'zero-quantity upstream wait', sources: [{ preparation_status: 'awaiting_production', upstream_g: 0 }], key: 'awaiting_production', label: '待生产入库' },
+    { name: 'zero-quantity transfer wait', sources: [{ preparation_status: 'awaiting_transfer', transfer_g: 0 }], key: 'awaiting_transfer', label: '供给已落实' },
+    { name: 'zero-quantity shortage', sources: [{ preparation_status: 'shortage', shortage_g: 0 }], key: 'shortage', label: '缺料' },
+    { name: 'ready member cannot hide pending production', sources: [{ preparation_status: 'ready' }, { preparation_status: 'awaiting_production' }], key: 'awaiting_production', label: '待生产入库' },
+    { name: 'production and transfer waits are both retained', sources: [{ preparation_status: 'awaiting_transfer' }, { preparation_status: 'awaiting_production' }], key: 'awaiting_supply', label: '待生产入库及领料' },
+    { name: 'shortage dominates both pending supply types', sources: [{ preparation_status: 'awaiting_transfer' }, { preparation_status: 'shortage' }, { preparation_status: 'awaiting_production' }], key: 'shortage', label: '缺料' },
+    { name: 'actual shortage overrides ready status', sources: [{ preparation_status: 'ready', shortage_g: 1000 }], key: 'shortage', label: '缺料' },
+    { name: 'server ready is retained without obsolete quantities', sources: [{ preparation_status: 'ready' }], key: 'ready', label: '现场已齐套' },
+    { name: 'quantities can prove readiness without a server status', sources: [{ demand_g: 1000, wip_covered_g: 1000 }], key: 'ready', label: '现场已齐套' },
+    { name: 'missing status and quantities cannot prove readiness', sources: [{}], key: 'unknown', label: '待核对备料' },
+    { name: 'known ready member cannot cover an unreported member', sources: [{ preparation_status: 'ready' }, {}], key: 'unknown', label: '待核对备料' },
+  ]
+  for (const scenario of cases) {
+    const component_sources = scenario.sources.map((source, index) => ({
+      id: index + 1, production_plan_item_id: 1, component_type: 'material', component_id: 70, unit: 'kg', ...source,
+    }))
+    const preparation = producePlan.buildProductionPlanTaskGroups(stage, { component_sources })[0].preparations[0]
+    assert.equal(preparation.status_key, scenario.key, scenario.name)
+    assert.equal(preparation.state_label, scenario.label, scenario.name)
+    assert.equal(preparation.members.length, scenario.sources.length, scenario.name)
+  }
+})
+
 test('production plan issue focus targets the source or task and expands collapsed disclosure ancestors', () => {
   assert.equal(producePlan.productionPlanIssueTargetId({ component_source_id: 61, production_plan_item_id: 51 }), 'component-source-61')
   assert.equal(producePlan.productionPlanIssueTargetId({ production_plan_item_id: 51 }), 'plan-item-51')
