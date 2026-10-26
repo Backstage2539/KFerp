@@ -1985,6 +1985,48 @@ func TestFinishedAdjustmentRejectsLegacyQuantityOnlyManualBatch(t *testing.T) {
 	}
 }
 
+func TestFinishedAdjustmentRejectsUnallocatedManualReductionBatch(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(9,0,0,454,'finished_goods',5,0)
+		ON CONFLICT(product_id,bom_spec_id,spec_g,warehouse) DO UPDATE
+		SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g;
+		INSERT INTO %s.stock_batches(
+			batch_code,item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,
+			source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,operator
+		) VALUES
+			('PRODUCTION-REMAINDER-001','finished_product',9,'测试熟豆',0,0,454,'production_operation_event',1,'PRODUCTION-REMAINDER-001',4540,10,4540,10,'production'),
+			('MANUAL-REDUCTION-001','finished_product',9,'测试熟豆',0,0,454,'manual_adjustment',0,'',-2270,-5,0,0,'stock');
+		INSERT INTO %s.stock_ledger_entries(
+			item_type,item_id,item_name,bom_spec_id,bom_variant_id,spec_g,warehouse,
+			source_doc_type,source_doc_id,source_batch_code,source_batch_id,
+			qty_before_g,qty_change_g,qty_after_g,qty_before_units,qty_change_units,qty_after_units,operator
+		) VALUES
+			('finished_product',9,'测试熟豆',0,0,454,'finished_goods','production_operation_event',1,'PRODUCTION-REMAINDER-001',1,0,4540,4540,0,10,10,'production'),
+			('finished_product',9,'测试熟豆',0,0,454,'finished_goods','manual_adjustment',0,'MANUAL-REDUCTION-001','',4540,-2270,2270,10,-5,5,'stock');
+	`, schema, schema, schema))
+
+	_, err := NewRepository(pool, schema).CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "finished_product", ItemID: 9, SpecG: 454, Warehouse: "finished_goods",
+		TargetUnits: 4, Reason: "未分配人工减库存检测", Operator: "counter",
+	})
+	if err == nil || !strings.Contains(err.Error(), "legacy finished inventory batch requires reconciliation") {
+		t.Fatalf("CreateAdjustment error = %v, want manual reduction reconciliation error", err)
+	}
+	var summaryUnits, adjustmentCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=9 AND spec_g=454 AND warehouse='finished_goods'`, schema)).Scan(&summaryUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_adjustments WHERE item_id=9`, schema)).Scan(&adjustmentCount); err != nil {
+		t.Fatal(err)
+	}
+	if summaryUnits != 5 || adjustmentCount != 0 {
+		t.Fatalf("summary/adjustment count=%d/%d, want 5/0", summaryUnits, adjustmentCount)
+	}
+}
+
 func TestFinishedAdjustmentLocksBatchBeforeInventorySummary(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()

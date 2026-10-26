@@ -1794,8 +1794,10 @@ func finishedStockBatchesForAdjustmentTx(ctx context.Context, tx pgx.Tx, schema 
 			&qtyG, &qtyUnits, &sourceDocType, &sourceDocID, &sourceBatchID); err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(sourceDocType) == "" && sourceDocID == 0 && strings.TrimSpace(sourceBatchID) == "" &&
-			((qtyG != 0 && batch.remainingG == 0) || (qtyUnits != 0 && batch.remainingUnits == 0)) {
+		quantityOnlyLegacyBatch := strings.TrimSpace(sourceDocType) == "" && sourceDocID == 0 && strings.TrimSpace(sourceBatchID) == "" &&
+			((qtyG != 0 && batch.remainingG == 0) || (qtyUnits != 0 && batch.remainingUnits == 0))
+		unallocatedManualReduction := strings.TrimSpace(sourceDocType) == "manual_adjustment" && (qtyG < 0 || qtyUnits < 0)
+		if quantityOnlyLegacyBatch || unallocatedManualReduction {
 			return nil, fmt.Errorf("legacy finished inventory batch requires reconciliation: %s", batch.code)
 		}
 		batches = append(batches, batch)
