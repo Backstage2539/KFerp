@@ -82,6 +82,15 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 			id BIGINT PRIMARY KEY,running_item_id BIGINT NOT NULL DEFAULT 0,product_id BIGINT NOT NULL,
 			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0
 		);
+		CREATE TABLE %[1]s.stock_entries(
+			id BIGINT PRIMARY KEY,work_order_id BIGINT NOT NULL DEFAULT 0,running_item_id BIGINT NOT NULL DEFAULT 0,
+			entry_type TEXT NOT NULL DEFAULT '',purpose TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE %[1]s.stock_entry_items(
+			id BIGINT PRIMARY KEY,stock_entry_id BIGINT NOT NULL,product_id BIGINT NOT NULL,
+			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0,
+			item_type TEXT NOT NULL DEFAULT ''
+		);
 		CREATE TABLE %[1]s.production_logs(
 			id BIGINT PRIMARY KEY,running_item_id BIGINT NOT NULL DEFAULT 0,product_id BIGINT NOT NULL,
 			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0
@@ -95,7 +104,7 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 		VALUES('product',42,10,12,true);
 		INSERT INTO %[1]s.production_bom_specs(id,bom_id) VALUES(100,10);
 		INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id)
-		VALUES(110,11,100),(120,12,100);
+		VALUES(110,11,100),(115,11,100),(120,12,100);
 		INSERT INTO %[1]s.orders(id,order_no) VALUES(1,'SO-V1'),(2,'SO-V2');
 		INSERT INTO %[1]s.order_items(id,order_id,product_id,bom_spec_id,bom_variant_id)
 		VALUES(1,1,42,100,110),(4,2,42,100,110);
@@ -188,6 +197,38 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 		) VALUES(20,10,'RUN-V1',42,100,110)
 	`, schema)); err != nil {
 		t.Fatalf("historical work order derived from frozen plan identity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_entries(id,work_order_id,entry_type,purpose)
+		VALUES(100,20,'finished_receipt','manufacture')
+	`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_entry_items(id,stock_entry_id,product_id,bom_spec_id,bom_variant_id,item_type)
+		VALUES(1000,100,42,100,110,'finished_product')
+	`, schema)); err != nil {
+		t.Fatalf("finished receipt derived from exact frozen work-order identity: %v", err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_entry_items(id,stock_entry_id,product_id,bom_spec_id,bom_variant_id,item_type)
+		VALUES(1001,100,42,100,115,'finished_product')
+	`, schema))
+	if err == nil || !strings.Contains(err.Error(), "bom_variant_not_current") {
+		t.Fatalf("finished receipt with a different variant error=%v, want bom_variant_not_current", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_entries(id,work_order_id,entry_type,purpose)
+		VALUES(101,999,'finished_receipt','manufacture')
+	`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_entry_items(id,stock_entry_id,product_id,bom_spec_id,bom_variant_id,item_type)
+		VALUES(1002,101,42,100,110,'finished_product')
+	`, schema))
+	if err == nil || !strings.Contains(err.Error(), "bom_variant_not_current") {
+		t.Fatalf("finished receipt without a matching source work order error=%v, want bom_variant_not_current", err)
 	}
 	_, err = pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.work_orders(
