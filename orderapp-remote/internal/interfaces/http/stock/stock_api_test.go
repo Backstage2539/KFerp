@@ -410,6 +410,31 @@ func TestStockFinishedWritesKeepBOMSpecIdentityWithoutLegacySpecG(t *testing.T) 
 	}
 }
 
+func TestStockAdjustmentsAPIAcceptsLegacyZeroSpecClear(t *testing.T) {
+	repo := &fakeStockRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stock/adjustments", bytes.NewBufferString(`{"item_type":"finished_product","item_id":7,"spec_g":0,"warehouse":"customer_wh","target_units":0,"target_g":0,"reason":"遗留库存清零"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/stock/adjustments status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.adjustment.ItemID != 7 || repo.adjustment.SpecG != 0 || repo.adjustment.TargetUnits != 0 || repo.adjustment.Warehouse != "customer_wh" {
+		t.Fatalf("legacy adjustment command = %+v", repo.adjustment)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/adjustments", bytes.NewBufferString(`{"item_type":"finished_product","item_id":7,"spec_g":0,"warehouse":"customer_wh","target_units":1,"reason":"遗留库存清零"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/stock/adjustments zero-spec addition status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
 func TestStockAdjustmentsAPIAcceptsProductAlias(t *testing.T) {
 	repo := &fakeStockRepo{}
 	e := echo.New()

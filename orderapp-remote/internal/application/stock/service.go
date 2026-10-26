@@ -1463,8 +1463,10 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 			if cmd.TargetG != 0 {
 				return StockAdjustmentResult{}, fmt.Errorf("target_g is not supported for BOM specification")
 			}
-		} else if cmd.SpecG <= 0 {
-			return StockAdjustmentResult{}, fmt.Errorf("spec_g or bom_spec_id required")
+		} else if cmd.SpecG < 0 {
+			return StockAdjustmentResult{}, fmt.Errorf("spec_g must be >= 0")
+		} else if cmd.SpecG == 0 && (cmd.TargetUnits != 0 || cmd.TargetG != 0 || (cmd.HasTargetQty && cmd.TargetQty != 0)) {
+			return StockAdjustmentResult{}, fmt.Errorf("legacy zero-spec inventory can only be cleared")
 		}
 	}
 	if cmd.TargetG < 0 || cmd.TargetUnits < 0 || (cmd.HasTargetQty && cmd.TargetQty < 0) {

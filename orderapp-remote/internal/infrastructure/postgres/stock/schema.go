@@ -654,7 +654,9 @@ CREATE TABLE IF NOT EXISTS %s.stock_adjustment_items (
 CREATE TABLE IF NOT EXISTS %s.stock_adjustment_batch_allocations (
 	id BIGSERIAL PRIMARY KEY,
 	adjustment_id BIGINT NOT NULL,
+	item_type TEXT NOT NULL DEFAULT 'material',
 	material_batch_id BIGINT NOT NULL DEFAULT 0,
+	stock_batch_id BIGINT NOT NULL DEFAULT 0,
 	batch_code TEXT NOT NULL DEFAULT '',
 	warehouse TEXT NOT NULL DEFAULT '',
 	qty_change_g BIGINT NOT NULL DEFAULT 0,
@@ -678,6 +680,8 @@ CREATE INDEX IF NOT EXISTS stock_adjustment_batch_allocations_adjustment_idx
 		fmt.Sprintf(`ALTER TABLE %s.stock_adjustments ADD COLUMN IF NOT EXISTS value_change NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_adjustments ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_adjustments ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_adjustment_batch_allocations ADD COLUMN IF NOT EXISTS item_type TEXT NOT NULL DEFAULT 'material'`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_adjustment_batch_allocations ADD COLUMN IF NOT EXISTS stock_batch_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_adjustment_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_adjustment_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
 	} {

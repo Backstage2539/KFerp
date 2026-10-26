@@ -1723,6 +1723,283 @@ INSERT INTO %s.order_invoices(order_id,status) VALUES (22,'uploaded');
 	}
 }
 
+func TestFinishedProductAdjustmentReconcilesBatchesSummaryAndAudit(t *testing.T) {
+	ctx := context.Background()
+	pool, schema, repo := newFinishedAdjustmentTestRepo(t)
+	insertFinishedAdjustmentBatch(t, ctx, pool, schema, "FP-ZERO-A", 7, 0, 14, "2025-12-30 00:00:00+00")
+	insertFinishedAdjustmentBatch(t, ctx, pool, schema, "FP-ZERO-B", 7, 0, 14, "2025-12-31 00:00:00+00")
+	insertFinishedAdjustmentBatch(t, ctx, pool, schema, "FP-OLD-A", 7, 454, 14, "2026-01-01 00:00:00+00")
+	insertFinishedAdjustmentBatch(t, ctx, pool, schema, "FP-OLD-B", 7, 454, 14, "2026-01-02 00:00:00+00")
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(7,0,0,0,'customer_wh',28,0),(7,0,0,454,'customer_wh',28,0);
+	`, schema))
+
+	closePart := func(specG, targetUnits int64) int64 {
+		t.Helper()
+		result, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+			ItemType: itemTypeFinishedProduct, ItemID: 7, SpecG: specG, Warehouse: "customer_wh",
+			TargetUnits: targetUnits, Reason: "吴国宏仓库库存更正", Operator: "qa",
+		})
+		if err != nil {
+			t.Fatalf("CreateAdjustment spec %d target %d: %v", specG, targetUnits, err)
+		}
+		return result.AdjustmentID
+	}
+
+	zeroAdjustmentID := closePart(0, 0)
+	var zeroAUnits, zeroBUnits, zeroSummaryUnits, zeroAllocationCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_units FROM %s.stock_batches WHERE batch_code='FP-ZERO-A'`, schema)).Scan(&zeroAUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_units FROM %s.stock_batches WHERE batch_code='FP-ZERO-B'`, schema)).Scan(&zeroBUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=7 AND spec_g=0 AND warehouse='customer_wh'`, schema)).Scan(&zeroSummaryUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_adjustment_batch_allocations WHERE adjustment_id=$1 AND item_type='finished_product'`, schema), zeroAdjustmentID).Scan(&zeroAllocationCount); err != nil {
+		t.Fatal(err)
+	}
+	if zeroAUnits != 0 || zeroBUnits != 0 || zeroSummaryUnits != 0 || zeroAllocationCount != 2 {
+		t.Fatalf("legacy zero-spec clear: batches=%d/%d summary=%d allocations=%d, want 0/0/0/2", zeroAUnits, zeroBUnits, zeroSummaryUnits, zeroAllocationCount)
+	}
+
+	firstAdjustmentID := closePart(454, 14)
+	var oldAUnits, oldBUnits, summaryUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_units FROM %s.stock_batches WHERE batch_code='FP-OLD-A'`, schema)).Scan(&oldAUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_units FROM %s.stock_batches WHERE batch_code='FP-OLD-B'`, schema)).Scan(&oldBUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=7 AND spec_g=454 AND warehouse='customer_wh'`, schema)).Scan(&summaryUnits); err != nil {
+		t.Fatal(err)
+	}
+	if oldAUnits != 0 || oldBUnits != 14 || summaryUnits != 14 {
+		t.Fatalf("after FIFO reduction: old batches=%d/%d summary=%d, want 0/14/14", oldAUnits, oldBUnits, summaryUnits)
+	}
+	var firstBatchCode string
+	var firstBatchChange int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT batch_code,qty_change_units FROM %s.stock_adjustment_batch_allocations
+		WHERE adjustment_id=$1 AND item_type='finished_product'
+	`, schema), firstAdjustmentID).Scan(&firstBatchCode, &firstBatchChange); err != nil {
+		t.Fatal(err)
+	}
+	if firstBatchCode != "FP-OLD-A" || firstBatchChange != -14 {
+		t.Fatalf("FIFO allocation = %s/%d, want FP-OLD-A/-14", firstBatchCode, firstBatchChange)
+	}
+
+	secondAdjustmentID := closePart(454, 0)
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_units FROM %s.stock_batches WHERE batch_code='FP-OLD-B'`, schema)).Scan(&oldBUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=7 AND spec_g=454 AND warehouse='customer_wh'`, schema)).Scan(&summaryUnits); err != nil {
+		t.Fatal(err)
+	}
+	if oldBUnits != 0 || summaryUnits != 0 {
+		t.Fatalf("after zero target: old batch=%d summary=%d, want 0/0", oldBUnits, summaryUnits)
+	}
+	var secondBatchCode string
+	var secondBatchChange int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT batch_code,qty_change_units FROM %s.stock_adjustment_batch_allocations
+		WHERE adjustment_id=$1 AND item_type='finished_product'
+	`, schema), secondAdjustmentID).Scan(&secondBatchCode, &secondBatchChange); err != nil {
+		t.Fatal(err)
+	}
+	if secondBatchCode != "FP-OLD-B" || secondBatchChange != -14 {
+		t.Fatalf("second FIFO allocation = %s/%d, want FP-OLD-B/-14", secondBatchCode, secondBatchChange)
+	}
+
+	for _, target := range []struct {
+		specG int64
+		units int64
+	}{{specG: 454, units: 1}, {specG: 227, units: 4}} {
+		result, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+			ItemType: itemTypeFinishedProduct, ItemID: 7, SpecG: target.specG, Warehouse: "customer_wh",
+			TargetUnits: target.units, Reason: "吴国宏仓库库存更正", Operator: "qa",
+		})
+		if err != nil {
+			t.Fatalf("CreateAdjustment %dg x %d: %v", target.specG, target.units, err)
+		}
+		var adjustmentBatchUnits, adjustmentBatchGrams int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT remaining_units,remaining_g FROM %s.stock_batches WHERE batch_code=$1
+		`, schema), fmt.Sprintf("ADJ-%010d", result.AdjustmentID)).Scan(&adjustmentBatchUnits, &adjustmentBatchGrams); err != nil {
+			t.Fatal(err)
+		}
+		if adjustmentBatchUnits != target.units || adjustmentBatchGrams != target.specG*target.units {
+			t.Fatalf("adjustment batch %dg remaining = %d/%dg, want %d/%dg", target.specG, adjustmentBatchUnits, adjustmentBatchGrams, target.units, target.specG*target.units)
+		}
+		var storedUnits, batchUnits, batchGrams int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT onhand_units FROM %s.finished_inventory
+			WHERE product_id=7 AND bom_spec_id=0 AND spec_g=$1 AND warehouse='customer_wh'
+		`, schema), target.specG).Scan(&storedUnits); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(remaining_units),0)::bigint,COALESCE(SUM(remaining_g),0)::bigint
+			FROM %s.stock_batches b
+			LEFT JOIN LATERAL (
+				SELECT warehouse FROM %s.stock_ledger_entries l
+				WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+				  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g ORDER BY l.id DESC LIMIT 1
+			) last_ledger ON true
+			WHERE b.item_type='finished_product' AND b.item_id=7 AND b.spec_g=$1
+			  AND COALESCE(last_ledger.warehouse,'finished_goods')='customer_wh'
+		`, schema, schema), target.specG).Scan(&batchUnits, &batchGrams); err != nil {
+			t.Fatal(err)
+		}
+		if storedUnits != target.units || batchUnits != target.units || batchGrams != target.specG*target.units {
+			t.Fatalf("%dg inventory summary/batches = %d/%d/%dg, want %d/%d/%dg", target.specG, storedUnits, batchUnits, batchGrams, target.units, target.units, target.specG*target.units)
+		}
+	}
+
+	var adjustmentCount, ledgerCount, auditCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_adjustments WHERE item_id=7 AND warehouse='customer_wh'`, schema)).Scan(&adjustmentCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE item_id=7 AND warehouse='customer_wh' AND source_doc_type='stock_adjustment'`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='stock_adjustment' AND action='submit'`, schema)).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if adjustmentCount != 5 || ledgerCount != 5 || auditCount != 5 {
+		t.Fatalf("adjustment/ledger/audit = %d/%d/%d, want 5/5/5", adjustmentCount, ledgerCount, auditCount)
+	}
+}
+
+func TestFinishedProductBatchAdjustmentRollsBackWhenAuditFails(t *testing.T) {
+	ctx := context.Background()
+	pool, schema, repo := newFinishedAdjustmentTestRepo(t)
+	insertFinishedAdjustmentBatch(t, ctx, pool, schema, "FP-ROLLBACK", 7, 0, 3, "2026-01-01 00:00:00+00")
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(7,0,0,0,'customer_wh',3,0);
+		ALTER TABLE %s.audit_logs ADD CONSTRAINT reject_stock_adjustment_audit
+		CHECK (entity_type <> 'stock_adjustment');
+	`, schema, schema))
+
+	_, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 7, SpecG: 0, Warehouse: "customer_wh",
+		TargetUnits: 0, Reason: "吴国宏仓库库存更正", Operator: "qa",
+	})
+	if err == nil {
+		t.Fatal("expected audit failure")
+	}
+
+	var batchUnits, summaryUnits, adjustmentCount, ledgerCount, allocationCount, adjustmentBatchCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_units FROM %s.stock_batches WHERE batch_code='FP-ROLLBACK'`, schema)).Scan(&batchUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=7 AND spec_g=0 AND warehouse='customer_wh'`, schema)).Scan(&summaryUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_adjustments WHERE item_id=7`, schema)).Scan(&adjustmentCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='stock_adjustment'`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_adjustment_batch_allocations`, schema)).Scan(&allocationCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_batches WHERE source_doc_type='stock_adjustment'`, schema)).Scan(&adjustmentBatchCount); err != nil {
+		t.Fatal(err)
+	}
+	if batchUnits != 3 || summaryUnits != 3 || adjustmentCount != 0 || ledgerCount != 0 || allocationCount != 0 || adjustmentBatchCount != 0 {
+		t.Fatalf("after rollback: batch/summary/adjustment/ledger/allocation/adjustment-batch = %d/%d/%d/%d/%d/%d, want 3/3/0/0/0/0", batchUnits, summaryUnits, adjustmentCount, ledgerCount, allocationCount, adjustmentBatchCount)
+	}
+}
+
+func TestFinishedProductLegacyZeroSpecRequiresExistingBalance(t *testing.T) {
+	ctx := context.Background()
+	pool, schema, repo := newFinishedAdjustmentTestRepo(t)
+	_, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 7, SpecG: 0, Warehouse: "customer_wh",
+		TargetUnits: 0, Reason: "吴国宏仓库库存更正", Operator: "qa",
+	})
+	if err == nil || !strings.Contains(err.Error(), "legacy zero-spec inventory not found") {
+		t.Fatalf("CreateAdjustment empty legacy zero-spec stock error = %v, want existing-balance error", err)
+	}
+	var adjustmentCount, ledgerCount, auditCount int64
+	for query, dest := range map[string]*int64{
+		fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_adjustments`, schema):    &adjustmentCount,
+		fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries`, schema): &ledgerCount,
+		fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs`, schema):           &auditCount,
+	} {
+		if err := pool.QueryRow(ctx, query).Scan(dest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if adjustmentCount != 0 || ledgerCount != 0 || auditCount != 0 {
+		t.Fatalf("empty legacy adjustment wrote adjustment/ledger/audit = %d/%d/%d", adjustmentCount, ledgerCount, auditCount)
+	}
+}
+
+func newFinishedAdjustmentTestRepo(t *testing.T) (*pgxpool.Pool, string, Repository) {
+	t.Helper()
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	})
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.materials (
+	id BIGINT PRIMARY KEY, code TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '',
+	unit TEXT NOT NULL DEFAULT 'g', purchase_price NUMERIC(12,4) NOT NULL DEFAULT 0,
+	onhand_g BIGINT NOT NULL DEFAULT 0, onhand_units BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.products(id BIGINT PRIMARY KEY,name TEXT NOT NULL);
+CREATE TABLE %s.finished_inventory (
+	product_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,onhand_units BIGINT NOT NULL DEFAULT 0,
+	onhand_loose_g BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(product_id,spec_g)
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,actor TEXT NOT NULL DEFAULT '',entity_type TEXT NOT NULL DEFAULT '',entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',field TEXT,old_value TEXT,new_value TEXT,meta JSONB,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO %s.products(id,name) VALUES(7,'初晓'),(58,'曜石2.0');
+`, schema, schema, schema, schema, schema))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.warehouses(code,name,kind,active) VALUES('customer_wh','客户仓','customer',true)
+		ON CONFLICT (code) DO UPDATE SET active=true;
+	`, schema))
+	return pool, schema, NewRepository(pool, schema)
+}
+
+func insertFinishedAdjustmentBatch(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema, batchCode string, productID, specG, units int64, createdAt string) {
+	t.Helper()
+	sourceID := time.Now().UnixNano()
+	var batchID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_batches(
+			batch_code,item_type,item_id,item_name,spec_g,bom_spec_id,bom_variant_id,
+			source_doc_type,source_doc_id,qty_g,qty_units,remaining_g,remaining_units,operator,created_at
+		) VALUES($1,'finished_product',$2,'初晓',$3,0,0,'production_operation_event',$4,$5,$6,$5,$6,'qa',$7::timestamptz)
+		RETURNING id
+	`, schema), batchCode, productID, specG, sourceID, units*specG, units, createdAt).Scan(&batchID); err != nil {
+		t.Fatalf("insert stock batch %s: %v", batchCode, err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_ledger_entries(
+			item_type,item_id,item_name,spec_g,bom_spec_id,bom_variant_id,warehouse,
+			source_doc_type,source_doc_id,source_batch_code,source_batch_id,
+			qty_before_g,qty_change_g,qty_after_g,qty_before_units,qty_change_units,qty_after_units,operator,created_at
+		) VALUES('finished_product',$1,'初晓',$2,0,0,'customer_wh','production_operation_event',$3,$4,$4,0,$5,$5,0,$6,$6,'qa',$7::timestamptz)
+	`, schema), productID, specG, sourceID, batchCode, units*specG, units, createdAt); err != nil {
+		t.Fatalf("insert stock ledger for %s (batch %d): %v", batchCode, batchID, err)
+	}
+}
+
 func newStockTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
