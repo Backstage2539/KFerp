@@ -1,3 +1,12 @@
+## PR-730 包装旧工单 0 投料数量合组兼容（DEV-PR730-05）
+
+- [x] 单卡旧包装工单 `planned_input_qty=0` 时，预览从工单冻结袋数解析数量；若工单存在多张未执行卡，不自动猜分配并保持阻断。
+- [x] 旧执行快照为 `{}` 时可在首次提交事务中补齐；非空配置、未知字段或损坏 JSON 仍按配置变化阻止提交。
+- [x] 10、8、2 袋三张旧工单合组预览为 20 袋；提交分别生成三张来源工单的耗料和入库记录；重试相同请求不重复记账。
+- [x] RED：`TestLegacyPackagingCompletionUsesFrozenBagQuantityWithoutInputQuantity` 在修复前返回 `legacy_execution_unresolved` / “旧工单暂不可自动完成，请核对冻结 BOM 与工艺路线”。
+- [x] GREEN：隔离 PostgreSQL/API 回归 `TestLegacyPackagingCompletion*` 与快照解析单测通过。命令及验收记录见 `docs/acceptance/2026-10-26-legacy-packaging-completion.md`。
+- [ ] 开发环境部署后，通过独立测试工单在浏览器点击“完成并入库”；现存业务工单仅只读检查。
+
 ## PR-733 BOM 补齐后继续生产与工位任务直达
 
 - [ ] 旧冻结配方 70%、同 BOM 最新已发布完整配方 100% 时只读预览显示两个版本及新版比例；草稿 BOM 不参与，预览不写工单或预留。
