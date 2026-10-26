@@ -435,6 +435,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-736-FROZEN-RECEIPT-ALLOCATION
+- Branch: `codex/production-followup-live-blockers`; base `origin/develop@dd603e05`.
+- Scope: user-reported recorded-output receipt and legacy packaging completion blocked at retained-stock allocation; single-card legacy buttons still shown.
+- Status: targeted PostgreSQL/API and Vue rendered RED/GREEN complete; final release gates and production follow-up pending.
+- Verification: `TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish`, current variant guard, adjacent legacy receipt tests, `workstation-legacy-packaging-runtime.test.js`; no production business writes.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-26-frozen-receipt-allocation.md`.
+- Last update: 2026-10-26.
+
+
 ### PR-734-ORDER-COPY-CUSTOMER-PAYMENT
 - Branch: `codex/order-copy-details-fields`, based on `origin/develop@8f9b5b74061784741354736033c10f54278b7cb6`.
 - Owner/session: Codex / 2026-10-26.

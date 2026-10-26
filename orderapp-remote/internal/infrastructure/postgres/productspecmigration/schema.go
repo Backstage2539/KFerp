@@ -343,6 +343,30 @@ BEGIN
 				  AND running_item.bom_spec_id=business_bom_spec_id
 				  AND running_item.bom_variant_id=business_bom_variant_id
 			) INTO frozen_production_identity_derived;
+		ELSIF TG_TABLE_NAME IN ('order_stock_batch_allocations','customer_direct_ship_request_allocations') THEN
+			-- Receipt of retained production can fulfill an already-frozen
+			-- dropship after BOM republish. Preserve that identity only when
+			-- both the exact order line and the physical batch prove it.
+			production_source_id := COALESCE(NULLIF(to_jsonb(NEW)->>'order_item_id','')::bigint,0);
+			SELECT EXISTS (
+				SELECT 1
+				FROM %[1]s.order_items source_item
+				JOIN %[1]s.orders source_order ON source_order.id=source_item.order_id
+				JOIN %[1]s.stock_batches source_batch
+				  ON source_batch.id=COALESCE(NULLIF(to_jsonb(NEW)->>'batch_id','')::bigint,0)
+				 AND source_batch.item_type='finished_product'
+				 AND source_batch.item_id=source_item.product_id
+				 AND source_batch.bom_spec_id=source_item.bom_spec_id
+				 AND source_batch.bom_variant_id=source_item.bom_variant_id
+				WHERE source_item.id=production_source_id
+				  AND source_item.order_id=COALESCE(NULLIF(to_jsonb(NEW)->>'order_id','')::bigint,0)
+				  AND source_item.product_id=business_product_id
+				  AND source_item.bom_spec_id=business_bom_spec_id
+				  AND source_item.bom_variant_id=business_bom_variant_id
+				  AND source_batch.batch_code=COALESCE(to_jsonb(NEW)->>'batch_code','')
+				  AND source_batch.spec_g=COALESCE(NULLIF(to_jsonb(NEW)->>'spec_g','')::bigint,0)
+				  AND source_batch.owner_customer_id=COALESCE((to_jsonb(source_order)->>'customer_id')::bigint,0)
+			) INTO frozen_production_identity_derived;
 		ELSIF TG_TABLE_NAME='finished_inventory' THEN
 			-- Aggregate inventory has no source-document columns. Production receipt
 			-- code supplies a transaction-local work-order id only for the duration

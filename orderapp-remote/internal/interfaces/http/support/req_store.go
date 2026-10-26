@@ -252,6 +252,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-736-FROZEN-RECEIPT-ALLOCATION", title: "旧冻结规格入库转待发分配及单张包装简化操作", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-26-frozen-receipt-allocation.md"},
+		{table: "req_dev", code: "DEV-PR736-01-ALLOCATION", title: "冻结订单和实际批次共同校验旧规格分配，失败整笔回滚", status: "done", assignee: "Codex", evidence: "frozen_receipt_allocation_api_test.go; API RED/GREEN, replay, late rollback, mismatched source/owner rejection"},
+		{table: "req_dev", code: "DEV-PR736-02-PACKAGING-UI", title: "单张旧包装卡统一工序完成入口", status: "done", assignee: "Codex", evidence: "workstation-legacy-packaging-runtime.test.js; rendered Vue RED/GREEN; OP_MANUAL_PRODUCTION.md"},
 		{table: "req_product", code: "PR-733-BOM-REFRESH-WORKSTATION-FOCUS", title: "BOM 补齐后旧烘焙工单继续生产，并准确直达工位任务", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md"},
 		{table: "req_dev", code: "DEV-PR733-01", title: "PR-733 首次实际耗料前接入同 BOM 最新完整发布配方并同步预留", status: "done", assignee: "Codex", evidence: "internal/infrastructure/postgres/production/roasting_bom_refresh_test.go; roasting_bom_refresh_api_test.go"},
 		{table: "req_dev", code: "DEV-PR733-02", title: "PR-733 工单任务直达、全厂回退及无人排班提示", status: "doing", assignee: "Codex", evidence: "frontend-vue-shell/src/lib/production-workstation.test.js; docs/acceptance/2026-10-26-bom-refresh-workstation-focus.md"},
