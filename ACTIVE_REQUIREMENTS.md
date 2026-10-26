@@ -442,6 +442,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verification: `TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish`, current variant guard, adjacent legacy receipt tests, `workstation-legacy-packaging-runtime.test.js`; no production business writes.
 - Follow-up verifier: updated the API fixture so the historical source order retains its frozen variant while the exact reserved dropship line uses the republished current variant; RED reproduced `bom_variant_not_current`, GREEN now passes both recorded receipt and legacy completion paths. Repeated-request, rollback, nonzero-cost and 12 mismatch checks remain in the test.
 - DEV: DEV-PR736-03-REPUBLISHED-DROPSHIP-IDENTITY.
+- DEV UI row is defined in `support/req_store.go`; its status is done after the isolated API RED/GREEN. It will appear in the environment on the next application start.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-frozen-receipt-allocation.md`.
 - Last update: 2026-10-26.
 
