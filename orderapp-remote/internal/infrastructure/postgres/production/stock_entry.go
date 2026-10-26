@@ -386,7 +386,7 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 			cmd.AssignedEmployeeName = owner.EmployeeName
 		}
 		if !automatic {
-			if err := ensureJobCardTaskReadyTx(ctx, tx, r.schema, workOrderID, cmd.ID, cmd.AssignedEmployeeName); err != nil {
+			if err := ensureJobCardTaskReadyTx(ctx, tx, r.schema, workOrderID, cmd.ID, cmd.AssignedEmployeeName, cmd.Operator); err != nil {
 				return productionapp.JobCardActionResult{}, err
 			}
 		}
@@ -588,7 +588,7 @@ func jobCardStartAllowedForWorkOrder(status string, runningItemID int64) bool {
 	}
 }
 
-func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, jobCardID int64, resolvedOwner string) error {
+func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, jobCardID int64, resolvedOwner, actor string) error {
 	var sequenceNo, minSequence int
 	var assignedTo, workstation, workCenter string
 	var plannedInput, sequenceInput float64
@@ -630,7 +630,8 @@ func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, wor
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT id,COALESCE(NULLIF(component_type,''),'material'),material_id,material_name,unit,
-		       GREATEST(0,required_g),GREATEST(0,required_units)
+		       GREATEST(0,required_g),GREATEST(0,required_units),
+	       COALESCE(NULLIF(source_warehouse,''),'wip'),COALESCE(source_owner_customer_id,0)
 		FROM %s.work_order_material_reservations
 		WHERE work_order_id=$1 AND status='reserved'
 		ORDER BY id FOR UPDATE
@@ -639,13 +640,14 @@ func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, wor
 		return err
 	}
 	type reservation struct {
-		id, materialID, requiredG, requiredUnits int64
-		componentType, name, unit                string
+		id, materialID, requiredG, requiredUnits   int64
+		ownerCustomerID                            int64
+		componentType, name, unit, sourceWarehouse string
 	}
 	reservations := make([]reservation, 0)
 	for rows.Next() {
 		var row reservation
-		if err := rows.Scan(&row.id, &row.componentType, &row.materialID, &row.name, &row.unit, &row.requiredG, &row.requiredUnits); err != nil {
+		if err := rows.Scan(&row.id, &row.componentType, &row.materialID, &row.name, &row.unit, &row.requiredG, &row.requiredUnits, &row.sourceWarehouse, &row.ownerCustomerID); err != nil {
 			rows.Close()
 			return err
 		}
@@ -705,16 +707,53 @@ func ensureJobCardTaskReadyTx(ctx context.Context, tx pgx.Tx, schema string, wor
 			}
 			before += input
 		}
-		availableG, availableUnits, err := taskReservationWIPAvailableTx(ctx, tx, schema, row.id, row.componentType)
+		warehouse := firstNonEmpty(row.sourceWarehouse, "wip")
+		availableG, availableUnits, err := taskReservationAvailableTx(ctx, tx, schema, row.id, row.componentType, warehouse)
 		if err != nil {
 			return err
 		}
-		if availableG < protectedG+currentG || availableUnits < protectedUnits+currentUnits {
-			unit := strings.TrimSpace(row.unit)
-			if currentG > 0 {
-				return fmt.Errorf("本任务物料不足：%s，需求 %dg，WIP 可用 %dg，缺口 %dg", row.name, currentG, nonnegativeQuantity(availableG-protectedG), nonnegativeQuantity(protectedG+currentG-availableG))
+		needG := nonnegativeQuantity(protectedG + currentG - availableG)
+		needUnits := nonnegativeQuantity(protectedUnits + currentUnits - availableUnits)
+		if (needG > 0 || needUnits > 0) && normalizeBomComponentType(row.componentType) == "material" {
+			otherUnboundG, otherUnboundUnits, unboundErr := unboundWorkOrderReservationQtyTx(ctx, tx, schema, row.id, row.materialID, warehouse, row.ownerCustomerID)
+			if unboundErr != nil {
+				return unboundErr
 			}
-			return fmt.Errorf("本任务物料不足：%s，需求 %d%s，WIP 可用 %d%s，缺口 %d%s", row.name, currentUnits, unit, nonnegativeQuantity(availableUnits-protectedUnits), unit, nonnegativeQuantity(protectedUnits+currentUnits-availableUnits), unit)
+			if otherUnboundG > 0 || otherUnboundUnits > 0 {
+				return fmt.Errorf("%s尚有其他工单未分配批次的预留，请先刷新物料分配", warehouse)
+			}
+			free, freeErr := operationMaterialAvailableTx(ctx, tx, schema, row.id, warehouse, row.ownerCustomerID, row.unit)
+			if freeErr != nil {
+				return freeErr
+			}
+			factor := productionapp.OperationUnitFactor(row.unit)
+			if factor > 0 {
+				freeG := int64(math.Floor(free*factor + 1e-8))
+				if freeG < needG {
+					return jobCardMaterialShortageError(row.name, row.unit, protectedG+currentG, protectedUnits+currentUnits, freeG, int64(math.Floor(free+1e-8)), warehouse)
+				}
+			} else if int64(math.Floor(free+1e-8)) < needUnits {
+				freeUnits := int64(math.Floor(free + 1e-8))
+				return jobCardMaterialShortageError(row.name, row.unit, protectedG+currentG, protectedUnits+currentUnits, freeUnits, freeUnits, warehouse)
+			}
+			if err := bindMaterialReservationBatchesModeTx(ctx, tx, schema, row.id, workOrderID, row.materialID, warehouse, row.ownerCustomerID, needG, needUnits, true); err != nil {
+				return jobCardMaterialShortageError(row.name, row.unit, protectedG+currentG, protectedUnits+currentUnits, availableG, availableUnits, warehouse)
+			}
+			if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "work_order_material_reservation", &row.id, "bind_batch_for_job_card_start", nil, nil, nil, postgresinfra.AuditMeta{
+				"work_order_id": workOrderID, "job_card_id": jobCardID, "material_id": row.materialID,
+				"warehouse": warehouse, "owner_customer_id": row.ownerCustomerID,
+				"reserved_g": needG, "reserved_units": needUnits,
+				"reason": "legacy reservation had no physical batch allocation; bind available stock before start",
+			}); err != nil {
+				return err
+			}
+			availableG, availableUnits, err = taskReservationAvailableTx(ctx, tx, schema, row.id, row.componentType, warehouse)
+			if err != nil {
+				return err
+			}
+		}
+		if availableG < protectedG+currentG || availableUnits < protectedUnits+currentUnits {
+			return jobCardMaterialShortageError(row.name, row.unit, protectedG+currentG, protectedUnits+currentUnits, availableG, availableUnits, warehouse)
 		}
 	}
 	return nil
@@ -738,7 +777,7 @@ func taskQualityResultBlocks(result string) bool {
 	}
 }
 
-func taskReservationWIPAvailableTx(ctx context.Context, tx pgx.Tx, schema string, reservationID int64, componentType string) (int64, int64, error) {
+func taskReservationAvailableTx(ctx context.Context, tx pgx.Tx, schema string, reservationID int64, componentType, warehouse string) (int64, int64, error) {
 	var availableG, availableUnits int64
 	if strings.EqualFold(componentType, "product") || strings.EqualFold(componentType, "finished_product") {
 		err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -746,9 +785,9 @@ func taskReservationWIPAvailableTx(ctx context.Context, tx pgx.Tx, schema string
 			       COALESCE(SUM(LEAST(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units),GREATEST(0,s.remaining_units))),0)::bigint
 			FROM %s.work_order_material_reservation_batches b
 			JOIN %s.stock_batches s ON s.id=b.stock_batch_id
-			WHERE b.reservation_id=$1 AND b.status='reserved' AND b.warehouse='wip'
+			WHERE b.reservation_id=$1 AND b.status='reserved' AND b.warehouse=$2
 			  AND COALESCE(s.quality_status,'unchecked') NOT IN ('hold','reject')
-		`, schema, schema), reservationID).Scan(&availableG, &availableUnits)
+		`, schema, schema), reservationID, warehouse).Scan(&availableG, &availableUnits)
 		return availableG, availableUnits, err
 	}
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -756,11 +795,43 @@ func taskReservationWIPAvailableTx(ctx context.Context, tx pgx.Tx, schema string
 		       COALESCE(SUM(LEAST(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units),GREATEST(0,l.qty_units))),0)::bigint
 		FROM %s.work_order_material_reservation_batches b
 		JOIN %s.material_batches mb ON mb.id=b.material_batch_id
-		JOIN %s.material_batch_locations l ON l.material_batch_id=mb.id AND l.warehouse='wip'
-		WHERE b.reservation_id=$1 AND b.status='reserved' AND b.warehouse='wip'
+		JOIN %s.material_batch_locations l ON l.material_batch_id=mb.id AND l.warehouse=$2
+		WHERE b.reservation_id=$1 AND b.status='reserved' AND b.warehouse=$2
 		  AND COALESCE(mb.quality_status,'unchecked') NOT IN ('hold','reject')
-	`, schema, schema, schema), reservationID).Scan(&availableG, &availableUnits)
+	`, schema, schema, schema), reservationID, warehouse).Scan(&availableG, &availableUnits)
 	return availableG, availableUnits, err
+}
+
+func unboundWorkOrderReservationQtyTx(ctx context.Context, tx pgx.Tx, schema string, reservationID, materialID int64, warehouse string, ownerCustomerID int64) (int64, int64, error) {
+	var unboundG, unboundUnits int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g-COALESCE(bound.g,0))),0)::bigint,
+		       COALESCE(SUM(GREATEST(0,r.reserved_units-r.consumed_units-r.returned_units-COALESCE(bound.units,0))),0)::bigint
+		FROM %[1]s.work_order_material_reservations r
+		JOIN %[1]s.work_orders wo ON wo.id=r.work_order_id
+		LEFT JOIN LATERAL (
+			SELECT SUM(GREATEST(0,b.reserved_g-b.consumed_g-b.returned_g)) g,
+			       SUM(GREATEST(0,b.reserved_units-b.consumed_units-b.returned_units)) units
+			FROM %[1]s.work_order_material_reservation_batches b
+			WHERE b.reservation_id=r.id AND b.warehouse=$3 AND b.owner_customer_id=$4 AND b.status='reserved'
+		) bound ON true
+		WHERE r.id<>$1 AND r.material_id=$2 AND r.status='reserved'
+		  AND COALESCE(NULLIF(r.source_warehouse,''),'wip')=$3
+		  AND COALESCE(r.source_owner_customer_id,0)=$4
+		  AND wo.status IN ('released','running','partially_completed','paused')
+	`, schema), reservationID, materialID, warehouse, ownerCustomerID).Scan(&unboundG, &unboundUnits)
+	return unboundG, unboundUnits, err
+}
+
+func jobCardMaterialShortageError(name, unit string, requiredG, requiredUnits, availableG, availableUnits int64, warehouse string) error {
+	warehouseLabel := warehouse
+	if warehouseLabel == "wip" || warehouseLabel == "" {
+		warehouseLabel = "WIP"
+	}
+	if requiredG > 0 {
+		return fmt.Errorf("本任务物料不足：%s，需求 %dg，%s 可用 %dg，缺口 %dg", name, requiredG, warehouseLabel, nonnegativeQuantity(availableG), nonnegativeQuantity(requiredG-availableG))
+	}
+	return fmt.Errorf("本任务物料不足：%s，需求 %d%s，%s 可用 %d%s，缺口 %d%s", name, requiredUnits, unit, warehouseLabel, nonnegativeQuantity(availableUnits), unit, nonnegativeQuantity(requiredUnits-availableUnits), unit)
 }
 
 // The work-order row is already locked by TransitionJobCard, serializing all
