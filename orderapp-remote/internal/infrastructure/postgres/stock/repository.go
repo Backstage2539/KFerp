@@ -1700,6 +1700,9 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 	if err := r.ensureWarehouseExistsTx(ctx, tx, cmd.Warehouse); err != nil {
 		return "", 0, 0, 0, 0, nil, err
 	}
+	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.SpecG); err != nil {
+		return "", 0, 0, 0, 0, nil, err
+	}
 	batches, err := finishedStockBatchesForAdjustmentTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.SpecG, cmd.Warehouse)
 	if err != nil {
 		return "", 0, 0, 0, 0, nil, err

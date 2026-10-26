@@ -152,7 +152,9 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 	if cmd.BomSpecID == 0 && cmd.SpecG == 0 && strings.TrimSpace(identity.InventoryUnit) == "" {
 		return fmt.Errorf("direct product inventory identity is not enabled for product %d", cmd.ProductID)
 	}
-
+	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, r.schema, cmd.ProductID, cmd.BomSpecID, cmd.SpecG); err != nil {
+		return err
+	}
 	before := inventorydomain.Quantity{}
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT onhand_units,onhand_loose_g
