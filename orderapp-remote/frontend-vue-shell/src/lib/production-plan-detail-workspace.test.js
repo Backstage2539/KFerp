@@ -115,3 +115,27 @@ test('legacy plans keep their original source controls and expose unlinked sourc
   assert.match(html, /无任务编号来源/)
   assert.match(html, /旧版总表材料/)
 })
+
+
+test('group summaries show server pending and shortage states even when quantity snapshots are zero', async () => {
+  const Component = await workspaceComponent()
+  const detail = {
+    id: 19, plan_no: 'PP-ZERO-SNAPSHOT', status: 'completed', picking_version: 1,
+    items: [item(1, 'SO-A'), item(2, 'SO-B')],
+    component_sources: [
+      { id: 61, production_plan_item_id: 1, component_type: 'material', component_id: 70, component_name: '待入库熟豆', unit: 'kg', preparation_status: 'awaiting_production', demand_g: 0, upstream_g: 0, shortage_g: 0 },
+      { id: 62, production_plan_item_id: 2, component_type: 'material', component_id: 70, component_name: '待入库熟豆', unit: 'kg', preparation_status: 'awaiting_production', demand_g: 0, upstream_g: 0, shortage_g: 0 },
+      { id: 63, production_plan_item_id: 1, component_type: 'material', component_id: 41, component_name: '待领包装袋', unit: '条', preparation_status: 'awaiting_transfer' },
+      { id: 64, production_plan_item_id: 1, component_type: 'material', component_id: 42, component_name: '缺少标签', unit: '条', preparation_status: 'shortage' },
+    ],
+    readiness: { can_submit: false, blocking_count: 1, issues: [] },
+  }
+  const html = await renderToString(createSSRApp(Component, { detail, warehouses: [] }))
+
+  assert.match(html, /class="group-preparation-state">待生产入库<\/span>/)
+  assert.match(html, /class="group-preparation-state">供给已落实<\/span>/)
+  assert.match(html, /class="group-preparation-state shortage">缺料<\/span>/)
+  assert.doesNotMatch(html, /现场已齐套/)
+  assert.match(html, /data-source-id="61"/)
+  assert.match(html, /data-source-id="62"/)
+})
