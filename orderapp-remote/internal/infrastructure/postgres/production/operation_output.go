@@ -128,6 +128,13 @@ func resolveOperationOutputProductIdentityTx(ctx context.Context, tx pgx.Tx, sch
 			if valid {
 				return candidateID, wo.BomSpecID, wo.BomVariantID, nil
 			}
+			valid, validateErr = operationOutputFrozenSpecIdentityValidTx(ctx, tx, schema, candidateID, wo.BomSpecID, wo.BomVariantID, wo.BomVersionID)
+			if validateErr != nil {
+				return 0, 0, 0, validateErr
+			}
+			if valid {
+				return candidateID, wo.BomSpecID, wo.BomVariantID, nil
+			}
 		} else if wo.BomSpecID == 0 && wo.BomVariantID == 0 {
 			return candidateID, 0, 0, nil
 		}
@@ -138,6 +145,13 @@ func resolveOperationOutputProductIdentityTx(ctx context.Context, tx pgx.Tx, sch
 	// resolves against the current published BOM, so never infer or drop a spec.
 	if wo.ProductID > 0 && wo.ProductID != candidateID {
 		valid, validateErr := operationOutputSpecIdentityValidTx(ctx, tx, schema, wo.ProductID, wo.BomSpecID, wo.BomVariantID)
+		if validateErr != nil {
+			return 0, 0, 0, validateErr
+		}
+		if valid {
+			return wo.ProductID, wo.BomSpecID, wo.BomVariantID, nil
+		}
+		valid, validateErr = operationOutputFrozenSpecIdentityValidTx(ctx, tx, schema, wo.ProductID, wo.BomSpecID, wo.BomVariantID, wo.BomVersionID)
 		if validateErr != nil {
 			return 0, 0, 0, validateErr
 		}
@@ -163,7 +177,7 @@ func operationOutputSpecIdentityValidTx(ctx context.Context, tx pgx.Tx, schema s
 		SELECT EXISTS (
 			SELECT 1
 			FROM %s.product_bom_spec_authorities authority
-			JOIN %s.products product ON product.id=authority.product_id AND product.active=true
+			JOIN %s.products product ON product.id=authority.product_id
 			JOIN %s.production_bom_output_bindings binding
 			  ON binding.output_type='product' AND binding.output_id=product.id AND binding.is_default=true
 			JOIN %s.production_bom_versions version
@@ -174,6 +188,26 @@ func operationOutputSpecIdentityValidTx(ctx context.Context, tx pgx.Tx, schema s
 			WHERE authority.product_id=$1 AND authority.configured=true
 		)
 	`, schema, schema, schema, schema, schema, schema), productID, bomSpecID, bomVariantID).Scan(&valid)
+	return valid, err
+}
+
+func operationOutputFrozenSpecIdentityValidTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, bomVariantID, bomVersionID int64) (bool, error) {
+	if productID <= 0 || bomSpecID <= 0 || bomVariantID <= 0 || bomVersionID <= 0 {
+		return false, nil
+	}
+	var valid bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM %s.product_bom_spec_authorities authority
+			JOIN %s.products product ON product.id=authority.product_id
+			JOIN %s.production_bom_versions version ON version.id=$4 AND version.status IN('published','archived')
+			JOIN %s.production_boms bom ON bom.id=version.bom_id AND bom.output_type='product' AND bom.output_product_id=product.id
+			JOIN %s.production_bom_specs spec ON spec.id=$2 AND spec.bom_id=bom.id
+			JOIN %s.production_bom_version_variants variant ON variant.id=$3 AND variant.version_id=version.id AND variant.bom_spec_id=spec.id
+			WHERE authority.product_id=$1 AND authority.configured=true
+		)
+	`, schema, schema, schema, schema, schema, schema), productID, bomSpecID, bomVariantID, bomVersionID).Scan(&valid)
 	return valid, err
 }
 

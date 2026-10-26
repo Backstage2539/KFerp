@@ -73,6 +73,10 @@
               <button type="button" @click="runTodo(todo)">{{ todo.actionLabel }}</button>
             </article>
             <article v-if="workOrderClosed" class="todo-card"><strong>{{ statusLabel(header.status) }}，工单只读</strong><p>该工单已结束，不再开放人员调整、领料或执行动作。</p></article>
+            <article v-else-if="workOrderHasNoPendingOperations" class="todo-card ready">
+              <strong>{{ workOrderAwaitingReceipt ? '工序已结束，待入库' : '所有工序均已结束' }}</strong>
+              <p>{{ workOrderAwaitingReceipt ? '全部工序已有完成记录，可在工单列表直接确认入库。' : '当前没有可继续执行的工序任务。' }}</p>
+            </article>
             <article v-else-if="!todoItems.length" class="todo-card ready"><strong>当前无阻塞</strong><p>工位可按任务状态继续执行。</p><button type="button" @click="enterFirstWorkstation">进入工位</button></article>
             <div class="quality-summary"><span>质检</span><strong>{{ qualityLabel }}</strong><small>{{ qualityStatus.note || '按工序或批次记录检查结果' }}</small></div>
           </aside>
@@ -99,6 +103,7 @@ const customerProcessingRequest = ref(null)
 const hub = computed(() => detail.value.execution_hub || {})
 const header = computed(() => hub.value.header || detail.value.work_order || {})
 const operations = computed(() => (hub.value.operation_progress || []).map((row, index, rows) => ({ ...row, batch_index: rows.filter((item, itemIndex) => item.sequence_no === row.sequence_no && itemIndex <= index).length, batch_count: rows.filter((item) => item.sequence_no === row.sequence_no).length })))
+const workOrderHasNoPendingOperations = computed(() => operations.value.length > 0 && operations.value.every((row) => ['completed', 'cancelled'].includes(String(row.status || '').toLowerCase())))
 const qualityStatus = computed(() => hub.value.quality_status || {})
 const workOrderClosed = computed(() => ['completed', 'cancelled'].includes(String(header.value.status || '').toLowerCase()))
 const typedOutputLabel = computed(() => executionHubOutputLabel({ ...hub.value, header: header.value }))
@@ -110,6 +115,7 @@ const customerProcessingItem = computed(() => (customerProcessingRequest.value?.
 const customerProgress = computed(() => customerProcessingProgress({ target_qty: customerProcessingItem.value.qty, actual_inbound_qty: customerProcessingItem.value.actual_inbound_qty, output_reserved_qty: customerProcessingItem.value.output_reserved_qty, output_converted_qty: customerProcessingItem.value.output_converted_qty }))
 const customerTimeline = computed(() => customerProcessingTimeline(customerProcessingRequest.value || {}))
 const receiptStatus = computed(() => header.value.status === 'completed' ? '已入库' : finishedReceipts.value.length ? '部分入库' : operations.value.length && completedOperations.value === operations.value.length ? '待入库' : '等待报工')
+const workOrderAwaitingReceipt = computed(() => workOrderHasNoPendingOperations.value && ['待入库', '部分入库'].includes(receiptStatus.value))
 const receiptQuantityText = computed(() => finishedReceipts.value.length ? `${finishedReceipts.value.length} 笔入库记录` : `目标 ${formatTargetQuantity(header.value)}`)
 const qualityLabel = computed(() => ({ unchecked: '未检查', pass: '通过', hold: '待处理', reject: '不合格', blocked: '已冻结' }[qualityStatus.value.status] || qualityStatus.value.result || '未检查'))
 const todoItems = computed(() => {
@@ -121,7 +127,7 @@ const todoItems = computed(() => {
   }
   return rows
 })
-const firstTodoLabel = computed(() => todoItems.value[0]?.label || '可进入工位继续执行')
+const firstTodoLabel = computed(() => todoItems.value[0]?.label || (workOrderHasNoPendingOperations.value ? (workOrderAwaitingReceipt.value ? '工序已结束，待入库' : '无待执行工序') : '可进入工位继续执行'))
 const workOrderLabel = computed(() => props.workOrderId ? `工单 #${props.workOrderId}` : '工单')
 
 function statusLabel(value) { return ({ released: '待执行', running: '生产中', partially_completed: '部分完成', completed: '已完成', cancelled: '已取消', pending: '待处理', ready: '可开始', paused: '已暂停' }[String(value || '')] || String(value || '待处理')) }

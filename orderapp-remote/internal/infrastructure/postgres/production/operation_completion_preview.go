@@ -319,6 +319,13 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 		p.BlockedReason = "末道产出单位与冻结商品单位不一致，请核对工单配置"
 		p.BlockedCode = "output_unit_mismatch"
 	}
+	if p.Enabled && p.Final && wo.OutputType != "material" {
+		if _, _, _, identityErr := resolveOperationOutputProductIdentityTx(ctx, tx, r.schema, wo); identityErr != nil {
+			p.Enabled = false
+			p.BlockedReason = identityErr.Error()
+			p.BlockedCode = "output_identity_invalid"
+		}
+	}
 	share := 1.0
 	if totalInput > 0 {
 		share = input / totalInput

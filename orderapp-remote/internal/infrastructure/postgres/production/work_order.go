@@ -1882,9 +1882,16 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 		args = append(args, query.WorkOrderID)
 		where += fmt.Sprintf(" AND jc.work_order_id=$%d", len(args))
 	}
+	if len(query.WorkOrderIDs) > 0 {
+		args = append(args, query.WorkOrderIDs)
+		where += fmt.Sprintf(" AND jc.work_order_id=ANY($%d::bigint[])", len(args))
+	}
 	if query.Status != "" {
 		args = append(args, query.Status)
 		where += fmt.Sprintf(" AND jc.status=$%d", len(args))
+	}
+	if query.ActiveOnly {
+		where += " AND jc.status IN ('pending','ready','released','running','paused','partially_completed')"
 	}
 	args = append(args, query.Limit)
 	limitArg := len(args)

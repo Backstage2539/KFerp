@@ -294,7 +294,32 @@ func (r *fakeFlowRepo) ListWorkOrders(ctx context.Context, query WorkOrderQuery)
 }
 func (r *fakeFlowRepo) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error) {
 	r.jobCardQuery = query
-	return r.jobCards, nil
+	rows := make([]JobCardRow, 0, len(r.jobCards))
+	workOrderIDs := make(map[int64]struct{}, len(query.WorkOrderIDs))
+	for _, id := range query.WorkOrderIDs {
+		workOrderIDs[id] = struct{}{}
+	}
+	for _, row := range r.jobCards {
+		if query.WorkOrderID > 0 && row.WorkOrderID != query.WorkOrderID {
+			continue
+		}
+		if len(workOrderIDs) > 0 {
+			if _, ok := workOrderIDs[row.WorkOrderID]; !ok {
+				continue
+			}
+		}
+		if query.Status != "" && row.Status != query.Status {
+			continue
+		}
+		if query.ActiveOnly && !isActiveProductionTaskStatus(row.Status) {
+			continue
+		}
+		rows = append(rows, row)
+		if query.Limit > 0 && len(rows) >= query.Limit {
+			break
+		}
+	}
+	return rows, nil
 }
 func (r *fakeFlowRepo) UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCommand) error {
 	return nil
@@ -2039,6 +2064,73 @@ func TestProductionWorkstationOverviewExcludesTasksWhoseParentWorkOrderIsTermina
 	}
 	if len(overview.Tasks) != 2 || overview.Tasks[0].WorkOrderID != 88 || overview.Tasks[1].WorkOrderID != 91 {
 		t.Fatalf("workstation tasks = %+v, want released and partially completed parent work orders", overview.Tasks)
+	}
+}
+
+func TestProductionWorkstationOverviewDoesNotSynthesizePreparationTaskAfterAllCardsEnded(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{{
+			ID:          92,
+			WorkOrderNo: "WO-ALL-CARDS-ENDED",
+			Status:      "partially_completed",
+		}},
+		jobCards: []JobCardRow{{
+			ID:          305,
+			WorkOrderID: 92,
+			Operation:   "生产",
+			Workstation: "未分配工位",
+			Status:      "completed",
+		}, {
+			ID:          306,
+			WorkOrderID: 92,
+			Operation:   "包装",
+			Workstation: "包装台",
+			Status:      "cancelled",
+		}},
+	}
+
+	overview, err := NewService(repo).ProductionWorkstationOverview(context.Background(), ProductionWorkstationOverviewQuery{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Tasks) != 0 {
+		t.Fatalf("ended job cards must not be replaced by a synthetic workstation task: %+v", overview.Tasks)
+	}
+}
+
+func TestProductionWorkstationOverviewKeepsActiveCardsBeyondCompletedHistoryLimit(t *testing.T) {
+	jobCards := make([]JobCardRow, 0, 501)
+	for i := 0; i < 500; i++ {
+		jobCards = append(jobCards, JobCardRow{
+			ID:          int64(i + 1),
+			WorkOrderID: 93,
+			SequenceNo:  1,
+			Operation:   "旧完成工序",
+			Status:      "completed",
+		})
+	}
+	jobCards = append(jobCards, JobCardRow{
+		ID:          999,
+		WorkOrderID: 93,
+		SequenceNo:  2,
+		Operation:   "待执行包装",
+		Workstation: "包装台",
+		Status:      "pending",
+	})
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{{ID: 93, WorkOrderNo: "WO-ACTIVE-BEYOND-HISTORY", Status: "released"}},
+		jobCards:   jobCards,
+	}
+
+	overview, err := NewService(repo).ProductionWorkstationOverview(context.Background(), ProductionWorkstationOverviewQuery{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Tasks) != 1 || overview.Tasks[0].JobCardID != 999 || overview.Tasks[0].Operation != "待执行包装" {
+		t.Fatalf("active job card should not be hidden behind completed history: %+v", overview.Tasks)
+	}
+	if !overview.Tasks[0].HasPredecessor || !overview.Tasks[0].PredecessorCompleted {
+		t.Fatalf("completed predecessor should remain available for handoff: %+v", overview.Tasks[0])
 	}
 }
 

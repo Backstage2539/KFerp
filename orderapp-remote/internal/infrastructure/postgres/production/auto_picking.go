@@ -8,6 +8,7 @@ import (
 	app "orderapp/internal/application/production"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"sort"
+	"strings"
 )
 
 func autoPickingPlanTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (bool, error) {
@@ -446,18 +447,72 @@ func automaticWorkOrderWIPStatusTx(ctx context.Context, tx pgx.Tx, schema string
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
+	items := make([]app.WIPReservationRow, 0)
 	for rows.Next() {
 		var row app.WIPReservationRow
-		if err = rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.Unit, &row.RequiredG, &row.RequiredUnits, &row.ConsumedG, &row.ConsumedUnits, &row.ReservedG, &row.ReservedUnits, &row.AvailableG, &row.AvailableUnits); err != nil {
+		if err = rows.Scan(&row.ID, &row.MaterialID, &row.ItemType, &row.ItemID, &row.BomSpecID, &row.BomVariantID, &row.SpecG, &row.MaterialName, &row.Unit, &row.RequiredG, &row.RequiredUnits, &row.ConsumedG, &row.ConsumedUnits, &row.ReservedG, &row.ReservedUnits, &row.AvailableG, &row.AvailableUnits, &row.OwnerCustomerID, &row.SourceWarehouse); err != nil {
+			rows.Close()
 			return out, err
 		}
 		row.WorkOrderID = id
-		row.WIPG = row.AvailableG
-		row.WIPUnits = row.AvailableUnits
+		items = append(items, row)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return out, err
+	}
+
+	needs := make([]materialConsumptionNeed, 0, len(items))
+	indicesByKey := make(map[string][]int)
+	for index, row := range items {
+		componentType := normalizeBomComponentType(row.ItemType)
+		if row.SourceWarehouse != "wip" || componentType == "finished_product" {
+			continue
+		}
+		need := materialConsumptionNeed{
+			MaterialID: row.MaterialID, MaterialName: row.MaterialName, Unit: row.Unit,
+			OwnerCustomerID: row.OwnerCustomerID, Warehouse: "wip",
+			DeductG: row.RequiredG, DeductUnits: row.RequiredUnits,
+			ComponentType: componentType, ComponentProductID: row.ItemID,
+			ComponentBomSpecID: row.BomSpecID, ComponentBomVariantID: row.BomVariantID, ComponentSpecG: row.SpecG,
+		}
+		needs = append(needs, need)
+		indicesByKey[automaticWIPCoverageKey(need)] = append(indicesByKey[automaticWIPCoverageKey(need)], index)
+	}
+	if len(needs) > 0 {
+		coverage, coverageErr := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, id, needs)
+		if coverageErr != nil {
+			return out, coverageErr
+		}
+		for _, covered := range coverage {
+			indices := indicesByKey[automaticWIPCoverageKey(covered.Need)]
+			remainingG, remainingUnits := covered.WIPG, covered.WIPUnits
+			remainingAvailableG, remainingAvailableUnits := covered.AvailableG, covered.AvailableUnits
+			for _, index := range indices {
+				row := &items[index]
+				row.WIPG = minInt64(row.RequiredG, remainingG)
+				row.WIPUnits = minInt64(row.RequiredUnits, remainingUnits)
+				row.AvailableG = minInt64(maxInt64(0, row.RequiredG-row.ConsumedG), remainingAvailableG)
+				row.AvailableUnits = minInt64(maxInt64(0, row.RequiredUnits-row.ConsumedUnits), remainingAvailableUnits)
+				row.ShortageG = nonnegativeQuantity(row.RequiredG - row.ConsumedG - row.AvailableG)
+				row.ShortageUnits = nonnegativeQuantity(row.RequiredUnits - row.ConsumedUnits - row.AvailableUnits)
+				remainingG -= row.WIPG
+				remainingUnits -= row.WIPUnits
+				remainingAvailableG -= row.AvailableG
+				remainingAvailableUnits -= row.AvailableUnits
+			}
+		}
+	}
+
+	for _, row := range items {
+		if row.SourceWarehouse != "wip" || normalizeBomComponentType(row.ItemType) == "finished_product" {
+			row.WIPG = row.AvailableG
+			row.WIPUnits = row.AvailableUnits
+			row.ShortageG = nonnegativeQuantity(row.RequiredG - row.ConsumedG - row.AvailableG)
+			row.ShortageUnits = nonnegativeQuantity(row.RequiredUnits - row.ConsumedUnits - row.AvailableUnits)
+		}
 		row.InventoryUnit = row.Unit
-		row.ShortageG = nonnegativeQuantity(row.RequiredG - row.ConsumedG - row.AvailableG)
-		row.ShortageUnits = nonnegativeQuantity(row.RequiredUnits - row.ConsumedUnits - row.AvailableUnits)
 		row.Status = "reserved"
 		row.QuantityBasis = "count"
 		row.RequiredQty = float64(row.RequiredUnits)
@@ -487,5 +542,9 @@ func automaticWorkOrderWIPStatusTx(ctx context.Context, tx pgx.Tx, schema string
 			}
 		}
 	}
-	return out, rows.Err()
+	return out, nil
+}
+
+func automaticWIPCoverageKey(need materialConsumptionNeed) string {
+	return fmt.Sprintf("%s:%d:%d:%d:%d:%d:%d:%s:%s", normalizeBomComponentType(need.ComponentType), need.MaterialID, need.ComponentProductID, need.ComponentBomSpecID, need.ComponentBomVariantID, need.ComponentSpecG, need.OwnerCustomerID, strings.TrimSpace(need.Warehouse), strings.ToLower(strings.TrimSpace(need.Unit)))
 }
