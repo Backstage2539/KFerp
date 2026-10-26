@@ -410,7 +410,7 @@ func (r Repository) freezeLegacyExecutionConfigTx(ctx context.Context, tx pgx.Tx
 		if !ok || operationSeq != sequence || strings.TrimSpace(fmt.Sprint(operation["operation"])) != strings.TrimSpace(preview.OperationName) {
 			continue
 		}
-		if strings.TrimSpace(fmt.Sprint(operation["execution_json"])) != "" && strings.TrimSpace(fmt.Sprint(operation["execution_json"])) != "<nil>" {
+		if !isEmptyLegacyExecutionSnapshot(operation["execution_json"]) {
 			return fmt.Errorf("工艺路线配置已变化，请刷新核对")
 		}
 		operation["execution_json"] = string(cfgRaw)
@@ -433,6 +433,40 @@ func (r Repository) freezeLegacyExecutionConfigTx(ctx context.Context, tx pgx.Tx
 	}
 	oldSnapshot, newSnapshot := string(beforeSnapshot), string(snapshotRaw)
 	return infra.AuditInsertTx(ctx, tx, r.schema, actor, "work_order", &wo.ID, "freeze_legacy_operation_execution", infra.StrPtr("process_snapshot_json"), &oldSnapshot, &newSnapshot, infra.AuditMeta{"job_card_id": preview.JobCardID, "source_warehouse": "wip", "target_warehouse": preview.Warehouse, "reason": "冻结资料完整的旧工序工单首次自动记账"})
+}
+
+func isEmptyLegacyExecutionSnapshot(value any) bool {
+	var raw []byte
+	switch v := value.(type) {
+	case nil:
+		return true
+	case string:
+		raw = []byte(strings.TrimSpace(v))
+	default:
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return false
+		}
+		raw = encoded
+	}
+	if len(raw) == 0 || string(raw) == "null" {
+		return true
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return false
+	}
+	allowed := map[string]bool{"version": true, "node_key": true, "receipt_enabled": true, "receipt_warehouse": true, "source_warehouse": true, "output_unit": true}
+	for key := range fields {
+		if !allowed[key] {
+			return false
+		}
+	}
+	var config app.OperationExecution
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return false
+	}
+	return config == (app.OperationExecution{})
 }
 
 func (r Repository) ensureRoastingBatchMaterialReservationsTx(ctx context.Context, tx pgx.Tx, wo app.WorkOrderRow, preview app.OperationCompletionPreview, materials []app.OperationMaterialUse, actor, requestID string) error {

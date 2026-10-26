@@ -458,6 +458,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: authorized to integrate/deploy develop and main after gates; production real work-order completion remains for site staff.
 - Last update: 2026-10-25
 
+### PR-730-LEGACY-PACKAGING-COMPLETION-FOLLOWUP
+- Branch: `codex/legacy-packaging-zero-input`; based on current `origin/develop@a31eab044643924069fb74862acf4f7c861bcdcf`.
+- Owner/session: Codex / 2026-10-26.
+- Status: isolated API regression is RED on baseline and GREEN after the fix; full Go suite and changed-files verifier pass. Development browser acceptance and deployment are pending.
+- Scope: permit a single unambiguous old packaging card with `planned_input_qty=0` to use the frozen work-order bag quantity; allow an empty legacy execution snapshot to be frozen atomically on first completion; preserve multi-card ambiguity and non-empty configuration conflict blocks.
+- DEV: DEV-PR730-05.
+- Verifier: `ORDERAPP_TEST_DATABASE_URL='postgresql:///codex_pr734_roast_test?host=/tmp' go test ./internal/interfaces/http/production -run '^TestLegacyPackagingCompletion' -count=1`; `go test ./internal/infrastructure/postgres/production -run 'TestIsEmptyLegacyExecutionSnapshot' -count=1`; `scripts/verify_kferp.sh backend`; `scripts/verify_kferp.sh changed`; `git diff --check`. Isolated browser completion still pending.
+- Deployment: latest `origin/develop` matches the branch base at start; no push, merge or deployment has occurred in this follow-up. Production work orders remain read-only.
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-26-legacy-packaging-completion.md`.
+- Last update: 2026-10-26.
+
 ### ORDER-DRAWER-CLEANUP-20261022
 - Branch: codex/order-drawer-cleanup-20261022; base origin/develop b28d91c7.
 - Scope: refresh-safe sender display, one bottom save button, one fulfillment fee summary in area A including recalculation. PR-714 follow-up; DEV-ORDER-DRAWER-CLEANUP.

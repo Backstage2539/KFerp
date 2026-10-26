@@ -271,7 +271,15 @@ func (r Repository) operationCompletionContextTx(ctx context.Context, tx pgx.Tx,
 				return p, wo, err
 			}
 		}
-		if legacyRoute && cardCount > 0 && inputCardCount == cardCount && eventCount == 0 && strings.TrimSpace(materialSnapshot) != "" && strings.TrimSpace(materialSnapshot) != "[]" {
+		legacyQuantityResolved := cardCount > 0 && inputCardCount == cardCount
+		if isPackagingOperationName(routeOperation) {
+			// A legacy packaging card is measured by the frozen work-order bag
+			// quantity, not planned_input_qty (which is commonly zero for bag
+			// operations). Only adopt this shortcut when there is exactly one
+			// card, so we never guess how a multi-card quantity should split.
+			legacyQuantityResolved = cardCount == 1
+		}
+		if legacyRoute && legacyQuantityResolved && eventCount == 0 && strings.TrimSpace(materialSnapshot) != "" && strings.TrimSpace(materialSnapshot) != "[]" {
 			legacyClean, cleanErr := r.workOrderBOMRefreshEligibleTx(ctx, tx, wo)
 			if cleanErr != nil {
 				return p, wo, cleanErr
