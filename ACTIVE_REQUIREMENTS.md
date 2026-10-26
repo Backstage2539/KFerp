@@ -445,12 +445,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-736-FROZEN-RECEIPT-ALLOCATION
-- Branch: `codex/production-followup-live-blockers`; base `origin/develop@dd603e05`.
+- Branches: `codex/production-followup-live-blockers` and `codex/production-frozen-dropship-allocation`; follow-up based on `origin/develop@1acd4452`.
 - Scope: user-reported recorded-output receipt and legacy packaging completion blocked at retained-stock allocation; single-card legacy buttons still shown.
-- Status: PostgreSQL/API and Vue rendered RED/GREEN, final server gates, production deployment and readonly runtime checks complete; Van business acceptance pending.
-- Integration: feature/develop `1acd4452`; production main/runtime `fc96f6720f67a474e2ba6893e0f27ab5163534dd`, verified 2026-10-26 21:58 CST. Development environment was not deployed.
-- Deployment: database allocation guard installed; actual packaging buttons verified; 34 business/audit table snapshots unchanged and 69 GET logs added. App restart count0, PostgreSQL healthy; source/rollback anchor `deploy-20261026214738-fc96f6720f67`.
-- Verification: `TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish`, current variant guard, adjacent legacy receipt tests, `workstation-legacy-packaging-runtime.test.js`; no production business writes.
+- Status: first patch deployed at 21:58 but four newer-variant reservations still failed. The follow-up reproduces those exact failures in isolated PostgreSQL/API tests and is deployed to development; production release is in progress. Van business acceptance pending.
+- Integration: first patch develop `1acd4452`; follow-up develop/runtime `78560416ddb53ec5576ed18a201d51f02a8dd9ab`; production main/runtime remains `fc96f6720f67a474e2ba6893e0f27ab5163534dd` until this follow-up release completes.
+- Deployment: development runtime `78560416ddb53ec5576ed18a201d51f02a8dd9ab`, login HTTP 200, app running with restart count 0 and PostgreSQL healthy. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20261026223246-78560416ddb5`; rollback image `kferp-orderapp-rollback:development-20261026223246-78560416ddb5`.
+- Verification: `TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish`, current variant guard, adjacent legacy receipt tests, `workstation-legacy-packaging-runtime.test.js`; full Go, Vue 1,630, miniapp 432, typecheck and 24-page build passed. Production business rows remain read-only.
+- DEV: DEV-PR736-01-ALLOCATION; DEV-PR736-02-PACKAGING-UI; DEV-PR736-03-REPUBLISHED-RESERVATION.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-frozen-receipt-allocation.md`.
 - Last update: 2026-10-26.
 
