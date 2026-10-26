@@ -38,17 +38,15 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 		}
 	}
 
+	modernAutoPicking := false
 	hasVersion, err := schemaColumnExistsTx(ctx, tx, r.schema, "production_plans", "picking_version")
 	if err != nil {
 		return productionapp.ProductionWIPStatus{}, err
 	}
 	if hasVersion && !roastingRoute {
-		modern, err := autoPickingWorkOrderTx(ctx, tx, r.schema, workOrderID)
+		modernAutoPicking, err = autoPickingWorkOrderTx(ctx, tx, r.schema, workOrderID)
 		if err != nil {
 			return productionapp.ProductionWIPStatus{}, err
-		}
-		if modern {
-			return automaticWorkOrderWIPStatusTx(ctx, tx, r.schema, workOrderID)
 		}
 	}
 
@@ -123,6 +121,7 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 	if err != nil {
 		return productionapp.ProductionWIPStatus{}, err
 	}
+	snapshotDemandAvailable := ok && len(needs) > 0
 	if !ok || len(needs) == 0 {
 		needs, err = workOrderReservationNeedsTx(ctx, tx, r.schema, wo.ID)
 		if err != nil {
@@ -133,6 +132,24 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 				DataComplete: false, Status: "blocked", BlockingReason: "WIP资料待完善",
 				Materials: []productionapp.WIPReservationRow{},
 			}, nil
+		}
+	}
+	if modernAutoPicking {
+		// A complete frozen material snapshot is the same quantity source used
+		// by start and completion. Reservation rows are only inventory
+		// allocations; older plans can contain a per-package quantity there
+		// (for example 1 filter bag for a 10-bag order). Keep the reservation
+		// coverage path for product components or legacy orders without a usable
+		// snapshot, where batch-level product identity is required.
+		needsFinishedProduct := false
+		for _, need := range needs {
+			if strings.EqualFold(strings.TrimSpace(need.ComponentType), "finished_product") || strings.EqualFold(strings.TrimSpace(need.Source), "finished_product") {
+				needsFinishedProduct = true
+				break
+			}
+		}
+		if !snapshotDemandAvailable || needsFinishedProduct {
+			return automaticWorkOrderWIPStatusTx(ctx, tx, r.schema, workOrderID)
 		}
 	}
 	bindings := map[string]productionapp.OperationMaterialBinding{}

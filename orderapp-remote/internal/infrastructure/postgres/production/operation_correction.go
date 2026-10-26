@@ -330,7 +330,7 @@ func (r Repository) correctOperationReceiptTx(ctx context.Context, tx pgx.Tx, wo
 		if afterN < 0 || afterG < 0 {
 			return 0, fmt.Errorf("更正会造成负库存")
 		}
-		if err = r.upsertOperationInventoryTx(ctx, tx, item.ProductID, wo.BomSpecID, wo.BomVariantID, wo.SpecG, warehouse, afterN, afterG, owner); err != nil {
+		if err = r.upsertOperationInventoryTx(ctx, tx, wo.ID, item.ProductID, wo.BomSpecID, wo.BomVariantID, wo.SpecG, warehouse, afterN, afterG, owner); err != nil {
 			return 0, err
 		}
 		if err = insertStockLedgerEntryWithBomSpecOwnedTx(ctx, tx, r.schema, item.ItemType, item.ProductID, item.ItemName, wo.BomSpecID, wo.BomVariantID, owner, wo.SpecG, warehouse, "operation_correction", eventID, code, wo.BatchID, stockLedgerQty{BeforeG: n*wo.SpecG + g, ChangeG: deltaG, AfterG: afterN*wo.SpecG + afterG, BeforeUnits: n, ChangeUnits: deltaN, AfterUnits: afterN}, actor); err != nil {

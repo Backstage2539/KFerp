@@ -343,6 +343,24 @@ BEGIN
 				  AND running_item.bom_spec_id=business_bom_spec_id
 				  AND running_item.bom_variant_id=business_bom_variant_id
 			) INTO frozen_production_identity_derived;
+		ELSIF TG_TABLE_NAME='finished_inventory' THEN
+			-- Aggregate inventory has no source-document columns. Production receipt
+			-- code supplies a transaction-local work-order id only for the duration
+			-- of its inventory upsert; accept the historical identity only when that
+			-- exact order froze the same product/spec/variant and BOM version.
+			production_source_id := COALESCE(NULLIF(current_setting('kferp.production_frozen_work_order_id',true), '')::bigint,0);
+			SELECT EXISTS (
+				SELECT 1
+				FROM %[1]s.work_orders work_order
+				JOIN %[1]s.production_bom_version_variants frozen_variant
+				  ON frozen_variant.id=work_order.bom_variant_id
+				 AND frozen_variant.bom_spec_id=work_order.bom_spec_id
+				 AND frozen_variant.version_id=work_order.bom_version_id
+				WHERE work_order.id=production_source_id
+				  AND work_order.product_id=business_product_id
+				  AND work_order.bom_spec_id=business_bom_spec_id
+				  AND work_order.bom_variant_id=business_bom_variant_id
+			) INTO frozen_production_identity_derived;
 		ELSIF TG_TABLE_NAME IN ('stock_batches','stock_ledger_entries') THEN
 			production_source_id := COALESCE(NULLIF(to_jsonb(NEW)->>'source_doc_id','')::bigint,0);
 			production_source_text := lower(COALESCE(to_jsonb(NEW)->>'source_doc_type',''));
