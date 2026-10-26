@@ -2323,6 +2323,206 @@ func TestCanonicalFinishedTransferSerializesWithBatchAdjustment(t *testing.T) {
 	}
 }
 
+func TestLegacyFinishedTransferMovesFIFOStockBatches(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetUnits: 10, TargetG: 500, Reason: "非 BOM 转仓初始化", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed finished stock: %v", err)
+	}
+	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyUnits: 3, QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-finished-batch-transfer",
+	})
+	if err != nil {
+		t.Fatalf("TransferFinishedProduct: %v", err)
+	}
+	if transfer.EntryID <= 0 {
+		t.Fatalf("transfer = %+v, want a unified stock entry", transfer)
+	}
+
+	warehouseStock := func(warehouse string) (summaryUnits, batchUnits, summaryLooseG, batchG int64) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+			WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse=$1
+		`, schema), warehouse).Scan(&summaryUnits, &summaryLooseG); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(b.remaining_units),0)::bigint,COALESCE(SUM(b.remaining_g),0)::bigint
+			FROM %s.stock_batches b LEFT JOIN LATERAL (
+				SELECT l.warehouse FROM %s.stock_ledger_entries l
+				WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+				  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+				ORDER BY l.id DESC LIMIT 1
+			) last_ledger ON true
+			WHERE b.item_type='finished_product' AND b.item_id=9 AND b.bom_spec_id=0 AND b.spec_g=1000
+			  AND COALESCE(last_ledger.warehouse,'finished_goods')=$1
+		`, schema, schema), warehouse).Scan(&batchUnits, &batchG); err != nil {
+			t.Fatal(err)
+		}
+		return summaryUnits, batchUnits, summaryLooseG, batchG
+	}
+	fromUnits, fromBatchUnits, fromLooseG, fromBatchG := warehouseStock("finished_goods")
+	toUnits, toBatchUnits, toLooseG, toBatchG := warehouseStock("finished_shop")
+	if fromUnits != 7 || fromBatchUnits != fromUnits || fromLooseG != 250 || fromBatchG != 7250 ||
+		toUnits != 3 || toBatchUnits != toUnits || toLooseG != 250 || toBatchG != 3250 {
+		t.Fatalf("source units/looseG/batches=%d/%d/%d/%d, destination=%d/%d/%d/%d; want 7/250/7/7250 and 3/250/3/3250",
+			fromUnits, fromLooseG, fromBatchUnits, fromBatchG, toUnits, toLooseG, toBatchUnits, toBatchG)
+	}
+	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err != nil {
+		t.Fatalf("cancel transfer: %v", err)
+	}
+	fromUnits, fromBatchUnits, fromLooseG, fromBatchG = warehouseStock("finished_goods")
+	toUnits, toBatchUnits, toLooseG, toBatchG = warehouseStock("finished_shop")
+	if fromUnits != 10 || fromBatchUnits != fromUnits || fromLooseG != 500 || fromBatchG != 10500 ||
+		toUnits != 0 || toBatchUnits != toUnits || toLooseG != 0 || toBatchG != 0 {
+		t.Fatalf("after cancel source units/looseG/batches=%d/%d/%d/%d, destination=%d/%d/%d/%d; want 10/500/10/10500 and zeros",
+			fromUnits, fromLooseG, fromBatchUnits, fromBatchG, toUnits, toLooseG, toBatchUnits, toBatchG)
+	}
+}
+
+func TestFinishedManufactureReceiptSerializesWithBatchAdjustment(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetUnits: 10, Reason: "并发完工入库初始化", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed finished stock: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.work_order_material_reservations
+		SET consumed_g=reserved_g WHERE work_order_id=88;
+	`, schema))
+
+	batchHolder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = batchHolder.Rollback(ctx) }()
+	if err := batchHolder.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id FROM %s.stock_batches
+		WHERE item_type='finished_product' AND item_id=9 AND bom_spec_id=0 AND spec_g=1000 AND remaining_units>0
+		ORDER BY created_at,id LIMIT 1 FOR UPDATE
+	`, schema)).Scan(new(int64)); err != nil {
+		t.Fatal(err)
+	}
+	waitForLockQuery := func(pattern string) bool {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			var waiting bool
+			if err := pool.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM pg_stat_activity
+					WHERE datname=current_database() AND state='active' AND wait_event_type='Lock' AND query ILIKE $1
+				)
+			`, pattern).Scan(&waiting); err != nil {
+				t.Fatal(err)
+			}
+			if waiting {
+				return true
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return false
+	}
+
+	adjustCtx, cancelAdjust := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelAdjust()
+	adjustDone := make(chan error, 1)
+	go func() {
+		_, err := repo.CreateAdjustment(adjustCtx, stockapp.StockAdjustmentCommand{
+			ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+			TargetUnits: 8, Reason: "并发完工入库盘点", Operator: "qa",
+		})
+		adjustDone <- err
+	}()
+	if !waitForLockQuery("%stock_batches b%FOR UPDATE OF b%") {
+		_ = batchHolder.Rollback(ctx)
+		_ = <-adjustDone
+		t.Fatal("stock adjustment did not block while acquiring the source batch")
+	}
+
+	manufactureCtx, cancelManufacture := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelManufacture()
+	manufactureDone := make(chan error, 1)
+	go func() {
+		_, err := stockapp.NewService(repo).CreateAndSubmitStockDocument(manufactureCtx, stockapp.StockDocumentCommand{
+			Purpose: stockapp.PurposeManufacture, WorkOrderID: 88, Operator: "qa",
+			Items: []stockapp.StockDocumentItemCommand{{
+				ProductID: 9, ItemType: itemTypeFinishedProduct, SpecG: 1000,
+				ToWarehouse: "finished_goods", QtyUnits: 5,
+			}},
+		})
+		manufactureDone <- err
+	}()
+	if !waitForLockQuery("%pg_advisory_xact_lock%") {
+		_ = batchHolder.Rollback(ctx)
+		_ = <-adjustDone
+		_ = <-manufactureDone
+		t.Fatal("manufacture receipt did not wait for the adjustment identity lock")
+	}
+
+	probe, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := probe.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_goods'
+		FOR UPDATE NOWAIT
+	`, schema)).Scan(new(int64)); err != nil {
+		_ = probe.Rollback(ctx)
+		_ = batchHolder.Rollback(ctx)
+		_ = <-adjustDone
+		_ = <-manufactureDone
+		t.Fatalf("manufacture locked the summary before serializing with the adjustment: %v", err)
+	}
+	if err := probe.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := batchHolder.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-adjustDone; err != nil {
+		t.Fatalf("CreateAdjustment: %v", err)
+	}
+	if err := <-manufactureDone; err != nil {
+		t.Fatalf("manufacture receipt: %v", err)
+	}
+
+	var summaryUnits, batchUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_goods'
+	`, schema)).Scan(&summaryUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(b.remaining_units),0)::bigint
+		FROM %s.stock_batches b LEFT JOIN LATERAL (
+			SELECT l.warehouse FROM %s.stock_ledger_entries l
+			WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+			ORDER BY l.id DESC LIMIT 1
+		) last_ledger ON true
+		WHERE b.item_type='finished_product' AND b.item_id=9 AND b.bom_spec_id=0 AND b.spec_g=1000
+		  AND COALESCE(last_ledger.warehouse,'finished_goods')='finished_goods'
+	`, schema, schema)).Scan(&batchUnits); err != nil {
+		t.Fatal(err)
+	}
+	if summaryUnits != 13 || batchUnits != summaryUnits {
+		t.Fatalf("summary/batch stock=%d/%d, want 13/13", summaryUnits, batchUnits)
+	}
+}
+
 func TestManualFinishedInventoryAdjustmentsCreateUsableStockBatches(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()

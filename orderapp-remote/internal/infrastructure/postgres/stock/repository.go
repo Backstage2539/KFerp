@@ -1213,11 +1213,11 @@ func (r Repository) TransferFinishedProduct(ctx context.Context, cmd stockapp.Fi
 		return stockapp.FinishedProductTransferResult{}, err
 	}
 
-	identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, cmd.ProductID, cmd.BomSpecID, cmd.BomVariantID, cmd.UnitCode)
-	if err != nil {
-		return stockapp.FinishedProductTransferResult{}, err
-	}
 	if cmd.BomSpecID > 0 {
+		identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, cmd.ProductID, cmd.BomSpecID, cmd.BomVariantID, cmd.UnitCode)
+		if err != nil {
+			return stockapp.FinishedProductTransferResult{}, err
+		}
 		cmd.BomVariantID = identity.BomVariantID
 		cmd.UnitCode = identity.InventoryUnit
 	}
