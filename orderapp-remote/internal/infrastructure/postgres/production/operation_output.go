@@ -31,12 +31,15 @@ func (r Repository) receiveOperationOutputTx(ctx context.Context, tx pgx.Tx, wo 
 		return 0, err
 	}
 	add := InvQty{}
+	var grams int64
 	if factor := app.OperationUnitFactor(receipt.OutputUnit); factor > 0 {
 		add.LooseG = int64(math.Round(receipt.OutputQty * factor))
+		// Weight output already provides grams, even without a package spec.
+		grams = add.LooseG
 	} else {
 		add.Units = int64(receipt.OutputQty)
+		grams = finishedTotalG(run.SpecG, add.Units, add.LooseG)
 	}
-	grams := finishedTotalG(run.SpecG, add.Units, add.LooseG)
 	before := InvQty{}
 	before.Units, before.LooseG, err = finishedInventoryQtyIdentityOwnedTx(ctx, tx, r.schema, run.ProductID, run.BomSpecID, run.SpecG, receipt.Warehouse, run.OwnerCustomerID)
 	if err != nil {
