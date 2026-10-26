@@ -1329,7 +1329,9 @@ func (r Repository) TransferFinishedProduct(ctx context.Context, cmd stockapp.Fi
 }
 
 type stockAdjustmentBatchAllocation struct {
+	ItemType        string
 	MaterialBatchID int64
+	StockBatchID    int64
 	BatchCode       string
 	Warehouse       string
 	QtyChangeG      int64
@@ -1357,13 +1359,15 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 		}
 	}
 	if cmd.ItemType == itemTypeFinishedProduct {
-		identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.BomVariantID, cmd.UnitCode)
-		if err != nil {
-			return stockapp.StockAdjustmentResult{}, err
-		}
 		if cmd.BomSpecID > 0 {
+			identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.BomVariantID, cmd.UnitCode)
+			if err != nil {
+				return stockapp.StockAdjustmentResult{}, err
+			}
 			cmd.BomVariantID = identity.BomVariantID
 			cmd.UnitCode = identity.InventoryUnit
+		} else if cmd.SpecG < 0 || (cmd.SpecG == 0 && (cmd.TargetUnits != 0 || cmd.TargetG != 0 || (cmd.HasTargetQty && cmd.TargetQty != 0))) {
+			return stockapp.StockAdjustmentResult{}, fmt.Errorf("legacy zero-spec inventory can only be cleared")
 		}
 	}
 
@@ -1390,18 +1394,29 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 	batchCode := fmt.Sprintf("ADJ-%010d", adjustmentID)
 	stockRemainingG := int64(0)
 	stockRemainingUnits := int64(0)
+	stockBatchQtyG := changeG
+	stockBatchQtyUnits := changeUnits
 	if cmd.ItemType == itemTypeMaterial && changeG > 0 {
 		stockRemainingG = changeG
 	}
 	if cmd.ItemType == itemTypeMaterial && changeUnits > 0 {
 		stockRemainingUnits = changeUnits
 	}
-	if cmd.ItemType == itemTypeFinishedProduct && (changeG > 0 || changeUnits > 0) {
+	if cmd.ItemType == itemTypeFinishedProduct {
 		stockRemainingG = changeG
 		stockRemainingUnits = changeUnits
+		for _, allocation := range allocations {
+			stockRemainingG -= allocation.QtyChangeG
+			stockRemainingUnits -= allocation.QtyChangeUnits
+		}
+		if stockRemainingG < 0 {
+			stockRemainingG = 0
+		}
 		if stockRemainingUnits < 0 {
 			stockRemainingUnits = 0
 		}
+		stockBatchQtyG = stockRemainingG
+		stockBatchQtyUnits = stockRemainingUnits
 	}
 	unitCost := 0.0
 	if cmd.ItemType == itemTypeMaterial && (changeG > 0 || changeUnits > 0) {
@@ -1413,7 +1428,7 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,owner_customer_id,spec_g,bom_spec_id,bom_variant_id,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,unit_cost,operator,created_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$1,$11,$12,$13,$14,$15,$16,now())
-	`, r.schema), batchCode, cmd.ItemType, cmd.ItemID, itemName, ownerCustomerID, cmd.SpecG, cmd.BomSpecID, cmd.BomVariantID, sourceStockAdjustment, adjustmentID, changeG, changeUnits, stockRemainingG, stockRemainingUnits, unitCost, cmd.Operator); err != nil {
+	`, r.schema), batchCode, cmd.ItemType, cmd.ItemID, itemName, ownerCustomerID, cmd.SpecG, cmd.BomSpecID, cmd.BomVariantID, sourceStockAdjustment, adjustmentID, stockBatchQtyG, stockBatchQtyUnits, stockRemainingG, stockRemainingUnits, unitCost, cmd.Operator); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
 	}
 	if cmd.ItemType == itemTypeMaterial && (changeG > 0 || changeUnits > 0) {
@@ -1446,7 +1461,7 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 			return stockapp.StockAdjustmentResult{}, err
 		}
 		allocations = append(allocations, stockAdjustmentBatchAllocation{
-			MaterialBatchID: materialBatchID, BatchCode: batchCode, Warehouse: cmd.Warehouse,
+			ItemType: itemTypeMaterial, MaterialBatchID: materialBatchID, BatchCode: batchCode, Warehouse: cmd.Warehouse,
 			QtyChangeG: changeG, QtyChangeUnits: changeUnits, UnitCost: unitCost,
 		})
 	}
@@ -1454,15 +1469,15 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 		if err := r.recomputeMaterialOnhandTx(ctx, tx, cmd.ItemID); err != nil {
 			return stockapp.StockAdjustmentResult{}, err
 		}
-		for _, allocation := range allocations {
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`
-				INSERT INTO %s.stock_adjustment_batch_allocations(
-					adjustment_id,material_batch_id,batch_code,warehouse,qty_change_g,qty_change_units,unit_cost,created_at
-				) VALUES($1,$2,$3,$4,$5,$6,$7,now())
-			`, r.schema), adjustmentID, allocation.MaterialBatchID, allocation.BatchCode, allocation.Warehouse,
-				allocation.QtyChangeG, allocation.QtyChangeUnits, allocation.UnitCost); err != nil {
-				return stockapp.StockAdjustmentResult{}, err
-			}
+	}
+	for _, allocation := range allocations {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.stock_adjustment_batch_allocations(
+				adjustment_id,item_type,material_batch_id,stock_batch_id,batch_code,warehouse,qty_change_g,qty_change_units,unit_cost,created_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
+		`, r.schema), adjustmentID, allocation.ItemType, allocation.MaterialBatchID, allocation.StockBatchID, allocation.BatchCode, allocation.Warehouse,
+			allocation.QtyChangeG, allocation.QtyChangeUnits, allocation.UnitCost); err != nil {
+			return stockapp.StockAdjustmentResult{}, err
 		}
 	}
 	if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
@@ -1679,7 +1694,7 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 
 	var name string
 	var beforeUnits, beforeLoose int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1`, r.schema), cmd.ItemID).Scan(&name); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1 FOR UPDATE`, r.schema), cmd.ItemID).Scan(&name); err != nil {
 		return "", 0, 0, 0, 0, nil, err
 	}
 	if err := r.ensureWarehouseExistsTx(ctx, tx, cmd.Warehouse); err != nil {
@@ -1690,14 +1705,174 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 		return "", 0, 0, 0, 0, nil, err
 	}
 	beforeG := beforeUnits*cmd.SpecG + beforeLoose
+	batches, err := finishedStockBatchesForAdjustmentTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.SpecG, cmd.Warehouse)
+	if err != nil {
+		return "", 0, 0, 0, 0, nil, err
+	}
+	if len(batches) > 0 {
+		beforeUnits, beforeG = 0, 0
+		for _, batch := range batches {
+			beforeUnits += batch.remainingUnits
+			beforeG += batch.remainingG
+		}
+		if cmd.BomSpecID > 0 {
+			beforeG, beforeLoose = 0, 0
+		} else if cmd.SpecG > 0 {
+			beforeLoose = beforeG - beforeUnits*cmd.SpecG
+			if beforeLoose < 0 {
+				return "", 0, 0, 0, 0, nil, fmt.Errorf("finished stock batch grams are below packed-unit grams")
+			}
+		} else {
+			beforeLoose = beforeG
+		}
+	}
+	if cmd.BomSpecID > 0 {
+		beforeG, beforeLoose = 0, 0
+	}
+	if cmd.BomSpecID == 0 && cmd.SpecG == 0 && beforeUnits == 0 && beforeLoose == 0 {
+		return "", 0, 0, 0, 0, nil, fmt.Errorf("legacy zero-spec inventory not found")
+	}
 	afterG := cmd.TargetUnits*cmd.SpecG + cmd.TargetG
 	if cmd.BomSpecID > 0 {
 		beforeG, afterG = 0, 0
 	}
+	allocations := make([]stockAdjustmentBatchAllocation, 0)
+	if cmd.TargetUnits < beforeUnits || cmd.TargetG < beforeLoose {
+		allocations, err = reduceFinishedWarehouseFIFOForAdjustmentTx(
+			ctx, tx, r.schema, batches, cmd.Warehouse, cmd.SpecG,
+			beforeUnits-cmd.TargetUnits, beforeLoose-cmd.TargetG,
+		)
+		if err != nil {
+			return "", 0, 0, 0, 0, nil, err
+		}
+	}
 	if err := upsertFinishedInventoryIdentityTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.BomVariantID, cmd.SpecG, cmd.Warehouse, cmd.TargetUnits, cmd.TargetG); err != nil {
 		return "", 0, 0, 0, 0, nil, err
 	}
-	return name, beforeG, beforeUnits, afterG, cmd.TargetUnits, nil, nil
+	return name, beforeG, beforeUnits, afterG, cmd.TargetUnits, allocations, nil
+}
+
+type finishedAdjustmentBatch struct {
+	id             int64
+	code           string
+	remainingG     int64
+	remainingUnits int64
+	unitCost       float64
+}
+
+func finishedStockBatchesForAdjustmentTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, specG int64, warehouse string) ([]finishedAdjustmentBatch, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT b.id,b.batch_code,b.remaining_g,b.remaining_units,COALESCE(b.unit_cost,0)::float8
+		FROM %s.stock_batches b
+		LEFT JOIN LATERAL (
+			SELECT l.warehouse
+			FROM %s.stock_ledger_entries l
+			WHERE l.source_batch_code=b.batch_code
+			  AND l.item_type=b.item_type AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+			ORDER BY l.id DESC LIMIT 1
+		) last_ledger ON true
+		WHERE b.item_type=$1 AND b.item_id=$2 AND b.bom_spec_id=$3 AND b.spec_g=$4
+		  AND COALESCE(last_ledger.warehouse,'finished_goods')=$5
+		ORDER BY b.created_at,b.id
+		FOR UPDATE OF b
+	`, schema, schema), itemTypeFinishedProduct, productID, bomSpecID, specG, warehouse)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	batches := make([]finishedAdjustmentBatch, 0)
+	for rows.Next() {
+		var batch finishedAdjustmentBatch
+		if err := rows.Scan(&batch.id, &batch.code, &batch.remainingG, &batch.remainingUnits, &batch.unitCost); err != nil {
+			return nil, err
+		}
+		batches = append(batches, batch)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return batches, nil
+}
+
+func reduceFinishedWarehouseFIFOForAdjustmentTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	batches []finishedAdjustmentBatch,
+	warehouse string,
+	specG int64,
+	deductUnits, deductLooseG int64,
+) ([]stockAdjustmentBatchAllocation, error) {
+	allocations := make([]stockAdjustmentBatchAllocation, 0)
+	allocationIndex := make(map[int64]int)
+	addAllocation := func(batch finishedAdjustmentBatch, changeG, changeUnits int64) {
+		if index, ok := allocationIndex[batch.id]; ok {
+			allocations[index].QtyChangeG += changeG
+			allocations[index].QtyChangeUnits += changeUnits
+			return
+		}
+		allocationIndex[batch.id] = len(allocations)
+		allocations = append(allocations, stockAdjustmentBatchAllocation{
+			ItemType: itemTypeFinishedProduct, StockBatchID: batch.id, BatchCode: batch.code, Warehouse: warehouse,
+			QtyChangeG: changeG, QtyChangeUnits: changeUnits, UnitCost: batch.unitCost,
+		})
+	}
+	modified := make(map[int64]bool)
+	for index := range batches {
+		if deductUnits <= 0 {
+			break
+		}
+		batch := &batches[index]
+		takeUnits := minInt64(deductUnits, batch.remainingUnits)
+		if takeUnits <= 0 {
+			continue
+		}
+		unitGrams := takeUnits * specG
+		if batch.remainingG < unitGrams {
+			return nil, fmt.Errorf("finished stock batch %s has fewer grams than its packed units", batch.code)
+		}
+		batch.remainingUnits -= takeUnits
+		batch.remainingG -= unitGrams
+		deductUnits -= takeUnits
+		modified[batch.id] = true
+		addAllocation(*batch, -unitGrams, -takeUnits)
+	}
+	for index := range batches {
+		if deductLooseG <= 0 {
+			break
+		}
+		batch := &batches[index]
+		looseG := batch.remainingG
+		if specG > 0 {
+			looseG -= batch.remainingUnits * specG
+		}
+		if looseG < 0 {
+			return nil, fmt.Errorf("finished stock batch %s has an invalid loose-gram balance", batch.code)
+		}
+		takeG := minInt64(deductLooseG, looseG)
+		if takeG <= 0 {
+			continue
+		}
+		batch.remainingG -= takeG
+		deductLooseG -= takeG
+		modified[batch.id] = true
+		addAllocation(*batch, -takeG, 0)
+	}
+	if deductUnits > 0 || deductLooseG > 0 {
+		return nil, fmt.Errorf("selected warehouse finished stock is insufficient for adjustment")
+	}
+	for _, batch := range batches {
+		if !modified[batch.id] {
+			continue
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.stock_batches SET remaining_g=$2,remaining_units=$3 WHERE id=$1
+		`, schema), batch.id, batch.remainingG, batch.remainingUnits); err != nil {
+			return nil, err
+		}
+	}
+	return allocations, nil
 }
 
 func (r Repository) reduceMaterialWarehouseFIFOForAdjustmentTx(ctx context.Context, tx pgx.Tx, materialID int64, warehouse string, deductG, deductUnits int64) ([]stockAdjustmentBatchAllocation, error) {
@@ -1772,7 +1947,7 @@ func (r Repository) reduceMaterialWarehouseFIFOForAdjustmentTx(ctx context.Conte
 		deductG -= takeG
 		deductUnits -= takeUnits
 		allocations = append(allocations, stockAdjustmentBatchAllocation{
-			MaterialBatchID: row.batchID, BatchCode: row.code, Warehouse: warehouse,
+			ItemType: itemTypeMaterial, MaterialBatchID: row.batchID, BatchCode: row.code, Warehouse: warehouse,
 			QtyChangeG: -takeG, QtyChangeUnits: -takeUnits, UnitCost: row.cost,
 		})
 	}

@@ -1,5 +1,7 @@
 PR-715：规格模板差异下发并直接发布 BOM，原价格表继续按稳定规格报价；参见[商品规格与录单](OP_MANUAL_BOM_ORDER_PRICING.md)。
 
+PR-737：成品盘点按批次余额核算，减量 FIFO 扣批次、增量建立调整批次；规格 `0g` 历史库存只允许清零。参见[库存作业手册](OP_MANUAL_STOCK.md#报废副产品和盘点)。
+
 PR-720：普通员工网页及小程序录单自动计入本单应收的运费、模板切换、手填、包邮及含包装总重；参见[订单与销售资料](OP_MANUAL_ORDER_SALES.md#普通录单自动运费与小程序编辑pr-720)。
 
 PR-706：商品规格手填物流重量、订单本层净用料参考重与重量快照、无库存代发界面，参见[商品规格与录单](OP_MANUAL_BOM_ORDER_PRICING.md)、[订单销售](OP_MANUAL_ORDER_SALES.md)和[客户购货寄存与代发](OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md)。
