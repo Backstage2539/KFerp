@@ -1,7 +1,7 @@
 # 开发环境未完成工序点击验收与集中整改
 
-日期：2026-10-26  
-基线分支：`codex/legacy-packaging-zero-input`  
+日期：2026-10-26
+基线分支：`codex/legacy-packaging-zero-input`
 基线提交：`97dd406a36c3c75121b33b2aae6cf49baf3be749`（基线时已合入 `origin/develop@bc9d113a8b8df5ce0a02a3977d6f2bf0364fb2b1`）
 
 ## 开发环境浏览器基线

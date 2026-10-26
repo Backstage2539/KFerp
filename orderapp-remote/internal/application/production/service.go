@@ -1177,6 +1177,9 @@ type ProductionTask struct {
 	ScheduleVersion         int64              `json:"schedule_version"`
 
 	JobCardID                 int64                             `json:"job_card_id"`
+	PackagingGroupKey         string                            `json:"packaging_group_key,omitempty"`
+	TargetWarehouse           string                            `json:"target_warehouse,omitempty"`
+	TargetWarehouseName       string                            `json:"target_warehouse_name,omitempty"`
 	SequenceNo                int                               `json:"sequence_no"`
 	BatchIndex                int                               `json:"batch_index"`
 	BatchCount                int                               `json:"batch_count"`
@@ -1247,6 +1250,8 @@ type ProductionTaskMaterialReadiness struct {
 	BomVariantID      int64  `json:"bom_variant_id,omitempty"`
 	SpecG             int64  `json:"spec_g,omitempty"`
 	MaterialName      string `json:"material_name"`
+	OwnerCustomerID   int64  `json:"owner_customer_id,omitempty"`
+	SourceWarehouse   string `json:"source_warehouse,omitempty"`
 	Unit              string `json:"unit"`
 	RequiredG         int64  `json:"required_g"`
 	WIPAvailableG     int64  `json:"wip_available_g"`
@@ -1929,7 +1934,14 @@ type WIPReservationRow struct {
 	RunningItemID      int64   `json:"running_item_id"`
 	ProductName        string  `json:"product_name"`
 	MaterialID         int64   `json:"material_id"`
+	ItemType           string  `json:"item_type,omitempty"`
+	ItemID             int64   `json:"item_id,omitempty"`
+	BomSpecID          int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID       int64   `json:"bom_variant_id,omitempty"`
+	SpecG              int64   `json:"spec_g,omitempty"`
 	MaterialName       string  `json:"material_name"`
+	OwnerCustomerID    int64   `json:"owner_customer_id,omitempty"`
+	SourceWarehouse    string  `json:"source_warehouse,omitempty"`
 	Unit               string  `json:"unit"`
 	RequiredG          int64   `json:"required_g"`
 	RequiredUnits      int64   `json:"required_units"`

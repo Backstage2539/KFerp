@@ -1,7 +1,7 @@
 # PR-733 BOM 补齐后继续生产与工位任务直达验收
 
-日期：2026-10-26  
-分支：`codex/bom-refresh-workstation-task-resolution`  
+日期：2026-10-26
+分支：`codex/bom-refresh-workstation-task-resolution`
 基线：`44672f1dc`（开始实施时）；提交前已重放最新 `origin/develop@1fef1b577`。
 
 ## 已完成验证
