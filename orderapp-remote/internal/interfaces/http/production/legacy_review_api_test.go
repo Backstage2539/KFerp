@@ -97,6 +97,45 @@ UPDATE %[1]s.materials SET onhand_g=22520 WHERE id=10`, schema, woID))
 	assertProductionFlowCount(t, pool, schema, "stock_entries", "entry_type='finished_receipt' AND status='submitted'", 1)
 }
 
+func TestRecordedWeightOutputWithoutPackageSpecReceiptsAsGrams(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	e, woID, runID := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72893)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %[1]s.work_orders
+		SET output_qty=5.6,output_unit='kg',inventory_unit='kg',planned_inventory_qty=5.6,
+		    spec_g=0,bom_spec_id=0,bom_variant_id=0,target_warehouse='finished_goods'
+		WHERE id=%[2]d;
+		UPDATE %[1]s.produce_running_items SET spec_g=0,bom_spec_id=0,bom_variant_id=0 WHERE id=%[3]d;
+		UPDATE %[1]s.job_cards SET actual_output_qty=5.6,
+		    metrics_json='{"quantity_basis":"inventory_unit","inventory_unit":"kg"}'
+		WHERE work_order_id=%[2]d;
+	`, schema, woID, runID))
+
+	preview := serveMultilevelProductionJSON(t, e, http.MethodPost, "/api/production/legacy-review/preview", map[string]any{"work_order_ids": []int64{woID}})
+	if preview.Code != http.StatusOK {
+		t.Fatalf("recorded weight output preview %d %s", preview.Code, preview.Body.String())
+	}
+	var body struct {
+		Rows []app.LegacyReview `json:"rows"`
+	}
+	if err := json.Unmarshal(preview.Body.Bytes(), &body); err != nil || len(body.Rows) != 1 || body.Rows[0].ReportedQty != 5.6 {
+		t.Fatalf("recorded weight output preview %s (%v)", preview.Body.String(), err)
+	}
+	payload := map[string]any{"expected_version": body.Rows[0].Version, "request_id": "recorded-weight-output-no-spec-72893"}
+	for attempt := 0; attempt < 2; attempt++ {
+		result := serveMultilevelProductionJSON(t, e, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/receive-completed-output", woID), payload)
+		if result.Code != http.StatusOK {
+			t.Fatalf("direct weight receipt/replay %d: %s", result.Code, result.Body.String())
+		}
+	}
+	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=1 AND bom_spec_id=0 AND bom_variant_id=0 AND spec_g=0 AND warehouse='finished_goods' AND onhand_units=0 AND onhand_loose_g=5600", 1)
+	assertProductionFlowCount(t, pool, schema, "stock_ledger_entries", "source_doc_type='production_operation_event' AND qty_before_g=0 AND qty_change_g=5600 AND qty_after_g=5600 AND qty_before_units=0 AND qty_change_units=0 AND qty_after_units=0", 1)
+	assertProductionFlowCount(t, pool, schema, "stock_entries", "work_order_id="+fmt.Sprint(woID)+" AND entry_type='finished_receipt' AND status='submitted'", 1)
+	assertProductionFlowCount(t, pool, schema, "stock_entry_items", fmt.Sprintf("qty_g=5600 AND qty_units=0 AND stock_entry_id IN (SELECT id FROM %s.stock_entries WHERE work_order_id=%d AND entry_type='finished_receipt' AND status='submitted')", schema, woID), 1)
+	assertProductionFlowCount(t, pool, schema, "production_operation_events", "status='posted'", 1)
+}
+
 func TestLegacyReviewAPICreditsExistingConsumption(t *testing.T) { testLegacyReview(t, true, false) }
 func TestLegacyReviewAPICreditsLegacyLogsCost(t *testing.T)      { testLegacyReview(t, true, true) }
 func testLegacyReview(t *testing.T, credit, logsOnly bool) {

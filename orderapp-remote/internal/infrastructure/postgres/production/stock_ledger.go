@@ -116,7 +116,16 @@ func finishedProductionBatchCodeForSpec(runningItemID int64, specG int64) string
 
 func finishedInventoryLedgerQty(specG int64, before, add, after InvQty) (stockLedgerQty, error) {
 	if specG <= 0 {
-		if before.Units < 0 || add.Units < 0 || after.Units < 0 || before.LooseG != 0 || add.LooseG != 0 || after.LooseG != 0 {
+		// Unspecified package identity can still represent a weight-based product
+		// (for example, bulk coffee measured in kg). LooseG is the canonical
+		// quantity for those products; only count-based products use Units here.
+		if before.LooseG != 0 || add.LooseG != 0 || after.LooseG != 0 {
+			if before.Units != 0 || add.Units != 0 || after.Units != 0 || before.LooseG < 0 || add.LooseG < 0 || after.LooseG < 0 {
+				return stockLedgerQty{}, fmt.Errorf("invalid weight-based finished inventory quantity")
+			}
+			return stockLedgerQty{BeforeG: before.LooseG, ChangeG: add.LooseG, AfterG: after.LooseG}, nil
+		}
+		if before.Units < 0 || add.Units < 0 || after.Units < 0 {
 			return stockLedgerQty{}, fmt.Errorf("invalid count-based finished inventory quantity")
 		}
 		return stockLedgerQty{BeforeUnits: before.Units, ChangeUnits: add.Units, AfterUnits: after.Units}, nil

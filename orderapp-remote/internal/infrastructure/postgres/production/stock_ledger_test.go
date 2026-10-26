@@ -27,6 +27,32 @@ func TestFinishedInventoryLedgerQtyConvertsUnitsAndLooseToGrams(t *testing.T) {
 	}
 }
 
+func TestFinishedInventoryLedgerQtySupportsUnspecifiedWeightProducts(t *testing.T) {
+	got, err := finishedInventoryLedgerQty(
+		0,
+		InvQty{LooseG: 2_800},
+		InvQty{LooseG: 5_600},
+		InvQty{LooseG: 8_400},
+	)
+	if err != nil {
+		t.Fatalf("finishedInventoryLedgerQty for weight output: %v", err)
+	}
+	if got.BeforeG != 2_800 || got.ChangeG != 5_600 || got.AfterG != 8_400 {
+		t.Fatalf("gram movement = before %d change %d after %d, want 2800/5600/8400", got.BeforeG, got.ChangeG, got.AfterG)
+	}
+	if got.BeforeUnits != 0 || got.ChangeUnits != 0 || got.AfterUnits != 0 {
+		t.Fatalf("weight movement must not record item counts: %+v", got)
+	}
+}
+
+func TestFinishedInventoryLedgerQtyRejectsMixedUnspecifiedWeightAndCount(t *testing.T) {
+	if _, err := finishedInventoryLedgerQty(0,
+		InvQty{Units: 1, LooseG: 10}, InvQty{LooseG: 100}, InvQty{Units: 1, LooseG: 110},
+	); err == nil {
+		t.Fatal("mixed weight and count quantities must be rejected when no package specification exists")
+	}
+}
+
 func TestFinishedProductionBatchCodeUsesRunningItemID(t *testing.T) {
 	got := finishedProductionBatchCode(42)
 	if got != "FP-0000000042" {
