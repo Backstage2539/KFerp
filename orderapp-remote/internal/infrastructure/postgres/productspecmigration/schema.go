@@ -375,6 +375,17 @@ BEGIN
 				  AND running_item.product_id=business_product_id
 				  AND running_item.bom_spec_id=business_bom_spec_id
 				  AND running_item.bom_variant_id=business_bom_variant_id
+			) OR EXISTS (
+				SELECT 1
+				FROM %[1]s.stock_entries stock_entry
+				JOIN %[1]s.work_orders work_order ON work_order.id=stock_entry.work_order_id
+				WHERE COALESCE(to_jsonb(NEW)->>'item_type','')='finished_product'
+				  AND stock_entry.id=production_source_id
+				  AND stock_entry.entry_type='finished_receipt'
+				  AND stock_entry.purpose='manufacture'
+				  AND work_order.product_id=business_product_id
+				  AND work_order.bom_spec_id=business_bom_spec_id
+				  AND work_order.bom_variant_id=business_bom_variant_id
 			) INTO frozen_production_identity_derived;
 		END IF;
 		IF frozen_production_identity_derived THEN
