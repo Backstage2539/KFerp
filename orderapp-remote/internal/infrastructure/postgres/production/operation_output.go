@@ -43,7 +43,7 @@ func (r Repository) receiveOperationOutputTx(ctx context.Context, tx pgx.Tx, wo 
 		return 0, err
 	}
 	after := InvQty{Units: before.Units + add.Units, LooseG: before.LooseG + add.LooseG}
-	if err = r.upsertOperationInventoryTx(ctx, tx, run.ProductID, run.BomSpecID, run.BomVariantID, run.SpecG, receipt.Warehouse, after.Units, after.LooseG, run.OwnerCustomerID); err != nil {
+	if err = r.upsertOperationInventoryTx(ctx, tx, wo.ID, run.ProductID, run.BomSpecID, run.BomVariantID, run.SpecG, receipt.Warehouse, after.Units, after.LooseG, run.OwnerCustomerID); err != nil {
 		return 0, err
 	}
 	batch := fmt.Sprintf("FP-OP-%010d", receipt.EventID)

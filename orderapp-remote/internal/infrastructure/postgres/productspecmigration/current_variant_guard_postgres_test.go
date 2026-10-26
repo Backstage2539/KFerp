@@ -71,8 +71,14 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 		);
 		CREATE TABLE %[1]s.work_orders(
 			id BIGINT PRIMARY KEY,production_plan_item_id BIGINT NOT NULL DEFAULT 0,
-			batch_id TEXT NOT NULL DEFAULT '',product_id BIGINT NOT NULL,
+			batch_id TEXT NOT NULL DEFAULT '',product_id BIGINT NOT NULL,bom_version_id BIGINT NOT NULL DEFAULT 0,
 			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0
+		);
+		CREATE TABLE %[1]s.finished_inventory(
+			product_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL DEFAULT 0,
+			bom_variant_id BIGINT NOT NULL DEFAULT 0,spec_g BIGINT NOT NULL DEFAULT 0,
+			warehouse TEXT NOT NULL DEFAULT '',owner_customer_id BIGINT NOT NULL DEFAULT 0,
+			onhand_units BIGINT NOT NULL DEFAULT 0,onhand_loose_g BIGINT NOT NULL DEFAULT 0
 		);
 		CREATE TABLE %[1]s.produce_running_items(
 			id BIGINT PRIMARY KEY,batch_id TEXT NOT NULL DEFAULT '',product_id BIGINT NOT NULL,
@@ -193,8 +199,8 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.work_orders(
-			id,production_plan_item_id,batch_id,product_id,bom_spec_id,bom_variant_id
-		) VALUES(20,10,'RUN-V1',42,100,110)
+			id,production_plan_item_id,batch_id,product_id,bom_version_id,bom_spec_id,bom_variant_id
+		) VALUES(20,10,'RUN-V1',42,11,100,110)
 	`, schema)); err != nil {
 		t.Fatalf("historical work order derived from frozen plan identity: %v", err)
 	}
@@ -222,6 +228,54 @@ func TestBusinessIdentityGuardRequiresCurrentVariantForNewIdentityPostgres(t *te
 		VALUES(101,999,'finished_receipt','manufacture')
 	`, schema)); err != nil {
 		t.Fatal(err)
+	}
+
+	// Aggregate finished inventory has no source-document columns of its own.
+	// The production completion path must therefore supply its exact frozen
+	// work-order context while applying this receipt. Without that context, an
+	// archived identity must still be rejected.
+	_, err = pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,warehouse,onhand_units)
+		VALUES(42,100,110,'finished_goods',1)
+	`, schema))
+	if err == nil || !strings.Contains(err.Error(), "bom_variant_not_current") {
+		t.Fatalf("finished inventory without work-order receipt context error=%v, want bom_variant_not_current", err)
+	}
+
+	finishTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = finishTx.Exec(ctx, `SELECT set_config('kferp.production_frozen_work_order_id','20',true)`); err != nil {
+		_ = finishTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if _, err = finishTx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,warehouse,onhand_units)
+		VALUES(42,100,110,'finished_goods',1)
+	`, schema)); err != nil {
+		_ = finishTx.Rollback(ctx)
+		t.Fatalf("finished inventory derived from exact frozen work order: %v", err)
+	}
+	if err = finishTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	wrongFinishTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = wrongFinishTx.Exec(ctx, `SELECT set_config('kferp.production_frozen_work_order_id','20',true)`); err != nil {
+		_ = wrongFinishTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	_, err = wrongFinishTx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,warehouse,onhand_units)
+		VALUES(42,100,115,'finished_goods',1)
+	`, schema))
+	_ = wrongFinishTx.Rollback(ctx)
+	if err == nil || !strings.Contains(err.Error(), "bom_variant_not_current") {
+		t.Fatalf("finished inventory with mismatched frozen variant error=%v, want bom_variant_not_current", err)
 	}
 	_, err = pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_entry_items(id,stock_entry_id,product_id,bom_spec_id,bom_variant_id,item_type)

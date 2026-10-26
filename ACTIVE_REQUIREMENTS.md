@@ -61,6 +61,13 @@
 - Status: implementation complete after business confirmation; both integrated candidates passed targeted15/subtests42, freight integration5, payment presentation3, manual mapping3 and changed checks. Both full backend runs finished with199 failures/15 packages, identical sets and no new failures versus historical baseline200/15; latest original sales packages have the same87 failures. Fix commits: eedae7cf (develop base), efe489dc (main base), identical patch. Root deployment docs separate push/merge from manual deployment; this delivery is code integration only, with no deployment or production writes. Van's Mac/browser acceptance remains pending. Final remote SHAs and CI are recorded in the task delivery report. Evidence: orderapp-remote/docs/acceptance/2026-10-22-order-payment-freight-regression.md.
 - Business rules confirmed by Van (2026-10-22, Sentinel_9206b4bb65708191a520edd75e869389): “1、累计收款；2、分开保存”. Voucher amounts are cumulative collection; mixed receivable/payment changes require separate saves. Explicit legacy 已付款 still acknowledges receipt of the balance. This business confirmation applies only to this task; the later integration authorization is recorded above and still excludes deployment/production access.
 
+### 2026-10-26 开发工位逐项点击后续修复
+- Branch: `codex/workstation-clickthrough-final`, based on latest `origin/develop@896b4f8ca133bc7594dacc914df0a852d4ae65e2`.
+- Scope: 修复包装旧冻结变体入库身份校验与挂耳包装齐套需求低估；按用户要求先逐工位点击收集问题，修复后再部署开发。
+- Evidence: `orderapp-remote/docs/acceptance/2026-10-26-development-workstation-clickthrough.md`。
+- RED/GREEN: 两个定向隔离 PostgreSQL 回归用例均先失败后通过；`production`、`productspecmigration` Go 包通过；`go build ./...`、`git diff --check` 通过。全量 Go 测试有 7 个 appmain 既有 fixture 错误（缺 `logistics_weight_g`），运行因本机空间不足中止，不记全绿。
+- Status: 实施与定向验证完成；等待分支推送、合入最新 `develop`、开发部署及部署后逐卡点验。未触及生产。
+
 
 ### PR-713-FULFILLMENT-RECIPIENT-EDIT
 - Branch: codex/order-address-spec-validation-20261022; production baseline origin/main@6ce86299.
