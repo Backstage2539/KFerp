@@ -39,3 +39,9 @@ test('refresh preserves entered actual quantities and reason',async()=>{
  const view=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),version:revision}),apiSend:async()=>{throw new Error('unexpected write')}})
  try{const fields=view.el.querySelectorAll('.fields input');await input(fields[0],18);await input(fields[3],'现场已做完');revision='v2';button(view.el,'刷新建议').click();await settle();assert.equal(fields[0].value,'18');assert.equal(fields[3].value,'现场已做完')}finally{view.close()}
 })
+test('only a genuinely incomplete BOM links to BOM repair; execution blockers explain themselves in place',async()=>{
+ const legacy=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),enabled:false,bom_id:88,blocked_code:'legacy_execution_unresolved',blocked_reason:'旧工单缺少可自动接入的执行配置'}),apiSend:async()=>{throw new Error('blocked task must not submit')}})
+ try{assert.match(legacy.el.textContent,/旧工单缺少可自动接入的执行配置/);assert.equal(button(legacy.el,'去 BOM 补齐配料'),undefined);assert.equal(button(legacy.el,'确认工序完成').disabled,true)}finally{legacy.close()}
+ const incomplete=await mount('../components/OperationCompletionForm.vue',{jobCardId:1},{apiGet:async()=>({...structuredClone(preview),enabled:false,bom_id:88,blocked_code:'bom_incomplete',blocked_reason:'BOM 配料比例合计 70%，请在 BOM 中补齐后继续'}),apiSend:async()=>{throw new Error('blocked task must not submit')}})
+ try{assert.match(incomplete.el.textContent,/BOM 配料比例合计 70%/);assert.ok(button(incomplete.el,'去 BOM 补齐配料'));let target;window.addEventListener('kferp:navigate-view',event=>{target=event.detail},{once:true});button(incomplete.el,'去 BOM 补齐配料').click();assert.equal(target.params.production_bom_id,88)}finally{incomplete.close()}
+})

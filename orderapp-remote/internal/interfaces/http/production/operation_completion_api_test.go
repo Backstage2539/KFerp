@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	productionapp "orderapp/internal/application/production"
 	"strings"
@@ -326,6 +327,13 @@ func TestOperationCompletionAPIVariancesDraftAndRollback(t *testing.T) {
 			pool, schema := newProductionFlowTestDB(t)
 			ctx := context.Background()
 			e, woID, runID := startProductCompletionAtomicityFixture(t, ctx, pool, schema, 72851)
+			if tc.name == "shortage" {
+				mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+					UPDATE %s.material_batch_locations SET qty_g=10000 WHERE material_id=10 AND warehouse='wip';
+					UPDATE %s.material_batches b SET remaining_g=10000
+					WHERE EXISTS(SELECT 1 FROM %s.material_batch_locations l WHERE l.material_batch_id=b.id AND l.material_id=10 AND l.warehouse='wip');
+				`, schema, schema, schema))
+			}
 			snapshot := `{"operations":[{"seq":1,"execution_json":"{\"version\":1,\"node_key\":\"pack\",\"receipt_enabled\":true,\"output_unit\":\"袋\"}"}]}`
 			if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET process_snapshot_json=$2::jsonb,output_qty=100,output_unit='袋',inventory_unit='袋',planned_inventory_qty=100 WHERE id=$1`, schema), woID, snapshot); err != nil {
 				t.Fatal(err)
@@ -350,6 +358,67 @@ func TestOperationCompletionAPIVariancesDraftAndRollback(t *testing.T) {
 				mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.job_cards SET started_at=now()-interval '5 minutes',status='paused',metrics_json='{"timer_elapsed_seconds":180}',cost_method='hour',hourly_rate=60 WHERE id=%d`, schema, card))
 			}
 			p := read()
+			if tc.name == "overproduction" {
+				if len(p.Materials) != 2 || p.TotalPlannedQty <= 0 {
+					t.Fatalf("overproduction preview lacks the bean and packaging rows: %+v", p)
+				}
+				for _, material := range p.Materials {
+					if factor := productionapp.OperationUnitFactor(material.Unit); factor > 0 {
+						targetG := int64(math.Round(material.TotalQty * tc.output / p.TotalPlannedQty * factor))
+						plannedG := int64(math.Round(material.TotalQty * factor))
+						extraG := targetG - plannedG
+						if extraG <= 0 {
+							continue
+						}
+						seedProductionFlowWIPBatch(t, ctx, pool, schema, 72854, material.MaterialID, "MB-ROASTED-EXTRA-72851", material.Name, extraG)
+						if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=onhand_g+$2 WHERE id=$1`, schema), material.MaterialID, extraG); err != nil {
+							t.Fatalf("increase bean master balance for seeded overproduction stock: %v", err)
+						}
+						if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_order_material_reservations SET reserved_g=$2 WHERE id=(SELECT id FROM %s.work_order_material_reservations WHERE work_order_id=$1 AND material_id=$3 AND status='reserved' ORDER BY id LIMIT 1)`, schema, schema), woID, targetG, material.MaterialID); err != nil {
+							t.Fatalf("extend bean reservation for physically available overproduction: %v", err)
+						}
+						if _, err := pool.Exec(ctx, fmt.Sprintf(`
+							INSERT INTO %[1]s.work_order_material_reservation_batches(
+								reservation_id,work_order_id,material_id,component_type,component_id,
+								material_batch_id,batch_code,warehouse,owner_customer_id,reserved_g,status
+							)
+							SELECT r.id,r.work_order_id,$2,'material',$2,72854,'MB-ROASTED-EXTRA-72851','wip',0,$3,'reserved'
+							FROM %[1]s.work_order_material_reservations r
+							WHERE r.work_order_id=$1 AND r.material_id=$2 AND r.status='reserved'
+							ORDER BY r.id LIMIT 1
+						`, schema), woID, material.MaterialID, extraG); err != nil {
+							t.Fatalf("extend bean reservation for physically available overproduction: %v", err)
+						}
+						continue
+					}
+					targetUnits := int64(math.Ceil(material.TotalQty*tc.output/p.TotalPlannedQty - 1e-9))
+					plannedUnits := int64(math.Ceil(material.TotalQty - 1e-9))
+					extraUnits := targetUnits - plannedUnits
+					if extraUnits <= 0 {
+						continue
+					}
+					seedProductionFlowWIPUnitBatch(t, ctx, pool, schema, 72855, material.MaterialID, "MB-PACK-EXTRA-72851", material.Name, extraUnits)
+					if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_units=onhand_units+$2 WHERE id=$1`, schema), material.MaterialID, extraUnits); err != nil {
+						t.Fatalf("increase packaging master balance for seeded overproduction stock: %v", err)
+					}
+					if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_order_material_reservations SET reserved_units=$2 WHERE id=(SELECT id FROM %s.work_order_material_reservations WHERE work_order_id=$1 AND material_id=$3 AND status='reserved' ORDER BY id LIMIT 1)`, schema, schema), woID, targetUnits, material.MaterialID); err != nil {
+						t.Fatalf("extend pack reservation for physically available overproduction: %v", err)
+					}
+					if _, err := pool.Exec(ctx, fmt.Sprintf(`
+						INSERT INTO %[1]s.work_order_material_reservation_batches(
+							reservation_id,work_order_id,material_id,component_type,component_id,
+							material_batch_id,batch_code,warehouse,owner_customer_id,reserved_units,status
+						)
+						SELECT r.id,r.work_order_id,$2,'material',$2,72855,'MB-PACK-EXTRA-72851','wip',0,$3,'reserved'
+						FROM %[1]s.work_order_material_reservations r
+						WHERE r.work_order_id=$1 AND r.material_id=$2 AND r.status='reserved'
+						ORDER BY r.id LIMIT 1
+						`, schema), woID, material.MaterialID, extraUnits); err != nil {
+						t.Fatalf("extend pack reservation for physically available overproduction: %v", err)
+					}
+				}
+				p = read()
+			}
 			payload := map[string]any{"actual_input_qty": p.InputQty, "actual_output_qty": tc.output, "input_unit": p.InputUnit, "output_unit": p.OutputUnit, "actual_minutes": 0, "difference_reason": "现场实际已做完", "expected_version": p.Version, "request_id": "variance", "materials": p.Materials}
 			if tc.name == "zero" {
 				for i := range p.Materials {
@@ -357,10 +426,6 @@ func TestOperationCompletionAPIVariancesDraftAndRollback(t *testing.T) {
 				}
 				payload["materials"] = p.Materials
 				payload["actual_input_qty"] = 0
-			}
-			if tc.name == "shortage" {
-				p.Materials[0].Qty = 10000
-				payload["materials"] = p.Materials
 			}
 			res := serveMultilevelProductionJSON(t, e, "POST", fmt.Sprintf("/api/job-cards/%d/progress", card), payload)
 			if res.Code != 200 {

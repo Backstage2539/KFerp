@@ -1239,6 +1239,11 @@ type ProductionTask struct {
 type ProductionTaskMaterialReadiness struct {
 	ReservationID     int64  `json:"reservation_id"`
 	MaterialID        int64  `json:"material_id"`
+	ItemType          string `json:"item_type,omitempty"`
+	ItemID            int64  `json:"item_id,omitempty"`
+	BomSpecID         int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID      int64  `json:"bom_variant_id,omitempty"`
+	SpecG             int64  `json:"spec_g,omitempty"`
 	MaterialName      string `json:"material_name"`
 	Unit              string `json:"unit"`
 	RequiredG         int64  `json:"required_g"`
@@ -4213,11 +4218,22 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 			}
 			continue
 		}
-		availableG := map[int64]int64{}
-		availableUnits := map[int64]int64{}
+		materialIdentity := func(material WIPReservationRow) string {
+			itemType := strings.ToLower(strings.TrimSpace(material.ItemType))
+			if itemType == "" {
+				itemType = "material"
+			}
+			itemID := firstNonZeroInt64(material.ItemID, material.MaterialID)
+			warehouse := strings.ToLower(strings.TrimSpace(firstNonEmpty(material.SourceWarehouse, "wip")))
+			unit := strings.ToLower(strings.TrimSpace(material.Unit))
+			return fmt.Sprintf("%s:%d:%d:%d:%d:%d:%s:%s", itemType, itemID, material.BomSpecID, material.BomVariantID, material.SpecG, material.OwnerCustomerID, warehouse, unit)
+		}
+		availableG := map[string]int64{}
+		availableUnits := map[string]int64{}
 		for _, material := range coverage.Materials {
-			availableG[material.ID] = material.AvailableG
-			availableUnits[material.ID] = material.AvailableUnits
+			key := materialIdentity(material)
+			availableG[key] += material.AvailableG
+			availableUnits[key] += material.AvailableUnits
 		}
 		type materialAllocation struct {
 			rows          []ProductionTaskMaterialReadiness
@@ -4235,14 +4251,17 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 			rows := make([]ProductionTaskMaterialReadiness, 0, len(coverage.Materials))
 			shortageCount := 0
 			for _, material := range coverage.Materials {
+				identity := materialIdentity(material)
 				requiredG := scaleTaskIntegerSlice(material.RequiredG, slice.before, slice.input, slice.total)
 				requiredUnits := scaleTaskIntegerSlice(material.RequiredUnits, slice.before, slice.input, slice.total)
-				wipG := minInt64Service(requiredG, availableG[material.ID])
-				wipUnits := minInt64Service(requiredUnits, availableUnits[material.ID])
-				availableG[material.ID] -= wipG
-				availableUnits[material.ID] -= wipUnits
+				wipG := minInt64Service(requiredG, availableG[identity])
+				wipUnits := minInt64Service(requiredUnits, availableUnits[identity])
+				availableG[identity] -= wipG
+				availableUnits[identity] -= wipUnits
 				row := ProductionTaskMaterialReadiness{
-					ReservationID: material.ID, MaterialID: material.MaterialID, MaterialName: material.MaterialName, Unit: material.Unit,
+					ReservationID: material.ID, MaterialID: material.MaterialID, ItemType: material.ItemType, ItemID: material.ItemID,
+					BomSpecID: material.BomSpecID, BomVariantID: material.BomVariantID, SpecG: material.SpecG, MaterialName: material.MaterialName, Unit: material.Unit,
+					OwnerCustomerID: material.OwnerCustomerID, SourceWarehouse: firstNonEmpty(material.SourceWarehouse, "wip"),
 					RequiredG: requiredG, WIPAvailableG: wipG, ShortageG: maxInt64Service(0, requiredG-wipG),
 					RequiredUnits: requiredUnits, WIPAvailableUnits: wipUnits, ShortageUnits: maxInt64Service(0, requiredUnits-wipUnits),
 				}
@@ -4272,6 +4291,60 @@ func applyTaskBatchAndMaterialReadiness(tasks []ProductionTask, cards []JobCardR
 			}
 		}
 	}
+}
+
+func applyPackagingGroupKeys(tasks []ProductionTask, workOrders map[int64]WorkOrderRow, cards []JobCardRow) {
+	cardCounts := map[int64]int{}
+	taskCardCounts := map[[2]int64]int{}
+	for _, card := range cards {
+		if normalizeProductionTaskStatus(card.Status) != "cancelled" {
+			cardCounts[card.WorkOrderID]++
+			taskCardCounts[[2]int64{card.WorkOrderID, int64(card.SequenceNo)}]++
+		}
+	}
+	for i := range tasks {
+		task := &tasks[i]
+		task.PackagingGroupKey = ""
+		if !isPackagingOperation(task.Operation) || task.JobCardID <= 0 || task.WorkOrderID <= 0 || task.PlannedOutputInventoryQty <= 0 || len(task.MaterialReadiness) == 0 || !task.MaterialDataComplete {
+			continue
+		}
+		wo := workOrders[task.WorkOrderID]
+		if (wo.OutputProductID <= 0 && wo.ProductID <= 0) || task.TargetWarehouse == "" {
+			continue
+		}
+		lines := make([]string, 0, len(task.MaterialReadiness))
+		for _, material := range task.MaterialReadiness {
+			perUnitG := float64(material.RequiredG) / task.PlannedOutputInventoryQty
+			perUnitCount := float64(material.RequiredUnits) / task.PlannedOutputInventoryQty
+			itemID := firstNonZeroInt64(material.ItemID, material.MaterialID)
+			lines = append(lines, fmt.Sprintf("%s:%d:%d:%d:%d:%d:%s:%s:%.8f:%.8f", material.ItemType, itemID, material.BomSpecID, material.BomVariantID, material.SpecG, material.OwnerCustomerID, firstNonEmpty(material.SourceWarehouse, "wip"), material.Unit, perUnitG, perUnitCount))
+		}
+		sort.Strings(lines)
+		productID := firstNonZeroInt64(wo.OutputProductID, wo.ProductID)
+		task.PackagingGroupKey = fmt.Sprintf("pack:%d:%d:%s:%s:%d:%s:%s:%s", productID, task.SpecG, task.InventoryUnit, task.TargetWarehouse, task.SequenceNo, strings.TrimSpace(task.Operation), strings.TrimSpace(task.Workstation), strings.Join(lines, ";"))
+		var frozen struct {
+			Operations []struct {
+				Seq           int    `json:"seq"`
+				Operation     string `json:"operation"`
+				ExecutionJSON string `json:"execution_json"`
+			} `json:"operations"`
+		}
+		if json.Unmarshal([]byte(wo.ProcessSnapshotJSON), &frozen) == nil && len(frozen.Operations) == 1 && frozen.Operations[0].Seq == task.SequenceNo && isPackagingOperation(frozen.Operations[0].Operation) && strings.TrimSpace(frozen.Operations[0].ExecutionJSON) == "" {
+			// Clear only the legacy auto-fallback flag. A current, explicitly
+			// frozen execution route was enabled earlier in the overview path.
+			task.AutomaticCompletion = false
+			if cardCounts[task.WorkOrderID] == 1 && (task.Status == "pending" || task.Status == "ready" || task.Status == "released") && task.PlannedInputQty <= 0 && task.ActualInputQty == 0 && task.ActualOutputQty == 0 {
+				task.AutomaticCompletion = true
+			}
+		}
+		if taskCardCounts[[2]int64{task.WorkOrderID, int64(task.SequenceNo)}] != 1 {
+			task.PackagingGroupKey = ""
+		}
+	}
+}
+
+func isPackagingOperation(operation string) bool {
+	return strings.Contains(operation, "包装") || strings.Contains(operation, "分装") || strings.Contains(operation, "装袋") || strings.Contains(operation, "装盒")
 }
 
 func markTaskWaitingForMaterials(task *ProductionTask, rows []ProductionTaskMaterialReadiness, label string) {

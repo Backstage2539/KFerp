@@ -900,7 +900,7 @@ func loadWorkOrderExecutionRowTx(ctx context.Context, tx pgx.Tx, schema string, 
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,work_order_no,running_item_id,production_plan_id,production_plan_item_id,batch_id,
 		       COALESCE(NULLIF(output_type,''),'product'),output_product_id,output_material_id,output_name,output_qty::float8,output_unit,
-		       product_id,bom_spec_id,bom_variant_id,product_name,spec_g,planned_g,COALESCE(NULLIF(planned_output_g,0),planned_g),status,
+		       product_id,bom_spec_id,bom_variant_id,product_name,spec_g,inventory_unit,planned_inventory_qty::float8,planned_g,COALESCE(NULLIF(planned_output_g,0),planned_g),status,
 		       COALESCE(actual_cost,0)::float8,to_char(created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),
 		       COALESCE(order_nos,''),COALESCE(bom_version_id,0),COALESCE(operation_template_id,0),COALESCE(process_template_id,0),COALESCE(process_template_name,''),
 		       COALESCE(process_snapshot_json,'{}'::jsonb)::text,COALESCE(operation_summary_json,'[]'::jsonb)::text,
@@ -912,7 +912,7 @@ func loadWorkOrderExecutionRowTx(ctx context.Context, tx pgx.Tx, schema string, 
 		WHERE id=$1
 	`, schema, schema, schema, schema), id).Scan(&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BatchID,
 		&row.OutputType, &row.OutputProductID, &row.OutputMaterialID, &row.OutputName, &row.OutputQty, &row.OutputUnit,
-		&row.ProductID, &row.BomSpecID, &row.BomVariantID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt, &row.OrderNos, &row.BomVersionID, &row.OperationTemplateID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON, &row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG)
+		&row.ProductID, &row.BomSpecID, &row.BomVariantID, &row.ProductName, &row.SpecG, &row.InventoryUnit, &row.PlannedInventoryQty, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt, &row.OrderNos, &row.BomVersionID, &row.OperationTemplateID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON, &row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG)
 	if err == pgx.ErrNoRows {
 		return productionapp.WorkOrderRow{}, fmt.Errorf("work order not found")
 	}

@@ -19,12 +19,30 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 		return productionapp.ProductionWIPStatus{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	var processSnapshot string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(process_snapshot_json,'{}'::jsonb)::text FROM %s.work_orders WHERE id=$1`, r.schema), workOrderID).Scan(&processSnapshot); err != nil {
+		if err == pgx.ErrNoRows {
+			return productionapp.ProductionWIPStatus{}, fmt.Errorf("work order not found")
+		}
+		return productionapp.ProductionWIPStatus{}, err
+	}
+	var route processTemplateSnapshot
+	if err = json.Unmarshal([]byte(processSnapshot), &route); err != nil {
+		return productionapp.ProductionWIPStatus{}, err
+	}
+	roastingRoute := false
+	for _, operation := range route.Operations {
+		if isRoastingOperationName(operation.Operation) {
+			roastingRoute = true
+			break
+		}
+	}
 
 	hasVersion, err := schemaColumnExistsTx(ctx, tx, r.schema, "production_plans", "picking_version")
 	if err != nil {
 		return productionapp.ProductionWIPStatus{}, err
 	}
-	if hasVersion {
+	if hasVersion && !roastingRoute {
 		modern, err := autoPickingWorkOrderTx(ctx, tx, r.schema, workOrderID)
 		if err != nil {
 			return productionapp.ProductionWIPStatus{}, err
@@ -35,18 +53,18 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 	}
 
 	var wo productionapp.WorkOrderRow
-	var materialSnapshot, processSnapshot string
+	var materialSnapshot, materialBindingsJSON string
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,work_order_no,running_item_id,product_id,product_name,spec_g,
 		       planned_g,COALESCE(NULLIF(planned_output_g,0),planned_g),COALESCE(sales_spec_count,0)::float8,COALESCE(order_nos,''),
 		       status,COALESCE(operation_template_id,0),COALESCE(material_snapshot,'[]'::jsonb)::text,
-		       COALESCE(bom_version_id,0),COALESCE(bom_variant_id,0),COALESCE(process_snapshot_json,'{}'::jsonb)::text
+		       COALESCE(bom_version_id,0),COALESCE(bom_variant_id,0),COALESCE(operation_material_bindings,'{}'::jsonb)::text
 		FROM %s.work_orders
 		WHERE id=$1
 	`, r.schema), workOrderID).Scan(
 		&wo.ID, &wo.WorkOrderNo, &wo.RunningItemID, &wo.ProductID, &wo.ProductName, &wo.SpecG,
 		&wo.PlannedG, &wo.PlannedOutputG, &wo.SalesSpecCount, &wo.OrderNos, &wo.Status, &wo.OperationTemplateID, &materialSnapshot,
-		&wo.BomVersionID, &wo.BomVariantID, &processSnapshot,
+		&wo.BomVersionID, &wo.BomVariantID, &materialBindingsJSON,
 	)
 	if err == pgx.ErrNoRows {
 		return productionapp.ProductionWIPStatus{}, fmt.Errorf("work order not found")
@@ -67,15 +85,13 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 		PlanUnits: plan.Units, PlanLooseG: plan.LooseG, OrderNos: wo.OrderNos,
 		OperationTemplateID: wo.OperationTemplateID, MaterialSnapshot: defaultJSONArray(materialSnapshot),
 	}
-	var route processTemplateSnapshot
-	if err = json.Unmarshal([]byte(processSnapshot), &route); err != nil {
-		return productionapp.ProductionWIPStatus{}, err
-	}
-	roastingRoute := false
-	for _, operation := range route.Operations {
-		if isRoastingOperationName(operation.Operation) {
-			roastingRoute = true
-			break
+	if roastingRoute {
+		var totalInput float64
+		if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(planned_input_qty),0)::float8 FROM %s.job_cards WHERE work_order_id=$1 AND sequence_no=(SELECT MIN(sequence_no) FROM %s.job_cards WHERE work_order_id=$1 AND status<>'cancelled') AND status<>'cancelled'`, r.schema, r.schema), wo.ID).Scan(&totalInput); err != nil {
+			return productionapp.ProductionWIPStatus{}, err
+		}
+		if totalInput > 0 {
+			run.InputG = int64(math.Round(totalInput))
 		}
 	}
 	if roastingRoute && wo.BomVersionID > 0 {
@@ -88,7 +104,11 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 			if resolveErr != nil {
 				return productionapp.ProductionWIPStatus{}, resolveErr
 			}
-			if refresh {
+			eligible, eligibilityErr := r.workOrderBOMRefreshEligibleTx(ctx, tx, wo)
+			if eligibilityErr != nil {
+				return productionapp.ProductionWIPStatus{}, eligibilityErr
+			}
+			if refresh && eligible {
 				raw, marshalErr := json.Marshal(resolved)
 				if marshalErr != nil {
 					return productionapp.ProductionWIPStatus{}, marshalErr
@@ -115,6 +135,23 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 			}, nil
 		}
 	}
+	bindings := map[string]productionapp.OperationMaterialBinding{}
+	if err = json.Unmarshal([]byte(materialBindingsJSON), &bindings); err != nil {
+		return productionapp.ProductionWIPStatus{}, err
+	}
+	for i := range needs {
+		need := &needs[i]
+		if need.ComponentType == "" {
+			need.ComponentType = "material"
+		}
+		if need.MaterialID > 0 && need.Source != "reservation" {
+			if err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(owner_customer_id,0) FROM %s.materials WHERE id=$1`, r.schema), need.MaterialID).Scan(&need.OwnerCustomerID); err != nil {
+				return productionapp.ProductionWIPStatus{}, err
+			}
+		}
+		binding := bindings[operationMaterialKey(need.ComponentType, need.MaterialID, need.ComponentBomSpecID, need.ComponentSpecG)]
+		need.Warehouse = firstNonEmpty(binding.SourceWarehouse, need.Warehouse, "wip")
+	}
 	coverage, err := workOrderWIPCoverageForNeedsTx(ctx, tx, r.schema, workOrderID, needs)
 	if err != nil {
 		return productionapp.ProductionWIPStatus{}, err
@@ -135,7 +172,11 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 		row := productionapp.WIPReservationRow{
 			WorkOrderID: wo.ID, WorkOrderNo: wo.WorkOrderNo, RunningItemID: wo.RunningItemID,
 			ProductName: wo.ProductName, MaterialID: item.Need.MaterialID,
-			MaterialName: item.Need.MaterialName, Unit: item.Need.Unit,
+			ItemType: firstNonEmpty(item.Need.ComponentType, "material"), ItemID: item.Need.MaterialID,
+			BomSpecID: item.Need.ComponentBomSpecID, BomVariantID: item.Need.ComponentBomVariantID,
+			SpecG: item.Need.ComponentSpecG, OwnerCustomerID: item.Need.OwnerCustomerID,
+			SourceWarehouse: firstNonEmpty(item.Need.Warehouse, "wip"),
+			MaterialName:    item.Need.MaterialName, Unit: item.Need.Unit,
 			RequiredG: item.Need.DeductG, RequiredUnits: item.Need.DeductUnits,
 			WIPG: item.WIPG, WIPUnits: item.WIPUnits,
 			AvailableG: item.AvailableG, AvailableUnits: item.AvailableUnits,
@@ -221,12 +262,14 @@ func (r Repository) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int
 func workOrderReservationNeedsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64) ([]materialConsumptionNeed, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT material_id,COALESCE(NULLIF(MAX(material_name),''),concat('material ',material_id)),
-		       COALESCE(NULLIF(MAX(unit),''),'g'),
+		       COALESCE(NULLIF(MAX(unit),''),'g'),COALESCE(NULLIF(component_type,''),'material'),
+		       component_id,component_bom_spec_id,component_bom_variant_id,component_spec_g,
+		       COALESCE(source_owner_customer_id,0),COALESCE(NULLIF(source_warehouse,''),'wip'),
 		       COALESCE(SUM(required_g),0)::bigint,COALESCE(SUM(required_units),0)::bigint
 		FROM %s.work_order_material_reservations
 		WHERE work_order_id=$1
-		GROUP BY material_id
-		ORDER BY material_id
+		GROUP BY material_id,component_type,component_id,component_bom_spec_id,component_bom_variant_id,component_spec_g,source_owner_customer_id,source_warehouse
+		ORDER BY material_id,component_bom_spec_id,component_bom_variant_id,component_spec_g
 	`, schema), workOrderID)
 	if err != nil {
 		return nil, err
@@ -235,8 +278,16 @@ func workOrderReservationNeedsTx(ctx context.Context, tx pgx.Tx, schema string, 
 	needs := make([]materialConsumptionNeed, 0)
 	for rows.Next() {
 		var need materialConsumptionNeed
-		if err := rows.Scan(&need.MaterialID, &need.MaterialName, &need.Unit, &need.DeductG, &need.DeductUnits); err != nil {
+		if err := rows.Scan(&need.MaterialID, &need.MaterialName, &need.Unit, &need.ComponentType, &need.ComponentProductID, &need.ComponentBomSpecID, &need.ComponentBomVariantID, &need.ComponentSpecG, &need.OwnerCustomerID, &need.Warehouse, &need.DeductG, &need.DeductUnits); err != nil {
 			return nil, err
+		}
+		if need.ComponentType == "" {
+			need.ComponentType = "material"
+		}
+		need.Source = "reservation"
+		if need.ComponentType == "finished_product" || need.ComponentType == "product" {
+			need.ComponentType = "finished_product"
+			need.ComponentProductID = need.MaterialID
 		}
 		if need.MaterialID > 0 && (need.DeductG > 0 || need.DeductUnits > 0) {
 			needs = append(needs, need)

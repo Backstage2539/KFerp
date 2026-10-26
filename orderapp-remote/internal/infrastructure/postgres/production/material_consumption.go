@@ -17,6 +17,8 @@ type materialConsumptionNeed struct {
 	MaterialID            int64
 	MaterialName          string
 	Unit                  string
+	OwnerCustomerID       int64
+	Warehouse             string
 	Qty                   int64
 	QtyDecimal            float64
 	DeductG               int64
@@ -1016,6 +1018,7 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			MaterialID:            row.MaterialID,
 			MaterialName:          strings.TrimSpace(row.MaterialName),
 			Unit:                  unit,
+			Warehouse:             stockdomain.WarehouseWIP,
 			Qty:                   qty,
 			QtyDecimal:            qtyDecimal,
 			DeductG:               deductG,
@@ -1111,12 +1114,20 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 		return nil, err
 	}
 	rows := make([]workOrderWIPNeedCoverage, 0)
+	type sharedStockBudget struct {
+		wipG, wipUnits, availableG, availableUnits int64
+	}
+	stockBudgets := map[string]sharedStockBudget{}
 	for _, need := range aggregateMaterialConsumptionNeeds(needs) {
 		if need.Source == "finished_product" || need.ComponentType == "finished_product" {
 			continue
 		}
 		if need.MaterialID <= 0 || (need.DeductG <= 0 && need.DeductUnits <= 0) {
 			continue
+		}
+		warehouse := strings.TrimSpace(need.Warehouse)
+		if warehouse == "" {
+			warehouse = stockdomain.WarehouseWIP
 		}
 		var wipG, wipUnits int64
 		if hasLocationUnits && hasBatchRemainingUnits {
@@ -1126,20 +1137,21 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 				JOIN %s.material_batches b ON b.id=l.material_batch_id
 				WHERE l.material_id=$1
 				  AND l.warehouse=$2
+				  AND COALESCE(b.owner_customer_id,0)=$3
 				  AND (l.qty_g > 0 OR l.qty_units > 0)
 				  AND b.status='active'
 				  AND (b.remaining_g > 0 OR b.remaining_units > 0)
 				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-			`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&wipG, &wipUnits)
+			`, schema, schema), need.MaterialID, warehouse, need.OwnerCustomerID).Scan(&wipG, &wipUnits)
 		} else {
 			err = tx.QueryRow(ctx, fmt.Sprintf(`
 				SELECT COALESCE(SUM(l.qty_g),0)::bigint
 				FROM %s.material_batch_locations l
 				JOIN %s.material_batches b ON b.id=l.material_batch_id
-				WHERE l.material_id=$1 AND l.warehouse=$2 AND l.qty_g>0
+				WHERE l.material_id=$1 AND l.warehouse=$2 AND COALESCE(b.owner_customer_id,0)=$3 AND l.qty_g>0
 				  AND b.status='active' AND b.remaining_g>0
 				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-			`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&wipG)
+			`, schema, schema), need.MaterialID, warehouse, need.OwnerCustomerID).Scan(&wipG)
 			wipUnits = 0
 		}
 		if err != nil {
@@ -1154,23 +1166,30 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 					FROM %s.work_order_material_reservations r
 					JOIN %s.work_orders wo ON wo.id=r.work_order_id
 					WHERE r.material_id=$1 AND r.status='reserved'
+					  AND COALESCE(NULLIF(r.source_warehouse,''),$3)=$3
+					  AND COALESCE(r.source_owner_customer_id,0)=$4
 					  AND wo.status IN ('released','running','partially_completed','paused')
 					  AND ($2::bigint=0 OR r.work_order_id<>$2)
-				`, schema, schema), need.MaterialID, workOrderID).Scan(&otherReservedG, &otherReservedUnits)
+				`, schema, schema), need.MaterialID, workOrderID, warehouse, need.OwnerCustomerID).Scan(&otherReservedG, &otherReservedUnits)
 			} else {
 				err = tx.QueryRow(ctx, fmt.Sprintf(`
 					SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint,
 					       COALESCE(SUM(GREATEST(0,reserved_units-consumed_units-returned_units)),0)::bigint
 					FROM %s.work_order_material_reservations
-					WHERE material_id=$1 AND status='reserved' AND ($2::bigint=0 OR work_order_id<>$2)
-				`, schema), need.MaterialID, workOrderID).Scan(&otherReservedG, &otherReservedUnits)
+					WHERE material_id=$1 AND status='reserved'
+					  AND COALESCE(NULLIF(source_warehouse,''),$3)=$3
+					  AND COALESCE(source_owner_customer_id,0)=$4
+					  AND ($2::bigint=0 OR work_order_id<>$2)
+				`, schema), need.MaterialID, workOrderID, warehouse, need.OwnerCustomerID).Scan(&otherReservedG, &otherReservedUnits)
 			}
 		} else {
 			err = tx.QueryRow(ctx, fmt.Sprintf(`
 				SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint
 				FROM %s.work_order_material_reservations
 				WHERE material_id=$1 AND status='reserved'
-			`, schema), need.MaterialID).Scan(&otherReservedG)
+				  AND COALESCE(NULLIF(source_warehouse,''),$2)=$2
+				  AND COALESCE(source_owner_customer_id,0)=$3
+			`, schema), need.MaterialID, warehouse, need.OwnerCustomerID).Scan(&otherReservedG)
 			otherReservedUnits = 0
 		}
 		if err != nil {
@@ -1185,12 +1204,12 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 					FROM %s.customer_processing_material_reservations r
 					WHERE r.material_id=$1 AND r.component_type<>'finished_product' AND r.status='reserved'
 					  AND ($2::bigint=0 OR r.work_order_id<>$2)
-					  AND (r.material_batch_id>0 OR r.source_warehouse_code=$3)
+					  AND r.source_warehouse_code=$3
 					  AND NOT EXISTS (
 						SELECT 1 FROM %s.work_order_material_reservations wr
 						WHERE wr.work_order_id=r.work_order_id AND wr.material_id=r.material_id AND wr.status='reserved'
 					  )
-				`, schema, schema), need.MaterialID, workOrderID, stockdomain.WarehouseWIP).Scan(&customerReservedG, &customerReservedUnits)
+				`, schema, schema), need.MaterialID, workOrderID, warehouse).Scan(&customerReservedG, &customerReservedUnits)
 			} else {
 				err = tx.QueryRow(ctx, fmt.Sprintf(`
 					SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint,
@@ -1198,8 +1217,8 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 					FROM %s.customer_processing_material_reservations
 					WHERE material_id=$1 AND component_type<>'finished_product' AND status='reserved'
 					  AND ($2::bigint=0 OR work_order_id<>$2)
-					  AND (material_batch_id>0 OR source_warehouse_code=$3)
-				`, schema), need.MaterialID, workOrderID, stockdomain.WarehouseWIP).Scan(&customerReservedG, &customerReservedUnits)
+					  AND source_warehouse_code=$3
+				`, schema), need.MaterialID, workOrderID, warehouse).Scan(&customerReservedG, &customerReservedUnits)
 			}
 			if err != nil {
 				return nil, err
@@ -1213,35 +1232,45 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 				err = tx.QueryRow(ctx, fmt.Sprintf(`
 					SELECT COALESCE(SUM(consumed_g),0)::bigint,COALESCE(SUM(consumed_units),0)::bigint
 					FROM %s.work_order_material_reservations
-					WHERE work_order_id=$1 AND material_id=$2
-				`, schema), workOrderID, need.MaterialID).Scan(&currentConsumedG, &currentConsumedUnits)
+					WHERE work_order_id=$1 AND material_id=$2 AND component_bom_spec_id=$3 AND component_bom_variant_id=$4 AND component_spec_g=$5
+				`, schema), workOrderID, need.MaterialID, need.ComponentBomSpecID, need.ComponentBomVariantID, need.ComponentSpecG).Scan(&currentConsumedG, &currentConsumedUnits)
 			} else {
 				err = tx.QueryRow(ctx, fmt.Sprintf(`
 					SELECT COALESCE(SUM(consumed_g),0)::bigint
 					FROM %s.work_order_material_reservations
-					WHERE work_order_id=$1 AND material_id=$2
-				`, schema), workOrderID, need.MaterialID).Scan(&currentConsumedG)
+					WHERE work_order_id=$1 AND material_id=$2 AND component_bom_spec_id=$3 AND component_bom_variant_id=$4 AND component_spec_g=$5
+				`, schema), workOrderID, need.MaterialID, need.ComponentBomSpecID, need.ComponentBomVariantID, need.ComponentSpecG).Scan(&currentConsumedG)
 			}
 			if err != nil {
 				return nil, err
 			}
 		}
-		availableG := wipG - otherReservedG
-		if availableG < 0 {
-			availableG = 0
+		availableG := maxInt64(0, wipG-otherReservedG)
+		availableUnits := maxInt64(0, wipUnits-otherReservedUnits)
+		stockKey := fmt.Sprintf("%s:%d:%d:%s:%s", normalizeBomComponentType(need.ComponentType), need.MaterialID, need.OwnerCustomerID, warehouse, strings.ToLower(strings.TrimSpace(need.Unit)))
+		budget, hasBudget := stockBudgets[stockKey]
+		if !hasBudget {
+			budget = sharedStockBudget{wipG: wipG, wipUnits: wipUnits, availableG: availableG, availableUnits: availableUnits}
 		}
-		availableUnits := wipUnits - otherReservedUnits
-		if availableUnits < 0 {
-			availableUnits = 0
-		}
+		allocatedWIPG := minInt64(need.DeductG, budget.wipG)
+		allocatedWIPUnits := minInt64(need.DeductUnits, budget.wipUnits)
+		remainingNeedG := maxInt64(0, need.DeductG-currentConsumedG)
+		remainingNeedUnits := maxInt64(0, need.DeductUnits-currentConsumedUnits)
+		allocatedAvailableG := minInt64(remainingNeedG, budget.availableG)
+		allocatedAvailableUnits := minInt64(remainingNeedUnits, budget.availableUnits)
+		budget.wipG -= allocatedWIPG
+		budget.wipUnits -= allocatedWIPUnits
+		budget.availableG -= allocatedAvailableG
+		budget.availableUnits -= allocatedAvailableUnits
+		stockBudgets[stockKey] = budget
 		row := workOrderWIPNeedCoverage{
-			Need: need, WIPG: wipG, WIPUnits: wipUnits,
+			Need: need, WIPG: allocatedWIPG, WIPUnits: allocatedWIPUnits,
 			CurrentConsumedG: currentConsumedG, CurrentConsumedUnits: currentConsumedUnits,
 			OtherReservedG: otherReservedG, OtherReservedUnits: otherReservedUnits,
-			AvailableG: availableG, AvailableUnits: availableUnits,
+			AvailableG: allocatedAvailableG, AvailableUnits: allocatedAvailableUnits,
 		}
-		row.ShortageG = workOrderRemainingWIPShortage(need.DeductG, currentConsumedG, availableG)
-		row.ShortageUnits = workOrderRemainingWIPShortage(need.DeductUnits, currentConsumedUnits, availableUnits)
+		row.ShortageG = workOrderRemainingWIPShortage(need.DeductG, currentConsumedG, allocatedAvailableG)
+		row.ShortageUnits = workOrderRemainingWIPShortage(need.DeductUnits, currentConsumedUnits, allocatedAvailableUnits)
 		rows = append(rows, row)
 	}
 	return rows, nil
@@ -1619,13 +1648,19 @@ func aggregateMaterialConsumptionNeeds(needs []materialConsumptionNeed) []materi
 		if need.MaterialID <= 0 {
 			continue
 		}
-		key := fmt.Sprintf("%s:%d:%d:%d", normalizeBomComponentType(need.ComponentType), need.MaterialID, need.ComponentBomSpecID, need.ComponentSpecG)
+		warehouse := strings.TrimSpace(need.Warehouse)
+		if warehouse == "" {
+			warehouse = stockdomain.WarehouseWIP
+		}
+		key := fmt.Sprintf("%s:%d:%d:%d:%d:%d:%s:%s", normalizeBomComponentType(need.ComponentType), need.MaterialID, need.ComponentBomSpecID, need.ComponentBomVariantID, need.ComponentSpecG, need.OwnerCustomerID, warehouse, strings.ToLower(strings.TrimSpace(need.Unit)))
 		row, ok := byMaterial[key]
 		if !ok {
 			row = materialConsumptionNeed{
 				MaterialID:            need.MaterialID,
 				MaterialName:          need.MaterialName,
 				Unit:                  need.Unit,
+				OwnerCustomerID:       need.OwnerCustomerID,
+				Warehouse:             warehouse,
 				RatioPct:              need.RatioPct,
 				Source:                need.Source,
 				ComponentType:         need.ComponentType,

@@ -411,8 +411,8 @@ test('a task missing from the selected queue is resolved from its real status an
 test('roasting completion shows the refreshed published BOM version and returns to the focused workstation', () => {
   const source = readFileSync(new URL('../components/OperationCompletionForm.vue', import.meta.url), 'utf8')
   assert.match(source, /preview\.bom_refresh_pending/)
-  assert.match(source, /preview\.effective_bom_version_id/)
-  assert.match(source, /preview\.original_bom_version_id/)
+  assert.match(source, /preview\.effective_bom_version_no/)
+  assert.match(source, /preview\.original_bom_version_no/)
   assert.match(source, /returnNavigation:\{key:'workstationView'/)
   assert.match(source, /params:\{\.\.\.props\.returnParams\}/)
 })

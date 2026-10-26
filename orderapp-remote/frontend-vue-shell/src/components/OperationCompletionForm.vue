@@ -7,9 +7,9 @@
       <div class="identity"><strong>{{ preview.product_name }}</strong><span>规格：{{ preview.package_spec_label || '无包装规格' }}</span><span>{{ preview.execution?.receipt_enabled ? '完成后入库' : '交接位置' }}：{{ preview.warehouse_name }}</span></div>
       <div v-if="preview.blocked_reason" class="blocked" role="alert">
         <p>{{ preview.blocked_reason }}</p>
-        <button v-if="preview.bom_id" type="button" @click="openBom">去 BOM 补齐配料</button>
+        <button v-if="preview.blocked_code === 'bom_incomplete' && preview.bom_id" type="button" @click="openBom">去 BOM 补齐配料</button>
       </div>
-      <p v-if="preview.bom_refresh_pending" class="hint" role="status">本工单尚无实际耗料，将在首次完成时接入已发布的完整配方（V{{ preview.effective_bom_version_id }}；原冻结 V{{ preview.original_bom_version_id }}）。</p>
+      <p v-if="preview.bom_refresh_pending" class="hint" role="status">本工单尚无实际耗料，将在首次完成时接入已发布的完整配方（{{ preview.effective_bom_version_no }}；原冻结 {{ preview.original_bom_version_no }}）。</p>
       <fieldset :disabled="busy || retry.uncertain || !!success || !!preview.blocked_reason">
         <label>{{ completionQuantityLabel(preview.output_unit) }}
           <input v-model="draft.actual_output_qty" type="number" min="0" :step="weightUnit(preview.output_unit) ? 'any' : '1'" />
