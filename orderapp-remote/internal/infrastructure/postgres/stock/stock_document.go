@@ -2173,6 +2173,9 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 		return err
 	}
 	canonical := item.BomSpecID > 0
+	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG); err != nil {
+		return err
+	}
 	totalG, units, looseG := int64(0), item.QtyUnits, int64(0)
 	if !canonical {
 		specG := item.SpecG

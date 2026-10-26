@@ -46,7 +46,7 @@ ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NUL
 ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS stock_batches_source_uq
 	ON %s.stock_batches(source_doc_type, source_doc_id, item_type, item_id, bom_spec_id, spec_g)
-	WHERE source_doc_type <> '';
+	WHERE source_doc_type <> '' AND source_doc_type <> 'manual_adjustment';
 CREATE INDEX IF NOT EXISTS stock_batches_item_idx
 	ON %s.stock_batches(item_type, item_id, bom_spec_id, spec_g, created_at DESC);
 
@@ -92,7 +92,7 @@ CREATE INDEX IF NOT EXISTS stock_ledger_item_idx
 		fmt.Sprintf(`ALTER TABLE %s.stock_ledger_entries ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_ledger_entries ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`DROP INDEX IF EXISTS %s.stock_batches_source_uq`, schema),
-		fmt.Sprintf(`CREATE UNIQUE INDEX stock_batches_source_uq ON %s.stock_batches(source_doc_type,source_doc_id,item_type,item_id,bom_spec_id,spec_g) WHERE source_doc_type<>''`, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX stock_batches_source_uq ON %s.stock_batches(source_doc_type,source_doc_id,item_type,item_id,bom_spec_id,spec_g) WHERE source_doc_type<>'' AND source_doc_type<>'manual_adjustment'`, schema),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS stock_batches_quality_idx ON %s.stock_batches(item_type, quality_status, batch_code)`, schema),
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
