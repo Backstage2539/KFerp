@@ -66,11 +66,14 @@
 - Branch: `codex/workstation-clickthrough-final`, based on latest `origin/develop@896b4f8ca133bc7594dacc914df0a852d4ae65e2`.
 - Scope: 修复包装旧冻结变体入库身份校验与挂耳包装齐套需求低估；按用户要求先逐工位点击收集问题，修复后再部署开发。
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-development-workstation-clickthrough.md`。
-- RED/GREEN: 两个定向隔离 PostgreSQL 回归用例均先失败后通过；`production`、`productspecmigration` Go 包通过；`go build ./...`、`git diff --check` 通过。全量 Go 测试有 7 个 appmain 既有 fixture 错误（缺 `logistics_weight_g`），运行因本机空间不足中止，不记全绿。
-- Status: 实施与定向验证完成；等待分支推送、合入最新 `develop`、开发部署及部署后逐卡点验。未触及生产。
+- RED/GREEN: 两个定向隔离 PostgreSQL 回归用例均先失败后通过；`production`、`productspecmigration` Go 包通过；`go build ./...`、`git diff --check` 通过。随后 `scripts/verify_kferp.sh backend` 全 Go 包通过；开发部署门禁 Vue 1626/1626、Vite、miniapp 432/432/typecheck/build、Go 全包及 Docker 构建通过。
+- Status: 已合入 `develop@44d62840854438e8d6d7f54d753872ed5403db42` 并部署开发环境；部署后浏览器再次逐工位核验。生产未访问、未写入、未部署。
 - 本轮补充修复：历史包装完工库存身份由精确来源工序事件关联至冻结工单变体；挂耳旧单 WIP 需求按冻结 `planned_inventory_qty`/库存单位计算；开工时为缺少批次关联的本单预留锁定实物库存并留操作日志。三处均有先失败后通过的隔离 PostgreSQL 回归。
-- 验证更新：隔离 `production`、`productspecmigration` 与完成 API 定向测试通过；最新 `scripts/verify_kferp.sh backend` 全部 Go 包通过；前端无代码变更，基线 Vue 1626 项和 Vite 构建已通过。开发部署后按钮验收仍待执行；真实未分配工位卡57的13.327kg WIP缺口、工位/排班信息须现场处理。
-- 当前分支尚未集成或部署，生产环境仍只读；最终状态以部署后逐卡单据及库存/操作日志只读核对为准。
+- 验证更新：最后发现的未包装规格克重商品入库回归先 RED 后 GREEN；kg/无包装规格按克记账，混合袋数和重量仍拒绝。生产 API 重试只生成一笔 5,600g 入库及一条操作事件；后端全量验证通过。
+- 部署：`develop@44d62840854438e8d6d7f54d753872ed5403db42`；开发备份 `/opt/stacks/erp/orderapp.backup.deploy-20261026162938-44d628408544`；回滚镜像 `kferp-orderapp-rollback:development-20261026162938-44d628408544`；开发登录页 HTTP 200，数据库及其余服务未重建。磁盘预检有 16GB 可用，未清理缓存或数据。
+- 部署后浏览器：点击 `WO-PP-0000000114-0000000110` 的“确认数量并入库”，成功将系统已记录的 **17kg** 入成品仓，生成单据 116；列表显示的 21kg 是工单目标量，不是本次实际完工量。成功提示明确旧工序耗料流水未完整匹配，本次只入已记录产出、没有再次扣料；该行从“未结束”列表消失。
+- 八工位点击结果：包装 `WO-PP-0000000114-0000000111` 完成 11 袋，单据 110/111；布勒两批完成；PR-616 的研磨/挂耳包装/盒装包装按依赖先后完成，库存单据 112–115。修复后重新检查工位视图，没有剩余可直接合法执行的活动卡。卡 57 尚未开工，缺孟连水洗A 13.327kg，未指定唯一烘焙工位且今日无人排班；无法安全替现场选设备、备料或排班。其他历史待入库行目标仓未设置，不猜仓、不代办。
+- 当前结论：本轮开发环境可直接执行的工位操作和已记录完工入库均已通过浏览器点击；剩余项目是明确的现场物料/工位/排班或目标仓信息待补，不属于可由程序安全自动完成的工作。完整“下单→生产计划→烘焙→包装→入库→发货”端到端新建单据流程未在本轮验收；生产环境保持只读且未部署。
 
 
 ### PR-713-FULFILLMENT-RECIPIENT-EDIT
