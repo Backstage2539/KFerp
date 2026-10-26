@@ -436,10 +436,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-736-FROZEN-RECEIPT-ALLOCATION
-- Branch: `codex/production-followup-live-blockers`; base `origin/develop@dd603e05`.
+- Branches: `codex/production-followup-live-blockers` (first production patch); `codex/production-frozen-dropship-allocation` (follow-up), based on `origin/develop@1acd4452`.
 - Scope: user-reported recorded-output receipt and legacy packaging completion blocked at retained-stock allocation; single-card legacy buttons still shown.
-- Status: targeted PostgreSQL/API and Vue rendered RED/GREEN complete; final release gates and production follow-up pending.
+- Status: first patch deployed at production `fc96f672`, then four retained-output API attempts still hit the same guard because downstream reserved order lines had moved to a newer published variant. This follow-up now reproduces and fixes that exact cross-version reservation case in isolated PostgreSQL/API tests; integration/development/production release pending. Van acceptance remains pending.
 - Verification: `TestFrozenProductionReceiptConvertsRetainedSupplyAfterBOMRepublish`, current variant guard, adjacent legacy receipt tests, `workstation-legacy-packaging-runtime.test.js`; no production business writes.
+- Follow-up verifier: updated the API fixture so the historical source order retains its frozen variant while the exact reserved dropship line uses the republished current variant; RED reproduced `bom_variant_not_current`, GREEN now passes both recorded receipt and legacy completion paths. Repeated-request, rollback, nonzero-cost and 12 mismatch checks remain in the test.
+- DEV: DEV-PR736-03-REPUBLISHED-DROPSHIP-IDENTITY.
 - Evidence: `orderapp-remote/docs/acceptance/2026-10-26-frozen-receipt-allocation.md`.
 - Last update: 2026-10-26.
 

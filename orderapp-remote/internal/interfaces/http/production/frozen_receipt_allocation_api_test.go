@@ -49,6 +49,9 @@ UPDATE %[1]s.production_bom_versions SET status='archived' WHERE id=100;
 INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,output_qty,output_unit) VALUES(902,100,'V2','published',1,'袋');
 INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default) VALUES(902,902,900,'新版同规格','袋',true);
 UPDATE %[1]s.production_bom_output_bindings SET bom_version_id=902 WHERE output_type='product' AND output_id=1;
+-- The retained sale is still frozen at V1, while its reserved dropship line
+-- has since adopted the newly published V2 identity for the same spec.
+UPDATE %[1]s.order_items SET bom_variant_id=902 WHERE id=73602;
 `, schema))
 			if err := productspecmigration.EnsureAuthorityProjection(ctx, pool, schema); err != nil {
 				t.Fatal(err)

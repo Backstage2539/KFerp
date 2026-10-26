@@ -4,7 +4,7 @@
 
 - 生产只读核对：工单 `WO-PP-0000000012-0000000060` 冻结 `product 7 / spec 20 / variant 559 / BOM 409`，各项相互匹配；当前 BOM 为 553。该工单旧完工记录为14袋，本次不修改实际产出。
 - `包装 / 曜石2.0`（工单末尾58，工序卡16）的 `product 58 / spec 68 / variant 1166 / BOM 552` 也为匹配的历史冻结身份。
-- PostgreSQL 错误语句证明，两条路径均在入库后转换代发预订、写入 `order_stock_batch_allocations` 时被当前版本校验阻断。原有入库保护并未覆盖这一步；不是本次合并丢失旧工单规格。前一张工单在18:49已有同接口失败记录。
+- PostgreSQL 错误语句证明，两条路径均在入库后转换代发预订、写入 `order_stock_batch_allocations` 时被当前版本校验阻断。第一次补丁仅适用于预留行与来源库存版本相同的场景。
 - 工位页面源码在开发、生产、远端 develop 中相同；相关工作区没有未提交的页面改动。单张已开工旧包装卡未匹配简化条件，且只有一张来源卡时不会显示包装组，因而回退到旧动作。页面渲染回归已复现。
 
 ## 修复和验证
@@ -16,9 +16,11 @@
 - [x] 错订单、订单行、批次、批次编号、规格克数及货主共12种分配负例，在两条 API 场景均拒绝；入库成本为非零并落在对应成本表与库存单。
 - [x] 页面实际 Vue 渲染测试 RED/GREEN，现行数据库规格保护及相邻入库回归通过。
 - [x] 完整 Go（默认模式）、Vue 1,630/1,630、Vite 和 changed 检查通过；显式 PostgreSQL 相邻入库、现行规格保护及留厂预订转实物库存回归通过。
-- [ ] 正式服务器构建、生产部署与只读运行证据待补。
+- [ ] 后续更正：首次发布后真实的四个完工/入库请求仍报同一错误。只读错误日志指向 `order_stock_batch_allocations`。来源留厂订单冻结版本仍匹配，但其四条已预留代发订单行在新 BOM 发布后分别变为 variant `1185/1186/1205/1206`，与实物批次的历史 variant 不同；订单、商品、规格、克数、批次货主均对应。失败请求回滚，读取时权益收货量仍为0，预留转换量仍为0。
+- [x] 隔离 PostgreSQL/API 的二次 RED/GREEN：在保持来源销售行和物理批次为 V1 的同时，将目标预留代发订单行切到同规格的已发布 V2；直接入库和单张旧包装完成先复现相同 SQLSTATE 23514，再通过新授权路径完成。只在精确收货记录、来源权益、运行工单、来源订单、未转换预留、目标订单行、实际批次和货主形成完整关联时接受跨版本调拨；现行规格身份 guard 与所有原错配负例继续拒绝。
+- [ ] 二次补丁正式服务器构建、生产部署与只读运行证据待补。
 - [ ] Van 现场业务验收。
 
-证据目录：`/Users/yiiiple-work/.codex/worktrees/production-followup-release/evidence/`，包括 `production-followup-issues-readonly.json`、两个 `production-*-error-context.txt`、`live-packaging-ui-{red,green}.log`、`live-frozen-receipt-{red,green,regression}.log`、`live-identity-guard-regression.log`。
+证据目录：`/Users/yiiiple-work/.codex/worktrees/production-followup-release/evidence/`，包括 `production-followup-issues-readonly.json`、`production-new-variant-errors-readonly.json`、`live-packaging-ui-{red,green}.log`、`live-frozen-receipt-{red,green,regression}.log`、`live-frozen-dropship-red.log`、`live-frozen-dropship-green-attempt1.log`。
 
 生产仅进行只读诊断；未替用户点击确认完成或入库，未修改现场工单、历史数量或库存。原发布记录中的其他既有失败边界不因此关闭。

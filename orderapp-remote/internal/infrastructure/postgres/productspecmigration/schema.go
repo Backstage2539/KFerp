@@ -344,9 +344,11 @@ BEGIN
 				  AND running_item.bom_variant_id=business_bom_variant_id
 			) INTO frozen_production_identity_derived;
 		ELSIF TG_TABLE_NAME IN ('order_stock_batch_allocations','customer_direct_ship_request_allocations') THEN
-			-- Receipt of retained production can fulfill an already-frozen
-			-- dropship after BOM republish. Preserve that identity only when
-			-- both the exact order line and the physical batch prove it.
+			-- Receipt of retained production can fulfill a dropship reserved
+			-- against that retained sale after BOM republish. Keep the ordinary
+			-- exact-order-line path, then allow a different destination variant
+			-- only when a posted-in-transaction receipt links that precise batch,
+			-- frozen entitlement, production run and open reservation.
 			production_source_id := COALESCE(NULLIF(to_jsonb(NEW)->>'order_item_id','')::bigint,0);
 			SELECT EXISTS (
 				SELECT 1
@@ -356,8 +358,8 @@ BEGIN
 				  ON source_batch.id=COALESCE(NULLIF(to_jsonb(NEW)->>'batch_id','')::bigint,0)
 				 AND source_batch.item_type='finished_product'
 				 AND source_batch.item_id=source_item.product_id
-				 AND source_batch.bom_spec_id=source_item.bom_spec_id
-				 AND source_batch.bom_variant_id=source_item.bom_variant_id
+				 AND source_batch.bom_spec_id=business_bom_spec_id
+				 AND source_batch.bom_variant_id=business_bom_variant_id
 				WHERE source_item.id=production_source_id
 				  AND source_item.order_id=COALESCE(NULLIF(to_jsonb(NEW)->>'order_id','')::bigint,0)
 				  AND source_item.product_id=business_product_id
@@ -367,6 +369,75 @@ BEGIN
 				  AND source_batch.spec_g=COALESCE(NULLIF(to_jsonb(NEW)->>'spec_g','')::bigint,0)
 				  AND source_batch.owner_customer_id=COALESCE((to_jsonb(source_order)->>'customer_id')::bigint,0)
 			) INTO frozen_production_identity_derived;
+			IF NOT frozen_production_identity_derived
+			   AND to_regclass('%[1]s.customer_stock_supply_reservations') IS NOT NULL
+			   AND to_regclass('%[1]s.customer_stock_entitlement_receipts') IS NOT NULL
+			   AND to_regclass('%[1]s.customer_stock_entitlements') IS NOT NULL THEN
+				SELECT EXISTS (
+					SELECT 1
+					FROM %[1]s.order_items destination_item
+					JOIN %[1]s.orders destination_order ON destination_order.id=destination_item.order_id
+					JOIN %[1]s.stock_batches source_batch
+					  ON source_batch.id=COALESCE(NULLIF(to_jsonb(NEW)->>'batch_id','')::bigint,0)
+					 AND source_batch.item_type='finished_product'
+					 AND source_batch.item_id=business_product_id
+					 AND source_batch.bom_spec_id=business_bom_spec_id
+					 AND source_batch.bom_variant_id=business_bom_variant_id
+					 AND source_batch.batch_code=COALESCE(to_jsonb(NEW)->>'batch_code','')
+					 AND source_batch.spec_g=COALESCE(NULLIF(to_jsonb(NEW)->>'spec_g','')::bigint,0)
+					JOIN %[1]s.customer_stock_supply_reservations supply_reservation
+					  ON supply_reservation.order_id=destination_order.id
+					 AND supply_reservation.order_item_id=destination_item.id
+					 AND supply_reservation.request_id=COALESCE(NULLIF(to_jsonb(NEW)->>'request_id','')::bigint,0)
+					 AND supply_reservation.status IN ('reserved','partially_converted')
+					 AND supply_reservation.reserved_qty>supply_reservation.converted_qty+supply_reservation.released_qty
+					JOIN %[1]s.customer_stock_entitlements entitlement
+					  ON entitlement.id=supply_reservation.entitlement_id
+					 AND entitlement.customer_id=source_batch.owner_customer_id
+					 AND entitlement.product_id=business_product_id
+					 AND entitlement.bom_spec_id=business_bom_spec_id
+					 AND entitlement.bom_variant_id=business_bom_variant_id
+					 AND entitlement.spec_g=source_batch.spec_g
+					 AND entitlement.warehouse_code=COALESCE(NULLIF(to_jsonb(NEW)->>'warehouse',''),to_jsonb(NEW)->>'warehouse_code','')
+					 AND entitlement.status='active'
+					JOIN %[1]s.customer_stock_entitlement_receipts entitlement_receipt
+					  ON entitlement_receipt.entitlement_id=entitlement.id
+					 AND entitlement_receipt.stock_batch_id=source_batch.id
+					 AND entitlement_receipt.batch_code=source_batch.batch_code
+					 AND entitlement_receipt.warehouse_code=entitlement.warehouse_code
+					 AND entitlement_receipt.quantity>0
+					JOIN %[1]s.orders retained_order
+					  ON retained_order.id=entitlement.source_order_id
+					 AND retained_order.customer_id=entitlement.customer_id
+					 AND NOT retained_order.is_void
+					JOIN %[1]s.order_items retained_item
+					  ON retained_item.order_id=retained_order.id
+					 AND retained_item.product_id=entitlement.product_id
+					 AND retained_item.bom_spec_id=entitlement.bom_spec_id
+					 AND retained_item.bom_variant_id=entitlement.bom_variant_id
+					JOIN %[1]s.produce_running_items producing_run
+					  ON producing_run.id=entitlement_receipt.running_item_id
+				 AND producing_run.product_id=entitlement.product_id
+				 AND producing_run.bom_spec_id=entitlement.bom_spec_id
+				 AND producing_run.bom_variant_id=entitlement.bom_variant_id
+				JOIN %[1]s.work_orders producing_order
+				  ON producing_order.batch_id=producing_run.batch_id
+				 AND producing_order.product_id=entitlement.product_id
+				 AND producing_order.bom_spec_id=entitlement.bom_spec_id
+				 AND producing_order.bom_variant_id=entitlement.bom_variant_id
+				WHERE destination_item.id=production_source_id
+				  AND destination_item.order_id=COALESCE(NULLIF(to_jsonb(NEW)->>'order_id','')::bigint,0)
+				  AND destination_item.product_id=business_product_id
+				  AND destination_item.bom_spec_id=business_bom_spec_id
+				  AND destination_order.customer_id=entitlement.customer_id
+				  AND retained_order.order_no=ANY(regexp_split_to_array(btrim(COALESCE(producing_order.order_nos,'')),'[[:space:]]*,[[:space:]]*'))
+				  AND retained_item.qty>=entitlement.promised_qty
+				  AND entitlement.received_qty>=entitlement_receipt.quantity
+				  AND COALESCE(NULLIF(to_jsonb(NEW)->>'allocated_units','')::bigint,NULLIF(to_jsonb(NEW)->>'allocated_qty','')::bigint,0)>0
+				  AND COALESCE(NULLIF(to_jsonb(NEW)->>'allocated_units','')::bigint,NULLIF(to_jsonb(NEW)->>'allocated_qty','')::bigint,0)<=entitlement_receipt.quantity
+				  AND COALESCE(NULLIF(to_jsonb(NEW)->>'allocated_units','')::bigint,NULLIF(to_jsonb(NEW)->>'allocated_qty','')::bigint,0)<=supply_reservation.reserved_qty-supply_reservation.converted_qty-supply_reservation.released_qty
+			) INTO frozen_production_identity_derived;
+			END IF;
 		ELSIF TG_TABLE_NAME='finished_inventory' THEN
 			-- Aggregate inventory has no source-document columns. Production receipt
 			-- code supplies a transaction-local work-order id only for the duration
