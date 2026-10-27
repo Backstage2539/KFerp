@@ -11,11 +11,11 @@ import ProductPicker from '../components/ProductFamilyPickerSheet.vue'
 import { useCustomerOrderDraftStore } from '../stores/customerOrderDraft'
 import { createDirectShipDraftLine, selectDirectShipDraftProduct } from './directShipDraft'
 
-const api = vi.hoisted(() => ({ assets: vi.fn(), stock: vi.fn(), directCatalog: vi.fn(), productCatalog: vi.fn(), recipients: vi.fn(), previewProductOrder: vi.fn(), createProductOrder: vi.fn(), previewDirectShip: vi.fn() }))
+const api = vi.hoisted(() => ({ requests: vi.fn(), assets: vi.fn(), stock: vi.fn(), directCatalog: vi.fn(), productCatalog: vi.fn(), recipients: vi.fn(), previewProductOrder: vi.fn(), createProductOrder: vi.fn(), previewDirectShip: vi.fn() }))
 vi.mock('../api/customerPortal', () => ({
   fetchCustomerAssetInventory: api.assets, fetchCustomerInventory: api.stock,
   fetchDirectShipCatalog: api.directCatalog, fetchProductOrderCatalog: api.productCatalog,
-  fetchRecipientAddresses: api.recipients, fetchDirectShipRequests: vi.fn(),
+  fetchRecipientAddresses: api.recipients, fetchDirectShipRequests: api.requests,
   cancelDirectShipRequest: vi.fn(), createDirectShipRequest: vi.fn(), createProductOrder: api.createProductOrder,
   previewDirectShipRequest: api.previewDirectShip, previewProductOrder: api.previewProductOrder,
 }))
@@ -47,6 +47,7 @@ async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); a
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.requests.mockResolvedValue({rows:[],total:0,total_pages:1})
   vi.stubGlobal('Document', class Document {})
   vi.stubGlobal('ShadowRoot', class ShadowRoot {})
   vi.stubGlobal('uni', { $on: vi.fn(), $off: vi.fn(), navigateTo: vi.fn(), navigateBack: vi.fn(), showToast: vi.fn() })
@@ -247,4 +248,11 @@ it('real three-line retained purchase keeps both BOM specs of the same product a
     expect(api.previewDirectShip).not.toHaveBeenCalled()
     expect(uni.navigateBack).toHaveBeenCalledOnce()
   } finally { app.unmount(); vi.useRealTimers() }
+})
+
+it('real customer shipment records render shared ready-to-ship package status',async()=>{
+ api.directCatalog.mockResolvedValue({current_customer_id:901,product_families:[],price_tables:[],fulfillment_settings:purchaseSettings})
+ api.requests.mockResolvedValue({rows:[{id:8,request_no:'DSR-TEST',order_no:'SO-TEST',status:'reserved',fulfillment_mode:'stock',items:[],packages:[{id:1,order_id:116,order_no:'SO-TEST',status:'reserved',process_status:'库存待发货',ship_status:'待发货',fulfillment_progress:{label:'库存充足 · 可以发货',can_ship:true}}]}],total:1,total_pages:1})
+ const {app,root}=mount(DirectShip,{orderMode:'direct_ship',token:'test',showCreate:false})
+ try {await settle();expect(text(root)).toContain('库存充足 · 可以发货');expect(text(root)).not.toContain('生产：库存待发货')} finally{app.unmount()}
 })

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"orderapp/internal/infrastructure/postgres/orderconfirmation"
+	progresspg "orderapp/internal/infrastructure/postgres/orderprogress"
 	"strconv"
 	"strings"
 	"time"
@@ -235,6 +236,17 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	if len(out) > query.Limit {
 		hasNext = true
 		out = out[:query.Limit]
+	}
+	ids := make([]int64, 0, len(out))
+	for _, row := range out {
+		ids = append(ids, row.ID)
+	}
+	progress, err := progresspg.Load(ctx, pool, schema, ids)
+	if err != nil {
+		return nil, false, err
+	}
+	for i := range out {
+		out[i].FulfillmentProgress = progress[out[i].ID]
 	}
 	if err := populateOrderTypeSummaries(ctx, pool, schema, out); err != nil {
 		return nil, false, err

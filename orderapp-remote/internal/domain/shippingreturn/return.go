@@ -40,13 +40,14 @@ type Row struct {
 	Version     string `json:"version,omitempty"`
 }
 type Batch struct {
-	ID       int64   `json:"batch_id"`
-	Updated  int     `json:"updated"`
-	Pending  int     `json:"pending"`
-	Skipped  int     `json:"skipped"`
-	Total    int     `json:"total"`
-	Rows     []Row   `json:"rows"`
-	OrderIDs []int64 `json:"order_ids"`
+	Rematched bool    `json:"rematched,omitempty"`
+	ID        int64   `json:"batch_id"`
+	Updated   int     `json:"updated"`
+	Pending   int     `json:"pending"`
+	Skipped   int     `json:"skipped"`
+	Total     int     `json:"total"`
+	Rows      []Row   `json:"rows"`
+	OrderIDs  []int64 `json:"order_ids"`
 }
 
 func DefaultTemplate() Template {

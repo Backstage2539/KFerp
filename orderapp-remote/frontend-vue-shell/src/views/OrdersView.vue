@@ -102,7 +102,8 @@
         <span>{{ shippingMessage }}</span>
         <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载 Excel</a>
       </div>
-      <details v-if="returnReport.length"><summary>本次回传明细（{{returnReport.length}}）</summary><p v-for="r in returnReport" :key="r.row_no">第 {{r.row_no}} 行 · {{r.tracking_no||'无单号'}} · {{r.status==='applied'?'已回填':r.status==='pending'?'待选择':'已跳过'}} {{r.error}}</p></details>
+      <button v-if="returnBatchID" class="secondary" type="button" :disabled="trackingExcelLoading" @click="rematchShippingReturn">重新匹配</button>
+      <details v-if="returnReport.length"><summary>本次回传明细（{{returnReport.length}}）</summary><p v-for="r in returnReport" :key="r.row_no">第 {{r.row_no}} 行 · {{r.tracking_no||'无单号'}} · {{r.status==='applied'?'已回填':r.status==='pending'?'待选择':r.status==='unmatched'?'未匹配':'已跳过'}} {{r.error}}</p></details>
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="bulk-order-bar">
         <span>批量失效已选 {{ selectedVoidableOrderIDs.length }} 个</span>
@@ -209,7 +210,7 @@
                   <span v-else>发货：{{ row.ship_status || '-' }}</span>
                   <span v-if="row.fulfillment_mode">{{ row.fulfillment_mode === 'stock' ? '库存代发' : '无库存代发' }}</span>
                   <span>{{ orderConfirmationLabel(row.confirmation_status) }}</span>
-                  <span>生产：{{ row.process_status || '-' }}</span>
+                  <span v-if="!isCustomerStockOrder(row)">履约：{{ orderProgressLabel(row) }}</span>
                   <span>发票：{{ invoiceStatusLabel(row.invoice_status) }}</span>
                 </div>
               </td>
@@ -331,7 +332,7 @@
               <span>收款：{{ activeOrderDetail.pay_status || '-' }}{{ activeOrderDetail.payment_method ? ' / ' + activeOrderDetail.payment_method : '' }}</span>
               <span v-if="activeOrderDetail.delivery_mode === 'customer_stock'">交付：购货留厂 · {{ activeOrderDetail.delivery_warehouse_code || '客户仓' }} · {{ customerStockProgressLabel(activeOrderDetail) }} · 无需发货</span>
               <span v-else>交付：{{ orderDeliveryLabel(activeOrderDetail.ship_method) }} / {{ activeOrderDetail.ship_status || '-' }}</span>
-              <span>生产：{{ activeOrderDetail.process_status || '-' }}</span>
+              <span v-if="!isCustomerStockOrder(activeOrderDetail)">履约：{{ orderProgressLabel(activeOrderDetail) }}</span>
               <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
             </div>
             <div class="order-summary-row">
@@ -474,7 +475,7 @@ import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
-import { ordinaryOrderVoidable, isCustomerStockOrder, customerStockProgressLabel } from '../lib/customer-stock-entry'
+import { ordinaryOrderVoidable, isCustomerStockOrder, customerStockProgressLabel, orderProgressLabel } from '../lib/customer-stock-entry'
 import DirectShipCancelButton from '../components/DirectShipCancelButton.vue'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { productKindLabel, orderQuoteSourceSummary } from '../lib/order-entry'
@@ -1132,10 +1133,21 @@ const returnTemplates = ref([])
 const returnTemplateID = ref('sf-recipient')
 const returnCandidates = ref([])
 const returnReport = ref([])
+const returnBatchID = ref(0)
 function openShippingReturnManual() {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: 'shippingReturnManual', returnNavigation: { key: 'orders', label: '返回订单列表' } } }))
 }
 
+async function rematchShippingReturn() {
+ trackingExcelLoading.value = true; shippingError.value = ''
+ try {
+  const data=await apiSend('/api/orders/shipping-return-rematch',{body:{batch_id:returnBatchID.value}})
+  returnReport.value=data.rows||[]
+  shippingMessage.value=`已重新匹配；待选择 ${Number(data.pending||0)} 条。本次未执行发货。`
+  await load()
+ } catch(err) { shippingError.value=err.message||'重新匹配失败' }
+ finally { trackingExcelLoading.value=false }
+}
 async function uploadTrackingExcel() {
   if (!trackingExcelFile.value) {
     shippingError.value = '请选择回传 Excel'
@@ -1150,7 +1162,8 @@ async function uploadTrackingExcel() {
     if (returnTemplateID.value) body.append('template_id', returnTemplateID.value)
     const data = await apiSend('/api/orders/shipping-tracking-excel', { body })
     returnReport.value = data.rows || []
-    shippingMessage.value = `已回填 ${Number(data.updated||0)} 条；待选择 ${Number(data.pending||0)} 条；跳过 ${Number(data.skipped||0)} 条`
+    returnBatchID.value = Number(data.batch_id || 0)
+    shippingMessage.value = data.rematched ? `已重新匹配；待选择 ${Number(data.pending||0)} 条。本次未执行发货。` : `已回填 ${Number(data.updated||0)} 条；待选择 ${Number(data.pending||0)} 条；跳过 ${Number(data.skipped||0)} 条`
     trackingExcelFile.value = null
     await load()
   } catch (err) {

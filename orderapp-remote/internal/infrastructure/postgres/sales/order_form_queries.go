@@ -9,6 +9,7 @@ import (
 	freightpg "orderapp/internal/infrastructure/postgres/freight"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
 	"orderapp/internal/infrastructure/postgres/orderconfirmation"
+	progresspg "orderapp/internal/infrastructure/postgres/orderprogress"
 	"os"
 	"strconv"
 	"strings"
@@ -2447,6 +2448,11 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		return nil, e
 	}
 	d.Freight = views[id]
+	progress, err := progresspg.Load(ctx, r.pool, r.schema, []int64{id})
+	if err != nil {
+		return nil, err
+	}
+	d.FulfillmentProgress = progress[id]
 	return &d, nil
 }
 

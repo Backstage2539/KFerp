@@ -9,6 +9,7 @@ import (
 	"fmt"
 	salesapp "orderapp/internal/application/sales"
 	freightdomain "orderapp/internal/domain/freight"
+	progressdomain "orderapp/internal/domain/orderprogress"
 	"sort"
 	"strconv"
 	"strings"
@@ -182,19 +183,20 @@ type MiniDirectShipPreview struct {
 }
 
 type MiniDirectShipPackage struct {
-	ID            int64                         `json:"id"`
-	OrderID       int64                         `json:"order_id"`
-	OrderNo       string                        `json:"order_no"`
-	Warehouse     string                        `json:"warehouse"`
-	Status        string                        `json:"status"`
-	ProcessStatus string                        `json:"process_status,omitempty"`
-	ShipStatus    string                        `json:"ship_status,omitempty"`
-	CarrierName   string                        `json:"carrier_name,omitempty"`
-	TrackingNo    string                        `json:"tracking_no,omitempty"`
-	ShippedAt     string                        `json:"shipped_at,omitempty"`
-	DeliveredAt   string                        `json:"delivered_at,omitempty"`
-	Items         []MiniDirectShipItemCommand   `json:"items,omitempty"`
-	Events        []MiniDirectShipTrackingEvent `json:"events,omitempty"`
+	FulfillmentProgress *progressdomain.Progress      `json:"fulfillment_progress,omitempty"`
+	ID                  int64                         `json:"id"`
+	OrderID             int64                         `json:"order_id"`
+	OrderNo             string                        `json:"order_no"`
+	Warehouse           string                        `json:"warehouse"`
+	Status              string                        `json:"status"`
+	ProcessStatus       string                        `json:"process_status,omitempty"`
+	ShipStatus          string                        `json:"ship_status,omitempty"`
+	CarrierName         string                        `json:"carrier_name,omitempty"`
+	TrackingNo          string                        `json:"tracking_no,omitempty"`
+	ShippedAt           string                        `json:"shipped_at,omitempty"`
+	DeliveredAt         string                        `json:"delivered_at,omitempty"`
+	Items               []MiniDirectShipItemCommand   `json:"items,omitempty"`
+	Events              []MiniDirectShipTrackingEvent `json:"events,omitempty"`
 }
 
 type MiniDirectShipTrackingEvent struct {

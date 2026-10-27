@@ -9,7 +9,7 @@ import (
 )
 
 func TestShippingReturnPermissions(t *testing.T) {
-	for _, c := range []struct{ method, path, want string }{{http.MethodGet, "/api/orders/shipping-return-candidates", "orders.read"}, {http.MethodPost, "/api/orders/1/shipping-return-selection", "orders.write"}, {http.MethodPut, "/api/settings/logistics/shipping-return-templates", "settings.write"}} {
+	for _, c := range []struct{ method, path, want string }{{http.MethodPost, "/api/orders/shipping-return-rematch", "orders.write"}, {http.MethodGet, "/api/orders/shipping-return-candidates", "orders.read"}, {http.MethodPost, "/api/orders/1/shipping-return-selection", "orders.write"}, {http.MethodPut, "/api/settings/logistics/shipping-return-templates", "settings.write"}} {
 		if got := requiredPermissionForRequest(c.method, c.path); got != c.want {
 			t.Fatalf("%+v got %s", c, got)
 		}
@@ -28,7 +28,7 @@ func TestShippingReturnRejectsCustomerEvenWithOrderPermissions(t *testing.T) {
 			return func(c echo.Context) error { c.Set("employee_id", int64(7)); return next(c) }
 		})
 		e.Use(AuthorizationMiddleware(authz))
-		for _, item := range []struct{ method, path string }{{"GET", "/api/orders/shipping-return-candidates"}, {"GET", "/api/orders/shipping-return-templates"}, {"POST", "/api/orders/1/shipping-return-selection"}, {"POST", "/api/orders/shipping-tracking-excel"}, {"PUT", "/api/settings/logistics/shipping-return-templates"}} {
+		for _, item := range []struct{ method, path string }{{"POST", "/api/orders/shipping-return-rematch"}, {"GET", "/api/orders/shipping-return-candidates"}, {"GET", "/api/orders/shipping-return-templates"}, {"POST", "/api/orders/1/shipping-return-selection"}, {"POST", "/api/orders/shipping-tracking-excel"}, {"PUT", "/api/settings/logistics/shipping-return-templates"}} {
 			e.Add(item.method, item.path, func(c echo.Context) error { return c.NoContent(200) })
 			out := httptest.NewRecorder()
 			e.ServeHTTP(out, httptest.NewRequest(item.method, item.path, nil))

@@ -322,7 +322,7 @@
               <td><div v-if="isCustomerStockOrder(row)" class="cell-meta">留厂库存 · 无需发货</div><div v-else class="stacked-text receiver-cell"><strong>{{ row.receiver_name || '待补收件人' }} <span>{{ row.receiver_phone || '' }}</span></strong><span class="receiver-address" :title="row.receiver_address">{{ row.ship_tracking_no || row.receiver_address || '待补收件信息' }}</span></div></td>
               <td class="amount-column"><strong>¥ {{ row.grand_total || '0.00' }}</strong></td>
               <td><span class="order-status-label">{{ row.pay_status || '待核对' }}</span></td>
-              <td><span class="order-status-label" :class="{'status-complete': isCustomerStockOrder(row) ? row.delivery_status === 'received' : isShipped(row)}">{{ isCustomerStockOrder(row) ? customerStockProgressLabel(row) : row.ship_status || '-' }}</span><div class="cell-meta">{{ row.confirmation_status && row.confirmation_status !== 'accepted' ? orderConfirmationLabel(row.confirmation_status) : (isCustomerStockOrder(row) ? '' : row.process_status || '-') }}</div></td>
+              <td><span class="order-status-label" :class="{'status-complete': isCustomerStockOrder(row) ? row.delivery_status === 'received' : isShipped(row)}">{{ orderProgressLabel(row) }}</span><div class="cell-meta">{{ row.confirmation_status && row.confirmation_status !== 'accepted' ? orderConfirmationLabel(row.confirmation_status) : '' }}</div></td>
               <td><div class="actions-inline compact-order-actions"><button class="link-button" type="button" @click="openFulfillmentOrderDetail(row)">详情</button><button class="link-button" type="button" @click="openSalesOrderDrawer(row)">销售单</button><button v-if="!isCustomerStockOrder(row)" class="link-button" type="button" @click="openDeliveryNoteDrawer(row)" :disabled="!isShipped(row)">出库单</button></div></td>
             </tr>
             <tr v-if="!fulfillmentOrders.length"><td colspan="6" class="muted empty-row">{{ fulfillmentOrdersLoading ? '加载中...' : '暂无履约订单' }}</td></tr>
@@ -371,7 +371,7 @@
             <div class="detail-grid">
               <span>收款：{{ activeOrderSummary.pay_status || '-' }}</span>
               <span v-if="!isCustomerStockOrder(activeOrderDetail || activeOrderSummary)">发货：{{ activeOrderSummary.ship_status || '-' }}</span>
-              <span>生产：{{ activeOrderSummary.process_status || '-' }}</span>
+              <span>履约：{{ orderProgressLabel({ ...activeOrderSummary, ...activeOrderDetail }) }}</span>
               <span>发票：{{ activeOrderSummary.invoice_status || '-' }}</span>
               <span v-if="activeOrderDetail?.delivery_mode === 'customer_stock' || activeOrderSummary.delivery_mode === 'customer_stock'">交付：购货留厂 · {{ activeOrderDetail?.delivery_warehouse_code || activeOrderSummary.delivery_warehouse_code || '客户仓' }} · {{ customerStockProgressLabel({ ...activeOrderSummary, ...activeOrderDetail }) }} · 无需发货</span>
               <span v-if="activeOrderDetail?.fulfillment_mode || activeOrderSummary.fulfillment_mode">代发场景：{{ (activeOrderDetail?.fulfillment_mode || activeOrderSummary.fulfillment_mode) === 'stock' ? '库存代发（已购货款不重复收取）' : '无库存代发' }}</span>
@@ -506,7 +506,7 @@ import {
   visibleCustomerFulfillmentImports,
 } from '../lib/customer-fulfillment'
 import { parseRecipientText } from '../lib/customer-recipient'
-import { isCustomerStockOrder, customerStockProgressLabel } from '../lib/customer-stock-entry'
+import { isCustomerStockOrder, customerStockProgressLabel, orderProgressLabel } from '../lib/customer-stock-entry'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
 import { lineTotal, syncWholesaleTierPrice, toInt, toNumber, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'

@@ -7,6 +7,7 @@ import (
 )
 
 type ShippingReturnRepository interface {
+	RematchShippingReturn(context.Context, string, int64, []int64) (d.Batch, error)
 	ShippingReturnTemplates(context.Context) ([]d.Template, error)
 	SaveShippingReturnTemplates(context.Context, string, []d.Template) error
 	ImportShippingReturn(context.Context, string, string, string, d.Template, []d.Row) (d.Batch, error)

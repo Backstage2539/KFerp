@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	freightpg "orderapp/internal/infrastructure/postgres/freight"
+	progresspg "orderapp/internal/infrastructure/postgres/orderprogress"
 	"orderapp/internal/infrastructure/postgres/orderweight"
 	"sort"
 	"strconv"
@@ -2040,6 +2041,13 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	progress, e := progresspg.Load(ctx, r.pool, r.schema, orderIDs)
+	if e != nil {
+		return nil, e
+	}
+	for i := range out {
+		out[i].FulfillmentProgress = progress[out[i].ID]
 	}
 	views, e := freightpg.NewRepository(r.pool, r.schema).OrderViews(ctx, r.pool, orderIDs)
 	if e != nil {

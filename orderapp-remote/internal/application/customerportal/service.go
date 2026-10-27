@@ -7,6 +7,7 @@ import (
 	"math"
 	salesapp "orderapp/internal/application/sales"
 	freightdomain "orderapp/internal/domain/freight"
+	progressdomain "orderapp/internal/domain/orderprogress"
 	"regexp"
 	"sort"
 	"strconv"
@@ -719,6 +720,7 @@ type CreateMallOrderCommand struct {
 }
 
 type CustomerOrderSummary struct {
+	FulfillmentProgress   *progressdomain.Progress   `json:"fulfillment_progress,omitempty"`
 	Freight               *freightdomain.OrderView   `json:"freight,omitempty"`
 	DeliveryMode          string                     `json:"delivery_mode"`
 	DeliveryWarehouseCode string                     `json:"delivery_warehouse_code"`

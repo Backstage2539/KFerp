@@ -401,7 +401,7 @@ func TestMiniEmployeeOrderDetailReturnsExplicitWebParityDTOAfterScopedLookup(t *
 	}
 	for _, want := range []string{
 		`"can_edit":true`, `"edit_block_reason":""`,
-		`"order":{"id":42,"edit_revision":"rev-42","order_no":"SO-42"`, `"customer":"客户A"`, `"source_id":1`, `"order_type":"批发"`,
+		`"id":42,"edit_revision":"rev-42","order_no":"SO-42"`, `"customer":"客户A"`, `"source_id":1`, `"order_type":"批发"`,
 		`"payment_goods_amount":"136.00"`, `"receiver_address":"上海市测试路1号"`, `"outsource_total_fee":"21.00"`,
 		`"discount_amount":"6.00"`, `"order_discount_amount":"0.00"`,
 		`"items":[{"item_id":51,"line_no":1,"product_id":551`, `"customer_product_alias_id":201`, `"line_total":"136.00"`, `"price_override":false`,

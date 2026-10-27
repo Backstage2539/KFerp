@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {orderProgressLabel, directShipProgressLabel} from '../utils/orderProgress'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { onShow, onHide } from '@dcloudio/uni-app'
 import {
@@ -445,7 +446,7 @@ async function changePageLimit(event: PickerChangeEvent) { const index = Math.ma
 
 function recipientEventHandler(event: RecipientEvent) { consumeReturnedRecipient(event) }
 onMounted(() => { fulfillmentMode.value = props.entryMode || ''; restoreDraft(); initialized = true; uni.$on('customer-order-recipient-selected', recipientEventHandler); void load() })
-onShow(() => { if (!initialized) return; consumeReturnedRecipient(); if (props.showCreate) void load() })
+onShow(() => { if (!initialized) return; consumeReturnedRecipient(); void load() })
 onHide(() => { if (initialized && props.showCreate) { if (lines.value.some(line => line.product_id) || note.value) saveDraft(); quoteFlow.suspend(); loading.value = false } })
 onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-order-recipient-selected', recipientEventHandler) })
 </script>
@@ -545,7 +546,7 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
       </view>
       <text v-if="loading" class="muted">加载中...</text>
       <view v-for="item in requests" :key="item.id" class="request">
-        <view class="request-head"><text class="line-name">{{ directShipRequestTitle(item) }}</text><text class="status">{{ directShipStatusLabel(item.status) }}</text></view>
+        <view class="request-head"><text class="line-name">{{ directShipRequestTitle(item) }}</text><text class="status">{{ directShipProgressLabel(item) }}</text></view>
         <text v-if="item.fulfillment_mode" class="muted">{{ fulfillmentModeLabel(item.fulfillment_mode) }}{{ item.fulfillment_mode === 'stock' ? ' · 已购商品不重复计货款' : '' }}</text>
         <text v-if="item.order_no" class="muted">系统订单：{{ item.order_no }} · 金额 ¥{{ money(item.total_amount) }}</text>
         <text v-for="table in item.price_tables || []" :key="`${item.id}:table:${table.id}`" class="muted">价格快照：{{ priceTableLabel(table) }}</text>
@@ -557,7 +558,7 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
           <text v-if="line.production_reserved_qty" class="muted">在制预订 {{ line.production_reserved_qty }} 件，已转成品 {{ line.production_converted_qty || 0 }} 件</text>
           <text v-if="line.production_shortfall_qty" class="shortage">实际入库减少，当前缺口 {{ line.production_shortfall_qty }} 件，请联系工厂处理</text>
         </view>
-        <view v-for="pkg in item.packages || []" :key="pkg.id" class="package"><text>{{ pkg.order_no }} · {{ pkg.warehouse }} · {{ directShipStatusLabel(pkg.status) }}</text><text class="muted">生产：{{ pkg.process_status || '待进入生产流程' }} · 发货：{{ pkg.ship_status || '待发货' }}</text><text v-for="line in pkg.items || []" :key="`${pkg.id}:item:${line.product_id}:${line.bom_spec_id || 0}:${line.spec_g}`" class="muted">{{ line.product_name }} · {{ directShipItemSpecLabel(line) }} · {{ directShipItemQtyLabel(line) }}</text><text v-if="pkg.shipped_at" class="muted">发货时间：{{ pkg.shipped_at }}</text><text class="muted">{{ pkg.tracking_no ? `${pkg.carrier_name || '承运商待录入'} ${pkg.tracking_no}` : '运单号尚未录入' }}</text><view v-for="(event, index) in pkg.events || []" :key="`${pkg.id}:event:${index}`" class="event"><text class="muted">{{ event.time || '' }} {{ event.description || directShipStatusLabel(event.status) }}</text><text v-if="event.location" class="muted">{{ event.location }}</text></view><text v-if="pkg.tracking_no && !(pkg.events || []).length" class="muted">暂未获取物流轨迹</text></view>
+        <view v-for="pkg in item.packages || []" :key="pkg.id" class="package"><text>{{ pkg.order_no }} · {{ pkg.warehouse }} · {{ directShipStatusLabel(pkg.status) }}</text><text class="muted">{{ orderProgressLabel(pkg) }}</text><text v-for="line in pkg.items || []" :key="`${pkg.id}:item:${line.product_id}:${line.bom_spec_id || 0}:${line.spec_g}`" class="muted">{{ line.product_name }} · {{ directShipItemSpecLabel(line) }} · {{ directShipItemQtyLabel(line) }}</text><text v-if="pkg.shipped_at" class="muted">发货时间：{{ pkg.shipped_at }}</text><text class="muted">{{ pkg.tracking_no ? `${pkg.carrier_name || '承运商待录入'} ${pkg.tracking_no}` : '运单号尚未录入' }}</text><view v-for="(event, index) in pkg.events || []" :key="`${pkg.id}:event:${index}`" class="event"><text class="muted">{{ event.time || '' }} {{ event.description || directShipStatusLabel(event.status) }}</text><text v-if="event.location" class="muted">{{ event.location }}</text></view><text v-if="pkg.tracking_no && !(pkg.events || []).length" class="muted">暂未获取物流轨迹</text></view>
         <button v-if="['pending','reserved','待处理','待发货'].includes(item.status)" class="secondary compact" @tap="cancelRequest(item)">取消发货</button>
       </view>
       <text v-if="!loading && !requests.length" class="muted">暂无发货记录</text>

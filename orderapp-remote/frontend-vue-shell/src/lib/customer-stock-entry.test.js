@@ -1,4 +1,5 @@
 import test from 'node:test'
+import {customerStockProgressLabel} from './customer-stock-entry.js'
 import assert from 'node:assert/strict'
 import { buildOrderPayload } from './order-entry.js'
 import { customerStockWarehouses, recipientAddressSnapshot, stockSupplySummary } from './customer-stock-entry.js'
@@ -52,3 +53,5 @@ test('普通发货清除上一次留厂订单的目标仓，防止误入客户�
   assert.equal(payload.delivery_mode, 'ship')
   assert.equal(payload.delivery_warehouse_code, '')
 })
+
+ test('shared backend progress preserves production and receipt together',()=> {assert.equal(customerStockProgressLabel({delivery_mode:'customer_stock',delivery_status:'received',process_status:'生产完成',fulfillment_progress:{label:'生产完成 · 已入库'}}),'生产完成 · 已入库')})

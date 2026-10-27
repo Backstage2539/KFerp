@@ -1,3 +1,12 @@
+### PR-738-ORDER-PROGRESS-SHIPPING-REMATCH
+- Branch: codex/order-progress-shipping-rematch; base origin/develop 7eb69b040.
+- Status: implementation and local verification complete; release in progress; Van acceptance pending.
+- Scope: unified retained-stock/stock-dropship status across ERP and miniapp; pending shipping-return rematch without shipment, freight or inventory writes.
+- DEV: DEV-PR738-01 status projection; DEV-PR738-02 rematch transaction/API; DEV-PR738-03 UI/manuals/releases.
+- Verifier: RED/GREEN Go/PostgreSQL/API, Vue/miniapp runtime, builds, development and production readonly verification plus batch 1 rows 2/4 rematch.
+- Authorization: release both environments and miniapp; only production rematch, no shipment or financial posting.
+- Notes: reservation script macOS awk fails before changing file; PR-738 reserved here.
+
 ### PR-729-PRODUCTION-RECOVERY-AND-WORK-ORDER-CLOSEOUT
 - Branch: codex/production-direct-receipt; base origin/develop b6a226a1; original recovery PR #299 merged.
 - Owner/session: Codex / production recovery and packaging closeout.

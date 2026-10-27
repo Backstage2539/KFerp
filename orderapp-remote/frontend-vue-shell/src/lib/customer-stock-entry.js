@@ -31,6 +31,7 @@ export function isCustomerStockOrder(order = {}) {
 }
 
 export function customerStockProgressLabel(order = {}) {
+  if (order.fulfillment_progress?.label) return order.fulfillment_progress.label
   if (['received', 'partially_received'].includes(order.delivery_status)) return customerStockDeliveryLabel(order.delivery_status)
   const production = String(order.process_status || '').trim()
   if (['生产完成', '已生产完成', '已生产', '无需生产', '库存待发货'].includes(production)) return '待入客户仓'
@@ -38,3 +39,7 @@ export function customerStockProgressLabel(order = {}) {
 }
 
 export function ordinaryOrderVoidable(row = {}) { return !row.is_void && !['stock', 'on_demand'].includes(row.fulfillment_mode) }
+
+export function orderProgressLabel(order = {}) {
+ return order.fulfillment_progress?.label || (isCustomerStockOrder(order) ? customerStockProgressLabel(order) : [order.process_status,order.ship_status].filter(Boolean).join(' · ')) || '待处理'
+}

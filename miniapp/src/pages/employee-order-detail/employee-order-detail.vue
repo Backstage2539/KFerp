@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {orderProgressLabel} from '../../utils/orderProgress'
 import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import OrderItemWeights from '../../components/OrderItemWeights.vue'
 import PaymentSummary from '../../components/PaymentSummary.vue'
@@ -354,14 +355,14 @@ onShow(() => { void refreshMiniappShareMenu() })
       <view class="section status-section">
         <view class="status-heading">
           <text class="section-title">订单状态</text>
-          <button v-if="canUpdateStatus && !statusEditing" class="status-edit-button" @tap="startStatusEdit">编辑付款与发货状态</button>
+          <button v-if="canUpdateStatus && !statusEditing" class="status-edit-button" @tap="startStatusEdit">{{ order.delivery_mode === 'customer_stock' ? '编辑付款状态' : '编辑付款与发货状态' }}</button>
         </view>
         <text v-if="order.is_void" class="void-status">已作废</text>
         <PaymentSummary :order="order" />
         <view v-if="!statusEditing" class="status-grid">
           <view><text>收款</text><text class="status-value">{{ order.pay_status || '-' }}{{ order.payment_method ? ` / ${order.payment_method}` : '' }}</text></view>
-          <view><text>发货</text><text class="status-value">{{ order.ship_status || '-' }}</text></view>
-          <view><text>生产</text><text class="status-value">{{ order.process_status || '-' }}</text></view>
+          <view v-if="order.delivery_mode !== 'customer_stock'"><text>发货</text><text class="status-value">{{ order.ship_status || '-' }}</text></view>
+          <view><text>履约</text><text class="status-value">{{ orderProgressLabel(order) }}</text></view>
           <view><text>开票</text><text class="status-value">{{ employeeOrderInvoiceStatusLabel(order.invoice_status) }}</text></view>
         </view>
         <view v-else class="status-editor">
@@ -391,11 +392,11 @@ onShow(() => { void refreshMiniappShareMenu() })
               <button :loading="voucherUploading" :disabled="statusSaving || voucherUploading" class="voucher-upload-button" @tap="choosePaymentVoucher">{{ statusDraft.payment_voucher_asset_id ? '更换收款凭证' : '上传收款截图' }}</button>
             </template>
           </template>
-          <text class="label">发货状态</text>
-          <picker v-if="canUpdateShipStatus" :disabled="statusSaving" :range="statusOptions.ship_statuses" range-key="name" :value="Math.max(0, statusOptions.ship_statuses.findIndex(status => status.id === statusDraft.ship_status_id))" @change="statusDraft.ship_status_id = statusOptions.ship_statuses[Number($event.detail.value)]?.id || 0">
+          <text v-if="order.delivery_mode !== 'customer_stock'" class="label">发货状态</text>
+          <picker v-if="order.delivery_mode !== 'customer_stock' && canUpdateShipStatus" :disabled="statusSaving" :range="statusOptions.ship_statuses" range-key="name" :value="Math.max(0, statusOptions.ship_statuses.findIndex(status => status.id === statusDraft.ship_status_id))" @change="statusDraft.ship_status_id = statusOptions.ship_statuses[Number($event.detail.value)]?.id || 0">
             <view class="status-field">{{ statusOptions.ship_statuses.find(status => status.id === statusDraft.ship_status_id)?.name || order.ship_status || '请选择发货状态' }}<text>⌄</text></view>
           </picker>
-          <view v-else class="status-field status-field-readonly">{{ order.ship_status || '-' }}</view>
+          <view v-else-if="order.delivery_mode !== 'customer_stock'" class="status-field status-field-readonly">{{ order.ship_status || '-' }}</view>
           <text v-if="!canUpdateShipStatus && shipStatusBlockReason" class="section-hint status-hint">{{ shipStatusBlockReason }}</text>
           <view class="status-actions">
             <button :disabled="statusSaving || voucherUploading" class="status-cancel-button" @tap="cancelStatusEdit">取消</button>
@@ -413,11 +414,11 @@ onShow(() => { void refreshMiniappShareMenu() })
         <view class="document-grid">
           <button :loading="sharingKey === 'sales-order.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'pdf')">销售单 PDF</button>
           <button :loading="sharingKey === 'sales-order.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'png')">销售单图片</button>
-          <button :loading="sharingKey === 'delivery-note.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'pdf')">发货单 PDF</button>
-          <button :loading="sharingKey === 'delivery-note.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'png')">发货单图片</button>
+          <button v-if="order.delivery_mode !== 'customer_stock'" :loading="sharingKey === 'delivery-note.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'pdf')">发货单 PDF</button>
+          <button v-if="order.delivery_mode !== 'customer_stock'" :loading="sharingKey === 'delivery-note.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'png')">发货单图片</button>
         </view>
         <text class="document-status">销售单：PDF {{ hasDocument('sales-order', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('sales-order', 'png') ? '已有版本' : '点击自动生成' }}</text>
-        <text class="document-status">发货单：PDF {{ hasDocument('delivery-note', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('delivery-note', 'png') ? '已有版本' : '点击自动生成' }}</text>
+        <text v-if="order.delivery_mode !== 'customer_stock'" class="document-status">发货单：PDF {{ hasDocument('delivery-note', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('delivery-note', 'png') ? '已有版本' : '点击自动生成' }}</text>
       </view>
 
       <view class="hero-card">
@@ -438,7 +439,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         <text v-if="!canEdit && editBlockReason" class="edit-block-reason">{{ editBlockReason }}</text>
       </view>
 
-      <view class="section">
+      <view v-if="order.delivery_mode !== 'customer_stock'" class="section">
         <text class="section-title">收件信息</text>
         <view class="info-grid">
           <view><text class="label">收件人</text><text>{{ order.receiver_name || '-' }}</text></view>
@@ -448,7 +449,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         </view>
       </view>
 
-      <view class="section">
+      <view v-if="order.delivery_mode !== 'customer_stock'" class="section">
         <text class="section-title">物流信息</text>
         <view class="info-grid">
           <view><text class="label">物流方式</text><text>{{ logisticsLabel() }}</text></view>

@@ -1273,6 +1273,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"delivery_mode":                       ed.DeliveryMode,
 		"delivery_warehouse_code":             ed.DeliveryWarehouseCode,
 		"delivery_status":                     ed.DeliveryStatus,
+		"fulfillment_progress":                ed.FulfillmentProgress,
 		"fulfillment_mode":                    ed.FulfillmentMode,
 		"bean_list_publication_id":            beanListPublicationID,
 		"commercial_bean_list_publication_id": commercialPublicationID,

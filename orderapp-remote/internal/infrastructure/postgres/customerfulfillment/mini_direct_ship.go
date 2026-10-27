@@ -9,6 +9,7 @@ import (
 	"fmt"
 	freightdomain "orderapp/internal/domain/freight"
 	freightpg "orderapp/internal/infrastructure/postgres/freight"
+	progresspg "orderapp/internal/infrastructure/postgres/orderprogress"
 	"orderapp/internal/infrastructure/postgres/orderweight"
 	"sort"
 	"strconv"
@@ -2225,6 +2226,17 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 		return app.MiniDirectShipRequest{}, err
 	}
 	packageRows.Close()
+	progressIDs := []int64{}
+	for _, pkg := range out.Packages {
+		progressIDs = append(progressIDs, pkg.OrderID)
+	}
+	progress, err := progresspg.Load(ctx, q, r.schema, progressIDs)
+	if err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	for i := range out.Packages {
+		out.Packages[i].FulfillmentProgress = progress[out.Packages[i].OrderID]
+	}
 	for idx := range out.Packages {
 		out.Packages[idx].Items, err = r.loadMiniDirectShipPackageItems(ctx, q, requestID, out.Packages[idx].OrderID)
 		if err != nil {

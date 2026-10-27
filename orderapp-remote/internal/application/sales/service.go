@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	freightdomain "orderapp/internal/domain/freight"
+	progressdomain "orderapp/internal/domain/orderprogress"
 	salesdomain "orderapp/internal/domain/sales"
 	"strings"
 	"time"
@@ -540,6 +541,7 @@ type OrderEditItem struct {
 }
 
 type OrderEditData struct {
+	FulfillmentProgress   *progressdomain.Progress `json:"fulfillment_progress,omitempty"`
 	Freight               *freightdomain.OrderView
 	DeliveryStatus        string
 	FulfillmentMode       string
@@ -613,66 +615,67 @@ type OrdersSummary struct {
 }
 
 type OrderRow struct {
-	DeliveryMode          string   `json:"delivery_mode"`
-	DeliveryWarehouseCode string   `json:"delivery_warehouse_code"`
-	DeliveryStatus        string   `json:"delivery_status"`
-	FulfillmentMode       string   `json:"fulfillment_mode"`
-	ConfirmationStatus    string   `json:"confirmation_status"`
-	ConfirmationRequired  bool     `json:"confirmation_required"`
-	PrepaymentAmount      string   `json:"prepayment_amount"`
-	PaidAmount            string   `json:"paid_amount"`
-	UnpaidAmount          string   `json:"unpaid_amount"`
-	ID                    int64    `json:"id"`
-	OrderNo               string   `json:"order_no"`
-	DocumentDate          string   `json:"document_date"`
-	OrderDate             string   `json:"order_date"`
-	CustomerID            int64    `json:"customer_id"`
-	Customer              string   `json:"customer"`
-	ResponsibleType       string   `json:"responsible_type"`
-	ResponsibleID         int64    `json:"responsible_id"`
-	ResponsibleName       string   `json:"responsible_name"`
-	TotalAmount           string   `json:"total_amount"`
-	ShippingAmount        string   `json:"shipping_amount"`
-	DiscountAmount        string   `json:"discount_amount"`
-	GrandTotal            string   `json:"grand_total"`
-	ExpressFee            string   `json:"express_fee"`
-	OutsourceMaterialFee  string   `json:"outsource_material_fee"`
-	OutsourceRoastFee     string   `json:"outsource_roast_fee"`
-	OutsourcePackagingFee string   `json:"outsource_packaging_fee"`
-	OutsourceManualFee    string   `json:"outsource_manual_fee"`
-	OutsourceTaxFee       string   `json:"outsource_tax_fee"`
-	OutsourceOtherFee     string   `json:"outsource_other_fee"`
-	OutsourceTotalFee     string   `json:"outsource_total_fee"`
-	OrderType             string   `json:"order_type"`
-	PayStatus             string   `json:"pay_status"`
-	SettlementReason      string   `json:"settlement_reason"`
-	PaymentMethod         string   `json:"payment_method"`
-	ShipStatus            string   `json:"ship_status"`
-	ShipTrackingNo        string   `json:"ship_tracking_no"`
-	ShipMethod            string   `json:"ship_method"`
-	ReceiverName          string   `json:"receiver_name"`
-	ReceiverPhone         string   `json:"receiver_phone"`
-	ReceiverAddress       string   `json:"receiver_address"`
-	ReceiverCompany       string   `json:"receiver_company"`
-	PortalServiceCode     string   `json:"portal_service_code"`
-	SourceWarehouse       string   `json:"source_warehouse"`
-	SenderID              int64    `json:"sender_id"`
-	SenderLabel           string   `json:"sender_label"`
-	SenderName            string   `json:"sender_name"`
-	OrderTypeID           int64    `json:"order_type_id"`
-	PayStatusID           int64    `json:"pay_status_id"`
-	ShipStatusID          int64    `json:"ship_status_id"`
-	ProcessStatusID       int64    `json:"process_status_id"`
-	ProcessStatus         string   `json:"process_status"`
-	ProductKindSummary    string   `json:"product_kind_summary"`
-	ProductTypeLabels     []string `json:"product_type_labels"`
-	IsSampleOrder         bool     `json:"is_sample_order"`
-	CreatedByEmployee     string   `json:"created_by_employee"`
-	Notes                 string   `json:"notes"`
-	IsVoid                bool     `json:"is_void"`
-	InvoiceStatus         string   `json:"invoice_status"`
-	InvoiceFilename       string   `json:"invoice_filename"`
-	InvoiceFileURL        string   `json:"invoice_file_url"`
+	FulfillmentProgress   *progressdomain.Progress `json:"fulfillment_progress,omitempty"`
+	DeliveryMode          string                   `json:"delivery_mode"`
+	DeliveryWarehouseCode string                   `json:"delivery_warehouse_code"`
+	DeliveryStatus        string                   `json:"delivery_status"`
+	FulfillmentMode       string                   `json:"fulfillment_mode"`
+	ConfirmationStatus    string                   `json:"confirmation_status"`
+	ConfirmationRequired  bool                     `json:"confirmation_required"`
+	PrepaymentAmount      string                   `json:"prepayment_amount"`
+	PaidAmount            string                   `json:"paid_amount"`
+	UnpaidAmount          string                   `json:"unpaid_amount"`
+	ID                    int64                    `json:"id"`
+	OrderNo               string                   `json:"order_no"`
+	DocumentDate          string                   `json:"document_date"`
+	OrderDate             string                   `json:"order_date"`
+	CustomerID            int64                    `json:"customer_id"`
+	Customer              string                   `json:"customer"`
+	ResponsibleType       string                   `json:"responsible_type"`
+	ResponsibleID         int64                    `json:"responsible_id"`
+	ResponsibleName       string                   `json:"responsible_name"`
+	TotalAmount           string                   `json:"total_amount"`
+	ShippingAmount        string                   `json:"shipping_amount"`
+	DiscountAmount        string                   `json:"discount_amount"`
+	GrandTotal            string                   `json:"grand_total"`
+	ExpressFee            string                   `json:"express_fee"`
+	OutsourceMaterialFee  string                   `json:"outsource_material_fee"`
+	OutsourceRoastFee     string                   `json:"outsource_roast_fee"`
+	OutsourcePackagingFee string                   `json:"outsource_packaging_fee"`
+	OutsourceManualFee    string                   `json:"outsource_manual_fee"`
+	OutsourceTaxFee       string                   `json:"outsource_tax_fee"`
+	OutsourceOtherFee     string                   `json:"outsource_other_fee"`
+	OutsourceTotalFee     string                   `json:"outsource_total_fee"`
+	OrderType             string                   `json:"order_type"`
+	PayStatus             string                   `json:"pay_status"`
+	SettlementReason      string                   `json:"settlement_reason"`
+	PaymentMethod         string                   `json:"payment_method"`
+	ShipStatus            string                   `json:"ship_status"`
+	ShipTrackingNo        string                   `json:"ship_tracking_no"`
+	ShipMethod            string                   `json:"ship_method"`
+	ReceiverName          string                   `json:"receiver_name"`
+	ReceiverPhone         string                   `json:"receiver_phone"`
+	ReceiverAddress       string                   `json:"receiver_address"`
+	ReceiverCompany       string                   `json:"receiver_company"`
+	PortalServiceCode     string                   `json:"portal_service_code"`
+	SourceWarehouse       string                   `json:"source_warehouse"`
+	SenderID              int64                    `json:"sender_id"`
+	SenderLabel           string                   `json:"sender_label"`
+	SenderName            string                   `json:"sender_name"`
+	OrderTypeID           int64                    `json:"order_type_id"`
+	PayStatusID           int64                    `json:"pay_status_id"`
+	ShipStatusID          int64                    `json:"ship_status_id"`
+	ProcessStatusID       int64                    `json:"process_status_id"`
+	ProcessStatus         string                   `json:"process_status"`
+	ProductKindSummary    string                   `json:"product_kind_summary"`
+	ProductTypeLabels     []string                 `json:"product_type_labels"`
+	IsSampleOrder         bool                     `json:"is_sample_order"`
+	CreatedByEmployee     string                   `json:"created_by_employee"`
+	Notes                 string                   `json:"notes"`
+	IsVoid                bool                     `json:"is_void"`
+	InvoiceStatus         string                   `json:"invoice_status"`
+	InvoiceFilename       string                   `json:"invoice_filename"`
+	InvoiceFileURL        string                   `json:"invoice_file_url"`
 }
 
 type AuditRow struct {

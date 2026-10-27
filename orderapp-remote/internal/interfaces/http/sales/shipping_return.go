@@ -37,6 +37,27 @@ func registerShippingReturnRoutes(e *echo.Echo, s *app.Service, m MessagePublish
 		}
 		return c.JSON(200, map[string]any{"templates": v})
 	}
+	e.POST("/api/orders/shipping-return-rematch", func(c echo.Context) error {
+		if err := shippingReturnStaff(c); err != nil || c.Response().Committed {
+			return err
+		}
+		var body struct {
+			BatchID int64   `json:"batch_id"`
+			RowIDs  []int64 `json:"row_ids"`
+		}
+		if c.Bind(&body) != nil || body.BatchID <= 0 || len(body.RowIDs) > 10000 {
+			return c.JSON(400, map[string]string{"error": "请选择有效导入批次和寄件行"})
+		}
+		repo, err := s.ShippingReturns()
+		if err != nil {
+			return c.JSON(503, map[string]string{"error": err.Error()})
+		}
+		result, err := repo.RematchShippingReturn(c.Request().Context(), support.ActorOf(c), body.BatchID, body.RowIDs)
+		if err != nil {
+			return c.JSON(400, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(200, result)
+	})
 	e.GET("/api/orders/shipping-return-templates", list)
 	e.GET("/api/settings/logistics/shipping-return-templates", list)
 	e.PUT("/api/settings/logistics/shipping-return-templates", func(c echo.Context) error {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {orderProgressLabel} from '../../utils/orderProgress'
 import {freightLabel} from '../../utils/freight'
 import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import OrderItemWeights from '../../components/OrderItemWeights.vue'
@@ -1294,7 +1295,7 @@ onShow(() => { void refreshMiniappShareMenu() })
             收件人：{{ item.receiver_name || '未填写' }} {{ item.receiver_phone || '' }} {{ item.receiver_address || '' }}
           </text>
           <PaymentSummary :order="item" />
-          <text class="row-sub">{{ item.order_date || '未填写日期' }} / {{ item.process_status || '生产待处理' }} / {{ item.pay_status || '未收款' }} / {{ item.ship_status || '待发货' }}</text>
+          <text class="row-sub">{{ item.order_date || '未填写日期' }} / {{ orderProgressLabel(item) }} / {{ item.pay_status || '未收款' }}</text>
           <text v-if="item.delivery_mode === 'customer_stock'" class="row-sub">购货留厂 · {{ item.delivery_warehouse_code || '客户仓' }} · {{ retainedStockStatus(item.delivery_status) }} · 无需发货</text>
           <text v-if="item.fulfillment_mode" class="row-sub">{{ item.fulfillment_mode === 'stock' ? '库存代发 · 已购商品货款不重复收取' : '无库存代发' }}</text>
           <view v-if="item.items?.length" class="order-items">
@@ -1306,10 +1307,10 @@ onShow(() => { void refreshMiniappShareMenu() })
             </view>
           </view>
           <text class="row-sub">{{item.freight?freightLabel(item.freight):`运费：¥${item.shipping_amount || '0.00'}`}}</text>
-          <text class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }}</text>
+          <text v-if="item.delivery_mode !== 'customer_stock'" class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }}</text>
           <view v-if="!isProcessingCustomer" class="document-actions">
             <button class="secondary compact" @tap="openOrderDocument(item.sales_order_url)">销售单</button>
-            <button class="secondary compact" @tap="openOrderDocument(item.delivery_note_url)">出库单</button>
+            <button v-if="item.delivery_mode !== 'customer_stock'" class="secondary compact" @tap="openOrderDocument(item.delivery_note_url)">出库单</button>
           </view>
         </view>
       </view>

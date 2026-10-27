@@ -24,3 +24,12 @@ test('real OrdersView integrates row toggle, retry, and invalidation without ope
    await view.handlePaginationChange({page:2,pageSize:20});assert.equal(view.inlineDetail.id,0)
  }finally{globalThis.fetch=original}
 })
+
+test('real OrdersView rematches only the persisted batch and keeps shipment confirmation separate',async()=>{
+ let view;await renderToString(createSSRApp({setup(){view=View.setup({viewParams:{},workspaceMode:'',customerContextId:0,customerContextLabel:''},{expose(){}});return()=>h('div')}}))
+ const original=globalThis.fetch;const writes=[]
+ globalThis.fetch=async(url,opts={})=>{if(opts.method==='POST')writes.push({url:String(url),body:JSON.parse(opts.body)});return {ok:true,json:async()=>String(url).includes('shipping-return-rematch')?{batch_id:1,rematched:true,pending:2,rows:[{row_no:3,status:'pending'},{row_no:5,status:'pending'}]}:{rows:[],summary:{},page:1,limit:20}}}
+ try {view.returnBatchID.value=1;await view.rematchShippingReturn();assert.deepEqual(writes,[{url:'/api/orders/shipping-return-rematch',body:{batch_id:1}}]);assert.equal(view.returnReport.value.length,2);assert.match(view.shippingMessage.value,/未执行发货/);assert.equal(view.trackingExcelLoading.value,false)
+ globalThis.fetch=async()=>({ok:false,status:400,json:async()=>({error:'重新匹配失败'})});await view.rematchShippingReturn();assert.equal(view.returnReport.value.length,2);assert.equal(view.shippingError.value,'重新匹配失败')
+ }finally{globalThis.fetch=original}
+})
