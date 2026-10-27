@@ -3,9 +3,11 @@ package sales
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	inventorydomain "orderapp/internal/domain/inventory"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -22,6 +24,136 @@ type orderStockDeductionAllocation struct {
 	BatchCode      string
 	AllocatedG     int64
 	AllocatedUnits int64
+}
+
+type finishedInventoryIdentity struct {
+	productID int64
+	bomSpecID int64
+	specG     int64
+}
+
+// Shipment deductions lock batches before summaries; serialize with transfers
+// and adjustments first, and acquire multiple identities in a stable order.
+func lockFinishedInventoryIdentitiesTx(ctx context.Context, tx pgx.Tx, schema string, allocations []orderStockDeductionAllocation) error {
+	identities := make([]finishedInventoryIdentity, 0, len(allocations))
+	seen := make(map[finishedInventoryIdentity]struct{}, len(allocations))
+	for _, alloc := range allocations {
+		if alloc.ProductID <= 0 {
+			continue
+		}
+		identity := finishedInventoryIdentity{productID: alloc.ProductID, bomSpecID: alloc.BomSpecID, specG: alloc.SpecG}
+		if _, ok := seen[identity]; ok {
+			continue
+		}
+		seen[identity] = struct{}{}
+		identities = append(identities, identity)
+	}
+	sort.Slice(identities, func(i, j int) bool {
+		if identities[i].productID != identities[j].productID {
+			return identities[i].productID < identities[j].productID
+		}
+		if identities[i].bomSpecID != identities[j].bomSpecID {
+			return identities[i].bomSpecID < identities[j].bomSpecID
+		}
+		return identities[i].specG < identities[j].specG
+	})
+	for _, identity := range identities {
+		if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, schema, identity.productID, identity.bomSpecID, identity.specG); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r Repository) lockOrdersFinishedIdentitiesTx(ctx context.Context, tx pgx.Tx, orderIDs []int64) error {
+	uniqueOrderIDs := make([]int64, 0, len(orderIDs))
+	seenOrderIDs := make(map[int64]struct{}, len(orderIDs))
+	for _, orderID := range orderIDs {
+		if orderID <= 0 {
+			continue
+		}
+		if _, ok := seenOrderIDs[orderID]; ok {
+			continue
+		}
+		seenOrderIDs[orderID] = struct{}{}
+		uniqueOrderIDs = append(uniqueOrderIDs, orderID)
+	}
+	if len(uniqueOrderIDs) == 0 {
+		return nil
+	}
+	sort.Slice(uniqueOrderIDs, func(i, j int) bool { return uniqueOrderIDs[i] < uniqueOrderIDs[j] })
+
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT oi.product_id,
+		       COALESCE(oi.bom_spec_id,0)::bigint,
+		       MAX(COALESCE(oi.bom_variant_id,0))::bigint,
+		       CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN 0
+		            ELSE COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint
+		       END AS spec_g,
+		       SUM(COALESCE(oi.qty,0))::bigint AS units
+		FROM %s.order_items oi
+		WHERE oi.order_id=ANY($1::bigint[]) AND oi.qty>0 AND oi.product_id>0
+		GROUP BY oi.order_id,oi.product_id,oi.bom_spec_id,
+		         CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN 0
+		              ELSE COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint
+		         END
+	`, r.schema), uniqueOrderIDs)
+	if err != nil {
+		return err
+	}
+	items := make([]orderStockItem, 0)
+	for rows.Next() {
+		var item orderStockItem
+		if err := rows.Scan(&item.ProductID, &item.BomSpecID, &item.BomVariantID, &item.SpecG, &item.Units); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	rows, err = tx.Query(ctx, fmt.Sprintf(`
+		SELECT product_id,COALESCE(bom_spec_id,0)::bigint,COALESCE(bom_variant_id,0)::bigint,
+		       COALESCE(spec_g,0)::bigint,COALESCE(allocated_g,0)::bigint,
+		       GREATEST(1,COALESCE(allocated_units,0))::bigint
+		FROM %s.order_stock_batch_allocations
+		WHERE order_id=ANY($1::bigint[]) AND product_id>0
+	`, r.schema), uniqueOrderIDs)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var item orderStockItem
+		if err := rows.Scan(&item.ProductID, &item.BomSpecID, &item.BomVariantID, &item.SpecG, &item.NeedG, &item.Units); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(items) == 0 {
+		return nil
+	}
+	items, err = r.canonicalizeOrderStockItems(ctx, tx, items)
+	if err != nil {
+		return err
+	}
+	allocations := make([]orderStockDeductionAllocation, 0, len(items))
+	for _, item := range items {
+		allocations = append(allocations, orderStockDeductionAllocation{
+			ProductID: item.ProductID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, SpecG: item.SpecG,
+			AllocatedG: item.NeedG, AllocatedUnits: item.Units,
+		})
+	}
+	return lockFinishedInventoryIdentitiesTx(ctx, tx, r.schema, allocations)
 }
 
 func orderStockAllocationUsesUnits(alloc orderStockDeductionAllocation) bool {
@@ -85,6 +217,9 @@ func (r Repository) deductOrderAllocatedStockTx(ctx context.Context, tx pgx.Tx, 
 		}
 	}
 	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := lockFinishedInventoryIdentitiesTx(ctx, tx, r.schema, allocations); err != nil {
 		return err
 	}
 	for _, alloc := range allocations {
@@ -484,9 +619,12 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 		}
 		allocations = append(allocations, alloc)
 	}
+	if err := lockFinishedInventoryIdentitiesTx(ctx, tx, r.schema, allocations); err != nil {
+		return err
+	}
 
-	if warehouse == "finished_goods" && len(items) > 0 {
-		preview, err := r.previewOrderStockBatches(ctx, tx, items, orderID, true)
+	if len(items) > 0 {
+		preview, err := r.previewOrderStockBatches(ctx, tx, items, orderID, true, warehouse)
 		if err != nil {
 			return err
 		}

@@ -249,6 +249,20 @@ func TestTransferFinishedProductNormalizesWarehouseAndDefaultsOperator(t *testin
 	}
 }
 
+func TestTransferFinishedProductPreservesLooseGramRequest(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	if _, err := svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods",
+		QtyLooseG: 1000, Operator: "qa",
+	}); err != nil {
+		t.Fatalf("TransferFinishedProduct: %v", err)
+	}
+	if repo.finishedTransfer.QtyUnits != 0 || repo.finishedTransfer.QtyLooseG != 1000 {
+		t.Fatalf("transfer quantities = %d units + %dg, want 0 units + 1000g", repo.finishedTransfer.QtyUnits, repo.finishedTransfer.QtyLooseG)
+	}
+}
+
 func TestTransferFinishedProductRejectsSameWarehouseAndZeroQuantity(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	_, err := svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{
@@ -325,6 +339,47 @@ func TestCreateAdjustmentAcceptsProductAliasForFinishedProduct(t *testing.T) {
 	}
 	if repo.adjustment.Warehouse != "finished_goods" {
 		t.Fatalf("warehouse = %q, want finished_goods", repo.adjustment.Warehouse)
+	}
+}
+
+func TestCreateAdjustmentAllowsLegacyZeroSpecOnlyWhenClearing(t *testing.T) {
+	t.Run("clears legacy zero-spec stock", func(t *testing.T) {
+		repo := &fakeRepo{}
+		svc := NewService(repo)
+		_, err := svc.CreateAdjustment(context.Background(), StockAdjustmentCommand{
+			ItemType: "finished_product", ItemID: 7, SpecG: 0, Warehouse: "customer_wh",
+			TargetUnits: 0, TargetG: 0, Reason: "遗留库存清零",
+		})
+		if err != nil {
+			t.Fatalf("CreateAdjustment legacy clear: %v", err)
+		}
+		if repo.adjustment.SpecG != 0 || repo.adjustment.TargetUnits != 0 || repo.adjustment.TargetG != 0 {
+			t.Fatalf("legacy clear command = %+v", repo.adjustment)
+		}
+	})
+
+	for _, tc := range []struct {
+		name        string
+		targetUnits int64
+		targetG     int64
+	}{
+		{name: "cannot add units", targetUnits: 1},
+		{name: "cannot add loose grams", targetG: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := NewService(repo)
+			_, err := svc.CreateAdjustment(context.Background(), StockAdjustmentCommand{
+				ItemType: "finished_product", ItemID: 7, SpecG: 0, Warehouse: "customer_wh",
+				TargetUnits: tc.targetUnits, TargetG: tc.targetG, Reason: "遗留库存清零",
+			})
+			if err == nil {
+				t.Fatal("expected zero-spec stock addition to be rejected")
+			}
+			if repo.adjustment.ItemID != 0 {
+				t.Fatalf("invalid zero-spec adjustment reached repository: %+v", repo.adjustment)
+			}
+		})
 	}
 }
 

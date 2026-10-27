@@ -47,7 +47,7 @@ func (r Repository) PreviewOrderStockBatches(ctx context.Context, cmd salesapp.O
 	if err != nil {
 		return salesapp.OrderStockBatchPreview{}, err
 	}
-	return r.previewOrderStockBatches(ctx, r.pool, items, cmd.EditID, false)
+	return r.previewOrderStockBatches(ctx, r.pool, items, cmd.EditID, false, "finished_goods")
 }
 
 func orderStockItemsFromCommands(commands []salesapp.OrderItemCommand) []orderStockItem {
@@ -165,15 +165,19 @@ func orderStockItemKey(item orderStockItem) string {
 	return fmt.Sprintf("%d-legacy-%d", item.ProductID, item.SpecG)
 }
 
-func (r Repository) previewOrderStockBatches(ctx context.Context, q stockBatchQueryer, items []orderStockItem, excludeOrderID int64, lock bool) (salesapp.OrderStockBatchPreview, error) {
+func (r Repository) previewOrderStockBatches(ctx context.Context, q stockBatchQueryer, items []orderStockItem, excludeOrderID int64, lock bool, warehouse string) (salesapp.OrderStockBatchPreview, error) {
+	warehouse = strings.TrimSpace(warehouse)
+	if warehouse == "" {
+		warehouse = "finished_goods"
+	}
 	items = aggregateOrderStockItems(items)
 	preview := salesapp.OrderStockBatchPreview{Sufficient: len(items) > 0}
 	for _, item := range items {
-		batches, err := r.loadOrderStockBatchAvailability(ctx, q, item, excludeOrderID, lock)
+		batches, err := r.loadOrderStockBatchAvailability(ctx, q, item, excludeOrderID, lock, warehouse)
 		if err != nil {
 			return salesapp.OrderStockBatchPreview{}, err
 		}
-		aggregateBatches, err := r.loadFinishedInventoryAggregateAvailability(ctx, q, item, excludeOrderID, batches, lock)
+		aggregateBatches, err := r.loadFinishedInventoryAggregateAvailability(ctx, q, item, excludeOrderID, batches, lock, warehouse)
 		if err != nil {
 			return salesapp.OrderStockBatchPreview{}, err
 		}
@@ -317,7 +321,7 @@ func orderStockAllocationsForPreview(allocations []stockdomain.BatchAllocation, 
 	return out
 }
 
-func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stockBatchQueryer, item orderStockItem, excludeOrderID int64, lock bool) ([]orderStockBatchRow, error) {
+func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stockBatchQueryer, item orderStockItem, excludeOrderID int64, lock bool, warehouse string) ([]orderStockBatchRow, error) {
 	lockClause := ""
 	if lock {
 		lockClause = " FOR UPDATE OF b"
@@ -364,10 +368,10 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 			  AND b.spec_g=0
 			  AND COALESCE(b.remaining_units,0) > 0
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-			  AND COALESCE(last_ledger.warehouse,'finished_goods') = 'finished_goods'
+			  AND COALESCE(last_ledger.warehouse,'finished_goods') = $4
 			ORDER BY b.created_at, b.id%s
 		`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause)
-		rows, err := q.Query(ctx, sql, item.ProductID, item.BomSpecID, excludeOrderID)
+		rows, err := q.Query(ctx, sql, item.ProductID, item.BomSpecID, excludeOrderID, warehouse)
 		if err != nil {
 			return nil, err
 		}
@@ -428,10 +432,10 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 		  AND b.spec_g=$2
 		  AND COALESCE(b.remaining_g,0) > 0
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-		  AND COALESCE(last_ledger.warehouse,'finished_goods') = 'finished_goods'
+		  AND COALESCE(last_ledger.warehouse,'finished_goods') = $4
 		ORDER BY b.created_at, b.id%s
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause)
-	rows, err := q.Query(ctx, sql, item.ProductID, item.SpecG, excludeOrderID)
+	rows, err := q.Query(ctx, sql, item.ProductID, item.SpecG, excludeOrderID, warehouse)
 	if err != nil {
 		return nil, err
 	}
@@ -461,11 +465,11 @@ func productFinishedInventoryBatchCode(productID int64) string {
 	return fmt.Sprintf("PRODUCT-FP-%d", productID)
 }
 
-func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Context, q stockBatchQueryer, item orderStockItem, excludeOrderID int64, batches []orderStockBatchRow, lock bool) ([]orderStockBatchRow, error) {
+func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Context, q stockBatchQueryer, item orderStockItem, excludeOrderID int64, batches []orderStockBatchRow, lock bool, warehouse string) ([]orderStockBatchRow, error) {
 	if item.ProductID <= 0 || (!orderStockItemUsesUnits(item) && item.SpecG <= 0) {
 		return nil, nil
 	}
-	hasBatchRows, err := r.hasAnyFinishedStockBatchRows(ctx, q, item)
+	hasBatchRows, err := r.hasAnyFinishedStockBatchRows(ctx, q, item, warehouse)
 	if err != nil {
 		return nil, err
 	}
@@ -488,9 +492,11 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 			LEFT JOIN LATERAL (
 				SELECT COALESCE(SUM(a.allocated_units),0)::bigint AS reserved_units
 				FROM %s.order_stock_batch_allocations a
+				JOIN %s.orders reserving_order ON reserving_order.id=a.order_id
 				WHERE a.product_id=$1
 				  AND a.bom_spec_id=$2
 				  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
+				  AND COALESCE(NULLIF(reserving_order.source_warehouse,''),'finished_goods')=$4
 				  AND NOT EXISTS (
 					SELECT 1
 					FROM %s.order_stock_deductions d
@@ -503,9 +509,9 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 			WHERE fi.product_id=$1
 			  AND fi.bom_spec_id=$2
 			  AND fi.spec_g=0
-			  AND fi.warehouse='finished_goods'%s
-		`, r.schema, r.schema, r.schema, r.schema, lockClause)
-		rows, err := q.Query(ctx, sql, item.ProductID, item.BomSpecID, excludeOrderID)
+			  AND fi.warehouse=$4%s
+		`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause)
+		rows, err := q.Query(ctx, sql, item.ProductID, item.BomSpecID, excludeOrderID, warehouse)
 		if err != nil {
 			return nil, err
 		}
@@ -557,10 +563,12 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(SUM(a.allocated_g),0)::bigint AS reserved_g
 			FROM %s.order_stock_batch_allocations a
+			JOIN %s.orders reserving_order ON reserving_order.id=a.order_id
 			WHERE a.product_id=$1
 			  AND a.bom_spec_id=0
 			  AND a.spec_g=$2
 			  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
+			  AND COALESCE(NULLIF(reserving_order.source_warehouse,''),'finished_goods')=$4
 			  AND NOT EXISTS (
 				SELECT 1
 				FROM %s.order_stock_deductions d
@@ -574,9 +582,9 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 		WHERE fi.product_id=$1
 		  AND fi.bom_spec_id=0
 		  AND fi.spec_g=$2
-		  AND fi.warehouse='finished_goods'%s
-	`, r.schema, r.schema, r.schema, r.schema, lockClause)
-	rows, err := q.Query(ctx, sql, item.ProductID, item.SpecG, excludeOrderID)
+	  AND fi.warehouse=$4%s
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause)
+	rows, err := q.Query(ctx, sql, item.ProductID, item.SpecG, excludeOrderID, warehouse)
 	if err != nil {
 		return nil, err
 	}
@@ -613,23 +621,30 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 	}}, nil
 }
 
-func (r Repository) hasAnyFinishedStockBatchRows(ctx context.Context, q stockBatchQueryer, item orderStockItem) (bool, error) {
-	identityClause := "bom_spec_id=$2 AND COALESCE(remaining_units,0)>0"
+func (r Repository) hasAnyFinishedStockBatchRows(ctx context.Context, q stockBatchQueryer, item orderStockItem, warehouse string) (bool, error) {
+	identityClause := "b.bom_spec_id=$2 AND COALESCE(b.remaining_units,0)>0"
 	identityValue := item.BomSpecID
 	if !orderStockItemUsesUnits(item) {
-		identityClause = "bom_spec_id=0 AND spec_g=$2 AND COALESCE(remaining_g,0)>0"
+		identityClause = "b.bom_spec_id=0 AND b.spec_g=$2 AND COALESCE(b.remaining_g,0)>0"
 		identityValue = item.SpecG
 	} else {
-		identityClause = "bom_spec_id=$2 AND spec_g=0 AND COALESCE(remaining_units,0)>0"
+		identityClause = "b.bom_spec_id=$2 AND b.spec_g=0 AND COALESCE(b.remaining_units,0)>0"
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT 1
-		FROM %s.stock_batches
-		WHERE item_type='finished_product'
-		  AND item_id=$1
+		FROM %s.stock_batches b
+		LEFT JOIN LATERAL (
+			SELECT l.warehouse FROM %s.stock_ledger_entries l
+			WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id
+			ORDER BY l.id DESC LIMIT 1
+		) last_ledger ON true
+		WHERE b.item_type='finished_product'
+		  AND b.item_id=$1
 		  AND %s
+		  AND COALESCE(last_ledger.warehouse,'finished_goods')=$3
 		LIMIT 1
-	`, r.schema, identityClause), item.ProductID, identityValue)
+	`, r.schema, r.schema, identityClause), item.ProductID, identityValue, warehouse)
 	if err != nil {
 		return false, err
 	}
@@ -666,7 +681,11 @@ func (r Repository) applyOrderStockDecisionTx(ctx context.Context, tx pgx.Tx, or
 		if err != nil {
 			return err
 		}
-		preview, err := r.previewOrderStockBatches(ctx, tx, items, orderID, true)
+		warehouse, err := orderSourceWarehouseTx(ctx, tx, r.schema, orderID)
+		if err != nil {
+			return err
+		}
+		preview, err := r.previewOrderStockBatches(ctx, tx, items, orderID, true, warehouse)
 		if err != nil {
 			return err
 		}

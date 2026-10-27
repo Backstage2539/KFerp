@@ -252,6 +252,9 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-737-WAREHOUSE-BATCH-STOCK-ADJUSTMENT", title: "吴国宏仓库成品库存按实际商品规格更正并同步批次余额", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-27-wuguohong-warehouse-correction.md"},
+		{table: "req_dev", code: "DEV-880-FINISHED-BATCH-ADJUSTMENT", title: "成品盘点按批次余额核算、FIFO扣减、增量建批次并限制规格0清零", status: "done", assignee: "Codex", evidence: "repository_test.go; service_test.go; stock_api_test.go; RED/GREEN"},
+		{table: "req_dev", code: "DEV-881-WAREHOUSE-CORRECTION-DELIVERY", title: "同步库存手册、验收证据并通过正式调整接口修正吴国宏仓库存", status: "doing", assignee: "Codex", evidence: "docs/OP_MANUAL_STOCK.md; docs/OPERATION_MANUALS.md; docs/acceptance/2026-10-27-wuguohong-warehouse-correction.md"},
 		{table: "req_product", code: "PR-736-FROZEN-RECEIPT-ALLOCATION", title: "旧冻结规格入库转待发分配及单张包装简化操作", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-26-frozen-receipt-allocation.md"},
 		{table: "req_dev", code: "DEV-PR736-01-ALLOCATION", title: "冻结订单和实际批次共同校验旧规格分配，失败整笔回滚", status: "done", assignee: "Codex", evidence: "frozen_receipt_allocation_api_test.go; API RED/GREEN, replay, late rollback, mismatched source/owner rejection"},
 		{table: "req_dev", code: "DEV-PR736-02-PACKAGING-UI", title: "单张旧包装卡统一工序完成入口", status: "done", assignee: "Codex", evidence: "workstation-legacy-packaging-runtime.test.js; rendered Vue RED/GREEN; OP_MANUAL_PRODUCTION.md"},

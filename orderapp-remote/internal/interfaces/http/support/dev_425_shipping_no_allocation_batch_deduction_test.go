@@ -9,7 +9,7 @@ import (
 func TestDev425ShippingNoAllocationFallbackDeductsFinishedBatches(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "sales", "order_stock_deductions.go")))
 	for _, want := range []string{
-		"previewOrderStockBatches(ctx, tx, items, orderID, true)",
+		"previewOrderStockBatches(ctx, tx, items, orderID, true, warehouse)",
 		"deductFinishedBatchAllocationTx",
 		"deductLegacyFinishedInventoryAllocationTx",
 	} {

@@ -7,6 +7,7 @@ import (
 	"math"
 	stockapp "orderapp/internal/application/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -175,6 +176,9 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 	}
 	detail, err := r.loadStockDocumentDetailTx(ctx, tx, id)
 	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if err := lockStockDocumentWorkOrderAndFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if detail.SourceType == "operation_completion" || detail.SourceType == "operation_correction" {
@@ -641,7 +645,7 @@ func (r Repository) resolveOrdinaryFinishedStockDocumentCommandTx(ctx context.Co
 	} // Frozen identities are validated against reservations at submit.
 	for index := range cmd.Items {
 		item := &cmd.Items[index]
-		if item.ItemType != itemTypeFinishedProduct || item.ProductID <= 0 {
+		if item.ItemType != itemTypeFinishedProduct || item.ProductID <= 0 || item.BomSpecID <= 0 {
 			continue
 		}
 		identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.InventoryUnit)
@@ -675,7 +679,7 @@ func (r Repository) resolveOrdinaryFinishedStockDocumentDetailTx(ctx context.Con
 	}
 	for index := range detail.Items {
 		item := &detail.Items[index]
-		if item.ItemType != itemTypeFinishedProduct || item.ProductID <= 0 {
+		if item.ItemType != itemTypeFinishedProduct || item.ProductID <= 0 || item.BomSpecID <= 0 {
 			continue
 		}
 		identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.InventoryUnit)
@@ -713,10 +717,13 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
-	if err := lockStockDocumentPostingTx(ctx, tx, r.schema, detail); err != nil {
+	if err := r.resolveOrdinaryFinishedStockDocumentDetailTx(ctx, tx, &detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
-	if err := r.resolveOrdinaryFinishedStockDocumentDetailTx(ctx, tx, &detail); err != nil {
+	if err := lockStockDocumentWorkOrderAndFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if err := lockStockDocumentPostingTx(ctx, tx, r.schema, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if err := r.validateOrdinaryMaterialReceiptDetailTx(ctx, tx, detail); err != nil {
@@ -2173,14 +2180,19 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 		return err
 	}
 	canonical := item.BomSpecID > 0
-	totalG, units, looseG := int64(0), item.QtyUnits, int64(0)
+	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG); err != nil {
+		return err
+	}
+	totalG, units, looseG := int64(0), item.QtyUnits, item.QtyG
 	if !canonical {
 		specG := item.SpecG
 		if specG <= 0 {
 			return fmt.Errorf("finished product specification required")
 		}
 		totalG = item.QtyUnits*specG + item.QtyG
-		units, looseG = totalG/specG, totalG%specG
+		if detail.Purpose != stockapp.PurposeMaterialTransfer {
+			units, looseG = totalG/specG, totalG%specG
+		}
 	}
 	if detail.Purpose == stockapp.PurposeCustomerReceipt {
 		ownerCustomerID := item.OwnerCustomerID
@@ -2295,27 +2307,55 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 	if err != nil {
 		return err
 	}
+	if !canonical {
+		batchUnits, batchG, err := finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.FromWarehouse)
+		if err != nil {
+			return err
+		}
+		if batchUnits > 0 || batchG > 0 {
+			summaryG := beforeFromUnits*item.SpecG + beforeFromLoose
+			if batchG != summaryG {
+				return fmt.Errorf("finished stock batch balance does not match summary in %s", item.FromWarehouse)
+			}
+			beforeFromUnits = batchUnits
+			beforeFromLoose = batchG - batchUnits*item.SpecG
+			if beforeFromLoose < 0 {
+				return fmt.Errorf("finished stock batch grams are below packed-unit grams in %s", item.FromWarehouse)
+			}
+		}
+	}
 	beforeFromG := beforeFromUnits*item.SpecG + beforeFromLoose
 	if (canonical && beforeFromUnits < units) || (!canonical && beforeFromG < totalG) {
 		return fmt.Errorf("finished product stock insufficient in %s", item.FromWarehouse)
 	}
 	afterFromUnits, afterFromLoose := beforeFromUnits-units, int64(0)
 	if !canonical {
-		afterFromUnits, afterFromLoose, _, err = normalizeFinishedQty(item.SpecG, 0, beforeFromG-totalG)
-		if err != nil {
-			return err
-		}
+		afterFromUnits, afterFromLoose = beforeFromUnits-units, beforeFromLoose-looseG
 	}
 	beforeToUnits, beforeToLoose, err := finishedInventoryQtyIdentityOwnedStockTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse, ownerCustomerID)
 	if err != nil {
 		return err
 	}
-	afterToUnits, afterToLoose := beforeToUnits+units, int64(0)
 	if !canonical {
-		afterToUnits, afterToLoose, _, err = normalizeFinishedQty(item.SpecG, 0, beforeToUnits*item.SpecG+beforeToLoose+totalG)
+		batchUnits, batchG, err := finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse)
 		if err != nil {
 			return err
 		}
+		if batchUnits > 0 || batchG > 0 {
+			summaryG := beforeToUnits*item.SpecG + beforeToLoose
+			if batchG != summaryG {
+				return fmt.Errorf("finished stock batch balance does not match summary in %s", item.ToWarehouse)
+			}
+			beforeToUnits = batchUnits
+			beforeToLoose = batchG - batchUnits*item.SpecG
+			if beforeToLoose < 0 {
+				return fmt.Errorf("finished stock batch grams are below packed-unit grams in %s", item.ToWarehouse)
+			}
+		}
+	}
+	afterToUnits, afterToLoose := beforeToUnits+units, int64(0)
+	if !canonical {
+		afterToUnits, afterToLoose = beforeToUnits+units, beforeToLoose+looseG
 	}
 	if err := upsertFinishedInventoryIdentityOwnedStockTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.FromWarehouse, afterFromUnits, afterFromLoose, ownerCustomerID); err != nil {
 		return err
@@ -2332,21 +2372,13 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 		return nil
 	}
 	beforeToG := beforeToUnits*item.SpecG + beforeToLoose
-	afterToG := afterToUnits*item.SpecG + afterToLoose
-	if canonical {
-		beforeToG, afterToG = 0, 0
+	batchCode, err := r.moveLegacyFinishedBatchesTx(ctx, tx, detail, *item, productName, ownerCustomerID,
+		totalG, units, beforeFromUnits, beforeToUnits, beforeFromG, beforeToG, actor)
+	if err != nil {
+		return err
 	}
-	for _, ledger := range []ledgerEntry{
-		{ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName, SpecG: item.SpecG, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, Warehouse: item.FromWarehouse, SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchID: detail.EntryNo, BeforeG: beforeFromG, ChangeG: -totalG, AfterG: beforeFromG - totalG, BeforeUnits: beforeFromUnits, ChangeUnits: afterFromUnits - beforeFromUnits, AfterUnits: afterFromUnits, Operator: actor},
-		{ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName, SpecG: item.SpecG, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, Warehouse: item.ToWarehouse, SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchID: detail.EntryNo, BeforeG: beforeToG, ChangeG: totalG, AfterG: afterToG, BeforeUnits: beforeToUnits, ChangeUnits: afterToUnits - beforeToUnits, AfterUnits: afterToUnits, Operator: actor},
-	} {
-		if err := insertLedgerTx(ctx, tx, r.schema, ledger); err != nil {
-			return err
-		}
-	}
-	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_entry_items SET item_name=$2,total_cost=$3 WHERE id=$1`, r.schema),
-		item.ID, productName, stockItemTotalCost(totalG, units, item.UnitCost))
-	return err
+	item.BatchCode = batchCode
+	return nil
 }
 
 type canonicalFinishedBatchMove struct {
@@ -2355,6 +2387,20 @@ type canonicalFinishedBatchMove struct {
 	TargetBatchID   int64
 	TargetBatchCode string
 	BomVariantID    int64
+	QtyUnits        int64
+	UnitCost        float64
+	QualityStatus   string
+}
+
+type legacyFinishedBatchMove struct {
+	SourceBatchID   int64
+	SourceBatchCode string
+	TargetBatchID   int64
+	TargetBatchCode string
+	BomVariantID    int64
+	RemainingG      int64
+	RemainingUnits  int64
+	QtyG            int64
 	QtyUnits        int64
 	UnitCost        float64
 	QualityStatus   string
@@ -2491,6 +2537,273 @@ func (r Repository) moveCanonicalFinishedBatchesTx(
 		UPDATE %s.stock_entry_items
 		SET item_name=$2,batch_code=$3,unit_cost=$4,total_cost=$5
 		WHERE id=$1
+	`, r.schema), item.ID, productName, firstTargetBatchCode, unitCost, weightedCost); err != nil {
+		return "", err
+	}
+	return firstTargetBatchCode, nil
+}
+
+func (r Repository) moveLegacyFinishedBatchesTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	detail stockapp.StockDocumentDetail,
+	item stockapp.StockDocumentItemRow,
+	productName string,
+	ownerCustomerID int64,
+	totalG, units int64,
+	beforeFromUnits, beforeToUnits int64,
+	beforeFromG, beforeToG int64,
+	actor string,
+) (string, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT b.id,b.batch_code,b.bom_variant_id,b.remaining_g,b.remaining_units,
+		       COALESCE(b.unit_cost,0)::float8,COALESCE(b.quality_status,'unchecked')
+		FROM %s.stock_batches b
+		LEFT JOIN LATERAL (
+			SELECT l.warehouse
+			FROM %s.stock_ledger_entries l
+			WHERE l.source_batch_code=b.batch_code
+			  AND l.item_type=b.item_type AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+			ORDER BY l.id DESC LIMIT 1
+		) last_ledger ON true
+		WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=0 AND b.spec_g=$2
+		  AND (b.remaining_g>0 OR b.remaining_units>0)
+		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+		  AND COALESCE(last_ledger.warehouse,'finished_goods')=$3
+		ORDER BY b.created_at,b.id
+		FOR UPDATE OF b
+	`, r.schema, r.schema), item.ProductID, item.SpecG, item.FromWarehouse)
+	if err != nil {
+		return "", err
+	}
+	moves := make([]legacyFinishedBatchMove, 0)
+	for rows.Next() {
+		var move legacyFinishedBatchMove
+		if err := rows.Scan(&move.SourceBatchID, &move.SourceBatchCode, &move.BomVariantID,
+			&move.RemainingG, &move.RemainingUnits, &move.UnitCost, &move.QualityStatus); err != nil {
+			rows.Close()
+			return "", err
+		}
+		moves = append(moves, move)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return "", err
+	}
+	rows.Close()
+	if len(moves) == 0 && (beforeFromG > 0 || beforeFromUnits > 0) {
+		var hasExistingBatchBalance bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1 FROM %s.stock_batches b
+				LEFT JOIN LATERAL (
+					SELECT l.warehouse
+					FROM %s.stock_ledger_entries l
+					WHERE l.source_batch_code=b.batch_code
+					  AND l.item_type=b.item_type AND l.item_id=b.item_id
+					  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+					ORDER BY l.id DESC LIMIT 1
+				) last_ledger ON true
+				WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=0 AND b.spec_g=$2
+				  AND (b.remaining_g>0 OR b.remaining_units>0)
+				  AND COALESCE(last_ledger.warehouse,'finished_goods')=$3
+			)
+		`, r.schema, r.schema), item.ProductID, item.SpecG, item.FromWarehouse).Scan(&hasExistingBatchBalance); err != nil {
+			return "", err
+		}
+		if hasExistingBatchBalance {
+			return "", fmt.Errorf("finished product stock is blocked by quality status or batch location in %s", item.FromWarehouse)
+		}
+		openingBatchCode := fmt.Sprintf("FP-OPENING-SE-%010d-%03d", detail.ID, item.ID%1000)
+		var openingBatchID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.stock_batches(
+				batch_code,item_type,item_id,item_name,owner_customer_id,bom_spec_id,bom_variant_id,spec_g,
+				source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,
+				unit_cost,quality_status,operator,created_at
+			) VALUES($1,'finished_product',$2,$3,$4,0,0,$5,'stock_entry_transfer_opening',$6,$7,$8,$9,$8,$9,0,'unchecked',$10,now())
+			RETURNING id
+		`, r.schema), openingBatchCode, item.ProductID, productName, ownerCustomerID, item.SpecG,
+			item.ID, detail.EntryNo, beforeFromG, beforeFromUnits, actor).Scan(&openingBatchID); err != nil {
+			return "", err
+		}
+		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName,
+			SpecG: item.SpecG, Warehouse: item.FromWarehouse, SourceDocType: "stock_entry", SourceDocID: detail.ID,
+			SourceBatchCode: openingBatchCode, SourceBatchID: detail.EntryNo,
+			ChangeG: beforeFromG, AfterG: beforeFromG, ChangeUnits: beforeFromUnits, AfterUnits: beforeFromUnits, Operator: actor,
+		}); err != nil {
+			return "", err
+		}
+		moves = append(moves, legacyFinishedBatchMove{
+			SourceBatchID: openingBatchID, SourceBatchCode: openingBatchCode,
+			RemainingG: beforeFromG, RemainingUnits: beforeFromUnits, QualityStatus: "unchecked",
+		})
+	}
+	if beforeToG > 0 || beforeToUnits > 0 {
+		batchUnits, batchG, err := finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, 0, item.SpecG, item.ToWarehouse)
+		if err != nil {
+			return "", err
+		}
+		if batchUnits == 0 && batchG == 0 {
+			var hasExistingBatchBalance bool
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT EXISTS(
+					SELECT 1
+					FROM %s.stock_batches b
+					LEFT JOIN LATERAL (
+						SELECT l.warehouse FROM %s.stock_ledger_entries l
+						WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+						  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+						ORDER BY l.id DESC LIMIT 1
+					) last_ledger ON true
+					WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=0 AND b.spec_g=$2
+					  AND (b.remaining_g>0 OR b.remaining_units>0)
+					  AND COALESCE(last_ledger.warehouse,'finished_goods')=$3
+				)
+			`, r.schema, r.schema), item.ProductID, item.SpecG, item.ToWarehouse).Scan(&hasExistingBatchBalance); err != nil {
+				return "", err
+			}
+			if hasExistingBatchBalance {
+				return "", fmt.Errorf("finished stock batch balance does not match summary in %s", item.ToWarehouse)
+			}
+			openingBatchCode := fmt.Sprintf("FP-OPENING-TO-SE-%010d-%03d", detail.ID, item.ID%1000)
+			var openingBatchID int64
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				INSERT INTO %s.stock_batches(
+					batch_code,item_type,item_id,item_name,owner_customer_id,bom_spec_id,bom_variant_id,spec_g,
+					source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,
+					unit_cost,quality_status,operator,created_at
+				) VALUES($1,'finished_product',$2,$3,$4,0,0,$5,'stock_entry_transfer_destination_opening',$6,$7,$8,$9,$8,$9,0,'unchecked',$10,now())
+				RETURNING id
+			`, r.schema), openingBatchCode, item.ProductID, productName, ownerCustomerID, item.SpecG,
+				item.ID, detail.EntryNo, beforeToG, beforeToUnits, actor).Scan(&openingBatchID); err != nil {
+				return "", err
+			}
+			if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+				ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName,
+				OwnerCustomerID: ownerCustomerID, SpecG: item.SpecG, Warehouse: item.ToWarehouse,
+				SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchCode: openingBatchCode,
+				SourceBatchID: detail.EntryNo, ChangeG: beforeToG, AfterG: beforeToG,
+				ChangeUnits: beforeToUnits, AfterUnits: beforeToUnits, Operator: actor,
+			}); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	remainingUnits := units
+	for index := range moves {
+		move := &moves[index]
+		takeUnits := minInt64(move.RemainingUnits, remainingUnits)
+		packedG := takeUnits * item.SpecG
+		if move.RemainingG < packedG {
+			return "", fmt.Errorf("finished stock batch %s has fewer grams than its packed units", move.SourceBatchCode)
+		}
+		move.QtyUnits = takeUnits
+		move.QtyG = packedG
+		move.RemainingUnits -= takeUnits
+		move.RemainingG -= packedG
+		remainingUnits -= takeUnits
+	}
+	remainingLooseG := totalG - units*item.SpecG
+	if remainingLooseG < 0 {
+		return "", fmt.Errorf("finished product transfer quantity is invalid")
+	}
+	for index := range moves {
+		move := &moves[index]
+		looseG := move.RemainingG - move.RemainingUnits*item.SpecG
+		if looseG < 0 {
+			return "", fmt.Errorf("finished stock batch %s has an invalid loose-gram balance", move.SourceBatchCode)
+		}
+		takeG := minInt64(looseG, remainingLooseG)
+		move.QtyG += takeG
+		move.RemainingG -= takeG
+		remainingLooseG -= takeG
+	}
+	if remainingUnits > 0 || remainingLooseG > 0 {
+		return "", fmt.Errorf("finished product stock is blocked by quality status or batch location in %s", item.FromWarehouse)
+	}
+
+	sourceRollingG, targetRollingG := beforeFromG, beforeToG
+	sourceRollingUnits, targetRollingUnits := beforeFromUnits, beforeToUnits
+	firstTargetBatchCode := ""
+	weightedCost := float64(0)
+	for index := range moves {
+		move := &moves[index]
+		if move.QtyG == 0 && move.QtyUnits == 0 {
+			continue
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.stock_batches SET remaining_g=$2,remaining_units=$3 WHERE id=$1
+		`, r.schema), move.SourceBatchID, move.RemainingG, move.RemainingUnits); err != nil {
+			return "", err
+		}
+		var moveID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.stock_entry_finished_batch_moves(
+				stock_entry_id,stock_entry_item_id,source_batch_id,source_batch_code,
+				bom_spec_id,bom_variant_id,spec_g,qty_g,qty_units
+			) VALUES($1,$2,$3,$4,0,$5,$6,$7,$8)
+			RETURNING id
+		`, r.schema), detail.ID, item.ID, move.SourceBatchID, move.SourceBatchCode,
+			move.BomVariantID, item.SpecG, move.QtyG, move.QtyUnits).Scan(&moveID); err != nil {
+			return "", err
+		}
+		move.TargetBatchCode = fmt.Sprintf("FP-MOVE-%010d", moveID)
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.stock_batches(
+				batch_code,item_type,item_id,item_name,owner_customer_id,bom_spec_id,bom_variant_id,spec_g,
+				source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,
+				unit_cost,quality_status,operator,created_at
+			) VALUES($1,'finished_product',$2,$3,$4,0,$5,$6,'stock_entry_transfer',$7,$8,$9,$10,$9,$10,$11,$12,$13,now())
+			RETURNING id
+		`, r.schema), move.TargetBatchCode, item.ProductID, productName, ownerCustomerID, move.BomVariantID, item.SpecG,
+			moveID, move.SourceBatchCode, move.QtyG, move.QtyUnits, move.UnitCost, move.QualityStatus, actor).Scan(&move.TargetBatchID); err != nil {
+			return "", err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.stock_entry_finished_batch_moves SET target_batch_id=$2,target_batch_code=$3 WHERE id=$1
+		`, r.schema), moveID, move.TargetBatchID, move.TargetBatchCode); err != nil {
+			return "", err
+		}
+		if firstTargetBatchCode == "" {
+			firstTargetBatchCode = move.TargetBatchCode
+		}
+		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName,
+			SpecG: item.SpecG, BomVariantID: move.BomVariantID, Warehouse: item.FromWarehouse,
+			SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchCode: move.SourceBatchCode, SourceBatchID: detail.EntryNo,
+			BeforeG: sourceRollingG, ChangeG: -move.QtyG, AfterG: sourceRollingG - move.QtyG,
+			BeforeUnits: sourceRollingUnits, ChangeUnits: -move.QtyUnits, AfterUnits: sourceRollingUnits - move.QtyUnits, Operator: actor,
+		}); err != nil {
+			return "", err
+		}
+		sourceRollingG -= move.QtyG
+		sourceRollingUnits -= move.QtyUnits
+		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName,
+			SpecG: item.SpecG, BomVariantID: move.BomVariantID, Warehouse: item.ToWarehouse,
+			SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchCode: move.TargetBatchCode, SourceBatchID: detail.EntryNo,
+			BeforeG: targetRollingG, ChangeG: move.QtyG, AfterG: targetRollingG + move.QtyG,
+			BeforeUnits: targetRollingUnits, ChangeUnits: move.QtyUnits, AfterUnits: targetRollingUnits + move.QtyUnits, Operator: actor,
+		}); err != nil {
+			return "", err
+		}
+		targetRollingG += move.QtyG
+		targetRollingUnits += move.QtyUnits
+		weightedCost += stockItemTotalCost(move.QtyG, move.QtyUnits, move.UnitCost)
+	}
+	if firstTargetBatchCode == "" {
+		return "", fmt.Errorf("finished product transfer found no available source batch")
+	}
+	unitCost := float64(0)
+	if totalG > 0 {
+		unitCost = weightedCost / (float64(totalG) / 1000)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.stock_entry_items SET item_name=$2,batch_code=$3,unit_cost=$4,total_cost=$5 WHERE id=$1
 	`, r.schema), item.ID, productName, firstTargetBatchCode, unitCost, weightedCost); err != nil {
 		return "", err
 	}
@@ -2712,6 +3025,17 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 		}
 	}
 	canonical := item.BomSpecID > 0
+	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG); err != nil {
+		return err
+	}
+	var hasBatchMoves bool
+	if detail.Purpose != stockapp.PurposeManufacture {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(SELECT 1 FROM %s.stock_entry_finished_batch_moves WHERE stock_entry_id=$1 AND stock_entry_item_id=$2)
+		`, r.schema), detail.ID, item.ID).Scan(&hasBatchMoves); err != nil {
+			return err
+		}
+	}
 	totalG := item.QtyUnits*item.SpecG + item.QtyG
 	if canonical {
 		totalG = 0
@@ -2751,18 +3075,59 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 		return err
 	}
 	beforeToG := beforeToUnits*item.SpecG + beforeToLoose
-	if (canonical && beforeToUnits < item.QtyUnits) || (!canonical && beforeToG < totalG) {
-		return fmt.Errorf("transferred finished stock has been consumed; create a correction document instead")
-	}
 	beforeFromUnits, beforeFromLoose, err := finishedInventoryIdentityQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.FromWarehouse)
 	if err != nil {
 		return err
 	}
+	if !canonical && hasBatchMoves {
+		summaryFromG := beforeFromUnits*item.SpecG + beforeFromLoose
+		summaryToG := beforeToUnits*item.SpecG + beforeToLoose
+		var beforeFromG int64
+		beforeFromUnits, beforeFromG, err = finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.FromWarehouse)
+		if err != nil {
+			return err
+		}
+		beforeToUnits, beforeToG, err = finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse)
+		if err != nil {
+			return err
+		}
+		if beforeFromG != summaryFromG {
+			return fmt.Errorf("finished stock batch balance does not match summary in %s", item.FromWarehouse)
+		}
+		if beforeToG != summaryToG {
+			return fmt.Errorf("finished stock batch balance does not match summary in %s", item.ToWarehouse)
+		}
+		beforeFromLoose = beforeFromG - beforeFromUnits*item.SpecG
+		beforeToLoose = beforeToG - beforeToUnits*item.SpecG
+		if beforeFromLoose < 0 || beforeToLoose < 0 {
+			return fmt.Errorf("finished stock batch grams are below packed-unit grams")
+		}
+	}
+	if (canonical && beforeToUnits < item.QtyUnits) || (!canonical && beforeToG < totalG) {
+		return fmt.Errorf("transferred finished stock has been consumed; create a correction document instead")
+	}
 	afterToUnits, afterToLoose := beforeToUnits-item.QtyUnits, int64(0)
 	afterFromUnits, afterFromLoose := beforeFromUnits+item.QtyUnits, int64(0)
 	if !canonical {
-		afterToUnits, afterToLoose, _, _ = normalizeFinishedQty(item.SpecG, 0, beforeToG-totalG)
-		afterFromUnits, afterFromLoose, _, _ = normalizeFinishedQty(item.SpecG, 0, beforeFromUnits*item.SpecG+beforeFromLoose+totalG)
+		if hasBatchMoves {
+			afterToUnits, afterToLoose = beforeToUnits-item.QtyUnits, beforeToLoose-item.QtyG
+			afterFromUnits, afterFromLoose = beforeFromUnits+item.QtyUnits, beforeFromLoose+item.QtyG
+		} else {
+			afterToUnits, afterToLoose, _, err = normalizeFinishedQty(item.SpecG, 0, beforeToG-totalG)
+			if err != nil {
+				return err
+			}
+			afterFromUnits, afterFromLoose, _, err = normalizeFinishedQty(item.SpecG, 0, beforeFromUnits*item.SpecG+beforeFromLoose+totalG)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if !canonical && hasBatchMoves {
+		if err := r.reverseFinishedBatchMovesTx(ctx, tx, detail, item,
+			beforeFromUnits, beforeToUnits, beforeFromLoose, beforeToLoose, actor); err != nil {
+			return err
+		}
 	}
 	if err := upsertFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.ToWarehouse, afterToUnits, afterToLoose); err != nil {
 		return err
@@ -2771,7 +3136,11 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 		return err
 	}
 	if canonical {
-		return r.reverseCanonicalFinishedBatchMovesTx(ctx, tx, detail, item, beforeFromUnits, beforeToUnits, actor)
+		return r.reverseFinishedBatchMovesTx(ctx, tx, detail, item,
+			beforeFromUnits, beforeToUnits, beforeFromLoose, beforeToLoose, actor)
+	}
+	if hasBatchMoves {
+		return nil
 	}
 	for _, ledger := range []ledgerEntry{
 		{ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: item.ItemName, SpecG: item.SpecG, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, Warehouse: item.ToWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchID: detail.EntryNo, BeforeG: beforeToG, ChangeG: -totalG, AfterG: beforeToG - totalG, BeforeUnits: beforeToUnits, ChangeUnits: afterToUnits - beforeToUnits, AfterUnits: afterToUnits, Operator: actor},
@@ -2784,19 +3153,101 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 	return nil
 }
 
-func (r Repository) reverseCanonicalFinishedBatchMovesTx(
+func finishedInventoryBatchQtyTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, specG int64, warehouse string) (int64, int64, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT b.remaining_units,b.remaining_g
+		FROM %s.stock_batches b
+		LEFT JOIN LATERAL (
+			SELECT l.warehouse FROM %s.stock_ledger_entries l
+			WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+			ORDER BY l.id DESC LIMIT 1
+		) last_ledger ON true
+		WHERE b.item_type=$1 AND b.item_id=$2 AND b.bom_spec_id=$3 AND b.spec_g=$4
+		  AND COALESCE(last_ledger.warehouse,'finished_goods')=$5
+		ORDER BY b.created_at,b.id
+		FOR UPDATE OF b
+	`, schema, schema), itemTypeFinishedProduct, productID, bomSpecID, specG, warehouse)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	var units, grams int64
+	for rows.Next() {
+		var batchUnits, batchGrams int64
+		if err := rows.Scan(&batchUnits, &batchGrams); err != nil {
+			return 0, 0, err
+		}
+		units += batchUnits
+		grams += batchGrams
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	return units, grams, nil
+}
+
+type stockDocumentFinishedIdentity struct {
+	productID int64
+	bomSpecID int64
+	specG     int64
+}
+
+func lockStockDocumentFinishedIdentitiesTx(ctx context.Context, tx pgx.Tx, schema string, detail stockapp.StockDocumentDetail) error {
+	identities := make([]stockDocumentFinishedIdentity, 0, len(detail.Items))
+	seen := make(map[stockDocumentFinishedIdentity]struct{}, len(detail.Items))
+	for _, item := range detail.Items {
+		if item.ItemType != itemTypeFinishedProduct || item.ProductID <= 0 {
+			continue
+		}
+		identity := stockDocumentFinishedIdentity{productID: item.ProductID, bomSpecID: item.BomSpecID, specG: item.SpecG}
+		if _, ok := seen[identity]; ok {
+			continue
+		}
+		seen[identity] = struct{}{}
+		identities = append(identities, identity)
+	}
+	sort.Slice(identities, func(i, j int) bool {
+		if identities[i].productID != identities[j].productID {
+			return identities[i].productID < identities[j].productID
+		}
+		if identities[i].bomSpecID != identities[j].bomSpecID {
+			return identities[i].bomSpecID < identities[j].bomSpecID
+		}
+		return identities[i].specG < identities[j].specG
+	})
+	for _, identity := range identities {
+		if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, schema, identity.productID, identity.bomSpecID, identity.specG); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func lockStockDocumentWorkOrderAndFinishedIdentitiesTx(ctx context.Context, tx pgx.Tx, schema string, detail stockapp.StockDocumentDetail) error {
+	if detail.WorkOrderID > 0 {
+		if err := lockStockDocumentWorkOrderMaterialsTx(ctx, tx, schema, detail.WorkOrderID, nil); err != nil {
+			return err
+		}
+	}
+	return lockStockDocumentFinishedIdentitiesTx(ctx, tx, schema, detail)
+}
+
+func (r Repository) reverseFinishedBatchMovesTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	detail stockapp.StockDocumentDetail,
 	item stockapp.StockDocumentItemRow,
 	beforeFromUnits int64,
 	beforeToUnits int64,
+	beforeFromLoose int64,
+	beforeToLoose int64,
 	actor string,
 ) error {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT move.source_batch_id,move.source_batch_code,move.target_batch_id,move.target_batch_code,
-		       move.bom_variant_id,move.qty_units,
-		       source.remaining_units,target.remaining_units
+		       move.bom_variant_id,move.qty_g,move.qty_units,
+		       source.remaining_g,source.remaining_units,target.remaining_g,target.remaining_units
 		FROM %s.stock_entry_finished_batch_moves move
 		JOIN %s.stock_batches source ON source.id=move.source_batch_id
 		JOIN %s.stock_batches target ON target.id=move.target_batch_id
@@ -2808,17 +3259,18 @@ func (r Repository) reverseCanonicalFinishedBatchMovesTx(
 		return err
 	}
 	type reversalRow struct {
-		sourceID, targetID                         int64
-		sourceCode, targetCode                     string
-		bomVariantID, qtyUnits                     int64
-		sourceRemainingUnits, targetRemainingUnits int64
+		sourceID, targetID                                                             int64
+		sourceCode, targetCode                                                         string
+		bomVariantID, qtyG, qtyUnits                                                   int64
+		sourceRemainingG, sourceRemainingUnits, targetRemainingG, targetRemainingUnits int64
 	}
 	moves := make([]reversalRow, 0)
 	for rows.Next() {
 		var move reversalRow
 		if err := rows.Scan(
 			&move.sourceID, &move.sourceCode, &move.targetID, &move.targetCode,
-			&move.bomVariantID, &move.qtyUnits, &move.sourceRemainingUnits, &move.targetRemainingUnits,
+			&move.bomVariantID, &move.qtyG, &move.qtyUnits,
+			&move.sourceRemainingG, &move.sourceRemainingUnits, &move.targetRemainingG, &move.targetRemainingUnits,
 		); err != nil {
 			rows.Close()
 			return err
@@ -2834,37 +3286,43 @@ func (r Repository) reverseCanonicalFinishedBatchMovesTx(
 		return fmt.Errorf("finished product transfer batch trace is missing")
 	}
 	for _, move := range moves {
-		if move.targetRemainingUnits < move.qtyUnits {
+		if move.targetRemainingG < move.qtyG || move.targetRemainingUnits < move.qtyUnits {
 			return fmt.Errorf("transferred finished stock batch %s has been consumed; create a correction document instead", move.targetCode)
 		}
 	}
 
-	sourceRolling, targetRolling := beforeFromUnits, beforeToUnits
+	sourceRollingG := beforeFromUnits*item.SpecG + beforeFromLoose
+	targetRollingG := beforeToUnits*item.SpecG + beforeToLoose
+	sourceRollingUnits, targetRollingUnits := beforeFromUnits, beforeToUnits
 	for _, move := range moves {
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET remaining_units=remaining_units+$2 WHERE id=$1`, r.schema), move.sourceID, move.qtyUnits); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET remaining_g=remaining_g+$2,remaining_units=remaining_units+$3 WHERE id=$1`, r.schema), move.sourceID, move.qtyG, move.qtyUnits); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET remaining_units=remaining_units-$2 WHERE id=$1`, r.schema), move.targetID, move.qtyUnits); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.stock_batches SET remaining_g=remaining_g-$2,remaining_units=remaining_units-$3 WHERE id=$1`, r.schema), move.targetID, move.qtyG, move.qtyUnits); err != nil {
 			return err
 		}
 		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
 			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: item.ItemName,
-			BomSpecID: item.BomSpecID, BomVariantID: move.bomVariantID, Warehouse: item.ToWarehouse,
+			SpecG: item.SpecG, BomSpecID: item.BomSpecID, BomVariantID: move.bomVariantID, Warehouse: item.ToWarehouse,
 			SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: move.targetCode, SourceBatchID: detail.EntryNo,
-			BeforeUnits: targetRolling, ChangeUnits: -move.qtyUnits, AfterUnits: targetRolling - move.qtyUnits, Operator: actor,
+			BeforeG: targetRollingG, ChangeG: -move.qtyG, AfterG: targetRollingG - move.qtyG,
+			BeforeUnits: targetRollingUnits, ChangeUnits: -move.qtyUnits, AfterUnits: targetRollingUnits - move.qtyUnits, Operator: actor,
 		}); err != nil {
 			return err
 		}
-		targetRolling -= move.qtyUnits
+		targetRollingG -= move.qtyG
+		targetRollingUnits -= move.qtyUnits
 		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
 			ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: item.ItemName,
-			BomSpecID: item.BomSpecID, BomVariantID: move.bomVariantID, Warehouse: item.FromWarehouse,
+			SpecG: item.SpecG, BomSpecID: item.BomSpecID, BomVariantID: move.bomVariantID, Warehouse: item.FromWarehouse,
 			SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchCode: move.sourceCode, SourceBatchID: detail.EntryNo,
-			BeforeUnits: sourceRolling, ChangeUnits: move.qtyUnits, AfterUnits: sourceRolling + move.qtyUnits, Operator: actor,
+			BeforeG: sourceRollingG, ChangeG: move.qtyG, AfterG: sourceRollingG + move.qtyG,
+			BeforeUnits: sourceRollingUnits, ChangeUnits: move.qtyUnits, AfterUnits: sourceRollingUnits + move.qtyUnits, Operator: actor,
 		}); err != nil {
 			return err
 		}
-		sourceRolling += move.qtyUnits
+		sourceRollingG += move.qtyG
+		sourceRollingUnits += move.qtyUnits
 	}
 	return nil
 }
