@@ -32,3 +32,29 @@ func TestRenderCustomerAccountBuildsUnifiedStatementPDF(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderCustomerOrderFeeAccountPaginatesLongGroupedDetail(t *testing.T) {
+	lines := make([]app.AccountFeeLine, 0, 70)
+	for i := 0; i < 70; i++ {
+		lines = append(lines, app.AccountFeeLine{AccountFee: app.AccountFee{ID: int64(i + 1), OrderID: 9, OrderNo: "SO-9", FeeType: "shipping", FeeName: "寄件实际运费调整费用名称较长用于验证重复表头和分页", AmountCents: 1234, OccurredAt: "2026-10-26", TrackingNo: "SF5144416745654"}, Category: "shipping"})
+	}
+	body, err := RenderCustomerOrderFeeAccount(app.AccountData{
+		CustomerName: "测试客户", DateFrom: "2026-10-01", DateTo: "2026-10-31", AsOf: "2026-10-27 15:00:00",
+		FeeSummary:     app.AccountFeeSummary{ShippingCents: 70 * 1234, PayableCents: 70 * 1234},
+		OrderFeeGroups: []app.AccountOrderFeeGroup{{Order: app.AccountOrder{ID: 9, OrderNo: "SO-9", OrderDate: "2026-10-22"}, PayableCents: 70 * 1234, FeeLines: lines}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(body, []byte("%PDF")) || bytes.Count(body, []byte("/Type /Page")) < 2 {
+		t.Fatalf("expected multipage fee PDF, bytes=%d page objects=%d", len(body), bytes.Count(body, []byte("/Type /Page")))
+	}
+	if dir := os.Getenv("KFERP_PDF_QA_DIR"); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "customer-order-fees.pdf"), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

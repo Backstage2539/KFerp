@@ -101,7 +101,7 @@ export function visibleServiceSections(payload: ServicePayload): ServiceSection[
     return sections
   }
   if (key === 'settlement') {
-    addSection(sections, '账单', payload.settlement_batches)
+    // Fee center renders the current customer ledger in CustomerBillsPanel.
     return sections
   }
   addSection(sections, '商品价格表', payload.bean_lists)
@@ -117,7 +117,7 @@ export function visibleServiceSections(payload: ServicePayload): ServiceSection[
 
 export function orderSectionTitle(key: ServiceKey): string {
   if (key === 'orders') return '我的订单'
-  if (key === 'settlement') return '账单'
+  if (key === 'settlement') return '费用明细'
   return '订单 / 物流'
 }
 

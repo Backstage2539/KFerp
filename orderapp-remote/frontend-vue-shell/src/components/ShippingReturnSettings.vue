@@ -2,6 +2,7 @@
   <section class="return-settings">
 <h2>物流回传模板</h2>
 <p>订单列表上传寄件表时，按姓名和手机号前三位、后四位匹配。单号和实际成本必填，0 元有效。</p>
+<p>可选映射结算重量和揽件时间；缺少时保留为空，费用明细显示“未记录”。</p>
 <p v-if="error" role="alert">{{error}}</p>
 <p v-if="message" role="status">{{message}}</p>
 <article v-for="t in templates" :key="t.id">
@@ -24,6 +25,7 @@
 <label v-for="(c,k) in t.columns" :key="k">{{labels[k]}}<input v-model.trim="c.column" placeholder="列字母，如 C" aria-label="列字母" />
 <input v-model.trim="c.header" placeholder="该列表头文字" aria-label="表头文字" />
 </label>
+<label v-if="t.columns.settlement_weight">结算重量单位<input v-model.trim="t.weight_unit" placeholder="kg 或 g" aria-label="结算重量单位" /></label>
 </div>
 </article>
 <button :disabled="busy" @click="save">保存回传模板</button>
@@ -35,7 +37,7 @@ import {onMounted,ref} from 'vue'
 import {apiGet,apiSend} from '../api/client'
 defineProps({companies:{type:Array,default:()=>[]}})
 const templates=ref([]),error=ref(''),message=ref(''),busy=ref(false)
-const labels={tracking:'运单号',amount:'实际物流成本',receiver:'收件人',phone:'收件电话',sender:'寄件人',sender_phone:'寄件电话',time:'下单时间'}
+const labels={tracking:'运单号',amount:'实际物流成本',receiver:'收件人',phone:'收件电话',sender:'寄件人',sender_phone:'寄件电话',time:'下单时间',settlement_weight:'结算重量（可选）',pickup_time:'揽件时间（可选）'}
 async function load(){try{templates.value=(await apiGet('/api/settings/logistics/shipping-return-templates')).templates||[]}catch(e){error.value=e.message}}
 function copy(){const t=JSON.parse(JSON.stringify(templates.value[0]));t.id=`return-${Date.now()}`;t.name+='（副本）';t.revision=0;templates.value.push(t)}
 async function save(){busy.value=true;error.value='';message.value='';try{const r=await apiSend('/api/settings/logistics/shipping-return-templates',{method:'PUT',body:{templates:templates.value}});templates.value=r.templates;message.value='回传模板已保存'}catch(e){error.value=e.message}finally{busy.value=false}}

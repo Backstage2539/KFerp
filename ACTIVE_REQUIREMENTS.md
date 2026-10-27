@@ -6335,6 +6335,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: feature branch based on `origin/develop@aa4e792a54b9`; integrated to `develop` and deployed to the development environment at `a1f775455be672d13b9f333ef4a1327ffe3b8793`. Server Go verification and `/app/login` HTTP 200 smoke passed; authenticated browser verified fee summaries and the unbilled ledger. Production and WeChat publication were not performed.
 - Notes: 订单货款仅计未收余额；旧草稿迁移保留明细快照、归还来源、记系统操作日志并跳过 processing billing run；不生成吴国宏正式账单、不登记收款、不发布 production 或微信。
 
+### PR-741-CUSTOMER-MINIAPP-FEE-LEDGER
+- Branch: `codex/customer-miniapp-fee-ledger`; base `origin/develop@d5208d5c1`.
+- Owner/session: Codex / 客户小程序费用明细与下载改造。
+- Status: implementation, full Go, Mini Program, PDF/Excel, and local PostgreSQL verification complete; development integration and Mini Program Developer Tool/real-device acceptance pending; PR/product acceptance pending.
+- Scope: remove the miniapp reconciliation panel; group current-period goods and fees by order; expose shipment metadata; download full-period grouped PDF/Excel; capture optional settlement weight and pickup time on future shipping-return imports.
+- DEV: DEV-PR741-01 period/source aggregation and shipment association; DEV-PR741-02 optional import metadata and legacy template compatibility; DEV-PR741-03 miniapp ledger and full-period PDF/Excel; DEV-PR741-04 customer-isolated API, manuals, acceptance, and development delivery.
+- Verifier: RED recorded for missing order-fee grouping/import metadata and stale miniapp interactions; full `go test ./...` and `scripts/verify_kferp.sh changed` pass; isolated PostgreSQL `TestCustomerAccountHistorySummaryFeesAndIsolation` passes with two freight waybills on one order, per-waybill pickup/weight matching and missing-metadata coverage; miniapp 72 files/436 tests, typecheck and development build pass; Vue shipping-return runtime 5/5 and Vite build pass; 70-line PDF rendered to 5 pages and first two pages visually checked; API handler and Excel tests pass. Post-deploy API/browser/device acceptance remains open.
+- Manuals: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`, `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`, `orderapp-remote/docs/OP_MANUAL_SHIPPING_RETURN.md`, miniapp profile guidance. Acceptance: `orderapp-remote/docs/acceptance/2026-10-28-customer-miniapp-fee-ledger.md`.
+- Deployment: not yet pushed, merged, or deployed. The plan authorizes integration to `develop` and development deployment after verification. Production release, WeChat upload/review/publication, and historical shipment-data backfill are excluded.
+
 ### PR-739-CUSTOMER-FEES-MONTHLY-SHIPPED-COLOR
 - Branch: `codex/shipped-fees-monthly`; base `origin/develop@6626c6a47b79`.
 - Owner/session: Codex / 客户费用月结与已发货订单颜色。

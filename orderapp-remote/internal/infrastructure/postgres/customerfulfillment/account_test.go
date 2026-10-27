@@ -77,4 +77,34 @@ func TestCustomerAccountHistorySummaryFeesAndIsolation(t *testing.T) {
 	if err != nil || len(d.Rows) != 1 || len(d.Rows[0].Items) != 1 {
 		t.Fatalf("detail %+v %v", d.Rows, err)
 	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE %[1]s.freight_actual_shipments(id bigint,tracking_no text,order_id bigint,customer_id bigint);
+CREATE TABLE %[1]s.freight_actual_entries(id bigint,shipment_id bigint);
+INSERT INTO %[1]s.freight_actual_shipments VALUES(41,'SF208',208,1),(42,'SF209',208,1);
+INSERT INTO %[1]s.freight_actual_entries VALUES(51,41),(52,42);
+INSERT INTO %[1]s.customer_fee_items(id,customer_id,source_type,source_id,fee_type,note,amount,currency,occurred_at,settlement_batch_id,status) VALUES(4,1,'freight_actual',51,'shipping','寄件实际运费',9.10,'CNY','2026-09-09',0,'unsettled'),(5,1,'freight_actual',52,'shipping','寄件实际运费',5.50,'CNY','2026-09-09',0,'unsettled');
+CREATE TABLE %[1]s.order_shipment_orders(id bigint,order_id bigint,tracking_no text,shipped_at timestamptz);
+INSERT INTO %[1]s.order_shipment_orders VALUES(1,208,'SF208','2026-08-20 09:00:00+08');
+CREATE TABLE %[1]s.shipping_return_rows(id bigint,status text,selected_order_id bigint,payload jsonb);
+INSERT INTO %[1]s.shipping_return_rows VALUES(1,'applied',208,'{"tracking_no":"SF208","settlement_weight_kg":"1.250","pickup_time":"2026-09-09 10:20:00"}');`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	q, _ = app.NormalizeAccountQuery(app.AccountQuery{CustomerID: 1, View: "order_fees", Period: "week", Anchor: "2026-09-09", Limit: 200})
+	feeData, err := repo.CustomerAccount(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var crossPeriod *app.AccountOrderFeeGroup
+	for i := range feeData.OrderFeeGroups {
+		if feeData.OrderFeeGroups[i].Order.OrderNo == "OLD" {
+			crossPeriod = &feeData.OrderFeeGroups[i]
+			break
+		}
+	}
+	if crossPeriod == nil || crossPeriod.Order.InPeriod || crossPeriod.PayableCents != 1460 || len(crossPeriod.Shipments) != 2 || crossPeriod.Shipments[0].TrackingNo != "SF208" || crossPeriod.Shipments[0].SettlementWeightKG != "1.250" || crossPeriod.Shipments[0].PickupAt != "2026-09-09 10:20:00" || crossPeriod.Shipments[1].TrackingNo != "SF209" || crossPeriod.Shipments[1].Source != "快递费用记录" || crossPeriod.Shipments[1].ShippedAt != "" || crossPeriod.Shipments[1].SettlementWeightKG != "" || crossPeriod.Shipments[1].ShippingCents != 550 {
+		t.Fatalf("cross-period fee group=%+v summary=%+v", crossPeriod, feeData.FeeSummary)
+	}
+	if feeData.FeeSummary.ShippingCents != 206460 || feeData.FeeSummary.GoodsCents != 1845000 {
+		t.Fatalf("period fee summary=%+v", feeData.FeeSummary)
+	}
 }

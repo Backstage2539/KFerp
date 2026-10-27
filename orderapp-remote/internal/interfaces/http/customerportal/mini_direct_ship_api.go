@@ -463,6 +463,7 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		limit, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("limit")))
 		query, err := customerfulfillmentapp.NormalizeAccountQuery(customerfulfillmentapp.AccountQuery{
 			CustomerID: current.CurrentCustomerID, Query: strings.TrimSpace(c.QueryParam("q")),
+			View: strings.TrimSpace(c.QueryParam("view")), ChargeType: strings.TrimSpace(c.QueryParam("charge_type")),
 			DateFrom: c.QueryParam("date_from"), DateTo: c.QueryParam("date_to"), Period: c.QueryParam("period"),
 			Anchor: c.QueryParam("anchor"), PayStatus: c.QueryParam("pay_status"), ShipStatus: c.QueryParam("ship_status"),
 			Page: page, Limit: limit,
@@ -470,21 +471,36 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
+		path := c.Request().URL.Path
+		isDocument := strings.HasSuffix(path, ".pdf") || strings.HasSuffix(path, ".xlsx")
+		if isDocument && query.View == "order_fees" {
+			query.ChargeType = ""
+			query.Query, query.PayStatus, query.ShipStatus = "", "", ""
+			query.Page, query.Limit = 1, 200
+		}
 		data, err := fulfillment.CustomerAccount(c.Request().Context(), query)
 		if err != nil {
 			return miniCustomerFulfillmentError(c, err)
 		}
-		path := c.Request().URL.Path
-		if strings.HasSuffix(path, ".pdf") || strings.HasSuffix(path, ".xlsx") {
+		if isDocument {
 			var body []byte
 			contentType := "application/pdf"
 			filename := "customer-statement.pdf"
 			if strings.HasSuffix(path, ".xlsx") {
-				body, err = excelinfra.RenderCustomerAccount(data)
+				if query.View == "order_fees" {
+					body, err = excelinfra.RenderCustomerOrderFeeAccount(data)
+				} else {
+					body, err = excelinfra.RenderCustomerAccount(data)
+				}
 				contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-				filename = "customer-statement.xlsx"
+				filename = "customer-fee-details.xlsx"
 			} else {
-				body, err = pdfinfra.RenderCustomerAccount(data)
+				if query.View == "order_fees" {
+					body, err = pdfinfra.RenderCustomerOrderFeeAccount(data)
+				} else {
+					body, err = pdfinfra.RenderCustomerAccount(data)
+				}
+				filename = "customer-fee-details.pdf"
 			}
 			if err != nil {
 				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "账单生成失败"})

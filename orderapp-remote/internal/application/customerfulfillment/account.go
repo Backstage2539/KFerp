@@ -5,12 +5,15 @@ import (
 	"fmt"
 	freightdomain "orderapp/internal/domain/freight"
 	salesdomain "orderapp/internal/domain/sales"
+	"sort"
 	"strings"
 	"time"
 )
 
 type AccountQuery struct {
 	CurrentVersion bool
+	View           string
+	ChargeType     string
 	CustomerID     int64
 	OrderID        int64
 	Query          string
@@ -50,6 +53,8 @@ type AccountOrder struct {
 	PaidCents            int64                    `json:"paid_cents"`
 	DueCents             int64                    `json:"due_cents"`
 	Items                []AccountOrderItem       `json:"items,omitempty"`
+	InPeriod             bool                     `json:"in_period,omitempty"`
+	HasOrderShippingFee  bool                     `json:"-"`
 }
 type AccountOrderItem struct {
 	Name                 string  `json:"item_name"`
@@ -111,6 +116,47 @@ type AccountFee struct {
 	SourceID         int64  `json:"source_id"`
 	FeeName          string `json:"fee_name"`
 	IncludedInOrder  bool   `json:"included_in_order"`
+	ShipmentID       int64  `json:"shipment_id,omitempty"`
+	TrackingNo       string `json:"tracking_no,omitempty"`
+}
+
+type AccountShipment struct {
+	OrderID            int64  `json:"order_id"`
+	OrderNo            string `json:"order_no"`
+	TrackingNo         string `json:"tracking_no"`
+	ShippedAt          string `json:"shipped_at"`
+	PickupAt           string `json:"pickup_at"`
+	SettlementWeightKG string `json:"settlement_weight_kg"`
+	ShippingCents      int64  `json:"shipping_cents"`
+	Source             string `json:"source"`
+}
+
+type AccountFeeLine struct {
+	AccountFee
+	Category string `json:"category"`
+}
+
+type AccountOrderFeeGroup struct {
+	Order        AccountOrder      `json:"order"`
+	Unlinked     bool              `json:"unlinked,omitempty"`
+	PayableCents int64             `json:"payable_cents"`
+	PaidCents    int64             `json:"paid_cents"`
+	DueCents     int64             `json:"due_cents"`
+	RefundCents  int64             `json:"refund_cents"`
+	FeeLines     []AccountFeeLine  `json:"fee_lines"`
+	Shipments    []AccountShipment `json:"shipments"`
+}
+
+type AccountFeeSummary struct {
+	GoodsCents             int64 `json:"goods_cents"`
+	ProcessingCents        int64 `json:"processing_cents"`
+	DirectShipServiceCents int64 `json:"direct_ship_service_cents"`
+	ShippingCents          int64 `json:"shipping_cents"`
+	OtherCents             int64 `json:"other_cents"`
+	PayableCents           int64 `json:"payable_cents"`
+	PaidCents              int64 `json:"paid_cents"`
+	DueCents               int64 `json:"due_cents"`
+	RefundCents            int64 `json:"refund_cents"`
 }
 
 type AccountStatementDispute struct {
@@ -143,21 +189,35 @@ type AccountSettlement struct {
 	Disputes             []AccountStatementDispute `json:"disputes,omitempty"`
 }
 type AccountData struct {
-	CustomerName string              `json:"customer_name"`
-	DateFrom     string              `json:"date_from"`
-	DateTo       string              `json:"date_to"`
-	AsOf         string              `json:"as_of"`
-	Rows         []AccountOrder      `json:"rows"`
-	Summary      AccountSummary      `json:"summary"`
-	Fees         []AccountFee        `json:"fees"`
-	Settlements  []AccountSettlement `json:"settlements"`
-	Total        int                 `json:"total"`
-	Page         int                 `json:"page"`
-	Limit        int                 `json:"limit"`
-	TotalPages   int                 `json:"total_pages"`
+	CustomerName   string                 `json:"customer_name"`
+	DateFrom       string                 `json:"date_from"`
+	DateTo         string                 `json:"date_to"`
+	AsOf           string                 `json:"as_of"`
+	Rows           []AccountOrder         `json:"rows"`
+	Summary        AccountSummary         `json:"summary"`
+	Fees           []AccountFee           `json:"fees"`
+	Settlements    []AccountSettlement    `json:"settlements"`
+	Total          int                    `json:"total"`
+	Page           int                    `json:"page"`
+	Limit          int                    `json:"limit"`
+	TotalPages     int                    `json:"total_pages"`
+	View           string                 `json:"view,omitempty"`
+	ChargeType     string                 `json:"charge_type,omitempty"`
+	FeeSummary     AccountFeeSummary      `json:"fee_summary,omitempty"`
+	OrderFeeGroups []AccountOrderFeeGroup `json:"order_fee_groups,omitempty"`
 }
 
 func NormalizeAccountQuery(q AccountQuery) (AccountQuery, error) {
+	if q.View != "" && q.View != "order_fees" {
+		return q, fmt.Errorf("费用视图无效")
+	}
+	if q.ChargeType != "" {
+		switch q.ChargeType {
+		case "payable", "product", "processing", "direct_ship_service", "shipping":
+		default:
+			return q, fmt.Errorf("费用类型无效")
+		}
+	}
 	loc := time.FixedZone("Asia/Shanghai", 8*3600)
 	if q.Period != "" {
 		anchor := time.Now().In(loc)
@@ -305,6 +365,19 @@ func (s *Service) ReplyCustomerStatementDispute(ctx context.Context, cmd ReplyCu
 	return repo.ReplyCustomerStatementDispute(ctx, cmd)
 }
 func (d *AccountData) Paginate(page, limit int) {
+	if d.View == "order_fees" {
+		filtered := FilterOrderFeeGroups(d.OrderFeeGroups, d.ChargeType)
+		d.OrderFeeGroups, d.Total, d.TotalPages = PaginateOrderFeeGroups(filtered, page, limit)
+		d.Limit = limit
+		d.Page = max(1, min(page, d.TotalPages))
+		d.Rows = make([]AccountOrder, 0, len(d.OrderFeeGroups))
+		for _, group := range d.OrderFeeGroups {
+			if !group.Unlinked {
+				d.Rows = append(d.Rows, group.Order)
+			}
+		}
+		return
+	}
 	d.Total = len(d.Rows)
 	d.Limit = limit
 	d.TotalPages = max(1, (d.Total+limit-1)/limit)
@@ -313,6 +386,160 @@ func (d *AccountData) Paginate(page, limit int) {
 	start := min((page-1)*limit, d.Total)
 	end := min(start+limit, d.Total)
 	d.Rows = d.Rows[start:end]
+}
+
+func BuildOrderFeeGroups(orders []AccountOrder, fees []AccountFee) ([]AccountOrderFeeGroup, AccountFeeSummary) {
+	groups := make([]AccountOrderFeeGroup, 0, len(orders)+1)
+	byOrder := make(map[int64]int, len(orders))
+	for _, order := range orders {
+		if order.ID <= 0 {
+			continue
+		}
+		byOrder[order.ID] = len(groups)
+		groups = append(groups, AccountOrderFeeGroup{Order: order, FeeLines: []AccountFeeLine{}, Shipments: []AccountShipment{}})
+	}
+	add := func(group *AccountOrderFeeGroup, fee AccountFee) {
+		category := accountFeeCategory(fee.FeeType)
+		group.FeeLines = append(group.FeeLines, AccountFeeLine{AccountFee: fee, Category: category})
+		if fee.AmountCents < 0 {
+			group.RefundCents += -fee.AmountCents
+		}
+		group.PayableCents += fee.AmountCents
+	}
+	for i := range groups {
+		g := &groups[i]
+		if !g.Order.InPeriod {
+			continue
+		}
+		goods := g.Order.TotalCents - g.Order.ShippingCents
+		if goods != 0 {
+			add(g, AccountFee{OrderID: g.Order.ID, OrderNo: g.Order.OrderNo, FeeType: "product", FeeName: "商品货款", AmountCents: goods, OccurredAt: g.Order.OrderDate, SourceType: "order", SourceID: g.Order.ID, PaymentStatus: g.Order.PaymentStatus, IncludedInOrder: true})
+		}
+		if g.Order.ShippingCents != 0 && !g.Order.HasOrderShippingFee {
+			add(g, AccountFee{OrderID: g.Order.ID, OrderNo: g.Order.OrderNo, FeeType: "shipping", FeeName: "订单运费", AmountCents: g.Order.ShippingCents, OccurredAt: g.Order.OrderDate, SourceType: "order", SourceID: g.Order.ID, PaymentStatus: g.Order.PaymentStatus, IncludedInOrder: true})
+		}
+	}
+	for _, fee := range fees {
+		if fee.IncludedInOrder && (fee.FeeType == "product" || fee.FeeType == "order_goods") {
+			continue
+		}
+		index, ok := byOrder[fee.OrderID]
+		if !ok {
+			if fee.OrderID > 0 && fee.OrderNo != "" {
+				order := AccountOrder{ID: fee.OrderID, OrderNo: fee.OrderNo}
+				byOrder[fee.OrderID] = len(groups)
+				groups = append(groups, AccountOrderFeeGroup{Order: order, FeeLines: []AccountFeeLine{}, Shipments: []AccountShipment{}})
+				index, ok = byOrder[fee.OrderID]
+			} else {
+				index = len(groups)
+				byOrder[0] = index
+				groups = append(groups, AccountOrderFeeGroup{Order: AccountOrder{OrderNo: "未关联订单费用"}, Unlinked: true, FeeLines: []AccountFeeLine{}, Shipments: []AccountShipment{}})
+				ok = true
+			}
+		}
+		if !ok {
+			continue
+		}
+		add(&groups[index], fee)
+	}
+	var summary AccountFeeSummary
+	for i := range groups {
+		g := &groups[i]
+		basePayable := int64(0)
+		paid := int64(0)
+		if g.Order.InPeriod {
+			for _, line := range g.FeeLines {
+				if line.Category == "product" || line.IncludedInOrder {
+					basePayable += line.AmountCents
+				}
+			}
+			paid = min(g.Order.PaidCents, max(int64(0), basePayable))
+		}
+		for _, line := range g.FeeLines {
+			if !line.IncludedInOrder && line.PaymentStatus == "paid" && line.AmountCents > 0 {
+				paid += line.AmountCents
+			}
+		}
+		g.PaidCents = paid
+		g.DueCents = max(int64(0), g.PayableCents-g.PaidCents)
+		for _, line := range g.FeeLines {
+			amount := line.AmountCents
+			switch line.Category {
+			case "product":
+				summary.GoodsCents += amount
+			case "processing":
+				summary.ProcessingCents += amount
+			case "direct_ship_service":
+				summary.DirectShipServiceCents += amount
+			case "shipping":
+				summary.ShippingCents += amount
+			default:
+				summary.OtherCents += amount
+			}
+		}
+		summary.PayableCents += g.PayableCents
+		summary.PaidCents += g.PaidCents
+		summary.DueCents += g.DueCents
+		summary.RefundCents += g.RefundCents
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].Unlinked != groups[j].Unlinked {
+			return !groups[i].Unlinked
+		}
+		if groups[i].Order.OrderDate != groups[j].Order.OrderDate {
+			return groups[i].Order.OrderDate > groups[j].Order.OrderDate
+		}
+		return groups[i].Order.ID > groups[j].Order.ID
+	})
+	return groups, summary
+}
+
+func accountFeeCategory(feeType string) string {
+	switch feeType {
+	case "product", "order_goods":
+		return "product"
+	case "processing", "roasting", "labor", "material", "packaging":
+		return "processing"
+	case "direct_ship_service":
+		return "direct_ship_service"
+	case "shipping":
+		return "shipping"
+	default:
+		return "other"
+	}
+}
+
+func FilterOrderFeeGroups(groups []AccountOrderFeeGroup, chargeType string) []AccountOrderFeeGroup {
+	if chargeType == "" || chargeType == "payable" {
+		return groups
+	}
+	out := make([]AccountOrderFeeGroup, 0, len(groups))
+	for _, group := range groups {
+		lines := make([]AccountFeeLine, 0, len(group.FeeLines))
+		for _, line := range group.FeeLines {
+			if line.Category == chargeType {
+				lines = append(lines, line)
+			}
+		}
+		if len(lines) == 0 {
+			continue
+		}
+		group.FeeLines = lines
+		out = append(out, group)
+	}
+	return out
+}
+
+func PaginateOrderFeeGroups(groups []AccountOrderFeeGroup, page, limit int) ([]AccountOrderFeeGroup, int, int) {
+	if limit < 1 {
+		limit = 20
+	}
+	total := len(groups)
+	totalPages := max(1, (total+limit-1)/limit)
+	page = max(1, min(page, totalPages))
+	start := min((page-1)*limit, total)
+	end := min(start+limit, total)
+	return groups[start:end], total, totalPages
 }
 
 func AccountFeeLabel(value string) string {

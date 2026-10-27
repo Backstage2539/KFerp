@@ -111,20 +111,22 @@ describe('customer closed-loop miniapp pages', () => {
     expect(list).toContain('processingPrefill.stage')
   })
 
-  it('shows unified ERP account statements with downloads, reconciliation and disputes', () => {
+  it('shows one order-grouped fee ledger and exports the full selected period', () => {
     const page = source('src/components/CustomerBillsPanel.vue')
 
     expect(page).toContain('fetchCustomerAccount')
-    expect(page).toContain('confirmCustomerStatement')
-    expect(page).toContain('createCustomerStatementDispute')
     expect(page).toContain("download('pdf')")
     expect(page).toContain("download('xlsx')")
     expect(page).toContain('商品货款')
     expect(page).toContain('加工费')
     expect(page).toContain('代发服务费')
-    expect(page).toContain('确认对账')
-    expect(page).toContain('不会改变付款状态')
-    expect(page).toContain('ERP 回复')
+    expect(page).toContain('运单号')
+    expect(page).toContain('未记录')
+    expect(page).toContain('order_fees')
+    expect(page).not.toContain('confirmCustomerStatement')
+    expect(page).not.toContain('createCustomerStatementDispute')
+    expect(page).not.toContain('对账单')
+    expect(page).not.toContain('确认对账')
   })
 
   it('routes processing customers to a shipment-only fulfillment center', () => {

@@ -658,15 +658,34 @@ func TestMiniCustomerAccountBindsCurrentCustomerAndERPPeriod(t *testing.T) {
 		}},
 		CustomerFulfillment: fulfillment,
 	})
-	req := httptest.NewRequest(http.MethodGet, "/api/mini/customer-account?customer_id=999&period=month&anchor=2026-09-14&page=2&limit=10", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/customer-account?customer_id=999&view=order_fees&charge_type=shipping&period=month&anchor=2026-09-14&page=2&limit=10", nil)
 	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if fulfillment.accountQuery.CustomerID != 9 || fulfillment.accountQuery.DateFrom != "2026-09-01" || fulfillment.accountQuery.DateTo != "2026-09-30" {
+	if fulfillment.accountQuery.CustomerID != 9 || fulfillment.accountQuery.DateFrom != "2026-09-01" || fulfillment.accountQuery.DateTo != "2026-09-30" || fulfillment.accountQuery.View != "order_fees" || fulfillment.accountQuery.ChargeType != "shipping" {
 		t.Fatalf("account query=%#v", fulfillment.accountQuery)
+	}
+}
+
+func TestMiniCustomerFeeExportUsesCurrentCustomerAndIgnoresPageAndCategory(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal:      fakeService{me: customerportalapp.CurrentContext{CurrentCustomerID: 9, Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilitySettlement, Enabled: true}}}},
+		CustomerFulfillment: fulfillment,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/customer-account/statements.xlsx?customer_id=999&view=order_fees&charge_type=shipping&page=9&limit=5&period=month&anchor=2026-10-27", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get(echo.HeaderContentType), "application/vnd.openxmlformats-officedocument") || !strings.HasPrefix(rec.Body.String(), "PK") {
+		t.Fatalf("export status=%d type=%q body=%d", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.Len())
+	}
+	if fulfillment.accountQuery.CustomerID != 9 || fulfillment.accountQuery.View != "order_fees" || fulfillment.accountQuery.ChargeType != "" || fulfillment.accountQuery.Page != 1 || fulfillment.accountQuery.Limit != 200 || fulfillment.accountQuery.DateFrom != "2026-10-01" || fulfillment.accountQuery.DateTo != "2026-10-31" {
+		t.Fatalf("export query=%#v", fulfillment.accountQuery)
 	}
 }
 

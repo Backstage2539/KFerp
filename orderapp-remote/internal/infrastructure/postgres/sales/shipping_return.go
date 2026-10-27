@@ -36,6 +36,22 @@ func (r Repository) ShippingReturnTemplates(ctx context.Context) ([]d.Template, 
 	}
 	var out []d.Template
 	e = json.Unmarshal(raw, &out)
+	if e == nil {
+		defaults := d.DefaultTemplate()
+		for i := range out {
+			if out[i].Columns == nil {
+				out[i].Columns = map[string]d.Column{}
+			}
+			for _, key := range []string{"settlement_weight", "pickup_time"} {
+				if _, ok := out[i].Columns[key]; !ok {
+					out[i].Columns[key] = defaults.Columns[key]
+				}
+			}
+			if strings.TrimSpace(out[i].WeightUnit) == "" {
+				out[i].WeightUnit = defaults.WeightUnit
+			}
+		}
+	}
 	return out, e
 }
 func (r Repository) SaveShippingReturnTemplates(ctx context.Context, actor string, templates []d.Template) error {

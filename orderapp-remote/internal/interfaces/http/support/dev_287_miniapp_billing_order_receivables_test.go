@@ -43,7 +43,7 @@ func TestMiniappBillingOrderReceivablesEvidenceExists(t *testing.T) {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
 			"商品货款",
-			"确认对账不改变 ERP 付款状态",
+			"不提供客户侧确认对账或异议入口",
 		} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s missing replacement billing manual marker %q", path, want)
@@ -72,7 +72,9 @@ func TestMiniappBillingOrderReceivablesSourceWiring(t *testing.T) {
 			"fetchCustomerAccount",
 			"商品货款",
 			"代发服务费",
-			"已计入订单金额，不重复汇总",
+			"view: 'order_fees'",
+			"费用明细",
+			"按订单展示本账期全部费用",
 		},
 	} {
 		body := string(readOrderAppFileForTest(t, path))
