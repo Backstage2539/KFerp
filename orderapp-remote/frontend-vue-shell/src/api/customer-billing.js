@@ -1,0 +1,73 @@
+import { apiFetch, apiGet, apiSend } from './client.js'
+
+function queryString(options = {}) {
+  const params = new URLSearchParams()
+  for (const key of ['fee_type', 'status', 'date_from', 'date_to']) {
+    const value = String(options[key] || '').trim()
+    if (value) params.set(key, value)
+  }
+  for (const key of ['page', 'limit']) {
+    const value = Number(options[key] || 0)
+    if (value > 0) params.set(key, String(value))
+  }
+  const query = params.toString()
+  return query ? `?${query}` : ''
+}
+
+const root = (customerId) => `/api/customer-fulfillment/${Number(customerId)}/billing`
+
+export function fetchCustomerBillingSummary(customerId) {
+  return apiGet(`${root(customerId)}/summary`)
+}
+
+export function fetchCustomerUnbilledCharges(customerId, options = {}) {
+  return apiGet(`${root(customerId)}/unbilled${queryString(options)}`)
+}
+
+export function fetchCustomerIssuedBills(customerId, options = {}) {
+  return apiGet(`${root(customerId)}/bills${queryString(options)}`)
+}
+
+export function previewCustomerBill(customerId, payload) {
+  return apiSend(`/api/customer-fulfillment/${Number(customerId)}/settlements/preview`, { body: payload })
+}
+
+export async function previewCustomerBillExcel(customerId, payload, previewVersion = '') {
+  const response = await apiFetch(`/api/customer-fulfillment/${Number(customerId)}/settlements/preview.xlsx`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(previewVersion ? { 'If-Match': previewVersion } : {}) }, body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new Error(data.error || data.message || '预览 Excel 导出失败')
+  }
+  return response.blob()
+}
+
+export async function downloadCustomerBill(customerId, batchId, format = 'xlsx') {
+  const response = await apiFetch(`${root(customerId)}/bills/${Number(batchId)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`)
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new Error(data.error || data.message || '账单下载失败')
+  }
+  return response.blob()
+}
+
+export function issueCustomerBill(customerId, payload) {
+  return apiSend(`/api/customer-fulfillment/${Number(customerId)}/settlements/issue`, { body: payload })
+}
+
+export function fetchCustomerBill(customerId, batchId) {
+  return apiGet(`${root(customerId)}/bills/${Number(batchId)}`)
+}
+
+export function fetchCustomerBillPDFSettings(customerId, batchId) {
+  return apiGet(`${root(customerId)}/bills/${Number(batchId)}/pdf-settings`)
+}
+
+export function saveCustomerBillPDFSettings(customerId, batchId, payload) {
+  return apiSend(`${root(customerId)}/bills/${Number(batchId)}/pdf-settings`, { method: 'PUT', body: payload })
+}
+
+export function customerBillExportURL(customerId, batchId, format) {
+  return `${root(customerId)}/bills/${Number(batchId)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`
+}

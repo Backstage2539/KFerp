@@ -1271,6 +1271,17 @@ type fakeCustomerFulfillmentService struct {
 	overviewResult                  app.Overview
 	listImportsQuery                app.ListImportsQuery
 	listImportsResult               []app.ImportBatch
+	billingSummaryResult            app.BillingTotals
+	unbilledQuery                   app.BillingQuery
+	unbilledResult                  app.BillingPage
+	billsQuery                      app.BillingQuery
+	billsResult                     app.BillingBillsPage
+	billResult                      app.BillingBill
+	billingPreviewCmd               app.BillingPreviewCommand
+	billingPreviewResult            app.BillingPreview
+	issueBillingCmd                 app.IssueBillingCommand
+	issueBillingResult              app.BillingBill
+	billingPDFSettings              app.BillingPDFSettings
 }
 
 type fakeSalesSaver struct{}
@@ -1426,6 +1437,36 @@ func (s *fakeCustomerFulfillmentService) CreateSettlement(ctx context.Context, c
 	return s.settlementResult, nil
 }
 
+func (s *fakeCustomerFulfillmentService) BillingSummary(_ context.Context, customerID int64) (app.BillingTotals, error) {
+	return s.billingSummaryResult, nil
+}
+func (s *fakeCustomerFulfillmentService) ListUnbilledCharges(_ context.Context, query app.BillingQuery) (app.BillingPage, error) {
+	s.unbilledQuery = query
+	return s.unbilledResult, nil
+}
+func (s *fakeCustomerFulfillmentService) ListIssuedBills(_ context.Context, query app.BillingQuery) (app.BillingBillsPage, error) {
+	s.billsQuery = query
+	return s.billsResult, nil
+}
+func (s *fakeCustomerFulfillmentService) GetIssuedBill(_ context.Context, _, _ int64) (app.BillingBill, error) {
+	return s.billResult, nil
+}
+func (s *fakeCustomerFulfillmentService) PreviewBilling(_ context.Context, cmd app.BillingPreviewCommand) (app.BillingPreview, error) {
+	s.billingPreviewCmd = cmd
+	return s.billingPreviewResult, nil
+}
+func (s *fakeCustomerFulfillmentService) IssueBilling(_ context.Context, cmd app.IssueBillingCommand) (app.BillingBill, error) {
+	s.issueBillingCmd = cmd
+	return s.issueBillingResult, nil
+}
+func (s *fakeCustomerFulfillmentService) GetBillingPDFSettings(_ context.Context, _, _ int64) (app.BillingPDFSettings, error) {
+	return s.billingPDFSettings, nil
+}
+func (s *fakeCustomerFulfillmentService) SaveBillingPDFSettings(_ context.Context, settings app.BillingPDFSettings, _ string) (app.BillingPDFSettings, error) {
+	s.billingPDFSettings = settings
+	return settings, nil
+}
+
 func (s *fakeCustomerFulfillmentService) Overview(ctx context.Context, query app.OverviewQuery) (app.Overview, error) {
 	s.overviewQuery = query
 	return s.overviewResult, nil
@@ -1453,4 +1494,89 @@ type fakeCustomerDirectory struct {
 func (s *fakeCustomerDirectory) List(ctx context.Context, query customerapp.ListQuery) (customerapp.ListResult, error) {
 	s.query = query
 	return s.result, nil
+}
+
+func TestCustomerBillingAPIProvidesFilteredLedgerPreviewIssueAndExports(t *testing.T) {
+	line := app.SettlementLineSummary{ID: 7, ChargeType: "shipping", SourceType: "customer_fee_item", SourceID: 41, SourceNo: "SF001", Description: "实际运费", OccurredAt: "2026-10-22", ReceivableCents: 1200, AmountCents: 1200, DueCents: 1200}
+	bill := app.BillingBill{SettlementResult: app.SettlementResult{BatchID: 88, CustomerID: 149, SettlementNo: "CB-149-001", PeriodFrom: "2026-10-22", PeriodTo: "2026-10-22", FeeItems: 1, TotalAmountCents: 1200, DueAmountCents: 1200, Lines: []app.SettlementLineSummary{line}}, CustomerName: "吴国宏", Status: "confirmed", IssuedAt: "2026-10-27 10:00"}
+	svc := &fakeCustomerFulfillmentService{
+		billingSummaryResult: app.BillingTotals{TotalUnpaidCents: 1200, UnbilledCents: 1200},
+		unbilledResult:       app.BillingPage{Rows: []app.BillingCharge{{ID: "shipping:customer_fee_item:41", BillingSource: app.BillingSource{ChargeType: "shipping", SourceType: "customer_fee_item", SourceID: 41}, DueCents: 1200}}, Total: 1, Page: 2, Limit: 25},
+		billingPreviewResult: app.BillingPreview{PreviewVersion: "version-1", CustomerID: 149, CustomerName: "吴国宏", PeriodFrom: "2026-10-22", PeriodTo: "2026-10-22", FeeItems: 1, TotalAmountCents: 1200, Lines: []app.SettlementLineSummary{line}},
+		issueBillingResult:   bill,
+		billResult:           bill,
+		billsResult:          app.BillingBillsPage{Rows: []app.BillingBill{bill}, Total: 1, Page: 1, Limit: 25},
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("operator_employee", "测试操作员")
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	request := func(method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if body != "" {
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		}
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := request(http.MethodGet, "/api/customer-fulfillment/149/billing/summary", "", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"total_unpaid_cents":1200`) {
+		t.Fatalf("summary status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := request(http.MethodGet, "/api/customer-fulfillment/149/billing/unbilled?fee_type=shipping&date_from=2026-10-01&date_to=2026-10-31&page=2&limit=25", "", nil); rec.Code != http.StatusOK {
+		t.Fatalf("unbilled status=%d body=%s", rec.Code, rec.Body.String())
+	} else if svc.unbilledQuery.CustomerID != 149 || svc.unbilledQuery.FeeType != "shipping" || svc.unbilledQuery.Page != 2 || svc.unbilledQuery.Limit != 25 || svc.unbilledQuery.DateFrom != "2026-10-01" || svc.unbilledQuery.DateTo != "2026-10-31" {
+		t.Fatalf("unbilled query=%+v", svc.unbilledQuery)
+	}
+	sources := `[{"charge_type":"shipping","source_type":"customer_fee_item","source_id":41}]`
+	previewBody := `{"customer_id":999,"sources":` + sources + `}`
+	if rec := request(http.MethodPost, "/api/customer-fulfillment/149/settlements/preview", previewBody, nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"preview_version":"version-1"`) {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	} else if svc.billingPreviewCmd.CustomerID != 149 || svc.billingPreviewCmd.Actor != "测试操作员" || len(svc.billingPreviewCmd.Sources) != 1 {
+		t.Fatalf("preview command=%+v", svc.billingPreviewCmd)
+	}
+	issueBody := `{"customer_id":999,"sources":` + sources + `,"preview_version":"version-1","idempotency_key":"issue-1"}`
+	if rec := request(http.MethodPost, "/api/customer-fulfillment/149/settlements/issue", issueBody, nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"settlement_no":"CB-149-001"`) {
+		t.Fatalf("issue status=%d body=%s", rec.Code, rec.Body.String())
+	} else if svc.issueBillingCmd.CustomerID != 149 || svc.issueBillingCmd.Actor != "测试操作员" || svc.issueBillingCmd.IdempotencyKey != "issue-1" {
+		t.Fatalf("issue command=%+v", svc.issueBillingCmd)
+	}
+	if rec := request(http.MethodPost, "/api/customer-fulfillment/149/settlements/preview.xlsx", previewBody, map[string]string{"If-Match": "version-1"}); rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get(echo.HeaderContentType), "spreadsheetml") || !bytes.HasPrefix(rec.Body.Bytes(), []byte("PK")) {
+		t.Fatalf("preview xlsx status=%d content-type=%q bytes=%d", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.Len())
+	}
+	if rec := request(http.MethodPost, "/api/customer-fulfillment/149/settlements/preview.xlsx", previewBody, map[string]string{"If-Match": "stale"}); rec.Code != http.StatusConflict {
+		t.Fatalf("stale preview xlsx status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := request(http.MethodGet, "/api/customer-fulfillment/149/billing/bills?status=paid&page=1", "", nil); rec.Code != http.StatusOK || svc.billsQuery.Status != "paid" {
+		t.Fatalf("bills status=%d body=%s query=%+v", rec.Code, rec.Body.String(), svc.billsQuery)
+	}
+	if rec := request(http.MethodGet, "/api/customer-fulfillment/149/billing/bills/88.xlsx", "", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get(echo.HeaderContentType), "spreadsheetml") || !bytes.HasPrefix(rec.Body.Bytes(), []byte("PK")) {
+		t.Fatalf("bill xlsx status=%d content-type=%q bytes=%d", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.Len())
+	}
+	if rec := request(http.MethodGet, "/api/customer-fulfillment/149/billing/bills/88.pdf", "", nil); rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get(echo.HeaderContentType), "application/pdf") || !bytes.HasPrefix(rec.Body.Bytes(), []byte("%PDF")) {
+		t.Fatalf("bill pdf status=%d content-type=%q bytes=%d", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.Len())
+	}
+}
+
+func TestCustomerBillingPDFSettingsAPIUsesCustomerAndBillScope(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	req := httptest.NewRequest(http.MethodPut, "/api/customer-fulfillment/149/billing/bills/88/pdf-settings", strings.NewReader(`{"seal_asset_id":12,"placements":[{"page_number":2,"x":30,"y":60,"width":100,"height":100,"resizable":true,"lock_aspect_ratio":true}]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save PDF settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.billingPDFSettings.CustomerID != 149 || svc.billingPDFSettings.SettlementID != 88 || svc.billingPDFSettings.SealAssetID != 12 || len(svc.billingPDFSettings.Placements) != 1 || !svc.billingPDFSettings.Placements[0].Resizable {
+		t.Fatalf("PDF settings=%+v", svc.billingPDFSettings)
+	}
 }

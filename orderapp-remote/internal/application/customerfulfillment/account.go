@@ -317,7 +317,7 @@ func (d *AccountData) Paginate(page, limit int) {
 
 func AccountFeeLabel(value string) string {
 	if label, ok := map[string]string{
-		"product": "商品货款", "processing": "加工费", "roasting": "烘焙加工费", "labor": "人工加工费",
+		"order_goods": "订单款项", "product": "商品货款", "processing": "加工费", "roasting": "烘焙加工费", "labor": "人工加工费",
 		"material": "加工物料费", "packaging": "包装费", "direct_ship_service": "代发服务费",
 		"storage": "仓储费", "shipping": "运费", "adjustment": "调整",
 	}[value]; ok {

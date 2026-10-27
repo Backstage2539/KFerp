@@ -2788,6 +2788,207 @@ func TestCreateSettlementAggregatesUnsettledFees(t *testing.T) {
 	assertCustomerFulfillmentCount(t, pool, schema, "customer_fee_items", "customer_id=$1 AND settlement_batch_id=0", customerID, 1)
 }
 
+func TestIssueBillingReleasesDraftSourceAndIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+	var customerID, feeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('费用测试客户') RETURNING id`, schema)).Scan(&customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_service_capabilities(customer_id,capability_code,enabled) VALUES($1,'settlement',true)`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,note,occurred_at,status) VALUES($1,'freight_actual',71,'shipping',12.34,'实际运费','2026-10-22','unsettled') RETURNING id`, schema), customerID).Scan(&feeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateSettlement(ctx, app.CreateSettlementCommand{CustomerID: customerID, PeriodFrom: "2026-10-01", PeriodTo: "2026-10-31", ChargeTypes: []string{"shipping"}, CreatedBy: "Codex"}); err != nil {
+		t.Fatalf("legacy draft: %v", err)
+	}
+	cmd := app.BillingPreviewCommand{CustomerID: customerID, Sources: []app.BillingSource{{ChargeType: "shipping", SourceType: "customer_fee_item", SourceID: feeID}}}
+	preview, err := repo.PreviewBilling(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.TotalAmountCents != 1234 || preview.FeeItems != 1 {
+		t.Fatalf("preview=%+v", preview)
+	}
+	issue := app.IssueBillingCommand{BillingPreviewCommand: cmd, PreviewVersion: preview.PreviewVersion, IdempotencyKey: "issue-10-22"}
+	first, err := repo.IssueBilling(ctx, issue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.IssueBilling(ctx, issue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.BatchID == 0 || first.BatchID != second.BatchID || first.Status != "confirmed" || first.TotalAmountCents != 1234 {
+		t.Fatalf("first=%+v second=%+v", first, second)
+	}
+	var settlementID int64
+	var feeStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT settlement_batch_id,status FROM %s.customer_fee_items WHERE id=$1`, schema), feeID).Scan(&settlementID, &feeStatus); err != nil {
+		t.Fatal(err)
+	}
+	if settlementID != first.BatchID || feeStatus != "settled" {
+		t.Fatalf("fee assignment=%d/%s", settlementID, feeStatus)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='customer_fulfillment_settlement' AND entity_id=$1 AND action='issue'`, schema), first.BatchID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("issue audit rows=%d", auditCount)
+	}
+	_, err = repo.IssueBilling(ctx, app.IssueBillingCommand{BillingPreviewCommand: cmd, PreviewVersion: preview.PreviewVersion, IdempotencyKey: "issue-again-with-new-key"})
+	if err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("second issue with new key error=%v, want source already issued", err)
+	}
+	assertCustomerFulfillmentCount(t, pool, schema, "customer_settlement_lines", fmt.Sprintf("customer_id=$1 AND source_id=%d AND reversed_at IS NULL", feeID), customerID, 1)
+}
+
+func TestIssueBillingRejectsStalePreviewWithoutChangingFee(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+	var customerID, feeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('费用测试客户') RETURNING id`, schema)).Scan(&customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_service_capabilities(customer_id,capability_code,enabled) VALUES($1,'settlement',true)`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,note,occurred_at,status) VALUES($1,'freight_actual',72,'shipping',12.34,'实际运费','2026-10-22','unsettled') RETURNING id`, schema), customerID).Scan(&feeID); err != nil {
+		t.Fatal(err)
+	}
+	cmd := app.BillingPreviewCommand{CustomerID: customerID, Sources: []app.BillingSource{{ChargeType: "shipping", SourceType: "customer_fee_item", SourceID: feeID}}}
+	preview, err := repo.PreviewBilling(ctx, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fee_items SET amount=15.00 WHERE id=$1`, schema), feeID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = repo.IssueBilling(ctx, app.IssueBillingCommand{BillingPreviewCommand: cmd, PreviewVersion: preview.PreviewVersion, IdempotencyKey: "stale-preview"})
+	if err == nil || !strings.Contains(err.Error(), "preview changed") {
+		t.Fatalf("IssueBilling error=%v want stale preview", err)
+	}
+	assertCustomerFulfillmentCount(t, pool, schema, "customer_settlement_batches", "customer_id=$1 AND status='confirmed'", customerID, 0)
+	assertCustomerFulfillmentCount(t, pool, schema, "customer_fee_items", "id=$1 AND settlement_batch_id=0 AND status='unsettled'", feeID, 1)
+}
+
+func TestBillingPDFSettingsWorkWithoutSalesSettingsAndAuditLayoutChanges(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+	var customerID, billID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('账单盖章测试客户') RETURNING id`, schema)).Scan(&customerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_batches(customer_id,settlement_no,status,total_amount,created_by) VALUES($1,'BILL-PDF-1','confirmed',12.34,'Codex') RETURNING id`, schema), customerID).Scan(&billID); err != nil {
+		t.Fatal(err)
+	}
+
+	initial, err := repo.GetBillingPDFSettings(ctx, customerID, billID)
+	if err != nil {
+		t.Fatalf("load default settings without sales_order_settings: %v", err)
+	}
+	if initial.SealAssetID != 0 || len(initial.Placements) != 0 {
+		t.Fatalf("initial settings=%+v, want empty layout", initial)
+	}
+
+	want := app.BillingPDFSettings{
+		CustomerID: customerID, SettlementID: billID,
+		Placements: []app.BillingPDFPlacement{{PageNumber: 2, X: .62, Y: .71, Width: .18, Height: .12, Kind: "seal", Resizable: true}},
+	}
+	if _, err := repo.SaveBillingPDFSettings(ctx, want, "Codex"); err != nil {
+		t.Fatalf("save PDF settings: %v", err)
+	}
+	got, err := repo.GetBillingPDFSettings(ctx, customerID, billID)
+	if err != nil {
+		t.Fatalf("reload PDF settings: %v", err)
+	}
+	if len(got.Placements) != 1 || got.Placements[0] != want.Placements[0] {
+		t.Fatalf("saved placements=%+v, want %+v", got.Placements, want.Placements)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='customer_fulfillment_settlement' AND entity_id=$1 AND action='pdf_layout'`, schema), billID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("PDF layout audit rows=%d, want 1", auditCount)
+	}
+}
+
+func TestReleaseLegacyBillingDraftsPreservesSnapshotsAndSkipsProcessingRuns(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+	var customerID, draftID, processingDraftID, legacyFeeID, processingFeeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('旧草稿迁移测试客户') RETURNING id`, schema)).Scan(&customerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_batches(customer_id,settlement_no,status,total_amount,created_by) VALUES($1,'LEGACY-DRAFT','draft',12.34,'Codex') RETURNING id`, schema), customerID).Scan(&draftID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_batches(customer_id,settlement_no,status,total_amount,created_by,processing_billing_run_id) VALUES($1,'PROCESSING-DRAFT','draft',2.00,'Codex',77) RETURNING id`, schema), customerID).Scan(&processingDraftID); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct {
+		batchID int64
+		source  int64
+		feeID   *int64
+	}{{draftID, 101, &legacyFeeID}, {processingDraftID, 102, &processingFeeID}} {
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,note,occurred_at,status,settlement_batch_id) VALUES($1,'freight_actual',$2,'shipping',1.00,'历史快照','2026-10-22','settled',$3) RETURNING id`, schema), customerID, item.source, item.batchID).Scan(item.feeID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_settlement_lines(customer_id,settlement_batch_id,charge_type,source_type,source_id,source_no,description,occurred_at,receivable_cents,amount_cents,due_cents,settlement_status) VALUES($1,$2,'shipping','customer_fee_item',$3,'SF-TEST','旧费用名称','2026-10-22',100,100,100,'draft')`, schema), customerID, item.batchID, *item.feeID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := repo.ReleaseLegacyBillingDrafts(ctx); err != nil {
+		t.Fatalf("release old billing drafts: %v", err)
+	}
+	if err := repo.ReleaseLegacyBillingDrafts(ctx); err != nil {
+		t.Fatalf("repeat old billing draft migration: %v", err)
+	}
+	unbilled, err := repo.ListUnbilledCharges(ctx, app.BillingQuery{CustomerID: customerID, FeeType: "shipping", DateFrom: "2026-10-01", DateTo: "2026-10-31", Page: 1, Limit: 10})
+	if err != nil {
+		t.Fatalf("list released legacy fee: %v", err)
+	}
+	if unbilled.Total != 1 || len(unbilled.Rows) != 1 || unbilled.Rows[0].SourceID != legacyFeeID || unbilled.Rows[0].SettlementStatus != "unsettled" {
+		t.Fatalf("released legacy fee page=%+v, want only the released fee to return as unbilled", unbilled)
+	}
+	var legacyBatchStatus, processingBatchStatus, legacyFeeStatus, processingFeeStatus, archivedLineStatus string
+	var legacyReleased, processingReleased, archived bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.customer_settlement_batches WHERE id=$1`, schema), draftID).Scan(&legacyBatchStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.customer_settlement_batches WHERE id=$1`, schema), processingDraftID).Scan(&processingBatchStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT status,settlement_batch_id=0 FROM %s.customer_fee_items WHERE id=$1`, schema), legacyFeeID).Scan(&legacyFeeStatus, &legacyReleased); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT status,settlement_batch_id=$2 FROM %s.customer_fee_items WHERE id=$1`, schema), processingFeeID, processingDraftID).Scan(&processingFeeStatus, &processingReleased); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT settlement_status,reversed_at IS NOT NULL FROM %s.customer_settlement_lines WHERE settlement_batch_id=$1`, schema), draftID).Scan(&archivedLineStatus, &archived); err != nil {
+		t.Fatal(err)
+	}
+	if legacyBatchStatus != "reversed" || processingBatchStatus != "draft" || legacyFeeStatus != "unsettled" || !legacyReleased || processingFeeStatus != "settled" || !processingReleased || archivedLineStatus != "draft_archived" || !archived {
+		t.Fatalf("migration states: legacy batch=%s fee=%s released=%t line=%s archived=%t; processing batch=%s fee=%s unchanged=%t", legacyBatchStatus, legacyFeeStatus, legacyReleased, archivedLineStatus, archived, processingBatchStatus, processingFeeStatus, processingReleased)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='customer_fulfillment_settlement' AND entity_id=$1 AND action='legacy_draft_release'`, schema), draftID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("migration audit rows=%d, want one idempotent record", auditCount)
+	}
+}
+
 func TestCreateSettlementSelectedSourcesSnapshotsOnlyUnpaidAndAudits(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerFulfillmentTestDB(t)
@@ -2846,6 +3047,37 @@ func TestCreateSettlementSelectedSourcesSnapshotsOnlyUnpaidAndAudits(t *testing.
 	var auditCount int
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='customer_fulfillment_settlement' AND entity_id=$1 AND action IN ('create','refresh')`, schema), got.BatchID).Scan(&auditCount); err != nil || auditCount != 1 {
 		t.Fatalf("settlement audit count=%d err=%v, want one", auditCount, err)
+	}
+	unbilled, err := repo.ListUnbilledCharges(ctx, app.BillingQuery{CustomerID: customerID, Page: 1, Limit: 25})
+	if err != nil || len(unbilled.Rows) != 4 {
+		t.Fatalf("unbilled before issue rows=%d err=%v, want 4 sources including the old draft", len(unbilled.Rows), err)
+	}
+	var orderCharge *app.BillingCharge
+	for i := range unbilled.Rows {
+		if unbilled.Rows[i].ChargeType == "order_goods" {
+			orderCharge = &unbilled.Rows[i]
+			break
+		}
+	}
+	if orderCharge == nil {
+		t.Fatal("unbilled order-goods source not found")
+	}
+	issueCommand := app.BillingPreviewCommand{CustomerID: customerID, Sources: []app.BillingSource{{ChargeType: orderCharge.ChargeType, SourceType: orderCharge.SourceType, SourceID: orderCharge.SourceID}}}
+	orderPreview, err := repo.PreviewBilling(ctx, issueCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.IssueBilling(ctx, app.IssueBillingCommand{BillingPreviewCommand: issueCommand, PreviewVersion: orderPreview.PreviewVersion, IdempotencyKey: "bill-order-goods-once"}); err != nil {
+		t.Fatalf("issue order goods: %v", err)
+	}
+	unbilled, err = repo.ListUnbilledCharges(ctx, app.BillingQuery{CustomerID: customerID, Page: 1, Limit: 25})
+	if err != nil || len(unbilled.Rows) != 3 {
+		t.Fatalf("unbilled after order issue rows=%d err=%v, want 3 without duplicate order goods", len(unbilled.Rows), err)
+	}
+	for _, row := range unbilled.Rows {
+		if row.ChargeType == "order_goods" && row.SourceID == orderCharge.SourceID {
+			t.Fatalf("issued order goods appeared again as unbilled: %+v", row)
+		}
 	}
 }
 
