@@ -163,11 +163,37 @@ func TestShippingReturnAtomicCandidatesAndReceipts(t *testing.T) {
 	if e != nil || len(choices) != 2 {
 		t.Fatalf("choices %+v %v", choices, e)
 	}
-	res, e := r.SelectShippingReturn(ctx, "tester", a, choices[0].ID, choices[0].Version)
-	if e != nil || res.Updated != 1 {
-		t.Fatalf("select %+v %v", res, e)
+	// Two simultaneous confirmations of the same candidate must post once.
+	type confirmationResult struct {
+		updated int
+		err     error
 	}
-	if res, e = r.SelectShippingReturn(ctx, "tester", a, choices[0].ID, choices[0].Version); e != nil || res.Updated != 0 {
+	results := make(chan confirmationResult, 2)
+	start := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			res, err := r.SelectShippingReturn(ctx, "tester", a, choices[0].ID, choices[0].Version)
+			results <- confirmationResult{res.Updated, err}
+		}()
+	}
+	close(start)
+	updated := 0
+	for i := 0; i < 2; i++ {
+		res := <-results
+		if res.err != nil {
+			t.Fatalf("concurrent confirmation: %v", res.err)
+		}
+		updated += res.updated
+	}
+	if updated != 1 {
+		t.Fatalf("concurrent confirmation updated=%d, want 1", updated)
+	}
+	var posted int
+	if e = pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %[1]s.freight_actual_entries e JOIN %[1]s.freight_actual_shipments s ON s.id=e.shipment_id WHERE s.order_id=$1`, schema), a).Scan(&posted); e != nil || posted != 1 {
+		t.Fatalf("concurrent freight posting count=%d: %v", posted, e)
+	}
+	if res, e := r.SelectShippingReturn(ctx, "tester", a, choices[0].ID, choices[0].Version); e != nil || res.Updated != 0 {
 		t.Fatalf("replay select %+v %v", res, e)
 	}
 	remaining, e := r.ShippingReturnCandidates(ctx, z)
