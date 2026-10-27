@@ -34,8 +34,9 @@
   - `orderapp-remote/internal/infrastructure/pdf/customer_account_test.go`
   - `miniapp/src/utils/customerClosedLoopPages.test.ts`
 
-## 待完成
+## 开发部署与待验收
 
-- 合入并部署 `develop` 后，用已部署接口核对客户小程序费用页面及 PDF/Excel；本机当前没有可用的客户真机，真机验收待用户设备完成。
-- 核对验收时可见的吴国宏样例金额和两票历史缺失字段；如开发环境未包含该客户数据，不复制或写入生产数据。
-- 本次不上传、审核或发布微信小程序；不补录历史寄件时间/重量。
+- `develop` 与开发运行版本：`0d0c34bae9dc180dd9e89daeb75fb21de4a34d55`。部署命令：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`；仅重建并重启 `erp_orderapp`。旧源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20261028003830-0d0c34bae9dc`；回滚镜像：`kferp-orderapp-rollback:development-20261028003830-0d0c34bae9dc`。
+- 部署后容器状态正常；开发登录页 HTTP 200、未认证需求 API 401、认证 API 200；PR-741 显示为“review / Van”，DEV-PR741-01..04 显示为“done / Codex”。
+- 开发小程序包路径：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，构建清单含 24 个页面、96 个文件。微信开发者工具成功载入该开发包，首页显示“开发环境 · 测试数据”，问题计数为 0。当前模拟器处于客户账号登录页；需要客户账号会话才能进入费用页核对订单分组、分类切换和下载内容。真机镜像当前未连接，待 Van 登录后完成费用页及真机验收。
+- 本次没有上传、审核或发布微信小程序；没有补录历史寄件时间或重量，也没有写入生产业务数据。
