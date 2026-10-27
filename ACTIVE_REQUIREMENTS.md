@@ -1,13 +1,13 @@
 ### PR-738-ORDER-PROGRESS-SHIPPING-REMATCH
 - Branch: codex/order-progress-shipping-rematch; base origin/develop 7eb69b040.
-- Status: ERP production release and row 2/4 rematch complete; Mini Program 20261027.1156 uploaded, formal release deferred by Van. Follow-up historical-variant shipment confirmation fix is locally verified and awaiting release; Van acceptance pending.
+- Status: ERP fix deployed to development and production; row 2/4 rematch complete. Mini Program 20261027.1156 uploaded, formal release deferred by Van. Customer Mini Program formal release/acceptance and Van business acceptance pending.
 - Scope: unified retained-stock/stock-dropship status across ERP and miniapp; pending shipping-return rematch without shipment, freight or inventory writes.
 - DEV: DEV-PR738-01 status projection; DEV-PR738-02 rematch transaction/API; DEV-PR738-03 UI/manuals/releases; DEV-PR738-04 frozen batch shipment identity and rollback.
 - Verifier: RED/GREEN Go/PostgreSQL/API, Vue/miniapp runtime, builds, development and production readonly verification plus batch 1 rows 2/4 rematch.
 - Authorization: release both environments and miniapp; only production rematch, no shipment or financial posting.
 - Notes: reservation script macOS awk fails before changing file; PR-738 reserved here.
 - First release: develop 4c494c94d373; production ad478d0ca95e. Rematch audit 8674 confirms only batch 1 rows 2/4 refreshed; all business hashes unchanged. User's later failed confirmation also rolled back completely.
-- Follow-up RED: real guarded HTTP confirmation returns bom_variant_not_current for a V1 batch allocated to a same-spec V2 order. GREEN: exact historical outbound trace, rejection of wrong batch/order/warehouse/owner/quantity, late transaction rollback, replay and concurrent confirmation. Runtime evidence: ../evidence/pr738/frozen-shipment-*.log.
+- Follow-up RED: real guarded HTTP confirmation returns bom_variant_not_current for a V1 batch allocated to a same-spec V2 order. GREEN: exact historical outbound trace, rejection of wrong batch/order/warehouse/owner/quantity, late transaction rollback, replay and concurrent confirmation. Deployed to development at 6626c6a47 and production at bbee1003a. Production backup: `/opt/stacks/erp-production/orderapp.backup.deploy-20261027133802-bbee1003a682`; app running with restart count 0. ERP and authenticated employee Mini Program list/detail APIs show all four exact progress labels; production trigger is installed. Inventory, freight, tracking, orders and rematch candidates match predeploy snapshots. No shipment was executed. Runtime evidence: ../evidence/pr738/frozen-shipment-*.log and ../evidence/pr738/frozen-shipment-final-verification.json.
 
 ### PR-729-PRODUCTION-RECOVERY-AND-WORK-ORDER-CLOSEOUT
 - Branch: codex/production-direct-receipt; base origin/develop b6a226a1; original recovery PR #299 merged.
