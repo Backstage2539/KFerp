@@ -2176,14 +2176,16 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG); err != nil {
 		return err
 	}
-	totalG, units, looseG := int64(0), item.QtyUnits, int64(0)
+	totalG, units, looseG := int64(0), item.QtyUnits, item.QtyG
 	if !canonical {
 		specG := item.SpecG
 		if specG <= 0 {
 			return fmt.Errorf("finished product specification required")
 		}
 		totalG = item.QtyUnits*specG + item.QtyG
-		units, looseG = totalG/specG, totalG%specG
+		if detail.Purpose != stockapp.PurposeMaterialTransfer {
+			units, looseG = totalG/specG, totalG%specG
+		}
 	}
 	if detail.Purpose == stockapp.PurposeCustomerReceipt {
 		ownerCustomerID := item.OwnerCustomerID
@@ -2925,6 +2927,14 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG); err != nil {
 		return err
 	}
+	var hasBatchMoves bool
+	if detail.Purpose != stockapp.PurposeManufacture {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(SELECT 1 FROM %s.stock_entry_finished_batch_moves WHERE stock_entry_id=$1 AND stock_entry_item_id=$2)
+		`, r.schema), detail.ID, item.ID).Scan(&hasBatchMoves); err != nil {
+			return err
+		}
+	}
 	totalG := item.QtyUnits*item.SpecG + item.QtyG
 	if canonical {
 		totalG = 0
@@ -2974,19 +2984,24 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 	afterToUnits, afterToLoose := beforeToUnits-item.QtyUnits, int64(0)
 	afterFromUnits, afterFromLoose := beforeFromUnits+item.QtyUnits, int64(0)
 	if !canonical {
-		afterToUnits, afterToLoose = beforeToUnits-item.QtyUnits, beforeToLoose-item.QtyG
-		afterFromUnits, afterFromLoose = beforeFromUnits+item.QtyUnits, beforeFromLoose+item.QtyG
+		if hasBatchMoves {
+			afterToUnits, afterToLoose = beforeToUnits-item.QtyUnits, beforeToLoose-item.QtyG
+			afterFromUnits, afterFromLoose = beforeFromUnits+item.QtyUnits, beforeFromLoose+item.QtyG
+		} else {
+			afterToUnits, afterToLoose, _, err = normalizeFinishedQty(item.SpecG, 0, beforeToG-totalG)
+			if err != nil {
+				return err
+			}
+			afterFromUnits, afterFromLoose, _, err = normalizeFinishedQty(item.SpecG, 0, beforeFromUnits*item.SpecG+beforeFromLoose+totalG)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	if err := upsertFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.ToWarehouse, afterToUnits, afterToLoose); err != nil {
 		return err
 	}
 	if err := upsertFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.FromWarehouse, afterFromUnits, afterFromLoose); err != nil {
-		return err
-	}
-	var hasBatchMoves bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT EXISTS(SELECT 1 FROM %s.stock_entry_finished_batch_moves WHERE stock_entry_id=$1 AND stock_entry_item_id=$2)
-	`, r.schema), detail.ID, item.ID).Scan(&hasBatchMoves); err != nil {
 		return err
 	}
 	if canonical || hasBatchMoves {

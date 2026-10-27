@@ -2499,6 +2499,95 @@ func TestLegacyFinishedTransferKeepsLooseGramsAcrossPackageBoundary(t *testing.T
 	if summaryUnits != 0 || summaryLoose != 1000 || batchUnits != summaryUnits || batchGrams != summaryLoose {
 		t.Fatalf("destination summary/batches=%d+%dg/%d/%dg, want 0+1000g/0/1000g", summaryUnits, summaryLoose, batchUnits, batchGrams)
 	}
+	if _, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods",
+		QtyLooseG: 1000, Operator: "qa", IdempotencyKey: "legacy-full-spec-loose-transfer",
+	}); err != nil {
+		t.Fatalf("transfer accumulated loose grams: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_goods'
+	`, schema)).Scan(&summaryUnits, &summaryLoose); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(b.remaining_units),0)::bigint,COALESCE(SUM(b.remaining_g),0)::bigint
+		FROM %s.stock_batches b LEFT JOIN LATERAL (
+			SELECT l.warehouse FROM %s.stock_ledger_entries l
+			WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g ORDER BY l.id DESC LIMIT 1
+		) last_ledger ON true
+		WHERE b.item_type='finished_product' AND b.item_id=9 AND b.bom_spec_id=0 AND b.spec_g=1000
+		  AND COALESCE(last_ledger.warehouse,'finished_goods')='finished_goods'
+	`, schema, schema)).Scan(&batchUnits, &batchGrams); err != nil {
+		t.Fatal(err)
+	}
+	if summaryUnits != 0 || summaryLoose != 1000 || batchUnits != summaryUnits || batchGrams != summaryLoose {
+		t.Fatalf("retransferred summary/batches=%d+%dg/%d/%dg, want 0+1000g/0/1000g", summaryUnits, summaryLoose, batchUnits, batchGrams)
+	}
+}
+
+func TestLegacyFinishedTransferCancellationPreservesHistoricalNormalization(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	for _, seed := range []struct {
+		warehouse string
+		grams     int64
+	}{
+		{warehouse: "finished_goods", grams: 250},
+		{warehouse: "finished_shop", grams: 750},
+	} {
+		if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+			ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: seed.warehouse,
+			TargetG: seed.grams, Reason: "历史转仓撤销测试", Operator: "qa",
+		}); err != nil {
+			t.Fatalf("seed loose stock in %s: %v", seed.warehouse, err)
+		}
+	}
+	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-historical-cancel",
+	})
+	if err != nil {
+		t.Fatalf("TransferFinishedProduct: %v", err)
+	}
+	var sourceBatchID, targetBatchID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT source_batch_id,target_batch_id FROM %s.stock_entry_finished_batch_moves WHERE stock_entry_id=$1
+	`, schema), transfer.EntryID).Scan(&sourceBatchID, &targetBatchID); err != nil {
+		t.Fatalf("load transfer batch trace: %v", err)
+	}
+	// Model an older posted transfer: summaries were normalized and no batch-move trace existed.
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		DELETE FROM %s.stock_entry_finished_batch_moves WHERE stock_entry_id=%d;
+		DELETE FROM %s.stock_batches WHERE id=%d;
+		UPDATE %s.stock_batches SET remaining_g=250,remaining_units=0 WHERE id=%d;
+		UPDATE %s.finished_inventory SET onhand_units=0,onhand_loose_g=0
+		 WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_goods';
+		UPDATE %s.finished_inventory SET onhand_units=1,onhand_loose_g=0
+		 WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_shop';
+	`, schema, transfer.EntryID, schema, targetBatchID, schema, sourceBatchID, schema, schema))
+	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err != nil {
+		t.Fatalf("cancel historical transfer: %v", err)
+	}
+	var sourceUnits, sourceLoose, targetUnits, targetLoose int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_goods'
+	`, schema)).Scan(&sourceUnits, &sourceLoose); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_shop'
+	`, schema)).Scan(&targetUnits, &targetLoose); err != nil {
+		t.Fatal(err)
+	}
+	if sourceUnits != 0 || sourceLoose != 250 || targetUnits != 0 || targetLoose != 750 {
+		t.Fatalf("historical transfer reversal source=%d+%dg target=%d+%dg; want 0+250g and 0+750g", sourceUnits, sourceLoose, targetUnits, targetLoose)
+	}
 }
 
 func TestFinishedManufactureReceiptSerializesWithBatchAdjustment(t *testing.T) {

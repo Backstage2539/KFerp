@@ -29,6 +29,7 @@
 - 最新 PR 审查回归也先确认 RED：生产模块二次迁移把 `manual_adjustment` 排除条件删掉，第二笔同身份手工调整批次报唯一键冲突；普通成品转仓未先取规格身份锁，调整持有批次锁时转仓先锁汇总行。
 - 后续审查回归先确认 RED：完工入库与盘点没有共用规格锁；非 BOM 成品转仓只改了汇总，源批次仍为 10、目标仓没有批次；普通非 BOM 转仓也被规格解析错误地拒绝。
 - 最新审查回归先确认 RED：跨多来源批次的非 BOM 转仓触发 `stock_batches_source_uq`；仅有质检冻结批次时误建期初批次；散装克重跨规格单位边界后汇总显示成袋数但批次仍只有克重。
+- 最新审查补充回归先确认 RED：无批次移动追踪的历史非 BOM 转仓撤销误按新分类处理；服务层与入账层会将 `0 袋 + 1000g` 的散装转仓归一化为 1 袋。
 
 修复后验证 GREEN：
 
@@ -42,7 +43,8 @@
 - 新增完工并发回归 `TestFinishedManufactureReceiptSerializesWithBatchAdjustment`：移除完工入库规格锁后先 RED（完工入库未等待调整身份锁），恢复共享锁后 GREEN，核对调整后的汇总与新增生产批次余额一致。
 - 新增非 BOM 转仓回归 `TestLegacyFinishedTransferMovesFIFOStockBatches`：覆盖跨两个来源批次的 FIFO 转仓、每次批次移动的唯一来源身份、库存流水和撤销恢复。
 - 新增 `TestLegacyFinishedTransferDoesNotCreateOpeningBatchForFrozenStock` 与 `TestLegacyFinishedTransferKeepsLooseGramsAcrossPackageBoundary`：修复后冻结批次阻止转仓且不重复创建期初批次；非 BOM 转仓保留袋数和散装克重分类，跨仓累计克重不触发隐式包装，撤销后仍可恢复批次与汇总。
-- 本次审查修复后：库存与生产 PostgreSQL 套件、库存 HTTP API 套件、手册入口 3 项测试、`./scripts/verify_kferp.sh changed` 和 `git diff --check` 全部通过。未设置测试数据库 URL 的 `go test ./...` 及完整生产预检曾在前一提交通过；完整生产预检需随最新修复重新运行。
+- 新增 `TestLegacyFinishedTransferCancellationPreservesHistoricalNormalization`、`TestTransferFinishedProductPreservesLooseGramRequest`，并扩展跨规格边界转仓用例：历史转仓撤销沿用既有归一化；满规格重量的散克转仓仍保持克重。修复前 RED，修复后目标测试 GREEN。
+- 本次审查修复后：应用库存、库存与生产 PostgreSQL、库存 HTTP API 套件、手册入口 3 项测试、`./scripts/verify_kferp.sh changed` 和 `git diff --check` 全部通过。未设置测试数据库 URL 的 `go test ./...` 及完整生产预检曾在前一提交通过；旧提交完整预检正在收尾，最终代码仍需重新运行完整生产预检。
 
 测试覆盖批次 FIFO 扣减、增加时创建调整批次、规格 0 只允许将已有余额清零、同事务回滚、调整单/批次分配/库存流水/操作日志一致、拒绝未修复的历史数量批次、未分配人工减库存批次和只有汇总没有可用批次的库存、重复人工库存调整可创建多个批次、人工入库与完工入库并发串行化、规范与非 BOM 转仓 FIFO/撤销/冻结阻断、散装克重分类一致，以及调整与出库一致的“先批次、后汇总”锁顺序；正式 HTTP API 使用当前 BOM 规格身份。生产预检在后续审查发现边界问题时中止过两次；最后一次预检在上述 commit 通过，但早于本次最新修复，需按最终提交重新执行。
 
