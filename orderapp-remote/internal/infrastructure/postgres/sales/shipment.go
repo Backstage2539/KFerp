@@ -131,6 +131,13 @@ func lockShipmentOrdersTx(ctx context.Context, tx pgx.Tx, schema string, orderID
 	return nil
 }
 
+func (r Repository) lockShipmentOrdersAndFinishedIdentitiesTx(ctx context.Context, tx pgx.Tx, orderIDs []int64) error {
+	if err := lockShipmentOrdersTx(ctx, tx, r.schema, orderIDs); err != nil {
+		return err
+	}
+	return r.lockOrdersFinishedIdentitiesTx(ctx, tx, orderIDs)
+}
+
 func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillShipmentTrackingCommand) (salesapp.FillShipmentTrackingResult, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -170,7 +177,7 @@ func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillS
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 	rows.Close()
-	if err := r.lockOrdersFinishedIdentitiesTx(ctx, tx, impactedOrderIDs); err != nil {
+	if err := r.lockShipmentOrdersAndFinishedIdentitiesTx(ctx, tx, impactedOrderIDs); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 
@@ -268,7 +275,7 @@ func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd sales
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 	rows.Close()
-	if err := r.lockOrdersFinishedIdentitiesTx(ctx, tx, impactedOrderIDs); err != nil {
+	if err := r.lockShipmentOrdersAndFinishedIdentitiesTx(ctx, tx, impactedOrderIDs); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 

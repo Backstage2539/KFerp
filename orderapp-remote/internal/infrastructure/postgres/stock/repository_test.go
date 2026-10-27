@@ -2744,6 +2744,59 @@ func TestLegacyFinishedTransferCancellationPreservesSummaryOnlyDestinationStock(
 	}
 }
 
+func TestLegacyFinishedTransferSourceOpeningBalanceIsWarehouseScoped(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetUnits: 1, Reason: "其他仓库存批次隔离测试", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed independently batched warehouse: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(9,0,0,1000,'finished_shop',5,0);
+	`, schema))
+	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods",
+		QtyUnits: 2, Operator: "qa", IdempotencyKey: "legacy-source-opening-warehouse-scope",
+	})
+	if err != nil {
+		t.Fatalf("transfer summary-only source with a batch in another warehouse: %v", err)
+	}
+	if transfer.EntryID <= 0 {
+		t.Fatalf("transfer = %+v, want a unified stock entry", transfer)
+	}
+	for _, check := range []struct {
+		warehouse string
+		want      int64
+	}{{"finished_shop", 3}, {"finished_goods", 3}} {
+		var summaryUnits int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT onhand_units FROM %s.finished_inventory
+			WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse=$1
+		`, schema), check.warehouse).Scan(&summaryUnits); err != nil {
+			t.Fatalf("read %s summary: %v", check.warehouse, err)
+		}
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		batchUnits, _, err := finishedInventoryBatchQtyTx(ctx, tx, schema, 9, 0, 1000, check.warehouse)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("read %s batches: %v", check.warehouse, err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if summaryUnits != check.want || batchUnits != check.want {
+			t.Fatalf("%s summary/batches=%d/%d, want %d/%d", check.warehouse, summaryUnits, batchUnits, check.want, check.want)
+		}
+	}
+}
+
 func TestLegacyFinishedTransferCancellationAfterSourceReceiptUsesBatchBalances(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()

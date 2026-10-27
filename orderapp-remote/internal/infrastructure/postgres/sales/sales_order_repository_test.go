@@ -950,6 +950,130 @@ func TestMultiOrderShipmentIdentityLocksAreOrderIndependent(t *testing.T) {
 	}
 }
 
+func TestShipmentTrackingPrelocksOrdersBeforeFinishedIdentities(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	defer func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	for _, stmt := range []string{
+		fmt.Sprintf(`CREATE TABLE %s.orders(id BIGINT PRIMARY KEY)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.order_items(
+			id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL,product_id BIGINT,bom_spec_id BIGINT,bom_variant_id BIGINT,
+			item_name TEXT NOT NULL,spec TEXT NOT NULL,qty NUMERIC NOT NULL
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.order_stock_batch_allocations(
+			id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL,product_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,
+			bom_variant_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,allocated_g BIGINT NOT NULL,allocated_units BIGINT NOT NULL
+		)`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create shipment lock table: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.product_bom_spec_authorities(product_id BIGINT PRIMARY KEY,state TEXT NOT NULL);
+		INSERT INTO %s.product_bom_spec_authorities(product_id,state) VALUES(9,'cutover'),(10,'cutover');
+	`, schema, schema)); err != nil {
+		t.Fatalf("create shipment identity authority: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.orders(id) VALUES(101),(102);
+		INSERT INTO %s.order_items(order_id,product_id,bom_spec_id,bom_variant_id,item_name,spec,qty)
+		VALUES(101,9,20,200,'商品9','454g',1),(102,10,30,300,'商品10','227g',1);
+	`, schema, schema)); err != nil {
+		t.Fatalf("seed shipment lock rows: %v", err)
+	}
+	repo := Repository{pool: pool, schema: schema}
+	first, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Rollback(context.Background()) }()
+	if err := lockShipmentOrdersTx(ctx, first, schema, []int64{101}); err != nil {
+		t.Fatalf("lock drawer order: %v", err)
+	}
+	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, first, schema, 9, 20, 0); err != nil {
+		t.Fatalf("lock drawer finished identity: %v", err)
+	}
+
+	type result struct {
+		pid int
+		err error
+	}
+	started := make(chan int, 1)
+	done := make(chan result, 1)
+	go func() {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			done <- result{err: err}
+			return
+		}
+		var pid int
+		if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+			_ = tx.Rollback(ctx)
+			done <- result{err: err}
+			return
+		}
+		started <- pid
+		if err := repo.lockShipmentOrdersAndFinishedIdentitiesTx(ctx, tx, []int64{102, 101}); err != nil {
+			_ = tx.Rollback(ctx)
+			done <- result{pid: pid, err: err}
+			return
+		}
+		done <- result{pid: pid, err: tx.Commit(ctx)}
+	}()
+	var pid int
+	select {
+	case pid = <-started:
+	case <-ctx.Done():
+		t.Fatalf("shipment transaction did not start: %v", ctx.Err())
+	}
+	waitingOnOrder := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM pg_stat_activity
+			WHERE pid=$1 AND wait_event_type='Lock' AND query ILIKE '%orders%'
+		)`, pid).Scan(&waitingOnOrder); err != nil {
+			t.Fatal(err)
+		}
+		if waitingOnOrder {
+			break
+		}
+		select {
+		case got := <-done:
+			t.Fatalf("shipment lock finished before the drawer transaction released its order: %v", got.err)
+		default:
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !waitingOnOrder {
+		t.Fatal("shipment transaction did not wait for the locked order")
+	}
+	var waitingForAdvisory bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND granted=false
+	)`, pid).Scan(&waitingForAdvisory); err != nil {
+		t.Fatal(err)
+	}
+	if waitingForAdvisory {
+		t.Fatal("shipment transaction requested a finished identity before acquiring its order locks")
+	}
+	if err := first.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("prelock orders and finished identities: %v", got.err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("shipment transaction did not resume after drawer commit: %v", ctx.Err())
+	}
+}
+
 func TestSalesShipmentLocksFinishedIdentityBeforeBatchAndSummary(t *testing.T) {
 	pool, schema := newSalesPostgresTestDB(t)
 	ctx := context.Background()

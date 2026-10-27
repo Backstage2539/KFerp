@@ -2597,10 +2597,19 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			SELECT EXISTS(
 				SELECT 1 FROM %s.stock_batches b
+				LEFT JOIN LATERAL (
+					SELECT l.warehouse
+					FROM %s.stock_ledger_entries l
+					WHERE l.source_batch_code=b.batch_code
+					  AND l.item_type=b.item_type AND l.item_id=b.item_id
+					  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+					ORDER BY l.id DESC LIMIT 1
+				) last_ledger ON true
 				WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=0 AND b.spec_g=$2
 				  AND (b.remaining_g>0 OR b.remaining_units>0)
+				  AND COALESCE(last_ledger.warehouse,'finished_goods')=$3
 			)
-		`, r.schema), item.ProductID, item.SpecG).Scan(&hasExistingBatchBalance); err != nil {
+		`, r.schema, r.schema), item.ProductID, item.SpecG, item.FromWarehouse).Scan(&hasExistingBatchBalance); err != nil {
 			return "", err
 		}
 		if hasExistingBatchBalance {
