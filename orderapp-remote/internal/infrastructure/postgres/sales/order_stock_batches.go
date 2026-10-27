@@ -492,9 +492,11 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 			LEFT JOIN LATERAL (
 				SELECT COALESCE(SUM(a.allocated_units),0)::bigint AS reserved_units
 				FROM %s.order_stock_batch_allocations a
+				JOIN %s.orders reserving_order ON reserving_order.id=a.order_id
 				WHERE a.product_id=$1
 				  AND a.bom_spec_id=$2
 				  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
+				  AND COALESCE(NULLIF(reserving_order.source_warehouse,''),'finished_goods')=$4
 				  AND NOT EXISTS (
 					SELECT 1
 					FROM %s.order_stock_deductions d
@@ -508,7 +510,7 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 			  AND fi.bom_spec_id=$2
 			  AND fi.spec_g=0
 			  AND fi.warehouse=$4%s
-		`, r.schema, r.schema, r.schema, r.schema, lockClause)
+		`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause)
 		rows, err := q.Query(ctx, sql, item.ProductID, item.BomSpecID, excludeOrderID, warehouse)
 		if err != nil {
 			return nil, err
@@ -561,10 +563,12 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(SUM(a.allocated_g),0)::bigint AS reserved_g
 			FROM %s.order_stock_batch_allocations a
+			JOIN %s.orders reserving_order ON reserving_order.id=a.order_id
 			WHERE a.product_id=$1
 			  AND a.bom_spec_id=0
 			  AND a.spec_g=$2
 			  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
+			  AND COALESCE(NULLIF(reserving_order.source_warehouse,''),'finished_goods')=$4
 			  AND NOT EXISTS (
 				SELECT 1
 				FROM %s.order_stock_deductions d
@@ -579,7 +583,7 @@ func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Conte
 		  AND fi.bom_spec_id=0
 		  AND fi.spec_g=$2
 	  AND fi.warehouse=$4%s
-	`, r.schema, r.schema, r.schema, r.schema, lockClause)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause)
 	rows, err := q.Query(ctx, sql, item.ProductID, item.SpecG, excludeOrderID, warehouse)
 	if err != nil {
 		return nil, err

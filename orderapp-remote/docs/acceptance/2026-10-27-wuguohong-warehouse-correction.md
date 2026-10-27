@@ -50,10 +50,13 @@
 - 新增 `TestLegacyFinishedTransferCancellationAfterReceiptUsesBatchBalances`：750g 散克转仓后再完工入库 250g，汇总先显示为 1 袋；修复前撤销写入 `1 袋 - 750g`，按批次移动记录重算后恢复为来源仓 750g、目标仓仅留 250g。
 - 最新 PR 审查增加源仓转仓回归 `TestLegacyFinishedTransferAfterSourceReceiptUsesBatchBalances` 与撤销回归 `TestLegacyFinishedTransferCancellationAfterSourceReceiptUsesBatchBalances`。在隔离 PostgreSQL 上先 RED：完工入库把 750g+250g 汇总成 1 袋后再转出 250g，旧代码留下 `1 袋 -250g`；转仓后在来源仓完工入库并撤销，旧代码错误写成 `1 袋 +1250g`。采用来源/目标批次余额重建非 BOM 摘要、修正撤销变量遮蔽后两项 GREEN。
 - 最新销售审查增加 `TestSourceWarehouseShipmentDeductsBatchAndSummaryTogether`。先 RED：客户虚拟仓发货后摘要为 `0+500g`，但原批次仍是 `1/1500g`，也没有批次扣减记录；按订单来源仓读取 FIFO 批次并同步摘要/流水后 GREEN。`TestSalesShipmentLocksFinishedIdentityBeforeBatchAndSummary` 仍通过。
+- 新一轮 PR 审查补充两个回归并先 RED：目标仓原本只有汇总库存时，旧转仓取消将目标仓清零；其他仓订单的预留量错误占用当前仓汇总库存，导致当前仓发货报库存不足。新增目标仓期初批次追溯并按订单来源仓过滤预留后，两项定向 PostgreSQL 用例 GREEN。
+- 新一轮审查还指出同一事务批量填多个订单物流时，逐单获取锁可能因订单顺序相反而死锁。新增 `TestMultiOrderShipmentIdentityLocksAreOrderIndependent`，覆盖反序订单集合在同一已排序身份锁集合上的串行等待；`FillShipmentTracking` 与 `FillShipmentTrackingByOrderNo` 现在会在开始更新前预锁整批订单的库存身份。
+- 临时 PostgreSQL 全量运行 `internal/infrastructure/postgres/sales` 时，销售包内其他既有测试因其共享 `EnsureSchema` fixture 缺少 `orders.is_void`、`orders.ship_status_id` 等列及一条 canonical order item 未找到而失败；本次改动对应的来源仓出库、跨仓预留和批量身份锁定向回归均独立通过。无数据库环境的完整 `go test ./...` 通过。
 - 新增 `TestStockDocumentFinishedIdentityLocksUseStableOrder`：两笔多商品库存单按相反商品顺序并发获取库存身份锁后串行完成；提交和撤销在批次或汇总行写入前按商品、BOM 规格、克重稳定排序取得全单身份锁。
-- 本次审查修复后，临时本机 PostgreSQL 上库存 PostgreSQL 全包、库存服务/API、库存 HTTP API、非默认来源仓发货和销售共享锁回归均通过；`git diff --check` 通过。最终生产预检、PR 复审、集成和部署仍待完成。
+- 本次审查修复后，临时本机 PostgreSQL 上新增目标仓期初批次、跨仓预留隔离、批量物流库存锁和非默认来源仓出库回归均通过。前一次 pushed commit `0b0aecfc3` 的生产预检在服务器 Go 全量测试时因磁盘空间不足（`no space left on device`）中止；容器镜像与构建缓存占用较大，预检自动清理后根分区仅余约 210MB。没有清理服务器文件或容器镜像，也没有部署或写入生产库存。最终推送后的复审与生产预检仍待完成；部署前需要先处理磁盘空间阻塞。
 
-测试覆盖批次 FIFO 扣减、增加时创建调整批次、规格 0 只允许将已有余额清零、同事务回滚、调整单/批次分配/库存流水/操作日志一致、拒绝未修复的历史数量批次、未分配人工减库存批次和只有汇总没有可用批次的库存、重复人工库存调整可创建多个批次、人工入库与完工入库并发串行化、规范与非 BOM 转仓 FIFO/撤销/冻结阻断、散装克重分类一致，以及调整与出库一致的“先批次、后汇总”锁顺序；正式 HTTP API 使用当前 BOM 规格身份。生产预检在后续审查发现边界问题时中止过两次；最后一次预检在上述 commit 通过，但早于本次最新修复，需按最终提交重新执行。
+测试覆盖批次 FIFO 扣减、增加时创建调整批次、规格 0 只允许将已有余额清零、同事务回滚、调整单/批次分配/库存流水/操作日志一致、拒绝未修复的历史数量批次、未分配人工减库存批次和只有汇总没有可用批次的库存、重复人工库存调整可创建多个批次、人工入库与完工入库并发串行化、规范与非 BOM 转仓 FIFO/撤销/冻结阻断、散装克重分类一致，以及调整与出库一致的“先批次、后汇总”锁顺序；正式 HTTP API 使用当前 BOM 规格身份。生产预检在后续审查发现边界问题时中止过两次；最新一次 `0b0aecfc3` 预检因服务器磁盘空间不足中止，尚未对当前修复后的提交重跑。
 
 ## 生产基线（只读核对）
 

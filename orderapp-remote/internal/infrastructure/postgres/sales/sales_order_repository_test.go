@@ -740,7 +740,8 @@ func TestSourceWarehouseShipmentDeductsBatchAndSummaryTogether(t *testing.T) {
 		)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.order_stock_batch_allocations(
 			id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL,product_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,
-			bom_variant_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,batch_code TEXT NOT NULL,allocated_g BIGINT NOT NULL,allocated_units BIGINT NOT NULL
+			bom_variant_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,batch_id BIGINT NOT NULL DEFAULT 0,batch_code TEXT NOT NULL,
+			allocated_g BIGINT NOT NULL,allocated_units BIGINT NOT NULL
 		)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.order_stock_deductions(
 			id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL,product_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,
@@ -794,6 +795,158 @@ func TestSourceWarehouseShipmentDeductsBatchAndSummaryTogether(t *testing.T) {
 	}
 	if summaryUnits != 0 || summaryLoose != 500 || batchUnits != 0 || batchG != 500 || deductions != 1 {
 		t.Fatalf("source warehouse summary=%d+%dg, batch=%d/%dg, deductions=%d; want 0+500g, 0/500g, 1", summaryUnits, summaryLoose, batchUnits, batchG, deductions)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name) VALUES(10,'汇总库存商品');
+		INSERT INTO %s.orders(id,source_warehouse) VALUES(18,'customer_virtual'),(19,'finished_goods');
+		INSERT INTO %s.order_items(order_id,product_id,bom_spec_id,bom_variant_id,item_name,spec,qty)
+		VALUES(18,10,0,0,'汇总库存商品','1000g',1);
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(10,0,0,1000,'customer_virtual',1,0);
+		INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,bom_spec_id,spec_g,remaining_g,remaining_units)
+		VALUES('OTHER-WH-001','finished_product',10,'汇总库存商品',0,1000,1000,1);
+		INSERT INTO %s.order_stock_batch_allocations(order_id,product_id,bom_spec_id,bom_variant_id,spec_g,batch_id,batch_code,allocated_g,allocated_units)
+		SELECT 19,10,0,0,1000,id,batch_code,1000,0 FROM %s.stock_batches WHERE batch_code='OTHER-WH-001';
+	`, schema, schema, schema, schema, schema, schema, schema))
+	if err != nil {
+		t.Fatalf("seed cross-warehouse reservation: %v", err)
+	}
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.deductOrderSourceWarehouseItemsTx(ctx, tx, 18, "customer_virtual", "qa"); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("deduct summary-only source warehouse stock despite another warehouse reservation: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=10 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='customer_virtual'
+	`, schema)).Scan(&summaryUnits, &summaryLoose); err != nil {
+		t.Fatal(err)
+	}
+	if summaryUnits != 0 || summaryLoose != 0 {
+		t.Fatalf("summary-only source stock after shipment=%d+%dg, want zero", summaryUnits, summaryLoose)
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name) VALUES(11,'BOM汇总库存商品');
+		INSERT INTO %s.orders(id,source_warehouse) VALUES(20,'customer_virtual'),(21,'finished_goods');
+		INSERT INTO %s.order_items(order_id,product_id,bom_spec_id,bom_variant_id,item_name,spec,qty)
+		VALUES(20,11,37,0,'BOM汇总库存商品','454g',1);
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(11,37,0,0,'customer_virtual',1,0);
+		INSERT INTO %s.order_stock_batch_allocations(order_id,product_id,bom_spec_id,bom_variant_id,spec_g,batch_id,batch_code,allocated_g,allocated_units)
+		VALUES(21,11,37,0,0,0,'BOM-SPEC-FP-11-37',0,1);
+	`, schema, schema, schema, schema, schema))
+	if err != nil {
+		t.Fatalf("seed cross-warehouse BOM reservation: %v", err)
+	}
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.deductOrderSourceWarehouseItemsTx(ctx, tx, 20, "customer_virtual", "qa"); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("deduct BOM summary-only source warehouse stock despite another warehouse reservation: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=11 AND bom_spec_id=37 AND warehouse='customer_virtual'
+	`, schema)).Scan(&summaryUnits); err != nil {
+		t.Fatal(err)
+	}
+	if summaryUnits != 0 {
+		t.Fatalf("BOM summary-only source stock after shipment=%d units, want zero", summaryUnits)
+	}
+}
+
+func TestMultiOrderShipmentIdentityLocksAreOrderIndependent(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	for _, stmt := range []string{
+		fmt.Sprintf(`CREATE TABLE %s.product_bom_spec_authorities(product_id BIGINT PRIMARY KEY,state TEXT NOT NULL)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.order_items(
+			id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL,product_id BIGINT,bom_spec_id BIGINT,bom_variant_id BIGINT,
+			item_name TEXT NOT NULL,spec TEXT NOT NULL,qty NUMERIC NOT NULL
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.order_stock_batch_allocations(
+			id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL,product_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,
+			bom_variant_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,allocated_g BIGINT NOT NULL,allocated_units BIGINT NOT NULL
+		)`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create multi-order identity lock table: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom_spec_authorities(product_id,state) VALUES(9,'cutover'),(10,'cutover');
+		INSERT INTO %s.order_items(order_id,product_id,bom_spec_id,bom_variant_id,item_name,spec,qty)
+		VALUES(101,9,20,200,'商品9','454g',1),(102,10,30,300,'商品10','227g',1);
+	`, schema, schema)); err != nil {
+		t.Fatalf("seed multi-order identity locks: %v", err)
+	}
+	repo := Repository{pool: pool, schema: schema}
+	first, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Rollback(ctx) }()
+	if err := repo.lockOrdersFinishedIdentitiesTx(ctx, first, []int64{101, 102}); err != nil {
+		t.Fatalf("lock first shipment identity union: %v", err)
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			secondDone <- err
+			return
+		}
+		if err := repo.lockOrdersFinishedIdentitiesTx(ctx, tx, []int64{102, 101}); err != nil {
+			_ = tx.Rollback(ctx)
+			secondDone <- err
+			return
+		}
+		secondDone <- tx.Commit(ctx)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	waitingForIdentity := false
+	for time.Now().Before(deadline) {
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND state='active'
+			AND wait_event_type='Lock' AND query ILIKE '%pg_advisory_xact_lock%'
+		)`).Scan(&waitingForIdentity); err != nil {
+			t.Fatal(err)
+		}
+		if waitingForIdentity {
+			break
+		}
+		select {
+		case err := <-secondDone:
+			t.Fatalf("reversed multi-order lock completed while first union was held: %v", err)
+		default:
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !waitingForIdentity {
+		t.Fatal("reversed multi-order lock did not wait for the shared identity union")
+	}
+	if err := first.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("lock reversed multi-order identity union: %v", err)
 	}
 }
 

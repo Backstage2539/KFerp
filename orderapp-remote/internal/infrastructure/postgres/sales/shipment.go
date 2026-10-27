@@ -142,6 +142,37 @@ func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillS
 	if shippedStatusID <= 0 {
 		return salesapp.FillShipmentTrackingResult{}, fmt.Errorf("ship status 已发货 not found")
 	}
+	orderIDs := make([]int64, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		if item.OrderID > 0 {
+			orderIDs = append(orderIDs, item.OrderID)
+		}
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT order_id FROM %s.order_shipment_orders
+		WHERE shipment_id=$1 AND order_id=ANY($2::bigint[])
+		ORDER BY order_id
+	`, r.schema), cmd.ShipmentID, orderIDs)
+	if err != nil {
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
+	impactedOrderIDs := make([]int64, 0, len(orderIDs))
+	for rows.Next() {
+		var orderID int64
+		if err := rows.Scan(&orderID); err != nil {
+			rows.Close()
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+		impactedOrderIDs = append(impactedOrderIDs, orderID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
+	rows.Close()
+	if err := r.lockOrdersFinishedIdentitiesTx(ctx, tx, impactedOrderIDs); err != nil {
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
 
 	updated := 0
 	updatedOrderIDs := make([]int64, 0, len(cmd.Items))
@@ -208,6 +239,37 @@ func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd sales
 	shippedStatusID := lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "已发货")
 	if shippedStatusID <= 0 {
 		return salesapp.FillShipmentTrackingResult{}, fmt.Errorf("ship status 已发货 not found")
+	}
+	orderNos := make([]string, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		if strings.TrimSpace(item.OrderNo) != "" {
+			orderNos = append(orderNos, strings.TrimSpace(item.OrderNo))
+		}
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id FROM %s.orders
+		WHERE order_no=ANY($1::text[]) AND COALESCE(is_void,false)=false
+		ORDER BY id
+	`, r.schema), orderNos)
+	if err != nil {
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
+	impactedOrderIDs := make([]int64, 0, len(orderNos))
+	for rows.Next() {
+		var orderID int64
+		if err := rows.Scan(&orderID); err != nil {
+			rows.Close()
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+		impactedOrderIDs = append(impactedOrderIDs, orderID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
+	rows.Close()
+	if err := r.lockOrdersFinishedIdentitiesTx(ctx, tx, impactedOrderIDs); err != nil {
+		return salesapp.FillShipmentTrackingResult{}, err
 	}
 
 	updated := 0

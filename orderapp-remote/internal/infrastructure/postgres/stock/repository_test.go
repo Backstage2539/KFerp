@@ -2696,6 +2696,54 @@ func TestLegacyFinishedTransferAfterSourceReceiptUsesBatchBalances(t *testing.T)
 	}
 }
 
+func TestLegacyFinishedTransferCancellationPreservesSummaryOnlyDestinationStock(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetUnits: 1, Reason: "转仓目标仓期初测试", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed source batch: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(9,0,0,1000,'finished_shop',5,0);
+	`, schema))
+	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyUnits: 1, Operator: "qa", IdempotencyKey: "legacy-summary-only-transfer-cancel",
+	})
+	if err != nil {
+		t.Fatalf("transfer into summary-only destination: %v", err)
+	}
+	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err != nil {
+		t.Fatalf("cancel transfer into summary-only destination: %v", err)
+	}
+	var summaryUnits, summaryLoose int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_shop'
+	`, schema)).Scan(&summaryUnits, &summaryLoose); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batchUnits, batchG, err := finishedInventoryBatchQtyTx(ctx, tx, schema, 9, 0, 1000, "finished_shop")
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if summaryUnits != 5 || summaryLoose != 0 || batchUnits != 5 || batchG != 5000 {
+		t.Fatalf("destination after cancellation summary=%d+%dg batches=%d/%dg; want 5+0g and 5/5000g", summaryUnits, summaryLoose, batchUnits, batchG)
+	}
+}
+
 func TestLegacyFinishedTransferCancellationAfterSourceReceiptUsesBatchBalances(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()

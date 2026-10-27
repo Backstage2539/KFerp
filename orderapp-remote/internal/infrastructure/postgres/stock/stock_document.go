@@ -2632,6 +2632,57 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 			RemainingG: beforeFromG, RemainingUnits: beforeFromUnits, QualityStatus: "unchecked",
 		})
 	}
+	if beforeToG > 0 || beforeToUnits > 0 {
+		batchUnits, batchG, err := finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, 0, item.SpecG, item.ToWarehouse)
+		if err != nil {
+			return "", err
+		}
+		if batchUnits == 0 && batchG == 0 {
+			var hasExistingBatchBalance bool
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT EXISTS(
+					SELECT 1
+					FROM %s.stock_batches b
+					LEFT JOIN LATERAL (
+						SELECT l.warehouse FROM %s.stock_ledger_entries l
+						WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+						  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+						ORDER BY l.id DESC LIMIT 1
+					) last_ledger ON true
+					WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=0 AND b.spec_g=$2
+					  AND (b.remaining_g>0 OR b.remaining_units>0)
+					  AND COALESCE(last_ledger.warehouse,'finished_goods')=$3
+				)
+			`, r.schema, r.schema), item.ProductID, item.SpecG, item.ToWarehouse).Scan(&hasExistingBatchBalance); err != nil {
+				return "", err
+			}
+			if hasExistingBatchBalance {
+				return "", fmt.Errorf("finished stock batch balance does not match summary in %s", item.ToWarehouse)
+			}
+			openingBatchCode := fmt.Sprintf("FP-OPENING-TO-SE-%010d-%03d", detail.ID, item.ID%1000)
+			var openingBatchID int64
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				INSERT INTO %s.stock_batches(
+					batch_code,item_type,item_id,item_name,owner_customer_id,bom_spec_id,bom_variant_id,spec_g,
+					source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,
+					unit_cost,quality_status,operator,created_at
+				) VALUES($1,'finished_product',$2,$3,$4,0,0,$5,'stock_entry_transfer_destination_opening',$6,$7,$8,$9,$8,$9,0,'unchecked',$10,now())
+				RETURNING id
+			`, r.schema), openingBatchCode, item.ProductID, productName, ownerCustomerID, item.SpecG,
+				item.ID, detail.EntryNo, beforeToG, beforeToUnits, actor).Scan(&openingBatchID); err != nil {
+				return "", err
+			}
+			if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+				ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: productName,
+				OwnerCustomerID: ownerCustomerID, SpecG: item.SpecG, Warehouse: item.ToWarehouse,
+				SourceDocType: "stock_entry", SourceDocID: detail.ID, SourceBatchCode: openingBatchCode,
+				SourceBatchID: detail.EntryNo, ChangeG: beforeToG, AfterG: beforeToG,
+				ChangeUnits: beforeToUnits, AfterUnits: beforeToUnits, Operator: actor,
+			}); err != nil {
+				return "", err
+			}
+		}
+	}
 
 	remainingUnits := units
 	for index := range moves {
