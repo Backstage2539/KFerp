@@ -93,6 +93,9 @@ ALTER TABLE %s.customer_portal_profiles
 	if err := ensureBusinessSchema(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureSettlementSourceLineSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureProcessingRequestSchema(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -103,6 +106,36 @@ ALTER TABLE %s.customer_portal_profiles
 		return err
 	}
 	return ensureCapabilityConfigConstraint(ctx, pool, schema)
+}
+
+func ensureSettlementSourceLineSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_lines (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	settlement_batch_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_batches(id) ON DELETE CASCADE,
+	charge_type TEXT NOT NULL,
+	source_type TEXT NOT NULL,
+	source_id BIGINT NOT NULL,
+	source_no TEXT NOT NULL DEFAULT '',
+	description TEXT NOT NULL DEFAULT '',
+	occurred_at DATE NOT NULL,
+	receivable_cents BIGINT NOT NULL DEFAULT 0,
+	amount_cents BIGINT NOT NULL DEFAULT 0,
+	received_cents BIGINT NOT NULL DEFAULT 0,
+	due_cents BIGINT NOT NULL DEFAULT 0,
+	confirmation_status TEXT NOT NULL DEFAULT 'confirmed',
+	settlement_status TEXT NOT NULL DEFAULT 'draft',
+	reversed_at TIMESTAMPTZ NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_settlement_lines_active_source_uq
+	ON %[1]s.customer_settlement_lines(customer_id,charge_type,source_type,source_id)
+	WHERE reversed_at IS NULL;
+CREATE INDEX IF NOT EXISTS customer_settlement_lines_batch_idx
+	ON %[1]s.customer_settlement_lines(customer_id,settlement_batch_id,occurred_at,id);
+`, schema))
+	return err
 }
 
 func ensureRecipientAddressSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {

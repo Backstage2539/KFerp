@@ -240,6 +240,12 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 				b.Fees = append(b.Fees, f)
 			}
 		}
+		if relationExists(ctx, tx, fmt.Sprintf("%s.customer_settlement_lines", r.schema)) {
+			b.Lines, err = customerSettlementLinesTx(ctx, tx, r.schema, q.CustomerID, b.ID)
+			if err != nil {
+				return d, err
+			}
+		}
 		b.StatementRevision, err = customerStatementRevisionTx(ctx, tx, r.schema, q.CustomerID, b.ID)
 		if err != nil {
 			return d, err
@@ -287,7 +293,58 @@ func customerStatementRevisionTx(ctx context.Context, tx pgx.Tx, schema string, 
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
+	if relationExists(ctx, tx, fmt.Sprintf("%s.customer_settlement_lines", schema)) {
+		lines, err := tx.Query(ctx, fmt.Sprintf(`
+			SELECT l.charge_type,l.source_type,l.source_id,l.source_no,l.description,l.occurred_at::text,
+				l.receivable_cents,l.amount_cents,l.received_cents,l.due_cents,l.confirmation_status,COALESCE(b.status,l.settlement_status)
+			FROM %s.customer_settlement_lines l
+			LEFT JOIN %s.customer_settlement_batches b ON b.id=l.settlement_batch_id AND b.customer_id=l.customer_id
+			WHERE l.customer_id=$1 AND l.settlement_batch_id=$2 AND l.reversed_at IS NULL
+			ORDER BY l.occurred_at,l.charge_type,l.source_type,l.source_id,l.id
+		`, schema, schema), customerID, settlementID)
+		if err != nil {
+			return "", err
+		}
+		defer lines.Close()
+		for lines.Next() {
+			var line app.SettlementLineSummary
+			if err := lines.Scan(&line.ChargeType, &line.SourceType, &line.SourceID, &line.SourceNo, &line.Description, &line.OccurredAt,
+				&line.ReceivableCents, &line.AmountCents, &line.ReceivedCents, &line.DueCents, &line.ConfirmationStatus, &line.SettlementStatus); err != nil {
+				return "", err
+			}
+			fmt.Fprintf(hash, "line|%s|%s|%d|%s|%s|%s|%d|%d|%d|%d|%s|%s\n", line.ChargeType, line.SourceType, line.SourceID, line.SourceNo, line.Description, line.OccurredAt,
+				line.ReceivableCents, line.AmountCents, line.ReceivedCents, line.DueCents, line.ConfirmationStatus, line.SettlementStatus)
+		}
+		if err := lines.Err(); err != nil {
+			return "", err
+		}
+	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func customerSettlementLinesTx(ctx context.Context, tx pgx.Tx, schema string, customerID, settlementID int64) ([]app.SettlementLineSummary, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+			SELECT l.id,l.charge_type,l.source_type,l.source_id,l.source_no,l.description,l.occurred_at::text,
+				l.receivable_cents,l.amount_cents,l.received_cents,l.due_cents,l.confirmation_status,COALESCE(b.status,l.settlement_status)
+			FROM %s.customer_settlement_lines l
+			LEFT JOIN %s.customer_settlement_batches b ON b.id=l.settlement_batch_id AND b.customer_id=l.customer_id
+			WHERE l.customer_id=$1 AND l.settlement_batch_id=$2 AND l.reversed_at IS NULL
+			ORDER BY l.occurred_at,l.charge_type,l.source_type,l.source_id,l.id
+		`, schema, schema), customerID, settlementID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.SettlementLineSummary, 0)
+	for rows.Next() {
+		var line app.SettlementLineSummary
+		if err := rows.Scan(&line.ID, &line.ChargeType, &line.SourceType, &line.SourceID, &line.SourceNo, &line.Description, &line.OccurredAt,
+			&line.ReceivableCents, &line.AmountCents, &line.ReceivedCents, &line.DueCents, &line.ConfirmationStatus, &line.SettlementStatus); err != nil {
+			return nil, err
+		}
+		out = append(out, line)
+	}
+	return out, rows.Err()
 }
 
 func loadCustomerStatementReconciliationTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, settlement *app.AccountSettlement) error {

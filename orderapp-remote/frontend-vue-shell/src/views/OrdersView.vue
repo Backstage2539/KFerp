@@ -207,7 +207,7 @@
                   <OrderPaymentSummary :order="row" />
                   <span>收款：{{ row.pay_status || '-' }}{{ row.payment_method ? ' / ' + row.payment_method : '' }}</span>
                   <span v-if="isCustomerStockOrder(row)">履约：{{ customerStockProgressLabel(row) }}</span>
-                  <span v-else>发货：{{ row.ship_status || '-' }}</span>
+                  <span v-else>发货：<strong :class="{ 'shipped-status': isShipped(row) }">{{ row.ship_status || '-' }}</strong></span>
                   <span v-if="row.fulfillment_mode">{{ row.fulfillment_mode === 'stock' ? '库存代发' : '无库存代发' }}</span>
                   <span>{{ orderConfirmationLabel(row.confirmation_status) }}</span>
                   <span v-if="!isCustomerStockOrder(row)">履约：{{ orderProgressLabel(row) }}</span>
@@ -475,6 +475,7 @@ import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
+import { isShipped, orderRowClass as getOrderRowClass } from '../lib/order-row-state.js'
 import { ordinaryOrderVoidable, isCustomerStockOrder, customerStockProgressLabel, orderProgressLabel } from '../lib/customer-stock-entry'
 import DirectShipCancelButton from '../components/DirectShipCancelButton.vue'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
@@ -865,34 +866,12 @@ function isShipReady(row) {
   return isOrderShipReady(row)
 }
 
-function isShipped(row) {
-  return String(row?.ship_status || '').includes('已发货')
-}
-
-function isUnpaid(row) {
-  const status = String(row?.pay_status || '').trim()
-  return status === '' || status.includes('未')
-}
-
-function isUnproduced(row) {
-  const status = String(row?.process_status || '').trim()
-  if (!status) return true
-  return !(status.includes('生产完成') || status === '无需生产' || status === '库存待发货')
-}
-
-
 function isHighlightedOrder(row) {
   return Number(row?.id || 0) > 0 && Number(row.id) === Number(filters.highlight_order_id || 0)
 }
 
 function orderRowClass(row) {
-  return {
-    voided: row?.is_void,
-    'highlight-new': isHighlightedOrder(row),
-    'state-unpaid': !isHighlightedOrder(row) && isUnpaid(row),
-    'state-unshipped': !isHighlightedOrder(row) && !isUnpaid(row) && !isShipped(row),
-    'state-unproduced': !isHighlightedOrder(row) && !isUnpaid(row) && isShipped(row) && isUnproduced(row),
-  }
+  return getOrderRowClass(row, isHighlightedOrder(row))
 }
 
 function orderFeeLines(row = {}) {
@@ -1354,10 +1333,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 table { width: 100%; min-width: 960px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
-tr.highlight-new { background: #ecfdf3; box-shadow: inset 4px 0 0 #22c55e; }
+tr.highlight-new { background: #f8fafc; box-shadow: inset 4px 0 0 #64748b; }
+tr.state-shipped-paid { background: #ecfdf3; box-shadow: inset 4px 0 0 #22c55e; }
 tr.state-unproduced { background: #fff9e6; box-shadow: inset 4px 0 0 #eab308; }
 tr.state-unshipped { background: #eef6ff; box-shadow: inset 4px 0 0 #3b82f6; }
 tr.state-unpaid { background: #fff1f2; box-shadow: inset 4px 0 0 #ef4444; }
+.status-stack .shipped-status { color: #278456; font-weight: 600; }
 tr.voided { opacity: .55; }
 .select-col { width: 54px; text-align: center; }
 .select-col input { width: 18px; height: 18px; padding: 0; }

@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-739-CUSTOMER-FEES-MONTHLY-SHIPPED-COLOR", title: "客户费用展示订单款项、运费与代发服务费，支持按期间合并/分开月结；已发货且已付款订单整行绿色", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-27-customer-fees-monthly.md"},
+		{table: "req_dev", code: "DEV-PR739-01", title: "订单行颜色按付款与发货状态组合展示", status: "done", assignee: "Codex", evidence: "order-row-state.test.js; fulfillment-operations-dom.test.js RED/GREEN"},
+		{table: "req_dev", code: "DEV-PR739-02", title: "客户费用按订单货款、已入账运费、代发服务费分类并确认状态", status: "done", assignee: "Codex", evidence: "customer fulfillment PostgreSQL fee, account and billing tests; API tests"},
+		{table: "req_dev", code: "DEV-PR739-03", title: "按日期和费用类型生成月结，链接销售单与费用来源并防重复、留操作日志", status: "done", assignee: "Codex", evidence: "TestCreateSettlementSelectedSourcesSnapshotsOnlyUnpaidAndAudits; TestCreateSettlementOverlappingScopesDoNotDuplicateSourcesAndRefreshDraft"},
+		{table: "req_dev", code: "DEV-PR739-04", title: "更新工作台交互、前端手册、验收证据并开发交付", status: "doing", assignee: "Codex", evidence: "Vue component tests, manual, development deployment"},
 		{table: "req_product", code: "PR-738-ORDER-PROGRESS-SHIPPING-REMATCH", title: "ERP与小程序统一留厂入库及库存代发状态，支持寄件列表重新匹配", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-27-order-progress-rematch.md"},
 		{table: "req_dev", code: "DEV-PR738-01", title: "统一履约状态摘要、实物分配校验及两端展示", status: "done", assignee: "Codex", evidence: "TestOrderProgressUsesOwnPhysicalStockAndStableSpec; orderProgress.test.ts"},
 		{table: "req_dev", code: "DEV-PR738-02", title: "未处理寄件重新匹配、幂等、回滚与操作日志", status: "done", assignee: "Codex", evidence: "TestShippingReturnRepeatAfterReceiptRematchesWithoutShipping"},

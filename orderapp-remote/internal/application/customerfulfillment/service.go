@@ -82,10 +82,38 @@ type ApplyImportCommand struct {
 }
 
 type CreateSettlementCommand struct {
-	CustomerID int64
-	PeriodFrom string
-	PeriodTo   string
-	CreatedBy  string
+	CustomerID  int64
+	PeriodFrom  string
+	PeriodTo    string
+	ChargeTypes []string
+	CreatedBy   string
+}
+
+var customerSettlementChargeTypes = map[string]struct{}{
+	"order_goods": {}, "shipping": {}, "direct_ship_service": {}, "product": {},
+	"roasting": {}, "labor": {}, "material": {}, "processing": {}, "packaging": {}, "storage": {}, "adjustment": {},
+}
+
+func NormalizeSettlementChargeTypes(values []string) ([]string, error) {
+	if values == nil { // Old callers retain the original all-unsettled-fees behavior.
+		return nil, nil
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("at least one charge type is required")
+	}
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if _, ok := customerSettlementChargeTypes[value]; !ok {
+			return nil, fmt.Errorf("invalid settlement charge type: %s", value)
+		}
+		if !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out, nil
 }
 
 var (
@@ -399,12 +427,47 @@ type ApplyResult struct {
 }
 
 type SettlementResult struct {
-	BatchID          int64  `json:"batch_id"`
-	CustomerID       int64  `json:"customer_id"`
-	PeriodFrom       string `json:"period_from"`
-	PeriodTo         string `json:"period_to"`
-	FeeItems         int    `json:"fee_items"`
-	TotalAmountCents int64  `json:"total_amount_cents"`
+	BatchID          int64                   `json:"batch_id"`
+	CustomerID       int64                   `json:"customer_id"`
+	SettlementNo     string                  `json:"settlement_no,omitempty"`
+	PeriodFrom       string                  `json:"period_from"`
+	PeriodTo         string                  `json:"period_to"`
+	ChargeTypes      []string                `json:"charge_types,omitempty"`
+	FeeItems         int                     `json:"fee_items"`
+	ReceivableCents  int64                   `json:"receivable_cents"`
+	TotalAmountCents int64                   `json:"total_amount_cents"`
+	ReceivedCents    int64                   `json:"received_cents"`
+	DueAmountCents   int64                   `json:"due_amount_cents"`
+	Lines            []SettlementLineSummary `json:"lines,omitempty"`
+	ChargeTotals     SettlementChargeTotals  `json:"charge_totals"`
+}
+
+type SettlementLineSummary struct {
+	ID                 int64  `json:"id,omitempty"`
+	ChargeType         string `json:"charge_type"`
+	SourceType         string `json:"source_type"`
+	SourceID           int64  `json:"source_id"`
+	SourceNo           string `json:"source_no,omitempty"`
+	Description        string `json:"description,omitempty"`
+	OccurredAt         string `json:"occurred_at"`
+	ReceivableCents    int64  `json:"receivable_cents"`
+	AmountCents        int64  `json:"amount_cents"`
+	ReceivedCents      int64  `json:"received_cents"`
+	DueCents           int64  `json:"due_cents"`
+	ConfirmationStatus string `json:"confirmation_status"`
+	SettlementStatus   string `json:"settlement_status"`
+}
+
+type SettlementChargeTotals struct {
+	OrderGoodsReceivableCents      int64 `json:"order_goods_receivable_cents"`
+	OrderGoodsReceivedCents        int64 `json:"order_goods_received_cents"`
+	OrderGoodsDueCents             int64 `json:"order_goods_due_cents"`
+	ShippingReceivableCents        int64 `json:"shipping_receivable_cents"`
+	ShippingReceivedCents          int64 `json:"shipping_received_cents"`
+	ShippingDueCents               int64 `json:"shipping_due_cents"`
+	DirectShipServiceCents         int64 `json:"direct_ship_service_cents"`
+	DirectShipServiceReceivedCents int64 `json:"direct_ship_service_received_cents"`
+	DirectShipServiceDueCents      int64 `json:"direct_ship_service_due_cents"`
 }
 
 type FulfillmentOperations struct {
@@ -435,6 +498,8 @@ type Overview struct {
 	DirectShipOrders []DirectShipOrderSummary `json:"direct_ship_orders,omitempty"`
 	Fees             []FeeItemSummary         `json:"fees,omitempty"`
 	Settlements      []SettlementSummary      `json:"settlements,omitempty"`
+	OrderCharges     []SettlementLineSummary  `json:"order_charges,omitempty"`
+	ChargeTotals     SettlementChargeTotals   `json:"charge_totals"`
 	PriceLists       []CustomerPriceList      `json:"price_lists,omitempty"`
 }
 
@@ -480,18 +545,26 @@ type FeeItemSummary struct {
 	SettlementBatchID int64  `json:"settlement_batch_id"`
 	OccurredAt        string `json:"occurred_at"`
 
-	FeeType     string `json:"fee_type"`
-	FeeName     string `json:"fee_name"`
-	AmountCents int64  `json:"amount_cents"`
-	Source      string `json:"source,omitempty"`
+	FeeType            string `json:"fee_type"`
+	FeeName            string `json:"fee_name"`
+	AmountCents        int64  `json:"amount_cents"`
+	Source             string `json:"source,omitempty"`
+	ConfirmationStatus string `json:"confirmation_status"`
+	SettlementStatus   string `json:"settlement_status"`
+	ReceivedCents      int64  `json:"received_cents"`
+	DueCents           int64  `json:"due_cents"`
 }
 
 type SettlementSummary struct {
-	BatchID          int64  `json:"batch_id"`
-	PeriodFrom       string `json:"period_from"`
-	PeriodTo         string `json:"period_to"`
-	Status           string `json:"status"`
-	TotalAmountCents int64  `json:"total_amount_cents"`
+	BatchID          int64                   `json:"batch_id"`
+	PeriodFrom       string                  `json:"period_from"`
+	PeriodTo         string                  `json:"period_to"`
+	Status           string                  `json:"status"`
+	TotalAmountCents int64                   `json:"total_amount_cents"`
+	ReceivedCents    int64                   `json:"received_cents"`
+	DueAmountCents   int64                   `json:"due_amount_cents"`
+	ChargeTypes      []string                `json:"charge_types,omitempty"`
+	Lines            []SettlementLineSummary `json:"lines,omitempty"`
 }
 
 type Repository interface {
@@ -939,6 +1012,10 @@ func (s *Service) CreateSettlement(ctx context.Context, cmd CreateSettlementComm
 	}
 	cmd.PeriodFrom = from.Format("2006-01-02")
 	cmd.PeriodTo = to.Format("2006-01-02")
+	cmd.ChargeTypes, err = NormalizeSettlementChargeTypes(cmd.ChargeTypes)
+	if err != nil {
+		return SettlementResult{}, err
+	}
 	cmd.CreatedBy = strings.TrimSpace(cmd.CreatedBy)
 	return s.repo.CreateSettlement(ctx, cmd)
 }

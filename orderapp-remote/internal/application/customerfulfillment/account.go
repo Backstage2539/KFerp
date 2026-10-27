@@ -136,6 +136,7 @@ type AccountSettlement struct {
 	ConfirmedAt          string                    `json:"confirmed_at"`
 	PaidAt               string                    `json:"paid_at"`
 	Fees                 []AccountFee              `json:"fees,omitempty"`
+	Lines                []SettlementLineSummary   `json:"lines,omitempty"`
 	StatementRevision    string                    `json:"statement_revision"`
 	ReconciliationStatus string                    `json:"reconciliation_status"`
 	ReconciledAt         string                    `json:"reconciled_at,omitempty"`

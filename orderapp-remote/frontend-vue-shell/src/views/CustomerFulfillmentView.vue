@@ -19,7 +19,7 @@
         <button v-if="activeTab === 'inventory'" class="secondary" type="button" @click="activeAction = activeAction === 'inventory' ? '' : 'inventory'" :disabled="!workbenchSections.inventory" :title="!workbenchSections.inventory ? '未开通库存托管，仍可查看历史库存' : ''">调整库存</button>
         <button v-if="activeTab === 'orders'" class="secondary" type="button" @click="activeAction = activeAction === 'processing' ? '' : 'processing'" :disabled="!workbenchSections.processing">提交加工工单</button>
         <button v-if="activeTab === 'dispatch'" class="primary icon-button" type="button" @click="activeAction = activeAction === 'directShip' ? '' : 'directShip'" :disabled="!workbenchSections.directShip"><IconPlus :size="17" />新建代发</button>
-        <button v-if="activeTab === 'fees'" class="primary" type="button" @click="activeAction = activeAction === 'settlement' ? '' : 'settlement'" :disabled="!workbenchSections.settlement">生成月结</button>
+        <button v-if="activeTab === 'fees'" class="primary" type="button" @click="toggleSettlement" :disabled="!workbenchSections.settlement">生成月结</button>
         <button class="secondary" type="button" @click="activeAction = activeAction === 'import' ? '' : 'import'" :disabled="!workbenchSections.imports">导入数据</button>
       </div></div>
       <p v-if="activeTab !== 'overview' && !moduleCanCreate" class="readonly-notice">此客户未开通当前业务，历史数据仍可查看；如需新建，请先调整客户能力与履约设置。</p>
@@ -49,15 +49,32 @@
       </div>
 
       <div v-if="activeAction === 'settlement' && workbenchSections.settlement" class="settlement-row">
-        <label>
-          <span>结算开始</span>
-          <input v-model="settlement.period_from" type="date" />
-        </label>
-        <label>
-          <span>结算结束</span>
-          <input v-model="settlement.period_to" type="date" />
-        </label>
-        <button class="secondary" type="button" @click="createSettlement" :disabled="loading || !normalizedCustomerId">生成月结</button>
+        <div class="settlement-period-picker" role="group" aria-label="结算日期范围">
+          <button v-for="period in settlementPeriodOptions" :key="period.value" class="secondary" :class="{ active: settlementPeriodMode === period.value }" type="button" @click="setSettlementPeriod(period.value)">{{ period.label }}</button>
+        </div>
+        <template v-if="settlementPeriodMode === 'custom'">
+          <label><span>结算开始</span><input v-model="settlement.period_from" type="date" /></label>
+          <label><span>结算结束</span><input v-model="settlement.period_to" type="date" /></label>
+        </template>
+        <fieldset class="settlement-charge-types">
+          <legend>月结费用</legend>
+          <label v-for="type in settlementChargeOptions" :key="type.value"><input v-model="settlement.charge_types" type="checkbox" :value="type.value" />{{ type.label }}</label>
+        </fieldset>
+        <div v-if="settlement.charge_types.includes('order_goods')" class="settlement-order-preview">
+          <p>订单款项只将未收金额计入本次月结；库存代发订单不重复计收已购货款。</p>
+          <table>
+            <thead><tr><th>销售单</th><th>日期</th><th>应收</th><th>已收</th><th>未收（计入月结）</th></tr></thead>
+            <tbody>
+              <tr v-for="row in settlementOrderRows" :key="`${row.source_id}-${row.charge_type}`">
+                <td><button class="link-button" type="button" @click="openSalesOrderDrawer({ id: row.source_id })">{{ row.source_no || `订单 #${row.source_id}` }}</button></td>
+                <td>{{ row.occurred_at }}</td><td>{{ moneyFromCents(row.receivable_cents) }}</td>
+                <td>{{ moneyFromCents(row.received_cents) }}</td><td>{{ moneyFromCents(row.due_cents) }}</td>
+              </tr>
+              <tr v-if="!settlementOrderRows.length"><td colspan="5" class="muted">所选期间没有订单款项</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <button class="primary" type="button" @click="createSettlement" :disabled="settlementSaving || loading || !normalizedCustomerId || !settlement.charge_types.length">{{ settlementSaving ? '生成中…' : '生成月结' }}</button>
       </div>
 
       <div class="ops-grid">
@@ -112,7 +129,7 @@
           </div>
         </div>
 
-        <div v-if="workbenchSections.directShip" class="ops-panel direct-ship-panel">
+        <div v-if="activeTab === 'dispatch' && activeAction === 'directShip' && workbenchSections.directShip" class="ops-panel direct-ship-panel">
           <h3>{{ submitCopy.formTitle }}</h3>
           <CustomerDirectShipForm
             :customer-id="customerId"
@@ -265,16 +282,32 @@
         </table>
       </DataPanel>
 
-      <DataPanel v-if="activeTab === 'fees'" title="费用明细（最近 100 笔）" :rows="overview.fees" empty="暂无费用">
+      <DataPanel v-if="activeTab === 'fees'" title="订单款项与运费（最近 200 项）" :rows="overview.order_charges" empty="暂无订单费用">
         <table>
           <thead>
-            <tr><th>类型 / 日期</th><th>说明</th><th>金额</th><th>状态</th><th>来源</th></tr>
+            <tr><th>类型 / 日期</th><th>销售单</th><th>应收</th><th>已收</th><th>未收</th><th>确认状态</th></tr>
           </thead>
           <tbody>
-            <tr v-for="row in overview.fees || []" :key="`${row.fee_type}-${row.fee_name}-${row.amount_cents}`">
+            <tr v-for="row in overview.order_charges || []" :key="`${row.charge_type}-${row.source_id}`">
+              <td>{{ chargeTypeLabel(row.charge_type) }}<small>{{ row.occurred_at }}</small></td>
+              <td><button class="link-button" type="button" @click="openSalesOrderDrawer({ id: row.source_id })">{{ row.source_no || `订单 #${row.source_id}` }}</button></td>
+              <td>{{ moneyFromCents(row.receivable_cents) }}</td><td>{{ moneyFromCents(row.received_cents) }}</td><td>{{ moneyFromCents(row.due_cents) }}</td>
+              <td>{{ confirmationLabel(row.confirmation_status) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </DataPanel>
+
+      <DataPanel v-if="activeTab === 'fees'" title="运费与代发服务费等（最近 100 笔）" :rows="overview.fees" empty="暂无其他费用">
+        <table>
+          <thead><tr><th>类型 / 日期</th><th>说明</th><th>金额</th><th>确认状态</th><th>结算状态</th><th>已收</th><th>未收</th><th>来源</th></tr></thead>
+          <tbody>
+            <tr v-for="row in overview.fees || []" :key="row.id">
               <td>{{ businessLabel(row.fee_type) }}<small>{{ row.occurred_at }}</small></td>
-              <td>{{ row.fee_name }}</td>
-              <td>{{ moneyFromCents(row.amount_cents) }}</td><td>{{ row.settlement_batch_id ? businessLabel((overview.settlements || []).find(s => s.batch_id === row.settlement_batch_id)?.status || 'settled') : businessLabel(row.status) }}</td>
+              <td>{{ row.fee_name }}</td><td>{{ moneyFromCents(row.amount_cents) }}</td>
+              <td :class="row.confirmation_status === 'confirmed' ? 'fee-confirmed' : 'fee-unconfirmed'">{{ confirmationLabel(row.confirmation_status) }}</td>
+              <td>{{ businessLabel(row.settlement_status || row.status) }}</td>
+              <td>{{ moneyFromCents(row.received_cents) }}</td><td>{{ moneyFromCents(row.due_cents) }}</td>
               <td>{{ businessLabel(row.source) }}<small v-if="row.source_id"> #{{ row.source_id }}</small></td>
             </tr>
           </tbody>
@@ -458,6 +491,7 @@ import FulfillmentDefaultsEditor from '../components/FulfillmentDefaultsEditor.v
 import { useDialogFocus } from '../lib/dialog-focus.js'
 import { apiGet } from '../api/client'
 import { fulfillmentModuleTabs, fulfillmentBusinessLabel as businessLabel } from '../lib/fulfillment-operations.js'
+import { settlementChargeOptions as buildSettlementChargeOptions, settlementPeriodRange } from '../lib/customer-settlement.js'
 import {freightLabel} from '../lib/freight'
 import OrderDetailsCopyButton from '../components/OrderDetailsCopyButton.vue'
 import OrderItemWeights from '../components/OrderItemWeights.vue'
@@ -487,7 +521,6 @@ import {
   fetchCustomerFulfillmentImports,
   fetchCustomerFulfillmentOverview,
   parseCustomerFulfillmentImport,
-  submitCustomerFulfillmentDirectShipOrder,
   submitCustomerFulfillmentProcessingWorkOrder,
 } from '../api/customer-fulfillment'
 import {
@@ -505,10 +538,9 @@ import {
   rowStatusLabel,
   visibleCustomerFulfillmentImports,
 } from '../lib/customer-fulfillment'
-import { parseRecipientText } from '../lib/customer-recipient'
 import { isCustomerStockOrder, customerStockProgressLabel, orderProgressLabel } from '../lib/customer-stock-entry'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
-import { lineTotal, syncWholesaleTierPrice, toInt, toNumber, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
+import { toNumber } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -579,10 +611,11 @@ const salesOrderDrawerOpen = ref(false)
 const activeSalesOrderID = ref(0)
 const deliveryNoteDrawerOpen = ref(false)
 const activeDeliveryNoteID = ref(0)
-const settlement = reactive({
-  period_from: '',
-  period_to: '',
-})
+const defaultSettlementPeriod = settlementPeriodRange('current')
+const settlementPeriodMode = ref('current')
+const settlementPeriodOptions = [{ value: 'previous', label: '上月' }, { value: 'current', label: '当月' }, { value: 'custom', label: '自定义日期' }]
+const settlementSaving = ref(false)
+const settlement = reactive({ ...defaultSettlementPeriod, charge_types: ['order_goods', 'shipping', 'direct_ship_service'] })
 const processingProductValue = ref('')
 const processingRawBeanValue = ref('')
 const processingForm = reactive({
@@ -593,16 +626,6 @@ const processingForm = reactive({
   input_quantity_g: '',
   planned_output_units: '',
   expected_date: '',
-  note: '',
-})
-const recipientHistoryValue = ref('')
-const recipientPasteText = ref('')
-const directShipItems = ref([newDirectShipItem()])
-const directShipForm = reactive({
-  receiver_name: '',
-  receiver_phone: '',
-  receiver_address: '',
-  shipping_amount: '',
   note: '',
 })
 const adjustmentItemValue = ref('')
@@ -622,10 +645,10 @@ const summaryCards = computed(() => importSummaryCards(latestSummary.value || la
 const latestInvalidCount = computed(() => Number((latestSummary.value || latestBatch.value?.summary || {}).invalid_rows || 0))
 const invalidRowGroups = computed(() => groupInvalidImportRows(invalidRows.value))
 const enabledCapabilities = computed(() => Array.isArray(overview.value?.capabilities) ? overview.value.capabilities : [])
+const submitCopy = computed(() => customerFulfillmentSubmitCopy(enabledCapabilities.value))
 const workbenchSections = computed(() => customerFulfillmentWorkbenchSections(enabledCapabilities.value))
 const visibleImportTypes = computed(() => importTypeOptions(enabledCapabilities.value))
 const visibleImports = computed(() => imports.value)
-const submitCopy = computed(() => customerFulfillmentSubmitCopy(enabledCapabilities.value))
 const selectedParsedBatch = computed(() => latestParsedBatchForType(visibleImports.value, latestBatch.value, selectedImportType.value))
 const selectedParsedBatchId = computed(() => visibleImportTypes.value.some(o => o.value === selectedParsedBatch.value?.import_type) ? Number(selectedParsedBatch.value?.id || selectedParsedBatch.value?.batch_id || 0) : 0)
 const selectedParsedBatchLabel = computed(() => {
@@ -637,22 +660,12 @@ const customerSKUOptions = computed(() => fulfillmentOptions.value?.customer_sku
 const custodyItemOptions = computed(() => fulfillmentOptions.value?.custody_items || [])
 const rawBeanOptions = computed(() => custodyItemOptions.value.filter((row) => row.item_type === 'raw_bean'))
 const adjustmentItemOptions = computed(() => custodyItemOptions.value.filter((row) => row.item_type === adjustment.item_type))
-const finishedGoodsProductOptions = computed(() => (overview.value?.finished_goods || []).map((row) => ({
-  product_id: row.product_id,
-  product_name: row.product_name,
-  spec: row.spec_g ? `${row.spec_g}g` : '',
-  warehouse: row.warehouse,
-  quantity_units: row.quantity_units,
-  quantity_g: row.quantity_g,
-  source: 'finished_goods',
-})))
-const directShipProductOptions = computed(() => uniqueProductOptions([
-  ...customerSKUOptions.value,
-  ...finishedGoodsProductOptions.value,
-]))
-const recipientOptions = computed(() => fulfillmentOptions.value?.recipients || [])
-const directShipItemsTotal = computed(() => directShipItems.value.reduce((sum, row) => sum + rowLineTotal(row), 0))
-const directShipGrandTotal = computed(() => directShipItemsTotal.value + Math.max(0, toNumber(directShipForm.shipping_amount)))
+const settlementChargeOptions = computed(() => buildSettlementChargeOptions(overview.value.fees || []))
+const settlementOrderRows = computed(() => {
+  const from = settlement.period_from || ''
+  const to = settlement.period_to || ''
+  return (overview.value.order_charges || []).filter(row => row.charge_type === 'order_goods' && (!from || row.occurred_at >= from) && (!to || row.occurred_at <= to))
+})
 const applyPreviewEffects = computed(() => {
   if (Array.isArray(applyPreview.value?.effects) && applyPreview.value.effects.length) return applyPreview.value.effects
   return buildImportPreviewEffects(selectedParsedBatch.value?.summary || {})
@@ -819,49 +832,6 @@ async function submitProcessingWorkOrder() {
   }
 }
 
-async function submitDirectShipOrder() {
-  if (!normalizedCustomerId.value) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const items = directShipItems.value
-      .map((item) => ({
-        product_id: Number(item.product_id || 0),
-        product_name: String(item.product_name || '').trim(),
-        spec_g: Number(item.spec_g || 0),
-        quantity_units: Number(item.qty || 0),
-        discount_type: String(item.discount_type || '').trim(),
-        discount_value: Number(item.discount_value || 0),
-      }))
-      .filter((item) => item.product_id > 0 && item.spec_g > 0 && item.quantity_units > 0)
-    const row = await submitCustomerFulfillmentDirectShipOrder(normalizedCustomerId.value, {
-      receiver_name: directShipForm.receiver_name,
-      receiver_phone: directShipForm.receiver_phone,
-      receiver_address: directShipForm.receiver_address,
-      shipping_amount: Number(directShipForm.shipping_amount || 0),
-      items,
-      note: directShipForm.note,
-    })
-    ok.value = `${submitCopy.value.successPrefix} ${row.order_no || ''}`
-    recipientHistoryValue.value = ''
-    recipientPasteText.value = ''
-    directShipForm.receiver_name = ''
-    directShipForm.receiver_phone = ''
-    directShipForm.receiver_address = ''
-    directShipForm.shipping_amount = ''
-    directShipForm.note = ''
-    directShipItems.value = [newDirectShipItem()]
-    ensureSingleTrailingEmptyRow()
-    fulfillmentOrdersPage.value = 1
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || submitCopy.value.errorFallback
-  } finally {
-    loading.value = false
-  }
-}
-
 async function adjustCustody() {
   if (!normalizedCustomerId.value) return
   loading.value = true
@@ -1013,17 +983,53 @@ function closeDeliveryNoteDrawer() {
 async function createSettlement() {
   if (!normalizedCustomerId.value) return
   loading.value = true
+  settlementSaving.value = true
   error.value = ''
   ok.value = ''
   try {
     const result = await createCustomerFulfillmentSettlement(normalizedCustomerId.value, settlement)
-    ok.value = `已生成结算 ${result.batch_id || ''}`
     await loadAll()
+    ok.value = `已生成月结 ${result.settlement_no || result.batch_id || ''}，${result.fee_items || 0} 笔，订单已收 ¥${moneyFromCents(result.received_cents || 0)}，本次未收应收 ¥${moneyFromCents(result.due_amount_cents ?? result.total_amount_cents ?? 0)}`
   } catch (err) {
-    error.value = err.message || '生成结算失败'
+    error.value = settlementErrorMessage(err.message)
   } finally {
     loading.value = false
+    settlementSaving.value = false
   }
+}
+
+function toggleSettlement() {
+  activeAction.value = activeAction.value === 'settlement' ? '' : 'settlement'
+}
+
+function setSettlementPeriod(mode) {
+  settlementPeriodMode.value = mode
+  if (mode === 'custom') {
+    const initial = settlementPeriodRange('current')
+    if (!settlement.period_from || !settlement.period_to) Object.assign(settlement, initial)
+    return
+  }
+  Object.assign(settlement, settlementPeriodRange(mode))
+}
+
+function settlementErrorMessage(message) {
+  const text = String(message || '')
+  if (text.includes('no fees for settlement period')) return '所选日期和费用类型没有可结算金额'
+  if (text.includes('settlement batch is not draft')) return '该期间和费用组合已有已确认月结，不能覆盖'
+  if (text.includes('at least one charge type')) return '请至少选择一种月结费用'
+  if (text.includes('period')) return '结算日期无效，请核对开始和结束日期'
+  return text || '生成月结失败，请刷新后重试'
+}
+
+function chargeTypeLabel(value) {
+  return settlementChargeOptions.value.find(row => row.value === value)?.label || businessLabel(value)
+}
+
+function confirmationLabel(value) {
+  if (value === 'confirmed') return '已确认'
+  if (value === 'pending_confirmation') return '待确认'
+  if (value === 'pending_billing') return '待出账'
+  return businessLabel(value)
 }
 
 function selectProcessingProduct(option) {
@@ -1036,53 +1042,10 @@ function selectProcessingRawBean(option) {
   processingForm.raw_bean_name = String(option?.item_name || '').trim()
 }
 
-function selectDirectShipItemProduct(row, option) {
-  row.product_id = Number(option?.product_id || 0)
-  row.product_name = String(option?.product_name || '').trim()
-  row.product_value = productOptionValue(option)
-  row.spec_g = parseSpecG(option?.spec) || firstTierSpecG(option) || 454
-  if (!toInt(row.qty)) row.qty = 1
-  syncDirectShipItemPrice(row)
-  ensureSingleTrailingEmptyRow()
-}
-
-function selectDirectShipProduct(option) {
-  if (!directShipItems.value.length) directShipItems.value = [newDirectShipItem()]
-  selectDirectShipItemProduct(directShipItems.value[0], option)
-}
-
 function selectAdjustmentItem(option) {
   adjustment.item_type = option?.item_type || adjustment.item_type
   adjustment.item_name = String(option?.item_name || '').trim()
   adjustment.spec = String(option?.spec || '').trim()
-}
-
-function pasteRecipientInfo(event) {
-  const text = event?.clipboardData?.getData('text') || ''
-  recipientPasteText.value = text
-  applyRecipientParse(text)
-}
-
-function applyRecipientParse(text = recipientPasteText.value) {
-  const parsed = parseRecipientText(text)
-  applyRecipientFields(parsed)
-}
-
-function selectRecipientHistory(option) {
-  const snapshot = [option?.receiver_name, option?.receiver_phone, option?.receiver_address].filter(Boolean).join(' ')
-  recipientPasteText.value = snapshot
-  const parsed = parseRecipientText(snapshot)
-  applyRecipientFields({
-    recipient_name: option?.receiver_name || parsed.recipient_name,
-    phone: option?.receiver_phone || parsed.phone,
-    address: option?.receiver_address || parsed.address,
-  })
-}
-
-function applyRecipientFields(parsed) {
-  if (parsed?.recipient_name) directShipForm.receiver_name = parsed.recipient_name
-  if (parsed?.phone) directShipForm.receiver_phone = parsed.phone
-  if (parsed?.address) directShipForm.receiver_address = parsed.address
 }
 
 function productOptionLabel(option) {
@@ -1151,111 +1114,6 @@ function onFulfillmentOrderSaved(data) {
 }
 
 async function onDirectShipCancelled() { closeOrderDetailDrawer(); ok.value = '代发已取消，预订与未结算费用已释放'; await loadAll() }
-
-function uniqueProductOptions(rows) {
-  const out = []
-  const seen = new Set()
-  for (const row of rows || []) {
-    const name = String(row?.product_name || '').trim()
-    if (!name) continue
-    const normalized = { ...row, product_name: name, spec: String(row?.spec || '').trim() }
-    const key = `${normalized.product_id || 0}|${normalized.product_name}|${normalized.spec}|${normalized.warehouse || ''}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(normalized)
-  }
-  return out
-}
-
-function newDirectShipItem() {
-  return {
-    key: `${Date.now()}-${Math.random()}`,
-    product_id: 0,
-    product_name: '',
-    product_value: '',
-    spec_g: 454,
-    qty: 1,
-    tier_id: 'auto',
-    unit_price: '',
-    discount_type: '',
-    discount_value: '',
-  }
-}
-
-function removeDirectShipItem(idx) {
-  if (directShipItems.value.length <= 1) return
-  directShipItems.value.splice(idx, 1)
-  ensureSingleTrailingEmptyRow()
-}
-
-function productByID(id) {
-  return directShipProductOptions.value.find((item) => Number(item.product_id || 0) === Number(id)) || null
-}
-
-function syncDirectShipItemPrice(row) {
-  const product = productByID(row.product_id)
-  if (!product) {
-    row.tier_id = 'auto'
-    row.unit_price = ''
-    return
-  }
-  const price = syncWholesaleTierPrice(product, row)
-  row.tier_id = price.tierID
-  row.unit_price = price.unitPrice
-}
-
-function rowLineTotal(row) {
-  const base = lineTotal(productByID(row.product_id), row, false)
-  if (base <= 0) return 0
-  const discountType = String(row?.discount_type || '')
-  const discountValue = Math.max(0, toNumber(row?.discount_value))
-  if (discountType === 'free') return 0
-  if (discountType === 'amount') return Math.max(base - Math.min(discountValue, base), 0)
-  if (discountType === 'percent') {
-    const rate = Math.max(0, Math.min(discountValue, 100))
-    return Math.max(base * rate / 100, 0)
-  }
-  return base
-}
-
-function rowTierRows(row) {
-  return wholesaleTierPriceRows(productByID(row.product_id), row)
-}
-
-function rowTierActive(row, tier) {
-  return String(row?.tier_id || '') === String(tier?.id || '')
-}
-
-function isDirectShipItemFilled(row) {
-  return Number(row?.product_id || 0) > 0
-}
-
-function ensureSingleTrailingEmptyRow() {
-  const filled = directShipItems.value.filter((row) => isDirectShipItemFilled(row))
-  const firstEmpty = directShipItems.value.find((row) => !isDirectShipItemFilled(row))
-  directShipItems.value = [...filled, firstEmpty || newDirectShipItem()]
-}
-
-function onDiscountTypeChange(row) {
-  if (row?.discount_type === 'free' || row?.discount_type === '') {
-    row.discount_value = ''
-  }
-}
-
-function priceUnitLabel(row) {
-  return wholesalePriceUnit(row).label
-}
-
-function parseSpecG(spec) {
-  const text = String(spec || '').trim().toLowerCase().replace(/g$/, '')
-  const n = Number.parseInt(text, 10)
-  return Number.isFinite(n) && n > 0 ? n : 0
-}
-
-function firstTierSpecG(option) {
-  const first = Array.isArray(option?.tiers) ? option.tiers.find((tier) => Number(tier?.spec_g || 0) > 0) : null
-  return Number(first?.spec_g || 0)
-}
 
 function importTypeLabel(value) {
   return importTypeOptions(enabledCapabilities.value).find((option) => option.value === value)?.label || value
@@ -1360,6 +1218,17 @@ onConfirmationUnmount(() => stopConfirmationRefresh?.())
   gap: 10px;
   margin-top: 10px;
 }
+
+.settlement-period-picker { display:flex; gap:6px; }
+.settlement-period-picker button.active { background:#e8f6ed; border-color:#b9dfc4; color:#278456; }
+.settlement-charge-types { flex:1 1 100%; display:flex; flex-wrap:wrap; gap:8px 16px; border:1px solid #e1e7ee; border-radius:8px; margin:0; padding:10px 12px; }
+.settlement-charge-types legend { color:#718097; font-size:12px; padding:0 5px; }
+.settlement-charge-types label { display:flex; align-items:center; gap:6px; font-size:12px; color:#526174; }
+.settlement-charge-types input { width:auto; margin:0; }
+.settlement-order-preview { flex:1 1 100%; padding:10px 12px; border:1px solid #e1e7ee; border-radius:8px; overflow-x:auto; }
+.settlement-order-preview p { margin:0 0 8px; color:#64748b; font-size:12px; }
+.fee-confirmed { color:#16834a; font-weight:600; }
+.fee-unconfirmed { color:#a66b00; }
 
 .customer-picker-field {
   flex: 1 1 340px;

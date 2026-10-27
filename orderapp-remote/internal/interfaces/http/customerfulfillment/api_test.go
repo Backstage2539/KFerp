@@ -1162,7 +1162,7 @@ func TestExternalUserWriteAPIsUseAuthenticatedActorAndIgnoreXUser(t *testing.T) 
 
 func TestCreateSettlementAPIRequiresPeriod(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
-		settlementResult: app.SettlementResult{BatchID: 88, CustomerID: 147, PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31", FeeItems: 4, TotalAmountCents: 16300},
+		settlementResult: app.SettlementResult{BatchID: 88, CustomerID: 147, SettlementNo: "CS-88", PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31", ChargeTypes: []string{"order_goods", "shipping"}, FeeItems: 4, ReceivableCents: 20000, TotalAmountCents: 16300, ReceivedCents: 3700, DueAmountCents: 16300, Lines: []app.SettlementLineSummary{{ChargeType: "order_goods", SourceType: "order", SourceID: 19, SourceNo: "SO-019", ReceivableCents: 20000, ReceivedCents: 3700, DueCents: 16300}}},
 	}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
@@ -1175,20 +1175,23 @@ func TestCreateSettlementAPIRequiresPeriod(t *testing.T) {
 		t.Fatalf("missing period status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/147/settlements", bytes.NewBufferString(`{"period_from":"2026-03-01","period_to":"2026-03-31"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/147/settlements", bytes.NewBufferString(`{"period_from":"2026-03-01","period_to":"2026-03-31","charge_types":["order_goods","shipping"]}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create settlement status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"batch_id":88`, `"fee_items":4`, `"total_amount_cents":16300`} {
+	for _, want := range []string{`"batch_id":88`, `"fee_items":4`, `"total_amount_cents":16300`, `"received_cents":3700`, `"charge_types":["order_goods","shipping"]`, `"source_no":"SO-019"`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("settlement response missing %s: %s", want, rec.Body.String())
 		}
 	}
 	if svc.settlementCmd.CustomerID != 147 || svc.settlementCmd.PeriodFrom != "2026-03-01" {
 		t.Fatalf("settlement command = %+v", svc.settlementCmd)
+	}
+	if len(svc.settlementCmd.ChargeTypes) != 2 || svc.settlementCmd.ChargeTypes[0] != "order_goods" || svc.settlementCmd.ChargeTypes[1] != "shipping" {
+		t.Fatalf("settlement charge types = %v, want order_goods and shipping", svc.settlementCmd.ChargeTypes)
 	}
 }
 

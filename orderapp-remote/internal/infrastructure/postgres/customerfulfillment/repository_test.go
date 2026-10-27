@@ -2788,6 +2788,107 @@ func TestCreateSettlementAggregatesUnsettledFees(t *testing.T) {
 	assertCustomerFulfillmentCount(t, pool, schema, "customer_fee_items", "customer_id=$1 AND settlement_batch_id=0", customerID, 1)
 }
 
+func TestCreateSettlementSelectedSourcesSnapshotsOnlyUnpaidAndAudits(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('费用月结客户') RETURNING id`, schema)).Scan(&customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_service_capabilities(customer_id,capability_code,enabled) VALUES($1,'settlement',true)`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS prepayment_amount NUMERIC NOT NULL DEFAULT 0; ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS payment_goods_amount NUMERIC NOT NULL DEFAULT 0; ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS payment_shipping_amount NUMERIC NOT NULL DEFAULT 0`, schema, schema, schema)); err != nil {
+		t.Fatal(err)
+	}
+	var partialID, paidID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name='预付款（付款未完成）' LIMIT 1`, schema)).Scan(&partialID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name='已付款' LIMIT 1`, schema)).Scan(&paidID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.orders(order_no,customer_id,order_date,pay_status_id,grand_total,shipping_amount,prepayment_amount,payment_goods_amount,payment_shipping_amount,is_void)
+		VALUES('ORDER-PARTIAL',$1,'2026-03-12',$2,110,10,60,60,0,false),('ORDER-PAID',$1,'2026-03-13',$3,50,5,50,45,5,false)
+	`, schema), customerID, partialID, paidID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.orders(order_no,customer_id,order_date,pay_status_id,total_amount,grand_total,shipping_amount,is_void) VALUES('ORDER-LEGACY-TOTAL',$1,'2026-03-13',$2,80,0,0,false)`, schema), customerID, partialID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.orders(order_no,customer_id,order_date,pay_status_id,grand_total,portal_service_code) VALUES('STOCK-DIRECT-SHIP',$1,'2026-03-15',$2,999,'direct_ship')`, schema), customerID, partialID); err != nil {
+		t.Fatal(err)
+	}
+	var stockDropshipID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.orders WHERE order_no='STOCK-DIRECT-SHIP'`, schema)).Scan(&stockDropshipID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,occurred_at,status,note)
+		VALUES($1,'freight_actual',301,'shipping',25,'2026-03-14','unsettled','实际运费'),($1,'order',1,'direct_ship_service',20,'2026-03-14','unsettled','代发服务费')
+	`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.CreateSettlement(ctx, app.CreateSettlementCommand{
+		CustomerID: customerID, PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31",
+		ChargeTypes: []string{"order_goods", "shipping", "direct_ship_service"}, CreatedBy: "Codex",
+	})
+	if err != nil {
+		t.Fatalf("CreateSettlement: %v", err)
+	}
+	if got.TotalAmountCents != 16500 || got.ReceivedCents != 6000 || got.DueAmountCents != 16500 || got.ReceivableCents != 22500 || got.FeeItems != 4 {
+		t.Fatalf("settlement totals = %#v, want unpaid discounted goods, legacy total fallback and confirmed fees (16500 cents), exclude freight estimate and stock dropship goods", got)
+	}
+	assertCustomerFulfillmentCount(t, pool, schema, "customer_settlement_lines", "settlement_batch_id=$1", got.BatchID, 4)
+	assertCustomerFulfillmentCount(t, pool, schema, "customer_settlement_lines", fmt.Sprintf("settlement_batch_id=$1 AND source_type='order' AND source_id=%d AND charge_type='order_goods'", stockDropshipID), got.BatchID, 0)
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='customer_fulfillment_settlement' AND entity_id=$1 AND action IN ('create','refresh')`, schema), got.BatchID).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("settlement audit count=%d err=%v, want one", auditCount, err)
+	}
+}
+
+func TestCreateSettlementOverlappingScopesDoNotDuplicateSourcesAndRefreshDraft(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('跨类型月结客户') RETURNING id`, schema)).Scan(&customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_service_capabilities(customer_id,capability_code,enabled) VALUES($1,'settlement',true)`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.orders(order_no,customer_id,order_date,grand_total) VALUES('ORDER-ONCE',$1,'2026-03-12',100)`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	first, err := repo.CreateSettlement(ctx, app.CreateSettlementCommand{CustomerID: customerID, PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31", ChargeTypes: []string{"order_goods"}, CreatedBy: "Codex"})
+	if err != nil {
+		t.Fatalf("CreateSettlement order goods: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fee_items(customer_id,source_type,source_id,fee_type,amount,occurred_at,status,note) VALUES($1,'manual',90,'processing',15,'2026-03-20','unsettled','加工费')`, schema), customerID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.CreateSettlement(ctx, app.CreateSettlementCommand{CustomerID: customerID, PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31", ChargeTypes: []string{"order_goods", "processing"}, CreatedBy: "Codex"})
+	if err != nil {
+		t.Fatalf("CreateSettlement overlapping scope: %v", err)
+	}
+	if second.BatchID == first.BatchID || second.TotalAmountCents != 1500 || second.FeeItems != 1 {
+		t.Fatalf("overlapping scope result = %#v, want only the new 1500-cent processing source", second)
+	}
+	refreshed, err := repo.CreateSettlement(ctx, app.CreateSettlementCommand{CustomerID: customerID, PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31", ChargeTypes: []string{"processing", "order_goods"}, CreatedBy: "Codex"})
+	if err != nil {
+		t.Fatalf("CreateSettlement refresh: %v", err)
+	}
+	if refreshed.BatchID != second.BatchID || refreshed.TotalAmountCents != 1500 || refreshed.FeeItems != 1 {
+		t.Fatalf("refreshed scope = %#v, want same draft and one source", refreshed)
+	}
+	assertCustomerFulfillmentCount(t, pool, schema, "customer_settlement_lines", "customer_id=$1 AND charge_type='order_goods' AND source_type='order' AND source_id=1 AND reversed_at IS NULL", customerID, 1)
+	assertCustomerFulfillmentCount(t, pool, schema, "customer_settlement_lines", "customer_id=$1 AND charge_type='processing' AND source_type='customer_fee_item' AND reversed_at IS NULL", customerID, 1)
+	assertCustomerFulfillmentCount(t, pool, schema, "audit_logs", "entity_type='customer_fulfillment_settlement' AND entity_id=$1", second.BatchID, 2)
+}
+
 func TestCreateSettlementDuplicatePeriodKeepsExistingBatchTotals(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerFulfillmentTestDB(t)

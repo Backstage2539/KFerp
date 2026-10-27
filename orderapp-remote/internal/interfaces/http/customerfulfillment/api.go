@@ -652,8 +652,9 @@ func (a api) createSettlement(c echo.Context) error {
 		return customerFulfillmentError(c, http.StatusBadRequest, err)
 	}
 	var req struct {
-		PeriodFrom string `json:"period_from"`
-		PeriodTo   string `json:"period_to"`
+		PeriodFrom  string   `json:"period_from"`
+		PeriodTo    string   `json:"period_to"`
+		ChargeTypes []string `json:"charge_types"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return customerFulfillmentError(c, http.StatusBadRequest, err)
@@ -667,6 +668,7 @@ func (a api) createSettlement(c echo.Context) error {
 		CustomerID: customerID,
 		PeriodFrom: req.PeriodFrom,
 		PeriodTo:   req.PeriodTo,
+		ChargeTypes: req.ChargeTypes,
 		CreatedBy:  currentCustomerFulfillmentActor(c),
 	})
 	if err != nil {
