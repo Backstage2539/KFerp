@@ -17,7 +17,7 @@
   通过。覆盖旧草稿来源释放、正式出账快照、同幂等键重放、不同键拒绝重复来源、预览版本变化时整体回滚、折扣与部分付款只记未收余额、操作日志、公章设置兼容读取/保存/审计、HTTP 客户范围与文件下载。
 - `npm run build` 通过；Vite 显示现有的大型 PDF worker / preview chunk 体积提示。
 - PDF 可视检查：使用 70 笔长中文费用名称生成横向 A4 样例共 11 页；已查看首页、续页和末页。单元格边框对齐，长名称在格内换行，续页重复标题和列标题，末页最后一笔与合计同页，页码正确。第一次渲染发现边框错位和合计单独成页，修正后复查通过。
-- `go test ./...` 全仓并行执行未通过：运行中出现多处测试 fixture/schema 缺表或缺列，以及 PostgreSQL `out of shared memory`；改动相关 billing 定向包测试通过。该项结果保留为全仓测试限制，不报告为全仓通过。
+- 发布流程对应的单 worker 全仓 Go 验证 `GOMAXPROCS=1 GOFLAGS=-p=1 go test -p 1 ./...` 通过，包含本次更新的历史手册断言。另一次默认并行 Go 测试带本地共享测试库运行时遇到 fixture/schema 冲突和 PostgreSQL `out of shared memory`；这不影响单 worker 无数据库发布测试结果。
 - `scripts/verify_kferp.sh changed`、合入最新 develop 后回归、开发环境部署和浏览器验收将在交付时补记。
 
 ## 业务限制
