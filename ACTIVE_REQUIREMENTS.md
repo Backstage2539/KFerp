@@ -6328,11 +6328,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-740-CUSTOMER-FEES-BILLING-LEDGER
 - Branch: `codex/customer-fees-billing`; base `origin/develop@aa4e792a54b9`.
 - Owner/session: Codex / 客户费用流水与正式出账单据。
-- Status: implementation, unit/API/PostgreSQL verification, manual and acceptance evidence complete; branch push, integration, development deployment and browser acceptance pending.
+- Status: implementation, unit/API/PostgreSQL verification, manual and acceptance evidence complete; feature branch pushed at `0648b9f6c213e2dd113bb08ed4abffd8fb05784e`; integration, development deployment and browser acceptance pending.
 - Scope: 费用改为合计未付、未出账、已出账；支持筛选、勾选、预览并确认出账，保留历史账单，提供账单详情、Excel、带公章 PDF。
 - DEV: DEV-PR740-01 未出账/已出账查询与金额汇总；DEV-PR740-02 费用预览、正式出账、来源锁定与幂等；DEV-PR740-03 账单详情、Excel/PDF 与公章设置；DEV-PR740-04 Vue 界面、手册、验收和开发交付。
 - Verifier: RED captured for missing migration API; targeted PostgreSQL/HTTP/Excel/PDF Go tests pass; Vue `node --test` 1643/1643; Vite build passes with existing large PDF chunk warning; 70-line Chinese PDF sample rendered and inspected across first, continuation and last pages; broad `go test ./...` failed with DB fixture/schema errors and PostgreSQL shared-memory exhaustion during parallel run. See `orderapp-remote/docs/acceptance/2026-10-27-customer-fees-billing.md`.
-- Deployment: feature branch based on latest `origin/develop@aa4e792a54b9`; not yet pushed, integrated or deployed. Development browser acceptance pending.
+- Deployment: feature branch based on latest `origin/develop@aa4e792a54b9`; pushed. Clean integration checkout and development deployment pending. Development browser acceptance pending.
 - Notes: 订单货款仅计未收余额；旧草稿迁移保留明细快照、归还来源、记系统操作日志并跳过 processing billing run；不生成吴国宏正式账单、不登记收款、不发布 production 或微信。
 
 ### PR-739-CUSTOMER-FEES-MONTHLY-SHIPPED-COLOR
