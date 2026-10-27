@@ -178,7 +178,7 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
-	if err := lockStockDocumentFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
+	if err := lockStockDocumentWorkOrderAndFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if detail.SourceType == "operation_completion" || detail.SourceType == "operation_correction" {
@@ -720,7 +720,7 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	if err := r.resolveOrdinaryFinishedStockDocumentDetailTx(ctx, tx, &detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
-	if err := lockStockDocumentFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
+	if err := lockStockDocumentWorkOrderAndFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if err := lockStockDocumentPostingTx(ctx, tx, r.schema, detail); err != nil {
@@ -3080,6 +3080,8 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 		return err
 	}
 	if !canonical && hasBatchMoves {
+		summaryFromG := beforeFromUnits*item.SpecG + beforeFromLoose
+		summaryToG := beforeToUnits*item.SpecG + beforeToLoose
 		var beforeFromG int64
 		beforeFromUnits, beforeFromG, err = finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.FromWarehouse)
 		if err != nil {
@@ -3088,6 +3090,12 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 		beforeToUnits, beforeToG, err = finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse)
 		if err != nil {
 			return err
+		}
+		if beforeFromG != summaryFromG {
+			return fmt.Errorf("finished stock batch balance does not match summary in %s", item.FromWarehouse)
+		}
+		if beforeToG != summaryToG {
+			return fmt.Errorf("finished stock batch balance does not match summary in %s", item.ToWarehouse)
 		}
 		beforeFromLoose = beforeFromG - beforeFromUnits*item.SpecG
 		beforeToLoose = beforeToG - beforeToUnits*item.SpecG
@@ -3214,6 +3222,15 @@ func lockStockDocumentFinishedIdentitiesTx(ctx context.Context, tx pgx.Tx, schem
 		}
 	}
 	return nil
+}
+
+func lockStockDocumentWorkOrderAndFinishedIdentitiesTx(ctx context.Context, tx pgx.Tx, schema string, detail stockapp.StockDocumentDetail) error {
+	if detail.WorkOrderID > 0 {
+		if err := lockStockDocumentWorkOrderMaterialsTx(ctx, tx, schema, detail.WorkOrderID, nil); err != nil {
+			return err
+		}
+	}
+	return lockStockDocumentFinishedIdentitiesTx(ctx, tx, schema, detail)
 }
 
 func (r Repository) reverseFinishedBatchMovesTx(

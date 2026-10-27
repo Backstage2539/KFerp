@@ -2797,6 +2797,68 @@ func TestLegacyFinishedTransferSourceOpeningBalanceIsWarehouseScoped(t *testing.
 	}
 }
 
+func TestLegacyFinishedTransferCancellationRejectsManualSummaryBatchMismatch(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetUnits: 2, Reason: "转仓后手工盘点不一致测试", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed source inventory: %v", err)
+	}
+	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyUnits: 1, Operator: "qa", IdempotencyKey: "legacy-transfer-manual-summary-mismatch",
+	})
+	if err != nil {
+		t.Fatalf("transfer one unit: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.finished_inventory SET onhand_units=0,onhand_loose_g=0
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_shop'
+	`, schema)); err != nil {
+		t.Fatalf("simulate a legacy aggregate-only destination count: %v", err)
+	}
+	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err == nil || !strings.Contains(err.Error(), "batch balance does not match summary") {
+		t.Fatalf("cancel transfer after inconsistent manual adjustment = %v, want summary/batch mismatch rejection", err)
+	}
+	var sourceUnits, destinationUnits, sourceBatchUnits, destinationBatchUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_goods'
+	`, schema)).Scan(&sourceUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_shop'
+	`, schema)).Scan(&destinationUnits); err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct {
+		warehouse string
+		units     *int64
+	}{{"finished_goods", &sourceBatchUnits}, {"finished_shop", &destinationBatchUnits}} {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		batchUnits, _, err := finishedInventoryBatchQtyTx(ctx, tx, schema, 9, 0, 1000, check.warehouse)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("read %s batch units: %v", check.warehouse, err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		*check.units = batchUnits
+	}
+	if sourceUnits != 1 || destinationUnits != 0 || sourceBatchUnits != 1 || destinationBatchUnits != 1 {
+		t.Fatalf("after rejected cancellation summary/batches source=%d/%d destination=%d/%d, want 1/1 and 0/1", sourceUnits, sourceBatchUnits, destinationUnits, destinationBatchUnits)
+	}
+}
+
 func TestLegacyFinishedTransferCancellationAfterSourceReceiptUsesBatchBalances(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()
@@ -2910,6 +2972,101 @@ func TestStockDocumentFinishedIdentityLocksUseStableOrder(t *testing.T) {
 	}
 	if err := secondTxToCommit.Commit(ctx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestStockDocumentPrelocksWorkOrderBeforeFinishedIdentity(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	detail := stockapp.StockDocumentDetail{
+		StockDocumentRow: stockapp.StockDocumentRow{WorkOrderID: 88},
+		Items:            []stockapp.StockDocumentItemRow{{ItemType: itemTypeFinishedProduct, ProductID: 9, SpecG: 1000}},
+	}
+	first, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Rollback(context.Background()) }()
+	if err := lockStockDocumentWorkOrderMaterialsTx(ctx, first, schema, detail.WorkOrderID, nil); err != nil {
+		t.Fatalf("lock work order first: %v", err)
+	}
+	if err := lockStockDocumentFinishedIdentitiesTx(ctx, first, schema, detail); err != nil {
+		t.Fatalf("lock first transaction's finished identity: %v", err)
+	}
+
+	type result struct {
+		pid int
+		err error
+	}
+	started := make(chan int, 1)
+	done := make(chan result, 1)
+	go func() {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			done <- result{err: err}
+			return
+		}
+		var pid int
+		if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+			_ = tx.Rollback(ctx)
+			done <- result{err: err}
+			return
+		}
+		started <- pid
+		if err := lockStockDocumentWorkOrderAndFinishedIdentitiesTx(ctx, tx, schema, detail); err != nil {
+			_ = tx.Rollback(ctx)
+			done <- result{pid: pid, err: err}
+			return
+		}
+		done <- result{pid: pid, err: tx.Commit(ctx)}
+	}()
+	var pid int
+	select {
+	case pid = <-started:
+	case <-ctx.Done():
+		t.Fatalf("second stock document transaction did not start: %v", ctx.Err())
+	}
+	waitingOnWorkOrder := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM pg_stat_activity
+			WHERE pid=$1 AND wait_event_type='Lock' AND query ILIKE '%work_orders%'
+		)`, pid).Scan(&waitingOnWorkOrder); err != nil {
+			t.Fatal(err)
+		}
+		if waitingOnWorkOrder {
+			break
+		}
+		select {
+		case got := <-done:
+			t.Fatalf("second stock document lock finished while work order was held: %v", got.err)
+		default:
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !waitingOnWorkOrder {
+		t.Fatal("second stock document transaction did not wait for the work-order row")
+	}
+	var waitingForIdentity bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND granted=false
+	)`, pid).Scan(&waitingForIdentity); err != nil {
+		t.Fatal(err)
+	}
+	if waitingForIdentity {
+		t.Fatal("stock document transaction requested a finished identity before acquiring its work-order lock")
+	}
+	if err := first.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("prelock work order and finished identity: %v", got.err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("stock document did not resume after work order lock release: %v", ctx.Err())
 	}
 }
 
