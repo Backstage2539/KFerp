@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {orderProgressLabel} from '../../utils/orderProgress'
 import OrderDetailsCopyButton from '../../components/OrderDetailsCopyButton.vue'
 import PaymentSummary from '../../components/PaymentSummary.vue'
 import { ref } from 'vue'
@@ -81,7 +82,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         <navigator hover-class="card-active" :url="row.detail_url" @tap="rememberListQuery">
           <view class="line"><text class="no">{{ row.order_no }}</text><text>¥{{ row.grand_total || '0.00' }}</text></view>
           <text class="customer">{{ row.customer }}</text>
-          <text class="meta">{{ row.order_date }} · {{ row.pay_status }} · {{ row.ship_status }} · {{ row.process_status }}</text>
+          <text class="meta">{{ row.order_date }} · {{ row.pay_status }} · {{ orderProgressLabel(row) }}</text>
           <text class="open-hint">查看完整订单 ›</text>
         </navigator>
         <PaymentSummary :order="row" />
@@ -91,7 +92,7 @@ onShow(() => { void refreshMiniappShareMenu() })
         <view v-else class="card card-disabled">
           <view class="line"><text class="no">{{ row.order_no }}</text><text>¥{{ row.grand_total || '0.00' }}</text></view>
           <text class="customer">{{ row.customer }}</text>
-          <text class="meta">{{ row.order_date }} · {{ row.pay_status }} · {{ row.ship_status }} · {{ row.process_status }}</text>
+          <text class="meta">{{ row.order_date }} · {{ row.pay_status }} · {{ orderProgressLabel(row) }}</text>
           <text class="open-hint invalid-hint">订单编号异常，无法查看</text>
         </view>
       </template>

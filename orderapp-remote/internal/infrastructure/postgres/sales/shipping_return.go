@@ -9,6 +9,7 @@ import (
 	app "orderapp/internal/application/sales"
 	d "orderapp/internal/domain/shippingreturn"
 	freight "orderapp/internal/infrastructure/postgres/freight"
+	progresspg "orderapp/internal/infrastructure/postgres/orderprogress"
 	"strings"
 )
 
@@ -119,9 +120,7 @@ func (r Repository) ImportShippingReturn(ctx context.Context, actor, name, hash 
 	e = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.shipping_return_batches WHERE file_key=$1`, r.schema), key).Scan(&b.ID)
 	if e == nil {
 		tx.Rollback(ctx)
-		out, err := r.returnBatch(ctx, b.ID)
-		out.OrderIDs = nil
-		return out, err
+		return r.RematchShippingReturn(ctx, actor, b.ID, nil)
 	}
 	if e != pgx.ErrNoRows {
 		return b, e
@@ -151,6 +150,25 @@ func (r Repository) ImportShippingReturn(ctx context.Context, actor, name, hash 
 	orders.Close()
 	if e != nil {
 		return b, e
+	}
+	ids := []int64{}
+	for _, list := range targets {
+		for _, o := range list {
+			ids = append(ids, o.id)
+		}
+	}
+	progress, err := progresspg.Load(ctx, tx, r.schema, ids)
+	if err != nil {
+		return b, err
+	}
+	for key, list := range targets {
+		filtered := list[:0]
+		for _, o := range list {
+			if progress[o.id] != nil && progress[o.id].CanShip {
+				filtered = append(filtered, o)
+			}
+		}
+		targets[key] = filtered
 	}
 	// Duplicate waybills collapse only if their recipient and cost agree; conflicts never auto-apply.
 	first := map[string]int{}
@@ -264,7 +282,9 @@ func (r Repository) returnBatch(ctx context.Context, id int64) (d.Batch, error) 
 			b.Pending++
 		case status == "pending":
 			v.Status = "unmatched"
-			v.Error = "未匹配待回填订单"
+			if v.Error == "" {
+				v.Error = "未匹配待回填订单"
+			}
 			b.Skipped++
 		default:
 			b.Skipped++
@@ -358,6 +378,13 @@ func (r Repository) selectShippingReturn(ctx context.Context, actor string, oid,
 	e = tx.QueryRow(ctx, returnOrderSQL(r.schema)+" AND o.id=$1", oid).Scan(&eligible.id, &eligible.name, &eligible.phone, &eligible.version)
 	if e != nil {
 		return out, fmt.Errorf("订单不再符合回填条件")
+	}
+	progress, err := progresspg.Load(ctx, tx, r.schema, []int64{oid})
+	if err != nil {
+		return out, err
+	}
+	if progress[oid] == nil || !progress[oid].CanShip {
+		return out, fmt.Errorf("订单库存或履约状态已变化，请重新匹配")
 	}
 	if !d.RecipientMatches(item.Receiver, item.Phone, eligible.name, eligible.phone) {
 		return out, fmt.Errorf("收件信息已变化")

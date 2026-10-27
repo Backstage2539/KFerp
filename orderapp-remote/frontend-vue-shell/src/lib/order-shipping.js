@@ -23,6 +23,7 @@ export function isOrderShipReady(row = {}) {
   if (row?.is_void || isNonCourierShipMethod(row?.ship_method)) return false
   const shipStatus = String(row?.ship_status || '').trim()
   if (shipStatus.includes('已发货')) return false
+  if (row.fulfillment_progress) return row.fulfillment_progress.can_ship === true
   const processStatus = String(row?.process_status || '').trim()
   return processStatus.includes('生产完成') || processStatus === '无需生产' || processStatus === '库存待发货'
 }

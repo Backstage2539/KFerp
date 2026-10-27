@@ -93,7 +93,7 @@ func (h miniEmployeeOrderHandler) updateStatus(c echo.Context) error {
 	if reason := miniEmployeeStatusBlockReason(access, form.EditData); reason != "" {
 		return c.JSON(http.StatusConflict, map[string]string{"error": reason})
 	}
-	if access.row.ConfirmationRequired && req.ShipStatusID != form.EditData.ShipStatusID {
+	if (access.row.ConfirmationRequired || access.row.DeliveryMode == "customer_stock") && req.ShipStatusID != form.EditData.ShipStatusID {
 		return c.JSON(http.StatusConflict, map[string]string{"error": "履约订单的发货状态由实际履约进度更新，请通过发货操作处理"})
 	}
 	if strings.TrimSpace(req.EditRevision) == "" || strings.TrimSpace(req.EditRevision) != strings.TrimSpace(form.EditData.EditRevision) {

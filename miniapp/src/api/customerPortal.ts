@@ -1,3 +1,4 @@
+import type {FulfillmentProgress} from "../utils/orderProgress"
 import type { OrderWeightSnapshot } from '../utils/orderWeights'
 import type { RegistrationProfile } from './registration'
 import type { PriceTableOption } from '../utils/priceTables'
@@ -339,6 +340,8 @@ export type ProductSummary = {
 }
 
 export type CustomerOrderSummary = {
+  fulfillment_progress?: FulfillmentProgress
+
  freight?:FreightSnapshot
   delivery_status?: 'pending_receipt' | 'partially_received' | 'received' | string
   delivery_mode?: 'ship' | 'customer_stock'
@@ -692,6 +695,7 @@ export type OrderPriceTablePreview = {
 }
 
 export type DirectShipPackage = {
+ fulfillment_progress?: FulfillmentProgress
   id: number
   order_id: number
   order_no: string
@@ -1428,6 +1432,11 @@ export type EmployeeOrderProductFamily = {
 }
 
 export type EmployeeOrder = {
+ delivery_mode?: string
+ delivery_status?: string
+
+  fulfillment_progress?: FulfillmentProgress
+
   settlement_reason?: string
   prepayment_amount?: string
   paid_amount?: string

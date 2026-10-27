@@ -20,6 +20,9 @@ type returnAPIRepo struct {
 	selected int
 }
 
+func (r *returnAPIRepo) RematchShippingReturn(context.Context, string, int64, []int64) (d.Batch, error) {
+	return d.Batch{ID: 1, Rematched: true}, nil
+}
 func (r *returnAPIRepo) ShippingReturnTemplates(context.Context) ([]d.Template, error) {
 	v := d.DefaultTemplate()
 	v.CarrierID = 1
@@ -66,6 +69,16 @@ func TestShippingReturnAPI(t *testing.T) {
 	}
 	if res := call(http.MethodGet, "/api/orders/shipping-return-candidates", "", bytes.NewBuffer(nil), true); res.Code != 200 || !strings.Contains(res.Body.String(), `"version":"v1"`) {
 		t.Fatal(res.Code, res.Body)
+	}
+	for _, tc := range []struct {
+		body     string
+		employee bool
+		want     int
+	}{{`{"batch_id":1,"row_ids":[2,4]}`, true, 200}, {`{"batch_id":0}`, true, 400}, {`{"batch_id":1}`, false, 403}} {
+		res := call(http.MethodPost, "/api/orders/shipping-return-rematch", "application/json", bytes.NewBufferString(tc.body), tc.employee)
+		if res.Code != tc.want || r.selected != 0 || r.imported != 0 {
+			t.Fatalf("rematch %d %s", res.Code, res.Body)
+		}
 	}
 	f := excelize.NewFile()
 	f.SetSheetName("Sheet1", "寄件列表")

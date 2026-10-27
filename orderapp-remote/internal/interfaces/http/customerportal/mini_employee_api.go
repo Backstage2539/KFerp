@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	freightdomain "orderapp/internal/domain/freight"
+	progressdomain "orderapp/internal/domain/orderprogress"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,6 +40,8 @@ type miniEmployeeOrderDetailResponse struct {
 }
 
 type miniEmployeeOrderDetailDTO struct {
+	DeliveryMode                    string                            `json:"delivery_mode,omitempty"`
+	FulfillmentProgress             *progressdomain.Progress          `json:"fulfillment_progress,omitempty"`
 	Freight                         *freightdomain.OrderView          `json:"freight,omitempty"`
 	ID                              int64                             `json:"id"`
 	EditRevision                    string                            `json:"edit_revision"`
@@ -1349,6 +1352,9 @@ func (h miniEmployeeOrderHandler) detail(c echo.Context) error {
 		statusReason = "当前服务暂不支持修改状态"
 	}
 	shipReason := statusReason
+	if access.row.DeliveryMode == "customer_stock" {
+		shipReason = "留厂订单无需发货"
+	}
 	if shipReason == "" && access.row.ConfirmationRequired {
 		shipReason = "发货状态由实际履约进度更新，请通过发货操作处理"
 	}
@@ -1643,6 +1649,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 	}
 	beanListPublicationID, beanListVersionNo, commercialPublicationID, greenPublicationID, dripPublicationID := miniEmployeeOrderPublicationFields(ed)
 	detail := miniEmployeeOrderDetailDTO{
+		FulfillmentProgress: row.FulfillmentProgress, DeliveryMode: row.DeliveryMode,
 		ID: row.ID, IsSampleOrder: ed.IsSampleOrder, SettlementReason: ed.SettlementReason, EditRevision: ed.EditRevision, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
 		DocumentDate: firstMiniOrderValue(ed.DocumentDate, row.DocumentDate), OrderDate: firstMiniOrderValue(ed.OrderDate, row.OrderDate),
 		CustomerID: ed.CustomerID, Customer: row.Customer, SourceID: ed.SourceID, Source: miniEmployeeOptionName(form.Sources, ed.SourceID),

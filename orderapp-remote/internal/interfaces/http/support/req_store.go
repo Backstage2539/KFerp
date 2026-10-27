@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-738-ORDER-PROGRESS-SHIPPING-REMATCH", title: "ERP与小程序统一留厂入库及库存代发状态，支持寄件列表重新匹配", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-27-order-progress-rematch.md"},
+		{table: "req_dev", code: "DEV-PR738-01", title: "统一履约状态摘要、实物分配校验及两端展示", status: "done", assignee: "Codex", evidence: "TestOrderProgressUsesOwnPhysicalStockAndStableSpec; orderProgress.test.ts"},
+		{table: "req_dev", code: "DEV-PR738-02", title: "未处理寄件重新匹配、幂等、回滚与操作日志", status: "done", assignee: "Codex", evidence: "TestShippingReturnRepeatAfterReceiptRematchesWithoutShipping"},
+		{table: "req_dev", code: "DEV-PR738-03", title: "手册、ERP与小程序发布及指定两行匹配验证", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-27-order-progress-rematch.md"},
 		{table: "req_product", code: "PR-737-WAREHOUSE-BATCH-STOCK-ADJUSTMENT", title: "吴国宏仓库成品库存按实际商品规格更正并同步批次余额", status: "doing", assignee: "Codex", evidence: "docs/acceptance/2026-10-27-wuguohong-warehouse-correction.md"},
 		{table: "req_dev", code: "DEV-880-FINISHED-BATCH-ADJUSTMENT", title: "成品盘点按批次余额核算、FIFO扣减、增量建批次并限制规格0清零", status: "done", assignee: "Codex", evidence: "repository_test.go; service_test.go; stock_api_test.go; RED/GREEN"},
 		{table: "req_dev", code: "DEV-881-WAREHOUSE-CORRECTION-DELIVERY", title: "同步库存手册、验收证据并通过正式调整接口修正吴国宏仓库存", status: "doing", assignee: "Codex", evidence: "docs/OP_MANUAL_STOCK.md; docs/OPERATION_MANUALS.md; docs/acceptance/2026-10-27-wuguohong-warehouse-correction.md"},
