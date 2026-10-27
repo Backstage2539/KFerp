@@ -2304,10 +2304,7 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 	}
 	afterFromUnits, afterFromLoose := beforeFromUnits-units, int64(0)
 	if !canonical {
-		afterFromUnits, afterFromLoose, _, err = normalizeFinishedQty(item.SpecG, 0, beforeFromG-totalG)
-		if err != nil {
-			return err
-		}
+		afterFromUnits, afterFromLoose = beforeFromUnits-units, beforeFromLoose-looseG
 	}
 	beforeToUnits, beforeToLoose, err := finishedInventoryQtyIdentityOwnedStockTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse, ownerCustomerID)
 	if err != nil {
@@ -2315,10 +2312,7 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 	}
 	afterToUnits, afterToLoose := beforeToUnits+units, int64(0)
 	if !canonical {
-		afterToUnits, afterToLoose, _, err = normalizeFinishedQty(item.SpecG, 0, beforeToUnits*item.SpecG+beforeToLoose+totalG)
-		if err != nil {
-			return err
-		}
+		afterToUnits, afterToLoose = beforeToUnits+units, beforeToLoose+looseG
 	}
 	if err := upsertFinishedInventoryIdentityOwnedStockTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.FromWarehouse, afterFromUnits, afterFromLoose, ownerCustomerID); err != nil {
 		return err
@@ -2556,6 +2550,19 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 	}
 	rows.Close()
 	if len(moves) == 0 && (beforeFromG > 0 || beforeFromUnits > 0) {
+		var hasExistingBatchBalance bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1 FROM %s.stock_batches b
+				WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=0 AND b.spec_g=$2
+				  AND (b.remaining_g>0 OR b.remaining_units>0)
+			)
+		`, r.schema), item.ProductID, item.SpecG).Scan(&hasExistingBatchBalance); err != nil {
+			return "", err
+		}
+		if hasExistingBatchBalance {
+			return "", fmt.Errorf("finished product stock is blocked by quality status or batch location in %s", item.FromWarehouse)
+		}
 		openingBatchCode := fmt.Sprintf("FP-OPENING-SE-%010d-%03d", detail.ID, item.ID%1000)
 		var openingBatchID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -2650,7 +2657,7 @@ func (r Repository) moveLegacyFinishedBatchesTx(
 			) VALUES($1,'finished_product',$2,$3,$4,0,$5,$6,'stock_entry_transfer',$7,$8,$9,$10,$9,$10,$11,$12,$13,now())
 			RETURNING id
 		`, r.schema), move.TargetBatchCode, item.ProductID, productName, ownerCustomerID, move.BomVariantID, item.SpecG,
-			detail.ID, move.SourceBatchCode, move.QtyG, move.QtyUnits, move.UnitCost, move.QualityStatus, actor).Scan(&move.TargetBatchID); err != nil {
+			moveID, move.SourceBatchCode, move.QtyG, move.QtyUnits, move.UnitCost, move.QualityStatus, actor).Scan(&move.TargetBatchID); err != nil {
 			return "", err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -2967,8 +2974,8 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 	afterToUnits, afterToLoose := beforeToUnits-item.QtyUnits, int64(0)
 	afterFromUnits, afterFromLoose := beforeFromUnits+item.QtyUnits, int64(0)
 	if !canonical {
-		afterToUnits, afterToLoose, _, _ = normalizeFinishedQty(item.SpecG, 0, beforeToG-totalG)
-		afterFromUnits, afterFromLoose, _, _ = normalizeFinishedQty(item.SpecG, 0, beforeFromUnits*item.SpecG+beforeFromLoose+totalG)
+		afterToUnits, afterToLoose = beforeToUnits-item.QtyUnits, beforeToLoose-item.QtyG
+		afterFromUnits, afterFromLoose = beforeFromUnits+item.QtyUnits, beforeFromLoose+item.QtyG
 	}
 	if err := upsertFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.ToWarehouse, afterToUnits, afterToLoose); err != nil {
 		return err

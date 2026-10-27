@@ -28,6 +28,7 @@
 - 汇总仅有 1 袋 + 20g、没有任何可用批次时，目标调整为 3 袋的用例先确认 RED：接口错误地成功并只建立差额批次。
 - 最新 PR 审查回归也先确认 RED：生产模块二次迁移把 `manual_adjustment` 排除条件删掉，第二笔同身份手工调整批次报唯一键冲突；普通成品转仓未先取规格身份锁，调整持有批次锁时转仓先锁汇总行。
 - 后续审查回归先确认 RED：完工入库与盘点没有共用规格锁；非 BOM 成品转仓只改了汇总，源批次仍为 10、目标仓没有批次；普通非 BOM 转仓也被规格解析错误地拒绝。
+- 最新审查回归先确认 RED：跨多来源批次的非 BOM 转仓触发 `stock_batches_source_uq`；仅有质检冻结批次时误建期初批次；散装克重跨规格单位边界后汇总显示成袋数但批次仍只有克重。
 
 修复后验证 GREEN：
 
@@ -39,10 +40,11 @@
 - `git diff --check`：通过。
 - 新增迁移顺序回归 `TestStockThenProductionLedgerMigrationsKeepManualAdjustmentSourcesRepeatable` 与并发转仓回归 `TestCanonicalFinishedTransferSerializesWithBatchAdjustment`：修复前分别因 `stock_batches_source_uq` 唯一键冲突、转仓未等待规格身份锁而失败；两项修复后均通过。
 - 新增完工并发回归 `TestFinishedManufactureReceiptSerializesWithBatchAdjustment`：移除完工入库规格锁后先 RED（完工入库未等待调整身份锁），恢复共享锁后 GREEN，核对调整后的汇总与新增生产批次余额一致。
-- 新增非 BOM 转仓回归 `TestLegacyFinishedTransferMovesFIFOStockBatches`：修复前汇总为源 7 / 目标 3，但批次仍为源 10 / 目标 0；现在按 FIFO 扣减源批次并为目标仓生成转入批次，撤销转仓也能恢复批次余额。无批次的旧汇总库存首次转仓时创建有流水追踪的期初批次。
-- 最新本地版本：带 `ORDERAPP_TEST_DATABASE_URL` 的库存、生产 PostgreSQL 套件及库存 HTTP API 套件全部通过；未设置测试数据库 URL 的 `go test ./...`、手册入口 3 项测试和 `./scripts/verify_kferp.sh changed` 全部通过。
+- 新增非 BOM 转仓回归 `TestLegacyFinishedTransferMovesFIFOStockBatches`：覆盖跨两个来源批次的 FIFO 转仓、每次批次移动的唯一来源身份、库存流水和撤销恢复。
+- 新增 `TestLegacyFinishedTransferDoesNotCreateOpeningBatchForFrozenStock` 与 `TestLegacyFinishedTransferKeepsLooseGramsAcrossPackageBoundary`：修复后冻结批次阻止转仓且不重复创建期初批次；非 BOM 转仓保留袋数和散装克重分类，跨仓累计克重不触发隐式包装，撤销后仍可恢复批次与汇总。
+- 本次审查修复后：库存与生产 PostgreSQL 套件、库存 HTTP API 套件、手册入口 3 项测试、`./scripts/verify_kferp.sh changed` 和 `git diff --check` 全部通过。未设置测试数据库 URL 的 `go test ./...` 及完整生产预检曾在前一提交通过；完整生产预检需随最新修复重新运行。
 
-测试覆盖批次 FIFO 扣减、增加时创建调整批次、规格 0 只允许将已有余额清零、同事务回滚、调整单/批次分配/库存流水/操作日志一致、拒绝未修复的历史数量批次、未分配人工减库存批次和只有汇总没有可用批次的库存、重复人工库存调整可创建多个批次、人工入库与批次盘点以商品规格身份锁串行化，以及调整与出库一致的“先批次、后汇总”锁顺序；正式 HTTP API 使用当前 BOM 规格身份。前两次完整生产预检均在后续审查发现需修复的边界问题时中止；最终预检待本轮补丁提交后执行。
+测试覆盖批次 FIFO 扣减、增加时创建调整批次、规格 0 只允许将已有余额清零、同事务回滚、调整单/批次分配/库存流水/操作日志一致、拒绝未修复的历史数量批次、未分配人工减库存批次和只有汇总没有可用批次的库存、重复人工库存调整可创建多个批次、人工入库与完工入库并发串行化、规范与非 BOM 转仓 FIFO/撤销/冻结阻断、散装克重分类一致，以及调整与出库一致的“先批次、后汇总”锁顺序；正式 HTTP API 使用当前 BOM 规格身份。生产预检在后续审查发现边界问题时中止过两次；最后一次预检在上述 commit 通过，但早于本次最新修复，需按最终提交重新执行。
 
 ## 生产基线（只读核对）
 

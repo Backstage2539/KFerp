@@ -2329,13 +2329,19 @@ func TestLegacyFinishedTransferMovesFIFOStockBatches(t *testing.T) {
 	repo := NewRepository(pool, schema)
 	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
 		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
-		TargetUnits: 10, TargetG: 500, Reason: "非 BOM 转仓初始化", Operator: "qa",
+		TargetUnits: 6, TargetG: 250, Reason: "非 BOM 转仓初始化第一批", Operator: "qa",
 	}); err != nil {
-		t.Fatalf("seed finished stock: %v", err)
+		t.Fatalf("seed first finished batch: %v", err)
+	}
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetUnits: 10, TargetG: 500, Reason: "非 BOM 转仓初始化第二批", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed second finished batch: %v", err)
 	}
 	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
 		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
-		QtyUnits: 3, QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-finished-batch-transfer",
+		QtyUnits: 8, QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-finished-batch-transfer",
 	})
 	if err != nil {
 		t.Fatalf("TransferFinishedProduct: %v", err)
@@ -2369,9 +2375,9 @@ func TestLegacyFinishedTransferMovesFIFOStockBatches(t *testing.T) {
 	}
 	fromUnits, fromBatchUnits, fromLooseG, fromBatchG := warehouseStock("finished_goods")
 	toUnits, toBatchUnits, toLooseG, toBatchG := warehouseStock("finished_shop")
-	if fromUnits != 7 || fromBatchUnits != fromUnits || fromLooseG != 250 || fromBatchG != 7250 ||
-		toUnits != 3 || toBatchUnits != toUnits || toLooseG != 250 || toBatchG != 3250 {
-		t.Fatalf("source units/looseG/batches=%d/%d/%d/%d, destination=%d/%d/%d/%d; want 7/250/7/7250 and 3/250/3/3250",
+	if fromUnits != 2 || fromBatchUnits != fromUnits || fromLooseG != 250 || fromBatchG != 2250 ||
+		toUnits != 8 || toBatchUnits != toUnits || toLooseG != 250 || toBatchG != 8250 {
+		t.Fatalf("source units/looseG/batches=%d/%d/%d/%d, destination=%d/%d/%d/%d; want 2/250/2/2250 and 8/250/8/8250",
 			fromUnits, fromLooseG, fromBatchUnits, fromBatchG, toUnits, toLooseG, toBatchUnits, toBatchG)
 	}
 	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err != nil {
@@ -2383,6 +2389,115 @@ func TestLegacyFinishedTransferMovesFIFOStockBatches(t *testing.T) {
 		toUnits != 0 || toBatchUnits != toUnits || toLooseG != 0 || toBatchG != 0 {
 		t.Fatalf("after cancel source units/looseG/batches=%d/%d/%d/%d, destination=%d/%d/%d/%d; want 10/500/10/10500 and zeros",
 			fromUnits, fromLooseG, fromBatchUnits, fromBatchG, toUnits, toLooseG, toBatchUnits, toBatchG)
+	}
+}
+
+func TestLegacyFinishedTransferDoesNotCreateOpeningBatchForFrozenStock(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetUnits: 10, Reason: "冻结批次转仓测试", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed finished stock: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.stock_batches SET quality_status='hold'
+		WHERE item_type='finished_product' AND item_id=9 AND bom_spec_id=0 AND spec_g=1000;
+	`, schema))
+
+	_, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyUnits: 3, Operator: "qa", IdempotencyKey: "legacy-frozen-batch-transfer",
+	})
+	if err == nil || !strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("TransferFinishedProduct error = %v, want frozen-batch block", err)
+	}
+	var summaryUnits, sourceUnits, targetUnits, openingBatches int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_goods'
+	`, schema)).Scan(&summaryUnits); err != nil {
+		t.Fatalf("read source summary: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(remaining_units),0)::bigint FROM %s.stock_batches
+		WHERE item_type='finished_product' AND item_id=9 AND bom_spec_id=0 AND spec_g=1000 AND quality_status='hold'
+	`, schema)).Scan(&sourceUnits); err != nil {
+		t.Fatalf("read frozen source batches: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(remaining_units),0)::bigint FROM %s.stock_batches
+		WHERE item_type='finished_product' AND item_id=9 AND bom_spec_id=0 AND spec_g=1000 AND source_doc_type='stock_entry_transfer'
+	`, schema)).Scan(&targetUnits); err != nil {
+		t.Fatalf("read transfer batches: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)::bigint FROM %s.stock_batches WHERE source_doc_type='stock_entry_transfer_opening'
+	`, schema)).Scan(&openingBatches); err != nil {
+		t.Fatalf("read opening batches: %v", err)
+	}
+	if summaryUnits != 10 || sourceUnits != 10 || targetUnits != 0 || openingBatches != 0 {
+		t.Fatalf("after blocked transfer summary/source/target/opening=%d/%d/%d/%d, want 10/10/0/0", summaryUnits, sourceUnits, targetUnits, openingBatches)
+	}
+}
+
+func TestLegacyFinishedTransferKeepsLooseGramsAcrossPackageBoundary(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	for _, seed := range []struct {
+		warehouse string
+		grams     int64
+	}{
+		{warehouse: "finished_goods", grams: 250},
+		{warehouse: "finished_shop", grams: 750},
+	} {
+		if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+			ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: seed.warehouse,
+			TargetG: seed.grams, Reason: "散装克重转仓测试", Operator: "qa",
+		}); err != nil {
+			t.Fatalf("seed loose stock in %s: %v", seed.warehouse, err)
+		}
+	}
+	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-loose-package-boundary-transfer",
+	})
+	if err != nil {
+		t.Fatalf("TransferFinishedProduct: %v", err)
+	}
+	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err != nil {
+		t.Fatalf("cancel transfer: %v", err)
+	}
+	if _, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-loose-package-boundary-transfer-2",
+	}); err != nil {
+		t.Fatalf("TransferFinishedProduct repeat: %v", err)
+	}
+	var summaryUnits, summaryLoose, batchUnits, batchGrams int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_shop'
+	`, schema)).Scan(&summaryUnits, &summaryLoose); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(remaining_units),0)::bigint,COALESCE(SUM(remaining_g),0)::bigint
+		FROM %s.stock_batches b LEFT JOIN LATERAL (
+			SELECT l.warehouse FROM %s.stock_ledger_entries l
+			WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g ORDER BY l.id DESC LIMIT 1
+		) last_ledger ON true
+		WHERE b.item_type='finished_product' AND b.item_id=9 AND b.bom_spec_id=0 AND b.spec_g=1000
+		  AND COALESCE(last_ledger.warehouse,'finished_goods')='finished_shop'
+	`, schema, schema)).Scan(&batchUnits, &batchGrams); err != nil {
+		t.Fatal(err)
+	}
+	if summaryUnits != 0 || summaryLoose != 1000 || batchUnits != summaryUnits || batchGrams != summaryLoose {
+		t.Fatalf("destination summary/batches=%d+%dg/%d/%dg, want 0+1000g/0/1000g", summaryUnits, summaryLoose, batchUnits, batchGrams)
 	}
 }
 
