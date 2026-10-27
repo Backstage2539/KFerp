@@ -438,6 +438,63 @@ BEGIN
 				  AND COALESCE(NULLIF(to_jsonb(NEW)->>'allocated_units','')::bigint,NULLIF(to_jsonb(NEW)->>'allocated_qty','')::bigint,0)<=supply_reservation.reserved_qty-supply_reservation.converted_qty-supply_reservation.released_qty
 			) INTO frozen_production_identity_derived;
 			END IF;
+		ELSIF (TG_TABLE_NAME='stock_ledger_entries' AND to_jsonb(NEW)->>'source_doc_type'='sales_order_shipment')
+		   OR (TG_TABLE_NAME='order_stock_deductions' AND to_jsonb(NEW)->>'source_doc_type'='sales_order_shipment_inventory_sync_v2') THEN
+			-- Shipment consumes an existing allocation, not a newly selected BOM.
+			-- Keep the batch's frozen identity even when the destination order uses
+			-- a newer variant of the same stable spec. Require the actual batch,
+			-- owner, order line, warehouse and complete allocated quantity; a source
+			-- type alone must never authorize arbitrary historical inventory writes.
+			IF to_regclass('%[1]s.order_stock_batch_allocations') IS NOT NULL
+			   AND to_regclass('%[1]s.stock_batches') IS NOT NULL
+			   AND to_regclass('%[1]s.stock_ledger_entries') IS NOT NULL THEN
+				SELECT EXISTS (
+					SELECT 1
+					FROM %[1]s.order_stock_batch_allocations allocation
+					JOIN %[1]s.orders destination_order ON destination_order.id=allocation.order_id
+					JOIN %[1]s.order_items destination_item
+					  ON destination_item.id=allocation.order_item_id AND destination_item.order_id=destination_order.id
+					 AND destination_item.product_id=business_product_id AND destination_item.bom_spec_id=business_bom_spec_id
+					JOIN %[1]s.stock_batches source_batch
+					  ON source_batch.id=allocation.batch_id AND source_batch.batch_code=allocation.batch_code
+					 AND source_batch.item_type='finished_product' AND source_batch.item_id=business_product_id
+					 AND source_batch.bom_spec_id=business_bom_spec_id AND source_batch.bom_variant_id=business_bom_variant_id
+					 AND source_batch.spec_g=0
+					 AND (source_batch.owner_customer_id=0 OR source_batch.owner_customer_id=destination_order.customer_id)
+					WHERE allocation.order_id=COALESCE(NULLIF(to_jsonb(NEW)->>'source_doc_id','')::bigint,0)
+					  AND NOT destination_order.is_void
+					  AND allocation.product_id=business_product_id AND allocation.bom_spec_id=business_bom_spec_id
+					  AND allocation.bom_variant_id=business_bom_variant_id AND allocation.spec_g=0
+					  AND COALESCE(NULLIF(to_jsonb(NEW)->>'spec_g','')::bigint,0)=0
+					  AND allocation.batch_code=COALESCE(to_jsonb(NEW)->>'source_batch_code',to_jsonb(NEW)->>'batch_code','')
+					  AND allocation.warehouse=(SELECT location.warehouse FROM %[1]s.stock_ledger_entries location
+						WHERE location.source_batch_code=source_batch.batch_code AND location.item_type='finished_product'
+						  AND location.item_id=business_product_id AND location.bom_spec_id=business_bom_spec_id
+						ORDER BY location.id DESC LIMIT 1)
+					  AND (TG_TABLE_NAME='stock_ledger_entries' OR
+						(COALESCE(NULLIF(to_jsonb(NEW)->>'batch_id','')::bigint,0)=source_batch.id
+						 AND COALESCE(NULLIF(to_jsonb(NEW)->>'order_id','')::bigint,0)=destination_order.id))
+					GROUP BY allocation.order_id,allocation.warehouse,source_batch.id,source_batch.batch_code,source_batch.remaining_units
+					HAVING SUM(allocation.allocated_units)>0 AND SUM(allocation.allocated_g)=0
+					  AND CASE WHEN TG_TABLE_NAME='stock_ledger_entries' THEN
+						to_jsonb(NEW)->>'warehouse'=allocation.warehouse
+						AND (to_jsonb(NEW)->>'qty_change_units')::bigint=-SUM(allocation.allocated_units)
+						AND (to_jsonb(NEW)->>'qty_after_units')::bigint=source_batch.remaining_units
+						AND source_batch.remaining_units>=0
+						AND (to_jsonb(NEW)->>'qty_before_units')::bigint-SUM(allocation.allocated_units)=source_batch.remaining_units
+						AND COALESCE((to_jsonb(NEW)->>'qty_change_g')::bigint,0)=0
+					  ELSE
+						(to_jsonb(NEW)->>'deducted_units')::bigint=SUM(allocation.allocated_units)
+						AND COALESCE((to_jsonb(NEW)->>'deducted_g')::bigint,0)=0
+						AND EXISTS (SELECT 1 FROM %[1]s.stock_ledger_entries outbound
+							WHERE outbound.source_doc_type='sales_order_shipment' AND outbound.source_doc_id=allocation.order_id
+							  AND outbound.source_batch_code=source_batch.batch_code AND outbound.item_type='finished_product'
+							  AND outbound.item_id=business_product_id AND outbound.bom_spec_id=business_bom_spec_id
+							  AND outbound.bom_variant_id=business_bom_variant_id AND outbound.warehouse=allocation.warehouse
+							  AND outbound.qty_change_units=-(to_jsonb(NEW)->>'deducted_units')::bigint)
+					  END
+				) INTO frozen_production_identity_derived;
+			END IF;
 		ELSIF TG_TABLE_NAME='finished_inventory' THEN
 			-- Aggregate inventory has no source-document columns. Production receipt
 			-- code supplies a transaction-local work-order id only for the duration
