@@ -48,7 +48,10 @@
 - 新增 `TestLegacyFinishedTransferCancellationPreservesHistoricalNormalization`、`TestTransferFinishedProductPreservesLooseGramRequest`，并扩展跨规格边界转仓用例：历史转仓撤销沿用既有归一化；满规格重量的散克转仓仍保持克重。修复前 RED，修复后目标测试 GREEN。
 - 新增销售 PostgreSQL 回归 `TestSalesShipmentLocksFinishedIdentityBeforeBatchAndSummary`：修复前在转仓持有商品规格锁时销售扣库存仍直接完成；销售出库改为按固定顺序获取本单全部规格锁后测试通过，避免其与转仓反向持有批次/汇总锁。
 - 新增 `TestLegacyFinishedTransferCancellationAfterReceiptUsesBatchBalances`：750g 散克转仓后再完工入库 250g，汇总先显示为 1 袋；修复前撤销写入 `1 袋 - 750g`，按批次移动记录重算后恢复为来源仓 750g、目标仓仅留 250g。
-- 本次审查修复后：应用库存、库存/生产 PostgreSQL、销售锁顺序目标回归、库存 HTTP API、手册入口 3 项测试、`./scripts/verify_kferp.sh changed` 和 `git diff --check` 全部通过。未设置测试数据库 URL 的 `go test ./...` 及完整生产预检曾在前一提交通过；完整生产预检正在旧提交上收尾，最新销售锁与撤销修复仍需提交后重新运行最终预检。
+- 最新 PR 审查增加源仓转仓回归 `TestLegacyFinishedTransferAfterSourceReceiptUsesBatchBalances` 与撤销回归 `TestLegacyFinishedTransferCancellationAfterSourceReceiptUsesBatchBalances`。在隔离 PostgreSQL 上先 RED：完工入库把 750g+250g 汇总成 1 袋后再转出 250g，旧代码留下 `1 袋 -250g`；转仓后在来源仓完工入库并撤销，旧代码错误写成 `1 袋 +1250g`。采用来源/目标批次余额重建非 BOM 摘要、修正撤销变量遮蔽后两项 GREEN。
+- 最新销售审查增加 `TestSourceWarehouseShipmentDeductsBatchAndSummaryTogether`。先 RED：客户虚拟仓发货后摘要为 `0+500g`，但原批次仍是 `1/1500g`，也没有批次扣减记录；按订单来源仓读取 FIFO 批次并同步摘要/流水后 GREEN。`TestSalesShipmentLocksFinishedIdentityBeforeBatchAndSummary` 仍通过。
+- 新增 `TestStockDocumentFinishedIdentityLocksUseStableOrder`：两笔多商品库存单按相反商品顺序并发获取库存身份锁后串行完成；提交和撤销在批次或汇总行写入前按商品、BOM 规格、克重稳定排序取得全单身份锁。
+- 本次审查修复后，临时本机 PostgreSQL 上库存 PostgreSQL 全包、库存服务/API、库存 HTTP API、非默认来源仓发货和销售共享锁回归均通过；`git diff --check` 通过。最终生产预检、PR 复审、集成和部署仍待完成。
 
 测试覆盖批次 FIFO 扣减、增加时创建调整批次、规格 0 只允许将已有余额清零、同事务回滚、调整单/批次分配/库存流水/操作日志一致、拒绝未修复的历史数量批次、未分配人工减库存批次和只有汇总没有可用批次的库存、重复人工库存调整可创建多个批次、人工入库与完工入库并发串行化、规范与非 BOM 转仓 FIFO/撤销/冻结阻断、散装克重分类一致，以及调整与出库一致的“先批次、后汇总”锁顺序；正式 HTTP API 使用当前 BOM 规格身份。生产预检在后续审查发现边界问题时中止过两次；最后一次预检在上述 commit 通过，但早于本次最新修复，需按最终提交重新执行。
 

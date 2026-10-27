@@ -7,6 +7,7 @@ import (
 	"math"
 	stockapp "orderapp/internal/application/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -175,6 +176,9 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 	}
 	detail, err := r.loadStockDocumentDetailTx(ctx, tx, id)
 	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if err := lockStockDocumentFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if detail.SourceType == "operation_completion" || detail.SourceType == "operation_correction" {
@@ -713,10 +717,13 @@ func (r Repository) submitStockDocumentTx(ctx context.Context, tx pgx.Tx, id int
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
-	if err := lockStockDocumentPostingTx(ctx, tx, r.schema, detail); err != nil {
+	if err := r.resolveOrdinaryFinishedStockDocumentDetailTx(ctx, tx, &detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
-	if err := r.resolveOrdinaryFinishedStockDocumentDetailTx(ctx, tx, &detail); err != nil {
+	if err := lockStockDocumentFinishedIdentitiesTx(ctx, tx, r.schema, detail); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if err := lockStockDocumentPostingTx(ctx, tx, r.schema, detail); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
 	if err := r.validateOrdinaryMaterialReceiptDetailTx(ctx, tx, detail); err != nil {
@@ -2300,6 +2307,23 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 	if err != nil {
 		return err
 	}
+	if !canonical {
+		batchUnits, batchG, err := finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.FromWarehouse)
+		if err != nil {
+			return err
+		}
+		if batchUnits > 0 || batchG > 0 {
+			summaryG := beforeFromUnits*item.SpecG + beforeFromLoose
+			if batchG != summaryG {
+				return fmt.Errorf("finished stock batch balance does not match summary in %s", item.FromWarehouse)
+			}
+			beforeFromUnits = batchUnits
+			beforeFromLoose = batchG - batchUnits*item.SpecG
+			if beforeFromLoose < 0 {
+				return fmt.Errorf("finished stock batch grams are below packed-unit grams in %s", item.FromWarehouse)
+			}
+		}
+	}
 	beforeFromG := beforeFromUnits*item.SpecG + beforeFromLoose
 	if (canonical && beforeFromUnits < units) || (!canonical && beforeFromG < totalG) {
 		return fmt.Errorf("finished product stock insufficient in %s", item.FromWarehouse)
@@ -2311,6 +2335,23 @@ func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail st
 	beforeToUnits, beforeToLoose, err := finishedInventoryQtyIdentityOwnedStockTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse, ownerCustomerID)
 	if err != nil {
 		return err
+	}
+	if !canonical {
+		batchUnits, batchG, err := finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse)
+		if err != nil {
+			return err
+		}
+		if batchUnits > 0 || batchG > 0 {
+			summaryG := beforeToUnits*item.SpecG + beforeToLoose
+			if batchG != summaryG {
+				return fmt.Errorf("finished stock batch balance does not match summary in %s", item.ToWarehouse)
+			}
+			beforeToUnits = batchUnits
+			beforeToLoose = batchG - batchUnits*item.SpecG
+			if beforeToLoose < 0 {
+				return fmt.Errorf("finished stock batch grams are below packed-unit grams in %s", item.ToWarehouse)
+			}
+		}
 	}
 	afterToUnits, afterToLoose := beforeToUnits+units, int64(0)
 	if !canonical {
@@ -2979,7 +3020,8 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 		return err
 	}
 	if !canonical && hasBatchMoves {
-		beforeFromUnits, beforeFromG, err := finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.FromWarehouse)
+		var beforeFromG int64
+		beforeFromUnits, beforeFromG, err = finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.FromWarehouse)
 		if err != nil {
 			return err
 		}
@@ -3075,6 +3117,43 @@ func finishedInventoryBatchQtyTx(ctx context.Context, tx pgx.Tx, schema string, 
 		return 0, 0, err
 	}
 	return units, grams, nil
+}
+
+type stockDocumentFinishedIdentity struct {
+	productID int64
+	bomSpecID int64
+	specG     int64
+}
+
+func lockStockDocumentFinishedIdentitiesTx(ctx context.Context, tx pgx.Tx, schema string, detail stockapp.StockDocumentDetail) error {
+	identities := make([]stockDocumentFinishedIdentity, 0, len(detail.Items))
+	seen := make(map[stockDocumentFinishedIdentity]struct{}, len(detail.Items))
+	for _, item := range detail.Items {
+		if item.ItemType != itemTypeFinishedProduct || item.ProductID <= 0 {
+			continue
+		}
+		identity := stockDocumentFinishedIdentity{productID: item.ProductID, bomSpecID: item.BomSpecID, specG: item.SpecG}
+		if _, ok := seen[identity]; ok {
+			continue
+		}
+		seen[identity] = struct{}{}
+		identities = append(identities, identity)
+	}
+	sort.Slice(identities, func(i, j int) bool {
+		if identities[i].productID != identities[j].productID {
+			return identities[i].productID < identities[j].productID
+		}
+		if identities[i].bomSpecID != identities[j].bomSpecID {
+			return identities[i].bomSpecID < identities[j].bomSpecID
+		}
+		return identities[i].specG < identities[j].specG
+	})
+	for _, identity := range identities {
+		if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, schema, identity.productID, identity.bomSpecID, identity.specG); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r Repository) reverseFinishedBatchMovesTx(

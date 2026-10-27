@@ -532,8 +532,8 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 		return err
 	}
 
-	if warehouse == "finished_goods" && len(items) > 0 {
-		preview, err := r.previewOrderStockBatches(ctx, tx, items, orderID, true)
+	if len(items) > 0 {
+		preview, err := r.previewOrderStockBatches(ctx, tx, items, orderID, true, warehouse)
 		if err != nil {
 			return err
 		}

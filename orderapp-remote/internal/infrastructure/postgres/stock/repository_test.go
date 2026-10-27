@@ -2650,6 +2650,168 @@ func TestLegacyFinishedTransferCancellationAfterReceiptUsesBatchBalances(t *test
 	}
 }
 
+func TestLegacyFinishedTransferAfterSourceReceiptUsesBatchBalances(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetG: 750, Reason: "转仓前完工入库测试", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed source loose stock: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.work_order_material_reservations SET consumed_g=reserved_g WHERE work_order_id=88;
+	`, schema))
+	if _, err := stockapp.NewService(repo).CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeManufacture, WorkOrderID: 88, Operator: "qa",
+		Items: []stockapp.StockDocumentItemCommand{{
+			ProductID: 9, ItemType: itemTypeFinishedProduct, SpecG: 1000,
+			ToWarehouse: "finished_goods", QtyG: 250,
+		}},
+	}); err != nil {
+		t.Fatalf("post manufacture receipt: %v", err)
+	}
+	if _, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-source-receipt-transfer",
+	}); err != nil {
+		t.Fatalf("transfer stock after receipt: %v", err)
+	}
+	var sourceUnits, sourceLoose, targetUnits, targetLoose int64
+	for _, check := range []struct {
+		warehouse string
+		units     *int64
+		loose     *int64
+	}{{"finished_goods", &sourceUnits, &sourceLoose}, {"finished_shop", &targetUnits, &targetLoose}} {
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+			WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse=$1
+		`, schema), check.warehouse).Scan(check.units, check.loose); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sourceUnits != 0 || sourceLoose != 750 || targetUnits != 0 || targetLoose != 250 {
+		t.Fatalf("transfer after source receipt source=%d+%dg target=%d+%dg; want 0+750g and 0+250g", sourceUnits, sourceLoose, targetUnits, targetLoose)
+	}
+}
+
+func TestLegacyFinishedTransferCancellationAfterSourceReceiptUsesBatchBalances(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetG: 1000, Reason: "转仓撤销前完工入库测试", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed source loose stock: %v", err)
+	}
+	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyLooseG: 250, Operator: "qa", IdempotencyKey: "legacy-source-receipt-cancel",
+	})
+	if err != nil {
+		t.Fatalf("transfer stock: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.work_order_material_reservations SET consumed_g=reserved_g WHERE work_order_id=88;
+	`, schema))
+	if _, err := stockapp.NewService(repo).CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeManufacture, WorkOrderID: 88, Operator: "qa",
+		Items: []stockapp.StockDocumentItemCommand{{
+			ProductID: 9, ItemType: itemTypeFinishedProduct, SpecG: 1000,
+			ToWarehouse: "finished_goods", QtyG: 250,
+		}},
+	}); err != nil {
+		t.Fatalf("post manufacture receipt: %v", err)
+	}
+	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err != nil {
+		t.Fatalf("cancel transfer after source receipt: %v", err)
+	}
+	var sourceUnits, sourceLoose, targetUnits, targetLoose int64
+	for _, check := range []struct {
+		warehouse string
+		units     *int64
+		loose     *int64
+	}{{"finished_goods", &sourceUnits, &sourceLoose}, {"finished_shop", &targetUnits, &targetLoose}} {
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+			WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse=$1
+		`, schema), check.warehouse).Scan(check.units, check.loose); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sourceUnits != 0 || sourceLoose != 1250 || targetUnits != 0 || targetLoose != 0 {
+		t.Fatalf("cancel after source receipt source=%d+%dg target=%d+%dg; want 0+1250g and zero", sourceUnits, sourceLoose, targetUnits, targetLoose)
+	}
+}
+
+func TestStockDocumentFinishedIdentityLocksUseStableOrder(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	firstTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = firstTx.Rollback(context.Background()) }()
+	secondTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = secondTx.Rollback(context.Background()) }()
+	item := func(productID int64) stockapp.StockDocumentItemRow {
+		return stockapp.StockDocumentItemRow{ItemType: itemTypeFinishedProduct, ProductID: productID, SpecG: 1000}
+	}
+	details := []stockapp.StockDocumentDetail{
+		{Items: []stockapp.StockDocumentItemRow{item(10), item(9)}},
+		{Items: []stockapp.StockDocumentItemRow{item(9), item(10)}},
+	}
+	start := make(chan struct{})
+	type lockResult struct {
+		index int
+		err   error
+	}
+	results := make(chan lockResult, 2)
+	go func() {
+		<-start
+		results <- lockResult{index: 0, err: lockStockDocumentFinishedIdentitiesTx(ctx, firstTx, schema, details[0])}
+	}()
+	go func() {
+		<-start
+		results <- lockResult{index: 1, err: lockStockDocumentFinishedIdentitiesTx(ctx, secondTx, schema, details[1])}
+	}()
+	close(start)
+	var first lockResult
+	select {
+	case first = <-results:
+		if first.err != nil {
+			t.Fatalf("lock identities in competing item order: %v", first.err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("finished identity locks did not serialize: %v", ctx.Err())
+	}
+	firstTxToCommit := firstTx
+	secondTxToCommit := secondTx
+	if first.index == 1 {
+		firstTxToCommit, secondTxToCommit = secondTx, firstTx
+	}
+	if err := firstTxToCommit.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case second := <-results:
+		if second.err != nil {
+			t.Fatalf("lock identities after first transaction commits: %v", second.err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("second finished identity lock did not resume: %v", ctx.Err())
+	}
+	if err := secondTxToCommit.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFinishedManufactureReceiptSerializesWithBatchAdjustment(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()
