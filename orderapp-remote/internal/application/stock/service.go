@@ -1358,10 +1358,6 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 	if cmd.QtyUnits < 0 || cmd.QtyLooseG < 0 {
 		return FinishedProductTransferResult{}, fmt.Errorf("negative qty")
 	}
-	if cmd.BomSpecID == 0 && cmd.QtyLooseG >= cmd.SpecG {
-		cmd.QtyUnits += cmd.QtyLooseG / cmd.SpecG
-		cmd.QtyLooseG = cmd.QtyLooseG % cmd.SpecG
-	}
 	if cmd.QtyUnits <= 0 && cmd.QtyLooseG <= 0 {
 		return FinishedProductTransferResult{}, fmt.Errorf("qty required")
 	}

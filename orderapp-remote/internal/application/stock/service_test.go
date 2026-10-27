@@ -249,6 +249,20 @@ func TestTransferFinishedProductNormalizesWarehouseAndDefaultsOperator(t *testin
 	}
 }
 
+func TestTransferFinishedProductPreservesLooseGramRequest(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	if _, err := svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_shop", ToWarehouse: "finished_goods",
+		QtyLooseG: 1000, Operator: "qa",
+	}); err != nil {
+		t.Fatalf("TransferFinishedProduct: %v", err)
+	}
+	if repo.finishedTransfer.QtyUnits != 0 || repo.finishedTransfer.QtyLooseG != 1000 {
+		t.Fatalf("transfer quantities = %d units + %dg, want 0 units + 1000g", repo.finishedTransfer.QtyUnits, repo.finishedTransfer.QtyLooseG)
+	}
+}
+
 func TestTransferFinishedProductRejectsSameWarehouseAndZeroQuantity(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	_, err := svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{

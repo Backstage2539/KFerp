@@ -1213,11 +1213,11 @@ func (r Repository) TransferFinishedProduct(ctx context.Context, cmd stockapp.Fi
 		return stockapp.FinishedProductTransferResult{}, err
 	}
 
-	identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, cmd.ProductID, cmd.BomSpecID, cmd.BomVariantID, cmd.UnitCode)
-	if err != nil {
-		return stockapp.FinishedProductTransferResult{}, err
-	}
 	if cmd.BomSpecID > 0 {
+		identity, err := resolveFinishedProductBomSpecIdentityTx(ctx, tx, r.schema, cmd.ProductID, cmd.BomSpecID, cmd.BomVariantID, cmd.UnitCode)
+		if err != nil {
+			return stockapp.FinishedProductTransferResult{}, err
+		}
 		cmd.BomVariantID = identity.BomVariantID
 		cmd.UnitCode = identity.InventoryUnit
 	}
@@ -1700,15 +1700,31 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 	if err := r.ensureWarehouseExistsTx(ctx, tx, cmd.Warehouse); err != nil {
 		return "", 0, 0, 0, 0, nil, err
 	}
-	beforeUnits, beforeLoose, err := finishedInventoryIdentityQtyTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.SpecG, cmd.Warehouse)
-	if err != nil {
+	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.SpecG); err != nil {
 		return "", 0, 0, 0, 0, nil, err
 	}
-	beforeG := beforeUnits*cmd.SpecG + beforeLoose
 	batches, err := finishedStockBatchesForAdjustmentTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.SpecG, cmd.Warehouse)
 	if err != nil {
 		return "", 0, 0, 0, 0, nil, err
 	}
+	// Match shipment deduction lock order: lock source batches before the
+	// finished_inventory summary row so concurrent operations cannot each hold
+	// the row the other needs.
+	beforeUnits, beforeLoose, err = finishedInventoryIdentityQtyTx(ctx, tx, r.schema, cmd.ItemID, cmd.BomSpecID, cmd.SpecG, cmd.Warehouse)
+	if err != nil {
+		return "", 0, 0, 0, 0, nil, err
+	}
+	hasAvailableBatchBalance := false
+	for _, batch := range batches {
+		if batch.remainingG > 0 || batch.remainingUnits > 0 {
+			hasAvailableBatchBalance = true
+			break
+		}
+	}
+	if !hasAvailableBatchBalance && (beforeUnits != 0 || beforeLoose != 0) {
+		return "", 0, 0, 0, 0, nil, fmt.Errorf("finished inventory summary requires batch reconciliation")
+	}
+	beforeG := beforeUnits*cmd.SpecG + beforeLoose
 	if len(batches) > 0 {
 		beforeUnits, beforeG = 0, 0
 		for _, batch := range batches {
@@ -1762,7 +1778,8 @@ type finishedAdjustmentBatch struct {
 
 func finishedStockBatchesForAdjustmentTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, specG int64, warehouse string) ([]finishedAdjustmentBatch, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT b.id,b.batch_code,b.remaining_g,b.remaining_units,COALESCE(b.unit_cost,0)::float8
+		SELECT b.id,b.batch_code,b.remaining_g,b.remaining_units,COALESCE(b.unit_cost,0)::float8,
+		       b.qty_g,b.qty_units,COALESCE(b.source_doc_type,''),COALESCE(b.source_doc_id,0),COALESCE(b.source_batch_id,'')
 		FROM %s.stock_batches b
 		LEFT JOIN LATERAL (
 			SELECT l.warehouse
@@ -1784,8 +1801,17 @@ func finishedStockBatchesForAdjustmentTx(ctx context.Context, tx pgx.Tx, schema 
 	batches := make([]finishedAdjustmentBatch, 0)
 	for rows.Next() {
 		var batch finishedAdjustmentBatch
-		if err := rows.Scan(&batch.id, &batch.code, &batch.remainingG, &batch.remainingUnits, &batch.unitCost); err != nil {
+		var qtyG, qtyUnits, sourceDocID int64
+		var sourceDocType, sourceBatchID string
+		if err := rows.Scan(&batch.id, &batch.code, &batch.remainingG, &batch.remainingUnits, &batch.unitCost,
+			&qtyG, &qtyUnits, &sourceDocType, &sourceDocID, &sourceBatchID); err != nil {
 			return nil, err
+		}
+		quantityOnlyLegacyBatch := strings.TrimSpace(sourceDocType) == "" && sourceDocID == 0 && strings.TrimSpace(sourceBatchID) == "" &&
+			((qtyG != 0 && batch.remainingG == 0) || (qtyUnits != 0 && batch.remainingUnits == 0))
+		unallocatedManualReduction := strings.TrimSpace(sourceDocType) == "manual_adjustment" && (qtyG < 0 || qtyUnits < 0)
+		if quantityOnlyLegacyBatch || unallocatedManualReduction {
+			return nil, fmt.Errorf("legacy finished inventory batch requires reconciliation: %s", batch.code)
 		}
 		batches = append(batches, batch)
 	}
