@@ -7,6 +7,7 @@ import (
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"os"
 	"strings"
 	"testing"
@@ -701,5 +702,118 @@ func seedSalesOrderDocumentOrder(t *testing.T, ctx context.Context, pool *pgxpoo
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			t.Fatalf("seed order: %v", err)
 		}
+	}
+}
+
+func TestSalesShipmentLocksFinishedIdentityBeforeBatchAndSummary(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	for _, stmt := range []string{
+		fmt.Sprintf(`CREATE TABLE %s.products(id BIGINT PRIMARY KEY,name TEXT NOT NULL)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.orders(id BIGINT PRIMARY KEY,source_warehouse TEXT NOT NULL)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.order_stock_batch_allocations(
+			id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL,product_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,
+			bom_variant_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,batch_id BIGINT NOT NULL,batch_code TEXT NOT NULL,
+			allocated_g BIGINT NOT NULL,allocated_units BIGINT NOT NULL
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.stock_batches(
+			id BIGSERIAL PRIMARY KEY,batch_code TEXT NOT NULL,item_type TEXT NOT NULL,item_id BIGINT NOT NULL,item_name TEXT NOT NULL,
+			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0,spec_g BIGINT NOT NULL,
+			remaining_g BIGINT NOT NULL,remaining_units BIGINT NOT NULL,quality_status TEXT NOT NULL DEFAULT 'unchecked'
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.stock_ledger_entries(
+			id BIGSERIAL PRIMARY KEY,item_type TEXT NOT NULL,item_id BIGINT NOT NULL,item_name TEXT NOT NULL,
+			bom_spec_id BIGINT NOT NULL DEFAULT 0,bom_variant_id BIGINT NOT NULL DEFAULT 0,spec_g BIGINT NOT NULL,
+			warehouse TEXT NOT NULL,source_doc_type TEXT NOT NULL,source_doc_id BIGINT NOT NULL,source_batch_code TEXT NOT NULL,
+			source_batch_id TEXT NOT NULL DEFAULT '',qty_before_g BIGINT NOT NULL,qty_change_g BIGINT NOT NULL,qty_after_g BIGINT NOT NULL,
+			qty_before_units BIGINT NOT NULL,qty_change_units BIGINT NOT NULL,qty_after_units BIGINT NOT NULL,operator TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.finished_inventory(
+			product_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL DEFAULT 0,spec_g BIGINT NOT NULL,warehouse TEXT NOT NULL,
+			onhand_units BIGINT NOT NULL,onhand_loose_g BIGINT NOT NULL,updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			PRIMARY KEY(product_id,bom_spec_id,spec_g,warehouse)
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.order_stock_deductions(
+			id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL,product_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,
+			bom_variant_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,batch_id BIGINT NOT NULL,batch_code TEXT NOT NULL,
+			deducted_g BIGINT NOT NULL,deducted_units BIGINT NOT NULL,source_doc_type TEXT NOT NULL,source_doc_id BIGINT NOT NULL,
+			operator TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),UNIQUE(order_id,product_id,bom_spec_id,batch_code)
+		)`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create stock deduction test table: %v", err)
+		}
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name) VALUES(9,'测试商品');
+		INSERT INTO %s.orders(id,source_warehouse) VALUES(17,'finished_goods');
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(9,0,1000,'finished_goods',1,500);
+		INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,bom_spec_id,spec_g,remaining_g,remaining_units)
+		VALUES('SHIP-LOCK-001','finished_product',9,'测试商品',0,1000,1500,1);
+		INSERT INTO %s.stock_ledger_entries(item_type,item_id,item_name,bom_spec_id,spec_g,warehouse,source_doc_type,source_doc_id,source_batch_code,qty_before_g,qty_change_g,qty_after_g,qty_before_units,qty_change_units,qty_after_units,operator)
+		VALUES('finished_product',9,'测试商品',0,1000,'finished_goods','seed',1,'SHIP-LOCK-001',0,1500,1500,0,1,1,'qa');
+		INSERT INTO %s.order_stock_batch_allocations(order_id,product_id,bom_spec_id,bom_variant_id,spec_g,batch_id,batch_code,allocated_g,allocated_units)
+		SELECT 17,9,0,0,1000,b.id,b.batch_code,250,0 FROM %s.stock_batches b WHERE b.batch_code='SHIP-LOCK-001';
+	`, schema, schema, schema, schema, schema, schema, schema))
+	if err != nil {
+		t.Fatalf("seed shipment stock: %v", err)
+	}
+
+	transfer, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = transfer.Rollback(ctx) }()
+	if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, transfer, schema, 9, 0, 1000); err != nil {
+		t.Fatal(err)
+	}
+
+	deductionDone := make(chan error, 1)
+	go func() {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			deductionDone <- err
+			return
+		}
+		if err := (Repository{pool: pool, schema: schema}).deductOrderAllocatedStockTx(ctx, tx, 17, "qa"); err != nil {
+			_ = tx.Rollback(ctx)
+			deductionDone <- err
+			return
+		}
+		deductionDone <- tx.Commit(ctx)
+	}()
+
+	select {
+	case err := <-deductionDone:
+		t.Fatalf("shipment completed while transfer held the finished identity lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	var waitingForIdentity bool
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND state='active'
+			AND wait_event_type='Lock' AND query ILIKE '%pg_advisory_xact_lock%'
+		)`).Scan(&waitingForIdentity); err != nil {
+			t.Fatal(err)
+		}
+		if waitingForIdentity {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !waitingForIdentity {
+		t.Fatal("shipment did not wait for the shared finished identity lock")
+	}
+	if err := transfer.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-deductionDone; err != nil {
+		t.Fatalf("shipment deduction after lock release: %v", err)
 	}
 }

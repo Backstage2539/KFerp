@@ -2974,12 +2974,27 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 		return err
 	}
 	beforeToG := beforeToUnits*item.SpecG + beforeToLoose
-	if (canonical && beforeToUnits < item.QtyUnits) || (!canonical && beforeToG < totalG) {
-		return fmt.Errorf("transferred finished stock has been consumed; create a correction document instead")
-	}
 	beforeFromUnits, beforeFromLoose, err := finishedInventoryIdentityQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.FromWarehouse)
 	if err != nil {
 		return err
+	}
+	if !canonical && hasBatchMoves {
+		beforeFromUnits, beforeFromG, err := finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.FromWarehouse)
+		if err != nil {
+			return err
+		}
+		beforeToUnits, beforeToG, err = finishedInventoryBatchQtyTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.SpecG, item.ToWarehouse)
+		if err != nil {
+			return err
+		}
+		beforeFromLoose = beforeFromG - beforeFromUnits*item.SpecG
+		beforeToLoose = beforeToG - beforeToUnits*item.SpecG
+		if beforeFromLoose < 0 || beforeToLoose < 0 {
+			return fmt.Errorf("finished stock batch grams are below packed-unit grams")
+		}
+	}
+	if (canonical && beforeToUnits < item.QtyUnits) || (!canonical && beforeToG < totalG) {
+		return fmt.Errorf("transferred finished stock has been consumed; create a correction document instead")
 	}
 	afterToUnits, afterToLoose := beforeToUnits-item.QtyUnits, int64(0)
 	afterFromUnits, afterFromLoose := beforeFromUnits+item.QtyUnits, int64(0)
@@ -2998,15 +3013,24 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 			}
 		}
 	}
+	if !canonical && hasBatchMoves {
+		if err := r.reverseFinishedBatchMovesTx(ctx, tx, detail, item,
+			beforeFromUnits, beforeToUnits, beforeFromLoose, beforeToLoose, actor); err != nil {
+			return err
+		}
+	}
 	if err := upsertFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.ToWarehouse, afterToUnits, afterToLoose); err != nil {
 		return err
 	}
 	if err := upsertFinishedInventoryIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID, item.SpecG, item.FromWarehouse, afterFromUnits, afterFromLoose); err != nil {
 		return err
 	}
-	if canonical || hasBatchMoves {
+	if canonical {
 		return r.reverseFinishedBatchMovesTx(ctx, tx, detail, item,
 			beforeFromUnits, beforeToUnits, beforeFromLoose, beforeToLoose, actor)
+	}
+	if hasBatchMoves {
+		return nil
 	}
 	for _, ledger := range []ledgerEntry{
 		{ItemType: itemTypeFinishedProduct, ItemID: item.ProductID, ItemName: item.ItemName, SpecG: item.SpecG, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, Warehouse: item.ToWarehouse, SourceDocType: "stock_entry_cancel", SourceDocID: detail.ID, SourceBatchID: detail.EntryNo, BeforeG: beforeToG, ChangeG: -totalG, AfterG: beforeToG - totalG, BeforeUnits: beforeToUnits, ChangeUnits: afterToUnits - beforeToUnits, AfterUnits: afterToUnits, Operator: actor},
@@ -3017,6 +3041,40 @@ func (r Repository) reverseFinishedStockDocumentItemTx(ctx context.Context, tx p
 		}
 	}
 	return nil
+}
+
+func finishedInventoryBatchQtyTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, specG int64, warehouse string) (int64, int64, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT b.remaining_units,b.remaining_g
+		FROM %s.stock_batches b
+		LEFT JOIN LATERAL (
+			SELECT l.warehouse FROM %s.stock_ledger_entries l
+			WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
+			ORDER BY l.id DESC LIMIT 1
+		) last_ledger ON true
+		WHERE b.item_type=$1 AND b.item_id=$2 AND b.bom_spec_id=$3 AND b.spec_g=$4
+		  AND COALESCE(last_ledger.warehouse,'finished_goods')=$5
+		ORDER BY b.created_at,b.id
+		FOR UPDATE OF b
+	`, schema, schema), itemTypeFinishedProduct, productID, bomSpecID, specG, warehouse)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	var units, grams int64
+	for rows.Next() {
+		var batchUnits, batchGrams int64
+		if err := rows.Scan(&batchUnits, &batchGrams); err != nil {
+			return 0, 0, err
+		}
+		units += batchUnits
+		grams += batchGrams
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	return units, grams, nil
 }
 
 func (r Repository) reverseFinishedBatchMovesTx(

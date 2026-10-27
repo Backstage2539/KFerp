@@ -2590,6 +2590,66 @@ func TestLegacyFinishedTransferCancellationPreservesHistoricalNormalization(t *t
 	}
 }
 
+func TestLegacyFinishedTransferCancellationAfterReceiptUsesBatchBalances(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: itemTypeFinishedProduct, ItemID: 9, SpecG: 1000, Warehouse: "finished_goods",
+		TargetG: 750, Reason: "散克调拨撤销测试", Operator: "qa",
+	}); err != nil {
+		t.Fatalf("seed source loose stock: %v", err)
+	}
+	transfer, err := stockapp.NewService(repo).TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 9, SpecG: 1000, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyLooseG: 750, Operator: "qa", IdempotencyKey: "legacy-transfer-receipt-cancel",
+	})
+	if err != nil {
+		t.Fatalf("TransferFinishedProduct: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.work_order_material_reservations SET consumed_g=reserved_g WHERE work_order_id=88;
+	`, schema))
+	if _, err := stockapp.NewService(repo).CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeManufacture, WorkOrderID: 88, Operator: "qa",
+		Items: []stockapp.StockDocumentItemCommand{{
+			ProductID: 9, ItemType: itemTypeFinishedProduct, SpecG: 1000,
+			ToWarehouse: "finished_shop", QtyG: 250,
+		}},
+	}); err != nil {
+		t.Fatalf("post manufacture receipt: %v", err)
+	}
+	var beforeUnits, beforeLoose int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_shop'
+	`, schema)).Scan(&beforeUnits, &beforeLoose); err != nil {
+		t.Fatal(err)
+	}
+	if beforeUnits != 1 || beforeLoose != 0 {
+		t.Fatalf("manufacture receipt summary=%d+%dg, want normalized 1+0g", beforeUnits, beforeLoose)
+	}
+	if _, err := stockapp.NewService(repo).CancelStockDocument(ctx, transfer.EntryID, "qa"); err != nil {
+		t.Fatalf("cancel transfer after receipt: %v", err)
+	}
+	var sourceUnits, sourceLoose, targetUnits, targetLoose int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_goods'
+	`, schema)).Scan(&sourceUnits, &sourceLoose); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
+		WHERE product_id=9 AND bom_spec_id=0 AND spec_g=1000 AND warehouse='finished_shop'
+	`, schema)).Scan(&targetUnits, &targetLoose); err != nil {
+		t.Fatal(err)
+	}
+	if sourceUnits != 0 || sourceLoose != 750 || targetUnits != 0 || targetLoose != 250 {
+		t.Fatalf("cancelled transfer after receipt source=%d+%dg target=%d+%dg; want 0+750g and 0+250g", sourceUnits, sourceLoose, targetUnits, targetLoose)
+	}
+}
+
 func TestFinishedManufactureReceiptSerializesWithBatchAdjustment(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()

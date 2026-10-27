@@ -3,9 +3,11 @@ package sales
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	inventorydomain "orderapp/internal/domain/inventory"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -22,6 +24,45 @@ type orderStockDeductionAllocation struct {
 	BatchCode      string
 	AllocatedG     int64
 	AllocatedUnits int64
+}
+
+type finishedInventoryIdentity struct {
+	productID int64
+	bomSpecID int64
+	specG     int64
+}
+
+// Shipment deductions lock batches before summaries; serialize with transfers
+// and adjustments first, and acquire multiple identities in a stable order.
+func lockFinishedInventoryIdentitiesTx(ctx context.Context, tx pgx.Tx, schema string, allocations []orderStockDeductionAllocation) error {
+	identities := make([]finishedInventoryIdentity, 0, len(allocations))
+	seen := make(map[finishedInventoryIdentity]struct{}, len(allocations))
+	for _, alloc := range allocations {
+		if alloc.ProductID <= 0 {
+			continue
+		}
+		identity := finishedInventoryIdentity{productID: alloc.ProductID, bomSpecID: alloc.BomSpecID, specG: alloc.SpecG}
+		if _, ok := seen[identity]; ok {
+			continue
+		}
+		seen[identity] = struct{}{}
+		identities = append(identities, identity)
+	}
+	sort.Slice(identities, func(i, j int) bool {
+		if identities[i].productID != identities[j].productID {
+			return identities[i].productID < identities[j].productID
+		}
+		if identities[i].bomSpecID != identities[j].bomSpecID {
+			return identities[i].bomSpecID < identities[j].bomSpecID
+		}
+		return identities[i].specG < identities[j].specG
+	})
+	for _, identity := range identities {
+		if err := postgresinfra.LockFinishedInventoryIdentityTx(ctx, tx, schema, identity.productID, identity.bomSpecID, identity.specG); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func orderStockAllocationUsesUnits(alloc orderStockDeductionAllocation) bool {
@@ -85,6 +126,9 @@ func (r Repository) deductOrderAllocatedStockTx(ctx context.Context, tx pgx.Tx, 
 		}
 	}
 	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := lockFinishedInventoryIdentitiesTx(ctx, tx, r.schema, allocations); err != nil {
 		return err
 	}
 	for _, alloc := range allocations {
@@ -483,6 +527,9 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 			alloc.AllocatedG = item.NeedG
 		}
 		allocations = append(allocations, alloc)
+	}
+	if err := lockFinishedInventoryIdentitiesTx(ctx, tx, r.schema, allocations); err != nil {
+		return err
 	}
 
 	if warehouse == "finished_goods" && len(items) > 0 {
