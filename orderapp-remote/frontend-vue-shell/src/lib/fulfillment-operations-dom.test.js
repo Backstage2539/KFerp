@@ -15,7 +15,7 @@ async function loadComponent(relative) {
   let code = compileScript(descriptor, { id: file.pathname, inlineTemplate: true }).content
   const imports = [...code.matchAll(/import (\w+) from ['"]([^'"]+\.vue)['"]/g)]
   for (const [statement, name, path] of imports) {
-    if (['FulfillmentInventory', 'FulfillmentOperationsOverview'].includes(name)) {
+    if (['DataPanel', 'FulfillmentInventory', 'FulfillmentOperationsOverview'].includes(name)) {
       const dependency = await loadComponent(new URL(path, file).href)
       code = code.replace(statement, `import ${name} from ${JSON.stringify(dependency.url)}`)
     } else code = code.replace(statement, `const ${name}={name:${JSON.stringify(name)},render(){return null}}`)
@@ -61,5 +61,44 @@ test('operations opens on todos, keeps five historical modules and gates only ne
   button('库存').click();await flush();assert.match(document.body.textContent,/可立即发货/);assert.equal(button('调整库存').disabled,true)
   button('订单').click();await flush();assert.ok(document.querySelector('.fulfillment-orders-table'))
   button('概览').click();await flush();document.querySelector('[data-todo="pending_shipment"]').click();await flush();assert.ok(calls.some(u=>u.includes('fulfillment_queue=pending_shipment')))
+ }finally{app.unmount();globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
+})
+
+test('费用页默认打开未出账流水，提供日期快捷方式且不渲染代发表单', async () => {
+ const {component}=await loadComponent('../views/CustomerFulfillmentView.vue')
+ const original=globalThis.fetch
+ globalThis.fetch=async url=>{const path=String(url);if(path.includes('/overview'))return response({customer_id:8,customer_name:'测试客户',capabilities:['settlement','direct_ship'],operations:{},assets:[]});if(path.includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});if(path.includes('/settings'))return response({modes:[]});if(path.includes('/options'))return response({});return response({imports:[],rows:[],summary:{orders:0}})}
+ const app=createApp(component,{viewParams:{},customerContextId:8});app.config.warnHandler=()=>{}
+ try{app.mount(document.querySelector('#app'));await flush();button('费用').click();await flush()
+  assert.ok(document.querySelector('.billing-workspace'))
+  assert.ok(button('未出账'))
+  assert.ok(button('已出账'))
+  assert.equal(document.querySelector('.direct-ship-panel'),null)
+  for(const label of ['全部日期','上月','当月','自定义']) assert.ok(button(label),`missing date option ${label}`)
+  assert.equal(document.querySelector('.settlement-row'),null)
+ }finally{app.unmount();globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
+})
+
+test('费用页按选择来源预览出账并生成已出账账单', async () => {
+ const {component}=await loadComponent('../views/CustomerFulfillmentView.vue')
+ const original=globalThis.fetch;let previewRequest=null;let issueRequest=null
+ const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())
+ const orderCharge={id:'order_goods:order:61',charge_type:'order_goods',source_type:'order',source_id:61,source_no:'SO-FEE-61',occurred_at:today,description:'订单款项',receivable_cents:10000,received_cents:7500,due_cents:2500,confirmation_status:'confirmed',settlement_status:'unsettled'}
+ const issuedBill={batch_id:9,customer_id:8,settlement_no:'CB-9',customer_name:'测试客户',period_from:today,period_to:today,fee_items:1,total_amount_cents:2500,current_received_cents:0,current_due_amount_cents:2500,lines:[{...orderCharge,amount_cents:2500,issued_received_cents:7500}]}
+ globalThis.fetch=async (url,options={})=>{const path=String(url);if(path.includes('/overview'))return response({customer_id:8,customer_name:'测试客户',capabilities:['settlement','direct_ship'],operations:{},assets:[],fees:[]});if(path.includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});if(path.includes('/settings/sales-order/seals'))return response({rows:[]});if(path.includes('/settings'))return response({modes:[]});if(path.includes('/billing/summary'))return response({total_unpaid_cents:2500,unbilled_cents:2500,issued_cents:0});if(path.includes('/billing/unbilled'))return response({rows:[orderCharge],total:1,page:1,limit:25});if(path.endsWith('/settlements/preview')){previewRequest=JSON.parse(options.body);return response({preview_version:'version-1',customer_id:8,customer_name:'测试客户',period_from:today,period_to:today,fee_items:1,total_amount_cents:2500,lines:[{...orderCharge,amount_cents:2500,issued_received_cents:7500}]})}if(path.endsWith('/settlements/issue')){issueRequest=JSON.parse(options.body);return response(issuedBill)}if(path.endsWith('/billing/bills/9/pdf-settings'))return response({customer_id:8,settlement_id:9,seal_asset_id:0,placements:[]});if(path.endsWith('/billing/bills/9'))return response(issuedBill);if(path.includes('/billing/bills'))return response({rows:[issuedBill],total:1,page:1,limit:25});return response({imports:[],rows:[],summary:{orders:0}})}
+ const app=createApp(component,{viewParams:{},customerContextId:8});app.config.warnHandler=()=>{}
+ try{app.mount(document.querySelector('#app'));await flush();button('费用').click();await flush()
+  const sourceCheckbox=document.querySelector('input[aria-label="选择SO-FEE-61"]');assert.ok(sourceCheckbox);sourceCheckbox.checked=true;sourceCheckbox.dispatchEvent(new Event('change',{bubbles:true}));await flush()
+  button('出账（1）').click();await flush()
+  assert.match(document.querySelector('.billing-preview').textContent,/SO-FEE-61/)
+  assert.match(document.querySelector('.billing-preview').textContent,/100\.00/)
+  assert.match(document.querySelector('.billing-preview').textContent,/75\.00/)
+  assert.match(document.querySelector('.billing-preview').textContent,/25\.00/)
+  assert.deepEqual(previewRequest.sources,[{charge_type:'order_goods',source_type:'order',source_id:61}])
+  button('确认出账').click();await flush()
+  assert.equal(issueRequest.preview_version,'version-1')
+  assert.ok(issueRequest.idempotency_key)
+  assert.match(document.body.textContent,/已出账 CB-9，1 笔，合计 ¥25\.00/)
+  assert.ok(document.querySelector('.billing-bill-drawer'))
  }finally{app.unmount();globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
 })

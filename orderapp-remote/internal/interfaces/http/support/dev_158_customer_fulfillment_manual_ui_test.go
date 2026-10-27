@@ -13,6 +13,8 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 	account := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerFulfillmentView.vue")))
 	orderEntry := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	portalView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerProcessingPortalView.vue")))
+	directShipForm := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "components", "CustomerDirectShipForm.vue")))
+	fulfillmentAPI := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "api", "customer-fulfillment.js")))
 	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md")))
 
 	if !strings.Contains(app, "import OperationManualView from './views/OperationManualView.vue'") &&
@@ -41,14 +43,15 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 		"fetchCustomerFulfillmentOptions",
 		"parseRecipientText",
 		"selectProcessingProduct",
-		"selectDirectShipProduct",
+		"CustomerDirectShipForm",
+		"activeTab === 'dispatch' && activeAction === 'directShip'",
 		"selectAdjustmentItem",
 		"历史收件信息",
 		"解析收件信息",
 		"submitCustomerFulfillmentProcessingWorkOrder",
 		"submitCustomerFulfillmentDirectShipOrder",
 	} {
-		if !strings.Contains(account, want) && !strings.Contains(orderEntry, want) && !strings.Contains(portalView, want) {
+		if !strings.Contains(account, want) && !strings.Contains(orderEntry, want) && !strings.Contains(portalView, want) && !strings.Contains(directShipForm, want) && !strings.Contains(fulfillmentAPI, want) {
 			t.Fatalf("CustomerFulfillmentView.vue missing manual entry %q", want)
 		}
 	}

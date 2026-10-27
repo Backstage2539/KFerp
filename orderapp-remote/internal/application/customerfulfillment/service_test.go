@@ -508,6 +508,24 @@ func TestServiceCreateSettlementRequiresPeriod(t *testing.T) {
 	}
 }
 
+func TestServiceCreateSettlementValidatesChargeTypes(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{settlementResult: SettlementResult{BatchID: 12}}
+	svc := NewService(repo)
+	base := CreateSettlementCommand{CustomerID: 1, PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31"}
+	for _, types := range [][]string{{}, {"unknown_fee"}} {
+		cmd := base
+		cmd.ChargeTypes = types
+		if _, err := svc.CreateSettlement(context.Background(), cmd); err == nil {
+			t.Fatalf("CreateSettlement charge_types=%v err=nil, want validation error", types)
+		}
+	}
+	cmd := base
+	cmd.ChargeTypes = []string{"order_goods", "shipping", "direct_ship_service"}
+	if _, err := svc.CreateSettlement(context.Background(), cmd); err != nil {
+		t.Fatalf("CreateSettlement valid charge types: %v", err)
+	}
+}
+
 func directShipWorkbookForServiceTest(t *testing.T) *excelize.File {
 	t.Helper()
 	wb := excelize.NewFile()

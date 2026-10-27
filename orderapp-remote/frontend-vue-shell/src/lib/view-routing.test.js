@@ -72,7 +72,10 @@ test('customer fulfillment workbench renders sections from capability helpers', 
   assert.match(source, /workbenchSections\.processing/)
   assert.match(source, /workbenchSections\.directShip/)
   assert.match(source, /workbenchSections\.inventory/)
-  assert.match(source, /workbenchSections\.settlement/)
+  assert.match(source, /billingView/)
+  assert.match(source, /loadBillingWorkspace/)
+  assert.match(source, /确认出账/)
+  assert.match(source, /billing-summary-grid/)
 })
 
 test('orders view exposes recipient snapshots and fee breakdowns', () => {

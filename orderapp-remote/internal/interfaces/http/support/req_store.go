@@ -252,6 +252,16 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-740-CUSTOMER-FEES-BILLING-LEDGER", title: "客户费用以未出账流水和已出账账单管理，支持确认出账及账单Excel/PDF公章导出", status: "review", assignee: "Van", evidence: "develop a1f775455be672d13b9f333ef4a1327ffe3b8793 deployed; authenticated development browser verified fee totals and unbilled ledger; docs/acceptance/2026-10-27-customer-fees-billing.md"},
+		{table: "req_dev", code: "DEV-PR740-01", title: "费用流水分页筛选、三类金额汇总及历史账单读取", status: "done", assignee: "Codex", evidence: "billing API/PostgreSQL tests; customer-billing.test.js"},
+		{table: "req_dev", code: "DEV-PR740-02", title: "费用预览和正式出账事务、来源快照、幂等及旧草稿释放", status: "done", assignee: "Codex", evidence: "TestIssueBilling*; TestReleaseLegacyBillingDraftsPreservesSnapshotsAndSkipsProcessingRuns; stale-preview rollback"},
+		{table: "req_dev", code: "DEV-PR740-03", title: "账单详情、Excel/PDF费用明细及可追溯公章设置", status: "done", assignee: "Codex", evidence: "customer bill export tests; PDF 70-line rendered pagination inspection; PDF layout audit test"},
+		{table: "req_dev", code: "DEV-PR740-04", title: "费用Vue工作台、操作手册、验收和开发环境交付", status: "done", assignee: "Codex", evidence: "development deploy a1f775455be672d13b9f333ef4a1327ffe3b8793; authenticated browser verified 合计未付/未出账/已出账, date filters and unbilled ledger; OP_MANUAL_CUSTOMER_FULFILLMENT.md; docs/acceptance/2026-10-27-customer-fees-billing.md"},
+		{table: "req_product", code: "PR-739-CUSTOMER-FEES-MONTHLY-SHIPPED-COLOR", title: "客户费用展示订单款项、运费与代发服务费，支持按期间合并/分开月结；已发货且已付款订单整行绿色", status: "review", assignee: "Van", evidence: "docs/acceptance/2026-10-27-customer-fees-monthly.md"},
+		{table: "req_dev", code: "DEV-PR739-01", title: "订单行颜色按付款与发货状态组合展示", status: "done", assignee: "Codex", evidence: "order-row-state.test.js; fulfillment-operations-dom.test.js RED/GREEN"},
+		{table: "req_dev", code: "DEV-PR739-02", title: "客户费用按订单货款、已入账运费、代发服务费分类并确认状态", status: "done", assignee: "Codex", evidence: "customer fulfillment PostgreSQL fee, account and billing tests; API tests"},
+		{table: "req_dev", code: "DEV-PR739-03", title: "按日期和费用类型生成月结，链接销售单与费用来源并防重复、留操作日志", status: "done", assignee: "Codex", evidence: "TestCreateSettlementSelectedSourcesSnapshotsOnlyUnpaidAndAudits; TestCreateSettlementOverlappingScopesDoNotDuplicateSourcesAndRefreshDraft"},
+		{table: "req_dev", code: "DEV-PR739-04", title: "更新工作台交互、前端手册、验收证据并开发交付", status: "done", assignee: "Codex", evidence: "7701bbae5d8845446a485436175439d9c0953c25 development deployment; authenticated browser period chooser/default fees/legacy entry checks; docs/acceptance/2026-10-27-customer-fees-monthly.md"},
 		{table: "req_product", code: "PR-738-ORDER-PROGRESS-SHIPPING-REMATCH", title: "ERP与小程序统一留厂入库及库存代发状态，支持寄件列表重新匹配", status: "doing", assignee: "Van", evidence: "docs/acceptance/2026-10-27-order-progress-rematch.md"},
 		{table: "req_dev", code: "DEV-PR738-01", title: "统一履约状态摘要、实物分配校验及两端展示", status: "done", assignee: "Codex", evidence: "TestOrderProgressUsesOwnPhysicalStockAndStableSpec; orderProgress.test.ts"},
 		{table: "req_dev", code: "DEV-PR738-02", title: "未处理寄件重新匹配、幂等、回滚与操作日志", status: "done", assignee: "Codex", evidence: "TestShippingReturnRepeatAfterReceiptRematchesWithoutShipping"},

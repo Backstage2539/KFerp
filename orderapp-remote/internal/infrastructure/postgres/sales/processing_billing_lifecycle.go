@@ -158,6 +158,18 @@ func (r Repository) ReverseProcessingBilling(ctx context.Context, cmd salesapp.R
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_settlement_batches SET status='reversed' WHERE id=$1`, r.schema), source.SettlementBatchID); err != nil {
 		return salesapp.ProcessingBillingLifecycleResult{}, err
 	}
+	var settlementLinesExist bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_settlement_lines", r.schema)).Scan(&settlementLinesExist); err != nil {
+		return salesapp.ProcessingBillingLifecycleResult{}, err
+	}
+	if settlementLinesExist {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_settlement_lines SET reversed_at=now() WHERE settlement_batch_id=$1 AND reversed_at IS NULL`, r.schema), source.SettlementBatchID); err != nil {
+			return salesapp.ProcessingBillingLifecycleResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fee_items SET settlement_batch_id=0,status='unsettled' WHERE settlement_batch_id=$1 AND status='settled'`, r.schema), source.SettlementBatchID); err != nil {
+			return salesapp.ProcessingBillingLifecycleResult{}, err
+		}
+	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_processing_bill", &source.ID, "reverse", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(source.Status), postgresinfra.StrPtr(salesapp.ProcessingBillingStatusReversed), postgresinfra.AuditMeta{
 		"customer_id": source.CustomerID, "settlement_batch_id": source.SettlementBatchID, "reversal_billing_run_id": reversal.BillingRunID, "reason": cmd.Reason,
 	}); err != nil {

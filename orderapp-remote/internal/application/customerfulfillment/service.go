@@ -82,10 +82,150 @@ type ApplyImportCommand struct {
 }
 
 type CreateSettlementCommand struct {
+	CustomerID  int64
+	PeriodFrom  string
+	PeriodTo    string
+	ChargeTypes []string
+	CreatedBy   string
+}
+
+type BillingQuery struct {
 	CustomerID int64
-	PeriodFrom string
-	PeriodTo   string
-	CreatedBy  string
+	FeeType    string
+	Status     string
+	DateFrom   string
+	DateTo     string
+	Page       int
+	Limit      int
+}
+
+type BillingSource struct {
+	ChargeType string `json:"charge_type"`
+	SourceType string `json:"source_type"`
+	SourceID   int64  `json:"source_id"`
+}
+
+type BillingCharge struct {
+	ID string `json:"id"`
+	BillingSource
+	SourceNo           string `json:"source_no,omitempty"`
+	Description        string `json:"description,omitempty"`
+	OccurredAt         string `json:"occurred_at"`
+	ReceivableCents    int64  `json:"receivable_cents"`
+	ReceivedCents      int64  `json:"received_cents"`
+	DueCents           int64  `json:"due_cents"`
+	ConfirmationStatus string `json:"confirmation_status"`
+	SettlementStatus   string `json:"settlement_status"`
+}
+
+type BillingTotals struct {
+	TotalUnpaidCents int64 `json:"total_unpaid_cents"`
+	UnbilledCents    int64 `json:"unbilled_cents"`
+	IssuedCents      int64 `json:"issued_cents"`
+}
+
+type BillingBill struct {
+	SettlementResult
+	CustomerName   string `json:"customer_name"`
+	Status         string `json:"status"`
+	IssuedAt       string `json:"issued_at"`
+	ReceivedCents  int64  `json:"current_received_cents"`
+	DueAmountCents int64  `json:"current_due_amount_cents"`
+}
+
+type BillingPage struct {
+	Rows  []BillingCharge `json:"rows"`
+	Total int             `json:"total"`
+	Page  int             `json:"page"`
+	Limit int             `json:"limit"`
+}
+
+type BillingBillsPage struct {
+	Rows  []BillingBill `json:"rows"`
+	Total int           `json:"total"`
+	Page  int           `json:"page"`
+	Limit int           `json:"limit"`
+}
+
+type BillingPDFPlacement struct {
+	PageNumber      int     `json:"page_number"`
+	X               float64 `json:"x"`
+	Y               float64 `json:"y"`
+	Width           float64 `json:"width"`
+	Height          float64 `json:"height"`
+	Kind            string  `json:"kind,omitempty"`
+	Resizable       bool    `json:"resizable,omitempty"`
+	LockAspectRatio bool    `json:"lock_aspect_ratio,omitempty"`
+	MinWidth        float64 `json:"min_width,omitempty"`
+	MinHeight       float64 `json:"min_height,omitempty"`
+}
+
+type BillingPDFSettings struct {
+	CustomerID   int64                 `json:"customer_id"`
+	SettlementID int64                 `json:"settlement_id"`
+	SealAssetID  int64                 `json:"seal_asset_id"`
+	Placements   []BillingPDFPlacement `json:"placements"`
+}
+
+type BillingPreviewCommand struct {
+	CustomerID int64           `json:"customer_id"`
+	Sources    []BillingSource `json:"sources"`
+	Actor      string          `json:"-"`
+}
+
+type BillingPreview struct {
+	PreviewVersion   string                  `json:"preview_version"`
+	CustomerID       int64                   `json:"customer_id"`
+	CustomerName     string                  `json:"customer_name"`
+	PeriodFrom       string                  `json:"period_from"`
+	PeriodTo         string                  `json:"period_to"`
+	FeeItems         int                     `json:"fee_items"`
+	TotalAmountCents int64                   `json:"total_amount_cents"`
+	Lines            []SettlementLineSummary `json:"lines"`
+}
+
+type IssueBillingCommand struct {
+	BillingPreviewCommand
+	PreviewVersion string `json:"preview_version"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+type BillingRepository interface {
+	BillingSummary(context.Context, int64) (BillingTotals, error)
+	ListUnbilledCharges(context.Context, BillingQuery) (BillingPage, error)
+	ListIssuedBills(context.Context, BillingQuery) (BillingBillsPage, error)
+	GetIssuedBill(context.Context, int64, int64) (BillingBill, error)
+	PreviewBilling(context.Context, BillingPreviewCommand) (BillingPreview, error)
+	IssueBilling(context.Context, IssueBillingCommand) (BillingBill, error)
+	GetBillingPDFSettings(context.Context, int64, int64) (BillingPDFSettings, error)
+	SaveBillingPDFSettings(context.Context, BillingPDFSettings, string) (BillingPDFSettings, error)
+}
+
+var customerSettlementChargeTypes = map[string]struct{}{
+	"order_goods": {}, "shipping": {}, "direct_ship_service": {}, "product": {},
+	"roasting": {}, "labor": {}, "material": {}, "processing": {}, "packaging": {}, "storage": {}, "adjustment": {},
+}
+
+func NormalizeSettlementChargeTypes(values []string) ([]string, error) {
+	if values == nil { // Old callers retain the original all-unsettled-fees behavior.
+		return nil, nil
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("at least one charge type is required")
+	}
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if _, ok := customerSettlementChargeTypes[value]; !ok {
+			return nil, fmt.Errorf("invalid settlement charge type: %s", value)
+		}
+		if !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out, nil
 }
 
 var (
@@ -399,12 +539,48 @@ type ApplyResult struct {
 }
 
 type SettlementResult struct {
-	BatchID          int64  `json:"batch_id"`
-	CustomerID       int64  `json:"customer_id"`
-	PeriodFrom       string `json:"period_from"`
-	PeriodTo         string `json:"period_to"`
-	FeeItems         int    `json:"fee_items"`
-	TotalAmountCents int64  `json:"total_amount_cents"`
+	BatchID          int64                   `json:"batch_id"`
+	CustomerID       int64                   `json:"customer_id"`
+	SettlementNo     string                  `json:"settlement_no,omitempty"`
+	PeriodFrom       string                  `json:"period_from"`
+	PeriodTo         string                  `json:"period_to"`
+	ChargeTypes      []string                `json:"charge_types,omitempty"`
+	FeeItems         int                     `json:"fee_items"`
+	ReceivableCents  int64                   `json:"receivable_cents"`
+	TotalAmountCents int64                   `json:"total_amount_cents"`
+	ReceivedCents    int64                   `json:"received_cents"`
+	DueAmountCents   int64                   `json:"due_amount_cents"`
+	Lines            []SettlementLineSummary `json:"lines,omitempty"`
+	ChargeTotals     SettlementChargeTotals  `json:"charge_totals"`
+}
+
+type SettlementLineSummary struct {
+	ID                  int64  `json:"id,omitempty"`
+	ChargeType          string `json:"charge_type"`
+	SourceType          string `json:"source_type"`
+	SourceID            int64  `json:"source_id"`
+	SourceNo            string `json:"source_no,omitempty"`
+	Description         string `json:"description,omitempty"`
+	OccurredAt          string `json:"occurred_at"`
+	ReceivableCents     int64  `json:"receivable_cents"`
+	AmountCents         int64  `json:"amount_cents"`
+	ReceivedCents       int64  `json:"received_cents"`
+	IssuedReceivedCents int64  `json:"issued_received_cents,omitempty"`
+	DueCents            int64  `json:"due_cents"`
+	ConfirmationStatus  string `json:"confirmation_status"`
+	SettlementStatus    string `json:"settlement_status"`
+}
+
+type SettlementChargeTotals struct {
+	OrderGoodsReceivableCents      int64 `json:"order_goods_receivable_cents"`
+	OrderGoodsReceivedCents        int64 `json:"order_goods_received_cents"`
+	OrderGoodsDueCents             int64 `json:"order_goods_due_cents"`
+	ShippingReceivableCents        int64 `json:"shipping_receivable_cents"`
+	ShippingReceivedCents          int64 `json:"shipping_received_cents"`
+	ShippingDueCents               int64 `json:"shipping_due_cents"`
+	DirectShipServiceCents         int64 `json:"direct_ship_service_cents"`
+	DirectShipServiceReceivedCents int64 `json:"direct_ship_service_received_cents"`
+	DirectShipServiceDueCents      int64 `json:"direct_ship_service_due_cents"`
 }
 
 type FulfillmentOperations struct {
@@ -435,6 +611,8 @@ type Overview struct {
 	DirectShipOrders []DirectShipOrderSummary `json:"direct_ship_orders,omitempty"`
 	Fees             []FeeItemSummary         `json:"fees,omitempty"`
 	Settlements      []SettlementSummary      `json:"settlements,omitempty"`
+	OrderCharges     []SettlementLineSummary  `json:"order_charges,omitempty"`
+	ChargeTotals     SettlementChargeTotals   `json:"charge_totals"`
 	PriceLists       []CustomerPriceList      `json:"price_lists,omitempty"`
 }
 
@@ -480,18 +658,26 @@ type FeeItemSummary struct {
 	SettlementBatchID int64  `json:"settlement_batch_id"`
 	OccurredAt        string `json:"occurred_at"`
 
-	FeeType     string `json:"fee_type"`
-	FeeName     string `json:"fee_name"`
-	AmountCents int64  `json:"amount_cents"`
-	Source      string `json:"source,omitempty"`
+	FeeType            string `json:"fee_type"`
+	FeeName            string `json:"fee_name"`
+	AmountCents        int64  `json:"amount_cents"`
+	Source             string `json:"source,omitempty"`
+	ConfirmationStatus string `json:"confirmation_status"`
+	SettlementStatus   string `json:"settlement_status"`
+	ReceivedCents      int64  `json:"received_cents"`
+	DueCents           int64  `json:"due_cents"`
 }
 
 type SettlementSummary struct {
-	BatchID          int64  `json:"batch_id"`
-	PeriodFrom       string `json:"period_from"`
-	PeriodTo         string `json:"period_to"`
-	Status           string `json:"status"`
-	TotalAmountCents int64  `json:"total_amount_cents"`
+	BatchID          int64                   `json:"batch_id"`
+	PeriodFrom       string                  `json:"period_from"`
+	PeriodTo         string                  `json:"period_to"`
+	Status           string                  `json:"status"`
+	TotalAmountCents int64                   `json:"total_amount_cents"`
+	ReceivedCents    int64                   `json:"received_cents"`
+	DueAmountCents   int64                   `json:"due_amount_cents"`
+	ChargeTypes      []string                `json:"charge_types,omitempty"`
+	Lines            []SettlementLineSummary `json:"lines,omitempty"`
 }
 
 type Repository interface {
@@ -939,8 +1125,161 @@ func (s *Service) CreateSettlement(ctx context.Context, cmd CreateSettlementComm
 	}
 	cmd.PeriodFrom = from.Format("2006-01-02")
 	cmd.PeriodTo = to.Format("2006-01-02")
+	cmd.ChargeTypes, err = NormalizeSettlementChargeTypes(cmd.ChargeTypes)
+	if err != nil {
+		return SettlementResult{}, err
+	}
 	cmd.CreatedBy = strings.TrimSpace(cmd.CreatedBy)
 	return s.repo.CreateSettlement(ctx, cmd)
+}
+
+func (s *Service) billingRepository() (BillingRepository, error) {
+	repo, ok := s.repo.(BillingRepository)
+	if !ok {
+		return nil, fmt.Errorf("customer billing unavailable")
+	}
+	return repo, nil
+}
+
+func (s *Service) BillingSummary(ctx context.Context, customerID int64) (BillingTotals, error) {
+	if customerID <= 0 {
+		return BillingTotals{}, fmt.Errorf("customer required")
+	}
+	repo, err := s.billingRepository()
+	if err != nil {
+		return BillingTotals{}, err
+	}
+	return repo.BillingSummary(ctx, customerID)
+}
+
+func (s *Service) ListUnbilledCharges(ctx context.Context, query BillingQuery) (BillingPage, error) {
+	if query.CustomerID <= 0 {
+		return BillingPage{}, fmt.Errorf("customer required")
+	}
+	if query.Page <= 0 {
+		query.Page = 1
+	}
+	if query.Limit <= 0 || query.Limit > 200 {
+		query.Limit = 50
+	}
+	repo, err := s.billingRepository()
+	if err != nil {
+		return BillingPage{}, err
+	}
+	return repo.ListUnbilledCharges(ctx, query)
+}
+
+func (s *Service) ListIssuedBills(ctx context.Context, query BillingQuery) (BillingBillsPage, error) {
+	if query.CustomerID <= 0 {
+		return BillingBillsPage{}, fmt.Errorf("customer required")
+	}
+	if query.Page <= 0 {
+		query.Page = 1
+	}
+	if query.Limit <= 0 || query.Limit > 200 {
+		query.Limit = 50
+	}
+	repo, err := s.billingRepository()
+	if err != nil {
+		return BillingBillsPage{}, err
+	}
+	return repo.ListIssuedBills(ctx, query)
+}
+
+func (s *Service) GetIssuedBill(ctx context.Context, customerID, batchID int64) (BillingBill, error) {
+	if customerID <= 0 || batchID <= 0 {
+		return BillingBill{}, fmt.Errorf("bill required")
+	}
+	repo, err := s.billingRepository()
+	if err != nil {
+		return BillingBill{}, err
+	}
+	return repo.GetIssuedBill(ctx, customerID, batchID)
+}
+
+func (s *Service) PreviewBilling(ctx context.Context, cmd BillingPreviewCommand) (BillingPreview, error) {
+	if cmd.CustomerID <= 0 {
+		return BillingPreview{}, fmt.Errorf("customer required")
+	}
+	if len(cmd.Sources) == 0 {
+		return BillingPreview{}, fmt.Errorf("at least one billing source is required")
+	}
+	if err := validateBillingSources(cmd.Sources); err != nil {
+		return BillingPreview{}, err
+	}
+	repo, err := s.billingRepository()
+	if err != nil {
+		return BillingPreview{}, err
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return repo.PreviewBilling(ctx, cmd)
+}
+
+func (s *Service) IssueBilling(ctx context.Context, cmd IssueBillingCommand) (BillingBill, error) {
+	if cmd.CustomerID <= 0 {
+		return BillingBill{}, fmt.Errorf("customer required")
+	}
+	if strings.TrimSpace(cmd.PreviewVersion) == "" || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+		return BillingBill{}, fmt.Errorf("preview version and idempotency key required")
+	}
+	if len(cmd.Sources) == 0 {
+		return BillingBill{}, fmt.Errorf("at least one billing source is required")
+	}
+	if err := validateBillingSources(cmd.Sources); err != nil {
+		return BillingBill{}, err
+	}
+	repo, err := s.billingRepository()
+	if err != nil {
+		return BillingBill{}, err
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	return repo.IssueBilling(ctx, cmd)
+}
+
+func (s *Service) GetBillingPDFSettings(ctx context.Context, customerID, settlementID int64) (BillingPDFSettings, error) {
+	if customerID <= 0 || settlementID <= 0 {
+		return BillingPDFSettings{}, fmt.Errorf("bill required")
+	}
+	repo, err := s.billingRepository()
+	if err != nil {
+		return BillingPDFSettings{}, err
+	}
+	return repo.GetBillingPDFSettings(ctx, customerID, settlementID)
+}
+
+func (s *Service) SaveBillingPDFSettings(ctx context.Context, settings BillingPDFSettings, actor string) (BillingPDFSettings, error) {
+	if settings.CustomerID <= 0 || settings.SettlementID <= 0 {
+		return BillingPDFSettings{}, fmt.Errorf("bill required")
+	}
+	if len(settings.Placements) > 100 {
+		return BillingPDFSettings{}, fmt.Errorf("too many seal placements")
+	}
+	for _, p := range settings.Placements {
+		if p.PageNumber <= 0 || p.X < 0 || p.Y < 0 || p.Width <= 0 || p.Height <= 0 {
+			return BillingPDFSettings{}, fmt.Errorf("seal placement invalid")
+		}
+	}
+	repo, err := s.billingRepository()
+	if err != nil {
+		return BillingPDFSettings{}, err
+	}
+	return repo.SaveBillingPDFSettings(ctx, settings, strings.TrimSpace(actor))
+}
+
+func validateBillingSources(sources []BillingSource) error {
+	seen := make(map[string]struct{}, len(sources))
+	for _, source := range sources {
+		if _, ok := customerSettlementChargeTypes[source.ChargeType]; !ok || source.SourceID <= 0 || strings.TrimSpace(source.SourceType) == "" {
+			return fmt.Errorf("billing source invalid")
+		}
+		key := fmt.Sprintf("%s|%s|%d", source.ChargeType, source.SourceType, source.SourceID)
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("duplicate billing source")
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
 }
 
 func (s *Service) Overview(ctx context.Context, query OverviewQuery) (Overview, error) {

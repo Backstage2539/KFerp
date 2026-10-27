@@ -31,8 +31,8 @@ func TestCustomerSettlementEmptyPeriodGuardEvidenceExists(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"没有费用可结算时不会生成 0 元空结算批次",
-		"no fees for settlement period",
+		"没有可出账费用时不会生成空账单",
+		"没有可出账费用时检查日期",
 	} {
 		if !strings.Contains(manual, want) {
 			t.Fatalf("customer fulfillment manual missing empty settlement marker %q", want)

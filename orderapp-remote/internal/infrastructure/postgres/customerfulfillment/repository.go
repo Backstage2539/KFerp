@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"orderapp/internal/infrastructure/postgres/orderweight"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -5116,18 +5117,8 @@ func (r *Repository) appliedSettlementFeeItemIDByFeeLineTx(ctx context.Context, 
 
 func mapSettlementFeeType(feeType string) string {
 	switch strings.TrimSpace(feeType) {
-	case "roasting", "grinding", "drip_bag":
-		return "processing"
-	case "bagging", "boxing", "packaging":
-		return "packaging"
-	case "direct_ship_service":
-		return "direct_ship_service"
-	case "storage":
-		return "storage"
-	case "shipping":
-		return "shipping"
-	case "adjustment":
-		return "adjustment"
+	case "product", "roasting", "labor", "material", "processing", "shipping", "direct_ship_service", "packaging", "storage", "adjustment":
+		return strings.TrimSpace(feeType)
 	default:
 		return ""
 	}
@@ -5151,10 +5142,23 @@ func (r *Repository) CreateSettlement(ctx context.Context, cmd app.CreateSettlem
 	if err != nil {
 		return app.SettlementResult{}, fmt.Errorf("period to invalid")
 	}
+	selectedTypes := append([]string(nil), cmd.ChargeTypes...)
+	sort.Strings(selectedTypes)
+	if cmd.ChargeTypes != nil && len(selectedTypes) == 0 {
+		return app.SettlementResult{}, fmt.Errorf("at least one charge type is required")
+	}
 	settlementNo := fmt.Sprintf("CS-%d-%s-%s", cmd.CustomerID, periodFrom.Format("20060102"), periodTo.Format("20060102"))
+	if cmd.ChargeTypes != nil {
+		scope := sha256.Sum256([]byte(strings.Join(selectedTypes, ",")))
+		settlementNo += "-" + hex.EncodeToString(scope[:4])
+	}
 
 	var batchID int64
 	var batchStatus string
+	refreshed := false
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1), hashtext('customer_settlement'))`, fmt.Sprint(cmd.CustomerID)); err != nil {
+		return app.SettlementResult{}, err
+	}
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, status
 		FROM %s.customer_settlement_batches
@@ -5164,6 +5168,13 @@ func (r *Repository) CreateSettlement(ctx context.Context, cmd app.CreateSettlem
 	if err == nil {
 		if strings.TrimSpace(batchStatus) != "draft" {
 			return app.SettlementResult{}, fmt.Errorf("settlement batch is not draft")
+		}
+		refreshed = true
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.customer_settlement_lines WHERE settlement_batch_id=$1`, r.schema), batchID); err != nil {
+			return app.SettlementResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fee_items SET settlement_batch_id=0,status='unsettled' WHERE customer_id=$1 AND settlement_batch_id=$2 AND status='settled'`, r.schema), cmd.CustomerID, batchID); err != nil {
+			return app.SettlementResult{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE %s.customer_settlement_batches
@@ -5186,26 +5197,136 @@ func (r *Repository) CreateSettlement(ctx context.Context, cmd app.CreateSettlem
 		return app.SettlementResult{}, err
 	}
 
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.customer_fee_items
-		SET settlement_batch_id=$4, status='settled'
-		WHERE customer_id=$1
-			AND status='unsettled'
-			AND settlement_batch_id=0
-			AND occurred_at::date BETWEEN $2 AND $3
-	`, r.schema), cmd.CustomerID, periodFrom, periodTo, batchID); err != nil {
+	result := app.SettlementResult{
+		BatchID: batchID, CustomerID: cmd.CustomerID, SettlementNo: settlementNo,
+		PeriodFrom: periodFrom.Format("2006-01-02"), PeriodTo: periodTo.Format("2006-01-02"),
+		ChargeTypes: selectedTypes, Lines: make([]app.SettlementLineSummary, 0),
+	}
+	insertLine := func(line app.SettlementLineSummary) error {
+		line.SettlementStatus = "draft"
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_settlement_lines(
+				customer_id,settlement_batch_id,charge_type,source_type,source_id,source_no,description,occurred_at,
+				receivable_cents,amount_cents,received_cents,due_cents,confirmation_status,settlement_status
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8::date,$9,$10,$11,$12,$13,'draft')
+			RETURNING id
+		`, r.schema), cmd.CustomerID, batchID, line.ChargeType, line.SourceType, line.SourceID, line.SourceNo, line.Description,
+			line.OccurredAt, line.ReceivableCents, line.AmountCents, line.ReceivedCents, line.DueCents, line.ConfirmationStatus).Scan(&line.ID)
+		if err == nil {
+			result.Lines = append(result.Lines, line)
+			result.FeeItems++
+			result.ReceivableCents += line.ReceivableCents
+			result.ReceivedCents += line.ReceivedCents
+			result.DueAmountCents += line.DueCents
+			result.TotalAmountCents += line.DueCents
+			switch line.ChargeType {
+			case "order_goods":
+				result.ChargeTotals.OrderGoodsReceivableCents += line.ReceivableCents
+				result.ChargeTotals.OrderGoodsReceivedCents += line.ReceivedCents
+				result.ChargeTotals.OrderGoodsDueCents += line.DueCents
+			case "shipping":
+				result.ChargeTotals.ShippingReceivableCents += line.ReceivableCents
+				result.ChargeTotals.ShippingReceivedCents += line.ReceivedCents
+				result.ChargeTotals.ShippingDueCents += line.DueCents
+			case "direct_ship_service":
+				result.ChargeTotals.DirectShipServiceCents += line.ReceivableCents
+				result.ChargeTotals.DirectShipServiceReceivedCents += line.ReceivedCents
+				result.ChargeTotals.DirectShipServiceDueCents += line.DueCents
+			}
+		}
+		return err
+	}
+
+	if cmd.ChargeTypes != nil {
+		if settlementTypeSelected(selectedTypes, "order_goods") || settlementTypeSelected(selectedTypes, "shipping") {
+			lines, err := customerSettlementOrderChargesTx(ctx, tx, r.schema, cmd.CustomerID, periodFrom.Format("2006-01-02"), periodTo.Format("2006-01-02"), false, 0)
+			if err != nil {
+				return app.SettlementResult{}, err
+			}
+			for _, line := range lines {
+				if !settlementTypeSelected(selectedTypes, line.ChargeType) || line.DueCents == 0 || line.ChargeType == "shipping" {
+					continue
+				}
+				var alreadyLinked bool
+				if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customer_settlement_lines WHERE customer_id=$1 AND charge_type=$2 AND source_type=$3 AND source_id=$4 AND reversed_at IS NULL)`, r.schema), cmd.CustomerID, line.ChargeType, line.SourceType, line.SourceID).Scan(&alreadyLinked); err != nil {
+					return app.SettlementResult{}, err
+				}
+				if !alreadyLinked {
+					if err := insertLine(line); err != nil {
+						return app.SettlementResult{}, err
+					}
+				}
+			}
+		}
+	}
+
+	fees, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT f.id,COALESCE(f.source_type,''),COALESCE(f.source_id,0),f.fee_type,COALESCE(f.note,''),
+			ROUND(f.amount*100)::bigint, to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),
+			COALESCE(o.order_no,'')
+		FROM %s.customer_fee_items f
+		LEFT JOIN %s.orders o ON f.source_type='order' AND o.id=f.source_id AND o.customer_id=f.customer_id
+		WHERE f.customer_id=$1
+		  AND (f.occurred_at AT TIME ZONE 'Asia/Shanghai')::date BETWEEN $2 AND $3
+		  AND f.status NOT IN ('reversed','void')
+		  AND (f.settlement_batch_id=0 OR f.settlement_batch_id=$4)
+		  AND (f.status='unsettled' OR f.settlement_batch_id=$4)
+		ORDER BY f.occurred_at,f.id
+	`, r.schema, r.schema), cmd.CustomerID, periodFrom, periodTo, batchID)
+	if err != nil {
 		return app.SettlementResult{}, err
 	}
-	var feeItems int
-	var totalCents int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COUNT(*), COALESCE(ROUND(SUM(amount) * 100),0)::bigint
-		FROM %s.customer_fee_items
-		WHERE customer_id=$1
-			AND settlement_batch_id=$2
-	`, r.schema), cmd.CustomerID, batchID).Scan(&feeItems, &totalCents); err != nil {
+	type settlementFeeSource struct {
+		feeID, sourceID, amountCents                    int64
+		sourceType, feeType, note, occurredAt, sourceNo string
+	}
+	feeSources := make([]settlementFeeSource, 0)
+	for fees.Next() {
+		var fee settlementFeeSource
+		if err := fees.Scan(&fee.feeID, &fee.sourceType, &fee.sourceID, &fee.feeType, &fee.note, &fee.amountCents, &fee.occurredAt, &fee.sourceNo); err != nil {
+			fees.Close()
+			return app.SettlementResult{}, err
+		}
+		feeSources = append(feeSources, fee)
+	}
+	if err := fees.Err(); err != nil {
+		fees.Close()
 		return app.SettlementResult{}, err
 	}
+	fees.Close()
+	for _, fee := range feeSources {
+		feeID, amountCents := fee.feeID, fee.amountCents
+		sourceType, feeType, note, occurredAt, sourceNo := fee.sourceType, fee.feeType, fee.note, fee.occurredAt, fee.sourceNo
+		chargeType := mapSettlementFeeType(feeType)
+		if chargeType == "" || cmd.ChargeTypes != nil && !settlementTypeSelected(selectedTypes, chargeType) || amountCents == 0 {
+			continue
+		}
+		if cmd.ChargeTypes != nil {
+			var alreadyLinked bool
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customer_settlement_lines WHERE customer_id=$1 AND charge_type=$2 AND source_type='customer_fee_item' AND source_id=$3 AND reversed_at IS NULL)`, r.schema), cmd.CustomerID, chargeType, feeID).Scan(&alreadyLinked); err != nil {
+				return app.SettlementResult{}, err
+			}
+			if alreadyLinked {
+				continue
+			}
+		}
+		line := app.SettlementLineSummary{
+			ChargeType: chargeType, SourceType: "customer_fee_item", SourceID: feeID,
+			SourceNo: sourceNo, Description: strings.TrimSpace(note), OccurredAt: occurredAt,
+			ReceivableCents: amountCents, AmountCents: amountCents, DueCents: amountCents,
+			ConfirmationStatus: settlementFeeConfirmation(sourceType, chargeType), SettlementStatus: "draft",
+		}
+		if line.Description == "" {
+			line.Description = chargeType
+		}
+		if err := insertLine(line); err != nil {
+			return app.SettlementResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fee_items SET settlement_batch_id=$2,status='settled' WHERE id=$1 AND customer_id=$3`, r.schema), feeID, batchID, cmd.CustomerID); err != nil {
+			return app.SettlementResult{}, err
+		}
+	}
+	feeItems := result.FeeItems
 	if feeItems == 0 {
 		return app.SettlementResult{}, fmt.Errorf("no fees for settlement period")
 	}
@@ -5213,20 +5334,107 @@ func (r *Repository) CreateSettlement(ctx context.Context, cmd app.CreateSettlem
 		UPDATE %s.customer_settlement_batches
 		SET total_amount=$2
 		WHERE id=$1
-	`, r.schema), batchID, fmt.Sprintf("%.2f", float64(totalCents)/100)); err != nil {
+	`, r.schema), batchID, fmt.Sprintf("%.2f", float64(result.TotalAmountCents)/100)); err != nil {
+		return app.SettlementResult{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(cmd.CreatedBy), "customer_fulfillment_settlement", &batchID,
+		map[bool]string{true: "refresh", false: "create"}[refreshed], postgresinfra.StrPtr("total_amount"), nil,
+		postgresinfra.StrPtr(fmt.Sprintf("%.2f", float64(result.TotalAmountCents)/100)), postgresinfra.AuditMeta{
+			"customer_id": cmd.CustomerID, "settlement_no": settlementNo, "period_from": periodFrom.Format("2006-01-02"),
+			"period_to": periodTo.Format("2006-01-02"), "charge_types": selectedTypes, "line_count": result.FeeItems,
+			"receivable_cents": result.ReceivableCents, "received_cents": result.ReceivedCents, "due_cents": result.DueAmountCents,
+		}); err != nil {
 		return app.SettlementResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return app.SettlementResult{}, err
 	}
-	return app.SettlementResult{
-		BatchID:          batchID,
-		CustomerID:       cmd.CustomerID,
-		PeriodFrom:       periodFrom.Format("2006-01-02"),
-		PeriodTo:         periodTo.Format("2006-01-02"),
-		FeeItems:         feeItems,
-		TotalAmountCents: totalCents,
-	}, nil
+	return result, nil
+}
+
+func settlementTypeSelected(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func settlementFeeConfirmation(_, _ string) string {
+	return "confirmed"
+}
+
+type settlementQueryRunner interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func customerSettlementOrderChargesTx(ctx context.Context, tx settlementQueryRunner, schema string, customerID int64, from, to string, includeZero bool, limit int) ([]app.SettlementLineSummary, error) {
+	query := fmt.Sprintf(`
+		SELECT o.id,COALESCE(o.order_no,''),COALESCE(to_char(COALESCE(o.order_date,o.document_date,o.created_at::date),'YYYY-MM-DD'),''),
+			COALESCE(ps.name,''),round(CASE WHEN COALESCE(o.grand_total,0)<>0
+				OR COALESCE(NULLIF(to_jsonb(o)->>'discount_amount','')::numeric,0)<>0
+				OR COALESCE(o.shipping_amount,0)<>0
+				OR COALESCE(NULLIF(to_jsonb(o)->>'rounding_amount','')::numeric,0)<>0
+				THEN COALESCE(o.grand_total,0) ELSE COALESCE(o.total_amount,0) END*100)::bigint,
+			round(COALESCE(o.shipping_amount,0)*100)::bigint,
+			COALESCE(NULLIF(to_jsonb(o)->>'prepayment_amount','')::numeric,0),
+			COALESCE(NULLIF(to_jsonb(o)->>'payment_goods_amount','')::numeric,0),
+			COALESCE(NULLIF(to_jsonb(o)->>'payment_shipping_amount','')::numeric,0)
+		FROM %s.orders o
+		LEFT JOIN %s.pay_statuses ps ON ps.id=o.pay_status_id
+		WHERE o.customer_id=$1 AND COALESCE(o.is_void,false)=false
+		  AND COALESCE(o.order_date,o.document_date,o.created_at::date) BETWEEN $2::date AND $3::date
+		  AND (NOT COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false)
+		       OR COALESCE((to_jsonb(o)->>'confirmation_accepted_revision')::bigint,0)>0)
+		  AND COALESCE(to_jsonb(o)->>'portal_service_code','') NOT IN ('direct_ship','processing_ship')
+		ORDER BY COALESCE(o.order_date,o.document_date,o.created_at::date) DESC,o.id DESC
+	`, schema, schema)
+	args := []any{customerID, from, to}
+	if limit > 0 {
+		query += " LIMIT $4"
+		args = append(args, limit)
+	}
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.SettlementLineSummary, 0)
+	for rows.Next() {
+		var id, totalCents, shippingCents int64
+		var orderNo, occurredAt, payStatus string
+		var prepayment, paymentGoods, paymentShipping float64
+		if err := rows.Scan(&id, &orderNo, &occurredAt, &payStatus, &totalCents, &shippingCents, &prepayment, &paymentGoods, &paymentShipping); err != nil {
+			return nil, err
+		}
+		goodsReceivable := max(int64(0), totalCents-shippingCents)
+		shippingReceivable := max(int64(0), shippingCents)
+		goodsReceived := int64(math.Round(paymentGoods * 100))
+		shippingReceived := int64(math.Round(paymentShipping * 100))
+		if goodsReceived == 0 && shippingReceived == 0 && prepayment > 0 {
+			prepaymentCents := int64(math.Round(prepayment * 100))
+			goodsReceived = min(goodsReceivable, prepaymentCents)
+			shippingReceived = min(shippingReceivable, max(int64(0), prepaymentCents-goodsReceived))
+		}
+		if strings.Contains(payStatus, "已付款") || strings.Contains(payStatus, "已收款") || strings.Contains(payStatus, "已支付") {
+			goodsReceived = goodsReceivable
+			shippingReceived = shippingReceivable
+		}
+		goodsReceived = min(goodsReceivable, max(int64(0), goodsReceived))
+		shippingReceived = min(shippingReceivable, max(int64(0), shippingReceived))
+		goodsDue := max(int64(0), goodsReceivable-goodsReceived)
+		shippingDue := max(int64(0), shippingReceivable-shippingReceived)
+		for _, line := range []app.SettlementLineSummary{
+			{ChargeType: "order_goods", SourceType: "order", SourceID: id, SourceNo: orderNo, Description: "订单款项", OccurredAt: occurredAt, ReceivableCents: goodsReceivable, AmountCents: goodsDue, ReceivedCents: goodsReceived, DueCents: goodsDue, ConfirmationStatus: "confirmed", SettlementStatus: "unsettled"},
+			{ChargeType: "shipping", SourceType: "order", SourceID: id, SourceNo: orderNo, Description: "预估运费", OccurredAt: occurredAt, ReceivableCents: shippingReceivable, AmountCents: shippingDue, ReceivedCents: shippingReceived, DueCents: shippingDue, ConfirmationStatus: "pending_billing", SettlementStatus: "unsettled"},
+		} {
+			if includeZero || line.DueCents != 0 {
+				out = append(out, line)
+			}
+		}
+	}
+	return out, rows.Err()
 }
 
 func (r *Repository) Overview(ctx context.Context, query app.OverviewQuery) (app.Overview, error) {
@@ -5262,6 +5470,21 @@ func (r *Repository) Overview(ctx context.Context, query app.OverviewQuery) (app
 	}
 	if overview.Fees, err = r.listFeeItems(ctx, query.CustomerID); err != nil {
 		return app.Overview{}, err
+	}
+	if overview.OrderCharges, err = customerSettlementOrderChargesTx(ctx, r.pool, r.schema, query.CustomerID, "1900-01-01", "2999-12-31", true, 200); err != nil {
+		return app.Overview{}, err
+	}
+	for _, line := range overview.OrderCharges {
+		totals := &overview.ChargeTotals
+		if line.ChargeType == "order_goods" {
+			totals.OrderGoodsReceivableCents += line.ReceivableCents
+			totals.OrderGoodsReceivedCents += line.ReceivedCents
+			totals.OrderGoodsDueCents += line.DueCents
+		} else if line.ChargeType == "shipping" {
+			totals.ShippingReceivableCents += line.ReceivableCents
+			totals.ShippingReceivedCents += line.ReceivedCents
+			totals.ShippingDueCents += line.DueCents
+		}
 	}
 	if overview.Settlements, err = r.listSettlements(ctx, query.CustomerID); err != nil {
 		return app.Overview{}, err
@@ -5477,12 +5700,19 @@ func (r *Repository) listDirectShipOrders(ctx context.Context, customerID int64)
 
 func (r *Repository) listFeeItems(ctx context.Context, customerID int64) ([]app.FeeItemSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT fee_type, note, ROUND(amount * 100)::bigint, source_type, id, source_id, status, settlement_batch_id, to_char(occurred_at,'YYYY-MM-DD HH24:MI')
-		FROM %s.customer_fee_items
-		WHERE customer_id=$1
-		ORDER BY occurred_at DESC, id DESC
+		SELECT f.fee_type, f.note, ROUND(f.amount * 100)::bigint, f.source_type, f.id, f.source_id, f.status, f.settlement_batch_id,
+			to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),
+			CASE WHEN f.fee_type='direct_ship_service' OR (f.fee_type='shipping' AND f.source_type='freight_actual') THEN 'confirmed'
+				WHEN f.fee_type='shipping' THEN 'pending_confirmation' ELSE 'confirmed' END,
+			COALESCE(b.status,''),
+			CASE WHEN b.status='paid' THEN ROUND(f.amount*100)::bigint ELSE 0 END,
+			CASE WHEN b.status='paid' THEN 0 ELSE ROUND(f.amount*100)::bigint END
+		FROM %s.customer_fee_items f
+		LEFT JOIN %s.customer_settlement_batches b ON b.id=f.settlement_batch_id AND b.customer_id=f.customer_id
+		WHERE f.customer_id=$1
+		ORDER BY f.occurred_at DESC, f.id DESC
 		LIMIT 100
-	`, r.schema), customerID)
+	`, r.schema, r.schema), customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -5490,7 +5720,8 @@ func (r *Repository) listFeeItems(ctx context.Context, customerID int64) ([]app.
 	out := make([]app.FeeItemSummary, 0)
 	for rows.Next() {
 		var row app.FeeItemSummary
-		if err := rows.Scan(&row.FeeType, &row.FeeName, &row.AmountCents, &row.Source, &row.ID, &row.SourceID, &row.Status, &row.SettlementBatchID, &row.OccurredAt); err != nil {
+		if err := rows.Scan(&row.FeeType, &row.FeeName, &row.AmountCents, &row.Source, &row.ID, &row.SourceID, &row.Status, &row.SettlementBatchID, &row.OccurredAt,
+			&row.ConfirmationStatus, &row.SettlementStatus, &row.ReceivedCents, &row.DueCents); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -5520,7 +5751,43 @@ func (r *Repository) listSettlements(ctx context.Context, customerID int64) ([]a
 		if err := rows.Scan(&row.BatchID, &row.PeriodFrom, &row.PeriodTo, &row.Status, &row.TotalAmountCents); err != nil {
 			return nil, err
 		}
+		row.Lines, err = listSettlementLines(ctx, r.pool, r.schema, customerID, row.BatchID)
+		if err != nil {
+			return nil, err
+		}
+		for _, line := range row.Lines {
+			row.ReceivedCents += line.ReceivedCents
+			row.DueAmountCents += line.DueCents
+			if !settlementTypeSelected(row.ChargeTypes, line.ChargeType) {
+				row.ChargeTypes = append(row.ChargeTypes, line.ChargeType)
+			}
+		}
 		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func listSettlementLines(ctx context.Context, query settlementQueryRunner, schema string, customerID, batchID int64) ([]app.SettlementLineSummary, error) {
+	rows, err := query.Query(ctx, fmt.Sprintf(`
+		SELECT l.id,l.charge_type,l.source_type,l.source_id,l.source_no,l.description,l.occurred_at::text,l.receivable_cents,l.amount_cents,l.received_cents,l.due_cents,
+			l.confirmation_status,COALESCE(b.status,l.settlement_status)
+		FROM %s.customer_settlement_lines l
+		LEFT JOIN %s.customer_settlement_batches b ON b.id=l.settlement_batch_id AND b.customer_id=l.customer_id
+		WHERE l.customer_id=$1 AND l.settlement_batch_id=$2 AND l.reversed_at IS NULL
+		ORDER BY l.occurred_at,l.charge_type,l.source_type,l.source_id,l.id
+	`, schema, schema), customerID, batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.SettlementLineSummary, 0)
+	for rows.Next() {
+		var line app.SettlementLineSummary
+		if err := rows.Scan(&line.ID, &line.ChargeType, &line.SourceType, &line.SourceID, &line.SourceNo, &line.Description, &line.OccurredAt,
+			&line.ReceivableCents, &line.AmountCents, &line.ReceivedCents, &line.DueCents, &line.ConfirmationStatus, &line.SettlementStatus); err != nil {
+			return nil, err
+		}
+		out = append(out, line)
 	}
 	return out, rows.Err()
 }
