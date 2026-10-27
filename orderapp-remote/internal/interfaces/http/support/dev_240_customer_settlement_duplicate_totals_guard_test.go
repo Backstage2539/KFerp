@@ -33,8 +33,8 @@ func TestCustomerSettlementDuplicateTotalsGuardEvidenceExists(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"重复生成同一周期月结不会清零已结费用或结算批次金额",
-		"同一周期月结重复点击后金额变成 0",
+		"重复提交同一出账请求使用相同幂等标识时返回同一正式账单",
+		"相同来源不能重复出账",
 	} {
 		if !strings.Contains(manual, want) {
 			t.Fatalf("customer fulfillment manual missing duplicate settlement marker %q", want)

@@ -31,8 +31,8 @@ func TestCustomerSettlementNonDraftGuardEvidenceExists(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"已确认或已结算的月结批次不能通过重复生成同周期月结改动",
-		"settlement batch is not draft",
+		"已确认或已结清的正式账单不能重新生成或覆盖",
+		"不能改写已出账账单",
 	} {
 		if !strings.Contains(manual, want) {
 			t.Fatalf("customer fulfillment manual missing non-draft settlement marker %q", want)
