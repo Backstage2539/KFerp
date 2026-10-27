@@ -96,6 +96,9 @@ ALTER TABLE %s.customer_portal_profiles
 	if err := ensureSettlementSourceLineSchema(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureSettlementBillingSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureProcessingRequestSchema(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -134,6 +137,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS customer_settlement_lines_active_source_uq
 	WHERE reversed_at IS NULL;
 CREATE INDEX IF NOT EXISTS customer_settlement_lines_batch_idx
 	ON %[1]s.customer_settlement_lines(customer_id,settlement_batch_id,occurred_at,id);
+`, schema))
+	return err
+}
+
+func ensureSettlementBillingSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_issue_keys (
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	idempotency_key TEXT NOT NULL,
+	batch_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_batches(id),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(customer_id,idempotency_key)
+);
+ALTER TABLE %[1]s.customer_settlement_batches ADD COLUMN IF NOT EXISTS processing_billing_run_id BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS %[1]s.customer_settlement_bill_pdf_settings (
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	settlement_id BIGINT NOT NULL REFERENCES %[1]s.customer_settlement_batches(id) ON DELETE CASCADE,
+	seal_asset_id BIGINT NOT NULL DEFAULT 0,
+	placements JSONB NOT NULL DEFAULT '[]'::jsonb,
+	updated_by TEXT NOT NULL DEFAULT '',
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(customer_id,settlement_id)
+);
 `, schema))
 	return err
 }
