@@ -6337,10 +6337,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-744-SHARED-CUSTOMER-WORKBENCH
 - Branch: `codex/customer-shared-workbench`; base `origin/develop@d8b893f91`.
-- Status: implementation and automated verification complete; integration and development delivery pending; PR remains subject to Van acceptance.
+- Status: development deployment verified; PR is in Van review, DEV-PR744-01..04 done. Real customer-account and device acceptance remain pending.
 - Scope: cumulative retained purchases/receipts and combined shortage; new retained purchases unpaid; unify customer and internal fulfillment workspace with customer-scoped permissions.
 - DEV: DEV-PR744-01 cumulative stock and shortage; DEV-PR744-02 retained-order unpaid creation; DEV-PR744-03 shared customer workspace and isolation; DEV-PR744-04 tests, documentation and development deployment.
-- Verifier: RED/GREEN isolated PostgreSQL, customer and miniapp API isolation, Vue DOM/runtime, full Go/Vue/miniapp checks and development build. Evidence: `orderapp-remote/docs/acceptance/2026-10-28-shared-customer-workbench.md`. Real-account and device acceptance remain separate; preserve live records, no production or WeChat release.
+- Verifier: RED/GREEN isolated PostgreSQL, customer and miniapp API isolation, Vue DOM/runtime; full Go, Vue 1648/1648, miniapp 437/437, typecheck and development build. Evidence: `orderapp-remote/docs/acceptance/2026-10-28-shared-customer-workbench.md`. Real customer-account and device acceptance remain separate; no production or WeChat release.
+- Development deployed code `3824720567c7e71a8b49be8ffa720f926328c1f4`; prior source `/opt/stacks/erp/orderapp.backup.deploy-20261028135840-3824720567c7`, rollback image `kferp-orderapp-rollback:development-20261028135840-3824720567c7`. Staff browser checked 42 purchased, 0 received, gap 1 at quantity 43 and hidden payment fields; no business submission. Login 200, protected API 401/200, requirement marker present.
 
 ### PR-743-DIRECTSHIP-ENTRY-ADDRESS
 - Branch: `codex/directship-entry-address`; base `origin/develop@5cba74c0d`.
