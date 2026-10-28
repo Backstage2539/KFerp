@@ -689,6 +689,33 @@ func TestMiniCustomerFeeExportUsesCurrentCustomerAndIgnoresPageAndCategory(t *te
 	}
 }
 
+func TestMiniCustomerUnpaidScopeSurvivesExportAndRejectsConflictingDates(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{me: customerportalapp.CurrentContext{CurrentCustomerID: 9, Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilitySettlement, Enabled: true}}}}, CustomerFulfillment: fulfillment})
+	for _, path := range []string{"/api/mini/customer-account?view=order_fees&unpaid_only=1", "/api/mini/customer-account/statements.xlsx?view=order_fees&unpaid_only=1&charge_type=shipping&page=8"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !fulfillment.accountQuery.UnpaidOnly || fulfillment.accountQuery.CustomerID != 9 {
+			t.Fatalf("%s status=%d query=%+v", path, rec.Code, fulfillment.accountQuery)
+		}
+	}
+	if fulfillment.accountQuery.ChargeType != "" || fulfillment.accountQuery.Page != 1 {
+		t.Fatalf("export filters=%+v", fulfillment.accountQuery)
+	}
+	for _, path := range []string{"/api/mini/customer-account?view=order_fees&unpaid_only=invalid", "/api/mini/customer-account?view=order_fees&unpaid_only=1&date_from=2026-01-01"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s status=%d", path, rec.Code)
+		}
+	}
+}
+
 func TestMiniCustomerAccountConfirmationAndDisputeBindIdentityAndRevision(t *testing.T) {
 	fulfillment := &miniCustomerFulfillmentFake{}
 	e := echo.New()

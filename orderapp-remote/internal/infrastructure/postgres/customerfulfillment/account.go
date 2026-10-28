@@ -19,7 +19,7 @@ import (
 // CustomerAccount reads a consistent view of existing sales and fee documents.
 // Settlement batches are references to fees, never additional order receivables.
 func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (app.AccountData, error) {
-	d := app.AccountData{Rows: []app.AccountOrder{}, Fees: []app.AccountFee{}, Settlements: []app.AccountSettlement{}, DateFrom: q.DateFrom, DateTo: q.DateTo, AsOf: time.Now().In(time.FixedZone("Asia/Shanghai", 28800)).Format("2006-01-02 15:04:05"), View: q.View, ChargeType: q.ChargeType}
+	d := app.AccountData{Rows: []app.AccountOrder{}, Fees: []app.AccountFee{}, Settlements: []app.AccountSettlement{}, DateFrom: q.DateFrom, DateTo: q.DateTo, AsOf: time.Now().In(time.FixedZone("Asia/Shanghai", 28800)).Format("2006-01-02 15:04:05"), View: q.View, ChargeType: q.ChargeType, UnpaidOnly: q.UnpaidOnly}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return d, err
@@ -164,7 +164,7 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 		if strings.TrimSpace(f.FeeName) == "" {
 			f.FeeName = app.AccountFeeLabel(f.FeeType)
 		}
-		if f.SourceID > 0 {
+		if f.SourceID > 0 && !q.UnpaidOnly {
 			key := fmt.Sprintf("%s:%d:%s", f.SourceType, f.SourceID, f.FeeType)
 			if seenFeeSources[key] {
 				continue
@@ -440,6 +440,13 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 					shipmentKeys[fmt.Sprintf("%d:%s", fee.OrderID, fee.TrackingNo)] = true
 				}
 			}
+		}
+		if q.UnpaidOnly {
+			sources, sourceErr := r.loadAccountUnpaidSources(ctx, tx, q.CustomerID)
+			if sourceErr != nil {
+				return d, sourceErr
+			}
+			groups, feeSummary = app.ApplyUnpaidSources(groups, sources)
 		}
 		d.OrderFeeGroups = groups
 		d.FeeSummary = feeSummary

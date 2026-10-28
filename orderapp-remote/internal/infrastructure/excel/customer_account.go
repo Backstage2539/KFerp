@@ -87,24 +87,42 @@ func RenderCustomerOrderFeeAccount(d app.AccountData) ([]byte, error) {
 	put := func(sheet string, row int, values []any) error {
 		return f.SetSheetRow(sheet, fmt.Sprintf("A%d", row), &values)
 	}
-	if err := put("账期汇总", 1, []any{"客户费用明细", d.CustomerName, "账期", d.DateFrom, d.DateTo, "生成时间", d.AsOf}); err != nil {
+	heading := []any{"客户费用明细", d.CustomerName, "账期", d.DateFrom, d.DateTo, "生成时间", d.AsOf}
+	if d.UnpaidOnly {
+		heading = []any{"客户费用明细", d.CustomerName, "范围", "所有未付", nil, "截至", d.AsOf}
+	}
+	if err := put("账期汇总", 1, heading); err != nil {
 		return nil, err
 	}
 	s := d.FeeSummary
-	for i, row := range [][]any{
+	summaryRows := [][]any{
 		{"费用类型", "应付金额", "已付金额", "未付金额"},
 		{"商品货款", money(s.GoodsCents), nil, nil}, {"加工费", money(s.ProcessingCents), nil, nil},
 		{"代发服务费", money(s.DirectShipServiceCents), nil, nil}, {"运费", money(s.ShippingCents), nil, nil},
 		{"其他费用", money(s.OtherCents), nil, nil}, {"合计", money(s.PayableCents), money(s.PaidCents), money(s.DueCents)},
-	} {
+	}
+	if d.UnpaidOnly {
+		summaryRows[0] = []any{"费用类型", "未付金额"}
+		summaryRows[6] = []any{"合计", money(s.DueCents)}
+	}
+	for i, row := range summaryRows {
 		if err := put("账期汇总", i+3, row); err != nil {
 			return nil, err
 		}
 	}
-	if err := put("订单汇总", 1, []any{"订单号", "订单日期", "商品货款", "加工费", "代发服务费", "运费", "其他费用", "应付", "已付", "未付"}); err != nil {
+	orderHeader := []any{"订单号", "订单日期", "商品货款", "加工费", "代发服务费", "运费", "其他费用", "应付", "已付", "未付"}
+	if d.UnpaidOnly {
+		orderHeader = []any{"订单号", "订单日期", "商品货款未付", "加工费未付", "代发服务费未付", "运费未付", "其他费用未付", "未付合计"}
+	}
+	if err := put("订单汇总", 1, orderHeader); err != nil {
 		return nil, err
 	}
-	if err := put("费用明细", 1, []any{"发生日期", "订单号", "费用名称及商品", "费用类型", "来源", "金额", "付款状态", "发货时间", "寄件重量(kg)", "运单号"}); err != nil {
+	detailHeader := []any{"发生日期", "订单号", "费用名称及商品", "费用类型", "来源", "金额", "付款状态", "发货时间", "寄件重量(kg)", "运单号"}
+	if d.UnpaidOnly {
+		detailHeader[5] = "未付金额"
+		detailHeader = append(detailHeader, "原应付", "已付")
+	}
+	if err := put("费用明细", 1, detailHeader); err != nil {
 		return nil, err
 	}
 	row := 2
@@ -126,7 +144,11 @@ func RenderCustomerOrderFeeAccount(d app.AccountData) ([]byte, error) {
 					other += line.AmountCents
 				}
 			}
-			if err := put("订单汇总", orderRow, []any{group.Order.OrderNo, group.Order.OrderDate, money(goods), money(processing), money(service), money(shipping), money(other), money(group.PayableCents), money(group.PaidCents), money(group.DueCents)}); err != nil {
+			orderValues := []any{group.Order.OrderNo, group.Order.OrderDate, money(goods), money(processing), money(service), money(shipping), money(other), money(group.PayableCents), money(group.PaidCents), money(group.DueCents)}
+			if d.UnpaidOnly {
+				orderValues = orderValues[:8]
+			}
+			if err := put("订单汇总", orderRow, orderValues); err != nil {
 				return nil, err
 			}
 			orderRow++
@@ -189,7 +211,11 @@ func RenderCustomerOrderFeeAccount(d app.AccountData) ([]byte, error) {
 			if weight == "" {
 				weight = "未记录"
 			}
-			if err := put("费用明细", row, []any{line.OccurredAt, group.Order.OrderNo, name, app.AccountFeeLabel(line.FeeType), line.SourceType + " " + fmt.Sprint(line.SourceID), money(line.AmountCents), status(line.PaymentStatus), when, weight, tracking}); err != nil {
+			detailValues := []any{line.OccurredAt, group.Order.OrderNo, name, app.AccountFeeLabel(line.FeeType), line.SourceType + " " + fmt.Sprint(line.SourceID), money(line.AmountCents), status(line.PaymentStatus), when, weight, tracking}
+			if d.UnpaidOnly {
+				detailValues = append(detailValues, money(line.ReceivableCents), money(line.ReceivedCents))
+			}
+			if err := put("费用明细", row, detailValues); err != nil {
 				return nil, err
 			}
 			row++
@@ -205,6 +231,14 @@ func RenderCustomerOrderFeeAccount(d app.AccountData) ([]byte, error) {
 			return nil, err
 		}
 		if sheet == "费用明细" {
+			if d.UnpaidOnly {
+				if err = f.SetColWidth(sheet, "K", "L", 22); err != nil {
+					return nil, err
+				}
+				if err = f.SetCellStyle(sheet, "K2", fmt.Sprintf("L%d", max(2, row-1)), style); err != nil {
+					return nil, err
+				}
+			}
 			if err = f.SetCellStyle(sheet, "F2", fmt.Sprintf("F%d", max(2, row-1)), style); err != nil {
 				return nil, err
 			}

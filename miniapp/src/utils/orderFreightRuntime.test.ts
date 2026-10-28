@@ -18,8 +18,14 @@ const compiled=compileTemplate({id:'freight-runtime',filename:'EmployeeFreightEs
 const renderCode=compiled.code.replace(/import \{([^}]+)\} from "vue"/g,(_all,bindings:string)=>`const {${bindings.replace(/ as /g,':')}}=Vue`).replace('export function render','function render')
 ;(Estimate as any).render=new Function('Vue',renderCode+';return render')(Vue)
 const settle=async()=>{await Promise.resolve();await Promise.resolve();await nextTick()}
+it('successful quote does not trigger repeated previews when the amount is returned to the parent',async()=>{
+ vi.useFakeTimers();api.regions.mockReset().mockResolvedValue({regions:[]});api.templates.mockReset().mockResolvedValue({templates:[]});api.preview.mockReset().mockResolvedValue({token:'stable',policy:{},estimate_known:true,current_receivable_cents:800})
+ const state=ref(emptyFreightState()),root:Node={type:'root',children:[],props:{}}
+ const app=renderer.createApp({setup:()=>()=>h(Estimate,{token:'isolated',customerId:1,items:[{product_id:1,qty:1}],modelValue:state.value,'onUpdate:modelValue':v=>{state.value=v}})});app.provide(ssrContextKey,{modules:new Set()});app.mount(root)
+ try{await settle();await vi.advanceTimersByTimeAsync(2000);await settle();expect(api.preview).toHaveBeenCalledTimes(1);expect(state.value.autoAmountCents).toBe(800)}finally{app.unmount();vi.useRealTimers()}
+})
 it('real employee component resolves customer address, auto quotes and retains manual/free choice',async()=>{
- vi.useFakeTimers();api.regions.mockResolvedValue({regions:[]});api.templates.mockResolvedValue({templates:[]});api.resolve.mockResolvedValue({status:'resolved',destination:{province:'云南省',city:'普洱市',district:'思茅区'}});api.preview.mockImplementation(async(_t,b)=>({token:JSON.stringify(b),policy:{free_shipping:b.freight_override?.free_shipping===true},estimate_known:true,estimated_total_cents:1000,current_receivable_cents:b.freight_override?.manual_amount_cents||0}))
+ vi.useFakeTimers();api.regions.mockResolvedValue({regions:[]});api.templates.mockResolvedValue({templates:[]});api.resolve.mockResolvedValue({status:'resolved',destination:{province:'云南省',city:'普洱市',district:'思茅区'}});api.preview.mockReset().mockImplementation(async(_t,b)=>({token:JSON.stringify(b),policy:{free_shipping:b.freight_override?.free_shipping===true},estimate_known:true,estimated_total_cents:1000,current_receivable_cents:b.freight_override?.manual_amount_cents||0}))
  const state=ref(emptyFreightState()),p=reactive({customerId:0,address:'',items:[] as any[]}),amount=ref(0),exposed=ref<any>();const root:Node={type:'root',children:[],props:{}}
  const app=renderer.createApp({setup:()=>()=>h(Estimate,{...p,token:'isolated',modelValue:state.value,'onUpdate:modelValue':v=>{state.value=v},'onAmount-change':v=>{amount.value=v},ref:exposed})});app.provide(ssrContextKey,{modules:new Set()});app.mount(root)
  try{

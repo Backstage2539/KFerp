@@ -18,6 +18,11 @@ type billingRows interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }
 
+type billingReader interface {
+	billingRows
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 func (r *Repository) ListUnbilledCharges(ctx context.Context, query app.BillingQuery) (app.BillingPage, error) {
 	rows, err := r.loadUnbilledCharges(ctx, r.pool, query)
 	if err != nil {
@@ -229,13 +234,17 @@ func (r *Repository) ListIssuedBills(ctx context.Context, query app.BillingQuery
 }
 
 func (r *Repository) GetIssuedBill(ctx context.Context, customerID, batchID int64) (app.BillingBill, error) {
+	return r.getIssuedBill(ctx, r.pool, customerID, batchID, nil)
+}
+
+func (r *Repository) getIssuedBill(ctx context.Context, query billingReader, customerID, batchID int64, receipts map[int64]int64) (app.BillingBill, error) {
 	var out app.BillingBill
 	var total int64
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT b.settlement_no,COALESCE(to_char(b.period_from,'YYYY-MM-DD'),''),COALESCE(to_char(b.period_to,'YYYY-MM-DD'),''),b.status,round(b.total_amount*100)::bigint,COALESCE(to_char(b.confirmed_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),COALESCE(c.name,'') FROM %s.customer_settlement_batches b LEFT JOIN %s.customers c ON c.id=b.customer_id WHERE b.id=$1 AND b.customer_id=$2 AND b.status IN('confirmed','paid','settled') AND COALESCE(b.processing_billing_run_id,0)=0`, r.schema, r.schema), batchID, customerID).Scan(&out.SettlementNo, &out.PeriodFrom, &out.PeriodTo, &out.Status, &total, &out.IssuedAt, &out.CustomerName)
+	err := query.QueryRow(ctx, fmt.Sprintf(`SELECT b.settlement_no,COALESCE(to_char(b.period_from,'YYYY-MM-DD'),''),COALESCE(to_char(b.period_to,'YYYY-MM-DD'),''),b.status,round(b.total_amount*100)::bigint,COALESCE(to_char(b.confirmed_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),''),COALESCE(c.name,'') FROM %s.customer_settlement_batches b LEFT JOIN %s.customers c ON c.id=b.customer_id WHERE b.id=$1 AND b.customer_id=$2 AND b.status IN('confirmed','paid','settled') AND COALESCE(b.processing_billing_run_id,0)=0`, r.schema, r.schema), batchID, customerID).Scan(&out.SettlementNo, &out.PeriodFrom, &out.PeriodTo, &out.Status, &total, &out.IssuedAt, &out.CustomerName)
 	if err != nil {
 		return out, err
 	}
-	lines, err := listSettlementLines(ctx, r.pool, r.schema, customerID, batchID)
+	lines, err := listSettlementLines(ctx, query, r.schema, customerID, batchID)
 	if err != nil {
 		return out, err
 	}
@@ -252,16 +261,14 @@ func (r *Repository) GetIssuedBill(ctx context.Context, customerID, batchID int6
 		line.IssuedReceivedCents = line.ReceivedCents
 		currentReceived := int64(0)
 		if line.ChargeType == "order_goods" && line.SourceType == "order" {
-			current, err := customerSettlementOrderChargesTx(ctx, r.pool, r.schema, customerID, "1900-01-01", "2999-12-31", true, 0)
-			if err != nil {
-				return out, err
-			}
-			for _, now := range current {
-				if now.ChargeType == line.ChargeType && now.SourceID == line.SourceID {
-					currentReceived = max(int64(0), now.ReceivedCents-line.ReceivedCents)
-					break
+			if receipts == nil {
+				var err error
+				receipts, err = r.currentOrderReceipts(ctx, query, customerID)
+				if err != nil {
+					return out, err
 				}
 			}
+			currentReceived = max(int64(0), receipts[line.SourceID]-line.ReceivedCents)
 		} else if out.Status == "paid" {
 			currentReceived = line.AmountCents
 		}
@@ -277,6 +284,74 @@ func (r *Repository) GetIssuedBill(ctx context.Context, customerID, batchID int6
 		out.DueAmountCents = 0
 	}
 	return out, nil
+}
+
+func (r *Repository) currentOrderReceipts(ctx context.Context, query billingReader, customerID int64) (map[int64]int64, error) {
+	current, err := customerSettlementOrderChargesTx(ctx, query, r.schema, customerID, "1900-01-01", "2999-12-31", true, 0)
+	if err != nil {
+		return nil, err
+	}
+	receipts := make(map[int64]int64, len(current))
+	for _, line := range current {
+		if line.ChargeType == "order_goods" {
+			receipts[line.SourceID] = line.ReceivedCents
+		}
+	}
+	return receipts, nil
+}
+
+func (r *Repository) loadAccountUnpaidSources(ctx context.Context, query billingReader, customerID int64) ([]app.AccountUnpaidSource, error) {
+	charges, err := r.loadUnbilledCharges(ctx, query, app.BillingQuery{CustomerID: customerID})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]app.AccountUnpaidSource, 0, len(charges))
+	for _, line := range charges {
+		result = append(result, app.AccountUnpaidSource{ChargeType: line.ChargeType, SourceType: line.SourceType, SourceID: line.SourceID, SourceNo: line.SourceNo, Description: line.Description, OccurredAt: line.OccurredAt, ReceivableCents: line.ReceivableCents, ReceivedCents: line.ReceivedCents, DueCents: line.DueCents})
+	}
+	rows, err := query.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.customer_settlement_batches WHERE customer_id=$1 AND status IN('confirmed','paid','settled') AND COALESCE(processing_billing_run_id,0)=0 ORDER BY id`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	var receipts map[int64]int64
+	if len(ids) > 0 {
+		receipts, err = r.currentOrderReceipts(ctx, query, customerID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, id := range ids {
+		bill, err := r.getIssuedBill(ctx, query, customerID, id, receipts)
+		if err != nil {
+			return nil, err
+		}
+		var lineDue int64
+		for _, line := range bill.Lines {
+			lineDue += line.DueCents
+			if line.DueCents <= 0 {
+				continue
+			}
+			result = append(result, app.AccountUnpaidSource{ChargeType: line.ChargeType, SourceType: line.SourceType, SourceID: line.SourceID, SourceNo: line.SourceNo, Description: line.Description, OccurredAt: line.OccurredAt, ReceivableCents: line.ReceivableCents, ReceivedCents: line.IssuedReceivedCents + line.ReceivedCents, DueCents: line.DueCents})
+		}
+		if residual := bill.DueAmountCents - lineDue; bill.Status != "paid" && residual > 0 {
+			result = append(result, app.AccountUnpaidSource{ChargeType: "adjustment", SourceType: "settlement_bill", SourceID: id, SourceNo: bill.SettlementNo, Description: "历史账单未列明费用 · " + bill.SettlementNo, OccurredAt: bill.PeriodTo, ReceivableCents: residual, DueCents: residual})
+		}
+	}
+	return result, nil
 }
 
 func appendChargeType(values []string, value string) []string {

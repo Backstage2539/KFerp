@@ -2,6 +2,33 @@ package customerfulfillment
 
 import "testing"
 
+func TestUnpaidSourcesKeepPartialAndIndependentFeesWithoutRepeatingSources(t *testing.T) {
+	orders := []AccountOrder{{ID: 1, OrderNo: "SO-1", TotalCents: 10000, PaidCents: 4000, InPeriod: true}, {ID: 2, OrderNo: "SO-2", TotalCents: 5000, PaidCents: 5000, InPeriod: true}}
+	fees := []AccountFee{{ID: 20, OrderID: 2, OrderNo: "SO-2", FeeType: "shipping", AmountCents: 910, PaymentStatus: "unpaid"}, {ID: 21, OrderID: 1, OrderNo: "SO-1", FeeType: "direct_ship_service", AmountCents: 300, PaymentStatus: "paid"}}
+	groups, _ := BuildOrderFeeGroups(orders, fees)
+	sources := []AccountUnpaidSource{{ChargeType: "order_goods", SourceType: "order", SourceID: 1, ReceivableCents: 10000, ReceivedCents: 4000, DueCents: 6000}, {ChargeType: "shipping", SourceType: "customer_fee_item", SourceID: 20, ReceivableCents: 910, DueCents: 910}, {ChargeType: "shipping", SourceType: "customer_fee_item", SourceID: 20, ReceivableCents: 910, DueCents: 910}}
+	got, summary := ApplyUnpaidSources(groups, sources)
+	if len(got) != 2 || summary.GoodsCents != 6000 || summary.ShippingCents != 910 || summary.DirectShipServiceCents != 0 || summary.DueCents != 6910 || summary.PayableCents != 6910 {
+		t.Fatalf("unpaid groups=%+v summary=%+v", got, summary)
+	}
+	for _, group := range got {
+		if group.Order.ID == 1 && (len(group.FeeLines) != 1 || group.FeeLines[0].AmountCents != 6000 || group.FeeLines[0].ReceivedCents != 4000) {
+			t.Fatalf("partial payment=%+v", group)
+		}
+		if group.Order.ID == 2 && (len(group.FeeLines) != 1 || group.FeeLines[0].Category != "shipping") {
+			t.Fatalf("paid order with unpaid freight=%+v", group)
+		}
+	}
+}
+
+func TestUnpaidLegacyOrderGoodsRetainsOrderGrouping(t *testing.T) {
+	groups, _ := BuildOrderFeeGroups([]AccountOrder{{ID: 7, OrderNo: "SO-OLD", InPeriod: true}}, nil)
+	got, summary := ApplyUnpaidSources(groups, []AccountUnpaidSource{{ChargeType: "order_goods", SourceType: "order", SourceID: 7, SourceNo: "SO-OLD", ReceivableCents: 8000, DueCents: 8000}})
+	if len(got) != 1 || got[0].Unlinked || got[0].Order.ID != 7 || len(got[0].FeeLines) != 1 || summary.GoodsCents != 8000 {
+		t.Fatalf("legacy order grouping=%+v summary=%+v", got, summary)
+	}
+}
+
 func TestAccountQueryPeriodAndPayment(t *testing.T) {
 	q, err := NormalizeAccountQuery(AccountQuery{Period: "week", Anchor: "2026-09-09"})
 	if err != nil || q.DateFrom != "2026-09-07" || q.DateTo != "2026-09-13" {

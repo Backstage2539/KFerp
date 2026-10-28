@@ -103,3 +103,21 @@ func TestRenderCustomerOrderFeeAccountExportsAllGroupedChargesAndNumericMoney(t 
 		t.Fatalf("amount cell=%q err=%v", value, err)
 	}
 }
+
+func TestCustomerUnpaidExcelLabelsScopeAndUsesOutstandingAmounts(t *testing.T) {
+	d := app.AccountData{CustomerName: "测试", UnpaidOnly: true, AsOf: "2026-10-28 12:00:00", FeeSummary: app.AccountFeeSummary{GoodsCents: 6000, PayableCents: 6000, DueCents: 6000}, OrderFeeGroups: []app.AccountOrderFeeGroup{{Order: app.AccountOrder{ID: 1, OrderNo: "SO-1"}, PayableCents: 6000, DueCents: 6000, FeeLines: []app.AccountFeeLine{{AccountFee: app.AccountFee{FeeType: "product", AmountCents: 6000}, Category: "product", ReceivableCents: 10000, ReceivedCents: 4000}}}}}
+	body, err := RenderCustomerOrderFeeAccount(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book, err := excelize.OpenReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer book.Close()
+	for _, tc := range []struct{ sheet, cell, want string }{{"账期汇总", "D1", "所有未付"}, {"账期汇总", "B3", "未付金额"}, {"费用明细", "F2", "60.00"}, {"费用明细", "K2", "100.00"}, {"费用明细", "L2", "40.00"}} {
+		if got, err := book.GetCellValue(tc.sheet, tc.cell); err != nil || got != tc.want {
+			t.Fatalf("%s %s=%q err=%v want %q", tc.sheet, tc.cell, got, err, tc.want)
+		}
+	}
+}

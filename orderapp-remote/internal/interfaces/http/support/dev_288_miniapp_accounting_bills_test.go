@@ -73,7 +73,8 @@ func TestMiniappAccountingBillsSourceWiring(t *testing.T) {
 		filepath.Join("..", "miniapp", "src", "components", "CustomerBillsPanel.vue"): {
 			"buildCustomerAccountDocumentPath",
 			"费用明细",
-			"商品货款 · 折后",
+			"商品货款 ·",
+			"折后",
 			"下载 Excel",
 		},
 	} {

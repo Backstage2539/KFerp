@@ -12,6 +12,7 @@ import (
 
 type AccountQuery struct {
 	CurrentVersion bool
+	UnpaidOnly     bool
 	View           string
 	ChargeType     string
 	CustomerID     int64
@@ -133,7 +134,16 @@ type AccountShipment struct {
 
 type AccountFeeLine struct {
 	AccountFee
-	Category string `json:"category"`
+	Category        string `json:"category"`
+	ReceivableCents int64  `json:"receivable_cents,omitempty"`
+	ReceivedCents   int64  `json:"received_cents,omitempty"`
+}
+
+// AccountUnpaidSource identifies one receivable using the same source identity
+// as the ERP billing ledger. Amounts are current, not a new charge.
+type AccountUnpaidSource struct {
+	ChargeType, SourceType, SourceNo, Description, OccurredAt string
+	SourceID, ReceivableCents, ReceivedCents, DueCents        int64
 }
 
 type AccountOrderFeeGroup struct {
@@ -203,11 +213,15 @@ type AccountData struct {
 	TotalPages     int                    `json:"total_pages"`
 	View           string                 `json:"view,omitempty"`
 	ChargeType     string                 `json:"charge_type,omitempty"`
+	UnpaidOnly     bool                   `json:"unpaid_only,omitempty"`
 	FeeSummary     AccountFeeSummary      `json:"fee_summary,omitempty"`
 	OrderFeeGroups []AccountOrderFeeGroup `json:"order_fee_groups,omitempty"`
 }
 
 func NormalizeAccountQuery(q AccountQuery) (AccountQuery, error) {
+	if q.UnpaidOnly && (q.View != "order_fees" || q.DateFrom != "" || q.DateTo != "" || q.Period != "" || q.Anchor != "" || q.PayStatus != "" || q.ShipStatus != "" || q.Query != "" || q.OrderID != 0) {
+		return q, fmt.Errorf("所有未付不支持同时指定账期或订单筛选")
+	}
 	if q.View != "" && q.View != "order_fees" {
 		return q, fmt.Errorf("费用视图无效")
 	}
@@ -507,6 +521,140 @@ func accountFeeCategory(feeType string) string {
 	default:
 		return "other"
 	}
+}
+
+func ApplyUnpaidSources(groups []AccountOrderFeeGroup, sources []AccountUnpaidSource) ([]AccountOrderFeeGroup, AccountFeeSummary) {
+	key := func(kind, source string, id int64) string { return fmt.Sprintf("%s:%s:%d", kind, source, id) }
+	byKey := make(map[string]AccountUnpaidSource, len(sources))
+	keys := make([]string, 0, len(sources))
+	for _, source := range sources {
+		if source.DueCents <= 0 {
+			continue
+		}
+		k := key(source.ChargeType, source.SourceType, source.SourceID)
+		if old, exists := byKey[k]; !exists {
+			keys = append(keys, k)
+		} else if old.DueCents >= source.DueCents {
+			continue
+		}
+		byKey[k] = source
+	}
+	out := make([]AccountOrderFeeGroup, 0, len(groups))
+	var summary AccountFeeSummary
+	add := func(group *AccountOrderFeeGroup, line AccountFeeLine, source AccountUnpaidSource) {
+		line.AmountCents = source.DueCents
+		line.ReceivableCents, line.ReceivedCents = source.ReceivableCents, source.ReceivedCents
+		if source.ReceivedCents > 0 {
+			line.PaymentStatus = "partial"
+		} else {
+			line.PaymentStatus = "unpaid"
+		}
+		group.FeeLines = append(group.FeeLines, line)
+		group.PayableCents += source.DueCents
+		group.DueCents += source.DueCents
+		switch line.Category {
+		case "product":
+			summary.GoodsCents += source.DueCents
+		case "processing":
+			summary.ProcessingCents += source.DueCents
+		case "direct_ship_service":
+			summary.DirectShipServiceCents += source.DueCents
+		case "shipping":
+			summary.ShippingCents += source.DueCents
+		default:
+			summary.OtherCents += source.DueCents
+		}
+		summary.PayableCents += source.DueCents
+		summary.DueCents += source.DueCents
+	}
+	for _, original := range groups {
+		group := original
+		group.FeeLines = nil
+		group.PayableCents = 0
+		group.PaidCents = 0
+		group.DueCents = 0
+		group.RefundCents = 0
+		for _, line := range original.FeeLines {
+			k := key(line.FeeType, "customer_fee_item", line.ID)
+			if line.Category == "product" && line.SourceType == "order" {
+				k = key("order_goods", "order", original.Order.ID)
+			}
+			source, found := byKey[k]
+			if !found {
+				continue
+			}
+			add(&group, line, source)
+			delete(byKey, k)
+		}
+		if len(group.FeeLines) > 0 {
+			out = append(out, group)
+		}
+	}
+	// Legacy orders can have their receivable in total_amount while the old
+	// account snapshot has no merchandise line. Keep their order association.
+	for _, k := range keys {
+		source, found := byKey[k]
+		if !found || source.ChargeType != "order_goods" || source.SourceType != "order" {
+			continue
+		}
+		var original *AccountOrderFeeGroup
+		for i := range groups {
+			if groups[i].Order.ID == source.SourceID {
+				original = &groups[i]
+				break
+			}
+		}
+		if original == nil {
+			continue
+		}
+		index := -1
+		for i := range out {
+			if out[i].Order.ID == source.SourceID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			group := *original
+			group.FeeLines = nil
+			group.PayableCents = 0
+			group.PaidCents = 0
+			group.DueCents = 0
+			group.RefundCents = 0
+			out = append(out, group)
+			index = len(out) - 1
+		}
+		line := AccountFeeLine{AccountFee: AccountFee{OrderID: source.SourceID, OrderNo: original.Order.OrderNo, FeeType: "product", FeeName: "商品货款", SourceType: "order", SourceID: source.SourceID, OccurredAt: source.OccurredAt, IncludedInOrder: true}, Category: "product"}
+		add(&out[index], line, source)
+		delete(byKey, k)
+	}
+	var orphan *AccountOrderFeeGroup
+	for i := range out {
+		if out[i].Unlinked {
+			orphan = &out[i]
+			break
+		}
+	}
+	if orphan == nil {
+		out = append(out, AccountOrderFeeGroup{Order: AccountOrder{OrderNo: "未关联订单费用"}, Unlinked: true})
+		orphan = &out[len(out)-1]
+	}
+	for _, k := range keys {
+		source, found := byKey[k]
+		if !found {
+			continue
+		}
+		name := source.Description
+		if name == "" {
+			name = AccountFeeLabel(source.ChargeType)
+		}
+		line := AccountFeeLine{AccountFee: AccountFee{ID: source.SourceID, SourceType: source.SourceType, SourceID: source.SourceID, FeeType: source.ChargeType, FeeName: name, OccurredAt: source.OccurredAt, OrderNo: source.SourceNo}, Category: accountFeeCategory(source.ChargeType)}
+		add(orphan, line, source)
+	}
+	if len(orphan.FeeLines) == 0 {
+		out = out[:len(out)-1]
+	}
+	return out, summary
 }
 
 func FilterOrderFeeGroups(groups []AccountOrderFeeGroup, chargeType string) []AccountOrderFeeGroup {

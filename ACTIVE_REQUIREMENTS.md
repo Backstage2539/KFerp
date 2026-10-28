@@ -6335,6 +6335,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: feature branch based on `origin/develop@aa4e792a54b9`; integrated to `develop` and deployed to the development environment at `a1f775455be672d13b9f333ef4a1327ffe3b8793`. Server Go verification and `/app/login` HTTP 200 smoke passed; authenticated browser verified fee summaries and the unbilled ledger. Production and WeChat publication were not performed.
 - Notes: 订单货款仅计未收余额；旧草稿迁移保留明细快照、归还来源、记系统操作日志并跳过 processing billing run；不生成吴国宏正式账单、不登记收款、不发布 production 或微信。
 
+### PR-742-FREIGHT-DIRECTSHIP-UNPAID
+- Branch: `codex/freight-directship-unpaid`; base `origin/develop@424ab2a9c`.
+- Status: code, targeted tests, manuals and builds verified; development integration and deployment pending.
+- Scope: stop repeated freight previews, expose stock purchase in ERP direct ship, and support customer fee date ranges and all unpaid balances in page and exports.
+- DEV: DEV-PR742-01 freight preview stability; DEV-PR742-02 stock purchase entry; DEV-PR742-03 unpaid sources and exports; DEV-PR742-04 fee filters, manuals and development delivery.
+- Verifier: mounted component and API/PostgreSQL tests, Mini Program tests/build, PDF/Excel checks, Vue build and development smoke. Production and WeChat release excluded.
+
 ### PR-741-CUSTOMER-MINIAPP-FEE-LEDGER
 - Branch: `codex/customer-miniapp-fee-ledger`; base `origin/develop@d5208d5c1`.
 - Owner/session: Codex / 客户小程序费用明细与下载改造。

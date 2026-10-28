@@ -461,9 +461,17 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		}
 		page, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("page")))
 		limit, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("limit")))
+		unpaidOnly := false
+		if raw := strings.TrimSpace(c.QueryParam("unpaid_only")); raw != "" {
+			unpaidOnly, err = strconv.ParseBool(raw)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "未付筛选无效"})
+			}
+		}
 		query, err := customerfulfillmentapp.NormalizeAccountQuery(customerfulfillmentapp.AccountQuery{
 			CustomerID: current.CurrentCustomerID, Query: strings.TrimSpace(c.QueryParam("q")),
-			View: strings.TrimSpace(c.QueryParam("view")), ChargeType: strings.TrimSpace(c.QueryParam("charge_type")),
+			UnpaidOnly: unpaidOnly,
+			View:       strings.TrimSpace(c.QueryParam("view")), ChargeType: strings.TrimSpace(c.QueryParam("charge_type")),
 			DateFrom: c.QueryParam("date_from"), DateTo: c.QueryParam("date_to"), Period: c.QueryParam("period"),
 			Anchor: c.QueryParam("anchor"), PayStatus: c.QueryParam("pay_status"), ShipStatus: c.QueryParam("ship_status"),
 			Page: page, Limit: limit,

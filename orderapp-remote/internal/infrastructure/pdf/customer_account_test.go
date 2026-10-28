@@ -58,3 +58,25 @@ func TestRenderCustomerOrderFeeAccountPaginatesLongGroupedDetail(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderCustomerUnpaidFeeAccount(t *testing.T) {
+	lines := make([]app.AccountFeeLine, 35)
+	for i := range lines {
+		lines[i] = app.AccountFeeLine{AccountFee: app.AccountFee{ID: int64(i + 1), FeeType: "shipping", FeeName: "寄件费用长名称用于检验未付明细及多页展示", AmountCents: 910, OccurredAt: "2026-10-26"}, Category: "shipping", ReceivableCents: 1000, ReceivedCents: 90}
+	}
+	body, err := RenderCustomerOrderFeeAccount(app.AccountData{CustomerName: "测试客户", UnpaidOnly: true, AsOf: "2026-10-28 12:00:00", FeeSummary: app.AccountFeeSummary{ShippingCents: 31850, PayableCents: 31850, DueCents: 31850}, OrderFeeGroups: []app.AccountOrderFeeGroup{{Order: app.AccountOrder{ID: 1, OrderNo: "SO-1"}, PayableCents: 31850, DueCents: 31850, FeeLines: lines}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(body, []byte("%PDF")) || bytes.Count(body, []byte("/Type /Page")) < 2 {
+		t.Fatalf("invalid or single-page PDF, bytes=%d", len(body))
+	}
+	if dir := os.Getenv("KFERP_PDF_QA_DIR"); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "customer-unpaid-fees.pdf"), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

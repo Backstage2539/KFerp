@@ -28,6 +28,11 @@ func RenderCustomerOrderFeeAccount(d app.AccountData) ([]byte, error) {
 	money := func(value int64) string { return fmt.Sprintf("%.2f", float64(value)/100) }
 	widths := []float64{20, 36, 32, 37, 35, 22}
 	labels := []string{"发生日期", "费用及商品", "来源/运单", "发货时间/重量", "订单号", "金额"}
+	scope := fmt.Sprintf("账期：%s 至 %s", d.DateFrom, d.DateTo)
+	if d.UnpaidOnly {
+		scope = "所有未付（截至 " + d.AsOf + "）"
+		labels[5] = "未付金额"
+	}
 	newPage := func(first bool) {
 		p.AddPage()
 		p.SetXY(14, 12)
@@ -35,13 +40,17 @@ func RenderCustomerOrderFeeAccount(d app.AccountData) ([]byte, error) {
 			p.SetFont("account", "", 17)
 			p.CellFormat(0, 9, "客户费用明细", "", 1, "L", false, 0, "")
 			p.SetFont("account", "", 10)
-			p.CellFormat(0, 6, fmt.Sprintf("%s　账期：%s 至 %s", d.CustomerName, d.DateFrom, d.DateTo), "", 1, "L", false, 0, "")
+			p.CellFormat(0, 6, fmt.Sprintf("%s　%s", d.CustomerName, scope), "", 1, "L", false, 0, "")
 			p.CellFormat(0, 6, "生成时间："+d.AsOf, "", 1, "L", false, 0, "")
-			p.MultiCell(0, 5, fmt.Sprintf("商品货款 ¥%s　加工费 ¥%s　代发服务费 ¥%s\n运费 ¥%s　其他 ¥%s\n应付 ¥%s　已付 ¥%s　未付 ¥%s", money(d.FeeSummary.GoodsCents), money(d.FeeSummary.ProcessingCents), money(d.FeeSummary.DirectShipServiceCents), money(d.FeeSummary.ShippingCents), money(d.FeeSummary.OtherCents), money(d.FeeSummary.PayableCents), money(d.FeeSummary.PaidCents), money(d.FeeSummary.DueCents)), "", "L", false)
+			totals := fmt.Sprintf("商品货款 ¥%s　加工费 ¥%s　代发服务费 ¥%s\n运费 ¥%s　其他 ¥%s\n应付 ¥%s　已付 ¥%s　未付 ¥%s", money(d.FeeSummary.GoodsCents), money(d.FeeSummary.ProcessingCents), money(d.FeeSummary.DirectShipServiceCents), money(d.FeeSummary.ShippingCents), money(d.FeeSummary.OtherCents), money(d.FeeSummary.PayableCents), money(d.FeeSummary.PaidCents), money(d.FeeSummary.DueCents))
+			if d.UnpaidOnly {
+				totals = fmt.Sprintf("商品货款未付 ¥%s　加工费未付 ¥%s　代发服务费未付 ¥%s\n运费未付 ¥%s　其他未付 ¥%s\n未付合计 ¥%s", money(d.FeeSummary.GoodsCents), money(d.FeeSummary.ProcessingCents), money(d.FeeSummary.DirectShipServiceCents), money(d.FeeSummary.ShippingCents), money(d.FeeSummary.OtherCents), money(d.FeeSummary.DueCents))
+			}
+			p.MultiCell(0, 5, totals, "", "L", false)
 			p.Ln(3)
 		} else {
 			p.SetFont("account", "", 11)
-			p.CellFormat(0, 7, fmt.Sprintf("客户费用明细（续）　%s　%s 至 %s", d.CustomerName, d.DateFrom, d.DateTo), "", 1, "L", false, 0, "")
+			p.CellFormat(0, 7, fmt.Sprintf("客户费用明细（续）　%s　%s", d.CustomerName, scope), "", 1, "L", false, 0, "")
 			p.Ln(1)
 		}
 		p.SetFont("account", "", 9)
@@ -60,7 +69,11 @@ func RenderCustomerOrderFeeAccount(d app.AccountData) ([]byte, error) {
 		if group.Unlinked {
 			name = "未关联订单费用"
 		}
-		p.CellFormat(0, 6, fmt.Sprintf("%s　应付 ¥%s　已付 ¥%s　未付 ¥%s", name, money(group.PayableCents), money(group.PaidCents), money(group.DueCents)), "B", 1, "L", false, 0, "")
+		groupLabel := fmt.Sprintf("%s　应付 ¥%s　已付 ¥%s　未付 ¥%s", name, money(group.PayableCents), money(group.PaidCents), money(group.DueCents))
+		if d.UnpaidOnly {
+			groupLabel = fmt.Sprintf("%s　未付 ¥%s", name, money(group.DueCents))
+		}
+		p.CellFormat(0, 6, groupLabel, "B", 1, "L", false, 0, "")
 	}
 	drawFee := func(group app.AccountOrderFeeGroup, line app.AccountFeeLine) {
 		name := line.FeeName
@@ -76,6 +89,9 @@ func RenderCustomerOrderFeeAccount(d app.AccountData) ([]byte, error) {
 			if group.Order.DiscountCents != 0 {
 				name += fmt.Sprintf("；订单优惠¥%s", money(group.Order.DiscountCents))
 			}
+		}
+		if d.UnpaidOnly && line.ReceivedCents > 0 {
+			name += fmt.Sprintf("；原应付¥%s，已付¥%s", money(line.ReceivableCents), money(line.ReceivedCents))
 		}
 		tracking := line.TrackingNo
 		shipmentText := "未记录"

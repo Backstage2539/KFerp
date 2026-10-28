@@ -1062,6 +1062,7 @@ export type CustomerAccountData = {
   total_pages: number
   view?: 'order_fees' | string
   charge_type?: string
+  unpaid_only?: boolean
   fee_summary?: {
     goods_cents: number
     processing_cents: number
@@ -1087,7 +1088,7 @@ export type CustomerAccountShipment = {
   source: string
 }
 
-export type CustomerAccountFeeLine = CustomerAccountFee & { category: string }
+export type CustomerAccountFeeLine = CustomerAccountFee & { category: string; receivable_cents?: number; received_cents?: number }
 
 export type CustomerOrderFeeGroup = {
   order: CustomerAccountOrder
@@ -1107,6 +1108,7 @@ export type CustomerAccountFilters = {
   anchor?: string
   date_from?: string
   date_to?: string
+  unpaid_only?: boolean
   pay_status?: string
   ship_status?: string
   q?: string
@@ -2040,6 +2042,7 @@ export function buildCustomerAccountDocumentPath(kind: 'pdf' | 'xlsx', filters: 
     anchor: filters.anchor,
     date_from: filters.date_from,
     date_to: filters.date_to,
+    unpaid_only: filters.unpaid_only,
   }
   return buildCustomerAccountPath(exportFilters).replace('/api/mini/customer-account', `/api/mini/customer-account/statements.${kind}`)
 }

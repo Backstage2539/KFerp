@@ -57,6 +57,18 @@ test('补购仅带服务端确认的权益缺口，并保留原代发数量', as
   assert.equal(editor.lines.value[0].qty, 14)
 })
 
+test('库存代发可随时打开留厂购货，保留原代发草稿', async () => {
+  let editor
+  await renderToString(createSSRApp({ setup() { editor = View.setup({ customerId: 78, customerLabel: '喜沁咖啡' }, { expose() {}, emit() {} }); return () => h('div') } }))
+  editor.mode.value = 'stock'
+  editor.settings.value = { modes: [{ mode: 'stock', enabled: true, warehouse_code: 'XI-QIN' }] }
+  editor.form.receiver_name = '测试收件人'
+  editor.startStockPurchase()
+  assert.deepEqual(editor.topup.value, { warehouse_code: 'XI-QIN', items: [], kind: 'purchase' })
+  assert.equal(editor.form.receiver_name, '测试收件人')
+  assert.match(descriptor.template.content, /v-if="mode === 'stock'"[^>]*@click="startStockPurchase"/)
+})
+
 test('从当前录单新增地址时保留省市区和详细地址，供下一次地区运费核算', async () => {
   const pickerFilename = new URL('../components/CustomerRecipientPicker.vue', import.meta.url)
   const parsed = parse(fs.readFileSync(pickerFilename, 'utf8'), { filename: pickerFilename.pathname })

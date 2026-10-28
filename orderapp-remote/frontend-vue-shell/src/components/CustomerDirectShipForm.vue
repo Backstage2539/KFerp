@@ -104,7 +104,13 @@ function startTopup() {
   if (!gaps.length) { error.value = '当前没有待补购数量，请重新核价'; return }
   topup.value = { warehouse_code: activeMode.value?.warehouse_code || '', items: gaps }
 }
-async function topupSaved() { topup.value = null; notice.value = '补购留厂订单已保存；实际入客户仓后才能发货。原代发草稿已保留。'; await loadCatalog(); await check() }
+function startStockPurchase() {
+  if (mode.value !== 'stock' || saving.value) return
+  const warehouse = activeMode.value?.warehouse_code || ''
+  if (!warehouse) { error.value = '请先为库存代发绑定客户仓库'; return }
+  saveDraft(); error.value = ''; topup.value = { warehouse_code: warehouse, items: [], kind: 'purchase' }
+}
+async function topupSaved() { const purchase = topup.value?.kind === 'purchase'; topup.value = null; notice.value = `${purchase ? '留厂购货订单' : '补购留厂订单'}已保存；实际入客户仓后才能发货。原代发草稿已保留。`; await loadCatalog(); if (!purchase) await check() }
 onMounted(load)
 onBeforeUnmount(() => { saveDraft(); version += 1; previewVersion += 1; loadCycle += 1 })
 watch(() => props.customerId, async (next, previous) => { saveDraft(previous); version += 1; previewVersion += 1; mode.value = ''; Object.assign(form, { receiver_name: '', receiver_phone: '', receiver_address: '', receiver_company: '', province: '', city: '', district: '', note: '' }); lines.value = [newLine()]; requestID.value = newRequestID(); await load() })
@@ -112,9 +118,10 @@ watch(() => props.customerId, async (next, previous) => { saveDraft(previous); v
 
 <template>
   <div class="direct-ship-form">
-    <div v-if="topup" class="topup-panel"><div class="form-head"><h4>补购留厂订单</h4><button type="button" class="secondary" @click="topup = null">返回代发草稿</button></div><p>只带入超出已购权益的缺口，按正常销售价格表购买。保存后返回原代发草稿。</p><OrderEntryView :key="`${customerId}:topup`" embedded :customer-portal="customerPortal" :fulfillment-mode="customerPortal" portal-service="product_order" :customer-context-id="customerId" :customer-context-label="customerLabel" :delivery-prefill="topup" @saved="topupSaved" /></div>
+    <div v-if="topup" class="topup-panel"><div class="form-head"><h4>{{ topup.kind === 'purchase' ? '下单到库存' : '补购留厂订单' }}</h4><button type="button" class="secondary" @click="topup = null">返回代发草稿</button></div><p>{{ topup.kind === 'purchase' ? '按正常销售价格表购买，商品入客户仓后可安排代发。' : '只带入超出已购权益的缺口，按正常销售价格表购买。' }}保存后返回原代发草稿。</p><OrderEntryView :key="`${customerId}:topup`" embedded :customer-portal="customerPortal" :fulfillment-mode="customerPortal" portal-service="product_order" :customer-context-id="customerId" :customer-context-label="customerLabel" :delivery-prefill="topup" @saved="topupSaved" /></div>
     <template v-else>
       <div class="mode-choices"><button v-for="option in modes" :key="option.mode" type="button" :class="{ selected: mode === option.mode }" :disabled="loading || saving" @click="changeMode(option.mode)">{{ modeLabel(option.mode) }}</button><span v-if="!loading && !modes.length">请在门户客户配置的履约设置中启用库存代发或无库存代发。</span></div>
+      <button v-if="mode === 'stock'" type="button" class="secondary" :disabled="loading || saving" @click="startStockPurchase">下单到库存</button>
       <p v-if="mode === 'stock'" class="explanation">从绑定客户仓选择已购商品。实物优先，待入库权益可预订；超权益先补购。商品货款不重复收取。</p>
       <p v-if="mode === 'on_demand'" class="explanation">每个商品规格使用代发价格表中的唯一固定单价，任意正数量均可下单，另计代发服务费和运费。</p>
       <fieldset v-if="mode" class="entry-grid" :disabled="saving">
