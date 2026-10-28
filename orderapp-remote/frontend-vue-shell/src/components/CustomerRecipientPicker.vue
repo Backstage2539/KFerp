@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { recipientAddressSnapshot } from '../lib/customer-stock-entry'
 
-const props = defineProps({ customerId: { type: [Number, String], required: true }, currentRecipient: { type: Object, default: null }, apiBase: { type: String, default: "" } })
+const props = defineProps({ customerId: { type: [Number, String], required: true }, currentRecipient: { type: Object, default: null }, apiBase: { type: String, default: "" }, requireSaved: { type: Boolean, default: false } })
 const emit = defineEmits(['select'])
 const open = ref(false)
 const loading = ref(false)
@@ -36,7 +36,7 @@ function createFromOrder() {
   const current = props.currentRecipient || {}
   edit({ recipient_name: current.receiver_name || '', phone: current.receiver_phone || '', company: current.receiver_company || '', province: current.province || '', city: current.city || '', district: current.district || '', detail_address: current.detail_address || current.receiver_address || '', is_default: !rows.value.length })
 }
-function use(row) { if (!row.recipient_name?.trim() || !row.phone?.trim() || !row.detail_address?.trim()) { error.value = '请填写收件人、电话和详细地址'; return }; emit('select', recipientAddressSnapshot(row), row); open.value = false }
+function use(row) { if (props.requireSaved && !Number(row.id)) { error.value = '请先保存地址再使用'; return }; if (!row.recipient_name?.trim() || !row.phone?.trim() || !row.detail_address?.trim()) { error.value = '请填写收件人、电话和详细地址'; return }; emit('select', recipientAddressSnapshot(row), row); open.value = false }
 async function parse() {
   if (!paste.value.trim() || saving.value) return
   saving.value = true
@@ -83,7 +83,7 @@ watch(() => props.customerId, () => { loadVersion += 1; rows.value = []; open.va
           <label class="wide">粘贴收件信息<textarea v-model="paste" rows="2" placeholder="粘贴收件人、电话、地址" /></label><button type="button" class="secondary" :disabled="saving || !paste.trim()" @click="parse">解析收件信息</button>
           <label>收件人<input v-model.trim="form.recipient_name" required /></label><label>电话<input v-model.trim="form.phone" required /></label><label>公司 / 门店<input v-model.trim="form.company" /></label>
           <label>省<input v-model.trim="form.province" /></label><label>市<input v-model.trim="form.city" /></label><label>区 / 县<input v-model.trim="form.district" /></label><label class="wide">详细地址<input v-model.trim="form.detail_address" required /></label>
-          <label class="check"><input v-model="form.is_default" type="checkbox" />设为默认</label><div class="address-actions wide"><button type="button" class="secondary" @click="editing = false">取消编辑</button><button type="button" class="secondary" :disabled="saving" @click="use(form)">仅本单使用</button><button class="primary" type="submit" :disabled="saving">保存并使用</button></div>
+          <label class="check"><input v-model="form.is_default" type="checkbox" />设为默认</label><div class="address-actions wide"><button type="button" class="secondary" @click="editing = false">取消编辑</button><button v-if="!requireSaved" type="button" class="secondary" :disabled="saving" @click="use(form)">仅本单使用</button><button class="primary" type="submit" :disabled="saving">保存并使用</button></div>
         </form>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
       </section>

@@ -8,28 +8,18 @@ import (
 
 func TestCustomerFulfillmentP123FrontendWiring(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerFulfillmentView.vue")))
-	api := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "api", "customer-fulfillment.js")))
-	lib := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "customer-fulfillment.js")))
 	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md")))
 	req := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 
 	if strings.Contains(view, "template: `") {
 		t.Fatal("customer fulfillment view must not use runtime template strings because production Vue runtime does not compile them")
 	}
-	for _, want := range []string{
-		"当前可应用批次",
-		"应用当前类型最新批次",
-		"查看错误行",
-		"应用预览",
-		"selectedParsedBatch",
-		"fetchCustomerFulfillmentImportRows",
-		"fetchCustomerFulfillmentImportPreview",
-	} {
-		if !strings.Contains(view, want) && !strings.Contains(api, want) && !strings.Contains(lib, want) {
-			t.Fatalf("customer fulfillment P1/P2/P3 wiring missing %q", want)
+	for _, old := range []string{"当前可应用批次", "应用当前类型最新批次", "fetchCustomerFulfillmentImportRows"} {
+		if strings.Contains(view, old) {
+			t.Fatalf("obsolete import UI still present: %q", old)
 		}
 	}
-	for _, want := range []string{"应用当前类型最新批次", "错误行", "应用预览", "查看错误行"} {
+	for _, want := range []string{"历史导入", "地址簿", "库存代发"} {
 		if !strings.Contains(manual, want) {
 			t.Fatalf("customer fulfillment manual missing %q", want)
 		}

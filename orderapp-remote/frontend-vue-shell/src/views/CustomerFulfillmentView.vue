@@ -18,9 +18,8 @@
       <div v-if="activeTab !== 'overview'" class="module-toolbar"><div><h3>{{ activeModule.label }}管理</h3><p>{{ activeModule.description }}</p></div><div class="head-actions">
         <button v-if="activeTab === 'inventory'" class="secondary" type="button" @click="activeAction = activeAction === 'inventory' ? '' : 'inventory'" :disabled="!workbenchSections.inventory" :title="!workbenchSections.inventory ? '未开通库存托管，仍可查看历史库存' : ''">调整库存</button>
         <button v-if="activeTab === 'orders'" class="secondary" type="button" @click="activeAction = activeAction === 'processing' ? '' : 'processing'" :disabled="!workbenchSections.processing">提交加工工单</button>
-        <button v-if="activeTab === 'dispatch'" class="primary icon-button" type="button" @click="activeAction = activeAction === 'directShip' ? '' : 'directShip'" :disabled="!workbenchSections.directShip"><IconPlus :size="17" />新建代发</button>
+        <template v-if="activeTab === 'dispatch'"><button v-for="option in dispatchOptions" :key="option.mode" class="primary" type="button" :disabled="!workbenchSections.directShip || !option.enabled" :class="{ selected: activeAction === 'directShip' && dispatchMode === option.mode }" :aria-pressed="activeAction === 'directShip' && dispatchMode === option.mode" @click="openDirectShip(option.mode)">{{ option.label }}</button></template>
         <button v-if="activeTab === 'fees' && billingView === 'unbilled'" class="primary" type="button" @click="openBillingPreview" :disabled="!selectedBillingSources.size || billingPreviewLoading">出账{{ selectedBillingSources.size ? `（${selectedBillingSources.size}）` : '' }}</button>
-        <button class="secondary" type="button" @click="activeAction = activeAction === 'import' ? '' : 'import'" :disabled="!workbenchSections.imports">导入数据</button>
       </div></div>
       <p v-if="activeTab !== 'overview' && !moduleCanCreate" class="readonly-notice">此客户未开通当前业务，历史数据仍可查看；如需新建，请先调整客户能力与履约设置。</p>
       <FulfillmentInventory v-if="activeTab === 'inventory'" :key="normalizedCustomerId" :rows="overview.assets || []" />
@@ -31,27 +30,6 @@
       </div>
     </template>
     <section v-if="activeAction" class="panel control-panel action-panel"><div class="panel-head"><h3>{{ actionTitles[activeAction] }}</h3><button class="secondary" @click="activeAction = ''">收起</button></div>
-      <div v-if="activeAction === 'import' && workbenchSections.imports" class="import-row">
-        <div class="segmented">
-          <button
-            v-for="option in visibleImportTypes"
-            :key="option.value"
-            type="button"
-            :class="{ active: selectedImportType === option.value }"
-            @click="selectedImportType = option.value">
-            {{ option.label }}
-          </button>
-        </div>
-        <label class="file-picker">
-          <span>Excel 文件</span>
-          <input type="file" accept=".xlsx,.xls" @change="onFileChange" />
-          <strong>{{ selectedFileName || '未选择文件' }}</strong>
-        </label>
-        <button class="primary" type="button" @click="parseImport" :disabled="loading || !normalizedCustomerId || !selectedFile">解析导入</button>
-        <button class="secondary" type="button" @click="applyLatest" :disabled="loading || !selectedParsedBatchId">应用当前类型最新批次</button>
-        <span v-if="!normalizedCustomerId" class="muted import-hint">先选择客户再上传 Excel</span>
-      </div>
-
       <div class="ops-grid">
         <div v-if="activeAction === 'processing' && workbenchSections.processing" class="ops-panel">
           <h3>提交加工工单</h3>
@@ -105,8 +83,9 @@
         </div>
 
         <div v-if="activeTab === 'dispatch' && activeAction === 'directShip' && workbenchSections.directShip" class="ops-panel direct-ship-panel">
-          <h3>{{ submitCopy.formTitle }}</h3>
           <CustomerDirectShipForm
+            :key="`${customerId}:${dispatchMode}`"
+            :external-mode="dispatchMode"
             :customer-id="customerId"
             :customer-label="selectedCustomerLabel"
             @saved="onFulfillmentOrderSaved" />
@@ -162,84 +141,7 @@
 
     </section>
 
-    <section v-if="activeAction === 'import' && selectedParsedBatch" class="panel apply-panel">
-      <div class="panel-head">
-        <div>
-          <h3>当前可应用批次</h3>
-          <p>{{ selectedParsedBatchLabel }}</p>
-        </div>
-        <button class="secondary" type="button" @click="loadApplyPreview" :disabled="loading || !selectedParsedBatchId">刷新预览</button>
-      </div>
-      <div class="batch-line">
-        <span>ID {{ selectedParsedBatch.id }}</span>
-        <span>{{ importTypeLabel(selectedParsedBatch.import_type) }}</span>
-        <span>{{ rowStatusLabel(selectedParsedBatch.status) }}</span>
-        <span>有效 {{ selectedParsedBatch.summary?.valid_rows || 0 }}</span>
-        <span>错误 {{ selectedParsedBatch.summary?.invalid_rows || 0 }}</span>
-      </div>
-      <div v-if="applyPreviewEffects.length" class="preview-grid">
-        <div v-for="effect in applyPreviewEffects" :key="effect.label" class="preview-item">
-          <span>{{ effect.label }}</span>
-          <strong>{{ effect.value }}</strong>
-        </div>
-      </div>
-      <div v-if="applyPreview?.warning" class="muted">{{ applyPreview.warning }}</div>
-    </section>
-
-    <section ref="resultAnchor" v-if="activeAction === 'import' && summaryCards.length" class="metric-grid">
-      <div v-for="card in summaryCards" :key="card.label" class="metric">
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value }}</strong>
-      </div>
-    </section>
-
-    <section v-if="activeAction === 'import' && (invalidRows.length || latestInvalidCount)" class="panel">
-      <div class="panel-head">
-        <h3>错误行</h3>
-      </div>
-      <div v-if="latestInvalidCount && !invalidRows.length" class="muted">最近批次有 {{ latestInvalidCount }} 行错误，请在导入批次中查看源文件。</div>
-      <div v-if="invalidRowGroups.length" class="error-groups">
-        <div v-for="group in invalidRowGroups" :key="group.key">
-          <strong>{{ group.count }}</strong>
-          <span>{{ group.sheet_name }} / {{ group.row_type }} / {{ group.error }}</span>
-        </div>
-      </div>
-      <table v-if="invalidRows.length">
-        <thead>
-          <tr><th>表</th><th>行号</th><th>类型</th><th>错误</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in invalidRows" :key="`${row.sheet_name}-${row.row_no}-${row.row_type}`">
-            <td>{{ row.sheet_name }}</td>
-            <td>{{ row.row_no }}</td>
-            <td>{{ row.row_type }}</td>
-            <td>{{ row.error }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
     <section class="grid-2">
-      <DataPanel v-if="activeAction === 'import'" title="导入批次（最近 20 批）" :rows="visibleImports" empty="暂无导入批次">
-        <table>
-          <thead>
-            <tr><th>ID</th><th>类型</th><th>文件</th><th>状态</th><th>有效/错误</th><th>操作</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in visibleImports" :key="row.id">
-              <td>{{ row.id }}</td>
-              <td>{{ importTypeLabel(row.import_type) }}</td>
-              <td>{{ row.source_filename }}</td>
-              <td>{{ rowStatusLabel(row.status) }}</td>
-              <td>{{ row.summary?.valid_rows || 0 }} / {{ row.summary?.invalid_rows || 0 }}</td>
-              <td>
-                <button class="link-button" type="button" @click="loadInvalidRows(row)" :disabled="loading || !(row.summary?.invalid_rows > 0)">查看错误行</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </DataPanel>
-
       <DataPanel v-if="activeTab === 'orders'" title="加工工单（最近 100 单）" :rows="overview.processing_orders" empty="暂无加工工单">
         <table>
           <thead>
@@ -486,7 +388,7 @@
 </template>
 
 <script setup>
-import { IconBook, IconRefresh, IconSettings, IconUsers, IconPlus, IconX } from '@tabler/icons-vue'
+import { IconBook, IconRefresh, IconSettings, IconUsers, IconX } from '@tabler/icons-vue'
 import FulfillmentOperationsOverview from '../components/FulfillmentOperationsOverview.vue'
 import FulfillmentInventory from '../components/FulfillmentInventory.vue'
 import CustomerFulfillmentSettings from '../components/CustomerFulfillmentSettings.vue'
@@ -505,7 +407,7 @@ import OrderConfirmationPanel from '../components/OrderConfirmationPanel.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
 import { onBeforeUnmount as onConfirmationUnmount, onMounted as onConfirmationMount } from 'vue'
 
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import DataPanel from '../components/DataPanel.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
@@ -515,17 +417,12 @@ import CustomerDirectShipForm from '../components/CustomerDirectShipForm.vue'
 import FulfillmentFeeAdjustment from '../components/FulfillmentFeeAdjustment.vue'
 import DirectShipCancelButton from '../components/DirectShipCancelButton.vue'
 import {
-  applyCustomerFulfillmentImport,
   adjustCustomerFulfillmentCustodyInventory,
   fetchCustomerFulfillmentCustomers,
   fetchCustomerFulfillmentOrderDetail,
   fetchCustomerFulfillmentOrders,
   fetchCustomerFulfillmentOptions,
-  fetchCustomerFulfillmentImportPreview,
-  fetchCustomerFulfillmentImportRows,
-  fetchCustomerFulfillmentImports,
   fetchCustomerFulfillmentOverview,
-  parseCustomerFulfillmentImport,
   submitCustomerFulfillmentProcessingWorkOrder,
 } from '../api/customer-fulfillment'
 import {
@@ -543,18 +440,10 @@ import {
 } from '../api/customer-billing.js'
 import {
   activeCustomerFulfillmentCustomers,
-  buildImportPreviewEffects,
   customerFulfillmentCustomerOptionLabel,
   customerFulfillmentCustomerOptionMeta,
   customerFulfillmentOrderFees,
-  customerFulfillmentSubmitCopy,
   customerFulfillmentWorkbenchSections,
-  groupInvalidImportRows,
-  importSummaryCards,
-  importTypeOptions,
-  latestParsedBatchForType,
-  rowStatusLabel,
-  visibleCustomerFulfillmentImports,
 } from '../lib/customer-fulfillment'
 import { isCustomerStockOrder, customerStockProgressLabel, orderProgressLabel } from '../lib/customer-stock-entry'
 import ProductionReturnLink from '../components/ProductionReturnLink.vue'
@@ -575,7 +464,10 @@ const settingsDrawerOpen = ref(false), editingDefaults = ref(false), effectiveSe
 const settingsDrawerElement=ref(null)
 useDialogFocus(settingsDrawerOpen,settingsDrawerElement,()=>{settingsDrawerOpen.value=false})
 const activeModule = computed(() => moduleTabs.find(tab => tab.key === activeTab.value) || moduleTabs[0])
-const actionTitles = { inventory: '调整托管库存', processing: '提交加工工单', directShip: '新建代发', import: '导入数据' }
+const actionTitles = { inventory: '调整托管库存', processing: '提交加工工单', directShip: '代发订单' }
+const dispatchMode = ref('')
+const dispatchOptions = computed(() => [{ mode: 'stock', label: '库存代发' }, { mode: 'on_demand', label: '无库存代发' }].map(option => ({ ...option, enabled: Boolean(effectiveSettings.value?.modes?.some(row => row.mode === option.mode && row.enabled)) })))
+function openDirectShip(mode) { dispatchMode.value = mode; activeAction.value = 'directShip' }
 const moduleCanCreate = computed(() => ({inventory: workbenchSections.value.inventory, orders: workbenchSections.value.orders, dispatch: workbenchSections.value.directShip, fees: workbenchSections.value.settlement})[activeTab.value])
 const configurationCaption = computed(() => {
  if (!effectiveSettings.value) return '配置摘要未加载'
@@ -594,16 +486,8 @@ function handleDefaultsSaved() { loadAll() }
 function openCapabilitySettings() { window.dispatchEvent(new CustomEvent('kferp:navigate-view',{detail:{key:'customerPortalSettings',params:{customer_id:normalizedCustomerId.value},customerContext:{customerID:normalizedCustomerId.value,customerName:overview.value.customer_name || selectedCustomerLabel.value},returnNavigation:{key:'customerFulfillment',label:'返回履约运营台',params:{customer_id:normalizedCustomerId.value}}}})) }
 const customerId = ref(0)
 const customerOptions = ref([])
-const selectedImportType = ref('processing_workbook')
-const selectedFile = ref(null)
-const latestSummary = ref(null)
-const latestBatch = ref(null)
-const applyPreview = ref(null)
-const imports = ref([])
 const overview = ref({})
 const fulfillmentOptions = ref({})
-const invalidRows = ref([])
-const resultAnchor = ref(null)
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -660,22 +544,8 @@ const adjustment = reactive({
 const normalizedCustomerId = computed(() => Number(customerId.value || 0))
 const selectedCustomer = computed(() => customerOptions.value.find((row) => Number(row.id) === normalizedCustomerId.value) || null)
 const selectedCustomerLabel = computed(() => selectedCustomer.value ? customerFulfillmentCustomerOptionLabel(selectedCustomer.value) : '')
-const selectedFileName = computed(() => selectedFile.value?.name || '')
-const summaryCards = computed(() => importSummaryCards(latestSummary.value || latestBatch.value?.summary || {}))
-const latestInvalidCount = computed(() => Number((latestSummary.value || latestBatch.value?.summary || {}).invalid_rows || 0))
-const invalidRowGroups = computed(() => groupInvalidImportRows(invalidRows.value))
 const enabledCapabilities = computed(() => Array.isArray(overview.value?.capabilities) ? overview.value.capabilities : [])
-const submitCopy = computed(() => customerFulfillmentSubmitCopy(enabledCapabilities.value))
 const workbenchSections = computed(() => customerFulfillmentWorkbenchSections(enabledCapabilities.value))
-const visibleImportTypes = computed(() => importTypeOptions(enabledCapabilities.value))
-const visibleImports = computed(() => imports.value)
-const selectedParsedBatch = computed(() => latestParsedBatchForType(visibleImports.value, latestBatch.value, selectedImportType.value))
-const selectedParsedBatchId = computed(() => visibleImportTypes.value.some(o => o.value === selectedParsedBatch.value?.import_type) ? Number(selectedParsedBatch.value?.id || selectedParsedBatch.value?.batch_id || 0) : 0)
-const selectedParsedBatchLabel = computed(() => {
-  const batch = selectedParsedBatch.value
-  if (!batch) return ''
-  return `${batch.source_filename || '未命名文件'} / ${importTypeLabel(batch.import_type)}`
-})
 const customerSKUOptions = computed(() => fulfillmentOptions.value?.customer_skus || [])
 const custodyItemOptions = computed(() => fulfillmentOptions.value?.custody_items || [])
 const rawBeanOptions = computed(() => custodyItemOptions.value.filter((row) => row.item_type === 'raw_bean'))
@@ -692,25 +562,6 @@ const selectedBillSeal = computed(() => {
   const seal = billSeals.value.find(row => Number(row.id) === Number(billPDFSettings.value.seal_asset_id)) || null
   return seal ? { ...seal, url: appURL(seal.url || '') } : null
 })
-const applyPreviewEffects = computed(() => {
-  if (Array.isArray(applyPreview.value?.effects) && applyPreview.value.effects.length) return applyPreview.value.effects
-  return buildImportPreviewEffects(selectedParsedBatch.value?.summary || {})
-})
-
-watch(selectedImportType, async () => {
-  invalidRows.value = []
-  await loadApplyPreview()
-})
-
-watch(visibleImportTypes, (options) => {
-  if (options.some((option) => option.value === selectedImportType.value)) return
-  selectedImportType.value = options[0]?.value || ''
-}, { immediate: true })
-
-watch(selectedParsedBatchId, async () => {
-  await loadApplyPreview()
-})
-
 watch(() => [billingFilter.fee_type, billingFilter.date_from, billingFilter.date_to], () => {
   selectedBillingSources.value = new Map()
   billingPreview.value = null
@@ -725,10 +576,6 @@ onMounted(async () => {
   customerId.value = Number(props.customerContextId || props.viewParams.customer_id || params.get('customer_id') || 0)
   if (customerId.value) await loadAll()
 })
-
-function onFileChange(event) {
-  selectedFile.value = event.target.files?.[0] || null
-}
 
 async function loadCustomerOptions(query = '') {
   try {
@@ -769,9 +616,9 @@ watch(() => props.customerContextId, () => {
 })
 
 function resetCustomerWorkspace() {
- customerLoadSequence++; orderLoadSequence++; overview.value={}; imports.value=[]; fulfillmentOptions.value={}; fulfillmentOrders.value=[]; fulfillmentOrdersSummary.value={}; effectiveSettings.value=null
+ customerLoadSequence++; orderLoadSequence++; overview.value={}; fulfillmentOptions.value={}; fulfillmentOrders.value=[]; fulfillmentOrdersSummary.value={}; effectiveSettings.value=null
  processingProductValue.value='';processingRawBeanValue.value='';Object.assign(processingForm,{product_id:0,product_name:'',raw_bean_item_id:0,raw_bean_name:'',input_quantity_g:'',planned_output_units:'',expected_date:'',note:''});adjustmentItemValue.value='';Object.assign(adjustment,{item_type:'raw_bean',item_name:'',spec:'',quantity_g_delta:0,quantity_units_delta:0,note:''})
- activeTab.value='overview';activeAction.value='';orderQueue.value='';orderSearch.value='';settingsDrawerOpen.value=false;editingDefaults.value=false;latestBatch.value=null;latestSummary.value=null;selectedFile.value=null;invalidRows.value=[]
+ activeTab.value='overview';activeAction.value='';orderQueue.value='';orderSearch.value='';settingsDrawerOpen.value=false;editingDefaults.value=false;dispatchMode.value=''
  billingView.value='unbilled';billingTotals.value={total_unpaid_cents:0,unbilled_cents:0,issued_cents:0};unbilledCharges.value=[];issuedBills.value=[];selectedBillingSources.value=new Map();billingPreview.value=null;activeBill.value=null;billingFilter.fee_type='';billingFilter.date_from='';billingFilter.date_to='';billingDateMode.value='all';billingPage.value=1;billPage.value=1
  billingIdempotencyKey.value='';billPDFSettings.value={seal_asset_id:0,placements:[]};billSeals.value=[];billPDFPages.value=[]
 }
@@ -780,12 +627,12 @@ async function loadAll() {
   if (!id) return
   loading.value = true; error.value = ''; ok.value = ''
   try {
-    const [overviewData, importData, optionsData, settingsData] = await Promise.all([
-      fetchCustomerFulfillmentOverview(id), fetchCustomerFulfillmentImports(id), fetchCustomerFulfillmentOptions(id), apiGet(`/api/customer-fulfillment/${id}/settings`).catch(() => null),
+    const [overviewData, optionsData, settingsData] = await Promise.all([
+      fetchCustomerFulfillmentOverview(id), fetchCustomerFulfillmentOptions(id), apiGet(`/api/customer-fulfillment/${id}/settings`).catch(() => null),
     ])
     if (sequence!==customerLoadSequence || id!==normalizedCustomerId.value) return
     overview.value=overviewData || {};fulfillmentOptions.value=optionsData || {};effectiveSettings.value=settingsData
-    rememberOverviewCustomer(overviewData);imports.value=importData?.imports || overviewData?.imports || []
+    rememberOverviewCustomer(overviewData)
     if (['orders','dispatch'].includes(activeTab.value)) await loadFulfillmentOrders(fulfillmentOrdersPage.value)
     if (activeTab.value === 'fees') await loadBillingWorkspace(billingView.value === 'unbilled' ? billingPage.value : billPage.value)
   } catch (err) { if(sequence===customerLoadSequence) error.value=err.message || '加载客户履约账户失败' }
@@ -1059,48 +906,6 @@ function billingErrorMessage(message) {
   return text || '出账失败，请刷新后重试'
 }
 
-async function parseImport() {
-  if (!normalizedCustomerId.value || !selectedFile.value) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const data = await parseCustomerFulfillmentImport(normalizedCustomerId.value, selectedImportType.value, selectedFile.value)
-    latestBatch.value = data.batch || data
-    latestSummary.value = data.summary || data.batch?.summary || {}
-    invalidRows.value = data.invalid_rows || []
-    ok.value = `已解析批次 ${data.batch_id || latestBatch.value?.id || ''}`
-    await loadAll()
-    await loadApplyPreview()
-    await nextTick()
-    resultAnchor.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-  } catch (err) {
-    error.value = err.message || '解析失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function applyLatest() {
-  const batch = selectedParsedBatch.value
-  const batchId = selectedParsedBatchId.value
-  if (!batch || !batchId) return
-  const confirmed = window.confirm(`确认应用 ${importTypeLabel(batch.import_type)} 批次 ${batchId}？\n文件：${batch.source_filename || '-'}\n有效行：${batch.summary?.valid_rows || 0}\n错误行：${batch.summary?.invalid_rows || 0}`)
-  if (!confirmed) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const result = await applyCustomerFulfillmentImport(batchId)
-    ok.value = `已应用 ${result.applied_rows || 0} 行`
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '应用失败'
-  } finally {
-    loading.value = false
-  }
-}
-
 async function submitProcessingWorkOrder() {
   if (!normalizedCustomerId.value) return
   loading.value = true
@@ -1159,44 +964,6 @@ async function adjustCustody() {
     error.value = err.message || '库存调整失败'
   } finally {
     loading.value = false
-  }
-}
-
-async function loadInvalidRows(batch) {
-  const batchId = Number(batch?.id || 0)
-  if (!batchId) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const data = await fetchCustomerFulfillmentImportRows(batchId, { status: 'invalid', limit: 200 })
-    invalidRows.value = data?.rows || []
-    latestBatch.value = batch
-    latestSummary.value = batch?.summary || {}
-    ok.value = `已载入批次 ${batchId} 的错误行`
-    await nextTick()
-    resultAnchor.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-  } catch (err) {
-    error.value = err.message || '加载错误行失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadApplyPreview() {
-  const batchId = selectedParsedBatchId.value
-  if (!batchId) {
-    applyPreview.value = null
-    return
-  }
-  try {
-    applyPreview.value = await fetchCustomerFulfillmentImportPreview(batchId)
-  } catch {
-    applyPreview.value = {
-      batch: selectedParsedBatch.value,
-      effects: buildImportPreviewEffects(selectedParsedBatch.value?.summary || {}),
-      warning: '应用预览暂时不可用，请按批次摘要核对后再应用。',
-    }
   }
 }
 
@@ -1378,10 +1145,6 @@ function onFulfillmentOrderSaved(data) {
 
 async function onDirectShipCancelled() { closeOrderDetailDrawer(); ok.value = '代发已取消，预订与未结算费用已释放'; await loadAll() }
 
-function importTypeLabel(value) {
-  return importTypeOptions(enabledCapabilities.value).find((option) => option.value === value)?.label || value
-}
-
 function orderFeeLines(row) {
   return customerFulfillmentOrderFees(row)
 }
@@ -1468,6 +1231,8 @@ onConfirmationUnmount(() => stopConfirmationRefresh?.())
   color: #64748b;
 }
 
+.head-actions .primary.selected { background: #18543a; box-shadow: 0 0 0 2px #b7d9c5; }
+
 .head-actions {
   display: flex;
   gap: 8px;
@@ -1476,7 +1241,6 @@ onConfirmationUnmount(() => stopConfirmationRefresh?.())
 }
 
 .toolbar,
-.import-row,
 .settlement-row {
   display: flex;
   flex-wrap: wrap;
@@ -1499,25 +1263,6 @@ onConfirmationUnmount(() => stopConfirmationRefresh?.())
 .customer-picker-field {
   flex: 1 1 340px;
   max-width: 520px;
-}
-
-.file-picker {
-  min-width: 260px;
-}
-
-.file-picker input {
-  max-width: 260px;
-}
-
-.file-picker strong {
-  color: #0f172a;
-  font-weight: 600;
-  max-width: 260px;
-  overflow-wrap: anywhere;
-}
-
-.import-hint {
-  align-self: center;
 }
 
 .account-hint {
@@ -1731,27 +1476,6 @@ button:disabled {
   font-weight: 600;
 }
 
-.segmented {
-  display: inline-flex;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.segmented button {
-  border: 0;
-  border-radius: 0;
-}
-
-.segmented button + button {
-  border-left: 1px solid #cbd5e1;
-}
-
-.segmented .active {
-  background: #0f766e;
-  color: #fff;
-}
-
 .ops-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -1799,97 +1523,6 @@ button:disabled {
 
 .wide-field {
   grid-column: span 2;
-}
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 10px;
-}
-
-.metric {
-  border: 1px solid #d8dee4;
-  border-radius: 8px;
-  padding: 12px;
-  background: #f8fafc;
-}
-
-.metric span {
-  display: block;
-  color: #64748b;
-  font-size: 13px;
-}
-
-.metric strong {
-  display: block;
-  margin-top: 6px;
-  font-size: 22px;
-}
-
-.apply-panel {
-  display: grid;
-  gap: 10px;
-}
-
-.batch-line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.batch-line span {
-  border: 1px solid #d8dee4;
-  border-radius: 999px;
-  padding: 4px 8px;
-  background: #f8fafc;
-  color: #334155;
-  font-size: 12px;
-}
-
-.preview-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 8px;
-}
-
-.preview-item {
-  border: 1px solid #d8dee4;
-  border-radius: 8px;
-  padding: 10px;
-  background: #fff;
-}
-
-.preview-item span {
-  display: block;
-  color: #64748b;
-  font-size: 12px;
-}
-
-.preview-item strong {
-  display: block;
-  margin-top: 4px;
-  color: #0f172a;
-}
-
-.error-groups {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.error-groups div {
-  display: flex;
-  align-items: start;
-  gap: 8px;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  padding: 8px;
-  background: #fef2f2;
-  color: #991b1b;
-}
-
-.error-groups strong {
-  min-width: 28px;
 }
 
 .grid-2 {

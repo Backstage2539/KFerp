@@ -13,8 +13,6 @@ import (
 )
 
 type Service interface {
-	ParseImport(context.Context, app.ParseImportCommand) (app.ImportBatch, error)
-	ApplyImport(context.Context, app.ApplyImportCommand) (app.ApplyResult, error)
 	CustomerPortalOverview(context.Context, int64) (app.CustomerPortalOverview, error)
 	CustomerPortalOptions(context.Context, int64) (app.CustomerFulfillmentOptions, error)
 	InternalCustomerPortalOverview(context.Context, int64) (app.CustomerPortalOverview, error)
@@ -30,8 +28,6 @@ type Service interface {
 	ResetExternalUserPassword(context.Context, app.ResetExternalUserPasswordCommand) (app.CustomerExternalUser, error)
 	SetExternalUserLoginEnabled(context.Context, app.SetExternalUserLoginEnabledCommand) (app.CustomerExternalUser, error)
 	CustomerFulfillmentOptions(context.Context, int64) (app.CustomerFulfillmentOptions, error)
-	ImportPreview(context.Context, app.ImportPreviewQuery) (app.ImportPreview, error)
-	ListImportRows(context.Context, app.ListImportRowsQuery) ([]app.ImportRow, error)
 	CreateSettlement(context.Context, app.CreateSettlementCommand) (app.SettlementResult, error)
 	Overview(context.Context, app.OverviewQuery) (app.Overview, error)
 	BillingSummary(context.Context, int64) (app.BillingTotals, error)
@@ -42,7 +38,6 @@ type Service interface {
 	IssueBilling(context.Context, app.IssueBillingCommand) (app.BillingBill, error)
 	GetBillingPDFSettings(context.Context, int64, int64) (app.BillingPDFSettings, error)
 	SaveBillingPDFSettings(context.Context, app.BillingPDFSettings, string) (app.BillingPDFSettings, error)
-	ListImports(context.Context, app.ListImportsQuery) ([]app.ImportBatch, error)
 }
 
 type SalesSaver interface {
@@ -81,11 +76,6 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	e.GET("/api/customer-fulfillment/customers", api.listCustomers)
 	e.GET("/api/customer-fulfillment/:customer_id/overview", api.overview)
 	e.GET("/api/customer-fulfillment/:customer_id/options", api.options)
-	e.POST("/api/customer-fulfillment/:customer_id/imports/parse", api.parseImport)
-	e.GET("/api/customer-fulfillment/imports/:batch_id/rows", api.listImportRows)
-	e.GET("/api/customer-fulfillment/imports/:batch_id/preview", api.importPreview)
-	e.POST("/api/customer-fulfillment/imports/:batch_id/apply", api.applyImport)
-	e.GET("/api/customer-fulfillment/:customer_id/imports", api.listImports)
 	e.POST("/api/customer-fulfillment/:customer_id/settlements", api.createSettlement)
 	e.GET("/api/customer-fulfillment/:customer_id/billing/summary", api.billingSummary)
 	e.GET("/api/customer-fulfillment/:customer_id/billing/unbilled", api.unbilledCharges)

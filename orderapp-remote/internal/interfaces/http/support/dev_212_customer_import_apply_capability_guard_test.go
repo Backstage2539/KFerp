@@ -34,8 +34,8 @@ func TestCustomerImportApplyCapabilityGuardEvidenceExists(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"TestApplyImportAPICapabilityUnavailableMapsToBadRequest",
-		"customer capability direct_ship unavailable",
+		"TestRemovedFulfillmentImportEndpointsAreUnavailable",
+		"/api/customer-fulfillment/imports/55/apply",
 	} {
 		if !strings.Contains(apiTest, want) {
 			t.Fatalf("customer fulfillment API test missing import apply capability marker %q", want)

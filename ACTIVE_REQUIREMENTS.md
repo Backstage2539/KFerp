@@ -6335,6 +6335,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: feature branch based on `origin/develop@aa4e792a54b9`; integrated to `develop` and deployed to the development environment at `a1f775455be672d13b9f333ef4a1327ffe3b8793`. Server Go verification and `/app/login` HTTP 200 smoke passed; authenticated browser verified fee summaries and the unbilled ledger. Production and WeChat publication were not performed.
 - Notes: 订单货款仅计未收余额；旧草稿迁移保留明细快照、归还来源、记系统操作日志并跳过 processing billing run；不生成吴国宏正式账单、不登记收款、不发布 production 或微信。
 
+### PR-743-DIRECTSHIP-ENTRY-ADDRESS
+- Branch: `codex/directship-entry-address`; base `origin/develop@5cba74c0d`.
+- Status: code, RED/GREEN tests, API and manuals verified; development integration and deployment pending.
+- Scope: show stock/on-demand entry buttons directly, remove the obsolete fulfillment import UI and its exclusive code, eliminate manual preview interaction, use address book selection and display a single recipient line.
+- DEV: DEV-PR743-01 dispatch entries and mode isolation; DEV-PR743-02 remove old import module; DEV-PR743-03 address book and submission validation; DEV-PR743-04 verification, manuals and development delivery.
+- Verifier: RED/GREEN mounted Vue, safe preview/submit API behavior, customer scope, build, manual and development smoke. Preserve shared historical APIs and data; no production or WeChat release.
+
 ### PR-742-FREIGHT-DIRECTSHIP-UNPAID
 - Branch: `codex/freight-directship-unpaid`; base `origin/develop@424ab2a9c`.
 - Status: development delivery complete; PR-742 in Van review, DEV-PR742-01..04 done. Real-device miniapp acceptance and a successful live freight quote with an appropriately configured development customer remain pending.
