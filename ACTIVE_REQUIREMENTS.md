@@ -6337,10 +6337,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-743-DIRECTSHIP-ENTRY-ADDRESS
 - Branch: `codex/directship-entry-address`; base `origin/develop@5cba74c0d`.
-- Status: code, RED/GREEN tests, API and manuals verified; development integration and deployment pending.
+- Status: development delivery complete; PR-743 in Van review, DEV-PR743-01..04 done.
 - Scope: show stock/on-demand entry buttons directly, remove the obsolete fulfillment import UI and its exclusive code, eliminate manual preview interaction, use address book selection and display a single recipient line.
 - DEV: DEV-PR743-01 dispatch entries and mode isolation; DEV-PR743-02 remove old import module; DEV-PR743-03 address book and submission validation; DEV-PR743-04 verification, manuals and development delivery.
-- Verifier: RED/GREEN mounted Vue, safe preview/submit API behavior, customer scope, build, manual and development smoke. Preserve shared historical APIs and data; no production or WeChat release.
+- Verifier: RED/GREEN mounted Vue, safe preview/submit API behavior, customer scope, build, manual and development smoke. Preserve shared services and historical data; no production or WeChat release.
+- Deployment: `develop@101fc5c84e74e5383f923258d754abc6bda07448` via `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20261028105213-101fc5c84e74`, rollback image `kferp-orderapp-rollback:development-20261028105213-101fc5c84e74`. Login 200, protected API 401/200, old import endpoint 404; PR review and all four DEV done. Browser checked both direct modes, single-line address selection and restored draft without business writes; test customer has no on-demand price table, so no real order was submitted.
 
 ### PR-742-FREIGHT-DIRECTSHIP-UNPAID
 - Branch: `codex/freight-directship-unpaid`; base `origin/develop@424ab2a9c`.
