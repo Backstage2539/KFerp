@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { priceUsageForMode } from '../utils/customerOrderFees'
 import {orderProgressLabel, directShipProgressLabel} from '../utils/orderProgress'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { onShow, onHide } from '@dcloudio/uni-app'
@@ -260,7 +261,7 @@ function openRecipientEditor(addressID = 0) {
 
 function openPriceTablePreview() {
   saveDraft()
-  uni.navigateTo({ url: `/pages/order-price-table-preview/order-price-table-preview?usage_code=${isProductOrder.value ? 'product_order' : 'direct_ship'}` })
+  uni.navigateTo({ url: `/pages/order-price-table-preview/order-price-table-preview?usage_code=${isProductOrder.value ? 'product_order' : priceUsageForMode(fulfillmentMode.value === 'on_demand' ? 'on_demand' : 'stock')}` })
 }
 
 function fulfillmentModeLabel(value: string) { return value === 'stock' ? '库存代发' : '无库存代发' }

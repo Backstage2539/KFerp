@@ -107,4 +107,14 @@ INSERT INTO %[1]s.shipping_return_rows VALUES(1,'applied',208,'{"tracking_no":"S
 	if feeData.FeeSummary.ShippingCents != 206460 || feeData.FeeSummary.GoodsCents != 1845000 {
 		t.Fatalf("period fee summary=%+v", feeData.FeeSummary)
 	}
+	if _, err = pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.customer_fee_items(id,customer_id,source_type,source_id,fee_type,amount,currency,occurred_at,settlement_batch_id,status) VALUES(6,1,'order',208,'direct_ship_service',3,'CNY','2026-10-01',0,'unsettled')`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := repo.CustomerAccount(ctx, app.AccountQuery{CustomerID: 1, View: "order_fees", OrderIDs: []int64{208, 206}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected.OrderFeeGroups) != 1 || selected.OrderFeeGroups[0].Order.ID != 208 || selected.OrderFeeGroups[0].PayableCents != 11760 || selected.FeeSummary.ShippingCents != 1460 || selected.FeeSummary.DirectShipServiceCents != 300 {
+		t.Fatalf("selected groups=%+v totals=%+v", selected.OrderFeeGroups, selected.FeeSummary)
+	}
 }

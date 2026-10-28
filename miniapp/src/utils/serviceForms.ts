@@ -2,12 +2,7 @@ export type OrderSearchForm = {
   keyword: string
   date_from: string
   date_to: string
-  process_status: string
-  pay_status: string
-  ship_status: string
 }
-
-export type OrderStatusField = 'process_status' | 'pay_status' | 'ship_status'
 
 export type DirectShipForm = {
   source_name: string
@@ -43,7 +38,7 @@ export type FulfillmentForm = {
 }
 
 export function emptyOrderSearch(): OrderSearchForm {
-  return { keyword: '', date_from: '', date_to: '', process_status: '', pay_status: '', ship_status: '' }
+  return { keyword: '', date_from: '', date_to: '' }
 }
 
 export function emptyDirectShipForm(): DirectShipForm {

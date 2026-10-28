@@ -71,7 +71,7 @@ func TestCustomerPortalSettingsViewAndMiniappOrderDetailSource(t *testing.T) {
 		t.Fatalf("read miniapp service page: %v", err)
 	}
 	serviceSrc := string(servicePage)
-	for _, want := range []string{"item.items", "grand_total", "unit_price", "line_total", "order_date"} {
+	for _, want := range []string{"item.items", "customerOrderAmounts(item).payable", "unit_price", "line_total", "order_date"} {
 		if !strings.Contains(serviceSrc, want) {
 			t.Fatalf("miniapp order detail source missing %q", want)
 		}

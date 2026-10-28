@@ -59,7 +59,7 @@ import { useSessionStore } from '../../stores/session'
 import PriceListContent from '../../components/PriceListContent.vue'
 import { priceListSearchScope } from '../../utils/priceListSearch'
 import { configuredMiniappEnvironment } from '../../config/environment'
-import { retainedStockStatus } from '../../utils/directShipScenario'
+import { customerOrderAmounts, customerOrderPaymentStatus } from '../../utils/customerOrderFees'
 import {
   beanListPageCacheChanged,
   beanListPageCacheStorageKey,
@@ -75,7 +75,6 @@ import {
   emptyFulfillmentForm,
   emptyOrderSearch,
   type OrderSearchForm,
-  type OrderStatusField,
 } from '../../utils/serviceForms'
 import {
   buildFulfillmentOrderPayload,
@@ -124,9 +123,6 @@ const expandedCustomerPriceTableTypes = ref<string[]>([])
 const orderPage=ref(1)
 const orderSearch = ref<OrderSearchForm>(emptyOrderSearch())
 
-const defaultProcessStatusOptions = ['待处理', '生产中', '生产完成', '库存待发货', '无需生产']
-const defaultPayStatusOptions = ['未付款', '已付款', '未收款', '已收款']
-const defaultShipStatusOptions = ['未发货', '待发货', '已发货']
 
 const fulfillmentForm = ref(emptyFulfillmentForm())
 const prefillProductID = ref(0)
@@ -202,9 +198,6 @@ const resaleDraftItems = computed(() => flattenBeanListItems(resaleEditor.value?
 const resaleSelectedCount = computed(() => resaleDraft.value?.selected_item_codes?.length || 0)
 const resaleSelectedAll = computed(() => resaleDraftItems.value.length > 0 && resaleSelectedCount.value >= resaleDraftItems.value.length)
 const hasDisplayData = computed(() => sections.value.length > 0 || (serviceKey.value === 'beanList' && (customerProducts.value.length > 0 || factoryPriceTableGroups.value.length > 0 || customerPriceTableGroups.value.length > 0 || beanListsForDisplay.value.length > 0 || resaleFactorySources.value.length > 0 || resaleCustomerVersions.value.length > 0)))
-const processStatusPickerOptions = computed(() => orderStatusOptions('process_status', defaultProcessStatusOptions, '全部生产状态'))
-const payStatusPickerOptions = computed(() => orderStatusOptions('pay_status', defaultPayStatusOptions, '全部收款状态'))
-const shipStatusPickerOptions = computed(() => orderStatusOptions('ship_status', defaultShipStatusOptions, '全部发货状态'))
 const fulfillmentProductOptions = computed(() => productPickerOptions(page.value?.products || []))
 const fulfillmentProductLabels = computed(() => pickerLabels(fulfillmentProductOptions.value, '暂无可选商品'))
 const selectedFulfillmentProduct = computed(() => fulfillmentProductOptions.value.find((item) => {
@@ -780,40 +773,6 @@ function setOrderDateTo(event: { detail?: { value?: string } }) {
   orderSearch.value.date_to = event.detail?.value || ''
 }
 
-function setOrderProcessStatus(event: { detail?: { value?: number | string } }) {
-  setOrderStatus('process_status', processStatusPickerOptions.value, event)
-}
-
-function setOrderPayStatus(event: { detail?: { value?: number | string } }) {
-  setOrderStatus('pay_status', payStatusPickerOptions.value, event)
-}
-
-function setOrderShipStatus(event: { detail?: { value?: number | string } }) {
-  setOrderStatus('ship_status', shipStatusPickerOptions.value, event)
-}
-
-function setOrderStatus(field: OrderStatusField, options: string[], event: { detail?: { value?: number | string } }) {
-  const index = Number(event.detail?.value ?? 0)
-  orderSearch.value[field] = index > 0 ? options[index] || '' : ''
-}
-
-function statusPickerValue(options: string[], value: string): number {
-  const index = options.indexOf(normalizeStatusText(value))
-  return index > 0 ? index : 0
-}
-
-function orderStatusOptions(field: OrderStatusField, defaults: string[], emptyLabel: string): string[] {
-  const seen = new Set<string>()
-  const out = [emptyLabel]
-  for (const value of [...defaults, orderSearch.value[field], ...(page.value?.orders || []).map((item) => item[field])]) {
-    const normalized = normalizeStatusText(value)
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
-    out.push(normalized)
-  }
-  return out
-}
-
 function normalizeStatusText(value?: string): string {
   return (value || '').trim().replace(/\s+/g, ' ')
 }
@@ -1258,17 +1217,6 @@ onShow(() => { void refreshMiniappShareMenu() })
             <view class="picker-field">{{ orderSearch.date_to || '结束日期' }}</view>
           </picker>
         </view>
-        <view class="status-filters">
-          <picker mode="selector" :range="processStatusPickerOptions" :value="statusPickerValue(processStatusPickerOptions, orderSearch.process_status)" @change="setOrderProcessStatus">
-            <view class="picker-field status-picker">{{ orderSearch.process_status || '生产状态' }}</view>
-          </picker>
-          <picker mode="selector" :range="payStatusPickerOptions" :value="statusPickerValue(payStatusPickerOptions, orderSearch.pay_status)" @change="setOrderPayStatus">
-            <view class="picker-field status-picker">{{ orderSearch.pay_status || '收款状态' }}</view>
-          </picker>
-          <picker mode="selector" :range="shipStatusPickerOptions" :value="statusPickerValue(shipStatusPickerOptions, orderSearch.ship_status)" @change="setOrderShipStatus">
-            <view class="picker-field status-picker">{{ orderSearch.ship_status || '发货状态' }}</view>
-          </picker>
-        </view>
         <view class="filter-actions">
           <button class="secondary" @tap="clearOrderFilters">清除</button>
           <button class="primary compact" @tap="applyOrderFilters">查询</button>
@@ -1288,16 +1236,17 @@ onShow(() => { void refreshMiniappShareMenu() })
         <view v-for="item in page.orders" :key="item.id" class="list-row">
           <view class="row-head">
             <text class="row-main">{{ item.order_no || '未编号订单' }}</text>
-            <text class="price">¥{{ item.grand_total || '0.00' }}</text>
+            <text class="price">¥{{ customerOrderAmounts(item).payable }}</text>
           </view>
           <OrderDetailsCopyButton v-if="!isProcessingCustomer || officialOrders" :order-id="item.id" />
           <text v-if="item.receiver_name || item.receiver_phone || item.receiver_address" class="row-sub">
             收件人：{{ item.receiver_name || '未填写' }} {{ item.receiver_phone || '' }} {{ item.receiver_address || '' }}
           </text>
           <PaymentSummary :order="item" />
-          <text class="row-sub">{{ item.order_date || '未填写日期' }} / {{ orderProgressLabel(item) }} / {{ item.pay_status || '未收款' }}</text>
-          <text v-if="item.delivery_mode === 'customer_stock'" class="row-sub">购货留厂 · {{ item.delivery_warehouse_code || '客户仓' }} · {{ retainedStockStatus(item.delivery_status) }} · 无需发货</text>
-          <text v-if="item.fulfillment_mode" class="row-sub">{{ item.fulfillment_mode === 'stock' ? '库存代发 · 已购商品货款不重复收取' : '无库存代发' }}</text>
+          <text class="row-sub">{{ item.order_date || '未填写日期' }} / {{ orderProgressLabel(item) }} / {{ customerOrderPaymentStatus(item) }}</text>
+          <text v-if="item.delivery_mode === 'customer_stock'" class="row-sub">购货留厂代发</text>
+          <text v-if="item.fulfillment_mode" class="row-sub">{{ item.fulfillment_mode === 'stock' ? '库存代发' : '无库存代发' }}</text>
+          <text v-if="item.fee_summary" class="row-sub">货款 ¥{{ customerOrderAmounts(item).goods }} · 运费 ¥{{ customerOrderAmounts(item).shipping }} · 代发服务费 ¥{{ customerOrderAmounts(item).service }}</text>
           <view v-if="item.items?.length" class="order-items">
             <view v-for="line in item.items" :key="line.id" class="item-line">
               <text>{{ line.item_name }} {{ line.spec }}</text>

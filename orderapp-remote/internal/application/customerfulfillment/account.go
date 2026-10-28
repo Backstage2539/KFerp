@@ -11,6 +11,8 @@ import (
 )
 
 type AccountQuery struct {
+	OrderIDs []int64
+
 	CurrentVersion bool
 	UnpaidOnly     bool
 	View           string
@@ -402,6 +404,14 @@ func (d *AccountData) Paginate(page, limit int) {
 	d.Rows = d.Rows[start:end]
 }
 
+func isDropshipFreight(order AccountOrder) bool {
+	if order.Freight == nil {
+		return false
+	}
+	scene := order.Freight.Policy.Scene
+	return scene == "stock" || scene == "on_demand"
+}
+
 func BuildOrderFeeGroups(orders []AccountOrder, fees []AccountFee) ([]AccountOrderFeeGroup, AccountFeeSummary) {
 	groups := make([]AccountOrderFeeGroup, 0, len(orders)+1)
 	byOrder := make(map[int64]int, len(orders))
@@ -429,7 +439,7 @@ func BuildOrderFeeGroups(orders []AccountOrder, fees []AccountFee) ([]AccountOrd
 		if goods != 0 {
 			add(g, AccountFee{OrderID: g.Order.ID, OrderNo: g.Order.OrderNo, FeeType: "product", FeeName: "商品货款", AmountCents: goods, OccurredAt: g.Order.OrderDate, SourceType: "order", SourceID: g.Order.ID, PaymentStatus: g.Order.PaymentStatus, IncludedInOrder: true})
 		}
-		if g.Order.ShippingCents != 0 && !g.Order.HasOrderShippingFee {
+		if g.Order.ShippingCents != 0 && !g.Order.HasOrderShippingFee && !isDropshipFreight(g.Order) {
 			add(g, AccountFee{OrderID: g.Order.ID, OrderNo: g.Order.OrderNo, FeeType: "shipping", FeeName: "订单运费", AmountCents: g.Order.ShippingCents, OccurredAt: g.Order.OrderDate, SourceType: "order", SourceID: g.Order.ID, PaymentStatus: g.Order.PaymentStatus, IncludedInOrder: true})
 		}
 	}
@@ -452,6 +462,9 @@ func BuildOrderFeeGroups(orders []AccountOrder, fees []AccountFee) ([]AccountOrd
 			}
 		}
 		if !ok {
+			continue
+		}
+		if fee.FeeType == "shipping" && fee.SourceType != "freight_actual" && isDropshipFreight(groups[index].Order) {
 			continue
 		}
 		add(&groups[index], fee)

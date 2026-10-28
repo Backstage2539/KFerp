@@ -66,3 +66,17 @@ describe('registration session reuse',()=>{
   expect(s.applyContext).not.toHaveBeenCalled()
  })
 })
+
+it('restores an approved customer without a nickname registration', async () => {
+ const s=session();s.token='';vi.mocked(wechatLoginCode).mockResolvedValue('customer-wx')
+ vi.mocked(loginWithCode).mockResolvedValue({token:'customer-token',registration_complete:false,mini_user_id:1,account_type:'customer',bindings:[{status:'approved'}]} as never)
+ await restoreRegistrationSession(s)
+ expect(s.setToken).toHaveBeenCalledWith('customer-token')
+})
+
+it('keeps public browsing available when a new guest cannot restore WeChat identity', async () => {
+ const s=session();s.token='';s.registrationKnown=false
+ vi.mocked(wechatLoginCode).mockRejectedValue(new Error('WeChat unavailable'))
+ await expect(restoreRegistrationSession(s)).resolves.toBeUndefined()
+ expect(s.setToken).not.toHaveBeenCalled()
+})

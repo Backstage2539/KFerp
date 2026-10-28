@@ -6,10 +6,10 @@ import {
   refreshMiniappShareMenu,
 } from '../../utils/miniappShare'
 import { ref } from 'vue'
-import { registerVisitor } from '../../api/registration'
 import { restoreRegistrationSession } from '../../utils/registrationSession'
 import { safeLoginReturn } from '../../utils/loginReturn'
-import { loginWithPassword, type LoginResponse } from '../../api/customerPortal'
+import { loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
+import { MiniRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
@@ -19,7 +19,6 @@ import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
 const returnTo=ref('')
-const nickname=ref('')
 const {
   pullUpBrandRevealed,
   handlePullUpBrandTouchStart,
@@ -29,7 +28,7 @@ const {
 } = usePullUpBrandGesture()
 const loading = ref(false)
 const errorMessage = ref('')
-const loginMode = ref<'quick' | 'password'>(session.autoRestoreBlocked ? 'password' : 'quick')
+const loginMode = ref<'quick' | 'password'>('quick')
 const loginForm = ref({ login: '', password: '' })
 const themeClass = miniappThemeClass()
 const themeMeta = miniappThemeMeta()
@@ -50,7 +49,7 @@ function requestLoginCode(): Promise<string> {
         resolve(code)
       },
       fail() {
-        reject(new Error('微信登录失败'))
+        reject(new Error('微信登录失败，请联系管理员确认客户账号'))
       },
     })
   })
@@ -66,7 +65,6 @@ function completeLogin(response: LoginResponse) {
 
 async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: string } }) {
   if (loading.value) return
- if(!nickname.value.trim()){errorMessage.value='请先填写昵称';return}
 
   const phoneCode = String(event?.detail?.code || '').trim()
   if (!phoneCode) {
@@ -79,10 +77,10 @@ async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: stri
 
   try {
     const code = await requestLoginCode()
-    const response = await registerVisitor(code, phoneCode,nickname.value)
+    const response = await loginWithPhoneVerify(code, phoneCode)
     completeLogin(response)
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '登录失败'
+    errorMessage.value = error instanceof MiniRequestError && (error.statusCode === 401 || error.statusCode === 403) ? '手机号未匹配有效客户账号，请联系管理员' : error instanceof Error ? error.message : '登录失败，请重试'
   } finally {
     loading.value = false
   }
@@ -120,13 +118,14 @@ onShow(async () => {
   pageVisible = true
   void refreshMiniappShareMenu()
   if (!canRestoreRegistration()) return
+  const hadToken = !!session.token
   try {
     await restoreRegistrationSession(session)
-    if (canRestoreRegistration() && session.registrationComplete && session.token) {
+    if (canRestoreRegistration() && session.token && session.bindings.some(binding => binding.status === 'approved')) {
       completeLogin({ token: session.token, mini_user_id: session.miniUserID, current_customer_id: session.currentCustomerID, bindings: session.bindings, capabilities: session.capabilities, registration_complete: true, registration: session.registration || undefined })
     }
   } catch (error) {
-    if (canRestoreRegistration()) errorMessage.value = error instanceof Error ? error.message : '登录状态恢复失败'
+    if (hadToken && canRestoreRegistration()) errorMessage.value = error instanceof Error ? error.message : '登录状态恢复失败'
   }
 })
 </script>
@@ -149,30 +148,29 @@ onShow(async () => {
 
     <view class="browse-option">
       <button class="browse-button" @tap="browseServices">返回价格表中心</button>
-      <text>手机号用于验证身份与业务联系；登记后即可查看价格表。</text>
+      <text>授权手机号后可直接登录已绑定的客户账号。</text>
     </view>
     <view class="panel">
       <view class="mode-tabs">
-        <button class="mode-tab" :class="{ active: loginMode === 'quick' }" @tap="loginMode = 'quick'">手机号登记 / 登录</button>
+        <button class="mode-tab" :class="{ active: loginMode === 'quick' }" @tap="loginMode = 'quick'">手机号登录</button>
         <button class="mode-tab" :class="{ active: loginMode === 'password' }" @tap="loginMode = 'password'">员工 / 客户账号</button>
       </view>
 
       <view v-if="loginMode === 'quick'" class="login-block">
- <input v-model="nickname" type="nickname" maxlength="32" class="input" placeholder="请选择或填写昵称" />
- <text>价格表无需客户审核；查看订单仍需有效客户账号。</text>
+ <text>请使用已授权的客户账号手机号登录。</text>
         <button
           class="login-button"
           open-type="getPhoneNumber"
           :loading="loading"
-          :disabled="loading || !nickname.trim()"
+          :disabled="loading"
           @getphonenumber="handlePhoneLogin"
         >
-          手机号登记 / 登录
+          手机号登录
         </button>
       </view>
 
       <view v-else class="login-block">
-        <text>使用员工或客户账号登录；查看价格表可选择“手机号登记 / 登录”。</text>
+        <text>使用员工或客户账号登录；查看价格表可选择“手机号登录”。</text>
         <input v-model="loginForm.login" class="input" placeholder="用户名或手机号" />
         <input v-model="loginForm.password" class="input" password placeholder="密码" />
         <button class="login-button" :loading="loading" :disabled="loading" @tap="handlePasswordLogin">

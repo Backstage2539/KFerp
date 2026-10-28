@@ -173,7 +173,7 @@ it('composed guest startup has one price-table tab and retains service guides, c
     expect(text(view.root)).toContain('包装数量换算')
     const login = find(view.root, node => node.type === 'button' && text(node) === '登录，查看我的业务')[0]
     await login.props.onTap()
-    expect(uni.navigateTo).toHaveBeenCalledWith({ url: '/pages/login/login?mode=password' })
+    expect(uni.navigateTo).toHaveBeenCalledWith({ url: '/pages/login/login' })
   } finally { view.app.unmount() }
 })
 
@@ -188,7 +188,7 @@ it.each(['customer', 'employee'])('composed %s profile exposes one logout action
     expect(view.session.token).toBe('')
     expect(view.session.autoRestoreBlocked).toBe(true)
     expect(uni.removeStorageSync).toHaveBeenCalledWith('kferp.mini.production.token')
-    expect(uni.reLaunch).toHaveBeenCalledWith({ url: '/pages/login/login?return_to=%2Fpages%2Fprofile%2Fprofile&mode=password' })
+    expect(uni.reLaunch).toHaveBeenCalledWith({ url: '/pages/login/login?return_to=%2Fpages%2Fprofile%2Fprofile' + (accountType === 'employee' ? '&mode=password' : '') })
   } finally { view.app.unmount() }
 })
 

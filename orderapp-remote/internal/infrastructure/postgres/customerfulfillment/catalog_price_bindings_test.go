@@ -98,16 +98,25 @@ func TestBoundCatalogPriceTablesSurviveEmptyStockAndMiniAPIScope(t *testing.T) {
 	}
 	readCatalog(fmt.Sprintf("/api/mini/direct-ship/catalog?fulfillment_mode=stock&customer_id=502&publication_id=%d", foreign), bound)
 	readCatalog("/api/mini/direct-ship/catalog?fulfillment_mode=on_demand", bound)
-	// Price bindings do not grant a disabled product-order capability.
+	// Stock dropship may read its purchase price table, but may not place a product order without that capability.
 	calls := sales.calls
-	for _, path := range []string{"/api/mini/product-orders/catalog?customer_id=501", "/api/mini/order-price-tables/preview?usage_code=product_order"} {
-		raw := get(path, 403)
-		if !strings.Contains(string(raw), "capability not enabled") {
-			t.Fatalf("disabled product ordering lost its reason: %s", raw)
-		}
+	raw := get("/api/mini/product-orders/catalog?customer_id=501", 403)
+	if !strings.Contains(string(raw), "capability not enabled") || sales.calls != calls {
+		t.Fatal("product order capability was broadened")
 	}
-	if sales.calls != calls {
-		t.Fatal("disabled product ordering reached catalog pricing")
+	var stockPreview app.MiniOrderPriceTablePreview
+	if err := json.Unmarshal(get("/api/mini/order-price-tables/preview?usage_code=product_order", 200), &stockPreview); err != nil {
+		t.Fatal(err)
+	}
+	if len(stockPreview.PriceTables) != 1 || stockPreview.PriceTables[0].ID != public {
+		t.Fatalf("stock preview wrong table: %+v", stockPreview)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fulfillment_settings SET modes_json='[{"mode":"stock","enabled":false},{"mode":"on_demand","enabled":true}]' WHERE customer_id=501`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	get("/api/mini/order-price-tables/preview?usage_code=product_order", 400)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_fulfillment_settings SET modes_json='[{"mode":"stock","enabled":true,"warehouse_code":"PR711-A"},{"mode":"on_demand","enabled":true}]' WHERE customer_id=501`, schema)); err != nil {
+		t.Fatal(err)
 	}
 	principal.productOrder = true
 	readCatalog("/api/mini/product-orders/catalog?customer_id=502", public)
@@ -127,7 +136,10 @@ func TestBoundCatalogPriceTablesSurviveEmptyStockAndMiniAPIScope(t *testing.T) {
 	}
 	principal.customerID = 501
 	readCatalog("/api/mini/direct-ship/catalog?fulfillment_mode=stock", 0)
-	if _, err := r.CustomerOrderPriceTables(ctx, 501, "direct_ship"); err == nil {
-		t.Fatal("required sale pricing accepted foreign or unbound fallback")
+	if _, err := r.CustomerOrderPriceTables(ctx, 501, "direct_ship"); err == nil || !strings.Contains(err.Error(), "已失效") {
+		t.Fatalf("invalid binding should be distinct from missing: %v", err)
+	}
+	if _, err := r.CustomerOrderPriceTables(ctx, 502, "direct_ship"); err == nil || !strings.Contains(err.Error(), "尚未") {
+		t.Fatalf("missing binding should report not configured: %v", err)
 	}
 }

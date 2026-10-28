@@ -1239,6 +1239,13 @@ func (r *Repository) CustomerOrderPriceTables(ctx context.Context, customerID in
 		return nil, err
 	}
 	if len(out) == 0 {
+		var hasBinding bool
+		if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customer_order_price_table_bindings WHERE customer_id=$1 AND usage_code=$2)`, r.schema), customerID, strings.TrimSpace(usageCode)).Scan(&hasBinding); err != nil {
+			return nil, err
+		}
+		if hasBinding {
+			return nil, fmt.Errorf("已指定的价格表未发布、已失效或无权查看，请联系管理员")
+		}
 		if strings.TrimSpace(usageCode) == "direct_ship" {
 			return nil, fmt.Errorf("一件代发尚未在商品价格表中指定价格表")
 		}

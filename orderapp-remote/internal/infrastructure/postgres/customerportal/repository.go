@@ -14,6 +14,7 @@ import (
 	"time"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -86,6 +87,15 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 			return customerportalapp.LoginResult{}, customerportalapp.ErrMiniInvalidLogin
 		}
 	}
+	if !cmd.Registration {
+		var hasBinding bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.customer_erp_user_bindings b JOIN %[1]s.customers c ON c.id=b.customer_id AND c.active JOIN %[1]s.customer_portal_profiles p ON p.customer_id=c.id AND p.enabled WHERE b.employee_id=$1 AND b.status='active')`, r.schema), employeeID).Scan(&hasBinding); err != nil {
+			return customerportalapp.LoginResult{}, err
+		}
+		if !hasBinding {
+			return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+		}
+	}
 	if cmd.Registration && (!customerportalapp.ValidRegistrationNickname(cmd.Nickname) || len(cmd.CredentialHash) != 64) {
 		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniInvalidLogin
 	}
@@ -97,7 +107,10 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 	if !active {
 		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
 	}
-	if cmd.Registration {
+	if cmd.CredentialHash != "" {
+		if len(cmd.CredentialHash) != 64 {
+			return customerportalapp.LoginResult{}, customerportalapp.ErrMiniInvalidLogin
+		}
 		tag, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.mini_phone_credentials(credential_hash) VALUES($1) ON CONFLICT DO NOTHING`, r.schema), cmd.CredentialHash)
 		if err != nil {
 			return customerportalapp.LoginResult{}, err
@@ -105,6 +118,8 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 		if tag.RowsAffected() != 1 {
 			return customerportalapp.LoginResult{}, customerportalapp.ErrPhoneCredentialUsed
 		}
+	}
+	if cmd.Registration {
 		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.mini_registrations(mini_user_id,nickname,verified_phone,verified_at) VALUES($1,$2,$3,now()) ON CONFLICT(mini_user_id) DO UPDATE SET nickname=EXCLUDED.nickname,verified_phone=EXCLUDED.verified_phone,verified_at=now(),updated_at=now(),last_seen_at=now()`, r.schema), miniUserID, strings.TrimSpace(cmd.Nickname), phone)
 		if err != nil {
 			return customerportalapp.LoginResult{}, err
@@ -178,6 +193,11 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
+	}
+	if !cmd.Registration && cmd.CredentialHash != "" {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, fmt.Sprintf("mini-user:%d", miniUserID), "mini_user", &miniUserID, "phone_login", nil, nil, nil, postgresinfra.AuditMeta{"employee_id": employeeID}); err != nil {
+			return customerportalapp.LoginResult{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.LoginResult{}, err
@@ -725,12 +745,12 @@ func (r Repository) validateProjectedMiniBindingsTx(ctx context.Context, tx pgx.
 			return validation, err
 		}
 		if live && strings.HasPrefix(binding.source, projectedMiniBindingPhoneVerifySource+":") {
-			var registered, uniquePhone bool
-			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.mini_registrations WHERE mini_user_id=$1),EXISTS(SELECT 1 FROM %[1]s.mini_registrations p JOIN %[1]s.company_employees e ON e.id=$2 AND e.phone=p.verified_phone WHERE p.mini_user_id=$1 AND (SELECT count(*) FROM %[1]s.company_employees x LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=x.id WHERE x.phone=p.verified_phone AND x.active AND x.account_type='channel_customer' AND NOT COALESCE(lp.login_disabled,false))=1)`, r.schema), miniUserID, employeeID).Scan(&registered, &uniquePhone)
+			var uniquePhone bool
+			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %[1]s.mini_users u JOIN %[1]s.company_employees e ON e.id=$2 AND e.phone=u.phone WHERE u.id=$1 AND (SELECT count(*) FROM %[1]s.company_employees x LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=x.id WHERE x.phone=u.phone AND x.active AND x.account_type='channel_customer' AND NOT COALESCE(lp.login_disabled,false))=1)`, r.schema), miniUserID, employeeID).Scan(&uniquePhone)
 			if err != nil {
 				return validation, err
 			}
-			if registered && !uniquePhone {
+			if !uniquePhone {
 				live = false
 			}
 		}

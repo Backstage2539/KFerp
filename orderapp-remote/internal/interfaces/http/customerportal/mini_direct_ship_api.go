@@ -127,9 +127,22 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		default:
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid usage_code"})
 		}
-		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, capability)
+		capabilities := []string{capability}
+		if usageCode == "product_order" {
+			capabilities = append(capabilities, customerportalapp.CapabilityDirectShip)
+		}
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, capabilities...)
 		if err != nil || !allowed {
 			return err
+		}
+		if usageCode == "product_order" && !current.HasAnyCapability([]string{customerportalapp.CapabilityProductOrder}) {
+			if fulfillment == nil {
+				return miniInternalError(c)
+			}
+			_, stockErr := fulfillment.MiniDirectShipCatalog(c.Request().Context(), customerfulfillmentapp.MiniDirectShipCatalogQuery{CustomerID: current.CurrentCustomerID, FulfillmentMode: "stock"})
+			if stockErr != nil {
+				return miniCustomerFulfillmentError(c, stockErr)
+			}
 		}
 		previewer, ok := fulfillment.(MiniOrderPriceTablePreviewer)
 		if !ok {

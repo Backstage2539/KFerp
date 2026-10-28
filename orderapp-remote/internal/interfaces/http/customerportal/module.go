@@ -125,7 +125,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	if renderer == nil {
 		renderer = pdfinfra.BeanListRenderer{}
 	}
-	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments, deps.CustomerFulfillment != nil)
+	registerMiniAPIWithFees(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments, deps.CustomerFulfillment, deps.CustomerFulfillment != nil)
 	registerMiniProcessingCatalogAPI(e, deps.CustomerPortal, deps.EmployeeSales)
 	registerRecipientParseAPI(e, deps.CustomerPortal, deps.Authz)
 	registerRecipientAddressAPI(e, deps.CustomerPortal, deps.Authz)

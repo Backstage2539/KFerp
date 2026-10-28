@@ -719,7 +719,17 @@ type CreateMallOrderCommand struct {
 	Items               []MallOrderItemCommand
 }
 
+type CustomerOrderFeeSummary struct {
+	GoodsCents    int64 `json:"goods_cents"`
+	ShippingCents int64 `json:"shipping_cents"`
+	ServiceCents  int64 `json:"service_cents"`
+	PayableCents  int64 `json:"payable_cents"`
+	PaidCents     int64 `json:"paid_cents"`
+	UnpaidCents   int64 `json:"unpaid_cents"`
+}
+
 type CustomerOrderSummary struct {
+	FeeSummary            *CustomerOrderFeeSummary   `json:"fee_summary,omitempty"`
 	FulfillmentProgress   *progressdomain.Progress   `json:"fulfillment_progress,omitempty"`
 	Freight               *freightdomain.OrderView   `json:"freight,omitempty"`
 	DeliveryMode          string                     `json:"delivery_mode"`

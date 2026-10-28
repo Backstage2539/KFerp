@@ -1,3 +1,11 @@
+### PR-745-MINIAPP-FEES-PRICE-PHONE
+- Branch: codex/miniapp-customer-fees-login; base origin/develop a3084c508.
+- Status: implementation and targeted checks complete; development integration/deployment and developer-tool/device acceptance pending. Production and WeChat publication deferred.
+- Scope: customer order fees, customer-specific pricing, no-nickname verified phone login and compact fee filters.
+- RED: /private/tmp/kferp-pr745-red.log, /private/tmp/kferp-pr745-api-red.log, /private/tmp/kferp-pr745-phone-red.log, /private/tmp/kferp-pr745-price-red.log.
+- DEV: DEV-PR745-01..04. Relevant unit, API, PostgreSQL, miniapp build and manual acceptance pending.
+- Note: macOS awk fails when claiming ID; PR-745 recorded here and in requirement seeds.
+
 ### PR-738-ORDER-PROGRESS-SHIPPING-REMATCH
 - Branch: codex/order-progress-shipping-rematch; base origin/develop 7eb69b040.
 - Status: ERP production release and row 2/4 rematch complete; Mini Program 20261027.1156 uploaded, formal release deferred by Van. Follow-up historical-variant shipment confirmation fix is locally verified and awaiting release; Van acceptance pending.
