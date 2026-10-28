@@ -6337,10 +6337,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ### PR-742-FREIGHT-DIRECTSHIP-UNPAID
 - Branch: `codex/freight-directship-unpaid`; base `origin/develop@424ab2a9c`.
-- Status: code, targeted tests, manuals and builds verified; development integration and deployment pending.
+- Status: development delivery complete; PR-742 in Van review, DEV-PR742-01..04 done. Real-device miniapp acceptance and a successful live freight quote with an appropriately configured development customer remain pending.
 - Scope: stop repeated freight previews, expose stock purchase in ERP direct ship, and support customer fee date ranges and all unpaid balances in page and exports.
 - DEV: DEV-PR742-01 freight preview stability; DEV-PR742-02 stock purchase entry; DEV-PR742-03 unpaid sources and exports; DEV-PR742-04 fee filters, manuals and development delivery.
 - Verifier: mounted component and API/PostgreSQL tests, Mini Program tests/build, PDF/Excel checks, Vue build and development smoke. Production and WeChat release excluded.
+- Deployment: `origin/develop@5e61adc9bf80d32c12f1348a00f77a453e3a20b3`; `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20261028101746-5e61adc9bf80`, rollback image `kferp-orderapp-rollback:development-20261028101746-5e61adc9bf80`. Development service running, database healthy, login 200, protected API 401 unauthenticated and 200 authenticated. Browser verified stock purchase opens the existing retained-stock order with the selected customer and warehouse, return to draft, and on-demand mode; no order submitted. Selected test customer's freight configuration and on-demand price table are missing, so successful real quotes were not verified.
+- Development Mini Program package: `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`, zip `/Users/yiiiple-work/KFerp-miniapp-PR742-development.zip`, manifest 96 files and 24 pages, development API; prior package backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20261028102841-5e61adc9bf80`. No WeChat upload or release.
 
 ### PR-741-CUSTOMER-MINIAPP-FEE-LEDGER
 - Branch: `codex/customer-miniapp-fee-ledger`; base `origin/develop@d5208d5c1`.
