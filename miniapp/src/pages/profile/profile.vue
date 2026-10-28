@@ -84,7 +84,7 @@ const serviceDescriptions = computed(() => {
   if (hasCapability('processing')) items.push('生产工单可提交代加工需求并查看排产、完工与入库进度。')
   if (hasCapability('inventory_custody')) items.push('我的库存按客户货权查看成品、生豆、包材和半成品。')
   if (hasCapability('shipping_query')) items.push('发货中心可查看订单包裹、运单号和已获取的物流轨迹。')
-  if (hasCapability('settlement')) items.push('费用中心可下载账单、确认对账或对具体费用提出异议。')
+  if (hasCapability('settlement')) items.push('费用中心可查看按订单归集的本期费用明细，并下载 PDF 或 Excel。')
   return items
 })
 

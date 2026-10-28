@@ -14,18 +14,18 @@ function queryString(options = {}) {
   return query ? `?${query}` : ''
 }
 
-const root = (customerId) => `/api/customer-fulfillment/${Number(customerId)}/billing`
+const root = (customerId, customerPortal = false) => customerPortal ? '/api/customer-processing/portal/fulfillment/billing' : `/api/customer-fulfillment/${Number(customerId)}/billing`
 
-export function fetchCustomerBillingSummary(customerId) {
-  return apiGet(`${root(customerId)}/summary`)
+export function fetchCustomerBillingSummary(customerId, customerPortal = false) {
+  return apiGet(`${root(customerId, customerPortal)}/summary`)
 }
 
 export function fetchCustomerUnbilledCharges(customerId, options = {}) {
-  return apiGet(`${root(customerId)}/unbilled${queryString(options)}`)
+  return apiGet(`${root(customerId, options.customerPortal)}/unbilled${queryString(options)}`)
 }
 
 export function fetchCustomerIssuedBills(customerId, options = {}) {
-  return apiGet(`${root(customerId)}/bills${queryString(options)}`)
+  return apiGet(`${root(customerId, options.customerPortal)}/bills${queryString(options)}`)
 }
 
 export function previewCustomerBill(customerId, payload) {
@@ -43,8 +43,8 @@ export async function previewCustomerBillExcel(customerId, payload, previewVersi
   return response.blob()
 }
 
-export async function downloadCustomerBill(customerId, batchId, format = 'xlsx') {
-  const response = await apiFetch(`${root(customerId)}/bills/${Number(batchId)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`)
+export async function downloadCustomerBill(customerId, batchId, format = 'xlsx', customerPortal = false) {
+  const response = await apiFetch(`${root(customerId, customerPortal)}/bills/${Number(batchId)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`)
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     throw new Error(data.error || data.message || '账单下载失败')
@@ -56,8 +56,8 @@ export function issueCustomerBill(customerId, payload) {
   return apiSend(`/api/customer-fulfillment/${Number(customerId)}/settlements/issue`, { body: payload })
 }
 
-export function fetchCustomerBill(customerId, batchId) {
-  return apiGet(`${root(customerId)}/bills/${Number(batchId)}`)
+export function fetchCustomerBill(customerId, batchId, customerPortal = false) {
+  return apiGet(`${root(customerId, customerPortal)}/bills/${Number(batchId)}`)
 }
 
 export function fetchCustomerBillPDFSettings(customerId, batchId) {

@@ -1590,6 +1590,24 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 	applyOrderCustomerProfileDefaults(&cmd, customerProfile)
+	if err := salesapp.ValidateNewRetainedPayment(cmd); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+	if editID == 0 && strings.TrimSpace(cmd.DeliveryMode) == "customer_stock" {
+		if cmd.PayStatusID > 0 {
+			name, err := lookupStatusName(ctx, tx, r.schema, "pay_statuses", cmd.PayStatusID)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if name != "未付款" && name != "未收款" {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("新建购货留厂订单须为未付款")
+			}
+		}
+		cmd.PayStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
+		if cmd.PayStatusID <= 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("请先配置未付款状态")
+		}
+	}
 	if cmd.CustomerSubmission && editID == 0 {
 		cmd.PayStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
 		cmd.ShipStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "未发货", "待发货")
@@ -2601,6 +2619,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	settlementReason, payStatusID, err := r.resolveSampleSettlementTx(ctx, tx, &cmd, allowFreeSamplePrice || sampleEdit, totalAmt, shippingAmt, outsourceTotal, grandTotal, payStatusID, prepayment)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
+	}
+	if editID == 0 && strings.TrimSpace(cmd.DeliveryMode) == "customer_stock" {
+		payStatusID = cmd.PayStatusID
 	}
 	paymentStatus, err := lookupStatusName(ctx, tx, r.schema, "pay_statuses", payStatusID)
 	if err != nil {

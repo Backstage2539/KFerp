@@ -16,29 +16,29 @@ export function purchaseDeliveryMode(settings?: CustomerFulfillmentSettings): 's
 
 export function stockItemKey(item: { product_id?: number; sku_id?: number; bom_spec_id?: number; bom_variant_id?: number; spec_g?: number }): string {
   const product = Number(item.sku_id || item.product_id || 0)
-  return Number(item.bom_spec_id || 0) > 0 ? `${product}:bom:${item.bom_spec_id}:${item.bom_variant_id || 0}` : `${product}:g:${item.spec_g || 0}`
+  return Number(item.bom_spec_id || 0) > 0 ? `${product}:bom:${item.bom_spec_id}` : `${product}:g:${item.spec_g || 0}`
 }
 
 export function stockOverviewRows(catalog: DirectShipCatalog, lines: DirectShipDraftLine[]) {
-  const rows = new Map<string, { key: string; name: string; spec: string; unit: string; physical: number; pendingAvailable: number; reserved: number; available: number; requested: number; remaining: number; gap: number }>()
+  const rows = new Map<string, { key: string; name: string; spec: string; unit: string; purchased: number | null; received: number | null; physical: number; pendingAvailable: number; reserved: number; available: number; requested: number; remaining: number; gap: number }>()
   for (const family of catalog.product_families) for (const spec of family.specs) {
     const key = stockItemKey(spec)
     const metrics = stockScenarioMetrics(spec)
     const pendingAvailable = Math.max(0, metrics.pending - metrics.reserved)
     const available = metrics.physical + pendingAvailable
-    if (!rows.has(key)) rows.set(key, { key, name: family.customer_product_display_name || family.name || family.parent_product_name || '', spec: spec.spec_label || spec.sku_name || '', unit: spec.inventory_unit || spec.sales_unit || '件', physical: metrics.physical, pendingAvailable, reserved: metrics.reserved, available, requested: 0, remaining: available, gap: 0 })
+    if (!rows.has(key)) rows.set(key, { key, name: family.customer_product_display_name || family.name || family.parent_product_name || '', spec: spec.spec_label || spec.sku_name || '', unit: spec.inventory_unit || spec.sales_unit || '件', purchased: spec.purchased_qty == null ? null : Number(spec.purchased_qty), received: spec.received_qty == null ? null : Number(spec.received_qty), physical: metrics.physical, pendingAvailable, reserved: metrics.reserved, available, requested: 0, remaining: available, gap: 0 })
   }
   for (const line of lines) {
     if (!(Number(line.product_id) > 0)) continue
     const key = stockItemKey(line)
-    if (!rows.has(key)) rows.set(key, { key, name: line.product_name, spec: line.spec_label || '', unit: line.inventory_unit || line.sales_unit || '件', physical: 0, pendingAvailable: 0, reserved: 0, available: 0, requested: 0, remaining: 0, gap: 0 })
+    if (!rows.has(key)) rows.set(key, { key, name: line.product_name, spec: line.spec_label || '', unit: line.inventory_unit || line.sales_unit || '件', purchased: null, received: null, physical: 0, pendingAvailable: 0, reserved: 0, available: 0, requested: 0, remaining: 0, gap: 0 })
     const row = rows.get(key)!
     const qty = Number(line.qty)
     row.requested += Number.isFinite(qty) ? Math.max(0, qty) : 0
     row.remaining = Math.max(0, row.available - row.requested)
     row.gap = Math.max(0, row.requested - row.available)
   }
-  return [...rows.values()].filter(row => row.available > 0 || row.requested > 0)
+  return [...rows.values()]
 }
 
 export function stockTopupFromCatalog(lines: DirectShipDraftLine[], catalog: DirectShipCatalog): DirectShipDraftLine[] {
@@ -62,12 +62,12 @@ export function stockScenarioMetrics(spec?: Partial<EmployeeOrderProductSpec>, r
 export function directShipTopupLines(lines: DirectShipDraftLine[], preview: DirectShipPreview): DirectShipDraftLine[] {
   const seen = new Set<string>()
   return lines.flatMap(line => {
-    const key = `${line.product_id}:${line.bom_spec_id || 0}:${line.bom_variant_id || 0}:${line.spec_g || 0}`
+    const key = `${line.product_id}:${line.bom_spec_id || 0}:${line.bom_spec_id ? 0 : line.spec_g || 0}`
     if (seen.has(key)) return []
     seen.add(key)
     const shortage = (preview.shortages || []).find(row => Number(row.product_id) === Number(line.product_id)
       && (Number(line.bom_spec_id || 0) > 0
-        ? Number(row.bom_spec_id || 0) === Number(line.bom_spec_id) && Number(row.bom_variant_id || 0) === Number(line.bom_variant_id || 0)
+        ? Number(row.bom_spec_id || 0) === Number(line.bom_spec_id)
         : Number(row.spec_g || 0) === Number(line.spec_g || 0)))
     const gap = shortage ? Math.max(0, Number(shortage.qty) - Number(shortage.available_qty || 0)) : 0
     return gap > 0 ? [{ ...line, qty: gap }] : []

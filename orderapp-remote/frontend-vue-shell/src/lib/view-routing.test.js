@@ -67,8 +67,8 @@ test('vue shell confines sidebar/content scrolling, returns routed pages to top,
 
 test('customer fulfillment workbench renders sections from capability helpers', () => {
   const source = readFileSync(new URL('../views/CustomerFulfillmentView.vue', import.meta.url), 'utf8')
-  assert.match(source, /visibleImportTypes/)
-  assert.match(source, /visibleImports/)
+  assert.doesNotMatch(source, /visibleImportTypes|visibleImports|导入数据/)
+  assert.match(source, /dispatchOptions/)
   assert.match(source, /workbenchSections\.processing/)
   assert.match(source, /workbenchSections\.directShip/)
   assert.match(source, /workbenchSections\.inventory/)

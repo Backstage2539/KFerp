@@ -2,9 +2,18 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import {parse,compileScript} from '@vue/compiler-sfc'
-import {createSSRApp,h} from 'vue'
+import {createSSRApp,createRenderer,h,ref,reactive,nextTick} from 'vue'
 import {renderToString} from '@vue/server-renderer'
 async function loadView(name,props){const file=new URL(`../components/${name}.vue`,import.meta.url);const {descriptor}=parse(fs.readFileSync(file,'utf8'),{filename:file.pathname});let code=compileScript(descriptor,{id:name}).content;code=code.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g,(_,name)=>`const ${name}={render:()=>null}`);code=code.replace(/from (['"])([^'"]+)\1/g,(_,quote,path)=>`from ${JSON.stringify(path.startsWith('.')?new URL(/\.[a-z]+$/.test(path)?path:`${path}.js`,file).href:import.meta.resolve(path))}`);const {default:View}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);let vm;await renderToString(createSSRApp({setup(){vm=View.setup(props,{expose(){},emit(){}});return()=>h('div')}}));return vm}
+test('successful freight quote remains stable after parent receives the amount',async()=>{
+ const file=new URL('../components/OrderFreightEstimate.vue',import.meta.url),{descriptor}=parse(fs.readFileSync(file,'utf8'),{filename:file.pathname});let code=compileScript(descriptor,{id:'freight-client'}).content
+ code=code.replace(/import (\w+) from ['"][^'"]+\.vue['"]/g,(_,name)=>`const ${name}={render:()=>null}`).replace(/from (['"])([^'"]+)\1/g,(_,quote,path)=>`from ${JSON.stringify(path.startsWith('.')?new URL(/\.[a-z]+$/.test(path)?path:`${path}.js`,file).href:import.meta.resolve(path))}`)
+ const {default:Estimate}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);Estimate.render=()=>null
+ const renderer=createRenderer({createElement:type=>({type,children:[]}),createText:text=>({text}),createComment:text=>({text}),setText:(n,t)=>{n.text=t},setElementText:(n,t)=>{n.text=t},patchProp:()=>{},insert:(n,p)=>{p.children.push(n);n.parent=p},remove:()=>{},parentNode:n=>n.parent||null,nextSibling:()=>null})
+ const original=globalThis.fetch;let requests=0;globalThis.fetch=async url=>({ok:true,status:200,json:async()=>String(url).includes('/preview')?(requests++,{token:'quote',current_receivable_cents:800,estimate_known:true,policy:{}}):String(url).includes('/regions')?{regions:[]}:{templates:[]}})
+ const model=ref(),props=reactive({customerId:77,items:[{product_id:10,qty:1}]}),root={children:[]};const app=renderer.createApp({setup:()=>()=>h(Estimate,{...props,modelValue:model.value,'onUpdate:modelValue':v=>{model.value=v}})})
+ try{app.mount(root);await new Promise(resolve=>setTimeout(resolve,1700));await nextTick();assert.equal(requests,1);assert.equal(model.value.autoAmountCents,800)}finally{app.unmount();globalThis.fetch=original}
+})
 test('shipping quote discards late responses and submits only acknowledged current quote',async()=>{
  const original=globalThis.fetch;const pending=[];globalThis.fetch=async(url,opts)=>new Promise(resolve=>pending.push({url,body:JSON.parse(opts.body),resolve}));try{
   const vm=await loadView('OrderFreightEstimate',{customerId:77,items:[{product_id:10,qty:2}],savedDestination:{},customerPortal:false})

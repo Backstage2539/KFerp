@@ -73,3 +73,65 @@ func TestParseRejectsUnsafeTrackingNumbers(t *testing.T) {
 		}
 	}
 }
+
+func TestParseOptionalShipmentSettlementMetadataAndLegacyTemplate(t *testing.T) {
+	cfg := DefaultTemplate()
+	f := excelize.NewFile()
+	f.SetSheetName("Sheet1", cfg.Sheet)
+	for key, column := range cfg.Columns {
+		if key == "settlement_weight" || key == "pickup_time" {
+			continue
+		}
+		f.SetCellValue(cfg.Sheet, column.Column+"1", column.Header)
+	}
+	f.SetCellValue(cfg.Sheet, "C2", "SF0000000000001")
+	f.SetCellValue(cfg.Sheet, "J2", "张三")
+	f.SetCellValue(cfg.Sheet, "K2", "138****1234")
+	f.SetCellValue(cfg.Sheet, "S2", "20.20")
+	buf, _ := f.WriteToBuffer()
+	rows, err := Parse(bytes.NewReader(buf.Bytes()), cfg)
+	f.Close()
+	if err != nil || len(rows) != 1 || rows[0].SettlementWeightKG != "" || rows[0].PickupTime != "" || rows[0].Error != "" {
+		t.Fatalf("legacy template rows=%+v err=%v", rows, err)
+	}
+
+	f = excelize.NewFile()
+	cfg.WeightUnit = "g"
+	f.SetSheetName("Sheet1", cfg.Sheet)
+	for _, column := range cfg.Columns {
+		f.SetCellValue(cfg.Sheet, column.Column+"1", column.Header)
+	}
+	f.SetCellValue(cfg.Sheet, "C2", "SF0000000000002")
+	f.SetCellValue(cfg.Sheet, "J2", "张三")
+	f.SetCellValue(cfg.Sheet, "K2", "138****1234")
+	f.SetCellValue(cfg.Sheet, "S2", "20.20")
+	f.SetCellValue(cfg.Sheet, "P2", "1250")
+	f.SetCellValue(cfg.Sheet, "AG2", "2026-10-26 10:30:00")
+	buf, _ = f.WriteToBuffer()
+	rows, err = Parse(bytes.NewReader(buf.Bytes()), cfg)
+	f.Close()
+	if err != nil || len(rows) != 1 || rows[0].SettlementWeightKG != "1.250" || rows[0].PickupTime != "2026-10-26 10:30:00" || rows[0].Error != "" {
+		t.Fatalf("metadata rows=%+v err=%v", rows, err)
+	}
+	if got, err := normalizeWeightKG("1.25", "kg"); err != nil || got != "1.250" {
+		t.Fatalf("kg weight=%q err=%v", got, err)
+	}
+}
+
+func TestParseRejectsInvalidSettlementWeight(t *testing.T) {
+	cfg := DefaultTemplate()
+	f := excelize.NewFile()
+	f.SetSheetName("Sheet1", cfg.Sheet)
+	for _, column := range cfg.Columns {
+		f.SetCellValue(cfg.Sheet, column.Column+"1", column.Header)
+	}
+	for cell, value := range map[string]string{"C2": "SF0000000000003", "J2": "张三", "K2": "138****1234", "S2": "20.20", "P2": "-1"} {
+		f.SetCellValue(cfg.Sheet, cell, value)
+	}
+	buf, _ := f.WriteToBuffer()
+	rows, err := Parse(bytes.NewReader(buf.Bytes()), cfg)
+	f.Close()
+	if err != nil || len(rows) != 1 || rows[0].Status != "skipped" || rows[0].Error == "" {
+		t.Fatalf("invalid weight rows=%+v err=%v", rows, err)
+	}
+}

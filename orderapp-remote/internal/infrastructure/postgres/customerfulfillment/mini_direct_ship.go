@@ -140,9 +140,39 @@ func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDi
 	if err != nil {
 		return app.MiniDirectShipCatalog{}, err
 	}
+	historyKeys := map[string]bool{}
+	if query.FulfillmentMode == "stock" {
+		totals, e := customerstock.ListPurchaseTotals(ctx, r.pool, r.schema, query.CustomerID, warehouse)
+		if e != nil {
+			return app.MiniDirectShipCatalog{}, e
+		}
+		indices := make(map[string]int, len(summaries))
+		for i, row := range summaries {
+			indices[miniStockKey(row.ProductID, row.BomSpecID, row.SpecG)] = i
+		}
+		for _, total := range totals {
+			key := miniStockKey(total.ProductID, total.BomSpecID, total.SpecG)
+			historyKeys[key] = true
+			i, ok := indices[key]
+			if !ok {
+				summaries = append(summaries, app.CustomerInventorySummary{ProductID: total.ProductID, BomSpecID: total.BomSpecID, BomVariantID: total.BomVariantID, SpecG: total.SpecG, ProductName: total.ProductName, BomSpecName: total.BomSpecName, BomSpecKey: total.BomSpecKey, InventoryUnit: total.InventoryUnit, SKUCode: total.SKUCode})
+				i = len(summaries) - 1
+				indices[key] = i
+			}
+			if !total.HistoryComplete {
+				continue
+			}
+			purchased, received := total.PurchasedQty, total.ReceivedQty
+			if summaries[i].PurchasedQty != nil {
+				purchased += *summaries[i].PurchasedQty
+				received += *summaries[i].ReceivedQty
+			}
+			summaries[i].PurchasedQty, summaries[i].ReceivedQty = &purchased, &received
+		}
+	}
 	productIDs := make([]int64, 0, len(summaries))
 	for _, row := range summaries {
-		if row.AvailableQty > 0 {
+		if row.AvailableQty > 0 || historyKeys[miniStockKey(row.ProductID, row.BomSpecID, row.SpecG)] {
 			productIDs = append(productIDs, row.ProductID)
 		}
 	}
@@ -224,7 +254,7 @@ func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDi
 	q := strings.ToLower(strings.TrimSpace(query.Q))
 	categoryFilter := strings.TrimSpace(query.Category)
 	for _, inventory := range summaries {
-		if inventory.AvailableQty <= 0 {
+		if inventory.AvailableQty <= 0 && !historyKeys[miniStockKey(inventory.ProductID, inventory.BomSpecID, inventory.SpecG)] {
 			continue
 		}
 		row, ok := meta[inventory.ProductID]
@@ -318,7 +348,7 @@ func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDi
 				return "bag"
 			}(),
 			"available_qty":          inventory.AvailableQty,
-			"physical_available_qty": inventory.PhysicalAvailableQty, "pending_inbound_qty": inventory.PendingInboundQty, "pending_reserved_qty": inventory.PendingReservedQty, "spec_g": inventory.SpecG,
+			"physical_available_qty": inventory.PhysicalAvailableQty, "pending_inbound_qty": inventory.PendingInboundQty, "pending_reserved_qty": inventory.PendingReservedQty, "purchased_qty": inventory.PurchasedQty, "received_qty": inventory.ReceivedQty, "spec_g": inventory.SpecG,
 		})
 	}
 	outFamilies := make([]map[string]any, 0, len(families))

@@ -987,6 +987,15 @@ export type CustomerAccountOrder = {
   total_cents: number
   paid_cents: number
   due_cents: number
+  items?: Array<{
+    item_name: string
+    spec: string
+    qty: string
+    unit: string
+    unit_price: string
+    line_total: string
+  }>
+  in_period?: boolean
 }
 
 export type CustomerAccountFee = {
@@ -1005,6 +1014,8 @@ export type CustomerAccountFee = {
   source_type: string
   source_id: number
   included_in_order: boolean
+  shipment_id?: number
+  tracking_no?: string
 }
 
 export type CustomerStatementDispute = {
@@ -1049,13 +1060,55 @@ export type CustomerAccountData = {
   page: number
   limit: number
   total_pages: number
+  view?: 'order_fees' | string
+  charge_type?: string
+  unpaid_only?: boolean
+  fee_summary?: {
+    goods_cents: number
+    processing_cents: number
+    direct_ship_service_cents: number
+    shipping_cents: number
+    other_cents: number
+    payable_cents: number
+    paid_cents: number
+    due_cents: number
+    refund_cents: number
+  }
+  order_fee_groups?: CustomerOrderFeeGroup[]
+}
+
+export type CustomerAccountShipment = {
+  order_id: number
+  order_no: string
+  tracking_no: string
+  shipped_at: string
+  pickup_at: string
+  settlement_weight_kg: string
+  shipping_cents: number
+  source: string
+}
+
+export type CustomerAccountFeeLine = CustomerAccountFee & { category: string; receivable_cents?: number; received_cents?: number }
+
+export type CustomerOrderFeeGroup = {
+  order: CustomerAccountOrder
+  unlinked?: boolean
+  payable_cents: number
+  paid_cents: number
+  due_cents: number
+  refund_cents: number
+  fee_lines: CustomerAccountFeeLine[]
+  shipments: CustomerAccountShipment[]
 }
 
 export type CustomerAccountFilters = {
+  view?: 'order_fees' | string
+  charge_type?: string
   period?: 'week' | 'month'
   anchor?: string
   date_from?: string
   date_to?: string
+  unpaid_only?: boolean
   pay_status?: string
   ship_status?: string
   q?: string
@@ -1346,6 +1399,8 @@ export type EmployeeOrderProductTier = {
 }
 
 export type EmployeeOrderProductSpec = {
+  purchased_qty?: number | null
+  received_qty?: number | null
   physical_available_qty?: number
   pending_inbound_qty?: number
   pending_reserved_qty?: number
@@ -1983,7 +2038,15 @@ export function buildCustomerAccountPath(filters: CustomerAccountFilters = {}): 
 }
 
 export function buildCustomerAccountDocumentPath(kind: 'pdf' | 'xlsx', filters: CustomerAccountFilters = {}): string {
-  return buildCustomerAccountPath(filters).replace('/api/mini/customer-account', `/api/mini/customer-account/statements.${kind}`)
+  const exportFilters: CustomerAccountFilters = {
+    view: 'order_fees',
+    period: filters.period,
+    anchor: filters.anchor,
+    date_from: filters.date_from,
+    date_to: filters.date_to,
+    unpaid_only: filters.unpaid_only,
+  }
+  return buildCustomerAccountPath(exportFilters).replace('/api/mini/customer-account', `/api/mini/customer-account/statements.${kind}`)
 }
 
 export function buildCustomerStatementConfirmPath(settlementID: number): string {

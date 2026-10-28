@@ -39,7 +39,7 @@ describe('service page helpers', () => {
     expect(sections.map((section) => section.title)).toEqual(['我的订单', '费用明细'])
   })
 
-  it('does not expose sales orders as fee-center bill rows', () => {
+  it('leaves fee-center rendering to the unified fee ledger', () => {
     const sections = visibleServiceSections({
       key: 'settlement',
       title: '结算中心',
@@ -47,17 +47,18 @@ describe('service page helpers', () => {
       settlement_batches: [{ settlement_no: 'SET-1', total_amount: '4559.00' }],
     })
 
-    expect(sections.map((section) => section.title)).toEqual(['账单'])
+    expect(sections).toEqual([])
   })
 
-  it('loads fee-center bills independently from sales-order filters', () => {
+  it('loads the fee-center order ledger independently from sales-order filters', () => {
     const servicePage = readSource('src/pages/service/service.vue')
     const billsPanel = readSource('src/components/CustomerBillsPanel.vue')
 
     expect(servicePage).toContain("serviceKey.value === 'settlement'")
     expect(billsPanel).toContain('fetchCustomerAccount')
-    expect(billsPanel).toContain('confirmCustomerStatement')
-    expect(billsPanel).toContain('createCustomerStatementDispute')
+    expect(billsPanel).toContain('order_fees')
+    expect(billsPanel).not.toContain('confirmCustomerStatement')
+    expect(billsPanel).not.toContain('createCustomerStatementDispute')
     expect(servicePage).not.toContain("serviceKey.value === 'settlement' ? buildOrderServiceFilters")
     expect(servicePage).not.toContain('账期筛选')
   })

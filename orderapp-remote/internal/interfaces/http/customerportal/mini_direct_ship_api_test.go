@@ -658,15 +658,61 @@ func TestMiniCustomerAccountBindsCurrentCustomerAndERPPeriod(t *testing.T) {
 		}},
 		CustomerFulfillment: fulfillment,
 	})
-	req := httptest.NewRequest(http.MethodGet, "/api/mini/customer-account?customer_id=999&period=month&anchor=2026-09-14&page=2&limit=10", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/customer-account?customer_id=999&view=order_fees&charge_type=shipping&period=month&anchor=2026-09-14&page=2&limit=10", nil)
 	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if fulfillment.accountQuery.CustomerID != 9 || fulfillment.accountQuery.DateFrom != "2026-09-01" || fulfillment.accountQuery.DateTo != "2026-09-30" {
+	if fulfillment.accountQuery.CustomerID != 9 || fulfillment.accountQuery.DateFrom != "2026-09-01" || fulfillment.accountQuery.DateTo != "2026-09-30" || fulfillment.accountQuery.View != "order_fees" || fulfillment.accountQuery.ChargeType != "shipping" {
 		t.Fatalf("account query=%#v", fulfillment.accountQuery)
+	}
+}
+
+func TestMiniCustomerFeeExportUsesCurrentCustomerAndIgnoresPageAndCategory(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal:      fakeService{me: customerportalapp.CurrentContext{CurrentCustomerID: 9, Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilitySettlement, Enabled: true}}}},
+		CustomerFulfillment: fulfillment,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/customer-account/statements.xlsx?customer_id=999&view=order_fees&charge_type=shipping&page=9&limit=5&period=month&anchor=2026-10-27", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get(echo.HeaderContentType), "application/vnd.openxmlformats-officedocument") || !strings.HasPrefix(rec.Body.String(), "PK") {
+		t.Fatalf("export status=%d type=%q body=%d", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.Len())
+	}
+	if fulfillment.accountQuery.CustomerID != 9 || fulfillment.accountQuery.View != "order_fees" || fulfillment.accountQuery.ChargeType != "" || fulfillment.accountQuery.Page != 1 || fulfillment.accountQuery.Limit != 200 || fulfillment.accountQuery.DateFrom != "2026-10-01" || fulfillment.accountQuery.DateTo != "2026-10-31" {
+		t.Fatalf("export query=%#v", fulfillment.accountQuery)
+	}
+}
+
+func TestMiniCustomerUnpaidScopeSurvivesExportAndRejectsConflictingDates(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{me: customerportalapp.CurrentContext{CurrentCustomerID: 9, Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilitySettlement, Enabled: true}}}}, CustomerFulfillment: fulfillment})
+	for _, path := range []string{"/api/mini/customer-account?view=order_fees&unpaid_only=1", "/api/mini/customer-account/statements.xlsx?view=order_fees&unpaid_only=1&charge_type=shipping&page=8"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !fulfillment.accountQuery.UnpaidOnly || fulfillment.accountQuery.CustomerID != 9 {
+			t.Fatalf("%s status=%d query=%+v", path, rec.Code, fulfillment.accountQuery)
+		}
+	}
+	if fulfillment.accountQuery.ChargeType != "" || fulfillment.accountQuery.Page != 1 {
+		t.Fatalf("export filters=%+v", fulfillment.accountQuery)
+	}
+	for _, path := range []string{"/api/mini/customer-account?view=order_fees&unpaid_only=invalid", "/api/mini/customer-account?view=order_fees&unpaid_only=1&date_from=2026-01-01"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s status=%d", path, rec.Code)
+		}
 	}
 }
 
@@ -703,5 +749,24 @@ func TestMiniCustomerAccountConfirmationAndDisputeBindIdentityAndRevision(t *tes
 	}
 	if fulfillment.disputeCmd.CustomerID != 9 || fulfillment.disputeCmd.SettlementID != 31 || fulfillment.disputeCmd.FeeItemID != 7 || fulfillment.disputeCmd.Reason != "运费不符" {
 		t.Fatalf("dispute cmd=%#v", fulfillment.disputeCmd)
+	}
+}
+
+func TestMiniRetainedPurchaseRejectsContradictoryReceiptFields(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{me: customerportalapp.CurrentContext{MiniUserID: 21, CurrentCustomerID: 88, Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityProductOrder, Enabled: true}}}}, CustomerFulfillment: fulfillment})
+	for _, field := range []string{`"pay_status_id":2`, `"prepayment_amount":1`, `"payment_goods_amount":"1.00"`, `"payment_method":"现金"`, `"payment_voucher_asset_id":7`} {
+		req := httptest.NewRequest("POST", "/api/mini/product-orders", strings.NewReader(`{"delivery_mode":"customer_stock",`+field+`}`))
+		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != 400 {
+			t.Fatalf("field %s: %d %s", field, rec.Code, rec.Body.String())
+		}
+	}
+	if fulfillment.calls != 0 {
+		t.Fatalf("invalid requests reached service: %d", fulfillment.calls)
 	}
 }

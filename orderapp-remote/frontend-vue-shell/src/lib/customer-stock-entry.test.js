@@ -2,8 +2,16 @@ import test from 'node:test'
 import {customerStockProgressLabel} from './customer-stock-entry.js'
 import assert from 'node:assert/strict'
 import { buildOrderPayload } from './order-entry.js'
-import { customerStockWarehouses, recipientAddressSnapshot, stockSupplySummary } from './customer-stock-entry.js'
+import { customerStockWarehouses, recipientAddressSnapshot, stockSupplySummary, stockPurchaseSummary, stockGroupShortage } from './customer-stock-entry.js'
 import * as retained from './customer-stock-entry.js'
+
+test('累计购买和入库与可用数量分开，并合计同规格的补购缺口', () => {
+  const spec = { purchased_qty: 20, received_qty: 8, physical_available_qty: 4, pending_inbound_qty: 12, pending_reserved_qty: 3 }
+  assert.deepEqual(stockPurchaseSummary(spec), { purchased: 20, received: 8 })
+  assert.deepEqual(stockPurchaseSummary({}), { purchased: null, received: null })
+  assert.equal(stockGroupShortage(spec, [7, 8]), 2)
+  assert.equal(stockGroupShortage(spec, [6, 7]), 0)
+})
 
 test('留厂主进度由实际生产及入仓决定，库存代发仍按发货展示', () => {
   for (const [process_status, delivery_status, label] of [

@@ -19,7 +19,7 @@ import (
 // CustomerAccount reads a consistent view of existing sales and fee documents.
 // Settlement batches are references to fees, never additional order receivables.
 func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (app.AccountData, error) {
-	d := app.AccountData{Rows: []app.AccountOrder{}, Fees: []app.AccountFee{}, Settlements: []app.AccountSettlement{}, DateFrom: q.DateFrom, DateTo: q.DateTo, AsOf: time.Now().In(time.FixedZone("Asia/Shanghai", 28800)).Format("2006-01-02 15:04:05")}
+	d := app.AccountData{Rows: []app.AccountOrder{}, Fees: []app.AccountFee{}, Settlements: []app.AccountSettlement{}, DateFrom: q.DateFrom, DateTo: q.DateTo, AsOf: time.Now().In(time.FixedZone("Asia/Shanghai", 28800)).Format("2006-01-02 15:04:05"), View: q.View, ChargeType: q.ChargeType, UnpaidOnly: q.UnpaidOnly}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return d, err
@@ -39,7 +39,6 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 		return query
 	}
 	args := []any{q.CustomerID}
-	orderByID := map[int64]app.AccountOrder{}
 	add := func(clause string, v any) {
 		args = append(args, v)
 		where = append(where, fmt.Sprintf(clause, len(args)))
@@ -75,12 +74,12 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 			return d, err
 		}
 		o.GoodsCents = o.TotalCents - o.ShippingCents + o.DiscountCents
+		o.InPeriod = true
 		o.SetPayment()
 		if q.PayStatus != "" && o.PaymentStatus != q.PayStatus {
 			continue
 		}
 		d.Rows = append(d.Rows, o)
-		orderByID[o.ID] = o
 		if !o.IsVoid {
 			d.Summary.Count++
 			d.Summary.GoodsCents += o.GoodsCents
@@ -133,13 +132,15 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 	}
 
 	freightJoin := ""
+	shipmentFields := "0::bigint,''::text"
 	orderJoin := "f.source_type='order' AND o.id=f.source_id"
 	if relationExists(ctx, tx, r.schema+".freight_actual_entries") {
 		freightJoin = fmt.Sprintf(" LEFT JOIN %s.freight_actual_entries fe ON f.source_type='freight_actual' AND fe.id=f.source_id LEFT JOIN %s.freight_actual_shipments fs ON fs.id=fe.shipment_id AND fs.customer_id=f.customer_id ", r.schema, r.schema)
 		orderJoin = "((f.source_type='order' AND o.id=f.source_id) OR (f.source_type='freight_actual' AND o.id=fs.order_id))"
+		shipmentFields = "coalesce(fs.id,0),coalesce(fs.tracking_no,'')"
 	}
 	// An order link is only valid when its source explicitly identifies an order of this customer.
-	fees, err := tx.Query(ctx, fmt.Sprintf(`SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),coalesce(o.id,0),coalesce(o.order_no,''),f.fee_type,coalesce(to_jsonb(f)->>'note',''),round(f.amount*100)::bigint,coalesce(nullif(f.currency,''),'CNY'),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),coalesce(s.id,0),coalesce(s.settlement_no,''),coalesce(s.status,''),coalesce(to_char(s.paid_at,'YYYY-MM-DD HH24:MI'),'') FROM %[1]s.customer_fee_items f %[2]s LEFT JOIN %[1]s.orders o ON %[3]s AND o.customer_id=f.customer_id LEFT JOIN %[1]s.customer_settlement_batches s ON s.id=f.settlement_batch_id AND s.customer_id=f.customer_id WHERE f.customer_id=$1 ORDER BY f.occurred_at DESC,f.id DESC`, r.schema, freightJoin, orderJoin), q.CustomerID)
+	fees, err := tx.Query(ctx, fmt.Sprintf(`SELECT f.id,coalesce(f.source_type,''),coalesce(f.source_id,0),coalesce(o.id,0),coalesce(o.order_no,''),f.fee_type,coalesce(to_jsonb(f)->>'note',''),round(f.amount*100)::bigint,coalesce(nullif(f.currency,''),'CNY'),to_char(f.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI'),coalesce(s.id,0),coalesce(s.settlement_no,''),coalesce(s.status,''),coalesce(to_char(s.paid_at,'YYYY-MM-DD HH24:MI'),''),%[4]s FROM %[1]s.customer_fee_items f %[2]s LEFT JOIN %[1]s.orders o ON %[3]s AND o.customer_id=f.customer_id LEFT JOIN %[1]s.customer_settlement_batches s ON s.id=f.settlement_batch_id AND s.customer_id=f.customer_id WHERE f.customer_id=$1 ORDER BY f.occurred_at DESC,f.id DESC`, r.schema, freightJoin, orderJoin, shipmentFields), q.CustomerID)
 	if err != nil {
 		return d, err
 	}
@@ -148,7 +149,7 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 	for fees.Next() {
 		var f app.AccountFee
 		var paid string
-		if err = fees.Scan(&f.ID, &f.SourceType, &f.SourceID, &f.OrderID, &f.OrderNo, &f.FeeType, &f.FeeName, &f.AmountCents, &f.Currency, &f.OccurredAt, &f.SettlementID, &f.SettlementNo, &f.SettlementStatus, &paid); err != nil {
+		if err = fees.Scan(&f.ID, &f.SourceType, &f.SourceID, &f.OrderID, &f.OrderNo, &f.FeeType, &f.FeeName, &f.AmountCents, &f.Currency, &f.OccurredAt, &f.SettlementID, &f.SettlementNo, &f.SettlementStatus, &paid, &f.ShipmentID, &f.TrackingNo); err != nil {
 			fees.Close()
 			return d, err
 		}
@@ -163,15 +164,14 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 		if strings.TrimSpace(f.FeeName) == "" {
 			f.FeeName = app.AccountFeeLabel(f.FeeType)
 		}
-		if f.SourceID > 0 {
+		if f.SourceID > 0 && !q.UnpaidOnly {
 			key := fmt.Sprintf("%s:%d:%s", f.SourceType, f.SourceID, f.FeeType)
 			if seenFeeSources[key] {
 				continue
 			}
 			seenFeeSources[key] = true
 		}
-		linkedOrder := orderByID[f.OrderID]
-		f.IncludedInOrder = f.OrderID > 0 && (f.SourceType == "order" && f.FeeType == "shipping" && linkedOrder.ShippingCents != 0 || f.FeeType == "product")
+		f.IncludedInOrder = f.OrderID > 0 && (f.SourceType == "order" && f.FeeType == "shipping" || f.FeeType == "product" || f.FeeType == "order_goods")
 		allFees = append(allFees, f)
 		date := f.OccurredAt
 		if len(date) > 10 {
@@ -204,6 +204,252 @@ func (r *Repository) CustomerAccount(ctx context.Context, q app.AccountQuery) (a
 	fees.Close()
 	if err != nil {
 		return d, err
+	}
+	if q.View == "order_fees" {
+		groupOrders := append([]app.AccountOrder{}, d.Rows...)
+		hasOrderShippingFee := map[int64]bool{}
+		for _, fee := range allFees {
+			if fee.OrderID > 0 && fee.SourceType == "order" && fee.FeeType == "shipping" {
+				hasOrderShippingFee[fee.OrderID] = true
+			}
+		}
+		knownOrders := map[int64]bool{}
+		for i := range groupOrders {
+			groupOrders[i].HasOrderShippingFee = hasOrderShippingFee[groupOrders[i].ID]
+			knownOrders[groupOrders[i].ID] = true
+		}
+		missingIDs := []int64{}
+		for _, fee := range d.Fees {
+			if fee.OrderID > 0 && !knownOrders[fee.OrderID] {
+				knownOrders[fee.OrderID] = true
+				missingIDs = append(missingIDs, fee.OrderID)
+			}
+		}
+		if len(missingIDs) > 0 {
+			missing, queryErr := tx.Query(ctx, currentQuery(fmt.Sprintf(`SELECT o.id,coalesce(o.order_no,''),coalesce(to_char(o.order_date,'YYYY-MM-DD'),''),coalesce(o.receiver_name,''),coalesce(o.receiver_phone,''),coalesce(o.receiver_address,''),coalesce(ss.name,''),coalesce(o.ship_tracking_no,''),coalesce(ps.name,''),coalesce(o.portal_service_code,''),coalesce(o.is_void,false),round(coalesce(o.grand_total,0)*100)::bigint,round(coalesce(o.shipping_amount,0)*100)::bigint,round(coalesce(o.discount_amount,0)*100)::bigint,round(coalesce((to_jsonb(o)->>'prepayment_amount')::numeric,0)*100)::bigint,COALESCE(to_jsonb(o)->>'confirmation_status','accepted'),COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false),COALESCE((to_jsonb(o)->>'confirmation_accepted_revision')::bigint,0),COALESCE(ops.name,'') FROM %[1]s.orders o LEFT JOIN %[1]s.ship_statuses ss ON ss.id=o.ship_status_id LEFT JOIN %[1]s.pay_statuses ps ON ps.id=o.pay_status_id LEFT JOIN %[1]s.order_process_statuses ops ON ops.id=o.process_status_id WHERE o.customer_id=$1 AND o.id=ANY($2)`, r.schema)), q.CustomerID, missingIDs)
+			if queryErr != nil {
+				return d, queryErr
+			}
+			for missing.Next() {
+				var order app.AccountOrder
+				if queryErr = missing.Scan(&order.ID, &order.OrderNo, &order.OrderDate, &order.ReceiverName, &order.ReceiverPhone, &order.ReceiverAddress, &order.ShipStatus, &order.TrackingNo, &order.PayStatus, &order.Service, &order.IsVoid, &order.TotalCents, &order.ShippingCents, &order.DiscountCents, &order.PrepaymentCents, &order.ConfirmationStatus, &order.ConfirmationRequired, &order.AcceptedRevision, &order.ProcessStatus); queryErr != nil {
+					missing.Close()
+					return d, queryErr
+				}
+				order.GoodsCents = order.TotalCents - order.ShippingCents + order.DiscountCents
+				order.SetPayment()
+				order.HasOrderShippingFee = hasOrderShippingFee[order.ID]
+				groupOrders = append(groupOrders, order)
+			}
+			queryErr = missing.Err()
+			missing.Close()
+			if queryErr != nil {
+				return d, queryErr
+			}
+		}
+		orderIDs := make([]int64, 0, len(groupOrders))
+		orderIndex := map[int64]int{}
+		for i, order := range groupOrders {
+			orderIDs = append(orderIDs, order.ID)
+			orderIndex[order.ID] = i
+		}
+		if len(orderIDs) > 0 {
+			items, queryErr := tx.Query(ctx, currentQuery(fmt.Sprintf(`SELECT order_id,coalesce(item_name,''),coalesce(spec,''),coalesce(qty,0)::text,coalesce(unit,''),coalesce(unit_price,0)::text,coalesce(line_total,0)::text,to_jsonb(current_item)->>'material_unit_weight_g',to_jsonb(current_item)->>'material_item_weight_g',to_jsonb(current_item)->>'logistics_unit_weight_g',to_jsonb(current_item)->>'logistics_item_weight_g',COALESCE(to_jsonb(current_item)->>'weight_snapshot_json','{}') FROM %s.order_items current_item WHERE order_id=ANY($1) AND qty>0 ORDER BY order_id,id`, r.schema)), orderIDs)
+			if queryErr == nil {
+				for items.Next() {
+					var orderID int64
+					var item app.AccountOrderItem
+					if queryErr = items.Scan(&orderID, &item.Name, &item.Spec, &item.Quantity, &item.Unit, &item.UnitPrice, &item.LineTotal, &item.MaterialUnitWeightG, &item.MaterialItemWeightG, &item.LogisticsUnitWeightG, &item.LogisticsItemWeightG, &item.WeightSnapshotJSON); queryErr != nil {
+						break
+					}
+					groupOrders[orderIndex[orderID]].Items = append(groupOrders[orderIndex[orderID]].Items, item)
+				}
+				if queryErr == nil {
+					queryErr = items.Err()
+				}
+				items.Close()
+			}
+			if queryErr != nil {
+				return d, queryErr
+			}
+		}
+		groups, feeSummary := app.BuildOrderFeeGroups(groupOrders, d.Fees)
+		shipmentKeys := map[string]bool{}
+		if len(orderIDs) > 0 && relationExists(ctx, tx, r.schema+".order_shipment_orders") {
+			payloadJoin := ""
+			payloadFields := "''::text,''::text"
+			if relationExists(ctx, tx, r.schema+".shipping_return_rows") {
+				payloadJoin = fmt.Sprintf(` LEFT JOIN LATERAL (SELECT payload FROM %s.shipping_return_rows sr WHERE sr.status='applied' AND sr.selected_order_id=so.order_id AND sr.payload->>'tracking_no'=so.tracking_no ORDER BY sr.id DESC LIMIT 1) sr ON true `, r.schema)
+				payloadFields = `coalesce(sr.payload->>'pickup_time',''),coalesce(sr.payload->>'settlement_weight_kg','')`
+			}
+			shipments, queryErr := tx.Query(ctx, fmt.Sprintf(`SELECT so.order_id,coalesce(so.tracking_no,''),coalesce(to_char(so.shipped_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),''),%[3]s FROM %[1]s.order_shipment_orders so %[2]s WHERE so.order_id=ANY($1) ORDER BY so.order_id,so.id`, r.schema, payloadJoin, payloadFields), orderIDs)
+			if queryErr != nil {
+				return d, queryErr
+			}
+			for shipments.Next() {
+				var orderID int64
+				var tracking, erpTime, pickup, weight string
+				if queryErr = shipments.Scan(&orderID, &tracking, &erpTime, &pickup, &weight); queryErr != nil {
+					break
+				}
+				order := groupOrders[orderIndex[orderID]]
+				when, source := erpTime, "ERP发货记录"
+				if strings.TrimSpace(pickup) != "" {
+					when, source = pickup, "快递揽件记录"
+				} else if erpTime == "" {
+					source = "快递回传记录"
+				}
+				shipment := app.AccountShipment{OrderID: orderID, OrderNo: order.OrderNo, TrackingNo: tracking, ShippedAt: when, PickupAt: pickup, SettlementWeightKG: weight, Source: source}
+				for i := range groups {
+					if groups[i].Order.ID == orderID {
+						groups[i].Shipments = append(groups[i].Shipments, shipment)
+						shipmentKeys[fmt.Sprintf("%d:%s", orderID, tracking)] = true
+						break
+					}
+				}
+			}
+			if queryErr == nil {
+				queryErr = shipments.Err()
+			}
+			shipments.Close()
+			if queryErr != nil {
+				return d, queryErr
+			}
+		}
+		if len(orderIDs) > 0 && relationExists(ctx, tx, r.schema+".order_shipping_trackings") {
+			trackings, queryErr := tx.Query(ctx, fmt.Sprintf(`SELECT order_id,tracking_no FROM %s.order_shipping_trackings WHERE order_id=ANY($1) ORDER BY order_id,id`, r.schema), orderIDs)
+			if queryErr != nil {
+				return d, queryErr
+			}
+			for trackings.Next() {
+				var orderID int64
+				var tracking string
+				if queryErr = trackings.Scan(&orderID, &tracking); queryErr != nil {
+					break
+				}
+				key := fmt.Sprintf("%d:%s", orderID, tracking)
+				if tracking == "" || shipmentKeys[key] {
+					continue
+				}
+				order := groupOrders[orderIndex[orderID]]
+				for i := range groups {
+					if groups[i].Order.ID == orderID {
+						groups[i].Shipments = append(groups[i].Shipments, app.AccountShipment{OrderID: orderID, OrderNo: order.OrderNo, TrackingNo: tracking, Source: "ERP物流记录"})
+						shipmentKeys[key] = true
+						break
+					}
+				}
+			}
+			if queryErr == nil {
+				queryErr = trackings.Err()
+			}
+			trackings.Close()
+			if queryErr != nil {
+				return d, queryErr
+			}
+		}
+		for _, order := range groupOrders {
+			for _, tracking := range strings.FieldsFunc(order.TrackingNo, func(r rune) bool { return strings.ContainsRune(" \t\r\n,;，；、", r) }) {
+				key := fmt.Sprintf("%d:%s", order.ID, tracking)
+				if tracking == "" || shipmentKeys[key] {
+					continue
+				}
+				for i := range groups {
+					if groups[i].Order.ID == order.ID {
+						groups[i].Shipments = append(groups[i].Shipments, app.AccountShipment{OrderID: order.ID, OrderNo: order.OrderNo, TrackingNo: tracking, Source: "ERP订单记录"})
+						shipmentKeys[key] = true
+						break
+					}
+				}
+			}
+		}
+		if len(orderIDs) > 0 && relationExists(ctx, tx, r.schema+".shipping_return_rows") {
+			returns, queryErr := tx.Query(ctx, fmt.Sprintf(`SELECT selected_order_id,coalesce(payload->>'tracking_no',''),coalesce(payload->>'pickup_time',''),coalesce(payload->>'settlement_weight_kg','') FROM %s.shipping_return_rows WHERE status='applied' AND selected_order_id=ANY($1) ORDER BY id`, r.schema), orderIDs)
+			if queryErr != nil {
+				return d, queryErr
+			}
+			for returns.Next() {
+				var orderID int64
+				var tracking, pickup, weight string
+				if queryErr = returns.Scan(&orderID, &tracking, &pickup, &weight); queryErr != nil {
+					break
+				}
+				if tracking == "" {
+					continue
+				}
+				found := false
+				for i := range groups {
+					if groups[i].Order.ID != orderID {
+						continue
+					}
+					for j := range groups[i].Shipments {
+						if groups[i].Shipments[j].TrackingNo != tracking {
+							continue
+						}
+						groups[i].Shipments[j].PickupAt = pickup
+						groups[i].Shipments[j].SettlementWeightKG = weight
+						if pickup != "" {
+							groups[i].Shipments[j].ShippedAt = pickup
+							groups[i].Shipments[j].Source = "快递揽件记录"
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					order := groupOrders[orderIndex[orderID]]
+					when, source := "", "快递回传记录"
+					if pickup != "" {
+						when, source = pickup, "快递揽件记录"
+					}
+					for i := range groups {
+						if groups[i].Order.ID == orderID {
+							groups[i].Shipments = append(groups[i].Shipments, app.AccountShipment{OrderID: orderID, OrderNo: order.OrderNo, TrackingNo: tracking, ShippedAt: when, PickupAt: pickup, SettlementWeightKG: weight, Source: source})
+							shipmentKeys[fmt.Sprintf("%d:%s", orderID, tracking)] = true
+							break
+						}
+					}
+				}
+			}
+			if queryErr == nil {
+				queryErr = returns.Err()
+			}
+			returns.Close()
+			if queryErr != nil {
+				return d, queryErr
+			}
+		}
+		for _, fee := range d.Fees {
+			if fee.OrderID == 0 || fee.TrackingNo == "" {
+				continue
+			}
+			for i := range groups {
+				if groups[i].Order.ID != fee.OrderID {
+					continue
+				}
+				found := false
+				for j := range groups[i].Shipments {
+					if groups[i].Shipments[j].TrackingNo == fee.TrackingNo {
+						groups[i].Shipments[j].ShippingCents += fee.AmountCents
+						found = true
+						break
+					}
+				}
+				if !found {
+					groups[i].Shipments = append(groups[i].Shipments, app.AccountShipment{OrderID: fee.OrderID, OrderNo: fee.OrderNo, TrackingNo: fee.TrackingNo, ShippingCents: fee.AmountCents, Source: "快递费用记录"})
+					shipmentKeys[fmt.Sprintf("%d:%s", fee.OrderID, fee.TrackingNo)] = true
+				}
+			}
+		}
+		if q.UnpaidOnly {
+			sources, sourceErr := r.loadAccountUnpaidSources(ctx, tx, q.CustomerID)
+			if sourceErr != nil {
+				return d, sourceErr
+			}
+			groups, feeSummary = app.ApplyUnpaidSources(groups, sources)
+		}
+		d.OrderFeeGroups = groups
+		d.FeeSummary = feeSummary
 	}
 	bills, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT id,settlement_no,coalesce(to_char(period_from,'YYYY-MM-DD'),''),coalesce(to_char(period_to,'YYYY-MM-DD'),''),

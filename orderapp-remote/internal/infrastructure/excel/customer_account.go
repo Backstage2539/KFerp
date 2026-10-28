@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/xuri/excelize/v2"
 	app "orderapp/internal/application/customerfulfillment"
+	"strings"
 )
 
 func RenderCustomerAccount(d app.AccountData) ([]byte, error) {
@@ -67,6 +68,208 @@ func RenderCustomerAccount(d app.AccountData) ([]byte, error) {
 		return nil, err
 	}
 	return b.Bytes(), nil
+}
+
+func RenderCustomerOrderFeeAccount(d app.AccountData) ([]byte, error) {
+	f := excelize.NewFile()
+	defer f.Close()
+	for _, sheet := range []string{"账期汇总", "订单汇总", "费用明细"} {
+		if sheet == "账期汇总" {
+			if err := f.SetSheetName("Sheet1", sheet); err != nil {
+				return nil, err
+			}
+		} else if _, err := f.NewSheet(sheet); err != nil {
+			return nil, err
+		}
+	}
+	money := func(v int64) float64 { return float64(v) / 100 }
+	status := func(v string) string { return accountStatus(v) }
+	put := func(sheet string, row int, values []any) error {
+		return f.SetSheetRow(sheet, fmt.Sprintf("A%d", row), &values)
+	}
+	heading := []any{"客户费用明细", d.CustomerName, "账期", d.DateFrom, d.DateTo, "生成时间", d.AsOf}
+	if d.UnpaidOnly {
+		heading = []any{"客户费用明细", d.CustomerName, "范围", "所有未付", nil, "截至", d.AsOf}
+	}
+	if err := put("账期汇总", 1, heading); err != nil {
+		return nil, err
+	}
+	s := d.FeeSummary
+	summaryRows := [][]any{
+		{"费用类型", "应付金额", "已付金额", "未付金额"},
+		{"商品货款", money(s.GoodsCents), nil, nil}, {"加工费", money(s.ProcessingCents), nil, nil},
+		{"代发服务费", money(s.DirectShipServiceCents), nil, nil}, {"运费", money(s.ShippingCents), nil, nil},
+		{"其他费用", money(s.OtherCents), nil, nil}, {"合计", money(s.PayableCents), money(s.PaidCents), money(s.DueCents)},
+	}
+	if d.UnpaidOnly {
+		summaryRows[0] = []any{"费用类型", "未付金额"}
+		summaryRows[6] = []any{"合计", money(s.DueCents)}
+	}
+	for i, row := range summaryRows {
+		if err := put("账期汇总", i+3, row); err != nil {
+			return nil, err
+		}
+	}
+	orderHeader := []any{"订单号", "订单日期", "商品货款", "加工费", "代发服务费", "运费", "其他费用", "应付", "已付", "未付"}
+	if d.UnpaidOnly {
+		orderHeader = []any{"订单号", "订单日期", "商品货款未付", "加工费未付", "代发服务费未付", "运费未付", "其他费用未付", "未付合计"}
+	}
+	if err := put("订单汇总", 1, orderHeader); err != nil {
+		return nil, err
+	}
+	detailHeader := []any{"发生日期", "订单号", "费用名称及商品", "费用类型", "来源", "金额", "付款状态", "发货时间", "寄件重量(kg)", "运单号"}
+	if d.UnpaidOnly {
+		detailHeader[5] = "未付金额"
+		detailHeader = append(detailHeader, "原应付", "已付")
+	}
+	if err := put("费用明细", 1, detailHeader); err != nil {
+		return nil, err
+	}
+	row := 2
+	orderRow := 2
+	for _, group := range d.OrderFeeGroups {
+		if !group.Unlinked {
+			var goods, processing, service, shipping, other int64
+			for _, line := range group.FeeLines {
+				switch line.Category {
+				case "product":
+					goods += line.AmountCents
+				case "processing":
+					processing += line.AmountCents
+				case "direct_ship_service":
+					service += line.AmountCents
+				case "shipping":
+					shipping += line.AmountCents
+				default:
+					other += line.AmountCents
+				}
+			}
+			orderValues := []any{group.Order.OrderNo, group.Order.OrderDate, money(goods), money(processing), money(service), money(shipping), money(other), money(group.PayableCents), money(group.PaidCents), money(group.DueCents)}
+			if d.UnpaidOnly {
+				orderValues = orderValues[:8]
+			}
+			if err := put("订单汇总", orderRow, orderValues); err != nil {
+				return nil, err
+			}
+			orderRow++
+		}
+		for _, line := range group.FeeLines {
+			name := line.FeeName
+			if name == "" {
+				name = app.AccountFeeLabel(line.FeeType)
+			}
+			if line.Category == "product" && len(group.Order.Items) > 0 {
+				parts := make([]string, 0, len(group.Order.Items))
+				for _, item := range group.Order.Items {
+					parts = append(parts, fmt.Sprintf("%s %s × %s%s，单价¥%s，折后¥%s", item.Name, item.Spec, item.Quantity, item.Unit, item.UnitPrice, item.LineTotal))
+				}
+				name += "：" + strings.Join(parts, "；")
+				if group.Order.DiscountCents != 0 {
+					name += fmt.Sprintf("；订单优惠¥%.2f", money(group.Order.DiscountCents))
+				}
+			}
+			shipments := group.Shipments
+			if line.TrackingNo != "" {
+				shipments = make([]app.AccountShipment, 0, 1)
+				for _, item := range group.Shipments {
+					if item.TrackingNo == line.TrackingNo {
+						shipments = append(shipments, item)
+						break
+					}
+				}
+			}
+			waybills := make([]string, 0, len(group.Shipments))
+			for _, item := range shipments {
+				if item.TrackingNo != "" {
+					waybills = append(waybills, item.TrackingNo)
+				}
+			}
+			tracking := line.TrackingNo
+			if tracking == "" {
+				tracking = strings.Join(waybills, ", ")
+			}
+			whenValues := make([]string, 0, len(shipments))
+			weightValues := make([]string, 0, len(shipments))
+			for _, shipment := range shipments {
+				when := shipment.ShippedAt
+				if when == "" {
+					when = "未记录"
+				} else if shipment.Source != "" {
+					when += "（" + shipment.Source + "）"
+				}
+				whenValues = append(whenValues, when)
+				weight := shipment.SettlementWeightKG
+				if weight == "" {
+					weight = "未记录"
+				}
+				weightValues = append(weightValues, weight)
+			}
+			when, weight := strings.Join(whenValues, "；"), strings.Join(weightValues, "；")
+			if when == "" {
+				when = "未记录"
+			}
+			if weight == "" {
+				weight = "未记录"
+			}
+			detailValues := []any{line.OccurredAt, group.Order.OrderNo, name, app.AccountFeeLabel(line.FeeType), line.SourceType + " " + fmt.Sprint(line.SourceID), money(line.AmountCents), status(line.PaymentStatus), when, weight, tracking}
+			if d.UnpaidOnly {
+				detailValues = append(detailValues, money(line.ReceivableCents), money(line.ReceivedCents))
+			}
+			if err := put("费用明细", row, detailValues); err != nil {
+				return nil, err
+			}
+			row++
+		}
+	}
+	style, err := f.NewStyle(&excelize.Style{NumFmt: 2})
+	if err != nil {
+		return nil, err
+	}
+	for _, sheet := range []string{"账期汇总", "订单汇总", "费用明细"} {
+		maxCol := "J"
+		if err = f.SetColWidth(sheet, "A", maxCol, 22); err != nil {
+			return nil, err
+		}
+		if sheet == "费用明细" {
+			if d.UnpaidOnly {
+				if err = f.SetColWidth(sheet, "K", "L", 22); err != nil {
+					return nil, err
+				}
+				if err = f.SetCellStyle(sheet, "K2", fmt.Sprintf("L%d", max(2, row-1)), style); err != nil {
+					return nil, err
+				}
+			}
+			if err = f.SetCellStyle(sheet, "F2", fmt.Sprintf("F%d", max(2, row-1)), style); err != nil {
+				return nil, err
+			}
+			if err = f.SetCellStyle(sheet, "J2", fmt.Sprintf("J%d", max(2, row-1)), mustTextStyle(f)); err != nil {
+				return nil, err
+			}
+		}
+		if sheet == "订单汇总" {
+			if err = f.SetCellStyle(sheet, "C2", fmt.Sprintf("J%d", max(2, orderRow-1)), style); err != nil {
+				return nil, err
+			}
+		}
+		if sheet == "账期汇总" {
+			if err = f.SetCellStyle(sheet, "B4", "D9", style); err != nil {
+				return nil, err
+			}
+		}
+	}
+	var b bytes.Buffer
+	if err := f.Write(&b); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+func mustTextStyle(f *excelize.File) int {
+	style, err := f.NewStyle(&excelize.Style{NumFmt: 49})
+	if err != nil {
+		return 0
+	}
+	return style
 }
 
 func yesNo(value bool) string {

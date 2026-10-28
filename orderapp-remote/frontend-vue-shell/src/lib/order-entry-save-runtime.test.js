@@ -150,3 +150,23 @@ test('retained payment save requires its customer warehouse but no recipient or 
     assert.equal(writes[0].payment_method, '现金')
   }
 })
+
+test('new retained purchase hides and clears draft receipt values while existing orders retain them', async t => {
+  const { editor, writes } = await fixture(t)
+  editor.form.edit_id = 0
+  editor.form.delivery_mode = 'customer_stock'
+  editor.form.delivery_warehouse_code = 'CUSTOMER-8'
+  editor.deliveryWarehouses.value = [{ code: 'CUSTOMER-8', customer_id: 8, kind: 'finished', active: true }]
+  Object.assign(editor.form, { pay_status_id: 2, payment_method: '现金', prepayment_amount: '30', payment_goods_amount: '120', payment_voucher_asset_id: 71 })
+  assert.equal(editor.newRetainedPurchase.value, true)
+  assert.equal(editor.paymentReceiptVisible.value, false)
+  assert.equal(editor.paymentMethodRequired.value, false)
+  await editor.save()
+  assert.equal(editor.error.value, '')
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].pay_status_id, 0)
+  assert.equal(writes[0].payment_method, '')
+  assert.equal(writes[0].prepayment_amount, '0')
+  assert.equal(writes[0].payment_goods_amount, '')
+  assert.equal(writes[0].payment_voucher_asset_id, 0)
+})

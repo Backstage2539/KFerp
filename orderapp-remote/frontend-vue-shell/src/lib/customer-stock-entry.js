@@ -18,6 +18,15 @@ export function stockSupplySummary(spec = {}, requested = 0) {
   return { physical, pending, reserved, gap: Math.max(0, Number(requested || 0) - physical - Math.max(0, pending - reserved)) }
 }
 
+export function stockPurchaseSummary(spec = {}) {
+  return { purchased: spec.purchased_qty == null ? null : Number(spec.purchased_qty), received: spec.received_qty == null ? null : Number(spec.received_qty) }
+}
+
+export function stockGroupShortage(spec = {}, quantities = []) {
+  const requested = quantities.reduce((sum, qty) => sum + Math.max(0, Number(qty) || 0), 0)
+  return stockSupplySummary(spec, requested).gap
+}
+
 export function enabledFulfillmentModes(settings) {
   return (settings?.modes || []).filter(row => row.enabled && ['stock', 'on_demand'].includes(row.mode))
 }

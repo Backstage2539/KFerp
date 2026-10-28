@@ -38,6 +38,7 @@ test("external finance routes and menu resolve to own trading pages", () => {
   const keys = customerWorkspaceMenu(["settlement", "direct_ship"]).flatMap(
     (g) => g.items.map((i) => i.key),
   );
-  assert.ok(keys.includes("customerOrderFees"));
+  assert.ok(keys.includes("customerProcessingPortal"));
+  assert.ok(!keys.includes("customerOrderFees"));
   assert.ok(!keys.includes("financeReport"));
 });

@@ -103,7 +103,7 @@
         <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载 Excel</a>
       </div>
       <button v-if="returnBatchID" class="secondary" type="button" :disabled="trackingExcelLoading" @click="rematchShippingReturn">重新匹配</button>
-      <details v-if="returnReport.length"><summary>本次回传明细（{{returnReport.length}}）</summary><p v-for="r in returnReport" :key="r.row_no">第 {{r.row_no}} 行 · {{r.tracking_no||'无单号'}} · {{r.status==='applied'?'已回填':r.status==='pending'?'待选择':r.status==='unmatched'?'未匹配':'已跳过'}} {{r.error}}</p></details>
+      <details v-if="returnReport.length"><summary>本次回传明细（{{returnReport.length}}）</summary><p v-for="r in returnReport" :key="r.row_no">第 {{r.row_no}} 行 · {{r.tracking_no||'无单号'}} · {{r.status==='applied'?'已回填':r.status==='pending'?'待选择':r.status==='unmatched'?'未匹配':'已跳过'}} · 揽件时间：{{r.pickup_time||'未记录'}} · 结算重量：{{r.settlement_weight_kg ? `${r.settlement_weight_kg} kg` : '未记录'}} {{r.error}}</p></details>
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="bulk-order-bar">
         <span>批量失效已选 {{ selectedVoidableOrderIDs.length }} 个</span>

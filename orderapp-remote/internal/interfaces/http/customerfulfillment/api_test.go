@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	customerapp "orderapp/internal/application/customer"
@@ -85,49 +84,21 @@ func TestERPProcessingRequestUsesSharedPreviewAndSubmitContract(t *testing.T) {
 	}
 }
 
-func TestParseImportAPIAcceptsMultipartFile(t *testing.T) {
-	svc := &fakeCustomerFulfillmentService{
-		parseResult: app.ImportBatch{
-			ID:         77,
-			CustomerID: 147,
-			ImportType: app.ImportTypeDirectShipWorkbook,
-			Summary:    app.ImportSummary{ValidRows: 3, DirectShipOrders: 1},
-		},
-	}
+func TestRemovedFulfillmentImportEndpointsAreUnavailable(t *testing.T) {
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
-
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("import_type", string(app.ImportTypeDirectShipWorkbook)); err != nil {
-		t.Fatal(err)
-	}
-	part, err := writer.CreateFormFile("file", " direct.xlsx ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := part.Write([]byte("xlsx-bytes")); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/147/imports/parse", &body)
-	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("parse status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	for _, want := range []string{`"batch_id":77`, `"valid_rows":3`, `"direct_ship_orders":1`} {
-		if !strings.Contains(rec.Body.String(), want) {
-			t.Fatalf("parse response missing %s: %s", want, rec.Body.String())
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: &fakeCustomerFulfillmentService{}})
+	for _, route := range []struct{ method, path string }{
+		{http.MethodPost, "/api/customer-fulfillment/147/imports/parse"},
+		{http.MethodPost, "/api/customer-fulfillment/imports/55/apply"},
+		{http.MethodGet, "/api/customer-fulfillment/imports/55/rows"},
+		{http.MethodGet, "/api/customer-fulfillment/imports/55/preview"},
+		{http.MethodGet, "/api/customer-fulfillment/147/imports"},
+	} {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(route.method, route.path, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s %s status=%d, want 404", route.method, route.path, rec.Code)
 		}
-	}
-	if svc.parseCmd.CustomerID != 147 || svc.parseCmd.ImportType != app.ImportTypeDirectShipWorkbook || svc.parseCmd.SourceFilename != "direct.xlsx" || svc.parseFile != "xlsx-bytes" {
-		t.Fatalf("parse command = %+v file=%q", svc.parseCmd, svc.parseFile)
 	}
 }
 
@@ -334,110 +305,6 @@ func TestCustomerOptionsAPISkipsInactivePortalWorkbenchCustomer(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "历史停用绑定客户") {
 		t.Fatalf("customer options should skip inactive portal workbench customer: %s", rec.Body.String())
-	}
-}
-
-func TestApplyImportAPIReturnsApplySummary(t *testing.T) {
-	svc := &fakeCustomerFulfillmentService{applyResult: app.ApplyResult{BatchID: 55, AppliedRows: 8, DirectShipOrders: 1}}
-	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/imports/55/apply", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("apply status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	for _, want := range []string{`"batch_id":55`, `"applied_rows":8`, `"direct_ship_orders":1`} {
-		if !strings.Contains(rec.Body.String(), want) {
-			t.Fatalf("apply response missing %s: %s", want, rec.Body.String())
-		}
-	}
-	if svc.applyCmd.BatchID != 55 {
-		t.Fatalf("apply batch id = %d, want 55", svc.applyCmd.BatchID)
-	}
-}
-
-func TestApplyImportAPICapabilityUnavailableMapsToBadRequest(t *testing.T) {
-	svc := &fakeCustomerFulfillmentService{applyErr: errors.New("customer capability direct_ship unavailable")}
-	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/imports/55/apply", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("capability unavailable status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "customer capability direct_ship unavailable") {
-		t.Fatalf("capability unavailable response = %s", rec.Body.String())
-	}
-	if svc.applyCmd.BatchID != 55 {
-		t.Fatalf("apply batch id = %d, want 55", svc.applyCmd.BatchID)
-	}
-}
-
-func TestImportRowsAPIReturnsInvalidRowsForTroubleshooting(t *testing.T) {
-	svc := &fakeCustomerFulfillmentService{
-		listImportRowsResult: []app.ImportRow{{
-			BatchID:   55,
-			SheetName: "生产工单",
-			RowNo:     8,
-			RowType:   "processing_work_order",
-			Status:    "invalid",
-			Error:     "投豆量无效",
-		}},
-	}
-	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/imports/55/rows?status=invalid&limit=80", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("rows status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	for _, want := range []string{`"rows"`, `"sheet_name":"生产工单"`, `"row_no":8`, `"error":"投豆量无效"`} {
-		if !strings.Contains(rec.Body.String(), want) {
-			t.Fatalf("rows response missing %s: %s", want, rec.Body.String())
-		}
-	}
-	if svc.listImportRowsQuery.BatchID != 55 || svc.listImportRowsQuery.Status != "invalid" || svc.listImportRowsQuery.Limit != 80 {
-		t.Fatalf("rows query = %+v", svc.listImportRowsQuery)
-	}
-}
-
-func TestImportPreviewAPIReturnsNonMutatingSummary(t *testing.T) {
-	svc := &fakeCustomerFulfillmentService{
-		importPreviewResult: app.ImportPreview{
-			Batch: app.ImportBatch{ID: 55, CustomerID: 147, ImportType: app.ImportTypeProcessingWorkbook, Status: "parsed"},
-			Effects: []app.ImportPreviewEffect{
-				{Label: "将应用有效行", Value: 44},
-				{Label: "加工工单", Value: 136},
-			},
-			Warning: "预览不写入业务数据",
-		},
-	}
-	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/imports/55/preview", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	for _, want := range []string{`"batch"`, `"id":55`, `"effects"`, `"label":"加工工单"`, `"warning":"预览不写入业务数据"`} {
-		if !strings.Contains(rec.Body.String(), want) {
-			t.Fatalf("preview response missing %s: %s", want, rec.Body.String())
-		}
-	}
-	if svc.importPreviewQuery.BatchID != 55 {
-		t.Fatalf("preview query batch = %d, want 55", svc.importPreviewQuery.BatchID)
 	}
 }
 
