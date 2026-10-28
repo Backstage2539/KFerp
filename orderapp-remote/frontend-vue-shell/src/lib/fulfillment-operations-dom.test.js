@@ -37,7 +37,7 @@ test('留厂订单主状态为生产进度，详情无收件与发货区域，�
  const retained={id:115,order_no:'SO-RETAINED-2',delivery_mode:'customer_stock',delivery_status:'pending_receipt',process_status:'待生产',ship_status:'待发货',portal_service_code:'product_order',fulfillment_progress:{label:'生产完成 · 已入库',can_ship:false}}
  const dispatch={id:117,order_no:'SO-DISPATCH',delivery_mode:'ship',fulfillment_mode:'stock',ship_status:'待发货',receiver_name:'测试收件人',receiver_address:'测试地址'}
  globalThis.fetch=async url=>{const path=String(url);if(path.includes('/overview'))return response({customer_id:8,capabilities:[],operations:{},assets:[]});if(path.includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});if(path.includes('/detail'))return response({edit_data:{...retained,items:[]}});return response({rows:[retained,dispatch],summary:{orders:2}})}
- const app=createApp(component,{customerContextId:8});app.config.warnHandler=()=>{}
+ const app=createApp(component,{customerContextId:8,actor:{basic_auth_admin:true}});app.config.warnHandler=()=>{}
  try{app.mount(document.querySelector('#app'));await flush();button('订单').click();await flush()
   const rows=document.querySelectorAll('.fulfillment-orders-table tbody tr')
   assert.match(rows[0].textContent,/生产完成 · 已入库/);assert.match(rows[0].textContent,/留厂库存.*无需发货/)
@@ -53,7 +53,7 @@ test('operations opens on todos, keeps five historical modules and gates only ne
  const {component}=await loadComponent('../views/CustomerFulfillmentView.vue')
  const original=globalThis.fetch;const calls=[]
  globalThis.fetch=async url=>{calls.push(String(url));if(String(url).includes('/overview'))return response({customer_id:8,customer_name:'测试客户',capabilities:[],operations:{pending_shipment:131},assets:[]});if(String(url).includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});return response({rows:[],summary:{orders:131},modes:[]})}
- const app=createApp(component,{viewParams:{},customerContextId:8});app.config.warnHandler=()=>{}
+ const app=createApp(component,{viewParams:{},customerContextId:8,actor:{basic_auth_admin:true}});app.config.warnHandler=()=>{}
  try{app.mount(document.querySelector('#app'));await flush();
   const tabs=[...document.querySelectorAll('[role="tab"]')];assert.deepEqual(tabs.map(t=>t.textContent.trim()),['概览','库存','订单','代发','费用'])
   assert.equal(tabs[0].getAttribute('aria-selected'),'true');assert.equal(document.querySelector('.fulfillment-orders-table'),null)
@@ -68,7 +68,7 @@ test('费用页默认打开未出账流水，提供日期快捷方式且不渲�
  const {component}=await loadComponent('../views/CustomerFulfillmentView.vue')
  const original=globalThis.fetch
  globalThis.fetch=async url=>{const path=String(url);if(path.includes('/overview'))return response({customer_id:8,customer_name:'测试客户',capabilities:['settlement','direct_ship'],operations:{},assets:[]});if(path.includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});if(path.includes('/settings'))return response({modes:[]});if(path.includes('/options'))return response({});return response({imports:[],rows:[],summary:{orders:0}})}
- const app=createApp(component,{viewParams:{},customerContextId:8});app.config.warnHandler=()=>{}
+ const app=createApp(component,{viewParams:{},customerContextId:8,actor:{basic_auth_admin:true}});app.config.warnHandler=()=>{}
  try{app.mount(document.querySelector('#app'));await flush();button('费用').click();await flush()
   assert.ok(document.querySelector('.billing-workspace'))
   assert.ok(button('未出账'))
@@ -86,7 +86,7 @@ test('费用页按选择来源预览出账并生成已出账账单', async () =>
  const orderCharge={id:'order_goods:order:61',charge_type:'order_goods',source_type:'order',source_id:61,source_no:'SO-FEE-61',occurred_at:today,description:'订单款项',receivable_cents:10000,received_cents:7500,due_cents:2500,confirmation_status:'confirmed',settlement_status:'unsettled'}
  const issuedBill={batch_id:9,customer_id:8,settlement_no:'CB-9',customer_name:'测试客户',period_from:today,period_to:today,fee_items:1,total_amount_cents:2500,current_received_cents:0,current_due_amount_cents:2500,lines:[{...orderCharge,amount_cents:2500,issued_received_cents:7500}]}
  globalThis.fetch=async (url,options={})=>{const path=String(url);if(path.includes('/overview'))return response({customer_id:8,customer_name:'测试客户',capabilities:['settlement','direct_ship'],operations:{},assets:[],fees:[]});if(path.includes('/customers'))return response({customers:[{id:8,name:'测试客户'}]});if(path.includes('/settings/sales-order/seals'))return response({rows:[]});if(path.includes('/settings'))return response({modes:[]});if(path.includes('/billing/summary'))return response({total_unpaid_cents:2500,unbilled_cents:2500,issued_cents:0});if(path.includes('/billing/unbilled'))return response({rows:[orderCharge],total:1,page:1,limit:25});if(path.endsWith('/settlements/preview')){previewRequest=JSON.parse(options.body);return response({preview_version:'version-1',customer_id:8,customer_name:'测试客户',period_from:today,period_to:today,fee_items:1,total_amount_cents:2500,lines:[{...orderCharge,amount_cents:2500,issued_received_cents:7500}]})}if(path.endsWith('/settlements/issue')){issueRequest=JSON.parse(options.body);return response(issuedBill)}if(path.endsWith('/billing/bills/9/pdf-settings'))return response({customer_id:8,settlement_id:9,seal_asset_id:0,placements:[]});if(path.endsWith('/billing/bills/9'))return response(issuedBill);if(path.includes('/billing/bills'))return response({rows:[issuedBill],total:1,page:1,limit:25});return response({imports:[],rows:[],summary:{orders:0}})}
- const app=createApp(component,{viewParams:{},customerContextId:8});app.config.warnHandler=()=>{}
+ const app=createApp(component,{viewParams:{},customerContextId:8,actor:{basic_auth_admin:true}});app.config.warnHandler=()=>{}
  try{app.mount(document.querySelector('#app'));await flush();button('费用').click();await flush()
   const sourceCheckbox=document.querySelector('input[aria-label="选择SO-FEE-61"]');assert.ok(sourceCheckbox);sourceCheckbox.checked=true;sourceCheckbox.dispatchEvent(new Event('change',{bubbles:true}));await flush()
   button('出账（1）').click();await flush()
@@ -100,5 +100,26 @@ test('费用页按选择来源预览出账并生成已出账账单', async () =>
   assert.ok(issueRequest.idempotency_key)
   assert.match(document.body.textContent,/已出账 CB-9，1 笔，合计 ¥25\.00/)
   assert.ok(document.querySelector('.billing-bill-drawer'))
+ }finally{app.unmount();globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
+})
+
+test('customer uses the same five modules, bound identity and no internal management controls', async () => {
+ const {component}=await loadComponent('../views/CustomerFulfillmentView.vue')
+ const original=globalThis.fetch, calls=[]
+ globalThis.fetch=async (url, options={})=>{ const path=String(url);calls.push(path)
+  if(path.includes('/fulfillment/overview'))return response({customer_id:149,customer_name:'客户甲',capabilities:['direct_ship','product_order','settlement'],operations:{},assets:[],fees:[]})
+  if(path.includes('/direct-ship/settings'))return response({modes:[{mode:'stock',enabled:true,warehouse_code:'C149'}]})
+  if(path.includes('/billing/summary'))return response({total_unpaid_cents:100,unbilled_cents:100,issued_cents:0})
+  if(path.includes('/billing/unbilled'))return response({rows:[{id:'order-1',source_type:'order',source_id:1,source_no:'SO-1',due_cents:100}],total:1,page:1})
+  return response({rows:[],summary:{orders:0}})
+ }
+ const app=createApp(component,{viewParams:{customer_id:999},customerContextId:999,customerAccountActor:true,actor:{account_type:'channel_customer',permissions:['customer_processing.read','customer_processing.submit']}});app.config.warnHandler=()=>{}
+ try{app.mount(document.querySelector('#app'));await flush()
+  assert.match(document.body.textContent,/客户甲/)
+  for(const label of ['概览','库存','订单','代发','费用']) assert.ok(button(label),label)
+  assert.equal(button('客户设置'),undefined)
+  button('库存').click();await flush();assert.equal(button('调整库存'),undefined)
+  button('费用').click();await flush();assert.equal(button('出账'),undefined);assert.equal(document.querySelector('input[aria-label="选择SO-1"]'),null)
+  button('代发').click();await flush();assert.ok(button('库存代发'));assert.ok(calls.some(x=>x.includes('customer_id=149')));assert.ok(!calls.some(x=>x.includes('/api/customer-fulfillment/')))
  }finally{app.unmount();globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
 })

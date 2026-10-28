@@ -5,7 +5,7 @@
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="message" role="status">{{ message }}</p>
     <template v-if="!editing">
-      <button v-if="status?.can_edit" type="button" :disabled="busy" @click="editing = true">修改订单</button>
+      <button v-if="status?.can_edit && !readOnly" type="button" :disabled="busy" @click="editing = true">修改订单</button>
       <span v-else-if="status?.edit_block_reason">{{ status.edit_block_reason }}</span>
       <template v-if="status?.can_confirm && !customerPortal">
         <button type="button" :disabled="busy" @click="review('accepted')">确认订单</button>
@@ -37,7 +37,7 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { apiGet, apiSend } from '../api/client.js'
 import OrderEntryView from '../views/OrderEntryView.vue'
 import { orderConfirmationLabel, visibleOrderRefresh } from '../lib/order-confirmation.js'
-const props = defineProps({ orderId: { type: Number, required: true }, customerId: Number, customerPortal: Boolean, portalService: { type: String, default: 'direct_ship' } })
+const props = defineProps({ orderId: { type: Number, required: true }, customerId: Number, customerPortal: Boolean, readOnly: Boolean, portalService: { type: String, default: 'direct_ship' } })
 const emit = defineEmits(['updated'])
 const status = ref(null), editing = ref(false), busy = ref(false), error = ref(''), message = ref(''), reason = ref('')
 let revision = 0, stop

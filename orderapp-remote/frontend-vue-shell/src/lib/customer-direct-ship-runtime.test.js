@@ -66,7 +66,7 @@ test('库存代发可随时打开留厂购货，保留原代发草稿', async ()
   editor.startStockPurchase()
   assert.deepEqual(editor.topup.value, { warehouse_code: 'XI-QIN', items: [], kind: 'purchase' })
   assert.equal(editor.form.receiver_name, '测试收件人')
-  assert.match(descriptor.template.content, /v-if="mode === 'stock'"[^>]*@click="startStockPurchase"/)
+  assert.match(descriptor.template.content, /v-if="mode === 'stock' && allowStockPurchase"[^>]*@click="startStockPurchase"/)
 })
 
 test('工作台直接选择代发模式，只能使用地址簿中已保存的收件地址', async () => {
@@ -83,7 +83,7 @@ test('工作台直接选择代发模式，只能使用地址簿中已保存的�
   assert.match(editor.validation(), /地址簿/)
   const html = descriptor.template.content
   assert.doesNotMatch(html, /核对库存与费用/)
-  assert.match(html, /:require-saved="!customerPortal"/)
+  assert.match(html, /:require-saved="true"/)
   assert.match(html, /recipientLine/)
 })
 
@@ -161,4 +161,21 @@ test('从当前录单新增地址时保留省市区和详细地址，供下一�
   assert.equal(selected.length, 0)
   restricted.use({ id: 8, recipient_name: '收件人', phone: '13800000000', detail_address: '测试路1号' })
   assert.equal(selected.length, 1)
+})
+
+test('同一规格不同历史版本的多行合并计算补购，并保留累计值', async () => {
+  let editor
+  await renderToString(createSSRApp({ setup() { editor = View.setup({ customerId: 78, customerPortal: false, externalMode: 'stock' }, { expose() {}, emit() {} }); return () => h('div') } }))
+  editor.mode.value = 'stock'
+  const family = { parent_product_id: 10, name: '商品', specs: [
+    { product_id: 10, bom_spec_id: 12, bom_variant_id: 13, inventory_unit: '袋', purchased_qty: 20, received_qty: 8, physical_available_qty: 4, pending_inbound_qty: 12, pending_reserved_qty: 3 },
+    { product_id: 10, bom_spec_id: 12, bom_variant_id: 14, inventory_unit: '袋', purchased_qty: 20, received_qty: 8, physical_available_qty: 4, pending_inbound_qty: 12, pending_reserved_qty: 3 },
+  ] }
+  editor.catalog.value = { product_families: [family] }
+  editor.selectFamily(editor.lines.value[0], family)
+  editor.lines.value[0].qty = 7
+  const next = editor.newLine(); editor.selectFamily(next, family); next.spec_key = editor.specKey(family.specs[1]); next.qty = 8; editor.lines.value.push(next)
+  assert.deepEqual(editor.purchasedFor(next), { purchased: 20, received: 8 })
+  assert.equal(editor.shortageFor(next), 2)
+  assert.equal(editor.shortageFor(editor.lines.value[0]), 2)
 })

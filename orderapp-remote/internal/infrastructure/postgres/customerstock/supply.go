@@ -16,6 +16,48 @@ type Supply struct {
 	Warehouse, ProductName, BomSpecName, BomSpecKey, InventoryUnit, SKUCode                                                string
 }
 
+type PurchaseTotal struct {
+	HistoryComplete                                                         bool
+	ProductID, BomSpecID, BomVariantID, SpecG, PurchasedQty, ReceivedQty    int64
+	Warehouse, ProductName, BomSpecName, BomSpecKey, InventoryUnit, SKUCode string
+}
+
+// ListPurchaseTotals counts linked accepted retained purchases and their actual
+// receipts. Shipment allocations do not reduce these cumulative quantities.
+func ListPurchaseTotals(ctx context.Context, q Querier, schema string, customerID int64, warehouse string) ([]PurchaseTotal, error) {
+	var exists bool
+	if err := q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".customer_stock_entitlements").Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, nil
+	}
+	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT e.product_id,e.bom_spec_id,MAX(e.bom_variant_id),e.spec_g,e.warehouse_code,SUM(e.promised_qty)::bigint,SUM(e.received_qty)::bigint,COALESCE(p.name,''),COALESCE(s.name,''),COALESCE(s.spec_key,''),COALESCE(s.inventory_unit,''),COALESCE(NULLIF(s.code,''),p.sku_code,''), NOT EXISTS(
+ SELECT 1 FROM %[1]s.orders old_order JOIN %[1]s.order_items old_item ON old_item.order_id=old_order.id
+ WHERE old_order.customer_id=$1 AND old_order.delivery_mode='customer_stock' AND old_order.delivery_warehouse_code=e.warehouse_code
+ AND NOT old_order.is_void AND COALESCE(to_jsonb(old_order)->>'confirmation_status','accepted')='accepted' AND old_item.product_id=e.product_id
+ AND NOT EXISTS(SELECT 1 FROM %[1]s.customer_stock_entitlements linked WHERE linked.source_order_item_id=old_item.id AND linked.status='active')
+ AND (COALESCE((to_jsonb(old_item)->>'bom_spec_id')::bigint,0)=e.bom_spec_id
+ OR COALESCE((to_jsonb(old_item)->>'bom_spec_id')::bigint,0)=0)
+ )
+FROM %[1]s.customer_stock_entitlements e JOIN %[1]s.orders o ON o.id=e.source_order_id JOIN %[1]s.products p ON p.id=e.product_id AND p.active=true LEFT JOIN %[1]s.production_bom_specs s ON s.id=e.bom_spec_id
+WHERE e.customer_id=$1 AND ($2='' OR e.warehouse_code=$2) AND e.status='active' AND NOT o.is_void AND COALESCE(to_jsonb(o)->>'confirmation_status','accepted')='accepted'
+GROUP BY e.product_id,e.bom_spec_id,e.spec_g,e.warehouse_code,p.name,s.name,s.spec_key,s.inventory_unit,s.code,p.sku_code ORDER BY e.product_id,e.bom_spec_id,e.spec_g`, schema), customerID, warehouse)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PurchaseTotal
+	for rows.Next() {
+		var v PurchaseTotal
+		if err := rows.Scan(&v.ProductID, &v.BomSpecID, &v.BomVariantID, &v.SpecG, &v.Warehouse, &v.PurchasedQty, &v.ReceivedQty, &v.ProductName, &v.BomSpecName, &v.BomSpecKey, &v.InventoryUnit, &v.SKUCode, &v.HistoryComplete); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 func ListSupply(ctx context.Context, q Querier, schema string, customerID int64, warehouse string, lock bool) ([]Supply, error) {
 	var exists bool
 	if err := q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".customer_stock_entitlements").Scan(&exists); err != nil {

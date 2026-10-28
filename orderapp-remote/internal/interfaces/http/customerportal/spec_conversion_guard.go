@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/labstack/echo/v4"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -44,6 +45,43 @@ func rejectCustomerSpecConversion(c echo.Context) error {
 			if row, ok := rawRow.(map[string]any); ok && forbidden(row) {
 				return echo.NewHTTPError(403, "客户自行下单不能使用员工规格换算计价")
 			}
+		}
+	}
+	return nil
+}
+
+// Reject payment details for newly submitted customer retained purchases.
+func rejectNewRetainedPayment(c echo.Context) error {
+	raw, err := io.ReadAll(io.LimitReader(c.Request().Body, 4<<20+1))
+	if err != nil || len(raw) > 4<<20 {
+		return echo.NewHTTPError(400, "请求数据无效")
+	}
+	c.Request().Body = io.NopCloser(bytes.NewReader(raw))
+	var body map[string]any
+	if json.Unmarshal(raw, &body) != nil {
+		return nil
+	}
+	if mode, _ := body["delivery_mode"].(string); strings.TrimSpace(mode) == "customer_stock" {
+		for _, key := range []string{"pay_status_id", "prepayment_amount", "payment_goods_amount", "payment_shipping_amount", "payment_voucher_asset_id", "payment_method"} {
+			value, exists := body[key]
+			if !exists || value == nil {
+				continue
+			}
+			switch v := value.(type) {
+			case float64:
+				if v == 0 {
+					continue
+				}
+			case string:
+				text := strings.TrimSpace(v)
+				if text == "" {
+					continue
+				}
+				if number, err := strconv.ParseFloat(text, 64); err == nil && number == 0 {
+					continue
+				}
+			}
+			return echo.NewHTTPError(400, "新建购货留厂订单须为未付款，请通过费用流程登记收款")
 		}
 	}
 	return nil

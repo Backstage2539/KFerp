@@ -517,6 +517,7 @@ const internalViews = {
 }
 
 function resolveInternalView(key) {
+  if (isCustomerActor.value && key === 'customerProcessingPortal') return markRaw(CustomerFulfillmentView)
   return markRaw(internalViews[key] || UnknownView)
 }
 
@@ -653,6 +654,10 @@ function isProductSettingsKey(key) {
 
 function hardNavigateToView(key, params = {}) {
   const requestedKey = key
+  if (isCustomerActor.value) {
+    const tab = { customerOrders: 'orders', customerDirectShip: 'dispatch', customerInventory: 'inventory', customerOrderFees: 'fees', customerSettlement: 'fees' }[key]
+    if (tab) { key = 'customerProcessingPortal'; params = { ...params, tab } }
+  }
   key = normalizeViewKey(key)
   if (requestedKey === 'bom') params = { ...params, tab: params?.tab || 'bom' }
   const url = applyViewContextToUrl(viewNavigationURL(new URL(window.location.href), key, viewContextViewParams(params, currentViewContext.value)))
@@ -675,6 +680,10 @@ function scrollCurrentViewToTop() {
 
 function open(key, params = {}, options = {}) {
   const requestedKey = key
+  if (isCustomerActor.value) {
+    const tab = { customerOrders: 'orders', customerDirectShip: 'dispatch', customerInventory: 'inventory', customerOrderFees: 'fees', customerSettlement: 'fees' }[key]
+    if (tab) { key = 'customerProcessingPortal'; params = { ...params, tab } }
+  }
   key = normalizeViewKey(key)
   if (requestedKey === 'bom') params = { ...params, tab: params?.tab || 'bom' }
   if (!menuMap[key]) return
@@ -1112,6 +1121,8 @@ async function loadActor() {
     if (isCustomerAccountActor(currentActor.value)) {
       await loadCustomerAccountContext()
       currentKey.value = customerAccountView(currentKey.value)
+      const sharedTab = { customerOrders: 'orders', customerDirectShip: 'dispatch', customerInventory: 'inventory', customerOrderFees: 'fees', customerSettlement: 'fees' }[currentKey.value]
+      if (sharedTab) { currentKey.value = 'customerProcessingPortal'; currentViewParams.value = { ...currentViewParams.value, tab: sharedTab } }
       if (!customerAccountActorMenuGroups.value.flatMap(group => group.items.map(item => item.key)).includes(currentKey.value)) {
         currentKey.value = 'customerProcessingPortal'
         currentViewParams.value = {}

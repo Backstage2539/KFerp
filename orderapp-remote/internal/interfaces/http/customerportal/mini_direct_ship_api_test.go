@@ -751,3 +751,22 @@ func TestMiniCustomerAccountConfirmationAndDisputeBindIdentityAndRevision(t *tes
 		t.Fatalf("dispute cmd=%#v", fulfillment.disputeCmd)
 	}
 }
+
+func TestMiniRetainedPurchaseRejectsContradictoryReceiptFields(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{me: customerportalapp.CurrentContext{MiniUserID: 21, CurrentCustomerID: 88, Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityProductOrder, Enabled: true}}}}, CustomerFulfillment: fulfillment})
+	for _, field := range []string{`"pay_status_id":2`, `"prepayment_amount":1`, `"payment_goods_amount":"1.00"`, `"payment_method":"现金"`, `"payment_voucher_asset_id":7`} {
+		req := httptest.NewRequest("POST", "/api/mini/product-orders", strings.NewReader(`{"delivery_mode":"customer_stock",`+field+`}`))
+		req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != 400 {
+			t.Fatalf("field %s: %d %s", field, rec.Code, rec.Body.String())
+		}
+	}
+	if fulfillment.calls != 0 {
+		t.Fatalf("invalid requests reached service: %d", fulfillment.calls)
+	}
+}

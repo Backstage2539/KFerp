@@ -16,11 +16,10 @@ export function customerWorkspaceCapability(key) {
 }
 export function customerWorkspaceMenu(capabilities = []) {
   const codes = capabilityCodes(capabilities)
-  const items = [{ key: 'customerProcessingPortal', label: '首页', title: '客户首页' }]
-  if (codes.some((c) => ['direct_ship', 'product_order', 'processing', 'mall'].includes(c)))
-    items.push({ key: 'customerOrders', label: '我的订单', title: '我的订单' })
+  const items = [{ key: 'customerProcessingPortal', label: '客户履约', title: '客户履约' }]
+  const supplementary = new Set(['customerPriceTables', 'customerProductOrder', 'customerProcessing', 'customerMall'])
   for (const [key, label, code] of customerWorkspacePages)
-    if (codes.includes(code)) items.push({ key, label, title: label })
+    if (supplementary.has(key) && codes.includes(code)) items.push({ key, label, title: label })
   const groups = [{ id: 'customerWorkbench', name: '客户中心', items }]
   return groups
 }

@@ -147,7 +147,7 @@
         <Teleport :to="props.workflowTarget || 'body'" :disabled="!props.workflowTarget" defer>
           <div :class="props.workflowTarget ? 'form-grid' : 'workflow-fields-inline'">
           <template v-if="!fulfillmentOrderEditing">
-        <label v-if="!props.customerPortal">
+        <label v-if="!props.customerPortal && !newRetainedPurchase">
           <span>付款状态</span>
           <strong v-if="freeSampleSettlement" class="no-payment">无需收款 · 已结清</strong>
           <select v-else v-model.number="form.pay_status_id">
@@ -155,7 +155,7 @@
           </select>
         </label>
 
-        <div v-if="!props.customerPortal && !freeSampleSettlement" class="prepayment-editor" data-prepayment-editor>
+        <div v-if="!props.customerPortal && !freeSampleSettlement && !newRetainedPurchase" class="prepayment-editor" data-prepayment-editor>
           <label>
             <span>已支付预付款（元）</span>
             <input v-model="form.prepayment_amount" type="number" min="0" step="0.01" placeholder="填写实际已收金额" @input="onManualPrepayment" />
@@ -166,7 +166,7 @@
           <small>按应收合计 ¥{{ money(orderTotalPreviewValue.grandTotal) }} 计算{{ isCustomerStockOrder(form) ? '' : '（含运费）' }}；可修改实际已收金额。</small>
         </div>
 
-        <label v-if="!props.customerPortal && !freeSampleSettlement" :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
+        <label v-if="!props.customerPortal && !freeSampleSettlement && !newRetainedPurchase" :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
           <span>收款方式</span>
           <select v-model.trim="form.payment_method" :disabled="!paymentMethodRequired">
             <option value="">选择收款方式</option>
@@ -932,7 +932,7 @@ const backfillMode = ref(false)
 const deliveryWarehouses = ref([])
 const deliveryWarehousesLoading = ref(false)
 const deliveryWarehouseError = ref('')
-const deliveryWarehouseOptions = computed(() => customerStockWarehouses(deliveryWarehouses.value, form.customer_id))
+const deliveryWarehouseOptions = computed(() => props.customerPortal && props.deliveryPrefill?.warehouse_code ? [{ code: String(props.deliveryPrefill.warehouse_code), name: String(props.deliveryPrefill.warehouse_code), customer_id: Number(form.customer_id), kind: 'finished', active: true }] : customerStockWarehouses(deliveryWarehouses.value, form.customer_id))
 let deliveryWarehouseLoadVersion = 0
 function applyAddressBookRecipient(snapshot) { Object.assign(form, snapshot); saveOrderEntryDraft() }
 async function loadDeliveryWarehouses() {
@@ -1135,7 +1135,8 @@ const orderTotalHintText = computed(() => fulfillmentOrderEditing.value ? '商�
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
 const freeSampleSettlement = computed(() => isFreeSamplePreview(sampleOrderEditing.value, rows.value, form, orderTotalPreviewValue.value.grandTotal))
 const zeroGoodsSample = computed(() => sampleOrderEditing.value && itemsTotal.value === 0)
-const paymentMethodRequired = computed(() => !freeSampleSettlement.value && !props.customerPortal && requiresOrderPaymentMethod(form, payStatuses.value))
+const newRetainedPurchase = computed(() => (!form.edit_id || copyMode.value) && form.delivery_mode === 'customer_stock')
+const paymentMethodRequired = computed(() => !newRetainedPurchase.value && !freeSampleSettlement.value && !props.customerPortal && requiresOrderPaymentMethod(form, payStatuses.value))
 const prepaymentRate = ref(0)
 function selectPrepaymentStatus() {
   if (Number(form.prepayment_amount) <= 0) return
@@ -1157,11 +1158,11 @@ watch(() => orderTotalPreviewValue.value.grandTotal, () => {
 const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))
 const selectedShipStatusName = computed(() => optionName(shipStatuses.value, form.ship_status_id))
 const paymentReceiptVisible = computed(() => {
-  if (props.customerPortal || freeSampleSettlement.value) return false
+  if (props.customerPortal || freeSampleSettlement.value || newRetainedPurchase.value) return false
   const name = selectedPayStatusName.value
   return name.includes('已收款') || name.includes('已付款') || name.includes('已支付')
 })
-const paymentReceiptRequired = computed(() => !freeSampleSettlement.value && !props.customerPortal && requiresOrderPaymentReceipt(form, payStatuses.value))
+const paymentReceiptRequired = computed(() => !newRetainedPurchase.value && !freeSampleSettlement.value && !props.customerPortal && requiresOrderPaymentReceipt(form, payStatuses.value))
 const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
 const paymentShippingAmountSuggestion = computed(() => money(toNumber(form.shipping_amount)))
 const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptVisible.value && itemsTotal.value > 0)
@@ -3023,6 +3024,7 @@ async function save(options = {}) {
   const saveVersion = editorLoadVersion
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
+    if (newRetainedPurchase.value) Object.assign(payload, { pay_status_id: 0, payment_method: '', payment_goods_amount: '', payment_shipping_amount: '', payment_voucher_asset_id: 0, prepayment_amount: '0' })
     if (form.delivery_mode!=='customer_stock' && !orderFreight.value?.edit_locked && (!form.edit_id || !props.customerPortal)) {
       const q=await freightEstimator.value?.preview();if(!q&&!form.freight_state?.preserveExisting){error.value='请完善收件地区及运费配置后重试';return}
       Object.assign(payload,freightEstimator.value.payload(q))

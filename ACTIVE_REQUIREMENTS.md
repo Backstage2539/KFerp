@@ -6335,6 +6335,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: feature branch based on `origin/develop@aa4e792a54b9`; integrated to `develop` and deployed to the development environment at `a1f775455be672d13b9f333ef4a1327ffe3b8793`. Server Go verification and `/app/login` HTTP 200 smoke passed; authenticated browser verified fee summaries and the unbilled ledger. Production and WeChat publication were not performed.
 - Notes: 订单货款仅计未收余额；旧草稿迁移保留明细快照、归还来源、记系统操作日志并跳过 processing billing run；不生成吴国宏正式账单、不登记收款、不发布 production 或微信。
 
+### PR-744-SHARED-CUSTOMER-WORKBENCH
+- Branch: `codex/customer-shared-workbench`; base `origin/develop@d8b893f91`.
+- Status: implementation and automated verification complete; integration and development delivery pending; PR remains subject to Van acceptance.
+- Scope: cumulative retained purchases/receipts and combined shortage; new retained purchases unpaid; unify customer and internal fulfillment workspace with customer-scoped permissions.
+- DEV: DEV-PR744-01 cumulative stock and shortage; DEV-PR744-02 retained-order unpaid creation; DEV-PR744-03 shared customer workspace and isolation; DEV-PR744-04 tests, documentation and development deployment.
+- Verifier: RED/GREEN isolated PostgreSQL, customer and miniapp API isolation, Vue DOM/runtime, full Go/Vue/miniapp checks and development build. Evidence: `orderapp-remote/docs/acceptance/2026-10-28-shared-customer-workbench.md`. Real-account and device acceptance remain separate; preserve live records, no production or WeChat release.
+
 ### PR-743-DIRECTSHIP-ENTRY-ADDRESS
 - Branch: `codex/directship-entry-address`; base `origin/develop@5cba74c0d`.
 - Status: development delivery complete; PR-743 in Van review, DEV-PR743-01..04 done.

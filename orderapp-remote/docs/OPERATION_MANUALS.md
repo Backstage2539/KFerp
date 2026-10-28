@@ -1,3 +1,5 @@
+PR-744：客户和内部共用履约界面、留厂购货未付款及库存代发累计购买/入库，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)和[客户购货寄存与代发](OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md)。
+
 PR-715：规格模板差异下发并直接发布 BOM，原价格表继续按稳定规格报价；参见[商品规格与录单](OP_MANUAL_BOM_ORDER_PRICING.md)。
 
 PR-737：成品盘点按批次余额核算，减量 FIFO 扣批次、增量建立调整批次；规格 `0g` 历史库存只允许清零。参见[库存作业手册](OP_MANUAL_STOCK.md#报废副产品和盘点)。

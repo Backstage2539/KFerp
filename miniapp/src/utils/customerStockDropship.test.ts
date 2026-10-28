@@ -28,7 +28,7 @@ describe('库存权益与补购草稿', () => {
     expect(directShipTopupLines([line], preview)[0].qty).toBe(2)
     expect(directShipTopupLines([line, { ...line, key: 'second' }], preview)).toHaveLength(1)
     expect(line.qty).toBe(14)
-    expect(directShipTopupLines([{ ...line, bom_variant_id: 3 }], preview)).toEqual([])
+    expect(directShipTopupLines([{ ...line, bom_variant_id: 3 }], preview)).toEqual([{ ...line, bom_variant_id: 3, qty: 2 }])
   })
   it('尚未入库的24包也显示在客户库存列表，实物数保持0', () => {
     const rows = mergeCustomerStockAssets([], [{ product_id: 5, product_name: '曜石2.0', bom_spec_id: 10, bom_variant_id: 2, inventory_unit: '袋', spec_g: 0, physical_available_qty: 0, pending_inbound_qty: 24, pending_reserved_qty: 12, available_qty: 12, total_qty: 0, reserved_qty: 0, warehouses: ['XI-QIN'] }])

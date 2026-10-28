@@ -456,14 +456,14 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
     <view v-if="showCreate" class="order-panel">
       <text class="title">{{ createTitle }}</text>
       <view v-if="stockScenario" class="stock-overview">
-        <view class="section-head"><text class="subtitle">库存概览</text><text class="muted">下单后剩余</text></view>
+        <view class="section-head"><text class="subtitle">已购商品</text><text class="muted">累计数量</text></view>
         <text v-if="loading" class="muted">正在刷新库存…</text>
         <text v-else-if="!stockOverview.length" class="muted">暂无可安排代发的库存，可先下单库存</text>
         <view v-for="row in stockOverview" :key="row.key" class="stock-overview-row" :class="{ 'stock-selected': row.requested > 0 }">
           <view class="stock-overview-copy"><text class="line-name">{{ row.name }}</text><text class="muted">{{ row.spec }}<template v-if="row.requested"> · 本单 {{ row.requested }}{{ row.unit }}</template></text></view>
-          <text class="stock-remaining">{{ row.remaining }}<text class="stock-unit">{{ row.unit }}</text></text>
+          <view class="stock-overview-copy"><text>累计已购买 {{ row.purchased ?? '未记录' }}</text><text>累计已入库 {{ row.received ?? '未记录' }}</text><text v-if="row.gap > 0" class="stock-gap">需补购 {{ row.gap }}{{ row.unit }}</text></view>
         </view>
-        <text class="muted">含现货和备货后可用数量，提交代发单后才占用。</text>
+        <text class="muted">累计购买和入库不代表当前可发货数量；实际发货以可用实物为准。</text>
         <button class="secondary" :loading="openingStockPurchase" :disabled="submitting || openingStockPurchase || loading" @tap="startTopup">商品下单</button>
       </view>
       <text v-if="retainedPurchase" class="purchase-hint">本次购买的商品留在工厂，备货入库后供你安排代发。</text>
@@ -504,7 +504,7 @@ onBeforeUnmount(() => { quoteFlow.dispose(); loadVersion++; uni.$off('customer-o
         <text class="field-label">数量（{{ line.sales_unit || line.inventory_unit || '件' }}）</text>
         <view class="quantity-field"><input v-model.number="line.qty" type="number" :disabled="submitting" placeholder="填写数量" @input="invalidatePreview()" /><text>{{ line.sales_unit || line.inventory_unit || '件' }}</text></view>
         <view v-if="stockScenario && stockRow(line) && firstStockLine(line)" class="stock-line-status">
-          <view class="supply-metrics"><text>仓库现货 {{ stockRow(line)!.physical }}{{ stockRow(line)!.unit }}</text><text>备货后可用 {{ stockRow(line)!.pendingAvailable }}{{ stockRow(line)!.unit }}</text><text v-if="stockRow(line)!.reserved">其他代发已占用 {{ stockRow(line)!.reserved }}{{ stockRow(line)!.unit }}</text></view>
+          <view class="supply-metrics"><text>累计已购买 {{ stockRow(line)!.purchased ?? '未记录' }}</text><text>累计已入库 {{ stockRow(line)!.received ?? '未记录' }}</text></view>
           <text v-if="stockRow(line)!.gap > 0" class="stock-gap">还能安排{{ stockRow(line)!.available }}{{ stockRow(line)!.unit }}，本单{{ stockRow(line)!.requested }}{{ stockRow(line)!.unit }}，还需购货{{ stockRow(line)!.gap }}{{ stockRow(line)!.unit }}。</text>
           <text v-else-if="stockRow(line)!.requested > stockRow(line)!.physical" class="muted">本单还需等{{ stockRow(line)!.requested - stockRow(line)!.physical }}{{ stockRow(line)!.unit }}备货完成，入库齐全后发货。商品货款不重复收取。</text>
         </view>

@@ -172,6 +172,9 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if err := rejectCustomerSpecConversion(c); err != nil {
 			return err
 		}
+		if err := rejectNewRetainedPayment(c); err != nil {
+			return err
+		}
 		var cmd customerfulfillmentapp.MiniDirectShipCommand
 		if err := c.Bind(&cmd); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -193,6 +196,9 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 			return miniInternalError(c)
 		}
 		if err := rejectCustomerSpecConversion(c); err != nil {
+			return err
+		}
+		if err := rejectNewRetainedPayment(c); err != nil {
 			return err
 		}
 		var cmd customerfulfillmentapp.MiniDirectShipCommand

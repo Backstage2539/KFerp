@@ -1399,6 +1399,8 @@ export type EmployeeOrderProductTier = {
 }
 
 export type EmployeeOrderProductSpec = {
+  purchased_qty?: number | null
+  received_qty?: number | null
   physical_available_qty?: number
   pending_inbound_qty?: number
   pending_reserved_qty?: number

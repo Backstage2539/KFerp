@@ -280,6 +280,8 @@ type MiniDirectShipListResult struct {
 }
 
 type CustomerInventorySummary struct {
+	PurchasedQty         *int64   `json:"purchased_qty,omitempty"`
+	ReceivedQty          *int64   `json:"received_qty,omitempty"`
 	PhysicalAvailableQty int64    `json:"physical_available_qty"`
 	PendingInboundQty    int64    `json:"pending_inbound_qty"`
 	PendingReservedQty   int64    `json:"pending_reserved_qty"`
