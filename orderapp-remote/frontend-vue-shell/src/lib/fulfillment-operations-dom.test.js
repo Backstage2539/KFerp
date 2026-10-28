@@ -123,3 +123,14 @@ test('customer uses the same five modules, bound identity and no internal manage
   button('代发').click();await flush();assert.ok(button('库存代发'));assert.ok(calls.some(x=>x.includes('customer_id=149')));assert.ok(!calls.some(x=>x.includes('/api/customer-fulfillment/')))
  }finally{app.unmount();globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
 })
+
+test('customer can select their orders and open a combined sales order in the shared workspace', async () => {
+ const {component}=await loadComponent('../views/CustomerFulfillmentView.vue');const original=globalThis.fetch
+ const rows=[{id:1,order_no:'SO-ONE',order_date:'2026-10-28'},{id:2,order_no:'SO-TWO',order_date:'2026-10-28'}]
+ globalThis.fetch=async url=>{const path=String(url);if(path.includes('/fulfillment/overview'))return response({customer_id:149,customer_name:'客户甲',capabilities:['product_order'],operations:{},assets:[]});if(path.includes('/api/orders?'))return response({rows,summary:{orders:2},page:1,limit:10});return response({rows:[],modes:[]})}
+ const app=createApp(component,{viewParams:{},customerAccountActor:true,actor:{account_type:'channel_customer',permissions:['customer_processing.read','customer_processing.submit']}});app.config.warnHandler=()=>{}
+ try{app.mount(document.querySelector('#app'));await flush();button('订单').click();await flush()
+  for(const id of ['SO-ONE','SO-TWO']) {const checkbox=document.querySelector(`input[aria-label="选择订单 ${id}"]`);assert.ok(checkbox);checkbox.checked=true;checkbox.dispatchEvent(new Event('change',{bubbles:true}))};await flush()
+  assert.ok(button('合并销售单（2）'));button('合并销售单（2）').click();await flush();assert.ok(document.querySelector('.sales-order-drawer'))
+ }finally{app.unmount();globalThis.fetch=original;document.body.innerHTML='<div id="app"></div>'}
+})

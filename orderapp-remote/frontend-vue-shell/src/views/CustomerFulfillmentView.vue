@@ -231,6 +231,8 @@
         </div>
         <div class="head-actions">
           <span class="muted">共 {{ fulfillmentOrdersSummary.orders || 0 }} 单</span>
+          <button v-if="customerAccountActor && activeTab === 'orders'" class="secondary" type="button" :disabled="selectedSalesOrders.length < 2 || selectedSalesOrders.length > 100" @click="openCombinedSalesOrder">合并销售单（{{ selectedSalesOrders.length }}）</button>
+          <button v-if="customerAccountActor && selectedSalesOrders.length && activeTab === 'orders'" class="secondary" type="button" @click="selectedSalesOrders = []">清空已选</button>
           <button class="secondary" type="button" @click="loadFulfillmentOrders(fulfillmentOrdersPage)" :disabled="fulfillmentOrdersLoading || !normalizedCustomerId">
             刷新
           </button>
@@ -240,9 +242,10 @@
       <div class="order-filters"><div class="queue-tabs"><button v-for="filter in orderFilters" :key="filter.key" :class="{active: orderQueue === filter.key}" @click="setOrderQueue(filter.key)">{{ filter.label }}</button></div><form class="order-search" @submit.prevent="loadFulfillmentOrders(1)"><input v-model="orderSearch" placeholder="订单号、客户或运单" aria-label="搜索履约订单" /><button class="secondary" type="submit">搜索</button></form></div>
       <div class="table-wrap">
         <table class="fulfillment-orders-table">
-          <thead><tr><th>订单</th><th>交付信息</th><th class="amount-column">应收金额</th><th>收款</th><th>履约进度</th><th>操作</th></tr></thead>
+          <thead><tr><th v-if="customerAccountActor && activeTab === 'orders'">选择</th><th>订单</th><th>交付信息</th><th class="amount-column">应收金额</th><th>收款</th><th>履约进度</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="row in fulfillmentOrders" :key="row.id" :class="orderBillingRowClass(row)">
+              <td v-if="customerAccountActor && activeTab === 'orders'"><input type="checkbox" :aria-label="`选择订单 ${row.order_no}`" :disabled="row.is_void" :checked="selectedSalesOrders.includes(Number(row.id))" @change="toggleSalesOrder(row, $event.target.checked)" /></td>
               <td><button class="order-link" type="button" @click="openFulfillmentOrderDetail(row)">{{ row.order_no }}</button><div class="cell-meta">{{ businessLabel(row.fulfillment_mode || (row.delivery_mode === 'customer_stock' ? row.delivery_mode : row.portal_service_code) || row.order_type) }} · {{ row.order_date || '-' }}</div></td>
               <td><div v-if="isCustomerStockOrder(row)" class="cell-meta">留厂库存 · 无需发货</div><div v-else class="stacked-text receiver-cell"><strong>{{ row.receiver_name || '待补收件人' }} <span>{{ row.receiver_phone || '' }}</span></strong><span class="receiver-address" :title="row.receiver_address">{{ row.ship_tracking_no || row.receiver_address || '待补收件信息' }}</span></div></td>
               <td class="amount-column"><strong>¥ {{ row.grand_total || '0.00' }}</strong></td>
@@ -377,7 +380,7 @@
 
     <div v-if="salesOrderDrawerOpen" class="sales-order-drawer-mask" @click.self="closeSalesOrderDrawer">
       <aside class="sales-order-drawer" aria-label="销售单">
-        <SalesOrderView :order-id="activeSalesOrderID" :customer-mode="customerAccountActor" :customer-id="customerId" embedded @close="closeSalesOrderDrawer" />
+        <SalesOrderView :order-id="activeSalesOrderID" :order-ids="activeSalesOrderIDs" :customer-mode="customerAccountActor" :customer-id="customerId" embedded @close="closeSalesOrderDrawer" />
       </aside>
     </div>
 
@@ -512,6 +515,8 @@ const orderDetailLoading = ref(false)
 const orderDetailError = ref('')
 const salesOrderDrawerOpen = ref(false)
 const activeSalesOrderID = ref(0)
+const activeSalesOrderIDs = ref([])
+const selectedSalesOrders = ref([])
 const deliveryNoteDrawerOpen = ref(false)
 const activeDeliveryNoteID = ref(0)
 const billingView = ref('unbilled')
@@ -630,7 +635,7 @@ watch(() => props.customerContextId, () => {
 })
 
 function resetCustomerWorkspace() {
- customerLoadSequence++; orderLoadSequence++; overview.value={}; fulfillmentOptions.value={}; fulfillmentOrders.value=[]; fulfillmentOrdersSummary.value={}; effectiveSettings.value=null
+ selectedSalesOrders.value=[]; activeSalesOrderIDs.value=[]; customerLoadSequence++; orderLoadSequence++; overview.value={}; fulfillmentOptions.value={}; fulfillmentOrders.value=[]; fulfillmentOrdersSummary.value={}; effectiveSettings.value=null
  processingProductValue.value='';processingRawBeanValue.value='';Object.assign(processingForm,{product_id:0,product_name:'',raw_bean_item_id:0,raw_bean_name:'',input_quantity_g:'',planned_output_units:'',expected_date:'',note:''});adjustmentItemValue.value='';Object.assign(adjustment,{item_type:'raw_bean',item_name:'',spec:'',quantity_g_delta:0,quantity_units_delta:0,note:''})
  activeTab.value='overview';activeAction.value='';orderQueue.value='';orderSearch.value='';settingsDrawerOpen.value=false;editingDefaults.value=false;dispatchMode.value=''
  billingView.value='unbilled';billingTotals.value={total_unpaid_cents:0,unbilled_cents:0,issued_cents:0};unbilledCharges.value=[];issuedBills.value=[];selectedBillingSources.value=new Map();billingPreview.value=null;activeBill.value=null;billingFilter.fee_type='';billingFilter.date_from='';billingFilter.date_to='';billingDateMode.value='all';billingPage.value=1;billPage.value=1
@@ -1043,16 +1048,29 @@ function closeOrderDetailDrawer() {
   orderDetailLoading.value = false
 }
 
+function toggleSalesOrder(row, checked) {
+  const id = Number(row?.id || 0)
+  if (!id || row?.is_void) return
+  selectedSalesOrders.value = checked ? [...new Set([...selectedSalesOrders.value, id])] : selectedSalesOrders.value.filter(value => value !== id)
+}
+function openCombinedSalesOrder() {
+  if (selectedSalesOrders.value.length < 2 || selectedSalesOrders.value.length > 100) return
+  activeSalesOrderID.value = 0
+  activeSalesOrderIDs.value = [...selectedSalesOrders.value]
+  salesOrderDrawerOpen.value = true
+}
 function openSalesOrderDrawer(row) {
   const id = Number(row?.id || 0)
   if (!id) return
   activeSalesOrderID.value = id
+  activeSalesOrderIDs.value = []
   salesOrderDrawerOpen.value = true
 }
 
 function closeSalesOrderDrawer() {
   salesOrderDrawerOpen.value = false
   activeSalesOrderID.value = 0
+  activeSalesOrderIDs.value = []
 }
 
 function openDeliveryNoteDrawer(row) {
