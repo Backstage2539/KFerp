@@ -1,3 +1,5 @@
+履约账单收款、撤销及库存关联订单付款状态，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md#履约账单收款与撤销)。
+
 PR-745：客户小程序订单费用、客户价格表和手机号登录，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)及[价格表中心手册](OP_MANUAL_BEAN_LIST_CENTER.md)。
 
 PR-744：客户和内部共用履约界面、留厂购货未付款及库存代发累计购买/入库，参见[客户履约手册](OP_MANUAL_CUSTOMER_FULFILLMENT.md)和[客户购货寄存与代发](OP_MANUAL_CUSTOMER_STOCK_DROPSHIP.md)。

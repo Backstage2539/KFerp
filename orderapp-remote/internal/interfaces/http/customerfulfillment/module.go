@@ -82,6 +82,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	e.GET("/api/customer-fulfillment/:customer_id/billing/unbilled", api.unbilledCharges)
 	e.GET("/api/customer-fulfillment/:customer_id/billing/bills", api.issuedBills)
 	e.GET("/api/customer-fulfillment/:customer_id/billing/bills/:bill_id", api.issuedBill)
+	e.POST("/api/customer-fulfillment/:customer_id/billing/bills/:bill_id/payment", api.changeBillingPayment)
 	e.GET("/api/customer-fulfillment/:customer_id/billing/bills/:bill_id/pdf-settings", api.billingPDFSettings)
 	e.PUT("/api/customer-fulfillment/:customer_id/billing/bills/:bill_id/pdf-settings", api.saveBillingPDFSettings)
 	e.POST("/api/customer-fulfillment/:customer_id/settlements/preview", api.previewBilling)

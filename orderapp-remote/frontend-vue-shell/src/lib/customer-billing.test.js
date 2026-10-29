@@ -7,7 +7,17 @@ import {
   pageSelectionState,
   togglePageSelection,
   visibleChargeSelection,
+  billPaymentAction,
 } from './customer-billing.js'
+
+test('bill payment actions respect outstanding amount and recorded reversal eligibility', () => {
+  assert.equal(billPaymentAction({ status: 'confirmed', current_due_amount_cents: 500 }), 'pay')
+  assert.equal(billPaymentAction({ status: 'paid', current_due_amount_cents: 0, payment_reversible: true }), 'reverse')
+  assert.equal(billPaymentAction({ status: 'paid', current_due_amount_cents: 500, payment_reversible: true }), 'reverse')
+  assert.equal(billPaymentAction({ status: 'paid', current_due_amount_cents: 0 }), '')
+  assert.equal(billPaymentAction({ status: 'settled', current_due_amount_cents: 500 }), '')
+  assert.equal(billPaymentAction({ status: 'confirmed', current_due_amount_cents: 0 }), '')
+})
 
 test('billing totals count only unpaid amounts across unbilled fees and issued bills', () => {
   assert.deepEqual(customerBillingTotals({

@@ -126,11 +126,13 @@ type BillingTotals struct {
 
 type BillingBill struct {
 	SettlementResult
-	CustomerName   string `json:"customer_name"`
-	Status         string `json:"status"`
-	IssuedAt       string `json:"issued_at"`
-	ReceivedCents  int64  `json:"current_received_cents"`
-	DueAmountCents int64  `json:"current_due_amount_cents"`
+	CustomerName      string `json:"customer_name"`
+	Status            string `json:"status"`
+	IssuedAt          string `json:"issued_at"`
+	ReceivedCents     int64  `json:"current_received_cents"`
+	DueAmountCents    int64  `json:"current_due_amount_cents"`
+	PaymentReversible bool   `json:"payment_reversible"`
+	PaymentRevision   int64  `json:"payment_revision"`
 }
 
 type BillingPage struct {
