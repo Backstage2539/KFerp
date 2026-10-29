@@ -139,3 +139,44 @@ test('failed voucher upload cannot silently submit old voucher', async () => {
     assert.equal(view.drafts.value[0].payment_voucher_asset_id, 11)
   } finally { globalThis.fetch = original }
 })
+
+test('refresh after a failed replacement upload still requires explicit resolution', async () => {
+  const view = await setupDialog()
+  const original = globalThis.fetch
+  let submissions = 0
+  let uploadSucceeds = false
+  globalThis.fetch = async url => {
+    if (String(url).endsWith('/preview')) return { ok: true, json: async () => ({ orders: [previewOrder(submissions ? 'v2' : 'v1')] }) }
+    if (String(url).endsWith('/payment-vouchers')) return uploadSucceeds
+      ? { ok: true, json: async () => ({ asset: { id: 77, filename: '新凭证.png' } }) }
+      : { ok: false, status: 400, json: async () => ({ error: '上传失败' }) }
+    submissions++
+    return { ok: true, json: async () => ({ results: [{ order_id: 1, status: 'failed', error: '订单已被其他操作修改' }] }) }
+  }
+  try {
+    await view.readOrders([1])
+    view.payStatusID.value = 3
+    await view.submit()
+    const upload = () => view.uploadVoucher(view.drafts.value[0], { target: { files: [new Blob(['voucher'])], value: 'x' } })
+    await upload()
+    await view.reloadFailures()
+    assert.equal(view.drafts.value[0].uploadError, true)
+    assert.match(view.drafts.value[0].resultError, /上传失败/)
+    assert.equal(view.hasPending.value, false)
+    await view.submit()
+    assert.equal(submissions, 1)
+    uploadSucceeds = true
+    await upload()
+    assert.equal(view.drafts.value[0].uploadError, false)
+    assert.equal(view.hasPending.value, true)
+    assert.equal(view.drafts.value[0].payment_voucher_asset_id, 77)
+    await view.submit()
+    uploadSucceeds = false
+    await upload()
+    await view.reloadFailures()
+    assert.equal(view.hasPending.value, false)
+    view.keepVoucher(view.drafts.value[0])
+    assert.equal(view.hasPending.value, true)
+    assert.equal(view.drafts.value[0].payment_voucher_asset_id, 77)
+  } finally { globalThis.fetch = original }
+})

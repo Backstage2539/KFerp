@@ -12,6 +12,7 @@ export function makeBatchStatusDraft(order) {
     resultError: order.error || '',
     uploading: false,
     uploadError: false,
+    uploadErrorMessage: '',
     requiresReload: false,
   }
   draft.saved = {
@@ -32,6 +33,11 @@ export function refreshBatchStatusDraft(previous, order) {
     if (previous[field] !== previous.saved[field]) next[field] = previous[field]
   }
   if (next.payment_voucher_asset_id !== next.saved.payment_voucher_asset_id) next.payment_voucher_filename = previous.payment_voucher_filename
+  if (previous.uploadError) {
+    next.uploadError = true
+    next.uploadErrorMessage = previous.uploadErrorMessage || '凭证上传失败，请重新上传或选择不更换凭证'
+    next.resultError = [next.resultError, next.uploadErrorMessage].filter(Boolean).join('；')
+  }
   return next
 }
 

@@ -10,7 +10,7 @@
 
 ## 验证状态
 
-- 前端：`node --test src/lib/order-batch-status*.test.js src/lib/order-list-selection.test.js src/lib/operation-manuals.test.js` 通过 14/14；`npm run build` 通过（有既有 chunk 大小警告）。
+- 前端：`node --test src/lib/order-batch-status*.test.js src/lib/order-list-selection.test.js src/lib/operation-manuals.test.js` 通过 15/15，含凭证上传失败后重新读取的回归测试；`npm run build` 通过（有既有 chunk 大小警告）。
 - 接口与隔离 PostgreSQL：设置 `ORDERAPP_TEST_DATABASE_URL` 指向隔离库后执行 `go test ./internal/infrastructure/postgres/sales ./internal/interfaces/http/sales ./internal/interfaces/http/customerportal -run 'Test(BatchOrderStatusAPI|OrderStatusUpdatePreservesContentAndRecordsAudit|MiniEmployee.*Status)' -count=1 -v`，3 个包均通过，覆盖状态事务、批量接口与员工小程序回归。
 - 全项目编译：`go test ./... -run '^$'` 通过（仅编译，不运行测试）。
 - 浏览器验收与 Van 业务验收：待完成。

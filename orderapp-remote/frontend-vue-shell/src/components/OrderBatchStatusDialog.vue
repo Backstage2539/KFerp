@@ -22,7 +22,7 @@
           <p class="current">{{ isDone(draft) ? '修改前付款' : '已保存付款' }}：{{ statusName(payStatuses, draft.pay_status_id) }}{{ draft.saved.payment_method ? ` / ${draft.saved.payment_method}` : '' }}；发货：{{ draft.delivery_mode === 'customer_stock' ? '留厂库存，无需发货' : statusName(shipStatuses, draft.ship_status_id) }}</p>
           <p class="current">{{ isDone(draft) ? '修改前资料' : '已保存资料' }}：预付款 {{ displayAmount(draft.saved.prepayment_amount) }} 元；实收货款 {{ displayAmount(draft.saved.payment_goods_amount) }} 元；实收运费 {{ displayAmount(draft.saved.payment_shipping_amount) }} 元；凭证 {{ draft.saved.payment_voucher_filename || (draft.saved.payment_voucher_asset_id ? '已保存' : '未上传') }}</p>
           <p v-if="draft.resultError" class="error" role="alert">{{ draft.resultError }}</p>
-          <button v-if="draft.uploadError" class="secondary" type="button" :disabled="busy" @click="draft.uploadError = false; draft.resultError = ''">不更换凭证</button>
+          <button v-if="draft.uploadError" class="secondary" type="button" :disabled="busy" @click="keepVoucher(draft)">不更换凭证</button>
           <div v-if="payStatusID && !draft.error && !isDone(draft) && draft.settlement_reason !== 'free_sample'" class="payment-fields">
             <label>收款方式<select v-model="draft.payment_method" :disabled="busy"><option value="">请选择</option><option v-for="method in methods" :key="method" :value="method">{{ method }}</option></select></label>
             <label>预付款（元）<input v-model="draft.prepayment_amount" type="number" min="0" step="0.01" :disabled="busy" /></label>
@@ -78,11 +78,13 @@ async function readOrders(ids, replace = false) {
   } finally { loading.value = false }
 }
 function reloadFailures() { return readOrders(drafts.value.filter(d => d.result === 'failed').map(d => Number(d.order_id)), true) }
+function keepVoucher(draft) { draft.uploadError = false; draft.uploadErrorMessage = ''; draft.resultError = draft.error || '' }
 async function uploadVoucher(draft, event) {
   const file = event.target.files?.[0]
   if (!file) return
   draft.uploading = true
   draft.uploadError = false
+  draft.uploadErrorMessage = ''
   draft.resultError = ''
   try {
     const body = new FormData()
@@ -91,7 +93,7 @@ async function uploadVoucher(draft, event) {
     if (!response.asset?.id) throw new Error('凭证上传未完成，请重试')
     draft.payment_voucher_asset_id = Number(response.asset.id)
     draft.payment_voucher_filename = response.asset.filename || file.name
-  } catch (cause) { draft.uploadError = true; draft.resultError = (cause.message || '凭证上传失败') + '，请重新上传或选择不更换凭证' }
+  } catch (cause) { draft.uploadError = true; draft.uploadErrorMessage = (cause.message || '凭证上传失败') + '，请重新上传或选择不更换凭证'; draft.resultError = draft.uploadErrorMessage }
   finally { draft.uploading = false; event.target.value = '' }
 }
 async function submit() {
