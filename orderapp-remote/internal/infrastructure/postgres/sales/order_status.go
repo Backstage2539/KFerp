@@ -19,7 +19,7 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 	}
 	defer tx.Rollback(ctx)
 	var curPay, curShip, companyID, productID, voucherID int64
-	var curMethod, shipMethod, reason, confirmation string
+	var curMethod, shipMethod, reason, confirmation, deliveryMode string
 	var prepayment, total, goods, receivedGoods, receivedShipping float64
 	var isVoid, managed bool
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
@@ -31,11 +31,12 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 		       COALESCE(logistics_product_id,0),COALESCE(ship_method,''),COALESCE(is_void,false),
 		       COALESCE((to_jsonb(o)->>'confirmation_required')::boolean,false),
 		       COALESCE(to_jsonb(o)->>'confirmation_status','accepted'),
-		       COALESCE(to_jsonb(o)->>'settlement_reason','')
+		       COALESCE(to_jsonb(o)->>'settlement_reason',''),
+		       COALESCE(to_jsonb(o)->>'delivery_mode','')
 		FROM %s.orders o WHERE id=$1 FOR UPDATE`, r.schema), cmd.OrderID).Scan(
 		&curPay, &curShip, &curMethod, &prepayment, &total, &goods, &receivedGoods,
 		&receivedShipping, &voucherID, &companyID, &productID, &shipMethod, &isVoid,
-		&managed, &confirmation, &reason,
+		&managed, &confirmation, &reason, &deliveryMode,
 	)
 	if err != nil {
 		return err
@@ -50,7 +51,7 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 	if managed && confirmation != "accepted" {
 		return salesapp.NewOrderEditConflictError("订单尚未确认，请先确认订单后再修改付款或发货状态")
 	}
-	if managed && cmd.ShipStatusID != curShip {
+	if (managed || deliveryMode == "customer_stock") && cmd.ShipStatusID != curShip {
 		return salesapp.NewOrderEditConflictError("履约订单的发货状态由实际履约进度更新，请通过发货操作处理")
 	}
 	expected := strings.TrimSpace(cmd.ExpectedEditRevision)
@@ -64,13 +65,20 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 	if current != expected {
 		return salesapp.NewOrderEditConflictError("订单已被其他操作修改，请刷新订单后再保存状态")
 	}
+	if cmd.PaymentUnchanged {
+		cmd.PayStatusID, cmd.PaymentMethod = curPay, curMethod
+		cmd.PrepaymentAmount, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount, cmd.PaymentVoucherAssetID = nil, nil, nil, nil
+	}
 	if cmd.PayStatusID <= 0 && cmd.PayStatusID != curPay {
 		return fmt.Errorf("invalid pay_status_id")
 	}
 	if cmd.ShipStatusID <= 0 && cmd.ShipStatusID != curShip {
 		return fmt.Errorf("invalid ship_status_id")
 	}
-	statusName, err := lookupStatusName(ctx, tx, r.schema, "pay_statuses", cmd.PayStatusID)
+	statusName := ""
+	if !cmd.PaymentUnchanged {
+		statusName, err = lookupStatusName(ctx, tx, r.schema, "pay_statuses", cmd.PayStatusID)
+	}
 	if err != nil {
 		return fmt.Errorf("invalid pay_status_id")
 	}
@@ -78,7 +86,7 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 	if cmd.PrepaymentAmount != nil {
 		nextPrepayment = *cmd.PrepaymentAmount
 	}
-	if err = salesdomain.ValidatePrepayment(statusName, nextPrepayment, total); err != nil {
+	if err = salesdomain.ValidatePrepayment(statusName, nextPrepayment, total); !cmd.PaymentUnchanged && err != nil {
 		return err
 	}
 	nextGoods, nextShipping, nextVoucher := receivedGoods, receivedShipping, voucherID
@@ -108,8 +116,11 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 			return fmt.Errorf("invalid payment_voucher_asset_id")
 		}
 	}
-	method := ""
-	if reason == "free_sample" {
+	method := curMethod
+	if cmd.PaymentUnchanged {
+		// Preserve legacy payment metadata when changing shipping only.
+	} else if reason == "free_sample" {
+		method = ""
 		if !salesdomain.IsFullyPaid(statusName) || nextPrepayment != 0 || nextGoods != 0 || nextShipping != 0 || nextVoucher != 0 {
 			return salesapp.NewOrderEditConflictError("免费样品无需收款，不能修改为未付款或登记实收，请先核对样品费用")
 		}
@@ -125,7 +136,11 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 	if shipToValidate == curShip {
 		shipToValidate = 0
 	}
-	if err = validateOrderFulfillmentWithPaymentPolicyTx(ctx, tx, r.schema, cmd.PayStatusID, shipToValidate, companyID, productID, nextGoods, nextShipping, nextVoucher, shipMethod, reason == "free_sample", sample && goods == 0); err != nil {
+	payToValidate := cmd.PayStatusID
+	if cmd.PaymentUnchanged {
+		payToValidate = 0
+	}
+	if err = validateOrderFulfillmentWithPaymentPolicyTx(ctx, tx, r.schema, payToValidate, shipToValidate, companyID, productID, nextGoods, nextShipping, nextVoucher, shipMethod, reason == "free_sample", sample && goods == 0); err != nil {
 		return err
 	}
 	type statusDiff struct{ field, old, new string }
@@ -143,15 +158,25 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 	add("payment_shipping_amount", fmt.Sprintf("%.2f", receivedShipping), fmt.Sprintf("%.2f", nextShipping))
 	add("payment_voucher_asset_id", strconv.FormatInt(voucherID, 10), strconv.FormatInt(nextVoucher, 10))
 	if len(diffs) == 0 {
+		if cmd.Changed != nil {
+			*cmd.Changed = false
+		}
 		return nil
 	}
 	// PostgreSQL UPDATE OF triggers run even when a value is unchanged. Omit
 	// shipping entirely for payment-only writes so recipient/progress triggers
 	// cannot block collection or change shipment progress as a side effect.
-	assignments := "pay_status_id=$2,payment_method=$3,prepayment_amount=$4,payment_goods_amount=$5,payment_shipping_amount=$6,payment_voucher_asset_id=$7"
-	args := []any{cmd.OrderID, nullInt(cmd.PayStatusID), method, nextPrepayment, nextGoods, nextShipping, nextVoucher}
+	assignments := ""
+	args := []any{cmd.OrderID}
+	if !cmd.PaymentUnchanged {
+		assignments = "pay_status_id=$2,payment_method=$3,prepayment_amount=$4,payment_goods_amount=$5,payment_shipping_amount=$6,payment_voucher_asset_id=$7"
+		args = append(args, nullInt(cmd.PayStatusID), method, nextPrepayment, nextGoods, nextShipping, nextVoucher)
+	}
 	if cmd.ShipStatusID != curShip {
-		assignments += ",ship_status_id=$8"
+		if assignments != "" {
+			assignments += ","
+		}
+		assignments += fmt.Sprintf("ship_status_id=$%d", len(args)+1)
 		args = append(args, nullInt(cmd.ShipStatusID))
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET %s WHERE id=$1`, r.schema, assignments), args...)
@@ -162,17 +187,32 @@ func (r Repository) UpdateOrderStatus(ctx context.Context, cmd salesapp.UpdateOr
 	if actor == "" {
 		actor = "unknown"
 	}
+	source := strings.TrimSpace(cmd.Source)
+	if source == "" {
+		source = "mini-order-status"
+	}
 	for _, diff := range diffs {
 		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_audit_logs(order_id,actor,field,old_value,new_value) VALUES($1,$2,$3,$4,$5)`, r.schema), cmd.OrderID, actor, diff.field, diff.old, diff.new)
 		if err != nil {
 			return err
 		}
-		if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "order", &cmd.OrderID, "update", postgresinfra.StrPtr(diff.field), postgresinfra.StrPtr(diff.old), postgresinfra.StrPtr(diff.new), postgresinfra.AuditMeta{"order_id": cmd.OrderID, "source": "mini-order-status"}); err != nil {
+		if err = postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "order", &cmd.OrderID, "update", postgresinfra.StrPtr(diff.field), postgresinfra.StrPtr(diff.old), postgresinfra.StrPtr(diff.new), postgresinfra.AuditMeta{"order_id": cmd.OrderID, "source": source}); err != nil {
 			return err
 		}
 	}
 	if err = invalidateConfirmedOrderDocumentsTx(ctx, tx, r.schema, cmd.OrderID); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	if cmd.Changed != nil {
+		*cmd.Changed = true
+	}
+	return nil
+}
+
+// OrderStatusEditData avoids loading full catalog and customer option lists.
+func (r Repository) OrderStatusEditData(ctx context.Context, id int64) (*salesapp.OrderEditData, error) {
+	return r.fetchOrderEdit(ctx, id)
 }
